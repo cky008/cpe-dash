@@ -1,4 +1,6 @@
-import { pathToFileURL } from "node:url";
+#!/usr/bin/env node
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.ts";
 import { HuaweiCpeClient } from "./cpe-client.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
@@ -232,11 +234,21 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-const isDirectEntry =
-  typeof process.argv[1] === "string" &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+/**
+ * Detect whether `moduleUrl` is the process entry script. Both sides are resolved with `realpath`
+ * because npm links the `cpe-dash` bin as a symlink, so `process.argv[1]` is the link path while
+ * `import.meta.url` is the real module path.
+ */
+export function isCliEntryPoint(argv1: string | undefined, moduleUrl: string): boolean {
+  if (!argv1) return false;
+  try {
+    return fs.realpathSync(argv1) === fs.realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
 
-if (isDirectEntry) {
+if (isCliEntryPoint(process.argv[1], import.meta.url)) {
   runCli(process.argv).catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[fengsui] Fatal startup error: ${msg}\n`);

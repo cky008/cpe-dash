@@ -1,3 +1,4 @@
+import net from "node:net";
 import type { Readable, Writable } from "node:stream";
 import type { BandInput } from "./band-lock.ts";
 import { CpeControlValidationError, type AntennaModeName } from "./cpe-domain.ts";
@@ -93,6 +94,24 @@ function asNumberOpt(obj: Record<string, unknown>, key: string): number | undefi
   if (val === undefined) return undefined;
   if (typeof val !== "number" || !Number.isFinite(val)) {
     throw new CpeControlValidationError(`Parameter "${key}" must be a finite number`);
+  }
+  return val;
+}
+
+function asIpv4Opt(obj: Record<string, unknown>, key: string): string | undefined {
+  const val = obj[key];
+  if (val === undefined) return undefined;
+  if (typeof val !== "string" || net.isIP(val.trim()) !== 4) {
+    throw new CpeControlValidationError(`Parameter "${key}" must be a valid IPv4 address`);
+  }
+  return val.trim();
+}
+
+function asAntennaModeOpt(obj: Record<string, unknown>, key: string): AntennaModeName | undefined {
+  const val = obj[key];
+  if (val === undefined) return undefined;
+  if (val !== "auto" && val !== "internal" && val !== "external") {
+    throw new CpeControlValidationError(`Parameter "${key}" must be "auto", "internal", or "external"`);
   }
   return val;
 }
@@ -287,8 +306,8 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "unlock_rf_locks",
     title: "Clear All Band & Cell Locks",
     description:
-      "Clear all 4G/5G cell, frequency, and band locks and restore automatic full-band selection.",
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      "Clear all 4G/5G cell, frequency, and band locks and restore automatic full-band selection (the modem may briefly re-attach, dropping the cellular link).",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {},
@@ -733,8 +752,10 @@ export class FengSuiMcpServer {
         case "set_security_switches": {
           const upnpEnabled = asBooleanOpt(args, "upnpEnabled");
           const dmzEnabled = asBooleanOpt(args, "dmzEnabled");
-          const dmzIpAddress =
-            typeof args["dmzIpAddress"] === "string" ? args["dmzIpAddress"] : undefined;
+          const dmzIpAddress = asIpv4Opt(args, "dmzIpAddress");
+          if (dmzIpAddress !== undefined && dmzEnabled === undefined) {
+            throw new CpeControlValidationError('Parameter "dmzIpAddress" requires "dmzEnabled"');
+          }
           const firewallPatch = {
             mainSwitch: asBooleanOpt(args, "firewallMainSwitch"),
             ipFilterSwitch: asBooleanOpt(args, "firewallIpFilterSwitch"),
@@ -752,26 +773,23 @@ export class FengSuiMcpServer {
         }
 
         case "set_wifi_and_antenna": {
+          // Validate every argument before the first write so a bad antennaMode never leaves Wi-Fi 7 half-applied
           const mloEnable = asBooleanOpt(args, "mloEnable");
           const dbhoEnable = asBooleanOpt(args, "dbhoEnable");
-          const antennaRaw = args["antennaMode"];
-          const results: Record<string, unknown> = { ok: true };
-
-          if (mloEnable !== undefined || dbhoEnable !== undefined) {
-            results["wifi7"] = await this.scheduler.setWifi7Settings({ mloEnable, dbhoEnable });
-          }
-          if (antennaRaw !== undefined) {
-            if (antennaRaw !== "auto" && antennaRaw !== "internal" && antennaRaw !== "external") {
-              throw new CpeControlValidationError(
-                'Parameter "antennaMode" must be "auto", "internal", or "external"'
-              );
-            }
-            results["antenna"] = await this.scheduler.setAntennaMode(antennaRaw as AntennaModeName);
-          }
-          if (Object.keys(results).length === 1) {
+          const antennaMode = asAntennaModeOpt(args, "antennaMode");
+          const wantsWifi7 = mloEnable !== undefined || dbhoEnable !== undefined;
+          if (!wantsWifi7 && antennaMode === undefined) {
             throw new CpeControlValidationError(
               "Provide at least one of mloEnable, dbhoEnable, or antennaMode"
             );
+          }
+
+          const results: Record<string, unknown> = { ok: true };
+          if (wantsWifi7) {
+            results["wifi7"] = await this.scheduler.setWifi7Settings({ mloEnable, dbhoEnable });
+          }
+          if (antennaMode !== undefined) {
+            results["antenna"] = await this.scheduler.setAntennaMode(antennaMode);
           }
           return wrapOk(results);
         }

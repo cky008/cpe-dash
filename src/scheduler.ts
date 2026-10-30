@@ -32,6 +32,7 @@ import {
   updateMobileDataSwitch,
   updateSecuritySettings,
   updateWifi7Mlo,
+  validateSecurityUpdateCommand,
 } from "./cpe-domain.ts";
 import { t } from "./i18n.ts";
 import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
@@ -161,7 +162,8 @@ export interface MutexSessionSchedulerOptions {
  * - Serializes all CPE access across background polling, Web REST triggers, and MCP Agent calls.
  * - Coalesces concurrent read-only telemetry/neighbor/topology/settings requests onto single-flight promises.
  * - Enforces dual-layer human browser avoidance (`state-login != -1` + cross-IP `108003` with exponential
- *   anti-flapping cooldown) and broadcasts transitions only when state changes.
+ *   anti-flapping cooldown) and broadcasts transitions only when state changes. Avoidance follows the
+ *   client's `respectBrowserSession` setting (`RESPECT_BROWSER_SESSION`, default `true`).
  * - Persists `108006`/`108007` circuit-breaker latches across restarts via `EncryptedStateStore`.
  */
 export class MutexSessionScheduler extends EventEmitter {
@@ -520,7 +522,11 @@ export class MutexSessionScheduler extends EventEmitter {
       throw err;
     }
 
-    this.#mode = err instanceof CpeApiError ? "idle" : "cpe_unreachable";
+    // A CPE error code or rejected input means the router answered; only transport failures mean unreachable
+    this.#mode =
+      err instanceof CpeApiError || err instanceof CpeControlValidationError
+        ? "idle"
+        : "cpe_unreachable";
     throw err;
   }
 
@@ -549,9 +555,7 @@ export class MutexSessionScheduler extends EventEmitter {
       const wasTripped = this.client.getCircuitBreakerState().tripped;
       this.#mode = "polling";
       try {
-        const outcome = await this.client.withSessionDetailed(fn, {
-          respectBrowserSession: true,
-        });
+        const outcome = await this.client.withSessionDetailed(fn);
         if (outcome.status === "yielded") {
           this.#enterAvoidance(outcome.layer, outcome.stateCode);
           return null;
@@ -717,7 +721,6 @@ export class MutexSessionScheduler extends EventEmitter {
       const wasTripped = this.client.getCircuitBreakerState().tripped;
       try {
         const outcome = await this.client.withSessionDetailed(fn, {
-          respectBrowserSession: true,
           retriesOnOccupied: 0, // Zero auto-replay on writes
         });
         if (outcome.status === "yielded") {
@@ -830,14 +833,23 @@ export class MutexSessionScheduler extends EventEmitter {
     );
   }
 
+  /**
+   * Fold a confirmed settings write into the cached snapshot and push it over SSE without a second
+   * CPE session. Capture timestamps keep marking the last full read; nothing is emitted when no
+   * snapshot has been read yet.
+   */
+  #patchCachedSettings(
+    patch: (current: RouterSettingsSnapshot) => Partial<RouterSettingsSnapshot>
+  ): void {
+    const current = this.stateStore.getState().latestSettings;
+    if (!current) return;
+    const next: RouterSettingsSnapshot = { ...current, ...patch(current) };
+    this.stateStore.update({ latestSettings: next });
+    this.#safeEmit("settings", next);
+  }
+
   async setSecuritySwitches(command: SecurityUpdateCommand): Promise<RouterSettingsSnapshot | null> {
-    if (
-      command.upnpEnabled === undefined &&
-      command.dmz === undefined &&
-      command.firewall === undefined
-    ) {
-      throw new CpeControlValidationError("No security setting changes specified");
-    }
+    validateSecurityUpdateCommand(command);
     await this.executeControl(
       "set_security_switches",
       (session) => updateSecuritySettings(session, command),
@@ -856,7 +868,7 @@ export class MutexSessionScheduler extends EventEmitter {
     if (input.mloEnable === undefined && input.dbhoEnable === undefined) {
       throw new CpeControlValidationError("Specify mloEnable and/or dbhoEnable");
     }
-    return await this.executeControl(
+    const wifi7 = await this.executeControl(
       "set_wifi7_mlo",
       (session) => updateWifi7Mlo(session, input),
       {
@@ -864,13 +876,15 @@ export class MutexSessionScheduler extends EventEmitter {
         en: t("en", "controls.wifi7_updated"),
       }
     );
+    this.#patchCachedSettings(() => ({ wifi7: { ...wifi7 } }));
+    return wifi7;
   }
 
   async setAntennaMode(mode: AntennaModeName): Promise<{ mode: AntennaModeName; rawCode: number }> {
     if (mode !== "auto" && mode !== "internal" && mode !== "external") {
       throw new CpeControlValidationError(`Invalid antenna mode "${String(mode)}"`);
     }
-    return await this.executeControl(
+    const antenna = await this.executeControl(
       "set_antenna_mode",
       (session) => updateAntennaMode(session, mode),
       {
@@ -878,10 +892,14 @@ export class MutexSessionScheduler extends EventEmitter {
         en: t("en", "controls.antenna_updated", { mode }),
       }
     );
+    this.#patchCachedSettings((current) => ({
+      antenna: { ...current.antenna, mode: antenna.mode, rawCode: String(antenna.rawCode) },
+    }));
+    return antenna;
   }
 
   async setMobileData(enabled: boolean): Promise<{ mobileDataEnabled: boolean }> {
-    return await this.executeControl(
+    const result = await this.executeControl(
       "set_mobile_data",
       (session) => updateMobileDataSwitch(session, enabled),
       {
@@ -889,5 +907,7 @@ export class MutexSessionScheduler extends EventEmitter {
         en: t("en", "controls.mobile_data_updated"),
       }
     );
+    this.#patchCachedSettings(() => ({ mobileDataEnabled: result.mobileDataEnabled }));
+    return result;
   }
 }

@@ -1032,7 +1032,16 @@ export class FengSuiHttpServer {
           if (typeof arfcn !== "number" || !Number.isFinite(arfcn)) {
             throw new CpeControlValidationError('Field "arfcn" must be a finite integer');
           }
-          const pci = typeof body["pci"] === "number" ? body["pci"] : undefined;
+          // Omitted or null pci means a frequency lock; anything else must be a number, never silently dropped
+          const rawPci = body["pci"];
+          if (
+            rawPci !== undefined &&
+            rawPci !== null &&
+            (typeof rawPci !== "number" || !Number.isFinite(rawPci))
+          ) {
+            throw new CpeControlValidationError('Field "pci" must be a finite integer, null, or omitted');
+          }
+          const pci = typeof rawPci === "number" ? rawPci : undefined;
           const lockState = await this.scheduler.lockCell({ rat, band, arfcn, pci });
           this.#sendJson(res, 200, { ok: true, lockState });
           return;
@@ -1123,10 +1132,14 @@ export class FengSuiHttpServer {
         }
 
         case "/api/control/wifi7": {
-          const mloEnable =
-            typeof body["mloEnable"] === "boolean" ? body["mloEnable"] : undefined;
-          const dbhoEnable =
-            typeof body["dbhoEnable"] === "boolean" ? body["dbhoEnable"] : undefined;
+          const mloEnable = body["mloEnable"];
+          const dbhoEnable = body["dbhoEnable"];
+          if (mloEnable !== undefined && typeof mloEnable !== "boolean") {
+            throw new CpeControlValidationError('Field "mloEnable" must be boolean');
+          }
+          if (dbhoEnable !== undefined && typeof dbhoEnable !== "boolean") {
+            throw new CpeControlValidationError('Field "dbhoEnable" must be boolean');
+          }
           const wifi7 = await this.scheduler.setWifi7Settings({ mloEnable, dbhoEnable });
           this.#sendJson(res, 200, { ok: true, wifi7 });
           return;

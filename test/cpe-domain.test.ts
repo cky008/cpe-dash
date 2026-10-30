@@ -584,5 +584,36 @@ describe("CpeDomain telemetry & router control actions", () => {
         CpeControlValidationError
       );
     });
+
+    // Atomic pre-write validation: enabling DMZ when router has empty DmzIPAddress must NOT write UPnP
+    const securityPosts: string[] = [];
+    const { fetchImpl: emptyDmzFetch, password: emptyDmzPwd } = buildMockCpeRouter({
+      extraRoutes: {
+        "/api/security/upnp": (method) => {
+          if (method === "POST") securityPosts.push("upnp");
+          return "<response>OK</response>";
+        },
+        "/api/security/dmz": (method) => {
+          if (method === "POST") securityPosts.push("dmz");
+          return "<response><DmzStatus>0</DmzStatus><DmzIPAddress></DmzIPAddress></response>";
+        },
+      },
+    });
+    const atomicClient = new HuaweiCpeClient({
+      cpeUrl: "http://192.168.8.1",
+      cpePassword: emptyDmzPwd,
+      fetchImpl: emptyDmzFetch,
+    });
+    await assert.rejects(
+      () =>
+        atomicClient.withSession(async (session) => {
+          await updateSecuritySettings(session, {
+            upnpEnabled: true,
+            dmz: { enabled: true },
+          });
+        }),
+      CpeControlValidationError
+    );
+    assert.deepEqual(securityPosts, []);
   });
 });

@@ -6,9 +6,11 @@ import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerRespon
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { pathToFileURL } from "node:url";
 import {
   createFengSuiRuntime,
   formatCliHelp,
+  isCliEntryPoint,
   parseCliCommand,
   runCli,
 } from "../src/cli.ts";
@@ -1165,6 +1167,18 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       });
       assert.equal(rClOk.status, 200);
 
+      // Explicit pci: null is treated as "no PCI" -> frequency lock (lock_mode=1)
+      const rClFreqOnly = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: 100, pci: null }),
+      });
+      assert.equal(rClFreqOnly.status, 200);
+      const rClFreqOnlyBody = (await rClFreqOnly.json()) as {
+        lockState: { cellLock: { pci: number | null } | null };
+      };
+      assert.equal(rClFreqOnlyBody.lockState.cellLock?.pci, null);
+
       const rClBadRat = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
@@ -1762,6 +1776,37 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
         assert.equal(secBad.status, 400);
       }
 
+      // Non-numeric pci on cell-lock and non-boolean flags on wifi7 must return 400 VALIDATION_ERROR
+      // before any CPE session (never silently downgrade to a frequency lock or a partial Wi-Fi 7 write)
+      const sessionsBeforeTyped = fx.scheduler.getStatus().totalSessionsCompleted;
+      const badCellPci = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ rat: "NR", band: "N78", arfcn: 647424, pci: "not_a_number" }),
+      });
+      assert.equal(badCellPci.status, 400);
+      const badCellPciBody = (await badCellPci.json()) as { errorCode: string; message: string };
+      assert.equal(badCellPciBody.errorCode, "VALIDATION_ERROR");
+      assert.match(badCellPciBody.message, /pci/);
+
+      for (const badWifi of [
+        { mloEnable: true, dbhoEnable: "false" },
+        { mloEnable: "true", dbhoEnable: false },
+        { dbhoEnable: 1 },
+      ]) {
+        const wRes = await fetch(`${fx.baseUrl}/api/control/wifi7`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(badWifi),
+        });
+        assert.equal(wRes.status, 400);
+        const wBody = (await wRes.json()) as { errorCode: string; message: string };
+        assert.equal(wBody.errorCode, "VALIDATION_ERROR");
+        assert.match(wBody.message, /mloEnable|dbhoEnable/);
+        assert.doesNotMatch(wBody.message, /^Specify/);
+      }
+      assert.equal(fx.scheduler.getStatus().totalSessionsCompleted, sessionsBeforeTyped);
+
       // 7. Circuit breaker 108006 latch refuses reset-breaker when CPE_PASSWORD is unchanged in .env
       fx.scheduler.client.hydrateCircuitBreaker({
         tripped: true,
@@ -1883,6 +1928,66 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
     }
   });
 
+  it("createFengSuiRuntime honors RESPECT_BROWSER_SESSION=false end-to-end (config -> client -> scheduler)", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-cli-rbs-"));
+    try {
+      const config = loadConfig({
+        overrides: {
+          CPE_PASSWORD: "sched_test_password",
+          API_TOKEN: "test_api_token_abc",
+          STATE_FILE: path.join(tmpDir, "state.json"),
+          RESPECT_BROWSER_SESSION: "false",
+        },
+        ignoreProcessEnv: true,
+      });
+      assert.equal(config.respectBrowserSession, false);
+
+      // state-login reports an active admin session (State=0): with avoidance disabled the poll must proceed
+      const stack = createFengSuiRuntime({
+        config,
+        fetchImpl: createMockCpeFetch({
+          loginStateXml:
+            "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>",
+        }),
+      });
+      stack.scheduler.init();
+      const snap = await stack.scheduler.refreshTelemetry();
+      assert.ok(snap);
+      assert.equal(stack.scheduler.getStatus().avoidance.active, false);
+      assert.equal(stack.scheduler.getStatus().browserYieldCount, 0);
+      await stack.scheduler.stop();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs as an npm-linked bin: shebang on line 1 and entry detection through a symlink", () => {
+    const cliPath = path.resolve(process.cwd(), "src", "cli.ts");
+    assert.ok(fs.readFileSync(cliPath, "utf8").startsWith("#!/usr/bin/env node\n"));
+
+    // npm links `bin.cpe-dash` as a symlink, so process.argv[1] is the link path, not the real module path
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-cli-bin-"));
+    try {
+      const binLink = path.join(tmpDir, "cpe-dash");
+      fs.symlinkSync(cliPath, binLink);
+      const proc = spawnSync(process.execPath, ["--experimental-strip-types", binLink, "--help"], {
+        encoding: "utf8",
+        timeout: 5000,
+      });
+      assert.equal(proc.status, 0);
+      assert.match(proc.stdout, /Usage:/);
+
+      // Unit-level: symlink resolves to the module; absent, missing, or unrelated argv[1] never matches
+      const cliUrl = pathToFileURL(cliPath).href;
+      assert.equal(isCliEntryPoint(binLink, cliUrl), true);
+      assert.equal(isCliEntryPoint(undefined, cliUrl), false);
+      assert.equal(isCliEntryPoint(path.join(tmpDir, "missing-entry"), cliUrl), false);
+      assert.equal(isCliEntryPoint(path.resolve(process.cwd(), "src", "config.ts"), cliUrl), false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("executes runCli --help and end-to-end stdio MCP subprocess without touching live CPE", async () => {
     await runCli(["node", "cli.ts", "--help"]);
 
@@ -1902,7 +2007,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
       const cliPath = path.resolve(process.cwd(), "src", "cli.ts");
       const proc = spawnSync(
         process.execPath,
-        [cliPath, "mcp", `--env=${envPath}`],
+        ["--experimental-strip-types", cliPath, "mcp", `--env=${envPath}`],
         {
           input: `${JSON.stringify({ jsonrpc: "2.0", id: 77, method: "ping" })}\n`,
           encoding: "utf8",

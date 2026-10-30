@@ -12,6 +12,8 @@ import {
   type AntennaModeName,
   type BandLockCommand,
   type CellLockCommand,
+  CpeControlValidationError,
+  type RouterSettingsSnapshot,
   type SecurityUpdateCommand,
 } from "../src/cpe-domain.ts";
 import { computeScram } from "../src/crypto.ts";
@@ -365,6 +367,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     authOverride?: () => string | null;
     customRoutes?: Record<string, (method: string, body: string) => string | Promise<string>>;
     delayMs?: number;
+    respectBrowserSession?: boolean;
   } = {}) {
     const password = opts.password ?? "sched_test_password";
     const saltHex = "aa".repeat(32);
@@ -559,6 +562,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     const client = new HuaweiCpeClient({
       cpeUrl: "http://192.168.8.1",
       cpePassword: password,
+      respectBrowserSession: opts.respectBrowserSession,
       fetchImpl,
     });
     const ring = new TimeSeriesRingBuffer({ retentionHours: 24 });
@@ -1136,6 +1140,110 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     );
     assert.equal(scheduler.getStatus().mode, "cpe_unreachable");
     assert.match(scheduler.getStatus().lastError ?? "", /Socket hang up/);
+
+    // 3. A validation error raised inside a session (router-state-dependent check) proves the CPE answered:
+    //    it is bad input, not a transport failure, so the scheduler must report "idle"
+    await assert.rejects(
+      () =>
+        scheduler.executeControl("invalid_input", async () => {
+          throw new CpeControlValidationError('Invalid DMZ host IPv4 address ""');
+        }),
+      CpeControlValidationError
+    );
+    assert.equal(scheduler.getStatus().mode, "idle");
+
+    await scheduler.stop();
+  });
+
+  it("honors the client's respectBrowserSession=false (RESPECT_BROWSER_SESSION) instead of hard-coding avoidance", async () => {
+    const fx = createSchedulerFixture({
+      respectBrowserSession: false,
+      getStateXml: () =>
+        "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>",
+    });
+    const scheduler = new MutexSessionScheduler({
+      client: fx.client,
+      stateStore: fx.stateStore,
+      timeseries: fx.ring,
+    });
+    scheduler.init();
+    const avoidanceEvents: unknown[] = [];
+    scheduler.on("session:avoidance", (ev: unknown) => avoidanceEvents.push(ev));
+
+    const snap = await scheduler.refreshTelemetry();
+    assert.ok(snap);
+    assert.equal(await scheduler.executeControl("noop_write", async () => "applied"), "applied");
+    assert.equal(avoidanceEvents.length, 0);
+    assert.equal(scheduler.getStatus().mode, "idle");
+    assert.equal(scheduler.getStatus().browserYieldCount, 0);
+
+    await scheduler.stop();
+  });
+
+  it("folds confirmed Wi-Fi 7, antenna and mobile-data writes into cached settings and pushes a settings event without extra sessions", async () => {
+    const fx = createSchedulerFixture({});
+    const scheduler = new MutexSessionScheduler({
+      client: fx.client,
+      stateStore: fx.stateStore,
+      timeseries: fx.ring,
+    });
+    scheduler.init();
+    const settingsEvents: RouterSettingsSnapshot[] = [];
+    scheduler.on("settings", (snap: RouterSettingsSnapshot) => settingsEvents.push(snap));
+
+    // Nothing cached yet -> nothing to patch, no synthetic settings event
+    await scheduler.setMobileData(false);
+    assert.equal(settingsEvents.length, 0);
+    assert.equal(scheduler.getCachedSettings(), null);
+
+    const baseline = await scheduler.refreshSettings();
+    assert.ok(baseline);
+    assert.deepEqual(baseline.wifi7, { mloEnable: true, dbhoEnable: true });
+    assert.equal(baseline.antenna.mode, "auto");
+    assert.equal(baseline.mobileDataEnabled, true);
+    assert.equal(settingsEvents.length, 1);
+    const loginsAfterRefresh = fx.getLoginCount();
+
+    await scheduler.setWifi7Settings({ mloEnable: false });
+    await scheduler.setAntennaMode("external");
+    await scheduler.setMobileData(false);
+
+    assert.equal(fx.getLoginCount(), loginsAfterRefresh + 3);
+    assert.equal(settingsEvents.length, 4);
+    const latest = scheduler.getCachedSettings();
+    assert.ok(latest);
+    assert.deepEqual(latest.wifi7, { mloEnable: false, dbhoEnable: true });
+    assert.equal(latest.antenna.mode, "external");
+    assert.equal(latest.antenna.rawCode, "2");
+    assert.equal(latest.mobileDataEnabled, false);
+    // Capture timestamps keep marking the last full read; untouched fields are carried over as-is
+    assert.equal(latest.capturedAtMs, baseline.capturedAtMs);
+    assert.equal(latest.natType, baseline.natType);
+    assert.deepEqual(settingsEvents[3], latest);
+
+    await scheduler.stop();
+  });
+
+  it("pre-validates security, Wi-Fi 7 and antenna commands before queueing any CPE session", async () => {
+    const fx = createSchedulerFixture({});
+    const scheduler = new MutexSessionScheduler({
+      client: fx.client,
+      stateStore: fx.stateStore,
+      timeseries: fx.ring,
+    });
+    scheduler.init();
+
+    await assert.rejects(
+      () => scheduler.setSecuritySwitches({ upnpEnabled: true, dmz: { enabled: true, ipAddress: "bad_ip" } }),
+      CpeControlValidationError
+    );
+    await assert.rejects(() => scheduler.setSecuritySwitches({}), CpeControlValidationError);
+    await assert.rejects(() => scheduler.setWifi7Settings({}), CpeControlValidationError);
+    await assert.rejects(
+      () => scheduler.setAntennaMode("bogus" as AntennaModeName),
+      CpeControlValidationError
+    );
+    assert.equal(fx.getLoginCount(), 0);
 
     await scheduler.stop();
   });

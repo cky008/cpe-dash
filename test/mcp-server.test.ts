@@ -1176,6 +1176,28 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
 
       // 6. Detach removes data listener cleanly
       detach();
+
+      // 7. Opus acceptance checks: unlock_rf_locks destructiveHint + pre-session validation on multi-write tools
+      const unlockTool = server.getToolDefinitions().find((t) => t.name === "unlock_rf_locks");
+      assert.equal(unlockTool?.annotations?.destructiveHint, true);
+
+      // Every invalid argument must be rejected before the first write: zero CPE sessions, no partial apply
+      const sessionsBefore = fx.scheduler.getStatus().totalSessionsCompleted;
+      const invalidMultiWriteCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [
+        { name: "set_wifi_and_antenna", arguments: { mloEnable: true, antennaMode: "invalid_mode" } },
+        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzEnabled: true, dmzIpAddress: "bad_ip" } },
+        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzEnabled: true, dmzIpAddress: 42 } },
+        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzIpAddress: "192.168.8.100" } },
+      ];
+      for (const [idx, call] of invalidMultiWriteCalls.entries()) {
+        const res = (await server.handleRawJsonMessage(
+          JSON.stringify({ jsonrpc: "2.0", id: 201 + idx, method: "tools/call", params: call })
+        )) as JsonRpcSuccessResponse;
+        const result = res.result as { isError?: boolean; structuredContent?: { errorCode?: string } };
+        assert.equal(result.isError, true, `${call.name} ${JSON.stringify(call.arguments)}`);
+        assert.equal(result.structuredContent?.errorCode, "VALIDATION_ERROR");
+      }
+      assert.equal(fx.scheduler.getStatus().totalSessionsCompleted, sessionsBefore);
     } finally {
       fx.cleanup();
     }

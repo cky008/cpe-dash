@@ -649,12 +649,9 @@ export async function triggerCellularReconnect(
 }
 
 /**
- * Update HAR-verified router security switches (UPnP, DMZ, and/or Firewall switches).
+ * Validate a security switch command without touching the CPE (run before queueing a session).
  */
-export async function updateSecuritySettings(
-  session: EphemeralCpeSession,
-  command: SecurityUpdateCommand
-): Promise<void> {
+export function validateSecurityUpdateCommand(command: SecurityUpdateCommand): void {
   if (
     command.upnpEnabled === undefined &&
     command.dmz === undefined &&
@@ -671,13 +668,20 @@ export async function updateSecuritySettings(
       `Invalid DMZ host IPv4 address "${command.dmz.ipAddress.trim()}"`
     );
   }
+}
 
-  if (command.upnpEnabled !== undefined) {
-    await session.postXml("/api/security/upnp", {
-      UpnpStatus: command.upnpEnabled ? 1 : 0,
-    });
-  }
+/**
+ * Update HAR-verified router security switches (UPnP, DMZ, and/or Firewall switches).
+ * The DMZ target is resolved and validated before the first write, so a missing host IP
+ * never leaves UPnP applied on its own.
+ */
+export async function updateSecuritySettings(
+  session: EphemeralCpeSession,
+  command: SecurityUpdateCommand
+): Promise<void> {
+  validateSecurityUpdateCommand(command);
 
+  let dmzPayload: { DmzStatus: number; DmzIPAddress: string } | null = null;
   if (command.dmz !== undefined) {
     const currentDmzXml = await safeGet(session, "/api/security/dmz");
     const targetIp = (command.dmz.ipAddress ?? getXmlTag(currentDmzXml, "DmzIPAddress") ?? "").trim();
@@ -686,10 +690,20 @@ export async function updateSecuritySettings(
         `Invalid DMZ host IPv4 address "${targetIp}"`
       );
     }
-    await session.postXml("/api/security/dmz", {
+    dmzPayload = {
       DmzStatus: command.dmz.enabled ? 1 : 0,
       DmzIPAddress: targetIp,
+    };
+  }
+
+  if (command.upnpEnabled !== undefined) {
+    await session.postXml("/api/security/upnp", {
+      UpnpStatus: command.upnpEnabled ? 1 : 0,
     });
+  }
+
+  if (dmzPayload !== null) {
+    await session.postXml("/api/security/dmz", dmzPayload);
   }
 
   if (command.firewall !== undefined) {
