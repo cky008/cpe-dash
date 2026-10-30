@@ -9,7 +9,8 @@ import { loadConfig, parseDotEnv } from "../src/config.ts";
  * Scans tracked files, working tree, and full `git log -p --all` history for:
  *   1. Forbidden `.js` / `.mjs` / `.cjs` source files in `src/`, `scripts/`, or `test/`.
  *   2. Tracked `.env`, `data/*` (except empty `.gitkeep`), `.probe-cache/`, `*.har`, `*.apk*`, `*.dll`, `*.pem`.
- *   3. Literal secrets loaded from `.env` (`CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TELEGRAM_API`).
+ *   3. Literal secrets loaded from `.env` (`CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TELEGRAM_API`,
+ *      `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_IDS`, `WEBHOOK_URL`, `WEBHOOK_SECRET`).
  *   4. Private keys, real tokens, or unredacted 15-digit IMEI/IMSI numbers outside allowed RFC test placeholders.
  */
 const HIGH_RISK_PATTERNS: ReadonlyArray<{ name: string; regex: RegExp }> = [
@@ -29,6 +30,15 @@ const ALLOWED_PLACEHOLDERS = new Set([
   "460000000000000",
   "8935301000000000000",
 ]);
+
+/** Webhook URLs on RFC 2606 documentation domains are placeholders, not secrets. */
+function isDocumentationUrl(raw: string): boolean {
+  try {
+    return /(?:^|\.)example\.(?:com|org|net)$/i.test(new URL(raw).hostname);
+  } catch {
+    return false;
+  }
+}
 
 function scanText(label: string, content: string, dynamicSecrets: ReadonlyArray<string>): string[] {
   const issues: string[] = [];
@@ -65,6 +75,11 @@ function main(): void {
         cfg.dataEncryptionKey,
         rawEnv["TELEGRAM_API"] ?? "",
         rawEnv["TELEGRAM_BOT_TOKEN"] ?? "",
+        cfg.telegramBotToken,
+        cfg.webhookSecret,
+        isDocumentationUrl(cfg.webhookUrl) ? "" : cfg.webhookUrl,
+        // Real Telegram user/group IDs are personal identifiers; short IDs are test fixtures
+        ...cfg.telegramChatIds.filter((id) => id.replace(/^-/, "").length >= 7),
       ].filter((s) => Boolean(s) && s.length >= 4 && s !== "your_cpe_admin_password")
     )
   );

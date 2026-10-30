@@ -1,11 +1,21 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { AlertEngine } from "./alert-engine.ts";
 import { loadConfig } from "./config.ts";
 import { HuaweiCpeClient } from "./cpe-client.ts";
+import { type FileLockHandle, StorageCipher, tryAcquireFileLock } from "./encrypted-file.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
+import { type NotificationChannel, NotificationHub } from "./notify/hub.ts";
+import { TelegramApi } from "./notify/telegram-api.ts";
+import { TelegramBot, TelegramStateStore } from "./notify/telegram-bot.ts";
+import { WebhookNotifier } from "./notify/webhook.ts";
 import { MutexSessionScheduler } from "./scheduler.ts";
+import { ContactBook } from "./sms/contacts.ts";
+import { SmsMcpTools } from "./sms/mcp-tools.ts";
+import { SmsMirrorStore } from "./sms/mirror.ts";
+import { SmsService } from "./sms/service.ts";
 import { SseEventBus } from "./sse-bus.ts";
 import { EncryptedStateStore } from "./state-store.ts";
 import { TimeSeriesRingBuffer } from "./timeseries.ts";
@@ -59,6 +69,7 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
 
 export interface FengSuiRuntimeStack {
   config: AppConfig;
+  mode: "serve" | "mcp";
   stateStore: EncryptedStateStore;
   timeseries: TimeSeriesRingBuffer;
   cpeClient: HuaweiCpeClient;
@@ -66,14 +77,40 @@ export interface FengSuiRuntimeStack {
   sseBus: SseEventBus;
   mcpServer: FengSuiMcpServer;
   httpServer: FengSuiHttpServer;
+  /** `null` when SMS_ENABLED=false or another FengSui process owns the SMS store. */
+  sms: SmsService | null;
+  smsUnavailableReason: string | null;
+  alertEngine: AlertEngine | null;
+  notificationHub: NotificationHub | null;
+  telegramBot: TelegramBot | null;
+  webhook: WebhookNotifier | null;
+  /** Initialize the scheduler and start background work (polling, SMS sync, alerts, notifications). */
+  start(): Promise<void>;
+  /** Stop every subsystem in dependency order, flush encrypted stores and release the SMS store lock. */
+  close(): Promise<void>;
+  /** Synchronously release the SMS store lock (for `process.on("exit")`). */
+  releaseLocks(): void;
 }
 
-export function createFengSuiRuntime(options: {
+export interface FengSuiRuntimeOptions {
   config: AppConfig;
   envPath?: string;
+  /** CPE transport (tests inject the mock router here). */
   fetchImpl?: typeof fetch;
-}): FengSuiRuntimeStack {
+  /** Transport for Telegram and webhooks (defaults to global `fetch`). */
+  notifyFetchImpl?: typeof fetch;
+  /** `serve` runs the daemon (SSE, alerts, Telegram, webhooks); `mcp` is the stdio MCP server. */
+  mode?: "serve" | "mcp";
+  /** `mcp` mode only: poll telemetry and keep SMS in sync in the background (`--poll`). */
+  backgroundPoll?: boolean;
+  log?: (line: string) => void;
+}
+
+export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRuntimeStack {
   const { config, envPath, fetchImpl } = options;
+  const mode = options.mode ?? "serve";
+  const background = mode === "serve" || options.backgroundPoll === true;
+  const log = options.log ?? ((line: string) => console.warn(line));
 
   const stateStore = new EncryptedStateStore({
     filePath: config.stateFile,
@@ -93,6 +130,41 @@ export function createFengSuiRuntime(options: {
     fetchImpl,
   });
 
+  // Alerts and push channels belong to the daemon only: two processes long-polling one Telegram
+  // bot token would fight over getUpdates (HTTP 409). Their constructors validate the token and
+  // URL, so they run before the SMS store lock is taken.
+  const telegramApi =
+    mode === "serve" && config.telegramBotToken
+      ? new TelegramApi({
+          token: config.telegramBotToken,
+          apiBase: config.telegramApiBase,
+          fetchImpl: options.notifyFetchImpl,
+        })
+      : null;
+  const webhook =
+    mode === "serve" && config.webhookUrl
+      ? new WebhookNotifier({
+          url: config.webhookUrl,
+          secret: config.webhookSecret || undefined,
+          fetchImpl: options.notifyFetchImpl,
+        })
+      : null;
+
+  // The SMS store has exactly one owner process; a second process (e.g. stdio MCP next to the
+  // daemon) runs without SMS instead of overwriting the daemon's encrypted mirror.
+  let smsLock: FileLockHandle | null = null;
+  let smsUnavailableReason: string | null = config.smsEnabled ? null : "SMS_ENABLED=false";
+  if (config.smsEnabled) {
+    const acquired = tryAcquireFileLock(`${config.smsFile}.lock`);
+    if (acquired.ok) {
+      smsLock = acquired.lock;
+    } else {
+      smsUnavailableReason = `the SMS store is owned by another FengSui process (pid ${acquired.heldByPid ?? "unknown"}); use that process's MCP endpoint for SMS`;
+    }
+  }
+  const needsCipher = smsLock !== null || telegramApi !== null;
+  const cipher = needsCipher ? StorageCipher.fromSecret(config.dataEncryptionKey) : null;
+
   const scheduler = new MutexSessionScheduler({
     client: cpeClient,
     stateStore,
@@ -101,7 +173,76 @@ export function createFengSuiRuntime(options: {
     neighborScanIntervalMs: config.neighborScanIntervalMs,
     stateFlushIntervalMs: config.stateFlushIntervalMs,
     redactSensitive: config.redactSensitiveInApi,
+    smsCountersEnabled: smsLock !== null,
   });
+
+  let sms: SmsService | null = null;
+  if (smsLock && cipher) {
+    const contacts = new ContactBook({
+      filePath: config.contactsFile,
+      cipher,
+      defaultCountryCode: config.defaultCountryCode,
+    });
+    const mirror = new SmsMirrorStore({
+      filePath: config.smsFile,
+      cipher,
+      defaultCountryCode: config.defaultCountryCode,
+      contacts,
+    });
+    contacts.load();
+    mirror.load();
+    sms = new SmsService({
+      scheduler,
+      mirror,
+      contacts,
+      defaultCountryCode: config.defaultCountryCode,
+      fullSyncIntervalMs: config.smsFullSyncIntervalMs,
+      seedExistingOnStart: config.smsSeedExistingOnStart,
+      autoMarkRead: config.smsAutoMarkRead,
+      sendStatusTimeoutMs: config.smsSendStatusTimeoutMs,
+    });
+  }
+
+  const alertEngine =
+    mode === "serve" && config.alertsEnabled
+      ? new AlertEngine({
+          scheduler,
+          rsrpThresholdDbm: config.alertRsrpThresholdDbm,
+          sinrThresholdDb: config.alertSinrThresholdDb,
+        })
+      : null;
+
+  let telegramState: TelegramStateStore | null = null;
+  let telegramBot: TelegramBot | null = null;
+  if (telegramApi && cipher) {
+    telegramState = new TelegramStateStore({ filePath: config.telegramStateFile, cipher });
+    telegramState.load();
+    telegramBot = new TelegramBot({
+      api: telegramApi,
+      scheduler,
+      state: telegramState,
+      sms,
+      authToken: config.apiToken,
+      allowedChatIds: config.telegramChatIds,
+      locale: config.defaultLocale,
+      defaultCountryCode: config.defaultCountryCode,
+      log,
+    });
+  }
+
+  const channels: NotificationChannel[] = [telegramBot, webhook].filter(
+    (channel): channel is TelegramBot | WebhookNotifier => channel !== null
+  );
+  const notificationHub =
+    channels.length > 0
+      ? new NotificationHub({
+          scheduler,
+          sms,
+          channels,
+          alertMinSeverity: config.alertNotifyMinSeverity,
+          log,
+        })
+      : null;
 
   const sseBus = new SseEventBus({
     heartbeatMs: config.sseHeartbeatMs,
@@ -111,6 +252,16 @@ export function createFengSuiRuntime(options: {
   const mcpServer = new FengSuiMcpServer({
     scheduler,
     allowMutations: config.mcpAllowMutations,
+    toolProviders: sms
+      ? [
+          new SmsMcpTools({
+            sms,
+            access: config.mcpSmsAccess,
+            sendPolicy: config.mcpSmsSendPolicy,
+            sendLimitPerHour: config.mcpSmsSendLimitPerHour,
+          }),
+        ]
+      : [],
   });
 
   const httpServer = new FengSuiHttpServer({
@@ -119,10 +270,31 @@ export function createFengSuiRuntime(options: {
     sseBus,
     mcpServer,
     envPath,
+    sms,
+    notificationHub,
+    onConfigReloaded: async (reloaded) => {
+      // Re-encrypt immediately: DATA_ENCRYPTION_KEY defaults to CPE_PASSWORD, so fixing the password
+      // changes the key, and files left under the old key would be unreadable after a restart.
+      const rekeyed: Array<Promise<void>> = [];
+      if (sms) {
+        sms.rotateEncryptionKey(reloaded.dataEncryptionKey);
+        rekeyed.push(sms.mirror.flush(), sms.contacts.flush());
+      }
+      if (telegramState) {
+        telegramState.rotateEncryptionKey(reloaded.dataEncryptionKey);
+        rekeyed.push(telegramState.flush());
+      }
+      telegramBot?.rotateAuthToken(reloaded.apiToken);
+      await Promise.allSettled(rekeyed);
+    },
   });
+
+  let started = false;
+  let closed = false;
 
   return {
     config,
+    mode,
     stateStore,
     timeseries,
     cpeClient,
@@ -130,6 +302,44 @@ export function createFengSuiRuntime(options: {
     sseBus,
     mcpServer,
     httpServer,
+    sms,
+    smsUnavailableReason,
+    alertEngine,
+    notificationHub,
+    telegramBot,
+    webhook,
+    async start(): Promise<void> {
+      if (started) return;
+      started = true;
+      scheduler.init();
+      if (mode === "serve") {
+        sseBus.attachScheduler(scheduler);
+        if (sms) sseBus.attachSms(sms);
+        sseBus.start();
+      }
+      if (!background) return;
+      notificationHub?.start();
+      alertEngine?.start();
+      await telegramBot?.start();
+      sms?.start();
+      scheduler.start();
+    },
+    async close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      sseBus.stop();
+      await httpServer.close();
+      await telegramBot?.stop();
+      notificationHub?.stop();
+      alertEngine?.stop();
+      await scheduler.stop();
+      await sms?.stop();
+      await telegramState?.flush().catch(() => undefined);
+      smsLock?.release();
+    },
+    releaseLocks(): void {
+      smsLock?.release();
+    },
   };
 }
 
@@ -141,6 +351,9 @@ export function formatCliHelp(): string {
     "  cpe-dash [serve] [--env <path>]        Start Web Dashboard, REST API, SSE & Streamable HTTP MCP daemon",
     "  cpe-dash mcp [--poll] [--env <path>]   Start NDJSON stdio MCP Server for local AI agents",
     "  cpe-dash --help                        Show this help message",
+    "",
+    "The serve daemon owns the SMS mirror, alerts, Telegram bot and webhooks; agents should use its",
+    "/api/mcp endpoint for SMS. A stdio MCP process started next to it runs without SMS tools.",
   ].join("\n");
 }
 
@@ -169,16 +382,23 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   }
 
   const config = loadConfig({ envPath: cmd.envPath });
-  const stack = createFengSuiRuntime({ config, envPath: cmd.envPath });
+  const stack = createFengSuiRuntime({
+    config,
+    envPath: cmd.envPath,
+    mode: cmd.mode,
+    backgroundPoll: cmd.mcpBackgroundPoll,
+  });
+  // `exit` listeners run synchronously (also after uncaught errors); graceful paths use close()
+  process.once("exit", () => stack.releaseLocks());
+  await stack.start();
+  const smsSummary = stack.sms
+    ? `sms=on (mirror ${stack.sms.mirror.size} messages)`
+    : `sms=off (${stack.smsUnavailableReason ?? "disabled"})`;
 
   if (cmd.mode === "mcp") {
-    stack.scheduler.init();
-    if (cmd.mcpBackgroundPoll) {
-      stack.scheduler.start();
-    }
     const detachStdio = stack.mcpServer.attachStdio(process.stdin, process.stdout);
     process.stderr.write(
-      `[fengsui-mcp] stdio NDJSON server ready (cpe=${config.cpeUrl}, mutations=${config.mcpAllowMutations})\n`
+      `[fengsui-mcp] stdio NDJSON server ready (cpe=${config.cpeUrl}, mutations=${config.mcpAllowMutations}, mcpSms=${stack.sms ? config.mcpSmsAccess : "off"}, ${smsSummary})\n`
     );
 
     let shuttingDown = false;
@@ -186,7 +406,7 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
       if (shuttingDown) return;
       shuttingDown = true;
       detachStdio();
-      await stack.scheduler.stop();
+      await stack.close();
     };
 
     process.once("SIGINT", () => {
@@ -202,14 +422,8 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   }
 
   // `serve` daemon mode
-  stack.scheduler.init();
-  stack.sseBus.attachScheduler(stack.scheduler);
-  stack.sseBus.start();
-  stack.scheduler.start();
-
-  let boundAddress: { host: string; port: number } | null = null;
   if (config.webEnabled) {
-    boundAddress = await stack.httpServer.listen();
+    const boundAddress = await stack.httpServer.listen();
     process.stdout.write(
       `[fengsui] HTTP + SSE + MCP server listening on http://${boundAddress.host}:${boundAddress.port} (cpe=${config.cpeUrl}, poll=${config.pollIntervalMs}ms, mcpHttp=${config.mcpHttpEnabled})\n`
     );
@@ -218,15 +432,16 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
       `[fengsui] Background telemetry daemon started with WEB_ENABLED=false (cpe=${config.cpeUrl}, poll=${config.pollIntervalMs}ms)\n`
     );
   }
+  process.stdout.write(
+    `[fengsui] ${smsSummary}, alerts=${stack.alertEngine ? "on" : "off"}, telegram=${stack.telegramBot ? "on" : "off"}, webhook=${stack.webhook ? "on" : "off"}\n`
+  );
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     process.stdout.write(`[fengsui] Received ${signal}, flushing encrypted state and closing server...\n`);
-    stack.sseBus.stop();
-    await stack.httpServer.close();
-    await stack.scheduler.stop();
+    await stack.close();
     process.exit(0);
   };
 

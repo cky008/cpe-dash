@@ -143,6 +143,8 @@ export interface FengSuiHttpServerOptions {
   /** Enables `/api/sms/*`; when absent those routes answer `404 SMS_DISABLED`. */
   sms?: SmsService | null;
   notificationHub?: NotificationHub | null;
+  /** Called by `/api/session/reset-breaker` after `.env` is reloaded (key rotation for domain stores). */
+  onConfigReloaded?: (config: AppConfig) => Promise<void> | void;
 }
 
 /**
@@ -163,6 +165,7 @@ export class FengSuiHttpServer {
   readonly notificationHub: NotificationHub | null;
 
   #smsRoutes: SmsHttpRoutes | null;
+  #onConfigReloaded: ((config: AppConfig) => Promise<void> | void) | undefined;
   #server: http.Server | null = null;
   #bucketSweepTimer: ReturnType<typeof setInterval> | null = null;
   #sessions: Map<string, WebSessionRecord> = new Map();
@@ -179,6 +182,7 @@ export class FengSuiHttpServer {
     this.sms = options.sms ?? null;
     this.notificationHub = options.notificationHub ?? null;
     this.#smsRoutes = this.sms ? new SmsHttpRoutes(this.sms) : null;
+    this.#onConfigReloaded = options.onConfigReloaded;
   }
 
   get config(): AppConfig {
@@ -1006,6 +1010,10 @@ export class FengSuiHttpServer {
           const tokenRotated = !constantTimeSecretMatch(reloadedCfg.apiToken, this.#config.apiToken);
           this.#config = reloadedCfg;
           this.scheduler.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
+          // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
+          // between cannot leave state.json under a key the reloaded .env no longer provides.
+          await this.scheduler.stateStore.flushAsync().catch(() => undefined);
+          await this.#onConfigReloaded?.(reloadedCfg);
           if (tokenRotated) {
             this.#sessions.clear();
             this.sseBus.disconnectAll();
@@ -1252,7 +1260,8 @@ export class FengSuiHttpServer {
       this.#sendJson(res, 404, {
         ok: false,
         errorCode: "SMS_DISABLED",
-        message: "SMS features are disabled (SMS_ENABLED=false)",
+        message:
+          "SMS features are not available in this FengSui process (SMS_ENABLED=false, or the SMS store is owned by another FengSui process)",
       });
       return;
     }

@@ -195,3 +195,69 @@ export class AtomicFileWriter {
     return next;
   }
 }
+
+export interface FileLockHandle {
+  readonly path: string;
+  release(): void;
+}
+
+export type FileLockResult = { ok: true; lock: FileLockHandle } | { ok: false; heldByPid: number | null };
+
+function errnoCode(err: unknown): string | undefined {
+  return err && typeof err === "object" && "code" in err && typeof err.code === "string" ? err.code : undefined;
+}
+
+function readLockPid(lockPath: string): number | null {
+  try {
+    const pid = Number(fs.readFileSync(lockPath, "utf8").trim());
+    return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return errnoCode(err) === "EPERM";
+  }
+}
+
+/**
+ * Advisory single-owner lock (`<file>.lock` holding the owner PID, mode 0600) so two FengSui
+ * processes never write the same encrypted store. A lock whose PID is dead, unreadable or equal
+ * to our own (a restarted container reusing its PID) is stale and taken over.
+ */
+export function tryAcquireFileLock(lockPath: string): FileLockResult {
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(lockPath, "wx", 0o600);
+      try {
+        fs.writeSync(fd, `${process.pid}\n`);
+      } finally {
+        fs.closeSync(fd);
+      }
+      let released = false;
+      return {
+        ok: true,
+        lock: {
+          path: lockPath,
+          release: () => {
+            if (released) return;
+            released = true;
+            if (readLockPid(lockPath) === process.pid) fs.rmSync(lockPath, { force: true });
+          },
+        },
+      };
+    } catch (err) {
+      if (errnoCode(err) !== "EEXIST") throw err;
+      const pid = readLockPid(lockPath);
+      if (pid !== null && pid !== process.pid && isProcessAlive(pid)) return { ok: false, heldByPid: pid };
+      fs.rmSync(lockPath, { force: true });
+    }
+  }
+  return { ok: false, heldByPid: readLockPid(lockPath) };
+}

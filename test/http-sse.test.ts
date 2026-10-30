@@ -1907,6 +1907,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
           STATE_FILE: path.join(tmpDir, "state.json"),
         },
         ignoreProcessEnv: true,
+        envPath: path.join(tmpDir, "absent.env"),
       });
 
       const mockFetch = createMockCpeFetch();
@@ -1939,6 +1940,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
           RESPECT_BROWSER_SESSION: "false",
         },
         ignoreProcessEnv: true,
+        envPath: path.join(tmpDir, "absent.env"),
       });
       assert.equal(config.respectBrowserSession, false);
 

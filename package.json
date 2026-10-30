@@ -38,7 +38,8 @@
     "probe:traffic": "node --experimental-strip-types scripts/probe-traffic.ts",
     "probe:topology": "node --experimental-strip-types scripts/probe-topology.ts",
     "probe:session": "node --experimental-strip-types scripts/probe-session-avoidance.ts",
-    "probe:extended": "node --experimental-strip-types scripts/probe-extended-capabilities.ts"
+    "probe:extended": "node --experimental-strip-types scripts/probe-extended-capabilities.ts",
+    "probe:sms": "node --experimental-strip-types scripts/probe-sms.ts"
   },
   "keywords": [
     "typescript",
