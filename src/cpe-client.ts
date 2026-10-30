@@ -66,6 +66,56 @@ export class CpeSessionDeadlineError extends Error {
   }
 }
 
+/**
+ * A request that never got an answer from the CPE (connection reset or refused, DNS, socket closed
+ * mid-response). The message names the endpoint and the socket-level cause, which `fetch` hides
+ * behind a bare "fetch failed".
+ */
+export class CpeTransportError extends Error {
+  readonly method: string;
+  readonly apiPath: string;
+  /** Socket-level cause, e.g. `ECONNRESET` or `UND_ERR_SOCKET`; `null` when unknown. */
+  readonly causeCode: string | null;
+
+  constructor(method: string, apiPath: string, err: unknown) {
+    const cause = err instanceof Error && err.cause && typeof err.cause === "object" ? err.cause : null;
+    const code = cause && "code" in cause && typeof cause.code === "string" ? cause.code : null;
+    const detail = cause && "message" in cause && typeof cause.message === "string" ? cause.message : null;
+    const base = err instanceof Error ? err.message : String(err);
+    super(`${method} ${apiPath.split("?")[0]}: ${base}${code || detail ? ` (${[code, detail].filter(Boolean).join(": ")})` : ""}`);
+    this.name = "CpeTransportError";
+    this.method = method;
+    this.apiPath = apiPath.split("?")[0] ?? apiPath;
+    this.causeCode = code;
+  }
+}
+
+/**
+ * The H168-383 web server closes keep-alive connections that `fetch` then tries to reuse
+ * (`UND_ERR_SOCKET: other side closed`, roughly one telemetry session in four on the real device).
+ * Such a request never reached the router's handler, so an idempotent GET is safe to resend.
+ */
+const STALE_SOCKET_CODES = new Set(["UND_ERR_SOCKET", "UND_ERR_CLOSED", "ECONNRESET", "EPIPE"]);
+const MAX_GET_RETRIES_ON_STALE_SOCKET = 2;
+
+/**
+ * `fetch` with transport failures mapped to `CpeTransportError`; aborts and deadlines pass through.
+ * GETs are resent (at most twice) when the failure was a stale keep-alive socket; POSTs never are.
+ */
+async function cpeFetch(fetchImpl: typeof fetch, url: string, apiPath: string, init: RequestInit): Promise<Response> {
+  const method = init.method ?? "GET";
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchImpl(url, init);
+    } catch (err) {
+      if (init.signal?.aborted) throw err;
+      const failure = new CpeTransportError(method, apiPath, err);
+      const retryable = method === "GET" && failure.causeCode !== null && STALE_SOCKET_CODES.has(failure.causeCode);
+      if (!retryable || attempt >= MAX_GET_RETRIES_ON_STALE_SOCKET) throw failure;
+    }
+  }
+}
+
 /** Default upper bound for one admin session (covers SMS send-status polling plus read-back). */
 export const DEFAULT_SESSION_MAX_HOLD_MS = 90_000;
 
@@ -218,7 +268,7 @@ export class EphemeralCpeSession {
     const cookie = this.#cookieHeader();
     if (cookie) headers.Cookie = cookie;
 
-    const res = await this.fetchImpl(`${this.baseUrl}${apiPath}`, {
+    const res = await cpeFetch(this.fetchImpl, `${this.baseUrl}${apiPath}`, apiPath, {
       method: "GET",
       headers,
       redirect: "error",
@@ -281,7 +331,7 @@ export class EphemeralCpeSession {
       const cookie = this.#cookieHeader();
       if (cookie) headers.Cookie = cookie;
 
-      const res = await this.fetchImpl(`${this.baseUrl}${apiPath}`, {
+      const res = await cpeFetch(this.fetchImpl, `${this.baseUrl}${apiPath}`, apiPath, {
         method: "POST",
         headers,
         body,
@@ -636,7 +686,7 @@ export class HuaweiCpeClient {
   }
 
   async getPublic(apiPath: string): Promise<string> {
-    const res = await this.fetchImpl(`${this.baseUrl}${apiPath}`, {
+    const res = await cpeFetch(this.fetchImpl, `${this.baseUrl}${apiPath}`, apiPath, {
       method: "GET",
       headers: {
         "X-Requested-With": "XMLHttpRequest",

@@ -93,6 +93,55 @@ describe("telemetry snapshots never fabricate data from failed reads", () => {
   });
 });
 
+describe("stale keep-alive sockets (UND_ERR_SOCKET) on the real router", () => {
+  it("retries an idempotent GET on a closed reused socket instead of failing the snapshot", async () => {
+    const hits = new Map<string, number>();
+    const fx = setup((p, method) => {
+      const n = (hits.get(p) ?? 0) + 1;
+      hits.set(p, n);
+      if (method === "GET" && (p === "/api/monitoring/month_statistics" || p === "/api/sms/sms-count") && n <= 2) return "stale-socket";
+      if (method === "GET" && p === "/api/user/state-login" && n === 1) return "stale-socket";
+      return undefined;
+    });
+    try {
+      const snap = await fx.core.monitor.refreshTelemetry();
+      assert.ok(snap, "two stale sockets in a row are absorbed");
+      assert.equal(snap.traffic.monthTotalBytes > 0, true);
+      assert.equal(hits.get("/api/monitoring/month_statistics"), 3);
+      assert.equal(fx.core.scheduler.getStatus().mode, "idle");
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("gives up after the retry budget with a CpeTransportError naming the endpoint and cause", async () => {
+    const fx = setup((p, method) => (method === "GET" && p === "/api/device/signal" ? "stale-socket" : undefined));
+    try {
+      await assert.rejects(
+        () => fx.core.monitor.refreshTelemetry(),
+        (err: unknown) =>
+          err instanceof Error &&
+          err.name === "CpeTransportError" &&
+          /^GET \/api\/device\/signal: fetch failed \(UND_ERR_SOCKET: other side closed\)$/.test(err.message)
+      );
+      assert.equal(fx.cpe.count("/api/device/signal"), 3, "one request plus two retries");
+      assert.equal(fx.cpe.isSlotTaken(), false);
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("never retries a POST, even on a stale socket", async () => {
+    const fx = setup((p, method) => (method === "POST" && p === "/api/security/upnp" ? "stale-socket" : undefined));
+    try {
+      await assert.rejects(() => fx.core.controls.setSecuritySwitches({ upnpEnabled: false }), /POST \/api\/security\/upnp/);
+      assert.equal(fx.cpe.count("/api/security/upnp", "POST"), 1, "a write is sent at most once");
+    } finally {
+      await fx.close();
+    }
+  });
+});
+
 describe("read-modify-write controls never write guessed values", () => {
   it("aborts a firewall change before any write when the current switches cannot be read", async () => {
     for (const fault of ["transport", { cpeError: "100003" }, { body: "<response></response>" }] satisfies StrictFault[]) {

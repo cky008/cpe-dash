@@ -17,7 +17,11 @@ import { getXmlBlocks, getXmlTag } from "../../src/xml.ts";
  * All identifiers are RFC/test placeholders (RFC 5737 / RFC 7042 / reserved SMS ranges).
  */
 
-export type StrictFault = "transport" | "timeout" | { cpeError: string } | { body: string };
+/**
+ * `transport`: connection failure without a socket cause; `stale-socket`: the router closed a reused
+ * keep-alive connection (undici `UND_ERR_SOCKET: other side closed`, seen on the real H168-383).
+ */
+export type StrictFault = "transport" | "stale-socket" | "timeout" | { cpeError: string } | { body: string };
 
 export interface StrictCpeOptions {
   password?: string;
@@ -152,6 +156,9 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
 
     const fault = opts.fault?.(p, method);
     if (fault === "transport") throw new TypeError("fetch failed (connect ECONNRESET 192.168.8.1:80)");
+    if (fault === "stale-socket") {
+      throw new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });
+    }
     if (fault === "timeout") {
       await new Promise<void>((_resolve, reject) => {
         const onAbort = (): void => reject(signal?.reason ?? new DOMException("timed out", "TimeoutError"));
