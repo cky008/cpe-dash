@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 
 const ENVELOPE_MAGIC = "cpe-dash-aes-256-gcm-v1";
@@ -122,17 +123,75 @@ export class StorageCipher {
     return parsed as T;
   }
 
+  /**
+   * Read a JSON document; if it cannot be decrypted or parsed (e.g. `DATA_ENCRYPTION_KEY` rotated),
+   * rename it to `<file>.unreadable-<ts>` instead of crash-looping and return `null`.
+   */
+  readJsonFileOrQuarantine<T = unknown>(filePath: string): T | null {
+    try {
+      return this.readJsonFile<T>(filePath);
+    } catch {
+      try {
+        fs.renameSync(filePath, `${filePath}.unreadable-${Date.now()}`);
+      } catch {
+        // Ignore rename failure on read-only/missing file
+      }
+      return null;
+    }
+  }
+
+  /** Serialize `data` as the on-disk document (encrypted envelope when the cipher is enabled). */
+  serializeJson(data: unknown): string {
+    return this.enabled ? JSON.stringify(this.encryptObject(data), null, 2) : JSON.stringify(data, null, 2);
+  }
+
   writeJsonFile(filePath: string, data: unknown): void {
     const dir = path.dirname(filePath);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const suffix = crypto.randomBytes(4).toString("hex");
     const tmpFile = `${filePath}.${process.pid}.${suffix}.tmp`;
-
-    const serialized = this.enabled
-      ? JSON.stringify(this.encryptObject(data), null, 2)
-      : JSON.stringify(data, null, 2);
-
-    fs.writeFileSync(tmpFile, serialized, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(tmpFile, this.serializeJson(data), { encoding: "utf8", mode: 0o600 });
     fs.renameSync(tmpFile, filePath);
+  }
+}
+
+/**
+ * Crash-safe async writer for one file (`0600` temp file + `fsync` + atomic `rename`).
+ * Writes are chained so concurrent calls land in call order; `serialize` runs when the write
+ * actually starts, so a queued write always uses the cipher that is current at that moment.
+ */
+export class AtomicFileWriter {
+  readonly filePath: string;
+  #chain: Promise<void> = Promise.resolve();
+
+  constructor(filePath: string) {
+    this.filePath = filePath;
+  }
+
+  write(serialize: () => string): Promise<void> {
+    const doWrite = async (): Promise<void> => {
+      const serialized = serialize();
+      await fsp.mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
+      const tmpFile = `${this.filePath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+      try {
+        const handle = await fsp.open(tmpFile, "w", 0o600);
+        try {
+          await handle.writeFile(serialized, "utf8");
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        await fsp.rename(tmpFile, this.filePath);
+      } catch (err) {
+        await fsp.rm(tmpFile, { force: true }).catch(() => undefined);
+        throw err;
+      }
+    };
+    const next = this.#chain.then(doWrite, doWrite);
+    this.#chain = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
   }
 }

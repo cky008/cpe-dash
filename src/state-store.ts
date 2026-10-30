@@ -1,7 +1,5 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import fsp from "node:fs/promises";
-import path from "node:path";
 import type {
   GlobalTelemetrySnapshot,
   NeighborScanSnapshot,
@@ -9,7 +7,7 @@ import type {
   RouterSettingsSnapshot,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
-import { StorageCipher } from "./encrypted-file.ts";
+import { AtomicFileWriter, StorageCipher } from "./encrypted-file.ts";
 import type { SerializedTimeSeriesSnapshot } from "./timeseries.ts";
 import type { CircuitBreakerState } from "./types.ts";
 
@@ -76,13 +74,13 @@ export class EncryptedStateStore {
   readonly filePath: string;
   #cipher: StorageCipher;
   #state: PersistedRuntimeState;
-  #writeChain: Promise<void>;
+  #writer: AtomicFileWriter;
 
   constructor(opts: { filePath: string; encryptionKey: string }) {
     this.filePath = opts.filePath;
     this.#cipher = StorageCipher.fromSecret(opts.encryptionKey);
     this.#state = createDefaultState();
-    this.#writeChain = Promise.resolve();
+    this.#writer = new AtomicFileWriter(opts.filePath);
   }
 
   /**
@@ -92,23 +90,15 @@ export class EncryptedStateStore {
     if (!fs.existsSync(this.filePath)) {
       return this.#state;
     }
-    try {
-      const loaded = this.#cipher.readJsonFile<Partial<PersistedRuntimeState>>(this.filePath);
-      if (loaded && loaded.schemaVersion === 1) {
-        this.#state = {
-          ...createDefaultState(),
-          ...loaded,
-          recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
-        };
-      }
-    } catch {
-      const backupPath = `${this.filePath}.unreadable-${Date.now()}`;
-      try {
-        fs.renameSync(this.filePath, backupPath);
-      } catch {
-        // Ignore rename failure on read-only/missing file
-      }
+    const loaded = this.#cipher.readJsonFileOrQuarantine<Partial<PersistedRuntimeState>>(this.filePath);
+    if (!loaded) {
       this.#state = createDefaultState();
+    } else if (loaded.schemaVersion === 1) {
+      this.#state = {
+        ...createDefaultState(),
+        ...loaded,
+        recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
+      };
     }
     return this.#state;
   }
@@ -155,36 +145,6 @@ export class EncryptedStateStore {
       ...this.#state,
       savedAtIso: new Date().toISOString(),
     };
-
-    const doWrite = async (): Promise<void> => {
-      const dir = path.dirname(this.filePath);
-      await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
-      const suffix = crypto.randomBytes(4).toString("hex");
-      const tmpFile = `${this.filePath}.${process.pid}.${suffix}.tmp`;
-      const serialized = this.#cipher.enabled
-        ? JSON.stringify(this.#cipher.encryptObject(snapshot), null, 2)
-        : JSON.stringify(snapshot, null, 2);
-
-      try {
-        const handle = await fsp.open(tmpFile, "w", 0o600);
-        try {
-          await handle.writeFile(serialized, "utf8");
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-        await fsp.rename(tmpFile, this.filePath);
-      } catch (err) {
-        await fsp.rm(tmpFile, { force: true }).catch(() => undefined);
-        throw err;
-      }
-    };
-
-    const next = this.#writeChain.then(doWrite, doWrite);
-    this.#writeChain = next.then(
-      () => undefined,
-      () => undefined
-    );
-    return next;
+    await this.#writer.write(() => this.#cipher.serializeJson(snapshot));
   }
 }
