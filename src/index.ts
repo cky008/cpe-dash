@@ -8,3 +8,4 @@ export * from "./encrypted-file.ts";
 export * from "./band-lock.ts";
 export * from "./parsers.ts";
 export * from "./cpe-client.ts";
+export * from "./cpe-domain.ts";

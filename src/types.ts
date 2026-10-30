@@ -66,7 +66,24 @@ export interface CircuitBreakerState {
   code: string | null;
   reason: string | null;
   trippedAtIso: string | null;
+  remainCount?: number | null;
+  waitTime?: number | null;
+  passwordFingerprintHex?: string | null;
 }
+
+export type SessionExecutionOutcome<T> =
+  | {
+      status: "ok";
+      value: T;
+      holdMs: number;
+    }
+  | {
+      status: "yielded";
+      layer: 1 | 2;
+      stateCode: string;
+      messageZh: string;
+      messageEn: string;
+    };
 
 export interface SessionTelemetry {
   lastSessionHoldMs: number | null;
