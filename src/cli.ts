@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
 import { loadConfig } from "./config.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts";
-import { HuaweiCpeClient } from "./cpe-client.ts";
+import { DEFAULT_SESSION_MAX_HOLD_MS, HuaweiCpeClient } from "./cpe-client.ts";
 import type { CpeControlService } from "./cpe-controls.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { type FileLockHandle, StorageCipher, tryAcquireFileLock } from "./encrypted-file.ts";
@@ -136,6 +136,8 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     requestTimeoutMs: config.requestTimeoutMs,
     respectBrowserSession: config.respectBrowserSession,
     fetchImpl,
+    // An SMS send polls send-status inside its session, so the hold budget must outlast that poll
+    sessionMaxHoldMs: Math.max(DEFAULT_SESSION_MAX_HOLD_MS, config.smsSendStatusTimeoutMs + 30_000),
   });
 
   // Alerts and push channels belong to the daemon only: two processes long-polling one Telegram

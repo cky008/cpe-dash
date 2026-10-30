@@ -142,6 +142,7 @@ describe("createFengSuiRuntime", () => {
     const stack = createFengSuiRuntime({ config, envPath, fetchImpl: mock.fetchImpl, notifyFetchImpl: notify.fetchImpl, log: () => undefined });
     try {
       assert.equal(stack.mode, "serve");
+      assert.equal(stack.cpeClient.sessionMaxHoldMs, 90_000, "hold budget outlasts the 45 s send-status poll");
       assert.ok(stack.sms && stack.alertEngine && stack.telegramBot && stack.webhook && stack.notificationHub);
       assert.equal(stack.smsUnavailableReason, null);
       assert.ok((await toolNames(stack)).includes("list_sms_threads"));

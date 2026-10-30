@@ -29,7 +29,14 @@ interface ContractFixture {
 }
 
 function createContractFixture(
-  opts: StrictCpeOptions & { clientPassword?: string; dir?: string; layer2InitialBackoffMs?: number; pollIntervalMs?: number } = {}
+  opts: StrictCpeOptions & {
+    clientPassword?: string;
+    dir?: string;
+    layer2InitialBackoffMs?: number;
+    pollIntervalMs?: number;
+    sessionMaxHoldMs?: number;
+    requestTimeoutMs?: number;
+  } = {}
 ): ContractFixture {
   const cpe = createStrictCpe(opts);
   const dir = opts.dir ?? fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-contract-"));
@@ -37,7 +44,8 @@ function createContractFixture(
     cpeUrl: "http://192.168.8.1",
     cpePassword: opts.clientPassword ?? cpe.password,
     fetchImpl: cpe.fetchImpl,
-    requestTimeoutMs: 3000,
+    requestTimeoutMs: opts.requestTimeoutMs ?? 3000,
+    sessionMaxHoldMs: opts.sessionMaxHoldMs,
   });
   const core = createFengSuiCore({
     client,
@@ -205,6 +213,34 @@ describe("session contract on a strict single-admin router model", () => {
       assert.equal(fx.avoidance.length, 2);
       assert.equal(fx.avoidance[1]?.active, false);
       assert.equal(fx.avoidance[1]?.stateCode, "-1");
+      assertSingleSlotInvariants(fx.cpe);
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("bounds how long one session can hold the admin slot, then logs out and frees the queue", async () => {
+    let hangSignal = false;
+    const fx = createContractFixture({
+      sessionMaxHoldMs: 80,
+      requestTimeoutMs: 10_000,
+      fault: (p) => (hangSignal && p === "/api/device/signal" ? "timeout" : undefined),
+    });
+    try {
+      const startedAt = performance.now();
+      await assert.rejects(
+        () => fx.core.scheduler.executeRead(() => new Promise<never>(() => undefined)),
+        (err: unknown) => err instanceof Error && err.name === "CpeSessionDeadlineError"
+      );
+      assert.ok(performance.now() - startedAt < 2000, "a hung domain function cannot hold the slot");
+      assert.equal(fx.cpe.isSlotTaken(), false, "the deadline still ran the finally logout");
+
+      hangSignal = true;
+      await assert.rejects(() => fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof Error && err.name === "CpeSessionDeadlineError");
+      assert.equal(fx.cpe.isSlotTaken(), false, "an in-flight request is aborted and logout uses a fresh signal");
+
+      hangSignal = false;
+      assert.ok(await fx.core.monitor.refreshTelemetry(), "the queue keeps serving after a deadline");
       assertSingleSlotInvariants(fx.cpe);
     } finally {
       await fx.close();

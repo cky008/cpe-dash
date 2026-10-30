@@ -76,6 +76,23 @@ export class ReentrantCpeSessionError extends Error {
   }
 }
 
+/**
+ * The session exceeded its hold budget (`sessionMaxHoldMs`): every request of that session was
+ * aborted, the `finally` logout ran on a fresh signal and the mutex moved on to the next task.
+ */
+export class CpeSessionDeadlineError extends Error {
+  readonly maxHoldMs: number;
+
+  constructor(maxHoldMs: number) {
+    super(`CPE session exceeded its ${maxHoldMs} ms hold budget and was logged out`);
+    this.name = "CpeSessionDeadlineError";
+    this.maxHoldMs = maxHoldMs;
+  }
+}
+
+/** Default upper bound for one admin session (covers SMS send-status polling plus read-back). */
+export const DEFAULT_SESSION_MAX_HOLD_MS = 90_000;
+
 export function isInsideCpeSession(client: HuaweiCpeClient): boolean {
   return activeSessionContext.getStore() === client;
 }
@@ -129,6 +146,9 @@ export class EphemeralCpeSession {
   #loginCompletedAtMs: number | null;
   #authOutcomeUnknown: boolean;
   #postChain: Promise<unknown>;
+  /** Session-wide deadline; ignored once `logout()` starts so the slot can always be released. */
+  readonly #deadline: AbortSignal | null;
+  #closing = false;
 
   constructor(opts: {
     baseUrl: string;
@@ -136,6 +156,7 @@ export class EphemeralCpeSession {
     password: string;
     timeoutMs: number;
     fetchImpl: typeof fetch;
+    deadline?: AbortSignal;
   }) {
     this.baseUrl = opts.baseUrl;
     this.username = opts.username;
@@ -149,6 +170,12 @@ export class EphemeralCpeSession {
     this.#loginCompletedAtMs = null;
     this.#authOutcomeUnknown = false;
     this.#postChain = Promise.resolve();
+    this.#deadline = opts.deadline ?? null;
+  }
+
+  #requestSignal(timeoutMs: number): AbortSignal {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    return this.#deadline && !this.#closing ? AbortSignal.any([this.#deadline, timeout]) : timeout;
   }
 
   #updateCookies(headers: Headers): void {
@@ -219,7 +246,7 @@ export class EphemeralCpeSession {
       method: "GET",
       headers,
       redirect: "error",
-      signal: AbortSignal.timeout(overrideTimeoutMs ?? this.timeoutMs),
+      signal: this.#requestSignal(overrideTimeoutMs ?? this.timeoutMs),
     });
     this.#updateCookies(res.headers);
     const text = await readBoundedResponseText(res);
@@ -283,7 +310,7 @@ export class EphemeralCpeSession {
         headers,
         body,
         redirect: "error",
-        signal: AbortSignal.timeout(opts.overrideTimeoutMs ?? this.timeoutMs),
+        signal: this.#requestSignal(opts.overrideTimeoutMs ?? this.timeoutMs),
       });
       this.#updateCookies(res.headers);
       this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
@@ -367,6 +394,9 @@ export class EphemeralCpeSession {
     const iterations = Number.parseInt(iterationsRaw, 10);
     const scram = computeScram(this.password, salt, iterations, firstNonce, serverNonce);
 
+    // Until the router answers, it may already have logged us in (lost response, aborted request),
+    // so `logout()` must run; a CPE error code means the router refused and nothing is open.
+    this.#authOutcomeUnknown = true;
     let authXml: string;
     try {
       authXml = await this.postRaw(
@@ -378,12 +408,13 @@ export class EphemeralCpeSession {
         { clearTokensOnResponse: true }
       );
     } catch (err) {
-      if (!(err instanceof CpeApiError)) {
-        this.#authOutcomeUnknown = true;
+      if (err instanceof CpeApiError) {
+        this.#authOutcomeUnknown = false;
       }
       throw err;
     }
 
+    this.#authOutcomeUnknown = false;
     this.loggedIn = true;
     this.#loginCompletedAtMs = performance.now();
 
@@ -404,6 +435,7 @@ export class EphemeralCpeSession {
 
   async logout(): Promise<number | null> {
     if (!this.loggedIn && !this.#authOutcomeUnknown) return null;
+    this.#closing = true;
     const boundedLogoutMs = Math.min(this.timeoutMs, 3000);
     try {
       await this.postRaw("/api/user/logout", buildXmlRequest({ Logout: 1 }), {
@@ -430,12 +462,33 @@ export interface HuaweiCpeClientOptions {
   respectBrowserSession?: boolean;
   allowPublicCpeHost?: boolean;
   fetchImpl?: typeof fetch;
+  /** Hard upper bound for one session, login to logout (default `DEFAULT_SESSION_MAX_HOLD_MS`). */
+  sessionMaxHoldMs?: number;
 }
 
 export interface WithSessionOptions {
   respectBrowserSession?: boolean;
   retriesOnOccupied?: number;
   occupiedRetryDelayMs?: number;
+}
+
+/** Reject when `signal` aborts, even if `work` never settles (non-I/O hangs cannot pin the mutex). */
+function raceDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      }
+    );
+  });
 }
 
 function hashCredentialsFingerprint(username: string, password: string): string {
@@ -458,6 +511,7 @@ export class HuaweiCpeClient {
   readonly timeoutMs: number;
   readonly defaultRespectBrowserSession: boolean;
   readonly fetchImpl: typeof fetch;
+  readonly sessionMaxHoldMs: number;
 
   #mutex: Promise<unknown>;
   #trippedError: CpeApiError | null;
@@ -476,6 +530,7 @@ export class HuaweiCpeClient {
     this.timeoutMs = config.requestTimeoutMs ?? 15000;
     this.defaultRespectBrowserSession = config.respectBrowserSession ?? true;
     this.fetchImpl = config.fetchImpl ?? globalThis.fetch;
+    this.sessionMaxHoldMs = Math.max(50, config.sessionMaxHoldMs ?? DEFAULT_SESSION_MAX_HOLD_MS);
 
     this.#mutex = Promise.resolve();
     this.#trippedError = null;
@@ -681,20 +736,30 @@ export class HuaweiCpeClient {
           };
         }
 
+        const deadline = new AbortController();
+        const deadlineTimer = setTimeout(
+          () => deadline.abort(new CpeSessionDeadlineError(this.sessionMaxHoldMs)),
+          this.sessionMaxHoldMs
+        );
+        deadlineTimer.unref?.();
         const session = new EphemeralCpeSession({
           baseUrl: this.baseUrl,
           username,
           password,
           timeoutMs: this.timeoutMs,
           fetchImpl: this.fetchImpl,
+          deadline: deadline.signal,
         });
 
         let loginFinished = false;
         let lastHoldMs = 0;
         try {
-          await session.login();
+          await raceDeadline(session.login(), deadline.signal);
           loginFinished = true;
-          const value = await activeSessionContext.run(this, () => fn(session));
+          const value = await raceDeadline(
+            activeSessionContext.run(this, () => fn(session)),
+            deadline.signal
+          );
           return {
             status: "ok",
             value,
@@ -723,6 +788,7 @@ export class HuaweiCpeClient {
           }
           throw err;
         } finally {
+          clearTimeout(deadlineTimer);
           const holdMs = await session.logout();
           if (holdMs !== null) {
             lastHoldMs = holdMs;
