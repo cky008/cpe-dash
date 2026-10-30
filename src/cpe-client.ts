@@ -47,6 +47,10 @@ export class ReentrantCpeSessionError extends Error {
   }
 }
 
+export function isInsideCpeSession(client: HuaweiCpeClient): boolean {
+  return activeSessionContext.getStore() === client;
+}
+
 export class CpeApiError extends Error {
   readonly code: string;
   readonly remainCount: number | null;
@@ -94,6 +98,8 @@ export class EphemeralCpeSession {
   ecc: { clientPubHex: string; shareKeyHex: string } | null;
   loggedIn: boolean;
   #loginCompletedAtMs: number | null;
+  #authOutcomeUnknown: boolean;
+  #postChain: Promise<unknown>;
 
   constructor(opts: {
     baseUrl: string;
@@ -112,6 +118,8 @@ export class EphemeralCpeSession {
     this.ecc = null;
     this.loggedIn = false;
     this.#loginCompletedAtMs = null;
+    this.#authOutcomeUnknown = false;
+    this.#postChain = Promise.resolve();
   }
 
   #updateCookies(headers: Headers): void {
@@ -215,7 +223,7 @@ export class EphemeralCpeSession {
       if (!fullToken || fullToken.length < 32) {
         throw new Error("Failed to acquire CSRF token from /api/webserver/token");
       }
-      this.tokens.push(fullToken.length > 32 ? fullToken.slice(32) : fullToken);
+      this.tokens.push(fullToken.length > 32 ? fullToken.slice(-32) : fullToken);
     }
     return this.tokens.shift()!;
   }
@@ -229,32 +237,40 @@ export class EphemeralCpeSession {
       overrideTimeoutMs?: number;
     } = {}
   ): Promise<string> {
-    const token = await this.#consumeToken(opts.overrideTimeoutMs);
-    const headers: Record<string, string> = {
-      "X-Requested-With": "XMLHttpRequest",
-      _ResponseSource: "Broswer",
-      "Content-Type": opts.contentType ?? "application/x-www-form-urlencoded; charset=UTF-8",
-      Accept: "*/*",
-      __RequestVerificationToken: token,
-    };
-    const cookie = this.#cookieHeader();
-    if (cookie) headers.Cookie = cookie;
+    const run = async (): Promise<string> => {
+      const token = await this.#consumeToken(opts.overrideTimeoutMs);
+      const headers: Record<string, string> = {
+        "X-Requested-With": "XMLHttpRequest",
+        _ResponseSource: "Broswer",
+        "Content-Type": opts.contentType ?? "application/x-www-form-urlencoded; charset=UTF-8",
+        Accept: "*/*",
+        __RequestVerificationToken: token,
+      };
+      const cookie = this.#cookieHeader();
+      if (cookie) headers.Cookie = cookie;
 
-    const res = await this.fetchImpl(`${this.baseUrl}${apiPath}`, {
-      method: "POST",
-      headers,
-      body,
-      redirect: "error",
-      signal: AbortSignal.timeout(opts.overrideTimeoutMs ?? this.timeoutMs),
-    });
-    this.#updateCookies(res.headers);
-    this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
-    const text = await res.text();
-    const err = parseXmlError(text);
-    if (err) {
-      throw new CpeApiError(err.code, apiPath, err);
-    }
-    return text;
+      const res = await this.fetchImpl(`${this.baseUrl}${apiPath}`, {
+        method: "POST",
+        headers,
+        body,
+        redirect: "error",
+        signal: AbortSignal.timeout(opts.overrideTimeoutMs ?? this.timeoutMs),
+      });
+      this.#updateCookies(res.headers);
+      this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
+      const text = await res.text();
+      const err = parseXmlError(text);
+      if (err) {
+        throw new CpeApiError(err.code, apiPath, err);
+      }
+      return text;
+    };
+    const next = this.#postChain.then(run, run);
+    this.#postChain = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return await next;
   }
 
   async postXml(apiPath: string, requestObj: Record<string, unknown>): Promise<string> {
@@ -322,14 +338,22 @@ export class EphemeralCpeSession {
     const iterations = Number.parseInt(iterationsRaw, 10);
     const scram = computeScram(this.password, salt, iterations, firstNonce, serverNonce);
 
-    const authXml = await this.postRaw(
-      "/api/user/authentication_login",
-      buildXmlRequest({
-        clientproof: scram.clientProofHex,
-        finalnonce: serverNonce,
-      }),
-      { clearTokensOnResponse: true }
-    );
+    let authXml: string;
+    try {
+      authXml = await this.postRaw(
+        "/api/user/authentication_login",
+        buildXmlRequest({
+          clientproof: scram.clientProofHex,
+          finalnonce: serverNonce,
+        }),
+        { clearTokensOnResponse: true }
+      );
+    } catch (err) {
+      if (!(err instanceof CpeApiError)) {
+        this.#authOutcomeUnknown = true;
+      }
+      throw err;
+    }
 
     this.loggedIn = true;
     this.#loginCompletedAtMs = performance.now();
@@ -350,7 +374,7 @@ export class EphemeralCpeSession {
   }
 
   async logout(): Promise<number | null> {
-    if (!this.loggedIn) return null;
+    if (!this.loggedIn && !this.#authOutcomeUnknown) return null;
     const boundedLogoutMs = Math.min(this.timeoutMs, 3000);
     try {
       await this.postRaw("/api/user/logout", buildXmlRequest({ Logout: 1 }), {
@@ -360,6 +384,7 @@ export class EphemeralCpeSession {
       // Ignore logout network/session errors if session already expired or router is rebooting
     } finally {
       this.loggedIn = false;
+      this.#authOutcomeUnknown = false;
     }
     if (this.#loginCompletedAtMs === null) return null;
     const elapsed = Math.max(0, Math.round(performance.now() - this.#loginCompletedAtMs));
@@ -517,11 +542,15 @@ export class HuaweiCpeClient {
     this.#trippedPwdFingerprint = null;
   }
 
-  #tripCircuitBreaker(err: CpeApiError): never {
+  #tripCircuitBreaker(err: CpeApiError, credentialFp = this.getPasswordFingerprint()): never {
+    // If credentials were hot-reloaded mid-session, do not latch the breaker under the new password!
+    if (credentialFp !== this.getPasswordFingerprint()) {
+      throw err;
+    }
     if (!this.#trippedError) {
       this.#trippedError = err;
       this.#trippedAtIso = new Date().toISOString();
-      this.#trippedPwdFingerprint = this.getPasswordFingerprint();
+      this.#trippedPwdFingerprint = credentialFp;
     }
     throw this.#trippedError;
   }
@@ -598,6 +627,9 @@ export class HuaweiCpeClient {
         throw this.#trippedError;
       }
 
+      const username = this.#username;
+      const password = this.#password;
+      const credentialFp = hashCredentialsFingerprint(username, password);
       const maxAttempts = retriesOnOccupied + 1;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const loginState = await this.getLoginState();
@@ -605,7 +637,8 @@ export class HuaweiCpeClient {
           this.#tripCircuitBreaker(
             new CpeApiError("108007", `剩余锁定等待时间 ${loginState.remainWaitTime} 秒`, {
               waitTime: loginState.remainWaitTime,
-            })
+            }),
+            credentialFp
           );
         }
         if (respectBrowser && loginState.isLoggedInElsewhere) {
@@ -621,8 +654,8 @@ export class HuaweiCpeClient {
 
         const session = new EphemeralCpeSession({
           baseUrl: this.baseUrl,
-          username: this.#username,
-          password: this.#password,
+          username,
+          password,
           timeoutMs: this.timeoutMs,
           fetchImpl: this.fetchImpl,
         });
@@ -640,7 +673,7 @@ export class HuaweiCpeClient {
           };
         } catch (err) {
           if (err instanceof CpeApiError && err.isCircuitBreakerFatal) {
-            this.#tripCircuitBreaker(err);
+            this.#tripCircuitBreaker(err, credentialFp);
           }
           // Only retry/yield on occupied BEFORE `fn(session)` starts so mutating writes are never replayed!
           if (!loginFinished && err instanceof CpeApiError && err.isSessionOccupied) {
