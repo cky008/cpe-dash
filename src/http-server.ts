@@ -1,10 +1,6 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import fsp from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import net from "node:net";
 import type { TLSSocket } from "node:tls";
-import path from "node:path";
 import {
   canonicalizeRateLimitBucketKey,
   isAllowedHttpHostHeader,
@@ -20,6 +16,13 @@ import {
   readTimeSeriesPreset,
 } from "./control-input.ts";
 import { CpeControlValidationError, type FirewallSwitchState } from "./cpe-domain.ts";
+import {
+  type CredentialVerdict,
+  HttpAuthGuard,
+  type WebSessionRecord,
+  constantTimeSecretMatch,
+} from "./http-auth.ts";
+import { serveStaticAsset } from "./http-static.ts";
 import {
   getLocaleCatalog,
   normalizeLocale,
@@ -40,10 +43,7 @@ import type { SseEventBus } from "./sse-bus.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
 import type { AppConfig, SupportedLocale } from "./types.ts";
 
-const SESSION_COOKIE_NAME = "fengsui_sid";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
-const MAX_ACTIVE_SESSIONS = 128;
-const MAX_TRACKED_BUCKETS = 4096;
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const ALLOWED_FIREWALL_KEYS = new Set<keyof FirewallSwitchState>([
   "mainSwitch",
@@ -52,28 +52,6 @@ const ALLOWED_FIREWALL_KEYS = new Set<keyof FirewallSwitchState>([
   "macFilterSwitch",
   "urlFilterSwitch",
 ]);
-
-const MIME_TYPES: Readonly<Record<string, string>> = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".woff2": "font/woff2",
-};
-
-interface WebSessionRecord {
-  id: string;
-  createdAtMs: number;
-  expiresAtMs: number;
-  clientBucket: string;
-}
-
-interface RateLimitWindow {
-  timestampsMs: number[];
-}
 
 class HttpPayloadError extends Error {
   readonly statusCode: number;
@@ -85,30 +63,7 @@ class HttpPayloadError extends Error {
   }
 }
 
-function sha256Buffer(input: string): Buffer {
-  return crypto.createHash("sha256").update(input, "utf8").digest();
-}
-
-export function constantTimeSecretMatch(candidate: string, expectedSecret: string): boolean {
-  if (!expectedSecret) return false;
-  const a = sha256Buffer(candidate);
-  const b = sha256Buffer(expectedSecret);
-  return crypto.timingSafeEqual(a, b);
-}
-
-function parseCookiesNullProto(cookieHeader: string | undefined): Record<string, string> {
-  const out = Object.create(null) as Record<string, string>;
-  if (!cookieHeader) return out;
-  const bounded = cookieHeader.slice(0, 16384);
-  for (const part of bounded.split(";")) {
-    const eqIdx = part.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = part.slice(0, eqIdx).trim();
-    if (!key || FORBIDDEN_KEYS.has(key)) continue;
-    out[key] = part.slice(eqIdx + 1).trim();
-  }
-  return out;
-}
+export { constantTimeSecretMatch };
 
 function parseQueryNullProto(searchParams: URLSearchParams): Record<string, string> {
   const out = Object.create(null) as Record<string, string>;
@@ -164,10 +119,7 @@ export class FengSuiHttpServer {
   #smsRoutes: SmsHttpRoutes | null;
   #onConfigReloaded: ((config: AppConfig) => Promise<void> | void) | undefined;
   #server: http.Server | null = null;
-  #bucketSweepTimer: ReturnType<typeof setInterval> | null = null;
-  #sessions: Map<string, WebSessionRecord> = new Map();
-  #authFailuresByBucket: Map<string, RateLimitWindow> = new Map();
-  #globalAuthFailures: number[] = [];
+  readonly #auth = new HttpAuthGuard(() => this.#config);
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
@@ -220,20 +172,14 @@ export class FengSuiHttpServer {
     });
 
     this.#server = srv;
-    this.#bucketSweepTimer = setInterval(() => {
-      this.#sweepAuthBuckets();
-    }, 60_000);
-    this.#bucketSweepTimer.unref?.();
+    this.#auth.start();
     const addr = srv.address();
     const boundPort = typeof addr === "object" && addr ? addr.port : this.#config.webPort;
     return { host: this.#config.webHost, port: boundPort };
   }
 
   async close(): Promise<void> {
-    if (this.#bucketSweepTimer) {
-      clearInterval(this.#bucketSweepTimer);
-      this.#bucketSweepTimer = null;
-    }
+    this.#auth.stop();
     if (!this.#server) return;
     const srv = this.#server;
     this.#server = null;
@@ -270,170 +216,30 @@ export class FengSuiHttpServer {
     return normalizeLocale(acceptLang, this.#config.defaultLocale);
   }
 
-  #sweepAuthBuckets(nowMs = Date.now()): void {
-    const windowMs = this.#config.rateLimitWindowMs;
-    this.#globalAuthFailures = this.#globalAuthFailures.filter((tMs) => nowMs - tMs < windowMs);
-    for (const [key, entry] of this.#authFailuresByBucket.entries()) {
-      entry.timestampsMs = entry.timestampsMs.filter((tMs) => nowMs - tMs < windowMs);
-      if (entry.timestampsMs.length === 0) {
-        this.#authFailuresByBucket.delete(key);
-      }
+  /** Answer a failed credential check: `429` with `Retry-After`, otherwise `401`. */
+  #sendAuthRejection(
+    res: ServerResponse,
+    verdict: Extract<CredentialVerdict, { ok: false }>,
+    messages: { unauthorized: string; rateLimited: (seconds: number) => string }
+  ): void {
+    if (verdict.statusCode === 429) {
+      const retrySec = verdict.retrySec ?? 60;
+      this.#sendJson(
+        res,
+        429,
+        { ok: false, errorCode: "RATE_LIMITED", retryAfterSec: retrySec, message: messages.rateLimited(retrySec) },
+        { "Retry-After": String(retrySec) }
+      );
+      return;
     }
+    this.#sendJson(res, 401, { ok: false, errorCode: "UNAUTHORIZED", message: messages.unauthorized });
   }
 
-  #checkBucketRateLimit(bucketKey: string, nowMs = Date.now()): number | null {
-    const windowMs = this.#config.rateLimitWindowMs;
-    const maxPerIp = this.#config.rateLimitMaxAuthFailures;
-    const entry = this.#authFailuresByBucket.get(bucketKey);
-    if (!entry) return null;
-    entry.timestampsMs = entry.timestampsMs.filter((tMs) => nowMs - tMs < windowMs);
-    if (entry.timestampsMs.length === 0) {
-      this.#authFailuresByBucket.delete(bucketKey);
-      return null;
-    }
-    if (entry.timestampsMs.length >= maxPerIp) {
-      const oldest = entry.timestampsMs[0] ?? nowMs;
-      return Math.max(1, Math.ceil((windowMs - (nowMs - oldest)) / 1000));
-    }
-    return null;
-  }
-
-  #recordAuthFailure(bucketKey: string, nowMs = Date.now()): void {
-    this.#globalAuthFailures.push(nowMs);
-    let entry = this.#authFailuresByBucket.get(bucketKey);
-    if (!entry) {
-      if (this.#authFailuresByBucket.size >= MAX_TRACKED_BUCKETS) {
-        this.#sweepAuthBuckets(nowMs);
-        while (this.#authFailuresByBucket.size >= MAX_TRACKED_BUCKETS) {
-          const oldestKey = this.#authFailuresByBucket.keys().next().value;
-          if (oldestKey === undefined) break;
-          this.#authFailuresByBucket.delete(oldestKey);
-        }
-      }
-      entry = { timestampsMs: [] };
-      this.#authFailuresByBucket.set(bucketKey, entry);
-    }
-    entry.timestampsMs.push(nowMs);
-  }
-
-  /**
-   * Synchronous credential & brute-force rate-limit guard:
-   * 1. Enforces per-bucket lockout first (blocking brute-forcing buckets unconditionally).
-   * 2. Allows valid credentials from clean buckets so 8 junk IPs cannot globally DoS a valid admin.
-   * 3. Enforces global failure ceiling on invalid guesses before recording a new failure.
-   */
-  #guardCredential(
-    bucketKey: string,
-    isValid: boolean,
-    nowMs = Date.now()
-  ): { ok: true } | { ok: false; statusCode: 401 | 429; retrySec?: number } {
-    const bucketRetrySec = this.#checkBucketRateLimit(bucketKey, nowMs);
-    if (bucketRetrySec !== null) {
-      return { ok: false, statusCode: 429, retrySec: bucketRetrySec };
-    }
-    if (isValid) {
-      return { ok: true };
-    }
-
-    const windowMs = this.#config.rateLimitWindowMs;
-    const maxGlobal = this.#config.rateLimitMaxAuthFailures * 8;
-    this.#globalAuthFailures = this.#globalAuthFailures.filter((tMs) => nowMs - tMs < windowMs);
-    if (this.#globalAuthFailures.length >= maxGlobal) {
-      const oldest = this.#globalAuthFailures[0] ?? nowMs;
-      const globalRetrySec = Math.max(1, Math.ceil((windowMs - (nowMs - oldest)) / 1000));
-      return { ok: false, statusCode: 429, retrySec: globalRetrySec };
-    }
-
-    this.#recordAuthFailure(bucketKey, nowMs);
-    return { ok: false, statusCode: 401 };
-  }
-
-  #isBearerHeaderValid(authHeader: string): boolean {
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    const token = match?.[1]?.trim() ?? "";
-    return Boolean(token) && constantTimeSecretMatch(token, this.#config.apiToken);
-  }
-
-  #validateCsrfForCookieMutation(
-    req: IncomingMessage,
-    validatedHost: string,
-    isHttps: boolean
-  ): boolean {
-    const xrw = req.headers["x-requested-with"];
-    if (xrw !== "XMLHttpRequest") return false;
-
-    const ct = (req.headers["content-type"] ?? "").toLowerCase();
-    if (!ct.startsWith("application/json")) return false;
-
-    const rawOrigin = req.headers.origin;
-    if (!rawOrigin || rawOrigin === "null") return false;
-    let parsedOrigin: URL;
-    try {
-      parsedOrigin = new URL(rawOrigin);
-    } catch {
-      return false;
-    }
-    const expectedProtocol = isHttps ? "https:" : "http:";
-    if (parsedOrigin.protocol !== expectedProtocol) return false;
-    if (parsedOrigin.host.toLowerCase() !== validatedHost.toLowerCase()) return false;
-    return true;
-  }
-
-  #authenticateCookieSession(
-    req: IncomingMessage,
-    bucketKey: string
-  ): { ok: true; via: "cookie"; session: WebSessionRecord } | { ok: false } {
-    const cookies = parseCookiesNullProto(req.headers.cookie);
-    const sid = cookies[SESSION_COOKIE_NAME];
-    if (!sid || !/^[0-9a-f]{64}$/.test(sid)) {
-      return { ok: false };
-    }
-    const record = this.#sessions.get(sid);
-    if (!record) return { ok: false };
-    if (Date.now() >= record.expiresAtMs) {
-      this.#sessions.delete(sid);
-      return { ok: false };
-    }
-    if (record.clientBucket !== bucketKey) {
-      return { ok: false };
-    }
-    return { ok: true, via: "cookie", session: record };
-  }
-
-  #createWebSession(clientBucket: string): WebSessionRecord {
-    const nowMs = Date.now();
-    for (const [id, rec] of this.#sessions.entries()) {
-      if (nowMs >= rec.expiresAtMs) {
-        this.#sessions.delete(id);
-      }
-    }
-    while (this.#sessions.size >= MAX_ACTIVE_SESSIONS) {
-      const oldestKey = this.#sessions.keys().next().value;
-      if (oldestKey === undefined) break;
-      this.#sessions.delete(oldestKey);
-    }
-    const session: WebSessionRecord = {
-      id: crypto.randomBytes(32).toString("hex"),
-      createdAtMs: nowMs,
-      expiresAtMs: nowMs + this.#config.sessionTtlMs,
-      clientBucket,
+  #apiAuthMessages(locale: SupportedLocale): { unauthorized: string; rateLimited: (seconds: number) => string } {
+    return {
+      unauthorized: t(locale, "auth.unauthorized"),
+      rateLimited: (seconds) => t(locale, "auth.rate_limited", { seconds }),
     };
-    this.#sessions.set(session.id, session);
-    return session;
-  }
-
-  #formatSessionCookie(sessionId: string, maxAgeSec: number, isHttps: boolean): string {
-    const parts = [
-      `${SESSION_COOKIE_NAME}=${sessionId}`,
-      "HttpOnly",
-      "SameSite=Strict",
-      "Path=/",
-      `Max-Age=${Math.max(0, Math.trunc(maxAgeSec))}`,
-    ];
-    if (isHttps) {
-      parts.push("Secure");
-    }
-    return parts.join("; ");
   }
 
   async #readBoundedJsonBody(
@@ -582,51 +388,28 @@ export class FengSuiHttpServer {
     }
 
     // 3. Authentication Routes
+    const authMessages = this.#apiAuthMessages(locale);
     if (pathname === "/api/auth/status" && method === "GET") {
       if (req.headers.authorization !== undefined) {
-        const guard = this.#guardCredential(
-          bucketKey,
-          this.#isBearerHeaderValid(req.headers.authorization)
-        );
-        if (!guard.ok && guard.statusCode === 429) {
-          const retrySec = guard.retrySec ?? 60;
-          this.#sendJson(
-            res,
-            429,
-            {
-              ok: false,
-              errorCode: "RATE_LIMITED",
-              retryAfterSec: retrySec,
-              message: t(locale, "auth.rate_limited", { seconds: retrySec }),
-            },
-            { "Retry-After": String(retrySec) }
-          );
+        const verdict = this.#auth.guardBearer(bucketKey, req.headers.authorization);
+        if (!verdict.ok && verdict.statusCode === 429) {
+          this.#sendAuthRejection(res, verdict, authMessages);
           return;
         }
-        this.#sendJson(res, 200, {
-          ok: true,
-          authenticated: guard.ok,
-          locale,
-        });
+        this.#sendJson(res, 200, { ok: true, authenticated: verdict.ok, locale });
         return;
       }
-
-      const cookieAuth = this.#authenticateCookieSession(req, bucketKey);
       this.#sendJson(res, 200, {
         ok: true,
-        authenticated: cookieAuth.ok,
+        authenticated: this.#auth.authenticateCookie(req, bucketKey) !== null,
         locale,
       });
       return;
     }
 
     if (pathname === "/api/auth/login" && method === "POST") {
-      if (!this.#validateCsrfForCookieMutation(req, rawHost, isHttps)) {
-        this.#sendJson(res, 403, {
-          ok: false,
-          errorCode: "CSRF_REJECTED",
-          message: t(locale, "auth.csrf_rejected"),
-        });
+      if (!this.#auth.validateCsrf(req, rawHost, isHttps)) {
+        this.#sendJson(res, 403, { ok: false, errorCode: "CSRF_REJECTED", message: t(locale, "auth.csrf_rejected") });
         return;
       }
 
@@ -635,11 +418,7 @@ export class FengSuiHttpServer {
         body = await this.#readBoundedJsonBody(req);
       } catch (err) {
         if (err instanceof HttpPayloadError) {
-          this.#sendJson(res, err.statusCode, {
-            ok: false,
-            errorCode: "BAD_PAYLOAD",
-            message: err.message,
-          });
+          this.#sendJson(res, err.statusCode, { ok: false, errorCode: "BAD_PAYLOAD", message: err.message });
           return;
         }
         throw err;
@@ -651,182 +430,76 @@ export class FengSuiHttpServer {
           : typeof body["password"] === "string"
             ? body["password"]
             : "";
-
-      const isValid = Boolean(candidate) && constantTimeSecretMatch(candidate, this.#config.apiToken);
-      const guard = this.#guardCredential(bucketKey, isValid);
-      if (!guard.ok && guard.statusCode === 429) {
-        const retrySec = guard.retrySec ?? 60;
-        this.#sendJson(
-          res,
-          429,
-          {
-            ok: false,
-            errorCode: "RATE_LIMITED",
-            retryAfterSec: retrySec,
-            message: t(locale, "auth.rate_limited", { seconds: retrySec }),
-          },
-          { "Retry-After": String(retrySec) }
-        );
-        return;
-      }
-      if (!guard.ok) {
-        this.#sendJson(res, 401, {
-          ok: false,
-          errorCode: "UNAUTHORIZED",
-          message: t(locale, "auth.unauthorized"),
-        });
+      const verdict = this.#auth.guardSecret(bucketKey, candidate);
+      if (!verdict.ok) {
+        this.#sendAuthRejection(res, verdict, authMessages);
         return;
       }
 
-      // Rotate any existing cookie session ID on login to prevent session fixation
-      const existingCookies = parseCookiesNullProto(req.headers.cookie);
-      const oldSid = existingCookies[SESSION_COOKIE_NAME];
-      if (oldSid) {
-        this.#sessions.delete(oldSid);
-      }
-
-      const newSession = this.#createWebSession(bucketKey);
+      // createSession rotates any presented session ID (session fixation defense)
+      const newSession = this.#auth.createSession(req, bucketKey);
       const ttlSec = Math.floor(this.#config.sessionTtlMs / 1000);
       this.#sendJson(
         res,
         200,
-        {
-          ok: true,
-          authenticated: true,
-          expiresAtIso: new Date(newSession.expiresAtMs).toISOString(),
-        },
-        {
-          "Set-Cookie": this.#formatSessionCookie(newSession.id, ttlSec, isHttps),
-        }
+        { ok: true, authenticated: true, expiresAtIso: new Date(newSession.expiresAtMs).toISOString() },
+        { "Set-Cookie": this.#auth.sessionCookie(newSession.id, ttlSec, isHttps) }
       );
       return;
     }
 
     if (pathname === "/api/auth/logout" && method === "POST") {
+      const clearCookie = { "Set-Cookie": this.#auth.sessionCookie("logged_out", 0, isHttps) };
       if (req.headers.authorization !== undefined) {
-        const guard = this.#guardCredential(
-          bucketKey,
-          this.#isBearerHeaderValid(req.headers.authorization)
-        );
-        if (!guard.ok && guard.statusCode === 429) {
-          const retrySec = guard.retrySec ?? 60;
-          this.#sendJson(
-            res,
-            429,
-            {
-              ok: false,
-              errorCode: "RATE_LIMITED",
-              retryAfterSec: retrySec,
-              message: t(locale, "auth.rate_limited", { seconds: retrySec }),
-            },
-            { "Retry-After": String(retrySec) }
-          );
+        const verdict = this.#auth.guardBearer(bucketKey, req.headers.authorization);
+        if (!verdict.ok) {
+          this.#sendAuthRejection(res, verdict, authMessages);
           return;
         }
-        if (!guard.ok) {
-          this.#sendJson(res, 401, {
-            ok: false,
-            errorCode: "UNAUTHORIZED",
-            message: t(locale, "auth.unauthorized"),
-          });
-          return;
-        }
-        this.#sendJson(
-          res,
-          200,
-          { ok: true, authenticated: false },
-          { "Set-Cookie": this.#formatSessionCookie("logged_out", 0, isHttps) }
-        );
+        this.#sendJson(res, 200, { ok: true, authenticated: false }, clearCookie);
         return;
       }
 
-      if (!this.#validateCsrfForCookieMutation(req, rawHost, isHttps)) {
-        this.#sendJson(res, 403, {
-          ok: false,
-          errorCode: "CSRF_REJECTED",
-          message: t(locale, "auth.csrf_rejected"),
-        });
+      if (!this.#auth.validateCsrf(req, rawHost, isHttps)) {
+        this.#sendJson(res, 403, { ok: false, errorCode: "CSRF_REJECTED", message: t(locale, "auth.csrf_rejected") });
         return;
       }
-
-      const cookieAuth = this.#authenticateCookieSession(req, bucketKey);
-      if (cookieAuth.ok) {
-        this.#sessions.delete(cookieAuth.session.id);
-        this.sseBus.disconnectBySessionId(cookieAuth.session.id);
+      const session = this.#auth.authenticateCookie(req, bucketKey);
+      if (session) {
+        this.#auth.revokeSession(session.id);
+        this.sseBus.disconnectBySessionId(session.id);
       }
-      this.#sendJson(
-        res,
-        200,
-        { ok: true, authenticated: false },
-        { "Set-Cookie": this.#formatSessionCookie("logged_out", 0, isHttps) }
-      );
+      this.#sendJson(res, 200, { ok: true, authenticated: false }, clearCookie);
       return;
     }
 
     // 4. Non-API routes -> serve offline static frontend bundle
     if (!pathname.startsWith("/api/")) {
-      await this.#serveStaticAsset(res, method, pathname);
+      await serveStaticAsset(res, method, pathname, this.#config.staticDir, (r, code, body) => this.#sendJson(r, code, body));
       return;
     }
 
-    // 5. Protected `/api/*` routes (Cookie OR Bearer auth)
+    // 5. Protected `/api/*` routes (Cookie OR Bearer auth; a present Authorization header is exclusive)
     const isSseRoute = pathname === "/api/events";
-    let auth:
-      | { ok: true; via: "bearer" }
-      | { ok: true; via: "cookie"; session: WebSessionRecord };
-
+    let session: WebSessionRecord | null = null;
     if (req.headers.authorization !== undefined) {
-      const guard = this.#guardCredential(
-        bucketKey,
-        this.#isBearerHeaderValid(req.headers.authorization)
-      );
-      if (!guard.ok && guard.statusCode === 429) {
-        const retrySec = guard.retrySec ?? 60;
-        this.#sendJson(
-          res,
-          429,
-          {
-            ok: false,
-            errorCode: "RATE_LIMITED",
-            retryAfterSec: retrySec,
-            message: t(locale, "auth.rate_limited", { seconds: retrySec }),
-          },
-          { "Retry-After": String(retrySec) }
-        );
+      const verdict = this.#auth.guardBearer(bucketKey, req.headers.authorization);
+      if (!verdict.ok) {
+        this.#sendAuthRejection(res, verdict, authMessages);
         return;
       }
-      if (!guard.ok) {
-        this.#sendJson(res, 401, {
-          ok: false,
-          errorCode: "UNAUTHORIZED",
-          message: t(locale, "auth.unauthorized"),
-        });
-        return;
-      }
-      auth = { ok: true, via: "bearer" };
     } else {
-      const cookieAuth = this.#authenticateCookieSession(req, bucketKey);
-      if (!cookieAuth.ok) {
-        this.#sendJson(res, 401, {
-          ok: false,
-          errorCode: "UNAUTHORIZED",
-          message: t(locale, "auth.unauthorized"),
-        });
+      session = this.#auth.authenticateCookie(req, bucketKey);
+      if (!session) {
+        this.#sendJson(res, 401, { ok: false, errorCode: "UNAUTHORIZED", message: authMessages.unauthorized });
         return;
       }
-      auth = cookieAuth;
     }
 
     // Enforce CSRF validation on ALL Cookie-authenticated state mutations
-    if (auth.via === "cookie" && method !== "GET" && method !== "HEAD") {
-      if (!this.#validateCsrfForCookieMutation(req, rawHost, isHttps)) {
-        this.#sendJson(res, 403, {
-          ok: false,
-          errorCode: "CSRF_REJECTED",
-          message: t(locale, "auth.csrf_rejected"),
-        });
-        return;
-      }
+    if (session && method !== "GET" && method !== "HEAD" && !this.#auth.validateCsrf(req, rawHost, isHttps)) {
+      this.#sendJson(res, 403, { ok: false, errorCode: "CSRF_REJECTED", message: t(locale, "auth.csrf_rejected") });
+      return;
     }
 
     // SSE Stream (`GET /api/events`)
@@ -835,8 +508,8 @@ export class FengSuiHttpServer {
         req,
         res,
         clientIp: bucketKey,
-        sessionId: auth.via === "cookie" ? (auth.session?.id ?? null) : null,
-        expiresAtMs: auth.via === "cookie" ? (auth.session?.expiresAtMs ?? null) : null,
+        sessionId: session?.id ?? null,
+        expiresAtMs: session?.expiresAtMs ?? null,
         initialSnapshot: {
           schedulerStatus: this.core.scheduler.getStatus(),
           avoidance: this.core.scheduler.getAvoidanceState(),
@@ -1016,7 +689,7 @@ export class FengSuiHttpServer {
           await this.core.stateStore.flushAsync().catch(() => undefined);
           await this.#onConfigReloaded?.(reloadedCfg);
           if (tokenRotated) {
-            this.#sessions.clear();
+            this.#auth.revokeAllSessions();
             this.sseBus.disconnectAll();
           }
           const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(
@@ -1301,55 +974,22 @@ export class FengSuiHttpServer {
     }
 
     // Streamable HTTP `/mcp` strictly requires Bearer API_TOKEN authentication
+    const mcpMessages = {
+      unauthorized: "Missing or invalid Bearer API_TOKEN for /mcp",
+      rateLimited: () => "Too many authentication failures",
+    };
     if (req.headers.authorization === undefined) {
-      const bucketRetry = this.#checkBucketRateLimit(bucketKey);
-      if (bucketRetry !== null) {
-        this.#sendJson(
-          res,
-          429,
-          {
-            ok: false,
-            errorCode: "RATE_LIMITED",
-            retryAfterSec: bucketRetry,
-            message: "Too many authentication failures",
-          },
-          { "Retry-After": String(bucketRetry) }
-        );
-        return;
-      }
-      this.#sendJson(res, 401, {
-        ok: false,
-        errorCode: "UNAUTHORIZED",
-        message: "Missing or invalid Bearer API_TOKEN for /mcp",
-      });
-      return;
-    }
-
-    const mcpGuard = this.#guardCredential(
-      bucketKey,
-      this.#isBearerHeaderValid(req.headers.authorization)
-    );
-    if (!mcpGuard.ok && mcpGuard.statusCode === 429) {
-      const retrySec = mcpGuard.retrySec ?? 60;
-      this.#sendJson(
+      const bucketRetry = this.#auth.checkBucket(bucketKey);
+      this.#sendAuthRejection(
         res,
-        429,
-        {
-          ok: false,
-          errorCode: "RATE_LIMITED",
-          retryAfterSec: retrySec,
-          message: "Too many authentication failures",
-        },
-        { "Retry-After": String(retrySec) }
+        bucketRetry !== null ? { ok: false, statusCode: 429, retrySec: bucketRetry } : { ok: false, statusCode: 401 },
+        mcpMessages
       );
       return;
     }
-    if (!mcpGuard.ok) {
-      this.#sendJson(res, 401, {
-        ok: false,
-        errorCode: "UNAUTHORIZED",
-        message: "Missing or invalid Bearer API_TOKEN for /mcp",
-      });
+    const mcpVerdict = this.#auth.guardBearer(bucketKey, req.headers.authorization);
+    if (!mcpVerdict.ok) {
+      this.#sendAuthRejection(res, mcpVerdict, mcpMessages);
       return;
     }
 
@@ -1407,100 +1047,5 @@ export class FengSuiHttpServer {
     }
 
     this.#sendJson(res, 200, rpcResponse);
-  }
-
-  async #serveStaticAsset(
-    res: ServerResponse,
-    method: string,
-    pathname: string
-  ): Promise<void> {
-    if (method !== "GET" && method !== "HEAD") {
-      this.#sendJson(res, 405, {
-        ok: false,
-        errorCode: "METHOD_NOT_ALLOWED",
-        message: "Static assets support GET/HEAD only",
-      });
-      return;
-    }
-
-    const rootDir = this.#config.staticDir;
-    if (!fs.existsSync(rootDir)) {
-      this.#sendJson(res, 404, {
-        ok: false,
-        errorCode: "STATIC_ROOT_NOT_FOUND",
-        message: "Frontend assets not built yet; REST API and /api/events SSE are online",
-      });
-      return;
-    }
-
-    const relPath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-    if (relPath.includes("\0")) {
-      this.#sendJson(res, 400, { ok: false, errorCode: "BAD_PATH", message: "Invalid path" });
-      return;
-    }
-    // Block dotfiles (.env, .git, .DS_Store) and Synology NAS metadata folders (@eaDir)
-    if (relPath.split("/").some((seg) => seg.startsWith(".") || seg.startsWith("@"))) {
-      this.#sendJson(res, 404, {
-        ok: false,
-        errorCode: "ASSET_NOT_FOUND",
-        message: `Asset not found: ${pathname}`,
-      });
-      return;
-    }
-
-    const realRoot = await fsp.realpath(rootDir);
-    const candidate = path.resolve(realRoot, relPath);
-    if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${path.sep}`)) {
-      this.#sendJson(res, 403, {
-        ok: false,
-        errorCode: "PATH_TRAVERSAL_BLOCKED",
-        message: "Forbidden static path",
-      });
-      return;
-    }
-
-    let targetFile = candidate;
-    try {
-      const stat = await fsp.stat(targetFile);
-      if (stat.isDirectory()) {
-        targetFile = path.join(targetFile, "index.html");
-      }
-      const realTarget = await fsp.realpath(targetFile);
-      if (!realTarget.startsWith(`${realRoot}${path.sep}`) && realTarget !== realRoot) {
-        this.#sendJson(res, 403, {
-          ok: false,
-          errorCode: "SYMLINK_ESCAPE_BLOCKED",
-          message: "Forbidden symlink target",
-        });
-        return;
-      }
-
-      const ext = path.extname(realTarget).toLowerCase();
-      const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
-      const fileBytes = await fsp.readFile(realTarget);
-
-      res.writeHead(200, {
-        "Content-Type": contentType,
-        "Content-Length": String(fileBytes.length),
-        "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=3600",
-        "X-Content-Type-Options": "nosniff",
-        "X-Frame-Options": "DENY",
-        "Cross-Origin-Resource-Policy": "same-origin",
-        "Referrer-Policy": "strict-origin-when-cross-origin",
-        "Content-Security-Policy":
-          "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
-      });
-      if (method === "HEAD") {
-        res.end();
-      } else {
-        res.end(fileBytes);
-      }
-    } catch {
-      this.#sendJson(res, 404, {
-        ok: false,
-        errorCode: "ASSET_NOT_FOUND",
-        message: `Asset not found: ${pathname}`,
-      });
-    }
   }
 }
