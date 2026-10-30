@@ -12,7 +12,7 @@ import {
   hexMaskToBands,
   parseBandNumber,
 } from "./band-lock.ts";
-import type { EphemeralCpeSession } from "./cpe-client.ts";
+import { CpeApiError, type EphemeralCpeSession } from "./cpe-client.ts";
 import {
   type NeighborCellEntry,
   type RfSignalSnapshot,
@@ -194,8 +194,27 @@ export interface SecurityUpdateCommand {
   firewall?: Partial<FirewallSwitchState>;
 }
 
-function safeGet(session: EphemeralCpeSession, apiPath: string): Promise<string> {
-  return session.get(apiPath).catch(() => "");
+/**
+ * Read an endpoint whose absence the snapshot tolerates: a CPE error code (the router answered,
+ * e.g. `100002` unsupported) degrades to `""`, but transport failures (timeout, reset) propagate,
+ * because a broken session must never turn into a fabricated all-zero snapshot.
+ */
+async function optionalGet(session: EphemeralCpeSession, apiPath: string): Promise<string> {
+  try {
+    return await session.get(apiPath);
+  } catch (err) {
+    if (err instanceof CpeApiError) return "";
+    throw err;
+  }
+}
+
+/** Current value of a read-modify-write field; a missing tag aborts the change before any write. */
+function requireTag(xml: string, tag: string, apiPath: string): string {
+  const value = getXmlTag(xml, tag);
+  if (value === null) {
+    throw new Error(`Unexpected ${apiPath} response without <${tag}>; refusing to write guessed values`);
+  }
+  return value.trim();
 }
 
 function splitDnsList(raw: string | null | undefined, redact: boolean): string[] {
@@ -219,22 +238,30 @@ function encodeAntennaCode(mode: AntennaModeName): number {
   return 0;
 }
 
+/** Strictly parse `GET /api/wlan/wlandbho` (`{"MloEnable":bool,"DbhoEnable":bool}`). */
 function parseWifi7DbhoJson(rawJson: string): { mloEnable: boolean; dbhoEnable: boolean } {
+  let parsed: unknown;
   try {
-    const obj = JSON.parse(rawJson) as Record<string, unknown>;
-    return {
-      mloEnable: Boolean(obj["MloEnable"]),
-      dbhoEnable: Boolean(obj["DbhoEnable"]),
-    };
+    parsed = JSON.parse(rawJson);
   } catch {
-    return { mloEnable: false, dbhoEnable: false };
+    parsed = null;
   }
+  const obj = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  const mlo = obj && "MloEnable" in obj ? obj.MloEnable : undefined;
+  const dbho = obj && "DbhoEnable" in obj ? obj.DbhoEnable : undefined;
+  if (typeof mlo !== "boolean" || typeof dbho !== "boolean") {
+    throw new Error("Unexpected /api/wlan/wlandbho response (expected MloEnable/DbhoEnable booleans)");
+  }
+  return { mloEnable: mlo, dbhoEnable: dbho };
 }
 
 /**
  * Fetch a complete, JSON-serializable 5G/4G RF + 3CA + 256QAM MCS + MIMO + Dual-Stack WAN + Dual-Period Traffic
  * snapshot within a single ephemeral CPE session (~130–220ms). With `includeSmsCounters`, the SMS
  * counters ride along as one more parallel GET so SMS change detection costs no extra session.
+ *
+ * Core endpoints (signal, status, traffic and month statistics) must succeed; the others degrade
+ * only on CPE error codes. Any transport failure fails the whole snapshot.
  */
 export async function fetchGlobalTelemetry(
   session: EphemeralCpeSession,
@@ -257,19 +284,19 @@ export async function fetchGlobalTelemetry(
     startDateXml,
     smsCountXml,
   ] = await Promise.all([
-    safeGet(session, "/api/device/signal"),
-    safeGet(session, "/api/device/seccellinfo"),
-    safeGet(session, "/api/device/ri"),
-    safeGet(session, "/api/net/cell-info"),
-    safeGet(session, "/api/net/current-plmn"),
-    safeGet(session, "/api/net/net-mode"),
-    safeGet(session, "/api/device/information"),
-    safeGet(session, "/api/device/basic_information"),
-    safeGet(session, "/api/monitoring/status"),
-    safeGet(session, "/api/monitoring/traffic-statistics"),
-    safeGet(session, "/api/monitoring/month_statistics"),
-    safeGet(session, "/api/monitoring/start_date"),
-    options.includeSmsCounters ? safeGet(session, "/api/sms/sms-count") : Promise.resolve(""),
+    session.get("/api/device/signal"),
+    optionalGet(session, "/api/device/seccellinfo"),
+    optionalGet(session, "/api/device/ri"),
+    optionalGet(session, "/api/net/cell-info"),
+    optionalGet(session, "/api/net/current-plmn"),
+    optionalGet(session, "/api/net/net-mode"),
+    optionalGet(session, "/api/device/information"),
+    optionalGet(session, "/api/device/basic_information"),
+    session.get("/api/monitoring/status"),
+    session.get("/api/monitoring/traffic-statistics"),
+    session.get("/api/monitoring/month_statistics"),
+    optionalGet(session, "/api/monitoring/start_date"),
+    options.includeSmsCounters ? optionalGet(session, "/api/sms/sms-count") : Promise.resolve(""),
   ]);
 
   const rf = parseRfSignalSnapshot({
@@ -398,7 +425,7 @@ export async function fetchTerminalTopology(
 ): Promise<TerminalTopologySnapshot> {
   const [hostInfoJson, topologyJson] = await Promise.all([
     session.get("/api/system/HostInfo"),
-    safeGet(session, "/api/system/topology"),
+    optionalGet(session, "/api/system/topology"),
   ]);
 
   const hosts = parseHostInfoJson(hostInfoJson, { sanitize: options.sanitize !== false });
@@ -429,7 +456,8 @@ export async function fetchTerminalTopology(
 
 /**
  * Query HAR-verified security switches (UPnP, DMZ, Firewall, NAT, Bridge), Wi-Fi 7 MLO/DBHO,
- * Antenna mode, and Mobile Data switch.
+ * Antenna mode, and Mobile Data switch. All-or-nothing: the snapshot is made of booleans, so any
+ * failed or malformed read fails the refresh instead of reporting a guessed switch state.
  */
 export async function fetchRouterSettings(
   session: EphemeralCpeSession,
@@ -447,36 +475,31 @@ export async function fetchRouterSettings(
     antennaTypeXml,
     dataSwitchXml,
   ] = await Promise.all([
-    safeGet(session, "/api/security/upnp"),
-    safeGet(session, "/api/security/dmz"),
-    safeGet(session, "/api/security/firewall-switch"),
-    safeGet(session, "/api/security/nat"),
-    safeGet(session, "/api/security/bridgemode"),
-    safeGet(session, "/api/wlan/wlandbho"),
-    safeGet(session, "/api/device/antenna_set_type"),
-    safeGet(session, "/api/device/antenna_type"),
-    safeGet(session, "/api/dialup/mobile-dataswitch"),
+    session.get("/api/security/upnp"),
+    session.get("/api/security/dmz"),
+    session.get("/api/security/firewall-switch"),
+    session.get("/api/security/nat"),
+    session.get("/api/security/bridgemode"),
+    session.get("/api/wlan/wlandbho"),
+    session.get("/api/device/antenna_set_type"),
+    session.get("/api/device/antenna_type"),
+    session.get("/api/dialup/mobile-dataswitch"),
   ]);
 
+  const firewall = readFirewallSwitches(firewallXml);
   const rawDmzIp = (getXmlTag(dmzXml, "DmzIPAddress") ?? "").trim();
-  const antCode = (getXmlTag(antennaSetXml, "antennasettype") ?? "0").trim();
+  const antCode = requireTag(antennaSetXml, "antennasettype", "/api/device/antenna_set_type");
   const nowMs = Date.now();
 
   return {
     capturedAtIso: new Date(nowMs).toISOString(),
     capturedAtMs: nowMs,
-    upnpEnabled: getXmlTag(upnpXml, "UpnpStatus") === "1",
-    dmzEnabled: getXmlTag(dmzXml, "DmzStatus") === "1",
+    upnpEnabled: requireTag(upnpXml, "UpnpStatus", "/api/security/upnp") === "1",
+    dmzEnabled: requireTag(dmzXml, "DmzStatus", "/api/security/dmz") === "1",
     dmzIpAddress: sanitize && rawDmzIp ? sanitizeIpToken(rawDmzIp) : rawDmzIp,
-    firewall: {
-      mainSwitch: (getXmlTag(firewallXml, "FirewallMainSwitch") ?? "1") === "1",
-      ipFilterSwitch: (getXmlTag(firewallXml, "FirewallIPFilterSwitch") ?? "1") === "1",
-      wanPortPingSwitch: (getXmlTag(firewallXml, "FirewallWanPortPingSwitch") ?? "0") === "1",
-      macFilterSwitch: (getXmlTag(firewallXml, "firewallmacfilterswitch") ?? "1") === "1",
-      urlFilterSwitch: (getXmlTag(firewallXml, "firewallurlfilterswitch") ?? "1") === "1",
-    },
-    natType: Number.parseInt(getXmlTag(natXml, "NATType") ?? "1", 10) || 1,
-    bridgeModeEnabled: getXmlTag(bridgeXml, "bridgemode") === "1",
+    firewall,
+    natType: Number.parseInt(requireTag(natXml, "NATType", "/api/security/nat"), 10) || 1,
+    bridgeModeEnabled: requireTag(bridgeXml, "bridgemode", "/api/security/bridgemode") === "1",
     wifi7: parseWifi7DbhoJson(wlandbhoJson),
     antenna: {
       mode: decodeAntennaCode(antCode),
@@ -484,7 +507,7 @@ export async function fetchRouterSettings(
       antenna1Inserted: getXmlTag(antennaTypeXml, "antenna1insertstatus") === "1",
       antenna2Inserted: getXmlTag(antennaTypeXml, "antenna2insertstatus") === "1",
     },
-    mobileDataEnabled: (getXmlTag(dataSwitchXml, "dataswitch") ?? "1") === "1",
+    mobileDataEnabled: requireTag(dataSwitchXml, "dataswitch", "/api/dialup/mobile-dataswitch") === "1",
   };
 }
 
@@ -678,10 +701,21 @@ export function validateSecurityUpdateCommand(command: SecurityUpdateCommand): v
   }
 }
 
+function readFirewallSwitches(xml: string): FirewallSwitchState {
+  const api = "/api/security/firewall-switch";
+  return {
+    mainSwitch: requireTag(xml, "FirewallMainSwitch", api) === "1",
+    ipFilterSwitch: requireTag(xml, "FirewallIPFilterSwitch", api) === "1",
+    wanPortPingSwitch: requireTag(xml, "FirewallWanPortPingSwitch", api) === "1",
+    macFilterSwitch: requireTag(xml, "firewallmacfilterswitch", api) === "1",
+    urlFilterSwitch: requireTag(xml, "firewallurlfilterswitch", api) === "1",
+  };
+}
+
 /**
  * Update HAR-verified router security switches (UPnP, DMZ, and/or Firewall switches).
- * The DMZ target is resolved and validated before the first write, so a missing host IP
- * never leaves UPnP applied on its own.
+ * Every read the change depends on (current DMZ host, current firewall switches) happens and is
+ * validated before the first write, so a failed read never leaves a partial or guessed change.
  */
 export async function updateSecuritySettings(
   session: EphemeralCpeSession,
@@ -691,8 +725,8 @@ export async function updateSecuritySettings(
 
   let dmzPayload: { DmzStatus: number; DmzIPAddress: string } | null = null;
   if (command.dmz !== undefined) {
-    const currentDmzXml = await safeGet(session, "/api/security/dmz");
-    const targetIp = (command.dmz.ipAddress ?? getXmlTag(currentDmzXml, "DmzIPAddress") ?? "").trim();
+    const currentDmzXml = await session.get("/api/security/dmz");
+    const targetIp = (command.dmz.ipAddress ?? requireTag(currentDmzXml, "DmzIPAddress", "/api/security/dmz")).trim();
     if ((command.dmz.enabled || targetIp !== "") && net.isIP(targetIp) !== 4) {
       throw new CpeControlValidationError(
         `Invalid DMZ host IPv4 address "${targetIp}"`
@@ -704,31 +738,29 @@ export async function updateSecuritySettings(
     };
   }
 
+  let firewallPayload: Record<string, number> | null = null;
+  if (command.firewall !== undefined) {
+    const current = readFirewallSwitches(await session.get("/api/security/firewall-switch"));
+    const next = { ...current, ...Object.fromEntries(Object.entries(command.firewall).filter(([, v]) => v !== undefined)) };
+    firewallPayload = {
+      FirewallMainSwitch: next.mainSwitch ? 1 : 0,
+      FirewallIPFilterSwitch: next.ipFilterSwitch ? 1 : 0,
+      FirewallWanPortPingSwitch: next.wanPortPingSwitch ? 1 : 0,
+      firewallmacfilterswitch: next.macFilterSwitch ? 1 : 0,
+      firewallurlfilterswitch: next.urlFilterSwitch ? 1 : 0,
+    };
+  }
+
   if (command.upnpEnabled !== undefined) {
     await session.postXml("/api/security/upnp", {
       UpnpStatus: command.upnpEnabled ? 1 : 0,
     });
   }
-
   if (dmzPayload !== null) {
     await session.postXml("/api/security/dmz", dmzPayload);
   }
-
-  if (command.firewall !== undefined) {
-    const currentFwXml = await safeGet(session, "/api/security/firewall-switch");
-    const curMain = (getXmlTag(currentFwXml, "FirewallMainSwitch") ?? "1") === "1";
-    const curIp = (getXmlTag(currentFwXml, "FirewallIPFilterSwitch") ?? "1") === "1";
-    const curPing = (getXmlTag(currentFwXml, "FirewallWanPortPingSwitch") ?? "0") === "1";
-    const curMac = (getXmlTag(currentFwXml, "firewallmacfilterswitch") ?? "1") === "1";
-    const curUrl = (getXmlTag(currentFwXml, "firewallurlfilterswitch") ?? "1") === "1";
-
-    await session.postXml("/api/security/firewall-switch", {
-      FirewallMainSwitch: (command.firewall.mainSwitch ?? curMain) ? 1 : 0,
-      FirewallIPFilterSwitch: (command.firewall.ipFilterSwitch ?? curIp) ? 1 : 0,
-      FirewallWanPortPingSwitch: (command.firewall.wanPortPingSwitch ?? curPing) ? 1 : 0,
-      firewallmacfilterswitch: (command.firewall.macFilterSwitch ?? curMac) ? 1 : 0,
-      firewallurlfilterswitch: (command.firewall.urlFilterSwitch ?? curUrl) ? 1 : 0,
-    });
+  if (firewallPayload !== null) {
+    await session.postXml("/api/security/firewall-switch", firewallPayload);
   }
 }
 
@@ -742,8 +774,7 @@ export async function updateWifi7Mlo(
   if (input.mloEnable === undefined && input.dbhoEnable === undefined) {
     throw new CpeControlValidationError("Specify mloEnable and/or dbhoEnable");
   }
-  const currentRaw = await safeGet(session, "/api/wlan/wlandbho");
-  const current = parseWifi7DbhoJson(currentRaw);
+  const current = parseWifi7DbhoJson(await session.get("/api/wlan/wlandbho"));
   const next = {
     MloEnable: input.mloEnable ?? current.mloEnable,
     DbhoEnable: input.dbhoEnable ?? current.dbhoEnable,
