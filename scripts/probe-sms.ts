@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const preState = await client.getLoginState();
   console.log(`Pre-check /api/user/state-login -> State=${preState.state}, isLoggedInElsewhere=${preState.isLoggedInElsewhere}`);
 
-  const probe = await checkSmsNotifications(client);
+  const probe = await checkSmsNotifications({ probePublic: (apiPath) => client.getPublic(apiPath) });
   console.log(`Unauthenticated check-notifications -> unread=${probe.unreadMessages}, storageFull=${probe.storageFull}`);
 
   const startedAt = performance.now();

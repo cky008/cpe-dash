@@ -50,7 +50,8 @@ describe("SMS protocol: counters, listings and encrypted fallbacks", () => {
   it("reads the unauthenticated check-notifications probe without opening a session", async () => {
     const mock = createMockSmsCpe({ messages: seedMessages(), storageFull: true });
     const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
-    assert.deepEqual(await checkSmsNotifications(client), { unreadMessages: 2, storageFull: true });
+    const probe = { probePublic: (apiPath: string) => client.getPublic(apiPath) };
+    assert.deepEqual(await checkSmsNotifications(probe), { unreadMessages: 2, storageFull: true });
     assert.equal(mock.getLoginCount(), 0);
   });
 

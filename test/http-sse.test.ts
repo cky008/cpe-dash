@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -248,6 +249,8 @@ function createMockCpeFetch(opts: {
 
 interface TestServerContext {
   server: FengSuiHttpServer;
+  core: FengSuiCore;
+  cpeClient: HuaweiCpeClient;
   scheduler: MutexSessionScheduler;
   sseBus: SseEventBus;
   mcpServer: FengSuiMcpServer;
@@ -323,31 +326,32 @@ async function createTestHttpServer(opts: {
     cpePassword: config.cpePassword,
     fetchImpl,
   });
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client: cpeClient,
     stateStore,
     timeseries: ring,
     pollIntervalMs: 60_000,
     neighborScanIntervalMs: 120_000,
   });
-  scheduler.init();
+  const scheduler = core.scheduler;
+  core.monitor.init();
 
   const sseBus = new SseEventBus({
     heartbeatMs: 2000,
     maxClients: opts.sseMaxClients ?? 16,
     maxClientsPerIp: 6,
   });
-  sseBus.attachScheduler(scheduler);
+  sseBus.attachCore(core);
   sseBus.start();
 
   const mcpServer = new FengSuiMcpServer({
-    scheduler,
+    core,
     allowMutations: config.mcpAllowMutations,
   });
 
   const server = new FengSuiHttpServer({
     config,
-    scheduler,
+    core,
     sseBus,
     mcpServer,
     envPath,
@@ -359,7 +363,7 @@ async function createTestHttpServer(opts: {
   const cleanup = async (): Promise<void> => {
     sseBus.stop();
     await server.close();
-    await scheduler.stop();
+    await stopFengSuiCore(core);
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {
@@ -369,6 +373,8 @@ async function createTestHttpServer(opts: {
 
   return {
     server,
+    core,
+    cpeClient,
     scheduler,
     sseBus,
     mcpServer,
@@ -493,9 +499,10 @@ describe("SseEventBus fan-out, lifecycle, rate caps, backpressure & event valida
       },
     };
 
-    bus.attachScheduler(mockScheduler as never);
+    const mockCore = { scheduler: mockScheduler, monitor: mockScheduler } as never;
+    bus.attachCore(mockCore);
     // Attaching twice detaches previous handlers cleanly
-    bus.attachScheduler(mockScheduler as never);
+    bus.attachCore(mockCore);
 
     const received: Array<{ event: string; data: unknown }> = [];
     bus.broadcast = (event, data) => {
@@ -1365,7 +1372,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
     // 2. Queue full -> 503 and Upstream error -> 502
     const fxErr = await createTestHttpServer();
     try {
-      fxErr.scheduler.unlockAllLocks = async () => {
+      fxErr.core.controls.unlockAllLocks = async () => {
         throw new SchedulerQueueFullError(32);
       };
       const res503 = await fetch(`${fxErr.baseUrl}/api/control/unlock`, {
@@ -1379,7 +1386,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       assert.equal(res503.status, 503);
       assert.equal(((await res503.json()) as { errorCode: string }).errorCode, "QUEUE_FULL");
 
-      fxErr.scheduler.unlockAllLocks = async () => {
+      fxErr.core.controls.unlockAllLocks = async () => {
         throw new Error("Baseband socket dropped");
       };
       const res502 = await fetch(`${fxErr.baseUrl}/api/control/unlock`, {
@@ -1808,14 +1815,14 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       assert.equal(fx.scheduler.getStatus().totalSessionsCompleted, sessionsBeforeTyped);
 
       // 7. Circuit breaker 108006 latch refuses reset-breaker when CPE_PASSWORD is unchanged in .env
-      fx.scheduler.client.hydrateCircuitBreaker({
+      fx.cpeClient.hydrateCircuitBreaker({
         tripped: true,
         code: "108006",
         reason: "Wrong password",
         trippedAtIso: new Date().toISOString(),
         remainCount: 2,
         waitTime: null,
-        passwordFingerprintHex: fx.scheduler.client.getPasswordFingerprint(),
+        passwordFingerprintHex: fx.cpeClient.getPasswordFingerprint(),
       });
       const resetUnchanged = await fetch(`${fx.baseUrl}/api/session/reset-breaker`, {
         method: "POST",
@@ -1952,8 +1959,8 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
             "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>",
         }),
       });
-      stack.scheduler.init();
-      const snap = await stack.scheduler.refreshTelemetry();
+      stack.core.monitor.init();
+      const snap = await stack.core.monitor.refreshTelemetry();
       assert.ok(snap);
       assert.equal(stack.scheduler.getStatus().avoidance.active, false);
       assert.equal(stack.scheduler.getStatus().browserYieldCount, 0);

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -10,7 +11,6 @@ import { NotificationHub, type NotificationChannel, isAlertSeverity } from "../s
 import { TelegramApi, TelegramApiError, normalizeTelegramApiBase } from "../src/notify/telegram-api.ts";
 import { TelegramBot, TelegramStateStore, type TelegramUpdate, escapeTelegramHtml } from "../src/notify/telegram-bot.ts";
 import { WebhookNotifier, normalizeWebhookUrl, signWebhookPayload } from "../src/notify/webhook.ts";
-import { MutexSessionScheduler } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { SmsService } from "../src/sms/service.ts";
@@ -74,18 +74,19 @@ function createBotFixture(opts: { smsEnabled?: boolean; vcf?: string; updates?: 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-notify-"));
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "bot_key" });
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,
     smsCountersEnabled: true,
   });
-  scheduler.init();
+  const scheduler = core.scheduler;
+  core.monitor.init();
   const cipher = StorageCipher.fromSecret("bot_key");
   const contacts = new ContactBook({ filePath: path.join(tmpDir, "contacts.json"), cipher, defaultCountryCode: "+353" });
   const mirror = new SmsMirrorStore({ filePath: path.join(tmpDir, "sms.json"), cipher, defaultCountryCode: "+353", contacts });
-  const service = new SmsService({ scheduler, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined, seedExistingOnStart: false });
+  const service = new SmsService({ scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined, seedExistingOnStart: false });
   const tg = createFakeTelegram({ vcf: opts.vcf, updates: opts.updates });
   const api = new TelegramApi({ token: TOKEN, fetchImpl: tg.fetchImpl });
   const state = new TelegramStateStore({ filePath: path.join(tmpDir, "telegram.json"), cipher });
@@ -93,7 +94,7 @@ function createBotFixture(opts: { smsEnabled?: boolean; vcf?: string; updates?: 
   const logs: string[] = [];
   const bot = new TelegramBot({
     api,
-    scheduler,
+    core,
     state,
     sms: opts.smsEnabled === false ? null : service,
     authToken: "dashboard_api_token",
@@ -109,6 +110,7 @@ function createBotFixture(opts: { smsEnabled?: boolean; vcf?: string; updates?: 
     bot.handleUpdate({ update_id: ++updateId, callback_query: { id: `cb${updateId}`, data, message: { message_id: messageId, chat: { id: chatId } } } });
   return {
     mock,
+    core,
     scheduler,
     service,
     contacts,
@@ -124,7 +126,7 @@ function createBotFixture(opts: { smsEnabled?: boolean; vcf?: string; updates?: 
     cleanup: async () => {
       await bot.stop();
       await service.stop();
-      await scheduler.stop();
+      await stopFengSuiCore(core);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     },
   };
@@ -437,7 +439,7 @@ describe("TelegramBot", () => {
     assert.match(fx.tg.lastText("1001"), /No telemetry yet[\s\S]*SMS: unread 2[\s\S]*Session: idle/);
     assert.equal(fx.mock.getLoginCount(), logins);
 
-    await fx.scheduler.refreshTelemetry();
+    await fx.core.monitor.refreshTelemetry();
     await fx.message(1001, "/status");
     assert.match(fx.tg.lastText("1001"), /📡 <b>/);
     await fx.message(1001, "/sync");

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { MutexSessionScheduler } from "./scheduler.ts";
+import type { FengSuiCore } from "./core.ts";
 import type { SmsService } from "./sms/service.ts";
 
 export type SseEventName =
@@ -94,12 +94,14 @@ export class SseEventBus {
   }
 
   /**
-   * Wire all real-time `MutexSessionScheduler` events into this SSE bus.
+   * Wire the real-time core events into this SSE bus: telemetry/speed/neighbors/topology/settings
+   * from `CpeMonitor`, session:avoidance/alert/control:applied from `MutexSessionScheduler`.
    */
-  attachScheduler(scheduler: MutexSessionScheduler): void {
+  attachCore(core: Pick<FengSuiCore, "scheduler" | "monitor">): void {
     if (this.#detachScheduler) {
       this.#detachScheduler();
     }
+    const { scheduler, monitor } = core;
 
     const onTelemetry = (data: unknown) => this.broadcast("telemetry", data);
     const onSpeed = (data: unknown) => this.broadcast("speed", data);
@@ -110,21 +112,21 @@ export class SseEventBus {
     const onAlert = (data: unknown) => this.broadcast("alert", data);
     const onControl = (data: unknown) => this.broadcast("control:applied", data);
 
-    scheduler.on("telemetry", onTelemetry);
-    scheduler.on("speed", onSpeed);
-    scheduler.on("neighbors", onNeighbors);
-    scheduler.on("topology", onTopology);
-    scheduler.on("settings", onSettings);
+    monitor.on("telemetry", onTelemetry);
+    monitor.on("speed", onSpeed);
+    monitor.on("neighbors", onNeighbors);
+    monitor.on("topology", onTopology);
+    monitor.on("settings", onSettings);
     scheduler.on("session:avoidance", onAvoidance);
     scheduler.on("alert", onAlert);
     scheduler.on("control:applied", onControl);
 
     this.#detachScheduler = () => {
-      scheduler.off("telemetry", onTelemetry);
-      scheduler.off("speed", onSpeed);
-      scheduler.off("neighbors", onNeighbors);
-      scheduler.off("topology", onTopology);
-      scheduler.off("settings", onSettings);
+      monitor.off("telemetry", onTelemetry);
+      monitor.off("speed", onSpeed);
+      monitor.off("neighbors", onNeighbors);
+      monitor.off("topology", onTopology);
+      monitor.off("settings", onSettings);
       scheduler.off("session:avoidance", onAvoidance);
       scheduler.off("alert", onAlert);
       scheduler.off("control:applied", onControl);

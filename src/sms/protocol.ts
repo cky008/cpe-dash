@@ -1,6 +1,7 @@
 import { stripInvalidControlChars } from "../crypto.ts";
-import { CpeApiError, type EphemeralCpeSession, type HuaweiCpeClient } from "../cpe-client.ts";
+import { CpeApiError, type EphemeralCpeSession } from "../cpe-client.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
+import type { MutexSessionScheduler } from "../scheduler.ts";
 import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../xml.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode, parseSmsCounters, parseSmsMessageBlock } from "./codec.ts";
 import type { SmsCounters, SmsSendResult, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
@@ -44,9 +45,9 @@ export async function readSmsCounters(session: EphemeralCpeSession): Promise<Sms
  * without occupying the admin session (usable while yielding to a human browser session).
  */
 export async function checkSmsNotifications(
-  client: HuaweiCpeClient
+  scheduler: Pick<MutexSessionScheduler, "probePublic">
 ): Promise<{ unreadMessages: number; storageFull: boolean }> {
-  const xml = await client.getPublic("/api/monitoring/check-notifications");
+  const xml = await scheduler.probePublic("/api/monitoring/check-notifications");
   return {
     unreadMessages: readInt(xml, "UnreadMessage", 0),
     storageFull: getXmlTag(xml, "SmsStorageFull") === "1",

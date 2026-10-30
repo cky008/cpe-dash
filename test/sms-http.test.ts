@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,7 +10,6 @@ import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiHttpServer } from "../src/http-server.ts";
 import { FengSuiMcpServer } from "../src/mcp-server.ts";
 import { NotificationHub } from "../src/notify/hub.ts";
-import { MutexSessionScheduler } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { SmsService } from "../src/sms/service.ts";
@@ -44,29 +44,30 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
   const config = loadConfig({ envPath, ignoreProcessEnv: true });
   const stateStore = new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey });
   const client = new HuaweiCpeClient({ cpeUrl: config.cpeUrl, cpePassword: config.cpePassword, fetchImpl: mock.fetchImpl });
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,
     smsCountersEnabled: true,
   });
-  scheduler.init();
+  const scheduler = core.scheduler;
+  core.monitor.init();
   const cipher = StorageCipher.fromSecret(config.dataEncryptionKey);
   const contacts = new ContactBook({ filePath: config.contactsFile, cipher, defaultCountryCode: "+353" });
   const mirror = new SmsMirrorStore({ filePath: config.smsFile, cipher, defaultCountryCode: "+353", contacts });
-  const sms = new SmsService({ scheduler, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined });
+  const sms = new SmsService({ scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined });
   const sseBus = new SseEventBus({ heartbeatMs: 2000 });
-  sseBus.attachScheduler(scheduler);
+  sseBus.attachCore(core);
   sseBus.attachSms(sms);
   const hub = new NotificationHub({ scheduler, sms, channels: [{ name: "test", notifyAlert: async () => undefined }] });
   hub.start();
   const smsEnabled = opts.smsEnabled !== false;
   const server = new FengSuiHttpServer({
     config,
-    scheduler,
+    core,
     sseBus,
-    mcpServer: new FengSuiMcpServer({ scheduler }),
+    mcpServer: new FengSuiMcpServer({ core }),
     envPath,
     sms: smsEnabled ? sms : null,
     notificationHub: hub,
@@ -97,7 +98,7 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
       sseBus.stop();
       await server.close();
       await sms.stop();
-      await scheduler.stop();
+      await stopFengSuiCore(core);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     },
   };

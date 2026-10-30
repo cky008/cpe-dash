@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,7 +14,6 @@ import {
   type JsonRpcErrorResponse,
   type JsonRpcSuccessResponse,
 } from "../src/mcp-server.ts";
-import { MutexSessionScheduler } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { getXmlTag } from "../src/xml.ts";
@@ -202,17 +202,18 @@ function createMockSchedulerFixture(opts: {
   });
   const ring = new TimeSeriesRingBuffer({ retentionHours: 24 });
 
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client,
     stateStore,
     timeseries: ring,
     pollIntervalMs: 60_000,
     neighborScanIntervalMs: 120_000,
   });
-  scheduler.init();
+  const scheduler = core.scheduler;
+  core.monitor.init();
 
   if (opts.throwOnGetCachedTelemetry) {
-    scheduler.getCachedTelemetry = () => {
+    core.monitor.getCachedTelemetry = () => {
       throw new Error("Telemetry cache corrupted");
     };
   }
@@ -225,7 +226,7 @@ function createMockSchedulerFixture(opts: {
     }
   };
 
-  return { scheduler, cleanup, client };
+  return { core, scheduler, cleanup, client };
 }
 
 describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch", () => {
@@ -272,7 +273,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("isSupportedProtocolVersion checks supported protocol versions and trim variations", () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler });
+      const server = new FengSuiMcpServer({ core: fx.core });
       assert.equal(server.isSupportedProtocolVersion(undefined), true);
       assert.equal(server.isSupportedProtocolVersion(""), true);
       assert.equal(server.isSupportedProtocolVersion("2025-06-18"), true);
@@ -292,7 +293,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("handleRawJsonMessage handles parse errors, invalid envelopes, batches, notifications, and unknown methods", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler });
+      const server = new FengSuiMcpServer({ core: fx.core });
 
       // Invalid JSON syntax (-32700)
       const parseErr = (await server.handleRawJsonMessage("{ not valid json")) as JsonRpcErrorResponse;
@@ -402,7 +403,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("tools/list switches between allowMutations: true (13 tools) and allowMutations: false (6 tools)", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const serverRw = new FengSuiMcpServer({ scheduler: fx.scheduler, allowMutations: true });
+      const serverRw = new FengSuiMcpServer({ core: fx.core, allowMutations: true });
       const toolsRw = serverRw.getToolDefinitions();
       assert.equal(toolsRw.length, 13);
 
@@ -412,7 +413,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       const listRwPayload = listRw.result as { tools: Array<{ name: string }> };
       assert.equal(listRwPayload.tools.length, 13);
 
-      const serverRo = new FengSuiMcpServer({ scheduler: fx.scheduler, allowMutations: false });
+      const serverRo = new FengSuiMcpServer({ core: fx.core, allowMutations: false });
       const toolsRo = serverRo.getToolDefinitions();
       assert.equal(toolsRo.length, 6);
       const toolNames = new Set(toolsRo.map((t) => t.name));
@@ -448,10 +449,10 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("resources/list and resources/read serve telemetry, session, locks, and reject unknown URIs", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler });
+      const server = new FengSuiMcpServer({ core: fx.core });
 
       // Pre-warm cache
-      await fx.scheduler.refreshTelemetry();
+      await fx.core.monitor.refreshTelemetry();
 
       const listRes = (await server.handleRawJsonMessage(
         JSON.stringify({ jsonrpc: "2.0", id: 30, method: "resources/list" })
@@ -518,7 +519,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("handles internal exception in resources/read producing code -32603", async () => {
     const fx = createMockSchedulerFixture({ throwOnGetCachedTelemetry: true });
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler });
+      const server = new FengSuiMcpServer({ core: fx.core });
       const res = (await server.handleRawJsonMessage(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -537,7 +538,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("executes every read-only tool: get_cpe_telemetry, query_telemetry_history, list_neighbor_cells, get_cpe_session_status, list_terminal_topology, get_router_settings", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler });
+      const server = new FengSuiMcpServer({ core: fx.core });
 
       // 1. get_cpe_telemetry (refresh: true vs refresh: false)
       const telFresh = (await server.handleRawJsonMessage(
@@ -704,7 +705,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       },
     });
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler, allowMutations: true });
+      const server = new FengSuiMcpServer({ core: fx.core, allowMutations: true });
 
       // 1. lock_band valid (lteBands + nrBands) and 'all'
       const lb1 = (await server.handleRawJsonMessage(
@@ -1038,7 +1039,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       loginStateXml: "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>",
     });
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler, allowMutations: true });
+      const server = new FengSuiMcpServer({ core: fx.core, allowMutations: true });
       const res = (await server.handleRawJsonMessage(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -1064,9 +1065,9 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("handles generic CPE execution error in executeToolCall", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler, allowMutations: true });
+      const server = new FengSuiMcpServer({ core: fx.core, allowMutations: true });
       // Force scheduler.lockBands to throw a generic Error
-      fx.scheduler.lockBands = async () => {
+      fx.core.controls.lockBands = async () => {
         throw new Error("Modem baseband hardware fault");
       };
 
@@ -1088,7 +1089,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       assert.match(payload.structuredContent.message, /Modem baseband hardware fault/);
 
       // Also test non-Error string throw
-      fx.scheduler.lockBands = async () => {
+      fx.core.controls.lockBands = async () => {
         // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw "String hardware exception";
       };
@@ -1114,7 +1115,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("attachStdio parses NDJSON input streams, skips empty lines, drops notifications, rejects oversized frames >64KiB, and detaches cleanly", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ scheduler: fx.scheduler });
+      const server = new FengSuiMcpServer({ core: fx.core });
       const inputStream = new PassThrough();
       const outputStream = new PassThrough();
 

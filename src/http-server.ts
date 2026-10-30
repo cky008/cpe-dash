@@ -27,11 +27,11 @@ import {
   type FengSuiMcpServer,
   parseJsonSafeNullProto,
 } from "./mcp-server.ts";
+import type { FengSuiCore } from "./core.ts";
 import {
   BrowserSessionYieldedError,
   SchedulerQueueFullError,
   SchedulerStoppedError,
-  type MutexSessionScheduler,
 } from "./scheduler.ts";
 import type { NotificationHub } from "./notify/hub.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
@@ -136,7 +136,7 @@ function parseStrictFiniteInt(raw: string | undefined): number | undefined {
 
 export interface FengSuiHttpServerOptions {
   config: AppConfig;
-  scheduler: MutexSessionScheduler;
+  core: FengSuiCore;
   sseBus: SseEventBus;
   mcpServer: FengSuiMcpServer;
   envPath?: string;
@@ -156,7 +156,7 @@ export interface FengSuiHttpServerOptions {
  */
 export class FengSuiHttpServer {
   #config: AppConfig;
-  readonly scheduler: MutexSessionScheduler;
+  readonly core: FengSuiCore;
   readonly sseBus: SseEventBus;
   readonly mcpServer: FengSuiMcpServer;
   readonly envPath: string | undefined;
@@ -174,7 +174,7 @@ export class FengSuiHttpServer {
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
-    this.scheduler = options.scheduler;
+    this.core = options.core;
     this.sseBus = options.sseBus;
     this.mcpServer = options.mcpServer;
     this.envPath = options.envPath;
@@ -841,10 +841,10 @@ export class FengSuiHttpServer {
         sessionId: auth.via === "cookie" ? (auth.session?.id ?? null) : null,
         expiresAtMs: auth.via === "cookie" ? (auth.session?.expiresAtMs ?? null) : null,
         initialSnapshot: {
-          schedulerStatus: this.scheduler.getStatus(),
-          avoidance: this.scheduler.getAvoidanceState(),
-          telemetry: this.scheduler.getCachedTelemetry(),
-          lockState: this.scheduler.getPersistedLockState(),
+          schedulerStatus: this.core.scheduler.getStatus(),
+          avoidance: this.core.scheduler.getAvoidanceState(),
+          telemetry: this.core.monitor.getCachedTelemetry(),
+          lockState: this.core.controls.getPersistedLockState(),
           sms: this.sms?.getStatus() ?? null,
         },
       });
@@ -880,7 +880,7 @@ export class FengSuiHttpServer {
           case "/api/alerts":
             this.#sendJson(res, 200, {
               ok: true,
-              alerts: this.scheduler.getRecentAlerts(),
+              alerts: this.core.scheduler.getRecentAlerts(),
               notifications: this.notificationHub?.getStats() ?? null,
             });
             return;
@@ -888,17 +888,17 @@ export class FengSuiHttpServer {
           case "/api/telemetry":
             this.#sendJson(res, 200, {
               ok: true,
-              schedulerStatus: this.scheduler.getStatus(),
-              lockState: this.scheduler.getPersistedLockState(),
-              telemetry: this.scheduler.getCachedTelemetry(),
-              recentAlerts: this.scheduler.getRecentAlerts(),
+              schedulerStatus: this.core.scheduler.getStatus(),
+              lockState: this.core.controls.getPersistedLockState(),
+              telemetry: this.core.monitor.getCachedTelemetry(),
+              recentAlerts: this.core.scheduler.getRecentAlerts(),
             });
             return;
 
           case "/api/timeseries": {
             const q = parseQueryNullProto(searchParams);
             const preset = (q["preset"] as TimeSeriesPreset | undefined) ?? "1h";
-            const result = this.scheduler.queryTimeSeries({
+            const result = this.core.monitor.queryTimeSeries({
               preset,
               fromMs: parseStrictFiniteInt(q["fromMs"]),
               toMs: parseStrictFiniteInt(q["toMs"]),
@@ -912,32 +912,32 @@ export class FengSuiHttpServer {
           case "/api/neighbors":
             this.#sendJson(res, 200, {
               ok: true,
-              schedulerStatus: this.scheduler.getStatus(),
-              neighbors: this.scheduler.getCachedNeighbors(),
+              schedulerStatus: this.core.scheduler.getStatus(),
+              neighbors: this.core.monitor.getCachedNeighbors(),
             });
             return;
 
           case "/api/topology":
             this.#sendJson(res, 200, {
               ok: true,
-              schedulerStatus: this.scheduler.getStatus(),
-              topology: this.scheduler.getCachedTopology(),
+              schedulerStatus: this.core.scheduler.getStatus(),
+              topology: this.core.monitor.getCachedTopology(),
             });
             return;
 
           case "/api/settings":
             this.#sendJson(res, 200, {
               ok: true,
-              schedulerStatus: this.scheduler.getStatus(),
-              lockState: this.scheduler.getPersistedLockState(),
-              settings: this.scheduler.getCachedSettings(),
+              schedulerStatus: this.core.scheduler.getStatus(),
+              lockState: this.core.controls.getPersistedLockState(),
+              settings: this.core.monitor.getCachedSettings(),
             });
             return;
 
           case "/api/session/status":
             this.#sendJson(res, 200, {
               ok: true,
-              status: this.scheduler.getStatus(),
+              status: this.core.scheduler.getStatus(),
             });
             return;
 
@@ -964,41 +964,41 @@ export class FengSuiHttpServer {
 
       switch (pathname) {
         case "/api/telemetry/refresh": {
-          const telemetry = await this.scheduler.refreshTelemetry();
+          const telemetry = await this.core.monitor.refreshTelemetry();
           this.#sendJson(res, 200, {
             ok: true,
-            schedulerStatus: this.scheduler.getStatus(),
-            telemetry: telemetry ?? this.scheduler.getCachedTelemetry(),
+            schedulerStatus: this.core.scheduler.getStatus(),
+            telemetry: telemetry ?? this.core.monitor.getCachedTelemetry(),
           });
           return;
         }
 
         case "/api/neighbors/scan": {
-          const neighbors = await this.scheduler.refreshNeighbors();
+          const neighbors = await this.core.monitor.refreshNeighbors();
           this.#sendJson(res, 200, {
             ok: true,
-            schedulerStatus: this.scheduler.getStatus(),
-            neighbors: neighbors ?? this.scheduler.getCachedNeighbors(),
+            schedulerStatus: this.core.scheduler.getStatus(),
+            neighbors: neighbors ?? this.core.monitor.getCachedNeighbors(),
           });
           return;
         }
 
         case "/api/topology/refresh": {
-          const topology = await this.scheduler.refreshTopology();
+          const topology = await this.core.monitor.refreshTopology();
           this.#sendJson(res, 200, {
             ok: true,
-            schedulerStatus: this.scheduler.getStatus(),
-            topology: topology ?? this.scheduler.getCachedTopology(),
+            schedulerStatus: this.core.scheduler.getStatus(),
+            topology: topology ?? this.core.monitor.getCachedTopology(),
           });
           return;
         }
 
         case "/api/settings/refresh": {
-          const settings = await this.scheduler.refreshSettings();
+          const settings = await this.core.monitor.refreshSettings();
           this.#sendJson(res, 200, {
             ok: true,
-            schedulerStatus: this.scheduler.getStatus(),
-            settings: settings ?? this.scheduler.getCachedSettings(),
+            schedulerStatus: this.core.scheduler.getStatus(),
+            settings: settings ?? this.core.monitor.getCachedSettings(),
           });
           return;
         }
@@ -1009,23 +1009,23 @@ export class FengSuiHttpServer {
           });
           const tokenRotated = !constantTimeSecretMatch(reloadedCfg.apiToken, this.#config.apiToken);
           this.#config = reloadedCfg;
-          this.scheduler.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
+          this.core.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
           // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
           // between cannot leave state.json under a key the reloaded .env no longer provides.
-          await this.scheduler.stateStore.flushAsync().catch(() => undefined);
+          await this.core.stateStore.flushAsync().catch(() => undefined);
           await this.#onConfigReloaded?.(reloadedCfg);
           if (tokenRotated) {
             this.#sessions.clear();
             this.sseBus.disconnectAll();
           }
-          const breaker = await this.scheduler.reloadCredentialsAndResetBreaker(
+          const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(
             reloadedCfg.cpePassword,
             reloadedCfg.cpeUsername
           );
           this.#sendJson(res, 200, {
             ok: true,
             circuitBreaker: breaker,
-            status: this.scheduler.getStatus(),
+            status: this.core.scheduler.getStatus(),
           });
           return;
         }
@@ -1051,7 +1051,7 @@ export class FengSuiHttpServer {
           }
           const lteBands = rawLte as ReadonlyArray<BandInput> | "all" | undefined;
           const nrBands = rawNr as ReadonlyArray<BandInput> | "all" | undefined;
-          const lockState = await this.scheduler.lockBands({ lteBands, nrBands });
+          const lockState = await this.core.controls.lockBands({ lteBands, nrBands });
           this.#sendJson(res, 200, { ok: true, lockState });
           return;
         }
@@ -1079,19 +1079,19 @@ export class FengSuiHttpServer {
             throw new CpeControlValidationError('Field "pci" must be a finite integer, null, or omitted');
           }
           const pci = typeof rawPci === "number" ? rawPci : undefined;
-          const lockState = await this.scheduler.lockCell({ rat, band, arfcn, pci });
+          const lockState = await this.core.controls.lockCell({ rat, band, arfcn, pci });
           this.#sendJson(res, 200, { ok: true, lockState });
           return;
         }
 
         case "/api/control/unlock": {
-          const lockState = await this.scheduler.unlockAllLocks();
+          const lockState = await this.core.controls.unlockAllLocks();
           this.#sendJson(res, 200, { ok: true, lockState });
           return;
         }
 
         case "/api/control/reboot": {
-          const result = await this.scheduler.rebootRouter({
+          const result = await this.core.controls.rebootRouter({
             confirm: body["confirm"] === true,
           });
           this.#sendJson(res, 200, { ok: true, ...result });
@@ -1104,7 +1104,7 @@ export class FengSuiHttpServer {
               "Cellular reconnect requires explicit { confirm: true }"
             );
           }
-          const result = await this.scheduler.reconnectCellular();
+          const result = await this.core.controls.reconnectCellular();
           this.#sendJson(res, 200, { ok: true, ...result });
           return;
         }
@@ -1159,7 +1159,7 @@ export class FengSuiHttpServer {
             firewall = cleanFw;
           }
 
-          const settings = await this.scheduler.setSecuritySwitches({
+          const settings = await this.core.controls.setSecuritySwitches({
             upnpEnabled,
             dmz,
             firewall,
@@ -1177,14 +1177,14 @@ export class FengSuiHttpServer {
           if (dbhoEnable !== undefined && typeof dbhoEnable !== "boolean") {
             throw new CpeControlValidationError('Field "dbhoEnable" must be boolean');
           }
-          const wifi7 = await this.scheduler.setWifi7Settings({ mloEnable, dbhoEnable });
+          const wifi7 = await this.core.controls.setWifi7Settings({ mloEnable, dbhoEnable });
           this.#sendJson(res, 200, { ok: true, wifi7 });
           return;
         }
 
         case "/api/control/antenna": {
           const mode = body["mode"] as AntennaModeName;
-          const antenna = await this.scheduler.setAntennaMode(mode);
+          const antenna = await this.core.controls.setAntennaMode(mode);
           this.#sendJson(res, 200, { ok: true, antenna });
           return;
         }
@@ -1193,7 +1193,7 @@ export class FengSuiHttpServer {
           if (typeof body["enabled"] !== "boolean") {
             throw new CpeControlValidationError('Field "enabled" must be boolean');
           }
-          const result = await this.scheduler.setMobileData(body["enabled"]);
+          const result = await this.core.controls.setMobileData(body["enabled"]);
           this.#sendJson(res, 200, { ok: true, ...result });
           return;
         }
@@ -1228,7 +1228,7 @@ export class FengSuiHttpServer {
           errorCode: "BROWSER_SESSION_YIELDED",
           message: err.messageZh,
           messageEn: err.messageEn,
-          avoidance: this.scheduler.getAvoidanceState(),
+          avoidance: this.core.scheduler.getAvoidanceState(),
         });
         return;
       }

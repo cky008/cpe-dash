@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,6 @@ import { describe, it } from "node:test";
 import { AlertEngine, parseDataLimitBytes } from "../src/alert-engine.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
-import { MutexSessionScheduler } from "../src/scheduler.ts";
 import type { AlertEventRecord } from "../src/state-store.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
@@ -61,18 +61,20 @@ function createEngineFixture(opts: { failing?: () => boolean } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-alerts-"));
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "alert_key" });
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,
   });
-  scheduler.init();
+  const scheduler = core.scheduler;
+  core.monitor.init();
   let clock = 1_000_000;
-  const engine = new AlertEngine({ scheduler, now: () => clock });
+  const engine = new AlertEngine({ scheduler, monitor: core.monitor, now: () => clock });
   const alerts: AlertEventRecord[] = [];
   scheduler.on("alert", (a: AlertEventRecord) => alerts.push(a));
   return {
+    core,
     scheduler,
     engine,
     stateStore,
@@ -83,7 +85,7 @@ function createEngineFixture(opts: { failing?: () => boolean } = {}) {
     },
     cleanup: async () => {
       engine.stop();
-      await scheduler.stop();
+      await stopFengSuiCore(core);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     },
   };
@@ -190,7 +192,7 @@ describe("AlertEngine scheduler health rules", () => {
   it("raises CPE unreachable after the hold window and recovery only on a healthy session", async () => {
     let failing = true;
     const fx = createEngineFixture({ failing: () => failing });
-    await assert.rejects(() => fx.scheduler.refreshTelemetry(), /ECONNREFUSED/);
+    await assert.rejects(() => fx.core.monitor.refreshTelemetry(), /ECONNREFUSED/);
     assert.equal(fx.scheduler.getStatus().mode, "cpe_unreachable");
     fx.setClock(1_000_000);
     fx.engine.evaluateSchedulerHealth();
@@ -207,7 +209,7 @@ describe("AlertEngine scheduler health rules", () => {
     failing = false;
     fx.setClock(1_090_000);
     fx.engine.start();
-    await fx.scheduler.refreshTelemetry();
+    await fx.core.monitor.refreshTelemetry();
     assert.deepEqual(fx.codes(), ["CPE_UNREACHABLE", "CPE_RECOVERED"]);
     assert.match(fx.alerts[1]?.messageEn ?? "", /after ~90s/);
     fx.engine.start();

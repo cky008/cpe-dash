@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../cpe-domain.ts";
+import type { CpeMonitor } from "../cpe-monitor.ts";
 import { t } from "../i18n.ts";
 import { maskPhoneNumber } from "../sanitize.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
@@ -96,6 +97,8 @@ export interface SmsUpdatedEvent {
 
 export interface SmsServiceOptions {
   scheduler: MutexSessionScheduler;
+  /** Source of the telemetry sessions that piggyback the SMS counters. */
+  monitor: CpeMonitor;
   mirror: SmsMirrorStore;
   contacts: ContactBook;
   defaultCountryCode: string;
@@ -133,6 +136,7 @@ function sameCounters(a: SmsCounters, b: SmsCounters): boolean {
  */
 export class SmsService extends EventEmitter {
   readonly scheduler: MutexSessionScheduler;
+  readonly monitor: CpeMonitor;
   readonly mirror: SmsMirrorStore;
   readonly contacts: ContactBook;
   readonly defaultCountryCode: string;
@@ -161,6 +165,7 @@ export class SmsService extends EventEmitter {
   constructor(opts: SmsServiceOptions) {
     super();
     this.scheduler = opts.scheduler;
+    this.monitor = opts.monitor;
     this.mirror = opts.mirror;
     this.contacts = opts.contacts;
     this.defaultCountryCode = opts.defaultCountryCode;
@@ -177,7 +182,7 @@ export class SmsService extends EventEmitter {
   start(): void {
     if (this.#started) return;
     this.#started = true;
-    this.scheduler.on("telemetry", this.#onTelemetry);
+    this.monitor.on("telemetry", this.#onTelemetry);
     this.#fullTimer = setInterval(() => {
       void this.sync("full", { priority: "low" }).catch(() => undefined);
     }, this.fullSyncIntervalMs);
@@ -191,7 +196,7 @@ export class SmsService extends EventEmitter {
 
   async stop(): Promise<void> {
     this.#started = false;
-    this.scheduler.off("telemetry", this.#onTelemetry);
+    this.monitor.off("telemetry", this.#onTelemetry);
     if (this.#fullTimer) clearInterval(this.#fullTimer);
     if (this.#yieldTimer) clearInterval(this.#yieldTimer);
     this.#fullTimer = null;
@@ -284,7 +289,7 @@ export class SmsService extends EventEmitter {
   async pollWhileYielding(): Promise<void> {
     if (!this.scheduler.getAvoidanceState().active) return;
     try {
-      const probe = await checkSmsNotifications(this.scheduler.client);
+      const probe = await checkSmsNotifications(this.scheduler);
       const changed = probe.unreadMessages !== this.#probeUnread || probe.storageFull !== this.#probeStorageFull;
       this.#probeUnread = probe.unreadMessages;
       this.#probeStorageFull = probe.storageFull;

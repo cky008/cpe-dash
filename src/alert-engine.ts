@@ -1,4 +1,5 @@
 import type { GlobalTelemetrySnapshot } from "./cpe-domain.ts";
+import type { CpeMonitor } from "./cpe-monitor.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
 import type { MutexSessionScheduler } from "./scheduler.ts";
@@ -6,6 +7,8 @@ import type { AlertEventRecord } from "./state-store.ts";
 
 export interface AlertEngineOptions {
   scheduler: MutexSessionScheduler;
+  /** Source of `telemetry` events. */
+  monitor: CpeMonitor;
   /** CPE transport failures must persist this long before `CPE_UNREACHABLE` (default 60 s). */
   unreachableAfterMs?: number;
   /** `ConnectionStatus != 901` must persist this long before `WAN_DOWN` (default 60 s). */
@@ -78,6 +81,7 @@ type Params = Readonly<Record<string, string | number>>;
  */
 export class AlertEngine {
   readonly scheduler: MutexSessionScheduler;
+  readonly monitor: CpeMonitor;
   readonly unreachableAfterMs: number;
   readonly wanDownAfterMs: number;
   readonly signalDegradedAfterMs: number;
@@ -108,6 +112,7 @@ export class AlertEngine {
 
   constructor(opts: AlertEngineOptions) {
     this.scheduler = opts.scheduler;
+    this.monitor = opts.monitor;
     this.unreachableAfterMs = opts.unreachableAfterMs ?? 60_000;
     this.wanDownAfterMs = opts.wanDownAfterMs ?? 60_000;
     this.signalDegradedAfterMs = opts.signalDegradedAfterMs ?? 5 * 60_000;
@@ -122,7 +127,7 @@ export class AlertEngine {
 
   start(): void {
     if (this.#timer) return;
-    this.scheduler.on("telemetry", this.#onTelemetry);
+    this.monitor.on("telemetry", this.#onTelemetry);
     this.#timer = setInterval(() => this.evaluateSchedulerHealth(), this.evalIntervalMs);
     this.#timer.unref?.();
   }
@@ -131,7 +136,7 @@ export class AlertEngine {
     if (!this.#timer) return;
     clearInterval(this.#timer);
     this.#timer = null;
-    this.scheduler.off("telemetry", this.#onTelemetry);
+    this.monitor.off("telemetry", this.#onTelemetry);
   }
 
   /** `CPE_UNREACHABLE` / `CPE_RECOVERED` from the scheduler mode (recovery only on a healthy session). */

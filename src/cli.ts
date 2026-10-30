@@ -3,7 +3,10 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
 import { loadConfig } from "./config.ts";
+import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts";
 import { HuaweiCpeClient } from "./cpe-client.ts";
+import type { CpeControlService } from "./cpe-controls.ts";
+import type { CpeMonitor } from "./cpe-monitor.ts";
 import { type FileLockHandle, StorageCipher, tryAcquireFileLock } from "./encrypted-file.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
@@ -11,7 +14,7 @@ import { type NotificationChannel, NotificationHub } from "./notify/hub.ts";
 import { TelegramApi } from "./notify/telegram-api.ts";
 import { TelegramBot, TelegramStateStore } from "./notify/telegram-bot.ts";
 import { WebhookNotifier } from "./notify/webhook.ts";
-import { MutexSessionScheduler } from "./scheduler.ts";
+import type { MutexSessionScheduler } from "./scheduler.ts";
 import { ContactBook } from "./sms/contacts.ts";
 import { SmsMcpTools } from "./sms/mcp-tools.ts";
 import { SmsMirrorStore } from "./sms/mirror.ts";
@@ -73,7 +76,10 @@ export interface FengSuiRuntimeStack {
   stateStore: EncryptedStateStore;
   timeseries: TimeSeriesRingBuffer;
   cpeClient: HuaweiCpeClient;
+  core: FengSuiCore;
   scheduler: MutexSessionScheduler;
+  monitor: CpeMonitor;
+  controls: CpeControlService;
   sseBus: SseEventBus;
   mcpServer: FengSuiMcpServer;
   httpServer: FengSuiHttpServer;
@@ -165,7 +171,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
   const needsCipher = smsLock !== null || telegramApi !== null;
   const cipher = needsCipher ? StorageCipher.fromSecret(config.dataEncryptionKey) : null;
 
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client: cpeClient,
     stateStore,
     timeseries,
@@ -175,6 +181,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     redactSensitive: config.redactSensitiveInApi,
     smsCountersEnabled: smsLock !== null,
   });
+  const { scheduler, monitor, controls } = core;
 
   let sms: SmsService | null = null;
   if (smsLock && cipher) {
@@ -193,6 +200,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     mirror.load();
     sms = new SmsService({
       scheduler,
+      monitor,
       mirror,
       contacts,
       defaultCountryCode: config.defaultCountryCode,
@@ -207,6 +215,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     mode === "serve" && config.alertsEnabled
       ? new AlertEngine({
           scheduler,
+          monitor,
           rsrpThresholdDbm: config.alertRsrpThresholdDbm,
           sinrThresholdDb: config.alertSinrThresholdDb,
         })
@@ -219,7 +228,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     telegramState.load();
     telegramBot = new TelegramBot({
       api: telegramApi,
-      scheduler,
+      core,
       state: telegramState,
       sms,
       authToken: config.apiToken,
@@ -250,7 +259,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
   });
 
   const mcpServer = new FengSuiMcpServer({
-    scheduler,
+    core,
     allowMutations: config.mcpAllowMutations,
     toolProviders: sms
       ? [
@@ -266,7 +275,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
 
   const httpServer = new FengSuiHttpServer({
     config,
-    scheduler,
+    core,
     sseBus,
     mcpServer,
     envPath,
@@ -298,7 +307,10 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     stateStore,
     timeseries,
     cpeClient,
+    core,
     scheduler,
+    monitor,
+    controls,
     sseBus,
     mcpServer,
     httpServer,
@@ -311,9 +323,9 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     async start(): Promise<void> {
       if (started) return;
       started = true;
-      scheduler.init();
+      monitor.init();
       if (mode === "serve") {
-        sseBus.attachScheduler(scheduler);
+        sseBus.attachCore(core);
         if (sms) sseBus.attachSms(sms);
         sseBus.start();
       }
@@ -322,7 +334,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
       alertEngine?.start();
       await telegramBot?.start();
       sms?.start();
-      scheduler.start();
+      monitor.start();
     },
     async close(): Promise<void> {
       if (closed) return;
@@ -332,7 +344,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
       await telegramBot?.stop();
       notificationHub?.stop();
       alertEngine?.stop();
-      await scheduler.stop();
+      await stopFengSuiCore(core);
       await sms?.stop();
       await telegramState?.flush().catch(() => undefined);
       smsLock?.release();

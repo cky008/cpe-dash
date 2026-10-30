@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -20,11 +21,10 @@ import { computeScram } from "../src/crypto.ts";
 import {
   BrowserSessionYieldedError,
   type ControlAppliedEvent,
-  MutexSessionScheduler,
   SchedulerQueueFullError,
   SchedulerStoppedError,
-  type SpeedTickPayload,
 } from "../src/scheduler.ts";
+import type { SpeedTickPayload } from "../src/cpe-monitor.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import {
   TimeSeriesRingBuffer,
@@ -579,26 +579,26 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
 
   it("coalesces concurrent telemetry reads into a single ephemeral CPE login", async () => {
     const fx = createSchedulerFixture({});
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       pollIntervalMs: 60_000,
       neighborScanIntervalMs: 120_000,
     });
-    scheduler.init();
+    core.monitor.init();
 
     const [r1, r2, r3, r4] = await Promise.all([
-      scheduler.refreshTelemetry(),
-      scheduler.refreshTelemetry(),
-      scheduler.refreshTelemetry(),
-      scheduler.refreshTelemetry(),
+      core.monitor.refreshTelemetry(),
+      core.monitor.refreshTelemetry(),
+      core.monitor.refreshTelemetry(),
+      core.monitor.refreshTelemetry(),
     ]);
 
     assert.equal(fx.getLoginCount(), 1);
     assert.ok(r1 && r2 && r3 && r4);
     assert.equal(r1.capturedAtMs, r4.capturedAtMs);
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("broadcasts polite avoidance once on Layer-1/Layer-2 yield, enforces Layer-2 anti-flap cooldown, and rejects mutations while yielding", async () => {
@@ -612,7 +612,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
           : "<response><State>-1</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>",
     });
 
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
@@ -620,14 +620,15 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       neighborScanIntervalMs: 120_000,
       layer2InitialBackoffMs: 5_000,
     });
+    const scheduler = core.scheduler;
     scheduler.on("session:avoidance", (ev) => {
       avoidanceEvents.push({ active: ev.active, messageZh: ev.messageZh });
     });
-    scheduler.init();
+    core.monitor.init();
 
     // First refresh sees State=0 -> transitions to yielding_browser & emits avoidance ONCE
-    const y1 = await scheduler.refreshTelemetry();
-    const y2 = await scheduler.refreshTelemetry();
+    const y1 = await core.monitor.refreshTelemetry();
+    const y2 = await core.monitor.refreshTelemetry();
     assert.equal(y1, null);
     assert.equal(y2, null);
     assert.equal(avoidanceEvents.length, 1);
@@ -643,13 +644,13 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
 
     // Human logs out -> State=-1 -> resumes cleanly and emits active: false!
     browserLoggedIn = false;
-    const recovered = await scheduler.refreshTelemetry();
+    const recovered = await core.monitor.refreshTelemetry();
     assert.ok(recovered);
     assert.equal(avoidanceEvents.length, 2);
     assert.equal(avoidanceEvents[1]?.active, false);
     assert.equal(scheduler.getStatus().mode, "idle");
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("applies Layer-2 anti-flapping backoff when cross-IP 108003 occurs with State=-1", async () => {
@@ -659,7 +660,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
         crossIpOccupied ? "<error><code>108003</code><message>occupied</message></error>" : null,
     });
 
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
@@ -667,9 +668,10 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       neighborScanIntervalMs: 120_000,
       layer2InitialBackoffMs: 60_000,
     });
-    scheduler.init();
+    const scheduler = core.scheduler;
+    core.monitor.init();
 
-    const first = await scheduler.refreshTelemetry();
+    const first = await core.monitor.refreshTelemetry();
     assert.equal(first, null);
     const st = scheduler.getStatus();
     assert.equal(st.mode, "yielding_browser");
@@ -677,21 +679,21 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.ok((st.avoidance.cooldownUntilMs ?? 0) > Date.now());
 
     // Subsequent background poll during Layer-2 cooldown skips challenge_login completely (zero flapping!)
-    const second = await scheduler.refreshTelemetry();
+    const second = await core.monitor.refreshTelemetry();
     assert.equal(second, null);
 
     // Force-bypass cooldown when human explicitly clears or cooldown expires
     crossIpOccupied = false;
-    const resumed = await scheduler.refreshTelemetry({ ignoreCooldown: true });
+    const resumed = await core.monitor.refreshTelemetry({ ignoreCooldown: true });
     assert.ok(resumed);
     assert.equal(scheduler.getStatus().avoidance.active, false);
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("manages start() and stop() lifecycle with periodic polling, sweep and flush intervals, and handles idempotent start/stop", async () => {
     const fx = createSchedulerFixture({ delayMs: 1 });
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
@@ -699,24 +701,25 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       neighborScanIntervalMs: 25,
       stateFlushIntervalMs: 35,
     });
+    const scheduler = core.scheduler;
 
-    scheduler.start();
+    core.monitor.start();
     // Idempotent: calling start() again while running is a no-op
-    scheduler.start();
+    core.monitor.start();
     assert.equal(scheduler.getStatus().running, true);
 
     // Calling init() again is also a no-op
-    scheduler.init();
+    core.monitor.init();
 
     // Wait for the timers to trigger at least once (covers intervals)
     await new Promise((resolve) => setTimeout(resolve, 80));
 
     // Stop gracefully
-    await scheduler.stop();
+    await stopFengSuiCore(core);
     assert.equal(scheduler.getStatus().running, false);
 
     // Idempotent: calling stop() again when already stopped
-    await scheduler.stop();
+    await stopFengSuiCore(core);
     assert.equal(scheduler.getStatus().running, false);
   });
 
@@ -735,145 +738,150 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       },
     });
 
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
+    const scheduler = core.scheduler;
 
-    scheduler.init();
+    core.monitor.init();
     assert.equal(scheduler.getStatus().mode, "circuit_tripped");
     assert.equal(scheduler.getStatus().circuitBreaker.tripped, true);
 
     // Read sessions return null immediately when tripped
-    const tele = await scheduler.refreshTelemetry();
+    const tele = await core.monitor.refreshTelemetry();
     assert.equal(tele, null);
-    const nbr = await scheduler.refreshNeighbors();
+    const nbr = await core.monitor.refreshNeighbors();
     assert.equal(nbr, null);
-    const topo = await scheduler.refreshTopology();
+    const topo = await core.monitor.refreshTopology();
     assert.equal(topo, null);
-    const settings = await scheduler.refreshSettings();
+    const settings = await core.monitor.refreshSettings();
     assert.equal(settings, null);
   });
 
   it("coalesces concurrent refreshNeighbors, refreshTopology, and refreshSettings into single-flight sessions and emits events", async () => {
     const fx = createSchedulerFixture({ delayMs: 10 });
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    core.monitor.init();
 
     let neighborEvents = 0;
     let topologyEvents = 0;
     let settingsEvents = 0;
-    scheduler.on("neighbors", () => neighborEvents++);
-    scheduler.on("topology", () => topologyEvents++);
-    scheduler.on("settings", () => settingsEvents++);
+    core.monitor.on("neighbors", () => neighborEvents++);
+    core.monitor.on("topology", () => topologyEvents++);
+    core.monitor.on("settings", () => settingsEvents++);
 
     // 1. refreshNeighbors coalescing
     const initialLogins1 = fx.getLoginCount();
     const [n1, n2, n3] = await Promise.all([
-      scheduler.refreshNeighbors(),
-      scheduler.refreshNeighbors(),
-      scheduler.refreshNeighbors(),
+      core.monitor.refreshNeighbors(),
+      core.monitor.refreshNeighbors(),
+      core.monitor.refreshNeighbors(),
     ]);
     assert.ok(n1 && n2 && n3);
     assert.equal(n1.capturedAtMs, n3.capturedAtMs);
     assert.equal(fx.getLoginCount(), initialLogins1 + 1);
     assert.equal(neighborEvents, 1);
-    assert.equal(scheduler.getCachedNeighbors()?.capturedAtMs, n1.capturedAtMs);
+    assert.equal(core.monitor.getCachedNeighbors()?.capturedAtMs, n1.capturedAtMs);
 
     // 2. refreshTopology coalescing
     const initialLogins2 = fx.getLoginCount();
     const [t1, t2, t3] = await Promise.all([
-      scheduler.refreshTopology(),
-      scheduler.refreshTopology(),
-      scheduler.refreshTopology(),
+      core.monitor.refreshTopology(),
+      core.monitor.refreshTopology(),
+      core.monitor.refreshTopology(),
     ]);
     assert.ok(t1 && t2 && t3);
     assert.equal(t1.capturedAtMs, t3.capturedAtMs);
     assert.equal(fx.getLoginCount(), initialLogins2 + 1);
     assert.equal(topologyEvents, 1);
-    assert.equal(scheduler.getCachedTopology()?.capturedAtMs, t1.capturedAtMs);
+    assert.equal(core.monitor.getCachedTopology()?.capturedAtMs, t1.capturedAtMs);
 
     // 3. refreshSettings coalescing
     const initialLogins3 = fx.getLoginCount();
     const [s1, s2, s3] = await Promise.all([
-      scheduler.refreshSettings(),
-      scheduler.refreshSettings(),
-      scheduler.refreshSettings(),
+      core.monitor.refreshSettings(),
+      core.monitor.refreshSettings(),
+      core.monitor.refreshSettings(),
     ]);
     assert.ok(s1 && s2 && s3);
     assert.equal(s1.capturedAtMs, s3.capturedAtMs);
     assert.equal(fx.getLoginCount(), initialLogins3 + 1);
     assert.equal(settingsEvents, 1);
-    assert.equal(scheduler.getCachedSettings()?.capturedAtMs, s1.capturedAtMs);
+    assert.equal(core.monitor.getCachedSettings()?.capturedAtMs, s1.capturedAtMs);
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("provides getCachedTelemetry, getCachedNeighbors, getCachedTopology, getCachedSettings, getPersistedLockState, getRecentAlerts, and queryTimeSeries", async () => {
     const fx = createSchedulerFixture({});
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    const scheduler = core.scheduler;
+    core.monitor.init();
 
     let speedEmitted: SpeedTickPayload | null = null;
-    scheduler.on("speed", (st: SpeedTickPayload) => {
+    core.monitor.on("speed", (st: SpeedTickPayload) => {
       speedEmitted = st;
     });
 
-    const snap = await scheduler.refreshTelemetry();
+    const snap = await core.monitor.refreshTelemetry();
     assert.ok(snap);
     assert.ok(speedEmitted);
     assert.equal((speedEmitted as SpeedTickPayload).downloadBps, snap.traffic.downloadBps);
 
-    await scheduler.refreshNeighbors();
-    await scheduler.refreshTopology();
-    await scheduler.refreshSettings();
+    await core.monitor.refreshNeighbors();
+    await core.monitor.refreshTopology();
+    await core.monitor.refreshSettings();
 
-    assert.equal(scheduler.getCachedTelemetry()?.capturedAtMs, snap.capturedAtMs);
-    assert.ok(scheduler.getCachedNeighbors());
-    assert.ok(scheduler.getCachedTopology());
-    assert.ok(scheduler.getCachedSettings());
-    assert.equal(scheduler.getPersistedLockState().mode, "unlocked");
+    assert.equal(core.monitor.getCachedTelemetry()?.capturedAtMs, snap.capturedAtMs);
+    assert.ok(core.monitor.getCachedNeighbors());
+    assert.ok(core.monitor.getCachedTopology());
+    assert.ok(core.monitor.getCachedSettings());
+    assert.equal(core.controls.getPersistedLockState().mode, "unlocked");
     assert.ok(Array.isArray(scheduler.getRecentAlerts()));
 
-    const tsResult = scheduler.queryTimeSeries({ preset: "1h" });
+    const tsResult = core.monitor.queryTimeSeries({ preset: "1h" });
     assert.equal(tsResult.preset, "1h");
     assert.ok(tsResult.points.length > 0);
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("executes all domain control actions (lockBands, lockCell, unlockAllLocks, rebootRouter, reconnectCellular, setSecuritySwitches, setWifi7Settings, setAntennaMode, setMobileData) and emits control:applied", async () => {
     const fx = createSchedulerFixture({});
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    const scheduler = core.scheduler;
+    core.monitor.init();
 
     const appliedActions: string[] = [];
+    const appliedEvents: ControlAppliedEvent[] = [];
     scheduler.on("control:applied", (ev: ControlAppliedEvent) => {
       appliedActions.push(ev.action);
+      appliedEvents.push(ev);
     });
 
     // 1. lockBands
-    const bandState = await scheduler.lockBands({ lteBands: [1, 3], nrBands: [78] } satisfies BandLockCommand);
+    const bandState = await core.controls.lockBands({ lteBands: [1, 3], nrBands: [78] } satisfies BandLockCommand);
     assert.equal(bandState.mode, "band_lock");
     assert.deepEqual(bandState.lteBands, [1, 3]);
     assert.deepEqual(bandState.nrBands, [78]);
-    assert.equal(scheduler.getPersistedLockState().mode, "band_lock");
+    assert.equal(core.controls.getPersistedLockState().mode, "band_lock");
 
     // 2. lockCell
-    const cellState = await scheduler.lockCell({
+    const cellState = await core.controls.lockCell({
       rat: "NR",
       band: 78,
       arfcn: 647424,
@@ -881,48 +889,48 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     } satisfies CellLockCommand);
     assert.equal(cellState.mode, "cell_lock");
     assert.equal(cellState.cellLock?.rat, "NR");
-    assert.equal(scheduler.getPersistedLockState().mode, "cell_lock");
+    assert.equal(core.controls.getPersistedLockState().mode, "cell_lock");
 
     // 3. unlockAllLocks
-    const unlockedState = await scheduler.unlockAllLocks();
+    const unlockedState = await core.controls.unlockAllLocks();
     assert.equal(unlockedState.mode, "unlocked");
-    assert.equal(scheduler.getPersistedLockState().mode, "unlocked");
+    assert.equal(core.controls.getPersistedLockState().mode, "unlocked");
 
     // 4. rebootRouter
-    const rebootResult = await scheduler.rebootRouter({ confirm: true });
+    const rebootResult = await core.controls.rebootRouter({ confirm: true });
     assert.equal(rebootResult.rebooting, true);
 
     // 5. reconnectCellular
-    const reconnectResult = await scheduler.reconnectCellular();
+    const reconnectResult = await core.controls.reconnectCellular();
     assert.equal(reconnectResult.reconnecting, true);
 
     // 6. setSecuritySwitches
-    const settingsAfterSec = await scheduler.setSecuritySwitches({
+    const settingsAfterSec = await core.controls.setSecuritySwitches({
       upnpEnabled: true,
       firewall: { mainSwitch: true },
     } satisfies SecurityUpdateCommand);
     assert.ok(settingsAfterSec);
 
     // 7. setWifi7Settings
-    const wifi7Result = await scheduler.setWifi7Settings({
+    const wifi7Result = await core.controls.setWifi7Settings({
       mloEnable: true,
       dbhoEnable: true,
     });
     assert.deepEqual(wifi7Result, { mloEnable: true, dbhoEnable: true });
 
     // 8. setAntennaMode
-    const antResult = await scheduler.setAntennaMode("auto" satisfies AntennaModeName);
+    const antResult = await core.controls.setAntennaMode("auto" satisfies AntennaModeName);
     assert.equal(antResult.mode, "auto");
 
     // 9. setMobileData
-    const dataResult = await scheduler.setMobileData(false);
+    const dataResult = await core.controls.setMobileData(false);
     assert.equal(dataResult.mobileDataEnabled, false);
 
     // 10. executeControl without summary
     const directResult = await scheduler.executeControl("custom_noop", async () => "ok_val");
     assert.equal(directResult, "ok_val");
 
-    // 11. executeControl with custom summary and nextLockState
+    // 11. executeControl with a custom summary attaches lockState to control:applied (persistence is CpeControlService's job)
     const customLockState = {
       mode: "cell_lock" as const,
       updatedAtIso: new Date().toISOString(),
@@ -933,9 +941,10 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     await scheduler.executeControl(
       "custom_with_lock_state",
       async () => "ok_lock",
-      { zh: "自定义锁", en: "Custom Lock", nextLockState: customLockState }
+      { zh: "自定义锁", en: "Custom Lock", lockState: customLockState }
     );
-    assert.equal(scheduler.getPersistedLockState().mode, "cell_lock");
+    assert.deepEqual(appliedEvents.at(-1)?.lockState, customLockState);
+    assert.equal(core.controls.getPersistedLockState().mode, "unlocked", "a generic control never persists lock state");
 
     assert.ok(appliedActions.includes("lock_band"));
     assert.ok(appliedActions.includes("lock_cell"));
@@ -948,7 +957,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.ok(appliedActions.includes("set_mobile_data"));
     assert.ok(appliedActions.includes("custom_noop"));
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("trips circuit breaker on 108006, emits critical alert event, latches breaker in stateStore, and recovers via reloadCredentialsAndResetBreaker()", async () => {
@@ -958,12 +967,13 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
         authError ? "<error><code>108006</code><remaincount>2</remaincount></error>" : null,
     });
 
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    const scheduler = core.scheduler;
+    core.monitor.init();
 
     const alerts: Array<{ severity: string; code: string }> = [];
     scheduler.on("alert", (al: { severity: string; code: string }) => {
@@ -971,7 +981,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     await assert.rejects(
-      () => scheduler.refreshTelemetry(),
+      () => core.monitor.refreshTelemetry(),
       (err: unknown) => err instanceof CpeApiError && err.code === "108006"
     );
 
@@ -984,7 +994,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(fx.stateStore.getState().recentAlerts.length, 1);
 
     // While tripped, reads return null without making network calls
-    const skipped = await scheduler.refreshTelemetry();
+    const skipped = await core.monitor.refreshTelemetry();
     assert.equal(skipped, null);
 
     // Reset via reloadCredentialsAndResetBreaker
@@ -996,7 +1006,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(scheduler.getStatus().lastError, null);
     assert.equal(fx.stateStore.getState().circuitBreaker.tripped, false);
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("throws SchedulerQueueFullError when maxQueueDepth is exceeded and respects queue priority ordering (high > normal > low)", async () => {
@@ -1014,13 +1024,14 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       },
     });
 
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       maxQueueDepth: 1,
     });
-    scheduler.init();
+    const scheduler = core.scheduler;
+    core.monitor.init();
 
     // Start slow task 1: shifts out of queue, but #drainQueue awaits it
     const task1Promise = scheduler.executeControl("slow_op", async (session) => {
@@ -1054,13 +1065,14 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       releaseGate = resolve;
     });
 
-    const sched2 = new MutexSessionScheduler({
+    const core2 = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       maxQueueDepth: 10,
     });
-    sched2.init();
+    const sched2 = core2.scheduler;
+    core2.monitor.init();
 
     // Block the queue with gate
     const gateTask = sched2.executeControl("gate", async () => {
@@ -1069,8 +1081,8 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     // Enqueue low, normal, and high tasks while gate is holding the worker
-    const lowTask = sched2.refreshNeighbors().then(() => execOrder.push("low"));
-    const normalTask = sched2.refreshTelemetry().then(() => execOrder.push("normal"));
+    const lowTask = core2.monitor.refreshNeighbors().then(() => execOrder.push("low"));
+    const normalTask = core2.monitor.refreshTelemetry().then(() => execOrder.push("normal"));
     const highTask = sched2.executeControl("high_op", async () => {
       execOrder.push("high");
     });
@@ -1083,7 +1095,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(execOrder[2], "normal");
     assert.equal(execOrder[3], "low");
 
-    await sched2.stop();
+    await stopFengSuiCore(core2);
   });
 
   it("handles execution errors gracefully: sets lastError on non-fatal CpeApiError, and transitions to cpe_unreachable on generic Error", async () => {
@@ -1103,12 +1115,13 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       },
     });
 
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    const scheduler = core.scheduler;
+    core.monitor.init();
 
     // 1. Non-fatal CpeApiError
     await assert.rejects(
@@ -1152,7 +1165,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     );
     assert.equal(scheduler.getStatus().mode, "idle");
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("honors the client's respectBrowserSession=false (RESPECT_BROWSER_SESSION) instead of hard-coding avoidance", async () => {
@@ -1161,42 +1174,43 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       getStateXml: () =>
         "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>",
     });
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    const scheduler = core.scheduler;
+    core.monitor.init();
     const avoidanceEvents: unknown[] = [];
     scheduler.on("session:avoidance", (ev: unknown) => avoidanceEvents.push(ev));
 
-    const snap = await scheduler.refreshTelemetry();
+    const snap = await core.monitor.refreshTelemetry();
     assert.ok(snap);
     assert.equal(await scheduler.executeControl("noop_write", async () => "applied"), "applied");
     assert.equal(avoidanceEvents.length, 0);
     assert.equal(scheduler.getStatus().mode, "idle");
     assert.equal(scheduler.getStatus().browserYieldCount, 0);
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("folds confirmed Wi-Fi 7, antenna and mobile-data writes into cached settings and pushes a settings event without extra sessions", async () => {
     const fx = createSchedulerFixture({});
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    core.monitor.init();
     const settingsEvents: RouterSettingsSnapshot[] = [];
-    scheduler.on("settings", (snap: RouterSettingsSnapshot) => settingsEvents.push(snap));
+    core.monitor.on("settings", (snap: RouterSettingsSnapshot) => settingsEvents.push(snap));
 
     // Nothing cached yet -> nothing to patch, no synthetic settings event
-    await scheduler.setMobileData(false);
+    await core.controls.setMobileData(false);
     assert.equal(settingsEvents.length, 0);
-    assert.equal(scheduler.getCachedSettings(), null);
+    assert.equal(core.monitor.getCachedSettings(), null);
 
-    const baseline = await scheduler.refreshSettings();
+    const baseline = await core.monitor.refreshSettings();
     assert.ok(baseline);
     assert.deepEqual(baseline.wifi7, { mloEnable: true, dbhoEnable: true });
     assert.equal(baseline.antenna.mode, "auto");
@@ -1204,13 +1218,13 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(settingsEvents.length, 1);
     const loginsAfterRefresh = fx.getLoginCount();
 
-    await scheduler.setWifi7Settings({ mloEnable: false });
-    await scheduler.setAntennaMode("external");
-    await scheduler.setMobileData(false);
+    await core.controls.setWifi7Settings({ mloEnable: false });
+    await core.controls.setAntennaMode("external");
+    await core.controls.setMobileData(false);
 
     assert.equal(fx.getLoginCount(), loginsAfterRefresh + 3);
     assert.equal(settingsEvents.length, 4);
-    const latest = scheduler.getCachedSettings();
+    const latest = core.monitor.getCachedSettings();
     assert.ok(latest);
     assert.deepEqual(latest.wifi7, { mloEnable: false, dbhoEnable: true });
     assert.equal(latest.antenna.mode, "external");
@@ -1221,40 +1235,41 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(latest.natType, baseline.natType);
     assert.deepEqual(settingsEvents[3], latest);
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("pre-validates security, Wi-Fi 7 and antenna commands before queueing any CPE session", async () => {
     const fx = createSchedulerFixture({});
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
-    scheduler.init();
+    core.monitor.init();
 
     await assert.rejects(
-      () => scheduler.setSecuritySwitches({ upnpEnabled: true, dmz: { enabled: true, ipAddress: "bad_ip" } }),
+      () => core.controls.setSecuritySwitches({ upnpEnabled: true, dmz: { enabled: true, ipAddress: "bad_ip" } }),
       CpeControlValidationError
     );
-    await assert.rejects(() => scheduler.setSecuritySwitches({}), CpeControlValidationError);
-    await assert.rejects(() => scheduler.setWifi7Settings({}), CpeControlValidationError);
+    await assert.rejects(() => core.controls.setSecuritySwitches({}), CpeControlValidationError);
+    await assert.rejects(() => core.controls.setWifi7Settings({}), CpeControlValidationError);
     await assert.rejects(
-      () => scheduler.setAntennaMode("bogus" as AntennaModeName),
+      () => core.controls.setAntennaMode("bogus" as AntennaModeName),
       CpeControlValidationError
     );
     assert.equal(fx.getLoginCount(), 0);
 
-    await scheduler.stop();
+    await stopFengSuiCore(core);
   });
 
   it("hardens concurrency & clock edge cases (Opus audit #1-#12): stop() drains queue safely, deduplicates control:applied & breaker alerts, isolates listener throws, blocks scheduler reentrancy, and rebases NTP clock steps", async () => {
     const fx = createSchedulerFixture();
-    const scheduler = new MutexSessionScheduler({
+    const core = createFengSuiCore({
       client: fx.client,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
+    const scheduler = core.scheduler;
 
     // #1b: stop() before init() must NOT overwrite an existing persisted state file
     fx.stateStore.update({
@@ -1267,7 +1282,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       },
     });
     await fx.stateStore.flushAsync();
-    const uninitializedScheduler = new MutexSessionScheduler({
+    const uninitializedCore = createFengSuiCore({
       client: fx.client,
       stateStore: new EncryptedStateStore({
         filePath: fx.stateStore.filePath,
@@ -1275,14 +1290,14 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       }),
       timeseries: new TimeSeriesRingBuffer(),
     });
-    await uninitializedScheduler.stop();
+    await stopFengSuiCore(uninitializedCore);
     const verifyStore = new EncryptedStateStore({
       filePath: fx.stateStore.filePath,
       encryptionKey: "sched_test_password",
     });
     assert.deepEqual(verifyStore.load().lockState.lteBands, [3]);
 
-    scheduler.init();
+    core.monitor.init();
 
     // #3 & #4: lockBands / unlockAllLocks emit control:applied EXACTLY ONCE, and throwing listener does NOT fail mutation!
     const controlEvents: ControlAppliedEvent[] = [];
@@ -1294,14 +1309,14 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     };
     scheduler.on("control:applied", boomListener);
 
-    const locked = await scheduler.lockBands({ lteBands: ["B1"], nrBands: ["N78"] });
+    const locked = await core.controls.lockBands({ lteBands: ["B1"], nrBands: ["N78"] });
     assert.equal(locked.mode, "band_lock");
     assert.equal(controlEvents.filter((e) => e.action === "lock_band").length, 1);
     assert.equal(controlEvents[0]?.lockState?.mode, "band_lock");
     assert.equal(scheduler.getStatus().mode, "idle");
     scheduler.off("control:applied", boomListener);
 
-    const unlocked = await scheduler.unlockAllLocks();
+    const unlocked = await core.controls.unlockAllLocks();
     assert.equal(unlocked.mode, "unlocked");
     const unlockEvs = controlEvents.filter((e) => e.action === "unlock_rf_locks");
     assert.equal(unlockEvs.length, 1);
@@ -1311,7 +1326,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     await assert.rejects(
       () =>
         scheduler.executeControl("outer_op", async () => {
-          await scheduler.refreshNeighbors();
+          await core.monitor.refreshNeighbors();
           return "never";
         }),
       ReentrantCpeSessionError

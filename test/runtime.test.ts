@@ -156,7 +156,7 @@ describe("createFengSuiRuntime", () => {
 
       mock.pushIncoming({ phone: "+353830000002", content: "Runtime hello", date: "2026-10-30 09:00:00" });
       await waitFor(async () => {
-        await stack.scheduler.refreshTelemetry();
+        await stack.core.monitor.refreshTelemetry();
         return notify.webhookEvents().includes("sms.received");
       }, "SMS change detected through telemetry counters");
       await waitFor(() => notify.telegramTexts().some((t) => t.includes("Runtime hello")), "Telegram SMS card");

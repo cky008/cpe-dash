@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,7 @@ import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { type ControlAppliedEvent, MutexSessionScheduler } from "../src/scheduler.ts";
+import type { ControlAppliedEvent } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { MAX_DELETE_BATCH, SmsService, type SmsServiceOptions } from "../src/sms/service.ts";
@@ -36,7 +37,7 @@ function createSmsFixture(
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-svc-"));
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "svc_key" });
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
@@ -44,12 +45,14 @@ function createSmsFixture(
     neighborScanIntervalMs: 120_000,
     smsCountersEnabled: opts.smsCountersEnabled ?? true,
   });
-  scheduler.init();
+  const scheduler = core.scheduler;
+  core.monitor.init();
   const cipher = StorageCipher.fromSecret("svc_key");
   const contacts = new ContactBook({ filePath: path.join(tmpDir, "contacts.json"), cipher, defaultCountryCode: "+353" });
   const mirror = new SmsMirrorStore({ filePath: path.join(tmpDir, "sms.json"), cipher, defaultCountryCode: "+353", contacts });
   const service = new SmsService({
     scheduler,
+    monitor: core.monitor,
     mirror,
     contacts,
     defaultCountryCode: "+353",
@@ -65,10 +68,10 @@ function createSmsFixture(
   const smsRequests = (needle: string) => mock.requests.filter((r) => r.path.includes(needle)).length;
   const cleanup = async (): Promise<void> => {
     await service.stop();
-    await scheduler.stop();
+    await stopFengSuiCore(core);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   };
-  return { mock, scheduler, service, mirror, contacts, events, controls, smsRequests, cleanup };
+  return { mock, core, scheduler, service, mirror, contacts, events, controls, smsRequests, cleanup };
 }
 
 const named = (events: Array<{ name: string; payload: unknown }>, name: string) =>
@@ -86,13 +89,13 @@ describe("Telemetry piggyback of SMS counters", () => {
   it("adds sms-count to the existing telemetry session only when enabled", async () => {
     const enabled = createSmsFixture();
     const before = enabled.mock.getLoginCount();
-    const snap = await enabled.scheduler.refreshTelemetry();
+    const snap = await enabled.core.monitor.refreshTelemetry();
     assert.deepEqual(snap?.sms, { localUnread: 1, localInbox: 2, localOutbox: 1, localDraft: 0, localMax: 500 });
     assert.equal(enabled.mock.getLoginCount(), before + 1);
     await enabled.cleanup();
 
     const disabled = createSmsFixture({ smsCountersEnabled: false });
-    const plain = await disabled.scheduler.refreshTelemetry();
+    const plain = await disabled.core.monitor.refreshTelemetry();
     assert.equal(plain?.sms, null);
     assert.equal(disabled.smsRequests("/api/sms/sms-count"), 0);
     await disabled.cleanup();
@@ -114,12 +117,12 @@ describe("SmsService sync, change detection and notifications", () => {
 
     // Unchanged counters on the next telemetry tick do not queue a sync
     const listCallsBefore = fx.smsRequests("/api/sms/sms-list");
-    await fx.scheduler.refreshTelemetry();
+    await fx.core.monitor.refreshTelemetry();
     assert.equal(fx.service.getStatus().syncInProgress, false);
     assert.equal(fx.smsRequests("/api/sms/sms-list"), listCallsBefore);
 
     fx.mock.pushIncoming({ phone: "0830000001", content: "Your verification code is 482913", date: "2026-10-30 09:00:00" });
-    await fx.scheduler.refreshTelemetry();
+    await fx.core.monitor.refreshTelemetry();
     const incremental = await fx.service.sync("incremental");
     assert.equal(incremental?.mode, "incremental");
     assert.equal(incremental?.newIncoming, 1);
@@ -141,7 +144,7 @@ describe("SmsService sync, change detection and notifications", () => {
     fx.service.start();
     await fx.service.sync("full");
     fx.mock.store.splice(fx.mock.store.findIndex((m) => m.index === 40001), 1);
-    await fx.scheduler.refreshTelemetry();
+    await fx.core.monitor.refreshTelemetry();
     const summary = await fx.service.sync("full");
     assert.equal(summary?.removed, 1);
     assert.equal(fx.mirror.size, 2);
@@ -155,7 +158,7 @@ describe("SmsService sync, change detection and notifications", () => {
     await fx.service.sync("full");
     fx.mock.control.stateLoginXml = () => HUMAN_LOGGED_IN;
     fx.mock.pushIncoming({ phone: "+353830000002", content: "Are you home?", date: "2026-10-30 10:00:00" });
-    assert.equal(await fx.scheduler.refreshTelemetry(), null);
+    assert.equal(await fx.core.monitor.refreshTelemetry(), null);
     assert.equal(await fx.service.sync("incremental"), null);
 
     const loginsWhileYielding = fx.mock.getLoginCount();
@@ -166,7 +169,7 @@ describe("SmsService sync, change detection and notifications", () => {
     assert.equal(fx.mock.getLoginCount(), loginsWhileYielding);
 
     fx.mock.control.stateLoginXml = undefined;
-    await fx.scheduler.refreshTelemetry();
+    await fx.core.monitor.refreshTelemetry();
     await fx.service.sync("incremental");
     assert.equal(named(fx.events, "sms:new").length, 1);
     assert.equal(fx.service.getStatus().syncPending, false);

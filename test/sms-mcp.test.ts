@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,6 @@ import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
-import { MutexSessionScheduler } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { type McpSmsAccess, type McpSmsSendPolicy, SmsMcpTools } from "../src/sms/mcp-tools.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
@@ -35,18 +35,19 @@ function createMcpSmsFixture(
   });
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-mcp-"));
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
-  const scheduler = new MutexSessionScheduler({
+  const core = createFengSuiCore({
     client,
     stateStore: new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "mcp_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,
     smsCountersEnabled: true,
   });
-  scheduler.init();
+  const scheduler = core.scheduler;
+  core.monitor.init();
   const cipher = StorageCipher.fromSecret("mcp_key");
   const contacts = new ContactBook({ filePath: path.join(tmpDir, "contacts.json"), cipher, defaultCountryCode: "+353" });
   const mirror = new SmsMirrorStore({ filePath: path.join(tmpDir, "sms.json"), cipher, defaultCountryCode: "+353", contacts });
-  const sms = new SmsService({ scheduler, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined });
+  const sms = new SmsService({ scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined });
   let clock = Date.parse("2026-10-30T10:00:00Z");
   const tools = new SmsMcpTools({
     sms,
@@ -55,7 +56,7 @@ function createMcpSmsFixture(
     sendLimitPerHour: opts.sendLimitPerHour ?? 10,
     now: () => clock,
   });
-  const server = new FengSuiMcpServer({ scheduler, allowMutations: opts.allowMutations, toolProviders: [tools] });
+  const server = new FengSuiMcpServer({ core, allowMutations: opts.allowMutations, toolProviders: [tools] });
   let id = 0;
   const rpc = async (method: string, params?: Record<string, unknown>) =>
     ((await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: ++id, method, ...(params ? { params } : {}) }))) as JsonRpcSuccessResponse)
@@ -74,7 +75,7 @@ function createMcpSmsFixture(
     },
     cleanup: async () => {
       await sms.stop();
-      await scheduler.stop();
+      await stopFengSuiCore(core);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     },
   };

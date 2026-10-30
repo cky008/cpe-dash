@@ -2,7 +2,8 @@ import { timingSafeEqualString } from "../crypto.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import { AtomicFileWriter, StorageCipher } from "../encrypted-file.ts";
 import { interpolateTemplate } from "../i18n.ts";
-import { BrowserSessionYieldedError, type MutexSessionScheduler } from "../scheduler.ts";
+import type { FengSuiCore } from "../core.ts";
+import { BrowserSessionYieldedError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
@@ -353,7 +354,7 @@ interface WizardSession {
 
 export interface TelegramBotOptions {
   api: TelegramApi;
-  scheduler: MutexSessionScheduler;
+  core: Pick<FengSuiCore, "scheduler" | "monitor">;
   state: TelegramStateStore;
   /** SMS features are hidden when `null` (SMS_ENABLED=false). */
   sms: SmsService | null;
@@ -375,7 +376,7 @@ export interface TelegramBotOptions {
 export class TelegramBot implements NotificationChannel {
   readonly name = "telegram";
   readonly api: TelegramApi;
-  readonly scheduler: MutexSessionScheduler;
+  readonly core: Pick<FengSuiCore, "scheduler" | "monitor">;
   readonly state: TelegramStateStore;
   readonly sms: SmsService | null;
   readonly locale: SupportedLocale;
@@ -395,7 +396,7 @@ export class TelegramBot implements NotificationChannel {
 
   constructor(opts: TelegramBotOptions) {
     this.api = opts.api;
-    this.scheduler = opts.scheduler;
+    this.core = opts.core;
     this.state = opts.state;
     this.sms = opts.sms;
     this.#authToken = opts.authToken;
@@ -743,8 +744,8 @@ export class TelegramBot implements NotificationChannel {
   }
 
   async #cmdStatus(chatId: string): Promise<void> {
-    const telemetry = this.scheduler.getCachedTelemetry();
-    const status = this.scheduler.getStatus();
+    const telemetry = this.core.monitor.getCachedTelemetry();
+    const status = this.core.scheduler.getStatus();
     const lines: string[] = [];
     if (!telemetry) {
       lines.push(this.#tx("status_no_data"));
@@ -776,7 +777,7 @@ export class TelegramBot implements NotificationChannel {
   }
 
   async #cmdAlerts(chatId: string): Promise<void> {
-    const recent = [...this.scheduler.getRecentAlerts()].slice(-10).reverse();
+    const recent = [...this.core.scheduler.getRecentAlerts()].slice(-10).reverse();
     if (recent.length === 0) return await this.#reply(chatId, "alerts_empty");
     const lines = [this.#tx("alerts_title"), ""];
     for (const a of recent) {
