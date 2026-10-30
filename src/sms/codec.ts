@@ -1,6 +1,6 @@
 import { stripInvalidControlChars } from "../crypto.ts";
 import { getXmlTag, getXmlTextPreserve } from "../xml.ts";
-import type { SmsTextModeCode, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
+import type { SmsCounters, SmsTextModeCode, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
 
 /** Huawei `<Reserved>` text modes (`smsSendPage.vue`). */
 export const SMS_TEXT_MODE_UCS2: SmsTextModeCode = 0;
@@ -85,6 +85,27 @@ export function extractVerificationCode(content: string): string | null {
     .replace(/\b[0-2]?[0-9]:[0-5][0-9](?::[0-5][0-9])?\b/g, " ");
   const candidate = sanitized.match(/(?<![0-9.+-])([0-9]{4,8})(?![0-9.%元GBMB])/);
   return candidate?.[1] ?? null;
+}
+
+function readCount(xml: string, tag: string, fallback: number): number {
+  const parsed = Number.parseInt(getXmlTag(xml, tag) ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/** Parse `GET /api/sms/sms-count`; returns `null` when the response carries no SMS counters. */
+export function parseSmsCountersOrNull(xml: string): SmsCounters | null {
+  if (!xml || getXmlTag(xml, "LocalInbox") === null) return null;
+  return parseSmsCounters(xml);
+}
+
+export function parseSmsCounters(xml: string): SmsCounters {
+  return {
+    localUnread: readCount(xml, "LocalUnread", 0),
+    localInbox: readCount(xml, "LocalInbox", 0),
+    localOutbox: readCount(xml, "LocalOutbox", 0),
+    localDraft: readCount(xml, "LocalDraft", 0),
+    localMax: readCount(xml, "LocalMax", 500) || 500,
+  };
 }
 
 /**

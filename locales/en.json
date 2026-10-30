@@ -81,5 +81,24 @@
     "wifi_5g": "5GHz Wi-Fi 7",
     "wifi_2_4g": "2.4GHz Wi-Fi 7",
     "lease_remaining": "{minutes} min lease left"
+  },
+  "sms": {
+    "sent_summary": "SMS sent to {to} ({segments} segment(s))",
+    "send_failed_summary": "SMS to {to} failed (code {code})",
+    "marked_read_summary": "Marked {count} SMS as read on the CPE",
+    "deleted_summary": "Deleted {count} SMS from the CPE"
+  },
+  "alerts": {
+    "cpe_unreachable": "CPE unreachable for {seconds}s: {reason}",
+    "cpe_recovered": "CPE reachable again after ~{seconds}s",
+    "wan_down": "Cellular data connection down for over {seconds}s (status {status})",
+    "wan_up": "Cellular data connection restored",
+    "signal_degraded": "{rat} signal degraded for {minutes} min: RSRP {rsrp} dBm / SINR {sinr} dB",
+    "signal_recovered": "{rat} signal recovered: RSRP {rsrp} dBm / SINR {sinr} dB",
+    "ca_dropped": "Carrier aggregation dropped from {from} to {to} component carrier(s)",
+    "reboot_detected": "CPE reboot detected (uptime {uptime}s)",
+    "sms_storage_high": "SMS storage nearly full: {used}/{max}",
+    "sms_storage_full": "SMS storage full ({used}/{max}); new messages cannot be received",
+    "data_threshold": "Monthly data {used} reached {percent}% of the {limit} plan"
   }
 }

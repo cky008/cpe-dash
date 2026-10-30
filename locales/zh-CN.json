@@ -81,5 +81,24 @@
     "wifi_5g": "5GHz Wi-Fi 7",
     "wifi_2_4g": "2.4GHz Wi-Fi 7",
     "lease_remaining": "剩余租期 {minutes} 分钟"
+  },
+  "sms": {
+    "sent_summary": "短信已发送至 {to}（{segments} 段）",
+    "send_failed_summary": "发往 {to} 的短信发送失败（错误码 {code}）",
+    "marked_read_summary": "已在 CPE 上将 {count} 条短信标为已读",
+    "deleted_summary": "已从 CPE 删除 {count} 条短信"
+  },
+  "alerts": {
+    "cpe_unreachable": "CPE 已连续 {seconds} 秒无法访问：{reason}",
+    "cpe_recovered": "CPE 已恢复访问（中断约 {seconds} 秒）",
+    "wan_down": "蜂窝数据连接已断开超过 {seconds} 秒（状态码 {status}）",
+    "wan_up": "蜂窝数据连接已恢复",
+    "signal_degraded": "{rat} 信号已持续 {minutes} 分钟偏弱：RSRP {rsrp} dBm / SINR {sinr} dB",
+    "signal_recovered": "{rat} 信号已恢复：RSRP {rsrp} dBm / SINR {sinr} dB",
+    "ca_dropped": "载波聚合由 {from} 个载波降为 {to} 个",
+    "reboot_detected": "检测到 CPE 已重启（当前运行 {uptime} 秒）",
+    "sms_storage_high": "短信存储即将占满：{used}/{max}",
+    "sms_storage_full": "短信存储已满（{used}/{max}），将无法接收新短信",
+    "data_threshold": "本月已用流量 {used}，达到 {limit} 套餐的 {percent}%"
   }
 }

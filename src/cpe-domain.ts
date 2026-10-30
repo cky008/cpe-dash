@@ -29,6 +29,8 @@ import {
   summarizeTopologyJson,
 } from "./parsers.ts";
 import { sanitizeIpToken } from "./sanitize.ts";
+import { parseSmsCountersOrNull } from "./sms/codec.ts";
+import type { SmsCounters } from "./sms/types.ts";
 import { getXmlTag } from "./xml.ts";
 
 export class CpeControlValidationError extends Error {
@@ -105,6 +107,8 @@ export interface GlobalTelemetrySnapshot {
   bandConfig: BandConfigSnapshot;
   traffic: TrafficTelemetryDto;
   thermal: ThermalSnapshot;
+  /** `GET /api/sms/sms-count` piggybacked on the telemetry session; `null` when SMS is disabled or unavailable. */
+  sms: SmsCounters | null;
 }
 
 export interface NeighborScanSnapshot {
@@ -229,11 +233,12 @@ function parseWifi7DbhoJson(rawJson: string): { mloEnable: boolean; dbhoEnable: 
 
 /**
  * Fetch a complete, JSON-serializable 5G/4G RF + 3CA + 256QAM MCS + MIMO + Dual-Stack WAN + Dual-Period Traffic
- * snapshot within a single ephemeral CPE session (~130–220ms).
+ * snapshot within a single ephemeral CPE session (~130–220ms). With `includeSmsCounters`, the SMS
+ * counters ride along as one more parallel GET so SMS change detection costs no extra session.
  */
 export async function fetchGlobalTelemetry(
   session: EphemeralCpeSession,
-  options: { redactSensitive?: boolean } = {}
+  options: { redactSensitive?: boolean; includeSmsCounters?: boolean } = {}
 ): Promise<GlobalTelemetrySnapshot> {
   const redact = options.redactSensitive !== false;
 
@@ -250,6 +255,7 @@ export async function fetchGlobalTelemetry(
     trafficXml,
     monthXml,
     startDateXml,
+    smsCountXml,
   ] = await Promise.all([
     safeGet(session, "/api/device/signal"),
     safeGet(session, "/api/device/seccellinfo"),
@@ -263,6 +269,7 @@ export async function fetchGlobalTelemetry(
     safeGet(session, "/api/monitoring/traffic-statistics"),
     safeGet(session, "/api/monitoring/month_statistics"),
     safeGet(session, "/api/monitoring/start_date"),
+    options.includeSmsCounters ? safeGet(session, "/api/sms/sms-count") : Promise.resolve(""),
   ]);
 
   const rf = parseRfSignalSnapshot({
@@ -360,6 +367,7 @@ export async function fetchGlobalTelemetry(
       temperatureCelsius: parsedTemp,
       temperatureSupported: parsedTemp !== null,
     },
+    sms: parseSmsCountersOrNull(smsCountXml),
   };
 }
 

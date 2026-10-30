@@ -2,8 +2,10 @@ import { stripInvalidControlChars } from "../crypto.ts";
 import { CpeApiError, type EphemeralCpeSession, type HuaweiCpeClient } from "../cpe-client.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../xml.ts";
-import { MAX_SMS_SEGMENTS, detectSmsTextMode, parseSmsMessageBlock } from "./codec.ts";
+import { MAX_SMS_SEGMENTS, detectSmsTextMode, parseSmsCounters, parseSmsMessageBlock } from "./codec.ts";
 import type { SmsCounters, SmsSendResult, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
+
+export { parseSmsCounters } from "./codec.ts";
 
 /**
  * H168-383 SMS wire operations. Every function runs inside an `EphemeralCpeSession` handed out by
@@ -31,16 +33,6 @@ export interface SmsFetchResult {
 function readInt(xml: string, tag: string, fallback: number): number {
   const parsed = Number.parseInt(getXmlTag(xml, tag) ?? "", 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
-export function parseSmsCounters(xml: string): SmsCounters {
-  return {
-    localUnread: readInt(xml, "LocalUnread", 0),
-    localInbox: readInt(xml, "LocalInbox", 0),
-    localOutbox: readInt(xml, "LocalOutbox", 0),
-    localDraft: readInt(xml, "LocalDraft", 0),
-    localMax: readInt(xml, "LocalMax", 500) || 500,
-  };
 }
 
 export async function readSmsCounters(session: EphemeralCpeSession): Promise<SmsCounters> {

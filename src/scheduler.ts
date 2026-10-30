@@ -154,6 +154,8 @@ export interface MutexSessionSchedulerOptions {
   maxQueueDepth?: number;
   layer2InitialBackoffMs?: number;
   layer2MaxBackoffMs?: number;
+  /** Piggyback `GET /api/sms/sms-count` on every telemetry session (SMS change detection). */
+  smsCountersEnabled?: boolean;
 }
 
 /**
@@ -177,6 +179,7 @@ export class MutexSessionScheduler extends EventEmitter {
   readonly maxQueueDepth: number;
   readonly layer2InitialBackoffMs: number;
   readonly layer2MaxBackoffMs: number;
+  readonly smsCountersEnabled: boolean;
 
   #initialized = false;
   #running = false;
@@ -216,6 +219,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.maxQueueDepth = options.maxQueueDepth ?? 32;
     this.layer2InitialBackoffMs = options.layer2InitialBackoffMs ?? 45_000;
     this.layer2MaxBackoffMs = options.layer2MaxBackoffMs ?? 300_000;
+    this.smsCountersEnabled = options.smsCountersEnabled === true;
   }
 
   /**
@@ -399,6 +403,29 @@ export class MutexSessionScheduler extends EventEmitter {
     };
   }
 
+  /**
+   * Run an arbitrary read-only CPE session through the shared queue with the same breaker,
+   * browser-avoidance and Layer-2 cooldown semantics as the built-in refreshes.
+   * Resolves `null` when the session was skipped or yielded to a human administrator.
+   */
+  executeRead<T>(
+    fn: (session: EphemeralCpeSession) => Promise<T>,
+    opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}
+  ): Promise<T | null> {
+    return this.#runReadSession(opts.priority ?? "normal", fn, { ignoreCooldown: opts.ignoreCooldown });
+  }
+
+  /**
+   * Record an alert in the encrypted state (bounded history), persist it, and push it to
+   * `alert` listeners (SSE, Telegram, webhooks).
+   */
+  raiseAlert(alert: Omit<AlertEventRecord, "id" | "tsIso">): AlertEventRecord {
+    const record = this.stateStore.appendAlert(alert);
+    void this.stateStore.flushAsync().catch(() => undefined);
+    this.#safeEmit("alert", record);
+    return record;
+  }
+
   #safeEmit(event: string, payload: unknown): void {
     try {
       this.emit(event, payload);
@@ -580,7 +607,11 @@ export class MutexSessionScheduler extends EventEmitter {
 
     const promise = this.#runReadSession(
       "normal",
-      (session) => fetchGlobalTelemetry(session, { redactSensitive: this.redactSensitive }),
+      (session) =>
+        fetchGlobalTelemetry(session, {
+          redactSensitive: this.redactSensitive,
+          includeSmsCounters: this.smsCountersEnabled,
+        }),
       opts
     )
       .then((snap) => {

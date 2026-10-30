@@ -70,7 +70,22 @@ export type I18nKey =
   | "topology.lan_100m"
   | "topology.wifi_5g"
   | "topology.wifi_2_4g"
-  | "topology.lease_remaining";
+  | "topology.lease_remaining"
+  | "sms.sent_summary"
+  | "sms.send_failed_summary"
+  | "sms.marked_read_summary"
+  | "sms.deleted_summary"
+  | "alerts.cpe_unreachable"
+  | "alerts.cpe_recovered"
+  | "alerts.wan_down"
+  | "alerts.wan_up"
+  | "alerts.signal_degraded"
+  | "alerts.signal_recovered"
+  | "alerts.ca_dropped"
+  | "alerts.reboot_detected"
+  | "alerts.sms_storage_high"
+  | "alerts.sms_storage_full"
+  | "alerts.data_threshold";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
