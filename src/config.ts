@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { normalizeLocale } from "./i18n.ts";
 import type { AppConfig } from "./types.ts";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -58,7 +59,13 @@ export function isPrivateOrLanIpv6(rawIp: string): boolean {
 export function isAllowedCpeHost(hostname: string): boolean {
   const clean = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (!clean) return false;
-  if (clean === "localhost" || clean.endsWith(".local") || clean.endsWith(".lan") || clean.endsWith(".internal") || clean.endsWith(".ts.net")) {
+  if (
+    clean === "localhost" ||
+    clean.endsWith(".local") ||
+    clean.endsWith(".lan") ||
+    clean.endsWith(".internal") ||
+    clean.endsWith(".ts.net")
+  ) {
     return true;
   }
   const ipVersion = net.isIP(clean);
@@ -67,6 +74,44 @@ export function isAllowedCpeHost(hostname: string): boolean {
   // Single-label LAN hostnames (e.g. "homerouter" or "cpe")
   if (/^[a-z0-9-]+$/.test(clean)) return true;
   return false;
+}
+
+/**
+ * Validate HTTP `Host` header against private/LAN/Tailscale hostnames and explicit `ALLOWED_HOSTS`
+ * to defeat DNS rebinding attacks against `:18384` and `/mcp`.
+ */
+export function isAllowedHttpHostHeader(
+  rawHostHeader: string | undefined,
+  allowedHosts: ReadonlyArray<string>
+): boolean {
+  if (!rawHostHeader) return false;
+  const trimmed = rawHostHeader.slice(0, 255).trim().toLowerCase();
+  if (!trimmed) return false;
+
+  let hostname = "";
+  if (trimmed.startsWith("[")) {
+    const closeBracket = trimmed.indexOf("]");
+    if (closeBracket <= 1) return false;
+    hostname = trimmed.slice(1, closeBracket);
+    const rest = trimmed.slice(closeBracket + 1);
+    if (rest && !/^:\d{1,5}$/.test(rest)) return false;
+  } else {
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx >= 0) {
+      const portPart = trimmed.slice(colonIdx + 1);
+      if (!/^\d{1,5}$/.test(portPart)) return false;
+      hostname = trimmed.slice(0, colonIdx);
+    } else {
+      hostname = trimmed;
+    }
+  }
+
+  if (!hostname) return false;
+  const allowSet = new Set(allowedHosts.map((h) => h.trim().toLowerCase()).filter(Boolean));
+  if (allowSet.has(hostname) || allowSet.has(trimmed)) {
+    return true;
+  }
+  return isAllowedCpeHost(hostname);
 }
 
 /**
@@ -106,7 +151,7 @@ export function parseDotEnv(content: string): Record<string, string> {
 /**
  * Normalize and SSRF-validate CPE base URL:
  * - Restricts protocol to `http:` or `https:`.
- * - Rejects embedded credentials (`user:pass@host`) and query strings.
+ * - Rejects embedded credentials (`user:pass@host`), query strings, and `#fragments`.
  * - Enforces private/LAN host allowlist unless `allowPublicHost` is explicitly enabled.
  */
 export function normalizeCpeUrl(rawUrl: string, opts: NormalizeUrlOptions = {}): string {
@@ -127,6 +172,9 @@ export function normalizeCpeUrl(rawUrl: string, opts: NormalizeUrlOptions = {}):
   if (parsed.search) {
     throw new Error("CPE_URL must not contain query parameters");
   }
+  if (parsed.hash && /[?@\s%]/.test(parsed.hash)) {
+    throw new Error("CPE_URL must not contain suspicious URL fragment injection");
+  }
   if (!opts.allowPublicHost && !isAllowedCpeHost(parsed.hostname)) {
     throw new Error(
       `SSRF guard blocked non-private CPE_URL host "${parsed.hostname}"; expected LAN/RFC1918/Tailscale address`
@@ -135,9 +183,78 @@ export function normalizeCpeUrl(rawUrl: string, opts: NormalizeUrlOptions = {}):
   return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/+$/, "")}`;
 }
 
+function normalizeSocketIp(raw: string): string {
+  let ip = raw.slice(0, 128).trim();
+  if (!ip) return "";
+  if (ip.startsWith("[")) {
+    const closeIdx = ip.indexOf("]");
+    if (closeIdx > 1) {
+      ip = ip.slice(1, closeIdx);
+    }
+  }
+  const pctIdx = ip.indexOf("%");
+  if (pctIdx > 0) {
+    ip = ip.slice(0, pctIdx);
+  }
+  const lower = ip.toLowerCase();
+  if (lower.startsWith("::ffff:")) {
+    const v4Candidate = lower.slice(7);
+    if (net.isIP(v4Candidate) === 4) {
+      return v4Candidate;
+    }
+  }
+  const ver = net.isIP(lower);
+  if (ver === 4 || ver === 6) {
+    return lower;
+  }
+  // Handle IPv4:port in XFF if supplied by a proxy
+  const lastColon = lower.lastIndexOf(":");
+  if (lastColon > 0 && lower.indexOf(":") === lastColon) {
+    const hostOnly = lower.slice(0, lastColon);
+    if (net.isIP(hostOnly) === 4) return hostOnly;
+  }
+  return "";
+}
+
+/**
+ * Build a `net.BlockList` supporting both single IPv4/IPv6 addresses and CIDR prefixes (`172.16.0.0/12`).
+ */
+export function buildTrustedProxyBlockList(trustedProxies: ReadonlyArray<string>): net.BlockList {
+  const blockList = new net.BlockList();
+  for (const entry of trustedProxies) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const slashIdx = trimmed.indexOf("/");
+    if (slashIdx > 0) {
+      const addr = normalizeSocketIp(trimmed.slice(0, slashIdx));
+      const prefix = Number.parseInt(trimmed.slice(slashIdx + 1), 10);
+      const ver = net.isIP(addr);
+      if (ver === 4 && Number.isInteger(prefix) && prefix >= 0 && prefix <= 32) {
+        blockList.addSubnet(addr, prefix, "ipv4");
+      } else if (ver === 6 && Number.isInteger(prefix) && prefix >= 0 && prefix <= 128) {
+        blockList.addSubnet(addr, prefix, "ipv6");
+      }
+    } else {
+      const addr = normalizeSocketIp(trimmed);
+      const ver = net.isIP(addr);
+      if (ver === 4) blockList.addAddress(addr, "ipv4");
+      else if (ver === 6) blockList.addAddress(addr, "ipv6");
+    }
+  }
+  return blockList;
+}
+
+function isIpInBlockList(blockList: net.BlockList, ip: string): boolean {
+  const ver = net.isIP(ip);
+  if (ver === 4) return blockList.check(ip, "ipv4");
+  if (ver === 6) return blockList.check(ip, "ipv6");
+  return false;
+}
+
 /**
  * Extract authentic client IP for rate-limiting/auditing without allowing `X-Forwarded-For` spoofing.
- * Only honors `X-Forwarded-For` when the direct TCP socket peer matches `trustedProxies`.
+ * Honors `X-Forwarded-For` ONLY when the direct TCP socket peer matches `trustedProxies` (exact IP or CIDR),
+ * and validates every hop via `net.isIP` from right to left.
  */
 export function resolveClientIp(
   socketRemoteAddress: string | undefined,
@@ -146,31 +263,71 @@ export function resolveClientIp(
 ): string {
   const peer = normalizeSocketIp(socketRemoteAddress ?? "");
   if (!peer) return "unknown";
-  const trusted = new Set(trustedProxies.map(normalizeSocketIp).filter(Boolean));
-  if (!trusted.has(peer) || !xForwardedFor) {
+  const trustedList = buildTrustedProxyBlockList(trustedProxies);
+  if (!isIpInBlockList(trustedList, peer) || !xForwardedFor) {
     return peer;
   }
-  const chain = xForwardedFor
-    .split(",")
-    .map((ip) => normalizeSocketIp(ip.trim()))
-    .filter(Boolean);
-  // Walk right-to-left through proxy hops to find the right-most untrusted client IP
-  for (let i = chain.length - 1; i >= 0; i--) {
-    const hop = chain[i]!;
-    if (!trusted.has(hop)) {
+
+  const rawTokens = xForwardedFor.slice(0, 1024).split(",");
+  let lastValidTrusted = peer;
+  // Walk right-to-left through proxy hops; stop immediately on malformed hop or first untrusted valid IP
+  for (let i = rawTokens.length - 1; i >= 0; i--) {
+    const hop = normalizeSocketIp(rawTokens[i] ?? "");
+    if (!hop) {
+      return lastValidTrusted;
+    }
+    if (!isIpInBlockList(trustedList, hop)) {
       return hop;
     }
+    lastValidTrusted = hop;
   }
-  return chain[0] ?? peer;
+  return lastValidTrusted;
 }
 
-function normalizeSocketIp(ip: string): string {
-  const trimmed = ip.trim();
-  if (trimmed.startsWith("::ffff:")) {
-    const v4 = trimmed.slice(7);
-    if (net.isIP(v4) === 4) return v4;
-  }
-  return trimmed;
+/**
+ * Determine whether the incoming HTTP request arrived over HTTPS (either direct TLS socket
+ * or `X-Forwarded-Proto: https` from a `trustedProxies` peer).
+ */
+export function resolveRequestSecureScheme(
+  isTlsSocket: boolean,
+  socketRemoteAddress: string | undefined,
+  xForwardedProto: string | undefined,
+  trustedProxies: ReadonlyArray<string>
+): boolean {
+  if (isTlsSocket) return true;
+  if (!xForwardedProto) return false;
+  const peer = normalizeSocketIp(socketRemoteAddress ?? "");
+  if (!peer) return false;
+  const trustedList = buildTrustedProxyBlockList(trustedProxies);
+  if (!isIpInBlockList(trustedList, peer)) return false;
+  const proto = xForwardedProto.split(",")[0]?.trim().toLowerCase() ?? "";
+  return proto === "https";
+}
+
+function expandIpv6Hextets(ip: string): string[] | null {
+  if (net.isIP(ip) !== 6) return null;
+  const parts = ip.split("::");
+  if (parts.length > 2) return null;
+  const left = parts[0] ? parts[0].split(":") : [];
+  const right = parts.length === 2 && parts[1] ? parts[1].split(":") : [];
+  const missing = 8 - (left.length + right.length);
+  if (missing < 0) return null;
+  const full = [...left, ...Array.from({ length: missing }, () => "0"), ...right];
+  if (full.length !== 8) return null;
+  return full.map((h) => h.padStart(4, "0").toLowerCase());
+}
+
+/**
+ * Collapse IPv6 client addresses to their `/64` prefix so SLAAC privacy-extension address rotation
+ * cannot bypass per-client brute-force rate limits.
+ */
+export function canonicalizeRateLimitBucketKey(clientIp: string): string {
+  const clean = normalizeSocketIp(clientIp);
+  if (!clean) return "unknown";
+  if (net.isIP(clean) === 4) return clean;
+  const hextets = expandIpv6Hextets(clean);
+  if (!hextets) return clean;
+  return `${hextets.slice(0, 4).join(":")}::/64`;
 }
 
 function parseBool(val: string | undefined, defaultValue: boolean): boolean {
@@ -226,9 +383,34 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  const rawAllowedHosts = get("ALLOWED_HOSTS") ?? "";
+  const allowedHosts = rawAllowedHosts
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
   const webEnabled = parseBool(get("WEB_ENABLED", "WEB_UI_ENABLED"), true);
   const webPort = Math.max(0, parseIntSafe(get("WEB_PORT"), 18384));
   const webHost = get("WEB_HOST") ?? "0.0.0.0";
+  const defaultLocale = normalizeLocale(get("DEFAULT_LOCALE"), "zh-CN");
+
+  const mcpHttpEnabled = parseBool(get("MCP_HTTP_ENABLED"), true);
+  const mcpAllowMutations = parseBool(get("MCP_ALLOW_MUTATIONS"), true);
+  const sseHeartbeatMs = Math.max(3000, parseIntSafe(get("SSE_HEARTBEAT_MS"), 15000));
+  const sseMaxClients = Math.max(1, parseIntSafe(get("SSE_MAX_CLIENTS"), 32));
+  const historyRetentionHours = Math.max(1, parseIntSafe(get("HISTORY_RETENTION_HOURS"), 168));
+  const stateFlushIntervalMs = Math.max(
+    10000,
+    parseIntSafe(get("STATE_FLUSH_INTERVAL_MS"), 30 * 60 * 1000)
+  );
+  const rateLimitWindowMs = Math.max(5000, parseIntSafe(get("RATE_LIMIT_WINDOW_MS"), 60000));
+  const rateLimitMaxAuthFailures = Math.max(
+    3,
+    parseIntSafe(get("RATE_LIMIT_MAX_AUTH_FAILURES"), 8)
+  );
+  const sessionTtlMs = Math.max(60000, parseIntSafe(get("SESSION_TTL_MS"), 24 * 60 * 60 * 1000));
+  const staticDir = path.resolve(process.cwd(), get("STATIC_DIR") ?? "./public");
+  const redactSensitiveInApi = parseBool(get("REDACT_SENSITIVE_IN_API"), true);
 
   const pollIntervalMs = Math.max(1000, parseIntSafe(get("POLL_INTERVAL_MS"), 5000));
   const neighborScanIntervalMs = Math.max(
@@ -248,9 +430,22 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     dataEncryptionKey,
     apiToken,
     trustedProxies,
+    allowedHosts,
     webEnabled,
     webPort,
     webHost,
+    defaultLocale,
+    mcpHttpEnabled,
+    mcpAllowMutations,
+    sseHeartbeatMs,
+    sseMaxClients,
+    historyRetentionHours,
+    stateFlushIntervalMs,
+    rateLimitWindowMs,
+    rateLimitMaxAuthFailures,
+    sessionTtlMs,
+    staticDir,
+    redactSensitiveInApi,
     pollIntervalMs,
     neighborScanIntervalMs,
     requestTimeoutMs,

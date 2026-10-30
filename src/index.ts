@@ -1,5 +1,6 @@
 export * from "./types.ts";
 export * from "./config.ts";
+export * from "./i18n.ts";
 export * from "./crypto.ts";
 export * from "./xml.ts";
 export * from "./sanitize.ts";

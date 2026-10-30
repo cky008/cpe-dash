@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "name": "简体中文",
+    "code": "zh-CN"
+  },
+  "app": {
+    "title": "烽燧 · H168-383 5G 射频与网管中心",
+    "brand_name": "烽燧 FengSui",
+    "subtitle": "Huawei 5G CPE Ultra 6 (H168-383) 私有化射频监控与网管平台",
+    "device_model": "H168-383"
+  },
+  "auth": {
+    "login_title": "登录「烽燧」控制台",
+    "password_placeholder": "输入 API_TOKEN 或 CPE 管理密码",
+    "submit": "进入控制台",
+    "logout": "安全退出",
+    "unauthorized": "未登录或访问令牌无效",
+    "csrf_rejected": "CSRF 安全校验未通过，请刷新页面后重试",
+    "rate_limited": "请求过于频繁，请在 {seconds} 秒后重试",
+    "session_note": "本地独立加密会话，仅在采样瞬间 (~26ms) 访问路由器，绝不霸占 192.168.8.1 后台"
+  },
+  "session": {
+    "mode_idle": "空闲待命",
+    "mode_active": "瞬时采集中",
+    "mode_yielding": "用户正在使用 CPE 后台，监控自动避让中",
+    "mode_resumed": "CPE 官方后台已空闲，实时遥测自动恢复",
+    "mode_circuit_tripped": "防爆破熔断器已触发 ({code})，已停止一切自动登录重试",
+    "circuit_reset_ok": "熔断断路器已人工复位"
+  },
+  "rf": {
+    "section_title": "5G / 4G 高阶射频与载波聚合",
+    "ca_active": "{count}CA 载波聚合激活 ({bandwidth} MHz)",
+    "ca_single": "单载波运行 ({bandwidth} MHz)",
+    "pcc_label": "主载波 (PCC)",
+    "scc_label": "辅载波 (SCC)",
+    "tac_label": "跟踪区代码 (TAC)",
+    "enodeb_label": "基站标识 (eNodeB / gNodeB)",
+    "cell_id_label": "小区标识 (Cell ID)",
+    "pci_label": "物理小区标识 (PCI)",
+    "mcs_label": "调制编码阶数 (MCS)",
+    "mimo_label": "MIMO 空间流数",
+    "txpower_label": "上行发射功率 (PUSCH / PUCCH)",
+    "temp_unavailable": "固件未暴露传感器"
+  },
+  "traffic": {
+    "section_title": "实时吞吐与双周期流量审计",
+    "download_rate": "实时下行速率",
+    "upload_rate": "实时上行速率",
+    "today_used": "当日累计流量",
+    "month_used": "当月累计流量",
+    "billing_day": "每月 {day} 日结算清零",
+    "window_1h": "最近 1 小时",
+    "window_6h": "最近 6 小时",
+    "window_12h": "最近 12 小时",
+    "window_24h": "最近 24 小时",
+    "window_custom": "自定义时间跨度"
+  },
+  "neighbors": {
+    "section_title": "4G / 5G 周边邻区基站扫描",
+    "scan_now": "立即扫描邻区",
+    "lock_this_cell": "锁定此小区 (PCI {pci})",
+    "empty_hint": "当前未扫描到候选邻区"
+  },
+  "controls": {
+    "band_lock_applied": "频段锁定已下发：{summary}",
+    "cell_lock_applied": "{rat} 小区/频点锁定已下发：Band {band}, ARFCN {arfcn}",
+    "unlock_all_applied": "已解除全部频段与小区锁定，恢复全频段自动选网",
+    "reboot_confirm_required": "高危操作拦截：远程重启必须显式传入 confirm: true",
+    "reboot_triggered": "路由器重启指令已下发，预计 45-90 秒后恢复连接",
+    "reconnect_triggered": "蜂窝数据重拨指令已下发",
+    "security_updated": "安全策略开关（UPnP / DMZ / 防火墙）已更新",
+    "wifi7_updated": "Wi-Fi 7 MLO / 双频优选配置已更新",
+    "antenna_updated": "天线模式已切换为：{mode}",
+    "mobile_data_updated": "移动数据总开关已更新",
+    "yielded_cannot_mutate": "检测到真人正在登录 CPE 官方后台 (192.168.8.1)，为防止踢掉当前管理员，控制指令已礼貌取消"
+  },
+  "topology": {
+    "section_title": "局域网接入终端拓扑",
+    "lan_1000m": "千兆有线 (1000M)",
+    "lan_100m": "百兆有线 (100M)",
+    "wifi_5g": "5GHz Wi-Fi 7",
+    "wifi_2_4g": "2.4GHz Wi-Fi 7",
+    "lease_remaining": "剩余租期 {minutes} 分钟"
+  }
+}

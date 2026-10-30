@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "name": "English",
+    "code": "en"
+  },
+  "app": {
+    "title": "FengSui · H168-383 5G RF & Network Console",
+    "brand_name": "FengSui 烽燧",
+    "subtitle": "Self-Hosted 5G RF Telemetry & Network Management Platform for Huawei 5G CPE Ultra 6 (H168-383)",
+    "device_model": "H168-383"
+  },
+  "auth": {
+    "login_title": "Sign in to FengSui Console",
+    "password_placeholder": "Enter API_TOKEN or CPE admin password",
+    "submit": "Sign In",
+    "logout": "Sign Out",
+    "unauthorized": "Unauthorized or invalid access token",
+    "csrf_rejected": "CSRF security check failed; please refresh and retry",
+    "rate_limited": "Too many attempts; please retry in {seconds}s",
+    "session_note": "Independent local session; touches CPE for ~26ms per poll and never blocks http://192.168.8.1"
+  },
+  "session": {
+    "mode_idle": "Idle",
+    "mode_active": "Ephemeral Polling",
+    "mode_yielding": "Human administrator is using the CPE WebUI; monitoring is politely yielding",
+    "mode_resumed": "CPE WebUI is free again; live telemetry automatically resumed",
+    "mode_circuit_tripped": "Anti-brute-force circuit breaker tripped ({code}); auto-retries halted",
+    "circuit_reset_ok": "Circuit breaker manually reset"
+  },
+  "rf": {
+    "section_title": "5G / 4G Advanced RF & Carrier Aggregation",
+    "ca_active": "{count}CA Active ({bandwidth} MHz)",
+    "ca_single": "Single Carrier ({bandwidth} MHz)",
+    "pcc_label": "Primary Carrier (PCC)",
+    "scc_label": "Secondary Carrier (SCC)",
+    "tac_label": "Tracking Area Code (TAC)",
+    "enodeb_label": "Base Station ID (eNodeB / gNodeB)",
+    "cell_id_label": "Cell Identity (Cell ID)",
+    "pci_label": "Physical Cell ID (PCI)",
+    "mcs_label": "Modulation & Coding (MCS)",
+    "mimo_label": "MIMO Spatial Layers",
+    "txpower_label": "UL Transmit Power (PUSCH / PUCCH)",
+    "temp_unavailable": "Not exposed by firmware"
+  },
+  "traffic": {
+    "section_title": "Live Throughput & Dual-Period Traffic",
+    "download_rate": "Download Rate",
+    "upload_rate": "Upload Rate",
+    "today_used": "Today's Usage",
+    "month_used": "Monthly Usage",
+    "billing_day": "Resets on day {day} of each month",
+    "window_1h": "Last 1 Hour",
+    "window_6h": "Last 6 Hours",
+    "window_12h": "Last 12 Hours",
+    "window_24h": "Last 24 Hours",
+    "window_custom": "Custom Time Range"
+  },
+  "neighbors": {
+    "section_title": "4G / 5G Neighbor Cell Scanner",
+    "scan_now": "Scan Neighbors Now",
+    "lock_this_cell": "Lock Cell (PCI {pci})",
+    "empty_hint": "No candidate neighbor cells reported"
+  },
+  "controls": {
+    "band_lock_applied": "Band lock applied: {summary}",
+    "cell_lock_applied": "{rat} cell/frequency lock applied: Band {band}, ARFCN {arfcn}",
+    "unlock_all_applied": "Cleared all band and cell locks; restored automatic full-band selection",
+    "reboot_confirm_required": "Safety guard: reboot requires explicit confirm: true",
+    "reboot_triggered": "Router reboot command dispatched; link will recover in ~45-90s",
+    "reconnect_triggered": "Cellular WAN reconnect command dispatched",
+    "security_updated": "Security switches (UPnP / DMZ / Firewall) updated",
+    "wifi7_updated": "Wi-Fi 7 MLO / Dual-Band Handover settings updated",
+    "antenna_updated": "Antenna mode switched to: {mode}",
+    "mobile_data_updated": "Mobile data master switch updated",
+    "yielded_cannot_mutate": "A human admin is currently logged into CPE WebUI (192.168.8.1); control mutation politely aborted"
+  },
+  "topology": {
+    "section_title": "LAN Connected Terminal Topology",
+    "lan_1000m": "Gigabit Ethernet (1000M)",
+    "lan_100m": "Fast Ethernet (100M)",
+    "wifi_5g": "5GHz Wi-Fi 7",
+    "wifi_2_4g": "2.4GHz Wi-Fi 7",
+    "lease_remaining": "{minutes} min lease left"
+  }
+}

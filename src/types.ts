@@ -1,5 +1,7 @@
 export type EncryptionType = 1 | 2 | 3;
 
+export type SupportedLocale = "zh-CN" | "en";
+
 export interface AppConfig {
   cpeUrl: string;
   cpeUsername: string;
@@ -7,9 +9,22 @@ export interface AppConfig {
   dataEncryptionKey: string;
   apiToken: string;
   trustedProxies: string[];
+  allowedHosts: string[];
   webEnabled: boolean;
   webPort: number;
   webHost: string;
+  defaultLocale: SupportedLocale;
+  mcpHttpEnabled: boolean;
+  mcpAllowMutations: boolean;
+  sseHeartbeatMs: number;
+  sseMaxClients: number;
+  historyRetentionHours: number;
+  stateFlushIntervalMs: number;
+  rateLimitWindowMs: number;
+  rateLimitMaxAuthFailures: number;
+  sessionTtlMs: number;
+  staticDir: string;
+  redactSensitiveInApi: boolean;
   pollIntervalMs: number;
   neighborScanIntervalMs: number;
   requestTimeoutMs: number;
