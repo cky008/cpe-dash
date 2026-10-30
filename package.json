@@ -1,0 +1,55 @@
+{
+  "name": "cpe-dash",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FengSui (烽燧) — Self-hosted strict TypeScript 5G RF telemetry, 3CA carrier aggregation, neighbor cell scanner, band/cell locking, and network topology dashboard for Huawei 5G CPE Ultra 6 (H168-383)",
+  "author": "cky008",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cky008/cpe-dash.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cky008/cpe-dash/issues"
+  },
+  "homepage": "https://github.com/cky008/cpe-dash#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.test.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "test:coverage": "c8 --include='src/**/*.ts' --exclude='src/types.ts' --exclude='src/index.ts' --reporter=text --check-coverage --lines 90 --functions 90 --statements 90 node --test test/*.test.ts",
+    "audit:secrets": "node scripts/audit-secrets.ts",
+    "check": "npm run typecheck && npm run test:coverage && npm run audit:secrets",
+    "probe:har": "node scripts/probe-har-endpoints.ts",
+    "probe:locking": "node scripts/probe-locking-algo.ts",
+    "probe:rf": "node scripts/probe-rf-ca.ts",
+    "probe:neighbors": "node scripts/probe-neighbor-cells.ts",
+    "probe:traffic": "node scripts/probe-traffic.ts",
+    "probe:topology": "node scripts/probe-topology.ts",
+    "probe:session": "node scripts/probe-session-avoidance.ts",
+    "probe:extended": "node scripts/probe-extended-capabilities.ts"
+  },
+  "keywords": [
+    "typescript",
+    "huawei",
+    "5g-cpe",
+    "h168-383",
+    "telemetry",
+    "carrier-aggregation",
+    "band-lock",
+    "cell-lock",
+    "synology",
+    "nas"
+  ],
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "c8": "^12.0.0",
+    "typescript": "^7.0.2"
+  }
+}
