@@ -21,7 +21,8 @@ cpe-dash/
 │   ├── sanitize.ts         # 敏感标识符（IMEI/IMSI/MAC/IP/TAC/CellID/口令）自动化脱敏引擎
 │   ├── encrypted-file.ts   # StorageCipher: scrypt + HKDF-SHA256 + AES-256-GCM (0600) 落盘加密
 │   ├── band-lock.ts        # 4G LTE / 5G NR BandMask 精确位运算与锁小区载荷构建器
-│   ├── cpe-client.ts       # H168-383 瞬时会话客户端、CSRF 动态令牌池、108006 防爆破断路器
+│   ├── parsers.ts          # 3CA 射频、邻区、双周期流量与终端拓扑纯函数解析器
+│   ├── cpe-client.ts       # H168-383 瞬时会话客户端、双层真人避让与 108006 防爆破断路器
 │   └── index.ts            # 公共模块导出入口
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器
@@ -45,7 +46,7 @@ cpe-dash/
 - **RFC 占位测试夹具规范**：
   - CPE 局域网网关：`192.168.8.1`；模拟公网 IPv4：RFC 5737 测试网段（`198.51.100.42` / `203.0.113.10`）；模拟公网 IPv6：RFC 3849（`2001:db8::42`）；
   - 模拟域名：`cpe.example.com`；模拟 MAC：`02:00:5E:10:00:01` / `00:00:5E:00:53:01`（RFC 7042 文档保留地址）；
-  - 模拟蜂窝身份：`IMEI=860000000000000`、`IMSI=272010000000000`、`ICCID=8935301000000000000`、`MSISDN=+353830000000`、`TAC=10001`、`CellID=268435457`。
+  - 模拟蜂窝身份：`IMEI=860000000000000`、`IMSI=272010000000000`、`ICCID=8935301000000000000`、`MSISDN=+353830000000`、`TAC=10001`、`CellID=134217758`。
 - **物理隔离**：本地 `.env`、`data/*`、`.probe-cache/`、`*.har`、`*.pcap*`、`*.apk*`、`*.dll` 必须写入 [`.gitignore`](.gitignore) 严格隔离；每次提交前必须通过 `npm run audit:secrets` 对工作区与完整 `git log -p --all` 历史进行双向扫描。
 
 ### 铁律三：纯原生 `.env` 配置规范
@@ -53,8 +54,8 @@ cpe-dash/
 
 ### 铁律四：华为单管理员会话排他保护与真人在线避让
 - H168-383 固件严格限制**同一时刻仅允许 1 个管理员会话在线**。若后台守护进程持久霸占会话，用户在浏览器打开 `http://192.168.8.1` 登录时将被迫报错或发生会话抢占。
-- **强制瞬时短连 (`withSession`)**：任何需要鉴权的读写操作必须包裹在串行互斥的 `HuaweiCpeClient.withSession()` 中，并在 `finally` 块内无条件调用 `POST /api/user/logout`（实测单次会话占用窗口控制在 `~150ms–250ms` 量级）。
-- **真人在线主动避让 (`state-login` 预检)**：每次发起登录前，必须先以免登录方式请求 `GET /api/user/state-login`。当 `respectBrowserSession: true`（后台轮询与探针默认开启）且返回 `<State>` 不为 `"-1"`（例如 `<State>0</State>` 表示真人管理员已在线）时，客户端必须**立即静默挂起让位（返回 `null`）**，严禁强行发起 `challenge_login`。
+- **强制瞬时短连 (`withSession`)**：任何需要鉴权的读写操作必须包裹在串行互斥的 `HuaweiCpeClient.withSession()` 中，并在 `finally` 块内无条件调用 `POST /api/user/logout`（真机实测单次会话占用窗口仅 `~26ms–260ms`）。
+- **双层真人在线主动避让（`state-login` 预检 + 跨 IP `108003` 让位）**：每次发起登录前先请求 `GET /api/user/state-login`；当 `respectBrowserSession: true`（后台轮询与探针默认开启）时，若 `<State>` 不为 `"-1"`（第 1 层）或跨局域网终端已有浏览器在线返回 `108003`/`108009`（第 2 层），客户端必须**立即静默挂起让位（返回 `null`）**，严禁强行抢占或循环重试干扰真人会话。
 
 ### 铁律五：`108006` / `108007` 防爆破熔断断路器 (Circuit Breaker)
 - H168-383 连续输错 3 次管理密码即触发硬件级账户锁定（`<error><code>108007</code></error>` 或 `<lockstatus>1</lockstatus>`）。

@@ -242,7 +242,7 @@ export function sanitizeXml(xml: string, extraSecrets: ReadonlyArray<string> = [
         lowerTag.includes("cell_id") ||
         lowerTag.includes("nodeb")
       ) {
-        return `<${rawTag}>${lowerTag.includes("tac") ? "10001" : "268435457"}</${rawTag}>`;
+        return `<${rawTag}>${lowerTag.includes("tac") ? "10001" : "134217758"}</${rawTag}>`;
       }
 
       if (
