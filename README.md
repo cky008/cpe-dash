@@ -1,7 +1,7 @@
 # cpe-dash · 烽燧 (FengSui)
 
 <p align="center">
-  <strong>华为 5G CPE Ultra 6 (H168-383) 私有化高阶射频遥测 · 3CA 载波聚合观测 · 邻区扫描 · 锁频锁站与 MCP 智能体网管平台</strong>
+  <strong>华为 5G CPE Ultra 6 (H168-383) 私有化高阶射频遥测 · 3CA 载波聚合观测 · 邻区扫描 · 锁频锁站 · 短信与 Telegram · MCP 智能体网管平台</strong>
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@
 
 ---
 
-**「烽燧」(FengSui / `cpe-dash`)** 是专为 **华为 5G CPE Ultra 6 (`H168-383`，固件 `4.4.0.1`)** 打造的私有化 5G 射频遥测、3CA 载波聚合分析、4G/5G 邻区扫描、锁频段/锁小区控制、双周期流量审计、局域网终端拓扑与 **Model Context Protocol (MCP)** 智能体网管平台（专注射频与网管，明确排除短信业务）。
+**「烽燧」(FengSui / `cpe-dash`)** 是专为 **华为 5G CPE Ultra 6 (`H168-383`，固件 `4.4.0.1`)** 打造的私有化 5G 射频遥测、3CA 载波聚合分析、4G/5G 邻区扫描、锁频段/锁小区控制、双周期流量审计、局域网终端拓扑与 **Model Context Protocol (MCP)** 智能体网管平台，并内置**短信收发**（加密镜像、通讯录、Telegram 双向机器人、签名 Webhook）与**自动告警**。短信与遥测共用唯一的管理员会话调度器，不再与独立短信服务争抢路由器后台。
 
 项目针对 **群晖 Synology DS923+ (AMD Ryzen R1600 / 32GB RAM)** 等家庭私有内网环境设计，采用 **100% 严格 TypeScript (`strict: true`)** 独立闭环编写，**生产运行时零外部 npm 依赖**（100% 基于 Node.js 原生内置模块），默认监听独立高位端口 `:18384`。
 
@@ -50,6 +50,7 @@
 - [📡《H168-383 硬件能力全景表》（真机实测验证）](#-h168-383-硬件能力全景表真机实测验证)
 - [🏗️ 仓库架构与模块划分](#️-仓库架构与模块划分)
 - [🚀 快速启动（守护进程、MCP Server 与真机探针）](#-快速启动守护进程mcp-server-与真机探针)
+- [✉️ 短信、Telegram 机器人与告警](#️-短信telegram-机器人与告警)
 - [🔌 REST API、毫秒级 SSE 与 MCP 工具概览](#-rest-api毫秒级-sse-与-mcp-工具概览)
 - [⚙️ `.env` 配置参考](#️-env-配置参考)
 - [🛡️ 七大安全与 TDD 质量门禁](#️-七大安全与-tdd-质量门禁)
@@ -69,12 +70,16 @@ flowchart LR
     AgentHttp["内网 AI Agent (HTTP MCP)"]
     AgentStdio["本地 AI Agent (stdio MCP)"]
     HumanWeb["真人管理员浏览器"]
+    TgUser["Telegram（手机）"]
+    Hook["Webhook 接收端（Home Assistant / n8n）"]
   end
 
   subgraph NAS["Synology DS923+ (Node.js >= 22.6 零外部依赖)"]
     HttpSrv["FengSuiHttpServer (:18384)\nHost 白名单 + Strict CSRF + /64 限流"]
     SseBus["SseEventBus (/api/events)\n<1ms 首帧快照 + 15s 心跳"]
-    McpSrv["FengSuiMcpServer\n13 Tools + 3 Resources"]
+    McpSrv["FengSuiMcpServer\n13 + 10 短信 Tools"]
+    Sms["SmsService\n计数捎带同步 + 加密镜像 + 通讯录"]
+    Notify["NotificationHub + AlertEngine\nTelegram 机器人 / 签名 Webhook"]
     Sched["MutexSessionScheduler\n优先级队列 + 单飞合并 + 双层避让"]
     Ring["TimeSeriesRingBuffer\n5s 细粒度环 + 60s 归档环 (7d)"]
     Store["EncryptedStateStore\nAES-256-GCM 0600 异步原子落盘"]
@@ -93,6 +98,13 @@ flowchart LR
   AgentStdio -- "NDJSON stdio" --> McpSrv
   HttpSrv --> Sched
   McpSrv --> Sched
+  HttpSrv --> Sms
+  McpSrv --> Sms
+  Sms --> Sched
+  Sms -- "sms:new" --> Notify
+  Sched -- "alert / telemetry" --> Notify
+  Notify -- "Bot API 长轮询" --> TgUser
+  Notify -- "HMAC 签名 POST" --> Hook
   Sched --> Ring
   Sched --> Store
   Sched --> Client
@@ -142,8 +154,12 @@ sequenceDiagram
   - 华为固件连续输错 3 次管理密码即锁定账户。内置断路器捕获 `108006`/`108007` 后立即熔断并将密码指纹写入加密状态库，即便守护进程重启也不会重复试错锁死路由器。因密码错误（`108006`/`108002`/`108001`）熔断时，必须先修正 `.env` 中的 `CPE_PASSWORD`，再调用 `POST /api/session/reset-breaker` 或重启服务；密码未变时重置请求会被拒绝（`400`）。`108007` 硬件锁定在锁定期结束后可直接通过 reset-breaker 解除。
 - **📈 双层定长环形时序数据库 (`TimeSeriesRingBuffer`)**
   - 内存占用恒定 `< 6 MB`：`Tier 1` 维护 `3 小时 / 5 秒` 高频槽位，`Tier 2` 维护 `7 天 / 60 秒` 归档槽位；支持 `1h`、`6h`、`12h`、`24h` 与自定义 `[fromMs, toMs]` 无缝跨层拼接聚合，NSA 5G 空闲与未开放传感器保持精确 `null`（绝不拉偏均值至 `0`），配合 `EncryptedStateStore` 异步 `30 分钟` 批量刷盘保护群晖硬盘休眠。
+- **✉️ 短信与遥测同源调度（零额外会话的变化检测）**
+  - 短信计数捎带在 5s 遥测会话内读取，只有计数变化才触发增量或全量同步；发送、已读、删除走同一调度器的控制写队列，真人在线时同样礼貌让位。短信镜像、通讯录与 Telegram 状态全部 AES-256-GCM 加密落盘，单进程独占（`sms.json.lock`）。
+- **📲 Telegram 双向机器人、签名 Webhook 与自动告警**
+  - 来信卡片（验证码、回复即发送、已读 / 会话 / 删除确认按钮）、引导式发短信、会话与通讯录查询、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警引擎覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储与流量阈值，带持续窗口与恢复迟滞。
 - **🤖 原生双模 MCP Server (`stdio` + Streamable HTTP `/mcp`)**
-  - 零外部依赖完整实现 JSON-RPC 2.0 MCP 服务端（[`FengSuiMcpServer`](src/mcp-server.ts)），向 Claude Desktop、Antigravity、Cursor 及内网自动化 Agent 暴露 **13 项强类型工具**与 **3 项实时资源**，`reboot_cpe` 与 `reconnect_cellular` 强制要求 `{ confirm: true }` 二次确认防误触。
+  - 零外部依赖完整实现 JSON-RPC 2.0 MCP 服务端（[`FengSuiMcpServer`](src/mcp-server.ts)），向 Claude Desktop、Antigravity、Cursor 及内网自动化 Agent 暴露 **13 项核心工具**与**最多 10 项短信工具**（按 `MCP_SMS_ACCESS` 分级）。`reboot_cpe`、`reconnect_cellular`、`send_sms`、`delete_sms` 强制要求 `{ confirm: true }`；短信正文按不可信数据处理，发送默认仅限已知号码并按小时限额，防范提示词注入。
 - **🛡️ 现代 Web 纵深防御体系**
   - 内置 `Host` 白名单防 DNS Rebinding (`421`)、`SameSite=Strict; HttpOnly` 会话隔离、`X-Requested-With` + `Origin` 双重防 CSRF、`net.BlockList` 可信反代 CIDR 校验 + IPv6 `/64` 速率限制桶、无原型字典防 Prototype Pollution、线性扫描防 ReDoS 以及 `normalizeCpeUrl` 私网源防 SSRF。
 
@@ -193,6 +209,9 @@ cpe-dash/
 │   ├── timeseries.ts                # 双层定长环形时序数据库 (5s 细粒度环 + 60s 7天归档环)
 │   ├── state-store.ts               # 异步原子加密持久化与密钥轮换自愈状态库
 │   ├── scheduler.ts                 # 全局单实例互斥调度器、单飞请求合并与 Layer-2 退避引擎
+│   ├── alert-engine.ts              # 持续窗口 + 迟滞告警引擎（离线 / WAN / 信号 / CA / 重启 / 短信存储 / 流量）
+│   ├── sms/                         # 短信协议、号码解析、加密镜像、通讯录、SmsService、REST 路由与 MCP 工具
+│   ├── notify/                      # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── sse-bus.ts                   # /api/events 毫秒级 SSE 扇出总线、慢消费背压剔除与心跳保活
 │   ├── mcp-server.ts                # 原生 JSON-RPC 2.0 MCP Server (stdio NDJSON + Streamable HTTP)
 │   ├── http-server.ts               # 纵深加固 HTTP/REST/SSE/MCP 与静态资源服务器 (:18384)
@@ -200,7 +219,7 @@ cpe-dash/
 │   └── index.ts                     # 公共 SDK 模块导出入口
 ├── scripts/
 │   ├── audit-secrets.ts             # 工作区 + 全量 Git 历史零密钥/零硬件指纹/纯 TS 扫描门禁
-│   └── probe-*.ts                   # 8 项非破坏性真机协议与硬件能力验证探针
+│   └── probe-*.ts                   # 9 项非破坏性真机协议与硬件能力验证探针（probe-sms 只输出聚合计数）
 └── test/                            # 基于 node:test 的全离线高覆盖率测试套件 (> 96%)
 ```
 
@@ -239,6 +258,7 @@ npm start
   # 或指定配置文件：node --experimental-strip-types src/cli.ts mcp --env /path/to/.env
   # （Node 22.18+ / 23.6+ 可省略该标志；所有 npm 脚本已内置）
   ```
+  stdio 进程有独立的调度器。若 `serve` 守护进程已在同一数据目录运行，stdio 进程不会提供短信工具（短信存储由守护进程独占），请让智能体改连守护进程的 HTTP `/mcp`。
 - **内网 / Tailscale Streamable HTTP 模式**：
   ```bash
   curl -X POST http://127.0.0.1:18384/mcp \
@@ -255,7 +275,46 @@ npm run probe:neighbors   # 扫描周边 4G/5G 候选邻区表 (EARFCN, Band, PC
 npm run probe:traffic     # 读取瞬时上下行速率、当日累计流量与当月累计流量
 npm run probe:topology    # 采集千兆 LAN / 2.4G / 5G 终端拓扑、协商速率与双栈 DHCP 租期
 npm run probe:session     # 压测 ~26ms 瞬时短连释放并验证双层真人浏览器避让
+npm run probe:sms         # 只读：短信计数、列表通道与全量拉取耗时（只输出计数，不发送、不标记、不删除）
 ```
+
+---
+
+## ✉️ 短信、Telegram 机器人与告警
+
+### 工作方式
+- **同步**：守护进程启动时全量同步一次（CPE 上已有短信视为历史，不推送），之后由 5s 遥测会话捎带的 `sms-count` 计数驱动增量同步，另有 30 分钟兜底全量对账。镜像与 CPE 严格一致：删除会同时删除 CPE 与本地记录。
+- **发送**：Web、MCP、Telegram 共用 `POST /api/sms/send` 背后的同一条路径：会话前校验号码与长度（GSM-7 / UCS-2，最多 4 段、5 个收件人），会话内提交、轮询发送状态并回读发件记录。
+- **真人优先**：有人登录 `http://192.168.8.1` 时，短信写操作返回 `409`，同步暂停，只用免登录接口探测未读数；对方退出后自动补同步。
+
+### 配置 Telegram 机器人
+1. 在 Telegram 中找 `@BotFather` 创建机器人，把令牌写入 `.env` 的 `TELEGRAM_BOT_TOKEN`；
+2. 二选一：把自己的聊天 ID 写入 `TELEGRAM_CHAT_IDS`，或启动后向机器人发送 `/auth <API_TOKEN>`（令牌消息会被自动删除；`API_TOKEN` 更换后需重新绑定）；
+3. 重启 `npm start`，日志中出现 `telegram=on` 即生效。
+
+| 命令 / 交互 | 作用 |
+| :--- | :--- |
+| 来信卡片 | 发件人、国旗与联系人名，验证码一键复制；**直接回复卡片即发送短信**；按钮：已读 / 查看会话 / 删除（二次确认） |
+| `/new` | 引导式发短信：选国家 → 输入号码或联系人名 → 输入正文（显示编码与分段）→ 确认发送 |
+| `/send <号码> <正文>` | 快捷发送（同样需要点击确认） |
+| `/inbox`、`/unread`、`/chat <号码>` | 会话列表、未读与会话详情（读取本地镜像，不开路由器会话） |
+| `/contacts [关键字]`、`/contact <号码> <姓名>`、发送 `.vcf` 文件 | 查询、添加与批量导入联系人 |
+| `/status`、`/alerts`、`/sync` | 设备与短信状态、最近告警、立即同步 |
+| `/mute 30m\|2h\|1d\|off` | 暂停或恢复告警推送 |
+
+### Webhook
+设置 `WEBHOOK_URL` 后，新短信（`sms.received`）与告警（`alert`）以 JSON `POST` 推送。设置 `WEBHOOK_SECRET` 后，接收端可按如下方式校验签名：
+
+```ts
+import crypto from "node:crypto";
+const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.headers["x-fengsui-timestamp"]}.${rawBody}`).digest("hex");
+// 常量时间比较 expected 与 req.headers["x-fengsui-signature"]，并拒绝时间戳偏差过大的请求
+```
+
+### 告警
+`CPE_UNREACHABLE`、`WAN_DOWN`、`SIGNAL_DEGRADED`（RSRP < `ALERT_RSRP_THRESHOLD_DBM` 或 SINR < `ALERT_SINR_THRESHOLD_DB` 持续 5 分钟）、`CA_DROPPED`、`REBOOT_DETECTED`、`SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`、`DATA_THRESHOLD` 以及熔断告警，均记录在 `GET /api/alerts` 与 SSE `alert`。级别不低于 `ALERT_NOTIFY_MIN_SEVERITY` 的告警会推送到 Telegram / Webhook。
+
+> **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `CPE_PASSWORD`，而通讯录无法从路由器重新同步。建议设置独立密钥；更换密钥或路由器密码时，先修改 `.env` 并调用 `POST /api/session/reset-breaker`（立即用新密钥重写所有加密文件），再重启。
 
 ---
 
@@ -268,8 +327,11 @@ npm run probe:session     # 压测 ~26ms 瞬时短连释放并验证双层真人
 | **主动刷新与扫描** | `POST /api/telemetry/refresh`, `POST /api/neighbors/scan`, `POST /api/topology/refresh`, `POST /api/settings/refresh` | 单飞合并触发一次 `~150ms` 礼貌瞬时采样 |
 | **射频与系统控制** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | 动态锁 4G/5G 频段与 `PCI+ARFCN` 小区、开关安全/MLO/天线/移动数据（真人在线时礼貌返回 `409`） |
 | **会话与熔断器** | `GET /api/session/status`, `POST /api/session/reset-breaker` | 查询调度器/避让/熔断状态；重新读取 `.env` 并重置熔断器 |
-| **实时 SSE 总线** | `GET /api/events` | 实时推送 `hello`, `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `session:avoidance`, `control:applied`, `alert` 及 `: heartbeat` |
+| **短信与通讯录** | `GET /api/sms/status`, `threads`, `thread`, `contacts`, `countries`; `POST /api/sms/preview`, `send`, `read`, `delete`, `sync`, `contacts/upsert`, `contacts/delete`, `contacts/import-vcf` | 读接口直读加密镜像（零 CPE 会话）；写接口走控制队列（真人在线时返回 `409`） |
+| **告警与通知** | `GET /api/alerts` | 最近 100 条告警与 Telegram / Webhook 投递统计 |
+| **实时 SSE 总线** | `GET /api/events` | 实时推送 `hello`（含短信状态）, `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `session:avoidance`, `control:applied`, `alert`, `sms:new`, `sms:sent`, `sms:updated`, `sms:sync`, `sms:status`, `contacts:updated` 及 `: heartbeat` |
 | **MCP 智能体工具** | `get_cpe_telemetry`, `query_telemetry_history`, `list_neighbor_cells`, `get_cpe_session_status`, `lock_band`, `lock_cell`, `unlock_rf_locks`, `reboot_cpe` 等 13 项 | 供内网 AI 助手实时诊断 5G 信号、对比邻区、执行锁频锁站与二次确认重启 |
+| **MCP 短信工具** | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms`；`full` 权限追加 `send_sms`, `mark_sms_read`, `delete_sms`, `upsert_contact` | 默认只读；发送需 `confirm: true`、单收件人、默认仅限已知号码并按小时限额 |
 
 完整 TypeScript 请求/响应契约请参阅 👉 **[`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)**。
 
@@ -282,7 +344,7 @@ npm run probe:session     # 压测 ~26ms 瞬时短连释放并验证双层真人
 | `CPE_URL` | `http://192.168.8.1` | CPE 局域网管理地址（严格限制私网单源 Origin，拦截跨网 SSRF） |
 | `CPE_USERNAME` | `admin` | H168-383 管理员账号 |
 | `CPE_PASSWORD` | *(必填)* | CPE 管理后台密码（`108006` 错误立即触发跨重启持久化熔断） |
-| `DATA_ENCRYPTION_KEY` | *(回退至 `CPE_PASSWORD`)* | 本地 `data/*.json` 静态加密密钥（`scrypt` + `HKDF-SHA256`） |
+| `DATA_ENCRYPTION_KEY` | *(回退至 `CPE_PASSWORD`)* | 本地 `data/*.json`（状态、短信镜像、通讯录、Telegram 状态）静态加密密钥（`scrypt` + `HKDF-SHA256`）；强烈建议独立设置 |
 | `API_TOKEN` | *(回退至 `CPE_PASSWORD`)* | Web 登录口令与 REST / `/mcp` Bearer 令牌（推荐独立设置高熵随机串） |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 可信反向代理 IP / CIDR 白名单（`net.BlockList` 精确匹配后才解析 `X-Forwarded-For`） |
 | `ALLOWED_HOSTS` | *(空)* | 额外放行的 HTTP `Host`（如反代域名），拦截 DNS Rebinding (`421`)；私网/环回/链路本地 IP、`localhost`、`*.local`/`*.lan`/`*.internal`/`*.ts.net` 与单标签主机名始终放行 |
@@ -294,6 +356,23 @@ npm run probe:session     # 压测 ~26ms 瞬时短连释放并验证双层真人
 | `POLL_INTERVAL_MS` | `5000` | 常规射频与实时速率采样周期（毫秒） |
 | `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | 4G/5G 邻区扫描低频采样周期（毫秒） |
 | `RESPECT_BROWSER_SESSION` | `true` | 真人浏览器在线自动挂起避让开关（强烈建议保持 `true`）。设为 `false` 时跳过让位：后台仍尝试登录，被跨 IP 占用（`108003`）时读请求报错、写请求返回 `502` 而非 `409` |
+| `SMS_ENABLED` | `true` | 启用短信同步、REST、SSE 与 MCP 短信工具 |
+| `DEFAULT_COUNTRY_CODE` | `+353` | 国内号码的默认国家区号 |
+| `SMS_FILE` / `CONTACTS_FILE` | *(与 `STATE_FILE` 同目录)* | 加密短信镜像 `sms.json` 与通讯录 `contacts.json` |
+| `SMS_FULL_SYNC_INTERVAL_MS` | `1800000` | 兜底全量对账间隔（最小 `60000`） |
+| `SMS_SEED_EXISTING_ON_START` | `true` | 首次同步时把已有短信视为历史（不推送） |
+| `SMS_AUTO_MARK_READ` | `false` | 推送新短信后自动在 CPE 上标记已读 |
+| `SMS_SEND_STATUS_TIMEOUT_MS` | `45000` | 发送状态轮询上限（`5000..120000`） |
+| `TELEGRAM_BOT_TOKEN` | *(空)* | Telegram 机器人令牌（留空不启用） |
+| `TELEGRAM_CHAT_IDS` | *(空)* | 预授权聊天 ID，逗号分隔（也可用 `/auth <API_TOKEN>` 绑定） |
+| `TELEGRAM_API_BASE` / `TELEGRAM_STATE_FILE` | `https://api.telegram.org` / *(同目录 `telegram.json`)* | 自建 Bot API 地址与加密状态文件 |
+| `WEBHOOK_URL` / `WEBHOOK_SECRET` | *(空)* | 新短信与告警的 JSON 推送地址与 HMAC 签名密钥 |
+| `ALERTS_ENABLED` | `true` | 启用告警引擎 |
+| `ALERT_NOTIFY_MIN_SEVERITY` | `warning` | 推送到 Telegram / Webhook 的最低级别（`info` / `warning` / `critical`） |
+| `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | 信号劣化告警阈值 |
+| `MCP_SMS_ACCESS` | `read` | MCP 短信工具权限：`none` / `read` / `full` |
+| `MCP_SMS_SEND_POLICY` | `known` | `known` 仅限联系人或曾发过短信的号码；`any` 不限制 |
+| `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | MCP 每小时发送上限（`0` 禁止） |
 
 ---
 
@@ -312,9 +391,9 @@ npm run check
 ## 📚 权威技术文档索引
 
 - [`AGENTS.md`](AGENTS.md) — 工程契约、七大安全铁律与强制 TDD 守则
-- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — 华为 H168-383 私有协议、逆向算法与真机实测字典
-- [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — 群晖 DS923+ 零依赖后端选型、安全防线与多语言架构论证报告
-- [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — Phase 2 → Phase 3 完整 REST API、SSE 事件流与前端托管交接契约
+- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — 华为 H168-383 私有协议（含 3.8 节短信接口与加密通道）、逆向算法与真机实测字典
+- [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — 群晖 DS923+ 零依赖后端选型、安全防线、多语言架构与第 5 节短信融合架构
+- [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — Phase 2 → Phase 3 完整 REST API、SSE 事件流、MCP 工具（含短信）与 `cpe-sms` 视图映射表
 
 ---
 

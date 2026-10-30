@@ -1,7 +1,7 @@
 # cpe-dash · FengSui (烽燧)
 
 <p align="center">
-  <strong>Self-Hosted 5G RF Telemetry · 3CA Carrier Aggregation · Neighbor Cell Scanner · Band & Cell Locking · MCP Agent Platform for Huawei 5G CPE Ultra 6 (H168-383)</strong>
+  <strong>Self-Hosted 5G RF Telemetry · 3CA Carrier Aggregation · Neighbor Cell Scanner · Band & Cell Locking · SMS & Telegram · MCP Agent Platform for Huawei 5G CPE Ultra 6 (H168-383)</strong>
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@
 
 ---
 
-**FengSui (烽燧 / `cpe-dash`)** is a self-hosted 5G RF telemetry, 3CA carrier aggregation analyzer, 4G/5G neighbor cell scanner, band/cell lock controller, dual-period traffic auditor, LAN terminal topology, and **Model Context Protocol (MCP)** AI agent platform built specifically for the **Huawei 5G CPE Ultra 6 (`H168-383`, firmware `4.4.0.1`)** (strictly focused on RF & network management, excluding SMS).
+**FengSui (烽燧 / `cpe-dash`)** is a self-hosted 5G RF telemetry, 3CA carrier aggregation analyzer, 4G/5G neighbor cell scanner, band/cell lock controller, dual-period traffic auditor, LAN terminal topology, and **Model Context Protocol (MCP)** AI agent platform built specifically for the **Huawei 5G CPE Ultra 6 (`H168-383`, firmware `4.4.0.1`)**, with built-in **SMS** (encrypted mirror, contact book, two-way Telegram bot, signed webhooks) and **automatic alerts**. SMS and telemetry share one admin-session scheduler, so no separate SMS service competes for the router's single admin slot.
 
 Engineered for private NAS environments such as **Synology DS923+ (AMD Ryzen R1600 / 32GB RAM)**, `cpe-dash` is written in **100% Strict TypeScript (`strict: true`)** as a self-contained repository with **zero production runtime npm dependencies** (powered solely by Node.js built-in modules) and listens on isolated port `:18384` by default.
 
@@ -50,6 +50,7 @@ Engineered for private NAS environments such as **Synology DS923+ (AMD Ryzen R16
 - [📡 H168-383 Hardware Capability Panorama (Live-Verified)](#-h168-383-hardware-capability-panorama-live-verified)
 - [🏗️ Repository Architecture](#️-repository-architecture)
 - [🚀 Quick Start (Daemon, MCP Server & Hardware Probes)](#-quick-start-daemon-mcp-server--hardware-probes)
+- [✉️ SMS, Telegram Bot & Alerts](#️-sms-telegram-bot--alerts)
 - [🔌 REST API, Real-Time SSE & MCP Tools Overview](#-rest-api-real-time-sse--mcp-tools-overview)
 - [⚙️ `.env` Configuration Reference](#️-env-configuration-reference)
 - [🛡️ Security Invariants & TDD Quality Gates](#️-security-invariants--tdd-quality-gates)
@@ -69,12 +70,16 @@ flowchart LR
     AgentHttp["LAN AI Agent (HTTP MCP)"]
     AgentStdio["Local AI Agent (stdio MCP)"]
     HumanWeb["Human Admin Browser"]
+    TgUser["Telegram (phone)"]
+    Hook["Webhook receiver (Home Assistant / n8n)"]
   end
 
   subgraph NAS["Synology DS923+ (Node.js >= 22.6 Zero Runtime Deps)"]
     HttpSrv["FengSuiHttpServer (:18384)\nHost Guard + Strict CSRF + /64 Rate Limit"]
     SseBus["SseEventBus (/api/events)\n<1ms Hello Snapshot + 15s Heartbeat"]
-    McpSrv["FengSuiMcpServer\n13 Tools + 3 Resources"]
+    McpSrv["FengSuiMcpServer\n13 + 10 SMS Tools"]
+    Sms["SmsService\nPiggybacked Sync + Encrypted Mirror + Contacts"]
+    Notify["NotificationHub + AlertEngine\nTelegram Bot / Signed Webhooks"]
     Sched["MutexSessionScheduler\nPriority Queue + Coalescer + Avoidance"]
     Ring["TimeSeriesRingBuffer\n5s Fine Ring + 60s Rollup Ring (7d)"]
     Store["EncryptedStateStore\nAES-256-GCM 0600 Async Atomic Flush"]
@@ -93,6 +98,13 @@ flowchart LR
   AgentStdio -- "NDJSON stdio" --> McpSrv
   HttpSrv --> Sched
   McpSrv --> Sched
+  HttpSrv --> Sms
+  McpSrv --> Sms
+  Sms --> Sched
+  Sms -- "sms:new" --> Notify
+  Sched -- "alert / telemetry" --> Notify
+  Notify -- "Bot API long polling" --> TgUser
+  Notify -- "HMAC-signed POST" --> Hook
   Sched --> Ring
   Sched --> Store
   Sched --> Client
@@ -142,8 +154,12 @@ sequenceDiagram
   - Three wrong password attempts lock the router's admin account. Our `CircuitBreaker` latches immediately upon `108006` / `108007` and persists the credential fingerprint inside `EncryptedStateStore`, preventing restart loops from locking out the router. A wrong-password latch (`108006` / `108002` / `108001`) clears only after `CPE_PASSWORD` is corrected in `.env`, followed by `POST /api/session/reset-breaker` or a restart; a reset with the password unchanged is refused (`400`). A `108007` hardware lockout can be cleared with reset-breaker once the lockout period has passed.
 - **📈 Dual-Tier Fixed-Memory Circular Time-Series (`TimeSeriesRingBuffer`)**
   - Bounded `< 6 MB` footprint: `Tier 1` stores `3h` at `5s` resolution while `Tier 2` stores `7d` at `60s` roll-ups, joined seamlessly for `1h`, `6h`, `12h`, `24h`, and custom `[fromMs, toMs]` queries. Intermittent NSA 5G and unsupported temperature channels remain `null` (never skewed toward `0`), backed by `30m` batched async flushes to preserve Synology HDD hibernation.
+- **✉️ SMS Scheduled Through the Same Session Broker (Change Detection at Zero Extra Sessions)**
+  - SMS counters ride along in the 5s telemetry session, and only a counter change triggers an incremental or full sync. Send, mark-read and delete go through the scheduler's control queue and yield to a human admin like every other write. The SMS mirror, contact book and Telegram state are AES-256-GCM encrypted at rest and owned by a single process (`sms.json.lock`).
+- **📲 Two-Way Telegram Bot, Signed Webhooks & Automatic Alerts**
+  - Incoming SMS cards (one-tap OTP, reply-to-send, read / thread / delete-with-confirmation buttons), a guided send wizard, conversation and contact lookups, alert delivery and muting; webhooks are signed with `HMAC-SHA256`. The alert engine covers CPE offline, WAN down, signal degradation, carrier-aggregation loss, reboots, SMS storage and data thresholds, with sustain windows and recovery hysteresis.
 - **🤖 Native Dual-Transport MCP Server (`stdio` + Streamable HTTP `/mcp`)**
-  - Zero-dependency JSON-RPC 2.0 MCP server ([`FengSuiMcpServer`](src/mcp-server.ts)) exposing **13 strongly-typed tools** and **3 resources** to Claude Desktop, Antigravity, Cursor, and LAN agents, with mandatory `{ confirm: true }` guards on `reboot_cpe` and `reconnect_cellular`.
+  - Zero-dependency JSON-RPC 2.0 MCP server ([`FengSuiMcpServer`](src/mcp-server.ts)) exposing **13 core tools** and **up to 10 SMS tools** (tiered by `MCP_SMS_ACCESS`) to Claude Desktop, Antigravity, Cursor, and LAN agents. `reboot_cpe`, `reconnect_cellular`, `send_sms` and `delete_sms` require `{ confirm: true }`; SMS bodies are treated as untrusted data, and sends default to known recipients with an hourly budget to resist prompt injection.
 - **🛡️ Defense-in-Depth Web Security**
   - Enforces DNS-rebinding `Host` allowlists (`421`), `SameSite=Strict; HttpOnly` session cookies, `X-Requested-With` + `Origin` CSRF validation, `net.BlockList` CIDR proxy trust + IPv6 `/64` rate-limit buckets, null-prototype parsers, linear O(N) XML scanning, and private-origin SSRF guards.
 
@@ -193,6 +209,9 @@ cpe-dash/
 │   ├── timeseries.ts                # Dual-tier circular ring buffer (5s fine ring + 60s 7-day rollup ring)
 │   ├── state-store.ts               # Async atomic encrypted state persistence with key-rotation recovery
 │   ├── scheduler.ts                 # Single-instance mutex scheduler, single-flight coalescer & backoff
+│   ├── alert-engine.ts              # Sustain-window + hysteresis alerts (offline / WAN / signal / CA / reboot / SMS storage / data)
+│   ├── sms/                         # SMS protocol, number parsing, encrypted mirror, contacts, SmsService, REST routes & MCP tools
+│   ├── notify/                      # Telegram Bot API client & two-way bot, signed webhooks, notification hub
 │   ├── sse-bus.ts                   # /api/events sub-ms SSE fan-out bus, backpressure eviction & heartbeat
 │   ├── mcp-server.ts                # Native JSON-RPC 2.0 MCP Server (stdio NDJSON + Streamable HTTP)
 │   ├── http-server.ts               # Hardened HTTP/REST/SSE/MCP & static asset server (:18384)
@@ -200,7 +219,7 @@ cpe-dash/
 │   └── index.ts                     # Public SDK exports
 ├── scripts/
 │   ├── audit-secrets.ts             # Working-tree + full git-history Zero-Secret/Zero-PII & Pure-TS gate
-│   └── probe-*.ts                   # 8 read-only live hardware & protocol verification probes
+│   └── probe-*.ts                   # 9 read-only live hardware & protocol verification probes (probe-sms prints aggregate counts only)
 └── test/                            # Offline deterministic simulation test suite (> 96% coverage)
 ```
 
@@ -239,6 +258,7 @@ npm start
   # Or pass explicit .env path: node --experimental-strip-types src/cli.ts mcp --env /path/to/.env
   # (the flag is optional on Node 22.18+ / 23.6+; every npm script already passes it)
   ```
+  A stdio process runs its own scheduler. If the `serve` daemon already runs on the same data directory, the stdio process offers no SMS tools (the daemon owns the SMS store); point the agent at the daemon's HTTP `/mcp` instead.
 - **LAN / Tailscale Streamable HTTP Transport**:
   ```bash
   curl -X POST http://127.0.0.1:18384/mcp \
@@ -255,7 +275,46 @@ npm run probe:neighbors   # Scan 4G/5G candidate neighbor cells (EARFCN, Band, P
 npm run probe:traffic     # Query live UL/DL bps rates, Today's bytes & Monthly UL+DL bytes
 npm run probe:topology    # Classify LAN 1000M / 2.4G / 5G terminals, PHY speeds & dual-stack leases
 npm run probe:session     # Benchmark ~26ms session release & verify dual-layer browser avoidance
+npm run probe:sms         # Read-only: SMS counters, listing path & full-fetch cost (counts only; never sends, marks or deletes)
 ```
+
+---
+
+## ✉️ SMS, Telegram Bot & Alerts
+
+### How it works
+- **Sync**: the daemon runs one full sync at startup (messages already on the CPE count as history and are not announced). After that, `sms-count` counters piggybacked on the 5s telemetry session drive incremental syncs, with a 30-minute safety-net full reconcile. The mirror tracks the CPE exactly: deleting removes a message from both the router and the mirror.
+- **Sending**: Web, MCP and Telegram share one path behind `POST /api/sms/send`. Recipients and length are validated before any session (GSM-7 / UCS-2, at most 4 segments and 5 recipients); inside the session the message is submitted, its status polled and the sent copy read back.
+- **Humans first**: while someone is logged in at `http://192.168.8.1`, SMS writes return `409`, syncs pause and only the unauthenticated unread probe runs; a catch-up sync follows once they log out.
+
+### Setting up the Telegram bot
+1. Create a bot with `@BotFather` and put its token in `TELEGRAM_BOT_TOKEN`;
+2. Either list your chat ID in `TELEGRAM_CHAT_IDS`, or send `/auth <API_TOKEN>` to the bot once it runs (the token message is deleted automatically; rotating `API_TOKEN` unlinks such chats);
+3. Restart with `npm start`; the log line shows `telegram=on`.
+
+| Command / interaction | What it does |
+| :--- | :--- |
+| Incoming SMS card | Sender, flag and contact name, one-tap OTP; **reply to the card to text back**; buttons: read / open thread / delete (with confirmation) |
+| `/new` | Guided send: pick a country → enter a number or contact name → type the text (encoding and segments shown) → confirm |
+| `/send <number> <text>` | Quick send (still asks for a confirmation tap) |
+| `/inbox`, `/unread`, `/chat <number>` | Conversations, unread and thread detail (served from the local mirror, no router session) |
+| `/contacts [query]`, `/contact <number> <name>`, send a `.vcf` file | Search, add and bulk-import contacts |
+| `/status`, `/alerts`, `/sync` | Device and SMS status, recent alerts, sync now |
+| `/mute 30m\|2h\|1d\|off` | Pause or resume alert delivery |
+
+### Webhooks
+With `WEBHOOK_URL` set, new SMS (`sms.received`) and alerts (`alert`) are POSTed as JSON. With `WEBHOOK_SECRET` set, receivers can verify the signature:
+
+```ts
+import crypto from "node:crypto";
+const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.headers["x-fengsui-timestamp"]}.${rawBody}`).digest("hex");
+// compare expected with req.headers["x-fengsui-signature"] in constant time and reject stale timestamps
+```
+
+### Alerts
+`CPE_UNREACHABLE`, `WAN_DOWN`, `SIGNAL_DEGRADED` (RSRP < `ALERT_RSRP_THRESHOLD_DBM` or SINR < `ALERT_SINR_THRESHOLD_DB` for 5 minutes), `CA_DROPPED`, `REBOOT_DETECTED`, `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`, `DATA_THRESHOLD` and circuit-breaker alerts are all recorded in `GET /api/alerts` and the SSE `alert` event. Alerts at or above `ALERT_NOTIFY_MIN_SEVERITY` are also pushed to Telegram / webhooks.
+
+> **Encryption key**: an empty `DATA_ENCRYPTION_KEY` falls back to `CPE_PASSWORD`, and the contact book cannot be re-synced from the router. Set a dedicated key. To change the key or the router password, edit `.env` and call `POST /api/session/reset-breaker` first (it rewrites every encrypted file under the new key right away), then restart.
 
 ---
 
@@ -268,8 +327,11 @@ npm run probe:session     # Benchmark ~26ms session release & verify dual-layer 
 | **On-Demand Polls** | `POST /api/telemetry/refresh`, `POST /api/neighbors/scan`, `POST /api/topology/refresh`, `POST /api/settings/refresh` | Single-flight coalesced `~150ms` polite ephemeral CPE polls |
 | **RF & Router Control** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | Dynamic 4G/5G band & `PCI+ARFCN` cell locks, security/MLO/antenna/mobile-data switches & reboot (`409` on human yield) |
 | **Session & Breaker** | `GET /api/session/status`, `POST /api/session/reset-breaker` | Scheduler, avoidance and breaker status; reload `.env` and reset the circuit breaker |
-| **Real-Time SSE** | `GET /api/events` | Pushes `hello`, `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `session:avoidance`, `control:applied`, `alert`, `: heartbeat` |
+| **SMS & Contacts** | `GET /api/sms/status`, `threads`, `thread`, `contacts`, `countries`; `POST /api/sms/preview`, `send`, `read`, `delete`, `sync`, `contacts/upsert`, `contacts/delete`, `contacts/import-vcf` | Reads come straight from the encrypted mirror (zero CPE sessions); writes use the control queue (`409` while a human is logged in) |
+| **Alerts & Notifications** | `GET /api/alerts` | Last 100 alerts plus Telegram / webhook delivery stats |
+| **Real-Time SSE** | `GET /api/events` | Pushes `hello` (with SMS status), `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `session:avoidance`, `control:applied`, `alert`, `sms:new`, `sms:sent`, `sms:updated`, `sms:sync`, `sms:status`, `contacts:updated`, `: heartbeat` |
 | **MCP Agent Tools** | `get_cpe_telemetry`, `query_telemetry_history`, `list_neighbor_cells`, `get_cpe_session_status`, `lock_band`, `lock_cell`, `unlock_rf_locks`, `reboot_cpe` (13 tools) | Enables AI agents to inspect 5G RF, compare neighbor towers, lock bands/cells, and reboot safely |
+| **MCP SMS Tools** | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms`; `full` access adds `send_sms`, `mark_sms_read`, `delete_sms`, `upsert_contact` | Read-only by default; sending needs `confirm: true`, one recipient, known numbers by default and an hourly budget |
 
 See **[`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)** for complete TypeScript request/response schemas.
 
@@ -282,7 +344,7 @@ See **[`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)** for
 | `CPE_URL` | `http://192.168.8.1` | CPE LAN origin URL (strictly validated against private/LAN ranges to prevent SSRF) |
 | `CPE_USERNAME` | `admin` | H168-383 administrator username |
 | `CPE_PASSWORD` | *(Required)* | CPE admin password (`108006` latches persistent CircuitBreaker immediately) |
-| `DATA_ENCRYPTION_KEY` | *(Falls back to `CPE_PASSWORD`)* | Master secret for `data/*.json` encryption at rest (`scrypt` + `HKDF-SHA256`) |
+| `DATA_ENCRYPTION_KEY` | *(Falls back to `CPE_PASSWORD`)* | Master secret for `data/*.json` encryption at rest — state, SMS mirror, contacts, Telegram state (`scrypt` + `HKDF-SHA256`); set a dedicated key |
 | `API_TOKEN` | *(Falls back to `CPE_PASSWORD`)* | Web login & REST / `/mcp` Bearer secret (use an independent high-entropy token) |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | Trusted reverse-proxy peer IPs/CIDRs (`net.BlockList` verified before reading `X-Forwarded-For`) |
 | `ALLOWED_HOSTS` | *(empty)* | Extra HTTP `Host` values to accept (e.g. a reverse-proxy domain) on top of the DNS-rebinding guard (`421`); private/loopback/link-local IPs, `localhost`, `*.local` / `*.lan` / `*.internal` / `*.ts.net` and single-label hostnames are always accepted |
@@ -294,6 +356,23 @@ See **[`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)** for
 | `POLL_INTERVAL_MS` | `5000` | Standard RF & throughput polling interval (ms) |
 | `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | Low-frequency 4G/5G neighbor cell scan interval (ms) |
 | `RESPECT_BROWSER_SESSION` | `true` | Automatically yield whenever a human admin session is active on the router (keep `true`). With `false` the daemon skips yielding and still tries to log in: a cross-IP `108003` makes reads fail and writes return `502` instead of `409` |
+| `SMS_ENABLED` | `true` | Enable SMS sync, REST, SSE and MCP SMS tools |
+| `DEFAULT_COUNTRY_CODE` | `+353` | Country code for national-format numbers |
+| `SMS_FILE` / `CONTACTS_FILE` | *(next to `STATE_FILE`)* | Encrypted SMS mirror `sms.json` and contact book `contacts.json` |
+| `SMS_FULL_SYNC_INTERVAL_MS` | `1800000` | Safety-net full reconcile interval (minimum `60000`) |
+| `SMS_SEED_EXISTING_ON_START` | `true` | Treat messages present at the first sync as history (not announced) |
+| `SMS_AUTO_MARK_READ` | `false` | Mark announced messages as read on the CPE |
+| `SMS_SEND_STATUS_TIMEOUT_MS` | `45000` | Upper bound for send-status polling (`5000..120000`) |
+| `TELEGRAM_BOT_TOKEN` | *(empty)* | Telegram bot token (bot disabled when empty) |
+| `TELEGRAM_CHAT_IDS` | *(empty)* | Pre-authorized chat IDs, comma-separated (or link a chat with `/auth <API_TOKEN>`) |
+| `TELEGRAM_API_BASE` / `TELEGRAM_STATE_FILE` | `https://api.telegram.org` / *(`telegram.json` next to `STATE_FILE`)* | Self-hosted Bot API server and encrypted bot state |
+| `WEBHOOK_URL` / `WEBHOOK_SECRET` | *(empty)* | JSON push target for new SMS and alerts, and its HMAC signing secret |
+| `ALERTS_ENABLED` | `true` | Run the alert engine |
+| `ALERT_NOTIFY_MIN_SEVERITY` | `warning` | Lowest severity pushed to Telegram / webhooks (`info` / `warning` / `critical`) |
+| `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | Signal degradation thresholds |
+| `MCP_SMS_ACCESS` | `read` | MCP SMS tool access: `none` / `read` / `full` |
+| `MCP_SMS_SEND_POLICY` | `known` | `known` restricts MCP sends to contacts or numbers texted before; `any` lifts the restriction |
+| `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | MCP send budget per hour (`0` disables MCP sending) |
 
 ---
 
@@ -312,9 +391,9 @@ npm run check
 ## 📚 Authoritative Documentation Index
 
 - [`AGENTS.md`](AGENTS.md) — Engineering constitution, 7 security invariants & mandatory TDD rules
-- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — Huawei H168-383 protocol dictionary, reversed formulas & live measurements
-- [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — Synology DS923+ zero-dependency backend & i18n architecture evaluation report
-- [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — Phase 2 → Phase 3 REST API, SSE stream & static frontend handoff contract
+- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — Huawei H168-383 protocol dictionary (SMS APIs and the encrypted channel in §3.8), reversed formulas & live measurements
+- [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — Synology DS923+ zero-dependency backend, i18n architecture and the SMS fusion architecture (§5)
+- [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — Phase 2 → Phase 3 REST API, SSE stream, MCP tools (incl. SMS) and the `cpe-sms` view mapping table
 
 ---
 
