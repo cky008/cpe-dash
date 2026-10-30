@@ -578,6 +578,63 @@ export function prepareCellLockPayload(command: CellLockCommand): {
   }
 }
 
+interface ObservedCell {
+  rat: "LTE" | "NR";
+  band: number | null;
+  arfcn: number | null;
+  pci: number | null;
+}
+
+function bandOrNull(label: string): number | null {
+  try {
+    return parseBandNumber(label);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a cell (PCI given) or frequency (no PCI) lock targets something the modem has actually
+ * reported: the serving cell, an aggregated carrier, a secondary cell or an entry of the latest
+ * neighbour scan. Lets agent-facing adapters refuse locks onto invented PCI/ARFCN combinations.
+ */
+export function isObservedCellTarget(
+  command: CellLockCommand,
+  telemetry: GlobalTelemetrySnapshot | null,
+  neighbors: NeighborScanSnapshot | null
+): boolean {
+  const band = bandOrNull(String(command.band));
+  const observed: ObservedCell[] = [];
+  if (telemetry) {
+    const rf = telemetry.rf;
+    // The CA banner lists the primary cell first, which covers firmware that omits <earfcn>
+    const dlEarfcn = /DL:(\d+)/.exec(rf.earfcnRaw)?.[1];
+    const pccCarrier = rf.caCarriers.find((carrier) => carrier.rat === "LTE");
+    observed.push({
+      rat: "LTE",
+      band: bandOrNull(rf.pccBand),
+      arfcn: dlEarfcn ? Number(dlEarfcn) : (pccCarrier?.arfcn ?? null),
+      pci: rf.pci,
+    });
+    for (const carrier of rf.caCarriers) {
+      observed.push({ rat: carrier.rat, band: bandOrNull(carrier.band), arfcn: carrier.arfcn, pci: null });
+    }
+    for (const scc of [...rf.lteScc, ...rf.nrScc]) {
+      observed.push({ rat: scc.rat, band: bandOrNull(scc.band), arfcn: scc.arfcn, pci: scc.pci });
+    }
+  }
+  for (const cell of [...(neighbors?.lteNeighbors ?? []), ...(neighbors?.nrNeighbors ?? [])]) {
+    observed.push({ rat: cell.rat, band: bandOrNull(cell.band), arfcn: cell.arfcn, pci: cell.pci });
+  }
+  return observed.some(
+    (cell) =>
+      cell.rat === command.rat &&
+      cell.band === band &&
+      cell.arfcn === command.arfcn &&
+      (command.pci === undefined || cell.pci === command.pci)
+  );
+}
+
 /**
  * Lock 4G LTE (`POST /api/net/net-mode`) and/or 5G NR (`POST /api/net/lock-freq` `lock_mode=3`) bands.
  */

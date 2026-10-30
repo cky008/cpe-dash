@@ -1,0 +1,169 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it } from "node:test";
+import { readAntennaMode, readBandSelection, readCellLockCommand, readTimeSeriesPreset } from "../src/control-input.ts";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
+import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeControlValidationError } from "../src/cpe-domain.ts";
+import { validateToolArguments } from "../src/mcp-schema.ts";
+import { FengSuiMcpServer, type JsonRpcSuccessResponse, LATEST_MCP_PROTOCOL_VERSION } from "../src/mcp-server.ts";
+import { EncryptedStateStore } from "../src/state-store.ts";
+import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../src/timeseries.ts";
+import { createStrictCpe } from "./helpers/strict-cpe.ts";
+
+function createServer() {
+  const cpe = createStrictCpe();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-mcp-contract-"));
+  const core = createFengSuiCore({
+    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+    stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "mcp_contract_key" }),
+    timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
+  });
+  core.monitor.init();
+  const server = new FengSuiMcpServer({ core });
+  let id = 0;
+  const rpc = async (method: string, params: Record<string, unknown> = {}) =>
+    ((await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }))) as JsonRpcSuccessResponse).result;
+  const call = async (name: string, args: Record<string, unknown>) =>
+    (await rpc("tools/call", { name, arguments: args })) as { isError: boolean; structuredContent: { errorCode?: string; message?: string } };
+  return {
+    cpe,
+    core,
+    server,
+    rpc,
+    call,
+    close: async () => {
+      await stopFengSuiCore(core);
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+describe("MCP tool contract enforcement", () => {
+  it("rejects unknown, missing and mistyped arguments before any CPE session", async () => {
+    const fx = createServer();
+    try {
+      const typo = await fx.call("set_security_switches", { upnpEnabled: false, firewallMacFilter: true });
+      assert.equal(typo.isError, true);
+      assert.equal(typo.structuredContent.errorCode, "VALIDATION_ERROR");
+      assert.match(typo.structuredContent.message ?? "", /unknown parameter "firewallMacFilter"/);
+
+      const cases: Array<[string, Record<string, unknown>, RegExp]> = [
+        ["lock_cell", { rat: "LTE", band: "B3" }, /missing required parameter "arfcn"/],
+        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1700.5 }, /"arfcn" must be an integer/],
+        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1700, pci: 1008 }, /"pci" must be <= 1007/],
+        ["lock_cell", { rat: "UMTS", band: "B3", arfcn: 1700 }, /"rat" must be one of "LTE", "NR"/],
+        ["lock_band", { lteBands: ["B1", true] }, /"lteBands"/],
+        ["query_telemetry_history", { preset: 6 }, /"preset" must be a string/],
+        ["get_cpe_telemetry", { refresh: "yes" }, /"refresh" must be a boolean/],
+        ["unlock_rf_locks", { force: true }, /takes no parameters/],
+      ];
+      for (const [tool, args, pattern] of cases) {
+        const res = await fx.call(tool, args);
+        assert.equal(res.structuredContent.errorCode, "VALIDATION_ERROR", `${tool} ${JSON.stringify(args)}`);
+        assert.match(res.structuredContent.message ?? "", pattern);
+      }
+      assert.equal(fx.cpe.stats.requests.length, 0, "validation never touched the router");
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("checks explicit confirmation before the schema and before any session", async () => {
+    const fx = createServer();
+    try {
+      for (const args of [{}, { confirm: false }, { confirm: "true" }, { confirm: 1 }]) {
+        const reboot = await fx.call("reboot_cpe", args);
+        assert.equal(reboot.structuredContent.errorCode, "CONFIRMATION_REQUIRED", JSON.stringify(args));
+        assert.equal((await fx.call("reconnect_cellular", args)).structuredContent.errorCode, "CONFIRMATION_REQUIRED");
+      }
+      assert.equal(fx.cpe.stats.requests.length, 0);
+      const confirmed = await fx.call("reboot_cpe", { confirm: true });
+      assert.equal(confirmed.isError, false);
+      assert.ok(fx.cpe.stats.writes.some((w) => w.path === "/api/device/control"));
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("negotiates the latest supported revision and does not claim the session-less 2026-07-28 revision", async () => {
+    const fx = createServer();
+    try {
+      assert.equal(LATEST_MCP_PROTOCOL_VERSION, "2025-11-25");
+      for (const [requested, expected] of [
+        ["2025-11-25", "2025-11-25"],
+        ["2024-11-05", "2024-11-05"],
+        ["2026-07-28", "2025-11-25"],
+        ["1999-01-01", "2025-11-25"],
+      ] as const) {
+        const init = (await fx.rpc("initialize", { protocolVersion: requested, capabilities: {}, clientInfo: { name: "t", version: "1" } })) as {
+          protocolVersion: string;
+        };
+        assert.equal(init.protocolVersion, expected, requested);
+      }
+      assert.equal(fx.server.isSupportedProtocolVersion("2025-11-25"), true);
+      assert.equal(fx.server.isSupportedProtocolVersion("2026-07-28"), false);
+      const discover = (await fx.server.handleRawJsonMessage(
+        JSON.stringify({ jsonrpc: "2.0", id: 99, method: "server/discover", params: {} })
+      )) as { error?: { code: number } };
+      assert.equal(discover.error?.code, -32601, "2026-07-28 clients fall back to the initialize flow");
+    } finally {
+      await fx.close();
+    }
+  });
+});
+
+describe("shared REST/MCP input guards and the schema validator", () => {
+  it("parses bands, cell locks, antenna modes and presets with one rule set", () => {
+    assert.equal(readBandSelection({ b: "all" }, "b"), "all");
+    assert.deepEqual(readBandSelection({ b: ["B1", 3] }, "b"), ["B1", 3]);
+    assert.equal(readBandSelection({}, "b"), undefined);
+    assert.throws(() => readBandSelection({ b: "B1" }, "b"), CpeControlValidationError);
+    assert.throws(() => readBandSelection({ b: [null] }, "b"), /Invalid band entry/);
+
+    assert.deepEqual(readCellLockCommand({ rat: "NR", band: "N78", arfcn: 647424 }, { allowNullPci: false }), {
+      rat: "NR",
+      band: "N78",
+      arfcn: 647424,
+    });
+    assert.deepEqual(readCellLockCommand({ rat: "LTE", band: 3, arfcn: 1700, pci: null }, { allowNullPci: true }), {
+      rat: "LTE",
+      band: 3,
+      arfcn: 1700,
+    });
+    assert.throws(() => readCellLockCommand({ rat: "LTE", band: 3, arfcn: 1700, pci: null }, { allowNullPci: false }), /"pci"/);
+    assert.throws(() => readCellLockCommand({ rat: "LTE", band: 3, arfcn: "1700" }, { allowNullPci: true }), /"arfcn"/);
+    assert.throws(() => readCellLockCommand({ rat: "LTE", arfcn: 1700 }, { allowNullPci: true }), /"band"/);
+
+    assert.equal(readAntennaMode("external"), "external");
+    assert.throws(() => readAntennaMode("satellite"), /"mode" must be/);
+    assert.equal(readTimeSeriesPreset(undefined), "1h");
+    assert.equal(readTimeSeriesPreset("24h"), "24h");
+    assert.throws(() => readTimeSeriesPreset("48h"), TimeSeriesValidationError);
+  });
+
+  it("validates the declared JSON Schema subset", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        bands: { oneOf: [{ type: "string" as const, enum: ["all"] }, { type: "array" as const, maxItems: 2, items: { type: "integer" as const } }] },
+        name: { type: "string" as const, maxLength: 4 },
+        level: { type: "number" as const, minimum: 0 },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    };
+    assert.equal(validateToolArguments(schema, { name: "abc", bands: "all" }), null);
+    assert.equal(validateToolArguments(schema, { name: "abc", bands: [1, 2], level: 0 }), null);
+    assert.match(validateToolArguments(schema, {}) ?? "", /missing required parameter "name"/);
+    assert.match(validateToolArguments(schema, { name: "abcde" }) ?? "", /exceeds 4 characters/);
+    assert.match(validateToolArguments(schema, { name: "a", bands: [1, 2, 3] }) ?? "", /at most 2 items/);
+    assert.match(validateToolArguments(schema, { name: "a", bands: [1.5] }) ?? "", /"bands"\[0\] must be an integer/);
+    assert.match(validateToolArguments(schema, { name: "a", bands: "some" }) ?? "", /"bands" must be one of "all"/);
+    assert.match(validateToolArguments(schema, { name: "a", level: -1 }) ?? "", />= 0/);
+    assert.match(validateToolArguments(schema, { name: "a", extra: 1 }) ?? "", /unknown parameter "extra" \(expected "bands", "name", "level"\)/);
+    assert.equal(validateToolArguments({ ...schema, additionalProperties: true }, { name: "a", extra: 1 }), null);
+  });
+});

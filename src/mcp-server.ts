@@ -1,20 +1,32 @@
-import net from "node:net";
 import type { Readable, Writable } from "node:stream";
-import type { BandInput } from "./band-lock.ts";
-import { CpeControlValidationError, type AntennaModeName } from "./cpe-domain.ts";
-import type { FengSuiCore } from "./core.ts";
-import { BrowserSessionYieldedError } from "./scheduler.ts";
+import { H168_383_LTE_BANDS, NR_DL_ARFCN_RANGES } from "./band-lock.ts";
 import {
-  TimeSeriesValidationError,
-  type TimeSeriesPreset,
-} from "./timeseries.ts";
+  readAntennaMode,
+  readBandSelection,
+  readCellLockCommand,
+  readOptionalBoolean,
+  readOptionalIpv4,
+  readTimeSeriesPreset,
+} from "./control-input.ts";
+import type { FengSuiCore } from "./core.ts";
+import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
+import { type McpInputSchema, validateToolArguments } from "./mcp-schema.ts";
+import { BrowserSessionYieldedError } from "./scheduler.ts";
+import { TimeSeriesValidationError } from "./timeseries.ts";
 
+/**
+ * Protocol revisions this server implements, newest first; `initialize` falls back to the first.
+ * `2026-07-28` is deliberately absent: it replaces `initialize` with `server/discover` and
+ * per-request `_meta`, which this server does not implement, so such clients use the legacy flow.
+ */
 export const SUPPORTED_MCP_PROTOCOL_VERSIONS = [
+  "2025-11-25",
   "2025-06-18",
   "2025-03-26",
   "2024-11-05",
-  "2026-07-28",
 ] as const;
+
+export const LATEST_MCP_PROTOCOL_VERSION = SUPPORTED_MCP_PROTOCOL_VERSIONS[0];
 
 export type JsonRpcId = string | number | null;
 
@@ -52,12 +64,7 @@ export interface McpToolDefinition {
     destructiveHint?: boolean;
     idempotentHint?: boolean;
   };
-  inputSchema: {
-    type: "object";
-    properties: Record<string, unknown>;
-    required?: string[];
-    additionalProperties?: boolean;
-  };
+  inputSchema: McpInputSchema;
 }
 
 /** Tool-level failure surfaced to agents as `{ ok: false, errorCode, message, ...details }` (`isError: true`). */
@@ -108,61 +115,13 @@ export function parseJsonSafeNullProto(rawJson: string): unknown {
   });
 }
 
-function asBooleanOpt(obj: Record<string, unknown>, key: string): boolean | undefined {
-  const val = obj[key];
-  if (val === undefined) return undefined;
-  if (typeof val !== "boolean") {
-    throw new CpeControlValidationError(`Parameter "${key}" must be a boolean`);
-  }
-  return val;
-}
-
 function asNumberOpt(obj: Record<string, unknown>, key: string): number | undefined {
   const val = obj[key];
-  if (val === undefined) return undefined;
-  if (typeof val !== "number" || !Number.isFinite(val)) {
-    throw new CpeControlValidationError(`Parameter "${key}" must be a finite number`);
-  }
-  return val;
+  return typeof val === "number" ? val : undefined;
 }
 
-function asIpv4Opt(obj: Record<string, unknown>, key: string): string | undefined {
-  const val = obj[key];
-  if (val === undefined) return undefined;
-  if (typeof val !== "string" || net.isIP(val.trim()) !== 4) {
-    throw new CpeControlValidationError(`Parameter "${key}" must be a valid IPv4 address`);
-  }
-  return val.trim();
-}
-
-function asAntennaModeOpt(obj: Record<string, unknown>, key: string): AntennaModeName | undefined {
-  const val = obj[key];
-  if (val === undefined) return undefined;
-  if (val !== "auto" && val !== "internal" && val !== "external") {
-    throw new CpeControlValidationError(`Parameter "${key}" must be "auto", "internal", or "external"`);
-  }
-  return val;
-}
-
-function asBandArrayOrAllOpt(
-  obj: Record<string, unknown>,
-  key: string
-): ReadonlyArray<BandInput> | "all" | undefined {
-  const val = obj[key];
-  if (val === undefined) return undefined;
-  if (val === "all") return "all";
-  if (!Array.isArray(val)) {
-    throw new CpeControlValidationError(
-      `Parameter "${key}" must be an array of bands (e.g. ["B1","B3"]) or "all"`
-    );
-  }
-  for (const item of val) {
-    if (typeof item !== "string" && typeof item !== "number") {
-      throw new CpeControlValidationError(`Invalid band entry in "${key}"`);
-    }
-  }
-  return val as ReadonlyArray<BandInput>;
-}
+const LTE_BAND_LIST = H168_383_LTE_BANDS.map((b) => `B${b}`).join(", ");
+const NR_BAND_LIST = Object.keys(NR_DL_ARFCN_RANGES).map((b) => `N${b}`).join(", ");
 
 const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
@@ -198,19 +157,20 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
           description: "Time window preset (defaults to '1h').",
         },
         fromMs: {
-          type: "number",
+          type: "integer",
           description: "Start Unix timestamp in ms (required when preset === 'custom').",
         },
         toMs: {
-          type: "number",
+          type: "integer",
           description: "End Unix timestamp in ms (required when preset === 'custom').",
         },
         bucketMs: {
-          type: "number",
+          type: "integer",
+          minimum: 1,
           description: "Optional aggregation bucket width in ms.",
         },
         maxPoints: {
-          type: "number",
+          type: "integer",
           description: "Maximum buckets to return (1..1440, default 360).",
         },
       },
@@ -282,8 +242,7 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
     name: "lock_band",
     title: "Lock 4G LTE & 5G NR Frequency Bands",
-    description:
-      "Dynamically lock 4G LTE bands (via BandMask bitwise codec) and/or 5G NR bands (via lock_mode=3), e.g., lteBands=['B1','B3'], nrBands=['N78']. Politely aborts if a human admin is logged in.",
+    description: `Dynamically lock 4G LTE bands (via BandMask bitwise codec) and/or 5G NR bands (via lock_mode=3), e.g., lteBands=['B1','B3'], nrBands=['N78']. LTE bands must be ones the H168-383 supports (${LTE_BAND_LIST}); NR bands must be ${NR_BAND_LIST}. Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.`,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -293,7 +252,7 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
             { type: "string", enum: ["all"] },
             { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
           ],
-          description: "4G LTE bands to lock (e.g. ['B1', 'B3']) or 'all' to restore all LTE bands.",
+          description: `4G LTE bands to lock (subset of ${LTE_BAND_LIST}) or 'all' to restore all LTE bands.`,
         },
         nrBands: {
           oneOf: [
@@ -310,7 +269,7 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "lock_cell",
     title: "Lock Specific 4G/5G Base Station Cell (PCI + ARFCN)",
     description:
-      "Lock the modem onto a specific 4G LTE or 5G NR frequency (lock_mode=1) or physical cell PCI + ARFCN (lock_mode=2).",
+      "Lock the modem onto a specific 4G LTE or 5G NR frequency (lock_mode=1) or physical cell PCI + ARFCN (lock_mode=2). Only cells FengSui has observed (serving cell, aggregated carriers or the latest neighbour scan) can be locked: call list_neighbor_cells first and copy rat/band/arfcn/pci from its result.",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -320,9 +279,11 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
           oneOf: [{ type: "string" }, { type: "number" }],
           description: "Band label or number (e.g. 'B1' or 'N78').",
         },
-        arfcn: { type: "number", description: "Downlink EARFCN or NR-ARFCN positive integer." },
+        arfcn: { type: "integer", minimum: 0, description: "Downlink EARFCN or NR-ARFCN of an observed cell." },
         pci: {
-          type: "number",
+          type: "integer",
+          minimum: 0,
+          maximum: 1007,
           description: "Optional Physical Cell ID (0..1007). Omit to lock frequency only.",
         },
       },
@@ -549,7 +510,7 @@ export class FengSuiMcpServer {
           requestedVer
         )
           ? requestedVer
-          : "2025-06-18";
+          : LATEST_MCP_PROTOCOL_VERSION;
 
         return {
           protocolVersion: negotiated,
@@ -670,6 +631,17 @@ export class FengSuiMcpServer {
         "Mutating MCP tools are disabled by server configuration (MCP_ALLOW_MUTATIONS=false)"
       );
     }
+    // Enforce the advertised contract before any work: explicit confirmation first, then the schema
+    const definition = this.getToolDefinitions().find((tool) => tool.name === toolName);
+    if (definition) {
+      if (definition.inputSchema.properties["confirm"] !== undefined && args["confirm"] !== true) {
+        return wrapErr("CONFIRMATION_REQUIRED", `${toolName} requires explicit { confirm: true }`);
+      }
+      const violation = validateToolArguments(definition.inputSchema, args);
+      if (violation) {
+        return wrapErr("VALIDATION_ERROR", `Invalid arguments for ${toolName}: ${violation}`);
+      }
+    }
 
     try {
       if (provider) {
@@ -677,7 +649,7 @@ export class FengSuiMcpServer {
       }
       switch (toolName) {
         case "get_cpe_telemetry": {
-          const wantRefresh = asBooleanOpt(args, "refresh") ?? false;
+          const wantRefresh = readOptionalBoolean(args, "refresh") ?? false;
           let telemetry = this.core.monitor.getCachedTelemetry();
           if (wantRefresh || !telemetry) {
             const fresh = await this.core.monitor.refreshTelemetry();
@@ -692,11 +664,8 @@ export class FengSuiMcpServer {
         }
 
         case "query_telemetry_history": {
-          const rawPreset = args["preset"];
-          const preset: TimeSeriesPreset =
-            typeof rawPreset === "string" ? (rawPreset as TimeSeriesPreset) : "1h";
           const result = this.core.monitor.queryTimeSeries({
-            preset,
+            preset: readTimeSeriesPreset(args["preset"]),
             fromMs: asNumberOpt(args, "fromMs"),
             toMs: asNumberOpt(args, "toMs"),
             bucketMs: asNumberOpt(args, "bucketMs"),
@@ -706,7 +675,7 @@ export class FengSuiMcpServer {
         }
 
         case "list_neighbor_cells": {
-          const scanNow = asBooleanOpt(args, "scanNow");
+          const scanNow = readOptionalBoolean(args, "scanNow");
           let neighbors = this.core.monitor.getCachedNeighbors();
           if (scanNow !== false && (!neighbors || scanNow === true)) {
             const fresh = await this.core.monitor.refreshNeighbors();
@@ -720,7 +689,7 @@ export class FengSuiMcpServer {
         }
 
         case "get_cpe_session_status": {
-          const probeLive = asBooleanOpt(args, "probeLive") ?? false;
+          const probeLive = readOptionalBoolean(args, "probeLive") ?? false;
           let liveStateLogin: unknown = null;
           if (probeLive) {
             liveStateLogin = await this.core.scheduler.probeLoginState();
@@ -733,7 +702,7 @@ export class FengSuiMcpServer {
         }
 
         case "list_terminal_topology": {
-          const refresh = asBooleanOpt(args, "refresh") ?? false;
+          const refresh = readOptionalBoolean(args, "refresh") ?? false;
           let topology = this.core.monitor.getCachedTopology();
           if (refresh || !topology) {
             const fresh = await this.core.monitor.refreshTopology();
@@ -749,7 +718,7 @@ export class FengSuiMcpServer {
         }
 
         case "get_router_settings": {
-          const refresh = asBooleanOpt(args, "refresh") ?? false;
+          const refresh = readOptionalBoolean(args, "refresh") ?? false;
           let settings = this.core.monitor.getCachedSettings();
           if (refresh || !settings) {
             const fresh = await this.core.monitor.refreshSettings();
@@ -764,27 +733,23 @@ export class FengSuiMcpServer {
         }
 
         case "lock_band": {
-          const lteBands = asBandArrayOrAllOpt(args, "lteBands");
-          const nrBands = asBandArrayOrAllOpt(args, "nrBands");
+          const lteBands = readBandSelection(args, "lteBands");
+          const nrBands = readBandSelection(args, "nrBands");
           const lockState = await this.core.controls.lockBands({ lteBands, nrBands });
           return wrapOk({ ok: true, lockState });
         }
 
         case "lock_cell": {
-          const rat = args["rat"];
-          if (rat !== "LTE" && rat !== "NR") {
-            throw new CpeControlValidationError('Parameter "rat" must be "LTE" or "NR"');
+          const command = readCellLockCommand(args, { allowNullPci: false });
+          prepareCellLockPayload(command);
+          // An agent may only lock onto a cell the modem has reported, never an invented PCI/ARFCN pair
+          if (!isObservedCellTarget(command, this.core.monitor.getCachedTelemetry(), this.core.monitor.getCachedNeighbors())) {
+            throw new McpToolError(
+              "CELL_NOT_OBSERVED",
+              "lock_cell only targets the serving cell, an aggregated carrier or a cell from the latest neighbour scan; call list_neighbor_cells with scanNow: true and copy rat/band/arfcn/pci from its result"
+            );
           }
-          const band = args["band"];
-          if (typeof band !== "string" && typeof band !== "number") {
-            throw new CpeControlValidationError('Parameter "band" is required');
-          }
-          const arfcn = asNumberOpt(args, "arfcn");
-          if (arfcn === undefined) {
-            throw new CpeControlValidationError('Parameter "arfcn" is required');
-          }
-          const pci = asNumberOpt(args, "pci");
-          const lockState = await this.core.controls.lockCell({ rat, band, arfcn, pci });
+          const lockState = await this.core.controls.lockCell(command);
           return wrapOk({ ok: true, lockState });
         }
 
@@ -794,18 +759,18 @@ export class FengSuiMcpServer {
         }
 
         case "set_security_switches": {
-          const upnpEnabled = asBooleanOpt(args, "upnpEnabled");
-          const dmzEnabled = asBooleanOpt(args, "dmzEnabled");
-          const dmzIpAddress = asIpv4Opt(args, "dmzIpAddress");
+          const upnpEnabled = readOptionalBoolean(args, "upnpEnabled");
+          const dmzEnabled = readOptionalBoolean(args, "dmzEnabled");
+          const dmzIpAddress = readOptionalIpv4(args, "dmzIpAddress");
           if (dmzIpAddress !== undefined && dmzEnabled === undefined) {
             throw new CpeControlValidationError('Parameter "dmzIpAddress" requires "dmzEnabled"');
           }
           const firewallPatch = {
-            mainSwitch: asBooleanOpt(args, "firewallMainSwitch"),
-            ipFilterSwitch: asBooleanOpt(args, "firewallIpFilterSwitch"),
-            wanPortPingSwitch: asBooleanOpt(args, "firewallWanPortPingSwitch"),
-            macFilterSwitch: asBooleanOpt(args, "firewallMacFilterSwitch"),
-            urlFilterSwitch: asBooleanOpt(args, "firewallUrlFilterSwitch"),
+            mainSwitch: readOptionalBoolean(args, "firewallMainSwitch"),
+            ipFilterSwitch: readOptionalBoolean(args, "firewallIpFilterSwitch"),
+            wanPortPingSwitch: readOptionalBoolean(args, "firewallWanPortPingSwitch"),
+            macFilterSwitch: readOptionalBoolean(args, "firewallMacFilterSwitch"),
+            urlFilterSwitch: readOptionalBoolean(args, "firewallUrlFilterSwitch"),
           };
           const hasFw = Object.values(firewallPatch).some((v) => v !== undefined);
           const settings = await this.core.controls.setSecuritySwitches({
@@ -818,9 +783,10 @@ export class FengSuiMcpServer {
 
         case "set_wifi_and_antenna": {
           // Validate every argument before the first write so a bad antennaMode never leaves Wi-Fi 7 half-applied
-          const mloEnable = asBooleanOpt(args, "mloEnable");
-          const dbhoEnable = asBooleanOpt(args, "dbhoEnable");
-          const antennaMode = asAntennaModeOpt(args, "antennaMode");
+          const mloEnable = readOptionalBoolean(args, "mloEnable");
+          const dbhoEnable = readOptionalBoolean(args, "dbhoEnable");
+          const antennaMode =
+            args["antennaMode"] === undefined ? undefined : readAntennaMode(args["antennaMode"], "antennaMode");
           const wantsWifi7 = mloEnable !== undefined || dbhoEnable !== undefined;
           if (!wantsWifi7 && antennaMode === undefined) {
             throw new CpeControlValidationError(
@@ -839,23 +805,11 @@ export class FengSuiMcpServer {
         }
 
         case "reconnect_cellular": {
-          if (args["confirm"] !== true) {
-            return wrapErr(
-              "CONFIRMATION_REQUIRED",
-              "reconnect_cellular requires explicit { confirm: true }"
-            );
-          }
           const res = await this.core.controls.reconnectCellular();
           return wrapOk({ ok: true, ...res });
         }
 
         case "reboot_cpe": {
-          if (args["confirm"] !== true) {
-            return wrapErr(
-              "CONFIRMATION_REQUIRED",
-              "Safety guard: reboot_cpe requires explicit { confirm: true }"
-            );
-          }
           const res = await this.core.controls.rebootRouter({ confirm: true });
           return wrapOk({ ok: true, ...res });
         }

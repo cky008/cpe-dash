@@ -5,7 +5,6 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import net from "node:net";
 import type { TLSSocket } from "node:tls";
 import path from "node:path";
-import type { BandInput } from "./band-lock.ts";
 import {
   canonicalizeRateLimitBucketKey,
   isAllowedHttpHostHeader,
@@ -14,10 +13,13 @@ import {
   resolveRequestSecureScheme,
 } from "./config.ts";
 import {
-  CpeControlValidationError,
-  type AntennaModeName,
-  type FirewallSwitchState,
-} from "./cpe-domain.ts";
+  readAntennaMode,
+  readBandSelection,
+  readCellLockCommand,
+  readOptionalBoolean,
+  readTimeSeriesPreset,
+} from "./control-input.ts";
+import { CpeControlValidationError, type FirewallSwitchState } from "./cpe-domain.ts";
 import {
   getLocaleCatalog,
   normalizeLocale,
@@ -37,10 +39,7 @@ import type { NotificationHub } from "./notify/hub.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
-import {
-  TimeSeriesValidationError,
-  type TimeSeriesPreset,
-} from "./timeseries.ts";
+import { TimeSeriesValidationError } from "./timeseries.ts";
 import type { AppConfig, SupportedLocale } from "./types.ts";
 
 const SESSION_COOKIE_NAME = "fengsui_sid";
@@ -897,9 +896,8 @@ export class FengSuiHttpServer {
 
           case "/api/timeseries": {
             const q = parseQueryNullProto(searchParams);
-            const preset = (q["preset"] as TimeSeriesPreset | undefined) ?? "1h";
             const result = this.core.monitor.queryTimeSeries({
-              preset,
+              preset: readTimeSeriesPreset(q["preset"]),
               fromMs: parseStrictFiniteInt(q["fromMs"]),
               toMs: parseStrictFiniteInt(q["toMs"]),
               bucketMs: parseStrictFiniteInt(q["bucketMs"]),
@@ -1031,55 +1029,16 @@ export class FengSuiHttpServer {
         }
 
         case "/api/control/band-lock": {
-          const rawLte = body["lteBands"];
-          const rawNr = body["nrBands"];
-          if (rawLte !== undefined && rawLte !== "all" && !Array.isArray(rawLte)) {
-            throw new CpeControlValidationError(
-              'Field "lteBands" must be an array of bands or "all"'
-            );
-          }
-          if (Array.isArray(rawLte) && rawLte.some((x) => typeof x !== "string" && typeof x !== "number")) {
-            throw new CpeControlValidationError('Invalid band item in "lteBands"');
-          }
-          if (rawNr !== undefined && rawNr !== "all" && !Array.isArray(rawNr)) {
-            throw new CpeControlValidationError(
-              'Field "nrBands" must be an array of bands or "all"'
-            );
-          }
-          if (Array.isArray(rawNr) && rawNr.some((x) => typeof x !== "string" && typeof x !== "number")) {
-            throw new CpeControlValidationError('Invalid band item in "nrBands"');
-          }
-          const lteBands = rawLte as ReadonlyArray<BandInput> | "all" | undefined;
-          const nrBands = rawNr as ReadonlyArray<BandInput> | "all" | undefined;
+          const lteBands = readBandSelection(body, "lteBands");
+          const nrBands = readBandSelection(body, "nrBands");
           const lockState = await this.core.controls.lockBands({ lteBands, nrBands });
           this.#sendJson(res, 200, { ok: true, lockState });
           return;
         }
 
         case "/api/control/cell-lock": {
-          const rat = body["rat"];
-          if (rat !== "LTE" && rat !== "NR") {
-            throw new CpeControlValidationError('Field "rat" must be "LTE" or "NR"');
-          }
-          const band = body["band"];
-          if (typeof band !== "string" && typeof band !== "number") {
-            throw new CpeControlValidationError('Field "band" is required');
-          }
-          const arfcn = body["arfcn"];
-          if (typeof arfcn !== "number" || !Number.isFinite(arfcn)) {
-            throw new CpeControlValidationError('Field "arfcn" must be a finite integer');
-          }
           // Omitted or null pci means a frequency lock; anything else must be a number, never silently dropped
-          const rawPci = body["pci"];
-          if (
-            rawPci !== undefined &&
-            rawPci !== null &&
-            (typeof rawPci !== "number" || !Number.isFinite(rawPci))
-          ) {
-            throw new CpeControlValidationError('Field "pci" must be a finite integer, null, or omitted');
-          }
-          const pci = typeof rawPci === "number" ? rawPci : undefined;
-          const lockState = await this.core.controls.lockCell({ rat, band, arfcn, pci });
+          const lockState = await this.core.controls.lockCell(readCellLockCommand(body, { allowNullPci: true }));
           this.#sendJson(res, 200, { ok: true, lockState });
           return;
         }
@@ -1110,13 +1069,7 @@ export class FengSuiHttpServer {
         }
 
         case "/api/control/security": {
-          let upnpEnabled: boolean | undefined;
-          if (body["upnpEnabled"] !== undefined) {
-            if (typeof body["upnpEnabled"] !== "boolean") {
-              throw new CpeControlValidationError('Field "upnpEnabled" must be boolean');
-            }
-            upnpEnabled = body["upnpEnabled"];
-          }
+          const upnpEnabled = readOptionalBoolean(body, "upnpEnabled");
 
           let dmz: { enabled: boolean; ipAddress?: string } | undefined;
           const rawDmz = body["dmz"];
@@ -1169,31 +1122,25 @@ export class FengSuiHttpServer {
         }
 
         case "/api/control/wifi7": {
-          const mloEnable = body["mloEnable"];
-          const dbhoEnable = body["dbhoEnable"];
-          if (mloEnable !== undefined && typeof mloEnable !== "boolean") {
-            throw new CpeControlValidationError('Field "mloEnable" must be boolean');
-          }
-          if (dbhoEnable !== undefined && typeof dbhoEnable !== "boolean") {
-            throw new CpeControlValidationError('Field "dbhoEnable" must be boolean');
-          }
+          const mloEnable = readOptionalBoolean(body, "mloEnable");
+          const dbhoEnable = readOptionalBoolean(body, "dbhoEnable");
           const wifi7 = await this.core.controls.setWifi7Settings({ mloEnable, dbhoEnable });
           this.#sendJson(res, 200, { ok: true, wifi7 });
           return;
         }
 
         case "/api/control/antenna": {
-          const mode = body["mode"] as AntennaModeName;
-          const antenna = await this.core.controls.setAntennaMode(mode);
+          const antenna = await this.core.controls.setAntennaMode(readAntennaMode(body["mode"]));
           this.#sendJson(res, 200, { ok: true, antenna });
           return;
         }
 
         case "/api/control/mobile-data": {
-          if (typeof body["enabled"] !== "boolean") {
-            throw new CpeControlValidationError('Field "enabled" must be boolean');
+          const enabled = readOptionalBoolean(body, "enabled");
+          if (enabled === undefined) {
+            throw new CpeControlValidationError('"enabled" must be a boolean');
           }
-          const result = await this.core.controls.setMobileData(body["enabled"]);
+          const result = await this.core.controls.setMobileData(enabled);
           this.#sendJson(res, 200, { ok: true, ...result });
           return;
         }

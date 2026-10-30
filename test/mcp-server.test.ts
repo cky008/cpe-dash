@@ -368,7 +368,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
         })
       )) as JsonRpcSuccessResponse;
       const initPayload2 = initRes2.result as Record<string, unknown>;
-      assert.equal(initPayload2["protocolVersion"], "2025-06-18");
+      assert.equal(initPayload2["protocolVersion"], "2025-11-25", "unsupported versions negotiate the latest supported one");
 
       // Unknown method (-32601)
       const unknownMethodRes = (await server.handleRawJsonMessage(
@@ -755,7 +755,38 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       )) as JsonRpcSuccessResponse;
       assert.equal((lbBad2.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "VALIDATION_ERROR");
 
-      // 2. lock_cell valid LTE and NR
+      // 2. lock_cell only targets observed cells: unknown before any telemetry/neighbour data ...
+      const lcUnseen = (await server.handleRawJsonMessage(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 640,
+          method: "tools/call",
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 321 } },
+        })
+      )) as JsonRpcSuccessResponse;
+      assert.equal((lcUnseen.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "CELL_NOT_OBSERVED");
+      await fx.core.monitor.refreshTelemetry();
+      await fx.core.monitor.refreshNeighbors();
+      const lcInvented = (await server.handleRawJsonMessage(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 641,
+          method: "tools/call",
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 999 } },
+        })
+      )) as JsonRpcSuccessResponse;
+      assert.equal((lcInvented.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "CELL_NOT_OBSERVED");
+
+      // ... then the serving cell (PCI 321), a neighbour (PCI 322) and an aggregated NR carrier are lockable
+      const lcNeighbour = (await server.handleRawJsonMessage(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 642,
+          method: "tools/call",
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: 1, arfcn: 100, pci: 322 } },
+        })
+      )) as JsonRpcSuccessResponse;
+      assert.equal((lcNeighbour.result as { isError: boolean }).isError, false);
       const lcLte = (await server.handleRawJsonMessage(
         JSON.stringify({
           jsonrpc: "2.0",
