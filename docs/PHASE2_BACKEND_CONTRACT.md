@@ -1,0 +1,751 @@
+# PHASE 2 → PHASE 3 权威交接契约 (`PHASE2_BACKEND_CONTRACT.md`)
+
+> **文档状态**：Phase 2 后端架构、REST 路由、毫秒级 SSE 实时总线与 MCP Server 权威契约（Single Source of Truth for Phase 3 Frontend & AI Agents）  
+> **适用目标**：华为 5G CPE Ultra 6 (`H168-383`, 硬件 `WL1H168M`, 固件 `4.4.0.1`) · 群晖 Synology DS923+ (`WEB_PORT=18384`)  
+> **前置规范**：[`AGENTS.md`](../AGENTS.md) · [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) · [`docs/PHASE2_ARCHITECTURE_REPORT.md`](PHASE2_ARCHITECTURE_REPORT.md)  
+> **对齐基准**：本文所有类型、错误码与行为均已逐项对照 `src/` 实现核对；若二者出现冲突，以 `src/` 为准并回修本文。
+
+---
+
+## 1. 全局连接、鉴权、CSRF 与安全边界契约
+
+### 1.1 默认监听地址与端口隔离
+- **默认监听**：`http://0.0.0.0:18384`（由 `.env` 中 `WEB_HOST` 与 `WEB_PORT` 控制，避开群晖 NAS 常用 `8080` 及兄弟服务端口 `18383`）。
+- **DNS Rebinding 防护 (`421 MISDIRECTED_HOST`)**：HTTP 服务对所有请求（含 `/mcp` 与静态资源）强制校验 `Host` 请求头（端口部分须为纯数字）。放行规则 = `.env` 中 `ALLOWED_HOSTS` 显式白名单（默认为空，用于反代域名）∪ 以下内置规则：
+  - IPv4：RFC 1918 私网、RFC 6598 `100.64.0.0/10`（含 Tailscale）、环回 `127.0.0.0/8`、链路本地 `169.254.0.0/16`；
+  - IPv6：`::1`、ULA `fc00::/7`、链路本地 `fe80::/10`、IPv4 映射私网地址（如 `::ffff:192.168.8.10`）；
+  - 主机名：`localhost`、`*.local`、`*.lan`、`*.internal`、`*.ts.net`，以及任意单标签主机名（如 `nas`、`homerouter`）。
+- **禁止跨端口 CORS 预检 (`405 METHOD_NOT_ALLOWED`)**：所有 `OPTIONS` 请求统一返回 `405`，阻断同宿主机其他端口 Web 应用跨端口探测。
+- **慢速连接与连接池防护**：`http.Server` 默认启用 `headersTimeout = 10_000`、`requestTimeout = 15_000`、`maxConnections = 512`。
+
+### 1.2 双轨鉴权机制（Web Cookie + API/MCP Bearer）
+1. **浏览器前端会话（`HttpOnly` Cookie + 客户端 IP 桶绑定）**：
+   - 登录端点：`POST /api/auth/login`
+   - 成功登录后服务端签发 `Set-Cookie: fengsui_sid=<64-hex>; HttpOnly; SameSite=Strict; Path=/; Max-Age=<SESSION_TTL_MS / 1000>`（默认 `86400`；若直连 TLS 或可信反代 `TRUSTED_PROXIES` 传递 `X-Forwarded-Proto: https`，自动追加 `; Secure`）。服务端最多保留 `128` 个活跃会话，超出时淘汰最早签发的会话。
+   - 会话绑定至登录时的客户端 IP 桶（IPv4 为精确地址，IPv6 为 `/64` 前缀），跨桶重放 Cookie 将被拒绝（`401`）。
+   - 登录时自动轮换（销毁）旧 `fengsui_sid`，防范会话固定（Session Fixation）；登出（`POST /api/auth/logout`）时同步销毁会话并**立即强制断开该会话名下所有活跃 `/api/events` SSE 长连接**；当通过 `POST /api/session/reset-breaker` 热重载并轮换 `API_TOKEN` 时，所有既有 Cookie 会话与 SSE 流将被立即吊销。
+2. **自动化脚本与 Streamable HTTP MCP 客户端（Bearer Token）**：
+   - 请求头：`Authorization: Bearer <API_TOKEN>`（服务端采用 `SHA-256` 定长摘要 + `crypto.timingSafeEqual` 常量时间比对）。
+   - **排他鉴权规则**：一旦请求携带了 `Authorization` 头，服务端**仅**验证 Bearer Token，绝不回退读取 Cookie。`/mcp` 端点只接受 Bearer。
+3. **鉴权失败限流（`429 RATE_LIMITED`）**：按客户端 IP 桶统计滑动窗口内的鉴权失败次数（`RATE_LIMIT_WINDOW_MS` 默认 `60000`；`RATE_LIMIT_MAX_AUTH_FAILURES` 默认 `8`、最小 `3`），另设全局失败上限（单桶上限 × `8`）。超限时响应附带 `retryAfterSec` 字段与 `Retry-After` 头；已被限流的桶在窗口滑出前即使提交正确凭据也会被拒绝。
+
+### 1.3 前端状态变更请求强制 CSRF 契约（Phase 3 前端必读！）
+凡是不携带 `Authorization: Bearer` 头的非 `GET` / `HEAD` 请求（包括 `POST /api/auth/login`、`POST /api/auth/logout`、`POST /api/*/refresh`、`POST /api/neighbors/scan`、`POST /api/session/reset-breaker`、`POST /api/control/*`），**前端 `fetch()` 封装层必须同时满足以下三项条件，缺一即返回 `403 CSRF_REJECTED`**：
+1. 携带自定义头：`X-Requested-With: XMLHttpRequest`
+2. 携带 JSON 内容类型：`Content-Type: application/json`（请求体为空时也必须携带，推荐发送 `{}`）
+3. 浏览器自动附带的 `Origin` 头非空、不为 `"null"`，且其 `protocol + host` 与当前访问页面的 `Host` 完全一致。
+
+```ts
+// Phase 3 前端标准 POST 请求封装示范（100% 严格 TypeScript）
+export async function apiPost<TResponse>(path: string, body: Record<string, unknown> = {}): Promise<TResponse> {
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = (await res.json()) as TResponse;
+  if (!res.ok) {
+    throw payload;
+  }
+  return payload;
+}
+```
+
+### 1.4 统一错误响应信封与 HTTP 状态码矩阵
+
+除 `/mcp` 的 JSON-RPC 错误体（见下文）外，所有非 2xx 响应均为以下信封：
+
+```ts
+export interface ApiErrorEnvelope {
+  ok: false;
+  errorCode:
+    // ── 通用路由与安全边界 ──
+    | "MISDIRECTED_HOST"         // 421: Host 头未命中放行规则（见 1.1）
+    | "BAD_URL"                  // 400: 请求行 URL 无法解析
+    | "METHOD_NOT_ALLOWED"       // 405: OPTIONS 预检；/api/* 上除 GET/POST 外的方法；/mcp 非 POST；静态资源非 GET/HEAD
+    | "CSRF_REJECTED"            // 403: Cookie 请求缺少 X-Requested-With 或 JSON Content-Type，或 Origin 不匹配
+    | "UNAUTHORIZED"             // 401: 未登录、Cookie 过期或 IP 桶不匹配、Bearer API_TOKEN 错误
+    | "RATE_LIMITED"             // 429: 鉴权失败滑动窗口限流（附 retryAfterSec 与 Retry-After 头）
+    | "NOT_FOUND"                // 404: 未知 /api/* 路由
+    | "LOCALE_NOT_FOUND"         // 404: GET /api/i18n/:locale 的 locale 不是 "zh-CN" / "en"
+    | "INTERNAL_ERROR"           // 500: 未预期的服务端异常
+    // ── 请求体与参数 ──
+    | "BAD_PAYLOAD"              // 400: JSON 语法错误、请求体不是对象、/api/timeseries 整数参数非法；413: 超过 64 KiB；415: 非 application/json
+    | "VALIDATION_ERROR"         // 400: 参数类型或取值非法（频段/PCI/IPv4/开关布尔值/天线模式/时序区间）、reboot/reconnect 未传 confirm:true、密码未改时重置 108006 熔断器
+    // ── CPE 会话调度 ──
+    | "BROWSER_SESSION_YIELDED"  // 409: 真人管理员正在使用 http://192.168.8.1，写操作礼貌让位中止（仅 RESPECT_BROWSER_SESSION=true）
+    | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32）或服务正在停机
+    | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、或 108006/108007 断路器已熔断
+    | "SSE_LIMIT_REACHED"        // 429: SSE 全局 (SSE_MAX_CLIENTS，默认 32) 或单 IP 桶 (6) 连接数达上限
+    // ── /mcp 端点（HTTP 层） ──
+    | "MCP_DISABLED"             // 404: MCP_HTTP_ENABLED=false
+    | "FORBIDDEN_ORIGIN"         // 403: /mcp 携带了 "null"、畸形或跨源 Origin
+    | "UNSUPPORTED_MEDIA_TYPE"   // 415: /mcp 请求非 application/json（/api/* 的 415 使用 BAD_PAYLOAD）
+    // ── 静态资源 ──
+    | "STATIC_ROOT_NOT_FOUND"    // 404: 静态目录不存在（前端尚未构建）
+    | "ASSET_NOT_FOUND"          // 404: 文件不存在，或路径含以 "." / "@" 开头的段（如 .env、@eaDir）
+    | "BAD_PATH"                 // 400: 路径包含 NUL 字节
+    | "PATH_TRAVERSAL_BLOCKED"   // 403: 路径解析后逃逸静态根目录
+    | "SYMLINK_ESCAPE_BLOCKED";  // 403: 符号链接指向静态根目录之外
+  message: string;               // /api/* 鉴权类错误按 Accept-Language 本地化；409 为中文；其余为英文
+  messageEn?: string;            // 仅 409 BROWSER_SESSION_YIELDED
+  retryAfterSec?: number;        // 仅 429 RATE_LIMITED
+  avoidance?: AvoidanceBroadcastPayload; // 仅 409 BROWSER_SESSION_YIELDED
+}
+```
+
+**`/mcp` 的 JSON-RPC 错误体**：请求通过 HTTP 层鉴权与内容类型检查后，下列情况返回标准 JSON-RPC 2.0 错误对象 `{ jsonrpc: "2.0", id: null, error: { code: -32600, message } }`，而非 `ApiErrorEnvelope`：
+- `400`：请求头 `MCP-Protocol-Version` 存在但不受支持（支持列表见第 4 节）；
+- `413`：请求体超过 `64 KiB`。
+
+其余 JSON-RPC 层错误（解析失败 `-32700`、非法请求 `-32600`、未知方法 `-32601`、未知工具或资源 `-32602`、内部错误 `-32603`）均以 HTTP `200` 返回。
+
+---
+
+## 2. REST API 完整 TypeScript 接口契约（与 `src/` 导出类型 1:1 严格对齐）
+
+> **核心设计原则**：所有 `GET /api/*` 接口均为 **100% 零副作用内存/环形缓冲区直读**（延迟 `< 1ms`，绝不触发 CPE 会话）；需要立即触发一次 `~26ms–260ms` 瞬时 CPE 采样的操作统一通过显式 `POST /api/*/refresh` 或 `POST /api/neighbors/scan` 发起（并发请求在调度器内单飞合并 Single-Flight Coalescing）。缓存快照会加密持久化，服务重启后首次采集前返回的可能是上次运行的快照，请以 `capturedAtIso` 判断新鲜度。
+
+### 2.1 公共探活、多语言字典与会话认证路由
+
+#### `GET /api/health`（免鉴权探活）
+```ts
+export interface HealthResponse {
+  ok: true;
+  service: "cpe-dash";
+  codename: "FengSui";
+  version: string;            // 当前为 "0.2.0"
+  uptimeSec: number;
+}
+```
+
+#### `GET /api/i18n/:locale`（免鉴权离线词典，`locale` 取值 `"zh-CN"` | `"en"`，其他取值返回 `404 LOCALE_NOT_FOUND`）
+```ts
+export interface LocaleCatalogResponse {
+  ok: true;
+  locale: "zh-CN" | "en";
+  catalog: {
+    _meta: { name: string; code: string };
+    app: Record<string, string>;
+    auth: Record<string, string>;
+    session: Record<string, string>;
+    rf: Record<string, string>;
+    traffic: Record<string, string>;
+    neighbors: Record<string, string>;
+    controls: Record<string, string>;
+    topology: Record<string, string>;
+  };
+}
+```
+
+#### `GET /api/auth/status`
+携带 `Authorization` 头时按 Bearer 校验（错误令牌计入限流，超限返回 `429`），否则检查 Cookie 会话。
+```ts
+export interface AuthStatusResponse {
+  ok: true;
+  authenticated: boolean;
+  locale: "zh-CN" | "en";
+}
+```
+
+#### `POST /api/auth/login`（需满足 1.3 节 CSRF 头部；凭据错误返回 `401`，超限返回 `429`）
+```ts
+export interface AuthLoginRequest {
+  token?: string;     // 推荐字段：填入 .env 中的 API_TOKEN（未设置时默认同 CPE_PASSWORD）
+  password?: string;  // 兼容别名字段（仅在 token 缺失时读取）
+}
+
+export interface AuthLoginResponse {
+  ok: true;
+  authenticated: true;
+  expiresAtIso: string;
+}
+```
+
+#### `POST /api/auth/logout`（无 Bearer 头时强制校验 CSRF 头部；响应同时下发清除 Cookie 的 `Set-Cookie`）
+```ts
+export interface AuthLogoutResponse {
+  ok: true;
+  authenticated: false;
+}
+```
+
+---
+
+### 2.2 射频遥测、3CA 载波聚合、流量与时序历史路由
+
+#### `GET /api/telemetry` · `POST /api/telemetry/refresh` · `GET /api/session/status`
+```ts
+/** 公开熔断器状态：内部 passwordFingerprintHex 不会出现在任何 REST / SSE / MCP 输出中 */
+export interface PublicCircuitBreakerState {
+  tripped: boolean;
+  code: string | null;          // e.g. "108006" | "108007"
+  reason: string | null;
+  trippedAtIso: string | null;
+  remainCount: number | null;   // 108006 时 CPE 返回的剩余尝试次数
+  waitTime: number | null;      // 108007 时剩余锁定秒数
+}
+
+export interface SchedulerStatusSnapshot {
+  // circuit_tripped：熔断器已熔断（优先于其他状态）
+  // yielding_browser：正在礼貌让位真人会话
+  // polling：只读采集会话进行中
+  // cpe_unreachable：最近一次会话因超时/网络错误失败（CPE 返回错误码或参数被拒仍视为 idle）
+  mode: "idle" | "polling" | "yielding_browser" | "circuit_tripped" | "cpe_unreachable";
+  running: boolean;
+  avoidance: AvoidanceBroadcastPayload;
+  circuitBreaker: PublicCircuitBreakerState;
+  lastSessionHoldMs: number | null;
+  totalSessionsCompleted: number;
+  browserYieldCount: number;
+  queueDepth: number;
+  lastError: string | null;
+}
+
+/**
+ * 「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。
+ * 注意：H168-383 不支持 GET /api/net/lock-freq，且当前尚未实现与 /api/device/signal 的对账校验，
+ * 因此若有人在官方后台改过锁定，本字段不会自动更新。
+ */
+export interface PersistedLockState {
+  mode: "unlocked" | "band_lock" | "cell_lock";
+  updatedAtIso: string;
+  lteBands: number[] | "all";
+  nrBands: number[];
+  cellLock: {
+    rat: "LTE" | "NR";
+    band: number;
+    arfcn: number;
+    pci: number | null;       // null = 锁频点 (lock_mode=1)
+  } | null;
+}
+
+export interface GlobalTelemetrySnapshot {
+  capturedAtIso: string;
+  capturedAtMs: number;
+  device: {
+    deviceName: string;         // e.g. "H168-383"
+    marketingName: string;      // e.g. "HUAWEI 5G CPE Ultra 6"
+    hardwareVersion: string;    // e.g. "WL1H168M"
+    softwareVersion: string;    // e.g. "4.4.0.1(H1006SP19C00)"
+    webUiVersion: string;
+    uptimeSec: number;
+    workMode: string;
+    wanIpv4: string;            // 按 REDACT_SENSITIVE_IN_API 脱敏或原样输出
+    wanDnsV4: string[];
+    wanIpv6: string;
+    wanDnsV6: string[];
+    connectionStatus: string;   // e.g. "901" (Connected)
+    signalIconBars: number;     // 0..5
+    simStatus: string;
+  };
+  rf: {
+    operatorName: string;
+    plmnNumeric: string;
+    ratCode: string;
+    caBannerRaw: string;        // e.g. "20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)"
+    caCarriers: Array<{ bandwidthMhz: number; arfcn: number; band: string; rat: "LTE" | "NR" }>;
+    caActive: boolean;
+    caComponentCount: number;   // e.g. 3
+    totalAggregatedBandwidthMhz: number; // e.g. 140
+    pccBand: string;
+    pci: number | null;
+    earfcnRaw: string;
+    nrArfcnRaw: string;
+    lteUlBandwidthMhz: number | null;
+    lteDlBandwidthMhz: number | null;
+    nrUlBandwidthMhz: number | null;
+    nrDlBandwidthMhz: number | null;
+    lteRsrpDbm: number | null;
+    lteRsrqDb: number | null;
+    lteRssiDbm: number | null;
+    lteSinrDb: number | null;
+    nrRsrpDbm: number | null;
+    nrRsrqDb: number | null;
+    nrSinrDb: number | null;
+    transmissionMode: string;   // e.g. "TM[4]"
+    lteMimoRank: number | null; // e.g. 2
+    nrMimoRank: number | null;
+    lteCqi0: number | null;
+    lteCqi1: number | null;
+    nrCqi0: number | null;
+    nrCqi1: number | null;
+    lteUlMcs: Array<{ label: string; index: number; modulation: string | null }>;
+    lteDlMcs: Array<{ label: string; index: number; modulation: string | null }>;
+    nrUlMcs: Array<{ label: string; index: number; modulation: string | null }>;
+    nrDlMcs: Array<{ label: string; index: number; modulation: string | null }>;
+    lteTxPower: { puschDbm: number | null; pucchDbm: number | null; srsDbm: number | null; prachDbm: number | null };
+    nrTxPower: { puschDbm: number | null; pucchDbm: number | null; srsDbm: number | null; prachDbm: number | null };
+    lteScc: Array<{
+      rat: "LTE" | "NR";
+      arfcn: number | null;
+      band: string;
+      bandwidthMhz: number | null;
+      pci: number | null;
+      rsrpDbm: number | null;
+      rsrqDb: number | null;
+      rssiDbm: number | null;
+      sinrDb: number | null;
+    }>;
+    nrScc: Array<{
+      rat: "LTE" | "NR";
+      arfcn: number | null;
+      band: string;
+      bandwidthMhz: number | null;
+      pci: number | null;
+      rsrpDbm: number | null;
+      rsrqDb: number | null;
+      rssiDbm: number | null;
+      sinrDb: number | null;
+    }>;
+    cellIdDisplay: string;
+    eNodeBDisplay: string;
+    tacDisplay: string;
+    identityVerification: {
+      hasCellIdDecimal: boolean;
+      hasCellInfoHex: boolean;
+      eciDecimalMatchesHex: boolean | null;
+      tacDecimalMatchesHex: boolean | null;
+      eNodeBDerivationMatchesTag: boolean | null;
+      sectorIdBitWidthOk: boolean | null;
+    };
+  };
+  bandConfig: {
+    networkMode: string;
+    networkBandHex: string;
+    lteBandHex: string;
+    activeLteBands: number[];
+  };
+  traffic: {
+    downloadBytesPerSec: number;
+    uploadBytesPerSec: number;
+    downloadBps: number;             // 实时下行比特率 (bps)
+    uploadBps: number;               // 实时上行比特率 (bps)
+    downloadRateFormatted: string;
+    uploadRateFormatted: string;
+    todayUsedBytes: number;          // 当日累计流量（字节）
+    todayUsedBytesStr: string;       // BigInt 无损十进制字符串
+    todayUsedFormatted: string;
+    todayDurationSec: number;
+    monthDownloadBytes: number;
+    monthDownloadBytesStr: string;
+    monthUploadBytes: number;
+    monthUploadBytesStr: string;
+    monthTotalBytes: number;         // 当月累计总流量（字节）
+    monthTotalBytesStr: string;
+    monthTotalFormatted: string;
+    monthDurationSec: number;
+    monthLastClearDate: string;
+    sessionConnectTimeSec: number;
+    sessionDownloadBytesStr: string;
+    sessionUploadBytesStr: string;
+    totalUsedBytesStr: string;
+    totalConnectTimeSec: number;
+    billingStartDay: number | null;
+    dataLimitRaw: string;
+    monthThresholdPercent: number | null;
+  };
+  thermal: {
+    temperatureCelsius: number | null; // H168-383 4.4.0.1 默认 null（优雅降级为 N/A，绝不伪造 0°C）
+    temperatureSupported: boolean;
+  };
+}
+
+export interface AlertEventRecord {
+  id: string;                        // UUID
+  tsIso: string;
+  severity: "info" | "warning" | "critical";
+  code: string;                      // 当前唯一来源为熔断："CIRCUIT_<code>"（如 "CIRCUIT_108006"），severity 为 "critical"
+  messageZh: string;
+  messageEn: string;
+}
+
+/** GET /api/telemetry */
+export interface TelemetryEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  lockState: PersistedLockState;
+  telemetry: GlobalTelemetrySnapshot | null;
+  recentAlerts: AlertEventRecord[];  // 最多保留最近 100 条，按时间升序
+}
+
+/** POST /api/telemetry/refresh（不含 lockState / recentAlerts） */
+export interface TelemetryRefreshResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  telemetry: GlobalTelemetrySnapshot | null;
+}
+
+/** GET /api/session/status */
+export interface SessionStatusResponse {
+  ok: true;
+  status: SchedulerStatusSnapshot;
+}
+```
+
+> **刷新被跳过时的语义**：当真人在线让位、处于 Layer-2 退避冷却期或熔断器已熔断时，`POST /api/*/refresh` 与 `POST /api/neighbors/scan` 不会登录 CPE，而是返回 `200` 与缓存快照。请对比快照的 `capturedAtIso`，并查看 `schedulerStatus.mode` / `schedulerStatus.avoidance` 判断是否拿到了新数据。只有 CPE 通信失败时才返回 `502`。
+
+#### `GET /api/timeseries`（多尺度环形时序查询：支持 `1h` / `6h` / `12h` / `24h` / `custom`）
+- **Query 参数**（整数参数必须是严格十进制整数字符串，否则返回 `400 BAD_PAYLOAD`）：
+  - `preset`: `"1h"`（默认，`10s` 桶）| `"6h"`（`60s` 桶）| `"12h"`（`120s` 桶）| `"24h"`（`300s` 桶）| `"custom"`；其他取值返回 `400 VALIDATION_ERROR`
+  - `fromMs` / `toMs`: `preset=custom` 时必填（缺失返回 `400 VALIDATION_ERROR`）。服务端将区间裁剪到保留期（`HISTORY_RETENTION_HOURS`，默认 `168h`）之内且 `toMs` 不超过当前时间 `+5s`；裁剪后须满足 `fromMs < toMs`
+  - `bucketMs`: 可选，期望的聚合桶宽（毫秒）
+  - `maxPoints`: 可选，返回点数上限，越界值钳制到 `1..1440`，默认 `360`
+- **实际桶宽**：响应中的 `bucketMs` 为服务端最终采用值，即 `max(请求或预设桶宽, ceil(跨度 / maxPoints))` 向上取整到 `5s`（细粒度环）或 `60s`（分钟环）步长，可能大于请求值。
+- **空桶省略**：没有样本的时间桶（例如服务停止或 CPE 不可达期间）不会出现在 `points` 中。`points` 按 `tsMs` 升序排列，前端绘图须按 `tsMs` 间隔自行断线，不能假设点位等距连续。
+
+```ts
+export interface TimeSeriesBucketPoint {
+  tsMs: number;                         // 桶起点，对齐到 floor(ts / bucketMs) * bucketMs
+  tsIso: string;
+  sampleCount: number;
+  dlAvgBps: number;
+  dlPeakBps: number;
+  ulAvgBps: number;
+  ulPeakBps: number;
+  lteRsrpAvgDbm: number | null;
+  lteRsrpMinDbm: number | null;
+  lteSinrAvgDb: number | null;
+  nrRsrpAvgDbm: number | null;          // NSA 空闲回落期间保持 null，绝不被拉向 0 dBm
+  nrRsrpMinDbm: number | null;
+  nrSinrAvgDb: number | null;
+  temperatureAvgCelsius: number | null; // 硬件不支持时保持 null，前端请隐藏或显示 N/A
+  temperatureMaxCelsius: number | null;
+}
+
+export interface TimeSeriesEndpointResponse {
+  ok: true;
+  preset: "1h" | "6h" | "12h" | "24h" | "custom";
+  fromMs: number;
+  toMs: number;
+  bucketMs: number;
+  points: TimeSeriesBucketPoint[];
+}
+```
+
+---
+
+### 2.3 邻区基站扫描、终端拓扑与路由器配置路由
+
+#### `GET /api/neighbors` & `POST /api/neighbors/scan`
+后台每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）扫描一次，首次后台扫描发生在服务启动约 `60s` 后；在此之前 `neighbors` 为 `null` 或上次运行的持久化快照，可调用 `POST /api/neighbors/scan` 立即扫描。
+```ts
+export interface NeighborCellEntry {
+  rat: "LTE" | "NR";
+  arfcn: number | null;
+  band: string;               // e.g. "B1", "B3", "N78"
+  pci: number | null;         // 0..1007，可直接带入 POST /api/control/cell-lock
+  rsrpDbm: number | null;
+  rsrqDb: number | null;
+  rssiDbm: number | null;
+  sinrDb: number | null;
+}
+
+export interface NeighborScanSnapshot {
+  capturedAtIso: string;
+  capturedAtMs: number;
+  lteNeighbors: NeighborCellEntry[];
+  nrNeighbors: NeighborCellEntry[];
+  totalCount: number;
+}
+
+export interface NeighborsEndpointResponse {   // GET 与 POST 响应结构相同
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  neighbors: NeighborScanSnapshot | null;
+}
+```
+
+#### `GET /api/topology` & `POST /api/topology/refresh`
+后台在服务启动时及此后每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）刷新一次。
+
+> **XSS 安全提醒**：终端 `displayName` 源自局域网客户端不可信 DHCP/mDNS 广播，Phase 3 前端渲染时**必须**使用纯文本节点（`textContent` 或自动转义绑定），严禁使用 `innerHTML`！
+
+```ts
+export type TerminalAccessMedium =
+  | "LAN_1000M"
+  | "LAN_100M"
+  | "LAN_OTHER"
+  | "WIFI_2_4G"
+  | "WIFI_5G"
+  | "WIFI_OTHER";
+
+export interface TerminalHostEntry {
+  macAddress: string;
+  displayName: string;
+  active: boolean;
+  interfaceType: string;
+  layer2Interface: string;
+  frequency: string;
+  medium: TerminalAccessMedium;
+  negotiatedRateMbps: number | null;
+  rssi: number | null;
+  ipv4Address: string;
+  ipv6Addresses: string[];
+  ipv6Active: boolean;
+  addressSource: string;
+  leaseTimeRemainingSec: number | null;
+  associatedTimeSec: number | null;
+}
+
+export interface TerminalTopologySnapshot {
+  capturedAtIso: string;
+  capturedAtMs: number;
+  hosts: TerminalHostEntry[];
+  summary: {
+    topLevelNodes: number;
+    totalActiveNodes: number;
+    meshChildNodes: number;
+    ethernetNodes: number;
+    wirelessNodes: number;
+  };
+  countsByMedium: Record<TerminalAccessMedium, number>; // 仅统计 active 终端
+}
+
+export interface TopologyEndpointResponse {   // GET 与 POST 响应结构相同
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  topology: TerminalTopologySnapshot | null;
+}
+```
+
+#### `GET /api/settings` & `POST /api/settings/refresh`
+路由器配置**没有后台定时刷新**。缓存只会在以下时机更新：`POST /api/settings/refresh`、MCP `get_router_settings`（缓存为空或 `refresh: true`）、安全开关写入后的回读刷新；Wi-Fi 7 / 天线 / 移动数据写入成功后，服务端直接用写入值修补缓存快照（见 2.4 节）。
+
+```ts
+export interface RouterSettingsSnapshot {
+  capturedAtIso: string;        // 最近一次完整读取时间（写入修补不会更新该时间）
+  capturedAtMs: number;
+  upnpEnabled: boolean;
+  dmzEnabled: boolean;
+  dmzIpAddress: string;         // REDACT_SENSITIVE_IN_API=true 时，192.168.8.x 原样保留，其他地址按脱敏规则映射
+  firewall: {
+    mainSwitch: boolean;
+    ipFilterSwitch: boolean;
+    wanPortPingSwitch: boolean;
+    macFilterSwitch: boolean;
+    urlFilterSwitch: boolean;
+  };
+  natType: number;
+  bridgeModeEnabled: boolean;
+  wifi7: {
+    mloEnable: boolean;
+    dbhoEnable: boolean;
+  };
+  antenna: {
+    mode: "auto" | "internal" | "external";
+    rawCode: string;            // "0" | "1" | "2"（注意：POST /api/control/antenna 响应中为 number）
+    antenna1Inserted: boolean;
+    antenna2Inserted: boolean;
+  };
+  mobileDataEnabled: boolean;
+}
+
+/** GET /api/settings */
+export interface SettingsEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  lockState: PersistedLockState;
+  settings: RouterSettingsSnapshot | null;
+}
+
+/** POST /api/settings/refresh（不含 lockState） */
+export interface SettingsRefreshResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  settings: RouterSettingsSnapshot | null;
+}
+```
+
+---
+
+### 2.4 锁频段、锁小区、安全开关与系统控制路由（全部 `POST`）
+
+> **真人在线礼貌避让行为**：在默认 `RESPECT_BROWSER_SESSION=true` 下，若检测到真人管理员正在使用 `http://192.168.8.1`，下列控制写路由**拒绝排队盲写**，立即返回 HTTP `409 Conflict`（`errorCode: "BROWSER_SESSION_YIELDED"`），前端应弹出友好的避让提示条。若设置 `RESPECT_BROWSER_SESSION=false`，服务端不再预检让位：CPE 以 `108003` 拒绝跨 IP 登录时返回 `502 CPE_UPSTREAM_ERROR`。
+>
+> **校验时机**：所有请求参数（类型、频段、PCI、IPv4、开关布尔值、天线模式、`confirm`）都在入队前同步校验，非法参数返回 `400 VALIDATION_ERROR`，且不产生任何 CPE 会话。唯一依赖路由器状态的检查是「`dmz.enabled: true` 但未提供 `ipAddress`」：服务端需要在会话内读取路由器当前的 `DmzIPAddress`，若为空则在**任何写入之前**返回 `400`，不会留下 UPnP 等部分写入。
+>
+> **熔断器已熔断时**：所有控制写路由直接返回 `502 CPE_UPSTREAM_ERROR`（不会尝试登录）；只读刷新路由返回 `200` 与缓存快照。
+
+| 路由 | 请求 JSON Body 类型 | 成功响应字段 |
+| :--- | :--- | :--- |
+| `POST /api/control/band-lock` | `{ lteBands?: Array<string \| number> \| "all"; nrBands?: Array<string \| number> \| "all" }` *(至少提供其一)* | `{ ok: true, lockState: PersistedLockState }` |
+| `POST /api/control/cell-lock` | `{ rat: "LTE" \| "NR"; band: string \| number; arfcn: number; pci?: number \| null }` *(`pci` 省略或为 `null` 时锁频点 `lock_mode=1`；否则须为 `0..1007` 整数，锁小区 `lock_mode=2`；非数字 `pci` 返回 `400`)* | `{ ok: true, lockState: PersistedLockState }` |
+| `POST /api/control/unlock` | `{}` | `{ ok: true, lockState: PersistedLockState }` |
+| `POST /api/control/reboot` | `{ confirm: true }` *(缺失或为 `false` 立即返回 `400 VALIDATION_ERROR`)* | `{ ok: true, rebooting: true, requestedAtIso: string }` |
+| `POST /api/control/reconnect` | `{ confirm: true }` *(快速重拨蜂窝 PDN，无需重启路由器；缺失或为 `false` 返回 `400`)* | `{ ok: true, reconnecting: true, requestedAtIso: string }` |
+| `POST /api/control/security` | `{ upnpEnabled?: boolean; dmz?: { enabled: boolean; ipAddress?: string }; firewall?: Partial<RouterSettingsSnapshot["firewall"]> }` *(至少提供其一；所有开关严格布尔校验；`dmz.ipAddress` 若提供须为合法 IPv4；`firewall` 仅接受上述 5 个键)* | `{ ok: true, settings: RouterSettingsSnapshot \| null }` |
+| `POST /api/control/wifi7` | `{ mloEnable?: boolean; dbhoEnable?: boolean }` *(至少提供其一；非布尔值返回 `400`)* | `{ ok: true, wifi7: { mloEnable: boolean; dbhoEnable: boolean } }` |
+| `POST /api/control/antenna` | `{ mode: "auto" \| "internal" \| "external" }` | `{ ok: true, antenna: { mode: "auto" \| "internal" \| "external"; rawCode: number } }` |
+| `POST /api/control/mobile-data` | `{ enabled: boolean }` | `{ ok: true, mobileDataEnabled: boolean }` |
+| `POST /api/session/reset-breaker` | `{}` *(重新读取 `.env` 并重置熔断器，详见下方说明)* | `{ ok: true, circuitBreaker: PublicCircuitBreakerState, status: SchedulerStatusSnapshot }` |
+
+- **写入后的 `settings` 同步**：
+  - `security`：写入成功后服务端再开一次只读会话回读路由器配置，并推送 SSE `settings`。若回读被让位或跳过，响应中 `settings` 为 `null`；若回读本身失败，接口返回 `502`，但写入已经生效，可调用 `POST /api/settings/refresh` 核对。
+  - `wifi7` / `antenna` / `mobile-data`：不额外开会话，直接用写入结果修补缓存快照并推送 SSE `settings`。若此前从未读取过 settings，则不会推送。
+- **`POST /api/session/reset-breaker` 规则**：
+  - 因密码错误（`108006` / `108002` / `108001`）熔断时，必须先修正 `.env` 中的 `CPE_PASSWORD`；密码未变时返回 `400 VALIDATION_ERROR`，防止耗尽剩余尝试次数触发 `108007` 硬件锁定。修正密码后重启服务同样会解除熔断（持久化的熔断状态绑定旧密码指纹）。
+  - `108007` 硬件锁定可在不修改 `.env` 的情况下重置（锁定可能由他人输错密码引起）。若锁定期尚未结束，下一次登录前的 `state-login` 预检会检测到 `lockstatus=1` 并立即重新熔断，不会消耗密码尝试次数。
+  - 若 `.env` 中的 `API_TOKEN` 已变更，所有既有 Cookie 会话与 SSE 连接立即吊销；`DATA_ENCRYPTION_KEY` 同步热更新。
+
+---
+
+## 3. `/api/events` 毫秒级 SSE 实时数据流协议
+
+### 3.1 连接方式与首包秒开保证
+- **端点与鉴权**：`GET /api/events`，鉴权方式与其他 `/api/*` 路由相同。浏览器使用原生 `new EventSource("/api/events", { withCredentials: true })` 自动复用 `HttpOnly` Cookie；脚本可使用 Bearer 头。
+- **连接上限**：全局 `SSE_MAX_CLIENTS`（默认 `32`），单 IP 桶（IPv6 为 `/64`）`6` 条；超限返回 `429 SSE_LIMIT_REACHED`。
+- **首帧推送**：连入瞬间立即依次下发 `hello`、`session:avoidance`（反映当前状态，未避让时 `active: false`），若已有缓存遥测再下发 `telemetry`，无需等待 `5s` 轮询定时器。
+- **帧格式**：`id: <自增序号>\nevent: <name>\ndata: <单行 JSON>\n\n`。服务端**不支持** `Last-Event-ID` 断点续传；重连后应以新的 `hello` 快照重建前端状态（`neighbors` / `topology` / `settings` 需另行调用对应 `GET` 接口补齐）。
+- **心跳保活帧**：每隔 `SSE_HEARTBEAT_MS`（默认 `15000ms`，最小 `3000ms`）写入标准 SSE 注释行：
+  ```text
+  : heartbeat 1761820000000
+
+  ```
+  `EventSource` 原生自动忽略注释帧，并可保持群晖 Nginx/Tailscale NAT 映射不断流。
+- **服务端主动断开**：Cookie 会话到期或登出、`API_TOKEN` 轮换、慢消费者连续 3 次以上写入背压时关闭连接。`EventSource` 会自动重连；若会话已失效，重连收到 `401` 后浏览器将停止重连，前端应引导用户重新登录。
+
+### 3.2 SSE 具名事件清单（`event: <name>`）
+
+前端应通过 `es.addEventListener("<eventName>", (ev) => JSON.parse(ev.data))` 订阅以下 9 类强类型事件：
+
+| `event:` 名称 | 触发时机 | `data:` JSON 载荷结构 |
+| :--- | :--- | :--- |
+| `hello` | SSE 握手成功瞬间立即下发 | `{ clientId: string, connectedAtIso: string, heartbeatMs: number, schedulerStatus: SchedulerStatusSnapshot, avoidance: AvoidanceBroadcastPayload, telemetry: GlobalTelemetrySnapshot \| null, lockState: PersistedLockState }` |
+| `speed` | 每次遥测采集成功（默认每 `5s`，以及手动 / MCP 刷新） | `SpeedTickPayload` |
+| `telemetry` | 同 `speed`（紧随其后推送） | `GlobalTelemetrySnapshot` |
+| `neighbors` | 每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）后台扫描或手动 `scan` 完成 | `NeighborScanSnapshot` |
+| `topology` | 服务启动时、每 `60s` 后台刷新或手动刷新完成 | `TerminalTopologySnapshot` |
+| `settings` | settings 完整读取完成（`POST /api/settings/refresh`、MCP 刷新、安全开关写入后的回读），或 Wi-Fi 7 / 天线 / 移动数据写入后修补缓存（此时 `capturedAtIso` 保持上次完整读取时间）。**无后台定时推送** | `RouterSettingsSnapshot` |
+| `session:avoidance` | **真人管理员登录/退出 `192.168.8.1` 导致避让状态跃迁时立即推送**，以及每个新连接的首帧 | `AvoidanceBroadcastPayload` |
+| `control:applied` | 任一控制写操作成功后 | `ControlAppliedEvent` |
+| `alert` | 断路器**首次**熔断时（`108006` / `108007` 等；当前唯一的告警来源） | `AlertEventRecord`（见 2.2 节） |
+
+```ts
+export interface SpeedTickPayload {
+  tsMs: number;
+  tsIso: string;
+  downloadBps: number;
+  uploadBps: number;
+  downloadRateFormatted: string;
+  uploadRateFormatted: string;
+}
+
+export interface ControlAppliedEvent {
+  // 已知取值："lock_band" | "lock_cell" | "unlock_rf_locks" | "reboot_cpe" | "reconnect_cellular"
+  //          | "set_security_switches" | "set_wifi7_mlo" | "set_antenna_mode" | "set_mobile_data"
+  action: string;
+  tsIso: string;
+  summaryZh: string;
+  summaryEn: string;
+  lockState?: PersistedLockState;  // 仅 lock_band / lock_cell / unlock_rf_locks 携带
+}
+
+export interface AvoidanceBroadcastPayload {
+  active: boolean;                 // true = 正在礼貌挂起让位真人会话；false = 未避让或已恢复
+  layer: 1 | 2 | null;             // 1 = state-login 预检命中；2 = 跨终端 IP 108003/108009 退避冷却中
+  stateCode: string | null;        // 避让中为 state-login 的 State（如 "0"）或错误码（如 "108003"）；恢复帧为 "-1"；空闲时为 null
+  sinceIso: string | null;         // 本次避让开始时间
+  cooldownUntilMs: number | null;  // 仅 Layer 2：静默截止时间戳（45s 起指数翻倍、封顶 300s，每级另加 5%）
+  messageZh: string;               // 避让中 "用户正在使用 CPE 后台，监控自动避让中"；恢复帧 "CPE 官方后台已空闲，实时遥测自动恢复"；空闲 "空闲待命"
+  messageEn: string;               // 对应 locales/en.json 中 session.mode_yielding / mode_resumed / mode_idle 的英文文案
+}
+```
+
+---
+
+## 4. MCP Server 双模传输与 13 项工具契约
+
+「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，支持协议版本 `2026-07-28`、`2025-06-18`、`2025-03-26`、`2024-11-05`；`initialize` 请求的版本不在列表中时回退协商为 `2025-06-18`。不支持 JSON-RPC 批量请求（数组，返回 `-32600`），请求 `id` 必须为 `string | number`。
+
+除下述 `probeLive` 例外，所有需要访问 CPE 的工具调用都与后台轮询共享同一个 `MutexSessionScheduler` 互斥队列与双层真人避让保护：
+- **`probeLive` 例外**：`get_cpe_session_status({ probeLive: true })` 直接发起一次免登录的 `GET /api/user/state-login`，不经过调度队列、不占用管理员会话（零会话），可能与正在进行的瞬时会话并发执行。
+
+### 4.1 两种接入方式
+1. **本地进程 `stdio` NDJSON 模式**（适用于 Claude Desktop、Antigravity、Cursor；每行一个 JSON 对象，单行上限 `64 KiB`，超限返回 `id: null` 的 `-32600` 错误并丢弃该行）：
+   ```json
+   {
+     "mcpServers": {
+       "fengsui-cpe": {
+         "command": "node",
+         "args": ["--experimental-strip-types", "/path/to/cpe-dash/src/cli.ts", "mcp", "--env", "/path/to/cpe-dash/.env"]
+       }
+     }
+   }
+   ```
+   `--experimental-strip-types` 在 Node `22.6`–`22.17` 上必需，在 Node `22.18+` / `23.6+` 上可省略。执行过 `npm run build` 后也可改用 `/path/to/cpe-dash/dist/cli.js`。追加 `--poll` 参数可在 stdio 模式下同时启动后台轮询。
+2. **内网 / Tailscale Streamable HTTP 模式**（`POST http://<nas-ip>:18384/mcp`）：
+   - 必填头：`Authorization: Bearer <API_TOKEN>` 与 `Content-Type: application/json`；
+   - 可选头 `MCP-Protocol-Version`：若携带，必须是上述支持版本之一，否则返回 `400` JSON-RPC 错误；
+   - 若携带 `Origin` 头，必须与当前 `Host` 同源，否则返回 `403 FORBIDDEN_ORIGIN`；
+   - JSON-RPC Notification（无 `id`）按规范返回 `202 Accepted` 空响应体；JSON-RPC Request 返回 `200 application/json` 单个响应对象（不使用 SSE 流式响应）。
+
+### 4.2 暴露的 13 项 MCP Tools 与 3 项 Resources
+- **只读观测类（6 项，`readOnlyHint: true`）**：`get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`、`list_terminal_topology`、`get_router_settings`。
+  - `get_cpe_telemetry` / `list_terminal_topology` / `get_router_settings`：传入 `refresh: true` 或缓存为空时触发一次瞬时采集。
+  - `list_neighbor_cells`：`scanNow: true` 强制扫描；省略时仅在缓存为空时扫描；`scanNow: false` 只读缓存。
+  - `query_telemetry_history`：参数与校验规则同 `GET /api/timeseries`。
+- **射频与系统控制类（7 项，均标注 `destructiveHint: true`）**：`lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`（强制 `confirm: true`）、`reboot_cpe`（强制 `confirm: true`）。
+  - 设置 `.env` 中 `MCP_ALLOW_MUTATIONS=false` 后，这 7 项工具不会出现在 `tools/list` 中，直接调用返回 `MUTATIONS_DISABLED`。
+  - 所有参数在第一次写入之前完成校验，非法参数返回 `VALIDATION_ERROR` 且不产生 CPE 会话。
+  - `lock_cell`：`pci` 若提供必须为数字（与 REST 不同，MCP 不接受 `null`）。
+  - `set_security_switches`：`dmzIpAddress` 若提供必须为合法 IPv4 字符串，且必须同时提供 `dmzEnabled`。
+  - `set_wifi_and_antenna`：同时提供 Wi-Fi 7 参数与 `antennaMode` 时，两项写入在两个独立的瞬时会话中依次执行。若第二次写入失败（例如真人恰好在两次会话之间登录），第一项写入仍然生效而工具返回错误，请调用 `get_router_settings({ refresh: true })` 核对。
+- **只读资源 URI（3 项，`mimeType: "application/json"`）**：`fengsui://telemetry/latest`（`GlobalTelemetrySnapshot | null`）、`fengsui://session/status`（`SchedulerStatusSnapshot`）、`fengsui://locks/state`（`PersistedLockState`）。
+
+### 4.3 工具调用结果与错误
+`tools/call` 无论业务成功与否均返回 JSON-RPC `result`（HTTP `200`）；未知工具名返回 JSON-RPC 错误 `-32602`。
+
+```ts
+export interface McpToolCallResult {
+  content: Array<{ type: "text"; text: string }>; // structuredContent 的格式化 JSON 文本
+  structuredContent: Record<string, unknown>;      // 成功时含 ok: true；失败时为 McpToolErrorPayload
+  isError: boolean;
+}
+
+export interface McpToolErrorPayload {
+  ok: false;
+  errorCode:
+    | "MUTATIONS_DISABLED"       // MCP_ALLOW_MUTATIONS=false
+    | "CONFIRMATION_REQUIRED"    // reboot_cpe / reconnect_cellular 未传 confirm: true
+    | "VALIDATION_ERROR"         // 参数非法（在任何写入前返回，不产生 CPE 会话）
+    | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）
+    | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、熔断器已熔断、调度队列已满等
+  message: string;               // 英文
+  messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED
+  avoidance?: AvoidanceBroadcastPayload; // 仅 BROWSER_SESSION_YIELDED
+}
+```
+
+---
+
+## 5. Phase 3 前端构建、托管目录与安全铁律契约
+
+Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下五条工程红线**：
+
+1. **托管目录优先级与绝对禁绝 `src/*.js` 铁律**：
+   - `loadConfig()` 默认按安装包根目录优先解析 **`dist/web/public/`**（若未构建则回退至 `public/`；可用 `.env` 中 `STATIC_DIR` 覆盖），且静态服务自动屏蔽所有以 `.` 或 `@`（如群晖 `@eaDir`）开头的隐藏路径。
+   - **严禁在 `src/`、`scripts/` 或 `test/` 下生成任何 `.js` / `.mjs` / `.cjs` 文件**（[`scripts/audit-secrets.ts`](../scripts/audit-secrets.ts) 门禁会直接拦截报错退出码 `1`）。前端源码应采用 100% 严格 TypeScript 放置于独立的 `web/`（或 `frontend/`）目录，编译产物统一输出至 `dist/web/public/`（并在 `.gitignore` 中忽略构建产物）。
+2. **100% 离线自包含与零 CDN 依赖**：
+   - 严禁引用 Google Fonts、unpkg、jsdelivr 等任何公网外部资源，确保断网诊断蜂窝故障时首屏 `< 50ms` 秒开渲染；建议首屏 JS+CSS Gzip 总体积控制在 `< 60 KB` 以内。
+3. **严格 CSP 响应头兼容要求**：
+   - 后端静态资源默认下发严格内容安全策略：
+     `default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
+   - **注意**：`script-src 'self'` **禁止 HTML 内联 `<script>` 与 `eval()`**！所有前端编译后的脚本必须作为外部同源静态文件（如 `<script type="module" src="/assets/app.js"></script>`）引入。
+4. **原生双语 (`zh-CN` / `en`) 对齐**：
+   - 可直接调用 `GET /api/i18n/zh-CN` 与 `GET /api/i18n/en`（或复用 [`locales/`](../locales/) 词条命名空间），确保前后端状态提示、避让横幅与告警文案 100% 同构。
+5. **优雅空值呈现（温度与 NSA 5G 指标）**：
+   - 当 `telemetry.thermal.temperatureSupported === false` 或 `temperatureAvgCelsius === null` 时，UI 必须优雅展示 `N/A / 固件未开放温度传感器` 或折叠温度曲线，严禁显示误导性的 `0°C`。
+
+---
+
+## 6. 已知限制（Phase 3 设计时请纳入考虑）
+
+1. **锁定状态不对账**：`lockState` 只记录「烽燧」最近一次成功下发的配置，尚未实现 Phase 1 规范要求的 `/api/device/signal` 驻留频点 / PCI 对账校验。
+2. **`108007` 重置无需修改 `.env`**：这是有意的设计（锁定可能由他人输错密码引起），比 `AGENTS.md` 铁律五「人工修正 `.env` 并显式重置」的字面表述宽松；`108006` 等密码错误熔断仍严格要求先修改密码。
+3. **跨会话写入非原子**：MCP `set_wifi_and_antenna` 的两项写入、REST `security` 的写入与回读分属不同的瞬时会话，详见 2.4 与 4.2 节。
+4. **AES-256-GCM 加密通道未在 Phase 2 使用**：加密请求格式以 [`src/crypto.ts`](../src/crypto.ts) 为准，目前只有自洽往返测试覆盖，启用前需先用真机加密响应验证。

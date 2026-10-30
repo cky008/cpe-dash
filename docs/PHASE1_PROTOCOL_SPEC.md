@@ -71,8 +71,9 @@ sequenceDiagram
    - 私钥为 32 字节随机数直接按**大端序**解析为 `BigInt`（**严禁执行 RFC 7748 小端反转与低 3 位清零钳位**），左移 256 位内保持 `64` 个十六进制字符定长输出。
 3. **AES-256-GCM 载荷加解密 (`enc-type=1|2|3`)**：
    - URL 追加查询串：`?ecc-client-pubkey=<64-hex>&enc-type=<1|2|3>`（`1`=请求明文/响应密文，`2`=请求密文/响应明文，`3`=双向密文）；
-   - Key = `shareKeyHex` 前 64 个 hex 字符（32 字节），AAD = UTF-8 字符串 `"ecdh_aes_gcm_data"`；
-   - 密文十六进制串结构：`[4字节小端序明文长度 Header (8 hex)] + [12字节随机 IV (24 hex)] + [Ciphertext] + [16字节 AuthTag (32 hex)]`。
+   - Key = `shareKeyHex` 前 64 个 hex 字符（32 字节），AAD = **16 个零字节**（`Buffer.alloc(16, 0)`）；
+   - 密文十六进制串结构：`[4字节小端序明文长度 Header (8 hex)] + [12字节随机 IV (24 hex)] + [16字节 AuthTag (32 hex)] + [Ciphertext]`（AuthTag 位于密文**之前**）；
+   - 以上格式以 [`src/crypto.ts`](../src/crypto.ts) 的 `aesGcmEncrypt` / `aesGcmDecrypt` 为准。仓库内目前仅有自洽往返测试覆盖，Phase 2 路由均未使用加密通道；后续启用前应先用真机加密响应完成一次解密验证。
 
 ---
 
@@ -204,7 +205,7 @@ sequenceDiagram
   <ulfrequency>1930000kHz</ulfrequency>
   <dlfrequency>2120000kHz</dlfrequency>
   <nrulbandwidth>100MHz</nrulbandwidth>
-  <nrdlbandwidth>100MHz</nrulbandwidth>
+  <nrdlbandwidth>100MHz</nrdlbandwidth>
   <nrulmcs>NRmcsUpCarrier1:20@256QAM</nrulmcs>
   <nrdlmcs>NRmcsDownCarrier1Code0:17@64QAM NRmcsDownCarrier1Code1:0</nrdlmcs>
   <nrtxpower>PPusch:23dBm PPucch:23dBm PSrs:0dBm PPrach:5dBm</nrtxpower>
@@ -319,6 +320,7 @@ sequenceDiagram
 
 #### `POST /api/net/lock-freq`（5G NR 锁频段 & 4G/5G 锁频点/锁小区统一控制）
 - **重要边界**：H168-383 零售固件 `4.4.0.1` 上 `GET /api/net/lock-freq` 返回 `[CPE 100003]`（仅开放 `POST` 下发），因此 Phase 2 后端须在本地加密状态文件 [`data/state.json`](../src/encrypted-file.ts) 中持久化当前用户下发的锁小区/NR 锁频配置，并与 `/api/device/signal` 实测驻留频点/PCI 对账校验！
+  - **Phase 2 实现状态**：本地持久化已实现（`lockState`）；与 `/api/device/signal` 的对账校验**尚未实现**，`lockState` 仅代表「烽燧」最近一次成功下发的锁定配置（见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) §2.2）。
 - **载荷模板详见第 4.2 节**。
 
 ---
