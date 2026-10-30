@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import {
+  canonicalizeRateLimitBucketKey,
   isAllowedCpeHost,
   isPrivateOrLanIpv4,
   isPrivateOrLanIpv6,
@@ -335,5 +336,37 @@ describe("sanitizer & StorageCipher", () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("defends against Unicode index-shift, nested <error> spoofing, XML injection, and .env double-unescaping", () => {
+    // 1. U+0130 ('İ') must NOT shift string indices during ASCII-only case-insensitive tag scan
+    const turkishXml = "<response><ssid>İİİİ-5G</ssid><pci>321</pci></response>";
+    assert.equal(getXmlTag(turkishXml, "pci"), "321");
+    const flat = xmlToFlatRecord(turkishXml);
+    assert.equal(flat["pci"], "321");
+
+    // 2. parseXmlError must accept only root <error>, ignoring nested <error> inside <response>
+    assert.equal(
+      parseXmlError("<response><HostName>test</HostName><error><code>108006</code></error></response>"),
+      null
+    );
+    const rootErr = parseXmlError('<?xml version="1.0" encoding="UTF-8"?><error><code>108006</code><remaincount>2</remaincount></error>');
+    assert.equal(rootErr?.code, "108006");
+    assert.equal(rootErr?.remainCount, 2);
+
+    // 3. buildXmlRequest escapes XML metacharacters in primitive values once without double-escaping
+    const escapedReq = buildXmlRequest({ username: 'admin<&>"' });
+    assert.match(escapedReq, /<username>admin&lt;&amp;&gt;&quot;<\/username>/);
+
+    // 4. parseDotEnv single-pass unescape preserves literal backslash+n ("\\n" -> "\n" two chars)
+    const parsedEnv = parseDotEnv('LITERAL="foo\\\\nbar"\nNEWLINE="line1\\nline2"');
+    assert.equal(parsedEnv["LITERAL"], "foo\\nbar");
+    assert.equal(parsedEnv["NEWLINE"], "line1\nline2");
+
+    // 5. canonicalizeRateLimitBucketKey normalizes embedded-IPv4 IPv6 addresses cleanly
+    assert.equal(
+      canonicalizeRateLimitBucketKey("2001:db8:abcd:12::198.51.100.42"),
+      "2001:0db8:abcd:0012::/64"
+    );
   });
 });

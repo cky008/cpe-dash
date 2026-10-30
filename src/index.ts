@@ -13,3 +13,6 @@ export * from "./timeseries.ts";
 export * from "./state-store.ts";
 export * from "./scheduler.ts";
 export * from "./mcp-server.ts";
+export * from "./sse-bus.ts";
+export * from "./http-server.ts";
+export * from "./cli.ts";

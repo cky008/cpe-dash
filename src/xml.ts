@@ -18,17 +18,23 @@ function assertSafeXmlInput(xml: string, tag?: string): string {
   return stripInvalidControlChars(xml);
 }
 
+function toAsciiLower(input: string): string {
+  return input.replace(/[A-Z]+/g, (s) => s.toLowerCase());
+}
+
 /**
- * Linear O(N) case-insensitive tag scanner (immune to ReDoS catastrophic backtracking).
+ * Linear O(N) case-insensitive tag scanner (immune to ReDoS catastrophic backtracking
+ * and Unicode case-folding length shifts such as U+0130).
  * Extracts the decoded inner text of the first matching `<tag>...</tag>`.
  */
 export function getXmlTag(xml: string, tag: string): string | null {
   if (!xml) return null;
   const clean = assertSafeXmlInput(xml, tag);
-  const lower = clean.toLowerCase();
-  const openNeedle = `<${tag.toLowerCase()}>`;
-  const selfCloseNeedle = `<${tag.toLowerCase()}/>`;
-  const closeNeedle = `</${tag.toLowerCase()}>`;
+  const lower = toAsciiLower(clean);
+  const tagLower = toAsciiLower(tag);
+  const openNeedle = `<${tagLower}>`;
+  const selfCloseNeedle = `<${tagLower}/>`;
+  const closeNeedle = `</${tagLower}>`;
 
   const selfIdx = lower.indexOf(selfCloseNeedle);
   const openIdx = lower.indexOf(openNeedle);
@@ -48,9 +54,10 @@ export function getXmlTag(xml: string, tag: string): string | null {
 export function getXmlBlocks(xml: string, tag: string): string[] {
   if (!xml) return [];
   const clean = assertSafeXmlInput(xml, tag);
-  const lower = clean.toLowerCase();
-  const openNeedle = `<${tag.toLowerCase()}>`;
-  const closeNeedle = `</${tag.toLowerCase()}>`;
+  const lower = toAsciiLower(clean);
+  const tagLower = toAsciiLower(tag);
+  const openNeedle = `<${tagLower}>`;
+  const closeNeedle = `</${tagLower}>`;
 
   const results: string[] = [];
   let cursor = 0;
@@ -67,7 +74,7 @@ export function getXmlBlocks(xml: string, tag: string): string[] {
 }
 
 /**
- * Parse all leaf `<key>value</key>` pairs inside an XML fragment into a prototype-free dictionary.
+ * Strictly linear O(N) leaf `<key>value</key>` extractor producing a prototype-free dictionary.
  * Rejects `__proto__`, `constructor`, and `prototype` keys to prevent prototype pollution.
  */
 export function xmlToFlatRecord(xml: string): Record<string, string> {
@@ -99,31 +106,39 @@ export function xmlToFlatRecord(xml: string): Record<string, string> {
     if (!tagName || !/^[A-Za-z0-9_:-]+$/.test(tagName) || FORBIDDEN_KEYS.has(tagName)) {
       continue;
     }
-    if (tagName.toLowerCase() === "response" || tagName.toLowerCase() === "request" || tagName.toLowerCase() === "error") {
+    const lowerTagName = toAsciiLower(tagName);
+    if (lowerTagName === "response" || lowerTagName === "request" || lowerTagName === "error") {
       continue;
     }
 
+    const nextLt = clean.indexOf("<", cursor);
+    if (nextLt < 0) break;
     const closeNeedle = `</${tagName}>`;
-    const closeIdx = clean.indexOf(closeNeedle, cursor);
-    if (closeIdx < 0) continue;
-    const inner = clean.slice(cursor, closeIdx);
-    // Only capture leaf values (if nested tags exist inside, descend into inner instead)
-    if (!inner.includes("<")) {
-      out[tagName] = huaweiXssDecode(inner.trim());
-      cursor = closeIdx + closeNeedle.length;
+    if (toAsciiLower(clean.slice(nextLt, nextLt + closeNeedle.length)) === toAsciiLower(closeNeedle)) {
+      out[tagName] = huaweiXssDecode(clean.slice(cursor, nextLt).trim());
+      cursor = nextLt + closeNeedle.length;
+    } else {
+      cursor = nextLt;
     }
   }
   return out;
 }
 
 /**
- * Check if a Huawei XML response represents `<error><code>...</code>...</error>`.
+ * Check if a Huawei XML response has a root `<error><code>...</code>...</error>` envelope.
  */
 export function parseXmlError(xml: string): ParsedXmlError | null {
   if (!xml) return null;
   const clean = assertSafeXmlInput(xml);
-  if (!clean.toLowerCase().includes("<error>")) return null;
-  const errorBlock = getXmlBlocks(clean, "error")[0] ?? clean;
+  let body = clean.trimStart();
+  if (toAsciiLower(body.slice(0, 5)) === "<?xml") {
+    const declEnd = body.indexOf("?>");
+    if (declEnd < 0) return null;
+    body = body.slice(declEnd + 2).trimStart();
+  }
+  if (toAsciiLower(body.slice(0, 7)) !== "<error>") return null;
+  const errorBlock = getXmlBlocks(body, "error")[0];
+  if (errorBlock === undefined) return null;
   const code = getXmlTag(errorBlock, "code");
   if (!code) return null;
   const message = getXmlTag(errorBlock, "message") ?? "";
@@ -138,7 +153,7 @@ export function parseXmlError(xml: string): ParsedXmlError | null {
 }
 
 /**
- * Convert a nested JS value into Huawei HiLink XML body (`jsonToXml`).
+ * Convert a nested JS value into Huawei HiLink XML body (`jsonToXml`), escaping primitive values.
  */
 export function jsonToXml(tag: string, value: unknown): string {
   if (FORBIDDEN_KEYS.has(tag) || !/^[A-Za-z0-9_:-]+$/.test(tag)) {
@@ -146,7 +161,7 @@ export function jsonToXml(tag: string, value: unknown): string {
   }
   if (value === null || value === undefined) return "";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return `<${tag}>${value}</${tag}>`;
+    return `<${tag}>${escapeXmlBasic(String(value))}</${tag}>`;
   }
   if (Array.isArray(value)) {
     return value.map((item) => jsonToXml(tag, item)).join("");

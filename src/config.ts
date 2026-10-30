@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { normalizeLocale } from "./i18n.ts";
 import type { AppConfig } from "./types.ts";
 
@@ -135,7 +136,7 @@ export function parseDotEnv(content: string): Record<string, string> {
       const quote = value[0];
       value = value.slice(1, -1);
       if (quote === '"') {
-        value = value.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+        value = value.replace(/\\(["\\n])/g, (_m, ch: string) => (ch === "n" ? "\n" : ch));
       }
     } else {
       const commentIdx = value.indexOf(" #");
@@ -306,7 +307,13 @@ export function resolveRequestSecureScheme(
 
 function expandIpv6Hextets(ip: string): string[] | null {
   if (net.isIP(ip) !== 6) return null;
-  const parts = ip.split("::");
+  let normalized = ip;
+  try {
+    normalized = new URL(`http://[${ip}]`).hostname.slice(1, -1);
+  } catch {
+    return null;
+  }
+  const parts = normalized.split("::");
   if (parts.length > 2) return null;
   const left = parts[0] ? parts[0].split(":") : [];
   const right = parts.length === 2 && parts[1] ? parts[1].split(":") : [];
@@ -409,7 +416,13 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     parseIntSafe(get("RATE_LIMIT_MAX_AUTH_FAILURES"), 8)
   );
   const sessionTtlMs = Math.max(60000, parseIntSafe(get("SESSION_TTL_MS"), 24 * 60 * 60 * 1000));
-  const staticDir = path.resolve(process.cwd(), get("STATIC_DIR") ?? "./public");
+  const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const distWebPublic = path.join(pkgRoot, "dist", "web", "public");
+  const defaultStaticDir = fs.existsSync(distWebPublic)
+    ? distWebPublic
+    : path.join(pkgRoot, "public");
+  const rawStatic = get("STATIC_DIR");
+  const staticDir = rawStatic ? path.resolve(process.cwd(), rawStatic) : defaultStaticDir;
   const redactSensitiveInApi = parseBool(get("REDACT_SENSITIVE_IN_API"), true);
 
   const pollIntervalMs = Math.max(1000, parseIntSafe(get("POLL_INTERVAL_MS"), 5000));

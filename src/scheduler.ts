@@ -9,6 +9,7 @@ import {
 import {
   type BandLockCommand,
   type CellLockCommand,
+  CpeControlValidationError,
   type GlobalTelemetrySnapshot,
   type NeighborScanSnapshot,
   type PersistedLockState,
@@ -21,6 +22,8 @@ import {
   fetchGlobalTelemetry,
   fetchRouterSettings,
   fetchTerminalTopology,
+  prepareBandLockPayloads,
+  prepareCellLockPayload,
   rebootCpe,
   scanNeighborCells,
   triggerCellularReconnect,
@@ -316,7 +319,14 @@ export class MutexSessionScheduler extends EventEmitter {
       mode: effectiveMode,
       running: this.#running,
       avoidance: this.getAvoidanceState(),
-      circuitBreaker: cb,
+      circuitBreaker: {
+        tripped: cb.tripped,
+        code: cb.code,
+        reason: cb.reason,
+        trippedAtIso: cb.trippedAtIso,
+        remainCount: cb.remainCount ?? null,
+        waitTime: cb.waitTime ?? null,
+      },
       lastSessionHoldMs: telemetry.lastSessionHoldMs,
       totalSessionsCompleted: telemetry.totalSessionsCompleted,
       browserYieldCount: telemetry.browserYieldCount,
@@ -355,19 +365,36 @@ export class MutexSessionScheduler extends EventEmitter {
 
   /**
    * Reload credentials & reset the anti-brute-force circuit breaker after human updates `.env`.
+   * Enforces 铁律五: refuses to clear a wrong-password latch (`108006`/`108002`/`108001`) if the
+   * configured password has not changed, preventing accidental exhaustion of remaining strikes to `108007`.
    */
   async reloadCredentialsAndResetBreaker(
     newPassword: string,
     newUsername?: string
   ): Promise<CircuitBreakerState> {
-    this.client.reloadCredentials(newPassword, newUsername);
-    this.client.resetCircuitBreaker();
+    const latched = this.client.getCircuitBreakerState();
+    const changed = this.client.reloadCredentials(newPassword, newUsername);
+    if (!changed && latched.tripped && latched.code !== "108007") {
+      throw new CpeControlValidationError(
+        "Circuit breaker latched on wrong password; update CPE_PASSWORD in .env before resetting"
+      );
+    }
+    if (!changed) {
+      this.client.resetCircuitBreaker();
+    }
     const cb = this.client.getCircuitBreakerState();
     this.#mode = "idle";
     this.#lastError = null;
     this.stateStore.update({ circuitBreaker: cb });
     await this.stateStore.flushAsync();
-    return cb;
+    return {
+      tripped: cb.tripped,
+      code: cb.code,
+      reason: cb.reason,
+      trippedAtIso: cb.trippedAtIso,
+      remainCount: cb.remainCount ?? null,
+      waitTime: cb.waitTime ?? null,
+    };
   }
 
   #safeEmit(event: string, payload: unknown): void {
@@ -726,8 +753,9 @@ export class MutexSessionScheduler extends EventEmitter {
     });
   }
 
-  // High-level domain control wrappers for REST & MCP consumers
+  // High-level domain control wrappers for REST & MCP consumers (pre-validate before enqueuing)
   async lockBands(command: BandLockCommand): Promise<PersistedLockState> {
+    prepareBandLockPayloads(command);
     return await this.executeControl(
       "lock_band",
       (session) => applyBandLock(session, command),
@@ -743,6 +771,7 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   async lockCell(command: CellLockCommand): Promise<PersistedLockState> {
+    prepareCellLockPayload(command);
     return await this.executeControl(
       "lock_cell",
       (session) => applyCellLock(session, command),
@@ -775,6 +804,11 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   async rebootRouter(params: { confirm: boolean }): Promise<{ rebooting: true; requestedAtIso: string }> {
+    if (params.confirm !== true) {
+      throw new CpeControlValidationError(
+        "Remote reboot rejected: explicit { confirm: true } is mandatory"
+      );
+    }
     return await this.executeControl(
       "reboot_cpe",
       (session) => rebootCpe(session, params),
@@ -797,6 +831,13 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   async setSecuritySwitches(command: SecurityUpdateCommand): Promise<RouterSettingsSnapshot | null> {
+    if (
+      command.upnpEnabled === undefined &&
+      command.dmz === undefined &&
+      command.firewall === undefined
+    ) {
+      throw new CpeControlValidationError("No security setting changes specified");
+    }
     await this.executeControl(
       "set_security_switches",
       (session) => updateSecuritySettings(session, command),
@@ -812,6 +853,9 @@ export class MutexSessionScheduler extends EventEmitter {
     mloEnable?: boolean;
     dbhoEnable?: boolean;
   }): Promise<{ mloEnable: boolean; dbhoEnable: boolean }> {
+    if (input.mloEnable === undefined && input.dbhoEnable === undefined) {
+      throw new CpeControlValidationError("Specify mloEnable and/or dbhoEnable");
+    }
     return await this.executeControl(
       "set_wifi7_mlo",
       (session) => updateWifi7Mlo(session, input),
@@ -823,6 +867,9 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   async setAntennaMode(mode: AntennaModeName): Promise<{ mode: AntennaModeName; rawCode: number }> {
+    if (mode !== "auto" && mode !== "internal" && mode !== "external") {
+      throw new CpeControlValidationError(`Invalid antenna mode "${String(mode)}"`);
+    }
     return await this.executeControl(
       "set_antenna_mode",
       (session) => updateAntennaMode(session, mode),

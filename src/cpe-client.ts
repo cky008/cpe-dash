@@ -16,9 +16,38 @@ import type {
   SessionExecutionOutcome,
   SessionTelemetry,
 } from "./types.ts";
-import { buildXmlRequest, escapeXmlBasic, getXmlTag, parseXmlError } from "./xml.ts";
+import { MAX_XML_BYTES, buildXmlRequest, getXmlTag, parseXmlError } from "./xml.ts";
 
 const activeSessionContext = new AsyncLocalStorage<HuaweiCpeClient>();
+
+async function readBoundedResponseText(res: Response, maxBytes = MAX_XML_BYTES): Promise<string> {
+  if (!res.body || typeof res.body.getReader !== "function") {
+    const text = await res.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) {
+      throw new Error(`CPE response exceeds maximum allowed size (${maxBytes} bytes)`);
+    }
+    return text;
+  }
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const buf = Buffer.from(value);
+      totalBytes += buf.length;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error(`CPE response exceeds maximum allowed size (${maxBytes} bytes)`);
+      }
+      chunks.push(buf);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, totalBytes).toString("utf8");
+}
 
 export const CPE_ERROR_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "100002": "系统不支持该接口 (No support)",
@@ -193,7 +222,7 @@ export class EphemeralCpeSession {
       signal: AbortSignal.timeout(overrideTimeoutMs ?? this.timeoutMs),
     });
     this.#updateCookies(res.headers);
-    const text = await res.text();
+    const text = await readBoundedResponseText(res);
     const err = parseXmlError(text);
     if (err) {
       throw new CpeApiError(err.code, apiPath, err);
@@ -258,7 +287,7 @@ export class EphemeralCpeSession {
       });
       this.#updateCookies(res.headers);
       this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
-      const text = await res.text();
+      const text = await readBoundedResponseText(res);
       const err = parseXmlError(text);
       if (err) {
         throw new CpeApiError(err.code, apiPath, err);
@@ -321,7 +350,7 @@ export class EphemeralCpeSession {
     const challengeXml = await this.postRaw(
       "/api/user/challenge_login",
       buildXmlRequest({
-        username: escapeXmlBasic(this.username),
+        username: this.username,
         firstnonce: firstNonce,
         mode: 1,
       }),
@@ -586,7 +615,7 @@ export class HuaweiCpeClient {
       redirect: "error",
       signal: AbortSignal.timeout(this.timeoutMs),
     });
-    const text = await res.text();
+    const text = await readBoundedResponseText(res);
     const err = parseXmlError(text);
     if (err) {
       throw new CpeApiError(err.code, apiPath, err);
@@ -672,7 +701,7 @@ export class HuaweiCpeClient {
             holdMs: lastHoldMs,
           };
         } catch (err) {
-          if (err instanceof CpeApiError && err.isCircuitBreakerFatal) {
+          if (!loginFinished && err instanceof CpeApiError && err.isCircuitBreakerFatal) {
             this.#tripCircuitBreaker(err, credentialFp);
           }
           // Only retry/yield on occupied BEFORE `fn(session)` starts so mutating writes are never replayed!

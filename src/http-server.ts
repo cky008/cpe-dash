@@ -1,0 +1,1466 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import net from "node:net";
+import type { TLSSocket } from "node:tls";
+import path from "node:path";
+import type { BandInput } from "./band-lock.ts";
+import {
+  canonicalizeRateLimitBucketKey,
+  isAllowedHttpHostHeader,
+  loadConfig,
+  resolveClientIp,
+  resolveRequestSecureScheme,
+} from "./config.ts";
+import {
+  CpeControlValidationError,
+  type AntennaModeName,
+  type FirewallSwitchState,
+} from "./cpe-domain.ts";
+import {
+  getLocaleCatalog,
+  normalizeLocale,
+  t,
+} from "./i18n.ts";
+import {
+  type FengSuiMcpServer,
+  parseJsonSafeNullProto,
+} from "./mcp-server.ts";
+import {
+  BrowserSessionYieldedError,
+  SchedulerQueueFullError,
+  SchedulerStoppedError,
+  type MutexSessionScheduler,
+} from "./scheduler.ts";
+import type { SseEventBus } from "./sse-bus.ts";
+import {
+  TimeSeriesValidationError,
+  type TimeSeriesPreset,
+} from "./timeseries.ts";
+import type { AppConfig, SupportedLocale } from "./types.ts";
+
+const SESSION_COOKIE_NAME = "fengsui_sid";
+const MAX_JSON_BODY_BYTES = 64 * 1024;
+const MAX_ACTIVE_SESSIONS = 128;
+const MAX_TRACKED_BUCKETS = 4096;
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const ALLOWED_FIREWALL_KEYS = new Set<keyof FirewallSwitchState>([
+  "mainSwitch",
+  "ipFilterSwitch",
+  "wanPortPingSwitch",
+  "macFilterSwitch",
+  "urlFilterSwitch",
+]);
+
+const MIME_TYPES: Readonly<Record<string, string>> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+};
+
+interface WebSessionRecord {
+  id: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+  clientBucket: string;
+}
+
+interface RateLimitWindow {
+  timestampsMs: number[];
+}
+
+class HttpPayloadError extends Error {
+  readonly statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.name = "HttpPayloadError";
+    this.statusCode = statusCode;
+  }
+}
+
+function sha256Buffer(input: string): Buffer {
+  return crypto.createHash("sha256").update(input, "utf8").digest();
+}
+
+export function constantTimeSecretMatch(candidate: string, expectedSecret: string): boolean {
+  if (!expectedSecret) return false;
+  const a = sha256Buffer(candidate);
+  const b = sha256Buffer(expectedSecret);
+  return crypto.timingSafeEqual(a, b);
+}
+
+function parseCookiesNullProto(cookieHeader: string | undefined): Record<string, string> {
+  const out = Object.create(null) as Record<string, string>;
+  if (!cookieHeader) return out;
+  const bounded = cookieHeader.slice(0, 16384);
+  for (const part of bounded.split(";")) {
+    const eqIdx = part.indexOf("=");
+    if (eqIdx <= 0) continue;
+    const key = part.slice(0, eqIdx).trim();
+    if (!key || FORBIDDEN_KEYS.has(key)) continue;
+    out[key] = part.slice(eqIdx + 1).trim();
+  }
+  return out;
+}
+
+function parseQueryNullProto(searchParams: URLSearchParams): Record<string, string> {
+  const out = Object.create(null) as Record<string, string>;
+  for (const [k, v] of searchParams.entries()) {
+    if (!k || FORBIDDEN_KEYS.has(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+function parseStrictFiniteInt(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  if (!/^-?\d+$/.test(raw.trim())) {
+    throw new HttpPayloadError(400, `Invalid integer query parameter "${raw}"`);
+  }
+  const n = Number.parseInt(raw.trim(), 10);
+  if (!Number.isSafeInteger(n)) {
+    throw new HttpPayloadError(400, `Out-of-range integer query parameter "${raw}"`);
+  }
+  return n;
+}
+
+export interface FengSuiHttpServerOptions {
+  config: AppConfig;
+  scheduler: MutexSessionScheduler;
+  sseBus: SseEventBus;
+  mcpServer: FengSuiMcpServer;
+  envPath?: string;
+}
+
+/**
+ * Hardened zero-dependency HTTP Server hosting:
+ * - Authenticated REST API (`/api/*`);
+ * - Sub-millisecond SSE stream (`GET /api/events`);
+ * - Streamable HTTP MCP JSON-RPC 2.0 endpoint (`POST /mcp`);
+ * - Offline prebuilt static frontend assets (`dist/web/public` -> `public`) with strict CSP.
+ */
+export class FengSuiHttpServer {
+  #config: AppConfig;
+  readonly scheduler: MutexSessionScheduler;
+  readonly sseBus: SseEventBus;
+  readonly mcpServer: FengSuiMcpServer;
+  readonly envPath: string | undefined;
+  readonly startedAtMs: number;
+
+  #server: http.Server | null = null;
+  #bucketSweepTimer: ReturnType<typeof setInterval> | null = null;
+  #sessions: Map<string, WebSessionRecord> = new Map();
+  #authFailuresByBucket: Map<string, RateLimitWindow> = new Map();
+  #globalAuthFailures: number[] = [];
+
+  constructor(options: FengSuiHttpServerOptions) {
+    this.#config = options.config;
+    this.scheduler = options.scheduler;
+    this.sseBus = options.sseBus;
+    this.mcpServer = options.mcpServer;
+    this.envPath = options.envPath;
+    this.startedAtMs = Date.now();
+  }
+
+  get config(): AppConfig {
+    return this.#config;
+  }
+
+  async listen(): Promise<{ host: string; port: number }> {
+    if (this.#server) {
+      const addr = this.#server.address();
+      const port = typeof addr === "object" && addr ? addr.port : this.#config.webPort;
+      return { host: this.#config.webHost, port };
+    }
+
+    const srv = http.createServer((req, res) => {
+      void this.#handleRequest(req, res).catch((err: unknown) => {
+        if (!res.headersSent) {
+          this.#sendJson(res, 500, {
+            ok: false,
+            errorCode: "INTERNAL_ERROR",
+            message: err instanceof Error ? err.message : "Unexpected server error",
+          });
+        } else if (!res.writableEnded) {
+          res.end();
+        }
+      });
+    });
+
+    srv.headersTimeout = 10_000;
+    srv.requestTimeout = 15_000;
+    srv.maxConnections = 512;
+
+    await new Promise<void>((resolve, reject) => {
+      srv.once("error", reject);
+      srv.listen(this.#config.webPort, this.#config.webHost, () => {
+        srv.off("error", reject);
+        resolve();
+      });
+    });
+
+    this.#server = srv;
+    this.#bucketSweepTimer = setInterval(() => {
+      this.#sweepAuthBuckets();
+    }, 60_000);
+    this.#bucketSweepTimer.unref?.();
+    const addr = srv.address();
+    const boundPort = typeof addr === "object" && addr ? addr.port : this.#config.webPort;
+    return { host: this.#config.webHost, port: boundPort };
+  }
+
+  async close(): Promise<void> {
+    if (this.#bucketSweepTimer) {
+      clearInterval(this.#bucketSweepTimer);
+      this.#bucketSweepTimer = null;
+    }
+    if (!this.#server) return;
+    const srv = this.#server;
+    this.#server = null;
+    await new Promise<void>((resolve) => {
+      srv.close(() => resolve());
+    });
+  }
+
+  #sendJson(
+    res: ServerResponse,
+    statusCode: number,
+    body: unknown,
+    extraHeaders: Record<string, string> = {}
+  ): void {
+    const payload = JSON.stringify(body);
+    res.writeHead(statusCode, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": String(Buffer.byteLength(payload, "utf8")),
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      ...extraHeaders,
+    });
+    res.end(payload);
+  }
+
+  #resolveLocale(req: IncomingMessage): SupportedLocale {
+    const acceptLang =
+      typeof req.headers["accept-language"] === "string"
+        ? req.headers["accept-language"]
+        : undefined;
+    return normalizeLocale(acceptLang, this.#config.defaultLocale);
+  }
+
+  #sweepAuthBuckets(nowMs = Date.now()): void {
+    const windowMs = this.#config.rateLimitWindowMs;
+    this.#globalAuthFailures = this.#globalAuthFailures.filter((tMs) => nowMs - tMs < windowMs);
+    for (const [key, entry] of this.#authFailuresByBucket.entries()) {
+      entry.timestampsMs = entry.timestampsMs.filter((tMs) => nowMs - tMs < windowMs);
+      if (entry.timestampsMs.length === 0) {
+        this.#authFailuresByBucket.delete(key);
+      }
+    }
+  }
+
+  #checkBucketRateLimit(bucketKey: string, nowMs = Date.now()): number | null {
+    const windowMs = this.#config.rateLimitWindowMs;
+    const maxPerIp = this.#config.rateLimitMaxAuthFailures;
+    const entry = this.#authFailuresByBucket.get(bucketKey);
+    if (!entry) return null;
+    entry.timestampsMs = entry.timestampsMs.filter((tMs) => nowMs - tMs < windowMs);
+    if (entry.timestampsMs.length === 0) {
+      this.#authFailuresByBucket.delete(bucketKey);
+      return null;
+    }
+    if (entry.timestampsMs.length >= maxPerIp) {
+      const oldest = entry.timestampsMs[0] ?? nowMs;
+      return Math.max(1, Math.ceil((windowMs - (nowMs - oldest)) / 1000));
+    }
+    return null;
+  }
+
+  #recordAuthFailure(bucketKey: string, nowMs = Date.now()): void {
+    this.#globalAuthFailures.push(nowMs);
+    let entry = this.#authFailuresByBucket.get(bucketKey);
+    if (!entry) {
+      if (this.#authFailuresByBucket.size >= MAX_TRACKED_BUCKETS) {
+        this.#sweepAuthBuckets(nowMs);
+        while (this.#authFailuresByBucket.size >= MAX_TRACKED_BUCKETS) {
+          const oldestKey = this.#authFailuresByBucket.keys().next().value;
+          if (oldestKey === undefined) break;
+          this.#authFailuresByBucket.delete(oldestKey);
+        }
+      }
+      entry = { timestampsMs: [] };
+      this.#authFailuresByBucket.set(bucketKey, entry);
+    }
+    entry.timestampsMs.push(nowMs);
+  }
+
+  /**
+   * Synchronous credential & brute-force rate-limit guard:
+   * 1. Enforces per-bucket lockout first (blocking brute-forcing buckets unconditionally).
+   * 2. Allows valid credentials from clean buckets so 8 junk IPs cannot globally DoS a valid admin.
+   * 3. Enforces global failure ceiling on invalid guesses before recording a new failure.
+   */
+  #guardCredential(
+    bucketKey: string,
+    isValid: boolean,
+    nowMs = Date.now()
+  ): { ok: true } | { ok: false; statusCode: 401 | 429; retrySec?: number } {
+    const bucketRetrySec = this.#checkBucketRateLimit(bucketKey, nowMs);
+    if (bucketRetrySec !== null) {
+      return { ok: false, statusCode: 429, retrySec: bucketRetrySec };
+    }
+    if (isValid) {
+      return { ok: true };
+    }
+
+    const windowMs = this.#config.rateLimitWindowMs;
+    const maxGlobal = this.#config.rateLimitMaxAuthFailures * 8;
+    this.#globalAuthFailures = this.#globalAuthFailures.filter((tMs) => nowMs - tMs < windowMs);
+    if (this.#globalAuthFailures.length >= maxGlobal) {
+      const oldest = this.#globalAuthFailures[0] ?? nowMs;
+      const globalRetrySec = Math.max(1, Math.ceil((windowMs - (nowMs - oldest)) / 1000));
+      return { ok: false, statusCode: 429, retrySec: globalRetrySec };
+    }
+
+    this.#recordAuthFailure(bucketKey, nowMs);
+    return { ok: false, statusCode: 401 };
+  }
+
+  #isBearerHeaderValid(authHeader: string): boolean {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    const token = match?.[1]?.trim() ?? "";
+    return Boolean(token) && constantTimeSecretMatch(token, this.#config.apiToken);
+  }
+
+  #validateCsrfForCookieMutation(
+    req: IncomingMessage,
+    validatedHost: string,
+    isHttps: boolean
+  ): boolean {
+    const xrw = req.headers["x-requested-with"];
+    if (xrw !== "XMLHttpRequest") return false;
+
+    const ct = (req.headers["content-type"] ?? "").toLowerCase();
+    if (!ct.startsWith("application/json")) return false;
+
+    const rawOrigin = req.headers.origin;
+    if (!rawOrigin || rawOrigin === "null") return false;
+    let parsedOrigin: URL;
+    try {
+      parsedOrigin = new URL(rawOrigin);
+    } catch {
+      return false;
+    }
+    const expectedProtocol = isHttps ? "https:" : "http:";
+    if (parsedOrigin.protocol !== expectedProtocol) return false;
+    if (parsedOrigin.host.toLowerCase() !== validatedHost.toLowerCase()) return false;
+    return true;
+  }
+
+  #authenticateCookieSession(
+    req: IncomingMessage,
+    bucketKey: string
+  ): { ok: true; via: "cookie"; session: WebSessionRecord } | { ok: false } {
+    const cookies = parseCookiesNullProto(req.headers.cookie);
+    const sid = cookies[SESSION_COOKIE_NAME];
+    if (!sid || !/^[0-9a-f]{64}$/.test(sid)) {
+      return { ok: false };
+    }
+    const record = this.#sessions.get(sid);
+    if (!record) return { ok: false };
+    if (Date.now() >= record.expiresAtMs) {
+      this.#sessions.delete(sid);
+      return { ok: false };
+    }
+    if (record.clientBucket !== bucketKey) {
+      return { ok: false };
+    }
+    return { ok: true, via: "cookie", session: record };
+  }
+
+  #createWebSession(clientBucket: string): WebSessionRecord {
+    const nowMs = Date.now();
+    for (const [id, rec] of this.#sessions.entries()) {
+      if (nowMs >= rec.expiresAtMs) {
+        this.#sessions.delete(id);
+      }
+    }
+    while (this.#sessions.size >= MAX_ACTIVE_SESSIONS) {
+      const oldestKey = this.#sessions.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.#sessions.delete(oldestKey);
+    }
+    const session: WebSessionRecord = {
+      id: crypto.randomBytes(32).toString("hex"),
+      createdAtMs: nowMs,
+      expiresAtMs: nowMs + this.#config.sessionTtlMs,
+      clientBucket,
+    };
+    this.#sessions.set(session.id, session);
+    return session;
+  }
+
+  #formatSessionCookie(sessionId: string, maxAgeSec: number, isHttps: boolean): string {
+    const parts = [
+      `${SESSION_COOKIE_NAME}=${sessionId}`,
+      "HttpOnly",
+      "SameSite=Strict",
+      "Path=/",
+      `Max-Age=${Math.max(0, Math.trunc(maxAgeSec))}`,
+    ];
+    if (isHttps) {
+      parts.push("Secure");
+    }
+    return parts.join("; ");
+  }
+
+  async #readBoundedJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+    const ct = (req.headers["content-type"] ?? "").toLowerCase();
+    if (!ct.startsWith("application/json")) {
+      throw new HttpPayloadError(415, "Expected Content-Type: application/json");
+    }
+
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+
+    for await (const chunk of req) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      totalBytes += buf.length;
+      if (totalBytes > MAX_JSON_BODY_BYTES) {
+        req.destroy();
+        throw new HttpPayloadError(413, `JSON request body exceeds ${MAX_JSON_BODY_BYTES} bytes`);
+      }
+      chunks.push(buf);
+    }
+
+    const rawText = Buffer.concat(chunks).toString("utf8").trim();
+    if (!rawText) {
+      return Object.create(null) as Record<string, unknown>;
+    }
+    let parsed: unknown;
+    try {
+      parsed = parseJsonSafeNullProto(rawText);
+    } catch {
+      throw new HttpPayloadError(400, "Malformed JSON request body");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new HttpPayloadError(400, "JSON body must be a key-value object");
+    }
+    return parsed as Record<string, unknown>;
+  }
+
+  async #readRawBodyBounded(req: IncomingMessage): Promise<string> {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    for await (const chunk of req) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      totalBytes += buf.length;
+      if (totalBytes > MAX_JSON_BODY_BYTES) {
+        req.destroy();
+        throw new HttpPayloadError(413, `Request body exceeds ${MAX_JSON_BODY_BYTES} bytes`);
+      }
+      chunks.push(buf);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  }
+
+  async #handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const rawHost = req.headers.host;
+    if (!isAllowedHttpHostHeader(rawHost, this.#config.allowedHosts) || !rawHost) {
+      this.#sendJson(res, 421, {
+        ok: false,
+        errorCode: "MISDIRECTED_HOST",
+        message: "Rejected by DNS rebinding Host allowlist guard",
+      });
+      return;
+    }
+
+    const method = (req.method ?? "GET").toUpperCase();
+    // Never serve permissive CORS preflights; reject OPTIONS to enforce cross-port preflight isolation on NAS
+    if (method === "OPTIONS") {
+      this.#sendJson(res, 405, {
+        ok: false,
+        errorCode: "METHOD_NOT_ALLOWED",
+        message: "Cross-origin OPTIONS preflight is disabled",
+      });
+      return;
+    }
+
+    const isTlsSocket = Boolean((req.socket as TLSSocket).encrypted);
+    const xff =
+      typeof req.headers["x-forwarded-for"] === "string"
+        ? req.headers["x-forwarded-for"]
+        : undefined;
+    const xfp =
+      typeof req.headers["x-forwarded-proto"] === "string"
+        ? req.headers["x-forwarded-proto"]
+        : undefined;
+
+    const clientIp = resolveClientIp(
+      req.socket.remoteAddress,
+      xff,
+      this.#config.trustedProxies
+    );
+    const bucketKey = canonicalizeRateLimitBucketKey(clientIp);
+    const isHttps = resolveRequestSecureScheme(
+      isTlsSocket,
+      req.socket.remoteAddress,
+      xfp,
+      this.#config.trustedProxies
+    );
+    const locale = this.#resolveLocale(req);
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(req.url ?? "/", `${isHttps ? "https" : "http"}://${rawHost}`);
+    } catch {
+      this.#sendJson(res, 400, { ok: false, errorCode: "BAD_URL", message: "Invalid URL" });
+      return;
+    }
+
+    const pathname = parsedUrl.pathname;
+
+    // 1. Streamable HTTP MCP Endpoint (`POST /mcp`)
+    if (pathname === "/mcp") {
+      await this.#handleMcpHttp(req, res, method, bucketKey, rawHost, isHttps);
+      return;
+    }
+
+    // 2. Public Liveness & Localization Endpoints
+    if (pathname === "/api/health" && method === "GET") {
+      this.#sendJson(res, 200, {
+        ok: true,
+        service: "cpe-dash",
+        codename: "FengSui",
+        version: "0.2.0",
+        uptimeSec: Math.floor((Date.now() - this.startedAtMs) / 1000),
+      });
+      return;
+    }
+
+    if (pathname.startsWith("/api/i18n/") && method === "GET") {
+      const rawTag = pathname.slice("/api/i18n/".length);
+      if (rawTag !== "zh-CN" && rawTag !== "en") {
+        this.#sendJson(res, 404, {
+          ok: false,
+          errorCode: "LOCALE_NOT_FOUND",
+          message: "Supported locales: zh-CN, en",
+        });
+        return;
+      }
+      this.#sendJson(res, 200, {
+        ok: true,
+        locale: rawTag,
+        catalog: getLocaleCatalog(rawTag),
+      });
+      return;
+    }
+
+    // 3. Authentication Routes
+    if (pathname === "/api/auth/status" && method === "GET") {
+      if (req.headers.authorization !== undefined) {
+        const guard = this.#guardCredential(
+          bucketKey,
+          this.#isBearerHeaderValid(req.headers.authorization)
+        );
+        if (!guard.ok && guard.statusCode === 429) {
+          const retrySec = guard.retrySec ?? 60;
+          this.#sendJson(
+            res,
+            429,
+            {
+              ok: false,
+              errorCode: "RATE_LIMITED",
+              retryAfterSec: retrySec,
+              message: t(locale, "auth.rate_limited", { seconds: retrySec }),
+            },
+            { "Retry-After": String(retrySec) }
+          );
+          return;
+        }
+        this.#sendJson(res, 200, {
+          ok: true,
+          authenticated: guard.ok,
+          locale,
+        });
+        return;
+      }
+
+      const cookieAuth = this.#authenticateCookieSession(req, bucketKey);
+      this.#sendJson(res, 200, {
+        ok: true,
+        authenticated: cookieAuth.ok,
+        locale,
+      });
+      return;
+    }
+
+    if (pathname === "/api/auth/login" && method === "POST") {
+      if (!this.#validateCsrfForCookieMutation(req, rawHost, isHttps)) {
+        this.#sendJson(res, 403, {
+          ok: false,
+          errorCode: "CSRF_REJECTED",
+          message: t(locale, "auth.csrf_rejected"),
+        });
+        return;
+      }
+
+      let body: Record<string, unknown>;
+      try {
+        body = await this.#readBoundedJsonBody(req);
+      } catch (err) {
+        if (err instanceof HttpPayloadError) {
+          this.#sendJson(res, err.statusCode, {
+            ok: false,
+            errorCode: "BAD_PAYLOAD",
+            message: err.message,
+          });
+          return;
+        }
+        throw err;
+      }
+
+      const candidate =
+        typeof body["token"] === "string"
+          ? body["token"]
+          : typeof body["password"] === "string"
+            ? body["password"]
+            : "";
+
+      const isValid = Boolean(candidate) && constantTimeSecretMatch(candidate, this.#config.apiToken);
+      const guard = this.#guardCredential(bucketKey, isValid);
+      if (!guard.ok && guard.statusCode === 429) {
+        const retrySec = guard.retrySec ?? 60;
+        this.#sendJson(
+          res,
+          429,
+          {
+            ok: false,
+            errorCode: "RATE_LIMITED",
+            retryAfterSec: retrySec,
+            message: t(locale, "auth.rate_limited", { seconds: retrySec }),
+          },
+          { "Retry-After": String(retrySec) }
+        );
+        return;
+      }
+      if (!guard.ok) {
+        this.#sendJson(res, 401, {
+          ok: false,
+          errorCode: "UNAUTHORIZED",
+          message: t(locale, "auth.unauthorized"),
+        });
+        return;
+      }
+
+      // Rotate any existing cookie session ID on login to prevent session fixation
+      const existingCookies = parseCookiesNullProto(req.headers.cookie);
+      const oldSid = existingCookies[SESSION_COOKIE_NAME];
+      if (oldSid) {
+        this.#sessions.delete(oldSid);
+      }
+
+      const newSession = this.#createWebSession(bucketKey);
+      const ttlSec = Math.floor(this.#config.sessionTtlMs / 1000);
+      this.#sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          authenticated: true,
+          expiresAtIso: new Date(newSession.expiresAtMs).toISOString(),
+        },
+        {
+          "Set-Cookie": this.#formatSessionCookie(newSession.id, ttlSec, isHttps),
+        }
+      );
+      return;
+    }
+
+    if (pathname === "/api/auth/logout" && method === "POST") {
+      if (req.headers.authorization !== undefined) {
+        const guard = this.#guardCredential(
+          bucketKey,
+          this.#isBearerHeaderValid(req.headers.authorization)
+        );
+        if (!guard.ok && guard.statusCode === 429) {
+          const retrySec = guard.retrySec ?? 60;
+          this.#sendJson(
+            res,
+            429,
+            {
+              ok: false,
+              errorCode: "RATE_LIMITED",
+              retryAfterSec: retrySec,
+              message: t(locale, "auth.rate_limited", { seconds: retrySec }),
+            },
+            { "Retry-After": String(retrySec) }
+          );
+          return;
+        }
+        if (!guard.ok) {
+          this.#sendJson(res, 401, {
+            ok: false,
+            errorCode: "UNAUTHORIZED",
+            message: t(locale, "auth.unauthorized"),
+          });
+          return;
+        }
+        this.#sendJson(
+          res,
+          200,
+          { ok: true, authenticated: false },
+          { "Set-Cookie": this.#formatSessionCookie("logged_out", 0, isHttps) }
+        );
+        return;
+      }
+
+      if (!this.#validateCsrfForCookieMutation(req, rawHost, isHttps)) {
+        this.#sendJson(res, 403, {
+          ok: false,
+          errorCode: "CSRF_REJECTED",
+          message: t(locale, "auth.csrf_rejected"),
+        });
+        return;
+      }
+
+      const cookieAuth = this.#authenticateCookieSession(req, bucketKey);
+      if (cookieAuth.ok) {
+        this.#sessions.delete(cookieAuth.session.id);
+        this.sseBus.disconnectBySessionId(cookieAuth.session.id);
+      }
+      this.#sendJson(
+        res,
+        200,
+        { ok: true, authenticated: false },
+        { "Set-Cookie": this.#formatSessionCookie("logged_out", 0, isHttps) }
+      );
+      return;
+    }
+
+    // 4. Non-API routes -> serve offline static frontend bundle
+    if (!pathname.startsWith("/api/")) {
+      await this.#serveStaticAsset(res, method, pathname);
+      return;
+    }
+
+    // 5. Protected `/api/*` routes (Cookie OR Bearer auth)
+    const isSseRoute = pathname === "/api/events";
+    let auth:
+      | { ok: true; via: "bearer" }
+      | { ok: true; via: "cookie"; session: WebSessionRecord };
+
+    if (req.headers.authorization !== undefined) {
+      const guard = this.#guardCredential(
+        bucketKey,
+        this.#isBearerHeaderValid(req.headers.authorization)
+      );
+      if (!guard.ok && guard.statusCode === 429) {
+        const retrySec = guard.retrySec ?? 60;
+        this.#sendJson(
+          res,
+          429,
+          {
+            ok: false,
+            errorCode: "RATE_LIMITED",
+            retryAfterSec: retrySec,
+            message: t(locale, "auth.rate_limited", { seconds: retrySec }),
+          },
+          { "Retry-After": String(retrySec) }
+        );
+        return;
+      }
+      if (!guard.ok) {
+        this.#sendJson(res, 401, {
+          ok: false,
+          errorCode: "UNAUTHORIZED",
+          message: t(locale, "auth.unauthorized"),
+        });
+        return;
+      }
+      auth = { ok: true, via: "bearer" };
+    } else {
+      const cookieAuth = this.#authenticateCookieSession(req, bucketKey);
+      if (!cookieAuth.ok) {
+        this.#sendJson(res, 401, {
+          ok: false,
+          errorCode: "UNAUTHORIZED",
+          message: t(locale, "auth.unauthorized"),
+        });
+        return;
+      }
+      auth = cookieAuth;
+    }
+
+    // Enforce CSRF validation on ALL Cookie-authenticated state mutations
+    if (auth.via === "cookie" && method !== "GET" && method !== "HEAD") {
+      if (!this.#validateCsrfForCookieMutation(req, rawHost, isHttps)) {
+        this.#sendJson(res, 403, {
+          ok: false,
+          errorCode: "CSRF_REJECTED",
+          message: t(locale, "auth.csrf_rejected"),
+        });
+        return;
+      }
+    }
+
+    // SSE Stream (`GET /api/events`)
+    if (isSseRoute && method === "GET") {
+      const sub = this.sseBus.subscribe({
+        req,
+        res,
+        clientIp: bucketKey,
+        sessionId: auth.via === "cookie" ? (auth.session?.id ?? null) : null,
+        expiresAtMs: auth.via === "cookie" ? (auth.session?.expiresAtMs ?? null) : null,
+        initialSnapshot: {
+          schedulerStatus: this.scheduler.getStatus(),
+          avoidance: this.scheduler.getAvoidanceState(),
+          telemetry: this.scheduler.getCachedTelemetry(),
+          lockState: this.scheduler.getPersistedLockState(),
+        },
+      });
+      if (!sub.accepted) {
+        this.#sendJson(res, 429, {
+          ok: false,
+          errorCode: "SSE_LIMIT_REACHED",
+          message: sub.reason ?? "SSE connection limit reached",
+        });
+      }
+      return;
+    }
+
+    await this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams);
+  }
+
+  async #dispatchProtectedApi(
+    req: IncomingMessage,
+    res: ServerResponse,
+    method: string,
+    pathname: string,
+    searchParams: URLSearchParams
+  ): Promise<void> {
+    try {
+      // Strictly side-effect-free GET endpoints (read from cache / ring buffer)
+      if (method === "GET") {
+        switch (pathname) {
+          case "/api/telemetry":
+            this.#sendJson(res, 200, {
+              ok: true,
+              schedulerStatus: this.scheduler.getStatus(),
+              lockState: this.scheduler.getPersistedLockState(),
+              telemetry: this.scheduler.getCachedTelemetry(),
+              recentAlerts: this.scheduler.getRecentAlerts(),
+            });
+            return;
+
+          case "/api/timeseries": {
+            const q = parseQueryNullProto(searchParams);
+            const preset = (q["preset"] as TimeSeriesPreset | undefined) ?? "1h";
+            const result = this.scheduler.queryTimeSeries({
+              preset,
+              fromMs: parseStrictFiniteInt(q["fromMs"]),
+              toMs: parseStrictFiniteInt(q["toMs"]),
+              bucketMs: parseStrictFiniteInt(q["bucketMs"]),
+              maxPoints: parseStrictFiniteInt(q["maxPoints"]),
+            });
+            this.#sendJson(res, 200, { ok: true, ...result });
+            return;
+          }
+
+          case "/api/neighbors":
+            this.#sendJson(res, 200, {
+              ok: true,
+              schedulerStatus: this.scheduler.getStatus(),
+              neighbors: this.scheduler.getCachedNeighbors(),
+            });
+            return;
+
+          case "/api/topology":
+            this.#sendJson(res, 200, {
+              ok: true,
+              schedulerStatus: this.scheduler.getStatus(),
+              topology: this.scheduler.getCachedTopology(),
+            });
+            return;
+
+          case "/api/settings":
+            this.#sendJson(res, 200, {
+              ok: true,
+              schedulerStatus: this.scheduler.getStatus(),
+              lockState: this.scheduler.getPersistedLockState(),
+              settings: this.scheduler.getCachedSettings(),
+            });
+            return;
+
+          case "/api/session/status":
+            this.#sendJson(res, 200, {
+              ok: true,
+              status: this.scheduler.getStatus(),
+            });
+            return;
+
+          default:
+            this.#sendJson(res, 404, {
+              ok: false,
+              errorCode: "NOT_FOUND",
+              message: `Unknown GET endpoint ${pathname}`,
+            });
+            return;
+        }
+      }
+
+      if (method !== "POST") {
+        this.#sendJson(res, 405, {
+          ok: false,
+          errorCode: "METHOD_NOT_ALLOWED",
+          message: `Method ${method} not allowed on ${pathname}`,
+        });
+        return;
+      }
+
+      const body = await this.#readBoundedJsonBody(req);
+
+      switch (pathname) {
+        case "/api/telemetry/refresh": {
+          const telemetry = await this.scheduler.refreshTelemetry();
+          this.#sendJson(res, 200, {
+            ok: true,
+            schedulerStatus: this.scheduler.getStatus(),
+            telemetry: telemetry ?? this.scheduler.getCachedTelemetry(),
+          });
+          return;
+        }
+
+        case "/api/neighbors/scan": {
+          const neighbors = await this.scheduler.refreshNeighbors();
+          this.#sendJson(res, 200, {
+            ok: true,
+            schedulerStatus: this.scheduler.getStatus(),
+            neighbors: neighbors ?? this.scheduler.getCachedNeighbors(),
+          });
+          return;
+        }
+
+        case "/api/topology/refresh": {
+          const topology = await this.scheduler.refreshTopology();
+          this.#sendJson(res, 200, {
+            ok: true,
+            schedulerStatus: this.scheduler.getStatus(),
+            topology: topology ?? this.scheduler.getCachedTopology(),
+          });
+          return;
+        }
+
+        case "/api/settings/refresh": {
+          const settings = await this.scheduler.refreshSettings();
+          this.#sendJson(res, 200, {
+            ok: true,
+            schedulerStatus: this.scheduler.getStatus(),
+            settings: settings ?? this.scheduler.getCachedSettings(),
+          });
+          return;
+        }
+
+        case "/api/session/reset-breaker": {
+          const reloadedCfg = loadConfig({
+            envPath: this.envPath,
+          });
+          const tokenRotated = !constantTimeSecretMatch(reloadedCfg.apiToken, this.#config.apiToken);
+          this.#config = reloadedCfg;
+          this.scheduler.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
+          if (tokenRotated) {
+            this.#sessions.clear();
+            this.sseBus.disconnectAll();
+          }
+          const breaker = await this.scheduler.reloadCredentialsAndResetBreaker(
+            reloadedCfg.cpePassword,
+            reloadedCfg.cpeUsername
+          );
+          this.#sendJson(res, 200, {
+            ok: true,
+            circuitBreaker: breaker,
+            status: this.scheduler.getStatus(),
+          });
+          return;
+        }
+
+        case "/api/control/band-lock": {
+          const rawLte = body["lteBands"];
+          const rawNr = body["nrBands"];
+          if (rawLte !== undefined && rawLte !== "all" && !Array.isArray(rawLte)) {
+            throw new CpeControlValidationError(
+              'Field "lteBands" must be an array of bands or "all"'
+            );
+          }
+          if (Array.isArray(rawLte) && rawLte.some((x) => typeof x !== "string" && typeof x !== "number")) {
+            throw new CpeControlValidationError('Invalid band item in "lteBands"');
+          }
+          if (rawNr !== undefined && rawNr !== "all" && !Array.isArray(rawNr)) {
+            throw new CpeControlValidationError(
+              'Field "nrBands" must be an array of bands or "all"'
+            );
+          }
+          if (Array.isArray(rawNr) && rawNr.some((x) => typeof x !== "string" && typeof x !== "number")) {
+            throw new CpeControlValidationError('Invalid band item in "nrBands"');
+          }
+          const lteBands = rawLte as ReadonlyArray<BandInput> | "all" | undefined;
+          const nrBands = rawNr as ReadonlyArray<BandInput> | "all" | undefined;
+          const lockState = await this.scheduler.lockBands({ lteBands, nrBands });
+          this.#sendJson(res, 200, { ok: true, lockState });
+          return;
+        }
+
+        case "/api/control/cell-lock": {
+          const rat = body["rat"];
+          if (rat !== "LTE" && rat !== "NR") {
+            throw new CpeControlValidationError('Field "rat" must be "LTE" or "NR"');
+          }
+          const band = body["band"];
+          if (typeof band !== "string" && typeof band !== "number") {
+            throw new CpeControlValidationError('Field "band" is required');
+          }
+          const arfcn = body["arfcn"];
+          if (typeof arfcn !== "number" || !Number.isFinite(arfcn)) {
+            throw new CpeControlValidationError('Field "arfcn" must be a finite integer');
+          }
+          const pci = typeof body["pci"] === "number" ? body["pci"] : undefined;
+          const lockState = await this.scheduler.lockCell({ rat, band, arfcn, pci });
+          this.#sendJson(res, 200, { ok: true, lockState });
+          return;
+        }
+
+        case "/api/control/unlock": {
+          const lockState = await this.scheduler.unlockAllLocks();
+          this.#sendJson(res, 200, { ok: true, lockState });
+          return;
+        }
+
+        case "/api/control/reboot": {
+          const result = await this.scheduler.rebootRouter({
+            confirm: body["confirm"] === true,
+          });
+          this.#sendJson(res, 200, { ok: true, ...result });
+          return;
+        }
+
+        case "/api/control/reconnect": {
+          if (body["confirm"] !== true) {
+            throw new CpeControlValidationError(
+              "Cellular reconnect requires explicit { confirm: true }"
+            );
+          }
+          const result = await this.scheduler.reconnectCellular();
+          this.#sendJson(res, 200, { ok: true, ...result });
+          return;
+        }
+
+        case "/api/control/security": {
+          let upnpEnabled: boolean | undefined;
+          if (body["upnpEnabled"] !== undefined) {
+            if (typeof body["upnpEnabled"] !== "boolean") {
+              throw new CpeControlValidationError('Field "upnpEnabled" must be boolean');
+            }
+            upnpEnabled = body["upnpEnabled"];
+          }
+
+          let dmz: { enabled: boolean; ipAddress?: string } | undefined;
+          const rawDmz = body["dmz"];
+          if (rawDmz !== undefined) {
+            if (!rawDmz || typeof rawDmz !== "object" || Array.isArray(rawDmz)) {
+              throw new CpeControlValidationError('Field "dmz" must be an object');
+            }
+            const dmzObj = rawDmz as Record<string, unknown>;
+            if (typeof dmzObj["enabled"] !== "boolean") {
+              throw new CpeControlValidationError('Field "dmz.enabled" must be boolean');
+            }
+            let ipAddress: string | undefined;
+            if (dmzObj["ipAddress"] !== undefined) {
+              if (typeof dmzObj["ipAddress"] !== "string" || net.isIP(dmzObj["ipAddress"].trim()) !== 4) {
+                throw new CpeControlValidationError('Field "dmz.ipAddress" must be a valid IPv4 address');
+              }
+              ipAddress = dmzObj["ipAddress"].trim();
+            }
+            dmz = { enabled: dmzObj["enabled"], ipAddress };
+          }
+
+          let firewall: Partial<FirewallSwitchState> | undefined;
+          const rawFw = body["firewall"];
+          if (rawFw !== undefined) {
+            if (!rawFw || typeof rawFw !== "object" || Array.isArray(rawFw)) {
+              throw new CpeControlValidationError('Field "firewall" must be an object');
+            }
+            const cleanFw = Object.create(null) as Partial<FirewallSwitchState>;
+            for (const [k, v] of Object.entries(rawFw as Record<string, unknown>)) {
+              if (!ALLOWED_FIREWALL_KEYS.has(k as keyof FirewallSwitchState)) {
+                throw new CpeControlValidationError(`Unknown firewall switch key "${k}"`);
+              }
+              if (v !== undefined) {
+                if (typeof v !== "boolean") {
+                  throw new CpeControlValidationError(`Firewall switch "${k}" must be boolean`);
+                }
+                cleanFw[k as keyof FirewallSwitchState] = v;
+              }
+            }
+            firewall = cleanFw;
+          }
+
+          const settings = await this.scheduler.setSecuritySwitches({
+            upnpEnabled,
+            dmz,
+            firewall,
+          });
+          this.#sendJson(res, 200, { ok: true, settings });
+          return;
+        }
+
+        case "/api/control/wifi7": {
+          const mloEnable =
+            typeof body["mloEnable"] === "boolean" ? body["mloEnable"] : undefined;
+          const dbhoEnable =
+            typeof body["dbhoEnable"] === "boolean" ? body["dbhoEnable"] : undefined;
+          const wifi7 = await this.scheduler.setWifi7Settings({ mloEnable, dbhoEnable });
+          this.#sendJson(res, 200, { ok: true, wifi7 });
+          return;
+        }
+
+        case "/api/control/antenna": {
+          const mode = body["mode"] as AntennaModeName;
+          const antenna = await this.scheduler.setAntennaMode(mode);
+          this.#sendJson(res, 200, { ok: true, antenna });
+          return;
+        }
+
+        case "/api/control/mobile-data": {
+          if (typeof body["enabled"] !== "boolean") {
+            throw new CpeControlValidationError('Field "enabled" must be boolean');
+          }
+          const result = await this.scheduler.setMobileData(body["enabled"]);
+          this.#sendJson(res, 200, { ok: true, ...result });
+          return;
+        }
+
+        default:
+          this.#sendJson(res, 404, {
+            ok: false,
+            errorCode: "NOT_FOUND",
+            message: `Unknown POST endpoint ${pathname}`,
+          });
+      }
+    } catch (err) {
+      if (err instanceof HttpPayloadError) {
+        this.#sendJson(res, err.statusCode, {
+          ok: false,
+          errorCode: "BAD_PAYLOAD",
+          message: err.message,
+        });
+        return;
+      }
+      if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError) {
+        this.#sendJson(res, 400, {
+          ok: false,
+          errorCode: "VALIDATION_ERROR",
+          message: err.message,
+        });
+        return;
+      }
+      if (err instanceof BrowserSessionYieldedError) {
+        this.#sendJson(res, 409, {
+          ok: false,
+          errorCode: "BROWSER_SESSION_YIELDED",
+          message: err.messageZh,
+          messageEn: err.messageEn,
+          avoidance: this.scheduler.getAvoidanceState(),
+        });
+        return;
+      }
+      if (err instanceof SchedulerQueueFullError || err instanceof SchedulerStoppedError) {
+        this.#sendJson(res, 503, {
+          ok: false,
+          errorCode: "QUEUE_FULL",
+          message: err.message,
+        });
+        return;
+      }
+      this.#sendJson(res, 502, {
+        ok: false,
+        errorCode: "CPE_UPSTREAM_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  async #handleMcpHttp(
+    req: IncomingMessage,
+    res: ServerResponse,
+    method: string,
+    bucketKey: string,
+    validatedHost: string,
+    isHttps: boolean
+  ): Promise<void> {
+    if (!this.#config.mcpHttpEnabled) {
+      this.#sendJson(res, 404, {
+        ok: false,
+        errorCode: "MCP_DISABLED",
+        message: "Streamable HTTP MCP endpoint is disabled",
+      });
+      return;
+    }
+
+    if (method !== "POST") {
+      this.#sendJson(res, 405, {
+        ok: false,
+        errorCode: "METHOD_NOT_ALLOWED",
+        message: "Streamable HTTP MCP endpoint accepts POST only",
+      });
+      return;
+    }
+
+    // If a browser sends an Origin header to `/mcp`, strictly enforce Same-Origin (MCP DNS-rebinding defense)
+    const rawOrigin = req.headers.origin;
+    if (rawOrigin !== undefined) {
+      if (rawOrigin === "null") {
+        this.#sendJson(res, 403, {
+          ok: false,
+          errorCode: "FORBIDDEN_ORIGIN",
+          message: "Rejected null Origin on /mcp",
+        });
+        return;
+      }
+      let parsedOrigin: URL;
+      try {
+        parsedOrigin = new URL(rawOrigin);
+      } catch {
+        this.#sendJson(res, 403, {
+          ok: false,
+          errorCode: "FORBIDDEN_ORIGIN",
+          message: "Malformed Origin header on /mcp",
+        });
+        return;
+      }
+      const expectedProto = isHttps ? "https:" : "http:";
+      if (
+        parsedOrigin.protocol !== expectedProto ||
+        parsedOrigin.host.toLowerCase() !== validatedHost.toLowerCase()
+      ) {
+        this.#sendJson(res, 403, {
+          ok: false,
+          errorCode: "FORBIDDEN_ORIGIN",
+          message: "Cross-origin access to /mcp is forbidden",
+        });
+        return;
+      }
+    }
+
+    // Streamable HTTP `/mcp` strictly requires Bearer API_TOKEN authentication
+    if (req.headers.authorization === undefined) {
+      const bucketRetry = this.#checkBucketRateLimit(bucketKey);
+      if (bucketRetry !== null) {
+        this.#sendJson(
+          res,
+          429,
+          {
+            ok: false,
+            errorCode: "RATE_LIMITED",
+            retryAfterSec: bucketRetry,
+            message: "Too many authentication failures",
+          },
+          { "Retry-After": String(bucketRetry) }
+        );
+        return;
+      }
+      this.#sendJson(res, 401, {
+        ok: false,
+        errorCode: "UNAUTHORIZED",
+        message: "Missing or invalid Bearer API_TOKEN for /mcp",
+      });
+      return;
+    }
+
+    const mcpGuard = this.#guardCredential(
+      bucketKey,
+      this.#isBearerHeaderValid(req.headers.authorization)
+    );
+    if (!mcpGuard.ok && mcpGuard.statusCode === 429) {
+      const retrySec = mcpGuard.retrySec ?? 60;
+      this.#sendJson(
+        res,
+        429,
+        {
+          ok: false,
+          errorCode: "RATE_LIMITED",
+          retryAfterSec: retrySec,
+          message: "Too many authentication failures",
+        },
+        { "Retry-After": String(retrySec) }
+      );
+      return;
+    }
+    if (!mcpGuard.ok) {
+      this.#sendJson(res, 401, {
+        ok: false,
+        errorCode: "UNAUTHORIZED",
+        message: "Missing or invalid Bearer API_TOKEN for /mcp",
+      });
+      return;
+    }
+
+    const ct = (req.headers["content-type"] ?? "").toLowerCase();
+    if (!ct.startsWith("application/json")) {
+      this.#sendJson(res, 415, {
+        ok: false,
+        errorCode: "UNSUPPORTED_MEDIA_TYPE",
+        message: "Expected Content-Type: application/json",
+      });
+      return;
+    }
+
+    const protoHeader =
+      typeof req.headers["mcp-protocol-version"] === "string"
+        ? req.headers["mcp-protocol-version"]
+        : undefined;
+    if (!this.mcpServer.isSupportedProtocolVersion(protoHeader)) {
+      this.#sendJson(res, 400, {
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: -32600,
+          message: `Unsupported MCP-Protocol-Version "${protoHeader ?? ""}"`,
+        },
+      });
+      return;
+    }
+
+    let rawBody: string;
+    try {
+      rawBody = await this.#readRawBodyBounded(req);
+    } catch (err) {
+      if (err instanceof HttpPayloadError) {
+        this.#sendJson(res, err.statusCode, {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: err.message },
+        });
+        return;
+      }
+      throw err;
+    }
+
+    const rpcResponse = await this.mcpServer.handleRawJsonMessage(rawBody);
+    if (rpcResponse === null) {
+      // Valid JSON-RPC notification -> 202 Accepted with empty body per Streamable HTTP spec
+      res.writeHead(202, {
+        "Content-Length": "0",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      res.end();
+      return;
+    }
+
+    this.#sendJson(res, 200, rpcResponse);
+  }
+
+  async #serveStaticAsset(
+    res: ServerResponse,
+    method: string,
+    pathname: string
+  ): Promise<void> {
+    if (method !== "GET" && method !== "HEAD") {
+      this.#sendJson(res, 405, {
+        ok: false,
+        errorCode: "METHOD_NOT_ALLOWED",
+        message: "Static assets support GET/HEAD only",
+      });
+      return;
+    }
+
+    const rootDir = this.#config.staticDir;
+    if (!fs.existsSync(rootDir)) {
+      this.#sendJson(res, 404, {
+        ok: false,
+        errorCode: "STATIC_ROOT_NOT_FOUND",
+        message: "Frontend assets not built yet; REST API and /api/events SSE are online",
+      });
+      return;
+    }
+
+    const relPath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+    if (relPath.includes("\0")) {
+      this.#sendJson(res, 400, { ok: false, errorCode: "BAD_PATH", message: "Invalid path" });
+      return;
+    }
+    // Block dotfiles (.env, .git, .DS_Store) and Synology NAS metadata folders (@eaDir)
+    if (relPath.split("/").some((seg) => seg.startsWith(".") || seg.startsWith("@"))) {
+      this.#sendJson(res, 404, {
+        ok: false,
+        errorCode: "ASSET_NOT_FOUND",
+        message: `Asset not found: ${pathname}`,
+      });
+      return;
+    }
+
+    const realRoot = await fsp.realpath(rootDir);
+    const candidate = path.resolve(realRoot, relPath);
+    if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${path.sep}`)) {
+      this.#sendJson(res, 403, {
+        ok: false,
+        errorCode: "PATH_TRAVERSAL_BLOCKED",
+        message: "Forbidden static path",
+      });
+      return;
+    }
+
+    let targetFile = candidate;
+    try {
+      const stat = await fsp.stat(targetFile);
+      if (stat.isDirectory()) {
+        targetFile = path.join(targetFile, "index.html");
+      }
+      const realTarget = await fsp.realpath(targetFile);
+      if (!realTarget.startsWith(`${realRoot}${path.sep}`) && realTarget !== realRoot) {
+        this.#sendJson(res, 403, {
+          ok: false,
+          errorCode: "SYMLINK_ESCAPE_BLOCKED",
+          message: "Forbidden symlink target",
+        });
+        return;
+      }
+
+      const ext = path.extname(realTarget).toLowerCase();
+      const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
+      const fileBytes = await fsp.readFile(realTarget);
+
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Length": String(fileBytes.length),
+        "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Content-Security-Policy":
+          "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+      });
+      if (method === "HEAD") {
+        res.end();
+      } else {
+        res.end(fileBytes);
+      }
+    } catch {
+      this.#sendJson(res, 404, {
+        ok: false,
+        errorCode: "ASSET_NOT_FOUND",
+        message: `Asset not found: ${pathname}`,
+      });
+    }
+  }
+}

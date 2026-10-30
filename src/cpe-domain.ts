@@ -480,6 +480,73 @@ export async function fetchRouterSettings(
   };
 }
 
+export function prepareBandLockPayloads(command: BandLockCommand): {
+  netModeXml: string | null;
+  nrXml: string | null;
+  appliedLte: number[] | "all";
+  appliedNr: number[];
+} {
+  if (command.lteBands === undefined && command.nrBands === undefined) {
+    throw new CpeControlValidationError("At least one of lteBands or nrBands must be provided");
+  }
+
+  let netModeXml: string | null = null;
+  let appliedLte: number[] | "all" = "all";
+  if (command.lteBands !== undefined) {
+    try {
+      netModeXml = buildLteBandNetModeXml(
+        command.lteBands,
+        command.networkMode ?? NETWORK_MODE_AUTO
+      );
+      appliedLte =
+        command.lteBands === "all"
+          ? "all"
+          : [...new Set(command.lteBands.map(parseBandNumber))].sort((a, b) => a - b);
+    } catch (err) {
+      throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  let nrXml: string | null = null;
+  let appliedNr: number[] = [];
+  if (command.nrBands !== undefined) {
+    try {
+      if (command.nrBands === "all") {
+        nrXml = buildUnlockAllLocksXml();
+        appliedNr = [];
+      } else {
+        nrXml = buildNrBandLockXml(command.nrBands);
+        appliedNr = [...new Set(command.nrBands.map(parseBandNumber))].sort((a, b) => a - b);
+      }
+    } catch (err) {
+      throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return { netModeXml, nrXml, appliedLte, appliedNr };
+}
+
+export function prepareCellLockPayload(command: CellLockCommand): {
+  xml: string;
+  bandNum: number;
+} {
+  if (command.rat !== "LTE" && command.rat !== "NR") {
+    throw new CpeControlValidationError(
+      `Unsupported RAT "${String(command.rat)}" (expected "LTE" or "NR")`
+    );
+  }
+  try {
+    const bandNum = parseBandNumber(command.band);
+    const xml =
+      command.rat === "LTE"
+        ? buildLteCellLockXml({ band: bandNum, earfcn: command.arfcn, pci: command.pci })
+        : buildNrCellLockXml({ band: bandNum, nrArfcn: command.arfcn, pci: command.pci });
+    return { xml, bandNum };
+  } catch (err) {
+    throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
+  }
+}
+
 /**
  * Lock 4G LTE (`POST /api/net/net-mode`) and/or 5G NR (`POST /api/net/lock-freq` `lock_mode=3`) bands.
  */
@@ -487,33 +554,13 @@ export async function applyBandLock(
   session: EphemeralCpeSession,
   command: BandLockCommand
 ): Promise<PersistedLockState> {
-  if (command.lteBands === undefined && command.nrBands === undefined) {
-    throw new CpeControlValidationError("At least one of lteBands or nrBands must be provided");
-  }
+  const { netModeXml, nrXml, appliedLte, appliedNr } = prepareBandLockPayloads(command);
 
-  let appliedLte: number[] | "all" = "all";
-  if (command.lteBands !== undefined) {
-    const netModeXml = buildLteBandNetModeXml(
-      command.lteBands,
-      command.networkMode ?? NETWORK_MODE_AUTO
-    );
+  if (netModeXml !== null) {
     await session.postRaw("/api/net/net-mode", netModeXml);
-    appliedLte =
-      command.lteBands === "all"
-        ? "all"
-        : [...new Set(command.lteBands.map(parseBandNumber))].sort((a, b) => a - b);
   }
-
-  let appliedNr: number[] = [];
-  if (command.nrBands !== undefined) {
-    if (command.nrBands === "all") {
-      await session.postRaw("/api/net/lock-freq", buildUnlockAllLocksXml());
-      appliedNr = [];
-    } else {
-      const nrXml = buildNrBandLockXml(command.nrBands);
-      await session.postRaw("/api/net/lock-freq", nrXml);
-      appliedNr = [...new Set(command.nrBands.map(parseBandNumber))].sort((a, b) => a - b);
-    }
+  if (nrXml !== null) {
+    await session.postRaw("/api/net/lock-freq", nrXml);
   }
 
   const isFullyUnlocked = appliedLte === "all" && appliedNr.length === 0;
@@ -533,14 +580,7 @@ export async function applyCellLock(
   session: EphemeralCpeSession,
   command: CellLockCommand
 ): Promise<PersistedLockState> {
-  if (command.rat !== "LTE" && command.rat !== "NR") {
-    throw new CpeControlValidationError(`Unsupported RAT "${String(command.rat)}" (expected "LTE" or "NR")`);
-  }
-  const bandNum = parseBandNumber(command.band);
-  const xml =
-    command.rat === "LTE"
-      ? buildLteCellLockXml({ band: bandNum, earfcn: command.arfcn, pci: command.pci })
-      : buildNrCellLockXml({ band: bandNum, nrArfcn: command.arfcn, pci: command.pci });
+  const { xml, bandNum } = prepareCellLockPayload(command);
 
   await session.postRaw("/api/net/lock-freq", xml);
 
@@ -622,6 +662,15 @@ export async function updateSecuritySettings(
   ) {
     throw new CpeControlValidationError("No security setting changes specified");
   }
+  if (
+    command.dmz?.ipAddress !== undefined &&
+    command.dmz.ipAddress.trim() !== "" &&
+    net.isIP(command.dmz.ipAddress.trim()) !== 4
+  ) {
+    throw new CpeControlValidationError(
+      `Invalid DMZ host IPv4 address "${command.dmz.ipAddress.trim()}"`
+    );
+  }
 
   if (command.upnpEnabled !== undefined) {
     await session.postXml("/api/security/upnp", {
@@ -632,7 +681,7 @@ export async function updateSecuritySettings(
   if (command.dmz !== undefined) {
     const currentDmzXml = await safeGet(session, "/api/security/dmz");
     const targetIp = (command.dmz.ipAddress ?? getXmlTag(currentDmzXml, "DmzIPAddress") ?? "").trim();
-    if (command.dmz.enabled && net.isIP(targetIp) !== 4) {
+    if ((command.dmz.enabled || targetIp !== "") && net.isIP(targetIp) !== 4) {
       throw new CpeControlValidationError(
         `Invalid DMZ host IPv4 address "${targetIp}"`
       );
