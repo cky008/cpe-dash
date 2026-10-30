@@ -391,6 +391,11 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   // `exit` listeners run synchronously (also after uncaught errors); graceful paths use close()
   process.once("exit", () => stack.releaseLocks());
   await stack.start();
+  if (config.dataEncryptionKey === config.cpePassword) {
+    process.stderr.write(
+      "[fengsui] Notice: DATA_ENCRYPTION_KEY is not set, so encrypted data (state, SMS mirror, contacts, Telegram state) is keyed to CPE_PASSWORD. Set a dedicated key and apply it with POST /api/session/reset-breaker; restarting with a changed password instead leaves these files unreadable (quarantined as *.unreadable-<timestamp>).\n"
+    );
+  }
   const smsSummary = stack.sms
     ? `sms=on (mirror ${stack.sms.mirror.size} messages)`
     : `sms=off (${stack.smsUnavailableReason ?? "disabled"})`;
