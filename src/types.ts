@@ -21,6 +21,11 @@ export interface AppConfig {
   defaultLocale: SupportedLocale;
   mcpHttpEnabled: boolean;
   mcpAllowMutations: boolean;
+  /**
+   * The serve daemon's Streamable HTTP endpoint that `cpe-dash mcp` (the stdio bridge) forwards to:
+   * `MCP_DAEMON_URL`, or `http://127.0.0.1:<WEB_PORT>/mcp` (the bound `WEB_HOST` when it is specific).
+   */
+  mcpDaemonUrl: string;
   sseHeartbeatMs: number;
   sseMaxClients: number;
   historyRetentionHours: number;

@@ -338,6 +338,30 @@ export function canonicalizeRateLimitBucketKey(clientIp: string): string {
 }
 
 /**
+ * The serve daemon's `/mcp` URL for the stdio bridge. An explicit `MCP_DAEMON_URL` must be http(s)
+ * on a private/LAN/loopback host without credentials, query or fragment (the bridge sends the
+ * Bearer API_TOKEN there); otherwise the URL is derived from `WEB_HOST` / `WEB_PORT`.
+ */
+export function resolveDaemonMcpUrl(raw: string | undefined, webHost: string, webPort: number): string {
+  if (raw?.trim()) {
+    const parsed = new URL(raw.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(`MCP_DAEMON_URL must use http(s), got "${parsed.protocol}"`);
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+      throw new Error("MCP_DAEMON_URL must not contain credentials, a query or a fragment");
+    }
+    if (!isAllowedCpeHost(parsed.hostname)) {
+      throw new Error(`MCP_DAEMON_URL host "${parsed.hostname}" is not a private/LAN address`);
+    }
+    return `${parsed.origin}${parsed.pathname === "/" ? "/mcp" : parsed.pathname}`;
+  }
+  const wildcard = !webHost || webHost === "0.0.0.0" || webHost === "::";
+  const host = wildcard ? "127.0.0.1" : webHost.includes(":") ? `[${webHost}]` : webHost;
+  return `http://${host}:${webPort}/mcp`;
+}
+
+/**
  * Canonicalize an IANA time zone (`europe/dublin` -> `Europe/Dublin`). An invalid value from `.env`
  * is a configuration error; an invalid value inherited from the real process environment (e.g. a
  * POSIX `TZ` string set by a container runtime) is left to the process and reported as `null`.
@@ -422,6 +446,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
 
   const mcpHttpEnabled = parseBool(get("MCP_HTTP_ENABLED"), true);
   const mcpAllowMutations = parseBool(get("MCP_ALLOW_MUTATIONS"), true);
+  const mcpDaemonUrl = resolveDaemonMcpUrl(get("MCP_DAEMON_URL"), webHost, webPort);
   const sseHeartbeatMs = Math.max(3000, parseIntSafe(get("SSE_HEARTBEAT_MS"), 15000));
   const sseMaxClients = Math.max(1, parseIntSafe(get("SSE_MAX_CLIENTS"), 32));
   const historyRetentionHours = Math.max(1, parseIntSafe(get("HISTORY_RETENTION_HOURS"), 168));
@@ -488,6 +513,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     defaultLocale,
     mcpHttpEnabled,
     mcpAllowMutations,
+    mcpDaemonUrl,
     sseHeartbeatMs,
     sseMaxClients,
     historyRetentionHours,

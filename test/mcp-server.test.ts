@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
 import { createFengSuiCore } from "../src/core.ts";
+import { parseJsonSafeNullProto } from "../src/json-safe.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { PassThrough } from "node:stream";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { computeScram } from "../src/crypto.ts";
 import {
   FengSuiMcpServer,
-  parseJsonSafeNullProto,
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
   type JsonRpcErrorResponse,
   type JsonRpcSuccessResponse,
@@ -1143,71 +1142,10 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
     }
   });
 
-  it("attachStdio parses NDJSON input streams, skips empty lines, drops notifications, rejects oversized frames >64KiB, and detaches cleanly", async () => {
+  it("rejects every invalid multi-write argument before the first write (zero sessions, no partial apply)", async () => {
     const fx = createMockSchedulerFixture();
     try {
       const server = new FengSuiMcpServer({ core: fx.core });
-      const inputStream = new PassThrough();
-      const outputStream = new PassThrough();
-
-      const receivedLines: string[] = [];
-      outputStream.on("data", (chunk: Buffer) => {
-        const text = chunk.toString("utf8");
-        for (const line of text.split("\n")) {
-          const trimmed = line.trim();
-          if (trimmed) receivedLines.push(trimmed);
-        }
-      });
-
-      const detach = server.attachStdio(inputStream, outputStream);
-
-      // 1. Send normal ping request
-      inputStream.write(`${JSON.stringify({ jsonrpc: "2.0", id: 101, method: "ping" })}\n`);
-      await new Promise((r) => setTimeout(r, 20));
-      assert.equal(receivedLines.length, 1);
-      const pingResp = JSON.parse(receivedLines[0] ?? "{}") as JsonRpcSuccessResponse;
-      assert.equal(pingResp.id, 101);
-
-      // 2. Empty line or whitespace-only is skipped without output
-      inputStream.write("   \n\n");
-      await new Promise((r) => setTimeout(r, 10));
-      assert.equal(receivedLines.length, 1);
-
-      // 3. Notification produces no line
-      inputStream.write(
-        `${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`
-      );
-      await new Promise((r) => setTimeout(r, 10));
-      assert.equal(receivedLines.length, 1);
-
-      // 4. Oversized line > 64KiB with newline returns -32600
-      const largePayload = "a".repeat(65 * 1024);
-      inputStream.write(`${largePayload}\n`);
-      await new Promise((r) => setTimeout(r, 20));
-      assert.equal(receivedLines.length, 2);
-      const errResp = JSON.parse(receivedLines[1] ?? "{}") as JsonRpcErrorResponse;
-      assert.equal(errResp.error.code, -32600);
-      assert.match(errResp.error.message, /exceeds 64 KiB/);
-
-      // 5. Multi-chunk split request + newline-less >64KiB flood recovery
-      const splitReq = JSON.stringify({ jsonrpc: "2.0", id: "chunk_102", method: "ping" });
-      inputStream.write(splitReq.slice(0, 12));
-      inputStream.write(`${splitReq.slice(12)}\n`);
-      await new Promise((r) => setTimeout(r, 20));
-      assert.equal(receivedLines.length, 3);
-      assert.equal((JSON.parse(receivedLines[2] ?? "{}") as JsonRpcSuccessResponse).id, "chunk_102");
-
-      // Newline-less >64KiB chunk triggers immediate error, discards trailing chunks until \n, then recovers
-      inputStream.write("x".repeat(65 * 1024));
-      inputStream.write("still_discarding_no_newline");
-      inputStream.write(`_tail\n${JSON.stringify({ jsonrpc: "2.0", id: 103, method: "ping" })}\n`);
-      await new Promise((r) => setTimeout(r, 20));
-      assert.equal(receivedLines.length, 5);
-      assert.equal((JSON.parse(receivedLines[3] ?? "{}") as JsonRpcErrorResponse).error.code, -32600);
-      assert.equal((JSON.parse(receivedLines[4] ?? "{}") as JsonRpcSuccessResponse).id, 103);
-
-      // 6. Detach removes data listener cleanly
-      detach();
 
       // 7. Opus acceptance checks: unlock_rf_locks destructiveHint + pre-session validation on multi-write tools
       const unlockTool = server.getToolDefinitions().find((t) => t.name === "unlock_rf_locks");

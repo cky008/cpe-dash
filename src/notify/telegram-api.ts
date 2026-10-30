@@ -1,4 +1,5 @@
-import { parseJsonSafeNullProto } from "../mcp-server.ts";
+import { readBoundedResponseText } from "../http-body.ts";
+import { parseJsonSafeNullProto } from "../json-safe.ts";
 
 export class TelegramApiError extends Error {
   readonly method: string;
@@ -28,14 +29,6 @@ export function normalizeTelegramApiBase(raw: string): string {
     throw new Error("TELEGRAM_API_BASE must not contain credentials, query or fragment");
   }
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
-}
-
-async function readBoundedText(res: Response, maxBytes: number): Promise<string> {
-  const text = await res.text();
-  if (Buffer.byteLength(text, "utf8") > maxBytes) {
-    throw new Error(`Telegram response exceeds ${maxBytes} bytes`);
-  }
-  return text;
 }
 
 /**
@@ -80,7 +73,7 @@ export class TelegramApi {
     }
     let parsed: unknown;
     try {
-      parsed = parseJsonSafeNullProto(await readBoundedText(res, MAX_RESPONSE_BYTES));
+      parsed = parseJsonSafeNullProto(await readBoundedResponseText(res, MAX_RESPONSE_BYTES));
     } catch {
       throw new TelegramApiError(method, res.status, "invalid JSON response");
     }
@@ -120,6 +113,6 @@ export class TelegramApi {
       throw new TelegramApiError("downloadFile", null, err instanceof Error ? err.message : "network error");
     }
     if (!res.ok) throw new TelegramApiError("downloadFile", res.status, "download failed");
-    return await readBoundedText(res, maxBytes);
+    return await readBoundedResponseText(res, maxBytes);
   }
 }

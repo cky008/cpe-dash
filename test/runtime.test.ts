@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { createFengSuiRuntime } from "../src/cli.ts";
+import { DaemonAlreadyRunningError, createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { StorageCipher, tryAcquireFileLock } from "../src/encrypted-file.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
@@ -141,12 +141,10 @@ describe("createFengSuiRuntime", () => {
     const notify = createNotifyFetch();
     const stack = createFengSuiRuntime({ config, envPath, fetchImpl: mock.fetchImpl, notifyFetchImpl: notify.fetchImpl, log: () => undefined });
     try {
-      assert.equal(stack.mode, "serve");
       assert.equal(stack.cpeClient.sessionMaxHoldMs, 90_000, "hold budget outlasts the 45 s send-status poll");
       assert.ok(stack.sms && stack.alertEngine && stack.telegramBot && stack.webhook && stack.notificationHub);
-      assert.equal(stack.smsUnavailableReason, null);
       assert.ok((await toolNames(stack)).includes("list_sms_threads"));
-      assert.equal(fs.readFileSync(`${config.smsFile}.lock`, "utf8"), `${process.pid}\n`);
+      assert.equal(fs.readFileSync(`${config.stateFile}.lock`, "utf8"), `${process.pid}\n`, "the daemon owns its data dir");
 
       await stack.start();
       await stack.start();
@@ -171,7 +169,7 @@ describe("createFengSuiRuntime", () => {
       await stack.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
-    assert.equal(fs.existsSync(`${config.smsFile}.lock`), false);
+    assert.equal(fs.existsSync(`${config.stateFile}.lock`), false);
   });
 
   it("re-encrypts SMS, contacts and Telegram state and revokes /auth-linked chats when reset-breaker reloads .env", async () => {
@@ -229,49 +227,53 @@ describe("createFengSuiRuntime", () => {
     }
   });
 
-  it("keeps the stdio MCP runtime free of push channels and without SMS while another process owns the store", async () => {
+  it("allows one daemon per data directory and never stores data unencrypted", async () => {
     const mock = createMockSmsCpe({ messages: [] });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-mcp-runtime-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-daemon-lock-"));
     const envPath = writeEnv(dir, baseEnv(dir, mock.password));
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    const lockPath = `${config.stateFile}.lock`;
     const sleeper = await startSleeper();
     try {
-      const idle = createFengSuiRuntime({ config, mode: "mcp", fetchImpl: mock.fetchImpl });
-      assert.equal(idle.telegramBot, null);
-      assert.equal(idle.webhook, null);
-      assert.equal(idle.alertEngine, null);
-      assert.equal(idle.notificationHub, null);
-      assert.ok(idle.sms);
-      const idleTools = await toolNames(idle);
-      assert.ok(idleTools.includes("list_sms_threads"));
-      assert.ok(!idleTools.includes("send_sms"), "MCP_SMS_ACCESS defaults to read");
-      await idle.start();
-      assert.equal(mock.getLoginCount(), 0, "stdio mode without --poll stays passive");
-      await idle.close();
+      const first = createFengSuiRuntime({ config, fetchImpl: mock.fetchImpl, log: () => undefined });
+      assert.equal(fs.readFileSync(lockPath, "utf8"), `${process.pid}\n`);
+      await first.close();
+      assert.equal(fs.existsSync(lockPath), false);
 
-      const polling = createFengSuiRuntime({ config, mode: "mcp", backgroundPoll: true, fetchImpl: mock.fetchImpl });
-      await polling.start();
-      await waitFor(() => polling.sms?.getStatus().seeded === true, "background seeding in --poll mode");
-      await polling.close();
+      // A live foreign daemon blocks startup; once it is gone its stale lock is taken over
+      fs.writeFileSync(lockPath, `${sleeper.pid}\n`);
+      assert.throws(
+        () => createFengSuiRuntime({ config, fetchImpl: mock.fetchImpl, log: () => undefined }),
+        (err: unknown) =>
+          err instanceof DaemonAlreadyRunningError &&
+          err.heldByPid === sleeper.pid &&
+          err.message.includes(`Another FengSui daemon (pid ${sleeper.pid})`)
+      );
+      assert.equal(fs.readFileSync(lockPath, "utf8"), `${sleeper.pid}\n`, "a foreign lock is never removed");
+      await stopSleeper(sleeper);
+      const takeover = createFengSuiRuntime({ config, fetchImpl: mock.fetchImpl, log: () => undefined });
+      await takeover.close();
 
-      fs.writeFileSync(`${config.smsFile}.lock`, `${sleeper.pid}\n`);
-      const contended = createFengSuiRuntime({ config, mode: "mcp", fetchImpl: mock.fetchImpl });
-      assert.equal(contended.sms, null);
-      assert.match(contended.smsUnavailableReason ?? "", new RegExp(`owned by another FengSui process \\(pid ${sleeper.pid}\\)`));
-      assert.ok(!(await toolNames(contended)).includes("list_sms_threads"));
-      await contended.close();
-      assert.equal(fs.readFileSync(`${config.smsFile}.lock`, "utf8"), `${sleeper.pid}\n`);
-
-      const disabled = createFengSuiRuntime({
-        config: loadConfig({ envPath, ignoreProcessEnv: true, overrides: { SMS_ENABLED: "false", SMS_FILE: path.join(dir, "other", "sms.json") } }),
-        mode: "mcp",
-        fetchImpl: mock.fetchImpl,
+      // No key means no daemon (nothing would be encrypted), and a failed assembly releases the lock
+      const keyless = loadConfig({
+        envPath,
+        ignoreProcessEnv: true,
+        overrides: { CPE_PASSWORD: " ", DATA_ENCRYPTION_KEY: " " },
       });
-      assert.equal(disabled.sms, null);
-      assert.equal(disabled.smsUnavailableReason, "SMS_ENABLED=false");
-      assert.equal(fs.existsSync(path.join(dir, "other", "sms.json.lock")), false);
-      disabled.releaseLocks();
-      await disabled.close();
+      assert.throws(() => createFengSuiRuntime({ config: keyless }), /never stores state, SMS, contacts or Telegram links unencrypted/);
+      const badBot = loadConfig({ envPath, ignoreProcessEnv: true, overrides: { TELEGRAM_BOT_TOKEN: "not-a-token" } });
+      assert.throws(() => createFengSuiRuntime({ config: badBot, fetchImpl: mock.fetchImpl }), /TELEGRAM_BOT_TOKEN/);
+      assert.equal(fs.existsSync(lockPath), false);
+
+      const noSms = createFengSuiRuntime({
+        config: loadConfig({ envPath, ignoreProcessEnv: true, overrides: { SMS_ENABLED: "false" } }),
+        fetchImpl: mock.fetchImpl,
+        log: () => undefined,
+      });
+      assert.equal(noSms.sms, null);
+      assert.ok(!(await toolNames(noSms)).includes("list_sms_threads"));
+      noSms.releaseLocks();
+      await noSms.close();
     } finally {
       await stopSleeper(sleeper);
       fs.rmSync(dir, { recursive: true, force: true });

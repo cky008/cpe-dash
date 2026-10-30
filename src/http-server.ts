@@ -25,10 +25,8 @@ import {
   normalizeLocale,
   t,
 } from "./i18n.ts";
-import {
-  type FengSuiMcpServer,
-  parseJsonSafeNullProto,
-} from "./mcp-server.ts";
+import { parseJsonSafeNullProto } from "./json-safe.ts";
+import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
 import {
   BrowserSessionYieldedError,
@@ -1005,6 +1003,11 @@ export class FengSuiHttpServer {
           const reloadedCfg = loadConfig({
             envPath: this.envPath,
           });
+          if (!reloadedCfg.dataEncryptionKey.trim()) {
+            throw new CpeControlValidationError(
+              "CPE_PASSWORD / DATA_ENCRYPTION_KEY is empty in .env; refusing to re-encrypt stored data under an empty key"
+            );
+          }
           const tokenRotated = !constantTimeSecretMatch(reloadedCfg.apiToken, this.#config.apiToken);
           this.#config = reloadedCfg;
           this.core.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
@@ -1207,8 +1210,7 @@ export class FengSuiHttpServer {
       this.#sendJson(res, 404, {
         ok: false,
         errorCode: "SMS_DISABLED",
-        message:
-          "SMS features are not available in this FengSui process (SMS_ENABLED=false, or the SMS store is owned by another FengSui process)",
+        message: "SMS features are disabled (SMS_ENABLED=false)",
       });
       return;
     }

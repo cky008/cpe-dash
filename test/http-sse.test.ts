@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from "node:http";
@@ -1870,17 +1871,18 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
 });
 
 describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
-  it("parseCliCommand parses serve, mcp, --poll, --env, and help flags", () => {
+  it("parseCliCommand parses serve, mcp, --env and help flags and warns about the retired --poll", () => {
     // Default serve
     const cmd1 = parseCliCommand(["node", "cli.ts", "serve"]);
     assert.equal(cmd1.mode, "serve");
-    assert.equal(cmd1.mcpBackgroundPoll, false);
+    assert.deepEqual(cmd1.warnings, []);
     assert.equal(cmd1.envPath, undefined);
 
-    // MCP with poll and env=
+    // MCP with the retired --poll flag (accepted with a warning) and env=
     const cmd2 = parseCliCommand(["node", "cli.ts", "mcp", "--poll", "--env=/tmp/custom.env"]);
     assert.equal(cmd2.mode, "mcp");
-    assert.equal(cmd2.mcpBackgroundPoll, true);
+    assert.equal(cmd2.warnings.length, 1);
+    assert.match(cmd2.warnings[0] ?? "", /"--poll" is ignored/);
     assert.equal(cmd2.envPath, "/tmp/custom.env");
 
     // MCP with --env path separated
@@ -1997,9 +1999,23 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
     }
   });
 
-  it("executes runCli --help and end-to-end stdio MCP subprocess without touching live CPE", async () => {
+  it("executes runCli --help and the stdio bridge subprocess, which forwards to the daemon instead of the CPE", async () => {
     await runCli(["node", "cli.ts", "--help"]);
 
+    // A stand-in daemon: the subprocess must reach the CPE only through /mcp, never directly
+    const seen: Array<{ auth: string | undefined; body: string }> = [];
+    const fakeDaemon = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
+      req.on("end", () => {
+        seen.push({ auth: req.headers.authorization, body });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: 77, result: { forwarded: true } }));
+      });
+    });
+    await new Promise<void>((resolve) => fakeDaemon.listen(0, "127.0.0.1", resolve));
+    const address = fakeDaemon.address();
+    const port = typeof address === "object" && address ? address.port : 0;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-cli-mcp-"));
     try {
       const envPath = path.join(tmpDir, ".env");
@@ -2008,25 +2024,33 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
         [
           "CPE_URL=http://127.0.0.1:65534",
           "CPE_PASSWORD=sched_test_password",
+          "API_TOKEN=cli_bridge_token",
+          `MCP_DAEMON_URL=http://127.0.0.1:${port}/mcp`,
           `STATE_FILE=${path.join(tmpDir, "state.json")}`,
         ].join("\n"),
         "utf8"
       );
 
       const cliPath = path.resolve(process.cwd(), "src", "cli.ts");
-      const proc = spawnSync(
-        process.execPath,
-        ["--experimental-strip-types", cliPath, "mcp", `--env=${envPath}`],
-        {
-          input: `${JSON.stringify({ jsonrpc: "2.0", id: 77, method: "ping" })}\n`,
-          encoding: "utf8",
-          timeout: 5000,
-        }
-      );
-      assert.equal(proc.status, 0);
-      assert.match(proc.stdout, /"id":77/);
-      assert.match(proc.stderr, /\[fengsui-mcp\] stdio NDJSON server ready/);
+      const child = spawn(process.execPath, ["--experimental-strip-types", cliPath, "mcp", "--poll", `--env=${envPath}`], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
+      child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
+      child.stdin.end(`${JSON.stringify({ jsonrpc: "2.0", id: 77, method: "ping" })}\n`);
+      const [code] = (await once(child, "exit")) as [number | null];
+      assert.equal(code, 0, stderr);
+      assert.match(stdout, /"id":77/);
+      assert.match(stdout, /"forwarded":true/);
+      assert.match(stderr, /\[fengsui-mcp\] stdio bridge ready -> http:\/\/127\.0\.0\.1:\d+\/mcp/);
+      assert.match(stderr, /"--poll" is ignored/);
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0]?.auth, "Bearer cli_bridge_token");
+      assert.equal(fs.existsSync(path.join(tmpDir, "state.json")), false, "the bridge never creates state");
     } finally {
+      await new Promise<void>((resolve) => fakeDaemon.close(() => resolve()));
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });

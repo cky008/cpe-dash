@@ -1,4 +1,3 @@
-import type { Readable, Writable } from "node:stream";
 import { H168_383_LTE_BANDS, NR_DL_ARFCN_RANGES } from "./band-lock.ts";
 import {
   readAntennaMode,
@@ -10,6 +9,7 @@ import {
 } from "./control-input.ts";
 import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
+import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { type McpInputSchema, validateToolArguments } from "./mcp-schema.ts";
 import { BrowserSessionYieldedError } from "./scheduler.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
@@ -97,23 +97,6 @@ export interface McpToolProvider {
   instructions?(): string;
 }
 
-const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-
-export function parseJsonSafeNullProto(rawJson: string): unknown {
-  return JSON.parse(rawJson, (key, value: unknown) => {
-    if (FORBIDDEN_KEYS.has(key)) return undefined;
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const clean = Object.create(null) as Record<string, unknown>;
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        if (!FORBIDDEN_KEYS.has(k)) {
-          clean[k] = v;
-        }
-      }
-      return clean;
-    }
-    return value;
-  });
-}
 
 function asNumberOpt(obj: Record<string, unknown>, key: string): number | undefined {
   const val = obj[key];
@@ -392,8 +375,9 @@ export interface FengSuiMcpServerOptions {
 }
 
 /**
- * Zero-dependency Model Context Protocol (MCP) JSON-RPC 2.0 Server supporting both
- * **stdio NDJSON** transport and **Streamable HTTP (`POST /mcp`)** transport.
+ * Zero-dependency Model Context Protocol (MCP) JSON-RPC 2.0 server, mounted by the serve daemon on
+ * Streamable HTTP (`POST /mcp`). Stdio-only agents reach it through `cpe-dash mcp`
+ * (`McpStdioBridge`), so every tool call shares the daemon's single CPE session scheduler.
  */
 export class FengSuiMcpServer {
   readonly core: FengSuiCore;
@@ -838,85 +822,6 @@ export class FengSuiMcpServer {
         err instanceof Error ? err.message : String(err)
       );
     }
-  }
-
-  /**
-   * Bind this MCP server to NDJSON stdio streams (`process.stdin` / `process.stdout`) for local
-   * AI agents (Claude Desktop, Antigravity, Cursor) with a strict 64 KiB streaming byte cap.
-   */
-  attachStdio(input: Readable = process.stdin, output: Writable = process.stdout): () => void {
-    const MAX_STDIO_LINE_BYTES = 64 * 1024;
-    let chunks: Buffer[] = [];
-    let bufferedBytes = 0;
-    let discardingOversized = false;
-
-    const emitOversizedError = (): void => {
-      const errResp: JsonRpcErrorResponse = {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32600, message: "MCP stdio frame exceeds 64 KiB limit" },
-      };
-      output.write(`${JSON.stringify(errResp)}\n`);
-    };
-
-    const onData = (rawChunk: Buffer | string): void => {
-      const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk, "utf8");
-      let offset = 0;
-      while (offset < chunk.length) {
-        const nlIdx = chunk.indexOf(0x0a, offset);
-        if (discardingOversized) {
-          if (nlIdx === -1) {
-            return;
-          }
-          discardingOversized = false;
-          offset = nlIdx + 1;
-          continue;
-        }
-
-        if (nlIdx === -1) {
-          const rem = chunk.subarray(offset);
-          if (bufferedBytes + rem.length > MAX_STDIO_LINE_BYTES) {
-            chunks = [];
-            bufferedBytes = 0;
-            discardingOversized = true;
-            emitOversizedError();
-            return;
-          }
-          chunks.push(rem);
-          bufferedBytes += rem.length;
-          return;
-        }
-
-        const seg = chunk.subarray(offset, nlIdx);
-        offset = nlIdx + 1;
-        if (bufferedBytes + seg.length > MAX_STDIO_LINE_BYTES) {
-          chunks = [];
-          bufferedBytes = 0;
-          emitOversizedError();
-          continue;
-        }
-
-        const lineBuf =
-          chunks.length === 0 ? seg : Buffer.concat([...chunks, seg], bufferedBytes + seg.length);
-        chunks = [];
-        bufferedBytes = 0;
-
-        const trimmed = lineBuf.toString("utf8").trim();
-        if (!trimmed) continue;
-        void this.handleRawJsonMessage(trimmed).then((response) => {
-          if (response !== null) {
-            output.write(`${JSON.stringify(response)}\n`);
-          }
-        });
-      }
-    };
-
-    input.on("data", onData);
-    return () => {
-      input.off("data", onData);
-      chunks = [];
-      bufferedBytes = 0;
-    };
   }
 }
 

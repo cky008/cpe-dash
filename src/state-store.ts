@@ -76,9 +76,10 @@ export class EncryptedStateStore {
   #state: PersistedRuntimeState;
   #writer: AtomicFileWriter;
 
+  /** Throws on an empty key: runtime state (WAN IPs, locks, breaker) is never written unencrypted. */
   constructor(opts: { filePath: string; encryptionKey: string }) {
     this.filePath = opts.filePath;
-    this.#cipher = StorageCipher.fromSecret(opts.encryptionKey);
+    this.#cipher = new StorageCipher(opts.encryptionKey);
     this.#state = createDefaultState();
     this.#writer = new AtomicFileWriter(opts.filePath);
   }
@@ -104,7 +105,7 @@ export class EncryptedStateStore {
   }
 
   rotateEncryptionKey(newKey: string): void {
-    this.#cipher = StorageCipher.fromSecret(newKey);
+    this.#cipher = new StorageCipher(newKey);
   }
 
   getState(): Readonly<PersistedRuntimeState> {

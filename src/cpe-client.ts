@@ -8,6 +8,7 @@ import {
   generateEccSession,
   verifyPubkeySignature,
 } from "./crypto.ts";
+import { readBoundedResponseText } from "./http-body.ts";
 import { t } from "./i18n.ts";
 import type {
   CircuitBreakerState,
@@ -20,33 +21,8 @@ import { MAX_XML_BYTES, buildXmlRequest, getXmlTag, parseXmlError } from "./xml.
 
 const activeSessionContext = new AsyncLocalStorage<HuaweiCpeClient>();
 
-async function readBoundedResponseText(res: Response, maxBytes = MAX_XML_BYTES): Promise<string> {
-  if (!res.body || typeof res.body.getReader !== "function") {
-    const text = await res.text();
-    if (Buffer.byteLength(text, "utf8") > maxBytes) {
-      throw new Error(`CPE response exceeds maximum allowed size (${maxBytes} bytes)`);
-    }
-    return text;
-  }
-  const reader = res.body.getReader();
-  const chunks: Buffer[] = [];
-  let totalBytes = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const buf = Buffer.from(value);
-      totalBytes += buf.length;
-      if (totalBytes > maxBytes) {
-        await reader.cancel().catch(() => undefined);
-        throw new Error(`CPE response exceeds maximum allowed size (${maxBytes} bytes)`);
-      }
-      chunks.push(buf);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks, totalBytes).toString("utf8");
+function readCpeResponseText(res: Response): Promise<string> {
+  return readBoundedResponseText(res, MAX_XML_BYTES);
 }
 
 export const CPE_ERROR_DESCRIPTIONS: Readonly<Record<string, string>> = {
@@ -249,7 +225,7 @@ export class EphemeralCpeSession {
       signal: this.#requestSignal(overrideTimeoutMs ?? this.timeoutMs),
     });
     this.#updateCookies(res.headers);
-    const text = await readBoundedResponseText(res);
+    const text = await readCpeResponseText(res);
     const err = parseXmlError(text);
     if (err) {
       throw new CpeApiError(err.code, apiPath, err);
@@ -314,7 +290,7 @@ export class EphemeralCpeSession {
       });
       this.#updateCookies(res.headers);
       this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
-      const text = await readBoundedResponseText(res);
+      const text = await readCpeResponseText(res);
       const err = parseXmlError(text);
       if (err) {
         throw new CpeApiError(err.code, apiPath, err);
@@ -670,7 +646,7 @@ export class HuaweiCpeClient {
       redirect: "error",
       signal: AbortSignal.timeout(this.timeoutMs),
     });
-    const text = await readBoundedResponseText(res);
+    const text = await readCpeResponseText(res);
     const err = parseXmlError(text);
     if (err) {
       throw new CpeApiError(err.code, apiPath, err);
