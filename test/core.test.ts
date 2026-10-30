@@ -30,6 +30,7 @@ import {
   maskMacAddress,
   sanitizeFreeText,
   sanitizeIpToken,
+  sanitizeJsonPayload,
   sanitizeXml,
 } from "../src/sanitize.ts";
 import {
@@ -291,6 +292,25 @@ describe("sanitizer & StorageCipher", () => {
       byteLength: 0,
       encodingHint: "empty",
     });
+
+    const rawJson = JSON.stringify([
+      {
+        MACAddress: "AA:BB:CC:11:22:33",
+        HostName: "Secret-iPhone",
+        ActualName: "OwnerPhone",
+        IPAddress: "192.168.8.120",
+        IPv6Address: "fe80::99;2a02:8084::55",
+        InterfaceType: "Wireless",
+        Frequency: "5GHz_1",
+        rate: 1201,
+      },
+    ]);
+    const cleanJson = sanitizeJsonPayload(rawJson);
+    assert.equal(cleanJson.includes("AA:BB:CC:11:22:33"), false);
+    assert.equal(cleanJson.includes("Secret-iPhone"), false);
+    assert.equal(cleanJson.includes("2a02:8084"), false);
+    assert.equal(cleanJson.includes("1201"), true);
+    assert.equal(sanitizeJsonPayload("not-json 8.8.8.8"), "not-json 198.51.100.42");
   });
 
   it("encrypts and decrypts JSON state files at rest with 0600 permissions", () => {

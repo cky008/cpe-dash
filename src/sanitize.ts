@@ -59,6 +59,7 @@ const TAG_PLACEHOLDERS: Readonly<Record<string, string>> = {
   sharedkey: "<REDACTED_SECRET>",
   pppusername: "apn-user",
   ppppassword: "<REDACTED_SECRET>",
+  apnname: "internet.example",
   salt: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   firstnonce: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
   servernonce: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -224,8 +225,8 @@ export function sanitizeXml(xml: string, extraSecrets: ReadonlyArray<string> = [
       if (
         lowerTag.includes("ipaddress") ||
         lowerTag.includes("ipv6") ||
-        lowerTag.endsWith("dns") ||
-        lowerTag === "ip"
+        lowerTag.includes("dns") ||
+        lowerTag.endsWith("ip")
       ) {
         return `<${rawTag}>${sanitizeIpToken(val)}</${rawTag}>`;
       }
@@ -258,3 +259,70 @@ export function sanitizeXml(xml: string, extraSecrets: ReadonlyArray<string> = [
 
   return sanitizeFreeText(scrubbed, extraSecrets);
 }
+
+/**
+ * Sanitize a JSON response string (such as `/api/system/HostInfo` or `/api/system/topology`)
+ * by masking MAC addresses, hostnames/aliases, Wi-Fi SSIDs/keys, and non-LAN IP addresses.
+ */
+export function sanitizeJsonPayload(
+  rawJson: string,
+  extraSecrets: ReadonlyArray<string> = []
+): string {
+  const trimmed = rawJson.trim();
+  if (!trimmed) return rawJson;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return sanitizeFreeText(rawJson, extraSecrets);
+  }
+
+  let macSeq = 1;
+  let hostSeq = 1;
+
+  const scrubNode = (node: unknown): unknown => {
+    if (Array.isArray(node)) {
+      return node.map((item) => scrubNode(item));
+    }
+    if (node && typeof node === "object") {
+      const out = Object.create(null) as Record<string, unknown>;
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        const lk = k.toLowerCase();
+        if (typeof v === "string" && v.trim()) {
+          if (lk.includes("mac") || lk.endsWith("bssid") || lk === "id" && /([0-9a-f]{2}:){5}[0-9a-f]{2}/i.test(v)) {
+            out[k] = maskMacAddress(v, macSeq++);
+            continue;
+          }
+          if (lk === "hostname" || lk === "actualname" || lk === "devicename") {
+            out[k] = SAFE_ROUTER_MODELS.has(v) ? v : `lan-client-${String(hostSeq++).padStart(2, "0")}`;
+            continue;
+          }
+          if (lk.includes("ipaddress") || lk.includes("ipv6") || lk.includes("dns") || lk === "ip") {
+            out[k] = sanitizeIpToken(v);
+            continue;
+          }
+          if (lk.includes("ssid")) {
+            out[k] = "FengSui_Lab_WiFi";
+            continue;
+          }
+          if (lk.includes("password") || lk.includes("psk") || lk.includes("secret") || lk.includes("key")) {
+            out[k] = "<REDACTED_SECRET>";
+            continue;
+          }
+          if (lk.includes("serial") || lk === "sn") {
+            out[k] = "SN00000000000000";
+            continue;
+          }
+          out[k] = sanitizeFreeText(v, extraSecrets);
+        } else {
+          out[k] = scrubNode(v);
+        }
+      }
+      return out;
+    }
+    return node;
+  };
+
+  return JSON.stringify(scrubNode(parsed));
+}
+
