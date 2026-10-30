@@ -62,6 +62,34 @@ export interface McpToolDefinition {
   };
 }
 
+/** Tool-level failure surfaced to agents as `{ ok: false, errorCode, message }` (`isError: true`). */
+export class McpToolError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "McpToolError";
+    this.code = code;
+  }
+}
+
+export interface McpResourceDescriptor {
+  uri: string;
+  name: string;
+  mimeType: "application/json";
+}
+
+/** Domain tool module plugged into the MCP server (e.g. SMS tools). */
+export interface McpToolProvider {
+  getToolDefinitions(): ReadonlyArray<McpToolDefinition>;
+  handles(toolName: string): boolean;
+  isMutating(toolName: string): boolean;
+  execute(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
+  listResources?(): ReadonlyArray<McpResourceDescriptor>;
+  readResource?(uri: string): unknown;
+  instructions?(): string;
+}
+
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export function parseJsonSafeNullProto(rawJson: string): unknown {
@@ -399,6 +427,7 @@ const MUTATING_TOOLS = new Set([
 export interface FengSuiMcpServerOptions {
   scheduler: MutexSessionScheduler;
   allowMutations?: boolean;
+  toolProviders?: ReadonlyArray<McpToolProvider>;
 }
 
 /**
@@ -408,15 +437,20 @@ export interface FengSuiMcpServerOptions {
 export class FengSuiMcpServer {
   readonly scheduler: MutexSessionScheduler;
   readonly allowMutations: boolean;
+  readonly toolProviders: ReadonlyArray<McpToolProvider>;
 
   constructor(options: FengSuiMcpServerOptions) {
     this.scheduler = options.scheduler;
     this.allowMutations = options.allowMutations !== false;
+    this.toolProviders = options.toolProviders ?? [];
   }
 
   getToolDefinitions(): ReadonlyArray<McpToolDefinition> {
-    if (this.allowMutations) return MCP_TOOLS;
-    return MCP_TOOLS.filter((tool) => !MUTATING_TOOLS.has(tool.name));
+    const provided = this.toolProviders.flatMap((p) =>
+      p.getToolDefinitions().filter((tool) => this.allowMutations || !p.isMutating(tool.name))
+    );
+    const core = this.allowMutations ? MCP_TOOLS : MCP_TOOLS.filter((tool) => !MUTATING_TOOLS.has(tool.name));
+    return [...core, ...provided];
   }
 
   isSupportedProtocolVersion(version: string | undefined): boolean {
@@ -528,8 +562,10 @@ export class FengSuiMcpServer {
             title: "FengSui (烽燧) Huawei H168-383 5G CPE MCP Server",
             version: "0.2.0",
           },
-          instructions:
+          instructions: [
             "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses, and pass confirm: true only when the user explicitly requests reboot_cpe.",
+            ...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])),
+          ].join(" "),
         };
       }
 
@@ -569,6 +605,7 @@ export class FengSuiMcpServer {
               name: "Persisted Band & Cell Lock State",
               mimeType: "application/json",
             },
+            ...this.toolProviders.flatMap((p) => p.listResources?.() ?? []),
           ],
         };
 
@@ -582,7 +619,10 @@ export class FengSuiMcpServer {
         } else if (uri === "fengsui://locks/state") {
           data = this.scheduler.getPersistedLockState();
         } else {
-          throw new McpProtocolRpcError(-32602, `Unknown resource URI "${uri}"`);
+          data = this.toolProviders.map((p) => p.readResource?.(uri)).find((value) => value !== undefined);
+          if (data === undefined) {
+            throw new McpProtocolRpcError(-32602, `Unknown resource URI "${uri}"`);
+          }
         }
         return {
           contents: [
@@ -623,7 +663,8 @@ export class FengSuiMcpServer {
       };
     };
 
-    if (MUTATING_TOOLS.has(toolName) && !this.allowMutations) {
+    const provider = this.toolProviders.find((p) => p.handles(toolName));
+    if ((MUTATING_TOOLS.has(toolName) || provider?.isMutating(toolName)) && !this.allowMutations) {
       return wrapErr(
         "MUTATIONS_DISABLED",
         "Mutating MCP tools are disabled by server configuration (MCP_ALLOW_MUTATIONS=false)"
@@ -631,6 +672,9 @@ export class FengSuiMcpServer {
     }
 
     try {
+      if (provider) {
+        return wrapOk(await provider.execute(toolName, args));
+      }
       switch (toolName) {
         case "get_cpe_telemetry": {
           const wantRefresh = asBooleanOpt(args, "refresh") ?? false;
@@ -831,6 +875,9 @@ export class FengSuiMcpServer {
       }
       if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError) {
         return wrapErr("VALIDATION_ERROR", err.message);
+      }
+      if (err instanceof McpToolError) {
+        return wrapErr(err.code, err.message);
       }
       return wrapErr(
         "CPE_EXECUTION_ERROR",
