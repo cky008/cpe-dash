@@ -68,7 +68,8 @@ flowchart LR
   subgraph Clients["LAN / Tailscale Clients & AI Agents"]
     Browser["Web Console (Offline SPA)"]
     AgentHttp["LAN AI Agent (HTTP MCP)"]
-    AgentStdio["Local AI Agent (stdio MCP)"]
+    AgentStdio["Local AI Agent (stdio)"]
+    Bridge["cpe-dash mcp\nzero-state stdio→HTTP bridge"]
     HumanWeb["Human Admin Browser"]
     TgUser["Telegram (phone)"]
     Hook["Webhook receiver (Home Assistant / n8n)"]
@@ -80,7 +81,8 @@ flowchart LR
     McpSrv["FengSuiMcpServer\n13 + 10 SMS Tools"]
     Sms["SmsService\nPiggybacked Sync + Encrypted Mirror + Contacts"]
     Notify["NotificationHub + AlertEngine\nTelegram Bot / Signed Webhooks"]
-    Sched["MutexSessionScheduler\nPriority Queue + Coalescer + Avoidance"]
+    Core["CpeMonitor (reads/caches) + CpeControlService (writes)"]
+    Sched["MutexSessionScheduler\nSole session path: priority queue + avoidance + breaker"]
     Ring["TimeSeriesRingBuffer\n5s Fine Ring + 60s Rollup Ring (7d)"]
     Store["EncryptedStateStore\nAES-256-GCM 0600 Async Atomic Flush"]
     Client["HuaweiCpeClient\nSCRAM + Curve25519 + 108006 Breaker"]
@@ -95,7 +97,8 @@ flowchart LR
   SseBus --> Browser
   AgentHttp -- "POST /mcp (Bearer Token)" --> HttpSrv
   HttpSrv --> McpSrv
-  AgentStdio -- "NDJSON stdio" --> McpSrv
+  AgentStdio -- "NDJSON stdio" --> Bridge
+  Bridge -- "POST /mcp (Bearer Token)" --> HttpSrv
   HttpSrv --> Sched
   McpSrv --> Sched
   HttpSrv --> Sms
@@ -155,11 +158,12 @@ sequenceDiagram
 - **📈 Dual-Tier Fixed-Memory Circular Time-Series (`TimeSeriesRingBuffer`)**
   - Bounded `< 6 MB` footprint: `Tier 1` stores `3h` at `5s` resolution while `Tier 2` stores `7d` at `60s` roll-ups, joined seamlessly for `1h`, `6h`, `12h`, `24h`, and custom `[fromMs, toMs]` queries. Intermittent NSA 5G and unsupported temperature channels remain `null` (never skewed toward `0`), backed by `30m` batched async flushes to preserve Synology HDD hibernation.
 - **✉️ SMS Scheduled Through the Same Session Broker (Change Detection at Zero Extra Sessions)**
-  - SMS counters ride along in the 5s telemetry session, and only a counter change triggers an incremental or full sync. Send, mark-read and delete go through the scheduler's control queue and yield to a human admin like every other write. The SMS mirror, contact book and Telegram state are AES-256-GCM encrypted at rest and owned by a single process (`sms.json.lock`).
+  - SMS counters ride along in the 5s telemetry session, and only a counter change triggers an incremental or full sync. Send, mark-read and delete go through the scheduler's control queue and yield to a human admin like every other write. The SMS mirror, contact book and Telegram state are AES-256-GCM encrypted at rest; the daemon owns its data directory (`state.json.lock`) and refuses to start without a key, so nothing is ever written in plaintext.
 - **📲 Two-Way Telegram Bot, Signed Webhooks & Automatic Alerts**
   - Incoming SMS cards (one-tap OTP, reply-to-send, read / thread / delete-with-confirmation buttons), a guided send wizard, conversation and contact lookups, alert delivery and muting; webhooks are signed with `HMAC-SHA256`. The alert engine covers CPE offline, WAN down, signal degradation, carrier-aggregation loss, reboots, SMS storage and data thresholds, with sustain windows and recovery hysteresis.
-- **🤖 Native Dual-Transport MCP Server (`stdio` + Streamable HTTP `/mcp`)**
-  - Zero-dependency JSON-RPC 2.0 MCP server ([`FengSuiMcpServer`](src/mcp-server.ts)) exposing **13 core tools** and **up to 10 SMS tools** (tiered by `MCP_SMS_ACCESS`) to Claude Desktop, Antigravity, Cursor, and LAN agents. `reboot_cpe`, `reconnect_cellular`, `send_sms` and `delete_sms` require `{ confirm: true }`; SMS bodies are treated as untrusted data, and sends default to known recipients with an hourly budget to resist prompt injection.
+- **🤖 Native MCP Server (Streamable HTTP `/mcp` + zero-state `stdio` bridge)**
+  - Zero-dependency JSON-RPC 2.0 MCP server ([`FengSuiMcpServer`](src/mcp-server.ts), revisions `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`) mounted on the daemon's `/mcp`; `cpe-dash mcp` is only a stateless bridge from stdio to that endpoint, so **the daemon is the one and only CPE session path**. It exposes **13 core tools** and **up to 10 SMS tools** (tiered by `MCP_SMS_ACCESS`) to Claude Desktop, Antigravity, Cursor, and LAN agents.
+  - Tool `inputSchema`s are enforced server-side (unknown keys, missing keys, types, ranges); `reboot_cpe`, `reconnect_cellular`, `send_sms` and `delete_sms` require `{ confirm: true }`. Band locks only accept the H168-383's LTE bands and 3GPP NR bands, a cell-lock ARFCN must lie in its band, and `lock_cell` only targets cells the modem reported (serving cell, CA carriers or the latest neighbour scan), so a hallucinated argument cannot cut the link. SMS bodies are treated as untrusted data, and sends default to known recipients with an hourly budget to resist prompt injection.
 - **🛡️ Defense-in-Depth Web Security**
   - Enforces DNS-rebinding `Host` allowlists (`421`), `SameSite=Strict; HttpOnly` session cookies, `X-Requested-With` + `Origin` CSRF validation, `net.BlockList` CIDR proxy trust + IPv6 `/64` rate-limit buckets, null-prototype parsers, linear O(N) XML scanning, and private-origin SSRF guards.
 
@@ -208,14 +212,21 @@ cpe-dash/
 │   ├── cpe-domain.ts                # Aggregated telemetry, neighbor scan, locking, security & Wi-Fi 7 MLO
 │   ├── timeseries.ts                # Dual-tier circular ring buffer (5s fine ring + 60s 7-day rollup ring)
 │   ├── state-store.ts               # Async atomic encrypted state persistence with key-rotation recovery
-│   ├── scheduler.ts                 # Single-instance mutex scheduler, single-flight coalescer & backoff
+│   ├── scheduler.ts                 # Sole CPE session path: priority mutex queue, dual-layer avoidance, Layer-2 backoff, breaker alerts
+│   ├── cpe-monitor.ts               # Background polling, single-flight refreshes, snapshot caches & time series (read side)
+│   ├── cpe-controls.ts              # RF locks, reboot/reconnect & router switches, validated before queueing (write side)
+│   ├── core.ts                      # FengSuiCore: scheduler + monitor + controls wiring
+│   ├── control-input.ts             # Input guards shared by REST and MCP
+│   ├── mcp-schema.ts                # Run-time validator for MCP tool inputSchemas
 │   ├── alert-engine.ts              # Sustain-window + hysteresis alerts (offline / WAN / signal / CA / reboot / SMS storage / data)
 │   ├── sms/                         # SMS protocol, number parsing, encrypted mirror, contacts, SmsService, REST routes & MCP tools
 │   ├── notify/                      # Telegram Bot API client & two-way bot, signed webhooks, notification hub
 │   ├── sse-bus.ts                   # /api/events sub-ms SSE fan-out bus, backpressure eviction & heartbeat
-│   ├── mcp-server.ts                # Native JSON-RPC 2.0 MCP Server (stdio NDJSON + Streamable HTTP)
-│   ├── http-server.ts               # Hardened HTTP/REST/SSE/MCP & static asset server (:18384)
-│   ├── cli.ts                       # Unified daemon (serve) & MCP (mcp) CLI entrypoint
+│   ├── mcp-server.ts                # Native JSON-RPC 2.0 MCP Server (mounted on the daemon's /mcp)
+│   ├── mcp-stdio-bridge.ts          # cpe-dash mcp: zero-state stdio → HTTP /mcp bridge (no CPE client)
+│   ├── http-server.ts               # Hardened HTTP/REST/SSE/MCP router (:18384)
+│   ├── http-auth.ts / http-static.ts # Cookie sessions, auth rate limiting, CSRF / offline static assets
+│   ├── cli.ts                       # serve daemon (data-dir lock) & mcp bridge CLI entrypoint
 │   └── index.ts                     # Public SDK exports
 ├── scripts/
 │   ├── audit-secrets.ts             # Working-tree + full git-history Zero-Secret/Zero-PII & Pure-TS gate
@@ -258,7 +269,7 @@ npm start
   # Or pass explicit .env path: node --experimental-strip-types src/cli.ts mcp --env /path/to/.env
   # (the flag is optional on Node 22.18+ / 23.6+; every npm script already passes it)
   ```
-  A stdio process runs its own scheduler. If the `serve` daemon already runs on the same data directory, the stdio process offers no SMS tools (the daemon owns the SMS store); point the agent at the daemon's HTTP `/mcp` instead.
+  Start the `serve` daemon first. `cpe-dash mcp` is a **zero-state bridge**: it reads `API_TOKEN` and `MCP_DAEMON_URL` (default `http://127.0.0.1:<WEB_PORT>/mcp`) from `.env` and forwards each JSON-RPC line to the daemon. It never creates a CPE client, scheduler or store, so it cannot compete with the daemon for the single admin session. While the daemon is down every request gets JSON-RPC error `-32002`; a rejected request (e.g. wrong token) gets `-32001`. The old `--poll` flag no longer does anything (it only prints a warning).
 - **LAN / Tailscale Streamable HTTP Transport**:
   ```bash
   curl -X POST http://127.0.0.1:18384/mcp \
@@ -350,7 +361,9 @@ See **[`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)** for
 | `ALLOWED_HOSTS` | *(empty)* | Extra HTTP `Host` values to accept (e.g. a reverse-proxy domain) on top of the DNS-rebinding guard (`421`); private/loopback/link-local IPs, `localhost`, `*.local` / `*.lan` / `*.internal` / `*.ts.net` and single-label hostnames are always accepted |
 | `WEB_PORT` | `18384` | Default Web console, SSE & `/mcp` listening port |
 | `DEFAULT_LOCALE` | `zh-CN` | Default UI & message locale (`zh-CN` or `en`) |
-| `MCP_HTTP_ENABLED` | `true` | Enable `POST /mcp` Streamable HTTP MCP endpoint |
+| `MCP_HTTP_ENABLED` | `true` | Enable `POST /mcp` Streamable HTTP MCP endpoint (the `cpe-dash mcp` bridge relies on it) |
+| `MCP_DAEMON_URL` | *(derived from `WEB_HOST`/`WEB_PORT`)* | Daemon `/mcp` URL the `cpe-dash mcp` bridge forwards to; must be a LAN/loopback host without credentials, query or fragment |
+| `TZ` | *(system zone)* | IANA time zone (e.g. `Europe/Dublin`), applied to the process at startup and on `reset-breaker` reloads; stamps the `<Date>` of sent SMS. A `TZ` already set in the process environment wins |
 | `MCP_ALLOW_MUTATIONS` | `true` | Allow mutating MCP tools (`false` restricts MCP to read-only tools) |
 | `HISTORY_RETENTION_HOURS` | `168` | Circular time-series retention window in hours (`168` = 7 days) |
 | `POLL_INTERVAL_MS` | `5000` | Standard RF & throughput polling interval (ms) |

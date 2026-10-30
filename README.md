@@ -68,7 +68,8 @@ flowchart LR
   subgraph Clients["局域网 / Tailscale 终端与智能体"]
     Browser["Web 控制台 (离线 SPA)"]
     AgentHttp["内网 AI Agent (HTTP MCP)"]
-    AgentStdio["本地 AI Agent (stdio MCP)"]
+    AgentStdio["本地 AI Agent (stdio)"]
+    Bridge["cpe-dash mcp\n零状态 stdio→HTTP 桥接"]
     HumanWeb["真人管理员浏览器"]
     TgUser["Telegram（手机）"]
     Hook["Webhook 接收端（Home Assistant / n8n）"]
@@ -80,7 +81,8 @@ flowchart LR
     McpSrv["FengSuiMcpServer\n13 + 10 短信 Tools"]
     Sms["SmsService\n计数捎带同步 + 加密镜像 + 通讯录"]
     Notify["NotificationHub + AlertEngine\nTelegram 机器人 / 签名 Webhook"]
-    Sched["MutexSessionScheduler\n优先级队列 + 单飞合并 + 双层避让"]
+    Core["CpeMonitor（采集/缓存）+ CpeControlService（控制写）"]
+    Sched["MutexSessionScheduler\n唯一会话出口：优先级队列 + 双层避让 + 熔断"]
     Ring["TimeSeriesRingBuffer\n5s 细粒度环 + 60s 归档环 (7d)"]
     Store["EncryptedStateStore\nAES-256-GCM 0600 异步原子落盘"]
     Client["HuaweiCpeClient\nSCRAM + Curve25519 + 108006 熔断器"]
@@ -95,9 +97,11 @@ flowchart LR
   SseBus --> Browser
   AgentHttp -- "POST /mcp (Bearer Token)" --> HttpSrv
   HttpSrv --> McpSrv
-  AgentStdio -- "NDJSON stdio" --> McpSrv
-  HttpSrv --> Sched
-  McpSrv --> Sched
+  AgentStdio -- "NDJSON stdio" --> Bridge
+  Bridge -- "POST /mcp (Bearer Token)" --> HttpSrv
+  HttpSrv --> Core
+  McpSrv --> Core
+  Core --> Sched
   HttpSrv --> Sms
   McpSrv --> Sms
   Sms --> Sched
@@ -155,11 +159,12 @@ sequenceDiagram
 - **📈 双层定长环形时序数据库 (`TimeSeriesRingBuffer`)**
   - 内存占用恒定 `< 6 MB`：`Tier 1` 维护 `3 小时 / 5 秒` 高频槽位，`Tier 2` 维护 `7 天 / 60 秒` 归档槽位；支持 `1h`、`6h`、`12h`、`24h` 与自定义 `[fromMs, toMs]` 无缝跨层拼接聚合，NSA 5G 空闲与未开放传感器保持精确 `null`（绝不拉偏均值至 `0`），配合 `EncryptedStateStore` 异步 `30 分钟` 批量刷盘保护群晖硬盘休眠。
 - **✉️ 短信与遥测同源调度（零额外会话的变化检测）**
-  - 短信计数捎带在 5s 遥测会话内读取，只有计数变化才触发增量或全量同步；发送、已读、删除走同一调度器的控制写队列，真人在线时同样礼貌让位。短信镜像、通讯录与 Telegram 状态全部 AES-256-GCM 加密落盘，单进程独占（`sms.json.lock`）。
+  - 短信计数捎带在 5s 遥测会话内读取，只有计数变化才触发增量或全量同步；发送、已读、删除走同一调度器的控制写队列，真人在线时同样礼貌让位。短信镜像、通讯录与 Telegram 状态全部 AES-256-GCM 加密落盘；守护进程独占数据目录（`state.json.lock`），未配置密钥时拒绝启动，绝不明文落盘。
 - **📲 Telegram 双向机器人、签名 Webhook 与自动告警**
   - 来信卡片（验证码、回复即发送、已读 / 会话 / 删除确认按钮）、引导式发短信、会话与通讯录查询、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警引擎覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储与流量阈值，带持续窗口与恢复迟滞。
-- **🤖 原生双模 MCP Server (`stdio` + Streamable HTTP `/mcp`)**
-  - 零外部依赖完整实现 JSON-RPC 2.0 MCP 服务端（[`FengSuiMcpServer`](src/mcp-server.ts)），向 Claude Desktop、Antigravity、Cursor 及内网自动化 Agent 暴露 **13 项核心工具**与**最多 10 项短信工具**（按 `MCP_SMS_ACCESS` 分级）。`reboot_cpe`、`reconnect_cellular`、`send_sms`、`delete_sms` 强制要求 `{ confirm: true }`；短信正文按不可信数据处理，发送默认仅限已知号码并按小时限额，防范提示词注入。
+- **🤖 原生 MCP Server（Streamable HTTP `/mcp` + 零状态 `stdio` 桥接）**
+  - 零外部依赖完整实现 JSON-RPC 2.0 MCP 服务端（[`FengSuiMcpServer`](src/mcp-server.ts)，协议 `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`），挂载在守护进程 `/mcp`；`cpe-dash mcp` 只是把 stdio 转发到该端点的零状态桥接，**整个系统只有守护进程一个 CPE 会话出口**。向 Claude Desktop、Antigravity、Cursor 及内网自动化 Agent 暴露 **13 项核心工具**与**最多 10 项短信工具**（按 `MCP_SMS_ACCESS` 分级）。
+  - 工具 `inputSchema` 在服务端强制校验（未知键、缺失、类型、范围），`reboot_cpe`、`reconnect_cellular`、`send_sms`、`delete_sms` 强制 `{ confirm: true }`；锁频段只接受 H168-383 支持的 LTE 频段与 3GPP NR 频段，锁小区的 ARFCN 必须落在该频段范围内，且 `lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止智能体幻觉参数断网；短信正文按不可信数据处理，发送默认仅限已知号码并按小时限额，防范提示词注入。
 - **🛡️ 现代 Web 纵深防御体系**
   - 内置 `Host` 白名单防 DNS Rebinding (`421`)、`SameSite=Strict; HttpOnly` 会话隔离、`X-Requested-With` + `Origin` 双重防 CSRF、`net.BlockList` 可信反代 CIDR 校验 + IPv6 `/64` 速率限制桶、无原型字典防 Prototype Pollution、线性扫描防 ReDoS 以及 `normalizeCpeUrl` 私网源防 SSRF。
 
@@ -208,14 +213,21 @@ cpe-dash/
 │   ├── cpe-domain.ts                # 聚合遥测、邻区扫描、锁频锁站、安全开关与 Wi-Fi 7 MLO 领域服务
 │   ├── timeseries.ts                # 双层定长环形时序数据库 (5s 细粒度环 + 60s 7天归档环)
 │   ├── state-store.ts               # 异步原子加密持久化与密钥轮换自愈状态库
-│   ├── scheduler.ts                 # 全局单实例互斥调度器、单飞请求合并与 Layer-2 退避引擎
+│   ├── scheduler.ts                 # 唯一 CPE 会话出口：优先级互斥队列、双层避让、Layer-2 退避与熔断告警
+│   ├── cpe-monitor.ts               # 后台轮询、单飞刷新、快照缓存与时序写入（读侧）
+│   ├── cpe-controls.ts              # 锁频锁站、重启重拨与路由器开关（写侧，入队前校验）
+│   ├── core.ts                      # FengSuiCore：scheduler + monitor + controls 装配
+│   ├── control-input.ts             # REST 与 MCP 共用的入参校验
+│   ├── mcp-schema.ts                # MCP 工具 inputSchema 运行时校验器
 │   ├── alert-engine.ts              # 持续窗口 + 迟滞告警引擎（离线 / WAN / 信号 / CA / 重启 / 短信存储 / 流量）
 │   ├── sms/                         # 短信协议、号码解析、加密镜像、通讯录、SmsService、REST 路由与 MCP 工具
 │   ├── notify/                      # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── sse-bus.ts                   # /api/events 毫秒级 SSE 扇出总线、慢消费背压剔除与心跳保活
-│   ├── mcp-server.ts                # 原生 JSON-RPC 2.0 MCP Server (stdio NDJSON + Streamable HTTP)
-│   ├── http-server.ts               # 纵深加固 HTTP/REST/SSE/MCP 与静态资源服务器 (:18384)
-│   ├── cli.ts                       # 统一守护进程 (serve) 与 MCP (mcp) 命令行入口
+│   ├── mcp-server.ts                # 原生 JSON-RPC 2.0 MCP Server（挂载于守护进程 /mcp）
+│   ├── mcp-stdio-bridge.ts          # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不建 CPE 客户端）
+│   ├── http-server.ts               # 纵深加固 HTTP/REST/SSE/MCP 路由服务器 (:18384)
+│   ├── http-auth.ts / http-static.ts # Cookie 会话、鉴权限流、CSRF / 离线静态资源
+│   ├── cli.ts                       # serve 守护进程（数据目录锁）与 mcp 桥接命令行入口
 │   └── index.ts                     # 公共 SDK 模块导出入口
 ├── scripts/
 │   ├── audit-secrets.ts             # 工作区 + 全量 Git 历史零密钥/零硬件指纹/纯 TS 扫描门禁
@@ -252,13 +264,13 @@ npm start
 
 ### 3. 接入 AI 智能体 (MCP Server)
 
-- **本地 `stdio` 模式**（Claude Desktop / Antigravity / Cursor）：
+- **本地 `stdio` 模式**（Claude Desktop / Antigravity / Cursor）：先启动 `serve` 守护进程，再让智能体运行桥接：
   ```bash
   npm run mcp
   # 或指定配置文件：node --experimental-strip-types src/cli.ts mcp --env /path/to/.env
   # （Node 22.18+ / 23.6+ 可省略该标志；所有 npm 脚本已内置）
   ```
-  stdio 进程有独立的调度器。若 `serve` 守护进程已在同一数据目录运行，stdio 进程不会提供短信工具（短信存储由守护进程独占），请让智能体改连守护进程的 HTTP `/mcp`。
+  `cpe-dash mcp` 是**零状态桥接**：它从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`），把每行 JSON-RPC 转发给守护进程，自身不创建 CPE 客户端、调度器或任何存储，因此不会与守护进程争抢单管理员会话。守护进程未运行时，每个请求都会收到 JSON-RPC 错误 `-32002`；令牌错误等被拒绝时为 `-32001`。旧的 `--poll` 参数已无作用（仅打印警告）。
 - **内网 / Tailscale Streamable HTTP 模式**：
   ```bash
   curl -X POST http://127.0.0.1:18384/mcp \
@@ -350,7 +362,9 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `ALLOWED_HOSTS` | *(空)* | 额外放行的 HTTP `Host`（如反代域名），拦截 DNS Rebinding (`421`)；私网/环回/链路本地 IP、`localhost`、`*.local`/`*.lan`/`*.internal`/`*.ts.net` 与单标签主机名始终放行 |
 | `WEB_PORT` | `18384` | Web 控制台、SSE 与 `/mcp` 默认监听端口 |
 | `DEFAULT_LOCALE` | `zh-CN` | 默认界面与提示语言（`zh-CN` 或 `en`） |
-| `MCP_HTTP_ENABLED` | `true` | 是否启用 `POST /mcp` Streamable HTTP 智能体端点 |
+| `MCP_HTTP_ENABLED` | `true` | 是否启用 `POST /mcp` Streamable HTTP 智能体端点（`cpe-dash mcp` 桥接也依赖它） |
+| `MCP_DAEMON_URL` | *(由 `WEB_HOST`/`WEB_PORT` 推导)* | `cpe-dash mcp` 桥接转发的守护进程 `/mcp` 地址；须为局域网/环回主机，不得含凭据、查询串或片段 |
+| `TZ` | *(系统时区)* | IANA 时区（如 `Europe/Dublin`）；启动与 `reset-breaker` 重载时写入进程环境，发出短信的 `<Date>` 按此生成；进程环境已设置 `TZ` 时以其为准 |
 | `MCP_ALLOW_MUTATIONS` | `true` | 是否允许 MCP 调用写操作工具（设为 `false` 仅暴露只读观测工具） |
 | `HISTORY_RETENTION_HOURS` | `168` | 环形时序数据库历史保留时长（默认 168 小时 = 7 天） |
 | `POLL_INTERVAL_MS` | `5000` | 常规射频与实时速率采样周期（毫秒） |
