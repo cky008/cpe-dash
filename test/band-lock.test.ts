@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  H168_383_LTE_BANDS,
   HUAWEI_LTE_ALL_BANDS_MASK,
   HUAWEI_NETWORK_ALL_BANDS_MASK,
   LOCK_MODE_BAND,
@@ -16,6 +17,8 @@ import {
   buildUnlockAllLocksXml,
   decomposeLteEci,
   decomposeNrNci,
+  LTE_DL_EARFCN_RANGES,
+  NR_DL_ARFCN_RANGES,
   hexMaskToBands,
   parseBandNumber,
 } from "../src/band-lock.ts";
@@ -115,5 +118,37 @@ describe("BandMask bitwise codec & Cell Lock payload builders (CpeVendorHUAWEI v
     assert.deepEqual(nrDec, { nci: nciVal, gNodeBId: 4194305n, sectorId: 7 });
     assert.throws(() => decomposeNrNci("100", 20), /gNodeB bit length/);
     assert.throws(() => decomposeNrNci(-1n, 24), /Invalid 36-bit NR NCI/);
+  });
+});
+
+describe("lock parameters are bounded by the H168-383 band list and 3GPP ARFCN ranges", () => {
+  it("only locks LTE bands the router advertises in net-mode-list", () => {
+    assert.equal(bandsToHexMask(H168_383_LTE_BANDS), "40000007a0880800d5", "matches the router's LTEBandList mask");
+    assert.deepEqual(Object.keys(LTE_DL_EARFCN_RANGES).map(Number), [...H168_383_LTE_BANDS]);
+    for (const unsupported of ["B2", "B4", "B66", 99, "LTE BC255"]) {
+      assert.throws(() => buildLteBandNetModeXml([unsupported]), /not supported by the H168-383/, String(unsupported));
+    }
+    assert.throws(() => buildLteBandNetModeXml(["B1", "B2"]), /B2/);
+    assert.equal(getXmlTag(buildLteBandNetModeXml(["B71"]), "LTEBand"), "400000000000000000");
+  });
+
+  it("only locks NR bands from the 3GPP FR1 table", () => {
+    assert.throws(() => buildNrBandLockXml(["N255"]), /not a known 3GPP NR band/);
+    assert.throws(() => buildNrBandLockXml(["N78", "N2"]), /N2/);
+    assert.equal(getXmlTag(getXmlBlocks(buildNrBandLockXml(["N28", "N78"]), "nr_info")[0]!, "all_bands"), bandsToHexMask([28, 78]));
+    assert.ok(Object.keys(NR_DL_ARFCN_RANGES).length >= 10);
+  });
+
+  it("rejects a cell lock whose ARFCN lies outside the band's downlink range", () => {
+    assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 100, pci: 357 }), /Invalid ARFCN 100 for B3 \(3GPP DL EARFCN 1200\.\.1949\)/);
+    assert.throws(() => buildLteCellLockXml({ band: "B20", earfcn: 1700 }), /for B20/);
+    assert.throws(() => buildNrCellLockXml({ band: "N78", nrArfcn: 422000, pci: 1 }), /Invalid ARFCN 422000 for N78/);
+    assert.throws(() => buildLteCellLockXml({ band: "B2", earfcn: 900 }), /not supported by the H168-383/);
+    assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 1700.5 }), /Invalid ARFCN/);
+    // Real neighbour-scan pairs and the band edges are accepted
+    for (const [band, earfcn] of [["B1", 100], ["B3", 1700], ["B3", 1200], ["B3", 1949], ["B1", 0], ["B71", 68600]] as const) {
+      assert.equal(getXmlTag(buildLteCellLockXml({ band, earfcn }), "freq"), String(earfcn));
+    }
+    assert.equal(getXmlTag(buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 357 }), "freq"), "647424");
   });
 });

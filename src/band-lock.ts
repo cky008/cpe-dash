@@ -25,6 +25,85 @@ export type HuaweiLockMode =
 
 export type BandInput = number | string;
 
+/**
+ * LTE bands the H168-383 advertises in `GET /api/net/net-mode-list` (`<LTEBandList>`, mask
+ * `40000007a0880800d5`). Locking LTE to any other band could leave the modem without an LTE anchor.
+ */
+export const H168_383_LTE_BANDS: ReadonlyArray<number> = [1, 3, 5, 7, 8, 20, 28, 32, 38, 40, 41, 42, 43, 71];
+
+/** Downlink EARFCN range per H168-383 LTE band (3GPP TS 36.101, Table 5.7.3-1). */
+export const LTE_DL_EARFCN_RANGES: Readonly<Record<number, readonly [number, number]>> = {
+  1: [0, 599],
+  3: [1200, 1949],
+  5: [2400, 2649],
+  7: [2750, 3449],
+  8: [3450, 3799],
+  20: [6150, 6449],
+  28: [9210, 9659],
+  32: [9920, 10359],
+  38: [37750, 38249],
+  40: [38650, 39649],
+  41: [39650, 41589],
+  42: [41590, 43589],
+  43: [43590, 45589],
+  71: [68586, 68935],
+};
+
+/**
+ * Downlink NR-ARFCN range per FR1 band (3GPP TS 38.101-1, Table 5.4.2.3-1) for the bands deployed
+ * in this CPE's market. The router does not advertise its NR band list, so this bounds requests to
+ * real 3GPP bands; it is not a verified hardware capability list.
+ */
+export const NR_DL_ARFCN_RANGES: Readonly<Record<number, readonly [number, number]>> = {
+  1: [422000, 434000],
+  3: [361000, 376000],
+  5: [173800, 178800],
+  7: [524000, 538000],
+  8: [185000, 192000],
+  20: [158200, 164200],
+  28: [151600, 160600],
+  38: [514000, 524000],
+  40: [460000, 480000],
+  41: [499200, 537999],
+  75: [286400, 303400],
+  76: [285400, 286400],
+  77: [620000, 680000],
+  78: [620000, 653333],
+  79: [693334, 733333],
+};
+
+/** Parse an LTE band and require it to be one the H168-383 supports. */
+export function parseSupportedLteBand(input: BandInput): number {
+  const band = parseBandNumber(input);
+  if (!H168_383_LTE_BANDS.includes(band)) {
+    throw new Error(
+      `LTE band B${band} is not supported by the H168-383 (supported: ${H168_383_LTE_BANDS.map((b) => `B${b}`).join(", ")})`
+    );
+  }
+  return band;
+}
+
+/** Parse an NR band and require it to be in the 3GPP FR1 table above. */
+export function parseKnownNrBand(input: BandInput): number {
+  const band = parseBandNumber(input);
+  if (NR_DL_ARFCN_RANGES[band] === undefined) {
+    throw new Error(
+      `N${band} is not a known 3GPP NR band for this CPE (known: ${Object.keys(NR_DL_ARFCN_RANGES).map((b) => `N${b}`).join(", ")})`
+    );
+  }
+  return band;
+}
+
+function validateArfcnInBand(rat: "LTE" | "NR", band: number, arfcn: number): number {
+  const range = rat === "LTE" ? LTE_DL_EARFCN_RANGES[band] : NR_DL_ARFCN_RANGES[band];
+  const label = rat === "LTE" ? `B${band} (3GPP DL EARFCN` : `N${band} (3GPP DL NR-ARFCN`;
+  if (!Number.isInteger(arfcn) || range === undefined || arfcn < range[0] || arfcn > range[1]) {
+    const bounds = range ? ` ${range[0]}..${range[1]})` : ")";
+    throw new Error(`Invalid ARFCN ${arfcn} for ${label}${bounds}`);
+  }
+  return arfcn;
+}
+
 export interface LteCellLockParams {
   band: BandInput;
   earfcn: number;
@@ -91,13 +170,6 @@ export function hexMaskToBands(hexMask: string): number[] {
   return out;
 }
 
-function validateArfcn(arfcn: number): number {
-  if (!Number.isInteger(arfcn) || arfcn < 1 || arfcn > 3_279_165) {
-    throw new Error(`Invalid ARFCN "${arfcn}" (expected positive integer within 3GPP range)`);
-  }
-  return arfcn;
-}
-
 function validatePci(pci: number): number {
   if (!Number.isInteger(pci) || pci < 0 || pci > 1007) {
     throw new Error(`Invalid PCI "${pci}" (expected integer 0..1007)`);
@@ -119,7 +191,7 @@ export function buildLteBandNetModeXml(
     if (lteBands.length === 0) {
       throw new Error("At least one LTE band is required (or pass 'all' to unlock)");
     }
-    lteMask = bandsToHexMask(lteBands);
+    lteMask = bandsToHexMask(lteBands.map(parseSupportedLteBand));
   }
   return buildXmlRequest({
     NetworkMode: networkMode,
@@ -136,7 +208,7 @@ export function buildNrBandLockXml(nrBands: ReadonlyArray<BandInput>): string {
   if (nrBands.length === 0) {
     throw new Error("At least one 5G NR band is required");
   }
-  const uniqueSorted = [...new Set(nrBands.map(parseBandNumber))].sort((a, b) => a - b);
+  const uniqueSorted = [...new Set(nrBands.map(parseKnownNrBand))].sort((a, b) => a - b);
   return buildXmlRequest({
     lte_info: {
       lock_mode: LOCK_MODE_UNLOCK,
@@ -158,8 +230,8 @@ export function buildNrBandLockXml(nrBands: ReadonlyArray<BandInput>): string {
  * or frequency (`lock_mode=1` when `pci` is omitted).
  */
 export function buildLteCellLockXml(params: LteCellLockParams): string {
-  const band = parseBandNumber(params.band);
-  const freq = validateArfcn(params.earfcn);
+  const band = parseSupportedLteBand(params.band);
+  const freq = validateArfcnInBand("LTE", band, params.earfcn);
   const hasPci = params.pci !== undefined;
   const freqInfo: Record<string, number> = { band, freq };
   if (hasPci) {
@@ -182,8 +254,8 @@ export function buildLteCellLockXml(params: LteCellLockParams): string {
  * or NR-ARFCN frequency (`lock_mode=1` when `pci` is omitted).
  */
 export function buildNrCellLockXml(params: NrCellLockParams): string {
-  const band = parseBandNumber(params.band);
-  const freq = validateArfcn(params.nrArfcn);
+  const band = parseKnownNrBand(params.band);
+  const freq = validateArfcnInBand("NR", band, params.nrArfcn);
   const hasPci = params.pci !== undefined;
   const freqInfo: Record<string, number> = { band, freq };
   if (hasPci) {
