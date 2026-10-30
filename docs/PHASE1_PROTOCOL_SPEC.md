@@ -2,7 +2,7 @@
 
 > **目标硬件**：华为 5G CPE Ultra 6 (`H168-383` / 硬件代号 `WL1H168M`)  
 > **实测固件**：`4.4.0.1 (H1006SP19C00)` | **WebUI 版本**：`WEBUI 4.4.0.1 (W2SP24C03)`  
-> **适用范围**：「烽燧」(FengSui / `cpe-dash`) Phase 1 侦察收官与 Phase 2 后端守护进程 / 前端可视化开发权威契约（明确排除短信业务）  
+> **适用范围**：「烽燧」(FengSui / `cpe-dash`) Phase 1 侦察收官与 Phase 2 后端守护进程 / 前端可视化开发权威契约（Phase 2.2 起纳入短信接口，见 3.8 节）  
 > **脱敏审计承诺**：本文档全部报文样本均严格遵循 RFC 5737 / RFC 3849 / RFC 7042 与合成占位符规范，零真实密码、零真实公网 IP、零真实 MAC/IMEI/IMSI/ICCID/TAC/CellID。
 
 ---
@@ -487,6 +487,83 @@ sequenceDiagram
 | **设备软重启控制** | `POST /api/device/control` | XML | `<request><Control>1</Control></request>`（高危写操作，前端须二次确认） |
 | **Ping / Traceroute 诊断** | `POST` 触发 -> `GET` 轮询 `/api/diagnosis/ping_result` & `traceroute_result` | XML | 重要边界：未先发送 `POST` 触发任务前直接 `GET` 返回 `100003`；触发后轮询 `<DiagnosticsState>` 直至 `Complete` |
 
+
+### 3.8 短信接口（Phase 2.2 纳入，封装于 `src/sms/protocol.ts`）
+
+> **来源与验证状态**：路由、载荷与加密格式和 `cpe-sms` 在同一台 H168-383（固件 `4.4.0.1`）上实际运行的实现一致。「烽燧」侧由加密 Mock 路由器（`test/helpers/mock-sms-cpe.ts`）覆盖。只读探针 `npm run probe:sms` 用于在真机上确认实际可用的列表通道与全量拉取耗时。
+>
+> **会话约束**：除免登录的 `check-notifications` 外，以下接口都必须在 `MutexSessionScheduler` 分配的瞬时会话内调用（铁律四），严禁独立登录轮询。
+
+#### 3.8.1 接口总表
+
+| 能力 | 方法与路径 | 编码（`enc-type`） | 说明 |
+| :--- | :--- | :--- | :--- |
+| 未读与存储满探测（免登录） | `GET /api/monitoring/check-notifications` | 明文 | `<UnreadMessage>`、`<SmsStorageFull>`；让位期间每 5s 探测，零会话 |
+| 短信计数 | `GET /api/sms/sms-count` | 明文 | `<LocalUnread>`、`<LocalInbox>`、`<LocalOutbox>`、`<LocalDraft>`、`<LocalMax>`；捎带在 5s 遥测会话内，作为同步触发器 |
+| 按信箱分页列表（首选） | `POST /api/sms/sms-list` | 明文 XML | `BoxType` `1`=收件箱、`2`=发件箱；每页 ≤50 |
+| 会话（联系人）列表（回退） | `POST /api/sms/sms-list-contact` | `enc-type=1` | 每个会话的最新一条；`sms-list` 返回 CPE 错误码时启用 |
+| 会话总数 | `GET /api/sms/sms-count-contact` | 明文 | `<count>` |
+| 单号码消息数 | `POST /api/sms/sms-count-contact` | `enc-type=2` | 请求体 `<phone>` 需经 Huawei `xss()` 转义 |
+| 单号码消息列表（回退） | `POST /api/sms/sms-list-phone` | `enc-type=3` | 双向消息，每页 ≤20 |
+| 发送 | `POST /api/sms/send-sms` | `enc-type=2` | 最多 5 个收件人、4 段 |
+| 发送状态轮询 | `POST /api/sms/send-status` | `enc-type=1` | 每 2s 一次，最长 45s（`SMS_SEND_STATUS_TIMEOUT_MS`） |
+| 标记已读 | `POST /api/sms/set-read` | 明文 XML | 每批 ≤20 个 `<Index>` |
+| 删除 | `POST /api/sms/delete-sms` | 明文 XML | 每批 ≤20 个 `<Index>` |
+
+#### 3.8.2 加密通道（`enc-type`）
+
+1. 会话内首次加密调用前，`GET /api/webserver/publickey` 取得 `<ecc_server_pubkey>`；客户端按 2.1 节的非钳位大端 Curve25519 生成临时密钥对并派生共享密钥（同一会话内复用）。
+2. 请求 URL 追加查询串 `?ecc-client-pubkey=<客户端公钥 hex>&enc-type=<1|2|3>`：
+
+   | `enc-type` | 请求体 | 响应体 |
+   | :--- | :--- | :--- |
+   | `1` | 明文 XML | AES-256-GCM 密文 |
+   | `2` | AES-256-GCM 密文 | 明文 XML |
+   | `3` | AES-256-GCM 密文 | AES-256-GCM 密文 |
+
+3. 密文为十六进制串：`[8 hex：uint32 LE 明文 UTF-8 字节长度][24 hex：12 字节 IV][32 hex：16 字节 GCM Tag][密文 hex]`，**AAD 固定为 16 个零字节**。解密后截取明文长度，并从 `<response>` 或 `<error>` 起始处解析；`<error><code>…</code></error>` 按 2.3 节错误码处理。
+
+#### 3.8.3 请求模板与脱敏样本
+
+```xml
+<!-- POST /api/sms/sms-list（明文） -->
+<?xml version="1.0" encoding="UTF-8"?>
+<request><PageIndex>1</PageIndex><ReadCount>50</ReadCount><BoxType>1</BoxType><SortType>0</SortType><Ascending>0</Ascending><UnreadPreferred>0</UnreadPreferred></request>
+
+<!-- 响应（仅列出「烽燧」解析的字段；字段名大小写不敏感） -->
+<response>
+  <Messages>
+    <Message><Smstat>0</Smstat><Index>40001</Index><Phone>DemoBank</Phone><Content>Your verification code is 482913</Content><Date>2026-10-29 09:00:00</Date></Message>
+    <Message><Smstat>1</Smstat><Index>40002</Index><Phone>+353830000001</Phone><Content>Dinner at 7?</Content><Date>2026-10-29 18:00:00</Date></Message>
+  </Messages>
+</response>
+
+<!-- POST /api/sms/sms-list-contact?ecc-client-pubkey=…&enc-type=1（请求明文，响应解密后） -->
+<request><pageindex>1</pageindex><readcount>20</readcount></request>
+<response><messages><message><smstat>0</smstat><index>40002</index><phone>+353830000001</phone><content>Dinner at 7?</content><date>2026-10-29 18:00:00</date><curbox>0</curbox></message></messages></response>
+
+<!-- POST /api/sms/sms-list-phone?…&enc-type=3（加密前明文） -->
+<request><phone>+353830000001</phone><pageindex>1</pageindex><readcount>20</readcount></request>
+
+<!-- POST /api/sms/send-sms?…&enc-type=2（加密前明文；Content 已按 xss() 转义，Length 为转义后长度） -->
+<request><Index>-1</Index><Phones><Phone>+353830000001</Phone></Phones><Sca></Sca><Content>See you at 7 &#40;table for 2&#41;</Content><Length>34</Length><Reserved>1</Reserved><Date>2026-10-30 09:00:00</Date></request>
+
+<!-- POST /api/sms/send-status?…&enc-type=1 响应（解密后）：<Phone> 非空表示仍在发送 -->
+<response><Phone></Phone><SucPhone>+353830000001</SucPhone><FailPhone></FailPhone><SendFailCode>0</SendFailCode></response>
+
+<!-- POST /api/sms/set-read 与 /api/sms/delete-sms（明文，每批 ≤20） -->
+<request><Index>40001</Index><Index>40002</Index></request>
+```
+
+#### 3.8.4 字段语义与编码规则
+
+- **`Smstat`**：`0` 未读来信、`1` 已读来信、`3` 已发送、`4` 发送失败；加密列表中的 `<curbox>`（`0` 收件、`1` 发件）优先决定方向。
+- **`Index` 会被复用**：删除后 CPE 可能把同一索引分配给新短信，因此「烽燧」以 `sha256(index \0 date \0 phone)` 截断得到的不透明 `uid` 识别消息，对外不暴露号码。
+- **文本模式 `Reserved`**：`1` = GSM 7-bit（单段 160、长短信每段 153 个 septet，扩展字符计 2）；`0` = UCS-2（单段 70、长短信每段 67 个码元）。单次发送上限 4 段，超出在会话前拒绝。
+- **Huawei `xss()` 转义**：`send-sms` 的 `Content` 与 `sms-count-contact` 的 `phone` 须预先转义 `& ' " < > / ( )` 为 `&amp; &#39; &quot; &lt; &gt; &#x2F; &#40; &#41;`，并原样写入 XML（`PreEscapedXmlText`，避免二次转义）；`Length` 取转义后的字符数。响应中的正文按同一映射反转义，保留原始换行。
+- **发送状态判定**：轮询直到 `<Phone>` 为空；`<SucPhone>` / `<FailPhone>` 以逗号或分号分隔，`<SendFailCode>` 非 `0` 视为失败码（如 `113018`）。45s 内未收敛时视为「已提交、状态未确认」。
+- **同步策略**：计数中 `LocalInbox` 增长且不超过 20 条、发件箱不变 → 只拉取收件箱首页（增量）；其余变化（删除、发件箱变化、大量到达）→ 全量对账（分页拉取两个信箱，或回退为逐会话拉取）。另有 30 分钟兜底全量对账，失败后退避 60s。
+
 ---
 
 ## 4. 核心逆向算法与数学计算公式（已封装于 `src/band-lock.ts` 与 `src/parsers.ts`）
@@ -620,4 +697,5 @@ $$
 | [`scripts/probe-topology.ts`](../scripts/probe-topology.ts) | `npm run probe:topology` | 解析 `HostInfo` 与 `topology` JSON，分类千兆网口与双频 Wi-Fi 终端 | `47 ms` 识别 `32` 台历史设备、`12` 台在线（`LAN_1000M` / `2.4G` / `5G`）、双栈 IPv6 与租期 |
 | [`scripts/probe-session-avoidance.ts`](../scripts/probe-session-avoidance.ts) | `npm run probe:session` | 压测瞬时短连耗时，验证 Cookie 作用域与双层真人浏览器避让 | 3 轮均值 `26 ms` 即登出释放；验证同 IP 零抢占及 `State=0` / `108003` 双层静默让位 |
 | [`scripts/probe-extended-capabilities.ts`](../scripts/probe-extended-capabilities.ts) | `npm run probe:extended` | 探索 Wi-Fi 7 MLO、天线切换、静态 DHCP、双栈 APN 与网络诊断 | `130 ms` 并发拉取 18 接口，确认 `802.11be` MLO、5 条静态绑定、IPv4v6 双栈 APN 与定时重启 |
+| [`scripts/probe-sms.ts`](../scripts/probe-sms.ts) | `npm run probe:sms` | 只读验证短信计数、列表通道（明文 `sms-list` 或加密回退）与全量拉取会话耗时，仅输出聚合计数 | Phase 2.2 新增，待真机运行确认（不发送、不标记已读、不删除） |
 | [`scripts/audit-secrets.ts`](../scripts/audit-secrets.ts) | `npm run audit:secrets` | 扫描工作区与全量 `git log -p --all` 历史，拦截密钥/PII 与纯 `.js` | 全仓源码、测试、文档与全量提交历史 100% 通过门禁 |

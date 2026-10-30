@@ -3,7 +3,7 @@
 > **宿主机目标画像**：群晖 Synology DS923+（AMD Ryzen Embedded R1600 双核四线程 `2.6–3.1 GHz`，配备 **32 GB ECC DDR4 内存**，7×24×365 家庭内网/Tailscale 无人值守运行）  
 > **受控网元设备**：华为 5G CPE Ultra 6（`H168-383` / `WL1H168M`，零售固件 `4.4.0.1(H1006SP19C00)`，网关 `192.168.8.1`，单管理员排他会话）  
 > **前置权威契约**：[`AGENTS.md`](../AGENTS.md) 与 [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md)  
-> **文档性质**：本报告为实现前的架构评估，部分内部命名为设计期草案；REST / SSE / MCP 字段与行为以 [`docs/PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 和 `src/` 为准。
+> **文档性质**：本报告为实现前的架构评估，部分内部命名为设计期草案；REST / SSE / MCP 字段与行为以 [`docs/PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 和 `src/` 为准。第 5 节（Phase 2.2 短信融合）按已实现的代码撰写。
 
 ---
 
@@ -189,3 +189,115 @@ stateDiagram-v2
 | `preset = "custom"` | 任意 `[fromMs, toMs]`（最长 7d） | 若 `fromMs >= now - 3h` 且桶宽 `< 60s` 优先取 **Tier-1**；否则无缝拼接 **Tier-2 + Tier-1 尾部** | 自适应 `ceil((toMs - fromMs) / maxPoints)`（默认 `maxPoints = 360`，上限 `1,440`） | `<= 1,440` 点 |
 
 每个输出时序数据桶统一提供 `tsMs` / `tsIso` / `sampleCount`、上下行速率（`dlAvgBps` / `dlPeakBps` / `ulAvgBps` / `ulPeakBps`）、4G/5G 关键射频（`lteRsrpAvgDbm` / `lteRsrpMinDbm` / `lteSinrAvgDb` / `nrRsrpAvgDbm` / `nrRsrpMinDbm` / `nrSinrAvgDb`）及温度（`temperatureAvgCelsius` / `temperatureMaxCelsius`），使前端 ECharts / Canvas 曲线组件与 AI Agent `query_telemetry_history` 工具可直接消费，无需在客户端做二次重采样。
+
+---
+
+## 5. 短信业务融合架构（Phase 2.2）
+
+### 5.1 问题：两个进程争抢同一个管理员槽位
+
+旧架构中，`cpe-sms`（短信）与 `cpe-dash`（遥测）各自运行独立的登录与轮询。H168-383 同一时刻只允许一个管理员会话，而在对方看来，另一个进程的会话与真人浏览器登录无从区分：
+- 一方会话期间，另一方的第 1 层 `state-login` 预检看到 `State=0`，于是进入避让；
+- 双方以各自的节奏轮询（遥测 5s、短信轮询），会话窗口交错，结果是彼此频繁让位、SSE `session:avoidance` 抖动、遥测断点与短信延迟；
+- 两套熔断器各自计算密码错误次数，可能叠加触发 `108007` 硬件锁定。
+
+没有进程间协议时，这个冲突无法靠调参解决。Phase 2.2 的结论是**把短信并入「烽燧」，由同一个 `MutexSessionScheduler` 调度所有 CPE 访问**。`cpe-dash` 仍保持 100% 独立仓库，不引用 `cpe-sms` 的任何代码或数据；短信镜像直接从 CPE 同步（存储上限 500 条，无需迁移旧归档）。
+
+### 5.2 模块分层
+
+| 层 | 模块 | 职责 |
+| :--- | :--- | :--- |
+| 协议 | `src/sms/codec.ts`、`src/sms/phone.ts`、`src/sms/protocol.ts` | GSM-7 / UCS-2 分段、验证码提取、报文解析；54 国号码解析与收件人归一化；明文 / 加密列表、发送与状态轮询、已读与删除（只接受调度器分配的 `EphemeralCpeSession`） |
+| 存储 | `src/sms/mirror.ts`、`src/sms/contacts.ts`、`src/notify/telegram-bot.ts`（`TelegramStateStore`） | 加密短信镜像（不透明 `uid`、已推送集合、首次同步标记）、通讯录（≤5000，vCard 导入）、Telegram 授权聊天与回复路由 |
+| 应用 | `src/sms/service.ts` | REST / MCP / Telegram 的唯一短信入口：变化检测、单飞同步、发送回读、事件广播 |
+| 告警 | `src/alert-engine.ts` | 基于遥测与调度器状态的持续窗口 + 迟滞规则 |
+| 通知 | `src/notify/hub.ts`、`telegram-api.ts`、`telegram-bot.ts`、`webhook.ts` | 扇出到各通道，单通道故障互不影响 |
+| 接口 | `src/sms/http-routes.ts`、`src/sms/mcp-tools.ts`、`src/sse-bus.ts` | `/api/sms/*`、MCP 短信工具、SSE 短信事件 |
+| 装配 | `src/cli.ts` | 单进程独占短信存储、有序启停、`.env` 热重载后的密钥轮换 |
+
+### 5.3 调度与同步：零额外会话的变化检测
+
+```mermaid
+sequenceDiagram
+    participant T as 遥测定时器 (5s)
+    participant S as MutexSessionScheduler
+    participant C as H168-383
+    participant M as SmsService
+    participant N as NotificationHub
+
+    T->>S: refreshTelemetry (normal)
+    S->>C: 同一瞬时会话：信号 / 流量 / … + GET /api/sms/sms-count
+    S-->>M: telemetry 事件（含 SmsCounters）
+    alt 计数与上次同步一致
+        M-->>M: 无操作（零额外会话）
+    else 收件箱新增 ≤20 且发件箱不变
+        M->>S: executeRead 增量同步（收件箱首页）
+    else 其他变化（删除、发件、大量到达）
+        M->>S: executeRead 全量对账
+    end
+    S->>C: 瞬时会话 + finally logout
+    S-->>M: 同步结果写入加密镜像
+    M-->>N: 会话释放后发出 sms:new（仅新未读来信）
+    N-->>N: Telegram / Webhook 扇出
+```
+
+- **计数捎带**：`sms-count` 随每次遥测会话读取，不单独登录；只有计数与「上次同步时的计数」不一致才排队同步。
+- **单飞与合并**：同一时刻最多一个同步在途；全量同步可吸收并发的增量请求，增量期间到来的全量请求排在其后。
+- **兜底与退避**：每 `SMS_FULL_SYNC_INTERVAL_MS`（默认 30 分钟）以 `low` 优先级全量对账一次；同步失败后 60s 内不再自动重试。
+- **让位期间**：真人登录 `192.168.8.1` 时不开任何会话，改用免登录的 `check-notifications` 每 5s 探测未读数与存储满状态，并在 `sms:status` 中标记 `syncPending`。真人退出后，下一次遥测计数驱动补同步。
+- **写操作**：发送、已读、删除都经 `executeControl`（`high` 优先级），真人在线时直接返回 `409`。发送在同一会话内轮询 `send-status`（2s 间隔、最长 45s），随后读回该号码的会话，用 CPE 的真实发件记录替换临时记录；读回失败时保留 `pending` 临时记录，等待下一次同步。
+- **通知在会话外**：`sms:new` 在会话释放后才发出，Telegram / Webhook 的网络延迟不会延长管理员槽位占用。
+
+| 操作 | 会话开销 |
+| :--- | :--- |
+| 无变化 | 0（只多一次 `GET` 捎带在遥测会话内） |
+| 新到 1 条短信 | 1 次读会话：计数 + 收件箱首页 |
+| 全量对账（`N` 条） | 1 次读会话：`ceil(收件 / 50) + ceil(发件 / 50)` 页；回退通道为逐会话分页 |
+| 发送 | 1 次控制会话：提交 + 状态轮询 + 回读 |
+
+### 5.4 存储：加密镜像而非历史归档
+
+- **镜像语义**：本地镜像始终与 CPE 一致。全量对账会移除 CPE 上已不存在的记录（包括未被确认的临时发件），删除操作同时作用于 CPE 与镜像，因此不存在「仅本地归档」的数据。
+- **标识**：CPE 索引会被复用，消息以 `sha256(index \0 date \0 phone)` 截断的 `uid` 标识，对外不暴露号码。
+- **只推送一次**：已推送 `uid` 集合（上限 3000）与首次同步标记一同持久化。全新部署的首次同步把已有短信视为历史；之后服务离线期间到达的未读来信会在重启后补推。
+- **加密与原子性**：镜像、通讯录与 Telegram 状态均为 `StorageCipher`（scrypt + HKDF-SHA256 + AES-256-GCM）密文，`0600` 临时文件 + `fsync` + `rename` 串行写入；无法解密的文件改名为 `*.unreadable-<时间戳>` 隔离，不覆盖。
+- **单进程独占**：短信存储旁的 `sms.json.lock` 记录持有者 PID。第二个进程（如与守护进程并行的 stdio MCP）检测到存活持有者后以无短信模式运行；PID 已失效或等于自身 PID（容器重启复用 PID）的锁视为陈旧锁并接管。
+- **密钥轮换**：`POST /api/session/reset-breaker` 重新读取 `.env` 后，用新密钥立即重写全部加密文件。`DATA_ENCRYPTION_KEY` 留空时等于 `CPE_PASSWORD`，因此更换路由器密码也会更换数据密钥；启动时若检测到这种回退会打印提示，建议配置独立密钥。
+
+### 5.5 通知与告警
+
+- **`NotificationHub`**：订阅 `SmsService` 的 `sms:new` 与调度器的 `alert`，按 `ALERT_NOTIFY_MIN_SEVERITY` 过滤告警后用 `Promise.allSettled` 扇出，单通道失败只计入统计（`GET /api/alerts`），日志不含号码与正文。
+- **Telegram 双向机器人**（长轮询，仅 `serve` 进程）：
+  - 来信卡片：发件人 / 联系人 / 国旗、一键复制的验证码、回复该卡片即发送，以及「已读 / 会话 / 删除（二次确认）」按钮；
+  - 引导式发短信 `/new`：国家快捷切换、号码或联系人搜索、GSM-7 / UCS-2 分段预览、确认后发送；`/send` 同样需要确认；
+  - `/inbox`、`/unread`、`/chat`、`/contacts`、`/contact`、`/status`、`/alerts` 读取镜像与遥测缓存，不额外开会话；`/sync` 显式同步；`/mute` 暂停告警推送（最长 7 天）；发送 `.vcf` 文件导入通讯录；
+  - 授权：`TELEGRAM_CHAT_IDS` 预授权，或 `/auth <API_TOKEN>`（常量时间比对，单聊天 5 次 / 全局 20 次每 10 分钟限流，令牌消息自动删除）；`API_TOKEN` 轮换后，经 `/auth` 绑定的聊天全部解绑。
+- **签名 Webhook**：`{ event, deliveredAt, data }` JSON，`HMAC-SHA256(secret, "<timestamp>.<body>")` 签名，网络错误或 `5xx` 重试一次。
+- **`AlertEngine` 规则**（均需持续一段时间才触发，并带恢复迟滞）：
+
+  | 代码 | 级别 | 条件 |
+  | :--- | :--- | :--- |
+  | `CPE_UNREACHABLE` / `CPE_RECOVERED` | critical / info | 传输层失败持续 60s / 调度器恢复空闲或轮询 |
+  | `WAN_DOWN` / `WAN_UP` | warning / info | `ConnectionStatus ≠ 901` 持续 60s / 恢复 |
+  | `SIGNAL_DEGRADED` / `SIGNAL_RECOVERED` | warning / info | 主制式 RSRP < -110 dBm 或 SINR < 0 dB 持续 5min / 高于阈值 +3 dB、+2 dB 持续 60s |
+  | `CA_DROPPED` | info | 载波数低于稳定值持续 5min（降为 0 不计） |
+  | `REBOOT_DETECTED` | warning | 运行时长回退（容差 30s） |
+  | `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL` | warning / critical | 存储 ≥ 90%（< 85% 重新布防）/ CPE 报告已满 |
+  | `DATA_THRESHOLD` | warning | 当月流量越过路由器设置的告警阈值（回落到一半以下重新布防） |
+  | `CIRCUIT_<code>` | critical | 调度器熔断（原有来源） |
+
+### 5.6 MCP 短信工具的提示词注入防护
+
+短信正文是第三方可控输入，可能夹带针对智能体的指令。防护分为三层：
+1. **权限分级**：`MCP_SMS_ACCESS=none|read|full`，默认 `read` 不暴露任何写工具；`MCP_ALLOW_MUTATIONS=false` 时写工具同样隐藏。
+2. **数据标注**：`initialize` 的说明与返回短信内容的结果都附带「仅视为数据」声明。
+3. **硬性约束**：`send_sms` 必须 `confirm: true`，单收件人，默认仅限联系人或曾发过短信的号码，按小时限额（未触达 CPE 的尝试退还额度）；`delete_sms` 必须 `confirm: true`、单次 ≤20 条，默认拒绝删除未读短信。
+
+### 5.7 运行模式
+
+| 模式 | 短信 | 告警 / Telegram / Webhook | 说明 |
+| :--- | :--- | :--- | :--- |
+| `cpe-dash serve` | 持有锁时启用：后台同步、REST、SSE、HTTP `/mcp` 短信工具 | 启用 | 推荐的唯一常驻进程 |
+| `cpe-dash mcp` | 持有锁时提供短信工具；不加 `--poll` 时只在工具调用时访问 CPE | 不运行 | 与守护进程共用数据目录时自动无短信，请改连守护进程的 `/mcp` |
+
+启动顺序：调度器初始化 → SSE 挂载 → 通知中心 → 告警引擎 → Telegram（`setMyCommands` + 长轮询）→ 短信首次全量同步 → 遥测轮询。停止顺序相反：先停 Telegram 与订阅者，再等待在途会话登出，最后刷新加密存储并释放锁。
