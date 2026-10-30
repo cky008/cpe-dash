@@ -1,0 +1,682 @@
+import { decomposeLteEci } from "./band-lock.ts";
+import { maskMacAddress, sanitizeFreeText, sanitizeIpToken } from "./sanitize.ts";
+import { getXmlTag } from "./xml.ts";
+
+export interface CaBannerComponent {
+  bandwidthMhz: number;
+  arfcn: number;
+  band: string;
+  rat: "LTE" | "NR";
+}
+
+export interface McsCodewordMetric {
+  label: string;
+  index: number;
+  modulation: string | null;
+}
+
+export interface TxPowerMetrics {
+  puschDbm: number | null;
+  pucchDbm: number | null;
+  srsDbm: number | null;
+  prachDbm: number | null;
+}
+
+export interface SecondaryCellEntry {
+  rat: "LTE" | "NR";
+  arfcn: number | null;
+  band: string;
+  bandwidthMhz: number | null;
+  pci: number | null;
+  rsrpDbm: number | null;
+  rsrqDb: number | null;
+  rssiDbm: number | null;
+  sinrDb: number | null;
+}
+
+export interface NeighborCellEntry {
+  rat: "LTE" | "NR";
+  arfcn: number | null;
+  band: string;
+  pci: number | null;
+  rsrpDbm: number | null;
+  rsrqDb: number | null;
+  rssiDbm: number | null;
+  sinrDb: number | null;
+}
+
+export interface CellIdentityVerification {
+  hasCellIdDecimal: boolean;
+  hasCellInfoHex: boolean;
+  eciDecimalMatchesHex: boolean | null;
+  tacDecimalMatchesHex: boolean | null;
+  eNodeBDerivationMatchesTag: boolean | null;
+  sectorIdBitWidthOk: boolean | null;
+}
+
+export interface RfSignalSnapshot {
+  operatorName: string;
+  plmnNumeric: string;
+  ratCode: string;
+  caBannerRaw: string;
+  caCarriers: CaBannerComponent[];
+  caActive: boolean;
+  caComponentCount: number;
+  totalAggregatedBandwidthMhz: number;
+  pccBand: string;
+  pci: number | null;
+  earfcnRaw: string;
+  nrArfcnRaw: string;
+  lteUlBandwidthMhz: number | null;
+  lteDlBandwidthMhz: number | null;
+  nrUlBandwidthMhz: number | null;
+  nrDlBandwidthMhz: number | null;
+  lteRsrpDbm: number | null;
+  lteRsrqDb: number | null;
+  lteRssiDbm: number | null;
+  lteSinrDb: number | null;
+  nrRsrpDbm: number | null;
+  nrRsrqDb: number | null;
+  nrSinrDb: number | null;
+  transmissionMode: string;
+  lteMimoRank: number | null;
+  nrMimoRank: number | null;
+  lteCqi0: number | null;
+  lteCqi1: number | null;
+  nrCqi0: number | null;
+  nrCqi1: number | null;
+  lteUlMcs: McsCodewordMetric[];
+  lteDlMcs: McsCodewordMetric[];
+  nrUlMcs: McsCodewordMetric[];
+  nrDlMcs: McsCodewordMetric[];
+  lteTxPower: TxPowerMetrics;
+  nrTxPower: TxPowerMetrics;
+  lteScc: SecondaryCellEntry[];
+  nrScc: SecondaryCellEntry[];
+  cellIdDisplay: string;
+  eNodeBDisplay: string;
+  tacDisplay: string;
+  identityVerification: CellIdentityVerification;
+}
+
+export interface TrafficSnapshot {
+  downloadBytesPerSec: number;
+  uploadBytesPerSec: number;
+  downloadBps: number;
+  uploadBps: number;
+  todayUsedBytes: bigint;
+  todayDurationSec: number;
+  monthDownloadBytes: bigint;
+  monthUploadBytes: bigint;
+  monthTotalBytes: bigint;
+  monthDurationSec: number;
+  monthLastClearDate: string;
+  sessionConnectTimeSec: number;
+  sessionDownloadBytes: bigint;
+  sessionUploadBytes: bigint;
+  totalDownloadBytes: bigint;
+  totalUploadBytes: bigint;
+  totalUsedBytes: bigint;
+  totalConnectTimeSec: number;
+  billingStartDay: number | null;
+  dataLimitRaw: string;
+  monthThresholdPercent: number | null;
+}
+
+export type TerminalAccessMedium =
+  | "LAN_1000M"
+  | "LAN_100M"
+  | "LAN_OTHER"
+  | "WIFI_2_4G"
+  | "WIFI_5G"
+  | "WIFI_OTHER";
+
+export interface TerminalHostEntry {
+  macAddress: string;
+  displayName: string;
+  active: boolean;
+  interfaceType: string;
+  layer2Interface: string;
+  frequency: string;
+  medium: TerminalAccessMedium;
+  negotiatedRateMbps: number | null;
+  rssi: number | null;
+  ipv4Address: string;
+  ipv6Addresses: string[];
+  ipv6Active: boolean;
+  addressSource: string;
+  leaseTimeRemainingSec: number | null;
+  associatedTimeSec: number | null;
+}
+
+export interface TopologySummary {
+  topLevelNodes: number;
+  totalActiveNodes: number;
+  meshChildNodes: number;
+  ethernetNodes: number;
+  wirelessNodes: number;
+}
+
+const MAX_FIELD_LEN = 4096;
+const MAX_JSON_LEN = 512 * 1024;
+
+/**
+ * Extract a finite leading numeric scalar from unit-suffixed strings (`"-88dBm"`, `"100MHz"`, `"--"`).
+ */
+export function parseNumberWithUnit(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const trimmed = raw.slice(0, 64).trim();
+  if (!trimmed || trimmed === "--") return null;
+  const match = trimmed.match(/^[+-]?\d+(?:\.\d+)?/);
+  if (!match?.[0]) return null;
+  const parsed = Number.parseFloat(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseIntOrNull(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const trimmed = raw.slice(0, 32).trim();
+  if (!/^-?\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function parseBigIntZero(raw: string | null | undefined): bigint {
+  if (!raw) return 0n;
+  const trimmed = raw.slice(0, 40).trim();
+  if (!/^\d+$/.test(trimmed)) return 0n;
+  return BigInt(trimmed);
+}
+
+/**
+ * Parse H168-383 carrier aggregation banner (`"20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)"`).
+ */
+export function parseCaBandBanner(banner: string | null | undefined): CaBannerComponent[] {
+  if (!banner) return [];
+  const bounded = banner.slice(0, MAX_FIELD_LEN).trim();
+  if (!bounded) return [];
+  const parts = bounded.split("+");
+  const out: CaBannerComponent[] = [];
+  for (const rawPart of parts) {
+    const part = rawPart.trim();
+    const match = part.match(/^(\d+(?:\.\d+)?)MHz@(\d+)\(([BNbn]\d{1,3})\)$/);
+    if (!match?.[1] || !match[2] || !match[3]) continue;
+    const band = match[3].toUpperCase();
+    out.push({
+      bandwidthMhz: Number.parseFloat(match[1]),
+      arfcn: Number.parseInt(match[2], 10),
+      band,
+      rat: band.startsWith("N") ? "NR" : "LTE",
+    });
+  }
+  return out;
+}
+
+/**
+ * Parse MCS codeword tokens (`"mcsUpCarrier1:27@256QAM"`, `"NRmcsDownCarrier1Code0:10@16QAM NRmcsDownCarrier1Code1:0"`).
+ */
+export function parseMcsEntries(raw: string | null | undefined): McsCodewordMetric[] {
+  if (!raw) return [];
+  const bounded = raw.slice(0, MAX_FIELD_LEN).trim();
+  if (!bounded) return [];
+  const tokens = bounded.split(/\s+/);
+  const out: McsCodewordMetric[] = [];
+  for (const token of tokens) {
+    const colonIdx = token.indexOf(":");
+    if (colonIdx <= 0) continue;
+    const label = token.slice(0, colonIdx);
+    const rest = token.slice(colonIdx + 1);
+    const atIdx = rest.indexOf("@");
+    const indexStr = atIdx >= 0 ? rest.slice(0, atIdx) : rest;
+    const modulation = atIdx >= 0 && rest.slice(atIdx + 1) ? rest.slice(atIdx + 1) : null;
+    const index = parseIntOrNull(indexStr);
+    if (index === null) continue;
+    out.push({ label, index, modulation });
+  }
+  return out;
+}
+
+/**
+ * Parse Huawei `<txpower>` / `<nrtxpower>` string (`"PPusch:12dBm PPucch:-9dBm PSrs:0dBm PPrach:-3dBm"`).
+ */
+export function parseTxPowerMetrics(raw: string | null | undefined): TxPowerMetrics {
+  const result: TxPowerMetrics = {
+    puschDbm: null,
+    pucchDbm: null,
+    srsDbm: null,
+    prachDbm: null,
+  };
+  if (!raw) return result;
+  const bounded = raw.slice(0, MAX_FIELD_LEN).trim();
+  if (!bounded) return result;
+  for (const token of bounded.split(/\s+/)) {
+    const colonIdx = token.indexOf(":");
+    if (colonIdx <= 0) continue;
+    const key = token.slice(0, colonIdx).toLowerCase();
+    const val = parseNumberWithUnit(token.slice(colonIdx + 1));
+    if (key === "ppusch") result.puschDbm = val;
+    else if (key === "ppucch") result.pucchDbm = val;
+    else if (key === "psrs") result.srsDbm = val;
+    else if (key === "pprach") result.prachDbm = val;
+  }
+  return result;
+}
+
+function parseSccCsvRows(csv: string | null | undefined, rat: "LTE" | "NR"): SecondaryCellEntry[] {
+  if (!csv) return [];
+  const bounded = csv.slice(0, MAX_FIELD_LEN).trim();
+  if (!bounded) return [];
+  const out: SecondaryCellEntry[] = [];
+  for (const rawRow of bounded.split(";")) {
+    const row = rawRow.trim();
+    if (!row) continue;
+    const cols = row.split(",");
+    if (cols.length < 8) continue;
+    out.push({
+      rat,
+      arfcn: parseIntOrNull(cols[0]),
+      band: (cols[1] ?? "").trim() || "--",
+      bandwidthMhz: parseNumberWithUnit(cols[2]),
+      pci: parseIntOrNull(cols[3]),
+      rsrpDbm: parseNumberWithUnit(cols[4]),
+      rsrqDb: parseNumberWithUnit(cols[5]),
+      rssiDbm: parseNumberWithUnit(cols[6]),
+      sinrDb: parseNumberWithUnit(cols[7]),
+    });
+  }
+  return out;
+}
+
+/**
+ * Parse `GET /api/device/seccellinfo` 8-column CSV lists (`earfcn,band,bandwidth,pci,rsrp,rsrq,rssi,sinr;`).
+ */
+export function parseSecondaryCellsXml(xml: string): {
+  lteScc: SecondaryCellEntry[];
+  nrScc: SecondaryCellEntry[];
+} {
+  return {
+    lteScc: parseSccCsvRows(getXmlTag(xml, "lteseccell_list"), "LTE"),
+    nrScc: parseSccCsvRows(getXmlTag(xml, "nrseccell_list"), "NR"),
+  };
+}
+
+function parseNbrCsvRows(csv: string | null | undefined, rat: "LTE" | "NR"): NeighborCellEntry[] {
+  if (!csv) return [];
+  const bounded = csv.slice(0, MAX_FIELD_LEN * 4).trim();
+  if (!bounded) return [];
+  const out: NeighborCellEntry[] = [];
+  for (const rawRow of bounded.split(";")) {
+    const row = rawRow.trim();
+    if (!row) continue;
+    const cols = row.split(",");
+    if (cols.length < 7) continue;
+    out.push({
+      rat,
+      arfcn: parseIntOrNull(cols[0]),
+      band: (cols[1] ?? "").trim() || "--",
+      pci: parseIntOrNull(cols[2]),
+      rsrpDbm: parseNumberWithUnit(cols[3]),
+      rsrqDb: parseNumberWithUnit(cols[4]),
+      rssiDbm: parseNumberWithUnit(cols[5]),
+      sinrDb: parseNumberWithUnit(cols[6]),
+    });
+  }
+  return out;
+}
+
+/**
+ * Parse `GET /api/device/nbrcellinfo` 7-column CSV lists (`earfcn,band,pci,rsrp,rsrq,rssi,sinr;`).
+ */
+export function parseNeighborCellsXml(xml: string): {
+  lteNeighbors: NeighborCellEntry[];
+  nrNeighbors: NeighborCellEntry[];
+} {
+  return {
+    lteNeighbors: parseNbrCsvRows(getXmlTag(xml, "nbrcell_ltelist"), "LTE"),
+    nrNeighbors: parseNbrCsvRows(getXmlTag(xml, "nbrcell_nrlist"), "NR"),
+  };
+}
+
+/**
+ * Parse a unified RF + 3CA + MIMO + MCS + TxPower snapshot while verifying hex/decimal
+ * mathematical equivalence and optionally redacting raw location-sensitive identifiers.
+ */
+export function parseRfSignalSnapshot(params: {
+  signalXml: string;
+  secCellXml?: string;
+  riXml?: string;
+  cellInfoXml?: string;
+  plmnXml?: string;
+  redactIdentifiers?: boolean;
+}): RfSignalSnapshot {
+  const { signalXml, secCellXml = "", riXml = "", cellInfoXml = "", plmnXml = "" } = params;
+  const redact = params.redactIdentifiers !== false;
+
+  const caBannerRaw = getXmlTag(signalXml, "band") ?? "";
+  const caCarriers = parseCaBandBanner(caBannerRaw);
+  const { lteScc, nrScc } = parseSecondaryCellsXml(secCellXml);
+
+  const pccDlBw = parseNumberWithUnit(getXmlTag(signalXml, "dlbandwidth"));
+  const fallbackCount = 1 + lteScc.length + nrScc.length;
+  const caComponentCount = caCarriers.length > 0 ? caCarriers.length : fallbackCount;
+
+  const totalAggregatedBandwidthMhz =
+    caCarriers.length > 0
+      ? caCarriers.reduce((acc, c) => acc + c.bandwidthMhz, 0)
+      : (pccDlBw ?? 0) +
+        lteScc.reduce((acc, s) => acc + (s.bandwidthMhz ?? 0), 0) +
+        nrScc.reduce((acc, s) => acc + (s.bandwidthMhz ?? 0), 0);
+
+  const cellIdDecRaw = (getXmlTag(signalXml, "cell_id") ?? "").trim();
+  const eNodeBRaw = (getXmlTag(signalXml, "enodeb_id") ?? "").trim();
+  const tacDecRaw = (getXmlTag(signalXml, "tac") ?? "").trim();
+  const cellInfoHexRaw = (getXmlTag(cellInfoXml, "cellinfo") ?? "").trim();
+  const lacHexRaw = (getXmlTag(cellInfoXml, "lac") ?? "").trim();
+
+  let eciDecimalMatchesHex: boolean | null = null;
+  let eNodeBDerivationMatchesTag: boolean | null = null;
+  let sectorIdBitWidthOk: boolean | null = null;
+
+  if (/^\d+$/.test(cellIdDecRaw)) {
+    const cellIdNum = Number.parseInt(cellIdDecRaw, 10);
+    if (cellIdNum >= 0 && cellIdNum <= 0x0fffffff) {
+      const decomposed = decomposeLteEci(cellIdNum);
+      sectorIdBitWidthOk = decomposed.sectorId >= 0 && decomposed.sectorId <= 255;
+      if (/^\d+$/.test(eNodeBRaw)) {
+        eNodeBDerivationMatchesTag = decomposed.eNodeBId === Number.parseInt(eNodeBRaw, 10);
+      }
+      if (/^[0-9a-fA-F]{1,8}$/.test(cellInfoHexRaw)) {
+        eciDecimalMatchesHex = cellIdNum === Number.parseInt(cellInfoHexRaw, 16);
+      }
+    }
+  }
+
+  let tacDecimalMatchesHex: boolean | null = null;
+  if (/^\d+$/.test(tacDecRaw) && /^[0-9a-fA-F]{1,8}$/.test(lacHexRaw)) {
+    tacDecimalMatchesHex = Number.parseInt(tacDecRaw, 10) === Number.parseInt(lacHexRaw, 16);
+  }
+
+  return {
+    operatorName: getXmlTag(plmnXml, "FullName") ?? getXmlTag(plmnXml, "ShortName") ?? "",
+    plmnNumeric: getXmlTag(plmnXml, "Numeric") ?? getXmlTag(signalXml, "plmn") ?? "",
+    ratCode: getXmlTag(plmnXml, "Rat") ?? getXmlTag(signalXml, "mode") ?? "",
+    caBannerRaw,
+    caCarriers,
+    caActive: caComponentCount > 1,
+    caComponentCount,
+    totalAggregatedBandwidthMhz,
+    pccBand: getXmlTag(signalXml, "bandInfo") ?? caCarriers[0]?.band ?? "",
+    pci: parseIntOrNull(getXmlTag(signalXml, "pci")),
+    earfcnRaw: getXmlTag(signalXml, "earfcn") ?? "",
+    nrArfcnRaw: getXmlTag(signalXml, "nrearfcn") ?? "",
+    lteUlBandwidthMhz: parseNumberWithUnit(getXmlTag(signalXml, "ulbandwidth")),
+    lteDlBandwidthMhz: pccDlBw,
+    nrUlBandwidthMhz: parseNumberWithUnit(getXmlTag(signalXml, "nrulbandwidth")),
+    nrDlBandwidthMhz: parseNumberWithUnit(getXmlTag(signalXml, "nrdlbandwidth")),
+    lteRsrpDbm: parseNumberWithUnit(getXmlTag(signalXml, "rsrp")),
+    lteRsrqDb: parseNumberWithUnit(getXmlTag(signalXml, "rsrq")),
+    lteRssiDbm: parseNumberWithUnit(getXmlTag(signalXml, "rssi")),
+    lteSinrDb: parseNumberWithUnit(getXmlTag(signalXml, "sinr")),
+    nrRsrpDbm: parseNumberWithUnit(getXmlTag(signalXml, "nrrsrp")) ?? nrScc[0]?.rsrpDbm ?? null,
+    nrRsrqDb: parseNumberWithUnit(getXmlTag(signalXml, "nrrsrq")) ?? nrScc[0]?.rsrqDb ?? null,
+    nrSinrDb: parseNumberWithUnit(getXmlTag(signalXml, "nrsinr")) ?? nrScc[0]?.sinrDb ?? null,
+    transmissionMode: getXmlTag(signalXml, "transmode") ?? "",
+    lteMimoRank: parseIntOrNull(getXmlTag(riXml, "ri")),
+    nrMimoRank: parseIntOrNull(getXmlTag(signalXml, "nrrank")),
+    lteCqi0: parseIntOrNull(getXmlTag(signalXml, "cqi0")),
+    lteCqi1: parseIntOrNull(getXmlTag(signalXml, "cqi1")),
+    nrCqi0: parseIntOrNull(getXmlTag(signalXml, "nrcqi0")),
+    nrCqi1: parseIntOrNull(getXmlTag(signalXml, "nrcqi1")),
+    lteUlMcs: parseMcsEntries(getXmlTag(signalXml, "ul_mcs")),
+    lteDlMcs: parseMcsEntries(getXmlTag(signalXml, "dl_mcs")),
+    nrUlMcs: parseMcsEntries(getXmlTag(signalXml, "nrulmcs")),
+    nrDlMcs: parseMcsEntries(getXmlTag(signalXml, "nrdlmcs")),
+    lteTxPower: parseTxPowerMetrics(getXmlTag(signalXml, "txpower")),
+    nrTxPower: parseTxPowerMetrics(getXmlTag(signalXml, "nrtxpower")),
+    lteScc,
+    nrScc,
+    cellIdDisplay: redact ? (cellIdDecRaw ? "<REDACTED:134217758>" : "") : cellIdDecRaw,
+    eNodeBDisplay: redact ? (eNodeBRaw ? "<REDACTED:0524288>" : "") : eNodeBRaw,
+    tacDisplay: redact ? (tacDecRaw ? "<REDACTED:10001>" : "") : tacDecRaw,
+    identityVerification: {
+      hasCellIdDecimal: Boolean(cellIdDecRaw),
+      hasCellInfoHex: Boolean(cellInfoHexRaw),
+      eciDecimalMatchesHex,
+      tacDecimalMatchesHex,
+      eNodeBDerivationMatchesTag,
+      sectorIdBitWidthOk,
+    },
+  };
+}
+
+/**
+ * Parse H168-383 dual-period traffic statistics (`traffic-statistics` + `month_statistics` + `start_date`).
+ */
+export function parseTrafficSnapshot(params: {
+  trafficXml: string;
+  monthXml: string;
+  startDateXml?: string;
+}): TrafficSnapshot {
+  const { trafficXml, monthXml, startDateXml = "" } = params;
+  const dlRateBytes = parseIntOrNull(getXmlTag(trafficXml, "CurrentDownloadRate")) ?? 0;
+  const ulRateBytes = parseIntOrNull(getXmlTag(trafficXml, "CurrentUploadRate")) ?? 0;
+
+  const monthDownloadBytes = parseBigIntZero(getXmlTag(monthXml, "CurrentMonthDownload"));
+  const monthUploadBytes = parseBigIntZero(getXmlTag(monthXml, "CurrentMonthUpload"));
+  const monthTotalBytes = monthDownloadBytes + monthUploadBytes;
+
+  const totalDownloadBytes = parseBigIntZero(getXmlTag(trafficXml, "TotalDownload"));
+  const totalUploadBytes = parseBigIntZero(getXmlTag(trafficXml, "TotalUpload"));
+  const rawTotalSum = totalDownloadBytes + totalUploadBytes;
+
+  return {
+    downloadBytesPerSec: dlRateBytes,
+    uploadBytesPerSec: ulRateBytes,
+    downloadBps: dlRateBytes * 8,
+    uploadBps: ulRateBytes * 8,
+    todayUsedBytes: parseBigIntZero(getXmlTag(monthXml, "CurrentDayUsed")),
+    todayDurationSec: parseIntOrNull(getXmlTag(monthXml, "CurrentDayDuration")) ?? 0,
+    monthDownloadBytes,
+    monthUploadBytes,
+    monthTotalBytes,
+    monthDurationSec: parseIntOrNull(getXmlTag(monthXml, "MonthDuration")) ?? 0,
+    monthLastClearDate: getXmlTag(monthXml, "MonthLastClearTime") ?? "",
+    sessionConnectTimeSec: parseIntOrNull(getXmlTag(trafficXml, "CurrentConnectTime")) ?? 0,
+    sessionDownloadBytes: parseBigIntZero(getXmlTag(trafficXml, "CurrentDownload")),
+    sessionUploadBytes: parseBigIntZero(getXmlTag(trafficXml, "CurrentUpload")),
+    totalDownloadBytes,
+    totalUploadBytes,
+    totalUsedBytes: rawTotalSum >= monthTotalBytes ? rawTotalSum : monthTotalBytes,
+    totalConnectTimeSec: parseIntOrNull(getXmlTag(trafficXml, "TotalConnectTime")) ?? 0,
+    billingStartDay: parseIntOrNull(getXmlTag(startDateXml, "StartDay")),
+    dataLimitRaw: getXmlTag(startDateXml, "DataLimit") ?? "",
+    monthThresholdPercent: parseIntOrNull(getXmlTag(startDateXml, "MonthThreshold")),
+  };
+}
+
+/**
+ * Format byte count into human-readable IEC binary units (`B`, `KiB`, `MiB`, `GiB`, `TiB`).
+ */
+export function formatBytesBinary(bytes: bigint | number): string {
+  const b = typeof bytes === "bigint" ? Number(bytes) : bytes;
+  if (!Number.isFinite(b) || b < 1024) return `${Math.max(0, Math.trunc(b))} B`;
+  const kib = b / 1024;
+  if (kib < 1024) return `${kib.toFixed(2)} KiB`;
+  const mib = kib / 1024;
+  if (mib < 1024) return `${mib.toFixed(2)} MiB`;
+  const gib = mib / 1024;
+  if (gib < 1024) return `${gib.toFixed(2)} GiB`;
+  const tib = gib / 1024;
+  return `${tib.toFixed(2)} TiB`;
+}
+
+/**
+ * Format bit-per-second throughput matching Huawei WebUI binary scaling (`bps`, `Kbps`, `Mbps`, `Gbps`).
+ */
+export function formatRateBitsPerSec(bps: number): string {
+  if (!Number.isFinite(bps) || bps < 1024) return `${Math.max(0, bps).toFixed(2)} bps`;
+  const kbps = bps / 1024;
+  if (kbps < 1024) return `${kbps.toFixed(2)} Kbps`;
+  const mbps = kbps / 1024;
+  if (mbps < 1024) return `${mbps.toFixed(2)} Mbps`;
+  const gbps = mbps / 1024;
+  return `${gbps.toFixed(2)} Gbps`;
+}
+
+function classifyAccessMedium(
+  interfaceType: string,
+  ethernetSpeed: number | null,
+  phyType: number | null,
+  frequency: string
+): TerminalAccessMedium {
+  if (interfaceType.toLowerCase() === "ethernet") {
+    const speed = ethernetSpeed && ethernetSpeed > 0 ? ethernetSpeed : phyType ?? 0;
+    if (speed >= 1000) return "LAN_1000M";
+    if (speed === 100) return "LAN_100M";
+    return "LAN_OTHER";
+  }
+  const freqLower = frequency.toLowerCase();
+  if (freqLower.startsWith("5ghz")) return "WIFI_5G";
+  if (freqLower.startsWith("2.4ghz")) return "WIFI_2_4G";
+  return "WIFI_OTHER";
+}
+
+function asString(obj: Record<string, unknown>, key: string): string {
+  const val = obj[key];
+  return typeof val === "string" ? val.trim() : "";
+}
+
+function asNumberOrNull(obj: Record<string, unknown>, key: string): number | null {
+  const val = obj[key];
+  if (typeof val === "number" && Number.isFinite(val)) return val;
+  if (typeof val === "string") return parseIntOrNull(val);
+  return null;
+}
+
+function asBool(obj: Record<string, unknown>, key: string): boolean {
+  const val = obj[key];
+  return val === true || val === 1 || val === "1" || val === "true";
+}
+
+/**
+ * Parse `GET /api/system/HostInfo` JSON array into typed terminal records with medium classification
+ * and automatic MAC / hostname / IPv6 sanitization.
+ */
+export function parseHostInfoJson(
+  rawJson: string,
+  options: { sanitize?: boolean } = {}
+): TerminalHostEntry[] {
+  if (!rawJson || rawJson.length > MAX_JSON_LEN) return [];
+  const sanitize = options.sanitize !== false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const out: TerminalHostEntry[] = [];
+  let seq = 1;
+  for (const item of parsed) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const idx = seq++;
+
+    const rawMac = asString(rec, "MACAddress");
+    const rawActual = asString(rec, "ActualName");
+    const rawHost = asString(rec, "HostName");
+    const interfaceType = asString(rec, "InterfaceType");
+    const layer2Interface = asString(rec, "Layer2Interface");
+    const frequency = asString(rec, "Frequency");
+    const ethernetSpeed = asNumberOrNull(rec, "EthernetSpeed");
+    const phyType = asNumberOrNull(rec, "PhyType");
+    const wifiRate = asNumberOrNull(rec, "rate");
+    const rssi = asNumberOrNull(rec, "rssi");
+
+    const medium = classifyAccessMedium(interfaceType, ethernetSpeed, phyType, frequency);
+    const negotiatedRateMbps =
+      interfaceType.toLowerCase() === "ethernet"
+        ? (ethernetSpeed && ethernetSpeed > 0 ? ethernetSpeed : phyType)
+        : (wifiRate && wifiRate > 0 ? wifiRate : null);
+
+    const rawIpv4 = asString(rec, "IPAddress");
+    const rawIpv6 = asString(rec, "IPv6Address");
+    const ipv6Parts = rawIpv6
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((ip) => (sanitize ? sanitizeIpToken(ip) : ip));
+
+    const displayName = sanitize
+      ? `lan-client-${String(idx).padStart(2, "0")}`
+      : sanitizeFreeText(rawActual || rawHost || `client-${idx}`);
+
+    out.push({
+      macAddress: sanitize ? maskMacAddress(rawMac || "00:00:5E:00:53:01", idx) : rawMac,
+      displayName,
+      active: asBool(rec, "Active"),
+      interfaceType,
+      layer2Interface,
+      frequency,
+      medium,
+      negotiatedRateMbps,
+      rssi: interfaceType.toLowerCase() === "wireless" ? rssi : null,
+      ipv4Address: sanitize ? sanitizeIpToken(rawIpv4) : rawIpv4,
+      ipv6Addresses: ipv6Parts,
+      ipv6Active: asBool(rec, "V6Active"),
+      addressSource: asString(rec, "AddressSource"),
+      leaseTimeRemainingSec: asNumberOrNull(rec, "LeaseTime"),
+      associatedTimeSec: asNumberOrNull(rec, "AssociatedTime"),
+    });
+  }
+  return out;
+}
+
+/**
+ * Summarize `GET /api/system/topology` hierarchical JSON tree with bounded recursion depth.
+ */
+export function summarizeTopologyJson(rawJson: string): TopologySummary {
+  const summary: TopologySummary = {
+    topLevelNodes: 0,
+    totalActiveNodes: 0,
+    meshChildNodes: 0,
+    ethernetNodes: 0,
+    wirelessNodes: 0,
+  };
+  if (!rawJson || rawJson.length > MAX_JSON_LEN) return summary;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return summary;
+  }
+  if (!Array.isArray(parsed)) return summary;
+
+  summary.topLevelNodes = parsed.length;
+
+  const visit = (nodes: ReadonlyArray<unknown>, depth: number): void => {
+    if (depth > 8) return;
+    for (const node of nodes) {
+      if (!node || typeof node !== "object" || Array.isArray(node)) continue;
+      const rec = node as Record<string, unknown>;
+      if (asBool(rec, "Active")) {
+        summary.totalActiveNodes++;
+      }
+      if (depth > 0) {
+        summary.meshChildNodes++;
+      }
+      const accessType = asString(rec, "AccessType").toLowerCase();
+      if (accessType === "ethernet") summary.ethernetNodes++;
+      else if (accessType === "wireless") summary.wirelessNodes++;
+
+      const children = rec["ConnectedDevices"];
+      if (Array.isArray(children) && children.length > 0) {
+        visit(children, depth + 1);
+      }
+    }
+  };
+
+  visit(parsed, 0);
+  return summary;
+}
