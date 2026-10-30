@@ -490,7 +490,7 @@ sequenceDiagram
 
 ### 3.8 短信接口（Phase 2.2 纳入，封装于 `src/sms/protocol.ts`）
 
-> **来源与验证状态**：路由、载荷与加密格式和 `cpe-sms` 在同一台 H168-383（固件 `4.4.0.1`）上实际运行的实现一致。「烽燧」侧由加密 Mock 路由器（`test/helpers/mock-sms-cpe.ts`）覆盖。只读探针 `npm run probe:sms` 用于在真机上确认实际可用的列表通道与全量拉取耗时。
+> **来源与验证状态**：路由、载荷与加密格式和 `cpe-sms` 在同一台 H168-383（固件 `4.4.0.1`）上实际运行的实现一致。「烽燧」侧由加密 Mock 路由器（`test/helpers/mock-sms-cpe.ts`）覆盖。2026-10-30 已用只读探针 `npm run probe:sms` 在真机确认：明文 `POST /api/sms/sms-list` 可用（未触发加密回退），单次会话 `259 ms` 内完成 193 条全量拉取，列表条数与 `sms-count` 收件箱 + 发件箱计数一致，免登录 `check-notifications` 正常；同日 `serve` 守护进程完成首轮同步（33 个会话）。加密列表回退（`sms-list-contact` / `sms-list-phone`）在该固件上未被触发，仅由 Mock 测试覆盖；发送、标记已读与删除按铁律只在 Mock 路由器上验证。
 >
 > **会话约束**：除免登录的 `check-notifications` 外，以下接口都必须在 `MutexSessionScheduler` 分配的瞬时会话内调用（铁律四），严禁独立登录轮询。
 
@@ -697,5 +697,5 @@ $$
 | [`scripts/probe-topology.ts`](../scripts/probe-topology.ts) | `npm run probe:topology` | 解析 `HostInfo` 与 `topology` JSON，分类千兆网口与双频 Wi-Fi 终端 | `47 ms` 识别 `32` 台历史设备、`12` 台在线（`LAN_1000M` / `2.4G` / `5G`）、双栈 IPv6 与租期 |
 | [`scripts/probe-session-avoidance.ts`](../scripts/probe-session-avoidance.ts) | `npm run probe:session` | 压测瞬时短连耗时，验证 Cookie 作用域与双层真人浏览器避让 | 3 轮均值 `26 ms` 即登出释放；验证同 IP 零抢占及 `State=0` / `108003` 双层静默让位 |
 | [`scripts/probe-extended-capabilities.ts`](../scripts/probe-extended-capabilities.ts) | `npm run probe:extended` | 探索 Wi-Fi 7 MLO、天线切换、静态 DHCP、双栈 APN 与网络诊断 | `130 ms` 并发拉取 18 接口，确认 `802.11be` MLO、5 条静态绑定、IPv4v6 双栈 APN 与定时重启 |
-| [`scripts/probe-sms.ts`](../scripts/probe-sms.ts) | `npm run probe:sms` | 只读验证短信计数、列表通道（明文 `sms-list` 或加密回退）与全量拉取会话耗时，仅输出聚合计数 | Phase 2.2 新增，待真机运行确认（不发送、不标记已读、不删除） |
+| [`scripts/probe-sms.ts`](../scripts/probe-sms.ts) | `npm run probe:sms` | 只读验证短信计数、列表通道（明文 `sms-list` 或加密回退）与全量拉取会话耗时，仅输出聚合计数 | `259 ms` 单次会话完成 193 条全量拉取（与 `sms-count` 一致，容量 500 占用 39%），确认明文 `sms-list` 可用、无需加密回退；不发送、不标记已读、不删除 |
 | [`scripts/audit-secrets.ts`](../scripts/audit-secrets.ts) | `npm run audit:secrets` | 扫描工作区与全量 `git log -p --all` 历史，拦截密钥/PII 与纯 `.js` | 全仓源码、测试、文档与全量提交历史 100% 通过门禁 |
