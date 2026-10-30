@@ -292,6 +292,31 @@ describe("SmsService writes: send, mark read, delete and contacts", () => {
     await fx.cleanup();
   });
 
+  it("reports an accepted send as submitted-but-unconfirmed when send-status polling fails, never as an error", async () => {
+    for (const statusFault of ["transport", "cpe-error"] as const) {
+      let failStatus = true;
+      const fx = createSmsFixture({
+        mock: {
+          intercept: (p) => {
+            if (p !== "/api/sms/send-status" || !failStatus) return undefined;
+            if (statusFault === "transport") throw new TypeError("fetch failed (socket hang up)");
+            return "<error><code>125002</code><message></message></error>";
+          },
+        },
+      });
+      await fx.service.sync("full");
+      const outcome = await fx.service.send({ phones: ["+353830000001"], content: "Accepted then lost", source: "web" });
+      assert.equal(outcome.result.ok, true, statusFault);
+      assert.equal(outcome.result.submitted, true);
+      assert.equal(outcome.result.timedOutWaitingStatus, true, "delivery status is reported as unconfirmed");
+      assert.deepEqual(outcome.result.failedPhones, []);
+      assert.equal(fx.mock.sentRequests.length, 1, "the router received exactly one send-sms");
+      assert.equal(fx.mock.store.filter((m) => m.box === 2 && m.content === "Accepted then lost").length, 1);
+      failStatus = false;
+      await fx.cleanup();
+    }
+  });
+
   it("marks threads or uids read on the router and skips the session when nothing is unread", async () => {
     const fx = createSmsFixture();
     await fx.service.sync("full");

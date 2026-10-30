@@ -60,14 +60,16 @@ export interface McpToolDefinition {
   };
 }
 
-/** Tool-level failure surfaced to agents as `{ ok: false, errorCode, message }` (`isError: true`). */
+/** Tool-level failure surfaced to agents as `{ ok: false, errorCode, message, ...details }` (`isError: true`). */
 export class McpToolError extends Error {
   readonly code: string;
+  readonly details: Readonly<Record<string, unknown>>;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, details: Record<string, unknown> = {}) {
     super(message);
     this.name = "McpToolError";
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -875,7 +877,7 @@ export class FengSuiMcpServer {
         return wrapErr("VALIDATION_ERROR", err.message);
       }
       if (err instanceof McpToolError) {
-        return wrapErr(err.code, err.message);
+        return wrapErr(err.code, err.message, { ...err.details });
       }
       return wrapErr(
         "CPE_EXECUTION_ERROR",

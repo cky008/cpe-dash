@@ -235,6 +235,10 @@ function splitPhoneList(raw: string | null): string[] {
 /**
  * Submit `POST /api/sms/send-sms` (`enc-type=2`) and poll `send-status` (`enc-type=1`) until the
  * router reports the recipients as delivered/failed or the bounded timeout elapses.
+ *
+ * Once `send-sms` was accepted the message is on its way, so a status-polling failure (timeout,
+ * reset, expired session) yields `timedOutWaitingStatus: true` instead of an error: reporting it as
+ * failed would invite the caller to resend and deliver the message twice.
  */
 export async function submitSms(
   session: EphemeralCpeSession,
@@ -260,10 +264,23 @@ export async function submitSms(
   const maxPolls = Math.max(1, Math.ceil((opts.statusTimeoutMs ?? 45_000) / intervalMs));
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const base = { submitted: true, encoding: prepared.mode.encoding, segments: prepared.mode.segments };
+  const unconfirmed: SmsSendResult = {
+    ...base,
+    ok: true,
+    timedOutWaitingStatus: true,
+    sentPhones: [...prepared.phones],
+    failedPhones: [],
+    failCode: null,
+  };
 
   for (let attempt = 0; attempt < maxPolls; attempt++) {
-    await sleep(intervalMs);
-    const status = await session.postEncrypted("/api/sms/send-status", {}, 1);
+    let status: string;
+    try {
+      await sleep(intervalMs);
+      status = await session.postEncrypted("/api/sms/send-status", {}, 1);
+    } catch {
+      return unconfirmed;
+    }
     if ((getXmlTag(status, "Phone") ?? "") !== "") continue;
 
     const sentPhones = splitPhoneList(getXmlTag(status, "SucPhone"));
@@ -281,14 +298,7 @@ export async function submitSms(
     };
   }
 
-  return {
-    ...base,
-    ok: true,
-    timedOutWaitingStatus: true,
-    sentPhones: [...prepared.phones],
-    failedPhones: [],
-    failCode: null,
-  };
+  return unconfirmed;
 }
 
 function sanitizeIndices(indices: ReadonlyArray<number>): number[] {

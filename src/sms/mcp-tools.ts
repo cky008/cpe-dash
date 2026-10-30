@@ -386,8 +386,15 @@ export class SmsMcpTools implements McpToolProvider {
       }
       throw err;
     }
+    if (!outcome.result.ok) {
+      throw new McpToolError(
+        "SMS_SEND_FAILED",
+        `The router reported the SMS as failed${outcome.result.failCode ? ` (code ${outcome.result.failCode})` : ""}`,
+        { result: outcome.result, resolvedPhones: outcome.resolvedPhones }
+      );
+    }
     return {
-      ok: outcome.result.ok,
+      ok: true,
       result: outcome.result,
       resolvedPhones: outcome.resolvedPhones,
       messages: outcome.messages.map(compactMessage),
