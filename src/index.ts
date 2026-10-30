@@ -12,3 +12,4 @@ export * from "./cpe-domain.ts";
 export * from "./timeseries.ts";
 export * from "./state-store.ts";
 export * from "./scheduler.ts";
+export * from "./mcp-server.ts";
