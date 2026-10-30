@@ -1,0 +1,155 @@
+/**
+ * SMS domain types shared by the protocol layer, encrypted mirror, application service,
+ * REST routes, MCP tools and Telegram bot.
+ */
+
+export type SmsDirection = "in" | "out";
+export type SmsEncodingName = "7BIT" | "UCS2";
+/** Huawei `<Reserved>` text mode: `1` = GSM 7-bit, `0` = UCS-2. */
+export type SmsTextModeCode = 0 | 1;
+
+export interface SmsTextModeInfo {
+  textMode: SmsTextModeCode;
+  encoding: SmsEncodingName;
+  segments: number;
+  /** GSM-7 septets (extension characters count twice) or UCS-2 code units. */
+  charUnits: number;
+}
+
+/** Message exactly as parsed from a CPE `<Message>` / `<message>` block. */
+export interface SmsWireMessage {
+  /** CPE storage index (unique among messages currently stored on the router). */
+  index: number;
+  phone: string;
+  content: string;
+  /** `yyyy-MM-dd HH:mm:ss` in the router's local time. */
+  date: string;
+  /** Raw Huawei status (`0` unread, `1` read, `3`/`4` outgoing). */
+  smstat: string;
+  isUnread: boolean;
+  direction: SmsDirection;
+}
+
+export interface SmsMessageRecord extends SmsWireMessage {
+  /** Opaque stable id derived from `(index, date, phone)`; never contains the phone number. */
+  uid: string;
+  verificationCode: string | null;
+  /** Provisional outgoing record kept only until the router copy is read back. */
+  pending?: true;
+}
+
+/** `GET /api/sms/sms-count` counters (piggybacked on the telemetry session). */
+export interface SmsCounters {
+  localUnread: number;
+  localInbox: number;
+  localOutbox: number;
+  localDraft: number;
+  localMax: number;
+}
+
+export interface CountryDialInfo {
+  code: string;
+  iso: string;
+  flag: string;
+  nameZh: string;
+  nameEn: string;
+  dropTrunkZero: boolean;
+}
+
+export type SenderCategory =
+  | "unknown"
+  | "alphanumeric"
+  | "gateway"
+  | "shortcode"
+  | "international"
+  | "national"
+  | "other";
+
+export interface SenderInfo {
+  type: SenderCategory;
+  raw: string;
+  e164: string | null;
+  dialable: boolean;
+  flag: string;
+  countryCode: string | null;
+  countryZh: string;
+  countryEn: string;
+  countryIso: string | null;
+  brandHint: string | null;
+  displayNumber: string;
+}
+
+export type ResolvedRecipient =
+  | {
+      ok: true;
+      phone: string;
+      flag: string;
+      countryCode: string | null;
+      countryZh: string;
+      countryEn: string;
+      isShortCode: boolean;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+export interface ContactRecord {
+  id: string;
+  name: string;
+  phones: string[];
+  note?: string;
+  source: "manual" | "vcard";
+  updatedAt: string;
+}
+
+export interface ContactBrief {
+  id: string;
+  name: string;
+  note?: string;
+}
+
+export interface EnrichedSmsMessage extends SmsMessageRecord {
+  threadKey: string;
+  sender: SenderInfo;
+  contact: ContactBrief | null;
+}
+
+export interface SmsThreadSummary {
+  threadKey: string;
+  phone: string;
+  replyPhone: string | null;
+  dialable: boolean;
+  sender: SenderInfo;
+  contact: ContactBrief | null;
+  displayName: string;
+  unreadCount: number;
+  totalCount: number;
+  hasOtp: boolean;
+  latestOtp: string | null;
+  latestMessage: SmsMessageRecord;
+  matchedPreview?: string;
+}
+
+export interface SmsThreadDetail {
+  threadKey: string;
+  phone: string;
+  replyPhone: string | null;
+  dialable: boolean;
+  sender: SenderInfo;
+  contact: ContactBrief | null;
+  messages: EnrichedSmsMessage[];
+}
+
+export type SmsThreadFilter = "all" | "unread" | "otp";
+
+export interface SmsSendResult {
+  ok: boolean;
+  submitted: boolean;
+  timedOutWaitingStatus: boolean;
+  sentPhones: string[];
+  failedPhones: string[];
+  failCode: string | null;
+  encoding: SmsEncodingName;
+  segments: number;
+}

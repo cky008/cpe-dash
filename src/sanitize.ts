@@ -155,6 +155,20 @@ export function sanitizeIpToken(raw: string): string {
 }
 
 /**
+ * Mask a personal phone number for logs and status summaries (`+353*******01`). Alphanumeric
+ * sender IDs and short codes (< 7 digits) are service identifiers, not personal data, and stay readable.
+ */
+export function maskPhoneNumber(raw: string): string {
+  const clean = raw.trim();
+  if (!clean) return "";
+  if (/[A-Za-z一-龥]/.test(clean)) return clean;
+  const compact = clean.replace(/[^\d+]/g, "");
+  if (compact.replace(/\D/g, "").length < 7) return compact;
+  const keepHead = compact.startsWith("+") ? 4 : 3;
+  return `${compact.slice(0, keepHead)}${"*".repeat(compact.length - keepHead - 2)}${compact.slice(-2)}`;
+}
+
+/**
  * Scrub free-form text (headers, URLs, or unknown XML values) of MACs, public IPs, IMEI/IMSI/ICCID, and secrets.
  */
 export function sanitizeFreeText(input: string, extraSecrets: ReadonlyArray<string> = []): string {

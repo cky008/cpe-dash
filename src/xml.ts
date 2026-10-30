@@ -1,4 +1,4 @@
-import { huaweiXssDecode, stripInvalidControlChars } from "./crypto.ts";
+import { huaweiXssDecode, huaweiXssEncode, stripInvalidControlChars } from "./crypto.ts";
 import type { ParsedXmlError } from "./types.ts";
 
 /**
@@ -46,6 +46,24 @@ export function getXmlTag(xml: string, tag: string): string | null {
   const closeIdx = lower.indexOf(closeNeedle, contentStart);
   if (closeIdx < 0) return null;
   return huaweiXssDecode(clean.slice(contentStart, closeIdx).trim());
+}
+
+/**
+ * Linear O(N) extractor for the first `<tag>...</tag>` that keeps leading/trailing whitespace
+ * (SMS bodies), normalizes CRLF to LF and decodes Huawei XSS entities. Returns `""` when absent.
+ */
+export function getXmlTextPreserve(xml: string, tag: string): string {
+  if (!xml) return "";
+  const clean = assertSafeXmlInput(xml, tag);
+  const lower = toAsciiLower(clean);
+  const tagLower = toAsciiLower(tag);
+  const openNeedle = `<${tagLower}>`;
+  const openIdx = lower.indexOf(openNeedle);
+  if (openIdx < 0) return "";
+  const contentStart = openIdx + openNeedle.length;
+  const closeIdx = lower.indexOf(`</${tagLower}>`, contentStart);
+  if (closeIdx < 0) return "";
+  return huaweiXssDecode(clean.slice(contentStart, closeIdx)).replace(/\r\n/g, "\n");
 }
 
 /**
@@ -152,6 +170,41 @@ export function parseXmlError(xml: string): ParsedXmlError | null {
   };
 }
 
+const ESCAPED_ENTITY_RE = /^(?:[A-Za-z]{2,8}|#\d{1,7}|#x[0-9A-Fa-f]{1,6})$/;
+
+/**
+ * Text that is already entity-escaped for the wire and must be emitted verbatim by `jsonToXml`
+ * (instead of being escaped a second time). The constructor rejects raw `<`/`>` and any `&`
+ * that does not start a well-formed entity, so a value can never inject markup.
+ */
+export class PreEscapedXmlText {
+  readonly value: string;
+
+  constructor(escaped: string) {
+    if (/[<>]/.test(escaped)) {
+      throw new Error("Pre-escaped XML text must not contain raw markup characters");
+    }
+    let amp = escaped.indexOf("&");
+    while (amp >= 0) {
+      const semi = escaped.indexOf(";", amp + 1);
+      if (semi < 0 || !ESCAPED_ENTITY_RE.test(escaped.slice(amp + 1, semi))) {
+        throw new Error('Pre-escaped XML text contains a bare "&" that does not start an entity');
+      }
+      amp = escaped.indexOf("&", semi + 1);
+    }
+    this.value = escaped;
+  }
+
+  static fromEscaped(escaped: string): PreEscapedXmlText {
+    return new PreEscapedXmlText(escaped);
+  }
+
+  /** Encode plain text with Huawei WebUI's `xss()` escaper, the verified `send-sms` wire format. */
+  static fromHuaweiXss(text: string): PreEscapedXmlText {
+    return new PreEscapedXmlText(huaweiXssEncode(text));
+  }
+}
+
 /**
  * Convert a nested JS value into Huawei HiLink XML body (`jsonToXml`), escaping primitive values.
  */
@@ -162,6 +215,9 @@ export function jsonToXml(tag: string, value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return `<${tag}>${escapeXmlBasic(String(value))}</${tag}>`;
+  }
+  if (value instanceof PreEscapedXmlText) {
+    return `<${tag}>${value.value}</${tag}>`;
   }
   if (Array.isArray(value)) {
     return value.map((item) => jsonToXml(tag, item)).join("");
