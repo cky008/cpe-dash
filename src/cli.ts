@@ -109,6 +109,8 @@ export interface FengSuiRuntimeOptions {
   mode?: "serve" | "mcp";
   /** `mcp` mode only: poll telemetry and keep SMS in sync in the background (`--poll`). */
   backgroundPoll?: boolean;
+  /** Re-apply `TZ` to `process.env` when `/api/session/reset-breaker` reloads `.env` (CLI only). */
+  applyTimeZone?: boolean;
   log?: (line: string) => void;
 }
 
@@ -282,6 +284,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
     sms,
     notificationHub,
     onConfigReloaded: async (reloaded) => {
+      if (options.applyTimeZone) applyProcessTimeZone(reloaded);
       // Re-encrypt immediately: DATA_ENCRYPTION_KEY defaults to CPE_PASSWORD, so fixing the password
       // changes the key, and files left under the old key would be unreadable after a restart.
       const rekeyed: Array<Promise<void>> = [];
@@ -355,6 +358,19 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
   };
 }
 
+/**
+ * Apply `TZ` from `.env` to this process (Node re-reads `process.env.TZ` on assignment), so local
+ * timestamps such as the `<Date>` of sent SMS match the router's clock. Returns `true` on change.
+ */
+export function applyProcessTimeZone(
+  config: Pick<AppConfig, "timeZone">,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (!config.timeZone || env["TZ"] === config.timeZone) return false;
+  env["TZ"] = config.timeZone;
+  return true;
+}
+
 export function formatCliHelp(): string {
   return [
     "FengSui (烽燧 / cpe-dash) — Huawei 5G CPE Ultra 6 (H168-383) Telemetry, Control & MCP Platform",
@@ -394,11 +410,13 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   }
 
   const config = loadConfig({ envPath: cmd.envPath });
+  applyProcessTimeZone(config);
   const stack = createFengSuiRuntime({
     config,
     envPath: cmd.envPath,
     mode: cmd.mode,
     backgroundPoll: cmd.mcpBackgroundPoll,
+    applyTimeZone: true,
   });
   // `exit` listeners run synchronously (also after uncaught errors); graceful paths use close()
   process.once("exit", () => stack.releaseLocks());

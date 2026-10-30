@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
+import { applyProcessTimeZone } from "../src/cli.ts";
 import {
   canonicalizeRateLimitBucketKey,
   isAllowedHttpHostHeader,
@@ -7,7 +11,9 @@ import {
   normalizeCpeUrl,
   resolveClientIp,
   resolveRequestSecureScheme,
+  resolveTimeZone,
 } from "../src/config.ts";
+import { formatHuaweiDate } from "../src/xml.ts";
 import {
   SUPPORTED_LOCALES,
   getFlatCatalog,
@@ -87,6 +93,56 @@ describe("Phase 2 config hardening: CIDR XFF, /64 rate-limit key, DNS rebinding 
     assert.equal(cfg.webPort, 18384);
     assert.equal(cfg.mcpHttpEnabled, true);
     assert.equal(cfg.redactSensitiveInApi, true);
+  });
+});
+
+describe("TZ from .env (process time zone for router-local SMS timestamps)", () => {
+  const withEnvFile = (body: string): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-tz-"));
+    const envPath = path.join(dir, ".env");
+    fs.writeFileSync(envPath, body);
+    return envPath;
+  };
+
+  it("canonicalizes IANA zones, rejects typos from .env and leaves invalid inherited values to the process", () => {
+    assert.equal(resolveTimeZone("europe/dublin"), "Europe/Dublin");
+    assert.equal(resolveTimeZone("  Asia/Shanghai "), "Asia/Shanghai");
+    assert.equal(resolveTimeZone(""), null);
+    assert.equal(resolveTimeZone(undefined), null);
+    assert.throws(() => resolveTimeZone("Europe/Dubln"), /Invalid TZ "Europe\/Dubln"/);
+    assert.equal(resolveTimeZone(":/etc/localtime", { inherited: true }), null);
+
+    const envPath = withEnvFile("CPE_PASSWORD=x\nTZ=europe/dublin\n");
+    assert.equal(loadConfig({ envPath, ignoreProcessEnv: true }).timeZone, "Europe/Dublin");
+    assert.equal(loadConfig({ envPath: withEnvFile("CPE_PASSWORD=x\n"), ignoreProcessEnv: true }).timeZone, null);
+    assert.throws(
+      () => loadConfig({ envPath: withEnvFile("CPE_PASSWORD=x\nTZ=Mars/Olympus\n"), ignoreProcessEnv: true }),
+      /Invalid TZ "Mars\/Olympus"/
+    );
+    assert.equal(loadConfig({ envPath, ignoreProcessEnv: true, overrides: { TZ: "UTC" } }).timeZone, "UTC");
+  });
+
+  it("applies the configured zone to the process environment only when it differs", () => {
+    const env: NodeJS.ProcessEnv = { TZ: "UTC" };
+    assert.equal(applyProcessTimeZone({ timeZone: "Europe/Dublin" }, env), true);
+    assert.equal(env["TZ"], "Europe/Dublin");
+    assert.equal(applyProcessTimeZone({ timeZone: "Europe/Dublin" }, env), false);
+    assert.equal(applyProcessTimeZone({ timeZone: null }, env), false);
+    assert.equal(env["TZ"], "Europe/Dublin");
+  });
+
+  it("changes the local SMS <Date> stamp at runtime once process.env.TZ is assigned", () => {
+    const original = process.env["TZ"];
+    const instant = new Date(Date.UTC(2026, 9, 30, 0, 0, 0));
+    try {
+      assert.equal(applyProcessTimeZone({ timeZone: "Asia/Shanghai" }), original !== "Asia/Shanghai");
+      assert.equal(formatHuaweiDate(instant), "2026-10-30 08:00:00");
+      applyProcessTimeZone({ timeZone: "UTC" });
+      assert.equal(formatHuaweiDate(instant), "2026-10-30 00:00:00");
+    } finally {
+      if (original === undefined) delete process.env["TZ"];
+      else process.env["TZ"] = original;
+    }
   });
 });
 

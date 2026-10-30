@@ -6,6 +6,11 @@ export interface AppConfig {
   cpeUrl: string;
   cpeUsername: string;
   cpePassword: string;
+  /**
+   * Canonical IANA zone from `TZ` (e.g. `Europe/Dublin`), or `null` when unset. `.env` values never
+   * reach `process.env` on their own, so the CLI applies it (it stamps the `<Date>` of sent SMS).
+   */
+  timeZone: string | null;
   dataEncryptionKey: string;
   apiToken: string;
   trustedProxies: string[];

@@ -337,6 +337,22 @@ export function canonicalizeRateLimitBucketKey(clientIp: string): string {
   return `${hextets.slice(0, 4).join(":")}::/64`;
 }
 
+/**
+ * Canonicalize an IANA time zone (`europe/dublin` -> `Europe/Dublin`). An invalid value from `.env`
+ * is a configuration error; an invalid value inherited from the real process environment (e.g. a
+ * POSIX `TZ` string set by a container runtime) is left to the process and reported as `null`.
+ */
+export function resolveTimeZone(raw: string | undefined, opts: { inherited?: boolean } = {}): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+  } catch {
+    if (opts.inherited) return null;
+    throw new Error(`Invalid TZ "${value}" (expected an IANA time zone such as Europe/Dublin or UTC)`);
+  }
+}
+
 function parseBool(val: string | undefined, defaultValue: boolean): boolean {
   if (val === undefined || val === "") return defaultValue;
   const v = val.trim().toLowerCase();
@@ -381,6 +397,9 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   });
   const cpeUsername = get("CPE_USERNAME", "CPE_USER") ?? "admin";
   const cpePassword = get("CPE_PASSWORD", "CPEPASSWORD") ?? "";
+  const tzFromProcess =
+    !options.ignoreProcessEnv && Boolean(process.env["TZ"]) && !options.overrides?.["TZ"];
+  const timeZone = resolveTimeZone(get("TZ"), { inherited: tzFromProcess });
   const dataEncryptionKey = get("DATA_ENCRYPTION_KEY") ?? cpePassword;
   const apiToken = get("API_TOKEN") ?? cpePassword;
 
@@ -458,6 +477,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     cpeUrl,
     cpeUsername,
     cpePassword,
+    timeZone,
     dataEncryptionKey,
     apiToken,
     trustedProxies,

@@ -180,7 +180,15 @@ describe("createFengSuiRuntime", () => {
     const envPath = writeEnv(dir, env);
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const notify = createNotifyFetch();
-    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: mock.fetchImpl, notifyFetchImpl: notify.fetchImpl, log: () => undefined });
+    const originalTz = process.env["TZ"];
+    const stack = createFengSuiRuntime({
+      config,
+      envPath,
+      fetchImpl: mock.fetchImpl,
+      notifyFetchImpl: notify.fetchImpl,
+      log: () => undefined,
+      applyTimeZone: true,
+    });
     try {
       const bound = await stack.httpServer.listen();
       const bot = stack.telegramBot!;
@@ -188,13 +196,14 @@ describe("createFengSuiRuntime", () => {
       bot.state.authorize("2002");
       await Promise.all([stack.sms!.contacts.flush(), stack.sms!.mirror.flush(), bot.state.flush()]);
 
-      writeEnv(dir, { ...env, DATA_ENCRYPTION_KEY: "runtime_data_key_v2", API_TOKEN: "runtime_api_token_v2" });
+      writeEnv(dir, { ...env, DATA_ENCRYPTION_KEY: "runtime_data_key_v2", API_TOKEN: "runtime_api_token_v2", TZ: "asia/tokyo" });
       const res = await fetch(`http://${bound.host}:${bound.port}/api/session/reset-breaker`, {
         method: "POST",
         headers: { Authorization: "Bearer runtime_api_token_v1", "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: "{}",
       });
       assert.equal(res.status, 200);
+      assert.equal(process.env["TZ"], "Asia/Tokyo", "reloading .env re-applies TZ to the process");
 
       const v2 = StorageCipher.fromSecret("runtime_data_key_v2");
       const contacts = v2.readJsonFileOrQuarantine<{ contacts: Array<{ name: string }> }>(config.contactsFile);
@@ -212,6 +221,8 @@ describe("createFengSuiRuntime", () => {
       assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), true);
       assert.equal(bot.rotateAuthToken("runtime_api_token_v2"), 0, "unchanged token keeps linked chats");
     } finally {
+      if (originalTz === undefined) delete process.env["TZ"];
+      else process.env["TZ"] = originalTz;
       await stack.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
