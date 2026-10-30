@@ -25,14 +25,19 @@ cpe-dash/
 │   ├── parsers.ts          # 3CA 射频、邻区、双周期流量与终端拓扑纯函数解析器
 │   ├── cpe-client.ts       # H168-383 瞬时会话客户端、双层真人避让与 108006 防爆破断路器
 │   ├── cpe-domain.ts       # 遥测/邻区/拓扑/设置采集与控制写操作（含 sms-count 捎带）
-│   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、单飞、避让、熔断）
+│   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断）
+│   ├── cpe-monitor.ts      # 读侧：后台轮询、单飞刷新、快照缓存与时序写入
+│   ├── cpe-controls.ts     # 写侧：锁频锁站、重启重拨、路由器开关（入队前校验）
+│   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
 │   ├── sms/                # 短信：编解码、号码解析、协议、加密镜像、通讯录、应用服务、REST 路由与 MCP 工具
 │   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
-│   ├── http-server.ts      # REST / 静态资源 / Streamable HTTP MCP（CSRF、限流、Host 白名单）
+│   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
+│   ├── control-input.ts    # REST 与 MCP 共用入参校验；mcp-schema.ts 工具 inputSchema 运行时校验
 │   ├── sse-bus.ts          # /api/events SSE 总线
-│   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者）
-│   ├── cli.ts              # serve 守护进程与 stdio MCP 入口（运行时装配与有序启停）
+│   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者，挂载于 /mcp）
+│   ├── mcp-stdio-bridge.ts # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不连接 CPE）
+│   ├── cli.ts              # serve 守护进程（数据目录锁、运行时装配与有序启停）与 mcp 桥接入口
 │   └── index.ts            # 公共模块导出入口
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器
@@ -73,7 +78,7 @@ cpe-dash/
 ### 铁律四：华为单管理员会话排他保护与真人在线避让
 - H168-383 固件严格限制**同一时刻仅允许 1 个管理员会话在线**。若后台守护进程持久霸占会话，用户在浏览器打开 `http://192.168.8.1` 登录时将被迫报错或发生会话抢占。
 - **强制瞬时短连 (`withSession`)**：任何需要鉴权的读写操作必须包裹在串行互斥的 `HuaweiCpeClient.withSession()` 中，并在 `finally` 块内无条件调用 `POST /api/user/logout`（真机实测单次会话占用窗口仅 `~26ms–260ms`）。
-- **短信同样受本铁律约束**：短信同步、发送、标记已读与删除只能经 `SmsService` 进入 `MutexSessionScheduler`（读走 `executeRead`、写走 `executeControl`），短信计数捎带在 5s 遥测会话内，严禁另起轮询或独立登录。同一数据目录只允许一个进程持有短信存储（`sms.json.lock`），第二个进程（如与守护进程并行的 stdio MCP）自动以无短信模式运行。
+- **短信同样受本铁律约束**：短信同步、发送、标记已读与删除只能经 `SmsService` 进入 `MutexSessionScheduler`（读走 `executeRead`、写走 `executeControl`），短信计数捎带在 5s 遥测会话内，严禁另起轮询或独立登录。只有 `serve` 守护进程连接 CPE：它独占数据目录（`state.json.lock`），第二个守护进程启动即失败；`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，严禁在其他进程中实例化 `HuaweiCpeClient` 或调度器。
 - **双层真人在线主动避让（`state-login` 预检 + 跨 IP `108003` 让位）**：每次发起登录前先请求 `GET /api/user/state-login`；当 `respectBrowserSession: true`（后台轮询与探针默认开启）时，若 `<State>` 不为 `"-1"`（第 1 层）或跨局域网终端已有浏览器在线返回 `108003`/`108009`（第 2 层），客户端必须**立即静默挂起让位（返回 `null`）**，严禁强行抢占或循环重试干扰真人会话。
 
 ### 铁律五：`108006` / `108007` 防爆破熔断断路器 (Circuit Breaker)
