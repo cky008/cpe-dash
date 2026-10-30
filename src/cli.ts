@@ -316,9 +316,11 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       }
       if (telegramState) {
         telegramState.rotateEncryptionKey(reloaded.dataEncryptionKey);
+        // Revoke /auth-linked chats before the awaited flush (writes are chained), so the response
+        // never precedes a durable revocation of a rotated, possibly leaked API_TOKEN
+        telegramBot?.rotateAuthToken(reloaded.apiToken);
         rekeyed.push(telegramState.flush());
       }
-      telegramBot?.rotateAuthToken(reloaded.apiToken);
       await Promise.allSettled(rekeyed);
     },
   });
