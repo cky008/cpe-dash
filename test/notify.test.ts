@@ -140,6 +140,9 @@ describe("TelegramApi transport", () => {
     assert.throws(() => normalizeTelegramApiBase("ftp://tg.example.com"), /http\(s\)/);
     assert.throws(() => normalizeTelegramApiBase("https://user:pw@tg.example.com"), /credentials/);
     assert.throws(() => normalizeTelegramApiBase("https://tg.example.com/?x=1"), /query/);
+    // The bot token travels in the URL path: plain http is only acceptable to a LAN Bot API server
+    assert.throws(() => normalizeTelegramApiBase("http://tg.example.com"), /https/);
+    assert.equal(normalizeTelegramApiBase("http://192.168.8.10:8081"), "http://192.168.8.10:8081");
   });
 
   it("maps API failures without ever leaking the token and bounds file downloads", async () => {
@@ -243,6 +246,11 @@ describe("WebhookNotifier", () => {
     assert.throws(() => normalizeWebhookUrl("file:///etc/passwd"), /http\(s\)/);
     assert.throws(() => normalizeWebhookUrl("https://u:p@hooks.example.com"), /credentials/);
     assert.equal(normalizeWebhookUrl(" https://hooks.example.com/a?b=1 "), "https://hooks.example.com/a?b=1");
+    // SMS bodies and one-time codes must not cross the internet in clear text
+    assert.throws(() => normalizeWebhookUrl("http://hooks.example.com/x"), /https/);
+    assert.throws(() => normalizeWebhookUrl("http://203.0.113.10/x"), /https/);
+    assert.equal(normalizeWebhookUrl("http://192.168.8.10:8123/api/webhook/x"), "http://192.168.8.10:8123/api/webhook/x");
+    assert.equal(normalizeWebhookUrl("http://homeassistant.local:8123/x"), "http://homeassistant.local:8123/x");
   });
 });
 

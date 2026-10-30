@@ -1,3 +1,4 @@
+import { isAllowedCpeHost } from "../config.ts";
 import { readBoundedResponseText } from "../http-body.ts";
 import { parseJsonSafeNullProto } from "../json-safe.ts";
 
@@ -27,6 +28,9 @@ export function normalizeTelegramApiBase(raw: string): string {
   }
   if (parsed.username || parsed.password || parsed.search || parsed.hash) {
     throw new Error("TELEGRAM_API_BASE must not contain credentials, query or fragment");
+  }
+  if (parsed.protocol === "http:" && !isAllowedCpeHost(parsed.hostname)) {
+    throw new Error("TELEGRAM_API_BASE must use https outside the LAN (the bot token is part of every request URL)");
   }
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
 }

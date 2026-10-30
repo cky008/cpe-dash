@@ -1,11 +1,15 @@
 import crypto from "node:crypto";
+import { isAllowedCpeHost } from "../config.ts";
 import type { EnrichedSmsMessage } from "../sms/types.ts";
 import type { AlertEventRecord } from "../state-store.ts";
 import type { NotificationChannel } from "./hub.ts";
 
 export type WebhookEventName = "sms.received" | "alert";
 
-/** Validate the outbound webhook target: http(s) only, no embedded credentials or fragment. */
+/**
+ * Validate the outbound webhook target: http(s) only, no embedded credentials or fragment, and
+ * plain http only to a LAN/loopback host (payloads carry SMS bodies and one-time codes).
+ */
 export function normalizeWebhookUrl(raw: string): string {
   const parsed = new URL(raw.trim());
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
@@ -13,6 +17,9 @@ export function normalizeWebhookUrl(raw: string): string {
   }
   if (parsed.username || parsed.password || parsed.hash) {
     throw new Error("WEBHOOK_URL must not embed credentials or a fragment");
+  }
+  if (parsed.protocol === "http:" && !isAllowedCpeHost(parsed.hostname)) {
+    throw new Error("WEBHOOK_URL must use https for hosts outside the LAN (SMS bodies and codes would travel in clear text)");
   }
   return parsed.toString();
 }
