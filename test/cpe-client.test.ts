@@ -244,4 +244,21 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
     );
     assert.equal(val, "22dB");
   });
+
+  it("yields null immediately on cross-IP 108003 occupied when respectBrowserSession is true and retriesOnOccupied is omitted", async () => {
+    const { fetchImpl } = createMockCpeFetch({
+      password: "unit_password",
+      occupiedAttempts: 3,
+    });
+    const client = new HuaweiCpeClient({
+      cpeUrl: "http://192.168.8.1",
+      cpePassword: "unit_password",
+      respectBrowserSession: true,
+      fetchImpl,
+    });
+
+    const res = await client.withSession(async () => "should_yield_on_108003");
+    assert.equal(res, null);
+    assert.equal(client.getTelemetry().browserYieldCount, 1);
+  });
 });

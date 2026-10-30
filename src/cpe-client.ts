@@ -467,13 +467,14 @@ export class HuaweiCpeClient {
   ): Promise<T | null> {
     const respectBrowser = options.respectBrowserSession ?? this.defaultRespectBrowserSession;
     const retryBaseDelayMs = options.occupiedRetryDelayMs ?? 1500;
+    const retriesOnOccupied = options.retriesOnOccupied ?? (respectBrowser ? 0 : 2);
 
     const run = async (): Promise<T | null> => {
       if (this.#trippedError) {
         throw this.#trippedError;
       }
 
-      const maxAttempts = (options.retriesOnOccupied ?? 2) + 1;
+      const maxAttempts = retriesOnOccupied + 1;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const loginState = await this.getLoginState();
         if (loginState.isLocked) {
@@ -503,9 +504,15 @@ export class HuaweiCpeClient {
           if (err instanceof CpeApiError && err.isCircuitBreakerFatal) {
             this.#tripCircuitBreaker(err);
           }
-          if (err instanceof CpeApiError && err.isSessionOccupied && attempt < maxAttempts) {
-            await new Promise((r) => setTimeout(r, retryBaseDelayMs * attempt));
-            continue;
+          if (err instanceof CpeApiError && err.isSessionOccupied) {
+            if (attempt < maxAttempts) {
+              await new Promise((r) => setTimeout(r, retryBaseDelayMs * attempt));
+              continue;
+            }
+            if (respectBrowser) {
+              this.#browserYieldCount += 1;
+              return null;
+            }
           }
           throw err;
         } finally {
