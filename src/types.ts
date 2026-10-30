@@ -31,6 +31,29 @@ export interface AppConfig {
   respectBrowserSession: boolean;
   stateFile: string;
   cpeHarPath: string;
+  smsEnabled: boolean;
+  defaultCountryCode: string;
+  smsFile: string;
+  contactsFile: string;
+  smsFullSyncIntervalMs: number;
+  smsSeedExistingOnStart: boolean;
+  smsAutoMarkRead: boolean;
+  smsSendStatusTimeoutMs: number;
+  telegramBotToken: string;
+  telegramChatIds: string[];
+  telegramApiBase: string;
+  telegramStateFile: string;
+  webhookUrl: string;
+  webhookSecret: string;
+  alertsEnabled: boolean;
+  alertNotifyMinSeverity: "info" | "warning" | "critical";
+  alertRsrpThresholdDbm: number;
+  alertSinrThresholdDb: number;
+  /** `none` hides SMS tools, `read` exposes read-only tools, `full` adds send / read / delete / contacts. */
+  mcpSmsAccess: "none" | "read" | "full";
+  /** `known`: MCP may only text contacts or numbers previously messaged; `any`: no recipient restriction. */
+  mcpSmsSendPolicy: "known" | "any";
+  mcpSmsSendLimitPerHour: number;
 }
 
 export interface EccSessionKeys {

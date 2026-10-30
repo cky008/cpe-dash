@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { MutexSessionScheduler } from "./scheduler.ts";
+import type { SmsService } from "./sms/service.ts";
 
 export type SseEventName =
   | "hello"
@@ -11,7 +12,15 @@ export type SseEventName =
   | "settings"
   | "session:avoidance"
   | "alert"
-  | "control:applied";
+  | "control:applied"
+  | "sms:new"
+  | "sms:sent"
+  | "sms:updated"
+  | "sms:sync"
+  | "sms:status"
+  | "contacts:updated";
+
+const SMS_SSE_EVENTS = ["sms:new", "sms:sent", "sms:updated", "sms:sync", "sms:status", "contacts:updated"] as const;
 
 interface SseClientEntry {
   id: string;
@@ -47,6 +56,7 @@ export class SseEventBus {
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #seq = 0;
   #detachScheduler: (() => void) | null = null;
+  #detachSms: (() => void) | null = null;
 
   constructor(options: SseEventBusOptions = {}) {
     this.heartbeatMs = Math.max(2000, options.heartbeatMs ?? 15_000);
@@ -71,6 +81,8 @@ export class SseEventBus {
       this.#detachScheduler();
       this.#detachScheduler = null;
     }
+    this.#detachSms?.();
+    this.#detachSms = null;
     for (const client of this.#clients.values()) {
       this.#closeClient(client);
     }
@@ -120,6 +132,24 @@ export class SseEventBus {
   }
 
   /**
+   * Forward SMS domain events (`sms:new`, `sms:sent`, `sms:updated`, `sms:sync`, `sms:status`,
+   * `contacts:updated`) to every subscriber.
+   */
+  attachSms(sms: SmsService): void {
+    this.#detachSms?.();
+    const handlers = SMS_SSE_EVENTS.map((name) => {
+      const handler = (data: unknown): void => {
+        this.broadcast(name, data);
+      };
+      sms.on(name, handler);
+      return [name, handler] as const;
+    });
+    this.#detachSms = () => {
+      for (const [name, handler] of handlers) sms.off(name, handler);
+    };
+  }
+
+  /**
    * Subscribe an authenticated HTTP response stream to `/api/events`.
    */
   subscribe(params: {
@@ -133,6 +163,7 @@ export class SseEventBus {
       avoidance: unknown;
       telemetry: unknown;
       lockState: unknown;
+      sms?: unknown;
     };
   }): { accepted: boolean; reason?: string; clientId?: string } {
     if (this.#clients.size >= this.maxClients) {

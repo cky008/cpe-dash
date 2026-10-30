@@ -33,6 +33,9 @@ import {
   SchedulerStoppedError,
   type MutexSessionScheduler,
 } from "./scheduler.ts";
+import type { NotificationHub } from "./notify/hub.ts";
+import { SmsHttpRoutes } from "./sms/http-routes.ts";
+import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
 import {
   TimeSeriesValidationError,
@@ -137,6 +140,9 @@ export interface FengSuiHttpServerOptions {
   sseBus: SseEventBus;
   mcpServer: FengSuiMcpServer;
   envPath?: string;
+  /** Enables `/api/sms/*`; when absent those routes answer `404 SMS_DISABLED`. */
+  sms?: SmsService | null;
+  notificationHub?: NotificationHub | null;
 }
 
 /**
@@ -153,7 +159,10 @@ export class FengSuiHttpServer {
   readonly mcpServer: FengSuiMcpServer;
   readonly envPath: string | undefined;
   readonly startedAtMs: number;
+  readonly sms: SmsService | null;
+  readonly notificationHub: NotificationHub | null;
 
+  #smsRoutes: SmsHttpRoutes | null;
   #server: http.Server | null = null;
   #bucketSweepTimer: ReturnType<typeof setInterval> | null = null;
   #sessions: Map<string, WebSessionRecord> = new Map();
@@ -167,6 +176,9 @@ export class FengSuiHttpServer {
     this.mcpServer = options.mcpServer;
     this.envPath = options.envPath;
     this.startedAtMs = Date.now();
+    this.sms = options.sms ?? null;
+    this.notificationHub = options.notificationHub ?? null;
+    this.#smsRoutes = this.sms ? new SmsHttpRoutes(this.sms) : null;
   }
 
   get config(): AppConfig {
@@ -423,7 +435,10 @@ export class FengSuiHttpServer {
     return parts.join("; ");
   }
 
-  async #readBoundedJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  async #readBoundedJsonBody(
+    req: IncomingMessage,
+    maxBytes = MAX_JSON_BODY_BYTES
+  ): Promise<Record<string, unknown>> {
     const ct = (req.headers["content-type"] ?? "").toLowerCase();
     if (!ct.startsWith("application/json")) {
       throw new HttpPayloadError(415, "Expected Content-Type: application/json");
@@ -435,9 +450,9 @@ export class FengSuiHttpServer {
     for await (const chunk of req) {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
       totalBytes += buf.length;
-      if (totalBytes > MAX_JSON_BODY_BYTES) {
+      if (totalBytes > maxBytes) {
         req.destroy();
-        throw new HttpPayloadError(413, `JSON request body exceeds ${MAX_JSON_BODY_BYTES} bytes`);
+        throw new HttpPayloadError(413, `JSON request body exceeds ${maxBytes} bytes`);
       }
       chunks.push(buf);
     }
@@ -826,6 +841,7 @@ export class FengSuiHttpServer {
           avoidance: this.scheduler.getAvoidanceState(),
           telemetry: this.scheduler.getCachedTelemetry(),
           lockState: this.scheduler.getPersistedLockState(),
+          sms: this.sms?.getStatus() ?? null,
         },
       });
       if (!sub.accepted) {
@@ -849,9 +865,22 @@ export class FengSuiHttpServer {
     searchParams: URLSearchParams
   ): Promise<void> {
     try {
+      if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
+        await this.#dispatchSmsApi(req, res, method, pathname, searchParams);
+        return;
+      }
+
       // Strictly side-effect-free GET endpoints (read from cache / ring buffer)
       if (method === "GET") {
         switch (pathname) {
+          case "/api/alerts":
+            this.#sendJson(res, 200, {
+              ok: true,
+              alerts: this.scheduler.getRecentAlerts(),
+              notifications: this.notificationHub?.getStats() ?? null,
+            });
+            return;
+
           case "/api/telemetry":
             this.#sendJson(res, 200, {
               ok: true,
@@ -1207,6 +1236,46 @@ export class FengSuiHttpServer {
         ok: false,
         errorCode: "CPE_UPSTREAM_ERROR",
         message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** Delegate `/api/sms/*` to the SMS route module (errors bubble to the shared error mapping). */
+  async #dispatchSmsApi(
+    req: IncomingMessage,
+    res: ServerResponse,
+    method: string,
+    pathname: string,
+    searchParams: URLSearchParams
+  ): Promise<void> {
+    if (!this.#smsRoutes) {
+      this.#sendJson(res, 404, {
+        ok: false,
+        errorCode: "SMS_DISABLED",
+        message: "SMS features are disabled (SMS_ENABLED=false)",
+      });
+      return;
+    }
+    if (method !== "GET" && method !== "POST") {
+      this.#sendJson(res, 405, {
+        ok: false,
+        errorCode: "METHOD_NOT_ALLOWED",
+        message: `Method ${method} not allowed on ${pathname}`,
+      });
+      return;
+    }
+    const handled = await this.#smsRoutes.handle({
+      method,
+      pathname,
+      query: parseQueryNullProto(searchParams),
+      readJsonBody: (maxBytes) => this.#readBoundedJsonBody(req, maxBytes),
+      sendJson: (statusCode, body) => this.#sendJson(res, statusCode, body),
+    });
+    if (!handled) {
+      this.#sendJson(res, 404, {
+        ok: false,
+        errorCode: "NOT_FOUND",
+        message: `Unknown ${method} endpoint ${pathname}`,
       });
     }
   }

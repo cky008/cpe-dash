@@ -436,6 +436,24 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const stateFile = path.resolve(process.cwd(), get("STATE_FILE") ?? "./data/state.json");
   const cpeHarPath = get("CPE_HAR_PATH") ?? "";
 
+  const dataDir = path.dirname(stateFile);
+  const dataFile = (key: string, fallbackName: string): string => {
+    const raw = get(key);
+    return raw ? path.resolve(process.cwd(), raw) : path.join(dataDir, fallbackName);
+  };
+  const rawCountry = (get("DEFAULT_COUNTRY_CODE") ?? "+353").trim();
+  const defaultCountryCode = /^\+?\d{1,4}$/.test(rawCountry)
+    ? `+${rawCountry.replace(/^\+/, "")}`
+    : "+353";
+  const pickEnum = <T extends string>(raw: string | undefined, allowed: ReadonlyArray<T>, fallback: T): T => {
+    const v = raw?.trim().toLowerCase();
+    return (allowed as ReadonlyArray<string>).includes(v ?? "") ? (v as T) : fallback;
+  };
+  const telegramChatIds = (get("TELEGRAM_CHAT_IDS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => /^-?\d{1,20}$/.test(s));
+
   return {
     cpeUrl,
     cpeUsername,
@@ -465,5 +483,26 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     respectBrowserSession,
     stateFile,
     cpeHarPath,
+    smsEnabled: parseBool(get("SMS_ENABLED"), true),
+    defaultCountryCode,
+    smsFile: dataFile("SMS_FILE", "sms.json"),
+    contactsFile: dataFile("CONTACTS_FILE", "contacts.json"),
+    smsFullSyncIntervalMs: Math.max(60_000, parseIntSafe(get("SMS_FULL_SYNC_INTERVAL_MS"), 30 * 60_000)),
+    smsSeedExistingOnStart: parseBool(get("SMS_SEED_EXISTING_ON_START"), true),
+    smsAutoMarkRead: parseBool(get("SMS_AUTO_MARK_READ"), false),
+    smsSendStatusTimeoutMs: Math.min(120_000, Math.max(5000, parseIntSafe(get("SMS_SEND_STATUS_TIMEOUT_MS"), 45_000))),
+    telegramBotToken: get("TELEGRAM_BOT_TOKEN") ?? "",
+    telegramChatIds,
+    telegramApiBase: get("TELEGRAM_API_BASE") ?? "https://api.telegram.org",
+    telegramStateFile: dataFile("TELEGRAM_STATE_FILE", "telegram.json"),
+    webhookUrl: get("WEBHOOK_URL") ?? "",
+    webhookSecret: get("WEBHOOK_SECRET") ?? "",
+    alertsEnabled: parseBool(get("ALERTS_ENABLED"), true),
+    alertNotifyMinSeverity: pickEnum(get("ALERT_NOTIFY_MIN_SEVERITY"), ["info", "warning", "critical"] as const, "warning"),
+    alertRsrpThresholdDbm: parseIntSafe(get("ALERT_RSRP_THRESHOLD_DBM"), -110),
+    alertSinrThresholdDb: parseIntSafe(get("ALERT_SINR_THRESHOLD_DB"), 0),
+    mcpSmsAccess: pickEnum(get("MCP_SMS_ACCESS"), ["none", "read", "full"] as const, "read"),
+    mcpSmsSendPolicy: pickEnum(get("MCP_SMS_SEND_POLICY"), ["known", "any"] as const, "known"),
+    mcpSmsSendLimitPerHour: Math.max(0, parseIntSafe(get("MCP_SMS_SEND_LIMIT_PER_HOUR"), 10)),
   };
 }
