@@ -12,7 +12,25 @@ import { createStrictCpe } from "./helpers/strict-cpe.ts";
 const MODERN = "2026-07-28";
 const META_VERSION = "io.modelcontextprotocol/protocolVersion";
 
-async function withDaemon(run: (ctx: { baseUrl: string; rpc: (body: unknown, headers?: Record<string, string>) => Promise<{ status: number; json: any }> }) => Promise<void>): Promise<void> {
+/** The parts of a JSON-RPC reply these tests read (the daemon's answer, parsed). */
+interface RpcReply {
+  result: {
+    resultType?: string;
+    protocolVersion?: string;
+    supportedVersions?: string[];
+    capabilities: { tools?: unknown };
+    isError?: boolean;
+    tools: unknown[];
+    ttlMs?: number;
+    cacheScope?: string;
+    _meta: Record<string, { name?: string }>;
+  };
+  error: { code: number; message: string; data?: unknown };
+}
+
+type Rpc = (body: unknown, headers?: Record<string, string>) => Promise<{ status: number; json: RpcReply }>;
+
+async function withDaemon(run: (ctx: { baseUrl: string; rpc: Rpc }) => Promise<void>): Promise<void> {
   const cpe = createStrictCpe();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-mcp-modern-"));
   const envPath = path.join(dir, ".env");
@@ -35,13 +53,14 @@ async function withDaemon(run: (ctx: { baseUrl: string; rpc: (body: unknown, hea
   try {
     const bound = await daemon.httpServer.listen();
     const baseUrl = `http://${bound.host}:${bound.port}/mcp`;
-    const rpc = async (body: unknown, headers: Record<string, string> = {}) => {
+    const rpc: Rpc = async (body, headers = {}) => {
       const res = await fetch(baseUrl, {
         method: "POST",
         headers: { Authorization: "Bearer modern_api_token", "Content-Type": "application/json", ...headers },
         body: JSON.stringify(body),
       });
-      return { status: res.status, json: res.status === 202 ? null : await res.json() };
+      // A 202 has no body; tests never read `json` for notifications
+      return { status: res.status, json: (res.status === 202 ? {} : await res.json()) as RpcReply };
     };
     await run({ baseUrl, rpc });
   } finally {
@@ -71,7 +90,7 @@ describe("MCP 2026-07-28 (stateless) alongside the legacy initialize flow", () =
       assert.equal(discover.json.result.resultType, "complete");
       assert.deepEqual(discover.json.result.supportedVersions, [...SUPPORTED_MCP_PROTOCOL_VERSIONS]);
       assert.ok(discover.json.result.capabilities.tools);
-      assert.equal(discover.json.result._meta["io.modelcontextprotocol/serverInfo"].name, "fengsui-cpe-dash");
+      assert.equal(discover.json.result._meta["io.modelcontextprotocol/serverInfo"]?.name, "fengsui-cpe-dash");
 
       // No initialize needed: every request carries its version
       const call = await rpc(modern(2, "tools/call", { name: "get_cpe_session_status", arguments: {} }), {
@@ -82,7 +101,7 @@ describe("MCP 2026-07-28 (stateless) alongside the legacy initialize flow", () =
       assert.equal(call.status, 200);
       assert.equal(call.json.result.resultType, "complete");
       assert.equal(call.json.result.isError, false);
-      assert.equal(call.json.result._meta["io.modelcontextprotocol/serverInfo"].name, "fengsui-cpe-dash");
+      assert.equal(call.json.result._meta["io.modelcontextprotocol/serverInfo"]?.name, "fengsui-cpe-dash");
 
       const encoded = `=?base64?${Buffer.from("get_cpe_session_status", "utf8").toString("base64")}?=`;
       const sentinel = await rpc(modern(3, "tools/call", { name: "get_cpe_session_status", arguments: {} }), {
@@ -185,8 +204,9 @@ describe("MCP 2026-07-28 (stateless) alongside the legacy initialize flow", () =
         const res = await rpc(modern(10, method, params), headers(method, name));
         assert.equal(res.status, 200, method);
         assert.equal(res.json.result.cacheScope, "private", method);
-        assert.ok(Number.isInteger(res.json.result.ttlMs) && res.json.result.ttlMs >= 0, method);
-        ttls[method] = res.json.result.ttlMs;
+        const ttlMs = res.json.result.ttlMs;
+        assert.ok(ttlMs !== undefined && Number.isInteger(ttlMs) && ttlMs >= 0, method);
+        ttls[method] = ttlMs;
       }
       assert.equal(ttls["resources/read"], 0, "live router data is never served from a cache");
       assert.ok((ttls["tools/list"] ?? 0) > 0 && (ttls["server/discover"] ?? 0) > 0, "static lists may be cached");
