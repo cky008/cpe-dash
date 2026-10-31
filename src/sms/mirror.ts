@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import { AtomicFileWriter, StorageCipher } from "../encrypted-file.ts";
-import { extractVerificationCode } from "./codec.ts";
 import type { ContactBook } from "./contacts.ts";
-import { canonicalThreadKey, extractBrandSignature, parseSenderInfo } from "./phone.ts";
+import { extractVerificationCode } from "./otp.ts";
+import { canonicalThreadKey } from "./phone.ts";
 import type { SmsListingPath } from "./protocol.ts";
+import { type ThreadViewContext, enrichSmsMessage, getSmsThread, listSmsThreads, newestFirst, smsThreadStats } from "./thread-view.ts";
 import type {
   ContactBrief,
   EnrichedSmsMessage,
@@ -17,7 +18,6 @@ import type {
 
 const MAX_NOTIFIED = 3000;
 const MAX_MESSAGES = 5000;
-const MAX_SEARCH_QUERY = 100;
 
 /**
  * Opaque, stable message id derived from `(index, date, phone)`. A reused CPE index carrying a
@@ -48,10 +48,6 @@ interface PersistedSmsMirror extends SmsMirrorMeta {
   messages: SmsMessageRecord[];
 }
 
-function newestFirst(a: SmsMessageRecord, b: SmsMessageRecord): number {
-  return a.date === b.date ? b.index - a.index : a.date > b.date ? -1 : 1;
-}
-
 function defaultMeta(): SmsMirrorMeta {
   return { seeded: false, lastSyncAt: null, lastFullSyncAt: null, via: null, counters: null };
 }
@@ -70,11 +66,13 @@ export class SmsMirrorStore {
   #messages = new Map<string, SmsMessageRecord>();
   #notified = new Set<string>();
   #meta: SmsMirrorMeta = defaultMeta();
+  readonly #view: ThreadViewContext;
 
   constructor(opts: { filePath: string; cipher: StorageCipher; defaultCountryCode: string; contacts: ContactBook }) {
     this.filePath = opts.filePath;
     this.defaultCountryCode = opts.defaultCountryCode;
     this.contacts = opts.contacts;
+    this.#view = { defaultCountryCode: opts.defaultCountryCode, contactOf: (phone) => this.#contactBrief(phone) };
     this.#cipher = opts.cipher;
     this.#writer = new AtomicFileWriter(opts.filePath);
   }
@@ -255,12 +253,7 @@ export class SmsMirrorStore {
   }
 
   enrich(record: SmsMessageRecord): EnrichedSmsMessage {
-    return {
-      ...record,
-      threadKey: canonicalThreadKey(record.phone, this.defaultCountryCode),
-      sender: parseSenderInfo(record.phone, record.content, this.defaultCountryCode),
-      contact: this.#contactBrief(record.phone),
-    };
+    return enrichSmsMessage(record, this.#view);
   }
 
   /**
@@ -268,104 +261,16 @@ export class SmsMirrorStore {
    * numbers, country, bodies and OTP codes.
    */
   listThreads(opts: { filter?: SmsThreadFilter; search?: string; limit?: number } = {}): SmsThreadSummary[] {
-    const q = (opts.search ?? "").trim().toLowerCase().slice(0, MAX_SEARCH_QUERY);
-    const threads = new Map<string, SmsThreadSummary>();
-    for (const msg of [...this.#messages.values()].sort(newestFirst)) {
-      const key = canonicalThreadKey(msg.phone, this.defaultCountryCode);
-      let thread = threads.get(key);
-      if (!thread) {
-        const sender = parseSenderInfo(msg.phone, msg.content, this.defaultCountryCode);
-        const contact = this.#contactBrief(msg.phone);
-        thread = {
-          threadKey: key,
-          phone: msg.phone,
-          replyPhone: sender.dialable ? (sender.e164 ?? msg.phone) : null,
-          dialable: sender.dialable,
-          sender,
-          contact,
-          displayName:
-            contact?.name ??
-            (sender.type === "alphanumeric"
-              ? msg.phone
-              : sender.brandHint
-                ? `${msg.phone} (${sender.brandHint})`
-                : (sender.e164 ?? msg.phone)),
-          unreadCount: 0,
-          totalCount: 0,
-          hasOtp: false,
-          latestOtp: null,
-          latestMessage: { ...msg },
-        };
-        threads.set(key, thread);
-      } else if (!thread.sender.brandHint && !thread.contact) {
-        const hint = extractBrandSignature(msg.content);
-        if (hint) {
-          thread.sender = { ...thread.sender, brandHint: hint };
-          if (thread.sender.type !== "alphanumeric") thread.displayName = `${thread.phone} (${hint})`;
-        }
-      }
-      thread.totalCount += 1;
-      if (msg.isUnread) thread.unreadCount += 1;
-      if (msg.verificationCode) {
-        thread.hasOtp = true;
-        thread.latestOtp ??= msg.verificationCode;
-      }
-      if (q && thread.matchedPreview === undefined) {
-        if (msg.content.toLowerCase().includes(q) || Boolean(msg.verificationCode?.includes(q))) {
-          thread.matchedPreview = msg.content;
-        }
-      }
-    }
-
-    let list = [...threads.values()];
-    if (opts.filter === "unread") list = list.filter((t) => t.unreadCount > 0);
-    else if (opts.filter === "otp") list = list.filter((t) => t.hasOtp);
-    if (q) {
-      list = list.filter(
-        (t) =>
-          t.displayName.toLowerCase().includes(q) ||
-          t.phone.toLowerCase().includes(q) ||
-          Boolean(t.sender.e164?.toLowerCase().includes(q)) ||
-          t.sender.countryZh.toLowerCase().includes(q) ||
-          t.sender.countryEn.toLowerCase().includes(q) ||
-          t.matchedPreview !== undefined
-      );
-    }
-    return opts.limit !== undefined ? list.slice(0, Math.max(1, opts.limit)) : list;
+    return listSmsThreads(this.#messages.values(), this.#view, opts);
   }
 
   /** Full conversation (oldest first) for a thread key (`+353…`, `alpha:<brand>`) or any phone spelling. */
   getThread(keyOrPhone: string): SmsThreadDetail {
-    const key =
-      keyOrPhone.startsWith("alpha:") || keyOrPhone === "unknown"
-        ? keyOrPhone
-        : canonicalThreadKey(keyOrPhone, this.defaultCountryCode);
-    const messages = [...this.#messages.values()]
-      .filter((m) => canonicalThreadKey(m.phone, this.defaultCountryCode) === key)
-      .sort((a, b) => newestFirst(b, a))
-      .map((m) => this.enrich(m));
-    const phone = messages[messages.length - 1]?.phone ?? keyOrPhone.replace(/^alpha:/, "");
-    const brandSample = [...messages].reverse().find((m) => m.sender.brandHint)?.content ?? "";
-    const sender = parseSenderInfo(phone, brandSample, this.defaultCountryCode);
-    return {
-      threadKey: key,
-      phone,
-      replyPhone: sender.dialable ? (sender.e164 ?? phone) : null,
-      dialable: sender.dialable,
-      sender,
-      contact: this.#contactBrief(phone),
-      messages,
-    };
+    return getSmsThread(this.#messages.values(), this.#view, keyOrPhone);
   }
 
   stats(): { messagesTotal: number; unreadTotal: number; threadsTotal: number } {
-    const keys = new Set<string>();
-    let unread = 0;
-    for (const m of this.#messages.values()) {
-      keys.add(canonicalThreadKey(m.phone, this.defaultCountryCode));
-      if (m.isUnread) unread += 1;
-    }
-    return { messagesTotal: this.#messages.size, unreadTotal: unread, threadsTotal: keys.size };
+    return smsThreadStats(this.#messages.values(), this.defaultCountryCode);
   }
 
   #contactBrief(phone: string): ContactBrief | null {

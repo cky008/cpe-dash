@@ -1,19 +1,33 @@
-import net from "node:net";
 import type { MacFilterEntry, TimeRuleChange, TimeRuleInput, WifiAccessChange } from "./access-plan.ts";
 import type { BandInput } from "./band-lock.ts";
-import { type AntennaModeName, type CellLockCommand, CpeControlValidationError } from "./cpe-domain.ts";
+import { CpeControlValidationError } from "./control-error.ts";
+import type { AntennaModeName, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
 import { TimeSeriesValidationError, type TimeSeriesPreset } from "./timeseries.ts";
 
 /**
  * Input guards shared by the REST routes and the MCP tools, so both adapters apply one rule set
  * (and neither needs an `as` cast). Every guard throws `CpeControlValidationError` (or
  * `TimeSeriesValidationError`), which both adapters map to `VALIDATION_ERROR` before any session.
+ * No Node built-ins: the static web demo validates its requests with the same guards.
  */
 
 type Args = Readonly<Record<string, unknown>>;
 
 const TIME_SERIES_PRESETS: ReadonlyArray<TimeSeriesPreset> = ["1h", "6h", "12h", "24h", "custom"];
 const ANTENNA_MODES: ReadonlyArray<AntennaModeName> = ["auto", "internal", "external"];
+/** Dotted-quad IPv4 without leading zeros (what `net.isIP(...) === 4` accepts). */
+const IPV4 = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const FIREWALL_KEYS: ReadonlySet<string> = new Set<keyof FirewallSwitchState>([
+  "mainSwitch",
+  "ipFilterSwitch",
+  "wanPortPingSwitch",
+  "macFilterSwitch",
+  "urlFilterSwitch",
+]);
+
+export function isIpv4(value: string): boolean {
+  return IPV4.test(value);
+}
 
 export function readOptionalBoolean(args: Args, key: string): boolean | undefined {
   const value = args[key];
@@ -27,7 +41,7 @@ export function readOptionalBoolean(args: Args, key: string): boolean | undefine
 export function readOptionalIpv4(args: Args, key: string): string | undefined {
   const value = args[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || net.isIP(value.trim()) !== 4) {
+  if (typeof value !== "string" || !isIpv4(value.trim())) {
     throw new CpeControlValidationError(`"${key}" must be a valid IPv4 address`);
   }
   return value.trim();
@@ -184,3 +198,55 @@ export function readTimeRuleChange(args: Args): TimeRuleChange {
   return action === "create" ? { kind: "create", rule } : { kind: "update", id: readString(args, "id"), rule };
 }
 
+export interface SecurityControlInput {
+  upnpEnabled?: boolean;
+  dmz?: { enabled: boolean; ipAddress?: string };
+  firewall?: Partial<FirewallSwitchState>;
+}
+
+/** `POST /api/control/security`: `{ upnpEnabled?, dmz?: { enabled, ipAddress? }, firewall?: { <switch>: boolean } }`. */
+export function readSecurityControl(args: Args): SecurityControlInput {
+  const upnpEnabled = readOptionalBoolean(args, "upnpEnabled");
+
+  let dmz: { enabled: boolean; ipAddress?: string } | undefined;
+  const rawDmz = args["dmz"];
+  if (rawDmz !== undefined) {
+    if (!rawDmz || typeof rawDmz !== "object" || Array.isArray(rawDmz)) {
+      throw new CpeControlValidationError('Field "dmz" must be an object');
+    }
+    const dmzObj = rawDmz as Record<string, unknown>;
+    if (typeof dmzObj["enabled"] !== "boolean") {
+      throw new CpeControlValidationError('Field "dmz.enabled" must be boolean');
+    }
+    let ipAddress: string | undefined;
+    if (dmzObj["ipAddress"] !== undefined) {
+      if (typeof dmzObj["ipAddress"] !== "string" || !isIpv4(dmzObj["ipAddress"].trim())) {
+        throw new CpeControlValidationError('Field "dmz.ipAddress" must be a valid IPv4 address');
+      }
+      ipAddress = dmzObj["ipAddress"].trim();
+    }
+    dmz = { enabled: dmzObj["enabled"], ipAddress };
+  }
+
+  let firewall: Partial<FirewallSwitchState> | undefined;
+  const rawFw = args["firewall"];
+  if (rawFw !== undefined) {
+    if (!rawFw || typeof rawFw !== "object" || Array.isArray(rawFw)) {
+      throw new CpeControlValidationError('Field "firewall" must be an object');
+    }
+    const cleanFw = Object.create(null) as Partial<FirewallSwitchState>;
+    for (const [k, v] of Object.entries(rawFw as Record<string, unknown>)) {
+      if (!FIREWALL_KEYS.has(k)) {
+        throw new CpeControlValidationError(`Unknown firewall switch key "${k}"`);
+      }
+      if (v !== undefined) {
+        if (typeof v !== "boolean") {
+          throw new CpeControlValidationError(`Firewall switch "${k}" must be boolean`);
+        }
+        cleanFw[k as keyof FirewallSwitchState] = v;
+      }
+    }
+    firewall = cleanFw;
+  }
+  return { upnpEnabled, dmz, firewall };
+}

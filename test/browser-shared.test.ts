@@ -3,7 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import * as bandLock from "../src/band-lock.ts";
+import * as controlError from "../src/control-error.ts";
+import * as cpeDomain from "../src/cpe-domain.ts";
+import * as parsers from "../src/parsers.ts";
 import * as codec from "../src/sms/codec.ts";
+import * as contacts from "../src/sms/contacts.ts";
+import * as otp from "../src/sms/otp.ts";
+import * as vcard from "../src/sms/vcard.ts";
+import * as units from "../src/units.ts";
 import {
   H168_383_LTE_BANDS,
   H168_383_NR_BANDS,
@@ -18,8 +25,33 @@ import { maskIdentityDigits, maskIpAddress, maskMacTail, maskPhoneNumber } from 
 import * as sanitize from "../src/sanitize.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../src/sms/text-mode.ts";
 
-/** Modules the browser bundle imports at runtime: they must not reach any Node built-in. */
-const BROWSER_SHARED_MODULES = ["src/rf-bounds.ts", "src/sms/text-mode.ts", "src/text-sanitize.ts", "src/privacy-mask.ts"];
+/**
+ * Modules the browser bundles (the console and the static demo) import at runtime: they must not
+ * reach any Node built-in.
+ */
+const BROWSER_SHARED_MODULES = [
+  "src/rf-bounds.ts",
+  "src/sms/text-mode.ts",
+  "src/text-sanitize.ts",
+  "src/privacy-mask.ts",
+  "src/access-plan.ts",
+  "src/access-state.ts",
+  "src/control-error.ts",
+  "src/control-input.ts",
+  "src/timeseries.ts",
+  "src/units.ts",
+  "src/sms/otp.ts",
+  "src/sms/phone.ts",
+  "src/sms/thread-view.ts",
+  "src/sms/vcard.ts",
+];
+
+function webSources(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    return entry.isDirectory() ? webSources(full) : entry.name.endsWith(".ts") ? [full] : [];
+  });
+}
 
 function runtimeImports(file: string): string[] {
   const source = fs.readFileSync(file, "utf8");
@@ -47,6 +79,29 @@ describe("Browser-shared modules (single source of truth for the web UI)", () =>
     };
     for (const file of BROWSER_SHARED_MODULES) visit(file);
     assert.ok(seen.size >= BROWSER_SHARED_MODULES.length);
+  });
+
+  it("are the only daemon modules the web sources import at runtime", () => {
+    for (const file of webSources("web/src")) {
+      for (const spec of runtimeImports(file)) {
+        const target = path.relative(process.cwd(), path.join(path.dirname(file), spec));
+        if (!target.startsWith("src/")) continue;
+        assert.ok(BROWSER_SHARED_MODULES.includes(target), `${file} imports ${target}, which is not a browser-shared module`);
+      }
+    }
+  });
+
+  it("keeps the daemon's modules re-exporting the shared implementations", () => {
+    assert.equal(codec.extractVerificationCode, otp.extractVerificationCode);
+    assert.equal(contacts.parseVcardContacts, vcard.parseVcardContacts);
+    assert.equal(parsers.formatBytesBinary, units.formatBytesBinary);
+    assert.equal(parsers.formatRateBitsPerSec, units.formatRateBitsPerSec);
+    assert.equal(cpeDomain.CpeControlValidationError, controlError.CpeControlValidationError);
+  });
+
+  it("decodes quoted-printable vCards without Node's Buffer", () => {
+    const vcf = "BEGIN:VCARD\nFN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:=E6=BC=94=E7=A4=BA\nTEL:+447700900123\nEND:VCARD";
+    assert.deepEqual(vcard.parseVcardContacts(vcf), [{ name: "演示", phones: ["+447700900123"] }]);
   });
 
   it("keeps band-lock and the SMS codec exporting the very same bounds and text-mode functions", () => {

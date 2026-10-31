@@ -1,5 +1,4 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import net from "node:net";
 import type { TLSSocket } from "node:tls";
 import { type AccessControlSnapshot, accessGuardFromHosts } from "./access-control.ts";
 import {
@@ -14,12 +13,13 @@ import {
   readBandSelection,
   readCellLockCommand,
   readOptionalBoolean,
+  readSecurityControl,
   readTimeRuleChange,
   readTimeSeriesPreset,
   readWifiDeviceAccess,
   readWifiMacFilterChange,
 } from "./control-input.ts";
-import { CpeControlValidationError, type FirewallSwitchState } from "./cpe-domain.ts";
+import { CpeControlValidationError } from "./cpe-domain.ts";
 import {
   type CredentialVerdict,
   HttpAuthGuard,
@@ -82,13 +82,6 @@ import { FENGSUI_VERSION } from "./version.ts";
 
 const MAX_JSON_BODY_BYTES = 64 * 1024;
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const ALLOWED_FIREWALL_KEYS = new Set<keyof FirewallSwitchState>([
-  "mainSwitch",
-  "ipFilterSwitch",
-  "wanPortPingSwitch",
-  "macFilterSwitch",
-  "urlFilterSwitch",
-]);
 
 class HttpPayloadError extends Error {
   readonly statusCode: number;
@@ -855,54 +848,7 @@ export class FengSuiHttpServer {
         }
 
         case "/api/control/security": {
-          const upnpEnabled = readOptionalBoolean(body, "upnpEnabled");
-
-          let dmz: { enabled: boolean; ipAddress?: string } | undefined;
-          const rawDmz = body["dmz"];
-          if (rawDmz !== undefined) {
-            if (!rawDmz || typeof rawDmz !== "object" || Array.isArray(rawDmz)) {
-              throw new CpeControlValidationError('Field "dmz" must be an object');
-            }
-            const dmzObj = rawDmz as Record<string, unknown>;
-            if (typeof dmzObj["enabled"] !== "boolean") {
-              throw new CpeControlValidationError('Field "dmz.enabled" must be boolean');
-            }
-            let ipAddress: string | undefined;
-            if (dmzObj["ipAddress"] !== undefined) {
-              if (typeof dmzObj["ipAddress"] !== "string" || net.isIP(dmzObj["ipAddress"].trim()) !== 4) {
-                throw new CpeControlValidationError('Field "dmz.ipAddress" must be a valid IPv4 address');
-              }
-              ipAddress = dmzObj["ipAddress"].trim();
-            }
-            dmz = { enabled: dmzObj["enabled"], ipAddress };
-          }
-
-          let firewall: Partial<FirewallSwitchState> | undefined;
-          const rawFw = body["firewall"];
-          if (rawFw !== undefined) {
-            if (!rawFw || typeof rawFw !== "object" || Array.isArray(rawFw)) {
-              throw new CpeControlValidationError('Field "firewall" must be an object');
-            }
-            const cleanFw = Object.create(null) as Partial<FirewallSwitchState>;
-            for (const [k, v] of Object.entries(rawFw as Record<string, unknown>)) {
-              if (!ALLOWED_FIREWALL_KEYS.has(k as keyof FirewallSwitchState)) {
-                throw new CpeControlValidationError(`Unknown firewall switch key "${k}"`);
-              }
-              if (v !== undefined) {
-                if (typeof v !== "boolean") {
-                  throw new CpeControlValidationError(`Firewall switch "${k}" must be boolean`);
-                }
-                cleanFw[k as keyof FirewallSwitchState] = v;
-              }
-            }
-            firewall = cleanFw;
-          }
-
-          const settings = await this.core.controls.setSecuritySwitches({
-            upnpEnabled,
-            dmz,
-            firewall,
-          });
+          const settings = await this.core.controls.setSecuritySwitches(readSecurityControl(body));
           this.#sendJson(res, 200, { ok: true, settings } satisfies SecurityControlResponse);
           return;
         }

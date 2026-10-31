@@ -32,13 +32,9 @@ import {
 import { parseSmsCountersOrNull } from "./sms/codec.ts";
 import type { SmsCounters } from "./sms/types.ts";
 import { getXmlTag } from "./xml.ts";
+import { CpeControlValidationError } from "./control-error.ts";
 
-export class CpeControlValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CpeControlValidationError";
-  }
-}
+export { CpeControlValidationError } from "./control-error.ts";
 
 export interface DeviceIdentitySnapshot {
   deviceName: string;
