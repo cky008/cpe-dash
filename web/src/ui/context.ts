@@ -1,6 +1,7 @@
 import type { Endpoints } from "../core/endpoints.ts";
 import type { MessageParams, Translator } from "../core/i18n.ts";
 import type { KeyValueStorage, Preferences } from "../core/prefs.ts";
+import type { PrivacyState } from "../core/privacy.ts";
 import type { Store } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 
@@ -21,6 +22,7 @@ export interface AppContext {
   t(key: MessageKey, params?: MessageParams): string;
   store: Store;
   api: Endpoints;
+  privacy: PrivacyState;
   prefs: Preferences;
   storage: KeyValueStorage;
   toast(message: string, tone?: ToastTone): void;

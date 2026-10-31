@@ -2,6 +2,7 @@ import { ApiClient, ApiError } from "../core/api.ts";
 import { createEndpoints } from "../core/endpoints.ts";
 import { type Locale, Translator, detectLocale } from "../core/i18n.ts";
 import { type KeyValueStorage, loadPreferences, savePreference } from "../core/prefs.ts";
+import { PrivacyState, maskValue } from "../core/privacy.ts";
 import { type SseEvent, SseClient } from "../core/sse.ts";
 import { Store, mergeAlerts, reduceSseEvent } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
@@ -9,6 +10,7 @@ import { mountBanners } from "./banners.ts";
 import type { AppContext } from "./context.ts";
 import { byId } from "./dom.ts";
 import { mountHeader } from "./header.ts";
+import { mountIdentityCards } from "./identity-cards.ts";
 import { applyI18n, confirmDialog, describeError, showToast } from "./services.ts";
 import { applyTheme, watchSystemTheme } from "./theme.ts";
 
@@ -47,6 +49,7 @@ export async function startApp(): Promise<void> {
     tr.setLocale(locale);
   };
   const store = new Store();
+  const privacy = new PrivacyState(true);
   let handleUnauthorized = (): void => undefined;
   const api = createEndpoints(new ApiClient({ fetchImpl: (input, init) => window.fetch(input, init), onUnauthorized: () => handleUnauthorized() }));
   const tickers = new Set<() => void>();
@@ -60,6 +63,7 @@ export async function startApp(): Promise<void> {
     t: (key, params) => tr.t(key, params),
     store,
     api,
+    privacy,
     prefs,
     storage,
     toast: (message, tone) => showToast(message, tone),
@@ -151,11 +155,15 @@ export async function startApp(): Promise<void> {
         return;
       case "sms:new": {
         const msg = event.data;
-        const who = msg.contact?.name ?? (msg.sender.displayNumber || msg.phone);
+        const masked = privacy.isMasked("sms");
+        const number = msg.sender.displayNumber || msg.phone;
+        const who = msg.contact?.name ?? (masked ? maskValue("phone", number) : number);
         const code = msg.verificationCode;
-        ctx.toast(code ? tr.t("toast.new_sms_otp", { who, code }) : tr.t("toast.new_sms", { who }), "info");
+        ctx.toast(code && !masked ? tr.t("toast.new_sms_otp", { who, code }) : tr.t("toast.new_sms", { who }), "info");
         if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
-          new Notification(tr.t("toast.new_sms", { who }), { body: msg.content.slice(0, 180), tag: msg.uid });
+          // Privacy mode keeps message text (and codes) out of OS notification centres
+          const body = masked ? "" : msg.content.slice(0, 180);
+          new Notification(tr.t("toast.new_sms", { who }), { body, tag: msg.uid });
         }
         return;
       }
@@ -206,6 +214,7 @@ export async function startApp(): Promise<void> {
       appMounted = true;
       mountHeader(ctx);
       mountBanners(ctx, { reconnectNow: () => sse?.reconnectNow(), refreshStatus: refreshSessionStatus });
+      mountIdentityCards(ctx);
       applyI18n(tr);
       void api
         .health()
@@ -267,6 +276,9 @@ export async function startApp(): Promise<void> {
       case "open-appearance":
         appearanceLoading ??= import("./appearance.ts").then((m) => m.mountAppearance(ctx, switchLocale));
         void appearanceLoading.then((dialog) => dialog.open());
+        return;
+      case "toggle-privacy":
+        privacy.setGlobal(!privacy.globalMasked);
         return;
       case "logout":
         void api

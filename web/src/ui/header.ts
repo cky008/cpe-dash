@@ -1,7 +1,7 @@
 import { unreadBadgeCount } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
-import { byId } from "./dom.ts";
+import { byId, icon } from "./dom.ts";
 
 export type ViewName = "dashboard" | "sms";
 
@@ -84,16 +84,28 @@ export function mountHeader(ctx: AppContext): void {
     renderAlerts();
   });
 
+  const privacyBtn = byId("privacyBtn");
+  const renderPrivacy = (): void => {
+    const masked = ctx.privacy.globalMasked;
+    privacyBtn.replaceChildren(icon(masked ? "eye-off" : "eye", "text-base"));
+    privacyBtn.title = ctx.t(masked ? "nav.privacy_on" : "nav.privacy_off");
+    privacyBtn.setAttribute("aria-label", privacyBtn.title);
+    privacyBtn.classList.toggle("text-primary", !masked);
+  };
+
   ctx.store.subscribe("scheduler", renderSession);
   ctx.store.subscribe("sse", renderSse);
   ctx.store.subscribe("sms", renderUnread);
   ctx.store.subscribe("alerts", renderAlerts);
+  ctx.privacy.onChange(renderPrivacy);
   ctx.tr.onChange(() => {
     renderSession();
     renderSse();
+    renderPrivacy();
   });
   renderSession();
   renderSse();
   renderUnread();
   renderAlerts();
+  renderPrivacy();
 }
