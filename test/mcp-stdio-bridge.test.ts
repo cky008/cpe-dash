@@ -43,7 +43,7 @@ describe("cpe-dash mcp: zero-state stdio bridge to the serve daemon", () => {
   it("imports nothing that could open a CPE session or touch the encrypted stores", () => {
     const source = fs.readFileSync(fileURLToPath(new URL("../src/mcp-stdio-bridge.ts", import.meta.url)), "utf8");
     const imports = [...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
-    assert.deepEqual(imports.sort(), ["./http-body.ts", "./json-safe.ts", "node:stream"]);
+    assert.deepEqual(imports.sort(), ["./http-body.ts", "./json-safe.ts", "./mcp-headers.ts", "node:stream"]);
   });
 
   it("forwards stdio JSON-RPC to the daemon's /mcp, sharing its one CPE session scheduler", async () => {

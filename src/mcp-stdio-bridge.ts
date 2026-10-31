@@ -1,6 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 import { readBoundedResponseText } from "./http-body.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
+import { MCP_META_PROTOCOL_VERSION, encodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
 
 /**
  * `cpe-dash mcp`: a zero-state stdio <-> Streamable HTTP bridge for local agents that only speak
@@ -124,6 +125,12 @@ export class McpStdioBridge {
   async forward(line: string): Promise<string | null> {
     let id: string | number | null = null;
     let isRequest = false;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${this.#apiToken}`,
+    };
+    let requestVersion: string | undefined;
     try {
       const envelope = asRecord(parseJsonSafeNullProto(line));
       const rawId = envelope?.["id"];
@@ -131,17 +138,22 @@ export class McpStdioBridge {
         id = rawId;
         isRequest = true;
       }
+      // Mirror the routing fields into the Streamable HTTP headers (required by 2026-07-28)
+      const method = envelope?.["method"];
+      const params = asRecord(envelope?.["params"]) ?? {};
+      const metaVersion = asRecord(params["_meta"])?.[MCP_META_PROTOCOL_VERSION];
+      if (typeof metaVersion === "string") requestVersion = metaVersion;
+      if (typeof method === "string" && /^[\x21-\x7e]+$/.test(method)) {
+        headers["Mcp-Method"] = method;
+        const name = mcpNameOf(method, params);
+        if (name !== null) headers["Mcp-Name"] = encodeMcpHeaderValue(name);
+      }
     } catch {
       // Malformed JSON is forwarded as-is so the daemon answers it with its own -32700
       isRequest = true;
     }
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      Authorization: `Bearer ${this.#apiToken}`,
-    };
-    if (this.#protocolVersion) headers["MCP-Protocol-Version"] = this.#protocolVersion;
+    const version = requestVersion ?? this.#protocolVersion;
+    if (version && /^[\x21-\x7e]{1,64}$/.test(version)) headers["MCP-Protocol-Version"] = version;
 
     let res: Response;
     try {

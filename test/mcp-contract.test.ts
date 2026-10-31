@@ -88,10 +88,10 @@ describe("MCP tool contract enforcement", () => {
     }
   });
 
-  it("negotiates the latest supported revision and does not claim the session-less 2026-07-28 revision", async () => {
+  it("negotiates initialize within the legacy revisions and answers server/discover for the stateless one", async () => {
     const fx = createServer();
     try {
-      assert.equal(LATEST_MCP_PROTOCOL_VERSION, "2025-11-25");
+      assert.equal(LATEST_MCP_PROTOCOL_VERSION, "2026-07-28");
       for (const [requested, expected] of [
         ["2025-11-25", "2025-11-25"],
         ["2024-11-05", "2024-11-05"],
@@ -104,11 +104,16 @@ describe("MCP tool contract enforcement", () => {
         assert.equal(init.protocolVersion, expected, requested);
       }
       assert.equal(fx.server.isSupportedProtocolVersion("2025-11-25"), true);
-      assert.equal(fx.server.isSupportedProtocolVersion("2026-07-28"), false);
-      const discover = (await fx.server.handleRawJsonMessage(
-        JSON.stringify({ jsonrpc: "2.0", id: 99, method: "server/discover", params: {} })
-      )) as { error?: { code: number } };
-      assert.equal(discover.error?.code, -32601, "2026-07-28 clients fall back to the initialize flow");
+      assert.equal(fx.server.isSupportedProtocolVersion("2026-07-28"), true);
+      assert.equal(fx.server.isSupportedProtocolVersion("1999-01-01"), false);
+      const discover = (await fx.rpc("server/discover")) as { resultType: string; supportedVersions: string[] };
+      assert.equal(discover.resultType, "complete");
+      assert.ok(discover.supportedVersions.includes("2026-07-28"));
+      const unsupported = (await fx.server.handleRawJsonMessage(
+        JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/protocolVersion": "1999-01-01" } } })
+      )) as { error?: { code: number; data: { requested: string } } };
+      assert.equal(unsupported.error?.code, -32022, "stdio answers an unsupported per-request version with UnsupportedProtocolVersionError");
+      assert.equal(unsupported.error?.data.requested, "1999-01-01");
     } finally {
       await fx.close();
     }

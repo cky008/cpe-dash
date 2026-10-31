@@ -1016,22 +1016,6 @@ export class FengSuiHttpServer {
       return;
     }
 
-    const protoHeader =
-      typeof req.headers["mcp-protocol-version"] === "string"
-        ? req.headers["mcp-protocol-version"]
-        : undefined;
-    if (!this.mcpServer.isSupportedProtocolVersion(protoHeader)) {
-      this.#sendJson(res, 400, {
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32600,
-          message: `Unsupported MCP-Protocol-Version "${protoHeader ?? ""}"`,
-        },
-      });
-      return;
-    }
-
     let rawBody: string;
     try {
       rawBody = await this.#readRawBodyBounded(req);
@@ -1047,7 +1031,16 @@ export class FengSuiHttpServer {
       throw err;
     }
 
-    const rpcResponse = await this.mcpServer.handleRawJsonMessage(rawBody);
+    const header = (name: string): string | undefined => {
+      const value = req.headers[name];
+      return typeof value === "string" ? value : undefined;
+    };
+    const outcome = await this.mcpServer.handleHttpMessage(rawBody, {
+      protocolVersion: header("mcp-protocol-version"),
+      method: header("mcp-method"),
+      name: header("mcp-name"),
+    });
+    const rpcResponse = outcome.body;
     if (rpcResponse === null) {
       // Valid JSON-RPC notification -> 202 Accepted with empty body per Streamable HTTP spec
       res.writeHead(202, {
@@ -1059,6 +1052,6 @@ export class FengSuiHttpServer {
       return;
     }
 
-    this.#sendJson(res, 200, rpcResponse);
+    this.#sendJson(res, outcome.status, rpcResponse);
   }
 }

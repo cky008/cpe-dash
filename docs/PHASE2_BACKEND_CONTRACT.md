@@ -102,7 +102,8 @@ export interface ApiErrorEnvelope {
 ```
 
 **`/mcp` 的 JSON-RPC 错误体**：请求通过 HTTP 层鉴权与内容类型检查后，下列情况返回标准 JSON-RPC 2.0 错误对象 `{ jsonrpc: "2.0", id: null, error: { code: -32600, message } }`，而非 `ApiErrorEnvelope`：
-- `400`：请求头 `MCP-Protocol-Version` 存在但不受支持（支持列表见第 4 节）；
+- `400`：请求头 `MCP-Protocol-Version` 或 `_meta` 中的版本不受支持（`-32022`，见第 4 节），或 `2026-07-28` 的路由头与请求体不一致 / 缺失（`-32020` `HeaderMismatch`）；
+- `404`：`2026-07-28` 请求调用了未实现的方法（`-32601`；传统版请求仍为 `200`）；
 - `413`：请求体超过 `64 KiB`。
 
 其余 JSON-RPC 层错误（解析失败 `-32700`、非法请求 `-32600`、未知方法 `-32601`、未知工具或资源 `-32602`、内部错误 `-32603`）均以 HTTP `200` 返回。
@@ -899,7 +900,12 @@ export interface AvoidanceBroadcastPayload {
 
 ## 4. MCP Server 双模传输与工具契约（核心 13 项 + 短信 10 项）
 
-「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，支持协议版本 `2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05`；`initialize` 请求的版本不在列表中时回退协商为最新的 `2025-11-25`。**不支持 `2026-07-28`**：该版本以 `server/discover` 与逐请求 `_meta` 取代 `initialize`，本服务未实现（`server/discover` 返回 `-32601`），此类客户端会回退到 `initialize` 流程。不支持 JSON-RPC 批量请求（数组，返回 `-32600`），请求 `id` 必须为 `string | number`。
+「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，同时支持两代协议（dual-era）：
+
+- **无状态版 `2026-07-28`**：没有 `initialize`；每个请求在 `params._meta["io.modelcontextprotocol/protocolVersion"]` 中声明版本（可同时带 `clientInfo` / `clientCapabilities`）。`server/discover` 返回 `{ resultType: "complete", supportedVersions, capabilities, instructions, _meta: { "io.modelcontextprotocol/serverInfo" } }`；该版本的每个结果都带 `resultType: "complete"` 与 `_meta["io.modelcontextprotocol/serverInfo"]`。请求的版本不受支持时返回 `UnsupportedProtocolVersionError`：`{ code: -32022, message: "Unsupported protocol version", data: { supported, requested } }`。
+- **传统版 `2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05`**：沿用 `initialize` 握手；`initialize` 最高协商到 `2025-11-25`（请求的版本未知或为 `2026-07-28` 时也回退到它），结果不带 `resultType`。
+
+不支持 JSON-RPC 批量请求（数组，返回 `-32600`），请求 `id` 必须为 `string | number`。
 
 除下述 `probeLive` 例外，所有需要访问 CPE 的工具调用都与后台轮询共享同一个 `MutexSessionScheduler` 互斥队列与双层真人避让保护：
 - **`probeLive` 例外**：`get_cpe_session_status({ probeLive: true })` 直接发起一次免登录的 `GET /api/user/state-login`，不经过调度队列、不占用管理员会话（零会话），可能与正在进行的瞬时会话并发执行。
@@ -925,7 +931,8 @@ export interface AvoidanceBroadcastPayload {
    - 旧的 `--poll` 参数与 `MCP_STDIO_BACKGROUND_POLL` 已废弃：`--poll` 只打印警告，后台轮询始终由守护进程负责。
 2. **内网 / Tailscale Streamable HTTP 模式**（`POST http://<nas-ip>:18384/mcp`）：
    - 必填头：`Authorization: Bearer <API_TOKEN>` 与 `Content-Type: application/json`；
-   - 可选头 `MCP-Protocol-Version`：若携带，必须是上述支持版本之一，否则返回 `400` JSON-RPC 错误；
+   - `MCP-Protocol-Version`：传统版可选，若携带必须是支持的版本；`2026-07-28` 请求必须携带且与请求体 `_meta` 中的版本一致；不受支持时返回 `400` + `-32022`；
+   - `2026-07-28` 的路由头：`Mcp-Method` 必须等于 `method`；`tools/call` / `resources/read` / `prompts/get` 还必须带 `Mcp-Name`，等于 `params.name` / `params.uri`（非 ASCII 值使用 `=?base64?…?=` 哨兵编码，服务端解码后比较）。缺失或不一致返回 `400` + `-32020`，防止网关按头路由、服务端按体执行；`cpe-dash mcp` 桥接会自动补齐这些头；
    - 若携带 `Origin` 头，必须与当前 `Host` 同源，否则返回 `403 FORBIDDEN_ORIGIN`；
    - JSON-RPC Notification（无 `id`）按规范返回 `202 Accepted` 空响应体；JSON-RPC Request 返回 `200 application/json` 单个响应对象（不使用 SSE 流式响应）。
 

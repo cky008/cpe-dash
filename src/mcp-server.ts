@@ -10,16 +10,18 @@ import {
 import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
+import { MCP_META_PROTOCOL_VERSION, MCP_META_SERVER_INFO, decodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
 import { type McpInputSchema, validateToolArguments } from "./mcp-schema.ts";
 import { BrowserSessionYieldedError, PeerDaemonStandbyError } from "./scheduler.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
 
 /**
- * Protocol revisions this server implements, newest first; `initialize` falls back to the first.
- * `2026-07-28` is deliberately absent: it replaces `initialize` with `server/discover` and
- * per-request `_meta`, which this server does not implement, so such clients use the legacy flow.
+ * Protocol revisions this server implements, newest first. `2026-07-28` is stateless: each request
+ * carries its version in `_meta`, `server/discover` replaces the `initialize` handshake, and results
+ * carry `resultType`. The older revisions keep the `initialize` flow (dual-era server).
  */
 export const SUPPORTED_MCP_PROTOCOL_VERSIONS = [
+  "2026-07-28",
   "2025-11-25",
   "2025-06-18",
   "2025-03-26",
@@ -27,6 +29,40 @@ export const SUPPORTED_MCP_PROTOCOL_VERSIONS = [
 ] as const;
 
 export const LATEST_MCP_PROTOCOL_VERSION = SUPPORTED_MCP_PROTOCOL_VERSIONS[0];
+/** Stateless revisions (no `initialize`; version, client info and capabilities in every request's `_meta`). */
+export const MODERN_MCP_PROTOCOL_VERSIONS: ReadonlyArray<string> = ["2026-07-28"];
+/** `initialize` is the legacy handshake, so it negotiates at most this revision. */
+export const LATEST_LEGACY_MCP_PROTOCOL_VERSION = "2025-11-25";
+/** JSON-RPC errors defined by 2026-07-28. */
+export const MCP_HEADER_MISMATCH = -32020;
+export const MCP_UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+/** Routing headers of a Streamable HTTP POST (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`). */
+export interface McpHttpRequestHeaders {
+  protocolVersion?: string;
+  method?: string;
+  name?: string;
+}
+
+/** A JSON-RPC answer plus the HTTP status the Streamable HTTP transport must use for it. */
+export interface McpHttpOutcome {
+  status: number;
+  body: JsonRpcResponse | null;
+}
+
+const SERVER_INFO = {
+  name: "fengsui-cpe-dash",
+  title: "FengSui (烽燧) Huawei H168-383 5G CPE MCP Server",
+  version: "0.2.0",
+} as const;
+
+function isSupportedVersion(version: string): boolean {
+  return (SUPPORTED_MCP_PROTOCOL_VERSIONS as ReadonlyArray<string>).includes(version);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
 
 export type JsonRpcId = string | number | null;
 
@@ -404,85 +440,106 @@ export class FengSuiMcpServer {
   }
 
   /**
-   * Process a raw JSON-RPC 2.0 string message.
+   * Process a raw JSON-RPC 2.0 string message (stdio semantics: errors are JSON-RPC errors).
    * Returns `null` when the message is a valid JSON-RPC notification (`id === undefined`).
    */
   async handleRawJsonMessage(rawText: string): Promise<JsonRpcResponse | null> {
+    return (await this.#handle(rawText, null)).body;
+  }
+
+  /**
+   * Process a Streamable HTTP POST body. Adds the 2026-07-28 transport rules: the routing headers
+   * must mirror the body (`400` + `-32020` otherwise), unsupported versions answer `400` + `-32022`,
+   * and a modern request for an unknown method answers `404`. Legacy requests keep `200` throughout.
+   */
+  async handleHttpMessage(rawText: string, headers: McpHttpRequestHeaders): Promise<McpHttpOutcome> {
+    return await this.#handle(rawText, headers);
+  }
+
+  async #handle(rawText: string, http: McpHttpRequestHeaders | null): Promise<McpHttpOutcome> {
+    const reply = (status: number, id: JsonRpcId, code: number, message: string, data?: unknown): McpHttpOutcome => ({
+      status,
+      body: { jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } },
+    });
     let parsed: unknown;
     try {
       parsed = parseJsonSafeNullProto(rawText);
     } catch {
-      return {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32700, message: "Parse error: invalid JSON" },
-      };
+      return reply(200, null, -32700, "Parse error: invalid JSON");
     }
-
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32600,
-          message: "Invalid Request: expected single JSON-RPC 2.0 object (batches disabled)",
-        },
-      };
+      return reply(200, null, -32600, "Invalid Request: expected single JSON-RPC 2.0 object (batches disabled)");
     }
-
     const req = parsed as Partial<JsonRpcRequest>;
     const hasId = Object.prototype.hasOwnProperty.call(req, "id") && req.id !== undefined;
     if (hasId && typeof req.id !== "string" && typeof req.id !== "number") {
-      return {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32600, message: "Invalid JSON-RPC id: must be string or number" },
-      };
+      return reply(200, null, -32600, "Invalid JSON-RPC id: must be string or number");
     }
     const rpcId: JsonRpcId = hasId ? (req.id as string | number) : null;
-
     if (req.jsonrpc !== "2.0" || typeof req.method !== "string" || !req.method) {
-      return {
-        jsonrpc: "2.0",
-        id: rpcId,
-        error: { code: -32600, message: "Invalid JSON-RPC 2.0 envelope" },
-      };
+      return reply(200, rpcId, -32600, "Invalid JSON-RPC 2.0 envelope");
     }
-
-    const params =
-      req.params && typeof req.params === "object" && !Array.isArray(req.params)
-        ? (req.params as Record<string, unknown>)
-        : (Object.create(null) as Record<string, unknown>);
+    const method = req.method;
+    const params = asRecord(req.params) ?? (Object.create(null) as Record<string, unknown>);
 
     // Notifications (e.g. `notifications/initialized`, `notifications/cancelled`) produce no response
     if (!hasId) {
-      return null;
+      return { status: 202, body: null };
+    }
+
+    const metaVersion = asRecord(params["_meta"])?.[MCP_META_PROTOCOL_VERSION];
+    const requested = typeof metaVersion === "string" ? metaVersion : undefined;
+    const unsupported = (version: string): McpHttpOutcome =>
+      reply(http ? 400 : 200, rpcId, MCP_UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", {
+        supported: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+        requested: version,
+      });
+    const headerVersion = http?.protocolVersion?.trim() || undefined;
+    if (headerVersion !== undefined && !isSupportedVersion(headerVersion)) return unsupported(headerVersion);
+    if (requested !== undefined && !isSupportedVersion(requested)) return unsupported(requested);
+    const modern = requested !== undefined && MODERN_MCP_PROTOCOL_VERSIONS.includes(requested);
+
+    if (http && (requested !== undefined || (headerVersion !== undefined && MODERN_MCP_PROTOCOL_VERSIONS.includes(headerVersion)))) {
+      const mismatch = (message: string): McpHttpOutcome => reply(400, rpcId, MCP_HEADER_MISMATCH, `Header mismatch: ${message}`);
+      if (headerVersion === undefined) return mismatch("missing MCP-Protocol-Version header");
+      if (requested === undefined) return mismatch(`MCP-Protocol-Version ${headerVersion} but the body _meta carries no protocol version`);
+      if (headerVersion !== requested) return mismatch(`MCP-Protocol-Version header ${headerVersion} does not match body ${requested}`);
+      if (modern) {
+        if (!http.method) return mismatch("missing Mcp-Method header");
+        if (http.method !== method) return mismatch(`Mcp-Method header value '${http.method}' does not match body value '${method}'`);
+        const bodyName = mcpNameOf(method, params);
+        if (bodyName !== null) {
+          const headerName = http.name === undefined ? undefined : decodeMcpHeaderValue(http.name);
+          if (headerName === undefined) return mismatch("missing Mcp-Name header");
+          if (headerName !== bodyName) return mismatch(`Mcp-Name header value '${headerName ?? "?"}' does not match body value '${bodyName}'`);
+        }
+      }
     }
 
     try {
-      const result = await this.#dispatchMethod(req.method, params);
-      return {
-        jsonrpc: "2.0",
-        id: rpcId,
-        result,
-      };
+      const result = await this.#dispatchMethod(method, params);
+      // Stateless results declare their completion and identify the server in `_meta`
+      const body = modern
+        ? {
+            ...(asRecord(result) ?? {}),
+            resultType: "complete",
+            _meta: { ...(asRecord(asRecord(result)?.["_meta"]) ?? {}), [MCP_META_SERVER_INFO]: { ...SERVER_INFO } },
+          }
+        : result;
+      return { status: 200, body: { jsonrpc: "2.0", id: rpcId, result: body } };
     } catch (err) {
       if (err instanceof McpProtocolRpcError) {
-        return {
-          jsonrpc: "2.0",
-          id: rpcId,
-          error: { code: err.code, message: err.message },
-        };
+        return reply(http && modern && err.code === -32601 ? 404 : 200, rpcId, err.code, err.message);
       }
-      return {
-        jsonrpc: "2.0",
-        id: rpcId,
-        error: {
-          code: -32603,
-          message: err instanceof Error ? err.message : "Internal MCP error",
-        },
-      };
+      return reply(200, rpcId, -32603, err instanceof Error ? err.message : "Internal MCP error");
     }
+  }
+
+  #instructions(): string {
+    return [
+      "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses, and pass confirm: true only when the user explicitly requests reboot_cpe.",
+      ...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])),
+    ].join(" ");
   }
 
   async #dispatchMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -490,11 +547,10 @@ export class FengSuiMcpServer {
       case "initialize": {
         const requestedVer =
           typeof params["protocolVersion"] === "string" ? params["protocolVersion"] : "";
-        const negotiated = (SUPPORTED_MCP_PROTOCOL_VERSIONS as ReadonlyArray<string>).includes(
-          requestedVer
-        )
-          ? requestedVer
-          : LATEST_MCP_PROTOCOL_VERSION;
+        const negotiated =
+          isSupportedVersion(requestedVer) && !MODERN_MCP_PROTOCOL_VERSIONS.includes(requestedVer)
+            ? requestedVer
+            : LATEST_LEGACY_MCP_PROTOCOL_VERSION;
 
         return {
           protocolVersion: negotiated,
@@ -502,17 +558,22 @@ export class FengSuiMcpServer {
             tools: { listChanged: false },
             resources: { subscribe: false, listChanged: false },
           },
-          serverInfo: {
-            name: "fengsui-cpe-dash",
-            title: "FengSui (烽燧) Huawei H168-383 5G CPE MCP Server",
-            version: "0.2.0",
-          },
-          instructions: [
-            "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses, and pass confirm: true only when the user explicitly requests reboot_cpe.",
-            ...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])),
-          ].join(" "),
+          serverInfo: { ...SERVER_INFO },
+          instructions: this.#instructions(),
         };
       }
+
+      case "server/discover":
+        return {
+          resultType: "complete",
+          supportedVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+          capabilities: {
+            tools: { listChanged: false },
+            resources: { subscribe: false, listChanged: false },
+          },
+          instructions: this.#instructions(),
+          _meta: { [MCP_META_SERVER_INFO]: { ...SERVER_INFO } },
+        };
 
       case "ping":
         return {};
