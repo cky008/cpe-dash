@@ -26,6 +26,9 @@ export interface AppConfig {
    * `MCP_DAEMON_URL`, or `http://127.0.0.1:<WEB_PORT>/mcp` (the bound `WEB_HOST` when it is specific).
    */
   mcpDaemonUrl: string;
+  /** Broadcast signed LAN beacons so a second daemon for the same CPE (another host) goes on standby. */
+  peerDiscoveryEnabled: boolean;
+  peerDiscoveryPort: number;
   sseHeartbeatMs: number;
   sseMaxClients: number;
   historyRetentionHours: number;

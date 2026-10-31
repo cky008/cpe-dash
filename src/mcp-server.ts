@@ -11,7 +11,7 @@ import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { type McpInputSchema, validateToolArguments } from "./mcp-schema.ts";
-import { BrowserSessionYieldedError } from "./scheduler.ts";
+import { BrowserSessionYieldedError, PeerDaemonStandbyError } from "./scheduler.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
 
 /**
@@ -812,6 +812,9 @@ export class FengSuiMcpServer {
           messageZh: err.messageZh,
           avoidance: this.core.scheduler.getAvoidanceState(),
         });
+      }
+      if (err instanceof PeerDaemonStandbyError) {
+        return wrapErr("PEER_DAEMON_ACTIVE", err.message, { peerAddress: err.peerAddress });
       }
       if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError) {
         return wrapErr("VALIDATION_ERROR", err.message);

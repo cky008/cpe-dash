@@ -119,7 +119,7 @@ sequenceDiagram
 1. **单会话占用上限**：`HuaweiCpeClient.withSessionDetailed()` 为每个会话（登录到登出）设置截止时间（`sessionMaxHoldMs`，默认 `90s`，运行时取 `max(90s, SMS_SEND_STATUS_TIMEOUT_MS + 30s)`）。会话内所有请求共用截止信号，登录与业务函数都与之竞速；到期后在途请求立即中止，`finally` 中的 `POST /api/user/logout` 改用独立的新信号执行，互斥锁随即释放（错误类型 `CpeSessionDeadlineError`）。`authentication_login` 发出后、路由器应答前一律视为「可能已登录」，因此被中止的握手同样会执行登出。
 2. **读取失败绝不变成数据**：会话内的可选读取只在路由器返回 CPE 错误码（如 `100002`）时降级为空；超时、连接重置等传输层失败使整个快照失败。遥测核心接口（`/api/device/signal`、`/api/monitoring/status`、`/api/monitoring/traffic-statistics`、`/api/monitoring/month_statistics`）与全部路由器配置接口必须成功。
 3. **读-改-写**：`/api/security/firewall-switch`、`/api/security/dmz`、`/api/wlan/wlandbho` 的写入以严格读取的当前值为基础，读取失败或缺字段即在任何写入之前中止。
-4. **唯一 CPE 进程**：只有 `serve` 守护进程连接 CPE，并独占数据目录（`state.json.lock`）。`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，不会登录 CPE。
+4. **唯一 CPE 进程**：只有 `serve` 守护进程连接 CPE，并独占数据目录（`state.json.lock`）。`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，不会登录 CPE。跨主机的第二个守护进程由签名 LAN 信标（UDP `18385`，密钥派生自 `CPE_PASSWORD`）发现，较晚启动者待机、不登录 CPE。
 
 ---
 

@@ -72,7 +72,8 @@
     "wifi7_updated": "Wi-Fi 7 MLO / 双频优选配置已更新",
     "antenna_updated": "天线模式已切换为：{mode}",
     "mobile_data_updated": "移动数据总开关已更新",
-    "yielded_cannot_mutate": "检测到真人正在登录 CPE 官方后台 (192.168.8.1)，为防止踢掉当前管理员，控制指令已礼貌取消"
+    "yielded_cannot_mutate": "检测到真人正在登录 CPE 官方后台 (192.168.8.1)，为防止踢掉当前管理员，控制指令已礼貌取消",
+    "peer_daemon_active": "另一台主机（{address}）上的「烽燧」守护进程正在管理这台 CPE，本进程处于待机，不访问路由器"
   },
   "topology": {
     "section_title": "局域网接入终端拓扑",
@@ -101,6 +102,9 @@
     "sms_storage_full": "短信存储已满（{used}/{max}），将无法接收新短信",
     "data_threshold": "本月已用流量 {used}，达到 {limit} 套餐的 {percent}%",
     "lock_drift": "锁定配置与路由器实际状态不一致：{issue}",
-    "lock_realigned": "路由器已重新符合当前锁定配置"
+    "lock_realigned": "路由器已重新符合当前锁定配置",
+    "duplicate_daemon_standby": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：本进程转入待机，暂停 CPE 访问与 Telegram，直至对方停止",
+    "duplicate_daemon_leader": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：对方已转入待机，请停止其中一个",
+    "duplicate_daemon_cleared": "另一台「烽燧」守护进程已停止，本进程恢复管理 CPE"
   }
 }

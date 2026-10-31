@@ -136,6 +136,7 @@ const TEXT = {
     status_mode_yielding_browser: "让位真人后台",
     status_mode_circuit_tripped: "熔断锁定",
     status_mode_cpe_unreachable: "CPE 不可达",
+    status_mode_standby_peer: "待机（另一台主机上的守护进程正在管理 CPE）",
     status_line_sms: "💬 短信：未读 {unread} · 存储 {used}% · 会话 {threads}",
     status_line_session: "🛡 会话：{mode}",
     cmd_new: "引导式发短信",
@@ -223,6 +224,7 @@ const TEXT = {
     status_mode_yielding_browser: "yielding to human admin",
     status_mode_circuit_tripped: "breaker tripped",
     status_mode_cpe_unreachable: "CPE unreachable",
+    status_mode_standby_peer: "Standby (a daemon on another host drives the CPE)",
     status_line_sms: "💬 SMS: unread {unread} · storage {used}% · threads {threads}",
     status_line_session: "🛡 Session: {mode}",
     cmd_new: "Guided SMS send",
@@ -387,6 +389,7 @@ export class TelegramBot implements NotificationChannel {
   readonly #log: (line: string) => void;
 
   #running = false;
+  #standby = false;
   #offset = 0;
   #pollAbort: AbortController | null = null;
   #pollLoop: Promise<void> | null = null;
@@ -493,9 +496,23 @@ export class TelegramBot implements NotificationChannel {
     }
   }
 
+  /**
+   * While another FengSui daemon leads (peer standby) this bot stops long-polling, because two
+   * getUpdates pollers on one bot token fight each other (HTTP 409); notifications are its peer's job.
+   */
+  setStandby(standby: boolean): void {
+    if (this.#standby === standby) return;
+    this.#standby = standby;
+    if (standby) this.#pollAbort?.abort();
+  }
+
   async #runPollLoop(): Promise<void> {
     let backoffMs = 1500;
     while (this.#running) {
+      if (this.#standby) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
       this.#pollAbort = new AbortController();
       try {
         const updates = await this.api.call<TelegramUpdate[]>(
@@ -510,6 +527,7 @@ export class TelegramBot implements NotificationChannel {
         }
       } catch (err) {
         if (!this.#running) break;
+        if (this.#standby) continue;
         this.#log(`[telegram] poll error, retrying in ${backoffMs} ms: ${err instanceof Error ? err.message : String(err)}`);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         backoffMs = Math.min(30_000, backoffMs * 2);

@@ -72,7 +72,8 @@
     "wifi7_updated": "Wi-Fi 7 MLO / Dual-Band Handover settings updated",
     "antenna_updated": "Antenna mode switched to: {mode}",
     "mobile_data_updated": "Mobile data master switch updated",
-    "yielded_cannot_mutate": "A human admin is currently logged into CPE WebUI (192.168.8.1); control mutation politely aborted"
+    "yielded_cannot_mutate": "A human admin is currently logged into CPE WebUI (192.168.8.1); control mutation politely aborted",
+    "peer_daemon_active": "Another FengSui daemon ({address}) drives this CPE; this one is on standby and stays off the router"
   },
   "topology": {
     "section_title": "LAN Connected Terminal Topology",
@@ -101,6 +102,9 @@
     "sms_storage_full": "SMS storage full ({used}/{max}); new messages cannot be received",
     "data_threshold": "Monthly data {used} reached {percent}% of the {limit} plan",
     "lock_drift": "The router no longer matches the applied lock: {issue}",
-    "lock_realigned": "The router matches the applied lock again"
+    "lock_realigned": "The router matches the applied lock again",
+    "duplicate_daemon_standby": "Another FengSui daemon ({address}) drives the same CPE: this one is on standby (no CPE sessions, no Telegram) until it stops",
+    "duplicate_daemon_leader": "Another FengSui daemon ({address}) drives the same CPE: it went on standby; stop one of them",
+    "duplicate_daemon_cleared": "The other FengSui daemon stopped; this one drives the CPE again"
   }
 }

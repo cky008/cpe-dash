@@ -87,7 +87,11 @@ export type I18nKey =
   | "alerts.sms_storage_full"
   | "alerts.data_threshold"
   | "alerts.lock_drift"
-  | "alerts.lock_realigned";
+  | "alerts.lock_realigned"
+  | "alerts.duplicate_daemon_standby"
+  | "alerts.duplicate_daemon_leader"
+  | "alerts.duplicate_daemon_cleared"
+  | "controls.peer_daemon_active";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 

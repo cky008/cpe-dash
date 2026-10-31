@@ -79,6 +79,7 @@ export interface ApiErrorEnvelope {
     | "VALIDATION_ERROR"         // 400: 参数类型或取值非法（频段不在 H168-383 支持列表 / ARFCN 不在该频段范围 / PCI / IPv4 / 开关布尔值 / 天线模式 / 时序区间）、reboot/reconnect 未传 confirm:true、密码未改时重置 108006 熔断器、重载后的 .env 密钥为空
     // ── CPE 会话调度 ──
     | "BROWSER_SESSION_YIELDED"  // 409: 真人管理员正在使用 http://192.168.8.1，写操作礼貌让位中止（仅 RESPECT_BROWSER_SESSION=true）
+    | "PEER_DAEMON_ACTIVE"       // 409: 另一台主机上的「烽燧」守护进程正在管理这台 CPE，本进程待机（附 peerAddress）
     | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32）或服务正在停机
     | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败、或 108006/108007 断路器已熔断
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
@@ -197,9 +198,11 @@ export interface SchedulerStatusSnapshot {
   // yielding_browser：正在礼貌让位真人会话
   // polling：只读采集会话进行中
   // cpe_unreachable：最近一次会话因超时/网络错误失败（CPE 返回错误码或参数被拒仍视为 idle）
-  mode: "idle" | "polling" | "yielding_browser" | "circuit_tripped" | "cpe_unreachable";
+  // standby_peer：另一台主机上的「烽燧」守护进程正在管理同一台 CPE，本进程待机、不访问路由器（仅次于 circuit_tripped）
+  mode: "idle" | "polling" | "yielding_browser" | "circuit_tripped" | "cpe_unreachable" | "standby_peer";
   running: boolean;
   avoidance: AvoidanceBroadcastPayload;
+  peerStandby: { active: boolean; peerAddress: string | null; sinceIso: string | null };
   circuitBreaker: PublicCircuitBreakerState;
   lastSessionHoldMs: number | null;
   totalSessionsCompleted: number;
@@ -385,7 +388,9 @@ export type AlertCode =
   | "SMS_STORAGE_FULL"   // critical：CPE 报告短信存储已满
   | "DATA_THRESHOLD"     // warning：当月流量越过路由器设置的告警阈值（回落到一半以下重新布防）
   | "LOCK_DRIFT"         // warning：LockVerification 为 drift 持续 2min（settling / unknown 不计）
-  | "LOCK_REALIGNED";    // info：路由器重新与已下发的锁定一致
+  | "LOCK_REALIGNED"     // info：路由器重新与已下发的锁定一致
+  | "DUPLICATE_DAEMON"   // critical：检测到另一台主机上管理同一台 CPE 的守护进程（待机方与领先方各报一次）
+  | "DUPLICATE_DAEMON_CLEARED"; // info：领先方停止，待机方恢复
 
 /** GET /api/telemetry */
 /**
@@ -959,6 +964,7 @@ export interface McpToolErrorPayload {
     | "UNREAD_PROTECTED"         // delete_sms 目标含未读短信且未传 includeUnread: true
     | "VALIDATION_ERROR"         // 参数非法或违反 inputSchema（在任何写入前返回，不产生 CPE 会话）
     | "CELL_NOT_OBSERVED"        // lock_cell 的目标不是已观测到的小区
+    | "PEER_DAEMON_ACTIVE"       // 另一台主机上的「烽燧」守护进程正在管理这台 CPE（附 peerAddress）
     | "SMS_SEND_FAILED"          // send_sms：CPE 报告发送失败（附 result 与 resolvedPhones，额度不退还）
     | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）
     | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、熔断器已熔断、调度队列已满、会话超过占用上限等
@@ -1023,7 +1029,9 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 5. **短信发送结果可能未确认**：CPE 已接受提交但 `send-status` 在 `SMS_SEND_STATUS_TIMEOUT_MS` 内未给出结论时，返回 `ok: true` 且 `timedOutWaitingStatus: true`。短信很可能已经发出，前端应提示「已提交，状态未确认」，而不是建议立即重发；下次同步会以 CPE 发件箱为准。
 6. **通知为至多一次投递**：Telegram 与 Webhook 推送失败只记录在 `/api/alerts` 的 `notifications` 统计中（Webhook 重试一次），不做持久化重投。服务离线期间到达且仍未读的来信会在重启后的首次同步中补推；只有本地镜像从未完成首次同步时（首次部署、镜像被隔离或删除），CPE 上已有的短信才会被视为历史而不推送（`SMS_SEED_EXISTING_ON_START=false` 可关闭此行为）。
 7. **MCP 发送额度保存在内存中**：`MCP_SMS_SEND_LIMIT_PER_HOUR` 的计数在进程重启后清零。
-8. **Telegram 仅支持长轮询**：不注册 Bot Webhook；同一 Bot Token 只能由一个 `serve` 进程使用（否则 `getUpdates` 冲突）。数据目录锁只防止同一目录上的第二个守护进程，不同主机（如 Mac 与 NAS）上各跑一个守护进程仍会争抢同一台 CPE 与同一个 Bot Token。
+8. **Telegram 仅支持长轮询**：不注册 Bot Webhook；同一 Bot Token 只能由一个 `serve` 进程使用（否则 `getUpdates` 冲突）。跨主机由 LAN 信标保护（见第 9 条之后的说明）。
+>
+> **跨主机重复守护进程**：每个守护进程每 15s 在局域网 UDP `PEER_DISCOVERY_PORT`（默认 `18385`）广播一次信标，签名密钥由 `CPE_PASSWORD` 经 HKDF 派生（只有能登录这台 CPE 的进程才能伪造信标，信标中不含明文地址与密码）。两个守护进程管理同一台 CPE 时，启动较早者领先（同时启动则按实例 ID），较晚者转入待机：不建立 CPE 会话、暂停 Telegram 长轮询、控制写返回 `409 PEER_DAEMON_ACTIVE`，双方各推送一条 `DUPLICATE_DAEMON` 告警；领先方 45s 无信标后待机方恢复（`DUPLICATE_DAEMON_CLEARED`）。守护进程启动时先等待约 1s 接收应答再开始轮询。Docker 桥接网络不转发广播，NAS 上请使用 host 网络，否则该保护不生效；`PEER_DISCOVERY_ENABLED=false` 可关闭。
 9. **NR 频段表来自规格书而非路由器**：H168-383 不通告 NR 频段列表，NR 白名单取自 Huawei 规格书（其 LTE 列表与路由器 `net-mode-list` 通告的 14 个频段完全一致，`n78` 在真机上实际服务）。SUL 频段 `n80–n84` 仅用于上行，不可作为下行频段锁定。
 10. **Webhook / Telegram 传输**：`WEBHOOK_URL` 与 `TELEGRAM_API_BASE` 只有局域网 / 环回主机可用明文 `http`，其余必须 `https`。
 

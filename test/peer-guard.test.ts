@@ -1,0 +1,213 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it } from "node:test";
+import { createFengSuiRuntime } from "../src/cli.ts";
+import { loadConfig } from "../src/config.ts";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
+import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "../src/peer-guard.ts";
+import { PeerDaemonStandbyError } from "../src/scheduler.ts";
+import { EncryptedStateStore } from "../src/state-store.ts";
+import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { createStrictCpe } from "./helpers/strict-cpe.ts";
+
+/** In-memory broadcast LAN: every datagram reaches every other attached transport. */
+function createLan() {
+  const members: Array<{ address: string; handlers: Array<(payload: Buffer, address: string) => void> }> = [];
+  const sent: Buffer[] = [];
+  return {
+    sent,
+    attach(address: string): PeerTransport {
+      const member = { address, handlers: [] as Array<(payload: Buffer, address: string) => void> };
+      members.push(member);
+      return {
+        send: (payload) => {
+          sent.push(payload);
+          for (const other of members) if (other !== member) for (const h of other.handlers) h(payload, address);
+        },
+        onMessage: (handler) => member.handlers.push(handler),
+        close: () => {
+          const idx = members.indexOf(member);
+          if (idx >= 0) members.splice(idx, 1);
+        },
+      };
+    },
+  };
+}
+
+const SECRET = "shared_cpe_password";
+
+describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
+  it("elects the earlier daemon as leader and puts the later one on standby until the leader goes quiet", () => {
+    const lan = createLan();
+    let clock = 1_000_000;
+    const now = () => clock;
+    const a = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: lan.attach("192.168.8.10"), now, startedAtMs: 1000, instanceId: "aaaaaaaaaaaaaaaa" });
+    const b = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: lan.attach("192.168.8.20"), now, startedAtMs: 2000, instanceId: "bbbbbbbbbbbbbbbb" });
+    const events: string[] = [];
+    a.on("peer", (e: { standby: boolean }) => events.push(`a:peer:${e.standby}`));
+    a.on("standby", () => events.push("a:standby"));
+    b.on("standby", (leader: { address: string }) => events.push(`b:standby:${leader.address}`));
+    b.on("resume", () => events.push("b:resume"));
+
+    a.announce();
+    b.announce();
+    assert.equal(a.getState().standby, false, "the earlier daemon leads");
+    assert.equal(b.getState().standby, true);
+    assert.deepEqual(b.getState().peers.map((p) => p.address), ["192.168.8.10"]);
+    assert.ok(events.includes("b:standby:192.168.8.10"));
+    assert.ok(events.includes("a:peer:false"), "the leader learns about the newcomer and stays active");
+    assert.ok(!events.includes("a:standby"));
+
+    // The leader stops; its peer entry ages out and the standby daemon resumes
+    a.stop();
+    clock += b.peerTimeoutMs + 1;
+    b.sweep();
+    assert.equal(b.getState().standby, false);
+    assert.equal(events.at(-1), "b:resume");
+    b.stop();
+  });
+
+  it("ignores forged, foreign-CPE, replayed, oversized, malformed and own beacons", () => {
+    const lan = createLan();
+    let clock = 5_000_000;
+    const now = () => clock;
+    const victim = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: lan.attach("192.168.8.10"), now, startedAtMs: 9000 });
+    const attacker = new PeerDaemonGuard({ secret: "guessed_password", cpeHost: "192.168.8.1", transport: lan.attach("192.168.8.66"), now, startedAtMs: 1 });
+    const otherCpe = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.9.1", transport: lan.attach("192.168.8.30"), now, startedAtMs: 1 });
+    attacker.announce();
+    otherCpe.announce();
+    victim.announce();
+    assert.equal(victim.getState().standby, false);
+    assert.deepEqual(victim.getState().peers, []);
+
+    // A genuine beacon captured long ago cannot be replayed
+    const genuine = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: createLan().attach("x"), now: () => clock - 600_000, startedAtMs: 1 });
+    const captured: Buffer[] = [];
+    const tap = createLan();
+    const tapped = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: tap.attach("192.168.8.40"), now: () => clock - 600_000, startedAtMs: 1 });
+    tapped.announce();
+    captured.push(...tap.sent);
+    for (const payload of captured) victim.handle(payload, "192.168.8.40");
+    victim.handle(Buffer.alloc(4096, 0x7b), "192.168.8.41");
+    victim.handle(Buffer.from("{not json"), "192.168.8.42");
+    victim.handle(Buffer.from(JSON.stringify({ v: 1, id: "zz", startedAtMs: 1, sentAtMs: clock, cpe: "x", mac: "00" })), "192.168.8.43");
+    const own = createLan();
+    const self = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: own.attach("192.168.8.10"), now, startedAtMs: 1 });
+    self.announce();
+    for (const payload of own.sent) self.handle(payload, "192.168.8.10");
+    assert.deepEqual(victim.getState().peers, []);
+    assert.deepEqual(self.getState().peers, [], "own beacons are ignored");
+    clock += 1;
+    genuine.stop();
+    victim.stop();
+  });
+
+  it("breaks a start-time tie by instance id", () => {
+    const lan = createLan();
+    const low = new PeerDaemonGuard({ secret: SECRET, cpeHost: "cpe.lan", transport: lan.attach("192.168.8.11"), startedAtMs: 42, instanceId: "1111111111111111" });
+    const high = new PeerDaemonGuard({ secret: SECRET, cpeHost: "CPE.lan", transport: lan.attach("192.168.8.12"), startedAtMs: 42, instanceId: "ffffffffffffffff" });
+    low.announce();
+    high.announce();
+    assert.equal(low.getState().standby, false);
+    assert.equal(high.getState().standby, true, "host names compare case-insensitively");
+    low.stop();
+    high.stop();
+  });
+
+  it("keeps a standby scheduler off the router: reads skip, controls fail with PEER_DAEMON_ACTIVE", async () => {
+    const cpe = createStrictCpe();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-standby-"));
+    const core = createFengSuiCore({
+      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "standby_key" }),
+      timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
+    });
+    core.monitor.init();
+    try {
+      core.scheduler.setPeerStandby("192.168.8.10");
+      const status = core.scheduler.getStatus();
+      assert.equal(status.mode, "standby_peer");
+      assert.equal(status.peerStandby.active, true);
+      assert.equal(status.peerStandby.peerAddress, "192.168.8.10");
+      assert.equal(await core.monitor.refreshTelemetry(), null);
+      await assert.rejects(() => core.controls.unlockAllLocks(), (err: unknown) => err instanceof PeerDaemonStandbyError && err.peerAddress === "192.168.8.10");
+      assert.equal(cpe.stats.requests.length, 0, "no request reached the router");
+      core.scheduler.setPeerStandby(null);
+      assert.ok(await core.monitor.refreshTelemetry());
+      assert.equal(core.scheduler.getStatus().peerStandby.active, false);
+    } finally {
+      await stopFengSuiCore(core);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs two daemons on different hosts against one router: the second stands by and refuses writes", async () => {
+    const cpe = createStrictCpe();
+    const lan = createLan();
+    const dirs = [0, 1].map(() => fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-twohosts-")));
+    const makeConfig = (dir: string) => {
+      const envPath = path.join(dir, ".env");
+      fs.writeFileSync(
+        envPath,
+        [
+          "CPE_URL=http://192.168.8.1",
+          `CPE_PASSWORD=${cpe.password}`,
+          "API_TOKEN=two_hosts_token",
+          "DATA_ENCRYPTION_KEY=two_hosts_key",
+          "WEB_HOST=127.0.0.1",
+          "WEB_PORT=0",
+          `STATE_FILE=${path.join(dir, "data", "state.json")}`,
+          "POLL_INTERVAL_MS=600000",
+          "NEIGHBOR_SCAN_INTERVAL_MS=600000",
+          "SMS_ENABLED=false",
+        ].join("\n")
+      );
+      return { envPath, config: loadConfig({ envPath, ignoreProcessEnv: true }) };
+    };
+    const first = makeConfig(dirs[0]!);
+    const second = makeConfig(dirs[1]!);
+    const nas = createFengSuiRuntime({ ...first, fetchImpl: cpe.fetchImpl, peerTransport: lan.attach("192.168.8.10"), log: () => undefined });
+    const mac = createFengSuiRuntime({ ...second, fetchImpl: cpe.fetchImpl, peerTransport: lan.attach("192.168.8.44"), log: () => undefined });
+    try {
+      await nas.start();
+      await mac.start();
+      assert.equal(mac.scheduler.getStatus().mode, "standby_peer");
+      assert.notEqual(nas.scheduler.getStatus().mode, "standby_peer");
+      assert.ok(mac.scheduler.getRecentAlerts().some((a) => a.code === "DUPLICATE_DAEMON" && a.messageEn.includes("192.168.8.10")));
+      assert.ok(nas.scheduler.getRecentAlerts().some((a) => a.code === "DUPLICATE_DAEMON" && a.messageEn.includes("192.168.8.44")));
+      assert.equal(cpe.stats.overlapLoginAttempts, 0);
+
+      const bound = await mac.httpServer.listen();
+      const res = await fetch(`http://${bound.host}:${bound.port}/api/control/unlock`, {
+        method: "POST",
+        headers: { Authorization: "Bearer two_hosts_token", "Content-Type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(res.status, 409);
+      const body = (await res.json()) as { errorCode: string; peerAddress: string };
+      assert.equal(body.errorCode, "PEER_DAEMON_ACTIVE");
+      assert.equal(body.peerAddress, "192.168.8.10");
+    } finally {
+      await mac.close();
+      await nas.close();
+      for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("sends and receives beacons over real UDP (loopback)", async () => {
+    const port = 20000 + Math.floor(Math.random() * 20000);
+    const transport = createUdpPeerTransport({ port, targetAddress: "127.0.0.1" });
+    try {
+      const received = new Promise<Buffer>((resolve) => transport.onMessage((payload) => resolve(payload)));
+      await new Promise((r) => setTimeout(r, 50));
+      transport.send(Buffer.from("fengsui-beacon-smoke"));
+      const payload = await Promise.race([received, new Promise<null>((r) => setTimeout(() => r(null), 2000))]);
+      assert.equal(payload?.toString("utf8"), "fengsui-beacon-smoke");
+    } finally {
+      transport.close();
+    }
+  });
+});

@@ -360,5 +360,5 @@ storage    state-store · encrypted-file · timeseries · sms/mirror · sms/cont
 
 1. ~~`lockState` 与驻留小区的对账~~：已由 `verifyLockState()` 实现（`lockVerification` + `LOCK_DRIFT` / `LOCK_REALIGNED` 告警）。LTE 频段掩码是真读回，NR 与锁小区为对照服务载波的推断。
 2. ~~NR 频段校验基于 3GPP 表~~：已改为 H168-383 规格书的 15 个 NR 频段（路由器不通告 NR 频段；规格书的 LTE 列表与路由器通告的完全一致，可佐证其可靠性）。
-3. 数据目录锁只防同一主机、同一目录上的第二个守护进程；跨主机（Mac 与 NAS）并行运行仍会争抢 CPE，部署文档需明确「一台 CPE 只跑一个守护进程」。
+3. ~~跨主机重复守护进程~~：已由 `PeerDaemonGuard` 解决（签名 UDP 广播信标，较晚启动者待机）。限制：Docker 桥接网络不转发广播，NAS 容器需使用 host 网络。
 4. MCP `2026-07-28`（无会话、`server/discover`）未实现，此类客户端走 `initialize` 回退流程。

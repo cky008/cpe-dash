@@ -364,6 +364,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `DEFAULT_LOCALE` | `zh-CN` | 默认界面与提示语言（`zh-CN` 或 `en`） |
 | `MCP_HTTP_ENABLED` | `true` | 是否启用 `POST /mcp` Streamable HTTP 智能体端点（`cpe-dash mcp` 桥接也依赖它） |
 | `MCP_DAEMON_URL` | *(由 `WEB_HOST`/`WEB_PORT` 推导)* | `cpe-dash mcp` 桥接转发的守护进程 `/mcp` 地址；须为局域网/环回主机，不得含凭据、查询串或片段 |
+| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | 跨主机重复守护进程保护：签名 UDP 广播信标，第二个管理同一台 CPE 的守护进程自动待机并告警（Docker 需 host 网络） |
 | `TZ` | *(系统时区)* | IANA 时区（如 `Europe/Dublin`）；启动与 `reset-breaker` 重载时写入进程环境，发出短信的 `<Date>` 按此生成；进程环境已设置 `TZ` 时以其为准 |
 | `MCP_ALLOW_MUTATIONS` | `true` | 是否允许 MCP 调用写操作工具（设为 `false` 仅暴露只读观测工具） |
 | `HISTORY_RETENTION_HOURS` | `168` | 环形时序数据库历史保留时长（默认 168 小时 = 7 天） |

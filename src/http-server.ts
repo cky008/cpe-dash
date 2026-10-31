@@ -33,6 +33,7 @@ import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
 import {
   BrowserSessionYieldedError,
+  PeerDaemonStandbyError,
   SchedulerQueueFullError,
   SchedulerStoppedError,
 } from "./scheduler.ts";
@@ -855,6 +856,15 @@ export class FengSuiHttpServer {
           message: err.messageZh,
           messageEn: err.messageEn,
           avoidance: this.core.scheduler.getAvoidanceState(),
+        });
+        return;
+      }
+      if (err instanceof PeerDaemonStandbyError) {
+        this.#sendJson(res, 409, {
+          ok: false,
+          errorCode: "PEER_DAEMON_ACTIVE",
+          message: err.message,
+          peerAddress: err.peerAddress,
         });
         return;
       }

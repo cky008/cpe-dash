@@ -363,6 +363,7 @@ See **[`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)** for
 | `DEFAULT_LOCALE` | `zh-CN` | Default UI & message locale (`zh-CN` or `en`) |
 | `MCP_HTTP_ENABLED` | `true` | Enable `POST /mcp` Streamable HTTP MCP endpoint (the `cpe-dash mcp` bridge relies on it) |
 | `MCP_DAEMON_URL` | *(derived from `WEB_HOST`/`WEB_PORT`)* | Daemon `/mcp` URL the `cpe-dash mcp` bridge forwards to; must be a LAN/loopback host without credentials, query or fragment |
+| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | Cross-host duplicate-daemon guard: signed UDP broadcast beacons; a second daemon for the same CPE goes on standby and alerts (Docker needs host networking) |
 | `TZ` | *(system zone)* | IANA time zone (e.g. `Europe/Dublin`), applied to the process at startup and on `reset-breaker` reloads; stamps the `<Date>` of sent SMS. A `TZ` already set in the process environment wins |
 | `MCP_ALLOW_MUTATIONS` | `true` | Allow mutating MCP tools (`false` restricts MCP to read-only tools) |
 | `HISTORY_RETENTION_HOURS` | `168` | Circular time-series retention window in hours (`168` = 7 days) |

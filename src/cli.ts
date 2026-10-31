@@ -11,6 +11,8 @@ import { type FileLockHandle, StorageCipher, tryAcquireFileLock } from "./encryp
 import { FengSuiHttpServer } from "./http-server.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
 import { McpStdioBridge } from "./mcp-stdio-bridge.ts";
+import { PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "./peer-guard.ts";
+import { t } from "./i18n.ts";
 import { type NotificationChannel, NotificationHub } from "./notify/hub.ts";
 import { TelegramApi } from "./notify/telegram-api.ts";
 import { TelegramBot, TelegramStateStore } from "./notify/telegram-bot.ts";
@@ -101,6 +103,8 @@ export interface FengSuiRuntimeStack {
   httpServer: FengSuiHttpServer;
   /** `null` when SMS_ENABLED=false. */
   sms: SmsService | null;
+  /** `null` without a `peerTransport` (tests) or with PEER_DISCOVERY_ENABLED=false. */
+  peerGuard: PeerDaemonGuard | null;
   alertEngine: AlertEngine | null;
   notificationHub: NotificationHub | null;
   telegramBot: TelegramBot | null;
@@ -122,6 +126,8 @@ export interface FengSuiRuntimeOptions {
   notifyFetchImpl?: typeof fetch;
   /** Re-apply `TZ` to `process.env` when `/api/session/reset-breaker` reloads `.env` (CLI only). */
   applyTimeZone?: boolean;
+  /** LAN beacon transport for the cross-host duplicate-daemon guard (the CLI passes UDP; omit to disable). */
+  peerTransport?: PeerTransport;
   log?: (line: string) => void;
 }
 
@@ -326,6 +332,38 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     },
   });
 
+  const peerGuard = options.peerTransport
+    ? new PeerDaemonGuard({ secret: config.cpePassword, cpeHost: new URL(config.cpeUrl).hostname, transport: options.peerTransport })
+    : null;
+  if (peerGuard) {
+    const raiseDuplicate = (key: "alerts.duplicate_daemon_standby" | "alerts.duplicate_daemon_leader", address: string): void => {
+      scheduler.raiseAlert({
+        severity: "critical",
+        code: "DUPLICATE_DAEMON",
+        messageZh: t("zh-CN", key, { address }),
+        messageEn: t("en", key, { address }),
+      });
+    };
+    peerGuard.on("standby", (leader: { address: string }) => {
+      scheduler.setPeerStandby(leader.address);
+      telegramBot?.setStandby(true);
+      raiseDuplicate("alerts.duplicate_daemon_standby", leader.address);
+    });
+    peerGuard.on("peer", (event: { peer?: { address: string }; standby: boolean }) => {
+      if (!event.standby && event.peer) raiseDuplicate("alerts.duplicate_daemon_leader", event.peer.address);
+    });
+    peerGuard.on("resume", () => {
+      scheduler.setPeerStandby(null);
+      telegramBot?.setStandby(false);
+      scheduler.raiseAlert({
+        severity: "info",
+        code: "DUPLICATE_DAEMON_CLEARED",
+        messageZh: t("zh-CN", "alerts.duplicate_daemon_cleared"),
+        messageEn: t("en", "alerts.duplicate_daemon_cleared"),
+      });
+    });
+  }
+
   let started = false;
   let closed = false;
 
@@ -342,6 +380,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     mcpServer,
     httpServer,
     sms,
+    peerGuard,
     alertEngine,
     notificationHub,
     telegramBot,
@@ -355,6 +394,11 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       sseBus.start();
       notificationHub?.start();
       alertEngine?.start();
+      if (peerGuard) {
+        // Hear a running daemon's reply before the first CPE session, so a newcomer starts on standby
+        peerGuard.start();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
       await telegramBot?.start();
       sms?.start();
       monitor.start();
@@ -362,6 +406,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     async close(): Promise<void> {
       if (closed) return;
       closed = true;
+      peerGuard?.stop();
       sseBus.stop();
       await httpServer.close();
       await telegramBot?.stop();
@@ -439,6 +484,7 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
     config,
     envPath: cmd.envPath,
     applyTimeZone: true,
+    peerTransport: config.peerDiscoveryEnabled ? createUdpPeerTransport({ port: config.peerDiscoveryPort }) : undefined,
   });
   // `exit` listeners run synchronously (also after uncaught errors); graceful paths use close()
   process.once("exit", () => stack.releaseLocks());

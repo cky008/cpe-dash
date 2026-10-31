@@ -16,7 +16,8 @@ export type SchedulerMode =
   | "polling"
   | "yielding_browser"
   | "circuit_tripped"
-  | "cpe_unreachable";
+  | "cpe_unreachable"
+  | "standby_peer";
 
 export type SchedulerPriority = "high" | "normal" | "low";
 
@@ -38,10 +39,18 @@ export interface ControlAppliedEvent {
   lockState?: PersistedLockState;
 }
 
+/** Another FengSui daemon (another host) leads for this CPE; this one stays off the router. */
+export interface PeerStandbyState {
+  active: boolean;
+  peerAddress: string | null;
+  sinceIso: string | null;
+}
+
 export interface SchedulerStatusSnapshot {
   mode: SchedulerMode;
   running: boolean;
   avoidance: AvoidanceBroadcastPayload;
+  peerStandby: PeerStandbyState;
   circuitBreaker: CircuitBreakerState;
   lastSessionHoldMs: number | null;
   totalSessionsCompleted: number;
@@ -62,6 +71,18 @@ export class BrowserSessionYieldedError extends Error {
     this.name = "BrowserSessionYieldedError";
     this.messageZh = zh;
     this.messageEn = en;
+  }
+}
+
+/** A control was refused because another FengSui daemon drives this CPE (`409 PEER_DAEMON_ACTIVE`). */
+export class PeerDaemonStandbyError extends Error {
+  readonly statusCode = 409;
+  readonly peerAddress: string | null;
+
+  constructor(peerAddress: string | null) {
+    super(t("en", "controls.peer_daemon_active", { address: peerAddress ?? "?" }));
+    this.name = "PeerDaemonStandbyError";
+    this.peerAddress = peerAddress;
   }
 }
 
@@ -150,6 +171,7 @@ export class MutexSessionScheduler extends EventEmitter {
 
   #queue: Array<QueuedTask<unknown>> = [];
   #draining = false;
+  #peerStandby: PeerStandbyState = { active: false, peerAddress: null, sinceIso: null };
 
   constructor(options: MutexSessionSchedulerOptions) {
     super();
@@ -197,6 +219,17 @@ export class MutexSessionScheduler extends EventEmitter {
     await this.stateStore.flushAsync();
   }
 
+  /**
+   * Enter or leave peer standby (`PeerDaemonGuard`): while active, reads are skipped (`null`, like a
+   * latched breaker) and controls throw `PeerDaemonStandbyError` without touching the router.
+   */
+  setPeerStandby(peerAddress: string | null): void {
+    this.#peerStandby =
+      peerAddress === null
+        ? { active: false, peerAddress: null, sinceIso: null }
+        : { active: true, peerAddress, sinceIso: this.#peerStandby.sinceIso ?? new Date().toISOString() };
+  }
+
   getAvoidanceState(): AvoidanceBroadcastPayload {
     return {
       active: this.#avoidanceActive,
@@ -216,11 +249,16 @@ export class MutexSessionScheduler extends EventEmitter {
   getStatus(): SchedulerStatusSnapshot {
     const telemetry = this.#client.getTelemetry();
     const cb = telemetry.circuitBreaker;
-    const effectiveMode: SchedulerMode = cb.tripped ? "circuit_tripped" : this.#mode;
+    const effectiveMode: SchedulerMode = cb.tripped
+      ? "circuit_tripped"
+      : this.#peerStandby.active
+        ? "standby_peer"
+        : this.#mode;
     return {
       mode: effectiveMode,
       running: this.#running,
       avoidance: this.getAvoidanceState(),
+      peerStandby: { ...this.#peerStandby },
       circuitBreaker: {
         tripped: cb.tripped,
         code: cb.code,
@@ -307,6 +345,7 @@ export class MutexSessionScheduler extends EventEmitter {
         this.#mode = "circuit_tripped";
         return null;
       }
+      if (this.#peerStandby.active) return null;
 
       // Layer-2 anti-flapping quiet window (monotonic clock immune to NTP steps)
       if (
@@ -349,6 +388,7 @@ export class MutexSessionScheduler extends EventEmitter {
     summary?: ControlSummary | ((value: T) => ControlSummary)
   ): Promise<T> {
     return await this.#enqueue("high", async () => {
+      if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
       const wasTripped = this.#client.getCircuitBreakerState().tripped;
       try {
         const outcome = await this.#client.withSessionDetailed(fn, {
