@@ -7,7 +7,8 @@ import { loadConfig, parseDotEnv } from "../src/config.ts";
  * Zero-Secret, Zero-PII & Pure-TypeScript Repository Gate for `cpe-dash` (FengSui / 烽燧).
  *
  * Scans tracked files, working tree, and full `git log -p --all` history for:
- *   1. Forbidden `.js` / `.mjs` / `.cjs` source files in `src/`, `scripts/`, or `test/`.
+ *   1. Forbidden `.js` / `.mjs` / `.cjs` source files in `src/`, `scripts/`, or `test/`, and type escapes
+ *      (explicit `any`, `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck`) in their TypeScript.
  *   2. Tracked `.env`, `data/*` (except empty `.gitkeep`), `.probe-cache/`, `*.har`, `*.apk*`, `*.dll`, `*.pem`.
  *   3. Literal secrets loaded from `.env` (`CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TELEGRAM_API`,
  *      `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_IDS`, `WEBHOOK_URL`, `WEBHOOK_SECRET`).
@@ -20,6 +21,12 @@ const HIGH_RISK_PATTERNS: ReadonlyArray<{ name: string; regex: RegExp }> = [
   { name: "AWS Access Key", regex: /\bAKIA[0-9A-Z]{16}\b/ },
   { name: "15-digit IMEI/IMSI candidate", regex: /\b(?:86|35|460|272)\d{12,13}\b/ },
   { name: "19-20 digit ICCID candidate", regex: /\b89\d{17,18}\b/ },
+];
+
+/** Escapes from strict typing (铁律一): explicit `any` and directives that silence the compiler. */
+const TYPE_ESCAPES: ReadonlyArray<{ name: string; regex: RegExp }> = [
+  { name: "explicit any", regex: /(?::\s*any\b|\bas\s+any\b|<any>|\bany\[\])/ },
+  { name: "TypeScript suppression directive", regex: /@ts-(?:ignore|expect-error|nocheck)\b/ },
 ];
 
 const ALLOWED_PLACEHOLDERS = new Set([
@@ -133,6 +140,34 @@ function main(): void {
   }
   if (jsViolations.length > 0) {
     console.error("Pure TypeScript violation (.js source files detected):", jsViolations);
+    process.exit(1);
+  }
+
+  // 2b. Strict TypeScript: no explicit `any` and no compiler suppressions (this file names the patterns)
+  const typeEscapes: string[] = [];
+  const auditSelf = path.join("scripts", "audit-secrets.ts");
+  const walkTs = (d: string): void => {
+    for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, ent.name);
+      const rel = path.relative(root, full);
+      if (ent.isDirectory()) {
+        walkTs(full);
+      } else if (ent.name.endsWith(".ts") && rel !== auditSelf) {
+        fs.readFileSync(full, "utf8")
+          .split("\n")
+          .forEach((line, i) => {
+            for (const escape of TYPE_ESCAPES) {
+              if (escape.regex.test(line)) typeEscapes.push(`${rel}:${i + 1} (${escape.name})`);
+            }
+          });
+      }
+    }
+  };
+  for (const subDir of ["src", "scripts", "test"]) {
+    if (fs.existsSync(path.join(root, subDir))) walkTs(path.join(root, subDir));
+  }
+  if (typeEscapes.length > 0) {
+    console.error("Strict TypeScript violation (type escapes detected):", typeEscapes);
     process.exit(1);
   }
 
