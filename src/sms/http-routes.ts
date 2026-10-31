@@ -1,3 +1,19 @@
+import type {
+  ApiErrorEnvelope,
+  ContactDeleteResponse,
+  ContactUpsertResponse,
+  SmsContactsResponse,
+  SmsCountriesResponse,
+  SmsDeleteResponse,
+  SmsPreviewResponse,
+  SmsReadResponse,
+  SmsSendResponse,
+  SmsStatusResponse,
+  SmsSyncResponse,
+  SmsThreadResponse,
+  SmsThreadsResponse,
+  VcardImportResponse,
+} from "../api-contract.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import { MAX_SMS_RECIPIENTS } from "./protocol.ts";
 import type { SmsService, SmsSyncMode } from "./service.ts";
@@ -67,10 +83,10 @@ export class SmsHttpRoutes {
     const { query } = ctx;
     switch (ctx.pathname) {
       case "/api/sms/status":
-        ctx.sendJson(200, { ok: true, status: this.sms.getStatus() });
+        ctx.sendJson(200, { ok: true, status: this.sms.getStatus() } satisfies SmsStatusResponse);
         return true;
       case "/api/sms/countries":
-        ctx.sendJson(200, { ok: true, defaultCountryCode: this.sms.defaultCountryCode, countries: this.sms.countries() });
+        ctx.sendJson(200, { ok: true, defaultCountryCode: this.sms.defaultCountryCode, countries: this.sms.countries() } satisfies SmsCountriesResponse);
         return true;
       case "/api/sms/threads": {
         const filter = query["filter"] ?? "all";
@@ -82,18 +98,18 @@ export class SmsHttpRoutes {
           search: (query["search"] ?? "").slice(0, 100),
           limit: parseLimit(query["limit"], 500, 500),
         });
-        ctx.sendJson(200, { ok: true, threads, status: this.sms.getStatus() });
+        ctx.sendJson(200, { ok: true, threads, status: this.sms.getStatus() } satisfies SmsThreadsResponse);
         return true;
       }
       case "/api/sms/thread": {
         const key = (query["key"] ?? query["phone"] ?? "").trim();
         if (!key || key.length > 64) throw new CpeControlValidationError('Query "key" (thread key or phone number) is required');
-        ctx.sendJson(200, { ok: true, thread: this.sms.getThread(key) });
+        ctx.sendJson(200, { ok: true, thread: this.sms.getThread(key) } satisfies SmsThreadResponse);
         return true;
       }
       case "/api/sms/contacts": {
         const contacts = this.sms.listContacts((query["search"] ?? "").slice(0, 100), parseLimit(query["limit"], 500, 5000));
-        ctx.sendJson(200, { ok: true, total: this.sms.contacts.size, contacts });
+        ctx.sendJson(200, { ok: true, total: this.sms.contacts.size, contacts } satisfies SmsContactsResponse);
         return true;
       }
       default:
@@ -110,7 +126,7 @@ export class SmsHttpRoutes {
           content: optionalString(body, "content", MAX_CONTENT_CHARS) ?? "",
           countryCode: optionalString(body, "countryCode", 5),
         });
-        ctx.sendJson(200, { ok: true, preview });
+        ctx.sendJson(200, { ok: true, preview } satisfies SmsPreviewResponse);
         return true;
       }
       case "/api/sms/send": {
@@ -129,10 +145,10 @@ export class SmsHttpRoutes {
             message: `The CPE reported a send failure (code ${outcome.result.failCode ?? "unknown"})`,
             result: outcome.result,
             resolvedPhones: outcome.resolvedPhones,
-          });
+          } satisfies ApiErrorEnvelope);
           return true;
         }
-        ctx.sendJson(200, { ok: true, ...outcome });
+        ctx.sendJson(200, { ok: true, ...outcome } satisfies SmsSendResponse);
         return true;
       }
       case "/api/sms/read": {
@@ -141,13 +157,13 @@ export class SmsHttpRoutes {
           uids: stringArray(body, "uids", 200),
           threadKey: optionalString(body, "threadKey", 64),
         });
-        ctx.sendJson(200, { ok: true, ...result });
+        ctx.sendJson(200, { ok: true, ...result } satisfies SmsReadResponse);
         return true;
       }
       case "/api/sms/delete": {
         const body = await ctx.readJsonBody();
         const result = await this.sms.deleteMessages({ uids: stringArray(body, "uids", 200) ?? [] });
-        ctx.sendJson(200, { ok: true, ...result });
+        ctx.sendJson(200, { ok: true, ...result } satisfies SmsDeleteResponse);
         return true;
       }
       case "/api/sms/sync": {
@@ -157,7 +173,7 @@ export class SmsHttpRoutes {
           throw new CpeControlValidationError('Field "mode" must be "full" or "incremental"');
         }
         const summary = await this.sms.sync(mode satisfies SmsSyncMode, { priority: "normal" });
-        ctx.sendJson(200, { ok: true, summary, status: this.sms.getStatus() });
+        ctx.sendJson(200, { ok: true, summary, status: this.sms.getStatus() } satisfies SmsSyncResponse);
         return true;
       }
       case "/api/sms/contacts/upsert": {
@@ -167,18 +183,18 @@ export class SmsHttpRoutes {
           name: requiredString(body, "name", 256),
           note: optionalString(body, "note", 1024),
         });
-        ctx.sendJson(200, { ok: true, contact });
+        ctx.sendJson(200, { ok: true, contact } satisfies ContactUpsertResponse);
         return true;
       }
       case "/api/sms/contacts/delete": {
         const body = await ctx.readJsonBody();
-        ctx.sendJson(200, { ok: true, deleted: this.sms.removeContact(requiredString(body, "id", 64)) });
+        ctx.sendJson(200, { ok: true, deleted: this.sms.removeContact(requiredString(body, "id", 64)) } satisfies ContactDeleteResponse);
         return true;
       }
       case "/api/sms/contacts/import-vcf": {
         const body = await ctx.readJsonBody(MAX_VCF_BODY_BYTES);
         const summary = this.sms.importVcard(requiredString(body, "vcf", MAX_VCF_BODY_BYTES));
-        ctx.sendJson(200, { ok: true, summary });
+        ctx.sendJson(200, { ok: true, summary } satisfies VcardImportResponse);
         return true;
       }
       default:

@@ -14,6 +14,7 @@ import {
   SchedulerStoppedError,
 } from "./scheduler.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
+import { FENGSUI_VERSION } from "./version.ts";
 
 /**
  * Protocol revisions this server implements, newest first. `2026-07-28` is stateless: each request
@@ -69,7 +70,7 @@ export interface McpHttpOutcome {
 const SERVER_INFO = {
   name: "fengsui-cpe-dash",
   title: "FengSui (烽燧) Huawei H168-383 5G CPE MCP Server",
-  version: "0.2.0",
+  version: FENGSUI_VERSION,
 } as const;
 
 function isSupportedVersion(version: string): boolean {

@@ -22,6 +22,32 @@ import {
   type WebSessionRecord,
   constantTimeSecretMatch,
 } from "./http-auth.ts";
+import type {
+  AlertsResponse,
+  AntennaControlResponse,
+  ApiErrorEnvelope,
+  AuthLoginResponse,
+  AuthLogoutResponse,
+  AuthStatusResponse,
+  HealthResponse,
+  LocaleCatalogResponse,
+  LockStateResponse,
+  MobileDataControlResponse,
+  NeighborsEndpointResponse,
+  RebootResponse,
+  ReconnectResponse,
+  ResetBreakerResponse,
+  SecurityControlResponse,
+  SessionStatusResponse,
+  SettingsEndpointResponse,
+  SettingsRefreshResponse,
+  SseInitialSnapshot,
+  TelemetryEndpointResponse,
+  TelemetryRefreshResponse,
+  TimeSeriesEndpointResponse,
+  TopologyEndpointResponse,
+  Wifi7ControlResponse,
+} from "./api-contract.ts";
 import { serveStaticAsset } from "./http-static.ts";
 import {
   getLocaleCatalog,
@@ -44,6 +70,7 @@ import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
 import type { AppConfig, SupportedLocale } from "./types.ts";
+import { FENGSUI_VERSION } from "./version.ts";
 
 const MAX_JSON_BODY_BYTES = 64 * 1024;
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -242,12 +269,12 @@ export class FengSuiHttpServer {
       this.#sendJson(
         res,
         429,
-        { ok: false, errorCode: "RATE_LIMITED", retryAfterSec: retrySec, message: messages.rateLimited(retrySec) },
+        { ok: false, errorCode: "RATE_LIMITED", retryAfterSec: retrySec, message: messages.rateLimited(retrySec) } satisfies ApiErrorEnvelope,
         { "Retry-After": String(retrySec) }
       );
       return;
     }
-    this.#sendJson(res, 401, { ok: false, errorCode: "UNAUTHORIZED", message: messages.unauthorized });
+    this.#sendJson(res, 401, { ok: false, errorCode: "UNAUTHORIZED", message: messages.unauthorized } satisfies ApiErrorEnvelope);
   }
 
   #apiAuthMessages(locale: SupportedLocale): { unauthorized: string; rateLimited: (seconds: number) => string } {
@@ -378,9 +405,9 @@ export class FengSuiHttpServer {
         ok: true,
         service: "cpe-dash",
         codename: "FengSui",
-        version: "0.2.0",
+        version: FENGSUI_VERSION,
         uptimeSec: Math.floor((Date.now() - this.startedAtMs) / 1000),
-      });
+      } satisfies HealthResponse);
       return;
     }
 
@@ -398,7 +425,7 @@ export class FengSuiHttpServer {
         ok: true,
         locale: rawTag,
         catalog: getLocaleCatalog(rawTag),
-      });
+      } satisfies LocaleCatalogResponse);
       return;
     }
 
@@ -411,14 +438,14 @@ export class FengSuiHttpServer {
           this.#sendAuthRejection(res, verdict, authMessages);
           return;
         }
-        this.#sendJson(res, 200, { ok: true, authenticated: verdict.ok, locale });
+        this.#sendJson(res, 200, { ok: true, authenticated: verdict.ok, locale } satisfies AuthStatusResponse);
         return;
       }
       this.#sendJson(res, 200, {
         ok: true,
         authenticated: this.#auth.authenticateCookie(req, bucketKey) !== null,
         locale,
-      });
+      } satisfies AuthStatusResponse);
       return;
     }
 
@@ -457,7 +484,7 @@ export class FengSuiHttpServer {
       this.#sendJson(
         res,
         200,
-        { ok: true, authenticated: true, expiresAtIso: new Date(newSession.expiresAtMs).toISOString() },
+        { ok: true, authenticated: true, expiresAtIso: new Date(newSession.expiresAtMs).toISOString() } satisfies AuthLoginResponse,
         { "Set-Cookie": this.#auth.sessionCookie(newSession.id, ttlSec, isHttps) }
       );
       return;
@@ -471,7 +498,7 @@ export class FengSuiHttpServer {
           this.#sendAuthRejection(res, verdict, authMessages);
           return;
         }
-        this.#sendJson(res, 200, { ok: true, authenticated: false }, clearCookie);
+        this.#sendJson(res, 200, { ok: true, authenticated: false } satisfies AuthLogoutResponse, clearCookie);
         return;
       }
 
@@ -484,7 +511,7 @@ export class FengSuiHttpServer {
         this.#auth.revokeSession(session.id);
         this.sseBus.disconnectBySessionId(session.id);
       }
-      this.#sendJson(res, 200, { ok: true, authenticated: false }, clearCookie);
+      this.#sendJson(res, 200, { ok: true, authenticated: false } satisfies AuthLogoutResponse, clearCookie);
       return;
     }
 
@@ -532,7 +559,7 @@ export class FengSuiHttpServer {
           lockState: this.core.controls.getPersistedLockState(),
           lockVerification: this.core.controls.getLockVerification(),
           sms: this.sms?.getStatus() ?? null,
-        },
+        } satisfies SseInitialSnapshot,
       });
       if (!sub.accepted) {
         this.#sendJson(res, 429, {
@@ -568,7 +595,7 @@ export class FengSuiHttpServer {
               ok: true,
               alerts: this.core.scheduler.getRecentAlerts(),
               notifications: this.notificationHub?.getStats() ?? null,
-            });
+            } satisfies AlertsResponse);
             return;
 
           case "/api/telemetry":
@@ -579,7 +606,7 @@ export class FengSuiHttpServer {
               lockVerification: this.core.controls.getLockVerification(),
               telemetry: this.core.monitor.getCachedTelemetry(),
               recentAlerts: this.core.scheduler.getRecentAlerts(),
-            });
+            } satisfies TelemetryEndpointResponse);
             return;
 
           case "/api/timeseries": {
@@ -591,7 +618,7 @@ export class FengSuiHttpServer {
               bucketMs: parseStrictFiniteInt(q["bucketMs"]),
               maxPoints: parseStrictFiniteInt(q["maxPoints"]),
             });
-            this.#sendJson(res, 200, { ok: true, ...result });
+            this.#sendJson(res, 200, { ok: true, ...result } satisfies TimeSeriesEndpointResponse);
             return;
           }
 
@@ -600,7 +627,7 @@ export class FengSuiHttpServer {
               ok: true,
               schedulerStatus: this.core.scheduler.getStatus(),
               neighbors: this.core.monitor.getCachedNeighbors(),
-            });
+            } satisfies NeighborsEndpointResponse);
             return;
 
           case "/api/topology":
@@ -608,7 +635,7 @@ export class FengSuiHttpServer {
               ok: true,
               schedulerStatus: this.core.scheduler.getStatus(),
               topology: this.core.monitor.getCachedTopology(),
-            });
+            } satisfies TopologyEndpointResponse);
             return;
 
           case "/api/settings":
@@ -618,14 +645,14 @@ export class FengSuiHttpServer {
               lockState: this.core.controls.getPersistedLockState(),
               lockVerification: this.core.controls.getLockVerification(),
               settings: this.core.monitor.getCachedSettings(),
-            });
+            } satisfies SettingsEndpointResponse);
             return;
 
           case "/api/session/status":
             this.#sendJson(res, 200, {
               ok: true,
               status: this.core.scheduler.getStatus(),
-            });
+            } satisfies SessionStatusResponse);
             return;
 
           default:
@@ -656,7 +683,7 @@ export class FengSuiHttpServer {
             ok: true,
             schedulerStatus: this.core.scheduler.getStatus(),
             telemetry: telemetry ?? this.core.monitor.getCachedTelemetry(),
-          });
+          } satisfies TelemetryRefreshResponse);
           return;
         }
 
@@ -666,7 +693,7 @@ export class FengSuiHttpServer {
             ok: true,
             schedulerStatus: this.core.scheduler.getStatus(),
             neighbors: neighbors ?? this.core.monitor.getCachedNeighbors(),
-          });
+          } satisfies NeighborsEndpointResponse);
           return;
         }
 
@@ -676,7 +703,7 @@ export class FengSuiHttpServer {
             ok: true,
             schedulerStatus: this.core.scheduler.getStatus(),
             topology: topology ?? this.core.monitor.getCachedTopology(),
-          });
+          } satisfies TopologyEndpointResponse);
           return;
         }
 
@@ -686,7 +713,7 @@ export class FengSuiHttpServer {
             ok: true,
             schedulerStatus: this.core.scheduler.getStatus(),
             settings: settings ?? this.core.monitor.getCachedSettings(),
-          });
+          } satisfies SettingsRefreshResponse);
           return;
         }
 
@@ -718,7 +745,7 @@ export class FengSuiHttpServer {
             ok: true,
             circuitBreaker: breaker,
             status: this.core.scheduler.getStatus(),
-          });
+          } satisfies ResetBreakerResponse);
           return;
         }
 
@@ -726,20 +753,20 @@ export class FengSuiHttpServer {
           const lteBands = readBandSelection(body, "lteBands");
           const nrBands = readBandSelection(body, "nrBands");
           const lockState = await this.core.controls.lockBands({ lteBands, nrBands });
-          this.#sendJson(res, 200, { ok: true, lockState });
+          this.#sendJson(res, 200, { ok: true, lockState } satisfies LockStateResponse);
           return;
         }
 
         case "/api/control/cell-lock": {
           // Omitted or null pci means a frequency lock; anything else must be a number, never silently dropped
           const lockState = await this.core.controls.lockCell(readCellLockCommand(body, { allowNullPci: true }));
-          this.#sendJson(res, 200, { ok: true, lockState });
+          this.#sendJson(res, 200, { ok: true, lockState } satisfies LockStateResponse);
           return;
         }
 
         case "/api/control/unlock": {
           const lockState = await this.core.controls.unlockAllLocks();
-          this.#sendJson(res, 200, { ok: true, lockState });
+          this.#sendJson(res, 200, { ok: true, lockState } satisfies LockStateResponse);
           return;
         }
 
@@ -747,7 +774,7 @@ export class FengSuiHttpServer {
           const result = await this.core.controls.rebootRouter({
             confirm: body["confirm"] === true,
           });
-          this.#sendJson(res, 200, { ok: true, ...result });
+          this.#sendJson(res, 200, { ok: true, ...result } satisfies RebootResponse);
           return;
         }
 
@@ -758,7 +785,7 @@ export class FengSuiHttpServer {
             );
           }
           const result = await this.core.controls.reconnectCellular();
-          this.#sendJson(res, 200, { ok: true, ...result });
+          this.#sendJson(res, 200, { ok: true, ...result } satisfies ReconnectResponse);
           return;
         }
 
@@ -811,7 +838,7 @@ export class FengSuiHttpServer {
             dmz,
             firewall,
           });
-          this.#sendJson(res, 200, { ok: true, settings });
+          this.#sendJson(res, 200, { ok: true, settings } satisfies SecurityControlResponse);
           return;
         }
 
@@ -819,13 +846,13 @@ export class FengSuiHttpServer {
           const mloEnable = readOptionalBoolean(body, "mloEnable");
           const dbhoEnable = readOptionalBoolean(body, "dbhoEnable");
           const wifi7 = await this.core.controls.setWifi7Settings({ mloEnable, dbhoEnable });
-          this.#sendJson(res, 200, { ok: true, wifi7 });
+          this.#sendJson(res, 200, { ok: true, wifi7 } satisfies Wifi7ControlResponse);
           return;
         }
 
         case "/api/control/antenna": {
           const antenna = await this.core.controls.setAntennaMode(readAntennaMode(body["mode"]));
-          this.#sendJson(res, 200, { ok: true, antenna });
+          this.#sendJson(res, 200, { ok: true, antenna } satisfies AntennaControlResponse);
           return;
         }
 
@@ -835,7 +862,7 @@ export class FengSuiHttpServer {
             throw new CpeControlValidationError('"enabled" must be a boolean');
           }
           const result = await this.core.controls.setMobileData(enabled);
-          this.#sendJson(res, 200, { ok: true, ...result });
+          this.#sendJson(res, 200, { ok: true, ...result } satisfies MobileDataControlResponse);
           return;
         }
 
@@ -852,7 +879,7 @@ export class FengSuiHttpServer {
           ok: false,
           errorCode: "BAD_PAYLOAD",
           message: err.message,
-        });
+        } satisfies ApiErrorEnvelope);
         return;
       }
       if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError) {
@@ -860,7 +887,7 @@ export class FengSuiHttpServer {
           ok: false,
           errorCode: "VALIDATION_ERROR",
           message: err.message,
-        });
+        } satisfies ApiErrorEnvelope);
         return;
       }
       if (err instanceof BrowserSessionYieldedError) {
@@ -870,7 +897,7 @@ export class FengSuiHttpServer {
           message: err.messageZh,
           messageEn: err.messageEn,
           avoidance: this.core.scheduler.getAvoidanceState(),
-        });
+        } satisfies ApiErrorEnvelope);
         return;
       }
       if (err instanceof PeerDaemonStandbyError) {
@@ -879,7 +906,7 @@ export class FengSuiHttpServer {
           errorCode: "PEER_DAEMON_ACTIVE",
           message: err.message,
           peerAddress: err.peerAddress,
-        });
+        } satisfies ApiErrorEnvelope);
         return;
       }
       if (err instanceof CircuitBreakerOpenError) {
@@ -888,7 +915,7 @@ export class FengSuiHttpServer {
           errorCode: "CIRCUIT_BREAKER_OPEN",
           message: err.message,
           circuitBreaker: err.circuitBreaker,
-        });
+        } satisfies ApiErrorEnvelope);
         return;
       }
       if (err instanceof SchedulerQueueFullError || err instanceof SchedulerStoppedError) {
@@ -896,14 +923,14 @@ export class FengSuiHttpServer {
           ok: false,
           errorCode: "QUEUE_FULL",
           message: err.message,
-        });
+        } satisfies ApiErrorEnvelope);
         return;
       }
       this.#sendJson(res, 502, {
         ok: false,
         errorCode: "CPE_UPSTREAM_ERROR",
         message: err instanceof Error ? err.message : String(err),
-      });
+      } satisfies ApiErrorEnvelope);
     }
   }
 

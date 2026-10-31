@@ -1,0 +1,368 @@
+/**
+ * REST and SSE payload types of `docs/PHASE2_BACKEND_CONTRACT.md`, composed from the domain types the
+ * daemon already produces. The HTTP routes check their response bodies against these types
+ * (`satisfies`), and the web dashboard imports the same declarations, so a field renamed on one side
+ * fails to compile on the other. Type-only module: it emits nothing at runtime.
+ */
+import type { AlertEventRecord } from "./state-store.ts";
+import type {
+  AntennaModeName,
+  GlobalTelemetrySnapshot,
+  LockVerification,
+  NeighborScanSnapshot,
+  PersistedLockState,
+  RouterSettingsSnapshot,
+  TerminalTopologySnapshot,
+} from "./cpe-domain.ts";
+import type { SpeedTickPayload } from "./cpe-monitor.ts";
+import type { ChannelDeliveryStats } from "./notify/hub.ts";
+import type { AvoidanceBroadcastPayload, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
+import type { VcardImportSummary } from "./sms/contacts.ts";
+import type {
+  SmsSendPreview,
+  SmsSentEvent,
+  SmsStatusSnapshot,
+  SmsSyncSummary,
+  SmsUpdatedEvent,
+} from "./sms/service.ts";
+import type {
+  ContactRecord,
+  CountryDialInfo,
+  EnrichedSmsMessage,
+  SmsSendResult,
+  SmsThreadDetail,
+  SmsThreadSummary,
+} from "./sms/types.ts";
+import type { TimeSeriesQueryResult } from "./timeseries.ts";
+import type { CircuitBreakerState, SupportedLocale } from "./types.ts";
+
+export type {
+  AlertEventRecord,
+  AntennaModeName,
+  AvoidanceBroadcastPayload,
+  ChannelDeliveryStats,
+  CircuitBreakerState,
+  ContactRecord,
+  ControlAppliedEvent,
+  CountryDialInfo,
+  EnrichedSmsMessage,
+  GlobalTelemetrySnapshot,
+  LockVerification,
+  NeighborScanSnapshot,
+  PersistedLockState,
+  RouterSettingsSnapshot,
+  SchedulerStatusSnapshot,
+  SmsSendPreview,
+  SmsSendResult,
+  SmsSentEvent,
+  SmsStatusSnapshot,
+  SmsSyncSummary,
+  SmsThreadDetail,
+  SmsThreadSummary,
+  SmsUpdatedEvent,
+  SpeedTickPayload,
+  SupportedLocale,
+  TerminalTopologySnapshot,
+  VcardImportSummary,
+};
+export type { NeighborCellEntry, TerminalAccessMedium, TerminalHostEntry } from "./parsers.ts";
+export type { SchedulerMode } from "./scheduler.ts";
+export type { TimeSeriesBucketPoint, TimeSeriesPreset } from "./timeseries.ts";
+
+// ── Errors (§1.4) ────────────────────────────────────────────────────────────
+
+export type ApiErrorCode =
+  | "MISDIRECTED_HOST"
+  | "BAD_URL"
+  | "METHOD_NOT_ALLOWED"
+  | "CSRF_REJECTED"
+  | "UNAUTHORIZED"
+  | "RATE_LIMITED"
+  | "NOT_FOUND"
+  | "SMS_DISABLED"
+  | "LOCALE_NOT_FOUND"
+  | "INTERNAL_ERROR"
+  | "BAD_PAYLOAD"
+  | "VALIDATION_ERROR"
+  | "BROWSER_SESSION_YIELDED"
+  | "PEER_DAEMON_ACTIVE"
+  | "QUEUE_FULL"
+  | "CIRCUIT_BREAKER_OPEN"
+  | "CPE_UPSTREAM_ERROR"
+  | "SMS_SEND_FAILED"
+  | "SSE_LIMIT_REACHED"
+  | "MCP_DISABLED"
+  | "FORBIDDEN_ORIGIN"
+  | "UNSUPPORTED_MEDIA_TYPE"
+  | "STATIC_ROOT_NOT_FOUND"
+  | "ASSET_NOT_FOUND"
+  | "BAD_PATH"
+  | "PATH_TRAVERSAL_BLOCKED"
+  | "SYMLINK_ESCAPE_BLOCKED";
+
+/** Every non-2xx body outside `/mcp`'s JSON-RPC errors. */
+export interface ApiErrorEnvelope {
+  ok: false;
+  errorCode: ApiErrorCode;
+  message: string;
+  /** Only `409 BROWSER_SESSION_YIELDED`. */
+  messageEn?: string;
+  /** Only `429 RATE_LIMITED`. */
+  retryAfterSec?: number;
+  /** Only `409 BROWSER_SESSION_YIELDED`. */
+  avoidance?: AvoidanceBroadcastPayload;
+  /** Only `409 PEER_DAEMON_ACTIVE`. */
+  peerAddress?: string | null;
+  /** Only `423 CIRCUIT_BREAKER_OPEN`. */
+  circuitBreaker?: CircuitBreakerState;
+  /** Only `502 SMS_SEND_FAILED`. */
+  result?: SmsSendResult;
+  /** Only `502 SMS_SEND_FAILED`. */
+  resolvedPhones?: string[];
+}
+
+// ── Public, auth and i18n (§2.1) ─────────────────────────────────────────────
+
+export interface HealthResponse {
+  ok: true;
+  service: "cpe-dash";
+  codename: "FengSui";
+  version: string;
+  uptimeSec: number;
+}
+
+export interface LocaleCatalogResponse {
+  ok: true;
+  locale: SupportedLocale;
+  catalog: Record<string, unknown>;
+}
+
+export interface AuthStatusResponse {
+  ok: true;
+  authenticated: boolean;
+  locale: SupportedLocale;
+}
+
+export interface AuthLoginResponse {
+  ok: true;
+  authenticated: true;
+  expiresAtIso: string;
+}
+
+export interface AuthLogoutResponse {
+  ok: true;
+  authenticated: false;
+}
+
+// ── Telemetry, history, neighbors, topology, settings (§2.2–2.3) ─────────────
+
+export interface TelemetryEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  lockState: PersistedLockState;
+  lockVerification: LockVerification;
+  telemetry: GlobalTelemetrySnapshot | null;
+  recentAlerts: ReadonlyArray<AlertEventRecord>;
+}
+
+export interface TelemetryRefreshResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  telemetry: GlobalTelemetrySnapshot | null;
+}
+
+export interface SessionStatusResponse {
+  ok: true;
+  status: SchedulerStatusSnapshot;
+}
+
+export type TimeSeriesEndpointResponse = { ok: true } & TimeSeriesQueryResult;
+
+export interface NeighborsEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  neighbors: NeighborScanSnapshot | null;
+}
+
+export interface TopologyEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  topology: TerminalTopologySnapshot | null;
+}
+
+export interface SettingsEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  lockState: PersistedLockState;
+  lockVerification: LockVerification;
+  settings: RouterSettingsSnapshot | null;
+}
+
+export interface SettingsRefreshResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  settings: RouterSettingsSnapshot | null;
+}
+
+export interface AlertsResponse {
+  ok: true;
+  alerts: ReadonlyArray<AlertEventRecord>;
+  notifications: Record<string, ChannelDeliveryStats> | null;
+}
+
+// ── Controls (§2.4) ──────────────────────────────────────────────────────────
+
+/** `band-lock`, `cell-lock` and `unlock`. */
+export interface LockStateResponse {
+  ok: true;
+  lockState: PersistedLockState;
+}
+
+export interface RebootResponse {
+  ok: true;
+  rebooting: true;
+  requestedAtIso: string;
+}
+
+export interface ReconnectResponse {
+  ok: true;
+  reconnecting: true;
+  requestedAtIso: string;
+}
+
+export interface SecurityControlResponse {
+  ok: true;
+  settings: RouterSettingsSnapshot | null;
+}
+
+export interface Wifi7ControlResponse {
+  ok: true;
+  wifi7: { mloEnable: boolean; dbhoEnable: boolean };
+}
+
+export interface AntennaControlResponse {
+  ok: true;
+  antenna: { mode: AntennaModeName; rawCode: number };
+}
+
+export interface MobileDataControlResponse {
+  ok: true;
+  mobileDataEnabled: boolean;
+}
+
+export interface ResetBreakerResponse {
+  ok: true;
+  circuitBreaker: CircuitBreakerState;
+  status: SchedulerStatusSnapshot;
+}
+
+// ── SMS and contacts (§2.5) ──────────────────────────────────────────────────
+
+export interface SmsStatusResponse {
+  ok: true;
+  status: SmsStatusSnapshot;
+}
+
+export interface SmsCountriesResponse {
+  ok: true;
+  defaultCountryCode: string;
+  countries: ReadonlyArray<CountryDialInfo>;
+}
+
+export interface SmsThreadsResponse {
+  ok: true;
+  threads: SmsThreadSummary[];
+  status: SmsStatusSnapshot;
+}
+
+export interface SmsThreadResponse {
+  ok: true;
+  thread: SmsThreadDetail;
+}
+
+export interface SmsContactsResponse {
+  ok: true;
+  total: number;
+  contacts: ContactRecord[];
+}
+
+export interface SmsPreviewResponse {
+  ok: true;
+  preview: SmsSendPreview;
+}
+
+export interface SmsSendResponse {
+  ok: true;
+  result: SmsSendResult;
+  resolvedPhones: string[];
+  messages: EnrichedSmsMessage[];
+}
+
+export interface SmsReadResponse {
+  ok: true;
+  count: number;
+  uids: string[];
+}
+
+export interface SmsDeleteResponse {
+  ok: true;
+  deleted: number;
+  uids: string[];
+}
+
+export interface SmsSyncResponse {
+  ok: true;
+  summary: SmsSyncSummary | null;
+  status: SmsStatusSnapshot;
+}
+
+export interface ContactUpsertResponse {
+  ok: true;
+  contact: ContactRecord;
+}
+
+export interface ContactDeleteResponse {
+  ok: true;
+  deleted: boolean;
+}
+
+export interface VcardImportResponse {
+  ok: true;
+  summary: VcardImportSummary;
+}
+
+// ── `/api/events` (§3) ───────────────────────────────────────────────────────
+
+export interface SseHelloPayload {
+  clientId: string;
+  connectedAtIso: string;
+  heartbeatMs: number;
+  schedulerStatus: SchedulerStatusSnapshot;
+  avoidance: AvoidanceBroadcastPayload;
+  telemetry: GlobalTelemetrySnapshot | null;
+  lockState: PersistedLockState;
+  lockVerification: LockVerification;
+  sms: SmsStatusSnapshot | null;
+}
+
+/** The first frame of every `/api/events` stream, minus the per-connection fields the bus adds. */
+export type SseInitialSnapshot = Omit<SseHelloPayload, "clientId" | "connectedAtIso" | "heartbeatMs">;
+
+/** `event:` name → `data:` payload of every named `/api/events` frame. */
+export interface SseEventPayloads {
+  hello: SseHelloPayload;
+  speed: SpeedTickPayload;
+  telemetry: GlobalTelemetrySnapshot;
+  neighbors: NeighborScanSnapshot;
+  topology: TerminalTopologySnapshot;
+  settings: RouterSettingsSnapshot;
+  "session:avoidance": AvoidanceBroadcastPayload;
+  "control:applied": ControlAppliedEvent;
+  alert: AlertEventRecord;
+  "sms:new": EnrichedSmsMessage;
+  "sms:sent": SmsSentEvent;
+  "sms:updated": SmsUpdatedEvent;
+  "sms:sync": SmsSyncSummary;
+  "sms:status": SmsStatusSnapshot;
+  "contacts:updated": { total: number };
+}
