@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { PrivacyState, displayValue, isServerRedacted, maskCodeInText, maskValue } from "../web/src/core/privacy.ts";
+import { PrivacyState, displayValue, maskCodeInText, maskValue } from "../web/src/core/privacy.ts";
 
 describe("web core: privacy mode", () => {
   it("masks each identifier kind like the daemon's REDACT switch", () => {
@@ -14,8 +14,6 @@ describe("web core: privacy mode", () => {
     assert.equal(maskValue("otp", "482913"), "••••••");
     assert.equal(maskValue("otp", " "), "");
     assert.equal(displayValue("ip", "198.51.100.42", false), "198.51.100.42");
-    assert.equal(isServerRedacted("<REDACTED:10001>"), true);
-    assert.equal(isServerRedacted("10001"), false);
     assert.equal(maskCodeInText("Code 482913, again 482913", "482913"), "Code ••••••, again ••••••");
     assert.equal(maskCodeInText("Code 12", "12"), "Code 12");
     assert.equal(maskCodeInText("plain", null), "plain");

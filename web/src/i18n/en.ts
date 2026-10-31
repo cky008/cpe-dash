@@ -85,8 +85,6 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "id.msisdn_empty": "Not stored on SIM",
   "id.model": "Model",
   "id.firmware": "Firmware",
-  "id.server_redacted": "Redacted by server",
-  "id.server_redacted_hint": "REDACT_SENSITIVE_IN_API=true: the plain values never leave the daemon. Set it to false and restart when you need them for troubleshooting.",
   "id.reveal": "Reveal",
   "id.mask": "Mask",
   "net.title": "Network identity",

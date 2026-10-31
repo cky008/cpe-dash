@@ -83,8 +83,6 @@ export const zhCN = {
   "id.msisdn_empty": "SIM 未写入",
   "id.model": "型号",
   "id.firmware": "固件",
-  "id.server_redacted": "服务端已脱敏",
-  "id.server_redacted_hint": "REDACT_SENSITIVE_IN_API=true：明文从未离开守护进程。排错需要明文时可将其设为 false 并重启。",
   "id.reveal": "显示明文",
   "id.mask": "遮罩",
   "net.title": "网络身份",

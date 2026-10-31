@@ -698,10 +698,6 @@ body {
     color: color-mix(in oklab, var(--color-warning) 80%, var(--color-base-content));
     background: color-mix(in oklab, var(--color-warning) 14%, transparent);
   }
-  .fs-badge[data-kind="redacted"] {
-    color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
-    border-style: dashed;
-  }
 
   /* Charts */
   .fs-chart {

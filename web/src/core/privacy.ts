@@ -9,15 +9,11 @@ import {
 
 /**
  * Display-side privacy mode (anti-screenshot). It uses the daemon's own masks (src/privacy-mask.ts),
- * so a value masked in the browser reads exactly like one REDACT_SENSITIVE_IN_API masked on the server.
+ * so a value masked in the browser reads exactly like the REDACT_SENSITIVE_IN_API copies that Bearer
+ * API and MCP clients receive; the web console itself always gets the plain values to reveal.
  */
 
 export type SensitiveKind = "imei" | "imsi" | "phone" | "mac" | "ip" | "cell" | "otp";
-
-/** RF identifiers the daemon replaced with a placeholder (`<REDACTED:10001>`). */
-export function isServerRedacted(value: string): boolean {
-  return value.startsWith("<REDACTED");
-}
 
 export function maskValue(kind: SensitiveKind, value: string): string {
   const clean = value.trim();
