@@ -39,6 +39,13 @@ export interface ChartUpdate<T> {
   emptyText: string;
 }
 
+/** The SVG nodes one series owns; reused frame to frame, removed together when the series goes away. */
+interface SeriesPaths {
+  line: SVGPathElement;
+  area: SVGPathElement | null;
+  gradient: SVGLinearGradientElement | null;
+}
+
 let chartSeq = 0;
 
 export class TimeChart<T extends { tsMs: number }> {
@@ -52,7 +59,7 @@ export class TimeChart<T extends { tsMs: number }> {
   readonly #tooltip: HTMLElement;
   readonly #empty: HTMLElement;
   readonly #id = `chart${++chartSeq}`;
-  readonly #paths = new Map<string, { line: SVGPathElement; area: SVGPathElement | null }>();
+  readonly #paths = new Map<string, SeriesPaths>();
   #last: ChartUpdate<T> | null = null;
   #xs: number[] = [];
 
@@ -120,30 +127,31 @@ export class TimeChart<T extends { tsMs: number }> {
       if (live.has(key)) continue;
       paths.line.remove();
       paths.area?.remove();
+      paths.gradient?.remove(); // a series toggled back on creates it again under the same id
       this.#paths.delete(key);
     }
   }
 
-  #pathsFor(s: Series<T>): { line: SVGPathElement; area: SVGPathElement | null } {
+  #pathsFor(s: Series<T>): SeriesPaths {
     const existing = this.#paths.get(s.key);
     if (existing) return existing;
     let area: SVGPathElement | null = null;
+    let gradient: SVGLinearGradientElement | null = null;
     if (s.area) {
       const gradientId = `${this.#id}-${s.key}`;
-      this.#defs.appendChild(
-        svg(
-          "linearGradient",
-          { id: gradientId, x1: 0, y1: 0, x2: 0, y2: 1, class: s.cls },
-          svg("stop", { offset: "0%", "stop-color": "currentColor", "stop-opacity": 0.28 }),
-          svg("stop", { offset: "100%", "stop-color": "currentColor", "stop-opacity": 0 })
-        )
+      gradient = svg(
+        "linearGradient",
+        { id: gradientId, x1: 0, y1: 0, x2: 0, y2: 1, class: s.cls },
+        svg("stop", { offset: "0%", "stop-color": "currentColor", "stop-opacity": 0.28 }),
+        svg("stop", { offset: "100%", "stop-color": "currentColor", "stop-opacity": 0 })
       );
+      this.#defs.appendChild(gradient);
       area = svg("path", { fill: `url(#${gradientId})`, stroke: "none" });
       this.#plot.appendChild(area);
     }
     const line = svg("path", { class: `line ${s.cls} ${s.peak ? "is-peak" : ""}` });
     this.#plot.appendChild(line);
-    const entry = { line, area };
+    const entry = { line, area, gradient };
     this.#paths.set(s.key, entry);
     return entry;
   }
@@ -241,8 +249,10 @@ export class Brush {
       this.#render();
     }
     const base = this.#win ?? startWin;
-    this.el.setPointerCapture(event.pointerId);
+    const pointerId = event.pointerId;
+    this.el.setPointerCapture(pointerId);
     const move = (e: PointerEvent): void => {
+      if (e.pointerId !== pointerId) return;
       const delta = at(e.clientX) - origin;
       if (edge === "start") this.#win = clampBrush({ start: Math.min(base.start + delta, base.end - 0.02), end: base.end }, 0.02);
       else if (edge === "end") this.#win = clampBrush({ start: base.start, end: Math.max(base.end + delta, base.start + 0.02) }, 0.02);
@@ -250,14 +260,18 @@ export class Brush {
       this.#render();
     };
     const up = (e: PointerEvent): void => {
-      this.el.releasePointerCapture(e.pointerId);
+      if (e.pointerId !== pointerId) return;
+      // Detach first: releasing a capture the browser already dropped (cancel, lost capture) can throw
       this.el.removeEventListener("pointermove", move);
       this.el.removeEventListener("pointerup", up);
       this.el.removeEventListener("pointercancel", up);
+      this.el.removeEventListener("lostpointercapture", up);
+      if (this.el.hasPointerCapture(pointerId)) this.el.releasePointerCapture(pointerId);
       this.#onChange(this.#win);
     };
     this.el.addEventListener("pointermove", move);
     this.el.addEventListener("pointerup", up);
     this.el.addEventListener("pointercancel", up);
+    this.el.addEventListener("lostpointercapture", up);
   }
 }

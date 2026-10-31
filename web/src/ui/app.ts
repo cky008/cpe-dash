@@ -244,12 +244,13 @@ export async function startApp(): Promise<void> {
           byId("versionLabel").textContent = `v${h.version} · H168-383`;
         })
         .catch(() => undefined);
+      // Once per page, not per sign-in: a re-login submitted with Enter would stack another listener
+      if ("Notification" in window && Notification.permission === "default") {
+        document.body.addEventListener("click", () => void Notification.requestPermission().catch(() => undefined), { once: true });
+      }
     }
     startStreams();
     void loadSnapshots();
-    if ("Notification" in window && Notification.permission === "default") {
-      document.body.addEventListener("click", () => void Notification.requestPermission().catch(() => undefined), { once: true });
-    }
   };
 
   handleUnauthorized = () => {

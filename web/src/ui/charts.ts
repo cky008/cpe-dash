@@ -265,7 +265,8 @@ export function mountCharts(ctx: AppContext): void {
   ctx.store.subscribe("live", drawLive);
   ctx.tr.onChange(render);
   setInterval(() => {
-    if (!document.hidden && preset !== "custom" && brush.window === null) void loadBase();
+    // offsetParent is null while the dashboard is not displayed (SMS view, or signed out after expiry)
+    if (!document.hidden && root.offsetParent !== null && preset !== "custom" && brush.window === null) void loadBase();
   }, HISTORY_REFRESH_MS);
   render();
   void loadBase();

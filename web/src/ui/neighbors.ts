@@ -4,7 +4,7 @@ import { DASH, formatAgo, formatSigned } from "../core/format.ts";
 import { bandLabel, gaugeFraction, qualityLevel } from "../core/rf.ts";
 import type { CellLockPrefill } from "./cell-lock.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount, setText } from "./dom.ts";
+import { byId, h, icon, mount, perFrame, setText } from "./dom.ts";
 import { meter, qualityClass } from "./gauge.ts";
 import { cardHead, emptyState, runBusy } from "./widgets.ts";
 
@@ -151,7 +151,7 @@ export function mountNeighbors(ctx: AppContext): void {
     if (agoLabel && captured) setText(agoLabel, ctx.t("nb.updated", { ago: formatAgo(captured, ctx.now(), ctx.tr.locale) }));
   };
 
-  ctx.store.subscribe(["neighbors", "telemetry"], render);
+  ctx.store.subscribe(["neighbors", "telemetry"], perFrame(render));
   ctx.tr.onChange(render);
   ctx.onTick(updateAgo);
   render();

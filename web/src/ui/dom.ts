@@ -84,6 +84,23 @@ export function replay(el: HTMLElement, cls: string): void {
   el.classList.add(cls);
 }
 
+/**
+ * Coalesce a burst of store updates into one render on the next frame: `speed` and `telemetry`
+ * frames land together every poll, and a card subscribed to both would otherwise rebuild twice.
+ * Nothing renders while the tab is hidden; the latest state renders once it is shown again.
+ */
+export function perFrame(fn: () => void): () => void {
+  let queued = false;
+  return () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      fn();
+    });
+  };
+}
+
 /** Debounce for input handlers. */
 export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number): (...args: A) => void {
   let timer: ReturnType<typeof setTimeout> | null = null;

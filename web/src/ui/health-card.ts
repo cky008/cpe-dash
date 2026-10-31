@@ -3,7 +3,7 @@ import { DASH, formatDuration } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount, setText } from "./dom.ts";
+import { byId, h, icon, mount, perFrame, setText } from "./dom.ts";
 import { cardHead, kv } from "./widgets.ts";
 
 const VERIFY_KEYS: Readonly<Record<LockVerification["status"], MessageKey>> = {
@@ -74,7 +74,7 @@ export function mountHealthCard(ctx: AppContext): void {
     );
   };
 
-  ctx.store.subscribe(["telemetry", "scheduler", "topology", "locks"], render);
+  ctx.store.subscribe(["telemetry", "scheduler", "topology", "locks"], perFrame(render));
   ctx.tr.onChange(render);
   ctx.onTick(() => {
     const uptime = uptimeNow();

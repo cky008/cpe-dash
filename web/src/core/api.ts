@@ -127,14 +127,22 @@ export class ApiClient {
       throw new ApiError(0, null, timedOut ? "timeout" : "network", timedOut ? `Timed out after ${timeoutMs} ms` : "Network error");
     }
     let payload: unknown = null;
+    let parsed = false;
     try {
       payload = await res.json();
+      parsed = true;
     } catch {
       payload = null;
     } finally {
       clearTimeout(timer);
     }
-    if (res.ok) return payload as T;
+    if (res.ok) {
+      if (parsed) return payload as T;
+      // Every daemon route answers JSON: a 2xx whose body stalled past the timeout or arrived cut off
+      // must not resolve as `null` into code that expects the typed response
+      const timedOut = controller.signal.aborted;
+      throw new ApiError(res.status, null, timedOut ? "timeout" : "network", timedOut ? `Timed out after ${timeoutMs} ms` : "Incomplete response body");
+    }
     const envelope = isApiErrorEnvelope(payload) ? payload : null;
     const error = new ApiError(res.status, envelope);
     if (error.kind === "unauthorized") this.#onUnauthorized?.();

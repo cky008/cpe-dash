@@ -2,7 +2,7 @@ import { DASH, formatBitRate, formatBytes, formatDuration, joinScaled } from "..
 import { savePreference } from "../core/prefs.ts";
 import { type UsageLevel, parseByteSize, routerMonthlyCapBytes, usageLevel, usageRatio } from "../core/traffic.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount, svg } from "./dom.ts";
+import { byId, h, icon, mount, perFrame, svg } from "./dom.ts";
 import { cardHead } from "./widgets.ts";
 
 const LEVEL_CLASS: Readonly<Record<UsageLevel, string>> = {
@@ -155,7 +155,7 @@ export function mountTrafficCard(ctx: AppContext): void {
     );
   };
 
-  ctx.store.subscribe(["telemetry", "live"], render);
+  ctx.store.subscribe(["telemetry", "live"], perFrame(render));
   ctx.tr.onChange(render);
   render();
 }

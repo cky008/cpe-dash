@@ -129,6 +129,23 @@ describe("web core: API client", () => {
     await assert.rejects(api.get("/api/slow"), (err: unknown) => err instanceof ApiError && err.kind === "timeout");
   });
 
+  it("never resolves a 2xx whose JSON body did not arrive intact", async () => {
+    const { fetchImpl } = fakeFetch((url, init) => {
+      if (url === "/api/truncated") return new Response('{"ok":tr', { status: 200, headers: { "Content-Type": "application/json" } });
+      // Headers arrive, then the body stalls until the client's timeout aborts it
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"ok":'));
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")));
+        },
+      });
+      return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const api = new ApiClient({ fetchImpl, defaultTimeoutMs: 20 });
+    await assert.rejects(api.get("/api/stalled"), (err: unknown) => err instanceof ApiError && err.kind === "timeout" && err.status === 200);
+    await assert.rejects(api.get("/api/truncated"), (err: unknown) => err instanceof ApiError && err.kind === "network" && err.status === 200);
+  });
+
   it("maps every endpoint to its contract path, method and body", async () => {
     const { fetchImpl, calls } = fakeFetch(() => json(200, { ok: true }));
     const ep = createEndpoints(new ApiClient({ fetchImpl }));
