@@ -80,8 +80,9 @@ export interface ApiErrorEnvelope {
     // ── CPE 会话调度 ──
     | "BROWSER_SESSION_YIELDED"  // 409: 真人管理员正在使用 http://192.168.8.1，写操作礼貌让位中止（仅 RESPECT_BROWSER_SESSION=true）
     | "PEER_DAEMON_ACTIVE"       // 409: 另一台主机上的「烽燧」守护进程正在管理这台 CPE，本进程待机（附 peerAddress）
-    | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32）或服务正在停机
-    | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败、或 108006/108007 断路器已熔断
+    | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32），或守护进程正在停机（排队中的请求立即拒绝；在途会话宽限 2s 后被取消并登出）
+    | "CIRCUIT_BREAKER_OPEN"     // 423: 防爆破断路器已熔断（108006/108002/108001 密码错误或 108007 锁定，附 circuitBreaker）；触发熔断的那次请求与熔断期间的写操作都返回它，后者不尝试登录
+    | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
     | "SSE_LIMIT_REACHED"        // 429: SSE 全局 (SSE_MAX_CLIENTS，默认 32) 或单 IP 桶 (6) 连接数达上限
     // ── /mcp 端点（HTTP 层） ──
@@ -98,6 +99,7 @@ export interface ApiErrorEnvelope {
   messageEn?: string;            // 仅 409 BROWSER_SESSION_YIELDED
   retryAfterSec?: number;        // 仅 429 RATE_LIMITED
   avoidance?: AvoidanceBroadcastPayload; // 仅 409 BROWSER_SESSION_YIELDED
+  circuitBreaker?: PublicCircuitBreakerState; // 仅 423 CIRCUIT_BREAKER_OPEN
 }
 ```
 
@@ -106,7 +108,7 @@ export interface ApiErrorEnvelope {
 - `404`：`2026-07-28` 请求调用了未实现的方法（`-32601`；传统版请求仍为 `200`）；
 - `413`：请求体超过 `64 KiB`。
 
-其余 JSON-RPC 层错误（解析失败 `-32700`、非法请求 `-32600`、未知方法 `-32601`、未知工具或资源 `-32602`、内部错误 `-32603`）均以 HTTP `200` 返回。
+其余 JSON-RPC 层错误（解析失败 `-32700`、非法请求 `-32600`、未知方法 `-32601`、未知工具 `-32602`、内部错误 `-32603`）均以 HTTP `200` 返回。未知资源 URI 按请求版本区分：`2026-07-28` 请求为 `-32602`，传统版请求为 `-32002`（`Resource not found`），两者都附 `data: { uri }`。
 
 ---
 
@@ -430,11 +432,13 @@ export interface SessionStatusResponse {
 }
 ```
 
-> **刷新被跳过时的语义**：当真人在线让位、处于 Layer-2 退避冷却期或熔断器已熔断时，`POST /api/*/refresh` 与 `POST /api/neighbors/scan` 不会登录 CPE，而是返回 `200` 与缓存快照。请对比快照的 `capturedAtIso`，并查看 `schedulerStatus.mode` / `schedulerStatus.avoidance` 判断是否拿到了新数据。只有 CPE 通信失败时才返回 `502`。
+> **刷新被跳过时的语义**：当真人在线让位、处于 Layer-2 退避冷却期或熔断器已熔断时，`POST /api/*/refresh` 与 `POST /api/neighbors/scan` 不会登录 CPE，而是返回 `200` 与缓存快照。请对比快照的 `capturedAtIso`，并查看 `schedulerStatus.mode` / `schedulerStatus.avoidance` 判断是否拿到了新数据。只有 CPE 通信失败时才返回 `502`；恰好触发熔断的那一次刷新返回 `423 CIRCUIT_BREAKER_OPEN`，此后的刷新返回 `200` 与缓存。
 >
 > **采集失败的语义（Phase 2.5）**：快照绝不由失败的读取拼凑。遥测的核心接口（`/api/device/signal`、`/api/monitoring/status`、`traffic-statistics`、`month_statistics`）必须成功；其余接口仅在 CPE 返回错误码（如 `100002` 不支持）时降级为空字段，任何传输层失败（超时、连接重置）都会让整次刷新失败（`502`），缓存快照与时序数据保持不变。路由器配置（2.3 节）为全有或全无。
 >
-> **会话占用上限**：单个 CPE 会话（从登录到登出）最长占用 `90s`（运行时取 `max(90s, SMS_SEND_STATUS_TIMEOUT_MS + 30s)`）。超时后该会话的全部请求被中止、`finally` 登出照常执行、队列继续处理下一个任务，调用方收到 `502`（`CpeSessionDeadlineError`）。
+> **会话占用上限**：单个 CPE 会话（从登录到登出）最长占用 `90s`（运行时取 `max(90s, SMS_SEND_STATUS_TIMEOUT_MS + 30s)`）。超时后该会话的全部请求被中止、`finally` 登出照常执行、队列继续处理下一个任务，调用方收到 `502`（`CpeSessionDeadlineError`）。超时会话中仍在运行的代码再发出的请求会在本地直接失败，不会再到达路由器。唯一的例外是短信发送：CPE 一旦接受 `send-sms`，此后无论会话超时、停机还是连接中断，`POST /api/sms/send` 都返回 `200`（`result.timedOutWaitingStatus: true`，消息为 `pending` 临时记录），以免调用方重发。
+>
+> **停机语义**（`SIGTERM` / `SIGINT`，整个过程控制在 `docker stop` 的 10s 宽限内）：先停止接受新连接并停止 Telegram 长轮询；排队中的 CPE 请求立即返回 `503 QUEUE_FULL`；在途会话有 2s 宽限自然完成（避免把一次控制写切成两半），之后被取消，`finally` 登出照常执行，路由器的管理员槽位在进程退出前释放；被取消的请求返回 `503`。随后刷新加密存储，剩余 HTTP 连接最多再等 5s。启动失败（如端口被占用）时按同样的顺序关闭后再退出。
 
 #### `GET /api/timeseries`（多尺度环形时序查询：支持 `1h` / `6h` / `12h` / `24h` / `custom`）
 - **Query 参数**（整数参数必须是严格十进制整数字符串，否则返回 `400 BAD_PAYLOAD`）：
@@ -485,7 +489,7 @@ export interface NeighborCellEntry {
   rat: "LTE" | "NR";
   arfcn: number | null;
   band: string;               // e.g. "B1", "B3", "N78"
-  pci: number | null;         // 0..1007，可直接带入 POST /api/control/cell-lock
+  pci: number | null;         // LTE 0..503、NR 0..1007，可直接带入 POST /api/control/cell-lock
   rsrpDbm: number | null;
   rsrqDb: number | null;
   rssiDbm: number | null;
@@ -621,12 +625,12 @@ export interface SettingsRefreshResponse {
 >
 > **读-改-写不写猜测值**：防火墙与 Wi-Fi 7 开关需要先读取当前值再合并写入。读取失败或响应缺少字段时，请求在**任何写入之前**以 `502` 失败（防火墙读取发生在 UPnP / DMZ 写入之前），绝不按默认值回写未改动的开关。唯一依赖路由器状态的检查是「`dmz.enabled: true` 但未提供 `ipAddress`」：服务端需要在会话内读取路由器当前的 `DmzIPAddress`，若为空则在**任何写入之前**返回 `400`，不会留下 UPnP 等部分写入。
 >
-> **熔断器已熔断时**：所有控制写路由直接返回 `502 CPE_UPSTREAM_ERROR`（不会尝试登录）；只读刷新路由返回 `200` 与缓存快照。
+> **熔断器已熔断时**：所有控制写路由（含短信发送、已读、删除）返回 `423 CIRCUIT_BREAKER_OPEN`（附 `circuitBreaker`），不会尝试登录；触发熔断的那一次请求（无论读写，即唯一一次密码尝试）同样返回 `423`。只读刷新路由返回 `200` 与缓存快照，`schedulerStatus.mode` 为 `circuit_tripped`。恢复方法：修正 `.env` 中的 `CPE_PASSWORD`（`108007` 锁定则等待锁定结束）后调用 `POST /api/session/reset-breaker`。
 
 | 路由 | 请求 JSON Body 类型 | 成功响应字段 |
 | :--- | :--- | :--- |
 | `POST /api/control/band-lock` | `{ lteBands?: Array<string \| number> \| "all"; nrBands?: Array<string \| number> \| "all" }` *(至少提供其一)* | `{ ok: true, lockState: PersistedLockState }` |
-| `POST /api/control/cell-lock` | `{ rat: "LTE" \| "NR"; band: string \| number; arfcn: number; pci?: number \| null }` *(`pci` 省略或为 `null` 时锁频点 `lock_mode=1`；否则须为 `0..1007` 整数，锁小区 `lock_mode=2`；非数字 `pci` 返回 `400`)* | `{ ok: true, lockState: PersistedLockState }` |
+| `POST /api/control/cell-lock` | `{ rat: "LTE" \| "NR"; band: string \| number; arfcn: number; pci?: number \| null }` *(`pci` 省略或为 `null` 时锁频点 `lock_mode=1`；否则须为整数（LTE `0..503`，NR `0..1007`），锁小区 `lock_mode=2`；非数字或越界的 `pci` 返回 `400`)* | `{ ok: true, lockState: PersistedLockState }` |
 | `POST /api/control/unlock` | `{}` | `{ ok: true, lockState: PersistedLockState }` |
 | `POST /api/control/reboot` | `{ confirm: true }` *(缺失或为 `false` 立即返回 `400 VALIDATION_ERROR`)* | `{ ok: true, rebooting: true, requestedAtIso: string }` |
 | `POST /api/control/reconnect` | `{ confirm: true }` *(快速重拨蜂窝 PDN，无需重启路由器；缺失或为 `false` 返回 `400`)* | `{ ok: true, reconnecting: true, requestedAtIso: string }` |
@@ -664,7 +668,7 @@ export interface SettingsRefreshResponse {
 | `GET /api/sms/thread` | `?key=<threadKey 或号码>`（别名 `phone=`，≤64 字符） | `{ ok: true, thread: SmsThreadDetail }`，消息按时间正序；无记录时 `messages` 为空数组 |
 | `GET /api/sms/contacts` | `?search=<≤100 字符>&limit=1..5000`（默认 500） | `{ ok: true, total: number, contacts: ContactRecord[] }` |
 | `POST /api/sms/preview` | `{ phone?: string; content: string; countryCode?: string }` | `{ ok: true, preview: SmsSendPreview }`（不发送） |
-| `POST /api/sms/send` | `{ phone: string } \| { phones: string[] }`（≤5 个收件人）`+ { content: string; countryCode?: string }`（≤2000 字符且 ≤4 段） | `{ ok: true, result: SmsSendResult, resolvedPhones: string[], messages: EnrichedSmsMessage[] }`；CPE 报告失败时 `502 SMS_SEND_FAILED`（附 `result`、`resolvedPhones`） |
+| `POST /api/sms/send` | `{ phone: string } \| { phones: string[] }`（≤5 个收件人）`+ { content: string; countryCode?: string }`（≤2000 字符且 ≤4 段） | `{ ok: true, result: SmsSendResult, resolvedPhones: string[], messages: EnrichedSmsMessage[] }`；CPE 报告失败时 `502 SMS_SEND_FAILED`（附 `result`、`resolvedPhones`）；CPE 接受提交后即使会话超时或服务停机也返回 `200`（`result.timedOutWaitingStatus: true`） |
 | `POST /api/sms/read` | `{ uids?: string[] }`（≤200）或 `{ threadKey: string }` | `{ ok: true, count: number, uids: string[] }` |
 | `POST /api/sms/delete` | `{ uids: string[] }`（1..50；任一 uid 未知则在任何会话前返回 `400`） | `{ ok: true, deleted: number, uids: string[] }`：同时从 CPE 与本地镜像删除 |
 | `POST /api/sms/sync` | `{ mode?: "full" \| "incremental" }`（默认 `full`） | `{ ok: true, summary: SmsSyncSummary \| null, status: SmsStatusSnapshot }`；真人在线让位时 `summary` 为 `null` |
@@ -778,7 +782,7 @@ export interface SmsSendPreview {
 export interface SmsSendResult {
   ok: boolean;
   submitted: boolean;
-  timedOutWaitingStatus: boolean;     // 已提交、投递状态未确认：send-status 超时（SMS_SEND_STATUS_TIMEOUT_MS）或提交后的状态轮询失败。此时 ok 为 true，切勿自动重发
+  timedOutWaitingStatus: boolean;     // 已提交、投递状态未确认：send-status 超时（SMS_SEND_STATUS_TIMEOUT_MS，按墙钟计时）、提交后的状态轮询失败，或提交后会话被中止（占用上限、停机）。此时 ok 为 true，切勿自动重发
   sentPhones: string[];
   failedPhones: string[];
   failCode: string | null;
@@ -902,7 +906,7 @@ export interface AvoidanceBroadcastPayload {
 
 「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，同时支持两代协议（dual-era）：
 
-- **无状态版 `2026-07-28`**：没有 `initialize`；每个请求在 `params._meta["io.modelcontextprotocol/protocolVersion"]` 中声明版本（可同时带 `clientInfo` / `clientCapabilities`）。`server/discover` 返回 `{ resultType: "complete", supportedVersions, capabilities, instructions, _meta: { "io.modelcontextprotocol/serverInfo" } }`；该版本的每个结果都带 `resultType: "complete"` 与 `_meta["io.modelcontextprotocol/serverInfo"]`。请求的版本不受支持时返回 `UnsupportedProtocolVersionError`：`{ code: -32022, message: "Unsupported protocol version", data: { supported, requested } }`。
+- **无状态版 `2026-07-28`**：没有 `initialize`；每个请求在 `params._meta["io.modelcontextprotocol/protocolVersion"]` 中声明版本（可同时带 `clientInfo` / `clientCapabilities`）。`server/discover` 返回 `{ resultType: "complete", supportedVersions, capabilities, instructions, _meta: { "io.modelcontextprotocol/serverInfo" } }`；该版本的每个结果都带 `resultType: "complete"` 与 `_meta["io.modelcontextprotocol/serverInfo"]`；`server/discover`、`tools/list`、`resources/list`、`resources/read` 的结果是 `CacheableResult`，另带 `cacheScope: "private"`（结果属于某个 API 令牌，不进共享缓存）与 `ttlMs`（列表与发现结果 `300000`，资源内容为实时数据 `0`）。该版本已移除 `ping`、`initialize` 与 `logging/setLevel`，`2026-07-28` 请求调用它们按未知方法处理（HTTP `404` + `-32601`），传统版客户端照常可用。请求的版本不受支持时返回 `UnsupportedProtocolVersionError`：`{ code: -32022, message: "Unsupported protocol version", data: { supported, requested } }`。
 - **传统版 `2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05`**：沿用 `initialize` 握手；`initialize` 最高协商到 `2025-11-25`（请求的版本未知或为 `2026-07-28` 时也回退到它），结果不带 `resultType`。
 
 不支持 JSON-RPC 批量请求（数组，返回 `-32600`），请求 `id` 必须为 `string | number`。
@@ -927,7 +931,7 @@ export interface AvoidanceBroadcastPayload {
    ```
    `--experimental-strip-types` 在 Node `22.6`–`22.17` 上必需，在 Node `22.18+` / `23.6+` 上可省略。执行过 `npm run build` 后也可改用 `/path/to/cpe-dash/dist/cli.js`。
    - `cpe-dash mcp` 是**零状态桥接**（[`src/mcp-stdio-bridge.ts`](../src/mcp-stdio-bridge.ts)）：从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`，`WEB_HOST` 为具体地址时用该地址），把每一行原样 `POST` 给守护进程的 `/mcp`，并在 `initialize` 之后附带协商出的 `MCP-Protocol-Version` 头。它不创建 CPE 客户端、调度器或任何存储，也不运行告警、Telegram 与 Webhook；需要守护进程已在运行且 `MCP_HTTP_ENABLED=true`。
-   - 桥接自身的 JSON-RPC 错误：守护进程不可达时返回 `-32002`（提示先启动 `cpe-dash serve`）；守护进程以非 JSON-RPC 信封拒绝（如 `401 UNAUTHORIZED`、`404 MCP_DISABLED`、`429 RATE_LIMITED`）时返回 `-32001`，消息中带 HTTP 状态与 `errorCode`。Notification 失败只写入 stderr 日志。
+   - 桥接自身的 JSON-RPC 错误：守护进程不可达时返回 `-32010`（提示先启动 `cpe-dash serve`）；守护进程以非 JSON-RPC 信封拒绝（如 `401 UNAUTHORIZED`、`404 MCP_DISABLED`、`429 RATE_LIMITED`）时返回 `-32011`，消息中带 HTTP 状态与 `errorCode`。两者都在实现自定义区间 `-32000..-32019` 内，且避开了 SDK 的 `-32000` / `-32001` 与传统版资源未找到 `-32002`。Notification 失败只写入 stderr 日志。
    - 旧的 `--poll` 参数与 `MCP_STDIO_BACKGROUND_POLL` 已废弃：`--poll` 只打印警告，后台轮询始终由守护进程负责。
 2. **内网 / Tailscale Streamable HTTP 模式**（`POST http://<nas-ip>:18384/mcp`）：
    - 必填头：`Authorization: Bearer <API_TOKEN>` 与 `Content-Type: application/json`；
@@ -945,7 +949,7 @@ export interface AvoidanceBroadcastPayload {
   - 设置 `.env` 中 `MCP_ALLOW_MUTATIONS=false` 后，这 7 项工具不会出现在 `tools/list` 中，直接调用返回 `MUTATIONS_DISABLED`。
   - 所有参数在第一次写入之前完成校验，非法参数返回 `VALIDATION_ERROR` 且不产生 CPE 会话。服务端在执行前强制校验每个工具声明的 `inputSchema`：未知参数（如拼错的键）、缺失的必填参数、类型或范围不符都会返回 `VALIDATION_ERROR`，消息指出具体参数；带 `confirm` 参数的工具先检查 `confirm === true`（否则 `CONFIRMATION_REQUIRED`），再做 Schema 校验。
   - `lock_band`：频段规则同 REST（2.4 节）。
-  - `lock_cell`：`arfcn` / `pci` 为整数（`pci` `0..1007`，MCP 不接受 `null`），频段与 ARFCN 规则同 REST；此外**只能锁定已观测到的小区**：(`rat`, `band`, `arfcn`[, `pci`]) 必须与当前服务小区、载波聚合分量、辅小区或最近一次邻区扫描中的条目一致，否则返回 `CELL_NOT_OBSERVED`（请先调用 `list_neighbor_cells({ scanNow: true })` 并从结果中复制参数）。REST 不受此限制。
+  - `lock_cell`：`arfcn` / `pci` 为整数（`pci` LTE `0..503`、NR `0..1007`，MCP 不接受 `null`），频段与 ARFCN 规则同 REST；此外**只能锁定已观测到的小区**：(`rat`, `band`, `arfcn`[, `pci`]) 必须与当前服务小区、载波聚合分量、辅小区或最近一次邻区扫描中的条目一致，否则返回 `CELL_NOT_OBSERVED`（请先调用 `list_neighbor_cells({ scanNow: true })` 并从结果中复制参数）。REST 不受此限制。
   - `set_security_switches`：`dmzIpAddress` 若提供必须为合法 IPv4 字符串，且必须同时提供 `dmzEnabled`。
   - `set_wifi_and_antenna`：同时提供 Wi-Fi 7 参数与 `antennaMode` 时，两项写入在两个独立的瞬时会话中依次执行。若第二次写入失败（例如真人恰好在两次会话之间登录），第一项写入仍然生效而工具返回错误，请调用 `get_router_settings({ refresh: true })` 核对。
 - **只读资源 URI（3 项 + 短信 1 项，`mimeType: "application/json"`）**：`fengsui://telemetry/latest`（`GlobalTelemetrySnapshot | null`）、`fengsui://session/status`（`SchedulerStatusSnapshot`）、`fengsui://locks/state`（`PersistedLockState`），以及 `MCP_SMS_ACCESS` 不为 `none` 时的 `fengsui://sms/status`（`SmsStatusSnapshot`）。
@@ -974,7 +978,9 @@ export interface McpToolErrorPayload {
     | "PEER_DAEMON_ACTIVE"       // 另一台主机上的「烽燧」守护进程正在管理这台 CPE（附 peerAddress）
     | "SMS_SEND_FAILED"          // send_sms：CPE 报告发送失败（附 result 与 resolvedPhones，额度不退还）
     | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）
-    | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、熔断器已熔断、调度队列已满、会话超过占用上限等
+    | "CIRCUIT_BREAKER_OPEN"     // 防爆破断路器已熔断（附 circuitBreaker）：不会尝试登录，需人工修正 .env 并 reset-breaker
+    | "QUEUE_FULL"               // 调度队列已满或守护进程正在停机，可稍后重试
+    | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、会话超过占用上限等
   message: string;               // 英文
   messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED
   avoidance?: AvoidanceBroadcastPayload; // 仅 BROWSER_SESSION_YIELDED
@@ -1000,7 +1006,7 @@ export interface McpToolErrorPayload {
 | `search_contacts` | `query?`、`limit?: 1..50` | `ContactRecord[]` |
 | `preview_sms` | `phone`、`content`、`countryCode?` | `SmsSendPreview` + `recipientKnown` + `wouldBeAllowed`（按当前发送策略）；不发送 |
 | `sync_sms` | `mode?: "full" \| "incremental"` | 通过共享调度器同步（真人在线时让位） |
-| `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限联系人或曾发过短信的号码（只给我们发过短信的号码不算）；超长（>4 段）或号码非法时不占用每小时额度；真人在线让位、校验失败等未触达 CPE 的尝试会退还额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
+| `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限联系人或曾发过短信的号码（只给我们发过短信的号码不算）；超长（>4 段）或号码非法时不占用每小时额度；未把短信交给 CPE 的尝试都会退还额度（校验失败、真人让位、另一守护进程领先、队列已满或停机、断路器熔断、CPE 以错误码拒绝）；只有传输层故障（`send-sms` 可能已到达 CPE）计入额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
 | `mark_sms_read` | `uids?: string[]`（≤50）或 `threadKey?` | `{ count, uids }` |
 | `delete_sms` | `uids: string[]`（≤20）、`confirm: true`、`includeUnread?: boolean` | 目标含未读短信时默认拒绝（`UNREAD_PROTECTED`） |
 | `upsert_contact` | `phone`、`name`、`note?` | `ContactRecord` |
