@@ -66,6 +66,14 @@ export class CpeSessionDeadlineError extends Error {
   }
 }
 
+/** A request on a session whose `logout()` already started: work that outlived its session. */
+export class CpeSessionClosedError extends Error {
+  constructor() {
+    super("CPE session is already logged out; the request was not sent");
+    this.name = "CpeSessionClosedError";
+  }
+}
+
 /**
  * A request that never got an answer from the CPE (connection reset or refused, DNS, socket closed
  * mid-response). The message names the endpoint and the socket-level cause, which `fetch` hides
@@ -172,9 +180,9 @@ export class EphemeralCpeSession {
   #loginCompletedAtMs: number | null;
   #authOutcomeUnknown: boolean;
   #postChain: Promise<unknown>;
-  /** Session-wide deadline; ignored once `logout()` starts so the slot can always be released. */
+  /** Session-wide deadline; `logout()` uses fresh signals so the slot can always be released. */
   readonly #deadline: AbortSignal | null;
-  #closing = false;
+  #releasing = false;
 
   constructor(opts: {
     baseUrl: string;
@@ -199,9 +207,17 @@ export class EphemeralCpeSession {
     this.#deadline = opts.deadline ?? null;
   }
 
-  #requestSignal(timeoutMs: number): AbortSignal {
+  /**
+   * Signal for one request. Logout's own requests (`releasing`) only time out; any other request
+   * fails locally once the deadline passed or logout began, so work that outlived its session never
+   * reaches the router again.
+   */
+  #requestSignal(timeoutMs: number, releasing: boolean): AbortSignal {
     const timeout = AbortSignal.timeout(timeoutMs);
-    return this.#deadline && !this.#closing ? AbortSignal.any([this.#deadline, timeout]) : timeout;
+    if (releasing) return timeout;
+    if (this.#deadline?.aborted) throw this.#deadline.reason;
+    if (this.#releasing) throw new CpeSessionClosedError();
+    return this.#deadline ? AbortSignal.any([this.#deadline, timeout]) : timeout;
   }
 
   #updateCookies(headers: Headers): void {
@@ -259,6 +275,11 @@ export class EphemeralCpeSession {
     extraHeaders: Record<string, string> = {},
     overrideTimeoutMs?: number
   ): Promise<string> {
+    return await this.#get(apiPath, extraHeaders, overrideTimeoutMs ?? this.timeoutMs, false);
+  }
+
+  async #get(apiPath: string, extraHeaders: Record<string, string>, timeoutMs: number, releasing: boolean): Promise<string> {
+    const signal = this.#requestSignal(timeoutMs, releasing);
     const headers: Record<string, string> = {
       "X-Requested-With": "XMLHttpRequest",
       _ResponseSource: "Broswer",
@@ -272,7 +293,7 @@ export class EphemeralCpeSession {
       method: "GET",
       headers,
       redirect: "error",
-      signal: this.#requestSignal(overrideTimeoutMs ?? this.timeoutMs),
+      signal,
     });
     this.#updateCookies(res.headers);
     const text = await readCpeResponseText(res);
@@ -298,9 +319,9 @@ export class EphemeralCpeSession {
     return trimmedCheck;
   }
 
-  async #consumeToken(overrideTimeoutMs?: number): Promise<string> {
+  async #consumeToken(timeoutMs: number, releasing: boolean): Promise<string> {
     if (this.tokens.length === 0) {
-      const xml = await this.get("/api/webserver/token", {}, overrideTimeoutMs);
+      const xml = await this.#get("/api/webserver/token", {}, timeoutMs, releasing);
       const fullToken = getXmlTag(xml, "token");
       if (!fullToken || fullToken.length < 32) {
         throw new Error("Failed to acquire CSRF token from /api/webserver/token");
@@ -319,8 +340,19 @@ export class EphemeralCpeSession {
       overrideTimeoutMs?: number;
     } = {}
   ): Promise<string> {
+    return await this.#post(apiPath, body, opts, false);
+  }
+
+  async #post(
+    apiPath: string,
+    body: string,
+    opts: { clearTokensOnResponse?: boolean; contentType?: string; overrideTimeoutMs?: number },
+    releasing: boolean
+  ): Promise<string> {
+    const timeoutMs = opts.overrideTimeoutMs ?? this.timeoutMs;
     const run = async (): Promise<string> => {
-      const token = await this.#consumeToken(opts.overrideTimeoutMs);
+      const token = await this.#consumeToken(timeoutMs, releasing);
+      const signal = this.#requestSignal(timeoutMs, releasing);
       const headers: Record<string, string> = {
         "X-Requested-With": "XMLHttpRequest",
         _ResponseSource: "Broswer",
@@ -336,7 +368,7 @@ export class EphemeralCpeSession {
         headers,
         body,
         redirect: "error",
-        signal: this.#requestSignal(opts.overrideTimeoutMs ?? this.timeoutMs),
+        signal,
       });
       this.#updateCookies(res.headers);
       this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
@@ -460,13 +492,12 @@ export class EphemeralCpeSession {
   }
 
   async logout(): Promise<number | null> {
+    // From here on only logout's own requests may use this session
+    this.#releasing = true;
     if (!this.loggedIn && !this.#authOutcomeUnknown) return null;
-    this.#closing = true;
     const boundedLogoutMs = Math.min(this.timeoutMs, 3000);
     try {
-      await this.postRaw("/api/user/logout", buildXmlRequest({ Logout: 1 }), {
-        overrideTimeoutMs: boundedLogoutMs,
-      });
+      await this.#post("/api/user/logout", buildXmlRequest({ Logout: 1 }), { overrideTimeoutMs: boundedLogoutMs }, true);
     } catch {
       // Ignore logout network/session errors if session already expired or router is rebooting
     } finally {

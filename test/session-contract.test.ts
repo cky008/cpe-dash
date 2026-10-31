@@ -247,6 +247,37 @@ describe("session contract on a strict single-admin router model", () => {
     }
   });
 
+  it("keeps a timed-out session's orphaned work off the router", async () => {
+    const fx = createContractFixture({ sessionMaxHoldMs: 60 });
+    try {
+      const lateErrors: unknown[] = [];
+      let orphanDone!: () => void;
+      const orphan = new Promise<void>((resolve) => {
+        orphanDone = resolve;
+      });
+      await assert.rejects(
+        () =>
+          fx.core.scheduler.executeRead(async (session) => {
+            // Ignores its deadline: wakes up after the hold budget and keeps using the session
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            for (const late of [() => session.get("/api/device/signal"), () => session.postXml("/api/sms/set-read", { Index: [40001] })]) {
+              await late().catch((err: unknown) => lateErrors.push(err));
+            }
+            orphanDone();
+          }),
+        (err: unknown) => err instanceof Error && err.name === "CpeSessionDeadlineError"
+      );
+      const requestsAtLogout = fx.cpe.stats.requests.length;
+      await orphan;
+      assert.equal(fx.cpe.stats.requests.length, requestsAtLogout, "nothing reaches the router after the session ended");
+      assert.equal(lateErrors.length, 2);
+      assert.ok(lateErrors.every((err) => err instanceof Error && err.name === "CpeSessionDeadlineError"));
+      assertSingleSlotInvariants(fx.cpe);
+    } finally {
+      await fx.close();
+    }
+  });
+
   it("backs off after a cross-IP 108003 and stays silent during the Layer-2 quiet window", async () => {
     const fx = createContractFixture({ layer2InitialBackoffMs: 60 });
     try {

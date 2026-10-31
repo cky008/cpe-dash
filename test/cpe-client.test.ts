@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { describe, it } from "node:test";
-import { CpeApiError, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeApiError, CpeSessionClosedError, type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
 import { aesGcmDecrypt, aesGcmEncrypt, curve25519Mul } from "../src/crypto.ts";
 import { getXmlTag } from "../src/xml.ts";
 
@@ -260,5 +260,21 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
     const res = await client.withSession(async () => "should_yield_on_108003");
     assert.equal(res, null);
     assert.equal(client.getTelemetry().browserYieldCount, 1);
+  });
+
+  it("refuses requests on a session that was already logged out, without touching the network", async () => {
+    const { fetchImpl, calls } = createMockCpeFetch({ password: "unit_password" });
+    const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl });
+    let leaked: EphemeralCpeSession | null = null;
+    await client.withSession(async (session) => {
+      leaked = session;
+    });
+    assert.ok(calls.some((c) => c.path.startsWith("/api/user/logout")));
+    const callsAfterLogout = calls.length;
+    const stale = leaked as EphemeralCpeSession | null;
+    assert.ok(stale);
+    await assert.rejects(() => stale.get("/api/device/signal"), CpeSessionClosedError);
+    await assert.rejects(() => stale.postXml("/api/device/control", { Control: 1 }), CpeSessionClosedError);
+    assert.equal(calls.length, callsAfterLogout, "a stale session sends nothing, not even a token request");
   });
 });
