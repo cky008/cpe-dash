@@ -10,7 +10,7 @@ import { mountBanners } from "./banners.ts";
 import { mountCharts } from "./charts.ts";
 import type { AppContext } from "./context.ts";
 import { byId } from "./dom.ts";
-import { mountHeader } from "./header.ts";
+import { VIEW_EVENT, type ViewName, mountHeader } from "./header.ts";
 import { mountHealthCard } from "./health-card.ts";
 import { mountIdentityCards } from "./identity-cards.ts";
 import { mountNeighbors } from "./neighbors.ts";
@@ -221,6 +221,12 @@ export async function startApp(): Promise<void> {
     appView.classList.remove("hidden");
     if (!appMounted) {
       appMounted = true;
+      // The SMS centre is a lazy chunk, loaded the first time its view is shown
+      let smsLoading: Promise<void> | null = null;
+      document.addEventListener(VIEW_EVENT, (event) => {
+        if ((event as CustomEvent<ViewName>).detail !== "sms" || smsLoading) return;
+        smsLoading = import("./sms/index.ts").then((m) => m.mountSms(ctx, true));
+      });
       mountHeader(ctx);
       mountBanners(ctx, { reconnectNow: () => sse?.reconnectNow(), refreshStatus: refreshSessionStatus });
       mountOperatorCards(ctx);
