@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.0.1-6E56CF?style=flat-square" alt="Version 1.0.1" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.1.0-6E56CF?style=flat-square" alt="Version 1.1.0" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
   <a href="#-docker--synology-ds923-deployment"><img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 arm64" /></a>
@@ -31,7 +31,7 @@
 - **100% private, zero cloud dependencies**: All data stays on your NAS, encrypted at rest with `AES-256-GCM`; the Web console uses zero CDNs, zero external links, and works completely offline.
 - **Zero additional hardware cost**: Reuses your existing NAS and the CPE's built-in SMS capabilities without requiring SMS modems, USB dongles, or secondary devices.
 - **Production-grade container**: Non-root, read-only root filesystem, `HEALTHCHECK`, graceful shutdown via `SIGTERM` within 10 seconds while releasing router sessions; dual-architecture support for `linux/amd64` (DS923+) and `linux/arm64`.
-- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 318 offline tests with 98% statement coverage.
+- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 345 offline tests with 98% statement coverage.
 
 ---
 
@@ -76,6 +76,10 @@
     <td><img src="docs/screenshots/sms-ziming-en.webp" alt="Messages in English (Violet Abyss theme)" /><br /><sub><b>English · Violet Abyss</b>: Instant switching between English and Chinese, on-demand dictionary lazy loading</sub></td>
     <td align="center"><img src="docs/screenshots/mobile.webp" alt="Mobile view" width="45%" /><br /><sub><b>Mobile view</b>: Adaptive 390 px viewport</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/topology-access.webp" alt="Block and restore in the client topology" /><br /><sub><b>Client topology · Block / Restore</b>: One click per Wi-Fi device; blocked devices can be restored while offline</sub></td>
+    <td><img src="docs/screenshots/access-panel.webp" alt="Access control drawer (Polar Night theme)" /><br /><sub><b>Access control · Polar Night</b>: Wi-Fi MAC blacklist / whitelist and per-device internet time</sub></td>
+  </tr>
 </table>
 
 ### Dashboard
@@ -86,7 +90,8 @@
 - **Dual-period data gauges**: Daily vs. monthly usage comparison with configurable thresholds and color-coded alerts.
 - **Real-time and historical curves**: Monotonic cubic Bézier rate curves; `1h` / `6h` / `12h` / `24h` / custom ranges, throughput and signal metrics, zoomable with bottom brush slider.
 - **Neighbor cell table**: Gradient RSRP bars, RAT-aware PCI validation (LTE `0–503` / NR `0–1007`) and ARFCN band range checks, "Lock to this cell" with double confirmation.
-- **Client topology**: `LAN 1000M` / `2.4G WiFi` / `5G WiFi` badges, IPv4 / IPv6, negotiated PHY rate, DHCP lease countdown.
+- **Client topology**: `LAN 1000M` / `2.4G WiFi` / `5G WiFi` badges, IPv4 / IPv6, negotiated PHY rate, DHCP lease countdown; one-click **Block / Restore** for Wi-Fi devices, and blocked devices stay listed while offline so they can be restored.
+- **Access control drawer**: Wi-Fi MAC filter (off / blacklist / whitelist, add and remove, the router's 64-entry limit), a picker for the devices to keep when enabling the whitelist, and per-device **internet time** windows (weekdays, 15-minute steps, overnight windows) that flag overlaps before saving. The machine running FengSui and the device you are using can never be cut off.
 - **Controls drawer**: 4G / 5G NR band locking (applies to both SA and NSA), unlocking, security toggles (UPnP / DMZ, etc.), cellular reconnection, and reboot (with confirmation keyword).
 
 ### Messages
@@ -96,7 +101,7 @@
 
 ### Visuals and Engineering
 - Four themes: **Paper** (light Xuan paper), **Dawn** (warm light), **Polar Night** (deep black), and **Violet Abyss** (geek dark purple), with six accent colors and system dark/light mode following; instant English/Chinese switching with local preference persistence.
-- First-load JS + CSS is only **59.5 KiB gzip** (including one language); Messages, Controls drawer, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
+- First-load JS + CSS is only **60.0 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
 - SSE auto-reconnect with jittered exponential backoff; `423` breaker tripped, `409` yielding, and `503` shutdown present distinct UI states, never lumped together as "offline".
 
 ---
@@ -112,6 +117,7 @@
 | Human login to official web admin | — | ❌ Persistent sessions cause browser login errors or kick the user offline | ✅ **Polite yielding**: `state-login` pre-check + cross-IP `108003` yielding; human admin always takes precedence |
 | Password lockout protection | — | ⚠️ Auto-retries can cause consecutive failed attempts, triggering `108007` hardware lockout | ✅ `108006` / `108007` trips the breaker immediately; persists across restarts; never retries |
 | RF depth | Mostly signal bars and high-level summaries | Script-dependent | ✅ Per-carrier 3CA, MCS / MIMO / transmit power, neighbor cell scanning, one-click cell lock |
+| Device access control | In the vendor app, behind an online account | Usually none | ✅ One-click Block / Restore from the topology, MAC blacklist / whitelist, per-device internet time; never cuts off the NAS or your own device |
 | History and alerts | Varies by product | Fragmented across multiple systems | ✅ 7-day dual-tier time series + duration-window / hysteresis alerting → Telegram / Webhook |
 | AI agents | Typically not offered | None | ✅ **Native MCP**: stdio bridge + Streamable HTTP; mutations enforce `confirm: true` |
 | Supply chain | Closed-source client | Multiple languages, heavy dependencies | ✅ Zero runtime npm dependencies; 100% native Node.js modules |
@@ -216,6 +222,7 @@ sequenceDiagram
 - **✉️ Unified scheduling for SMS and telemetry**: SMS count is piggybacked inside the 5-second telemetry session, triggering incremental synchronization only when the count changes; send, mark-as-read, and delete actions route through the same scheduler's control write queue. SMS mirror, contacts, and Telegram state are all encrypted at rest with `AES-256-GCM`, identifying messages with number-free opaque `uid`s.
 - **📲 Two-way Telegram bot, signed Webhooks, and alerting**: Incoming message cards (verification code, reply-to-send, mark read / thread / delete), guided SMS sending, alert notifications and muting; Webhooks signed with `HMAC-SHA256`. Alerts cover offline status, WAN disconnection, signal degradation, carrier aggregation drop, reboots, SMS storage limits, traffic thresholds, and lock drift, with duration windows and recovery hysteresis.
 - **🤖 Native MCP Server**: Zero-dependency JSON-RPC 2.0 MCP implementation (stateless `2026-07-28` and `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`), mounted on daemon `/mcp`; `cpe-dash mcp` serves as a stateless stdio bridge, ensuring **the entire system has only one single CPE session gateway in the daemon**.
+- **🚦 Device access control**: Drives the router's own Wi-Fi MAC filter and parental control, the same lists as its Device management page. Each change runs in one control session (read clients → read state → plan → write → read back and verify); the machine running FengSui is recognized from the router's `IsLocalDevice` mark and, like the requesting device, protected server-side. The firmware has no per-device rate-limit API, so there is no throttling.
 - **🛡️ Web defense-in-depth**: `Host` allowlist against DNS Rebinding (`421`), `SameSite=Strict; HttpOnly` sessions, dual CSRF defense with `X-Requested-With` + `Origin`, trusted reverse proxy CIDR validation + IPv6 `/64` rate limiting buckets, prototype-free dictionaries against prototype pollution, linear-time scanning against ReDoS, and private network origin validation against SSRF.
 
 ---
@@ -413,6 +420,7 @@ Claude Code: `claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp 
 | :--- | :--- |
 | Observation (read-only) | `get_cpe_telemetry`, `query_telemetry_history`, `list_neighbor_cells`, `get_cpe_session_status`, `list_terminal_topology`, `get_router_settings` |
 | Control (write) | `lock_band`, `lock_cell`, `unlock_rf_locks`, `set_security_switches`, `set_wifi_and_antenna`, `reconnect_cellular`†, `reboot_cpe`† |
+| Access control | `get_access_control` (read-only, always offered); with `MCP_ALLOW_ACCESS_CONTROL=true` also `set_device_internet_access`†, `set_wifi_mac_filter`†, `manage_internet_time_rule`† |
 | SMS (`MCP_SMS_ACCESS=read`, default) | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms` |
 | SMS (`MCP_SMS_ACCESS=full`) | Appends `send_sms`†, `mark_sms_read`, `delete_sms`†, `upsert_contact` |
 
@@ -486,8 +494,9 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **RF & System Control** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | Returns `409` when human admin is online, returns `423 CIRCUIT_BREAKER_OPEN` when breaker is tripped |
 | **Session & Circuit Breaker** | `GET /api/session/status`, `POST /api/session/reset-breaker` | Scheduler / avoidance / breaker status; re-reads `.env` and resets circuit breaker |
 | **SMS & Contacts** | `GET /api/sms/status`, `threads`, `thread`, `contacts`, `countries`; `POST /api/sms/preview`, `send`, `read`, `delete`, `sync`, `contacts/upsert`, `contacts/delete`, `contacts/import-vcf` | Read endpoints query the encrypted mirror directly (zero CPE sessions); write endpoints route via control queue |
+| **Device access control** | `GET /api/access-control`, `POST /api/access-control/refresh`; `POST /api/control/wifi-access`, `wifi-mac-filter`, `time-rule` | Wi-Fi MAC filter and internet time; writes need `confirm: true` and are read back and verified in one control session |
 | **Alerts** | `GET /api/alerts` | Last 100 alerts and delivery statistics |
-| **Real-Time SSE** | `GET /api/events` | `hello`, `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `session:avoidance`, `control:applied`, `alert`, `sms:new`, `sms:sent`, `sms:updated`, `sms:sync`, `sms:status`, `contacts:updated`, and heartbeats |
+| **Real-Time SSE** | `GET /api/events` | `hello`, `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `access-control`, `session:avoidance`, `control:applied`, `alert`, `sms:new`, `sms:sent`, `sms:updated`, `sms:sync`, `sms:status`, `contacts:updated`, and heartbeats |
 | **Health Check** | `GET /api/health` | Unauthenticated endpoint for `HEALTHCHECK` and monitoring |
 
 State-mutating requests must include `X-Requested-With: XMLHttpRequest` and `Content-Type: application/json`. The logged-in web console (cookie session) always receives the real values and masks them on screen; scripts and SSE subscribers using `Authorization: Bearer` get the same redacted copies as MCP while `REDACT_SENSITIVE_IN_API=true`. REST / SSE payload types are defined in [`src/api-contract.ts`](src/api-contract.ts) (validated on the backend with `satisfies` and reused directly by the Web frontend); see [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) for full contract.
@@ -513,6 +522,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `DEFAULT_LOCALE` | `zh-CN` | Default UI and notification language (`zh-CN` / `en`) |
 | `MCP_HTTP_ENABLED` | `true` | Whether to enable `POST /mcp` (required by stdio bridge as well) |
 | `MCP_ALLOW_MUTATIONS` | `true` | Whether to allow MCP to invoke mutation tools |
+| `MCP_ALLOW_ACCESS_CONTROL` | `false` | Whether MCP may use the tools that cut devices off (block / restore, MAC filter, internet time); reading the access-control state is always available |
 | `MCP_DAEMON_URL` | *(Derived from `WEB_HOST`/`WEB_PORT`)* | Address of `/mcp` forwarded by stdio bridge; restricted to LAN / loopback hosts |
 | `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | Cross-host duplicate daemon protection (signed UDP broadcast beacon; requires host networking in Docker) |
 | `REDACT_SENSITIVE_IN_API` | `true` | Redacts IMEI, IMSI, phone number, MAC, WAN addresses and TAC / CellID location fingerprints in Bearer API, SSE and MCP output. The web console is not affected: it always receives the real values, masked on screen until you click the eye button. Applies after a restart or `reset-breaker` |

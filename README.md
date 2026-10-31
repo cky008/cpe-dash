@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.0.1-6E56CF?style=flat-square" alt="Version 1.0.1" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.1.0-6E56CF?style=flat-square" alt="Version 1.1.0" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
   <a href="#-docker--群晖-ds923-部署"><img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 arm64" /></a>
@@ -31,7 +31,7 @@
 - **100% 私有化，零上云**：全部数据只在你的 NAS 上，`AES-256-GCM` 加密落盘；Web 控制台零 CDN、零外链，离线可用。
 - **0 额外硬件成本**：复用现有 NAS 与 CPE 自带的短信能力，不需要短信猫、USB 模块或第二台设备。
 - **生产级容器**：非 root、只读根文件系统、`HEALTHCHECK`、`SIGTERM` 10 秒内优雅停机并释放路由器会话；`linux/amd64`（DS923+）与 `linux/arm64` 双架构。
-- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，318 项离线测试、语句覆盖率 98%。
+- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，345 项离线测试、语句覆盖率 98%。
 
 ---
 
@@ -76,6 +76,10 @@
     <td><img src="docs/screenshots/sms-ziming-en.webp" alt="短信中心英文界面（紫溟主题）" /><br /><sub><b>English · 紫溟</b>：中英文即时切换，词典按需懒加载</sub></td>
     <td align="center"><img src="docs/screenshots/mobile.webp" alt="移动端" width="45%" /><br /><sub><b>移动端</b>：390 px 窄屏自适应</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/topology-access.webp" alt="终端拓扑的断网与恢复" /><br /><sub><b>终端拓扑 · 断网 / 恢复</b>：Wi-Fi 设备一键断网，被断网的设备离线后仍可恢复</sub></td>
+    <td><img src="docs/screenshots/access-panel.webp" alt="访问控制抽屉（极夜主题）" /><br /><sub><b>访问控制 · 极夜</b>：Wi-Fi MAC 黑白名单与按设备的上网时段</sub></td>
+  </tr>
 </table>
 
 ### 监控大屏
@@ -86,7 +90,8 @@
 - **双周期流量环**：当日 / 当月用量对比，可设阈值并变色告警。
 - **实时与历史曲线**：单调三次贝塞尔速率曲线；`1h` / `6h` / `12h` / `24h` / 自定义区间，吞吐与信号两种指标，底部刷选条缩放。
 - **邻区表**：渐变 RSRP 条、按制式校验 PCI（LTE `0–503` / NR `0–1007`）与 ARFCN 频段范围，「锁至此小区」二次确认。
-- **终端拓扑**：`LAN 1000M` / `2.4G WiFi` / `5G WiFi` 徽章、IPv4 / IPv6、协商速率、DHCP 租期倒计时。
+- **终端拓扑**：`LAN 1000M` / `2.4G WiFi` / `5G WiFi` 徽章、IPv4 / IPv6、协商速率、DHCP 租期倒计时；Wi-Fi 设备一键「断网 / 恢复」，被断网的设备离线后仍保留在列表里，方便恢复。
+- **访问控制抽屉**：Wi-Fi MAC 过滤（关闭 / 黑名单 / 白名单、增删、显示路由器上限 64 条），启用白名单时用勾选器挑选允许的设备；按设备设置「上网时段」（星期 + 15 分钟粒度，支持跨天），同一设备时段重叠时直接提示冲突。运行烽燧的设备和你正在用的设备永远不会被断网。
 - **控制抽屉**：4G / 5G NR 锁频段（同时作用于 SA 与 NSA）、解锁、UPnP / DMZ 等安全开关、蜂窝重拨与重启（输入确认词）。
 
 ### 短信中心
@@ -96,7 +101,7 @@
 
 ### 外观与工程
 - 四套主题：**素纸**（浅色宣纸）、**晨曦**（温润暖色）、**极夜**（深黑）、**紫溟**（极客暗紫），六种强调色，可跟随系统明暗；中英文即时切换，偏好本地持久化。
-- 首屏 JS + CSS 仅 **59.5 KiB gzip**（含一种语言），短信中心、控制抽屉等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
+- 首屏 JS + CSS 仅 **60.0 KiB gzip**（含一种语言），短信中心、控制抽屉、访问控制等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
 - SSE 断线带抖动的指数退避自动重连；`423` 熔断、`409` 避让、`503` 停机分别给出不同的界面状态，绝不笼统显示为「离线」。
 
 ---
@@ -112,6 +117,7 @@
 | 真人登录官方后台 | — | ❌ 常驻会话导致浏览器登录报错或被挤下线 | ✅ **礼貌避让**：`state-login` 预检 + 跨 IP `108003` 让位，真人永远优先 |
 | 防密码锁定 | — | ⚠️ 自动重试可能连续输错触发 `108007` 硬件锁定 | ✅ `108006` / `108007` 立即熔断，跨重启持久化，绝不重试 |
 | 射频深度 | 多为信号格与概要指标 | 取决于脚本 | ✅ 3CA 逐载波、MCS / MIMO / 发射功率、邻区扫描、一键锁小区 |
+| 设备访问控制 | 厂商 App 内可操作，但需联网账号 | 通常没有 | ✅ 拓扑表一键断网 / 恢复、MAC 黑白名单、按设备上网时段；不会误断 NAS 与当前设备 |
 | 历史与告警 | 视产品而定 | 分散在多个系统 | ✅ 7 天双层时序 + 持续窗口 / 迟滞告警 → Telegram / Webhook |
 | AI 智能体 | 通常不提供 | 无 | ✅ **原生 MCP**：stdio 桥接 + Streamable HTTP，写操作强制 `confirm: true` |
 | 供应链 | 闭源客户端 | 多语言、多依赖 | ✅ 零运行时 npm 依赖，Node.js 原生模块 |
@@ -216,6 +222,7 @@ sequenceDiagram
 - **✉️ 短信与遥测同源调度**：短信计数捎带在 5 秒遥测会话内，计数变化才触发增量同步；发送、已读、删除走同一调度器的控制写队列。短信镜像、通讯录与 Telegram 状态全部 `AES-256-GCM` 加密落盘，消息以不含号码的不透明 `uid` 标识。
 - **📲 Telegram 双向机器人、签名 Webhook 与告警**：来信卡片（验证码、回复即发送、已读 / 会话 / 删除）、引导式发短信、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储、流量阈值与锁定漂移，带持续窗口与恢复迟滞。
 - **🤖 原生 MCP Server**：零依赖实现 JSON-RPC 2.0 MCP（无状态 `2026-07-28` 与 `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`），挂载在守护进程 `/mcp`；`cpe-dash mcp` 只是零状态 stdio 桥接，**整个系统只有守护进程一个 CPE 会话出口**。
+- **🚦 设备访问控制**：直接驱动路由器自带的 Wi-Fi MAC 过滤与家长控制，与官方「设备管理」页同一套名单。每次修改在一个控制会话内完成「读终端 → 读状态 → 规划 → 写入 → 回读核对」；运行烽燧的主机由路由器的 `IsLocalDevice` 标记自动识别，与发出请求的设备一起受服务端保护。固件没有按设备限速的接口，因此不提供限速。
 - **🛡️ Web 纵深防御**：`Host` 白名单防 DNS Rebinding（`421`）、`SameSite=Strict; HttpOnly` 会话、`X-Requested-With` + `Origin` 双重防 CSRF、可信反代 CIDR 校验 + IPv6 `/64` 限流桶、无原型字典防原型链污染、线性扫描防 ReDoS、私网源校验防 SSRF。
 
 ---
@@ -413,6 +420,7 @@ Claude Code：`claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp
 | :--- | :--- |
 | 观测（只读） | `get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`、`list_terminal_topology`、`get_router_settings` |
 | 控制（写） | `lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`†、`reboot_cpe`† |
+| 访问控制 | `get_access_control`（只读，始终提供）；`MCP_ALLOW_ACCESS_CONTROL=true` 时追加 `set_device_internet_access`†、`set_wifi_mac_filter`†、`manage_internet_time_rule`† |
 | 短信（`MCP_SMS_ACCESS=read`，默认） | `list_sms_threads`、`get_sms_thread`、`get_sms_status`、`search_contacts`、`preview_sms`、`sync_sms` |
 | 短信（`MCP_SMS_ACCESS=full`） | 追加 `send_sms`†、`mark_sms_read`、`delete_sms`†、`upsert_contact` |
 
@@ -486,8 +494,9 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **射频与系统控制** | `POST /api/control/band-lock`、`cell-lock`、`unlock`、`reboot`、`reconnect`、`security`、`wifi7`、`antenna`、`mobile-data` | 真人在线返回 `409`，熔断后返回 `423 CIRCUIT_BREAKER_OPEN` |
 | **会话与熔断器** | `GET /api/session/status`、`POST /api/session/reset-breaker` | 调度器 / 避让 / 熔断状态；重新读取 `.env` 并重置熔断器 |
 | **短信与通讯录** | `GET /api/sms/status`、`threads`、`thread`、`contacts`、`countries`；`POST /api/sms/preview`、`send`、`read`、`delete`、`sync`、`contacts/upsert`、`contacts/delete`、`contacts/import-vcf` | 读接口直读加密镜像（零 CPE 会话）；写接口走控制队列 |
+| **设备访问控制** | `GET /api/access-control`、`POST /api/access-control/refresh`；`POST /api/control/wifi-access`、`wifi-mac-filter`、`time-rule` | Wi-Fi MAC 过滤与上网时段；写操作必须带 `confirm: true`，在一个控制会话内回读核对 |
 | **告警** | `GET /api/alerts` | 最近 100 条告警与投递统计 |
-| **实时 SSE** | `GET /api/events` | `hello`、`speed`、`telemetry`、`neighbors`、`topology`、`settings`、`session:avoidance`、`control:applied`、`alert`、`sms:new`、`sms:sent`、`sms:updated`、`sms:sync`、`sms:status`、`contacts:updated` 与心跳 |
+| **实时 SSE** | `GET /api/events` | `hello`、`speed`、`telemetry`、`neighbors`、`topology`、`settings`、`access-control`、`session:avoidance`、`control:applied`、`alert`、`sms:new`、`sms:sent`、`sms:updated`、`sms:sync`、`sms:status`、`contacts:updated` 与心跳 |
 | **健康检查** | `GET /api/health` | 免鉴权，供 `HEALTHCHECK` 与监控使用 |
 
 状态变更请求必须携带 `X-Requested-With: XMLHttpRequest` 与 `Content-Type: application/json`。登录后的 Web 控制台（Cookie 会话）始终拿到原值，由界面默认打码；用 `Authorization: Bearer` 调用的脚本与 SSE 订阅者在 `REDACT_SENSITIVE_IN_API=true` 时拿到与 MCP 相同的脱敏副本。REST / SSE 载荷类型定义在 [`src/api-contract.ts`](src/api-contract.ts)（服务端以 `satisfies` 校验，Web 前端直接复用），完整契约见 [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)。
@@ -513,6 +522,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `DEFAULT_LOCALE` | `zh-CN` | 默认界面与提示语言（`zh-CN` / `en`） |
 | `MCP_HTTP_ENABLED` | `true` | 是否启用 `POST /mcp`（stdio 桥接也依赖它） |
 | `MCP_ALLOW_MUTATIONS` | `true` | 是否允许 MCP 调用写操作工具 |
+| `MCP_ALLOW_ACCESS_CONTROL` | `false` | 是否向 MCP 开放会断网的工具（拉黑 / 恢复设备、MAC 过滤、上网时段）；读取访问控制状态始终可用 |
 | `MCP_DAEMON_URL` | *(由 `WEB_HOST`/`WEB_PORT` 推导)* | stdio 桥接转发的 `/mcp` 地址；只接受局域网 / 环回主机 |
 | `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | 跨主机重复守护进程保护（签名 UDP 广播信标；Docker 需 host 网络） |
 | `REDACT_SENSITIVE_IN_API` | `true` | 对 Bearer API、SSE 与 MCP 输出脱敏 IMEI、IMSI、本机号码、MAC、WAN 地址与 TAC / CellID 等位置指纹。Web 控制台不受影响：始终收到原值，界面默认打码、点眼睛显示。修改后重启或调用 `reset-breaker` 生效 |

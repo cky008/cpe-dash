@@ -577,6 +577,49 @@ sequenceDiagram
 
 ---
 
+### 3.9 设备访问控制接口（v1.1.0 纳入，封装于 `src/access-control.ts`）
+
+> **来源与验证状态**：2026-10-31 的 WebInspector 抓包（路由器自带的"设备管理"页拉黑 / 恢复一台 5 GHz 设备，"MAC 地址过滤"页添加 / 删除一条记录）、需登录才能下载的页面代码（`devicemanagement` / `macfilter` / `wifimacfilter` / `childrenprotect` 页面块）和一次只读会话（287 ms，未改任何设置）交叉印证。同日用一台 5 GHz 手机做了真机写验证：经 `applyWifiAccessChange` 写入黑名单后约 **16 s** 该设备在 HostInfo 中变为 `Active=false`，解除后约 **5 s** 重新连上，结束时路由器配置与测试前逐字段一致。下文样本只用 RFC 7042 文档保留 MAC。
+
+| 能力 | 方法与路径 | 报文 | 说明 |
+| --- | --- | --- | --- |
+| 读 Wi-Fi MAC 过滤 | `GET /api/wlan/multi-macfilter-settings-ex` | XML | 全局 `<enable>`（0/1）与 `<wifimacfilterstatus>`（1 白名单 / 2 黑名单），13 个 `<Ssid>`（`Index` 0–12）各有 `<wifimacwhitelist>` 与 `<wifimacblacklist>`，条目为成对的 `<WifiMacFilterMac{n}>` / `<wifihostname{n}>` |
+| 写 Wi-Fi MAC 过滤 | `POST /api/wlan/multi-macfilter-settings` | XML（明文） | 只发一个 `<Ssid>`：`<WifiMacFilterStatus>`（0 关 / 1 写并执行白名单 / 2 写并执行黑名单）、`<Index>0</Index>` 与完整名单；空标签清空该槽位 |
+| 名单上限 | `GET /api/wlan/wifi-feature-switch` | XML | `<wifimaxmacfilternum>64</wifimaxmacfilternum>`（缺省时路由器页面按 10 处理），`<wifimacfilterextendenable>1` 表示使用 `-ex` 读接口 |
+| 上网时段（家长控制） | `GET` / `POST /api/timerule/timerule` | XML | `<TimeControlRules>` + `<TimeRuleMaxNum>16</TimeRuleMaxNum>`；写入 `<Action>` 为 `create` / `update` / `delete` |
+| 识别请求方 | `GET /api/system/HostInfo` | JSON | 每个终端带 `IsLocalDevice`：路由器标出**发起本次请求的客户端**。对守护进程而言就是运行烽燧的主机 |
+| 防火墙 MAC 过滤（未使用） | `GET` / `POST /api/security/mac-filter` | XML | `<policy>`（1 允许 / 2 禁止）+ 整表替换的 `<macfilters><macfilter><status>1</status><value>MAC</value></macfilter></macfilters>`，上限 `/config/webuicfg/config.xml` 的 `<lanmacfilter><number>32`；拦的是上网而非 Wi-Fi 接入，也对有线设备生效 |
+
+**Wi-Fi MAC 过滤要点**
+
+1. **只写 `Index 0`**：路由器页面（设备管理与 Wi-Fi MAC 过滤页）都只提交 `Index 0`，回读时名单也只出现在 `Index 0`。真机验证确认它对 5 GHz（`Index 6` / `10` 所在射频）上的设备同样生效。
+2. **局部更新**：未出现在请求中的 SSID 保持不变；同一 SSID 内按槽位写入，写空标签即清空该槽位。名单变短时必须把多出来的槽位写成空标签，否则旧条目会留在原槽位。
+3. **开关语义**：首次以状态 2 写入会把 `<enable>` 从 0 置为 1；名单清空后 `<enable>` 仍为 1（空黑名单不拦任何设备）。状态 0 关闭过滤但保留名单。黑白两份名单分开保存，切换模式时写入另一份名单并带上新的状态码。
+4. **主机名**：`<wifihostname{n}>` 按路由器页面的 `xss()` 规则转义（`'` → `&#39;` 等）。
+
+```xml
+<!-- 拉黑（与路由器"设备管理"页的 POST 逐字一致） -->
+<request><Ssids><Ssid><WifiMacFilterStatus>2</WifiMacFilterStatus><Index>0</Index>
+  <WifiMacFilterMac0>00:00:5E:00:53:03</WifiMacFilterMac0><wifihostname0>phone</wifihostname0></Ssid></Ssids></request>
+<!-- 恢复：清空槽位 0，保持黑名单模式 -->
+<request><Ssids><Ssid><WifiMacFilterStatus>2</WifiMacFilterStatus><Index>0</Index>
+  <WifiMacFilterMac0></WifiMacFilterMac0><wifihostname0></wifihostname0></Ssid></Ssids></request>
+```
+
+**上网时段要点**
+
+1. **语义是"允许上网时段"**：路由器帮助文本为"设置允许接入网络的时间段"；某设备一旦有启用的规则，就只能在这些时段上网，其余时间被断网。
+2. **字段**：`<WeekEnable>` 为 7 位、周一在前（`1111111` 每天）；`<TimeMode>` 为 0（每天）或 1（自定义星期）；`<StartTime>` / `<EndTime>` 为 `HH:mm`，路由器页面只提供 15 分钟粒度，开始晚于结束表示跨天。页面拒绝：未选星期（`0000000`）、开始等于结束、结束为 `00:00`。
+3. **写入**：每台设备一条规则（`<DevicesMACs><DevicesMAC>` 与 `<DevicesNames><DevicesName>` 各一项），`create` 时 `<ID>` 为空、由路由器分配；`update` / `delete` 带原 `<ID>` 与完整字段。
+
+```xml
+<request><TimeControlRules><TimeControlRule><Action>create</Action><Enable>1</Enable><TimeMode>1</TimeMode><ID></ID>
+  <DevicesMACs><DevicesMAC>00:00:5E:00:53:03</DevicesMAC></DevicesMACs><DevicesNames><DevicesName>phone</DevicesName></DevicesNames>
+  <WeekEnable>1111100</WeekEnable><StartTime>07:00</StartTime><EndTime>21:30</EndTime></TimeControlRule></TimeControlRules></request>
+```
+
+**未实现**：固件的 321 个接口中没有按设备限速（QoS / 带宽上限）的接口，`appturbo`（游戏加速）与 `security/acl`（远程管理访问控制）都不是限速，因此"即时限速 / 定时限速"无法在这台 CPE 上实现。
+
 ## 4. 核心逆向算法与数学计算公式（已封装于 `src/band-lock.ts` 与 `src/parsers.ts`）
 
 ### 4.1 4G LTE / 5G NR `BandMask` 位掩码算法 (`CpeUtil::bandListToHex`)

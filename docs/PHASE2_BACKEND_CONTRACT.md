@@ -843,6 +843,61 @@ export interface ChannelDeliveryStats {
 - **推送范围**：告警仅当级别 ≥ `ALERT_NOTIFY_MIN_SEVERITY`（默认 `warning`）时推送到 Telegram / Webhook，但所有告警都会写入 `/api/alerts` 与 SSE `alert`。新短信只推送**新到达的未读来信**（首次同步时已存在的短信视为历史）。
 - **Webhook 载荷**：`POST WEBHOOK_URL`，`Content-Type: application/json`，请求体 `{ event: "sms.received" | "alert", deliveredAt: string, data: { message: EnrichedSmsMessage } | { alert: AlertEventRecord } }`；请求头 `X-FengSui-Event`、`X-FengSui-Timestamp`（Unix 秒），配置 `WEBHOOK_SECRET` 时追加 `X-FengSui-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>.<body>")>`。网络错误或 `5xx` 重试一次，`4xx` 不重试。接收方应校验签名并拒绝时间戳偏差过大的请求。
 
+### 2.7 设备访问控制路由（v1.1.0）
+
+封装路由器自带的 Wi-Fi MAC 过滤与家长控制"上网时段"（协议见 `PHASE1_PROTOCOL_SPEC.md` 3.9 节）。规划与校验在 [`src/access-plan.ts`](../src/access-plan.ts)（前端用同一份代码预览），读写在 [`src/access-control.ts`](../src/access-control.ts)。
+
+| 路由 | 请求体 | 成功响应 |
+| :--- | :--- | :--- |
+| `GET /api/access-control` | — | `AccessControlEndpointResponse`：缓存快照（服务启动时与每 `NEIGHBOR_SCAN_INTERVAL_MS` 随拓扑刷新，3 个 GET）+ `guard` |
+| `POST /api/access-control/refresh` | `{}` | 同上，先做一次读取会话 |
+| `POST /api/control/wifi-access` | `{ action: "block" \| "unblock", macAddress, name?, confirm: true }` | `AccessControlChangeResponse` |
+| `POST /api/control/wifi-mac-filter` | `{ mode: "off" \| "deny" \| "allow", entries?: MacFilterEntry[], confirm: true }`，或 `{ add?: MacFilterEntry[], remove?: string[], confirm: true }` 编辑当前生效名单 | `AccessControlChangeResponse` |
+| `POST /api/control/time-rule` | `{ action: "create" \| "update" \| "delete", id?, rule?: TimeRuleInput, confirm: true }` | `AccessControlChangeResponse` |
+
+```ts
+export interface WifiMacFilterState {
+  enabled: boolean;               // 路由器全局开关 <enable>；false 时名单不拦任何设备
+  policy: "allow" | "deny";       // <wifimacfilterstatus>：1 白名单 / 2 黑名单
+  allowList: MacFilterEntry[];    // { macAddress: "AA:BB:CC:DD:EE:FF", name }，两份名单分别保存
+  denyList: MacFilterEntry[];
+  maxEntries: number;             // <wifimaxmacfilternum>（H168-383 为 64）
+}
+export interface TimeRule {       // "允许上网时段"：有启用规则的设备只能在这些时段上网
+  id: string; enabled: boolean;
+  devices: Array<{ macAddress: string; name: string }>;
+  weekMask: string;               // 7 位，周一在前，"1111111" = 每天
+  startTime: string; endTime: string; // HH:mm，15 分钟步进；结束早于开始 = 跨天
+}
+export interface AccessControlSnapshot {
+  capturedAtIso: string; capturedAtMs: number;
+  wifiMacFilter: WifiMacFilterState;
+  timeRules: { supported: boolean; maxRules: number; rules: TimeRule[] }; // maxRules = <TimeRuleMaxNum>（16）
+}
+export interface AccessControlEndpointResponse {
+  ok: true; schedulerStatus: SchedulerStatusSnapshot;
+  accessControl: AccessControlSnapshot | null;
+  guard: {
+    daemonHostMac: string | null;   // 运行烽燧的主机（HostInfo 中 IsLocalDevice）
+    requesterMac: string | null;    // 调用方自己的设备（按请求来源 IP 匹配；经反代或 Tailscale 访问时为 null）
+  };
+}
+export interface AccessControlChangeResponse {
+  ok: true;
+  accessControl: AccessControlSnapshot | null; // 写入后回读的状态
+  changed: boolean;               // false = 路由器已是目标状态，未写入
+  alsoBlocked: string[];          // 本次变更连带断开的其他设备（开启过滤时名单里的旧条目、白名单外的在线 Wi-Fi 设备）
+}
+```
+
+- **必须 `confirm: true`**：缺少时 `400 VALIDATION_ERROR`，不产生会话。前端每次写入前都会用同一份规划代码预览影响并弹出确认。
+- **一次控制会话完成整次变更**：先读 HostInfo（得到受保护设备）与当前状态，规划，写入，再回读核对；回读与预期不符时返回 `502`（"router acknowledged … but did not apply it"）。写操作与遥测共用调度队列，真人在线时 `409`、熔断时 `423`。
+- **受保护设备**（服务端强制，`400 VALIDATION_ERROR`）：运行烽燧的主机（`IsLocalDevice`）与发出请求的设备（请求来源 IP 对应的局域网终端）不能被拉黑、不能被移出白名单、不能设置上网时段；启用白名单时名单不能为空，且必须包含受保护的 Wi-Fi 设备。
+- **其他校验**：单播 MAC、名单容量、上网时段的星期 / 15 分钟步进 / 开始≠结束 / 结束≠`00:00`、同一设备的时段不能重叠（含跨天），规则数不超过 `maxRules`。
+- **写入后**：更新缓存并推送 SSE `access-control`，同时发出 `control:applied`（摘要中的 MAC 只保留厂商前缀）。
+- **脱敏**：Bearer 调用方在 `REDACT_SENSITIVE_IN_API=true` 时收到的 MAC 只保留 OUI、设备名为 `<REDACTED>`，`guard` 与 `alsoBlocked` 同样脱敏；Web 控制台收到原值。
+- **生效时间**：真机实测拉黑后约 15 秒设备断开，恢复后数秒内自动重连。
+
 ---
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
@@ -863,7 +918,7 @@ export interface ChannelDeliveryStats {
 
 ### 3.2 SSE 具名事件清单（`event: <name>`）
 
-前端应通过 `es.addEventListener("<eventName>", (ev) => JSON.parse(ev.data))` 订阅以下 15 类强类型事件：
+前端应通过 `es.addEventListener("<eventName>", (ev) => JSON.parse(ev.data))` 订阅以下 16 类强类型事件：
 
 | `event:` 名称 | 触发时机 | `data:` JSON 载荷结构 |
 | :--- | :--- | :--- |
@@ -873,6 +928,7 @@ export interface ChannelDeliveryStats {
 | `neighbors` | 每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）后台扫描或手动 `scan` 完成 | `NeighborScanSnapshot` |
 | `topology` | 服务启动时、每 `60s` 后台刷新或手动刷新完成 | `TerminalTopologySnapshot` |
 | `settings` | settings 完整读取完成（`POST /api/settings/refresh`、MCP 刷新、安全开关写入后的回读），或 Wi-Fi 7 / 天线 / 移动数据写入后修补缓存（此时 `capturedAtIso` 保持上次完整读取时间）。**无后台定时推送** | `RouterSettingsSnapshot` |
+| `access-control` | 服务启动时与每 `60s` 随拓扑刷新、`POST /api/access-control/refresh`，以及任一访问控制写入成功后（携带回读结果） | `AccessControlSnapshot`（Bearer 订阅者在 `REDACT_SENSITIVE_IN_API=true` 时收到脱敏副本） |
 | `session:avoidance` | **真人管理员登录/退出 `192.168.8.1` 导致避让状态跃迁时立即推送**，以及每个新连接的首帧 | `AvoidanceBroadcastPayload` |
 | `control:applied` | 任一控制写操作成功后 | `ControlAppliedEvent` |
 | `alert` | 断路器**首次**熔断时（`CIRCUIT_<code>`），以及 AlertEngine 触发任一告警时（见 2.2 节 `AlertCode`） | `AlertEventRecord` |
@@ -916,7 +972,7 @@ export interface AvoidanceBroadcastPayload {
 
 ---
 
-## 4. MCP Server 双模传输与工具契约（核心 13 项 + 短信 10 项）
+## 4. MCP Server 双模传输与工具契约（核心 13 项 + 访问控制 4 项 + 短信 10 项）
 
 「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，同时支持两代协议（dual-era）：
 
@@ -1025,6 +1081,22 @@ export interface McpToolErrorPayload {
 | `mark_sms_read` | `uids?: string[]`（≤50）或 `threadKey?` | `{ count, uids }` |
 | `delete_sms` | `uids: string[]`（≤20）、`confirm: true`、`includeUnread?: boolean` | 目标含未读短信时默认拒绝（`UNREAD_PROTECTED`） |
 | `upsert_contact` | `phone`、`name`、`note?` | `ContactRecord` |
+
+### 4.5 访问控制工具（v1.1.0，`MCP_ALLOW_ACCESS_CONTROL` 默认关闭）
+
+| `MCP_ALLOW_ACCESS_CONTROL` | 暴露的工具 |
+| :--- | :--- |
+| `false`（默认） | `get_access_control`（只读） |
+| `true` | 上述 1 项 + `set_device_internet_access`、`set_wifi_mac_filter`、`manage_internet_time_rule`（同时受 `MCP_ALLOW_MUTATIONS` 约束，并强制 `confirm: true`） |
+
+| 工具 | 参数 | 说明 |
+| :--- | :--- | :--- |
+| `get_access_control` | `refresh?: boolean` | `AccessControlSnapshot`（按 `REDACT_SENSITIVE_IN_API` 脱敏）+ `untrustedDataNotice`（设备名来自 DHCP / mDNS） |
+| `set_device_internet_access` | `action: "block" \| "unblock"`、`macAddress` 或 `ipv4Address`、`confirm: true` | 拉黑 / 恢复一台 Wi-Fi 设备；`ipv4Address` 经缓存的拓扑解析（MAC 被脱敏时可用 IPv4 指定） |
+| `set_wifi_mac_filter` | `mode?`、`macAddresses?`（该模式的完整名单）、`add?` / `remove?`（MAC 数组）、`confirm: true` | 设备名从拓扑补齐 |
+| `manage_internet_time_rule` | `action`、`id?`、`macAddress` 或 `ipv4Address`、`weekMask`、`startTime`、`endTime`、`enabled?`、`confirm: true` | 规则语义为"允许上网时段" |
+
+MCP 调用没有"请求方设备"（`requesterIp` 为空），但运行烽燧的主机同样受保护；其余校验与 REST 相同。
 
 ---
 

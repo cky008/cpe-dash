@@ -28,7 +28,9 @@ cpe-dash/
 │   ├── cpe-domain.ts       # 遥测/邻区/拓扑/设置采集与控制写操作（含 sms-count 捎带）
 │   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断）
 │   ├── cpe-monitor.ts      # 读侧：后台轮询、单飞刷新、快照缓存与时序写入
-│   ├── cpe-controls.ts     # 写侧：锁频锁站、重启重拨、路由器开关（入队前校验）
+│   ├── cpe-controls.ts     # 写侧：锁频锁站、重启重拨、路由器开关、设备访问控制（入队前校验）
+│   ├── access-state.ts · access-plan.ts  # 零依赖：Wi-Fi MAC 过滤状态与访问控制规划（受保护设备、名单、上网时段冲突；前后端同一实现）
+│   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
 │   ├── sms/                # 短信：编解码、号码解析、协议、加密镜像、通讯录、应用服务、REST 路由与 MCP 工具
@@ -36,7 +38,7 @@ cpe-dash/
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
 │   ├── control-input.ts    # REST 与 MCP 共用入参校验；mcp-schema.ts 工具 inputSchema 运行时校验
 │   ├── sse-bus.ts          # /api/events SSE 总线
-│   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者，挂载于 /mcp）
+│   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者，挂载于 /mcp；mcp-access-tools.ts 为访问控制工具）
 │   ├── mcp-stdio-bridge.ts # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不连接 CPE）
 │   ├── cli.ts              # serve 守护进程（数据目录锁、运行时装配与有序启停）与 mcp 桥接入口
 │   ├── api-contract.ts     # REST / SSE 载荷类型（服务端以 satisfies 校验，Web 前端直接复用）
