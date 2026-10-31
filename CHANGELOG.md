@@ -2,6 +2,18 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-10-31
+
+### Added
+- **Live demo on GitHub Pages** (`https://cky008.github.io/fengsui-demo/`): the complete web console running in the browser against an in-page backend, with fictional placeholder data. Locks, reboots, Wi-Fi blocking, internet time windows, SMS and contacts all work inside the page and reset on reload; a day of history, live 5 s telemetry and an occasional incoming code keep it moving.
+  - The starting data is recorded from the real daemon on the mock router at build time (`npm run build:demo`, `scripts/capture-demo-seed.ts`), and every timestamp is moved to the visitor's clock.
+  - The in-page backend uses the daemon's own validation and planning code. `test/demo-backend.test.ts` runs both side by side: same response shapes on every read route, identical lock, Wi-Fi filter and time-rule states after each write, and word-for-word identical errors for 25 invalid requests.
+  - `.github/workflows/demo-pages.yml` publishes the build to the public `cky008/fengsui-demo` repository on every release tag, with a deploy key scoped to that repository; the custom domain comes from an Actions variable, not the source tree.
+
+### Changed
+- Logic the demo shares with the daemon moved into dependency-free modules, re-exported from the old places: `src/control-error.ts`, `src/control-input.ts` (no `node:net`; now also parses `POST /api/control/security`), `src/units.ts`, `src/sms/otp.ts`, `src/sms/vcard.ts`, `src/sms/thread-view.ts`. No behaviour change.
+- `scripts/demo-server.ts` now builds on `scripts/demo-router.ts`, shared with the seed capture and the contract test.
+
 ## [1.1.2] — 2026-10-31
 
 ### Fixed
@@ -67,6 +79,7 @@ First production release: one container that monitors a Huawei 5G CPE Ultra 6 (H
 ### Known limitations
 See [`docs/PHASE2_ARCHITECTURE_REPORT.md` §7.4](docs/PHASE2_ARCHITECTURE_REPORT.md#74-已知限制phase-3) and §6.8.
 
+[1.2.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.2.0
 [1.1.2]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.2
 [1.1.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.1
 [1.1.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.0
