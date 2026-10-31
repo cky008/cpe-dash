@@ -2,6 +2,20 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-10-31
+
+### Fixed
+- **The reveal buttons now reveal.** `REDACT_SENSITIVE_IN_API` (on by default) masked snapshots when they were captured, so the web console never received the real IMEI, IMSI, own number, WAN addresses, MAC or cell fingerprints and its eye buttons changed nothing. The daemon now keeps the plain values (still encrypted at rest) and applies the switch per caller: the logged-in web console always receives the real values and masks them on screen until revealed; Bearer REST and SSE clients and MCP tools and resources receive redacted copies.
+- **No more look-alike values.** Redaction no longer substitutes plausible placeholders (a private WAN address rewritten into `192.168.8.x`, DNS shown as `198.51.100.42`, LAN clients renamed `lan-client-NN` with documentation MACs and `fe80::1`). Every redacted value now reads as a mask: a kept prefix plus `*`, or `<REDACTED>`. LAN IPv4 addresses stay readable.
+
+### Changed
+- `POST /api/session/reset-breaker` applies a changed `REDACT_SENSITIVE_IN_API` to REST, SSE and MCP without a restart.
+- Telemetry and topology a v1.0.0 daemon cached already masked are discarded on the first start after the upgrade; the next poll (seconds) replaces them.
+- The web console's "Redacted by server" badge is gone, since the console no longer receives redacted data.
+
+### Upgrading
+- No `.env` change is needed. If you set `REDACT_SENSITIVE_IN_API=false` only to make the reveal buttons work, you can set it back to `true`: it now affects Bearer API and MCP clients only.
+
 ## [1.0.0] — 2026-10-31
 
 First production release: one container that monitors a Huawei 5G CPE Ultra 6 (H168-383, firmware 4.4.0.1), serves the web console and runs the SMS gateway through a single router admin session.
@@ -29,4 +43,5 @@ First production release: one container that monitors a Huawei 5G CPE Ultra 6 (H
 ### Known limitations
 See [`docs/PHASE2_ARCHITECTURE_REPORT.md` §7.4](docs/PHASE2_ARCHITECTURE_REPORT.md#74-已知限制phase-3) and §6.8.
 
+[1.0.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.0.1
 [1.0.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.0.0
