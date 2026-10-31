@@ -7,6 +7,7 @@
 import type { AlertEventRecord } from "./state-store.ts";
 import type {
   AntennaModeName,
+  FirewallSwitchState,
   GlobalTelemetrySnapshot,
   LockVerification,
   NeighborScanSnapshot,
@@ -29,6 +30,7 @@ import type {
   ContactRecord,
   CountryDialInfo,
   EnrichedSmsMessage,
+  SenderInfo,
   SmsSendResult,
   SmsThreadDetail,
   SmsThreadSummary,
@@ -39,6 +41,7 @@ import type { CircuitBreakerState, SupportedLocale } from "./types.ts";
 export type {
   AlertEventRecord,
   AntennaModeName,
+  FirewallSwitchState,
   AvoidanceBroadcastPayload,
   ChannelDeliveryStats,
   CircuitBreakerState,
@@ -52,6 +55,7 @@ export type {
   PersistedLockState,
   RouterSettingsSnapshot,
   SchedulerStatusSnapshot,
+  SenderInfo,
   SmsSendPreview,
   SmsSendResult,
   SmsSentEvent,
@@ -329,6 +333,56 @@ export interface ContactDeleteResponse {
 export interface VcardImportResponse {
   ok: true;
   summary: VcardImportSummary;
+}
+
+// ── Request bodies (§2.4–2.5; the daemon re-validates every field) ──────────
+
+export interface BandLockRequest {
+  lteBands?: Array<string | number> | "all";
+  nrBands?: Array<string | number> | "all";
+}
+
+export interface CellLockRequest {
+  rat: "LTE" | "NR";
+  band: string | number;
+  arfcn: number;
+  /** Omitted or `null`: lock the frequency (`lock_mode=1`). */
+  pci?: number | null;
+}
+
+export interface SecurityControlRequest {
+  upnpEnabled?: boolean;
+  dmz?: { enabled: boolean; ipAddress?: string };
+  firewall?: Partial<FirewallSwitchState>;
+}
+
+export interface Wifi7ControlRequest {
+  mloEnable?: boolean;
+  dbhoEnable?: boolean;
+}
+
+export interface SmsPreviewRequest {
+  phone?: string;
+  content: string;
+  countryCode?: string;
+}
+
+export interface SmsSendRequest {
+  phone?: string;
+  phones?: string[];
+  content: string;
+  countryCode?: string;
+}
+
+export interface SmsReadRequest {
+  uids?: string[];
+  threadKey?: string;
+}
+
+export interface ContactUpsertRequest {
+  phone: string;
+  name: string;
+  note?: string;
 }
 
 // ── `/api/events` (§3) ───────────────────────────────────────────────────────
