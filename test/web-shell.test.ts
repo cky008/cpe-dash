@@ -203,6 +203,11 @@ describe("web core: endpoint table", () => {
       antenna: ["POST", "/api/control/antenna", { mode: "auto" }],
       mobileData: ["POST", "/api/control/mobile-data", { enabled: false }],
       resetBreaker: ["POST", "/api/session/reset-breaker", {}],
+      accessControl: ["GET", "/api/access-control"],
+      refreshAccessControl: ["POST", "/api/access-control/refresh", {}],
+      wifiAccess: ["POST", "/api/control/wifi-access", { action: "block", macAddress: "00:00:5E:00:53:03", confirm: true }],
+      wifiMacFilter: ["POST", "/api/control/wifi-mac-filter", { mode: "off", confirm: true }],
+      timeRule: ["POST", "/api/control/time-rule", { action: "delete", id: "1", confirm: true }],
       smsStatus: ["GET", "/api/sms/status"],
       smsCountries: ["GET", "/api/sms/countries"],
       smsThreads: ["GET", "/api/sms/threads?filter=all&search=&limit=500"],
@@ -242,6 +247,11 @@ describe("web core: endpoint table", () => {
     await ep.antenna("auto");
     await ep.mobileData(false);
     await ep.resetBreaker();
+    await ep.accessControl();
+    await ep.refreshAccessControl();
+    await ep.wifiAccess({ action: "block", macAddress: "00:00:5E:00:53:03", confirm: true });
+    await ep.wifiMacFilter({ mode: "off", confirm: true });
+    await ep.timeRule({ action: "delete", id: "1", confirm: true });
     await ep.smsStatus();
     await ep.smsCountries();
     await ep.smsThreads("all", "");

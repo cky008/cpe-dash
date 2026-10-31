@@ -1,5 +1,6 @@
 import type {
   AccessControlSnapshot,
+  AccessGuardInfo,
   AlertEventRecord,
   AvoidanceBroadcastPayload,
   GlobalTelemetrySnapshot,
@@ -37,6 +38,8 @@ export interface AppState {
   settings: RouterSettingsSnapshot | null;
   /** Wi-Fi MAC filter and internet time rules (`GET /api/access-control`, then `access-control` frames). */
   accessControl: AccessControlSnapshot | null;
+  /** Devices this browser may not cut off (FengSui's host, this device), from `GET /api/access-control`. */
+  accessGuard: AccessGuardInfo | null;
   /** `null` until known; the daemon sends `hello.sms = null` when SMS is disabled. */
   sms: SmsStatusSnapshot | null;
   smsEnabled: boolean;
@@ -80,6 +83,7 @@ export function initialState(): AppState {
     topology: null,
     settings: null,
     accessControl: null,
+    accessGuard: null,
     sms: null,
     smsEnabled: true,
     alerts: [],

@@ -1,4 +1,6 @@
 import type {
+  AccessControlChangeResponse,
+  AccessControlEndpointResponse,
   AlertsResponse,
   AntennaControlResponse,
   AntennaModeName,
@@ -37,11 +39,14 @@ import type {
   SmsThreadsResponse,
   TelemetryEndpointResponse,
   TelemetryRefreshResponse,
+  TimeRuleRequest,
   TimeSeriesEndpointResponse,
   TopologyEndpointResponse,
   VcardImportResponse,
   Wifi7ControlRequest,
   Wifi7ControlResponse,
+  WifiDeviceAccessRequest,
+  WifiMacFilterRequest,
 } from "../../../src/api-contract.ts";
 import type { ApiClient } from "./api.ts";
 
@@ -85,6 +90,12 @@ export function createEndpoints(api: ApiClient) {
     antenna: (mode: AntennaModeName) => api.post<AntennaControlResponse>("/api/control/antenna", { mode }, control),
     mobileData: (enabled: boolean) => api.post<MobileDataControlResponse>("/api/control/mobile-data", { enabled }, control),
     resetBreaker: () => api.post<ResetBreakerResponse>("/api/session/reset-breaker", {}, control),
+
+    accessControl: () => api.get<AccessControlEndpointResponse>("/api/access-control"),
+    refreshAccessControl: () => api.post<AccessControlEndpointResponse>("/api/access-control/refresh", {}, control),
+    wifiAccess: (body: WifiDeviceAccessRequest) => api.post<AccessControlChangeResponse>("/api/control/wifi-access", body, control),
+    wifiMacFilter: (body: WifiMacFilterRequest) => api.post<AccessControlChangeResponse>("/api/control/wifi-mac-filter", body, control),
+    timeRule: (body: TimeRuleRequest) => api.post<AccessControlChangeResponse>("/api/control/time-rule", body, control),
 
     smsStatus: () => api.get<SmsStatusResponse>("/api/sms/status"),
     smsCountries: () => api.get<SmsCountriesResponse>("/api/sms/countries"),

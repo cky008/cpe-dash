@@ -15,10 +15,17 @@ const MEDIUM: Readonly<Record<TerminalAccessMedium, { key: MessageKey; kind: str
   WIFI_OTHER: { key: "topo.wifi_other", kind: "wifi5", icon: "wifi", wired: false },
 };
 
-/** Client list with LAN 1000M / 2.4G / 5G badges and live lease countdowns. */
+/**
+ * Client list with LAN 1000M / 2.4G / 5G badges, live lease countdowns and, for Wi-Fi clients, a
+ * Block / Restore action (Wi-Fi MAC filter). That column, the access-control panel and every
+ * confirmation come from ./access.ts, loaded right after the first paint with the access state.
+ */
 export function mountTopology(ctx: AppContext): void {
   const root = byId("topologyCard");
   let showOffline = false;
+  let accessPanel: Promise<{ open(): void }> | null = null;
+  let access: (typeof import("./access.ts"))["topologyAccess"] | null = null;
+  const accessModule = () => import("./access.ts");
   let agoLabel: HTMLElement | null = null;
   /** Lease cells to tick each second, with their expiry instant. */
   let leaseCells: Array<{ el: HTMLElement; expiresAtMs: number }> = [];
@@ -35,6 +42,7 @@ export function mountTopology(ctx: AppContext): void {
 
   const hostRow = (host: TerminalHostEntry, capturedAtMs: number): HTMLElement => {
     const medium = MEDIUM[host.medium];
+    const blocked = access?.isBlocked(ctx, host) ?? false;
     const ipv6 = host.ipv6Addresses.find((a) => !a.toLowerCase().startsWith("fe80")) ?? host.ipv6Addresses[0] ?? "";
     let lease: HTMLElement;
     if (host.leaseTimeRemainingSec === null || host.leaseTimeRemainingSec <= 0) {
@@ -62,7 +70,12 @@ export function mountTopology(ctx: AppContext): void {
           )
         )
       ),
-      h("td", null, h("span", { class: "fs-badge", data: { kind: medium.kind } }, icon(medium.icon), ctx.t(medium.key)), host.active ? null : h("span", { class: "fs-badge ml-1" }, ctx.t("topo.offline"))),
+      h(
+        "td",
+        null,
+        h("span", { class: "fs-badge", data: { kind: medium.kind } }, icon(medium.icon), ctx.t(medium.key)),
+        blocked && access ? access.badge(ctx) : host.active ? null : h("span", { class: "fs-badge ml-1" }, ctx.t("topo.offline"))
+      ),
       h(
         "td",
         { class: "text-xs leading-tight" },
@@ -75,7 +88,8 @@ export function mountTopology(ctx: AppContext): void {
         host.negotiatedRateMbps ? `${host.negotiatedRateMbps} Mbps` : DASH,
         host.rssi !== null && !medium.wired ? h("div", { class: "faint" }, `RSSI ${host.rssi}`) : null
       ),
-      h("td", { class: "text-right" }, lease)
+      h("td", { class: "text-right" }, lease),
+      access ? access.cell(ctx, host) : h("td", { class: "text-right faint" }, DASH)
     );
   };
 
@@ -84,6 +98,13 @@ export function mountTopology(ctx: AppContext): void {
     leaseCells = [];
     const refreshBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("refresh"), ctx.t("topo.refresh"));
     refreshBtn.addEventListener("click", () => refresh(refreshBtn));
+    const accessBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("shield"), ctx.t("topo.access"));
+    accessBtn.addEventListener("click", () =>
+      runBusy(accessBtn, async () => {
+        accessPanel ??= accessModule().then((m) => m.mountAccessPanel(ctx));
+        (await accessPanel).open();
+      })
+    );
     const offlineToggle = h("input", { class: "toggle toggle-xs", attrs: { type: "checkbox" } });
     offlineToggle.checked = showOffline;
     offlineToggle.addEventListener("change", () => {
@@ -97,7 +118,8 @@ export function mountTopology(ctx: AppContext): void {
       body = emptyState("network", ctx.t("topo.empty"));
     } else {
       const hosts = topology.hosts
-        .filter((host) => showOffline || host.active)
+        // Blocked devices drop offline; keep them listed so they can be restored
+        .filter((host) => showOffline || host.active || (access?.isBlocked(ctx, host) ?? false))
         .sort((a, b) => Number(b.active) - Number(a.active) || a.medium.localeCompare(b.medium) || a.displayName.localeCompare(b.displayName));
       const wired = Object.entries(topology.countsByMedium).reduce((n, [m, c]) => n + (m.startsWith("LAN") ? c : 0), 0);
       const wireless = Object.entries(topology.countsByMedium).reduce((n, [m, c]) => n + (m.startsWith("WIFI") ? c : 0), 0);
@@ -113,7 +135,7 @@ export function mountTopology(ctx: AppContext): void {
               h(
                 "table",
                 { class: "fs-table" },
-                h("thead", null, h("tr", null, ...(["topo.device", "topo.link", "topo.address", "topo.rate", "topo.lease"] as const).map((k, i) => h("th", { class: i === 4 ? "text-right" : "" }, ctx.t(k))))),
+                h("thead", null, h("tr", null, ...(["topo.device", "topo.link", "topo.address", "topo.rate", "topo.lease", "topo.action"] as const).map((k, i) => h("th", { class: i >= 4 ? "text-right" : "" }, ctx.t(k))))),
                 h("tbody", null, ...hosts.map((host) => hostRow(host, topology.capturedAtMs)))
               )
             )
@@ -122,7 +144,7 @@ export function mountTopology(ctx: AppContext): void {
 
     mount(
       root,
-      cardHead(ctx.t("topo.title"), agoLabel, h("label", { class: "inline-flex items-center gap-1.5 text-xs muted cursor-pointer" }, offlineToggle, ctx.t("topo.show_offline")), refreshBtn),
+      cardHead(ctx.t("topo.title"), agoLabel, h("label", { class: "inline-flex items-center gap-1.5 text-xs muted cursor-pointer" }, offlineToggle, ctx.t("topo.show_offline")), accessBtn, refreshBtn),
       h("div", { class: "fs-card-body pt-1" }, body)
     );
     tick();
@@ -135,7 +157,13 @@ export function mountTopology(ctx: AppContext): void {
     if (agoLabel && captured) setText(agoLabel, ctx.t("topo.updated", { ago: formatAgo(captured, now, ctx.tr.locale) }));
   };
 
-  ctx.store.subscribe("topology", render);
+  ctx.store.subscribe(["topology", "accessControl"], render);
+  void Promise.all([accessModule(), ctx.api.accessControl()])
+    .then(([mod, res]) => {
+      access = mod.topologyAccess;
+      ctx.store.update({ accessControl: res.accessControl, accessGuard: res.guard }, ["accessControl"]);
+    })
+    .catch(() => undefined);
   ctx.privacy.onChange(render);
   ctx.tr.onChange(render);
   ctx.onTick(tick);

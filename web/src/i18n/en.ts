@@ -250,6 +250,8 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "topo.unnamed": "Unnamed device",
   "topo.offline": "Offline",
   "topo.updated": "Refreshed {ago}",
+  "topo.action": "Action",
+  "topo.access": "Access control",
 
   "ctl.title": "Network & security controls",
   "ctl.band_lock": "Band lock",

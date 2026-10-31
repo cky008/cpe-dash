@@ -248,6 +248,8 @@ export const zhCN = {
   "topo.unnamed": "未命名设备",
   "topo.offline": "离线",
   "topo.updated": "刷新于 {ago}",
+  "topo.action": "操作",
+  "topo.access": "访问控制",
 
   "ctl.title": "网络与安全控制",
   "ctl.band_lock": "锁频段",
