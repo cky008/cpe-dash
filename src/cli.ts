@@ -212,6 +212,9 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     smsCountersEnabled: config.smsEnabled,
   });
   const { scheduler, monitor, controls } = core;
+  // Restore the persisted breaker latch (and the time series) now: from here on any adapter can
+  // queue a session, and none may spend a password attempt the latch already ruled out.
+  monitor.init();
 
   let sms: SmsService | null = null;
   if (config.smsEnabled) {
@@ -406,14 +409,19 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     async close(): Promise<void> {
       if (closed) return;
       closed = true;
+      // Every step is bounded so the whole shutdown fits docker stop's 10 s grace before SIGKILL:
+      // nothing may wait for a CPE session before the scheduler has cancelled it.
       peerGuard?.stop();
       sseBus.stop();
-      await httpServer.close();
+      const httpClosed = httpServer.close();
       await telegramBot?.stop();
       notificationHub?.stop();
       alertEngine?.stop();
+      // Queued requests answer 503 now; the in-flight session gets its grace, is cancelled and logs out
       await stopFengSuiCore(core);
+      await telegramBot?.drain();
       await sms?.stop();
+      await httpClosed;
       await telegramState?.flush().catch(() => undefined);
       daemonLock.release();
     },
@@ -421,6 +429,21 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       daemonLock.release();
     },
   };
+}
+
+/**
+ * Start the background work, then bind the HTTP port. Any failure (e.g. `EADDRINUSE`) closes the
+ * stack in order before it propagates, so the process never exits with a CPE session open or the
+ * Telegram poller running. Resolves the bound address, or `null` with `WEB_ENABLED=false`.
+ */
+export async function startServeDaemon(stack: FengSuiRuntimeStack): Promise<{ host: string; port: number } | null> {
+  try {
+    await stack.start();
+    return stack.config.webEnabled ? await stack.httpServer.listen() : null;
+  } catch (err) {
+    await stack.close().catch(() => undefined);
+    throw err;
+  }
 }
 
 /**
@@ -488,7 +511,7 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   });
   // `exit` listeners run synchronously (also after uncaught errors); graceful paths use close()
   process.once("exit", () => stack.releaseLocks());
-  await stack.start();
+  const boundAddress = await startServeDaemon(stack);
   if (config.dataEncryptionKey === config.cpePassword) {
     process.stderr.write(
       "[fengsui] Notice: DATA_ENCRYPTION_KEY is not set, so encrypted data (state, SMS mirror, contacts, Telegram state) is keyed to CPE_PASSWORD. Set a dedicated key and apply it with POST /api/session/reset-breaker; restarting with a changed password instead leaves these files unreadable (quarantined as *.unreadable-<timestamp>).\n"
@@ -497,8 +520,7 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   const smsSummary = stack.sms ? `sms=on (mirror ${stack.sms.mirror.size} messages)` : "sms=off (SMS_ENABLED=false)";
 
   // `serve` daemon mode
-  if (config.webEnabled) {
-    const boundAddress = await stack.httpServer.listen();
+  if (boundAddress) {
     process.stdout.write(
       `[fengsui] HTTP + SSE + MCP server listening on http://${boundAddress.host}:${boundAddress.port} (cpe=${config.cpeUrl}, poll=${config.pollIntervalMs}ms, mcpHttp=${config.mcpHttpEnabled})\n`
     );

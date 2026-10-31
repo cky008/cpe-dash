@@ -393,6 +393,9 @@ export class TelegramBot implements NotificationChannel {
   #offset = 0;
   #pollAbort: AbortController | null = null;
   #pollLoop: Promise<void> | null = null;
+  /** Aborted by `stop()`: cuts the poll loop's backoff and standby pauses short. */
+  #lifecycle: AbortController | null = null;
+  #handlers = new Set<Promise<void>>();
   #wizards = new Map<string, WizardSession>();
   #authFailures = new Map<string, number[]>();
   #globalAuthFailures: number[] = [];
@@ -413,6 +416,7 @@ export class TelegramBot implements NotificationChannel {
   async start(): Promise<void> {
     if (this.#running) return;
     this.#running = true;
+    this.#lifecycle = new AbortController();
     await this.api
       .call("setMyCommands", {
         commands: (["new", "inbox", "unread", "status", "alerts", "contacts", "sync", "mute", "help"] as const).map(
@@ -423,11 +427,35 @@ export class TelegramBot implements NotificationChannel {
     this.#pollLoop = this.#runPollLoop();
   }
 
+  /**
+   * Stop long-polling at once (an in-flight getUpdates and any backoff pause are cut short). Update
+   * handlers still running are not awaited here; `drain()` waits for them.
+   */
   async stop(): Promise<void> {
     this.#running = false;
+    this.#lifecycle?.abort();
     this.#pollAbort?.abort();
     await this.#pollLoop;
     this.#pollLoop = null;
+  }
+
+  /**
+   * Wait up to `maxWaitMs` for update handlers that are still running, e.g. a send whose result
+   * ("submitted" / "failed") must still replace the "Sending…" card so nobody resends blindly.
+   */
+  async drain(maxWaitMs = 3000): Promise<void> {
+    if (this.#handlers.size === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...this.#handlers]),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, maxWaitMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**
@@ -506,11 +534,26 @@ export class TelegramBot implements NotificationChannel {
     if (standby) this.#pollAbort?.abort();
   }
 
+  /** Sleep `ms`, or less when `stop()` ends the bot. */
+  async #pause(ms: number): Promise<void> {
+    const lifecycle = this.#lifecycle?.signal;
+    if (!lifecycle || lifecycle.aborted) return;
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        lifecycle.removeEventListener("abort", done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      lifecycle.addEventListener("abort", done, { once: true });
+    });
+  }
+
   async #runPollLoop(): Promise<void> {
     let backoffMs = 1500;
     while (this.#running) {
       if (this.#standby) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await this.#pause(1000);
         continue;
       }
       this.#pollAbort = new AbortController();
@@ -523,13 +566,15 @@ export class TelegramBot implements NotificationChannel {
         backoffMs = 1500;
         for (const update of Array.isArray(updates) ? updates : []) {
           this.#offset = Math.max(this.#offset, update.update_id + 1);
-          void this.handleUpdate(update);
+          const handling = this.handleUpdate(update);
+          this.#handlers.add(handling);
+          void handling.finally(() => this.#handlers.delete(handling));
         }
       } catch (err) {
         if (!this.#running) break;
         if (this.#standby) continue;
         this.#log(`[telegram] poll error, retrying in ${backoffMs} ms: ${err instanceof Error ? err.message : String(err)}`);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        await this.#pause(backoffMs);
         backoffMs = Math.min(30_000, backoffMs * 2);
       }
     }

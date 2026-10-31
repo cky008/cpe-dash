@@ -179,14 +179,27 @@ export class FengSuiHttpServer {
     return { host: this.#config.webHost, port: boundPort };
   }
 
-  async close(): Promise<void> {
+  /**
+   * Stop accepting connections. Keep-alive sockets are closed as soon as they are idle; requests
+   * still running get `graceMs` to answer (a stopping scheduler answers queued CPE work with 503),
+   * then every remaining socket is closed, so shutdown never waits on a slow client or CPE session.
+   */
+  async close(graceMs = 5000): Promise<void> {
     this.#auth.stop();
     if (!this.#server) return;
     const srv = this.#server;
     this.#server = null;
-    await new Promise<void>((resolve) => {
+    const closed = new Promise<void>((resolve) => {
       srv.close(() => resolve());
     });
+    const sweep = setInterval(() => srv.closeIdleConnections(), 50);
+    const force = setTimeout(() => srv.closeAllConnections(), graceMs);
+    try {
+      await closed;
+    } finally {
+      clearInterval(sweep);
+      clearTimeout(force);
+    }
   }
 
   #sendJson(

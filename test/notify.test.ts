@@ -27,8 +27,9 @@ interface TgCall {
   payload: Record<string, unknown>;
 }
 
-function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string } = {}) {
+function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; failPolls?: boolean; sendDelayMs?: number } = {}) {
   const calls: TgCall[] = [];
+  let completedSends = 0;
   let messageSeq = 100;
   const batches = [...(opts.updates ?? [])];
   const fetchImpl: typeof fetch = async (input, init) => {
@@ -37,9 +38,14 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string }
     const method = url.pathname.split("/").pop() ?? "";
     calls.push({ method, payload: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
     const ok = (result: unknown): Response => new Response(JSON.stringify({ ok: true, result }), { status: 200 });
-    if (method === "sendMessage") return ok({ message_id: ++messageSeq });
+    if (method === "sendMessage") {
+      if (opts.sendDelayMs) await new Promise((resolve) => setTimeout(resolve, opts.sendDelayMs));
+      completedSends += 1;
+      return ok({ message_id: ++messageSeq });
+    }
     if (method === "getFile") return ok({ file_path: "documents/contacts.vcf", file_size: (opts.vcf ?? "").length });
     if (method === "getUpdates") {
+      if (opts.failPolls) throw new TypeError("fetch failed");
       const batch = batches.shift();
       if (batch) return ok(batch);
       await new Promise((resolve, reject) => {
@@ -60,10 +66,20 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string }
     ((call?.payload["reply_markup"] as { inline_keyboard?: Array<Array<{ callback_data: string }>> } | undefined)?.inline_keyboard ?? [])
       .flat()
       .map((b) => b.callback_data);
-  return { fetchImpl, calls, sends, lastText, buttons, of: (method: string) => calls.filter((c) => c.method === method) };
+  return {
+    fetchImpl,
+    calls,
+    sends,
+    lastText,
+    buttons,
+    completedSends: () => completedSends,
+    of: (method: string) => calls.filter((c) => c.method === method),
+  };
 }
 
-function createBotFixture(opts: { smsEnabled?: boolean; vcf?: string; updates?: TelegramUpdate[][] } = {}) {
+function createBotFixture(
+  opts: { smsEnabled?: boolean; vcf?: string; updates?: TelegramUpdate[][]; failPolls?: boolean; sendDelayMs?: number } = {}
+) {
   const mock = createMockSmsCpe({
     messages: [
       { index: 40001, phone: "DemoBank", content: "Your verification code is 482913", date: "2026-10-29 09:00:00", smstat: "0", box: 1 },
@@ -87,7 +103,7 @@ function createBotFixture(opts: { smsEnabled?: boolean; vcf?: string; updates?: 
   const contacts = new ContactBook({ filePath: path.join(tmpDir, "contacts.json"), cipher, defaultCountryCode: "+353" });
   const mirror = new SmsMirrorStore({ filePath: path.join(tmpDir, "sms.json"), cipher, defaultCountryCode: "+353", contacts });
   const service = new SmsService({ scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined, seedExistingOnStart: false });
-  const tg = createFakeTelegram({ vcf: opts.vcf, updates: opts.updates });
+  const tg = createFakeTelegram({ vcf: opts.vcf, updates: opts.updates, failPolls: opts.failPolls, sendDelayMs: opts.sendDelayMs });
   const api = new TelegramApi({ token: TOKEN, fetchImpl: tg.fetchImpl });
   const state = new TelegramStateStore({ filePath: path.join(tmpDir, "telegram.json"), cipher });
   let clock = Date.parse("2026-10-30T10:00:00Z");
@@ -558,6 +574,35 @@ describe("TelegramBot", () => {
     await fx.bot.stop();
     const polls = fx.tg.of("getUpdates");
     assert.equal(polls.at(-1)?.payload["offset"], 42);
+    await fx.cleanup();
+  });
+
+  it("stops at once while backing off after poll errors (shutdown must fit the container stop grace)", async () => {
+    const fx = createBotFixture({ failPolls: true });
+    await fx.bot.start();
+    while (fx.tg.of("getUpdates").length < 1) await new Promise((r) => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 20));
+    const stoppingAt = performance.now();
+    await fx.bot.stop();
+    assert.ok(performance.now() - stoppingAt < 200, "the 1.5 s (up to 30 s) backoff is cut short");
+    assert.equal(fx.tg.of("getUpdates").length, 1, "no poll after stop()");
+    assert.ok(fx.logs.some((line) => line.includes("poll error")));
+    await fx.cleanup();
+  });
+
+  it("stops polling without waiting for in-flight replies, and drain() waits for them (bounded)", async () => {
+    const fx = createBotFixture({ sendDelayMs: 150, updates: [[{ update_id: 7, message: { message_id: 1, chat: { id: 1001 }, text: "/help" } }]] });
+    await fx.bot.start();
+    while (fx.tg.of("sendMessage").length < 1) await new Promise((r) => setTimeout(r, 2));
+    const stoppingAt = performance.now();
+    await fx.bot.stop();
+    assert.ok(performance.now() - stoppingAt < 100, "stop() only ends polling");
+    assert.equal(fx.tg.completedSends(), 0, "the /help reply is still in flight");
+    await fx.bot.drain(2000);
+    assert.equal(fx.tg.completedSends(), 1, "drain() let the reply finish");
+    const drainedAt = performance.now();
+    await fx.bot.drain(2000);
+    assert.ok(performance.now() - drainedAt < 20, "nothing left to wait for");
     await fx.cleanup();
   });
 });

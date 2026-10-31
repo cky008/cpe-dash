@@ -2,14 +2,18 @@ import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { DaemonAlreadyRunningError, createFengSuiRuntime } from "../src/cli.ts";
+import { DaemonAlreadyRunningError, createFengSuiRuntime, startServeDaemon } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
+import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher, tryAcquireFileLock } from "../src/encrypted-file.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
+import { EncryptedStateStore } from "../src/state-store.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
+import { createStrictCpe } from "./helpers/strict-cpe.ts";
 
 const BOT_TOKEN = "123456:TEST_TOKEN_abcdefghijklmnopqrstuv";
 
@@ -222,6 +226,105 @@ describe("createFengSuiRuntime", () => {
     } finally {
       if (originalTz === undefined) delete process.env["TZ"];
       else process.env["TZ"] = originalTz;
+      await stack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("shuts down within docker's stop grace while a CPE request hangs and Telegram backs off, logging out first", async () => {
+    const cpe = createStrictCpe({ fault: (p) => (p === "/api/device/nbrcellinfo" ? "timeout" : undefined) });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-shutdown-"));
+    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), REQUEST_TIMEOUT_MS: "60000" });
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    // Telegram is unreachable, so the poll loop sits in its backoff when the shutdown begins
+    const unreachableTelegram: typeof fetch = async (input) => {
+      if (String(input).endsWith("/getUpdates")) throw new TypeError("fetch failed");
+      return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+    };
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: unreachableTelegram, log: () => undefined });
+    try {
+      const bound = await stack.httpServer.listen();
+      await stack.telegramBot?.start();
+      const scan = fetch(`http://${bound.host}:${bound.port}/api/neighbors/scan`, {
+        method: "POST",
+        headers: { Authorization: "Bearer runtime_api_token_v1", "Content-Type": "application/json" },
+        body: "{}",
+      });
+      await waitFor(() => cpe.count("/api/device/nbrcellinfo") === 1, "the scan hanging inside its CPE session");
+
+      const closingAt = performance.now();
+      await stack.close();
+      const elapsedMs = performance.now() - closingAt;
+      assert.ok(elapsedMs < 5000, `close() took ${Math.round(elapsedMs)} ms; docker stop sends SIGKILL after 10 s`);
+      assert.equal(cpe.isSlotTaken(), false, "the router's admin slot is free before the process exits");
+      assert.equal(cpe.stats.logins, cpe.stats.logouts);
+      const res = await scan;
+      assert.equal(res.status, 503, "the cancelled request is answered, not dropped");
+      assert.equal(((await res.json()) as { errorCode: string }).errorCode, "QUEUE_FULL");
+      assert.ok(StorageCipher.fromSecret(config.dataEncryptionKey).readJsonFileOrQuarantine(config.stateFile), "encrypted state was flushed");
+    } finally {
+      await stack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("closes in order when startup fails (port taken), so no CPE session or poller outlives the process", async () => {
+    const cpe = createStrictCpe({ latencyMs: 25 });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-startfail-"));
+    const blocker = net.createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
+    const takenPort = (blocker.address() as net.AddressInfo).port;
+    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), WEB_PORT: String(takenPort) });
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    const notify = createNotifyFetch();
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: notify.fetchImpl, log: () => undefined });
+    try {
+      await assert.rejects(() => startServeDaemon(stack), /EADDRINUSE/);
+      assert.ok(cpe.stats.logins > 0, "startup had already opened CPE sessions (initial SMS sync, telemetry)");
+      assert.equal(cpe.isSlotTaken(), false);
+      assert.equal(cpe.stats.logins, cpe.stats.logouts);
+      assert.equal(fs.existsSync(`${config.stateFile}.lock`), false, "the data directory is released");
+      const polls = notify.calls.filter((c) => c.url.endsWith("/getUpdates")).length;
+      await new Promise((r) => setTimeout(r, 60));
+      assert.equal(notify.calls.filter((c) => c.url.endsWith("/getUpdates")).length, polls, "Telegram stopped polling");
+    } finally {
+      await stack.close();
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("honours a persisted 108006 latch from assembly on, before start()", async () => {
+    const cpe = createStrictCpe();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-latch-"));
+    const envPath = writeEnv(dir, baseEnv(dir, cpe.password));
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    const seed = new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey });
+    const fingerprint = new HuaweiCpeClient({ cpeUrl: config.cpeUrl, cpePassword: cpe.password }).getPasswordFingerprint();
+    seed.update({
+      circuitBreaker: {
+        tripped: true,
+        code: "108006",
+        reason: "persisted",
+        trippedAtIso: "2026-10-31T00:00:00.000Z",
+        remainCount: 2,
+        waitTime: null,
+        passwordFingerprintHex: fingerprint,
+      },
+    });
+    await seed.flushAsync();
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
+    try {
+      const bound = await stack.httpServer.listen();
+      const res = await fetch(`http://${bound.host}:${bound.port}/api/control/unlock`, {
+        method: "POST",
+        headers: { Authorization: "Bearer runtime_api_token_v1", "Content-Type": "application/json" },
+        body: "{}",
+      });
+      assert.notEqual(res.status, 200);
+      assert.equal(cpe.stats.challengeCalls + cpe.stats.authCalls, 0, "no password attempt against a latched breaker");
+      assert.equal(stack.scheduler.getStatus().mode, "circuit_tripped");
+    } finally {
       await stack.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
