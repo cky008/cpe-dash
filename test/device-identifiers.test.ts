@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { type GlobalTelemetrySnapshot, fetchGlobalTelemetry } from "../src/cpe-domain.ts";
+import {
+  type GlobalTelemetrySnapshot,
+  type TerminalTopologySnapshot,
+  fetchGlobalTelemetry,
+  fetchTerminalTopology,
+} from "../src/cpe-domain.ts";
+import { REDACTED, redactTelemetry, redactTopology } from "../src/redact.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 
@@ -12,58 +18,74 @@ import { createStrictCpe } from "./helpers/strict-cpe.ts";
 const DEVICE_INFO_WITH_IDENTIFIERS =
   "<response><DeviceName>H168-383</DeviceName><Imei>860000000000000</Imei><Imsi>272010000000000</Imsi>" +
   "<Msisdn>+353830000000</Msisdn><MacAddress1>02:00:5E:10:00:01</MacAddress1><WanIPAddress>198.51.100.42</WanIPAddress>" +
-  "<wan_dns_address>203.0.113.53</wan_dns_address><uptime>86400</uptime></response>";
+  "<WanIPv6Address>2001:db8::42</WanIPv6Address><wan_dns_address>203.0.113.53</wan_dns_address>" +
+  "<wan_ipv6_dns_address>2001:db8::53</wan_ipv6_dns_address><uptime>86400</uptime></response>";
 
-async function collect(deviceInfoXml: string, redactSensitive: boolean): Promise<GlobalTelemetrySnapshot> {
+const HOST_INFO_WITH_NAMES = JSON.stringify([
+  {
+    MACAddress: "00:00:5E:00:53:01",
+    HostName: "Demo-Laptop",
+    IPAddress: "192.168.8.10",
+    IPv6Address: "fe80::200:5eff:fe00:5301;2001:db8::10",
+    Active: true,
+    InterfaceType: "Ethernet",
+    Layer2Interface: "LAN1",
+    EthernetSpeed: 1000,
+  },
+]);
+
+async function collect(deviceInfoXml: string): Promise<GlobalTelemetrySnapshot> {
   const cpe = createStrictCpe({
     fault: (p) => (p === "/api/device/information" ? { body: deviceInfoXml } : undefined),
   });
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl });
-  const outcome = await client.withSessionDetailed((session) => fetchGlobalTelemetry(session, { redactSensitive }));
+  const outcome = await client.withSessionDetailed((session) => fetchGlobalTelemetry(session));
+  assert.equal(outcome.status, "ok");
+  if (outcome.status !== "ok") throw new Error("unreachable");
+  return outcome.value;
+}
+
+async function collectTopology(): Promise<TerminalTopologySnapshot> {
+  const cpe = createStrictCpe({
+    fault: (p) => (p === "/api/system/HostInfo" ? { body: HOST_INFO_WITH_NAMES } : undefined),
+  });
+  const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl });
+  const outcome = await client.withSessionDetailed((session) => fetchTerminalTopology(session));
   assert.equal(outcome.status, "ok");
   if (outcome.status !== "ok") throw new Error("unreachable");
   return outcome.value;
 }
 
 describe("Device identifiers in the telemetry snapshot (IMEI / IMSI / own number / MAC)", () => {
-  it("passes the identifiers through when REDACT_SENSITIVE_IN_API=false", async () => {
-    const { device } = await collect(DEVICE_INFO_WITH_IDENTIFIERS, false);
+  it("keeps the plain identifiers, WAN addresses and cell fingerprints in the daemon's snapshot", async () => {
+    const { device, rf } = await collect(DEVICE_INFO_WITH_IDENTIFIERS);
     assert.equal(device.imei, "860000000000000");
     assert.equal(device.imsi, "272010000000000");
     assert.equal(device.msisdn, "+353830000000");
     assert.equal(device.macAddress, "02:00:5E:10:00:01");
     assert.equal(device.wanIpv4, "198.51.100.42");
+    assert.deepEqual(device.wanDnsV4, ["203.0.113.53"]);
     assert.equal(device.sensitiveRedacted, false);
-  });
-
-  it("masks them before they leave the daemon when REDACT_SENSITIVE_IN_API=true", async () => {
-    const { device } = await collect(DEVICE_INFO_WITH_IDENTIFIERS, true);
-    assert.equal(device.imei, "860000*********");
-    assert.equal(device.imsi, "27201**********");
-    assert.equal(device.msisdn, "+353*******00");
-    assert.equal(device.macAddress, "02:00:5E:**:**:**");
-    assert.equal(device.sensitiveRedacted, true);
-    assert.doesNotMatch(JSON.stringify(device), /860000000000000|272010000000000|\+353830000000/);
+    assert.deepEqual([rf.cellIdDisplay, rf.eNodeBDisplay, rf.tacDisplay], ["134217758", "0524288", "10001"]);
   });
 
   it("prefers WanMacAddress and reports absent identifiers as empty strings", async () => {
     const withWanMac = await collect(
-      "<response><MacAddress1>02:00:5E:10:00:01</MacAddress1><WanMacAddress>02:00:5E:10:00:09</WanMacAddress></response>",
-      false
+      "<response><MacAddress1>02:00:5E:10:00:01</MacAddress1><WanMacAddress>02:00:5E:10:00:09</WanMacAddress></response>"
     );
     assert.equal(withWanMac.device.macAddress, "02:00:5E:10:00:09");
     assert.equal(withWanMac.device.imei, "");
     assert.equal(withWanMac.device.msisdn, "");
 
-    const bare = await collect("<response><DeviceName>H168-383</DeviceName></response>", true);
+    const bare = redactTelemetry(await collect("<response><DeviceName>H168-383</DeviceName></response>"));
     assert.deepEqual(
-      [bare.device.imei, bare.device.imsi, bare.device.msisdn, bare.device.macAddress],
-      ["", "", "", ""]
+      [bare.device.imei, bare.device.imsi, bare.device.msisdn, bare.device.macAddress, bare.device.wanIpv4],
+      ["", "", "", "", ""]
     );
   });
 
   it("upgrades a snapshot persisted before these fields existed", async () => {
-    const current = await collect(DEVICE_INFO_WITH_IDENTIFIERS, true);
+    const current = redactTelemetry(await collect(DEVICE_INFO_WITH_IDENTIFIERS));
     const { imei, imsi, msisdn, macAddress, sensitiveRedacted, ...olderDevice } = current.device;
     assert.ok(imei && imsi && msisdn && macAddress && sensitiveRedacted);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-upgrade-"));
@@ -83,5 +105,52 @@ describe("Device identifiers in the telemetry snapshot (IMEI / IMSI / own number
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("REDACT_SENSITIVE_IN_API copies for Bearer API, SSE and MCP clients (src/redact.ts)", () => {
+  it("masks identifiers visibly instead of substituting look-alike values, and never touches the daemon's snapshot", async () => {
+    const plain = await collect(DEVICE_INFO_WITH_IDENTIFIERS);
+    const before = structuredClone(plain);
+    const { device, rf } = redactTelemetry(plain);
+    assert.deepEqual(plain, before);
+
+    assert.equal(device.imei, "860000*********");
+    assert.equal(device.imsi, "27201**********");
+    assert.equal(device.msisdn, "+353*******00");
+    assert.equal(device.macAddress, "02:00:5E:**:**:**");
+    assert.equal(device.wanIpv4, "198.51.*.*");
+    assert.equal(device.wanIpv6, "2001:db8:****");
+    assert.deepEqual(device.wanDnsV4, ["203.0.*.*"]);
+    assert.deepEqual(device.wanDnsV6, ["2001:db8:****"]);
+    assert.equal(device.sensitiveRedacted, true);
+    assert.deepEqual([rf.cellIdDisplay, rf.eNodeBDisplay, rf.tacDisplay], [REDACTED, REDACTED, REDACTED]);
+    assert.doesNotMatch(
+      JSON.stringify({ device, rf }),
+      /860000000000000|272010000000000|\+353830000000|198\.51\.100\.42|203\.0\.113\.53|134217758|0524288/
+    );
+  });
+
+  it("returns an already redacted copy unchanged, so its kept prefixes survive", async () => {
+    const once = redactTelemetry(await collect(DEVICE_INFO_WITH_IDENTIFIERS));
+    assert.equal(redactTelemetry(once), once);
+  });
+
+  it("hides LAN client names, MAC tails and IPv6 addresses but keeps the LAN IPv4 that tells clients apart", async () => {
+    const plain = await collectTopology();
+    const before = structuredClone(plain);
+    const host = plain.hosts[0];
+    assert.equal(host?.displayName, "Demo-Laptop");
+    assert.equal(host?.macAddress, "00:00:5E:00:53:01");
+    assert.deepEqual(host?.ipv6Addresses, ["fe80::200:5eff:fe00:5301", "2001:db8::10"]);
+
+    const redacted = redactTopology(plain);
+    assert.deepEqual(plain, before);
+    const masked = redacted.hosts[0];
+    assert.equal(masked?.displayName, REDACTED);
+    assert.equal(masked?.macAddress, "00:00:5E:**:**:**");
+    assert.deepEqual(masked?.ipv6Addresses, ["fe80:****", "2001:db8:****"]);
+    assert.equal(masked?.ipv4Address, "192.168.8.10");
+    assert.deepEqual(redacted.countsByMedium, plain.countsByMedium);
   });
 });

@@ -43,7 +43,6 @@ export function createFengSuiCore(options: FengSuiCoreOptions): FengSuiCore {
     pollIntervalMs: options.pollIntervalMs,
     neighborScanIntervalMs: options.neighborScanIntervalMs,
     stateFlushIntervalMs: options.stateFlushIntervalMs,
-    redactSensitive: options.redactSensitive,
     smsCountersEnabled: options.smsCountersEnabled,
   });
   const controls = new CpeControlService({ scheduler, monitor, stateStore });

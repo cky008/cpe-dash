@@ -34,7 +34,6 @@ export interface CpeMonitorOptions {
   pollIntervalMs?: number;
   neighborScanIntervalMs?: number;
   stateFlushIntervalMs?: number;
-  redactSensitive?: boolean;
   /** Piggyback `GET /api/sms/sms-count` on every telemetry session (SMS change detection). */
   smsCountersEnabled?: boolean;
 }
@@ -51,7 +50,8 @@ export interface RefreshOptions {
  *   refresh join the in-flight promise (Single-Flight Request Coalescing).
  * - Telemetry feeds the time-series ring buffer and emits `speed` + `telemetry`; sweeps emit
  *   `neighbors` / `topology`; settings reads emit `settings`.
- * - Snapshots live in the encrypted state store so a restart can serve the last known values.
+ * - Snapshots live in the encrypted state store so a restart can serve the last known values. They
+ *   always hold the plain values: REDACT_SENSITIVE_IN_API applies per response (src/redact.ts).
  */
 export class CpeMonitor extends EventEmitter {
   readonly scheduler: MutexSessionScheduler;
@@ -60,7 +60,6 @@ export class CpeMonitor extends EventEmitter {
   readonly pollIntervalMs: number;
   readonly neighborScanIntervalMs: number;
   readonly stateFlushIntervalMs: number;
-  readonly redactSensitive: boolean;
   readonly smsCountersEnabled: boolean;
 
   #initialized = false;
@@ -81,7 +80,6 @@ export class CpeMonitor extends EventEmitter {
     this.pollIntervalMs = options.pollIntervalMs ?? 5000;
     this.neighborScanIntervalMs = options.neighborScanIntervalMs ?? 60000;
     this.stateFlushIntervalMs = options.stateFlushIntervalMs ?? 30 * 60 * 1000;
-    this.redactSensitive = options.redactSensitive !== false;
     this.smsCountersEnabled = options.smsCountersEnabled === true;
   }
 
@@ -89,7 +87,13 @@ export class CpeMonitor extends EventEmitter {
   init(): void {
     if (this.#initialized) return;
     this.scheduler.init();
-    this.timeseries.restoreSnapshot(this.stateStore.getState().timeseries);
+    const state = this.stateStore.getState();
+    this.timeseries.restoreSnapshot(state.timeseries);
+    // Before v1.0.1, REDACT_SENSITIVE_IN_API masked snapshots at capture time, topology included
+    // (with look-alike names and MACs). Serve nothing until the next sweep rather than serve those.
+    if (state.latestTelemetry?.device.sensitiveRedacted) {
+      this.stateStore.update({ latestTelemetry: null, latestTopology: null });
+    }
     this.#initialized = true;
   }
 
@@ -167,10 +171,7 @@ export class CpeMonitor extends EventEmitter {
       },
       "normal",
       (session) =>
-        fetchGlobalTelemetry(session, {
-          redactSensitive: this.redactSensitive,
-          includeSmsCounters: this.smsCountersEnabled,
-        }),
+        fetchGlobalTelemetry(session, { includeSmsCounters: this.smsCountersEnabled }),
       (snap) => {
         this.timeseries.push({
           tsMs: snap.capturedAtMs,
@@ -223,7 +224,7 @@ export class CpeMonitor extends EventEmitter {
         this.#inflightTopology = p;
       },
       "low",
-      (session) => fetchTerminalTopology(session, { sanitize: this.redactSensitive }),
+      (session) => fetchTerminalTopology(session),
       (snap) => {
         this.stateStore.update({ latestTopology: snap });
         this.#safeEmit("topology", snap);
@@ -240,7 +241,7 @@ export class CpeMonitor extends EventEmitter {
         this.#inflightSettings = p;
       },
       "normal",
-      (session) => fetchRouterSettings(session, { sanitize: this.redactSensitive }),
+      (session) => fetchRouterSettings(session),
       (snap) => {
         this.stateStore.update({ latestSettings: snap });
         this.#safeEmit("settings", snap);

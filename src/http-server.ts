@@ -65,6 +65,7 @@ import {
   SchedulerStoppedError,
 } from "./scheduler.ts";
 import type { NotificationHub } from "./notify/hub.ts";
+import { telemetryForOutput, topologyForOutput } from "./redact.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
@@ -544,6 +545,10 @@ export class FengSuiHttpServer {
       return;
     }
 
+    // A cookie session is the web console, which masks identifiers on screen until revealed; Bearer
+    // clients (scripts, agents, integrations) get the REDACT_SENSITIVE_IN_API copies instead
+    const redact = session === null && this.#config.redactSensitiveInApi;
+
     // SSE Stream (`GET /api/events`)
     if (isSseRoute && method === "GET") {
       const sub = this.sseBus.subscribe({
@@ -552,10 +557,11 @@ export class FengSuiHttpServer {
         clientIp: bucketKey,
         sessionId: session?.id ?? null,
         expiresAtMs: session?.expiresAtMs ?? null,
+        redact,
         initialSnapshot: {
           schedulerStatus: this.core.scheduler.getStatus(),
           avoidance: this.core.scheduler.getAvoidanceState(),
-          telemetry: this.core.monitor.getCachedTelemetry(),
+          telemetry: telemetryForOutput(this.core.monitor.getCachedTelemetry(), redact),
           lockState: this.core.controls.getPersistedLockState(),
           lockVerification: this.core.controls.getLockVerification(),
           sms: this.sms?.getStatus() ?? null,
@@ -571,7 +577,7 @@ export class FengSuiHttpServer {
       return;
     }
 
-    await this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams);
+    await this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, redact);
   }
 
   async #dispatchProtectedApi(
@@ -579,7 +585,8 @@ export class FengSuiHttpServer {
     res: ServerResponse,
     method: string,
     pathname: string,
-    searchParams: URLSearchParams
+    searchParams: URLSearchParams,
+    redact: boolean
   ): Promise<void> {
     try {
       if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
@@ -604,7 +611,7 @@ export class FengSuiHttpServer {
               schedulerStatus: this.core.scheduler.getStatus(),
               lockState: this.core.controls.getPersistedLockState(),
               lockVerification: this.core.controls.getLockVerification(),
-              telemetry: this.core.monitor.getCachedTelemetry(),
+              telemetry: telemetryForOutput(this.core.monitor.getCachedTelemetry(), redact),
               recentAlerts: this.core.scheduler.getRecentAlerts(),
             } satisfies TelemetryEndpointResponse);
             return;
@@ -634,7 +641,7 @@ export class FengSuiHttpServer {
             this.#sendJson(res, 200, {
               ok: true,
               schedulerStatus: this.core.scheduler.getStatus(),
-              topology: this.core.monitor.getCachedTopology(),
+              topology: topologyForOutput(this.core.monitor.getCachedTopology(), redact),
             } satisfies TopologyEndpointResponse);
             return;
 
@@ -682,7 +689,7 @@ export class FengSuiHttpServer {
           this.#sendJson(res, 200, {
             ok: true,
             schedulerStatus: this.core.scheduler.getStatus(),
-            telemetry: telemetry ?? this.core.monitor.getCachedTelemetry(),
+            telemetry: telemetryForOutput(telemetry ?? this.core.monitor.getCachedTelemetry(), redact),
           } satisfies TelemetryRefreshResponse);
           return;
         }
@@ -702,7 +709,7 @@ export class FengSuiHttpServer {
           this.#sendJson(res, 200, {
             ok: true,
             schedulerStatus: this.core.scheduler.getStatus(),
-            topology: topology ?? this.core.monitor.getCachedTopology(),
+            topology: topologyForOutput(topology ?? this.core.monitor.getCachedTopology(), redact),
           } satisfies TopologyEndpointResponse);
           return;
         }

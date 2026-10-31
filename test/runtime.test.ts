@@ -11,6 +11,7 @@ import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher, tryAcquireFileLock } from "../src/encrypted-file.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
+import { redactTelemetry } from "../src/redact.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
@@ -379,6 +380,193 @@ describe("createFengSuiRuntime", () => {
       await noSms.close();
     } finally {
       await stopSleeper(sleeper);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** RFC / reserved placeholders only (AGENTS.md 铁律二). */
+const IDENTIFIED_DEVICE_INFO =
+  "<response><DeviceName>H168-383</DeviceName><Imei>860000000000000</Imei><Imsi>272010000000000</Imsi>" +
+  "<Msisdn>+353830000000</Msisdn><WanIPAddress>198.51.100.42</WanIPAddress><uptime>86400</uptime></response>";
+const NAMED_HOST_INFO = JSON.stringify([
+  { MACAddress: "00:00:5E:00:53:01", HostName: "Demo-Laptop", IPAddress: "192.168.8.10", Active: true, InterfaceType: "Ethernet", EthernetSpeed: 1000 },
+]);
+
+function createIdentifiedCpe() {
+  return createStrictCpe({
+    fault: (p, method) => {
+      if (method !== "GET") return undefined;
+      if (p === "/api/device/information") return { body: IDENTIFIED_DEVICE_INFO };
+      if (p === "/api/system/HostInfo") return { body: NAMED_HOST_INFO };
+      return undefined;
+    },
+  });
+}
+
+function privacyEnv(dir: string, password: string, redact: boolean): Record<string, string> {
+  return {
+    CPE_URL: "http://192.168.8.1",
+    CPE_PASSWORD: password,
+    API_TOKEN: "runtime_api_token_v1",
+    DATA_ENCRYPTION_KEY: "runtime_data_key_v1",
+    WEB_HOST: "127.0.0.1",
+    WEB_PORT: "0",
+    ALLOWED_HOSTS: "127.0.0.1",
+    STATE_FILE: path.join(dir, "data", "state.json"),
+    STATIC_DIR: path.join(dir, "no-static"),
+    POLL_INTERVAL_MS: "600000",
+    NEIGHBOR_SCAN_INTERVAL_MS: "600000",
+    SSE_HEARTBEAT_MS: "2000",
+    SMS_ENABLED: "false",
+    REDACT_SENSITIVE_IN_API: String(redact),
+  };
+}
+
+/** Parsed `/api/events` frames, read on demand. */
+function openSse(res: Response): { next: (event: string) => Promise<string>; close: () => Promise<void> } {
+  const reader = res.body?.getReader();
+  assert.ok(reader, "an event stream body");
+  const decoder = new TextDecoder();
+  const pending: Array<{ event: string; data: string }> = [];
+  let buffer = "";
+  return {
+    async next(event) {
+      for (;;) {
+        const index = pending.findIndex((frame) => frame.event === event);
+        if (index >= 0) return pending.splice(0, index + 1)[index]?.data ?? "";
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error(`SSE stream ended before "${event}"`);
+        buffer += decoder.decode(chunk.value, { stream: true });
+        for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
+          const frame = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const name = /^event: (.+)$/m.exec(frame)?.[1];
+          const data = /^data: (.*)$/m.exec(frame)?.[1];
+          if (name && data !== undefined) pending.push({ event: name, data });
+        }
+      }
+    },
+    close: () => reader.cancel(),
+  };
+}
+
+const RAW_IDENTIFIERS = /860000000000000|272010000000000|\+353830000000|198\.51\.100\.42|134217758|Demo-Laptop/;
+
+describe("REDACT_SENSITIVE_IN_API at the output boundary", () => {
+  it("serves the logged-in web console plain values and Bearer REST, SSE and MCP clients redacted copies", async () => {
+    const cpe = createIdentifiedCpe();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-redact-"));
+    const env = privacyEnv(dir, cpe.password, true);
+    const envPath = writeEnv(dir, env);
+    const stack = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
+    const streams: Array<{ close: () => Promise<void> }> = [];
+    try {
+      const bound = await startServeDaemon(stack);
+      assert.ok(bound);
+      const base = `http://${bound.host}:${bound.port}`;
+      await waitFor(() => stack.monitor.getCachedTelemetry() !== null && stack.monitor.getCachedTopology() !== null, "seed sweep");
+
+      const login = await fetch(`${base}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base },
+        body: JSON.stringify({ token: "runtime_api_token_v1" }),
+      });
+      assert.equal(login.status, 200);
+      const cookie = { Cookie: /fengsui_sid=[0-9a-f]{64}/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "" };
+      const bearer = { Authorization: "Bearer runtime_api_token_v1" };
+      const get = async (route: string, headers: Record<string, string>): Promise<string> => {
+        const res = await fetch(`${base}${route}`, { headers });
+        assert.equal(res.status, 200, route);
+        return JSON.stringify(await res.json());
+      };
+      const mcp = async (method: string, params: Record<string, unknown>): Promise<string> =>
+        JSON.stringify(await stack.mcpServer.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })));
+      const assertPlain = (json: string, label: string): void => {
+        assert.match(json, /860000000000000|Demo-Laptop/, `${label} carries plain values`);
+      };
+      const assertRedacted = (json: string, label: string): void => {
+        assert.doesNotMatch(json, RAW_IDENTIFIERS, `${label} leaks a plain identifier`);
+        assert.match(json, /<REDACTED>/, `${label} marks what it hid`);
+      };
+
+      // REST: the cookie session is the web console; a Bearer token is a script or an agent
+      const webTelemetry = await get("/api/telemetry", cookie);
+      assertPlain(webTelemetry, "web telemetry");
+      assert.match(webTelemetry, /"sensitiveRedacted":false/);
+      assertPlain(await get("/api/topology", cookie), "web topology");
+      const apiTelemetry = await get("/api/telemetry", bearer);
+      assertRedacted(apiTelemetry, "Bearer telemetry");
+      assert.match(apiTelemetry, /"imei":"860000\*{9}"/);
+      assert.match(apiTelemetry, /"wanIpv4":"198\.51\.\*\.\*"/);
+      assert.match(apiTelemetry, /"sensitiveRedacted":true/);
+      assertRedacted(await get("/api/topology", bearer), "Bearer topology");
+
+      // MCP tools and resources
+      assertRedacted(await mcp("tools/call", { name: "get_cpe_telemetry", arguments: {} }), "MCP telemetry");
+      assertRedacted(await mcp("tools/call", { name: "list_terminal_topology", arguments: {} }), "MCP topology");
+      assertRedacted(await mcp("resources/read", { uri: "fengsui://telemetry/latest" }), "MCP telemetry resource");
+
+      // SSE: the initial snapshot and every later broadcast follow the subscriber's credentials
+      const webSse = openSse(await fetch(`${base}/api/events`, { headers: cookie }));
+      const apiSse = openSse(await fetch(`${base}/api/events`, { headers: bearer }));
+      streams.push(webSse, apiSse);
+      assertPlain(await webSse.next("telemetry"), "web SSE snapshot");
+      assertRedacted(await apiSse.next("hello"), "Bearer SSE hello");
+      assertRedacted(await apiSse.next("telemetry"), "Bearer SSE snapshot");
+      await stack.monitor.refreshTelemetry({ ignoreCooldown: true });
+      await stack.monitor.refreshTopology({ ignoreCooldown: true });
+      assertPlain(await webSse.next("telemetry"), "web SSE telemetry");
+      assertPlain(await webSse.next("topology"), "web SSE topology");
+      assertRedacted(await apiSse.next("telemetry"), "Bearer SSE telemetry");
+      assertRedacted(await apiSse.next("topology"), "Bearer SSE topology");
+      await Promise.all(streams.splice(0).map((s) => s.close()));
+
+      // Turning it off in .env applies through reset-breaker, to REST and MCP alike
+      writeEnv(dir, { ...env, REDACT_SENSITIVE_IN_API: "false" });
+      const reload = await fetch(`${base}/api/session/reset-breaker`, {
+        method: "POST",
+        headers: { ...bearer, "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+        body: "{}",
+      });
+      assert.equal(reload.status, 200);
+      assertPlain(await get("/api/telemetry", bearer), "Bearer telemetry after reload");
+      assertPlain(await mcp("tools/call", { name: "get_cpe_telemetry", arguments: {} }), "MCP telemetry after reload");
+    } finally {
+      await Promise.all(streams.map((s) => s.close().catch(() => undefined)));
+      await stack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops telemetry and topology a v1.0.0 daemon cached already masked, instead of showing them as real", async () => {
+    const cpe = createIdentifiedCpe();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-legacy-cache-"));
+    const envPath = writeEnv(dir, privacyEnv(dir, cpe.password, true));
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    const open = () => createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
+    try {
+      const first = open();
+      const telemetry = await first.monitor.refreshTelemetry();
+      await first.monitor.refreshTopology();
+      await first.close();
+      assert.ok(telemetry);
+
+      const restarted = open();
+      assert.equal(restarted.monitor.getCachedTelemetry()?.device.imei, "860000000000000", "a plain cache survives a restart");
+      assert.equal(restarted.monitor.getCachedTopology()?.hosts[0]?.displayName, "Demo-Laptop");
+      await restarted.close();
+
+      const legacy = new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey });
+      legacy.load();
+      legacy.update({ latestTelemetry: redactTelemetry(telemetry) });
+      await legacy.flushAsync();
+
+      const upgraded = open();
+      assert.equal(upgraded.monitor.getCachedTelemetry(), null);
+      assert.equal(upgraded.monitor.getCachedTopology(), null);
+      await upgraded.close();
+    } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

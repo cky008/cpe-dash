@@ -208,7 +208,6 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     pollIntervalMs: config.pollIntervalMs,
     neighborScanIntervalMs: config.neighborScanIntervalMs,
     stateFlushIntervalMs: config.stateFlushIntervalMs,
-    redactSensitive: config.redactSensitiveInApi,
     smsCountersEnabled: config.smsEnabled,
   });
   const { scheduler, monitor, controls } = core;
@@ -292,9 +291,12 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     maxClients: config.sseMaxClients,
   });
 
+  // REST and SSE read it from the HTTP server's config, which reset-breaker reloads; MCP follows here
+  let redactApiOutput = config.redactSensitiveInApi;
   const mcpServer = new FengSuiMcpServer({
     core,
     allowMutations: config.mcpAllowMutations,
+    redactSensitive: () => redactApiOutput,
     toolProviders: sms
       ? [
           new SmsMcpTools({
@@ -317,6 +319,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     notificationHub,
     onConfigReloaded: async (reloaded) => {
       if (options.applyTimeZone) applyProcessTimeZone(reloaded);
+      redactApiOutput = reloaded.redactSensitiveInApi;
       // Re-encrypt immediately: DATA_ENCRYPTION_KEY defaults to CPE_PASSWORD, so fixing the password
       // changes the key, and files left under the old key would be unreadable after a restart.
       const rekeyed: Array<Promise<void>> = [];

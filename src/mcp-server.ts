@@ -112,6 +112,11 @@ export interface FengSuiMcpServerOptions {
   /** Served by the built-in `CoreMcpTools` provider, which always comes first. */
   core: FengSuiCore;
   allowMutations?: boolean;
+  /**
+   * Whether core tools return REDACT_SENSITIVE_IN_API copies of telemetry and topology; read per
+   * call so a `.env` reload applies (default: always redact).
+   */
+  redactSensitive?: () => boolean;
   /** Further domain providers (e.g. `SmsMcpTools`). */
   toolProviders?: ReadonlyArray<McpToolProvider>;
 }
@@ -133,7 +138,10 @@ export class FengSuiMcpServer {
 
   constructor(options: FengSuiMcpServerOptions) {
     this.allowMutations = options.allowMutations !== false;
-    this.toolProviders = [new CoreMcpTools(options.core), ...(options.toolProviders ?? [])];
+    this.toolProviders = [
+      new CoreMcpTools(options.core, { redactSensitive: options.redactSensitive }),
+      ...(options.toolProviders ?? []),
+    ];
     const { scheduler } = options.core;
     this.#avoidanceState = () => scheduler.getAvoidanceState();
   }

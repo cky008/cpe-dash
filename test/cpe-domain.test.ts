@@ -391,7 +391,7 @@ describe("CpeDomain telemetry & router control actions", () => {
     });
 
     const outcome = await client.withSessionDetailed((session) =>
-      fetchGlobalTelemetry(session, { redactSensitive: true })
+      fetchGlobalTelemetry(session)
     );
     assert.equal(outcome.status, "ok");
     if (outcome.status !== "ok") return;
@@ -426,7 +426,7 @@ describe("CpeDomain telemetry & router control actions", () => {
 
     const bundle = await client.withSession(async (session) => ({
       neighbors: await scanNeighborCells(session),
-      topology: await fetchTerminalTopology(session, { sanitize: true }),
+      topology: await fetchTerminalTopology(session),
       settings: await fetchRouterSettings(session),
     }));
     assert.ok(bundle);

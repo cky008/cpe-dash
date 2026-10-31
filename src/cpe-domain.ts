@@ -29,14 +29,6 @@ import {
   parseTrafficSnapshot,
   summarizeTopologyJson,
 } from "./parsers.ts";
-import {
-  IMEI_VISIBLE_DIGITS,
-  IMSI_VISIBLE_DIGITS,
-  maskIdentityDigits,
-  maskMacTail,
-  maskPhoneNumber,
-} from "./privacy-mask.ts";
-import { sanitizeIpToken } from "./sanitize.ts";
 import { parseSmsCountersOrNull } from "./sms/codec.ts";
 import type { SmsCounters } from "./sms/types.ts";
 import { getXmlTag } from "./xml.ts";
@@ -72,8 +64,9 @@ export interface DeviceIdentitySnapshot {
   /** `<WanMacAddress>`, else `<MacAddress1>`; `""` when absent. */
   macAddress: string;
   /**
-   * `true` when REDACT_SENSITIVE_IN_API masked the identifiers above, the WAN addresses and DNS
-   * servers before the snapshot left the daemon (a UI cannot reveal what it never received).
+   * `true` only on the copies REDACT_SENSITIVE_IN_API hands to Bearer API / SSE clients and MCP
+   * (src/redact.ts), where the identifiers above, the WAN addresses and DNS servers are masked.
+   * The daemon's own snapshot, and what the web console receives, always carry the plain values.
    */
   sensitiveRedacted: boolean;
 }
@@ -238,13 +231,12 @@ function requireTag(xml: string, tag: string, apiPath: string): string {
   return value.trim();
 }
 
-function splitDnsList(raw: string | null | undefined, redact: boolean): string[] {
+function splitDnsList(raw: string | null | undefined): string[] {
   if (!raw) return [];
   return raw
     .split(/[,;\s]+/)
     .map((s) => s.trim())
-    .filter(Boolean)
-    .map((ip) => (redact ? sanitizeIpToken(ip) : ip));
+    .filter(Boolean);
 }
 
 function decodeAntennaCode(code: string | null | undefined): AntennaModeName {
@@ -286,10 +278,8 @@ function parseWifi7DbhoJson(rawJson: string): { mloEnable: boolean; dbhoEnable: 
  */
 export async function fetchGlobalTelemetry(
   session: EphemeralCpeSession,
-  options: { redactSensitive?: boolean; includeSmsCounters?: boolean } = {}
+  options: { includeSmsCounters?: boolean } = {}
 ): Promise<GlobalTelemetrySnapshot> {
-  const redact = options.redactSensitive !== false;
-
   const [
     signalXml,
     secCellXml,
@@ -326,7 +316,7 @@ export async function fetchGlobalTelemetry(
     riXml,
     cellInfoXml,
     plmnXml,
-    redactIdentifiers: redact,
+    redactIdentifiers: false,
   });
 
   const rawTraffic = parseTrafficSnapshot({ trafficXml, monthXml, startDateXml });
@@ -400,18 +390,18 @@ export async function fetchGlobalTelemetry(
       webUiVersion: getXmlTag(deviceInfoXml, "WebUIVersion") ?? "",
       uptimeSec: Number.parseInt(getXmlTag(deviceInfoXml, "uptime") ?? "0", 10) || 0,
       workMode: getXmlTag(deviceInfoXml, "workmode") ?? "",
-      wanIpv4: redact && rawWanV4 ? sanitizeIpToken(rawWanV4) : rawWanV4,
-      wanDnsV4: splitDnsList(getXmlTag(deviceInfoXml, "wan_dns_address"), redact),
-      wanIpv6: redact && rawWanV6 ? sanitizeIpToken(rawWanV6) : rawWanV6,
-      wanDnsV6: splitDnsList(getXmlTag(deviceInfoXml, "wan_ipv6_dns_address"), redact),
+      wanIpv4: rawWanV4,
+      wanDnsV4: splitDnsList(getXmlTag(deviceInfoXml, "wan_dns_address")),
+      wanIpv6: rawWanV6,
+      wanDnsV6: splitDnsList(getXmlTag(deviceInfoXml, "wan_ipv6_dns_address")),
       connectionStatus: getXmlTag(statusXml, "ConnectionStatus") ?? "",
       signalIconBars: Number.parseInt(getXmlTag(statusXml, "SignalIcon") ?? "0", 10) || 0,
       simStatus: getXmlTag(statusXml, "SimStatus") ?? "",
-      imei: redact ? maskIdentityDigits(rawImei, IMEI_VISIBLE_DIGITS) : rawImei,
-      imsi: redact ? maskIdentityDigits(rawImsi, IMSI_VISIBLE_DIGITS) : rawImsi,
-      msisdn: redact ? maskPhoneNumber(rawMsisdn) : rawMsisdn,
-      macAddress: redact ? maskMacTail(rawMac) : rawMac,
-      sensitiveRedacted: redact,
+      imei: rawImei,
+      imsi: rawImsi,
+      msisdn: rawMsisdn,
+      macAddress: rawMac,
+      sensitiveRedacted: false,
     },
     rf,
     bandConfig: {
@@ -450,16 +440,13 @@ export async function scanNeighborCells(
 /**
  * Query LAN & Wi-Fi 7 terminal topology (`GET /api/system/HostInfo` + `GET /api/system/topology`).
  */
-export async function fetchTerminalTopology(
-  session: EphemeralCpeSession,
-  options: { sanitize?: boolean } = {}
-): Promise<TerminalTopologySnapshot> {
+export async function fetchTerminalTopology(session: EphemeralCpeSession): Promise<TerminalTopologySnapshot> {
   const [hostInfoJson, topologyJson] = await Promise.all([
     session.get("/api/system/HostInfo"),
     optionalGet(session, "/api/system/topology"),
   ]);
 
-  const hosts = parseHostInfoJson(hostInfoJson, { sanitize: options.sanitize !== false });
+  const hosts = parseHostInfoJson(hostInfoJson, { sanitize: false });
   const summary = summarizeTopologyJson(topologyJson);
   const countsByMedium: Record<TerminalAccessMedium, number> = {
     LAN_1000M: 0,
@@ -490,11 +477,7 @@ export async function fetchTerminalTopology(
  * Antenna mode, and Mobile Data switch. All-or-nothing: the snapshot is made of booleans, so any
  * failed or malformed read fails the refresh instead of reporting a guessed switch state.
  */
-export async function fetchRouterSettings(
-  session: EphemeralCpeSession,
-  options: { sanitize?: boolean } = {}
-): Promise<RouterSettingsSnapshot> {
-  const sanitize = options.sanitize !== false;
+export async function fetchRouterSettings(session: EphemeralCpeSession): Promise<RouterSettingsSnapshot> {
   const [
     upnpXml,
     dmzXml,
@@ -527,7 +510,7 @@ export async function fetchRouterSettings(
     capturedAtMs: nowMs,
     upnpEnabled: requireTag(upnpXml, "UpnpStatus", "/api/security/upnp") === "1",
     dmzEnabled: requireTag(dmzXml, "DmzStatus", "/api/security/dmz") === "1",
-    dmzIpAddress: sanitize && rawDmzIp ? sanitizeIpToken(rawDmzIp) : rawDmzIp,
+    dmzIpAddress: rawDmzIp,
     firewall,
     natType: Number.parseInt(requireTag(natXml, "NATType", "/api/security/nat"), 10) || 1,
     bridgeModeEnabled: requireTag(bridgeXml, "bridgemode", "/api/security/bridgemode") === "1",

@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { FengSuiCore } from "./core.ts";
+import type { GlobalTelemetrySnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
+import { redactTelemetry, redactTopology } from "./redact.ts";
 import type { SmsService } from "./sms/service.ts";
 
 export type SseEventName =
@@ -27,6 +29,8 @@ interface SseClientEntry {
   clientIp: string;
   sessionId: string | null;
   expiresAtMs: number | null;
+  /** Bearer subscriber under REDACT_SENSITIVE_IN_API: receives the redacted copy of an event. */
+  redact: boolean;
   res: ServerResponse;
   connectedAtMs: number;
   consecutiveBackpressureCount: number;
@@ -45,7 +49,8 @@ const SAFE_EVENT_RE = /^[a-zA-Z0-9:_-]{1,64}$/;
  * - Per-IP and global connection caps;
  * - Single-line `JSON.stringify` framing preventing CRLF / fake-event injection;
  * - Backpressure slow-consumer eviction (`max 3` stalled writes);
- * - Periodic `: heartbeat <unixMs>` keepalive & automatic session-expiry / logout disconnect.
+ * - Periodic `: heartbeat <unixMs>` keepalive & automatic session-expiry / logout disconnect;
+ * - Per-subscriber REDACT_SENSITIVE_IN_API copies of telemetry and topology events.
  */
 export class SseEventBus {
   readonly heartbeatMs: number;
@@ -103,10 +108,10 @@ export class SseEventBus {
     }
     const { scheduler, monitor } = core;
 
-    const onTelemetry = (data: unknown) => this.broadcast("telemetry", data);
+    const onTelemetry = (data: GlobalTelemetrySnapshot) => this.broadcast("telemetry", data, redactTelemetry);
     const onSpeed = (data: unknown) => this.broadcast("speed", data);
     const onNeighbors = (data: unknown) => this.broadcast("neighbors", data);
-    const onTopology = (data: unknown) => this.broadcast("topology", data);
+    const onTopology = (data: TerminalTopologySnapshot) => this.broadcast("topology", data, redactTopology);
     const onSettings = (data: unknown) => this.broadcast("settings", data);
     const onAvoidance = (data: unknown) => this.broadcast("session:avoidance", data);
     const onAlert = (data: unknown) => this.broadcast("alert", data);
@@ -160,6 +165,8 @@ export class SseEventBus {
     clientIp: string;
     sessionId?: string | null;
     expiresAtMs?: number | null;
+    /** Send redacted copies of later telemetry / topology events (the initial snapshot is the caller's). */
+    redact?: boolean;
     initialSnapshot?: {
       schedulerStatus: unknown;
       avoidance: unknown;
@@ -198,6 +205,7 @@ export class SseEventBus {
       clientIp: params.clientIp,
       sessionId: params.sessionId ?? null,
       expiresAtMs: params.expiresAtMs ?? null,
+      redact: params.redact === true,
       res,
       connectedAtMs: Date.now(),
       consecutiveBackpressureCount: 0,
@@ -258,15 +266,17 @@ export class SseEventBus {
   }
 
   /**
-   * Broadcast a typed JSON event frame to all active subscribers.
+   * Broadcast a typed JSON event frame to all active subscribers; with `redact`, subscribers marked
+   * `redact` receive `redact(payload)` instead (built once, only when such a subscriber exists).
    */
-  broadcast(eventName: SseEventName, payload: unknown): number {
+  broadcast<T>(eventName: SseEventName, payload: T, redact?: (payload: T) => unknown): number {
     if (!SAFE_EVENT_RE.test(eventName)) {
       throw new Error(`Unsafe SSE event name "${eventName}"`);
     }
     const eventId = ++this.#seq;
-    const jsonLine = JSON.stringify(payload ?? null);
-    const frame = `id: ${eventId}\nevent: ${eventName}\ndata: ${jsonLine}\n\n`;
+    const frameOf = (data: unknown): string => `id: ${eventId}\nevent: ${eventName}\ndata: ${JSON.stringify(data ?? null)}\n\n`;
+    const frame = frameOf(payload);
+    let redactedFrame: string | null = null;
 
     let delivered = 0;
     const nowMs = Date.now();
@@ -276,7 +286,8 @@ export class SseEventBus {
         this.#closeClient(entry);
         continue;
       }
-      if (this.#writeRaw(entry, frame)) {
+      const chunk = entry.redact && redact ? (redactedFrame ??= frameOf(redact(payload))) : frame;
+      if (this.#writeRaw(entry, chunk)) {
         delivered += 1;
       } else {
         this.#clients.delete(id);
