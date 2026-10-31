@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] — 2026-10-31
+
+### Fixed
+- **Phone layout.** Card headers wrap instead of squeezing (the neighbor card no longer breaks its title, stacks the cell count vertically or overlaps its filter buttons); on phones the neighbor and topology tables keep only the columns needed to act, so "Lock to this cell" and "Block / Restore" stay on screen; the header bar no longer covers the seal on narrow phones. Fits without sideways scrolling at 360, 393 and 430 px.
+
 ## [1.1.1] — 2026-10-31
 
 ### Fixed
@@ -62,6 +67,7 @@ First production release: one container that monitors a Huawei 5G CPE Ultra 6 (H
 ### Known limitations
 See [`docs/PHASE2_ARCHITECTURE_REPORT.md` §7.4](docs/PHASE2_ARCHITECTURE_REPORT.md#74-已知限制phase-3) and §6.8.
 
+[1.1.2]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.2
 [1.1.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.1
 [1.1.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.0
 [1.0.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.0.1
