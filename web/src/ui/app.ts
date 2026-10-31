@@ -17,6 +17,7 @@ import { mountOperatorCards } from "./operator-cards.ts";
 import { mountRfCard } from "./rf-card.ts";
 import { applyI18n, confirmDialog, describeError, showToast } from "./services.ts";
 import { applyTheme, watchSystemTheme } from "./theme.ts";
+import { mountTopology } from "./topology.ts";
 import { mountTrafficCard } from "./traffic-card.ts";
 
 /** Scheduler status has no SSE frame of its own; this in-memory read costs the router nothing. */
@@ -225,6 +226,7 @@ export async function startApp(): Promise<void> {
       mountTrafficCard(ctx);
       mountHealthCard(ctx);
       mountNeighbors(ctx);
+      mountTopology(ctx);
       applyI18n(tr);
       void api
         .health()
