@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import type { AccessControlSnapshot } from "./access-control.ts";
 import type {
   GlobalTelemetrySnapshot,
   NeighborScanSnapshot,
@@ -29,6 +30,7 @@ export interface PersistedRuntimeState {
   latestNeighbors: NeighborScanSnapshot | null;
   latestTopology: TerminalTopologySnapshot | null;
   latestSettings: RouterSettingsSnapshot | null;
+  latestAccessControl: AccessControlSnapshot | null;
   recentAlerts: AlertEventRecord[];
   timeseries: SerializedTimeSeriesSnapshot | null;
 }
@@ -57,6 +59,7 @@ function createDefaultState(): PersistedRuntimeState {
     latestNeighbors: null,
     latestTopology: null,
     latestSettings: null,
+    latestAccessControl: null,
     recentAlerts: [],
     timeseries: null,
   };
@@ -90,6 +93,12 @@ function upgradeTelemetry(snapshot: GlobalTelemetrySnapshot | null): GlobalTelem
  * - Gracefully recovers if `DATA_ENCRYPTION_KEY` / `CPE_PASSWORD` was rotated (renames unreadable file to
  *   `*.unreadable-<ts>` instead of crash-looping).
  */
+/** Snapshots saved before `isLocalDevice` existed read it as `false`. */
+function upgradeTopology(snapshot: TerminalTopologySnapshot | null): TerminalTopologySnapshot | null {
+  if (!snapshot || !Array.isArray(snapshot.hosts)) return snapshot;
+  return { ...snapshot, hosts: snapshot.hosts.map((host) => ({ ...host, isLocalDevice: host.isLocalDevice === true })) };
+}
+
 export class EncryptedStateStore {
   readonly filePath: string;
   #cipher: StorageCipher;
@@ -119,6 +128,7 @@ export class EncryptedStateStore {
         ...createDefaultState(),
         ...loaded,
         latestTelemetry: upgradeTelemetry(loaded.latestTelemetry ?? null),
+        latestTopology: upgradeTopology(loaded.latestTopology ?? null),
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
       };
     }

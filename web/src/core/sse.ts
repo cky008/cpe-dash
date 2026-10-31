@@ -18,6 +18,7 @@ const EVENT_NAME_SET: Readonly<Record<SseEventName, true>> = {
   neighbors: true,
   topology: true,
   settings: true,
+  "access-control": true,
   "session:avoidance": true,
   "control:applied": true,
   alert: true,

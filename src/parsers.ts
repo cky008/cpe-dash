@@ -147,6 +147,8 @@ export interface TerminalHostEntry {
   addressSource: string;
   leaseTimeRemainingSec: number | null;
   associatedTimeSec: number | null;
+  /** `IsLocalDevice`: the router's mark for the client that requested HostInfo (FengSui's host). */
+  isLocalDevice: boolean;
 }
 
 export interface TopologySummary {
@@ -628,6 +630,7 @@ export function parseHostInfoJson(
       addressSource: asString(rec, "AddressSource"),
       leaseTimeRemainingSec: asNumberOrNull(rec, "LeaseTime"),
       associatedTimeSec: asNumberOrNull(rec, "AssociatedTime"),
+      isLocalDevice: asBool(rec, "IsLocalDevice"),
     });
   }
   return out;

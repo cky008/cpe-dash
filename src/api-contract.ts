@@ -4,6 +4,8 @@
  * (`satisfies`), and the web dashboard imports the same declarations, so a field renamed on one side
  * fails to compile on the other. Type-only module: it emits nothing at runtime.
  */
+import type { AccessControlSnapshot, TimeRulesState } from "./access-control.ts";
+import type { MacFilterEntry, TimeRule, TimeRuleInput, WifiFilterMode, WifiFilterPolicy, WifiMacFilterState } from "./access-plan.ts";
 import type { AlertEventRecord } from "./state-store.ts";
 import type {
   AntennaModeName,
@@ -39,6 +41,7 @@ import type { TimeSeriesQueryResult } from "./timeseries.ts";
 import type { CircuitBreakerState, SupportedLocale } from "./types.ts";
 
 export type {
+  AccessControlSnapshot,
   AlertEventRecord,
   AntennaModeName,
   FirewallSwitchState,
@@ -51,6 +54,7 @@ export type {
   EnrichedSmsMessage,
   GlobalTelemetrySnapshot,
   LockVerification,
+  MacFilterEntry,
   NeighborScanSnapshot,
   PersistedLockState,
   RouterSettingsSnapshot,
@@ -67,7 +71,13 @@ export type {
   SpeedTickPayload,
   SupportedLocale,
   TerminalTopologySnapshot,
+  TimeRule,
+  TimeRuleInput,
+  TimeRulesState,
   VcardImportSummary,
+  WifiFilterMode,
+  WifiFilterPolicy,
+  WifiMacFilterState,
 };
 export type { NeighborCellEntry, TerminalAccessMedium, TerminalHostEntry } from "./parsers.ts";
 export type { SchedulerMode } from "./scheduler.ts";
@@ -254,6 +264,30 @@ export interface MobileDataControlResponse {
   mobileDataEnabled: boolean;
 }
 
+/** Devices the access-control writes refuse to cut off, as seen for this caller. */
+export interface AccessGuardInfo {
+  /** The machine running FengSui (`IsLocalDevice` in HostInfo); `null` before the first topology read. */
+  daemonHostMac: string | null;
+  /** The caller's own device when its address is a LAN host; `null` behind a proxy or Tailscale. */
+  requesterMac: string | null;
+}
+
+export interface AccessControlEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  accessControl: AccessControlSnapshot | null;
+  guard: AccessGuardInfo;
+}
+
+export interface AccessControlChangeResponse {
+  ok: true;
+  accessControl: AccessControlSnapshot | null;
+  /** `false` when the router already was in the requested state (nothing written). */
+  changed: boolean;
+  /** Other devices the change cut off (stored blacklist entries, Wi-Fi devices left off a whitelist). */
+  alsoBlocked: string[];
+}
+
 export interface ResetBreakerResponse {
   ok: true;
   circuitBreaker: CircuitBreakerState;
@@ -361,6 +395,29 @@ export interface Wifi7ControlRequest {
   dbhoEnable?: boolean;
 }
 
+export interface WifiDeviceAccessRequest {
+  action: "block" | "unblock";
+  macAddress: string;
+  name?: string;
+  confirm: true;
+}
+
+/** `mode` (with optional `entries`) switches the filter; otherwise `add` / `remove` edit the active list. */
+export interface WifiMacFilterRequest {
+  mode?: WifiFilterMode;
+  entries?: MacFilterEntry[];
+  add?: MacFilterEntry[];
+  remove?: string[];
+  confirm: true;
+}
+
+export interface TimeRuleRequest {
+  action: "create" | "update" | "delete";
+  id?: string;
+  rule?: TimeRuleInput;
+  confirm: true;
+}
+
 export interface SmsPreviewRequest {
   phone?: string;
   content: string;
@@ -410,6 +467,7 @@ export interface SseEventPayloads {
   neighbors: NeighborScanSnapshot;
   topology: TerminalTopologySnapshot;
   settings: RouterSettingsSnapshot;
+  "access-control": AccessControlSnapshot;
   "session:avoidance": AvoidanceBroadcastPayload;
   "control:applied": ControlAppliedEvent;
   alert: AlertEventRecord;

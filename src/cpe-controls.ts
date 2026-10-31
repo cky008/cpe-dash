@@ -1,4 +1,11 @@
 import {
+  type AccessControlSnapshot,
+  type AccessRequestContext,
+  applyTimeRuleChange,
+  applyWifiAccessChange,
+} from "./access-control.ts";
+import type { TimeRuleChange, WifiAccessChange } from "./access-plan.ts";
+import {
   type AntennaModeName,
   type BandLockCommand,
   type CellLockCommand,
@@ -22,9 +29,19 @@ import {
   verifyLockState,
 } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
-import { t } from "./i18n.ts";
+import { type I18nKey, t } from "./i18n.ts";
+import { maskMacTail } from "./privacy-mask.ts";
 import type { ControlSummary, MutexSessionScheduler } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
+
+export interface AccessControlResult {
+  /** The router's state after the change (`null` only if it could not be read back). */
+  accessControl: AccessControlSnapshot | null;
+  /** `false` when the router already was in the requested state and nothing was written. */
+  changed: boolean;
+  /** MACs of other devices this change cut off (stored blacklist entries, devices left off a whitelist). */
+  alsoBlocked: string[];
+}
 
 export interface CpeControlServiceOptions {
   scheduler: MutexSessionScheduler;
@@ -33,7 +50,8 @@ export interface CpeControlServiceOptions {
 }
 
 /**
- * Write side of FengSui: RF locks, reboot/reconnect and router switches. Every command is validated
+ * Write side of FengSui: RF locks, reboot/reconnect, router switches and device access control
+ * (Wi-Fi MAC filter, internet time rules). Every command is validated
  * before it is queued (no session for bad input), runs as one `executeControl` session (never
  * replayed, refused with `409` while a human is logged in), and updates the persisted lock state or
  * the cached settings snapshot afterwards.
@@ -190,10 +208,76 @@ export class CpeControlService {
     return result;
   }
 
+  /**
+   * Block / unblock a Wi-Fi device or change the Wi-Fi MAC filter's mode and list. The change is
+   * planned against the router's live state inside the control session (so the daemon's host and
+   * the requesting device are never cut off) and verified by reading it back.
+   */
+  async setWifiAccess(change: WifiAccessChange, ctx: AccessRequestContext & { confirm: boolean }): Promise<AccessControlResult> {
+    requireAccessConfirmation(ctx.confirm);
+    const result = await this.scheduler.executeControl(
+      "set_wifi_access",
+      (session) => applyWifiAccessChange(session, change, ctx),
+      () => wifiAccessSummary(change)
+    );
+    return {
+      accessControl: await this.#foldAccessControl({ wifiMacFilter: result.wifiMacFilter }),
+      changed: result.plan.write !== null,
+      alsoBlocked: result.plan.alsoBlocked,
+    };
+  }
+
+  /** Create, update or delete an internet time rule ("allowed online window") for one device. */
+  async manageTimeRule(change: TimeRuleChange, ctx: AccessRequestContext & { confirm: boolean }): Promise<AccessControlResult> {
+    requireAccessConfirmation(ctx.confirm);
+    const timeRules = await this.scheduler.executeControl(
+      "manage_time_rule",
+      (session) => applyTimeRuleChange(session, change, ctx),
+      () => timeRuleSummary(change)
+    );
+    return { accessControl: await this.#foldAccessControl({ timeRules }), changed: true, alsoBlocked: [] };
+  }
+
+  async #foldAccessControl(patch: Partial<Pick<AccessControlSnapshot, "wifiMacFilter" | "timeRules">>): Promise<AccessControlSnapshot | null> {
+    if (this.monitor.patchCachedAccessControl(patch)) return this.monitor.getCachedAccessControl();
+    return await this.monitor.refreshAccessControl({ ignoreCooldown: true });
+  }
+
   /** Persist the applied lock state before `control:applied` is broadcast with it. */
   #commitLockState(state: PersistedLockState, text: { zh: string; en: string }): ControlSummary {
     this.stateStore.update({ lockState: state });
     void this.stateStore.flushAsync().catch(() => undefined);
     return { ...text, lockState: state };
   }
+}
+
+function requireAccessConfirmation(confirm: boolean): void {
+  if (confirm !== true) {
+    throw new CpeControlValidationError("Access control changes require explicit { confirm: true }");
+  }
+}
+
+function summaryOf(key: I18nKey, params: Record<string, string | number> = {}): ControlSummary {
+  return { zh: t("zh-CN", key, params), en: t("en", key, params) };
+}
+
+/** Control summaries are broadcast and logged, so MACs keep only their vendor prefix. */
+function wifiAccessSummary(change: WifiAccessChange): ControlSummary {
+  switch (change.kind) {
+    case "block":
+      return summaryOf("controls.wifi_access_blocked", { mac: maskMacTail(change.macAddress) });
+    case "unblock":
+      return summaryOf("controls.wifi_access_unblocked", { mac: maskMacTail(change.macAddress) });
+    case "mode":
+      return summaryOf("controls.wifi_filter_mode", { mode: change.mode });
+    case "entries":
+      return summaryOf("controls.wifi_filter_entries", { count: (change.add?.length ?? 0) + (change.remove?.length ?? 0) });
+  }
+}
+
+function timeRuleSummary(change: TimeRuleChange): ControlSummary {
+  if (change.kind === "delete") return summaryOf("controls.time_rule_deleted", { detail: `#${change.id}` });
+  const r = change.rule;
+  const detail = `${maskMacTail(r.macAddress)} ${r.weekMask} ${r.startTime}-${r.endTime}`;
+  return summaryOf(change.kind === "create" ? "controls.time_rule_created" : "controls.time_rule_updated", { detail });
 }

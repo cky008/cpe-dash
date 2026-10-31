@@ -1,3 +1,5 @@
+import type { AccessControlSnapshot } from "./access-control.ts";
+import type { MacFilterEntry } from "./access-plan.ts";
 import type { GlobalTelemetrySnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
 import {
   IMEI_VISIBLE_DIGITS,
@@ -66,6 +68,20 @@ export function redactTopology(snap: TerminalTopologySnapshot): TerminalTopology
   };
 }
 
+/** Redacted copy of the Wi-Fi MAC filter lists and time rules: MACs keep their OUI, labels are hidden. */
+export function redactAccessControl(snap: AccessControlSnapshot): AccessControlSnapshot {
+  const entry = (e: MacFilterEntry): MacFilterEntry => ({ macAddress: maskMacTail(e.macAddress), name: redactWhole(e.name) });
+  return {
+    ...snap,
+    wifiMacFilter: {
+      ...snap.wifiMacFilter,
+      allowList: snap.wifiMacFilter.allowList.map(entry),
+      denyList: snap.wifiMacFilter.denyList.map(entry),
+    },
+    timeRules: { ...snap.timeRules, rules: snap.timeRules.rules.map((rule) => ({ ...rule, devices: rule.devices.map(entry) })) },
+  };
+}
+
 /** The snapshot for one response: as stored for the web console, redacted for API / MCP clients. */
 export function telemetryForOutput(snap: GlobalTelemetrySnapshot | null, redact: boolean): GlobalTelemetrySnapshot | null {
   return snap && redact ? redactTelemetry(snap) : snap;
@@ -74,4 +90,9 @@ export function telemetryForOutput(snap: GlobalTelemetrySnapshot | null, redact:
 /** See {@link telemetryForOutput}. */
 export function topologyForOutput(snap: TerminalTopologySnapshot | null, redact: boolean): TerminalTopologySnapshot | null {
   return snap && redact ? redactTopology(snap) : snap;
+}
+
+/** See {@link telemetryForOutput}. */
+export function accessControlForOutput(snap: AccessControlSnapshot | null, redact: boolean): AccessControlSnapshot | null {
+  return snap && redact ? redactAccessControl(snap) : snap;
 }

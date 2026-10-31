@@ -1,4 +1,5 @@
 import type {
+  AccessControlSnapshot,
   AlertEventRecord,
   AvoidanceBroadcastPayload,
   GlobalTelemetrySnapshot,
@@ -34,6 +35,8 @@ export interface AppState {
   neighbors: NeighborScanSnapshot | null;
   topology: TerminalTopologySnapshot | null;
   settings: RouterSettingsSnapshot | null;
+  /** Wi-Fi MAC filter and internet time rules (`GET /api/access-control`, then `access-control` frames). */
+  accessControl: AccessControlSnapshot | null;
   /** `null` until known; the daemon sends `hello.sms = null` when SMS is disabled. */
   sms: SmsStatusSnapshot | null;
   smsEnabled: boolean;
@@ -54,6 +57,7 @@ export type Topic =
   | "neighbors"
   | "topology"
   | "settings"
+  | "accessControl"
   | "sms"
   | "smsMessages"
   | "contacts"
@@ -75,6 +79,7 @@ export function initialState(): AppState {
     neighbors: null,
     topology: null,
     settings: null,
+    accessControl: null,
     sms: null,
     smsEnabled: true,
     alerts: [],
@@ -159,6 +164,8 @@ export function reduceSseEvent(state: Readonly<AppState>, event: SseEvent): Redu
       return { patch: { topology: event.data }, topics: ["topology"] };
     case "settings":
       return { patch: { settings: event.data }, topics: ["settings"] };
+    case "access-control":
+      return { patch: { accessControl: event.data }, topics: ["accessControl"] };
     case "session:avoidance": {
       const scheduler = state.scheduler ? { ...state.scheduler, avoidance: event.data } : null;
       return { patch: { avoidance: event.data, scheduler }, topics: ["scheduler"] };

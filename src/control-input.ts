@@ -1,4 +1,5 @@
 import net from "node:net";
+import type { MacFilterEntry, TimeRuleChange, TimeRuleInput, WifiAccessChange } from "./access-plan.ts";
 import type { BandInput } from "./band-lock.ts";
 import { type AntennaModeName, type CellLockCommand, CpeControlValidationError } from "./cpe-domain.ts";
 import { TimeSeriesValidationError, type TimeSeriesPreset } from "./timeseries.ts";
@@ -99,3 +100,87 @@ export function readTimeSeriesPreset(value: unknown): TimeSeriesPreset {
   }
   return preset;
 }
+
+function readString(args: Args, key: string, opts: { optional: true }): string | undefined;
+function readString(args: Args, key: string, opts?: { optional?: false }): string;
+function readString(args: Args, key: string, opts: { optional?: boolean } = {}): string | undefined {
+  const value = args[key];
+  if (value === undefined && opts.optional) return undefined;
+  if (typeof value !== "string") throw new CpeControlValidationError(`"${key}" must be a string`);
+  return value;
+}
+
+function isRecord(value: unknown): value is Args {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function readRecord(value: unknown, key: string): Args {
+  if (!isRecord(value)) throw new CpeControlValidationError(`"${key}" must be an object`);
+  return value;
+}
+
+/** `[{ macAddress, name? }]`; MAC format and list rules are checked by src/access-plan.ts. */
+export function readMacFilterEntries(args: Args, key: string): MacFilterEntry[] | undefined {
+  const value = args[key];
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 256) {
+    throw new CpeControlValidationError(`"${key}" must be an array of { macAddress, name } (at most 256)`);
+  }
+  return value.map((item, i) => {
+    const entry = readRecord(item, `${key}[${i}]`);
+    return { macAddress: readString(entry, "macAddress"), name: readString(entry, "name", { optional: true }) ?? "" };
+  });
+}
+
+/** One Wi-Fi access change from `{ action: "block" | "unblock", macAddress, name? }`. */
+export function readWifiDeviceAccess(args: Args): WifiAccessChange {
+  const action = args["action"];
+  if (action !== "block" && action !== "unblock") {
+    throw new CpeControlValidationError('"action" must be "block" or "unblock"');
+  }
+  const macAddress = readString(args, "macAddress");
+  const name = readString(args, "name", { optional: true }) ?? "";
+  return action === "block" ? { kind: "block", macAddress, name } : { kind: "unblock", macAddress, name };
+}
+
+/** `{ mode, entries? }` switches the filter; otherwise `{ add?, remove? }` edits the active list. */
+export function readWifiMacFilterChange(args: Args): WifiAccessChange {
+  const mode = args["mode"];
+  if (mode !== undefined) {
+    if (mode !== "off" && mode !== "allow" && mode !== "deny") {
+      throw new CpeControlValidationError('"mode" must be "off", "allow" or "deny"');
+    }
+    const entries = readMacFilterEntries(args, "entries");
+    return entries === undefined ? { kind: "mode", mode } : { kind: "mode", mode, entries };
+  }
+  const add = readMacFilterEntries(args, "add") ?? [];
+  const removeRaw = args["remove"] ?? [];
+  if (!Array.isArray(removeRaw) || removeRaw.some((m) => typeof m !== "string")) {
+    throw new CpeControlValidationError('"remove" must be an array of MAC addresses');
+  }
+  const remove = removeRaw.filter((m): m is string => typeof m === "string");
+  if (add.length === 0 && remove.length === 0) {
+    throw new CpeControlValidationError('Specify "mode", or "add" / "remove" entries');
+  }
+  return { kind: "entries", add, remove };
+}
+
+/** `{ action: "create" | "update" | "delete", id?, rule? }` for an internet time rule. */
+export function readTimeRuleChange(args: Args): TimeRuleChange {
+  const action = args["action"];
+  if (action !== "create" && action !== "update" && action !== "delete") {
+    throw new CpeControlValidationError('"action" must be "create", "update" or "delete"');
+  }
+  if (action === "delete") return { kind: "delete", id: readString(args, "id") };
+  const raw = readRecord(args["rule"], "rule");
+  const rule: TimeRuleInput = {
+    macAddress: readString(raw, "macAddress"),
+    name: readString(raw, "name", { optional: true }) ?? "",
+    weekMask: readString(raw, "weekMask"),
+    startTime: readString(raw, "startTime"),
+    endTime: readString(raw, "endTime"),
+    enabled: readOptionalBoolean(raw, "enabled") ?? true,
+  };
+  return action === "create" ? { kind: "create", rule } : { kind: "update", id: readString(args, "id"), rule };
+}
+

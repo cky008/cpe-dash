@@ -571,3 +571,122 @@ describe("REDACT_SENSITIVE_IN_API at the output boundary", () => {
     }
   });
 });
+
+describe("Device access control through the daemon (REST, MCP)", () => {
+  /** The test client connects from 127.0.0.1, so the "laptop" host carries that address to stand for the requester. */
+  const ACCESS_HOSTS = JSON.stringify([
+    { MACAddress: "00:00:5E:00:53:01", HostName: "nas", IPAddress: "192.168.8.10", Active: true, InterfaceType: "Ethernet", EthernetSpeed: 1000, IsLocalDevice: true },
+    { MACAddress: "00:00:5E:00:53:02", HostName: "laptop", IPAddress: "127.0.0.1", Active: true, InterfaceType: "Wireless", Frequency: "5GHz", rate: 866 },
+    { MACAddress: "00:00:5E:00:53:03", HostName: "phone", IPAddress: "192.168.8.30", Active: true, InterfaceType: "Wireless", Frequency: "5GHz", rate: 866 },
+  ]);
+
+  async function startAccessStack(extraEnv: Record<string, string> = {}) {
+    const cpe = createStrictCpe({ fault: (p, method) => (method === "GET" && p === "/api/system/HostInfo" ? { body: ACCESS_HOSTS } : undefined) });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-access-"));
+    const envPath = writeEnv(dir, { ...privacyEnv(dir, cpe.password, true), ...extraEnv });
+    const stack = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
+    const bound = await startServeDaemon(stack);
+    assert.ok(bound);
+    const base = `http://${bound.host}:${bound.port}`;
+    await waitFor(() => stack.monitor.getCachedTopology() !== null && stack.monitor.getCachedAccessControl() !== null, "seed sweep");
+    const mcp = async (method: string, params: Record<string, unknown>): Promise<string> =>
+      JSON.stringify(await stack.mcpServer.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })));
+    const close = async (): Promise<void> => {
+      await stack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    };
+    return { cpe, stack, base, mcp, close };
+  }
+
+  it("blocks, restores and schedules devices over REST with confirmation, never cutting off the daemon's host or the caller", async () => {
+    const { cpe, base, mcp, close } = await startAccessStack();
+    try {
+      const login = await fetch(`${base}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base },
+        body: JSON.stringify({ token: "runtime_api_token_v1" }),
+      });
+      const web = {
+        Cookie: /fengsui_sid=[0-9a-f]{64}/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "",
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        Origin: base,
+      };
+      const post = (route: string, body: Record<string, unknown>) => fetch(`${base}${route}`, { method: "POST", headers: web, body: JSON.stringify(body) });
+
+      const view = (await (await fetch(`${base}/api/access-control`, { headers: web })).json()) as {
+        guard: { daemonHostMac: string | null; requesterMac: string | null };
+        accessControl: { wifiMacFilter: { enabled: boolean; maxEntries: number }; timeRules: { maxRules: number } };
+      };
+      assert.deepEqual(view.guard, { daemonHostMac: "00:00:5E:00:53:01", requesterMac: "00:00:5E:00:53:02" });
+      assert.equal(view.accessControl.wifiMacFilter.enabled, false);
+      assert.equal(view.accessControl.timeRules.maxRules, 16);
+
+      const unconfirmed = await post("/api/control/wifi-access", { action: "block", macAddress: "00:00:5E:00:53:03", name: "phone" });
+      assert.equal(unconfirmed.status, 400);
+      for (const mac of ["00:00:5E:00:53:01", "00:00:5E:00:53:02"]) {
+        const refused = await post("/api/control/wifi-access", { action: "block", macAddress: mac, name: "x", confirm: true });
+        assert.equal(refused.status, 400, mac);
+        assert.match(((await refused.json()) as { message: string }).message, /cannot be cut off/);
+      }
+      assert.equal(cpe.router.macFilter.enable, "0", "refusals never reach the router");
+
+      const blocked = await post("/api/control/wifi-access", { action: "block", macAddress: "00:00:5e:00:53:03", name: "phone", confirm: true });
+      assert.equal(blocked.status, 200);
+      const blockedBody = (await blocked.json()) as { changed: boolean; accessControl: { wifiMacFilter: { denyList: Array<{ macAddress: string }> } } };
+      assert.equal(blockedBody.changed, true);
+      assert.deepEqual(blockedBody.accessControl.wifiMacFilter.denyList.map((e) => e.macAddress), ["00:00:5E:00:53:03"]);
+      assert.equal(cpe.isWifiBlocked("00:00:5E:00:53:03"), true);
+
+      const whitelist = await post("/api/control/wifi-mac-filter", { mode: "allow", entries: [{ macAddress: "00:00:5E:00:53:03", name: "phone" }], confirm: true });
+      assert.equal(whitelist.status, 400, "a whitelist without the caller's own Wi-Fi device is refused");
+
+      const rule = await post("/api/control/time-rule", {
+        action: "create",
+        rule: { macAddress: "00:00:5E:00:53:03", name: "phone", weekMask: "1111100", startTime: "07:00", endTime: "21:00" },
+        confirm: true,
+      });
+      assert.equal(rule.status, 200);
+      assert.equal(cpe.router.timeRules.rules.length, 1);
+
+      const restored = await post("/api/control/wifi-access", { action: "unblock", macAddress: "00:00:5E:00:53:03", confirm: true });
+      assert.equal(restored.status, 200);
+      assert.equal(cpe.isWifiBlocked("00:00:5E:00:53:03"), false);
+
+      const api = (await (await fetch(`${base}/api/access-control`, { headers: { Authorization: "Bearer runtime_api_token_v1" } })).json()) as {
+        guard: { daemonHostMac: string };
+        accessControl: { timeRules: { rules: Array<{ devices: Array<{ macAddress: string; name: string }> }> } };
+      };
+      assert.equal(api.guard.daemonHostMac, "00:00:5E:**:**:**");
+      assert.deepEqual(api.accessControl.timeRules.rules[0]?.devices, [{ macAddress: "00:00:5E:**:**:**", name: "<REDACTED>" }]);
+
+      const tools = await mcp("tools/list", {});
+      assert.match(tools, /"get_access_control"/);
+      assert.doesNotMatch(tools, /set_device_internet_access|manage_internet_time_rule/, "AI cannot cut devices off by default");
+      assert.match(await mcp("tools/call", { name: "set_device_internet_access", arguments: { action: "block", macAddress: "00:00:5E:00:53:03", confirm: true } }), /"isError":true|error/i);
+      assert.equal(cpe.isWifiBlocked("00:00:5E:00:53:03"), false);
+    } finally {
+      await close();
+    }
+  });
+
+  it("lets MCP agents block and restore devices by LAN address once MCP_ALLOW_ACCESS_CONTROL=true, with confirmation", async () => {
+    const { cpe, mcp, close } = await startAccessStack({ MCP_ALLOW_ACCESS_CONTROL: "true" });
+    try {
+      assert.match(await mcp("tools/list", {}), /set_device_internet_access.*set_wifi_mac_filter.*manage_internet_time_rule/s);
+      assert.match(await mcp("tools/call", { name: "set_device_internet_access", arguments: { action: "block", ipv4Address: "192.168.8.30" } }), /CONFIRMATION_REQUIRED/);
+      await mcp("tools/call", { name: "set_device_internet_access", arguments: { action: "block", ipv4Address: "192.168.8.30", confirm: true } });
+      assert.equal(cpe.isWifiBlocked("00:00:5E:00:53:03"), true);
+      assert.match(await mcp("tools/call", { name: "set_device_internet_access", arguments: { action: "block", ipv4Address: "192.168.8.10", confirm: true } }), /runs FengSui/);
+      await mcp("tools/call", { name: "set_wifi_mac_filter", arguments: { mode: "off", confirm: true } });
+      assert.equal(cpe.isWifiBlocked("00:00:5E:00:53:03"), false);
+      await mcp("tools/call", {
+        name: "manage_internet_time_rule",
+        arguments: { action: "create", ipv4Address: "192.168.8.30", weekMask: "0000011", startTime: "09:00", endTime: "23:00", confirm: true },
+      });
+      assert.equal(cpe.router.timeRules.rules[0]?.WeekEnable, "0000011");
+    } finally {
+      await close();
+    }
+  });
+});

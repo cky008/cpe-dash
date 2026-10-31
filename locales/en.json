@@ -73,7 +73,14 @@
     "antenna_updated": "Antenna mode switched to: {mode}",
     "mobile_data_updated": "Mobile data master switch updated",
     "yielded_cannot_mutate": "A human admin is currently logged into CPE WebUI (192.168.8.1); control mutation politely aborted",
-    "peer_daemon_active": "Another FengSui daemon ({address}) drives this CPE; this one is on standby and stays off the router"
+    "peer_daemon_active": "Another FengSui daemon ({address}) drives this CPE; this one is on standby and stays off the router",
+    "wifi_access_blocked": "Blocked {mac} from Wi-Fi (MAC blacklist)",
+    "wifi_access_unblocked": "Restored Wi-Fi access for {mac}",
+    "wifi_filter_mode": "Wi-Fi MAC filter switched to: {mode}",
+    "wifi_filter_entries": "Wi-Fi MAC filter list updated ({count} devices)",
+    "time_rule_created": "Internet time rule added: {detail}",
+    "time_rule_updated": "Internet time rule updated: {detail}",
+    "time_rule_deleted": "Internet time rule deleted: {detail}"
   },
   "topology": {
     "section_title": "LAN Connected Terminal Topology",

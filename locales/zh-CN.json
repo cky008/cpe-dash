@@ -73,7 +73,14 @@
     "antenna_updated": "天线模式已切换为：{mode}",
     "mobile_data_updated": "移动数据总开关已更新",
     "yielded_cannot_mutate": "检测到真人正在登录 CPE 官方后台 (192.168.8.1)，为防止踢掉当前管理员，控制指令已礼貌取消",
-    "peer_daemon_active": "另一台主机（{address}）上的「烽燧」守护进程正在管理这台 CPE，本进程处于待机，不访问路由器"
+    "peer_daemon_active": "另一台主机（{address}）上的「烽燧」守护进程正在管理这台 CPE，本进程处于待机，不访问路由器",
+    "wifi_access_blocked": "已禁止 {mac} 连接 Wi-Fi（MAC 黑名单）",
+    "wifi_access_unblocked": "已恢复 {mac} 的 Wi-Fi 访问",
+    "wifi_filter_mode": "Wi-Fi MAC 过滤已切换为：{mode}",
+    "wifi_filter_entries": "Wi-Fi MAC 过滤名单已更新（{count} 台）",
+    "time_rule_created": "已新增上网时段规则：{detail}",
+    "time_rule_updated": "已更新上网时段规则：{detail}",
+    "time_rule_deleted": "已删除上网时段规则：{detail}"
   },
   "topology": {
     "section_title": "局域网接入终端拓扑",

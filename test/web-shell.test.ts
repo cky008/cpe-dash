@@ -326,8 +326,8 @@ function sseHarness(authenticated: () => Promise<boolean>) {
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 describe("web core: SSE reconnect state machine", () => {
-  it("lists the 15 contract events and backs off with capped jitter", () => {
-    assert.equal(SSE_EVENT_NAMES.length, 15);
+  it("lists the 16 contract events and backs off with capped jitter", () => {
+    assert.equal(SSE_EVENT_NAMES.length, 16);
     assert.equal(backoffDelayMs(0, () => 0), 500);
     assert.equal(backoffDelayMs(0, () => 1), 1000);
     assert.equal(backoffDelayMs(3, () => 1), 8000);

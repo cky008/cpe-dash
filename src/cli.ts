@@ -9,6 +9,7 @@ import type { CpeControlService } from "./cpe-controls.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { type FileLockHandle, StorageCipher, tryAcquireFileLock } from "./encrypted-file.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
+import { AccessControlMcpTools } from "./mcp-access-tools.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
 import { McpStdioBridge } from "./mcp-stdio-bridge.ts";
 import { PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "./peer-guard.ts";
@@ -293,12 +294,18 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
 
   // REST and SSE read it from the HTTP server's config, which reset-breaker reloads; MCP follows here
   let redactApiOutput = config.redactSensitiveInApi;
+  const accessTools = new AccessControlMcpTools({
+    core,
+    allowWrites: config.mcpAllowAccessControl,
+    redactSensitive: () => redactApiOutput,
+  });
   const mcpServer = new FengSuiMcpServer({
     core,
     allowMutations: config.mcpAllowMutations,
     redactSensitive: () => redactApiOutput,
     toolProviders: sms
       ? [
+          accessTools,
           new SmsMcpTools({
             sms,
             access: config.mcpSmsAccess,
@@ -306,7 +313,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
             sendLimitPerHour: config.mcpSmsSendLimitPerHour,
           }),
         ]
-      : [],
+      : [accessTools],
   });
 
   const httpServer = new FengSuiHttpServer({

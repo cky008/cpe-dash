@@ -104,7 +104,41 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
     firewall: { main: 1, ipFilter: 1, wanPing: 0, macFilter: 0, urlFilter: 0 },
     wifi: { MloEnable: true, DbhoEnable: true },
     dmz: { status: 0, ip: "" },
+    /**
+     * Wi-Fi MAC filter as firmware 4.4.0.1 keeps it: one router-wide switch and policy, and per SSID
+     * (Index 0-12) a whitelist and a blacklist of numbered slots. A write names one SSID and a status:
+     * 0 turns the filter off, 1 / 2 enforce the whitelist / blacklist and replace the slots it sends.
+     */
+    macFilter: {
+      enable: "0" as "0" | "1",
+      status: "2" as "1" | "2",
+      maxEntries: 64,
+      ssids: Array.from({ length: 13 }, () => ({ allow: [] as string[][], deny: [] as string[][] })),
+    },
+    /** Parental-control "internet time" rules (`/api/timerule/timerule`). */
+    timeRules: {
+      max: 16,
+      nextId: 1,
+      rules: [] as Array<{ ID: string; Enable: string; TimeMode: string; WeekEnable: string; StartTime: string; EndTime: string; macs: string[]; names: string[] }>,
+    },
   };
+
+  const macFilterSlots = (slots: string[][]): string =>
+    slots
+      .filter((slot) => slot[0])
+      .map((slot, i) => `<wifihostname${i}>${slot[1] ?? ""}</wifihostname${i}><WifiMacFilterMac${i}>${slot[0]}</WifiMacFilterMac${i}>`)
+      .join("");
+  const macFilterXml = (): string =>
+    `<response><Ssids>${router.macFilter.ssids
+      .map((ssid, index) => `<Ssid><wifimacwhitelist>${macFilterSlots(ssid.allow)}</wifimacwhitelist><Index>${index}</Index><wifimacblacklist>${macFilterSlots(ssid.deny)}</wifimacblacklist></Ssid>`)
+      .join("")}</Ssids><wifimacfilterstatus>${router.macFilter.status}</wifimacfilterstatus><enable>${router.macFilter.enable}</enable></response>`;
+  const timeRulesXml = (): string =>
+    `<response><TimeControlRules>${router.timeRules.rules
+      .map(
+        (r) =>
+          `<TimeControlRule><ID>${r.ID}</ID><Enable>${r.Enable}</Enable><TimeMode>${r.TimeMode}</TimeMode><WeekEnable>${r.WeekEnable}</WeekEnable><StartTime>${r.StartTime}</StartTime><EndTime>${r.EndTime}</EndTime><DevicesMACs>${r.macs.map((m) => `<DevicesMAC>${m}</DevicesMAC>`).join("")}</DevicesMACs><DevicesNames>${r.names.map((n) => `<DevicesName>${n}</DevicesName>`).join("")}</DevicesNames></TimeControlRule>`
+      )
+      .join("")}</TimeControlRules><TimeRuleMaxNum>${router.timeRules.max}</TimeRuleMaxNum></response>`;
 
   const stats = {
     requests: [] as Array<{ path: string; method: string }>,
@@ -298,6 +332,11 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
         return reply(`<response><DmzStatus>${router.dmz.status}</DmzStatus><DmzIPAddress>${router.dmz.ip}</DmzIPAddress></response>`);
       }
       if (p === "/api/wlan/wlandbho") return reply(JSON.stringify(router.wifi));
+      if (p === "/api/wlan/multi-macfilter-settings-ex") return reply(macFilterXml());
+      if (p === "/api/wlan/wifi-feature-switch") {
+        return reply(`<response><wifimaxmacfilternum>${router.macFilter.maxEntries}</wifimaxmacfilternum><wifimacfilterextendenable>1</wifimacfilterextendenable></response>`);
+      }
+      if (p === "/api/timerule/timerule") return reply(timeRulesXml());
       if (p === "/api/sms/sms-count") {
         const unread = inbox.filter((m) => m.smstat === "0").length;
         return reply(
@@ -333,6 +372,57 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
     }
     if (p === "/api/security/dmz") {
       router.dmz = { status: Number(getXmlTag(plainBody, "DmzStatus")), ip: getXmlTag(plainBody, "DmzIPAddress") ?? "" };
+      return reply("<response>OK</response>");
+    }
+    if (p === "/api/wlan/multi-macfilter-settings") {
+      for (const block of getXmlBlocks(plainBody, "Ssid")) {
+        const ssid = router.macFilter.ssids[Number(getXmlTag(block, "Index"))];
+        const status = getXmlTag(block, "WifiMacFilterStatus");
+        if (!ssid || (status !== "0" && status !== "1" && status !== "2")) return xmlError("100006");
+        if (status === "0") {
+          router.macFilter.enable = "0";
+        } else {
+          router.macFilter.enable = "1";
+          router.macFilter.status = status;
+        }
+        const list = (status === "0" ? router.macFilter.status : status) === "1" ? ssid.allow : ssid.deny;
+        // Names stay exactly as sent (Huawei-xss encoded), like the router echoes them back
+        const names = new Map([...block.matchAll(/<wifihostname(\d{1,3})>([^<]*)<\/wifihostname\1>/g)].map((m) => [m[1], m[2] ?? ""]));
+        for (const m of block.matchAll(/<WifiMacFilterMac(\d{1,3})>([^<]*)<\/WifiMacFilterMac\1>/g)) {
+          const slot = Number(m[1]);
+          if (slot >= router.macFilter.maxEntries) return xmlError("100006");
+          list[slot] = [m[2] ?? "", names.get(m[1] ?? "") ?? ""];
+        }
+        const kept = list.filter((slot) => slot[0]);
+        list.length = 0;
+        list.push(...kept);
+      }
+      return reply("<response>OK</response>");
+    }
+    if (p === "/api/timerule/timerule") {
+      const r = getXmlBlocks(plainBody, "TimeControlRule")[0] ?? "";
+      const action = getXmlTag(r, "Action");
+      const fields = {
+        Enable: getXmlTag(r, "Enable") ?? "1",
+        TimeMode: getXmlTag(r, "TimeMode") ?? "0",
+        WeekEnable: getXmlTag(r, "WeekEnable") ?? "",
+        StartTime: getXmlTag(r, "StartTime") ?? "",
+        EndTime: getXmlTag(r, "EndTime") ?? "",
+        macs: getXmlBlocks(r, "DevicesMAC"),
+        names: getXmlBlocks(r, "DevicesName"),
+      };
+      const id = getXmlTag(r, "ID") ?? "";
+      const at = router.timeRules.rules.findIndex((rule) => rule.ID === id);
+      if (action === "create") {
+        if (router.timeRules.rules.length >= router.timeRules.max) return xmlError("100006");
+        router.timeRules.rules.push({ ID: String(router.timeRules.nextId++), ...fields });
+      } else if (action === "update" && at >= 0) {
+        router.timeRules.rules[at] = { ID: id, ...fields };
+      } else if (action === "delete" && at >= 0) {
+        router.timeRules.rules.splice(at, 1);
+      } else {
+        return xmlError("100006");
+      }
       return reply("<response>OK</response>");
     }
     if (p === "/api/wlan/wlandbho") {
@@ -406,6 +496,13 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
         if (adminSession?.owner === "human") adminSession = null;
         humanCrossIp = false;
       },
+    },
+    /** Whether the Wi-Fi MAC filter keeps this MAC off Wi-Fi (the router enforces SSID 0's lists). */
+    isWifiBlocked(mac: string): boolean {
+      const f = router.macFilter;
+      if (f.enable !== "1") return false;
+      const listed = (f.status === "1" ? f.ssids[0]?.allow : f.ssids[0]?.deny)?.some((slot) => slot[0]?.toUpperCase() === mac.toUpperCase()) ?? false;
+      return f.status === "2" ? listed : !listed;
     },
     count: (path: string, method?: string): number =>
       stats.requests.filter((r) => r.path === path && (method === undefined || r.method === method)).length,

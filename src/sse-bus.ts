@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { FengSuiCore } from "./core.ts";
+import type { AccessControlSnapshot } from "./access-control.ts";
 import type { GlobalTelemetrySnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
-import { redactTelemetry, redactTopology } from "./redact.ts";
+import { redactAccessControl, redactTelemetry, redactTopology } from "./redact.ts";
 import type { SmsService } from "./sms/service.ts";
 
 export type SseEventName =
@@ -12,6 +13,7 @@ export type SseEventName =
   | "neighbors"
   | "topology"
   | "settings"
+  | "access-control"
   | "session:avoidance"
   | "alert"
   | "control:applied"
@@ -50,7 +52,7 @@ const SAFE_EVENT_RE = /^[a-zA-Z0-9:_-]{1,64}$/;
  * - Single-line `JSON.stringify` framing preventing CRLF / fake-event injection;
  * - Backpressure slow-consumer eviction (`max 3` stalled writes);
  * - Periodic `: heartbeat <unixMs>` keepalive & automatic session-expiry / logout disconnect;
- * - Per-subscriber REDACT_SENSITIVE_IN_API copies of telemetry and topology events.
+ * - Per-subscriber REDACT_SENSITIVE_IN_API copies of telemetry, topology and access-control events.
  */
 export class SseEventBus {
   readonly heartbeatMs: number;
@@ -113,6 +115,7 @@ export class SseEventBus {
     const onNeighbors = (data: unknown) => this.broadcast("neighbors", data);
     const onTopology = (data: TerminalTopologySnapshot) => this.broadcast("topology", data, redactTopology);
     const onSettings = (data: unknown) => this.broadcast("settings", data);
+    const onAccessControl = (data: AccessControlSnapshot) => this.broadcast("access-control", data, redactAccessControl);
     const onAvoidance = (data: unknown) => this.broadcast("session:avoidance", data);
     const onAlert = (data: unknown) => this.broadcast("alert", data);
     const onControl = (data: unknown) => this.broadcast("control:applied", data);
@@ -122,6 +125,7 @@ export class SseEventBus {
     monitor.on("neighbors", onNeighbors);
     monitor.on("topology", onTopology);
     monitor.on("settings", onSettings);
+    monitor.on("access-control", onAccessControl);
     scheduler.on("session:avoidance", onAvoidance);
     scheduler.on("alert", onAlert);
     scheduler.on("control:applied", onControl);
@@ -132,6 +136,7 @@ export class SseEventBus {
       monitor.off("neighbors", onNeighbors);
       monitor.off("topology", onTopology);
       monitor.off("settings", onSettings);
+      monitor.off("access-control", onAccessControl);
       scheduler.off("session:avoidance", onAvoidance);
       scheduler.off("alert", onAlert);
       scheduler.off("control:applied", onControl);

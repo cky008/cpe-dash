@@ -1,6 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import net from "node:net";
 import type { TLSSocket } from "node:tls";
+import { type AccessControlSnapshot, accessGuardFromHosts } from "./access-control.ts";
 import {
   canonicalizeRateLimitBucketKey,
   isAllowedHttpHostHeader,
@@ -13,7 +14,10 @@ import {
   readBandSelection,
   readCellLockCommand,
   readOptionalBoolean,
+  readTimeRuleChange,
   readTimeSeriesPreset,
+  readWifiDeviceAccess,
+  readWifiMacFilterChange,
 } from "./control-input.ts";
 import { CpeControlValidationError, type FirewallSwitchState } from "./cpe-domain.ts";
 import {
@@ -23,6 +27,8 @@ import {
   constantTimeSecretMatch,
 } from "./http-auth.ts";
 import type {
+  AccessControlChangeResponse,
+  AccessControlEndpointResponse,
   AlertsResponse,
   AntennaControlResponse,
   ApiErrorEnvelope,
@@ -65,7 +71,8 @@ import {
   SchedulerStoppedError,
 } from "./scheduler.ts";
 import type { NotificationHub } from "./notify/hub.ts";
-import { telemetryForOutput, topologyForOutput } from "./redact.ts";
+import { maskMacTail } from "./privacy-mask.ts";
+import { accessControlForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
@@ -229,6 +236,22 @@ export class FengSuiHttpServer {
       clearInterval(sweep);
       clearTimeout(force);
     }
+  }
+
+  /** Access-control snapshot plus the devices this caller's writes may not cut off. */
+  #accessControlView(snapshot: AccessControlSnapshot | null, caller: { redact: boolean; clientIp: string }): AccessControlEndpointResponse {
+    const hosts = this.core.monitor.getCachedTopology()?.hosts ?? [];
+    const guard = accessGuardFromHosts(hosts, caller.clientIp);
+    const macOf = (reason: "daemon-host" | "requester"): string | null => {
+      const mac = guard.protectedDevices.find((d) => d.reason === reason)?.macAddress ?? null;
+      return mac && caller.redact ? maskMacTail(mac) : mac;
+    };
+    return {
+      ok: true,
+      schedulerStatus: this.core.scheduler.getStatus(),
+      accessControl: accessControlForOutput(snapshot, caller.redact),
+      guard: { daemonHostMac: macOf("daemon-host"), requesterMac: macOf("requester") },
+    };
   }
 
   #sendJson(
@@ -577,7 +600,7 @@ export class FengSuiHttpServer {
       return;
     }
 
-    await this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, redact);
+    await this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, { redact, clientIp });
   }
 
   async #dispatchProtectedApi(
@@ -586,8 +609,9 @@ export class FengSuiHttpServer {
     method: string,
     pathname: string,
     searchParams: URLSearchParams,
-    redact: boolean
+    caller: { redact: boolean; clientIp: string }
   ): Promise<void> {
+    const { redact, clientIp } = caller;
     try {
       if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
         await this.#dispatchSmsApi(req, res, method, pathname, searchParams);
@@ -655,6 +679,10 @@ export class FengSuiHttpServer {
             } satisfies SettingsEndpointResponse);
             return;
 
+          case "/api/access-control":
+            this.#sendJson(res, 200, this.#accessControlView(this.core.monitor.getCachedAccessControl(), caller) satisfies AccessControlEndpointResponse);
+            return;
+
           case "/api/session/status":
             this.#sendJson(res, 200, {
               ok: true,
@@ -711,6 +739,36 @@ export class FengSuiHttpServer {
             schedulerStatus: this.core.scheduler.getStatus(),
             topology: topologyForOutput(topology ?? this.core.monitor.getCachedTopology(), redact),
           } satisfies TopologyEndpointResponse);
+          return;
+        }
+
+        case "/api/access-control/refresh": {
+          const fresh = await this.core.monitor.refreshAccessControl();
+          this.#sendJson(
+            res,
+            200,
+            this.#accessControlView(fresh ?? this.core.monitor.getCachedAccessControl(), caller) satisfies AccessControlEndpointResponse
+          );
+          return;
+        }
+
+        case "/api/control/wifi-access":
+        case "/api/control/wifi-mac-filter":
+        case "/api/control/time-rule": {
+          const ctx = { requesterIp: clientIp, confirm: body["confirm"] === true };
+          const result =
+            pathname === "/api/control/time-rule"
+              ? await this.core.controls.manageTimeRule(readTimeRuleChange(body), ctx)
+              : await this.core.controls.setWifiAccess(
+                  pathname === "/api/control/wifi-access" ? readWifiDeviceAccess(body) : readWifiMacFilterChange(body),
+                  ctx
+                );
+          this.#sendJson(res, 200, {
+            ok: true,
+            accessControl: accessControlForOutput(result.accessControl, redact),
+            changed: result.changed,
+            alsoBlocked: redact ? result.alsoBlocked.map(maskMacTail) : result.alsoBlocked,
+          } satisfies AccessControlChangeResponse);
           return;
         }
 

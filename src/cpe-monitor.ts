@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { type AccessControlSnapshot, fetchAccessControl } from "./access-control.ts";
 import type { EphemeralCpeSession } from "./cpe-client.ts";
 import {
   type GlobalTelemetrySnapshot,
@@ -49,7 +50,7 @@ export interface RefreshOptions {
  * - Every refresh is one `MutexSessionScheduler.executeRead` session; concurrent callers of the same
  *   refresh join the in-flight promise (Single-Flight Request Coalescing).
  * - Telemetry feeds the time-series ring buffer and emits `speed` + `telemetry`; sweeps emit
- *   `neighbors` / `topology`; settings reads emit `settings`.
+ *   `neighbors` / `topology` / `access-control`; settings reads emit `settings`.
  * - Snapshots live in the encrypted state store so a restart can serve the last known values. They
  *   always hold the plain values: REDACT_SENSITIVE_IN_API applies per response (src/redact.ts).
  */
@@ -68,6 +69,7 @@ export class CpeMonitor extends EventEmitter {
   #inflightNeighbors: Promise<NeighborScanSnapshot | null> | null = null;
   #inflightTopology: Promise<TerminalTopologySnapshot | null> | null = null;
   #inflightSettings: Promise<RouterSettingsSnapshot | null> | null = null;
+  #inflightAccessControl: Promise<AccessControlSnapshot | null> | null = null;
   #pollTimer: ReturnType<typeof setInterval> | null = null;
   #slowScanTimer: ReturnType<typeof setInterval> | null = null;
   #flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -107,6 +109,7 @@ export class CpeMonitor extends EventEmitter {
     // Immediate non-blocking seed sweep
     void this.refreshTelemetry().catch(() => undefined);
     void this.refreshTopology().catch(() => undefined);
+    void this.refreshAccessControl().catch(() => undefined);
 
     this.#pollTimer = setInterval(() => {
       void this.refreshTelemetry().catch(() => undefined);
@@ -116,6 +119,7 @@ export class CpeMonitor extends EventEmitter {
     this.#slowScanTimer = setInterval(() => {
       void this.refreshNeighbors().catch(() => undefined);
       void this.refreshTopology().catch(() => undefined);
+      void this.refreshAccessControl().catch(() => undefined);
     }, this.neighborScanIntervalMs);
     this.#slowScanTimer.unref?.();
 
@@ -155,6 +159,10 @@ export class CpeMonitor extends EventEmitter {
 
   getCachedSettings(): RouterSettingsSnapshot | null {
     return this.stateStore.getState().latestSettings;
+  }
+
+  getCachedAccessControl(): AccessControlSnapshot | null {
+    return this.stateStore.getState().latestAccessControl;
   }
 
   queryTimeSeries(params: TimeSeriesQueryParams): TimeSeriesQueryResult {
@@ -247,6 +255,37 @@ export class CpeMonitor extends EventEmitter {
         this.#safeEmit("settings", snap);
       }
     );
+  }
+
+  /** Coalesced read of the Wi-Fi MAC filter and the internet time rules (3 GETs, low priority). */
+  refreshAccessControl(opts: RefreshOptions = {}): Promise<AccessControlSnapshot | null> {
+    return this.#coalesce(
+      opts,
+      () => this.#inflightAccessControl,
+      (p) => {
+        this.#inflightAccessControl = p;
+      },
+      "low",
+      (session) => fetchAccessControl(session),
+      (snap) => {
+        this.stateStore.update({ latestAccessControl: snap });
+        this.#safeEmit("access-control", snap);
+      }
+    );
+  }
+
+  /**
+   * Fold a verified access-control write (its read-back) into the cached snapshot and push it over
+   * SSE. Returns `false` when nothing is cached yet, so the caller can run a full read instead.
+   */
+  patchCachedAccessControl(patch: Partial<Pick<AccessControlSnapshot, "wifiMacFilter" | "timeRules">>): boolean {
+    const current = this.stateStore.getState().latestAccessControl;
+    if (!current) return false;
+    const nowMs = Date.now();
+    const next: AccessControlSnapshot = { ...current, ...patch, capturedAtMs: nowMs, capturedAtIso: new Date(nowMs).toISOString() };
+    this.stateStore.update({ latestAccessControl: next });
+    this.#safeEmit("access-control", next);
+    return true;
   }
 
   /**
