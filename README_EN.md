@@ -151,7 +151,7 @@ sequenceDiagram
 ## ✨ Core Engineering & Protocol Highlights
 
 - **⚡ `~26 ms` Ephemeral Sessions & Anti-Flapping Dual-Layer Browser Avoidance**
-  - The H168-383 strictly permits 1 active admin session. [`HuaweiCpeClient`](src/cpe-client.ts) and [`MutexSessionScheduler`](src/scheduler.ts) serialize all authenticated transactions into short-lived windows and unconditionally invoke `POST /api/user/logout` (with a hard 3s timeout cap) inside `finally`.
+  - The H168-383 strictly permits 1 active admin session. [`HuaweiCpeClient`](src/cpe-client.ts) and [`MutexSessionScheduler`](src/scheduler.ts) serialize all authenticated transactions into short-lived windows and unconditionally invoke `POST /api/user/logout` (with a hard 3s timeout cap) inside `finally`. On shutdown (`docker stop` / `SIGTERM`) an in-flight session gets a 2 s grace, is then cancelled and logged out, and the whole shutdown fits in 10 s, so the router's admin slot is never left taken.
   - **Dual-Layer Avoidance**: Layer 1 checks `GET /api/user/state-login` before SCRAM; Layer 2 catches cross-IP `108003` / `108009` occupied responses and enters an exponential quiet cooldown (`45s → 300s`) so `challenge_login` is never hammered while a human uses the WebUI.
 - **🛑 Persistent `108006` / `108007` Anti-Brute-Force Circuit Breaker**
   - Three wrong password attempts lock the router's admin account. Our `CircuitBreaker` latches immediately upon `108006` / `108007` and persists the credential fingerprint inside `EncryptedStateStore`, preventing restart loops from locking out the router. A wrong-password latch (`108006` / `108002` / `108001`) clears only after `CPE_PASSWORD` is corrected in `.env`, followed by `POST /api/session/reset-breaker` or a restart; a reset with the password unchanged is refused (`400`). A `108007` hardware lockout can be cleared with reset-breaker once the lockout period has passed.
@@ -269,7 +269,7 @@ npm start
   # Or pass explicit .env path: node --experimental-strip-types src/cli.ts mcp --env /path/to/.env
   # (the flag is optional on Node 22.18+ / 23.6+; every npm script already passes it)
   ```
-  Start the `serve` daemon first. `cpe-dash mcp` is a **zero-state bridge**: it reads `API_TOKEN` and `MCP_DAEMON_URL` (default `http://127.0.0.1:<WEB_PORT>/mcp`) from `.env` and forwards each JSON-RPC line to the daemon. It never creates a CPE client, scheduler or store, so it cannot compete with the daemon for the single admin session. While the daemon is down every request gets JSON-RPC error `-32002`; a rejected request (e.g. wrong token) gets `-32001`. The old `--poll` flag no longer does anything (it only prints a warning).
+  Start the `serve` daemon first. `cpe-dash mcp` is a **zero-state bridge**: it reads `API_TOKEN` and `MCP_DAEMON_URL` (default `http://127.0.0.1:<WEB_PORT>/mcp`) from `.env` and forwards each JSON-RPC line to the daemon. It never creates a CPE client, scheduler or store, so it cannot compete with the daemon for the single admin session. While the daemon is down every request gets JSON-RPC error `-32010`; a rejected request (e.g. wrong token) gets `-32011`. The old `--poll` flag no longer does anything (it only prints a warning).
 - **LAN / Tailscale Streamable HTTP Transport**:
   ```bash
   curl -X POST http://127.0.0.1:18384/mcp \
@@ -336,7 +336,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **Auth & i18n** | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/i18n/:locale` | `SameSite=Strict; HttpOnly` session lifecycle & offline `zh-CN`/`en` dictionaries |
 | **Cached Reads** | `GET /api/telemetry`, `GET /api/timeseries`, `GET /api/neighbors`, `GET /api/topology`, `GET /api/settings` | `< 1ms` side-effect-free reads from memory & `1h/6h/12h/24h/custom` ring buffer |
 | **On-Demand Polls** | `POST /api/telemetry/refresh`, `POST /api/neighbors/scan`, `POST /api/topology/refresh`, `POST /api/settings/refresh` | Single-flight coalesced `~150ms` polite ephemeral CPE polls |
-| **RF & Router Control** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | Dynamic 4G/5G band & `PCI+ARFCN` cell locks, security/MLO/antenna/mobile-data switches & reboot (`409` on human yield) |
+| **RF & Router Control** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | Dynamic 4G/5G band & `PCI+ARFCN` cell locks, security/MLO/antenna/mobile-data switches & reboot (`409` on human yield, `423 CIRCUIT_BREAKER_OPEN` once the anti-brute-force breaker has tripped) |
 | **Session & Breaker** | `GET /api/session/status`, `POST /api/session/reset-breaker` | Scheduler, avoidance and breaker status; reload `.env` and reset the circuit breaker |
 | **SMS & Contacts** | `GET /api/sms/status`, `threads`, `thread`, `contacts`, `countries`; `POST /api/sms/preview`, `send`, `read`, `delete`, `sync`, `contacts/upsert`, `contacts/delete`, `contacts/import-vcf` | Reads come straight from the encrypted mirror (zero CPE sessions); writes use the control queue (`409` while a human is logged in) |
 | **Alerts & Notifications** | `GET /api/alerts` | Last 100 alerts plus Telegram / webhook delivery stats |

@@ -152,7 +152,7 @@ sequenceDiagram
 ## ✨ 核心工程与协议特性
 
 - **⚡ `~26 ms` 极速瞬时短连与双层真人在线避让（含 Layer-2 指数退避防抖）**
-  - H168-383 硬件限制同一时刻仅允许 1 个管理员在线。[`HuaweiCpeClient`](src/cpe-client.ts) 与 [`MutexSessionScheduler`](src/scheduler.ts) 将每次鉴权操作严格串行收敛为瞬时短连，并在 `finally` 块无条件调用 `POST /api/user/logout`（带 3s 硬超时兜底）。
+  - H168-383 硬件限制同一时刻仅允许 1 个管理员在线。[`HuaweiCpeClient`](src/cpe-client.ts) 与 [`MutexSessionScheduler`](src/scheduler.ts) 将每次鉴权操作严格串行收敛为瞬时短连，并在 `finally` 块无条件调用 `POST /api/user/logout`（带 3s 硬超时兜底）。停机（`docker stop` / `SIGTERM`）时在途会话先有 2s 宽限，随后被取消并登出，整个停机过程控制在 10s 内，路由器管理员槽位不会被遗留占用。
   - **双层主动避让**：第 1 层通过 `GET /api/user/state-login` 零开销预检；第 2 层针对跨局域网终端占用返回 `108003`/`108009` 实施 `45s → 300s` 指数静默退避，彻底杜绝频繁敲击 `challenge_login`，并通过 SSE 实时广播避让横幅。
 - **🛑 跨重启持久化的 `108006` / `108007` 防爆破熔断断路器**
   - 华为固件连续输错 3 次管理密码即锁定账户。内置断路器捕获 `108006`/`108007` 后立即熔断并将密码指纹写入加密状态库，即便守护进程重启也不会重复试错锁死路由器。因密码错误（`108006`/`108002`/`108001`）熔断时，必须先修正 `.env` 中的 `CPE_PASSWORD`，再调用 `POST /api/session/reset-breaker` 或重启服务；密码未变时重置请求会被拒绝（`400`）。`108007` 硬件锁定在锁定期结束后可直接通过 reset-breaker 解除。
@@ -270,7 +270,7 @@ npm start
   # 或指定配置文件：node --experimental-strip-types src/cli.ts mcp --env /path/to/.env
   # （Node 22.18+ / 23.6+ 可省略该标志；所有 npm 脚本已内置）
   ```
-  `cpe-dash mcp` 是**零状态桥接**：它从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`），把每行 JSON-RPC 转发给守护进程，自身不创建 CPE 客户端、调度器或任何存储，因此不会与守护进程争抢单管理员会话。守护进程未运行时，每个请求都会收到 JSON-RPC 错误 `-32002`；令牌错误等被拒绝时为 `-32001`。旧的 `--poll` 参数已无作用（仅打印警告）。
+  `cpe-dash mcp` 是**零状态桥接**：它从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`），把每行 JSON-RPC 转发给守护进程，自身不创建 CPE 客户端、调度器或任何存储，因此不会与守护进程争抢单管理员会话。守护进程未运行时，每个请求都会收到 JSON-RPC 错误 `-32010`；令牌错误等被拒绝时为 `-32011`。旧的 `--poll` 参数已无作用（仅打印警告）。
 - **内网 / Tailscale Streamable HTTP 模式**：
   ```bash
   curl -X POST http://127.0.0.1:18384/mcp \
@@ -337,7 +337,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **认证与字典** | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/i18n/:locale` | `SameSite=Strict; HttpOnly` 会话签发/销毁、离线中英词典拉取 |
 | **只读遥测与时序** | `GET /api/telemetry`, `GET /api/timeseries`, `GET /api/neighbors`, `GET /api/topology`, `GET /api/settings` | 零 CPE 开销读取内存最新快照与 `1h/6h/12h/24h/custom` 速率/射频曲线 |
 | **主动刷新与扫描** | `POST /api/telemetry/refresh`, `POST /api/neighbors/scan`, `POST /api/topology/refresh`, `POST /api/settings/refresh` | 单飞合并触发一次 `~150ms` 礼貌瞬时采样 |
-| **射频与系统控制** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | 动态锁 4G/5G 频段与 `PCI+ARFCN` 小区、开关安全/MLO/天线/移动数据（真人在线时礼貌返回 `409`） |
+| **射频与系统控制** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | 动态锁 4G/5G 频段与 `PCI+ARFCN` 小区、开关安全/MLO/天线/移动数据（真人在线时礼貌返回 `409`，防爆破熔断后返回 `423 CIRCUIT_BREAKER_OPEN`） |
 | **会话与熔断器** | `GET /api/session/status`, `POST /api/session/reset-breaker` | 查询调度器/避让/熔断状态；重新读取 `.env` 并重置熔断器 |
 | **短信与通讯录** | `GET /api/sms/status`, `threads`, `thread`, `contacts`, `countries`; `POST /api/sms/preview`, `send`, `read`, `delete`, `sync`, `contacts/upsert`, `contacts/delete`, `contacts/import-vcf` | 读接口直读加密镜像（零 CPE 会话）；写接口走控制队列（真人在线时返回 `409`） |
 | **告警与通知** | `GET /api/alerts` | 最近 100 条告警与 Telegram / Webhook 投递统计 |
