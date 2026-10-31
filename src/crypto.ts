@@ -306,10 +306,4 @@ export function huaweiXssDecode(input: string): string {
   );
 }
 
-/**
- * Strip invalid ASCII control chars except `\t`, `\n`, `\r`.
- */
-export function stripInvalidControlChars(text: string): string {
-  if (!text) return "";
-  return text.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
-}
+export { stripInvalidControlChars } from "./text-sanitize.ts";
