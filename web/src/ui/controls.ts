@@ -1,0 +1,414 @@
+import type { AntennaModeName, BandLockRequest, RouterSettingsSnapshot } from "../../../src/api-contract.ts";
+import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../src/rf-bounds.ts";
+import { ApiError } from "../core/api.ts";
+import { formatAgo } from "../core/format.ts";
+import { bandLabel } from "../core/rf.ts";
+import type { MessageKey } from "../i18n/zh-CN.ts";
+import type { AppContext } from "./context.ts";
+import { type Child, byId, h, icon, mount } from "./dom.ts";
+import { describeLock } from "./health-card.ts";
+import { runBusy } from "./widgets.ts";
+
+type FirewallKey = keyof RouterSettingsSnapshot["firewall"];
+
+const FIREWALL_SWITCHES: ReadonlyArray<[FirewallKey, MessageKey]> = [
+  ["mainSwitch", "ctl.firewall"],
+  ["ipFilterSwitch", "ctl.fw_ip"],
+  ["wanPortPingSwitch", "ctl.fw_ping"],
+  ["macFilterSwitch", "ctl.fw_mac"],
+  ["urlFilterSwitch", "ctl.fw_url"],
+];
+
+const ANTENNA_MODES: ReadonlyArray<[AntennaModeName, MessageKey]> = [
+  ["auto", "ctl.antenna_auto"],
+  ["internal", "ctl.antenna_internal"],
+  ["external", "ctl.antenna_external"],
+];
+
+const IPV4_RE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+function section(title: string, ...children: Child[]): HTMLElement {
+  return h("section", { class: "space-y-2.5" }, h("h4", { class: "fs-card-title text-[0.9rem]" }, title), ...children);
+}
+
+/** Right-hand drawer with every router write the contract offers, each confirmed and re-validated server-side. */
+export function mountControls(ctx: AppContext): { open(): void } {
+  const dialog = byId<HTMLDialogElement>("controlsDialog");
+  const lteSelected = new Set<number>(H168_383_LTE_BANDS);
+  const nrSelected = new Set<number>(H168_383_NR_BANDS);
+
+  const syncSelectionFromLock = (): void => {
+    const lock = ctx.store.state.lockState;
+    lteSelected.clear();
+    nrSelected.clear();
+    for (const b of !lock || lock.lteBands === "all" ? H168_383_LTE_BANDS : lock.lteBands) lteSelected.add(b);
+    for (const b of !lock || lock.nrBands.length === 0 ? H168_383_NR_BANDS : lock.nrBands) nrSelected.add(b);
+  };
+
+  const patchSettings = (patch: Partial<RouterSettingsSnapshot>): void => {
+    const current = ctx.store.state.settings;
+    if (current) ctx.store.update({ settings: { ...current, ...patch } }, ["settings"]);
+  };
+
+  /**
+   * A security write is read back in a second session: a 502 may mean the write applied but the
+   * read-back failed (contract §2.4), so ask for a re-read instead of claiming failure.
+   */
+  const fail = (err: unknown, mayHaveApplied = false): void => {
+    if (mayHaveApplied && err instanceof ApiError && err.kind === "upstream") {
+      ctx.toast(ctx.t("ctl.write_partial"), "warning");
+      return;
+    }
+    ctx.toast(ctx.describeError(err), "error");
+  };
+
+  const bandGrid = (rat: "LTE" | "NR", bands: ReadonlyArray<number>, selected: Set<number>, onChange: () => void): HTMLElement =>
+    h(
+      "div",
+      { class: "grid grid-cols-4 sm:grid-cols-5 gap-1.5" },
+      ...bands.map((band) => {
+        const box = h("input", { class: "checkbox checkbox-xs checkbox-primary", attrs: { type: "checkbox" } });
+        box.checked = selected.has(band);
+        box.addEventListener("change", () => {
+          if (box.checked) selected.add(band);
+          else selected.delete(band);
+          onChange();
+        });
+        return h("label", { class: "flex items-center gap-1.5 rounded-lg px-2 py-1 bg-base-content/[0.04] cursor-pointer num text-xs" }, box, bandLabel(rat, band));
+      })
+    );
+
+  const selection = (bands: ReadonlyArray<number>, selected: Set<number>): Array<number> | "all" | undefined => {
+    if (selected.size === 0) return undefined;
+    if (selected.size === bands.length) return "all";
+    return bands.filter((b) => selected.has(b));
+  };
+
+  const maskText = (bands: ReadonlyArray<number>, selected: Set<number>): string =>
+    selected.size === 0 ? ctx.t("ctl.mask_none") : ctx.t("ctl.mask", { mask: bandsToHexMask([...selected]) }) + (selected.size === bands.length ? " · all" : "");
+
+  const applyBands = (button: HTMLButtonElement): void => {
+    const body: BandLockRequest = {};
+    const lte = selection(H168_383_LTE_BANDS, lteSelected);
+    const nr = selection(H168_383_NR_BANDS, nrSelected);
+    if (lte !== undefined) body.lteBands = lte;
+    if (nr !== undefined) body.nrBands = nr;
+    if (lte === undefined && nr === undefined) {
+      ctx.toast(ctx.t("ctl.nothing_selected"), "warning");
+      return;
+    }
+    const describe = (rat: "LTE" | "NR", value: Array<number> | "all" | undefined): string =>
+      value === undefined ? "" : value === "all" ? `${rat} all` : value.map((b) => bandLabel(rat, b)).join("+");
+    const summary = [describe("LTE", lte), describe("NR", nr)].filter(Boolean).join(" · ");
+    void ctx
+      .confirm({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" })
+      .then((ok) => {
+        if (!ok) return;
+        runBusy(button, async () => {
+          try {
+            const res = await ctx.api.bandLock(body);
+            ctx.store.update({ lockState: res.lockState }, ["locks"]);
+          } catch (err) {
+            fail(err);
+          }
+        });
+      });
+  };
+
+  const toggle = (checked: boolean, disabled: boolean, onChange: (next: boolean, input: HTMLInputElement) => void): HTMLInputElement => {
+    const input = h("input", { class: "toggle toggle-sm toggle-primary", attrs: { type: "checkbox" } });
+    input.checked = checked;
+    input.disabled = disabled;
+    input.addEventListener("change", () => onChange(input.checked, input));
+    return input;
+  };
+
+  const switchRow = (label: string, control: HTMLElement, hint?: string): HTMLElement =>
+    h(
+      "label",
+      { class: "flex items-center justify-between gap-3 py-1.5 border-b border-dashed border-base-content/10 cursor-pointer" },
+      h("span", { class: "text-sm" }, label, hint ? h("span", { class: "block text-[0.6875rem] faint" }, hint) : null),
+      control
+    );
+
+  /** Optimistic toggle: revert the switch when the router refuses. */
+  const write = (input: HTMLInputElement, task: () => Promise<void>, mayHaveApplied = false): void => {
+    input.disabled = true;
+    task()
+      .catch((err: unknown) => {
+        input.checked = !input.checked;
+        fail(err, mayHaveApplied);
+      })
+      .finally(() => {
+        input.disabled = false;
+      });
+  };
+
+  const render = (): void => {
+    const { settings, lockState, lockVerification, avoidance, scheduler } = ctx.store.state;
+    const noSettings = settings === null;
+
+    const lteMask = h("span", { class: "num text-[0.6875rem] faint" }, maskText(H168_383_LTE_BANDS, lteSelected));
+    const nrMask = h("span", { class: "num text-[0.6875rem] faint" }, maskText(H168_383_NR_BANDS, nrSelected));
+    const refreshMasks = (): void => {
+      lteMask.textContent = maskText(H168_383_LTE_BANDS, lteSelected);
+      nrMask.textContent = maskText(H168_383_NR_BANDS, nrSelected);
+    };
+    const quickSelect = (bands: ReadonlyArray<number>, selected: Set<number>, all: boolean): void => {
+      selected.clear();
+      if (all) for (const b of bands) selected.add(b);
+      render();
+    };
+    const applyBtn = h("button", { class: "btn btn-warning btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("lock"), ctx.t("ctl.apply_bands"));
+    applyBtn.addEventListener("click", () => applyBands(applyBtn));
+    const unlockBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("unlock"), ctx.t("ctl.unlock_all"));
+    unlockBtn.addEventListener("click", () => {
+      void ctx.confirm({ title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body")], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
+        if (!ok) return;
+        runBusy(unlockBtn, async () => {
+          try {
+            const res = await ctx.api.unlock();
+            ctx.store.update({ lockState: res.lockState }, ["locks"]);
+            syncSelectionFromLock();
+            render();
+          } catch (err) {
+            fail(err);
+          }
+        });
+      });
+    });
+    const quick = (bands: ReadonlyArray<number>, selected: Set<number>): HTMLElement =>
+      h(
+        "span",
+        { class: "ml-auto inline-flex gap-1" },
+        h("button", { class: "btn btn-ghost btn-xs", attrs: { type: "button" }, on: { click: () => quickSelect(bands, selected, true) } }, ctx.t("ctl.select_all")),
+        h("button", { class: "btn btn-ghost btn-xs", attrs: { type: "button" }, on: { click: () => quickSelect(bands, selected, false) } }, ctx.t("ctl.select_none"))
+      );
+
+    const bandSection = section(
+      ctx.t("ctl.band_lock"),
+      h("p", { class: "text-xs muted" }, ctx.t("ctl.current", { summary: describeLock(ctx, lockState) }), lockVerification?.status === "drift" ? h("span", { class: "text-warning" }, ` · ${lockVerification.issues.join("; ")}`) : null),
+      h("div", { class: "flex items-center gap-2 text-xs font-semibold" }, ctx.t("ctl.lte_bands"), lteMask, quick(H168_383_LTE_BANDS, lteSelected)),
+      bandGrid("LTE", H168_383_LTE_BANDS, lteSelected, refreshMasks),
+      h("div", { class: "flex items-center gap-2 text-xs font-semibold pt-1" }, ctx.t("ctl.nr_bands"), nrMask, quick(H168_383_NR_BANDS, nrSelected)),
+      bandGrid("NR", H168_383_NR_BANDS, nrSelected, refreshMasks),
+      h("p", { class: "text-[0.6875rem] faint" }, ctx.t("ctl.band_hint")),
+      h("p", { class: "text-[0.6875rem] faint" }, ctx.t("ctl.sa_note")),
+      h("div", { class: "flex gap-2 justify-end" }, unlockBtn, applyBtn)
+    );
+
+    const readBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("refresh"), ctx.t("ctl.settings_read"));
+    readBtn.addEventListener("click", () =>
+      runBusy(readBtn, async () => {
+        try {
+          const res = await ctx.api.refreshSettings();
+          ctx.store.update({ settings: res.settings, scheduler: res.schedulerStatus }, ["settings", "scheduler"]);
+        } catch (err) {
+          fail(err);
+        }
+      })
+    );
+
+    const dmzInput = h("input", { class: "input input-sm rounded-lg num w-36", attrs: { type: "text", inputmode: "decimal", placeholder: "192.168.8.10" } });
+    dmzInput.value = settings?.dmzIpAddress ?? "";
+    dmzInput.disabled = noSettings;
+    const dmzToggle = toggle(settings?.dmzEnabled ?? false, noSettings, (next, input) => {
+      const ip = dmzInput.value.trim();
+      if (next && ip && !IPV4_RE.test(ip)) {
+        input.checked = false;
+        ctx.toast(ctx.t("ctl.dmz_invalid"), "warning");
+        return;
+      }
+      write(
+        input,
+        async () => {
+          const res = await ctx.api.security({ dmz: { enabled: next, ...(ip ? { ipAddress: ip } : {}) } });
+          if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
+        },
+        true
+      );
+    });
+
+    const securitySection = section(
+      ctx.t("ctl.security"),
+      noSettings
+        ? h("p", { class: "text-xs muted" }, ctx.t("ctl.settings_waiting"))
+        : h("p", { class: "text-[0.6875rem] faint" }, ctx.t("ctl.settings_captured", { ago: formatAgo(settings.capturedAtMs, ctx.now(), ctx.tr.locale) })),
+      readBtn,
+      switchRow(
+        ctx.t("ctl.upnp"),
+        toggle(settings?.upnpEnabled ?? false, noSettings, (next, input) =>
+          write(
+            input,
+            async () => {
+              const res = await ctx.api.security({ upnpEnabled: next });
+              if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
+            },
+            true
+          )
+        )
+      ),
+      h("div", { class: "flex items-center gap-2 py-1.5 border-b border-dashed border-base-content/10" }, h("span", { class: "text-sm flex-1" }, ctx.t("ctl.dmz")), dmzInput, dmzToggle),
+      ...FIREWALL_SWITCHES.map(([key, label]) =>
+        switchRow(
+          ctx.t(label),
+          toggle(settings?.firewall[key] ?? false, noSettings, (next, input) =>
+            write(
+              input,
+              async () => {
+                const res = await ctx.api.security({ firewall: { [key]: next } });
+                if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
+              },
+              true
+            )
+          )
+        )
+      ),
+      h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("info", "text-warning mt-0.5"), h("span", { class: "text-xs" }, ctx.t("ctl.ddos_note")))
+    );
+
+    const wifiSection = section(
+      ctx.t("ctl.wifi7"),
+      switchRow(
+        ctx.t("ctl.mlo"),
+        toggle(settings?.wifi7.mloEnable ?? false, noSettings, (next, input) =>
+          write(input, async () => {
+            const res = await ctx.api.wifi7({ mloEnable: next });
+            patchSettings({ wifi7: res.wifi7 });
+          })
+        )
+      ),
+      switchRow(
+        ctx.t("ctl.dbho"),
+        toggle(settings?.wifi7.dbhoEnable ?? false, noSettings, (next, input) =>
+          write(input, async () => {
+            const res = await ctx.api.wifi7({ dbhoEnable: next });
+            patchSettings({ wifi7: res.wifi7 });
+          })
+        )
+      )
+    );
+
+    const antennaSection = section(
+      ctx.t("ctl.antenna"),
+      h(
+        "div",
+        { class: "join w-full" },
+        ...ANTENNA_MODES.map(([mode, label]) => {
+          const button = h("button", { class: `btn btn-sm join-item flex-1 ${settings?.antenna.mode === mode ? "btn-primary" : "btn-ghost"}`, attrs: { type: "button" } }, ctx.t(label));
+          button.disabled = noSettings;
+          button.addEventListener("click", () =>
+            runBusy(button, async () => {
+              try {
+                const res = await ctx.api.antenna(mode);
+                if (settings) patchSettings({ antenna: { ...settings.antenna, mode: res.antenna.mode, rawCode: String(res.antenna.rawCode) } });
+              } catch (err) {
+                fail(err);
+              }
+            })
+          );
+          return button;
+        })
+      ),
+      settings
+        ? h(
+            "p",
+            { class: "text-[0.6875rem] faint" },
+            ctx.t("ctl.antenna_inserted", {
+              a1: ctx.t(settings.antenna.antenna1Inserted ? "ctl.inserted" : "ctl.not_inserted"),
+              a2: ctx.t(settings.antenna.antenna2Inserted ? "ctl.inserted" : "ctl.not_inserted"),
+            })
+          )
+        : null
+    );
+
+    const reconnectBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("zap"), ctx.t("ctl.reconnect"));
+    reconnectBtn.addEventListener("click", () => {
+      void ctx.confirm({ title: ctx.t("ctl.reconnect_title"), body: [ctx.t("ctl.reconnect_body")], confirmLabel: ctx.t("ctl.reconnect"), tone: "warning" }).then((ok) => {
+        if (ok) runBusy(reconnectBtn, () => ctx.api.reconnect().then(() => undefined, fail));
+      });
+    });
+    const rebootBtn = h("button", { class: "btn btn-error btn-outline btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("power"), ctx.t("ctl.reboot"));
+    rebootBtn.addEventListener("click", () => {
+      void ctx
+        .confirm({
+          title: ctx.t("ctl.reboot_title"),
+          body: [ctx.t("ctl.reboot_body"), ctx.t("common.type_to_confirm", { word: ctx.t("ctl.reboot_word") })],
+          confirmLabel: ctx.t("ctl.reboot"),
+          tone: "error",
+          typeToConfirm: ctx.t("ctl.reboot_word"),
+        })
+        .then((ok) => {
+          if (ok) runBusy(rebootBtn, () => ctx.api.reboot().then(() => undefined, fail));
+        });
+    });
+
+    const systemSection = section(
+      ctx.t("ctl.system"),
+      switchRow(
+        ctx.t("ctl.mobile_data"),
+        toggle(settings?.mobileDataEnabled ?? true, noSettings, (next, input) => {
+          const run = (): void =>
+            write(input, async () => {
+              const res = await ctx.api.mobileData(next);
+              patchSettings({ mobileDataEnabled: res.mobileDataEnabled });
+            });
+          if (next) {
+            run();
+            return;
+          }
+          void ctx.confirm({ title: ctx.t("ctl.mobile_off_title"), body: [ctx.t("ctl.mobile_off_body")], confirmLabel: ctx.t("common.off"), tone: "warning" }).then((ok) => {
+            if (ok) run();
+            else input.checked = true;
+          });
+        })
+      ),
+      h("div", { class: "flex flex-wrap gap-2 justify-end pt-1" }, reconnectBtn, rebootBtn)
+    );
+
+    const blocked = avoidance?.active || scheduler?.circuitBreaker.tripped || scheduler?.peerStandby.active;
+    mount(
+      dialog,
+      h(
+        "div",
+        { class: "modal-box h-full max-h-dvh w-full sm:max-w-md rounded-none sm:rounded-l-2xl p-0 flex flex-col" },
+        h(
+          "div",
+          { class: "flex items-center gap-2 px-5 pt-5 pb-3 border-b border-base-content/[0.06]" },
+          icon("sliders", "text-primary text-lg"),
+          h("h3", { class: "text-lg font-bold serif" }, ctx.t("ctl.title")),
+          h("form", { class: "ml-auto", attrs: { method: "dialog" } }, h("button", { class: "btn btn-ghost btn-sm btn-circle", attrs: { "aria-label": ctx.t("common.close") } }, icon("x", "text-base")))
+        ),
+        h(
+          "div",
+          { class: "flex-1 overflow-y-auto px-5 py-4 space-y-6" },
+          blocked
+            ? h("div", { class: "fs-notice", data: { tone: "danger" } }, icon("alert", "text-error mt-0.5"), h("span", { class: "text-xs" }, ctx.t(scheduler?.circuitBreaker.tripped ? "err.breaker" : scheduler?.peerStandby.active ? "err.peer_standby" : "err.yielded")))
+            : null,
+          bandSection,
+          securitySection,
+          wifiSection,
+          antennaSection,
+          systemSection
+        )
+      ),
+      h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+    );
+  };
+
+
+  // Not on "scheduler": its 10 s poll would reset a half-typed DMZ address
+  ctx.store.subscribe(["settings", "locks"], () => {
+    if (dialog.open) render();
+  });
+  ctx.tr.onChange(() => {
+    if (dialog.open) render();
+  });
+  return {
+    open: () => {
+      syncSelectionFromLock();
+      render();
+      dialog.showModal();
+    },
+  };
+}

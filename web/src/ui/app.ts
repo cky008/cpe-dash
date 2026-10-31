@@ -94,6 +94,8 @@ export async function startApp(): Promise<void> {
 
   // Dialogs and drawers are lazy chunks, loaded on first use
   let appearanceLoading: Promise<{ open(): void }> | null = null;
+  let alertsLoading: Promise<{ open(): void }> | null = null;
+  let controlsLoading: Promise<{ open(): void }> | null = null;
   let appMounted = false;
   let sse: SseClient | null = null;
   let statusTimer: ReturnType<typeof setInterval> | null = null;
@@ -290,6 +292,14 @@ export async function startApp(): Promise<void> {
       case "open-appearance":
         appearanceLoading ??= import("./appearance.ts").then((m) => m.mountAppearance(ctx, switchLocale));
         void appearanceLoading.then((dialog) => dialog.open());
+        return;
+      case "open-alerts":
+        alertsLoading ??= import("./alerts.ts").then((m) => m.mountAlerts(ctx));
+        void alertsLoading.then((panel) => panel.open());
+        return;
+      case "open-controls":
+        controlsLoading ??= import("./controls.ts").then((m) => m.mountControls(ctx));
+        void controlsLoading.then((controls) => controls.open());
         return;
       case "toggle-privacy":
         privacy.setGlobal(!privacy.globalMasked);
