@@ -12,6 +12,7 @@ import { byId } from "./dom.ts";
 import { mountHeader } from "./header.ts";
 import { mountHealthCard } from "./health-card.ts";
 import { mountIdentityCards } from "./identity-cards.ts";
+import { mountNeighbors } from "./neighbors.ts";
 import { mountOperatorCards } from "./operator-cards.ts";
 import { mountRfCard } from "./rf-card.ts";
 import { applyI18n, confirmDialog, describeError, showToast } from "./services.ts";
@@ -223,6 +224,7 @@ export async function startApp(): Promise<void> {
       mountRfCard(ctx);
       mountTrafficCard(ctx);
       mountHealthCard(ctx);
+      mountNeighbors(ctx);
       applyI18n(tr);
       void api
         .health()
