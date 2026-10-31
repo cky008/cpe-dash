@@ -10,14 +10,24 @@ import { type BuildOptions, build } from "esbuild";
  * esbuild bundles and minifies the strict-TypeScript sources, the Tailwind v4 CLI compiles
  * daisyUI themes, and every asset gets a content hash so `index.html` (served `no-cache`) always
  * points at matching files. No CDN, no runtime dependency. `--watch` rebuilds on change.
+ *
+ * `--demo` builds the static GitHub Pages demo into `dist/demo/` instead: the same console from
+ * web/src/demo/main.ts (an in-page backend, no daemon), relative asset URLs so it works under any
+ * path, and a CSP meta tag since Pages sends no headers. `npm run build:demo` then records its seed.
  */
 
 const ROOT = process.cwd();
 const WEB = path.join(ROOT, "web");
-const OUT = path.join(ROOT, "dist", "web", "public");
+const DEMO = process.argv.includes("--demo");
+const OUT = DEMO ? path.join(ROOT, "dist", "demo") : path.join(ROOT, "dist", "web", "public");
 const ASSETS = path.join(OUT, "assets");
+const ENTRY = DEMO ? path.join(WEB, "src", "demo", "main.ts") : path.join(WEB, "src", "main.ts");
+/** The daemon serves the console at `/`; the demo may live under a sub-path (`/fengsui-demo/`). */
+const ASSET_PREFIX = DEMO ? "assets/" : "/assets/";
+const DEMO_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
 /** Gzipped JS + CSS above this fails the build; the contract asks for < 60 KB on first paint. */
-const GZIP_BUDGET_BYTES = 120 * 1024;
+const GZIP_BUDGET_BYTES = (DEMO ? 200 : 120) * 1024;
 const GZIP_TARGET_BYTES = 60 * 1024;
 
 function contentHash(bytes: Buffer | string): string {
@@ -27,7 +37,7 @@ function contentHash(bytes: Buffer | string): string {
 function emit(name: string, ext: string, bytes: Buffer | string): string {
   const file = `${name}.${contentHash(bytes)}.${ext}`;
   fs.writeFileSync(path.join(ASSETS, file), bytes);
-  return `/assets/${file}`;
+  return `${ASSET_PREFIX}${file}`;
 }
 
 const ESBUILD_COMMON: BuildOptions = {
@@ -57,7 +67,7 @@ type ChunkRole = "eager" | "locale" | "lazy";
 async function bundleApp(): Promise<{ entryUrl: string; files: Array<{ name: string; text: string; role: ChunkRole }> }> {
   const result = await build({
     ...ESBUILD_COMMON,
-    entryPoints: { app: path.join(WEB, "src", "main.ts") },
+    entryPoints: { app: ENTRY },
     format: "esm",
     splitting: true,
     outdir: ASSETS,
@@ -66,11 +76,11 @@ async function bundleApp(): Promise<{ entryUrl: string; files: Array<{ name: str
     write: false,
     metafile: true,
   });
-  // Dynamic-import targets are entry points in the metafile too: match main.ts itself
+  // Dynamic-import targets are entry points in the metafile too: match the entry itself
   const outputs = result.metafile?.outputs ?? {};
-  const mainEntry = path.relative(ROOT, path.join(WEB, "src", "main.ts"));
+  const mainEntry = path.relative(ROOT, ENTRY);
   const entryKey = Object.keys(outputs).find((key) => outputs[key]?.entryPoint === mainEntry);
-  if (!entryKey) throw new Error("esbuild produced no entry chunk for main.ts");
+  if (!entryKey) throw new Error(`esbuild produced no entry chunk for ${mainEntry}`);
   // First paint = the entry plus everything it imports statically (chunks behind import() load later)
   const eager = new Set<string>();
   const visit = (key: string): void => {
@@ -90,7 +100,7 @@ async function bundleApp(): Promise<{ entryUrl: string; files: Array<{ name: str
     files.push({ name, text: file.text, role });
     fs.writeFileSync(path.join(ASSETS, name), file.text);
   }
-  return { entryUrl: `/assets/${path.basename(entryKey)}`, files };
+  return { entryUrl: `${ASSET_PREFIX}${path.basename(entryKey)}`, files };
 }
 
 function compileCss(): string {
@@ -123,7 +133,10 @@ async function buildOnce(): Promise<void> {
     if (!html.includes(placeholder)) throw new Error(`web/index.html lacks ${placeholder}`);
     html = html.replaceAll(placeholder, url);
   }
+  if (DEMO) html = demoHtml(html);
   fs.writeFileSync(path.join(OUT, "index.html"), html);
+  // Pages would otherwise run the site through Jekyll
+  if (DEMO) fs.writeFileSync(path.join(OUT, ".nojekyll"), "");
   fs.copyFileSync(path.join(WEB, "favicon.svg"), path.join(OUT, "favicon.svg"));
 
   const gzipKiB = (text: string): number => zlib.gzipSync(text, { level: 9 }).length / 1024;
@@ -151,6 +164,21 @@ async function buildOnce(): Promise<void> {
   if ((firstPaint + lazy) * 1024 > GZIP_BUDGET_BYTES) {
     throw new Error(`Web bundle is ${(firstPaint + lazy).toFixed(1)} KiB gzipped, over the ${GZIP_BUDGET_BYTES / 1024} KiB budget`);
   }
+}
+
+/** Page tweaks for the static demo: relative favicon, CSP, demo title, footer link to the demo repo. */
+function demoHtml(html: string): string {
+  const swaps: ReadonlyArray<readonly [string, string]> = [
+    ['href="/favicon.svg"', 'href="favicon.svg"'],
+    ["<title>烽燧 FengSui</title>", `<title>烽燧 FengSui · Demo</title>\n    <meta http-equiv="Content-Security-Policy" content="${DEMO_CSP}" />`],
+    ['href="https://github.com/cky008/cpe-dash"', 'href="https://github.com/cky008/fengsui-demo"'],
+  ];
+  let out = html;
+  for (const [from, to] of swaps) {
+    if (!out.includes(from)) throw new Error(`web/index.html lacks ${from} (demo build)`);
+    out = out.replace(from, to);
+  }
+  return out;
 }
 
 async function watch(): Promise<void> {

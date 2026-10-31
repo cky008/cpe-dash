@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.1.2-6E56CF?style=flat-square" alt="Version 1.1.2" /></a>
+  <a href="https://cky008.github.io/fengsui-demo/"><img src="https://img.shields.io/badge/Live_demo-open-c0392b?style=flat-square" alt="Live demo" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
   <a href="#-docker--synology-ds923-deployment"><img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 arm64" /></a>
@@ -101,7 +102,7 @@
 
 ### Visuals and Engineering
 - Four themes: **Paper** (light Xuan paper), **Dawn** (warm light), **Polar Night** (deep black), and **Violet Abyss** (geek dark purple), with six accent colors and system dark/light mode following; instant English/Chinese switching with local preference persistence.
-- First-load JS + CSS is only **60.3 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
+- First-load JS + CSS is only **60.4 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
 - SSE auto-reconnect with jittered exponential backoff; `423` breaker tripped, `409` yielding, and `503` shutdown present distinct UI states, never lumped together as "offline".
 
 ---
@@ -249,7 +250,11 @@ sequenceDiagram
 
 ## 🚀 Quick Start
 
-### 1. Offline Demo (No router needed, see the full UI in 30 seconds)
+### 1. Live Demo (nothing to install)
+
+Open **<https://cky008.github.io/fengsui-demo/>**: the complete console runs in your browser on fictional placeholder data. Band and cell locks, blocking devices, internet time windows, sending SMS and the rest all work, inside that page only, and reset on reload. The demo's starting data is recorded from the real daemon at build time, and its in-page backend shares the daemon's validation and planning code, checked call by call by a contract test (see section 9 of the architecture report).
+
+### 2. Local Offline Demo (No router needed, see the full UI in 30 seconds)
 
 ```bash
 git clone https://github.com/cky008/cpe-dash.git && cd cpe-dash
@@ -262,7 +267,7 @@ npm run demo          # http://127.0.0.1:18484 , login token: fengsui-demo
 
 The demo process **never reads `.env` and never accesses the network**: real scheduler, monitoring, SMS, SSE, REST, MCP, and Web interface backed by a strict in-process H168-383 model.
 
-### 2. Local Run (Node.js >= 22.6)
+### 3. Local Run (Node.js >= 22.6)
 
 ```bash
 cp .env.example .env && chmod 600 .env
@@ -272,7 +277,7 @@ npm start             # http://<local IP>:18384
 # Development mode: npm run dev (--watch hot reload, runs directly from TypeScript source)
 ```
 
-### 3. Read-Only Hardware Probes
+### 4. Read-Only Hardware Probes
 
 ```bash
 npm run probe:rf          # 3CA aggregation chain, 256QAM MCS, MIMO streams, transmit power, and cell identity cross-checks
@@ -582,12 +587,12 @@ cpe-dash/
 │   └── cli.ts               # Entrypoint for serve daemon and mcp bridge
 ├── web/                     # Web console: Strict TS + Tailwind v4 / daisyUI v5, built offline to dist/web/public
 │   ├── index.html · styles.css
-│   └── src/                 # core/ (DOM-free logic, covered by test gate) · ui/ · i18n/
-├── scripts/                 # build-web.ts · demo-server.ts · audit-secrets.ts · probe-*.ts
+│   └── src/                 # core/ (DOM-free logic, covered by test gate) · ui/ · i18n/ · demo/ (the live demo's in-page backend)
+├── scripts/                 # build-web.ts · demo-router.ts · demo-server.ts · capture-demo-seed.ts · audit-secrets.ts · probe-*.ts
 ├── test/                    # node:test offline tests (helpers/ contains encrypted mock router)
 ├── docs/                    # Protocol specs, architecture reports, backend contracts, and UI screenshots
 ├── Dockerfile · docker-compose.yml · .dockerignore
-└── .github/workflows/       # ci-docker.yml · release.yml
+└── .github/workflows/       # ci-docker.yml · release.yml · demo-pages.yml
 ```
 
 ---

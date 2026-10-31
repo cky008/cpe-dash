@@ -1,0 +1,461 @@
+import assert from "node:assert/strict";
+import { after, before, describe, it } from "node:test";
+import type {
+  AccessControlChangeResponse,
+  AlertEventRecord,
+  ApiErrorEnvelope,
+  GlobalTelemetrySnapshot,
+  SmsSendResponse,
+  SmsThreadsResponse,
+  TerminalTopologySnapshot,
+  TimeSeriesEndpointResponse,
+} from "../src/api-contract.ts";
+import { type DemoSession, captureDemoSeed, openDemoSession } from "../scripts/capture-demo-seed.ts";
+import { type DemoDaemon, startDemoDaemon } from "../scripts/demo-router.ts";
+import { DemoBackend, DemoEventSource } from "../web/src/demo/backend.ts";
+import { type DemoSeed, readDemoSeed, rebaseSeed, rebaseTimestamps } from "../web/src/demo/seed.ts";
+
+/**
+ * The static demo's in-page backend against the daemon it imitates: both start from the same seed
+ * (captured from the real daemon on the demo router), take the same requests, and must answer with
+ * the same shapes, the same state changes and the same validation errors. Placeholders only.
+ */
+
+type Json = Record<string, unknown>;
+
+/** Every key path (arrays collapsed to `[]`) with the JSON types seen there, nulls ignored. */
+function shapeOf(value: unknown): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const visit = (node: unknown, path: string): void => {
+    if (node === null || node === undefined) {
+      if (!out.has(path)) out.set(path, new Set());
+      return;
+    }
+    if (Array.isArray(node)) {
+      if (!out.has(path)) out.set(path, new Set(["array"]));
+      for (const item of node) visit(item, `${path}[]`);
+      return;
+    }
+    if (typeof node === "object") {
+      out.set(path, new Set([...(out.get(path) ?? []), "object"]));
+      for (const [k, v] of Object.entries(node)) visit(v, `${path}.${k}`);
+      return;
+    }
+    out.set(path, new Set([...(out.get(path) ?? []), typeof node]));
+  };
+  visit(value, "$");
+  return out;
+}
+
+function assertSameShape(label: string, daemon: unknown, demo: unknown): void {
+  const a = shapeOf(daemon);
+  const b = shapeOf(demo);
+  assert.deepEqual([...b.keys()].filter((k) => !a.has(k)), [], `${label}: fields only the demo returns`);
+  assert.deepEqual([...a.keys()].filter((k) => !b.has(k)), [], `${label}: fields the demo lacks`);
+  for (const [path, types] of a) {
+    const other = b.get(path) ?? new Set();
+    if (types.size === 0 || other.size === 0) continue;
+    assert.deepEqual([...other].sort(), [...types].sort(), `${label}: type of ${path}`);
+  }
+}
+
+async function demoCall(backend: DemoBackend, method: string, route: string, body?: unknown): Promise<{ status: number; json: Json }> {
+  const res = await backend.fetch(route, body === undefined ? { method } : { method, body: JSON.stringify(body) });
+  return { status: res.status, json: (await res.json()) as Json };
+}
+
+async function daemonCall(daemon: DemoDaemon, session: DemoSession, method: string, route: string, body?: unknown): Promise<{ status: number; json: Json }> {
+  try {
+    const json = method === "GET" ? await session.get<Json>(route) : await session.post<Json>(route, body ?? {});
+    return { status: 200, json };
+  } catch (err: unknown) {
+    // openDemoSession throws "<METHOD> <route>: HTTP <status> <body>" on non-2xx
+    const m = /HTTP (\d{3}) (.*)$/s.exec(err instanceof Error ? err.message : "");
+    if (!m) throw err;
+    void daemon;
+    return { status: Number(m[1]), json: JSON.parse(m[2] ?? "{}") as Json };
+  }
+}
+
+function listen(source: DemoEventSource): Array<{ name: string; data: Json }> {
+  const events: Array<{ name: string; data: Json }> = [];
+  for (const name of ["hello", "speed", "telemetry", "neighbors", "topology", "settings", "access-control", "control:applied", "alert", "sms:new", "sms:sent", "sms:updated", "sms:sync", "sms:status", "contacts:updated"]) {
+    source.addEventListener(name, (event) => events.push({ name, data: JSON.parse(String(event.data)) as Json }));
+  }
+  return events;
+}
+
+const settle = (ms = 30): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const TOKEN = "fengsui-demo-test";
+
+describe("Static demo backend vs the real daemon", () => {
+  let daemon: DemoDaemon;
+  let session: DemoSession;
+  let seed: DemoSeed;
+  let backend: DemoBackend;
+
+  before(async () => {
+    daemon = await startDemoDaemon({ port: 0, token: TOKEN });
+    session = await openDemoSession(daemon.baseUrl, TOKEN);
+    seed = readDemoSeed(JSON.parse(JSON.stringify(await captureDemoSeed(session))));
+    backend = new DemoBackend({ seed: rebaseSeed(seed, Date.now()), latencyScale: 0 });
+  });
+
+  after(async () => {
+    backend.stop();
+    await daemon.close();
+  });
+
+  it("captures a seed of placeholders only, with the daemon's own messages", () => {
+    const raw = JSON.stringify(seed);
+    assert.ok(raw.includes("860000000000000") && raw.includes("198.51.100.42"));
+    for (const mac of raw.match(/\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b/gi) ?? []) assert.match(mac, /^02:00:5E:10:00:/i);
+    assert.ok(seed.sms.messages.length >= 5 && seed.sms.contacts.length === 3);
+    assert.match(seed.catalog["zh-CN"]["controls.reboot_triggered"] ?? "", /重启/);
+    assert.ok(seed.neighbors.neighbors && seed.neighbors.neighbors.totalCount > 0);
+  });
+
+  it("answers every read route with the daemon's shapes", async () => {
+    for (const route of [
+      "/api/health",
+      "/api/auth/status",
+      "/api/telemetry",
+      "/api/session/status",
+      "/api/neighbors",
+      "/api/topology",
+      "/api/settings",
+      "/api/alerts",
+      "/api/access-control",
+      "/api/sms/status",
+      "/api/sms/countries",
+      "/api/sms/threads?filter=all&search=&limit=500",
+      "/api/sms/threads?filter=otp&search=code&limit=50",
+      "/api/sms/thread?key=%2B353830000001",
+      "/api/sms/contacts?search=&limit=5000",
+    ]) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "GET", route), demoCall(backend, "GET", route)]);
+      assert.equal(demo.status, real.status, route);
+      assertSameShape(route, real.json, demo.json);
+    }
+  });
+
+  it("serves a day of history through the daemon's own ring buffer", async () => {
+    const day = (await demoCall(backend, "GET", "/api/timeseries?preset=24h&maxPoints=288")).json as unknown as TimeSeriesEndpointResponse;
+    assert.ok(day.points.length > 250, `24 h of points (got ${day.points.length})`);
+    assert.ok(day.points.every((p) => p.lteRsrpAvgDbm !== null && p.dlPeakBps >= p.dlAvgBps));
+    const real = await daemonCall(daemon, session, "GET", "/api/timeseries?preset=1h&maxPoints=60");
+    const demo = await demoCall(backend, "GET", "/api/timeseries?preset=1h&maxPoints=60");
+    assertSameShape("timeseries", real.json, demo.json);
+    for (const bad of ["/api/timeseries?preset=week", "/api/timeseries?preset=custom&fromMs=5&toMs=1", "/api/timeseries?preset=1h&maxPoints=1e3"]) {
+      const [r, d] = await Promise.all([daemonCall(daemon, session, "GET", bad), demoCall(backend, "GET", bad)]);
+      assert.equal(d.status, r.status, bad);
+      assert.equal(d.json["message"], r.json["message"], bad);
+    }
+  });
+
+  it("applies band and cell locks like the daemon, and rejects what it rejects", async () => {
+    for (const [route, body] of [
+      ["/api/control/band-lock", { lteBands: ["B3", 1, "B3"], nrBands: ["N78"] }],
+      ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 647424, pci: 357 }],
+      ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 1700, pci: null }],
+      ["/api/control/unlock", {}],
+    ] as const) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      assert.equal(demo.status, 200, route);
+      assertSameShape(route, real.json, demo.json);
+      const { updatedAtIso: _a, ...realLock } = real.json["lockState"] as Json;
+      const { updatedAtIso: _b, ...demoLock } = demo.json["lockState"] as Json;
+      assert.deepEqual(demoLock, realLock, route);
+    }
+    for (const [route, body] of [
+      ["/api/control/band-lock", {}],
+      ["/api/control/band-lock", { lteBands: ["B99"] }],
+      ["/api/control/band-lock", { nrBands: "N78" }],
+      ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 99_999, pci: 25 }],
+      ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 647_424, pci: 5000 }],
+      ["/api/control/cell-lock", { rat: "5G", band: "N78", arfcn: 647_424 }],
+      ["/api/control/reboot", { confirm: false }],
+      ["/api/control/reconnect", {}],
+      ["/api/control/antenna", { mode: "sideways" }],
+      ["/api/control/mobile-data", {}],
+      ["/api/control/security", { dmz: { enabled: true, ipAddress: "192.168.8.300" } }],
+      ["/api/control/security", { firewall: { teleport: true } }],
+    ] as const) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      assert.equal(real.status, 400, `${route} ${JSON.stringify(body)}`);
+      assert.equal(demo.status, 400, `${route} ${JSON.stringify(body)}`);
+      assert.equal(demo.json["message"], real.json["message"], `${route} ${JSON.stringify(body)}`);
+    }
+  });
+
+  it("changes router settings like the daemon", async () => {
+    for (const [route, body] of [
+      ["/api/control/security", { upnpEnabled: false, dmz: { enabled: true, ipAddress: "192.168.8.21" }, firewall: { wanPortPingSwitch: false } }],
+      ["/api/control/wifi7", { mloEnable: false }],
+      ["/api/control/antenna", { mode: "external" }],
+      ["/api/control/mobile-data", { enabled: true }],
+    ] as const) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      assert.equal(demo.status, 200, route);
+      assertSameShape(route, real.json, demo.json);
+    }
+    const settings = (await demoCall(backend, "GET", "/api/settings")).json["settings"] as Json;
+    assert.equal(settings["upnpEnabled"], false);
+    assert.equal(settings["dmzIpAddress"], "192.168.8.21");
+    assert.deepEqual(settings["antenna"], { ...(seed.settings.settings?.antenna ?? {}), mode: "external", rawCode: "2" });
+  });
+
+  it("plans Wi-Fi access and time rules with the daemon's rules and ends in the same state", async () => {
+    const requests: ReadonlyArray<readonly [string, Json]> = [
+      ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5e:10:00:03", name: "living-room-tv", confirm: true }],
+      ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5E:10:00:03", name: "living-room-tv", confirm: true }],
+      ["/api/control/wifi-access", { action: "unblock", macAddress: "02:00:5E:10:00:05", confirm: true }],
+      ["/api/control/wifi-mac-filter", { add: [{ macAddress: "02:00:5E:10:00:06", name: "e-reader" }], confirm: true }],
+      ["/api/control/time-rule", { action: "create", rule: { macAddress: "02:00:5E:10:00:03", name: "living-room-tv", weekMask: "0000011", startTime: "09:00", endTime: "23:00" }, confirm: true }],
+      ["/api/control/time-rule", { action: "update", id: "InternetGatewayDevice.X_FireWall.TimeRule.2.", rule: { macAddress: "02:00:5E:10:00:03", name: "living-room-tv", weekMask: "0000011", startTime: "10:00", endTime: "01:00", enabled: false }, confirm: true }],
+      ["/api/control/time-rule", { action: "delete", id: "InternetGatewayDevice.X_FireWall.TimeRule.1.", confirm: true }],
+    ];
+    for (const [route, body] of requests) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      assert.equal(real.status, 200, `${route} ${JSON.stringify(real.json)}`);
+      assert.equal(demo.status, 200, `${route} ${JSON.stringify(demo.json)}`);
+      const r = real.json as unknown as AccessControlChangeResponse;
+      const d = demo.json as unknown as AccessControlChangeResponse;
+      assertSameShape(route, r, d);
+      assert.equal(d.changed, r.changed, route);
+      assert.deepEqual(d.alsoBlocked, r.alsoBlocked, route);
+      assert.deepEqual(d.accessControl?.wifiMacFilter, r.accessControl?.wifiMacFilter, route);
+      assert.deepEqual(d.accessControl?.timeRules, r.accessControl?.timeRules, route);
+    }
+    for (const [route, body] of [
+      ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5E:10:00:01", name: "nas-ds923", confirm: true }],
+      ["/api/control/wifi-access", { action: "block", macAddress: "not-a-mac", confirm: true }],
+      ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5E:10:00:04" }],
+      ["/api/control/wifi-mac-filter", { mode: "allow", entries: [], confirm: true }],
+      ["/api/control/time-rule", { action: "create", rule: { macAddress: "02:00:5E:10:00:04", name: "phone-wifi7", weekMask: "1111111", startTime: "07:07", endTime: "08:00" }, confirm: true }],
+      ["/api/control/time-rule", { action: "delete", id: "InternetGatewayDevice.X_FireWall.TimeRule.9.", confirm: true }],
+    ] as const) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      assert.equal(real.status, 400, `${route} ${JSON.stringify(body)}`);
+      assert.equal(demo.status, 400, `${route} ${JSON.stringify(body)}`);
+      assert.equal(demo.json["message"], real.json["message"], `${route} ${JSON.stringify(body)}`);
+    }
+  });
+
+  it("handles SMS and contacts like the daemon", async () => {
+    const preview = { phone: "0830000003", content: "Hello from the demo 👋", countryCode: "+353" };
+    const [rp, dp] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/preview", preview), demoCall(backend, "POST", "/api/sms/preview", preview)]);
+    assert.deepEqual(dp.json, rp.json);
+
+    const contact = { phone: "+447700900456", name: "Demo Florist", note: "Fictional" };
+    const [rc, dc] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/contacts/upsert", contact), demoCall(backend, "POST", "/api/sms/contacts/upsert", contact)]);
+    assertSameShape("contacts/upsert", rc.json, dc.json);
+
+    const vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Demo Bakery\nTEL:+447700900789\nEND:VCARD\n";
+    const [rv, dv] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/contacts/import-vcf", { vcf }), demoCall(backend, "POST", "/api/sms/contacts/import-vcf", { vcf })]);
+    assert.deepEqual(dv.json, rv.json);
+
+    const send = { phone: "+353830000001", content: "See you at 7 🍜" };
+    const [rs, ds] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/send", send), demoCall(backend, "POST", "/api/sms/send", send)]);
+    assert.equal(rs.status, 200, JSON.stringify(rs.json));
+    assert.equal(ds.status, 200, JSON.stringify(ds.json));
+    assertSameShape("sms/send", rs.json, ds.json);
+    assert.deepEqual((ds.json as unknown as SmsSendResponse).result, (rs.json as unknown as SmsSendResponse).result);
+
+    for (const [route, body] of [
+      ["/api/sms/send", { phone: "+353830000001", content: "   " }],
+      ["/api/sms/send", { phone: "not a number", content: "hi" }],
+      ["/api/sms/send", { phones: ["1", "2", "3", "4", "5", "6"], content: "hi" }],
+      ["/api/sms/read", {}],
+      ["/api/sms/delete", { uids: ["missing-uid"] }],
+      ["/api/sms/contacts/upsert", { phone: "+353830000009", name: "  " }],
+      ["/api/sms/sync", { mode: "sideways" }],
+    ] as const) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      assert.equal(real.status, 400, `${route} ${JSON.stringify(body)}`);
+      assert.equal(demo.status, 400, `${route} ${JSON.stringify(body)}`);
+      assert.equal(demo.json["message"], real.json["message"], `${route} ${JSON.stringify(body)}`);
+    }
+  });
+});
+
+describe("Static demo backend on its own", () => {
+  let seed: DemoSeed;
+  let daemon: DemoDaemon;
+
+  before(async () => {
+    daemon = await startDemoDaemon({ port: 0, token: TOKEN });
+    seed = await captureDemoSeed(await openDemoSession(daemon.baseUrl, TOKEN));
+    await daemon.close();
+  });
+
+  function fresh(clock: { now: number }): DemoBackend {
+    return new DemoBackend({ seed: rebaseSeed(seed, clock.now), now: () => clock.now, random: () => 0.5, latencyScale: 0 });
+  }
+
+  it("streams hello, then speed and telemetry on every poll", async () => {
+    const clock = { now: Date.now() };
+    const backend = fresh(clock);
+    const source = backend.createEventSource("/api/events") as DemoEventSource;
+    const events = listen(source);
+    await settle();
+    assert.equal(events[0]?.name, "hello");
+    const before = (events[0]?.data["telemetry"] as unknown as GlobalTelemetrySnapshot).traffic.todayUsedBytes;
+    clock.now += 5_000;
+    backend.tick();
+    const telemetry = events.find((e) => e.name === "telemetry")?.data as unknown as GlobalTelemetrySnapshot;
+    assert.ok(events.some((e) => e.name === "speed"));
+    assert.ok(telemetry.traffic.todayUsedBytes > before);
+    assert.equal(telemetry.capturedAtMs, clock.now);
+    for (let i = 0; i < 12; i++) {
+      clock.now += 5_000;
+      backend.tick();
+    }
+    assert.ok(events.some((e) => e.name === "topology"), "topology refresh every minute");
+    source.close();
+    clock.now += 5_000;
+    const count = events.length;
+    backend.tick();
+    assert.equal(events.length, count, "a closed stream gets nothing");
+    backend.stop();
+  });
+
+  it("restarts the router: offline, unreachable alert, then recovered with uptime reset", async () => {
+    const clock = { now: Date.now() };
+    const backend = fresh(clock);
+    const events = listen(backend.createEventSource("/api/events") as DemoEventSource);
+    const res = await demoCall(backend, "POST", "/api/control/reboot", { confirm: true });
+    assert.equal(res.status, 200);
+    await settle();
+    const alerts = (): AlertEventRecord[] => events.filter((e) => e.name === "alert").map((e) => e.data as unknown as AlertEventRecord);
+    assert.deepEqual(alerts().map((a) => a.code), ["CPE_UNREACHABLE"]);
+    assert.equal((await demoCall(backend, "POST", "/api/control/wifi7", { mloEnable: true })).status, 502, "controls wait for the router");
+    clock.now += 60_000;
+    backend.tick();
+    assert.deepEqual(alerts().map((a) => a.code), ["CPE_UNREACHABLE", "CPE_RECOVERED", "REBOOT_DETECTED"]);
+    const telemetry = (await demoCall(backend, "GET", "/api/telemetry")).json["telemetry"] as unknown as GlobalTelemetrySnapshot;
+    assert.ok(telemetry.device.uptimeSec <= 60);
+    assert.equal(((await demoCall(backend, "GET", "/api/alerts")).json["alerts"] as unknown[]).length, 3);
+    assert.equal((await demoCall(backend, "POST", "/api/control/reconnect", { confirm: true })).status, 200);
+    backend.stop();
+  });
+
+  it("takes a blocked Wi-Fi device offline and answers sends with a reply", async () => {
+    const clock = { now: Date.now() };
+    const backend = fresh(clock);
+    const events = listen(backend.createEventSource("/api/events") as DemoEventSource);
+    await demoCall(backend, "POST", "/api/control/wifi-access", { action: "block", macAddress: "02:00:5E:10:00:04", name: "phone-wifi7", confirm: true });
+    await settle();
+    const topology = [...events].reverse().find((e) => e.name === "topology")?.data as unknown as TerminalTopologySnapshot;
+    assert.equal(topology.hosts.find((h) => h.macAddress === "02:00:5E:10:00:04")?.active, false);
+    assert.equal(topology.countsByMedium.WIFI_5G, 1);
+
+    await demoCall(backend, "POST", "/api/sms/send", { phone: "+353830000002", content: "晚上见" });
+    await settle();
+    const incoming = events.filter((e) => e.name === "sms:new").map((e) => e.data["content"]);
+    assert.match(String(incoming[0]), /收到/);
+    const threads = (await demoCall(backend, "GET", "/api/sms/threads?filter=unread")).json as unknown as SmsThreadsResponse;
+    const robin = threads.threads.find((t) => t.contact?.name === "Robin Demo");
+    assert.equal(robin?.unreadCount, 1);
+    const read = await demoCall(backend, "POST", "/api/sms/read", { threadKey: robin?.threadKey });
+    assert.equal(read.json["count"], 1);
+    const uids = (await demoCall(backend, "GET", `/api/sms/thread?key=${encodeURIComponent(robin?.threadKey ?? "")}`)).json as { thread: { messages: Array<{ uid: string }> } };
+    const deleted = await demoCall(backend, "POST", "/api/sms/delete", { uids: uids.thread.messages.map((m) => m.uid) });
+    assert.equal(deleted.json["deleted"], 2);
+    assert.ok(events.some((e) => e.name === "sms:updated" && e.data["action"] === "deleted"));
+    const removed = await demoCall(backend, "POST", "/api/sms/contacts/delete", { id: robin?.contact?.id });
+    assert.equal(removed.json["deleted"], true);
+    const sync = await demoCall(backend, "POST", "/api/sms/sync", { mode: "incremental" });
+    assert.equal((sync.json["summary"] as Json)["mode"], "incremental");
+    backend.stop();
+  });
+
+  it("delivers DemoBank codes, refreshes on demand and keeps scans moving", async () => {
+    const clock = { now: Date.now() };
+    const backend = fresh(clock);
+    const events = listen(backend.createEventSource("/api/events") as DemoEventSource);
+    backend.receiveSms("DemoBank", "Your DemoBank verification code is 135790.");
+    const sms = events.find((e) => e.name === "sms:new")?.data;
+    assert.equal(sms?.["verificationCode"], "135790");
+    for (const route of ["/api/telemetry/refresh", "/api/topology/refresh", "/api/settings/refresh", "/api/access-control/refresh", "/api/neighbors/scan"]) {
+      assert.equal((await demoCall(backend, "POST", route, {})).status, 200, route);
+    }
+    assert.ok(events.some((e) => e.name === "neighbors") && events.some((e) => e.name === "settings") && events.some((e) => e.name === "access-control"));
+    assert.equal((await demoCall(backend, "POST", "/api/session/reset-breaker", {})).status, 200);
+    backend.start();
+    backend.start();
+    backend.stop();
+  });
+
+  it("gates on the demo sign-in and speaks the daemon's error envelope", async () => {
+    const backend = fresh({ now: Date.now() });
+    assert.equal((await demoCall(backend, "POST", "/api/auth/logout")).json["authenticated"], false);
+    const locked = await demoCall(backend, "GET", "/api/telemetry");
+    assert.equal(locked.status, 401);
+    assert.equal((locked.json as unknown as ApiErrorEnvelope).errorCode, "UNAUTHORIZED");
+    const events = listen(backend.createEventSource("/api/events") as DemoEventSource);
+    let errored = false;
+    (backend.createEventSource("/api/events") as DemoEventSource).addEventListener("error", () => {
+      errored = true;
+    });
+    await settle();
+    assert.ok(errored && events.length === 0, "a signed-out stream fails like the daemon's 401");
+    assert.equal((await demoCall(backend, "GET", "/api/health")).status, 200);
+    assert.equal((await demoCall(backend, "POST", "/api/auth/login", { token: "" })).status, 401);
+    assert.equal((await demoCall(backend, "POST", "/api/auth/login", { token: "anything" })).json["authenticated"], true);
+    assert.equal((await demoCall(backend, "GET", "/api/nope")).status, 404);
+    assert.equal((await demoCall(backend, "DELETE", "/api/telemetry")).status, 405);
+    const malformed = await backend.fetch("/api/control/wifi7", { method: "POST", body: "{nope" });
+    assert.equal(malformed.status, 400);
+    const notObject = await backend.fetch(new URL("http://demo.invalid/api/control/wifi7"), { method: "POST", body: "[1]" });
+    assert.equal(((await notObject.json()) as Json)["errorCode"], "BAD_PAYLOAD");
+    const binary = await backend.fetch("/api/control/wifi7", { method: "POST", body: new Uint8Array([1]) });
+    assert.equal(binary.status, 415);
+    assert.equal((await demoCall(backend, "GET", "/api/sms/threads?filter=spam")).status, 400);
+    assert.equal((await demoCall(backend, "GET", "/api/sms/threads?limit=lots")).status, 400);
+    assert.equal((await demoCall(backend, "GET", "/api/sms/thread")).status, 400);
+    assert.equal((await demoCall(backend, "POST", "/api/sms/preview", { content: 5 })).status, 400);
+    assert.equal((await demoCall(backend, "POST", "/api/sms/send", { phones: [1], content: "x" })).status, 400);
+    backend.stop();
+  });
+});
+
+describe("Static demo seed", () => {
+  it("rebases instants, router-local SMS dates and epoch milliseconds, and nothing else", () => {
+    const shifted = rebaseTimestamps(
+      {
+        capturedAtIso: "2026-10-01T10:00:00.000Z",
+        capturedAtMs: Date.parse("2026-10-01T10:00:00.000Z"),
+        lastSessionHoldMs: 120,
+        date: "2026-10-01 12:00:00",
+        monthLastClearDate: "2026-10-01",
+        list: [{ tsIso: "2026-10-01T09:00:00Z" }],
+        ["__proto__"]: { polluted: true },
+      },
+      3_600_000,
+      120
+    );
+    assert.equal(shifted.capturedAtIso, "2026-10-01T11:00:00.000Z");
+    assert.equal(shifted.capturedAtMs, Date.parse("2026-10-01T11:00:00.000Z"));
+    assert.equal(shifted.lastSessionHoldMs, 120);
+    assert.equal(shifted.monthLastClearDate, "2026-10-01");
+    assert.equal(shifted.list[0]?.tsIso, "2026-10-01T10:00:00.000Z");
+    // 12:00 at UTC+2 is 10:00Z; an hour later, written in this machine's zone
+    const local = new Date(Date.parse("2026-10-01T11:00:00Z"));
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    assert.equal(shifted.date, `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())} ${pad(local.getHours())}:${pad(local.getMinutes())}:00`);
+    assert.equal(({} as Json)["polluted"], undefined);
+  });
+
+  it("rejects a stale or truncated seed file", () => {
+    assert.throws(() => readDemoSeed(null), /version/);
+    assert.throws(() => readDemoSeed({ version: 1 }), /capture time/);
+    assert.throws(() => readDemoSeed({ version: 1, capturedAtMs: 1, capturedUtcOffsetMin: 0 }), /missing health/);
+    const full = { version: 1, capturedAtMs: 1, capturedUtcOffsetMin: 0, health: { ok: true }, telemetry: { ok: true }, neighbors: { ok: true }, topology: { ok: true }, settings: { ok: true }, alerts: { ok: true }, accessControl: { ok: true } };
+    assert.throws(() => readDemoSeed(full), /missing sms/);
+    const sms = { status: {}, countries: {}, messages: [], contacts: [] };
+    assert.throws(() => readDemoSeed({ ...full, sms }), /missing catalog/);
+    assert.equal(readDemoSeed({ ...full, sms, catalog: { "zh-CN": {}, en: {} } }).version, 1);
+    assert.throws(() => new DemoBackend({ seed: readDemoSeed({ ...full, sms, catalog: { "zh-CN": {}, en: {} } }) }), /snapshot is missing/);
+  });
+});

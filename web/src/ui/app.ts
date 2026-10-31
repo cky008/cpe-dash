@@ -3,7 +3,7 @@ import { createEndpoints } from "../core/endpoints.ts";
 import { type Locale, Translator, detectLocale } from "../core/i18n.ts";
 import { type KeyValueStorage, loadPreferences, savePreference } from "../core/prefs.ts";
 import { PrivacyState, maskValue } from "../core/privacy.ts";
-import { type SseEvent, SseClient } from "../core/sse.ts";
+import { type EventSourceLike, type SseEvent, SseClient } from "../core/sse.ts";
 import { Store, mergeAlerts, reduceSseEvent } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import { mountBanners } from "./banners.ts";
@@ -46,7 +46,18 @@ const DICTIONARIES: Readonly<Record<Locale, () => Promise<Readonly<Record<Messag
   en: () => import("../i18n/en.ts").then((m) => m.en),
 };
 
-export async function startApp(): Promise<void> {
+/** How the console reaches its daemon: the page's own origin, or the static demo's in-page backend. */
+export interface AppTransport {
+  fetchImpl: typeof fetch;
+  createEventSource: (url: string) => EventSourceLike;
+}
+
+const BROWSER_TRANSPORT: AppTransport = {
+  fetchImpl: (input, init) => window.fetch(input, init),
+  createEventSource: (url) => new EventSource(url, { withCredentials: true }),
+};
+
+export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Promise<void> {
   const storage = browserStorage();
   const prefs = loadPreferences(storage);
   const initialLocale = detectLocale(prefs.locale, navigator.languages ?? [navigator.language]);
@@ -58,7 +69,7 @@ export async function startApp(): Promise<void> {
   const store = new Store();
   const privacy = new PrivacyState(true);
   let handleUnauthorized = (): void => undefined;
-  const api = createEndpoints(new ApiClient({ fetchImpl: (input, init) => window.fetch(input, init), onUnauthorized: () => handleUnauthorized() }));
+  const api = createEndpoints(new ApiClient({ fetchImpl: transport.fetchImpl, onUnauthorized: () => handleUnauthorized() }));
   const tickers = new Set<() => void>();
   setInterval(() => {
     if (document.hidden) return;
@@ -185,7 +196,7 @@ export async function startApp(): Promise<void> {
     sse?.stop();
     sse = new SseClient({
       url: "/api/events",
-      createEventSource: (url) => new EventSource(url, { withCredentials: true }),
+      createEventSource: transport.createEventSource,
       onEvent: (event) => {
         store.apply(reduceSseEvent(store.state, event));
         notifySideEffects(event);

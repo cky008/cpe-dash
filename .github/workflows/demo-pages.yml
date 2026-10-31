@@ -1,0 +1,68 @@
+name: Demo site
+
+# Publishes the static demo (npm run build:demo: the web console with an in-page backend and a
+# seed recorded from the real daemon on the mock router) to the public cky008/fengsui-demo
+# repository's gh-pages branch, which GitHub Pages serves. Only built files leave this private
+# repository. Needs the DEMO_DEPLOY_KEY secret (a deploy key with write access to that one
+# repository) and, for the custom domain, the DEMO_DOMAIN variable (kept out of the source tree).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish the demo
+    if: github.repository == 'cky008/cpe-dash'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DEMO_REPO: cky008/fengsui-demo
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26.x"
+          cache: npm
+      - name: Install dev toolchain (no lifecycle scripts)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build the demo and record its seed from the real daemon
+        run: npm run build:demo
+      - name: Push to the demo repository's gh-pages branch
+        env:
+          DEPLOY_KEY: ${{ secrets.DEMO_DEPLOY_KEY }}
+          DEMO_DOMAIN: ${{ vars.DEMO_DOMAIN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::The DEMO_DEPLOY_KEY secret is not set"
+            exit 1
+          fi
+          ssh_dir="$RUNNER_TEMP/demo-ssh"
+          install -d -m 700 "$ssh_dir"
+          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/key"
+          chmod 600 "$ssh_dir/key"
+          # Trust exactly GitHub's published SSH host keys (fetched over HTTPS)
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$ssh_dir/known_hosts"
+          trap 'rm -rf "$ssh_dir"' EXIT
+
+          cd dist/demo
+          if [ -n "${DEMO_DOMAIN:-}" ]; then printf '%s\n' "$DEMO_DOMAIN" > CNAME; fi
+          # One fresh commit per release: the branch holds build output only, never history
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "deploy: FengSui demo ${GITHUB_REF_NAME}"
+          GIT_SSH_COMMAND="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$ssh_dir/known_hosts" \
+            git push --force --quiet "git@github.com:${DEMO_REPO}.git" gh-pages
+          echo "Published $(git rev-parse --short HEAD) to ${DEMO_REPO}@gh-pages"

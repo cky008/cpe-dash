@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.1.2-6E56CF?style=flat-square" alt="Version 1.1.2" /></a>
+  <a href="https://cky008.github.io/fengsui-demo/"><img src="https://img.shields.io/badge/在线演示-打开-c0392b?style=flat-square" alt="在线演示" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
   <a href="#-docker--群晖-ds923-部署"><img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 arm64" /></a>
@@ -101,7 +102,7 @@
 
 ### 外观与工程
 - 四套主题：**素纸**（浅色宣纸）、**晨曦**（温润暖色）、**极夜**（深黑）、**紫溟**（极客暗紫），六种强调色，可跟随系统明暗；中英文即时切换，偏好本地持久化。
-- 首屏 JS + CSS 仅 **60.3 KiB gzip**（含一种语言），短信中心、控制抽屉、访问控制等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
+- 首屏 JS + CSS 仅 **60.4 KiB gzip**（含一种语言），短信中心、控制抽屉、访问控制等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
 - SSE 断线带抖动的指数退避自动重连；`423` 熔断、`409` 避让、`503` 停机分别给出不同的界面状态，绝不笼统显示为「离线」。
 
 ---
@@ -249,7 +250,11 @@ sequenceDiagram
 
 ## 🚀 快速开始
 
-### 1. 离线演示（无需路由器，30 秒看到完整界面）
+### 1. 在线演示（什么都不用装）
+
+打开 **<https://cky008.github.io/fengsui-demo/>**：完整的控制台跑在浏览器里，数据全部是虚构的占位值，锁频、断网、上网时段、收发短信等操作都能点，只在当前页面生效，刷新即复原。演示的初始数据由真守护进程在构建时录制，页面内的模拟后端与守护进程共用同一套校验与规划代码，并有契约测试逐项比对（见架构报告第 9 节）。
+
+### 2. 本地离线演示（无需路由器，30 秒看到完整界面）
 
 ```bash
 git clone https://github.com/cky008/cpe-dash.git && cd cpe-dash
@@ -262,7 +267,7 @@ npm run demo          # http://127.0.0.1:18484 ，登录口令 fengsui-demo
 
 演示进程**从不读取 `.env`、从不联网**：真实的调度器、监控、短信、SSE、REST、MCP 与 Web 界面，对接进程内的严格 H168-383 模型。
 
-### 2. 本机运行（Node.js >= 22.6）
+### 3. 本机运行（Node.js >= 22.6）
 
 ```bash
 cp .env.example .env && chmod 600 .env
@@ -272,7 +277,7 @@ npm start             # http://<本机 IP>:18384
 # 开发模式：npm run dev（--watch 热重载，直接运行 TypeScript 源码）
 ```
 
-### 3. 只读真机探针
+### 4. 只读真机探针
 
 ```bash
 npm run probe:rf          # 3CA 聚合链、256QAM MCS、MIMO 流数、发射功率与基站恒等校验
@@ -582,12 +587,12 @@ cpe-dash/
 │   └── cli.ts               # serve 守护进程与 mcp 桥接入口
 ├── web/                     # Web 控制台：严格 TS + Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
 │   ├── index.html · styles.css
-│   └── src/                 # core/（无 DOM 逻辑，纳入覆盖率门禁）· ui/ · i18n/
-├── scripts/                 # build-web.ts · demo-server.ts · audit-secrets.ts · probe-*.ts
+│   └── src/                 # core/（无 DOM 逻辑，纳入覆盖率门禁）· ui/ · i18n/ · demo/（在线演示的页面内后端）
+├── scripts/                 # build-web.ts · demo-router.ts · demo-server.ts · capture-demo-seed.ts · audit-secrets.ts · probe-*.ts
 ├── test/                    # node:test 离线测试（helpers/ 内含加密 Mock 路由器）
 ├── docs/                    # 协议规范、架构报告、后端契约与界面截图
 ├── Dockerfile · docker-compose.yml · .dockerignore
-└── .github/workflows/       # ci-docker.yml · release.yml
+└── .github/workflows/       # ci-docker.yml · release.yml · demo-pages.yml
 ```
 
 ---
