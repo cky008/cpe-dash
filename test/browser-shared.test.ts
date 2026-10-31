@@ -14,10 +14,12 @@ import {
   validateArfcnInBand,
   validatePci,
 } from "../src/rf-bounds.ts";
+import { maskIdentityDigits, maskIpAddress, maskMacTail, maskPhoneNumber } from "../src/privacy-mask.ts";
+import * as sanitize from "../src/sanitize.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../src/sms/text-mode.ts";
 
 /** Modules the browser bundle imports at runtime: they must not reach any Node built-in. */
-const BROWSER_SHARED_MODULES = ["src/rf-bounds.ts", "src/sms/text-mode.ts", "src/text-sanitize.ts"];
+const BROWSER_SHARED_MODULES = ["src/rf-bounds.ts", "src/sms/text-mode.ts", "src/text-sanitize.ts", "src/privacy-mask.ts"];
 
 function runtimeImports(file: string): string[] {
   const source = fs.readFileSync(file, "utf8");
@@ -97,5 +99,24 @@ describe("Browser-shared modules (single source of truth for the web UI)", () =>
     assert.equal(detectSmsTextMode("a".repeat(161)).segments, 2);
     assert.equal(detectSmsTextMode("\u0001ok").charUnits, 2);
     assert.equal(MAX_SMS_SEGMENTS, 4);
+  });
+
+  it("masks identifiers the same way on the daemon (REDACT_SENSITIVE_IN_API) and in the UI privacy mode", () => {
+    assert.equal(sanitize.maskPhoneNumber, maskPhoneNumber);
+    assert.equal(maskPhoneNumber("+353830000001"), "+353*******01");
+    assert.equal(maskPhoneNumber("DemoBank"), "DemoBank");
+    assert.equal(maskIdentityDigits("860000000000000", 6), "860000*********");
+    assert.equal(maskIdentityDigits(" 2720 1000 0000 000 ", 5), "27201**********");
+    assert.equal(maskIdentityDigits("1234", 6), "****");
+    assert.equal(maskIdentityDigits("", 6), "");
+    assert.equal(maskMacTail("02:00:5e:10:00:01"), "02:00:5E:**:**:**");
+    assert.equal(maskMacTail("02-00-5E-10-00-01"), "02:00:5E:**:**:**");
+    assert.equal(maskMacTail("not a mac"), "**:**:**:**:**:**");
+    assert.equal(maskMacTail(""), "");
+    assert.equal(maskIpAddress("198.51.100.42"), "198.51.*.*");
+    assert.equal(maskIpAddress("2001:db8:abcd:12::42"), "2001:db8:****");
+    assert.equal(maskIpAddress("fe80::1;2001:db8::42"), "fe80:****;2001:db8:****");
+    assert.equal(maskIpAddress("garbage"), "****");
+    assert.equal(maskIpAddress(""), "");
   });
 });

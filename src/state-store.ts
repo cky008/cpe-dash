@@ -63,6 +63,26 @@ function createDefaultState(): PersistedRuntimeState {
 }
 
 /**
+ * Fill device fields added after a snapshot was persisted (identifiers came with Phase 3), so the
+ * cached snapshot served before the first poll still matches `GlobalTelemetrySnapshot`.
+ */
+function upgradeTelemetry(snapshot: GlobalTelemetrySnapshot | null): GlobalTelemetrySnapshot | null {
+  if (!snapshot?.device) return snapshot;
+  const device: Partial<GlobalTelemetrySnapshot["device"]> = snapshot.device;
+  return {
+    ...snapshot,
+    device: {
+      ...snapshot.device,
+      imei: device.imei ?? "",
+      imsi: device.imsi ?? "",
+      msisdn: device.msisdn ?? "",
+      macAddress: device.macAddress ?? "",
+      sensitiveRedacted: device.sensitiveRedacted ?? false,
+    },
+  };
+}
+
+/**
  * Encrypted, crash-safe, NAS-hibernation-friendly state persistence store (`0600` AES-256-GCM).
  *
  * - Serializes async disk writes (`fs.promises.open` + `sync()` + atomic `rename`) so disk spin-up never
@@ -98,6 +118,7 @@ export class EncryptedStateStore {
       this.#state = {
         ...createDefaultState(),
         ...loaded,
+        latestTelemetry: upgradeTelemetry(loaded.latestTelemetry ?? null),
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
       };
     }

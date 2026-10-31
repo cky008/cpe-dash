@@ -249,6 +249,14 @@ export interface GlobalTelemetrySnapshot {
     connectionStatus: string;   // e.g. "901" (Connected)
     signalIconBars: number;     // 0..5
     simStatus: string;
+    // Phase 3：/api/device/information 中的设备与 SIM 标识（固件未返回时为 ""，不额外发起请求）。
+    // REDACT_SENSITIVE_IN_API=true 时在离开守护进程前按 src/privacy-mask.ts 部分掩码：
+    // IMEI 仅留前 6 位、IMSI 仅留 MCC+MNC 5 位、本机号码 "+353*******00"、MAC 仅留厂商 OUI
+    imei: string;               // e.g. "860000*********"
+    imsi: string;               // e.g. "27201**********"
+    msisdn: string;             // SIM 写入的本机号码，多数 SIM 为空
+    macAddress: string;         // <WanMacAddress>，缺失时取 <MacAddress1>，e.g. "02:00:5E:**:**:**"
+    sensitiveRedacted: boolean; // true = 上述标识、WAN 地址与 DNS 已在服务端脱敏（前端无法再还原明文）
   };
   rf: {
     operatorName: string;

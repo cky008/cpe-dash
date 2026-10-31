@@ -29,6 +29,13 @@ import {
   parseTrafficSnapshot,
   summarizeTopologyJson,
 } from "./parsers.ts";
+import {
+  IMEI_VISIBLE_DIGITS,
+  IMSI_VISIBLE_DIGITS,
+  maskIdentityDigits,
+  maskMacTail,
+  maskPhoneNumber,
+} from "./privacy-mask.ts";
 import { sanitizeIpToken } from "./sanitize.ts";
 import { parseSmsCountersOrNull } from "./sms/codec.ts";
 import type { SmsCounters } from "./sms/types.ts";
@@ -56,6 +63,19 @@ export interface DeviceIdentitySnapshot {
   connectionStatus: string;
   signalIconBars: number;
   simStatus: string;
+  /** `<Imei>` of `/api/device/information`; `""` when the firmware omits it. */
+  imei: string;
+  /** `<Imsi>`; `""` when absent. */
+  imsi: string;
+  /** The SIM's own number (`<Msisdn>`); most SIMs leave it empty. */
+  msisdn: string;
+  /** `<WanMacAddress>`, else `<MacAddress1>`; `""` when absent. */
+  macAddress: string;
+  /**
+   * `true` when REDACT_SENSITIVE_IN_API masked the identifiers above, the WAN addresses and DNS
+   * servers before the snapshot left the daemon (a UI cannot reveal what it never received).
+   */
+  sensitiveRedacted: boolean;
 }
 
 export interface BandConfigSnapshot {
@@ -350,6 +370,11 @@ export async function fetchGlobalTelemetry(
     }
   }
 
+  const deviceTag = (tag: string): string => (getXmlTag(deviceInfoXml, tag) ?? "").trim();
+  const rawImei = deviceTag("Imei");
+  const rawImsi = deviceTag("Imsi");
+  const rawMsisdn = deviceTag("Msisdn");
+  const rawMac = deviceTag("WanMacAddress") || deviceTag("MacAddress1");
   const rawWanV4 = (getXmlTag(deviceInfoXml, "WanIPAddress") ?? "").trim();
   const rawWanV6 = (getXmlTag(deviceInfoXml, "WanIPv6Address") ?? "").trim();
 
@@ -382,6 +407,11 @@ export async function fetchGlobalTelemetry(
       connectionStatus: getXmlTag(statusXml, "ConnectionStatus") ?? "",
       signalIconBars: Number.parseInt(getXmlTag(statusXml, "SignalIcon") ?? "0", 10) || 0,
       simStatus: getXmlTag(statusXml, "SimStatus") ?? "",
+      imei: redact ? maskIdentityDigits(rawImei, IMEI_VISIBLE_DIGITS) : rawImei,
+      imsi: redact ? maskIdentityDigits(rawImsi, IMSI_VISIBLE_DIGITS) : rawImsi,
+      msisdn: redact ? maskPhoneNumber(rawMsisdn) : rawMsisdn,
+      macAddress: redact ? maskMacTail(rawMac) : rawMac,
+      sensitiveRedacted: redact,
     },
     rf,
     bandConfig: {
