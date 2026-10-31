@@ -275,6 +275,26 @@ describe("/api/sms REST routes, /api/alerts and SMS SSE events", () => {
     await fx.cleanup();
   });
 
+  it("answers 423 CIRCUIT_BREAKER_OPEN once a wrong password tripped the breaker, without another login", async () => {
+    const fx = await createSmsHttpFixture({
+      mock: { intercept: (p) => (p === "/api/user/authentication_login" ? "<error><code>108006</code><remaincount>2</remaincount></error>" : undefined) },
+    });
+    try {
+      const logins = (): number => fx.mock.requests.filter((r) => r.path === "/api/user/authentication_login").length;
+      const first = await fx.post("/api/sms/send", { phone: "+353830000001", content: "x" });
+      assert.equal(first.status, 423);
+      assert.equal(first.body["errorCode"], "CIRCUIT_BREAKER_OPEN");
+      const breaker = first.body["circuitBreaker"] as { code: string; remainCount: number };
+      assert.deepEqual([breaker.code, breaker.remainCount], ["108006", 2]);
+      assert.match(String(first.body["message"]), /reset-breaker/);
+      const retried = await fx.post("/api/sms/send", { phone: "+353830000001", content: "x" });
+      assert.equal(retried.status, 423);
+      assert.equal(logins(), 1, "the latched breaker spends no second password attempt");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("manages contacts including large vCard imports beyond the default 64 KiB body cap", async () => {
     const fx = await createSmsHttpFixture();
     const saved = await fx.post("/api/sms/contacts/upsert", { phone: "0830000001", name: "Aoife", note: "neighbour" });

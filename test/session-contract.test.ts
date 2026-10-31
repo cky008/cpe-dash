@@ -179,7 +179,8 @@ describe("session contract on a strict single-admin router model", () => {
       assert.equal(afterTrip[7]?.status, "rejected");
       assert.equal(afterTrip[8]?.status, "rejected");
       assert.equal(mcpUnlock.isError, true);
-      assert.equal(mcpUnlock.structuredContent["errorCode"], "CPE_EXECUTION_ERROR");
+      assert.equal(mcpUnlock.structuredContent["errorCode"], "CIRCUIT_BREAKER_OPEN");
+      assert.equal((mcpUnlock.structuredContent["circuitBreaker"] as { code?: string }).code, "108006");
       const alerts = fx.core.scheduler.getRecentAlerts().filter((a) => a.code === "CIRCUIT_108006");
       assert.equal(alerts.length, 1, "the breaker alert is raised once");
       await fx.core.scheduler.stop();

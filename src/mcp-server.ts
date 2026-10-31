@@ -12,7 +12,13 @@ import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload
 import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { MCP_META_PROTOCOL_VERSION, MCP_META_SERVER_INFO, decodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
 import { type McpInputSchema, validateToolArguments } from "./mcp-schema.ts";
-import { BrowserSessionYieldedError, PeerDaemonStandbyError } from "./scheduler.ts";
+import {
+  BrowserSessionYieldedError,
+  CircuitBreakerOpenError,
+  PeerDaemonStandbyError,
+  SchedulerQueueFullError,
+  SchedulerStoppedError,
+} from "./scheduler.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
 
 /**
@@ -876,6 +882,12 @@ export class FengSuiMcpServer {
       }
       if (err instanceof PeerDaemonStandbyError) {
         return wrapErr("PEER_DAEMON_ACTIVE", err.message, { peerAddress: err.peerAddress });
+      }
+      if (err instanceof CircuitBreakerOpenError) {
+        return wrapErr("CIRCUIT_BREAKER_OPEN", err.message, { circuitBreaker: err.circuitBreaker });
+      }
+      if (err instanceof SchedulerQueueFullError || err instanceof SchedulerStoppedError) {
+        return wrapErr("QUEUE_FULL", err.message);
       }
       if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError) {
         return wrapErr("VALIDATION_ERROR", err.message);

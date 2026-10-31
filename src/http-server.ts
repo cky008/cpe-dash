@@ -33,6 +33,7 @@ import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
 import {
   BrowserSessionYieldedError,
+  CircuitBreakerOpenError,
   PeerDaemonStandbyError,
   SchedulerQueueFullError,
   SchedulerStoppedError,
@@ -878,6 +879,15 @@ export class FengSuiHttpServer {
           errorCode: "PEER_DAEMON_ACTIVE",
           message: err.message,
           peerAddress: err.peerAddress,
+        });
+        return;
+      }
+      if (err instanceof CircuitBreakerOpenError) {
+        this.#sendJson(res, 423, {
+          ok: false,
+          errorCode: "CIRCUIT_BREAKER_OPEN",
+          message: err.message,
+          circuitBreaker: err.circuitBreaker,
         });
         return;
       }

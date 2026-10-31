@@ -86,6 +86,41 @@ export class PeerDaemonStandbyError extends Error {
   }
 }
 
+/**
+ * The anti-brute-force breaker is open (`108006`/`108002`/`108001` wrong credentials, `108007`
+ * router lockout): thrown for the call that tripped it and for every control while it stays
+ * latched, which then makes no login attempt at all (`423 CIRCUIT_BREAKER_OPEN`).
+ */
+export class CircuitBreakerOpenError extends CpeApiError {
+  readonly statusCode = 423;
+  readonly circuitBreaker: CircuitBreakerState;
+
+  constructor(circuitBreaker: CircuitBreakerState) {
+    const code = circuitBreaker.code ?? "unknown";
+    super(
+      code,
+      code === "108007"
+        ? "circuit breaker open: the router has locked logins; once the lock has expired, POST /api/session/reset-breaker"
+        : "circuit breaker open: no further login attempts until CPE_PASSWORD in .env is fixed and POST /api/session/reset-breaker is called",
+      { remainCount: circuitBreaker.remainCount ?? null, waitTime: circuitBreaker.waitTime ?? null }
+    );
+    this.name = "CircuitBreakerOpenError";
+    this.circuitBreaker = circuitBreaker;
+  }
+}
+
+/** The breaker state reported to adapters (the password fingerprint never leaves the client). */
+function publicBreakerState(cb: CircuitBreakerState): CircuitBreakerState {
+  return {
+    tripped: cb.tripped,
+    code: cb.code,
+    reason: cb.reason,
+    trippedAtIso: cb.trippedAtIso,
+    remainCount: cb.remainCount ?? null,
+    waitTime: cb.waitTime ?? null,
+  };
+}
+
 export class SchedulerQueueFullError extends Error {
   readonly statusCode = 503;
 
@@ -269,14 +304,7 @@ export class MutexSessionScheduler extends EventEmitter {
       running: this.#running,
       avoidance: this.getAvoidanceState(),
       peerStandby: { ...this.#peerStandby },
-      circuitBreaker: {
-        tripped: cb.tripped,
-        code: cb.code,
-        reason: cb.reason,
-        trippedAtIso: cb.trippedAtIso,
-        remainCount: cb.remainCount ?? null,
-        waitTime: cb.waitTime ?? null,
-      },
+      circuitBreaker: publicBreakerState(cb),
       lastSessionHoldMs: telemetry.lastSessionHoldMs,
       totalSessionsCompleted: telemetry.totalSessionsCompleted,
       browserYieldCount: telemetry.browserYieldCount,
@@ -330,14 +358,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#lastError = null;
     this.stateStore.update({ circuitBreaker: cb });
     await this.stateStore.flushAsync();
-    return {
-      tripped: cb.tripped,
-      code: cb.code,
-      reason: cb.reason,
-      trippedAtIso: cb.trippedAtIso,
-      remainCount: cb.remainCount ?? null,
-      waitTime: cb.waitTime ?? null,
-    };
+    return publicBreakerState(cb);
   }
 
   /**
@@ -562,7 +583,7 @@ export class MutexSessionScheduler extends EventEmitter {
         await this.stateStore.flushAsync().catch(() => undefined);
         this.#safeEmit("alert", alert);
       }
-      throw err;
+      throw new CircuitBreakerOpenError(publicBreakerState(cb));
     }
 
     // A CPE error code or rejected input means the router answered; only transport failures mean unreachable

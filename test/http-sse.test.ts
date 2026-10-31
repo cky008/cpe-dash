@@ -1832,6 +1832,14 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       });
       assert.equal(resetUnchanged.status, 400);
       assert.equal(fx.scheduler.getStatus().circuitBreaker.tripped, true);
+      // While latched, writes get their own error (no login attempt) and reads keep serving the cache
+      const latchedWrite = await fetch(`${fx.baseUrl}/api/control/unlock`, { method: "POST", headers: authHeaders, body: "{}" });
+      assert.equal(latchedWrite.status, 423);
+      const latchedBody = (await latchedWrite.json()) as { errorCode: string; circuitBreaker: { tripped: boolean; code: string } };
+      assert.equal(latchedBody.errorCode, "CIRCUIT_BREAKER_OPEN");
+      assert.deepEqual([latchedBody.circuitBreaker.tripped, latchedBody.circuitBreaker.code], [true, "108006"]);
+      const latchedRead = await fetch(`${fx.baseUrl}/api/telemetry/refresh`, { method: "POST", headers: authHeaders, body: "{}" });
+      assert.equal(latchedRead.status, 200);
 
       // 8. Updating CPE_PASSWORD + API_TOKEN in .env clears 108006 latch AND revokes existing sessions & SSE streams
       const sseRes = await fetch(`${fx.baseUrl}/api/events`, {
