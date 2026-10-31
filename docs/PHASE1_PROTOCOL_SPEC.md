@@ -116,7 +116,9 @@ sequenceDiagram
 
 ### 2.4 会话占用上限与采集保真规则（Phase 2.5）
 
-1. **单会话占用上限**：`HuaweiCpeClient.withSessionDetailed()` 为每个会话（登录到登出）设置截止时间（`sessionMaxHoldMs`，默认 `90s`，运行时取 `max(90s, SMS_SEND_STATUS_TIMEOUT_MS + 30s)`）。会话内所有请求共用截止信号，登录与业务函数都与之竞速；到期后在途请求立即中止，`finally` 中的 `POST /api/user/logout` 改用独立的新信号执行，互斥锁随即释放（错误类型 `CpeSessionDeadlineError`）。`authentication_login` 发出后、路由器应答前一律视为「可能已登录」，因此被中止的握手同样会执行登出。
+1. **单会话占用上限**：`HuaweiCpeClient.withSessionDetailed()` 为每个会话（登录到登出）设置截止时间（`sessionMaxHoldMs`，默认 `90s`，运行时取 `max(90s, SMS_SEND_STATUS_TIMEOUT_MS + 30s)`）。会话内所有请求共用截止信号，登录与业务函数都与之竞速；到期后在途请求立即中止，`finally` 中的 `POST /api/user/logout` 改用独立的新信号执行，互斥锁随即释放（错误类型 `CpeSessionDeadlineError`）。`authentication_login` 发出后、路由器应答前一律视为「可能已登录」，因此被中止的握手同样会执行登出。截止或登出开始后，仍在运行的业务代码在该会话上发出的请求会在本地直接失败（`CpeSessionDeadlineError` / `CpeSessionClosedError`），不会携带已登出的 Cookie 再访问路由器。
+   - **取消**（Phase 2.5 第二轮）：`HuaweiCpeClient.abortActiveSession(reason)` 取消当前会话：在途请求中止，尚未开始的登录与占用重试不再发生，`finally` 登出照常执行。守护进程停机时调度器先给在途会话 2s 宽限，再以 `SchedulerStoppedError` 取消，保证进程退出前释放管理员槽位。
+   - **短信发送例外**：`send-sms` 被路由器接受后消息已在发送途中；之后的任何失败（截止、取消、断线）都报告为「已提交、状态未确认」，绝不报告为发送失败，以免重发。
 2. **读取失败绝不变成数据**：会话内的可选读取只在路由器返回 CPE 错误码（如 `100002`）时降级为空；超时、连接重置等传输层失败使整个快照失败。遥测核心接口（`/api/device/signal`、`/api/monitoring/status`、`/api/monitoring/traffic-statistics`、`/api/monitoring/month_statistics`）与全部路由器配置接口必须成功。
 3. **读-改-写**：`/api/security/firewall-switch`、`/api/security/dmz`、`/api/wlan/wlandbho` 的写入以严格读取的当前值为基础，读取失败或缺字段即在任何写入之前中止。
 4. **唯一 CPE 进程**：只有 `serve` 守护进程连接 CPE，并独占数据目录（`state.json.lock`）。`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，不会登录 CPE。跨主机的第二个守护进程由签名 LAN 信标（UDP `18385`，密钥派生自 `CPE_PASSWORD`）发现，较晚启动者待机、不登录 CPE。
@@ -515,7 +517,7 @@ sequenceDiagram
 | 单号码消息数 | `POST /api/sms/sms-count-contact` | `enc-type=2` | 请求体 `<phone>` 需经 Huawei `xss()` 转义 |
 | 单号码消息列表（回退） | `POST /api/sms/sms-list-phone` | `enc-type=3` | 双向消息，每页 ≤20 |
 | 发送 | `POST /api/sms/send-sms` | `enc-type=2` | 最多 5 个收件人、4 段 |
-| 发送状态轮询 | `POST /api/sms/send-status` | `enc-type=1` | 每 2s 一次，最长 45s（`SMS_SEND_STATUS_TIMEOUT_MS`） |
+| 发送状态轮询 | `POST /api/sms/send-status` | `enc-type=1` | 每 2s 一次，最长 45s 墙钟时间（`SMS_SEND_STATUS_TIMEOUT_MS`；单次轮询变慢时提前结束，而不是轮询满 `45 / 2` 次） |
 | 标记已读 | `POST /api/sms/set-read` | 明文 XML | 每批 ≤20 个 `<Index>` |
 | 删除 | `POST /api/sms/delete-sms` | 明文 XML | 每批 ≤20 个 `<Index>` |
 
@@ -639,7 +641,7 @@ $$
 
 - **`lock_mode = 0`**：解除锁定（恢复基带自动选频/选小区）
 - **`lock_mode = 1`**：锁频点（指定 `band` + `freq`，不限 `pci`）
-- **`lock_mode = 2`**：锁物理小区（精确指定 `band` + `freq` + `pci`）
+- **`lock_mode = 2`**：锁物理小区（精确指定 `band` + `freq` + `pci`）。`pci` 按制式取值：LTE `0..503`（TS 36.211 §6.11，504 个物理小区标识），NR `0..1007`（TS 38.211 §7.4.2.1，1008 个）；越界值在下发前即被拒绝
 - **`lock_mode = 3`**：5G NR 锁频段（`<freq_infos>` 枚举 `<band>`，`<all_bands>` 填入十六进制 `BandMask`）
 
 ```xml
