@@ -75,17 +75,19 @@ export function mountNeighbors(ctx: AppContext): void {
     return h(
       "tr",
       { class: serving ? "is-serving" : "" },
-      h("td", null, h("span", { class: `fs-badge ${cell.rat === "NR" ? "text-primary" : ""}` }, cell.rat === "NR" ? "5G" : "4G")),
+      // The band label (N78 / B3) already names the RAT, so phones drop this column
+      h("td", { class: "hidden sm:table-cell" }, h("span", { class: `fs-badge ${cell.rat === "NR" ? "text-primary" : ""}` }, cell.rat === "NR" ? "5G" : "4G")),
       h("td", { class: "num font-semibold" }, bandLabel(cell.rat, cell.band), serving ? h("span", { class: "fs-badge text-success ml-1.5" }, ctx.t("nb.serving")) : null),
       h("td", { class: "num" }, cell.arfcn ?? DASH),
       h("td", { class: "num" }, cell.pci ?? DASH),
       h(
         "td",
-        { class: "min-w-[9rem]" },
-        h("div", { class: "flex items-center gap-2" }, h("span", { class: `num w-16 ${qualityClass(level)}` }, formatSigned(cell.rsrpDbm, "dBm")), h("div", { class: "flex-1" }, meter(gaugeFraction("rsrp", cell.rsrpDbm), "", true)))
+        { class: "sm:min-w-[9rem]" },
+        h("div", { class: "flex items-center gap-2" }, h("span", { class: `num whitespace-nowrap sm:w-16 ${qualityClass(level)}` }, formatSigned(cell.rsrpDbm, "dBm")), h("div", { class: "flex-1 hidden sm:block" }, meter(gaugeFraction("rsrp", cell.rsrpDbm), "", true)))
       ),
-      h("td", { class: "num" }, formatSigned(cell.rsrqDb, "dB", 1)),
-      h("td", { class: `num ${qualityClass(qualityLevel("sinr", cell.sinrDb))}` }, formatSigned(cell.sinrDb, "dB")),
+      // Phones keep the columns needed to pick a cell; RAT, RSRQ and SINR appear from the sm breakpoint
+      h("td", { class: "num hidden sm:table-cell" }, formatSigned(cell.rsrqDb, "dB", 1)),
+      h("td", { class: `num hidden sm:table-cell ${qualityClass(qualityLevel("sinr", cell.sinrDb))}` }, formatSigned(cell.sinrDb, "dB")),
       h("td", { class: "text-right" }, lockBtn)
     );
   };
@@ -130,7 +132,9 @@ export function mountNeighbors(ctx: AppContext): void {
                 h(
                   "tr",
                   null,
-                  ...(["nb.rat", "nb.band", "nb.arfcn", "nb.pci", "nb.rsrp", "nb.rsrq", "nb.sinr"] as const).map((k) => h("th", null, ctx.t(k))),
+                  ...(["nb.rat", "nb.band", "nb.arfcn", "nb.pci", "nb.rsrp", "nb.rsrq", "nb.sinr"] as const).map((k) =>
+                    h("th", { class: k === "nb.rat" || k === "nb.rsrq" || k === "nb.sinr" ? "hidden sm:table-cell" : "" }, ctx.t(k))
+                  ),
                   h("th", { class: "text-right" }, "")
                 )
               ),

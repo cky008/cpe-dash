@@ -6,13 +6,14 @@ import { byId, h, icon, mount, setText } from "./dom.ts";
 import { sensitive } from "./sensitive.ts";
 import { cardHead, emptyState, runBusy } from "./widgets.ts";
 
-const MEDIUM: Readonly<Record<TerminalAccessMedium, { key: MessageKey; kind: string; icon: string; wired: boolean }>> = {
-  LAN_1000M: { key: "topo.lan_1000m", kind: "lan", icon: "ethernet", wired: true },
-  LAN_100M: { key: "topo.lan_100m", kind: "lan", icon: "ethernet", wired: true },
-  LAN_OTHER: { key: "topo.lan_other", kind: "lan", icon: "ethernet", wired: true },
-  WIFI_5G: { key: "topo.wifi_5", kind: "wifi5", icon: "wifi", wired: false },
-  WIFI_2_4G: { key: "topo.wifi_24", kind: "wifi24", icon: "wifi", wired: false },
-  WIFI_OTHER: { key: "topo.wifi_other", kind: "wifi5", icon: "wifi", wired: false },
+/** `short` is the phone label: the row's icon already says wired or Wi-Fi. */
+const MEDIUM: Readonly<Record<TerminalAccessMedium, { key: MessageKey; short: string; kind: string; icon: string; wired: boolean }>> = {
+  LAN_1000M: { key: "topo.lan_1000m", short: "1000M", kind: "lan", icon: "ethernet", wired: true },
+  LAN_100M: { key: "topo.lan_100m", short: "100M", kind: "lan", icon: "ethernet", wired: true },
+  LAN_OTHER: { key: "topo.lan_other", short: "LAN", kind: "lan", icon: "ethernet", wired: true },
+  WIFI_5G: { key: "topo.wifi_5", short: "5G", kind: "wifi5", icon: "wifi", wired: false },
+  WIFI_2_4G: { key: "topo.wifi_24", short: "2.4G", kind: "wifi24", icon: "wifi", wired: false },
+  WIFI_OTHER: { key: "topo.wifi_other", short: "WiFi", kind: "wifi5", icon: "wifi", wired: false },
 };
 
 /**
@@ -66,29 +67,31 @@ export function mountTopology(ctx: AppContext): void {
             { class: "min-w-0" },
             // DHCP / mDNS names are untrusted: text node only (contract §2.3)
             h("div", { class: "font-medium truncate" }, host.displayName || ctx.t("topo.unnamed")),
-            h("div", { class: "text-[0.6875rem] faint" }, sensitive(ctx, "mac", host.macAddress, "topology"))
+            h("div", { class: "text-[0.6875rem] faint" }, sensitive(ctx, "mac", host.macAddress, "topology")),
+            // Phones hide the address column; the IPv4 stays visible under the name
+            h("div", { class: "text-[0.6875rem] faint sm:hidden" }, sensitive(ctx, "ip", host.ipv4Address, "topology"))
           )
         )
       ),
       h(
         "td",
         null,
-        h("span", { class: "fs-badge", data: { kind: medium.kind } }, icon(medium.icon), ctx.t(medium.key)),
+        h("span", { class: "fs-badge", data: { kind: medium.kind } }, icon(medium.icon), h("span", { class: "hidden sm:inline" }, ctx.t(medium.key)), h("span", { class: "sm:hidden" }, medium.short)),
         blocked && access ? access.badge(ctx) : host.active ? null : h("span", { class: "fs-badge ml-1" }, ctx.t("topo.offline"))
       ),
       h(
         "td",
-        { class: "text-xs leading-tight" },
+        { class: "text-xs leading-tight hidden sm:table-cell" },
         h("div", null, sensitive(ctx, "ip", host.ipv4Address, "topology")),
         ipv6 ? h("div", { class: "faint" }, sensitive(ctx, "ip", ipv6, "topology")) : null
       ),
       h(
         "td",
-        { class: "num text-xs" },
+        { class: "num text-xs hidden sm:table-cell" },
         host.negotiatedRateMbps ? `${host.negotiatedRateMbps} Mbps` : DASH,
         host.rssi !== null && !medium.wired ? h("div", { class: "faint" }, `RSSI ${host.rssi}`) : null
       ),
-      h("td", { class: "text-right" }, lease),
+      h("td", { class: "text-right hidden sm:table-cell" }, lease),
       access ? access.cell(ctx, host) : h("td", { class: "text-right faint" }, DASH)
     );
   };
@@ -135,7 +138,17 @@ export function mountTopology(ctx: AppContext): void {
               h(
                 "table",
                 { class: "fs-table" },
-                h("thead", null, h("tr", null, ...(["topo.device", "topo.link", "topo.address", "topo.rate", "topo.lease", "topo.action"] as const).map((k, i) => h("th", { class: i >= 4 ? "text-right" : "" }, ctx.t(k))))),
+                h(
+                  "thead",
+                  null,
+                  h(
+                    "tr",
+                    null,
+                    ...(["topo.device", "topo.link", "topo.address", "topo.rate", "topo.lease", "topo.action"] as const).map((k, i) =>
+                      h("th", { class: `${i >= 4 ? "text-right" : ""} ${i >= 2 && i <= 4 ? "hidden sm:table-cell" : ""}`.trim() }, ctx.t(k))
+                    )
+                  )
+                ),
                 h("tbody", null, ...hosts.map((host) => hostRow(host, topology.capturedAtMs)))
               )
             )

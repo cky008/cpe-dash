@@ -369,12 +369,16 @@ body {
   }
   .fs-card-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
+    row-gap: 0.375rem;
     padding: 0.875rem 1.125rem 0.25rem;
   }
   .fs-card-title {
     display: inline-flex;
+    flex-shrink: 0;
+    white-space: nowrap;
     align-items: center;
     gap: 0.5rem;
     font-family: var(--font-serif);
@@ -663,6 +667,13 @@ body {
     padding: 0.5rem 0.625rem;
     border-bottom: 1px dashed var(--hairline);
     vertical-align: middle;
+  }
+  /* Phones: tighter cells so the action column stays on screen without sideways scrolling */
+  @media (max-width: 639px) {
+    .fs-table th,
+    .fs-table td {
+      padding-inline: 0.375rem;
+    }
   }
   .fs-table tbody tr {
     transition: background-color 0.15s ease;
@@ -1236,5 +1247,29 @@ body {
     animation-iteration-count: 1 !important;
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * Narrow phones (360 px Android): the seal, both views and every header button stay on screen.
+ * Unlayered on purpose: daisyUI 5 ships its button sizes in the utilities layer, which outranks
+ * anything inside @layer components.
+ */
+@media (max-width: 379px) {
+  .fs-header .btn-sm {
+    --size: 1.75rem;
+    padding-inline: 0.35rem;
+  }
+  .fs-header .btn-square {
+    padding-inline: 0;
+  }
+  .fs-header .fs-seg button {
+    padding-inline: 0.5rem;
+  }
+}
+@media (max-width: 339px) {
+  .fs-header > div {
+    padding-inline: 0.5rem;
+    column-gap: 0.25rem;
   }
 }

@@ -122,7 +122,7 @@ export const topologyAccess = {
     const reason = mac && mac === normalizeMac(guard?.daemonHostMac ?? "") ? t("protected_daemon") : mac && mac === normalizeMac(guard?.requesterMac ?? "") ? t("protected_self") : null;
     const button = h(
       "button",
-      { class: `btn btn-ghost btn-xs rounded-lg ${blocked ? "text-success" : "text-error"}`, attrs: { type: "button" }, title: reason ?? "" },
+      { class: `btn btn-ghost btn-xs rounded-lg whitespace-nowrap ${blocked ? "text-success" : "text-error"}`, attrs: { type: "button" }, title: reason ?? "" },
       icon(blocked ? "unlock" : "lock"),
       t(blocked ? "unblock" : "block")
     );
