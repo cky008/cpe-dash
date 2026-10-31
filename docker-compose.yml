@@ -1,0 +1,48 @@
+# 烽燧 FengSui (cpe-dash) — Synology DS923+ / any Docker host, also `container-compose` on macOS.
+#
+#   mkdir -p data && cp .env.example .env    # then set CPE_PASSWORD, API_TOKEN, DATA_ENCRYPTION_KEY
+#   docker compose up -d                       # Web console: http://<nas-ip>:18384
+#
+# Run exactly ONE daemon per router: it owns the router's single admin slot and the Telegram bot
+# token. Stop any other cpe-dash / cpe-sms instance (NAS or laptop) before starting this one.
+
+services:
+  cpe-dash:
+    image: ghcr.io/cky008/cpe-dash:latest
+    build: .
+    container_name: cpe-dash
+    restart: unless-stopped
+    init: true
+    # Unprivileged user; set PUID/PGID to the owner of ./data and ./.env (`id -u` / `id -g` on the NAS)
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      # Container networking: listen on every interface of the container, store state in the volume.
+      # Everything else (CPE_PASSWORD, API_TOKEN, SMS / Telegram / alert settings) comes from the
+      # mounted .env, which POST /api/session/reset-breaker re-reads without a restart.
+      - TZ=${TZ:-UTC}
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=18384
+      - STATE_FILE=/app/data/state.json
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    ports:
+      - "${WEB_PORT:-18384}:18384"
+    # The cross-host duplicate-daemon guard (UDP 18385 broadcast beacons) needs the host network:
+    # Docker's bridge does not forward LAN broadcasts. To enable it, uncomment the next line and
+    # remove `ports:` above (the console is then served on the host's WEB_PORT directly).
+    # network_mode: host
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # SIGTERM → queued requests 503, in-flight CPE session logs out, encrypted stores flush (< 10 s)
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,26 @@
+# Secrets and runtime data never enter the build context
+.env
+.env.*
+!.env.example
+data
+*.har
+*.pcap*
+*.apk*
+*.dll
+*.pem
+*.key
+.probe-cache
+
+# Build outputs and tooling caches (the image builds its own dist/)
+node_modules
+dist
+coverage
+.git
+.github
+.DS_Store
+
+# Not needed to build or run the daemon
+test
+docs
+*.md
+!README.md

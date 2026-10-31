@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: CI only reads the repository; nothing is published from here.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Quality gate (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.x: the engines floor (>= 22.6); 26.x: the LTS the container image runs
+        node: ["22.x", "26.x"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # audit:secrets scans the full git history
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install dev toolchain (no lifecycle scripts)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build daemon and web dashboard
+        run: npm run build
+      - name: Typecheck, coverage gate (>= 90 %) and secret / pure-TS audit
+        run: npm run check
+
+  docker:
+    name: Docker image (linux/amd64) + container smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: check
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image for the DS923+ (linux/amd64)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cpe-dash:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Inspect image (architecture, unprivileged user, no node_modules)
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect cpe-dash:ci --format '{{.Architecture}}')" = amd64
+          test "$(docker image inspect cpe-dash:ci --format '{{.Config.User}}')" = node
+          docker run --rm --entrypoint id cpe-dash:ci | grep -q 'uid=1000(node)'
+          docker run --rm --entrypoint sh cpe-dash:ci -c 'test ! -e /app/node_modules && test -f /app/dist/web/public/index.html'
+          docker image ls cpe-dash:ci
+
+      - name: Start the container (no router reachable, CPE_URL points at a dead loopback port)
+        run: |
+          set -euo pipefail
+          mkdir -p smoke/data
+          cat > smoke/.env <<'EOF'
+          CPE_URL=http://127.0.0.1:9
+          CPE_PASSWORD=ci-smoke-not-a-router
+          DATA_ENCRYPTION_KEY=ci-smoke-data-key
+          API_TOKEN=ci-smoke-token
+          PEER_DISCOVERY_ENABLED=false
+          TZ=UTC
+          EOF
+          docker run -d --name fengsui-smoke \
+            --user "$(id -u):$(id -g)" \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            --health-interval 5s --health-start-period 30s \
+            -p 18384:18384 \
+            -v "$PWD/smoke/.env:/app/.env:ro" \
+            -v "$PWD/smoke/data:/app/data" \
+            cpe-dash:ci
+          for i in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' fengsui-smoke)"
+            echo "health: $status"
+            [ "$status" = healthy ] && exit 0
+            sleep 3
+          done
+          echo "container never became healthy" >&2
+          exit 1
+
+      - name: Exercise health, web UI, login, SSE and MCP
+        run: |
+          set -euo pipefail
+          base=http://127.0.0.1:18384
+          curl -fsS "$base/api/health" | tee /dev/stderr | grep -q '"codename":"FengSui"'
+          curl -fsS "$base/" | grep -q 'type="module"'
+          curl -fsSI "$base/" | grep -qi "content-security-policy: default-src 'self'"
+          curl -fsS -c jar -H "Origin: $base" -H 'X-Requested-With: XMLHttpRequest' -H 'Content-Type: application/json' \
+            -d '{"token":"ci-smoke-token"}' "$base/api/auth/login" | grep -q '"authenticated":true'
+          curl -sS -N -m 4 -b jar "$base/api/events" > sse.txt || true
+          grep -q '^event: hello' sse.txt
+          curl -fsS -H 'Authorization: Bearer ci-smoke-token' -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            "$base/mcp" | grep -q 'fengsui-cpe-dash'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/telemetry")" = 401
+
+      - name: Graceful SIGTERM inside docker stop's grace period
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          docker stop -t 15 fengsui-smoke
+          elapsed=$(( $(date +%s) - start ))
+          echo "stopped in ${elapsed}s"
+          test "$elapsed" -lt 10
+          test "$(docker inspect -f '{{.State.ExitCode}}' fengsui-smoke)" = 0
+          docker logs fengsui-smoke 2>&1 | grep -q 'Received SIGTERM'
+          # Runtime state is only ever written encrypted
+          grep -q '"__encrypted"' smoke/data/state.json
+          ! grep -q 'ci-smoke' smoke/data/state.json
+
+      - name: Container logs
+        if: always()
+        run: docker logs fengsui-smoke 2>&1 | tail -n 80 || true
