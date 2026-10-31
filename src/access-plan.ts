@@ -1,35 +1,16 @@
 /**
  * Planning and validation for device access control on the H168-383: the Wi-Fi MAC filter
- * (blacklist / whitelist) and the parental-control "internet time" rules. This module imports
- * nothing, so the web dashboard bundles it and previews a change (who gets cut off, which rules
- * clash) with exactly the rules the daemon enforces before it writes to the router.
+ * (blacklist / whitelist) and the parental-control "internet time" rules. It imports only the
+ * dependency-free src/access-state.ts, so the web dashboard bundles it and previews a change (who
+ * gets cut off, which rules clash) with exactly the rules the daemon enforces before it writes to
+ * the router.
  *
- * Router model (firmware 4.4.0.1, `GET /api/wlan/multi-macfilter-settings-ex`): one router-wide
- * switch (`enable`) and policy (`wifimacfilterstatus`: 1 = whitelist, 2 = blacklist), with the two
- * lists stored separately. A write sends one list together with a status code (0 = off, 1 = write
- * the whitelist and enforce it, 2 = the same for the blacklist).
+ * A write sends one list together with a status code (0 = off, 1 = write the whitelist and enforce
+ * it, 2 = the same for the blacklist).
  */
+import { type MacFilterEntry, type WifiFilterMode, type WifiFilterPolicy, type WifiMacFilterState, normalizeMac } from "./access-state.ts";
 
-export type WifiFilterPolicy = "allow" | "deny";
-export type WifiFilterMode = "off" | WifiFilterPolicy;
-
-export interface MacFilterEntry {
-  /** Upper-case, colon-separated unicast MAC. */
-  macAddress: string;
-  /** Label stored next to the MAC on the router (its hostname). */
-  name: string;
-}
-
-export interface WifiMacFilterState {
-  /** Router-wide switch; while `false` the stored lists block nobody. */
-  enabled: boolean;
-  /** List the router enforces while enabled. */
-  policy: WifiFilterPolicy;
-  allowList: MacFilterEntry[];
-  denyList: MacFilterEntry[];
-  /** `wifimaxmacfilternum` (64 on the H168-383) per list. */
-  maxEntries: number;
-}
+export { type MacFilterEntry, type WifiFilterMode, type WifiFilterPolicy, type WifiMacFilterState, isDeviceBlocked, normalizeMac, wifiFilterMode } from "./access-state.ts";
 
 export interface ProtectedDevice {
   macAddress: string;
@@ -94,16 +75,6 @@ export class AccessPlanError extends Error {
 /** Longest label written next to a MAC (the router UI shows device names of this length). */
 export const MAX_DEVICE_NAME_LENGTH = 32;
 
-/** Normalize to `AA:BB:CC:DD:EE:FF`; `null` for malformed, all-zero, broadcast or multicast MACs. */
-export function normalizeMac(raw: string): string | null {
-  const parts = raw.trim().split(/[:-]/);
-  if (parts.length !== 6 || parts.some((p) => !/^[0-9A-Fa-f]{2}$/.test(p))) return null;
-  const mac = parts.join(":").toUpperCase();
-  const firstOctet = Number.parseInt(parts[0] ?? "", 16);
-  if (mac === "00:00:00:00:00:00" || (firstOctet & 1) === 1) return null;
-  return mac;
-}
-
 function requireMac(raw: string): string {
   const mac = normalizeMac(raw);
   if (!mac) throw new AccessPlanError("INVALID_MAC", `"${raw}" is not a unicast MAC address`);
@@ -117,18 +88,6 @@ export function cleanDeviceName(raw: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, MAX_DEVICE_NAME_LENGTH);
-}
-
-export function wifiFilterMode(state: WifiMacFilterState): WifiFilterMode {
-  return state.enabled ? state.policy : "off";
-}
-
-/** Whether the Wi-Fi MAC filter keeps this device off Wi-Fi right now. */
-export function isDeviceBlocked(state: WifiMacFilterState, macAddress: string): boolean {
-  const mac = normalizeMac(macAddress);
-  if (!state.enabled || !mac) return false;
-  const listed = (list: ReadonlyArray<MacFilterEntry>): boolean => list.some((e) => e.macAddress === mac);
-  return state.policy === "deny" ? listed(state.denyList) : !listed(state.allowList);
 }
 
 function normalizeEntries(entries: ReadonlyArray<MacFilterEntry>): MacFilterEntry[] {
