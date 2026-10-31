@@ -1,83 +1,142 @@
-# cpe-dash · 烽燧 (FengSui)
+<h1 align="center">烽燧 · FengSui <sub><code>cpe-dash</code></sub></h1>
 
 <p align="center">
-  <strong>华为 5G CPE Ultra 6 (H168-383) 私有化高阶射频遥测 · 3CA 载波聚合观测 · 邻区扫描 · 锁频锁站 · 短信与 Telegram · MCP 智能体网管平台</strong>
+  <strong>华为 5G CPE Ultra 6（H168-383）私有化射频监控与短信网关：3CA 载波聚合 · 邻区扫描 · 锁频锁站 · 加密短信中心 · Telegram · MCP 智能体</strong>
 </p>
 
 <p align="center">
-  <strong>简体中文</strong> | <a href="README_EN.md">English</a>
+  <a href="README.md"><img src="https://img.shields.io/badge/简体中文-当前-c0392b?style=flat-square" alt="简体中文" /></a>
+  <a href="README_EN.md"><img src="https://img.shields.io/badge/English-切换-2c3e50?style=flat-square" alt="English" /></a>
 </p>
 
 <p align="center">
-  <a href="https://nodejs.org/">
-    <img src="https://img.shields.io/badge/Node.js-%3E%3D22.6.0-339933?logo=node.js&logoColor=white" alt="Node.js >= 22.6.0" />
-  </a>
-  <a href="https://www.typescriptlang.org/">
-    <img src="https://img.shields.io/badge/TypeScript-7.0_Strict-3178C6?logo=typescript&logoColor=white" alt="TypeScript 7.0 Strict" />
-  </a>
-  <a href="package.json">
-    <img src="https://img.shields.io/badge/dependencies-0%20runtime-black" alt="Zero Runtime Dependencies" />
-  </a>
-  <a href="test/">
-    <img src="https://img.shields.io/badge/coverage-%3E96%25-brightgreen" alt="Coverage > 96%" />
-  </a>
-  <a href="AGENTS.md">
-    <img src="https://img.shields.io/badge/security-AES--256--GCM-0052CC?logo=vault&logoColor=white" alt="AES-256-GCM Security" />
-  </a>
-  <a href=".env.example">
-    <img src="https://img.shields.io/badge/WEB__PORT-18384-6E56CF" alt="Default Port 18384" />
-  </a>
-  <a href="docs/PHASE2_BACKEND_CONTRACT.md">
-    <img src="https://img.shields.io/badge/MCP-2025--06--18-8A2BE2" alt="Model Context Protocol" />
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-orange.svg" alt="License" />
-  </a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.0.0-6E56CF?style=flat-square" alt="Version 1.0.0" /></a>
+  <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
+  <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
+  <a href="#-docker--群晖-ds923-部署"><img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 arm64" /></a>
+  <a href="#-mcp-智能体接入"><img src="https://img.shields.io/badge/MCP-Supported-8A2BE2?style=flat-square" alt="MCP Supported" /></a>
+  <a href="#️-短信telegram-与告警"><img src="https://img.shields.io/badge/Unified-SMS_%26_Telemetry-0E8A16?style=flat-square" alt="Unified SMS and Telemetry" /></a>
+  <a href="#-docker--群晖-ds923-部署"><img src="https://img.shields.io/badge/Tailscale-Ready-242424?style=flat-square&logo=tailscale&logoColor=white" alt="Tailscale Ready" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/runtime_deps-0-black?style=flat-square" alt="Zero runtime dependencies" /></a>
+  <a href="test/"><img src="https://img.shields.io/badge/coverage-98%25-brightgreen?style=flat-square" alt="Coverage 98%" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm_NC_1.0.0-orange?style=flat-square" alt="PolyForm Noncommercial 1.0.0" /></a>
 </p>
 
----
+<p align="center">
+  <img src="docs/screenshots/dashboard-suzhi.webp" alt="烽燧监控大屏（素纸主题）" width="100%" />
+</p>
 
-**「烽燧」(FengSui / `cpe-dash`)** 是专为 **华为 5G CPE Ultra 6 (`H168-383`，固件 `4.4.0.1`)** 打造的私有化 5G 射频遥测、3CA 载波聚合分析、4G/5G 邻区扫描、锁频段/锁小区控制、双周期流量审计、局域网终端拓扑与 **Model Context Protocol (MCP)** 智能体网管平台，并内置**短信收发**（加密镜像、通讯录、Telegram 双向机器人、签名 Webhook）与**自动告警**。短信与遥测共用唯一的管理员会话调度器，不再与独立短信服务争抢路由器后台。
+**「烽燧」(FengSui / `cpe-dash`)** 是一个跑在家里 NAS 上的单容器服务：一边以毫秒级瞬时会话采集 H168-383 的 5G 射频遥测（3CA 逐载波、MCS / MIMO / 发射功率、邻区、流量、终端拓扑），一边把路由器变成加密的短信网关（Web 短信中心、Telegram 双向机器人、签名 Webhook），并通过 **Model Context Protocol (MCP)** 让 AI 智能体安全地诊断信号、锁频锁站与收发短信。遥测与短信共用**唯一的管理员会话调度器**，真人登录 `192.168.8.1` 时自动让位，永不抢占。
 
-项目针对 **群晖 Synology DS923+ (AMD Ryzen R1600 / 32GB RAM)** 等家庭私有内网环境设计，采用 **100% 严格 TypeScript (`strict: true`)** 独立闭环编写，**生产运行时零外部 npm 依赖**（100% 基于 Node.js 原生内置模块），默认监听独立高位端口 `:18384`。
+- **100% 私有化，零上云**：全部数据只在你的 NAS 上，`AES-256-GCM` 加密落盘；Web 控制台零 CDN、零外链，离线可用。
+- **0 额外硬件成本**：复用现有 NAS 与 CPE 自带的短信能力，不需要短信猫、USB 模块或第二台设备。
+- **生产级容器**：非 root、只读根文件系统、`HEALTHCHECK`、`SIGTERM` 10 秒内优雅停机并释放路由器会话；`linux/amd64`（DS923+）与 `linux/arm64` 双架构。
+- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，314 项离线测试、语句覆盖率 98%。
 
 ---
 
 ## 目录
 
-- [🏛️ 系统拓扑与单会话避让架构图](#️-系统拓扑与单会话避让架构图)
-- [✨ 核心工程与协议特性](#-核心工程与协议特性)
-- [📡《H168-383 硬件能力全景表》（真机实测验证）](#-h168-383-硬件能力全景表真机实测验证)
-- [🏗️ 仓库架构与模块划分](#️-仓库架构与模块划分)
-- [🚀 快速启动（守护进程、MCP Server 与真机探针）](#-快速启动守护进程mcp-server-与真机探针)
-- [✉️ 短信、Telegram 机器人与告警](#️-短信telegram-机器人与告警)
-- [🔌 REST API、毫秒级 SSE 与 MCP 工具概览](#-rest-api毫秒级-sse-与-mcp-工具概览)
+- [🖼️ 界面一览](#️-界面一览)
+- [⚖️ 方案对比](#️-方案对比)
+- [🏛️ 架构：唯一会话出口与真人避让](#️-架构唯一会话出口与真人避让)
+- [✨ 核心特性](#-核心特性)
+- [📡 H168-383 硬件能力全景表](#-h168-383-硬件能力全景表真机实测验证)
+- [🚀 快速开始](#-快速开始)
+- [🐳 Docker / 群晖 DS923+ 部署](#-docker--群晖-ds923-部署)
+- [🤖 MCP 智能体接入](#-mcp-智能体接入)
+- [✉️ 短信、Telegram 与告警](#️-短信telegram-与告警)
+- [🔌 REST API 与 SSE](#-rest-api-与-sse)
 - [⚙️ `.env` 配置参考](#️-env-配置参考)
-- [🛡️ 七大安全与 TDD 质量门禁](#️-七大安全与-tdd-质量门禁)
-- [📚 权威技术文档索引](#-权威技术文档索引)
-- [⚠️ 免责声明与开源许可](#️-免责声明与开源许可)
+- [🛡️ 安全与质量门禁](#️-安全与质量门禁)
+- [🏗️ 仓库结构](#️-仓库结构)
+- [📚 文档索引](#-文档索引)
+- [⚠️ 免责声明与许可](#️-免责声明与许可)
 
 ---
 
-## 🏛️ 系统拓扑与单会话避让架构图
+## 🖼️ 界面一览
+
+> 以下截图全部来自 `npm run demo`：真实守护进程栈 + 进程内严格 Mock 路由器，所有标识均为 RFC 保留占位值。
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/dashboard-jiye.webp" alt="监控大屏（极夜主题）" /><br /><sub><b>监控大屏 · 极夜</b>：3CA 胶囊、逐载波射频、双周期流量环、实时贝塞尔速率曲线</sub></td>
+    <td width="50%"><img src="docs/screenshots/sms-suzhi.webp" alt="短信中心（素纸主题）" /><br /><sub><b>短信中心 · 素纸</b>：会话、长短信合并、验证码一键复制、联系人映射</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/controls-chenxi.webp" alt="控制抽屉（晨曦主题）" /><br /><sub><b>控制抽屉 · 晨曦</b>：4G / 5G 锁频段、安全开关、重拨与二次确认重启</sub></td>
+    <td><img src="docs/screenshots/cell-lock.webp" alt="锁小区确认" /><br /><sub><b>锁至此小区</b>：邻区一键带入 PCI + ARFCN，按制式校验范围后二次确认</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/yield.webp" alt="真人避让横幅" /><br /><sub><b>真人在线避让</b>：呼吸提示「真人用户正在访问官方后台，监控已智能避让」</sub></td>
+    <td><img src="docs/screenshots/breaker.webp" alt="熔断横幅" /><br /><sub><b>423 防爆破熔断</b>：明确区别于离线，附熔断原因与恢复步骤</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/sms-ziming-en.webp" alt="短信中心英文界面（紫溟主题）" /><br /><sub><b>English · 紫溟</b>：中英文即时切换，词典按需懒加载</sub></td>
+    <td align="center"><img src="docs/screenshots/mobile.webp" alt="移动端" width="45%" /><br /><sub><b>移动端</b>：390 px 窄屏自适应</sub></td>
+  </tr>
+</table>
+
+### 监控大屏
+- **顶部横幅**：品牌与版本、监控大屏 / 短信中心切换（未读角标）、运营商与 SIM 状态、IMEI / IMSI / 本机号码（默认脱敏，一键显隐）、WAN IPv4 / IPv6 / DNS / MAC（可脱敏）、CPE 会话状态（空闲 / 真人避让 / 熔断）、SSE 连接状态与告警铃。
+- **3CA 载波聚合胶囊**：如 `PCC B1(20M) + SCC B3(20M) + 5G N78(100M)`；SA / NSA 呼吸徽章。
+- **射频卡**：逐载波 PCI、ARFCN、带宽；RSRP / RSRQ / SINR 分级圆环；TAC、eNodeB、MIMO 流数、上下行调制方式；PUSCH / PUCCH 发射功率条。
+- **健康卡**：在线时长、在线终端数、锁定状态与锁定对账（路由器是否仍符合已下发的锁频 / 锁小区）。
+- **双周期流量环**：当日 / 当月用量对比，可设阈值并变色告警。
+- **实时与历史曲线**：单调三次贝塞尔速率曲线；`1h` / `6h` / `12h` / `24h` / 自定义区间，吞吐与信号两种指标，底部刷选条缩放。
+- **邻区表**：渐变 RSRP 条、按制式校验 PCI（LTE `0–503` / NR `0–1007`）与 ARFCN 频段范围，「锁至此小区」二次确认。
+- **终端拓扑**：`LAN 1000M` / `2.4G WiFi` / `5G WiFi` 徽章、IPv4 / IPv6、协商速率、DHCP 租期倒计时。
+- **控制抽屉**：4G / 5G NR 锁频段（同时作用于 SA 与 NSA）、解锁、UPnP / DMZ 等安全开关、蜂窝重拨与重启（输入确认词）。
+
+### 短信中心
+- 会话列表与搜索、长短信合并展示、验证码识别与一键复制、发送 / 回复 / 标记已读 / 删除（防误触确认）、通讯录（新增、编辑、vCard 导入）。
+- 发送前实时显示 GSM-7 / UCS-2 编码与分段数；路由器已受理但状态轮询超时的短信显示为**琥珀色「已提交、状态未确认」**，绝不误报失败，避免重复发送。
+- 顶部隐私开关联动隐藏手机号与短信内容，方便截图与投屏。
+
+### 外观与工程
+- 四套主题：**素纸**（浅色宣纸）、**晨曦**（温润暖色）、**极夜**（深黑）、**紫溟**（极客暗紫），六种强调色，可跟随系统明暗；中英文即时切换，偏好本地持久化。
+- 首屏 JS + CSS 仅 **59.8 KiB gzip**（含一种语言），短信中心、控制抽屉等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
+- SSE 断线带抖动的指数退避自动重连；`423` 熔断、`409` 避让、`503` 停机分别给出不同的界面状态，绝不笼统显示为「离线」。
+
+---
+
+## ⚖️ 方案对比
+
+| 维度 | 商业云管理 / 厂商 App 方案 | 分立服务方案（监控脚本 + 独立短信网关） | **烽燧 FengSui** |
+| :--- | :--- | :--- | :--- |
+| 部署与数据归属 | 通常依赖厂商云账号，遥测经公网上云 | 自托管，但多套服务各自存储、各自配置 | ✅ **100% 私有化**：单容器，数据加密落盘在自己的 NAS |
+| 额外成本 | 常见订阅费或专用网关硬件 | 往往需要短信猫 / USB 模块或多台设备 | ✅ **0 额外硬件**：复用 NAS 与 CPE 自带短信能力 |
+| 隐私 | 号码、短信与基站位置指纹离开本地网络 | 视实现而定，日志常含明文号码 | ✅ **零上云**：IMEI / IMSI / 号码默认脱敏，短信正文与验证码从不写日志 |
+| 管理员会话 | — | ❌ 监控与短信各自登录，争抢唯一管理员会话 | ✅ **单实例融合**：遥测与短信同一调度器排队，单次占用约 26–260 ms 即登出 |
+| 真人登录官方后台 | — | ❌ 常驻会话导致浏览器登录报错或被挤下线 | ✅ **礼貌避让**：`state-login` 预检 + 跨 IP `108003` 让位，真人永远优先 |
+| 防密码锁定 | — | ⚠️ 自动重试可能连续输错触发 `108007` 硬件锁定 | ✅ `108006` / `108007` 立即熔断，跨重启持久化，绝不重试 |
+| 射频深度 | 多为信号格与概要指标 | 取决于脚本 | ✅ 3CA 逐载波、MCS / MIMO / 发射功率、邻区扫描、一键锁小区 |
+| 历史与告警 | 视产品而定 | 分散在多个系统 | ✅ 7 天双层时序 + 持续窗口 / 迟滞告警 → Telegram / Webhook |
+| AI 智能体 | 通常不提供 | 无 | ✅ **原生 MCP**：stdio 桥接 + Streamable HTTP，写操作强制 `confirm: true` |
+| 供应链 | 闭源客户端 | 多语言、多依赖 | ✅ 零运行时 npm 依赖，Node.js 原生模块 |
+
+---
+
+## 🏛️ 架构：唯一会话出口与真人避让
 
 ### 1. 群晖 DS923+ 私有部署与多端协同拓扑
 
 ```mermaid
 flowchart LR
   subgraph Clients["局域网 / Tailscale 终端与智能体"]
-    Browser["Web 控制台 (离线 SPA)"]
-    AgentHttp["内网 AI Agent (HTTP MCP)"]
-    AgentStdio["本地 AI Agent (stdio)"]
+    Browser["Web 控制台（离线 SPA）"]
+    AgentHttp["内网 AI Agent（HTTP MCP）"]
+    AgentStdio["本地 AI Agent（stdio）"]
     Bridge["cpe-dash mcp\n零状态 stdio→HTTP 桥接"]
     HumanWeb["真人管理员浏览器"]
     TgUser["Telegram（手机）"]
     Hook["Webhook 接收端（Home Assistant / n8n）"]
   end
 
-  subgraph NAS["Synology DS923+ (Node.js >= 22.6 零外部依赖)"]
+  subgraph NAS["Synology DS923+ · 容器（Node.js 原生模块，零运行时依赖）"]
     HttpSrv["FengSuiHttpServer (:18384)\nHost 白名单 + Strict CSRF + /64 限流"]
-    SseBus["SseEventBus (/api/events)\n<1ms 首帧快照 + 15s 心跳"]
+    SseBus["SseEventBus (/api/events)\n首帧快照 + 15s 心跳"]
     McpSrv["FengSuiMcpServer\n13 + 10 短信 Tools"]
     Sms["SmsService\n计数捎带同步 + 加密镜像 + 通讯录"]
     Notify["NotificationHub + AlertEngine\nTelegram 机器人 / 签名 Webhook"]
@@ -116,7 +175,7 @@ flowchart LR
   HumanWeb -. "直接登录 http://192.168.8.1 (最高优先级)" .-> CpeApi
 ```
 
-### 2. 单管理员排他协议：瞬时短连与双层真人主动避让时序
+### 2. 瞬时短连与双层真人主动避让时序
 
 ```mermaid
 sequenceDiagram
@@ -127,182 +186,269 @@ sequenceDiagram
   participant CPE as H168-383 (192.168.8.1)
   participant Human as 真人管理员浏览器
 
-  Note over Sched,CPE: 场景 A：无人登录后台（~26ms-260ms 极速瞬时采集）
+  Note over Sched,CPE: 场景 A：无人登录后台（~26ms-260ms 瞬时采集）
   Sched->>Client: withSessionDetailed(fetchGlobalTelemetry)
   Client->>CPE: GET /api/user/state-login
   CPE-->>Client: <State>-1</State> (空闲)
   Client->>CPE: SCRAM-SHA256 + Curve25519 登录握手
-  Client->>CPE: 并发拉取 3CA 射频 / 流量 / 设备状态（12 个只读接口）
+  Client->>CPE: 并发拉取 3CA 射频 / 流量 / 设备状态 / 短信计数
   Client->>CPE: POST /api/user/logout (finally 块强制释放)
   Sched-->>UI: SSE 推送 speed + telemetry + 写入双层环形时序
-  Note over Sched,CPE: 邻区与终端拓扑不在 5s 采集内：每 60s 各自独立短连采集（login → GET → logout）
+  Note over Sched,CPE: 邻区与终端拓扑每 60s 各自独立短连采集（login → GET → logout）
 
   Note over Human,CPE: 场景 B：真人登录 http://192.168.8.1（双层礼貌挂起让位）
   Human->>CPE: 登录官方管理后台
   Sched->>Client: 下一次定时轮询或写指令预检
   Client->>CPE: GET /api/user/state-login (Layer 1) / challenge_login (Layer 2: 108003)
   CPE-->>Client: State != -1 或错误码 108003
-  Client-->>Sched: status = "yielded" (零抢占静默退出 + 指数退避防抖)
-  Sched-->>UI: SSE 广播 event: session:avoidance (active: true)
-  Note over Sched,UI: 若此时发起锁频/重启写请求 -> 立即返回 409 Conflict 绝不盲目排队偷改！
+  Client-->>Sched: status = "yielded"（零抢占静默退出 + 指数退避）
+  Sched-->>UI: SSE 广播 session:avoidance (active: true)
+  Note over Sched,UI: 此时的锁频 / 重启 / 发短信请求立即返回 409，绝不排队偷改
 ```
 
 ---
 
-## ✨ 核心工程与协议特性
+## ✨ 核心特性
 
-- **⚡ `~26 ms` 极速瞬时短连与双层真人在线避让（含 Layer-2 指数退避防抖）**
-  - H168-383 硬件限制同一时刻仅允许 1 个管理员在线。[`HuaweiCpeClient`](src/cpe-client.ts) 与 [`MutexSessionScheduler`](src/scheduler.ts) 将每次鉴权操作严格串行收敛为瞬时短连，并在 `finally` 块无条件调用 `POST /api/user/logout`（带 3s 硬超时兜底）。停机（`docker stop` / `SIGTERM`）时在途会话先有 2s 宽限，随后被取消并登出，整个停机过程控制在 10s 内，路由器管理员槽位不会被遗留占用。
-  - **双层主动避让**：第 1 层通过 `GET /api/user/state-login` 零开销预检；第 2 层针对跨局域网终端占用返回 `108003`/`108009` 实施 `45s → 300s` 指数静默退避，彻底杜绝频繁敲击 `challenge_login`，并通过 SSE 实时广播避让横幅。
-- **🛑 跨重启持久化的 `108006` / `108007` 防爆破熔断断路器**
-  - 华为固件连续输错 3 次管理密码即锁定账户。内置断路器捕获 `108006`/`108007` 后立即熔断并将密码指纹写入加密状态库，即便守护进程重启也不会重复试错锁死路由器。因密码错误（`108006`/`108002`/`108001`）熔断时，必须先修正 `.env` 中的 `CPE_PASSWORD`，再调用 `POST /api/session/reset-breaker` 或重启服务；密码未变时重置请求会被拒绝（`400`）。`108007` 硬件锁定在锁定期结束后可直接通过 reset-breaker 解除。
-- **📈 双层定长环形时序数据库 (`TimeSeriesRingBuffer`)**
-  - 内存占用恒定 `< 6 MB`：`Tier 1` 维护 `3 小时 / 5 秒` 高频槽位，`Tier 2` 维护 `7 天 / 60 秒` 归档槽位；支持 `1h`、`6h`、`12h`、`24h` 与自定义 `[fromMs, toMs]` 无缝跨层拼接聚合，NSA 5G 空闲与未开放传感器保持精确 `null`（绝不拉偏均值至 `0`），配合 `EncryptedStateStore` 异步 `30 分钟` 批量刷盘保护群晖硬盘休眠。
-- **✉️ 短信与遥测同源调度（零额外会话的变化检测）**
-  - 短信计数捎带在 5s 遥测会话内读取，只有计数变化才触发增量或全量同步；发送、已读、删除走同一调度器的控制写队列，真人在线时同样礼貌让位。短信镜像、通讯录与 Telegram 状态全部 AES-256-GCM 加密落盘；守护进程独占数据目录（`state.json.lock`），未配置密钥时拒绝启动，绝不明文落盘。
-- **📲 Telegram 双向机器人、签名 Webhook 与自动告警**
-  - 来信卡片（验证码、回复即发送、已读 / 会话 / 删除确认按钮）、引导式发短信、会话与通讯录查询、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警引擎覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储、流量阈值与锁定漂移（路由器不再符合已下发的锁频 / 锁小区），带持续窗口与恢复迟滞。
-- **🤖 原生 MCP Server（Streamable HTTP `/mcp` + 零状态 `stdio` 桥接）**
-  - 零外部依赖完整实现 JSON-RPC 2.0 MCP 服务端（[`FengSuiMcpServer`](src/mcp-server.ts)，协议：无状态的 `2026-07-28`（`server/discover`、逐请求 `_meta`）与传统的 `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`），挂载在守护进程 `/mcp`；`cpe-dash mcp` 只是把 stdio 转发到该端点的零状态桥接，**整个系统只有守护进程一个 CPE 会话出口**。向 Claude Desktop、Antigravity、Cursor 及内网自动化 Agent 暴露 **13 项核心工具**与**最多 10 项短信工具**（按 `MCP_SMS_ACCESS` 分级）。
-  - 工具 `inputSchema` 在服务端强制校验（未知键、缺失、类型、范围），`reboot_cpe`、`reconnect_cellular`、`send_sms`、`delete_sms` 强制 `{ confirm: true }`；锁频段只接受 H168-383 支持的 LTE 与 NR 频段，锁小区的 ARFCN 必须落在该频段范围内，且 `lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止智能体幻觉参数断网；短信正文按不可信数据处理，发送默认仅限已知号码并按小时限额，防范提示词注入。
-- **🛡️ 现代 Web 纵深防御体系**
-  - 内置 `Host` 白名单防 DNS Rebinding (`421`)、`SameSite=Strict; HttpOnly` 会话隔离、`X-Requested-With` + `Origin` 双重防 CSRF、`net.BlockList` 可信反代 CIDR 校验 + IPv6 `/64` 速率限制桶、无原型字典防 Prototype Pollution、线性扫描防 ReDoS 以及 `normalizeCpeUrl` 私网源防 SSRF。
+- **⚡ 瞬时短连与双层真人在线避让**：每次鉴权操作在 [`HuaweiCpeClient`](src/cpe-client.ts) 与 [`MutexSessionScheduler`](src/scheduler.ts) 中串行收敛为瞬时会话，`finally` 中无条件 `POST /api/user/logout`；单次会话有最长占用时限，挂起的请求会被中止并登出。第 1 层 `GET /api/user/state-login` 预检，第 2 层对跨 IP 占用（`108003` / `108009`）实施 `45s → 300s` 指数静默退避。停机时在途会话 2 秒宽限后被取消并登出，整个停机 10 秒内完成，路由器管理员槽位不会被遗留占用。
+- **🛑 跨重启持久化的 `108006` / `108007` 熔断器**：密码错误立即熔断，并把密码指纹写入加密状态库；修正 `.env` 中的 `CPE_PASSWORD` 后调用 `POST /api/session/reset-breaker`（或在界面熔断横幅中点击重置）即可恢复；密码未变时拒绝重置。`108007` 硬件锁定期结束后可直接重置。
+- **📈 双层定长环形时序库**：内存恒定 `< 6 MB`；`3 小时 / 5 秒` 高频环 + `7 天 / 60 秒` 归档环，跨层无缝聚合；空闲的 NSA 5G 与未开放的传感器保持 `null`，不拉偏均值；`30 分钟` 批量加密刷盘，保护硬盘休眠。
+- **✉️ 短信与遥测同源调度**：短信计数捎带在 5 秒遥测会话内，计数变化才触发增量同步；发送、已读、删除走同一调度器的控制写队列。短信镜像、通讯录与 Telegram 状态全部 `AES-256-GCM` 加密落盘，消息以不含号码的不透明 `uid` 标识。
+- **📲 Telegram 双向机器人、签名 Webhook 与告警**：来信卡片（验证码、回复即发送、已读 / 会话 / 删除）、引导式发短信、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储、流量阈值与锁定漂移，带持续窗口与恢复迟滞。
+- **🤖 原生 MCP Server**：零依赖实现 JSON-RPC 2.0 MCP（无状态 `2026-07-28` 与 `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`），挂载在守护进程 `/mcp`；`cpe-dash mcp` 只是零状态 stdio 桥接，**整个系统只有守护进程一个 CPE 会话出口**。
+- **🛡️ Web 纵深防御**：`Host` 白名单防 DNS Rebinding（`421`）、`SameSite=Strict; HttpOnly` 会话、`X-Requested-With` + `Origin` 双重防 CSRF、可信反代 CIDR 校验 + IPv6 `/64` 限流桶、无原型字典防原型链污染、线性扫描防 ReDoS、私网源校验防 SSRF。
 
 ---
 
-## 📡《H168-383 硬件能力全景表》（真机实测验证）
+## 📡 H168-383 硬件能力全景表（真机实测验证）
 
 | 能力模块 | 核心协议端点 | 真机实测验证指标与结构特征 | 状态 |
 | :--- | :--- | :--- | :---: |
 | **3CA 三载波聚合** | `GET /api/device/signal`<br/>`GET /api/device/seccellinfo` | 实测激活 **`B1(20MHz) + B3(20MHz) + N78(100MHz)`** 共 **`140 MHz`** EN-DC 三载波聚合；次载波以 8 列分号 CSV 暴露独立 `EARFCN, Band, BW, PCI, RSRP, RSRQ, RSSI, SINR` | ✅ 已验证 |
-| **高阶调制与 MIMO** | `GET /api/device/signal`<br/>`GET /api/device/ri` | 实测暴露 4G/5G 上下行 **`256QAM` / `64QAM`** 码字级 MCS 索引、`TM[4]` 闭环空间复用、4G `RI=2` / 5G `nrrank` 流数及双码字 `CQI0/CQI1` | ✅ 已验证 |
-| **物理层发射功率** | `GET /api/device/signal` | 独立暴露 4G `<txpower>` 与 5G `<nrtxpower>` 四通道功率：`PPusch`、`PPucch`、`PSrs`、`PPrach` (dBm) | ✅ 已验证 |
-| **基站与跟踪区定位** | `GET /api/device/signal`<br/>`GET /api/net/cell-info` | 十进制 `<cell_id>` / `<tac>` 与十六进制 `<cellinfo>` / `<lac>` 100% 数学恒等；支持 28-bit ECI (`eNodeB = ECI >>> 8`) 与 36-bit NCI 精确拆分 | ✅ 已验证 |
-| **4G / 5G 邻区扫描** | `GET /api/device/nbrcellinfo` | 原生输出 `<nbrcell_ltelist>` 与 `<nbrcell_nrlist>` 7 列分号 CSV（`EARFCN, Band, PCI, RSRP, RSRQ, RSSI, SINR`），支持一键映射锁小区参数 | ✅ 已验证 |
-| **4G / 5G 锁频段与锁小区** | `GET/POST /api/net/net-mode`<br/>`POST /api/net/lock-freq` | 硬件开放 `select_band_switch=1` 与 `lock_freq_switch=3`；支持 4G `LTEBand` 位掩码、5G NR 锁频段 (`lock_mode=3`)、锁频点 (`lock_mode=1`) 与锁 `PCI+ARFCN` 小区 (`lock_mode=2`) | ✅ 已验证 |
-| **当日 vs 当月流量审计** | `GET /api/monitoring/month_statistics`<br/>`GET /api/monitoring/traffic-statistics` | 原生支持**当日累计流量 (`<CurrentDayUsed>`)**、**当月上下行分项累计流量**、结算日 (`<StartDay>`) 与实时上下行字节速率 (`CurrentDownloadRate * 8`) | ✅ 已验证 |
-| **终端拓扑与双栈租期** | `GET /api/system/HostInfo` (JSON)<br/>`GET /api/system/topology` (JSON) | 精确区分 **`LAN 1000M`** 千兆有线、`2.4GHz` 与 `5GHz` 无线终端，暴露协商 PHY 速率 (Mbps)、RSSI、IPv4/IPv6 双栈地址与剩余 DHCP 租期秒数 | ✅ 已验证 |
-| **Wi-Fi 7 (802.11be) MLO** | `GET/POST /api/wlan/wlandbho`<br/>`GET /api/wlan/multi-security-settings-ex` | 原生支持三射频架构（`b/g/n/ax/be` + `a/n/ac/ax/be`）、**MLO 多链路聚合 (`MloEnable`)**、双频优选 (`DbhoEnable`)、EasyMesh 与自动信道优化 | ✅ 已验证 |
-| **天线切换、静态 DHCP 与双栈 APN** | `/api/device/antenna_set_type`<br/>`/api/dhcp/static-addr-info`<br/>`/api/dialup/profiles` | 支持自动/内置/外置天线切换与插入状态检测、静态 MAC-IP 绑定管理、`IPv4/IPv6` (`iptype=2`) 双栈 APN 审计与定时维护重启配置 | ✅ 已验证 |
+| **高阶调制与 MIMO** | `GET /api/device/signal`<br/>`GET /api/device/ri` | 4G/5G 上下行 **`256QAM` / `64QAM`** 码字级 MCS、`TM[4]` 闭环空间复用、4G `RI=2` / 5G `nrrank` 流数及双码字 `CQI0/CQI1` | ✅ 已验证 |
+| **物理层发射功率** | `GET /api/device/signal` | 4G `<txpower>` 与 5G `<nrtxpower>` 四通道功率：`PPusch`、`PPucch`、`PSrs`、`PPrach` (dBm) | ✅ 已验证 |
+| **基站与跟踪区定位** | `GET /api/device/signal`<br/>`GET /api/net/cell-info` | 十进制 `<cell_id>` / `<tac>` 与十六进制 `<cellinfo>` / `<lac>` 数学恒等；支持 28-bit ECI（`eNodeB = ECI >>> 8`）与 36-bit NCI 拆分 | ✅ 已验证 |
+| **4G / 5G 邻区扫描** | `GET /api/device/nbrcellinfo` | `<nbrcell_ltelist>` 与 `<nbrcell_nrlist>` 7 列分号 CSV（`EARFCN, Band, PCI, RSRP, RSRQ, RSSI, SINR`），可一键映射锁小区参数 | ✅ 已验证 |
+| **4G / 5G 锁频段与锁小区** | `GET/POST /api/net/net-mode`<br/>`POST /api/net/lock-freq` | `select_band_switch=1` 与 `lock_freq_switch=3`；4G `LTEBand` 位掩码、5G NR 锁频段（`lock_mode=3`）、锁频点（`lock_mode=1`）与锁 `PCI+ARFCN` 小区（`lock_mode=2`） | ✅ 已验证 |
+| **当日 vs 当月流量** | `GET /api/monitoring/month_statistics`<br/>`GET /api/monitoring/traffic-statistics` | 当日累计（`<CurrentDayUsed>`）、当月上下行分项累计、结算日（`<StartDay>`）与实时速率 | ✅ 已验证 |
+| **终端拓扑与双栈租期** | `GET /api/system/HostInfo` (JSON)<br/>`GET /api/system/topology` (JSON) | 区分 **`LAN 1000M`**、`2.4GHz` 与 `5GHz` 终端，协商 PHY 速率、RSSI、IPv4/IPv6 与剩余 DHCP 租期 | ✅ 已验证 |
+| **短信收发** | `/api/sms/sms-list` · `/api/sms/send-sms` · `/api/sms/send-status`<br/>`/api/sms/sms-count` · `/api/sms/set-read` · `/api/sms/delete-sms` | 收件箱 / 发件箱分页、长短信、发送状态轮询、已读与删除；计数接口捎带在遥测会话内，用于零额外会话的变化检测 | ✅ 已验证 |
+| **Wi-Fi 7 (802.11be) MLO** | `GET/POST /api/wlan/wlandbho`<br/>`GET /api/wlan/multi-security-settings-ex` | `b/g/n/ax/be` + `a/n/ac/ax/be` 射频、**MLO 多链路聚合（`MloEnable`）**、双频优选（`DbhoEnable`）、EasyMesh 与自动信道优化 | ✅ 已验证 |
+| **天线切换、静态 DHCP 与双栈 APN** | `/api/device/antenna_set_type`<br/>`/api/dhcp/static-addr-info`<br/>`/api/dialup/profiles` | 自动 / 内置 / 外置天线切换与插入检测、静态 MAC-IP 绑定、`IPv4/IPv6`（`iptype=2`）双栈 APN 审计 | ✅ 已验证 |
+
+> 温度传感器与 gNodeB ID 未由固件 `4.4.0.1` 暴露，界面显示为 `N/A` / 仅显示 eNodeB。
 
 ---
 
-## 🏗️ 仓库架构与模块划分
+## 🚀 快速开始
 
-```text
-cpe-dash/
-├── AGENTS.md                        # 工程架构、协议排他保护与七大安全/TDD 铁律守则
-├── .env.example                     # 纯原生环境变量配置模板（默认端口 WEB_PORT=18384）
-├── locales/                         # 零依赖强类型双语词典 (zh-CN.json / en.json)
-├── public/                          # 离线静态前端占位目录（Phase 3 优先读取 dist/web/public）
-├── docs/
-│   ├── PHASE1_PROTOCOL_SPEC.md      # H168-383 完整私有协议、逆向算法与阶段一规范字典
-│   ├── PHASE2_ARCHITECTURE_REPORT.md # 后端选型、零依赖安全论证与并发架构设计报告
-│   └── PHASE2_BACKEND_CONTRACT.md   # Phase 2 -> Phase 3 完整 REST / SSE / MCP 强类型交接契约
-├── src/
-│   ├── types.ts                     # 全局严格接口与判别联合类型定义
-│   ├── config.ts                    # 原生 .env 加载器、SSRF 私网源校验、BlockList CIDR 反代与 /64 桶
-│   ├── i18n.ts                      # 零外部依赖编译期键安全多语言引擎 (zh-CN / en)
-│   ├── crypto.ts                    # 非钳位大端 Curve25519、Huawei SCRAM-SHA256、AES-256-GCM
-│   ├── xml.ts                       # 防原型链污染与防 ReDoS 的线性 O(N) XML 编解码器
-│   ├── sanitize.ts                  # IMEI/IMSI/MAC/IP/TAC/CellID/主机名自动化 RFC 脱敏引擎
-│   ├── encrypted-file.ts            # StorageCipher (scrypt + HKDF-SHA256 + AES-256-GCM 0600)
-│   ├── band-lock.ts                 # 4G/5G BandMask 位运算、ECI/NCI 拆分与锁频锁站载荷构建器
-│   ├── parsers.ts                   # 3CA 射频、MCS、发射功率、邻区、双周期流量与拓扑纯解析器
-│   ├── cpe-client.ts                # 瞬时会话客户端、防重入保护、双层避让与 108006 熔断器
-│   ├── cpe-domain.ts                # 聚合遥测、邻区扫描、锁频锁站、安全开关与 Wi-Fi 7 MLO 领域服务
-│   ├── timeseries.ts                # 双层定长环形时序数据库 (5s 细粒度环 + 60s 7天归档环)
-│   ├── state-store.ts               # 异步原子加密持久化与密钥轮换自愈状态库
-│   ├── scheduler.ts                 # 唯一 CPE 会话出口：优先级互斥队列、双层避让、Layer-2 退避与熔断告警
-│   ├── cpe-monitor.ts               # 后台轮询、单飞刷新、快照缓存与时序写入（读侧）
-│   ├── cpe-controls.ts              # 锁频锁站、重启重拨与路由器开关（写侧，入队前校验）
-│   ├── core.ts                      # FengSuiCore：scheduler + monitor + controls 装配
-│   ├── control-input.ts             # REST 与 MCP 共用的入参校验
-│   ├── mcp-schema.ts                # MCP 工具 inputSchema 运行时校验器
-│   ├── alert-engine.ts              # 持续窗口 + 迟滞告警引擎（离线 / WAN / 信号 / CA / 重启 / 短信存储 / 流量 / 锁定漂移）
-│   ├── sms/                         # 短信协议、号码解析、加密镜像、通讯录、SmsService、REST 路由与 MCP 工具
-│   ├── notify/                      # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
-│   ├── sse-bus.ts                   # /api/events 毫秒级 SSE 扇出总线、慢消费背压剔除与心跳保活
-│   ├── mcp-server.ts                # 原生 JSON-RPC 2.0 MCP Server（挂载于守护进程 /mcp）
-│   ├── mcp-stdio-bridge.ts          # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不建 CPE 客户端）
-│   ├── http-server.ts               # 纵深加固 HTTP/REST/SSE/MCP 路由服务器 (:18384)
-│   ├── http-auth.ts / http-static.ts # Cookie 会话、鉴权限流、CSRF / 离线静态资源
-│   ├── cli.ts                       # serve 守护进程（数据目录锁）与 mcp 桥接命令行入口
-│   └── index.ts                     # 公共 SDK 模块导出入口
-├── scripts/
-│   ├── audit-secrets.ts             # 工作区 + 全量 Git 历史零密钥/零硬件指纹/纯 TS 扫描门禁
-│   └── probe-*.ts                   # 9 项非破坏性真机协议与硬件能力验证探针（probe-sms 只输出聚合计数）
-└── test/                            # 基于 node:test 的全离线高覆盖率测试套件 (> 96%)
+### 1. 离线演示（无需路由器，30 秒看到完整界面）
+
+```bash
+git clone https://github.com/cky008/cpe-dash.git && cd cpe-dash
+npm ci
+npm run build:web
+npm run demo          # http://127.0.0.1:18484 ，登录口令 fengsui-demo
+# DEMO_SCENARIO=yield   npm run demo   → 每隔几分钟模拟真人登录官方后台（避让横幅）
+# DEMO_SCENARIO=breaker npm run demo   → 错误的路由器密码，触发防爆破熔断（423 横幅）
 ```
+
+演示进程**从不读取 `.env`、从不联网**：真实的调度器、监控、短信、SSE、REST、MCP 与 Web 界面，对接进程内的严格 H168-383 模型。
+
+### 2. 本机运行（Node.js >= 22.6）
+
+```bash
+cp .env.example .env && chmod 600 .env
+# 编辑 .env：CPE_PASSWORD（必填）、API_TOKEN 与 DATA_ENCRYPTION_KEY（强烈建议独立设置）
+npm run build         # 编译守护进程 + Web 控制台到 dist/
+npm start             # http://<本机 IP>:18384
+# 开发模式：npm run dev（--watch 热重载，直接运行 TypeScript 源码）
+```
+
+### 3. 只读真机探针
+
+```bash
+npm run probe:rf          # 3CA 聚合链、256QAM MCS、MIMO 流数、发射功率与基站恒等校验
+npm run probe:neighbors   # 4G / 5G 邻区表
+npm run probe:traffic     # 实时速率、当日与当月累计流量
+npm run probe:topology    # LAN / 2.4G / 5G 终端拓扑与 DHCP 租期
+npm run probe:session     # 瞬时会话释放与双层真人避让
+npm run probe:sms         # 只输出短信计数与耗时（不发送、不标记、不删除）
+```
+
+探针默认脱敏输出，且同样遵守单会话避让；请勿在守护进程运行时并发运行，以免占用管理员会话。
 
 ---
 
-## 🚀 快速启动（守护进程、MCP Server 与真机探针）
+## 🐳 Docker / 群晖 DS923+ 部署
 
-### 1. 环境准备
+镜像由 [`Dockerfile`](Dockerfile) 多阶段构建：运行层基于 `node:26-alpine`（当前 LTS），只含编译产物、**无 `node_modules`**，以无特权 `node` 用户运行，内置 `HEALTHCHECK`（`GET /api/health`）。打 `v*.*.*` 标签后由 [`release.yml`](.github/workflows/release.yml) 发布 `linux/amd64` + `linux/arm64` 到 GHCR；每次推送由 [`ci-docker.yml`](.github/workflows/ci-docker.yml) 构建镜像并做容器冒烟测试（健康检查、登录、SSE、MCP、`SIGTERM` 停机与加密落盘）。
 
-```bash
-git clone https://github.com/cky008/cpe-dash.git
-cd cpe-dash
-npm install
+[`docker-compose.yml`](docker-compose.yml) 要点：
 
-cp .env.example .env
-chmod 600 .env
-# 编辑 .env 填入真实的 CPE_PASSWORD 与独立的 API_TOKEN（切勿提交 .env）
-```
+| 项 | 设置 |
+| :--- | :--- |
+| 时区 | `TZ=${TZ:-UTC}`（取自同目录 `.env`），发出短信的时间戳按此生成 |
+| 端口 | 容器内固定 `18384`，宿主机端口取 `.env` 的 `WEB_PORT`（默认 `18384`） |
+| 数据 | `./data:/app/data`：状态、短信镜像、通讯录全部加密落盘；`./.env` 只读挂载（`reset-breaker` 会重新读取） |
+| 用户 | `user: "${PUID}:${PGID}"`，填 `data/` 与 `.env` 的属主 |
+| 加固 | 只读根文件系统 + `tmpfs /tmp`、`cap_drop: ALL`、`no-new-privileges`、`init`、15 秒停机宽限、日志轮转 |
 
-### 2. 启动「烽燧」Web / REST / SSE / HTTP-MCP 守护进程
+### 群晖 Container Manager（DSM 7.2+）
 
-```bash
-# 开发热重载模式（Node.js >= 22.6 原生 TypeScript 直接运行）
-npm run dev
+1. **准备目录**（SSH 登录 NAS）：
+   ```bash
+   mkdir -p /volume1/docker/cpe-dash/data && cd /volume1/docker/cpe-dash
+   # 放入本仓库的 docker-compose.yml 与 .env.example
+   cp .env.example .env && chmod 600 .env && chmod 700 data
+   id -u && id -g      # 例如 1026 / 100，填入 .env 的 PUID / PGID
+   ```
+   编辑 `.env`：`CPE_PASSWORD`、`API_TOKEN`、`DATA_ENCRYPTION_KEY`、`TZ`（如 `Asia/Shanghai`）、`PUID` / `PGID`。
+2. **获取镜像**（二选一）：
+   - 拉取 GHCR：仓库为私有时，先在「Container Manager → 注册表 → 设置」添加 `ghcr.io`，或 SSH 执行 `sudo docker login ghcr.io -u <GitHub 用户名>`（令牌只需 `read:packages` 权限）；
+   - 本地构建：把整个仓库放在该目录，执行 `sudo docker compose build`。
+3. **创建项目**：「Container Manager → 项目 → 新增」，路径选 `/volume1/docker/cpe-dash`，来源选「使用现有 docker-compose.yml」，完成后启动。状态变为「健康」即可访问 `http://<NAS IP>:18384`。
 
-# 生产编译与启动（默认监听 http://0.0.0.0:18384）
-npm run build
-npm start
-```
-
-### 3. 接入 AI 智能体 (MCP Server)
-
-- **本地 `stdio` 模式**（Claude Desktop / Antigravity / Cursor）：先启动 `serve` 守护进程，再让智能体运行桥接：
-  ```bash
-  npm run mcp
-  # 或指定配置文件：node --experimental-strip-types src/cli.ts mcp --env /path/to/.env
-  # （Node 22.18+ / 23.6+ 可省略该标志；所有 npm 脚本已内置）
-  ```
-  `cpe-dash mcp` 是**零状态桥接**：它从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`），把每行 JSON-RPC 转发给守护进程，自身不创建 CPE 客户端、调度器或任何存储，因此不会与守护进程争抢单管理员会话。守护进程未运行时，每个请求都会收到 JSON-RPC 错误 `-32010`；令牌错误等被拒绝时为 `-32011`。旧的 `--poll` 参数已无作用（仅打印警告）。
-- **内网 / Tailscale Streamable HTTP 模式**：
-  ```bash
-  curl -X POST http://127.0.0.1:18384/mcp \
-    -H "Authorization: Bearer $API_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-  ```
-
-### 4. 运行只读真机探针套件
+命令行等价操作：
 
 ```bash
-npm run probe:rf          # 采集 3CA 聚合链、256QAM MCS、MIMO 流数、发射功率与基站恒等校验
-npm run probe:neighbors   # 扫描周边 4G/5G 候选邻区表 (EARFCN, Band, PCI, RSRP, RSRQ, RSSI, SINR)
-npm run probe:traffic     # 读取瞬时上下行速率、当日累计流量与当月累计流量
-npm run probe:topology    # 采集千兆 LAN / 2.4G / 5G 终端拓扑、协商速率与双栈 DHCP 租期
-npm run probe:session     # 压测 ~26ms 瞬时短连释放并验证双层真人浏览器避让
-npm run probe:sms         # 只读：短信计数、列表通道与全量拉取耗时（只输出计数，不发送、不标记、不删除）
+sudo docker compose up -d            # 旧版 DSM 为 docker-compose
+sudo docker compose logs -f cpe-dash
+sudo docker compose pull && sudo docker compose up -d   # 升级
+sudo docker compose down             # SIGTERM：在途会话登出、加密状态刷盘，10 秒内退出
 ```
+
+> **只运行一个实例**：一台路由器只能由一个守护进程管理（它独占管理员会话与 Telegram 机器人令牌）。启动前请停掉其他 cpe-dash / 旧 cpe-sms 实例。跨主机重复实例保护依赖局域网 UDP 广播（`18385`），Docker 桥接网络不转发广播；如需启用，请在 compose 中改用 `network_mode: host` 并移除 `ports:`。
+
+### 反向代理与 Tailscale
+
+- 通过 Tailscale 访问时，`*.ts.net` 主机名与私网 / CGNAT 地址默认放行；自定义域名请加入 `ALLOWED_HOSTS`（如 `cpe.example.com`）。
+- 经反向代理访问时，把代理的**精确 IP** 写入 `TRUSTED_PROXIES`，限流与审计才会采信 `X-Forwarded-For`；HTTPS 反代下会话 Cookie 自动追加 `Secure`。
+
+### macOS：Apple `container` / `container-compose`
+
+本机没有 Docker Desktop 时，可用 Apple 原生容器运行时验证镜像：
+
+```bash
+container system start                      # 首次可能需要 --enable-kernel-install
+container build -t cpe-dash:local .
+mkdir -p data
+container run -d --name cpe-dash --init \
+  --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp --cap-drop ALL \
+  -p 18384:18384 \
+  -v "$PWD/.env:/app/.env:ro" -v "$PWD/data:/app/data" \
+  cpe-dash:local
+curl -s http://127.0.0.1:18384/api/health
+container stop cpe-dash && container rm cpe-dash
+```
+
+使用 `container-compose` 时：把 compose 中的 `image:` 改为 `cpe-dash:local` 并删去 `build: .`；它不会对 `user:` 字段做变量插值，请把 `user:` 写成字面值（如 `"501:20"`，即 `id -u`:`id -g` 的输出）；它也会忽略 `tmpfs`，不影响运行。
 
 ---
 
-## ✉️ 短信、Telegram 机器人与告警
+## 🤖 MCP 智能体接入
+
+「烽燧」在守护进程 `/mcp` 上提供 MCP 服务，有两种接入方式，**都不会产生第二个 CPE 会话**：
+
+| 方式 | 适用客户端 | 说明 |
+| :--- | :--- | :--- |
+| **stdio 桥接** `cpe-dash mcp` | Claude Desktop、Cursor、Antigravity 等本地客户端 | 零状态转发：读取 `.env` 中的 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`） |
+| **Streamable HTTP** `POST /mcp` | 支持远程 MCP 的客户端、内网自动化 | `Authorization: Bearer <API_TOKEN>`；`MCP_HTTP_ENABLED=true`（默认） |
+
+### Claude Desktop / Cursor / Antigravity（stdio，本机运行源码）
+
+```json
+{
+  "mcpServers": {
+    "fengsui": {
+      "command": "node",
+      "args": [
+        "--experimental-strip-types",
+        "/path/to/cpe-dash/src/cli.ts",
+        "mcp",
+        "--env",
+        "/path/to/cpe-dash/.env"
+      ]
+    }
+  }
+}
+```
+
+已执行 `npm run build` 时，可把参数换成 `["/path/to/cpe-dash/dist/cli.js", "mcp", "--env", "/path/to/cpe-dash/.env"]`。若守护进程运行在 NAS 上，只需在本机 `.env` 中设置 `API_TOKEN` 与 `MCP_DAEMON_URL=http://<NAS IP>:18384/mcp`。
+
+### 桥接到 Docker 容器内的守护进程
+
+```json
+{
+  "mcpServers": {
+    "fengsui": {
+      "command": "docker",
+      "args": ["exec", "-i", "cpe-dash", "node", "dist/cli.js", "mcp"]
+    }
+  }
+}
+```
+
+适用于 MCP 客户端与容器在同一台主机（或 `DOCKER_HOST` 指向该主机）。容器内的 `/app/.env` 已提供 `API_TOKEN`，桥接自动连接容器内的 `http://127.0.0.1:18384/mcp`。
+
+### Streamable HTTP（Cursor、Claude Code `.mcp.json`、VS Code 等支持远程 MCP 的客户端）
+
+```json
+{
+  "mcpServers": {
+    "fengsui": {
+      "type": "http",
+      "url": "http://<NAS IP 或 Tailscale 主机名>:18384/mcp",
+      "headers": { "Authorization": "Bearer <API_TOKEN>" }
+    }
+  }
+}
+```
+
+Claude Code：`claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp --header "Authorization: Bearer <API_TOKEN>"`
+
+### 工具清单
+
+| 分组 | 工具 |
+| :--- | :--- |
+| 观测（只读） | `get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`、`list_terminal_topology`、`get_router_settings` |
+| 控制（写） | `lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`†、`reboot_cpe`† |
+| 短信（`MCP_SMS_ACCESS=read`，默认） | `list_sms_threads`、`get_sms_thread`、`get_sms_status`、`search_contacts`、`preview_sms`、`sync_sms` |
+| 短信（`MCP_SMS_ACCESS=full`） | 追加 `send_sms`†、`mark_sms_read`、`delete_sms`†、`upsert_contact` |
+
+† 必须显式传入 `{ "confirm": true }`。所有入参按 `inputSchema` 在服务端强校验；锁频段只接受 H168-383 支持的频段，`lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止模型幻觉参数导致断网。短信正文与发件人名称一律标注为不可信数据，`send_sms` 单收件人、默认仅限已知号码（`MCP_SMS_SEND_POLICY=known`）并按小时限额，`delete_sms` 默认拒绝删除未读短信。`MCP_ALLOW_MUTATIONS=false` 时只暴露观测类能力。
+
+### 错误码
+
+工具失败时返回 `isError: true`，`structuredContent` 为 `{ ok: false, errorCode, message, ... }`：
+
+| `errorCode` | 含义与处理 |
+| :--- | :--- |
+| `BROWSER_SESSION_YIELDED` | 真人正在使用官方后台，已礼貌让位；附 `avoidance` 状态，稍后重试 |
+| `PEER_DAEMON_ACTIVE` | 局域网内另有守护进程管理同一路由器，本实例待机 |
+| `CIRCUIT_BREAKER_OPEN` | 防爆破熔断已触发；附 `circuitBreaker`，修正 `CPE_PASSWORD` 后由人工重置 |
+| `QUEUE_FULL` | 调度队列已满或正在停机，稍后重试 |
+| `CONFIRMATION_REQUIRED` / `VALIDATION_ERROR` | 缺少 `confirm: true` / 参数越界（频段、PCI、ARFCN 等） |
+| `MUTATIONS_DISABLED` | 服务端设置了 `MCP_ALLOW_MUTATIONS=false` |
+| `SMS_ACCESS_DENIED` / `RECIPIENT_NOT_ALLOWED` / `SMS_RATE_LIMITED` / `UNREAD_PROTECTED` | 短信权限、收件人策略、小时限额、未读保护 |
+| `SMS_SEND_FAILED` | 路由器明确拒绝发送（已受理但状态未确认的短信会以成功返回并带 `timedOutWaitingStatus: true`，请勿重发） |
+| `CPE_EXECUTION_ERROR` | 与路由器通信失败 |
+
+JSON-RPC 层：桥接返回 `-32010`（守护进程不可达）与 `-32011`（令牌被拒绝）；`-32020` 为 `MCP-Protocol-Version` 头与请求体不一致，`-32022` 为不支持的协议版本。完整契约见 [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)。
+
+---
+
+## ✉️ 短信、Telegram 与告警
 
 ### 工作方式
-- **同步**：守护进程启动时全量同步一次（CPE 上已有短信视为历史，不推送），之后由 5s 遥测会话捎带的 `sms-count` 计数驱动增量同步，另有 30 分钟兜底全量对账。镜像与 CPE 严格一致：删除会同时删除 CPE 与本地记录。
-- **发送**：Web、MCP、Telegram 共用 `POST /api/sms/send` 背后的同一条路径：会话前校验号码与长度（GSM-7 / UCS-2，最多 4 段、5 个收件人），会话内提交、轮询发送状态并回读发件记录。
+- **同步**：启动时全量同步一次（CPE 上已有短信视为历史，不推送），之后由 5 秒遥测会话捎带的 `sms-count` 计数驱动增量同步，另有 30 分钟兜底全量对账。镜像与 CPE 严格一致：删除会同时删除 CPE 与本地记录。
+- **发送**：Web、MCP、Telegram 共用同一条路径：会话前校验号码与长度（GSM-7 / UCS-2，最多 4 段、5 个收件人），会话内提交、轮询发送状态并回读发件记录。
 - **真人优先**：有人登录 `http://192.168.8.1` 时，短信写操作返回 `409`，同步暂停，只用免登录接口探测未读数；对方退出后自动补同步。
 
 ### 配置 Telegram 机器人
 1. 在 Telegram 中找 `@BotFather` 创建机器人，把令牌写入 `.env` 的 `TELEGRAM_BOT_TOKEN`；
 2. 二选一：把自己的聊天 ID 写入 `TELEGRAM_CHAT_IDS`，或启动后向机器人发送 `/auth <API_TOKEN>`（令牌消息会被自动删除；`API_TOKEN` 更换后需重新绑定）；
-3. 重启 `npm start`，日志中出现 `telegram=on` 即生效。
+3. 重启服务，日志中出现 `telegram=on` 即生效。同一个机器人令牌只能有一个轮询者。
 
 | 命令 / 交互 | 作用 |
 | :--- | :--- |
@@ -324,95 +470,130 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 ```
 
 ### 告警
-`CPE_UNREACHABLE`、`WAN_DOWN`、`SIGNAL_DEGRADED`（RSRP < `ALERT_RSRP_THRESHOLD_DBM` 或 SINR < `ALERT_SINR_THRESHOLD_DB` 持续 5 分钟）、`CA_DROPPED`、`REBOOT_DETECTED`、`SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`、`DATA_THRESHOLD` 以及熔断告警，均记录在 `GET /api/alerts` 与 SSE `alert`。级别不低于 `ALERT_NOTIFY_MIN_SEVERITY` 的告警会推送到 Telegram / Webhook。
+`CPE_UNREACHABLE`、`WAN_DOWN`、`SIGNAL_DEGRADED`（RSRP < `ALERT_RSRP_THRESHOLD_DBM` 或 SINR < `ALERT_SINR_THRESHOLD_DB` 持续 5 分钟）、`CA_DROPPED`、`REBOOT_DETECTED`、`SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`、`DATA_THRESHOLD`、锁定漂移以及熔断告警，均记录在 `GET /api/alerts` 与 SSE `alert`，级别不低于 `ALERT_NOTIFY_MIN_SEVERITY` 的告警推送到 Telegram / Webhook。
 
 > **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `CPE_PASSWORD`，而通讯录无法从路由器重新同步。建议设置独立密钥；更换密钥或路由器密码时，先修改 `.env` 并调用 `POST /api/session/reset-breaker`（立即用新密钥重写所有加密文件），再重启。
 
 ---
 
-## 🔌 REST API、毫秒级 SSE 与 MCP 工具概览
+## 🔌 REST API 与 SSE
 
-| 通道类型 | 核心端点 / 工具名 | 功能说明 |
+| 通道 | 核心端点 | 说明 |
 | :--- | :--- | :--- |
-| **认证与字典** | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/i18n/:locale` | `SameSite=Strict; HttpOnly` 会话签发/销毁、离线中英词典拉取 |
-| **只读遥测与时序** | `GET /api/telemetry`, `GET /api/timeseries`, `GET /api/neighbors`, `GET /api/topology`, `GET /api/settings` | 零 CPE 开销读取内存最新快照与 `1h/6h/12h/24h/custom` 速率/射频曲线 |
-| **主动刷新与扫描** | `POST /api/telemetry/refresh`, `POST /api/neighbors/scan`, `POST /api/topology/refresh`, `POST /api/settings/refresh` | 单飞合并触发一次 `~150ms` 礼貌瞬时采样 |
-| **射频与系统控制** | `POST /api/control/band-lock`, `cell-lock`, `unlock`, `reboot`, `reconnect`, `security`, `wifi7`, `antenna`, `mobile-data` | 动态锁 4G/5G 频段与 `PCI+ARFCN` 小区、开关安全/MLO/天线/移动数据（真人在线时礼貌返回 `409`，防爆破熔断后返回 `423 CIRCUIT_BREAKER_OPEN`） |
-| **会话与熔断器** | `GET /api/session/status`, `POST /api/session/reset-breaker` | 查询调度器/避让/熔断状态；重新读取 `.env` 并重置熔断器 |
-| **短信与通讯录** | `GET /api/sms/status`, `threads`, `thread`, `contacts`, `countries`; `POST /api/sms/preview`, `send`, `read`, `delete`, `sync`, `contacts/upsert`, `contacts/delete`, `contacts/import-vcf` | 读接口直读加密镜像（零 CPE 会话）；写接口走控制队列（真人在线时返回 `409`） |
-| **告警与通知** | `GET /api/alerts` | 最近 100 条告警与 Telegram / Webhook 投递统计 |
-| **实时 SSE 总线** | `GET /api/events` | 实时推送 `hello`（含短信状态）, `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `session:avoidance`, `control:applied`, `alert`, `sms:new`, `sms:sent`, `sms:updated`, `sms:sync`, `sms:status`, `contacts:updated` 及 `: heartbeat` |
-| **MCP 智能体工具** | `get_cpe_telemetry`, `query_telemetry_history`, `list_neighbor_cells`, `get_cpe_session_status`, `lock_band`, `lock_cell`, `unlock_rf_locks`, `reboot_cpe` 等 13 项 | 供内网 AI 助手实时诊断 5G 信号、对比邻区、执行锁频锁站与二次确认重启 |
-| **MCP 短信工具** | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms`；`full` 权限追加 `send_sms`, `mark_sms_read`, `delete_sms`, `upsert_contact` | 默认只读；发送需 `confirm: true`、单收件人、默认仅限已知号码并按小时限额 |
+| **认证与字典** | `POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/status`、`GET /api/i18n/:locale` | `SameSite=Strict; HttpOnly` 会话；中英词典 |
+| **只读遥测与时序** | `GET /api/telemetry`、`/api/timeseries`、`/api/neighbors`、`/api/topology`、`/api/settings` | 零 CPE 开销读取内存快照与 `1h/6h/12h/24h/custom` 曲线 |
+| **主动刷新** | `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh` | 单飞合并的一次礼貌瞬时采样；避让或熔断时返回缓存快照 |
+| **射频与系统控制** | `POST /api/control/band-lock`、`cell-lock`、`unlock`、`reboot`、`reconnect`、`security`、`wifi7`、`antenna`、`mobile-data` | 真人在线返回 `409`，熔断后返回 `423 CIRCUIT_BREAKER_OPEN` |
+| **会话与熔断器** | `GET /api/session/status`、`POST /api/session/reset-breaker` | 调度器 / 避让 / 熔断状态；重新读取 `.env` 并重置熔断器 |
+| **短信与通讯录** | `GET /api/sms/status`、`threads`、`thread`、`contacts`、`countries`；`POST /api/sms/preview`、`send`、`read`、`delete`、`sync`、`contacts/upsert`、`contacts/delete`、`contacts/import-vcf` | 读接口直读加密镜像（零 CPE 会话）；写接口走控制队列 |
+| **告警** | `GET /api/alerts` | 最近 100 条告警与投递统计 |
+| **实时 SSE** | `GET /api/events` | `hello`、`speed`、`telemetry`、`neighbors`、`topology`、`settings`、`session:avoidance`、`control:applied`、`alert`、`sms:new`、`sms:sent`、`sms:updated`、`sms:sync`、`sms:status`、`contacts:updated` 与心跳 |
+| **健康检查** | `GET /api/health` | 免鉴权，供 `HEALTHCHECK` 与监控使用 |
 
-完整 TypeScript 请求/响应契约请参阅 👉 **[`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)**。
+状态变更请求必须携带 `X-Requested-With: XMLHttpRequest` 与 `Content-Type: application/json`。REST / SSE 载荷类型定义在 [`src/api-contract.ts`](src/api-contract.ts)（服务端以 `satisfies` 校验，Web 前端直接复用），完整契约见 [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)。
 
 ---
 
 ## ⚙️ `.env` 配置参考
 
-| 变量名 | 默认值 | 说明 |
+完整模板见 [`.env.example`](.env.example)。守护进程只读取项目根目录（容器内为 `/app/.env`）的 `.env` 与环境变量，不依赖 `dotenv`。
+
+| 变量 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `CPE_URL` | `http://192.168.8.1` | CPE 局域网管理地址（严格限制私网单源 Origin，拦截跨网 SSRF） |
-| `CPE_USERNAME` | `admin` | H168-383 管理员账号 |
-| `CPE_PASSWORD` | *(必填)* | CPE 管理后台密码（`108006` 错误立即触发跨重启持久化熔断） |
-| `DATA_ENCRYPTION_KEY` | *(回退至 `CPE_PASSWORD`)* | 本地 `data/*.json`（状态、短信镜像、通讯录、Telegram 状态）静态加密密钥（`scrypt` + `HKDF-SHA256`）；强烈建议独立设置 |
-| `API_TOKEN` | *(回退至 `CPE_PASSWORD`)* | Web 登录口令与 REST / `/mcp` Bearer 令牌（推荐独立设置高熵随机串） |
-| `TRUSTED_PROXIES` | `127.0.0.1,::1` | 可信反向代理 IP / CIDR 白名单（`net.BlockList` 精确匹配后才解析 `X-Forwarded-For`） |
-| `ALLOWED_HOSTS` | *(空)* | 额外放行的 HTTP `Host`（如反代域名），拦截 DNS Rebinding (`421`)；私网/环回/链路本地 IP、`localhost`、`*.local`/`*.lan`/`*.internal`/`*.ts.net` 与单标签主机名始终放行 |
-| `WEB_PORT` | `18384` | Web 控制台、SSE 与 `/mcp` 默认监听端口 |
-| `DEFAULT_LOCALE` | `zh-CN` | 默认界面与提示语言（`zh-CN` 或 `en`） |
-| `MCP_HTTP_ENABLED` | `true` | 是否启用 `POST /mcp` Streamable HTTP 智能体端点（`cpe-dash mcp` 桥接也依赖它） |
-| `MCP_DAEMON_URL` | *(由 `WEB_HOST`/`WEB_PORT` 推导)* | `cpe-dash mcp` 桥接转发的守护进程 `/mcp` 地址；须为局域网/环回主机，不得含凭据、查询串或片段 |
-| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | 跨主机重复守护进程保护：签名 UDP 广播信标，第二个管理同一台 CPE 的守护进程自动待机并告警（Docker 需 host 网络） |
-| `TZ` | *(系统时区)* | IANA 时区（如 `Europe/Dublin`）；启动与 `reset-breaker` 重载时写入进程环境，发出短信的 `<Date>` 按此生成；进程环境已设置 `TZ` 时以其为准 |
-| `MCP_ALLOW_MUTATIONS` | `true` | 是否允许 MCP 调用写操作工具（设为 `false` 仅暴露只读观测工具） |
-| `HISTORY_RETENTION_HOURS` | `168` | 环形时序数据库历史保留时长（默认 168 小时 = 7 天） |
-| `POLL_INTERVAL_MS` | `5000` | 常规射频与实时速率采样周期（毫秒） |
-| `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | 4G/5G 邻区扫描低频采样周期（毫秒） |
-| `RESPECT_BROWSER_SESSION` | `true` | 真人浏览器在线自动挂起避让开关（强烈建议保持 `true`）。设为 `false` 时跳过让位：后台仍尝试登录，被跨 IP 占用（`108003`）时读请求报错、写请求返回 `502` 而非 `409` |
+| `CPE_URL` | `http://192.168.8.1` | CPE 管理地址；只允许私网 / 环回 / CGNAT 主机，禁止内嵌凭据、查询串与重定向（防 SSRF） |
+| `CPE_USERNAME` | `admin` | 管理员账号 |
+| `CPE_PASSWORD` | *(必填)* | 管理员密码；`108006` 错误立即触发持久化熔断 |
+| `TZ` | `UTC` | IANA 时区（如 `Asia/Shanghai`）；发出短信的 `<Date>` 按此生成，请与 CPE 所在时区一致 |
+| `DATA_ENCRYPTION_KEY` | *(回退 `CPE_PASSWORD`)* | `data/*.json` 落盘加密主密钥（`scrypt` + `HKDF-SHA256` → `AES-256-GCM`），强烈建议独立设置 |
+| `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | Web 登录口令与 REST / `/mcp` Bearer 令牌，建议高熵随机串 |
+| `TRUSTED_PROXIES` | `127.0.0.1,::1` | 可信反向代理 IP / CIDR；只有命中时才解析 `X-Forwarded-For` / `X-Forwarded-Proto` |
+| `ALLOWED_HOSTS` | *(空)* | 额外放行的 `Host`（如 `cpe.example.com`）；私网 IP、`localhost`、`*.local` / `*.lan` / `*.internal` / `*.ts.net` 始终放行 |
+| `WEB_ENABLED` | `true` | 是否启动 HTTP 服务（Web 控制台、REST、SSE 与 `/mcp`）；设为 `false` 时只运行后台采集、短信同步与通知 |
+| `WEB_HOST` / `WEB_PORT` | `0.0.0.0` / `18384` | 监听地址与端口；compose 下 `WEB_PORT` 决定宿主机端口 |
+| `DEFAULT_LOCALE` | `zh-CN` | 默认界面与提示语言（`zh-CN` / `en`） |
+| `MCP_HTTP_ENABLED` | `true` | 是否启用 `POST /mcp`（stdio 桥接也依赖它） |
+| `MCP_ALLOW_MUTATIONS` | `true` | 是否允许 MCP 调用写操作工具 |
+| `MCP_DAEMON_URL` | *(由 `WEB_HOST`/`WEB_PORT` 推导)* | stdio 桥接转发的 `/mcp` 地址；只接受局域网 / 环回主机 |
+| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | 跨主机重复守护进程保护（签名 UDP 广播信标；Docker 需 host 网络） |
+| `REDACT_SENSITIVE_IN_API` | `true` | API / MCP 输出默认脱敏 IMEI、IMSI、本机号码、MAC 与 TAC / CellID 等位置指纹 |
+| `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | SSE 心跳间隔与最大并发连接数 |
+| `POLL_INTERVAL_MS` | `5000` | 遥测与实时速率采样周期 |
+| `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | 邻区扫描周期 |
+| `REQUEST_TIMEOUT_MS` | `15000` | 单次 HTTP 请求超时 |
+| `RESPECT_BROWSER_SESSION` | `true` | 真人在线自动避让（强烈建议保持开启） |
+| `STATE_FILE` | `./data/state.json` | 加密状态文件；容器内为 `/app/data/state.json` |
+| `HISTORY_RETENTION_HOURS` | `168` | 时序历史保留时长（7 天） |
 | `SMS_ENABLED` | `true` | 启用短信同步、REST、SSE 与 MCP 短信工具 |
-| `DEFAULT_COUNTRY_CODE` | `+353` | 国内号码的默认国家区号 |
-| `SMS_FILE` / `CONTACTS_FILE` | *(与 `STATE_FILE` 同目录)* | 加密短信镜像 `sms.json` 与通讯录 `contacts.json` |
+| `DEFAULT_COUNTRY_CODE` | `+353` | 无国际前缀号码的默认国家区号 |
+| `SMS_FILE` / `CONTACTS_FILE` | *(与 `STATE_FILE` 同目录)* | 加密短信镜像与通讯录 |
 | `SMS_FULL_SYNC_INTERVAL_MS` | `1800000` | 兜底全量对账间隔（最小 `60000`） |
 | `SMS_SEED_EXISTING_ON_START` | `true` | 首次同步时把已有短信视为历史（不推送） |
 | `SMS_AUTO_MARK_READ` | `false` | 推送新短信后自动在 CPE 上标记已读 |
 | `SMS_SEND_STATUS_TIMEOUT_MS` | `45000` | 发送状态轮询上限（`5000..120000`） |
-| `TELEGRAM_BOT_TOKEN` | *(空)* | Telegram 机器人令牌（留空不启用） |
-| `TELEGRAM_CHAT_IDS` | *(空)* | 预授权聊天 ID，逗号分隔（也可用 `/auth <API_TOKEN>` 绑定） |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_IDS` | *(空)* | 机器人令牌与预授权聊天 ID |
 | `TELEGRAM_API_BASE` / `TELEGRAM_STATE_FILE` | `https://api.telegram.org` / *(同目录 `telegram.json`)* | 自建 Bot API 地址与加密状态文件 |
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` | *(空)* | 新短信与告警的 JSON 推送地址与 HMAC 签名密钥 |
-| `ALERTS_ENABLED` | `true` | 启用告警引擎 |
-| `ALERT_NOTIFY_MIN_SEVERITY` | `warning` | 推送到 Telegram / Webhook 的最低级别（`info` / `warning` / `critical`） |
+| `ALERTS_ENABLED` / `ALERT_NOTIFY_MIN_SEVERITY` | `true` / `warning` | 告警引擎与推送最低级别（`info` / `warning` / `critical`） |
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | 信号劣化告警阈值 |
 | `MCP_SMS_ACCESS` | `read` | MCP 短信工具权限：`none` / `read` / `full` |
 | `MCP_SMS_SEND_POLICY` | `known` | `known` 仅限联系人或曾发过短信的号码；`any` 不限制 |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | MCP 每小时发送上限（`0` 禁止） |
+| `CPE_HAR_PATH` | *(空)* | 仅探针脚本使用的离线审计归档路径（严禁入库） |
+| `PUID` / `PGID` | `1000` / `1000` | 仅供 docker compose 插值：容器运行用户（守护进程不读取） |
 
 ---
 
-## 🛡️ 七大安全与 TDD 质量门禁
+## 🛡️ 安全与质量门禁
 
 ```bash
 npm run check
-# 依次执行：
-# 1. npm run typecheck      -> tsc -p tsconfig.test.json (100% Strict TS，零隐式 any)
-# 2. npm run test:coverage  -> c8 强制门禁 (Statements / Lines / Functions >= 90%，实测 > 96%)
-# 3. npm run audit:secrets  -> 扫描工作区与完整 git log -p --all 历史，拦截密钥/PII 与任何 .js 源文件
+# 1. npm run typecheck      → 守护进程 / 脚本 / 测试与 Web 前端两套 tsconfig，100% 严格 TypeScript
+# 2. npm run test:coverage  → node:test 全离线测试 + c8 门禁（语句 / 行 / 函数 >= 90%，实测 98% / 98% / 99%）
+# 3. npm run audit:secrets  → 扫描工作区与完整 git 历史：密钥、硬件指纹、手机号与任何 .js 源文件
+```
+
+- 单元测试只对接注入式 Mock 路由器，**从不访问真实 `192.168.8.1`**；测试号码只用保留号段，从不向真实号码发短信。
+- CI 在 Node.js 22.x（`engines` 下限）与 26.x 上跑完整门禁，再构建 `linux/amd64` 镜像，以无特权只读方式运行并验证健康检查、Web 与 CSP、登录、SSE、MCP、`SIGTERM` 停机与仅加密落盘。
+- 七大工程与安全铁律见 [`AGENTS.md`](AGENTS.md)。
+
+---
+
+## 🏗️ 仓库结构
+
+```text
+cpe-dash/
+├── src/                     # 守护进程（Node.js 原生模块，零运行时依赖）
+│   ├── cpe-client.ts        # 瞬时会话客户端、双层避让与 108006 熔断器
+│   ├── scheduler.ts         # MutexSessionScheduler：唯一 CPE 会话出口
+│   ├── cpe-monitor.ts · cpe-controls.ts · cpe-domain.ts · parsers.ts · band-lock.ts
+│   ├── sms/ · notify/       # 短信服务、加密镜像、通讯录 / Telegram 机器人、Webhook、通知中心
+│   ├── http-server.ts · sse-bus.ts · mcp-server.ts · mcp-stdio-bridge.ts
+│   ├── api-contract.ts      # REST / SSE 载荷类型（前后端共用）
+│   └── cli.ts               # serve 守护进程与 mcp 桥接入口
+├── web/                     # Web 控制台：严格 TS + Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
+│   ├── index.html · styles.css
+│   └── src/                 # core/（无 DOM 逻辑，纳入覆盖率门禁）· ui/ · i18n/
+├── scripts/                 # build-web.ts · demo-server.ts · audit-secrets.ts · probe-*.ts
+├── test/                    # node:test 离线测试（helpers/ 内含加密 Mock 路由器）
+├── docs/                    # 协议规范、架构报告、后端契约与界面截图
+├── Dockerfile · docker-compose.yml · .dockerignore
+└── .github/workflows/       # ci-docker.yml · release.yml
 ```
 
 ---
 
-## 📚 权威技术文档索引
+## 📚 文档索引
 
 - [`AGENTS.md`](AGENTS.md) — 工程契约、七大安全铁律与强制 TDD 守则
-- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — 华为 H168-383 私有协议（含 3.8 节短信接口与加密通道）、逆向算法与真机实测字典
-- [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — 群晖 DS923+ 零依赖后端选型、安全防线、多语言架构与第 5 节短信融合架构
-- [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — Phase 2 → Phase 3 完整 REST API、SSE 事件流、MCP 工具（含短信）与 `cpe-sms` 视图映射表
+- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — H168-383 私有协议（含短信接口与加密通道）、逆向算法与真机实测字典
+- [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — 零依赖后端选型、安全防线、短信融合与 Web 控制台架构
+- [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — REST API、SSE 事件、MCP 工具（含短信）与错误码权威契约
 
 ---
 
-## ⚠️ 免责声明与开源许可
+## ⚠️ 免责声明与许可
 
-- 本项目为非官方独立自研网管工具，与华为技术有限公司无任何隶属或背书关系。锁频段与锁小区属于底层基带调优操作，请在充分了解所在运营商频谱规划的前提下谨慎使用。
-- 本项目基于 **[PolyForm Noncommercial License 1.0.0](LICENSE)** 开源发布，仅限个人与非商业研究用途。
+- **无线电合规**：锁频段、锁小区、锁频点会改变终端的接入与驻留行为。请仅在你合法使用的网络与频段上操作，遵守所在国家 / 地区的无线电管理法规与运营商服务条款；不当锁定可能导致断网、服务质量下降或违反合约。本项目不提供任何绕过运营商限制、修改射频参数或发射功率的功能。
+- **短信与隐私**：通过本项目发送的短信由你本人负责并按运营商资费计费；使用 Telegram 机器人时，推送内容会经过 Telegram 服务器。请勿用于群发、骚扰或任何违法用途。
+- **非官方项目**：本项目为独立的非官方工具，与华为技术有限公司及任何运营商均无隶属或背书关系；所有商标归其各自所有者。软件按「现状」提供，不附带任何明示或默示担保，使用风险自负。
+- **许可**：本项目以 **[PolyForm Noncommercial License 1.0.0](LICENSE)** 发布，仅限个人、研究与其他非商业用途；商业使用需另行获得作者授权。
