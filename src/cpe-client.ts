@@ -529,6 +529,25 @@ export interface WithSessionOptions {
   occupiedRetryDelayMs?: number;
 }
 
+/** Resolve after `ms`, or reject with `signal.reason` as soon as it aborts. */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /** Reject when `signal` aborts, even if `work` never settles (non-I/O hangs cannot pin the mutex). */
 function raceDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
@@ -571,6 +590,8 @@ export class HuaweiCpeClient {
   readonly sessionMaxHoldMs: number;
 
   #mutex: Promise<unknown>;
+  /** Cancels the session run that holds the mutex right now (`abortActiveSession`). */
+  #activeCancel: AbortController | null = null;
   #trippedError: CpeApiError | null;
   #trippedAtIso: string | null;
   #trippedPwdFingerprint: string | null;
@@ -698,17 +719,18 @@ export class HuaweiCpeClient {
 
   /**
    * Wait for any currently running ephemeral session + `finally` logout to finish (e.g., on SIGTERM).
+   * Resolves `true` once idle, `false` if the session was still running after `maxWaitMs`.
    */
-  async waitForIdle(maxWaitMs = 4000): Promise<void> {
+  async waitForIdle(maxWaitMs = 4000): Promise<boolean> {
     let timer: NodeJS.Timeout | undefined;
     try {
-      await Promise.race([
+      return await Promise.race([
         this.#mutex.then(
-          () => undefined,
-          () => undefined
+          () => true,
+          () => true
         ),
-        new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, maxWaitMs);
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(false), maxWaitMs);
         }),
       ]);
     } finally {
@@ -716,7 +738,20 @@ export class HuaweiCpeClient {
     }
   }
 
-  async getPublic(apiPath: string): Promise<string> {
+  /**
+   * Cancel the session that is running now (e.g. on shutdown) with `reason`: its pending requests
+   * abort, a login or retry still to come never starts, and its `finally` logout still runs on a
+   * fresh bounded signal. Returns `false` when no session is running.
+   */
+  abortActiveSession(reason: Error): boolean {
+    const active = this.#activeCancel;
+    if (!active || active.signal.aborted) return false;
+    active.abort(reason);
+    return true;
+  }
+
+  async getPublic(apiPath: string, signal?: AbortSignal): Promise<string> {
+    const timeout = AbortSignal.timeout(this.timeoutMs);
     const res = await cpeFetch(this.fetchImpl, `${this.baseUrl}${apiPath}`, apiPath, {
       method: "GET",
       headers: {
@@ -725,7 +760,7 @@ export class HuaweiCpeClient {
         Accept: "*/*",
       },
       redirect: "error",
-      signal: AbortSignal.timeout(this.timeoutMs),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     const text = await readCpeResponseText(res);
     const err = parseXmlError(text);
@@ -735,8 +770,8 @@ export class HuaweiCpeClient {
     return text;
   }
 
-  async getLoginState(): Promise<CpeLoginState> {
-    const xml = await this.getPublic("/api/user/state-login");
+  async getLoginState(signal?: AbortSignal): Promise<CpeLoginState> {
+    const xml = await this.getPublic("/api/user/state-login", signal);
     const state = getXmlTag(xml, "State") ?? "-1";
     const isLocked = (getXmlTag(xml, "lockstatus") ?? "0") === "1";
     const remainWaitTime = Number.parseInt(getXmlTag(xml, "remainwaittime") ?? "0", 10) || 0;
@@ -767,101 +802,14 @@ export class HuaweiCpeClient {
       if (this.#trippedError) {
         throw this.#trippedError;
       }
-
-      const username = this.#username;
-      const password = this.#password;
-      const credentialFp = hashCredentialsFingerprint(username, password);
-      const maxAttempts = retriesOnOccupied + 1;
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const loginState = await this.getLoginState();
-        if (loginState.isLocked) {
-          this.#tripCircuitBreaker(
-            new CpeApiError("108007", `剩余锁定等待时间 ${loginState.remainWaitTime} 秒`, {
-              waitTime: loginState.remainWaitTime,
-            }),
-            credentialFp
-          );
-        }
-        if (respectBrowser && loginState.isLoggedInElsewhere) {
-          this.#browserYieldCount += 1;
-          return {
-            status: "yielded",
-            layer: 1,
-            stateCode: loginState.state,
-            messageZh: t("zh-CN", "session.mode_yielding"),
-            messageEn: t("en", "session.mode_yielding"),
-          };
-        }
-
-        const deadline = new AbortController();
-        const deadlineTimer = setTimeout(
-          () => deadline.abort(new CpeSessionDeadlineError(this.sessionMaxHoldMs)),
-          this.sessionMaxHoldMs
-        );
-        deadlineTimer.unref?.();
-        const session = new EphemeralCpeSession({
-          baseUrl: this.baseUrl,
-          username,
-          password,
-          timeoutMs: this.timeoutMs,
-          fetchImpl: this.fetchImpl,
-          deadline: deadline.signal,
-        });
-
-        let loginFinished = false;
-        let lastHoldMs = 0;
-        try {
-          await raceDeadline(session.login(), deadline.signal);
-          loginFinished = true;
-          const value = await raceDeadline(
-            activeSessionContext.run(this, () => fn(session)),
-            deadline.signal
-          );
-          return {
-            status: "ok",
-            value,
-            holdMs: lastHoldMs,
-          };
-        } catch (err) {
-          if (!loginFinished && err instanceof CpeApiError && err.isCircuitBreakerFatal) {
-            this.#tripCircuitBreaker(err, credentialFp);
-          }
-          // Only retry/yield on occupied BEFORE `fn(session)` starts so mutating writes are never replayed!
-          if (!loginFinished && err instanceof CpeApiError && err.isSessionOccupied) {
-            if (attempt < maxAttempts) {
-              await new Promise((r) => setTimeout(r, retryBaseDelayMs * attempt));
-              continue;
-            }
-            if (respectBrowser) {
-              this.#browserYieldCount += 1;
-              return {
-                status: "yielded",
-                layer: 2,
-                stateCode: err.code,
-                messageZh: t("zh-CN", "session.mode_yielding"),
-                messageEn: t("en", "session.mode_yielding"),
-              };
-            }
-          }
-          throw err;
-        } finally {
-          clearTimeout(deadlineTimer);
-          const holdMs = await session.logout();
-          if (holdMs !== null) {
-            lastHoldMs = holdMs;
-            this.#lastSessionHoldMs = holdMs;
-            this.#totalSessionsCompleted += 1;
-          }
-        }
+      // Run-scoped cancellation (`abortActiveSession`): pre-check, login, `fn` and retry waits
+      const cancel = new AbortController();
+      this.#activeCancel = cancel;
+      try {
+        return await this.#runSession(fn, cancel.signal, { respectBrowser, retriesOnOccupied, retryBaseDelayMs });
+      } finally {
+        if (this.#activeCancel === cancel) this.#activeCancel = null;
       }
-
-      return {
-        status: "yielded",
-        layer: 2,
-        stateCode: "108003",
-        messageZh: t("zh-CN", "session.mode_yielding"),
-        messageEn: t("en", "session.mode_yielding"),
-      };
     };
 
     const next = this.#mutex.then(run, run).then((outcome) => {
@@ -875,6 +823,112 @@ export class HuaweiCpeClient {
       () => undefined
     );
     return next;
+  }
+
+  async #runSession<T>(
+    fn: (session: EphemeralCpeSession) => Promise<T>,
+    cancel: AbortSignal,
+    opts: { respectBrowser: boolean; retriesOnOccupied: number; retryBaseDelayMs: number }
+  ): Promise<SessionExecutionOutcome<T>> {
+    const username = this.#username;
+    const password = this.#password;
+    const credentialFp = hashCredentialsFingerprint(username, password);
+    const maxAttempts = opts.retriesOnOccupied + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      cancel.throwIfAborted();
+      const loginState = await this.getLoginState(cancel);
+      if (loginState.isLocked) {
+        this.#tripCircuitBreaker(
+          new CpeApiError("108007", `剩余锁定等待时间 ${loginState.remainWaitTime} 秒`, {
+            waitTime: loginState.remainWaitTime,
+          }),
+          credentialFp
+        );
+      }
+      if (opts.respectBrowser && loginState.isLoggedInElsewhere) {
+        this.#browserYieldCount += 1;
+        return {
+          status: "yielded",
+          layer: 1,
+          stateCode: loginState.state,
+          messageZh: t("zh-CN", "session.mode_yielding"),
+          messageEn: t("en", "session.mode_yielding"),
+        };
+      }
+      cancel.throwIfAborted();
+
+      const deadline = new AbortController();
+      const deadlineTimer = setTimeout(
+        () => deadline.abort(new CpeSessionDeadlineError(this.sessionMaxHoldMs)),
+        this.sessionMaxHoldMs
+      );
+      deadlineTimer.unref?.();
+      const forwardCancel = (): void => deadline.abort(cancel.reason);
+      cancel.addEventListener("abort", forwardCancel, { once: true });
+      const session = new EphemeralCpeSession({
+        baseUrl: this.baseUrl,
+        username,
+        password,
+        timeoutMs: this.timeoutMs,
+        fetchImpl: this.fetchImpl,
+        deadline: deadline.signal,
+      });
+
+      let loginFinished = false;
+      let lastHoldMs = 0;
+      try {
+        await raceDeadline(session.login(), deadline.signal);
+        loginFinished = true;
+        const value = await raceDeadline(
+          activeSessionContext.run(this, () => fn(session)),
+          deadline.signal
+        );
+        return {
+          status: "ok",
+          value,
+          holdMs: lastHoldMs,
+        };
+      } catch (err) {
+        if (!loginFinished && err instanceof CpeApiError && err.isCircuitBreakerFatal) {
+          this.#tripCircuitBreaker(err, credentialFp);
+        }
+        // Only retry/yield on occupied BEFORE `fn(session)` starts so mutating writes are never replayed!
+        if (!loginFinished && err instanceof CpeApiError && err.isSessionOccupied) {
+          if (attempt < maxAttempts) {
+            await abortableDelay(opts.retryBaseDelayMs * attempt, cancel);
+            continue;
+          }
+          if (opts.respectBrowser) {
+            this.#browserYieldCount += 1;
+            return {
+              status: "yielded",
+              layer: 2,
+              stateCode: err.code,
+              messageZh: t("zh-CN", "session.mode_yielding"),
+              messageEn: t("en", "session.mode_yielding"),
+            };
+          }
+        }
+        throw err;
+      } finally {
+        clearTimeout(deadlineTimer);
+        cancel.removeEventListener("abort", forwardCancel);
+        const holdMs = await session.logout();
+        if (holdMs !== null) {
+          lastHoldMs = holdMs;
+          this.#lastSessionHoldMs = holdMs;
+          this.#totalSessionsCompleted += 1;
+        }
+      }
+    }
+
+    return {
+      status: "yielded",
+      layer: 2,
+      stateCode: "108003",
+      messageZh: t("zh-CN", "session.mode_yielding"),
+      messageEn: t("en", "session.mode_yielding"),
+    };
   }
 
   async withSession<T>(

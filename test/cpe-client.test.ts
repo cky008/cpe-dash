@@ -262,6 +262,42 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
     assert.equal(client.getTelemetry().browserYieldCount, 1);
   });
 
+  it("cancels a session during its occupied-retry wait without another login attempt, and is a no-op when idle", async () => {
+    const { fetchImpl, calls } = createMockCpeFetch({ password: "unit_password", occupiedAttempts: 5 });
+    const client = new HuaweiCpeClient({
+      cpeUrl: "http://192.168.8.1",
+      cpePassword: "unit_password",
+      respectBrowserSession: false,
+      fetchImpl,
+    });
+    assert.equal(client.abortActiveSession(new Error("nothing running")), false);
+    const authAttempts = (): number => calls.filter((c) => c.path.startsWith("/api/user/authentication_login")).length;
+
+    const pending = client.withSession(async () => "never reached", { retriesOnOccupied: 3, occupiedRetryDelayMs: 10_000 });
+    while (authAttempts() < 1) await new Promise((resolve) => setTimeout(resolve, 2));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const reason = new Error("daemon stopping");
+    assert.equal(client.abortActiveSession(reason), true);
+    await assert.rejects(pending, (err: unknown) => err === reason);
+    assert.equal(authAttempts(), 1, "no login retry after the cancel");
+    assert.equal(await client.waitForIdle(100), true);
+
+    // A cancel during the unauthenticated pre-check never reaches the login endpoints either
+    const slow: typeof fetch = async (input, init) => {
+      if (String(input).includes("/api/user/state-login")) {
+        await new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+      }
+      return await fetchImpl(input, init);
+    };
+    const precheckClient = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl: slow });
+    const before = calls.length;
+    const precheck = precheckClient.withSession(async () => "never reached");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(precheckClient.abortActiveSession(reason), true);
+    await assert.rejects(precheck, (err: unknown) => err === reason);
+    assert.equal(calls.length, before, "nothing but the aborted pre-check");
+  });
+
   it("refuses requests on a session that was already logged out, without touching the network", async () => {
     const { fetchImpl, calls } = createMockCpeFetch({ password: "unit_password" });
     const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl });

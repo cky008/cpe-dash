@@ -133,6 +133,8 @@ export interface MutexSessionSchedulerOptions {
   maxQueueDepth?: number;
   layer2InitialBackoffMs?: number;
   layer2MaxBackoffMs?: number;
+  /** How long `stop()` lets an in-flight session finish before cancelling it (default 2 s). */
+  stopGraceMs?: number;
 }
 
 /**
@@ -153,6 +155,7 @@ export class MutexSessionScheduler extends EventEmitter {
   readonly maxQueueDepth: number;
   readonly layer2InitialBackoffMs: number;
   readonly layer2MaxBackoffMs: number;
+  readonly stopGraceMs: number;
 
   readonly #client: HuaweiCpeClient;
   #initialized = false;
@@ -180,6 +183,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.maxQueueDepth = options.maxQueueDepth ?? 32;
     this.layer2InitialBackoffMs = options.layer2InitialBackoffMs ?? 45_000;
     this.layer2MaxBackoffMs = options.layer2MaxBackoffMs ?? 300_000;
+    this.stopGraceMs = Math.max(0, options.stopGraceMs ?? 2000);
   }
 
   /**
@@ -202,16 +206,22 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   /**
-   * Reject unstarted queued tasks, wait for an in-flight session to finish its `finally` logout,
-   * then persist the breaker latch and flush encrypted state.
+   * Reject unstarted queued tasks, give an in-flight session `stopGraceMs` to finish (a control
+   * write is never cut short without need), then cancel it: its `finally` logout still runs on a
+   * fresh bounded signal, so the router's admin slot is free before the process exits. Finally
+   * persist the breaker latch and flush encrypted state.
    */
   async stop(): Promise<void> {
     this.#running = false;
     this.#stopping = true;
+    const stopped = new SchedulerStoppedError();
     for (const queued of this.#queue.splice(0)) {
-      queued.reject(new SchedulerStoppedError());
+      queued.reject(stopped);
     }
-    await this.#client.waitForIdle(4000);
+    if (!(await this.#client.waitForIdle(this.stopGraceMs))) {
+      this.#client.abortActiveSession(stopped);
+      await this.#client.waitForIdle(4000);
+    }
     if (!this.#initialized) {
       return;
     }
@@ -531,6 +541,11 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   async #handleExecutionError(err: unknown, wasTripped: boolean): Promise<never> {
+    // Cancelled by stop(): says nothing about the router's health
+    if (err instanceof SchedulerStoppedError) {
+      if (this.#mode === "polling") this.#mode = "idle";
+      throw err;
+    }
     this.#lastError = err instanceof Error ? err.message : String(err);
     const cb = this.#client.getCircuitBreakerState();
     if (cb.tripped) {

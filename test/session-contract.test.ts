@@ -7,7 +7,7 @@ import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/cor
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
-import { type AvoidanceBroadcastPayload, BrowserSessionYieldedError } from "../src/scheduler.ts";
+import { type AvoidanceBroadcastPayload, BrowserSessionYieldedError, SchedulerStoppedError } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMcpTools } from "../src/sms/mcp-tools.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
@@ -36,6 +36,7 @@ function createContractFixture(
     pollIntervalMs?: number;
     sessionMaxHoldMs?: number;
     requestTimeoutMs?: number;
+    stopGraceMs?: number;
   } = {}
 ): ContractFixture {
   const cpe = createStrictCpe(opts);
@@ -55,6 +56,7 @@ function createContractFixture(
     neighborScanIntervalMs: 120_000,
     smsCountersEnabled: true,
     layer2InitialBackoffMs: opts.layer2InitialBackoffMs,
+    stopGraceMs: opts.stopGraceMs,
   });
   core.monitor.init();
   const cipher = StorageCipher.fromSecret("contract_key");
@@ -96,6 +98,14 @@ function createContractFixture(
       if (!opts.dir) fs.rmSync(dir, { recursive: true, force: true });
     },
   };
+}
+
+async function waitFor(predicate: () => boolean, label: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 function assertSingleSlotInvariants(cpe: StrictCpe): void {
@@ -271,6 +281,62 @@ describe("session contract on a strict single-admin router model", () => {
       assert.equal((viaMcp.structuredContent["result"] as { timedOutWaitingStatus?: boolean }).timedOutWaitingStatus, true);
 
       assert.equal(fx.cpe.outbox.length, 2, "each message reached the router exactly once");
+      assertSingleSlotInvariants(fx.cpe);
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("cancels the in-flight session when the scheduler stops, so the admin slot is free before the process exits", async () => {
+    const fx = createContractFixture({
+      requestTimeoutMs: 60_000,
+      sessionMaxHoldMs: 90_000,
+      stopGraceMs: 50,
+      fault: (p) => (p === "/api/device/nbrcellinfo" ? "timeout" : undefined),
+    });
+    try {
+      const scan = fx.core.monitor.refreshNeighbors().then(
+        () => null,
+        (err: unknown) => err
+      );
+      const queued = fx.core.monitor.refreshTelemetry().then(
+        () => null,
+        (err: unknown) => err
+      );
+      await waitFor(() => fx.cpe.count("/api/device/nbrcellinfo") === 1, "the scan request hanging inside its session");
+      assert.equal(fx.cpe.isSlotTaken(), true);
+
+      const startedAt = performance.now();
+      await fx.core.scheduler.stop();
+      assert.ok(performance.now() - startedAt < 1500, "stop() does not wait out a hung session");
+      assert.equal(fx.cpe.isSlotTaken(), false, "the cancelled session still logged out");
+      assert.ok((await scan) instanceof SchedulerStoppedError);
+      assert.ok((await queued) instanceof SchedulerStoppedError, "queued work is refused, never run");
+      assert.equal(fx.cpe.count("/api/device/signal"), 0);
+      assert.equal(fx.core.scheduler.getStatus().mode, "idle", "a cancelled session says nothing about the router");
+      assertSingleSlotInvariants(fx.cpe);
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("reports an SMS interrupted by shutdown as submitted once the router accepted it", async () => {
+    const fx = createContractFixture({
+      requestTimeoutMs: 60_000,
+      stopGraceMs: 50,
+      fault: (p) => (p === "/api/sms/send-status" ? "timeout" : undefined),
+    });
+    try {
+      const sending = fx.sms.send({ phones: ["+353830000002"], content: "Shutdown check", source: "telegram" });
+      await waitFor(() => fx.cpe.count("/api/sms/send-status") === 1, "the status poll hanging after send-sms");
+      const stoppingAt = performance.now();
+      await fx.core.scheduler.stop();
+      assert.equal(fx.cpe.isSlotTaken(), false, "logged out before stop() resolved");
+      const outcome = await sending;
+      assert.ok(performance.now() - stoppingAt < 1500, "the send settles with the cancelled session, not at its request timeout");
+      assert.equal(outcome.result.ok, true);
+      assert.equal(outcome.result.timedOutWaitingStatus, true);
+      assert.equal(fx.cpe.outbox.length, 1);
       assertSingleSlotInvariants(fx.cpe);
     } finally {
       await fx.close();
