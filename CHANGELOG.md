@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-10-31
+
+### Fixed
+- **Creating an internet time rule no longer reports a false failure.** The H168-383 reads a rule back with a TR-069 path as its ID and repeats the device's MAC after `</DevicesMACs>`; the parser counted the device twice, so the create's read-back check answered `502 … did not apply` although the router had stored the rule. MACs are now read only inside `<DevicesMACs>`. Verified on the real router: create, update and delete, each read back and verified.
+
 ## [1.1.0] — 2026-10-31
 
 ### Added
@@ -57,6 +62,7 @@ First production release: one container that monitors a Huawei 5G CPE Ultra 6 (H
 ### Known limitations
 See [`docs/PHASE2_ARCHITECTURE_REPORT.md` §7.4](docs/PHASE2_ARCHITECTURE_REPORT.md#74-已知限制phase-3) and §6.8.
 
+[1.1.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.1
 [1.1.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.0
 [1.0.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.0.1
 [1.0.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.0.0
