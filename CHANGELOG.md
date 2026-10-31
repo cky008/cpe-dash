@@ -2,6 +2,20 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-10-31
+
+### Added
+- **Device access control**, built on the router's own Wi-Fi MAC filter and parental-control time rules (protocol verified against a WebInspector capture, a read-only session and a real-device block / restore of a 5 GHz phone):
+  - Topology: one-click **Block / Restore** for Wi-Fi clients; blocked devices stay listed while offline.
+  - Access control drawer: Wi-Fi MAC filter off / blacklist / whitelist, add and remove entries, the router's capacity (64), and a picker for the devices to keep when enabling the whitelist.
+  - **Internet time** windows per device (weekdays, 15-minute steps, overnight windows, enable / pause), with overlap conflicts shown before saving; a device with windows can only go online inside them.
+- Safety: the machine running FengSui (recognized from the router's `IsLocalDevice` mark) and the device sending the request can never be blocked, removed from a whitelist or given time windows; an enforced whitelist can never be empty. Enforced server-side, previewed in the browser with the same planner (`src/access-plan.ts`). Every write needs `confirm: true`, runs as one queued control session and is read back and verified.
+- REST: `GET /api/access-control`, `POST /api/access-control/refresh`, `POST /api/control/wifi-access`, `/api/control/wifi-mac-filter`, `/api/control/time-rule`; SSE event `access-control`.
+- MCP: `get_access_control` (read-only); `set_device_internet_access`, `set_wifi_mac_filter`, `manage_internet_time_rule` only with the new `MCP_ALLOW_ACCESS_CONTROL=true` (default `false`).
+
+### Not possible on this router
+- Per-device rate limiting (instant or scheduled): the firmware exposes no QoS / bandwidth-limit API.
+
 ## [1.0.1] — 2026-10-31
 
 ### Fixed
@@ -43,5 +57,6 @@ First production release: one container that monitors a Huawei 5G CPE Ultra 6 (H
 ### Known limitations
 See [`docs/PHASE2_ARCHITECTURE_REPORT.md` §7.4](docs/PHASE2_ARCHITECTURE_REPORT.md#74-已知限制phase-3) and §6.8.
 
+[1.1.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.0
 [1.0.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.0.1
 [1.0.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.0.0
