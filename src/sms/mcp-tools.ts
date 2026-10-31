@@ -5,7 +5,8 @@ import {
   type McpToolDefinition,
   type McpToolProvider,
 } from "../mcp-server.ts";
-import { BrowserSessionYieldedError, SchedulerQueueFullError } from "../scheduler.ts";
+import { CpeApiError } from "../cpe-client.ts";
+import { BrowserSessionYieldedError, PeerDaemonStandbyError, SchedulerQueueFullError, SchedulerStoppedError } from "../scheduler.ts";
 import { resolveRecipientPhone } from "./phone.ts";
 import type { SmsService } from "./service.ts";
 import type { SmsMessageRecord, SmsThreadSummary } from "./types.ts";
@@ -169,6 +170,22 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
 ];
 
 const WRITE_TOOL_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
+
+/**
+ * A send that failed this way never handed a message to the router: refused before any session
+ * (validation, human admin, peer daemon, full queue, shutdown, latched breaker) or answered with a
+ * CPE error code. Transport failures stay charged, since send-sms may have reached the router.
+ */
+function neverSent(err: unknown): boolean {
+  return (
+    err instanceof CpeControlValidationError ||
+    err instanceof BrowserSessionYieldedError ||
+    err instanceof PeerDaemonStandbyError ||
+    err instanceof SchedulerQueueFullError ||
+    err instanceof SchedulerStoppedError ||
+    err instanceof CpeApiError
+  );
+}
 const ALL_TOOL_NAMES = new Set([...READ_TOOLS, ...WRITE_TOOLS].map((t) => t.name));
 
 function str(args: Record<string, unknown>, key: string, required: boolean, maxLength = 2000): string | undefined {
@@ -374,13 +391,13 @@ export class SmsMcpTools implements McpToolProvider {
     if (this.#sendTimestamps.length >= this.sendLimitPerHour) {
       throw new McpToolError("SMS_RATE_LIMITED", `MCP send budget exhausted (${this.sendLimitPerHour} per hour)`);
     }
-    // Reserve before awaiting so concurrent calls cannot overshoot; refund only when nothing reached the router.
+    // Reserve before awaiting so concurrent calls cannot overshoot; refund only when no message was sent.
     this.#sendTimestamps.push(now);
     let outcome: Awaited<ReturnType<SmsService["send"]>>;
     try {
       outcome = await this.sms.send({ phones: [resolved.phone], content, source: "mcp" });
     } catch (err) {
-      if (err instanceof CpeControlValidationError || err instanceof BrowserSessionYieldedError || err instanceof SchedulerQueueFullError) {
+      if (neverSent(err)) {
         const slot = this.#sendTimestamps.lastIndexOf(now);
         if (slot >= 0) this.#sendTimestamps.splice(slot, 1);
       }

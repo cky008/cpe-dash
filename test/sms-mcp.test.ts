@@ -244,6 +244,13 @@ describe("MCP SMS tools: write guardrails", () => {
     fx.mock.control.stateLoginXml = () => HUMAN_LOGGED_IN;
     assert.equal((await send("while you are logged in")).structuredContent["errorCode"], "BROWSER_SESSION_YIELDED");
     fx.mock.control.stateLoginXml = undefined;
+    fx.sms.scheduler.setPeerStandby("192.168.8.44");
+    assert.equal((await send("while another daemon leads")).structuredContent["errorCode"], "PEER_DAEMON_ACTIVE");
+    fx.sms.scheduler.setPeerStandby(null);
+    await fx.sms.scheduler.stop();
+    assert.equal((await send("while stopping")).structuredContent["errorCode"], "QUEUE_FULL");
+    fx.sms.scheduler.markRunning(true);
+    assert.equal(fx.mock.sentRequests.length, 0, "none of the refused attempts reached the router");
 
     assert.equal((await send("one")).isError, false);
     assert.equal((await send("two")).isError, false);
