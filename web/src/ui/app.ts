@@ -7,6 +7,7 @@ import { type SseEvent, SseClient } from "../core/sse.ts";
 import { Store, mergeAlerts, reduceSseEvent } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import { mountBanners } from "./banners.ts";
+import { mountCharts } from "./charts.ts";
 import type { AppContext } from "./context.ts";
 import { byId } from "./dom.ts";
 import { mountHeader } from "./header.ts";
@@ -225,6 +226,7 @@ export async function startApp(): Promise<void> {
       mountRfCard(ctx);
       mountTrafficCard(ctx);
       mountHealthCard(ctx);
+      mountCharts(ctx);
       mountNeighbors(ctx);
       mountTopology(ctx);
       applyI18n(tr);
