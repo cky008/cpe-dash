@@ -864,7 +864,7 @@ export interface WifiMacFilterState {
   maxEntries: number;             // <wifimaxmacfilternum>（H168-383 为 64）
 }
 export interface TimeRule {       // "允许上网时段"：有启用规则的设备只能在这些时段上网
-  id: string; enabled: boolean;
+  id: string; enabled: boolean;   // id 为路由器分配的 TR-069 路径，如 "InternetGatewayDevice.X_FireWall.TimeRule.1."
   devices: Array<{ macAddress: string; name: string }>;
   weekMask: string;               // 7 位，周一在前，"1111111" = 每天
   startTime: string; endTime: string; // HH:mm，15 分钟步进；结束早于开始 = 跨天

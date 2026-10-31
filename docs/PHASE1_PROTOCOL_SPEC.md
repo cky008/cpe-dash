@@ -611,8 +611,15 @@ sequenceDiagram
 1. **语义是"允许上网时段"**：路由器帮助文本为"设置允许接入网络的时间段"；某设备一旦有启用的规则，就只能在这些时段上网，其余时间被断网。
 2. **字段**：`<WeekEnable>` 为 7 位、周一在前（`1111111` 每天）；`<TimeMode>` 为 0（每天）或 1（自定义星期）；`<StartTime>` / `<EndTime>` 为 `HH:mm`，路由器页面只提供 15 分钟粒度，开始晚于结束表示跨天。页面拒绝：未选星期（`0000000`）、开始等于结束、结束为 `00:00`。
 3. **写入**：每台设备一条规则（`<DevicesMACs><DevicesMAC>` 与 `<DevicesNames><DevicesName>` 各一项），`create` 时 `<ID>` 为空、由路由器分配；`update` / `delete` 带原 `<ID>` 与完整字段。
+4. **真机回读格式**（与页面代码推断的不同，v1.1.1 起按此解析）：`<ID>` 是 TR-069 路径（`InternetGatewayDevice.X_FireWall.TimeRule.1.`），元素顺序为 `DevicesNames`、`ID`、`Enable`、`StartTime`、`EndTime`、`WeekEnable`、`TimeMode`、`DevicesMACs`，且 `</DevicesMACs>` 之后**重复出现一次第一个 `<DevicesMAC>`**。设备 MAC 只能从 `<DevicesMACs>` 容器内读取，否则同一设备会被算两次。
+5. **真机验证**（2026-10-31，同一台 5 GHz 手机）：新建、修改、删除都已写入并回读核对，测试后规则表为空。有规则期间 HostInfo 中该设备 `ParentControlEnable=true`，删除后恢复 `false`；时段外设备仍保持 Wi-Fi 连接（`Active=true`、`ParentControl=false`），即上网时段拦的是上网而不是 Wi-Fi 接入，路由器侧看不到"当前是否被拦"。
 
 ```xml
+<!-- 回读（真机，MAC 已替换） -->
+<response><TimeRuleMaxNum>16</TimeRuleMaxNum><TimeControlRules><TimeControlRule><DevicesNames><DevicesName>phone</DevicesName></DevicesNames>
+  <ID>InternetGatewayDevice.X_FireWall.TimeRule.1.</ID><Enable>1</Enable><StartTime>03:00</StartTime><EndTime>04:00</EndTime><WeekEnable>1111111</WeekEnable><TimeMode>0</TimeMode>
+  <DevicesMACs><DevicesMAC>00:00:5E:00:53:03</DevicesMAC></DevicesMACs><DevicesMAC>00:00:5E:00:53:03</DevicesMAC></TimeControlRule></TimeControlRules></response>
+<!-- 新建 -->
 <request><TimeControlRules><TimeControlRule><Action>create</Action><Enable>1</Enable><TimeMode>1</TimeMode><ID></ID>
   <DevicesMACs><DevicesMAC>00:00:5E:00:53:03</DevicesMAC></DevicesMACs><DevicesNames><DevicesName>phone</DevicesName></DevicesNames>
   <WeekEnable>1111100</WeekEnable><StartTime>07:00</StartTime><EndTime>21:30</EndTime></TimeControlRule></TimeControlRules></request>
