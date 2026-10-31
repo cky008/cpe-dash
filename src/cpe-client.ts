@@ -858,11 +858,12 @@ export class HuaweiCpeClient {
       cancel.throwIfAborted();
 
       const deadline = new AbortController();
+      // Deliberately not unref()'d: a session waiting only on its deadline (a hung request or domain
+      // function) must keep the event loop alive until the deadline frees the slot; `finally` clears it.
       const deadlineTimer = setTimeout(
         () => deadline.abort(new CpeSessionDeadlineError(this.sessionMaxHoldMs)),
         this.sessionMaxHoldMs
       );
-      deadlineTimer.unref?.();
       const forwardCancel = (): void => deadline.abort(cancel.reason);
       cancel.addEventListener("abort", forwardCancel, { once: true });
       const session = new EphemeralCpeSession({
