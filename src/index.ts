@@ -17,6 +17,8 @@ export * from "./cpe-controls.ts";
 export * from "./core.ts";
 export * from "./control-input.ts";
 export * from "./mcp-schema.ts";
+export * from "./mcp-tool-provider.ts";
+export * from "./mcp-core-tools.ts";
 export * from "./mcp-server.ts";
 export * from "./mcp-stdio-bridge.ts";
 export * from "./sse-bus.ts";

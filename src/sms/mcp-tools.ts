@@ -4,7 +4,7 @@ import {
   McpToolError,
   type McpToolDefinition,
   type McpToolProvider,
-} from "../mcp-server.ts";
+} from "../mcp-tool-provider.ts";
 import { CpeApiError } from "../cpe-client.ts";
 import { BrowserSessionYieldedError, PeerDaemonStandbyError, SchedulerQueueFullError, SchedulerStoppedError } from "../scheduler.ts";
 import { resolveRecipientPhone } from "./phone.ts";
