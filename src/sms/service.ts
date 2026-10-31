@@ -21,6 +21,7 @@ import {
   markSmsRead,
   prepareSmsSubmission,
   submitSms,
+  unconfirmedSendResult,
 } from "./protocol.ts";
 import type {
   ContactRecord,
@@ -333,33 +334,46 @@ export class SmsService extends EventEmitter {
     const prepared = prepareSmsSubmission(resolved, input.content);
     const to = prepared.phones.map(maskPhoneNumber).join(", ");
 
-    const { result, readBack } = await this.scheduler.executeControl(
-      "sms_send",
-      async (session) => {
-        const sendResult = await submitSms(session, prepared, {
-          statusTimeoutMs: this.sendStatusTimeoutMs,
-          sleep: this.#sleep,
-        });
-        const back = new Map<string, SmsWireMessage[]>();
-        if (sendResult.ok) {
-          for (const phone of prepared.phones) {
-            back.set(phone, await fetchPhoneThread(session, phone, 10).catch(() => []));
+    let accepted = false;
+    let sendOutcome: { result: SmsSendResult; readBack: ReadonlyMap<string, SmsWireMessage[]> };
+    try {
+      sendOutcome = await this.scheduler.executeControl(
+        "sms_send",
+        async (session) => {
+          const sendResult = await submitSms(session, prepared, {
+            statusTimeoutMs: this.sendStatusTimeoutMs,
+            sleep: this.#sleep,
+            onAccepted: () => {
+              accepted = true;
+            },
+          });
+          const back = new Map<string, SmsWireMessage[]>();
+          if (sendResult.ok) {
+            for (const phone of prepared.phones) {
+              back.set(phone, await fetchPhoneThread(session, phone, 10).catch(() => []));
+            }
           }
-        }
-        return { result: sendResult, readBack: back };
-      },
-      (value): ControlSummary =>
-        value.result.ok
-          ? {
-              zh: t("zh-CN", "sms.sent_summary", { to, segments: prepared.mode.segments }),
-              en: t("en", "sms.sent_summary", { to, segments: prepared.mode.segments }),
-            }
-          : {
-              zh: t("zh-CN", "sms.send_failed_summary", { to, code: value.result.failCode ?? "unknown" }),
-              en: t("en", "sms.send_failed_summary", { to, code: value.result.failCode ?? "unknown" }),
-            }
-    );
+          return { result: sendResult, readBack: back };
+        },
+        (value): ControlSummary =>
+          value.result.ok
+            ? {
+                zh: t("zh-CN", "sms.sent_summary", { to, segments: prepared.mode.segments }),
+                en: t("en", "sms.sent_summary", { to, segments: prepared.mode.segments }),
+              }
+            : {
+                zh: t("zh-CN", "sms.send_failed_summary", { to, code: value.result.failCode ?? "unknown" }),
+                en: t("en", "sms.send_failed_summary", { to, code: value.result.failCode ?? "unknown" }),
+              }
+      );
+    } catch (err) {
+      // Once send-sms was accepted the message is on its way: a later failure (hold deadline,
+      // shutdown, lost connection) must not read as a failed send, or the caller would resend it.
+      if (!accepted) throw err;
+      sendOutcome = { result: unconfirmedSendResult(prepared), readBack: new Map() };
+    }
 
+    const { result, readBack } = sendOutcome;
     const messages = result.ok ? this.#recordSent(prepared, readBack) : [];
     this.#safeEmit("sms:sent", { source: input.source, result, messages } satisfies SmsSentEvent);
     this.#emitStatus();

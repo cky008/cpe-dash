@@ -222,6 +222,37 @@ describe("SMS protocol: send, status polling, read and delete", () => {
     assert.deepEqual(sleeps, [1000, 1000, 1000]);
   });
 
+  it("bounds send-status polling by elapsed time as well as by poll count, and reports acceptance first", async () => {
+    // A slow router: each poll costs 20 s of wall time, so 45 s allows three polls, not ceil(45 / 2) = 23
+    const stuck = createMockSmsCpe({ sendOutcome: "stuck" });
+    let clockMs = 1_000_000;
+    const order: string[] = [];
+    const result = await inSession(stuck, (s) =>
+      submitSms(s, prepareSmsSubmission(["+353830000001"], "slow router"), {
+        statusTimeoutMs: 45_000,
+        statusIntervalMs: 2000,
+        now: () => clockMs,
+        sleep: async () => {
+          clockMs += 20_000;
+        },
+        onAccepted: () => order.push(`accepted after ${stuck.sentRequests.length} send-sms`),
+      })
+    );
+    assert.deepEqual(order, ["accepted after 1 send-sms"]);
+    assert.equal(result.ok, true);
+    assert.equal(result.timedOutWaitingStatus, true);
+    assert.equal(stuck.requests.filter((r) => r.path === "/api/sms/send-status").length, 3);
+
+    // A refused submission is never reported as accepted
+    const refused = createMockSmsCpe({ intercept: (p) => (p === "/api/sms/send-sms" ? "<error><code>113004</code></error>" : undefined) });
+    let accepted = false;
+    await assert.rejects(
+      () => inSession(refused, (s) => submitSms(s, prepareSmsSubmission(["+353830000001"], "x"), { sleep: noSleep, onAccepted: () => (accepted = true) })),
+      /113004/
+    );
+    assert.equal(accepted, false);
+  });
+
   it("marks read and deletes by index in batches of 20, ignoring invalid and duplicate indices", async () => {
     const indices = Array.from({ length: 45 }, (_, i) => 50000 + i);
     const messages: MockSms[] = indices.map((index) => ({

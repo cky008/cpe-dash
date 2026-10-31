@@ -223,6 +223,24 @@ export interface SubmitSmsOptions {
   statusTimeoutMs?: number;
   statusIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** Monotonic clock in ms for the polling bound (default `performance.now`). */
+  now?: () => number;
+  /** Called once the router accepted `send-sms`: from then on the message is on its way. */
+  onAccepted?: () => void;
+}
+
+/** The outcome of an accepted submission whose delivery the router has not confirmed (yet). */
+export function unconfirmedSendResult(prepared: PreparedSmsSubmission): SmsSendResult {
+  return {
+    submitted: true,
+    encoding: prepared.mode.encoding,
+    segments: prepared.mode.segments,
+    ok: true,
+    timedOutWaitingStatus: true,
+    sentPhones: [...prepared.phones],
+    failedPhones: [],
+    failCode: null,
+  };
 }
 
 function splitPhoneList(raw: string | null): string[] {
@@ -234,7 +252,8 @@ function splitPhoneList(raw: string | null): string[] {
 
 /**
  * Submit `POST /api/sms/send-sms` (`enc-type=2`) and poll `send-status` (`enc-type=1`) until the
- * router reports the recipients as delivered/failed or the bounded timeout elapses.
+ * router reports the recipients as delivered/failed or the status timeout elapses. The timeout is
+ * wall time: slow polls end the loop early instead of stretching it to `polls × request timeout`.
  *
  * Once `send-sms` was accepted the message is on its way, so a status-polling failure (timeout,
  * reset, expired session) yields `timedOutWaitingStatus: true` instead of an error: reporting it as
@@ -259,21 +278,18 @@ export async function submitSms(
     },
     2
   );
+  opts.onAccepted?.();
 
+  const timeoutMs = opts.statusTimeoutMs ?? 45_000;
   const intervalMs = Math.max(1, opts.statusIntervalMs ?? 2000);
-  const maxPolls = Math.max(1, Math.ceil((opts.statusTimeoutMs ?? 45_000) / intervalMs));
+  const maxPolls = Math.max(1, Math.ceil(timeoutMs / intervalMs));
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = opts.now ?? (() => performance.now());
   const base = { submitted: true, encoding: prepared.mode.encoding, segments: prepared.mode.segments };
-  const unconfirmed: SmsSendResult = {
-    ...base,
-    ok: true,
-    timedOutWaitingStatus: true,
-    sentPhones: [...prepared.phones],
-    failedPhones: [],
-    failCode: null,
-  };
+  const unconfirmed = unconfirmedSendResult(prepared);
 
-  for (let attempt = 0; attempt < maxPolls; attempt++) {
+  const startedAt = now();
+  for (let attempt = 0; attempt < maxPolls && now() - startedAt < timeoutMs; attempt++) {
     let status: string;
     try {
       await sleep(intervalMs);

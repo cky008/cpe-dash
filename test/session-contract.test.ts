@@ -247,6 +247,36 @@ describe("session contract on a strict single-admin router model", () => {
     }
   });
 
+  it("reports an SMS the router accepted as submitted, never as failed, when the hold deadline cuts its status poll", async () => {
+    // send-status never answers, so the session runs into its hold budget after send-sms was accepted
+    const fx = createContractFixture({
+      sessionMaxHoldMs: 300,
+      requestTimeoutMs: 10_000,
+      fault: (p) => (p === "/api/sms/send-status" ? "timeout" : undefined),
+    });
+    try {
+      const sent: unknown[] = [];
+      fx.sms.on("sms:sent", (ev: unknown) => sent.push(ev));
+      const outcome = await fx.sms.send({ phones: ["+353830000002"], content: "Deadline check (1/2)", source: "web" });
+      assert.equal(outcome.result.ok, true, "an accepted send must never read as failed: callers would resend it");
+      assert.equal(outcome.result.submitted, true);
+      assert.equal(outcome.result.timedOutWaitingStatus, true);
+      assert.deepEqual(outcome.result.sentPhones, ["+353830000002"]);
+      assert.equal(outcome.messages.length, 1);
+      assert.equal(outcome.messages[0]?.pending, true, "kept as a provisional record until the next sync reads it back");
+      assert.equal(sent.length, 1);
+
+      const viaMcp = await fx.tool("send_sms", { phone: "+353830000003", content: "Deadline check (2/2)", confirm: true });
+      assert.equal(viaMcp.isError, false, JSON.stringify(viaMcp.structuredContent));
+      assert.equal((viaMcp.structuredContent["result"] as { timedOutWaitingStatus?: boolean }).timedOutWaitingStatus, true);
+
+      assert.equal(fx.cpe.outbox.length, 2, "each message reached the router exactly once");
+      assertSingleSlotInvariants(fx.cpe);
+    } finally {
+      await fx.close();
+    }
+  });
+
   it("keeps a timed-out session's orphaned work off the router", async () => {
     const fx = createContractFixture({ sessionMaxHoldMs: 60 });
     try {
