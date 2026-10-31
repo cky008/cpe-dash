@@ -99,6 +99,8 @@
     "reboot_detected": "检测到 CPE 已重启（当前运行 {uptime} 秒）",
     "sms_storage_high": "短信存储即将占满：{used}/{max}",
     "sms_storage_full": "短信存储已满（{used}/{max}），将无法接收新短信",
-    "data_threshold": "本月已用流量 {used}，达到 {limit} 套餐的 {percent}%"
+    "data_threshold": "本月已用流量 {used}，达到 {limit} 套餐的 {percent}%",
+    "lock_drift": "锁定配置与路由器实际状态不一致：{issue}",
+    "lock_realigned": "路由器已重新符合当前锁定配置"
   }
 }

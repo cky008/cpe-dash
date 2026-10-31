@@ -329,7 +329,7 @@ sequenceDiagram
 
 #### `POST /api/net/lock-freq`（5G NR 锁频段 & 4G/5G 锁频点/锁小区统一控制）
 - **重要边界**：H168-383 零售固件 `4.4.0.1` 上 `GET /api/net/lock-freq` 返回 `[CPE 100003]`（仅开放 `POST` 下发），因此 Phase 2 后端须在本地加密状态文件 [`data/state.json`](../src/encrypted-file.ts) 中持久化当前用户下发的锁小区/NR 锁频配置，并与 `/api/device/signal` 实测驻留频点/PCI 对账校验！
-  - **Phase 2 实现状态**：本地持久化已实现（`lockState`）；与 `/api/device/signal` 的对账校验**尚未实现**，`lockState` 仅代表「烽燧」最近一次成功下发的锁定配置（见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) §2.2）。
+  - **实现状态**：本地持久化已实现（`lockState`）；Phase 2.5 起由 [`verifyLockState()`](../src/cpe-domain.ts) 对账：LTE 频段掩码以 `GET /api/net/net-mode` 的 `<LTEBand>` 读回（真机解锁时为 `40000007a0880800d5`，即 14 个全频段）；NR 锁频段与锁小区对照 `/api/device/signal` 的主小区（`<bandInfo>`、`<earfcn>` 的 `DL:`、`<pci>`）、`<band>` 载波聚合横幅与 `/api/device/seccellinfo` 辅小区判断。结果以 `lockVerification` 暴露，持续不一致时触发 `LOCK_DRIFT` 告警（见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) §2.2）。
 - **载荷模板详见第 4.2 节**。
 
 ---

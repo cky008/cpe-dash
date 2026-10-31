@@ -1,4 +1,5 @@
-import type { GlobalTelemetrySnapshot } from "./cpe-domain.ts";
+import type { CpeControlService } from "./cpe-controls.ts";
+import { type GlobalTelemetrySnapshot, verifyLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
@@ -9,6 +10,10 @@ export interface AlertEngineOptions {
   scheduler: MutexSessionScheduler;
   /** Source of `telemetry` events. */
   monitor: CpeMonitor;
+  /** Persisted lock state for the `LOCK_DRIFT` rule (rule disabled when absent). */
+  controls?: Pick<CpeControlService, "getPersistedLockState">;
+  /** Lock drift must persist this long before `LOCK_DRIFT` (default 2 min). */
+  lockDriftAfterMs?: number;
   /** CPE transport failures must persist this long before `CPE_UNREACHABLE` (default 60 s). */
   unreachableAfterMs?: number;
   /** `ConnectionStatus != 901` must persist this long before `WAN_DOWN` (default 60 s). */
@@ -82,6 +87,8 @@ type Params = Readonly<Record<string, string | number>>;
 export class AlertEngine {
   readonly scheduler: MutexSessionScheduler;
   readonly monitor: CpeMonitor;
+  readonly controls: Pick<CpeControlService, "getPersistedLockState"> | null;
+  readonly lockDriftAfterMs: number;
   readonly unreachableAfterMs: number;
   readonly wanDownAfterMs: number;
   readonly signalDegradedAfterMs: number;
@@ -95,6 +102,7 @@ export class AlertEngine {
 
   #unreachable = new SustainedCondition();
   #wan = new SustainedCondition();
+  #lockDrift = new SustainedCondition();
   #signalDegraded = false;
   #signalSinceMs: number | null = null;
   #caStable: number | null = null;
@@ -113,6 +121,8 @@ export class AlertEngine {
   constructor(opts: AlertEngineOptions) {
     this.scheduler = opts.scheduler;
     this.monitor = opts.monitor;
+    this.controls = opts.controls ?? null;
+    this.lockDriftAfterMs = opts.lockDriftAfterMs ?? 2 * 60_000;
     this.unreachableAfterMs = opts.unreachableAfterMs ?? 60_000;
     this.wanDownAfterMs = opts.wanDownAfterMs ?? 60_000;
     this.signalDegradedAfterMs = opts.signalDegradedAfterMs ?? 5 * 60_000;
@@ -171,6 +181,20 @@ export class AlertEngine {
     this.#evaluateReboot(snap);
     this.#evaluateSmsStorage(snap);
     this.#evaluateDataUsage(snap);
+    this.#evaluateLockDrift(snap, nowMs);
+  }
+
+  /** `LOCK_DRIFT` when the router stops matching the applied lock; settling/unknown keep the state. */
+  #evaluateLockDrift(snap: GlobalTelemetrySnapshot, nowMs: number): void {
+    if (!this.controls) return;
+    const verification = verifyLockState(this.controls.getPersistedLockState(), snap);
+    const active = verification.status === "drift" ? true : verification.status === "consistent" ? false : null;
+    const action = this.#lockDrift.update(active, nowMs, this.lockDriftAfterMs);
+    if (action === "fire") {
+      this.#raise("warning", "LOCK_DRIFT", "alerts.lock_drift", { issue: (verification.issues[0] ?? "").slice(0, 200) });
+    } else if (action === "clear") {
+      this.#raise("info", "LOCK_REALIGNED", "alerts.lock_realigned");
+    }
   }
 
   #evaluateWan(snap: GlobalTelemetrySnapshot, nowMs: number): void {

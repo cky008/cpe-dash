@@ -240,6 +240,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       ? new AlertEngine({
           scheduler,
           monitor,
+          controls,
           rsrpThresholdDbm: config.alertRsrpThresholdDbm,
           sinrThresholdDb: config.alertSinrThresholdDb,
         })

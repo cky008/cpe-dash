@@ -515,6 +515,7 @@ export class FengSuiHttpServer {
           avoidance: this.core.scheduler.getAvoidanceState(),
           telemetry: this.core.monitor.getCachedTelemetry(),
           lockState: this.core.controls.getPersistedLockState(),
+          lockVerification: this.core.controls.getLockVerification(),
           sms: this.sms?.getStatus() ?? null,
         },
       });
@@ -560,6 +561,7 @@ export class FengSuiHttpServer {
               ok: true,
               schedulerStatus: this.core.scheduler.getStatus(),
               lockState: this.core.controls.getPersistedLockState(),
+              lockVerification: this.core.controls.getLockVerification(),
               telemetry: this.core.monitor.getCachedTelemetry(),
               recentAlerts: this.core.scheduler.getRecentAlerts(),
             });
@@ -599,6 +601,7 @@ export class FengSuiHttpServer {
               ok: true,
               schedulerStatus: this.core.scheduler.getStatus(),
               lockState: this.core.controls.getPersistedLockState(),
+              lockVerification: this.core.controls.getLockVerification(),
               settings: this.core.monitor.getCachedSettings(),
             });
             return;

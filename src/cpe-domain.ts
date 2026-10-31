@@ -1,6 +1,7 @@
 import net from "node:net";
 import {
   type BandInput,
+  H168_383_LTE_BANDS,
   type HuaweiNetworkModeCode,
   NETWORK_MODE_AUTO,
   bandsToHexMask,
@@ -633,6 +634,125 @@ export function isObservedCellTarget(
       cell.arfcn === command.arfcn &&
       (command.pci === undefined || cell.pci === command.pci)
   );
+}
+
+/** A lock applied less than this long before a snapshot may still be settling (modem re-attach). */
+export const LOCK_SETTLE_MS = 90_000;
+
+export interface LockVerification {
+  /**
+   * `consistent`: the router matches the lock FengSui applied; `drift`: it does not (changed in the
+   * WebUI, dropped by the modem, or never taken); `settling`: mismatch within `LOCK_SETTLE_MS` of
+   * applying it; `unknown`: no telemetry, or no observation decides a locked component.
+   */
+  status: "consistent" | "drift" | "settling" | "unknown";
+  /** `capturedAtIso` of the telemetry snapshot that was checked. */
+  checkedAtIso: string | null;
+  /** LTE bands the router reports enabled (`GET /api/net/net-mode`), its only lock read-back. */
+  routerLteBands: number[] | null;
+  /** English, one entry per mismatch. */
+  issues: string[];
+}
+
+function bandList(prefix: "B" | "N", bands: ReadonlyArray<number>): string {
+  return bands.map((b) => `${prefix}${b}`).join(", ");
+}
+
+function describeCell(prefix: "B" | "N", band: number | null, arfcn: number | null, pci: number | null): string {
+  return `${prefix}${band ?? "?"}/${arfcn ?? "?"}${pci !== null ? `/PCI ${pci}` : ""}`;
+}
+
+/**
+ * Reconcile FengSui's persisted lock state with a telemetry snapshot. `GET /api/net/lock-freq` is
+ * not readable on the H168-383 (`100003`), so only the LTE band mask (`/api/net/net-mode`) is a true
+ * read-back; NR band locks and cell locks are checked against the carriers the modem serves on.
+ */
+export function verifyLockState(
+  lockState: PersistedLockState,
+  telemetry: GlobalTelemetrySnapshot | null
+): LockVerification {
+  if (!telemetry) {
+    return { status: "unknown", checkedAtIso: null, routerLteBands: null, issues: [] };
+  }
+  const rf = telemetry.rf;
+  const routerLteBands = telemetry.bandConfig.lteBandHex ? [...telemetry.bandConfig.activeLteBands] : null;
+  const issues: string[] = [];
+  let undecided = false;
+
+  const dlEarfcn = /DL:(\d+)/.exec(rf.earfcnRaw)?.[1];
+  const pcc = {
+    band: bandOrNull(rf.pccBand),
+    arfcn: dlEarfcn ? Number(dlEarfcn) : (rf.caCarriers.find((c) => c.rat === "LTE")?.arfcn ?? null),
+    pci: rf.pci,
+  };
+  const lteCarrierBands = [
+    ...new Set(
+      [pcc.band, ...rf.caCarriers.filter((c) => c.rat === "LTE").map((c) => bandOrNull(c.band)), ...rf.lteScc.map((c) => bandOrNull(c.band))].filter(
+        (b): b is number => b !== null
+      )
+    ),
+  ].sort((a, b) => a - b);
+  const nrCarriers = [
+    ...rf.caCarriers.filter((c) => c.rat === "NR").map((c) => ({ band: bandOrNull(c.band), arfcn: c.arfcn, pci: null as number | null })),
+    ...rf.nrScc.map((c) => ({ band: bandOrNull(c.band), arfcn: c.arfcn, pci: c.pci })),
+  ];
+
+  // Cell locks go through lock-freq and leave the net-mode LTE mask untouched
+  if (lockState.mode !== "cell_lock") {
+    if (!routerLteBands) {
+      undecided = true;
+    } else if (lockState.lteBands === "all") {
+      const allSupported = H168_383_LTE_BANDS.every((b) => routerLteBands.includes(b));
+      const autoMask = Array.from({ length: 63 }, (_, i) => i + 1).every((b) => routerLteBands.includes(b));
+      if (!allSupported && !autoMask) {
+        issues.push(`LTE is not unlocked: the router enables only ${bandList("B", routerLteBands)}`);
+      }
+    } else {
+      const expected = [...lockState.lteBands].sort((a, b) => a - b);
+      if (expected.join() !== routerLteBands.join()) {
+        issues.push(`LTE bands on the router (${bandList("B", routerLteBands)}) differ from the applied lock (${bandList("B", expected)})`);
+      }
+    }
+  }
+
+  if (lockState.mode === "band_lock" && lockState.lteBands !== "all") {
+    const allowed = lockState.lteBands;
+    for (const band of lteCarrierBands.filter((b) => !allowed.includes(b))) {
+      issues.push(`serving LTE carrier B${band} is outside the locked LTE bands (${bandList("B", allowed)})`);
+    }
+  }
+
+  if (lockState.mode === "band_lock" && lockState.nrBands.length > 0) {
+    const servedNr = [...new Set(nrCarriers.map((c) => c.band).filter((b): b is number => b !== null))];
+    if (servedNr.length === 0) undecided = true;
+    for (const band of servedNr.filter((b) => !lockState.nrBands.includes(b))) {
+      issues.push(`NR carrier N${band} is outside the locked NR bands (${bandList("N", lockState.nrBands)})`);
+    }
+  }
+
+  const target = lockState.mode === "cell_lock" ? lockState.cellLock : null;
+  if (target?.rat === "LTE") {
+    if (pcc.band === null || pcc.arfcn === null) {
+      undecided = true;
+    } else if (pcc.band !== target.band || pcc.arfcn !== target.arfcn || (target.pci !== null && pcc.pci !== target.pci)) {
+      issues.push(
+        `serving LTE cell ${describeCell("B", pcc.band, pcc.arfcn, target.pci !== null ? pcc.pci : null)} is not the locked cell ${describeCell("B", target.band, target.arfcn, target.pci)}`
+      );
+    }
+  } else if (target?.rat === "NR") {
+    if (nrCarriers.length === 0) {
+      undecided = true;
+    } else if (!nrCarriers.some((c) => c.band === target.band && c.arfcn === target.arfcn && (target.pci === null || c.pci === target.pci))) {
+      issues.push(`no serving NR carrier matches the locked cell ${describeCell("N", target.band, target.arfcn, target.pci)}`);
+    }
+  }
+
+  // A snapshot taken before, or shortly after, the lock was applied cannot contradict it yet
+  const sinceLockMs = telemetry.capturedAtMs - Date.parse(lockState.updatedAtIso);
+  const settling = Number.isFinite(sinceLockMs) && sinceLockMs < LOCK_SETTLE_MS;
+  const status: LockVerification["status"] =
+    issues.length > 0 ? (settling ? "settling" : "drift") : undecided ? "unknown" : "consistent";
+  return { status, checkedAtIso: telemetry.capturedAtIso, routerLteBands, issues };
 }
 
 /**

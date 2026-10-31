@@ -358,7 +358,7 @@ storage    state-store · encrypted-file · timeseries · sms/mirror · sms/cont
 
 ### 6.4 未在本阶段解决的事项
 
-1. `lockState` 与 `/api/device/signal` 的驻留对账仍未实现（契约第 6 节第 1 条）。
+1. ~~`lockState` 与驻留小区的对账~~：已由 `verifyLockState()` 实现（`lockVerification` + `LOCK_DRIFT` / `LOCK_REALIGNED` 告警）。LTE 频段掩码是真读回，NR 与锁小区为对照服务载波的推断。
 2. NR 频段校验基于 3GPP 表而非硬件能力表；拿到真机 NR 能力证据后应收窄。
 3. 数据目录锁只防同一主机、同一目录上的第二个守护进程；跨主机（Mac 与 NAS）并行运行仍会争抢 CPE，部署文档需明确「一台 CPE 只跑一个守护进程」。
 4. MCP `2026-07-28`（无会话、`server/discover`）未实现，此类客户端走 `initialize` 回退流程。

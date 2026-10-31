@@ -160,7 +160,7 @@ sequenceDiagram
 - **✉️ SMS Scheduled Through the Same Session Broker (Change Detection at Zero Extra Sessions)**
   - SMS counters ride along in the 5s telemetry session, and only a counter change triggers an incremental or full sync. Send, mark-read and delete go through the scheduler's control queue and yield to a human admin like every other write. The SMS mirror, contact book and Telegram state are AES-256-GCM encrypted at rest; the daemon owns its data directory (`state.json.lock`) and refuses to start without a key, so nothing is ever written in plaintext.
 - **📲 Two-Way Telegram Bot, Signed Webhooks & Automatic Alerts**
-  - Incoming SMS cards (one-tap OTP, reply-to-send, read / thread / delete-with-confirmation buttons), a guided send wizard, conversation and contact lookups, alert delivery and muting; webhooks are signed with `HMAC-SHA256`. The alert engine covers CPE offline, WAN down, signal degradation, carrier-aggregation loss, reboots, SMS storage and data thresholds, with sustain windows and recovery hysteresis.
+  - Incoming SMS cards (one-tap OTP, reply-to-send, read / thread / delete-with-confirmation buttons), a guided send wizard, conversation and contact lookups, alert delivery and muting; webhooks are signed with `HMAC-SHA256`. The alert engine covers CPE offline, WAN down, signal degradation, carrier-aggregation loss, reboots, SMS storage, data thresholds and lock drift (the router no longer matching the applied band/cell lock), with sustain windows and recovery hysteresis.
 - **🤖 Native MCP Server (Streamable HTTP `/mcp` + zero-state `stdio` bridge)**
   - Zero-dependency JSON-RPC 2.0 MCP server ([`FengSuiMcpServer`](src/mcp-server.ts), revisions `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`) mounted on the daemon's `/mcp`; `cpe-dash mcp` is only a stateless bridge from stdio to that endpoint, so **the daemon is the one and only CPE session path**. It exposes **13 core tools** and **up to 10 SMS tools** (tiered by `MCP_SMS_ACCESS`) to Claude Desktop, Antigravity, Cursor, and LAN agents.
   - Tool `inputSchema`s are enforced server-side (unknown keys, missing keys, types, ranges); `reboot_cpe`, `reconnect_cellular`, `send_sms` and `delete_sms` require `{ confirm: true }`. Band locks only accept the H168-383's LTE bands and 3GPP NR bands, a cell-lock ARFCN must lie in its band, and `lock_cell` only targets cells the modem reported (serving cell, CA carriers or the latest neighbour scan), so a hallucinated argument cannot cut the link. SMS bodies are treated as untrusted data, and sends default to known recipients with an hourly budget to resist prompt injection.
@@ -218,7 +218,7 @@ cpe-dash/
 │   ├── core.ts                      # FengSuiCore: scheduler + monitor + controls wiring
 │   ├── control-input.ts             # Input guards shared by REST and MCP
 │   ├── mcp-schema.ts                # Run-time validator for MCP tool inputSchemas
-│   ├── alert-engine.ts              # Sustain-window + hysteresis alerts (offline / WAN / signal / CA / reboot / SMS storage / data)
+│   ├── alert-engine.ts              # Sustain-window + hysteresis alerts (offline / WAN / signal / CA / reboot / SMS storage / data / lock drift)
 │   ├── sms/                         # SMS protocol, number parsing, encrypted mirror, contacts, SmsService, REST routes & MCP tools
 │   ├── notify/                      # Telegram Bot API client & two-way bot, signed webhooks, notification hub
 │   ├── sse-bus.ts                   # /api/events sub-ms SSE fan-out bus, backpressure eviction & heartbeat

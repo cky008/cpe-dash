@@ -643,6 +643,7 @@ export class FengSuiMcpServer {
             ok: true,
             sessionStatus: this.core.scheduler.getStatus(),
             lockState: this.core.controls.getPersistedLockState(),
+            lockVerification: this.core.controls.getLockVerification(),
             telemetry,
           });
         }
@@ -712,6 +713,7 @@ export class FengSuiMcpServer {
             ok: true,
             sessionStatus: this.core.scheduler.getStatus(),
             lockState: this.core.controls.getPersistedLockState(),
+            lockVerification: this.core.controls.getLockVerification(),
             settings,
           });
         }

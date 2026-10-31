@@ -85,7 +85,9 @@ export type I18nKey =
   | "alerts.reboot_detected"
   | "alerts.sms_storage_high"
   | "alerts.sms_storage_full"
-  | "alerts.data_threshold";
+  | "alerts.data_threshold"
+  | "alerts.lock_drift"
+  | "alerts.lock_realigned";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 

@@ -165,6 +165,7 @@ export class SseEventBus {
       avoidance: unknown;
       telemetry: unknown;
       lockState: unknown;
+      lockVerification?: unknown;
       sms?: unknown;
     };
   }): { accepted: boolean; reason?: string; clientId?: string } {

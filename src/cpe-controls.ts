@@ -3,6 +3,7 @@ import {
   type BandLockCommand,
   type CellLockCommand,
   CpeControlValidationError,
+  type LockVerification,
   type PersistedLockState,
   type RouterSettingsSnapshot,
   type SecurityUpdateCommand,
@@ -18,6 +19,7 @@ import {
   updateSecuritySettings,
   updateWifi7Mlo,
   validateSecurityUpdateCommand,
+  verifyLockState,
 } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { t } from "./i18n.ts";
@@ -53,6 +55,11 @@ export class CpeControlService {
    */
   getPersistedLockState(): PersistedLockState {
     return this.stateStore.getState().lockState;
+  }
+
+  /** Reconcile the persisted lock state with the latest cached telemetry (see `verifyLockState`). */
+  getLockVerification(): LockVerification {
+    return verifyLockState(this.getPersistedLockState(), this.monitor.getCachedTelemetry());
   }
 
   async lockBands(command: BandLockCommand): Promise<PersistedLockState> {

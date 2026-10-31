@@ -209,9 +209,8 @@ export interface SchedulerStatusSnapshot {
 }
 
 /**
- * 「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。
- * 注意：H168-383 不支持 GET /api/net/lock-freq，且当前尚未实现与 /api/device/signal 的对账校验，
- * 因此若有人在官方后台改过锁定，本字段不会自动更新。
+ * 「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。H168-383 不支持 GET /api/net/lock-freq，
+ * 因此本字段不会因官方后台的修改而自动更新；它与路由器实际状态的对账结果见 LockVerification。
  */
 export interface PersistedLockState {
   mode: "unlocked" | "band_lock" | "cell_lock";
@@ -384,13 +383,29 @@ export type AlertCode =
   | "REBOOT_DETECTED"    // warning：设备运行时长回退
   | "SMS_STORAGE_HIGH"   // warning：短信存储 ≥ 90%（低于 85% 重新布防）
   | "SMS_STORAGE_FULL"   // critical：CPE 报告短信存储已满
-  | "DATA_THRESHOLD";    // warning：当月流量越过路由器设置的告警阈值（回落到一半以下重新布防）
+  | "DATA_THRESHOLD"     // warning：当月流量越过路由器设置的告警阈值（回落到一半以下重新布防）
+  | "LOCK_DRIFT"         // warning：LockVerification 为 drift 持续 2min（settling / unknown 不计）
+  | "LOCK_REALIGNED";    // info：路由器重新与已下发的锁定一致
 
 /** GET /api/telemetry */
+/**
+ * lockState 与最新遥测的对账（Phase 2.5）。LTE 频段掩码来自 GET /api/net/net-mode，是唯一能读回的锁定设置；
+ * NR 锁频段与锁小区只能对照实际服务的载波（主小区、载波聚合分量、辅小区）判断。
+ */
+export interface LockVerification {
+  // consistent：路由器与已下发的锁定一致；drift：不一致（官方后台改过、调制解调器放弃了锁定或锁定未生效）；
+  // settling：不一致但距下发不足 90s（可能仍在重新附着）；unknown：尚无遥测，或没有观测能判定某个已锁定的部分（如 NR 空闲）
+  status: "consistent" | "drift" | "settling" | "unknown";
+  checkedAtIso: string | null;       // 所核对遥测快照的 capturedAtIso
+  routerLteBands: number[] | null;   // 路由器实际启用的 LTE 频段（解锁时为 14 个全频段）
+  issues: string[];                  // 英文，每个不一致一条
+}
+
 export interface TelemetryEndpointResponse {
   ok: true;
   schedulerStatus: SchedulerStatusSnapshot;
   lockState: PersistedLockState;
+  lockVerification: LockVerification;
   telemetry: GlobalTelemetrySnapshot | null;
   recentAlerts: AlertEventRecord[];  // 最多保留最近 100 条，按时间升序
 }
@@ -576,6 +591,7 @@ export interface SettingsEndpointResponse {
   ok: true;
   schedulerStatus: SchedulerStatusSnapshot;
   lockState: PersistedLockState;
+  lockVerification: LockVerification;
   settings: RouterSettingsSnapshot | null;
 }
 
@@ -827,7 +843,7 @@ export interface ChannelDeliveryStats {
 
 | `event:` 名称 | 触发时机 | `data:` JSON 载荷结构 |
 | :--- | :--- | :--- |
-| `hello` | SSE 握手成功瞬间立即下发 | `{ clientId: string, connectedAtIso: string, heartbeatMs: number, schedulerStatus: SchedulerStatusSnapshot, avoidance: AvoidanceBroadcastPayload, telemetry: GlobalTelemetrySnapshot \| null, lockState: PersistedLockState, sms: SmsStatusSnapshot \| null }`（短信不可用时 `sms` 为 `null`） |
+| `hello` | SSE 握手成功瞬间立即下发 | `{ clientId: string, connectedAtIso: string, heartbeatMs: number, schedulerStatus: SchedulerStatusSnapshot, avoidance: AvoidanceBroadcastPayload, telemetry: GlobalTelemetrySnapshot \| null, lockState: PersistedLockState, lockVerification: LockVerification, sms: SmsStatusSnapshot \| null }`（短信不可用时 `sms` 为 `null`） |
 | `speed` | 每次遥测采集成功（默认每 `5s`，以及手动 / MCP 刷新） | `SpeedTickPayload` |
 | `telemetry` | 同 `speed`（紧随其后推送） | `GlobalTelemetrySnapshot` |
 | `neighbors` | 每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）后台扫描或手动 `scan` 完成 | `NeighborScanSnapshot` |
@@ -1000,7 +1016,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 
 ## 6. 已知限制（Phase 3 设计时请纳入考虑）
 
-1. **锁定状态不对账**：`lockState` 只记录「烽燧」最近一次成功下发的配置，尚未实现 Phase 1 规范要求的 `/api/device/signal` 驻留频点 / PCI 对账校验。
+1. **锁定对账是推断而非读回**（Phase 2.5 起提供 `lockVerification`）：只有 LTE 频段掩码能从路由器读回；NR 锁频段与锁小区只能对照实际服务的载波判断，NR 空闲时为 `unknown`。`lockState` 本身仍只记录「烽燧」最近一次成功下发的配置，不会被官方后台的修改改写。
 2. **`108007` 重置无需修改 `.env`**：这是有意的设计（锁定可能由他人输错密码引起），比 `AGENTS.md` 铁律五「人工修正 `.env` 并显式重置」的字面表述宽松；`108006` 等密码错误熔断仍严格要求先修改密码。
 3. **跨会话写入非原子**：MCP `set_wifi_and_antenna` 的两项写入、REST `security` 的写入与回读分属不同的瞬时会话，详见 2.4 与 4.2 节。
 4. **AES-256-GCM 加密通道仅用于短信**：`send-sms`、`send-status`、`sms-count-contact` 以及 `sms-list` 不可用时的联系人/号码列表回退走加密通道（格式与旧 `cpe-sms` 在 H168-383 上长期运行的实现一致，见 [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 3.8 节）。「烽燧」侧目前由加密 Mock 路由器覆盖，请在真机上运行只读的 `npm run probe:sms` 确认实际列表通道。

@@ -161,7 +161,7 @@ sequenceDiagram
 - **✉️ 短信与遥测同源调度（零额外会话的变化检测）**
   - 短信计数捎带在 5s 遥测会话内读取，只有计数变化才触发增量或全量同步；发送、已读、删除走同一调度器的控制写队列，真人在线时同样礼貌让位。短信镜像、通讯录与 Telegram 状态全部 AES-256-GCM 加密落盘；守护进程独占数据目录（`state.json.lock`），未配置密钥时拒绝启动，绝不明文落盘。
 - **📲 Telegram 双向机器人、签名 Webhook 与自动告警**
-  - 来信卡片（验证码、回复即发送、已读 / 会话 / 删除确认按钮）、引导式发短信、会话与通讯录查询、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警引擎覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储与流量阈值，带持续窗口与恢复迟滞。
+  - 来信卡片（验证码、回复即发送、已读 / 会话 / 删除确认按钮）、引导式发短信、会话与通讯录查询、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警引擎覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储、流量阈值与锁定漂移（路由器不再符合已下发的锁频 / 锁小区），带持续窗口与恢复迟滞。
 - **🤖 原生 MCP Server（Streamable HTTP `/mcp` + 零状态 `stdio` 桥接）**
   - 零外部依赖完整实现 JSON-RPC 2.0 MCP 服务端（[`FengSuiMcpServer`](src/mcp-server.ts)，协议 `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`），挂载在守护进程 `/mcp`；`cpe-dash mcp` 只是把 stdio 转发到该端点的零状态桥接，**整个系统只有守护进程一个 CPE 会话出口**。向 Claude Desktop、Antigravity、Cursor 及内网自动化 Agent 暴露 **13 项核心工具**与**最多 10 项短信工具**（按 `MCP_SMS_ACCESS` 分级）。
   - 工具 `inputSchema` 在服务端强制校验（未知键、缺失、类型、范围），`reboot_cpe`、`reconnect_cellular`、`send_sms`、`delete_sms` 强制 `{ confirm: true }`；锁频段只接受 H168-383 支持的 LTE 频段与 3GPP NR 频段，锁小区的 ARFCN 必须落在该频段范围内，且 `lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止智能体幻觉参数断网；短信正文按不可信数据处理，发送默认仅限已知号码并按小时限额，防范提示词注入。
@@ -219,7 +219,7 @@ cpe-dash/
 │   ├── core.ts                      # FengSuiCore：scheduler + monitor + controls 装配
 │   ├── control-input.ts             # REST 与 MCP 共用的入参校验
 │   ├── mcp-schema.ts                # MCP 工具 inputSchema 运行时校验器
-│   ├── alert-engine.ts              # 持续窗口 + 迟滞告警引擎（离线 / WAN / 信号 / CA / 重启 / 短信存储 / 流量）
+│   ├── alert-engine.ts              # 持续窗口 + 迟滞告警引擎（离线 / WAN / 信号 / CA / 重启 / 短信存储 / 流量 / 锁定漂移）
 │   ├── sms/                         # 短信协议、号码解析、加密镜像、通讯录、SmsService、REST 路由与 MCP 工具
 │   ├── notify/                      # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── sse-bus.ts                   # /api/events 毫秒级 SSE 扇出总线、慢消费背压剔除与心跳保活

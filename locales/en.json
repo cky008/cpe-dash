@@ -99,6 +99,8 @@
     "reboot_detected": "CPE reboot detected (uptime {uptime}s)",
     "sms_storage_high": "SMS storage nearly full: {used}/{max}",
     "sms_storage_full": "SMS storage full ({used}/{max}); new messages cannot be received",
-    "data_threshold": "Monthly data {used} reached {percent}% of the {limit} plan"
+    "data_threshold": "Monthly data {used} reached {percent}% of the {limit} plan",
+    "lock_drift": "The router no longer matches the applied lock: {issue}",
+    "lock_realigned": "The router matches the applied lock again"
   }
 }
