@@ -10,9 +10,13 @@ import { mountBanners } from "./banners.ts";
 import type { AppContext } from "./context.ts";
 import { byId } from "./dom.ts";
 import { mountHeader } from "./header.ts";
+import { mountHealthCard } from "./health-card.ts";
 import { mountIdentityCards } from "./identity-cards.ts";
+import { mountOperatorCards } from "./operator-cards.ts";
+import { mountRfCard } from "./rf-card.ts";
 import { applyI18n, confirmDialog, describeError, showToast } from "./services.ts";
 import { applyTheme, watchSystemTheme } from "./theme.ts";
+import { mountTrafficCard } from "./traffic-card.ts";
 
 /** Scheduler status has no SSE frame of its own; this in-memory read costs the router nothing. */
 const SESSION_STATUS_POLL_MS = 10_000;
@@ -214,7 +218,11 @@ export async function startApp(): Promise<void> {
       appMounted = true;
       mountHeader(ctx);
       mountBanners(ctx, { reconnectNow: () => sse?.reconnectNow(), refreshStatus: refreshSessionStatus });
+      mountOperatorCards(ctx);
       mountIdentityCards(ctx);
+      mountRfCard(ctx);
+      mountTrafficCard(ctx);
+      mountHealthCard(ctx);
       applyI18n(tr);
       void api
         .health()
