@@ -115,7 +115,10 @@ export class StorageCipher {
 
   readJsonFile<T = unknown>(filePath: string): T | null {
     if (!fs.existsSync(filePath)) return null;
-    const rawText = fs.readFileSync(filePath, "utf8");
+    return this.#parseDocument<T>(fs.readFileSync(filePath, "utf8"));
+  }
+
+  #parseDocument<T>(rawText: string): T {
     const parsed: unknown = JSON.parse(rawText);
     if (isEncryptedEnvelope(parsed)) {
       return this.decryptEnvelope<T>(parsed);
@@ -124,12 +127,16 @@ export class StorageCipher {
   }
 
   /**
-   * Read a JSON document; if it cannot be decrypted or parsed (e.g. `DATA_ENCRYPTION_KEY` rotated),
-   * rename it to `<file>.unreadable-<ts>` instead of crash-looping and return `null`.
+   * Read a JSON document; if its content cannot be decrypted or parsed (e.g. `DATA_ENCRYPTION_KEY`
+   * rotated), rename it to `<file>.unreadable-<ts>` instead of crash-looping and return `null`.
+   * A failure to read the file at all (`EACCES` after a container UID change, `EISDIR`, `EIO`) says
+   * nothing about its content and is thrown: moving it aside would silently start the store empty.
    */
   readJsonFileOrQuarantine<T = unknown>(filePath: string): T | null {
+    if (!fs.existsSync(filePath)) return null;
+    const rawText = fs.readFileSync(filePath, "utf8");
     try {
-      return this.readJsonFile<T>(filePath);
+      return this.#parseDocument<T>(rawText);
     } catch {
       try {
         fs.renameSync(filePath, `${filePath}.unreadable-${Date.now()}`);

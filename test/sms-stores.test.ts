@@ -50,6 +50,41 @@ describe("AtomicFileWriter", () => {
   });
 });
 
+describe("StorageCipher.readJsonFileOrQuarantine", () => {
+  it("quarantines undecryptable or corrupt files, but never moves aside a file it merely could not read", () => {
+    const dir = fs.mkdtempSync(path.join(tmpRoot, "quarantine-"));
+    const file = path.join(dir, "contacts.json");
+    const cipher = StorageCipher.fromSecret("quarantine_key_v1");
+    const quarantined = (): string[] => fs.readdirSync(dir).filter((n) => n.startsWith("contacts.json.unreadable-"));
+
+    // An I/O failure says nothing about the content: surface it instead of starting empty
+    fs.mkdirSync(file);
+    assert.throws(() => cipher.readJsonFileOrQuarantine(file), /EISDIR/);
+    assert.ok(fs.statSync(file).isDirectory(), "left where it was");
+    fs.rmdirSync(file);
+    if (process.getuid?.() !== 0) {
+      // e.g. files still owned by another UID after a container user change
+      cipher.writeJsonFile(file, { contacts: [] });
+      fs.chmodSync(file, 0o000);
+      assert.throws(() => cipher.readJsonFileOrQuarantine(file), /EACCES/);
+      fs.chmodSync(file, 0o600);
+      assert.deepEqual(cipher.readJsonFileOrQuarantine(file), { contacts: [] });
+      fs.rmSync(file);
+    }
+    assert.deepEqual(quarantined(), []);
+
+    fs.writeFileSync(file, "{ not json");
+    assert.equal(cipher.readJsonFileOrQuarantine(file), null);
+    assert.equal(quarantined().length, 1, "corrupt content is archived");
+
+    StorageCipher.fromSecret("quarantine_key_v2").writeJsonFile(file, { contacts: [] });
+    assert.equal(cipher.readJsonFileOrQuarantine(file), null);
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(quarantined().length, 2, "content under another key is archived, never overwritten in place");
+    assert.equal(cipher.readJsonFileOrQuarantine(file), null, "a missing file is simply empty");
+  });
+});
+
 describe("SmsMirrorStore: CPE mirror, notification cursor and thread views", () => {
   it("derives opaque stable uids that never embed the phone number", () => {
     const uid = computeSmsUid({ index: 40002, date: "2026-10-28 18:00:00", phone: "+353830000001" });
