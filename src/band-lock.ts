@@ -174,9 +174,12 @@ export function hexMaskToBands(hexMask: string): number[] {
   return out;
 }
 
-function validatePci(pci: number): number {
-  if (!Number.isInteger(pci) || pci < 0 || pci > 1007) {
-    throw new Error(`Invalid PCI "${pci}" (expected integer 0..1007)`);
+/** Highest physical cell identity: 504 per LTE (TS 36.211 6.11), 1008 per NR (TS 38.211 7.4.2.1). */
+const MAX_PCI: Readonly<Record<"LTE" | "NR", number>> = { LTE: 503, NR: 1007 };
+
+function validatePci(rat: "LTE" | "NR", pci: number): number {
+  if (!Number.isInteger(pci) || pci < 0 || pci > MAX_PCI[rat]) {
+    throw new Error(`Invalid PCI "${pci}" for ${rat} (expected integer 0..${MAX_PCI[rat]})`);
   }
   return pci;
 }
@@ -239,7 +242,7 @@ export function buildLteCellLockXml(params: LteCellLockParams): string {
   const hasPci = params.pci !== undefined;
   const freqInfo: Record<string, number> = { band, freq };
   if (hasPci) {
-    freqInfo["pci"] = validatePci(params.pci!);
+    freqInfo["pci"] = validatePci("LTE", params.pci!);
   }
 
   return buildXmlRequest({
@@ -263,7 +266,7 @@ export function buildNrCellLockXml(params: NrCellLockParams): string {
   const hasPci = params.pci !== undefined;
   const freqInfo: Record<string, number> = { band, freq };
   if (hasPci) {
-    freqInfo["pci"] = validatePci(params.pci!);
+    freqInfo["pci"] = validatePci("NR", params.pci!);
   }
 
   return buildXmlRequest({

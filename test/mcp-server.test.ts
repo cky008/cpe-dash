@@ -771,10 +771,22 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 641,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 999 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 499 } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lcInvented.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "CELL_NOT_OBSERVED");
+      // An LTE PCI above 503 is not a cell identity at all
+      const lcImpossible = (await server.handleRawJsonMessage(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 642,
+          method: "tools/call",
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 999 } },
+        })
+      )) as JsonRpcSuccessResponse;
+      const impossible = (lcImpossible.result as { structuredContent: { errorCode: string; message: string } }).structuredContent;
+      assert.equal(impossible.errorCode, "VALIDATION_ERROR");
+      assert.match(impossible.message, /Invalid PCI "999" for LTE/);
 
       // ... then the serving cell (PCI 321), a neighbour (PCI 322) and an aggregated NR carrier are lockable
       const lcNeighbour = (await server.handleRawJsonMessage(

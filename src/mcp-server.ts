@@ -303,7 +303,7 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
           type: "integer",
           minimum: 0,
           maximum: 1007,
-          description: "Optional Physical Cell ID (0..1007). Omit to lock frequency only.",
+          description: "Optional Physical Cell ID (LTE 0..503, NR 0..1007). Omit to lock frequency only.",
         },
       },
       required: ["rat", "band", "arfcn"],

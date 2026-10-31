@@ -157,4 +157,14 @@ describe("lock parameters are bounded by the H168-383 band list and 3GPP ARFCN r
     }
     assert.equal(getXmlTag(buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 357 }), "freq"), "647424");
   });
+
+  it("bounds the PCI per RAT: LTE has 504 cell identities (TS 36.211), NR 1008 (TS 38.211)", () => {
+    assert.equal(getXmlTag(buildLteCellLockXml({ band: "B3", earfcn: 1700, pci: 0 }), "pci"), "0");
+    assert.equal(getXmlTag(buildLteCellLockXml({ band: "B3", earfcn: 1700, pci: 503 }), "pci"), "503");
+    for (const pci of [504, 1007, -1, 3.5]) {
+      assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 1700, pci }), /Invalid PCI .* for LTE \(expected integer 0\.\.503\)/, String(pci));
+    }
+    assert.equal(getXmlTag(buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 1007 }), "pci"), "1007");
+    assert.throws(() => buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 1008 }), /Invalid PCI "1008" for NR \(expected integer 0\.\.1007\)/);
+  });
 });
