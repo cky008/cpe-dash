@@ -226,11 +226,25 @@ describe("SmsService sync, change detection and notifications", () => {
     const fx = createSmsFixture();
     fx.service.start();
     await fx.service.sync("full");
+    fx.service.upsertContact({ phone: "0830000004", name: "Niamh" });
     await fx.service.stop();
-    fx.scheduler.emit("telemetry", {
+
+    // The contact written just before stop() is on disk, encrypted
+    const onDisk = (file: string): string => fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(onDisk(fx.contacts.filePath), /Niamh/);
+    assert.doesNotMatch(onDisk(fx.mirror.filePath), /DemoBank|\+353830000001/);
+    const reread = new ContactBook({ filePath: fx.contacts.filePath, cipher: StorageCipher.fromSecret("svc_key"), defaultCountryCode: "+353" });
+    reread.load();
+    assert.equal(reread.search("Niamh").length, 1);
+
+    // Changed counters on the monitor (where the service subscribes) no longer queue a sync
+    const requestsAtStop = fx.mock.requests.length;
+    fx.core.monitor.emit("telemetry", {
       sms: { localUnread: 5, localInbox: 5, localOutbox: 5, localDraft: 0, localMax: 500 },
     } as unknown as GlobalTelemetrySnapshot);
     assert.equal(fx.service.getStatus().syncInProgress, false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(fx.mock.requests.length, requestsAtStop, "no router traffic after stop()");
     await fx.cleanup();
   });
 });
