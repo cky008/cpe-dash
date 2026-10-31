@@ -19,7 +19,8 @@ cpe-dash/
 │   ├── config.ts           # 纯原生 .env 解析器、SSRF Origin 校验与强类型配置加载
 │   ├── crypto.ts           # 非钳位大端 Curve25519、Huawei SCRAM-SHA256、AES-256-GCM 双向加解密
 │   ├── xml.ts              # 防原型链污染与防 ReDoS 的线性安全 XML 编解码器（含 PreEscapedXmlText）
-│   ├── sanitize.ts         # 敏感标识符（IMEI/IMSI/MAC/IP/TAC/CellID/口令/手机号）自动化脱敏引擎
+│   ├── sanitize.ts         # 敏感标识符（IMEI/IMSI/MAC/IP/TAC/CellID/口令/手机号）自动化脱敏引擎（探针输出与抓包审计）
+│   ├── redact.ts           # REDACT_SENSITIVE_IN_API 输出边界：Bearer API / SSE / MCP 拿脱敏副本，Web 控制台拿原值
 │   ├── encrypted-file.ts   # StorageCipher: scrypt + HKDF-SHA256 + AES-256-GCM (0600) 落盘加密、原子写入与单进程文件锁
 │   ├── band-lock.ts        # 4G LTE / 5G NR BandMask 精确位运算与锁小区载荷构建器
 │   ├── parsers.ts          # 3CA 射频、邻区、双周期流量与终端拓扑纯函数解析器

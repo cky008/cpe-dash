@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.0.0-6E56CF?style=flat-square" alt="Version 1.0.0" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.0.1-6E56CF?style=flat-square" alt="Version 1.0.1" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
   <a href="#-docker--群晖-ds923-部署"><img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 arm64" /></a>
@@ -31,7 +31,7 @@
 - **100% 私有化，零上云**：全部数据只在你的 NAS 上，`AES-256-GCM` 加密落盘；Web 控制台零 CDN、零外链，离线可用。
 - **0 额外硬件成本**：复用现有 NAS 与 CPE 自带的短信能力，不需要短信猫、USB 模块或第二台设备。
 - **生产级容器**：非 root、只读根文件系统、`HEALTHCHECK`、`SIGTERM` 10 秒内优雅停机并释放路由器会话；`linux/amd64`（DS923+）与 `linux/arm64` 双架构。
-- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，314 项离线测试、语句覆盖率 98%。
+- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，318 项离线测试、语句覆盖率 98%。
 
 ---
 
@@ -79,7 +79,7 @@
 </table>
 
 ### 监控大屏
-- **顶部横幅**：品牌与版本、监控大屏 / 短信中心切换（未读角标）、运营商与 SIM 状态、IMEI / IMSI / 本机号码（默认脱敏，一键显隐）、WAN IPv4 / IPv6 / DNS / MAC（可脱敏）、CPE 会话状态（空闲 / 真人避让 / 熔断）、SSE 连接状态与告警铃。
+- **顶部横幅**：品牌与版本、监控大屏 / 短信中心切换（未读角标）、运营商与 SIM 状态、IMEI / IMSI / 本机号码（默认打码，点眼睛显示原值）、WAN IPv4 / IPv6 / DNS / MAC（可打码）、CPE 会话状态（空闲 / 真人避让 / 熔断）、SSE 连接状态与告警铃。
 - **3CA 载波聚合胶囊**：如 `PCC B1(20M) + SCC B3(20M) + 5G N78(100M)`；SA / NSA 呼吸徽章。
 - **射频卡**：逐载波 PCI、ARFCN、带宽；RSRP / RSRQ / SINR 分级圆环；TAC、eNodeB、MIMO 流数、上下行调制方式；PUSCH / PUCCH 发射功率条。
 - **健康卡**：在线时长、在线终端数、锁定状态与锁定对账（路由器是否仍符合已下发的锁频 / 锁小区）。
@@ -96,7 +96,7 @@
 
 ### 外观与工程
 - 四套主题：**素纸**（浅色宣纸）、**晨曦**（温润暖色）、**极夜**（深黑）、**紫溟**（极客暗紫），六种强调色，可跟随系统明暗；中英文即时切换，偏好本地持久化。
-- 首屏 JS + CSS 仅 **59.8 KiB gzip**（含一种语言），短信中心、控制抽屉等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
+- 首屏 JS + CSS 仅 **59.5 KiB gzip**（含一种语言），短信中心、控制抽屉等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
 - SSE 断线带抖动的指数退避自动重连；`423` 熔断、`409` 避让、`503` 停机分别给出不同的界面状态，绝不笼统显示为「离线」。
 
 ---
@@ -416,7 +416,7 @@ Claude Code：`claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp
 | 短信（`MCP_SMS_ACCESS=read`，默认） | `list_sms_threads`、`get_sms_thread`、`get_sms_status`、`search_contacts`、`preview_sms`、`sync_sms` |
 | 短信（`MCP_SMS_ACCESS=full`） | 追加 `send_sms`†、`mark_sms_read`、`delete_sms`†、`upsert_contact` |
 
-† 必须显式传入 `{ "confirm": true }`。所有入参按 `inputSchema` 在服务端强校验；锁频段只接受 H168-383 支持的频段，`lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止模型幻觉参数导致断网。短信正文与发件人名称一律标注为不可信数据，`send_sms` 单收件人、默认仅限已知号码（`MCP_SMS_SEND_POLICY=known`）并按小时限额，`delete_sms` 默认拒绝删除未读短信。`MCP_ALLOW_MUTATIONS=false` 时只暴露观测类能力。
+† 必须显式传入 `{ "confirm": true }`。`REDACT_SENSITIVE_IN_API=true`（默认）时，`get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 返回脱敏副本：IMEI 只留前 6 位、IMSI 只留运营商代码、WAN 地址只留前两段，TAC / Cell ID / eNodeB 与终端名称为 `<REDACTED>`，便于把数据交给云端模型。所有入参按 `inputSchema` 在服务端强校验；锁频段只接受 H168-383 支持的频段，`lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止模型幻觉参数导致断网。短信正文与发件人名称一律标注为不可信数据，`send_sms` 单收件人、默认仅限已知号码（`MCP_SMS_SEND_POLICY=known`）并按小时限额，`delete_sms` 默认拒绝删除未读短信。`MCP_ALLOW_MUTATIONS=false` 时只暴露观测类能力。
 
 ### 错误码
 
@@ -490,7 +490,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **实时 SSE** | `GET /api/events` | `hello`、`speed`、`telemetry`、`neighbors`、`topology`、`settings`、`session:avoidance`、`control:applied`、`alert`、`sms:new`、`sms:sent`、`sms:updated`、`sms:sync`、`sms:status`、`contacts:updated` 与心跳 |
 | **健康检查** | `GET /api/health` | 免鉴权，供 `HEALTHCHECK` 与监控使用 |
 
-状态变更请求必须携带 `X-Requested-With: XMLHttpRequest` 与 `Content-Type: application/json`。REST / SSE 载荷类型定义在 [`src/api-contract.ts`](src/api-contract.ts)（服务端以 `satisfies` 校验，Web 前端直接复用），完整契约见 [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)。
+状态变更请求必须携带 `X-Requested-With: XMLHttpRequest` 与 `Content-Type: application/json`。登录后的 Web 控制台（Cookie 会话）始终拿到原值，由界面默认打码；用 `Authorization: Bearer` 调用的脚本与 SSE 订阅者在 `REDACT_SENSITIVE_IN_API=true` 时拿到与 MCP 相同的脱敏副本。REST / SSE 载荷类型定义在 [`src/api-contract.ts`](src/api-contract.ts)（服务端以 `satisfies` 校验，Web 前端直接复用），完整契约见 [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md)。
 
 ---
 
@@ -515,7 +515,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `MCP_ALLOW_MUTATIONS` | `true` | 是否允许 MCP 调用写操作工具 |
 | `MCP_DAEMON_URL` | *(由 `WEB_HOST`/`WEB_PORT` 推导)* | stdio 桥接转发的 `/mcp` 地址；只接受局域网 / 环回主机 |
 | `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | 跨主机重复守护进程保护（签名 UDP 广播信标；Docker 需 host 网络） |
-| `REDACT_SENSITIVE_IN_API` | `true` | API / MCP 输出默认脱敏 IMEI、IMSI、本机号码、MAC 与 TAC / CellID 等位置指纹 |
+| `REDACT_SENSITIVE_IN_API` | `true` | 对 Bearer API、SSE 与 MCP 输出脱敏 IMEI、IMSI、本机号码、MAC、WAN 地址与 TAC / CellID 等位置指纹。Web 控制台不受影响：始终收到原值，界面默认打码、点眼睛显示。修改后重启或调用 `reset-breaker` 生效 |
 | `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | SSE 心跳间隔与最大并发连接数 |
 | `POLL_INTERVAL_MS` | `5000` | 遥测与实时速率采样周期 |
 | `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | 邻区扫描周期 |

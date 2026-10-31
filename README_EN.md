@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.0.0-6E56CF?style=flat-square" alt="Version 1.0.0" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.0.1-6E56CF?style=flat-square" alt="Version 1.0.1" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
   <a href="#-docker--synology-ds923-deployment"><img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 arm64" /></a>
@@ -31,7 +31,7 @@
 - **100% private, zero cloud dependencies**: All data stays on your NAS, encrypted at rest with `AES-256-GCM`; the Web console uses zero CDNs, zero external links, and works completely offline.
 - **Zero additional hardware cost**: Reuses your existing NAS and the CPE's built-in SMS capabilities without requiring SMS modems, USB dongles, or secondary devices.
 - **Production-grade container**: Non-root, read-only root filesystem, `HEALTHCHECK`, graceful shutdown via `SIGTERM` within 10 seconds while releasing router sessions; dual-architecture support for `linux/amd64` (DS923+) and `linux/arm64`.
-- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 314 offline tests with 98% statement coverage.
+- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 318 offline tests with 98% statement coverage.
 
 ---
 
@@ -79,7 +79,7 @@
 </table>
 
 ### Dashboard
-- **Top banner**: Branding and version, Dashboard / Messages toggle (unread badge), carrier and SIM status, IMEI / IMSI / phone number (masked by default, one-click toggle), WAN IPv4 / IPv6 / DNS / MAC (maskable), CPE session status (Idle / Human Admin Yielding / Tripped), SSE connection status, and alert bell.
+- **Top banner**: Branding and version, Dashboard / Messages toggle (unread badge), carrier and SIM status, IMEI / IMSI / phone number (masked on screen by default, the eye button reveals the real values), WAN IPv4 / IPv6 / DNS / MAC (maskable), CPE session status (Idle / Human Admin Yielding / Tripped), SSE connection status, and alert bell.
 - **3CA carrier aggregation pill**: e.g., `PCC B1(20M) + SCC B3(20M) + 5G N78(100M)`; SA / NSA pulsing badge.
 - **RF cards**: Per-carrier PCI, ARFCN, bandwidth; graded circular gauges for RSRP / RSRQ / SINR; TAC, eNodeB, MIMO rank/streams, uplink/downlink modulation; PUSCH / PUCCH transmit power bars.
 - **Health card**: Uptime, connected client count, lock status, and lock reconciliation (verifying whether router state matches configured band / cell locks).
@@ -96,7 +96,7 @@
 
 ### Visuals and Engineering
 - Four themes: **Paper** (light Xuan paper), **Dawn** (warm light), **Polar Night** (deep black), and **Violet Abyss** (geek dark purple), with six accent colors and system dark/light mode following; instant English/Chinese switching with local preference persistence.
-- First-load JS + CSS is only **59.8 KiB gzip** (including one language); Messages, Controls drawer, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
+- First-load JS + CSS is only **59.5 KiB gzip** (including one language); Messages, Controls drawer, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
 - SSE auto-reconnect with jittered exponential backoff; `423` breaker tripped, `409` yielding, and `503` shutdown present distinct UI states, never lumped together as "offline".
 
 ---
@@ -416,7 +416,7 @@ Claude Code: `claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp 
 | SMS (`MCP_SMS_ACCESS=read`, default) | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms` |
 | SMS (`MCP_SMS_ACCESS=full`) | Appends `send_sms`†, `mark_sms_read`, `delete_sms`†, `upsert_contact` |
 
-† Must explicitly pass `{ "confirm": true }`. All input parameters are strictly validated on the server against `inputSchema`; band locks only accept bands supported by the H168-383; `lock_cell` can only lock to previously observed cells (serving cell, aggregated carriers, or latest neighbor scan), preventing model hallucinations from causing network outages. SMS bodies and sender names are treated as untrusted data; `send_sms` targets a single recipient, defaults to known contacts only (`MCP_SMS_SEND_POLICY=known`), enforces hourly limits, and `delete_sms` refuses to delete unread messages by default. When `MCP_ALLOW_MUTATIONS=false`, only observational tools are exposed.
+† Must explicitly pass `{ "confirm": true }`. With `REDACT_SENSITIVE_IN_API=true` (the default), `get_cpe_telemetry`, `list_terminal_topology` and the `fengsui://telemetry/latest` resource return redacted copies: the IMEI keeps its first 6 digits, the IMSI only the operator code, WAN addresses their first two parts, and TAC / Cell ID / eNodeB and client names read `<REDACTED>`, so the data can go to a cloud model. All input parameters are strictly validated on the server against `inputSchema`; band locks only accept bands supported by the H168-383; `lock_cell` can only lock to previously observed cells (serving cell, aggregated carriers, or latest neighbor scan), preventing model hallucinations from causing network outages. SMS bodies and sender names are treated as untrusted data; `send_sms` targets a single recipient, defaults to known contacts only (`MCP_SMS_SEND_POLICY=known`), enforces hourly limits, and `delete_sms` refuses to delete unread messages by default. When `MCP_ALLOW_MUTATIONS=false`, only observational tools are exposed.
 
 ### Error Codes
 
@@ -490,7 +490,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **Real-Time SSE** | `GET /api/events` | `hello`, `speed`, `telemetry`, `neighbors`, `topology`, `settings`, `session:avoidance`, `control:applied`, `alert`, `sms:new`, `sms:sent`, `sms:updated`, `sms:sync`, `sms:status`, `contacts:updated`, and heartbeats |
 | **Health Check** | `GET /api/health` | Unauthenticated endpoint for `HEALTHCHECK` and monitoring |
 
-State-mutating requests must include `X-Requested-With: XMLHttpRequest` and `Content-Type: application/json`. REST / SSE payload types are defined in [`src/api-contract.ts`](src/api-contract.ts) (validated on the backend with `satisfies` and reused directly by the Web frontend); see [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) for full contract.
+State-mutating requests must include `X-Requested-With: XMLHttpRequest` and `Content-Type: application/json`. The logged-in web console (cookie session) always receives the real values and masks them on screen; scripts and SSE subscribers using `Authorization: Bearer` get the same redacted copies as MCP while `REDACT_SENSITIVE_IN_API=true`. REST / SSE payload types are defined in [`src/api-contract.ts`](src/api-contract.ts) (validated on the backend with `satisfies` and reused directly by the Web frontend); see [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) for full contract.
 
 ---
 
@@ -515,7 +515,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `MCP_ALLOW_MUTATIONS` | `true` | Whether to allow MCP to invoke mutation tools |
 | `MCP_DAEMON_URL` | *(Derived from `WEB_HOST`/`WEB_PORT`)* | Address of `/mcp` forwarded by stdio bridge; restricted to LAN / loopback hosts |
 | `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | Cross-host duplicate daemon protection (signed UDP broadcast beacon; requires host networking in Docker) |
-| `REDACT_SENSITIVE_IN_API` | `true` | Masks IMEI, IMSI, phone number, MAC, and TAC / CellID location fingerprints in API / MCP output by default |
+| `REDACT_SENSITIVE_IN_API` | `true` | Redacts IMEI, IMSI, phone number, MAC, WAN addresses and TAC / CellID location fingerprints in Bearer API, SSE and MCP output. The web console is not affected: it always receives the real values, masked on screen until you click the eye button. Applies after a restart or `reset-breaker` |
 | `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | SSE heartbeat interval and maximum concurrent connections |
 | `POLL_INTERVAL_MS` | `5000` | Telemetry and real-time throughput sampling interval |
 | `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | Neighbor cell scan interval |

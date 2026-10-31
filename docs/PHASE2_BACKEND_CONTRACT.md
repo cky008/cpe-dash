@@ -27,6 +27,11 @@
 2. **自动化脚本与 Streamable HTTP MCP 客户端（Bearer Token）**：
    - 请求头：`Authorization: Bearer <API_TOKEN>`（服务端采用 `SHA-256` 定长摘要 + `crypto.timingSafeEqual` 常量时间比对）。
    - **排他鉴权规则**：一旦请求携带了 `Authorization` 头，服务端**仅**验证 Bearer Token，绝不回退读取 Cookie。`/mcp` 端点只接受 Bearer。
+4. **`REDACT_SENSITIVE_IN_API` 按调用方生效（v1.0.1 起）**：守护进程内部与加密落盘的快照始终保存原值，脱敏只发生在输出边界（[`src/redact.ts`](../src/redact.ts)）。
+   - **Cookie 会话（Web 控制台）始终拿到原值**：前端默认在屏幕上掩码，由用户点眼睛按钮显示（防截图）。
+   - **Bearer 调用方（REST、`/api/events` SSE）与 MCP 工具 / 资源**：开关为 `true`（默认）时收到脱敏副本，`device.sensitiveRedacted` 为 `true`；为 `false` 时与 Web 控制台相同。
+   - 脱敏副本只用一眼可辨的掩码，不再用以假乱真的占位值：IMEI 留前 6 位、IMSI 留 MCC+MNC、本机号码 `+353*******00`、MAC 留厂商 OUI、WAN / DNS 地址留前两段（`198.51.*.*`、`2001:db8:****`）、TAC / Cell ID / eNodeB 为 `<REDACTED>`；终端拓扑的设备名为 `<REDACTED>`、MAC 留 OUI、IPv6 留前两组，局域网 IPv4 原样保留（用于区分终端）。邻区、路由器配置（含 DMZ 地址）与时序数据不含此类标识，不做脱敏。
+   - 修改该值后可重启，或调用 `POST /api/session/reset-breaker` 立即对 REST、SSE 与 MCP 生效。v1.0.0 在采集时就已脱敏的缓存快照，升级后首次启动时直接丢弃，等待下一次采集。
 3. **鉴权失败限流（`429 RATE_LIMITED`）**：按客户端 IP 桶统计滑动窗口内的鉴权失败次数（`RATE_LIMIT_WINDOW_MS` 默认 `60000`；`RATE_LIMIT_MAX_AUTH_FAILURES` 默认 `8`、最小 `3`），另设全局失败上限（单桶上限 × `8`）。超限时响应附带 `retryAfterSec` 字段与 `Retry-After` 头；已被限流的桶在窗口滑出前即使提交正确凭据也会被拒绝。
 
 ### 1.3 前端状态变更请求强制 CSRF 契约（Phase 3 前端必读！）
@@ -242,7 +247,7 @@ export interface GlobalTelemetrySnapshot {
     webUiVersion: string;
     uptimeSec: number;
     workMode: string;
-    wanIpv4: string;            // 按 REDACT_SENSITIVE_IN_API 脱敏或原样输出
+    wanIpv4: string;            // 原值；Bearer / MCP 脱敏副本为 "198.51.*.*"（见 1.2 节第 4 条）
     wanDnsV4: string[];
     wanIpv6: string;
     wanDnsV6: string[];
@@ -250,13 +255,13 @@ export interface GlobalTelemetrySnapshot {
     signalIconBars: number;     // 0..5
     simStatus: string;
     // Phase 3：/api/device/information 中的设备与 SIM 标识（固件未返回时为 ""，不额外发起请求）。
-    // REDACT_SENSITIVE_IN_API=true 时在离开守护进程前按 src/privacy-mask.ts 部分掩码：
+    // Web 控制台收到原值；Bearer / MCP 在 REDACT_SENSITIVE_IN_API=true 时收到 src/privacy-mask.ts 的部分掩码：
     // IMEI 仅留前 6 位、IMSI 仅留 MCC+MNC 5 位、本机号码 "+353*******00"、MAC 仅留厂商 OUI
-    imei: string;               // e.g. "860000*********"
-    imsi: string;               // e.g. "27201**********"
+    imei: string;               // e.g. "860000000000000"，脱敏副本 "860000*********"
+    imsi: string;               // e.g. "272010000000000"，脱敏副本 "27201**********"
     msisdn: string;             // SIM 写入的本机号码，多数 SIM 为空
-    macAddress: string;         // <WanMacAddress>，缺失时取 <MacAddress1>，e.g. "02:00:5E:**:**:**"
-    sensitiveRedacted: boolean; // true = 上述标识、WAN 地址与 DNS 已在服务端脱敏（前端无法再还原明文）
+    macAddress: string;         // <WanMacAddress>，缺失时取 <MacAddress1>；脱敏副本 "02:00:5E:**:**:**"
+    sensitiveRedacted: boolean; // true = 这是 Bearer / MCP 的脱敏副本（上述标识、WAN 地址与 DNS 已掩码）；Web 控制台恒为 false
   };
   rf: {
     operatorName: string;
@@ -317,9 +322,9 @@ export interface GlobalTelemetrySnapshot {
       rssiDbm: number | null;
       sinrDb: number | null;
     }>;
-    cellIdDisplay: string;
-    eNodeBDisplay: string;
-    tacDisplay: string;
+    cellIdDisplay: string;      // 十进制原值；Bearer / MCP 脱敏副本为 "<REDACTED>"
+    eNodeBDisplay: string;      // 同上
+    tacDisplay: string;         // 同上
     identityVerification: {
       hasCellIdDecimal: boolean;
       hasCellInfoHex: boolean;
@@ -534,8 +539,8 @@ export type TerminalAccessMedium =
   | "WIFI_OTHER";
 
 export interface TerminalHostEntry {
-  macAddress: string;
-  displayName: string;
+  macAddress: string;           // 原值；Bearer / MCP 脱敏副本只留厂商 OUI（"00:00:5E:**:**:**"）
+  displayName: string;          // 原值；Bearer / MCP 脱敏副本为 "<REDACTED>"
   active: boolean;
   interfaceType: string;
   layer2Interface: string;
@@ -543,8 +548,8 @@ export interface TerminalHostEntry {
   medium: TerminalAccessMedium;
   negotiatedRateMbps: number | null;
   rssi: number | null;
-  ipv4Address: string;
-  ipv6Addresses: string[];
+  ipv4Address: string;          // 局域网地址，始终原样输出
+  ipv6Addresses: string[];      // 原值；Bearer / MCP 脱敏副本留前两组（"2001:db8:****"）
   ipv6Active: boolean;
   addressSource: string;
   leaseTimeRemainingSec: number | null;
@@ -581,7 +586,7 @@ export interface RouterSettingsSnapshot {
   capturedAtMs: number;
   upnpEnabled: boolean;
   dmzEnabled: boolean;
-  dmzIpAddress: string;         // REDACT_SENSITIVE_IN_API=true 时，192.168.8.x 原样保留，其他地址按脱敏规则映射
+  dmzIpAddress: string;         // 局域网地址，始终原样输出（v1.0.1 起不再映射）
   firewall: {
     mainSwitch: boolean;
     ipFilterSwitch: boolean;
@@ -846,6 +851,7 @@ export interface ChannelDeliveryStats {
 - **端点与鉴权**：`GET /api/events`，鉴权方式与其他 `/api/*` 路由相同。浏览器使用原生 `new EventSource("/api/events", { withCredentials: true })` 自动复用 `HttpOnly` Cookie；脚本可使用 Bearer 头。
 - **连接上限**：全局 `SSE_MAX_CLIENTS`（默认 `32`），单 IP 桶（IPv6 为 `/64`）`6` 条；超限返回 `429 SSE_LIMIT_REACHED`。
 - **首帧推送**：连入瞬间立即依次下发 `hello`（含短信状态快照）、`session:avoidance`（反映当前状态，未避让时 `active: false`），若已有缓存遥测再下发 `telemetry`，无需等待 `5s` 轮询定时器。
+- **按订阅方脱敏**：Cookie 订阅者（Web 控制台）收到原值；`REDACT_SENSITIVE_IN_API=true` 时，Bearer 订阅者收到的 `hello` 内遥测、`telemetry` 与 `topology` 事件均为脱敏副本（规则见 1.2 节第 4 条）。同一事件对两类订阅者使用相同的 `id`。
 - **帧格式**：`id: <自增序号>\nevent: <name>\ndata: <单行 JSON>\n\n`。服务端**不支持** `Last-Event-ID` 断点续传；重连后应以新的 `hello` 快照重建前端状态（`neighbors` / `topology` / `settings` 需另行调用对应 `GET` 接口补齐）。
 - **心跳保活帧**：每隔 `SSE_HEARTBEAT_MS`（默认 `15000ms`，最小 `3000ms`）写入标准 SSE 注释行：
   ```text
@@ -951,6 +957,7 @@ export interface AvoidanceBroadcastPayload {
 ### 4.2 暴露的 13 项 MCP Tools 与 3 项 Resources
 - **只读观测类（6 项，`readOnlyHint: true`）**：`get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`、`list_terminal_topology`、`get_router_settings`。
   - `get_cpe_telemetry` / `list_terminal_topology` / `get_router_settings`：传入 `refresh: true` 或缓存为空时触发一次瞬时采集。
+  - `get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 在 `REDACT_SENSITIVE_IN_API=true`（默认）时返回脱敏副本（规则见 1.2 节第 4 条），设为 `false` 后返回原值。
   - `list_neighbor_cells`：`scanNow: true` 强制扫描；省略时仅在缓存为空时扫描；`scanNow: false` 只读缓存。
   - `query_telemetry_history`：参数与校验规则同 `GET /api/timeseries`。
 - **射频与系统控制类（7 项，均标注 `destructiveHint: true`）**：`lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`（强制 `confirm: true`）、`reboot_cpe`（强制 `confirm: true`）。
