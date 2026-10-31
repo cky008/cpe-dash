@@ -30,7 +30,7 @@ import {
   savePreference,
 } from "../web/src/core/prefs.ts";
 import { type EventSourceLike, SSE_EVENT_NAMES, SseClient, type SseEvent, type SseStatus, backoffDelayMs } from "../web/src/core/sse.ts";
-import { LIVE_CAPACITY, MAX_ALERTS, Store, appendLive, initialState, mergeAlerts, reduceSseEvent, unreadBadgeCount } from "../web/src/core/store.ts";
+import { LIVE_CAPACITY, MAX_ALERTS, Store, appendLive, initialState, mergeAlerts, reduceSseEvent, seedLive, unreadBadgeCount } from "../web/src/core/store.ts";
 import { zhCN } from "../web/src/i18n/zh-CN.ts";
 
 const NOW = new Date(2026, 9, 31, 12, 0, 0); // local time, Saturday 2026-10-31 12:00
@@ -535,6 +535,28 @@ describe("web core: state store and SSE reducer", () => {
       [2, 3, 4]
     );
     assert.equal(LIVE_CAPACITY, 720);
+  });
+
+  it("seeds the live ring with history buckets that ended before the first live sample", () => {
+    const bucket = (tsMs: number, dl: number) => ({ tsMs, dlAvgBps: dl, ulAvgBps: dl / 10 });
+    // A fresh page: everything the 5 s tier holds, in order, without duplicate buckets
+    assert.deepEqual(seedLive([], [bucket(10_000, 8), bucket(0, 1), bucket(5_000, 4), bucket(5_000, 4)], 5_000), [
+      { tsMs: 0, downloadBps: 1, uploadBps: 0.1 },
+      { tsMs: 5_000, downloadBps: 4, uploadBps: 0.4 },
+      { tsMs: 10_000, downloadBps: 8, uploadBps: 0.8 },
+    ]);
+    // SSE frames arrived first: only buckets that closed before them, never one covering the same slot
+    const live = [{ tsMs: 13_400, downloadBps: 9, uploadBps: 1 }];
+    assert.deepEqual(
+      seedLive(live, [bucket(0, 1), bucket(5_000, 4), bucket(10_000, 8)], 5_000).map((s) => s.tsMs),
+      [0, 5_000, 13_400]
+    );
+    assert.deepEqual(seedLive(live, [], 5_000), live);
+    // Still bounded by the ring capacity, keeping the newest samples
+    assert.deepEqual(
+      seedLive(live, [bucket(0, 1), bucket(5_000, 4)], 5_000, 2).map((s) => s.tsMs),
+      [5_000, 13_400]
+    );
   });
 
   it("deduplicates, orders and caps alerts", () => {

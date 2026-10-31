@@ -1,6 +1,6 @@
 import type { TimeSeriesBucketPoint, TimeSeriesPreset } from "../../../src/api-contract.ts";
 import { DASH, formatBitRate, formatClock, formatSigned, joinScaled, parseDateTimeLocalValue, toDateTimeLocalValue, toMbps } from "../core/format.ts";
-import type { LiveSample } from "../core/store.ts";
+import { type LiveSample, seedLive } from "../core/store.ts";
 import { type BrushWindow, FIXED_PRESETS, brushToRange, checkCustomRange, timeseriesQuery } from "../core/time-range.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
@@ -262,6 +262,17 @@ export function mountCharts(ctx: AppContext): void {
     drawHistory();
   };
 
+  // The live ring only grows from SSE frames: start it from the daemon's 5 s tier instead of blank
+  const seedLiveChart = async (): Promise<void> => {
+    const toMs = ctx.now();
+    try {
+      const res = await ctx.api.timeseries(timeseriesQuery("custom", { fromMs: toMs - LIVE_WINDOW_MS, toMs }, LIVE_WINDOW_MS / 5_000));
+      ctx.store.update({ live: seedLive(ctx.store.state.live, res.points, res.bucketMs) }, ["live"]);
+    } catch {
+      // Nothing lost: the chart keeps filling from the stream
+    }
+  };
+
   ctx.store.subscribe("live", drawLive);
   ctx.tr.onChange(render);
   setInterval(() => {
@@ -270,4 +281,5 @@ export function mountCharts(ctx: AppContext): void {
   }, HISTORY_REFRESH_MS);
   render();
   void loadBase();
+  void seedLiveChart();
 }

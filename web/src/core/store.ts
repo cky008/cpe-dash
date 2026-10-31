@@ -9,6 +9,7 @@ import type {
   SchedulerStatusSnapshot,
   SmsStatusSnapshot,
   TerminalTopologySnapshot,
+  TimeSeriesBucketPoint,
 } from "../../../src/api-contract.ts";
 import type { SseEvent, SseStatus } from "./sse.ts";
 
@@ -90,6 +91,27 @@ export function appendLive(live: ReadonlyArray<LiveSample>, sample: LiveSample, 
   const next = live.length >= capacity ? live.slice(live.length - capacity + 1) : [...live];
   next.push(sample);
   return next;
+}
+
+/**
+ * Prepend the daemon's recent 5 s history to the live ring so the live chart is not blank after a
+ * page load. Only buckets that closed before the first live sample are taken, so a bucket never
+ * duplicates a frame the SSE stream already delivered.
+ */
+export function seedLive(
+  live: ReadonlyArray<LiveSample>,
+  history: ReadonlyArray<Pick<TimeSeriesBucketPoint, "tsMs" | "dlAvgBps" | "ulAvgBps">>,
+  bucketMs: number,
+  capacity = LIVE_CAPACITY
+): LiveSample[] {
+  const firstLiveMs = live[0]?.tsMs ?? Number.POSITIVE_INFINITY;
+  const seeded: LiveSample[] = [];
+  for (const point of [...history].sort((a, b) => a.tsMs - b.tsMs)) {
+    if (point.tsMs + bucketMs > firstLiveMs || point.tsMs === seeded.at(-1)?.tsMs) continue;
+    seeded.push({ tsMs: point.tsMs, downloadBps: point.dlAvgBps, uploadBps: point.ulAvgBps });
+  }
+  const merged = [...seeded, ...live];
+  return merged.length > capacity ? merged.slice(merged.length - capacity) : merged;
 }
 
 export function mergeAlerts(current: ReadonlyArray<AlertEventRecord>, incoming: ReadonlyArray<AlertEventRecord>): AlertEventRecord[] {
