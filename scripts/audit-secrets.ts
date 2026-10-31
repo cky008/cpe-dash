@@ -7,7 +7,7 @@ import { loadConfig, parseDotEnv } from "../src/config.ts";
  * Zero-Secret, Zero-PII & Pure-TypeScript Repository Gate for `cpe-dash` (FengSui / 烽燧).
  *
  * Scans tracked files, working tree, and full `git log -p --all` history for:
- *   1. Forbidden `.js` / `.mjs` / `.cjs` source files in `src/`, `scripts/`, or `test/`, and type escapes
+ *   1. Forbidden `.js` / `.mjs` / `.cjs` source files in `src/`, `scripts/`, `test/` or `web/`, and type escapes
  *      (explicit `any`, `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck`) in their TypeScript.
  *   2. Tracked `.env`, `data/*` (except empty `.gitkeep`), `.probe-cache/`, `*.har`, `*.apk*`, `*.dll`, `*.pem`.
  *   3. Literal secrets loaded from `.env` (`CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TELEGRAM_API`,
@@ -22,6 +22,9 @@ const HIGH_RISK_PATTERNS: ReadonlyArray<{ name: string; regex: RegExp }> = [
   { name: "15-digit IMEI/IMSI candidate", regex: /\b(?:86|35|460|272)\d{12,13}\b/ },
   { name: "19-20 digit ICCID candidate", regex: /\b89\d{17,18}\b/ },
 ];
+
+/** Hand-written sources: backend, scripts, tests and the web dashboard (its build output lives in dist/). */
+const TYPESCRIPT_SOURCE_DIRS = ["src", "scripts", "test", "web"] as const;
 
 /** Escapes from strict typing (铁律一): explicit `any` and directives that silence the compiler. */
 const TYPE_ESCAPES: ReadonlyArray<{ name: string; regex: RegExp }> = [
@@ -121,9 +124,9 @@ function main(): void {
     process.exit(1);
   }
 
-  // 2. Enforce 100% Pure TypeScript rule (forbid .js/.mjs/.cjs inside src/, scripts/, test/)
+  // 2. Enforce 100% Pure TypeScript rule (forbid .js/.mjs/.cjs inside src/, scripts/, test/, web/)
   const jsViolations: string[] = [];
-  for (const subDir of ["src", "scripts", "test"]) {
+  for (const subDir of TYPESCRIPT_SOURCE_DIRS) {
     const absSub = path.join(root, subDir);
     if (!fs.existsSync(absSub)) continue;
     const walkJs = (d: string): void => {
@@ -163,7 +166,7 @@ function main(): void {
       }
     }
   };
-  for (const subDir of ["src", "scripts", "test"]) {
+  for (const subDir of TYPESCRIPT_SOURCE_DIRS) {
     if (fs.existsSync(path.join(root, subDir))) walkTs(path.join(root, subDir));
   }
   if (typeEscapes.length > 0) {
