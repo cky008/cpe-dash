@@ -276,7 +276,8 @@ function wifiAccessSummary(change: WifiAccessChange): ControlSummary {
 }
 
 function timeRuleSummary(change: TimeRuleChange): ControlSummary {
-  if (change.kind === "delete") return summaryOf("controls.time_rule_deleted", { detail: `#${change.id}` });
+  // The router's IDs are TR-069 paths (`InternetGatewayDevice.X_FireWall.TimeRule.3.`); show the number
+  if (change.kind === "delete") return summaryOf("controls.time_rule_deleted", { detail: `#${/(\d+)\.?$/.exec(change.id)?.[1] ?? change.id}` });
   const r = change.rule;
   const detail = `${maskMacTail(r.macAddress)} ${r.weekMask} ${r.startTime}-${r.endTime}`;
   return summaryOf(change.kind === "create" ? "controls.time_rule_created" : "controls.time_rule_updated", { detail });

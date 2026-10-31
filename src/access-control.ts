@@ -120,7 +120,9 @@ export function parseTimeRules(xml: string): TimeRulesState {
   const max = Number.parseInt(getXmlTag(xml, "TimeRuleMaxNum") ?? "", 10);
   if (!Number.isFinite(max)) return { supported: false, maxRules: 0, rules: [] };
   const rules: TimeRule[] = getXmlBlocks(xml, "TimeControlRule").map((block) => {
-    const macs = getXmlBlocks(block, "DevicesMAC").map((m) => normalizeMac(m) ?? m.trim());
+    // The H168-383 repeats the first MAC after </DevicesMACs>; only the container's list counts
+    const macList = getXmlBlocks(block, "DevicesMACs")[0] ?? "";
+    const macs = [...new Set(getXmlBlocks(macList, "DevicesMAC").map((m) => normalizeMac(m) ?? m.trim()))];
     const names = getXmlBlocks(block, "DevicesName").map((n) => huaweiXssDecode(n).trim());
     return {
       id: (getXmlTag(block, "ID") ?? "").trim(),

@@ -119,7 +119,7 @@ cpe.router.macFilter.enable = "1";
 cpe.router.macFilter.status = "2";
 cpe.router.macFilter.ssids[0]?.deny.push(["02:00:5E:10:00:05", "smart-plug"]);
 cpe.router.timeRules.rules.push({
-  ID: String(cpe.router.timeRules.nextId++),
+  ID: `InternetGatewayDevice.X_FireWall.TimeRule.${cpe.router.timeRules.nextId++}.`,
   Enable: "1",
   TimeMode: "1",
   WeekEnable: "1111100",

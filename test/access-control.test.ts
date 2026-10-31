@@ -70,6 +70,17 @@ describe("access-control: reading the router", () => {
     assert.deepEqual(parseTimeRules(""), { supported: false, maxRules: 0, rules: [] });
   });
 
+  it("parses the H168-383's own time rule read-back: TR-069 rule IDs and a stray DevicesMAC outside DevicesMACs", () => {
+    // Captured from the real router after a create (MAC replaced with a documentation address)
+    const real =
+      "<response><TimeRuleMaxNum>16</TimeRuleMaxNum><TimeControlRules><TimeControlRule><DevicesNames><DevicesName>phone</DevicesName></DevicesNames>" +
+      `<ID>InternetGatewayDevice.X_FireWall.TimeRule.1.</ID><Enable>1</Enable><StartTime>03:00</StartTime><EndTime>04:00</EndTime><WeekEnable>1111111</WeekEnable><TimeMode>0</TimeMode>` +
+      `<DevicesMACs><DevicesMAC>${PHONE}</DevicesMAC></DevicesMACs><DevicesMAC>${PHONE}</DevicesMAC></TimeControlRule></TimeControlRules></response>`;
+    assert.deepEqual(parseTimeRules(real).rules, [
+      { id: "InternetGatewayDevice.X_FireWall.TimeRule.1.", enabled: true, devices: [{ macAddress: PHONE, name: "phone" }], weekMask: "1111111", startTime: "03:00", endTime: "04:00" },
+    ]);
+  });
+
   it("fetches one snapshot of both features", async () => {
     const { run } = setup();
     const snap = await run((session) => fetchAccessControl(session));

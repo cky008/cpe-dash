@@ -115,7 +115,10 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
       maxEntries: 64,
       ssids: Array.from({ length: 13 }, () => ({ allow: [] as string[][], deny: [] as string[][] })),
     },
-    /** Parental-control "internet time" rules (`/api/timerule/timerule`). */
+    /**
+     * Parental-control "internet time" rules (`/api/timerule/timerule`), read back in the H168-383's
+     * own shape: TR-069 rule IDs and the first MAC repeated after `</DevicesMACs>`.
+     */
     timeRules: {
       max: 16,
       nextId: 1,
@@ -133,12 +136,12 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
       .map((ssid, index) => `<Ssid><wifimacwhitelist>${macFilterSlots(ssid.allow)}</wifimacwhitelist><Index>${index}</Index><wifimacblacklist>${macFilterSlots(ssid.deny)}</wifimacblacklist></Ssid>`)
       .join("")}</Ssids><wifimacfilterstatus>${router.macFilter.status}</wifimacfilterstatus><enable>${router.macFilter.enable}</enable></response>`;
   const timeRulesXml = (): string =>
-    `<response><TimeControlRules>${router.timeRules.rules
+    `<response><TimeRuleMaxNum>${router.timeRules.max}</TimeRuleMaxNum><TimeControlRules>${router.timeRules.rules
       .map(
         (r) =>
-          `<TimeControlRule><ID>${r.ID}</ID><Enable>${r.Enable}</Enable><TimeMode>${r.TimeMode}</TimeMode><WeekEnable>${r.WeekEnable}</WeekEnable><StartTime>${r.StartTime}</StartTime><EndTime>${r.EndTime}</EndTime><DevicesMACs>${r.macs.map((m) => `<DevicesMAC>${m}</DevicesMAC>`).join("")}</DevicesMACs><DevicesNames>${r.names.map((n) => `<DevicesName>${n}</DevicesName>`).join("")}</DevicesNames></TimeControlRule>`
+          `<TimeControlRule><DevicesNames>${r.names.map((n) => `<DevicesName>${n}</DevicesName>`).join("")}</DevicesNames><ID>${r.ID}</ID><Enable>${r.Enable}</Enable><StartTime>${r.StartTime}</StartTime><EndTime>${r.EndTime}</EndTime><WeekEnable>${r.WeekEnable}</WeekEnable><TimeMode>${r.TimeMode}</TimeMode><DevicesMACs>${r.macs.map((m) => `<DevicesMAC>${m}</DevicesMAC>`).join("")}</DevicesMACs>${r.macs[0] ? `<DevicesMAC>${r.macs[0]}</DevicesMAC>` : ""}</TimeControlRule>`
       )
-      .join("")}</TimeControlRules><TimeRuleMaxNum>${router.timeRules.max}</TimeRuleMaxNum></response>`;
+      .join("")}</TimeControlRules></response>`;
 
   const stats = {
     requests: [] as Array<{ path: string; method: string }>,
@@ -408,14 +411,14 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
         WeekEnable: getXmlTag(r, "WeekEnable") ?? "",
         StartTime: getXmlTag(r, "StartTime") ?? "",
         EndTime: getXmlTag(r, "EndTime") ?? "",
-        macs: getXmlBlocks(r, "DevicesMAC"),
+        macs: getXmlBlocks(getXmlBlocks(r, "DevicesMACs")[0] ?? "", "DevicesMAC"),
         names: getXmlBlocks(r, "DevicesName"),
       };
       const id = getXmlTag(r, "ID") ?? "";
       const at = router.timeRules.rules.findIndex((rule) => rule.ID === id);
       if (action === "create") {
         if (router.timeRules.rules.length >= router.timeRules.max) return xmlError("100006");
-        router.timeRules.rules.push({ ID: String(router.timeRules.nextId++), ...fields });
+        router.timeRules.rules.push({ ID: `InternetGatewayDevice.X_FireWall.TimeRule.${router.timeRules.nextId++}.`, ...fields });
       } else if (action === "update" && at >= 0) {
         router.timeRules.rules[at] = { ID: id, ...fields };
       } else if (action === "delete" && at >= 0) {
