@@ -56,7 +56,8 @@ function trafficXml(): string {
 }
 
 const HOSTS = [
-  { MACAddress: "02:00:5E:10:00:01", HostName: "nas-ds923", IPAddress: "192.168.8.10", InterfaceType: "Ethernet", Layer2Interface: "LAN1", Frequency: "", EthernetSpeed: 1000, rate: 0, rssi: 0, AddressSource: "STATIC", LeaseTime: 0 },
+  // The daemon's own host: the router marks the client that asks for HostInfo
+  { MACAddress: "02:00:5E:10:00:01", HostName: "nas-ds923", IPAddress: "192.168.8.10", InterfaceType: "Ethernet", Layer2Interface: "LAN1", Frequency: "", EthernetSpeed: 1000, rate: 0, rssi: 0, AddressSource: "STATIC", LeaseTime: 0, IsLocalDevice: true },
   { MACAddress: "02:00:5E:10:00:02", HostName: "studio-mac", IPAddress: "192.168.8.21", InterfaceType: "Ethernet", Layer2Interface: "LAN2", Frequency: "", EthernetSpeed: 1000, rate: 0, rssi: 0, AddressSource: "DHCP", LeaseTime: 81_234 },
   { MACAddress: "02:00:5E:10:00:03", HostName: "living-room-tv", IPAddress: "192.168.8.33", InterfaceType: "Wireless", Layer2Interface: "SSID1", Frequency: "5GHz", EthernetSpeed: 0, rate: 1201, rssi: 38, AddressSource: "DHCP", LeaseTime: 64_002 },
   { MACAddress: "02:00:5E:10:00:04", HostName: "phone-wifi7", IPAddress: "192.168.8.44", InterfaceType: "Wireless", Layer2Interface: "SSID7", Frequency: "5GHz_1", EthernetSpeed: 0, rate: 2882, rssi: 31, AddressSource: "DHCP", LeaseTime: 72_302 },
@@ -66,16 +67,22 @@ const HOSTS = [
 
 function hostInfoJson(): string {
   return JSON.stringify(
-    HOSTS.map((host, i) => ({
-      ID: `InternetGatewayDevice.LANDevice.1.Hosts.Host.${i + 1}.`,
-      ActualName: host.HostName,
-      IPv6Address: `fe80::${i + 1};2001:db8::${(i + 1) * 10}`,
-      V6Active: true,
-      Active: host.Active ?? true,
-      PhyType: host.EthernetSpeed,
-      AssociatedTime: 7200 + i * 900,
-      ...host,
-    }))
+    HOSTS.map((host, i) => {
+      // A device the Wi-Fi MAC filter keeps out drops off the network, as on the real router
+      const cutOff = host.InterfaceType === "Wireless" && cpe.isWifiBlocked(host.MACAddress);
+      return {
+        ID: `InternetGatewayDevice.LANDevice.1.Hosts.Host.${i + 1}.`,
+        ActualName: host.HostName,
+        IPv6Address: `fe80::${i + 1};2001:db8::${(i + 1) * 10}`,
+        V6Active: true,
+        PhyType: host.EthernetSpeed,
+        AssociatedTime: 7200 + i * 900,
+        IsLocalDevice: false,
+        ...host,
+        Active: cutOff ? false : (host.Active ?? true),
+        WlanActive: host.InterfaceType === "Wireless" && !cutOff && (host.Active ?? true),
+      };
+    })
   );
 }
 
@@ -105,6 +112,21 @@ const cpe = createStrictCpe({
     const fixed = STATIC_BODIES[p];
     return fixed === undefined ? undefined : { body: fixed };
   },
+});
+
+// Access control: the smart plug sits on the Wi-Fi blacklist, the Wi-Fi 7 phone has school-night hours
+cpe.router.macFilter.enable = "1";
+cpe.router.macFilter.status = "2";
+cpe.router.macFilter.ssids[0]?.deny.push(["02:00:5E:10:00:05", "smart-plug"]);
+cpe.router.timeRules.rules.push({
+  ID: String(cpe.router.timeRules.nextId++),
+  Enable: "1",
+  TimeMode: "1",
+  WeekEnable: "1111100",
+  StartTime: "07:00",
+  EndTime: "21:30",
+  macs: ["02:00:5E:10:00:04"],
+  names: ["phone-wifi7"],
 });
 
 /** Mirror set-read / delete-sms onto the model (the strict router only acknowledges them). */
