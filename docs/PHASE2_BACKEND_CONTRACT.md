@@ -611,7 +611,7 @@ export interface SettingsRefreshResponse {
 >
 > **校验时机**：所有请求参数（类型、频段、PCI、IPv4、开关布尔值、天线模式、`confirm`）都在入队前同步校验，非法参数返回 `400 VALIDATION_ERROR`，且不产生任何 CPE 会话。
 >
-> **频段与频点边界（Phase 2.5）**：LTE 频段只接受 H168-383 在 `net-mode-list` 中通告的 14 个频段（`B1/B3/B5/B7/B8/B20/B28/B32/B38/B40/B41/B42/B43/B71`）；NR 频段只接受 3GPP FR1 表中的 `N1/N3/N5/N7/N8/N20/N28/N38/N40/N41/N75/N76/N77/N78/N79`；锁小区 / 锁频点的 `arfcn` 必须落在该频段的 3GPP 下行 EARFCN / NR-ARFCN 范围内（如 `B3` 为 `1200..1949`）。范围表见 [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 4.1 节。
+> **频段与频点边界（Phase 2.5）**：LTE 频段只接受 H168-383 在 `net-mode-list` 中通告的 14 个频段（`B1/B3/B5/B7/B8/B20/B28/B32/B38/B40/B41/B42/B43/B71`）；NR 频段只接受 H168-383 规格书中的 `N1/N3/N5/N7/N8/N20/N28/N38/N40/N41/N71/N75/N77/N78/N79`（路由器不通告 NR 频段；规格书的 LTE 列表与路由器通告的完全一致）；锁小区 / 锁频点的 `arfcn` 必须落在该频段的 3GPP 下行 EARFCN / NR-ARFCN 范围内（如 `B3` 为 `1200..1949`）。范围表见 [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 4.1 节。
 >
 > **读-改-写不写猜测值**：防火墙与 Wi-Fi 7 开关需要先读取当前值再合并写入。读取失败或响应缺少字段时，请求在**任何写入之前**以 `502` 失败（防火墙读取发生在 UPnP / DMZ 写入之前），绝不按默认值回写未改动的开关。唯一依赖路由器状态的检查是「`dmz.enabled: true` 但未提供 `ipAddress`」：服务端需要在会话内读取路由器当前的 `DmzIPAddress`，若为空则在**任何写入之前**返回 `400`，不会留下 UPnP 等部分写入。
 >
@@ -1024,7 +1024,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 6. **通知为至多一次投递**：Telegram 与 Webhook 推送失败只记录在 `/api/alerts` 的 `notifications` 统计中（Webhook 重试一次），不做持久化重投。服务离线期间到达且仍未读的来信会在重启后的首次同步中补推；只有本地镜像从未完成首次同步时（首次部署、镜像被隔离或删除），CPE 上已有的短信才会被视为历史而不推送（`SMS_SEED_EXISTING_ON_START=false` 可关闭此行为）。
 7. **MCP 发送额度保存在内存中**：`MCP_SMS_SEND_LIMIT_PER_HOUR` 的计数在进程重启后清零。
 8. **Telegram 仅支持长轮询**：不注册 Bot Webhook；同一 Bot Token 只能由一个 `serve` 进程使用（否则 `getUpdates` 冲突）。数据目录锁只防止同一目录上的第二个守护进程，不同主机（如 Mac 与 NAS）上各跑一个守护进程仍会争抢同一台 CPE 与同一个 Bot Token。
-9. **NR 频段表不是硬件能力表**：H168-383 不通告其 NR 频段列表，NR 校验基于 3GPP FR1 频段表；对设备不支持的 NR 频段下发锁定仍可能失去 5G（LTE 锚点保留）。
+9. **NR 频段表来自规格书而非路由器**：H168-383 不通告 NR 频段列表，NR 白名单取自 Huawei 规格书（其 LTE 列表与路由器 `net-mode-list` 通告的 14 个频段完全一致，`n78` 在真机上实际服务）。SUL 频段 `n80–n84` 仅用于上行，不可作为下行频段锁定。
 10. **Webhook / Telegram 传输**：`WEBHOOK_URL` 与 `TELEGRAM_API_BASE` 只有局域网 / 环回主机可用明文 `http`，其余必须 `https`。
 
 ---

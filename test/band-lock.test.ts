@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   H168_383_LTE_BANDS,
+  H168_383_NR_BANDS,
   HUAWEI_LTE_ALL_BANDS_MASK,
   HUAWEI_NETWORK_ALL_BANDS_MASK,
   LOCK_MODE_BAND,
@@ -132,11 +133,16 @@ describe("lock parameters are bounded by the H168-383 band list and 3GPP ARFCN r
     assert.equal(getXmlTag(buildLteBandNetModeXml(["B71"]), "LTEBand"), "400000000000000000");
   });
 
-  it("only locks NR bands from the 3GPP FR1 table", () => {
-    assert.throws(() => buildNrBandLockXml(["N255"]), /not a known 3GPP NR band/);
+  it("only locks NR bands from the H168-383 hardware band list", () => {
+    assert.deepEqual(H168_383_NR_BANDS, [1, 3, 5, 7, 8, 20, 28, 38, 40, 41, 71, 75, 77, 78, 79]);
+    assert.deepEqual(Object.keys(NR_DL_ARFCN_RANGES).map(Number), [...H168_383_NR_BANDS], "one ARFCN range per supported band");
+    for (const unsupported of ["N255", "N2", "N76", "N66", "N80"]) {
+      assert.throws(() => buildNrBandLockXml([unsupported]), /not supported by the H168-383/, unsupported);
+    }
     assert.throws(() => buildNrBandLockXml(["N78", "N2"]), /N2/);
     assert.equal(getXmlTag(getXmlBlocks(buildNrBandLockXml(["N28", "N78"]), "nr_info")[0]!, "all_bands"), bandsToHexMask([28, 78]));
-    assert.ok(Object.keys(NR_DL_ARFCN_RANGES).length >= 10);
+    assert.equal(getXmlTag(buildNrCellLockXml({ band: "N71", nrArfcn: 126000 }), "freq"), "126000", "n71 (600 MHz) is in the hardware list");
+    assert.throws(() => buildNrCellLockXml({ band: "N71", nrArfcn: 131000 }), /Invalid ARFCN 131000 for N71 \(3GPP DL NR-ARFCN 123400\.\.130400\)/);
   });
 
   it("rejects a cell lock whose ARFCN lies outside the band's downlink range", () => {

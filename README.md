@@ -164,7 +164,7 @@ sequenceDiagram
   - 来信卡片（验证码、回复即发送、已读 / 会话 / 删除确认按钮）、引导式发短信、会话与通讯录查询、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警引擎覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储、流量阈值与锁定漂移（路由器不再符合已下发的锁频 / 锁小区），带持续窗口与恢复迟滞。
 - **🤖 原生 MCP Server（Streamable HTTP `/mcp` + 零状态 `stdio` 桥接）**
   - 零外部依赖完整实现 JSON-RPC 2.0 MCP 服务端（[`FengSuiMcpServer`](src/mcp-server.ts)，协议 `2025-11-25` / `2025-06-18` / `2025-03-26` / `2024-11-05`），挂载在守护进程 `/mcp`；`cpe-dash mcp` 只是把 stdio 转发到该端点的零状态桥接，**整个系统只有守护进程一个 CPE 会话出口**。向 Claude Desktop、Antigravity、Cursor 及内网自动化 Agent 暴露 **13 项核心工具**与**最多 10 项短信工具**（按 `MCP_SMS_ACCESS` 分级）。
-  - 工具 `inputSchema` 在服务端强制校验（未知键、缺失、类型、范围），`reboot_cpe`、`reconnect_cellular`、`send_sms`、`delete_sms` 强制 `{ confirm: true }`；锁频段只接受 H168-383 支持的 LTE 频段与 3GPP NR 频段，锁小区的 ARFCN 必须落在该频段范围内，且 `lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止智能体幻觉参数断网；短信正文按不可信数据处理，发送默认仅限已知号码并按小时限额，防范提示词注入。
+  - 工具 `inputSchema` 在服务端强制校验（未知键、缺失、类型、范围），`reboot_cpe`、`reconnect_cellular`、`send_sms`、`delete_sms` 强制 `{ confirm: true }`；锁频段只接受 H168-383 支持的 LTE 与 NR 频段，锁小区的 ARFCN 必须落在该频段范围内，且 `lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止智能体幻觉参数断网；短信正文按不可信数据处理，发送默认仅限已知号码并按小时限额，防范提示词注入。
 - **🛡️ 现代 Web 纵深防御体系**
   - 内置 `Host` 白名单防 DNS Rebinding (`421`)、`SameSite=Strict; HttpOnly` 会话隔离、`X-Requested-With` + `Origin` 双重防 CSRF、`net.BlockList` 可信反代 CIDR 校验 + IPv6 `/64` 速率限制桶、无原型字典防 Prototype Pollution、线性扫描防 ReDoS 以及 `normalizeCpeUrl` 私网源防 SSRF。
 

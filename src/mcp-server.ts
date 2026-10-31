@@ -1,4 +1,4 @@
-import { H168_383_LTE_BANDS, NR_DL_ARFCN_RANGES } from "./band-lock.ts";
+import { H168_383_LTE_BANDS, H168_383_NR_BANDS } from "./band-lock.ts";
 import {
   readAntennaMode,
   readBandSelection,
@@ -104,7 +104,7 @@ function asNumberOpt(obj: Record<string, unknown>, key: string): number | undefi
 }
 
 const LTE_BAND_LIST = H168_383_LTE_BANDS.map((b) => `B${b}`).join(", ");
-const NR_BAND_LIST = Object.keys(NR_DL_ARFCN_RANGES).map((b) => `N${b}`).join(", ");
+const NR_BAND_LIST = H168_383_NR_BANDS.map((b) => `N${b}`).join(", ");
 
 const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
@@ -225,7 +225,7 @@ const MCP_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
     name: "lock_band",
     title: "Lock 4G LTE & 5G NR Frequency Bands",
-    description: `Dynamically lock 4G LTE bands (via BandMask bitwise codec) and/or 5G NR bands (via lock_mode=3), e.g., lteBands=['B1','B3'], nrBands=['N78']. LTE bands must be ones the H168-383 supports (${LTE_BAND_LIST}); NR bands must be ${NR_BAND_LIST}. Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.`,
+    description: `Dynamically lock 4G LTE bands (via BandMask bitwise codec) and/or 5G NR bands (via lock_mode=3), e.g., lteBands=['B1','B3'], nrBands=['N78']. LTE bands must be ones the H168-383 supports (${LTE_BAND_LIST}); NR bands must be ones it supports (${NR_BAND_LIST}). Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.`,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
