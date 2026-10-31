@@ -18,9 +18,12 @@ export const MAX_STDIO_LINE_BYTES = 64 * 1024;
 const MAX_DAEMON_RESPONSE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_FORWARD_TIMEOUT_MS = 5 * 60_000;
 
-/** JSON-RPC implementation-defined server errors returned by the bridge itself. */
-export const BRIDGE_DAEMON_REJECTED = -32001;
-export const BRIDGE_DAEMON_UNREACHABLE = -32002;
+/**
+ * JSON-RPC errors returned by the bridge itself, in the implementation-defined range (-32000..-32019)
+ * but clear of the SDKs' -32000/-32001 and the pre-2026 resource-not-found -32002.
+ */
+export const BRIDGE_DAEMON_UNREACHABLE = -32010;
+export const BRIDGE_DAEMON_REJECTED = -32011;
 
 /**
  * Split an NDJSON byte stream into lines. A line longer than `maxLineBytes` is never buffered:

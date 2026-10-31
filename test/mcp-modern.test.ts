@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { McpStdioBridge } from "../src/mcp-stdio-bridge.ts";
+import { BRIDGE_DAEMON_REJECTED, BRIDGE_DAEMON_UNREACHABLE, McpStdioBridge } from "../src/mcp-stdio-bridge.ts";
 import { LATEST_LEGACY_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "../src/mcp-server.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 
@@ -164,5 +164,58 @@ describe("MCP 2026-07-28 (stateless) alongside the legacy initialize flow", () =
       assert.equal(nonAscii.result?.resultType, "complete");
       assert.equal(seen[1]?.["mcp-name"], "fengsui://session/status");
     });
+  });
+
+  it("marks cacheable results with ttlMs and cacheScope, drops ping and initialize, and answers unknown resources per revision", async () => {
+    await withDaemon(async ({ rpc }) => {
+      const headers = (method: string, name?: string): Record<string, string> => ({
+        "MCP-Protocol-Version": MODERN,
+        "Mcp-Method": method,
+        ...(name ? { "Mcp-Name": name } : {}),
+      });
+      // CacheableResult (SEP-2549) is required on these four results; FengSui data is per token
+      const cacheable: Array<[string, Record<string, unknown>, string | undefined]> = [
+        ["server/discover", {}, undefined],
+        ["tools/list", {}, undefined],
+        ["resources/list", {}, undefined],
+        ["resources/read", { uri: "fengsui://telemetry/latest" }, "fengsui://telemetry/latest"],
+      ];
+      const ttls: Record<string, number> = {};
+      for (const [method, params, name] of cacheable) {
+        const res = await rpc(modern(10, method, params), headers(method, name));
+        assert.equal(res.status, 200, method);
+        assert.equal(res.json.result.cacheScope, "private", method);
+        assert.ok(Number.isInteger(res.json.result.ttlMs) && res.json.result.ttlMs >= 0, method);
+        ttls[method] = res.json.result.ttlMs;
+      }
+      assert.equal(ttls["resources/read"], 0, "live router data is never served from a cache");
+      assert.ok((ttls["tools/list"] ?? 0) > 0 && (ttls["server/discover"] ?? 0) > 0, "static lists may be cached");
+
+      // Removed from 2026-07-28: a modern request for them is an unknown method (404 + -32601)
+      for (const method of ["ping", "initialize"]) {
+        const removed = await rpc(modern(11, method, method === "initialize" ? { protocolVersion: MODERN } : {}), headers(method));
+        assert.equal(removed.status, 404, method);
+        assert.equal(removed.json.error.code, -32601, method);
+      }
+      const legacyPing = await rpc({ jsonrpc: "2.0", id: 12, method: "ping" }, { "MCP-Protocol-Version": "2025-11-25" });
+      assert.deepEqual([legacyPing.status, legacyPing.json.result], [200, {}], "legacy clients keep ping");
+      const legacyList = await rpc({ jsonrpc: "2.0", id: 13, method: "tools/list" }, { "MCP-Protocol-Version": "2025-11-25" });
+      assert.equal(legacyList.json.result.ttlMs, undefined, "legacy results keep their legacy shape");
+
+      // Resource not found: -32602 since 2026-07-28, -32002 before; both name the URI
+      const modernMissing = await rpc(modern(14, "resources/read", { uri: "fengsui://nope" }), headers("resources/read", "fengsui://nope"));
+      assert.equal(modernMissing.status, 200);
+      assert.equal(modernMissing.json.error.code, -32602);
+      assert.deepEqual(modernMissing.json.error.data, { uri: "fengsui://nope" });
+      const legacyMissing = await rpc({ jsonrpc: "2.0", id: 15, method: "resources/read", params: { uri: "fengsui://nope" } }, { "MCP-Protocol-Version": "2025-11-25" });
+      assert.equal(legacyMissing.json.error.code, -32002);
+      assert.deepEqual(legacyMissing.json.error.data, { uri: "fengsui://nope" });
+    });
+  });
+
+  it("keeps the stdio bridge's own error codes in the implementation-defined range, clear of MCP and SDK codes", () => {
+    // -32000/-32001 are SDK ConnectionClosed/RequestTimeout, -32002 the legacy resource-not-found, -32020.. the spec's
+    assert.equal(BRIDGE_DAEMON_UNREACHABLE, -32010);
+    assert.equal(BRIDGE_DAEMON_REJECTED, -32011);
   });
 });

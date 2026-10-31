@@ -499,7 +499,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       const r3Payload = r3.result as { contents: Array<{ text: string }> };
       assert.match(r3Payload.contents[0]?.text ?? "", /"mode"/);
 
-      // Unknown URI returns -32602
+      // Unknown URI: the pre-2026 "Resource not found" (-32002) for a legacy request, naming the URI
       const r4 = (await server.handleRawJsonMessage(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -508,8 +508,9 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           params: { uri: "fengsui://unknown/resource" },
         })
       )) as JsonRpcErrorResponse;
-      assert.equal(r4.error.code, -32602);
-      assert.match(r4.error.message, /Unknown resource URI/);
+      assert.equal(r4.error.code, -32002);
+      assert.match(r4.error.message, /Resource not found/);
+      assert.deepEqual(r4.error.data, { uri: "fengsui://unknown/resource" });
     } finally {
       fx.cleanup();
     }

@@ -42,6 +42,22 @@ export const LATEST_LEGACY_MCP_PROTOCOL_VERSION = "2025-11-25";
 /** JSON-RPC errors defined by 2026-07-28. */
 export const MCP_HEADER_MISMATCH = -32020;
 export const MCP_UNSUPPORTED_PROTOCOL_VERSION = -32022;
+/** Resource not found: `-32002` up to 2025-11-25, `-32602` (Invalid params) since 2026-07-28. */
+export const MCP_LEGACY_RESOURCE_NOT_FOUND = -32002;
+
+/** Removed by 2026-07-28 (stateless core): a modern request for one is an unknown method. */
+const REMOVED_IN_MODERN: ReadonlySet<string> = new Set(["initialize", "ping", "logging/setLevel"]);
+
+/**
+ * `ttlMs` for the 2026-07-28 `CacheableResult`s. Lists are fixed for the daemon's lifetime; resource
+ * contents are live router data. `cacheScope` is always `private`: results belong to one API token.
+ */
+const MODERN_CACHE_TTL_MS: Readonly<Record<string, number>> = {
+  "server/discover": 300_000,
+  "tools/list": 300_000,
+  "resources/list": 300_000,
+  "resources/read": 0,
+};
 
 /** Routing headers of a Streamable HTTP POST (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`). */
 export interface McpHttpRequestHeaders {
@@ -523,11 +539,16 @@ export class FengSuiMcpServer {
     }
 
     try {
-      const result = await this.#dispatchMethod(method, params);
-      // Stateless results declare their completion and identify the server in `_meta`
+      if (modern && REMOVED_IN_MODERN.has(method)) {
+        throw new McpProtocolRpcError(-32601, `Method not found: ${method} (removed in ${requested})`);
+      }
+      const result = await this.#dispatchMethod(method, params, modern);
+      // Stateless results declare their completion, cacheability and the server in `_meta`
+      const ttlMs = MODERN_CACHE_TTL_MS[method];
       const body = modern
         ? {
             ...(asRecord(result) ?? {}),
+            ...(ttlMs !== undefined ? { ttlMs, cacheScope: "private" } : {}),
             resultType: "complete",
             _meta: { ...(asRecord(asRecord(result)?.["_meta"]) ?? {}), [MCP_META_SERVER_INFO]: { ...SERVER_INFO } },
           }
@@ -535,7 +556,7 @@ export class FengSuiMcpServer {
       return { status: 200, body: { jsonrpc: "2.0", id: rpcId, result: body } };
     } catch (err) {
       if (err instanceof McpProtocolRpcError) {
-        return reply(http && modern && err.code === -32601 ? 404 : 200, rpcId, err.code, err.message);
+        return reply(http && modern && err.code === -32601 ? 404 : 200, rpcId, err.code, err.message, err.data);
       }
       return reply(200, rpcId, -32603, err instanceof Error ? err.message : "Internal MCP error");
     }
@@ -548,7 +569,7 @@ export class FengSuiMcpServer {
     ].join(" ");
   }
 
-  async #dispatchMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async #dispatchMethod(method: string, params: Record<string, unknown>, modern: boolean): Promise<unknown> {
     switch (method) {
       case "initialize": {
         const requestedVer =
@@ -570,8 +591,11 @@ export class FengSuiMcpServer {
       }
 
       case "server/discover":
+        // A DiscoverResult is a CacheableResult whatever version the probe declared
         return {
           resultType: "complete",
+          ttlMs: MODERN_CACHE_TTL_MS["server/discover"],
+          cacheScope: "private",
           supportedVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
           capabilities: {
             tools: { listChanged: false },
@@ -633,7 +657,7 @@ export class FengSuiMcpServer {
         } else {
           data = this.toolProviders.map((p) => p.readResource?.(uri)).find((value) => value !== undefined);
           if (data === undefined) {
-            throw new McpProtocolRpcError(-32602, `Unknown resource URI "${uri}"`);
+            throw new McpProtocolRpcError(modern ? -32602 : MCP_LEGACY_RESOURCE_NOT_FOUND, `Resource not found: "${uri}"`, { uri });
           }
         }
         return {
@@ -905,10 +929,12 @@ export class FengSuiMcpServer {
 
 class McpProtocolRpcError extends Error {
   readonly code: number;
+  readonly data: unknown;
 
-  constructor(code: number, message: string) {
+  constructor(code: number, message: string, data?: unknown) {
     super(message);
     this.name = "McpProtocolRpcError";
     this.code = code;
+    this.data = data;
   }
 }
