@@ -483,6 +483,7 @@ describe("web core: preferences", () => {
     storage.data.set(PREF_KEYS.monthlyCapBytes, "107374182400");
     storage.data.set(PREF_KEYS.dailyCapBytes, "-5");
     assert.deepEqual(loadPreferences(storage), {
+      ...DEFAULT_PREFERENCES,
       theme: "fengsui-ziming",
       accent: "jade",
       followSystem: false,
@@ -492,7 +493,7 @@ describe("web core: preferences", () => {
     });
     storage.data.set(PREF_KEYS.theme, "<script>");
     storage.data.set(PREF_KEYS.dailyCapBytes, "0");
-    assert.equal(loadPreferences(storage).theme, "fengsui-suzhi");
+    assert.equal(loadPreferences(storage).theme, "fengsui-sujian");
     assert.equal(loadPreferences(storage).dailyCapBytes, null);
     storage.failing = true;
     assert.deepEqual(loadPreferences(storage), DEFAULT_PREFERENCES);
@@ -511,9 +512,10 @@ describe("web core: preferences", () => {
     savePreference(storage, "locale", "en");
     assert.equal(isThemeId("fengsui-chenxi"), true);
     assert.equal(isAccentId("neon"), false);
-    assert.equal(effectiveTheme({ theme: "fengsui-chenxi", followSystem: true }, true), "fengsui-jiye");
-    assert.equal(effectiveTheme({ theme: "fengsui-chenxi", followSystem: true }, false), "fengsui-suzhi");
-    assert.equal(effectiveTheme({ theme: "fengsui-chenxi", followSystem: false }, true), "fengsui-chenxi");
+    const pair = { theme: "fengsui-chenxi", dayTheme: "fengsui-yuebai", nightTheme: "fengsui-konruri" } as const;
+    assert.equal(effectiveTheme({ ...pair, followSystem: true }, true), "fengsui-konruri");
+    assert.equal(effectiveTheme({ ...pair, followSystem: true }, false), "fengsui-yuebai");
+    assert.equal(effectiveTheme({ ...pair, followSystem: false }, true), "fengsui-chenxi");
   });
 });
 

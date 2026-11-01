@@ -7,7 +7,8 @@
  * Inherits cpe-sms's "素笺" paper-and-ink calm (layered paper surfaces, serif headings, soft ink
  * hairlines) and adds a 5G cockpit layer: tabular mono readings, gauge rings, cinnabar seal accents
  * and a faint instrument grid on the dark themes.
- * Themes: 素纸 Paper (light) · 晨曦 Dawn (warm light) · 极夜 Polar Night (black) · 紫溟 Violet Abyss (geek dark).
+ * Themes (see "Themes" below): seven light and seven dark palettes from cpe-sms, Chinese and Japanese
+ * traditional colours and FengSui's own, plus one the user builds; day and night themes are chosen apart.
  */
 /* Only the daisyUI parts the dashboard uses (keeps first-paint CSS small) */
 @plugin "daisyui" {
@@ -16,10 +17,194 @@
     input, select, join, loading, kbd, radius;
 }
 
-@plugin "daisyui/theme" {
-  name: "fengsui-suzhi";
-  default: true;
+/* ---------- Themes ---------- */
+/*
+ * Two layers. The scheme layer ([data-scheme], set together with the theme by boot.ts / theme.ts)
+ * holds what every light or dark palette shares: status colours, the signal-quality ramp, download /
+ * upload hues, seal and glow. The palette layer ([data-theme]) sets surfaces, ink and the primary
+ * family, and may override anything from the scheme. Palettes draw on Chinese (中国传统色) and
+ * Japanese (日本の伝統色) traditional colours; 素笺 is cpe-sms's own. "fengsui-custom" is built from
+ * the three colours a user picks (web/src/core/prefs.ts sets the --custom-* properties).
+ */
+:root {
+  --radius-selector: 0.5rem;
+  --radius-field: 0.625rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+  --custom-bg: #f6f7f9;
+  --custom-ink: #1d2128;
+  --custom-primary: #2f6fe0;
+  --custom-primary-content: #ffffff;
+  --accent-custom: #2f6fe0;
+  --accent-custom-content: #ffffff;
+}
+
+:root,
+[data-scheme="light"] {
   color-scheme: light;
+  --color-info: oklch(56% 0.12 235);
+  --color-info-content: oklch(99% 0 0);
+  --color-success: oklch(58% 0.13 155);
+  --color-success-content: oklch(99% 0 0);
+  --color-warning: oklch(72% 0.15 70);
+  --color-warning-content: oklch(26% 0.05 65);
+  --color-error: oklch(55% 0.19 27);
+  --color-error-content: oklch(99% 0 0);
+  --seal: oklch(55% 0.19 30);
+  --dl: oklch(55% 0.12 220);
+  --ul: oklch(64% 0.16 45);
+  --q4: oklch(58% 0.14 155);
+  --q3: oklch(62% 0.12 185);
+  --q2: oklch(70% 0.15 80);
+  --q1: oklch(65% 0.17 50);
+  --q0: oklch(56% 0.2 27);
+  --glow-strength: 0;
+  --page-texture: none;
+  --page-glow: 0%;
+}
+[data-scheme="dark"] {
+  color-scheme: dark;
+  --color-info: oklch(73% 0.12 230);
+  --color-info-content: oklch(18% 0.03 230);
+  --color-success: oklch(74% 0.14 155);
+  --color-success-content: oklch(18% 0.03 155);
+  --color-warning: oklch(81% 0.14 78);
+  --color-warning-content: oklch(21% 0.04 75);
+  --color-error: oklch(67% 0.19 24);
+  --color-error-content: oklch(99% 0 0);
+  --seal: oklch(64% 0.19 30);
+  --dl: oklch(80% 0.12 205);
+  --ul: oklch(76% 0.15 55);
+  --q4: oklch(77% 0.15 155);
+  --q3: oklch(78% 0.12 190);
+  --q2: oklch(82% 0.14 85);
+  --q1: oklch(75% 0.16 55);
+  --q0: oklch(67% 0.2 25);
+  --glow-strength: 1;
+  --page-texture: none;
+  --page-glow: 9%;
+}
+
+/* 素笺 Sujian · cpe-sms's own: paper white, cool graphite ink, lake blue */
+[data-theme="fengsui-sujian"] {
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(97.2% 0.003 265);
+  --color-base-300: oklch(92.4% 0.005 265);
+  --color-base-content: oklch(22.5% 0.008 265);
+  --color-primary: oklch(55.5% 0.19 257);
+  --color-primary-content: oklch(100% 0 0);
+  --color-secondary: oklch(58% 0.19 295);
+  --color-secondary-content: oklch(100% 0 0);
+  --color-accent: oklch(76% 0.16 75);
+  --color-accent-content: oklch(25% 0.05 75);
+  --color-neutral: oklch(26% 0.008 265);
+  --color-neutral-content: oklch(98% 0.002 265);
+  --color-info: oklch(62% 0.17 245);
+  --color-success: oklch(64% 0.16 152);
+  --color-warning: oklch(75% 0.16 72);
+  --color-warning-content: oklch(25% 0.05 72);
+  --color-error: oklch(61% 0.21 25);
+  --dl: oklch(58% 0.16 252);
+  --page-bg: oklch(97.6% 0.003 265);
+  --surface: oklch(100% 0 0 / 0.94);
+  --surface-solid: oklch(100% 0 0);
+  --hairline: oklch(22% 0.01 265 / 0.09);
+  --grid-line: oklch(22% 0.01 265 / 0.05);
+}
+
+/* 月白 Moon White · 中国色: moonlit blue-white, 黛 ink, 靛青 indigo, 胭脂 rouge */
+[data-theme="fengsui-yuebai"] {
+  --color-base-100: oklch(99.5% 0.004 215);
+  --color-base-200: oklch(96% 0.01 215);
+  --color-base-300: oklch(90.8% 0.016 220);
+  --color-base-content: oklch(28% 0.03 248);
+  --color-primary: oklch(47% 0.11 245);
+  --color-primary-content: oklch(99% 0.004 215);
+  --color-secondary: oklch(48% 0.15 12);
+  --color-secondary-content: oklch(99% 0 0);
+  --color-accent: oklch(66% 0.08 225);
+  --color-accent-content: oklch(20% 0.03 230);
+  --color-neutral: oklch(30% 0.03 248);
+  --color-neutral-content: oklch(97% 0.008 215);
+  --seal: oklch(50% 0.16 15);
+  --page-bg: oklch(96.6% 0.011 215);
+  --surface: oklch(99.6% 0.004 215 / 0.9);
+  --surface-solid: oklch(99.6% 0.004 215);
+  --hairline: oklch(32% 0.04 240 / 0.1);
+  --grid-line: oklch(32% 0.04 240 / 0.06);
+}
+
+/* 天青 Celadon · 中国色: Ru-ware sky after rain, 青碧 glaze, 朱砂 cinnabar */
+[data-theme="fengsui-tianqing"] {
+  --color-base-100: oklch(99% 0.005 175);
+  --color-base-200: oklch(95% 0.013 175);
+  --color-base-300: oklch(89.6% 0.02 178);
+  --color-base-content: oklch(28.5% 0.025 195);
+  --color-primary: oklch(53% 0.08 192);
+  --color-primary-content: oklch(99% 0.004 175);
+  --color-secondary: oklch(56% 0.17 35);
+  --color-secondary-content: oklch(99% 0 0);
+  --color-accent: oklch(78% 0.1 85);
+  --color-accent-content: oklch(28% 0.05 85);
+  --color-neutral: oklch(30% 0.025 195);
+  --color-neutral-content: oklch(97% 0.008 175);
+  --dl: oklch(55% 0.09 200);
+  --page-bg: oklch(95.6% 0.014 172);
+  --surface: oklch(99.4% 0.005 175 / 0.9);
+  --surface-solid: oklch(99.4% 0.005 175);
+  --hairline: oklch(33% 0.04 190 / 0.11);
+  --grid-line: oklch(33% 0.04 190 / 0.06);
+}
+
+/* 桜 Sakura · 日本の伝統色: cherry-blossom white, 墨 ink, 今様色 rose, 藍 indigo */
+[data-theme="fengsui-sakura"] {
+  --color-base-100: oklch(99.5% 0.004 355);
+  --color-base-200: oklch(96.2% 0.012 355);
+  --color-base-300: oklch(91.4% 0.02 355);
+  --color-base-content: oklch(27% 0.015 350);
+  --color-primary: oklch(58% 0.15 5);
+  --color-primary-content: oklch(99.5% 0.004 355);
+  --color-secondary: oklch(46% 0.09 240);
+  --color-secondary-content: oklch(99% 0 0);
+  --color-accent: oklch(74% 0.12 130);
+  --color-accent-content: oklch(25% 0.05 130);
+  --color-neutral: oklch(29% 0.015 350);
+  --color-neutral-content: oklch(97% 0.006 355);
+  --seal: oklch(56% 0.19 18);
+  --page-bg: oklch(97.3% 0.011 355);
+  --surface: oklch(99.7% 0.003 355 / 0.9);
+  --surface-solid: oklch(99.7% 0.003 355);
+  --hairline: oklch(32% 0.03 355 / 0.1);
+  --grid-line: oklch(32% 0.03 355 / 0.06);
+}
+
+/* 若竹 Wakatake · 日本の伝統色: young bamboo, 常磐 evergreen, 朱 vermilion, 山吹 gold */
+[data-theme="fengsui-wakatake"] {
+  --color-base-100: oklch(99.3% 0.005 150);
+  --color-base-200: oklch(95.6% 0.013 150);
+  --color-base-300: oklch(90.6% 0.02 152);
+  --color-base-content: oklch(27% 0.02 160);
+  --color-primary: oklch(52% 0.1 158);
+  --color-primary-content: oklch(99% 0.004 150);
+  --color-secondary: oklch(55% 0.16 30);
+  --color-secondary-content: oklch(99% 0 0);
+  --color-accent: oklch(79% 0.14 85);
+  --color-accent-content: oklch(26% 0.05 80);
+  --color-neutral: oklch(29% 0.02 160);
+  --color-neutral-content: oklch(97% 0.008 150);
+  --page-bg: oklch(96.6% 0.012 148);
+  --surface: oklch(99.5% 0.004 150 / 0.9);
+  --surface-solid: oklch(99.5% 0.004 150);
+  --hairline: oklch(32% 0.035 160 / 0.1);
+  --grid-line: oklch(32% 0.035 160 / 0.06);
+}
+
+/* 素纸 Paper · FengSui: Xuan paper with a fibre texture */
+[data-theme="fengsui-suzhi"] {
   --color-base-100: oklch(99.2% 0.003 85);
   --color-base-200: oklch(96.6% 0.007 85);
   --color-base-300: oklch(91.8% 0.011 82);
@@ -32,27 +217,15 @@
   --color-accent-content: oklch(25% 0.04 70);
   --color-neutral: oklch(27% 0.014 60);
   --color-neutral-content: oklch(97% 0.006 85);
-  --color-info: oklch(56% 0.12 235);
-  --color-info-content: oklch(99% 0 0);
-  --color-success: oklch(58% 0.13 155);
-  --color-success-content: oklch(99% 0 0);
-  --color-warning: oklch(72% 0.15 70);
-  --color-warning-content: oklch(26% 0.05 65);
-  --color-error: oklch(55% 0.19 27);
-  --color-error-content: oklch(99% 0 0);
-  --radius-selector: 0.5rem;
-  --radius-field: 0.625rem;
-  --radius-box: 1rem;
-  --size-selector: 0.25rem;
-  --size-field: 0.25rem;
-  --border: 1px;
-  --depth: 0;
-  --noise: 0;
+  --surface: oklch(100% 0 0 / 0.86);
+  --surface-solid: oklch(99.8% 0.002 85);
+  --hairline: oklch(25% 0.02 60 / 0.09);
+  --grid-line: oklch(25% 0.02 60 / 0.06);
+  --page-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .3 0 0 0 0 .22 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-@plugin "daisyui/theme" {
-  name: "fengsui-chenxi";
-  color-scheme: light;
+/* 晨曦 Dawn · FengSui: warm morning paper */
+[data-theme="fengsui-chenxi"] {
   --color-base-100: oklch(98.6% 0.012 82);
   --color-base-200: oklch(95.2% 0.021 78);
   --color-base-300: oklch(89.6% 0.03 74);
@@ -66,60 +239,171 @@
   --color-neutral: oklch(31% 0.03 52);
   --color-neutral-content: oklch(97% 0.012 80);
   --color-info: oklch(57% 0.11 235);
-  --color-info-content: oklch(99% 0 0);
   --color-success: oklch(58% 0.13 150);
-  --color-success-content: oklch(99% 0 0);
   --color-warning: oklch(71% 0.15 68);
   --color-warning-content: oklch(27% 0.05 65);
   --color-error: oklch(55% 0.19 28);
-  --color-error-content: oklch(99% 0 0);
-  --radius-selector: 0.5rem;
-  --radius-field: 0.625rem;
-  --radius-box: 1rem;
-  --size-selector: 0.25rem;
-  --size-field: 0.25rem;
-  --border: 1px;
-  --depth: 0;
-  --noise: 0;
+  --seal: oklch(54% 0.19 32);
+  --dl: oklch(55% 0.11 230);
+  --ul: oklch(62% 0.16 42);
+  --q4: oklch(57% 0.13 150);
+  --q3: oklch(61% 0.11 185);
+  --q2: oklch(69% 0.15 78);
+  --q1: oklch(64% 0.17 48);
+  --q0: oklch(55% 0.2 28);
+  --surface: oklch(99.6% 0.008 82 / 0.82);
+  --surface-solid: oklch(99.4% 0.008 82);
+  --hairline: oklch(35% 0.04 55 / 0.11);
+  --grid-line: oklch(35% 0.04 55 / 0.07);
+  --page-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .32 0 0 0 0 .18 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-@plugin "daisyui/theme" {
-  name: "fengsui-jiye";
-  prefersdark: true;
-  color-scheme: dark;
+/* 素笺·夜 Sujian Night · cpe-sms's own dark: soft graphite, lake blue, no instrument grid */
+[data-theme="fengsui-sujian-ye"] {
+  --color-base-100: oklch(21.4% 0.004 285);
+  --color-base-200: oklch(17.8% 0.004 285);
+  --color-base-300: oklch(29% 0.006 285);
+  --color-base-content: oklch(93.5% 0.003 285);
+  --color-primary: oklch(67% 0.17 255);
+  --color-primary-content: oklch(17% 0.03 255);
+  --color-secondary: oklch(70% 0.16 295);
+  --color-secondary-content: oklch(18% 0.03 295);
+  --color-accent: oklch(80% 0.15 75);
+  --color-accent-content: oklch(25% 0.05 75);
+  --color-neutral: oklch(31% 0.006 285);
+  --color-neutral-content: oklch(96% 0.002 285);
+  --color-info: oklch(70% 0.14 245);
+  --color-info-content: oklch(20% 0.03 245);
+  --color-success: oklch(72% 0.15 152);
+  --color-success-content: oklch(20% 0.03 152);
+  --color-warning: oklch(80% 0.15 75);
+  --color-warning-content: oklch(22% 0.04 75);
+  --color-error: oklch(68% 0.19 25);
+  --color-error-content: oklch(100% 0 0);
+  --dl: oklch(74% 0.13 240);
+  --glow-strength: 0.35;
+  --page-glow: 0%;
+  --page-bg: oklch(18.4% 0.004 285);
+  --surface: oklch(22.4% 0.005 285 / 0.92);
+  --surface-solid: oklch(22.4% 0.005 285);
+  --hairline: oklch(93% 0.005 285 / 0.08);
+  --grid-line: transparent;
+}
+
+/* 墨 Sumi · 日本の伝統色: ink-stone black, 胡粉 shell white, 朱 vermilion, 山吹 gold */
+[data-theme="fengsui-sumi"] {
+  --color-base-100: oklch(19.6% 0.003 70);
+  --color-base-200: oklch(15.6% 0.003 70);
+  --color-base-300: oklch(27.5% 0.004 70);
+  --color-base-content: oklch(93.5% 0.008 85);
+  --color-primary: oklch(56% 0.18 33);
+  --color-primary-content: oklch(99% 0.005 85);
+  --color-secondary: oklch(80% 0.12 82);
+  --color-secondary-content: oklch(22% 0.04 80);
+  --color-accent: oklch(72% 0.08 230);
+  --color-accent-content: oklch(18% 0.03 230);
+  --color-neutral: oklch(28% 0.004 70);
+  --color-neutral-content: oklch(95% 0.006 85);
+  --seal: oklch(63% 0.19 32);
+  --glow-strength: 0.5;
+  --page-glow: 5%;
+  --page-bg: oklch(15.8% 0.003 70);
+  --surface: oklch(20.8% 0.003 70 / 0.9);
+  --surface-solid: oklch(20.8% 0.003 70);
+  --hairline: oklch(94% 0.01 85 / 0.08);
+  --grid-line: transparent;
+}
+
+/* 黛蓝 Indigo Ink · 中国色: 黛蓝 night, 月白 text, 天青 sky, 胭脂 rouge */
+[data-theme="fengsui-dailan"] {
+  --color-base-100: oklch(23% 0.03 255);
+  --color-base-200: oklch(19% 0.027 255);
+  --color-base-300: oklch(30.5% 0.035 255);
+  --color-base-content: oklch(93.5% 0.014 220);
+  --color-primary: oklch(77% 0.09 225);
+  --color-primary-content: oklch(19% 0.03 235);
+  --color-secondary: oklch(71% 0.13 12);
+  --color-secondary-content: oklch(18% 0.03 12);
+  --color-accent: oklch(84% 0.1 88);
+  --color-accent-content: oklch(22% 0.04 85);
+  --color-neutral: oklch(31% 0.035 255);
+  --color-neutral-content: oklch(95% 0.01 220);
+  --dl: oklch(80% 0.09 220);
+  --glow-strength: 0.7;
+  --page-bg: oklch(19% 0.027 255);
+  --surface: oklch(24.5% 0.031 255 / 0.86);
+  --surface-solid: oklch(24.5% 0.031 255);
+  --hairline: oklch(90% 0.03 230 / 0.09);
+  --grid-line: oklch(85% 0.05 230 / 0.04);
+}
+
+/* 紺瑠璃 Konruri · 日本の伝統色: lapis navy, 浅葱 teal, 撫子 pink, 山吹 gold */
+[data-theme="fengsui-konruri"] {
+  --color-base-100: oklch(20.6% 0.045 262);
+  --color-base-200: oklch(16.8% 0.04 262);
+  --color-base-300: oklch(28.5% 0.05 262);
+  --color-base-content: oklch(93% 0.02 235);
+  --color-primary: oklch(73% 0.11 205);
+  --color-primary-content: oklch(17% 0.04 210);
+  --color-secondary: oklch(77% 0.1 355);
+  --color-secondary-content: oklch(20% 0.04 355);
+  --color-accent: oklch(83% 0.13 82);
+  --color-accent-content: oklch(22% 0.04 80);
+  --color-neutral: oklch(30% 0.05 262);
+  --color-neutral-content: oklch(95% 0.015 235);
+  --dl: oklch(80% 0.11 205);
+  --glow-strength: 0.8;
+  --page-bg: oklch(16.8% 0.04 262);
+  --surface: oklch(22.4% 0.046 262 / 0.86);
+  --surface-solid: oklch(22.4% 0.046 262);
+  --hairline: oklch(88% 0.04 240 / 0.1);
+  --grid-line: oklch(85% 0.06 230 / 0.045);
+}
+
+/* 夜桜 Yozakura · 日本の伝統色: blossoms at night, 桜 pink, 藤 wisteria */
+[data-theme="fengsui-yozakura"] {
+  --color-base-100: oklch(21.6% 0.018 340);
+  --color-base-200: oklch(17.6% 0.015 340);
+  --color-base-300: oklch(29.5% 0.022 340);
+  --color-base-content: oklch(93.5% 0.012 350);
+  --color-primary: oklch(80% 0.085 355);
+  --color-primary-content: oklch(22% 0.04 355);
+  --color-secondary: oklch(74% 0.1 300);
+  --color-secondary-content: oklch(18% 0.04 300);
+  --color-accent: oklch(82% 0.12 130);
+  --color-accent-content: oklch(22% 0.04 130);
+  --color-neutral: oklch(30% 0.02 340);
+  --color-neutral-content: oklch(95% 0.01 350);
+  --glow-strength: 0.6;
+  --page-bg: oklch(17.6% 0.015 340);
+  --surface: oklch(23.2% 0.019 340 / 0.86);
+  --surface-solid: oklch(23.2% 0.019 340);
+  --hairline: oklch(92% 0.02 350 / 0.08);
+  --grid-line: oklch(90% 0.03 350 / 0.035);
+}
+
+/* 极夜 Polar Night · FengSui: instrument black with a grid */
+[data-theme="fengsui-jiye"] {
   --color-base-100: oklch(17.2% 0.006 255);
   --color-base-200: oklch(13.6% 0.005 255);
   --color-base-300: oklch(25.5% 0.009 255);
   --color-base-content: oklch(92.5% 0.006 250);
   --color-primary: oklch(76% 0.12 210);
   --color-primary-content: oklch(17% 0.03 215);
-  --color-secondary: oklch(68% 0.17 33);
+  --color-secondary: oklch(57% 0.18 33);
   --color-secondary-content: oklch(98% 0 0);
   --color-accent: oklch(81% 0.13 80);
   --color-accent-content: oklch(22% 0.04 75);
   --color-neutral: oklch(28% 0.01 255);
   --color-neutral-content: oklch(95% 0.005 250);
-  --color-info: oklch(73% 0.12 230);
-  --color-info-content: oklch(18% 0.03 230);
-  --color-success: oklch(74% 0.14 155);
-  --color-success-content: oklch(18% 0.03 155);
-  --color-warning: oklch(81% 0.14 78);
-  --color-warning-content: oklch(21% 0.04 75);
-  --color-error: oklch(67% 0.19 24);
-  --color-error-content: oklch(99% 0 0);
-  --radius-selector: 0.5rem;
-  --radius-field: 0.625rem;
-  --radius-box: 1rem;
-  --size-selector: 0.25rem;
-  --size-field: 0.25rem;
-  --border: 1px;
-  --depth: 0;
-  --noise: 0;
+  --surface: oklch(21% 0.008 255 / 0.82);
+  --surface-solid: oklch(20.5% 0.008 255);
+  --hairline: oklch(90% 0.01 250 / 0.08);
+  --grid-line: oklch(90% 0.02 230 / 0.035);
 }
 
-@plugin "daisyui/theme" {
-  name: "fengsui-ziming";
-  color-scheme: dark;
+/* 紫溟 Violet Abyss · FengSui: geek violet */
+[data-theme="fengsui-ziming"] {
   --color-base-100: oklch(18.6% 0.032 292);
   --color-base-200: oklch(14.8% 0.028 292);
   --color-base-300: oklch(27% 0.045 292);
@@ -137,17 +421,56 @@
   --color-success: oklch(77% 0.15 160);
   --color-success-content: oklch(18% 0.03 160);
   --color-warning: oklch(82% 0.14 80);
-  --color-warning-content: oklch(21% 0.04 75);
   --color-error: oklch(69% 0.19 18);
-  --color-error-content: oklch(99% 0 0);
-  --radius-selector: 0.5rem;
-  --radius-field: 0.625rem;
-  --radius-box: 1rem;
-  --size-selector: 0.25rem;
-  --size-field: 0.25rem;
-  --border: 1px;
-  --depth: 0;
-  --noise: 0;
+  --seal: oklch(68% 0.18 20);
+  --dl: oklch(82% 0.12 195);
+  --ul: oklch(75% 0.17 330);
+  --q4: oklch(79% 0.15 160);
+  --q3: oklch(80% 0.12 195);
+  --q2: oklch(83% 0.14 85);
+  --q1: oklch(76% 0.16 55);
+  --q0: oklch(69% 0.2 18);
+  --surface: oklch(23% 0.04 292 / 0.78);
+  --surface-solid: oklch(22% 0.038 292);
+  --hairline: oklch(85% 0.05 292 / 0.1);
+  --grid-line: oklch(80% 0.1 300 / 0.05);
+}
+
+/* 自定义 Custom: background, text and primary from the user; the rest is mixed from them */
+[data-theme="fengsui-custom"] {
+  --color-base-100: var(--custom-bg);
+  --color-base-200: color-mix(in oklab, var(--custom-bg) 96%, var(--custom-ink));
+  --color-base-300: color-mix(in oklab, var(--custom-bg) 90%, var(--custom-ink));
+  --color-base-content: var(--custom-ink);
+  --color-primary: var(--custom-primary);
+  --color-primary-content: var(--custom-primary-content);
+  --color-secondary: oklch(55% 0.17 33);
+  --color-secondary-content: oklch(99% 0 0);
+  --color-accent: oklch(72% 0.14 75);
+  --color-accent-content: oklch(25% 0.05 75);
+  --color-neutral: var(--custom-ink);
+  --color-neutral-content: var(--custom-bg);
+  --page-bg: var(--custom-bg);
+  --surface: color-mix(in oklab, color-mix(in oklab, var(--custom-bg) 35%, white) 92%, transparent);
+  --surface-solid: color-mix(in oklab, var(--custom-bg) 35%, white);
+  --hairline: color-mix(in oklab, var(--custom-ink) 9%, transparent);
+  --grid-line: color-mix(in oklab, var(--custom-ink) 5%, transparent);
+}
+[data-theme="fengsui-custom"][data-scheme="dark"] {
+  --color-base-200: color-mix(in oklab, var(--custom-bg) 80%, black);
+  --color-base-300: color-mix(in oklab, var(--custom-bg) 89%, var(--custom-ink));
+  --color-secondary: oklch(68% 0.17 33);
+  --color-secondary-content: oklch(98% 0 0);
+  --color-accent: oklch(81% 0.13 80);
+  --color-accent-content: oklch(22% 0.04 75);
+  --color-neutral: color-mix(in oklab, var(--custom-bg) 85%, var(--custom-ink));
+  --color-neutral-content: var(--custom-ink);
+  --page-bg: color-mix(in oklab, var(--custom-bg) 85%, black);
+  --surface: color-mix(in oklab, var(--custom-bg) 92%, transparent);
+  --surface-solid: var(--custom-bg);
+  --hairline: color-mix(in oklab, var(--custom-ink) 8%, transparent);
+  --grid-line: transparent;
+  --glow-strength: 0.5;
 }
 
 @theme {
@@ -158,121 +481,82 @@
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 }
 
-/* ---------- Per-theme cockpit tokens ---------- */
-:root,
-[data-theme="fengsui-suzhi"] {
-  --surface: oklch(100% 0 0 / 0.86);
-  --surface-solid: oklch(99.8% 0.002 85);
-  --hairline: oklch(25% 0.02 60 / 0.09);
-  --seal: oklch(55% 0.19 30);
-  --dl: oklch(55% 0.12 220);
-  --ul: oklch(64% 0.16 45);
-  --grid-line: oklch(25% 0.02 60 / 0.06);
-  --q4: oklch(58% 0.14 155);
-  --q3: oklch(62% 0.12 185);
-  --q2: oklch(70% 0.15 80);
-  --q1: oklch(65% 0.17 50);
-  --q0: oklch(56% 0.2 27);
-  --glow-strength: 0;
-  --page-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .3 0 0 0 0 .22 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+/* ---------- Accent layer (overrides the theme's primary; dark palettes get a lighter tint) ---------- */
+:root[data-accent="sky"] {
+  --color-primary: oklch(55.5% 0.19 257);
+  --color-primary-content: oklch(100% 0 0);
 }
-[data-theme="fengsui-chenxi"] {
-  --surface: oklch(99.6% 0.008 82 / 0.82);
-  --surface-solid: oklch(99.4% 0.008 82);
-  --hairline: oklch(35% 0.04 55 / 0.11);
-  --seal: oklch(54% 0.19 32);
-  --dl: oklch(55% 0.11 230);
-  --ul: oklch(62% 0.16 42);
-  --grid-line: oklch(35% 0.04 55 / 0.07);
-  --q4: oklch(57% 0.13 150);
-  --q3: oklch(61% 0.11 185);
-  --q2: oklch(69% 0.15 78);
-  --q1: oklch(64% 0.17 48);
-  --q0: oklch(55% 0.2 28);
-  --glow-strength: 0;
-  --page-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .32 0 0 0 0 .18 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+:root[data-accent="sky"][data-scheme="dark"] {
+  --color-primary: oklch(68% 0.16 255);
+  --color-primary-content: oklch(16% 0.03 255);
 }
-[data-theme="fengsui-jiye"] {
-  --surface: oklch(21% 0.008 255 / 0.82);
-  --surface-solid: oklch(20.5% 0.008 255);
-  --hairline: oklch(90% 0.01 250 / 0.08);
-  --seal: oklch(64% 0.19 30);
-  --dl: oklch(80% 0.12 205);
-  --ul: oklch(76% 0.15 55);
-  --grid-line: oklch(90% 0.02 230 / 0.035);
-  --q4: oklch(77% 0.15 155);
-  --q3: oklch(78% 0.12 190);
-  --q2: oklch(82% 0.14 85);
-  --q1: oklch(75% 0.16 55);
-  --q0: oklch(67% 0.2 25);
-  --glow-strength: 1;
-  --page-texture: none;
-}
-[data-theme="fengsui-ziming"] {
-  --surface: oklch(23% 0.04 292 / 0.78);
-  --surface-solid: oklch(22% 0.038 292);
-  --hairline: oklch(85% 0.05 292 / 0.1);
-  --seal: oklch(68% 0.18 20);
-  --dl: oklch(82% 0.12 195);
-  --ul: oklch(75% 0.17 330);
-  --grid-line: oklch(80% 0.1 300 / 0.05);
-  --q4: oklch(79% 0.15 160);
-  --q3: oklch(80% 0.12 195);
-  --q2: oklch(83% 0.14 85);
-  --q1: oklch(76% 0.16 55);
-  --q0: oklch(69% 0.2 18);
-  --glow-strength: 1;
-  --page-texture: none;
-}
-
-/* ---------- Accent layer (overrides the theme's primary) ---------- */
 :root[data-accent="cinnabar"] {
   --color-primary: oklch(55% 0.19 30);
   --color-primary-content: oklch(99% 0 0);
 }
-:root[data-accent="indigo"] {
-  --color-primary: oklch(48% 0.16 268);
+:root[data-accent="cinnabar"][data-scheme="dark"] {
+  --color-primary: oklch(57% 0.19 30);
   --color-primary-content: oklch(99% 0 0);
+}
+:root[data-accent="sakura"] {
+  --color-primary: oklch(56% 0.16 358);
+  --color-primary-content: oklch(99% 0 0);
+}
+:root[data-accent="sakura"][data-scheme="dark"] {
+  --color-primary: oklch(78% 0.1 355);
+  --color-primary-content: oklch(20% 0.04 355);
+}
+:root[data-accent="amber"] {
+  --color-primary: oklch(56% 0.14 55);
+  --color-primary-content: oklch(99% 0 0);
+}
+:root[data-accent="amber"][data-scheme="dark"] {
+  --color-primary: oklch(80% 0.14 70);
+  --color-primary-content: oklch(20% 0.04 70);
 }
 :root[data-accent="jade"] {
   --color-primary: oklch(54% 0.11 168);
   --color-primary-content: oklch(99% 0 0);
 }
-:root[data-accent="amber"] {
-  --color-primary: oklch(62% 0.15 58);
+:root[data-accent="jade"][data-scheme="dark"] {
+  --color-primary: oklch(76% 0.13 168);
+  --color-primary-content: oklch(17% 0.03 168);
+}
+:root[data-accent="asagi"] {
+  --color-primary: oklch(52% 0.1 212);
   --color-primary-content: oklch(99% 0 0);
+}
+:root[data-accent="asagi"][data-scheme="dark"] {
+  --color-primary: oklch(74% 0.11 205);
+  --color-primary-content: oklch(17% 0.04 210);
+}
+:root[data-accent="indigo"] {
+  --color-primary: oklch(48% 0.16 268);
+  --color-primary-content: oklch(99% 0 0);
+}
+:root[data-accent="indigo"][data-scheme="dark"] {
+  --color-primary: oklch(70% 0.14 268);
+  --color-primary-content: oklch(16% 0.03 268);
 }
 :root[data-accent="violet"] {
   --color-primary: oklch(54% 0.18 300);
   --color-primary-content: oklch(99% 0 0);
 }
+:root[data-accent="violet"][data-scheme="dark"] {
+  --color-primary: oklch(74% 0.16 300);
+  --color-primary-content: oklch(17% 0.04 300);
+}
 :root[data-accent="graphite"] {
   --color-primary: oklch(40% 0.012 260);
   --color-primary-content: oklch(99% 0 0);
 }
-:root[data-accent="cinnabar"]:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) {
-  --color-primary: oklch(68% 0.18 30);
-  --color-primary-content: oklch(99% 0 0);
-}
-:root[data-accent="indigo"]:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) {
-  --color-primary: oklch(70% 0.14 268);
-  --color-primary-content: oklch(16% 0.03 268);
-}
-:root[data-accent="jade"]:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) {
-  --color-primary: oklch(76% 0.13 168);
-  --color-primary-content: oklch(17% 0.03 168);
-}
-:root[data-accent="amber"]:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) {
-  --color-primary: oklch(80% 0.14 70);
-  --color-primary-content: oklch(20% 0.04 70);
-}
-:root[data-accent="violet"]:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) {
-  --color-primary: oklch(74% 0.16 300);
-  --color-primary-content: oklch(17% 0.04 300);
-}
-:root[data-accent="graphite"]:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) {
+:root[data-accent="graphite"][data-scheme="dark"] {
   --color-primary: oklch(84% 0.01 260);
   --color-primary-content: oklch(18% 0.01 260);
+}
+:root[data-accent="custom"] {
+  --color-primary: var(--accent-custom);
+  --color-primary-content: var(--accent-custom-content);
 }
 
 /* ---------- Base ---------- */
@@ -282,12 +566,12 @@ body {
   font-feature-settings: "cv11", "ss01";
 }
 body {
-  background-color: var(--color-base-100);
+  background-color: var(--page-bg, var(--color-base-100));
   background-image: var(--page-texture);
 }
-:root:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) body {
+:root[data-scheme="dark"] body {
   background-image:
-    radial-gradient(ellipse at 50% -10%, color-mix(in oklab, var(--color-primary) 9%, transparent), transparent 60%),
+    radial-gradient(ellipse at 50% -10%, color-mix(in oklab, var(--color-primary) var(--page-glow), transparent), transparent 60%),
     linear-gradient(var(--grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size:
@@ -362,7 +646,7 @@ body {
       0 14px 34px -22px oklch(0% 0 0 / 0.28);
     backdrop-filter: blur(6px);
   }
-  :root:is([data-theme="fengsui-jiye"], [data-theme="fengsui-ziming"]) .fs-card {
+  :root[data-scheme="dark"] .fs-card {
     box-shadow:
       inset 0 1px 0 oklch(100% 0 0 / 0.045),
       0 18px 40px -26px oklch(0% 0 0 / 0.7);
@@ -1070,9 +1354,118 @@ body {
   .theme-card.is-selected .preview {
     outline-color: var(--color-primary);
   }
-  .theme-card.is-selected span {
+  .theme-card .preview {
+    position: relative;
+  }
+  .theme-card .theme-name {
+    line-height: 1.1;
+  }
+  .theme-card .theme-family {
+    margin-top: -0.25rem;
+    font-size: 0.625rem;
+    line-height: 1.1;
+    color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
+  }
+  .theme-card.is-selected .theme-name {
     font-weight: 600;
     color: var(--color-primary);
+  }
+  /* Day / night marks on a preview: fixed ink, since the preview wears its own theme */
+  .slot-badges {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    display: flex;
+    gap: 0.125rem;
+  }
+  .slot-badge {
+    display: grid;
+    place-items: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    color: oklch(100% 0 0);
+    background: oklch(22% 0.01 260 / 0.72);
+  }
+  .slot-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--hairline);
+    cursor: pointer;
+    transition:
+      border-color 0.2s ease,
+      background-color 0.2s ease;
+  }
+  .slot-tab.is-active {
+    border-color: color-mix(in oklab, var(--color-primary) 55%, transparent);
+    background: color-mix(in oklab, var(--color-primary) 8%, transparent);
+  }
+  .custom-editor {
+    border: 1px solid var(--hairline);
+    background: color-mix(in oklab, var(--color-base-content) 3%, transparent);
+  }
+  .color-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem;
+    border-radius: 0.625rem;
+    border: 1px solid var(--hairline);
+    background: var(--surface-solid);
+    cursor: pointer;
+  }
+  .color-field input[type="color"],
+  .swatch-custom input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .color-field input[type="color"] {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+  .color-field input[type="color"]::-webkit-color-swatch-wrapper,
+  .swatch-custom input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .color-field input[type="color"]::-webkit-color-swatch {
+    border: 1px solid var(--hairline);
+    border-radius: 0.5rem;
+  }
+  .color-field input[type="color"]::-moz-color-swatch {
+    border: 1px solid var(--hairline);
+    border-radius: 0.5rem;
+  }
+  /* Custom accent: a hue ring around the picked colour */
+  .swatch-custom {
+    background: conic-gradient(
+      oklch(64% 0.2 30),
+      oklch(80% 0.15 90),
+      oklch(70% 0.15 150),
+      oklch(66% 0.13 230),
+      oklch(60% 0.18 300),
+      oklch(64% 0.2 30)
+    );
+  }
+  .swatch-custom input[type="color"] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+  .swatch-custom input[type="color"]::-webkit-color-swatch {
+    border: 2px solid var(--surface-solid);
+    border-radius: 9999px;
+  }
+  .swatch-custom input[type="color"]::-moz-color-swatch {
+    border: 2px solid var(--surface-solid);
+    border-radius: 9999px;
   }
   .swatch {
     display: grid;

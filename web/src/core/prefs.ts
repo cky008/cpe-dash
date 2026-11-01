@@ -1,3 +1,4 @@
+import { normalizeHex, readableOn } from "./colors.ts";
 import { type Locale, isLocale } from "./i18n.ts";
 
 /**
@@ -6,15 +7,51 @@ import { type Locale, isLocale } from "./i18n.ts";
  * Privacy reveal state is deliberately not persisted: every page load starts masked.
  */
 
-export const THEMES = ["fengsui-suzhi", "fengsui-chenxi", "fengsui-jiye", "fengsui-ziming"] as const;
+/** Every palette in web/styles.css, light ones first; `fengsui-custom` is built from the user's colours. */
+export const THEMES = [
+  "fengsui-sujian",
+  "fengsui-yuebai",
+  "fengsui-tianqing",
+  "fengsui-sakura",
+  "fengsui-wakatake",
+  "fengsui-suzhi",
+  "fengsui-chenxi",
+  "fengsui-sujian-ye",
+  "fengsui-sumi",
+  "fengsui-dailan",
+  "fengsui-konruri",
+  "fengsui-yozakura",
+  "fengsui-jiye",
+  "fengsui-ziming",
+  "fengsui-custom",
+] as const;
 export type ThemeId = (typeof THEMES)[number];
+export type ThemeScheme = "light" | "dark";
+/** Where a palette's colours come from (shown under its name in the picker). */
+export type ThemeFamily = "classic" | "china" | "japan" | "fengsui" | "custom";
 
-/** Light and dark themes used when "follow system" is on. */
-export const SYSTEM_THEMES: Readonly<{ light: ThemeId; dark: ThemeId }> = { light: "fengsui-suzhi", dark: "fengsui-jiye" };
+export const CUSTOM_THEME = "fengsui-custom" satisfies ThemeId;
 
-export const DARK_THEMES: ReadonlySet<ThemeId> = new Set<ThemeId>(["fengsui-jiye", "fengsui-ziming"]);
+/** `scheme: null` for the custom theme, whose light / dark side the user picks. */
+export const THEME_META: Readonly<Record<ThemeId, { scheme: ThemeScheme | null; family: ThemeFamily }>> = {
+  "fengsui-sujian": { scheme: "light", family: "classic" },
+  "fengsui-yuebai": { scheme: "light", family: "china" },
+  "fengsui-tianqing": { scheme: "light", family: "china" },
+  "fengsui-sakura": { scheme: "light", family: "japan" },
+  "fengsui-wakatake": { scheme: "light", family: "japan" },
+  "fengsui-suzhi": { scheme: "light", family: "fengsui" },
+  "fengsui-chenxi": { scheme: "light", family: "fengsui" },
+  "fengsui-sujian-ye": { scheme: "dark", family: "classic" },
+  "fengsui-sumi": { scheme: "dark", family: "japan" },
+  "fengsui-dailan": { scheme: "dark", family: "china" },
+  "fengsui-konruri": { scheme: "dark", family: "japan" },
+  "fengsui-yozakura": { scheme: "dark", family: "japan" },
+  "fengsui-jiye": { scheme: "dark", family: "fengsui" },
+  "fengsui-ziming": { scheme: "dark", family: "fengsui" },
+  "fengsui-custom": { scheme: null, family: "custom" },
+};
 
-export const ACCENTS = ["default", "cinnabar", "indigo", "jade", "amber", "violet", "graphite"] as const;
+export const ACCENTS = ["default", "sky", "cinnabar", "sakura", "amber", "jade", "asagi", "indigo", "violet", "graphite", "custom"] as const;
 export type AccentId = (typeof ACCENTS)[number];
 
 export function isThemeId(value: unknown): value is ThemeId {
@@ -25,10 +62,30 @@ export function isAccentId(value: unknown): value is AccentId {
   return typeof value === "string" && (ACCENTS as ReadonlyArray<string>).includes(value);
 }
 
+/** The custom theme: three `#rrggbb` colours and which side (light / dark) the rest is mixed for. */
+export interface CustomTheme {
+  scheme: ThemeScheme;
+  background: string;
+  text: string;
+  primary: string;
+}
+
+export const DEFAULT_CUSTOM_THEMES: Readonly<Record<ThemeScheme, Readonly<CustomTheme>>> = {
+  light: { scheme: "light", background: "#f6f7f9", text: "#1d2128", primary: "#2f6fe0" },
+  dark: { scheme: "dark", background: "#1b1d22", text: "#e8eaee", primary: "#5b9cf5" },
+};
+
 export interface Preferences {
+  /** The theme shown when not following the system. */
   theme: ThemeId;
-  accent: AccentId;
+  /** Themes used while following the system's light / dark setting. */
+  dayTheme: ThemeId;
+  nightTheme: ThemeId;
   followSystem: boolean;
+  accent: AccentId;
+  /** `#rrggbb` of the `custom` accent. */
+  accentColor: string;
+  customTheme: CustomTheme;
   locale: Locale | null;
   /** Browser-local caps for the usage rings, in bytes (`null` = use the router's limit / none). */
   dailyCapBytes: number | null;
@@ -36,9 +93,13 @@ export interface Preferences {
 }
 
 export const DEFAULT_PREFERENCES: Readonly<Preferences> = {
-  theme: "fengsui-suzhi",
-  accent: "default",
+  theme: "fengsui-sujian",
+  dayTheme: "fengsui-sujian",
+  nightTheme: "fengsui-sujian-ye",
   followSystem: true,
+  accent: "default",
+  accentColor: "#2f6fe0",
+  customTheme: DEFAULT_CUSTOM_THEMES.light,
   locale: null,
   dailyCapBytes: null,
   monthlyCapBytes: null,
@@ -47,8 +108,12 @@ export const DEFAULT_PREFERENCES: Readonly<Preferences> = {
 /** Storage keys; shared with the pre-paint boot script so the first frame already has the theme. */
 export const PREF_KEYS = {
   theme: "fengsui.theme",
-  accent: "fengsui.accent",
+  dayTheme: "fengsui.dayTheme",
+  nightTheme: "fengsui.nightTheme",
   followSystem: "fengsui.followSystem",
+  accent: "fengsui.accent",
+  accentColor: "fengsui.accentColor",
+  customTheme: "fengsui.customTheme",
   locale: "fengsui.locale",
   dailyCapBytes: "fengsui.dailyCapBytes",
   monthlyCapBytes: "fengsui.monthlyCapBytes",
@@ -74,14 +139,42 @@ function parseCap(raw: string | null): number | null {
   return value > 0 && Number.isSafeInteger(value) ? value : null;
 }
 
+/** A stored custom theme, or the light default when it is missing, malformed or partly invalid. */
+export function parseCustomTheme(raw: string | null): CustomTheme {
+  if (raw === null || raw.length > 512) return { ...DEFAULT_CUSTOM_THEMES.light };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ...DEFAULT_CUSTOM_THEMES.light };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return { ...DEFAULT_CUSTOM_THEMES.light };
+  const record = parsed as Record<string, unknown>;
+  const scheme: ThemeScheme = record["scheme"] === "dark" ? "dark" : "light";
+  const fallback = DEFAULT_CUSTOM_THEMES[scheme];
+  return {
+    scheme,
+    background: normalizeHex(record["background"]) ?? fallback.background,
+    text: normalizeHex(record["text"]) ?? fallback.text,
+    primary: normalizeHex(record["primary"]) ?? fallback.primary,
+  };
+}
+
+function themeOr(raw: string | null, fallback: ThemeId): ThemeId {
+  return isThemeId(raw) ? raw : fallback;
+}
+
 export function loadPreferences(storage: KeyValueStorage): Preferences {
-  const theme = safeGet(storage, PREF_KEYS.theme);
   const accent = safeGet(storage, PREF_KEYS.accent);
   const locale = safeGet(storage, PREF_KEYS.locale);
   return {
-    theme: isThemeId(theme) ? theme : DEFAULT_PREFERENCES.theme,
-    accent: isAccentId(accent) ? accent : DEFAULT_PREFERENCES.accent,
+    theme: themeOr(safeGet(storage, PREF_KEYS.theme), DEFAULT_PREFERENCES.theme),
+    dayTheme: themeOr(safeGet(storage, PREF_KEYS.dayTheme), DEFAULT_PREFERENCES.dayTheme),
+    nightTheme: themeOr(safeGet(storage, PREF_KEYS.nightTheme), DEFAULT_PREFERENCES.nightTheme),
     followSystem: safeGet(storage, PREF_KEYS.followSystem) !== "0",
+    accent: isAccentId(accent) ? accent : DEFAULT_PREFERENCES.accent,
+    accentColor: normalizeHex(safeGet(storage, PREF_KEYS.accentColor)) ?? DEFAULT_PREFERENCES.accentColor,
+    customTheme: parseCustomTheme(safeGet(storage, PREF_KEYS.customTheme)),
     locale: isLocale(locale) ? locale : null,
     dailyCapBytes: parseCap(safeGet(storage, PREF_KEYS.dailyCapBytes)),
     monthlyCapBytes: parseCap(safeGet(storage, PREF_KEYS.monthlyCapBytes)),
@@ -94,14 +187,60 @@ export function savePreference<K extends keyof Preferences>(storage: KeyValueSto
   try {
     if (value === null) storage.removeItem(storageKey);
     else if (typeof value === "boolean") storage.setItem(storageKey, value ? "1" : "0");
+    else if (typeof value === "object") storage.setItem(storageKey, JSON.stringify(value));
     else storage.setItem(storageKey, String(value));
   } catch {
     // ignore: the in-memory preference still applies for this page
   }
 }
 
-/** The theme actually shown: the system light/dark pair when following the system. */
-export function effectiveTheme(prefs: Pick<Preferences, "theme" | "followSystem">, systemDark: boolean): ThemeId {
-  if (prefs.followSystem) return systemDark ? SYSTEM_THEMES.dark : SYSTEM_THEMES.light;
+type ThemeChoice = Pick<Preferences, "theme" | "dayTheme" | "nightTheme" | "followSystem">;
+
+/** The theme actually shown: the day / night pick when following the system, else the fixed one. */
+export function effectiveTheme(prefs: ThemeChoice, systemDark: boolean): ThemeId {
+  if (prefs.followSystem) return systemDark ? prefs.nightTheme : prefs.dayTheme;
   return prefs.theme;
+}
+
+export function themeScheme(theme: ThemeId, custom: Pick<CustomTheme, "scheme">): ThemeScheme {
+  return THEME_META[theme].scheme ?? custom.scheme;
+}
+
+/** What `<html>` carries: palette, its light / dark side, accent, and the user colours as CSS properties. */
+export interface Appearance {
+  theme: ThemeId;
+  scheme: ThemeScheme;
+  accent: AccentId;
+  vars: Readonly<Record<string, string>>;
+}
+
+export function resolveAppearance(prefs: ThemeChoice & Pick<Preferences, "accent" | "accentColor" | "customTheme">, systemDark: boolean): Appearance {
+  const theme = effectiveTheme(prefs, systemDark);
+  const custom = prefs.customTheme;
+  return {
+    theme,
+    scheme: themeScheme(theme, custom),
+    accent: prefs.accent,
+    vars: {
+      "--custom-bg": custom.background,
+      "--custom-ink": custom.text,
+      "--custom-primary": custom.primary,
+      "--custom-primary-content": readableOn(custom.primary),
+      "--accent-custom": prefs.accentColor,
+      "--accent-custom-content": readableOn(prefs.accentColor),
+    },
+  };
+}
+
+/** The slice of an element `applyAppearance` writes (the real `<html>`, or a test double). */
+export interface AppearanceTarget {
+  dataset: Record<string, string | undefined>;
+  style: { setProperty(name: string, value: string): void };
+}
+
+export function applyAppearance(target: AppearanceTarget, look: Appearance): void {
+  target.dataset["theme"] = look.theme;
+  target.dataset["scheme"] = look.scheme;
+  target.dataset["accent"] = look.accent;
+  for (const [name, value] of Object.entries(look.vars)) target.style.setProperty(name, value);
 }

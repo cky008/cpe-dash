@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard-suzhi.webp" alt="FengSui Dashboard (Paper theme)" width="100%" />
+  <img src="docs/screenshots/dashboard-sujian.webp" alt="FengSui Dashboard (Sujian theme)" width="100%" />
 </p>
 
 **FengSui (`cpe-dash`)** is a single-container service running on your home NAS: on one hand, it collects 5G RF telemetry from the H168-383 via millisecond-level ephemeral sessions (per-carrier 3CA, MCS / MIMO / transmit power, neighbor cells, traffic, and client topology); on the other hand, it turns the router into an encrypted SMS gateway (Web Messages center, two-way Telegram bot, and signed Webhook), while allowing AI agents to safely diagnose signal quality, lock bands/cells, and send/receive SMS via the **Model Context Protocol (MCP)**. Telemetry and SMS share a **single admin session scheduler** that automatically yields to the human admin when someone logs in to `192.168.8.1`, never preempting.
@@ -81,6 +81,10 @@
     <td><img src="docs/screenshots/topology-access.webp" alt="Block and restore in the client topology" /><br /><sub><b>Client topology · Block / Restore</b>: One click per Wi-Fi device; blocked devices can be restored while offline</sub></td>
     <td><img src="docs/screenshots/access-panel.webp" alt="Access control drawer (Polar Night theme)" /><br /><sub><b>Access control · Polar Night</b>: Wi-Fi MAC blacklist / whitelist and per-device internet time</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/appearance.webp" alt="Appearance settings" /><br /><sub><b>Appearance</b>: 14 themes (cpe-sms, Chinese and Japanese traditional colours, FengSui), separate day and night picks, or your own</sub></td>
+    <td><img src="docs/screenshots/dashboard-dailan.webp" alt="Dashboard (Indigo Ink theme)" /><br /><sub><b>Dashboard · Indigo Ink</b>: the Chinese traditional 黛蓝, 月白 and 天青</sub></td>
+  </tr>
 </table>
 
 ### Dashboard
@@ -101,8 +105,9 @@
 - Top privacy toggle redacts phone numbers and message contents in sync for safe screenshots and screencasts.
 
 ### Visuals and Engineering
-- Four themes: **Paper** (light Xuan paper), **Dawn** (warm light), **Polar Night** (deep black), and **Violet Abyss** (geek dark purple), with six accent colors and system dark/light mode following; instant English/Chinese switching with local preference persistence.
-- First-load JS + CSS is only **60.4 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
+- **14 themes, 7 light and 7 dark**: cpe-sms's own **Sujian / Sujian Night** (the default), the Chinese traditional colours **Moon White, Celadon, Indigo Ink**, the Japanese traditional colours **Sakura, Wakatake, Sumi, Konruri, Yozakura**, and FengSui's **Paper, Dawn, Polar Night, Violet Abyss**.
+- **Pick the day and the night theme separately** when following the system, fix one theme, or **build your own** from a background, text and primary colour (with a contrast warning). Nine accent colours plus a custom one. Every built-in palette is tested for WCAG contrast (body text ≥ 7:1, buttons ≥ 4.5:1). Instant English/Chinese switching; preferences stay in the browser and apply before the first frame.
+- First-load JS + CSS is about **64 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
 - SSE auto-reconnect with jittered exponential backoff; `423` breaker tripped, `409` yielding, and `503` shutdown present distinct UI states, never lumped together as "offline".
 
 ---

@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard-suzhi.webp" alt="烽燧监控大屏（素纸主题）" width="100%" />
+  <img src="docs/screenshots/dashboard-sujian.webp" alt="烽燧监控大屏（素笺主题）" width="100%" />
 </p>
 
 **「烽燧」(FengSui / `cpe-dash`)** 是一个跑在家里 NAS 上的单容器服务：一边以毫秒级瞬时会话采集 H168-383 的 5G 射频遥测（3CA 逐载波、MCS / MIMO / 发射功率、邻区、流量、终端拓扑），一边把路由器变成加密的短信网关（Web 短信中心、Telegram 双向机器人、签名 Webhook），并通过 **Model Context Protocol (MCP)** 让 AI 智能体安全地诊断信号、锁频锁站与收发短信。遥测与短信共用**唯一的管理员会话调度器**，真人登录 `192.168.8.1` 时自动让位，永不抢占。
@@ -81,6 +81,10 @@
     <td><img src="docs/screenshots/topology-access.webp" alt="终端拓扑的断网与恢复" /><br /><sub><b>终端拓扑 · 断网 / 恢复</b>：Wi-Fi 设备一键断网，被断网的设备离线后仍可恢复</sub></td>
     <td><img src="docs/screenshots/access-panel.webp" alt="访问控制抽屉（极夜主题）" /><br /><sub><b>访问控制 · 极夜</b>：Wi-Fi MAC 黑白名单与按设备的上网时段</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/appearance.webp" alt="外观设置" /><br /><sub><b>外观</b>：14 套主题（cpe-sms 原版、中国传统色、日本传统色、烽燧），白天 / 夜间分别选择，也可自定义</sub></td>
+    <td><img src="docs/screenshots/dashboard-dailan.webp" alt="监控大屏（黛蓝主题）" /><br /><sub><b>监控大屏 · 黛蓝</b>：中国传统色里的黛蓝、月白与天青</sub></td>
+  </tr>
 </table>
 
 ### 监控大屏
@@ -101,8 +105,9 @@
 - 顶部隐私开关联动隐藏手机号与短信内容，方便截图与投屏。
 
 ### 外观与工程
-- 四套主题：**素纸**（浅色宣纸）、**晨曦**（温润暖色）、**极夜**（深黑）、**紫溟**（极客暗紫），六种强调色，可跟随系统明暗；中英文即时切换，偏好本地持久化。
-- 首屏 JS + CSS 仅 **60.4 KiB gzip**（含一种语言），短信中心、控制抽屉、访问控制等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
+- **14 套主题，7 浅 7 深**：cpe-sms 原版的**素笺 / 素笺·夜**（默认），中国传统色的**月白、天青、黛蓝**，日本传统色的**樱、若竹、墨、绀琉璃、夜樱**，以及烽燧自己的**素纸、晨曦、极夜、紫溟**。
+- **跟随系统时白天、夜间主题分开选**；也可以固定一套主题，或者用背景、文字、主色三种颜色**自己调一套**（对比度不足会提示）。9 种强调色另可自定义取色。所有内置配色都经测试校验 WCAG 对比度（正文 ≥ 7:1，按钮 ≥ 4.5:1）。中英文即时切换，偏好保存在浏览器本地，首帧即生效不闪烁。
+- 首屏 JS + CSS 约 **64 KiB gzip**（含一种语言），短信中心、控制抽屉、访问控制等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
 - SSE 断线带抖动的指数退避自动重连；`423` 熔断、`409` 避让、`503` 停机分别给出不同的界面状态，绝不笼统显示为「离线」。
 
 ---
