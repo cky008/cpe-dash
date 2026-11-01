@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.2.0-6E56CF?style=flat-square" alt="Version 1.2.0" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.3.0-6E56CF?style=flat-square" alt="Version 1.3.0" /></a>
   <a href="https://cky008.github.io/fengsui-demo/"><img src="https://img.shields.io/badge/Live_demo-open-c0392b?style=flat-square" alt="Live demo" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>

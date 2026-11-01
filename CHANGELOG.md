@@ -2,6 +2,18 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-11-01
+
+### Added
+- **14 themes, 7 light and 7 dark.** New: cpe-sms's own **Sujian** and **Sujian Night** (now the default day and night themes), the Chinese traditional colours **Moon White (月白)**, **Celadon (天青)** and **Indigo Ink (黛蓝)**, and the Japanese traditional colours **Sakura (桜)**, **Wakatake (若竹)**, **Sumi (墨)**, **Konruri (紺瑠璃)** and **Yozakura (夜桜)**. Paper, Dawn, Polar Night and Violet Abyss stay.
+- **Separate day and night themes** while following the system; or one fixed theme.
+- **Custom theme**: pick light or dark plus a background, text and primary colour; the rest is mixed from them, button text picks black or white for contrast, and low text contrast is flagged.
+- **Accents**: Lake, Sakura and Asagi join the presets (Indigo is now called 群青 in Chinese), plus a custom accent colour.
+
+### Changed
+- Themes are plain CSS variables in two layers (a light / dark scheme layer and a palette layer) instead of daisyUI theme blocks; dark-only styling follows `data-scheme`, so new palettes need no other CSS. The appearance dialog's strings load with the dialog.
+- Contrast fixes found by the new palette tests: Polar Night's secondary colour (the SMS unread badge) is darker so white text reads (2.9:1 → 4.5:1+), and the dark Cinnabar accent likewise.
+
 ## [1.2.0] — 2026-10-31
 
 ### Added
@@ -79,6 +91,7 @@ First production release: one container that monitors a Huawei 5G CPE Ultra 6 (H
 ### Known limitations
 See [`docs/PHASE2_ARCHITECTURE_REPORT.md` §7.4](docs/PHASE2_ARCHITECTURE_REPORT.md#74-已知限制phase-3) and §6.8.
 
+[1.3.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.3.0
 [1.2.0]: https://github.com/cky008/cpe-dash/releases/tag/v1.2.0
 [1.1.2]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.2
 [1.1.1]: https://github.com/cky008/cpe-dash/releases/tag/v1.1.1
