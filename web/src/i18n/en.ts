@@ -25,6 +25,10 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "nav.language": "Switch language",
   "nav.appearance": "Appearance",
   "nav.logout": "Log out",
+  "nav.mcp": "Connect an AI agent (MCP)",
+  "nav.mcp_short": "AI agents",
+  "nav.sponsor": "Sponsor on GitHub",
+  "nav.sponsor_short": "Sponsor",
 
   "session.idle": "CPE admin session: idle",
   "session.polling": "Sampling",

@@ -107,7 +107,7 @@
 ### Visuals and Engineering
 - **14 themes, 7 light and 7 dark**: cpe-sms's own **Sujian / Sujian Night** (the default), the Chinese traditional colours **Moon White, Celadon, Indigo Ink**, the Japanese traditional colours **Sakura, Wakatake, Sumi, Konruri, Yozakura**, and FengSui's **Paper, Dawn, Polar Night, Violet Abyss**.
 - **Pick the day and the night theme separately** when following the system, fix one theme, or **build your own** from a background, text and primary colour (with a contrast warning). Nine accent colours plus a custom one. Every built-in palette is tested for WCAG contrast (body text ≥ 7:1, buttons ≥ 4.5:1). Instant English/Chinese switching; preferences stay in the browser and apply before the first frame.
-- First-load JS + CSS is about **65 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
+- First-load JS + CSS is about **66 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
 - SSE auto-reconnect with jittered exponential backoff; `423` breaker tripped, `409` yielding, and `503` shutdown present distinct UI states, never lumped together as "offline".
 
 ---
@@ -423,6 +423,8 @@ Applicable when the MCP client is on the same host as the container (or `DOCKER_
 ```
 
 Claude Code: `claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp --header "Authorization: Bearer <API_TOKEN>"`
+
+The robot icon in the console header (on phones, "AI agents" at the bottom of the dashboard) opens a setup guide: it shows the MCP endpoint for the address you are using and, once you paste a token (preferably `API_TOKEN_READONLY`), builds a ready-to-copy prompt for your agent, the Claude Code command and the JSON config. The token stays in that page, shows only its last 4 characters on screen, and is never stored or sent.
 
 ### Tool List
 

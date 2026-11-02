@@ -23,6 +23,10 @@ export const zhCN = {
   "nav.language": "切换语言",
   "nav.appearance": "外观",
   "nav.logout": "退出登录",
+  "nav.mcp": "接入 AI 智能体（MCP）",
+  "nav.mcp_short": "接入 AI",
+  "nav.sponsor": "在 GitHub 上赞助",
+  "nav.sponsor_short": "赞助",
 
   "session.idle": "CPE 官方会话：空闲",
   "session.polling": "瞬时采集中",

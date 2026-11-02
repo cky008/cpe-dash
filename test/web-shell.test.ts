@@ -662,7 +662,8 @@ describe("web shell: markup and source guards", () => {
       assert.match(tag[0], /\ssrc="\{\{[A-Z_]+\}\}"/, "every script must be an external same-origin file");
       assert.equal((tag[1] ?? "").trim(), "", "inline script body");
     }
-    assert.doesNotMatch(html, /(?:src|href)="(?:https?:)?\/\/(?!github\.com\/cky008)/i, "no CDN or remote asset");
+    // Only links out (opened on click): the repository and its GitHub Sponsors page
+    assert.doesNotMatch(html, /(?:src|href)="(?:https?:)?\/\/(?!github\.com\/(?:sponsors\/)?cky008)/i, "no CDN or remote asset");
   });
 
   it("never writes HTML from strings and never imports Node built-ins in browser code", () => {

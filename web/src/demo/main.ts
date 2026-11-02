@@ -61,7 +61,7 @@ async function boot(): Promise<void> {
   const backend = new DemoBackend({ seed });
   backend.start();
   mountNotice();
-  await startApp({ fetchImpl: backend.fetch, createEventSource: backend.createEventSource });
+  await startApp({ fetchImpl: backend.fetch, createEventSource: backend.createEventSource, demo: true });
 }
 
 boot().catch((err: unknown) => {

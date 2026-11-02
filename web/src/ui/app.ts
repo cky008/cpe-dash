@@ -50,6 +50,8 @@ const DICTIONARIES: Readonly<Record<Locale, () => Promise<Readonly<Record<Messag
 export interface AppTransport {
   fetchImpl: typeof fetch;
   createEventSource: (url: string) => EventSourceLike;
+  /** Set by the static demo, whose backend lives in the page. */
+  demo?: boolean;
 }
 
 const BROWSER_TRANSPORT: AppTransport = {
@@ -88,6 +90,7 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
     confirm: (options) => confirmDialog(options),
     describeError: (error) => describeError(tr, error),
     now: () => Date.now(),
+    demo: transport.demo === true,
     onTick: (listener) => {
       tickers.add(listener);
       return () => tickers.delete(listener);
@@ -107,6 +110,7 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
   let appearanceLoading: Promise<{ open(): void }> | null = null;
   let alertsLoading: Promise<{ open(): void }> | null = null;
   let controlsLoading: Promise<{ open(): void }> | null = null;
+  let mcpGuideLoading: Promise<{ open(): void }> | null = null;
   let appMounted = false;
   let sse: SseClient | null = null;
   let statusTimer: ReturnType<typeof setInterval> | null = null;
@@ -318,6 +322,10 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
       case "open-controls":
         controlsLoading ??= import("./controls.ts").then((m) => m.mountControls(ctx));
         void controlsLoading.then((controls) => controls.open());
+        return;
+      case "open-mcp-guide":
+        mcpGuideLoading ??= import("./mcp-guide.ts").then((m) => m.mountMcpGuide(ctx));
+        void mcpGuideLoading.then((guide) => guide.open());
         return;
       case "toggle-privacy":
         privacy.setGlobal(!privacy.globalMasked);

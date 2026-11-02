@@ -30,6 +30,8 @@ export interface AppContext {
   /** Localized description of any thrown value (ApiError kinds first). */
   describeError(error: unknown): string;
   now(): number;
+  /** The static GitHub Pages demo (in-page backend, no daemon). */
+  demo: boolean;
   /** One shared 1 s ticker (relative times, countdowns); skipped while the tab is hidden. */
   onTick(listener: () => void): () => void;
 }
