@@ -9,7 +9,7 @@ import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { NotificationHub, type NotificationChannel, isAlertSeverity } from "../src/notify/hub.ts";
 import { TelegramApi, TelegramApiError, normalizeTelegramApiBase } from "../src/notify/telegram-api.ts";
-import { TelegramBot, TelegramStateStore, type TelegramUpdate, escapeTelegramHtml } from "../src/notify/telegram-bot.ts";
+import { TelegramBot, TelegramStateStore, type TelegramUpdate, escapeTelegramHtml, truncateTelegramHtml } from "../src/notify/telegram-bot.ts";
 import { WebhookNotifier, normalizeWebhookUrl, signWebhookPayload } from "../src/notify/webhook.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
@@ -313,6 +313,41 @@ describe("NotificationHub", () => {
     assert.equal(received.length, 2);
     assert.equal(isAlertSeverity("warning"), true);
     assert.equal(isAlertSeverity("loud"), false);
+    await fx.cleanup();
+  });
+});
+
+describe("Telegram HTML truncation", () => {
+  /** Tags left open (Telegram rejects unbalanced HTML with 400 "can't parse entities"). */
+  const unbalanced = (html: string): string[] => {
+    const open: string[] = [];
+    for (const m of html.matchAll(/<(\/?)([a-z-]+)[^>]*>/g)) {
+      if (m[1]) open.splice(open.lastIndexOf(m[2] ?? ""), 1);
+      else open.push(m[2] ?? "");
+    }
+    return open;
+  };
+
+  it("cuts long HTML without splitting a tag or an entity and closes what it left open", () => {
+    const html = `<b>Title</b>\n<blockquote>${"a &amp; b &lt;c&gt; ".repeat(400)}</blockquote>\n<i>tail</i>`;
+    for (const max of [100, 101, 102, 103, 104, 1000, 3900]) {
+      const cut = truncateTelegramHtml(html, max);
+      assert.ok(cut.length <= max, `${cut.length} > ${max}`);
+      assert.deepEqual(unbalanced(cut), [], `balanced at ${max}`);
+      assert.doesNotMatch(cut, /&[a-z#0-9]*(?![a-z#0-9;])(?=…|<|$)/i, `no dangling entity at ${max}`);
+      assert.doesNotMatch(cut, /<[^>]*$/, `no dangling tag at ${max}`);
+      assert.match(cut, /…/);
+    }
+    assert.equal(truncateTelegramHtml("<b>short</b>", 3900), "<b>short</b>");
+  });
+
+  it("keeps /chat on a thread of long messages within Telegram's limit and valid", async () => {
+    const fx = createBotFixture();
+    for (let i = 0; i < 10; i++) fx.service.mirror.addPending("+353830000001", `${"Long <reply> & more ".repeat(30)}${i}`, `2026-10-30 10:0${i}:00`);
+    await fx.message(1001, "/chat 0830000001");
+    const text = fx.tg.lastText("1001");
+    assert.ok(text.length <= 4096, `${text.length} characters`);
+    assert.deepEqual(unbalanced(text), []);
     await fx.cleanup();
   });
 });

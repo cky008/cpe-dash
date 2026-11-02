@@ -58,6 +58,29 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+/** Room kept for "…" and the closing tags a cut may need (the bot's HTML nests at most three deep). */
+const HTML_CUT_RESERVE = 48;
+
+/**
+ * Cut Telegram HTML to at most `max` characters without splitting a tag or an entity, then close the
+ * tags left open. A plain character cut can end inside `<blockquote>` or `&amp;`, and Telegram
+ * rejects the whole message (`400 can't parse entities`).
+ */
+export function truncateTelegramHtml(html: string, max: number): string {
+  if (html.length <= max) return html;
+  let cut = html.slice(0, Math.max(0, max - HTML_CUT_RESERVE));
+  if (cut.lastIndexOf("<") > cut.lastIndexOf(">")) cut = cut.slice(0, cut.lastIndexOf("<"));
+  // Every literal "&" is escaped, so an "&" without its ";" is a cut entity
+  if (cut.lastIndexOf("&") > cut.lastIndexOf(";")) cut = cut.slice(0, cut.lastIndexOf("&"));
+  const open: string[] = [];
+  for (const tag of cut.matchAll(/<(\/?)([a-z-]+)[^>]*>/gi)) {
+    const name = (tag[2] ?? "").toLowerCase();
+    if (!tag[1]) open.push(name);
+    else if (open.lastIndexOf(name) >= 0) open.splice(open.lastIndexOf(name), 1);
+  }
+  return `${cut}…${open.reverse().map((name) => `</${name}>`).join("")}`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Bilingual bot copy (HTML templates; every interpolated value is escaped by `tx`)
 // ---------------------------------------------------------------------------------------------
@@ -950,7 +973,7 @@ export class TelegramBot implements NotificationChannel {
     const readCb = unreadUid ? callbackData("read", unreadUid) : null;
     const sent = await this.#send(
       chatId,
-      truncate(lines.join("\n"), MAX_TELEGRAM_TEXT),
+      lines.join("\n"),
       readCb ? { inline_keyboard: [[{ text: this.#tx("btn_read"), callback_data: readCb }]] } : undefined
     );
     if (thread.replyPhone && sent.message_id) this.state.bindReply(chatId, sent.message_id, thread.replyPhone);
@@ -1243,7 +1266,7 @@ export class TelegramBot implements NotificationChannel {
   async #send(chatId: string, html: string, keyboard?: InlineKeyboard): Promise<{ message_id?: number }> {
     return await this.api.call<{ message_id?: number }>("sendMessage", {
       chat_id: chatId,
-      text: truncate(html, MAX_TELEGRAM_TEXT),
+      text: truncateTelegramHtml(html, MAX_TELEGRAM_TEXT),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
       ...(keyboard ? { reply_markup: keyboard } : {}),
@@ -1255,7 +1278,7 @@ export class TelegramBot implements NotificationChannel {
       .call("editMessageText", {
         chat_id: chatId,
         message_id: messageId,
-        text: truncate(html, MAX_TELEGRAM_TEXT),
+        text: truncateTelegramHtml(html, MAX_TELEGRAM_TEXT),
         parse_mode: "HTML",
         ...(keyboard ? { reply_markup: keyboard } : {}),
       })
