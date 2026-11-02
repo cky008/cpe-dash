@@ -9,6 +9,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - `docker-compose.yml` no longer sets `pids_limit`: Synology DSM kernels have no pids cgroup, so Docker dropped it with a warning ("Your kernel does not support PIDs limit capabilities…") on every start. The line stays as a comment for other Linux hosts; `mem_limit` still applies. A deployment that added `pids_limit` to its own compose file by hand can delete it.
 
 ### Added
+- **Notes on other Huawei models** (`docs/PHASE1_PROTOCOL_SPEC.md`, appendix A), the groundwork for supporting more than the H168-383: identification and capability endpoints, the token and login flows, error codes and the models the reference project lists, each with its source and marked unverified. Login-free reads on the H168-383 showed that `device/basic_information` (model only) and `user/state-login` answer before login, while the firmware and WebUI versions need a session. The facts come from [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api), now thanked in both READMEs; FengSui contains none of its code and does not depend on it.
 - **The logo has a single source**, `web/brand/logo.svg`. The build turns it into the console's icon and ships it as the favicon; tests keep all three in step. `npm run brand:trace -- concept.png` turns a flat logo concept (a light / dark side-by-side is fine) into that file, tracing the outlines to within 0.6 px. `docs/BRAND.md` describes the contract and how to change the logo next time.
 
 ## [1.5.0] — 2026-11-02

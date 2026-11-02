@@ -53,6 +53,7 @@
 - [🏗️ 仓库结构](#️-仓库结构)
 - [📚 文档索引](#-文档索引)
 - [⚠️ 免责声明与许可](#️-免责声明与许可)
+- [🙏 致谢](#-致谢)
 
 ---
 
@@ -662,7 +663,7 @@ cpe-dash/
 ## 📚 文档索引
 
 - [`AGENTS.md`](AGENTS.md) — 工程契约、七大安全铁律与强制 TDD 守则
-- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — H168-383 私有协议（含短信接口与加密通道）、逆向算法与真机实测字典
+- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — H168-383 私有协议（含短信接口与加密通道）、逆向算法与真机实测字典；附录 A 收录其他华为型号的未验证资料
 - [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — 零依赖后端选型、安全防线、短信融合与 Web 控制台架构
 - [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — REST API、SSE 事件、MCP 工具（含短信）与错误码权威契约
 
@@ -674,3 +675,9 @@ cpe-dash/
 - **短信与隐私**：通过本项目发送的短信由你本人负责并按运营商资费计费；使用 Telegram 机器人时，推送内容会经过 Telegram 服务器。请勿用于群发、骚扰或任何违法用途。
 - **非官方项目**：本项目为独立的非官方工具，与华为技术有限公司及任何运营商均无隶属或背书关系；所有商标归其各自所有者。软件按「现状」提供，不附带任何明示或默示担保，使用风险自负。
 - **许可**：本项目以 **[PolyForm Noncommercial License 1.0.0](LICENSE)** 发布，仅限个人、研究与其他非商业用途；商业使用需另行获得作者授权。
+
+---
+
+## 🙏 致谢
+
+感谢 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)：烽燧为其他华为型号做兼容时，参考了它整理的接口与机型资料。烽燧不包含它的代码，也不依赖它。

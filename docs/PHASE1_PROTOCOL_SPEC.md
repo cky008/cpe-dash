@@ -2,7 +2,7 @@
 
 > **目标硬件**：华为 5G CPE Ultra 6 (`H168-383` / 硬件代号 `WL1H168M`)  
 > **实测固件**：`4.4.0.1 (H1006SP19C00)` | **WebUI 版本**：`WEBUI 4.4.0.1 (W2SP24C03)`  
-> **适用范围**：「烽燧」(FengSui / `cpe-dash`) Phase 1 侦察收官与 Phase 2 后端守护进程 / 前端可视化开发权威契约（Phase 2.2 起纳入短信接口，见 3.8 节）  
+> **适用范围**：「烽燧」(FengSui / `cpe-dash`) Phase 1 侦察收官与 Phase 2 后端守护进程 / 前端可视化开发权威契约（Phase 2.2 起纳入短信接口，见 3.8 节；其他华为型号的未验证资料见附录 A）  
 > **脱敏审计承诺**：本文档全部报文样本均严格遵循 RFC 5737 / RFC 3849 / RFC 7042 与合成占位符规范，零真实密码、零真实公网 IP、零真实 MAC/IMEI/IMSI/ICCID/TAC/CellID。
 
 ---
@@ -785,3 +785,77 @@ $$
 | [`scripts/probe-extended-capabilities.ts`](../scripts/probe-extended-capabilities.ts) | `npm run probe:extended` | 探索 Wi-Fi 7 MLO、天线切换、静态 DHCP、双栈 APN 与网络诊断 | `130 ms` 并发拉取 18 接口，确认 `802.11be` MLO、5 条静态绑定、IPv4v6 双栈 APN 与定时重启 |
 | [`scripts/probe-sms.ts`](../scripts/probe-sms.ts) | `npm run probe:sms` | 只读验证短信计数、列表通道（明文 `sms-list` 或加密回退）与全量拉取会话耗时，仅输出聚合计数 | `259 ms` 单次会话完成 193 条全量拉取（与 `sms-count` 一致，容量 500 占用 39%），确认明文 `sms-list` 可用、无需加密回退；不发送、不标记已读、不删除 |
 | [`scripts/audit-secrets.ts`](../scripts/audit-secrets.ts) | `npm run audit:secrets` | 扫描工作区与全量 `git log -p --all` 历史，拦截密钥/PII 与纯 `.js` | 全仓源码、测试、文档与全量提交历史 100% 通过门禁 |
+
+---
+
+## 附录 A：其他华为型号（未验证）
+
+> **来源与状态**：本附录为多型号兼容（阶段 0 起）整理的事实。标「参考项目」的条目取自 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)（LGPL-3.0，`master` 分支，2026-11-02 阅读），只摘录接口路径、字段名、错误码、流程顺序与型号差异，**未拷贝任何代码或测试数据**，烽燧也不依赖它。这些条目 **均未在真机验证**：我们手上只有 H168-383。标「H168-383 实测」的条目来自 2026-11-02 的免登录只读 GET（不带凭据、不建会话，分别从局域网内的一台电脑和 NAS 发出，响应只在管道里提取标签名与错误码，未保存、未打印任何取值）。标「推断」的是我们自己的判断。
+
+### A.1 识别接口
+
+| 接口 | 事实 | 来源 | H168-383 实测（免登录） |
+| :--- | :--- | :--- | :--- |
+| `GET /api/user/state-login` | `State`：`0` 已登录、`-1` 未登录、`-2` 重复登录；`password_type`：`0` base64、`3`（参考项目自注「改密码后的 base64」，名称不确定）、`4` SHA-256；缺 `password_type` 时按 `0` 处理；`rsapadingtype` 决定 RSA 加密写入的填充方式（见 A.3）；本接口返回 `100002` 时视为设备无需登录 | 参考项目 `huawei_lte_api/enums/user.py`、`api/User.py`（`login`）、`Session.py`（`_get_rsa_padding`） | **免登录**。标签：`password_type`、`firstlogin`、`history_login_flag`、`accounts_number`、`extern_password_type`、`wifipwdsamewithwebpwd`、`rsapadingtype`、`lockstatus`、`remainwaittime`、`State`、`userlevel`、`username`（不带 Cookie 时也有 `userlevel` / `username` 两个标签，取值未读） |
+| `GET /api/device/basic_information` | 基本信息；同一路径另有一个写 `restore_default_status` 的 `POST`（烽燧绝不调用） | 参考项目 `api/Device.py` | **免登录**。标签：`classify`、`multimode`、`restore_default_status`、`sim_save_pin_enable`、`devicename`（型号）、`spreadname_en`、`spreadname_zh`；**不含固件与网页版本** |
+| `GET /api/device/basicinformation` | `basic_information` 的替代接口（拼写变体），部分型号只有其一 | 参考项目 `api/Device.py` | 未登录返回 `100003`（电脑与 NAS 一致）；登录后是否存在未验证 |
+| `GET /api/device/information` | 需要登录；返回示例的字段有 `DeviceName`、`SerialNumber`、`Imei`、`Imsi`、`Iccid`、`Msisdn`、`HardwareVersion`、`SoftwareVersion`、`WebUIVersion`、`MacAddress1`、`MacAddress2`、`ProductFamily`、`Classify`、`supportmode`、`workmode` | 参考项目 `README.md` | **需登录**：未登录时电脑得到 `125002`、NAS 得到 `100003`。同一接口的错误码因客户端而异，`100003` 与 `125002` 都应读作「需要登录」 |
+
+**结论（H168-383）**：登录前只能从 `basic_information` 得到型号、从 `state-login` 得到 `password_type`；固件与网页版本要登录后从 `device/information` 读取。
+
+### A.2 能力接口
+
+| 接口 | 事实 | 来源 | H168-383 |
+| :--- | :--- | :--- | :--- |
+| `GET /api/device/device-feature-switch` | 设备功能开关；参考项目只给路径，不解析字段 | 参考项目 `api/Device.py` | 未验证 |
+| `GET /api/net/net-feature-switch` | 网络功能开关 | 参考项目 `api/Net.py` | 已知（3.4 节）。注意 `antenna_select_switch=0` 而 `/api/device/antenna_set_type` 照样可用：**开关取值不能直接当作「功能是否存在」**（推断，来自这一实测） |
+| `GET /api/wlan/wifi-feature-switch` | Wi-Fi 功能开关 | 参考项目 `api/WLan.py` | 已知（3.9 节）：`wifimaxmacfilternum`、`wifimacfilterextendenable` |
+| `GET /api/system/devcapacity` | 设备容量 / 能力 | 参考项目 `api/System.py` | 未验证 |
+| `GET /api/net/net-mode-list` | 可选网络制式与频段 | 参考项目 `api/Net.py` | 已知（4.1 节）：`<LTEBandList><LTEBand><Name>` / `<Value>`，`Value` 为 LTE 频段掩码；不通告 NR 频段 |
+| `GET /api/global/module-switch` | 模块开关 | 参考项目 `api/Global.py` | 未验证 |
+| `GET /api/monitoring/statistic-feature-switch`、`GET /api/user/web-feature-switch` | 另外两组开关 | 参考项目 `api/Monitoring.py`、`api/User.py` | 烽燧不探测 |
+
+**与写操作相关的型号差异**（供阶段 3 参考）：
+
+- 重拨 `POST /api/net/reconnect`：参考项目的请求体是 `<ReconnectAction>1</ReconnectAction>`（`api/Net.py`），H168-383 实测是 `<reconnect_action>1</reconnect_action>`（3.7 节）。同名接口的字段名会因型号而异。
+- 锁 LTE 频段 `POST /api/net/net-mode`：参考项目发 `NetworkMode`、`NetworkBand`、`LTEBand`（`api/Net.py`），H168-383 另带 `networkOption`（3.4 节）。
+- 信号格数：部分型号在 `/api/monitoring/status` 的 `SignalIcon`，部分在 `SignalIconNr`（参考项目 `api/Monitoring.py`）。
+- `GET /api/net/plmn-list`（参考项目 `api/Net.py`）：推断它对应官方网页的手动搜网，可能打断数据连接，**绝不列入任何探测清单**。
+
+### A.3 令牌与加密写入
+
+1. **令牌来源顺序**（参考项目 `Session.py` 的 `_initialize_csrf_tokens_and_session` 与 `_get_token`）：先 `GET /`（首页）从 `<meta name="csrf_token" content="…">` 取；没有时 `GET /api/webserver/token` 取 `<token>`；它返回 `100002` 时再 `GET /api/webserver/SesTokInfo` 取 `<TokInfo>`（`api/WebServer.py` 注明 `SesTokInfo`「~Valid for: B310s-22」）。参考项目只读取 `<TokInfo>`；`SesTokInfo` 的其他字段留到阶段 1 整理。
+2. **令牌的传递与轮换**（`Session.py` 的 `_post` / `get`）：请求头 `__RequestVerificationToken`；`POST` 响应头 `__RequestVerificationTokenone`（及 `…two`）或 `__RequestVerificationToken` 带回新令牌；令牌池只剩一个时 `GET` 也带上它。参考项目把 `<token>` 整串当作令牌，H168-383 取后 32 位（3.1 节）。
+3. **`webserver/token` 与 `SesTokInfo` 的区别**：前者只给令牌，H168-383 用它（登录前的第一个 `POST` 之前取一次，之后靠响应头轮换）；后者是旧型号的令牌入口，只在前者不支持（`100002`）时使用。
+4. **RSA 加密写入**（`encrypt_transmit`，参考项目 `Session.py` 的 `_post` / `_encrypt_data` 与 `Tools.py` 的 `rsa_encrypt`）：部分写请求（如 `wlan/wlan-guide-settings`）的请求体先 base64，再按 `state-login` 的 `rsapadingtype` 分块 RSA 加密（`0` → PKCS#1 v1.5、每块 245 字节；`1` → OAEP、每块 214 字节），拼成十六进制；公钥取 `GET /api/webserver/publickey` 的 `encpubkeyn` / `encpubkeye`；请求头 `Content-Type: application/x-www-form-urlencoded; charset=UTF-8;enc` 与 `encrypt_transmit: encrypt_transmit`。H168-383 的 `webserver/publickey` 返回 ECC 公钥（3.8.2 节），机制不同。
+
+### A.4 登录方式（为阶段 1 整理）
+
+- **旧式 `POST /api/user/login`**（参考项目 `api/User.py` 的 `_login`、`_encode_password`）：请求体 `Username`、`Password`、`password_type`，成功返回 `OK`。`password_type=0`：`Password = base64(password)`；`password_type=4`：`Password = base64(hex(sha256(username + base64(hex(sha256(password))) + 当前令牌)))`。
+- **SCRAM**（`api/User.py` 的 `scram_client_proof` 与 `_login_scram`）：`user/challenge_login`（`username`、`firstnonce`、`mode=1`）→ `user/authentication_login`（`clientproof`、`finalnonce`）。HMAC 的密钥与消息位置与 RFC 5802 相反，按 RFC 正确实现会被设备以 `108006` 拒绝，与烽燧从 H168-383 逆向的结论一致（2.1 节）。参考项目要求 `serversignature` 必须存在且一致，缺失也算失败。
+- **方式选择**（`api/User.py` 的 `login`）：`password_type=4` 时先做 SCRAM 挑战，挑战只发用户名和随机数、不发密码；只有挑战返回 `100002` / `100003` 或响应不是挑战（缺 `salt` / `iterations` / `servernonce`）时才回退旧式 `user/login`；提交 `clientproof` 之后的任何错误都不回退（参考项目 `tests/test_user_scram_session.py` 覆盖了 `100002`、`100003`、`108006` 三种）。报告 `password_type=4` 却拒绝旧式 SHA-256（`108006`）的型号有 5G CPE Pro H112-370、B610h-72a（`_login_scram` 的注释），所以 **`password_type=4` 本身区分不了 SCRAM 与旧式 SHA-256**。
+
+### A.5 错误码
+
+| 码 | 参考项目中的名称（`enums/client.py`、`enums/user.py`） | 补充 |
+| :--- | :--- | :--- |
+| `100001` | `ERROR_SYSTEM_UNKNOWN` | |
+| `100002` | `ERROR_SYSTEM_NO_SUPPORT`（No support） | 某些不支持的接口不回错误码，而是重定向到首页；参考项目把这种响应也当作 `100002`（`Session.py` 的 `_process_response_data`）。烽燧的请求一律 `redirect: "error"`，这种情况会表现为传输错误 |
+| `100003` | `ERROR_SYSTEM_NO_RIGHTS`（No rights, needs login） | **不等于不支持**：H168-383 登录后 `GET /api/net/lock-freq` 仍返回 `100003`（3.4 节） |
+| `100004` | `ERROR_SYSTEM_BUSY` | |
+| `100005` | `ERROR_FORMAT_ERROR` | |
+| `120001` | `ERROR_VOICE_BUSY` | 参考项目标注未使用 |
+| `125001` | `ERROR_WRONG_TOKEN` | 参考项目标注未使用；烽燧的 H168-383 Mock 对重复或未知的令牌返回它（2.3 节列为 CSRF 令牌错误） |
+| `125002` | `ERROR_SYSTEM_CSRF`（Session error） | 参考项目收到后重新取令牌、重试一次（`Session.py` 的 `_try_or_reload_and_retry`）；H168-383 未登录读 `device/information` 时也可能返回它（A.1） |
+| `125003` | `ERROR_WRONG_SESSION_TOKEN` | |
+| `108001` / `108002` / `108003` / `108006` / `108007` | `USERNAME_WRONG` / `PASSWORD_WRONG` / `ALREADY_LOGIN` / `USERNAME_PWD_WRONG` / `USERNAME_PWD_OVERRUN` | 处置见 2.3 节（铁律五） |
+| `115002` | `USERNAME_PWD_MODIFY`（Password modify） | 烽燧尚未处理，阶段 1 决定 |
+
+### A.6 参考项目列出的已测型号（来自其 `README.md`，烽燧未验证）
+
+- **3G / LTE 路由器**：B310s-22、B311-221、B315s-22、B525s-23a、B525s-65a、B715s-23c、B528s、B535-232、B628-265、B612-233、B818-263、E5180s-22、E5186s-22a、E5576-320、E5577Cs-321、E8231、E5573s-320、SoyeaLink B535-333。
+- **3G / LTE 网卡（HiLink 模式）**：E3131、E8372h-608、E3372、E3531、E5530As-2。
+- **5G 路由器**：5G CPE Pro 2（H122-373）、5G CPE Pro（H112-372）、5G CPE 6（H165-383）。
+- **不能用**：B2368-22、B593s-22（固件不兼容）。
+
+烽燧对外只说「仅在 H168-383 上验证过」，以上型号写作「可能可用，未验证」。

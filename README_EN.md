@@ -53,6 +53,7 @@
 - [🏗️ Repository Structure](#️-repository-structure)
 - [📚 Documentation Index](#-documentation-index)
 - [⚠️ Disclaimer and License](#️-disclaimer-and-license)
+- [🙏 Acknowledgements](#-acknowledgements)
 
 ---
 
@@ -662,7 +663,7 @@ cpe-dash/
 ## 📚 Documentation Index
 
 - [`AGENTS.md`](AGENTS.md) — Engineering contract, seven security iron rules, and mandatory TDD guidelines
-- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — H168-383 proprietary protocol (including SMS endpoints and encryption channels), reverse-engineered algorithms, and hardware-verified dictionary
+- [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) — H168-383 proprietary protocol (including SMS endpoints and encryption channels), reverse-engineered algorithms, and hardware-verified dictionary; appendix A collects unverified notes on other Huawei models
 - [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md) — Zero-dependency backend technology choices, security defenses, SMS integration, and Web console architecture
 - [`docs/PHASE2_BACKEND_CONTRACT.md`](docs/PHASE2_BACKEND_CONTRACT.md) — Authoritative contract for REST APIs, SSE events, MCP tools (including SMS), and error codes
 
@@ -674,3 +675,9 @@ cpe-dash/
 - **SMS and privacy**: SMS messages sent through this project are your sole responsibility and subject to carrier billing rates. When using the Telegram bot, notification contents pass through Telegram servers. Do not use for bulk messaging, harassment, or any unlawful activities.
 - **Unofficial project**: This project is an independent, unofficial tool with no affiliation with or endorsement from Huawei Technologies Co., Ltd. or any telecommunications carrier. All trademarks belong to their respective owners. The software is provided "as is" without warranty of any kind, express or implied; use at your own risk.
 - **License**: This project is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)** for personal, research, and other non-commercial use only. Commercial use requires a separate license from the author.
+
+---
+
+## 🙏 Acknowledgements
+
+Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api): FengSui's support for other Huawei models draws on the endpoint and model notes it collects. FengSui contains none of its code and does not depend on it.
