@@ -317,6 +317,22 @@ describe("ContactBook & vCard import", () => {
     assert.equal(contacts.knowsNumber("+353830000002"), false);
   });
 
+  it("keeps agent-filed contacts apart from owner-saved ones until the owner vouches for them", () => {
+    const { contacts } = makeStores();
+    const filed = contacts.upsert({ phone: "+447700900123", name: "Helpdesk" }, { source: "mcp" });
+    assert.equal(filed.source, "mcp");
+    assert.equal(contacts.knowsNumber("+447700900123"), true);
+    assert.equal(contacts.knowsNumber("+447700900123", { ownerSavedOnly: true }), false);
+    // An agent renaming an owner's contact leaves it owner-saved
+    contacts.upsert({ phone: "0830000001", name: "Aoife" });
+    assert.equal(contacts.upsert({ phone: "0830000001", name: "Aoife (agent)" }, { source: "mcp" }).source, "manual");
+    // The owner's vCard export vouches for the filed number (and names it)
+    contacts.importVcard(["BEGIN:VCARD", "FN:Support line", "TEL:+447700900123", "END:VCARD"].join("\n"));
+    assert.equal(contacts.resolvePhone("+447700900123")?.source, "vcard");
+    assert.equal(contacts.resolvePhone("+447700900123")?.name, "Support line");
+    assert.equal(contacts.knowsNumber("+447700900123", { ownerSavedOnly: true }), true);
+  });
+
   it("imports vCards without renaming manual contacts, then searches, removes and persists encrypted", async () => {
     const cipher = StorageCipher.fromSecret("contacts_secret");
     const file = tmpFile("contacts-persist.json");

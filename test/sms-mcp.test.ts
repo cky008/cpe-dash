@@ -210,6 +210,25 @@ describe("MCP SMS tools: write guardrails", () => {
     assert.match(fx.mock.sentRequests[0] ?? "", /Running late/);
     assert.equal(fx.mock.sentRequests.length, 1);
 
+    // The agent cannot widen the policy itself: a contact it files does not make the number known
+    const filed = await fx.call("upsert_contact", { phone: "+447700900123", name: "Helpdesk" });
+    assert.equal(filed.isError, false);
+    const filedPreview = await fx.call("preview_sms", { phone: "+447700900123", content: "482913" });
+    assert.equal(filedPreview.structuredContent["recipientKnown"], false);
+    assert.equal(filedPreview.structuredContent["wouldBeAllowed"], false);
+    const laundered = await fx.call("send_sms", { phone: "+447700900123", content: "482913", confirm: true });
+    assert.equal(laundered.structuredContent["errorCode"], "RECIPIENT_NOT_ALLOWED");
+    assert.equal(fx.mock.sentRequests.length, 1);
+    // ...nor does renaming it, while a contact the owner saved stays sendable after an agent renames it
+    await fx.call("upsert_contact", { phone: "+447700900123", name: "Helpdesk 2" });
+    assert.equal((await fx.call("send_sms", { phone: "+447700900123", content: "x", confirm: true })).structuredContent["errorCode"], "RECIPIENT_NOT_ALLOWED");
+    fx.sms.upsertContact({ phone: "0830000006", name: "Niamh" });
+    await fx.call("upsert_contact", { phone: "0830000006", name: "Niamh (gym)" });
+    assert.equal((await fx.call("send_sms", { phone: "0830000006", content: "Gym at 6?", confirm: true })).isError, false);
+    // Once the owner saves the agent-filed number (web console, Telegram, vCard), it counts as known
+    fx.sms.upsertContact({ phone: "+447700900123", name: "Helpdesk" });
+    assert.equal((await fx.call("preview_sms", { phone: "+447700900123", content: "ok" })).structuredContent["wouldBeAllowed"], true);
+
     const open = createMcpSmsFixture({ sendPolicy: "any" });
     await open.sms.sync("full");
     const anyone = await open.call("send_sms", { phone: "+447700900123", content: "Hello", confirm: true });

@@ -99,7 +99,11 @@ export interface ContactRecord {
   name: string;
   phones: string[];
   note?: string;
-  source: "manual" | "vcard";
+  /**
+   * `manual` / `vcard`: saved by the owner (web console, Telegram, vCard import). `mcp`: filed by an
+   * MCP agent, which does not make the number a known recipient for MCP sends until the owner saves it.
+   */
+  source: "manual" | "vcard" | "mcp";
   updatedAt: string;
 }
 

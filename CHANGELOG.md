@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- **MCP agents can no longer widen the SMS recipient policy themselves.** With `MCP_SMS_ACCESS=full` and `MCP_SMS_SEND_POLICY=known`, a prompt-injected agent could file any number with `upsert_contact` and then `send_sms` to it. Contacts an agent creates are now stored as `source: "mcp"` and do not count as known for MCP sends until you save the number yourself (web console, Telegram or a vCard import); an agent renaming one of your contacts leaves it yours.
+
 ## [1.3.0] — 2026-11-01
 
 ### Added

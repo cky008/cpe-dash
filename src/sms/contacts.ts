@@ -92,11 +92,18 @@ export class ContactBook {
     return null;
   }
 
-  knowsNumber(rawPhone: string): boolean {
-    return this.resolvePhone(rawPhone) !== null;
+  /** With `ownerSavedOnly`, a contact an MCP agent filed (`source: "mcp"`) does not count. */
+  knowsNumber(rawPhone: string, opts: { ownerSavedOnly?: boolean } = {}): boolean {
+    const hit = this.#findInternal(rawPhone);
+    return hit !== null && !(opts.ownerSavedOnly && hit.source === "mcp");
   }
 
-  upsert(input: { phone: string; name: string; note?: string }): ContactRecord {
+  /**
+   * Add a contact, or update the one that owns this number. `source: "mcp"` files a new contact as
+   * agent-made and leaves an existing contact's source alone; an owner save marks it `manual`.
+   */
+  upsert(input: { phone: string; name: string; note?: string }, opts: { source?: "manual" | "mcp" } = {}): ContactRecord {
+    const source = opts.source ?? "manual";
     const name = input.name.trim();
     if (!name) throw new CpeControlValidationError("Contact name is required");
     if (name.length > MAX_NAME_LENGTH) {
@@ -115,7 +122,7 @@ export class ContactBook {
       existing.name = name;
       if (note !== undefined) existing.note = note || undefined;
       if (!existing.phones.includes(resolved.phone)) existing.phones.unshift(resolved.phone);
-      existing.source = "manual";
+      if (source === "manual") existing.source = "manual";
       existing.updatedAt = now;
       this.#commit();
       return copyContact(existing);
@@ -128,7 +135,7 @@ export class ContactBook {
       name,
       phones: [resolved.phone],
       ...(note ? { note } : {}),
-      source: "manual",
+      source,
       updatedAt: now,
     };
     this.#contacts.unshift(created);
@@ -165,6 +172,8 @@ export class ContactBook {
       const matched = phones.map((p) => this.#findInternal(p)).find(Boolean) ?? null;
       if (matched) {
         if (matched.source !== "manual") matched.name = entry.name;
+        // The owner's own export vouches for a number an agent filed
+        if (matched.source === "mcp") matched.source = "vcard";
         for (const p of phones) if (!matched.phones.includes(p)) matched.phones.push(p);
         matched.updatedAt = now;
         updated += 1;

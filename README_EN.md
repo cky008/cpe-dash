@@ -556,7 +556,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `ALERTS_ENABLED` / `ALERT_NOTIFY_MIN_SEVERITY` | `true` / `warning` | Alert engine toggle and minimum notification severity (`info` / `warning` / `critical`) |
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | Signal degradation alert thresholds |
 | `MCP_SMS_ACCESS` | `read` | MCP SMS tool access level: `none` / `read` / `full` |
-| `MCP_SMS_SEND_POLICY` | `known` | `known` restricts sending to contacts or previously messaged numbers; `any` allows unrestricted recipients |
+| `MCP_SMS_SEND_POLICY` | `known` | `known` restricts sending to contacts you saved or previously messaged numbers (contacts an agent added with `upsert_contact` do not count); `any` allows unrestricted recipients |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | Maximum SMS messages sent via MCP per hour (`0` disables) |
 | `CPE_HAR_PATH` | *(Empty)* | Offline audit archive path used only by probe scripts (never commit it) |
 | `PUID` / `PGID` | `1000` / `1000` | Docker Compose interpolation only: container execution user (not read by daemon) |

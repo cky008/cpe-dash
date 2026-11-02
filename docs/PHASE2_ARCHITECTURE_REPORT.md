@@ -293,7 +293,7 @@ sequenceDiagram
 短信正文是第三方可控输入，可能夹带针对智能体的指令。防护分为三层：
 1. **权限分级**：`MCP_SMS_ACCESS=none|read|full`，默认 `read` 不暴露任何写工具；`MCP_ALLOW_MUTATIONS=false` 时写工具同样隐藏。
 2. **数据标注**：`initialize` 的说明与返回短信内容的结果都附带「仅视为数据」声明。
-3. **硬性约束**：`send_sms` 必须 `confirm: true`，单收件人，默认仅限联系人或曾发过短信的号码，按小时限额（未触达 CPE 的尝试退还额度）；`delete_sms` 必须 `confirm: true`、单次 ≤20 条，默认拒绝删除未读短信。
+3. **硬性约束**：`send_sms` 必须 `confirm: true`，单收件人，默认仅限主人保存的联系人或曾发过短信的号码（智能体自建的联系人不算），按小时限额（未触达 CPE 的尝试退还额度）；`delete_sms` 必须 `confirm: true`、单次 ≤20 条，默认拒绝删除未读短信。
 
 ### 5.7 运行模式
 

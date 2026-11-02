@@ -556,7 +556,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `ALERTS_ENABLED` / `ALERT_NOTIFY_MIN_SEVERITY` | `true` / `warning` | 告警引擎与推送最低级别（`info` / `warning` / `critical`） |
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | 信号劣化告警阈值 |
 | `MCP_SMS_ACCESS` | `read` | MCP 短信工具权限：`none` / `read` / `full` |
-| `MCP_SMS_SEND_POLICY` | `known` | `known` 仅限联系人或曾发过短信的号码；`any` 不限制 |
+| `MCP_SMS_SEND_POLICY` | `known` | `known` 仅限你保存的联系人或曾发过短信的号码（智能体自己用 `upsert_contact` 添加的不算）；`any` 不限制 |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | MCP 每小时发送上限（`0` 禁止） |
 | `CPE_HAR_PATH` | *(空)* | 仅探针脚本使用的离线审计归档路径（严禁入库） |
 | `PUID` / `PGID` | `1000` / `1000` | 仅供 docker compose 插值：容器运行用户（守护进程不读取） |

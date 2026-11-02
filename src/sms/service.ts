@@ -257,9 +257,12 @@ export class SmsService extends EventEmitter {
     };
   }
 
-  /** `true` when `phone` is in the contact book or has received an SMS from this router before. */
-  knowsRecipient(phone: string): boolean {
-    if (this.contacts.knowsNumber(phone)) return true;
+  /**
+   * `true` when `phone` is in the contact book or has received an SMS from this router before. With
+   * `ownerSavedOnly` (the MCP send policy), contacts an MCP agent filed itself do not count.
+   */
+  knowsRecipient(phone: string, opts: { ownerSavedOnly?: boolean } = {}): boolean {
+    if (this.contacts.knowsNumber(phone, opts)) return true;
     const key = canonicalThreadKey(phone, this.defaultCountryCode);
     return this.mirror
       .list()
@@ -437,8 +440,8 @@ export class SmsService extends EventEmitter {
     return { deleted: removed.length, uids: removed };
   }
 
-  upsertContact(input: { phone: string; name: string; note?: string }): ContactRecord {
-    const contact = this.contacts.upsert(input);
+  upsertContact(input: { phone: string; name: string; note?: string }, opts: { source?: "manual" | "mcp" } = {}): ContactRecord {
+    const contact = this.contacts.upsert(input, opts);
     this.#contactsChanged();
     return contact;
   }

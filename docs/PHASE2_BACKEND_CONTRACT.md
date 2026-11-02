@@ -819,7 +819,7 @@ export interface ContactRecord {
   name: string;
   phones: string[];                   // E.164 或原始写法
   note?: string;
-  source: "manual" | "vcard";
+  source: "manual" | "vcard" | "mcp"; // mcp = MCP 智能体用 upsert_contact 新建；主人保存（Web / Telegram / vCard）之前不算 MCP 发送策略中的已知号码
   updatedAt: string;
 }
 ```
@@ -1041,7 +1041,7 @@ export interface McpToolErrorPayload {
     | "MUTATIONS_DISABLED"       // MCP_ALLOW_MUTATIONS=false
     | "CONFIRMATION_REQUIRED"    // reboot_cpe / reconnect_cellular / send_sms / delete_sms 未传 confirm: true
     | "SMS_ACCESS_DENIED"        // 短信工具超出 MCP_SMS_ACCESS 权限
-    | "RECIPIENT_NOT_ALLOWED"    // MCP_SMS_SEND_POLICY=known 且收件人既非联系人也未曾发过短信
+    | "RECIPIENT_NOT_ALLOWED"    // MCP_SMS_SEND_POLICY=known 且收件人既非主人保存的联系人、也未曾发过短信（智能体自建的联系人不算）
     | "SMS_RATE_LIMITED"         // 超出 MCP_SMS_SEND_LIMIT_PER_HOUR
     | "UNREAD_PROTECTED"         // delete_sms 目标含未读短信且未传 includeUnread: true
     | "VALIDATION_ERROR"         // 参数非法或违反 inputSchema（在任何写入前返回，不产生 CPE 会话）
@@ -1077,7 +1077,7 @@ export interface McpToolErrorPayload {
 | `search_contacts` | `query?`、`limit?: 1..50` | `ContactRecord[]` |
 | `preview_sms` | `phone`、`content`、`countryCode?` | `SmsSendPreview` + `recipientKnown` + `wouldBeAllowed`（按当前发送策略）；不发送 |
 | `sync_sms` | `mode?: "full" \| "incremental"` | 通过共享调度器同步（真人在线时让位） |
-| `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限联系人或曾发过短信的号码（只给我们发过短信的号码不算）；超长（>4 段）或号码非法时不占用每小时额度；未把短信交给 CPE 的尝试都会退还额度（校验失败、真人让位、另一守护进程领先、队列已满或停机、断路器熔断、CPE 以错误码拒绝）；只有传输层故障（`send-sms` 可能已到达 CPE）计入额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
+| `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限主人保存的联系人（Web 控制台、Telegram 或 vCard 导入）或曾发过短信的号码（只给我们发过短信的号码不算；智能体经 `upsert_contact` 新建的联系人也不算，主人保存后才算）；超长（>4 段）或号码非法时不占用每小时额度；未把短信交给 CPE 的尝试都会退还额度（校验失败、真人让位、另一守护进程领先、队列已满或停机、断路器熔断、CPE 以错误码拒绝）；只有传输层故障（`send-sms` 可能已到达 CPE）计入额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
 | `mark_sms_read` | `uids?: string[]`（≤50）或 `threadKey?` | `{ count, uids }` |
 | `delete_sms` | `uids: string[]`（≤20）、`confirm: true`、`includeUnread?: boolean` | 目标含未读短信时默认拒绝（`UNREAD_PROTECTED`） |
 | `upsert_contact` | `phone`、`name`、`note?` | `ContactRecord` |
