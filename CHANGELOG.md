@@ -5,6 +5,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Changed
+- **The logo follows the theme.** The brand seal in the header and the small markers before card titles were cinnabar in every theme; they now use the theme's primary colour, or the accent you picked, with the matching content colour for the mark.
 - **Recoveries and carrier drops reach Telegram and webhooks.** Only alerts at or above `ALERT_NOTIFY_MIN_SEVERITY` (default `warning`) were pushed, and every recovery is `info`, so a pushed `WAN_DOWN` was never followed by its `WAN_UP`, and `CA_DROPPED` stayed in the console. A recovery is now routed with its problem's severity (`WAN_UP`, `SIGNAL_RECOVERED`, `LOCK_REALIGNED` as warnings; `CPE_RECOVERED`, `DUPLICATE_DAEMON_CLEARED` as critical) and `CA_DROPPED` as a warning. The alert history keeps their own severity.
 
 ## [1.4.1] — 2026-11-02

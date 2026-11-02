@@ -54,7 +54,6 @@
   --color-warning-content: oklch(26% 0.05 65);
   --color-error: oklch(55% 0.19 27);
   --color-error-content: oklch(99% 0 0);
-  --seal: oklch(55% 0.19 30);
   --dl: oklch(55% 0.12 220);
   --ul: oklch(64% 0.16 45);
   --q4: oklch(58% 0.14 155);
@@ -76,7 +75,6 @@
   --color-warning-content: oklch(21% 0.04 75);
   --color-error: oklch(67% 0.19 24);
   --color-error-content: oklch(99% 0 0);
-  --seal: oklch(64% 0.19 30);
   --dl: oklch(80% 0.12 205);
   --ul: oklch(76% 0.15 55);
   --q4: oklch(77% 0.15 155);
@@ -130,7 +128,6 @@
   --color-accent-content: oklch(20% 0.03 230);
   --color-neutral: oklch(30% 0.03 248);
   --color-neutral-content: oklch(97% 0.008 215);
-  --seal: oklch(50% 0.16 15);
   --page-bg: oklch(96.6% 0.011 215);
   --surface: oklch(99.6% 0.004 215 / 0.9);
   --surface-solid: oklch(99.6% 0.004 215);
@@ -174,7 +171,6 @@
   --color-accent-content: oklch(25% 0.05 130);
   --color-neutral: oklch(29% 0.015 350);
   --color-neutral-content: oklch(97% 0.006 355);
-  --seal: oklch(56% 0.19 18);
   --page-bg: oklch(97.3% 0.011 355);
   --surface: oklch(99.7% 0.003 355 / 0.9);
   --surface-solid: oklch(99.7% 0.003 355);
@@ -243,7 +239,6 @@
   --color-warning: oklch(71% 0.15 68);
   --color-warning-content: oklch(27% 0.05 65);
   --color-error: oklch(55% 0.19 28);
-  --seal: oklch(54% 0.19 32);
   --dl: oklch(55% 0.11 230);
   --ul: oklch(62% 0.16 42);
   --q4: oklch(57% 0.13 150);
@@ -304,7 +299,6 @@
   --color-accent-content: oklch(18% 0.03 230);
   --color-neutral: oklch(28% 0.004 70);
   --color-neutral-content: oklch(95% 0.006 85);
-  --seal: oklch(63% 0.19 32);
   --glow-strength: 0.5;
   --page-glow: 5%;
   --page-bg: oklch(15.8% 0.003 70);
@@ -422,7 +416,6 @@
   --color-success-content: oklch(18% 0.03 160);
   --color-warning: oklch(82% 0.14 80);
   --color-error: oklch(69% 0.19 18);
-  --seal: oklch(68% 0.18 20);
   --dl: oklch(82% 0.12 195);
   --ul: oklch(75% 0.17 330);
   --q4: oklch(79% 0.15 160);
@@ -670,14 +663,14 @@ body {
     font-weight: 700;
     letter-spacing: 0.02em;
   }
-  /* Small cinnabar seal before every card title */
+  /* Small seal before every card title, in the theme's (or the chosen accent's) primary colour */
   .fs-card-title::before {
     content: "";
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 0.125rem;
-    background: var(--seal);
-    box-shadow: 0 0 calc(var(--glow-strength) * 10px) color-mix(in oklab, var(--seal) 70%, transparent);
+    background: var(--color-primary);
+    box-shadow: 0 0 calc(var(--glow-strength) * 10px) color-mix(in oklab, var(--color-primary) 70%, transparent);
     transform: rotate(45deg);
   }
   .fs-card-body {
@@ -703,16 +696,16 @@ body {
     border-bottom: 0;
   }
 
-  /* Brand seal (烽燧 印) */
+  /* Brand seal (烽燧 印): follows the theme and a custom accent; its mark uses the matching content colour */
   .fs-seal {
     display: grid;
     place-items: center;
     border-radius: 0.6rem;
-    background: var(--seal);
-    color: oklch(98% 0.01 85);
+    background: var(--color-primary);
+    color: var(--color-primary-content);
     box-shadow:
       inset 0 0 0 2px oklch(100% 0 0 / 0.18),
-      0 0 calc(var(--glow-strength) * 18px) color-mix(in oklab, var(--seal) 55%, transparent);
+      0 0 calc(var(--glow-strength) * 18px) color-mix(in oklab, var(--color-primary) 55%, transparent);
   }
 
   /* Header and segmented navigation */
