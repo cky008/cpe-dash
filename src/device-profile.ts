@@ -46,7 +46,7 @@ const IDENTITY_VALUE_TAGS: ReadonlySet<string> = new Set(["devicename", "softwar
 /**
  * `supported`: it answered; `unsupported`: `100002`; `restricted`: `100003`, which is NOT
  * unsupported (the H168-383 answers `GET /api/net/lock-freq` with it); `unknown`: another error
- * code, a transport failure or a timeout.
+ * code, a transport failure, a timeout or an answer that could not be read (too big, cut off).
  */
 export type EndpointState = "supported" | "unsupported" | "restricted" | "unknown";
 
@@ -161,6 +161,8 @@ export interface DeviceProfile {
 /** The logged-in session the probe reads through (`EphemeralCpeSession` fits it). */
 export interface ProbeSession {
   get(apiPath: string, extraHeaders?: Record<string, string>, overrideTimeoutMs?: number): Promise<string>;
+  /** `false` once the session is over (deadline, logout, stop): no request can go out any more. */
+  readonly open: boolean;
   readonly loginScheme: LoginScheme | null;
   readonly eccVerified: boolean;
   readonly tokenFlow: TokenFlow | null;
@@ -337,16 +339,11 @@ function cpeErrorCode(err: unknown): string | null {
   return typeof err.code === "string" && /^\d{4,8}$/.test(err.code) ? err.code : null;
 }
 
-/** One endpoint failed without an answer (connection or per-request timeout); the session lives on. */
-function isTransient(err: unknown): boolean {
-  if (typeof err !== "object" || err === null || !("name" in err)) return false;
-  return err.name === "CpeTransportError" || err.name === "TimeoutError";
-}
-
 /**
- * Read the probe list inside a logged-in session, one GET after another. An endpoint's error code
- * or transport failure is recorded as its state; any other error (the session's deadline, logout or
- * cancellation) ends the probe, so nothing guessed is ever stored.
+ * Read the probe list inside a logged-in session, one GET after another. While the session is open,
+ * whatever goes wrong with one endpoint (an error code, no answer, a timeout, an answer too big or
+ * cut off) is that endpoint's state, so an odd endpoint never fails a connection test that logged
+ * in. Once the session is over (deadline, logout, stop) the probe ends: nothing guessed is stored.
  */
 export async function probeDevice(session: ProbeSession, opts: { nowIso: string; origin: ProbeOrigin }): Promise<DeviceProbeResult> {
   const endpoints: EndpointProbe[] = [];
@@ -357,8 +354,8 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
     try {
       body = await session.get(path, {}, PROBE_REQUEST_TIMEOUT_MS);
     } catch (err) {
+      if (!session.open) throw err;
       const code = cpeErrorCode(err);
-      if (code === null && !isTransient(err)) throw err;
       endpoints.push({ path, state: code === null ? "unknown" : endpointState(code), code });
       observations.push({ path, format: null, fields: [], truncated: false });
       continue;

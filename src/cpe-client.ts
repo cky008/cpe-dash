@@ -230,6 +230,11 @@ export class EphemeralCpeSession {
     return this.#tokenFlow;
   }
 
+  /** Requests can still go out: the deadline has not passed (nor a stop cancelled it) and logout has not begun. */
+  get open(): boolean {
+    return !this.#releasing && this.#deadline?.aborted !== true;
+  }
+
   /**
    * Signal for one request. Logout's own requests (`releasing`) only time out; any other request
    * fails locally once the deadline passed or logout began, so work that outlived its session never

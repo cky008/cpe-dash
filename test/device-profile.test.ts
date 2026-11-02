@@ -56,6 +56,9 @@ function named(name: string): Error {
   return err;
 }
 
+/** Errors that end the session itself, as `EphemeralCpeSession` reports them: it is no longer open. */
+const SESSION_ENDING: ReadonlySet<string> = new Set(["CpeSessionDeadlineError", "CpeSessionClosedError", "SchedulerStoppedError", "AbortError"]);
+
 /** A logged-in session answering from `bodies`; anything else is `100002`, like the H168-383. */
 function fakeSession(
   bodies: Readonly<Partial<Record<string, string>>>,
@@ -64,16 +67,21 @@ function fakeSession(
 ): ProbeSession & { asked: string[]; timeouts: Array<number | undefined> } {
   const asked: string[] = [];
   const timeouts: Array<number | undefined> = [];
+  let open = true;
   return {
     asked,
     timeouts,
     loginScheme: facts.loginScheme === undefined ? "scram" : facts.loginScheme,
     eccVerified: facts.eccVerified ?? true,
     tokenFlow: facts.tokenFlow === undefined ? "webserver-token" : facts.tokenFlow,
+    get open(): boolean {
+      return open;
+    },
     async get(apiPath: string, _headers?: Record<string, string>, timeoutMs?: number): Promise<string> {
       asked.push(apiPath);
       timeouts.push(timeoutMs);
       const fault = faults[apiPath];
+      if (fault && SESSION_ENDING.has(fault.name)) open = false;
       if (fault) throw fault;
       const body = bodies[apiPath];
       if (body === undefined) throw new FakeCpeError("100002");
@@ -128,6 +136,27 @@ describe("device profile: the probe", () => {
     const profile = deviceProfileOf(await probeDevice(timedOut, { nowIso: NOW, origin: "startup" }));
     assert.equal(profile.capabilities.endpoints.find((e) => e.path === "/api/net/net-mode-list")?.state, "unknown", "one slow endpoint is unknown");
     assert.equal(profile.capabilities.lteBands, null);
+  });
+
+  it("records an answer it cannot read as that endpoint's unknown, and goes on while the session is open", async () => {
+    const session = fakeSession(H168_BODIES, {
+      "/api/device/basicinformation": new FakeCpeError("ERR"),
+      "/api/system/devcapacity": new Error("Response exceeds 2097152 bytes (maximum allowed size)"),
+      "/api/global/module-switch": new TypeError("terminated"),
+    });
+    const probe = await probeDevice(session, { nowIso: NOW, origin: "connection-test" });
+    assert.deepEqual(session.asked, [...DEVICE_PROBE_PATHS], "every listed GET still went out, once");
+    const states = Object.fromEntries(probe.endpoints.map((e) => [e.path, [e.state, e.code]]));
+    assert.deepEqual(states["/api/device/basicinformation"], ["unknown", null], "an error code that is no number is not recorded");
+    assert.deepEqual(states["/api/system/devcapacity"], ["unknown", null], "an answer too big to read");
+    assert.deepEqual(states["/api/global/module-switch"], ["unknown", null], "an answer cut off");
+    assert.deepEqual(states["/api/net/net-mode-list"], ["supported", null]);
+    assert.deepEqual(
+      probe.observations.filter((o) => o.format === null).map((o) => o.path),
+      ["/api/device/basicinformation", "/api/system/devcapacity", "/api/global/module-switch"],
+      "nothing of an unreadable answer is observed"
+    );
+    assert.deepEqual([probe.identity.model, probe.identity.softwareVersion, probe.lteBands], ["H168-383", "4.4.0.1(H1006SP19C00)", [1, 3, 20]]);
   });
 
   it("identifies model, builds and login from the answers and the session", async () => {

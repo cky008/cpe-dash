@@ -1038,7 +1038,7 @@ export interface DeviceIdentity {
 export interface DeviceCapabilities {
   probedAtIso: string;
   // 每个探测接口一项。supported：有响应；unsupported：100002；restricted：100003（不等于不支持）；
-  // unknown：其他错误码、传输失败或单个请求超时
+  // unknown：其他错误码、传输失败、单个请求超时或读不了的响应（过大、中途断开、错误码不是数字）
   endpoints: Array<{ path: DeviceProbePath; state: EndpointState; code: string | null }>;
   lteBands: number[] | null;       // net-mode-list 通告的 LTE 频段，没有时为 null
   // telemetry、neighbors、topology、smsRead、smsWrite、bandLock、cellLock、reboot、reconnect、

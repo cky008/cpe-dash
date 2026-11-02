@@ -214,6 +214,53 @@ describe("device identification on the strict H168-383", () => {
     }
   });
 
+  it("keeps the connection test's verdict, and still identifies, when an endpoint's answer cannot be read", async () => {
+    const tooBig = `<response><x>${"a".repeat(2 * 1024 * 1024)}</x></response>`;
+    /** Headers arrive, then the router drops the connection mid-answer. */
+    const cutOff = (): Response => {
+      let sent = false;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent) {
+            controller.error(new TypeError("terminated"));
+            return;
+          }
+          sent = true;
+          controller.enqueue(new TextEncoder().encode("<response><a>"));
+        },
+      });
+      return new Response(body, { status: 200 });
+    };
+    const fx = coreFixture({
+      fault: (p, method) => {
+        if (method !== "GET") return undefined;
+        if (p === "/api/system/devcapacity") return { body: tooBig };
+        if (p === "/api/device/basicinformation") return { body: "<error><code>ERR</code><message></message></error>" };
+        return undefined;
+      },
+      fetchWrap: (inner) => async (input, init) => (String(input).endsWith("/api/global/module-switch") ? cutOff() : inner(input, init)),
+    });
+    try {
+      const authCalls = fx.cpe.stats.authCalls;
+      const { result, probe } = await fx.core.scheduler.testConnectionDetailed({ url: "http://192.168.8.1", username: "admin", password: fx.cpe.password });
+      assert.equal(result.ok, true, JSON.stringify(result));
+      assert.equal(fx.cpe.stats.authCalls - authCalls, 1, "the password went out once");
+      assert.equal(fx.cpe.isSlotTaken(), false);
+      const unreadable = (found: DeviceProbeResult | null) =>
+        found?.endpoints.filter((e) => e.state === "unknown").map((e) => `${e.path} ${e.code}`);
+      const expected = ["/api/device/basicinformation null", "/api/system/devcapacity null", "/api/global/module-switch null"];
+      assert.deepEqual(unreadable(probe), expected);
+      assert.equal(probe?.identity.model, "H168-383");
+
+      const identified = await fx.core.monitor.identifyDevice();
+      assert.deepEqual(unreadable(identified), expected, "identification at start completes too");
+      const status = fx.core.scheduler.getStatus();
+      assert.deepEqual([status.mode, status.lastError], ["idle", null], "an unreadable answer is no unreachable router");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("lists the probe's GETs in the protocol spec", () => {
     const spec = fs.readFileSync("docs/PHASE1_PROTOCOL_SPEC.md", "utf8");
     const section = spec.slice(spec.indexOf("### A.7"));

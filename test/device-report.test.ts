@@ -54,6 +54,7 @@ const BODIES: Readonly<Record<DeviceProbePath, string>> = {
 };
 
 const session: ProbeSession = {
+  open: true,
   loginScheme: "scram",
   eccVerified: true,
   tokenFlow: "webserver-token",
