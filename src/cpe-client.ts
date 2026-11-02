@@ -4,6 +4,7 @@ import { normalizeCpeUrl } from "./config.ts";
 import {
   CpeLoginMethodError,
   LEGACY_LOGIN_RETRY_SAFE_CODES,
+  LOGIN_UNCONFIRMED_CODE,
   type LegacyScheme,
   type LoginPlan,
   SCRAM_PROBE_FALLBACK_CODES,
@@ -58,6 +59,8 @@ export const CPE_ERROR_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "125001": "CSRF Token 校验失败 (Wrong token)",
   "125002": "会话已过期 (Session expired)",
   "125003": "会话 Token 无效 (Invalid session token)",
+  // Not a router code: a legacy login answer that was neither OK nor an error code (the breaker's code)
+  [LOGIN_UNCONFIRMED_CODE]: "路由器对密码的应答无法判断 (Login not confirmed)",
 };
 
 export class ReentrantCpeSessionError extends Error {
@@ -188,6 +191,23 @@ export class CpeApiError extends Error {
   get isSessionOccupied(): boolean {
     return this.code === "108003" || this.code === "108005" || this.code === "108009";
   }
+}
+
+/**
+ * The router answered a legacy password in a way FengSui cannot place (`err`: its unknown error code,
+ * or why the answer could not be read; `null`: neither `OK` nor an error code). On a model nobody
+ * verified that may have counted as a wrong attempt, so the error latches the breaker.
+ */
+function unplacedLegacyAnswer(err: unknown): CpeApiError {
+  if (err instanceof CpeApiError) {
+    return new CpeApiError(err.code, "/api/user/login: unexpected answer to the password, no further login attempt", {
+      remainCount: err.remainCount,
+      waitTime: err.waitTime,
+      latchesBreaker: true,
+    });
+  }
+  const what = err === null ? "neither OK nor an error code" : `unreadable (${err instanceof Error ? err.message : String(err)})`;
+  return new CpeApiError(LOGIN_UNCONFIRMED_CODE, `/api/user/login: the answer to the password was ${what}, no further login attempt`, { latchesBreaker: true });
 }
 
 export class EphemeralCpeSession {
@@ -427,11 +447,14 @@ export class EphemeralCpeSession {
     return await this.#post(apiPath, body, opts, false);
   }
 
-  /** `body` may depend on the token the request carries (the SHA-256 legacy login hashes it in). */
+  /**
+   * `body` may depend on the token the request carries (the SHA-256 legacy login hashes it in).
+   * `onAnswer` runs once the router has answered (status and headers arrived), before its body is read.
+   */
   async #post(
     apiPath: string,
     body: string | ((token: string) => string),
-    opts: { clearTokensOnResponse?: boolean; contentType?: string; overrideTimeoutMs?: number },
+    opts: { clearTokensOnResponse?: boolean; contentType?: string; overrideTimeoutMs?: number; onAnswer?: () => void },
     releasing: boolean
   ): Promise<string> {
     const timeoutMs = opts.overrideTimeoutMs ?? this.timeoutMs;
@@ -456,6 +479,7 @@ export class EphemeralCpeSession {
         redirect: "error",
         signal,
       });
+      opts.onAnswer?.();
       this.#updateCookies(res.headers);
       this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
       const text = await readCpeResponseText(res);
@@ -561,13 +585,13 @@ export class EphemeralCpeSession {
   }
 
   /** Mark the session as possibly logged in while the password's answer is outstanding. */
-  async #submitPassword(apiPath: string, body: string | ((token: string) => string)): Promise<string> {
+  async #submitPassword(apiPath: string, body: string | ((token: string) => string), onAnswer?: () => void): Promise<string> {
     // Until the router answers, it may already have logged us in (lost response, aborted request),
     // so `logout()` must run; a CPE error code means the router refused and nothing is open.
     this.#authOutcomeUnknown = true;
     let answer: string;
     try {
-      answer = await this.#post(apiPath, body, { clearTokensOnResponse: true }, false);
+      answer = await this.#post(apiPath, body, { clearTokensOnResponse: true, onAnswer }, false);
     } catch (err) {
       if (err instanceof CpeApiError) {
         this.#authOutcomeUnknown = false;
@@ -611,30 +635,34 @@ export class EphemeralCpeSession {
   }
 
   /**
-   * `POST /api/user/login`; the SHA-256 form hashes in the very token the request carries. An error
-   * code outside the known ones latches the breaker (`LEGACY_LOGIN_RETRY_SAFE_CODES`).
+   * `POST /api/user/login`; the SHA-256 form hashes in the very token the request carries. Once the
+   * router has answered, anything but `OK` or a code that refuses a login before the password is
+   * checked (`LEGACY_LOGIN_RETRY_SAFE_CODES`) latches the breaker: an unknown code, a page, an empty,
+   * cut-off or oversized body. Without an answer (no token for the request, the connection failed, it
+   * timed out) the next session may try again, as with SCRAM.
    */
   async #legacyLogin(scheme: LegacyScheme, passwordType: "0" | "3" | "4"): Promise<void> {
+    let answered = false;
     let answer: string;
     try {
-      answer = await this.#submitPassword("/api/user/login", (token) =>
-        buildXmlRequest({
-          Username: this.username,
-          Password: encodeLegacyPassword(scheme, this.username, this.password, token),
-          password_type: passwordType,
-        })
+      answer = await this.#submitPassword(
+        "/api/user/login",
+        (token) =>
+          buildXmlRequest({
+            Username: this.username,
+            Password: encodeLegacyPassword(scheme, this.username, this.password, token),
+            password_type: passwordType,
+          }),
+        () => {
+          answered = true;
+        }
       );
     } catch (err) {
-      if (!(err instanceof CpeApiError) || err.isCircuitBreakerFatal || LEGACY_LOGIN_RETRY_SAFE_CODES.has(err.code)) throw err;
-      throw new CpeApiError(err.code, "/api/user/login: unexpected answer to the password, no further login attempt", {
-        remainCount: err.remainCount,
-        waitTime: err.waitTime,
-        latchesBreaker: true,
-      });
+      if (!answered) throw err;
+      if (err instanceof CpeApiError && (err.isCircuitBreakerFatal || LEGACY_LOGIN_RETRY_SAFE_CODES.has(err.code))) throw err;
+      throw unplacedLegacyAnswer(err);
     }
-    if (getXmlTag(answer, "response")?.trim() !== "OK") {
-      throw new Error("CPE did not confirm the login (no OK answer)");
-    }
+    if (getXmlTag(answer, "response")?.trim() !== "OK") throw unplacedLegacyAnswer(null);
     this.#loginScheme = scheme;
   }
 

@@ -7,7 +7,7 @@ import {
   ReentrantCpeSessionError,
   isInsideCpeSession,
 } from "./cpe-client.ts";
-import { CpeLoginMethodError } from "./cpe-auth.ts";
+import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
 import { CpeControlValidationError, type PersistedLockState } from "./cpe-domain.ts";
 import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, type TokenFlow, isDeviceProbeResult, probeDevice } from "./device-profile.ts";
 import { t } from "./i18n.ts";
@@ -179,6 +179,7 @@ export type ConnectionTestResult =
         | "locked"
         | "password_change_required"
         | "unsupported_login"
+        | "unconfirmed_login"
         | "human_logged_in"
         | "unreachable"
         | "standby"
@@ -510,8 +511,8 @@ export class MutexSessionScheduler extends EventEmitter {
         const message = err instanceof Error ? err.message : String(err);
         if (breaker.tripped && breaker.code === "108007") return failure("locked", message, { code: "108007", waitTimeSec: breaker.waitTime ?? null });
         if (breaker.tripped && breaker.code === "115002") return failure("password_change_required", message, { code: "115002" });
-        // An answer to the password it could not place: the router said something other than "wrong password"
-        if (err instanceof CpeApiError && err.latchesBreaker) return failure("router_error", message, { code: err.code });
+        // An answer to the password it could not place: it may have counted as a wrong attempt (code: the router's, if any)
+        if (err instanceof CpeApiError && err.latchesBreaker) return failure("unconfirmed_login", message, { code: err.code === LOGIN_UNCONFIRMED_CODE ? null : err.code });
         if (breaker.tripped) {
           this.#remainingLogins = breaker.remainCount ?? this.#remainingLogins;
           return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });

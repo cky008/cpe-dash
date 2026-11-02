@@ -3,14 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { CpeLoginMethodError } from "../src/cpe-auth.ts";
+import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "../src/cpe-auth.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { CpeApiError, HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { DeviceProbeResult } from "../src/device-profile.ts";
 import { CircuitBreakerOpenError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { MAX_XML_BYTES, getXmlTag } from "../src/xml.ts";
 import { type CpeFamily, FAMILY_LOGINS, FAMILY_TOKEN_FLOWS, type FamilyLogin, type FamilyTokenFlow, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 
@@ -297,7 +297,7 @@ describe("login methods and token flows (mock family)", () => {
         assert.equal(cpe.stats.requests.length, sent, `${code}: no second submission`);
         assert.equal(cpe.count("/api/user/login"), 1);
         const result = await fx.core.scheduler.testConnection(fx.good);
-        assert.deepEqual(result.ok ? null : [result.reason, result.code, result.remainCount], ["router_error", code, null], `${code}: not called a wrong password`);
+        assert.deepEqual(result.ok ? null : [result.reason, result.code, result.remainCount], ["unconfirmed_login", code, null], `${code}: not called a wrong password`);
       } finally {
         await fx.cleanup();
       }
@@ -319,6 +319,53 @@ describe("login methods and token flows (mock family)", () => {
     assert.equal(scram.getCircuitBreakerState().tripped, false);
   });
 
+  it("latches after a legacy answer that is neither OK nor an error code, and not when no password went out (R1-01)", async () => {
+    const unplaceable: Readonly<Record<string, () => string>> = {
+      "a response that is not OK": () => "<response>error</response>",
+      "an HTML page": () => "<!DOCTYPE html><html><body>login</body></html>",
+      "an empty body": () => "",
+      "a cut-off wrong-password answer": () => "<error><code>1080",
+      "an oversized body": () => `<response>${"x".repeat(MAX_XML_BYTES)}</response>`,
+    };
+    for (const [label, body] of Object.entries(unplaceable)) {
+      for (const login of ["sha256", "base64"] as const) {
+        const cpe = createCpeFamily({ login, tokenFlow: "token" });
+        const fx = coreFixture({ fetchImpl: answerWith(cpe, "/api/user/login", body), password: cpe.password });
+        try {
+          // The router may have counted it as a wrong attempt: one submission, then nothing
+          await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CircuitBreakerOpenError && err.code === LOGIN_UNCONFIRMED_CODE, `${label} × ${login}`);
+          const sent = cpe.stats.requests.length;
+          assert.equal(await fx.core.monitor.refreshTelemetry(), null, `${label} × ${login}`);
+          assert.deepEqual([cpe.stats.requests.length, cpe.count("/api/user/login")], [sent, 1], `${label} × ${login}: no second submission`);
+          const result = await fx.core.scheduler.testConnection(fx.good);
+          assert.deepEqual(result.ok ? null : [result.reason, result.code], ["unconfirmed_login", null], `${label} × ${login}`);
+        } finally {
+          await fx.cleanup();
+        }
+      }
+    }
+
+    // The token for user/login could not be had, so no password went out: nothing to latch on
+    const tokenless = createCpeFamily({ login: "base64", tokenFlow: "token" });
+    const fx = coreFixture({ fetchImpl: answerWith(tokenless, "/api/webserver/token", () => "<error><code>100001</code><message></message></error>"), password: tokenless.password });
+    try {
+      await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CpeApiError && !(err instanceof CircuitBreakerOpenError));
+      assert.deepEqual([tokenless.count("/api/user/login"), fx.core.scheduler.isCircuitTripped()], [0, false]);
+    } finally {
+      await fx.cleanup();
+    }
+
+    // No answer at all (the connection failed): like a SCRAM login, the next session may try again
+    const lost = createCpeFamily({ login: "sha256", tokenFlow: "token" });
+    const dropping: typeof fetch = async (input, init) => {
+      if (new URL(String(input)).pathname === "/api/user/login") throw new TypeError("fetch failed", { cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }) });
+      return await lost.fetchImpl(input, init);
+    };
+    const client = clientFor({ fetchImpl: dropping, password: lost.password });
+    await assert.rejects(client.withSession(async () => "never"), /\/api\/user\/login/);
+    assert.equal(client.getCircuitBreakerState().tripped, false);
+  });
+
   it("needs the router to confirm a login (SCRAM server signature, legacy OK) and logs out one it did not", async () => {
     const cpe = createStrictCpe();
     const stripped: typeof fetch = async (input, init) => {
@@ -331,11 +378,11 @@ describe("login methods and token flows (mock family)", () => {
     await assert.rejects(client.withSession(async () => "never"), /server signature missing/);
     assert.deepEqual([cpe.stats.logins, cpe.stats.logouts, cpe.isSlotTaken(), client.getCircuitBreakerState().tripped], [1, 1, false, false]);
 
-    // A legacy login answer that is not OK may still have logged in: logged out, refused, not latched
+    // A legacy login answer that is not OK may still have logged in, or may have been a wrong attempt: logged out and latched (R1-01)
     const legacy = createCpeFamily({ login: "base64", tokenFlow: "token" });
     const unsure = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: legacy.password, fetchImpl: answerWith(legacy, "/api/user/login", () => "<response>maybe</response>") });
-    await assert.rejects(unsure.withSession(async () => "never"), /did not confirm the login/);
-    assert.deepEqual([legacy.count("/api/user/logout", "POST"), unsure.getCircuitBreakerState().tripped], [1, false]);
+    await assert.rejects(unsure.withSession(async () => "never"), (err: unknown) => err instanceof CpeApiError && err.code === LOGIN_UNCONFIRMED_CODE && /neither OK nor an error code/.test(err.message));
+    assert.deepEqual([legacy.count("/api/user/logout", "POST"), unsure.getCircuitBreakerState().tripped], [1, true]);
   });
 
   it("keeps legacy sessions off the encrypted channel and their cookie off SesInfo rewrites", async () => {

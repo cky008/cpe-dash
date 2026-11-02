@@ -49,6 +49,12 @@ export const LEGACY_LOGIN_RETRY_SAFE_CODES: ReadonlySet<string> = new Set([
   "125003",
 ]);
 
+/**
+ * The breaker's code when a legacy `user/login` answer carried no error code and no `OK` (a page, an
+ * empty, cut-off or oversized body): the router has the password and FengSui cannot tell what it made of it.
+ */
+export const LOGIN_UNCONFIRMED_CODE = "unconfirmed";
+
 /** Error codes of a SCRAM challenge that mean "no SCRAM here" (appendix A.8); any other code is a login error. */
 export const SCRAM_PROBE_FALLBACK_CODES: ReadonlySet<string> = new Set(["100002", "100003"]);
 
