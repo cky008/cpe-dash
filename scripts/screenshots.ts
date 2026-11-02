@@ -362,7 +362,10 @@ async function signIn(page: Page, demo: DemoDaemon, shot: Shot): Promise<void> {
     `localStorage.setItem("fengsui.followSystem", "0"); localStorage.setItem("fengsui.theme", ${JSON.stringify(shot.theme)}); localStorage.setItem("fengsui.locale", ${JSON.stringify(shot.locale ?? "zh-CN")}); true`
   );
   await page.goto(`${demo.baseUrl}/`);
-  const needsLogin = await page.evaluate<boolean>("!document.getElementById('loginView').classList.contains('hidden')");
+  // Both views start hidden until the auth check answers; decide only once one of them shows
+  const visible = (id: string): string => `!document.getElementById('${id}').classList.contains('hidden')`;
+  await page.waitUntil(`${visible("loginView")} || ${visible("appView")}`, "the sign-in page or the console");
+  const needsLogin = await page.evaluate<boolean>(visible("loginView"));
   if (needsLogin) {
     await page.evaluate(`document.getElementById('loginToken').value = ${JSON.stringify(TOKEN)}; document.getElementById('loginForm').requestSubmit(); true`);
   }
