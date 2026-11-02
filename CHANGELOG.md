@@ -18,6 +18,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Fixed
 - **Data written by a newer FengSui is never overwritten.** Each encrypted store (state, SMS mirror, contacts, Telegram links) ignored a format number it did not know, started empty and overwrote the file on the next save, so running an older version after a future format change would silently lose that data. Such a file now stops startup with a message that names it; the file is left as it was.
 
+### Documentation
+- **`POST /api/session/reset-breaker` states its order.** It applies the reloaded `.env` (redaction, time zone, data key, token rotation) before it looks at the breaker, so the `400` it returns while a wrong-password latch still has the old password comes after those changes took effect; the contract now says so, and that calling it with an unchanged `.env` has no other effect.
+
 ## [1.4.1] — 2026-11-02
 
 ### Security

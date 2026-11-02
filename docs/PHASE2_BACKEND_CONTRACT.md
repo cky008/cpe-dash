@@ -671,6 +671,7 @@ export interface SettingsRefreshResponse {
   - `108007` 硬件锁定可在不修改 `.env` 的情况下重置（锁定可能由他人输错密码引起）。若锁定期尚未结束，下一次登录前的 `state-login` 预检会检测到 `lockstatus=1` 并立即重新熔断，不会消耗密码尝试次数。
   - 若 `.env` 中的 `API_TOKEN` 已变更，所有既有 Cookie 会话与 SSE 连接立即吊销，通过 Telegram `/auth` 绑定的聊天也一并解绑（`TELEGRAM_CHAT_IDS` 预授权聊天不受影响）。
   - `DATA_ENCRYPTION_KEY`（留空时等于 `CPE_PASSWORD`）同步热更新，并**立即**用新密钥重写 `state.json`、短信镜像、通讯录与 Telegram 状态。因此更换密钥或路由器密码时应先修改 `.env` 再调用本接口，最后再重启；直接带着新密钥重启会把无法解密的文件隔离为 `*.unreadable-<时间戳>`（通讯录无法从 CPE 重新同步）。
+  - **处理顺序**：先重新读取 `.env` 并应用其中的改动（`REDACT_SENSITIVE_IN_API`、`TZ`、数据密钥重写、令牌轮换与相应的会话 / SSE 吊销），**最后**才处理熔断器。所以「因密码错误熔断而密码未变」时返回的 `400`，是在这些改动已经生效之后才给出的：`400` 只表示熔断没有重置，不表示 `.env` 没有被应用。对未改动的 `.env` 重复调用是幂等的，不会产生其他副作用。
 
 
 ---
