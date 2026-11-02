@@ -204,12 +204,24 @@ describe("device profile: the probe", () => {
     assert.equal(silent.verification, "unknown");
   });
 
-  it("keeps router text inert: odd characters become ?, long values are cut", async () => {
+  it("keeps an allowlisted value only when all of it fits the alphabet and 64 characters, else drops it whole (R0-04)", async () => {
     const odd = { "/api/device/information": `<response><DeviceName>H168&lt;script&gt;</DeviceName><SoftwareVersion>${"9".repeat(10)}${"x".repeat(80)}</SoftwareVersion><WebUIVersion>  WEBUI   1.0\n</WebUIVersion></response>` };
-    const { identity } = await probeDevice(fakeSession(odd), { nowIso: NOW, origin: "startup" });
-    assert.equal(identity.model, "H168?script?");
-    assert.equal(identity.softwareVersion?.length, 64);
-    assert.equal(identity.webUiVersion, "WEBUI 1.0");
+    const { identity, observations } = await probeDevice(fakeSession(odd), { nowIso: NOW, origin: "startup" });
+    assert.equal(identity.model, null, "a character outside the alphabet drops the value instead of becoming ?");
+    assert.equal(identity.softwareVersion, null, "a value over 64 characters is dropped, not cut");
+    assert.equal(identity.webUiVersion, "WEBUI 1.0", "whitespace still collapses");
+    const kept = (observations.find((o) => o.path === "/api/device/information")?.fields ?? []).filter((f) => f.value !== undefined);
+    assert.deepEqual(kept.map((f) => [f.tag, f.value]), [["WebUIVersion", "WEBUI 1.0"]], "the report keeps a dropped value's shape, never a part of it");
+
+    // A cut used to leave 9 digits of an identifier, too few for the second pass; markup hidden in CDATA used to survive as ?
+    const hidden = {
+      "/api/device/information": `<response><DeviceName>${"M".repeat(55)}860000000000000</DeviceName><WebUIVersion><![CDATA[<b>134217758</b>]]></WebUIVersion></response>`,
+      "/api/device/basic_information": "<response><devicename>H168-383</devicename><spreadname_en>HUAWEI 5G CPE Ultra 6</spreadname_en></response>",
+    };
+    const probe = await probeDevice(fakeSession(hidden), { nowIso: NOW, origin: "startup" });
+    assert.deepEqual([probe.identity.model, probe.identity.webUiVersion, probe.identity.marketingName], ["H168-383", null, "HUAWEI 5G CPE Ultra 6"], "a dropped model falls back to basic_information");
+    const json = JSON.stringify(probe);
+    assert.ok(!json.includes("860000000") && !json.includes("134217758"), json);
   });
 
   it("counts only a router answer as supported: an HTML page or plain text is unknown (R0-07)", async () => {
@@ -243,7 +255,7 @@ describe("device profile: the probe", () => {
       "/api/device/information": "<response><DeviceName><![CDATA[H168-383]]></DeviceName><SoftwareVersion>4.4.0.1<![CDATA[(H1006SP19C00)]]></SoftwareVersion><WebUIVersion><![CDATA[a&lt;b]]></WebUIVersion></response>",
     };
     const { identity, observations } = await probeDevice(fakeSession(cdata), { nowIso: NOW, origin: "startup" });
-    assert.deepEqual([identity.model, identity.softwareVersion, identity.webUiVersion], ["H168-383", "4.4.0.1(H1006SP19C00)", "a?lt?b"], "CDATA text is literal");
+    assert.deepEqual([identity.model, identity.softwareVersion, identity.webUiVersion], ["H168-383", "4.4.0.1(H1006SP19C00)", null], "CDATA text is literal (and `a&lt;b` does not fit the alphabet)");
     assert.equal(deviceProfileOf(await probeDevice(fakeSession(cdata), { nowIso: NOW, origin: "startup" })).verification, "verified");
     assert.deepEqual(observations.find((o) => o.path === "/api/device/information")?.fields.map((f) => f.shape), ["text(8)", "text(21)", "text(6)"]);
     assert.doesNotThrow(() => readStructure(`<response><a x="unterminated>1</a></response>`));

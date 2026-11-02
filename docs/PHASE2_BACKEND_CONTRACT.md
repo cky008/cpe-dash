@@ -1044,12 +1044,13 @@ export interface DeviceIdentity {
   softwareVersion: string | null;
   webUiVersion: string | null;
   passwordType: string | null;     // state-login 的 password_type（原样）
-  loginScheme: "scram" | "sha256" | "base64" | "unknown"; // 烽燧这次如何登录（目前只有 scram）
+  loginScheme: "scram" | "sha256" | "base64" | "unknown"; // 烽燧这次如何登录（协议文档附录 A.9）
   ecc: boolean;                    // 登录响应带有签名且验证通过的 ECC 公钥（可用加密通道）
   tokenFlow: "webserver-token" | "sestokinfo" | "unknown"; // 首个 CSRF 令牌的来源
   detectedAtIso: string;
 }
-// 型号与版本号只保留 [A-Za-z0-9 ._()+-]，其他字符替换为 ?，最长 64 个字符
+// 型号、版本号与 spreadname_en 合并空白后，只在全部字符属于 [A-Za-z0-9 ._()+-] 且不超过 64 个字符时保留；
+// 否则整个丢弃为 null（没有就取下一个识别接口的值），不替换字符、不截断，以免标识的片段混进报告
 
 export interface DeviceCapabilities {
   probedAtIso: string;
@@ -1087,7 +1088,7 @@ export interface DeviceReport {
       tag: string;                           // 叶子标签路径，如 "LTEBandList.LTEBand.Value"
       shape: string;                         // 值的形状：empty / int / decimal / mac / ipv4 / ipv6 / hex(n) / text(n)，多种时以 | 连接（最多 3 种）
       count: number;
-      value?: string;                        // 只出现在白名单上：型号、固件与网页版本、spreadname_en、password_type、功能开关的 0–99 小整数
+      value?: string;                        // 只出现在白名单上：型号、固件与网页版本、spreadname_en（规则同上，不合规的整个不出现）、password_type、功能开关的 0–99 小整数
     }>;
     truncated: boolean;                      // 超过 400 个叶子时截断
   }>;

@@ -310,15 +310,16 @@ function decodeEntities(raw: string): string {
 }
 
 const MAX_TEXT_LENGTH = 64;
+const VERSION_ALPHABET = /^[A-Za-z0-9 ._()+-]+$/;
 
-/** Router text as inert ASCII: whitespace collapsed, anything outside a version's alphabet as `?`. */
+/**
+ * Router text kept as an allowlisted value (whitespace collapsed) only when all of it is in a
+ * version's alphabet and fits in 64 characters. Anything else is dropped whole, never patched with
+ * `?` or cut, so no fragment of an identifier hidden in it can reach the report (R0-04).
+ */
 function inertText(raw: string): string | null {
-  const text = raw
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[^A-Za-z0-9 ._()+-]/g, "?")
-    .slice(0, MAX_TEXT_LENGTH);
-  return text === "" ? null : text;
+  const text = raw.replace(/\s+/g, " ").trim();
+  return text.length <= MAX_TEXT_LENGTH && VERSION_ALPHABET.test(text) ? text : null;
 }
 
 const MAC_ADDRESS = /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
