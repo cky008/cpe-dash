@@ -39,6 +39,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Bounds for a runaway process, far above normal use, so it cannot starve the NAS
+    mem_limit: 1g
+    pids_limit: 256
     # SIGTERM → queued requests 503, in-flight CPE session logs out, encrypted stores flush (< 10 s)
     stop_grace_period: 15s
     logging:

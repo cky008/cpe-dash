@@ -34,4 +34,18 @@ describe("GitHub Actions supply chain", () => {
     assert.match(release, /^permissions:\n {2}contents: read$/m);
     assert.equal(release.match(/packages: write/g)?.length, 1);
   });
+
+  it("pins the base image by digest, attests releases and bounds the container", () => {
+    const dockerfile = fs.readFileSync(path.resolve(WORKFLOWS, "..", "..", "Dockerfile"), "utf8");
+    const froms = dockerfile.split("\n").filter((line) => line.startsWith("FROM "));
+    assert.equal(froms.length, 2);
+    for (const line of froms) assert.match(line, /node:\d+-alpine@sha256:[0-9a-f]{64}\s/, line);
+    const release = fs.readFileSync(path.join(WORKFLOWS, "release.yml"), "utf8");
+    assert.match(release, /^\s+provenance: mode=max$/m);
+    assert.match(release, /^\s+sbom: true$/m);
+    const compose = fs.readFileSync(path.resolve(WORKFLOWS, "..", "..", "docker-compose.yml"), "utf8");
+    assert.match(compose, /^\s+mem_limit: \d+[mg]$/m);
+    assert.match(compose, /^\s+pids_limit: \d+$/m);
+  });
 });
+

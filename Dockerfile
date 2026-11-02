@@ -5,7 +5,8 @@
 # identical for every architecture); stage 2 is the runtime: Node LTS, dist/ and locales/ only — no
 # node_modules, no shell scripts, running as the unprivileged `node` user (uid 1000).
 
-FROM --platform=$BUILDPLATFORM node:26-alpine AS build
+# The base image is pinned by digest (a tag can be repointed upstream); Dependabot proposes updates
+FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
@@ -16,7 +17,7 @@ COPY locales ./locales
 COPY scripts/build-web.ts ./scripts/build-web.ts
 RUN npm run build
 
-FROM node:26-alpine AS runtime
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS runtime
 LABEL org.opencontainers.image.title="cpe-dash (烽燧 FengSui)" \
       org.opencontainers.image.description="Self-hosted 5G RF telemetry, band/cell locking, SMS centre and MCP server for the Huawei 5G CPE Ultra 6 (H168-383)" \
       org.opencontainers.image.source="https://github.com/cky008/cpe-dash" \
