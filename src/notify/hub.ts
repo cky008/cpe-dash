@@ -19,6 +19,20 @@ export interface ChannelDeliveryStats {
 
 const SEVERITY_RANK: Readonly<Record<AlertSeverity, number>> = { info: 0, warning: 1, critical: 2 };
 
+/**
+ * The severity an alert is routed with when it differs from its own. A recovery reaches every
+ * channel its problem reached (`WAN_UP` follows `WAN_DOWN`), and a dropped carrier is worth a push
+ * although it only rates `info` in the history.
+ */
+const NOTIFY_SEVERITY: ReadonlyMap<string, AlertSeverity> = new Map([
+  ["WAN_UP", "warning"],
+  ["SIGNAL_RECOVERED", "warning"],
+  ["LOCK_REALIGNED", "warning"],
+  ["CA_DROPPED", "warning"],
+  ["CPE_RECOVERED", "critical"],
+  ["DUPLICATE_DAEMON_CLEARED", "critical"],
+]);
+
 export function isAlertSeverity(value: string): value is AlertSeverity {
   return value === "info" || value === "warning" || value === "critical";
 }
@@ -83,7 +97,8 @@ export class NotificationHub {
   }
 
   async dispatchAlert(alert: AlertEventRecord): Promise<void> {
-    if (SEVERITY_RANK[alert.severity] < SEVERITY_RANK[this.alertMinSeverity]) return;
+    const routed = NOTIFY_SEVERITY.get(alert.code) ?? alert.severity;
+    if (SEVERITY_RANK[routed] < SEVERITY_RANK[this.alertMinSeverity]) return;
     await this.#fanOut("alert", (channel) => channel.notifyAlert?.(alert));
   }
 

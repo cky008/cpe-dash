@@ -288,6 +288,34 @@ describe("WebhookNotifier", () => {
 });
 
 describe("NotificationHub", () => {
+  it("announces a recovery wherever its problem was announced, and a dropped carrier as a warning", async () => {
+    const fx = createBotFixture();
+    try {
+      for (const minSeverity of ["warning", "critical"] as const) {
+        const received: string[] = [];
+        const channel: NotificationChannel = {
+          name: "tg",
+          notifyAlert: async (a) => {
+            received.push(a.code);
+          },
+        };
+        const hub = new NotificationHub({ scheduler: fx.scheduler, channels: [channel], alertMinSeverity: minSeverity });
+        for (const code of ["WAN_UP", "SIGNAL_RECOVERED", "LOCK_REALIGNED", "CA_DROPPED", "CPE_RECOVERED", "DUPLICATE_DAEMON_CLEARED", "TEST_NOTE"]) {
+          await hub.dispatchAlert({ id: code, tsIso: "2026-11-02T08:00:00.000Z", severity: "info", code, messageZh: code, messageEn: code });
+        }
+        assert.deepEqual(
+          received,
+          minSeverity === "warning"
+            ? ["WAN_UP", "SIGNAL_RECOVERED", "LOCK_REALIGNED", "CA_DROPPED", "CPE_RECOVERED", "DUPLICATE_DAEMON_CLEARED"]
+            : ["CPE_RECOVERED", "DUPLICATE_DAEMON_CLEARED"],
+          minSeverity
+        );
+      }
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("filters alerts by severity, fans SMS out to every channel and isolates channel failures", async () => {
     const fx = createBotFixture();
     const received: string[] = [];
@@ -310,7 +338,7 @@ describe("NotificationHub", () => {
     const hub = new NotificationHub({ scheduler: fx.scheduler, sms: fx.service, channels: [good, broken], alertMinSeverity: "warning", log: (l) => logs.push(l) });
     hub.start();
     hub.start();
-    fx.scheduler.raiseAlert({ severity: "info", code: "WAN_UP", messageZh: "z", messageEn: "e" });
+    fx.scheduler.raiseAlert({ severity: "info", code: "TEST_NOTE", messageZh: "z", messageEn: "e" });
     fx.scheduler.raiseAlert({ severity: "critical", code: "CPE_UNREACHABLE", messageZh: "z", messageEn: "e" });
     fx.service.emit("sms:new", { uid: "m1" });
     await new Promise((r) => setTimeout(r, 10));

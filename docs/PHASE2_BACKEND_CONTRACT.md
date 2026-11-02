@@ -850,7 +850,7 @@ export interface ChannelDeliveryStats {
 }
 ```
 
-- **推送范围**：告警仅当级别 ≥ `ALERT_NOTIFY_MIN_SEVERITY`（默认 `warning`）时推送到 Telegram / Webhook，但所有告警都会写入 `/api/alerts` 与 SSE `alert`。新短信只推送**新到达的未读来信**（首次同步时已存在的短信视为历史）。
+- **推送范围**：告警仅当级别 ≥ `ALERT_NOTIFY_MIN_SEVERITY`（默认 `warning`）时推送到 Telegram / Webhook，但所有告警都会写入 `/api/alerts` 与 SSE `alert`。推送时恢复类告警按对应故障的级别判断（`WAN_UP`、`SIGNAL_RECOVERED`、`LOCK_REALIGNED` 视为 warning，`CPE_RECOVERED`、`DUPLICATE_DAEMON_CLEARED` 视为 critical），`CA_DROPPED` 视为 warning；历史记录中的级别不变。新短信只推送**新到达的未读来信**（首次同步时已存在的短信视为历史）。
 - **Webhook 载荷**：`POST WEBHOOK_URL`，`Content-Type: application/json`，请求体 `{ event: "sms.received" | "alert", deliveredAt: string, data: { message: EnrichedSmsMessage } | { alert: AlertEventRecord } }`；请求头 `X-FengSui-Event`、`X-FengSui-Timestamp`（Unix 秒），配置 `WEBHOOK_SECRET` 时追加 `X-FengSui-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>.<body>")>`。网络错误或 `5xx` 重试一次，`4xx` 不重试。接收方应校验签名并拒绝时间戳偏差过大的请求。
 
 ### 2.7 设备访问控制路由（v1.1.0）
