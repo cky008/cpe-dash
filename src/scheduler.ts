@@ -9,7 +9,7 @@ import {
 } from "./cpe-client.ts";
 import { CpeLoginMethodError } from "./cpe-auth.ts";
 import { CpeControlValidationError, type PersistedLockState } from "./cpe-domain.ts";
-import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, type TokenFlow, probeDevice } from "./device-profile.ts";
+import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, type TokenFlow, isDeviceProbeResult, probeDevice } from "./device-profile.ts";
 import { t } from "./i18n.ts";
 import { getXmlTag } from "./xml.ts";
 import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
@@ -115,15 +115,9 @@ export class CircuitBreakerOpenError extends CpeApiError {
   }
 }
 
-const LOGIN_SCHEMES: ReadonlySet<string> = new Set<LoginScheme>(["scram", "sha256", "base64"]);
-
 /** The login scheme of a stored identification, when it reads as one (state written by any version). */
 function storedLoginScheme(probe: unknown): LoginScheme | null {
-  if (typeof probe !== "object" || probe === null || !("identity" in probe)) return null;
-  const identity = probe.identity;
-  if (typeof identity !== "object" || identity === null || !("loginScheme" in identity)) return null;
-  const scheme = identity.loginScheme;
-  return typeof scheme === "string" && LOGIN_SCHEMES.has(scheme) ? (scheme as LoginScheme) : null;
+  return isDeviceProbeResult(probe) ? probe.identity.loginScheme : null;
 }
 
 /** The breaker state reported to adapters (the password fingerprint never leaves the client). */

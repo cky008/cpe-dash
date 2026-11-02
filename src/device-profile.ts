@@ -448,6 +448,54 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
   };
 }
 
+const ENDPOINT_STATES: ReadonlySet<string> = new Set<EndpointState>(["supported", "unsupported", "restricted", "unknown"]);
+const LOGIN_SCHEMES: ReadonlySet<string> = new Set<LoginScheme>(["scram", "sha256", "base64", "unknown"]);
+const TOKEN_FLOWS: ReadonlySet<string> = new Set<TokenFlow>(["webserver-token", "sestokinfo", "unknown"]);
+const PROBE_PATHS: ReadonlySet<string> = new Set(DEVICE_PROBE_PATHS);
+const FORMATS: ReadonlySet<string> = new Set<StructureKind>(["xml", "json", "text"]);
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isText = (value: unknown): boolean => typeof value === "string";
+const isTextOrNull = (value: unknown): boolean => value === null || typeof value === "string";
+
+/**
+ * A stored probe (from `state.json`, written by this or another version) has the shape this version
+ * reads; anything else is treated as "not identified yet" rather than served half-broken.
+ */
+export function isDeviceProbeResult(value: unknown): value is DeviceProbeResult {
+  if (!isRecord(value) || !isRecord(value["identity"])) return false;
+  const id = value["identity"];
+  const identityOk =
+    isTextOrNull(id["model"]) &&
+    isTextOrNull(id["marketingName"]) &&
+    isTextOrNull(id["softwareVersion"]) &&
+    isTextOrNull(id["webUiVersion"]) &&
+    isTextOrNull(id["passwordType"]) &&
+    LOGIN_SCHEMES.has(String(id["loginScheme"])) &&
+    typeof id["ecc"] === "boolean" &&
+    TOKEN_FLOWS.has(String(id["tokenFlow"])) &&
+    isText(id["detectedAtIso"]);
+  const endpoints = value["endpoints"];
+  const endpointsOk =
+    Array.isArray(endpoints) &&
+    endpoints.every((e: unknown) => isRecord(e) && PROBE_PATHS.has(String(e["path"])) && ENDPOINT_STATES.has(String(e["state"])) && isTextOrNull(e["code"]));
+  const bands = value["lteBands"];
+  const bandsOk = bands === null || (Array.isArray(bands) && bands.every((b: unknown) => Number.isInteger(b)));
+  const observations = value["observations"];
+  const observationsOk =
+    Array.isArray(observations) &&
+    observations.every(
+      (o: unknown) =>
+        isRecord(o) &&
+        PROBE_PATHS.has(String(o["path"])) &&
+        (o["format"] === null || FORMATS.has(String(o["format"]))) &&
+        typeof o["truncated"] === "boolean" &&
+        Array.isArray(o["fields"]) &&
+        o["fields"].every((f: unknown) => isRecord(f) && isText(f["tag"]) && isText(f["shape"]) && Number.isInteger(f["count"]) && (f["value"] === undefined || isText(f["value"])))
+    );
+  return identityOk && endpointsOk && bandsOk && observationsOk && isText(value["probedAtIso"]) && (value["origin"] === "startup" || value["origin"] === "connection-test");
+}
+
 /**
  * The profile as served: verification and features come from the verified list at read time, so an
  * upgrade that verifies a new build applies to a profile stored before it.

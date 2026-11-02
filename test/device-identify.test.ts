@@ -9,7 +9,7 @@ import { loadConfig } from "../src/config.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { DEVICE_PROBE_PATHS, type DeviceProbeResult, deviceProfileOf } from "../src/device-profile.ts";
+import { DEVICE_PROBE_PATHS, type DeviceProbeResult, deviceProfileOf, isDeviceProbeResult } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { SettingsHttpRoutes } from "../src/http-settings.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
@@ -393,6 +393,46 @@ describe("router error counts and login facts", () => {
       return new Response(body, { status: res.status, headers: res.headers });
     };
     assert.deepEqual(await facts(unsigned), ["scram", "webserver-token", false, true], "an unsigned key is used but not counted as verified");
+  });
+});
+
+describe("stored identification", () => {
+  it("reads back only an identification it can use, whatever wrote it (R0-08)", async () => {
+    const fx = coreFixture();
+    try {
+      const probe = await fx.core.monitor.identifyDevice();
+      assert.ok(probe);
+      assert.equal(isDeviceProbeResult(probe), true);
+      assert.equal(isDeviceProbeResult(JSON.parse(JSON.stringify(probe))), true, "as stored");
+      const broken: unknown[] = [
+        null,
+        "probe",
+        { ...probe, identity: "H168-383" },
+        { ...probe, identity: { ...probe.identity, loginScheme: "teleport" } },
+        { ...probe, identity: { ...probe.identity, ecc: "yes" } },
+        { ...probe, identity: { ...probe.identity, model: 168 } },
+        { ...probe, endpoints: "all" },
+        { ...probe, endpoints: [{ path: "/api/teleport", state: "supported", code: null }] },
+        { ...probe, endpoints: [{ ...probe.endpoints[0], state: "maybe" }] },
+        { ...probe, lteBands: ["B1"] },
+        { ...probe, origin: "guess" },
+        { ...probe, observations: [{ ...probe.observations[0], fields: [{ tag: "a", shape: "int", count: "1" }] }] },
+        { ...probe, probedAtIso: 0 },
+      ];
+      for (const value of broken) assert.equal(isDeviceProbeResult(value), false, JSON.stringify(value)?.slice(0, 80));
+
+      // On disk: a broken one reads as "not identified yet", the rest of the state survives
+      const store = new EncryptedStateStore({ filePath: fx.stateFile, encryptionKey: "identify_key" });
+      store.load();
+      store.update({ deviceProbe: { ...probe, endpoints: "all" } as never });
+      store.appendAlert({ severity: "info", code: "STORED_CHECK", messageZh: "检查", messageEn: "check" });
+      await store.flushAsync();
+      const reloaded = new EncryptedStateStore({ filePath: fx.stateFile, encryptionKey: "identify_key" }).load();
+      assert.equal(reloaded.deviceProbe, null);
+      assert.deepEqual(reloaded.recentAlerts.map((a) => a.code), ["STORED_CHECK"], "everything else is kept");
+    } finally {
+      await fx.cleanup();
+    }
   });
 });
 

@@ -8,7 +8,7 @@ import type {
   RouterSettingsSnapshot,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
-import type { DeviceProbeResult } from "./device-profile.ts";
+import { type DeviceProbeResult, isDeviceProbeResult } from "./device-profile.ts";
 import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { SerializedTimeSeriesSnapshot } from "./timeseries.ts";
 import type { CircuitBreakerState } from "./types.ts";
@@ -137,6 +137,7 @@ export class EncryptedStateStore {
         ...loaded,
         latestTelemetry: upgradeTelemetry(loaded.latestTelemetry ?? null),
         latestTopology: upgradeTopology(loaded.latestTopology ?? null),
+        deviceProbe: isDeviceProbeResult(loaded.deviceProbe) ? loaded.deviceProbe : null,
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
       };
     }
