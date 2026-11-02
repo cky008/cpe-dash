@@ -29,6 +29,8 @@ interface TgCall {
 
 function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; failPolls?: boolean; sendDelayMs?: number; rateLimitPolls?: number } = {}) {
   const calls: TgCall[] = [];
+  /** Switch at run time: `"network"` fails every sendMessage like an unreachable host, a number is a Telegram error code. */
+  const failures: { send?: "network" | number } = {};
   let completedSends = 0;
   let messageSeq = 100;
   const batches = [...(opts.updates ?? [])];
@@ -39,6 +41,10 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
     calls.push({ method, payload: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
     const ok = (result: unknown): Response => new Response(JSON.stringify({ ok: true, result }), { status: 200 });
     if (method === "sendMessage") {
+      if (failures.send === "network") throw new TypeError("fetch failed");
+      if (typeof failures.send === "number") {
+        return new Response(JSON.stringify({ ok: false, error_code: failures.send, description: "Forbidden: bot was blocked by the user" }), { status: failures.send });
+      }
       if (opts.sendDelayMs) await new Promise((resolve) => setTimeout(resolve, opts.sendDelayMs));
       completedSends += 1;
       return ok({ message_id: ++messageSeq });
@@ -73,6 +79,7 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
   return {
     fetchImpl,
     calls,
+    failures,
     sends,
     lastText,
     buttons,
@@ -693,5 +700,95 @@ describe("TelegramBot", () => {
     await fx.bot.drain(2000);
     assert.ok(performance.now() - drainedAt < 20, "nothing left to wait for");
     await fx.cleanup();
+  });
+});
+
+describe("TelegramBot notification outbox", () => {
+  let alertSeq = 0;
+  const alert = (code: string, severity: AlertEventRecord["severity"] = "warning"): AlertEventRecord => ({
+    id: `a${++alertSeq}`,
+    tsIso: "2026-10-30T10:00:00.000Z",
+    severity,
+    code,
+    messageZh: code,
+    messageEn: code,
+  });
+
+  it("keeps notifications while Telegram is unreachable and delivers them in order, replies still routed", async () => {
+    const fx = createBotFixture();
+    try {
+      const announced: EnrichedSmsMessage[] = [];
+      fx.service.on("sms:new", (m: EnrichedSmsMessage) => announced.push(m));
+      await fx.service.sync("full");
+      const personal = announced.find((m) => m.phone === "+353830000001");
+      assert.ok(personal);
+      fx.tg.failures.send = "network";
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      await fx.bot.notifyAlert(alert("LOCK_ROLLED_BACK"));
+      await fx.bot.notifySms(personal);
+      assert.equal(fx.bot.pendingNotifications, 3);
+      assert.equal(fx.logs.filter((l) => l.includes("queueing notifications")).length, 1, "one log line per outage");
+      assert.equal(fx.tg.completedSends(), 0);
+
+      fx.tg.failures.send = undefined;
+      await fx.bot.notifyAlert(alert("WAN_UP", "info"));
+      assert.equal(fx.bot.pendingNotifications, 0);
+      assert.deepEqual(
+        fx.tg.sends("1001").filter((_, i, all) => i >= all.length - 4).map((c) => String(c.payload["text"]).split("\n")[0]),
+        ["⚠️ <b>WAN_DOWN</b>", "⚠️ <b>LOCK_ROLLED_BACK</b>", "📩 <b>New SMS</b>", "ℹ️ <b>WAN_UP</b>"],
+        "the queued ones first, in order, then the new one"
+      );
+
+      // The delayed SMS card still routes a reply to its sender
+      const cardId = 100 + 3;
+      await fx.message(1001, "Delayed reply", { reply_to_message: { message_id: cardId } });
+      assert.match(fx.mock.sentRequests.at(-1) ?? "", /Delayed reply/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("drops what Telegram refuses for good, bounds the queue and forgets notifications older than a day", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.tg.failures.send = 403;
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      assert.equal(fx.bot.pendingNotifications, 0, "a blocked bot is not retried");
+      assert.ok(fx.logs.some((l) => l.includes("notification to a chat failed")));
+
+      fx.tg.failures.send = "network";
+      for (let i = 0; i < 55; i++) await fx.bot.notifyAlert(alert(`A${i}`));
+      assert.equal(fx.bot.pendingNotifications, 50, "the oldest go first when the queue is full");
+      fx.tg.failures.send = 403;
+      await fx.bot.flushOutbox();
+      assert.equal(fx.bot.pendingNotifications, 0);
+      assert.ok(fx.logs.some((l) => l.includes("queued notification dropped")));
+
+      fx.tg.failures.send = "network";
+      await fx.bot.notifyAlert(alert("OLD"));
+      fx.advance(25 * 60 * 60_000);
+      fx.tg.failures.send = undefined;
+      const before = fx.tg.completedSends();
+      await fx.bot.flushOutbox();
+      assert.equal(fx.bot.pendingNotifications, 0);
+      assert.equal(fx.tg.completedSends(), before, "a day-old alert is not news any more");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("flushes the queue as soon as long-polling gets an answer again", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.tg.failures.send = "network";
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      await fx.bot.start();
+      fx.tg.failures.send = undefined;
+      for (let i = 0; i < 100 && fx.bot.pendingNotifications > 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(fx.bot.pendingNotifications, 0);
+      assert.match(fx.tg.lastText("1001"), /WAN_DOWN/);
+    } finally {
+      await fx.cleanup();
+    }
   });
 });

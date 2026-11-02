@@ -34,6 +34,21 @@ export interface TelegramUpdate {
 type InlineButton = { text: string; callback_data: string };
 type InlineKeyboard = { inline_keyboard: InlineButton[][] };
 
+interface PendingNotification {
+  chatId: string;
+  html: string;
+  keyboard?: InlineKeyboard;
+  /** SMS notifications: the number a reply to this message goes to. */
+  replyPhone?: string;
+  queuedAtMs: number;
+}
+
+/** Network failures, timeouts, 429 and 5xx are worth retrying; other Telegram errors are final. */
+function isTransientTelegramError(err: unknown): boolean {
+  if (err instanceof TelegramApiError) return err.errorCode === null || err.errorCode === 429 || err.errorCode >= 500;
+  return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+}
+
 const WIZARD_TTL_MS = 15 * 60_000;
 const QUICK_COUNTRIES = ["+353", "+86", "+44", "+1", "+852"] as const;
 const MAX_VCF_BYTES = 4 * 1024 * 1024;
@@ -43,6 +58,9 @@ const AUTH_WINDOW_MS = 10 * 60_000;
 const AUTH_MAX_FAILURES_PER_CHAT = 5;
 const AUTH_MAX_FAILURES_GLOBAL = 20;
 const MAX_MUTE_MS = 7 * 24 * 60 * 60_000;
+/** Notifications kept while Telegram is unreachable (the NAS reaches it through the same WAN). */
+const OUTBOX_MAX = 50;
+const OUTBOX_MAX_AGE_MS = 24 * 60 * 60_000;
 const INBOX_PAGE_SIZE = 8;
 
 export function escapeTelegramHtml(text: string | number): string {
@@ -429,6 +447,9 @@ export class TelegramBot implements NotificationChannel {
   #handlers = new Set<Promise<void>>();
   #wizards = new Map<string, WizardSession>();
   #authFailures = new Map<string, number[]>();
+  /** Notifications that failed on a network error, oldest first (delivered once Telegram answers again). */
+  #outbox: PendingNotification[] = [];
+  #flushing: Promise<void> | null = null;
   #globalAuthFailures: number[] = [];
 
   constructor(opts: TelegramBotOptions) {
@@ -519,12 +540,7 @@ export class TelegramBot implements NotificationChannel {
     if (delCb) row.push({ text: this.#tx("btn_delete"), callback_data: delCb });
 
     for (const chatId of this.state.authorizedChats(this.allowedChatIds)) {
-      try {
-        const sent = await this.#send(chatId, lines.join("\n"), { inline_keyboard: [row] });
-        if (replyPhone && sent.message_id) this.state.bindReply(chatId, sent.message_id, replyPhone);
-      } catch (err) {
-        this.#log(`[telegram] SMS notification to a chat failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      await this.#deliver({ chatId, html: lines.join("\n"), keyboard: { inline_keyboard: [row] }, replyPhone: replyPhone ?? undefined });
     }
   }
 
@@ -538,10 +554,74 @@ export class TelegramBot implements NotificationChannel {
       `<i>${escapeTelegramHtml(alert.tsIso)}</i>`,
     ].join("\n");
     for (const chatId of this.state.authorizedChats(this.allowedChatIds)) {
-      await this.#send(chatId, text).catch((err: unknown) =>
-        this.#log(`[telegram] alert notification failed: ${err instanceof Error ? err.message : String(err)}`)
-      );
+      await this.#deliver({ chatId, html: text });
     }
+  }
+
+  /** Notifications waiting for Telegram to become reachable again. */
+  get pendingNotifications(): number {
+    return this.#outbox.length;
+  }
+
+  /**
+   * Retry queued notifications in order. Stops at the first one that still cannot be delivered
+   * (still offline); one Telegram refuses for good (blocked bot, gone chat) is dropped.
+   */
+  async flushOutbox(): Promise<void> {
+    if (this.#flushing) return await this.#flushing;
+    const run = async (): Promise<void> => {
+      for (let next = this.#outbox[0]; next; next = this.#outbox[0]) {
+        if (this.#now() - next.queuedAtMs > OUTBOX_MAX_AGE_MS) {
+          this.#outbox.shift();
+          continue;
+        }
+        try {
+          const sent = await this.#send(next.chatId, next.html, next.keyboard);
+          this.#outbox.shift();
+          this.#afterNotification(next, sent);
+        } catch (err) {
+          if (isTransientTelegramError(err)) return;
+          this.#outbox.shift();
+          this.#log(`[telegram] queued notification dropped: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    };
+    this.#flushing = run().finally(() => {
+      this.#flushing = null;
+    });
+    await this.#flushing;
+  }
+
+  /**
+   * Send a notification now, or queue it: behind earlier ones for the same chat (order is kept), or
+   * after a network error, typically while the WAN this NAS reaches Telegram through is down.
+   */
+  async #deliver(notification: Omit<PendingNotification, "queuedAtMs">): Promise<void> {
+    if (this.#outbox.some((pending) => pending.chatId === notification.chatId)) {
+      this.#enqueue(notification);
+      await this.flushOutbox();
+      return;
+    }
+    try {
+      this.#afterNotification(notification, await this.#send(notification.chatId, notification.html, notification.keyboard));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      if (!isTransientTelegramError(err)) {
+        this.#log(`[telegram] notification to a chat failed: ${reason}`);
+        return;
+      }
+      if (this.#outbox.length === 0) this.#log(`[telegram] Telegram unreachable; queueing notifications until it answers: ${reason}`);
+      this.#enqueue(notification);
+    }
+  }
+
+  #enqueue(notification: Omit<PendingNotification, "queuedAtMs">): void {
+    this.#outbox.push({ ...notification, queuedAtMs: this.#now() });
+    if (this.#outbox.length > OUTBOX_MAX) this.#outbox.splice(0, this.#outbox.length - OUTBOX_MAX);
+  }
+
+  #afterNotification(notification: Omit<PendingNotification, "queuedAtMs">, sent: { message_id?: number }): void {
+    if (notification.replyPhone && sent.message_id) this.state.bindReply(notification.chatId, sent.message_id, notification.replyPhone);
   }
 
   // ----------------------------------------------------------------- update dispatch
@@ -595,6 +675,8 @@ export class TelegramBot implements NotificationChannel {
           { timeoutMs: 35_000, signal: this.#pollAbort.signal }
         );
         backoffMs = 1500;
+        // Telegram answers again (the WAN is back): deliver what queued up meanwhile
+        if (this.#outbox.length > 0) void this.flushOutbox();
         for (const update of Array.isArray(updates) ? updates : []) {
           this.#offset = Math.max(this.#offset, update.update_id + 1);
           const handling = this.handleUpdate(update);
