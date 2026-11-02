@@ -35,7 +35,8 @@ cpe-dash/
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
 │   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）
-│   ├── firmware.ts         # 已验证的型号 / 固件版本清单与固件核对提示词（未验证版本只告警，不阻止写操作）
+│   ├── firmware.ts         # 已验证的型号 / 固件版本清单、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作）
+│   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单、四种接口状态）、路由器错误码计数与只含结构的脱敏设备报告（守护进程、控制台与在线演示同一实现）
 │   ├── console-settings.ts # 控制台管理的加密设置：路由器连接、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码；首次启动从 .env 导入一次
 │   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
