@@ -5,6 +5,7 @@ import {
   DEVICE_FEATURES,
   DEVICE_PROBE_PATHS,
   type DeviceProbePath,
+  PROBE_REQUEST_TIMEOUT_MS,
   type ProbeSession,
   buildDeviceReport,
   deviceProfileOf,
@@ -60,15 +61,18 @@ function fakeSession(
   bodies: Readonly<Partial<Record<string, string>>>,
   faults: Readonly<Record<string, Error>> = {},
   facts: Partial<Pick<ProbeSession, "loginScheme" | "eccVerified" | "tokenFlow">> = {}
-): ProbeSession & { asked: string[] } {
+): ProbeSession & { asked: string[]; timeouts: Array<number | undefined> } {
   const asked: string[] = [];
+  const timeouts: Array<number | undefined> = [];
   return {
     asked,
+    timeouts,
     loginScheme: facts.loginScheme === undefined ? "scram" : facts.loginScheme,
     eccVerified: facts.eccVerified ?? true,
     tokenFlow: facts.tokenFlow === undefined ? "webserver-token" : facts.tokenFlow,
-    async get(apiPath: string): Promise<string> {
+    async get(apiPath: string, _headers?: Record<string, string>, timeoutMs?: number): Promise<string> {
       asked.push(apiPath);
+      timeouts.push(timeoutMs);
       const fault = faults[apiPath];
       if (fault) throw fault;
       const body = bodies[apiPath];
@@ -86,6 +90,8 @@ describe("device profile: the probe", () => {
     const session = fakeSession(H168_BODIES);
     await probeDevice(session, { nowIso: NOW, origin: "startup" });
     assert.deepEqual(session.asked, [...DEVICE_PROBE_PATHS]);
+    assert.equal(PROBE_REQUEST_TIMEOUT_MS, 5000);
+    assert.deepEqual(new Set(session.timeouts), new Set([PROBE_REQUEST_TIMEOUT_MS]), "a router that never answers holds the slot for at most 10 × 5 s, inside the 90 s session budget");
   });
 
   it("names each endpoint supported, unsupported (100002), restricted (100003, not unsupported) or unknown", async () => {

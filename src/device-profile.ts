@@ -26,6 +26,12 @@ export const DEVICE_PROBE_PATHS = [
 
 export type DeviceProbePath = (typeof DEVICE_PROBE_PATHS)[number];
 
+/**
+ * Each probe GET gives up after this long: a router that leaves an unknown endpoint hanging instead
+ * of answering `100002` holds the admin slot for at most 10 × 5 s, well inside the 90 s session budget.
+ */
+export const PROBE_REQUEST_TIMEOUT_MS = 5000;
+
 const IDENTITY_PATHS: ReadonlySet<string> = new Set(["/api/device/information", "/api/device/basic_information", "/api/device/basicinformation"]);
 const SWITCH_PATHS: ReadonlySet<string> = new Set([
   "/api/device/device-feature-switch",
@@ -154,7 +160,7 @@ export interface DeviceProfile {
 
 /** The logged-in session the probe reads through (`EphemeralCpeSession` fits it). */
 export interface ProbeSession {
-  get(apiPath: string): Promise<string>;
+  get(apiPath: string, extraHeaders?: Record<string, string>, overrideTimeoutMs?: number): Promise<string>;
   readonly loginScheme: LoginScheme | null;
   readonly eccVerified: boolean;
   readonly tokenFlow: TokenFlow | null;
@@ -349,7 +355,7 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
   for (const path of DEVICE_PROBE_PATHS) {
     let body: string;
     try {
-      body = await session.get(path);
+      body = await session.get(path, {}, PROBE_REQUEST_TIMEOUT_MS);
     } catch (err) {
       const code = cpeErrorCode(err);
       if (code === null && !isTransient(err)) throw err;
