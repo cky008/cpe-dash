@@ -98,6 +98,7 @@ export type I18nKey =
   | "alerts.duplicate_daemon_standby"
   | "alerts.duplicate_daemon_leader"
   | "alerts.duplicate_daemon_cleared"
+  | "alerts.data_quarantined"
   | "controls.peer_daemon_active";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);

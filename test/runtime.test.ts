@@ -296,6 +296,33 @@ describe("createFengSuiRuntime", () => {
     }
   });
 
+  it("says so (log and alert) when stored data could not be decrypted and was moved aside at startup", async () => {
+    const cpe = createStrictCpe({ latencyMs: 5 });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-quarantine-"));
+    const env = { ...baseEnv(dir, cpe.password), WEB_PORT: "0", SMS_ENABLED: "true" };
+    // Contacts written under the old key, e.g. CPE_PASSWORD changed while DATA_ENCRYPTION_KEY was unset
+    const contactsFile = path.join(dir, "contacts.json");
+    fs.writeFileSync(contactsFile, StorageCipher.fromSecret("previous_router_password").serializeJson({ version: 1, contacts: [] }), { mode: 0o600 });
+    const envPath = writeEnv(dir, { ...env, CONTACTS_FILE: contactsFile });
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    const logs: string[] = [];
+    const notify = createNotifyFetch();
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: notify.fetchImpl, log: (line) => logs.push(line) });
+    try {
+      await stack.start();
+      const moved = fs.readdirSync(dir).filter((f) => f.startsWith("contacts.json.unreadable-"));
+      assert.equal(moved.length, 1, "the unreadable file was kept aside");
+      assert.ok(logs.some((line) => /contacts\.json[\s\S]*could not be decrypted[\s\S]*DATA_ENCRYPTION_KEY/.test(line)), logs.join("\n"));
+      const alert = stack.scheduler.getRecentAlerts().find((a) => a.code === "DATA_QUARANTINED");
+      assert.ok(alert, "an alert reaches the console and notifications");
+      assert.match(alert.messageEn, /contacts\.json/);
+      assert.doesNotMatch(alert.messageEn, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "file names only, no host paths");
+    } finally {
+      await stack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("warns at startup when API_TOKEN or DATA_ENCRYPTION_KEY silently fall back to the router password", () => {
     const fallback = startupNotices({ cpePassword: "router_pw", apiToken: "router_pw", dataEncryptionKey: "router_pw" });
     assert.equal(fallback.length, 2);
@@ -311,7 +338,7 @@ describe("createFengSuiRuntime", () => {
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     // A peer transport makes start() wait ~1 s for a running daemon's reply: the window a SIGTERM can hit
     const quietLan: PeerTransport = { send: () => undefined, onMessage: () => undefined, close: () => undefined };
-    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, peerTransport: quietLan, log: () => undefined });
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: createNotifyFetch().fetchImpl, peerTransport: quietLan, log: () => undefined });
     try {
       const starting = startServeDaemon(stack);
       await new Promise((r) => setTimeout(r, 100));

@@ -112,6 +112,7 @@
     "lock_realigned": "The router matches the applied lock again",
     "duplicate_daemon_standby": "Another FengSui daemon ({address}) drives the same CPE: this one is on standby (no CPE sessions, no Telegram) until it stops",
     "duplicate_daemon_leader": "Another FengSui daemon ({address}) drives the same CPE: it went on standby; stop one of them",
-    "duplicate_daemon_cleared": "The other FengSui daemon stopped; this one drives the CPE again"
+    "duplicate_daemon_cleared": "The other FengSui daemon stopped; this one drives the CPE again",
+    "data_quarantined": "These encrypted data files could not be decrypted with the current DATA_ENCRYPTION_KEY and were moved aside (not deleted): {files}. If CPE_PASSWORD just changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the files back and restart"
   }
 }

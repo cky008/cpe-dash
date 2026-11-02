@@ -163,6 +163,21 @@ export class StorageCipher {
 }
 
 /**
+ * Files `readJsonFileOrQuarantine` moved aside (`<file>.unreadable-<ms>`) at or after `sinceMs`, as
+ * file names. Lets the daemon report a quarantine instead of silently starting a store empty.
+ */
+export function quarantinedSince(filePath: string, sinceMs: number): string[] {
+  const prefix = `${path.basename(filePath)}.unreadable-`;
+  let names: string[];
+  try {
+    names = fs.readdirSync(path.dirname(filePath));
+  } catch {
+    return [];
+  }
+  return names.filter((name) => name.startsWith(prefix) && Number(name.slice(prefix.length)) >= sinceMs).sort();
+}
+
+/**
  * Crash-safe async writer for one file (`0600` temp file + `fsync` + atomic `rename`).
  * Writes are chained so concurrent calls land in call order; `serialize` runs when the write
  * actually starts, so a queued write always uses the cipher that is current at that moment.

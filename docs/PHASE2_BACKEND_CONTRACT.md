@@ -408,7 +408,8 @@ export type AlertCode =
   | "LOCK_DRIFT"         // warning：LockVerification 为 drift 持续 2min（settling / unknown 不计）
   | "LOCK_REALIGNED"     // info：路由器重新与已下发的锁定一致
   | "DUPLICATE_DAEMON"   // critical：检测到另一台主机上管理同一台 CPE 的守护进程（待机方与领先方各报一次）
-  | "DUPLICATE_DAEMON_CLEARED"; // info：领先方停止，待机方恢复
+  | "DUPLICATE_DAEMON_CLEARED" // info：领先方停止，待机方恢复
+  | "DATA_QUARANTINED";        // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
 
 /** GET /api/telemetry */
 /**

@@ -7,7 +7,7 @@ import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts"
 import { DEFAULT_SESSION_MAX_HOLD_MS, HuaweiCpeClient } from "./cpe-client.ts";
 import type { CpeControlService } from "./cpe-controls.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
-import { type FileLockHandle, StorageCipher, tryAcquireFileLock } from "./encrypted-file.ts";
+import { type FileLockHandle, StorageCipher, quarantinedSince, tryAcquireFileLock } from "./encrypted-file.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
 import { AccessControlMcpTools } from "./mcp-access-tools.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
@@ -162,6 +162,8 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
 function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHandle): FengSuiRuntimeStack {
   const { config, envPath, fetchImpl } = options;
   const log = options.log ?? ((line: string) => console.warn(line));
+  // Stores loaded below move undecryptable files aside; anything moved from now on is reported
+  const assemblyStartedMs = Date.now();
 
   const stateStore = new EncryptedStateStore({
     filePath: config.stateFile,
@@ -379,6 +381,16 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     });
   }
 
+  // A store that could not decrypt its file starts empty: say so instead of losing contacts quietly
+  const quarantined = [config.stateFile, config.smsFile, config.contactsFile, config.telegramStateFile].flatMap((file) =>
+    quarantinedSince(file, assemblyStartedMs)
+  );
+  for (const name of quarantined) {
+    log(
+      `[fengsui] Warning: ${name} could not be decrypted with the current DATA_ENCRYPTION_KEY and was moved aside; its store starts empty. If CPE_PASSWORD changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the file back and restart.`
+    );
+  }
+
   let started = false;
   let closed = false;
 
@@ -409,6 +421,15 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       sseBus.start();
       notificationHub?.start();
       alertEngine?.start();
+      if (quarantined.length > 0) {
+        const files = quarantined.join(", ");
+        scheduler.raiseAlert({
+          severity: "critical",
+          code: "DATA_QUARANTINED",
+          messageZh: t("zh-CN", "alerts.data_quarantined", { files }),
+          messageEn: t("en", "alerts.data_quarantined", { files }),
+        });
+      }
       if (peerGuard) {
         // Hear a running daemon's reply before the first CPE session, so a newcomer starts on standby
         peerGuard.start();

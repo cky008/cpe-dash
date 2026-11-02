@@ -112,6 +112,7 @@
     "lock_realigned": "路由器已重新符合当前锁定配置",
     "duplicate_daemon_standby": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：本进程转入待机，暂停 CPE 访问与 Telegram，直至对方停止",
     "duplicate_daemon_leader": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：对方已转入待机，请停止其中一个",
-    "duplicate_daemon_cleared": "另一台「烽燧」守护进程已停止，本进程恢复管理 CPE"
+    "duplicate_daemon_cleared": "另一台「烽燧」守护进程已停止，本进程恢复管理 CPE",
+    "data_quarantined": "以下加密数据文件无法用当前 DATA_ENCRYPTION_KEY 解密，已改名隔离（未删除）：{files}。若刚更换了 CPE_PASSWORD 而未单独设置 DATA_ENCRYPTION_KEY，请把它设为原来的密码，并把这些文件改回原名后重启"
   }
 }
