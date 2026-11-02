@@ -20,6 +20,8 @@ import type {
   ContactDeleteResponse,
   ContactUpsertRequest,
   ContactUpsertResponse,
+  DeviceProfileResponse,
+  DeviceReportResponse,
   HealthResponse,
   LockStateResponse,
   MobileDataControlResponse,
@@ -97,6 +99,8 @@ export function createEndpoints(api: ApiClient) {
     unlinkTelegram: () => api.post<{ ok: true; unlinked: number }>("/api/console/telegram/unlink-all"),
     consoleSwitches: (body: { telegramReset?: boolean; metricsEnabled?: boolean | null }) => api.post<ConsoleSettingsResponse>("/api/console/switches", body),
     audit: (limit = 200) => api.get<AuditResponse>(`/api/audit?limit=${limit}`),
+    deviceProfile: () => api.get<DeviceProfileResponse>("/api/device/profile"),
+    deviceReport: () => api.get<DeviceReportResponse>("/api/console/device-report"),
     logout: () => api.post<AuthLogoutResponse>("/api/auth/logout"),
 
     telemetry: () => api.get<TelemetryEndpointResponse>("/api/telemetry"),

@@ -2,6 +2,8 @@ import type {
   AccessControlEndpointResponse,
   AlertsResponse,
   ContactRecord,
+  DeviceProfileResponse,
+  DeviceReportResponse,
   HealthResponse,
   NeighborsEndpointResponse,
   SettingsEndpointResponse,
@@ -38,6 +40,8 @@ export interface DemoSeed {
   };
   /** The daemon's own `controls.*`, `sms.*` and `alerts.*` messages, for toasts and alerts. */
   catalog: Record<"zh-CN" | "en", Record<string, string>>;
+  /** The demo router as the daemon identified it, and its device report (seeds from before v1.6 lack it). */
+  device?: { profile: DeviceProfileResponse; report: DeviceReportResponse };
 }
 
 const SNAPSHOT_KEYS = ["health", "telemetry", "neighbors", "topology", "settings", "alerts", "accessControl"] as const;
@@ -65,6 +69,10 @@ export function readDemoSeed(raw: unknown): DemoSeed {
   }
   const catalog = raw["catalog"];
   if (!isRecord(catalog) || !isRecord(catalog["zh-CN"]) || !isRecord(catalog["en"])) throw new Error("demo seed: missing catalog");
+  const device = raw["device"];
+  if (device !== undefined && (!isRecord(device) || !isRecord(device["profile"]) || device["profile"]["ok"] !== true || !isRecord(device["report"]) || device["report"]["ok"] !== true)) {
+    throw new Error("demo seed: malformed device");
+  }
   return raw as unknown as DemoSeed;
 }
 

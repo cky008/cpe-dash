@@ -1,10 +1,12 @@
-import type { ConsoleSettingsResponse } from "../../../src/api-contract.ts";
+import type { ConsoleSettingsResponse, DeviceProfileResponse, DeviceReport, EndpointState } from "../../../src/api-contract.ts";
 import type { AuditEntry } from "../../../src/audit-log.ts";
 import { TOKEN_LIFETIMES_DAYS } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
+import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { ApiError } from "../core/api.ts";
 import { type NoticeTone, auditCaller, connectionNotice, daysLeft, needsLastAttempt, passwordProblem, tokenState } from "../core/console-view.ts";
+import { FEATURE_KEYS, STATE_KEYS, bandText, detectedText, endpointText, loginText, reportFileName, reportJson, verificationNotice } from "../core/device-view.ts";
 import type { ConnectionInput } from "../core/endpoints.ts";
 import { formatAgo } from "../core/format.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
@@ -13,10 +15,11 @@ import { copyText } from "./clipboard.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount, show } from "./dom.ts";
 
-export type SettingsTab = "router" | "login" | "tokens" | "telegram" | "security" | "audit";
+export type SettingsTab = "router" | "device" | "login" | "tokens" | "telegram" | "security" | "audit";
 
 const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string }> = [
   { id: "router", key: "tab_router", icon: "tower" },
+  { id: "device", key: "tab_device", icon: "cpu" },
   { id: "login", key: "tab_login", icon: "key" },
   { id: "tokens", key: "tab_tokens", icon: "bot" },
   { id: "telegram", key: "tab_telegram", icon: "send" },
@@ -26,6 +29,14 @@ const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string 
 /** Every lifetime the daemon accepts, then "never expires". */
 const LIFETIMES: ReadonlyArray<number | null> = [...TOKEN_LIFETIMES_DAYS, null];
 const DEFAULT_LIFETIME_DAYS = 90;
+/**
+ * Tab labels follow the dialog's own width (a container query): the labelled row needs about 37rem
+ * in English and 32rem in Chinese; below that the tabs show icons and the current tab's name.
+ */
+const TAB_LABEL_CLASS: Readonly<Record<"zh-CN" | "en", { label: string; heading: string }>> = {
+  "zh-CN": { label: "hidden @[32rem]:inline", heading: "fs-label @[32rem]:hidden" },
+  en: { label: "hidden @[37rem]:inline", heading: "fs-label @[37rem]:hidden" },
+};
 const DEFAULT_CPE_URL = "http://192.168.8.1";
 const AUDIT_LIMIT = 200;
 const NOTICE_ICON: Readonly<Record<NoticeTone, readonly [string, string]>> = {
@@ -33,6 +44,12 @@ const NOTICE_ICON: Readonly<Record<NoticeTone, readonly [string, string]>> = {
   pending: ["alert", "text-warning"],
   success: ["check", "text-success"],
   danger: ["alert", "text-error"],
+};
+const ENDPOINT_STATE_CLASS: Readonly<Record<EndpointState, string>> = {
+  supported: "text-success",
+  unsupported: "faint",
+  restricted: "text-warning",
+  unknown: "faint",
 };
 const OUTCOME: Readonly<Record<AuditEntry["outcome"], readonly [SettingsTextKey, string]>> = {
   applied: ["outcome_applied", "text-success"],
@@ -54,10 +71,10 @@ function refusedTest(err: unknown): ConnectionTestResult | null {
 }
 
 /**
- * Settings: the router connection (tested before it is saved), the console password, tokens,
- * Telegram linking, the security switches and the audit log. `open("router", true)` is the guided
- * first run: a fresh install fills in the router; an upgrade tests what `.env` imported and asks
- * for a confirmation.
+ * Settings: the router connection (tested before it is saved), the identified device and its report,
+ * the console password, tokens, Telegram linking, the security switches and the audit log.
+ * `open("router", true)` is the guided first run: a fresh install fills in the router; an upgrade
+ * tests what `.env` imported and asks for a confirmation.
  */
 export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided?: boolean): void } {
   const dialog = byId<HTMLDialogElement>("settingsDialog");
@@ -72,7 +89,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   let pairing: string | null = null;
   let tokens: PublicTokenRecord[] | null = null;
   let audit: AuditEntry[] | null = null;
-  const loading = new Set<"tokens" | "audit">();
+  let device: DeviceProfileResponse | null = null;
+  let report: DeviceReport | null = null;
+  const loading = new Set<"tokens" | "audit" | "device">();
 
   const fail = (err: unknown): void => {
     const code = err instanceof ApiError ? err.envelope?.errorCode : undefined;
@@ -193,6 +212,105 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       lastAttempt,
       h("div", { class: "flex flex-wrap gap-2 justify-end" }, test, save, review)
     );
+  };
+
+  // ---------------------------------------------------------------- device
+  const downloadText = (name: string, text: string): void => {
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const link = h("a", { class: "hidden", attrs: { href: url, download: name } });
+    dialog.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const reportBlock = (): HTMLElement => {
+    const create = button(
+      t("report_create"),
+      report ? "btn-ghost" : "btn-primary",
+      () => {
+        create.disabled = true;
+        void ctx.api
+          .deviceReport()
+          .then((res) => {
+            report = res.report;
+            ctx.toast(t("report_created"), "success");
+          })
+          .catch(fail)
+          .finally(render);
+      },
+      "shield"
+    );
+    let ready: HTMLElement | null = null;
+    if (report) {
+      const name = reportFileName(report);
+      const json = reportJson(report);
+      ready = h(
+        "div",
+        { class: "flex flex-wrap items-center gap-2" },
+        h("code", { class: "font-mono text-[0.6875rem] break-all w-full sm:w-auto sm:flex-1 rounded-lg bg-base-200/70 p-2" }, name),
+        button(t("report_download"), "btn-primary", () => downloadText(name, json), "arrow-down"),
+        copyButton(json)
+      );
+    }
+    return h(
+      "div",
+      { class: "space-y-2" },
+      h("div", { class: "fs-label" }, t("report_title")),
+      h("p", { class: "text-xs muted" }, t("report_intro")),
+      notice(t("report_notice")),
+      ready,
+      h("div", { class: "flex justify-end" }, create)
+    );
+  };
+
+  const deviceTab = (): HTMLElement => {
+    if (device === null) return loading.has("device") ? spinner() : h("div");
+    const profile = device.profile;
+    const verdict = verificationNotice(profile, device.verifiedFirmware);
+    let details: HTMLElement | null = null;
+    if (profile) {
+      const id = profile.identity;
+      const row = (label: string, value: string | null): HTMLElement =>
+        h("div", { class: "flex flex-col sm:flex-row sm:items-baseline gap-x-3 py-1.5" }, h("dt", { class: "fs-label sm:w-28 shrink-0" }, label), h("dd", { class: "break-words" }, value ?? "—"));
+      const features = DEVICE_FEATURES.map((feature) => {
+        const capability = profile.capabilities.features[feature];
+        const supported = capability.state === "supported";
+        return h(
+          "li",
+          { class: "flex items-center gap-1.5 rounded-lg bg-base-200/40 px-2 py-1 text-xs" },
+          icon(supported ? "check" : "info", supported ? "text-success" : "text-base-content/40"),
+          h("span", { class: "truncate" }, t(FEATURE_KEYS[feature])),
+          h("span", { class: "ml-auto faint" }, capability.source === "verified" ? t("source_verified") : t(STATE_KEYS[capability.state]))
+        );
+      });
+      const endpoints = profile.capabilities.endpoints.map((endpoint) =>
+        h(
+          "li",
+          { class: "flex flex-wrap items-baseline gap-x-2 py-1" },
+          h("code", { class: "font-mono text-[0.6875rem] break-all flex-1" }, `GET ${endpoint.path}`),
+          h("span", { class: `text-xs ${ENDPOINT_STATE_CLASS[endpoint.state]}` }, endpointText(endpoint, t))
+        )
+      );
+      details = h(
+        "div",
+        { class: "space-y-4" },
+        h(
+          "dl",
+          { class: "divide-y divide-base-content/[0.06]" },
+          row(t("device_model"), id.marketingName ? `${id.model ?? "?"} · ${id.marketingName}` : id.model),
+          row(t("device_firmware"), id.softwareVersion),
+          row(t("device_webui"), id.webUiVersion),
+          row(t("device_login"), loginText(id, t)),
+          row(t("device_encryption"), t(id.ecc ? "ecc_on" : "ecc_off")),
+          row(t("device_bands"), bandText(profile.capabilities.lteBands)),
+          row(t("device_detected"), detectedText(profile, ctx.now(), ctx.tr.locale, t))
+        ),
+        h("div", { class: "space-y-1.5" }, h("div", { class: "fs-label" }, t("features_title")), h("ul", { class: "grid grid-cols-2 sm:grid-cols-3 gap-1.5" }, ...features), h("p", { class: "text-xs faint" }, t("features_note"))),
+        h("div", { class: "space-y-1" }, h("div", { class: "fs-label" }, t("endpoints_title")), h("ul", { class: "divide-y divide-base-content/[0.06]" }, ...endpoints), h("p", { class: "text-xs faint" }, t("endpoints_note")))
+      );
+    }
+    return h("div", { class: "space-y-4" }, notice(t(verdict.key, verdict.params), verdict.tone), h("p", { class: "muted" }, t("device_intro")), details, reportBlock());
   };
 
   // ---------------------------------------------------------------- console password
@@ -469,10 +587,15 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   };
 
   // ---------------------------------------------------------------- frame
-  const load = (what: "tokens" | "audit"): void => {
+  const load = (what: "tokens" | "audit" | "device"): void => {
     if (loading.has(what)) return;
     loading.add(what);
-    const request = what === "tokens" ? ctx.api.tokens().then((res) => void (tokens = res.tokens)) : ctx.api.audit(AUDIT_LIMIT).then((res) => void (audit = res.entries));
+    const request =
+      what === "tokens"
+        ? ctx.api.tokens().then((res) => void (tokens = res.tokens))
+        : what === "audit"
+          ? ctx.api.audit(AUDIT_LIMIT).then((res) => void (audit = res.entries))
+          : ctx.api.deviceProfile().then((res) => void (device = res));
     void request.catch(fail).finally(() => {
       loading.delete(what);
       render();
@@ -484,11 +607,13 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     tab = next;
     if (next === "tokens" && tokens === null) load("tokens");
     else if (next === "audit" && audit === null) load("audit");
+    else if (next === "device" && device === null) load("device");
     else render();
   };
 
   const VIEWS: Readonly<Record<SettingsTab, () => HTMLElement>> = {
     router: routerTab,
+    device: deviceTab,
     login: loginTab,
     tokens: tokensTab,
     telegram: telegramTab,
@@ -497,15 +622,16 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   };
 
   const render = (): void => {
+    const labels = TAB_LABEL_CLASS[ctx.tr.locale];
     const nav = h(
       "nav",
-      { class: "fs-seg w-full sm:w-auto justify-between", attrs: { "aria-label": t("title") } },
+      { class: "fs-seg fs-settings-nav w-full sm:w-auto justify-between", attrs: { "aria-label": t("title") } },
       ...TABS.map((entry) =>
         h(
           "button",
           { class: entry.id === tab ? "is-active" : "", title: t(entry.key), attrs: { type: "button", "aria-label": t(entry.key) }, on: { click: () => select(entry.id) } },
           icon(entry.icon),
-          h("span", { class: "hidden sm:inline" }, t(entry.key))
+          h("span", { class: labels.label }, t(entry.key))
         )
       )
     );
@@ -524,10 +650,10 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         ),
         h(
           "div",
-          { class: "flex-1 overflow-y-auto px-5 pb-5 space-y-4 text-sm" },
+          { class: "@container flex-1 overflow-y-auto px-5 pb-5 space-y-4 text-sm" },
           guided ? notice(summary?.cpe ? t("guide_review") : t("guide_fresh")) : null,
           nav,
-          current ? h("h4", { class: "fs-label sm:hidden" }, t(current.key)) : null,
+          current ? h("h4", { class: labels.heading }, t(current.key)) : null,
           VIEWS[tab]()
         )
       ),
@@ -556,6 +682,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           lastResult = null;
           tokens = null;
           audit = null;
+          device = null;
+          report = null;
           select(nextTab);
           if (!dialog.open) dialog.showModal();
           // An imported connection is tested at once; the user only has to confirm it

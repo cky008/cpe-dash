@@ -94,6 +94,11 @@ export function createDemoRouter(): DemoRouter {
     "/api/device/nbrcellinfo":
       "<response><nbrcell_ltelist>1700,B3,25,-84dBm,-6dB,-69dBm,14dB;1700,B3,357,-87dBm,-10dB,-69dBm,--;100,B1,357,-88dBm,-8dB,-70dBm,12dB;100,B1,25,-96dBm,-12dB,-70dBm,--;6300,B20,127,-101dBm,-13dB,-75dBm,4dB;3050,B7,360,-108dBm,-16dB,-80dBm,-1dB;</nbrcell_ltelist><nbrcell_nrlist>647424,N78,357,-95dBm,-10dB,-72dBm,8dB;647424,N78,412,-99dBm,-12dB,-74dBm,5dB;636666,N78,88,-104dBm,-14dB,-79dBm,2dB;</nbrcell_nrlist></response>",
     "/api/monitoring/start_date": "<response><StartDay>1</StartDay><DataLimit>2000GB</DataLimit><MonthThreshold>90</MonthThreshold></response>",
+    // What the identification probe reads (docs/PHASE1_PROTOCOL_SPEC.md 3.4 and 4.1)
+    "/api/net/net-feature-switch":
+      "<response><net_premode_switch>2</net_premode_switch><lteband_switch>0</lteband_switch><select_band_switch>1</select_band_switch><lock_freq_switch>3</lock_freq_switch><antenna_select_switch>0</antenna_select_switch><reconnect_switch>1</reconnect_switch><net_mode_enable>1</net_mode_enable></response>",
+    "/api/net/net-mode-list":
+      "<response><LTEBandList><LTEBand><Name>LTE BC1/BC3/BC5/BC7/BC8/BC20/BC28/BC32/BC38/BC40/BC41/BC42/BC43/BC71</Name><Value>40000007a0880800d5</Value></LTEBand></LTEBandList></response>",
   };
 
   const cpe = createStrictCpe({

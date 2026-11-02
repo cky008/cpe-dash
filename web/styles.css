@@ -743,6 +743,10 @@ body {
     color: var(--color-base-content);
     box-shadow: 0 1px 3px oklch(0% 0 0 / 0.12);
   }
+  /* Seven settings tabs: tighter buttons, so the labelled row fits the dialog in both languages */
+  .fs-settings-nav button {
+    padding-inline: 0.5rem;
+  }
 
   /* Status pills */
   .fs-pill {

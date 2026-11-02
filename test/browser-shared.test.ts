@@ -39,6 +39,8 @@ const BROWSER_SHARED_MODULES = [
   "src/console-policy.ts",
   "src/control-error.ts",
   "src/control-input.ts",
+  "src/device-profile.ts",
+  "src/firmware.ts",
   "src/timeseries.ts",
   "src/units.ts",
   "src/sms/otp.ts",

@@ -196,6 +196,8 @@ describe("web core: endpoint table", () => {
       unlinkTelegram: ["POST", "/api/console/telegram/unlink-all", {}],
       consoleSwitches: ["POST", "/api/console/switches", { metricsEnabled: null }],
       audit: ["GET", "/api/audit?limit=200"],
+      deviceProfile: ["GET", "/api/device/profile"],
+      deviceReport: ["GET", "/api/console/device-report"],
       telemetry: ["GET", "/api/telemetry"],
       refreshTelemetry: ["POST", "/api/telemetry/refresh", {}],
       sessionStatus: ["GET", "/api/session/status"],
@@ -254,6 +256,8 @@ describe("web core: endpoint table", () => {
     await ep.unlinkTelegram();
     await ep.consoleSwitches({ metricsEnabled: null });
     await ep.audit();
+    await ep.deviceProfile();
+    await ep.deviceReport();
     await ep.telemetry();
     await ep.refreshTelemetry();
     await ep.sessionStatus();

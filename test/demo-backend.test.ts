@@ -4,6 +4,8 @@ import type {
   AccessControlChangeResponse,
   AlertEventRecord,
   ApiErrorEnvelope,
+  DeviceProfileResponse,
+  DeviceReportResponse,
   GlobalTelemetrySnapshot,
   SmsSendResponse,
   SmsThreadsResponse,
@@ -272,6 +274,30 @@ describe("Static demo backend vs the real daemon", () => {
     assert.deepEqual([audit[0]?.["action"], audit[0]?.["channel"]], ["set_antenna_mode", "web"], "router writes are logged with the daemon's action names");
   });
 
+  it("identifies the demo router and builds its device report like the daemon", async () => {
+    assert.ok(seed.device, "the seed carries the daemon's identification and report");
+    for (const route of ["/api/device/profile", "/api/console/device-report"]) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "GET", route), demoCall(backend, "GET", route)]);
+      assert.equal(demo.status, real.status, route);
+      assertSameShape(route, real.json, demo.json);
+    }
+    const profile = (await demoCall(backend, "GET", "/api/device/profile")).json as unknown as DeviceProfileResponse;
+    assert.deepEqual([profile.profile?.identity.model, profile.profile?.verification, profile.profile?.capabilities.lteBands?.length], ["H168-383", "verified", 14]);
+    const report = (await demoCall(backend, "GET", "/api/console/device-report")).json as unknown as DeviceReportResponse;
+    assert.ok(Date.now() - Date.parse(report.report.generatedAtIso) < 5000, "generated when asked");
+    assert.equal(JSON.stringify(report).includes("198.51.100.42"), false, "the demo router's WAN address stays out");
+
+    // A seed captured before identification existed still opens: nothing identified, an empty report
+    const older = new DemoBackend({ seed: rebaseSeed({ ...seed, device: undefined }, Date.now()), latencyScale: 0 });
+    try {
+      assert.equal(((await demoCall(older, "GET", "/api/device/profile")).json as unknown as DeviceProfileResponse).profile, null);
+      const empty = (await demoCall(older, "GET", "/api/console/device-report")).json as unknown as DeviceReportResponse;
+      assert.deepEqual([empty.report.verification, empty.report.identity, empty.report.endpoints], ["unknown", null, []]);
+    } finally {
+      older.stop();
+    }
+  });
+
   it("plans Wi-Fi access and time rules with the daemon's rules and ends in the same state", async () => {
     const requests: ReadonlyArray<readonly [string, Json]> = [
       ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5e:10:00:03", name: "living-room-tv", confirm: true }],
@@ -513,6 +539,19 @@ describe("Static demo seed", () => {
     const pad = (n: number): string => String(n).padStart(2, "0");
     assert.equal(shifted.date, `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())} ${pad(local.getHours())}:${pad(local.getMinutes())}:00`);
     assert.equal(({} as Json)["polluted"], undefined);
+  });
+
+  it("opens a seed from before identification, and rejects a malformed device block", async () => {
+    const minimal = {
+      version: 1,
+      capturedAtMs: 1,
+      capturedUtcOffsetMin: 0,
+      ...Object.fromEntries(["health", "telemetry", "neighbors", "topology", "settings", "alerts", "accessControl"].map((key) => [key, { ok: true }])),
+      sms: { status: {}, countries: {}, messages: [], contacts: [] },
+      catalog: { "zh-CN": {}, en: {} },
+    };
+    assert.throws(() => readDemoSeed({ ...minimal, device: { profile: { ok: true }, report: {} } }), /malformed device/);
+    assert.equal(readDemoSeed({ ...minimal, device: { profile: { ok: true }, report: { ok: true } } }).version, 1);
   });
 
   it("rejects a stale or truncated seed file", () => {

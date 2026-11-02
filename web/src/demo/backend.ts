@@ -18,6 +18,8 @@ import type {
   ContactDeleteResponse,
   ContactUpsertResponse,
   ControlAppliedEvent,
+  DeviceProfileResponse,
+  DeviceReportResponse,
   GlobalTelemetrySnapshot,
   HealthResponse,
   LockStateResponse,
@@ -58,6 +60,8 @@ import type {
   WifiMacFilterState,
 } from "../../../src/api-contract.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
+import { buildDeviceReport } from "../../../src/device-profile.ts";
+import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import {
   readAntennaMode,
   readBandSelection,
@@ -180,6 +184,8 @@ export class DemoBackend {
   readonly #timers = new Set<ReturnType<typeof setTimeout>>();
   readonly #routes: ReadonlyMap<string, Handler>;
   readonly #console: DemoConsole;
+  /** The demo router as the daemon identified it when the seed was taken. */
+  readonly #device: DemoSeed["device"] | null;
   /** Wi-Fi devices seen online when the seed was taken, before any filter cut them off. */
   readonly #presentWifi: ReadonlySet<string>;
 
@@ -226,6 +232,7 @@ export class DemoBackend {
     this.#access = seed.accessControl.accessControl;
     this.#guard = seed.accessControl.guard;
     this.#countries = seed.sms.countries;
+    this.#device = seed.device ?? null;
     this.#sms = new DemoSmsBox(seed.sms, this.#now);
     this.#base = signalBase(this.#telemetry);
     this.#nextRuleId = Math.max(0, ...this.#access.timeRules.rules.map((r) => Number(/(\d+)\.?$/.exec(r.id)?.[1] ?? 0))) + 1;
@@ -434,6 +441,14 @@ export class DemoBackend {
     post("/api/console/telegram/unlink-all", () => this.#console.unlinkTelegram());
     post("/api/console/switches", (body) => this.#console.switches(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));
+    get("/api/device/profile", () => this.#device?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));
+    get("/api/console/device-report", () => {
+      const generatedAtIso = new Date(this.#now()).toISOString();
+      const report =
+        this.#device?.report.report ??
+        buildDeviceReport({ probe: null, apiErrors: { sinceIso: new Date(this.#startedAtMs).toISOString(), entries: [] }, fengsuiVersion: this.#health.version, generatedAtIso });
+      return { ok: true, report: { ...report, generatedAtIso } } satisfies DeviceReportResponse;
+    });
 
     post("/api/control/band-lock", async (body) => {
       const lteBands = readBandSelection(body, "lteBands");

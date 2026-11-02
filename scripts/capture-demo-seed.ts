@@ -3,6 +3,8 @@ import path from "node:path";
 import type {
   AccessControlEndpointResponse,
   AlertsResponse,
+  DeviceProfileResponse,
+  DeviceReportResponse,
   HealthResponse,
   NeighborsEndpointResponse,
   SettingsEndpointResponse,
@@ -113,6 +115,7 @@ export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
     (r) => r.accessControl !== null && r.guard.daemonHostMac !== null
   );
   const smsStatus = await settle("SMS sync", () => session.get<SmsStatusResponse>("/api/sms/status"), (r) => r.status.seeded && !r.status.syncInProgress);
+  const deviceProfile = await settle("device identification", () => session.get<DeviceProfileResponse>("/api/device/profile"), (r) => r.profile !== null);
   const neighbors = await session.post<NeighborsEndpointResponse>("/api/neighbors/scan", {});
   if (!neighbors.neighbors) throw new Error("demo capture: the neighbor scan returned nothing");
 
@@ -143,6 +146,7 @@ export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
     accessControl,
     sms: { status: smsStatus.status, countries, messages, contacts: contacts.contacts },
     catalog: { "zh-CN": catalogSubset("zh-CN"), en: catalogSubset("en") },
+    device: { profile: deviceProfile, report: await session.get<DeviceReportResponse>("/api/console/device-report") },
   };
 }
 
