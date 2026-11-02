@@ -9,7 +9,8 @@ import { loadConfig, parseDotEnv } from "../src/config.ts";
  * Scans tracked files, working tree, and full `git log -p --all` history for:
  *   1. Forbidden `.js` / `.mjs` / `.cjs` source files in `src/`, `scripts/`, `test/` or `web/`, and type escapes
  *      (explicit `any`, `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck`) in their TypeScript.
- *   2. Tracked `.env`, `data/*` (except empty `.gitkeep`), `.probe-cache/`, `*.har`, `*.apk*`, `*.dll`, `*.pem`.
+ *   2. Tracked `.env`, `data/*` (except empty `.gitkeep`), `.probe-cache/`, captures (`*.har`, `*.pcap*`, `*.saz`),
+ *      contact exports (`*.vcf`), `*.apk*`, `*.dll`, `*.pem`, `*.key`.
  *   3. Literal secrets loaded from `.env` (`CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TELEGRAM_API`,
  *      `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_IDS`, `WEBHOOK_URL`, `WEBHOOK_SECRET`).
  *   4. Private keys, real tokens, or unredacted 15-digit IMEI/IMSI numbers outside allowed RFC test placeholders.
@@ -27,8 +28,12 @@ const HIGH_RISK_PATTERNS: ReadonlyArray<{ name: string; regex: RegExp }> = [
 const TYPESCRIPT_SOURCE_DIRS = ["src", "scripts", "test", "web"] as const;
 
 /** Escapes from strict typing (铁律一): explicit `any` and directives that silence the compiler. */
-const TYPE_ESCAPES: ReadonlyArray<{ name: string; regex: RegExp }> = [
-  { name: "explicit any", regex: /(?::\s*any\b|\bas\s+any\b|<any>|\bany\[\])/ },
+export const TYPE_ESCAPES: ReadonlyArray<{ name: string; regex: RegExp }> = [
+  {
+    name: "explicit any",
+    // Annotations, casts, arrays, type arguments and tuples (`Record<string, any>`), return types and unions
+    regex: /(?::\s*any\b|\bas\s+any\b|[<,]\s*any\s*[>,\]]|\bany\[\]|=>\s*any\b|\|\s*any\s*(?:[;,)>\]=|]|$)|\bany\s*\|)/,
+  },
   { name: "TypeScript suppression directive", regex: /@ts-(?:ignore|expect-error|nocheck)\b/ },
 ];
 
@@ -71,6 +76,25 @@ function scanText(label: string, content: string, dynamicSecrets: ReadonlyArray<
   return issues;
 }
 
+/** Files that must never be tracked: secrets, runtime data, captures, contact exports and binaries. */
+export function isForbiddenTrackedFile(f: string): boolean {
+  return (
+    f === ".env" ||
+    (f.startsWith(".env.") && f !== ".env.example") ||
+    (f.startsWith("data/") && f !== "data/.gitkeep") ||
+    f.startsWith(".probe-cache/") ||
+    f.endsWith(".har") ||
+    /\.pcap(?:ng)?(?:\.|$)/.test(f) ||
+    f.endsWith(".saz") ||
+    f.endsWith(".vcf") ||
+    f.endsWith(".apk") ||
+    f.includes(".apk.") ||
+    f.endsWith(".dll") ||
+    f.endsWith(".pem") ||
+    f.endsWith(".key")
+  );
+}
+
 function main(): void {
   const root = process.cwd();
   const envPath = path.join(root, ".env");
@@ -99,20 +123,7 @@ function main(): void {
     .split(/\r?\n/)
     .filter(Boolean);
 
-  const forbiddenTracked = trackedFiles.filter(
-    (f) =>
-      f === ".env" ||
-      (f.startsWith(".env.") && f !== ".env.example") ||
-      (f.startsWith("data/") && f !== "data/.gitkeep") ||
-      f.startsWith(".probe-cache/") ||
-      f.endsWith(".har") ||
-      f.endsWith(".pcap") ||
-      f.endsWith(".apk") ||
-      f.includes(".apk.") ||
-      f.endsWith(".dll") ||
-      f.endsWith(".pem") ||
-      f.endsWith(".key")
-  );
+  const forbiddenTracked = trackedFiles.filter(isForbiddenTrackedFile);
   if (forbiddenTracked.length > 0) {
     console.error("Forbidden sensitive or binary capture files tracked in git:", forbiddenTracked);
     process.exit(1);
@@ -212,7 +223,7 @@ function main(): void {
   }
   if (hasCommits) {
     const gitHistory = execSync("git log -p --all", {
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: 512 * 1024 * 1024,
       encoding: "utf8",
     });
     findings.push(...scanText("git-history", gitHistory, dynamicSecrets));
@@ -229,4 +240,7 @@ function main(): void {
   );
 }
 
-main();
+// Run as `npm run audit:secrets`; importing the module (tests) only exposes the rules
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+  main();
+}

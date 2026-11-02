@@ -5,6 +5,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Security
+- **`npm run audit:secrets` closes two gaps.** Tracked Wireshark `.pcapng` (and compressed `.pcap.*`) captures, Fiddler `.saz` sessions and `.vcf` contact exports now fail the gate like `.har` and `.pcap`, and explicit `any` is caught as a type argument (`Record<string, any>`), in tuples, return types and unions, not only after a colon. The rules are exported and covered by `test/audit-gate.test.ts`.
 - **CI and release workflows pin every GitHub Action to a full commit SHA** (the version stays in a comment for Dependabot), so a moved tag in an action's repository cannot change what runs in the job that pushes images. Releases now run one at a time. `test/ci-config.test.ts` keeps both in place.
 - **Startup warns when `API_TOKEN` falls back to the router password.** Unset, the router's admin password is also the web login, the Bearer token in every REST and MCP client config and the secret sent to Telegram with `/auth`. Startup now says so next to the existing `DATA_ENCRYPTION_KEY` notice.
 - **Telegram `/auth` works only in a private chat with the bot.** Sent in a group, it linked the whole group, so every member could read SMS and one-time codes, send and delete messages and see alerts, and the token message could stay visible where the bot may not delete messages. Groups are refused with a warning to delete the token; a group can still be pre-authorized with `TELEGRAM_CHAT_IDS`.
