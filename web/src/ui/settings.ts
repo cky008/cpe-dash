@@ -91,6 +91,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   let audit: AuditEntry[] | null = null;
   let device: DeviceProfileResponse | null = null;
   let report: DeviceReport | null = null;
+  /** Counts finished connection tests and saves: a profile read that one of them may have outdated is read again. */
+  let deviceEpoch = 0;
   const loading = new Set<"tokens" | "audit" | "device">();
 
   const fail = (err: unknown): void => {
@@ -151,10 +153,13 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     } finally {
       testing = false;
       draft.lastAttempt = false;
-      // A test or save of the router in use identifies it again: the Device tab reads it afresh
+      // A test or save of the router in use identifies it again: the Device tab reads it afresh,
+      // at once when it is the tab on screen
+      deviceEpoch += 1;
       device = null;
       report = null;
-      render();
+      if (tab === "device") load("device");
+      else render();
     }
   };
 
@@ -593,6 +598,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   const load = (what: "tokens" | "audit" | "device"): void => {
     if (loading.has(what)) return;
     loading.add(what);
+    const epoch = deviceEpoch;
     const request =
       what === "tokens"
         ? ctx.api.tokens().then((res) => void (tokens = res.tokens))
@@ -601,6 +607,11 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           : ctx.api.deviceProfile().then((res) => void (device = res));
     void request.catch(fail).finally(() => {
       loading.delete(what);
+      // A test or save ended while the profile was on its way: what came back may predate it
+      if (what === "device" && epoch !== deviceEpoch) {
+        device = null;
+        if (tab === "device") return load("device");
+      }
       render();
     });
     render();
