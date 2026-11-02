@@ -151,6 +151,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     } finally {
       testing = false;
       draft.lastAttempt = false;
+      // A test or save of the router in use identifies it again: the Device tab reads it afresh
+      device = null;
+      report = null;
       render();
     }
   };
