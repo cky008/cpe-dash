@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import type { DeviceReportResponse } from "../src/api-contract.ts";
+import type { DeviceProfileResponse, DeviceReportResponse } from "../src/api-contract.ts";
 import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { ApiErrorTally, DEVICE_PROBE_PATHS, type DeviceProbePath, type ProbeSession, buildDeviceReport, probeDevice } from "../src/device-profile.ts";
@@ -107,6 +107,54 @@ describe("device report: desensitization", () => {
     assert.equal(clean.generatedAtIso, NOW);
     assert.equal(clean.identity?.detectedAtIso, NOW, "times are not addresses either");
     assert.equal(JSON.stringify(sanitizeDeviceReport(report)), JSON.stringify(report), "a clean report passes unchanged");
+  });
+});
+
+describe("device profile: the token route", () => {
+  it("passes the profile tokens and agents read through the report's second pass", async () => {
+    const cpe = createStrictCpe();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-profile-"));
+    const env: Record<string, string> = {
+      CPE_URL: "http://192.168.8.1",
+      CPE_PASSWORD: cpe.password,
+      API_TOKEN_READONLY: "profile_read_token",
+      DATA_ENCRYPTION_KEY: "profile_data_key",
+      WEB_HOST: "127.0.0.1",
+      WEB_PORT: "0",
+      ALLOWED_HOSTS: "127.0.0.1",
+      STATE_FILE: path.join(dir, "data", "state.json"),
+      SMS_ENABLED: "false",
+    };
+    const envPath = path.join(dir, ".env");
+    fs.writeFileSync(envPath, Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n"));
+    const stack = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
+    try {
+      const bound = await stack.httpServer.listen();
+      const profileOf = async () => {
+        const res = await fetch(`http://${bound.host}:${bound.port}/api/device/profile`, { headers: { Authorization: "Bearer profile_read_token" } });
+        assert.equal(res.status, 200);
+        return ((await res.json()) as DeviceProfileResponse).profile;
+      };
+      const probe = await probeDevice(session, { nowIso: NOW, origin: "startup" });
+      await stack.monitor.recordDeviceProbe(probe);
+      assert.deepEqual([(await profileOf())?.identity.model, (await profileOf())?.identity.softwareVersion], ["H168-383", "4.4.0.1(H1006SP19C00)"], "a clean profile is served as it is");
+
+      // A router whose allowlisted identity fields carry identifiers: the allowlist alone would let them through
+      const odd = structuredClone(probe);
+      odd.identity.model = "SN0000000000ABCD";
+      odd.identity.marketingName = "Lab 02-00-5E-10-00-01";
+      odd.identity.softwareVersion = "860000000000000";
+      odd.identity.webUiVersion = "+353830000000";
+      await stack.monitor.recordDeviceProbe(odd);
+      const served = await profileOf();
+      assert.deepEqual(leaks(JSON.stringify(served)), []);
+      assert.ok(!JSON.stringify(served).includes("0000000000"), "no long digit run either");
+      assert.deepEqual([served?.identity.model, served?.identity.marketingName, served?.identity.softwareVersion, served?.identity.webUiVersion], ["<redacted>", "<redacted>", "<redacted>", "<redacted>"]);
+      assert.equal(served?.verification, "unverified-model");
+    } finally {
+      await stack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

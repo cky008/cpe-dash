@@ -1004,7 +1004,7 @@ export interface AuditEntry {
 
 | 方法与路径 | 调用方 | 响应 |
 | :--- | :--- | :--- |
-| `GET /api/device/profile` | 任何已登录调用方（控制台、完全或只读令牌）；不含任何设备标识，`REDACT_SENSITIVE_IN_API` 不影响它 | `DeviceProfileResponse` |
+| `GET /api/device/profile` | 任何已登录调用方（控制台、完全或只读令牌）；不含任何设备标识，`REDACT_SENSITIVE_IN_API` 不影响它；与设备报告一样再过一遍第二道防线（见下） | `DeviceProfileResponse` |
 
 ```ts
 export interface DeviceProfileResponse {
@@ -1080,7 +1080,7 @@ export interface DeviceReport {
 }
 ```
 
-- **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../test/device-report.test.ts)）。
+- **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍（`GET /api/device/profile` 同样经 `sanitizeDeviceProfile`，因为令牌与智能体也读它）：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../test/device-report.test.ts)）。
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 

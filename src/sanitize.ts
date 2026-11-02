@@ -1,6 +1,6 @@
 import net from "node:net";
 import { isPrivateOrLanIpv4, isPrivateOrLanIpv6 } from "./config.ts";
-import type { DeviceReport } from "./device-profile.ts";
+import type { DeviceProfile, DeviceReport } from "./device-profile.ts";
 import type { FieldFormatObservation } from "./types.ts";
 
 export { maskPhoneNumber } from "./privacy-mask.ts";
@@ -345,6 +345,20 @@ function looksLikeIdentifier(text: string, versionsAllowed: boolean): boolean {
   return text.split(/[^0-9A-Fa-f:]+/).some((token) => (token.includes("::") ? /[0-9A-Fa-f]/.test(token) : token.split(":").length >= 8));
 }
 
+/** Every string under `node` that looks like an identifier becomes `<redacted>`; `key` names the field it sits in. */
+function redactIdentifiers(node: unknown, key: string): unknown {
+  if (typeof node === "string") return looksLikeIdentifier(node, REPORT_ALLOWLISTED_KEYS.has(key)) ? "<redacted>" : node;
+  if (Array.isArray(node)) return node.map((item) => redactIdentifiers(item, key));
+  if (node !== null && typeof node === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node)) {
+      if (k !== "__proto__" && k !== "constructor" && k !== "prototype") out[k] = redactIdentifiers(v, k);
+    }
+    return out;
+  }
+  return node;
+}
+
 /**
  * Second pass over a device report, which is built from structure and the allowlist only. A string
  * that still looks like an identifier becomes `<redacted>`. Allowlisted values (model, versions,
@@ -352,17 +366,10 @@ function looksLikeIdentifier(text: string, versionsAllowed: boolean): boolean {
  * not even look like an IPv4 address.
  */
 export function sanitizeDeviceReport(report: DeviceReport): DeviceReport {
-  const walk = (node: unknown, key: string): unknown => {
-    if (typeof node === "string") return looksLikeIdentifier(node, REPORT_ALLOWLISTED_KEYS.has(key)) ? "<redacted>" : node;
-    if (Array.isArray(node)) return node.map((item) => walk(item, key));
-    if (node !== null && typeof node === "object") {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(node)) {
-        if (k !== "__proto__" && k !== "constructor" && k !== "prototype") out[k] = walk(v, k);
-      }
-      return out;
-    }
-    return node;
-  };
-  return walk(report, "") as DeviceReport;
+  return redactIdentifiers(report, "") as DeviceReport;
+}
+
+/** The same second pass for `GET /api/device/profile`: tokens and agents read it, and its identity comes from the same allowlist. */
+export function sanitizeDeviceProfile(profile: DeviceProfile): DeviceProfile {
+  return redactIdentifiers(profile, "") as DeviceProfile;
 }

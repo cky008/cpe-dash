@@ -82,7 +82,7 @@ import {
 import type { NotificationHub } from "./notify/hub.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
-import { sanitizeDeviceReport } from "./sanitize.ts";
+import { sanitizeDeviceProfile, sanitizeDeviceReport } from "./sanitize.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
@@ -887,11 +887,12 @@ export class FengSuiHttpServer {
             return;
 
           case "/api/device/profile": {
-            // Identity and capabilities carry no identifier, so every caller gets the same answer
+            // Identity and capabilities carry no identifier, so every caller gets the same answer; tokens and
+            // agents read it too, so it takes the device report's second pass as well
             const probe = this.core.monitor.getDeviceProbe();
             this.#sendJson(res, 200, {
               ok: true,
-              profile: probe ? deviceProfileOf(probe) : null,
+              profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe)) : null,
               verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
             } satisfies DeviceProfileResponse);
             return;
