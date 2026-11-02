@@ -268,6 +268,7 @@ npm run build:web
 npm run demo          # http://127.0.0.1:18484 , login token: fengsui-demo
 # DEMO_SCENARIO=yield   npm run demo   → Simulates human admin web login every few minutes (yielding banner)
 # DEMO_SCENARIO=breaker npm run demo   → Simulates bad router password, triggering anti-lockout breaker (423 banner)
+npm run screenshots   # Regenerate every image in docs/screenshots/ from the demo with a local headless Chrome (run before a release)
 ```
 
 The demo process **never reads `.env` and never accesses the network**: real scheduler, monitoring, SMS, SSE, REST, MCP, and Web interface backed by a strict in-process H168-383 model.

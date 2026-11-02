@@ -268,6 +268,7 @@ npm run build:web
 npm run demo          # http://127.0.0.1:18484 ，登录口令 fengsui-demo
 # DEMO_SCENARIO=yield   npm run demo   → 每隔几分钟模拟真人登录官方后台（避让横幅）
 # DEMO_SCENARIO=breaker npm run demo   → 错误的路由器密码，触发防爆破熔断（423 横幅）
+npm run screenshots   # 用本机 Chrome 无头模式从演示环境重新生成 docs/screenshots/ 下的全部截图（发版前运行）
 ```
 
 演示进程**从不读取 `.env`、从不联网**：真实的调度器、监控、短信、SSE、REST、MCP 与 Web 界面，对接进程内的严格 H168-383 模型。
