@@ -180,8 +180,22 @@ describe("web core: endpoint table", () => {
     const expected: Record<keyof typeof ep, [method: string, url: string, body?: unknown]> = {
       health: ["GET", "/api/health"],
       authStatus: ["GET", "/api/auth/status"],
-      login: ["POST", "/api/auth/login", { token: "t" }],
+      login: ["POST", "/api/auth/login", { password: "t" }],
       logout: ["POST", "/api/auth/logout", {}],
+      setupLogin: ["POST", "/api/setup/login", { code: "ABCD-2345", password: "a long passphrase" }],
+      resetLogin: ["POST", "/api/auth/reset", { code: "ABCD-2345", password: "a long passphrase" }],
+      consoleSettings: ["GET", "/api/console"],
+      testConnection: ["POST", "/api/console/cpe/test", { url: "http://192.168.8.1" }],
+      saveConnection: ["POST", "/api/console/cpe", { url: "http://192.168.8.1", username: "admin", password: "pw", lastAttempt: true }],
+      confirmReview: ["POST", "/api/console/review", {}],
+      changePassword: ["POST", "/api/console/password", { current: "old", next: "a long passphrase" }],
+      tokens: ["GET", "/api/console/tokens"],
+      createToken: ["POST", "/api/console/tokens", { name: "Grafana", scope: "read", lifetimeDays: null }],
+      revokeToken: ["POST", "/api/console/tokens/revoke", { id: "t1" }],
+      pairingCode: ["POST", "/api/console/telegram/pairing-code", {}],
+      unlinkTelegram: ["POST", "/api/console/telegram/unlink-all", {}],
+      consoleSwitches: ["POST", "/api/console/switches", { metricsEnabled: null }],
+      audit: ["GET", "/api/audit?limit=200"],
       telemetry: ["GET", "/api/telemetry"],
       refreshTelemetry: ["POST", "/api/telemetry/refresh", {}],
       sessionStatus: ["GET", "/api/session/status"],
@@ -226,6 +240,20 @@ describe("web core: endpoint table", () => {
     await ep.authStatus();
     await ep.login("t");
     await ep.logout();
+    await ep.setupLogin("ABCD-2345", "a long passphrase");
+    await ep.resetLogin("ABCD-2345", "a long passphrase");
+    await ep.consoleSettings();
+    await ep.testConnection({ url: "http://192.168.8.1" });
+    await ep.saveConnection({ url: "http://192.168.8.1", username: "admin", password: "pw", lastAttempt: true });
+    await ep.confirmReview();
+    await ep.changePassword("old", "a long passphrase");
+    await ep.tokens();
+    await ep.createToken({ name: "Grafana", scope: "read", lifetimeDays: null });
+    await ep.revokeToken("t1");
+    await ep.pairingCode();
+    await ep.unlinkTelegram();
+    await ep.consoleSwitches({ metricsEnabled: null });
+    await ep.audit();
     await ep.telemetry();
     await ep.refreshTelemetry();
     await ep.sessionStatus();

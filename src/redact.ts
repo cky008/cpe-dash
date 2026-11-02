@@ -1,5 +1,7 @@
+import { isIP } from "node:net";
 import type { AccessControlSnapshot } from "./access-control.ts";
 import type { MacFilterEntry } from "./access-plan.ts";
+import type { AuditEntry } from "./audit-log.ts";
 import type { GlobalTelemetrySnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
 import {
   IMEI_VISIBLE_DIGITS,
@@ -90,6 +92,22 @@ export function telemetryForOutput(snap: GlobalTelemetrySnapshot | null, redact:
 /** See {@link telemetryForOutput}. */
 export function topologyForOutput(snap: TerminalTopologySnapshot | null, redact: boolean): TerminalTopologySnapshot | null {
   return snap && redact ? redactTopology(snap) : snap;
+}
+
+/** An address in an audit detail, alone or as `host:port` / `[v6]:port`, masked like the snapshots. */
+function maskAddressWord(word: string): string {
+  if (isIP(word)) return maskIpAddress(word);
+  const v4 = /^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/.exec(word);
+  if (v4?.[1] && isIP(v4[1])) return `${maskIpAddress(v4[1])}:${v4[2] ?? ""}`;
+  const v6 = /^\[([0-9a-fA-F:.]{2,45})\](:\d{1,5})?$/.exec(word);
+  if (v6?.[1] && isIP(v6[1])) return `[${maskIpAddress(v6[1])}]${v6[2] ?? ""}`;
+  return word;
+}
+
+/** Audit entries for one response: Bearer readers get the addresses in each detail (where a sign-in came from) masked. */
+export function auditForOutput(entries: AuditEntry[], redact: boolean): AuditEntry[] {
+  if (!redact) return entries;
+  return entries.map((entry) => (entry.detail ? { ...entry, detail: entry.detail.split(" ").map(maskAddressWord).join(" ") } : entry));
 }
 
 /** See {@link telemetryForOutput}. */

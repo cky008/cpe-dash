@@ -73,7 +73,7 @@ describe("router connection test and switch", () => {
       for (const guess of ["a", "b"]) await human.core.scheduler.testConnection({ ...human.good, password: guess });
       const locked = await human.core.scheduler.testConnection({ ...human.good, password: "c" }, { lastAttempt: true });
       assert.deepEqual(locked.ok ? null : [locked.reason, locked.code, locked.waitTimeSec], ["locked", "108007", 600]);
-      const invalid = await human.core.scheduler.testConnection({ ...human.good, url: "http://8.8.8.8" });
+      const invalid = await human.core.scheduler.testConnection({ ...human.good, url: "http://203.0.113.10" });
       assert.equal(invalid.ok ? null : invalid.reason, "invalid_url");
       human.core.scheduler.setPeerStandby("192.168.8.20");
       const standby = await human.core.scheduler.testConnection(human.good);

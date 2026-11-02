@@ -222,8 +222,9 @@ export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaem
   // Belt and braces: nothing in this process may notify or announce itself
   const demoConfig = { ...config, telegramBotToken: "", telegramChatIds: [], webhookUrl: "", webhookSecret: "", peerDiscoveryEnabled: false };
 
-
   const stack = createFengSuiRuntime({ config: demoConfig, envPath: envFile, fetchImpl: router.fetchImpl, log: opts.log ?? (() => undefined) });
+  // The household is set up already: no first-run review over the dashboard
+  stack.settings.markReviewed();
   let address: { host: string; port: number } | null;
   try {
     address = await startServeDaemon(stack);

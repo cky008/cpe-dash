@@ -45,6 +45,7 @@ function routesFixture(telegramConfigured: boolean) {
     return { handled, status, payload: payload as Record<string, unknown> };
   };
   return {
+    cpe,
     settings,
     call,
     cleanup: async () => {
@@ -62,8 +63,8 @@ describe("console routes", () => {
       assert.match(String(pairing.payload["code"]), /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
       assert.equal(fx.settings.consumeCode("pair", String(pairing.payload["code"])), true);
       assert.equal((await fx.call("POST", "/api/console/telegram/unlink-all")).payload["unlinked"], 2);
-      assert.deepEqual((await fx.call("GET", "/api/console")).payload["metrics"], { enabled: true, source: "env" });
-      assert.deepEqual((await fx.call("POST", "/api/console/switches", { metricsEnabled: false })).payload["metrics"], { enabled: false, source: "console" });
+      assert.deepEqual((await fx.call("GET", "/api/console")).payload["metrics"], { enabled: true, source: "env", envEnabled: true });
+      assert.deepEqual((await fx.call("POST", "/api/console/switches", { metricsEnabled: false })).payload["metrics"], { enabled: false, source: "console", envEnabled: true });
 
       assert.equal((await fx.call("GET", "/api/console/nope")).handled, false);
       assert.equal((await fx.call("POST", "/api/console/nope")).handled, false);
@@ -74,6 +75,18 @@ describe("console routes", () => {
       await assert.rejects(fx.call("POST", "/api/console/tokens/revoke", { id: 7 }), /"id" must be text/);
       for (let i = fx.settings.listTokens().length; i < 50; i++) fx.settings.createToken({ name: `t${i}`, scope: "read", lifetimeDays: 1 });
       await assert.rejects(fx.call("POST", "/api/console/tokens", { name: "one more", scope: "read", lifetimeDays: null }), /At most 50 tokens/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("saves a router address typed without a scheme in the form the client uses", async () => {
+    const fx = routesFixture(false);
+    try {
+      const saved = await fx.call("POST", "/api/console/cpe", { url: " 192.168.8.1/ ", password: fx.cpe.password });
+      assert.equal(saved.status, 200);
+      assert.deepEqual((saved.payload["settings"] as { cpe: unknown }).cpe, { url: "http://192.168.8.1", username: "admin", passwordSet: true });
+      assert.equal(fx.settings.cpe?.url, "http://192.168.8.1");
     } finally {
       await fx.cleanup();
     }

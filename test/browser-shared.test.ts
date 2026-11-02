@@ -36,6 +36,7 @@ const BROWSER_SHARED_MODULES = [
   "src/privacy-mask.ts",
   "src/access-plan.ts",
   "src/access-state.ts",
+  "src/console-policy.ts",
   "src/control-error.ts",
   "src/control-input.ts",
   "src/timeseries.ts",

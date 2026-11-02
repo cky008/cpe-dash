@@ -1,4 +1,5 @@
 import { ApiClient, ApiError } from "../core/api.ts";
+import { RECOVERY_COMMANDS, passwordProblem } from "../core/console-view.ts";
 import { createEndpoints } from "../core/endpoints.ts";
 import { type Locale, Translator, detectLocale } from "../core/i18n.ts";
 import { type KeyValueStorage, loadPreferences, savePreference } from "../core/prefs.ts";
@@ -9,7 +10,7 @@ import type { MessageKey } from "../i18n/zh-CN.ts";
 import { mountBanners } from "./banners.ts";
 import { mountCharts } from "./charts.ts";
 import type { AppContext } from "./context.ts";
-import { byId } from "./dom.ts";
+import { byId, show } from "./dom.ts";
 import { VIEW_EVENT, type ViewName, mountHeader } from "./header.ts";
 import { mountHealthCard } from "./health-card.ts";
 import { mountIdentityCards } from "./identity-cards.ts";
@@ -17,12 +18,22 @@ import { mountNeighbors } from "./neighbors.ts";
 import { mountOperatorCards } from "./operator-cards.ts";
 import { mountRfCard } from "./rf-card.ts";
 import { applyI18n, confirmDialog, describeError, showToast } from "./services.ts";
+import type { SettingsTab } from "./settings.ts";
 import { applyTheme, watchSystemTheme } from "./theme.ts";
 import { mountTopology } from "./topology.ts";
 import { mountTrafficCard } from "./traffic-card.ts";
 
 /** Scheduler status has no SSE frame of its own; this in-memory read costs the router nothing. */
 const SESSION_STATUS_POLL_MS = 10_000;
+
+/** Sign in; choose the console password with the setup code; or reset it with a reset code. */
+type LoginMode = "login" | "setup" | "reset";
+
+const LOGIN_KEYS: Readonly<Record<LoginMode, { note: MessageKey | null; code: MessageKey; password: MessageKey; submit: MessageKey; error: MessageKey }>> = {
+  login: { note: null, code: "login.setup_code", password: "login.placeholder", submit: "login.submit", error: "login.error_failed" },
+  setup: { note: "login.setup_note", code: "login.setup_code", password: "login.new_password", submit: "login.setup_submit", error: "login.error_setup_code" },
+  reset: { note: "login.reset_note", code: "login.reset_code", password: "login.new_password", submit: "login.reset_submit", error: "login.error_reset_code" },
+};
 
 function browserStorage(): KeyValueStorage {
   try {
@@ -111,6 +122,11 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
   let alertsLoading: Promise<{ open(): void }> | null = null;
   let controlsLoading: Promise<{ open(): void }> | null = null;
   let mcpGuideLoading: Promise<{ open(): void }> | null = null;
+  let settingsLoading: Promise<{ open(tab?: SettingsTab, guided?: boolean): void }> | null = null;
+  const openSettings = (tab?: SettingsTab, guided = false): void => {
+    settingsLoading ??= import("./settings.ts").then((m) => m.mountSettings(ctx));
+    void settingsLoading.then((dialog) => dialog.open(tab, guided));
+  };
   let appMounted = false;
   let sse: SseClient | null = null;
   let statusTimer: ReturnType<typeof setInterval> | null = null;
@@ -219,16 +235,54 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
     }, SESSION_STATUS_POLL_MS);
   };
 
-  const showLogin = (expired: boolean): void => {
+  let loginMode: LoginMode = "login";
+  /** The keys go into data-i18n attributes, so a language switch relabels the current mode. */
+  const setLoginMode = (mode: LoginMode): void => {
+    loginMode = mode;
+    const keys = LOGIN_KEYS[mode];
+    const relabel = (el: HTMLElement, key: MessageKey, attribute: "i18n" | "i18nPlaceholder"): void => {
+      el.dataset[attribute] = key;
+      if (attribute === "i18n") el.textContent = tr.t(key);
+      else (el as HTMLInputElement).placeholder = tr.t(key);
+    };
+    if (keys.note) relabel(byId("loginModeText"), keys.note, "i18n");
+    byId("loginModeCommand").textContent = mode === "login" ? "" : RECOVERY_COMMANDS[mode];
+    show(byId("loginModeNote"), keys.note !== null);
+    show(byId("loginCodeRow"), mode !== "login");
+    show(byId("loginConfirmRow"), mode !== "login");
+    relabel(byId("loginCode"), keys.code, "i18nPlaceholder");
+    const password = byId<HTMLInputElement>("loginToken");
+    relabel(password, keys.password, "i18nPlaceholder");
+    password.autocomplete = mode === "login" ? "current-password" : "new-password";
+    relabel(byId("loginSubmit"), keys.submit, "i18n");
+    const toggle = byId("loginModeToggle");
+    relabel(toggle, mode === "reset" ? "login.back" : "login.forgot", "i18n");
+    show(toggle, mode !== "setup");
+    byId("loginError").classList.add("hidden");
+    (mode === "login" ? password : byId<HTMLInputElement>("loginCode")).focus();
+  };
+  byId("loginModeToggle").addEventListener("click", () => setLoginMode(loginMode === "reset" ? "login" : "reset"));
+
+  const showLogin = (expired: boolean, setupRequired = false): void => {
     sse?.stop();
     if (statusTimer) clearInterval(statusTimer);
     statusTimer = null;
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
+    setLoginMode(setupRequired ? "setup" : "login");
     const error = byId("loginError");
     error.textContent = expired ? tr.t("login.expired") : "";
     error.classList.toggle("hidden", !expired);
-    byId<HTMLInputElement>("loginToken").focus();
+  };
+
+  /** First run or an upgrade from .env: lead into the router settings until they are confirmed. */
+  const guideSetup = (): void => {
+    void api
+      .consoleSettings()
+      .then((settings) => {
+        if (!settings.cpe || settings.reviewPending) openSettings("router", true);
+      })
+      .catch(() => undefined);
   };
 
   const enterApp = (): void => {
@@ -266,6 +320,7 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
     }
     startStreams();
     void loadSnapshots();
+    guideSetup();
   };
 
   handleUnauthorized = () => {
@@ -276,32 +331,54 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
   byId<HTMLFormElement>("loginForm").addEventListener("submit", (event) => {
     event.preventDefault();
     const input = byId<HTMLInputElement>("loginToken");
+    const codeInput = byId<HTMLInputElement>("loginCode");
+    const confirmInput = byId<HTMLInputElement>("loginConfirm");
     const button = byId<HTMLButtonElement>("loginSubmit");
     const error = byId("loginError");
-    const token = input.value;
-    if (!token) return;
+    const showError = (message: string): void => {
+      error.textContent = message;
+      error.classList.remove("hidden");
+    };
+    const password = input.value;
+    const code = codeInput.value.trim();
+    const mode = loginMode;
+    if (!password || (mode !== "login" && !code)) return;
+    if (mode !== "login") {
+      const problem = passwordProblem(password, confirmInput.value);
+      if (problem) {
+        showError(tr.t(problem === "short" ? "login.error_short" : "login.error_mismatch"));
+        return;
+      }
+    }
     button.disabled = true;
     button.textContent = tr.t("login.submitting");
     error.classList.add("hidden");
-    api
-      .login(token)
+    const request = mode === "login" ? api.login(password) : mode === "setup" ? api.setupLogin(code, password) : api.resetLogin(code, password);
+    request
       .then(() => {
         input.value = "";
+        codeInput.value = "";
+        confirmInput.value = "";
+        setLoginMode("login");
         enterApp();
       })
       .catch((err: unknown) => {
-        let message = tr.t("login.error_failed");
+        let message = tr.t(LOGIN_KEYS[mode].error);
         if (err instanceof ApiError && err.kind === "rate_limited") {
           message = tr.t("login.error_rate_limited", { seconds: err.envelope?.retryAfterSec ?? 60 });
         } else if (err instanceof ApiError && (err.kind === "network" || err.kind === "timeout")) {
           message = tr.t("login.error_network");
+        } else if (err instanceof ApiError && err.kind === "validation") {
+          message = tr.t("login.error_short");
+        } else if (err instanceof ApiError && err.envelope?.errorCode === "ALREADY_SET_UP") {
+          setLoginMode("login");
+          message = tr.t("login.error_set_up");
         }
-        error.textContent = message;
-        error.classList.remove("hidden");
+        showError(message);
       })
       .finally(() => {
         button.disabled = false;
-        button.textContent = tr.t("login.submit");
+        button.textContent = tr.t(LOGIN_KEYS[loginMode].submit);
       });
   });
 
@@ -327,6 +404,9 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
         mcpGuideLoading ??= import("./mcp-guide.ts").then((m) => m.mountMcpGuide(ctx));
         void mcpGuideLoading.then((guide) => guide.open());
         return;
+      case "open-settings":
+        openSettings();
+        return;
       case "toggle-privacy":
         privacy.setGlobal(!privacy.globalMasked);
         return;
@@ -351,6 +431,6 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
 
   api
     .authStatus()
-    .then((status) => (status.authenticated ? enterApp() : showLogin(false)))
+    .then((status) => (status.authenticated ? enterApp() : showLogin(false, status.setupRequired)))
     .catch(() => showLogin(false));
 }

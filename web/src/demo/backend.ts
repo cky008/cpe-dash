@@ -14,6 +14,7 @@ import type {
   AuthLoginResponse,
   AuthLogoutResponse,
   AuthStatusResponse,
+  ConnectionTestResponse,
   ContactDeleteResponse,
   ContactUpsertResponse,
   ControlAppliedEvent,
@@ -73,6 +74,7 @@ import { checkCellLockInput, parseSupportedLteBand, parseSupportedNrBand } from 
 import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../../../src/timeseries.ts";
 import { previewGuard } from "../core/access-view.ts";
 import type { EventSourceLike } from "../core/sse.ts";
+import { DemoConsole, DemoRefusal } from "./console.ts";
 import type { DemoSeed } from "./seed.ts";
 import { DemoSmsBox, DemoValidationError } from "./sms-box.ts";
 import { type SignalBase, TICK_MS, advanceTelemetry, backfillHistory, seriesInput, signalBase, speedTick, worldSample } from "./world.ts";
@@ -177,6 +179,7 @@ export class DemoBackend {
   readonly #sources = new Set<DemoEventSource>();
   readonly #timers = new Set<ReturnType<typeof setTimeout>>();
   readonly #routes: ReadonlyMap<string, Handler>;
+  readonly #console: DemoConsole;
   /** Wi-Fi devices seen online when the seed was taken, before any filter cut them off. */
   readonly #presentWifi: ReadonlySet<string>;
 
@@ -233,6 +236,11 @@ export class DemoBackend {
         .map((h) => normalizeMac(h.macAddress) ?? h.macAddress)
     );
     backfillHistory(this.#series, this.#base, this.#now(), this.#random);
+    this.#console = new DemoConsole({
+      now: this.#now,
+      random: this.#random,
+      device: { model: this.#telemetry.device.deviceName, firmware: this.#telemetry.device.softwareVersion },
+    });
     this.#routes = this.#buildRoutes();
   }
 
@@ -355,8 +363,11 @@ export class DemoBackend {
     get("/api/auth/status", () => ({ ok: true, authenticated: this.#authenticated, locale: "zh-CN", setupRequired: false }) satisfies AuthStatusResponse);
     post("/api/auth/login", async (body) => {
       await this.#wait(LATENCY.read);
-      if (typeof body["token"] !== "string" || !body["token"]) throw new DemoHttpError(401, "UNAUTHORIZED", "Invalid API token");
+      // Any password opens the demo; the daemon also takes it as `token` (older consoles)
+      const password = typeof body["password"] === "string" ? body["password"] : body["token"];
+      if (typeof password !== "string" || !password) throw new DemoHttpError(401, "UNAUTHORIZED", "Invalid console password");
       this.#authenticated = true;
+      this.#console.record("login", "applied", "from 192.168.8.20");
       return { ok: true, authenticated: true, expiresAtIso: new Date(this.#now() + 12 * 3_600_000).toISOString() } satisfies AuthLoginResponse;
     });
     post("/api/auth/logout", () => {
@@ -405,6 +416,25 @@ export class DemoBackend {
     });
     get("/api/alerts", () => ({ ok: true, alerts: this.#alerts, notifications: this.#notifications }) satisfies AlertsResponse);
 
+    get("/api/console", () => this.#console.summary());
+    post("/api/console/cpe/test", async (body) => {
+      await this.#session(LATENCY.session);
+      return { ok: true, result: this.#console.test(body) } satisfies ConnectionTestResponse;
+    });
+    post("/api/console/cpe", async (body) => {
+      await this.#session(LATENCY.session);
+      return this.#console.save(body);
+    });
+    post("/api/console/review", () => this.#console.review());
+    post("/api/console/password", (body) => this.#console.changePassword(body));
+    get("/api/console/tokens", () => this.#console.tokens());
+    post("/api/console/tokens", (body) => this.#console.createToken(body));
+    post("/api/console/tokens/revoke", (body) => this.#console.revokeToken(body));
+    post("/api/console/telegram/pairing-code", () => this.#console.pairingCode());
+    post("/api/console/telegram/unlink-all", () => this.#console.unlinkTelegram());
+    post("/api/console/switches", (body) => this.#console.switches(body));
+    get("/api/audit", (_body, query) => this.#console.audit(query));
+
     post("/api/control/band-lock", async (body) => {
       const lteBands = readBandSelection(body, "lteBands");
       const nrBands = readBandSelection(body, "nrBands");
@@ -413,7 +443,7 @@ export class DemoBackend {
       const nr = nrBands === undefined || nrBands === "all" ? [] : sortedUnique(nrBands.map(guard(parseSupportedNrBand)));
       const state: PersistedLockState = { mode: lte === "all" && nr.length === 0 ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: lte, nrBands: nr, cellLock: null };
       const summary = `LTE=${JSON.stringify(lte)}, NR=${JSON.stringify(nr)}`;
-      return { ok: true, lockState: await this.#lock("lock_bands", state, "controls.band_lock_applied", { summary }) } satisfies LockStateResponse;
+      return { ok: true, lockState: await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }) } satisfies LockStateResponse;
     });
     post("/api/control/cell-lock", async (body) => {
       const command = readCellLockCommand(body, { allowNullPci: true });
@@ -431,23 +461,23 @@ export class DemoBackend {
     });
     post("/api/control/unlock", async () => {
       const state: PersistedLockState = { mode: "unlocked", ...this.#stampIso(), lteBands: "all", nrBands: [], cellLock: null };
-      return { ok: true, lockState: await this.#lock("unlock_all", state, "controls.unlock_all_applied") } satisfies LockStateResponse;
+      return { ok: true, lockState: await this.#lock("unlock_rf_locks", state, "controls.unlock_all_applied") } satisfies LockStateResponse;
     });
     post("/api/control/reboot", async (body) => {
       if (body["confirm"] !== true) throw new CpeControlValidationError("Remote reboot rejected: explicit { confirm: true } is mandatory");
-      await this.#control("reboot", "controls.reboot_triggered");
+      await this.#control("reboot_cpe", "controls.reboot_triggered");
       this.#goOffline("reboot", REBOOT_OFFLINE_MS);
       return { ok: true, rebooting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies RebootResponse;
     });
     post("/api/control/reconnect", async (body) => {
       if (body["confirm"] !== true) throw new CpeControlValidationError("Cellular reconnect requires explicit { confirm: true }");
-      await this.#control("reconnect", "controls.reconnect_triggered");
+      await this.#control("reconnect_cellular", "controls.reconnect_triggered");
       this.#goOffline("reconnect", RECONNECT_OFFLINE_MS);
       return { ok: true, reconnecting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies ReconnectResponse;
     });
     post("/api/control/security", async (body) => {
       const input = readSecurityControl(body);
-      await this.#control("set_security", "controls.security_updated");
+      await this.#control("set_security_switches", "controls.security_updated");
       this.#settings = {
         ...this.#settings,
         ...this.#stamp(),
@@ -470,7 +500,7 @@ export class DemoBackend {
     });
     post("/api/control/antenna", async (body) => {
       const mode = readAntennaMode(body["mode"]);
-      await this.#control("set_antenna", "controls.antenna_updated", { mode });
+      await this.#control("set_antenna_mode", "controls.antenna_updated", { mode });
       const rawCode = mode === "internal" ? 1 : mode === "external" ? 2 : 0;
       this.#settings = { ...this.#settings, ...this.#stamp(), antenna: { ...this.#settings.antenna, mode, rawCode: String(rawCode) } };
       this.#emit("settings", this.#settings);
@@ -655,11 +685,14 @@ export class DemoBackend {
 
   async #controlWith(action: string, summary: { zh: string; en: string }, lockState?: PersistedLockState): Promise<void> {
     if (this.#now() < this.#offlineUntilMs) {
-      throw new DemoHttpError(502, "CPE_UPSTREAM_ERROR", "The router is restarting; try again in a minute");
+      const message = "The router is restarting; try again in a minute";
+      this.#console.record(action, "failed", message);
+      throw new DemoHttpError(502, "CPE_UPSTREAM_ERROR", message);
     }
     await this.#session(LATENCY.control);
     const event: ControlAppliedEvent = { action, tsIso: new Date(this.#now()).toISOString(), summaryZh: summary.zh, summaryEn: summary.en };
     this.#emit("control:applied", lockState ? { ...event, lockState } : event);
+    this.#console.record(action, "applied", summary.en);
   }
 
   async #session(ms: number): Promise<void> {
@@ -802,6 +835,7 @@ export class DemoBackend {
 
   #errorResponse(err: unknown): [number, ApiErrorEnvelope] {
     if (err instanceof DemoHttpError) return [err.status, { ok: false, errorCode: err.code, message: err.message }];
+    if (err instanceof DemoRefusal) return [err.status, err.envelope];
     if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError || err instanceof DemoValidationError || err instanceof AccessPlanError) {
       return [400, { ok: false, errorCode: "VALIDATION_ERROR", message: err.message }];
     }

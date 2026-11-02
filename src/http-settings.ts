@@ -1,13 +1,11 @@
-import type { ConsoleSettingsResponse } from "./api-contract.ts";
+import type { ApiErrorEnvelope, ConsoleSettingsResponse } from "./api-contract.ts";
 import type { AuditLog } from "./audit-log.ts";
-import { type ConsoleSettings, TOKEN_LIFETIMES_DAYS, type TokenScope } from "./console-settings.ts";
+import { normalizeCpeUrl } from "./config.ts";
+import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
+import type { ConsoleSettings } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import type { ConnectionCandidate, MutexSessionScheduler } from "./scheduler.ts";
 import type { ApiRouteContext } from "./sms/http-routes.ts";
-
-/** Console passwords: long enough to resist guessing at the limiter's pace, short enough to type. */
-export const MIN_PASSWORD_LENGTH = 10;
-const MAX_PASSWORD_LENGTH = 256;
 
 export interface SettingsRoutesOptions {
   settings: ConsoleSettings;
@@ -25,13 +23,6 @@ export interface SettingsRoutesOptions {
   disconnectToken: (tokenId: string) => void;
   /** Unlink every chat linked with /auth; resolves how many. */
   unlinkTelegram: () => number;
-}
-
-export function validateNewPassword(raw: unknown): string {
-  if (typeof raw !== "string" || raw.length < MIN_PASSWORD_LENGTH || raw.length > MAX_PASSWORD_LENGTH) {
-    throw new CpeControlValidationError(`The console password needs ${MIN_PASSWORD_LENGTH} to ${MAX_PASSWORD_LENGTH} characters`);
-  }
-  return raw;
 }
 
 function text(body: Record<string, unknown>, key: string, max: number): string | undefined {
@@ -62,7 +53,7 @@ export class SettingsHttpRoutes {
       login: { changedAtIso: settings.loginChangedAtIso, fromEnv: settings.loginFromEnv },
       reviewPending: settings.reviewPending,
       telegram: { configured: telegramConfigured, resetEnabled: settings.telegramReset },
-      metrics: { enabled: settings.metricsEnabled ?? metricsFromEnv, source: settings.metricsEnabled === null ? "env" : "console" },
+      metrics: { enabled: settings.metricsEnabled ?? metricsFromEnv, source: settings.metricsEnabled === null ? "env" : "console", envEnabled: metricsFromEnv },
     };
   }
 
@@ -94,14 +85,16 @@ export class SettingsHttpRoutes {
         const result = await this.#opts.scheduler.testConnection(candidate, { lastAttempt: body["lastAttempt"] === true });
         if (!result.ok) {
           audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${result.reason}` });
-          ctx.sendJson(400, { ok: false, errorCode: "CPE_TEST_FAILED", message: result.message, result });
+          ctx.sendJson(400, { ok: false, errorCode: "CPE_TEST_FAILED", message: result.message, connectionTest: result } satisfies ApiErrorEnvelope);
           return true;
         }
         const first = settings.cpe === null;
-        settings.setCpe(candidate);
+        // Stored as the client uses it ("192.168.8.1/" becomes "http://192.168.8.1"); the test proved it parses
+        const saved = { ...candidate, url: normalizeCpeUrl(candidate.url) };
+        settings.setCpe(saved);
         settings.markReviewed();
-        await this.#opts.scheduler.applyConnection(candidate);
-        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(candidate.url).host} as ${candidate.username}` });
+        await this.#opts.scheduler.applyConnection(saved);
+        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host} as ${saved.username}` });
         if (first) this.#opts.onConnectionReady();
         ctx.sendJson(200, { ok: true, result, settings: this.summary() });
         return true;
@@ -127,17 +120,11 @@ export class SettingsHttpRoutes {
         return true;
       }
       case "/api/console/tokens": {
-        const body = await ctx.readJsonBody();
-        const name = (text(body, "name", 64) ?? "").trim();
-        if (!name) throw new CpeControlValidationError("Give the token a name (who or what will use it)");
-        const scope = body["scope"];
-        if (scope !== "full" && scope !== "read") throw new CpeControlValidationError('"scope" must be "full" or "read"');
-        const lifetime = body["lifetimeDays"];
-        const lifetimeDays = lifetime === null ? null : (TOKEN_LIFETIMES_DAYS as ReadonlyArray<unknown>).includes(lifetime) ? (lifetime as number) : undefined;
-        if (lifetimeDays === undefined) throw new CpeControlValidationError(`"lifetimeDays" must be one of ${TOKEN_LIFETIMES_DAYS.join(", ")} or null`);
+        const request = readTokenRequest(await ctx.readJsonBody());
+        const { name, scope, lifetimeDays } = request;
         let minted;
         try {
-          minted = settings.createToken({ name, scope: scope as TokenScope, lifetimeDays });
+          minted = settings.createToken(request);
         } catch (err) {
           throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
         }

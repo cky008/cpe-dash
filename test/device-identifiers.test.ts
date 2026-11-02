@@ -10,7 +10,7 @@ import {
   fetchGlobalTelemetry,
   fetchTerminalTopology,
 } from "../src/cpe-domain.ts";
-import { REDACTED, redactTelemetry, redactTopology } from "../src/redact.ts";
+import { REDACTED, auditForOutput, redactTelemetry, redactTopology } from "../src/redact.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 
@@ -152,5 +152,22 @@ describe("REDACT_SENSITIVE_IN_API copies for Bearer API, SSE and MCP clients (sr
     assert.deepEqual(masked?.ipv6Addresses, ["fe80:****", "2001:db8:****"]);
     assert.equal(masked?.ipv4Address, "192.168.8.10");
     assert.deepEqual(redacted.countsByMedium, plain.countsByMedium);
+  });
+
+  it("masks the addresses in audit details for Bearer readers and leaves the console's copy alone", () => {
+    const entry = { tsIso: "2026-11-02T10:00:00.000Z", channel: "web" as const, label: null, action: "login", outcome: "applied" as const };
+    const entries = [
+      { ...entry, detail: "from 198.51.100.42" },
+      { ...entry, detail: "from 2001:db8::42" },
+      { ...entry, action: "settings.cpe", detail: "router 192.168.8.1:8080 as admin" },
+      { ...entry, action: "settings.cpe", detail: "router [2001:db8::1]:8443 as admin" },
+      { ...entry, detail: null },
+    ];
+    assert.equal(auditForOutput(entries, false), entries, "the web console gets the entries as stored");
+    assert.deepEqual(
+      auditForOutput(entries, true).map((e) => e.detail),
+      ["from 198.51.*.*", "from 2001:db8:****", "router 192.168.*.*:8080 as admin", "router [2001:db8:****]:8443 as admin", null]
+    );
+    assert.equal(entries[0]?.detail, "from 198.51.100.42", "the stored entries are not modified");
   });
 });

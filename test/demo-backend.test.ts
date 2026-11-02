@@ -205,6 +205,73 @@ describe("Static demo backend vs the real daemon", () => {
     assert.deepEqual(settings["antenna"], { ...(seed.settings.settings?.antenna ?? {}), mode: "external", rawCode: "2" });
   });
 
+  it("manages the console's router, tokens, switches and audit log like the daemon", async () => {
+    const both = (method: string, route: string, body?: Json) => Promise.all([daemonCall(daemon, session, method, route, body), demoCall(backend, method, route, body)]);
+    const withoutImported = (json: Json): Json => ({ ...json, tokens: (json["tokens"] as Json[]).map(({ imported: _imported, ...token }) => token) });
+
+    for (const [method, route, body] of [
+      ["GET", "/api/console", undefined],
+      ["POST", "/api/console/cpe/test", {}],
+      ["POST", "/api/console/tokens", { name: "Home Assistant", scope: "read", lifetimeDays: 30 }],
+      ["POST", "/api/console/switches", { metricsEnabled: true, telegramReset: false }],
+      ["POST", "/api/console/review", {}],
+      ["POST", "/api/console/telegram/unlink-all", {}],
+    ] as const) {
+      const [real, demo] = await both(method, route, body);
+      assert.equal(demo.status, real.status, route);
+      assertSameShape(route, real.json, demo.json);
+    }
+    const [realTokens, demoTokens] = await both("GET", "/api/console/tokens");
+    assertSameShape("/api/console/tokens", withoutImported(realTokens.json), demoTokens.json);
+    const minted = (await demoCall(backend, "POST", "/api/console/tokens", { name: "Grafana 2", scope: "full", lifetimeDays: null })).json;
+    assert.match(String(minted["token"]), /^fsk_[A-Za-z0-9_-]{43}$/);
+    const id = (minted["record"] as Json)["id"];
+    assert.equal((await demoCall(backend, "POST", "/api/console/tokens/revoke", { id })).status, 200);
+
+    for (const [route, body] of [
+      ["/api/console/tokens", { name: " ", scope: "read", lifetimeDays: 7 }],
+      ["/api/console/tokens", { name: "x", scope: "read", lifetimeDays: 2 }],
+      ["/api/console/password", { current: "anything", next: "short" }],
+      ["/api/console/switches", {}],
+      ["/api/console/switches", { telegramReset: "yes" }],
+      ["/api/console/cpe/test", { url: " " }],
+    ] as const) {
+      const [real, demo] = await both("POST", route, body);
+      assert.deepEqual([demo.status, demo.json["message"]], [real.status, real.json["message"]], `${route} ${JSON.stringify(body)}`);
+    }
+    for (const [route, body] of [
+      ["/api/console/tokens/revoke", { id: "no-such-token" }],
+      ["/api/console/cpe", { url: "http://203.0.113.10" }],
+    ] as const) {
+      const [real, demo] = await both("POST", route, body);
+      assert.deepEqual([demo.status, demo.json["errorCode"]], [real.status, real.json["errorCode"]], route);
+    }
+    const refused = (await demoCall(backend, "POST", "/api/console/cpe", { url: "http://203.0.113.10" })).json;
+    assert.equal((refused["connectionTest"] as Json)["reason"], "invalid_url");
+    const saved = (await demoCall(backend, "POST", "/api/console/cpe", { url: "192.168.8.1/", username: "" })).json;
+    assert.deepEqual((saved["settings"] as Json)["cpe"], { url: "http://192.168.8.1", username: "admin", passwordSet: true });
+    assert.equal((await demoCall(backend, "POST", "/api/console/password", { current: "", next: "a long enough passphrase" })).json["errorCode"], "WRONG_PASSWORD");
+    assert.equal((await demoCall(backend, "POST", "/api/console/password", { current: "anything", next: "a long enough passphrase" })).status, 200);
+    assert.match(String((await demoCall(backend, "POST", "/api/console/telegram/pairing-code")).json["code"]), /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+
+    const [realAudit, demoAudit] = await both("GET", "/api/audit?limit=5");
+    assertSameShape("/api/audit", realAudit.json, demoAudit.json);
+    const entries = demoAudit.json["entries"] as Json[];
+    assert.equal(entries.length, 5);
+    assert.deepEqual(
+      entries.slice(0, 3).map((e) => [e["action"], e["outcome"]]),
+      [
+        ["telegram.pairing-code", "applied"],
+        ["settings.password", "applied"],
+        ["settings.password", "refused"],
+      ],
+      "newest first"
+    );
+    await demoCall(backend, "POST", "/api/control/antenna", { mode: "auto" });
+    const audit = (await demoCall(backend, "GET", "/api/audit?limit=nope")).json["entries"] as Json[];
+    assert.deepEqual([audit[0]?.["action"], audit[0]?.["channel"]], ["set_antenna_mode", "web"], "router writes are logged with the daemon's action names");
+  });
+
   it("plans Wi-Fi access and time rules with the daemon's rules and ends in the same state", async () => {
     const requests: ReadonlyArray<readonly [string, Json]> = [
       ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5e:10:00:03", name: "living-room-tv", confirm: true }],
@@ -403,6 +470,7 @@ describe("Static demo backend on its own", () => {
     assert.equal((await demoCall(backend, "GET", "/api/health")).status, 200);
     assert.equal((await demoCall(backend, "POST", "/api/auth/login", { token: "" })).status, 401);
     assert.equal((await demoCall(backend, "POST", "/api/auth/login", { token: "anything" })).json["authenticated"], true);
+    assert.equal((await demoCall(backend, "POST", "/api/auth/login", { password: "anything" })).json["authenticated"], true);
     assert.equal((await demoCall(backend, "GET", "/api/nope")).status, 404);
     assert.equal((await demoCall(backend, "DELETE", "/api/telemetry")).status, 405);
     const malformed = await backend.fetch("/api/control/wifi7", { method: "POST", body: "{nope" });

@@ -100,7 +100,7 @@ export interface ApiErrorEnvelope {
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "ALREADY_SET_UP"           // 409: 控制台密码已设定后再调用 /api/setup/login
     | "WRONG_PASSWORD"           // 403: 修改密码时当前密码不正确
-    | "CPE_TEST_FAILED"          // 400: 新的路由器连接测试失败（附 result），未保存任何内容
+    | "CPE_TEST_FAILED"          // 400: 新的路由器连接测试失败（附 connectionTest），未保存任何内容
     | "TELEGRAM_DISABLED"        // 409: 未配置 TELEGRAM_BOT_TOKEN 时申请绑定码
     // ── /mcp 端点（HTTP 层） ──
     | "MCP_DISABLED"             // 404: MCP_HTTP_ENABLED=false
@@ -942,7 +942,7 @@ export interface AccessControlChangeResponse {
 | :--- | :--- | :--- |
 | `GET /api/console` | — | `ConsoleSettingsResponse` |
 | `POST /api/console/cpe/test` | `{ url?, username?, password?, lastAttempt? }`（缺省字段用已保存的值） | `{ ok: true, result: ConnectionTestResult }` |
-| `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `result`，不保存） |
+| `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `connectionTest`，不保存） |
 | `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
 | `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD` |
 | `GET /api/console/tokens` | — | `{ ok: true, tokens: PublicTokenRecord[] }`（不含哈希） |
@@ -951,7 +951,7 @@ export interface AccessControlChangeResponse {
 | `POST /api/console/telegram/pairing-code` | `{}` | `{ ok: true, code, expiresInSec: 600 }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；未配置机器人 `409 TELEGRAM_DISABLED` |
 | `POST /api/console/telegram/unlink-all` | `{}` | `{ ok: true, unlinked }`（`TELEGRAM_CHAT_IDS` 中的聊天不受影响） |
 | `POST /api/console/switches` | `{ telegramReset?: boolean, metricsEnabled?: boolean \| null }`（`null` = 跟随 `.env`） | `ConsoleSettingsResponse` |
-| `GET /api/audit?limit=200` | — | `{ ok: true, entries: AuditEntry[] }`（最新在前，最多 500 条；任何已登录调用方可读） |
+| `GET /api/audit?limit=200` | — | `{ ok: true, entries: AuditEntry[] }`（最新在前，最多 500 条；任何已登录调用方可读，`REDACT_SENSITIVE_IN_API` 下 Bearer 调用方拿到的 `detail` 遮住 IP 地址） |
 | `GET /metrics` | — | Prometheus 文本格式；需 Bearer 令牌（只读即可）；关闭时 `404` |
 
 ```ts
@@ -976,7 +976,7 @@ export interface ConsoleSettingsResponse {
   login: { changedAtIso: string | null; fromEnv: boolean };             // fromEnv：仍是从 .env 导入的 API_TOKEN
   reviewPending: boolean;                                               // 从 .env 导入后尚未在引导中确认
   telegram: { configured: boolean; resetEnabled: boolean };
-  metrics: { enabled: boolean; source: "console" | "env" };
+  metrics: { enabled: boolean; source: "console" | "env"; envEnabled: boolean }; // envEnabled：.env 的 METRICS_ENABLED
 }
 
 export interface AuditEntry {

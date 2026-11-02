@@ -6,7 +6,15 @@ import type {
   AntennaModeName,
   AuthLoginResponse,
   AuthLogoutResponse,
+  AuditResponse,
   AuthStatusResponse,
+  ConnectionTestResponse,
+  ConsoleSettingsResponse,
+  CreateTokenResponse,
+  PairingCodeResponse,
+  RevokeTokenResponse,
+  SaveConnectionResponse,
+  TokensResponse,
   BandLockRequest,
   CellLockRequest,
   ContactDeleteResponse,
@@ -60,12 +68,35 @@ const SMS_SEND_TIMEOUT_MS = 180_000;
 
 export type ThreadFilter = "all" | "unread" | "otp";
 
+/** A router connection to test or save; fields left out keep the stored values. */
+export interface ConnectionInput {
+  url?: string;
+  username?: string;
+  password?: string;
+  /** Spend the router's last login attempt deliberately. */
+  lastAttempt?: boolean;
+}
+
 export function createEndpoints(api: ApiClient) {
   const control = { timeoutMs: CONTROL_TIMEOUT_MS };
   return {
     health: () => api.get<HealthResponse>("/api/health"),
     authStatus: () => api.get<AuthStatusResponse>("/api/auth/status"),
-    login: (token: string) => api.post<AuthLoginResponse>("/api/auth/login", { token }),
+    login: (password: string) => api.post<AuthLoginResponse>("/api/auth/login", { password }),
+    setupLogin: (code: string, password: string) => api.post<AuthLoginResponse>("/api/setup/login", { code, password }),
+    resetLogin: (code: string, password: string) => api.post<AuthLoginResponse>("/api/auth/reset", { code, password }),
+    consoleSettings: () => api.get<ConsoleSettingsResponse>("/api/console"),
+    testConnection: (body: ConnectionInput) => api.post<ConnectionTestResponse>("/api/console/cpe/test", body, control),
+    saveConnection: (body: ConnectionInput) => api.post<SaveConnectionResponse>("/api/console/cpe", body, control),
+    confirmReview: () => api.post<ConsoleSettingsResponse>("/api/console/review"),
+    changePassword: (current: string, next: string) => api.post<ConsoleSettingsResponse>("/api/console/password", { current, next }),
+    tokens: () => api.get<TokensResponse>("/api/console/tokens"),
+    createToken: (body: { name: string; scope: "full" | "read"; lifetimeDays: number | null }) => api.post<CreateTokenResponse>("/api/console/tokens", body),
+    revokeToken: (id: string) => api.post<RevokeTokenResponse>("/api/console/tokens/revoke", { id }),
+    pairingCode: () => api.post<PairingCodeResponse>("/api/console/telegram/pairing-code"),
+    unlinkTelegram: () => api.post<{ ok: true; unlinked: number }>("/api/console/telegram/unlink-all"),
+    consoleSwitches: (body: { telegramReset?: boolean; metricsEnabled?: boolean | null }) => api.post<ConsoleSettingsResponse>("/api/console/switches", body),
+    audit: (limit = 200) => api.get<AuditResponse>(`/api/audit?limit=${limit}`),
     logout: () => api.post<AuthLogoutResponse>("/api/auth/logout"),
 
     telemetry: () => api.get<TelemetryEndpointResponse>("/api/telemetry"),

@@ -1306,6 +1306,14 @@ body {
     background: color-mix(in oklab, var(--color-error) 10%, var(--surface-solid));
     border: 1px solid color-mix(in oklab, var(--color-error) 35%, transparent);
   }
+  .fs-notice[data-tone="info"] {
+    background: color-mix(in oklab, var(--color-info) 9%, var(--surface-solid));
+    border: 1px solid color-mix(in oklab, var(--color-info) 30%, transparent);
+  }
+  .fs-notice[data-tone="success"] {
+    background: color-mix(in oklab, var(--color-success) 11%, var(--surface-solid));
+    border: 1px solid color-mix(in oklab, var(--color-success) 35%, transparent);
+  }
   .fab-compose {
     box-shadow:
       0 10px 24px -8px color-mix(in oklab, var(--color-primary) 70%, transparent),

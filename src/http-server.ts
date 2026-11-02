@@ -21,13 +21,14 @@ import {
 } from "./control-input.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
+import { validateNewPassword } from "./console-policy.ts";
 import { type BearerIdentity, type ConsoleSettings, verifyResetLoginProof } from "./console-settings.ts";
 import {
   type CredentialVerdict,
   HttpAuthGuard,
   type WebSessionRecord,
 } from "./http-auth.ts";
-import { SettingsHttpRoutes, validateNewPassword } from "./http-settings.ts";
+import { SettingsHttpRoutes } from "./http-settings.ts";
 import type {
   AccessControlChangeResponse,
   AccessControlEndpointResponse,
@@ -77,7 +78,7 @@ import {
 } from "./scheduler.ts";
 import type { NotificationHub } from "./notify/hub.ts";
 import { maskMacTail } from "./privacy-mask.ts";
-import { accessControlForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
+import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
@@ -794,7 +795,8 @@ export class FengSuiHttpServer {
       }
       if (pathname === "/api/audit" && method === "GET") {
         const limit = Number.parseInt(searchParams.get("limit") ?? "200", 10);
-        this.#sendJson(res, 200, { ok: true, entries: this.#audit?.list(Number.isFinite(limit) ? limit : 200) ?? [] } satisfies AuditResponse);
+        const entries = this.#audit?.list(Number.isFinite(limit) ? limit : 200) ?? [];
+        this.#sendJson(res, 200, { ok: true, entries: auditForOutput(entries, redact) } satisfies AuditResponse);
         return;
       }
 

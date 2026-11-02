@@ -79,10 +79,10 @@ describe("console setup on a fresh install", () => {
 
       const wrong = await fx.post("/api/console/cpe", { url: "http://192.168.8.1", password: "not it" }, cookie);
       assert.equal(wrong.status, 400);
-      const wrongBody = (await wrong.json()) as { errorCode: string; result: { reason: string; remainCount: number } };
-      assert.deepEqual([wrongBody.errorCode, wrongBody.result.reason, wrongBody.result.remainCount], ["CPE_TEST_FAILED", "wrong_password", 2]);
+      const wrongBody = (await wrong.json()) as { errorCode: string; connectionTest: { reason: string; remainCount: number } };
+      assert.deepEqual([wrongBody.errorCode, wrongBody.connectionTest.reason, wrongBody.connectionTest.remainCount], ["CPE_TEST_FAILED", "wrong_password", 2]);
       assert.equal(fx.stack.settings.cpe, null, "nothing saved");
-      const publicHost = (await (await fx.post("/api/console/cpe/test", { url: "http://8.8.8.8", password: "x" }, cookie)).json()) as { result: { reason: string } };
+      const publicHost = (await (await fx.post("/api/console/cpe/test", { url: "http://203.0.113.10", password: "x" }, cookie)).json()) as { result: { reason: string } };
       assert.equal(publicHost.result.reason, "invalid_url");
 
       const saved = await fx.post("/api/console/cpe", { url: "http://192.168.8.1", username: "admin", password: fx.cpe.password }, cookie);
@@ -141,7 +141,7 @@ describe("console settings after an upgrade (.env imported)", () => {
       // Metrics: off by default, on from the console, any token, no identifiers
       assert.equal((await fx.get("/metrics", { token: minted.token })).status, 404);
       summary = (await (await fx.post("/api/console/switches", { metricsEnabled: true }, cookie)).json()) as ConsoleSettingsResponse;
-      assert.deepEqual(summary.metrics, { enabled: true, source: "console" });
+      assert.deepEqual(summary.metrics, { enabled: true, source: "console", envEnabled: false });
       assert.equal((await fx.get("/metrics")).status, 401);
       const scraped = await fx.get("/metrics", { token: minted.token });
       assert.equal(scraped.status, 200);
@@ -151,7 +151,7 @@ describe("console settings after an upgrade (.env imported)", () => {
       assert.match(text, /^fengsui_scheduler_mode\{mode="idle"\} [01]$/m);
       for (const identifier of ["860000000000000", "272010000000000", "198.51.100.42", "134217758"]) assert.equal(text.includes(identifier), false, identifier);
       summary = (await (await fx.post("/api/console/switches", { metricsEnabled: null, telegramReset: false }, cookie)).json()) as ConsoleSettingsResponse;
-      assert.deepEqual([summary.metrics, summary.telegram.resetEnabled], [{ enabled: false, source: "env" }, false]);
+      assert.deepEqual([summary.metrics, summary.telegram.resetEnabled], [{ enabled: false, source: "env", envEnabled: false }, false]);
       assert.equal((await fx.post("/api/console/switches", {}, cookie)).status, 400);
       assert.equal((await fx.post("/api/console/switches", { telegramReset: "yes" }, cookie)).status, 400);
       assert.equal((await fx.post("/api/console/telegram/pairing-code", {}, cookie)).status, 409, "no bot configured");

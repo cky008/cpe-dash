@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { MAX_TOKENS, type TokenRequest, type TokenScope } from "./console-policy.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { AppConfig } from "./types.ts";
 
@@ -12,9 +13,6 @@ import type { AppConfig } from "./types.ts";
 
 const FORMAT = 1;
 const TOKEN_PREFIX = "fsk_";
-export const MAX_TOKENS = 50;
-/** Lifetimes the console offers; `null` never expires. */
-export const TOKEN_LIFETIMES_DAYS = [1, 7, 30, 90, 365] as const;
 const SETUP_CODE_TTL_MS = 24 * 60 * 60_000;
 export const RESET_CODE_TTL_MS = 15 * 60_000;
 export const PAIRING_CODE_TTL_MS = 10 * 60_000;
@@ -22,8 +20,6 @@ export const PAIRING_CODE_TTL_MS = 10 * 60_000;
 const LAST_USED_PERSIST_MS = 5 * 60_000;
 /** Unambiguous code alphabet (no 0/O, 1/I/L). */
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-
-export type TokenScope = "full" | "read";
 
 export interface CpeConnection {
   url: string;
@@ -310,7 +306,7 @@ export class ConsoleSettings {
   }
 
   /** Mint a token; the value is returned once and only its hash is kept. */
-  createToken(input: { name: string; scope: TokenScope; lifetimeDays: number | null }): { token: string; record: PublicTokenRecord } {
+  createToken(input: TokenRequest): { token: string; record: PublicTokenRecord } {
     if (this.#state.tokens.length >= MAX_TOKENS) throw new Error(`At most ${MAX_TOKENS} tokens; revoke one first`);
     const nowMs = this.#now();
     const token = `${TOKEN_PREFIX}${crypto.randomBytes(32).toString("base64url")}`;

@@ -142,6 +142,8 @@ export interface ApiErrorEnvelope {
   result?: SmsSendResult;
   /** Only `502 SMS_SEND_FAILED`. */
   resolvedPhones?: string[];
+  /** Only `400 CPE_TEST_FAILED`: why the router connection did not log in. */
+  connectionTest?: ConnectionTestResult;
 }
 
 // ── Public, auth and i18n (§2.1) ─────────────────────────────────────────────
@@ -177,7 +179,8 @@ export interface ConsoleSettingsResponse {
   /** Imported from `.env` on upgrade and not yet confirmed in the guided check. */
   reviewPending: boolean;
   telegram: { configured: boolean; resetEnabled: boolean };
-  metrics: { enabled: boolean; source: "console" | "env" };
+  /** `/metrics`: the effective switch, who set it, and what `.env` (METRICS_ENABLED) says. */
+  metrics: { enabled: boolean; source: "console" | "env"; envEnabled: boolean };
 }
 
 /** `POST /api/console/cpe/test` (and the `result` of a refused `POST /api/console/cpe`). */

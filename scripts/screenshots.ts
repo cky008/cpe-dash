@@ -44,6 +44,12 @@ const openSms = async (page: Page): Promise<void> => {
   await page.waitUntil("document.querySelectorAll('#smsChatPane .fs-bubble, #smsChatPane [data-uid]').length > 0 || document.querySelector('#smsChatPane')?.textContent?.length > 40", "a conversation");
 };
 
+const openSettings = async (page: Page, tab: string): Promise<void> => {
+  await page.click('[data-action="open-settings"]');
+  await page.waitUntil("document.querySelector('#settingsDialog')?.open === true", "the settings dialog");
+  await page.clickText("#settingsDialog nav button", tab);
+};
+
 const SHOTS: ReadonlyArray<Shot> = [
   { name: "dashboard-sujian", scenario: "normal", theme: "fengsui-sujian" },
   { name: "dashboard-jiye", scenario: "normal", theme: "fengsui-jiye" },
@@ -105,6 +111,25 @@ const SHOTS: ReadonlyArray<Shot> = [
     theme: "fengsui-sujian",
     prepare: async (page) => {
       await page.waitUntil("document.querySelector('#bannerArea')?.textContent?.includes('防爆破熔断已触发') === true", "the breaker banner", 30_000);
+    },
+  },
+  {
+    name: "settings-router",
+    scenario: "normal",
+    theme: "fengsui-sujian",
+    prepare: async (page) => {
+      await openSettings(page, "路由器");
+      await page.clickText("#settingsDialog button", "测试连接");
+      await page.waitUntil(`document.querySelector('#settingsDialog .fs-notice[data-tone="success"]') !== null`, "a passed connection test");
+    },
+  },
+  {
+    name: "settings-tokens",
+    scenario: "normal",
+    theme: "fengsui-jiye",
+    prepare: async (page) => {
+      await openSettings(page, "令牌");
+      await page.waitUntil("document.querySelectorAll('#settingsDialog li').length >= 3", "the token list");
     },
   },
   {
@@ -313,6 +338,10 @@ async function startWorld(scenario: Scenario): Promise<DemoDaemon> {
   const demo = await startDemoDaemon({ port: 0, token: TOKEN, scenario });
   backfillHistory(demo);
   for (const contact of DEMO_CONTACTS) demo.stack.sms?.upsertContact(contact);
+  // A dashboard and an agent use their own read-only tokens next to the one imported from .env
+  const grafana = demo.stack.settings.createToken({ name: "Grafana", scope: "read", lifetimeDays: null });
+  demo.stack.settings.createToken({ name: "Claude Code", scope: "read", lifetimeDays: 90 });
+  demo.stack.settings.resolveBearer(grafana.token);
   if (scenario !== "breaker") {
     // The first neighbor scan and settings read would otherwise wait for their own schedules
     await Promise.all([

@@ -4,8 +4,8 @@
  * value so a token with `$`, quotes or spaces cannot turn into shell syntax.
  */
 
-/** Shown until a token is pasted: the read-only token is the one to give an agent. */
-export const TOKEN_PLACEHOLDER = "<API_TOKEN_READONLY>";
+/** Shown until a token is pasted or created: a read-only token is the one to give an agent. */
+export const TOKEN_PLACEHOLDER = "<READ_ONLY_TOKEN>";
 /** The static demo has no daemon behind it; its guide shows the documentation domain instead. */
 export const DEMO_ORIGIN = "https://cpe.example.com";
 

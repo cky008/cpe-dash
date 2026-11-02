@@ -1,6 +1,8 @@
+import { AGENT_TOKEN_DAYS, agentTokenName } from "../core/console-view.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { claudeCodeCommand, maskToken, mcpEndpoint, mcpJsonConfig, tokenOrPlaceholder } from "../core/mcp-setup.ts";
 import { MCP_GUIDE_TEXT, type McpGuideTextKey } from "../i18n/mcp-guide.ts";
+import { copyText } from "./clipboard.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount } from "./dom.ts";
 
@@ -13,7 +15,8 @@ interface Snippet {
 
 /**
  * "Connect an AI agent": the daemon's `/mcp` endpoint with copy-ready setup for coding agents. A
- * pasted token only fills the snippets (masked on screen, real in the clipboard); it is never stored.
+ * pasted or freshly minted read-only token only fills the snippets (masked on screen, real in the
+ * clipboard); the page never stores it.
  */
 export function mountMcpGuide(ctx: AppContext): { open(): void } {
   const dialog = byId<HTMLDialogElement>("mcpDialog");
@@ -58,12 +61,26 @@ export function mountMcpGuide(ctx: AppContext): { open(): void } {
 
     const tokenInput = h("input", {
       class: "input input-sm rounded-lg w-full",
-      attrs: { type: "password", autocomplete: "off", spellcheck: "false", placeholder: t("token_placeholder") },
+      attrs: { id: "mcpTokenInput", type: "password", autocomplete: "off", spellcheck: "false", placeholder: t("token_placeholder") },
     });
     tokenInput.value = token;
     tokenInput.addEventListener("input", () => {
       token = tokenInput.value;
       for (const block of blocks) block.show();
+    });
+    const mint = h("button", { class: "btn btn-sm rounded-lg shrink-0", attrs: { type: "button" } }, icon("key"), t("mint"));
+    mint.addEventListener("click", () => {
+      mint.disabled = true;
+      void ctx.api
+        .createToken({ name: agentTokenName(ctx.now(), t("agent_name")), scope: "read", lifetimeDays: AGENT_TOKEN_DAYS })
+        .then((res) => {
+          token = res.token;
+          tokenInput.value = token;
+          for (const block of blocks) block.show();
+          ctx.toast(t("minted", { name: res.record.name, days: AGENT_TOKEN_DAYS }), "success");
+        })
+        .catch((err: unknown) => ctx.toast(ctx.describeError(err), "error"))
+        .finally(() => (mint.disabled = false));
     });
 
     mount(
@@ -84,7 +101,13 @@ export function mountMcpGuide(ctx: AppContext): { open(): void } {
           h("p", { class: "muted" }, t("intro")),
           ctx.demo ? h("p", { class: "text-xs text-warning" }, t("demo_note")) : null,
           h("div", { class: "space-y-1" }, h("div", { class: "fs-label" }, t("endpoint")), h("code", { class: "font-mono text-xs break-all" }, url)),
-          h("label", { class: "block space-y-1" }, h("span", { class: "fs-label" }, t("token_label")), tokenInput, h("span", { class: "block text-xs muted" }, t("token_hint"))),
+          h(
+            "div",
+            { class: "space-y-1" },
+            h("label", { class: "fs-label block", attrs: { for: "mcpTokenInput" } }, t("token_label")),
+            h("div", { class: "flex flex-col sm:flex-row gap-2" }, tokenInput, mint),
+            h("p", { class: "text-xs muted" }, t("token_hint"))
+          ),
           ...blocks.map((block) => block.el),
           h("p", { class: "text-xs faint" }, t("notes"))
         )
@@ -106,30 +129,4 @@ export function mountMcpGuide(ctx: AppContext): { open(): void } {
       dialog.showModal();
     },
   };
-}
-
-/**
- * The async clipboard needs a secure context (HTTPS or localhost); a console opened over plain HTTP
- * on the LAN falls back to a selected textarea inside the dialog (the rest of the page is inert).
- */
-async function copyText(host: HTMLElement, text: string): Promise<boolean> {
-  if (window.isSecureContext && navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Permission denied: try the fallback
-    }
-  }
-  const area = h("textarea", { class: "fixed opacity-0 pointer-events-none", attrs: { readonly: "", "aria-hidden": "true" } });
-  area.value = text;
-  host.appendChild(area);
-  area.select();
-  try {
-    return document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    area.remove();
-  }
 }
