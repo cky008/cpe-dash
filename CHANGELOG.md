@@ -2,7 +2,7 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.4.2] — 2026-11-02
 
 ### Added
 - **`npm run screenshots` regenerates the README images.** It starts the offline demo (mock router, placeholder data), backfills two hours of chart history, and drives a local headless Chrome over the DevTools protocol (no npm dependency) through each view: dashboards in several themes, SMS, the controls drawer, the cell lock, appearance and access dialogs, the phone layout and the avoidance and breaker banners. Run before a release so the pictures ship in the signed release commit; all fourteen were retaken for this version.
@@ -24,6 +24,11 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Documentation
 - **The docs are checked against the code.** `test/contract-manifest.test.ts` reads what the daemon exposes from the code itself (every MCP tool with all providers enabled, every raised alert code, SSE event, REST route and setting) and fails when the contract, `.env.example` or either README misses one. It found five settings no doc mentioned (`STATE_FLUSH_INTERVAL_MS`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_AUTH_FAILURES`, `SESSION_TTL_MS`, `STATIC_DIR`), now documented.
 - **`POST /api/session/reset-breaker` states its order.** It applies the reloaded `.env` (redaction, time zone, data key, token rotation) before it looks at the breaker, so the `400` it returns while a wrong-password latch still has the old password comes after those changes took effect; the contract now says so, and that calling it with an unchanged `.env` has no other effect.
+
+### Upgrading
+- No `.env` change and no data migration. Telegram now also receives recoveries (`WAN_UP`, `CPE_RECOVERED`, …) and `CA_DROPPED`.
+- A deployment with its own `docker-compose.yml` (for example one switched to `network_mode: host`) keeps it on upgrade: add `mem_limit: 1g` and `pids_limit: 256` under the service by hand.
+- New maintenance commands: `sudo docker exec cpe-dash node dist/cli.js doctor` (or `backup`); `restore` and `rekey` run with the daemon stopped, see the README.
 
 ## [1.4.1] — 2026-11-02
 
