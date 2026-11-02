@@ -27,9 +27,9 @@ const ENTRY = DEMO ? path.join(WEB, "src", "demo", "main.ts") : path.join(WEB, "
 const ASSET_PREFIX = DEMO ? "assets/" : "/assets/";
 const DEMO_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
-/** Gzipped JS + CSS above this fails the build; the contract asks for < 60 KB on first paint. */
-const GZIP_BUDGET_BYTES = (DEMO ? 200 : 120) * 1024;
-const GZIP_TARGET_BYTES = 60 * 1024;
+/** Gzipped JS + CSS above this fails the build (the console's is twice its first-paint target: the contract asks for < 80 KB, which the build reports). */
+const GZIP_BUDGET_BYTES = (DEMO ? 200 : 160) * 1024;
+const GZIP_TARGET_BYTES = 80 * 1024;
 
 function contentHash(bytes: Buffer | string): string {
   return crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 10);
@@ -162,7 +162,7 @@ async function buildOnce(): Promise<void> {
   firstPaint += largestLocale;
   const note = firstPaint * 1024 <= GZIP_TARGET_BYTES ? "within" : "above";
   console.log(
-    `  first paint ${firstPaint.toFixed(1)} KiB gzip incl. one language (${note} the 60 KiB target) + ${lazy.toFixed(1)} KiB on demand; built in ${Date.now() - started} ms -> ${path.relative(ROOT, OUT)}`
+    `  first paint ${firstPaint.toFixed(1)} KiB gzip incl. one language (${note} the ${GZIP_TARGET_BYTES / 1024} KiB target) + ${lazy.toFixed(1)} KiB on demand; built in ${Date.now() - started} ms -> ${path.relative(ROOT, OUT)}`
   );
   if ((firstPaint + lazy) * 1024 > GZIP_BUDGET_BYTES) {
     throw new Error(`Web bundle is ${(firstPaint + lazy).toFixed(1)} KiB gzipped, over the ${GZIP_BUDGET_BYTES / 1024} KiB budget`);

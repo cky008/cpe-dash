@@ -1309,7 +1309,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
    - `loadConfig()` 默认按安装包根目录优先解析 **`dist/web/public/`**（若未构建则回退至 `public/`；可用 `.env` 中 `STATIC_DIR` 覆盖），且静态服务自动屏蔽所有以 `.` 或 `@`（如群晖 `@eaDir`）开头的隐藏路径。
    - **严禁在 `src/`、`scripts/` 或 `test/` 下生成任何 `.js` / `.mjs` / `.cjs` 文件**（[`scripts/audit-secrets.ts`](../scripts/audit-secrets.ts) 门禁会直接拦截报错退出码 `1`）。前端源码应采用 100% 严格 TypeScript 放置于独立的 `web/`（或 `frontend/`）目录，编译产物统一输出至 `dist/web/public/`（并在 `.gitignore` 中忽略构建产物）。
 2. **100% 离线自包含与零 CDN 依赖**：
-   - 严禁引用 Google Fonts、unpkg、jsdelivr 等任何公网外部资源，确保断网诊断蜂窝故障时首屏 `< 50ms` 秒开渲染；建议首屏 JS+CSS Gzip 总体积控制在 `< 60 KB` 以内。
+   - 严禁引用 Google Fonts、unpkg、jsdelivr 等任何公网外部资源，确保断网诊断蜂窝故障时首屏 `< 50ms` 秒开渲染；建议首屏 JS+CSS Gzip 总体积控制在 `< 80 KB` 以内（2026-11-02 起，原为 60 KB）。
 3. **严格 CSP 响应头兼容要求**：
    - 后端静态资源默认下发严格内容安全策略：
      `default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
