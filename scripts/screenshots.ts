@@ -370,6 +370,8 @@ async function main(): Promise<void> {
       await page.viewport(view);
       await signIn(page, demo, shot);
       await shot.prepare?.(page, demo);
+      // Toasts (an alert, a saved setting) fade on their own; never let one cover the picture
+      await page.waitUntil("document.getElementById('toasts')?.childElementCount === 0", "toasts to clear", 12_000).catch(() => undefined);
       await sleep(500);
       const file = path.join(OUT_DIR, `${shot.name}.webp`);
       await page.capture(file, shot.fullPage === true, view);
