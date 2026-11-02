@@ -33,6 +33,10 @@ describe("GitHub Actions supply chain", () => {
     assert.match(release, /^concurrency:\n {2}group: release\n {2}cancel-in-progress: false$/m);
     assert.match(release, /^permissions:\n {2}contents: read$/m);
     assert.equal(release.match(/packages: write/g)?.length, 1);
+    // Only the notes job may write repository contents (its own release entry)
+    assert.equal(release.match(/contents: write/g)?.length, 1);
+    assert.match(release, /\n  notes:\n[\s\S]*?permissions:\n {6}contents: write\n/);
+    assert.match(release, /scripts\/release-notes\.ts "\$TAG"/);
   });
 
   it("pins the base image by digest, attests releases and bounds the container", () => {

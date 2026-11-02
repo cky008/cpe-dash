@@ -73,3 +73,35 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  notes:
+    name: GitHub release notes from CHANGELOG.md
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    # Writes only this tag's release entry
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.x
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          node --experimental-strip-types scripts/release-notes.ts "$TAG" > "$RUNNER_TEMP/notes.md"
+          # The annotated tag's subject line ("cpe-dash vX.Y.Z — 烽燧 FengSui: …") is the title
+          sha=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)
+          title=$(gh api "repos/$GH_REPO/git/tags/$sha" --jq .message 2>/dev/null | head -n 1)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "${title:-cpe-dash $TAG}" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --verify-tag --title "${title:-cpe-dash $TAG}" --notes-file "$RUNNER_TEMP/notes.md"
+          fi

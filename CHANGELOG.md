@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Added
+- **GitHub releases with notes.** A tag now also publishes a GitHub release titled with the tag's subject line, whose notes are that version's section of this changelog (`scripts/release-notes.ts`), plus the image tag; earlier releases were backfilled the same way.
+
 ### Security
 - **Release images are attested and built from a pinned base.** `node:26-alpine` is pinned by digest in both Dockerfile stages, so a tag repointed upstream cannot change what is built (Dependabot proposes digest updates), and every image pushed to GHCR carries signed build provenance (`mode=max`) and an SBOM listing its packages.
 
