@@ -25,13 +25,21 @@ interface SampleInput {
   monthTotalBytes?: number;
   dataLimitRaw?: string;
   thresholdPercent?: number | null;
+  model?: string;
+  firmware?: string;
 }
 
 function sample(s: SampleInput): GlobalTelemetrySnapshot {
   return {
     capturedAtMs: s.t,
     capturedAtIso: new Date(s.t).toISOString(),
-    device: { connectionStatus: s.connectionStatus ?? "901", uptimeSec: s.uptimeSec ?? 1000 },
+    device: {
+      connectionStatus: s.connectionStatus ?? "901",
+      uptimeSec: s.uptimeSec ?? 1000,
+      deviceName: s.model ?? "H168-383",
+      softwareVersion: s.firmware ?? "4.4.0.1(H1006SP19C00)",
+      webUiVersion: "WEBUI 4.4.0.1(W2SP24C03)",
+    },
     rf: {
       nrRsrpDbm: s.nrRsrp === undefined ? -85 : s.nrRsrp,
       nrSinrDb: s.nrSinr === undefined ? 20 : s.nrSinr,
@@ -185,6 +193,43 @@ describe("AlertEngine telemetry rules", () => {
     assert.equal(parseDataLimitBytes("0MB"), 0);
     assert.equal(parseDataLimitBytes(""), 0);
     assert.equal(parseDataLimitBytes("unlimited"), 0);
+  });
+});
+
+describe("AlertEngine firmware rule", () => {
+  it("warns once per unverified build, survives a restart and re-arms when a verified build returns", async () => {
+    const fx = createEngineFixture();
+    try {
+      fx.engine.ingestTelemetry(sample({ t: 0 }));
+      fx.engine.ingestTelemetry(sample({ t: 5000, firmware: "4.4.0.1 (H1006SP19C00)" }));
+      assert.deepEqual(fx.codes(), [], "the verified build, spaced or not");
+
+      fx.engine.ingestTelemetry(sample({ t: 10_000, firmware: "4.4.0.2(H1006SP2C00)" }));
+      fx.engine.ingestTelemetry(sample({ t: 15_000, firmware: "4.4.0.2(H1006SP2C00)" }));
+      assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED"]);
+      assert.equal(fx.alerts[0]?.severity, "warning");
+      assert.match(fx.alerts[0]?.messageEn ?? "", /H168-383 firmware 4\.4\.0\.2\(H1006SP2C00\).*verified on H168-383 4\.4\.0\.1\(H1006SP19C00\) only/);
+      assert.match(fx.alerts[0]?.messageZh ?? "", /Claude Code/);
+
+      // A restarted daemon reads the notice back and stays quiet about the same build
+      await fx.stateStore.flushAsync();
+      const reloaded = new EncryptedStateStore({ filePath: fx.stateStore.filePath, encryptionKey: "alert_key" }).load();
+      assert.equal(reloaded.firmwareNotice?.fingerprint, "H168-383 4.4.0.2(H1006SP2C00)");
+      const restarted = new AlertEngine({ scheduler: fx.scheduler, monitor: fx.core.monitor });
+      restarted.ingestTelemetry(sample({ t: 20_000, firmware: "4.4.0.2(H1006SP2C00)" }));
+      assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED"]);
+
+      fx.engine.ingestTelemetry(sample({ t: 25_000, firmware: "4.4.0.3(H1006SP1C00)" }));
+      fx.engine.ingestTelemetry(sample({ t: 30_000, model: "H158-381" }));
+      assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED", "FIRMWARE_UNVERIFIED", "FIRMWARE_UNVERIFIED"], "each new build or model");
+      fx.engine.ingestTelemetry(sample({ t: 35_000 }));
+      assert.equal(fx.stateStore.getState().firmwareNotice, null, "verified again: the notice is cleared");
+      fx.engine.ingestTelemetry(sample({ t: 40_000, firmware: "" }));
+      fx.engine.ingestTelemetry(sample({ t: 45_000, model: "H158-381" }));
+      assert.equal(fx.codes().length, 4, "an empty version decides nothing; a returning build warns again");
+    } finally {
+      await fx.cleanup();
+    }
   });
 });
 

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { timingSafeEqualString } from "../crypto.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import { AtomicFileWriter, StorageCipher } from "../encrypted-file.ts";
+import { firmwareReviewPrompt } from "../firmware.ts";
 import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
 import { BrowserSessionYieldedError } from "../scheduler.ts";
@@ -116,6 +117,7 @@ const TEXT = {
     help:
       "<b>烽燧 · 5G CPE 助手</b>\n\n<b>短信</b>\n/new 引导式发短信\n/inbox 最近会话\n/unread 未读短信\n/chat <code>号码</code> 查看对话\n/send <code>号码 内容</code> 快速发送（需确认）\n/contacts <code>[关键词]</code> 通讯录\n/contact <code>号码 姓名</code> 添加联系人\n/sync 立即同步\n\n<b>设备</b>\n/status 信号、流量与短信概况\n/alerts 最近告警\n/mute <code>30m|2h|1d|off</code> 告警静音\n\n直接<b>回复</b>任意短信通知即可回信；发送 <code>.vcf</code> 文件可导入通讯录。",
     new_sms: "📩 <b>新短信</b>",
+    firmware_prompt: "🤖 把下面这段提示词原样交给 Claude Code（在 cpe-dash 仓库里运行），让它核对新固件的兼容性：",
     otp: "🔑 验证码 <code>{code}</code>",
     reply_hint: "<i>直接回复本消息即可回信至 {phone}</i>",
     btn_read: "✅ 已读",
@@ -206,6 +208,7 @@ const TEXT = {
     help:
       "<b>FengSui · 5G CPE assistant</b>\n\n<b>SMS</b>\n/new guided send\n/inbox recent conversations\n/unread unread messages\n/chat <code>number</code> show a conversation\n/send <code>number text</code> quick send (with confirmation)\n/contacts <code>[query]</code> contact book\n/contact <code>number name</code> add a contact\n/sync sync now\n\n<b>Device</b>\n/status signal, traffic and SMS overview\n/alerts recent alerts\n/mute <code>30m|2h|1d|off</code> mute alerts\n\n<b>Reply</b> to any SMS notification to answer it; send a <code>.vcf</code> file to import contacts.",
     new_sms: "📩 <b>New SMS</b>",
+    firmware_prompt: "🤖 Hand this prompt to Claude Code (run it in the cpe-dash repository) to check the new firmware:",
     otp: "🔑 Code <code>{code}</code>",
     reply_hint: "<i>Reply to this message to text {phone}</i>",
     btn_read: "✅ Read",
@@ -553,9 +556,25 @@ export class TelegramBot implements NotificationChannel {
       escapeTelegramHtml(this.locale === "en" ? alert.messageEn : alert.messageZh),
       `<i>${escapeTelegramHtml(alert.tsIso)}</i>`,
     ].join("\n");
+    const prompt = alert.code === "FIRMWARE_UNVERIFIED" ? this.#firmwarePromptHtml(alert) : null;
     for (const chatId of this.state.authorizedChats(this.allowedChatIds)) {
       await this.#deliver({ chatId, html: text });
+      // A separate message, so the prompt is one tap to copy
+      if (prompt) await this.#deliver({ chatId, html: prompt });
     }
+  }
+
+  /** The firmware review prompt for the build in the telemetry that raised the alert. */
+  #firmwarePromptHtml(alert: AlertEventRecord): string | null {
+    const device = this.core.monitor.getCachedTelemetry()?.device;
+    if (!device?.softwareVersion) return null;
+    const prompt = firmwareReviewPrompt(this.locale, {
+      model: device.deviceName,
+      softwareVersion: device.softwareVersion,
+      webUiVersion: device.webUiVersion,
+      detectedAtIso: alert.tsIso,
+    });
+    return `${this.#tx("firmware_prompt")}\n<pre>${escapeTelegramHtml(prompt)}</pre>`;
   }
 
   /** Notifications waiting for Telegram to become reachable again. */

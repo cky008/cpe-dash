@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { NotificationHub, type NotificationChannel, isAlertSeverity } from "../src/notify/hub.ts";
 import { TelegramApi, TelegramApiError, normalizeTelegramApiBase } from "../src/notify/telegram-api.ts";
@@ -772,6 +773,32 @@ describe("TelegramBot notification outbox", () => {
       await fx.bot.flushOutbox();
       assert.equal(fx.bot.pendingNotifications, 0);
       assert.equal(fx.tg.completedSends(), before, "a day-old alert is not news any more");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("follows an unverified-firmware alert with a copyable review prompt for a coding agent", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.core.stateStore.update({
+        latestTelemetry: {
+          device: { deviceName: "H168-383", softwareVersion: "4.4.0.2(H1006SP2C00)", webUiVersion: "WEBUI 4.4.0.2(W2SP1C00)" },
+        } as unknown as GlobalTelemetrySnapshot,
+      });
+      await fx.bot.notifyAlert(alert("FIRMWARE_UNVERIFIED"));
+      const [card, prompt] = fx.tg.sends("1001").slice(-2).map((c) => String(c.payload["text"]));
+      assert.match(card ?? "", /FIRMWARE_UNVERIFIED/);
+      assert.match(prompt ?? "", /^🤖 Hand this prompt to Claude Code/);
+      assert.match(prompt ?? "", /<pre>FengSui \(cpe-dash\) reports a router build it was never verified on: H168-383, firmware 4\.4\.0\.2\(H1006SP2C00\), WebUI WEBUI 4\.4\.0\.2\(W2SP1C00\)/);
+      assert.ok((prompt ?? "").endsWith("</pre>"));
+
+      const before = fx.tg.sends("1001").length;
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      assert.equal(fx.tg.sends("1001").length, before + 1, "other alerts carry no prompt");
+      fx.core.stateStore.update({ latestTelemetry: null });
+      await fx.bot.notifyAlert(alert("FIRMWARE_UNVERIFIED"));
+      assert.equal(fx.tg.sends("1001").length, before + 2, "no telemetry, nothing to describe");
     } finally {
       await fx.cleanup();
     }

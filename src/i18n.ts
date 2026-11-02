@@ -105,6 +105,7 @@ export type I18nKey =
   | "alerts.lock_rollback_failed"
   | "alerts.wan_auto_reconnect"
   | "alerts.wan_reconnect_exhausted"
+  | "alerts.firmware_unverified"
   | "controls.peer_daemon_active";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);

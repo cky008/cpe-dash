@@ -1,6 +1,7 @@
 import type { CpeControlService } from "./cpe-controls.ts";
 import { type GlobalTelemetrySnapshot, verifyLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
+import { firmwareFingerprint, isVerifiedFirmware, verifiedFirmwareLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
 import type { MutexSessionScheduler } from "./scheduler.ts";
@@ -182,6 +183,30 @@ export class AlertEngine {
     this.#evaluateSmsStorage(snap);
     this.#evaluateDataUsage(snap);
     this.#evaluateLockDrift(snap, nowMs);
+    this.#evaluateFirmware(snap);
+  }
+
+  /**
+   * `FIRMWARE_UNVERIFIED` once per model / firmware build the protocol was not verified on. Huawei
+   * updates the firmware on its own, so this warns (persisted across restarts) instead of blocking.
+   */
+  #evaluateFirmware(snap: GlobalTelemetrySnapshot): void {
+    const { deviceName, softwareVersion } = snap.device;
+    if (!softwareVersion.trim()) return;
+    const store = this.scheduler.stateStore;
+    const notice = store.getState().firmwareNotice;
+    if (isVerifiedFirmware(deviceName, softwareVersion)) {
+      if (notice) store.update({ firmwareNotice: null });
+      return;
+    }
+    const fingerprint = firmwareFingerprint(deviceName, softwareVersion);
+    if (notice?.fingerprint === fingerprint) return;
+    store.update({ firmwareNotice: { fingerprint, notifiedAtIso: snap.capturedAtIso } });
+    this.#raise("warning", "FIRMWARE_UNVERIFIED", "alerts.firmware_unverified", {
+      model: deviceName.trim(),
+      version: softwareVersion.trim(),
+      verified: verifiedFirmwareLabel(),
+    });
   }
 
   /** `LOCK_DRIFT` when the router stops matching the applied lock; settling/unknown keep the state. */

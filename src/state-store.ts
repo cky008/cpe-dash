@@ -33,6 +33,8 @@ export interface PersistedRuntimeState {
   latestAccessControl: AccessControlSnapshot | null;
   recentAlerts: AlertEventRecord[];
   timeseries: SerializedTimeSeriesSnapshot | null;
+  /** The unverified model / firmware build `FIRMWARE_UNVERIFIED` was raised for (once per build). */
+  firmwareNotice: { fingerprint: string; notifiedAtIso: string } | null;
 }
 
 function createDefaultState(): PersistedRuntimeState {
@@ -62,6 +64,7 @@ function createDefaultState(): PersistedRuntimeState {
     latestAccessControl: null,
     recentAlerts: [],
     timeseries: null,
+    firmwareNotice: null,
   };
 }
 

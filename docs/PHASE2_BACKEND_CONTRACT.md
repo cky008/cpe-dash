@@ -415,6 +415,7 @@ export type AlertCode =
   | "LOCK_ROLLBACK_FAILED"     // critical：自动解锁没有完成（熔断、另一守护进程领先、连续 3 次失败，或到期后 1 小时仍被真人登录挡住）
   | "WAN_AUTO_RECONNECT"       // warning：WAN 断开达 WAN_AUTO_RECONNECT_AFTER_MIN 后的自动重拨（action = "auto_reconnect_cellular"；间隔 10/30/60 分钟）
   | "WAN_RECONNECT_EXHAUSTED"  // critical：24 小时内 4 次自动重拨已用完，WAN 仍断开（从不自动重启）
+  | "FIRMWARE_UNVERIFIED"      // warning：路由器型号或固件版本（含补丁号）不在 src/firmware.ts 的 VERIFIED_FIRMWARE 中；每个版本一次（持久化），不阻止写操作；Telegram 推送另附一条核对提示词
   | "DATA_QUARANTINED";        // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
 
 /** GET /api/telemetry */

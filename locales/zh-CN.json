@@ -119,6 +119,7 @@
     "lock_rolled_back": "锁定后 {minutes} 分钟 WAN 仍未恢复，已自动解除全部频段与小区锁定（LOCK_ROLLBACK_AFTER_MIN）",
     "lock_rollback_failed": "锁定后 WAN 仍未恢复，但自动解锁没有完成：{reason}。请在局域网内打开控制台手动解除锁定",
     "wan_auto_reconnect": "WAN 已断开 {minutes} 分钟，已自动重拨（24 小时内第 {count}/{max} 次；烽燧从不自动重启路由器）",
-    "wan_reconnect_exhausted": "WAN 仍未恢复，24 小时内的 {max} 次自动重拨已用完；烽燧不会自动重启路由器，请检查 SIM 卡、套餐或基站"
+    "wan_reconnect_exhausted": "WAN 仍未恢复，24 小时内的 {max} 次自动重拨已用完；烽燧不会自动重启路由器，请检查 SIM 卡、套餐或基站",
+    "firmware_unverified": "路由器报告 {model} 固件 {version}，烽燧只在 {verified} 上验证过协议：锁频、访问控制和短信等写操作可能不兼容。配置了 Telegram 时，推送会附带一段可交给编程智能体（如 Claude Code）核对兼容性的提示词"
   }
 }
