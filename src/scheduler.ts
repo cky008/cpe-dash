@@ -8,6 +8,7 @@ import {
   isInsideCpeSession,
 } from "./cpe-client.ts";
 import { CpeControlValidationError, type PersistedLockState } from "./cpe-domain.ts";
+import { type ApiErrorSnapshot, type DeviceProbeResult, probeDevice } from "./device-profile.ts";
 import { t } from "./i18n.ts";
 import { getXmlTag } from "./xml.ts";
 import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
@@ -161,6 +162,12 @@ export type ConnectionTestResult =
       waitTimeSec: number | null;
       message: string;
     };
+
+/** A connection test and, when its session logged in, the device probe that session ran. */
+export interface ConnectionTestOutcome {
+  result: ConnectionTestResult;
+  probe: DeviceProbeResult | null;
+}
 
 export class SchedulerQueueFullError extends Error {
   readonly statusCode = 503;
@@ -410,24 +417,37 @@ export class MutexSessionScheduler extends EventEmitter {
    * untouched whatever happens. One login attempt, never retried; a human on the WebUI is not kicked.
    */
   async testConnection(candidate: ConnectionCandidate, opts: { lastAttempt?: boolean } = {}): Promise<ConnectionTestResult> {
-    const failure = (reason: Extract<ConnectionTestResult, { ok: false }>["reason"], message: string, extra: { code?: string | null; remainCount?: number | null; waitTimeSec?: number | null } = {}): ConnectionTestResult => ({
-      ok: false,
-      reason,
-      code: extra.code ?? null,
-      remainCount: extra.remainCount ?? null,
-      waitTimeSec: extra.waitTimeSec ?? null,
-      message,
+    return (await this.testConnectionDetailed(candidate, opts)).result;
+  }
+
+  /**
+   * `testConnection`, plus what its session found once logged in: the same identification and
+   * capability probe the daemon runs at start (`DEVICE_PROBE_PATHS`). Router error codes count in the
+   * live client's tally.
+   */
+  async testConnectionDetailed(candidate: ConnectionCandidate, opts: { lastAttempt?: boolean } = {}): Promise<ConnectionTestOutcome> {
+    const failure = (reason: Extract<ConnectionTestResult, { ok: false }>["reason"], message: string, extra: { code?: string | null; remainCount?: number | null; waitTimeSec?: number | null } = {}): ConnectionTestOutcome => ({
+      result: {
+        ok: false,
+        reason,
+        code: extra.code ?? null,
+        remainCount: extra.remainCount ?? null,
+        waitTimeSec: extra.waitTimeSec ?? null,
+        message,
+      },
+      probe: null,
     });
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
-    let probe: HuaweiCpeClient;
+    let client: HuaweiCpeClient;
     try {
-      probe = new HuaweiCpeClient({
+      client = new HuaweiCpeClient({
         cpeUrl: candidate.url,
         cpeUsername: candidate.username,
         cpePassword: candidate.password,
         fetchImpl: this.#client.fetchImpl,
         requestTimeoutMs: this.#client.timeoutMs,
         respectBrowserSession: true,
+        apiErrors: this.#client.apiErrors,
       });
     } catch (err) {
       return failure("invalid_url", err instanceof Error ? err.message : String(err));
@@ -437,20 +457,21 @@ export class MutexSessionScheduler extends EventEmitter {
     if (remain !== null && remain <= 1 && opts.lastAttempt !== true) {
       return failure("last_attempt", "the router allows one more login attempt before it locks; confirm the password and try again deliberately", { remainCount: remain });
     }
-    return await this.#enqueue("high", async (): Promise<ConnectionTestResult> => {
+    return await this.#enqueue("high", async (): Promise<ConnectionTestOutcome> => {
       try {
-        const outcome = await probe.withSessionDetailed(
+        const outcome = await client.withSessionDetailed(
           async (session) => {
             const xml = await session.get("/api/device/information");
-            return { model: getXmlTag(xml, "DeviceName") ?? null, firmware: getXmlTag(xml, "SoftwareVersion") ?? null };
+            const identified = { model: getXmlTag(xml, "DeviceName") ?? null, firmware: getXmlTag(xml, "SoftwareVersion") ?? null };
+            return { identified, probe: await probeDevice(session, { nowIso: new Date().toISOString(), origin: "connection-test" }) };
           },
           { retriesOnOccupied: 0 }
         );
         if (outcome.status === "yielded") return failure("human_logged_in", "someone is logged into the router's web page", { code: outcome.stateCode });
         this.#remainingLogins = null;
-        return { ok: true, holdMs: outcome.holdMs, ...outcome.value };
+        return { result: { ok: true, holdMs: outcome.holdMs, ...outcome.value.identified }, probe: outcome.value.probe };
       } catch (err) {
-        const breaker = probe.getCircuitBreakerState();
+        const breaker = client.getCircuitBreakerState();
         const message = err instanceof Error ? err.message : String(err);
         if (breaker.tripped && breaker.code === "108007") return failure("locked", message, { code: "108007", waitTimeSec: breaker.waitTime ?? null });
         if (breaker.tripped) {
@@ -461,6 +482,11 @@ export class MutexSessionScheduler extends EventEmitter {
         return failure("unreachable", message);
       }
     });
+  }
+
+  /** Router error codes per endpoint since start, connection tests included (the device report). */
+  apiErrorSnapshot(): ApiErrorSnapshot {
+    return this.#client.apiErrors.snapshot();
   }
 
   /** Switch the live client to a connection `testConnection` just proved, and clear its breaker. */

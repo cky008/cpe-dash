@@ -859,3 +859,24 @@ $$
 - **不能用**：B2368-22、B593s-22（固件不兼容）。
 
 烽燧对外只说「仅在 H168-383 上验证过」，以上型号写作「可能可用，未验证」。
+
+### A.7 烽燧的识别与能力探测（阶段 0：只记录）
+
+烽燧在两个时机识别路由器：**守护进程启动后一次**（低优先级读会话，排在首轮轮询之后），以及 **控制台「测试连接 / 保存连接」时**（测试会话登录成功后顺带执行）。识别 **不进入 5 秒轮询**，也不改变 H168-383 的登录方式、轮询请求与写操作（[`test/device-identify.test.ts`](../test/device-identify.test.ts) 逐条比对轮询会话的请求序列）。
+
+- **只发这些 GET**（[`DEVICE_PROBE_PATHS`](../src/device-profile.ts)，按顺序、逐个发出，同一会话内）：
+  1. `GET /api/user/state-login`
+  2. `GET /api/device/information`
+  3. `GET /api/device/basic_information`
+  4. `GET /api/device/basicinformation`
+  5. `GET /api/device/device-feature-switch`
+  6. `GET /api/net/net-feature-switch`
+  7. `GET /api/wlan/wifi-feature-switch`
+  8. `GET /api/system/devcapacity`
+  9. `GET /api/net/net-mode-list`
+  10. `GET /api/global/module-switch`
+- **四种接口状态**：有响应为 `supported`；`100002` 为 `unsupported`；`100003` 为 `restricted`（**不等于不支持**）；其他错误码、传输失败或单个请求超时为 `unknown`。会话截止、登出或停机等结束会话的错误会中止整次探测，不记录任何猜测值。
+- **真人避让与熔断**：探测走调度器的普通读会话（`executeRead`），有人登录官方后台时让位跳过，熔断时不登录、不发任何请求；测试连接沿用其「只登录一次、绝不重试」的一次性客户端。
+- **保存**：结果加密存入 `state.json`（`deviceProbe`），重启后仍在。测试连接只在测试的就是当前使用的路由器（地址相同）时更新它；保存新连接时采用该次测试的结果。
+- **只保留结构**：每个接口只记标签路径与值的「形状」（`int`、`hex(18)`、`text(12)`、`empty` 等）；取值只保留白名单：型号、固件与网页版本、`spreadname_en`、`state-login` 的 `password_type`、功能开关里的 0–99 小整数；`net-mode-list` 的 LTE 掩码换算成频段号。
+- **对外**：`GET /api/device/profile` 与控制台的设备报告，见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 2.9 节。

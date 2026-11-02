@@ -386,12 +386,16 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   let awaitingSetup = connection === null;
   let started = false;
   let closed = false;
-  /** Polling, SMS and Telegram: only once the router connection exists. */
-  const startBackground = async (): Promise<void> => {
+  /**
+   * Polling, SMS and Telegram: only once the router connection exists. `identify` reads who the router
+   * is once (a low-priority session after the first polls); the setup's save already did, in its test.
+   */
+  const startBackground = async (identify: boolean): Promise<void> => {
     await telegramBot?.start();
     if (closed) return;
     sms?.start();
     monitor.start();
+    if (identify) void monitor.identifyDevice().catch(() => undefined);
   };
 
   const httpServer = new FengSuiHttpServer({
@@ -409,7 +413,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       if (!awaitingSetup) return;
       awaitingSetup = false;
       log("[fengsui] Router connection saved in the console: starting telemetry, SMS and Telegram");
-      if (started && !closed) void startBackground();
+      if (started && !closed) void startBackground(false);
     },
     onConfigReloaded: async (reloaded) => {
       if (options.applyTimeZone) applyProcessTimeZone(reloaded);
@@ -530,7 +534,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
         log("[fengsui] No router connection yet: the web console's setup asks for it (nothing logs in to the router until then)");
         return;
       }
-      await startBackground();
+      await startBackground(true);
     },
     async close(): Promise<void> {
       if (closed) return;

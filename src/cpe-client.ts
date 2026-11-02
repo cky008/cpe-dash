@@ -8,6 +8,7 @@ import {
   generateEccSession,
   verifyPubkeySignature,
 } from "./crypto.ts";
+import { ApiErrorTally, type LoginScheme, type TokenFlow } from "./device-profile.ts";
 import { readBoundedResponseText } from "./http-body.ts";
 import { t } from "./i18n.ts";
 import type {
@@ -183,6 +184,11 @@ export class EphemeralCpeSession {
   /** Session-wide deadline; `logout()` uses fresh signals so the slot can always be released. */
   readonly #deadline: AbortSignal | null;
   #releasing = false;
+  /** Counts every error code the router answers (the device report's error statistics). */
+  readonly #onApiError: ((method: "GET" | "POST", apiPath: string, code: string) => void) | null;
+  #loginScheme: LoginScheme | null = null;
+  #eccVerified = false;
+  #tokenFlow: TokenFlow | null = null;
 
   constructor(opts: {
     baseUrl: string;
@@ -191,6 +197,7 @@ export class EphemeralCpeSession {
     timeoutMs: number;
     fetchImpl: typeof fetch;
     deadline?: AbortSignal;
+    onApiError?: (method: "GET" | "POST", apiPath: string, code: string) => void;
   }) {
     this.baseUrl = opts.baseUrl;
     this.username = opts.username;
@@ -205,6 +212,22 @@ export class EphemeralCpeSession {
     this.#authOutcomeUnknown = false;
     this.#postChain = Promise.resolve();
     this.#deadline = opts.deadline ?? null;
+    this.#onApiError = opts.onApiError ?? null;
+  }
+
+  /** How this session logged in (`null` until it did); recorded for the device profile, changes nothing. */
+  get loginScheme(): LoginScheme | null {
+    return this.#loginScheme;
+  }
+
+  /** The login answer carried an ECC key with a signature that verified. */
+  get eccVerified(): boolean {
+    return this.#eccVerified;
+  }
+
+  /** Where the first CSRF token came from (`null` until one was fetched). */
+  get tokenFlow(): TokenFlow | null {
+    return this.#tokenFlow;
   }
 
   /**
@@ -299,6 +322,7 @@ export class EphemeralCpeSession {
     const text = await readCpeResponseText(res);
     const err = parseXmlError(text);
     if (err) {
+      this.#onApiError?.("GET", apiPath, err.code);
       throw new CpeApiError(err.code, apiPath, err);
     }
     return text;
@@ -327,6 +351,7 @@ export class EphemeralCpeSession {
         throw new Error("Failed to acquire CSRF token from /api/webserver/token");
       }
       this.tokens.push(fullToken.length > 32 ? fullToken.slice(-32) : fullToken);
+      this.#tokenFlow ??= "webserver-token";
     }
     return this.tokens.shift()!;
   }
@@ -375,6 +400,7 @@ export class EphemeralCpeSession {
       const text = await readCpeResponseText(res);
       const err = parseXmlError(text);
       if (err) {
+        this.#onApiError?.("POST", apiPath, err.code);
         throw new CpeApiError(err.code, apiPath, err);
       }
       return text;
@@ -419,6 +445,7 @@ export class EphemeralCpeSession {
     const decryptedXml = aesGcmDecrypt(rawResponse, ecc.shareKeyHex);
     const err = parseXmlError(decryptedXml);
     if (err) {
+      this.#onApiError?.("POST", apiPath, err.code);
       throw new CpeApiError(err.code, `${apiPath} (decrypted)`, err);
     }
     return decryptedXml;
@@ -488,7 +515,9 @@ export class EphemeralCpeSession {
         throw new Error("CPE ECC public key signature verification failed");
       }
       this.ecc = generateEccSession(eccServerPub);
+      this.#eccVerified = Boolean(eccPubSig);
     }
+    this.#loginScheme = "scram";
   }
 
   async logout(): Promise<number | null> {
@@ -521,6 +550,8 @@ export interface HuaweiCpeClientOptions {
   fetchImpl?: typeof fetch;
   /** Hard upper bound for one session, login to logout (default `DEFAULT_SESSION_MAX_HOLD_MS`). */
   sessionMaxHoldMs?: number;
+  /** Where router error codes are counted (a connection test's throwaway client shares the live one's). */
+  apiErrors?: ApiErrorTally;
 }
 
 export interface WithSessionOptions {
@@ -589,6 +620,8 @@ export class HuaweiCpeClient {
   readonly defaultRespectBrowserSession: boolean;
   readonly fetchImpl: typeof fetch;
   readonly sessionMaxHoldMs: number;
+  /** Router error codes per endpoint since start (the device report); counting changes no request. */
+  readonly apiErrors: ApiErrorTally;
 
   #mutex: Promise<unknown>;
   /** Cancels the session run that holds the mutex right now (`abortActiveSession`). */
@@ -609,6 +642,7 @@ export class HuaweiCpeClient {
     this.defaultRespectBrowserSession = config.respectBrowserSession ?? true;
     this.fetchImpl = config.fetchImpl ?? globalThis.fetch;
     this.sessionMaxHoldMs = Math.max(50, config.sessionMaxHoldMs ?? DEFAULT_SESSION_MAX_HOLD_MS);
+    this.apiErrors = config.apiErrors ?? new ApiErrorTally();
 
     this.#mutex = Promise.resolve();
     this.#trippedError = null;
@@ -785,6 +819,7 @@ export class HuaweiCpeClient {
     const text = await readCpeResponseText(res);
     const err = parseXmlError(text);
     if (err) {
+      this.apiErrors.record("GET", apiPath, err.code);
       throw new CpeApiError(err.code, apiPath, err);
     }
     return text;
@@ -893,6 +928,7 @@ export class HuaweiCpeClient {
         timeoutMs: this.timeoutMs,
         fetchImpl: this.fetchImpl,
         deadline: deadline.signal,
+        onApiError: (method, apiPath, code) => this.apiErrors.record(method, apiPath, code),
       });
 
       let loginFinished = false;

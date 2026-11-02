@@ -20,6 +20,8 @@ import {
   readWifiMacFilterChange,
 } from "./control-input.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
+import { deviceProfileOf } from "./device-profile.ts";
+import { VERIFIED_FIRMWARE } from "./firmware.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
 import { validateNewPassword } from "./console-policy.ts";
 import { type BearerIdentity, type ConsoleSettings, verifyResetLoginProof } from "./console-settings.ts";
@@ -39,6 +41,7 @@ import type {
   AuthLogoutResponse,
   AuditResponse,
   AuthStatusResponse,
+  DeviceProfileResponse,
   HealthResponse,
   LocaleCatalogResponse,
   LockStateResponse,
@@ -206,6 +209,7 @@ export class FengSuiHttpServer {
         this.sseBus.disconnectByTokenId(tokenId);
       },
       unlinkTelegram: () => unlinkTelegram?.() ?? 0,
+      onDeviceProbe: (probe) => void options.core.monitor.recordDeviceProbe(probe),
     });
   }
 
@@ -871,6 +875,17 @@ export class FengSuiHttpServer {
               status: this.core.scheduler.getStatus(),
             } satisfies SessionStatusResponse);
             return;
+
+          case "/api/device/profile": {
+            // Identity and capabilities carry no identifier, so every caller gets the same answer
+            const probe = this.core.monitor.getDeviceProbe();
+            this.#sendJson(res, 200, {
+              ok: true,
+              profile: probe ? deviceProfileOf(probe) : null,
+              verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
+            } satisfies DeviceProfileResponse);
+            return;
+          }
 
           default:
             this.#sendJson(res, 404, {

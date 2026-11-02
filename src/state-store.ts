@@ -8,6 +8,7 @@ import type {
   RouterSettingsSnapshot,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
+import type { DeviceProbeResult } from "./device-profile.ts";
 import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { SerializedTimeSeriesSnapshot } from "./timeseries.ts";
 import type { CircuitBreakerState } from "./types.ts";
@@ -35,6 +36,8 @@ export interface PersistedRuntimeState {
   timeseries: SerializedTimeSeriesSnapshot | null;
   /** The unverified model / firmware build `FIRMWARE_UNVERIFIED` was raised for (once per build). */
   firmwareNotice: { fingerprint: string; notifiedAtIso: string } | null;
+  /** The last identification and capability probe (daemon start, or the console's connection test). */
+  deviceProbe: DeviceProbeResult | null;
 }
 
 function createDefaultState(): PersistedRuntimeState {
@@ -65,6 +68,7 @@ function createDefaultState(): PersistedRuntimeState {
     recentAlerts: [],
     timeseries: null,
     firmwareNotice: null,
+    deviceProbe: null,
   };
 }
 

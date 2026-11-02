@@ -993,6 +993,62 @@ export interface AuditEntry {
 - **审计**：记录到达路由器队列的每次写入（控制、访问控制、短信发送 / 已读 / 删除、自动修复）、控制台登录与每次设置修改，调用方经 `AsyncLocalStorage` 从受理请求的入口一路传到调度器。加密保存在 `audit.json`。
 - **指标**：只读缓存快照（抓取不会打开路由器会话），不含任何标识（IMEI、IMSI、小区、PCI、地址、号码）。
 
+### 2.9 设备识别与能力（多型号兼容阶段 0：只记录，不改变行为）
+
+守护进程识别它连接的是哪台路由器、路由器报告了哪些能力，为以后支持其他华为型号做准备。**对 H168-383 没有任何行为变化**：登录方式、轮询请求与节奏、写操作都不变。
+
+- **何时识别**：守护进程启动后一次（低优先级读会话，排在首轮轮询之后），以及控制台 `POST /api/console/cpe/test` / `POST /api/console/cpe` 的测试会话登录成功后。**不进入 5 秒轮询。**
+- **发什么**：同一会话内按顺序发 10 个固定的 GET（清单与理由见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.7），不发其他请求；有人登录官方后台时让位跳过，熔断时不登录。
+- **保存**：加密存入 `state.json`。测试连接只在测试的就是当前使用的路由器（地址相同）时更新；保存新连接时采用该次测试的结果；测试其他地址或测试失败都不改动已存的结果。
+
+| 方法与路径 | 调用方 | 响应 |
+| :--- | :--- | :--- |
+| `GET /api/device/profile` | 任何已登录调用方（控制台、完全或只读令牌）；不含任何设备标识，`REDACT_SENSITIVE_IN_API` 不影响它 | `DeviceProfileResponse` |
+
+```ts
+export interface DeviceProfileResponse {
+  ok: true;
+  profile: DeviceProfile | null;      // 第一次识别之前为 null
+  verifiedFirmware: Array<{ model: string; softwareVersion: string }>; // 当前为 [{ model: "H168-383", softwareVersion: "4.4.0.1(H1006SP19C00)" }]
+}
+
+export interface DeviceProfile {
+  identity: DeviceIdentity;
+  // verified：已验证型号 + 已验证固件；new-firmware：已验证型号的新固件（ADR-007：只告警，不阻止写）；
+  // unverified-model：未验证型号；unknown：型号未读到，或已验证型号的固件未读到
+  verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
+  capabilities: DeviceCapabilities;
+  origin: "startup" | "connection-test";   // 这次识别发生在启动时还是控制台测试连接时
+}
+
+export interface DeviceIdentity {
+  model: string | null;            // device/information 的 DeviceName，没有时取 basic_information / basicinformation 的 devicename
+  marketingName: string | null;    // basic_information 的 spreadname_en
+  softwareVersion: string | null;
+  webUiVersion: string | null;
+  passwordType: string | null;     // state-login 的 password_type（原样）
+  loginScheme: "scram" | "sha256" | "base64" | "unknown"; // 烽燧这次如何登录（目前只有 scram）
+  ecc: boolean;                    // 登录响应带有签名且验证通过的 ECC 公钥（可用加密通道）
+  tokenFlow: "webserver-token" | "sestokinfo" | "unknown"; // 首个 CSRF 令牌的来源
+  detectedAtIso: string;
+}
+// 型号与版本号只保留 [A-Za-z0-9 ._()+-]，其他字符替换为 ?，最长 64 个字符
+
+export interface DeviceCapabilities {
+  probedAtIso: string;
+  // 每个探测接口一项。supported：有响应；unsupported：100002；restricted：100003（不等于不支持）；
+  // unknown：其他错误码、传输失败或单个请求超时
+  endpoints: Array<{ path: DeviceProbePath; state: EndpointState; code: string | null }>;
+  lteBands: number[] | null;       // net-mode-list 通告的 LTE 频段，没有时为 null
+  // telemetry、neighbors、topology、smsRead、smsWrite、bandLock、cellLock、reboot、reconnect、
+  // mobileData、securitySwitches、wifi、antenna、accessControl 各一项：已验证型号为
+  // { state: "supported", source: "verified" }，其他型号目前为 { state: "unknown", source: "none" }
+  features: Record<DeviceFeature, { state: EndpointState; source: "verified" | "none" }>;
+}
+```
+
+- **派生值**：`verification` 与 `features` 在读取时按 [`src/firmware.ts`](../src/firmware.ts) 的验证清单计算，升级后新加入清单的固件对已存的识别结果立即生效。
+
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 
 ### 3.1 连接方式与首包秒开保证

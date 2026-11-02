@@ -20,6 +20,22 @@ import type {
 import type { SpeedTickPayload } from "./cpe-monitor.ts";
 import type { ChannelDeliveryStats } from "./notify/hub.ts";
 import type { AuditEntry } from "./audit-log.ts";
+import type {
+  ApiErrorSnapshot,
+  ApiErrorStat,
+  DeviceCapabilities,
+  DeviceFeature,
+  DeviceIdentity,
+  DeviceProbePath,
+  DeviceProfile,
+  EndpointProbe,
+  EndpointState,
+  FeatureCapability,
+  LoginScheme,
+  ProbeOrigin,
+  TokenFlow,
+} from "./device-profile.ts";
+import type { DeviceVerification } from "./firmware.ts";
 import type { PublicTokenRecord } from "./console-settings.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
@@ -80,6 +96,22 @@ export type {
   WifiFilterMode,
   WifiFilterPolicy,
   WifiMacFilterState,
+};
+export type {
+  ApiErrorSnapshot,
+  ApiErrorStat,
+  DeviceCapabilities,
+  DeviceFeature,
+  DeviceIdentity,
+  DeviceProbePath,
+  DeviceProfile,
+  DeviceVerification,
+  EndpointProbe,
+  EndpointState,
+  FeatureCapability,
+  LoginScheme,
+  ProbeOrigin,
+  TokenFlow,
 };
 export type { NeighborCellEntry, TerminalAccessMedium, TerminalHostEntry } from "./parsers.ts";
 export type { SchedulerMode } from "./scheduler.ts";
@@ -232,6 +264,19 @@ export interface AuthLoginResponse {
 export interface AuthLogoutResponse {
   ok: true;
   authenticated: false;
+}
+
+// ── Device identity and capabilities (§2.9) ──────────────────────────────────
+
+/**
+ * `GET /api/device/profile` (any signed-in caller): the router's identity, verification and
+ * capabilities from the last probe (daemon start or a console test of the router in use), `null`
+ * before the first one, and the builds FengSui was verified on.
+ */
+export interface DeviceProfileResponse {
+  ok: true;
+  profile: DeviceProfile | null;
+  verifiedFirmware: Array<{ model: string; softwareVersion: string }>;
 }
 
 // ── Telemetry, history, neighbors, topology, settings (§2.2–2.3) ─────────────

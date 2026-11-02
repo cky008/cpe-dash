@@ -11,6 +11,7 @@ import {
   fetchTerminalTopology,
   scanNeighborCells,
 } from "./cpe-domain.ts";
+import { type DeviceProbeResult, probeDevice } from "./device-profile.ts";
 import type { MutexSessionScheduler, SchedulerPriority } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
 import type {
@@ -70,6 +71,7 @@ export class CpeMonitor extends EventEmitter {
   #inflightTopology: Promise<TerminalTopologySnapshot | null> | null = null;
   #inflightSettings: Promise<RouterSettingsSnapshot | null> | null = null;
   #inflightAccessControl: Promise<AccessControlSnapshot | null> | null = null;
+  #inflightIdentify: Promise<DeviceProbeResult | null> | null = null;
   #pollTimer: ReturnType<typeof setInterval> | null = null;
   #slowScanTimer: ReturnType<typeof setInterval> | null = null;
   #flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -163,6 +165,35 @@ export class CpeMonitor extends EventEmitter {
 
   getCachedAccessControl(): AccessControlSnapshot | null {
     return this.stateStore.getState().latestAccessControl;
+  }
+
+  /** The last identification and capability probe, `null` before the first one. */
+  getDeviceProbe(): DeviceProbeResult | null {
+    return this.stateStore.getState().deviceProbe;
+  }
+
+  /**
+   * Identify the router and probe its capabilities in one low-priority read session (the listed GETs
+   * of `DEVICE_PROBE_PATHS`). Run once when the daemon starts, never from the polls; like every read
+   * it is skipped (`null`) while a person uses the router's page or the breaker is latched.
+   */
+  identifyDevice(): Promise<DeviceProbeResult | null> {
+    this.#inflightIdentify ??= this.scheduler
+      .executeRead((session) => probeDevice(session, { nowIso: new Date().toISOString(), origin: "startup" }), { priority: "low" })
+      .then(async (probe) => {
+        if (probe) await this.recordDeviceProbe(probe);
+        return probe;
+      })
+      .finally(() => {
+        this.#inflightIdentify = null;
+      });
+    return this.#inflightIdentify;
+  }
+
+  /** Keep a probe (also the one a console connection test of this router made) and persist it at once. */
+  async recordDeviceProbe(probe: DeviceProbeResult): Promise<void> {
+    this.stateStore.update({ deviceProbe: probe });
+    await this.stateStore.flushAsync().catch(() => undefined);
   }
 
   queryTimeSeries(params: TimeSeriesQueryParams): TimeSeriesQueryResult {

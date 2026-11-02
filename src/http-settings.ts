@@ -4,6 +4,7 @@ import { normalizeCpeUrl } from "./config.ts";
 import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
 import type { ConsoleSettings } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
+import type { DeviceProbeResult } from "./device-profile.ts";
 import type { ConnectionCandidate, MutexSessionScheduler } from "./scheduler.ts";
 import type { ApiRouteContext } from "./sms/http-routes.ts";
 
@@ -23,6 +24,8 @@ export interface SettingsRoutesOptions {
   disconnectToken: (tokenId: string) => void;
   /** Unlink every chat linked with /auth; resolves how many. */
   unlinkTelegram: () => number;
+  /** Keep a device probe a connection test made of the router in use (or of the one just saved). */
+  onDeviceProbe?: (probe: DeviceProbeResult) => void;
 }
 
 function text(body: Record<string, unknown>, key: string, max: number): string | undefined {
@@ -76,13 +79,17 @@ export class SettingsHttpRoutes {
     switch (ctx.pathname) {
       case "/api/console/cpe/test": {
         const body = await ctx.readJsonBody();
-        ctx.sendJson(200, { ok: true, result: await this.#opts.scheduler.testConnection(this.#candidate(body), { lastAttempt: body["lastAttempt"] === true }) });
+        const candidate = this.#candidate(body);
+        const { result, probe } = await this.#opts.scheduler.testConnectionDetailed(candidate, { lastAttempt: body["lastAttempt"] === true });
+        // Testing the router in use identifies it again; a test of another address changes nothing
+        if (probe && this.#isCurrentRouter(candidate.url)) this.#opts.onDeviceProbe?.(probe);
+        ctx.sendJson(200, { ok: true, result });
         return true;
       }
       case "/api/console/cpe": {
         const body = await ctx.readJsonBody();
         const candidate = this.#candidate(body);
-        const result = await this.#opts.scheduler.testConnection(candidate, { lastAttempt: body["lastAttempt"] === true });
+        const { result, probe } = await this.#opts.scheduler.testConnectionDetailed(candidate, { lastAttempt: body["lastAttempt"] === true });
         if (!result.ok) {
           audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${result.reason}` });
           ctx.sendJson(400, { ok: false, errorCode: "CPE_TEST_FAILED", message: result.message, connectionTest: result } satisfies ApiErrorEnvelope);
@@ -94,6 +101,7 @@ export class SettingsHttpRoutes {
         settings.setCpe(saved);
         settings.markReviewed();
         await this.#opts.scheduler.applyConnection(saved);
+        if (probe) this.#opts.onDeviceProbe?.(probe);
         audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host} as ${saved.username}` });
         if (first) this.#opts.onConnectionReady();
         ctx.sendJson(200, { ok: true, result, settings: this.summary() });
@@ -181,6 +189,17 @@ export class SettingsHttpRoutes {
       }
       default:
         return false;
+    }
+  }
+
+  /** `url` is the address of the stored router connection (both compared as the client uses them). */
+  #isCurrentRouter(url: string): boolean {
+    const stored = this.#opts.settings.cpe;
+    if (!stored) return false;
+    try {
+      return normalizeCpeUrl(url) === normalizeCpeUrl(stored.url);
+    } catch {
+      return false;
     }
   }
 

@@ -28,7 +28,7 @@ cpe-dash/
 │   ├── cpe-client.ts       # H168-383 瞬时会话客户端、双层真人避让与 108006 防爆破断路器
 │   ├── cpe-domain.ts       # 遥测/邻区/拓扑/设置采集与控制写操作（含 sms-count 捎带）
 │   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断）
-│   ├── cpe-monitor.ts      # 读侧：后台轮询、单飞刷新、快照缓存与时序写入
+│   ├── cpe-monitor.ts      # 读侧：后台轮询、单飞刷新、快照缓存与时序写入；启动时识别路由器一次（不进入轮询）
 │   ├── cpe-controls.ts     # 写侧：锁频锁站、重启重拨、路由器开关、设备访问控制（入队前校验）
 │   ├── access-state.ts · access-plan.ts  # 零依赖：Wi-Fi MAC 过滤状态与访问控制规划（受保护设备、名单、上网时段冲突；前后端同一实现）
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
