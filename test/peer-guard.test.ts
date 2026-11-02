@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -102,6 +103,26 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
     assert.deepEqual(self.getState().peers, [], "own beacons are ignored");
     clock += 1;
     genuine.stop();
+    victim.stop();
+  });
+
+  it("keys beacons with memory-hard scrypt, so a captured beacon is no fast oracle for the router password", () => {
+    const lan = createLan();
+    const clock = 7_000_000;
+    const victim = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: lan.attach("192.168.8.10"), now: () => clock, startedAtMs: 9000 });
+    const beacon = (key: Buffer, v: number, id: string): Buffer => {
+      const fields = { v, id, startedAtMs: 1, sentAtMs: clock, cpe: crypto.createHmac("sha256", key).update("192.168.8.1").digest("hex").slice(0, 16) };
+      const mac = crypto.createHmac("sha256", key).update(`${fields.v}|${fields.id}|${fields.startedAtMs}|${fields.sentAtMs}|${fields.cpe}`).digest("hex");
+      return Buffer.from(JSON.stringify({ ...fields, mac }));
+    };
+    // Version 1 keyed the HMAC with one HKDF of the password: billions of guesses per second offline
+    const fastKey = Buffer.from(crypto.hkdfSync("sha256", Buffer.from(SECRET), Buffer.from("fengsui-peer-beacon-v1"), Buffer.from("beacon"), 32));
+    victim.handle(beacon(fastKey, 1, "1111111111111111"), "192.168.8.66");
+    assert.deepEqual(victim.getState().peers, [], "a fast-HKDF (v1) beacon is no longer accepted");
+    const hardKey = crypto.scryptSync(Buffer.from(SECRET), Buffer.from("fengsui-peer-beacon-v2|192.168.8.1"), 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+    victim.handle(beacon(hardKey, 2, "2222222222222222"), "192.168.8.20");
+    assert.deepEqual(victim.getState().peers.map((p) => p.address), ["192.168.8.20"]);
+    assert.equal(victim.getState().standby, true);
     victim.stop();
   });
 

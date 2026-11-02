@@ -1131,7 +1131,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 7. **MCP 发送额度保存在内存中**：`MCP_SMS_SEND_LIMIT_PER_HOUR` 的计数在进程重启后清零。
 8. **Telegram 仅支持长轮询**：不注册 Bot Webhook；同一 Bot Token 只能由一个 `serve` 进程使用（否则 `getUpdates` 冲突）。跨主机由 LAN 信标保护（见第 9 条之后的说明）。
 >
-> **跨主机重复守护进程**：每个守护进程每 15s 在局域网 UDP `PEER_DISCOVERY_PORT`（默认 `18385`）广播一次信标，签名密钥由 `CPE_PASSWORD` 经 HKDF 派生（只有能登录这台 CPE 的进程才能伪造信标，信标中不含明文地址与密码）。两个守护进程管理同一台 CPE 时，启动较早者领先（同时启动则按实例 ID），较晚者转入待机：不建立 CPE 会话、暂停 Telegram 长轮询、控制写返回 `409 PEER_DAEMON_ACTIVE`，双方各推送一条 `DUPLICATE_DAEMON` 告警；领先方 45s 无信标后待机方恢复（`DUPLICATE_DAEMON_CLEARED`）。守护进程启动时先等待约 1s 接收应答再开始轮询。Docker 桥接网络不转发广播，NAS 上请使用 host 网络，否则该保护不生效；`PEER_DISCOVERY_ENABLED=false` 可关闭。
+> **跨主机重复守护进程**：每个守护进程每 15s 在局域网 UDP `PEER_DISCOVERY_PORT`（默认 `18385`）广播一次信标，签名密钥由 `CPE_PASSWORD` 经 scrypt（`N=2^15, r=8, p=1`，盐含 CPE 主机名，每个进程只算一次）派生（只有能登录这台 CPE 的进程才能伪造信标，信标中不含明文地址与密码）。信标对局域网所有主机可见，因此每个信标都可被用来离线猜测路由器密码：scrypt 让每次猜测代价高昂，但弱密码仍可能被猜中，单主机部署可设 `PEER_DISCOVERY_ENABLED=false`。信标格式 v2 起不再接受 v1（快速 HKDF），升级时请同时升级所有主机，否则新旧版本互相看不见。两个守护进程管理同一台 CPE 时，启动较早者领先（同时启动则按实例 ID），较晚者转入待机：不建立 CPE 会话、暂停 Telegram 长轮询、控制写返回 `409 PEER_DAEMON_ACTIVE`，双方各推送一条 `DUPLICATE_DAEMON` 告警；领先方 45s 无信标后待机方恢复（`DUPLICATE_DAEMON_CLEARED`）。守护进程启动时先等待约 1s 接收应答再开始轮询。Docker 桥接网络不转发广播，NAS 上请使用 host 网络，否则该保护不生效；`PEER_DISCOVERY_ENABLED=false` 可关闭。
 9. **NR 频段表来自规格书而非路由器**：H168-383 不通告 NR 频段列表，NR 白名单取自 Huawei 规格书（其 LTE 列表与路由器 `net-mode-list` 通告的 14 个频段完全一致，`n78` 在真机上实际服务）。SUL 频段 `n80–n84` 仅用于上行，不可作为下行频段锁定。
 10. **Webhook / Telegram 传输**：`WEBHOOK_URL` 与 `TELEGRAM_API_BASE` 只有局域网 / 环回主机可用明文 `http`，其余必须 `https`。
 

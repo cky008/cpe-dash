@@ -13,11 +13,30 @@ import { parseJsonSafeNullProto } from "./json-safe.ts";
  * beacon to put a daemon on standby). Two live daemons for the same CPE agree on one leader without
  * comparing clocks: the earlier `startedAtMs` wins, ties broken by instance id. The other goes on
  * standby (no CPE sessions, no Telegram polling) until the leader's beacons stop.
+ *
+ * Every LAN host receives the beacons, so each one lets an eavesdropper test password guesses
+ * offline, out of reach of the router's 3-attempt lockout. The key is therefore stretched with
+ * memory-hard scrypt (once per process); a weak router password stays guessable, just slowly.
  */
 
 export const DEFAULT_PEER_PORT = 18385;
-const BEACON_VERSION = 1;
+/** v2: scrypt-derived key (v1 used one HKDF of the password, a fast offline-guessing oracle). */
+const BEACON_VERSION = 2;
 const MAX_BEACON_BYTES = 1024;
+/** About 32 MiB and roughly 0.1 s per derivation on a NAS-class CPU. */
+const BEACON_KDF = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
+const beaconKeyCache = new Map<string, Buffer>();
+
+/** The beacon HMAC key for this password and CPE host (scrypt, cached per process). */
+function deriveBeaconKey(secret: string, cpeHost: string): Buffer {
+  const salt = `fengsui-peer-beacon-v2|${cpeHost.trim().toLowerCase()}`;
+  const cacheKey = `${salt}\u0000${secret}`;
+  const cached = beaconKeyCache.get(cacheKey);
+  if (cached) return cached;
+  const key = crypto.scryptSync(Buffer.from(secret, "utf8"), Buffer.from(salt, "utf8"), 32, BEACON_KDF);
+  beaconKeyCache.set(cacheKey, key);
+  return key;
+}
 
 export interface PeerTransport {
   send(payload: Buffer): void;
@@ -126,9 +145,7 @@ export class PeerDaemonGuard extends EventEmitter {
     this.intervalMs = Math.max(1000, options.intervalMs ?? 15_000);
     this.peerTimeoutMs = options.peerTimeoutMs ?? this.intervalMs * 3;
     this.#maxSkewMs = options.maxClockSkewMs ?? 120_000;
-    this.#key = Buffer.from(
-      crypto.hkdfSync("sha256", Buffer.from(options.secret, "utf8"), Buffer.from("fengsui-peer-beacon-v1"), Buffer.from("beacon"), 32)
-    );
+    this.#key = deriveBeaconKey(options.secret, options.cpeHost);
     this.#cpe = crypto.createHmac("sha256", this.#key).update(options.cpeHost.trim().toLowerCase()).digest("hex").slice(0, 16);
     this.#transport = options.transport;
     this.#transport.onMessage((payload, address) => this.handle(payload, address));

@@ -534,7 +534,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `MCP_ALLOW_MUTATIONS` | `true` | Whether to allow MCP to invoke mutation tools |
 | `MCP_ALLOW_ACCESS_CONTROL` | `false` | Whether MCP may use the tools that cut devices off (block / restore, MAC filter, internet time); reading the access-control state is always available |
 | `MCP_DAEMON_URL` | *(Derived from `WEB_HOST`/`WEB_PORT`)* | Address of `/mcp` forwarded by stdio bridge; restricted to LAN / loopback hosts |
-| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | Cross-host duplicate daemon protection (signed UDP broadcast beacon; requires host networking in Docker) |
+| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | Cross-host duplicate daemon protection (signed UDP broadcast beacon; requires host networking in Docker). The beacon key is derived from `CPE_PASSWORD` with scrypt; LAN devices can still use beacons to guess a weak password offline, so turn it off if you only ever run one daemon |
 | `REDACT_SENSITIVE_IN_API` | `true` | Redacts IMEI, IMSI, phone number, MAC, WAN addresses and TAC / CellID location fingerprints in Bearer API, SSE and MCP output. The web console is not affected: it always receives the real values, masked on screen until you click the eye button. Applies after a restart or `reset-breaker` |
 | `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | SSE heartbeat interval and maximum concurrent connections |
 | `POLL_INTERVAL_MS` | `5000` | Telemetry and real-time throughput sampling interval |
