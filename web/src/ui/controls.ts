@@ -19,11 +19,66 @@ const FIREWALL_SWITCHES: ReadonlyArray<[FirewallKey, MessageKey]> = [
   ["urlFilterSwitch", "ctl.fw_url"],
 ];
 
+interface FirewallConfirmCopy {
+  onTitle: MessageKey;
+  onBody: MessageKey;
+  offTitle: MessageKey;
+  offBody: MessageKey;
+}
+
+const FIREWALL_CONFIRM: Readonly<Record<FirewallKey, FirewallConfirmCopy>> = {
+  mainSwitch: {
+    onTitle: "ctl.fw_main_on_title",
+    onBody: "ctl.fw_main_on_body",
+    offTitle: "ctl.fw_main_off_title",
+    offBody: "ctl.fw_main_off_body",
+  },
+  ipFilterSwitch: {
+    onTitle: "ctl.fw_ip_on_title",
+    onBody: "ctl.fw_ip_on_body",
+    offTitle: "ctl.fw_ip_off_title",
+    offBody: "ctl.fw_ip_off_body",
+  },
+  wanPortPingSwitch: {
+    onTitle: "ctl.fw_ping_on_title",
+    onBody: "ctl.fw_ping_on_body",
+    offTitle: "ctl.fw_ping_off_title",
+    offBody: "ctl.fw_ping_off_body",
+  },
+  macFilterSwitch: {
+    onTitle: "ctl.fw_mac_on_title",
+    onBody: "ctl.fw_mac_on_body",
+    offTitle: "ctl.fw_mac_off_title",
+    offBody: "ctl.fw_mac_off_body",
+  },
+  urlFilterSwitch: {
+    onTitle: "ctl.fw_url_on_title",
+    onBody: "ctl.fw_url_on_body",
+    offTitle: "ctl.fw_url_off_title",
+    offBody: "ctl.fw_url_off_body",
+  },
+};
+
 const ANTENNA_MODES: ReadonlyArray<[AntennaModeName, MessageKey]> = [
   ["auto", "ctl.antenna_auto"],
   ["internal", "ctl.antenna_internal"],
   ["external", "ctl.antenna_external"],
 ];
+
+const ANTENNA_CONFIRM: Readonly<Record<AntennaModeName, { title: MessageKey; body: MessageKey }>> = {
+  auto: {
+    title: "ctl.antenna_auto_title",
+    body: "ctl.antenna_auto_body",
+  },
+  internal: {
+    title: "ctl.antenna_internal_title",
+    body: "ctl.antenna_internal_body",
+  },
+  external: {
+    title: "ctl.antenna_external_title",
+    body: "ctl.antenna_external_body",
+  },
+};
 
 const IPV4_RE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 
@@ -85,7 +140,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
   };
 
   const maskText = (bands: ReadonlyArray<number>, selected: Set<number>): string =>
-    selected.size === 0 ? ctx.t("ctl.mask_none") : ctx.t("ctl.mask", { mask: bandsToHexMask([...selected]) }) + (selected.size === bands.length ? " · all" : "");
+    selected.size === 0 ? ctx.t("ctl.mask_none") : ctx.t("ctl.mask", { mask: bandsToHexMask([...selected]) }) + (selected.size === bands.length ? ctx.t("ctl.all_bands_suffix") : "");
 
   const applyBands = (button: HTMLButtonElement): void => {
     const body: BandLockRequest = {};
@@ -98,7 +153,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
       return;
     }
     const describe = (rat: "LTE" | "NR", value: Array<number> | "all" | undefined): string =>
-      value === undefined ? "" : value === "all" ? `${rat} all` : value.map((b) => bandLabel(rat, b)).join("+");
+      value === undefined ? "" : value === "all" ? ctx.t("ctl.all_bands", { rat }) : value.map((b) => bandLabel(rat, b)).join("+");
     const summary = [describe("LTE", lte), describe("NR", nr)].filter(Boolean).join(" · ");
     void ctx
       .confirm({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" })
@@ -214,19 +269,32 @@ export function mountControls(ctx: AppContext): { open(): void } {
     dmzInput.disabled = noSettings;
     const dmzToggle = toggle(settings?.dmzEnabled ?? false, noSettings, (next, input) => {
       const ip = dmzInput.value.trim();
-      if (next && ip && !IPV4_RE.test(ip)) {
+      if (next && (!ip || !IPV4_RE.test(ip))) {
         input.checked = false;
         ctx.toast(ctx.t("ctl.dmz_invalid"), "warning");
         return;
       }
-      write(
-        input,
-        async () => {
-          const res = await ctx.api.security({ dmz: { enabled: next, ...(ip ? { ipAddress: ip } : {}) } });
-          if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
-        },
-        true
-      );
+      void ctx
+        .confirm({
+          title: ctx.t(next ? "ctl.dmz_on_title" : "ctl.dmz_off_title"),
+          body: [ctx.t(next ? "ctl.dmz_on_body" : "ctl.dmz_off_body", { ip })],
+          confirmLabel: ctx.t(next ? "common.on" : "common.off"),
+          ...(next ? { tone: "warning" as const } : {}),
+        })
+        .then((ok) => {
+          if (!ok) {
+            input.checked = !next;
+            return;
+          }
+          write(
+            input,
+            async () => {
+              const res = await ctx.api.security({ dmz: { enabled: next, ...(ip ? { ipAddress: ip } : {}) } });
+              if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
+            },
+            true
+          );
+        });
     });
 
     const securitySection = section(
@@ -237,33 +305,62 @@ export function mountControls(ctx: AppContext): { open(): void } {
       readBtn,
       switchRow(
         ctx.t("ctl.upnp"),
-        toggle(settings?.upnpEnabled ?? false, noSettings, (next, input) =>
-          write(
-            input,
-            async () => {
-              const res = await ctx.api.security({ upnpEnabled: next });
-              if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
-            },
-            true
-          )
-        )
+        toggle(settings?.upnpEnabled ?? false, noSettings, (next, input) => {
+          void ctx
+            .confirm({
+              title: ctx.t(next ? "ctl.upnp_on_title" : "ctl.upnp_off_title"),
+              body: [ctx.t(next ? "ctl.upnp_on_body" : "ctl.upnp_off_body")],
+              confirmLabel: ctx.t(next ? "common.on" : "common.off"),
+              ...(next ? { tone: "warning" as const } : {}),
+            })
+            .then((ok) => {
+              if (!ok) {
+                input.checked = !next;
+                return;
+              }
+              write(
+                input,
+                async () => {
+                  const res = await ctx.api.security({ upnpEnabled: next });
+                  if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
+                },
+                true
+              );
+            });
+        })
       ),
       h("div", { class: "flex items-center gap-2 py-1.5 border-b border-dashed border-base-content/10" }, h("span", { class: "text-sm flex-1" }, ctx.t("ctl.dmz")), dmzInput, dmzToggle),
-      ...FIREWALL_SWITCHES.map(([key, label]) =>
-        switchRow(
+      ...FIREWALL_SWITCHES.map(([key, label]) => {
+        const conf = FIREWALL_CONFIRM[key];
+        return switchRow(
           ctx.t(label),
-          toggle(settings?.firewall[key] ?? false, noSettings, (next, input) =>
-            write(
-              input,
-              async () => {
-                const res = await ctx.api.security({ firewall: { [key]: next } });
-                if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
-              },
-              true
-            )
-          )
-        )
-      ),
+          toggle(settings?.firewall[key] ?? false, noSettings, (next, input) => {
+            // Switching protection off weakens it; the firewall MAC list can cut devices off (even this host) when on
+            const tone = (!next && key !== "wanPortPingSwitch") || (next && key === "macFilterSwitch") ? ("warning" as const) : undefined;
+            void ctx
+              .confirm({
+                title: ctx.t(next ? conf.onTitle : conf.offTitle),
+                body: [ctx.t(next ? conf.onBody : conf.offBody)],
+                confirmLabel: ctx.t(next ? "common.on" : "common.off"),
+                ...(tone ? { tone } : {}),
+              })
+              .then((ok) => {
+                if (!ok) {
+                  input.checked = !next;
+                  return;
+                }
+                write(
+                  input,
+                  async () => {
+                    const res = await ctx.api.security({ firewall: { [key]: next } });
+                    if (res.settings) ctx.store.update({ settings: res.settings }, ["settings"]);
+                  },
+                  true
+                );
+              });
+          })
+        );
+      }),
       h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("info", "text-warning mt-0.5"), h("span", { class: "text-xs" }, ctx.t("ctl.ddos_note")))
     );
 
@@ -271,21 +368,45 @@ export function mountControls(ctx: AppContext): { open(): void } {
       ctx.t("ctl.wifi7"),
       switchRow(
         ctx.t("ctl.mlo"),
-        toggle(settings?.wifi7.mloEnable ?? false, noSettings, (next, input) =>
-          write(input, async () => {
-            const res = await ctx.api.wifi7({ mloEnable: next });
-            patchSettings({ wifi7: res.wifi7 });
-          })
-        )
+        toggle(settings?.wifi7.mloEnable ?? false, noSettings, (next, input) => {
+          void ctx
+            .confirm({
+              title: ctx.t(next ? "ctl.mlo_on_title" : "ctl.mlo_off_title"),
+              body: [ctx.t(next ? "ctl.mlo_on_body" : "ctl.mlo_off_body")],
+              confirmLabel: ctx.t(next ? "common.on" : "common.off"),
+            })
+            .then((ok) => {
+              if (!ok) {
+                input.checked = !next;
+                return;
+              }
+              write(input, async () => {
+                const res = await ctx.api.wifi7({ mloEnable: next });
+                patchSettings({ wifi7: res.wifi7 });
+              });
+            });
+        })
       ),
       switchRow(
         ctx.t("ctl.dbho"),
-        toggle(settings?.wifi7.dbhoEnable ?? false, noSettings, (next, input) =>
-          write(input, async () => {
-            const res = await ctx.api.wifi7({ dbhoEnable: next });
-            patchSettings({ wifi7: res.wifi7 });
-          })
-        )
+        toggle(settings?.wifi7.dbhoEnable ?? false, noSettings, (next, input) => {
+          void ctx
+            .confirm({
+              title: ctx.t(next ? "ctl.dbho_on_title" : "ctl.dbho_off_title"),
+              body: [ctx.t(next ? "ctl.dbho_on_body" : "ctl.dbho_off_body")],
+              confirmLabel: ctx.t(next ? "common.on" : "common.off"),
+            })
+            .then((ok) => {
+              if (!ok) {
+                input.checked = !next;
+                return;
+              }
+              write(input, async () => {
+                const res = await ctx.api.wifi7({ dbhoEnable: next });
+                patchSettings({ wifi7: res.wifi7 });
+              });
+            });
+        })
       )
     );
 
@@ -297,16 +418,36 @@ export function mountControls(ctx: AppContext): { open(): void } {
         ...ANTENNA_MODES.map(([mode, label]) => {
           const button = h("button", { class: `btn btn-sm join-item flex-1 ${settings?.antenna.mode === mode ? "btn-primary" : "btn-ghost"}`, attrs: { type: "button" } }, ctx.t(label));
           button.disabled = noSettings;
-          button.addEventListener("click", () =>
-            runBusy(button, async () => {
-              try {
-                const res = await ctx.api.antenna(mode);
-                if (settings) patchSettings({ antenna: { ...settings.antenna, mode: res.antenna.mode, rawCode: String(res.antenna.rawCode) } });
-              } catch (err) {
-                fail(err);
-              }
-            })
-          );
+          button.addEventListener("click", () => {
+            if (settings?.antenna.mode === mode) return;
+            const a1 = Boolean(settings?.antenna.antenna1Inserted);
+            const a2 = Boolean(settings?.antenna.antenna2Inserted);
+            const tone =
+              mode === "external" && !a1 && !a2
+                ? ("warning" as const)
+                : mode === "internal" && (a1 || a2)
+                  ? ("warning" as const)
+                  : undefined;
+            const conf = ANTENNA_CONFIRM[mode];
+            void ctx
+              .confirm({
+                title: ctx.t(conf.title),
+                body: [ctx.t(conf.body)],
+                confirmLabel: ctx.t(label),
+                ...(tone ? { tone } : {}),
+              })
+              .then((ok) => {
+                if (!ok) return;
+                runBusy(button, async () => {
+                  try {
+                    const res = await ctx.api.antenna(mode);
+                    if (settings) patchSettings({ antenna: { ...settings.antenna, mode: res.antenna.mode, rawCode: String(res.antenna.rawCode) } });
+                  } catch (err) {
+                    fail(err);
+                  }
+                });
+              });
+          });
           return button;
         })
       ),
@@ -395,7 +536,6 @@ export function mountControls(ctx: AppContext): { open(): void } {
       h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
     );
   };
-
 
   // Not on "scheduler": its 10 s poll would reset a half-typed DMZ address
   ctx.store.subscribe(["settings", "locks"], () => {

@@ -73,7 +73,7 @@ async function runWifiChange(ctx: AppContext, change: WifiAccessChange, title: s
     ctx.toast(describe(ctx, err), "error");
     return false;
   }
-  const lines = alsoBlocked.length > 0 ? [...body, t("also_blocked", { list: alsoBlocked.map((m) => labelFor(ctx, m)).join("、") })] : body;
+  const lines = alsoBlocked.length > 0 ? [...body, t("also_blocked", { list: alsoBlocked.map((m) => labelFor(ctx, m)).join(t("list_joiner")) })] : body;
   if (!(await ctx.confirm({ title, body: lines, confirmLabel, tone: "warning" }))) return false;
   try {
     const res =
@@ -236,7 +236,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
           "label",
           { class: "flex items-center gap-2 py-1 cursor-pointer" },
           box,
-          h("span", { class: `text-sm truncate ${x.active ? "" : "opacity-60"}` }, x.displayName || labelFor(ctx, mac)),
+          h("span", { class: `text-sm truncate ${x.active ? "" : "opacity-60"}` }, labelFor(ctx, mac, x.displayName)),
           deviceTag(mac),
           locked.has(mac) ? h("span", { class: "text-[0.6875rem] faint" }, t("allow_locked")) : null
         );
@@ -277,7 +277,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
       for (const x of hosts(ctx)) {
         const mac = normalizeMac(x.macAddress);
         if (!mac || list.some((e) => e.macAddress === mac)) continue;
-        select.appendChild(h("option", { attrs: { value: mac } }, `${x.displayName || mac}${x.medium.startsWith("WIFI") ? "" : " (LAN)"}`));
+        select.appendChild(h("option", { attrs: { value: mac } }, `${labelFor(ctx, mac, x.displayName)}${x.medium.startsWith("WIFI") ? "" : t("lan_marker")}`));
       }
       select.addEventListener("change", () => {
         addMac = select.value;
@@ -326,7 +326,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
   };
 
   const ruleRange = (rule: { startTime: string; endTime: string }): string =>
-    `${rule.startTime}–${rule.endTime}${isOvernight(rule.startTime, rule.endTime) ? (ctx.tr.locale === "zh-CN" ? "（次日）" : " (+1 day)") : ""}`;
+    `${rule.startTime}–${rule.endTime}${isOvernight(rule.startTime, rule.endTime) ? texts(ctx)("overnight_marker") : ""}`;
 
   const sendRule = async (body: Parameters<AppContext["api"]["timeRule"]>[0], title: string, lines: ReadonlyArray<string>, label: string): Promise<boolean> => {
     if (!(await ctx.confirm({ title, body: lines, confirmLabel: label, tone: "warning" }))) return false;
@@ -346,7 +346,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
     const select = h("select", { class: "select select-sm w-full" }, h("option", { attrs: { value: "" } }, t("pick_device")));
     for (const x of hosts(ctx)) {
       const mac = normalizeMac(x.macAddress);
-      if (mac) select.appendChild(h("option", { attrs: { value: mac } }, x.displayName || mac));
+      if (mac) select.appendChild(h("option", { attrs: { value: mac } }, labelFor(ctx, mac, x.displayName)));
     }
     select.value = current.macAddress;
     select.disabled = current.id !== null;
@@ -378,7 +378,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
       try {
         normalizeTimeRuleInput(input);
         const clashes = findTimeRuleConflicts(rules, input, current.id ?? undefined);
-        if (clashes.length > 0) problem = t("conflict", { list: clashes.map((r) => `${formatWeekMask(r.weekMask, ctx.tr.locale)} ${ruleRange(r)}`).join("；") });
+        if (clashes.length > 0) problem = t("conflict", { list: clashes.map((r) => `${formatWeekMask(r.weekMask, ctx.tr.locale)} ${ruleRange(r)}`).join(t("conflict_separator")) });
       } catch (err) {
         problem = describe(ctx, err);
       }
