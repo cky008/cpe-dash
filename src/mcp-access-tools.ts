@@ -70,7 +70,11 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
       type: "object",
       properties: {
         action: { type: "string", enum: ["create", "update", "delete"] },
-        id: { type: "string", maxLength: 16, description: "Rule ID (update / delete)." },
+        id: {
+          type: "string",
+          maxLength: 128,
+          description: "Rule ID from get_access_control (update / delete), e.g. InternetGatewayDevice.X_FireWall.TimeRule.1.",
+        },
         ...DEVICE_PROPS,
         weekMask: { type: "string", maxLength: 7 },
         startTime: { type: "string", maxLength: 5 },

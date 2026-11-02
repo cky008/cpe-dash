@@ -685,6 +685,17 @@ describe("Device access control through the daemon (REST, MCP)", () => {
         arguments: { action: "create", ipv4Address: "192.168.8.30", weekMask: "0000011", startTime: "09:00", endTime: "23:00", confirm: true },
       });
       assert.equal(cpe.router.timeRules.rules[0]?.WeekEnable, "0000011");
+      // The router names rules by TR-069 path (44+ characters); agents must be able to pass it back
+      const ruleId = cpe.router.timeRules.rules[0]?.ID ?? "";
+      assert.match(ruleId, /^InternetGatewayDevice\.X_FireWall\.TimeRule\.\d+\.$/);
+      const updated = await mcp("tools/call", {
+        name: "manage_internet_time_rule",
+        arguments: { action: "update", id: ruleId, ipv4Address: "192.168.8.30", weekMask: "1111111", startTime: "08:00", endTime: "22:00", confirm: true },
+      });
+      assert.doesNotMatch(updated, /"isError":\s*true/);
+      assert.equal(cpe.router.timeRules.rules[0]?.WeekEnable, "1111111");
+      assert.doesNotMatch(await mcp("tools/call", { name: "manage_internet_time_rule", arguments: { action: "delete", id: ruleId, confirm: true } }), /"isError":\s*true/);
+      assert.equal(cpe.router.timeRules.rules.length, 0);
     } finally {
       await close();
     }

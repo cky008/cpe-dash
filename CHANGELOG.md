@@ -9,6 +9,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Access control fails closed.** If the router's host list could not be parsed, came back empty or did not mark the machine running FengSui (`IsLocalDevice`), every protected device silently dropped out of the check, so a block, whitelist, list edit or time rule could cut off the daemon's host. Such changes are now refused with `400` before anything is written; changes that only let devices back on (unblock, filter off, deleting a time rule) still work.
 - **MCP agents can no longer widen the SMS recipient policy themselves.** With `MCP_SMS_ACCESS=full` and `MCP_SMS_SEND_POLICY=known`, a prompt-injected agent could file any number with `upsert_contact` and then `send_sms` to it. Contacts an agent creates are now stored as `source: "mcp"` and do not count as known for MCP sends until you save the number yourself (web console, Telegram or a vCard import); an agent renaming one of your contacts leaves it yours.
 
+### Fixed
+- **MCP `manage_internet_time_rule` can update and delete rules again.** Its `id` was capped at 16 characters, but the H168-383 names rules by TR-069 path (`InternetGatewayDevice.X_FireWall.TimeRule.1.`), so every update or delete through MCP failed with `VALIDATION_ERROR`. The limit is now 128.
+
 ## [1.3.0] — 2026-11-01
 
 ### Added
