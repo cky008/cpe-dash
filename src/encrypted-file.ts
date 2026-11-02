@@ -50,6 +50,34 @@ function isEncryptedEnvelope(val: unknown): val is EncryptedFileEnvelope {
  * - Encrypts with `aes-256-gcm` using a fresh 12-byte random IV and envelope magic AAD.
  * - Atomically writes `0o600` files via temp-file rename.
  */
+/**
+ * A data file written by a newer FengSui. Loading it would keep only what this version knows and the
+ * next save would overwrite the rest, so the daemon refuses to start instead (e.g. after a downgrade).
+ */
+export class DataFormatTooNewError extends Error {
+  readonly filePath: string;
+  readonly found: number;
+  readonly supported: number;
+
+  constructor(filePath: string, found: number, supported: number) {
+    super(
+      `${path.basename(filePath)} was written by a newer FengSui (data format ${found}; this version reads up to ${supported}). ` +
+        "Refusing to start rather than overwrite it: run the newer version again, or restore a backup made with this one."
+    );
+    this.name = "DataFormatTooNewError";
+    this.filePath = filePath;
+    this.found = found;
+    this.supported = supported;
+  }
+}
+
+/** Throw `DataFormatTooNewError` when a stored format number is above the one this version reads. */
+export function assertKnownDataFormat(filePath: string, found: unknown, supported: number): void {
+  if (typeof found === "number" && Number.isInteger(found) && found > supported) {
+    throw new DataFormatTooNewError(filePath, found, supported);
+  }
+}
+
 export class StorageCipher {
   readonly enabled: boolean;
   readonly #masterKey: Buffer | null;

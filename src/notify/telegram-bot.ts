@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { timingSafeEqualString } from "../crypto.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
-import { AtomicFileWriter, StorageCipher } from "../encrypted-file.ts";
+import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encrypted-file.ts";
 import { firmwareReviewPrompt } from "../firmware.ts";
 import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
@@ -318,6 +318,7 @@ export class TelegramStateStore {
 
   load(): void {
     const parsed = this.#cipher.readJsonFileOrQuarantine<Partial<PersistedTelegramState>>(this.filePath);
+    assertKnownDataFormat(this.filePath, parsed?.version, 1);
     this.#authorized = new Set((parsed?.authorizedChatIds ?? []).filter((id): id is string => typeof id === "string"));
     this.#replyTargets = new Map(
       (parsed?.replyTargets ?? []).filter(

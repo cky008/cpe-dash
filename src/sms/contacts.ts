@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { CpeControlValidationError } from "../cpe-domain.ts";
-import { AtomicFileWriter, StorageCipher } from "../encrypted-file.ts";
+import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encrypted-file.ts";
 import { buildPhoneLookupKeys, resolveRecipientPhone } from "./phone.ts";
 import type { ContactRecord } from "./types.ts";
 import { type ParsedVcardEntry, parseVcardContacts } from "./vcard.ts";
@@ -49,6 +49,7 @@ export class ContactBook {
 
   load(): void {
     const parsed = this.#cipher.readJsonFileOrQuarantine<Partial<PersistedContactBook>>(this.filePath);
+    assertKnownDataFormat(this.filePath, parsed?.version, 1);
     this.#contacts = Array.isArray(parsed?.contacts) ? parsed.contacts.slice(0, MAX_CONTACTS) : [];
     this.#rebuildIndex();
   }

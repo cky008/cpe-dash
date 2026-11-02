@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { AtomicFileWriter, StorageCipher } from "../encrypted-file.ts";
+import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encrypted-file.ts";
 import type { ContactBook } from "./contacts.ts";
 import { extractVerificationCode } from "./otp.ts";
 import { canonicalThreadKey } from "./phone.ts";
@@ -79,6 +79,7 @@ export class SmsMirrorStore {
 
   load(): void {
     const parsed = this.#cipher.readJsonFileOrQuarantine<Partial<PersistedSmsMirror>>(this.filePath);
+    assertKnownDataFormat(this.filePath, parsed?.version, 1);
     this.#messages.clear();
     this.#notified.clear();
     this.#meta = defaultMeta();

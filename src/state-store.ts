@@ -8,7 +8,7 @@ import type {
   RouterSettingsSnapshot,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
-import { AtomicFileWriter, StorageCipher } from "./encrypted-file.ts";
+import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { SerializedTimeSeriesSnapshot } from "./timeseries.ts";
 import type { CircuitBreakerState } from "./types.ts";
 
@@ -124,6 +124,7 @@ export class EncryptedStateStore {
       return this.#state;
     }
     const loaded = this.#cipher.readJsonFileOrQuarantine<Partial<PersistedRuntimeState>>(this.filePath);
+    assertKnownDataFormat(this.filePath, loaded?.schemaVersion, 1);
     if (!loaded) {
       this.#state = createDefaultState();
     } else if (loaded.schemaVersion === 1) {
