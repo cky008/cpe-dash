@@ -7,6 +7,12 @@ export interface AppConfig {
   cpeUsername: string;
   cpePassword: string;
   /**
+   * `CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM` (default `false`): the console's connection test may look for a
+   * legacy login method although this router has logged in with SCRAM before. Only for a router that
+   * was replaced by an older model at the same address; the background keeps to SCRAM either way.
+   */
+  cpeAllowLegacyLoginAfterScram: boolean;
+  /**
    * Canonical IANA zone from `TZ` (e.g. `Europe/Dublin`), or `null` when unset. `.env` values never
    * reach `process.env` on their own, so the CLI applies it (it stamps the `<Date>` of sent SMS).
    */

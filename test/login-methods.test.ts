@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { startupNotices } from "../src/cli.ts";
+import { loadConfig } from "../src/config.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "../src/cpe-auth.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { CpeApiError, HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -39,12 +41,22 @@ function answerWith(cpe: CpeFamily, p: string, body: () => string): typeof fetch
 
 const submissions = (cpe: CpeFamily): number => SUBMIT_PATHS.reduce((n, p) => n + cpe.count(p, "POST"), 0);
 
-function coreFixture(cpe: { fetchImpl: typeof fetch; password: string }, opts: { password?: string; deviceProbe?: DeviceProbeResult } = {}) {
+function coreFixture(
+  cpe: { fetchImpl: typeof fetch; password: string },
+  opts: { password?: string; deviceProbe?: DeviceProbeResult; allowLegacyLoginAfterScram?: boolean } = {}
+) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-login-"));
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "login_key" });
   if (opts.deviceProbe) stateStore.update({ deviceProbe: opts.deviceProbe });
   const client = clientFor(cpe, opts.password ?? cpe.password);
-  const core = createFengSuiCore({ client, stateStore, timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }), pollIntervalMs: 600_000, neighborScanIntervalMs: 600_000 });
+  const core = createFengSuiCore({
+    client,
+    stateStore,
+    timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
+    pollIntervalMs: 600_000,
+    neighborScanIntervalMs: 600_000,
+    allowLegacyLoginAfterScram: opts.allowLegacyLoginAfterScram,
+  });
   core.monitor.init();
   return {
     client,
@@ -171,10 +183,13 @@ describe("login methods and token flows (mock family)", () => {
     assert.equal(client.knownLoginScheme, null);
     assert.equal(await client.withSession(async (session) => session.loginScheme), "scram");
     assert.equal(client.knownLoginScheme, "scram");
+    const pinned = (code: string | null) => (err: unknown) => err instanceof CpeLoginMethodError && err.scramKnown && err.probeCode === code && /CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM/.test(err.message);
     fault = { cpeError: "100002" };
-    await assert.rejects(client.withSession(async () => "never"), (err: unknown) => err instanceof CpeApiError && err.code === "100002");
+    await assert.rejects(client.withSession(async () => "never"), pinned("100002"));
     fault = { body: "<response>OK</response>" };
-    await assert.rejects(client.withSession(async () => "never"), /Invalid SCRAM challenge response/);
+    await assert.rejects(client.withSession(async () => "never"), pinned(null));
+    fault = { body: "<!DOCTYPE html><html><body>login</body></html>" };
+    await assert.rejects(client.withSession(async () => "never"), /Invalid SCRAM challenge response/, "a page is no router answer, as before");
     assert.deepEqual([cpe.count("/api/user/login"), cpe.failedLogins(), client.getCircuitBreakerState().tripped], [0, 0, false]);
 
     // The pin survives a restart through the stored identification, and is seeded by a saved test
@@ -191,8 +206,10 @@ describe("login methods and token flows (mock family)", () => {
     try {
       assert.equal(restarted.client.knownLoginScheme, "scram", "read back from the stored identification");
       fault = { cpeError: "100003" };
-      await assert.rejects(restarted.core.monitor.refreshTelemetry(), CpeApiError);
+      await assert.rejects(restarted.core.monitor.refreshTelemetry(), pinned("100003"));
       assert.equal(cpe.count("/api/user/login"), 0);
+      // The router no longer lets FengSui in and only the owner can resolve it: shown as unreachable, so it alerts
+      assert.deepEqual([restarted.core.scheduler.getStatus().mode, /CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM/.test(restarted.core.scheduler.getStatus().lastError ?? "")], ["cpe_unreachable", true]);
       fault = undefined;
       await restarted.core.scheduler.applyConnection({ url: "http://192.168.8.1", username: "admin", password: cpe.password }, { loginScheme: "sha256" });
       assert.equal(restarted.client.knownLoginScheme, "sha256", "a saved connection takes the scheme its test found");
@@ -202,6 +219,72 @@ describe("login methods and token flows (mock family)", () => {
     const odd = coreFixture(cpe, { deviceProbe: { ...probe, identity: { ...probe.identity, loginScheme: "teleport" as never } } });
     assert.equal(odd.client.knownLoginScheme, null, "an unreadable stored scheme pins nothing");
     await odd.cleanup();
+  });
+
+  it("keeps a router known to use SCRAM on SCRAM in a connection test too, unless CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM", async () => {
+    let fault: StrictFault | undefined;
+    const cpe = createStrictCpe({ fault: (p) => (p === "/api/user/challenge_login" ? fault : undefined) });
+    const refusals: ReadonlyArray<[StrictFault, string | null]> = [
+      [{ cpeError: "100002" }, "100002"],
+      [{ cpeError: "100003" }, "100003"],
+      [{ body: "<response>OK</response>" }, null],
+    ];
+    for (const allow of [false, true]) {
+      const fx = coreFixture(cpe, { allowLegacyLoginAfterScram: allow });
+      try {
+        fault = undefined;
+        assert.ok(await fx.core.monitor.refreshTelemetry());
+        assert.equal(fx.client.knownLoginScheme, "scram");
+        for (const [refusal, code] of refusals) {
+          fault = refusal;
+          const sent = cpe.count("/api/user/login");
+          const result = await fx.core.scheduler.testConnection(fx.good);
+          if (allow) {
+            assert.equal(cpe.count("/api/user/login"), sent + 1, `the owner allowed the test to look for another login method (${String(code)})`);
+            continue;
+          }
+          assert.deepEqual(result.ok ? null : [result.reason, result.code], ["scram_refused", code]);
+          assert.match(result.ok ? "" : result.message, /no password was sent/);
+          assert.equal(cpe.count("/api/user/login"), sent, `no legacy password from a test either (${String(code)})`);
+        }
+        // Without a refusal the test logs in with SCRAM as before, and the live client keeps its knowledge
+        fault = undefined;
+        const ok = await fx.core.scheduler.testConnection(fx.good);
+        assert.deepEqual(ok.ok ? ok.loginScheme : ok.reason, "scram");
+        assert.equal(fx.client.knownLoginScheme, "scram");
+      } finally {
+        await fx.cleanup();
+      }
+    }
+    // A daemon that has not seen this router log in yet still finds out how it does
+    const legacy = createCpeFamily({ login: "sha256", tokenFlow: "token" });
+    const fresh = coreFixture(legacy);
+    try {
+      const result = await fresh.core.scheduler.testConnection(fresh.good);
+      assert.deepEqual(result.ok ? result.loginScheme : result.reason, "sha256");
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+
+  it("reads CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM from .env (off by default) and reminds the owner while it is on", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-login-cfg-"));
+    try {
+      const file = path.join(dir, ".env");
+      const cfg = (extra: string) => {
+        fs.writeFileSync(file, `CPE_URL=http://192.168.8.1\nDATA_ENCRYPTION_KEY=login_key\nAPI_TOKEN=login_token\n${extra}`);
+        return loadConfig({ envPath: file, ignoreProcessEnv: true });
+      };
+      assert.equal(cfg("").cpeAllowLegacyLoginAfterScram, false);
+      assert.equal(cfg("CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=true\n").cpeAllowLegacyLoginAfterScram, true);
+      const keys = { cpePassword: "router_pw", apiToken: "login_token", dataEncryptionKey: "login_key" };
+      assert.deepEqual(startupNotices({ ...keys, cpeAllowLegacyLoginAfterScram: false }), []);
+      const on = startupNotices({ ...keys, cpeAllowLegacyLoginAfterScram: true });
+      assert.equal(on.length, 1);
+      assert.match(on[0] ?? "", /CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=true[\s\S]*back to false/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("tests a connection with each method: model, login method, token flow and encryption in the result", async () => {

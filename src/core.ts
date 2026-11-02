@@ -35,6 +35,7 @@ export function createFengSuiCore(options: FengSuiCoreOptions): FengSuiCore {
     layer2InitialBackoffMs: options.layer2InitialBackoffMs,
     layer2MaxBackoffMs: options.layer2MaxBackoffMs,
     stopGraceMs: options.stopGraceMs,
+    allowLegacyLoginAfterScram: options.allowLegacyLoginAfterScram,
   });
   const monitor = new CpeMonitor({
     scheduler,

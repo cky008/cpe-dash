@@ -427,6 +427,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   });
   const cpeUsername = get("CPE_USERNAME", "CPE_USER") ?? "admin";
   const cpePassword = get("CPE_PASSWORD", "CPEPASSWORD") ?? "";
+  const cpeAllowLegacyLoginAfterScram = parseBool(get("CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM"), false);
   const tzFromProcess =
     !options.ignoreProcessEnv && Boolean(process.env["TZ"]) && !options.overrides?.["TZ"];
   const timeZone = resolveTimeZone(get("TZ"), { inherited: tzFromProcess });
@@ -516,6 +517,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     cpeUrl,
     cpeUsername,
     cpePassword,
+    cpeAllowLegacyLoginAfterScram,
     timeZone,
     dataEncryptionKey,
     apiToken,

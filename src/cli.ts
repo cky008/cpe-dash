@@ -257,6 +257,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     neighborScanIntervalMs: config.neighborScanIntervalMs,
     stateFlushIntervalMs: config.stateFlushIntervalMs,
     smsCountersEnabled: config.smsEnabled,
+    allowLegacyLoginAfterScram: config.cpeAllowLegacyLoginAfterScram,
   });
   const { scheduler, monitor, controls } = core;
   // Restore the persisted breaker latch (and the time series) now: from here on any adapter can
@@ -592,9 +593,11 @@ export async function startServeDaemon(stack: FengSuiRuntimeStack): Promise<{ ho
 
 /**
  * Notices for configuration that works but leaks or risks something, printed to stderr at startup:
- * secrets that silently fall back to CPE_PASSWORD.
+ * secrets that silently fall back to CPE_PASSWORD, and a switch meant to be on only for a while.
  */
-export function startupNotices(config: Pick<AppConfig, "cpePassword" | "apiToken" | "dataEncryptionKey">): string[] {
+export function startupNotices(
+  config: Pick<AppConfig, "cpePassword" | "apiToken" | "dataEncryptionKey"> & Partial<Pick<AppConfig, "cpeAllowLegacyLoginAfterScram">>
+): string[] {
   const notices: string[] = [];
   if (config.dataEncryptionKey === config.cpePassword) {
     notices.push(
@@ -604,6 +607,11 @@ export function startupNotices(config: Pick<AppConfig, "cpePassword" | "apiToken
   if (config.apiToken === config.cpePassword) {
     notices.push(
       "API_TOKEN is not set, so the router's admin password is also the web login, the Bearer token in every REST and MCP client config, and the secret sent to Telegram with /auth. Set a dedicated random API_TOKEN and apply it with POST /api/session/reset-breaker or a restart."
+    );
+  }
+  if (config.cpeAllowLegacyLoginAfterScram === true) {
+    notices.push(
+      "CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=true: a connection test in the console may send the password the legacy way to a router that has logged in with SCRAM, which costs one of its login attempts if it is still that router. Use it only to set up a router that replaced it at the same address, and set it back to false once the new one is saved."
     );
   }
   return notices;

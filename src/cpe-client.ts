@@ -568,11 +568,11 @@ export class EphemeralCpeSession {
           { clearTokensOnResponse: true }
         );
         challenge = readScramChallenge(challengeXml);
-        if (!challenge && (scramKnown || !isNonChallengeAnswer(challengeXml))) {
+        if (!challenge && !isNonChallengeAnswer(challengeXml)) {
           throw new Error("Invalid SCRAM challenge response from CPE");
         }
       } catch (err) {
-        if (scramKnown || !(err instanceof CpeApiError) || !SCRAM_PROBE_FALLBACK_CODES.has(err.code)) throw err;
+        if (!(err instanceof CpeApiError) || !SCRAM_PROBE_FALLBACK_CODES.has(err.code)) throw err;
         refusedWith = err.code;
       }
     }
@@ -580,7 +580,8 @@ export class EphemeralCpeSession {
       await this.#scramLogin(firstNonce, challenge);
       return;
     }
-    if (!plan.legacy) throw new CpeLoginMethodError(passwordType, refusedWith);
+    // Refused the way an older model refuses it (appendix A.8); a router known to use SCRAM never gets further
+    if (!plan.legacy) throw new CpeLoginMethodError(passwordType, refusedWith, { scramKnown });
     await this.#legacyLogin(plan.legacy.scheme, plan.legacy.passwordType);
   }
 

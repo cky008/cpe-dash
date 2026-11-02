@@ -108,18 +108,28 @@ export function readSesTokInfo(xml: string): { token: string; sessionCookie: { n
 
 /**
  * The router's login method is not one FengSui can tell without guessing: its `password_type` is
- * missing or unknown and it refused the SCRAM challenge. Nothing carrying the password was sent.
+ * missing or unknown and it refused the SCRAM challenge, or (`scramKnown`) it logged in with SCRAM
+ * before and now refuses the challenge the way an older model does. Nothing carrying the password
+ * was sent: a SCRAM router counts a legacy hash as a wrong attempt.
  */
 export class CpeLoginMethodError extends Error {
   readonly passwordType: string | null;
   /** The code that refused the SCRAM challenge; `null` when it answered with something else. */
   readonly probeCode: string | null;
+  /** This router logged in with SCRAM before, so no legacy login was tried (`CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM`). */
+  readonly scramKnown: boolean;
 
-  constructor(passwordType: string | null, probeCode: string | null) {
+  constructor(passwordType: string | null, probeCode: string | null, opts: { scramKnown?: boolean } = {}) {
+    const refused = `SCRAM challenge refused${probeCode ? ` with ${probeCode}` : ""}`;
     const type = passwordType === null ? "password_type missing" : `password_type=${passwordType}`;
-    super(`Unsupported router login method (${type}, SCRAM challenge refused${probeCode ? ` with ${probeCode}` : ""}): no password was sent`);
+    super(
+      opts.scramKnown === true
+        ? `Router logged in with SCRAM before (${refused}); no password was sent. Another model? See CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM`
+        : `Unsupported router login method (${type}, ${refused}): no password was sent`
+    );
     this.name = "CpeLoginMethodError";
     this.passwordType = passwordType;
     this.probeCode = probeCode;
+    this.scramKnown = opts.scramKnown === true;
   }
 }

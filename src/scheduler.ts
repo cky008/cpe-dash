@@ -179,6 +179,7 @@ export type ConnectionTestResult =
         | "locked"
         | "password_change_required"
         | "unsupported_login"
+        | "scram_refused"
         | "unconfirmed_login"
         | "human_logged_in"
         | "unreachable"
@@ -247,6 +248,12 @@ export interface MutexSessionSchedulerOptions {
   layer2MaxBackoffMs?: number;
   /** How long `stop()` lets an in-flight session finish before cancelling it (default 2 s). */
   stopGraceMs?: number;
+  /**
+   * `CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM` (default `false`): let the console's connection test look
+   * for a legacy login method although this router has logged in with SCRAM before (it was replaced
+   * by an older model at the same address). Background sessions keep to SCRAM either way.
+   */
+  allowLegacyLoginAfterScram?: boolean;
 }
 
 /**
@@ -268,6 +275,7 @@ export class MutexSessionScheduler extends EventEmitter {
   readonly layer2InitialBackoffMs: number;
   readonly layer2MaxBackoffMs: number;
   readonly stopGraceMs: number;
+  readonly #allowLegacyLoginAfterScram: boolean;
 
   readonly #client: HuaweiCpeClient;
   #initialized = false;
@@ -298,6 +306,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.layer2InitialBackoffMs = options.layer2InitialBackoffMs ?? 45_000;
     this.layer2MaxBackoffMs = options.layer2MaxBackoffMs ?? 300_000;
     this.stopGraceMs = Math.max(0, options.stopGraceMs ?? 2000);
+    this.#allowLegacyLoginAfterScram = options.allowLegacyLoginAfterScram === true;
   }
 
   /**
@@ -488,6 +497,9 @@ export class MutexSessionScheduler extends EventEmitter {
       return failure("last_attempt", "the router allows one more login attempt before it locks; confirm the password and try again deliberately", { remainCount: remain });
     }
     return await this.#enqueue("high", async (): Promise<ConnectionTestOutcome> => {
+      // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
+      // decision): a refused challenge then sends no legacy password, unless re-detection is allowed
+      if (!this.#allowLegacyLoginAfterScram) client.rememberLoginScheme(this.#client.knownLoginScheme);
       try {
         const outcome = await client.withSessionDetailed(
           async (session) => {
@@ -517,7 +529,7 @@ export class MutexSessionScheduler extends EventEmitter {
           this.#remainingLogins = breaker.remainCount ?? this.#remainingLogins;
           return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });
         }
-        if (err instanceof CpeLoginMethodError) return failure("unsupported_login", message, { code: err.probeCode });
+        if (err instanceof CpeLoginMethodError) return failure(err.scramKnown ? "scram_refused" : "unsupported_login", message, { code: err.probeCode });
         if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
         return failure("unreachable", message);
       }
@@ -802,9 +814,10 @@ export class MutexSessionScheduler extends EventEmitter {
       throw new CircuitBreakerOpenError(publicBreakerState(cb));
     }
 
-    // A CPE error code or rejected input means the router answered; only transport failures mean unreachable
+    // A CPE error code or rejected input means the router answered; only transport failures mean unreachable,
+    // and a router that logged in with SCRAM before but now refuses it: nothing gets in until the owner acts, so it alerts
     this.#mode =
-      err instanceof CpeApiError || err instanceof CpeControlValidationError || err instanceof CpeLoginMethodError
+      err instanceof CpeApiError || err instanceof CpeControlValidationError || (err instanceof CpeLoginMethodError && !err.scramKnown)
         ? "idle"
         : "cpe_unreachable";
     throw err;

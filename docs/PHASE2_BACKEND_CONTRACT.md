@@ -972,13 +972,15 @@ export type ConnectionTestResult =
       // last_attempt：路由器只剩 1 次机会，未带 lastAttempt: true 时不尝试（防止 108007 硬件锁定）；
       // locked：108007，附 waitTimeSec；password_change_required：115002，路由器要求先在它自己的网页改密码（已熔断，不自动重试）；
       // unsupported_login：password_type 缺失或未知且 SCRAM 挑战被拒，code 为拒绝挑战的错误码（不是挑战的响应时为 null），密码没有发出；
+      // scram_refused：这台路由器用 SCRAM 登录成功过，这次挑战被拒（code 同上），按 CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=false（默认）
+      //   不改用旧式登录，密码没有发出；同一地址换了型号时重新部署全新的容器，或临时把它设为 true 再测试、保存；
       // unconfirmed_login：旧式 user/login 的应答无法判断（未知错误码，或页面、空的、截断或过大的响应），那次提交可能已算作一次错误，
       //   守护进程遇到时会熔断；code 为路由器的错误码（没有错误码时为 null）；
       // human_logged_in：有人正在登录官方后台（不抢占）；
       // unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理
       reason:
         | "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "password_change_required"
-        | "unsupported_login" | "unconfirmed_login" | "human_logged_in" | "unreachable" | "standby" | "router_error";
+        | "unsupported_login" | "scram_refused" | "unconfirmed_login" | "human_logged_in" | "unreachable" | "standby" | "router_error";
       code: string | null;
       remainCount: number | null;
       waitTimeSec: number | null;
