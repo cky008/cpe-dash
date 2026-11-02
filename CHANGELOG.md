@@ -2,7 +2,7 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.4.0] — 2026-11-02
 
 ### Added
 - **A guide to connect an AI agent, in the console.** The robot icon in the header ("AI agents" at the bottom of the dashboard on phones) shows the MCP endpoint for the address in use and builds, from a token you paste (`API_TOKEN_READONLY` recommended), a prompt to hand to Claude Code, Codex or another coding agent (it sets the server up, checks it, and keeps router writes behind your explicit request), the `claude mcp add` command and the `mcpServers` JSON. The token stays in the page, masked on screen; the shell command quotes it so no character in it can run as shell syntax. Over plain HTTP the copy buttons fall back to a selection copy.
@@ -37,6 +37,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - Upgrade every host that runs a FengSui daemon at the same time: the duplicate-daemon beacon moved to v2, and v1 and v2 daemons do not see each other.
 - Group chats linked earlier with `/auth` stay linked. To unlink them, rotate `API_TOKEN` (every `/auth` link is revoked); keep a group on purpose by listing its ID in `TELEGRAM_CHAT_IDS`.
 - If startup now prints the `API_TOKEN` notice, set a dedicated random `API_TOKEN` and update your MCP clients and Telegram link with it.
+- Lock rollback and WAN redial stay off until `LOCK_ROLLBACK_AFTER_MIN` / `WAN_AUTO_RECONNECT_AFTER_MIN` are set. `.env` is bind-mounted as a single file, so recreate the container after editing it (`docker compose up -d --force-recreate`); a plain restart keeps the old file.
+- A router on another firmware build than `4.4.0.1(H1006SP19C00)` raises `FIRMWARE_UNVERIFIED` once after the upgrade. `data/` needs no migration: the state file only gains the firmware notice.
+- For AI agents, set `API_TOKEN_READONLY` and hand that token out (the console's agent guide uses it); keep `API_TOKEN` for yourself.
 
 ## [1.3.0] — 2026-11-01
 
