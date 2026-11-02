@@ -309,7 +309,7 @@ Key points in [`docker-compose.yml`](docker-compose.yml):
 | Port | Fixed to `18384` inside container; host port set via `WEB_PORT` in `.env` (default `18384`) |
 | Data | `./data:/app/data`: State, SMS mirror, and contacts all encrypted at rest; `./.env` mounted read-only (`reset-breaker` re-reads it) |
 | User | `user: "${PUID}:${PGID}"`, specify the owner of `data/` and `.env` |
-| Hardening | Read-only root filesystem + `tmpfs /tmp`, `cap_drop: ALL`, `no-new-privileges`, `init`, 15-second shutdown grace period, log rotation |
+| Hardening | Read-only root filesystem + `tmpfs /tmp`, `cap_drop: ALL`, `no-new-privileges`, `init`, 15-second shutdown grace period, log rotation, memory 1 GiB and 256-process limits; base image pinned by digest, GHCR images ship build provenance and an SBOM |
 
 ### Synology Container Manager (DSM 7.2+)
 
@@ -336,6 +336,26 @@ sudo docker compose down             # SIGTERM: inflight session logs out, encry
 ```
 
 > **Run only one instance**: A single router can only be managed by one daemon instance (it holds exclusive access to the admin session and Telegram bot token). Stop any other cpe-dash or legacy cpe-sms instances before starting. Cross-host duplicate instance protection relies on local UDP broadcast (`18385`), which Docker bridge networks do not forward; to enable this, switch to `network_mode: host` in compose and remove `ports:`.
+
+### Self-check, backup and key rotation
+
+None of these commands talks to the router:
+
+```bash
+# Self-check: config, data directory permissions, the daemon, whether every store opens with the current key (fine while running)
+sudo docker exec cpe-dash node dist/cli.js doctor
+# Backup: copy the encrypted stores with a SHA-256 manifest to data/backups/fengsui-backup-<time>/ (fine while running)
+sudo docker exec cpe-dash node dist/cli.js backup
+
+# The next two take the data-directory lock: stop the daemon first
+sudo docker compose stop cpe-dash
+# Restore: checks the manifest and the current key before writing; replaced files are kept as *.before-restore-<time>
+sudo docker compose run --rm cpe-dash node dist/cli.js restore /app/data/backups/fengsui-backup-<time>
+# Rotate the data key: set the new DATA_ENCRYPTION_KEY in .env, then type the old key (kept out of shell history).
+# Files moved aside as *.unreadable-* after a key mismatch at startup are opened with the old key and put back too
+read -rs OLD && printf '%s' "$OLD" | sudo docker compose run --rm -T cpe-dash node dist/cli.js rekey --old-key-stdin
+sudo docker compose start cpe-dash
+```
 
 ### Reverse Proxy & Tailscale
 

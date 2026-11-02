@@ -9,6 +9,7 @@ import type { CpeControlService } from "./cpe-controls.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { type FileLockHandle, StorageCipher, quarantinedSince, tryAcquireFileLock } from "./encrypted-file.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
+import { backupDataDir, formatDoctorReport, rekeyDataDir, restoreDataDir, runDoctor } from "./maintenance.ts";
 import { AccessControlMcpTools } from "./mcp-access-tools.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
 import { McpStdioBridge } from "./mcp-stdio-bridge.ts";
@@ -29,11 +30,17 @@ import { EncryptedStateStore } from "./state-store.ts";
 import { TimeSeriesRingBuffer } from "./timeseries.ts";
 import type { AppConfig } from "./types.ts";
 
-export type CliMode = "serve" | "mcp" | "help";
+export type CliMode = "serve" | "mcp" | "doctor" | "backup" | "restore" | "rekey" | "help";
 
 export interface ParsedCliCommand {
   mode: CliMode;
   envPath?: string;
+  /** `backup --out <dir>` */
+  outDir?: string;
+  /** `restore <backup dir>` */
+  target?: string;
+  /** `rekey --old-key-stdin`: read the previous DATA_ENCRYPTION_KEY from stdin instead of FENGSUI_OLD_DATA_KEY. */
+  oldKeyStdin?: boolean;
   /** Notices for the user (e.g. deprecated flags), printed to stderr. */
   warnings: string[];
 }
@@ -42,6 +49,9 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
   const args = argv.slice(2);
   let mode: CliMode = "serve";
   let envPath: string | undefined;
+  let outDir: string | undefined;
+  let target: string | undefined;
+  let oldKeyStdin = false;
   const warnings: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -53,8 +63,21 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
       mode = "serve";
       continue;
     }
-    if (arg === "mcp") {
-      mode = "mcp";
+    if (arg === "mcp" || arg === "doctor" || arg === "backup" || arg === "restore" || arg === "rekey") {
+      mode = arg;
+      continue;
+    }
+    if (arg === "--out" && mode === "backup" && typeof args[i + 1] === "string") {
+      outDir = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg === "--old-key-stdin" && mode === "rekey") {
+      oldKeyStdin = true;
+      continue;
+    }
+    if (mode === "restore" && target === undefined && !arg.startsWith("-")) {
+      target = arg;
       continue;
     }
     if (arg === "--poll") {
@@ -74,8 +97,9 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
     }
     throw new Error(`Unknown CLI argument "${arg}". Run with --help for usage.`);
   }
+  if (mode === "restore" && target === undefined) throw new Error('"restore" needs the backup directory: cpe-dash restore <dir>');
 
-  return { mode, envPath, warnings };
+  return { mode, envPath, warnings, ...(outDir ? { outDir } : {}), ...(target ? { target } : {}), ...(oldKeyStdin ? { oldKeyStdin } : {}) };
 }
 
 /** A second daemon on the same data directory would run its own CPE scheduler next to ours. */
@@ -550,6 +574,11 @@ export function formatCliHelp(): string {
     "Usage:",
     "  cpe-dash [serve] [--env <path>]   Start the daemon: Web dashboard, REST API, SSE and HTTP MCP (/mcp)",
     "  cpe-dash mcp [--env <path>]       Stdio MCP bridge for local agents, forwarding to the daemon's /mcp",
+    "  cpe-dash doctor [--env <path>]    Offline self-check: config, data directory, stores, running daemon",
+    "  cpe-dash backup [--out <dir>]     Copy the encrypted stores with a checksum manifest (daemon may run)",
+    "  cpe-dash restore <dir>            Put a backup back (daemon stopped; replaced files are kept)",
+    "  cpe-dash rekey [--old-key-stdin]  Re-encrypt under the current DATA_ENCRYPTION_KEY and recover copies",
+    "                                    moved aside after a key change (old key: FENGSUI_OLD_DATA_KEY or stdin)",
     "  cpe-dash --help                   Show this help message",
     "",
     "Only the serve daemon talks to the CPE (one admin session, one breaker). The stdio bridge keeps no",
@@ -569,6 +598,56 @@ function redirectConsoleToStderrForStdioMcp(): void {
   console.warn = writeStderr;
 }
 
+/** First line of a stream (the old key piped into `rekey --old-key-stdin`). */
+async function readFirstLine(input: AsyncIterable<Buffer | string>): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of input) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8").split(/\r?\n/)[0]?.trim() ?? "";
+}
+
+/** `doctor` / `backup` / `restore` / `rekey`; resolves the exit code. None of them talks to the CPE. */
+export async function runMaintenance(
+  cmd: ParsedCliCommand,
+  write: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
+  stdin: AsyncIterable<Buffer | string> = process.stdin
+): Promise<number> {
+  let config: AppConfig;
+  try {
+    config = loadConfig({ envPath: cmd.envPath });
+  } catch (err) {
+    write(`✗ configuration: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+  try {
+    if (cmd.mode === "doctor") {
+      const checks = await runDoctor(config, { notices: startupNotices(config) });
+      write(formatDoctorReport(checks));
+      return checks.some((c) => c.level === "error") ? 1 : 0;
+    }
+    if (cmd.mode === "backup") {
+      const { dir, manifest } = backupDataDir(config, { outDir: cmd.outDir });
+      write(`Backed up ${manifest.files.map((f) => f.name).join(", ") || "nothing (no data yet)"} to ${dir}`);
+      return 0;
+    }
+    if (cmd.mode === "restore") {
+      const { restored, movedAside } = restoreDataDir(config, cmd.target ?? "");
+      write(`Restored ${restored.join(", ")}${movedAside.length > 0 ? `; previous files kept as ${movedAside.join(", ")}` : ""}`);
+      return 0;
+    }
+    const oldKey = cmd.oldKeyStdin ? await readFirstLine(stdin) : (process.env["FENGSUI_OLD_DATA_KEY"] ?? "");
+    if (!oldKey) {
+      write("✗ rekey needs the previous DATA_ENCRYPTION_KEY (or the old CPE_PASSWORD if it was unset): set FENGSUI_OLD_DATA_KEY or pipe it with --old-key-stdin");
+      return 1;
+    }
+    const results = rekeyDataDir(config, oldKey);
+    for (const r of results) write(`${r.action === "not-decryptable" ? "✗" : "✓"} ${r.name}: ${r.action}${r.source ? ` (from ${r.source})` : ""}`);
+    return results.some((r) => r.action === "not-decryptable") ? 1 : 0;
+  } catch (err) {
+    write(`✗ ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+}
+
 export async function runCli(argv: ReadonlyArray<string> = process.argv): Promise<void> {
   const cmd = parseCliCommand(argv);
 
@@ -582,6 +661,11 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   if (cmd.mode === "mcp") {
     redirectConsoleToStderrForStdioMcp();
     await runStdioBridge(loadConfig({ envPath: cmd.envPath }));
+    return;
+  }
+
+  if (cmd.mode === "doctor" || cmd.mode === "backup" || cmd.mode === "restore" || cmd.mode === "rekey") {
+    process.exitCode = await runMaintenance(cmd);
     return;
   }
 

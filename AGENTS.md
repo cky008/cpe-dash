@@ -44,6 +44,7 @@ cpe-dash/
 │   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者，挂载于 /mcp；mcp-core-tools.ts 核心 13 项工具、mcp-access-tools.ts 访问控制工具、mcp-tool-provider.ts 提供者契约、mcp-headers.ts 2026-07-28 路由头）
 │   ├── mcp-stdio-bridge.ts # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不连接 CPE）
 │   ├── cli.ts              # serve 守护进程（数据目录锁、运行时装配与有序启停）与 mcp 桥接入口
+│   ├── maintenance.ts      # cpe-dash doctor / backup / restore / rekey：离线自检、加密备份与恢复、换密钥与找回被隔离的数据（不连接 CPE）
 │   ├── peer-guard.ts       # 跨主机重复守护进程保护：scrypt 派生密钥签名的 UDP 广播信标，较晚启动者待机
 │   ├── json-safe.ts · http-body.ts · text-sanitize.ts · i18n.ts · version.ts  # 无原型 JSON 解析、有界读取响应体、控制字符清理、后端中英词典（locales/*.json）、版本号
 │   ├── api-contract.ts     # REST / SSE 载荷类型（服务端以 satisfies 校验，Web 前端直接复用）

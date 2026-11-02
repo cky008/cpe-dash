@@ -309,7 +309,7 @@ npm run probe:sms         # 只输出短信计数与耗时（不发送、不标�
 | 端口 | 容器内固定 `18384`，宿主机端口取 `.env` 的 `WEB_PORT`（默认 `18384`） |
 | 数据 | `./data:/app/data`：状态、短信镜像、通讯录全部加密落盘；`./.env` 只读挂载（`reset-breaker` 会重新读取） |
 | 用户 | `user: "${PUID}:${PGID}"`，填 `data/` 与 `.env` 的属主 |
-| 加固 | 只读根文件系统 + `tmpfs /tmp`、`cap_drop: ALL`、`no-new-privileges`、`init`、15 秒停机宽限、日志轮转 |
+| 加固 | 只读根文件系统 + `tmpfs /tmp`、`cap_drop: ALL`、`no-new-privileges`、`init`、内存 1 GiB 与进程数 256 上限、15 秒停机宽限、日志轮转；基础镜像按摘要固定，GHCR 镜像附构建出处证明与 SBOM |
 
 ### 群晖 Container Manager（DSM 7.2+）
 
@@ -336,6 +336,26 @@ sudo docker compose down             # SIGTERM：在途会话登出、加密状�
 ```
 
 > **只运行一个实例**：一台路由器只能由一个守护进程管理（它独占管理员会话与 Telegram 机器人令牌）。启动前请停掉其他 cpe-dash / 旧 cpe-sms 实例。跨主机重复实例保护依赖局域网 UDP 广播（`18385`），Docker 桥接网络不转发广播；如需启用，请在 compose 中改用 `network_mode: host` 并移除 `ports:`。
+
+### 自检、备份与换密钥
+
+这些命令都不连接路由器：
+
+```bash
+# 自检：配置、数据目录权限、守护进程、每个加密文件能否用当前密钥解开（运行中也可执行）
+sudo docker exec cpe-dash node dist/cli.js doctor
+# 备份：把加密文件连同 SHA-256 清单复制到 data/backups/fengsui-backup-<时间>/（运行中也可执行）
+sudo docker exec cpe-dash node dist/cli.js backup
+
+# 以下两项要先停止守护进程（它们会获取数据目录锁）
+sudo docker compose stop cpe-dash
+# 恢复备份：校验清单与当前密钥后才写入，被替换的文件保留为 *.before-restore-<时间>
+sudo docker compose run --rm cpe-dash node dist/cli.js restore /app/data/backups/fengsui-backup-<时间>
+# 换主密钥：先把 .env 的 DATA_ENCRYPTION_KEY 改成新值，再输入旧密钥（不进命令历史）。
+# 启动时因密钥不对而被隔离的 *.unreadable-* 文件也会用旧密钥解开并放回原处
+read -rs OLD && printf '%s' "$OLD" | sudo docker compose run --rm -T cpe-dash node dist/cli.js rekey --old-key-stdin
+sudo docker compose start cpe-dash
+```
 
 ### 反向代理与 Tailscale
 
