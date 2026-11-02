@@ -2,7 +2,7 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.5.0] — 2026-11-02
 
 ### Added
 - **Settings in the web console** (the gear in the header): Router, Password, Tokens, Telegram, Security and Audit. After an upgrade the guide tests the imported router settings at once and only asks you to confirm them, then points at the password still taken from `.env`. The sign-in page gains a setup-code mode and "Forgot password?", and the agent guide can create a read-only token (90 days) straight into its snippets.
@@ -13,6 +13,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Telegram pairing codes**: `/auth` takes a one-time code (10 minutes) created in the console, or a full-access token; all `/auth` chats can be unlinked from the console.
 - **Audit log** (`GET /api/audit`, encrypted `audit.json`, last 500): every write that reached the router queue, console sign-ins and settings changes, with who (console, a named token, MCP, Telegram, self-healing), the outcome and a masked summary; Bearer readers get the addresses in it masked under `REDACT_SENSITIVE_IN_API`. The caller travels with `AsyncLocalStorage` from the adapter to the scheduler.
 - **`GET /metrics`** for Prometheus / Grafana (off by default; `METRICS_ENABLED` or the console's switch): scheduler, breaker, sessions, signal, carriers, throughput, traffic and SMS gauges from the cached snapshots, any token, no identifiers.
+- The README gallery shows the settings dialog (a router test and the token list); every screenshot was retaken for this version.
 
 ### Changed
 - `reset-breaker` no longer rotates tokens or unlinks Telegram chats when `API_TOKEN` changes in `.env`, and takes the router password from the console; `doctor`, `backup`, `restore` and `rekey` cover `settings.json` and `audit.json`.

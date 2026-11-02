@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.4.2-6E56CF?style=flat-square" alt="Version 1.4.2" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.5.0-6E56CF?style=flat-square" alt="Version 1.5.0" /></a>
   <a href="https://cky008.github.io/fengsui-demo/"><img src="https://img.shields.io/badge/在线演示-打开-c0392b?style=flat-square" alt="在线演示" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
@@ -32,7 +32,7 @@
 - **100% 私有化，零上云**：全部数据只在你的 NAS 上，`AES-256-GCM` 加密落盘；Web 控制台零 CDN、零外链，离线可用。
 - **0 额外硬件成本**：复用现有 NAS 与 CPE 自带的短信能力，不需要短信猫、USB 模块或第二台设备。
 - **生产级容器**：非 root、只读根文件系统、`HEALTHCHECK`、`SIGTERM` 10 秒内优雅停机并释放路由器会话；`linux/amd64`（DS923+）与 `linux/arm64` 双架构。
-- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，437 项离线测试、语句覆盖率 98%。
+- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，460 项离线测试、语句覆盖率 98%。
 
 ---
 
@@ -84,6 +84,10 @@
   <tr>
     <td><img src="docs/screenshots/appearance.webp" alt="外观设置" /><br /><sub><b>外观</b>：14 套主题（cpe-sms 原版、中国传统色、日本传统色、烽燧），白天 / 夜间分别选择，也可自定义</sub></td>
     <td><img src="docs/screenshots/dashboard-dailan.webp" alt="监控大屏（黛蓝主题）" /><br /><sub><b>监控大屏 · 黛蓝</b>：中国传统色里的黛蓝、月白与天青</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/settings-router.webp" alt="设置：路由器连接" /><br /><sub><b>设置 · 路由器</b>：先登录测试再保存，连不上时说明原因与处理办法</sub></td>
+    <td><img src="docs/screenshots/settings-tokens.webp" alt="设置：令牌（极夜主题）" /><br /><sub><b>设置 · 令牌</b>：只读 / 完全控制、可选有效期、随时撤销，旧 API_TOKEN 照常可用</sub></td>
   </tr>
 </table>
 

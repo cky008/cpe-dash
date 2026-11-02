@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.4.2-6E56CF?style=flat-square" alt="Version 1.4.2" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.5.0-6E56CF?style=flat-square" alt="Version 1.5.0" /></a>
   <a href="https://cky008.github.io/fengsui-demo/"><img src="https://img.shields.io/badge/Live_demo-open-c0392b?style=flat-square" alt="Live demo" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
@@ -32,7 +32,7 @@
 - **100% private, zero cloud dependencies**: All data stays on your NAS, encrypted at rest with `AES-256-GCM`; the Web console uses zero CDNs, zero external links, and works completely offline.
 - **Zero additional hardware cost**: Reuses your existing NAS and the CPE's built-in SMS capabilities without requiring SMS modems, USB dongles, or secondary devices.
 - **Production-grade container**: Non-root, read-only root filesystem, `HEALTHCHECK`, graceful shutdown via `SIGTERM` within 10 seconds while releasing router sessions; dual-architecture support for `linux/amd64` (DS923+) and `linux/arm64`.
-- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 437 offline tests with 98% statement coverage.
+- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 460 offline tests with 98% statement coverage.
 
 ---
 
@@ -84,6 +84,10 @@
   <tr>
     <td><img src="docs/screenshots/appearance.webp" alt="Appearance settings" /><br /><sub><b>Appearance</b>: 14 themes (cpe-sms, Chinese and Japanese traditional colours, FengSui), separate day and night picks, or your own</sub></td>
     <td><img src="docs/screenshots/dashboard-dailan.webp" alt="Dashboard (Indigo Ink theme)" /><br /><sub><b>Dashboard · Indigo Ink</b>: the Chinese traditional 黛蓝, 月白 and 天青</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/settings-router.webp" alt="Settings: router connection" /><br /><sub><b>Settings · Router</b>: tried with one login before it is saved; a failure says why and what to do</sub></td>
+    <td><img src="docs/screenshots/settings-tokens.webp" alt="Settings: tokens (Polar Night theme)" /><br /><sub><b>Settings · Tokens</b>: read-only or full access, a chosen lifetime, revocable any time; the old API_TOKEN keeps working</sub></td>
   </tr>
 </table>
 
