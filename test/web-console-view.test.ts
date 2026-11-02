@@ -17,7 +17,7 @@ import {
   tokenState,
 } from "../web/src/core/console-view.ts";
 import { en } from "../web/src/i18n/en.ts";
-import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
+import { SETTINGS_TEXT, type SettingsTextKey } from "../web/src/i18n/settings.ts";
 import { zhCN } from "../web/src/i18n/zh-CN.ts";
 
 const NOW = Date.parse("2026-11-02T10:00:00.000Z");
@@ -29,7 +29,7 @@ function failure(reason: ConnectionFailure["reason"], extra: Partial<ConnectionF
 describe("web core: console settings view", () => {
   it("asks for an explicit confirmation before the router's last login attempt", () => {
     assert.equal(needsLastAttempt(null), false);
-    assert.equal(needsLastAttempt({ ok: true, holdMs: 90, model: "H168-383", firmware: "4.4.0.1" }), false);
+    assert.equal(needsLastAttempt({ ok: true, holdMs: 90, model: "H168-383", firmware: "4.4.0.1", loginScheme: "scram", tokenFlow: "webserver-token", ecc: true }), false);
     assert.equal(needsLastAttempt(failure("last_attempt", { remainCount: 1 })), true);
     assert.equal(needsLastAttempt(failure("wrong_password", { remainCount: 1 })), true);
     assert.equal(needsLastAttempt(failure("wrong_password", { remainCount: 2 })), false);
@@ -38,15 +38,22 @@ describe("web core: console settings view", () => {
   });
 
   it("explains every failed router test in both languages, with what to do next", () => {
-    const reasons: ReadonlyArray<ConnectionFailure["reason"]> = ["invalid_url", "wrong_password", "last_attempt", "locked", "human_logged_in", "unreachable", "standby", "router_error"];
+    const reasons: ReadonlyArray<ConnectionFailure["reason"]> = ["invalid_url", "wrong_password", "last_attempt", "locked", "human_logged_in", "unreachable", "standby", "router_error", "password_change_required", "unsupported_login"];
+    const tEn = (key: SettingsTextKey): string => SETTINGS_TEXT.en[key];
     for (const reason of reasons) {
-      const notice = connectionNotice(failure(reason, { remainCount: 2, waitTimeSec: 90, code: "100003" }));
+      const notice = connectionNotice(failure(reason, { remainCount: 2, waitTimeSec: 90, code: "100003" }), tEn);
       assert.equal(notice.key, `fail_${reason}`);
       assert.equal(notice.tone, reason === "human_logged_in" || reason === "standby" ? "pending" : "danger", reason);
       for (const locale of ["zh-CN", "en"] as const) assert.ok(SETTINGS_TEXT[locale][notice.key].length > 20, `${locale} ${reason}`);
     }
-    const ok: ConnectionTestResult = { ok: true, holdMs: 120, model: null, firmware: "4.4.0.1" };
-    assert.deepEqual(connectionNotice(ok), { key: "ok_result", params: { model: "?", firmware: "4.4.0.1", ms: 120 }, tone: "success" });
+    const ok: ConnectionTestResult = { ok: true, holdMs: 120, model: null, firmware: "4.4.0.1", loginScheme: "scram", tokenFlow: "webserver-token", ecc: true };
+    assert.deepEqual(connectionNotice(ok, tEn), {
+      key: "ok_result",
+      params: { model: "?", firmware: "4.4.0.1", ms: 120, login: "SCRAM", token: "webserver/token", ecc: SETTINGS_TEXT.en.ecc_on },
+      tone: "success",
+    });
+    const legacy = connectionNotice({ ...ok, loginScheme: "sha256", tokenFlow: "sestokinfo", ecc: false }, (key) => SETTINGS_TEXT["zh-CN"][key]);
+    assert.deepEqual([legacy.params["login"], legacy.params["token"], legacy.params["ecc"]], ["SHA-256", "webserver/SesTokInfo", "未启用"]);
     assert.deepEqual(guidanceParams(failure("locked", { waitTimeSec: 61, remainCount: 0, code: "108007" })), { remain: 0, minutes: 2, code: "108007" });
     assert.deepEqual(guidanceParams(failure("locked", { waitTimeSec: 5 })), { remain: "?", minutes: 1, code: "?" });
     assert.deepEqual(guidanceParams(failure("unreachable")), { remain: "?", minutes: "?", code: "?" });

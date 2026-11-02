@@ -5,7 +5,7 @@ import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { ApiError } from "../core/api.ts";
-import { type NoticeTone, auditCaller, connectionNotice, daysLeft, needsLastAttempt, passwordProblem, tokenState } from "../core/console-view.ts";
+import { type NoticeTone, auditCaller, connectionNotice, daysLeft, needsLastAttempt, passwordProblem, tokenFlowText, tokenState } from "../core/console-view.ts";
 import { FEATURE_KEYS, STATE_KEYS, bandText, detectedText, endpointText, loginText, reportFileName, reportJson, verificationNotice } from "../core/device-view.ts";
 import type { ConnectionInput } from "../core/endpoints.ts";
 import { formatAgo } from "../core/format.ts";
@@ -201,7 +201,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     let status: HTMLElement | null = null;
     if (testing) status = notice(t("testing"));
     else if (lastResult) {
-      const n = connectionNotice(lastResult);
+      const n = connectionNotice(lastResult, t);
       status = notice(t(n.key, n.params), n.tone);
     }
     let lastAttempt: HTMLElement | null = null;
@@ -310,6 +310,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           row(t("device_firmware"), id.softwareVersion),
           row(t("device_webui"), id.webUiVersion),
           row(t("device_login"), loginText(id, t)),
+          row(t("device_token_flow"), tokenFlowText(id.tokenFlow, t)),
           row(t("device_encryption"), t(id.ecc ? "ecc_on" : "ecc_off")),
           row(t("device_bands"), bandText(profile.capabilities.lteBands)),
           row(t("device_detected"), detectedText(profile, ctx.now(), ctx.tr.locale, t))

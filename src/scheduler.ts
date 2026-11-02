@@ -9,7 +9,7 @@ import {
 } from "./cpe-client.ts";
 import { CpeLoginMethodError } from "./cpe-auth.ts";
 import { CpeControlValidationError, type PersistedLockState } from "./cpe-domain.ts";
-import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, probeDevice } from "./device-profile.ts";
+import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, type TokenFlow, probeDevice } from "./device-profile.ts";
 import { t } from "./i18n.ts";
 import { getXmlTag } from "./xml.ts";
 import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
@@ -165,10 +165,30 @@ export interface ConnectionCandidate {
 }
 
 export type ConnectionTestResult =
-  | { ok: true; holdMs: number; model: string | null; firmware: string | null }
+  | {
+      ok: true;
+      holdMs: number;
+      model: string | null;
+      firmware: string | null;
+      /** How the test logged in, settled before the password went out. */
+      loginScheme: LoginScheme;
+      tokenFlow: TokenFlow;
+      /** The login offered an ECC key whose signature verified (the encrypted channel). */
+      ecc: boolean;
+    }
   | {
       ok: false;
-      reason: "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "human_logged_in" | "unreachable" | "standby" | "router_error";
+      reason:
+        | "invalid_url"
+        | "wrong_password"
+        | "last_attempt"
+        | "locked"
+        | "password_change_required"
+        | "unsupported_login"
+        | "human_logged_in"
+        | "unreachable"
+        | "standby"
+        | "router_error";
       code: string | null;
       /** Login attempts the router says are left (after a wrong password). */
       remainCount: number | null;
@@ -477,7 +497,13 @@ export class MutexSessionScheduler extends EventEmitter {
         const outcome = await client.withSessionDetailed(
           async (session) => {
             const xml = await session.get("/api/device/information");
-            const identified = { model: getXmlTag(xml, "DeviceName") ?? null, firmware: getXmlTag(xml, "SoftwareVersion") ?? null };
+            const identified = {
+              model: getXmlTag(xml, "DeviceName") ?? null,
+              firmware: getXmlTag(xml, "SoftwareVersion") ?? null,
+              loginScheme: session.loginScheme ?? "unknown",
+              tokenFlow: session.tokenFlow ?? "unknown",
+              ecc: session.eccVerified,
+            };
             return { identified, probe: await probeDevice(session, { nowIso: new Date().toISOString(), origin: "connection-test" }) };
           },
           { retriesOnOccupied: 0 }
@@ -489,10 +515,12 @@ export class MutexSessionScheduler extends EventEmitter {
         const breaker = client.getCircuitBreakerState();
         const message = err instanceof Error ? err.message : String(err);
         if (breaker.tripped && breaker.code === "108007") return failure("locked", message, { code: "108007", waitTimeSec: breaker.waitTime ?? null });
+        if (breaker.tripped && breaker.code === "115002") return failure("password_change_required", message, { code: "115002" });
         if (breaker.tripped) {
           this.#remainingLogins = breaker.remainCount ?? this.#remainingLogins;
           return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });
         }
+        if (err instanceof CpeLoginMethodError) return failure("unsupported_login", message, { code: err.probeCode });
         if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
         return failure("unreachable", message);
       }

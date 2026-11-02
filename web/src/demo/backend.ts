@@ -243,10 +243,18 @@ export class DemoBackend {
         .map((h) => normalizeMac(h.macAddress) ?? h.macAddress)
     );
     backfillHistory(this.#series, this.#base, this.#now(), this.#random);
+    // The login the daemon identified when the seed was taken (an older seed: the demo router's SCRAM with ECC)
+    const identity = this.#device?.profile.profile?.identity;
     this.#console = new DemoConsole({
       now: this.#now,
       random: this.#random,
-      device: { model: this.#telemetry.device.deviceName, firmware: this.#telemetry.device.softwareVersion },
+      device: {
+        model: this.#telemetry.device.deviceName,
+        firmware: this.#telemetry.device.softwareVersion,
+        loginScheme: identity?.loginScheme ?? "scram",
+        tokenFlow: identity?.tokenFlow ?? "webserver-token",
+        ecc: identity?.ecc ?? true,
+      },
     });
     this.#routes = this.#buildRoutes();
   }

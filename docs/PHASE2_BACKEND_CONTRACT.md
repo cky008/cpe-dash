@@ -957,14 +957,26 @@ export interface AccessControlChangeResponse {
 
 ```ts
 export type ConnectionTestResult =
-  | { ok: true; holdMs: number; model: string | null; firmware: string | null }
+  | {
+      ok: true;
+      holdMs: number;
+      model: string | null;
+      firmware: string | null;
+      loginScheme: "scram" | "sha256" | "base64" | "unknown"; // 这次测试怎么登录的（提交密码前已确定，见协议文档附录 A.9）
+      tokenFlow: "webserver-token" | "sestokinfo" | "unknown"; // CSRF 令牌来自哪个接口
+      ecc: boolean;                                            // 登录响应带了签名已验证的 ECC 公钥（加密通道可用）
+    }
   | {
       ok: false;
       // invalid_url：不是私网地址（SSRF 防护）；wrong_password：附 remainCount（路由器剩余尝试次数）；
       // last_attempt：路由器只剩 1 次机会，未带 lastAttempt: true 时不尝试（防止 108007 硬件锁定）；
-      // locked：108007，附 waitTimeSec；human_logged_in：有人正在登录官方后台（不抢占）；
+      // locked：108007，附 waitTimeSec；password_change_required：115002，路由器要求先在它自己的网页改密码（已熔断，不自动重试）；
+      // unsupported_login：password_type 缺失或未知且 SCRAM 挑战被拒，code 为拒绝挑战的错误码（不是挑战的响应时为 null），密码没有发出；
+      // human_logged_in：有人正在登录官方后台（不抢占）；
       // unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理
-      reason: "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "human_logged_in" | "unreachable" | "standby" | "router_error";
+      reason:
+        | "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "password_change_required"
+        | "unsupported_login" | "human_logged_in" | "unreachable" | "standby" | "router_error";
       code: string | null;
       remainCount: number | null;
       waitTimeSec: number | null;

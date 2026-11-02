@@ -1,6 +1,6 @@
-import type { DeviceFeature, DeviceIdentity, DeviceProfile, DeviceReport, EndpointProbe, EndpointState, LoginScheme, ProbeOrigin } from "../../../src/api-contract.ts";
+import type { DeviceFeature, DeviceIdentity, DeviceProfile, DeviceReport, EndpointProbe, EndpointState, ProbeOrigin } from "../../../src/api-contract.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
-import type { NoticeTone } from "./console-view.ts";
+import { type NoticeTone, schemeText } from "./console-view.ts";
 import { formatAgo } from "./format.ts";
 import type { Locale } from "./i18n.ts";
 
@@ -35,13 +35,6 @@ export const STATE_KEYS: Readonly<Record<EndpointState, SettingsTextKey>> = {
   unknown: "state_unknown",
 };
 
-const LOGIN_KEYS: Readonly<Record<LoginScheme, SettingsTextKey>> = {
-  scram: "login_scram",
-  sha256: "login_sha256",
-  base64: "login_base64",
-  unknown: "login_unknown",
-};
-
 const ORIGIN_KEYS: Readonly<Record<ProbeOrigin, SettingsTextKey>> = {
   startup: "origin_startup",
   "connection-test": "origin_connection_test",
@@ -70,7 +63,7 @@ export function verificationNotice(
 
 /** The login scheme, with the `password_type` the router reported. */
 export function loginText(identity: DeviceIdentity, t: Text): string {
-  const scheme = t(LOGIN_KEYS[identity.loginScheme]);
+  const scheme = schemeText(identity.loginScheme, t);
   return identity.passwordType === null ? scheme : t("login_with_type", { scheme, type: identity.passwordType });
 }
 

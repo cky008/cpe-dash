@@ -64,8 +64,8 @@ function normalizedUrl(raw: string): string {
 export interface DemoConsoleOptions {
   now: () => number;
   random: () => number;
-  /** What a connection test reports back (the demo router's own model and firmware). */
-  device: { model: string; firmware: string };
+  /** What a connection test reports back: the demo router's own model, firmware and login. */
+  device: Pick<Extract<ConnectionTestResult, { ok: true }>, "model" | "firmware" | "loginScheme" | "tokenFlow" | "ecc">;
 }
 
 /**
@@ -76,7 +76,7 @@ export interface DemoConsoleOptions {
 export class DemoConsole {
   readonly #now: () => number;
   readonly #random: () => number;
-  readonly #device: { model: string; firmware: string };
+  readonly #device: DemoConsoleOptions["device"];
   readonly #audit: AuditEntry[] = [];
   #cpe = { url: "http://192.168.8.1", username: "admin" };
   #loginChangedAtIso: string;
@@ -128,7 +128,7 @@ export class DemoConsole {
   test(body: Body): ConnectionTestResult {
     const problem = urlProblem(this.#candidate(body).url);
     if (problem) return { ok: false, reason: "invalid_url", code: null, remainCount: null, waitTimeSec: null, message: problem };
-    return { ok: true, holdMs: 80 + Math.round(this.#random() * 160), model: this.#device.model, firmware: this.#device.firmware };
+    return { ok: true, holdMs: 80 + Math.round(this.#random() * 160), ...this.#device };
   }
 
   save(body: Body): SaveConnectionResponse {

@@ -66,6 +66,8 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "banner.breaker_locked": "The router has locked the admin account (unlocks in about {wait}s).",
   "banner.breaker_fix_password": "To recover: enter the right password under Settings → Router and save. It is tried with one login first and clears the breaker when it works.",
   "banner.breaker_fix_lock": "To recover: wait for the lock to expire, then press “Reset breaker”.",
+  "banner.breaker_password_change": "The router wants its admin password changed first. To avoid a lockout the daemon has stopped every automatic login.",
+  "banner.breaker_fix_password_change": "To recover: sign in to the router's own web page, change the password as asked and sign out, then enter the new one under Settings → Router and save.",
   "banner.breaker_reset": "Reset breaker",
   "banner.breaker_open_settings": "Fix the router password",
   "banner.breaker_reset_ok": "Breaker reset; the next sample logs in again",

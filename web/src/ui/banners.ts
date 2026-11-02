@@ -5,6 +5,8 @@ import { type Child, byId, h, icon, mount } from "./dom.ts";
 type BannerTone = "warn" | "danger" | "info";
 
 const WRONG_PASSWORD_CODES = new Set(["108006", "108002", "108001"]);
+/** Latches fixed by a new password in Settings → Router (a reset alone is refused): wrong, or to be changed first. */
+const NEW_PASSWORD_CODES = new Set([...WRONG_PASSWORD_CODES, "115002"]);
 
 function banner(tone: BannerTone, iconName: string, title: string, lines: ReadonlyArray<string>, action: Child = null, breathe = false): HTMLElement {
   return h(
@@ -54,13 +56,15 @@ export function mountBanners(ctx: AppContext, opts: { reconnectNow(): void; refr
         lines.push(ctx.t("banner.breaker_locked", { wait: breaker.waitTime ?? "?" }), ctx.t("banner.breaker_fix_lock"));
       } else if (WRONG_PASSWORD_CODES.has(code)) {
         lines.push(ctx.t("banner.breaker_wrong_password", { remain: breaker.remainCount ?? "?" }), ctx.t("banner.breaker_fix_password"));
+      } else if (code === "115002") {
+        lines.push(ctx.t("banner.breaker_password_change"), ctx.t("banner.breaker_fix_password_change"));
       } else {
         if (breaker.reason) lines.push(breaker.reason);
         lines.push(ctx.t("banner.breaker_fix_password"));
       }
       if (breaker.trippedAtIso) lines.push(ctx.t("banner.since", { time: formatClock(Date.parse(breaker.trippedAtIso), true) }));
       // A wrong password is fixed in the settings, whose tested save clears the breaker; a reset alone is refused
-      const action = WRONG_PASSWORD_CODES.has(code)
+      const action = NEW_PASSWORD_CODES.has(code)
         ? h("button", { class: "btn btn-error btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" }, data: { action: "open-settings" } }, icon("settings"), ctx.t("banner.breaker_open_settings"))
         : h("button", { class: "btn btn-error btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" }, on: { click: (event) => resetBreaker(event.currentTarget as HTMLButtonElement) } }, icon("refresh"), ctx.t("banner.breaker_reset"));
       nodes.push(banner("danger", "shield", ctx.t("banner.breaker_title", { code }), lines, action));

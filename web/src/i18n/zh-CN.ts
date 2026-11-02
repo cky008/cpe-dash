@@ -64,6 +64,8 @@ export const zhCN = {
   "banner.breaker_locked": "路由器已锁定管理账户（约 {wait} 秒后解锁）。",
   "banner.breaker_fix_password": "恢复方法：在「设置 → 路由器」填写正确的密码并保存：会先测试一次登录，成功后自动解除熔断。",
   "banner.breaker_fix_lock": "恢复方法：等待锁定结束后点击「重置熔断器」。",
+  "banner.breaker_password_change": "路由器要求先修改管理密码。为防止锁定，守护进程已停止一切自动登录。",
+  "banner.breaker_fix_password_change": "恢复方法：在浏览器里登录路由器官方网页，按提示改密码并退出，再到「设置 → 路由器」填写新密码并保存。",
   "banner.breaker_reset": "重置熔断器",
   "banner.breaker_open_settings": "修正路由器密码",
   "banner.breaker_reset_ok": "熔断器已复位，下一轮采集将重新登录",

@@ -12,6 +12,7 @@ import {
   reportJson,
   verificationNotice,
 } from "../web/src/core/device-view.ts";
+import { schemeText, tokenFlowText } from "../web/src/core/console-view.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../web/src/i18n/settings.ts";
 
 const NOW = Date.parse("2026-11-02T10:00:00.000Z");
@@ -68,6 +69,12 @@ describe("web core: device view", () => {
     assert.equal(loginText(profile().identity, en), "SCRAM · password_type 4");
     assert.equal(loginText(profile({ loginScheme: "unknown", passwordType: null }).identity, en), SETTINGS_TEXT.en.login_unknown);
     assert.equal(loginText(profile({ loginScheme: "sha256" }).identity, zh), "SHA-256 · password_type 4");
+    assert.deepEqual(
+      (["webserver-token", "sestokinfo", "unknown"] as const).map((flow) => tokenFlowText(flow, zh)),
+      ["webserver/token", "webserver/SesTokInfo", SETTINGS_TEXT["zh-CN"].token_flow_unknown],
+      "where the tokens came from"
+    );
+    assert.equal(schemeText("base64", en), "Base64");
     assert.match(detectedText(profile(), NOW, "zh-CN", zh), /3 分钟前/);
     assert.match(detectedText({ ...profile(), origin: "connection-test" }, NOW, "en", en), /3m ago/);
     assert.notEqual(detectedText(profile(), NOW, "en", en), detectedText({ ...profile(), origin: "connection-test" }, NOW, "en", en));

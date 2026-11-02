@@ -204,7 +204,7 @@ describe("login methods and token flows (mock family)", () => {
     await odd.cleanup();
   });
 
-  it("tests a connection with each method and identifies how it logged in", async () => {
+  it("tests a connection with each method: model, login method, token flow and encryption in the result", async () => {
     for (const login of FAMILY_LOGINS) {
       for (const tokenFlow of FAMILY_TOKEN_FLOWS) {
         const label = `${login} × ${tokenFlow}`;
@@ -212,13 +212,31 @@ describe("login methods and token flows (mock family)", () => {
         const fx = coreFixture(cpe);
         try {
           const { result, probe } = await fx.core.scheduler.testConnectionDetailed(fx.good);
-          assert.deepEqual(result.ok ? [result.model, result.firmware] : result, ["H122-373", "10.0.2.1(H195SP3C983)"], label);
+          assert.deepEqual(result.ok ? { ...result, holdMs: 0 } : result, {
+            ok: true,
+            holdMs: 0,
+            model: "H122-373",
+            firmware: "10.0.2.1(H195SP3C983)",
+            loginScheme: SCHEME[login],
+            tokenFlow: FLOW[tokenFlow],
+            ecc: login === "scram-ecc",
+          }, label);
           assert.deepEqual([probe?.identity.loginScheme, probe?.identity.tokenFlow, probe?.identity.ecc], [SCHEME[login], FLOW[tokenFlow], login === "scram-ecc"], label);
           assert.deepEqual([cpe.stats.passwordSubmissions, cpe.isSlotTaken()], [1, false], label);
         } finally {
           await fx.cleanup();
         }
       }
+    }
+    const unknown = createCpeFamily({ login: "base64", tokenFlow: "token", passwordType: null });
+    const fx = coreFixture(unknown);
+    try {
+      const result = await fx.core.scheduler.testConnection(fx.good);
+      assert.deepEqual(result.ok ? null : [result.reason, result.code], ["unsupported_login", "100002"]);
+      assert.match(result.ok ? "" : result.message, /no password was sent/);
+      assert.equal(unknown.stats.passwordSubmissions, 0);
+    } finally {
+      await fx.cleanup();
     }
   });
 
@@ -251,11 +269,13 @@ describe("login methods and token flows (mock family)", () => {
     }
   });
 
-  it("latches on 115002 (the router wants its password changed)", async () => {
+  it("latches on 115002 (the router wants its password changed) and names it", async () => {
     const cpe = createCpeFamily({ login: "base64", tokenFlow: "token" });
     const fetchImpl = answerWith(cpe, "/api/user/login", () => "<error><code>115002</code><message></message></error>");
     const fx = coreFixture({ fetchImpl, password: cpe.password });
     try {
+      const result = await fx.core.scheduler.testConnection(fx.good);
+      assert.deepEqual(result.ok ? null : [result.reason, result.code], ["password_change_required", "115002"]);
       await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CircuitBreakerOpenError && err.code === "115002");
       const sent = cpe.stats.requests.length;
       assert.equal(await fx.core.monitor.refreshTelemetry(), null);
