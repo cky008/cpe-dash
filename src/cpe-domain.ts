@@ -790,6 +790,41 @@ export async function applyBandLock(
   };
 }
 
+/** The router's LTE mask as a lock value: every supported band (or the auto mask) reads as `"all"`. */
+function lteLockOf(routerLteBands: ReadonlyArray<number> | null): number[] | "all" {
+  if (!routerLteBands || H168_383_LTE_BANDS.every((band) => routerLteBands.includes(band))) return "all";
+  const supported = routerLteBands.filter((band) => H168_383_LTE_BANDS.includes(band));
+  return supported.length > 0 ? supported : "all";
+}
+
+/**
+ * The lock state after a band lock. `applied` records only what the command wrote, but the router
+ * keeps whatever it did not touch: `POST /api/net/net-mode` (the LTE mask) is sent only with
+ * `lteBands`, and `POST /api/net/lock-freq` (NR bands and any cell or frequency lock) only with
+ * `nrBands`. A RAT the command left out therefore keeps its earlier lock. `routerLteBands` (the mask
+ * telemetry reads back) stands in for the LTE mask when the previous state was a cell lock.
+ */
+export function mergeBandLockState(
+  previous: PersistedLockState,
+  command: Pick<BandLockCommand, "lteBands" | "nrBands">,
+  applied: PersistedLockState,
+  routerLteBands: ReadonlyArray<number> | null
+): PersistedLockState {
+  const lockFreqWritten = command.nrBands !== undefined;
+  // lock-freq still holds the cell or frequency lock; only the LTE mask moved
+  if (!lockFreqWritten && previous.mode === "cell_lock") return { ...previous, updatedAtIso: applied.updatedAtIso };
+  const lteBands =
+    command.lteBands !== undefined ? applied.lteBands : previous.mode === "cell_lock" ? lteLockOf(routerLteBands) : previous.lteBands;
+  const nrBands = lockFreqWritten ? applied.nrBands : previous.mode === "band_lock" ? previous.nrBands : [];
+  return {
+    mode: lteBands === "all" && nrBands.length === 0 ? "unlocked" : "band_lock",
+    updatedAtIso: applied.updatedAtIso,
+    lteBands,
+    nrBands,
+    cellLock: null,
+  };
+}
+
 /**
  * Lock a specific 4G LTE or 5G NR physical cell (`PCI + ARFCN`, `lock_mode=2`) or carrier frequency (`lock_mode=1`).
  */

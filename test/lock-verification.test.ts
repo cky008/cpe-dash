@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import { AlertEngine } from "../src/alert-engine.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { type GlobalTelemetrySnapshot, type PersistedLockState, verifyLockState } from "../src/cpe-domain.ts";
+import { type GlobalTelemetrySnapshot, type PersistedLockState, mergeBandLockState, verifyLockState } from "../src/cpe-domain.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
@@ -117,6 +117,56 @@ describe("lockState reconciliation against what the router reports", () => {
       const content = (res.result as { structuredContent: { lockVerification: { status: string; issues: string[] } } }).structuredContent;
       assert.equal(content.lockVerification.status, "drift", "the strict router still enables all 14 LTE bands");
       assert.match(content.lockVerification.issues[0] ?? "", /differ from the applied lock \(B1, B3\)/);
+    } finally {
+      await stopFengSuiCore(core);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the other RAT's lock when a band lock names only one RAT (no false drift, no forgotten lock)", async () => {
+    const b1b3 = await snapshot({ lteBandHex: "5" });
+    const now = new Date(b1b3.capturedAtMs - 3_600_000).toISOString();
+    // LTE locked to B1+B3 earlier; now only NR is locked: net-mode is not written, so LTE stays B1+B3
+    const lteLocked = lock({ mode: "band_lock", lteBands: [1, 3] });
+    const nrOnly = mergeBandLockState(lteLocked, { nrBands: ["N78"] }, lock({ mode: "band_lock", lteBands: "all", nrBands: [78], updatedAtIso: now }), [1, 3]);
+    assert.deepEqual([nrOnly.mode, nrOnly.lteBands, nrOnly.nrBands], ["band_lock", [1, 3], [78]]);
+    assert.equal(verifyLockState(nrOnly, b1b3).status, "consistent", "the router really enables only B1+B3");
+    // NR locked to N78 earlier; now only LTE is locked: lock-freq is not written, so the NR lock stays
+    const nrLocked = lock({ mode: "band_lock", nrBands: [78] });
+    const lteOnly = mergeBandLockState(nrLocked, { lteBands: ["B1", "B3"] }, lock({ mode: "band_lock", lteBands: [1, 3], updatedAtIso: now }), [1, 3]);
+    assert.deepEqual([lteOnly.mode, lteOnly.lteBands, lteOnly.nrBands], ["band_lock", [1, 3], [78]]);
+    // A cell lock lives in lock-freq too: an LTE-only band lock leaves it in force
+    const cell = lock({ mode: "cell_lock", lteBands: [1], cellLock: { rat: "LTE", band: 1, arfcn: 100, pci: 357 } });
+    const keepsCell = mergeBandLockState(cell, { lteBands: ["B1", "B3"] }, lock({ mode: "band_lock", lteBands: [1, 3], updatedAtIso: now }), [1, 3]);
+    assert.deepEqual([keepsCell.mode, keepsCell.cellLock], ["cell_lock", cell.cellLock]);
+    assert.equal(keepsCell.updatedAtIso, now);
+    // An NR band lock rewrites lock-freq (LTE part unlocked), so it ends the cell lock; LTE keeps the router's mask
+    const endsCell = mergeBandLockState(cell, { nrBands: ["N78"] }, lock({ mode: "band_lock", nrBands: [78], updatedAtIso: now }), [1, 3]);
+    assert.deepEqual([endsCell.mode, endsCell.lteBands, endsCell.nrBands, endsCell.cellLock], ["band_lock", [1, 3], [78], null]);
+    // NR "all" clears lock-freq; with LTE unlocked too, everything is unlocked
+    const unlocked = mergeBandLockState(nrLocked, { nrBands: "all" }, lock({ mode: "unlocked", updatedAtIso: now }), null);
+    assert.deepEqual([unlocked.mode, unlocked.lteBands, unlocked.nrBands], ["unlocked", "all", []]);
+    // Full commands are recorded as given
+    const both = mergeBandLockState(nrLocked, { lteBands: "all", nrBands: "all" }, lock({ mode: "unlocked", updatedAtIso: now }), [1, 3]);
+    assert.deepEqual([both.mode, both.lteBands, both.nrBands], ["unlocked", "all", []]);
+  });
+
+  it("records a one-RAT band lock on top of the lock already in force (controls service)", async () => {
+    const cpe = createStrictCpe();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-lockmerge-"));
+    const core = createFengSuiCore({
+      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockmerge_key" }),
+      timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
+    });
+    core.monitor.init();
+    try {
+      await core.controls.lockBands({ lteBands: ["B1", "B3"], nrBands: "all" });
+      const nrOnly = await core.controls.lockBands({ nrBands: ["N78"] });
+      assert.deepEqual([nrOnly.mode, nrOnly.lteBands, nrOnly.nrBands], ["band_lock", [1, 3], [78]]);
+      assert.deepEqual(core.controls.getPersistedLockState(), nrOnly);
+      const netModeWrites = cpe.stats.writes.filter((w) => w.path === "/api/net/net-mode").length;
+      assert.equal(netModeWrites, 1, "the NR-only lock did not touch the LTE mask");
     } finally {
       await stopFengSuiCore(core);
       fs.rmSync(dir, { recursive: true, force: true });

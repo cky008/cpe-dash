@@ -16,6 +16,7 @@ import {
   type SecurityUpdateCommand,
   applyBandLock,
   applyCellLock,
+  mergeBandLockState,
   prepareBandLockPayloads,
   prepareCellLockPayload,
   rebootCpe,
@@ -84,7 +85,13 @@ export class CpeControlService {
     prepareBandLockPayloads(command);
     return await this.scheduler.executeControl(
       "lock_band",
-      (session) => applyBandLock(session, command),
+      async (session) => {
+        // Read inside the queued session: a lock queued before this one may have just changed it
+        const previous = this.getPersistedLockState();
+        const telemetry = this.monitor.getCachedTelemetry();
+        const routerLteBands = telemetry?.bandConfig.lteBandHex ? telemetry.bandConfig.activeLteBands : null;
+        return mergeBandLockState(previous, command, await applyBandLock(session, command), routerLteBands);
+      },
       (state) => {
         const summaryText = `LTE=${JSON.stringify(state.lteBands)}, NR=${JSON.stringify(state.nrBands)}`;
         return this.#commitLockState(state, {

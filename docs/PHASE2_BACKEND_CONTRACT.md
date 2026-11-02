@@ -222,6 +222,8 @@ export interface SchedulerStatusSnapshot {
 /**
  * 「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。H168-383 不支持 GET /api/net/lock-freq，
  * 因此本字段不会因官方后台的修改而自动更新；它与路由器实际状态的对账结果见 LockVerification。
+ * 锁频段只给出一个制式时，另一制式保持原有锁定：LTE 掩码只经 net-mode 写入（lteBands），NR 频段与锁小区只经
+ * lock-freq 写入（nrBands），未写入的部分不变；只给 lteBands 时已有的锁小区继续生效（mode 仍为 cell_lock）。
  */
 export interface PersistedLockState {
   mode: "unlocked" | "band_lock" | "cell_lock";
