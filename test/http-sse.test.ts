@@ -36,6 +36,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import type { AppConfig } from "../src/types.ts";
 import { getXmlTag } from "../src/xml.ts";
+import { consoleSettingsFor } from "./helpers/console-settings.ts";
 
 function rawHttpRequest(opts: {
   host: string;
@@ -356,6 +357,7 @@ async function createTestHttpServer(opts: {
     sseBus,
     mcpServer,
     envPath,
+    settings: consoleSettingsFor(config),
   });
 
   const bound = await server.listen();
@@ -1841,37 +1843,40 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const latchedRead = await fetch(`${fx.baseUrl}/api/telemetry/refresh`, { method: "POST", headers: authHeaders, body: "{}" });
       assert.equal(latchedRead.status, 200);
 
-      // 8. Updating CPE_PASSWORD + API_TOKEN in .env clears 108006 latch AND revokes existing sessions & SSE streams
-      const sseRes = await fetch(`${fx.baseUrl}/api/events`, {
-        headers: { Authorization: `Bearer ${fx.apiToken}` },
+      // 8. The router password is fixed in the console, not in .env. A Bearer token may not touch it; a
+      //    console session proves the new password with one test login, which also clears the latch.
+      const viaToken = await fetch(`${fx.baseUrl}/api/console/cpe`, { method: "POST", headers: authHeaders, body: JSON.stringify({ url: "http://192.168.8.1", password: "x" }) });
+      assert.equal(viaToken.status, 403);
+      assert.equal(((await viaToken.json()) as { errorCode: string }).errorCode, "CONSOLE_ONLY");
+      const consoleHeaders = (cookie: string) => ({ "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: `http://${validHost}`, Cookie: cookie });
+      const consoleLogin = await fetch(`${fx.baseUrl}/api/auth/login`, { method: "POST", headers: consoleHeaders(""), body: JSON.stringify({ password: fx.apiToken }) });
+      assert.equal(consoleLogin.status, 200);
+      const consoleCookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(consoleLogin.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
+      const fixed = await fetch(`${fx.baseUrl}/api/console/cpe`, {
+        method: "POST",
+        headers: consoleHeaders(consoleCookie),
+        body: JSON.stringify({ url: "http://192.168.8.1", username: "admin", password: "sched_test_password" }),
       });
+      assert.equal(fixed.status, 200);
+      assert.equal(fx.scheduler.getStatus().circuitBreaker.tripped, false);
+
+      // A revoked token loses its SSE stream at once; a password change signs the other sessions out
+      const minted = (await (await fetch(`${fx.baseUrl}/api/console/tokens`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify({ name: "dash", scope: "read", lifetimeDays: 7 }) })).json()) as { token: string; record: { id: string } };
+      const sseRes = await fetch(`${fx.baseUrl}/api/events`, { headers: { Authorization: `Bearer ${minted.token}` } });
       assert.equal(sseRes.status, 200);
       assert.equal(fx.sseBus.getClientCount(), 1);
-
-      const updatedEnv = fs
-        .readFileSync(fx.envPath, "utf8")
-        .replace("CPE_PASSWORD=sched_test_password", "CPE_PASSWORD=rotated_cpe_password_2")
-        .replace("API_TOKEN=test_api_token_abc", "API_TOKEN=rotated_api_token_xyz");
-      fs.writeFileSync(fx.envPath, updatedEnv, "utf8");
-
-      const resetRotated = await fetch(`${fx.baseUrl}/api/session/reset-breaker`, {
-        method: "POST",
-        headers: authHeaders,
-        body: "{}",
-      });
-      assert.equal(resetRotated.status, 200);
-      assert.equal(fx.scheduler.getStatus().circuitBreaker.tripped, false);
+      const revoked = await fetch(`${fx.baseUrl}/api/console/tokens/revoke`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify({ id: minted.record.id }) });
+      assert.equal(revoked.status, 200);
       assert.equal(fx.sseBus.getClientCount(), 0);
       await sseRes.body?.cancel().catch(() => undefined);
+      assert.equal((await fetch(`${fx.baseUrl}/api/telemetry`, { headers: { Authorization: `Bearer ${minted.token}` } })).status, 401);
 
-      // Old cookie session from 192.168.8.50 is now revoked (401)
-      const oldCookieAfterRotate = await fetch(`${fx.baseUrl}/api/telemetry`, {
-        headers: {
-          Cookie: `fengsui_sid=${sid}`,
-          "X-Forwarded-For": "192.168.8.50",
-        },
-      });
-      assert.equal(oldCookieAfterRotate.status, 401);
+      const changed = await fetch(`${fx.baseUrl}/api/console/password`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify({ current: fx.apiToken, next: "a new console passphrase" }) });
+      assert.equal(changed.status, 200);
+      // The old cookie session from 192.168.8.50 is signed out; the one that changed the password stays
+      const oldCookieAfterChange = await fetch(`${fx.baseUrl}/api/telemetry`, { headers: { Cookie: `fengsui_sid=${sid}`, "X-Forwarded-For": "192.168.8.50" } });
+      assert.equal(oldCookieAfterChange.status, 401);
+      assert.equal((await fetch(`${fx.baseUrl}/api/console`, { headers: { Cookie: consoleCookie } })).status, 200);
     } finally {
       await fx.cleanup();
     }

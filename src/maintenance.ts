@@ -12,13 +12,13 @@ import { FENGSUI_VERSION } from "./version.ts";
  * they refuse to run next to a live daemon; `doctor` and `backup` only read.
  */
 
-type DataConfig = Pick<AppConfig, "stateFile" | "smsFile" | "contactsFile" | "telegramStateFile" | "dataEncryptionKey">;
+type DataConfig = Pick<AppConfig, "stateFile" | "smsFile" | "contactsFile" | "telegramStateFile" | "settingsFile" | "auditFile" | "dataEncryptionKey">;
 
 export interface DataFileReport {
   name: string;
   path: string;
   status: "missing" | "ok" | "undecryptable" | "too-new";
-  /** The stored format number (`schemaVersion` of state.json, `version` elsewhere). */
+  /** The stored format number (`schemaVersion` of state.json, `format` of settings / audit, `version` elsewhere). */
   format: number | null;
   /** Copies moved aside after a failed decryption (`<name>.unreadable-<ms>`), newest first. */
   quarantined: string[];
@@ -38,12 +38,14 @@ export class DataDirectoryBusyError extends Error {
 }
 
 /** The encrypted stores of a data directory and the format each currently writes. */
-function dataFiles(config: DataConfig): Array<{ path: string; formatKey: "schemaVersion" | "version"; supported: number }> {
+function dataFiles(config: DataConfig): Array<{ path: string; formatKey: "schemaVersion" | "version" | "format"; supported: number }> {
   return [
     { path: config.stateFile, formatKey: "schemaVersion", supported: 1 },
     { path: config.smsFile, formatKey: "version", supported: 1 },
     { path: config.contactsFile, formatKey: "version", supported: 1 },
     { path: config.telegramStateFile, formatKey: "version", supported: 1 },
+    { path: config.settingsFile, formatKey: "format", supported: 1 },
+    { path: config.auditFile, formatKey: "format", supported: 1 },
   ];
 }
 

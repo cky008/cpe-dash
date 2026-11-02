@@ -352,7 +352,7 @@ export class DemoBackend {
     const post = (path: string, h: Handler): void => void routes.set(`POST ${path}`, h);
 
     get("/api/health", () => ({ ...this.#health, uptimeSec: this.#health.uptimeSec + Math.round((this.#now() - this.#startedAtMs) / 1000) }) satisfies HealthResponse);
-    get("/api/auth/status", () => ({ ok: true, authenticated: this.#authenticated, locale: "zh-CN" }) satisfies AuthStatusResponse);
+    get("/api/auth/status", () => ({ ok: true, authenticated: this.#authenticated, locale: "zh-CN", setupRequired: false }) satisfies AuthStatusResponse);
     post("/api/auth/login", async (body) => {
       await this.#wait(LATENCY.read);
       if (typeof body["token"] !== "string" || !body["token"]) throw new DemoHttpError(401, "UNAUTHORIZED", "Invalid API token");

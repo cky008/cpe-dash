@@ -384,6 +384,19 @@ container stop cpe-dash && container rm cpe-dash
 
 ---
 
+## 🔐 控制台设置与账号安全
+
+v1.5.0 起，路由器连接、控制台登录密码和 API 令牌都在网页控制台里管理，加密保存在 `data/settings.json`；`.env` 只负责启动参数（`DATA_ENCRYPTION_KEY`、端口、路径等）。
+
+- **全新安装**：`.env` 只需 `DATA_ENCRYPTION_KEY`。启动后在日志里找到一次性设置码（`sudo docker logs cpe-dash` 中的 `setup code`），在登录页用它设置控制台密码，再按引导填写路由器地址、账号和密码。保存前会先做一次登录测试；连不上时会说明原因和处理办法（密码错误并显示剩余次数、路由器已锁定、有人正在登录官方后台、地址不可达等）。保存之前守护进程不会登录路由器。
+- **从旧版本升级**：首次启动时自动导入 `.env` 里的 `CPE_*` 与 `API_TOKEN*`。用原来的 `API_TOKEN` 登录后，引导会预填路由器设置并自动测试，确认即可；原 `API_TOKEN` 继续作为名为 `API_TOKEN (.env)` 的令牌工作，现有 MCP 客户端和脚本不用改。之后 `.env` 里这些值不再生效。
+- **路由器连接**：修改时先测试，成功才保存，并自动解除熔断。路由器只剩最后一次尝试机会时，必须勾选确认才会再试，避免触发 `108007` 硬件锁定。
+- **令牌**：在「设置 → 令牌」生成，分「完全控制」和「只读」两种，有效期可选 1 / 7 / 30 / 90 / 365 天或永不过期。令牌只显示一次，可以随时撤销，撤销后用它打开的 SSE 立即断开。令牌不能修改控制台设置。「接入 AI 智能体」指南可以直接生成只读令牌。
+- **Telegram**：在「设置 → Telegram」生成 10 分钟内有效的一次性绑定码，私聊机器人发送 `/auth 绑定码`；也可以一键解绑所有聊天。
+- **忘记密码**：在 NAS 上执行 `sudo docker exec cpe-dash node dist/cli.js reset-login` 获取 15 分钟内有效的重置码（只有能读取这份 `.env` 的人才拿得到）；或者在已绑定的 Telegram 私聊里发 `/reset`（可在「设置 → 安全」关闭）。在登录页点「忘记密码」，输入重置码并设置新密码，所有会话随之失效。
+- **审计日志**：「设置 → 审计」记录每次写入路由器的操作、控制台登录和每次设置修改：谁（网页、哪个令牌、MCP、Telegram、自愈）、何时、做了什么、结果如何。加密保存最近 500 条。
+- **`/metrics`**：在「设置 → 安全」打开，或在 `.env` 设置 `METRICS_ENABLED=true`，供 Prometheus / Grafana 抓取信号、速率、会话等指标。需要任意一个令牌，不含任何设备标识，抓取不会登录路由器。
+
 ## 🤖 MCP 智能体接入
 
 「烽燧」在守护进程 `/mcp` 上提供 MCP 服务，有两种接入方式，**都不会产生第二个 CPE 会话**：
@@ -552,11 +565,11 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | :--- | :--- | :--- |
 | `CPE_URL` | `http://192.168.8.1` | CPE 管理地址；只允许私网 / 环回 / CGNAT 主机，禁止内嵌凭据、查询串与重定向（防 SSRF） |
 | `CPE_USERNAME` | `admin` | 管理员账号 |
-| `CPE_PASSWORD` | *(必填)* | 管理员密码；`108006` 错误立即触发持久化熔断 |
+| `CPE_PASSWORD` | *(空)* | 管理员密码；`108006` 错误立即触发持久化熔断。v1.5.0 起路由器连接在控制台管理：`CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` 只在首次启动时导入一次，之后以控制台为准；全新安装可以不填，在引导里设置 |
 | `TZ` | `UTC` | IANA 时区（如 `Asia/Shanghai`）；发出短信的 `<Date>` 按此生成，请与 CPE 所在时区一致 |
-| `DATA_ENCRYPTION_KEY` | *(回退 `CPE_PASSWORD`)* | `data/*.json` 落盘加密主密钥（`scrypt` + `HKDF-SHA256` → `AES-256-GCM`），强烈建议独立设置 |
-| `API_TOKEN_READONLY` | *(空，不启用)* | 只读 Bearer 令牌：可读取 REST / SSE、触发只读刷新，在 `/mcp` 上只看得到只读工具；任何写操作返回 `403 READ_ONLY_TOKEN`。适合看板、脚本和 AI 智能体；必须与 `API_TOKEN`、`CPE_PASSWORD` 不同 |
-| `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | Web 登录口令与 REST / `/mcp` Bearer 令牌，建议高熵随机串。未设置时路由器管理密码会出现在 MCP 客户端配置里、并经 Telegram `/auth` 发出，启动时会提示 |
+| `DATA_ENCRYPTION_KEY` | *(回退 `CPE_PASSWORD`)* | `data/*.json` 落盘加密主密钥（`scrypt` + `HKDF-SHA256` → `AES-256-GCM`），强烈建议独立设置；全新安装时这是 `.env` 里唯一必填的值 |
+| `API_TOKEN_READONLY` | *(空，不启用)* | 升级时导入为名为 `API_TOKEN_READONLY (.env)` 的只读令牌；新的令牌请在控制台「设置 → 令牌」生成。必须与 `API_TOKEN`、`CPE_PASSWORD` 不同 |
+| `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | 升级时导入一次：成为控制台登录密码，同时成为名为 `API_TOKEN (.env)` 的完全控制令牌（现有 MCP 客户端与脚本不用改）。之后在控制台改密码、发放和撤销令牌，`.env` 里的值不再生效 |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 可信反向代理 IP / CIDR；只有命中时才解析 `X-Forwarded-For` / `X-Forwarded-Proto` |
 | `ALLOWED_HOSTS` | *(空)* | 额外放行的 `Host`（如 `cpe.example.com`）；私网 IP、`localhost`、`*.local` / `*.lan` / `*.internal` / `*.ts.net` 始终放行 |
 | `WEB_ENABLED` | `true` | 是否启动 HTTP 服务（Web 控制台、REST、SSE 与 `/mcp`）；设为 `false` 时只运行后台采集、短信同步与通知 |
@@ -593,6 +606,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | 信号劣化告警阈值 |
 | `LOCK_ROLLBACK_AFTER_MIN` | `0`（关闭） | 锁定后 WAN 仍断开多少分钟就自动解除全部锁定（`3..1440`） |
 | `WAN_AUTO_RECONNECT_AFTER_MIN` | `0`（关闭） | WAN 断开多少分钟后自动重拨（`1..1440`；之后间隔 10 / 30 / 60 分钟，24 小时内最多 4 次，不重启） |
+| `METRICS_ENABLED` | `false` | 开启 `GET /metrics`（Prometheus 文本格式，需任意令牌）；控制台「设置 → 安全」的开关优先 |
 | `MCP_SMS_ACCESS` | `read` | MCP 短信工具权限：`none` / `read` / `full` |
 | `MCP_SMS_SEND_POLICY` | `known` | `known` 仅限你保存的联系人或曾发过短信的号码（智能体自己用 `upsert_contact` 添加的不算）；`any` 不限制 |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | MCP 每小时发送上限（`0` 禁止） |

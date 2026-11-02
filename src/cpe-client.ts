@@ -581,7 +581,8 @@ function hashCredentialsFingerprint(username: string, password: string): string 
  *   3. Latched & restart-persistent `108006` / `108007` anti-brute-force circuit breaker.
  */
 export class HuaweiCpeClient {
-  readonly baseUrl: string;
+  #baseUrl: string;
+  readonly #allowPublicHost: boolean;
   #username: string;
   #password: string;
   readonly timeoutMs: number;
@@ -600,9 +601,8 @@ export class HuaweiCpeClient {
   #browserYieldCount: number;
 
   constructor(config: HuaweiCpeClientOptions) {
-    this.baseUrl = normalizeCpeUrl(config.cpeUrl, {
-      allowPublicHost: Boolean(config.allowPublicCpeHost),
-    });
+    this.#allowPublicHost = Boolean(config.allowPublicCpeHost);
+    this.#baseUrl = normalizeCpeUrl(config.cpeUrl, { allowPublicHost: this.#allowPublicHost });
     this.#username = config.cpeUsername ?? "admin";
     this.#password = config.cpePassword;
     this.timeoutMs = config.requestTimeoutMs ?? 15000;
@@ -671,6 +671,26 @@ export class HuaweiCpeClient {
     this.#trippedAtIso = saved.trippedAtIso ?? new Date().toISOString();
     this.#trippedPwdFingerprint = saved.passwordFingerprintHex ?? currentFp;
     return true;
+  }
+
+  get baseUrl(): string {
+    return this.#baseUrl;
+  }
+
+  /** The router has credentials to log in with (setup not finished otherwise). */
+  get configured(): boolean {
+    return this.#password !== "";
+  }
+
+  /**
+   * Point the client at a router connection the console just proved (the scheduler only calls this
+   * between sessions) and clear the breaker: the new credentials logged in a moment ago.
+   */
+  reconfigure(next: { cpeUrl: string; cpeUsername: string; cpePassword: string }): void {
+    this.#baseUrl = normalizeCpeUrl(next.cpeUrl, { allowPublicHost: this.#allowPublicHost });
+    this.#username = next.cpeUsername;
+    this.#password = next.cpePassword;
+    this.resetCircuitBreaker();
   }
 
   /**

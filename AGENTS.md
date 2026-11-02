@@ -36,6 +36,10 @@ cpe-dash/
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
 │   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）
 │   ├── firmware.ts         # 已验证的型号 / 固件版本清单与固件核对提示词（未验证版本只告警，不阻止写操作）
+│   ├── console-settings.ts # 控制台管理的加密设置：路由器连接、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码；首次启动从 .env 导入一次
+│   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
+│   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
+│   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照，不含任何设备标识
 │   ├── sms/                # 短信：编解码、号码解析、协议、加密镜像、通讯录、应用服务、REST 路由与 MCP 工具
 │   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
@@ -95,7 +99,8 @@ cpe-dash/
   - 测试与探针**严禁向任何真实号码发送短信**；发送、标记已读、删除仅在注入式 Mock 路由器上验证。
 
 ### 铁律三：纯原生 `.env` 配置规范
-- 所有运行凭证与环境调优参数必须统一通过 [`src/config.ts`](src/config.ts) 从项目根目录 `.env`（及环境变量覆盖）加载，严禁在任何业务逻辑或探针脚本中硬编码密码、IP 或路径，且不引入第三方 `dotenv` 包。
+- 所有启动参数与环境调优参数必须统一通过 [`src/config.ts`](src/config.ts) 从项目根目录 `.env`（及环境变量覆盖）加载，严禁在任何业务逻辑或探针脚本中硬编码密码、IP 或路径，且不引入第三方 `dotenv` 包。
+- v1.5.0 起，路由器连接、控制台登录密码与 API 令牌由控制台管理，加密保存在 `settings.json`（[`src/console-settings.ts`](src/console-settings.ts)）：`.env` 中的 `CPE_*` / `API_TOKEN*` 只在首次启动时导入一次。密码只存 scrypt 哈希、令牌只存 SHA-256；任何令牌都不能修改控制台设置。探针脚本仍从 `.env` 读取路由器凭据。
 
 ### 铁律四：华为单管理员会话排他保护与真人在线避让
 - H168-383 固件严格限制**同一时刻仅允许 1 个管理员会话在线**。若后台守护进程持久霸占会话，用户在浏览器打开 `http://192.168.8.1` 登录时将被迫报错或发生会话抢占。

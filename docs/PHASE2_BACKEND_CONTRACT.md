@@ -23,11 +23,15 @@
    - 登录端点：`POST /api/auth/login`
    - 成功登录后服务端签发 `Set-Cookie: fengsui_sid=<64-hex>; HttpOnly; SameSite=Strict; Path=/; Max-Age=<SESSION_TTL_MS / 1000>`（默认 `86400`；若直连 TLS 或可信反代 `TRUSTED_PROXIES` 传递 `X-Forwarded-Proto: https`，自动追加 `; Secure`）。服务端最多保留 `128` 个活跃会话，超出时淘汰最早签发的会话。
    - 会话绑定至登录时的客户端 IP 桶（IPv4 为精确地址，IPv6 为 `/64` 前缀），跨桶重放 Cookie 将被拒绝（`401`）。
-   - 登录时自动轮换（销毁）旧 `fengsui_sid`，防范会话固定（Session Fixation）；登出（`POST /api/auth/logout`）时同步销毁会话并**立即强制断开该会话名下所有活跃 `/api/events` SSE 长连接**；当通过 `POST /api/session/reset-breaker` 热重载并轮换 `API_TOKEN` 时，所有既有 Cookie 会话与 SSE 流将被立即吊销。
+   - 登录时自动轮换（销毁）旧 `fengsui_sid`，防范会话固定（Session Fixation）；登出（`POST /api/auth/logout`）时同步销毁会话并**立即强制断开该会话名下所有活跃 `/api/events` SSE 长连接**；在控制台修改登录密码时，除当前会话外的所有会话及其 SSE 流立即吊销；用重置码重设密码时全部吊销。
+   - 登录凭据是**控制台密码**（v1.5.0 起）：以 scrypt（`N=2^15, r=8, p=1`）哈希保存在加密的 `settings.json`，校验在线程池中进行，不阻塞事件循环；已被限流的 IP 桶在哈希前即被拒绝。
 2. **自动化脚本与 Streamable HTTP MCP 客户端（Bearer Token）**：
-   - 请求头：`Authorization: Bearer <API_TOKEN>`（服务端采用 `SHA-256` 定长摘要 + `crypto.timingSafeEqual` 常量时间比对）。
+   - 请求头：`Authorization: Bearer <令牌>`。令牌在控制台「设置 → 令牌」生成（`fsk_` 前缀 + 256 位随机数，**只显示一次**），服务端只保存其 SHA-256，按哈希查找；可设有效期（1 / 7 / 30 / 90 / 365 天或永不过期）、随时撤销，并记录最近使用时间。
    - **排他鉴权规则**：一旦请求携带了 `Authorization` 头，服务端**仅**验证 Bearer Token，绝不回退读取 Cookie。`/mcp` 端点只接受 Bearer。
-   - **只读令牌 `API_TOKEN_READONLY`**（可选，默认不启用；必须与 `API_TOKEN`、`CPE_PASSWORD` 不同，否则拒绝启动）：可作为 Bearer 调用全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`、`/api/sms/preview`、`/api/sms/sync`；其余 `POST` 返回 `403 READ_ONLY_TOKEN`。在 `/mcp` 上，所有写工具既不出现在 `tools/list` 中，直接调用也返回 `READ_ONLY_TOKEN`。Web 登录与 Telegram `/auth` 只接受 `API_TOKEN`。比较方式与限流同 `API_TOKEN`；经 `reset-breaker` 更换后，旧令牌的 SSE 连接立即断开。
+   - **两种权限**：`full`（完全控制）与 `read`（只读）。只读令牌可调用全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`、`/api/sms/preview`、`/api/sms/sync`；其余 `POST` 返回 `403 READ_ONLY_TOKEN`。在 `/mcp` 上，所有写工具既不出现在 `tools/list` 中，直接调用也返回 `READ_ONLY_TOKEN`。撤销令牌时，用它打开的 SSE 连接立即断开。
+   - **任何令牌都不能修改控制台设置**：`/api/console/*` 只接受控制台 Cookie 会话，令牌访问返回 `403 CONSOLE_ONLY`（令牌不能改动签发它的凭据）。
+   - **从 `.env` 升级**：首次启动带 `settings.json` 的版本时，`.env` 中的值只导入一次：`CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` 成为路由器连接；`API_TOKEN`（未设置时为 `CPE_PASSWORD`）成为控制台密码，同时与 `API_TOKEN_READONLY` 一起成为名为 `API_TOKEN (.env)` / `API_TOKEN_READONLY (.env)` 的令牌，现有客户端无需改动。此后以控制台为准，`.env` 中这些值被忽略。
+   - **全新安装**：`.env` 只需 `DATA_ENCRYPTION_KEY`。守护进程启动时在日志中打印一次性**设置码**（`XXXX-XXXX`，24 小时内有效，重启后换新）；登录页凭设置码设定控制台密码，然后在引导中填写并测试路由器连接。保存之前守护进程不会登录路由器。
 4. **`REDACT_SENSITIVE_IN_API` 按调用方生效（v1.0.1 起）**：守护进程内部与加密落盘的快照始终保存原值，脱敏只发生在输出边界（[`src/redact.ts`](../src/redact.ts)）。
    - **Cookie 会话（Web 控制台）始终拿到原值**：前端默认在屏幕上掩码，由用户点眼睛按钮显示（防截图）。
    - **Bearer 调用方（REST、`/api/events` SSE）与 MCP 工具 / 资源**：开关为 `true`（默认）时收到脱敏副本，`device.sensitiveRedacted` 为 `true`；为 `false` 时与 Web 控制台相同。
@@ -91,7 +95,13 @@ export interface ApiErrorEnvelope {
     | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
     | "SSE_LIMIT_REACHED"        // 429: SSE 全局 (SSE_MAX_CLIENTS，默认 32) 或单 IP 桶 (6) 连接数达上限
-    | "READ_ONLY_TOKEN"          // 403: 用 API_TOKEN_READONLY 发起写操作（控制写、短信发送 / 已读 / 删除、通讯录、reset-breaker）
+    | "READ_ONLY_TOKEN"          // 403: 用只读令牌发起写操作（控制写、短信发送 / 已读 / 删除、通讯录、reset-breaker）
+    | "CONSOLE_ONLY"             // 403: 用 Bearer 令牌访问 /api/console/*（控制台设置只接受 Cookie 会话）
+    | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
+    | "ALREADY_SET_UP"           // 409: 控制台密码已设定后再调用 /api/setup/login
+    | "WRONG_PASSWORD"           // 403: 修改密码时当前密码不正确
+    | "CPE_TEST_FAILED"          // 400: 新的路由器连接测试失败（附 result），未保存任何内容
+    | "TELEGRAM_DISABLED"        // 409: 未配置 TELEGRAM_BOT_TOKEN 时申请绑定码
     // ── /mcp 端点（HTTP 层） ──
     | "MCP_DISABLED"             // 404: MCP_HTTP_ENABLED=false
     | "FORBIDDEN_ORIGIN"         // 403: /mcp 携带了 "null"、畸形或跨源 Origin
@@ -136,6 +146,18 @@ export interface HealthResponse {
 }
 ```
 
+#### `POST /api/setup/login`（免鉴权，仅限尚无控制台密码时）与 `POST /api/auth/reset`（免鉴权，重置码）
+```ts
+// 请求体：{ code: "XXXX-XXXX", password: string }（密码 10–256 个字符；code 大小写、空格与连字符不敏感）
+// setup：code 为守护进程日志中的设置码；reset：code 为一次性重置码（15 分钟内有效），来自
+//   `cpe-dash reset-login`（在守护进程所在主机 / 容器内执行）或已绑定的 Telegram 私聊 `/reset`（可在控制台关闭）
+// 成功：设定控制台密码，吊销所有既有会话，并签发新会话 Cookie（响应同 AuthLoginResponse）
+// 失败：错误或过期的 code → 401（计入鉴权失败限流）；密码不合规 → 400；setup 已完成 → 409 ALREADY_SET_UP
+```
+
+#### `POST /api/setup/reset-code`（`cpe-dash reset-login` 专用）
+只接受来自本机回环地址（`127.0.0.1` / `::1`）、且带 `X-FengSui-Proof: <unix ms>.<HMAC-SHA256(DATA_ENCRYPTION_KEY, "fengsui-reset-login|<unix ms>")>` 的请求（60 秒内有效）：证明调用方能读取守护进程的 `.env`。成功返回 `{ ok: true, code, expiresInSec: 900 }`，否则 `401`（计入限流）。
+
 #### `GET /api/i18n/:locale`（免鉴权离线词典，`locale` 取值 `"zh-CN"` | `"en"`，其他取值返回 `404 LOCALE_NOT_FOUND`）
 ```ts
 export interface LocaleCatalogResponse {
@@ -162,6 +184,7 @@ export interface AuthStatusResponse {
   ok: true;
   authenticated: boolean;
   locale: "zh-CN" | "en";
+  setupRequired: boolean;      // 尚无控制台密码（全新安装）：登录页显示首次设置
 }
 ```
 
@@ -667,9 +690,9 @@ export interface SettingsRefreshResponse {
   - `security`：写入成功后服务端再开一次只读会话回读路由器配置，并推送 SSE `settings`。若回读被让位或跳过，响应中 `settings` 为 `null`；若回读本身失败，接口返回 `502`，但写入已经生效，可调用 `POST /api/settings/refresh` 核对。
   - `wifi7` / `antenna` / `mobile-data`：不额外开会话，直接用写入结果修补缓存快照并推送 SSE `settings`。若此前从未读取过 settings，则不会推送。
 - **`POST /api/session/reset-breaker` 规则**：
-  - 因密码错误（`108006` / `108002` / `108001`）熔断时，必须先修正 `.env` 中的 `CPE_PASSWORD`；密码未变时返回 `400 VALIDATION_ERROR`，防止耗尽剩余尝试次数触发 `108007` 硬件锁定。修正密码后重启服务同样会解除熔断（持久化的熔断状态绑定旧密码指纹）。
+  - 因密码错误（`108006` / `108002` / `108001`）熔断时，在控制台「设置 → 路由器」填入正确密码：保存前先用一次登录测试，成功后才切换并自动解除熔断。直接调用本接口而密码未变时返回 `400 VALIDATION_ERROR`，防止耗尽剩余尝试次数触发 `108007` 硬件锁定（v1.5.0 起路由器连接存于控制台，不再从 `.env` 读取）。
   - `108007` 硬件锁定可在不修改 `.env` 的情况下重置（锁定可能由他人输错密码引起）。若锁定期尚未结束，下一次登录前的 `state-login` 预检会检测到 `lockstatus=1` 并立即重新熔断，不会消耗密码尝试次数。
-  - 若 `.env` 中的 `API_TOKEN` 已变更，所有既有 Cookie 会话与 SSE 连接立即吊销，通过 Telegram `/auth` 绑定的聊天也一并解绑（`TELEGRAM_CHAT_IDS` 预授权聊天不受影响）。
+  - 令牌与 Telegram 绑定由控制台管理：本接口不再因 `.env` 中的 `API_TOKEN` 变化而吊销会话或解绑聊天（撤销令牌、修改密码、解绑聊天都在控制台进行）。
   - `DATA_ENCRYPTION_KEY`（留空时等于 `CPE_PASSWORD`）同步热更新，并**立即**用新密钥重写 `state.json`、短信镜像、通讯录与 Telegram 状态。因此更换密钥或路由器密码时应先修改 `.env` 再调用本接口，最后再重启；直接带着新密钥重启会把无法解密的文件隔离为 `*.unreadable-<时间戳>`（通讯录无法从 CPE 重新同步）。
   - **处理顺序**：先重新读取 `.env` 并应用其中的改动（`REDACT_SENSITIVE_IN_API`、`TZ`、数据密钥重写、令牌轮换与相应的会话 / SSE 吊销），**最后**才处理熔断器。所以「因密码错误熔断而密码未变」时返回的 `400`，是在这些改动已经生效之后才给出的：`400` 只表示熔断没有重置，不表示 `.env` 没有被应用。对未改动的 `.env` 重复调用是幂等的，不会产生其他副作用。
 
@@ -910,6 +933,65 @@ export interface AccessControlChangeResponse {
 - **生效时间**：真机实测拉黑后约 15 秒设备断开，恢复后数秒内自动重连。
 
 ---
+
+### 2.8 控制台设置、令牌、审计与指标（v1.5.0）
+
+> **只接受控制台 Cookie 会话**：`/api/console/*` 用 Bearer 令牌访问返回 `403 CONSOLE_ONLY`；`POST` 同样需要 1.3 节的 CSRF 头。所有修改都写入审计日志。
+
+| 方法与路径 | 请求体 | 响应 |
+| :--- | :--- | :--- |
+| `GET /api/console` | — | `ConsoleSettingsResponse` |
+| `POST /api/console/cpe/test` | `{ url?, username?, password?, lastAttempt? }`（缺省字段用已保存的值） | `{ ok: true, result: ConnectionTestResult }` |
+| `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `result`，不保存） |
+| `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
+| `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD` |
+| `GET /api/console/tokens` | — | `{ ok: true, tokens: PublicTokenRecord[] }`（不含哈希） |
+| `POST /api/console/tokens` | `{ name, scope: "full" \| "read", lifetimeDays: 1 \| 7 \| 30 \| 90 \| 365 \| null }` | `{ ok: true, token, record }`，`token` 只返回这一次；上限 50 个 |
+| `POST /api/console/tokens/revoke` | `{ id }` | `{ ok: true, record }`，并断开该令牌的 SSE；不存在 `404` |
+| `POST /api/console/telegram/pairing-code` | `{}` | `{ ok: true, code, expiresInSec: 600 }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；未配置机器人 `409 TELEGRAM_DISABLED` |
+| `POST /api/console/telegram/unlink-all` | `{}` | `{ ok: true, unlinked }`（`TELEGRAM_CHAT_IDS` 中的聊天不受影响） |
+| `POST /api/console/switches` | `{ telegramReset?: boolean, metricsEnabled?: boolean \| null }`（`null` = 跟随 `.env`） | `ConsoleSettingsResponse` |
+| `GET /api/audit?limit=200` | — | `{ ok: true, entries: AuditEntry[] }`（最新在前，最多 500 条；任何已登录调用方可读） |
+| `GET /metrics` | — | Prometheus 文本格式；需 Bearer 令牌（只读即可）；关闭时 `404` |
+
+```ts
+export type ConnectionTestResult =
+  | { ok: true; holdMs: number; model: string | null; firmware: string | null }
+  | {
+      ok: false;
+      // invalid_url：不是私网地址（SSRF 防护）；wrong_password：附 remainCount（路由器剩余尝试次数）；
+      // last_attempt：路由器只剩 1 次机会，未带 lastAttempt: true 时不尝试（防止 108007 硬件锁定）；
+      // locked：108007，附 waitTimeSec；human_logged_in：有人正在登录官方后台（不抢占）；
+      // unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理
+      reason: "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "human_logged_in" | "unreachable" | "standby" | "router_error";
+      code: string | null;
+      remainCount: number | null;
+      waitTimeSec: number | null;
+      message: string;
+    };
+
+export interface ConsoleSettingsResponse {
+  ok: true;
+  cpe: { url: string; username: string; passwordSet: boolean } | null;  // 密码本身永不返回
+  login: { changedAtIso: string | null; fromEnv: boolean };             // fromEnv：仍是从 .env 导入的 API_TOKEN
+  reviewPending: boolean;                                               // 从 .env 导入后尚未在引导中确认
+  telegram: { configured: boolean; resetEnabled: boolean };
+  metrics: { enabled: boolean; source: "console" | "env" };
+}
+
+export interface AuditEntry {
+  tsIso: string;
+  channel: "web" | "token" | "mcp" | "telegram" | "self-heal" | "system";
+  label: string | null;     // 令牌名或聊天 ID 末三位；从不含密钥
+  action: string;           // 控制动作（如 "lock_band"）或设置动作（如 "token.create"、"login"）
+  outcome: "applied" | "refused" | "failed";
+  detail: string | null;    // 已脱敏的摘要或拒绝 / 失败原因；从不含短信正文
+}
+```
+
+- **连接测试**：作为一次独立的排队会话执行，使用一次性客户端，绝不影响正在使用的客户端及其熔断器；只登录一次、从不重试；遇到真人登录官方后台时让位。
+- **审计**：记录到达路由器队列的每次写入（控制、访问控制、短信发送 / 已读 / 删除、自动修复）、控制台登录与每次设置修改，调用方经 `AsyncLocalStorage` 从受理请求的入口一路传到调度器。加密保存在 `audit.json`。
+- **指标**：只读缓存快照（抓取不会打开路由器会话），不含任何标识（IMEI、IMSI、小区、PCI、地址、号码）。
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 

@@ -30,6 +30,8 @@ interface SseClientEntry {
   id: string;
   clientIp: string;
   sessionId: string | null;
+  /** The Bearer token a stream was opened with (closed when the token is revoked). */
+  tokenId: string | null;
   expiresAtMs: number | null;
   /** Bearer subscriber under REDACT_SENSITIVE_IN_API: receives the redacted copy of an event. */
   redact: boolean;
@@ -169,6 +171,7 @@ export class SseEventBus {
     res: ServerResponse;
     clientIp: string;
     sessionId?: string | null;
+    tokenId?: string | null;
     expiresAtMs?: number | null;
     /** Send redacted copies of later telemetry / topology events (the initial snapshot is the caller's). */
     redact?: boolean;
@@ -209,6 +212,7 @@ export class SseEventBus {
       id: clientId,
       clientIp: params.clientIp,
       sessionId: params.sessionId ?? null,
+      tokenId: params.tokenId ?? null,
       expiresAtMs: params.expiresAtMs ?? null,
       redact: params.redact === true,
       res,
@@ -245,6 +249,19 @@ export class SseEventBus {
   /**
    * Disconnect all active SSE streams bound to a specific Cookie session ID (e.g., on logout).
    */
+  /** Close the streams opened with a token that was just revoked. */
+  disconnectByTokenId(tokenId: string): number {
+    let closed = 0;
+    for (const [id, entry] of this.#clients.entries()) {
+      if (entry.tokenId === tokenId) {
+        this.#clients.delete(id);
+        this.#closeClient(entry);
+        closed += 1;
+      }
+    }
+    return closed;
+  }
+
   disconnectBySessionId(sessionId: string): number {
     let closed = 0;
     for (const [id, entry] of this.#clients.entries()) {

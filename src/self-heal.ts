@@ -1,6 +1,7 @@
 import type { CpeControlService, WanRepairOutcome } from "./cpe-controls.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
+import { runAsActor } from "./audit-log.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
 import {
@@ -206,7 +207,7 @@ export class WanSelfHeal {
   async #rollBack(watch: LockWatch, at: number): Promise<void> {
     let outcome: WanRepairOutcome;
     try {
-      outcome = await this.controls.rollBackLocks();
+      outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.rollBackLocks());
     } catch (err) {
       const reason = describe(err);
       this.#noteFailure("lock rollback", reason);
@@ -260,7 +261,7 @@ export class WanSelfHeal {
   async #reconnect(downSince: number, at: number): Promise<void> {
     let outcome: WanRepairOutcome;
     try {
-      outcome = await this.controls.reconnectWan();
+      outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.reconnectWan());
     } catch (err) {
       this.#noteFailure("reconnect", describe(err));
       // Refusals never reached the router; anything else spends one of the day's attempts

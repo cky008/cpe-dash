@@ -17,6 +17,7 @@ import { SseEventBus } from "../src/sse-bus.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type MockSmsCpeOptions, createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
+import { consoleSettingsFor } from "./helpers/console-settings.ts";
 
 async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSmsCpeOptions } = {}) {
   const mock = createMockSmsCpe({
@@ -71,6 +72,7 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
     envPath,
     sms: smsEnabled ? sms : null,
     notificationHub: hub,
+    settings: consoleSettingsFor(config),
   });
   const bound = await server.listen();
   const baseUrl = `http://${bound.host}:${bound.port}`;

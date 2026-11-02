@@ -2,6 +2,24 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **The console manages the router connection, its own password and the API tokens** (encrypted `data/settings.json`); `.env` keeps only startup parameters. A fresh install needs just `DATA_ENCRYPTION_KEY`: the daemon logs a one-time setup code, the sign-in page uses it to set the console password, and a guide asks for the router's address, user and password, tries them with one login and saves them only if they work. Nothing logs in to the router before that.
+- **A router connection is tested before it is saved.** One queued session with a throwaway client, never retried, yielding to a person on the router's web page; the answer names the cause (wrong password with the attempts left, locked, someone logged in, unreachable, not a private address, router error). Saving switches the live client over and clears the breaker. With one attempt left, another try needs `lastAttempt: true` (a checkbox in the console), so typos cannot lock the router.
+- **Tokens with scopes, lifetimes and revocation.** Full-access or read-only, valid 1 / 7 / 30 / 90 / 365 days or forever, shown once (`fsk_…`, only a SHA-256 is kept), last use recorded; revoking one closes its SSE streams. No token can reach `/api/console/*` (`403 CONSOLE_ONLY`).
+- **Password change and recovery.** Changing the console password needs the current one and signs the other sessions out. A forgotten password is reset with a 15-minute one-time code from `cpe-dash reset-login` (run on the daemon's host; the request comes from loopback and is signed with the data key) or from `/reset` in a linked private Telegram chat, which can be turned off in the console.
+- **Telegram pairing codes**: `/auth` takes a one-time code (10 minutes) created in the console, or a full-access token; all `/auth` chats can be unlinked from the console.
+- **Audit log** (`GET /api/audit`, encrypted `audit.json`, last 500): every write that reached the router queue, console sign-ins and settings changes, with who (console, a named token, MCP, Telegram, self-healing), the outcome and a masked summary. The caller travels with `AsyncLocalStorage` from the adapter to the scheduler.
+- **`GET /metrics`** for Prometheus / Grafana (off by default; `METRICS_ENABLED` or the console's switch): scheduler, breaker, sessions, signal, carriers, throughput, traffic and SMS gauges from the cached snapshots, any token, no identifiers.
+
+### Changed
+- `reset-breaker` no longer rotates tokens or unlinks Telegram chats when `API_TOKEN` changes in `.env`, and takes the router password from the console; `doctor`, `backup`, `restore` and `rekey` cover `settings.json` and `audit.json`.
+
+### Upgrading
+- The first start imports `CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` and `API_TOKEN` / `API_TOKEN_READONLY` once: sign in with your old `API_TOKEN`, confirm the prefilled router settings in the guide and change the console password. The old tokens keep working as `API_TOKEN (.env)` / `API_TOKEN_READONLY (.env)` until you revoke them. Later edits of those `.env` keys have no effect.
+- Keep `DATA_ENCRYPTION_KEY` (or `CPE_PASSWORD`, if that was your data key) in `.env`: it now also encrypts the console settings. The read-only probes still read the router password from `.env`.
+
 ## [1.4.2] — 2026-11-02
 
 ### Added

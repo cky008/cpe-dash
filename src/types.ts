@@ -79,6 +79,12 @@ export interface AppConfig {
    * after 10 / 30 / 60 min, at most 4 times in 24 h; never a reboot.
    */
   wanReconnectAfterMs: number;
+  /** `METRICS_ENABLED` (default `false`): serve `GET /metrics`; the console's switch overrides it. */
+  metricsEnabled: boolean;
+  /** Encrypted console settings (router connection, login, tokens), next to STATE_FILE. */
+  settingsFile: string;
+  /** Encrypted audit log, next to STATE_FILE. */
+  auditFile: string;
   /** `none` hides SMS tools, `read` exposes read-only tools, `full` adds send / read / delete / contacts. */
   mcpSmsAccess: "none" | "read" | "full";
   /** `known`: MCP may only text contacts or numbers previously messaged; `any`: no recipient restriction. */

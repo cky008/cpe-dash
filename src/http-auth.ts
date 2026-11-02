@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
+import type { BearerIdentity } from "./console-settings.ts";
 import type { AppConfig } from "./types.ts";
 
 export const SESSION_COOKIE_NAME = "fengsui_sid";
@@ -17,8 +18,14 @@ export interface WebSessionRecord {
 /** Outcome of a credential check: `401` for a bad credential, `429` while the bucket is locked out. */
 export type CredentialVerdict = { ok: true } | { ok: false; statusCode: 401 | 429; retrySec?: number };
 
-/** `full`: `API_TOKEN`; `readonly`: `API_TOKEN_READONLY` (reads and read-only refreshes only). */
+/** `full`: a full-access token; `readonly`: a read token (reads and read-only refreshes only). */
 export type BearerRole = "full" | "readonly";
+
+/** Where the console login and the Bearer tokens are checked (the encrypted console settings). */
+export interface CredentialDirectory {
+  verifyLogin(candidate: string): Promise<boolean>;
+  resolveBearer(token: string): BearerIdentity | null;
+}
 
 function sha256Buffer(input: string): Buffer {
   return crypto.createHash("sha256").update(input, "utf8").digest();
@@ -47,17 +54,19 @@ export function parseCookiesNullProto(cookieHeader: string | undefined): Record<
 /**
  * Authentication state of the HTTP server: Bearer checks, cookie sessions bound to the client IP
  * bucket, CSRF validation for cookie mutations, and the per-bucket + global auth-failure limiter.
- * Reads limits and the API token through `getConfig`, so `.env` hot reloads apply immediately.
+ * Limits come from `getConfig`; the login and the tokens from the credential directory.
  */
 export class HttpAuthGuard {
   readonly #getConfig: () => AppConfig;
+  readonly #directory: CredentialDirectory;
   #sessions = new Map<string, WebSessionRecord>();
   #failuresByBucket = new Map<string, number[]>();
   #globalFailures: number[] = [];
   #sweepTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(getConfig: () => AppConfig) {
+  constructor(getConfig: () => AppConfig, directory: CredentialDirectory) {
     this.#getConfig = getConfig;
+    this.#directory = directory;
   }
 
   start(): void {
@@ -123,28 +132,30 @@ export class HttpAuthGuard {
     return { ok: false, statusCode: 401 };
   }
 
-  /** Validate a candidate login secret against `API_TOKEN` through the limiter. */
-  guardSecret(bucketKey: string, candidate: string): CredentialVerdict {
-    return this.guard(bucketKey, Boolean(candidate) && constantTimeSecretMatch(candidate, this.#getConfig().apiToken));
+  /**
+   * Check a console login (scrypt, off the event loop) through the limiter. A locked-out bucket is
+   * refused before any hashing, so a flood of guesses cannot keep the thread pool busy.
+   */
+  async guardLogin(bucketKey: string, candidate: string): Promise<CredentialVerdict> {
+    const retrySec = this.checkBucket(bucketKey);
+    if (retrySec !== null) return { ok: false, statusCode: 429, retrySec };
+    return this.guard(bucketKey, await this.#directory.verifyLogin(candidate));
   }
 
-  /** Validate an `Authorization: Bearer <API_TOKEN>` header through the limiter. */
+  /** Validate an `Authorization: Bearer <token>` header through the limiter. */
   guardBearer(bucketKey: string, authHeader: string): CredentialVerdict {
     const verdict = this.guardBearerRole(bucketKey, authHeader);
     return verdict.ok ? { ok: true } : verdict;
   }
 
-  /**
-   * Validate a Bearer header against `API_TOKEN` and the optional `API_TOKEN_READONLY` (both always
-   * compared, in constant time) through the limiter, and report which one matched.
-   */
-  guardBearerRole(bucketKey: string, authHeader: string): ({ ok: true; role: BearerRole }) | Extract<CredentialVerdict, { ok: false }> {
+  /** Resolve a Bearer token (unknown, revoked and expired ones fail) through the limiter. */
+  guardBearerRole(bucketKey: string, authHeader: string): ({ ok: true; role: BearerRole; identity: BearerIdentity }) | Extract<CredentialVerdict, { ok: false }> {
     const token = /^Bearer\s+(.+)$/i.exec(authHeader)?.[1]?.trim() ?? "";
-    const { apiToken, apiTokenReadonly } = this.#getConfig();
-    const full = Boolean(token) && constantTimeSecretMatch(token, apiToken);
-    const readonly = Boolean(token) && constantTimeSecretMatch(token, apiTokenReadonly);
-    const verdict = this.guard(bucketKey, full || readonly);
-    return verdict.ok ? { ok: true, role: full ? "full" : "readonly" } : verdict;
+    const identity = token ? this.#directory.resolveBearer(token) : null;
+    const verdict = this.guard(bucketKey, identity !== null);
+    if (!verdict.ok) return verdict;
+    if (!identity) return { ok: false, statusCode: 401 };
+    return { ok: true, role: identity.scope === "full" ? "full" : "readonly", identity };
   }
 
   /**
@@ -209,6 +220,13 @@ export class HttpAuthGuard {
 
   revokeAllSessions(): void {
     this.#sessions.clear();
+  }
+
+  /** End every session except `keepSessionId` (a password change keeps the caller signed in); returns the ended IDs. */
+  revokeAllSessionsExcept(keepSessionId: string | null): string[] {
+    const ended = [...this.#sessions.keys()].filter((id) => id !== keepSessionId);
+    for (const id of ended) this.#sessions.delete(id);
+    return ended;
   }
 
   sessionCookie(sessionId: string, maxAgeSec: number, isHttps: boolean): string {

@@ -20,12 +20,14 @@ import {
   readWifiMacFilterChange,
 } from "./control-input.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
+import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
+import { type BearerIdentity, type ConsoleSettings, verifyResetLoginProof } from "./console-settings.ts";
 import {
   type CredentialVerdict,
   HttpAuthGuard,
   type WebSessionRecord,
-  constantTimeSecretMatch,
 } from "./http-auth.ts";
+import { SettingsHttpRoutes, validateNewPassword } from "./http-settings.ts";
 import type {
   AccessControlChangeResponse,
   AccessControlEndpointResponse,
@@ -34,6 +36,7 @@ import type {
   ApiErrorEnvelope,
   AuthLoginResponse,
   AuthLogoutResponse,
+  AuditResponse,
   AuthStatusResponse,
   HealthResponse,
   LocaleCatalogResponse,
@@ -61,11 +64,13 @@ import {
   t,
 } from "./i18n.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
+import { renderMetrics } from "./metrics.ts";
 import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
 import {
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
+  CpeNotConfiguredError,
   PeerDaemonStandbyError,
   SchedulerQueueFullError,
   SchedulerStoppedError,
@@ -103,7 +108,7 @@ class HttpPayloadError extends Error {
   }
 }
 
-export { constantTimeSecretMatch };
+export { constantTimeSecretMatch } from "./http-auth.ts";
 
 function parseQueryNullProto(searchParams: URLSearchParams): Record<string, string> {
   const out = Object.create(null) as Record<string, string>;
@@ -137,6 +142,13 @@ export interface FengSuiHttpServerOptions {
   notificationHub?: NotificationHub | null;
   /** Called by `/api/session/reset-breaker` after `.env` is reloaded (key rotation for domain stores). */
   onConfigReloaded?: (config: AppConfig) => Promise<void> | void;
+  /** The console login, Bearer tokens and router connection (`/api/console/*`). */
+  settings: ConsoleSettings;
+  audit?: AuditLog | null;
+  /** The first router connection was saved during setup: start the background work. */
+  onConnectionReady?: () => void;
+  /** Unlink every Telegram chat linked with /auth (`null` without a bot). */
+  unlinkTelegram?: (() => number) | null;
 }
 
 /**
@@ -159,7 +171,10 @@ export class FengSuiHttpServer {
   #smsRoutes: SmsHttpRoutes | null;
   #onConfigReloaded: ((config: AppConfig) => Promise<void> | void) | undefined;
   #server: http.Server | null = null;
-  readonly #auth = new HttpAuthGuard(() => this.#config);
+  readonly #auth: HttpAuthGuard;
+  readonly settings: ConsoleSettings;
+  readonly #audit: AuditLog | null;
+  readonly #consoleRoutes: SettingsHttpRoutes;
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
@@ -172,6 +187,30 @@ export class FengSuiHttpServer {
     this.notificationHub = options.notificationHub ?? null;
     this.#smsRoutes = this.sms ? new SmsHttpRoutes(this.sms) : null;
     this.#onConfigReloaded = options.onConfigReloaded;
+    this.settings = options.settings;
+    this.#audit = options.audit ?? null;
+    this.#auth = new HttpAuthGuard(() => this.#config, options.settings);
+    const unlinkTelegram = options.unlinkTelegram ?? null;
+    this.#consoleRoutes = new SettingsHttpRoutes({
+      settings: options.settings,
+      scheduler: options.core.scheduler,
+      audit: this.#audit,
+      metricsFromEnv: options.config.metricsEnabled,
+      telegramConfigured: unlinkTelegram !== null,
+      onConnectionReady: options.onConnectionReady ?? (() => undefined),
+      revokeSessions: (keep: string | null) => {
+        for (const id of this.#auth.revokeAllSessionsExcept(keep)) this.sseBus.disconnectBySessionId(id);
+      },
+      disconnectToken: (tokenId: string) => {
+        this.sseBus.disconnectByTokenId(tokenId);
+      },
+      unlinkTelegram: () => unlinkTelegram?.() ?? 0,
+    });
+  }
+
+  /** Metrics follow the console's switch when set, else METRICS_ENABLED from `.env`. */
+  get metricsEnabled(): boolean {
+    return this.settings.metricsEnabled ?? this.#config.metricsEnabled;
   }
 
   get config(): AppConfig {
@@ -426,6 +465,28 @@ export class FengSuiHttpServer {
       return;
     }
 
+    // Prometheus scrape target (off unless METRICS_ENABLED or the console turns it on; any token)
+    if (pathname === "/metrics" && method === "GET") {
+      if (!this.metricsEnabled) {
+        this.#sendJson(res, 404, { ok: false, errorCode: "NOT_FOUND", message: "Metrics are off (METRICS_ENABLED, or the console's switch)" });
+        return;
+      }
+      const verdict = this.#auth.guardBearerRole(bucketKey, req.headers.authorization ?? "");
+      if (!verdict.ok) {
+        this.#sendAuthRejection(res, verdict, this.#apiAuthMessages(locale));
+        return;
+      }
+      const body = renderMetrics({
+        version: FENGSUI_VERSION,
+        daemonUptimeSec: Math.floor((Date.now() - this.startedAtMs) / 1000),
+        scheduler: this.core.scheduler.getStatus(),
+        telemetry: this.core.monitor.getCachedTelemetry(),
+      });
+      res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(body);
+      return;
+    }
+
     // 2. Public Liveness & Localization Endpoints
     if (pathname === "/api/health" && method === "GET") {
       this.#sendJson(res, 200, {
@@ -465,14 +526,36 @@ export class FengSuiHttpServer {
           this.#sendAuthRejection(res, verdict, authMessages);
           return;
         }
-        this.#sendJson(res, 200, { ok: true, authenticated: verdict.ok, locale } satisfies AuthStatusResponse);
+        this.#sendJson(res, 200, { ok: true, authenticated: verdict.ok, locale, setupRequired: !this.settings.loginConfigured } satisfies AuthStatusResponse);
         return;
       }
       this.#sendJson(res, 200, {
         ok: true,
         authenticated: this.#auth.authenticateCookie(req, bucketKey) !== null,
         locale,
+        setupRequired: !this.settings.loginConfigured,
       } satisfies AuthStatusResponse);
+      return;
+    }
+
+    // `cpe-dash reset-login` on the daemon's own host: proof of the data key, from loopback only
+    if (pathname === "/api/setup/reset-code" && method === "POST") {
+      const remote = req.socket.remoteAddress ?? "";
+      const loopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+      const proof = typeof req.headers["x-fengsui-proof"] === "string" ? req.headers["x-fengsui-proof"] : "";
+      const verdict = this.#auth.guard(bucketKey, loopback && verifyResetLoginProof(this.#config.dataEncryptionKey, proof, Date.now()));
+      if (!verdict.ok) {
+        this.#sendAuthRejection(res, verdict, this.#apiAuthMessages(locale));
+        return;
+      }
+      this.#audit?.record({ action: "login.reset-code", outcome: "applied", detail: "issued to cpe-dash reset-login on the daemon host", actor: { channel: "system" } });
+      this.#sendJson(res, 200, { ok: true, code: this.settings.issueCode("reset"), expiresInSec: 900 });
+      return;
+    }
+
+    // First-time setup (no console password yet) and password reset: a one-time code instead of a login
+    if ((pathname === "/api/setup/login" || pathname === "/api/auth/reset") && method === "POST") {
+      await this.#handleCodeLogin(req, res, pathname === "/api/setup/login" ? "setup" : "reset", { rawHost, isHttps, bucketKey, locale });
       return;
     }
 
@@ -499,11 +582,13 @@ export class FengSuiHttpServer {
           : typeof body["password"] === "string"
             ? body["password"]
             : "";
-      const verdict = this.#auth.guardSecret(bucketKey, candidate);
+      const verdict = await this.#auth.guardLogin(bucketKey, candidate);
       if (!verdict.ok) {
+        if (verdict.statusCode === 401) this.#audit?.record({ action: "login", outcome: "refused", detail: `wrong password from ${clientIp}`, actor: { channel: "web" } });
         this.#sendAuthRejection(res, verdict, authMessages);
         return;
       }
+      this.#audit?.record({ action: "login", outcome: "applied", detail: `from ${clientIp}`, actor: { channel: "web" } });
 
       // createSession rotates any presented session ID (session fixation defense)
       const newSession = this.#auth.createSession(req, bucketKey);
@@ -552,6 +637,7 @@ export class FengSuiHttpServer {
     const isSseRoute = pathname === "/api/events";
     let session: WebSessionRecord | null = null;
     let readOnly = false;
+    let identity: BearerIdentity | null = null;
     if (req.headers.authorization !== undefined) {
       const verdict = this.#auth.guardBearerRole(bucketKey, req.headers.authorization);
       if (!verdict.ok) {
@@ -559,6 +645,7 @@ export class FengSuiHttpServer {
         return;
       }
       readOnly = verdict.role === "readonly";
+      identity = verdict.identity;
     } else {
       session = this.#auth.authenticateCookie(req, bucketKey);
       if (!session) {
@@ -573,12 +660,22 @@ export class FengSuiHttpServer {
       return;
     }
 
-    // API_TOKEN_READONLY may read and run read sessions, never change the router, SMS, contacts or config
+    // A read token may read and run read sessions, never change the router, SMS, contacts or config
     if (readOnly && method !== "GET" && method !== "HEAD" && !READ_ONLY_POSTS.has(pathname)) {
       this.#sendJson(res, 403, {
         ok: false,
         errorCode: "READ_ONLY_TOKEN",
-        message: "This Bearer token is read-only (API_TOKEN_READONLY); this request needs API_TOKEN",
+        message: "This Bearer token is read-only; this request needs a full-access token",
+      } satisfies ApiErrorEnvelope);
+      return;
+    }
+
+    // Credentials, tokens and console switches change only from a console session, never with a token
+    if (session === null && (pathname === "/api/console" || pathname.startsWith("/api/console/"))) {
+      this.#sendJson(res, 403, {
+        ok: false,
+        errorCode: "CONSOLE_ONLY",
+        message: "Console settings can only be changed from a signed-in web console, not with a Bearer token",
       } satisfies ApiErrorEnvelope);
       return;
     }
@@ -594,6 +691,7 @@ export class FengSuiHttpServer {
         res,
         clientIp: bucketKey,
         sessionId: session?.id ?? null,
+        tokenId: identity?.tokenId ?? null,
         expiresAtMs: session?.expiresAtMs ?? null,
         redact,
         initialSnapshot: {
@@ -615,7 +713,55 @@ export class FengSuiHttpServer {
       return;
     }
 
-    await this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, { redact, clientIp });
+    const actor: AuditActor = session ? { channel: "web" } : { channel: "token", label: identity?.name ?? "?" };
+    await runAsActor(actor, () => this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, { redact, clientIp, sessionId: session?.id ?? null }));
+  }
+
+  /** `POST /api/setup/login` (no password yet) and `POST /api/auth/reset`: a one-time code sets the password and signs in. */
+  async #handleCodeLogin(
+    req: IncomingMessage,
+    res: ServerResponse,
+    kind: "setup" | "reset",
+    request: { rawHost: string; isHttps: boolean; bucketKey: string; locale: SupportedLocale }
+  ): Promise<void> {
+    const { rawHost, isHttps, bucketKey, locale } = request;
+    if (!this.#auth.validateCsrf(req, rawHost, isHttps)) {
+      this.#sendJson(res, 403, { ok: false, errorCode: "CSRF_REJECTED", message: t(locale, "auth.csrf_rejected") });
+      return;
+    }
+    if (kind === "setup" && this.settings.loginConfigured) {
+      this.#sendJson(res, 409, { ok: false, errorCode: "ALREADY_SET_UP", message: "The console password is already set: sign in, or reset it with a reset code" });
+      return;
+    }
+    let body: Record<string, unknown>;
+    let password: string;
+    try {
+      body = await this.#readBoundedJsonBody(req);
+      password = validateNewPassword(body["password"]);
+    } catch (err) {
+      if (err instanceof HttpPayloadError || err instanceof CpeControlValidationError) {
+        this.#sendJson(res, err instanceof HttpPayloadError ? err.statusCode : 400, { ok: false, errorCode: "VALIDATION_ERROR", message: err.message });
+        return;
+      }
+      throw err;
+    }
+    const code = typeof body["code"] === "string" ? body["code"] : "";
+    const verdict = this.#auth.guard(bucketKey, Boolean(code) && this.settings.consumeCode(kind, code));
+    if (!verdict.ok) {
+      this.#audit?.record({ action: kind === "setup" ? "setup" : "login.reset", outcome: "refused", detail: "wrong or expired code", actor: { channel: "web" } });
+      this.#sendAuthRejection(res, verdict, this.#apiAuthMessages(locale));
+      return;
+    }
+    await this.settings.setLogin(password);
+    for (const id of this.#auth.revokeAllSessionsExcept(null)) this.sseBus.disconnectBySessionId(id);
+    this.#audit?.record({ action: kind === "setup" ? "setup" : "login.reset", outcome: "applied", detail: "console password set", actor: { channel: "web" } });
+    const newSession = this.#auth.createSession(req, bucketKey);
+    this.#sendJson(
+      res,
+      200,
+      { ok: true, authenticated: true, expiresAtIso: new Date(newSession.expiresAtMs).toISOString() } satisfies AuthLoginResponse,
+      { "Set-Cookie": this.#auth.sessionCookie(newSession.id, Math.floor(this.#config.sessionTtlMs / 1000), isHttps) }
+    );
   }
 
   async #dispatchProtectedApi(
@@ -624,12 +770,31 @@ export class FengSuiHttpServer {
     method: string,
     pathname: string,
     searchParams: URLSearchParams,
-    caller: { redact: boolean; clientIp: string }
+    caller: { redact: boolean; clientIp: string; sessionId: string | null }
   ): Promise<void> {
     const { redact, clientIp } = caller;
     try {
       if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
         await this.#dispatchSmsApi(req, res, method, pathname, searchParams);
+        return;
+      }
+      if ((pathname === "/api/console" || pathname.startsWith("/api/console/")) && caller.sessionId !== null) {
+        const handled = await this.#consoleRoutes.handle(
+          {
+            method,
+            pathname,
+            query: parseQueryNullProto(searchParams),
+            readJsonBody: (maxBytes?: number) => this.#readBoundedJsonBody(req, maxBytes),
+            sendJson: (statusCode: number, body: unknown) => this.#sendJson(res, statusCode, body),
+          },
+          caller.sessionId
+        );
+        if (!handled) this.#sendJson(res, 404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown ${method} endpoint ${pathname}` });
+        return;
+      }
+      if (pathname === "/api/audit" && method === "GET") {
+        const limit = Number.parseInt(searchParams.get("limit") ?? "200", 10);
+        this.#sendJson(res, 200, { ok: true, entries: this.#audit?.list(Number.isFinite(limit) ? limit : 200) ?? [] } satisfies AuditResponse);
         return;
       }
 
@@ -806,25 +971,16 @@ export class FengSuiHttpServer {
               "CPE_PASSWORD / DATA_ENCRYPTION_KEY is empty in .env; refusing to re-encrypt stored data under an empty key"
             );
           }
-          const tokenRotated = !constantTimeSecretMatch(reloadedCfg.apiToken, this.#config.apiToken);
-          const readonlyTokenRotated = reloadedCfg.apiTokenReadonly !== this.#config.apiTokenReadonly;
           this.#config = reloadedCfg;
           this.core.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
           // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
           // between cannot leave state.json under a key the reloaded .env no longer provides.
           await this.core.stateStore.flushAsync().catch(() => undefined);
           await this.#onConfigReloaded?.(reloadedCfg);
-          if (tokenRotated) {
-            this.#auth.revokeAllSessions();
-            this.sseBus.disconnectAll();
-          } else if (readonlyTokenRotated) {
-            // Bearer streams opened with the old read-only token must not outlive it
-            this.sseBus.disconnectAll();
-          }
-          const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(
-            reloadedCfg.cpePassword,
-            reloadedCfg.cpeUsername
-          );
+          // The router connection and the tokens live in the console store now, not in .env
+          const cpe = this.settings.cpe;
+          if (!cpe) throw new CpeNotConfiguredError();
+          const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, cpe.username);
           this.#sendJson(res, 200, {
             ok: true,
             circuitBreaker: breaker,
@@ -935,6 +1091,10 @@ export class FengSuiHttpServer {
           messageEn: err.messageEn,
           avoidance: this.core.scheduler.getAvoidanceState(),
         } satisfies ApiErrorEnvelope);
+        return;
+      }
+      if (err instanceof CpeNotConfiguredError) {
+        this.#sendJson(res, 409, { ok: false, errorCode: "CPE_NOT_CONFIGURED", message: err.message } satisfies ApiErrorEnvelope);
         return;
       }
       if (err instanceof PeerDaemonStandbyError) {
@@ -1122,14 +1282,16 @@ export class FengSuiHttpServer {
       const value = req.headers[name];
       return typeof value === "string" ? value : undefined;
     };
-    const outcome = await this.mcpServer.handleHttpMessage(
-      rawBody,
-      {
-        protocolVersion: header("mcp-protocol-version"),
-        method: header("mcp-method"),
-        name: header("mcp-name"),
-      },
-      { readOnly: mcpVerdict.role === "readonly" }
+    const outcome = await runAsActor({ channel: "mcp", label: mcpVerdict.identity.name }, () =>
+      this.mcpServer.handleHttpMessage(
+        rawBody,
+        {
+          protocolVersion: header("mcp-protocol-version"),
+          method: header("mcp-method"),
+          name: header("mcp-name"),
+        },
+        { readOnly: mcpVerdict.role === "readonly" }
+      )
     );
     const rpcResponse = outcome.body;
     if (rpcResponse === null) {

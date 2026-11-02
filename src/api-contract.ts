@@ -19,7 +19,9 @@ import type {
 } from "./cpe-domain.ts";
 import type { SpeedTickPayload } from "./cpe-monitor.ts";
 import type { ChannelDeliveryStats } from "./notify/hub.ts";
-import type { AvoidanceBroadcastPayload, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
+import type { AuditEntry } from "./audit-log.ts";
+import type { PublicTokenRecord } from "./console-settings.ts";
+import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
 import type {
   SmsSendPreview,
@@ -106,6 +108,12 @@ export type ApiErrorCode =
   | "SMS_SEND_FAILED"
   | "SSE_LIMIT_REACHED"
   | "READ_ONLY_TOKEN"
+  | "CONSOLE_ONLY"                // 403: /api/console/* with a Bearer token (credentials change only from a console session)
+  | "CPE_NOT_CONFIGURED"          // 409: no router connection yet (finish the setup in the console)
+  | "ALREADY_SET_UP"              // 409: /api/setup/login after the console password was set
+  | "WRONG_PASSWORD"              // 403: the current console password did not match
+  | "CPE_TEST_FAILED"             // 400: the new router connection did not log in; nothing was saved
+  | "TELEGRAM_DISABLED"           // 409: a pairing code without TELEGRAM_BOT_TOKEN
   | "MCP_DISABLED"
   | "FORBIDDEN_ORIGIN"
   | "UNSUPPORTED_MEDIA_TYPE"
@@ -156,6 +164,60 @@ export interface AuthStatusResponse {
   ok: true;
   authenticated: boolean;
   locale: SupportedLocale;
+  /** No console password yet (a fresh install): the login page shows the first-time setup. */
+  setupRequired: boolean;
+}
+
+/** `GET /api/console` (console session only): what the console manages instead of `.env`. */
+export interface ConsoleSettingsResponse {
+  ok: true;
+  /** The router connection; the password itself is never sent back. */
+  cpe: { url: string; username: string; passwordSet: boolean } | null;
+  login: { changedAtIso: string | null; fromEnv: boolean };
+  /** Imported from `.env` on upgrade and not yet confirmed in the guided check. */
+  reviewPending: boolean;
+  telegram: { configured: boolean; resetEnabled: boolean };
+  metrics: { enabled: boolean; source: "console" | "env" };
+}
+
+/** `POST /api/console/cpe/test` (and the `result` of a refused `POST /api/console/cpe`). */
+export interface ConnectionTestResponse {
+  ok: true;
+  result: ConnectionTestResult;
+}
+
+export interface SaveConnectionResponse {
+  ok: true;
+  result: ConnectionTestResult;
+  settings: ConsoleSettingsResponse;
+}
+
+export interface TokensResponse {
+  ok: true;
+  tokens: PublicTokenRecord[];
+}
+
+/** `POST /api/console/tokens`: the token is shown this once; only its hash is kept. */
+export interface CreateTokenResponse {
+  ok: true;
+  token: string;
+  record: PublicTokenRecord;
+}
+
+export interface RevokeTokenResponse {
+  ok: true;
+  record: PublicTokenRecord;
+}
+
+export interface PairingCodeResponse {
+  ok: true;
+  code: string;
+  expiresInSec: number;
+}
+
+export interface AuditResponse {
+  ok: true;
+  entries: AuditEntry[];
 }
 
 export interface AuthLoginResponse {

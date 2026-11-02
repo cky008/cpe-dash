@@ -1,13 +1,15 @@
 import { EventEmitter } from "node:events";
+import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
 import {
   CpeApiError,
   type EphemeralCpeSession,
-  type HuaweiCpeClient,
+  HuaweiCpeClient,
   ReentrantCpeSessionError,
   isInsideCpeSession,
 } from "./cpe-client.ts";
 import { CpeControlValidationError, type PersistedLockState } from "./cpe-domain.ts";
 import { t } from "./i18n.ts";
+import { getXmlTag } from "./xml.ts";
 import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
 import type { CircuitBreakerState, CpeLoginState } from "./types.ts";
 
@@ -121,6 +123,45 @@ function publicBreakerState(cb: CircuitBreakerState): CircuitBreakerState {
   };
 }
 
+/** No router password yet (first start before the console's setup): nothing may log in. */
+export class CpeNotConfiguredError extends Error {
+  readonly statusCode = 409;
+
+  constructor() {
+    super("The router connection is not set up yet: finish the setup in the web console");
+    this.name = "CpeNotConfiguredError";
+  }
+}
+
+/** One audit record of a write that reached the queue (`control:audit`). */
+export interface ControlAuditEvent {
+  /** The caller, captured where the write was requested (the queue runs tasks in its own context). */
+  actor: AuditActor;
+  action: string;
+  outcome: AuditOutcome;
+  detail: string | null;
+}
+
+/** A router connection the console wants to switch to. */
+export interface ConnectionCandidate {
+  url: string;
+  username: string;
+  password: string;
+}
+
+export type ConnectionTestResult =
+  | { ok: true; holdMs: number; model: string | null; firmware: string | null }
+  | {
+      ok: false;
+      reason: "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "human_logged_in" | "unreachable" | "standby" | "router_error";
+      code: string | null;
+      /** Login attempts the router says are left (after a wrong password). */
+      remainCount: number | null;
+      /** Seconds until the router lifts its login lock. */
+      waitTimeSec: number | null;
+      message: string;
+    };
+
 export class SchedulerQueueFullError extends Error {
   readonly statusCode = 503;
 
@@ -196,6 +237,8 @@ export class MutexSessionScheduler extends EventEmitter {
   #initialized = false;
   #stopping = false;
   #mode: SchedulerMode = "idle";
+  /** Login attempts the router said were left after the console's last failed connection test. */
+  #remainingLogins: number | null = null;
   #lastError: string | null = null;
   #running = false;
 
@@ -362,6 +405,79 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   /**
+   * Try a router connection the console was given, as one queued session of its own (so it never
+   * overlaps ours) with a throwaway client: the live client, its breaker and its credentials stay
+   * untouched whatever happens. One login attempt, never retried; a human on the WebUI is not kicked.
+   */
+  async testConnection(candidate: ConnectionCandidate, opts: { lastAttempt?: boolean } = {}): Promise<ConnectionTestResult> {
+    const failure = (reason: Extract<ConnectionTestResult, { ok: false }>["reason"], message: string, extra: { code?: string | null; remainCount?: number | null; waitTimeSec?: number | null } = {}): ConnectionTestResult => ({
+      ok: false,
+      reason,
+      code: extra.code ?? null,
+      remainCount: extra.remainCount ?? null,
+      waitTimeSec: extra.waitTimeSec ?? null,
+      message,
+    });
+    if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
+    let probe: HuaweiCpeClient;
+    try {
+      probe = new HuaweiCpeClient({
+        cpeUrl: candidate.url,
+        cpeUsername: candidate.username,
+        cpePassword: candidate.password,
+        fetchImpl: this.#client.fetchImpl,
+        requestTimeoutMs: this.#client.timeoutMs,
+        respectBrowserSession: true,
+      });
+    } catch (err) {
+      return failure("invalid_url", err instanceof Error ? err.message : String(err));
+    }
+    // One wrong password more would lock the router's logins: only a deliberate, confirmed attempt
+    const remain = this.#remainingLogins ?? this.#client.getCircuitBreakerState().remainCount ?? null;
+    if (remain !== null && remain <= 1 && opts.lastAttempt !== true) {
+      return failure("last_attempt", "the router allows one more login attempt before it locks; confirm the password and try again deliberately", { remainCount: remain });
+    }
+    return await this.#enqueue("high", async (): Promise<ConnectionTestResult> => {
+      try {
+        const outcome = await probe.withSessionDetailed(
+          async (session) => {
+            const xml = await session.get("/api/device/information");
+            return { model: getXmlTag(xml, "DeviceName") ?? null, firmware: getXmlTag(xml, "SoftwareVersion") ?? null };
+          },
+          { retriesOnOccupied: 0 }
+        );
+        if (outcome.status === "yielded") return failure("human_logged_in", "someone is logged into the router's web page", { code: outcome.stateCode });
+        this.#remainingLogins = null;
+        return { ok: true, holdMs: outcome.holdMs, ...outcome.value };
+      } catch (err) {
+        const breaker = probe.getCircuitBreakerState();
+        const message = err instanceof Error ? err.message : String(err);
+        if (breaker.tripped && breaker.code === "108007") return failure("locked", message, { code: "108007", waitTimeSec: breaker.waitTime ?? null });
+        if (breaker.tripped) {
+          this.#remainingLogins = breaker.remainCount ?? this.#remainingLogins;
+          return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });
+        }
+        if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
+        return failure("unreachable", message);
+      }
+    });
+  }
+
+  /** Switch the live client to a connection `testConnection` just proved, and clear its breaker. */
+  async applyConnection(candidate: ConnectionCandidate): Promise<CircuitBreakerState> {
+    return await this.#enqueue("high", async () => {
+      this.#client.reconfigure({ cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password });
+      this.#remainingLogins = null;
+      const cb = this.#client.getCircuitBreakerState();
+      this.#mode = "idle";
+      this.#lastError = null;
+      this.stateStore.update({ circuitBreaker: cb });
+      await this.stateStore.flushAsync().catch(() => undefined);
+      return publicBreakerState(cb);
+    });
+  }
+
+  /**
    * Run a read-only CPE session through the shared queue with breaker, browser-avoidance and
    * Layer-2 cooldown semantics. Resolves `null` when the session was skipped (breaker latched,
    * Layer-2 quiet window) or yielded to a human administrator.
@@ -371,6 +487,7 @@ export class MutexSessionScheduler extends EventEmitter {
     opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}
   ): Promise<T | null> {
     const ignoreCooldown = opts.ignoreCooldown === true;
+    if (!this.#client.configured) return Promise.resolve(null);
     return this.#enqueue(opts.priority ?? "normal", async () => {
       if (this.#client.getCircuitBreakerState().tripped) {
         this.#mode = "circuit_tripped";
@@ -419,6 +536,33 @@ export class MutexSessionScheduler extends EventEmitter {
     fn: (session: EphemeralCpeSession) => Promise<T>,
     summary?: ControlSummary | ((value: T) => ControlSummary | null)
   ): Promise<T> {
+    const actor = currentActor();
+    try {
+      return await this.#runControl(actor, actionName, fn, summary);
+    } catch (err) {
+      const refused =
+        err instanceof BrowserSessionYieldedError ||
+        err instanceof PeerDaemonStandbyError ||
+        err instanceof CircuitBreakerOpenError ||
+        err instanceof CpeNotConfiguredError ||
+        err instanceof SchedulerQueueFullError ||
+        err instanceof SchedulerStoppedError;
+      this.#audit(actor, actionName, refused ? "refused" : "failed", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  #audit(actor: AuditActor, action: string, outcome: AuditOutcome, detail: string | null): void {
+    this.#safeEmit("control:audit", { actor, action, outcome, detail } satisfies ControlAuditEvent);
+  }
+
+  async #runControl<T>(
+    actor: AuditActor,
+    actionName: string,
+    fn: (session: EphemeralCpeSession) => Promise<T>,
+    summary?: ControlSummary | ((value: T) => ControlSummary | null)
+  ): Promise<T> {
+    if (!this.#client.configured) throw new CpeNotConfiguredError();
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
       const wasTripped = this.#client.getCircuitBreakerState().tripped;
@@ -444,6 +588,7 @@ export class MutexSessionScheduler extends EventEmitter {
           lockState: resolvedSummary?.lockState,
         };
         this.#safeEmit("control:applied", appliedEvent);
+        this.#audit(actor, actionName, "applied", appliedEvent.summaryEn);
         return outcome.value;
       } catch (err) {
         if (err instanceof BrowserSessionYieldedError) {

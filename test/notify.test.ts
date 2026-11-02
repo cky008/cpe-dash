@@ -400,7 +400,7 @@ describe("TelegramBot", () => {
     await fx.message(2002, "/auth");
     assert.match(fx.tg.lastText("2002"), /Usage: <code>\/auth/);
     for (let i = 0; i < 5; i++) await fx.message(2002, "/auth wrong-token");
-    assert.match(fx.tg.lastText("2002"), /Wrong token/);
+    assert.match(fx.tg.lastText("2002"), /Wrong code or token/);
     await fx.message(2002, "/auth dashboard_api_token");
     assert.match(fx.tg.lastText("2002"), /Verification paused/);
     assert.ok(fx.tg.of("deleteMessage").length >= 7);

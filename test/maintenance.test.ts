@@ -150,12 +150,14 @@ describe("cpe-dash rekey", () => {
         { name: "sms.json", action: "rekeyed" },
         { name: "contacts.json", action: "recovered", source: "contacts.json.unreadable-1700000000000" },
         { name: "telegram.json", action: "already-current" },
+        { name: "settings.json", action: "missing" },
+        { name: "audit.json", action: "missing" },
       ]);
       assert.deepEqual(newCipher.readJsonFile<{ messages: unknown[] }>(fx.files.sms)?.messages, [{ uid: "u1" }]);
       assert.equal((newCipher.readJsonFile<{ contacts: unknown[] }>(fx.files.contacts)?.contacts ?? []).length, 1);
       assert.ok(fs.existsSync(`${fx.files.contacts}.replaced-77`), "the store that started afresh is kept");
       assert.ok(fs.existsSync(`${fx.files.contacts}.recovered-77`));
-      assert.deepEqual(inspectDataFiles(fx.config).map((f) => f.status), ["undecryptable", "ok", "ok", "ok"]);
+      assert.deepEqual(inspectDataFiles(fx.config).map((f) => f.status), ["undecryptable", "ok", "ok", "ok", "missing", "missing"]);
     } finally {
       fx.cleanup();
     }

@@ -2,6 +2,8 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
+import { AuditLog } from "./audit-log.ts";
+import { ConsoleSettings, resetLoginProof } from "./console-settings.ts";
 import { loadConfig } from "./config.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts";
 import { DEFAULT_SESSION_MAX_HOLD_MS, HuaweiCpeClient } from "./cpe-client.ts";
@@ -19,7 +21,7 @@ import { type NotificationChannel, NotificationHub } from "./notify/hub.ts";
 import { TelegramApi } from "./notify/telegram-api.ts";
 import { TelegramBot, TelegramStateStore } from "./notify/telegram-bot.ts";
 import { WebhookNotifier } from "./notify/webhook.ts";
-import type { MutexSessionScheduler } from "./scheduler.ts";
+import type { ControlAuditEvent, MutexSessionScheduler } from "./scheduler.ts";
 import { WanSelfHeal } from "./self-heal.ts";
 import { ContactBook } from "./sms/contacts.ts";
 import { SmsMcpTools } from "./sms/mcp-tools.ts";
@@ -30,7 +32,7 @@ import { EncryptedStateStore } from "./state-store.ts";
 import { TimeSeriesRingBuffer } from "./timeseries.ts";
 import type { AppConfig } from "./types.ts";
 
-export type CliMode = "serve" | "mcp" | "doctor" | "backup" | "restore" | "rekey" | "help";
+export type CliMode = "serve" | "mcp" | "doctor" | "backup" | "restore" | "rekey" | "reset-login" | "help";
 
 export interface ParsedCliCommand {
   mode: CliMode;
@@ -63,7 +65,7 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
       mode = "serve";
       continue;
     }
-    if (arg === "mcp" || arg === "doctor" || arg === "backup" || arg === "restore" || arg === "rekey") {
+    if (arg === "mcp" || arg === "doctor" || arg === "backup" || arg === "restore" || arg === "rekey" || arg === "reset-login") {
       mode = arg;
       continue;
     }
@@ -134,6 +136,11 @@ export interface FengSuiRuntimeStack {
   alertEngine: AlertEngine | null;
   /** `null` unless LOCK_ROLLBACK_AFTER_MIN or WAN_AUTO_RECONNECT_AFTER_MIN is set. */
   selfHeal: WanSelfHeal | null;
+  /** Router connection, console login and tokens (encrypted `settings.json`). */
+  settings: ConsoleSettings;
+  audit: AuditLog;
+  /** No router connection yet: the background work waits for the console's setup. */
+  awaitingSetup(): boolean;
   notificationHub: NotificationHub | null;
   telegramBot: TelegramBot | null;
   webhook: WebhookNotifier | null;
@@ -201,10 +208,21 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     retentionHours: config.historyRetentionHours,
   });
 
+  const cipher = new StorageCipher(config.dataEncryptionKey);
+  // First start with this store: carry the .env setup over once; the console is authoritative after
+  const settings = new ConsoleSettings({ filePath: config.settingsFile, cipher });
+  if (!settings.load()) {
+    settings.importFromEnv(config);
+    void settings.flush().catch(() => undefined);
+  }
+  const audit = new AuditLog({ filePath: config.auditFile, cipher });
+  audit.load();
+  const connection = settings.cpe;
+
   const cpeClient = new HuaweiCpeClient({
-    cpeUrl: config.cpeUrl,
-    cpeUsername: config.cpeUsername,
-    cpePassword: config.cpePassword,
+    cpeUrl: connection?.url ?? config.cpeUrl,
+    cpeUsername: connection?.username ?? config.cpeUsername,
+    cpePassword: connection?.password ?? "",
     requestTimeoutMs: config.requestTimeoutMs,
     respectBrowserSession: config.respectBrowserSession,
     fetchImpl,
@@ -230,8 +248,6 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
           fetchImpl: options.notifyFetchImpl,
         })
       : null;
-
-  const cipher = new StorageCipher(config.dataEncryptionKey);
 
   const core = createFengSuiCore({
     client: cpeClient,
@@ -309,7 +325,9 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       core,
       state: telegramState,
       sms,
-      authToken: config.apiToken,
+      authToken: "",
+      linkSecret: (secret) => settings.consumeCode("pair", secret) || settings.resolveBearer(secret)?.scope === "full",
+      issueResetCode: () => (settings.telegramReset ? settings.issueCode("reset") : null),
       allowedChatIds: config.telegramChatIds,
       locale: config.defaultLocale,
       defaultCountryCode: config.defaultCountryCode,
@@ -360,6 +378,22 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       : [accessTools],
   });
 
+  // Every write that reached the router queue, with the caller captured where it was requested
+  scheduler.on("control:audit", (event: ControlAuditEvent) => {
+    audit.record({ action: event.action, outcome: event.outcome, detail: event.detail, actor: event.actor });
+  });
+
+  let awaitingSetup = connection === null;
+  let started = false;
+  let closed = false;
+  /** Polling, SMS and Telegram: only once the router connection exists. */
+  const startBackground = async (): Promise<void> => {
+    await telegramBot?.start();
+    if (closed) return;
+    sms?.start();
+    monitor.start();
+  };
+
   const httpServer = new FengSuiHttpServer({
     config,
     core,
@@ -368,6 +402,15 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     envPath,
     sms,
     notificationHub,
+    settings,
+    audit,
+    unlinkTelegram: telegramBot ? () => telegramBot?.unlinkAllChats() ?? 0 : null,
+    onConnectionReady: () => {
+      if (!awaitingSetup) return;
+      awaitingSetup = false;
+      log("[fengsui] Router connection saved in the console: starting telemetry, SMS and Telegram");
+      if (started && !closed) void startBackground();
+    },
     onConfigReloaded: async (reloaded) => {
       if (options.applyTimeZone) applyProcessTimeZone(reloaded);
       redactApiOutput = reloaded.redactSensitiveInApi;
@@ -380,11 +423,12 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       }
       if (telegramState) {
         telegramState.rotateEncryptionKey(reloaded.dataEncryptionKey);
-        // Revoke /auth-linked chats before the awaited flush (writes are chained), so the response
-        // never precedes a durable revocation of a rotated, possibly leaked API_TOKEN
-        telegramBot?.rotateAuthToken(reloaded.apiToken);
         rekeyed.push(telegramState.flush());
       }
+      const nextCipher = new StorageCipher(reloaded.dataEncryptionKey);
+      settings.rotateEncryptionKey(nextCipher);
+      audit.rotateEncryptionKey(nextCipher);
+      rekeyed.push(settings.flush(), audit.flush());
       await Promise.allSettled(rekeyed);
     },
   });
@@ -431,9 +475,6 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     );
   }
 
-  let started = false;
-  let closed = false;
-
   return {
     config,
     stateStore,
@@ -450,6 +491,9 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     peerGuard,
     alertEngine,
     selfHeal,
+    settings,
+    audit,
+    awaitingSetup: () => awaitingSetup,
     notificationHub,
     telegramBot,
     webhook,
@@ -479,10 +523,14 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       }
       // A stop that arrived meanwhile wins: nothing may start polling or open a CPE session after it
       if (closed) return;
-      await telegramBot?.start();
-      if (closed) return;
-      sms?.start();
-      monitor.start();
+      if (!settings.loginConfigured) {
+        log(`[fengsui] First start: open the web console and enter the setup code ${settings.issueCode("setup")} to choose the console password`);
+      }
+      if (awaitingSetup) {
+        log("[fengsui] No router connection yet: the web console's setup asks for it (nothing logs in to the router until then)");
+        return;
+      }
+      await startBackground();
     },
     async close(): Promise<void> {
       if (closed) return;
@@ -504,6 +552,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       await sms?.stop();
       await httpClosed;
       await telegramState?.flush().catch(() => undefined);
+      await settings.flush().catch(() => undefined);
+      await audit.flush().catch(() => undefined);
       daemonLock.release();
     },
     releaseLocks(): void {
@@ -579,6 +629,8 @@ export function formatCliHelp(): string {
     "  cpe-dash restore <dir>            Put a backup back (daemon stopped; replaced files are kept)",
     "  cpe-dash rekey [--old-key-stdin]  Re-encrypt under the current DATA_ENCRYPTION_KEY and recover copies",
     "                                    moved aside after a key change (old key: FENGSUI_OLD_DATA_KEY or stdin)",
+    "  cpe-dash reset-login              Forgot the console password: get a one-time reset code from the",
+    "                                    daemon running on this host (proves access to its .env)",
     "  cpe-dash --help                   Show this help message",
     "",
     "Only the serve daemon talks to the CPE (one admin session, one breaker). The stdio bridge keeps no",
@@ -596,6 +648,40 @@ function redirectConsoleToStderrForStdioMcp(): void {
   console.log = writeStderr;
   console.info = writeStderr;
   console.warn = writeStderr;
+}
+
+/**
+ * `cpe-dash reset-login`: ask the daemon on this host for a one-time console reset code. The request
+ * goes to loopback and carries an HMAC of the data key, so only someone who can read this `.env`
+ * (a shell on the NAS or in the container) gets a code.
+ */
+export async function runResetLogin(
+  config: AppConfig,
+  opts: { fetchImpl?: typeof fetch; write?: (line: string) => void; now?: () => number } = {}
+): Promise<number> {
+  const write = opts.write ?? ((line: string) => process.stdout.write(`${line}\n`));
+  if (!config.dataEncryptionKey) {
+    write("✗ DATA_ENCRYPTION_KEY (or CPE_PASSWORD) is empty in .env: there is nothing to prove access with");
+    return 1;
+  }
+  try {
+    const res = await (opts.fetchImpl ?? fetch)(`http://127.0.0.1:${config.webPort}/api/setup/reset-code`, {
+      method: "POST",
+      headers: { "X-FengSui-Proof": resetLoginProof(config.dataEncryptionKey, (opts.now ?? Date.now)()) },
+      redirect: "error",
+      signal: AbortSignal.timeout(5000),
+    });
+    const body = (await res.json()) as { code?: unknown };
+    if (!res.ok || typeof body.code !== "string") {
+      write(`✗ the daemon refused (HTTP ${res.status}); run this on the daemon's host with its .env`);
+      return 1;
+    }
+    write(`Reset code: ${body.code} (valid 15 minutes, once). On the console's sign-in page choose "Forgot password", enter it and set a new password.`);
+    return 0;
+  } catch (err) {
+    write(`✗ no daemon answered on 127.0.0.1:${config.webPort}: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 }
 
 /** First line of a stream (the old key piped into `rekey --old-key-stdin`). */
@@ -661,6 +747,11 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   if (cmd.mode === "mcp") {
     redirectConsoleToStderrForStdioMcp();
     await runStdioBridge(loadConfig({ envPath: cmd.envPath }));
+    return;
+  }
+
+  if (cmd.mode === "reset-login") {
+    process.exitCode = await runResetLogin(loadConfig({ envPath: cmd.envPath }));
     return;
   }
 

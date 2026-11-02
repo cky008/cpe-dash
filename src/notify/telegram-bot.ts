@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { runAsActor } from "../audit-log.ts";
 import { timingSafeEqualString } from "../crypto.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encrypted-file.ts";
@@ -106,13 +107,18 @@ export function truncateTelegramHtml(html: string, max: number): string {
 
 const TEXT = {
   "zh-CN": {
-    unauthorized: "<b>烽燧 · 会话未授权</b>\n\nChat ID：<code>{chatId}</code>\n发送 <code>/auth 访问令牌</code> 完成绑定（令牌为 .env 中的 API_TOKEN）。",
-    auth_usage: "用法：<code>/auth 访问令牌</code>",
+    unauthorized: "<b>烽燧 · 会话未授权</b>\n\nChat ID：<code>{chatId}</code>\n在控制台「设置 → Telegram」生成绑定码，然后发送 <code>/auth 绑定码</code>（也可以用完整权限的访问令牌）。",
+    auth_usage: "用法：<code>/auth 绑定码</code>",
     auth_private_only:
-      "<b>请在与机器人的私聊中使用 /auth</b>\n\n在群组里绑定会让所有成员都能读取短信与验证码并操作路由器。若令牌消息仍可见，请立即删除，并考虑更换 <code>API_TOKEN</code>。",
+      "<b>请在与机器人的私聊中使用 /auth</b>\n\n在群组里绑定会让所有成员都能读取短信与验证码并操作路由器。若消息里是访问令牌且仍可见，请立即删除，并在控制台撤销该令牌。",
     auth_ok: "<b>绑定成功</b>\n\n令牌消息已自动撤回。新短信与告警会推送到这里。",
     auth_already: "<b>当前会话已授权</b>",
-    auth_bad: "<b>令牌不正确</b>，请检查后重试。",
+    auth_bad: "<b>绑定码或令牌不正确</b>：绑定码 10 分钟内有效，只能用一次。",
+    reset_code:
+      "🔑 <b>控制台密码重置码</b>：<code>{code}</code>\n\n15 分钟内有效，只能使用一次。在控制台登录页点「忘记密码」，输入重置码并设置新密码。\n如果不是你本人操作，请忽略这条消息，并在控制台「设置 → 安全」关闭 Telegram 重置。",
+    reset_disabled: "Telegram 重置密码已在控制台关闭。",
+    reset_private_only: "<b>请在与机器人的私聊中使用 /reset</b>",
+    reset_limited: "<b>请稍后再试</b>：每小时最多申请 3 次重置码。",
     auth_limited: "<b>验证暂时停用</b>\n\n失败次数过多，请 10 分钟后再试。",
     help:
       "<b>烽燧 · 5G CPE 助手</b>\n\n<b>短信</b>\n/new 引导式发短信\n/inbox 最近会话\n/unread 未读短信\n/chat <code>号码</code> 查看对话\n/send <code>号码 内容</code> 快速发送（需确认）\n/contacts <code>[关键词]</code> 通讯录\n/contact <code>号码 姓名</code> 添加联系人\n/sync 立即同步\n\n<b>设备</b>\n/status 信号、流量与短信概况\n/alerts 最近告警\n/mute <code>30m|2h|1d|off</code> 告警静音\n\n直接<b>回复</b>任意短信通知即可回信；发送 <code>.vcf</code> 文件可导入通讯录。",
@@ -197,13 +203,18 @@ const TEXT = {
     cmd_help: "使用说明",
   },
   en: {
-    unauthorized: "<b>FengSui · chat not authorized</b>\n\nChat ID: <code>{chatId}</code>\nSend <code>/auth ACCESS_TOKEN</code> to link this chat (the API_TOKEN from .env).",
-    auth_usage: "Usage: <code>/auth ACCESS_TOKEN</code>",
+    unauthorized: "<b>FengSui · chat not authorized</b>\n\nChat ID: <code>{chatId}</code>\nCreate a pairing code in the console (Settings → Telegram), then send <code>/auth CODE</code> (a full-access token works too).",
+    auth_usage: "Usage: <code>/auth PAIRING_CODE</code>",
     auth_private_only:
-      "<b>Use /auth in a private chat with the bot</b>\n\nLinking a group would let every member read your SMS and codes and control the router. If your token message is still visible, delete it now and consider rotating <code>API_TOKEN</code>.",
+      "<b>Use /auth in a private chat with the bot</b>\n\nLinking a group would let every member read your SMS and codes and control the router. If your message held an access token and is still visible, delete it now and revoke that token in the console.",
     auth_ok: "<b>Linked</b>\n\nYour token message was deleted. New SMS and alerts will be delivered here.",
     auth_already: "<b>This chat is already authorized</b>",
-    auth_bad: "<b>Wrong token</b>, please try again.",
+    auth_bad: "<b>Wrong code or token</b>: a pairing code works once, within 10 minutes.",
+    reset_code:
+      "🔑 <b>Console password reset code</b>: <code>{code}</code>\n\nValid for 15 minutes, once. On the console's sign-in page choose “Forgot password”, enter the code and set a new password.\nIf this was not you, ignore it and turn Telegram reset off in the console (Settings → Security).",
+    reset_disabled: "Password reset through Telegram is turned off in the console.",
+    reset_private_only: "<b>Use /reset in a private chat with the bot</b>",
+    reset_limited: "<b>Try again later</b>: at most 3 reset codes an hour.",
     auth_limited: "<b>Verification paused</b>\n\nToo many failures, try again in 10 minutes.",
     help:
       "<b>FengSui · 5G CPE assistant</b>\n\n<b>SMS</b>\n/new guided send\n/inbox recent conversations\n/unread unread messages\n/chat <code>number</code> show a conversation\n/send <code>number text</code> quick send (with confirmation)\n/contacts <code>[query]</code> contact book\n/contact <code>number name</code> add a contact\n/sync sync now\n\n<b>Device</b>\n/status signal, traffic and SMS overview\n/alerts recent alerts\n/mute <code>30m|2h|1d|off</code> mute alerts\n\n<b>Reply</b> to any SMS notification to answer it; send a <code>.vcf</code> file to import contacts.",
@@ -413,8 +424,12 @@ export interface TelegramBotOptions {
   state: TelegramStateStore;
   /** SMS features are hidden when `null` (SMS_ENABLED=false). */
   sms: SmsService | null;
-  /** Secret accepted by `/auth` (the dashboard `API_TOKEN`). */
+  /** Secret accepted by `/auth` when `linkSecret` is not given (tests, embedders). */
   authToken: string;
+  /** Decide an `/auth` secret: a one-time pairing code from the console, or a full-access token. */
+  linkSecret?: (secret: string) => boolean;
+  /** A console password reset code for `/reset`, or `null` when Telegram reset is turned off. */
+  issueResetCode?: () => string | null;
   allowedChatIds?: ReadonlyArray<string>;
   locale?: SupportedLocale;
   defaultCountryCode?: string;
@@ -438,6 +453,9 @@ export class TelegramBot implements NotificationChannel {
   readonly defaultCountryCode: string;
   readonly allowedChatIds: ReadonlyArray<string>;
   #authToken: string;
+  readonly #linkSecret: ((secret: string) => boolean) | null;
+  readonly #issueResetCode: (() => string | null) | null;
+  #resetRequests = new Map<string, number[]>();
   readonly #now: () => number;
   readonly #log: (line: string) => void;
 
@@ -462,6 +480,8 @@ export class TelegramBot implements NotificationChannel {
     this.state = opts.state;
     this.sms = opts.sms;
     this.#authToken = opts.authToken;
+    this.#linkSecret = opts.linkSecret ?? null;
+    this.#issueResetCode = opts.issueResetCode ?? null;
     this.allowedChatIds = (opts.allowedChatIds ?? []).map(String);
     this.locale = opts.locale ?? "zh-CN";
     this.defaultCountryCode = opts.defaultCountryCode ?? "+353";
@@ -518,6 +538,13 @@ export class TelegramBot implements NotificationChannel {
    * Apply a hot-reloaded `API_TOKEN`. When it changed, chats linked with the previous token via
    * `/auth` are revoked (a leaked token must not keep granting access); `TELEGRAM_CHAT_IDS` stay.
    */
+  /** Unlink every chat linked with /auth (TELEGRAM_CHAT_IDS stay authorized); returns how many. */
+  unlinkAllChats(): number {
+    const revoked = this.state.revokeAll();
+    if (revoked > 0) this.#log(`[telegram] unlinked ${revoked} chat(s) from the console`);
+    return revoked;
+  }
+
   rotateAuthToken(token: string): number {
     if (timingSafeEqualString(token, this.#authToken)) return 0;
     this.#authToken = token;
@@ -647,9 +674,13 @@ export class TelegramBot implements NotificationChannel {
   // ----------------------------------------------------------------- update dispatch
 
   async handleUpdate(update: TelegramUpdate): Promise<void> {
+    const chat = String(update.message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? "");
     try {
-      if (update.callback_query) await this.#handleCallback(update.callback_query);
-      else if (update.message) await this.#handleMessage(update.message);
+      // Writes a chat triggers are audited as Telegram, with only the chat ID's last digits
+      await runAsActor({ channel: "telegram", label: chat ? `chat …${chat.slice(-3)}` : "chat" }, async () => {
+        if (update.callback_query) await this.#handleCallback(update.callback_query);
+        else if (update.message) await this.#handleMessage(update.message);
+      });
     } catch (err) {
       this.#log(`[telegram] update handler error: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -726,6 +757,10 @@ export class TelegramBot implements NotificationChannel {
     }
     if (!this.state.isAuthorized(chatId, this.allowedChatIds)) {
       await this.#send(chatId, this.#tx("unauthorized", { chatId }));
+      return;
+    }
+    if (/^\/reset(?:@\S+)?$/i.test(text)) {
+      await this.#cmdReset(chatId, msg.chat?.type === "private");
       return;
     }
 
@@ -931,7 +966,8 @@ export class TelegramBot implements NotificationChannel {
     if (!privateChat) return await this.#reply(chatId, "auth_private_only");
     if (this.#authLimited(chatId)) return await this.#reply(chatId, "auth_limited");
     if (!secret) return await this.#reply(chatId, "auth_usage");
-    if (this.#authToken && timingSafeEqualString(secret, this.#authToken)) {
+    const linked = this.#linkSecret ? this.#linkSecret(secret) : Boolean(this.#authToken) && timingSafeEqualString(secret, this.#authToken);
+    if (linked) {
       this.state.authorize(chatId);
       this.#authFailures.delete(chatId);
       await this.#send(chatId, this.#tx("auth_ok"));
@@ -941,6 +977,21 @@ export class TelegramBot implements NotificationChannel {
     this.#authFailures.set(chatId, [...(this.#authFailures.get(chatId) ?? []), now]);
     this.#globalAuthFailures.push(now);
     await this.#send(chatId, this.#tx("auth_bad"));
+  }
+
+  /** A one-time console password reset code, in a linked private chat only, at most 3 an hour. */
+  async #cmdReset(chatId: string, privateChat: boolean): Promise<void> {
+    if (!privateChat) return await this.#reply(chatId, "reset_private_only");
+    const issue = this.#issueResetCode;
+    if (!issue) return await this.#reply(chatId, "reset_disabled");
+    const now = this.#now();
+    const recent = (this.#resetRequests.get(chatId) ?? []).filter((ts) => now - ts < 60 * 60_000);
+    if (recent.length >= 3) return await this.#reply(chatId, "reset_limited");
+    const code = issue();
+    if (code === null) return await this.#reply(chatId, "reset_disabled");
+    this.#resetRequests.set(chatId, [...recent, now]);
+    this.#log("[telegram] issued a console password reset code to a linked chat");
+    await this.#send(chatId, this.#tx("reset_code", { code }));
   }
 
   async #cmdStatus(chatId: string): Promise<void> {

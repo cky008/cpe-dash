@@ -384,6 +384,19 @@ When using `container-compose`: change `image:` in compose to `cpe-dash:local` a
 
 ---
 
+## 🔐 Console settings and account security
+
+From v1.5.0 the router connection, the console password and the API tokens are managed in the web console and kept encrypted in `data/settings.json`; `.env` only holds startup parameters (`DATA_ENCRYPTION_KEY`, ports, paths).
+
+- **Fresh install**: `.env` needs only `DATA_ENCRYPTION_KEY`. Find the one-time `setup code` in the log (`sudo docker logs cpe-dash`), use it on the sign-in page to choose the console password, then enter the router's address, user and password in the setup guide. They are tried with one login before they are saved; if that fails the guide says why and what to do (wrong password with the attempts left, router locked, someone on the router's web page, address unreachable…). Nothing logs in to the router before you save.
+- **Upgrading**: the first start imports `CPE_*` and `API_TOKEN*` from `.env`. Sign in with your old `API_TOKEN`; the guide prefills the router settings, tests them and asks you to confirm. The old `API_TOKEN` keeps working as a token named `API_TOKEN (.env)`, so MCP clients and scripts need no change. From then on those `.env` values no longer apply.
+- **Router connection**: a change is tested first and saved only if it logs in, which also clears the breaker. When the router has one attempt left, another try needs an explicit confirmation, so a typo cannot trigger the `108007` hardware lockout.
+- **Tokens**: created in Settings → Tokens, either full access or read-only, valid for 1 / 7 / 30 / 90 / 365 days or forever. A token is shown once and can be revoked at any time; streams opened with it close at once. Tokens cannot change console settings. The "Connect an AI agent" guide can create a read-only token for you.
+- **Telegram**: Settings → Telegram creates a one-time pairing code (10 minutes); send `/auth CODE` to the bot in a private chat. All chats can be unlinked in one go.
+- **Forgot the password**: on the NAS run `sudo docker exec cpe-dash node dist/cli.js reset-login` for a 15-minute reset code (only someone who can read that `.env` gets one), or send `/reset` in a linked private Telegram chat (can be turned off in Settings → Security). On the sign-in page choose "Forgot password", enter the code and set a new password; every session is signed out.
+- **Audit log**: Settings → Audit records every write to the router, console sign-ins and every settings change: who (console, which token, MCP, Telegram, self-healing), when, what and with what result. The last 500 entries are kept, encrypted.
+- **`/metrics`**: turn it on in Settings → Security or with `METRICS_ENABLED=true` in `.env` for Prometheus / Grafana to scrape signal, throughput, sessions and more. It needs any token, carries no device identifier and never logs in to the router.
+
 ## 🤖 MCP Agent Integration
 
 FengSui provides an MCP service on daemon `/mcp` via two integration methods, **neither of which creates a second CPE session**:
@@ -552,11 +565,11 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | :--- | :--- | :--- |
 | `CPE_URL` | `http://192.168.8.1` | CPE management address; restricted to private / loopback / CGNAT hosts; embedded credentials, query strings, and redirects are forbidden (SSRF defense) |
 | `CPE_USERNAME` | `admin` | Admin username |
-| `CPE_PASSWORD` | *(Required)* | Admin password; `108006` errors immediately trip the persistent circuit breaker |
+| `CPE_PASSWORD` | *(empty)* | Admin password; `108006` errors immediately trip the persistent circuit breaker. From v1.5.0 the console manages the router connection: `CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` are imported once on the first start and the console is authoritative after; a fresh install can leave them out and use the setup guide |
 | `TZ` | `UTC` | IANA timezone (e.g. `Asia/Shanghai`); used to generate outbound SMS `<Date>`; must match the CPE's timezone |
-| `DATA_ENCRYPTION_KEY` | *(Falls back to `CPE_PASSWORD`)* | Master encryption key for `data/*.json` at rest (`scrypt` + `HKDF-SHA256` → `AES-256-GCM`); strongly recommended to configure independently |
-| `API_TOKEN_READONLY` | *(empty, off)* | Read-only Bearer token: REST reads, SSE and read-only refreshes; on `/mcp` it sees and may call only read-only tools; every write answers `403 READ_ONLY_TOKEN`. Meant for dashboards, scripts and AI agents; must differ from `API_TOKEN` and `CPE_PASSWORD` |
-| `API_TOKEN` | *(Falls back to `CPE_PASSWORD`)* | Web login token and REST / `/mcp` Bearer token; a high-entropy random string is recommended. Left unset, the router's admin password ends up in MCP client configs and is sent to Telegram by `/auth`; startup prints a notice |
+| `DATA_ENCRYPTION_KEY` | *(Falls back to `CPE_PASSWORD`)* | Master encryption key for `data/*.json` at rest (`scrypt` + `HKDF-SHA256` → `AES-256-GCM`); strongly recommended to configure independently; on a fresh install it is the only value `.env` needs |
+| `API_TOKEN_READONLY` | *(empty, off)* | Imported on upgrade as a read token named `API_TOKEN_READONLY (.env)`; create new tokens in the console (Settings → Tokens). Must differ from `API_TOKEN` and `CPE_PASSWORD` |
+| `API_TOKEN` | *(Falls back to `CPE_PASSWORD`)* | Imported once on upgrade: it becomes the console password and a full-access token named `API_TOKEN (.env)` (existing MCP clients and scripts keep working). After that, change the password and issue or revoke tokens in the console; the `.env` value no longer applies |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | Trusted reverse proxy IPs / CIDRs; `X-Forwarded-For` / `X-Forwarded-Proto` parsed only when matching |
 | `ALLOWED_HOSTS` | *(Empty)* | Additional permitted `Host` headers (e.g. `cpe.example.com`); private IPs, `localhost`, `*.local` / `*.lan` / `*.internal` / `*.ts.net` are always permitted |
 | `WEB_ENABLED` | `true` | Whether to start the HTTP service (Web console, REST, SSE, and `/mcp`); set to `false` to run background collection, SMS sync, and notifications only |
@@ -593,6 +606,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | Signal degradation alert thresholds |
 | `LOCK_ROLLBACK_AFTER_MIN` | `0` (off) | Clear every lock when the WAN is still down this many minutes after a lock (`3..1440`) |
 | `WAN_AUTO_RECONNECT_AFTER_MIN` | `0` (off) | Redial a WAN down this many minutes (`1..1440`; then every 10 / 30 / 60 minutes, at most 4 in 24 hours, never a reboot) |
+| `METRICS_ENABLED` | `false` | Serve `GET /metrics` (Prometheus text format, any token); the console's switch (Settings → Security) wins |
 | `MCP_SMS_ACCESS` | `read` | MCP SMS tool access level: `none` / `read` / `full` |
 | `MCP_SMS_SEND_POLICY` | `known` | `known` restricts sending to contacts you saved or previously messaged numbers (contacts an agent added with `upsert_contact` do not count); `any` allows unrestricted recipients |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | Maximum SMS messages sent via MCP per hour (`0` disables) |

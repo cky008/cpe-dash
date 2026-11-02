@@ -178,7 +178,7 @@ describe("createFengSuiRuntime", () => {
     assert.equal(fs.existsSync(`${config.stateFile}.lock`), false);
   });
 
-  it("re-encrypts SMS, contacts and Telegram state and revokes /auth-linked chats when reset-breaker reloads .env", async () => {
+  it("re-encrypts every store when reset-breaker reloads .env, while tokens and linked chats stay the console's", async () => {
     const mock = createMockSmsCpe({ messages: [] });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-rotate-"));
     const env = baseEnv(dir, mock.password);
@@ -215,16 +215,32 @@ describe("createFengSuiRuntime", () => {
       assert.equal(contacts?.contacts[0]?.name, "Rotated Contact");
       assert.ok(v2.readJsonFileOrQuarantine(config.smsFile));
       assert.ok(v2.readJsonFileOrQuarantine(config.stateFile));
+      // The console store and the audit log follow the new key too
+      assert.ok(v2.readJsonFileOrQuarantine(config.settingsFile));
+      assert.ok(v2.readJsonFileOrQuarantine(config.auditFile));
+      // API_TOKEN in .env was imported once: changing it there no longer rotates anything
       const tgState = v2.readJsonFileOrQuarantine<{ authorizedChatIds: string[] }>(config.telegramStateFile);
-      assert.deepEqual(tgState?.authorizedChatIds, []);
-      assert.equal(bot.state.isAuthorized("2002", bot.allowedChatIds), false);
-      assert.equal(bot.state.isAuthorized("1001", bot.allowedChatIds), true);
-
-      await bot.handleUpdate({ update_id: 1, message: { message_id: 10, chat: { id: 3003, type: "private" }, text: "/auth runtime_api_token_v1" } });
-      assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), false);
-      await bot.handleUpdate({ update_id: 2, message: { message_id: 11, chat: { id: 3003, type: "private" }, text: "/auth runtime_api_token_v2" } });
-      assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), true);
-      assert.equal(bot.rotateAuthToken("runtime_api_token_v2"), 0, "unchanged token keeps linked chats");
+      assert.deepEqual(tgState?.authorizedChatIds, ["2002"]);
+      await bot.handleUpdate({ update_id: 1, message: { message_id: 10, chat: { id: 3003, type: "private" }, text: "/auth runtime_api_token_v2" } });
+      assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), false, "the new .env value is not a token");
+      await bot.handleUpdate({ update_id: 2, message: { message_id: 11, chat: { id: 3003, type: "private" }, text: "/auth runtime_api_token_v1" } });
+      assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), true, "the imported full token still links");
+      // A pairing code from the console links once; the console can unlink every /auth chat
+      const code = stack.settings.issueCode("pair");
+      await bot.handleUpdate({ update_id: 3, message: { message_id: 12, chat: { id: 4004, type: "private" }, text: `/auth ${code}` } });
+      assert.equal(bot.state.isAuthorized("4004", bot.allowedChatIds), true);
+      await bot.handleUpdate({ update_id: 4, message: { message_id: 13, chat: { id: 5005, type: "private" }, text: `/auth ${code}` } });
+      assert.equal(bot.state.isAuthorized("5005", bot.allowedChatIds), false, "spent");
+      assert.equal(bot.unlinkAllChats(), 3);
+      assert.equal(bot.state.isAuthorized("1001", bot.allowedChatIds), true, "TELEGRAM_CHAT_IDS stay authorized");
+      // /reset in a linked private chat answers with a one-time console reset code, unless turned off
+      await bot.handleUpdate({ update_id: 5, message: { message_id: 14, chat: { id: 1001, type: "private" }, text: "/reset" } });
+      const resetText = notify.calls.filter((c) => c.url.endsWith("/sendMessage")).at(-1)?.body ?? "";
+      const resetCode = /<code>([A-Z0-9]{4}-[A-Z0-9]{4})<\/code>/.exec(resetText)?.[1] ?? "";
+      assert.ok(stack.settings.consumeCode("reset", resetCode), "a working reset code");
+      stack.settings.setTelegramReset(false);
+      await bot.handleUpdate({ update_id: 6, message: { message_id: 15, chat: { id: 1001, type: "private" }, text: "/reset" } });
+      assert.match(notify.calls.filter((c) => c.url.endsWith("/sendMessage")).at(-1)?.body ?? "", /turned off|已在控制台关闭/);
     } finally {
       if (originalTz === undefined) delete process.env["TZ"];
       else process.env["TZ"] = originalTz;

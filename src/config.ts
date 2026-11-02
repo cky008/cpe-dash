@@ -568,6 +568,9 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     // A lock needs a few minutes to re-attach and prove itself; anything shorter would undo good locks
     lockRollbackAfterMs: parseMinutesOrOff(get("LOCK_ROLLBACK_AFTER_MIN"), 3, 1440),
     wanReconnectAfterMs: parseMinutesOrOff(get("WAN_AUTO_RECONNECT_AFTER_MIN"), 1, 1440),
+    metricsEnabled: parseBool(get("METRICS_ENABLED"), false),
+    settingsFile: path.join(path.dirname(stateFile), "settings.json"),
+    auditFile: path.join(path.dirname(stateFile), "audit.json"),
     mcpSmsAccess: pickEnum(get("MCP_SMS_ACCESS"), ["none", "read", "full"] as const, "read"),
     mcpSmsSendPolicy: pickEnum(get("MCP_SMS_SEND_POLICY"), ["known", "any"] as const, "known"),
     mcpSmsSendLimitPerHour: Math.max(0, parseIntSafe(get("MCP_SMS_SEND_LIMIT_PER_HOUR"), 10)),
