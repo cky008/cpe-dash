@@ -27,7 +27,7 @@ interface TgCall {
   payload: Record<string, unknown>;
 }
 
-function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; failPolls?: boolean; sendDelayMs?: number } = {}) {
+function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; failPolls?: boolean; sendDelayMs?: number; rateLimitPolls?: number } = {}) {
   const calls: TgCall[] = [];
   let completedSends = 0;
   let messageSeq = 100;
@@ -46,6 +46,10 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
     if (method === "getFile") return ok({ file_path: "documents/contacts.vcf", file_size: (opts.vcf ?? "").length });
     if (method === "getUpdates") {
       if (opts.failPolls) throw new TypeError("fetch failed");
+      if (opts.rateLimitPolls) {
+        const retryAfter = opts.rateLimitPolls;
+        return new Response(JSON.stringify({ ok: false, error_code: 429, description: `Too Many Requests: retry after ${retryAfter}`, parameters: { retry_after: retryAfter } }), { status: 429 });
+      }
       const batch = batches.shift();
       if (batch) return ok(batch);
       await new Promise((resolve, reject) => {
@@ -78,7 +82,7 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
 }
 
 function createBotFixture(
-  opts: { smsEnabled?: boolean; vcf?: string; updates?: TelegramUpdate[][]; failPolls?: boolean; sendDelayMs?: number } = {}
+  opts: { smsEnabled?: boolean; vcf?: string; updates?: TelegramUpdate[][]; failPolls?: boolean; sendDelayMs?: number; rateLimitPolls?: number } = {}
 ) {
   const mock = createMockSmsCpe({
     messages: [
@@ -103,7 +107,7 @@ function createBotFixture(
   const contacts = new ContactBook({ filePath: path.join(tmpDir, "contacts.json"), cipher, defaultCountryCode: "+353" });
   const mirror = new SmsMirrorStore({ filePath: path.join(tmpDir, "sms.json"), cipher, defaultCountryCode: "+353", contacts });
   const service = new SmsService({ scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined, seedExistingOnStart: false });
-  const tg = createFakeTelegram({ vcf: opts.vcf, updates: opts.updates, failPolls: opts.failPolls, sendDelayMs: opts.sendDelayMs });
+  const tg = createFakeTelegram({ vcf: opts.vcf, updates: opts.updates, failPolls: opts.failPolls, sendDelayMs: opts.sendDelayMs, rateLimitPolls: opts.rateLimitPolls });
   const api = new TelegramApi({ token: TOKEN, fetchImpl: tg.fetchImpl });
   const state = new TelegramStateStore({ filePath: path.join(tmpDir, "telegram.json"), cipher });
   let clock = Date.parse("2026-10-30T10:00:00Z");
@@ -659,6 +663,19 @@ describe("TelegramBot", () => {
     assert.ok(performance.now() - stoppingAt < 200, "the 1.5 s (up to 30 s) backoff is cut short");
     assert.equal(fx.tg.of("getUpdates").length, 1, "no poll after stop()");
     assert.ok(fx.logs.some((line) => line.includes("poll error")));
+    await fx.cleanup();
+  });
+
+  it("waits as long as Telegram asks after a 429 instead of polling again in 1.5 s", async () => {
+    const fx = createBotFixture({ rateLimitPolls: 37 });
+    await fx.bot.start();
+    while (!fx.logs.some((line) => line.includes("poll error"))) await new Promise((r) => setTimeout(r, 2));
+    await fx.bot.stop();
+    assert.ok(fx.logs.some((line) => /poll error, retrying in 37000 ms[\s\S]*429/.test(line)), fx.logs.join("\n"));
+    assert.equal(fx.tg.of("getUpdates").length, 1);
+    const err = await new TelegramApi({ token: TOKEN, fetchImpl: fx.tg.fetchImpl }).call("getUpdates").catch((e: unknown) => e);
+    assert.ok(err instanceof TelegramApiError);
+    assert.equal(err.retryAfterSec, 37);
     await fx.cleanup();
   });
 

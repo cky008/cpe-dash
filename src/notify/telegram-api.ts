@@ -5,12 +5,15 @@ import { parseJsonSafeNullProto } from "../json-safe.ts";
 export class TelegramApiError extends Error {
   readonly method: string;
   readonly errorCode: number | null;
+  /** `parameters.retry_after` of a `429`: seconds Telegram asks the bot to wait. */
+  readonly retryAfterSec: number | null;
 
-  constructor(method: string, errorCode: number | null, description: string) {
+  constructor(method: string, errorCode: number | null, description: string, retryAfterSec: number | null = null) {
     super(`Telegram ${method} failed${errorCode !== null ? ` (${errorCode})` : ""}: ${description}`);
     this.name = "TelegramApiError";
     this.method = method;
     this.errorCode = errorCode;
+    this.retryAfterSec = retryAfterSec;
   }
 }
 
@@ -81,12 +84,15 @@ export class TelegramApi {
     } catch {
       throw new TelegramApiError(method, res.status, "invalid JSON response");
     }
-    const envelope = (parsed ?? {}) as { ok?: unknown; result?: unknown; error_code?: unknown; description?: unknown };
+    const envelope = (parsed ?? {}) as { ok?: unknown; result?: unknown; error_code?: unknown; description?: unknown; parameters?: unknown };
     if (envelope.ok !== true) {
+      const params = envelope.parameters !== null && typeof envelope.parameters === "object" ? (envelope.parameters as { retry_after?: unknown }) : {};
+      const retryAfter = params.retry_after;
       throw new TelegramApiError(
         method,
         typeof envelope.error_code === "number" ? envelope.error_code : res.status,
-        typeof envelope.description === "string" ? envelope.description : "request rejected"
+        typeof envelope.description === "string" ? envelope.description : "request rejected",
+        typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 3600) : null
       );
     }
     return envelope.result as T;

@@ -12,7 +12,7 @@ import type { EnrichedSmsMessage } from "../sms/types.ts";
 import type { AlertEventRecord } from "../state-store.ts";
 import type { SupportedLocale } from "../types.ts";
 import type { NotificationChannel } from "./hub.ts";
-import type { TelegramApi } from "./telegram-api.ts";
+import { type TelegramApi, TelegramApiError } from "./telegram-api.ts";
 
 export interface TelegramUpdate {
   update_id: number;
@@ -604,8 +604,10 @@ export class TelegramBot implements NotificationChannel {
       } catch (err) {
         if (!this.#running) break;
         if (this.#standby) continue;
-        this.#log(`[telegram] poll error, retrying in ${backoffMs} ms: ${err instanceof Error ? err.message : String(err)}`);
-        await this.#pause(backoffMs);
+        // A 429 names its own wait; polling sooner only extends Telegram's limit
+        const waitMs = err instanceof TelegramApiError && err.retryAfterSec !== null ? Math.max(backoffMs, err.retryAfterSec * 1000) : backoffMs;
+        this.#log(`[telegram] poll error, retrying in ${waitMs} ms: ${err instanceof Error ? err.message : String(err)}`);
+        await this.#pause(waitMs);
         backoffMs = Math.min(30_000, backoffMs * 2);
       }
     }
