@@ -4,7 +4,6 @@ import type { MessageKey } from "./zh-CN.ts";
 export const en: Readonly<Record<MessageKey, string>> = {
   "app.title": "FengSui · H168-383 5G RF & SMS Console",
   "app.brand": "烽燧",
-  "app.footer": "Self-hosted · nothing leaves your LAN · one polite admin session",
 
   "login.subtitle": "Huawei 5G CPE Ultra 6 · private RF monitoring, control and SMS centre",
   "login.placeholder": "API_TOKEN (or the CPE admin password)",
