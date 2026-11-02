@@ -465,7 +465,7 @@ JSON-RPC layer: Bridge returns `-32010` (daemon unreachable) and `-32011` (token
 
 ### Configuring Telegram Bot
 1. Create a bot with `@BotFather` in Telegram and paste the token into `TELEGRAM_BOT_TOKEN` in `.env`;
-2. Choose one: Add your chat ID to `TELEGRAM_CHAT_IDS`, or send `/auth <API_TOKEN>` to the bot after startup (the message containing the token is automatically deleted; re-authentication is required if `API_TOKEN` changes);
+2. Choose one: Add your chat ID to `TELEGRAM_CHAT_IDS`, or send `/auth <API_TOKEN>` to the bot in a **private chat** after startup (the message containing the token is automatically deleted; groups cannot use `/auth`, so put a group's ID in `TELEGRAM_CHAT_IDS` to deliver there; re-authentication is required if `API_TOKEN` changes);
 3. Restart the service; active status is indicated by `telegram=on` in logs. A single bot token can only have one polling consumer.
 
 | Command / Interaction | Action |

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { timingSafeEqualString } from "../crypto.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import { AtomicFileWriter, StorageCipher } from "../encrypted-file.ts";
@@ -17,7 +18,8 @@ export interface TelegramUpdate {
   update_id: number;
   message?: {
     message_id?: number;
-    chat?: { id?: number | string };
+    /** `type`: "private", "group", "supergroup" or "channel". */
+    chat?: { id?: number | string; type?: string };
     text?: string;
     reply_to_message?: { message_id?: number };
     document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
@@ -64,6 +66,8 @@ const TEXT = {
   "zh-CN": {
     unauthorized: "<b>烽燧 · 会话未授权</b>\n\nChat ID：<code>{chatId}</code>\n发送 <code>/auth 访问令牌</code> 完成绑定（令牌为 .env 中的 API_TOKEN）。",
     auth_usage: "用法：<code>/auth 访问令牌</code>",
+    auth_private_only:
+      "<b>请在与机器人的私聊中使用 /auth</b>\n\n在群组里绑定会让所有成员都能读取短信与验证码并操作路由器。若令牌消息仍可见，请立即删除，并考虑更换 <code>API_TOKEN</code>。",
     auth_ok: "<b>绑定成功</b>\n\n令牌消息已自动撤回。新短信与告警会推送到这里。",
     auth_already: "<b>当前会话已授权</b>",
     auth_bad: "<b>令牌不正确</b>，请检查后重试。",
@@ -152,6 +156,8 @@ const TEXT = {
   en: {
     unauthorized: "<b>FengSui · chat not authorized</b>\n\nChat ID: <code>{chatId}</code>\nSend <code>/auth ACCESS_TOKEN</code> to link this chat (the API_TOKEN from .env).",
     auth_usage: "Usage: <code>/auth ACCESS_TOKEN</code>",
+    auth_private_only:
+      "<b>Use /auth in a private chat with the bot</b>\n\nLinking a group would let every member read your SMS and codes and control the router. If your token message is still visible, delete it now and consider rotating <code>API_TOKEN</code>.",
     auth_ok: "<b>Linked</b>\n\nYour token message was deleted. New SMS and alerts will be delivered here.",
     auth_already: "<b>This chat is already authorized</b>",
     auth_bad: "<b>Wrong token</b>, please try again.",
@@ -351,6 +357,8 @@ interface WizardSession {
   countryCode: string;
   phone?: string;
   content?: string;
+  /** Bound into the confirm card's Send button, so an older card cannot send a newer draft. */
+  confirmToken?: string;
   expiresAt: number;
 }
 
@@ -586,7 +594,7 @@ export class TelegramBot implements NotificationChannel {
     const text = (msg.text ?? "").trim();
 
     if (/^\/auth(?:@\S+)?(?:\s|$)/i.test(text)) {
-      await this.#cmdAuth(chatId, text.replace(/^\/auth(?:@\S+)?\s*/i, ""), msg.message_id);
+      await this.#cmdAuth(chatId, text.replace(/^\/auth(?:@\S+)?\s*/i, ""), msg.message_id, msg.chat?.type === "private");
       return;
     }
     if (!this.state.isAuthorized(chatId, this.allowedChatIds)) {
@@ -718,7 +726,7 @@ export class TelegramBot implements NotificationChannel {
         }
         case "wizsend": {
           const wiz = this.#wizard(chatId);
-          if (!wiz?.phone || !wiz.content || wiz.step !== "confirm") {
+          if (!wiz?.phone || !wiz.content || wiz.step !== "confirm" || arg !== wiz.confirmToken) {
             await answer(this.#plain("wiz_expired"), true);
             return;
           }
@@ -787,11 +795,13 @@ export class TelegramBot implements NotificationChannel {
 
   // ----------------------------------------------------------------- commands
 
-  async #cmdAuth(chatId: string, secret: string, messageId: number | undefined): Promise<void> {
+  async #cmdAuth(chatId: string, secret: string, messageId: number | undefined, privateChat: boolean): Promise<void> {
     if (messageId !== undefined) {
       void this.api.call("deleteMessage", { chat_id: chatId, message_id: messageId }).catch(() => undefined);
     }
     if (this.state.isAuthorized(chatId, this.allowedChatIds)) return await this.#reply(chatId, "auth_already");
+    // A linked group would open SMS, codes and router controls to every member (pre-authorize it via TELEGRAM_CHAT_IDS)
+    if (!privateChat) return await this.#reply(chatId, "auth_private_only");
     if (this.#authLimited(chatId)) return await this.#reply(chatId, "auth_limited");
     if (!secret) return await this.#reply(chatId, "auth_usage");
     if (this.#authToken && timingSafeEqualString(secret, this.#authToken)) {
@@ -1101,6 +1111,7 @@ export class TelegramBot implements NotificationChannel {
     }
     wiz.step = "confirm";
     wiz.content = content;
+    wiz.confirmToken = crypto.randomBytes(4).toString("hex");
     await this.#send(
       chatId,
       this.#tx("wiz_confirm", {
@@ -1112,7 +1123,7 @@ export class TelegramBot implements NotificationChannel {
       {
         inline_keyboard: [
           [
-            { text: this.#tx("btn_send_now"), callback_data: "wizsend:1" },
+            { text: this.#tx("btn_send_now"), callback_data: `wizsend:${wiz.confirmToken}` },
             { text: this.#tx("btn_edit_content"), callback_data: "wizback:content" },
           ],
           [

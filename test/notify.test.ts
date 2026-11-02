@@ -121,9 +121,13 @@ function createBotFixture(
   });
   let updateId = 0;
   const message = (chatId: number, text: string, extra: Partial<NonNullable<TelegramUpdate["message"]>> = {}) =>
-    bot.handleUpdate({ update_id: ++updateId, message: { message_id: 500 + updateId, chat: { id: chatId }, text, ...extra } });
+    // Telegram gives private chats positive IDs and groups negative ones
+    bot.handleUpdate({ update_id: ++updateId, message: { message_id: 500 + updateId, chat: { id: chatId, type: chatId > 0 ? "private" : "group" }, text, ...extra } });
   const callback = (chatId: number, data: string, messageId = 777) =>
     bot.handleUpdate({ update_id: ++updateId, callback_query: { id: `cb${updateId}`, data, message: { message_id: messageId, chat: { id: chatId } } } });
+  /** callback_data of the "Send now" button on the card last sent to this chat. */
+  const sendButton = (chatId: number): string =>
+    tg.buttons(tg.sends(String(chatId)).at(-1)).find((data) => data.startsWith("wizsend:")) ?? "wizsend:missing";
   return {
     mock,
     core,
@@ -136,6 +140,7 @@ function createBotFixture(
     logs,
     message,
     callback,
+    sendButton,
     advance: (ms: number) => {
       clock += ms;
     },
@@ -335,6 +340,20 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("links only private chats with /auth: a group would open the inbox and controls to every member", async () => {
+    const fx = createBotFixture();
+    const deletesBefore = fx.tg.of("deleteMessage").length;
+    await fx.message(-1003, "/auth dashboard_api_token");
+    assert.match(fx.tg.lastText("-1003"), /private chat/);
+    assert.equal(fx.state.isAuthorized("-1003", []), false);
+    assert.equal(fx.tg.of("deleteMessage").length, deletesBefore + 1, "still tries to take the token message down");
+    await fx.message(-1003, "/inbox");
+    assert.match(fx.tg.lastText("-1003"), /not authorized/);
+    await fx.message(2002, "/auth dashboard_api_token");
+    assert.equal(fx.state.isAuthorized("2002", []), true);
+    await fx.cleanup();
+  });
+
   it("delivers SMS cards with OTP, buttons and reply routing, then sends replies to the bound number", async () => {
     const fx = createBotFixture();
     fx.state.authorize("1002");
@@ -394,9 +413,10 @@ describe("TelegramBot", () => {
     await fx.callback(1001, "wizback:content");
     assert.match(fx.tg.lastText("1001"), /step 2: text/);
     await fx.message(1001, "Hello from the wizard <3");
-    await fx.callback(1001, "wizsend:1");
+    const send = fx.sendButton(1001);
+    await fx.callback(1001, send);
     assert.match(fx.mock.sentRequests.at(-1) ?? "", /Hello from the wizard &lt;3/);
-    await fx.callback(1001, "wizsend:1");
+    await fx.callback(1001, send);
     assert.equal(fx.mock.sentRequests.length, 1);
 
     // Plain numbers, invalid input, unknown names, cancel and expiry
@@ -420,13 +440,30 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("binds each confirmation card's Send button to its own draft, so an older card never sends a newer one", async () => {
+    const fx = createBotFixture();
+    await fx.service.sync("full");
+    await fx.message(1001, "/send 0830000001 First draft");
+    const firstCard = fx.sendButton(1001);
+    await fx.message(1001, "/send 0830000001 Second draft");
+    const secondCard = fx.sendButton(1001);
+    assert.notEqual(firstCard, secondCard);
+    await fx.callback(1001, firstCard);
+    assert.equal(fx.mock.sentRequests.length, 0, "the stale card sends nothing");
+    assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /expired/i);
+    await fx.callback(1001, secondCard);
+    assert.equal(fx.mock.sentRequests.length, 1);
+    assert.match(fx.mock.sentRequests.at(-1) ?? "", /Second draft/);
+    await fx.cleanup();
+  });
+
   it("requires a confirmation tap for /send and serves read commands from caches", async () => {
     const fx = createBotFixture();
     await fx.service.sync("full");
     await fx.message(1001, "/send 0830000001 Quick hi");
     assert.match(fx.tg.lastText("1001"), /confirm[\s\S]*Quick hi/);
     assert.equal(fx.mock.sentRequests.length, 0);
-    await fx.callback(1001, "wizsend:1");
+    await fx.callback(1001, fx.sendButton(1001));
     assert.equal(fx.mock.sentRequests.length, 1);
     await fx.message(1001, "/send nope text");
     assert.match(fx.tg.lastText("1001"), /Invalid recipient/);
@@ -542,7 +579,7 @@ describe("TelegramBot", () => {
     await fx.service.sync("full");
     fx.mock.control.stateLoginXml = () => HUMAN_LOGGED_IN;
     await fx.message(1001, "/send 0830000001 hi");
-    await fx.callback(1001, "wizsend:1");
+    await fx.callback(1001, fx.sendButton(1001));
     assert.match(String(fx.tg.of("editMessageText").at(-1)?.payload["text"]), /yielding politely/);
     await fx.callback(1001, `read:${fx.service.getThread("alpha:demobank").messages[0]!.uid}`);
     assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /yielding politely/);

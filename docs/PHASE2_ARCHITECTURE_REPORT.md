@@ -273,7 +273,7 @@ sequenceDiagram
   - 来信卡片：发件人 / 联系人 / 国旗、一键复制的验证码、回复该卡片即发送，以及「已读 / 会话 / 删除（二次确认）」按钮；
   - 引导式发短信 `/new`：国家快捷切换、号码或联系人搜索、GSM-7 / UCS-2 分段预览、确认后发送；`/send` 同样需要确认；
   - `/inbox`、`/unread`、`/chat`、`/contacts`、`/contact`、`/status`、`/alerts` 读取镜像与遥测缓存，不额外开会话；`/sync` 显式同步；`/mute` 暂停告警推送（最长 7 天）；发送 `.vcf` 文件导入通讯录；
-  - 授权：`TELEGRAM_CHAT_IDS` 预授权，或 `/auth <API_TOKEN>`（常量时间比对，单聊天 5 次 / 全局 20 次每 10 分钟限流，令牌消息自动删除）；`API_TOKEN` 轮换后，经 `/auth` 绑定的聊天全部解绑。
+  - 授权：`TELEGRAM_CHAT_IDS` 预授权，或在私聊中 `/auth <API_TOKEN>`（仅限私聊：群组绑定会把短信与控制开放给所有成员；常量时间比对，单聊天 5 次 / 全局 20 次每 10 分钟限流，令牌消息自动删除）；`API_TOKEN` 轮换后，经 `/auth` 绑定的聊天全部解绑。
 - **签名 Webhook**：`{ event, deliveredAt, data }` JSON，`HMAC-SHA256(secret, "<timestamp>.<body>")` 签名，网络错误或 `5xx` 重试一次。
 - **`AlertEngine` 规则**（均需持续一段时间才触发，并带恢复迟滞）：
 

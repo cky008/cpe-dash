@@ -219,9 +219,9 @@ describe("createFengSuiRuntime", () => {
       assert.equal(bot.state.isAuthorized("2002", bot.allowedChatIds), false);
       assert.equal(bot.state.isAuthorized("1001", bot.allowedChatIds), true);
 
-      await bot.handleUpdate({ update_id: 1, message: { message_id: 10, chat: { id: 3003 }, text: "/auth runtime_api_token_v1" } });
+      await bot.handleUpdate({ update_id: 1, message: { message_id: 10, chat: { id: 3003, type: "private" }, text: "/auth runtime_api_token_v1" } });
       assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), false);
-      await bot.handleUpdate({ update_id: 2, message: { message_id: 11, chat: { id: 3003 }, text: "/auth runtime_api_token_v2" } });
+      await bot.handleUpdate({ update_id: 2, message: { message_id: 11, chat: { id: 3003, type: "private" }, text: "/auth runtime_api_token_v2" } });
       assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), true);
       assert.equal(bot.rotateAuthToken("runtime_api_token_v2"), 0, "unchanged token keeps linked chats");
     } finally {

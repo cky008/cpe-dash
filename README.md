@@ -465,7 +465,7 @@ JSON-RPC 层：桥接返回 `-32010`（守护进程不可达）与 `-32011`（�
 
 ### 配置 Telegram 机器人
 1. 在 Telegram 中找 `@BotFather` 创建机器人，把令牌写入 `.env` 的 `TELEGRAM_BOT_TOKEN`；
-2. 二选一：把自己的聊天 ID 写入 `TELEGRAM_CHAT_IDS`，或启动后向机器人发送 `/auth <API_TOKEN>`（令牌消息会被自动删除；`API_TOKEN` 更换后需重新绑定）；
+2. 二选一：把自己的聊天 ID 写入 `TELEGRAM_CHAT_IDS`，或启动后在与机器人的**私聊**中发送 `/auth <API_TOKEN>`（令牌消息会被自动删除；群组里不接受 `/auth`，要给群组推送请把群组 ID 写入 `TELEGRAM_CHAT_IDS`；`API_TOKEN` 更换后需重新绑定）；
 3. 重启服务，日志中出现 `telegram=on` 即生效。同一个机器人令牌只能有一个轮询者。
 
 | 命令 / 交互 | 作用 |

@@ -5,11 +5,13 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Security
+- **Telegram `/auth` works only in a private chat with the bot.** Sent in a group, it linked the whole group, so every member could read SMS and one-time codes, send and delete messages and see alerts, and the token message could stay visible where the bot may not delete messages. Groups are refused with a warning to delete the token; a group can still be pre-authorized with `TELEGRAM_CHAT_IDS`.
 - **The duplicate-daemon beacon no longer hands the LAN a fast oracle for the router password.** Every 15 s each daemon broadcast a beacon signed with a key that was one HKDF of `CPE_PASSWORD`, so any device on the LAN could test password guesses offline at billions per second, out of reach of the router's 3-attempt lockout. The key is now derived with memory-hard scrypt (beacon v2). A weak router password is still guessable, only far slower: use a strong one, or set `PEER_DISCOVERY_ENABLED=false` when only one daemon ever runs. Upgrade every host at once: v1 and v2 daemons do not see each other.
 - **Access control fails closed.** If the router's host list could not be parsed, came back empty or did not mark the machine running FengSui (`IsLocalDevice`), every protected device silently dropped out of the check, so a block, whitelist, list edit or time rule could cut off the daemon's host. Such changes are now refused with `400` before anything is written; changes that only let devices back on (unblock, filter off, deleting a time rule) still work.
 - **MCP agents can no longer widen the SMS recipient policy themselves.** With `MCP_SMS_ACCESS=full` and `MCP_SMS_SEND_POLICY=known`, a prompt-injected agent could file any number with `upsert_contact` and then `send_sms` to it. Contacts an agent creates are now stored as `source: "mcp"` and do not count as known for MCP sends until you save the number yourself (web console, Telegram or a vCard import); an agent renaming one of your contacts leaves it yours.
 
 ### Fixed
+- **An old Telegram confirmation card can no longer send a newer draft.** Every "Send now" button carried the same callback data, so tapping it on an earlier card sent whatever draft was current. Each card's button is now bound to its own draft; a stale one answers that the flow expired.
 - **MCP `manage_internet_time_rule` can update and delete rules again.** Its `id` was capped at 16 characters, but the H168-383 names rules by TR-069 path (`InternetGatewayDevice.X_FireWall.TimeRule.1.`), so every update or delete through MCP failed with `VALIDATION_ERROR`. The limit is now 128.
 
 ## [1.3.0] — 2026-11-01
