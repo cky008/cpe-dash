@@ -81,6 +81,16 @@ import type { AppConfig, SupportedLocale } from "./types.ts";
 import { FENGSUI_VERSION } from "./version.ts";
 
 const MAX_JSON_BODY_BYTES = 64 * 1024;
+/** POSTs a read-only Bearer token may make: they run read sessions and change nothing. */
+const READ_ONLY_POSTS: ReadonlySet<string> = new Set([
+  "/api/telemetry/refresh",
+  "/api/neighbors/scan",
+  "/api/topology/refresh",
+  "/api/settings/refresh",
+  "/api/access-control/refresh",
+  "/api/sms/preview",
+  "/api/sms/sync",
+]);
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 class HttpPayloadError extends Error {
@@ -541,12 +551,14 @@ export class FengSuiHttpServer {
     // 5. Protected `/api/*` routes (Cookie OR Bearer auth; a present Authorization header is exclusive)
     const isSseRoute = pathname === "/api/events";
     let session: WebSessionRecord | null = null;
+    let readOnly = false;
     if (req.headers.authorization !== undefined) {
-      const verdict = this.#auth.guardBearer(bucketKey, req.headers.authorization);
+      const verdict = this.#auth.guardBearerRole(bucketKey, req.headers.authorization);
       if (!verdict.ok) {
         this.#sendAuthRejection(res, verdict, authMessages);
         return;
       }
+      readOnly = verdict.role === "readonly";
     } else {
       session = this.#auth.authenticateCookie(req, bucketKey);
       if (!session) {
@@ -558,6 +570,16 @@ export class FengSuiHttpServer {
     // Enforce CSRF validation on ALL Cookie-authenticated state mutations
     if (session && method !== "GET" && method !== "HEAD" && !this.#auth.validateCsrf(req, rawHost, isHttps)) {
       this.#sendJson(res, 403, { ok: false, errorCode: "CSRF_REJECTED", message: t(locale, "auth.csrf_rejected") });
+      return;
+    }
+
+    // API_TOKEN_READONLY may read and run read sessions, never change the router, SMS, contacts or config
+    if (readOnly && method !== "GET" && method !== "HEAD" && !READ_ONLY_POSTS.has(pathname)) {
+      this.#sendJson(res, 403, {
+        ok: false,
+        errorCode: "READ_ONLY_TOKEN",
+        message: "This Bearer token is read-only (API_TOKEN_READONLY); this request needs API_TOKEN",
+      } satisfies ApiErrorEnvelope);
       return;
     }
 
@@ -785,6 +807,7 @@ export class FengSuiHttpServer {
             );
           }
           const tokenRotated = !constantTimeSecretMatch(reloadedCfg.apiToken, this.#config.apiToken);
+          const readonlyTokenRotated = reloadedCfg.apiTokenReadonly !== this.#config.apiTokenReadonly;
           this.#config = reloadedCfg;
           this.core.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
           // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
@@ -793,6 +816,9 @@ export class FengSuiHttpServer {
           await this.#onConfigReloaded?.(reloadedCfg);
           if (tokenRotated) {
             this.#auth.revokeAllSessions();
+            this.sseBus.disconnectAll();
+          } else if (readonlyTokenRotated) {
+            // Bearer streams opened with the old read-only token must not outlive it
             this.sseBus.disconnectAll();
           }
           const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(
@@ -1061,7 +1087,7 @@ export class FengSuiHttpServer {
       );
       return;
     }
-    const mcpVerdict = this.#auth.guardBearer(bucketKey, req.headers.authorization);
+    const mcpVerdict = this.#auth.guardBearerRole(bucketKey, req.headers.authorization);
     if (!mcpVerdict.ok) {
       this.#sendAuthRejection(res, mcpVerdict, mcpMessages);
       return;
@@ -1096,11 +1122,15 @@ export class FengSuiHttpServer {
       const value = req.headers[name];
       return typeof value === "string" ? value : undefined;
     };
-    const outcome = await this.mcpServer.handleHttpMessage(rawBody, {
-      protocolVersion: header("mcp-protocol-version"),
-      method: header("mcp-method"),
-      name: header("mcp-name"),
-    });
+    const outcome = await this.mcpServer.handleHttpMessage(
+      rawBody,
+      {
+        protocolVersion: header("mcp-protocol-version"),
+        method: header("mcp-method"),
+        name: header("mcp-name"),
+      },
+      { readOnly: mcpVerdict.role === "readonly" }
+    );
     const rpcResponse = outcome.body;
     if (rpcResponse === null) {
       // Valid JSON-RPC notification -> 202 Accepted with empty body per Streamable HTTP spec

@@ -760,3 +760,80 @@ describe("Device access control through the daemon (REST, MCP)", () => {
     }
   });
 });
+
+describe("Read-only Bearer token (API_TOKEN_READONLY)", () => {
+  it("lets dashboards and agents read and refresh but never write, over REST and MCP", async () => {
+    const cpe = createStrictCpe({ latencyMs: 2 });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-readonly-"));
+    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), API_TOKEN_READONLY: "readonly_api_token_v1", SMS_ENABLED: "false" });
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: createNotifyFetch().fetchImpl, log: () => undefined });
+    try {
+      const bound = await startServeDaemon(stack);
+      assert.ok(bound);
+      const base = `http://127.0.0.1:${bound.port}`;
+      const call = (token: string, method: string, route: string, body?: unknown) =>
+        fetch(`${base}${route}`, {
+          method,
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+      const ro = "readonly_api_token_v1";
+      assert.equal((await call(ro, "GET", "/api/telemetry")).status, 200);
+      assert.equal((await call(ro, "GET", "/api/session/status")).status, 200);
+      assert.equal((await call(ro, "POST", "/api/telemetry/refresh", {})).status, 200, "a read session is allowed");
+      for (const [route, body] of [
+        ["/api/control/reboot", { confirm: true }],
+        ["/api/control/unlock", {}],
+        ["/api/control/band-lock", { lteBands: ["B1"] }],
+        ["/api/control/security", { upnpEnabled: true }],
+        ["/api/control/wifi-access", { action: "block", macAddress: "00:00:5E:00:53:03", confirm: true }],
+        ["/api/session/reset-breaker", {}],
+        ["/api/sms/send", { phone: "+353830000001", content: "hi" }],
+      ] as const) {
+        const res = await call(ro, "POST", route, body);
+        assert.equal(res.status, 403, route);
+        assert.equal(((await res.json()) as { errorCode: string }).errorCode, "READ_ONLY_TOKEN", route);
+      }
+      assert.equal(cpe.stats.writes.length, 0, "nothing reached the router");
+
+      const mcp = async (token: string, method: string, params: Record<string, unknown>) =>
+        (await (await call(token, "POST", "/mcp", { jsonrpc: "2.0", id: 1, method, params })).json()) as {
+          result: { tools?: Array<{ name: string }>; isError?: boolean; structuredContent?: { errorCode?: string } };
+        };
+      const roTools = (await mcp(ro, "tools/list", {})).result.tools?.map((t) => t.name) ?? [];
+      assert.ok(roTools.includes("get_cpe_telemetry"));
+      assert.ok(!roTools.some((n) => ["lock_band", "lock_cell", "unlock_rf_locks", "set_security_switches", "reboot_cpe"].includes(n)));
+      const refused = await mcp(ro, "tools/call", { name: "reboot_cpe", arguments: { confirm: true } });
+      assert.equal(refused.result.isError, true);
+      assert.equal(refused.result.structuredContent?.errorCode, "READ_ONLY_TOKEN");
+      assert.equal((await mcp(ro, "tools/call", { name: "get_cpe_telemetry", arguments: {} })).result.isError, false);
+      assert.equal(cpe.stats.writes.length, 0);
+
+      // The full token keeps full control; the web login does not accept the read-only token
+      const fullTools = (await mcp("runtime_api_token_v1", "tools/list", {})).result.tools?.map((t) => t.name) ?? [];
+      assert.ok(fullTools.includes("reboot_cpe"));
+      const login = await fetch(`${base}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base },
+        body: JSON.stringify({ token: ro }),
+      });
+      assert.equal(login.status, 401);
+    } finally {
+      await stack.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a read-only token that equals the full token or the router password", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-readonly-cfg-"));
+    try {
+      for (const value of ["runtime_api_token_v1", "router_password_x"]) {
+        const envPath = writeEnv(dir, { ...baseEnv(dir, "router_password_x"), API_TOKEN_READONLY: value });
+        assert.throws(() => loadConfig({ envPath, ignoreProcessEnv: true }), /API_TOKEN_READONLY must differ/);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

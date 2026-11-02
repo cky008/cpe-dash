@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Added
+- **Read-only Bearer token `API_TOKEN_READONLY`** (optional, off by default). It reads every REST route and SSE and may trigger read sessions (refresh, scan, SMS preview and sync); on `/mcp` it sees and may call only read-only tools. Any write (controls, SMS send / read / delete, contacts, `reset-breaker`) answers `403 READ_ONLY_TOKEN`. Give it to dashboards, scripts and AI agents that should never change the router; it must differ from `API_TOKEN` and `CPE_PASSWORD`. The stdio bridge uses whatever `API_TOKEN` its own `.env` holds, so a read-only agent gets the read-only value there.
+
 ### Security
 - **`npm run audit:secrets` closes two gaps.** Tracked Wireshark `.pcapng` (and compressed `.pcap.*`) captures, Fiddler `.saz` sessions and `.vcf` contact exports now fail the gate like `.har` and `.pcap`, and explicit `any` is caught as a type argument (`Record<string, any>`), in tuples, return types and unions, not only after a colon. The rules are exported and covered by `test/audit-gate.test.ts`.
 - **CI and release workflows pin every GitHub Action to a full commit SHA** (the version stays in a comment for Dependabot), so a moved tag in an action's repository cannot change what runs in the job that pushes images. Releases now run one at a time. `test/ci-config.test.ts` keeps both in place.

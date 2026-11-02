@@ -39,6 +39,7 @@ describe("REST / SSE contract module", () => {
       CPE_UPSTREAM_ERROR: true,
       SMS_SEND_FAILED: true,
       SSE_LIMIT_REACHED: true,
+      READ_ONLY_TOKEN: true,
       MCP_DISABLED: true,
       FORBIDDEN_ORIGIN: true,
       UNSUPPORTED_MEDIA_TYPE: true,

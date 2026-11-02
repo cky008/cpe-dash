@@ -146,9 +146,10 @@ export class FengSuiMcpServer {
     this.#avoidanceState = () => scheduler.getAvoidanceState();
   }
 
-  getToolDefinitions(): ReadonlyArray<McpToolDefinition> {
+  /** Tools this caller may see: mutating tools are hidden by `MCP_ALLOW_MUTATIONS=false` and for read-only tokens. */
+  getToolDefinitions(readOnly = false): ReadonlyArray<McpToolDefinition> {
     return this.toolProviders.flatMap((p) =>
-      p.getToolDefinitions().filter((tool) => this.allowMutations || !p.isMutating(tool.name))
+      p.getToolDefinitions().filter((tool) => (this.allowMutations && !readOnly) || !p.isMutating(tool.name))
     );
   }
 
@@ -162,7 +163,7 @@ export class FengSuiMcpServer {
    * Returns `null` when the message is a valid JSON-RPC notification (`id === undefined`).
    */
   async handleRawJsonMessage(rawText: string): Promise<JsonRpcResponse | null> {
-    return (await this.#handle(rawText, null)).body;
+    return (await this.#handle(rawText, null, false)).body;
   }
 
   /**
@@ -170,11 +171,11 @@ export class FengSuiMcpServer {
    * must mirror the body (`400` + `-32020` otherwise), unsupported versions answer `400` + `-32022`,
    * and a modern request for an unknown method answers `404`. Legacy requests keep `200` throughout.
    */
-  async handleHttpMessage(rawText: string, headers: McpHttpRequestHeaders): Promise<McpHttpOutcome> {
-    return await this.#handle(rawText, headers);
+  async handleHttpMessage(rawText: string, headers: McpHttpRequestHeaders, opts: { readOnly?: boolean } = {}): Promise<McpHttpOutcome> {
+    return await this.#handle(rawText, headers, opts.readOnly === true);
   }
 
-  async #handle(rawText: string, http: McpHttpRequestHeaders | null): Promise<McpHttpOutcome> {
+  async #handle(rawText: string, http: McpHttpRequestHeaders | null, readOnly: boolean): Promise<McpHttpOutcome> {
     const reply = (status: number, id: JsonRpcId, code: number, message: string, data?: unknown): McpHttpOutcome => ({
       status,
       body: { jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } },
@@ -238,7 +239,7 @@ export class FengSuiMcpServer {
       if (modern && REMOVED_IN_MODERN.has(method)) {
         throw new McpProtocolRpcError(-32601, `Method not found: ${method} (removed in ${requested})`);
       }
-      const result = await this.#dispatchMethod(method, params, modern);
+      const result = await this.#dispatchMethod(method, params, modern, readOnly);
       // Stateless results declare their completion, cacheability and the server in `_meta`
       const ttlMs = MODERN_CACHE_TTL_MS[method];
       const body = modern
@@ -265,7 +266,7 @@ export class FengSuiMcpServer {
       .join(" ");
   }
 
-  async #dispatchMethod(method: string, params: Record<string, unknown>, modern: boolean): Promise<unknown> {
+  async #dispatchMethod(method: string, params: Record<string, unknown>, modern: boolean, readOnly: boolean): Promise<unknown> {
     switch (method) {
       case "initialize": {
         const requestedVer =
@@ -306,7 +307,7 @@ export class FengSuiMcpServer {
 
       case "tools/list":
         return {
-          tools: this.getToolDefinitions(),
+          tools: this.getToolDefinitions(readOnly),
         };
 
       case "tools/call": {
@@ -316,7 +317,7 @@ export class FengSuiMcpServer {
           rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
             ? (rawArgs as Record<string, unknown>)
             : (Object.create(null) as Record<string, unknown>);
-        return await this.#executeToolCall(toolName, args);
+        return await this.#executeToolCall(toolName, args, readOnly);
       }
 
       case "resources/list":
@@ -346,7 +347,8 @@ export class FengSuiMcpServer {
 
   async #executeToolCall(
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    readOnly: boolean
   ): Promise<{
     content: Array<{ type: "text"; text: string }>;
     structuredContent: Record<string, unknown>;
@@ -368,6 +370,9 @@ export class FengSuiMcpServer {
     };
 
     const provider = this.toolProviders.find((p) => p.handles(toolName));
+    if (provider?.isMutating(toolName) && readOnly) {
+      return wrapErr("READ_ONLY_TOKEN", "This Bearer token is read-only (API_TOKEN_READONLY); mutating tools need API_TOKEN");
+    }
     if (provider?.isMutating(toolName) && !this.allowMutations) {
       return wrapErr(
         "MUTATIONS_DISABLED",
@@ -375,7 +380,7 @@ export class FengSuiMcpServer {
       );
     }
     // Enforce the advertised contract before any work: explicit confirmation first, then the schema
-    const definition = this.getToolDefinitions().find((tool) => tool.name === toolName);
+    const definition = this.getToolDefinitions(readOnly).find((tool) => tool.name === toolName);
     if (definition) {
       if (definition.inputSchema.properties["confirm"] !== undefined && args["confirm"] !== true) {
         return wrapErr("CONFIRMATION_REQUIRED", `${toolName} requires explicit { confirm: true }`);

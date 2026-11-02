@@ -27,6 +27,7 @@
 2. **自动化脚本与 Streamable HTTP MCP 客户端（Bearer Token）**：
    - 请求头：`Authorization: Bearer <API_TOKEN>`（服务端采用 `SHA-256` 定长摘要 + `crypto.timingSafeEqual` 常量时间比对）。
    - **排他鉴权规则**：一旦请求携带了 `Authorization` 头，服务端**仅**验证 Bearer Token，绝不回退读取 Cookie。`/mcp` 端点只接受 Bearer。
+   - **只读令牌 `API_TOKEN_READONLY`**（可选，默认不启用；必须与 `API_TOKEN`、`CPE_PASSWORD` 不同，否则拒绝启动）：可作为 Bearer 调用全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`、`/api/sms/preview`、`/api/sms/sync`；其余 `POST` 返回 `403 READ_ONLY_TOKEN`。在 `/mcp` 上，所有写工具既不出现在 `tools/list` 中，直接调用也返回 `READ_ONLY_TOKEN`。Web 登录与 Telegram `/auth` 只接受 `API_TOKEN`。比较方式与限流同 `API_TOKEN`；经 `reset-breaker` 更换后，旧令牌的 SSE 连接立即断开。
 4. **`REDACT_SENSITIVE_IN_API` 按调用方生效（v1.0.1 起）**：守护进程内部与加密落盘的快照始终保存原值，脱敏只发生在输出边界（[`src/redact.ts`](../src/redact.ts)）。
    - **Cookie 会话（Web 控制台）始终拿到原值**：前端默认在屏幕上掩码，由用户点眼睛按钮显示（防截图）。
    - **Bearer 调用方（REST、`/api/events` SSE）与 MCP 工具 / 资源**：开关为 `true`（默认）时收到脱敏副本，`device.sensitiveRedacted` 为 `true`；为 `false` 时与 Web 控制台相同。
@@ -90,6 +91,7 @@ export interface ApiErrorEnvelope {
     | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
     | "SSE_LIMIT_REACHED"        // 429: SSE 全局 (SSE_MAX_CLIENTS，默认 32) 或单 IP 桶 (6) 连接数达上限
+    | "READ_ONLY_TOKEN"          // 403: 用 API_TOKEN_READONLY 发起写操作（控制写、短信发送 / 已读 / 删除、通讯录、reset-breaker）
     // ── /mcp 端点（HTTP 层） ──
     | "MCP_DISABLED"             // 404: MCP_HTTP_ENABLED=false
     | "FORBIDDEN_ORIGIN"         // 403: /mcp 携带了 "null"、畸形或跨源 Origin
@@ -1042,6 +1044,7 @@ export interface McpToolErrorPayload {
   ok: false;
   errorCode:
     | "MUTATIONS_DISABLED"       // MCP_ALLOW_MUTATIONS=false
+    | "READ_ONLY_TOKEN"          // 用 API_TOKEN_READONLY 调用了写工具
     | "CONFIRMATION_REQUIRED"    // reboot_cpe / reconnect_cellular / send_sms / delete_sms 未传 confirm: true
     | "SMS_ACCESS_DENIED"        // 短信工具超出 MCP_SMS_ACCESS 权限
     | "RECIPIENT_NOT_ALLOWED"    // MCP_SMS_SEND_POLICY=known 且收件人既非主人保存的联系人、也未曾发过短信（智能体自建的联系人不算）

@@ -426,6 +426,11 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const timeZone = resolveTimeZone(get("TZ"), { inherited: tzFromProcess });
   const dataEncryptionKey = get("DATA_ENCRYPTION_KEY") ?? cpePassword;
   const apiToken = get("API_TOKEN") ?? cpePassword;
+  const apiTokenReadonly = get("API_TOKEN_READONLY") ?? "";
+  // A "read-only" token that is really the full token (or the router password) would grant everything
+  if (apiTokenReadonly && (apiTokenReadonly === apiToken || apiTokenReadonly === cpePassword)) {
+    throw new Error("API_TOKEN_READONLY must differ from API_TOKEN and CPE_PASSWORD");
+  }
 
   const rawTrusted = get("TRUSTED_PROXIES") ?? "127.0.0.1,::1";
   const trustedProxies = rawTrusted
@@ -508,6 +513,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     timeZone,
     dataEncryptionKey,
     apiToken,
+    apiTokenReadonly,
     trustedProxies,
     allowedHosts,
     webEnabled,

@@ -524,6 +524,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `CPE_PASSWORD` | *(必填)* | 管理员密码；`108006` 错误立即触发持久化熔断 |
 | `TZ` | `UTC` | IANA 时区（如 `Asia/Shanghai`）；发出短信的 `<Date>` 按此生成，请与 CPE 所在时区一致 |
 | `DATA_ENCRYPTION_KEY` | *(回退 `CPE_PASSWORD`)* | `data/*.json` 落盘加密主密钥（`scrypt` + `HKDF-SHA256` → `AES-256-GCM`），强烈建议独立设置 |
+| `API_TOKEN_READONLY` | *(空，不启用)* | 只读 Bearer 令牌：可读取 REST / SSE、触发只读刷新，在 `/mcp` 上只看得到只读工具；任何写操作返回 `403 READ_ONLY_TOKEN`。适合看板、脚本和 AI 智能体；必须与 `API_TOKEN`、`CPE_PASSWORD` 不同 |
 | `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | Web 登录口令与 REST / `/mcp` Bearer 令牌，建议高熵随机串。未设置时路由器管理密码会出现在 MCP 客户端配置里、并经 Telegram `/auth` 发出，启动时会提示 |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 可信反向代理 IP / CIDR；只有命中时才解析 `X-Forwarded-For` / `X-Forwarded-Proto` |
 | `ALLOWED_HOSTS` | *(空)* | 额外放行的 `Host`（如 `cpe.example.com`）；私网 IP、`localhost`、`*.local` / `*.lan` / `*.internal` / `*.ts.net` 始终放行 |

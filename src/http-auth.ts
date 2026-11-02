@@ -17,6 +17,9 @@ export interface WebSessionRecord {
 /** Outcome of a credential check: `401` for a bad credential, `429` while the bucket is locked out. */
 export type CredentialVerdict = { ok: true } | { ok: false; statusCode: 401 | 429; retrySec?: number };
 
+/** `full`: `API_TOKEN`; `readonly`: `API_TOKEN_READONLY` (reads and read-only refreshes only). */
+export type BearerRole = "full" | "readonly";
+
 function sha256Buffer(input: string): Buffer {
   return crypto.createHash("sha256").update(input, "utf8").digest();
 }
@@ -127,8 +130,21 @@ export class HttpAuthGuard {
 
   /** Validate an `Authorization: Bearer <API_TOKEN>` header through the limiter. */
   guardBearer(bucketKey: string, authHeader: string): CredentialVerdict {
+    const verdict = this.guardBearerRole(bucketKey, authHeader);
+    return verdict.ok ? { ok: true } : verdict;
+  }
+
+  /**
+   * Validate a Bearer header against `API_TOKEN` and the optional `API_TOKEN_READONLY` (both always
+   * compared, in constant time) through the limiter, and report which one matched.
+   */
+  guardBearerRole(bucketKey: string, authHeader: string): ({ ok: true; role: BearerRole }) | Extract<CredentialVerdict, { ok: false }> {
     const token = /^Bearer\s+(.+)$/i.exec(authHeader)?.[1]?.trim() ?? "";
-    return this.guardSecret(bucketKey, token);
+    const { apiToken, apiTokenReadonly } = this.#getConfig();
+    const full = Boolean(token) && constantTimeSecretMatch(token, apiToken);
+    const readonly = Boolean(token) && constantTimeSecretMatch(token, apiTokenReadonly);
+    const verdict = this.guard(bucketKey, full || readonly);
+    return verdict.ok ? { ok: true, role: full ? "full" : "readonly" } : verdict;
   }
 
   /**

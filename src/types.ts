@@ -13,6 +13,8 @@ export interface AppConfig {
   timeZone: string | null;
   dataEncryptionKey: string;
   apiToken: string;
+  /** Optional Bearer token for reads only (REST GETs, read refreshes, SSE, read-only MCP tools); `""` = off. */
+  apiTokenReadonly: string;
   trustedProxies: string[];
   allowedHosts: string[];
   webEnabled: boolean;
