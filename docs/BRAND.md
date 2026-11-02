@@ -39,7 +39,7 @@
 
 ### 从概念图换（PNG）
 
-概念图要求：实心色块放在纯色背景上；可以是左浅右深的对比图（像 `05-moon-echo.png` 那样）。
+概念图要求：实心色块放在纯色背景上；可以是左浅右深的对比图（当前标志就是从这样一张 1536×1024 的对比图 `fengsui-moon-echo-final.png` 描出来的）。
 
 ```bash
 npm run brand:trace -- path/to/concept.png     # 生成 web/brand/logo.svg
