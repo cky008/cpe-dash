@@ -14,11 +14,13 @@ import {
   type PersistedLockState,
   type RouterSettingsSnapshot,
   type SecurityUpdateCommand,
+  type WanRepairSkipReason,
   applyBandLock,
   applyCellLock,
   mergeBandLockState,
   prepareBandLockPayloads,
   prepareCellLockPayload,
+  readWanRepairBlocker,
   rebootCpe,
   triggerCellularReconnect,
   unlockAllRfLocks,
@@ -43,6 +45,11 @@ export interface AccessControlResult {
   /** MACs of other devices this change cut off (stored blacklist entries, devices left off a whitelist). */
   alsoBlocked: string[];
 }
+
+/** Result of an automatic WAN repair: written, or skipped for the reason read inside the session. */
+export type WanRepairOutcome =
+  | { applied: true; lockState?: PersistedLockState }
+  | { applied: false; skipped: WanRepairSkipReason };
 
 export interface CpeControlServiceOptions {
   scheduler: MutexSessionScheduler;
@@ -125,6 +132,38 @@ export class CpeControlService {
           zh: t("zh-CN", "controls.unlock_all_applied"),
           en: t("en", "controls.unlock_all_applied"),
         })
+    );
+  }
+
+  /**
+   * Automatic lock rollback (`LOCK_ROLLBACK_AFTER_MIN`): clear every lock unless, re-read inside the
+   * session, the WAN is back or mobile data is switched off. Broadcasts only when it wrote.
+   */
+  async rollBackLocks(): Promise<WanRepairOutcome> {
+    return await this.scheduler.executeControl(
+      "auto_unlock_rf_locks",
+      async (session): Promise<WanRepairOutcome> => {
+        const skipped = await readWanRepairBlocker(session);
+        return skipped ? { applied: false, skipped } : { applied: true, lockState: await unlockAllRfLocks(session) };
+      },
+      (outcome) =>
+        outcome.applied && outcome.lockState
+          ? this.#commitLockState(outcome.lockState, summaryOf("controls.auto_unlock_applied"))
+          : null
+    );
+  }
+
+  /** Automatic reconnect (`WAN_AUTO_RECONNECT_AFTER_MIN`), guarded like `rollBackLocks`. Never a reboot. */
+  async reconnectWan(): Promise<WanRepairOutcome> {
+    return await this.scheduler.executeControl(
+      "auto_reconnect_cellular",
+      async (session): Promise<WanRepairOutcome> => {
+        const skipped = await readWanRepairBlocker(session);
+        if (skipped) return { applied: false, skipped };
+        await triggerCellularReconnect(session);
+        return { applied: true };
+      },
+      (outcome) => (outcome.applied ? summaryOf("controls.auto_reconnect_applied") : null)
     );
   }
 

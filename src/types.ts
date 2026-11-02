@@ -69,6 +69,16 @@ export interface AppConfig {
   alertNotifyMinSeverity: "info" | "warning" | "critical";
   alertRsrpThresholdDbm: number;
   alertSinrThresholdDb: number;
+  /**
+   * `LOCK_ROLLBACK_AFTER_MIN` in ms (`0` = off, the default): clear every lock when the WAN is still
+   * down this long after a band or cell lock (an automatic router write, so opt-in).
+   */
+  lockRollbackAfterMs: number;
+  /**
+   * `WAN_AUTO_RECONNECT_AFTER_MIN` in ms (`0` = off, the default): redial a WAN down this long, then
+   * after 10 / 30 / 60 min, at most 4 times in 24 h; never a reboot.
+   */
+  wanReconnectAfterMs: number;
   /** `none` hides SMS tools, `read` exposes read-only tools, `full` adds send / read / delete / contacts. */
   mcpSmsAccess: "none" | "read" | "full";
   /** `known`: MCP may only text contacts or numbers previously messaged; `any`: no recipient restriction. */

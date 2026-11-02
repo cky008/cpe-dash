@@ -1,0 +1,526 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it } from "node:test";
+import { createFengSuiRuntime } from "../src/cli.ts";
+import { loadConfig } from "../src/config.ts";
+import type { WanRepairOutcome } from "../src/cpe-controls.ts";
+import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import type { GlobalTelemetrySnapshot, PersistedLockState } from "../src/cpe-domain.ts";
+import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
+import { BrowserSessionYieldedError, CircuitBreakerOpenError, type ControlAppliedEvent } from "../src/scheduler.ts";
+import { RECONNECT_MAX_PER_DAY, WanSelfHeal } from "../src/self-heal.ts";
+import type { AlertEventRecord } from "../src/state-store.ts";
+import { EncryptedStateStore } from "../src/state-store.ts";
+import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
+
+const MIN = 60_000;
+const T0 = Date.parse("2026-11-02T08:00:00.000Z");
+
+function unlocked(atMs: number): PersistedLockState {
+  return { mode: "unlocked", updatedAtIso: new Date(atMs).toISOString(), lteBands: "all", nrBands: [], cellLock: null };
+}
+
+function bandLock(atMs: number): PersistedLockState {
+  return { mode: "band_lock", updatedAtIso: new Date(atMs).toISOString(), lteBands: [20], nrBands: [], cellLock: null };
+}
+
+function sample(capturedAtMs: number, connectionStatus: string): GlobalTelemetrySnapshot {
+  return { capturedAtMs, capturedAtIso: new Date(capturedAtMs).toISOString(), device: { connectionStatus } } as unknown as GlobalTelemetrySnapshot;
+}
+
+function createCore(fault?: (p: string, method: string, headers: Headers) => StrictFault | undefined) {
+  const cpe = createStrictCpe({ fault });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-selfheal-"));
+  const core: FengSuiCore = createFengSuiCore({
+    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+    stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "selfheal_key" }),
+    timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
+  });
+  core.monitor.init();
+  return {
+    cpe,
+    core,
+    cleanup: async () => {
+      await stopFengSuiCore(core);
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+type Plan = Array<() => Promise<WanRepairOutcome>>;
+
+function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: PersistedLockState }) {
+  const base = createCore();
+  let clock = T0;
+  let lockState = opts.lock ?? unlocked(T0 - 60 * MIN);
+  const calls = { rollback: 0, reconnect: 0 };
+  const rollbackPlan: Plan = [];
+  const reconnectPlan: Plan = [];
+  const controls = {
+    getPersistedLockState: () => lockState,
+    rollBackLocks: async (): Promise<WanRepairOutcome> => {
+      calls.rollback += 1;
+      const next = rollbackPlan.shift();
+      if (next) return await next();
+      lockState = unlocked(clock);
+      return { applied: true, lockState };
+    },
+    reconnectWan: async (): Promise<WanRepairOutcome> => {
+      calls.reconnect += 1;
+      const next = reconnectPlan.shift();
+      return next ? await next() : { applied: true };
+    },
+  };
+  const logs: string[] = [];
+  const heal = new WanSelfHeal({
+    scheduler: base.core.scheduler,
+    monitor: base.core.monitor,
+    controls,
+    lockRollbackAfterMs: (opts.lockMin ?? 0) * MIN,
+    reconnectAfterMs: (opts.reconnectMin ?? 0) * MIN,
+    now: () => clock,
+    log: (line) => logs.push(line),
+  });
+  const alerts: AlertEventRecord[] = [];
+  base.core.scheduler.on("alert", (a: AlertEventRecord) => alerts.push(a));
+  return {
+    heal,
+    core: base.core,
+    calls,
+    alerts,
+    logs,
+    setLock: (next: PersistedLockState) => {
+      lockState = next;
+    },
+    setClock: (ms: number) => {
+      clock = ms;
+    },
+    rollbackPlan,
+    reconnectPlan,
+    codes: () => alerts.map((a) => a.code),
+    /** Telemetry captured `minutes` after T0 (the clock moves with it). */
+    at: async (minutes: number, status: string) => {
+      clock = T0 + minutes * MIN;
+      await heal.ingestTelemetry(sample(clock, status));
+    },
+    /** A lock applied through FengSui `minutes` after T0. */
+    lockAt: (minutes: number, action: "lock_band" | "lock_cell" = "lock_band") => {
+      clock = T0 + minutes * MIN;
+      lockState = bandLock(clock);
+      const event: ControlAppliedEvent = { action, tsIso: lockState.updatedAtIso, summaryZh: "", summaryEn: "", lockState };
+      heal.noteControl(event);
+    },
+    unlockAt: (minutes: number) => {
+      clock = T0 + minutes * MIN;
+      lockState = unlocked(clock);
+      heal.noteControl({ action: "unlock_rf_locks", tsIso: lockState.updatedAtIso, summaryZh: "", summaryEn: "", lockState });
+    },
+    cleanup: base.cleanup,
+  };
+}
+
+describe("WanSelfHeal lock rollback (LOCK_ROLLBACK_AFTER_MIN)", () => {
+  it("clears the locks once when the WAN is still down at the end of the window", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.lockAt(0);
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 10 * MIN);
+      for (const minute of [0.5, 3, 6, 9.9]) await fx.at(minute, "902");
+      assert.equal(fx.calls.rollback, 0, "no write inside the window");
+      await fx.at(10, "902");
+      assert.equal(fx.calls.rollback, 1);
+      assert.deepEqual(fx.codes(), ["LOCK_ROLLED_BACK"]);
+      assert.equal(fx.alerts[0]?.severity, "warning");
+      assert.match(fx.alerts[0]?.messageEn ?? "", /still down 10 min after the lock/);
+      assert.equal(fx.heal.lockDeadlineMs, null);
+      for (const minute of [11, 20, 40]) await fx.at(minute, "902");
+      assert.equal(fx.calls.rollback, 1, "one rollback per lock");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("keeps a lock once the WAN stays up for two minutes, and treats a flap before that as down", async () => {
+    const kept = fixture({ lockMin: 10 });
+    try {
+      kept.lockAt(0, "lock_cell");
+      await kept.at(0.5, "902");
+      await kept.at(1, "901");
+      await kept.at(2.5, "901");
+      assert.notEqual(kept.heal.lockDeadlineMs, null, "1.5 min up is not yet proof");
+      await kept.at(3, "901");
+      assert.equal(kept.heal.lockDeadlineMs, null);
+      await kept.at(12, "902");
+      assert.equal(kept.calls.rollback, 0, "a later outage is not the lock's fault");
+    } finally {
+      await kept.cleanup();
+    }
+
+    const flapping = fixture({ lockMin: 10 });
+    try {
+      flapping.lockAt(0);
+      await flapping.at(9, "901");
+      await flapping.at(10, "901");
+      assert.equal(flapping.calls.rollback, 0, "up at the deadline: wait for proof");
+      await flapping.at(10.5, "902");
+      assert.equal(flapping.calls.rollback, 1);
+    } finally {
+      await flapping.cleanup();
+    }
+  });
+
+  it("ignores snapshots from before the lock, stale or without a status, and disarms on any unlock", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.lockAt(20);
+      await fx.heal.ingestTelemetry(sample(T0 + 19 * MIN, "902"));
+      await fx.at(30, "");
+      assert.equal(fx.calls.rollback, 0, "no status, no decision");
+      await fx.heal.ingestTelemetry(sample(T0 + 25 * MIN, "902"));
+      assert.equal(fx.calls.rollback, 0, "a snapshot 5 min old never drives a write");
+
+      fx.unlockAt(31);
+      await fx.at(45, "902");
+      assert.equal(fx.calls.rollback, 0);
+
+      fx.lockAt(50);
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 60 * MIN, "a new lock opens a fresh window");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("waits for a human on the WebUI, then gives up after repeated failures with a critical alert", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.lockAt(0);
+      fx.rollbackPlan.push(
+        async () => {
+          throw new BrowserSessionYieldedError();
+        },
+        async () => {
+          throw new Error("CPE returned error 125003");
+        },
+        async () => {
+          throw new Error("CPE returned error 125003");
+        },
+        async () => {
+          throw new Error("CPE returned error 125003");
+        }
+      );
+      await fx.at(10, "902");
+      await fx.at(10.5, "902");
+      assert.equal(fx.calls.rollback, 1, "retry waits a minute");
+      await fx.at(11, "902");
+      await fx.at(12, "902");
+      assert.deepEqual(fx.codes(), [], "a yield and one failure are not the end");
+      await fx.at(13, "902");
+      assert.equal(fx.calls.rollback, 4);
+      assert.deepEqual(fx.codes(), ["LOCK_ROLLBACK_FAILED"]);
+      assert.equal(fx.alerts[0]?.severity, "critical");
+      assert.match(fx.alerts[0]?.messageEn ?? "", /125003/);
+      assert.equal(fx.logs.filter((l) => l.includes("125003")).length, 1, "one log line per distinct reason");
+      await fx.at(20, "902");
+      assert.equal(fx.calls.rollback, 4);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("stops at once on a tripped breaker, and gives up an hour after the deadline", async () => {
+    const tripped = fixture({ lockMin: 10 });
+    try {
+      tripped.lockAt(0);
+      tripped.rollbackPlan.push(async () => {
+        throw new CircuitBreakerOpenError({ tripped: true, code: "108006", reason: "wrong password", trippedAtIso: null });
+      });
+      await tripped.at(10, "902");
+      assert.deepEqual(tripped.codes(), ["LOCK_ROLLBACK_FAILED"]);
+      await tripped.at(12, "902");
+      assert.equal(tripped.calls.rollback, 1);
+    } finally {
+      await tripped.cleanup();
+    }
+
+    const human = fixture({ lockMin: 10 });
+    try {
+      human.lockAt(0);
+      for (let i = 0; i < 80; i++) {
+        human.rollbackPlan.push(async () => {
+          throw new BrowserSessionYieldedError();
+        });
+      }
+      for (let minute = 10; minute <= 70; minute += 1) await human.at(minute, "902");
+      assert.deepEqual(human.codes(), [], "an hour of a human on the WebUI is still waited for");
+      await human.at(71, "902");
+      assert.deepEqual(human.codes(), ["LOCK_ROLLBACK_FAILED"]);
+      assert.equal(human.calls.rollback, 61);
+    } finally {
+      await human.cleanup();
+    }
+  });
+
+  it("follows what the session re-reads: WAN already back keeps watching, mobile data off disarms quietly", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.lockAt(0);
+      fx.rollbackPlan.push(async () => ({ applied: false, skipped: "wan_up" }));
+      await fx.at(10, "902");
+      assert.equal(fx.calls.rollback, 1);
+      assert.notEqual(fx.heal.lockDeadlineMs, null);
+      await fx.at(11, "902");
+      assert.equal(fx.calls.rollback, 2, "down again after the deadline: roll back");
+      assert.deepEqual(fx.codes(), ["LOCK_ROLLED_BACK"]);
+
+      fx.lockAt(20);
+      fx.rollbackPlan.push(async () => ({ applied: false, skipped: "mobile_data_off" }));
+      await fx.at(30, "902");
+      assert.equal(fx.heal.lockDeadlineMs, null);
+      assert.deepEqual(fx.codes(), ["LOCK_ROLLED_BACK"]);
+      assert.ok(fx.logs.some((l) => l.includes("mobile data is switched off")));
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("follows control events and telemetry once started, and drops a lock replaced behind its back", async () => {
+    const fx = fixture({ lockMin: 10 });
+    const silent = fixture({ lockMin: 10 });
+    try {
+      fx.heal.start();
+      const lock = bandLock(T0);
+      fx.setLock(lock);
+      const event: ControlAppliedEvent = { action: "lock_band", tsIso: lock.updatedAtIso, summaryZh: "", summaryEn: "", lockState: lock };
+      fx.core.scheduler.emit("control:applied", event);
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 10 * MIN);
+      fx.setClock(T0 + 10 * MIN);
+      fx.core.monitor.emit("telemetry", sample(T0 + 10 * MIN, "902"));
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(fx.calls.rollback, 1);
+      await fx.heal.stop();
+      fx.core.scheduler.emit("control:applied", event);
+      assert.equal(fx.heal.lockDeadlineMs, null, "stopped: no longer listening");
+
+      silent.lockAt(0);
+      silent.setLock(bandLock(T0 + 5 * MIN));
+      await silent.at(10, "902");
+      assert.equal(silent.calls.rollback, 0, "only the lock the window was opened for is rolled back");
+      assert.equal(silent.heal.lockDeadlineMs, null);
+    } finally {
+      await fx.cleanup();
+      await silent.cleanup();
+    }
+  });
+
+  it("re-arms after a restart inside the window, and never for an older lock or with the switch off", async () => {
+    const recent = fixture({ lockMin: 10, lock: bandLock(T0 - 4 * MIN) });
+    const old = fixture({ lockMin: 10, lock: bandLock(T0 - 11 * MIN) });
+    const off = fixture({ lockMin: 0, reconnectMin: 0, lock: bandLock(T0 - MIN) });
+    try {
+      recent.heal.start();
+      old.heal.start();
+      off.heal.start();
+      assert.equal(recent.heal.lockDeadlineMs, T0 + 6 * MIN);
+      assert.equal(old.heal.lockDeadlineMs, null);
+      assert.equal(off.heal.enabled, false);
+      assert.equal(off.heal.lockDeadlineMs, null);
+      await recent.at(6, "902");
+      assert.equal(recent.calls.rollback, 1);
+      await recent.heal.stop();
+      await recent.heal.stop();
+      await off.heal.stop();
+    } finally {
+      await recent.cleanup();
+      await old.cleanup();
+      await off.cleanup();
+    }
+  });
+});
+
+describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
+  it("redials after the threshold, backs off 10 / 30 / 60 min and stops at 4 in 24 h", async () => {
+    const fx = fixture({ reconnectMin: 3 });
+    try {
+      for (const minute of [0, 1, 2]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, 0);
+      await fx.at(3, "902");
+      assert.equal(fx.calls.reconnect, 1);
+      assert.match(fx.alerts[0]?.messageEn ?? "", /down for 3 min; redialled automatically \(1\/4 in 24 h/);
+      await fx.at(12.9, "902");
+      assert.equal(fx.calls.reconnect, 1);
+      await fx.at(13, "902");
+      await fx.at(42.9, "902");
+      assert.equal(fx.calls.reconnect, 2);
+      await fx.at(43, "902");
+      await fx.at(102.9, "902");
+      assert.equal(fx.calls.reconnect, 3);
+      await fx.at(103, "902");
+      assert.equal(fx.calls.reconnect, RECONNECT_MAX_PER_DAY);
+      await fx.at(163, "902");
+      await fx.at(300, "902");
+      assert.equal(fx.calls.reconnect, RECONNECT_MAX_PER_DAY, "never more than 4 in 24 h, and never a reboot");
+      assert.deepEqual(fx.codes(), ["WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED"]);
+      assert.equal(fx.alerts[4]?.severity, "critical");
+
+      // Back up: the next outage starts with the short wait, but the 24 h budget still counts
+      await fx.at(310, "901");
+      for (const minute of [320, 323, 330]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, RECONNECT_MAX_PER_DAY);
+      assert.equal(fx.codes().filter((c) => c === "WAN_RECONNECT_EXHAUSTED").length, 2, "said again for the new outage");
+      await fx.at(24 * 60 + 3, "902");
+      assert.equal(fx.calls.reconnect, RECONNECT_MAX_PER_DAY + 1, "the first attempt left the 24 h window");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("leaves an outage after a fresh lock to the rollback, then starts the redial clock afresh", async () => {
+    const fx = fixture({ lockMin: 10, reconnectMin: 3 });
+    try {
+      fx.lockAt(0);
+      for (const minute of [1, 4, 8]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, 0, "the lock window owns this outage");
+      await fx.at(10, "902");
+      assert.equal(fx.calls.rollback, 1);
+      await fx.at(12, "902");
+      assert.equal(fx.calls.reconnect, 0, "the unlocked modem gets time to attach");
+      await fx.at(13, "902");
+      assert.equal(fx.calls.reconnect, 1);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("does not spend the budget on refusals, retries a failed write later, and respects mobile data off", async () => {
+    const fx = fixture({ reconnectMin: 1 });
+    try {
+      fx.reconnectPlan.push(
+        async () => {
+          throw new BrowserSessionYieldedError();
+        },
+        async () => {
+          throw new Error("fetch failed");
+        },
+        async () => ({ applied: false, skipped: "mobile_data_off" }),
+        async () => ({ applied: false, skipped: "wan_up" })
+      );
+      await fx.at(0, "902");
+      await fx.at(1, "902");
+      await fx.at(1.5, "902");
+      assert.equal(fx.calls.reconnect, 1, "a refusal is retried after a minute");
+      await fx.at(2, "902");
+      assert.equal(fx.calls.reconnect, 2);
+      await fx.at(3, "902");
+      assert.equal(fx.calls.reconnect, 3);
+      assert.ok(fx.logs.some((l) => l.includes("not redialling")));
+      await fx.at(12.9, "902");
+      assert.equal(fx.calls.reconnect, 3, "mobile data off: look again after 10 min");
+      await fx.at(13, "902");
+      for (const minute of [23, 33, 63, 123]) await fx.at(minute, "902");
+      // The failed write and three redials are the day's four; the yield and the skips did not count
+      assert.equal(fx.calls.reconnect, 7);
+      assert.deepEqual(fx.codes(), ["WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED"]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("guarded automatic writes through the control queue", () => {
+  // The session bootstrap (`Update-Cookie`) is served normally; only the in-session re-read sees the WAN down
+  const down = (dataSwitch: "0" | "1") => (p: string, _method: string, headers: Headers): StrictFault | undefined => {
+    if (p === "/api/monitoring/status" && !headers.get("update-cookie")) return { body: "<response><ConnectionStatus>902</ConnectionStatus><SignalIcon>0</SignalIcon><SimStatus>1</SimStatus></response>" };
+    if (p === "/api/dialup/mobile-dataswitch") return { body: `<response><dataswitch>${dataSwitch}</dataswitch></response>` };
+    return undefined;
+  };
+
+  it("rolls the locks back and broadcasts only when the session saw the WAN down", async () => {
+    const live = createCore();
+    try {
+      const events: ControlAppliedEvent[] = [];
+      live.core.scheduler.on("control:applied", (e: ControlAppliedEvent) => events.push(e));
+      assert.deepEqual(await live.core.controls.rollBackLocks(), { applied: false, skipped: "wan_up" });
+      assert.deepEqual(await live.core.controls.reconnectWan(), { applied: false, skipped: "wan_up" });
+      assert.deepEqual(live.cpe.stats.writes.map((w) => w.path), [], "nothing written while the WAN is up");
+      assert.deepEqual(events, [], "no control:applied for a write that did not happen");
+    } finally {
+      await live.cleanup();
+    }
+
+    const dead = createCore(down("1"));
+    try {
+      const events: ControlAppliedEvent[] = [];
+      dead.core.scheduler.on("control:applied", (e: ControlAppliedEvent) => events.push(e));
+      const outcome = await dead.core.controls.rollBackLocks();
+      assert.equal(outcome.applied, true);
+      assert.equal(dead.core.controls.getPersistedLockState().mode, "unlocked");
+      assert.deepEqual(dead.cpe.stats.writes.map((w) => w.path), ["/api/net/lock-freq", "/api/net/net-mode"]);
+      assert.equal(events[0]?.action, "auto_unlock_rf_locks");
+      assert.equal(events[0]?.lockState?.mode, "unlocked");
+
+      assert.deepEqual(await dead.core.controls.reconnectWan(), { applied: true });
+      assert.equal(dead.cpe.stats.writes.at(-1)?.path, "/api/net/reconnect");
+      assert.equal(events[1]?.action, "auto_reconnect_cellular");
+      assert.equal(dead.cpe.stats.logins, dead.cpe.stats.logouts, "every session logged out");
+    } finally {
+      await dead.cleanup();
+    }
+
+    const dataOff = createCore(down("0"));
+    try {
+      assert.deepEqual(await dataOff.core.controls.reconnectWan(), { applied: false, skipped: "mobile_data_off" });
+      assert.deepEqual(await dataOff.core.controls.rollBackLocks(), { applied: false, skipped: "mobile_data_off" });
+      assert.deepEqual(dataOff.cpe.stats.writes, []);
+    } finally {
+      await dataOff.cleanup();
+    }
+  });
+});
+
+describe("self-heal configuration and wiring", () => {
+  function envFile(dir: string, extra: string, password = "selfheal_pw"): string {
+    const file = path.join(dir, ".env");
+    fs.writeFileSync(
+      file,
+      `CPE_URL=http://192.168.8.1\nCPE_PASSWORD=${password}\nDATA_ENCRYPTION_KEY=selfheal_key\nWEB_ENABLED=false\nSTATE_FILE=${path.join(dir, "data", "state.json")}\nPOLL_INTERVAL_MS=600000\nNEIGHBOR_SCAN_INTERVAL_MS=600000\nSMS_ENABLED=false\n${extra}`
+    );
+    return file;
+  }
+
+  it("is off by default, clamps the windows and builds the watchdog only when asked", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-selfheal-cfg-"));
+    try {
+      const off = loadConfig({ envPath: envFile(dir, ""), ignoreProcessEnv: true });
+      assert.equal(off.lockRollbackAfterMs, 0);
+      assert.equal(off.wanReconnectAfterMs, 0);
+      const cfg = (extra: string) => loadConfig({ envPath: envFile(dir, extra), ignoreProcessEnv: true });
+      assert.equal(cfg("LOCK_ROLLBACK_AFTER_MIN=10\nWAN_AUTO_RECONNECT_AFTER_MIN=3\n").lockRollbackAfterMs, 10 * MIN);
+      assert.equal(cfg("WAN_AUTO_RECONNECT_AFTER_MIN=3\n").wanReconnectAfterMs, 3 * MIN);
+      assert.equal(cfg("LOCK_ROLLBACK_AFTER_MIN=1\n").lockRollbackAfterMs, 3 * MIN, "too short would undo good locks");
+      assert.equal(cfg("LOCK_ROLLBACK_AFTER_MIN=99999\n").lockRollbackAfterMs, 1440 * MIN);
+      assert.equal(cfg("LOCK_ROLLBACK_AFTER_MIN=ten\nWAN_AUTO_RECONNECT_AFTER_MIN=-5\n").lockRollbackAfterMs, 0);
+      assert.equal(cfg("WAN_AUTO_RECONNECT_AFTER_MIN=-5\n").wanReconnectAfterMs, 0);
+
+      const plain = createFengSuiRuntime({ config: off, log: () => undefined });
+      assert.equal(plain.selfHeal, null);
+      await plain.close();
+
+      const cpe = createStrictCpe();
+      const config = loadConfig({
+        envPath: envFile(dir, "LOCK_ROLLBACK_AFTER_MIN=10\nWAN_AUTO_RECONNECT_AFTER_MIN=3\n", cpe.password),
+        ignoreProcessEnv: true,
+      });
+      const stack = createFengSuiRuntime({ config, fetchImpl: cpe.fetchImpl, log: () => undefined });
+      assert.ok(stack.selfHeal);
+      assert.equal(stack.selfHeal.lockRollbackAfterMs, 10 * MIN);
+      assert.equal(stack.selfHeal.reconnectAfterMs, 3 * MIN);
+      await stack.start();
+      await stack.close();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

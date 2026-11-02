@@ -900,6 +900,20 @@ export async function triggerCellularReconnect(
   };
 }
 
+/** Why an automatic WAN repair (lock rollback, reconnect) wrote nothing. */
+export type WanRepairSkipReason = "wan_up" | "mobile_data_off";
+
+/**
+ * Re-read the WAN inside the control session before an automatic repair writes: the decision was
+ * taken on telemetry up to one poll old, and switching mobile data off on purpose must never be
+ * undone. Unreadable values do not block (the repair only restores the default state).
+ */
+export async function readWanRepairBlocker(session: EphemeralCpeSession): Promise<WanRepairSkipReason | null> {
+  if (getXmlTag(await session.get("/api/monitoring/status"), "ConnectionStatus") === "901") return "wan_up";
+  if (getXmlTag(await session.get("/api/dialup/mobile-dataswitch"), "dataswitch") === "0") return "mobile_data_off";
+  return null;
+}
+
 /**
  * Validate a security switch command without touching the CPE (run before queueing a session).
  */

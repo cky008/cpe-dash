@@ -411,12 +411,13 @@ export class MutexSessionScheduler extends EventEmitter {
    * Execute a high-priority control mutation and broadcast `control:applied`.
    * Never hijacks an active human browser session: if a human is logged into `192.168.8.1`, throws
    * `BrowserSessionYieldedError` (`409 Conflict`) immediately instead of queuing a delayed surprise
-   * mutation. Writes are never replayed (`retriesOnOccupied: 0`).
+   * mutation. Writes are never replayed (`retriesOnOccupied: 0`). A summary function that returns
+   * `null` (the session decided not to write) suppresses the broadcast.
    */
   async executeControl<T>(
     actionName: string,
     fn: (session: EphemeralCpeSession) => Promise<T>,
-    summary?: ControlSummary | ((value: T) => ControlSummary)
+    summary?: ControlSummary | ((value: T) => ControlSummary | null)
   ): Promise<T> {
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
@@ -434,6 +435,7 @@ export class MutexSessionScheduler extends EventEmitter {
         this.#lastError = null;
 
         const resolvedSummary = typeof summary === "function" ? summary(outcome.value) : summary;
+        if (resolvedSummary === null) return outcome.value;
         const appliedEvent: ControlAppliedEvent = {
           action: actionName,
           tsIso: resolvedSummary?.lockState?.updatedAtIso ?? new Date().toISOString(),

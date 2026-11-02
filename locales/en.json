@@ -80,7 +80,9 @@
     "wifi_filter_entries": "Wi-Fi MAC filter list updated ({count} devices)",
     "time_rule_created": "Internet time rule added: {detail}",
     "time_rule_updated": "Internet time rule updated: {detail}",
-    "time_rule_deleted": "Internet time rule deleted: {detail}"
+    "time_rule_deleted": "Internet time rule deleted: {detail}",
+    "auto_unlock_applied": "The WAN did not come back: cleared every band and cell lock automatically",
+    "auto_reconnect_applied": "The WAN is down: redialled the cellular data connection automatically"
   },
   "topology": {
     "section_title": "LAN Connected Terminal Topology",
@@ -113,6 +115,10 @@
     "duplicate_daemon_standby": "Another FengSui daemon ({address}) drives the same CPE: this one is on standby (no CPE sessions, no Telegram) until it stops",
     "duplicate_daemon_leader": "Another FengSui daemon ({address}) drives the same CPE: it went on standby; stop one of them",
     "duplicate_daemon_cleared": "The other FengSui daemon stopped; this one drives the CPE again",
-    "data_quarantined": "These encrypted data files could not be decrypted with the current DATA_ENCRYPTION_KEY and were moved aside (not deleted): {files}. If CPE_PASSWORD just changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the files back and restart"
+    "data_quarantined": "These encrypted data files could not be decrypted with the current DATA_ENCRYPTION_KEY and were moved aside (not deleted): {files}. If CPE_PASSWORD just changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the files back and restart",
+    "lock_rolled_back": "The WAN was still down {minutes} min after the lock, so every band and cell lock was cleared automatically (LOCK_ROLLBACK_AFTER_MIN)",
+    "lock_rollback_failed": "The WAN is still down after the lock, but the automatic unlock did not complete: {reason}. Clear the locks from the console on the LAN",
+    "wan_auto_reconnect": "The WAN has been down for {minutes} min; redialled automatically ({count}/{max} in 24 h; FengSui never reboots the router on its own)",
+    "wan_reconnect_exhausted": "The WAN is still down and the {max} automatic redials for the last 24 h are used up; FengSui never reboots the router on its own: check the SIM, the plan or the cell"
   }
 }

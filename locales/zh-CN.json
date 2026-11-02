@@ -80,7 +80,9 @@
     "wifi_filter_entries": "Wi-Fi MAC 过滤名单已更新（{count} 台）",
     "time_rule_created": "已新增上网时段规则：{detail}",
     "time_rule_updated": "已更新上网时段规则：{detail}",
-    "time_rule_deleted": "已删除上网时段规则：{detail}"
+    "time_rule_deleted": "已删除上网时段规则：{detail}",
+    "auto_unlock_applied": "WAN 未恢复，已自动解除全部频段与小区锁定",
+    "auto_reconnect_applied": "WAN 已断开，已自动重拨蜂窝数据"
   },
   "topology": {
     "section_title": "局域网接入终端拓扑",
@@ -113,6 +115,10 @@
     "duplicate_daemon_standby": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：本进程转入待机，暂停 CPE 访问与 Telegram，直至对方停止",
     "duplicate_daemon_leader": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：对方已转入待机，请停止其中一个",
     "duplicate_daemon_cleared": "另一台「烽燧」守护进程已停止，本进程恢复管理 CPE",
-    "data_quarantined": "以下加密数据文件无法用当前 DATA_ENCRYPTION_KEY 解密，已改名隔离（未删除）：{files}。若刚更换了 CPE_PASSWORD 而未单独设置 DATA_ENCRYPTION_KEY，请把它设为原来的密码，并把这些文件改回原名后重启"
+    "data_quarantined": "以下加密数据文件无法用当前 DATA_ENCRYPTION_KEY 解密，已改名隔离（未删除）：{files}。若刚更换了 CPE_PASSWORD 而未单独设置 DATA_ENCRYPTION_KEY，请把它设为原来的密码，并把这些文件改回原名后重启",
+    "lock_rolled_back": "锁定后 {minutes} 分钟 WAN 仍未恢复，已自动解除全部频段与小区锁定（LOCK_ROLLBACK_AFTER_MIN）",
+    "lock_rollback_failed": "锁定后 WAN 仍未恢复，但自动解锁没有完成：{reason}。请在局域网内打开控制台手动解除锁定",
+    "wan_auto_reconnect": "WAN 已断开 {minutes} 分钟，已自动重拨（24 小时内第 {count}/{max} 次；烽燧从不自动重启路由器）",
+    "wan_reconnect_exhausted": "WAN 仍未恢复，24 小时内的 {max} 次自动重拨已用完；烽燧不会自动重启路由器，请检查 SIM 卡、套餐或基站"
   }
 }

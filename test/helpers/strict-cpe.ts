@@ -28,7 +28,7 @@ export interface StrictCpeOptions {
   /** Per-request latency in ms (number or generator) so concurrent work really interleaves. */
   latencyMs?: number | (() => number);
   /** Return a fault for a request (path without query, method); `undefined` serves it normally. */
-  fault?: (path: string, method: string) => StrictFault | undefined;
+  fault?: (path: string, method: string, headers: Headers) => StrictFault | undefined;
 }
 
 interface AdminSession {
@@ -191,7 +191,7 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
       });
     }
 
-    const fault = opts.fault?.(p, method);
+    const fault = opts.fault?.(p, method, headers);
     if (fault === "transport") throw new TypeError("fetch failed (connect ECONNRESET 192.168.8.1:80)");
     if (fault === "stale-socket") {
       throw new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });

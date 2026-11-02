@@ -60,6 +60,8 @@ export type I18nKey =
   | "controls.reboot_confirm_required"
   | "controls.reboot_triggered"
   | "controls.reconnect_triggered"
+  | "controls.auto_unlock_applied"
+  | "controls.auto_reconnect_applied"
   | "controls.security_updated"
   | "controls.wifi7_updated"
   | "controls.antenna_updated"
@@ -99,6 +101,10 @@ export type I18nKey =
   | "alerts.duplicate_daemon_leader"
   | "alerts.duplicate_daemon_cleared"
   | "alerts.data_quarantined"
+  | "alerts.lock_rolled_back"
+  | "alerts.lock_rollback_failed"
+  | "alerts.wan_auto_reconnect"
+  | "alerts.wan_reconnect_exhausted"
   | "controls.peer_daemon_active";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);

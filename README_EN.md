@@ -488,7 +488,15 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 ```
 
 ### Alerts
-`CPE_UNREACHABLE`, `WAN_DOWN`, `SIGNAL_DEGRADED` (RSRP < `ALERT_RSRP_THRESHOLD_DBM` or SINR < `ALERT_SINR_THRESHOLD_DB` for 5 consecutive minutes), `CA_DROPPED`, `REBOOT_DETECTED`, `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`, `DATA_THRESHOLD`, lock drift, breaker trips and `DATA_QUARANTINED` (encrypted data that could not be decrypted at startup and was moved aside) are recorded in `GET /api/alerts` and pushed via SSE `alert`. Alerts meeting or exceeding `ALERT_NOTIFY_MIN_SEVERITY` are delivered to Telegram / Webhook.
+`CPE_UNREACHABLE`, `WAN_DOWN`, `SIGNAL_DEGRADED` (RSRP < `ALERT_RSRP_THRESHOLD_DBM` or SINR < `ALERT_SINR_THRESHOLD_DB` for 5 consecutive minutes), `CA_DROPPED`, `REBOOT_DETECTED`, `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`, `DATA_THRESHOLD`, lock drift, breaker trips, the WAN self-healing alerts `LOCK_ROLLED_BACK` / `LOCK_ROLLBACK_FAILED` / `WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`, and `DATA_QUARANTINED` (encrypted data that could not be decrypted at startup and was moved aside) are recorded in `GET /api/alerts` and pushed via SSE `alert`. Alerts meeting or exceeding `ALERT_NOTIFY_MIN_SEVERITY` are delivered to Telegram / Webhook.
+
+### WAN self-healing (optional, off by default)
+Both write to the router without anyone asking, so they stay off until enabled in `.env`:
+
+- **Lock rollback** `LOCK_ROLLBACK_AFTER_MIN`: after a band or cell lock, the WAN must come back and stay up for 2 minutes; if it is still down when the time is up, every lock is cleared once and `LOCK_ROLLED_BACK` is raised. A daemon restart inside the window keeps the clock running; an unlock that cannot complete (breaker open, repeated failures, still blocked by a human login an hour after the deadline) raises `LOCK_ROLLBACK_FAILED`.
+- **WAN auto-reconnect** `WAN_AUTO_RECONNECT_AFTER_MIN`: a WAN down that long is redialled, then again after 10 / 30 / 60 minutes, at most 4 times in 24 hours (`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`); the router is never rebooted. The window after a lock belongs to the lock rollback.
+
+Both act only on fresh telemetry, go through the control queue (yielding to a human logged into the WebUI, no login while the breaker is open), and re-read the WAN state and the mobile-data switch inside the same session before writing: nothing is written if the WAN is back or mobile data was switched off by hand.
 
 > **Encryption Key Tip**: When `DATA_ENCRYPTION_KEY` is left blank, it falls back to `CPE_PASSWORD`, but contacts cannot be re-synced from the router. It is strongly recommended to configure an independent key; when changing keys or router passwords, update `.env` first, call `POST /api/session/reset-breaker` (which immediately re-encrypts all data files with the new key), and then restart.
 
@@ -556,6 +564,8 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` | *(Empty)* | JSON push URL and HMAC signature secret for new SMS and alerts |
 | `ALERTS_ENABLED` / `ALERT_NOTIFY_MIN_SEVERITY` | `true` / `warning` | Alert engine toggle and minimum notification severity (`info` / `warning` / `critical`) |
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | Signal degradation alert thresholds |
+| `LOCK_ROLLBACK_AFTER_MIN` | `0` (off) | Clear every lock when the WAN is still down this many minutes after a lock (`3..1440`) |
+| `WAN_AUTO_RECONNECT_AFTER_MIN` | `0` (off) | Redial a WAN down this many minutes (`1..1440`; then every 10 / 30 / 60 minutes, at most 4 in 24 hours, never a reboot) |
 | `MCP_SMS_ACCESS` | `read` | MCP SMS tool access level: `none` / `read` / `full` |
 | `MCP_SMS_SEND_POLICY` | `known` | `known` restricts sending to contacts you saved or previously messaged numbers (contacts an agent added with `upsert_contact` do not count); `any` allows unrestricted recipients |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | Maximum SMS messages sent via MCP per hour (`0` disables) |

@@ -391,6 +391,12 @@ function parseIntSafe(val: string | undefined, defaultValue: number): number {
   return Number.isFinite(n) ? n : defaultValue;
 }
 
+/** Minutes for an opt-in automatic action: unset, `0` or invalid is off (`0`), else clamped to [min, max]; returns ms. */
+function parseMinutesOrOff(val: string | undefined, min: number, max: number): number {
+  const minutes = parseIntSafe(val, 0);
+  return minutes > 0 ? Math.min(max, Math.max(min, minutes)) * 60_000 : 0;
+}
+
 /**
  * Load strongly-typed `AppConfig` from `.env` and `process.env`.
  */
@@ -559,6 +565,9 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     alertNotifyMinSeverity: pickEnum(get("ALERT_NOTIFY_MIN_SEVERITY"), ["info", "warning", "critical"] as const, "warning"),
     alertRsrpThresholdDbm: parseIntSafe(get("ALERT_RSRP_THRESHOLD_DBM"), -110),
     alertSinrThresholdDb: parseIntSafe(get("ALERT_SINR_THRESHOLD_DB"), 0),
+    // A lock needs a few minutes to re-attach and prove itself; anything shorter would undo good locks
+    lockRollbackAfterMs: parseMinutesOrOff(get("LOCK_ROLLBACK_AFTER_MIN"), 3, 1440),
+    wanReconnectAfterMs: parseMinutesOrOff(get("WAN_AUTO_RECONNECT_AFTER_MIN"), 1, 1440),
     mcpSmsAccess: pickEnum(get("MCP_SMS_ACCESS"), ["none", "read", "full"] as const, "read"),
     mcpSmsSendPolicy: pickEnum(get("MCP_SMS_SEND_POLICY"), ["known", "any"] as const, "known"),
     mcpSmsSendLimitPerHour: Math.max(0, parseIntSafe(get("MCP_SMS_SEND_LIMIT_PER_HOUR"), 10)),

@@ -19,6 +19,7 @@ import { TelegramApi } from "./notify/telegram-api.ts";
 import { TelegramBot, TelegramStateStore } from "./notify/telegram-bot.ts";
 import { WebhookNotifier } from "./notify/webhook.ts";
 import type { MutexSessionScheduler } from "./scheduler.ts";
+import { WanSelfHeal } from "./self-heal.ts";
 import { ContactBook } from "./sms/contacts.ts";
 import { SmsMcpTools } from "./sms/mcp-tools.ts";
 import { SmsMirrorStore } from "./sms/mirror.ts";
@@ -107,6 +108,8 @@ export interface FengSuiRuntimeStack {
   /** `null` without a `peerTransport` (tests) or with PEER_DISCOVERY_ENABLED=false. */
   peerGuard: PeerDaemonGuard | null;
   alertEngine: AlertEngine | null;
+  /** `null` unless LOCK_ROLLBACK_AFTER_MIN or WAN_AUTO_RECONNECT_AFTER_MIN is set. */
+  selfHeal: WanSelfHeal | null;
   notificationHub: NotificationHub | null;
   telegramBot: TelegramBot | null;
   webhook: WebhookNotifier | null;
@@ -256,6 +259,19 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
           controls,
           rsrpThresholdDbm: config.alertRsrpThresholdDbm,
           sinrThresholdDb: config.alertSinrThresholdDb,
+        })
+      : null;
+
+  // Opt-in automatic router writes (lock rollback, WAN redial); off unless configured
+  const selfHeal =
+    config.lockRollbackAfterMs > 0 || config.wanReconnectAfterMs > 0
+      ? new WanSelfHeal({
+          scheduler,
+          monitor,
+          controls,
+          lockRollbackAfterMs: config.lockRollbackAfterMs,
+          reconnectAfterMs: config.wanReconnectAfterMs,
+          log,
         })
       : null;
 
@@ -409,6 +425,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     sms,
     peerGuard,
     alertEngine,
+    selfHeal,
     notificationHub,
     telegramBot,
     webhook,
@@ -421,6 +438,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       sseBus.start();
       notificationHub?.start();
       alertEngine?.start();
+      selfHeal?.start();
       if (quarantined.length > 0) {
         const files = quarantined.join(", ");
         scheduler.raiseAlert({
@@ -453,8 +471,11 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       await telegramBot?.stop();
       notificationHub?.stop();
       alertEngine?.stop();
+      // No new automatic write starts; one in flight ends with the scheduler below
+      const selfHealStopped = selfHeal?.stop();
       // Queued requests answer 503 now; the in-flight session gets its grace, is cancelled and logs out
       await stopFengSuiCore(core);
+      await selfHealStopped;
       await telegramBot?.drain();
       await sms?.stop();
       await httpClosed;
@@ -603,7 +624,7 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
     );
   }
   process.stdout.write(
-    `[fengsui] ${smsSummary}, alerts=${stack.alertEngine ? "on" : "off"}, telegram=${stack.telegramBot ? "on" : "off"}, webhook=${stack.webhook ? "on" : "off"}\n`
+    `[fengsui] ${smsSummary}, alerts=${stack.alertEngine ? "on" : "off"}, telegram=${stack.telegramBot ? "on" : "off"}, webhook=${stack.webhook ? "on" : "off"}, lockRollback=${config.lockRollbackAfterMs > 0 ? `${config.lockRollbackAfterMs / 60_000}min` : "off"}, wanReconnect=${config.wanReconnectAfterMs > 0 ? `${config.wanReconnectAfterMs / 60_000}min` : "off"}\n`
   );
 }
 

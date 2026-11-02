@@ -5,6 +5,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Added
+- **Optional WAN self-healing, off by default** (both write to the router without anyone asking). `LOCK_ROLLBACK_AFTER_MIN` clears every band and cell lock once when the WAN is still down that many minutes after a lock (it must come back and stay up for 2 minutes to keep the lock), so a lock to a band without coverage no longer leaves the house offline until someone on the LAN undoes it. `WAN_AUTO_RECONNECT_AFTER_MIN` redials a WAN down that long, then after 10, 30 and 60 minutes, at most 4 times in 24 hours, and never reboots. Both act on fresh telemetry only, queue like any control (yielding to a human on the WebUI, no login while the breaker is open), re-read the WAN state and the mobile-data switch in the same session before writing, and raise `LOCK_ROLLED_BACK` / `LOCK_ROLLBACK_FAILED` / `WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`.
 - **Read-only Bearer token `API_TOKEN_READONLY`** (optional, off by default). It reads every REST route and SSE and may trigger read sessions (refresh, scan, SMS preview and sync); on `/mcp` it sees and may call only read-only tools. Any write (controls, SMS send / read / delete, contacts, `reset-breaker`) answers `403 READ_ONLY_TOKEN`. Give it to dashboards, scripts and AI agents that should never change the router; it must differ from `API_TOKEN` and `CPE_PASSWORD`. The stdio bridge uses whatever `API_TOKEN` its own `.env` holds, so a read-only agent gets the read-only value there.
 
 ### Security

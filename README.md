@@ -488,7 +488,15 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 ```
 
 ### 告警
-`CPE_UNREACHABLE`、`WAN_DOWN`、`SIGNAL_DEGRADED`（RSRP < `ALERT_RSRP_THRESHOLD_DBM` 或 SINR < `ALERT_SINR_THRESHOLD_DB` 持续 5 分钟）、`CA_DROPPED`、`REBOOT_DETECTED`、`SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`、`DATA_THRESHOLD`、锁定漂移、熔断告警，以及启动时加密数据无法解密而被隔离的 `DATA_QUARANTINED`，均记录在 `GET /api/alerts` 与 SSE `alert`，级别不低于 `ALERT_NOTIFY_MIN_SEVERITY` 的告警推送到 Telegram / Webhook。
+`CPE_UNREACHABLE`、`WAN_DOWN`、`SIGNAL_DEGRADED`（RSRP < `ALERT_RSRP_THRESHOLD_DBM` 或 SINR < `ALERT_SINR_THRESHOLD_DB` 持续 5 分钟）、`CA_DROPPED`、`REBOOT_DETECTED`、`SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`、`DATA_THRESHOLD`、锁定漂移、熔断告警、WAN 自愈的 `LOCK_ROLLED_BACK` / `LOCK_ROLLBACK_FAILED` / `WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`，以及启动时加密数据无法解密而被隔离的 `DATA_QUARANTINED`，均记录在 `GET /api/alerts` 与 SSE `alert`，级别不低于 `ALERT_NOTIFY_MIN_SEVERITY` 的告警推送到 Telegram / Webhook。
+
+### WAN 自愈（可选，默认关闭）
+这两项会在没人操作时写路由器，所以默认关闭，需要在 `.env` 中显式开启：
+
+- **锁频回滚** `LOCK_ROLLBACK_AFTER_MIN`：锁频段或锁小区后，WAN 必须恢复并连续在线 2 分钟；到时间仍然断开，就自动解除全部锁定一次并发出 `LOCK_ROLLED_BACK`。窗口内重启守护进程会继续计时；解锁没能完成（熔断、连续失败、到期 1 小时后仍被真人登录挡住）时发出 `LOCK_ROLLBACK_FAILED`。
+- **WAN 自动重拨** `WAN_AUTO_RECONNECT_AFTER_MIN`：WAN 断开持续这么久后自动重拨，之后间隔 10 / 30 / 60 分钟再试，24 小时内最多 4 次（`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`），从不自动重启路由器。锁定后的观察期由锁频回滚负责。
+
+两者只依据最新遥测，走控制队列（真人登录官方后台时让位，熔断时不登录），并在写入前于同一会话内重新读取 WAN 状态与移动数据开关：WAN 已恢复或移动数据被手动关闭时不写入。
 
 > **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `CPE_PASSWORD`，而通讯录无法从路由器重新同步。建议设置独立密钥；更换密钥或路由器密码时，先修改 `.env` 并调用 `POST /api/session/reset-breaker`（立即用新密钥重写所有加密文件），再重启。
 
@@ -556,6 +564,8 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` | *(空)* | 新短信与告警的 JSON 推送地址与 HMAC 签名密钥 |
 | `ALERTS_ENABLED` / `ALERT_NOTIFY_MIN_SEVERITY` | `true` / `warning` | 告警引擎与推送最低级别（`info` / `warning` / `critical`） |
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | 信号劣化告警阈值 |
+| `LOCK_ROLLBACK_AFTER_MIN` | `0`（关闭） | 锁定后 WAN 仍断开多少分钟就自动解除全部锁定（`3..1440`） |
+| `WAN_AUTO_RECONNECT_AFTER_MIN` | `0`（关闭） | WAN 断开多少分钟后自动重拨（`1..1440`；之后间隔 10 / 30 / 60 分钟，24 小时内最多 4 次，不重启） |
 | `MCP_SMS_ACCESS` | `read` | MCP 短信工具权限：`none` / `read` / `full` |
 | `MCP_SMS_SEND_POLICY` | `known` | `known` 仅限你保存的联系人或曾发过短信的号码（智能体自己用 `upsert_contact` 添加的不算）；`any` 不限制 |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | MCP 每小时发送上限（`0` 禁止） |

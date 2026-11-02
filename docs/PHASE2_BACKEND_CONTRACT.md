@@ -411,6 +411,10 @@ export type AlertCode =
   | "LOCK_REALIGNED"     // info：路由器重新与已下发的锁定一致
   | "DUPLICATE_DAEMON"   // critical：检测到另一台主机上管理同一台 CPE 的守护进程（待机方与领先方各报一次）
   | "DUPLICATE_DAEMON_CLEARED" // info：领先方停止，待机方恢复
+  | "LOCK_ROLLED_BACK"         // warning：锁定后 LOCK_ROLLBACK_AFTER_MIN 到期时 WAN 仍断开，已自动解除全部锁定（控制事件 action = "auto_unlock_rf_locks"）
+  | "LOCK_ROLLBACK_FAILED"     // critical：自动解锁没有完成（熔断、另一守护进程领先、连续 3 次失败，或到期后 1 小时仍被真人登录挡住）
+  | "WAN_AUTO_RECONNECT"       // warning：WAN 断开达 WAN_AUTO_RECONNECT_AFTER_MIN 后的自动重拨（action = "auto_reconnect_cellular"；间隔 10/30/60 分钟）
+  | "WAN_RECONNECT_EXHAUSTED"  // critical：24 小时内 4 次自动重拨已用完，WAN 仍断开（从不自动重启）
   | "DATA_QUARANTINED";        // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
 
 /** GET /api/telemetry */
@@ -957,11 +961,12 @@ export interface SpeedTickPayload {
 export interface ControlAppliedEvent {
   // 已知取值："lock_band" | "lock_cell" | "unlock_rf_locks" | "reboot_cpe" | "reconnect_cellular"
   //          | "set_security_switches" | "set_wifi7_mlo" | "set_antenna_mode" | "set_mobile_data"
+  //          | "auto_unlock_rf_locks" | "auto_reconnect_cellular"（WAN 自愈；只在同一会话内确认 WAN 仍断开、移动数据开启并真正写入时广播）
   action: string;
   tsIso: string;
   summaryZh: string;
   summaryEn: string;
-  lockState?: PersistedLockState;  // 仅 lock_band / lock_cell / unlock_rf_locks 携带
+  lockState?: PersistedLockState;  // 仅 lock_band / lock_cell / unlock_rf_locks / auto_unlock_rf_locks 携带
 }
 
 export interface AvoidanceBroadcastPayload {
