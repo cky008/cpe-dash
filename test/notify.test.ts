@@ -790,7 +790,7 @@ describe("TelegramBot notification outbox", () => {
       const [card, prompt] = fx.tg.sends("1001").slice(-2).map((c) => String(c.payload["text"]));
       assert.match(card ?? "", /FIRMWARE_UNVERIFIED/);
       assert.match(prompt ?? "", /^🤖 Hand this prompt to Claude Code/);
-      assert.match(prompt ?? "", /<pre>FengSui \(cpe-dash\) reports a router build it was never verified on: H168-383, firmware 4\.4\.0\.2\(H1006SP2C00\), WebUI WEBUI 4\.4\.0\.2\(W2SP1C00\)/);
+      assert.match(prompt ?? "", /<pre>FengSui \(cpe-dash\) reports a router build it was never verified on: H168-383, firmware 4\.4\.0\.2\(H1006SP2C00\), WebUI WEBUI4\.4\.0\.2\(W2SP1C00\)/);
       assert.ok((prompt ?? "").endsWith("</pre>"));
 
       const before = fx.tg.sends("1001").length;

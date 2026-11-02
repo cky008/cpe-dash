@@ -1,7 +1,7 @@
 import type { CpeControlService } from "./cpe-controls.ts";
 import { type GlobalTelemetrySnapshot, verifyLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
-import { firmwareFingerprint, isVerifiedFirmware, verifiedFirmwareLabel } from "./firmware.ts";
+import { firmwareFingerprint, inertRouterText, isVerifiedFirmware, verifiedFirmwareLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
 import type { MutexSessionScheduler } from "./scheduler.ts";
@@ -203,8 +203,8 @@ export class AlertEngine {
     if (notice?.fingerprint === fingerprint) return;
     store.update({ firmwareNotice: { fingerprint, notifiedAtIso: snap.capturedAtIso } });
     this.#raise("warning", "FIRMWARE_UNVERIFIED", "alerts.firmware_unverified", {
-      model: deviceName.trim(),
-      version: softwareVersion.trim(),
+      model: inertRouterText(deviceName),
+      version: inertRouterText(softwareVersion),
       verified: verifiedFirmwareLabel(),
     });
   }

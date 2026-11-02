@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- **Router-reported text can no longer write into the firmware review prompt.** The model and the firmware and WebUI versions in `FIRMWARE_UNVERIFIED` and in the prompt Telegram offers for Claude Code came verbatim from the router's HTTP replies, so a device on the LAN that tampers with them could add instructions to a prompt you hand to an agent with access to your repository. They are now reduced to a version's alphabet (letters, digits, `.`, `_`, `-`, parentheses; anything else becomes `?`, no spaces or newlines, at most 40 characters), and the prompt says they are data.
+
 ## [1.4.0] — 2026-11-02
 
 ### Added
