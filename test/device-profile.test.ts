@@ -212,6 +212,44 @@ describe("device profile: the probe", () => {
     assert.equal(identity.webUiVersion, "WEBUI 1.0");
   });
 
+  it("counts only a router answer as supported: an HTML page or plain text is unknown (R0-07)", async () => {
+    const odd = {
+      ...H168_BODIES,
+      "/api/system/devcapacity": "<!DOCTYPE html><html><head><title>Login 134217758</title></head><body>redirect</body></html>",
+      "/api/global/module-switch": "OK",
+      "/api/device/device-feature-switch": '{"sms_enabled":1}',
+      "/api/device/basicinformation": "<html><response><devicename>B535-232</devicename></response></html>",
+    };
+    const probe = await probeDevice(fakeSession(odd), { nowIso: NOW, origin: "startup" });
+    const states = Object.fromEntries(probe.endpoints.map((e) => [e.path, [e.state, e.code]]));
+    assert.deepEqual(
+      [states["/api/system/devcapacity"], states["/api/global/module-switch"], states["/api/device/device-feature-switch"], states["/api/device/basicinformation"], states["/api/device/information"]],
+      [["unknown", null], ["unknown", null], ["supported", null], ["unknown", null], ["supported", null]],
+      "JSON is an answer; HTML and plain text are not"
+    );
+    const observed = (path: DeviceProbePath) => probe.observations.find((o) => o.path === path);
+    assert.deepEqual([observed("/api/system/devcapacity")?.format, observed("/api/system/devcapacity")?.fields], ["xml", []], "a page that is no answer leaves no fields");
+    assert.equal(probe.identity.model, "H168-383", "and nothing of it reaches the identity");
+    assert.ok(!JSON.stringify(probe).includes("134217758"));
+  });
+
+  it("reads quoted attributes and CDATA as XML does (R0-05)", async () => {
+    assert.deepEqual(readStructure(`<response><DeviceName note="a>134217758">H168-383</DeviceName><b x='>' y="'">1</b><c/></response>`).leaves, [
+      { path: "DeviceName", raw: "H168-383" },
+      { path: "b", raw: "1" },
+      { path: "c", raw: "" },
+    ]);
+    const cdata = {
+      "/api/device/information": "<response><DeviceName><![CDATA[H168-383]]></DeviceName><SoftwareVersion>4.4.0.1<![CDATA[(H1006SP19C00)]]></SoftwareVersion><WebUIVersion><![CDATA[a&lt;b]]></WebUIVersion></response>",
+    };
+    const { identity, observations } = await probeDevice(fakeSession(cdata), { nowIso: NOW, origin: "startup" });
+    assert.deepEqual([identity.model, identity.softwareVersion, identity.webUiVersion], ["H168-383", "4.4.0.1(H1006SP19C00)", "a?lt?b"], "CDATA text is literal");
+    assert.equal(deviceProfileOf(await probeDevice(fakeSession(cdata), { nowIso: NOW, origin: "startup" })).verification, "verified");
+    assert.deepEqual(observations.find((o) => o.path === "/api/device/information")?.fields.map((f) => f.shape), ["text(8)", "text(21)", "text(6)"]);
+    assert.doesNotThrow(() => readStructure(`<response><a x="unterminated>1</a></response>`));
+    assert.deepEqual(readStructure(`<response><a><![CDATA[never closed</a></response>`).leaves, [], "an unclosed CDATA swallows the rest, like XML");
+  });
+
   it("observes structure only: tag paths and value shapes, values just for the allowlist", async () => {
     const { observations } = await probeDevice(fakeSession(H168_BODIES), { nowIso: NOW, origin: "startup" });
     const fields = (path: DeviceProbePath) => observations.find((o) => o.path === path)?.fields ?? [];

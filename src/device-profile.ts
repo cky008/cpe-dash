@@ -187,10 +187,40 @@ const MAX_PATH_LENGTH = 96;
 const ELEMENT_NAME = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
 const UNSAFE_NAMES: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
 
+/** Where the tag opened before `from` ends: the first `>` outside a quoted attribute value, or -1. */
+function tagEnd(text: string, from: number): number {
+  let quote = "";
+  for (let i = from; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === quote) quote = "";
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === ">") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** A leaf's raw text with each CDATA section replaced by its literal text, escaped like element text. */
+function unwrapCdata(raw: string): string {
+  let out = "";
+  let cursor = 0;
+  for (let at = raw.indexOf("<![CDATA[", cursor); at >= 0; at = raw.indexOf("<![CDATA[", cursor)) {
+    const end = raw.indexOf("]]>", at + 9);
+    if (end < 0) break;
+    out += raw.slice(cursor, at) + raw.slice(at + 9, end).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    cursor = end + 3;
+  }
+  return out + raw.slice(cursor);
+}
+
 /**
  * The leaf elements of an XML answer (path below the root element, raw inner text), in one linear
- * pass without backtracking regexes. Declarations, comments and CDATA are skipped, odd names and
- * markup are ignored, depth and leaf count are bounded. JSON and plain text are only classified.
+ * pass without backtracking regexes. Declarations and comments are skipped, CDATA counts as the
+ * literal text it holds, a `>` inside a quoted attribute does not end its tag, odd names and markup
+ * are ignored, depth and leaf count are bounded. JSON and plain text are only classified.
  */
 export function readStructure(body: string): Structure {
   const text = body.trimStart();
@@ -220,7 +250,7 @@ export function readStructure(body: string): Structure {
       cursor = end < 0 ? text.length : end + terminator.length;
       continue;
     }
-    const gt = text.indexOf(">", lt + 1);
+    const gt = tagEnd(text, lt + 1);
     if (gt < 0) break;
     const inner = text.slice(lt + 1, gt).trim();
     cursor = gt + 1;
@@ -232,7 +262,7 @@ export function readStructure(body: string): Structure {
       while (at >= 0 && stack[at]?.name !== name) at -= 1;
       if (at < 0) continue;
       const closing = stack[at];
-      if (closing && at === stack.length - 1 && at > 0 && !closing.hasChild) record(pathOf(null), text.slice(closing.start, lt));
+      if (closing && at === stack.length - 1 && at > 0 && !closing.hasChild) record(pathOf(null), unwrapCdata(text.slice(closing.start, lt)));
       stack.length = at;
       continue;
     }
@@ -375,9 +405,11 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
       continue;
     }
     const structure = readStructure(body);
-    leavesOf.set(path, structure.leaves);
-    endpoints.push({ path, state: "supported", code: null });
-    observations.push({ path, format: structure.kind, fields: observeFields(path, structure.leaves), truncated: structure.truncated });
+    // Only an API answer counts: an HTML page (e.g. the WebUI served for an unknown path) or plain text is unknown
+    const answered = structure.kind === "json" || isResponseDocument(body);
+    if (answered) leavesOf.set(path, structure.leaves);
+    endpoints.push({ path, state: answered ? "supported" : "unknown", code: null });
+    observations.push({ path, format: structure.kind, fields: answered ? observeFields(path, structure.leaves) : [], truncated: answered && structure.truncated });
   }
 
   const top = (path: DeviceProbePath, tag: string): string | null => {
