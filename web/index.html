@@ -11,9 +11,9 @@
     <link rel="stylesheet" href="{{APP_CSS}}" />
   </head>
   <body class="min-h-dvh text-base-content antialiased">
-    <!-- Stroke icon sprite: paths adapted from Lucide (ISC License, https://lucide.dev); i-beacon is FengSui's own mark -->
+    <!-- Stroke icon sprite: paths adapted from Lucide (ISC License, https://lucide.dev). The build puts FengSui's own logo here as #i-mark, from web/brand/logo.svg (docs/BRAND.md) -->
     <svg xmlns="http://www.w3.org/2000/svg" class="hidden" aria-hidden="true">
-      <symbol id="i-beacon" viewBox="0 0 24 24"><path d="M8.2 21.5 9.7 12.5h4.6l1.5 9"/><path d="M7.6 12.5h8.8"/><path d="M8 12.5V11h1.5v1.5M11.25 12.5V11h1.5v1.5M14.5 12.5V11H16v1.5"/><path d="M12 9.2c-1.3-.9-1.5-2.4-.4-3.7.2.9.8 1.3 1.3 1.5.2-.8-.1-1.7-.6-2.4 1.8.9 2.4 2.8 1.2 4.1-.4.4-.9.5-1.5.5z"/><path d="M5.3 8.3a7.5 7.5 0 0 1 0-5.6"/><path d="M18.7 8.3a7.5 7.5 0 0 0 0-5.6"/></symbol>
+      {{BRAND_MARK}}
       <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
       <symbol id="i-signal" viewBox="0 0 24 24"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></symbol>
       <symbol id="i-tower" viewBox="0 0 24 24"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/></symbol>
@@ -80,7 +80,7 @@
       </div>
       <div class="w-full max-w-sm anim-pop-in">
         <div class="flex flex-col items-center text-center mb-8">
-          <div class="fs-seal size-16 rounded-[1.2rem]"><svg class="ico text-[2.1rem]" style="stroke-width: 1.6"><use href="#i-beacon" /></svg></div>
+          <svg class="fs-mark size-16" aria-hidden="true"><use href="#i-mark" /></svg>
           <h1 class="mt-5 serif text-3xl font-bold tracking-wide"><span data-i18n="app.brand">烽燧</span> <span class="text-base font-normal muted tracking-normal">FengSui</span></h1>
           <p class="mt-2 text-sm muted" data-i18n="login.subtitle">华为 5G CPE Ultra 6 · 私有化射频监控、控制与短信中心</p>
         </div>
@@ -116,7 +116,7 @@
       <header class="fs-header sticky top-0 z-30">
         <div class="mx-auto max-w-[1600px] px-3 sm:px-5 h-14 flex items-center gap-2 sm:gap-3">
           <div class="flex items-center gap-2.5 min-w-0 shrink-0">
-            <div class="fs-seal size-9 shrink-0"><svg class="ico text-xl" style="stroke-width: 1.8"><use href="#i-beacon" /></svg></div>
+            <svg class="fs-mark size-9 shrink-0" aria-hidden="true"><use href="#i-mark" /></svg>
             <div class="leading-tight hidden sm:block">
               <div class="serif font-bold text-[1.05rem] tracking-wide"><span data-i18n="app.brand">烽燧</span> <span class="font-sans font-semibold text-[0.7rem] muted tracking-normal">FengSui</span></div>
               <div class="text-[0.65rem] faint num" id="versionLabel">H168-383</div>

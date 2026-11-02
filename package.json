@@ -33,6 +33,7 @@
     "build:demo": "node --experimental-strip-types scripts/build-web.ts --demo && node --experimental-strip-types scripts/capture-demo-seed.ts dist/demo/demo-seed.json",
     "demo": "node --experimental-strip-types scripts/demo-server.ts",
     "screenshots": "node --experimental-strip-types scripts/screenshots.ts",
+    "brand:trace": "node --experimental-strip-types scripts/trace-logo.ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "test:coverage": "c8 --include='src/**/*.ts' --include='web/src/core/**/*.ts' --include='web/src/demo/**/*.ts' --exclude='web/src/demo/main.ts' --exclude='src/types.ts' --exclude='src/index.ts' --reporter=text --check-coverage --lines 90 --functions 90 --statements 90 node --experimental-strip-types --test test/*.test.ts",
     "audit:secrets": "node --experimental-strip-types scripts/audit-secrets.ts",

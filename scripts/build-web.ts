@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { type BuildOptions, build } from "esbuild";
+import { injectBrand, readBrandMark } from "./brand.ts";
 
 /**
  * Build the offline web dashboard into `dist/web/public/` (the daemon's default STATIC_DIR):
@@ -128,7 +129,9 @@ async function buildOnce(): Promise<void> {
     "{{BOOT_JS}}": emit("boot", "js", bootJs),
     "{{APP_CSS}}": emit("app", "css", appCss),
   };
-  let html = fs.readFileSync(path.join(WEB, "index.html"), "utf8");
+  // The logo has one source; the page gets its symbol, the favicon is the file itself
+  const brand = readBrandMark(fs.readFileSync(path.join(WEB, "brand", "logo.svg"), "utf8"));
+  let html = injectBrand(fs.readFileSync(path.join(WEB, "index.html"), "utf8"), brand);
   for (const [placeholder, url] of Object.entries(urls)) {
     if (!html.includes(placeholder)) throw new Error(`web/index.html lacks ${placeholder}`);
     html = html.replaceAll(placeholder, url);
@@ -137,7 +140,7 @@ async function buildOnce(): Promise<void> {
   fs.writeFileSync(path.join(OUT, "index.html"), html);
   // Pages would otherwise run the site through Jekyll
   if (DEMO) fs.writeFileSync(path.join(OUT, ".nojekyll"), "");
-  fs.copyFileSync(path.join(WEB, "favicon.svg"), path.join(OUT, "favicon.svg"));
+  fs.writeFileSync(path.join(OUT, "favicon.svg"), brand.svg);
 
   const gzipKiB = (text: string): number => zlib.gzipSync(text, { level: 9 }).length / 1024;
   const report = (name: string, text: string, role: ChunkRole): number => {

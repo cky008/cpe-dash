@@ -5,7 +5,11 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Changed
+- **New logo: 月白 · 回声** (a tall arc and its echo). It replaces the beacon seal in the header, on the sign-in page and as the favicon. In the console both arcs take the theme's colours: the main arc is the primary hue muted toward the ink, the echo leans toward the page, so every theme and custom accent gets a matching two-tone mark. The favicon follows the system's light or dark setting.
 - `docker-compose.yml` no longer sets `pids_limit`: Synology DSM kernels have no pids cgroup, so Docker dropped it with a warning ("Your kernel does not support PIDs limit capabilities…") on every start. The line stays as a comment for other Linux hosts; `mem_limit` still applies. A deployment that added `pids_limit` to its own compose file by hand can delete it.
+
+### Added
+- **The logo has a single source**, `web/brand/logo.svg`. The build turns it into the console's icon and ships it as the favicon; tests keep all three in step. `npm run brand:trace -- concept.png` turns a flat logo concept (a light / dark side-by-side is fine) into that file, tracing the outlines to within 0.6 px. `docs/BRAND.md` describes the contract and how to change the logo next time.
 
 ## [1.5.0] — 2026-11-02
 

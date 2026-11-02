@@ -21,7 +21,7 @@
 /*
  * Two layers. The scheme layer ([data-scheme], set together with the theme by boot.ts / theme.ts)
  * holds what every light or dark palette shares: status colours, the signal-quality ramp, download /
- * upload hues, seal and glow. The palette layer ([data-theme]) sets surfaces, ink and the primary
+ * upload hues, the brand mark's mixing shares and glow. The palette layer ([data-theme]) sets surfaces, ink and the primary
  * family, and may override anything from the scheme. Palettes draw on Chinese (中国传统色) and
  * Japanese (日本の伝統色) traditional colours; 素笺 is cpe-sms's own. "fengsui-custom" is built from
  * the three colours a user picks (web/src/core/prefs.ts sets the --custom-* properties).
@@ -64,6 +64,8 @@
   --glow-strength: 0;
   --page-texture: none;
   --page-glow: 0%;
+  --mark-strength: 58%;
+  --mark-echo-share: 58%;
 }
 [data-scheme="dark"] {
   color-scheme: dark;
@@ -85,6 +87,8 @@
   --glow-strength: 1;
   --page-texture: none;
   --page-glow: 9%;
+  --mark-strength: 55%;
+  --mark-echo-share: 74%;
 }
 
 /* 素笺 Sujian · cpe-sms's own: paper white, cool graphite ink, lake blue */
@@ -696,16 +700,15 @@ body {
     border-bottom: 0;
   }
 
-  /* Brand seal (烽燧 印): follows the theme and a custom accent; its mark uses the matching content colour */
-  .fs-seal {
-    display: grid;
-    place-items: center;
-    border-radius: 0.6rem;
-    background: var(--color-primary);
-    color: var(--color-primary-content);
-    box-shadow:
-      inset 0 0 0 2px oklch(100% 0 0 / 0.18),
-      0 0 calc(var(--glow-strength) * 18px) color-mix(in oklab, var(--color-primary) 55%, transparent);
+  /*
+   * Brand mark (月白 · 回声): the main arc is the theme's primary hue muted toward its ink, the echo arc
+   * leans toward the page. The scheme layer sets both shares, so every palette and custom accent follows.
+   */
+  .fs-mark {
+    display: block;
+    --mark-main: color-mix(in oklab, var(--color-primary) var(--mark-strength), var(--color-base-content));
+    --mark-echo: color-mix(in oklab, var(--mark-main) var(--mark-echo-share), var(--color-base-100));
+    filter: drop-shadow(0 0 calc(var(--glow-strength) * 8px) color-mix(in oklab, var(--mark-main) 40%, transparent));
   }
 
   /* Header and segmented navigation */
