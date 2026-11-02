@@ -223,7 +223,7 @@ sequenceDiagram
 ## ✨ 核心特性
 
 - **⚡ 瞬时短连与双层真人在线避让**：每次鉴权操作在 [`HuaweiCpeClient`](src/cpe-client.ts) 与 [`MutexSessionScheduler`](src/scheduler.ts) 中串行收敛为瞬时会话，`finally` 中无条件 `POST /api/user/logout`；单次会话有最长占用时限，挂起的请求会被中止并登出。第 1 层 `GET /api/user/state-login` 预检，第 2 层对跨 IP 占用（`108003` / `108009`）实施 `45s → 300s` 指数静默退避。停机时在途会话 2 秒宽限后被取消并登出，整个停机 10 秒内完成，路由器管理员槽位不会被遗留占用。
-- **🛑 跨重启持久化的 `108006` / `108007` 熔断器**：密码错误立即熔断，并把密码指纹写入加密状态库；修正 `.env` 中的 `CPE_PASSWORD` 后调用 `POST /api/session/reset-breaker`（或在界面熔断横幅中点击重置）即可恢复；密码未变时拒绝重置。`108007` 硬件锁定期结束后可直接重置。
+- **🛑 跨重启持久化的 `108006` / `108007` 熔断器**：密码错误立即熔断，并把密码指纹写入加密状态库；在「设置 → 路由器」填写正确的密码并保存即可恢复（先测试一次登录，成功后自动解除熔断）；密码未变时 `POST /api/session/reset-breaker` 拒绝重置。`108007` 硬件锁定期结束后可直接重置。
 - **📈 双层定长环形时序库**：内存恒定 `< 6 MB`；`3 小时 / 5 秒` 高频环 + `7 天 / 60 秒` 归档环，跨层无缝聚合；空闲的 NSA 5G 与未开放的传感器保持 `null`，不拉偏均值；`30 分钟` 批量加密刷盘，保护硬盘休眠。
 - **✉️ 短信与遥测同源调度**：短信计数捎带在 5 秒遥测会话内，计数变化才触发增量同步；发送、已读、删除走同一调度器的控制写队列。短信镜像、通讯录与 Telegram 状态全部 `AES-256-GCM` 加密落盘，消息以不含号码的不透明 `uid` 标识。
 - **📲 Telegram 双向机器人、签名 Webhook 与告警**：来信卡片（验证码、回复即发送、已读 / 会话 / 删除）、引导式发短信、告警推送与静音；Webhook 以 `HMAC-SHA256` 签名。告警覆盖离线、WAN 断开、信号劣化、载波聚合丢失、重启、短信存储、流量阈值与锁定漂移，带持续窗口与恢复迟滞。
@@ -277,7 +277,7 @@ npm run screenshots   # 用本机 Chrome 无头模式从演示环境重新生成
 
 ```bash
 cp .env.example .env && chmod 600 .env
-# 编辑 .env：CPE_PASSWORD（必填）、API_TOKEN 与 DATA_ENCRYPTION_KEY（强烈建议独立设置）
+# 编辑 .env：DATA_ENCRYPTION_KEY（必填，一串独立的随机长字符）；路由器与控制台密码在首次打开控制台时设置
 npm run build         # 编译守护进程 + Web 控制台到 dist/
 npm start             # http://<本机 IP>:18384
 # 开发模式：npm run dev（--watch 热重载，直接运行 TypeScript 源码）
@@ -321,7 +321,7 @@ npm run probe:sms         # 只输出短信计数与耗时（不发送、不标�
    cp .env.example .env && chmod 600 .env && chmod 700 data
    id -u && id -g      # 例如 1026 / 100，填入 .env 的 PUID / PGID
    ```
-   编辑 `.env`：`CPE_PASSWORD`、`API_TOKEN`、`DATA_ENCRYPTION_KEY`、`TZ`（如 `Asia/Shanghai`）、`PUID` / `PGID`。
+   编辑 `.env`：`DATA_ENCRYPTION_KEY`、`TZ`（如 `Asia/Shanghai`）、`PUID` / `PGID`。路由器与控制台密码在首次打开控制台时按引导设置（照旧写 `CPE_PASSWORD` / `API_TOKEN` 也可以，首次启动时导入）。
 2. **获取镜像**（二选一）：
    - 拉取 GHCR：仓库为私有时，先在「Container Manager → 注册表 → 设置」添加 `ghcr.io`，或 SSH 执行 `sudo docker login ghcr.io -u <GitHub 用户名>`（令牌只需 `read:packages` 权限）；
    - 本地构建：把整个仓库放在该目录，执行 `sudo docker compose build`。
@@ -480,7 +480,7 @@ Claude Code：`claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp
 | :--- | :--- |
 | `BROWSER_SESSION_YIELDED` | 真人正在使用官方后台，已礼貌让位；附 `avoidance` 状态，稍后重试 |
 | `PEER_DAEMON_ACTIVE` | 局域网内另有守护进程管理同一路由器，本实例待机 |
-| `CIRCUIT_BREAKER_OPEN` | 防爆破熔断已触发；附 `circuitBreaker`，修正 `CPE_PASSWORD` 后由人工重置 |
+| `CIRCUIT_BREAKER_OPEN` | 防爆破熔断已触发；附 `circuitBreaker`。在「设置 → 路由器」修正密码（保存即解除），锁定（`108007`）结束后也可人工重置 |
 | `QUEUE_FULL` | 调度队列已满或正在停机，稍后重试 |
 | `CONFIRMATION_REQUIRED` / `VALIDATION_ERROR` | 缺少 `confirm: true` / 参数越界（频段、PCI、ARFCN 等） |
 | `MUTATIONS_DISABLED` | 服务端设置了 `MCP_ALLOW_MUTATIONS=false` |
@@ -534,7 +534,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 
 两者只依据最新遥测，走控制队列（真人登录官方后台时让位，熔断时不登录），并在写入前于同一会话内重新读取 WAN 状态与移动数据开关：WAN 已恢复或移动数据被手动关闭时不写入。
 
-> **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `CPE_PASSWORD`，而通讯录无法从路由器重新同步。建议设置独立密钥；更换密钥或路由器密码时，先修改 `.env` 并调用 `POST /api/session/reset-breaker`（立即用新密钥重写所有加密文件），再重启。
+> **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `.env` 里的 `CPE_PASSWORD`，而通讯录无法从路由器重新同步，建议设置独立密钥。v1.5.0 起路由器密码在控制台修改，不再影响加密密钥；没有独立密钥时请保留 `.env` 里原来的 `CPE_PASSWORD`，否则加密文件将无法解开。更换密钥请用「自检、备份与换密钥」里的 `rekey`。
 
 ---
 

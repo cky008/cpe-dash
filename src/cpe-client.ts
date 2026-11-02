@@ -426,7 +426,7 @@ export class EphemeralCpeSession {
 
   async login(): Promise<void> {
     if (!this.password) {
-      throw new Error("CPE_PASSWORD 未配置，请在 .env 中设置 CPE 管理密码");
+      throw new Error("The router password is not set: the daemon takes it from Settings → Router in the console, the probes from CPE_PASSWORD in .env");
     }
 
     await this.get("/api/monitoring/status", { "Update-Cookie": "UpdateCookie" });

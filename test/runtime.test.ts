@@ -439,7 +439,7 @@ describe("createFengSuiRuntime", () => {
         ignoreProcessEnv: true,
         overrides: { CPE_PASSWORD: " ", DATA_ENCRYPTION_KEY: " " },
       });
-      assert.throws(() => createFengSuiRuntime({ config: keyless }), /never stores state, SMS, contacts or Telegram links unencrypted/);
+      assert.throws(() => createFengSuiRuntime({ config: keyless }), /DATA_ENCRYPTION_KEY must be set in \.env .*never stores its data unencrypted/);
       const badBot = loadConfig({ envPath, ignoreProcessEnv: true, overrides: { TELEGRAM_BOT_TOKEN: "not-a-token" } });
       assert.throws(() => createFengSuiRuntime({ config: badBot, fetchImpl: mock.fetchImpl }), /TELEGRAM_BOT_TOKEN/);
       assert.equal(fs.existsSync(lockPath), false);

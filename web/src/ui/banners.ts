@@ -59,9 +59,11 @@ export function mountBanners(ctx: AppContext, opts: { reconnectNow(): void; refr
         lines.push(ctx.t("banner.breaker_fix_password"));
       }
       if (breaker.trippedAtIso) lines.push(ctx.t("banner.since", { time: formatClock(Date.parse(breaker.trippedAtIso), true) }));
-      const button = h("button", { class: "btn btn-error btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" } }, icon("refresh"), ctx.t("banner.breaker_reset"));
-      button.addEventListener("click", () => resetBreaker(button));
-      nodes.push(banner("danger", "shield", ctx.t("banner.breaker_title", { code }), lines, button));
+      // A wrong password is fixed in the settings, whose tested save clears the breaker; a reset alone is refused
+      const action = WRONG_PASSWORD_CODES.has(code)
+        ? h("button", { class: "btn btn-error btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" }, data: { action: "open-settings" } }, icon("settings"), ctx.t("banner.breaker_open_settings"))
+        : h("button", { class: "btn btn-error btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" }, on: { click: (event) => resetBreaker(event.currentTarget as HTMLButtonElement) } }, icon("refresh"), ctx.t("banner.breaker_reset"));
+      nodes.push(banner("danger", "shield", ctx.t("banner.breaker_title", { code }), lines, action));
     }
 
     if (sse.state === "reconnecting") {

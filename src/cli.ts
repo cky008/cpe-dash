@@ -177,7 +177,7 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
   const { config } = options;
   if (!config.dataEncryptionKey.trim()) {
     throw new Error(
-      "CPE_PASSWORD (or DATA_ENCRYPTION_KEY) must be set: FengSui never stores state, SMS, contacts or Telegram links unencrypted"
+      "DATA_ENCRYPTION_KEY must be set in .env (a long random string; setups from before v1.5.0 may key on CPE_PASSWORD instead): FengSui never stores its data unencrypted"
     );
   }
   const lockPath = `${config.stateFile}.lock`;
@@ -593,7 +593,7 @@ export function startupNotices(config: Pick<AppConfig, "cpePassword" | "apiToken
   const notices: string[] = [];
   if (config.dataEncryptionKey === config.cpePassword) {
     notices.push(
-      "DATA_ENCRYPTION_KEY is not set, so encrypted data (state, SMS mirror, contacts, Telegram state) is keyed to CPE_PASSWORD. Set a dedicated key and apply it with POST /api/session/reset-breaker; restarting with a changed password instead leaves these files unreadable (quarantined as *.unreadable-<timestamp>)."
+      "DATA_ENCRYPTION_KEY is not set, so the encrypted data is keyed to CPE_PASSWORD in .env: keep that value even though the router password is now managed in the console. Move to a dedicated key with `cpe-dash rekey`; restarting with a different key instead leaves the files unreadable (quarantined as *.unreadable-<timestamp>)."
     );
   }
   if (config.apiToken === config.cpePassword) {

@@ -118,6 +118,11 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         draft = { url: res.settings.cpe?.url ?? draft.url, username: res.settings.cpe?.username ?? draft.username, password: "", lastAttempt: false };
         guided = false;
         ctx.toast(t("saved"), "success");
+        // The save cleared the breaker: drop its banner now rather than at the next status poll
+        void ctx.api
+          .sessionStatus()
+          .then(({ status }) => ctx.store.update({ scheduler: status, avoidance: status.avoidance }, ["scheduler"]))
+          .catch(() => undefined);
       } else {
         lastResult = (await ctx.api.testConnection(body)).result;
       }

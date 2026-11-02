@@ -223,7 +223,7 @@ sequenceDiagram
 ## ✨ Core Features
 
 - **⚡ Ephemeral sessions & two-layer polite yielding to human admin**: Every authenticated operation in [`HuaweiCpeClient`](src/cpe-client.ts) and [`MutexSessionScheduler`](src/scheduler.ts) is serialized into an ephemeral session, with an unconditional `POST /api/user/logout` in the `finally` block; single sessions enforce a maximum duration limit, and hung requests are aborted and logged out. Layer 1 uses `GET /api/user/state-login` pre-checking, while Layer 2 applies a `45s → 300s` exponential silent backoff upon encountering cross-IP occupancy (`108003` / `108009`). On shutdown, inflight sessions are cancelled and logged out after a 2-second grace period, completing the entire teardown within 10 seconds without leaving lingering router admin sessions.
-- **🛑 `108006` / `108007` anti-lockout circuit breaker persisting across restarts**: Incorrect passwords trip the breaker immediately and write the password fingerprint to the encrypted state store; after correcting `CPE_PASSWORD` in `.env`, call `POST /api/session/reset-breaker` (or click reset in the UI breaker banner) to recover; reset is rejected if the password remains unchanged. When a `108007` hardware lockout period expires, it can be reset directly.
+- **🛑 `108006` / `108007` anti-lockout circuit breaker persisting across restarts**: Incorrect passwords trip the breaker immediately and write the password fingerprint to the encrypted state store; to recover, enter the right password under Settings → Router and save (it is tried with one login first and clears the breaker when it works). `POST /api/session/reset-breaker` is refused while the password is unchanged. When a `108007` hardware lockout period expires, it can be reset directly.
 - **📈 Dual-tier fixed-size ring buffer time series store**: Constant memory `< 6 MB`; `3 hours / 5 seconds` high-frequency ring + `7 days / 60 seconds` archive ring, seamlessly aggregated across layers; idle NSA 5G and unexposed sensors stay `null` without skewing averages; `30-minute` batch encrypted disk flush to preserve HDD hibernation.
 - **✉️ Unified scheduling for SMS and telemetry**: SMS count is piggybacked inside the 5-second telemetry session, triggering incremental synchronization only when the count changes; send, mark-as-read, and delete actions route through the same scheduler's control write queue. SMS mirror, contacts, and Telegram state are all encrypted at rest with `AES-256-GCM`, identifying messages with number-free opaque `uid`s.
 - **📲 Two-way Telegram bot, signed Webhooks, and alerting**: Incoming message cards (verification code, reply-to-send, mark read / thread / delete), guided SMS sending, alert notifications and muting; Webhooks signed with `HMAC-SHA256`. Alerts cover offline status, WAN disconnection, signal degradation, carrier aggregation drop, reboots, SMS storage limits, traffic thresholds, and lock drift, with duration windows and recovery hysteresis.
@@ -277,7 +277,7 @@ The demo process **never reads `.env` and never accesses the network**: real sch
 
 ```bash
 cp .env.example .env && chmod 600 .env
-# Edit .env: CPE_PASSWORD (required); API_TOKEN and DATA_ENCRYPTION_KEY (strongly recommended to set independently)
+# Edit .env: DATA_ENCRYPTION_KEY (required, a long random string of its own); the router and console passwords are set when you first open the console
 npm run build         # Build daemon + Web console to dist/
 npm start             # http://<local IP>:18384
 # Development mode: npm run dev (--watch hot reload, runs directly from TypeScript source)
@@ -321,7 +321,7 @@ Key points in [`docker-compose.yml`](docker-compose.yml):
    cp .env.example .env && chmod 600 .env && chmod 700 data
    id -u && id -g      # e.g., 1026 / 100, populate into PUID / PGID in .env
    ```
-   Edit `.env`: `CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TZ` (e.g. `Asia/Shanghai`), `PUID` / `PGID`.
+   Edit `.env`: `DATA_ENCRYPTION_KEY`, `TZ` (e.g. `Asia/Shanghai`), `PUID` / `PGID`. The router and console passwords are set in the guide when you first open the console (`CPE_PASSWORD` / `API_TOKEN` in `.env` still work too: they are imported on the first start).
 2. **Obtain image** (Choose one):
    - Pull from GHCR: if the repository is private, add `ghcr.io` under "Container Manager → Registry → Settings", or run `sudo docker login ghcr.io -u <GitHub username>` via SSH (token only requires `read:packages` permission);
    - Local build: Place the entire repository in this directory and run `sudo docker compose build`.
@@ -480,7 +480,7 @@ When a tool fails, it returns `isError: true` with `structuredContent` set to `{
 | :--- | :--- |
 | `BROWSER_SESSION_YIELDED` | Human admin is using the official web admin; politely yielded; includes `avoidance` state; retry later |
 | `PEER_DAEMON_ACTIVE` | Another daemon in the LAN is managing the same router; this instance is on standby |
-| `CIRCUIT_BREAKER_OPEN` | Anti-lockout circuit breaker tripped; includes `circuitBreaker`; manual reset required after correcting `CPE_PASSWORD` |
+| `CIRCUIT_BREAKER_OPEN` | Anti-lockout circuit breaker tripped; includes `circuitBreaker`. Fix the password under Settings → Router (saving clears it); after a `108007` lockout expires it can also be reset by hand |
 | `QUEUE_FULL` | Scheduler queue full or shutting down; retry later |
 | `CONFIRMATION_REQUIRED` / `VALIDATION_ERROR` | Missing `confirm: true` / parameters out of bounds (band, PCI, ARFCN, etc.) |
 | `MUTATIONS_DISABLED` | Server configured with `MCP_ALLOW_MUTATIONS=false` |
@@ -534,7 +534,7 @@ Both write to the router without anyone asking, so they stay off until enabled i
 
 Both act only on fresh telemetry, go through the control queue (yielding to a human logged into the WebUI, no login while the breaker is open), and re-read the WAN state and the mobile-data switch inside the same session before writing: nothing is written if the WAN is back or mobile data was switched off by hand.
 
-> **Encryption Key Tip**: When `DATA_ENCRYPTION_KEY` is left blank, it falls back to `CPE_PASSWORD`, but contacts cannot be re-synced from the router. It is strongly recommended to configure an independent key; when changing keys or router passwords, update `.env` first, call `POST /api/session/reset-breaker` (which immediately re-encrypts all data files with the new key), and then restart.
+> **Encryption Key Tip**: When `DATA_ENCRYPTION_KEY` is left blank, it falls back to `CPE_PASSWORD` in `.env`, but contacts cannot be re-synced from the router, so set a key of its own. From v1.5.0 the router password is changed in the console and no longer affects the data key; without a key of its own, keep the old `CPE_PASSWORD` in `.env`, or the encrypted files can no longer be opened. To change the key, use `rekey` from "Self-check, backup and key rotation".
 
 ---
 

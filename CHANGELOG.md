@@ -16,6 +16,8 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ### Changed
 - `reset-breaker` no longer rotates tokens or unlinks Telegram chats when `API_TOKEN` changes in `.env`, and takes the router password from the console; `doctor`, `backup`, `restore` and `rekey` cover `settings.json` and `audit.json`.
+- After a wrong router password the breaker banner opens Settings → Router, whose tested save clears the breaker; the docs and messages no longer send you to `.env` for it. `.env.example` leaves `CPE_PASSWORD` empty, so a copied placeholder can never cost a login attempt.
+- On phones the language switch lives in Appearance, making room for the settings button in the header.
 
 ### Upgrading
 - The first start imports `CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` and `API_TOKEN` / `API_TOKEN_READONLY` once: sign in with your old `API_TOKEN`, confirm the prefilled router settings in the guide and change the console password. The old tokens keep working as `API_TOKEN (.env)` / `API_TOKEN_READONLY (.env)` until you revoke them. Later edits of those `.env` keys have no effect.
