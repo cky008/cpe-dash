@@ -116,7 +116,8 @@ export interface CpeLoginState {
   isLoggedInElsewhere: boolean;
   isLocked: boolean;
   remainWaitTime: number;
-  passwordType: string;
+  /** `null` when the router names none. */
+  passwordType: string | null;
   firstLogin: string;
 }
 

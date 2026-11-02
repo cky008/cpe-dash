@@ -106,7 +106,8 @@ export class SettingsHttpRoutes {
         const saved = { ...candidate, url: normalizeCpeUrl(candidate.url) };
         settings.setCpe(saved);
         settings.markReviewed();
-        await this.#opts.scheduler.applyConnection(saved);
+        // The scheme the test logged in with: a SCRAM router never gets a legacy password afterwards
+        await this.#opts.scheduler.applyConnection(saved, { loginScheme: probe?.identity.loginScheme ?? null });
         if (probe) this.#opts.onDeviceProbe?.(probe);
         audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host} as ${saved.username}` });
         if (first) this.#opts.onConnectionReady();

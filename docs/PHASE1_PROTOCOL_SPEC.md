@@ -108,6 +108,7 @@ sequenceDiagram
 | `100005` / `100006` | XML 格式错误 / 参数越界 (`Format / Parameter error`) | 立即终止当前控制指令并校验 `BandMask` / `PCI` / `ARFCN` 入参 |
 | `108001` / `108002` / **`108006`** | 用户名或管理密码错误 (`Authentication failed`) | **立即触发防爆破断路器 (`CircuitBreaker`) 永久锁死**！严禁任何自动重试（H168-383 连续错 3 次即锁机），后续调用零网络请求直接短路报错，须人工修正 `.env` 并调用 `resetCircuitBreaker()` |
 | **`108007`** | 密码错误超限，硬件账户已锁定 (`Login locked`) | **立即触发防爆破断路器锁死**，记录 `<remainwaittime>` 秒数 |
+| `115002` | 路由器要求先修改管理密码 (`Password modify`；未在 H168-383 上见过，来自附录 A.5) | 同样熔断、不自动重试：先在路由器网页改密码，再在控制台保存新密码 |
 | **`108003`** / `108005` / **`108009`** | 其他管理员已在线 / 会话被占用 (`Session occupied`) | `respectBrowserSession: true` 时立即静默让位返回 `null`；显式控制指令可按需提示“当前已有管理员在线” |
 | `108010` | 登录过于频繁 (`Too frequent login`) | 退避至下一轮 `POLL_INTERVAL_MS`（建议 `>= 5000ms`） |
 | `125001` / `125002` / `125003` | CSRF Token 错误 / 会话过期 / Session Token 无效 | 单次短连失效，`finally` 清理后由下一次 `withSession()` 重新获取干净会话 |
@@ -849,7 +850,7 @@ $$
 | `125002` | `ERROR_SYSTEM_CSRF`（Session error） | 参考项目收到后重新取令牌、重试一次（`Session.py` 的 `_try_or_reload_and_retry`）；H168-383 未登录读 `device/information` 时也可能返回它（A.1） |
 | `125003` | `ERROR_WRONG_SESSION_TOKEN` | |
 | `108001` / `108002` / `108003` / `108006` / `108007` | `USERNAME_WRONG` / `PASSWORD_WRONG` / `ALREADY_LOGIN` / `USERNAME_PWD_WRONG` / `USERNAME_PWD_OVERRUN` | 处置见 2.3 节（铁律五） |
-| `115002` | `USERNAME_PWD_MODIFY`（Password modify） | 烽燧尚未处理，阶段 1 决定 |
+| `115002` | `USERNAME_PWD_MODIFY`（Password modify） | 阶段 1 起熔断，不自动重试（A.9） |
 
 ### A.6 参考项目列出的已测型号（来自其 `README.md`，烽燧未验证）
 
@@ -937,3 +938,23 @@ $$
 | → 按 RFC 5802 参数顺序算出的 `clientproof`（设备会拒绝） | `93553f268fba24d183e007680e604512bc3d987e2e868797eca3e63b57f4a7e4` |
 
 旧式编码的向量（输入取自 `tests/test_session.py`）：用户名 `admin`、密码 `secret`、令牌 `csrf-token`，`password_type=4` → `ODNiZmIxMzRiYWJjNjJlMDY3ZGE2NGJmNWRmYjg4ODllNTFiNzJmOTU3NzViMjQ4YWNiZWEzNGU3MjM1OTU0ZQ==`（我们用 `shasum` 与 Python 两种方式计算，结果相同）；`password_type=0` → `c2VjcmV0`。
+
+### A.9 烽燧的登录方式选择（阶段 1；只在 Mock 上验证）
+
+实现在 [`src/cpe-auth.ts`](../src/cpe-auth.ts) 与 [`src/cpe-client.ts`](../src/cpe-client.ts)。原则：**提交任何密码之前确定方式，一次会话只提交一次密码，绝不拿同一个密码换方式重试**（每次错误的提交都会消耗路由器 3 次机会之一）。
+
+1. **依据**：会话开始时本来就要读的 `state-login`（铁律四的预检），不多发请求。
+2. **按 `password_type` 选择**：
+
+   | `password_type` | 做法 |
+   | :--- | :--- |
+   | `4` | 先做 SCRAM 挑战（不含密码）。挑战成功 → SCRAM；挑战被拒（A.8 的三种形态）→ 旧式 SHA-256 |
+   | `0`、`3` | 直接旧式 base64，不探测 |
+   | 缺失或其他值 | 先做 SCRAM 挑战；成功 → SCRAM；被拒 → **不提交密码**，报告「不支持的登录方式」（不按参考项目的默认值 `0` 去猜） |
+
+3. **已知用 SCRAM 的路由器绝不回退**：这台路由器用 SCRAM 登录成功过（本进程里成功过，或启动时读到的识别结果、控制台保存连接时的测试结果是 SCRAM），之后挑战被拒就让这次会话失败，不提交旧式密码。H168-383 因此在任何挑战异常下都与改动前完全相同。控制台的「测试连接」是用户主动的一次重新识别，不受这条限制。
+4. **只在上述条件下回退**：挑战的响应不是路由器的 XML（例如 HTML 页面）、传输失败、超时，或挑战返回其他错误码（`108003` 让位、`108006` / `108007` 熔断）时都不回退。
+5. **令牌流程**：先 `GET /api/webserver/token`（H168-383 不变）；它返回 `100002` 时改用 `GET /api/webserver/SesTokInfo`，并在整次会话里沿用。`SesTokInfo` 响应里的 `SesInfo` 只在还没有会话 Cookie 时采用，不覆盖已有的（例如登录后路由器用 `Set-Cookie` 换的新 Cookie）。令牌池用完就按本会话的令牌流程重新取。
+6. **熔断与避让一视同仁**：`108001` / `108002` / `108006` / `108007` 与 `lockstatus=1` 对所有方式熔断（铁律五）；阶段 1 起 `115002`（需要修改密码）也熔断，不自动重试，控制台提示先在路由器网页改密码；`108003` / `108005` / `108009` 对所有方式让位；`finally` 里的 `logout` 对所有方式执行。
+7. **加密通道**：只有 SCRAM 登录响应带的 ECC 公钥会启用（与改动前相同）；旧式登录没有可验证的密钥，不启用加密通道，需要它的请求直接失败，不去取未经验证的公钥。
+8. **验证**：[`test/helpers/cpe-family.ts`](../test/helpers/cpe-family.ts) 的 Mock 路由器家族（4 种登录方式 × 2 种令牌流程），按本附录的事实自己编写；H168-383 仍以 [`test/helpers/strict-cpe.ts`](../test/helpers/strict-cpe.ts) 为唯一的已验证基准，[`test/h168-wire.test.ts`](../test/h168-wire.test.ts) 逐条比对它的登录、轮询与写操作请求。

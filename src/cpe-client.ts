@@ -2,6 +2,18 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import { normalizeCpeUrl } from "./config.ts";
 import {
+  CpeLoginMethodError,
+  type LegacyScheme,
+  type LoginPlan,
+  SCRAM_PROBE_FALLBACK_CODES,
+  type ScramChallenge,
+  encodeLegacyPassword,
+  isNonChallengeAnswer,
+  planLogin,
+  readScramChallenge,
+  readSesTokInfo,
+} from "./cpe-auth.ts";
+import {
   aesGcmDecrypt,
   aesGcmEncrypt,
   computeScram,
@@ -40,6 +52,7 @@ export const CPE_ERROR_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "108007": "密码错误次数过多，账户已暂时锁定 (Login locked)",
   "108009": "已有其他终端占用管理会话 (Session occupied)",
   "108010": "登录过于频繁，请稍后重试 (Too frequent login)",
+  "115002": "路由器要求先修改管理密码 (Password modify)",
   "120001": "语音通话占线中 (Voice busy)",
   "125001": "CSRF Token 校验失败 (Wrong token)",
   "125002": "会话已过期 (Session expired)",
@@ -159,8 +172,13 @@ export class CpeApiError extends Error {
     return this.code === "108007";
   }
 
+  /** The router wants its admin password changed on its own web page before it lets anyone in. */
+  get isPasswordChangeRequired(): boolean {
+    return this.code === "115002";
+  }
+
   get isCircuitBreakerFatal(): boolean {
-    return this.isAuthWrongPassword || this.isLocked;
+    return this.isAuthWrongPassword || this.isLocked || this.isPasswordChangeRequired;
   }
 
   get isSessionOccupied(): boolean {
@@ -288,6 +306,8 @@ export class EphemeralCpeSession {
 
   async #ensureEcc(): Promise<{ clientPubHex: string; shareKeyHex: string }> {
     if (!this.ecc) {
+      // A legacy login offers no key FengSui could verify: no encrypted channel rather than an unverified one
+      if (this.#loginScheme !== "scram") throw new Error("CPE session has no encrypted channel: its login method offers no verified key");
       const pubXml = await this.get("/api/webserver/publickey");
       const serverPub = getXmlTag(pubXml, "ecc_server_pubkey");
       if (!serverPub) {
@@ -348,17 +368,47 @@ export class EphemeralCpeSession {
     return trimmedCheck;
   }
 
+  /**
+   * The next CSRF token: from the pool the router's answers refill, else fetched through this
+   * session's token flow. `webserver/token` first (the H168-383's); a router that answers it with
+   * `100002` hands them out through `SesTokInfo`, which the session then keeps using.
+   */
   async #consumeToken(timeoutMs: number, releasing: boolean): Promise<string> {
     if (this.tokens.length === 0) {
-      const xml = await this.#get("/api/webserver/token", {}, timeoutMs, releasing);
-      const fullToken = getXmlTag(xml, "token");
-      if (!fullToken || fullToken.length < 32) {
-        throw new Error("Failed to acquire CSRF token from /api/webserver/token");
+      if (this.#tokenFlow === "sestokinfo") {
+        await this.#fetchSesTokInfo(timeoutMs, releasing);
+      } else {
+        let xml: string | null = null;
+        try {
+          xml = await this.#get("/api/webserver/token", {}, timeoutMs, releasing);
+        } catch (err) {
+          if (this.#tokenFlow !== null || !(err instanceof CpeApiError) || err.code !== "100002") throw err;
+        }
+        if (xml === null) {
+          await this.#fetchSesTokInfo(timeoutMs, releasing);
+        } else {
+          const fullToken = getXmlTag(xml, "token");
+          if (!fullToken || fullToken.length < 32) {
+            throw new Error("Failed to acquire CSRF token from /api/webserver/token");
+          }
+          this.tokens.push(fullToken.length > 32 ? fullToken.slice(-32) : fullToken);
+          this.#tokenFlow ??= "webserver-token";
+        }
       }
-      this.tokens.push(fullToken.length > 32 ? fullToken.slice(-32) : fullToken);
-      this.#tokenFlow ??= "webserver-token";
     }
     return this.tokens.shift()!;
+  }
+
+  /**
+   * `GET /api/webserver/SesTokInfo`: one token, and the session cookie in `SesInfo` only while the
+   * session has none (a cookie the router set, e.g. the one a login rotated in, is never replaced).
+   */
+  async #fetchSesTokInfo(timeoutMs: number, releasing: boolean): Promise<void> {
+    const info = readSesTokInfo(await this.#get("/api/webserver/SesTokInfo", {}, timeoutMs, releasing));
+    if (!info) throw new Error("Failed to acquire CSRF token from /api/webserver/SesTokInfo");
+    if (info.sessionCookie && !this.cookies.has(info.sessionCookie.name)) this.cookies.set(info.sessionCookie.name, info.sessionCookie.value);
+    this.tokens.push(info.token);
+    this.#tokenFlow ??= "sestokinfo";
   }
 
   async postRaw(
@@ -373,15 +423,17 @@ export class EphemeralCpeSession {
     return await this.#post(apiPath, body, opts, false);
   }
 
+  /** `body` may depend on the token the request carries (the SHA-256 legacy login hashes it in). */
   async #post(
     apiPath: string,
-    body: string,
+    body: string | ((token: string) => string),
     opts: { clearTokensOnResponse?: boolean; contentType?: string; overrideTimeoutMs?: number },
     releasing: boolean
   ): Promise<string> {
     const timeoutMs = opts.overrideTimeoutMs ?? this.timeoutMs;
     const run = async (): Promise<string> => {
       const token = await this.#consumeToken(timeoutMs, releasing);
+      const payload = typeof body === "string" ? body : body(token);
       const signal = this.#requestSignal(timeoutMs, releasing);
       const headers: Record<string, string> = {
         "X-Requested-With": "XMLHttpRequest",
@@ -396,7 +448,7 @@ export class EphemeralCpeSession {
       const res = await cpeFetch(this.fetchImpl, `${this.baseUrl}${apiPath}`, apiPath, {
         method: "POST",
         headers,
-        body,
+        body: payload,
         redirect: "error",
         signal,
       });
@@ -456,60 +508,89 @@ export class EphemeralCpeSession {
     return decryptedXml;
   }
 
-  async login(): Promise<void> {
+  /**
+   * Log in once, with the method settled before any password goes out (`planLogin`): the router's
+   * `password_type` from `state-login`, then the SCRAM challenge, which carries no password. Only a
+   * challenge refused the way appendix A.8 allows leads to the legacy `user/login`; a router known to
+   * use SCRAM (`scramKnown`) never gets there. Without options it is SCRAM only, as on the H168-383.
+   */
+  async login(opts: { passwordType?: string | null; scramKnown?: boolean } = {}): Promise<void> {
     if (!this.password) {
       throw new Error("The router password is not set: the daemon takes it from Settings → Router in the console, the probes from CPE_PASSWORD in .env");
     }
+    const scramKnown = opts.passwordType === undefined || opts.scramKnown === true;
+    const passwordType = opts.passwordType ?? null;
+    const plan: LoginPlan = planLogin(passwordType, { scramKnown });
 
     await this.get("/api/monitoring/status", { "Update-Cookie": "UpdateCookie" });
 
     const firstNonce = crypto.randomBytes(32).toString("hex");
-    const challengeXml = await this.postRaw(
-      "/api/user/challenge_login",
-      buildXmlRequest({
-        username: this.username,
-        firstnonce: firstNonce,
-        mode: 1,
-      }),
-      { clearTokensOnResponse: true }
-    );
-
-    const salt = getXmlTag(challengeXml, "salt");
-    const iterationsRaw = getXmlTag(challengeXml, "iterations");
-    const serverNonce = getXmlTag(challengeXml, "servernonce");
-    if (!salt || !iterationsRaw || !serverNonce) {
-      throw new Error("Invalid SCRAM challenge response from CPE");
+    let challenge: ScramChallenge | null = null;
+    /** What refused the challenge: its error code, or `null` for an answer that was no challenge. */
+    let refusedWith: string | null = null;
+    if (plan.probeScram) {
+      try {
+        const challengeXml = await this.postRaw(
+          "/api/user/challenge_login",
+          buildXmlRequest({
+            username: this.username,
+            firstnonce: firstNonce,
+            mode: 1,
+          }),
+          { clearTokensOnResponse: true }
+        );
+        challenge = readScramChallenge(challengeXml);
+        if (!challenge && (scramKnown || !isNonChallengeAnswer(challengeXml))) {
+          throw new Error("Invalid SCRAM challenge response from CPE");
+        }
+      } catch (err) {
+        if (scramKnown || !(err instanceof CpeApiError) || !SCRAM_PROBE_FALLBACK_CODES.has(err.code)) throw err;
+        refusedWith = err.code;
+      }
     }
+    if (challenge) {
+      await this.#scramLogin(firstNonce, challenge);
+      return;
+    }
+    if (!plan.legacy) throw new CpeLoginMethodError(passwordType, refusedWith);
+    await this.#legacyLogin(plan.legacy.scheme, plan.legacy.passwordType);
+  }
 
-    const iterations = Number.parseInt(iterationsRaw, 10);
-    const scram = computeScram(this.password, salt, iterations, firstNonce, serverNonce);
-
+  /** Mark the session as possibly logged in while the password's answer is outstanding. */
+  async #submitPassword(apiPath: string, body: string | ((token: string) => string)): Promise<string> {
     // Until the router answers, it may already have logged us in (lost response, aborted request),
     // so `logout()` must run; a CPE error code means the router refused and nothing is open.
     this.#authOutcomeUnknown = true;
-    let authXml: string;
+    let answer: string;
     try {
-      authXml = await this.postRaw(
-        "/api/user/authentication_login",
-        buildXmlRequest({
-          clientproof: scram.clientProofHex,
-          finalnonce: serverNonce,
-        }),
-        { clearTokensOnResponse: true }
-      );
+      answer = await this.#post(apiPath, body, { clearTokensOnResponse: true }, false);
     } catch (err) {
       if (err instanceof CpeApiError) {
         this.#authOutcomeUnknown = false;
       }
       throw err;
     }
-
     this.#authOutcomeUnknown = false;
     this.loggedIn = true;
     this.#loginCompletedAtMs = performance.now();
+    return answer;
+  }
+
+  async #scramLogin(firstNonce: string, challenge: ScramChallenge): Promise<void> {
+    const scram = computeScram(this.password, challenge.salt, challenge.iterations, firstNonce, challenge.serverNonce);
+    const authXml = await this.#submitPassword(
+      "/api/user/authentication_login",
+      buildXmlRequest({
+        clientproof: scram.clientProofHex,
+        finalnonce: challenge.serverNonce,
+      })
+    );
 
     const serverSig = getXmlTag(authXml, "serversignature");
-    if (serverSig && serverSig.toLowerCase() !== scram.expectedServerSig.toLowerCase()) {
+    if (!serverSig) {
+      throw new Error("SCRAM server signature missing (potential MITM)");
+    }
+    if (serverSig.toLowerCase() !== scram.expectedServerSig.toLowerCase()) {
       throw new Error("SCRAM server signature mismatch (potential MITM)");
     }
 
@@ -523,6 +604,21 @@ export class EphemeralCpeSession {
       this.#eccVerified = Boolean(eccPubSig);
     }
     this.#loginScheme = "scram";
+  }
+
+  /** `POST /api/user/login`; the SHA-256 form hashes in the very token the request carries. */
+  async #legacyLogin(scheme: LegacyScheme, passwordType: "0" | "3" | "4"): Promise<void> {
+    const answer = await this.#submitPassword("/api/user/login", (token) =>
+      buildXmlRequest({
+        Username: this.username,
+        Password: encodeLegacyPassword(scheme, this.username, this.password, token),
+        password_type: passwordType,
+      })
+    );
+    if (getXmlTag(answer, "response")?.trim() !== "OK") {
+      throw new Error("CPE did not confirm the login (no OK answer)");
+    }
+    this.#loginScheme = scheme;
   }
 
   async logout(): Promise<number | null> {
@@ -637,6 +733,7 @@ export class HuaweiCpeClient {
   #lastSessionHoldMs: number | null;
   #totalSessionsCompleted: number;
   #browserYieldCount: number;
+  #knownLoginScheme: LoginScheme | null = null;
 
   constructor(config: HuaweiCpeClientOptions) {
     this.#allowPublicHost = Boolean(config.allowPublicCpeHost);
@@ -722,13 +819,28 @@ export class HuaweiCpeClient {
   }
 
   /**
-   * Point the client at a router connection the console just proved (the scheduler only calls this
-   * between sessions) and clear the breaker: the new credentials logged in a moment ago.
+   * How this router last logged in (`null`: not known yet). Once it is `scram`, a refused SCRAM
+   * challenge fails the session instead of falling back to a legacy login.
    */
-  reconfigure(next: { cpeUrl: string; cpeUsername: string; cpePassword: string }): void {
+  get knownLoginScheme(): LoginScheme | null {
+    return this.#knownLoginScheme;
+  }
+
+  /** Remember how the router logs in (from a stored identification); `unknown` or `null` forgets it. */
+  rememberLoginScheme(scheme: LoginScheme | null): void {
+    this.#knownLoginScheme = scheme === "unknown" ? null : scheme;
+  }
+
+  /**
+   * Point the client at a router connection the console just proved (the scheduler only calls this
+   * between sessions) and clear the breaker: the new credentials logged in a moment ago, with
+   * `loginScheme`.
+   */
+  reconfigure(next: { cpeUrl: string; cpeUsername: string; cpePassword: string; loginScheme?: LoginScheme | null }): void {
     this.#baseUrl = normalizeCpeUrl(next.cpeUrl, { allowPublicHost: this.#allowPublicHost });
     this.#username = next.cpeUsername;
     this.#password = next.cpePassword;
+    this.rememberLoginScheme(next.loginScheme ?? null);
     this.resetCircuitBreaker();
   }
 
@@ -841,7 +953,8 @@ export class HuaweiCpeClient {
       isLoggedInElsewhere: state !== "-1",
       isLocked,
       remainWaitTime,
-      passwordType: getXmlTag(xml, "password_type") ?? "4",
+      // `null` when the router names none: the login method is then never guessed (`planLogin`)
+      passwordType: getXmlTag(xml, "password_type"),
       firstLogin: getXmlTag(xml, "firstlogin") ?? "0",
     };
   }
@@ -939,8 +1052,9 @@ export class HuaweiCpeClient {
       let loginFinished = false;
       let lastHoldMs = 0;
       try {
-        await raceDeadline(session.login(), deadline.signal);
+        await raceDeadline(session.login({ passwordType: loginState.passwordType, scramKnown: this.#knownLoginScheme === "scram" }), deadline.signal);
         loginFinished = true;
+        if (session.loginScheme) this.#knownLoginScheme = session.loginScheme;
         const value = await raceDeadline(
           activeSessionContext.run(this, () => fn(session)),
           deadline.signal

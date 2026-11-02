@@ -7,8 +7,9 @@ import {
   ReentrantCpeSessionError,
   isInsideCpeSession,
 } from "./cpe-client.ts";
+import { CpeLoginMethodError } from "./cpe-auth.ts";
 import { CpeControlValidationError, type PersistedLockState } from "./cpe-domain.ts";
-import { type ApiErrorSnapshot, type DeviceProbeResult, probeDevice } from "./device-profile.ts";
+import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, probeDevice } from "./device-profile.ts";
 import { t } from "./i18n.ts";
 import { getXmlTag } from "./xml.ts";
 import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
@@ -104,12 +105,25 @@ export class CircuitBreakerOpenError extends CpeApiError {
       code,
       code === "108007"
         ? "circuit breaker open: the router has locked logins; once the lock has expired, POST /api/session/reset-breaker"
-        : "circuit breaker open: no further login attempts until CPE_PASSWORD in .env is fixed and POST /api/session/reset-breaker is called",
+        : code === "115002"
+          ? "circuit breaker open: the router wants its admin password changed on its own web page first; then save the new password in the console"
+          : "circuit breaker open: no further login attempts until CPE_PASSWORD in .env is fixed and POST /api/session/reset-breaker is called",
       { remainCount: circuitBreaker.remainCount ?? null, waitTime: circuitBreaker.waitTime ?? null }
     );
     this.name = "CircuitBreakerOpenError";
     this.circuitBreaker = circuitBreaker;
   }
+}
+
+const LOGIN_SCHEMES: ReadonlySet<string> = new Set<LoginScheme>(["scram", "sha256", "base64"]);
+
+/** The login scheme of a stored identification, when it reads as one (state written by any version). */
+function storedLoginScheme(probe: unknown): LoginScheme | null {
+  if (typeof probe !== "object" || probe === null || !("identity" in probe)) return null;
+  const identity = probe.identity;
+  if (typeof identity !== "object" || identity === null || !("loginScheme" in identity)) return null;
+  const scheme = identity.loginScheme;
+  return typeof scheme === "string" && LOGIN_SCHEMES.has(scheme) ? (scheme as LoginScheme) : null;
 }
 
 /** The breaker state reported to adapters (the password fingerprint never leaves the client). */
@@ -277,6 +291,7 @@ export class MutexSessionScheduler extends EventEmitter {
   init(): void {
     if (this.#initialized) return;
     const loaded = this.stateStore.load();
+    this.#client.rememberLoginScheme(storedLoginScheme(loaded.deviceProbe));
     const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {
       this.#mode = "circuit_tripped";
@@ -489,10 +504,13 @@ export class MutexSessionScheduler extends EventEmitter {
     return this.#client.apiErrors.snapshot();
   }
 
-  /** Switch the live client to a connection `testConnection` just proved, and clear its breaker. */
-  async applyConnection(candidate: ConnectionCandidate): Promise<CircuitBreakerState> {
+  /**
+   * Switch the live client to a connection `testConnection` just proved, and clear its breaker.
+   * `loginScheme` is how that test logged in: a SCRAM router then never gets a legacy password.
+   */
+  async applyConnection(candidate: ConnectionCandidate, opts: { loginScheme?: LoginScheme | null } = {}): Promise<CircuitBreakerState> {
     return await this.#enqueue("high", async () => {
-      this.#client.reconfigure({ cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password });
+      this.#client.reconfigure({ cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, loginScheme: opts.loginScheme ?? null });
       this.#remainingLogins = null;
       const cb = this.#client.getCircuitBreakerState();
       this.#mode = "idle";
@@ -761,7 +779,7 @@ export class MutexSessionScheduler extends EventEmitter {
 
     // A CPE error code or rejected input means the router answered; only transport failures mean unreachable
     this.#mode =
-      err instanceof CpeApiError || err instanceof CpeControlValidationError
+      err instanceof CpeApiError || err instanceof CpeControlValidationError || err instanceof CpeLoginMethodError
         ? "idle"
         : "cpe_unreachable";
     throw err;

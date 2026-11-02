@@ -252,6 +252,20 @@ export function readStructure(body: string): Structure {
   return { kind: "xml", leaves, truncated };
 }
 
+/**
+ * The body is a Huawei API answer: its root element is `<response>` (after an optional XML
+ * declaration). An HTML page, an `<error>`, JSON or plain text is not.
+ */
+export function isResponseDocument(body: string): boolean {
+  let text = body.trimStart();
+  if (text.startsWith("<?xml")) {
+    const end = text.indexOf("?>");
+    if (end < 0) return false;
+    text = text.slice(end + 2).trimStart();
+  }
+  return /^<response[\s/>]/.test(text);
+}
+
 const NAMED_ENTITIES: Readonly<Record<string, string>> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
 /** XML entities and Huawei's `xss()` escapes (`&#40;` …) back to characters; anything odd stays as written. */
