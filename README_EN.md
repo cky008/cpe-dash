@@ -32,7 +32,7 @@
 - **100% private, zero cloud dependencies**: All data stays on your NAS, encrypted at rest with `AES-256-GCM`; the Web console uses zero CDNs, zero external links, and works completely offline.
 - **Zero additional hardware cost**: Reuses your existing NAS and the CPE's built-in SMS capabilities without requiring SMS modems, USB dongles, or secondary devices.
 - **Production-grade container**: Non-root, read-only root filesystem, `HEALTHCHECK`, graceful shutdown via `SIGTERM` within 10 seconds while releasing router sessions; dual-architecture support for `linux/amd64` (DS923+) and `linux/arm64`.
-- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 346 offline tests with 98% statement coverage.
+- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 394 offline tests with 98% statement coverage.
 
 ---
 
@@ -107,7 +107,7 @@
 ### Visuals and Engineering
 - **14 themes, 7 light and 7 dark**: cpe-sms's own **Sujian / Sujian Night** (the default), the Chinese traditional colours **Moon White, Celadon, Indigo Ink**, the Japanese traditional colours **Sakura, Wakatake, Sumi, Konruri, Yozakura**, and FengSui's **Paper, Dawn, Polar Night, Violet Abyss**.
 - **Pick the day and the night theme separately** when following the system, fix one theme, or **build your own** from a background, text and primary colour (with a contrast warning). Nine accent colours plus a custom one. Every built-in palette is tested for WCAG contrast (body text ≥ 7:1, buttons ≥ 4.5:1). Instant English/Chinese switching; preferences stay in the browser and apply before the first frame.
-- First-load JS + CSS is about **64 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
+- First-load JS + CSS is about **65 KiB gzip** (including one language); Messages, Controls drawer, Access control, etc., are lazy-loaded on demand; strict CSP (`script-src 'self'`, no inline scripts), zero usage of `innerHTML`.
 - SSE auto-reconnect with jittered exponential backoff; `423` breaker tripped, `409` yielding, and `503` shutdown present distinct UI states, never lumped together as "offline".
 
 ---
@@ -149,7 +149,7 @@ flowchart LR
   subgraph NAS["Synology DS923+ · Container (Native Node.js modules, zero runtime dependencies)"]
     HttpSrv["FengSuiHttpServer (:18384)\nHost Allowlist + Strict CSRF + /64 Rate Limiting"]
     SseBus["SseEventBus (/api/events)\nInitial Snapshot + 15s Heartbeat"]
-    McpSrv["FengSuiMcpServer\n13 + 10 SMS Tools"]
+    McpSrv["FengSuiMcpServer\n13 + 4 access-control + 10 SMS Tools"]
     Sms["SmsService\nPiggybacked Sync + Encrypted Mirror + Contacts"]
     Notify["NotificationHub + AlertEngine\nTelegram Bot / Signed Webhook"]
     Core["CpeMonitor (Telemetry/Cache) + CpeControlService (Control Writes)"]
@@ -434,7 +434,7 @@ Claude Code: `claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp 
 | SMS (`MCP_SMS_ACCESS=read`, default) | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms` |
 | SMS (`MCP_SMS_ACCESS=full`) | Appends `send_sms`†, `mark_sms_read`, `delete_sms`†, `upsert_contact` |
 
-† Must explicitly pass `{ "confirm": true }`. With `REDACT_SENSITIVE_IN_API=true` (the default), `get_cpe_telemetry`, `list_terminal_topology` and the `fengsui://telemetry/latest` resource return redacted copies: the IMEI keeps its first 6 digits, the IMSI only the operator code, WAN addresses their first two parts, and TAC / Cell ID / eNodeB and client names read `<REDACTED>`, so the data can go to a cloud model. All input parameters are strictly validated on the server against `inputSchema`; band locks only accept bands supported by the H168-383; `lock_cell` can only lock to previously observed cells (serving cell, aggregated carriers, or latest neighbor scan), preventing model hallucinations from causing network outages. SMS bodies and sender names are treated as untrusted data; `send_sms` targets a single recipient, defaults to known contacts only (`MCP_SMS_SEND_POLICY=known`), enforces hourly limits, and `delete_sms` refuses to delete unread messages by default. When `MCP_ALLOW_MUTATIONS=false`, only observational tools are exposed.
+† Must explicitly pass `{ "confirm": true }`. With `REDACT_SENSITIVE_IN_API=true` (the default), `get_cpe_telemetry`, `list_terminal_topology` and the `fengsui://telemetry/latest` resource return redacted copies: the IMEI keeps its first 6 digits, the IMSI only the operator code, WAN addresses their first two parts, and TAC / Cell ID / eNodeB and client names read `<REDACTED>`, so the data can go to a cloud model. All input parameters are strictly validated on the server against `inputSchema`; band locks only accept bands supported by the H168-383; `lock_cell` can only lock to previously observed cells (serving cell, aggregated carriers, or latest neighbor scan), preventing model hallucinations from causing network outages. SMS bodies and sender names are treated as untrusted data; `send_sms` targets a single recipient, defaults to known contacts only (`MCP_SMS_SEND_POLICY=known`), enforces hourly limits, and `delete_sms` refuses to delete unread messages by default. When `MCP_ALLOW_MUTATIONS=false`, only observational tools are exposed. To let an agent only read, give it `API_TOKEN_READONLY` as its Bearer token (for the stdio bridge, put that value in `API_TOKEN` of the bridge's own `.env`): write tools are then neither listed nor callable.
 
 ### Error Codes
 
@@ -488,7 +488,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 ```
 
 ### Alerts
-`CPE_UNREACHABLE`, `WAN_DOWN`, `SIGNAL_DEGRADED` (RSRP < `ALERT_RSRP_THRESHOLD_DBM` or SINR < `ALERT_SINR_THRESHOLD_DB` for 5 consecutive minutes), `CA_DROPPED`, `REBOOT_DETECTED`, `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`, `DATA_THRESHOLD`, lock drift, and breaker trip alerts are recorded in `GET /api/alerts` and pushed via SSE `alert`. Alerts meeting or exceeding `ALERT_NOTIFY_MIN_SEVERITY` are delivered to Telegram / Webhook.
+`CPE_UNREACHABLE`, `WAN_DOWN`, `SIGNAL_DEGRADED` (RSRP < `ALERT_RSRP_THRESHOLD_DBM` or SINR < `ALERT_SINR_THRESHOLD_DB` for 5 consecutive minutes), `CA_DROPPED`, `REBOOT_DETECTED`, `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`, `DATA_THRESHOLD`, lock drift, breaker trips and `DATA_QUARANTINED` (encrypted data that could not be decrypted at startup and was moved aside) are recorded in `GET /api/alerts` and pushed via SSE `alert`. Alerts meeting or exceeding `ALERT_NOTIFY_MIN_SEVERITY` are delivered to Telegram / Webhook.
 
 > **Encryption Key Tip**: When `DATA_ENCRYPTION_KEY` is left blank, it falls back to `CPE_PASSWORD`, but contacts cannot be re-synced from the router. It is strongly recommended to configure an independent key; when changing keys or router passwords, update `.env` first, call `POST /api/session/reset-breaker` (which immediately re-encrypts all data files with the new key), and then restart.
 

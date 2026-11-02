@@ -32,7 +32,7 @@
 - **100% 私有化，零上云**：全部数据只在你的 NAS 上，`AES-256-GCM` 加密落盘；Web 控制台零 CDN、零外链，离线可用。
 - **0 额外硬件成本**：复用现有 NAS 与 CPE 自带的短信能力，不需要短信猫、USB 模块或第二台设备。
 - **生产级容器**：非 root、只读根文件系统、`HEALTHCHECK`、`SIGTERM` 10 秒内优雅停机并释放路由器会话；`linux/amd64`（DS923+）与 `linux/arm64` 双架构。
-- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，346 项离线测试、语句覆盖率 98%。
+- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，394 项离线测试、语句覆盖率 98%。
 
 ---
 
@@ -107,7 +107,7 @@
 ### 外观与工程
 - **14 套主题，7 浅 7 深**：cpe-sms 原版的**素笺 / 素笺·夜**（默认），中国传统色的**月白、天青、黛蓝**，日本传统色的**樱、若竹、墨、绀琉璃、夜樱**，以及烽燧自己的**素纸、晨曦、极夜、紫溟**。
 - **跟随系统时白天、夜间主题分开选**；也可以固定一套主题，或者用背景、文字、主色三种颜色**自己调一套**（对比度不足会提示）。9 种强调色另可自定义取色。所有内置配色都经测试校验 WCAG 对比度（正文 ≥ 7:1，按钮 ≥ 4.5:1）。中英文即时切换，偏好保存在浏览器本地，首帧即生效不闪烁。
-- 首屏 JS + CSS 约 **64 KiB gzip**（含一种语言），短信中心、控制抽屉、访问控制等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
+- 首屏 JS + CSS 约 **65 KiB gzip**（含一种语言），短信中心、控制抽屉、访问控制等按需懒加载；严格 CSP（`script-src 'self'`，无内联脚本），全程不使用 `innerHTML`。
 - SSE 断线带抖动的指数退避自动重连；`423` 熔断、`409` 避让、`503` 停机分别给出不同的界面状态，绝不笼统显示为「离线」。
 
 ---
@@ -149,7 +149,7 @@ flowchart LR
   subgraph NAS["Synology DS923+ · 容器（Node.js 原生模块，零运行时依赖）"]
     HttpSrv["FengSuiHttpServer (:18384)\nHost 白名单 + Strict CSRF + /64 限流"]
     SseBus["SseEventBus (/api/events)\n首帧快照 + 15s 心跳"]
-    McpSrv["FengSuiMcpServer\n13 + 10 短信 Tools"]
+    McpSrv["FengSuiMcpServer\n13 + 4 访问控制 + 10 短信 Tools"]
     Sms["SmsService\n计数捎带同步 + 加密镜像 + 通讯录"]
     Notify["NotificationHub + AlertEngine\nTelegram 机器人 / 签名 Webhook"]
     Core["CpeMonitor（采集/缓存）+ CpeControlService（控制写）"]
@@ -434,7 +434,7 @@ Claude Code：`claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp
 | 短信（`MCP_SMS_ACCESS=read`，默认） | `list_sms_threads`、`get_sms_thread`、`get_sms_status`、`search_contacts`、`preview_sms`、`sync_sms` |
 | 短信（`MCP_SMS_ACCESS=full`） | 追加 `send_sms`†、`mark_sms_read`、`delete_sms`†、`upsert_contact` |
 
-† 必须显式传入 `{ "confirm": true }`。`REDACT_SENSITIVE_IN_API=true`（默认）时，`get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 返回脱敏副本：IMEI 只留前 6 位、IMSI 只留运营商代码、WAN 地址只留前两段，TAC / Cell ID / eNodeB 与终端名称为 `<REDACTED>`，便于把数据交给云端模型。所有入参按 `inputSchema` 在服务端强校验；锁频段只接受 H168-383 支持的频段，`lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止模型幻觉参数导致断网。短信正文与发件人名称一律标注为不可信数据，`send_sms` 单收件人、默认仅限已知号码（`MCP_SMS_SEND_POLICY=known`）并按小时限额，`delete_sms` 默认拒绝删除未读短信。`MCP_ALLOW_MUTATIONS=false` 时只暴露观测类能力。
+† 必须显式传入 `{ "confirm": true }`。`REDACT_SENSITIVE_IN_API=true`（默认）时，`get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 返回脱敏副本：IMEI 只留前 6 位、IMSI 只留运营商代码、WAN 地址只留前两段，TAC / Cell ID / eNodeB 与终端名称为 `<REDACTED>`，便于把数据交给云端模型。所有入参按 `inputSchema` 在服务端强校验；锁频段只接受 H168-383 支持的频段，`lock_cell` 只能锁定已观测到的小区（服务小区、聚合载波或最近一次邻区扫描），防止模型幻觉参数导致断网。短信正文与发件人名称一律标注为不可信数据，`send_sms` 单收件人、默认仅限已知号码（`MCP_SMS_SEND_POLICY=known`）并按小时限额，`delete_sms` 默认拒绝删除未读短信。`MCP_ALLOW_MUTATIONS=false` 时只暴露观测类能力。只想让智能体读取时，把 `API_TOKEN_READONLY` 作为它的 Bearer 令牌（stdio 桥接则在本机 `.env` 中把 `API_TOKEN` 设为该值）：写工具既不出现也无法调用。
 
 ### 错误码
 
@@ -488,7 +488,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 ```
 
 ### 告警
-`CPE_UNREACHABLE`、`WAN_DOWN`、`SIGNAL_DEGRADED`（RSRP < `ALERT_RSRP_THRESHOLD_DBM` 或 SINR < `ALERT_SINR_THRESHOLD_DB` 持续 5 分钟）、`CA_DROPPED`、`REBOOT_DETECTED`、`SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`、`DATA_THRESHOLD`、锁定漂移以及熔断告警，均记录在 `GET /api/alerts` 与 SSE `alert`，级别不低于 `ALERT_NOTIFY_MIN_SEVERITY` 的告警推送到 Telegram / Webhook。
+`CPE_UNREACHABLE`、`WAN_DOWN`、`SIGNAL_DEGRADED`（RSRP < `ALERT_RSRP_THRESHOLD_DBM` 或 SINR < `ALERT_SINR_THRESHOLD_DB` 持续 5 分钟）、`CA_DROPPED`、`REBOOT_DETECTED`、`SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL`、`DATA_THRESHOLD`、锁定漂移、熔断告警，以及启动时加密数据无法解密而被隔离的 `DATA_QUARANTINED`，均记录在 `GET /api/alerts` 与 SSE `alert`，级别不低于 `ALERT_NOTIFY_MIN_SEVERITY` 的告警推送到 Telegram / Webhook。
 
 > **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `CPE_PASSWORD`，而通讯录无法从路由器重新同步。建议设置独立密钥；更换密钥或路由器密码时，先修改 `.env` 并调用 `POST /api/session/reset-breaker`（立即用新密钥重写所有加密文件），再重启。
 

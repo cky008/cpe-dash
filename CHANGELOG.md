@@ -28,6 +28,11 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **An old Telegram confirmation card can no longer send a newer draft.** Every "Send now" button carried the same callback data, so tapping it on an earlier card sent whatever draft was current. Each card's button is now bound to its own draft; a stale one answers that the flow expired.
 - **MCP `manage_internet_time_rule` can update and delete rules again.** Its `id` was capped at 16 characters, but the H168-383 names rules by TR-069 path (`InternetGatewayDevice.X_FireWall.TimeRule.1.`), so every update or delete through MCP failed with `VALIDATION_ERROR`. The limit is now 128.
 
+### Upgrading
+- Upgrade every host that runs a FengSui daemon at the same time: the duplicate-daemon beacon moved to v2, and v1 and v2 daemons do not see each other.
+- Group chats linked earlier with `/auth` stay linked. To unlink them, rotate `API_TOKEN` (every `/auth` link is revoked); keep a group on purpose by listing its ID in `TELEGRAM_CHAT_IDS`.
+- If startup now prints the `API_TOKEN` notice, set a dedicated random `API_TOKEN` and update your MCP clients and Telegram link with it.
+
 ## [1.3.0] — 2026-11-01
 
 ### Added
