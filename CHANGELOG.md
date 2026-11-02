@@ -19,6 +19,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Data written by a newer FengSui is never overwritten.** Each encrypted store (state, SMS mirror, contacts, Telegram links) ignored a format number it did not know, started empty and overwrote the file on the next save, so running an older version after a future format change would silently lose that data. Such a file now stops startup with a message that names it; the file is left as it was.
 
 ### Documentation
+- **The docs are checked against the code.** `test/contract-manifest.test.ts` reads what the daemon exposes from the code itself (every MCP tool with all providers enabled, every raised alert code, SSE event, REST route and setting) and fails when the contract, `.env.example` or either README misses one. It found five settings no doc mentioned (`STATE_FLUSH_INTERVAL_MS`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_AUTH_FAILURES`, `SESSION_TTL_MS`, `STATIC_DIR`), now documented.
 - **`POST /api/session/reset-breaker` states its order.** It applies the reloaded `.env` (redaction, time zone, data key, token rotation) before it looks at the breaker, so the `400` it returns while a wrong-password latch still has the old password comes after those changes took effect; the contract now says so, and that calling it with an unchanged `.env` has no other effect.
 
 ## [1.4.1] — 2026-11-02

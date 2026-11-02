@@ -554,6 +554,10 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `RESPECT_BROWSER_SESSION` | `true` | Automatic yielding when human admin is online (strongly recommended to keep enabled) |
 | `STATE_FILE` | `./data/state.json` | Encrypted state file; `/app/data/state.json` inside container |
 | `HISTORY_RETENTION_HOURS` | `168` | Time-series history retention duration (7 days) |
+| `STATE_FLUSH_INTERVAL_MS` | `1800000` | Periodic flush of the encrypted state (30 minutes, minimum `10000`; it is always flushed on shutdown) |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_AUTH_FAILURES` | `60000` / `8` | Login failure rate limit: window and failures allowed in it (per direct client address) |
+| `SESSION_TTL_MS` | `86400000` | Lifetime of a console login session (24 hours) |
+| `STATIC_DIR` | *(build output)* | Console static files; defaults to `dist/web/public` and rarely needs setting |
 | `SMS_ENABLED` | `true` | Enables SMS synchronization, REST, SSE, and MCP SMS tools |
 | `DEFAULT_COUNTRY_CODE` | `+353` | Default country calling code for numbers without international prefix |
 | `SMS_FILE` / `CONTACTS_FILE` | *(Same directory as `STATE_FILE`)* | Encrypted SMS mirror and contacts store |

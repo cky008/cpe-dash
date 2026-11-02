@@ -554,6 +554,10 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `RESPECT_BROWSER_SESSION` | `true` | 真人在线自动避让（强烈建议保持开启） |
 | `STATE_FILE` | `./data/state.json` | 加密状态文件；容器内为 `/app/data/state.json` |
 | `HISTORY_RETENTION_HOURS` | `168` | 时序历史保留时长（7 天） |
+| `STATE_FLUSH_INTERVAL_MS` | `1800000` | 加密状态的定期落盘间隔（30 分钟，最小 `10000`；停机时总会落盘） |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_AUTH_FAILURES` | `60000` / `8` | 登录失败限流窗口与窗口内允许的失败次数（按直连地址计） |
+| `SESSION_TTL_MS` | `86400000` | 控制台登录会话有效期（24 小时） |
+| `STATIC_DIR` | *(构建产物)* | 控制台静态文件目录，默认 `dist/web/public`，一般无需设置 |
 | `SMS_ENABLED` | `true` | 启用短信同步、REST、SSE 与 MCP 短信工具 |
 | `DEFAULT_COUNTRY_CODE` | `+353` | 无国际前缀号码的默认国家区号 |
 | `SMS_FILE` / `CONTACTS_FILE` | *(与 `STATE_FILE` 同目录)* | 加密短信镜像与通讯录 |
