@@ -6,11 +6,12 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { DaemonAlreadyRunningError, createFengSuiRuntime, startServeDaemon } from "../src/cli.ts";
+import { DaemonAlreadyRunningError, createFengSuiRuntime, startServeDaemon, startupNotices } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher, tryAcquireFileLock } from "../src/encrypted-file.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
+import type { PeerTransport } from "../src/peer-guard.ts";
 import { redactTelemetry } from "../src/redact.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
@@ -291,6 +292,37 @@ describe("createFengSuiRuntime", () => {
     } finally {
       await stack.close();
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns at startup when API_TOKEN or DATA_ENCRYPTION_KEY silently fall back to the router password", () => {
+    const fallback = startupNotices({ cpePassword: "router_pw", apiToken: "router_pw", dataEncryptionKey: "router_pw" });
+    assert.equal(fallback.length, 2);
+    assert.match(fallback[0] ?? "", /DATA_ENCRYPTION_KEY is not set/);
+    assert.match(fallback[1] ?? "", /API_TOKEN is not set[\s\S]*Telegram/);
+    assert.deepEqual(startupNotices({ cpePassword: "router_pw", apiToken: "random_api_token", dataEncryptionKey: "random_data_key" }), []);
+  });
+
+  it("stops cleanly when a stop arrives while startup is still running: nothing starts afterwards", async () => {
+    const cpe = createStrictCpe({ latencyMs: 5 });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-stopstart-"));
+    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), WEB_PORT: "0", SMS_ENABLED: "false" });
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    // A peer transport makes start() wait ~1 s for a running daemon's reply: the window a SIGTERM can hit
+    const quietLan: PeerTransport = { send: () => undefined, onMessage: () => undefined, close: () => undefined };
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, peerTransport: quietLan, log: () => undefined });
+    try {
+      const starting = startServeDaemon(stack);
+      await new Promise((r) => setTimeout(r, 100));
+      await stack.close();
+      assert.equal(await starting, null, "no HTTP port is bound after the stop");
+      await new Promise((r) => setTimeout(r, 200));
+      assert.equal(cpe.stats.logins, 0, "no CPE session is opened after the stop");
+      assert.equal(stack.scheduler.getStatus().running, false);
+      assert.equal(fs.existsSync(`${config.stateFile}.lock`), false);
+    } finally {
+      await stack.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

@@ -524,7 +524,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `CPE_PASSWORD` | *(Required)* | Admin password; `108006` errors immediately trip the persistent circuit breaker |
 | `TZ` | `UTC` | IANA timezone (e.g. `Asia/Shanghai`); used to generate outbound SMS `<Date>`; must match the CPE's timezone |
 | `DATA_ENCRYPTION_KEY` | *(Falls back to `CPE_PASSWORD`)* | Master encryption key for `data/*.json` at rest (`scrypt` + `HKDF-SHA256` → `AES-256-GCM`); strongly recommended to configure independently |
-| `API_TOKEN` | *(Falls back to `CPE_PASSWORD`)* | Web login token and REST / `/mcp` Bearer token; a high-entropy random string is recommended |
+| `API_TOKEN` | *(Falls back to `CPE_PASSWORD`)* | Web login token and REST / `/mcp` Bearer token; a high-entropy random string is recommended. Left unset, the router's admin password ends up in MCP client configs and is sent to Telegram by `/auth`; startup prints a notice |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | Trusted reverse proxy IPs / CIDRs; `X-Forwarded-For` / `X-Forwarded-Proto` parsed only when matching |
 | `ALLOWED_HOSTS` | *(Empty)* | Additional permitted `Host` headers (e.g. `cpe.example.com`); private IPs, `localhost`, `*.local` / `*.lan` / `*.internal` / `*.ts.net` are always permitted |
 | `WEB_ENABLED` | `true` | Whether to start the HTTP service (Web console, REST, SSE, and `/mcp`); set to `false` to run background collection, SMS sync, and notifications only |

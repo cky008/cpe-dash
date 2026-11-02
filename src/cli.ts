@@ -114,6 +114,8 @@ export interface FengSuiRuntimeStack {
   start(): Promise<void>;
   /** Stop every subsystem in dependency order, flush encrypted stores and release the daemon lock. */
   close(): Promise<void>;
+  /** `true` once `close()` began (a stop can arrive while `start()` is still running). */
+  isClosed(): boolean;
   /** Synchronously release the daemon lock (for `process.on("exit")`). */
   releaseLocks(): void;
 }
@@ -412,7 +414,10 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
         peerGuard.start();
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
+      // A stop that arrived meanwhile wins: nothing may start polling or open a CPE session after it
+      if (closed) return;
       await telegramBot?.start();
+      if (closed) return;
       sms?.start();
       monitor.start();
     },
@@ -438,6 +443,9 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     releaseLocks(): void {
       daemonLock.release();
     },
+    isClosed(): boolean {
+      return closed;
+    },
   };
 }
 
@@ -449,11 +457,35 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
 export async function startServeDaemon(stack: FengSuiRuntimeStack): Promise<{ host: string; port: number } | null> {
   try {
     await stack.start();
-    return stack.config.webEnabled ? await stack.httpServer.listen() : null;
+    if (stack.isClosed() || !stack.config.webEnabled) return null;
+    const bound = await stack.httpServer.listen();
+    if (!stack.isClosed()) return bound;
+    // Stopped while the port was being bound: close() found no server yet, so release it here
+    await stack.httpServer.close(0);
+    return null;
   } catch (err) {
     await stack.close().catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * Notices for configuration that works but leaks or risks something, printed to stderr at startup:
+ * secrets that silently fall back to CPE_PASSWORD.
+ */
+export function startupNotices(config: Pick<AppConfig, "cpePassword" | "apiToken" | "dataEncryptionKey">): string[] {
+  const notices: string[] = [];
+  if (config.dataEncryptionKey === config.cpePassword) {
+    notices.push(
+      "DATA_ENCRYPTION_KEY is not set, so encrypted data (state, SMS mirror, contacts, Telegram state) is keyed to CPE_PASSWORD. Set a dedicated key and apply it with POST /api/session/reset-breaker; restarting with a changed password instead leaves these files unreadable (quarantined as *.unreadable-<timestamp>)."
+    );
+  }
+  if (config.apiToken === config.cpePassword) {
+    notices.push(
+      "API_TOKEN is not set, so the router's admin password is also the web login, the Bearer token in every REST and MCP client config, and the secret sent to Telegram with /auth. Set a dedicated random API_TOKEN and apply it with POST /api/session/reset-breaker or a restart."
+    );
+  }
+  return notices;
 }
 
 /**
@@ -521,12 +553,22 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   });
   // `exit` listeners run synchronously (also after uncaught errors); graceful paths use close()
   process.once("exit", () => stack.releaseLocks());
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    process.stdout.write(`[fengsui] Received ${signal}, flushing encrypted state and closing server...\n`);
+    await stack.close();
+    process.exit(0);
+  };
+  // Registered before startup: a docker stop during startup must still log out of the CPE and flush
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
   const boundAddress = await startServeDaemon(stack);
-  if (config.dataEncryptionKey === config.cpePassword) {
-    process.stderr.write(
-      "[fengsui] Notice: DATA_ENCRYPTION_KEY is not set, so encrypted data (state, SMS mirror, contacts, Telegram state) is keyed to CPE_PASSWORD. Set a dedicated key and apply it with POST /api/session/reset-breaker; restarting with a changed password instead leaves these files unreadable (quarantined as *.unreadable-<timestamp>).\n"
-    );
-  }
+  if (shuttingDown) return;
+  for (const notice of startupNotices(config)) process.stderr.write(`[fengsui] Notice: ${notice}\n`);
   const smsSummary = stack.sms ? `sms=on (mirror ${stack.sms.mirror.size} messages)` : "sms=off (SMS_ENABLED=false)";
 
   // `serve` daemon mode
@@ -542,18 +584,6 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
   process.stdout.write(
     `[fengsui] ${smsSummary}, alerts=${stack.alertEngine ? "on" : "off"}, telegram=${stack.telegramBot ? "on" : "off"}, webhook=${stack.webhook ? "on" : "off"}\n`
   );
-
-  let shuttingDown = false;
-  const shutdown = async (signal: string): Promise<void> => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    process.stdout.write(`[fengsui] Received ${signal}, flushing encrypted state and closing server...\n`);
-    await stack.close();
-    process.exit(0);
-  };
-
-  process.once("SIGINT", () => void shutdown("SIGINT"));
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 /**
