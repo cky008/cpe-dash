@@ -45,6 +45,9 @@ export interface RefreshOptions {
   ignoreCooldown?: boolean;
 }
 
+/** Failed identifications in a row after which catching up waits for the next start or connection test. */
+const MAX_IDENTIFY_FAILURES = 3;
+
 /**
  * Read side of FengSui: background polling, single-flight refreshes and cached snapshots.
  *
@@ -72,6 +75,9 @@ export class CpeMonitor extends EventEmitter {
   #inflightSettings: Promise<RouterSettingsSnapshot | null> | null = null;
   #inflightAccessControl: Promise<AccessControlSnapshot | null> | null = null;
   #inflightIdentify: Promise<DeviceProbeResult | null> | null = null;
+  /** The identification asked for at start has not got in yet: it runs right after the next read that does. */
+  #identifyPending = false;
+  #identifyFailures = 0;
   #pollTimer: ReturnType<typeof setInterval> | null = null;
   #slowScanTimer: ReturnType<typeof setInterval> | null = null;
   #flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -174,24 +180,46 @@ export class CpeMonitor extends EventEmitter {
 
   /**
    * Identify the router and probe its capabilities in one low-priority read session (the listed GETs
-   * of `DEVICE_PROBE_PATHS`). Run once when the daemon starts, never from the polls; like every read
-   * it is skipped (`null`) while a person uses the router's page or the breaker is latched.
+   * of `DEVICE_PROBE_PATHS`). Run once when the daemon starts, never from the polls. Like every read
+   * it is skipped (`null`) while a person uses the router's page or the breaker is latched; then, or
+   * when it fails, it stays owed and runs right after the next read that gets in, ahead of the reads
+   * still queued, until it succeeds or fails three times in a row. Waiting for that read sends nothing.
    */
   identifyDevice(): Promise<DeviceProbeResult | null> {
+    this.#identifyPending = true;
+    this.#identifyFailures = 0;
+    return this.#identify("low");
+  }
+
+  #identify(priority: SchedulerPriority): Promise<DeviceProbeResult | null> {
     this.#inflightIdentify ??= this.scheduler
-      .executeRead((session) => probeDevice(session, { nowIso: new Date().toISOString(), origin: "startup" }), { priority: "low" })
-      .then(async (probe) => {
-        if (probe) await this.recordDeviceProbe(probe);
-        return probe;
-      })
+      .executeRead((session) => probeDevice(session, { nowIso: new Date().toISOString(), origin: "startup" }), { priority })
+      .then(
+        async (probe) => {
+          if (probe) await this.recordDeviceProbe(probe);
+          return probe;
+        },
+        (err: unknown) => {
+          this.#identifyFailures += 1;
+          if (this.#identifyFailures >= MAX_IDENTIFY_FAILURES) this.#identifyPending = false;
+          throw err;
+        }
+      )
       .finally(() => {
         this.#inflightIdentify = null;
       });
     return this.#inflightIdentify;
   }
 
+  /** A read got in: an identification still owed since the start goes next. */
+  #catchUpIdentification(): void {
+    if (this.#identifyPending && this.#inflightIdentify === null) void this.#identify("high").catch(() => undefined);
+  }
+
   /** Keep a probe (also the one a console connection test of this router made) and persist it at once. */
   async recordDeviceProbe(probe: DeviceProbeResult): Promise<void> {
+    this.#identifyPending = false;
+    this.#identifyFailures = 0;
     this.stateStore.update({ deviceProbe: probe });
     await this.stateStore.flushAsync().catch(() => undefined);
   }
@@ -348,6 +376,7 @@ export class CpeMonitor extends EventEmitter {
       .then((value) => {
         if (value === null) return null;
         onFresh(value);
+        this.#catchUpIdentification();
         return value;
       })
       .finally(() => {

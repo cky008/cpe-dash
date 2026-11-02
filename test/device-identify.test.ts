@@ -48,6 +48,11 @@ const POLL_SEQUENCES = {
 };
 const PROBE_SESSION = [...LOGIN, ...DEVICE_PROBE_PATHS.map((p) => `GET ${p}`), LOGOUT];
 
+async function waitFor(what: () => boolean, label: string): Promise<void> {
+  for (let i = 0; i < 200 && !what(); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(what(), label);
+}
+
 function coreFixture(opts: { password?: string; smsCounters?: boolean; fault?: (p: string, method: string, headers: Headers) => StrictFault | undefined; fetchWrap?: (inner: typeof fetch) => typeof fetch } = {}) {
   const cpe = createStrictCpe({ fault: opts.fault });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-identify-"));
@@ -169,6 +174,88 @@ describe("device identification on the strict H168-383", () => {
       assert.deepEqual(await unset.during(async () => assert.equal(await unset.core.monitor.identifyDevice(), null)), []);
     } finally {
       await unset.cleanup();
+    }
+  });
+
+  it("identifies right after the first read that gets in when the start had to step aside for a person", async () => {
+    const fx = coreFixture();
+    try {
+      fx.cpe.human.loginSameIp();
+      assert.deepEqual(await fx.during(async () => assert.equal(await fx.core.monitor.identifyDevice(), null)), ["GET /api/user/state-login"]);
+      assert.deepEqual(await fx.during(() => fx.core.monitor.refreshTelemetry()), ["GET /api/user/state-login"], "nothing more while the person stays");
+
+      fx.cpe.human.logout();
+      const authCalls = fx.cpe.stats.authCalls;
+      const sent = await fx.during(async () => {
+        await fx.core.monitor.refreshTelemetry();
+        await waitFor(() => fx.core.monitor.getDeviceProbe() !== null, "identified after the person left");
+      });
+      assert.deepEqual(sent, [...POLL_SEQUENCES.telemetry, ...PROBE_SESSION], "the identification is the very next session");
+      assert.equal(fx.cpe.stats.authCalls - authCalls, 2, "one password submission per session");
+      assert.equal(fx.core.monitor.getDeviceProbe()?.origin, "startup");
+      assert.deepEqual(await fx.during(() => fx.core.monitor.refreshTelemetry()), POLL_SEQUENCES.telemetry, "and only once");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("identifies right after the first read that gets in once a latched breaker is reset, sending nothing while it is latched", async () => {
+    const fx = coreFixture({ password: "not_the_router_password" });
+    try {
+      await assert.rejects(fx.core.monitor.refreshTelemetry());
+      assert.deepEqual(await fx.during(async () => assert.equal(await fx.core.monitor.identifyDevice(), null)), []);
+      assert.deepEqual(await fx.during(() => fx.core.monitor.refreshTelemetry()), [], "a latched breaker sends nothing");
+      assert.equal(fx.cpe.stats.authCalls, 1, "the wrong password went out once");
+
+      await fx.core.scheduler.reloadCredentialsAndResetBreaker(fx.cpe.password);
+      const sent = await fx.during(async () => {
+        await fx.core.monitor.refreshTelemetry();
+        await waitFor(() => fx.core.monitor.getDeviceProbe() !== null, "identified after the reset");
+      });
+      assert.deepEqual(sent, [...POLL_SEQUENCES.telemetry, ...PROBE_SESSION]);
+      assert.deepEqual(await fx.during(() => fx.core.monitor.refreshTelemetry()), POLL_SEQUENCES.telemetry);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("owes nothing more once a connection test of the router in use has identified it", async () => {
+    const fx = coreFixture();
+    try {
+      fx.cpe.human.loginSameIp();
+      assert.equal(await fx.core.monitor.identifyDevice(), null);
+      fx.cpe.human.logout();
+      const { probe } = await fx.core.scheduler.testConnectionDetailed({ url: "http://192.168.8.1", username: "admin", password: fx.cpe.password });
+      assert.ok(probe);
+      await fx.core.monitor.recordDeviceProbe(probe);
+      assert.deepEqual(await fx.during(() => fx.core.monitor.refreshTelemetry()), POLL_SEQUENCES.telemetry);
+      assert.equal(fx.core.monitor.getDeviceProbe(), probe);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("stops catching up after three failed identifications in a row", async () => {
+    // Odd logins fail before the password goes out (no answer), even ones work: every poll gets in,
+    // every identification after it fails
+    let challenges = 0;
+    const fx = coreFixture({ fault: (p, method) => (p === "/api/user/challenge_login" && method === "POST" && ++challenges % 2 === 1 ? "transport" : undefined) });
+    try {
+      await assert.rejects(fx.core.monitor.identifyDevice());
+      for (let failed = 2; failed <= 3; failed++) {
+        await fx.core.monitor.refreshTelemetry();
+        await waitFor(() => challenges === failed * 2 - 1, `identification attempt ${failed}`);
+      }
+      const last = await fx.during(async () => {
+        await fx.core.monitor.refreshTelemetry();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      assert.deepEqual(last, POLL_SEQUENCES.telemetry, "no fourth attempt");
+      assert.equal(challenges, 6);
+      assert.equal(fx.core.monitor.getDeviceProbe(), null);
+      assert.equal(fx.cpe.stats.authCalls, 3, "only the polls submitted the password");
+    } finally {
+      await fx.cleanup();
     }
   });
 
@@ -372,6 +459,27 @@ describe("device identification in the daemon", () => {
         assert.deepEqual([body.profile?.identity.model, body.profile?.verification, body.profile?.origin], ["H168-383", "verified", "startup"]);
         assert.equal(JSON.stringify(body).includes("observations"), false, "the structure stays in the console's report");
       }
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("catches up on the identification a start missed because someone was on the router's page", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "identify_full_token" });
+    try {
+      fx.cpe.human.loginSameIp();
+      await fx.stack.start();
+      // The first polls and the identification each check once, and step aside
+      await fx.waitFor(() => fx.cpe.stats.stateLoginChecks >= 4, "the start stepped aside");
+      assert.equal(fx.stack.monitor.getDeviceProbe(), null);
+      assert.equal(fx.cpe.count("/api/device/device-feature-switch"), 0);
+
+      fx.cpe.human.logout();
+      await fx.stack.monitor.refreshTelemetry();
+      await fx.waitFor(() => fx.stack.monitor.getDeviceProbe() !== null, "identified once the person left");
+      assert.equal(fx.stack.monitor.getDeviceProbe()?.origin, "startup");
+      await fx.stack.monitor.refreshTelemetry();
+      assert.equal(fx.cpe.count("/api/device/device-feature-switch"), 1, "once");
     } finally {
       await fx.cleanup();
     }

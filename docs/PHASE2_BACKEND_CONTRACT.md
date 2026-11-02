@@ -998,7 +998,7 @@ export interface AuditEntry {
 
 守护进程识别它连接的是哪台路由器、路由器报告了哪些能力，为以后支持其他华为型号做准备。**对 H168-383 没有任何行为变化**：登录方式、轮询请求与节奏、写操作都不变。
 
-- **何时识别**：守护进程启动后一次（低优先级读会话，排在首轮轮询之后），以及控制台 `POST /api/console/cpe/test` / `POST /api/console/cpe` 的测试会话登录成功后。**不进入 5 秒轮询。**
+- **何时识别**：守护进程启动后一次（低优先级读会话，排在首轮轮询之后），以及控制台 `POST /api/console/cpe/test` / `POST /api/console/cpe` 的测试会话登录成功后。**不进入 5 秒轮询。** 启动时的识别被跳过（有人登录官方后台、熔断）或失败（连不上）时，等待期间不多发任何请求，之后第一个成功的读会话一结束就以高优先级补做一次，成功为止；连续失败 3 次后停到下次启动或测试连接。
 - **发什么**：同一会话内按顺序发 10 个固定的 GET（清单与理由见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.7），每个最多等 5 秒，不发其他请求；有人登录官方后台时让位跳过，熔断时不登录。
 - **保存**：加密存入 `state.json`。测试连接只在测试的就是当前使用的路由器（地址相同）时更新；保存新连接时采用该次测试的结果；测试其他地址或测试失败都不改动已存的结果。
 
@@ -1019,7 +1019,7 @@ export interface DeviceProfile {
   // unverified-model：未验证型号；unknown：型号未读到，或已验证型号的固件未读到
   verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
   capabilities: DeviceCapabilities;
-  origin: "startup" | "connection-test";   // 这次识别发生在启动时还是控制台测试连接时
+  origin: "startup" | "connection-test";   // startup：守护进程启动后的识别（含启动时连不上、之后补做的）；connection-test：控制台测试连接时
 }
 
 export interface DeviceIdentity {

@@ -388,7 +388,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   let closed = false;
   /**
    * Polling, SMS and Telegram: only once the router connection exists. `identify` reads who the router
-   * is once (a low-priority session after the first polls); the setup's save already did, in its test.
+   * is once (a low-priority session after the first polls, or right after the first read that gets in
+   * when the start cannot); the setup's save already did, in its test.
    */
   const startBackground = async (identify: boolean): Promise<void> => {
     await telegramBot?.start();

@@ -400,7 +400,7 @@ v1.5.0 起，路由器连接、控制台登录密码和 API 令牌都在网页�
 - **令牌**：在「设置 → 令牌」生成，分「完全控制」和「只读」两种，有效期可选 1 / 7 / 30 / 90 / 365 天或永不过期。令牌只显示一次，可以随时撤销，撤销后用它打开的 SSE 立即断开。令牌不能修改控制台设置。「接入 AI 智能体」指南可以直接生成只读令牌。
 - **Telegram**：在「设置 → Telegram」生成 10 分钟内有效的一次性绑定码，私聊机器人发送 `/auth 绑定码`；也可以一键解绑所有聊天。
 - **忘记密码**：在 NAS 上执行 `sudo docker exec cpe-dash node dist/cli.js reset-login` 获取 15 分钟内有效的重置码（只有能读取这份 `.env` 的人才拿得到）；或者在已绑定的 Telegram 私聊里发 `/reset`（可在「设置 → 安全」关闭）。在登录页点「忘记密码」，输入重置码并设置新密码，所有会话随之失效。
-- **设备**：「设置 → 设备」显示烽燧识别到的型号、固件、网页版本、登录方式、是否加密、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）、各项功能与接口探测结果。守护进程启动时、以及测试或保存连接时各识别一次，只读状态和功能开关接口，不改任何设置。这里还能生成设备报告（下载 JSON 或复制）：只含接口结构与型号、固件等白名单信息，不含任何标识，是否提交由你决定。
+- **设备**：「设置 → 设备」显示烽燧识别到的型号、固件、网页版本、登录方式、是否加密、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）、各项功能与接口探测结果。守护进程启动后、以及测试或保存连接时各识别一次（启动时有人登录官方后台、熔断或连不上，就在第一次连上后立刻补上），只读状态和功能开关接口，不改任何设置。这里还能生成设备报告（下载 JSON 或复制）：只含接口结构与型号、固件等白名单信息，不含任何标识，是否提交由你决定。
 - **审计日志**：「设置 → 审计」记录每次写入路由器的操作、控制台登录和每次设置修改：谁（网页、哪个令牌、MCP、Telegram、自愈）、何时、做了什么、结果如何。加密保存最近 500 条。
 - **`/metrics`**：在「设置 → 安全」打开，或在 `.env` 设置 `METRICS_ENABLED=true`，供 Prometheus / Grafana 抓取信号、速率、会话等指标。需要任意一个令牌，不含任何设备标识，抓取不会登录路由器。
 
@@ -557,7 +557,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **短信与通讯录** | `GET /api/sms/status`、`threads`、`thread`、`contacts`、`countries`；`POST /api/sms/preview`、`send`、`read`、`delete`、`sync`、`contacts/upsert`、`contacts/delete`、`contacts/import-vcf` | 读接口直读加密镜像（零 CPE 会话）；写接口走控制队列 |
 | **设备访问控制** | `GET /api/access-control`、`POST /api/access-control/refresh`；`POST /api/control/wifi-access`、`wifi-mac-filter`、`time-rule` | Wi-Fi MAC 过滤与上网时段；写操作必须带 `confirm: true`，在一个控制会话内回读核对 |
 | **告警** | `GET /api/alerts` | 最近 100 条告警与投递统计 |
-| **设备识别与能力** | `GET /api/device/profile`；`GET /api/console/device-report`（仅控制台） | 型号、固件、验证状态与能力探测结果；守护进程启动时和控制台测试连接时各识别一次，只记录、不改变行为。设备报告只含结构、不含取值，由你决定是否提交 |
+| **设备识别与能力** | `GET /api/device/profile`；`GET /api/console/device-report`（仅控制台） | 型号、固件、验证状态与能力探测结果；守护进程启动后（当时连不上则在第一次连上后补上）和控制台测试连接时各识别一次，只记录、不改变行为。设备报告只含结构、不含取值，由你决定是否提交 |
 | **实时 SSE** | `GET /api/events` | `hello`、`speed`、`telemetry`、`neighbors`、`topology`、`settings`、`access-control`、`session:avoidance`、`control:applied`、`alert`、`sms:new`、`sms:sent`、`sms:updated`、`sms:sync`、`sms:status`、`contacts:updated` 与心跳 |
 | **健康检查** | `GET /api/health` | 免鉴权，供 `HEALTHCHECK` 与监控使用 |
 
