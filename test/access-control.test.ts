@@ -155,6 +155,44 @@ describe("access-control: Wi-Fi MAC filter writes", () => {
     assert.equal(allowed.wifiMacFilter.policy, "allow");
   });
 
+  it("fails closed when the host list cannot show which machine runs FengSui, but still lets devices back on", async () => {
+    let hostInfo = HOSTS;
+    const { cpe, run, writes } = setup((p, method) => (method === "GET" && p === "/api/system/HostInfo" ? { body: hostInfo } : undefined));
+    await run((session) => applyWifiAccessChange(session, { kind: "block", macAddress: PHONE, name: "p" }, { requesterIp: null }));
+    await run((session) =>
+      applyTimeRuleChange(session, { kind: "create", rule: { macAddress: TABLET, name: "t", weekMask: "1111111", startTime: "07:00", endTime: "21:00" } }, { requesterIp: null })
+    );
+    const wifiWrites = writes("/api/wlan/multi-macfilter-settings").length;
+    const ruleWrites = writes("/api/timerule/timerule").length;
+
+    const unmarked = JSON.stringify((JSON.parse(HOSTS) as Array<Record<string, unknown>>).map((h) => ({ ...h, IsLocalDevice: false })));
+    for (const body of ['[{"MACAddress":"00:00:5E:00:53:01","IsLocalDevice":true', "[]", unmarked]) {
+      hostInfo = body;
+      const refused = (err: unknown): boolean => err instanceof CpeControlValidationError && /machine running FengSui/.test(err.message);
+      await assert.rejects(() => run((session) => applyWifiAccessChange(session, { kind: "block", macAddress: TABLET, name: "t" }, { requesterIp: null })), refused);
+      await assert.rejects(
+        () => run((session) => applyWifiAccessChange(session, { kind: "mode", mode: "allow", entries: [{ macAddress: LAPTOP, name: "l" }] }, { requesterIp: null })),
+        refused
+      );
+      await assert.rejects(
+        () =>
+          run((session) =>
+            applyTimeRuleChange(session, { kind: "create", rule: { macAddress: LAPTOP, name: "l", weekMask: "1111111", startTime: "07:00", endTime: "21:00" } }, { requesterIp: null })
+          ),
+        refused
+      );
+    }
+    assert.equal(writes("/api/wlan/multi-macfilter-settings").length, wifiWrites, "nothing that can cut a device off was written");
+    assert.equal(writes("/api/timerule/timerule").length, ruleWrites);
+
+    // Restoring access cannot cut anyone off, so it never depends on the guard
+    await run((session) => applyWifiAccessChange(session, { kind: "unblock", macAddress: PHONE }, { requesterIp: null }));
+    assert.equal(cpe.isWifiBlocked(PHONE), false);
+    const ruleId = cpe.router.timeRules.rules[0]?.ID ?? "";
+    await run((session) => applyTimeRuleChange(session, { kind: "delete", id: ruleId }, { requesterIp: null }));
+    assert.equal(cpe.router.timeRules.rules.length, 0);
+  });
+
   it("fails loudly when the router acknowledges a write it did not apply", async () => {
     const { run } = setup((p, method) =>
       method === "POST" && p === "/api/wlan/multi-macfilter-settings" ? { body: "<response>OK</response>" } : undefined

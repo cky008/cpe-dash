@@ -892,7 +892,7 @@ export interface AccessControlChangeResponse {
 
 - **必须 `confirm: true`**：缺少时 `400 VALIDATION_ERROR`，不产生会话。前端每次写入前都会用同一份规划代码预览影响并弹出确认。
 - **一次控制会话完成整次变更**：先读 HostInfo（得到受保护设备）与当前状态，规划，写入，再回读核对；回读与预期不符时返回 `502`（"router acknowledged … but did not apply it"）。写操作与遥测共用调度队列，真人在线时 `409`、熔断时 `423`。
-- **受保护设备**（服务端强制，`400 VALIDATION_ERROR`）：运行烽燧的主机（`IsLocalDevice`）与发出请求的设备（请求来源 IP 对应的局域网终端）不能被拉黑、不能被移出白名单、不能设置上网时段；启用白名单时名单不能为空，且必须包含受保护的 Wi-Fi 设备。
+- **受保护设备**（服务端强制，`400 VALIDATION_ERROR`）：运行烽燧的主机（`IsLocalDevice`）与发出请求的设备（请求来源 IP 对应的局域网终端）不能被拉黑、不能被移出白名单、不能设置上网时段；启用白名单时名单不能为空，且必须包含受保护的 Wi-Fi 设备。路由器返回的终端列表无法解析、为空或没有标出 `IsLocalDevice` 时，凡可能让设备断网的写入（拉黑、切换黑 / 白名单、编辑名单、新建或修改上网时段）一律拒绝（`400`，不写入任何内容）；只会恢复上网的操作（恢复设备、关闭过滤、删除上网时段）不受影响。
 - **其他校验**：单播 MAC、名单容量、上网时段的星期 / 15 分钟步进 / 开始≠结束 / 结束≠`00:00`、同一设备的时段不能重叠（含跨天），规则数不超过 `maxRules`。
 - **写入后**：更新缓存并推送 SSE `access-control`，同时发出 `control:applied`（摘要中的 MAC 只保留厂商前缀）。
 - **脱敏**：Bearer 调用方在 `REDACT_SENSITIVE_IN_API=true` 时收到的 MAC 只保留 OUI、设备名为 `<REDACTED>`，`guard` 与 `alsoBlocked` 同样脱敏；Web 控制台收到原值。

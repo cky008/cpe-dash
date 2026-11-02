@@ -202,8 +202,24 @@ export function accessGuardFromHosts(hosts: ReadonlyArray<TerminalHostEntry>, re
   return { protectedDevices, onlineWifiMacs };
 }
 
-async function readGuard(session: EphemeralCpeSession, ctx: AccessRequestContext): Promise<AccessGuard> {
-  return accessGuardFromHosts(parseHostInfoJson(await session.get("/api/system/HostInfo"), { sanitize: false }), ctx.requesterIp);
+/**
+ * The guard for one write. A change that can cut a device off fails closed when the host list does
+ * not mark the machine running FengSui (`IsLocalDevice`): a HostInfo that did not parse, came back
+ * empty or lacks the mark would otherwise leave nothing protected. Restoring access needs no guard.
+ */
+async function readGuard(session: EphemeralCpeSession, ctx: AccessRequestContext, canCutOff: boolean): Promise<AccessGuard> {
+  const hosts = parseHostInfoJson(await session.get("/api/system/HostInfo"), { sanitize: false });
+  if (canCutOff && !hosts.some((host) => host.isLocalDevice)) {
+    throw new CpeControlValidationError(
+      "The router's host list does not identify the machine running FengSui (IsLocalDevice), so this change cannot be checked against cutting it off; nothing was written"
+    );
+  }
+  return accessGuardFromHosts(hosts, ctx.requesterIp);
+}
+
+/** Changes that only let devices back on: unblock, filter off. */
+function restoresAccessOnly(change: WifiAccessChange): boolean {
+  return change.kind === "unblock" || (change.kind === "mode" && change.mode === "off");
 }
 
 function asValidationError(err: unknown): unknown {
@@ -236,7 +252,7 @@ export async function applyWifiAccessChange(
   change: WifiAccessChange,
   ctx: AccessRequestContext
 ): Promise<{ wifiMacFilter: WifiMacFilterState; plan: WifiFilterPlan }> {
-  const guard = await readGuard(session, ctx);
+  const guard = await readGuard(session, ctx, !restoresAccessOnly(change));
   const [exXml, featureXml] = await Promise.all([session.get(WIFI_FILTER_READ), optionalGet(session, WIFI_FEATURES)]);
   const current = parseWifiMacFilter(exXml, featureXml);
   let plan: WifiFilterPlan;
@@ -278,7 +294,7 @@ export async function applyTimeRuleChange(
   change: TimeRuleChange,
   ctx: AccessRequestContext
 ): Promise<TimeRulesState> {
-  const guard = await readGuard(session, ctx);
+  const guard = await readGuard(session, ctx, change.kind !== "delete");
   const current = parseTimeRules(await session.get(TIME_RULES));
   if (!current.supported) throw new CpeControlValidationError("This firmware does not offer internet time rules");
   let write: TimeRuleWrite;
