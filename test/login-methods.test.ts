@@ -286,6 +286,39 @@ describe("login methods and token flows (mock family)", () => {
     }
   });
 
+  it("stops after an answer to a legacy password it cannot place, and retries only codes refused before the password check", async () => {
+    for (const code of ["100001", "108008", "113018"]) {
+      const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token" });
+      const fx = coreFixture({ fetchImpl: answerWith(cpe, "/api/user/login", () => `<error><code>${code}</code><message></message></error>`), password: cpe.password });
+      try {
+        await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CircuitBreakerOpenError && err.code === code, code);
+        const sent = cpe.stats.requests.length;
+        assert.equal(await fx.core.monitor.refreshTelemetry(), null, code);
+        assert.equal(cpe.stats.requests.length, sent, `${code}: no second submission`);
+        assert.equal(cpe.count("/api/user/login"), 1);
+        const result = await fx.core.scheduler.testConnection(fx.good);
+        assert.deepEqual(result.ok ? null : [result.reason, result.code, result.remainCount], ["router_error", code, null], `${code}: not called a wrong password`);
+      } finally {
+        await fx.cleanup();
+      }
+    }
+    for (const code of ["125001", "125002", "100003", "108010"]) {
+      const cpe = createCpeFamily({ login: "base64", tokenFlow: "token" });
+      const fx = coreFixture({ fetchImpl: answerWith(cpe, "/api/user/login", () => `<error><code>${code}</code><message></message></error>`), password: cpe.password });
+      try {
+        await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CpeApiError && !(err instanceof CircuitBreakerOpenError), code);
+        assert.equal(fx.core.scheduler.isCircuitTripped(), false, `${code} is refused before the password check`);
+      } finally {
+        await fx.cleanup();
+      }
+    }
+    // SCRAM keeps the H168-383's verified handling: an odd code after the proof is no latch
+    const strict = createStrictCpe({ fault: (p) => (p === "/api/user/authentication_login" ? { cpeError: "100001" } : undefined) });
+    const scram = clientFor(strict);
+    await assert.rejects(scram.withSession(async () => "never"), CpeApiError);
+    assert.equal(scram.getCircuitBreakerState().tripped, false);
+  });
+
   it("needs the router to confirm a login (SCRAM server signature, legacy OK) and logs out one it did not", async () => {
     const cpe = createStrictCpe();
     const stripped: typeof fetch = async (input, init) => {

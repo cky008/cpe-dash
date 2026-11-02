@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { normalizeCpeUrl } from "./config.ts";
 import {
   CpeLoginMethodError,
+  LEGACY_LOGIN_RETRY_SAFE_CODES,
   type LegacyScheme,
   type LoginPlan,
   SCRAM_PROBE_FALLBACK_CODES,
@@ -149,11 +150,13 @@ export class CpeApiError extends Error {
   readonly code: string;
   readonly remainCount: number | null;
   readonly waitTime: number | null;
+  /** The answer to a password FengSui cannot place: latch the breaker rather than risk another attempt. */
+  readonly latchesBreaker: boolean;
 
   constructor(
     code: string,
     detail = "",
-    meta: { remainCount?: number | null; waitTime?: number | null } = {}
+    meta: { remainCount?: number | null; waitTime?: number | null; latchesBreaker?: boolean } = {}
   ) {
     const desc = CPE_ERROR_DESCRIPTIONS[code] ?? "CPE 接口错误";
     const suffix = detail ? `: ${detail}` : "";
@@ -162,6 +165,7 @@ export class CpeApiError extends Error {
     this.code = code;
     this.remainCount = meta.remainCount ?? null;
     this.waitTime = meta.waitTime ?? null;
+    this.latchesBreaker = meta.latchesBreaker === true;
   }
 
   get isAuthWrongPassword(): boolean {
@@ -178,7 +182,7 @@ export class CpeApiError extends Error {
   }
 
   get isCircuitBreakerFatal(): boolean {
-    return this.isAuthWrongPassword || this.isLocked || this.isPasswordChangeRequired;
+    return this.isAuthWrongPassword || this.isLocked || this.isPasswordChangeRequired || this.latchesBreaker;
   }
 
   get isSessionOccupied(): boolean {
@@ -606,15 +610,28 @@ export class EphemeralCpeSession {
     this.#loginScheme = "scram";
   }
 
-  /** `POST /api/user/login`; the SHA-256 form hashes in the very token the request carries. */
+  /**
+   * `POST /api/user/login`; the SHA-256 form hashes in the very token the request carries. An error
+   * code outside the known ones latches the breaker (`LEGACY_LOGIN_RETRY_SAFE_CODES`).
+   */
   async #legacyLogin(scheme: LegacyScheme, passwordType: "0" | "3" | "4"): Promise<void> {
-    const answer = await this.#submitPassword("/api/user/login", (token) =>
-      buildXmlRequest({
-        Username: this.username,
-        Password: encodeLegacyPassword(scheme, this.username, this.password, token),
-        password_type: passwordType,
-      })
-    );
+    let answer: string;
+    try {
+      answer = await this.#submitPassword("/api/user/login", (token) =>
+        buildXmlRequest({
+          Username: this.username,
+          Password: encodeLegacyPassword(scheme, this.username, this.password, token),
+          password_type: passwordType,
+        })
+      );
+    } catch (err) {
+      if (!(err instanceof CpeApiError) || err.isCircuitBreakerFatal || LEGACY_LOGIN_RETRY_SAFE_CODES.has(err.code)) throw err;
+      throw new CpeApiError(err.code, "/api/user/login: unexpected answer to the password, no further login attempt", {
+        remainCount: err.remainCount,
+        waitTime: err.waitTime,
+        latchesBreaker: true,
+      });
+    }
     if (getXmlTag(answer, "response")?.trim() !== "OK") {
       throw new Error("CPE did not confirm the login (no OK answer)");
     }

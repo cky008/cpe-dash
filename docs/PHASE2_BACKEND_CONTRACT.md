@@ -91,7 +91,7 @@ export interface ApiErrorEnvelope {
     | "BROWSER_SESSION_YIELDED"  // 409: 真人管理员正在使用 http://192.168.8.1，写操作礼貌让位中止（仅 RESPECT_BROWSER_SESSION=true）
     | "PEER_DAEMON_ACTIVE"       // 409: 另一台主机上的「烽燧」守护进程正在管理这台 CPE，本进程待机（附 peerAddress）
     | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32），或守护进程正在停机（排队中的请求立即拒绝；在途会话宽限 2s 后被取消并登出）
-    | "CIRCUIT_BREAKER_OPEN"     // 423: 防爆破断路器已熔断（108006/108002/108001 密码错误、108007 锁定或 115002 需先改密码，附 circuitBreaker）；触发熔断的那次请求与熔断期间的写操作都返回它，后者不尝试登录
+    | "CIRCUIT_BREAKER_OPEN"     // 423: 防爆破断路器已熔断（108006/108002/108001 密码错误、108007 锁定、115002 需先改密码，或旧式 user/login 返回无法判断的错误码，附 circuitBreaker）；触发熔断的那次请求与熔断期间的写操作都返回它，后者不尝试登录
     | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
     | "SSE_LIMIT_REACHED"        // 429: SSE 全局 (SSE_MAX_CLIENTS，默认 32) 或单 IP 桶 (6) 连接数达上限

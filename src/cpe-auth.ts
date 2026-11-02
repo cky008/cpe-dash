@@ -30,6 +30,25 @@ export function planLogin(passwordType: string | null, opts: { scramKnown: boole
   return { probeScram: true, legacy: null };
 }
 
+/**
+ * Answers to a legacy `user/login` that refuse it before the password is checked (system, token and
+ * session errors, someone else logged in, too frequent): the next session may try again. Any other
+ * code from a model nobody verified might have counted as a wrong attempt, so it latches the breaker.
+ */
+export const LEGACY_LOGIN_RETRY_SAFE_CODES: ReadonlySet<string> = new Set([
+  "100002",
+  "100003",
+  "100004",
+  "100005",
+  "108003",
+  "108005",
+  "108009",
+  "108010",
+  "125001",
+  "125002",
+  "125003",
+]);
+
 /** Error codes of a SCRAM challenge that mean "no SCRAM here" (appendix A.8); any other code is a login error. */
 export const SCRAM_PROBE_FALLBACK_CODES: ReadonlySet<string> = new Set(["100002", "100003"]);
 

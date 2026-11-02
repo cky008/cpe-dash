@@ -510,6 +510,8 @@ export class MutexSessionScheduler extends EventEmitter {
         const message = err instanceof Error ? err.message : String(err);
         if (breaker.tripped && breaker.code === "108007") return failure("locked", message, { code: "108007", waitTimeSec: breaker.waitTime ?? null });
         if (breaker.tripped && breaker.code === "115002") return failure("password_change_required", message, { code: "115002" });
+        // An answer to the password it could not place: the router said something other than "wrong password"
+        if (err instanceof CpeApiError && err.latchesBreaker) return failure("router_error", message, { code: err.code });
         if (breaker.tripped) {
           this.#remainingLogins = breaker.remainCount ?? this.#remainingLogins;
           return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });

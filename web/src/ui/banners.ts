@@ -5,8 +5,7 @@ import { type Child, byId, h, icon, mount } from "./dom.ts";
 type BannerTone = "warn" | "danger" | "info";
 
 const WRONG_PASSWORD_CODES = new Set(["108006", "108002", "108001"]);
-/** Latches fixed by a new password in Settings → Router (a reset alone is refused): wrong, or to be changed first. */
-const NEW_PASSWORD_CODES = new Set([...WRONG_PASSWORD_CODES, "115002"]);
+
 
 function banner(tone: BannerTone, iconName: string, title: string, lines: ReadonlyArray<string>, action: Child = null, breathe = false): HTMLElement {
   return h(
@@ -63,8 +62,8 @@ export function mountBanners(ctx: AppContext, opts: { reconnectNow(): void; refr
         lines.push(ctx.t("banner.breaker_fix_password"));
       }
       if (breaker.trippedAtIso) lines.push(ctx.t("banner.since", { time: formatClock(Date.parse(breaker.trippedAtIso), true) }));
-      // A wrong password is fixed in the settings, whose tested save clears the breaker; a reset alone is refused
-      const action = NEW_PASSWORD_CODES.has(code)
+      // Only a lockout can be reset as it is; any other latch is cleared by a tested save in the settings
+      const action = code !== "108007"
         ? h("button", { class: "btn btn-error btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" }, data: { action: "open-settings" } }, icon("settings"), ctx.t("banner.breaker_open_settings"))
         : h("button", { class: "btn btn-error btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" }, on: { click: (event) => resetBreaker(event.currentTarget as HTMLButtonElement) } }, icon("refresh"), ctx.t("banner.breaker_reset"));
       nodes.push(banner("danger", "shield", ctx.t("banner.breaker_title", { code }), lines, action));
