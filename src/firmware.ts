@@ -19,6 +19,26 @@ export function isVerifiedFirmware(model: string, softwareVersion: string): bool
   return VERIFIED_FIRMWARE.some((entry) => entry.model === model.trim() && entry.softwareVersion === version);
 }
 
+/** FengSui was verified on some build of this model (exact model name, surrounding spaces ignored). */
+export function isVerifiedModel(model: string): boolean {
+  const name = model.trim();
+  return name !== "" && VERIFIED_FIRMWARE.some((entry) => entry.model === name);
+}
+
+/**
+ * How far the verification covers a router: `verified` (model and build), `new-firmware` (a build of a
+ * verified model nobody checked yet; ADR-007 still only warns), `unverified-model`, or `unknown` while
+ * the model, or the build of a verified model, has not been read.
+ */
+export type DeviceVerification = "verified" | "new-firmware" | "unverified-model" | "unknown";
+
+export function deviceVerification(model: string | null, softwareVersion: string | null): DeviceVerification {
+  if (!model?.trim()) return "unknown";
+  if (!isVerifiedModel(model)) return "unverified-model";
+  if (!softwareVersion?.trim()) return "unknown";
+  return isVerifiedFirmware(model, softwareVersion) ? "verified" : "new-firmware";
+}
+
 /** One key per model and build: the alert fires once for each new combination. */
 export function firmwareFingerprint(model: string, softwareVersion: string): string {
   return `${model.trim()} ${normalizeVersion(softwareVersion)}`;
