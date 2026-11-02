@@ -11,6 +11,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **MCP agents can no longer widen the SMS recipient policy themselves.** With `MCP_SMS_ACCESS=full` and `MCP_SMS_SEND_POLICY=known`, a prompt-injected agent could file any number with `upsert_contact` and then `send_sms` to it. Contacts an agent creates are now stored as `source: "mcp"` and do not count as known for MCP sends until you save the number yourself (web console, Telegram or a vCard import); an agent renaming one of your contacts leaves it yours.
 
 ### Fixed
+- **Importing a large vCard no longer freezes the daemon.** The contact index was rebuilt after every card, so a 5000-card export took seconds of blocked event loop (SSE, REST and an open router session all stalled; about 5 s on a desktop CPU, longer on a NAS). Cards are now indexed as they are added, with one rebuild at the end: the same import takes tens of milliseconds.
 - **An old Telegram confirmation card can no longer send a newer draft.** Every "Send now" button carried the same callback data, so tapping it on an earlier card sent whatever draft was current. Each card's button is now bound to its own draft; a stale one answers that the flow expired.
 - **MCP `manage_internet_time_rule` can update and delete rules again.** Its `id` was capped at 16 characters, but the H168-383 names rules by TR-069 path (`InternetGatewayDevice.X_FireWall.TimeRule.1.`), so every update or delete through MCP failed with `VALIDATION_ERROR`. The limit is now 128.
 

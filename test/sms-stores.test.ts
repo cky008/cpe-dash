@@ -317,6 +317,23 @@ describe("ContactBook & vCard import", () => {
     assert.equal(contacts.knowsNumber("+353830000002"), false);
   });
 
+  it("imports a full 5000-card export in linear time without stalling the event loop, merging repeats in the file", () => {
+    const { contacts } = makeStores();
+    contacts.upsert({ phone: "0830000001", name: "Aoife (manual)" });
+    const cards = [["BEGIN:VCARD", "FN:Aoife export", "TEL:+353830000001", "END:VCARD"].join("\n")];
+    for (let i = 0; i < 4990; i++) cards.push(["BEGIN:VCARD", `FN:Contact ${i}`, `TEL:+3538300${String(10000 + i).padStart(5, "0")}`, "END:VCARD"].join("\n"));
+    // A repeat inside the same file extends the card added earlier instead of adding a second contact
+    cards.push(["BEGIN:VCARD", "FN:Contact 0 again", "TEL:+353830010000", "TEL:+353830099999", "END:VCARD"].join("\n"));
+    const started = performance.now();
+    const summary = contacts.importVcard(cards.join("\n"));
+    const elapsedMs = performance.now() - started;
+    // Rebuilding the whole index for every card took ~5 s here for 5000 cards (quadratic)
+    assert.ok(elapsedMs < 2000, `import took ${Math.round(elapsedMs)} ms`);
+    assert.deepEqual(summary, { parsed: 4992, added: 4990, updated: 2, total: 4991 });
+    assert.equal(contacts.resolvePhone("+353830099999")?.name, "Contact 0 again");
+    assert.equal(contacts.resolvePhone("+353830000001")?.name, "Aoife (manual)", "manual names win");
+  });
+
   it("keeps agent-filed contacts apart from owner-saved ones until the owner vouches for them", () => {
     const { contacts } = makeStores();
     const filed = contacts.upsert({ phone: "+447700900123", name: "Helpdesk" }, { source: "mcp" });

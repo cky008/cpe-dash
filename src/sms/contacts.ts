@@ -174,22 +174,26 @@ export class ContactBook {
         if (matched.source !== "manual") matched.name = entry.name;
         // The owner's own export vouches for a number an agent filed
         if (matched.source === "mcp") matched.source = "vcard";
-        for (const p of phones) if (!matched.phones.includes(p)) matched.phones.push(p);
+        const extra = phones.filter((p) => !matched.phones.includes(p));
+        matched.phones.push(...extra);
         matched.updatedAt = now;
+        this.#indexPhones(matched, extra);
         updated += 1;
       } else if (this.#contacts.length < MAX_CONTACTS) {
-        this.#contacts.push({
+        const created: ContactRecord = {
           id: crypto.randomUUID(),
           name: entry.name.slice(0, MAX_NAME_LENGTH),
           phones,
           ...(entry.org ? { note: entry.org.slice(0, MAX_NOTE_LENGTH) } : {}),
           source: "vcard",
           updatedAt: now,
-        });
+        };
+        this.#contacts.push(created);
+        this.#indexPhones(created, phones);
         added += 1;
       }
-      this.#rebuildIndex();
     }
+    // Index entries were added card by card (later cards must match earlier ones); rebuild once for exact precedence
     this.#commit();
     return { parsed: parsed.length, added, updated, total: this.#contacts.length };
   }
@@ -200,6 +204,16 @@ export class ContactBook {
       if (hit) return hit;
     }
     return null;
+  }
+
+  /** Add one contact's numbers to the lookup without displacing a manual contact (as `#rebuildIndex` orders them). */
+  #indexPhones(contact: ContactRecord, phones: ReadonlyArray<string>): void {
+    for (const p of phones) {
+      for (const key of buildPhoneLookupKeys(p, this.defaultCountryCode)) {
+        const current = this.#lookup.get(key);
+        if (!current || current.source !== "manual" || contact.source === "manual") this.#lookup.set(key, contact);
+      }
+    }
   }
 
   #rebuildIndex(): void {
