@@ -824,12 +824,12 @@ $$
 
 ### A.3 令牌与加密写入
 
-1. **令牌来源顺序**（参考项目 `Session.py` 的 `_initialize_csrf_tokens_and_session` 与 `_get_token`）：先 `GET /`（首页）从 `<meta name="csrf_token" content="…">` 取；没有时 `GET /api/webserver/token` 取 `<token>`；它返回 `100002` 时再 `GET /api/webserver/SesTokInfo` 取 `<TokInfo>`（`api/WebServer.py` 注明 `SesTokInfo`「~Valid for: B310s-22」）。参考项目只读取 `<TokInfo>`；`SesTokInfo` 的其他字段留到阶段 1 整理。
+1. **令牌来源顺序**（参考项目 `Session.py` 的 `_initialize_csrf_tokens_and_session` 与 `_get_token`）：先 `GET /`（首页）从 `<meta name="csrf_token" content="…">` 取；没有时 `GET /api/webserver/token` 取 `<token>`；它返回 `100002` 时再 `GET /api/webserver/SesTokInfo` 取 `<TokInfo>`（`api/WebServer.py` 注明 `SesTokInfo`「~Valid for: B310s-22」）。参考项目只读取 `<TokInfo>`；令牌流程的细节见 A.8。
 2. **令牌的传递与轮换**（`Session.py` 的 `_post` / `get`）：请求头 `__RequestVerificationToken`；`POST` 响应头 `__RequestVerificationTokenone`（及 `…two`）或 `__RequestVerificationToken` 带回新令牌；令牌池只剩一个时 `GET` 也带上它。参考项目把 `<token>` 整串当作令牌，H168-383 取后 32 位（3.1 节）。
 3. **`webserver/token` 与 `SesTokInfo` 的区别**：前者只给令牌，H168-383 用它（登录前的第一个 `POST` 之前取一次，之后靠响应头轮换）；后者是旧型号的令牌入口，只在前者不支持（`100002`）时使用。
 4. **RSA 加密写入**（`encrypt_transmit`，参考项目 `Session.py` 的 `_post` / `_encrypt_data` 与 `Tools.py` 的 `rsa_encrypt`）：部分写请求（如 `wlan/wlan-guide-settings`）的请求体先 base64，再按 `state-login` 的 `rsapadingtype` 分块 RSA 加密（`0` → PKCS#1 v1.5、每块 245 字节；`1` → OAEP、每块 214 字节），拼成十六进制；公钥取 `GET /api/webserver/publickey` 的 `encpubkeyn` / `encpubkeye`；请求头 `Content-Type: application/x-www-form-urlencoded; charset=UTF-8;enc` 与 `encrypt_transmit: encrypt_transmit`。H168-383 的 `webserver/publickey` 返回 ECC 公钥（3.8.2 节），机制不同。
 
-### A.4 登录方式（为阶段 1 整理）
+### A.4 登录方式（为阶段 1 整理，细节见 A.8）
 
 - **旧式 `POST /api/user/login`**（参考项目 `api/User.py` 的 `_login`、`_encode_password`）：请求体 `Username`、`Password`、`password_type`，成功返回 `OK`。`password_type=0`：`Password = base64(password)`；`password_type=4`：`Password = base64(hex(sha256(username + base64(hex(sha256(password))) + 当前令牌)))`。
 - **SCRAM**（`api/User.py` 的 `scram_client_proof` 与 `_login_scram`）：`user/challenge_login`（`username`、`firstnonce`、`mode=1`）→ `user/authentication_login`（`clientproof`、`finalnonce`）。HMAC 的密钥与消息位置与 RFC 5802 相反，按 RFC 正确实现会被设备以 `108006` 拒绝，与烽燧从 H168-383 逆向的结论一致（2.1 节）。参考项目要求 `serversignature` 必须存在且一致，缺失也算失败。
@@ -881,3 +881,59 @@ $$
 - **保存**：结果加密存入 `state.json`（`deviceProbe`），重启后仍在。测试连接只在测试的就是当前使用的路由器（地址相同）时更新它；保存新连接时采用该次测试的结果。
 - **只保留结构**：每个接口只记标签路径与值的「形状」（`int`、`hex(18)`、`text(12)`、`empty` 等）；取值只保留白名单：型号、固件与网页版本、`spreadname_en`、`state-login` 的 `password_type`、功能开关里的 0–99 小整数；`net-mode-list` 的 LTE 掩码换算成频段号。
 - **对外**：`GET /api/device/profile` 与控制台的设备报告，见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 2.9 节。
+
+### A.8 旧式登录、令牌流程与回退条件（阶段 1 整理，未在真机验证）
+
+本节是多型号兼容阶段 1 从参考项目（`master@d2eb2af`，2026-11-02 阅读）整理的事实，补充 A.3、A.4。**全部未在真机验证**；标「推断」的是我们自己的判断。
+
+**旧式 `POST /api/user/login`**（参考项目 `api/User.py` 的 `_encode_password`、`_login`；`tests/test_session.py`）：
+
+| 项 | 事实 |
+| :--- | :--- |
+| 请求体 | `<request><Username>…</Username><Password>…</Password><password_type>…</password_type></request>`，`password_type` 是 `state-login` 报告的值原样回填 |
+| 成功响应 | `<response>OK</response>`（参考项目只在等于 `OK` 时算登录成功） |
+| `password_type=0` | `Password = base64(utf8(password))`；例：`secret` → `c2VjcmV0`（参考项目测试里的字面值） |
+| `password_type=3` | 参考项目的枚举名是「改密码后的 base64」并自注名称不确定；编码走与 `0` 相同的 base64 分支 |
+| `password_type=4` | `Password = base64(hex(sha256(utf8(username) + base64(hex(sha256(utf8(password)))) + token)))`，`hex` 为小写 |
+| 用哪个令牌 | 这次请求头 `__RequestVerificationToken` 里发出的那个令牌（令牌池的第一个）。前一步 SCRAM 探测被拒时：探测的响应头带了新令牌就用它，没带就重新取一个（`tests/test_user_scram_session.py` 的 `test_legacy_fallback_uses_current_csrf_token`） |
+| 字符编码 | 参考项目对密码一律按 UTF-8 编码（包括 SCRAM 的 PBKDF2）。烽燧从 H168-383 网页逆向的 SCRAM 按 latin1 编码（2.1 节）；ASCII 密码两者相同 |
+| 登录后 | 请求带 `refresh_csrf`：响应到达后清空令牌池，只用响应头带回的新令牌 |
+
+**令牌流程**（参考项目 `Session.py` 的 `_initialize_csrf_tokens_and_session`、`_get_token`、`_post`、`get`、`_try_or_reload_and_retry`；`api/WebServer.py`）：
+
+- **初始令牌**：先 `GET /`（首页）取 `<meta name="csrf_token" content="…">`；首页没有时 `GET /api/webserver/token` 取 `<token>`；它返回 `100002` 时 `GET /api/webserver/SesTokInfo` 取 `<TokInfo>`；也返回 `100002` 就没有令牌。烽燧不读首页，只用后两个接口。
+- **`SesTokInfo` 的响应字段**：参考项目只读取 `<TokInfo>`，并把整串当作令牌；`api/WebServer.py` 注明此接口「~Valid for: B310s-22」。参考项目没有读取 `SesInfo`，会话 Cookie 由 HTTP 库从 `Set-Cookie` 自动保存。**推断**（参考项目未出现）：公开的 HiLink 资料里同一响应还带 `<SesInfo>SessionID=…</SesInfo>`，即会话 Cookie 本身。
+- **令牌长度**：参考项目对 `<token>` 与 `<TokInfo>` 都整串使用；H168-383 取 `<token>` 的后 32 位（3.1 节）。两种做法对 32 位令牌结果相同。
+- **请求头名**：`__RequestVerificationToken`。
+- **新令牌从哪里来**：`POST` 响应头 `__RequestVerificationTokenone`（及 `__RequestVerificationTokentwo`）或 `__RequestVerificationToken`，追加到令牌池。
+- **令牌池怎么用**：`POST` 时池里多于一个就取走第一个，只剩一个就重复使用它；`GET` 只在池里恰好一个令牌时带上它。所以不轮换令牌的旧型号会在整个会话里反复使用同一个令牌。
+- **什么时候刷新**：登录相关请求（`challenge_login`、`authentication_login`、`user/login`）的响应到达后清空令牌池；任何请求收到 `125002` 时重新取令牌（等同重新初始化会话）并把同一请求重发一次。**烽燧不做这个重发**：写操作与登录绝不重放（铁律四、五），`125002` 只让这次会话失败。
+
+**`State`**（`enums/user.py`、`api/User.py` 的 `login`）：`0` 已登录、`-1` 未登录、`-2` 重复登录。参考项目在 `State=0` 且未要求强制登录时跳过登录（它的 `UserSession` 总是强制登录）。烽燧的处置不变：`State` 不为 `-1` 即让位（铁律四第 1 层）。
+
+**错误码：旧式与 SCRAM 的差异**（`api/User.py` 的 `_login_error`、`_get_scram_challenge`、`_login_scram`）：
+
+- 两条登录路径用同一张映射：`108001` 用户名错、`108002` 密码错、`108003` 已有人登录、`108006` 用户名或密码错、`108007` 错误次数超限、`115002` 需要修改密码。参考项目没有说明各型号具体返回 `108002` 还是 `108006`，也不读 `remaincount`。
+- SCRAM 的错误可能来自两步：挑战（`challenge_login`）或认证（`authentication_login`）。挑战返回 `100002` / `100003` 以外的错误码（包括 `108006`）时按登录错误抛出，**不回退**；认证返回任何错误码（包括 `100002`、`100003`）都 **不回退**。旧式只有 `user/login` 一步。
+- `serversignature` 必须存在且与计算值一致（`hmac.compare_digest`），缺失、为空或不符都算登录失败。
+
+**SCRAM 挑战探测在旧固件上的失败形态与回退条件**（`_get_scram_challenge`、`login`；`tests/test_user_scram.py`、`tests/test_user_scram_session.py`）：
+
+- 只有 `state-login` 的 `password_type` 为 `4` 且有密码时才做 SCRAM 挑战；`password_type` 为 `0`（或 `3`）时直接旧式登录，不探测（`test_no_scram_for_non_sha256_password_type`）。
+- 允许回退旧式 `user/login` 的只有三种挑战结果：`100002`、`100003`、以及能解析但不是挑战的 XML 响应（缺 `salt`、`iterations`、`servernonce` 任一，测试里用的是 `<response/>` 与 `<response>OK</response>`）。挑战成功时的响应还带 `<modeselected>1</modeselected>`。
+- 挑战只发 `username`、`firstnonce`（32 字节随机数的十六进制）和 `mode=1`，不含密码。
+
+**SCRAM 已知答案向量**（输入取自参考项目 `tests/test_user_scram.py`；它的测试在运行时计算期望值、没有写出输出，下表输出是我们用 Python 标准库按 2.1 节公式另行计算，并与 `src/crypto.ts` 的 `computeScram` 一致）：
+
+| 输入 | 值 |
+| :--- | :--- |
+| 密码 | `s3cret` |
+| `salt` | `6b1e6a6c3b0f4a2e9d8c7b6a5f4e3d2c1b0a99887766554433221100ffeeddcc` |
+| `iterations` | `100` |
+| `firstnonce` | 64 个 `a` |
+| `servernonce` | 64 个 `a` 加 `bcdef0123456789` |
+| → `clientproof` | `ec838a9f3cdf1fe7712471926ee115da4701a9f3f0af64529d77eacc9bf6b08a` |
+| → 期望的 `serversignature` | `d667a5114dae06ef567123b1fe2436b95f62fd52b3427635548ad69917cb3537` |
+| → 按 RFC 5802 参数顺序算出的 `clientproof`（设备会拒绝） | `93553f268fba24d183e007680e604512bc3d987e2e868797eca3e63b57f4a7e4` |
+
+旧式编码的向量（输入取自 `tests/test_session.py`）：用户名 `admin`、密码 `secret`、令牌 `csrf-token`，`password_type=4` → `ODNiZmIxMzRiYWJjNjJlMDY3ZGE2NGJmNWRmYjg4ODllNTFiNzJmOTU3NzViMjQ4YWNiZWEzNGU3MjM1OTU0ZQ==`（我们用 `shasum` 与 Python 两种方式计算，结果相同）；`password_type=0` → `c2VjcmV0`。
