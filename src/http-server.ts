@@ -20,7 +20,7 @@ import {
   readWifiMacFilterChange,
 } from "./control-input.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
-import { deviceProfileOf } from "./device-profile.ts";
+import { buildDeviceReport, deviceProfileOf } from "./device-profile.ts";
 import { VERIFIED_FIRMWARE } from "./firmware.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
 import { validateNewPassword } from "./console-policy.ts";
@@ -82,6 +82,7 @@ import {
 import type { NotificationHub } from "./notify/hub.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
+import { sanitizeDeviceReport } from "./sanitize.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
@@ -210,6 +211,15 @@ export class FengSuiHttpServer {
       },
       unlinkTelegram: () => unlinkTelegram?.() ?? 0,
       onDeviceProbe: (probe) => void options.core.monitor.recordDeviceProbe(probe),
+      deviceReport: () =>
+        sanitizeDeviceReport(
+          buildDeviceReport({
+            probe: options.core.monitor.getDeviceProbe(),
+            apiErrors: options.core.scheduler.apiErrorSnapshot(),
+            fengsuiVersion: FENGSUI_VERSION,
+            generatedAtIso: new Date().toISOString(),
+          })
+        ),
     });
   }
 

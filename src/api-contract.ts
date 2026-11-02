@@ -28,11 +28,15 @@ import type {
   DeviceIdentity,
   DeviceProbePath,
   DeviceProfile,
+  DeviceReport,
+  DeviceReportEndpoint,
   EndpointProbe,
   EndpointState,
   FeatureCapability,
+  FieldShape,
   LoginScheme,
   ProbeOrigin,
+  StructureKind,
   TokenFlow,
 } from "./device-profile.ts";
 import type { DeviceVerification } from "./firmware.ts";
@@ -105,12 +109,16 @@ export type {
   DeviceIdentity,
   DeviceProbePath,
   DeviceProfile,
+  DeviceReport,
+  DeviceReportEndpoint,
   DeviceVerification,
   EndpointProbe,
   EndpointState,
   FeatureCapability,
+  FieldShape,
   LoginScheme,
   ProbeOrigin,
+  StructureKind,
   TokenFlow,
 };
 export type { NeighborCellEntry, TerminalAccessMedium, TerminalHostEntry } from "./parsers.ts";
@@ -277,6 +285,15 @@ export interface DeviceProfileResponse {
   ok: true;
   profile: DeviceProfile | null;
   verifiedFirmware: Array<{ model: string; softwareVersion: string }>;
+}
+
+/**
+ * `GET /api/console/device-report` (console session only): the desensitized device report. Structure
+ * only, values just for the allowlist; the user decides whether to share it. Nothing is uploaded.
+ */
+export interface DeviceReportResponse {
+  ok: true;
+  report: DeviceReport;
 }
 
 // ── Telemetry, history, neighbors, topology, settings (§2.2–2.3) ─────────────

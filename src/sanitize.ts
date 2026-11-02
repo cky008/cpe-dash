@@ -1,5 +1,6 @@
 import net from "node:net";
 import { isPrivateOrLanIpv4, isPrivateOrLanIpv6 } from "./config.ts";
+import type { DeviceReport } from "./device-profile.ts";
 import type { FieldFormatObservation } from "./types.ts";
 
 export { maskPhoneNumber } from "./privacy-mask.ts";
@@ -328,3 +329,40 @@ export function sanitizeJsonPayload(
   return JSON.stringify(scrubNode(parsed));
 }
 
+const REPORT_MAC = /(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/;
+/** IMEI, IMSI, ICCID and dialled numbers: no report value has ten digits in a row. */
+const REPORT_DIGIT_RUN = /\d{10,}/;
+const REPORT_PHONE = /\+\d{6,}/;
+const REPORT_IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+/** Report keys whose values come from the router's allowlist: versions there may look like `4.4.0.1`. */
+const REPORT_ALLOWLISTED_KEYS: ReadonlySet<string> = new Set(["model", "marketingName", "softwareVersion", "webUiVersion", "passwordType", "value"]);
+
+/** A MAC, an IP address, a long digit run or a phone number anywhere in `text`. */
+function looksLikeIdentifier(text: string, versionsAllowed: boolean): boolean {
+  if (REPORT_MAC.test(text) || REPORT_DIGIT_RUN.test(text) || REPORT_PHONE.test(text)) return true;
+  if (!versionsAllowed && REPORT_IPV4.test(text)) return true;
+  // IPv6: a hex run with `::`, or eight colon-separated groups (a time such as 08:00:00 has three)
+  return text.split(/[^0-9A-Fa-f:]+/).some((token) => (token.includes("::") ? /[0-9A-Fa-f]/.test(token) : token.split(":").length >= 8));
+}
+
+/**
+ * Second pass over a device report, which is built from structure and the allowlist only. A string
+ * that still looks like an identifier becomes `<redacted>`. Allowlisted values (model, versions,
+ * `password_type`, switch numbers) may hold a dotted version like `4.4.0.1`; every other string may
+ * not even look like an IPv4 address.
+ */
+export function sanitizeDeviceReport(report: DeviceReport): DeviceReport {
+  const walk = (node: unknown, key: string): unknown => {
+    if (typeof node === "string") return looksLikeIdentifier(node, REPORT_ALLOWLISTED_KEYS.has(key)) ? "<redacted>" : node;
+    if (Array.isArray(node)) return node.map((item) => walk(item, key));
+    if (node !== null && typeof node === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(node)) {
+        if (k !== "__proto__" && k !== "constructor" && k !== "prototype") out[k] = walk(v, k);
+      }
+      return out;
+    }
+    return node;
+  };
+  return walk(report, "") as DeviceReport;
+}

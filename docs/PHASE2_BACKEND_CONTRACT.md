@@ -951,6 +951,7 @@ export interface AccessControlChangeResponse {
 | `POST /api/console/telegram/pairing-code` | `{}` | `{ ok: true, code, expiresInSec: 600 }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；未配置机器人 `409 TELEGRAM_DISABLED` |
 | `POST /api/console/telegram/unlink-all` | `{}` | `{ ok: true, unlinked }`（`TELEGRAM_CHAT_IDS` 中的聊天不受影响） |
 | `POST /api/console/switches` | `{ telegramReset?: boolean, metricsEnabled?: boolean \| null }`（`null` = 跟随 `.env`） | `ConsoleSettingsResponse` |
+| `GET /api/console/device-report` | — | `{ ok: true, report: DeviceReport }`：脱敏设备报告，只含结构（见 2.9 节），由用户自己决定是否提交 |
 | `GET /api/audit?limit=200` | — | `{ ok: true, entries: AuditEntry[] }`（最新在前，最多 500 条；任何已登录调用方可读，`REDACT_SENSITIVE_IN_API` 下 Bearer 调用方拿到的 `detail` 遮住 IP 地址） |
 | `GET /metrics` | — | Prometheus 文本格式；需 Bearer 令牌（只读即可）；关闭时 `404` |
 
@@ -1048,6 +1049,38 @@ export interface DeviceCapabilities {
 ```
 
 - **派生值**：`verification` 与 `features` 在读取时按 [`src/firmware.ts`](../src/firmware.ts) 的验证清单计算，升级后新加入清单的固件对已存的识别结果立即生效。
+
+#### 设备报告 `GET /api/console/device-report`（只接受控制台 Cookie 会话；令牌访问返回 `403 CONSOLE_ONLY`）
+
+报告给其他型号的用户在提交兼容性问题时附上。**只有结构，没有取值**；不自动上传，也不记录任何遥测。
+
+```ts
+export interface DeviceReport {
+  reportVersion: 1;
+  fengsuiVersion: string;
+  generatedAtIso: string;
+  verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
+  identity: DeviceIdentity | null;          // 同 2.9 节；尚未识别时为 null
+  capabilities: { probedAtIso: string; lteBands: number[] | null; features: Record<DeviceFeature, FeatureCapability> } | null;
+  endpoints: Array<{
+    path: DeviceProbePath;                   // 探测清单中的每个接口一项
+    state: "supported" | "unsupported" | "restricted" | "unknown";
+    code: string | null;                     // 路由器的错误码
+    format: "xml" | "json" | "text" | null;  // 响应的格式；报错时为 null
+    fields: Array<{
+      tag: string;                           // 叶子标签路径，如 "LTEBandList.LTEBand.Value"
+      shape: string;                         // 值的形状：empty / int / decimal / mac / ipv4 / ipv6 / hex(n) / text(n)，多种时以 | 连接（最多 3 种）
+      count: number;
+      value?: string;                        // 只出现在白名单上：型号、固件与网页版本、spreadname_en、password_type、功能开关的 0–99 小整数
+    }>;
+    truncated: boolean;                      // 超过 400 个叶子时截断
+  }>;
+  // 守护进程启动以来路由器返回的错误码，按方法 + 接口（不含查询串）+ 错误码计数（最多 100 项），测试连接也计入
+  apiErrors: { sinceIso: string; entries: Array<{ method: "GET" | "POST"; path: string; code: string; count: number; lastAtIso: string }> };
+}
+```
+
+- **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../test/device-report.test.ts)）。
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 

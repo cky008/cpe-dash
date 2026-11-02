@@ -1,10 +1,10 @@
-import type { ApiErrorEnvelope, ConsoleSettingsResponse } from "./api-contract.ts";
+import type { ApiErrorEnvelope, ConsoleSettingsResponse, DeviceReportResponse } from "./api-contract.ts";
 import type { AuditLog } from "./audit-log.ts";
 import { normalizeCpeUrl } from "./config.ts";
 import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
 import type { ConsoleSettings } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
-import type { DeviceProbeResult } from "./device-profile.ts";
+import type { DeviceProbeResult, DeviceReport } from "./device-profile.ts";
 import type { ConnectionCandidate, MutexSessionScheduler } from "./scheduler.ts";
 import type { ApiRouteContext } from "./sms/http-routes.ts";
 
@@ -26,6 +26,8 @@ export interface SettingsRoutesOptions {
   unlinkTelegram: () => number;
   /** Keep a device probe a connection test made of the router in use (or of the one just saved). */
   onDeviceProbe?: (probe: DeviceProbeResult) => void;
+  /** Build the desensitized device report (structure only, second pass through src/sanitize.ts). */
+  deviceReport?: () => DeviceReport;
 }
 
 function text(body: Record<string, unknown>, key: string, max: number): string | undefined {
@@ -70,6 +72,10 @@ export class SettingsHttpRoutes {
       }
       if (ctx.pathname === "/api/console/tokens") {
         ctx.sendJson(200, { ok: true, tokens: settings.listTokens() });
+        return true;
+      }
+      if (ctx.pathname === "/api/console/device-report" && this.#opts.deviceReport) {
+        ctx.sendJson(200, { ok: true, report: this.#opts.deviceReport() } satisfies DeviceReportResponse);
         return true;
       }
       return false;
