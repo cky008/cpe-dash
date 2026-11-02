@@ -41,7 +41,9 @@ services:
       - no-new-privileges:true
     # Bounds for a runaway process, far above normal use, so it cannot starve the NAS
     mem_limit: 1g
-    pids_limit: 256
+    # Synology DSM kernels have no pids cgroup, so Docker would drop this with a warning on every
+    # start; on other Linux hosts, uncomment it as a second bound
+    # pids_limit: 256
     # SIGTERM → queued requests 503, in-flight CPE session logs out, encrypted stores flush (< 10 s)
     stop_grace_period: 15s
     logging:

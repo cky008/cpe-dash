@@ -49,7 +49,9 @@ describe("GitHub Actions supply chain", () => {
     assert.match(release, /^\s+sbom: true$/m);
     const compose = fs.readFileSync(path.resolve(WORKFLOWS, "..", "..", "docker-compose.yml"), "utf8");
     assert.match(compose, /^\s+mem_limit: \d+[mg]$/m);
-    assert.match(compose, /^\s+pids_limit: \d+$/m);
+    // Synology's kernel has no pids cgroup: Docker drops pids_limit with a warning, so it stays a comment
+    assert.doesNotMatch(compose, /^\s+pids_limit:/m);
+    assert.match(compose, /^\s+# pids_limit: \d+$/m);
   });
 });
 

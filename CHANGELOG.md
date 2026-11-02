@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- `docker-compose.yml` no longer sets `pids_limit`: Synology DSM kernels have no pids cgroup, so Docker dropped it with a warning ("Your kernel does not support PIDs limit capabilities…") on every start. The line stays as a comment for other Linux hosts; `mem_limit` still applies. A deployment that added `pids_limit` to its own compose file by hand can delete it.
+
 ## [1.5.0] — 2026-11-02
 
 ### Added
