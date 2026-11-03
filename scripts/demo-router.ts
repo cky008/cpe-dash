@@ -193,10 +193,16 @@ export function createDemoRouter(): DemoRouter {
  * The unverified-model world (multi-model phase 2): an LTE-only router of another Huawei model from
  * the phase-1 mock family, with a legacy SHA-256 login, the HiLink basics (signal, status, traffic,
  * month statistics, an XML device list, plaintext SMS) and nothing else. FengSui reads what it
- * provides and writes nothing. Facts and placeholders only (docs/PHASE1_PROTOCOL_SPEC.md A.10).
+ * provides and writes nothing until its owner turns experimental writes on (phase 3): the router then
+ * takes the generic writes of appendix A.11 (band mask, mobile data, redial, reboot, plaintext SMS),
+ * a redial or reboot starts the connection again and mobile data off takes the WAN down. Facts and
+ * placeholders only (docs/PHASE1_PROTOCOL_SPEC.md A.10, A.11).
  */
 export function createUnverifiedDemoRouter(): DemoRouter {
   let tick = 0;
+  /** The connection's age at `connectedAt` ticks: a redial or reboot starts it again. */
+  let connectBase = 86_400;
+  let connectedAt = 0;
   const walk = (base: number, spread: number, period: number): number => Math.round((base + Math.sin(tick / period) * spread) * 10) / 10;
   let monthDown = 412_000_000_000;
   let dayUsed = 3_200_000_000;
@@ -219,7 +225,7 @@ export function createUnverifiedDemoRouter(): DemoRouter {
     monthDown += dl * 5;
     dayUsed += dl * 6;
     endpoints["/api/device/signal"] = `<response><pci>25</pci><cell_id>134217758</cell_id><rsrq>${walk(-9, 1.5, 6)}dB</rsrq><rsrp>${walk(-96, 3, 9)}dBm</rsrp><rssi>${walk(-69, 2, 8)}dBm</rssi><sinr>${walk(11, 3, 5)}dB</sinr><mode>7</mode><dlbandwidth>20MHz</dlbandwidth><ulbandwidth>20MHz</ulbandwidth><tac>10001</tac><plmn>27201</plmn></response>`;
-    endpoints["/api/monitoring/traffic-statistics"] = `<response><CurrentConnectTime>${86_400 + tick * 5}</CurrentConnectTime><CurrentUpload>52428800</CurrentUpload><CurrentDownload>524288000</CurrentDownload><CurrentDownloadRate>${dl}</CurrentDownloadRate><CurrentUploadRate>${Math.round(dl / 9)}</CurrentUploadRate><TotalUpload>48318382080</TotalUpload><TotalDownload>412316860416</TotalDownload><TotalConnectTime>9000000</TotalConnectTime></response>`;
+    endpoints["/api/monitoring/traffic-statistics"] = `<response><CurrentConnectTime>${connectBase + (tick - connectedAt) * 5}</CurrentConnectTime><CurrentUpload>52428800</CurrentUpload><CurrentDownload>524288000</CurrentDownload><CurrentDownloadRate>${dl}</CurrentDownloadRate><CurrentUploadRate>${Math.round(dl / 9)}</CurrentUploadRate><TotalUpload>48318382080</TotalUpload><TotalDownload>412316860416</TotalDownload><TotalConnectTime>9000000</TotalConnectTime></response>`;
     endpoints["/api/monitoring/month_statistics"] = `<response><CurrentMonthDownload>${monthDown}</CurrentMonthDownload><CurrentMonthUpload>41000000000</CurrentMonthUpload><MonthDuration>2400000</MonthDuration><MonthLastClearTime>2026-10-01</MonthLastClearTime><CurrentDayUsed>${dayUsed}</CurrentDayUsed><CurrentDayDuration>40000</CurrentDayDuration></response>`;
   };
   step();
@@ -233,12 +239,26 @@ export function createUnverifiedDemoRouter(): DemoRouter {
     { index: 40010, phone: "+353830000001", content: "Back home by 8, see you then", date: routerDate(90), smstat: "1", box: 1 },
     { index: 39010, phone: "+353830000001", content: "Great, dinner is on me", date: routerDate(85), smstat: "3", box: 2 },
   ];
-  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", password: DEMO_CPE_PASSWORD, model: "B535-232", firmware: "11.0.1.2(H7SP2C00)", endpoints, sms: mailbox });
+  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", password: DEMO_CPE_PASSWORD, model: "B535-232", firmware: "11.0.1.2(H7SP2C00)", endpoints, sms: mailbox, writes: {} });
   let nextIndex = 40_012;
+  // What a generic write does to the household: a new connection, or no WAN without mobile data
+  const demoFetch: typeof fetch = async (input, init) => {
+    const res = await cpe.fetchImpl(input, init);
+    if ((init?.method ?? "GET").toUpperCase() !== "POST") return res;
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url).pathname;
+    if ((await res.clone().text()).includes("<error>")) return res;
+    if (path === "/api/net/reconnect" || path === "/api/device/control") {
+      connectBase = 0;
+      connectedAt = tick;
+      step();
+    }
+    if (path === "/api/dialup/mobile-dataswitch") cpe.setConnectionStatus(cpe.settings.mobileData() === "1" ? "901" : "902");
+    return res;
+  };
   return {
     cpe: null,
     human: cpe.human,
-    fetchImpl: cpe.fetchImpl,
+    fetchImpl: demoFetch,
     advance: () => {
       tick += 1;
       step();
