@@ -15,6 +15,7 @@ async function main(): Promise<void> {
     requestTimeoutMs: cfg.requestTimeoutMs,
     respectBrowserSession: true,
   });
+  pollClient.rememberLoginScheme("scram");
 
   const initial = await pollClient.getLoginState();
   console.log(
@@ -68,6 +69,7 @@ async function main(): Promise<void> {
     requestTimeoutMs: cfg.requestTimeoutMs,
     respectBrowserSession: true,
   });
+  sameHostDaemon.rememberLoginScheme("scram");
 
   try {
     await browserSim.login();
@@ -118,6 +120,7 @@ async function main(): Promise<void> {
         { status: 200 }
       ),
   });
+  layer1Client.rememberLoginScheme("scram");
   const l1Res = await layer1Client.withSession(async () => "never");
   console.log(
     `  Layer 1 (State=0 Pre-Check)   -> yielded=${l1Res === null}, browserYieldCount=${layer1Client.getTelemetry().browserYieldCount} (zero SCRAM calls)`
@@ -150,6 +153,7 @@ async function main(): Promise<void> {
       return new Response(`<response>OK</response>`, { status: 200 });
     },
   });
+  layer2Client.rememberLoginScheme("scram");
   const l2Res = await layer2Client.withSession(async () => "never");
   console.log(
     `  Layer 2 (Cross-IP 108003)     -> yielded=${l2Res === null}, browserYieldCount=${layer2Client.getTelemetry().browserYieldCount} (zero retries, browser undisturbed)`

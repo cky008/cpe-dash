@@ -42,6 +42,7 @@ async function main(): Promise<void> {
     requestTimeoutMs: cfg.requestTimeoutMs,
     respectBrowserSession: cfg.respectBrowserSession,
   });
+  client.rememberLoginScheme("scram");
 
   console.log("\n--- Live Read-Only Verification on H168-383 ---");
   const preState = await client.getLoginState();

@@ -230,6 +230,30 @@ describe("login methods and token flows (mock family)", () => {
     await odd.cleanup();
   });
 
+  it("keeps every probe script on SCRAM: the probes are H168-383 tools whose clients start from nothing (R1-07)", async () => {
+    // The pin alone keeps a new client off the legacy login when the H168-383 refuses a challenge
+    const cpe = createStrictCpe({ fault: (p) => (p === "/api/user/challenge_login" ? { cpeError: "100003" } : undefined) });
+    const fresh = clientFor(cpe);
+    fresh.rememberLoginScheme("scram");
+    await assert.rejects(fresh.withSession(async () => "never"), (err: unknown) => err instanceof CpeLoginMethodError && err.scramKnown);
+    assert.deepEqual([cpe.count("/api/user/login"), cpe.failedLogins()], [0, 0]);
+
+    const dir = path.join(import.meta.dirname, "..", "scripts");
+    const probes = fs.readdirSync(dir).filter((name) => /^probe-.+\.ts$/.test(name));
+    let clients = 0;
+    for (const name of probes) {
+      const source = fs.readFileSync(path.join(dir, name), "utf8");
+      for (const match of source.matchAll(/const (\w+) = new HuaweiCpeClient\(/g)) {
+        clients += 1;
+        assert.ok(source.includes(`${match[1]}.rememberLoginScheme("scram");`), `${name}: ${match[1]} is not kept on SCRAM`);
+      }
+      assert.equal(source.match(/new HuaweiCpeClient\(/g)?.length ?? 0, [...source.matchAll(/const \w+ = new HuaweiCpeClient\(/g)].length, `${name}: every client is named, so its pin can be checked`);
+      // A session logging in by itself takes no options: SCRAM only
+      assert.deepEqual(source.match(/\.login\([^)]/g), null, `${name}: login() with options`);
+    }
+    assert.equal(clients, 11, "the probes' clients were all found");
+  });
+
   it("keeps a router known to use SCRAM on SCRAM in a connection test too, unless CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM", async () => {
     let fault: StrictFault | undefined;
     const cpe = createStrictCpe({ fault: (p) => (p === "/api/user/challenge_login" ? fault : undefined) });

@@ -25,6 +25,7 @@ async function main(): Promise<void> {
     requestTimeoutMs: cfg.requestTimeoutMs,
     respectBrowserSession: cfg.respectBrowserSession,
   });
+  client.rememberLoginScheme("scram");
 
   const preState = await client.getLoginState();
   console.log(
