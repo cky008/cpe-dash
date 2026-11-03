@@ -220,6 +220,7 @@ export class FengSuiHttpServer {
             apiErrors: options.core.scheduler.apiErrorSnapshot(),
             fengsuiVersion: FENGSUI_VERSION,
             generatedAtIso: new Date().toISOString(),
+            access: options.core.scheduler.device.snapshot(),
           })
         ),
     });

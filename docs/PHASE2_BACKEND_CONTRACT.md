@@ -1106,6 +1106,8 @@ export interface DeviceReport {
   }>;
   // 守护进程启动以来路由器返回的错误码，按方法 + 接口（不含查询串）+ 错误码计数（最多 100 项），测试连接也计入
   apiErrors: { sinceIso: string; entries: Array<{ method: "GET" | "POST"; path: string; code: string; count: number; lastAtIso: string }> };
+  // 烽燧对这台路由器做了什么（2.10）：写操作是否放行，以及每个读取项的状态与路由器的错误码；只有状态和错误码，没有取值
+  access: { writes: "allowed" | "read_only" | "unknown"; reads: Record<ReadSection, { state: "verified" | "available" | "unavailable" | "unknown"; code: string | null }> } | null;
 }
 ```
 

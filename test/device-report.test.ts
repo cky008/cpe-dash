@@ -66,9 +66,22 @@ describe("device report: desensitization", () => {
     const probe = await probeDevice(session, { nowIso: NOW, origin: "startup" });
     const tally = new ApiErrorTally(() => Date.parse(NOW));
     tally.record("POST", "/api/sms/sms-list-contact?ecc-client-pubkey=0123456789abcdef0123456789abcdef&enc-type=1", "100002");
-    const report = sanitizeDeviceReport(buildDeviceReport({ probe, apiErrors: tally.snapshot(), fengsuiVersion: "1.5.0", generatedAtIso: NOW }));
+    const access = {
+      writes: "read_only" as const,
+      reads: {
+        telemetry: { state: "available" as const, code: null },
+        neighbors: { state: "unavailable" as const, code: "100002" },
+        topology: { state: "available" as const, code: null },
+        settings: { state: "unavailable" as const, code: null },
+        accessControl: { state: "unavailable" as const, code: "100003" },
+        sms: { state: "unknown" as const, code: null },
+      },
+    };
+    const report = sanitizeDeviceReport(buildDeviceReport({ probe, apiErrors: tally.snapshot(), fengsuiVersion: "1.5.0", generatedAtIso: NOW, access: { ...access, model: "B535-232" } as typeof access }));
     const json = JSON.stringify(report);
     assert.deepEqual(leaks(json), []);
+    assert.deepEqual(report.access, access, "states and codes only: nothing else of the access snapshot comes along");
+    assert.equal(buildDeviceReport({ probe: null, apiErrors: tally.snapshot(), fengsuiVersion: "1.5.0", generatedAtIso: NOW }).access, null);
     assert.equal(json.includes("<redacted>"), false, "nothing had to be caught by the second pass");
     assert.equal(json.includes("ecc-client-pubkey"), false);
 
@@ -206,6 +219,9 @@ describe("device report: the console route", () => {
       assert.equal(body.report.endpoints.length, DEVICE_PROBE_PATHS.length);
       assert.ok(body.report.apiErrors.entries.some((e) => e.path === "/api/net/net-mode-list" && e.code === "100002"), "the strict mock's unsupported endpoints are counted");
       assert.deepEqual(leaks(JSON.stringify(body)), [], "the strict router's WAN addresses stay out");
+      // What FengSui does with it: writes and, per read section, a state (a verified model reads them all)
+      assert.equal(body.report.access?.writes, "allowed");
+      assert.deepEqual(Object.values(body.report.access?.reads ?? {}).map((read) => read.state), ["verified", "verified", "verified", "verified", "verified", "verified"]);
     } finally {
       await stack.close();
       fs.rmSync(dir, { recursive: true, force: true });

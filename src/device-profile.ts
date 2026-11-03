@@ -1,3 +1,4 @@
+import type { ReadCapability, ReadSection, WriteAccess } from "./device-access.ts";
 import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
 
 /**
@@ -594,12 +595,28 @@ export interface DeviceReport {
   capabilities: { probedAtIso: string; lteBands: number[] | null; features: Record<DeviceFeature, FeatureCapability> } | null;
   endpoints: DeviceReportEndpoint[];
   apiErrors: ApiErrorSnapshot;
+  /** What FengSui does with this router: writes allowed or locked, and per read section what it answered (states and router codes only). */
+  access: DeviceReportAccess | null;
 }
 
-export function buildDeviceReport(input: { probe: DeviceProbeResult | null; apiErrors: ApiErrorSnapshot; fengsuiVersion: string; generatedAtIso: string }): DeviceReport {
+export interface DeviceReportAccess {
+  writes: WriteAccess;
+  reads: Record<ReadSection, ReadCapability>;
+}
+
+export function buildDeviceReport(input: {
+  probe: DeviceProbeResult | null;
+  apiErrors: ApiErrorSnapshot;
+  fengsuiVersion: string;
+  generatedAtIso: string;
+  access?: DeviceReportAccess | null;
+}): DeviceReport {
   const apiErrors = { sinceIso: input.apiErrors.sinceIso, entries: input.apiErrors.entries.map((e) => ({ ...e })) };
   const base = { reportVersion: DEVICE_REPORT_VERSION, fengsuiVersion: input.fengsuiVersion, generatedAtIso: input.generatedAtIso } as const;
-  if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors };
+  const access: DeviceReportAccess | null = input.access
+    ? { writes: input.access.writes, reads: Object.fromEntries(Object.entries(input.access.reads).map(([section, read]) => [section, { state: read.state, code: read.code }])) as Record<ReadSection, ReadCapability> }
+    : null;
+  if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access };
   const profile = deviceProfileOf(input.probe);
   const observed = new Map(input.probe.observations.map((o) => [o.path, o]));
   return {
@@ -617,5 +634,6 @@ export function buildDeviceReport(input: { probe: DeviceProbeResult | null; apiE
       };
     }),
     apiErrors,
+    access,
   };
 }
