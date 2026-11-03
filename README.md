@@ -89,7 +89,7 @@
   </tr>
   <tr>
     <td><img src="docs/screenshots/settings-router.webp" alt="设置：路由器连接" /><br /><sub><b>设置 · 路由器</b>：先登录测试再保存，连不上时说明原因与处理办法</sub></td>
-    <td><img src="docs/screenshots/settings-tokens.webp" alt="设置：令牌（极夜主题）" /><br /><sub><b>设置 · 令牌</b>：只读 / 完全控制、可选有效期、随时撤销，旧 API_TOKEN 照常可用</sub></td>
+    <td><img src="docs/screenshots/settings-tokens.webp" alt="设置：令牌（极夜主题）" /><br /><sub><b>设置 · 令牌</b>：只读 / 完全控制、可选有效期、随时撤销</sub></td>
   </tr>
 </table>
 
@@ -349,7 +349,7 @@ npm run probe:sms         # 只输出短信计数与耗时（不发送、不标�
    cp .env.example .env && chmod 600 .env && chmod 700 data
    id -u && id -g      # 例如 1026 / 100，填入 .env 的 PUID / PGID
    ```
-   编辑 `.env`：`DATA_ENCRYPTION_KEY`、`TZ`（如 `Asia/Shanghai`）、`PUID` / `PGID`。路由器与控制台密码在首次打开控制台时按引导设置（照旧写 `CPE_PASSWORD` / `API_TOKEN` 也可以，首次启动时导入）。
+   编辑 `.env`：`DATA_ENCRYPTION_KEY`、`TZ`（如 `Asia/Shanghai`）、`PUID` / `PGID`。路由器与控制台密码在首次打开控制台时按引导设置（也可以写进 `.env` 的 `CPE_PASSWORD` / `API_TOKEN`，首次启动时导入一次）。
 2. **获取镜像**（二选一）：
    - 拉取 GHCR：仓库为私有时，先在「Container Manager → 注册表 → 设置」添加 `ghcr.io`，或 SSH 执行 `sudo docker login ghcr.io -u <GitHub 用户名>`（令牌只需 `read:packages` 权限）；
    - 本地构建：把整个仓库放在该目录，执行 `sudo docker compose build`。

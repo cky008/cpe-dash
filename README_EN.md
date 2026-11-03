@@ -89,7 +89,7 @@
   </tr>
   <tr>
     <td><img src="docs/screenshots/settings-router.webp" alt="Settings: router connection" /><br /><sub><b>Settings · Router</b>: tried with one login before it is saved; a failure says why and what to do</sub></td>
-    <td><img src="docs/screenshots/settings-tokens.webp" alt="Settings: tokens (Polar Night theme)" /><br /><sub><b>Settings · Tokens</b>: read-only or full access, a chosen lifetime, revocable any time; the old API_TOKEN keeps working</sub></td>
+    <td><img src="docs/screenshots/settings-tokens.webp" alt="Settings: tokens (Polar Night theme)" /><br /><sub><b>Settings · Tokens</b>: read-only or full access, a chosen lifetime, revocable any time</sub></td>
   </tr>
 </table>
 
@@ -349,7 +349,7 @@ Key points in [`docker-compose.yml`](docker-compose.yml):
    cp .env.example .env && chmod 600 .env && chmod 700 data
    id -u && id -g      # e.g., 1026 / 100, populate into PUID / PGID in .env
    ```
-   Edit `.env`: `DATA_ENCRYPTION_KEY`, `TZ` (e.g. `Asia/Shanghai`), `PUID` / `PGID`. The router and console passwords are set in the guide when you first open the console (`CPE_PASSWORD` / `API_TOKEN` in `.env` still work too: they are imported on the first start).
+   Edit `.env`: `DATA_ENCRYPTION_KEY`, `TZ` (e.g. `Asia/Shanghai`), `PUID` / `PGID`. The router and console passwords are set in the guide when you first open the console (or put them in `CPE_PASSWORD` / `API_TOKEN` in `.env`: they are imported once on the first start).
 2. **Obtain image** (Choose one):
    - Pull from GHCR: if the repository is private, add `ghcr.io` under "Container Manager → Registry → Settings", or run `sudo docker login ghcr.io -u <GitHub username>` via SSH (token only requires `read:packages` permission);
    - Local build: Place the entire repository in this directory and run `sudo docker compose build`.
