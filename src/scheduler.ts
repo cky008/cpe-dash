@@ -917,7 +917,11 @@ export class MutexSessionScheduler extends EventEmitter {
     return this.stateStore.getState().genericWrites.map((r) => ({ ...r, endpoints: [...r.endpoints] }));
   }
 
-  /** Keep a generic write's result (endpoints, code, read-back; never a value), alert on a mismatch, watch a redial or reboot. */
+  /**
+   * Keep a generic write's result (endpoints, code, read-back; never a value), alert on a mismatch,
+   * watch a redial or reboot. Only a code that is a router code is kept: the router's text in its
+   * place would reach the device report.
+   */
   #recordGenericWrite(action: ControlAction, feature: WriteFeature, check: WriteCheck, outcome: WriteResultRecord["outcome"], code: string | null): WriteResultRecord {
     const nowMs = Date.now();
     const record: WriteResultRecord = {
@@ -928,7 +932,7 @@ export class MutexSessionScheduler extends EventEmitter {
       model: modelLabel(this.device.current?.model ?? "?"),
       endpoints: [...check.endpoints],
       outcome,
-      code,
+      code: code !== null && /^\d{4,8}$/.test(code) ? code : null,
       readback: check.readback,
       reason: check.reason,
     };

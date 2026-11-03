@@ -6,7 +6,7 @@ import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { CpeApiError, HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
-import { CONTROL_FEATURES, type ControlAction, type WriteFeature, type WriteResultRecord } from "../src/device-access.ts";
+import { CONTROL_FEATURES, type ControlAction, type WriteFeature, type WriteResultRecord, isWriteResultRecord } from "../src/device-access.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
@@ -281,6 +281,25 @@ describe("experimental gate: every generic write", () => {
         ]
       );
       assert.ok(fx.audits.filter((a) => a.outcome === "failed").length === 2);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("keeps only a router code that is a code: router text in its place is not recorded", async () => {
+    const { cpe, fx } = await identified({ errors: { "/api/dialup/mobile-dataswitch": "busy 860000000000000", "/api/device/control": "860000000000000" } });
+    try {
+      fx.consent("mobileData", "reboot");
+      await assert.rejects(fx.core.controls.setMobileData(false), CpeApiError);
+      await assert.rejects(fx.core.controls.rebootRouter({ confirm: true }), CpeApiError);
+      assert.equal(cpe.stats.writes.length, 2, "one request each");
+      const kept = fx.core.scheduler.genericWrites;
+      assert.deepEqual(kept.map((r) => [r.action, r.outcome, r.code]), [
+        ["set_mobile_data", "failed", null],
+        ["reboot_cpe", "failed", null],
+      ]);
+      // What this version stores, it can read back after a restart
+      assert.ok(kept.every(isWriteResultRecord));
     } finally {
       await fx.cleanup();
     }

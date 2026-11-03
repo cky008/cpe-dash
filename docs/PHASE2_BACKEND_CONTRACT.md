@@ -1127,7 +1127,7 @@ export interface DeviceReport {
     model: string;
     endpoints: string[];
     outcome: "applied" | "failed";
-    code: string | null;
+    code: string | null;                     // 路由器拒绝时的错误码（只保留 4–8 位数字，其他内容记为 null）
     readback: "match" | "mismatch" | "unknown" | "pending" | "none";
     reason: string | null;                   // WriteCheck.reason，见 2.11
   }>;
