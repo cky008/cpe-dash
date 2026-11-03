@@ -2,11 +2,14 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.6.1] — 2026-11-03
 
 ### Fixed
 - **Turning on an experimental write says everything it lets through.** On a model nobody verified, the SMS switch read "Send SMS" although it also opens marking messages read and deleting them (and, with `SMS_AUTO_MARK_READ`, the automatic marking), and the band lock and redial switches did not say that the WAN self-healing uses them on its own when `.env` turns it on (`LOCK_ROLLBACK_AFTER_MIN`, `WAN_AUTO_RECONNECT_AFTER_MIN`). The dialog now opens with what the write lets through, then its risks; the SMS feature is called "Send and manage SMS". The gate itself is unchanged.
 - The compatibility issue form, the READMEs' alert list and the contract's `SELF_HEAL_READ_ONLY` note no longer say that every write on another model is locked: they are locked by default, and those FengSui can do may be turned on as experimental writes.
+
+### Upgrading
+- Nothing to change in `.env`, no data to migrate and nothing to merge in an own compose file. Experimental writes turned on under 1.6.0 stay on: only the wording around them changed. On the H168-383 nothing changes at all.
 
 ## [1.6.0] — 2026-11-03
 
