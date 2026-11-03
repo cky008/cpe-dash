@@ -76,7 +76,8 @@ export function validateGenericBandLock(
  * Lock the LTE bands (or unlock all with the all-bands mask) with `POST /api/net/net-mode`:
  * `NetworkMode`, `NetworkBand` and `LTEBand` in that order, the first two sent back exactly as the
  * router reported them in this session, so only the LTE mask changes. Reads the mask back: an unlock
- * matches when the router reports the all-bands mask or every band it advertises.
+ * matches when the router reports the all-bands mask or every band it advertises (with no advertised
+ * band to compare, any other mask says nothing).
  */
 export async function genericBandLock(
   session: EphemeralCpeSession,
@@ -99,7 +100,7 @@ export async function genericBandLock(
     settleCheck(check, null);
   } else if (bands === "all") {
     const enabled = new Set(maskToBands(read) ?? []);
-    settleCheck(check, isAllBandsMask(read) || advertised.every((band) => enabled.has(band)));
+    settleCheck(check, isAllBandsMask(read) ? true : advertised.length === 0 ? null : advertised.every((band) => enabled.has(band)));
   } else {
     settleCheck(check, BigInt(`0x${read}`) === BigInt(`0x${mask}`));
   }

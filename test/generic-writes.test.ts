@@ -78,6 +78,11 @@ describe("generic writes: LTE band lock (net/net-mode)", () => {
     const ownCheck = newWriteCheck();
     await own.session((s) => genericBandLock(s, ownCheck, "all", ADVERTISED));
     assert.deepEqual([ownCheck.readback, ownCheck.reason], ["match", null]);
+    // With no advertised bands to compare against, only the all-bands mask itself shows an unlock
+    const blind = router({ ignore: true });
+    const blindCheck = newWriteCheck();
+    await blind.session((s) => genericBandLock(s, blindCheck, "all", []));
+    assert.deepEqual([blindCheck.readback, blindCheck.reason], ["unknown", "unreadable"]);
   });
 
   it("reports a router that acknowledges the lock but keeps its old bands", async () => {
