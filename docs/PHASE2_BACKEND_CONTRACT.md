@@ -1221,7 +1221,7 @@ export interface ExperimentalWritesResponse {
 **放行之后怎么写**（[`src/generic-writes.ts`](../src/generic-writes.ts)、[`src/sms/protocol.ts`](../src/sms/protocol.ts)；请求格式见附录 A.11）：
 
 - 仍然只经 `executeControl`，**绝不重试**；REST、WAN 自愈（锁频回滚、自动重拨）与短信服务都走同一个闸门。实验性锁频 **只锁 LTE**，频段只能取 `lteBands`（`net-mode-list` 通告的），NR 频段、锁小区和其他频段在入队前就以 `400 VALIDATION_ERROR` 拒绝；实验性短信不收表情等基本多文种平面以外的字符（同样 `400`）。
-- **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`（列出了每个收件人才算一致，一个都没列出为「无法核对」）；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。
+- **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`（列出了每个收件人才算一致，一个都没列出为「无法核对」）；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致（计数为 0 不算，没有这个字段时也读成 0）；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。
 - **记录**：每次实验性写入（以及将来在 `VERIFIED_FEATURES` 里验证过的通用写入）记进加密的 `state.json`（最近 20 条；守护进程重启时，上一次运行留下的「等待轮询核对」改为「无法核对」）：操作名、功能、型号、写过的端点、路由器的错误码、回读结果与原因，**不含写入的取值**（频段、开关、号码、正文都不记）。它们出现在 `GET /api/console/experimental` 的 `writes` 与设备报告的「最近写入结果」（2.9 的 `writes`，去掉内部 id，同样经过第二道防线）里，方便用户反馈。`control:applied` 附 `check`，摘要末尾注明「实验性写入」与回读结果；审计记录同一摘要。
 - **不一致就告警**：`WRITE_READBACK_MISMATCH`（warning），消息只有操作名、型号与原因。
 - **Telegram**：未验证型号上，短信写命令（`/new`、`/send`、回复卡片、已读 / 全部已读 / 删除按钮）只在 `smsWrite` 打开时可用，走明文通用实现；没打开时照旧回复只读说明（并提到可以在「设置 → 设备」打开），卡片不带写按钮。

@@ -360,6 +360,32 @@ describe("experimental gate: a redial and a reboot are checked by the polls that
       await fx.cleanup();
     }
   });
+
+  it("takes a connection time of 0 for no evidence: traffic statistics without CurrentConnectTime read as 0", async () => {
+    const { fx } = await identified();
+    try {
+      fx.consent("reconnect", "reboot");
+      await fx.core.controls.reconnectCellular();
+      const redial = fx.core.scheduler.genericWrites.at(-1) as WriteResultRecord;
+      fx.core.scheduler.notePollForWrites(poll(redial, 30, { connect: 0 }));
+      assert.equal(fx.core.scheduler.genericWrites.at(-1)?.readback, "pending", "a counter at 0 may be one the router never named");
+      fx.core.scheduler.notePollForWrites(poll(redial, 5 * 60, { connect: 0 }));
+      assert.equal(fx.core.scheduler.genericWrites.at(-1)?.readback, "pending", "nor does it show the redial did not happen");
+      fx.core.scheduler.notePollForWrites(poll(redial, 16 * 60, { connect: 0 }));
+      assert.deepEqual([fx.core.scheduler.genericWrites.at(-1)?.readback, fx.core.scheduler.genericWrites.at(-1)?.reason], ["unknown", "no_evidence"]);
+
+      // A reboot on a model naming no uptime falls back to the connection time, with the same rule
+      await fx.core.controls.rebootRouter({ confirm: true });
+      const reboot = fx.core.scheduler.genericWrites.at(-1) as WriteResultRecord;
+      fx.core.scheduler.notePollForWrites(poll(reboot, 90, { uptime: 0, connect: 0 }));
+      assert.equal(fx.core.scheduler.genericWrites.at(-1)?.readback, "pending");
+      fx.core.scheduler.notePollForWrites(poll(reboot, 95, { uptime: 0, connect: 20 }));
+      assert.equal(fx.core.scheduler.genericWrites.at(-1)?.readback, "match", "a counter that started again still counts");
+      assert.deepEqual(fx.alerts.filter((a) => a.code === "WRITE_READBACK_MISMATCH"), []);
+    } finally {
+      await fx.cleanup();
+    }
+  });
 });
 
 describe("experimental gate: the results kept", () => {

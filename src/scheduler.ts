@@ -959,6 +959,7 @@ export class MutexSessionScheduler extends EventEmitter {
    * A poll that follows a generic redial or reboot: done once the connection (redial) or the uptime
    * (reboot; the connection when the router names no uptime) started after it; a router still running
    * past the grace period did not do it (an alert); with no poll able to tell by the deadline, unknown.
+   * A counter at 0 tells nothing: it is also how traffic statistics without `CurrentConnectTime` read.
    */
   notePollForWrites(snapshot: GlobalTelemetrySnapshot): void {
     if (this.#pendingRestarts.size === 0) return;
@@ -967,7 +968,8 @@ export class MutexSessionScheduler extends EventEmitter {
       const elapsedMs = snapshot.capturedAtMs - pending.requestedAtMs;
       if (elapsedMs <= 0) continue;
       const connected = snapshot.device.connectionStatus === "901";
-      const connectAge = snapshot.unavailable?.includes("traffic") || !connected ? null : snapshot.traffic.sessionConnectTimeSec;
+      const connectTime = snapshot.traffic.sessionConnectTimeSec;
+      const connectAge = snapshot.unavailable?.includes("traffic") || !connected || connectTime <= 0 ? null : connectTime;
       const age = pending.kind === "reboot" && snapshot.device.uptimeSec > 0 ? snapshot.device.uptimeSec : connectAge;
       if (age !== null && age <= elapsedMs / 1000 + RESTART_SLACK_SEC) decided.set(id, { readback: "match", reason: null });
       else if (age !== null && elapsedMs >= RESTART_GRACE_MS) decided.set(id, { readback: "mismatch", reason: "no_restart" });
