@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.5.0-6E56CF?style=flat-square" alt="Version 1.5.0" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.6.0-6E56CF?style=flat-square" alt="Version 1.6.0" /></a>
   <a href="https://cky008.github.io/fengsui-demo/"><img src="https://img.shields.io/badge/Live_demo-open-c0392b?style=flat-square" alt="Live demo" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
@@ -32,7 +32,7 @@
 - **100% private, zero cloud dependencies**: All data stays on your NAS, encrypted at rest with `AES-256-GCM`; the Web console uses zero CDNs, zero external links, and works completely offline.
 - **Zero additional hardware cost**: Reuses your existing NAS and the CPE's built-in SMS capabilities without requiring SMS modems, USB dongles, or secondary devices.
 - **Production-grade container**: Non-root, read-only root filesystem, `HEALTHCHECK`, graceful shutdown via `SIGTERM` within 10 seconds while releasing router sessions; dual-architecture support for `linux/amd64` (DS923+) and `linux/arm64`.
-- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 460 offline tests with 98% statement coverage.
+- **Zero runtime dependencies**: Daemon built entirely with native Node.js modules; repository-wide 100% strict TypeScript, 644 offline tests with 98% statement coverage.
 
 ---
 
@@ -90,6 +90,10 @@
   <tr>
     <td><img src="docs/screenshots/settings-router.webp" alt="Settings: router connection" /><br /><sub><b>Settings · Router</b>: tried with one login before it is saved; a failure says why and what to do</sub></td>
     <td><img src="docs/screenshots/settings-tokens.webp" alt="Settings: tokens (Polar Night theme)" /><br /><sub><b>Settings · Tokens</b>: read-only or full access, a chosen lifetime, revocable any time</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/settings-device.webp" alt="Settings: device" /><br /><sub><b>Settings · Device</b>: the identified model, firmware, login and capabilities, and a desensitized device report of structure only</sub></td>
+    <td><img src="docs/screenshots/experimental-writes.webp" alt="Turning on an experimental write on an unverified model (Polar Night theme)" /><br /><sub><b>Other models · Experimental writes</b>: read-only by default; each write is turned on after its risks are shown and the model is typed back</sub></td>
   </tr>
 </table>
 

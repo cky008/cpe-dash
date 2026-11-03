@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.5.0-6E56CF?style=flat-square" alt="Version 1.5.0" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/badge/version-1.6.0-6E56CF?style=flat-square" alt="Version 1.6.0" /></a>
   <a href="https://cky008.github.io/fengsui-demo/"><img src="https://img.shields.io/badge/在线演示-打开-c0392b?style=flat-square" alt="在线演示" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <a href="tsconfig.json"><img src="https://img.shields.io/badge/TypeScript-100%25_Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Strict TypeScript" /></a>
@@ -32,7 +32,7 @@
 - **100% 私有化，零上云**：全部数据只在你的 NAS 上，`AES-256-GCM` 加密落盘；Web 控制台零 CDN、零外链，离线可用。
 - **0 额外硬件成本**：复用现有 NAS 与 CPE 自带的短信能力，不需要短信猫、USB 模块或第二台设备。
 - **生产级容器**：非 root、只读根文件系统、`HEALTHCHECK`、`SIGTERM` 10 秒内优雅停机并释放路由器会话；`linux/amd64`（DS923+）与 `linux/arm64` 双架构。
-- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，460 项离线测试、语句覆盖率 98%。
+- **零运行时依赖**：守护进程只用 Node.js 原生模块；全仓 100% 严格 TypeScript，644 项离线测试、语句覆盖率 98%。
 
 ---
 
@@ -90,6 +90,10 @@
   <tr>
     <td><img src="docs/screenshots/settings-router.webp" alt="设置：路由器连接" /><br /><sub><b>设置 · 路由器</b>：先登录测试再保存，连不上时说明原因与处理办法</sub></td>
     <td><img src="docs/screenshots/settings-tokens.webp" alt="设置：令牌（极夜主题）" /><br /><sub><b>设置 · 令牌</b>：只读 / 完全控制、可选有效期、随时撤销</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/settings-device.webp" alt="设置：设备" /><br /><sub><b>设置 · 设备</b>：识别出的型号、固件、登录方式与能力，生成只含结构的脱敏设备报告</sub></td>
+    <td><img src="docs/screenshots/experimental-writes.webp" alt="未验证型号打开实验性写入（极夜主题）" /><br /><sub><b>其他型号 · 实验性写入</b>：默认只读；逐项打开前先看风险说明并输入型号确认</sub></td>
   </tr>
 </table>
 

@@ -21,7 +21,7 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT_DIR = path.join(ROOT, "docs", "screenshots");
 const TOKEN = "fengsui-screenshots";
 
-type Scenario = "normal" | "yield" | "breaker";
+type Scenario = "normal" | "yield" | "breaker" | "unverified";
 
 interface Shot {
   name: string;
@@ -140,6 +140,29 @@ const SHOTS: ReadonlyArray<Shot> = [
       // The demo household already has blocked Wi-Fi devices (one online, one gone offline) to restore
       await page.waitUntil("document.querySelector('#topologyCard')?.textContent?.includes('已断网') === true", "the blocked badges");
       await page.evaluate("document.querySelector('#topologyCard').scrollIntoView({ block: 'center' })");
+    },
+  },
+  {
+    name: "settings-device",
+    scenario: "normal",
+    theme: "fengsui-sujian",
+    prepare: async (page) => {
+      await openSettings(page, "设备");
+      await page.waitUntil(`document.querySelector('#settingsDialog .fs-notice[data-tone="success"]') !== null`, "the verified model");
+    },
+  },
+  {
+    name: "experimental-writes",
+    scenario: "unverified",
+    theme: "fengsui-jiye",
+    prepare: async (page) => {
+      // Another model (the demo's B535-232): turning on an experimental write asks for its model first
+      await openSettings(page, "设备");
+      await page.waitUntil("document.querySelector('#settingsDialog li[data-feature=bandLock] input') !== null", "the experimental writes");
+      await page.click("#settingsDialog li[data-feature=bandLock] input");
+      await page.waitUntil("document.querySelector('#confirmDialog')?.open === true", "the risk dialog");
+      await page.evaluate("(() => { const input = document.getElementById('confirmTypeInput'); input.value = 'B535-232'; input.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+      await page.waitUntil("document.getElementById('confirmOk').disabled === false", "the model typed");
     },
   },
 ];
@@ -342,13 +365,18 @@ async function startWorld(scenario: Scenario): Promise<DemoDaemon> {
   const grafana = demo.stack.settings.createToken({ name: "Grafana", scope: "read", lifetimeDays: null });
   demo.stack.settings.createToken({ name: "Claude Code", scope: "read", lifetimeDays: 90 });
   demo.stack.settings.resolveBearer(grafana.token);
+  // Another model's Settings → Device lists its experimental writes once it is identified
+  if (scenario === "unverified") await demo.stack.monitor.identifyDevice();
   if (scenario !== "breaker") {
     // The first neighbor scan and settings read would otherwise wait for their own schedules
-    await Promise.all([
+    const reads = [
       demo.stack.monitor.refreshNeighbors({ ignoreCooldown: true }),
       demo.stack.monitor.refreshSettings({ ignoreCooldown: true }),
       demo.stack.monitor.refreshAccessControl({ ignoreCooldown: true }),
-    ]);
+    ];
+    // Another model may lack some of them; the H168-383 must have them all
+    if (scenario === "unverified") await Promise.allSettled(reads);
+    else await Promise.all(reads);
   }
   const ticker = setInterval(() => demo.router.advance(), 5000);
   ticker.unref();

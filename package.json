@@ -1,6 +1,6 @@
 {
   "name": "cpe-dash",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "description": "FengSui (烽燧) — Self-hosted strict TypeScript 5G RF telemetry, 3CA carrier aggregation, neighbor cell scanner, band/cell locking, and MCP agent platform for Huawei 5G CPE Ultra 6 (H168-383)",
   "author": "cky008",
