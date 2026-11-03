@@ -43,6 +43,7 @@
 - [🏛️ Architecture: Single Session Gateway and Yielding to Human Admin](#️-architecture-single-session-gateway-and-yielding-to-human-admin)
 - [✨ Core Features](#-core-features)
 - [📡 H168-383 Hardware Capability Matrix](#-h168-383-hardware-capability-matrix-hardware-verified)
+- [🧩 Compatibility (other Huawei models)](#-compatibility-other-huawei-models)
 - [🚀 Quick Start](#-quick-start)
 - [🐳 Docker / Synology DS923+ Deployment](#-docker--synology-ds923-deployment)
 - [🤖 MCP Agent Integration](#-mcp-agent-integration)
@@ -255,6 +256,26 @@ sequenceDiagram
 | **Antenna Switching, Static DHCP & Dual-Stack APN** | `/api/device/antenna_set_type`<br/>`/api/dhcp/static-addr-info`<br/>`/api/dialup/profiles` | Auto / internal / external antenna switching and insertion detection, static MAC-IP binding, and `IPv4/IPv6` (`iptype=2`) dual-stack APN auditing | ✅ Verified |
 
 > Temperature sensors and gNodeB ID are not exposed by firmware `4.4.0.1`; the UI displays `N/A` / shows eNodeB only.
+
+---
+
+## 🧩 Compatibility (other Huawei models)
+
+**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink / EMUI routers may work read-only, but nobody has verified them, and every write to them is locked. The table below is written from the verified list in code (`VERIFIED_FIRMWARE` in [`src/firmware.ts`](src/firmware.ts)), and a test keeps the two identical:
+
+<!-- compat:begin -->
+| Model | Firmware | Reads | Writes |
+| :--- | :--- | :--- | :--- |
+| H168-383 | `4.4.0.1(H1006SP19C00)` | ✅ verified | ✅ verified |
+| H168-383 | another build | ✅ as usual, with a `FIRMWARE_UNVERIFIED` warning | ✅ as usual, with the same warning |
+| Other Huawei HiLink / EMUI models | every build | ⚠️ may work, not verified: what the router provides | 🔒 locked (read-only) |
+<!-- compat:end -->
+
+- **How the router is identified**: once after the daemon starts, and whenever you test or save the connection under Settings → Router, FengSui reads the model, the login method and the feature endpoints (read-only GETs that change no setting); the result is under Settings → Device. The login method is settled before any password goes out (SCRAM, or SHA-256 / Base64 on older models), and the same password is never retried with another method.
+- **What read-only means**: the write gate sits on the server, so neither the console, REST, MCP, Telegram nor the WAN self-healing can get past it. On an unverified model every write answers `409 DEVICE_UNVERIFIED_READ_ONLY` and the router receives no write request; the header shows "Unverified model · read-only", MCP lists no tool that writes to the router, Telegram's write commands explain, and self-healing only alerts (`SELF_HEAL_READ_ONLY`).
+- **What is read**: whatever the router provides. A section it answers with `100002` / `100003` or with something FengSui cannot read is shown as "not available on this model" without costing the rest; a model without 5G simply has no NR values. Each section's state is under Settings → Device; see appendix A.10 of [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md).
+- **Report compatibility or a problem**: under Settings → Device choose "Create device report", read it through, copy it or download the JSON, then choose "Report on GitHub": a new issue of this project opens in a new tab (with the title and the report form only, never the report), where you paste or attach it. The report holds endpoint structure and a few allowlisted values (model, firmware and WebUI version, small switch numbers, band numbers), no IMEI, IMSI, MAC, IP address, phone number, cell or Wi-Fi name; FengSui uploads nothing on its own, and please read it once more before you submit.
+- **To have a look first**: `DEMO_SCENARIO=unverified npm run demo` runs the full daemon against a simulated unverified model.
 
 ---
 

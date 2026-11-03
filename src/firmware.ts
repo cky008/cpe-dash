@@ -58,6 +58,29 @@ export function verifiedModelsLabel(): string {
   return [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ");
 }
 
+/**
+ * The compatibility table both READMEs carry between `<!-- compat:begin -->` and `<!-- compat:end -->`,
+ * written from `VERIFIED_FIRMWARE` (test/readme-compat.test.ts keeps them identical): verified builds
+ * read and write, a new build of a verified model warns, every other model is read-only.
+ */
+export function compatibilityTable(locale: SupportedLocale): string {
+  const en = locale === "en";
+  const rows = [
+    en ? "| Model | Firmware | Reads | Writes |" : "| 型号 | 固件 | 读取 | 写入 |",
+    "| :--- | :--- | :--- | :--- |",
+    ...VERIFIED_FIRMWARE.map((entry) => `| ${entry.model} | \`${entry.softwareVersion}\` | ${en ? "✅ verified" : "✅ 已验证"} | ${en ? "✅ verified" : "✅ 已验证"} |`),
+    ...[...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].map((model) =>
+      en
+        ? `| ${model} | another build | ✅ as usual, with a \`FIRMWARE_UNVERIFIED\` warning | ✅ as usual, with the same warning |`
+        : `| ${model} | 其他固件 | ✅ 照常，附 \`FIRMWARE_UNVERIFIED\` 告警 | ✅ 照常，附同一告警 |`
+    ),
+    en
+      ? "| Other Huawei HiLink / EMUI models | every build | ⚠️ may work, not verified: what the router provides | 🔒 locked (read-only) |"
+      : "| 其他华为 HiLink / EMUI 型号 | 任意 | ⚠️ 可能可用，未验证：路由器提供的项目 | 🔒 锁定（只读） |",
+  ];
+  return rows.join("\n");
+}
+
 export function verifiedFirmwareLabel(): string {
   return VERIFIED_FIRMWARE.map((entry) => `${entry.model} ${entry.softwareVersion}`).join(", ");
 }
