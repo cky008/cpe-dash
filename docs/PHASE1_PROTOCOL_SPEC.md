@@ -1004,6 +1004,8 @@ $$
 | 发短信（`smsWrite`） | 明文 `POST /api/sms/send-sms`：`<Index>-1</Index>`、`<Phones><Phone>…</Phone></Phones>`（每个收件人一个）、`<Sca>`（空）、`<Content>`（正文，按 XML 转义）、`<Length>`（正文的字符数）、`<Reserved>`（编码：`0` UCS-2、`1` 7 位、`2` 8 位）、`<Date>`（`yyyy-MM-dd HH:mm:ss`）；之后 `GET /api/sms/send-status` | 参考项目 `api/Sms.py`（`send_sms`、`send_status`）、`enums/sms.py`（`TextModeEnum`）、`Tools.py`（`datetime_to_string`） | H168-383 用加密通道（`enc-type=2`，3.8 节）。参考项目把请求体编码为 CESU-8（`Session.py` 的 `_create_request_xml`），烽燧发 UTF-8，两者只在基本多文种平面以外的字符（如表情）上不同，所以通用实现拒绝这类字符，不猜路由器怎么解。**推断**：`send-status` 的字段（`Phone`、`SucPhone`、`FailPhone`、`SendFailCode`）参考项目没有列出，烽燧按 H168-383 解密后的字段读取；读不到就记「无法核对」 |
 | 标记已读、删除短信（`smsWrite`） | `POST /api/sms/set-read`、`POST /api/sms/delete-sms`：`<Index>…</Index>`，每个请求一条 | 参考项目 `api/Sms.py`（`set_read`、`delete_sms`） | 每条消息一个请求（H168-383 一个请求可带多条，3.8 节） |
 
+**请求头**（**推断**，未在真机验证）：通用写入与烽燧其他明文 `POST` 一样带 `Content-Type: application/x-www-form-urlencoded; charset=UTF-8`（官方网页的做法，阶段 1 的旧式登录也是），请求体是 `<?xml version="1.0" encoding="UTF-8"?><request>…</request>`；参考项目的明文 `POST` 用 `application/xml`（`Session.py` 的 `_post`）。我们推断固件按 XML 解析请求体、不看这个头，两种都接受；如果某个型号只认其中一种，写入会被路由器拒绝，错误码记进「最近写入结果」，不重试。
+
 **暂不支持**（「设置 → 设备」显示为暂不支持，没有开关）：
 
 | 功能 | 原因 |
