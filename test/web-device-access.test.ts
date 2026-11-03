@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { DeviceAccessSnapshot, SchedulerStatusSnapshot, WriteResultRecord } from "../src/api-contract.ts";
-import { READ_SECTIONS } from "../src/device-access.ts";
+import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS } from "../src/device-access.ts";
 import { WRITE_FEATURES } from "../src/device-access.ts";
+import { EXPERIMENTAL_FEATURES } from "../src/device-profile.ts";
 import { canWrite, experimentalOffer, experimentalWrites, readOnlyModel, readbackTone, unavailableSection, versionLabel, writeState, writesLocked } from "../web/src/core/device-access-view.ts";
-import { READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITES_KEYS, WRITE_STATE_KEYS, readText, writeResultDetail } from "../web/src/core/device-view.ts";
+import { READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITES_KEYS, WRITE_STATE_KEYS, experimentalRiskBody, readText, writeResultDetail } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 
 /** What the console offers for the router it watches (multi-model phase 2), decided without the DOM. */
@@ -92,5 +93,37 @@ describe("console: experimental writes on a model nobody verified", () => {
     for (const locale of ["zh-CN", "en"] as const) {
       for (const key of [...Object.values(WRITE_STATE_KEYS), ...Object.values(READBACK_KEYS), ...Object.values(REASON_KEYS)]) assert.ok(SETTINGS_TEXT[locale][key].trim(), `${locale}: ${key}`);
     }
+  });
+
+  it("says, before a write is turned on, every action the gate then lets through: SMS read state and deletion too, and the self-healing's own writes (R3-11)", () => {
+    // How each action the gate files under an experimental feature is named, per language
+    const NAMED: Readonly<Partial<Record<ControlAction, Readonly<Record<"zh-CN" | "en", RegExp>>>>> = {
+      lock_band: { "zh-CN": /锁定 LTE 频段/, en: /lock the LTE bands/i },
+      unlock_rf_locks: { "zh-CN": /解除锁定/, en: /unlock/i },
+      auto_unlock_rf_locks: { "zh-CN": /LOCK_ROLLBACK_AFTER_MIN/, en: /LOCK_ROLLBACK_AFTER_MIN/ },
+      reboot_cpe: { "zh-CN": /重启路由器/, en: /restart the router/i },
+      reconnect_cellular: { "zh-CN": /重新拨号/, en: /redial/i },
+      auto_reconnect_cellular: { "zh-CN": /WAN_AUTO_RECONNECT_AFTER_MIN/, en: /WAN_AUTO_RECONNECT_AFTER_MIN/ },
+      set_mobile_data: { "zh-CN": /移动数据/, en: /mobile data/i },
+      sms_send: { "zh-CN": /发送短信/, en: /send SMS/i },
+      sms_mark_read: { "zh-CN": /标为已读[\s\S]*SMS_AUTO_MARK_READ/, en: /mark SMS read[\s\S]*SMS_AUTO_MARK_READ/i },
+      sms_delete: { "zh-CN": /删除短信/, en: /delete them/i },
+    };
+    const experimental: ReadonlySet<string> = new Set(EXPERIMENTAL_FEATURES);
+    for (const [action, feature] of Object.entries(CONTROL_FEATURES) as Array<[ControlAction, string]>) {
+      if (!experimental.has(feature)) continue;
+      const named = NAMED[action];
+      assert.ok(named, `${action} opens with ${feature}: name it in the dialog`);
+      for (const locale of ["zh-CN", "en"] as const) {
+        const t = (key: keyof (typeof SETTINGS_TEXT)["en"], params?: Record<string, string | number>): string => SETTINGS_TEXT[locale][key].replace(/\{(\w+)\}/g, (_, k: string) => String(params?.[k] ?? ""));
+        const body = experimentalRiskBody(feature as (typeof EXPERIMENTAL_FEATURES)[number], "B535-232", t);
+        assert.match(body[0] ?? "", named[locale], `${locale}: ${action}`);
+        // The risks, the recovery and the model to type stay in the dialog after what it opens
+        assert.deepEqual(body.slice(1), [t("exp_risk_breaks"), t("exp_risk_unverified", { model: "B535-232" }), t("exp_risk_recover"), t("exp_type_model", { model: "B535-232" })]);
+      }
+    }
+    assert.match(SETTINGS_TEXT.en.exp_scope_reboot, /never a factory reset/, "a reboot never sends Control 2");
+    // The switch, the dialog's title and the results name the SMS feature as more than sending
+    assert.deepEqual([SETTINGS_TEXT["zh-CN"].feature_sms_write, SETTINGS_TEXT.en.feature_sms_write], ["发送与管理短信", "Send and manage SMS"]);
   });
 });

@@ -14,6 +14,7 @@ import type {
   WriteFeatureState,
   WriteResultRecord,
 } from "../../../src/api-contract.ts";
+import type { ExperimentalFeature } from "../../../src/device-profile.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 import { type NoticeTone, schemeText } from "./console-view.ts";
@@ -103,6 +104,24 @@ export const REASON_KEYS: Readonly<Record<ReadbackReason, SettingsTextKey>> = {
   no_restart: "exp_reason_no_restart",
   no_evidence: "exp_reason_no_evidence",
 };
+
+/**
+ * What turning an experimental write on lets through, as the gate files the actions under it: every
+ * SMS write (send, mark read, delete), and the self-healing's own unlock or redial when `.env` turns
+ * it on (R3-11). The consent names all of it, not only the feature's label.
+ */
+const EXPERIMENTAL_SCOPE_KEYS: Readonly<Record<ExperimentalFeature, SettingsTextKey>> = {
+  bandLock: "exp_scope_bandLock",
+  reboot: "exp_scope_reboot",
+  reconnect: "exp_scope_reconnect",
+  mobileData: "exp_scope_mobileData",
+  smsWrite: "exp_scope_smsWrite",
+};
+
+/** The risk dialog shown before an experimental write is turned on: what it opens, then its risks and the model to type. */
+export function experimentalRiskBody(feature: ExperimentalFeature, model: string, t: Text): string[] {
+  return [t(EXPERIMENTAL_SCOPE_KEYS[feature]), t("exp_risk_breaks"), t("exp_risk_unverified", { model }), t("exp_risk_recover"), t("exp_type_model", { model })];
+}
 
 /** One write result's detail line: when, the endpoints it posted to, the router's code and why the read-back was not a match. */
 export function writeResultDetail(result: WriteResultRecord, nowMs: number, locale: Locale, t: Text): string {

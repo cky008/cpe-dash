@@ -2,7 +2,7 @@ import type { ConsoleSettingsResponse, DeviceProfileResponse, DeviceReport, Endp
 import type { AuditEntry } from "../../../src/audit-log.ts";
 import { TOKEN_LIFETIMES_DAYS } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
-import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
+import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { ApiError } from "../core/api.ts";
 import { type NoticeTone, auditCaller, connectionNotice, daysLeft, needsLastAttempt, passwordProblem, tokenFlowText, tokenState } from "../core/console-view.ts";
@@ -18,6 +18,7 @@ import {
   bandText,
   detectedText,
   endpointText,
+  experimentalRiskBody,
   loginText,
   readText,
   reportFileName,
@@ -47,6 +48,7 @@ const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string 
 ];
 /** Every lifetime the daemon accepts, then "never expires". */
 const LIFETIMES: ReadonlyArray<number | null> = [...TOKEN_LIFETIMES_DAYS, null];
+const isExperimentalFeature = (feature: WriteFeature): feature is ExperimentalFeature => (EXPERIMENTAL_FEATURES as ReadonlyArray<string>).includes(feature);
 const DEFAULT_LIFETIME_DAYS = 90;
 /**
  * Tab labels follow the dialog's own width (a container query): the labelled row needs about 37rem
@@ -386,9 +388,11 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     const label = t(FEATURE_KEYS[feature]);
     if (on) {
       input.checked = false;
+      // The daemon offers the switch only for a write with a generic implementation
+      if (!isExperimentalFeature(feature)) return;
       const ok = await ctx.confirm({
         title: t("exp_on_title", { feature: label }),
-        body: [t("exp_risk_breaks"), t("exp_risk_unverified", { model }), t("exp_risk_recover"), t("exp_type_model", { model })],
+        body: experimentalRiskBody(feature, model, t),
         confirmLabel: t("exp_confirm"),
         tone: "error",
         typeToConfirm: model,
