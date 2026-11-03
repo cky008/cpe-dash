@@ -8,7 +8,7 @@ import type {
   RouterSettingsSnapshot,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
-import { type DeviceProbeResult, isDeviceProbeResult } from "./device-profile.ts";
+import { type DeviceProbeResult, type LoginScheme, isDeviceProbeResult } from "./device-profile.ts";
 import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { SerializedTimeSeriesSnapshot } from "./timeseries.ts";
 import type { CircuitBreakerState } from "./types.ts";
@@ -38,6 +38,12 @@ export interface PersistedRuntimeState {
   firmwareNotice: { fingerprint: string; notifiedAtIso: string } | null;
   /** The last identification and capability probe (daemon start, or the console's connection test). */
   deviceProbe: DeviceProbeResult | null;
+  /**
+   * How the router in use logs in, as a background session or a saved connection last found it (a
+   * SCRAM router then never gets a legacy password). A console test that is not saved never changes
+   * it; state written before it existed falls back to the stored identification.
+   */
+  knownLoginScheme: LoginScheme | null;
 }
 
 function createDefaultState(): PersistedRuntimeState {
@@ -69,8 +75,11 @@ function createDefaultState(): PersistedRuntimeState {
     timeseries: null,
     firmwareNotice: null,
     deviceProbe: null,
+    knownLoginScheme: null,
   };
 }
+
+const KNOWN_LOGIN_SCHEMES: ReadonlySet<unknown> = new Set<LoginScheme>(["scram", "sha256", "base64"]);
 
 /**
  * Fill device fields added after a snapshot was persisted (identifiers came with Phase 3), so the
@@ -138,6 +147,7 @@ export class EncryptedStateStore {
         latestTelemetry: upgradeTelemetry(loaded.latestTelemetry ?? null),
         latestTopology: upgradeTopology(loaded.latestTopology ?? null),
         deviceProbe: isDeviceProbeResult(loaded.deviceProbe) ? loaded.deviceProbe : null,
+        knownLoginScheme: KNOWN_LOGIN_SCHEMES.has(loaded.knownLoginScheme) ? (loaded.knownLoginScheme ?? null) : null,
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
       };
     }

@@ -315,7 +315,8 @@ export class MutexSessionScheduler extends EventEmitter {
   init(): void {
     if (this.#initialized) return;
     const loaded = this.stateStore.load();
-    this.#client.rememberLoginScheme(storedLoginScheme(loaded.deviceProbe));
+    // Its own field since phase 2; state written before that keeps the stored identification's
+    this.#client.rememberLoginScheme(loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe));
     const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {
       this.#mode = "circuit_tripped";
@@ -732,10 +733,23 @@ export class MutexSessionScheduler extends EventEmitter {
         } catch (err) {
           next.reject(err);
         }
+        this.#recordLoginScheme();
       }
     } finally {
       this.#draining = false;
     }
+  }
+
+  /**
+   * Persist how the live client logs in once a session or a saved connection changed it. Connection
+   * tests use a throwaway client, so one that is not saved never moves it (R1-13).
+   */
+  #recordLoginScheme(): void {
+    if (!this.#initialized) return;
+    const scheme = this.#client.knownLoginScheme;
+    if (scheme === this.stateStore.getState().knownLoginScheme) return;
+    this.stateStore.update({ knownLoginScheme: scheme });
+    void this.stateStore.flushAsync().catch(() => undefined);
   }
 
   #enterAvoidance(layer: 1 | 2, stateCode: string): void {

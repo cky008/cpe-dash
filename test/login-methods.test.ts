@@ -256,6 +256,52 @@ describe("login methods and token flows (mock family)", () => {
     await odd.cleanup();
   });
 
+  it("keeps the known login scheme apart from the identification: only a background login or a save changes it (R1-06, R1-13)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-scheme-"));
+    const cpe = createStrictCpe();
+    const start = (opts: { allowLegacyLoginAfterScram?: boolean } = {}) => {
+      const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "scheme_key" });
+      const client = clientFor(cpe);
+      const core = createFengSuiCore({
+        client,
+        stateStore,
+        timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
+        pollIntervalMs: 600_000,
+        neighborScanIntervalMs: 600_000,
+        allowLegacyLoginAfterScram: opts.allowLegacyLoginAfterScram,
+      });
+      core.monitor.init();
+      return { client, core, stateStore };
+    };
+    try {
+      const first = start({ allowLegacyLoginAfterScram: true });
+      assert.ok(await first.core.monitor.refreshTelemetry());
+      assert.equal(first.stateStore.getState().knownLoginScheme, "scram", "a background login records how it logged in");
+      const probe = (await first.core.scheduler.testConnectionDetailed({ url: "http://192.168.8.1", username: "admin", password: cpe.password })).probe;
+      assert.ok(probe);
+      // With the flag on, a test of this address that is never saved may find another method (a replaced router)
+      await first.core.monitor.recordDeviceProbe({ ...probe, identity: { ...probe.identity, loginScheme: "sha256" } });
+      await stopFengSuiCore(first.core);
+
+      const second = start();
+      assert.equal(second.client.knownLoginScheme, "scram", "the unsaved test's method does not reach the live client after a restart");
+      await second.core.scheduler.applyConnection({ url: "http://192.168.8.1", username: "admin", password: cpe.password }, { loginScheme: "sha256" });
+      assert.equal(second.stateStore.getState().knownLoginScheme, "sha256", "a saved connection takes the method its test found");
+      await stopFengSuiCore(second.core);
+
+      // State written before the field existed: the stored identification still pins SCRAM
+      const legacy = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "scheme_key" });
+      legacy.load();
+      legacy.update({ knownLoginScheme: undefined as never, deviceProbe: probe });
+      await legacy.flushAsync();
+      const third = start();
+      assert.equal(third.client.knownLoginScheme, "scram");
+      await stopFengSuiCore(third.core);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps every probe script on SCRAM: the probes are H168-383 tools whose clients start from nothing (R1-07)", async () => {
     // The pin alone keeps a new client off the legacy login when the H168-383 refuses a challenge
     const cpe = createStrictCpe({ fault: (p) => (p === "/api/user/challenge_login" ? { cpeError: "100003" } : undefined) });
