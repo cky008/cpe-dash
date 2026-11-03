@@ -39,6 +39,29 @@ export const CONTROL_FEATURES = {
 
 export type ControlAction = keyof typeof CONTROL_FEATURES;
 
+/**
+ * What reading a generic write back showed (multi-model phase 3): `match`, `mismatch`, `unknown`
+ * (the read-back could not tell), `pending` (a redial or reboot, checked by the next polls) or
+ * `none` (nothing was written to check).
+ */
+export type ReadbackOutcome = "match" | "mismatch" | "unknown" | "pending" | "none";
+
+/**
+ * Why a read-back is not a match, from a fixed set so a result never carries a value: `differs` (the
+ * router reports another value than written), `unreadable` (the read-back failed or named nothing),
+ * `send_failed` / `send_unconfirmed` (send-status lists the recipient as failed / never settled),
+ * `no_change` / `unclear_change` (the SMS counts did not move / moved by another amount), `no_restart`
+ * (a redial or reboot the polls show did not happen), `no_evidence` (no poll could tell in time).
+ */
+export type ReadbackReason = "differs" | "unreadable" | "send_failed" | "send_unconfirmed" | "no_change" | "unclear_change" | "no_restart" | "no_evidence";
+
+/** What a generic write did: the endpoints it posted to and what reading them back showed (no value). */
+export interface WriteCheck {
+  endpoints: string[];
+  readback: ReadbackOutcome;
+  reason: ReadbackReason | null;
+}
+
 /** `allowed`: a verified model; `read_only`: every other model; `unknown`: no model identified yet. */
 export type WriteAccess = "allowed" | "read_only" | "unknown";
 

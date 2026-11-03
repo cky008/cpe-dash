@@ -1,9 +1,11 @@
 import { stripInvalidControlChars } from "../crypto.ts";
 import { CpeApiError, type EphemeralCpeSession } from "../cpe-client.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
+import type { WriteCheck } from "../device-access.ts";
+import { settleCheck } from "../generic-writes.ts";
 import type { MutexSessionScheduler } from "../scheduler.ts";
 import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../xml.ts";
-import { MAX_SMS_SEGMENTS, detectSmsTextMode, parseSmsCounters, parseSmsMessageBlock } from "./codec.ts";
+import { MAX_SMS_SEGMENTS, detectSmsTextMode, parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "./codec.ts";
 import type { SmsCounters, SmsSendResult, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
 
 export { parseSmsCounters } from "./codec.ts";
@@ -279,7 +281,14 @@ export async function submitSms(
     2
   );
   opts.onAccepted?.();
+  return await pollSendStatus(prepared, () => session.postEncrypted("/api/sms/send-status", {}, 1), opts);
+}
 
+/**
+ * Poll `send-status` (read by `readStatus`) until the router reports the recipients as delivered or
+ * failed, or the wall-time timeout elapses; a polling failure means unconfirmed, never failed.
+ */
+async function pollSendStatus(prepared: PreparedSmsSubmission, readStatus: () => Promise<string>, opts: SubmitSmsOptions): Promise<SmsSendResult> {
   const timeoutMs = opts.statusTimeoutMs ?? 45_000;
   const intervalMs = Math.max(1, opts.statusIntervalMs ?? 2000);
   const maxPolls = Math.max(1, Math.ceil(timeoutMs / intervalMs));
@@ -293,7 +302,7 @@ export async function submitSms(
     let status: string;
     try {
       await sleep(intervalMs);
-      status = await session.postEncrypted("/api/sms/send-status", {}, 1);
+      status = await readStatus();
     } catch {
       return unconfirmed;
     }
@@ -315,6 +324,94 @@ export async function submitSms(
   }
 
   return unconfirmed;
+}
+
+/**
+ * Text outside the basic multilingual plane (emoji and the like): the reference project sends the
+ * request body as CESU-8, FengSui sends UTF-8, and the two differ only there, so the generic send
+ * refuses it instead of guessing how the router decodes it (docs/PHASE1_PROTOCOL_SPEC.md A.11).
+ */
+export function validateGenericSmsContent(content: string): void {
+  if (/[\u{10000}-\u{10FFFF}]/u.test(content)) {
+    throw new CpeControlValidationError("This router is a model FengSui was not verified on: its experimental SMS send takes no emoji or other characters outside the basic plane");
+  }
+}
+
+/** Element text escaped the way the reference project's serializer does it (`&`, `<`, `>` only). */
+function escapeElementText(text: string): PreEscapedXmlText {
+  return PreEscapedXmlText.fromEscaped(text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"));
+}
+
+/**
+ * Send on a model nobody verified: plaintext `POST /api/sms/send-sms` with the fields of the
+ * reference project in its order (`Length` counts characters, `Reserved` is the text mode), then poll
+ * plaintext `GET /api/sms/send-status`. A settled send is the read-back: delivered is a match, failed a
+ * mismatch, unsettled unknown. Never repeated, like the verified send.
+ */
+export async function genericSendSms(
+  session: EphemeralCpeSession,
+  check: WriteCheck,
+  prepared: PreparedSmsSubmission,
+  opts: SubmitSmsOptions = {}
+): Promise<SmsSendResult> {
+  validateGenericSmsContent(prepared.content);
+  check.endpoints.push("/api/sms/send-sms");
+  await session.postXml("/api/sms/send-sms", {
+    Index: -1,
+    Phones: { Phone: prepared.phones },
+    Sca: "",
+    Content: escapeElementText(prepared.content),
+    Length: [...prepared.content].length,
+    Reserved: prepared.mode.textMode,
+    Date: formatHuaweiDate(new Date()),
+  });
+  opts.onAccepted?.();
+  const result = await pollSendStatus(prepared, () => session.get("/api/sms/send-status"), opts);
+  settleCheck(check, result.timedOutWaitingStatus ? null : result.ok, "send_failed", "send_unconfirmed");
+  return result;
+}
+
+/** The SMS counts before a generic write (a broken session fails it) or after (never fails it). */
+async function countsOrNull(session: EphemeralCpeSession, afterWrite: boolean): Promise<SmsCounters | null> {
+  try {
+    return parseSmsCountersOrNull(await session.get("/api/sms/sms-count"));
+  } catch (err) {
+    if (afterWrite || err instanceof CpeApiError) return null;
+    throw err;
+  }
+}
+
+/** One message per request (`<Index>`), as the reference project writes them, read back by the counts. */
+async function genericIndexWrites(
+  session: EphemeralCpeSession,
+  check: WriteCheck,
+  apiPath: string,
+  indices: ReadonlyArray<number>,
+  count: (counters: SmsCounters) => number
+): Promise<number> {
+  const clean = sanitizeIndices(indices);
+  if (clean.length === 0) return 0;
+  const before = await countsOrNull(session, false);
+  check.endpoints.push(apiPath);
+  for (const index of clean) await session.postXml(apiPath, { Index: index });
+  const after = await countsOrNull(session, true);
+  if (!before || !after) {
+    settleCheck(check, null);
+  } else {
+    const moved = count(before) - count(after);
+    settleCheck(check, moved === clean.length ? true : moved === 0 ? false : null, "no_change", "unclear_change");
+  }
+  return clean.length;
+}
+
+/** Mark read on a model nobody verified (`POST /api/sms/set-read`); the unread count must drop by as many. */
+export async function genericMarkSmsRead(session: EphemeralCpeSession, check: WriteCheck, indices: ReadonlyArray<number>): Promise<number> {
+  return await genericIndexWrites(session, check, "/api/sms/set-read", indices, (c) => c.localUnread);
+}
+
+/** Delete on a model nobody verified (`POST /api/sms/delete-sms`); the stored count must drop by as many. */
+export async function genericDeleteSms(session: EphemeralCpeSession, check: WriteCheck, indices: ReadonlyArray<number>): Promise<number> {
+  return await genericIndexWrites(session, check, "/api/sms/delete-sms", indices, (c) => c.localInbox + c.localOutbox + c.localDraft);
 }
 
 function sanitizeIndices(indices: ReadonlyArray<number>): number[] {

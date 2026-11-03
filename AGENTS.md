@@ -32,6 +32,7 @@ cpe-dash/
 │   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断）
 │   ├── cpe-monitor.ts      # 读侧：后台轮询、单飞刷新、快照缓存与时序写入；启动后识别路由器一次（当时连不上则在第一次读成功后补上；不进入轮询）
 │   ├── cpe-controls.ts     # 写侧：锁频锁站、重启重拨、路由器开关、设备访问控制（入队前校验）
+│   ├── generic-writes.ts   # 未验证型号的实验性写入（附录 A.11 的 HiLink 格式）：LTE 锁频、重启、重拨、移动数据，同一会话回读核对，绝不重试（明文短信写入在 sms/protocol.ts）
 │   ├── access-state.ts · access-plan.ts  # 零依赖：Wi-Fi MAC 过滤状态与访问控制规划（受保护设备、名单、上网时段冲突；前后端同一实现）
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）

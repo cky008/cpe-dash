@@ -53,6 +53,22 @@ export interface CpeFamilyOptions {
    * A.10); without it both answer `100002`. Listing is a read: it never counts as a write.
    */
   sms?: ReadonlyArray<FamilySms>;
+  /**
+   * Model the generic writes of appendix A.11 (net-mode, mobile data, redial, reboot, plaintext SMS
+   * send / set-read / delete) strictly: a body in any other form answers `100005`, an unmodelled
+   * POST `100002`. Without it every POST is accepted and only recorded, as before.
+   */
+  writes?: FamilyWrites;
+}
+
+/** How the family models the generic writes (see `CpeFamilyOptions.writes`). */
+export interface FamilyWrites {
+  /** The router answers OK but changes nothing (a firmware that ignores the request). */
+  ignore?: boolean;
+  /** POST paths the router refuses with this error code. */
+  errors?: Readonly<Record<string, string>>;
+  /** What `sms/send-status` reports once a send settles; `never` keeps reporting it pending. Default `sent`. */
+  smsOutcome?: "sent" | "failed" | "never";
 }
 
 export interface FamilySms {
@@ -111,7 +127,21 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
   const sessions = new Map<string, Set<string>>();
   const pendingChallenges = new Map<string, { firstNonce: string; serverNonce: string }>();
 
+  // The settings the generic writes change (`writes`), seeded from the router's own answers
+  const seeded = typeof opts.endpoints?.["/api/net/net-mode"] === "string" ? (opts.endpoints["/api/net/net-mode"] as string) : "";
+  const netMode = {
+    NetworkMode: getXmlTag(seeded, "NetworkMode") ?? "00",
+    NetworkBand: getXmlTag(seeded, "NetworkBand") ?? "3FFFFFFF",
+    LTEBand: getXmlTag(seeded, "LTEBand") ?? "800800C5",
+  };
+  let dataSwitch = "1";
+  let sending: { phones: string[]; polls: number } | null = null;
+  let nextSmsIndex = 50_000;
+
   const stats = {
+    /** Generic writes the router acted on (`writes`): `reconnect` and `reboot` count, the rest change state. */
+    reconnects: 0,
+    reboots: 0,
     requests: [] as Array<{ path: string; method: string }>,
     /** `challenge_login` calls: username and a nonce, never a password. */
     scramProbes: 0,
@@ -313,6 +343,23 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
       const xml = items.map((m) => `<Message><Smstat>${m.smstat}</Smstat><Index>${m.index}</Index><Phone>${m.phone}</Phone><Content>${m.content}</Content><Date>${m.date}</Date></Message>`).join("");
       return respond(`<response><Count>${items.length}</Count><Messages>${xml}</Messages></response>`);
     }
+    if (opts.writes && method === "GET" && p === "/api/net/net-mode") {
+      return reply(`<response><NetworkMode>${netMode.NetworkMode}</NetworkMode><NetworkBand>${netMode.NetworkBand}</NetworkBand><LTEBand>${netMode.LTEBand}</LTEBand></response>`);
+    }
+    if (opts.writes && method === "GET" && p === "/api/dialup/mobile-dataswitch") {
+      return reply(`<response><dataswitch>${dataSwitch}</dataswitch></response>`);
+    }
+    if (opts.writes && method === "GET" && p === "/api/sms/send-status") {
+      const outcome = opts.writes.smsOutcome ?? "sent";
+      const pending = sending !== null && (sending.polls++ === 0 || outcome === "never");
+      const phones = sending?.phones.join(",") ?? "";
+      if (pending) return reply(`<response><Phone>${phones}</Phone><SucPhone></SucPhone><FailPhone></FailPhone><SendFailCode>0</SendFailCode></response>`);
+      return reply(
+        outcome === "failed"
+          ? `<response><Phone></Phone><SucPhone></SucPhone><FailPhone>${phones}</FailPhone><SendFailCode>113018</SendFailCode></response>`
+          : `<response><Phone></Phone><SucPhone>${phones}</SucPhone><FailPhone></FailPhone><SendFailCode>0</SendFailCode></response>`
+      );
+    }
     if (method === "GET") {
       if (p === "/api/device/information") {
         return reply(`<response><DeviceName>${model}</DeviceName><SoftwareVersion>${firmware}</SoftwareVersion><WebUIVersion>WEBUI 10.0.2.1</WebUIVersion><Imei>860000000000000</Imei><WanIPAddress>203.0.113.10</WanIPAddress></response>`);
@@ -326,7 +373,60 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
       return xmlError("100002");
     }
     stats.writes.push({ path: p, body: plainBody });
-    return respond("<response>OK</response>");
+    if (!opts.writes) return respond("<response>OK</response>");
+    return modelledWrite(p, plainBody.replace(/^<\?xml[^>]*\?>/, ""), opts.writes, xmlError, () => reply("<response>OK</response>"));
+  };
+
+  /** A generic write in exactly the form appendix A.11 gives, else `100005`; an unmodelled one `100002`. */
+  const modelledWrite = (p: string, body: string, writes: FamilyWrites, xmlError: (code: string) => Response, ok: () => Response): Response => {
+    const refused = writes.errors?.[p];
+    if (refused) return xmlError(refused);
+    const act = (change: () => void): Response => {
+      if (!writes.ignore) change();
+      return ok();
+    };
+    if (p === "/api/net/net-mode") {
+      const m = /^<request><NetworkMode>(\d{2,8})<\/NetworkMode><NetworkBand>([0-9A-Fa-f]{1,16})<\/NetworkBand><LTEBand>([0-9a-f]{1,32})<\/LTEBand><\/request>$/.exec(body);
+      if (!m) return xmlError("100005");
+      return act(() => Object.assign(netMode, { NetworkMode: m[1], NetworkBand: m[2], LTEBand: m[3] }));
+    }
+    if (p === "/api/dialup/mobile-dataswitch") {
+      const m = /^<request><dataswitch>([01])<\/dataswitch><\/request>$/.exec(body);
+      if (!m) return xmlError("100005");
+      return act(() => (dataSwitch = m[1] ?? dataSwitch));
+    }
+    if (p === "/api/net/reconnect") {
+      if (body !== "<request><ReconnectAction>1</ReconnectAction></request>") return xmlError("100005");
+      return act(() => (stats.reconnects += 1));
+    }
+    if (p === "/api/device/control") {
+      // 2 resets the router to factory settings, 3 backs its settings up, 4 powers it off: never anything but 1
+      if (body !== "<request><Control>1</Control></request>") return xmlError("100005");
+      return act(() => (stats.reboots += 1));
+    }
+    if (p === "/api/sms/send-sms") {
+      const m =
+        /^<request><Index>-1<\/Index><Phones>((?:<Phone>[^<]+<\/Phone>)+)<\/Phones><Sca><\/Sca><Content>([^<]*)<\/Content><Length>(\d+)<\/Length><Reserved>([01])<\/Reserved><Date>(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)<\/Date><\/request>$/.exec(body);
+      const content = (m?.[2] ?? "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+      if (!m || Number(m[3]) !== [...content].length) return xmlError("100005");
+      const phones = [...(m[1] ?? "").matchAll(/<Phone>([^<]+)<\/Phone>/g)].map((x) => x[1] ?? "");
+      return act(() => {
+        sending = { phones, polls: 0 };
+        for (const phone of phones) sms?.push({ index: nextSmsIndex++, phone, content, date: m[5] ?? "", smstat: "3", box: 2 });
+      });
+    }
+    if (p === "/api/sms/set-read" || p === "/api/sms/delete-sms") {
+      const m = /^<request><Index>(\d+)<\/Index><\/request>$/.exec(body);
+      if (!m || !sms) return xmlError(m ? "100002" : "100005");
+      const index = Number(m[1]);
+      return act(() => {
+        const at = sms.findIndex((message) => message.index === index);
+        if (at < 0) return;
+        if (p === "/api/sms/delete-sms") sms.splice(at, 1);
+        else if (sms[at]?.smstat === "0") sms[at] = { ...(sms[at] as FamilySms), smstat: "1" };
+      });
+    }
+    return xmlError("100002");
   };
 
   return {
@@ -336,6 +436,8 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     stats,
     /** The live plaintext SMS store (`null` without `sms`): push to it to deliver a message. */
     smsStore: sms,
+    /** The settings the modelled generic writes change (`writes`). */
+    settings: { netMode, mobileData: (): string => dataSwitch },
     serverEccPublicKeyHex: SERVER_ECC_PUB,
     isSlotTaken: (): boolean => adminSession !== null,
     isLocked: (): boolean => locked,
