@@ -345,8 +345,10 @@ function escapeElementText(text: string): PreEscapedXmlText {
 /**
  * Send on a model nobody verified: plaintext `POST /api/sms/send-sms` with the fields of the
  * reference project in its order (`Length` counts characters, `Reserved` is the text mode), then poll
- * plaintext `GET /api/sms/send-status`. A settled send is the read-back: delivered is a match, failed a
- * mismatch, unsettled unknown. Never repeated, like the verified send.
+ * plaintext `GET /api/sms/send-status`. A settled send is the read-back: every recipient named as
+ * delivered is a match, failed a mismatch, unsettled unknown, and so is a status naming fewer
+ * recipients (a firmware whose status has other fields names none). Never repeated, like the
+ * verified send.
  */
 export async function genericSendSms(
   session: EphemeralCpeSession,
@@ -366,8 +368,12 @@ export async function genericSendSms(
     Date: formatHuaweiDate(new Date()),
   });
   opts.onAccepted?.();
-  const result = await pollSendStatus(prepared, () => session.get("/api/sms/send-status"), opts);
-  settleCheck(check, result.timedOutWaitingStatus ? null : result.ok, "send_failed", "send_unconfirmed");
+  let status = "";
+  const result = await pollSendStatus(prepared, async () => (status = await session.get("/api/sms/send-status")), opts);
+  // The send result reads an empty status as sent (the H168-383's way); the read-back wants the router to say so
+  const delivered = splitPhoneList(getXmlTag(status, "SucPhone")).length >= prepared.phones.length;
+  if (result.timedOutWaitingStatus) settleCheck(check, null, "send_failed", "send_unconfirmed");
+  else settleCheck(check, result.ok ? (delivered ? true : null) : false, "send_failed");
   return result;
 }
 

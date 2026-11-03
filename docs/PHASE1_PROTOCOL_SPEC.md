@@ -1030,7 +1030,7 @@ $$
 | :--- | :--- | :--- |
 | 锁 LTE 频段、解锁 | 同一会话里写完再 `GET /api/net/net-mode`，读 `LTEBand` | 掩码相同为一致（解锁时，全部频段掩码或通告的每个频段都开着也算一致）；不同为不一致；读不到为无法核对 |
 | 移动数据 | 同一会话里再 `GET /api/dialup/mobile-dataswitch`，读 `dataswitch` | 与写入的 0 / 1 相同为一致 |
-| 发短信 | 同一会话里轮询明文 `GET /api/sms/send-status`（与加密版相同的超时） | 收件人进了 `SucPhone` 为一致，进了 `FailPhone` 为不一致，一直没有结果为无法核对；发送请求只发一次 |
+| 发短信 | 同一会话里轮询明文 `GET /api/sms/send-status`（与加密版相同的超时） | `SucPhone` 列出了每个收件人为一致，进了 `FailPhone`（或有失败码）为不一致；一直没有结果，或结果里列出的成功收件人比收件人少（例如 `send-status` 是别的字段，一个都没列）为无法核对；发送请求只发一次 |
 | 标记已读、删除 | 写之前、写之后各 `GET /api/sms/sms-count` | `LocalUnread`（删除看 `LocalInbox + LocalOutbox + LocalDraft`）正好少了条数为一致，没变为不一致，变化对不上为无法核对 |
 | 重拨、重启 | 之后的 5 秒轮询（不多发请求）：重拨看流量统计的 `CurrentConnectTime`（WAN 已连接时），重启看 `device/information` 的 `uptime`（没有就看连接时长） | 从写入之后重新计起为一致；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为无法核对 |
 

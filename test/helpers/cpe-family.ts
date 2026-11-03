@@ -69,8 +69,12 @@ export interface FamilyWrites {
   ignore?: boolean;
   /** POST paths the router refuses with this error code. */
   errors?: Readonly<Record<string, string>>;
-  /** What `sms/send-status` reports once a send settles; `never` keeps reporting it pending. Default `sent`. */
-  smsOutcome?: "sent" | "failed" | "never";
+  /**
+   * What `sms/send-status` reports once a send settles; `never` keeps reporting it pending, `silent`
+   * names no recipient at all (a firmware whose status has other fields), `partial` lists only the
+   * first recipient as delivered. Default `sent`.
+   */
+  smsOutcome?: "sent" | "failed" | "never" | "silent" | "partial";
 }
 
 export interface FamilySms {
@@ -354,13 +358,16 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     }
     if (opts.writes && method === "GET" && p === "/api/sms/send-status") {
       const outcome = opts.writes.smsOutcome ?? "sent";
+      // A status with none of the fields FengSui reads: nothing pending, nothing delivered, nothing failed
+      if (outcome === "silent") return reply("<response><TotalCount>1</TotalCount></response>");
       const pending = sending !== null && (sending.polls++ === 0 || outcome === "never");
       const phones = sending?.phones.join(",") ?? "";
       if (pending) return reply(`<response><Phone>${phones}</Phone><SucPhone></SucPhone><FailPhone></FailPhone><SendFailCode>0</SendFailCode></response>`);
+      const delivered = outcome === "partial" ? (sending?.phones[0] ?? "") : phones;
       return reply(
         outcome === "failed"
           ? `<response><Phone></Phone><SucPhone></SucPhone><FailPhone>${phones}</FailPhone><SendFailCode>113018</SendFailCode></response>`
-          : `<response><Phone></Phone><SucPhone>${phones}</SucPhone><FailPhone></FailPhone><SendFailCode>0</SendFailCode></response>`
+          : `<response><Phone></Phone><SucPhone>${delivered}</SucPhone><FailPhone></FailPhone><SendFailCode>0</SendFailCode></response>`
       );
     }
     if (method === "GET") {

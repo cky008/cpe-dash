@@ -231,6 +231,26 @@ describe("generic writes: plaintext SMS", () => {
     assert.equal(stuck.cpe.stats.writes.filter((w) => w.path === "/api/sms/send-sms").length, 1, "a send is never repeated");
   });
 
+  it("calls a send a match only when send-status names its recipients as delivered", async () => {
+    // A status with none of the fields FengSui reads: the send is reported as before, its read-back proves nothing
+    const silent = router({ smsOutcome: "silent" });
+    const silentCheck = newWriteCheck();
+    const quiet = await silent.session((s) => genericSendSms(s, silentCheck, prepareSmsSubmission(["+353830000002"], "hi"), { sleep: async () => undefined }));
+    assert.deepEqual([quiet.value.ok, quiet.value.timedOutWaitingStatus], [true, false]);
+    assert.deepEqual(silentCheck, { endpoints: ["/api/sms/send-sms"], readback: "unknown", reason: "unreadable" });
+    assert.equal(silent.cpe.stats.writes.filter((w) => w.path === "/api/sms/send-sms").length, 1, "a send is never repeated");
+
+    // Two recipients, one named as delivered and none as failed: not a match either
+    const partial = router({ smsOutcome: "partial" });
+    const partialCheck = newWriteCheck();
+    await partial.session((s) => genericSendSms(s, partialCheck, prepareSmsSubmission(["+353830000002", "+353830000003"], "hi"), { sleep: async () => undefined }));
+    assert.deepEqual([partialCheck.readback, partialCheck.reason], ["unknown", "unreadable"]);
+    const both = router();
+    const bothCheck = newWriteCheck();
+    await both.session((s) => genericSendSms(s, bothCheck, prepareSmsSubmission(["+353830000002", "+353830000003"], "hi"), { sleep: async () => undefined }));
+    assert.deepEqual([bothCheck.readback, bothCheck.reason], ["match", null]);
+  });
+
   it("marks read and deletes one message per request, and checks the counts", async () => {
     const { cpe, session } = router();
     const read = newWriteCheck();
