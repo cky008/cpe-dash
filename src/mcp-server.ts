@@ -1,5 +1,6 @@
 import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
+import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { CoreMcpTools } from "./mcp-core-tools.ts";
 import { MCP_META_PROTOCOL_VERSION, MCP_META_SERVER_INFO, decodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
@@ -155,19 +156,54 @@ export class FengSuiMcpServer {
 
   /**
    * Tools this caller may see: mutating tools are hidden by `MCP_ALLOW_MUTATIONS=false` and for
-   * read-only tokens, router writes on a router of an unverified model (read-only), and tools for
-   * what this router turned out not to provide.
+   * read-only tokens; on a router of an unverified model, router writes unless their features are
+   * open there (phase 3: then in their experimental form); and tools for what this router turned
+   * out not to provide.
    */
   getToolDefinitions(readOnly = false): ReadonlyArray<McpToolDefinition> {
-    const routerReadOnly = this.#scheduler.device.writes === "read_only";
     return this.toolProviders.flatMap((p) =>
-      p.getToolDefinitions().filter(
-        (tool) =>
-          ((this.allowMutations && !readOnly) || !p.isMutating(tool.name)) &&
-          !(routerReadOnly && isRouterWrite(p, tool.name)) &&
-          (p.isAvailable?.(tool.name) ?? true)
-      )
+      p
+        .getToolDefinitions()
+        .filter((tool) => ((this.allowMutations && !readOnly) || !p.isMutating(tool.name)) && (p.isAvailable?.(tool.name) ?? true))
+        .flatMap((tool) => {
+          const shown = this.#onThisRouter(p, tool);
+          return shown.definition ? [shown.definition] : [];
+        })
     );
+  }
+
+  /**
+   * How a tool shows on this router. Not a router write, a verified model or no model yet: as it is
+   * (the scheduler still checks the model before the write). On a model nobody verified, a router
+   * write shows only while each of its features is open there, then in its generic form, marked
+   * experimental (or verified by users) and asking for `confirm: true`; `refused` names the first
+   * feature that is not open.
+   */
+  #onThisRouter(provider: McpToolProvider, tool: McpToolDefinition): { definition: McpToolDefinition | null; refused: WriteFeature | null } {
+    const device = this.#scheduler.device;
+    if (!isRouterWrite(provider, tool.name) || device.writes !== "read_only") return { definition: tool, refused: null };
+    const features = provider.routerWriteFeatures?.(tool.name) ?? [];
+    const refused = features.length === 0 ? null : (features.find((feature) => device.writeAccess(feature) === "read_only") ?? null);
+    if (features.length === 0 || refused) return { definition: null, refused };
+    const experimental = features.some((feature) => device.writeAccess(feature) === "experimental");
+    const model = device.snapshot().model ?? "?";
+    const generic = provider.adaptForGenericWrite?.(tool, { lteBands: device.experimentalLteBands }) ?? tool;
+    const required = generic.inputSchema.required ?? [];
+    return {
+      refused: null,
+      definition: {
+        ...generic,
+        description: `${experimental ? "EXPERIMENTAL" : "VERIFIED BY USERS"} on this router (${model}, a model FengSui was not verified on${experimental ? "; its owner turned this write on in Settings → Device, and every result is read back" : ""}): ${generic.description} Pass confirm: true only when the user explicitly asked for this exact change.`,
+        inputSchema: {
+          ...generic.inputSchema,
+          properties: {
+            ...generic.inputSchema.properties,
+            confirm: generic.inputSchema.properties["confirm"] ?? { type: "boolean", description: "Must be true: a write on a model FengSui was not verified on." },
+          },
+          required: required.includes("confirm") ? required : [...required, "confirm"],
+        },
+      },
+    };
   }
 
   isSupportedProtocolVersion(version: string | undefined): boolean {
@@ -278,10 +314,17 @@ export class FengSuiMcpServer {
 
   #instructions(): string {
     const device = this.#scheduler.device;
-    const readOnly =
-      device.writes === "read_only"
-        ? [`This router (${device.snapshot().model ?? "?"}) is a model FengSui was not verified on: it is read-only, so no tool can change it.`]
-        : [];
+    const model = device.snapshot().model ?? "?";
+    const open = WRITE_FEATURES.filter((feature) => device.writeAccess(feature) !== "read_only");
+    let readOnly: string[] = [];
+    if (device.writes === "read_only") {
+      readOnly =
+        open.length === 0
+          ? [`This router (${model}) is a model FengSui was not verified on: it is read-only, so no tool can change it.`]
+          : [
+              `This router (${model}) is a model FengSui was not verified on: it is read-only except the experimental writes its owner turned on (${open.join(", ")}). Their tools say so and need confirm: true; pass it only when the user explicitly asked for that exact change.`,
+            ];
+    }
     return [...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])), ...readOnly].filter(Boolean).join(" ");
   }
 
@@ -398,14 +441,17 @@ export class FengSuiMcpServer {
         "Mutating MCP tools are disabled by server configuration (MCP_ALLOW_MUTATIONS=false)"
       );
     }
-    // The write gate, before anything else touches the call (the scheduler refuses it as well)
-    if (provider && isRouterWrite(provider, toolName) && this.#scheduler.device.writes === "read_only") {
-      const refused = new DeviceReadOnlyError(this.#scheduler.device.snapshot().model ?? "?", null);
-      return wrapErr("DEVICE_UNVERIFIED_READ_ONLY", refused.messageEn, { messageZh: refused.messageZh, model: refused.model });
+    // The write gate, before anything else touches the call (the scheduler refuses it as well); the
+    // tool's contract is the one this router shows (an experimental write asks for confirm)
+    const listed = provider?.getToolDefinitions().find((tool) => tool.name === toolName);
+    const shown = provider && listed ? this.#onThisRouter(provider, listed) : null;
+    if (provider && listed && shown?.definition === null) {
+      const refused = new DeviceReadOnlyError(this.#scheduler.device.snapshot().model ?? "?", shown.refused);
+      return wrapErr("DEVICE_UNVERIFIED_READ_ONLY", refused.messageEn, { messageZh: refused.messageZh, model: refused.model, feature: refused.feature });
     }
     // Enforce the advertised contract before any work: explicit confirmation first, then the schema
     // (also for a tool left out of the list because this router lacks what it reads: called by name, it still runs)
-    const definition = provider?.getToolDefinitions().find((tool) => tool.name === toolName);
+    const definition = shown?.definition ?? listed;
     if (definition) {
       if (definition.inputSchema.properties["confirm"] !== undefined && args["confirm"] !== true) {
         return wrapErr("CONFIRMATION_REQUIRED", `${toolName} requires explicit { confirm: true }`);

@@ -8,7 +8,7 @@ import {
   readTimeSeriesPreset,
 } from "./control-input.ts";
 import type { FengSuiCore } from "./core.ts";
-import type { ReadSection } from "./device-access.ts";
+import type { ReadSection, WriteFeature } from "./device-access.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
 import { telemetryForOutput, topologyForOutput } from "./redact.ts";
@@ -285,6 +285,17 @@ const CORE_MUTATING_TOOLS: ReadonlySet<string> = new Set([
 
 const CORE_TOOL_NAMES: ReadonlySet<string> = new Set(CORE_TOOLS.map((tool) => tool.name));
 
+/** The write features each router-write tool needs (`CONTROL_FEATURES` of the actions it runs). */
+const CORE_WRITE_FEATURES: Readonly<Partial<Record<string, ReadonlyArray<WriteFeature>>>> = {
+  lock_band: ["bandLock"],
+  lock_cell: ["cellLock"],
+  unlock_rf_locks: ["bandLock"],
+  set_security_switches: ["securitySwitches"],
+  set_wifi_and_antenna: ["wifi", "antenna"],
+  reconnect_cellular: ["reconnect"],
+  reboot_cpe: ["reboot"],
+};
+
 /** Read tools that need a section a model nobody verified may lack (`device.reads`). */
 const TOOL_SECTIONS: Readonly<Partial<Record<string, ReadSection>>> = {
   list_neighbor_cells: "neighbors",
@@ -328,6 +339,34 @@ export class CoreMcpTools implements McpToolProvider {
   isAvailable(toolName: string): boolean {
     const section = TOOL_SECTIONS[toolName];
     return section === undefined || !this.core.scheduler.device.skips(section);
+  }
+
+  routerWriteFeatures(toolName: string): ReadonlyArray<WriteFeature> {
+    return CORE_WRITE_FEATURES[toolName] ?? [];
+  }
+
+  /** On a model nobody verified the band lock writes LTE bands only, from those the router advertises. */
+  adaptForGenericWrite(tool: McpToolDefinition, context: { lteBands: ReadonlyArray<number> | null }): McpToolDefinition {
+    if (tool.name !== "lock_band") return tool;
+    const bands = (context.lteBands ?? []).map((band) => `B${band}`).join(", ") || "none advertised";
+    const { nrBands: _nr, ...properties } = tool.inputSchema.properties;
+    return {
+      ...tool,
+      description: `Lock 4G LTE bands only (no NR band on this model), from those the router advertises: ${bands}; or 'all' to unlock. Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.`,
+      inputSchema: {
+        ...tool.inputSchema,
+        properties: {
+          ...properties,
+          lteBands: {
+            oneOf: [
+              { type: "string", enum: ["all"] },
+              { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
+            ],
+            description: `LTE bands to lock (subset of ${bands}) or 'all' to unlock.`,
+          },
+        },
+      },
+    };
   }
 
   instructions(): string {

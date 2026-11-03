@@ -2,6 +2,7 @@ import { type TimeRuleChange, type TimeRuleInput, normalizeMac } from "./access-
 import { readOptionalBoolean } from "./control-input.ts";
 import type { FengSuiCore } from "./core.ts";
 import type { AccessControlResult } from "./cpe-controls.ts";
+import type { WriteFeature } from "./device-access.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import type { McpToolDefinition, McpToolProvider } from "./mcp-tool-provider.ts";
 import { maskMacTail } from "./privacy-mask.ts";
@@ -116,6 +117,10 @@ export class AccessControlMcpTools implements McpToolProvider {
 
   isMutating(toolName: string): boolean {
     return WRITE_NAMES.has(toolName);
+  }
+
+  routerWriteFeatures(toolName: string): ReadonlyArray<WriteFeature> {
+    return WRITE_NAMES.has(toolName) ? ["accessControl"] : [];
   }
 
   /** The Wi-Fi MAC filter and time rules are a section a model nobody verified may lack. */

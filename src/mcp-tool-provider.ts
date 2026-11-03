@@ -1,3 +1,4 @@
+import type { WriteFeature } from "./device-access.ts";
 import type { McpInputSchema } from "./mcp-schema.ts";
 
 /**
@@ -50,6 +51,14 @@ export interface McpToolProvider {
   isRouterWrite?(toolName: string): boolean;
   /** Whether this router provides what the tool reads (an unverified model may lack a section); default `true`. */
   isAvailable?(toolName: string): boolean;
+  /**
+   * The write features a router-write tool needs (phase 3): on a model nobody verified the tool shows
+   * only while every one is open there (consented as experimental, or verified on that model). A
+   * router write without any stays hidden on such a model.
+   */
+  routerWriteFeatures?(toolName: string): ReadonlyArray<WriteFeature>;
+  /** The tool as it applies to a model nobody verified (e.g. the band lock's LTE-only form); default unchanged. */
+  adaptForGenericWrite?(tool: McpToolDefinition, context: { lteBands: ReadonlyArray<number> | null }): McpToolDefinition;
   execute(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
   listResources?(): ReadonlyArray<McpResourceDescriptor>;
   readResource?(uri: string): unknown;

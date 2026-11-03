@@ -1,4 +1,5 @@
 import { CpeControlValidationError } from "../cpe-domain.ts";
+import type { WriteFeature } from "../device-access.ts";
 import {
   type McpResourceDescriptor,
   McpToolError,
@@ -284,6 +285,10 @@ export class SmsMcpTools implements McpToolProvider {
   /** `upsert_contact` only changes FengSui's own contact book; the other writes reach the router. */
   isRouterWrite(toolName: string): boolean {
     return WRITE_TOOL_NAMES.has(toolName) && toolName !== "upsert_contact";
+  }
+
+  routerWriteFeatures(toolName: string): ReadonlyArray<WriteFeature> {
+    return this.isRouterWrite(toolName) ? ["smsWrite"] : [];
   }
 
   /** A router without SMS (a model nobody verified) offers none of these tools. */
