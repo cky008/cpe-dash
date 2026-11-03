@@ -1219,6 +1219,7 @@ export interface ExperimentalWritesResponse {
 - **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。
 - **记录**：每次实验性写入（以及将来在 `VERIFIED_FEATURES` 里验证过的通用写入）记进加密的 `state.json`（最近 20 条）：操作名、功能、型号、写过的端点、路由器的错误码、回读结果与原因，**不含写入的取值**（频段、开关、号码、正文都不记）。它们出现在 `GET /api/console/experimental` 的 `writes` 与设备报告的「最近写入结果」（2.9 的 `writes`，去掉内部 id，同样经过第二道防线）里，方便用户反馈。`control:applied` 附 `check`，摘要末尾注明「实验性写入」与回读结果；审计记录同一摘要。
 - **不一致就告警**：`WRITE_READBACK_MISMATCH`（warning），消息只有操作名、型号与原因。
+- **Telegram**：未验证型号上，短信写命令（`/new`、`/send`、回复卡片、已读 / 全部已读 / 删除按钮）只在 `smsWrite` 打开时可用，走明文通用实现；没打开时照旧回复只读说明（并提到可以在「设置 → 设备」打开），卡片不带写按钮。
 
 ```ts
 export interface WriteCheck {

@@ -671,6 +671,46 @@ describe("TelegramBot", () => {
     }
   });
 
+  it("opens SMS writes on an unverified model once its owner consented, the plaintext way", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.scheduler.noteRouterModel("B535-232", null);
+      // What the identification found: the SMS counts the generic writes read back
+      fx.scheduler.device.noteProbe({
+        identity: { model: "B535-232", marketingName: null, softwareVersion: null, webUiVersion: null, passwordType: "4", loginScheme: "sha256", ecc: false, tokenFlow: "webserver-token", detectedAtIso: "2026-10-30T10:00:00.000Z" },
+        endpoints: [{ path: "/api/sms/sms-count", state: "supported", code: null }],
+        lteBands: null,
+        probedAtIso: "2026-10-30T10:00:00.000Z",
+        origin: "startup",
+        observations: [{ path: "/api/sms/sms-count", format: "xml", truncated: false, fields: [{ tag: "LocalUnread", shape: "int", count: 1 }, { tag: "LocalInbox", shape: "int", count: 1 }] }],
+      });
+      fx.scheduler.device.setConsents([{ model: "B535-232", feature: "smsWrite" }]);
+      assert.ok(await fx.service.sync("full"));
+      const unread = fx.service.getThread("+353830000001").messages.find((m) => m.isUnread)!;
+      const readOnly = /read-only/i;
+
+      await fx.message(1001, "/new");
+      assert.doesNotMatch(fx.tg.lastText("1001"), readOnly);
+      await fx.bot.notifySms(fx.service.mirror.enrich(fx.service.mirror.get(unread.uid)!));
+      const card = fx.tg.sends("1001").at(-1);
+      assert.deepEqual(fx.tg.buttons(card).map((data) => data.split(":")[0]), ["read", "chat", "del"]);
+      await fx.callback(1001, `read:${unread.uid}`);
+      assert.deepEqual(fx.mock.setReadBatches, [[unread.index]], "one message per request");
+      await fx.message(1001, "/send +353830000001 on my way");
+      await fx.callback(1001, fx.sendButton(1001));
+      const sends = fx.mock.requests.filter((r) => r.path === "/api/sms/send-sms");
+      assert.deepEqual(sends.map((r) => [r.method, r.encType]), [["POST", null]], "plaintext send-sms, not the H168-383's encrypted one");
+      assert.ok(fx.scheduler.genericWrites.some((w) => w.action === "sms_send"));
+
+      // Turned off: back to the read-only answer at once
+      fx.scheduler.device.setConsents([]);
+      await fx.message(1001, "/new");
+      assert.match(fx.tg.lastText("1001"), /This router is read-only[\s\S]*B535-232[\s\S]*experimental/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("mutes alert delivery, explains yielding, and hides SMS commands when SMS is disabled", async () => {
     const fx = createBotFixture();
     const alert: AlertEventRecord = { id: "a", tsIso: "2026-10-30T10:00:00Z", severity: "warning", code: "WAN_DOWN", messageZh: "断开", messageEn: "down" };
