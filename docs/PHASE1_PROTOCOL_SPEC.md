@@ -876,11 +876,17 @@ $$
   8. `GET /api/system/devcapacity`
   9. `GET /api/net/net-mode-list`
   10. `GET /api/global/module-switch`
-- **四种接口状态**：路由器格式的响应（根元素为 `<response>` 的 XML，或 JSON）为 `supported`；`100002` 为 `unsupported`；`100003` 为 `restricted`（**不等于不支持**）；其他错误码、传输失败、单个请求超时、读不了的响应（过大、中途断开、错误码不是数字）以及不是路由器格式的响应（例如官方网页的 HTML、纯文本；只记格式，不记字段）为 `unknown`。每个请求最多等 5 秒（`PROBE_REQUEST_TIMEOUT_MS`），让不回应陌生接口的路由器最多占用管理员会话 50 秒，仍在 90 秒的会话上限之内。会话仍可用时，单个接口出什么错都只记在它自己名下，所以某个接口的异常响应不会让已经登录成功的测试连接失败；会话截止、登出或停机等结束会话的错误才会中止整次探测，不记录任何猜测值。
+
+  识别出的型号 **不在验证清单上** 时（阶段 3 起），同一会话接着再发 3 个（[`EXPERIMENTAL_PROBE_PATHS`](../src/device-profile.ts)）：它们是实验性写入回读核对要读的接口（见 A.11），探测结果决定「设置 → 设备」能不能提供对应的实验性开关。H168-383 和认不出型号的路由器不发：
+
+  11. `GET /api/net/net-mode`
+  12. `GET /api/dialup/mobile-dataswitch`
+  13. `GET /api/sms/sms-count`
+- **四种接口状态**：路由器格式的响应（根元素为 `<response>` 的 XML，或 JSON）为 `supported`；`100002` 为 `unsupported`；`100003` 为 `restricted`（**不等于不支持**）；其他错误码、传输失败、单个请求超时、读不了的响应（过大、中途断开、错误码不是数字）以及不是路由器格式的响应（例如官方网页的 HTML、纯文本；只记格式，不记字段）为 `unknown`。每个请求最多等 5 秒（`PROBE_REQUEST_TIMEOUT_MS`），让不回应陌生接口的路由器最多占用管理员会话 50 秒（未验证型号 65 秒），仍在 90 秒的会话上限之内。会话仍可用时，单个接口出什么错都只记在它自己名下，所以某个接口的异常响应不会让已经登录成功的测试连接失败；会话截止、登出或停机等结束会话的错误才会中止整次探测，不记录任何猜测值。
 - **真人避让与熔断**：探测走调度器的普通读会话（`executeRead`），有人登录官方后台时让位跳过，熔断时不登录、不发任何请求；测试连接沿用其「只登录一次、绝不重试」的一次性客户端。
 - **补识别**：启动时的识别被跳过（有人登录官方后台、熔断、另一台守护进程在主导）或失败（连不上）时，识别记为「欠着」：等待期间不多发任何请求；之后第一个成功的读会话一结束，就以高优先级补做一次（排在其他已排队的读之前），成功为止。补识别连续失败 3 次就停下，直到下次启动或控制台测试连接；测试或保存当前路由器的连接也算识别过。
 - **保存**：结果加密存入 `state.json`（`deviceProbe`），重启后仍在。读入时校验结构（`isDeviceProbeResult`），读不懂的结果（例如其他版本写的）按「尚未识别」处理，启动后照常重新识别。测试连接只在测试的就是当前使用的路由器（地址相同）时更新它；保存新连接时采用该次测试的结果。
-- **只保留结构**：结构扫描与 XML 一致：引号内的 `>` 不结束标签，CDATA 按其中的字面文本处理。每个接口只记标签路径与值的「形状」（`int`、`hex(18)`、`text(12)`、`empty` 等）；取值只保留白名单：型号、固件与网页版本、`spreadname_en`、`state-login` 的 `password_type`、功能开关里的 0–99 小整数；型号、版本与 `spreadname_en` 合并空白后，只在全部字符属于字母、数字、空格和 `._()+-` 且不超过 64 个字符时保留，否则整个丢弃（阶段 1 复审 R0-04 起；以前是替换成 `?`、截断到 64 个字符，被截断的标识可能剩下第二道防线认不出的片段）；`net-mode-list` 的 LTE 掩码换算成频段号。
+- **只保留结构**：结构扫描与 XML 一致：引号内的 `>` 不结束标签，CDATA 按其中的字面文本处理。每个接口只记标签路径与值的「形状」（`int`、`hex(18)`、`text(12)`、`empty` 等）；取值只保留白名单：型号、固件与网页版本、`spreadname_en`、`state-login` 的 `password_type`、功能开关里的 0–99 小整数；型号、版本与 `spreadname_en` 合并空白后，只在全部字符属于字母、数字、空格和 `._()+-` 且不超过 64 个字符时保留，否则整个丢弃（阶段 1 复审 R0-04 起；以前是替换成 `?`、截断到 64 个字符，被截断的标识可能剩下第二道防线认不出的片段）；`net-mode-list` 的 LTE 掩码换算成频段号；代表「全部频段」的掩码 `7fffffffffffffff`（参考项目的 `LTEBandEnum.ALL`）不算通告了频段（阶段 3 起：只有它时频段为 `null`，烽燧不能用它核对锁频）。
 - **对外**：`GET /api/device/profile` 与控制台的设备报告，见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 2.9 节。
 
 ### A.8 旧式登录、令牌流程与回退条件（阶段 1 整理，未在真机验证）
@@ -982,3 +988,38 @@ $$
 - **什么算「此型号不可用」**：路由器对该项回 `100002`（不支持）或 `100003`（无权限），或者回了烽燧的解析器拒绝的内容（缺必需的标签、JSON 形状不对、旧式登录要用加密通道）。其他错误码（例如忙、令牌错误）、传输失败、会话超时照旧让这次读取失败，下次再试，不记为不可用。
 - **记住多久**：结果跟着型号加密存进 `state.json`，重启后立即生效；看到另一个型号就清空重来。后台的定时扫描跳过「不可用」的项，用户或智能体主动刷新时仍会再试一次。
 - **验证**：[`test/read-strategies.test.ts`](../test/read-strategies.test.ts) 在阶段 1 的 Mock 家族（4 种登录方式 × 2 种令牌流程）上跑完整一轮只读采集，并覆盖缺失整段、陌生字段与终端列表的回退；H168-383 的请求序列由 [`test/h168-wire.test.ts`](../test/h168-wire.test.ts) 与复审工具逐条比对。
+
+### A.11 实验性写入（阶段 3；只在 Mock 上验证）
+
+阶段 3 起，未验证型号的用户可以在「设置 → 设备」逐项知情同意，打开「实验性」写入。烽燧只为请求格式在参考项目里写得确切的写操作提供 **通用实现**（HiLink 请求格式），其余标为「暂不支持」，不猜。以下事实取自参考项目 `master@d2eb2af`（2026-11-03 阅读），**均未在真机验证**；标「推断」的是我们自己的判断。H168-383 的写操作不走这里，请求逐字节不变。
+
+**有通用实现的写操作**：
+
+| 功能 | 请求（字段按顺序） | 来源 | 烽燧的做法 |
+| :--- | :--- | :--- | :--- |
+| 锁 LTE 频段 / 解锁（`bandLock`） | `POST /api/net/net-mode`：`<NetworkMode>`、`<NetworkBand>`、`<LTEBand>`。`LTEBand` 是频段掩码（第 `n − 1` 位为频段 `n`），小写十六进制、不带 `0x`；「全部频段」为 `7fffffffffffffff`；`NetworkBand` 是 2G/3G 频段掩码，「全部」为 `3fffffff`；`NetworkMode` 取 `00` 自动、`03` 仅 4G 等 | 参考项目 `api/Net.py`（`set_net_mode`）、`enums/net.py`（`NetworkModeEnum`、`NetworkBandEnum`、`LTEBandEnum`） | 只锁 LTE；频段只能取 `net/net-mode-list` 通告的；同一会话先 `GET /api/net/net-mode`，`NetworkMode` 与 `NetworkBand` 按路由器回报的原样写回，只改 `LTEBand`。H168-383 另带 `networkOption`（3.4 节），通用实现不带 |
+| 重启（`reboot`） | `POST /api/device/control`：`<Control>1</Control>`。同一接口 `2` 为 **恢复出厂设置**、`3` 为备份配置、`4` 为关机 | 参考项目 `api/Device.py`（`set_control`）、`enums/device.py`（`ControlModeEnum`） | 只发 `1`；`2`–`4` 绝不发送。与 H168-383 的请求相同 |
+| 重拨（`reconnect`） | `POST /api/net/reconnect`：`<ReconnectAction>1</ReconnectAction>` | 参考项目 `api/Net.py`（`reconnect`） | H168-383 用 `<reconnect_action>`（3.7 节），同名接口的字段名因型号而异 |
+| 移动数据开关（`mobileData`） | `GET` / `POST /api/dialup/mobile-dataswitch`：`<dataswitch>0\|1</dataswitch>` | 参考项目 `api/DialUp.py`（`mobile_dataswitch`、`set_mobile_dataswitch`） | 与 H168-383 的请求相同 |
+| 发短信（`smsWrite`） | 明文 `POST /api/sms/send-sms`：`<Index>-1</Index>`、`<Phones><Phone>…</Phone></Phones>`（每个收件人一个）、`<Sca>`（空）、`<Content>`（正文，按 XML 转义）、`<Length>`（正文的字符数）、`<Reserved>`（编码：`0` UCS-2、`1` 7 位、`2` 8 位）、`<Date>`（`yyyy-MM-dd HH:mm:ss`）；之后 `GET /api/sms/send-status` | 参考项目 `api/Sms.py`（`send_sms`、`send_status`）、`enums/sms.py`（`TextModeEnum`）、`Tools.py`（`datetime_to_string`） | H168-383 用加密通道（`enc-type=2`，3.8 节）。参考项目把请求体编码为 CESU-8（`Session.py` 的 `_create_request_xml`），烽燧发 UTF-8，两者只在基本多文种平面以外的字符（如表情）上不同，所以通用实现拒绝这类字符，不猜路由器怎么解。**推断**：`send-status` 的字段（`Phone`、`SucPhone`、`FailPhone`、`SendFailCode`）参考项目没有列出，烽燧按 H168-383 解密后的字段读取；读不到就记「无法核对」 |
+| 标记已读、删除短信（`smsWrite`） | `POST /api/sms/set-read`、`POST /api/sms/delete-sms`：`<Index>…</Index>`，每个请求一条 | 参考项目 `api/Sms.py`（`set_read`、`delete_sms`） | 每条消息一个请求（H168-383 一个请求可带多条，3.8 节） |
+
+**暂不支持**（「设置 → 设备」显示为暂不支持，没有开关）：
+
+| 功能 | 原因 |
+| :--- | :--- |
+| 锁小区（`cellLock`） | 参考项目没有 `net/lock-freq` |
+| 安全开关（`securitySwitches`） | 参考项目的 `security/firewall-switch` 一次写全部 5 个开关（`api/Security.py` 的 `set_firewall_switch`），UPnP、DMZ 也各自整体写入；烽燧改一个开关要先读出其他开关，而它读路由器设置用的是 H168-383 的 9 个接口（全有或全无），其他型号读不到；参考项目也没有列出这些接口的应答格式。写错防火墙或 DMZ 会把局域网暴露出去 |
+| Wi-Fi 7 MLO（`wifi`） | 参考项目只读 `wlan/wlandbho`，没有写入 |
+| 天线（`antenna`） | 参考项目写 `device/antenna_settings` 的 `antenna_type`（`0` 内置、`1` 外置 1+2、`2` 外置 1、`3` 自动，`enums/device.py`），H168-383 写 `device/antenna_set_type` 的 `antennasettype`（`0` 自动、`1` 内置、`2` 外置，3.7 节）：同样的数字含义不同 |
+| 访问控制（`accessControl`） | 参考项目的 `wlan/multi-macfilter-settings`（`api/WLan.py`）字段与 H168-383 相同，但烽燧不让一次修改切断运行它的主机和发出请求的设备，这要靠 `system/HostInfo` 的 `IsLocalDevice`（H168-383 有，其他型号的终端列表没有，A.10）；上网时段（`timerule/timerule`）参考项目没有 |
+
+**能力判断**（[`experimentalEvidence`](../src/device-profile.ts)；只看标签名，不看取值）：识别时对未验证型号多读的 3 个 GET（A.7）连同固定清单，决定「设置 → 设备」能不能为某项提供实验性开关。写操作本身无法用 `GET` 探测，所以依据是它回读核对要读的接口，只写接口则看同一模块有没有应答：
+
+| 功能 | 能力为 `supported` 的条件 |
+| :--- | :--- |
+| `bandLock` | `net/net-mode-list` 通告了至少一个 LTE 频段（「全部频段」不算，A.7），且 `net/net-mode` 应答带 `NetworkMode`、`NetworkBand`、`LTEBand` |
+| `reboot` | `device/information` 有应答（`device/control` 属于这个模块；**推断**） |
+| `reconnect` | `net/net-mode` 或 `net/net-mode-list` 有应答（`net/reconnect` 属于这个模块；**推断**） |
+| `mobileData` | `dialup/mobile-dataswitch` 应答带 `dataswitch` |
+| `smsWrite` | `sms/sms-count` 应答带 `LocalUnread` 与 `LocalInbox` |

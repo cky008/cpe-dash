@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import type { DeviceProfileResponse, DeviceReportResponse } from "../src/api-contract.ts";
 import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { ApiErrorTally, DEVICE_PROBE_PATHS, type DeviceProbePath, type ProbeSession, buildDeviceReport, probeDevice } from "../src/device-profile.ts";
+import { ApiErrorTally, DEVICE_PROBE_PATHS, type ProbeSession, buildDeviceReport, probeDevice } from "../src/device-profile.ts";
 import { sanitizeDeviceReport } from "../src/sanitize.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 
@@ -40,7 +40,7 @@ function leaks(json: string): string[] {
 const IDENTIFIERS =
   "<Imei>860000000000000</Imei><Imsi>272010000000000</Imsi><Iccid>8935301000000000000</Iccid><Msisdn>+353830000000</Msisdn><MacAddress1>02:00:5E:10:00:01</MacAddress1><WanIPAddress>198.51.100.42</WanIPAddress><WanIPv6Address>2001:db8::42</WanIPv6Address><tac>10001</tac><cell_id>134217758</cell_id><ssid>FengSui_Lab_WiFi</ssid><SerialNumber>SN00000000000000</SerialNumber>";
 
-const BODIES: Readonly<Record<DeviceProbePath, string>> = {
+const BODIES: Readonly<Record<(typeof DEVICE_PROBE_PATHS)[number], string>> = {
   "/api/user/state-login": `<response><password_type>4</password_type><State>0</State>${IDENTIFIERS}</response>`,
   "/api/device/information": `<response><DeviceName>H168-383</DeviceName><SoftwareVersion>4.4.0.1(H1006SP19C00)</SoftwareVersion><WebUIVersion>WEBUI 4.4.0.1(W2SP24C03)</WebUIVersion>${IDENTIFIERS}</response>`,
   "/api/device/basic_information": `<response><devicename>H168-383</devicename><spreadname_en>HUAWEI 5G CPE Ultra 6</spreadname_en>${IDENTIFIERS}</response>`,
@@ -58,7 +58,7 @@ const session: ProbeSession = {
   loginScheme: "scram",
   eccVerified: true,
   tokenFlow: "webserver-token",
-  get: async (apiPath) => BODIES[apiPath as DeviceProbePath] ?? "",
+  get: async (apiPath) => BODIES[apiPath as (typeof DEVICE_PROBE_PATHS)[number]] ?? "",
 };
 
 describe("device report: desensitization", () => {

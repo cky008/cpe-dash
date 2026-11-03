@@ -25,11 +25,19 @@ export const DEVICE_PROBE_PATHS = [
   "/api/global/module-switch",
 ] as const;
 
-export type DeviceProbePath = (typeof DEVICE_PROBE_PATHS)[number];
+/**
+ * GETs the probe adds, after the list above, only for a model nobody verified (multi-model phase 3):
+ * the read side of the writes FengSui may do there once its owner consents, i.e. the endpoint such a
+ * write reads back. A verified model, and a router that names no model, never get them.
+ */
+export const EXPERIMENTAL_PROBE_PATHS = ["/api/net/net-mode", "/api/dialup/mobile-dataswitch", "/api/sms/sms-count"] as const;
+
+export type DeviceProbePath = (typeof DEVICE_PROBE_PATHS)[number] | (typeof EXPERIMENTAL_PROBE_PATHS)[number];
 
 /**
  * Each probe GET gives up after this long: a router that leaves an unknown endpoint hanging instead
- * of answering `100002` holds the admin slot for at most 10 × 5 s, well inside the 90 s session budget.
+ * of answering `100002` holds the admin slot for at most 10 × 5 s (13 × 5 s for a model nobody
+ * verified), inside the 90 s session budget.
  */
 export const PROBE_REQUEST_TIMEOUT_MS = 5000;
 
@@ -104,10 +112,22 @@ export const DEVICE_FEATURES = [
 
 export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
 
-/** `verified`: the model is on the verified list. Other models stay `unknown` until per-feature strategies exist. */
+/**
+ * The writes FengSui has a generic implementation for (HiLink request formats from the reference
+ * project's facts, docs/PHASE1_PROTOCOL_SPEC.md A.11): what a model nobody verified may be offered as
+ * an experimental write once its owner consents. Every other write stays the verified model's alone.
+ */
+export const EXPERIMENTAL_FEATURES = ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const;
+
+export type ExperimentalFeature = (typeof EXPERIMENTAL_FEATURES)[number];
+
+/**
+ * `verified`: the model is on the verified list; `probe`: on another model, the probe found what the
+ * feature's generic write reads back (or the module of a write-only endpoint); `none`: neither.
+ */
 export interface FeatureCapability {
   state: EndpointState;
-  source: "verified" | "none";
+  source: "verified" | "probe" | "none";
 }
 
 export interface DeviceCapabilities {
@@ -377,6 +397,14 @@ export function maskToBands(hex: string): number[] | null {
   return bands;
 }
 
+/** The LTE mask that means "every band" (`7fffffffffffffff`; case and leading zeros aside). */
+export const LTE_ALL_BANDS_MASK = "7fffffffffffffff";
+
+export function isAllBandsMask(hex: string): boolean {
+  const clean = hex.trim().toLowerCase().replace(/^0+/, "");
+  return clean === LTE_ALL_BANDS_MASK;
+}
+
 // ── Probe ────────────────────────────────────────────────────────────────────
 
 /** The router's error code on an error thrown for its answer (`CpeApiError`), else `null`. */
@@ -395,7 +423,7 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
   const endpoints: EndpointProbe[] = [];
   const observations: EndpointObservation[] = [];
   const leavesOf = new Map<DeviceProbePath, StructureLeaf[]>();
-  for (const path of DEVICE_PROBE_PATHS) {
+  const probe = async (path: DeviceProbePath): Promise<void> => {
     let body: string;
     try {
       body = await session.get(path, {}, PROBE_REQUEST_TIMEOUT_MS);
@@ -404,7 +432,7 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
       const code = cpeErrorCode(err);
       endpoints.push({ path, state: code === null ? "unknown" : endpointState(code), code });
       observations.push({ path, format: null, fields: [], truncated: false });
-      continue;
+      return;
     }
     const structure = readStructure(body);
     // Only an API answer counts: an HTML page (e.g. the WebUI served for an unknown path) or plain text is unknown
@@ -412,7 +440,8 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
     if (answered) leavesOf.set(path, structure.leaves);
     endpoints.push({ path, state: answered ? "supported" : "unknown", code: null });
     observations.push({ path, format: structure.kind, fields: answered ? observeFields(path, structure.leaves) : [], truncated: answered && structure.truncated });
-  }
+  };
+  for (const path of DEVICE_PROBE_PATHS) await probe(path);
 
   const top = (path: DeviceProbePath, tag: string): string | null => {
     const want = tag.toLowerCase();
@@ -422,17 +451,23 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
   const identityTag = (tag: string): string | null =>
     top("/api/device/information", tag) ?? top("/api/device/basic_information", tag) ?? top("/api/device/basicinformation", tag);
   const passwordType = top("/api/user/state-login", "password_type");
+  const model = identityTag("DeviceName");
+  // A model nobody verified: the read side of the writes its owner may consent to (never the H168-383's)
+  if (model !== null && !isVerifiedModel(model)) for (const path of EXPERIMENTAL_PROBE_PATHS) await probe(path);
 
   let lteBands: number[] | null = null;
   for (const leaf of leavesOf.get("/api/net/net-mode-list") ?? []) {
     if (leaf.path.toLowerCase() !== "ltebandlist.lteband.value") continue;
-    const bands = maskToBands(decodeEntities(leaf.raw));
+    const mask = decodeEntities(leaf.raw);
+    // An entry that stands for every band (the reference project's LTE "ALL") names no band
+    if (isAllBandsMask(mask)) continue;
+    const bands = maskToBands(mask);
     if (bands) lteBands = [...new Set([...(lteBands ?? []), ...bands])].sort((a, b) => a - b);
   }
 
   return {
     identity: {
-      model: identityTag("DeviceName"),
+      model,
       marketingName: top("/api/device/basic_information", "spreadname_en") ?? top("/api/device/basicinformation", "spreadname_en"),
       softwareVersion: identityTag("SoftwareVersion"),
       webUiVersion: identityTag("WebUIVersion"),
@@ -453,7 +488,7 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
 const ENDPOINT_STATES: ReadonlySet<string> = new Set<EndpointState>(["supported", "unsupported", "restricted", "unknown"]);
 const LOGIN_SCHEMES: ReadonlySet<string> = new Set<LoginScheme>(["scram", "sha256", "base64", "unknown"]);
 const TOKEN_FLOWS: ReadonlySet<string> = new Set<TokenFlow>(["webserver-token", "sestokinfo", "unknown"]);
-const PROBE_PATHS: ReadonlySet<string> = new Set(DEVICE_PROBE_PATHS);
+const PROBE_PATHS: ReadonlySet<string> = new Set<string>([...DEVICE_PROBE_PATHS, ...EXPERIMENTAL_PROBE_PATHS]);
 const FORMATS: ReadonlySet<string> = new Set<StructureKind>(["xml", "json", "text"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -499,15 +534,49 @@ export function isDeviceProbeResult(value: unknown): value is DeviceProbeResult 
 }
 
 /**
+ * Whether the probe found what each generic write needs on this router (a model nobody verified):
+ * the endpoint the write reads back, with the tags it reads, or for a write-only endpoint
+ * (`device/control`, `net/reconnect`) the module it belongs to. Tag names only, never values.
+ *
+ * - `bandLock`: `net/net-mode-list` advertises LTE bands, and `net/net-mode` answers with the
+ *   `NetworkMode`, `NetworkBand` and `LTEBand` the write sends back and checks;
+ * - `reboot`: `device/information` answers (`device/control` is in that module);
+ * - `reconnect`: `net/net-mode` or `net/net-mode-list` answers (`net/reconnect` is in that module);
+ * - `mobileData`: `dialup/mobile-dataswitch` answers with `dataswitch`;
+ * - `smsWrite`: `sms/sms-count` answers with `LocalUnread` and `LocalInbox`.
+ */
+export function experimentalEvidence(probe: DeviceProbeResult): Record<ExperimentalFeature, boolean> {
+  const answered = (path: DeviceProbePath): boolean => probe.endpoints.some((e) => e.path === path && e.state === "supported");
+  const tags = (path: DeviceProbePath): Set<string> =>
+    new Set((probe.observations.find((o) => o.path === path)?.fields ?? []).map((f) => f.tag.toLowerCase()));
+  const has = (path: DeviceProbePath, ...wanted: string[]): boolean => {
+    const seen = tags(path);
+    return answered(path) && wanted.every((tag) => seen.has(tag.toLowerCase()));
+  };
+  return {
+    bandLock: (probe.lteBands?.length ?? 0) > 0 && has("/api/net/net-mode", "NetworkMode", "NetworkBand", "LTEBand"),
+    reboot: answered("/api/device/information"),
+    reconnect: answered("/api/net/net-mode") || answered("/api/net/net-mode-list"),
+    mobileData: has("/api/dialup/mobile-dataswitch", "dataswitch"),
+    smsWrite: has("/api/sms/sms-count", "LocalUnread", "LocalInbox"),
+  };
+}
+
+/**
  * The profile as served: verification and features come from the verified list at read time, so an
  * upgrade that verifies a new build applies to a profile stored before it.
  */
 export function deviceProfileOf(probe: DeviceProbeResult): DeviceProfile {
   const { identity } = probe;
   const verifiedModel = identity.model !== null && isVerifiedModel(identity.model);
+  const evidence: Partial<Record<DeviceFeature, boolean>> = verifiedModel ? {} : experimentalEvidence(probe);
   const features = {} as Record<DeviceFeature, FeatureCapability>;
   for (const feature of DEVICE_FEATURES) {
-    features[feature] = verifiedModel ? { state: "supported", source: "verified" } : { state: "unknown", source: "none" };
+    features[feature] = verifiedModel
+      ? { state: "supported", source: "verified" }
+      : evidence[feature] === true
+        ? { state: "supported", source: "probe" }
+        : { state: "unknown", source: "none" };
   }
   return {
     identity: { ...identity },
