@@ -30,12 +30,12 @@ body:
     id: works
     attributes:
       label: 能用的功能 / What works
-      description: 例如信号、流量、终端列表、短信 / For example signal, traffic, the device list, SMS
+      description: 例如信号、流量、终端列表、短信；打开过实验性写入的，写上哪些在真机上生效了（锁频、重启、重拨、移动数据、短信）/ For example signal, traffic, the device list, SMS; if you turned on experimental writes, which took effect on the real router (band lock, reboot, redial, mobile data, SMS)
   - type: textarea
     id: broken
     attributes:
       label: 不能用或有问题的 / What does not work
-      description: 哪里不对、看到了什么提示 / What looks wrong, and any message you saw
+      description: 哪里不对、看到了什么提示（实验性写入的「回读不一致」也写在这里）/ What looks wrong, and any message you saw (including an experimental write whose read-back differed)
   - type: textarea
     id: report
     attributes:
