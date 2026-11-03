@@ -93,7 +93,10 @@ export class CpeControlService {
 
   /** Reconcile the persisted lock state with the latest cached telemetry (see `verifyLockState`). */
   getLockVerification(): LockVerification {
-    return verifyLockState(this.getPersistedLockState(), this.monitor.getCachedTelemetry());
+    // A model nobody verified unlocks to the bands it advertises, not the H168-383's
+    const device = this.scheduler.device;
+    const bands = device.generic ? (device.experimentalLteBands ?? []) : undefined;
+    return verifyLockState(this.getPersistedLockState(), this.monitor.getCachedTelemetry(), bands);
   }
 
   async lockBands(command: BandLockCommand): Promise<PersistedLockState> {

@@ -816,7 +816,9 @@ function describeCell(prefix: "B" | "N", band: number | null, arfcn: number | nu
  */
 export function verifyLockState(
   lockState: PersistedLockState,
-  telemetry: GlobalTelemetrySnapshot | null
+  telemetry: GlobalTelemetrySnapshot | null,
+  /** The bands an unlock enables on this model: the H168-383's, or what another model advertises (phase 3). */
+  supportedLteBands: ReadonlyArray<number> = H168_383_LTE_BANDS
 ): LockVerification {
   if (!telemetry) {
     return { status: "unknown", checkedAtIso: null, routerLteBands: null, issues: [] };
@@ -849,7 +851,7 @@ export function verifyLockState(
     if (!routerLteBands) {
       undecided = true;
     } else if (lockState.lteBands === "all") {
-      const allSupported = H168_383_LTE_BANDS.every((b) => routerLteBands.includes(b));
+      const allSupported = supportedLteBands.every((b) => routerLteBands.includes(b));
       const autoMask = Array.from({ length: 63 }, (_, i) => i + 1).every((b) => routerLteBands.includes(b));
       if (!allSupported && !autoMask) {
         issues.push(`LTE is not unlocked: the router enables only ${bandList("B", routerLteBands)}`);

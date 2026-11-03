@@ -66,6 +66,15 @@ describe("lockState reconciliation against what the router reports", () => {
     assert.match(reverted.issues.join(" "), /differ from the applied lock \(B1, B3\)/);
   });
 
+  it("reads an unlock back against the bands of the model it runs on", async () => {
+    // Another model (phase 3) that shows its own six bands after an unlock, as the H168-383 shows its fourteen
+    const own = await snapshot({ lteBandHex: "800800c5" });
+    assert.equal(verifyLockState(lock({}), own).status, "drift", "against the H168-383's bands it looks locked");
+    const generic = verifyLockState(lock({}), own, [1, 3, 7, 8, 20, 32]);
+    assert.deepEqual([generic.status, generic.issues], ["consistent", []]);
+    assert.equal(verifyLockState(lock({}), await snapshot({ lteBandHex: "5" }), [1, 3, 7, 8, 20, 32]).status, "drift");
+  });
+
   it("checks NR band locks and cell locks against the serving carriers", async () => {
     const full = await snapshot();
     assert.equal(verifyLockState(lock({ mode: "band_lock", nrBands: [78] }), full).status, "consistent");
