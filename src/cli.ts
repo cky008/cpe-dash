@@ -379,11 +379,13 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       : [accessTools],
   });
 
-  // The owner's experimental writes (phase 3): only the current model's count, and a router of another
-  // model ends them for good (a router put back later needs a new consent)
+  // The owner's experimental writes (phase 3): only the current model's count, a router of another
+  // model ends them for good (a router put back later needs a new consent), and so does a start with
+  // no identification to match them against (state.json gone while settings.json stayed)
   const keepConsentsFor = (model: string | null): void => {
-    if (model !== null && settings.retainExperimentalFor(model) > 0) {
-      audit.record({ action: "settings.experimental", outcome: "applied", detail: `all off: the router is now ${model}`, actor: { channel: "system" } });
+    if (settings.retainExperimentalFor(model ?? "") > 0) {
+      const why = model === null ? "no router identified to match them against" : `the router is now ${model}`;
+      audit.record({ action: "settings.experimental", outcome: "applied", detail: `all off: ${why}`, actor: { channel: "system" } });
     }
     scheduler.device.setConsents(settings.experimentalConsents);
   };

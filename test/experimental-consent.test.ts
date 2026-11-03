@@ -287,6 +287,32 @@ describe("experimental consent: the console's switch", () => {
     }
   });
 
+  it("is dropped at start when no identification is there to match it against", async () => {
+    const fx = await startRuntime();
+    const settingsFile = fx.stack.config.settingsFile;
+    const stateFile = fx.stack.config.stateFile;
+    try {
+      assert.ok(await fx.stack.monitor.identifyDevice());
+      assert.equal((await fx.send("POST", "/api/console/experimental", { cookie: fx.cookie }, { feature: "reboot", enabled: true, model: "B535-232" })).status, 200);
+      await fx.stack.settings.flush();
+    } finally {
+      await fx.stack.close();
+    }
+    // The identification is gone (state.json deleted), the consent is not
+    fs.rmSync(stateFile, { force: true });
+    const envPath = path.join(path.dirname(path.dirname(stateFile)), ".env");
+    const again = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: fx.cpe.fetchImpl, log: () => undefined });
+    try {
+      assert.equal(again.scheduler.device.current, null);
+      assert.equal(again.settings.experimentalConsents.length, 0);
+      assert.ok(again.audit.list(10).some((e) => e.action === "settings.experimental" && e.channel === "system" && /no router identified/.test(e.detail ?? "")));
+      assert.equal(fs.existsSync(settingsFile), true);
+    } finally {
+      await again.close();
+      fs.rmSync(path.dirname(path.dirname(stateFile)), { recursive: true, force: true });
+    }
+  });
+
   it("lapses when the router turns out to be another model", async () => {
     const fx = await startRuntime();
     try {
