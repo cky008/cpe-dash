@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { normalizeCpeUrl } from "./config.ts";
 import {
   CpeLoginMethodError,
-  LEGACY_LOGIN_RETRY_SAFE_CODES,
+  LOGIN_RETRY_SAFE_CODES,
   LOGIN_UNCONFIRMED_CODE,
   type LegacyScheme,
   type LoginPlan,
@@ -199,15 +199,20 @@ export class CpeApiError extends Error {
   }
 }
 
+/** An answer to the password that tells what the router made of it: a login error, or a refusal before the check. */
+function isPlacedLoginError(err: unknown): boolean {
+  return err instanceof CpeApiError && (err.isCircuitBreakerFatal || LOGIN_RETRY_SAFE_CODES.has(err.code));
+}
+
 /**
- * The router answered a legacy password in a way FengSui cannot place (`err`: its unknown error code,
- * the redirect it answered with, or why the answer could not be read; `null`: neither `OK` nor an
+ * The router answered a password in a way FengSui cannot place (`err`: its unknown error code, the
+ * redirect it answered with, or why the answer could not be read; `null`: neither `success` nor an
  * error code). On a model nobody verified that may have counted as a wrong attempt, so the error
  * latches the breaker.
  */
-function unplacedLegacyAnswer(err: unknown): CpeApiError {
+function unplacedLoginAnswer(apiPath: string, err: unknown, success: string): CpeApiError {
   if (err instanceof CpeApiError) {
-    return new CpeApiError(err.code, "/api/user/login: unexpected answer to the password, no further login attempt", {
+    return new CpeApiError(err.code, `${apiPath}: unexpected answer to the password, no further login attempt`, {
       remainCount: err.remainCount,
       waitTime: err.waitTime,
       latchesBreaker: true,
@@ -215,11 +220,11 @@ function unplacedLegacyAnswer(err: unknown): CpeApiError {
   }
   const what =
     err === null
-      ? "neither OK nor an error code"
+      ? `neither ${success} nor an error code`
       : err instanceof CpeTransportError && err.redirected
         ? "a redirect"
         : `unreadable (${err instanceof Error ? err.message : String(err)})`;
-  return new CpeApiError(LOGIN_UNCONFIRMED_CODE, `/api/user/login: the answer to the password was ${what}, no further login attempt`, { latchesBreaker: true });
+  return new CpeApiError(LOGIN_UNCONFIRMED_CODE, `${apiPath}: the answer to the password was ${what}, no further login attempt`, { latchesBreaker: true });
 }
 
 export class EphemeralCpeSession {
@@ -561,7 +566,7 @@ export class EphemeralCpeSession {
    * challenge refused the way appendix A.8 allows (or redirected, A.5) leads to the legacy `user/login`; a router known to
    * use SCRAM (`scramKnown`) never gets there. Without options it is SCRAM only, as on the H168-383.
    */
-  async login(opts: { passwordType?: string | null; scramKnown?: boolean } = {}): Promise<void> {
+  async login(opts: { passwordType?: string | null; scramKnown?: boolean; unverifiedModel?: boolean } = {}): Promise<void> {
     if (!this.password) {
       throw new Error("The router password is not set: the daemon takes it from Settings → Router in the console, the probes from CPE_PASSWORD in .env");
     }
@@ -598,7 +603,7 @@ export class EphemeralCpeSession {
       }
     }
     if (challenge) {
-      await this.#scramLogin(firstNonce, challenge);
+      await this.#scramLogin(firstNonce, challenge, opts.unverifiedModel === true);
       return;
     }
     // Refused the way an older model refuses it (appendix A.8); a router known to use SCRAM never gets further
@@ -626,18 +631,35 @@ export class EphemeralCpeSession {
     return answer;
   }
 
-  async #scramLogin(firstNonce: string, challenge: ScramChallenge): Promise<void> {
+  /**
+   * `strict` (a router identified as a model nobody verified, R1-04): once the router has answered
+   * the proof, anything but a server signature or a placed error code latches the breaker, as for a
+   * legacy login. The H168-383's handling is the verified one: such an answer fails the session and
+   * the next one may try again.
+   */
+  async #scramLogin(firstNonce: string, challenge: ScramChallenge, strict: boolean): Promise<void> {
     const scram = computeScram(this.password, challenge.salt, challenge.iterations, firstNonce, challenge.serverNonce);
-    const authXml = await this.#submitPassword(
-      "/api/user/authentication_login",
-      buildXmlRequest({
-        clientproof: scram.clientProofHex,
-        finalnonce: challenge.serverNonce,
-      })
-    );
+    let answered = false;
+    let authXml: string;
+    try {
+      authXml = await this.#submitPassword(
+        "/api/user/authentication_login",
+        buildXmlRequest({
+          clientproof: scram.clientProofHex,
+          finalnonce: challenge.serverNonce,
+        }),
+        () => {
+          answered = true;
+        }
+      );
+    } catch (err) {
+      if (!strict || !answered || isPlacedLoginError(err)) throw err;
+      throw unplacedLoginAnswer("/api/user/authentication_login", err, "a server signature");
+    }
 
     const serverSig = getXmlTag(authXml, "serversignature");
     if (!serverSig) {
+      if (strict) throw unplacedLoginAnswer("/api/user/authentication_login", null, "a server signature");
       throw new Error("SCRAM server signature missing (potential MITM)");
     }
     if (serverSig.toLowerCase() !== scram.expectedServerSig.toLowerCase()) {
@@ -659,7 +681,7 @@ export class EphemeralCpeSession {
   /**
    * `POST /api/user/login`; the SHA-256 form hashes in the very token the request carries. Once the
    * router has answered, anything but `OK` or a code that refuses a login before the password is
-   * checked (`LEGACY_LOGIN_RETRY_SAFE_CODES`) latches the breaker: an unknown code, a page, an empty,
+   * checked (`LOGIN_RETRY_SAFE_CODES`) latches the breaker: an unknown code, a page, an empty,
    * cut-off or oversized body, a redirect. Without an answer (no token for the request, the connection
    * failed, it timed out) the next session may try again, as with SCRAM.
    */
@@ -680,11 +702,10 @@ export class EphemeralCpeSession {
         }
       );
     } catch (err) {
-      if (!answered) throw err;
-      if (err instanceof CpeApiError && (err.isCircuitBreakerFatal || LEGACY_LOGIN_RETRY_SAFE_CODES.has(err.code))) throw err;
-      throw unplacedLegacyAnswer(err);
+      if (!answered || isPlacedLoginError(err)) throw err;
+      throw unplacedLoginAnswer("/api/user/login", err, "OK");
     }
-    if (getXmlTag(answer, "response")?.trim() !== "OK") throw unplacedLegacyAnswer(null);
+    if (getXmlTag(answer, "response")?.trim() !== "OK") throw unplacedLoginAnswer("/api/user/login", null, "OK");
     this.#loginScheme = scheme;
   }
 
@@ -801,6 +822,7 @@ export class HuaweiCpeClient {
   #totalSessionsCompleted: number;
   #browserYieldCount: number;
   #knownLoginScheme: LoginScheme | null = null;
+  #unverifiedModel = false;
 
   constructor(config: HuaweiCpeClientOptions) {
     this.#allowPublicHost = Boolean(config.allowPublicCpeHost);
@@ -896,6 +918,18 @@ export class HuaweiCpeClient {
   /** Remember how the router logs in (from a stored identification); `unknown` or `null` forgets it. */
   rememberLoginScheme(scheme: LoginScheme | null): void {
     this.#knownLoginScheme = scheme === "unknown" ? null : scheme;
+  }
+
+  /**
+   * The router is identified as a model nobody verified (the scheduler's write gate tells): a SCRAM
+   * answer FengSui cannot place then latches the breaker like a legacy one (R1-04).
+   */
+  get unverifiedModel(): boolean {
+    return this.#unverifiedModel;
+  }
+
+  rememberUnverifiedModel(unverified: boolean): void {
+    this.#unverifiedModel = unverified;
   }
 
   /**
@@ -1119,7 +1153,10 @@ export class HuaweiCpeClient {
       let loginFinished = false;
       let lastHoldMs = 0;
       try {
-        await raceDeadline(session.login({ passwordType: loginState.passwordType, scramKnown: this.#knownLoginScheme === "scram" }), deadline.signal);
+        await raceDeadline(
+          session.login({ passwordType: loginState.passwordType, scramKnown: this.#knownLoginScheme === "scram", unverifiedModel: this.#unverifiedModel }),
+          deadline.signal
+        );
         loginFinished = true;
         if (session.loginScheme) this.#knownLoginScheme = session.loginScheme;
         const value = await raceDeadline(

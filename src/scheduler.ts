@@ -375,6 +375,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#client.rememberLoginScheme(loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe));
     // Only a likely model until this run sees the router report it (see `DeviceAccess`)
     this.device.remember(loaded.deviceProbe?.identity.model, loaded.deviceProbe?.identity.softwareVersion);
+    this.#syncLoginPolicy();
     const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {
       this.#mode = "circuit_tripped";
@@ -469,6 +470,7 @@ export class MutexSessionScheduler extends EventEmitter {
   noteIdentification(probe: DeviceProbeResult): void {
     this.device.remember(probe.identity.model, probe.identity.softwareVersion);
     this.#seeModel(probe.identity.model, probe.identity.softwareVersion);
+    this.#syncLoginPolicy();
   }
 
   /** A read of this run saw the router report its model (the 5 s poll reads `device/information`). */
@@ -478,7 +480,14 @@ export class MutexSessionScheduler extends EventEmitter {
 
   /** `device:changed` when the model contradicts the stored identification: the router was replaced. */
   #seeModel(model: string | null, softwareVersion: string | null): void {
-    if (this.device.see(model, softwareVersion)) this.#safeEmit("device:changed", this.device.snapshot());
+    const changed = this.device.see(model, softwareVersion);
+    this.#syncLoginPolicy();
+    if (changed) this.#safeEmit("device:changed", this.device.snapshot());
+  }
+
+  /** On a router identified as another model, SCRAM answers FengSui cannot place latch the breaker (R1-04). */
+  #syncLoginPolicy(): void {
+    this.#client.rememberUnverifiedModel(this.device.unverifiedModel);
   }
 
   /** Refuse a write for a router known to be another model (before any session, and again in the queue). */
@@ -593,6 +602,8 @@ export class MutexSessionScheduler extends EventEmitter {
       // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
       // decision): a refused challenge then sends no legacy password, unless re-detection is allowed
       if (!this.#allowLegacyLoginAfterScram) client.rememberLoginScheme(this.#client.knownLoginScheme);
+      // And a router identified as another model latches an answer to the password it cannot place
+      client.rememberUnverifiedModel(this.#client.unverifiedModel);
       try {
         const outcome = await client.withSessionDetailed(
           async (session) => {

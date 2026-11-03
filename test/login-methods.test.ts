@@ -50,6 +50,16 @@ function answerWith(cpe: CpeFamily, p: string, body: () => string): typeof fetch
 
 const submissions = (cpe: CpeFamily): number => SUBMIT_PATHS.reduce((n, p) => n + cpe.count(p, "POST"), 0);
 
+/** A stored identification (what an earlier run found); tests swap the model. */
+const unverifiedProbe: DeviceProbeResult = {
+  identity: { model: "H122-373", marketingName: null, softwareVersion: "10.0.2.1", webUiVersion: null, passwordType: "4", loginScheme: "scram", ecc: false, tokenFlow: "webserver-token", detectedAtIso: "2026-11-02T10:00:00.000Z" },
+  endpoints: [],
+  lteBands: null,
+  probedAtIso: "2026-11-02T10:00:00.000Z",
+  origin: "startup",
+  observations: [],
+};
+
 function coreFixture(
   cpe: { fetchImpl: typeof fetch; password: string },
   opts: { password?: string; deviceProbe?: DeviceProbeResult; allowLegacyLoginAfterScram?: boolean } = {}
@@ -552,6 +562,67 @@ describe("login methods and token flows (mock family)", () => {
     const client = clientFor({ fetchImpl: dropping, password: lost.password });
     await assert.rejects(client.withSession(async () => "never"), /\/api\/user\/login/);
     assert.equal(client.getCircuitBreakerState().tripped, false);
+  });
+
+  it("latches a SCRAM answer it cannot place on a router identified as an unverified model; the H168-383 keeps its handling (R1-04)", async () => {
+    const odd: ReadonlyArray<[string, (cpe: CpeFamily) => typeof fetch]> = [
+      ["unknown code", (cpe) => answerWith(cpe, "/api/user/authentication_login", () => "<error><code>100006</code></error>")],
+      ["no server signature", (cpe) => answerWith(cpe, "/api/user/authentication_login", () => "<response></response>")],
+      [
+        "redirect",
+        (cpe) => async (input, init) => {
+          if (new URL(String(input)).pathname !== "/api/user/authentication_login") return await cpe.fetchImpl(input, init);
+          cpe.stats.requests.push({ path: "/api/user/authentication_login", method: "POST" });
+          throw new TypeError("fetch failed", { cause: new Error("unexpected redirect") });
+        },
+      ],
+    ];
+    for (const [label, swap] of odd) {
+      // Not identified, or identified as a verified model: as before, the next session may try again
+      const plain = createCpeFamily({ login: "scram", tokenFlow: "token" });
+      const plainClient = clientFor({ fetchImpl: swap(plain), password: plain.password });
+      await assert.rejects(plainClient.withSession(async () => "never"));
+      assert.equal(plainClient.getCircuitBreakerState().tripped, false, `${label}: not identified`);
+
+      const cpe = createCpeFamily({ login: "scram", tokenFlow: "token" });
+      const client = clientFor({ fetchImpl: swap(cpe), password: cpe.password });
+      client.rememberUnverifiedModel(true);
+      await assert.rejects(client.withSession(async () => "never"), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker, label);
+      const breaker = client.getCircuitBreakerState();
+      assert.deepEqual([breaker.tripped, breaker.code], [true, label === "unknown code" ? "100006" : LOGIN_UNCONFIRMED_CODE], label);
+      const sent = cpe.stats.requests.length;
+      await assert.rejects(client.withSession(async () => "never"), CpeApiError);
+      assert.deepEqual([cpe.stats.requests.length, cpe.count("/api/user/authentication_login")], [sent, 1], `${label}: no second submission`);
+    }
+    // Codes that refuse before the password is checked still let the next session try
+    const token = createCpeFamily({ login: "scram", tokenFlow: "token" });
+    const tokenClient = clientFor({ fetchImpl: answerWith(token, "/api/user/authentication_login", () => "<error><code>125002</code></error>"), password: token.password });
+    tokenClient.rememberUnverifiedModel(true);
+    await assert.rejects(tokenClient.withSession(async () => "never"), CpeApiError);
+    assert.equal(tokenClient.getCircuitBreakerState().tripped, false);
+
+    // The scheduler tells the client: a stored identification naming another model applies from the first session
+    const cpe = createCpeFamily({ login: "scram", tokenFlow: "token" });
+    const fx = coreFixture({ fetchImpl: odd[0]?.[1](cpe) ?? cpe.fetchImpl, password: cpe.password }, { deviceProbe: { ...unverifiedProbe, identity: { ...unverifiedProbe.identity, model: "H122-373" } } });
+    try {
+      assert.equal(fx.client.unverifiedModel, true);
+      await assert.rejects(fx.core.monitor.refreshTelemetry(), CircuitBreakerOpenError);
+      assert.equal(cpe.count("/api/user/authentication_login"), 1);
+      // A connection test of it reports that an attempt may be gone, instead of a plain router error
+      const result = await fx.core.scheduler.testConnection(fx.good, { lastAttempt: true });
+      assert.deepEqual(result.ok ? null : [result.reason, result.code], ["unconfirmed_login", "100006"]);
+    } finally {
+      await fx.cleanup();
+    }
+    const h168 = createStrictCpe({ fault: (p) => (p === "/api/user/authentication_login" ? { body: "<response></response>" } : undefined) });
+    const fy = coreFixture(h168, { deviceProbe: { ...unverifiedProbe, identity: { ...unverifiedProbe.identity, model: "H168-383" } } });
+    try {
+      assert.equal(fy.client.unverifiedModel, false);
+      await assert.rejects(fy.core.monitor.refreshTelemetry(), /server signature missing/);
+      assert.equal(fy.core.scheduler.isCircuitTripped(), false, "the H168-383 keeps its verified handling");
+    } finally {
+      await fy.cleanup();
+    }
   });
 
   it("latches after a legacy password answered with a redirect, which redirect: \"error\" turns into a failed request", async () => {

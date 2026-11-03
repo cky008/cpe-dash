@@ -31,11 +31,12 @@ export function planLogin(passwordType: string | null, opts: { scramKnown: boole
 }
 
 /**
- * Answers to a legacy `user/login` that refuse it before the password is checked (system, token and
- * session errors, someone else logged in, too frequent): the next session may try again. Any other
- * code from a model nobody verified might have counted as a wrong attempt, so it latches the breaker.
+ * Answers to a password (legacy `user/login`, or SCRAM's proof on a router identified as an
+ * unverified model) that refuse it before the password is checked (system, token and session errors,
+ * someone else logged in, too frequent): the next session may try again. Any other code from a model
+ * nobody verified might have counted as a wrong attempt, so it latches the breaker.
  */
-export const LEGACY_LOGIN_RETRY_SAFE_CODES: ReadonlySet<string> = new Set([
+export const LOGIN_RETRY_SAFE_CODES: ReadonlySet<string> = new Set([
   "100002",
   "100003",
   "100004",
@@ -50,8 +51,9 @@ export const LEGACY_LOGIN_RETRY_SAFE_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The breaker's code when a legacy `user/login` answer carried no error code and no `OK` (a page, an
- * empty, cut-off or oversized body): the router has the password and FengSui cannot tell what it made of it.
+ * The breaker's code when an answer to the password carried no error code and no sign of success (a
+ * page, an empty, cut-off or oversized body, a redirect; for SCRAM, no server signature): the router
+ * has the password and FengSui cannot tell what it made of it.
  */
 export const LOGIN_UNCONFIRMED_CODE = "unconfirmed";
 
