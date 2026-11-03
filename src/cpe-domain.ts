@@ -536,7 +536,8 @@ async function fetchHostListTolerant(session: EphemeralCpeSession): Promise<Term
     try {
       body = await session.get(path);
     } catch (err) {
-      if (!(err instanceof CpeApiError)) throw err;
+      // Only an endpoint this model lacks moves on; any other code (busy, say) fails the read, as for every section (A.10)
+      if (!(err instanceof CpeApiError) || !NOT_HERE_CODES.has(err.code)) throw err;
       code = err.code;
       continue;
     }

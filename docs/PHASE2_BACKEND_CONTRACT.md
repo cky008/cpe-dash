@@ -1140,7 +1140,7 @@ export interface DeviceAccessSnapshot {
 }
 ```
 
-**未验证型号的读法**（详见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.10）：每个读取项各自成败。遥测的信号、状态、流量、月统计哪一部分回了错误码，就列进 `GlobalTelemetrySnapshot.unavailable`，其余照常；邻区、终端列表、路由器设置、访问控制、短信整项回 `100002` / `100003` 或读不懂时，刷新接口返回该项的缓存（通常为 `null`），`reads` 记为 `unavailable`，后台定时扫描不再问它，主动刷新时再试。终端列表依次尝试 `system/HostInfo`、`lan/HostInfo`、`wlan/host-list`。没有流量统计的型号不写吞吐时序。H168-383 与还没有识别结果的路由器照旧严格读取，`unavailable`、`source` 都不出现。
+**未验证型号的读法**（详见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.10）：每个读取项各自成败。遥测的信号、状态、流量、月统计哪一部分回了错误码，就列进 `GlobalTelemetrySnapshot.unavailable`，其余照常；邻区、终端列表、路由器设置、访问控制、短信整项回 `100002` / `100003` 或读不懂时，刷新接口返回该项的缓存（通常为 `null`），`reads` 记为 `unavailable`，后台定时扫描不再问它，主动刷新时再试。终端列表依次尝试 `system/HostInfo`、`lan/HostInfo`、`wlan/host-list`（回 `100002` / `100003` 才换下一个，其他错误码让这次读取失败）。没有流量统计的型号不写吞吐时序。H168-383 与还没有识别结果的路由器照旧严格读取，`unavailable`、`source` 都不出现。
 
 每个写操作所属的功能（`CONTROL_FEATURES`，阶段 3 按功能征求同意）：
 

@@ -219,6 +219,23 @@ describe("read strategies on models nobody verified", () => {
     assert.deepEqual(parseHostListXml("<response/>", { wifiOnly: true }), []);
   });
 
+  it("fails the device list read on a code that does not say the endpoint is missing, as every other section does (A.10)", async () => {
+    // Busy (100004), or a code that is no code at all: the read fails and tries again next time,
+    // never "not on this model", which would stop the background sweeps and show the router's text
+    for (const code of ["100004", "not-a-code"]) {
+      const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints: { "/api/lan/HostInfo": { cpeError: code } } });
+      const fx = readFixture(cpe);
+      try {
+        await fx.core.monitor.identifyDevice();
+        await assert.rejects(fx.core.monitor.refreshTopology(), (err: unknown) => err instanceof CpeApiError && err.code === code, code);
+        assert.equal(fx.reads()["topology"], "unknown", code);
+        assert.equal(fx.core.scheduler.device.skips("topology"), false, `${code}: the sweeps keep asking`);
+      } finally {
+        await fx.cleanup();
+      }
+    }
+  });
+
   it("skips a section this model lacks in the background sweeps, while a refresh someone asks for still tries", async () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints: LTE_ROUTER });
     const fx = readFixture(cpe, { neighborScanIntervalMs: 20 });
