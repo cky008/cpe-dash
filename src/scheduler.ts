@@ -929,6 +929,8 @@ export class MutexSessionScheduler extends EventEmitter {
       const cooldownSpan = expDelay + jitter;
       this.#layer2CooldownUntilMs = nowMs + cooldownSpan;
       this.#layer2CooldownUntilMono = performance.now() + cooldownSpan;
+      // The reads leave the router alone for that long: it may be replaced meanwhile
+      this.device.forget();
     }
 
     const wasActive = this.#avoidanceActive;

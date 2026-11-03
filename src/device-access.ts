@@ -13,7 +13,8 @@ import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./
  * may be stale (the router was swapped while the daemon was down), so it refuses at once when it
  * names an unverified model, and otherwise the write reads the model inside its own session first.
  * Losing sight of the router (unreachable, another connection saved, or a spell of sending it nothing:
- * a reset breaker, the end of a peer standby) asks for that again.
+ * a reset breaker, the end of a peer standby, the quiet window after someone signed in to the
+ * router's page from another device) asks for that again.
  */
 
 /** Every router write the scheduler runs, and the feature it belongs to (phase 3 asks consent per feature). */

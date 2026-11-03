@@ -285,10 +285,10 @@ describe("write gate: unverified models are read-only", () => {
     }
   });
 
-  it("confirms the model again after a spell of sending nothing: peer standby, or an open breaker that was reset", async () => {
+  it("confirms the model again after a spell of sending nothing: peer standby, an open breaker that was reset, a quiet window", async () => {
     // Swapped while this daemon sent nothing, for a model with the same admin password: the write
     // that comes first afterwards, before any poll, must look at the router again
-    for (const spell of ["peer standby", "open breaker"] as const) {
+    for (const spell of ["peer standby", "open breaker", "quiet window"] as const) {
       let locked = false;
       const h168 = createStrictCpe({ fault: (p) => (locked && p === "/api/user/authentication_login" ? { cpeError: "108007" } : undefined) });
       const other = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", password: h168.password });
@@ -301,6 +301,14 @@ describe("write gate: unverified models are read-only", () => {
           fx.core.scheduler.setPeerStandby("192.168.8.2");
           router = other.fetchImpl;
           fx.core.scheduler.setPeerStandby(null);
+        } else if (spell === "quiet window") {
+          // Someone on the router's page from another device: the reads leave the router alone for 45 s or more
+          h168.human.loginCrossIp();
+          assert.equal(await fx.core.monitor.refreshTelemetry(), null);
+          assert.equal(fx.core.scheduler.getAvoidanceState().layer, 2);
+          router = other.fetchImpl;
+          assert.equal(await fx.core.monitor.refreshTelemetry(), null, "the quiet window holds: the read sends nothing");
+          assert.equal(other.stats.requests.length, 0);
         } else {
           locked = true;
           await assert.rejects(fx.core.monitor.refreshTelemetry());
