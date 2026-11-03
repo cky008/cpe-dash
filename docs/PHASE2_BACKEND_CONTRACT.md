@@ -100,6 +100,7 @@ export interface ApiErrorEnvelope {
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号（只读），写操作被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
     | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（device/information），没有写入（见 2.10）
+    | "EXPERIMENTAL_UNAVAILABLE" // 409: 这项实验性写入不能在这台路由器上打开（已验证、暂不支持、路由器没有、还没识别型号；附 state，见 2.11）
     | "ALREADY_SET_UP"           // 409: 控制台密码已设定后再调用 /api/setup/login
     | "WRONG_PASSWORD"           // 403: 修改密码时当前密码不正确
     | "CPE_TEST_FAILED"          // 400: 新的路由器连接测试失败（附 connectionTest），未保存任何内容
@@ -122,6 +123,7 @@ export interface ApiErrorEnvelope {
   retryAfterSec?: number;        // 仅 429 RATE_LIMITED
   avoidance?: AvoidanceBroadcastPayload; // 仅 409 BROWSER_SESSION_YIELDED
   circuitBreaker?: PublicCircuitBreakerState; // 仅 423 CIRCUIT_BREAKER_OPEN
+  state?: WriteFeatureState;     // 仅 409 EXPERIMENTAL_UNAVAILABLE：这项写入在这台路由器上的状态（见 2.11）
 }
 ```
 
@@ -1139,6 +1141,10 @@ export interface DeviceAccessSnapshot {
   // telemetry、neighbors、topology、settings、accessControl、sms 各一项：已验证型号为 verified；
   // 其他型号为它实际的应答：available、unavailable（回了 100002 / 100003 或读不懂的内容；code 为错误码，读不懂时为 null）或 unknown（还没读过）
   reads: Record<ReadSection, { state: "verified" | "available" | "unavailable" | "unknown"; code: string | null }>;
+  // 阶段 3：每个写功能（WRITE_FEATURES：bandLock、cellLock、reboot、reconnect、mobileData、securitySwitches、
+  // wifi、antenna、accessControl、smsWrite）在这台路由器上的状态，见 2.11
+  features: Record<WriteFeature, "verified" | "consented" | "available" | "unsupported" | "not_implemented" | "unknown">;
+  lteBands: number[] | null;        // 实验性锁频可用的 LTE 频段（net-mode-list 通告的）；已验证型号或没有通告时为 null
 }
 ```
 
@@ -1158,6 +1164,39 @@ export interface DeviceAccessSnapshot {
 | `set_mobile_data` | `mobileData` |
 | `set_wifi_access`、`manage_time_rule` | `accessControl` |
 | `sms_send`、`sms_mark_read`、`sms_delete` | `smsWrite` |
+
+### 2.11 实验性写入：逐项知情同意（多型号兼容阶段 3）
+
+未验证型号的用户可以在「设置 → 设备」里 **逐项** 打开实验性写入。烽燧只为请求格式在参考项目里写得确切的写操作提供通用实现（`bandLock` 只锁 LTE、`reboot`、`reconnect`、`mobileData`、`smsWrite`；格式、来源与「暂不支持」的理由见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.11）。
+
+每个写功能在 `schedulerStatus.device.features` 里有一个状态：
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `verified` | 已验证型号（H168-383），或有人在真机上验证过这个型号的这项写入（`src/firmware.ts` 的 `VERIFIED_FEATURES`） |
+| `consented` | 用户为这个型号打开了这项实验性写入 |
+| `available` | 烽燧有通用实现，识别时的探测也找到了它回读要读的接口（附录 A.11 的「能力判断」），但没打开 |
+| `unsupported` | 有通用实现，但这台路由器没有它需要的接口 |
+| `not_implemented` | 资料不确切，烽燧不猜（暂不支持） |
+| `unknown` | 还没有识别出型号 |
+
+- **同意存在哪**：加密的 `settings.json`，按「型号 + 功能」记录；同一时间只保留一个型号的同意。闸门只认当前型号的同意；看到另一个型号（换了路由器）时，其他型号的同意全部删除，换回原来的路由器也要重新同意。
+- **谁能改**：只有控制台会话（`/api/console/*`，令牌访问返回 `403 CONSOLE_ONLY`）。打开、关闭、被拒绝的尝试和换型号时的自动关闭都写进审计日志（`settings.experimental`）。
+
+| 方法与路径 | 请求体 | 响应 |
+| :--- | :--- | :--- |
+| `GET /api/console/experimental` | — | `ExperimentalWritesResponse` |
+| `POST /api/console/experimental` | `{ feature: WriteFeature; enabled: boolean; model?: string }` | `ExperimentalWritesResponse`；状态不是 `available` / `consented` 时 `409 EXPERIMENTAL_UNAVAILABLE`（附 `state`）；打开时 `model` 与控制台显示的型号不一致（不分大小写、忽略首尾空格）时 `400 VALIDATION_ERROR` |
+
+```ts
+export interface ExperimentalWritesResponse {
+  ok: true;
+  device: DeviceAccessSnapshot;      // 同 2.10，含 features 与 lteBands
+  consents: Array<{ model: string; feature: "bandLock" | "reboot" | "reconnect" | "mobileData" | "smsWrite"; grantedAtIso: string }>;
+}
+```
+
+- **打开**要输入路由器型号作为确认词（控制台的风险对话框也这样要求），这样同意记录里的型号一定是用户看到的那台；**关闭**随时可以，立即生效。
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 

@@ -40,8 +40,20 @@ import type {
   TokenFlow,
 } from "./device-profile.ts";
 import type { DeviceVerification } from "./firmware.ts";
-import type { DeviceAccessSnapshot, ReadCapability, ReadSection, ReadState, WriteAccess } from "./device-access.ts";
-import type { PublicTokenRecord } from "./console-settings.ts";
+import type {
+  DeviceAccessSnapshot,
+  FeatureWriteAccess,
+  ReadCapability,
+  ReadSection,
+  ReadState,
+  ReadbackOutcome,
+  ReadbackReason,
+  WriteAccess,
+  WriteCheck,
+  WriteFeature,
+  WriteFeatureState,
+} from "./device-access.ts";
+import type { ExperimentalConsent, PublicTokenRecord } from "./console-settings.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
 import type {
@@ -106,10 +118,17 @@ export type {
   ApiErrorSnapshot,
   ApiErrorStat,
   DeviceAccessSnapshot,
+  ExperimentalConsent,
+  FeatureWriteAccess,
   ReadCapability,
   ReadSection,
   ReadState,
+  ReadbackOutcome,
+  ReadbackReason,
   WriteAccess,
+  WriteCheck,
+  WriteFeature,
+  WriteFeatureState,
   DeviceCapabilities,
   DeviceFeature,
   DeviceIdentity,
@@ -158,6 +177,7 @@ export type ApiErrorCode =
   | "CPE_NOT_CONFIGURED"          // 409: no router connection yet (finish the setup in the console)
   | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on; writes are locked (nothing was sent)
   | "DEVICE_NOT_IDENTIFIED"       // 409: the write's own session could not read the router's model; nothing was written
+  | "EXPERIMENTAL_UNAVAILABLE"    // 409: an experimental write that cannot be turned on for this router (see `state`)
   | "ALREADY_SET_UP"              // 409: /api/setup/login after the console password was set
   | "WRONG_PASSWORD"              // 403: the current console password did not match
   | "CPE_TEST_FAILED"             // 400: the new router connection did not log in; nothing was saved
@@ -198,6 +218,8 @@ export interface ApiErrorEnvelope {
   resolvedPhones?: string[];
   /** Only `400 CPE_TEST_FAILED`: why the router connection did not log in. */
   connectionTest?: ConnectionTestResult;
+  /** Only `409 EXPERIMENTAL_UNAVAILABLE`: what the feature is on this router (verified, not implemented, unsupported, unknown). */
+  state?: WriteFeatureState;
 }
 
 // ── Public, auth and i18n (§2.1) ─────────────────────────────────────────────
@@ -299,6 +321,24 @@ export interface DeviceProfileResponse {
   ok: true;
   profile: DeviceProfile | null;
   verifiedFirmware: Array<{ model: string; softwareVersion: string }>;
+}
+
+/**
+ * `GET` / `POST /api/console/experimental` (console session only; multi-model phase 3): what each write
+ * is on this router (`device.features`) and the experimental writes its owner turned on for this model.
+ */
+export interface ExperimentalWritesResponse {
+  ok: true;
+  device: DeviceAccessSnapshot;
+  consents: ExperimentalConsent[];
+}
+
+/** `POST /api/console/experimental`: turn one experimental write on (typing the router's model) or off. */
+export interface ExperimentalWriteRequest {
+  feature: WriteFeature;
+  enabled: boolean;
+  /** Required to turn one on: the router's model as the console shows it (case and surrounding spaces aside). */
+  model?: string;
 }
 
 /**

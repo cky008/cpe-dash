@@ -1,14 +1,15 @@
-import type { DeviceFeature } from "./device-profile.ts";
-import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
+import { type DeviceFeature, type DeviceProbeResult, EXPERIMENTAL_FEATURES, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
+import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
 
 /**
  * What FengSui may do with the router it talks to (multi-model support, phase 2): whether it may
  * write, and which read sections this model provides. Zero dependencies: the daemon, the web
  * console and the static demo share it.
  *
- * Writes go by the router's model alone. A verified model (`VERIFIED_FIRMWARE`) writes, also on a
- * firmware nobody checked (ADR-007 only warns); any other model is read-only (phase 3 adds
- * per-feature consent). The gate trusts only a model seen in this run: an identification, a poll
+ * Writes go by the router's model. A verified model (`VERIFIED_FIRMWARE`) writes, also on a
+ * firmware nobody checked (ADR-007 only warns); any other model is read-only, except a write users
+ * verified on it (`VERIFIED_FEATURES`) and, since phase 3, an experimental write its owner consented
+ * to for that model, which goes through the generic implementation. The gate trusts only a model seen in this run: an identification, a poll
  * (which reads `device/information` anyway) or the write's own session. What an earlier run stored
  * may be stale (the router was swapped while the daemon was down), so it refuses at once when it
  * names an unverified model, and otherwise the write reads the model inside its own session first.
@@ -38,6 +39,43 @@ export const CONTROL_FEATURES = {
 } as const satisfies Readonly<Record<string, DeviceFeature>>;
 
 export type ControlAction = keyof typeof CONTROL_FEATURES;
+
+/** The features a router write belongs to, in the order the console lists them. */
+export const WRITE_FEATURES = [
+  "bandLock",
+  "cellLock",
+  "reboot",
+  "reconnect",
+  "mobileData",
+  "securitySwitches",
+  "wifi",
+  "antenna",
+  "accessControl",
+  "smsWrite",
+] as const satisfies ReadonlyArray<(typeof CONTROL_FEATURES)[ControlAction]>;
+
+export type WriteFeature = (typeof WRITE_FEATURES)[number];
+
+/**
+ * What a write feature is on the router the gate goes by (multi-model phase 3):
+ * - `verified`: a verified model, or a write users verified on this model (`VERIFIED_FEATURES`): open;
+ * - `consented`: an experimental write its owner turned on for this model: open, written the generic way;
+ * - `available`: an experimental write FengSui could offer here (a generic implementation, and the
+ *   probe found what it reads back), not turned on: locked;
+ * - `unsupported`: a generic implementation exists, but the probe did not find what it needs: locked;
+ * - `not_implemented`: no generic implementation (no exact request format): locked;
+ * - `unknown`: no model identified yet (a write reads it in its own session first).
+ */
+export type WriteFeatureState = "verified" | "consented" | "available" | "unsupported" | "not_implemented" | "unknown";
+
+/** What the gate does with a write of this feature: open (`allowed`, `experimental`), `read_only`, or `unknown` (no model yet). */
+export type FeatureWriteAccess = "allowed" | "experimental" | "read_only" | "unknown";
+
+/** An owner's consent to one experimental write on one model (kept by the console, `settings.json`). */
+export interface ExperimentalConsentRef {
+  model: string;
+  feature: string;
+}
 
 /**
  * What reading a generic write back showed (multi-model phase 3): `match`, `mismatch`, `unknown`
@@ -98,7 +136,20 @@ export interface DeviceAccessSnapshot {
   writes: WriteAccess;
   /** Per read section: a verified model reads all of them; another model only what it answered. */
   reads: Record<ReadSection, ReadCapability>;
+  /** Per write feature, what it is on this router (phase 3: experimental writes per consent). */
+  features: Record<WriteFeature, WriteFeatureState>;
+  /** LTE bands an experimental band lock may use (what `net/net-mode-list` advertised); `null` on a verified model or none. */
+  lteBands: number[] | null;
 }
+
+/** What the identification probe of a model nobody verified showed of the generic writes. */
+interface ProbeCapability {
+  model: string;
+  evidence: Record<ExperimentalFeature, boolean>;
+  lteBands: number[] | null;
+}
+
+const EXPERIMENTAL: ReadonlySet<string> = new Set<string>(EXPERIMENTAL_FEATURES);
 
 interface Sighting {
   model: string;
@@ -137,6 +188,16 @@ function sighting(model: string | null | undefined, softwareVersion: string | nu
 }
 
 export class DeviceAccess {
+  readonly #verifiedFeatures: ReadonlyArray<VerifiedFeature>;
+  /** The latest identification probe's evidence (only counts while its model is the current one). */
+  #capability: ProbeCapability | null = null;
+  /** The owner's consents, as the console keeps them (only the current model's count). */
+  #consents: ReadonlyArray<ExperimentalConsentRef> = [];
+
+  constructor(options: { verifiedFeatures?: ReadonlyArray<VerifiedFeature> } = {}) {
+    this.#verifiedFeatures = options.verifiedFeatures ?? VERIFIED_FEATURES;
+  }
+
   /** The identification an earlier run stored, or the last one this run recorded. */
   #stored: Sighting | null = null;
   /** The model this run saw the router report; `null` until then, and again after losing sight of it. */
@@ -197,9 +258,50 @@ export class DeviceAccess {
     return isVerifiedModel(current.model) ? "allowed" : "read_only";
   }
 
-  /** A known model nobody verified: FengSui reads it the tolerant way and writes nothing. */
+  /** A known model nobody verified: FengSui reads it the tolerant way and writes nothing it has not been allowed to. */
   get unverifiedModel(): boolean {
     return this.writes === "read_only";
+  }
+
+  /** A known model nobody verified: whatever it may write goes through the generic (HiLink) implementation. */
+  get generic(): boolean {
+    return this.unverifiedModel;
+  }
+
+  /** What the identification probe found (start, catch-up, a console test of this router); a probe naming no model changes nothing. */
+  noteProbe(probe: DeviceProbeResult | null | undefined): void {
+    const model = sighting(probe?.identity.model, null)?.model;
+    if (!probe || !model) return;
+    this.#capability = { model, evidence: experimentalEvidence(probe), lteBands: probe.lteBands ? [...probe.lteBands] : null };
+  }
+
+  /** The owner's consents (the console's store hands them over at start and after every change). */
+  setConsents(consents: ReadonlyArray<ExperimentalConsentRef>): void {
+    this.#consents = consents.map(({ model, feature }) => ({ model, feature }));
+  }
+
+  writeState(feature: WriteFeature): WriteFeatureState {
+    const current = this.current;
+    if (!current) return "unknown";
+    if (isVerifiedModel(current.model) || isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures)) return "verified";
+    if (!EXPERIMENTAL.has(feature)) return "not_implemented";
+    const capability = this.#capability?.model === current.model ? this.#capability : null;
+    if (capability?.evidence[feature as ExperimentalFeature] !== true) return "unsupported";
+    return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";
+  }
+
+  writeAccess(feature: WriteFeature): FeatureWriteAccess {
+    const state = this.writeState(feature);
+    if (state === "unknown") return "unknown";
+    if (state === "verified") return "allowed";
+    return state === "consented" ? "experimental" : "read_only";
+  }
+
+  /** LTE bands a generic band lock may use on the current model (`null`: a verified model, or none advertised). */
+  get experimentalLteBands(): number[] | null {
+    const current = this.current;
+    if (!current || !this.unverifiedModel || this.#capability?.model !== current.model) return null;
+    return this.#capability.lteBands ? [...this.#capability.lteBands] : null;
   }
 
   /**
@@ -253,6 +355,8 @@ export class DeviceAccess {
       confirmed: this.confirmed,
       writes: this.writes,
       reads: Object.fromEntries(READ_SECTIONS.map((section) => [section, this.readState(section)])) as Record<ReadSection, ReadCapability>,
+      features: Object.fromEntries(WRITE_FEATURES.map((feature) => [feature, this.writeState(feature)])) as Record<WriteFeature, WriteFeatureState>,
+      lteBands: this.experimentalLteBands,
     };
   }
 }

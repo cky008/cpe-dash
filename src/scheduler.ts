@@ -378,6 +378,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#client.rememberLoginScheme(loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe));
     // Only a likely model until this run sees the router report it (see `DeviceAccess`)
     this.device.remember(loaded.deviceProbe?.identity.model, loaded.deviceProbe?.identity.softwareVersion);
+    this.device.noteProbe(loaded.deviceProbe);
     this.device.restoreReads(loaded.deviceReads);
     this.#syncLoginPolicy();
     const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
@@ -474,8 +475,10 @@ export class MutexSessionScheduler extends EventEmitter {
    * model from now on, and seen in this run.
    */
   noteIdentification(probe: DeviceProbeResult): void {
+    const before = this.device.current?.model ?? null;
     this.device.remember(probe.identity.model, probe.identity.softwareVersion);
-    this.#seeModel(probe.identity.model, probe.identity.softwareVersion);
+    this.device.noteProbe(probe);
+    this.#seeModel(probe.identity.model, probe.identity.softwareVersion, before);
     this.#syncLoginPolicy();
     // What the start-up reads found counts for the model just identified (stored with it by the caller's flush)
     const reads = this.device.readRecord;
@@ -487,11 +490,16 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#seeModel(model, softwareVersion);
   }
 
-  /** `device:changed` when the model contradicts the stored identification: the router was replaced. */
-  #seeModel(model: string | null, softwareVersion: string | null): void {
+  /**
+   * `device:changed` when the model contradicts the stored identification: the router was replaced.
+   * `device:model` whenever the model the gate goes by becomes another one (its consents end).
+   */
+  #seeModel(model: string | null, softwareVersion: string | null, before: string | null = this.device.current?.model ?? null): void {
     const changed = this.device.see(model, softwareVersion);
     this.#syncLoginPolicy();
     if (changed) this.#safeEmit("device:changed", this.device.snapshot());
+    const now = this.device.current?.model ?? null;
+    if (now !== null && now !== before) this.#safeEmit("device:model", now);
   }
 
   /**

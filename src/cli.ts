@@ -379,6 +379,17 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       : [accessTools],
   });
 
+  // The owner's experimental writes (phase 3): only the current model's count, and a router of another
+  // model ends them for good (a router put back later needs a new consent)
+  const keepConsentsFor = (model: string | null): void => {
+    if (model !== null && settings.retainExperimentalFor(model) > 0) {
+      audit.record({ action: "settings.experimental", outcome: "applied", detail: `all off: the router is now ${model}`, actor: { channel: "system" } });
+    }
+    scheduler.device.setConsents(settings.experimentalConsents);
+  };
+  keepConsentsFor(scheduler.device.current?.model ?? null);
+  scheduler.on("device:model", keepConsentsFor);
+
   // Every write that reached the router queue, with the caller captured where it was requested
   scheduler.on("control:audit", (event: ControlAuditEvent) => {
     audit.record({ action: event.action, outcome: event.outcome, detail: event.detail, actor: event.actor });

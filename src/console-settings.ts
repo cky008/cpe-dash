@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { MAX_TOKENS, type TokenRequest, type TokenScope } from "./console-policy.ts";
+import { EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "./device-profile.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { AppConfig } from "./types.ts";
 
@@ -44,6 +45,31 @@ export interface TokenRecord {
 
 export type PublicTokenRecord = Omit<TokenRecord, "hash">;
 
+/**
+ * An owner's informed consent to one experimental write on one router model (multi-model phase 3).
+ * Kept only for one model at a time: a router of another model ends them all.
+ */
+export interface ExperimentalConsent {
+  model: string;
+  feature: ExperimentalFeature;
+  grantedAtIso: string;
+}
+
+const EXPERIMENTAL: ReadonlySet<unknown> = new Set<unknown>(EXPERIMENTAL_FEATURES);
+
+/** A stored consent this version can read; anything else is dropped, never half-honoured. */
+function isExperimentalConsent(value: unknown): value is ExperimentalConsent {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry["model"] === "string" &&
+    entry["model"].length > 0 &&
+    entry["model"].length <= 256 &&
+    EXPERIMENTAL.has(entry["feature"]) &&
+    typeof entry["grantedAtIso"] === "string"
+  );
+}
+
 export interface BearerIdentity {
   tokenId: string;
   name: string;
@@ -65,6 +91,8 @@ interface PersistedConsoleSettings {
   metricsEnabled: boolean | null;
   /** Imported from `.env` and not yet confirmed in the console's guided check. */
   reviewPending: boolean;
+  /** Experimental writes the owner turned on (one model at a time). */
+  experimental: ExperimentalConsent[];
 }
 
 export type OneTimeCodeKind = "setup" | "reset" | "pair";
@@ -141,6 +169,7 @@ function defaultState(): PersistedConsoleSettings {
     telegramReset: true,
     metricsEnabled: null,
     reviewPending: false,
+    experimental: [],
   };
 }
 
@@ -177,7 +206,8 @@ export class ConsoleSettings {
     assertKnownDataFormat(this.filePath, parsed?.format, FORMAT);
     if (!parsed) return false;
     const tokens = Array.isArray(parsed.tokens) ? parsed.tokens.filter((t) => t && typeof t.hash === "string" && typeof t.id === "string") : [];
-    this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens };
+    const experimental = Array.isArray(parsed.experimental) ? parsed.experimental.filter(isExperimentalConsent).map((c) => ({ ...c })) : [];
+    this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens, experimental };
     this.#reindex();
     return true;
   }
@@ -279,6 +309,38 @@ export class ConsoleSettings {
   setMetricsEnabled(enabled: boolean | null): void {
     this.#state.metricsEnabled = enabled;
     this.#save();
+  }
+
+  // ------------------------------------------------------------ experimental writes
+
+  get experimentalConsents(): ExperimentalConsent[] {
+    return this.#state.experimental.map((c) => ({ ...c }));
+  }
+
+  /** Turn an experimental write on for `model`; consents for any other model end (a router of another model). */
+  grantExperimental(model: string, feature: ExperimentalFeature): ExperimentalConsent {
+    const consent: ExperimentalConsent = { model, feature, grantedAtIso: new Date(this.#now()).toISOString() };
+    this.#state.experimental = [...this.#state.experimental.filter((c) => c.model === model && c.feature !== feature), consent];
+    this.#save();
+    return { ...consent };
+  }
+
+  /** Turn an experimental write off, whatever model it was given for; `false` when it was off. */
+  revokeExperimental(feature: string): boolean {
+    const before = this.#state.experimental.length;
+    this.#state.experimental = this.#state.experimental.filter((c) => c.feature !== feature);
+    if (this.#state.experimental.length === before) return false;
+    this.#save();
+    return true;
+  }
+
+  /** The router is `model` now: drop every consent given for another; returns how many. */
+  retainExperimentalFor(model: string): number {
+    const before = this.#state.experimental.length;
+    this.#state.experimental = this.#state.experimental.filter((c) => c.model === model);
+    const dropped = before - this.#state.experimental.length;
+    if (dropped > 0) this.#save();
+    return dropped;
   }
 
   // ------------------------------------------------------------ Bearer tokens
