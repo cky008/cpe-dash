@@ -484,6 +484,27 @@ describe("login methods and token flows (mock family)", () => {
     }
   });
 
+  it("latches on 115002 after a SCRAM proof as well, the H168-383's own login, and sends the password no more", async () => {
+    // A legacy login latches any answer it cannot place, so only SCRAM shows that 115002 itself is fatal
+    const h168: DeviceProbeResult = { ...unverifiedProbe, identity: { ...unverifiedProbe.identity, model: "H168-383", softwareVersion: "4.4.0.1(H1006SP19C00)" } };
+    for (const deviceProbe of [undefined, h168]) {
+      const label = deviceProbe ? "identified as the H168-383" : "not identified yet";
+      const cpe = createCpeFamily({ login: "scram", tokenFlow: "token" });
+      const fx = coreFixture({ fetchImpl: answerWith(cpe, "/api/user/authentication_login", () => "<error><code>115002</code><message></message></error>"), password: cpe.password }, { deviceProbe });
+      try {
+        await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CircuitBreakerOpenError && err.code === "115002", label);
+        const sent = cpe.stats.requests.length;
+        assert.equal(await fx.core.monitor.refreshTelemetry(), null, `${label}: latched, the poll is skipped`);
+        assert.equal(cpe.stats.requests.length, sent, `${label}: no automatic retry`);
+        assert.equal(cpe.count("/api/user/authentication_login", "POST"), 1, `${label}: the password went out once`);
+        const result = await fx.core.scheduler.testConnection(fx.good);
+        assert.deepEqual(result.ok ? null : [result.reason, result.code], ["password_change_required", "115002"], label);
+      } finally {
+        await fx.cleanup();
+      }
+    }
+  });
+
   it("stops after an answer to a legacy password it cannot place, and retries only codes refused before the password check", async () => {
     for (const code of ["100001", "108008", "113018"]) {
       const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token" });
