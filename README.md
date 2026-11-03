@@ -584,7 +584,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | **短信与通讯录** | `GET /api/sms/status`、`threads`、`thread`、`contacts`、`countries`；`POST /api/sms/preview`、`send`、`read`、`delete`、`sync`、`contacts/upsert`、`contacts/delete`、`contacts/import-vcf` | 读接口直读加密镜像（零 CPE 会话）；写接口走控制队列 |
 | **设备访问控制** | `GET /api/access-control`、`POST /api/access-control/refresh`；`POST /api/control/wifi-access`、`wifi-mac-filter`、`time-rule` | Wi-Fi MAC 过滤与上网时段；写操作必须带 `confirm: true`，在一个控制会话内回读核对 |
 | **告警** | `GET /api/alerts` | 最近 100 条告警与投递统计 |
-| **设备识别与能力** | `GET /api/device/profile`；`GET /api/console/device-report`（仅控制台） | 型号、固件、验证状态与能力探测结果；守护进程启动后（当时连不上则在第一次连上后补上）和控制台测试连接时各识别一次；H168-383 照常，其他型号据此只读（见「兼容性」）。设备报告只含结构、不含取值，由你决定是否提交 |
+| **设备识别与能力** | `GET /api/device/profile`；`GET /api/console/device-report`、`GET` / `POST /api/console/experimental`（仅控制台） | 型号、固件、验证状态与能力探测结果；守护进程启动后（当时连不上则在第一次连上后补上）和控制台测试连接时各识别一次；H168-383 照常，其他型号据此只读，可逐项知情同意打开实验性写入（见「兼容性」）。设备报告只含结构、不含取值，附最近的实验性写入结果，由你决定是否提交 |
 | **实时 SSE** | `GET /api/events` | `hello`、`speed`、`telemetry`、`neighbors`、`topology`、`settings`、`access-control`、`session:avoidance`、`control:applied`、`alert`、`sms:new`、`sms:sent`、`sms:updated`、`sms:sync`、`sms:status`、`contacts:updated` 与心跳 |
 | **健康检查** | `GET /api/health` | 免鉴权，供 `HEALTHCHECK` 与监控使用 |
 
