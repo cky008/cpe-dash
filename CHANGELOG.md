@@ -32,6 +32,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Notes on other Huawei models** (`docs/PHASE1_PROTOCOL_SPEC.md`, appendix A), the groundwork for supporting more than the H168-383: identification and capability endpoints, the token and login flows, error codes and the models the reference project lists, each with its source and marked unverified. Login-free reads on the H168-383 showed that `device/basic_information` (model only) and `user/state-login` answer before login, while the firmware and WebUI versions need a session. The facts come from [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api), now thanked in both READMEs; FengSui contains none of its code and does not depend on it.
 - **The logo has a single source**, `web/brand/logo.svg`. The build turns it into the console's icon and ships it as the favicon; tests keep all three in step. `npm run brand:trace -- concept.png` turns a flat logo concept (a light / dark side-by-side is fine) into that file, tracing the outlines to within 0.6 px. `docs/BRAND.md` describes the contract and how to change the logo next time.
 
+### Fixed
+- The alert bell no longer counts alerts you have already looked at after a reload. The daemon keeps the last 100 alerts, and the console forgot on every page load when its alerts panel was last opened, so any warning or critical among them came back as new (a hard refresh always showed the same one). This browser now keeps the time of the newest alert it showed (`fengsui.alertsSeenAt` in localStorage, like the theme and language), and the bell counts only warnings and criticals after it.
+
 ## [1.5.0] — 2026-11-02
 
 ### Added

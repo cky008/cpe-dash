@@ -1,5 +1,6 @@
 import { readOnlyModel } from "../core/device-access-view.ts";
-import { unreadBadgeCount } from "../core/store.ts";
+import { loadAlertsSeen, saveAlertsSeen } from "../core/prefs.ts";
+import { unreadBadgeCount, unseenAlertCount } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { byId, icon } from "./dom.ts";
@@ -89,15 +90,20 @@ export function mountHeader(ctx: AppContext): void {
     unreadBadge.classList.toggle("hidden", count === 0 || !ctx.store.state.smsEnabled);
   };
 
-  let alertsSeenAt = "";
+  // Kept per browser: a reload must not show the alerts it already looked at as new
+  let alertsSeenAt = loadAlertsSeen(ctx.storage);
   const alertsBadge = byId("alertsBadge");
   const renderAlerts = (): void => {
-    const unseen = ctx.store.state.alerts.filter((a) => a.severity !== "info" && a.tsIso > alertsSeenAt).length;
+    const unseen = unseenAlertCount(ctx.store.state.alerts, alertsSeenAt);
     alertsBadge.textContent = unseen > 9 ? "9+" : String(unseen);
     alertsBadge.classList.toggle("hidden", unseen === 0);
   };
   document.addEventListener(ALERTS_SEEN_EVENT, () => {
-    alertsSeenAt = ctx.store.state.alerts.at(-1)?.tsIso ?? alertsSeenAt;
+    const newest = ctx.store.state.alerts.at(-1)?.tsIso;
+    if (newest && newest > alertsSeenAt) {
+      alertsSeenAt = newest;
+      saveAlertsSeen(ctx.storage, newest);
+    }
     renderAlerts();
   });
 

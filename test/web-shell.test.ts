@@ -20,17 +20,20 @@ import {
   toMbps,
 } from "../web/src/core/format.ts";
 import {
+  ALERTS_SEEN_KEY,
   DEFAULT_PREFERENCES,
   type KeyValueStorage,
   PREF_KEYS,
   effectiveTheme,
   isAccentId,
   isThemeId,
+  loadAlertsSeen,
   loadPreferences,
+  saveAlertsSeen,
   savePreference,
 } from "../web/src/core/prefs.ts";
 import { type EventSourceLike, SSE_EVENT_NAMES, SseClient, type SseEvent, type SseStatus, backoffDelayMs } from "../web/src/core/sse.ts";
-import { LIVE_CAPACITY, MAX_ALERTS, Store, appendLive, initialState, mergeAlerts, reduceSseEvent, seedLive, unreadBadgeCount } from "../web/src/core/store.ts";
+import { LIVE_CAPACITY, MAX_ALERTS, Store, appendLive, initialState, mergeAlerts, reduceSseEvent, seedLive, unreadBadgeCount, unseenAlertCount } from "../web/src/core/store.ts";
 import { zhCN } from "../web/src/i18n/zh-CN.ts";
 
 const NOW = new Date(2026, 9, 31, 12, 0, 0); // local time, Saturday 2026-10-31 12:00
@@ -549,6 +552,19 @@ describe("web core: preferences", () => {
     assert.equal(effectiveTheme({ ...pair, followSystem: true }, false), "fengsui-yuebai");
     assert.equal(effectiveTheme({ ...pair, followSystem: false }, true), "fengsui-chenxi");
   });
+
+  it("remembers when this browser last looked at the alerts, so a reload shows nothing it saw as new", () => {
+    const storage = new MemoryStorage();
+    assert.equal(loadAlertsSeen(storage), "");
+    saveAlertsSeen(storage, "2026-11-03T09:30:00.000Z");
+    assert.equal(storage.data.get(ALERTS_SEEN_KEY), "2026-11-03T09:30:00.000Z");
+    assert.equal(loadAlertsSeen(storage), "2026-11-03T09:30:00.000Z");
+    storage.data.set(ALERTS_SEEN_KEY, "<script>");
+    assert.equal(loadAlertsSeen(storage), "", "only a timestamp counts");
+    storage.failing = true;
+    assert.equal(loadAlertsSeen(storage), "");
+    saveAlertsSeen(storage, "2026-11-03T09:31:00.000Z");
+  });
 });
 
 const SMS_STATUS: SmsStatusSnapshot = {
@@ -612,6 +628,14 @@ describe("web core: state store and SSE reducer", () => {
     );
     const many = Array.from({ length: MAX_ALERTS + 5 }, (_, i) => mk(`x${i}`, new Date(i * 1000).toISOString()));
     assert.equal(mergeAlerts([], many).length, MAX_ALERTS);
+  });
+
+  it("counts on the bell the warnings and criticals newer than the last look, never info", () => {
+    const mk = (id: string, ts: string, severity: "info" | "warning" | "critical") => ({ id, tsIso: ts, severity, code: "WAN_DOWN", messageZh: "", messageEn: "" });
+    const alerts = [mk("a", "2026-10-31T09:00:00.000Z", "warning"), mk("b", "2026-10-31T10:00:00.000Z", "info"), mk("c", "2026-10-31T11:00:00.000Z", "critical")];
+    assert.equal(unseenAlertCount(alerts, ""), 2, "never looked: every warning and critical");
+    assert.equal(unseenAlertCount(alerts, "2026-10-31T09:00:00.000Z"), 1);
+    assert.equal(unseenAlertCount(alerts, "2026-10-31T11:00:00.000Z"), 0);
   });
 
   it("folds every SSE event into state and the right topics", () => {

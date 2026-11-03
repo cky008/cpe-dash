@@ -2,7 +2,8 @@ import { normalizeHex, readableOn } from "./colors.ts";
 import { type Locale, isLocale } from "./i18n.ts";
 
 /**
- * Browser-local preferences (theme, accent, language, usage caps). Every read is validated, so a
+ * Browser-local preferences (theme, accent, language, usage caps) and when the alerts were last
+ * looked at. Every read is validated, so a
  * hand-edited or stale localStorage entry falls back to defaults instead of breaking the shell.
  * Privacy reveal state is deliberately not persisted: every page load starts masked.
  */
@@ -191,6 +192,27 @@ export function savePreference<K extends keyof Preferences>(storage: KeyValueSto
     else storage.setItem(storageKey, String(value));
   } catch {
     // ignore: the in-memory preference still applies for this page
+  }
+}
+
+/**
+ * When this browser last opened the alerts panel: the time of the newest alert it showed then. The
+ * daemon keeps the last 100 alerts, so without it every page load would count the old ones as new.
+ */
+export const ALERTS_SEEN_KEY = "fengsui.alertsSeenAt";
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+
+/** `""` until the panel was opened in this browser (or when storage is blocked). */
+export function loadAlertsSeen(storage: KeyValueStorage): string {
+  const raw = safeGet(storage, ALERTS_SEEN_KEY);
+  return raw !== null && ISO_TIME.test(raw) ? raw : "";
+}
+
+export function saveAlertsSeen(storage: KeyValueStorage, tsIso: string): void {
+  try {
+    storage.setItem(ALERTS_SEEN_KEY, tsIso);
+  } catch {
+    // ignore: the badge still clears for this page
   }
 }
 

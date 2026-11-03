@@ -190,6 +190,11 @@ export function reduceSseEvent(state: Readonly<AppState>, event: SseEvent): Redu
   }
 }
 
+/** Bell badge: warnings and criticals newer than the last look at the alerts panel (`seenAtIso`); info never counts. */
+export function unseenAlertCount(alerts: ReadonlyArray<AlertEventRecord>, seenAtIso: string): number {
+  return alerts.filter((alert) => alert.severity !== "info" && alert.tsIso > seenAtIso).length;
+}
+
 /** Unread badge: the mirror's count, or the router's while new messages wait for a sync. */
 export function unreadBadgeCount(sms: SmsStatusSnapshot | null): number {
   if (!sms) return 0;
