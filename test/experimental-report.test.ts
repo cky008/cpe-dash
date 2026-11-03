@@ -107,6 +107,8 @@ describe("experimental writes in the device report", () => {
         ["sms_mark_read", "match"],
       ]);
       const report = ((await (await send("GET", "/api/console/device-report", cookie)).json()) as DeviceReportResponse).report;
+      assert.deepEqual(report.access?.features, { ...view.device.features }, "which writes were on, and which this router lacks");
+      assert.deepEqual([report.access?.features?.bandLock, report.access?.features?.reboot, report.access?.features?.cellLock], ["consented", "available", "not_implemented"]);
       assert.deepEqual(report.writes.map((w) => [w.action, w.endpoints.join(","), w.outcome, w.readback]), [
         ["lock_band", "/api/net/net-mode", "applied", "match"],
         ["set_mobile_data", "/api/dialup/mobile-dataswitch", "applied", "match"],

@@ -414,6 +414,12 @@ export class MutexSessionScheduler extends EventEmitter {
     this.device.remember(loaded.deviceProbe?.identity.model, loaded.deviceProbe?.identity.softwareVersion);
     this.device.noteProbe(loaded.deviceProbe);
     this.device.restoreReads(loaded.deviceReads);
+    // A redial or reboot an earlier run left pending: its polls are gone, so nothing can decide it now
+    if (loaded.genericWrites.some((r) => r.readback === "pending")) {
+      this.stateStore.update({
+        genericWrites: loaded.genericWrites.map((r) => (r.readback === "pending" ? { ...r, readback: "unknown" as const, reason: "no_evidence" as const } : r)),
+      });
+    }
     this.#syncLoginPolicy();
     const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {

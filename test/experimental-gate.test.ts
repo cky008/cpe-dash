@@ -118,6 +118,10 @@ const refused = (action: ControlAction) => (err: unknown) => err instanceof Devi
 
 const posts = (cpe: ReturnType<typeof createCpeFamily>): string[] => cpe.stats.writes.map((w) => `${w.path} ${w.body.replace(/^<\?xml[^>]*\?>/, "")}`);
 
+const blockedFetch: typeof fetch = async () => {
+  throw new Error("no router in this test");
+};
+
 let restore: () => void;
 before(() => {
   restore = blockNetwork();
@@ -390,6 +394,33 @@ describe("experimental gate: the results kept", () => {
       await store.flushAsync();
       const loaded = new EncryptedStateStore({ filePath: file, encryptionKey: "results_key" }).load();
       assert.deepEqual(loaded.genericWrites.map((r) => r.id), Array.from({ length: 20 }, (_, i) => `id-${i + 5}`));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("experimental gate: a check left pending by a restart", () => {
+  it("is closed as unknown at the next start: no poll of the old run can decide it any more", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-xpending-"));
+    try {
+      const file = path.join(dir, "state.json");
+      const pending: WriteResultRecord = { id: "p1", atIso: "2026-11-03T08:00:00.000Z", action: "reboot_cpe", feature: "reboot", model: MODEL, endpoints: ["/api/device/control"], outcome: "applied", code: null, readback: "pending", reason: null };
+      const done: WriteResultRecord = { ...pending, id: "d1", action: "set_mobile_data", feature: "mobileData", endpoints: ["/api/dialup/mobile-dataswitch"], readback: "match" };
+      const before = new EncryptedStateStore({ filePath: file, encryptionKey: "pending_key" });
+      before.update({ genericWrites: [pending, done] });
+      await before.flushAsync();
+      const stateStore = new EncryptedStateStore({ filePath: file, encryptionKey: "pending_key" });
+      const core = createFengSuiCore({ client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "x", fetchImpl: blockedFetch }), stateStore, timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }) });
+      core.monitor.init();
+      assert.deepEqual(
+        core.scheduler.genericWrites.map((r) => [r.id, r.readback, r.reason]),
+        [
+          ["p1", "unknown", "no_evidence"],
+          ["d1", "match", null],
+        ]
+      );
+      await stopFengSuiCore(core);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

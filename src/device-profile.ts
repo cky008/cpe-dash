@@ -1,4 +1,4 @@
-import type { ReadCapability, ReadSection, WriteAccess, WriteResultRecord } from "./device-access.ts";
+import type { ReadCapability, ReadSection, WriteAccess, WriteFeature, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
 
 /**
@@ -676,6 +676,8 @@ export type DeviceReportWrite = Omit<WriteResultRecord, "id">;
 export interface DeviceReportAccess {
   writes: WriteAccess;
   reads: Record<ReadSection, ReadCapability>;
+  /** Per write feature, what it is on this router (verified, consented, available, unsupported, not implemented; phase 3). */
+  features?: Record<WriteFeature, WriteFeatureState>;
 }
 
 export function buildDeviceReport(input: {
@@ -689,7 +691,11 @@ export function buildDeviceReport(input: {
   const apiErrors = { sinceIso: input.apiErrors.sinceIso, entries: input.apiErrors.entries.map((e) => ({ ...e })) };
   const base = { reportVersion: DEVICE_REPORT_VERSION, fengsuiVersion: input.fengsuiVersion, generatedAtIso: input.generatedAtIso } as const;
   const access: DeviceReportAccess | null = input.access
-    ? { writes: input.access.writes, reads: Object.fromEntries(Object.entries(input.access.reads).map(([section, read]) => [section, { state: read.state, code: read.code }])) as Record<ReadSection, ReadCapability> }
+    ? {
+        writes: input.access.writes,
+        reads: Object.fromEntries(Object.entries(input.access.reads).map(([section, read]) => [section, { state: read.state, code: read.code }])) as Record<ReadSection, ReadCapability>,
+        ...(input.access.features ? { features: { ...input.access.features } } : {}),
+      }
     : null;
   const writes: DeviceReportWrite[] = (input.writes ?? []).map(({ id: _id, ...result }) => ({ ...result, endpoints: [...result.endpoints] }));
   if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access, writes };
