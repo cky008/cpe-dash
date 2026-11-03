@@ -118,10 +118,13 @@ export class DeviceAccess {
   #seen: Sighting | null = null;
   /** What the current model answered per read section (only kept for a model nobody verified). */
   #reads: ReadRecord | null = null;
+  /** Reads that worked before any model was known (the start-up sweep): adopted by the model identified next. */
+  #pending: Partial<Record<ReadSection, ReadCapability>> = {};
 
   /** The model of the stored identification (state.json at start, or one this run just recorded). */
   remember(model: string | null | undefined, softwareVersion: string | null | undefined): void {
     this.#stored = sighting(model, softwareVersion) ?? this.#stored;
+    this.#adoptPending();
   }
 
   /**
@@ -133,7 +136,19 @@ export class DeviceAccess {
     const next = sighting(model, softwareVersion);
     if (!next) return false;
     this.#seen = next;
+    this.#adoptPending();
     return this.#stored !== null && this.#stored.model !== next.model;
+  }
+
+  /** A model is known now: what worked before counts for it (a model nobody verified), or is dropped. */
+  #adoptPending(): void {
+    const current = this.current;
+    if (!current || Object.keys(this.#pending).length === 0) return;
+    if (this.unverifiedModel) {
+      const known = this.#reads?.model === current.model ? this.#reads.reads : {};
+      this.#reads = { model: current.model, reads: { ...this.#pending, ...known } };
+    }
+    this.#pending = {};
   }
 
   /** Lost sight of the router (unreachable, another connection): its model is confirmed again before the next write. */
@@ -169,7 +184,12 @@ export class DeviceAccess {
    */
   noteRead(section: ReadSection, outcome: { available: true } | { available: false; code: string | null }): boolean {
     const current = this.current;
-    if (!current || !this.unverifiedModel) return false;
+    // Before any model is known only a read that worked is kept, for the model identified next
+    if (!current) {
+      if (outcome.available) this.#pending[section] = { state: "available", code: null };
+      return false;
+    }
+    if (!this.unverifiedModel) return false;
     if (this.#reads?.model !== current.model) this.#reads = { model: current.model, reads: {} };
     const next: ReadCapability = outcome.available ? { state: "available", code: null } : { state: "unavailable", code: outcome.code };
     const before = this.#reads.reads[section];

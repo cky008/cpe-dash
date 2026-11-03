@@ -473,6 +473,9 @@ export class MutexSessionScheduler extends EventEmitter {
     this.device.remember(probe.identity.model, probe.identity.softwareVersion);
     this.#seeModel(probe.identity.model, probe.identity.softwareVersion);
     this.#syncLoginPolicy();
+    // What the start-up reads found counts for the model just identified (stored with it by the caller's flush)
+    const reads = this.device.readRecord;
+    if (reads) this.stateStore.update({ deviceReads: reads });
   }
 
   /** A read of this run saw the router report its model (the 5 s poll reads `device/information`). */
@@ -494,16 +497,17 @@ export class MutexSessionScheduler extends EventEmitter {
    * fail it. A verified or not yet identified router reads exactly as before.
    */
   async readSection<T>(section: ReadSection, read: () => Promise<T>): Promise<T | null> {
-    if (!this.device.unverifiedModel) return await read();
+    const tolerant = this.device.unverifiedModel;
     let value: T;
     try {
       value = await read();
     } catch (err) {
-      const code = sectionUnavailableCode(err);
+      const code = tolerant ? sectionUnavailableCode(err) : undefined;
       if (code === undefined) throw err;
       this.noteRead(section, { available: false, code });
       return null;
     }
+    // Kept only for a model nobody verified (or, before any identification, for the one identified next)
     this.noteRead(section, { available: true });
     return value;
   }

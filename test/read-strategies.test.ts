@@ -269,6 +269,31 @@ describe("read strategies on models nobody verified", () => {
     }
   });
 
+  it("counts what worked before the first identification for the model identified next", async () => {
+    // A fresh install: the start-up SMS sync runs before the router is identified
+    const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints: LTE_ROUTER, sms: MAILBOX });
+    const fx = readFixture(cpe);
+    try {
+      assert.ok(await fx.sms.sync("full"));
+      assert.equal(fx.reads()["sms"], "unknown", "no model yet: nothing to say");
+      await fx.core.monitor.identifyDevice();
+      assert.equal(fx.reads()["sms"], "available", "SMS worked, so it is known to work on this model");
+      assert.deepEqual(fx.core.stateStore.getState().deviceReads?.reads["sms"], { state: "available", code: null }, "stored with the identification");
+    } finally {
+      await fx.cleanup();
+    }
+    // The H168-383 keeps nothing of the kind
+    const h168 = createStrictCpe();
+    const fy = readFixture(h168);
+    try {
+      assert.ok(await fy.core.monitor.refreshTelemetry());
+      await fy.core.monitor.identifyDevice();
+      assert.deepEqual([fy.reads()["telemetry"], fy.core.stateStore.getState().deviceReads], ["verified", null]);
+    } finally {
+      await fy.cleanup();
+    }
+  });
+
   it("leaves the H168-383 on its verified reads: an error still fails the read and nothing is recorded", async () => {
     const cpe = createStrictCpe({ fault: (p) => (p === "/api/device/nbrcellinfo" ? { cpeError: "100002" } : undefined) });
     const fx = readFixture(cpe);
