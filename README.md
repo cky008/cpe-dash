@@ -629,8 +629,9 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 ```bash
 npm run check
 # 1. npm run typecheck      → 守护进程 / 脚本 / 测试与 Web 前端两套 tsconfig，100% 严格 TypeScript
-# 2. npm run test:coverage  → node:test 全离线测试 + c8 门禁（语句 / 行 / 函数 >= 90%，实测 98% / 98% / 99%）
-# 3. npm run audit:secrets  → 扫描工作区与完整 git 历史：密钥、硬件指纹、手机号与任何 .js 源文件
+# 2. npm run build:web      → 构建 Web 控制台：首屏与按需加载合计超过 160 KiB gzip 即失败（与 CI、发版和 Docker 构建同一上限）
+# 3. npm run test:coverage  → node:test 全离线测试 + c8 门禁（语句 / 行 / 函数 >= 90%，实测 98% / 98% / 99%）
+# 4. npm run audit:secrets  → 扫描工作区与完整 git 历史：密钥、硬件指纹、手机号与任何 .js 源文件
 ```
 
 - 单元测试只对接注入式 Mock 路由器，**从不访问真实 `192.168.8.1`**；测试号码只用保留号段，从不向真实号码发短信。

@@ -629,8 +629,9 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 ```bash
 npm run check
 # 1. npm run typecheck      → Dual tsconfig for daemon / scripts / tests and Web frontend, 100% strict TypeScript
-# 2. npm run test:coverage  → node:test fully offline tests + c8 quality gate (statements / lines / functions >= 90%, actual 98% / 98% / 99%)
-# 3. npm run audit:secrets  → Scans workspace and complete git history for secrets, hardware fingerprints, phone numbers, and any .js source files
+# 2. npm run build:web      → Builds the web console; fails when first paint and on-demand parts pass 160 KiB gzip (the limit CI, releases and the Docker build apply)
+# 3. npm run test:coverage  → node:test fully offline tests + c8 quality gate (statements / lines / functions >= 90%, actual 98% / 98% / 99%)
+# 4. npm run audit:secrets  → Scans workspace and complete git history for secrets, hardware fingerprints, phone numbers, and any .js source files
 ```
 
 - Unit tests interact exclusively with an injected mock router, **never accessing the real `192.168.8.1`**; test phone numbers use reserved number blocks only, never sending SMS to real numbers.
