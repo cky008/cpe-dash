@@ -201,6 +201,48 @@ describe("write gate: unverified models are read-only", () => {
     }
   });
 
+  it("looks at the model again inside the write's session: a read that sees another model just before cannot let it through", async () => {
+    // The read that first sees the model notes it after its session ends, when the write queued
+    // behind it has already left the queue past the gate's first look
+    const telemetry: Record<string, string> = {
+      "/api/device/signal": "<response><rsrp>-97dBm</rsrp><sinr>11dB</sinr><mode>7</mode></response>",
+      "/api/monitoring/traffic-statistics": "<response><CurrentDownloadRate>0</CurrentDownloadRate><CurrentUploadRate>0</CurrentUploadRate></response>",
+      "/api/monitoring/month_statistics": "<response><CurrentMonthDownload>0</CurrentMonthDownload><CurrentMonthUpload>0</CurrentMonthUpload></response>",
+    };
+    for (const stored of [undefined, "H168-383"]) {
+      for (const read of ["identification", "poll"] as const) {
+        const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints: telemetry });
+        let release: () => void = () => undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let holding = true;
+        const fetchImpl: typeof fetch = async (input, init) => {
+          // The read's session waits here until the write is queued behind it
+          if (holding && new URL(String(input)).pathname === "/api/device/information") {
+            holding = false;
+            await held;
+          }
+          return await cpe.fetchImpl(input, init);
+        };
+        const fx = gateFixture({ fetchImpl, password: cpe.password }, { stored });
+        const what = `${stored ?? "nothing"} stored, ${read} in flight`;
+        try {
+          const reading = read === "identification" ? fx.core.monitor.identifyDevice() : fx.core.monitor.refreshTelemetry();
+          while (holding) await new Promise((resolve) => setImmediate(resolve));
+          const refused = assert.rejects(fx.core.controls.setMobileData(false), refusedFor("set_mobile_data", "B535-232"), what);
+          release();
+          assert.ok(await reading, what);
+          await refused;
+          assert.deepEqual(cpe.stats.writes, [], `${what}: no write reached the router`);
+          assert.equal(fx.audits.at(-1)?.outcome, "refused", what);
+        } finally {
+          await fx.cleanup();
+        }
+      }
+    }
+  });
+
   it("confirms the model again after losing sight of the router, and refuses a write that cannot read it", async () => {
     let fault: StrictFault | undefined;
     let identityFault: StrictFault | undefined;

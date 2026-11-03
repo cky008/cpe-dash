@@ -526,7 +526,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#client.rememberUnverifiedModel(this.device.unverifiedModel);
   }
 
-  /** Refuse a write for a router known to be another model (before any session, and again in the queue). */
+  /** Refuse a write for a router known to be another model (before any session, in the queue, and in the write's session). */
   #assertWritable(feature: DeviceFeature): void {
     const current = this.device.current;
     if (current && this.device.writes === "read_only") throw new DeviceReadOnlyError(modelLabel(current.model), feature);
@@ -799,7 +799,10 @@ export class MutexSessionScheduler extends EventEmitter {
       try {
         const outcome = await this.#client.withSessionDetailed(
           async (session) => {
-            if (!this.device.confirmed) await this.#confirmModel(session, feature);
+            // A read that ended just before this session notes the model it saw only after the
+            // queue's look, so look again here, right before the write
+            if (this.device.confirmed) this.#assertWritable(feature);
+            else await this.#confirmModel(session, feature);
             return await fn(session);
           },
           { retriesOnOccupied: 0 }
