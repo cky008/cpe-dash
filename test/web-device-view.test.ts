@@ -9,9 +9,11 @@ import {
   endpointText,
   loginText,
   reportFileName,
+  reportIssueLink,
   reportJson,
   verificationNotice,
 } from "../web/src/core/device-view.ts";
+import { deviceIssueUrl } from "../src/feedback.ts";
 import { schemeText, tokenFlowText } from "../web/src/core/console-view.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../web/src/i18n/settings.ts";
 
@@ -99,5 +101,11 @@ describe("web core: device view", () => {
     assert.ok(json.endsWith("}\n"));
     assert.deepEqual(JSON.parse(json), report);
     assert.match(json, /\n {2}"reportVersion": 1,/);
+  });
+
+  it("links the report to a new GitHub issue, except in the static demo, whose report is the demo router's", () => {
+    const report: DeviceReport = { ...buildDeviceReport({ probe: null, apiErrors: { sinceIso: "2026-11-02T08:00:00.000Z", entries: [] }, fengsuiVersion: "1.5.0", generatedAtIso: "2026-11-02T10:00:00.123Z" }), identity: profile({ model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)" }).identity };
+    assert.equal(reportIssueLink(report, false), deviceIssueUrl(report.identity));
+    assert.equal(reportIssueLink(report, true), null);
   });
 });

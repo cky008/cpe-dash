@@ -1,4 +1,5 @@
 import type { DeviceFeature, DeviceIdentity, DeviceProfile, DeviceReport, EndpointProbe, EndpointState, ProbeOrigin, ReadSection, ReadState, WriteAccess } from "../../../src/api-contract.ts";
+import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 import { type NoticeTone, schemeText } from "./console-view.ts";
 import { formatAgo } from "./format.ts";
@@ -122,4 +123,9 @@ export function reportFileName(report: DeviceReport): string {
 /** The report as the file holds it (and the clipboard gets it): indented JSON. */
 export function reportJson(report: DeviceReport): string {
   return `${JSON.stringify(report, null, 2)}\n`;
+}
+
+/** The new issue to file the report on, or `null` in the static demo: its report is the demo router's. */
+export function reportIssueLink(report: DeviceReport, demo: boolean): string | null {
+  return demo ? null : deviceIssueUrl(report.identity);
 }
