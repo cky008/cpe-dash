@@ -9,6 +9,9 @@ import {
   type AvoidanceBroadcastPayload,
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
+  DeviceNotIdentifiedError,
+  DeviceReadOnlyError,
+  type MutexSessionScheduler,
   PeerDaemonStandbyError,
   SchedulerQueueFullError,
   SchedulerStoppedError,
@@ -44,7 +47,8 @@ export const MCP_LEGACY_RESOURCE_NOT_FOUND = -32002;
 const REMOVED_IN_MODERN: ReadonlySet<string> = new Set(["initialize", "ping", "logging/setLevel"]);
 
 /**
- * `ttlMs` for the 2026-07-28 `CacheableResult`s. Lists are fixed for the daemon's lifetime; resource
+ * `ttlMs` for the 2026-07-28 `CacheableResult`s. Lists change only when the router does (another
+ * model, a section it turns out to lack), and every call is checked again on the server; resource
  * contents are live router data. `cacheScope` is always `private`: results belong to one API token.
  */
 const MODERN_CACHE_TTL_MS: Readonly<Record<string, number>> = {
@@ -135,6 +139,8 @@ export class FengSuiMcpServer {
   readonly toolProviders: ReadonlyArray<McpToolProvider>;
   /** Attached to `BROWSER_SESSION_YIELDED` tool errors. */
   readonly #avoidanceState: () => AvoidanceBroadcastPayload;
+  /** The write gate's view of the router (a read-only model hides and refuses the router writes). */
+  readonly #scheduler: MutexSessionScheduler;
 
   constructor(options: FengSuiMcpServerOptions) {
     this.allowMutations = options.allowMutations !== false;
@@ -143,13 +149,24 @@ export class FengSuiMcpServer {
       ...(options.toolProviders ?? []),
     ];
     const { scheduler } = options.core;
+    this.#scheduler = scheduler;
     this.#avoidanceState = () => scheduler.getAvoidanceState();
   }
 
-  /** Tools this caller may see: mutating tools are hidden by `MCP_ALLOW_MUTATIONS=false` and for read-only tokens. */
+  /**
+   * Tools this caller may see: mutating tools are hidden by `MCP_ALLOW_MUTATIONS=false` and for
+   * read-only tokens, router writes on a router of an unverified model (read-only), and tools for
+   * what this router turned out not to provide.
+   */
   getToolDefinitions(readOnly = false): ReadonlyArray<McpToolDefinition> {
+    const routerReadOnly = this.#scheduler.device.writes === "read_only";
     return this.toolProviders.flatMap((p) =>
-      p.getToolDefinitions().filter((tool) => (this.allowMutations && !readOnly) || !p.isMutating(tool.name))
+      p.getToolDefinitions().filter(
+        (tool) =>
+          ((this.allowMutations && !readOnly) || !p.isMutating(tool.name)) &&
+          !(routerReadOnly && isRouterWrite(p, tool.name)) &&
+          (p.isAvailable?.(tool.name) ?? true)
+      )
     );
   }
 
@@ -260,10 +277,12 @@ export class FengSuiMcpServer {
   }
 
   #instructions(): string {
-    return this.toolProviders
-      .flatMap((p) => (p.instructions ? [p.instructions()] : []))
-      .filter(Boolean)
-      .join(" ");
+    const device = this.#scheduler.device;
+    const readOnly =
+      device.writes === "read_only"
+        ? [`This router (${device.snapshot().model ?? "?"}) is a model FengSui was not verified on: it is read-only, so no tool can change it.`]
+        : [];
+    return [...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])), ...readOnly].filter(Boolean).join(" ");
   }
 
   async #dispatchMethod(method: string, params: Record<string, unknown>, modern: boolean, readOnly: boolean): Promise<unknown> {
@@ -379,6 +398,11 @@ export class FengSuiMcpServer {
         "Mutating MCP tools are disabled by server configuration (MCP_ALLOW_MUTATIONS=false)"
       );
     }
+    // The write gate, before anything else touches the call (the scheduler refuses it as well)
+    if (provider && isRouterWrite(provider, toolName) && this.#scheduler.device.writes === "read_only") {
+      const refused = new DeviceReadOnlyError(this.#scheduler.device.snapshot().model ?? "?", null);
+      return wrapErr("DEVICE_UNVERIFIED_READ_ONLY", refused.messageEn, { messageZh: refused.messageZh, model: refused.model });
+    }
     // Enforce the advertised contract before any work: explicit confirmation first, then the schema
     const definition = this.getToolDefinitions(readOnly).find((tool) => tool.name === toolName);
     if (definition) {
@@ -409,6 +433,12 @@ export class FengSuiMcpServer {
       if (err instanceof PeerDaemonStandbyError) {
         return wrapErr("PEER_DAEMON_ACTIVE", err.message, { peerAddress: err.peerAddress });
       }
+      if (err instanceof DeviceReadOnlyError) {
+        return wrapErr("DEVICE_UNVERIFIED_READ_ONLY", err.messageEn, { messageZh: err.messageZh, model: err.model, feature: err.feature });
+      }
+      if (err instanceof DeviceNotIdentifiedError) {
+        return wrapErr("DEVICE_NOT_IDENTIFIED", err.messageEn, { messageZh: err.messageZh });
+      }
       if (err instanceof CircuitBreakerOpenError) {
         return wrapErr("CIRCUIT_BREAKER_OPEN", err.message, { circuitBreaker: err.circuitBreaker });
       }
@@ -427,6 +457,10 @@ export class FengSuiMcpServer {
       );
     }
   }
+}
+
+function isRouterWrite(provider: McpToolProvider, toolName: string): boolean {
+  return provider.isRouterWrite?.(toolName) ?? provider.isMutating(toolName);
 }
 
 class McpProtocolRpcError extends Error {

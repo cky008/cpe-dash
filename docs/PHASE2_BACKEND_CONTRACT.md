@@ -1300,16 +1300,20 @@ export interface McpToolErrorPayload {
     | "VALIDATION_ERROR"         // 参数非法或违反 inputSchema（在任何写入前返回，不产生 CPE 会话）
     | "CELL_NOT_OBSERVED"        // lock_cell 的目标不是已观测到的小区
     | "PEER_DAEMON_ACTIVE"       // 另一台主机上的「烽燧」守护进程正在管理这台 CPE（附 peerAddress）
+    | "DEVICE_UNVERIFIED_READ_ONLY" // 路由器是未验证的型号（只读）：写路由器的工具被拒，没有发出任何请求（附 model、messageZh；调度器拒绝时另附 feature）
+    | "DEVICE_NOT_IDENTIFIED"    // 写工具在自己的会话里没读到路由器型号，没有写入（附 messageZh）
     | "SMS_SEND_FAILED"          // send_sms：CPE 报告发送失败（附 result 与 resolvedPhones，额度不退还）
     | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）
     | "CIRCUIT_BREAKER_OPEN"     // 防爆破断路器已熔断（附 circuitBreaker）：不会尝试登录，需人工修正 .env 并 reset-breaker
     | "QUEUE_FULL"               // 调度队列已满或守护进程正在停机，可稍后重试
     | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、会话超过占用上限等
   message: string;               // 英文
-  messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED
+  messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED、DEVICE_UNVERIFIED_READ_ONLY、DEVICE_NOT_IDENTIFIED
   avoidance?: AvoidanceBroadcastPayload; // 仅 BROWSER_SESSION_YIELDED
 }
 ```
+
+**未验证型号（只读，见 2.10）**：`tools/list` 不列出任何写路由器的工具（核心的锁频锁站、开关、重拨、重启，访问控制的三个写工具，短信的 `send_sms`、`mark_sms_read`、`delete_sms`）；`upsert_contact` 只改烽燧自己的通讯录，照常列出。按名字强行调用写路由器的工具，在确认与参数检查之前就返回 `DEVICE_UNVERIFIED_READ_ONLY`，调度器也会再拒绝一次（例如型号是在这次写操作自己的会话里才读到的）。`initialize` / `server/discover` 的 `instructions` 末尾追加一句：这台路由器是未验证的型号，只读。读工具按路由器实际提供的读取项筛选：`list_neighbor_cells`（neighbors）、`list_terminal_topology`（topology）、`get_router_settings`（settings）、`get_access_control`（accessControl）与全部短信工具及 `fengsui://sms/status`（sms）在 `device.reads` 为 `unavailable` 时不列出，还没读过时照常列出。列表只在路由器型号或它提供的读取项变化时改变（`tools/list` 的 `ttlMs` 不变），每次调用都会在服务端重新检查。**H168-383 上工具、资源与说明与改动前逐字相同**（[`test/mcp-gate.test.ts`](../test/mcp-gate.test.ts)）。
 
 
 ### 4.4 短信工具（`MCP_SMS_ACCESS` 分级 + 提示词注入防护）

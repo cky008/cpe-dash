@@ -110,11 +110,12 @@ export class DeviceReadOnlyError extends Error {
   readonly statusCode = 409;
   /** The router's model as it may be shown (`?` when it is not plain text). */
   readonly model: string;
-  readonly feature: DeviceFeature;
+  /** The feature the refused write belongs to (`null`: refused before it was known, e.g. an MCP tool). */
+  readonly feature: DeviceFeature | null;
   readonly messageZh: string;
   readonly messageEn: string;
 
-  constructor(model: string, feature: DeviceFeature) {
+  constructor(model: string, feature: DeviceFeature | null) {
     const params = { model, verified: verifiedModelsLabel() };
     const en = t("en", "controls.device_read_only", params);
     super(en);

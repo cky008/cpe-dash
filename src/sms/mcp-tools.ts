@@ -281,18 +281,28 @@ export class SmsMcpTools implements McpToolProvider {
     return WRITE_TOOL_NAMES.has(toolName);
   }
 
+  /** `upsert_contact` only changes FengSui's own contact book; the other writes reach the router. */
+  isRouterWrite(toolName: string): boolean {
+    return WRITE_TOOL_NAMES.has(toolName) && toolName !== "upsert_contact";
+  }
+
+  /** A router without SMS (a model nobody verified) offers none of these tools. */
+  isAvailable(): boolean {
+    return !this.sms.scheduler.device.skips("sms");
+  }
+
   instructions(): string {
-    return this.access === "none"
+    return this.access === "none" || !this.isAvailable()
       ? ""
       : `SMS tools read FengSui's encrypted mirror; ${UNTRUSTED_NOTICE} Only call send_sms / delete_sms with confirm: true when the user explicitly asked for that exact action.`;
   }
 
   listResources(): ReadonlyArray<McpResourceDescriptor> {
-    return this.access === "none" ? [] : [{ uri: "fengsui://sms/status", name: "SMS Storage & Sync Status", mimeType: "application/json" }];
+    return this.access === "none" || !this.isAvailable() ? [] : [{ uri: "fengsui://sms/status", name: "SMS Storage & Sync Status", mimeType: "application/json" }];
   }
 
   readResource(uri: string): unknown {
-    return uri === "fengsui://sms/status" && this.access !== "none" ? this.sms.getStatus() : undefined;
+    return uri === "fengsui://sms/status" && this.access !== "none" && this.isAvailable() ? this.sms.getStatus() : undefined;
   }
 
   async execute(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {

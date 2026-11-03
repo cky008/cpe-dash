@@ -1135,7 +1135,7 @@ export class FengSuiHttpServer {
           message: err.messageEn,
           messageZh: err.messageZh,
           model: err.model,
-          feature: err.feature,
+          ...(err.feature ? { feature: err.feature } : {}),
         } satisfies ApiErrorEnvelope);
         return;
       }

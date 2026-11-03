@@ -118,6 +118,11 @@ export class AccessControlMcpTools implements McpToolProvider {
     return WRITE_NAMES.has(toolName);
   }
 
+  /** The Wi-Fi MAC filter and time rules are a section a model nobody verified may lack. */
+  isAvailable(): boolean {
+    return !this.#core.scheduler.device.skips("accessControl");
+  }
+
   async execute(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const { controls, monitor } = this.#core;
     const ctx = { requesterIp: null, confirm: args["confirm"] === true };

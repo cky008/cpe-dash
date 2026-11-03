@@ -8,6 +8,7 @@ import {
   readTimeSeriesPreset,
 } from "./control-input.ts";
 import type { FengSuiCore } from "./core.ts";
+import type { ReadSection } from "./device-access.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
 import { telemetryForOutput, topologyForOutput } from "./redact.ts";
@@ -284,6 +285,13 @@ const CORE_MUTATING_TOOLS: ReadonlySet<string> = new Set([
 
 const CORE_TOOL_NAMES: ReadonlySet<string> = new Set(CORE_TOOLS.map((tool) => tool.name));
 
+/** Read tools that need a section a model nobody verified may lack (`device.reads`). */
+const TOOL_SECTIONS: Readonly<Partial<Record<string, ReadSection>>> = {
+  list_neighbor_cells: "neighbors",
+  list_terminal_topology: "topology",
+  get_router_settings: "settings",
+};
+
 const CORE_RESOURCES: ReadonlyArray<McpResourceDescriptor> = [
   { uri: "fengsui://telemetry/latest", name: "Latest 5G CPE Telemetry Snapshot", mimeType: "application/json" },
   { uri: "fengsui://session/status", name: "CPE Single-Session & Avoidance Status", mimeType: "application/json" },
@@ -315,6 +323,11 @@ export class CoreMcpTools implements McpToolProvider {
 
   isMutating(toolName: string): boolean {
     return CORE_MUTATING_TOOLS.has(toolName);
+  }
+
+  isAvailable(toolName: string): boolean {
+    const section = TOOL_SECTIONS[toolName];
+    return section === undefined || !this.core.scheduler.device.skips(section);
   }
 
   instructions(): string {

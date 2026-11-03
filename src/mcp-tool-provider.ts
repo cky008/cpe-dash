@@ -43,6 +43,13 @@ export interface McpToolProvider {
   getToolDefinitions(): ReadonlyArray<McpToolDefinition>;
   handles(toolName: string): boolean;
   isMutating(toolName: string): boolean;
+  /**
+   * The tool writes to the router, so a router of an unverified model (read-only) hides and refuses
+   * it; default `isMutating`. `upsert_contact` mutates FengSui's own contact book only.
+   */
+  isRouterWrite?(toolName: string): boolean;
+  /** Whether this router provides what the tool reads (an unverified model may lack a section); default `true`. */
+  isAvailable?(toolName: string): boolean;
   execute(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
   listResources?(): ReadonlyArray<McpResourceDescriptor>;
   readResource?(uri: string): unknown;
