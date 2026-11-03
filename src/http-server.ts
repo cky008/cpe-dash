@@ -73,6 +73,8 @@ import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
 import {
   BrowserSessionYieldedError,
+  DeviceNotIdentifiedError,
+  DeviceReadOnlyError,
   CircuitBreakerOpenError,
   CpeNotConfiguredError,
   PeerDaemonStandbyError,
@@ -1123,6 +1125,22 @@ export class FengSuiHttpServer {
       }
       if (err instanceof CpeNotConfiguredError) {
         this.#sendJson(res, 409, { ok: false, errorCode: "CPE_NOT_CONFIGURED", message: err.message } satisfies ApiErrorEnvelope);
+        return;
+      }
+      // The write gate: an unverified model is read-only, and a write never goes to a router whose model is unknown
+      if (err instanceof DeviceReadOnlyError) {
+        this.#sendJson(res, 409, {
+          ok: false,
+          errorCode: "DEVICE_UNVERIFIED_READ_ONLY",
+          message: err.messageEn,
+          messageZh: err.messageZh,
+          model: err.model,
+          feature: err.feature,
+        } satisfies ApiErrorEnvelope);
+        return;
+      }
+      if (err instanceof DeviceNotIdentifiedError) {
+        this.#sendJson(res, 409, { ok: false, errorCode: "DEVICE_NOT_IDENTIFIED", message: err.messageEn, messageZh: err.messageZh } satisfies ApiErrorEnvelope);
         return;
       }
       if (err instanceof PeerDaemonStandbyError) {

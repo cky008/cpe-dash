@@ -40,6 +40,7 @@ import type {
   TokenFlow,
 } from "./device-profile.ts";
 import type { DeviceVerification } from "./firmware.ts";
+import type { DeviceAccessSnapshot, WriteAccess } from "./device-access.ts";
 import type { PublicTokenRecord } from "./console-settings.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
@@ -104,6 +105,8 @@ export type {
 export type {
   ApiErrorSnapshot,
   ApiErrorStat,
+  DeviceAccessSnapshot,
+  WriteAccess,
   DeviceCapabilities,
   DeviceFeature,
   DeviceIdentity,
@@ -150,6 +153,8 @@ export type ApiErrorCode =
   | "READ_ONLY_TOKEN"
   | "CONSOLE_ONLY"                // 403: /api/console/* with a Bearer token (credentials change only from a console session)
   | "CPE_NOT_CONFIGURED"          // 409: no router connection yet (finish the setup in the console)
+  | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on; writes are locked (nothing was sent)
+  | "DEVICE_NOT_IDENTIFIED"       // 409: the write's own session could not read the router's model; nothing was written
   | "ALREADY_SET_UP"              // 409: /api/setup/login after the console password was set
   | "WRONG_PASSWORD"              // 403: the current console password did not match
   | "CPE_TEST_FAILED"             // 400: the new router connection did not log in; nothing was saved
@@ -170,6 +175,12 @@ export interface ApiErrorEnvelope {
   message: string;
   /** Only `409 BROWSER_SESSION_YIELDED`. */
   messageEn?: string;
+  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY` and `409 DEVICE_NOT_IDENTIFIED` (`message` is English there). */
+  messageZh?: string;
+  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY`: the router's model (`?` when it is not plain text). */
+  model?: string;
+  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY`: the feature the refused write belongs to. */
+  feature?: DeviceFeature;
   /** Only `429 RATE_LIMITED`. */
   retryAfterSec?: number;
   /** Only `409 BROWSER_SESSION_YIELDED`. */

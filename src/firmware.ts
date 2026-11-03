@@ -53,6 +53,11 @@ export function inertRouterText(raw: string): string {
   return raw.replace(/\s+/g, "").replace(/[^A-Za-z0-9._()-]/g, "?").slice(0, 40) || "?";
 }
 
+/** The verified models, each once (`H168-383`), for messages about other models. */
+export function verifiedModelsLabel(): string {
+  return [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ");
+}
+
 export function verifiedFirmwareLabel(): string {
   return VERIFIED_FIRMWARE.map((entry) => `${entry.model} ${entry.softwareVersion}`).join(", ");
 }

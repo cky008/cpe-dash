@@ -376,11 +376,9 @@ export async function fetchGlobalTelemetry(
     capturedAtIso: new Date(nowMs).toISOString(),
     capturedAtMs: nowMs,
     device: {
-      deviceName:
-        getXmlTag(deviceInfoXml, "DeviceName") ??
-        getXmlTag(basicInfoXml, "devicename") ??
-        "H168-383",
-      marketingName: getXmlTag(basicInfoXml, "spreadname_en") ?? "HUAWEI 5G CPE Ultra 6",
+      // What the router reports, or "" (the write gate goes by it, so a model is never assumed)
+      deviceName: (getXmlTag(deviceInfoXml, "DeviceName") ?? getXmlTag(basicInfoXml, "devicename") ?? "").trim(),
+      marketingName: (getXmlTag(basicInfoXml, "spreadname_en") ?? "").trim(),
       hardwareVersion: getXmlTag(deviceInfoXml, "HardwareVersion") ?? "",
       softwareVersion: getXmlTag(deviceInfoXml, "SoftwareVersion") ?? "",
       webUiVersion: getXmlTag(deviceInfoXml, "WebUIVersion") ?? "",
@@ -413,6 +411,19 @@ export async function fetchGlobalTelemetry(
     },
     sms: parseSmsCountersOrNull(smsCountXml),
   };
+}
+
+/**
+ * The model and firmware the router reports (`device/information`, else the model of
+ * `device/basic_information`), for a write that must know which router it talks to before it writes
+ * anything; `null` when neither names a model. Router error codes are tolerated, a broken session is not.
+ */
+export async function readRouterModel(session: EphemeralCpeSession): Promise<{ model: string; softwareVersion: string | null } | null> {
+  const info = await optionalGet(session, "/api/device/information");
+  const model = getXmlTag(info, "DeviceName")?.trim();
+  if (model) return { model, softwareVersion: getXmlTag(info, "SoftwareVersion")?.trim() || null };
+  const basic = getXmlTag(await optionalGet(session, "/api/device/basic_information"), "devicename")?.trim();
+  return basic ? { model: basic, softwareVersion: null } : null;
 }
 
 /**

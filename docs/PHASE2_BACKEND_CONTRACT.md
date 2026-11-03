@@ -98,6 +98,8 @@ export interface ApiErrorEnvelope {
     | "READ_ONLY_TOKEN"          // 403: 用只读令牌发起写操作（控制写、短信发送 / 已读 / 删除、通讯录、reset-breaker）
     | "CONSOLE_ONLY"             // 403: 用 Bearer 令牌访问 /api/console/*（控制台设置只接受 Cookie 会话）
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
+    | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号（只读），写操作被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
+    | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（device/information），没有写入（见 2.10）
     | "ALREADY_SET_UP"           // 409: 控制台密码已设定后再调用 /api/setup/login
     | "WRONG_PASSWORD"           // 403: 修改密码时当前密码不正确
     | "CPE_TEST_FAILED"          // 400: 新的路由器连接测试失败（附 connectionTest），未保存任何内容
@@ -112,8 +114,11 @@ export interface ApiErrorEnvelope {
     | "BAD_PATH"                 // 400: 路径包含 NUL 字节
     | "PATH_TRAVERSAL_BLOCKED"   // 403: 路径解析后逃逸静态根目录
     | "SYMLINK_ESCAPE_BLOCKED";  // 403: 符号链接指向静态根目录之外
-  message: string;               // /api/* 鉴权类错误按 Accept-Language 本地化；409 为中文；其余为英文
+  message: string;               // /api/* 鉴权类错误按 Accept-Language 本地化；409 BROWSER_SESSION_YIELDED 为中文；其余为英文
   messageEn?: string;            // 仅 409 BROWSER_SESSION_YIELDED
+  messageZh?: string;            // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_NOT_IDENTIFIED
+  model?: string;                // 仅 409 DEVICE_UNVERIFIED_READ_ONLY：路由器型号（不是纯文本时为 "?"）
+  feature?: DeviceFeature;       // 仅 409 DEVICE_UNVERIFIED_READ_ONLY：被拒的写操作所属的功能
   retryAfterSec?: number;        // 仅 429 RATE_LIMITED
   avoidance?: AvoidanceBroadcastPayload; // 仅 409 BROWSER_SESSION_YIELDED
   circuitBreaker?: PublicCircuitBreakerState; // 仅 423 CIRCUIT_BREAKER_OPEN
@@ -242,6 +247,7 @@ export interface SchedulerStatusSnapshot {
   browserYieldCount: number;
   queueDepth: number;
   lastError: string | null;
+  device: DeviceAccessSnapshot;   // 写闸门所依据的路由器型号与写权限（见 2.10）
 }
 
 /**
@@ -1098,6 +1104,43 @@ export interface DeviceReport {
 ```
 
 - **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍（`GET /api/device/profile` 同样经 `sanitizeDeviceProfile`，因为令牌与智能体也读它）：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../test/device-report.test.ts)）。
+
+### 2.10 写闸门：未验证型号只读（多型号兼容阶段 2）
+
+**所有写操作只有一个入口**：调度器的 `executeControl`。REST、MCP、Telegram、短信、自愈都经它进入队列，闸门就在这里检查，不靠界面隐藏。实现见 [`src/device-access.ts`](../src/device-access.ts) 与 [`src/scheduler.ts`](../src/scheduler.ts)。
+
+- **按型号判断**：验证清单（[`src/firmware.ts`](../src/firmware.ts) 的 `VERIFIED_FIRMWARE`）上的型号可以写；它的新固件照常写，只告警（ADR-007）。其他型号一律只读，写操作返回 `409 DEVICE_UNVERIFIED_READ_ONLY`，路由器收不到任何写请求（阶段 3 才有逐项知情同意）。
+- **只相信本次运行看到的型号**：识别（启动后、补做、控制台测试当前路由器）、每 5 秒的轮询（本来就读 `device/information`）和写操作自己的会话都算「看到」。上一次运行存下的识别结果可能已经过时（停机期间换了路由器）：
+  - 它说是未验证型号：直接拒绝，连会话都不建；
+  - 它说是已验证型号，或者还没有任何识别结果：这次写操作先在自己的会话里读 `GET /api/device/information`（读不到型号时再读 `device/basic_information`），确认是验证过的型号再写；读到其他型号就拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`），一个型号都读不到也拒绝（`409 DEVICE_NOT_IDENTIFIED`），都不写入。这次读取只在本次运行还没看到型号时发生，H168-383 轮询之后的写操作请求不变。
+- **看不到路由器就重新确认**：会话因传输失败结束（路由器不可达）或控制台保存了新的连接之后，下一次写操作前重新确认型号。
+- **换了路由器**：看到的型号与存下的识别结果不同时，调度器发出 `device:changed`，守护进程在下一个成功的读会话之后重新识别。
+- **拒绝也记入审计**（结果为 `refused`）。
+
+```ts
+// SchedulerStatusSnapshot.device（GET /api/session/status、/api/telemetry 等的 schedulerStatus、SSE hello、MCP get_cpe_session_status）
+export interface DeviceAccessSnapshot {
+  model: string | null;            // 闸门所依据的型号：本次运行看到的，否则是上次存下的；从未识别时为 null，不是纯文本时为 "?"
+  verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
+  confirmed: boolean;              // 本次运行已看到型号；之前写操作会先在自己的会话里读型号
+  writes: "allowed" | "read_only" | "unknown"; // allowed：已验证型号；read_only：其他型号；unknown：还没有识别结果
+}
+```
+
+每个写操作所属的功能（`CONTROL_FEATURES`，阶段 3 按功能征求同意）：
+
+| 写操作（审计与 `control:applied` 的 `action`） | 功能 |
+| :--- | :--- |
+| `lock_band`、`unlock_rf_locks`、`auto_unlock_rf_locks` | `bandLock` |
+| `lock_cell` | `cellLock` |
+| `reboot_cpe` | `reboot` |
+| `reconnect_cellular`、`auto_reconnect_cellular` | `reconnect` |
+| `set_security_switches` | `securitySwitches` |
+| `set_wifi7_mlo` | `wifi` |
+| `set_antenna_mode` | `antenna` |
+| `set_mobile_data` | `mobileData` |
+| `set_wifi_access`、`manage_time_rule` | `accessControl` |
+| `sms_send`、`sms_mark_read`、`sms_delete` | `smsWrite` |
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 

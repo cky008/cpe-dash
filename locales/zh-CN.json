@@ -74,6 +74,8 @@
     "mobile_data_updated": "移动数据总开关已更新",
     "yielded_cannot_mutate": "检测到真人正在登录 CPE 官方后台 (192.168.8.1)，为防止踢掉当前管理员，控制指令已礼貌取消",
     "peer_daemon_active": "另一台主机（{address}）上的「烽燧」守护进程正在管理这台 CPE，本进程处于待机，不访问路由器",
+    "device_read_only": "写操作已锁定：烽燧只在 {verified} 上验证过，这台路由器（{model}）是其他型号，烽燧只读取它。可以在「设置 → 设备」报告它的兼容情况",
+    "device_not_identified": "写操作已锁定：烽燧要先确认路由器的型号，这次没有读到（device/information），没有写入任何东西",
     "wifi_access_blocked": "已禁止 {mac} 连接 Wi-Fi（MAC 黑名单）",
     "wifi_access_unblocked": "已恢复 {mac} 的 Wi-Fi 访问",
     "wifi_filter_mode": "Wi-Fi MAC 过滤已切换为：{mode}",

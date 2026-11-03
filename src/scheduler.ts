@@ -8,8 +8,18 @@ import {
   isInsideCpeSession,
 } from "./cpe-client.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
-import { CpeControlValidationError, type PersistedLockState } from "./cpe-domain.ts";
-import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, type TokenFlow, isDeviceProbeResult, probeDevice } from "./device-profile.ts";
+import { CpeControlValidationError, type PersistedLockState, readRouterModel } from "./cpe-domain.ts";
+import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, modelLabel } from "./device-access.ts";
+import {
+  type ApiErrorSnapshot,
+  type DeviceFeature,
+  type DeviceProbeResult,
+  type LoginScheme,
+  type TokenFlow,
+  isDeviceProbeResult,
+  probeDevice,
+} from "./device-profile.ts";
+import { verifiedModelsLabel } from "./firmware.ts";
 import { t } from "./i18n.ts";
 import { getXmlTag } from "./xml.ts";
 import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
@@ -61,6 +71,8 @@ export interface SchedulerStatusSnapshot {
   browserYieldCount: number;
   queueDepth: number;
   lastError: string | null;
+  /** The router's model as the write gate sees it, and whether FengSui may write to it. */
+  device: DeviceAccessSnapshot;
 }
 
 export class BrowserSessionYieldedError extends Error {
@@ -87,6 +99,48 @@ export class PeerDaemonStandbyError extends Error {
     super(t("en", "controls.peer_daemon_active", { address: peerAddress ?? "?" }));
     this.name = "PeerDaemonStandbyError";
     this.peerAddress = peerAddress;
+  }
+}
+
+/**
+ * A write refused because the router is a model FengSui was not verified on: unverified models are
+ * read-only (`409 DEVICE_UNVERIFIED_READ_ONLY`). Nothing reached the router.
+ */
+export class DeviceReadOnlyError extends Error {
+  readonly statusCode = 409;
+  /** The router's model as it may be shown (`?` when it is not plain text). */
+  readonly model: string;
+  readonly feature: DeviceFeature;
+  readonly messageZh: string;
+  readonly messageEn: string;
+
+  constructor(model: string, feature: DeviceFeature) {
+    const params = { model, verified: verifiedModelsLabel() };
+    const en = t("en", "controls.device_read_only", params);
+    super(en);
+    this.name = "DeviceReadOnlyError";
+    this.model = model;
+    this.feature = feature;
+    this.messageZh = t("zh-CN", "controls.device_read_only", params);
+    this.messageEn = en;
+  }
+}
+
+/**
+ * A write whose own session could not read the router's model (it had not been seen in this run):
+ * nothing was written (`409 DEVICE_NOT_IDENTIFIED`).
+ */
+export class DeviceNotIdentifiedError extends Error {
+  readonly statusCode = 409;
+  readonly messageZh: string;
+  readonly messageEn: string;
+
+  constructor() {
+    const en = t("en", "controls.device_not_identified");
+    super(en);
+    this.name = "DeviceNotIdentifiedError";
+    this.messageZh = t("zh-CN", "controls.device_not_identified");
+    this.messageEn = en;
   }
 }
 
@@ -271,6 +325,8 @@ export interface MutexSessionSchedulerOptions {
  */
 export class MutexSessionScheduler extends EventEmitter {
   readonly stateStore: EncryptedStateStore;
+  /** The router's model and what FengSui may do with it (the write gate, `src/device-access.ts`). */
+  readonly device = new DeviceAccess();
   readonly maxQueueDepth: number;
   readonly layer2InitialBackoffMs: number;
   readonly layer2MaxBackoffMs: number;
@@ -317,6 +373,8 @@ export class MutexSessionScheduler extends EventEmitter {
     const loaded = this.stateStore.load();
     // Its own field since phase 2; state written before that keeps the stored identification's
     this.#client.rememberLoginScheme(loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe));
+    // Only a likely model until this run sees the router report it (see `DeviceAccess`)
+    this.device.remember(loaded.deviceProbe?.identity.model, loaded.deviceProbe?.identity.softwareVersion);
     const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {
       this.#mode = "circuit_tripped";
@@ -400,7 +458,41 @@ export class MutexSessionScheduler extends EventEmitter {
       browserYieldCount: telemetry.browserYieldCount,
       queueDepth: this.#queue.length,
       lastError: this.#lastError,
+      device: this.device.snapshot(),
     };
+  }
+
+  /**
+   * An identification of the router in use (start, catch-up, or a console test of it): the stored
+   * model from now on, and seen in this run.
+   */
+  noteIdentification(probe: DeviceProbeResult): void {
+    this.device.remember(probe.identity.model, probe.identity.softwareVersion);
+    this.#seeModel(probe.identity.model, probe.identity.softwareVersion);
+  }
+
+  /** A read of this run saw the router report its model (the 5 s poll reads `device/information`). */
+  noteRouterModel(model: string | null, softwareVersion: string | null): void {
+    this.#seeModel(model, softwareVersion);
+  }
+
+  /** `device:changed` when the model contradicts the stored identification: the router was replaced. */
+  #seeModel(model: string | null, softwareVersion: string | null): void {
+    if (this.device.see(model, softwareVersion)) this.#safeEmit("device:changed", this.device.snapshot());
+  }
+
+  /** Refuse a write for a router known to be another model (before any session, and again in the queue). */
+  #assertWritable(feature: DeviceFeature): void {
+    const current = this.device.current;
+    if (current && this.device.writes === "read_only") throw new DeviceReadOnlyError(modelLabel(current.model), feature);
+  }
+
+  /** A write while this run has not seen the router's model: read it in the write's own session first. */
+  async #confirmModel(session: EphemeralCpeSession, feature: DeviceFeature): Promise<void> {
+    const reported = await readRouterModel(session);
+    if (!reported) throw new DeviceNotIdentifiedError();
+    this.#seeModel(reported.model, reported.softwareVersion);
+    this.#assertWritable(feature);
   }
 
   isCircuitTripped(): boolean {
@@ -549,6 +641,8 @@ export class MutexSessionScheduler extends EventEmitter {
   async applyConnection(candidate: ConnectionCandidate, opts: { loginScheme?: LoginScheme | null } = {}): Promise<CircuitBreakerState> {
     return await this.#enqueue("high", async () => {
       this.#client.reconfigure({ cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, loginScheme: opts.loginScheme ?? null });
+      // Possibly another router: its model is confirmed again before the next write
+      this.device.forget();
       this.#remainingLogins = null;
       const cb = this.#client.getCircuitBreakerState();
       this.#mode = "idle";
@@ -614,7 +708,7 @@ export class MutexSessionScheduler extends EventEmitter {
    * `null` (the session decided not to write) suppresses the broadcast.
    */
   async executeControl<T>(
-    actionName: string,
+    actionName: ControlAction,
     fn: (session: EphemeralCpeSession) => Promise<T>,
     summary?: ControlSummary | ((value: T) => ControlSummary | null)
   ): Promise<T> {
@@ -624,6 +718,8 @@ export class MutexSessionScheduler extends EventEmitter {
     } catch (err) {
       const refused =
         err instanceof BrowserSessionYieldedError ||
+        err instanceof DeviceReadOnlyError ||
+        err instanceof DeviceNotIdentifiedError ||
         err instanceof PeerDaemonStandbyError ||
         err instanceof CircuitBreakerOpenError ||
         err instanceof CpeNotConfiguredError ||
@@ -640,18 +736,27 @@ export class MutexSessionScheduler extends EventEmitter {
 
   async #runControl<T>(
     actor: AuditActor,
-    actionName: string,
+    actionName: ControlAction,
     fn: (session: EphemeralCpeSession) => Promise<T>,
     summary?: ControlSummary | ((value: T) => ControlSummary | null)
   ): Promise<T> {
     if (!this.#client.configured) throw new CpeNotConfiguredError();
+    const feature = CONTROL_FEATURES[actionName];
+    // The write gate: a router known to be another model gets no session at all
+    this.#assertWritable(feature);
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
+      // The model may have changed while this write waited
+      this.#assertWritable(feature);
       const wasTripped = this.#client.getCircuitBreakerState().tripped;
       try {
-        const outcome = await this.#client.withSessionDetailed(fn, {
-          retriesOnOccupied: 0,
-        });
+        const outcome = await this.#client.withSessionDetailed(
+          async (session) => {
+            if (!this.device.confirmed) await this.#confirmModel(session, feature);
+            return await fn(session);
+          },
+          { retriesOnOccupied: 0 }
+        );
         if (outcome.status === "yielded") {
           this.#enterAvoidance(outcome.layer, outcome.stateCode);
           throw new BrowserSessionYieldedError();
@@ -674,6 +779,12 @@ export class MutexSessionScheduler extends EventEmitter {
         return outcome.value;
       } catch (err) {
         if (err instanceof BrowserSessionYieldedError) {
+          throw err;
+        }
+        // Refused by the write gate in a session that logged in and read fine
+        if (err instanceof DeviceReadOnlyError || err instanceof DeviceNotIdentifiedError) {
+          this.#clearAvoidanceIfActive();
+          this.#mode = "idle";
           throw err;
         }
         return await this.#handleExecutionError(err, wasTripped);
@@ -830,10 +941,11 @@ export class MutexSessionScheduler extends EventEmitter {
 
     // A CPE error code or rejected input means the router answered; only transport failures mean unreachable,
     // and a router that logged in with SCRAM before but now refuses it: nothing gets in until the owner acts, so it alerts
-    this.#mode =
-      err instanceof CpeApiError || err instanceof CpeControlValidationError || (err instanceof CpeLoginMethodError && !err.scramKnown)
-        ? "idle"
-        : "cpe_unreachable";
+    const answered =
+      err instanceof CpeApiError || err instanceof CpeControlValidationError || (err instanceof CpeLoginMethodError && !err.scramKnown);
+    this.#mode = answered ? "idle" : "cpe_unreachable";
+    // Out of sight, the router may be replaced: its model is confirmed again before the next write
+    if (!answered) this.device.forget();
     throw err;
   }
 }

@@ -91,6 +91,11 @@ export class CpeMonitor extends EventEmitter {
     this.neighborScanIntervalMs = options.neighborScanIntervalMs ?? 60000;
     this.stateFlushIntervalMs = options.stateFlushIntervalMs ?? 30 * 60 * 1000;
     this.smsCountersEnabled = options.smsCountersEnabled === true;
+    // A poll or a write saw another model than the stored identification: the router was replaced
+    this.scheduler.on("device:changed", () => {
+      this.#identifyPending = true;
+      this.#identifyFailures = 0;
+    });
   }
 
   /** Load encrypted state (via the scheduler) and restore the time-series rings (idempotent). */
@@ -220,6 +225,7 @@ export class CpeMonitor extends EventEmitter {
   async recordDeviceProbe(probe: DeviceProbeResult): Promise<void> {
     this.#identifyPending = false;
     this.#identifyFailures = 0;
+    this.scheduler.noteIdentification(probe);
     this.stateStore.update({ deviceProbe: probe });
     await this.stateStore.flushAsync().catch(() => undefined);
   }
@@ -240,6 +246,8 @@ export class CpeMonitor extends EventEmitter {
       (session) =>
         fetchGlobalTelemetry(session, { includeSmsCounters: this.smsCountersEnabled }),
       (snap) => {
+        // Before anyone hears of the snapshot: a write it prompts (self-heal) goes by this model
+        this.scheduler.noteRouterModel(snap.device.deviceName, snap.device.softwareVersion);
         this.timeseries.push({
           tsMs: snap.capturedAtMs,
           downloadBps: snap.traffic.downloadBps,

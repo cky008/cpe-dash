@@ -144,6 +144,10 @@ export function createMockSmsCpe(opts: MockSmsCpeOptions = {}) {
       loggedIn = false;
       return respond("<response>OK</response>");
     }
+    // Which router this is: a write reads it first when no poll has yet (the write gate)
+    if (p === "/api/device/information") {
+      return respond("<response><DeviceName>H168-383</DeviceName><SoftwareVersion>4.4.0.1(H1006SP19C00)</SoftwareVersion></response>");
+    }
     if (p === "/api/sms/sms-count") {
       const c = counters();
       return respond(

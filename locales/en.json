@@ -74,6 +74,8 @@
     "mobile_data_updated": "Mobile data master switch updated",
     "yielded_cannot_mutate": "A human admin is currently logged into CPE WebUI (192.168.8.1); control mutation politely aborted",
     "peer_daemon_active": "Another FengSui daemon ({address}) drives this CPE; this one is on standby and stays off the router",
+    "device_read_only": "Writes are locked: FengSui was verified on {verified} only, and this router ({model}) is another model, so FengSui only reads it. Settings → Device can report how it works",
+    "device_not_identified": "Writes are locked until FengSui knows the router's model, and this time it could not read it (device/information). Nothing was written",
     "wifi_access_blocked": "Blocked {mac} from Wi-Fi (MAC blacklist)",
     "wifi_access_unblocked": "Restored Wi-Fi access for {mac}",
     "wifi_filter_mode": "Wi-Fi MAC filter switched to: {mode}",

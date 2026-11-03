@@ -58,6 +58,8 @@ export type I18nKey =
   | "controls.cell_lock_applied"
   | "controls.unlock_all_applied"
   | "controls.reboot_confirm_required"
+  | "controls.device_read_only"
+  | "controls.device_not_identified"
   | "controls.reboot_triggered"
   | "controls.reconnect_triggered"
   | "controls.auto_unlock_applied"

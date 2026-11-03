@@ -42,6 +42,8 @@ describe("REST / SSE contract module", () => {
       READ_ONLY_TOKEN: true,
       CONSOLE_ONLY: true,
       CPE_NOT_CONFIGURED: true,
+      DEVICE_UNVERIFIED_READ_ONLY: true,
+      DEVICE_NOT_IDENTIFIED: true,
       ALREADY_SET_UP: true,
       WRONG_PASSWORD: true,
       CPE_TEST_FAILED: true,

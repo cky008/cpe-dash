@@ -48,6 +48,21 @@ export interface CpeFamilyOptions {
   endpoints?: Readonly<Record<string, string | { cpeError: string }>>;
   /** A wrong password's answer says how many attempts are left. Default `true`. */
   reportRemainCount?: boolean;
+  /**
+   * A plaintext SMS store (`GET sms/sms-count`, `POST sms/sms-list`, the HiLink listing of appendix
+   * A.10); without it both answer `100002`. Listing is a read: it never counts as a write.
+   */
+  sms?: ReadonlyArray<FamilySms>;
+}
+
+export interface FamilySms {
+  index: number;
+  phone: string;
+  content: string;
+  date: string;
+  /** `0` unread, `1` read, `3` sent. */
+  smstat: string;
+  box: 1 | 2;
 }
 
 const SALT_HEX = "cd".repeat(32);
@@ -86,6 +101,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
   const passwordType = opts.passwordType === undefined ? (opts.login === "base64" ? "0" : "4") : opts.passwordType;
   const rotateTokens = opts.rotateTokens ?? true;
   const model = opts.model ?? "H122-373";
+  const sms = opts.sms ? opts.sms.map((m) => ({ ...m })) : null;
   const firmware = opts.firmware ?? "10.0.2.1(H195SP3C983)";
   let adminSession: AdminSession | null = null;
   let humanCrossIp = false;
@@ -281,6 +297,22 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     const plainBody = encType === "2" || encType === "3" ? aesGcmDecrypt(body, shareKeyHex) : body;
     const respond = (xml: string): Response => reply(encType === "1" || encType === "3" ? aesGcmEncrypt(xml, shareKeyHex) : xml);
 
+    if (method === "GET" && p === "/api/sms/sms-count") {
+      if (!sms) return xmlError("100002");
+      const inbox = sms.filter((m) => m.box === 1);
+      return reply(
+        `<response><LocalUnread>${inbox.filter((m) => m.smstat === "0").length}</LocalUnread><LocalInbox>${inbox.length}</LocalInbox><LocalOutbox>${sms.length - inbox.length}</LocalOutbox><LocalDraft>0</LocalDraft><LocalDeleted>0</LocalDeleted><SimUnread>0</SimUnread><LocalMax>500</LocalMax></response>`
+      );
+    }
+    if (method === "POST" && p === "/api/sms/sms-list") {
+      if (!sms) return respond("<error><code>100002</code><message></message></error>");
+      const box = getXmlTag(plainBody, "BoxType") === "2" ? 2 : 1;
+      const page = Number(getXmlTag(plainBody, "PageIndex") ?? "1");
+      const count = Number(getXmlTag(plainBody, "ReadCount") ?? "20");
+      const items = sms.filter((m) => m.box === box).sort((a, b) => b.index - a.index).slice((page - 1) * count, page * count);
+      const xml = items.map((m) => `<Message><Smstat>${m.smstat}</Smstat><Index>${m.index}</Index><Phone>${m.phone}</Phone><Content>${m.content}</Content><Date>${m.date}</Date></Message>`).join("");
+      return respond(`<response><Count>${items.length}</Count><Messages>${xml}</Messages></response>`);
+    }
     if (method === "GET") {
       if (p === "/api/device/information") {
         return reply(`<response><DeviceName>${model}</DeviceName><SoftwareVersion>${firmware}</SoftwareVersion><WebUIVersion>WEBUI 10.0.2.1</WebUIVersion><Imei>860000000000000</Imei><WanIPAddress>203.0.113.10</WanIPAddress></response>`);

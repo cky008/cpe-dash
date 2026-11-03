@@ -638,7 +638,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
 
     // Control mutations during human browser session must politely abort with BrowserSessionYieldedError
     await assert.rejects(
-      () => scheduler.executeControl("reboot", async () => ({ ok: true })),
+      () => scheduler.executeControl("reboot_cpe", async () => ({ ok: true })),
       BrowserSessionYieldedError
     );
 
@@ -927,7 +927,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(dataResult.mobileDataEnabled, false);
 
     // 10. executeControl without summary
-    const directResult = await scheduler.executeControl("custom_noop", async () => "ok_val");
+    const directResult = await scheduler.executeControl("sms_mark_read", async () => "ok_val");
     assert.equal(directResult, "ok_val");
 
     // 11. executeControl with a custom summary attaches lockState to control:applied (persistence is CpeControlService's job)
@@ -939,7 +939,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       cellLock: { rat: "LTE" as const, band: 1, arfcn: 100, pci: 10 },
     };
     await scheduler.executeControl(
-      "custom_with_lock_state",
+      "lock_cell",
       async () => "ok_lock",
       { zh: "自定义锁", en: "Custom Lock", lockState: customLockState }
     );
@@ -955,7 +955,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.ok(appliedActions.includes("set_wifi7_mlo"));
     assert.ok(appliedActions.includes("set_antenna_mode"));
     assert.ok(appliedActions.includes("set_mobile_data"));
-    assert.ok(appliedActions.includes("custom_noop"));
+    assert.ok(appliedActions.includes("sms_mark_read"));
 
     await stopFengSuiCore(core);
   });
@@ -1034,16 +1034,16 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     core.monitor.init();
 
     // Start slow task 1: shifts out of queue, but #drainQueue awaits it
-    const task1Promise = scheduler.executeControl("slow_op", async (session) => {
+    const task1Promise = scheduler.executeControl("reconnect_cellular", async (session) => {
       return await session.get("/api/slow-task");
     });
 
     // Enqueue task 2: queue length becomes 1 (which equals maxQueueDepth)
-    const task2Promise = scheduler.executeControl("second_op", async () => "second_ok");
+    const task2Promise = scheduler.executeControl("set_mobile_data", async () => "second_ok");
 
     // Enqueue task 3: queue length is 1 >= maxQueueDepth -> rejects immediately!
     await assert.rejects(
-      () => scheduler.executeControl("third_op", async () => "third_ok"),
+      () => scheduler.executeControl("set_antenna_mode", async () => "third_ok"),
       (err: unknown) => {
         assert.ok(err instanceof SchedulerQueueFullError);
         assert.equal(err.statusCode, 503);
@@ -1075,7 +1075,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     core2.monitor.init();
 
     // Block the queue with gate
-    const gateTask = sched2.executeControl("gate", async () => {
+    const gateTask = sched2.executeControl("set_wifi7_mlo", async () => {
       await gatePromise;
       execOrder.push("gate");
     });
@@ -1083,7 +1083,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     // Enqueue low, normal, and high tasks while gate is holding the worker
     const lowTask = core2.monitor.refreshNeighbors().then(() => execOrder.push("low"));
     const normalTask = core2.monitor.refreshTelemetry().then(() => execOrder.push("normal"));
-    const highTask = sched2.executeControl("high_op", async () => {
+    const highTask = sched2.executeControl("set_security_switches", async () => {
       execOrder.push("high");
     });
 
@@ -1126,7 +1126,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     // 1. Non-fatal CpeApiError
     await assert.rejects(
       () =>
-        scheduler.executeControl("failing_cpe", async (session) => {
+        scheduler.executeControl("set_security_switches", async (session) => {
           return await session.get("/api/custom-err");
         }),
       (err: unknown) => {
@@ -1142,7 +1142,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     errorMode = "network_crash";
     await assert.rejects(
       () =>
-        scheduler.executeControl("network_fail", async (session) => {
+        scheduler.executeControl("set_security_switches", async (session) => {
           return await session.get("/api/custom-err");
         }),
       (err: unknown) => {
@@ -1158,7 +1158,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     //    it is bad input, not a transport failure, so the scheduler must report "idle"
     await assert.rejects(
       () =>
-        scheduler.executeControl("invalid_input", async () => {
+        scheduler.executeControl("set_security_switches", async () => {
           throw new CpeControlValidationError('Invalid DMZ host IPv4 address ""');
         }),
       CpeControlValidationError
@@ -1186,7 +1186,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
 
     const snap = await core.monitor.refreshTelemetry();
     assert.ok(snap);
-    assert.equal(await scheduler.executeControl("noop_write", async () => "applied"), "applied");
+    assert.equal(await scheduler.executeControl("set_mobile_data", async () => "applied"), "applied");
     assert.equal(avoidanceEvents.length, 0);
     assert.equal(scheduler.getStatus().mode, "idle");
     assert.equal(scheduler.getStatus().browserYieldCount, 0);
@@ -1325,7 +1325,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     // #5: Nested scheduler call inside active session rejects immediately with ReentrantCpeSessionError instead of deadlocking
     await assert.rejects(
       () =>
-        scheduler.executeControl("outer_op", async () => {
+        scheduler.executeControl("reconnect_cellular", async () => {
           await core.monitor.refreshNeighbors();
           return "never";
         }),
@@ -1337,18 +1337,18 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     const gate = new Promise<void>((r) => {
       unblockRunning = r;
     });
-    const runningTask = scheduler.executeControl("in_flight", async () => {
+    const runningTask = scheduler.executeControl("reconnect_cellular", async () => {
       await gate;
       return "done";
     });
-    const queuedTask = scheduler.executeControl("queued_after_stop", async () => "should_not_run");
+    const queuedTask = scheduler.executeControl("set_mobile_data", async () => "should_not_run");
     const stopPromise = scheduler.stop();
     await assert.rejects(() => queuedTask, SchedulerStoppedError);
     unblockRunning!();
     assert.equal(await runningTask, "done");
     await stopPromise;
     await assert.rejects(
-      () => scheduler.executeControl("after_stopped", async () => "nope"),
+      () => scheduler.executeControl("set_antenna_mode", async () => "nope"),
       SchedulerStoppedError
     );
 
