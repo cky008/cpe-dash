@@ -285,6 +285,39 @@ describe("write gate: unverified models are read-only", () => {
     }
   });
 
+  it("confirms the model again after a spell of sending nothing: peer standby, or an open breaker that was reset", async () => {
+    // Swapped while this daemon sent nothing, for a model with the same admin password: the write
+    // that comes first afterwards, before any poll, must look at the router again
+    for (const spell of ["peer standby", "open breaker"] as const) {
+      let locked = false;
+      const h168 = createStrictCpe({ fault: (p) => (locked && p === "/api/user/authentication_login" ? { cpeError: "108007" } : undefined) });
+      const other = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", password: h168.password });
+      let router: typeof fetch = h168.fetchImpl;
+      const fx = gateFixture({ fetchImpl: async (input, init) => await router(input, init), password: h168.password });
+      try {
+        assert.ok(await fx.core.monitor.refreshTelemetry());
+        assert.equal(fx.core.scheduler.getStatus().device.confirmed, true, spell);
+        if (spell === "peer standby") {
+          fx.core.scheduler.setPeerStandby("192.168.8.2");
+          router = other.fetchImpl;
+          fx.core.scheduler.setPeerStandby(null);
+        } else {
+          locked = true;
+          await assert.rejects(fx.core.monitor.refreshTelemetry());
+          assert.equal(fx.core.scheduler.isCircuitTripped(), true);
+          router = other.fetchImpl;
+          // 108007 may be reset with the same password once the router's lock has expired
+          await fx.core.scheduler.reloadCredentialsAndResetBreaker(h168.password);
+        }
+        assert.equal(fx.core.scheduler.getStatus().device.confirmed, false, `${spell}: out of sight`);
+        await assert.rejects(fx.core.controls.setMobileData(false), refusedFor("set_mobile_data", "B535-232"), spell);
+        assert.deepEqual(other.stats.writes, [], `${spell}: no write reached the other router`);
+      } finally {
+        await fx.cleanup();
+      }
+    }
+  });
+
   it("keeps the model it saw when the router answers something it cannot read: the router is there", async () => {
     let odd = false;
     const cpe = createStrictCpe({ fault: (p, method) => (odd && method === "GET" && p === "/api/security/upnp" ? { body: "<response></response>" } : undefined) });

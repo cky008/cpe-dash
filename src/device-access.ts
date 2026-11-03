@@ -12,7 +12,8 @@ import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./
  * (which reads `device/information` anyway) or the write's own session. What an earlier run stored
  * may be stale (the router was swapped while the daemon was down), so it refuses at once when it
  * names an unverified model, and otherwise the write reads the model inside its own session first.
- * Losing sight of the router (unreachable, another connection saved) asks for that again.
+ * Losing sight of the router (unreachable, another connection saved, or a spell of sending it nothing:
+ * a reset breaker, the end of a peer standby) asks for that again.
  */
 
 /** Every router write the scheduler runs, and the feature it belongs to (phase 3 asks consent per feature). */
@@ -151,7 +152,7 @@ export class DeviceAccess {
     this.#pending = {};
   }
 
-  /** Lost sight of the router (unreachable, another connection): its model is confirmed again before the next write. */
+  /** Lost sight of the router (unreachable, another connection, nothing sent for a while): its model is confirmed again before the next write. */
   forget(): void {
     this.#stored = this.#seen ?? this.#stored;
     this.#seen = null;

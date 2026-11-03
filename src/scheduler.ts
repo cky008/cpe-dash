@@ -422,6 +422,8 @@ export class MutexSessionScheduler extends EventEmitter {
    * latched breaker) and controls throw `PeerDaemonStandbyError` without touching the router.
    */
   setPeerStandby(peerAddress: string | null): void {
+    // Back from standby: the router may have been replaced while this daemon stayed off it
+    if (peerAddress === null && this.#peerStandby.active) this.device.forget();
     this.#peerStandby =
       peerAddress === null
         ? { active: false, peerAddress: null, sinceIso: null }
@@ -580,6 +582,8 @@ export class MutexSessionScheduler extends EventEmitter {
     if (!changed) {
       this.#client.resetCircuitBreaker();
     }
+    // Nothing went to the router while the breaker was open: it may have been replaced meanwhile
+    if (latched.tripped) this.device.forget();
     const cb = this.#client.getCircuitBreakerState();
     this.#mode = "idle";
     this.#lastError = null;
