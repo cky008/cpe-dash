@@ -446,7 +446,9 @@ export type AlertCode =
   | "LOCK_ROLLBACK_FAILED"     // critical：自动解锁没有完成（熔断、另一守护进程领先、连续 3 次失败，或到期后 1 小时仍被真人登录挡住）
   | "WAN_AUTO_RECONNECT"       // warning：WAN 断开达 WAN_AUTO_RECONNECT_AFTER_MIN 后的自动重拨（action = "auto_reconnect_cellular"；间隔 10/30/60 分钟）
   | "WAN_RECONNECT_EXHAUSTED"  // critical：24 小时内 4 次自动重拨已用完，WAN 仍断开（从不自动重启）
-  | "FIRMWARE_UNVERIFIED"      // warning：路由器型号或固件版本（含补丁号）不在 src/firmware.ts 的 VERIFIED_FIRMWARE 中；每个版本一次（持久化），不阻止写操作；Telegram 推送另附一条核对提示词
+  | "SELF_HEAL_READ_ONLY"      // warning：路由器是未验证的型号（只读，见 2.10），自愈本会解除锁定或重拨但没有写入；每次锁定、每次断网各一次，不计入重拨次数
+  | "MODEL_UNVERIFIED"         // warning：路由器型号不在验证清单上：烽燧只读它，写操作全部锁定；每个型号一次（持久化），指向「设置 → 设备」与兼容性报告
+  | "FIRMWARE_UNVERIFIED"      // warning：已验证型号的固件版本（含补丁号）不在 src/firmware.ts 的 VERIFIED_FIRMWARE 中；每个版本一次（持久化），不阻止写操作；Telegram 推送另附一条核对提示词
   | "DATA_QUARANTINED";        // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
 
 /** GET /api/telemetry */

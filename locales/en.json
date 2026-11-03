@@ -122,6 +122,9 @@
     "lock_rollback_failed": "The WAN is still down after the lock, but the automatic unlock did not complete: {reason}. Clear the locks from the console on the LAN",
     "wan_auto_reconnect": "The WAN has been down for {minutes} min; redialled automatically ({count}/{max} in 24 h; FengSui never reboots the router on its own)",
     "wan_reconnect_exhausted": "The WAN is still down and the {max} automatic redials for the last 24 h are used up; FengSui never reboots the router on its own: check the SIM, the plan or the cell",
+    "self_heal_read_only_reconnect": "The WAN has been down for {minutes} min. FengSui would redial it (WAN_AUTO_RECONNECT_AFTER_MIN), but this router ({model}) is a model it was not verified on, so it only reads it and writes nothing: redial or restart it on the router's own page",
+    "self_heal_read_only_rollback": "The WAN is still down after the lock, but this router ({model}) is a model FengSui was not verified on, so it does not clear the lock on its own (LOCK_ROLLBACK_AFTER_MIN): clear it on the router's own page",
+    "model_unverified": "The router reports {model}, a model FengSui was not verified on (verified: {verified}): FengSui only reads it, so monitoring works where the router provides it and every write is locked. Settings → Device in the console shows what it supports and can open a compatibility report",
     "firmware_unverified": "The router reports {model} firmware {version}, but FengSui's protocol is verified on {verified} only: locks, access control and SMS writes may not work. With Telegram configured, the notification comes with a prompt to hand to a coding agent (such as Claude Code) to check the build"
   }
 }

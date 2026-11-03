@@ -1,7 +1,7 @@
 import type { CpeControlService } from "./cpe-controls.ts";
 import { type GlobalTelemetrySnapshot, verifyLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
-import { firmwareFingerprint, inertRouterText, isVerifiedFirmware, verifiedFirmwareLabel } from "./firmware.ts";
+import { firmwareFingerprint, inertRouterText, isVerifiedFirmware, isVerifiedModel, verifiedFirmwareLabel, verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
 import type { MutexSessionScheduler } from "./scheduler.ts";
@@ -187,14 +187,24 @@ export class AlertEngine {
   }
 
   /**
-   * `FIRMWARE_UNVERIFIED` once per model / firmware build the protocol was not verified on. Huawei
-   * updates the firmware on its own, so this warns (persisted across restarts) instead of blocking.
+   * `FIRMWARE_UNVERIFIED` once per firmware build of a verified model the protocol was not verified
+   * on: Huawei updates the firmware on its own, so this warns (persisted across restarts) instead of
+   * blocking. A model nobody verified is read-only instead (the write gate): `MODEL_UNVERIFIED` once
+   * per model, pointing to the device page and its compatibility report rather than to a build check.
    */
   #evaluateFirmware(snap: GlobalTelemetrySnapshot): void {
     const { deviceName, softwareVersion } = snap.device;
-    if (!softwareVersion.trim()) return;
+    if (!deviceName.trim()) return;
     const store = this.scheduler.stateStore;
     const notice = store.getState().firmwareNotice;
+    if (!isVerifiedModel(deviceName)) {
+      const fingerprint = `model ${deviceName.trim()}`;
+      if (notice?.fingerprint === fingerprint) return;
+      store.update({ firmwareNotice: { fingerprint, notifiedAtIso: snap.capturedAtIso } });
+      this.#raise("warning", "MODEL_UNVERIFIED", "alerts.model_unverified", { model: inertRouterText(deviceName), verified: verifiedModelsLabel() });
+      return;
+    }
+    if (!softwareVersion.trim()) return;
     if (isVerifiedFirmware(deviceName, softwareVersion)) {
       if (notice) store.update({ firmwareNotice: null });
       return;

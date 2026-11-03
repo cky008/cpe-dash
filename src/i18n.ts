@@ -107,6 +107,9 @@ export type I18nKey =
   | "alerts.lock_rollback_failed"
   | "alerts.wan_auto_reconnect"
   | "alerts.wan_reconnect_exhausted"
+  | "alerts.self_heal_read_only_reconnect"
+  | "alerts.self_heal_read_only_rollback"
+  | "alerts.model_unverified"
   | "alerts.firmware_unverified"
   | "controls.peer_daemon_active";
 

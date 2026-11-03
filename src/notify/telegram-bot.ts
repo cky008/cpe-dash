@@ -6,7 +6,7 @@ import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encry
 import { firmwareReviewPrompt } from "../firmware.ts";
 import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
-import { BrowserSessionYieldedError } from "../scheduler.ts";
+import { BrowserSessionYieldedError, DeviceReadOnlyError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
@@ -183,6 +183,9 @@ const TEXT = {
     vcf_failed: "📇 通讯录导入失败：{error}",
     unknown_command: "未知命令 <code>/{command}</code>，发送 /help 查看用法。",
     sms_disabled: "短信功能未启用（SMS_ENABLED=false）。",
+    read_only:
+      "🔒 <b>这台路由器只读</b>\n\n它是烽燧没有验证过的型号（{model}），烽燧只读取它：不能在这里发短信、标为已读或删除。请在路由器自己的网页上操作；在控制台「设置 → 设备」可以报告它的兼容情况。",
+    read_only_short: "🔒 这台路由器只读（{model}），烽燧不能在这里改动短信",
     status_no_data: "暂无遥测数据（服务刚启动或正在让位）。",
     status_mode_idle: "空闲",
     status_mode_polling: "采集中",
@@ -279,6 +282,9 @@ const TEXT = {
     vcf_failed: "📇 Contact import failed: {error}",
     unknown_command: "Unknown command <code>/{command}</code>; send /help.",
     sms_disabled: "SMS is disabled (SMS_ENABLED=false).",
+    read_only:
+      "🔒 <b>This router is read-only</b>\n\nIt is a model FengSui was not verified on ({model}), so FengSui only reads it: sending, marking read and deleting SMS are not available here. Use the router's own web page; Settings → Device in the console can report how it works.",
+    read_only_short: "🔒 Read-only router ({model}): FengSui cannot change SMS here",
     status_no_data: "No telemetry yet (just started or yielding).",
     status_mode_idle: "idle",
     status_mode_polling: "polling",
@@ -443,6 +449,9 @@ export interface TelegramBotOptions {
  * contact commands, device status, alert delivery with mute, and `.vcf` contact import.
  * Every CPE action goes through `SmsService` / the shared scheduler; reads come from caches.
  */
+/** Buttons that would write to the router (send, mark read, delete). */
+const WRITE_CALLBACKS: ReadonlySet<string> = new Set(["wizstart", "wizsend", "read", "readall", "del", "delok"]);
+
 export class TelegramBot implements NotificationChannel {
   readonly name = "telegram";
   readonly api: TelegramApi;
@@ -559,16 +568,18 @@ export class TelegramBot implements NotificationChannel {
     const lines = [this.#tx("new_sms"), "", this.#senderLine(message), `⏱ ${escapeTelegramHtml(message.date)}`];
     if (message.verificationCode) lines.push(this.#tx("otp", { code: message.verificationCode }));
     lines.push("", `<blockquote>${escapeTelegramHtml(truncate(message.content, 3000))}</blockquote>`);
-    const replyPhone = message.sender.dialable ? (message.sender.e164 ?? message.phone) : null;
+    // A read-only router (a model nobody verified) can be read, not answered: no reply, read or delete
+    const writable = this.#readOnlyModel() === null;
+    const replyPhone = writable && message.sender.dialable ? (message.sender.e164 ?? message.phone) : null;
     if (replyPhone) lines.push(this.#tx("reply_hint", { phone: replyPhone }));
 
     const row: InlineButton[] = [];
     const readCb = callbackData("read", message.uid);
     const chatCb = callbackData("chat", message.threadKey);
     const delCb = callbackData("del", message.uid);
-    if (message.isUnread && readCb) row.push({ text: this.#tx("btn_read"), callback_data: readCb });
+    if (writable && message.isUnread && readCb) row.push({ text: this.#tx("btn_read"), callback_data: readCb });
     if (chatCb) row.push({ text: this.#tx("btn_chat"), callback_data: chatCb });
-    if (delCb) row.push({ text: this.#tx("btn_delete"), callback_data: delCb });
+    if (writable && delCb) row.push({ text: this.#tx("btn_delete"), callback_data: delCb });
 
     for (const chatId of this.state.authorizedChats(this.allowedChatIds)) {
       await this.#deliver({ chatId, html: lines.join("\n"), keyboard: { inline_keyboard: [row] }, replyPhone: replyPhone ?? undefined });
@@ -814,6 +825,7 @@ export class TelegramBot implements NotificationChannel {
       await this.#send(chatId, this.#tx(["new", "inbox", "unread", "chat", "send", "contacts", "contact", "sync"].includes(command) ? "sms_disabled" : "unknown_command", { command }));
       return;
     }
+    if ((command === "new" || command === "send") && (await this.#refuseReadOnly(chatId))) return;
     switch (command) {
       case "new":
         return await this.#startWizard(chatId);
@@ -858,6 +870,12 @@ export class TelegramBot implements NotificationChannel {
       }
       if (!sms) {
         await answer(this.#plain("sms_disabled"), true);
+        return;
+      }
+      const readOnlyModel = this.#readOnlyModel();
+      if (readOnlyModel !== null && WRITE_CALLBACKS.has(action)) {
+        await answer(this.#plain("read_only_short", { model: readOnlyModel }), true);
+        if (messageId !== undefined && action !== "wizstart") await this.#clearButtons(chatId, messageId);
         return;
       }
       switch (action) {
@@ -1316,6 +1334,7 @@ export class TelegramBot implements NotificationChannel {
   async #executeSend(chatId: string, phone: string, content: string, editMessageId?: number): Promise<void> {
     const sms = this.sms;
     if (!sms) return await this.#reply(chatId, "sms_disabled");
+    if (await this.#refuseReadOnly(chatId)) return;
     const recipient = this.#recipientLabel(phone);
     let statusMessageId = editMessageId;
     if (statusMessageId !== undefined) {
@@ -1366,7 +1385,7 @@ export class TelegramBot implements NotificationChannel {
     if (!this.sms) return undefined;
     return {
       inline_keyboard: [
-        [{ text: this.#tx("btn_new"), callback_data: "wizstart:1" }],
+        ...(this.#readOnlyModel() === null ? [[{ text: this.#tx("btn_new"), callback_data: "wizstart:1" }]] : []),
         [
           { text: this.#tx("btn_inbox"), callback_data: "inbox:1" },
           { text: this.#tx("btn_unread"), callback_data: "unread:1" },
@@ -1382,8 +1401,24 @@ export class TelegramBot implements NotificationChannel {
       .catch(() => undefined);
   }
 
+  /** The router's model when it is one nobody verified (read-only), else `null`. */
+  #readOnlyModel(): string | null {
+    const device = this.core.scheduler.device;
+    return device.writes === "read_only" ? (device.snapshot().model ?? "?") : null;
+  }
+
+  /** Explain instead of writing when the router is read-only; `true` when it was. */
+  async #refuseReadOnly(chatId: string): Promise<boolean> {
+    const model = this.#readOnlyModel();
+    if (model === null) return false;
+    this.#wizards.delete(chatId);
+    await this.#reply(chatId, "read_only", { model });
+    return true;
+  }
+
   #describeError(err: unknown): string {
     if (err instanceof BrowserSessionYieldedError) return this.#plain("yielded");
+    if (err instanceof DeviceReadOnlyError) return this.#plain("read_only_short", { model: err.model });
     return truncate(err instanceof Error ? err.message : String(err), 180);
   }
 

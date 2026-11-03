@@ -8,6 +8,8 @@ import {
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
   type ControlAppliedEvent,
+  DeviceNotIdentifiedError,
+  DeviceReadOnlyError,
   type MutexSessionScheduler,
   PeerDaemonStandbyError,
   SchedulerQueueFullError,
@@ -63,7 +65,9 @@ interface LockWatch {
  *
  * Both act only on fresh telemetry, go through the control queue (so a human logged into the WebUI
  * is never overridden and the breaker is respected), re-read the WAN and the mobile-data switch
- * inside the session, and raise an alert for every write.
+ * inside the session, and raise an alert for every write. On a router of an unverified model the
+ * write gate refuses both: nothing is written, and one `SELF_HEAL_READ_ONLY` alert per outage or
+ * lock says what would have been done.
  */
 export class WanSelfHeal {
   readonly scheduler: MutexSessionScheduler;
@@ -82,6 +86,8 @@ export class WanSelfHeal {
   #backoffIndex = 0;
   #nextReconnectAtMs = 0;
   #exhaustedAlerted = false;
+  /** The read-only alert of this outage was raised (a router of an unverified model writes nothing). */
+  #readOnlyAlerted = false;
   #lastFailure: string | null = null;
 
   readonly #onTelemetry = (snap: GlobalTelemetrySnapshot): void => {
@@ -155,6 +161,7 @@ export class WanSelfHeal {
       this.#backoffIndex = 0;
       this.#nextReconnectAtMs = 0;
       this.#exhaustedAlerted = false;
+      this.#readOnlyAlerted = false;
     } else {
       this.#downSinceMs ??= at;
     }
@@ -211,6 +218,12 @@ export class WanSelfHeal {
     } catch (err) {
       const reason = describe(err);
       this.#noteFailure("lock rollback", reason);
+      // A router of an unverified model is read-only: say so once instead of retrying a write that never comes
+      if (err instanceof DeviceReadOnlyError) {
+        this.#lockWatch = null;
+        this.#raise("warning", "SELF_HEAL_READ_ONLY", "alerts.self_heal_read_only_rollback", { model: err.model });
+        return;
+      }
       if (err instanceof CircuitBreakerOpenError || err instanceof PeerDaemonStandbyError) {
         this.#lockWatch = null;
         this.#raise("critical", "LOCK_ROLLBACK_FAILED", "alerts.lock_rollback_failed", { reason });
@@ -264,11 +277,24 @@ export class WanSelfHeal {
       outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.reconnectWan());
     } catch (err) {
       this.#noteFailure("reconnect", describe(err));
+      // A router of an unverified model is read-only: no redial in this outage, one alert saying so
+      if (err instanceof DeviceReadOnlyError) {
+        this.#nextReconnectAtMs = Number.POSITIVE_INFINITY;
+        if (!this.#readOnlyAlerted) {
+          this.#readOnlyAlerted = true;
+          this.#raise("warning", "SELF_HEAL_READ_ONLY", "alerts.self_heal_read_only_reconnect", {
+            minutes: Math.max(1, Math.round((at - downSince) / 60_000)),
+            model: err.model,
+          });
+        }
+        return;
+      }
       // Refusals never reached the router; anything else spends one of the day's attempts
       const reachedRouter = !(
         err instanceof BrowserSessionYieldedError ||
         err instanceof CircuitBreakerOpenError ||
         err instanceof PeerDaemonStandbyError ||
+        err instanceof DeviceNotIdentifiedError ||
         isQueueRefusal(err)
       );
       if (reachedRouter) this.#reconnects.push(at);

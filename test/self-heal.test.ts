@@ -9,11 +9,12 @@ import type { WanRepairOutcome } from "../src/cpe-controls.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "../src/cpe-domain.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { BrowserSessionYieldedError, CircuitBreakerOpenError, type ControlAppliedEvent } from "../src/scheduler.ts";
+import { BrowserSessionYieldedError, CircuitBreakerOpenError, type ControlAppliedEvent, DeviceReadOnlyError } from "../src/scheduler.ts";
 import { RECONNECT_MAX_PER_DAY, WanSelfHeal } from "../src/self-heal.ts";
 import type { AlertEventRecord } from "../src/state-store.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 
 const MIN = 60_000;
@@ -425,6 +426,90 @@ describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
       assert.deepEqual(fx.codes(), ["WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED"]);
     } finally {
       await fx.cleanup();
+    }
+  });
+});
+
+describe("WanSelfHeal on a router of an unverified model (read-only)", () => {
+  it("redials nothing in that outage and alerts once, without spending the day's budget", async () => {
+    const fx = fixture({ reconnectMin: 1 });
+    try {
+      const refuse = async (): Promise<WanRepairOutcome> => {
+        throw new DeviceReadOnlyError("B535-232", "reconnect");
+      };
+      fx.reconnectPlan.push(refuse, refuse);
+      await fx.at(0, "902");
+      await fx.at(1, "902");
+      for (const minute of [2, 5, 30, 90]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, 1, "tried once, then left alone for this outage");
+      assert.deepEqual(fx.codes(), ["SELF_HEAL_READ_ONLY"]);
+      assert.match(fx.alerts[0]?.messageEn ?? "", /down for 1 min[\s\S]*\(B535-232\)[\s\S]*router's own page/);
+      // The next outage asks once more (the router may have been replaced meanwhile)
+      await fx.at(91, "901");
+      await fx.at(92, "902");
+      await fx.at(93, "902");
+      assert.deepEqual([fx.calls.reconnect, fx.codes()], [2, ["SELF_HEAL_READ_ONLY", "SELF_HEAL_READ_ONLY"]]);
+      await fx.at(94, "901");
+      for (const minute of [95, 96, 106, 136, 196]) await fx.at(minute, "902");
+      assert.equal(fx.codes().filter((c) => c === "WAN_AUTO_RECONNECT").length, RECONNECT_MAX_PER_DAY, "the refusals spent none of the four redials");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("drops the lock watch with one alert instead of failing three times", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.rollbackPlan.push(async () => {
+        throw new DeviceReadOnlyError("B535-232", "bandLock");
+      });
+      fx.lockAt(0);
+      await fx.at(10, "902");
+      for (const minute of [11, 12, 13, 20]) await fx.at(minute, "902");
+      assert.equal(fx.calls.rollback, 1);
+      assert.deepEqual(fx.codes(), ["SELF_HEAL_READ_ONLY"]);
+      assert.equal(fx.heal.lockDeadlineMs, null);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("goes through the real write gate: neither action reaches the router", async () => {
+    const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232" });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-selfheal-gate-"));
+    const core = createFengSuiCore({
+      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "selfheal_gate_key" }),
+      timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
+      pollIntervalMs: 600_000,
+      neighborScanIntervalMs: 600_000,
+    });
+    core.monitor.init();
+    let clock = T0;
+    const heal = new WanSelfHeal({ scheduler: core.scheduler, monitor: core.monitor, controls: core.controls, lockRollbackAfterMs: 10 * MIN, reconnectAfterMs: 1 * MIN, now: () => clock });
+    const codes: string[] = [];
+    core.scheduler.on("alert", (a: AlertEventRecord) => codes.push(a.code));
+    try {
+      assert.ok(await core.monitor.identifyDevice());
+      const sent = cpe.stats.requests.length;
+      // A lock FengSui applied before the router was replaced: the rollback watch is armed
+      heal.noteControl({ action: "lock_band", tsIso: new Date(clock).toISOString(), summaryZh: "", summaryEn: "", lockState: bandLock(clock) });
+      core.stateStore.update({ lockState: bandLock(clock) });
+      for (const minute of [0, 1, 2, 10]) {
+        clock = T0 + minute * MIN;
+        await heal.ingestTelemetry(sample(clock, "902"));
+      }
+      assert.deepEqual(codes, ["SELF_HEAL_READ_ONLY"], "the outage is the rollback's until its deadline, which is refused");
+      for (const minute of [11, 12, 13, 20]) {
+        clock = T0 + minute * MIN;
+        await heal.ingestTelemetry(sample(clock, "902"));
+      }
+      assert.deepEqual(codes, ["SELF_HEAL_READ_ONLY", "SELF_HEAL_READ_ONLY"], "then the redial it would do next is refused, once for the outage");
+      assert.deepEqual([cpe.stats.writes, cpe.stats.requests.length], [[], sent], "no session, no write");
+    } finally {
+      await heal.stop();
+      await stopFengSuiCore(core);
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

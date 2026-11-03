@@ -220,13 +220,17 @@ describe("AlertEngine firmware rule", () => {
       assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED"]);
 
       fx.engine.ingestTelemetry(sample({ t: 25_000, firmware: "4.4.0.3(H1006SP1C00)" }));
+      // Another model is read-only (phase 2): it says so once per model, with no build to check
       fx.engine.ingestTelemetry(sample({ t: 30_000, model: "H158-381" }));
-      assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED", "FIRMWARE_UNVERIFIED", "FIRMWARE_UNVERIFIED"], "each new build or model");
+      fx.engine.ingestTelemetry(sample({ t: 31_000, model: "H158-381", firmware: "1.0.0.9" }));
+      assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED", "FIRMWARE_UNVERIFIED", "MODEL_UNVERIFIED"], "each new build of the verified model, each other model once");
+      assert.match(fx.alerts[2]?.messageEn ?? "", /reports H158-381, a model FengSui was not verified on \(verified: H168-383\)[\s\S]*every write is locked[\s\S]*Settings → Device/);
       fx.engine.ingestTelemetry(sample({ t: 35_000 }));
       assert.equal(fx.stateStore.getState().firmwareNotice, null, "verified again: the notice is cleared");
       fx.engine.ingestTelemetry(sample({ t: 40_000, firmware: "" }));
+      fx.engine.ingestTelemetry(sample({ t: 42_000, model: "" }));
       fx.engine.ingestTelemetry(sample({ t: 45_000, model: "H158-381" }));
-      assert.equal(fx.codes().length, 4, "an empty version decides nothing; a returning build warns again");
+      assert.equal(fx.codes().length, 4, "an empty version or model decides nothing; a returning model says so again");
     } finally {
       await fx.cleanup();
     }

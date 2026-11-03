@@ -634,6 +634,43 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("answers every SMS write with the read-only explanation on an unverified model, and the router gets no write", async () => {
+    const fx = createBotFixture();
+    try {
+      // The poll saw a model nobody verified: SMS stays readable, writes are locked
+      fx.scheduler.noteRouterModel("B535-232", null);
+      assert.ok(await fx.service.sync("full"));
+      const unread = fx.service.getThread("+353830000001").messages.find((m) => m.isUnread)!;
+      const readOnly = /This router is read-only[\s\S]*B535-232/;
+
+      await fx.message(1001, "/new");
+      assert.match(fx.tg.lastText("1001"), readOnly);
+      await fx.message(1001, "/send +353830000001 hello");
+      assert.match(fx.tg.lastText("1001"), readOnly);
+      fx.state.bindReply("1001", 999, "+353830000001");
+      await fx.message(1001, "on my way", { reply_to_message: { message_id: 999 } });
+      assert.match(fx.tg.lastText("1001"), readOnly, "reply-to-send");
+
+      for (const data of ["wizstart:1", `read:${unread.uid}`, "readall:1", `del:${unread.uid}`, `delok:${unread.uid}`, "wizsend:stale"]) {
+        await fx.callback(1001, data);
+        const answer = fx.tg.of("answerCallbackQuery").at(-1)?.payload;
+        assert.deepEqual([String(answer?.["text"]).includes("Read-only router (B535-232)"), answer?.["show_alert"]], [true, true], data);
+      }
+      assert.deepEqual([fx.mock.sentRequests.length, fx.mock.setReadBatches, fx.mock.deleteBatches], [0, [], []], "no SMS write reached the router");
+
+      // Cards come without write buttons or reply routing; the help keyboard offers no new SMS
+      await fx.bot.notifySms(fx.service.mirror.enrich(fx.service.mirror.get(unread.uid)!));
+      const card = fx.tg.sends("1001").at(-1);
+      assert.deepEqual(fx.tg.buttons(card).map((data) => data.split(":")[0]), ["chat"]);
+      assert.doesNotMatch(String(card?.payload["text"]), /Reply to this/);
+      await fx.message(1001, "/help");
+      assert.ok(!fx.tg.buttons(fx.tg.sends("1001").at(-1)).some((data) => data.startsWith("wizstart")));
+      assert.equal(fx.service.getStatus().mirror.unreadTotal > 0, true, "nothing was marked read");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("mutes alert delivery, explains yielding, and hides SMS commands when SMS is disabled", async () => {
     const fx = createBotFixture();
     const alert: AlertEventRecord = { id: "a", tsIso: "2026-10-30T10:00:00Z", severity: "warning", code: "WAN_DOWN", messageZh: "断开", messageEn: "down" };
