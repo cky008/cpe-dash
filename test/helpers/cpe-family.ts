@@ -101,7 +101,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
   const passwordType = opts.passwordType === undefined ? (opts.login === "base64" ? "0" : "4") : opts.passwordType;
   const rotateTokens = opts.rotateTokens ?? true;
   const model = opts.model ?? "H122-373";
-  const sms = opts.sms ? opts.sms.map((m) => ({ ...m })) : null;
+  const sms: FamilySms[] | null = opts.sms ? opts.sms.map((m) => ({ ...m })) : null;
   const firmware = opts.firmware ?? "10.0.2.1(H195SP3C983)";
   let adminSession: AdminSession | null = null;
   let humanCrossIp = false;
@@ -334,6 +334,8 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     password,
     username,
     stats,
+    /** The live plaintext SMS store (`null` without `sms`): push to it to deliver a message. */
+    smsStore: sms,
     serverEccPublicKeyHex: SERVER_ECC_PUB,
     isSlotTaken: (): boolean => adminSession !== null,
     isLocked: (): boolean => locked,

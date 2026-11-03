@@ -541,7 +541,7 @@ storage    state-store · encrypted-file · timeseries · sms/mirror · sms/cont
 ### 9.5 已知限制
 
 - 访客的操作只存在于当前页面，刷新即复原；"退出登录"会重新载入并回到初始状态。
-- 演示不模拟真人登录避让、熔断与多守护进程互斥（这些仍可用 `DEMO_SCENARIO=yield|breaker npm run demo` 在本地体验）。
+- 演示不模拟真人登录避让、熔断与多守护进程互斥（这些仍可用 `DEMO_SCENARIO=yield|breaker npm run demo` 在本地体验；`DEMO_SCENARIO=unverified` 换成一台未验证的型号，看只读的样子）。
 - 演示仓库的部署提交由 `github-actions[bot]` 署名、不带用户签名；本仓库自身的提交规则不变。
 
 ## 10. v1.3.0：主题系统（2026-11-01）

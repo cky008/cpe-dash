@@ -273,6 +273,7 @@ npm run build:web
 npm run demo          # http://127.0.0.1:18484 ，登录口令 fengsui-demo
 # DEMO_SCENARIO=yield   npm run demo   → 每隔几分钟模拟真人登录官方后台（避让横幅）
 # DEMO_SCENARIO=breaker npm run demo   → 错误的路由器密码，触发防爆破熔断（423 横幅）
+# DEMO_SCENARIO=unverified npm run demo → 换成一台未验证的华为型号（只有 4G、旧式登录）：只读、徽章、设备报告
 npm run screenshots   # 用本机 Chrome 无头模式从演示环境重新生成 docs/screenshots/ 下的全部截图（发版前运行）
 npm run brand:trace -- concept.png   # 把标志概念图描成 web/brand/logo.svg（标志的唯一来源，见 docs/BRAND.md）
 ```

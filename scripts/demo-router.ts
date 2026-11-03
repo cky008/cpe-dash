@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { type FengSuiRuntimeStack, createFengSuiRuntime, startServeDaemon } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
+import { type FamilySms, createCpeFamily } from "../test/helpers/cpe-family.ts";
 import { type StrictCpe, createStrictCpe } from "../test/helpers/strict-cpe.ts";
 
 /**
@@ -18,7 +19,10 @@ import { type StrictCpe, createStrictCpe } from "../test/helpers/strict-cpe.ts";
 export const DEMO_CPE_PASSWORD = "demo-router-password";
 
 export interface DemoRouter {
-  cpe: StrictCpe;
+  /** The strict H168-383 model (`null` in the unverified-model world). */
+  cpe: StrictCpe | null;
+  /** A person on the router's own web page (the avoidance banner). */
+  human: { loginSameIp(): void; logout(): void };
   /** The model's fetch, with set-read / delete-sms mirrored onto its mailbox. */
   fetchImpl: typeof fetch;
   /** Advance the signal and traffic walk by one 5 s step. */
@@ -173,6 +177,7 @@ export function createDemoRouter(): DemoRouter {
 
   return {
     cpe,
+    human: cpe.human,
     fetchImpl: demoFetch,
     advance: () => {
       tick += 1;
@@ -184,12 +189,73 @@ export function createDemoRouter(): DemoRouter {
   };
 }
 
+/**
+ * The unverified-model world (multi-model phase 2): an LTE-only router of another Huawei model from
+ * the phase-1 mock family, with a legacy SHA-256 login, the HiLink basics (signal, status, traffic,
+ * month statistics, an XML device list, plaintext SMS) and nothing else. FengSui reads what it
+ * provides and writes nothing. Facts and placeholders only (docs/PHASE1_PROTOCOL_SPEC.md A.10).
+ */
+export function createUnverifiedDemoRouter(): DemoRouter {
+  let tick = 0;
+  const walk = (base: number, spread: number, period: number): number => Math.round((base + Math.sin(tick / period) * spread) * 10) / 10;
+  let monthDown = 412_000_000_000;
+  let dayUsed = 3_200_000_000;
+  const hosts = [
+    { mac: "02:00:5E:10:00:01", ip: "192.168.8.10", name: "nas-ds923", type: "Ethernet", frequency: "" },
+    { mac: "02:00:5E:10:00:03", ip: "192.168.8.33", name: "living-room-tv", type: "802.11", frequency: "5GHz" },
+    { mac: "02:00:5E:10:00:05", ip: "192.168.8.51", name: "smart-plug", type: "802.11", frequency: "2.4GHz" },
+  ];
+  const endpoints: Record<string, string> = {
+    "/api/net/current-plmn": "<response><State>0</State><FullName>Carrier-Lab</FullName><ShortName>CARRIER</ShortName><Numeric>27201</Numeric><Rat>7</Rat></response>",
+    "/api/net/net-mode": "<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>800800C5</LTEBand></response>",
+    "/api/net/net-mode-list": "<response><LTEBandList><LTEBand><Name>LTE BC1/BC3/BC7/BC8/BC20/BC32</Name><Value>800800C5</Value></LTEBand></LTEBandList></response>",
+    "/api/monitoring/start_date": "<response><StartDay>1</StartDay><DataLimit>500GB</DataLimit><MonthThreshold>90</MonthThreshold></response>",
+    "/api/lan/HostInfo": `<response><Hosts>${hosts
+      .map((host, i) => `<Host><ID>${i + 1}</ID><MacAddress>${host.mac}</MacAddress><IpAddress>${host.ip}</IpAddress><HostName>${host.name}</HostName><Active>1</Active><InterfaceType>${host.type}</InterfaceType>${host.frequency ? `<Frequency>${host.frequency}</Frequency>` : ""}</Host>`)
+      .join("")}</Hosts></response>`,
+  };
+  const step = (): void => {
+    const dl = Math.round(Math.max(0, Math.sin(tick / 10)) * 4_000_000 + 120_000);
+    monthDown += dl * 5;
+    dayUsed += dl * 6;
+    endpoints["/api/device/signal"] = `<response><pci>25</pci><cell_id>134217758</cell_id><rsrq>${walk(-9, 1.5, 6)}dB</rsrq><rsrp>${walk(-96, 3, 9)}dBm</rsrp><rssi>${walk(-69, 2, 8)}dBm</rssi><sinr>${walk(11, 3, 5)}dB</sinr><mode>7</mode><dlbandwidth>20MHz</dlbandwidth><ulbandwidth>20MHz</ulbandwidth><tac>10001</tac><plmn>27201</plmn></response>`;
+    endpoints["/api/monitoring/traffic-statistics"] = `<response><CurrentConnectTime>${86_400 + tick * 5}</CurrentConnectTime><CurrentUpload>52428800</CurrentUpload><CurrentDownload>524288000</CurrentDownload><CurrentDownloadRate>${dl}</CurrentDownloadRate><CurrentUploadRate>${Math.round(dl / 9)}</CurrentUploadRate><TotalUpload>48318382080</TotalUpload><TotalDownload>412316860416</TotalDownload><TotalConnectTime>9000000</TotalConnectTime></response>`;
+    endpoints["/api/monitoring/month_statistics"] = `<response><CurrentMonthDownload>${monthDown}</CurrentMonthDownload><CurrentMonthUpload>41000000000</CurrentMonthUpload><MonthDuration>2400000</MonthDuration><MonthLastClearTime>2026-10-01</MonthLastClearTime><CurrentDayUsed>${dayUsed}</CurrentDayUsed><CurrentDayDuration>40000</CurrentDayDuration></response>`;
+  };
+  step();
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const routerDate = (offsetMin: number): string => {
+    const d = new Date(Date.now() - offsetMin * 60_000);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+  const mailbox: FamilySms[] = [
+    { index: 40011, phone: "DemoBank", content: "Your DemoBank verification code is 315902. It expires in 10 minutes.", date: routerDate(6), smstat: "0", box: 1 },
+    { index: 40010, phone: "+353830000001", content: "Back home by 8, see you then", date: routerDate(90), smstat: "1", box: 1 },
+    { index: 39010, phone: "+353830000001", content: "Great, dinner is on me", date: routerDate(85), smstat: "3", box: 2 },
+  ];
+  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", password: DEMO_CPE_PASSWORD, model: "B535-232", firmware: "11.0.1.2(H7SP2C00)", endpoints, sms: mailbox });
+  let nextIndex = 40_012;
+  return {
+    cpe: null,
+    human: cpe.human,
+    fetchImpl: cpe.fetchImpl,
+    advance: () => {
+      tick += 1;
+      step();
+    },
+    pushOtp: () => {
+      const code = String(100_000 + Math.floor(Math.random() * 899_999));
+      cpe.smsStore?.push({ index: nextIndex++, phone: "DemoBank", content: `Your DemoBank verification code is ${code}. It expires in 10 minutes.`, date: routerDate(0), smstat: "0", box: 1 });
+    },
+  };
+}
+
 export interface DemoDaemonOptions {
   /** `0` picks a free port. */
   port: number;
   token: string;
-  /** `breaker`: a wrong CPE password, so the anti-lockout breaker trips. */
-  scenario?: "normal" | "yield" | "breaker";
+  /** `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another model, read-only. */
+  scenario?: "normal" | "yield" | "breaker" | "unverified";
   log?: (line: string) => void;
 }
 
@@ -203,7 +269,7 @@ export interface DemoDaemon {
 
 /** The real daemon (scheduler, monitor, SMS, SSE, REST, MCP, web UI) against the demo router. */
 export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaemon> {
-  const router = createDemoRouter();
+  const router = opts.scenario === "unverified" ? createUnverifiedDemoRouter() : createDemoRouter();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-demo-"));
   const envFile = path.join(dataDir, "demo.env");
   fs.writeFileSync(envFile, "# generated by scripts/demo-router.ts\n", { mode: 0o600 });

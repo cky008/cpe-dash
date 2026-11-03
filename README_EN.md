@@ -273,6 +273,7 @@ npm run build:web
 npm run demo          # http://127.0.0.1:18484 , login token: fengsui-demo
 # DEMO_SCENARIO=yield   npm run demo   → Simulates human admin web login every few minutes (yielding banner)
 # DEMO_SCENARIO=breaker npm run demo   → Simulates bad router password, triggering anti-lockout breaker (423 banner)
+# DEMO_SCENARIO=unverified npm run demo → Another, unverified Huawei model (LTE only, legacy login): read-only, badge, device report
 npm run screenshots   # Regenerate every image in docs/screenshots/ from the demo with a local headless Chrome (run before a release)
 npm run brand:trace -- concept.png   # Trace a logo concept into web/brand/logo.svg, the logo's single source (docs/BRAND.md)
 ```

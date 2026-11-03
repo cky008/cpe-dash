@@ -101,7 +101,7 @@ const SHOTS: ReadonlyArray<Shot> = [
     theme: "fengsui-sujian",
     prepare: async (page, demo) => {
       // A person opens the router's own admin page: the next poll yields and the banner appears
-      demo.router.cpe.human.loginSameIp();
+      demo.router.human.loginSameIp();
       await page.waitUntil("document.querySelector('#bannerArea')?.textContent?.includes('真人用户正在访问官方后台') === true", "the avoidance banner", 30_000);
     },
   },
