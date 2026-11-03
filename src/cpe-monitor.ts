@@ -252,7 +252,12 @@ export class CpeMonitor extends EventEmitter {
       "normal",
       (session) =>
         this.scheduler.readSection("telemetry", () =>
-          fetchGlobalTelemetry(session, { includeSmsCounters: this.smsCountersEnabled, tolerant: this.scheduler.device.unverifiedModel })
+          fetchGlobalTelemetry(session, {
+            includeSmsCounters: this.smsCountersEnabled,
+            tolerant: this.scheduler.device.unverifiedModel,
+            // A poll that fails on a router replaced by another model still tells it apart
+            onFailedPollModel: (model, softwareVersion) => this.scheduler.noteRouterModel(model, softwareVersion),
+          })
         ),
       (snap) => {
         // Before anyone hears of the snapshot: a write it prompts (self-heal) goes by this model

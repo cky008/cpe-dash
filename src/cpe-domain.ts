@@ -318,7 +318,12 @@ function parseWifi7DbhoJson(rawJson: string): { mloEnable: boolean; dbhoEnable: 
  */
 export async function fetchGlobalTelemetry(
   session: EphemeralCpeSession,
-  options: { includeSmsCounters?: boolean; tolerant?: boolean } = {}
+  options: {
+    includeSmsCounters?: boolean;
+    tolerant?: boolean;
+    /** A poll that fails still names the model that answered it (say, a router replaced by one the strict reads do not fit). */
+    onFailedPollModel?: (model: string, softwareVersion: string | null) => void;
+  } = {}
 ): Promise<GlobalTelemetrySnapshot> {
   // `tolerant` (a model nobody verified): a core part the router answers with an error code is left
   // out and listed in `unavailable`, so one odd endpoint never costs the rest of the poll
@@ -333,6 +338,39 @@ export async function fetchGlobalTelemetry(
       return "";
     }
   };
+  // The two answers that name the model, kept apart (in place: every GET still goes out in this order)
+  const naming: Array<Promise<string>> = [];
+  const names = (answer: Promise<string>): Promise<string> => {
+    naming.push(answer);
+    return answer;
+  };
+  const reads = Promise.all([
+    part("signal", "/api/device/signal"),
+    optionalGet(session, "/api/device/seccellinfo"),
+    optionalGet(session, "/api/device/ri"),
+    optionalGet(session, "/api/net/cell-info"),
+    optionalGet(session, "/api/net/current-plmn"),
+    optionalGet(session, "/api/net/net-mode"),
+    names(optionalGet(session, "/api/device/information")),
+    names(optionalGet(session, "/api/device/basic_information")),
+    part("status", "/api/monitoring/status"),
+    part("traffic", "/api/monitoring/traffic-statistics"),
+    part("month", "/api/monitoring/month_statistics"),
+    optionalGet(session, "/api/monitoring/start_date"),
+    options.includeSmsCounters ? optionalGet(session, "/api/sms/sms-count") : Promise.resolve(""),
+  ]);
+  let answers: Awaited<typeof reads>;
+  try {
+    answers = await reads;
+  } catch (err) {
+    // Whatever failed, the router may have named its model: wait for those two answers (nothing more is sent)
+    if (options.onFailedPollModel) {
+      const [info = "", basic = ""] = await Promise.all(naming.map((answer) => answer.catch(() => "")));
+      const named = routerModelIn(info, basic);
+      if (named) options.onFailedPollModel(named.model, named.softwareVersion);
+    }
+    throw err;
+  }
   const [
     signalXml,
     secCellXml,
@@ -347,21 +385,7 @@ export async function fetchGlobalTelemetry(
     monthXml,
     startDateXml,
     smsCountXml,
-  ] = await Promise.all([
-    part("signal", "/api/device/signal"),
-    optionalGet(session, "/api/device/seccellinfo"),
-    optionalGet(session, "/api/device/ri"),
-    optionalGet(session, "/api/net/cell-info"),
-    optionalGet(session, "/api/net/current-plmn"),
-    optionalGet(session, "/api/net/net-mode"),
-    optionalGet(session, "/api/device/information"),
-    optionalGet(session, "/api/device/basic_information"),
-    part("status", "/api/monitoring/status"),
-    part("traffic", "/api/monitoring/traffic-statistics"),
-    part("month", "/api/monitoring/month_statistics"),
-    optionalGet(session, "/api/monitoring/start_date"),
-    options.includeSmsCounters ? optionalGet(session, "/api/sms/sms-count") : Promise.resolve(""),
-  ]);
+  ] = answers;
 
   const unavailable = TELEMETRY_PARTS.filter((name) => missing.has(name));
   if (unavailable.length === TELEMETRY_PARTS.length) throw new SectionUnavailableError("Telemetry", null);
@@ -481,9 +505,14 @@ export async function fetchGlobalTelemetry(
  */
 export async function readRouterModel(session: EphemeralCpeSession): Promise<{ model: string; softwareVersion: string | null } | null> {
   const info = await optionalGet(session, "/api/device/information");
-  const model = getXmlTag(info, "DeviceName")?.trim();
-  if (model) return { model, softwareVersion: getXmlTag(info, "SoftwareVersion")?.trim() || null };
-  const basic = getXmlTag(await optionalGet(session, "/api/device/basic_information"), "devicename")?.trim();
+  return routerModelIn(info, "") ?? routerModelIn("", await optionalGet(session, "/api/device/basic_information"));
+}
+
+/** The model and firmware `device/information` names, else the model `device/basic_information` names. */
+function routerModelIn(infoXml: string, basicXml: string): { model: string; softwareVersion: string | null } | null {
+  const model = getXmlTag(infoXml, "DeviceName")?.trim();
+  if (model) return { model, softwareVersion: getXmlTag(infoXml, "SoftwareVersion")?.trim() || null };
+  const basic = getXmlTag(basicXml, "devicename")?.trim();
   return basic ? { model: basic, softwareVersion: null } : null;
 }
 

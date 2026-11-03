@@ -311,6 +311,39 @@ describe("read strategies on models nobody verified", () => {
     }
   });
 
+  it("tells a router replaced mid-run by the model its failed poll names: device:changed, tolerant reads, a new identification", async () => {
+    // The H168-383 is unplugged (the polls cannot reach it) and a router of another model with the same
+    // address and admin password takes its place. Read the verified way, its first poll fails on a part
+    // the H168-383 has (this one keeps no traffic counters), yet in that very poll it named its model
+    const h168 = createStrictCpe();
+    const endpoints = { ...LTE_ROUTER, "/api/monitoring/traffic-statistics": { cpeError: "100002" } };
+    const lte = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints, password: h168.password });
+    let router: typeof fetch = h168.fetchImpl;
+    const fx = readFixture({ fetchImpl: async (input, init) => await router(input, init), password: h168.password });
+    let changed = 0;
+    fx.core.scheduler.on("device:changed", () => (changed += 1));
+    try {
+      assert.equal((await fx.core.monitor.identifyDevice())?.identity.model, "H168-383");
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      router = async () => {
+        throw new TypeError("fetch failed");
+      };
+      await assert.rejects(fx.core.monitor.refreshTelemetry());
+      router = lte.fetchImpl;
+      await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CpeApiError && err.code === "100002", "read the verified way, the poll fails");
+      assert.equal(changed, 1, "the model the router named in that poll contradicts the identification");
+      const { model, writes } = fx.core.scheduler.getStatus().device;
+      assert.deepEqual([model, writes], ["B535-232", "read_only"]);
+      const snap = await fx.core.monitor.refreshTelemetry();
+      assert.equal(snap?.device.deviceName, "B535-232", "the next poll reads it the tolerant way");
+      for (let i = 0; i < 100 && fx.core.monitor.getDeviceProbe()?.identity.model !== "B535-232"; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(fx.core.monitor.getDeviceProbe()?.identity.model, "B535-232", "and identified again right after it");
+      assert.deepEqual(lte.stats.writes, []);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("leaves the H168-383 on its verified reads: an error still fails the read and nothing is recorded", async () => {
     const cpe = createStrictCpe({ fault: (p) => (p === "/api/device/nbrcellinfo" ? { cpeError: "100002" } : undefined) });
     const fx = readFixture(cpe);
