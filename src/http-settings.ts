@@ -209,9 +209,9 @@ export class SettingsHttpRoutes {
     }
   }
 
-  /** What each write is on this router, and the experimental writes its owner turned on. */
+  /** What each write is on this router, the experimental writes its owner turned on, and the recent results. */
   #experimental(): ExperimentalWritesResponse {
-    return { ok: true, device: this.#opts.scheduler.device.snapshot(), consents: this.#opts.settings.experimentalConsents };
+    return { ok: true, device: this.#opts.scheduler.device.snapshot(), consents: this.#opts.settings.experimentalConsents, writes: this.#opts.scheduler.genericWrites };
   }
 
   /**

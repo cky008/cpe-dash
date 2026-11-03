@@ -1,4 +1,4 @@
-import type { ReadCapability, ReadSection, WriteAccess } from "./device-access.ts";
+import type { ReadCapability, ReadSection, WriteAccess, WriteResultRecord } from "./device-access.ts";
 import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
 
 /**
@@ -666,7 +666,12 @@ export interface DeviceReport {
   apiErrors: ApiErrorSnapshot;
   /** What FengSui does with this router: writes allowed or locked, and per read section what it answered (states and router codes only). */
   access: DeviceReportAccess | null;
+  /** Recent write results: each experimental write's endpoints, router code and read-back, never a value it wrote. */
+  writes: DeviceReportWrite[];
 }
+
+/** One recent write result as the report carries it (`WriteResultRecord` without its internal id). */
+export type DeviceReportWrite = Omit<WriteResultRecord, "id">;
 
 export interface DeviceReportAccess {
   writes: WriteAccess;
@@ -679,13 +684,15 @@ export function buildDeviceReport(input: {
   fengsuiVersion: string;
   generatedAtIso: string;
   access?: DeviceReportAccess | null;
+  writes?: ReadonlyArray<WriteResultRecord>;
 }): DeviceReport {
   const apiErrors = { sinceIso: input.apiErrors.sinceIso, entries: input.apiErrors.entries.map((e) => ({ ...e })) };
   const base = { reportVersion: DEVICE_REPORT_VERSION, fengsuiVersion: input.fengsuiVersion, generatedAtIso: input.generatedAtIso } as const;
   const access: DeviceReportAccess | null = input.access
     ? { writes: input.access.writes, reads: Object.fromEntries(Object.entries(input.access.reads).map(([section, read]) => [section, { state: read.state, code: read.code }])) as Record<ReadSection, ReadCapability> }
     : null;
-  if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access };
+  const writes: DeviceReportWrite[] = (input.writes ?? []).map(({ id: _id, ...result }) => ({ ...result, endpoints: [...result.endpoints] }));
+  if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access, writes };
   const profile = deviceProfileOf(input.probe);
   const observed = new Map(input.probe.observations.map((o) => [o.path, o]));
   return {
@@ -704,5 +711,6 @@ export function buildDeviceReport(input: {
     }),
     apiErrors,
     access,
+    writes,
   };
 }

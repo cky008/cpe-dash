@@ -30,6 +30,7 @@ import type {
   DeviceProfile,
   DeviceReport,
   DeviceReportEndpoint,
+  DeviceReportWrite,
   EndpointProbe,
   EndpointState,
   FeatureCapability,
@@ -52,6 +53,7 @@ import type {
   WriteCheck,
   WriteFeature,
   WriteFeatureState,
+  WriteResultRecord,
 } from "./device-access.ts";
 import type { ExperimentalConsent, PublicTokenRecord } from "./console-settings.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
@@ -129,6 +131,7 @@ export type {
   WriteCheck,
   WriteFeature,
   WriteFeatureState,
+  WriteResultRecord,
   DeviceCapabilities,
   DeviceFeature,
   DeviceIdentity,
@@ -136,6 +139,7 @@ export type {
   DeviceProfile,
   DeviceReport,
   DeviceReportEndpoint,
+  DeviceReportWrite,
   DeviceVerification,
   EndpointProbe,
   EndpointState,
@@ -331,6 +335,8 @@ export interface ExperimentalWritesResponse {
   ok: true;
   device: DeviceAccessSnapshot;
   consents: ExperimentalConsent[];
+  /** The last generic writes (oldest first): endpoints, router code and read-back, never a value written. */
+  writes: WriteResultRecord[];
 }
 
 /** `POST /api/console/experimental`: turn one experimental write on (typing the router's model) or off. */

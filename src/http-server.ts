@@ -221,6 +221,7 @@ export class FengSuiHttpServer {
             fengsuiVersion: FENGSUI_VERSION,
             generatedAtIso: new Date().toISOString(),
             access: options.core.scheduler.device.snapshot(),
+            writes: options.core.scheduler.genericWrites,
           })
         ),
     });
