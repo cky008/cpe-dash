@@ -1111,6 +1111,7 @@ export interface DeviceReport {
 }
 ```
 
+- **报告兼容性（阶段 2）**：控制台「设置 → 设备」先生成报告并完整显示，用户检查后复制或下载，再点「在 GitHub 报告」，在新标签页打开 `https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device%20report%3A%20<型号>%20·%20<固件>`（[`src/feedback.ts`](../src/feedback.ts)；表单在 `.github/ISSUE_TEMPLATE/device-report.yml`）。**地址里只有模板与标题**，报告由用户自己粘贴或作为文件附上；烽燧不上传任何东西，也没有对应的后端路由。
 - **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍（`GET /api/device/profile` 同样经 `sanitizeDeviceProfile`，因为令牌与智能体也读它）：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../test/device-report.test.ts)）。
 
 ### 2.10 写闸门：未验证型号只读（多型号兼容阶段 2）

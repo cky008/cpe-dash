@@ -39,6 +39,7 @@ cpe-dash/
 │   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
 │   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单、四种接口状态）、路由器错误码计数与只含结构的脱敏设备报告（守护进程、控制台与在线演示同一实现）
 │   ├── device-access.ts    # 零依赖：写闸门（未验证型号只读；只相信本次运行看到的型号，否则写操作先在自己的会话里确认）、每个写操作所属的功能，以及未验证型号各读取项可用与否
+│   ├── feedback.ts         # 零依赖：兼容性反馈入口（cky008/cpe-dash 新 issue 的地址，只带模板与标题，绝不带报告内容）
 │   ├── console-settings.ts # 控制台管理的加密设置：路由器连接、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码；首次启动从 .env 导入一次
 │   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
@@ -73,6 +74,7 @@ cpe-dash/
 ├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则）
 ├── Dockerfile · docker-compose.yml · .dockerignore   # 非 root、只读根文件系统、HEALTHCHECK 的生产镜像与群晖编排
 ├── .github/workflows/      # ci-docker.yml（门禁 + amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）
+├── .github/ISSUE_TEMPLATE/ # device-report.yml：其他型号的兼容性报告表单（型号、固件、能用 / 不能用、报告、隐私确认）
 └── docs/
     ├── PHASE1_PROTOCOL_SPEC.md       # H168-383 完整私有协议（含短信接口）、逆向算法与阶段交接规范字典
     ├── PHASE2_ARCHITECTURE_REPORT.md # 架构选型、调度器、时序引擎与短信融合架构

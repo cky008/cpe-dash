@@ -6,6 +6,7 @@ import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { ApiError } from "../core/api.ts";
 import { type NoticeTone, auditCaller, connectionNotice, daysLeft, needsLastAttempt, passwordProblem, tokenFlowText, tokenState } from "../core/console-view.ts";
+import { deviceIssueUrl } from "../../../src/feedback.ts";
 import { FEATURE_KEYS, READ_STATE_KEYS, SECTION_KEYS, STATE_KEYS, WRITES_KEYS, bandText, detectedText, endpointText, loginText, readText, reportFileName, reportJson, verificationNotice } from "../core/device-view.ts";
 import type { ConnectionInput } from "../core/endpoints.ts";
 import { formatAgo } from "../core/format.ts";
@@ -253,12 +254,23 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     if (report) {
       const name = reportFileName(report);
       const json = reportJson(report);
+      // A new issue with the title and the form only: the owner pastes or attaches the report there
+      const issueUrl = deviceIssueUrl(report.identity);
+      const openIssue = h("a", { class: "btn btn-sm btn-primary rounded-lg gap-1.5", attrs: { href: issueUrl, target: "_blank", rel: "noopener noreferrer" } }, icon("github"), t("report_open_issue"));
       ready = h(
         "div",
-        { class: "flex flex-wrap items-center gap-2" },
-        h("code", { class: "font-mono text-[0.6875rem] break-all w-full sm:w-auto sm:flex-1 rounded-lg bg-base-200/70 p-2" }, name),
-        button(t("report_download"), "btn-primary", () => downloadText(name, json), "arrow-down"),
-        copyButton(json)
+        { class: "space-y-2" },
+        h("div", { class: "text-xs muted" }, t("report_preview")),
+        // Text only, never markup (the report is the router's data)
+        h("pre", { class: "font-mono text-[0.6875rem] leading-snug max-h-64 overflow-auto rounded-lg bg-base-200/70 p-2 whitespace-pre-wrap break-all" }, json),
+        h(
+          "div",
+          { class: "flex flex-wrap items-center gap-2" },
+          h("code", { class: "font-mono text-[0.6875rem] break-all w-full sm:w-auto sm:flex-1 rounded-lg bg-base-200/70 p-2" }, name),
+          button(t("report_download"), "btn-ghost", () => downloadText(name, json), "arrow-down"),
+          copyButton(json)
+        ),
+        h("div", { class: "flex flex-wrap items-center gap-2 justify-end" }, h("span", { class: "text-xs faint sm:flex-1" }, t("report_issue_hint")), openIssue)
       );
     }
     return h(
@@ -266,6 +278,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       { class: "space-y-2" },
       h("div", { class: "fs-label" }, t("report_title")),
       h("p", { class: "text-xs muted" }, t("report_intro")),
+      h("p", { class: "text-xs muted" }, t("report_steps")),
       notice(t("report_notice")),
       ready,
       h("div", { class: "flex justify-end" }, create)

@@ -1,0 +1,53 @@
+name: 设备兼容性报告 / Device compatibility report
+description: 烽燧在你的华为路由器上能不能用 / How FengSui works with your Huawei router
+title: "Device report: "
+labels: ["device-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        烽燧只在 **H168-383（固件 4.4.0.1）** 上验证过。其他华为型号会以只读方式工作（写操作全部锁定），这份报告帮我们了解它在你的型号上的表现。
+        FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. Other Huawei models run read-only (every write is locked); this report tells us how it does on yours.
+
+        **报告怎么来 / Where the report comes from**：控制台「设置 → 设备 → 生成设备报告」，检查后复制，或下载 JSON 文件。 / In the console: Settings → Device → Create device report; check it, then copy it or download the JSON file.
+  - type: input
+    id: model
+    attributes:
+      label: 型号 / Model
+      description: 「设置 → 设备」里的型号 / The model shown in Settings → Device
+      placeholder: B535-232
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: 固件版本 / Firmware
+      description: 「设置 → 设备」里的固件 / The firmware shown in Settings → Device
+      placeholder: 11.0.1.2(H7SP2C00)
+    validations:
+      required: true
+  - type: textarea
+    id: works
+    attributes:
+      label: 能用的功能 / What works
+      description: 例如信号、流量、终端列表、短信 / For example signal, traffic, the device list, SMS
+  - type: textarea
+    id: broken
+    attributes:
+      label: 不能用或有问题的 / What does not work
+      description: 哪里不对、看到了什么提示 / What looks wrong, and any message you saw
+  - type: textarea
+    id: report
+    attributes:
+      label: 设备报告 / Device report
+      description: 把复制的报告粘贴在 ```json 代码块里，或把下载的 JSON 文件拖进来 / Paste the copied report inside a ```json code block, or drag the downloaded JSON file in
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私 / Privacy
+      description: 报告已经脱敏：只有接口结构和少量白名单值（型号、固件、网页版本、开关的小数字、频段号），没有 IMEI、IMSI、MAC、IP 地址、号码、小区或 Wi-Fi 名称。提交前请再看一遍。 / The report is desensitized: endpoint structure and a few allowlisted values (model, firmware and WebUI version, small switch numbers, band numbers), no IMEI, IMSI, MAC, IP address, phone number, cell or Wi-Fi name. Please read it once more before you submit.
+      options:
+        - label: 我看过报告，里面没有我的个人信息 / I read the report and it holds nothing personal
+          required: true
