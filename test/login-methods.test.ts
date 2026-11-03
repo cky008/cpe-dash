@@ -157,6 +157,32 @@ describe("login methods and token flows (mock family)", () => {
     }
   });
 
+  it("falls back on a SCRAM probe answered with a redirect as on 100002, and only where 100002 would (R1-12)", async () => {
+    // Appendix A.5: some models send an endpoint they lack to their start page; redirect: "error" makes that a failed fetch
+    const redirectProbe = (cpe: CpeFamily): typeof fetch => async (input, init) => {
+      if (new URL(String(input)).pathname !== "/api/user/challenge_login") return await cpe.fetchImpl(input, init);
+      cpe.stats.requests.push({ path: "/api/user/challenge_login", method: init?.method ?? "GET" });
+      throw new TypeError("fetch failed", { cause: new Error("unexpected redirect") });
+    };
+    for (const tokenFlow of FAMILY_TOKEN_FLOWS) {
+      const cpe = createCpeFamily({ login: "sha256", tokenFlow });
+      const client = clientFor({ fetchImpl: redirectProbe(cpe), password: cpe.password });
+      assert.equal(await client.withSession(async (session) => session.loginScheme), "sha256", tokenFlow);
+      assert.deepEqual([cpe.stats.passwordSubmissions, cpe.failedLogins(), client.getCircuitBreakerState().tripped], [1, 0, false], tokenFlow);
+    }
+    // No password_type to fall back on: nothing carrying the password goes out
+    const unknown = createCpeFamily({ login: "base64", tokenFlow: "token", passwordType: null });
+    const unknownClient = clientFor({ fetchImpl: redirectProbe(unknown), password: unknown.password });
+    await assert.rejects(unknownClient.withSession(async () => "never"), (err: unknown) => err instanceof CpeLoginMethodError && err.probeCode === null && !err.scramKnown);
+    assert.equal(unknown.stats.passwordSubmissions, 0);
+    // A router that logged in with SCRAM before keeps to SCRAM
+    const known = createCpeFamily({ login: "sha256", tokenFlow: "token" });
+    const pinnedClient = clientFor({ fetchImpl: redirectProbe(known), password: known.password });
+    pinnedClient.rememberLoginScheme("scram");
+    await assert.rejects(pinnedClient.withSession(async () => "never"), (err: unknown) => err instanceof CpeLoginMethodError && err.scramKnown);
+    assert.deepEqual([known.stats.passwordSubmissions, pinnedClient.getCircuitBreakerState().tripped], [0, false]);
+  });
+
   it("never falls back on other probe answers, and sends no password for an unknown password_type", async () => {
     const html = createCpeFamily({ login: "sha256", tokenFlow: "token" });
     const htmlClient = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: html.password, fetchImpl: answerWith(html, "/api/user/challenge_login", () => "<!DOCTYPE html><html><body>login</body></html>") });

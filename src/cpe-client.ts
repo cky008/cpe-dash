@@ -558,7 +558,7 @@ export class EphemeralCpeSession {
   /**
    * Log in once, with the method settled before any password goes out (`planLogin`): the router's
    * `password_type` from `state-login`, then the SCRAM challenge, which carries no password. Only a
-   * challenge refused the way appendix A.8 allows leads to the legacy `user/login`; a router known to
+   * challenge refused the way appendix A.8 allows (or redirected, A.5) leads to the legacy `user/login`; a router known to
    * use SCRAM (`scramKnown`) never gets there. Without options it is SCRAM only, as on the H168-383.
    */
   async login(opts: { passwordType?: string | null; scramKnown?: boolean } = {}): Promise<void> {
@@ -591,8 +591,10 @@ export class EphemeralCpeSession {
           throw new Error("Invalid SCRAM challenge response from CPE");
         }
       } catch (err) {
-        if (!(err instanceof CpeApiError) || !SCRAM_PROBE_FALLBACK_CODES.has(err.code)) throw err;
-        refusedWith = err.code;
+        // A redirect is how some models answer an endpoint they lack (appendix A.5): refused like 100002
+        const redirected = err instanceof CpeTransportError && err.redirected;
+        if (!redirected && (!(err instanceof CpeApiError) || !SCRAM_PROBE_FALLBACK_CODES.has(err.code))) throw err;
+        refusedWith = err instanceof CpeApiError ? err.code : null;
       }
     }
     if (challenge) {
