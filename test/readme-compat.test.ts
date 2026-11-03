@@ -26,7 +26,7 @@ describe("README compatibility section", () => {
   it("claims the H168-383 only, says other models are read-only, and keeps the credit", () => {
     for (const { file, verified, readOnly, credit } of READMES) {
       const text = fs.readFileSync(file, "utf8");
-      for (const phrase of [verified, readOnly, credit, "DEVICE_UNVERIFIED_READ_ONLY", "DEMO_SCENARIO=unverified"]) assert.ok(text.includes(phrase), `${file}: ${phrase}`);
+      for (const phrase of [verified, readOnly, credit, "DEVICE_UNVERIFIED_READ_ONLY", "DEMO_SCENARIO=unverified", "VERIFIED_FEATURES"]) assert.ok(text.includes(phrase), `${file}: ${phrase}`);
     }
   });
 });

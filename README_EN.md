@@ -261,7 +261,7 @@ sequenceDiagram
 
 ## 🧩 Compatibility (other Huawei models)
 
-**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink / EMUI routers may work read-only, but nobody has verified them, and every write to them is locked. The table below is written from the verified list in code (`VERIFIED_FIRMWARE` in [`src/firmware.ts`](src/firmware.ts)), and a test keeps the two identical:
+**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink / EMUI routers may work read-only, but nobody has verified them, and every write to them is locked. The table below is written from the verified lists in code (`VERIFIED_FIRMWARE` and the per-feature `VERIFIED_FEATURES` in [`src/firmware.ts`](src/firmware.ts)), and a test keeps the two identical:
 
 <!-- compat:begin -->
 | Model | Firmware | Reads | Writes |
@@ -275,6 +275,7 @@ sequenceDiagram
 - **What read-only means**: the write gate sits on the server, so neither the console, REST, MCP, Telegram nor the WAN self-healing can get past it. On an unverified model every write answers `409 DEVICE_UNVERIFIED_READ_ONLY` and the router receives no write request; the header shows "Unverified model · read-only", MCP lists no tool that writes to the router, Telegram's write commands explain, and self-healing only alerts (`SELF_HEAL_READ_ONLY`).
 - **What is read**: whatever the router provides. A section it answers with `100002` / `100003` or with something FengSui cannot read is shown as "not available on this model" without costing the rest; a model without 5G simply has no NR values. Each section's state is under Settings → Device; see appendix A.10 of [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md).
 - **Report compatibility or a problem**: under Settings → Device choose "Create device report", read it through, copy it or download the JSON, then choose "Report on GitHub": a new issue of this project opens in a new tab (with the title and the report form only, never the report), where you paste or attach it. The report holds endpoint structure and a few allowlisted values (model, firmware and WebUI version, small switch numbers, band numbers), no IMEI, IMSI, MAC, IP address, phone number, cell or Wi-Fi name; FengSui uploads nothing on its own, and please read it once more before you submit.
+- **How a verified result joins the list**: once someone confirms on a real router that a feature of a model works (reading or writing) and reports it in an issue, the maintainer adds it to `VERIFIED_FEATURES` in `src/firmware.ts` (model, firmware, feature, read or write, issue number) with a test, and the table gains a row for that model; the CHANGELOG names the issue only, never anything personal. The model as a whole stays unverified, and the table lists just the features verified on it.
 - **To have a look first**: `DEMO_SCENARIO=unverified npm run demo` runs the full daemon against a simulated unverified model.
 
 ---

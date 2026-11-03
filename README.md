@@ -261,7 +261,7 @@ sequenceDiagram
 
 ## 🧩 兼容性（其他华为型号）
 
-**烽燧只在 H168-383（固件 4.4.0.1）上验证过。** 其他华为 HiLink / EMUI 路由器可能以只读方式工作，但没有人验证过；它们的写操作全部锁定。下表由代码里的验证清单（[`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FIRMWARE`）生成，测试保证两者一致：
+**烽燧只在 H168-383（固件 4.4.0.1）上验证过。** 其他华为 HiLink / EMUI 路由器可能以只读方式工作，但没有人验证过；它们的写操作全部锁定。下表由代码里的验证清单（[`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FIRMWARE` 与按功能记录的 `VERIFIED_FEATURES`）生成，测试保证两者一致：
 
 <!-- compat:begin -->
 | 型号 | 固件 | 读取 | 写入 |
@@ -275,6 +275,7 @@ sequenceDiagram
 - **只读是什么意思**：写操作的闸门在服务端，网页、REST、MCP、Telegram 和 WAN 自愈都绕不过去。未验证型号上任何写操作都返回 `409 DEVICE_UNVERIFIED_READ_ONLY`，路由器收不到任何写请求；页头显示「未验证型号 · 只读」，MCP 不列出写路由器的工具，Telegram 的写命令回复说明，自愈只发告警（`SELF_HEAL_READ_ONLY`）。
 - **读什么**：路由器提供什么就显示什么。某一项回了 `100002` / `100003` 或烽燧读不懂的内容，就标为「此型号不提供」，不拖垮其他项目；没有 5G 的型号就没有 NR 数值。各项状态在「设置 → 设备」里，详见 [`docs/PHASE1_PROTOCOL_SPEC.md`](docs/PHASE1_PROTOCOL_SPEC.md) 附录 A.10。
 - **报告兼容性或问题**：在「设置 → 设备」点「生成设备报告」，检查一遍，复制或下载 JSON，再点「在 GitHub 报告」：会在新标签页打开本项目的新 issue（只带标题和报告模板，不带报告内容），把报告粘贴进去或作为文件附上。报告只有接口结构和少量白名单值（型号、固件、网页版本、开关的小数字、频段号），没有 IMEI、IMSI、MAC、IP 地址、号码、小区或 Wi-Fi 名称；烽燧不会自动上传任何东西，提交前请再看一遍。
+- **把验证结果加进清单**：有人在真机上确认某个型号的某项功能可用（读取或写入），并在 issue 里报告后，维护者把它加进 `src/firmware.ts` 的 `VERIFIED_FEATURES`（型号、固件、功能、读或写、issue 编号）并补上测试，上表随之多出这个型号的一行；CHANGELOG 只注明来自哪个 issue，不写任何个人信息。型号本身仍算未验证，表里只列已验证的那几项。
 - **想先看看**：`DEMO_SCENARIO=unverified npm run demo` 用一台模拟的未验证型号跑完整的守护进程。
 
 ---
