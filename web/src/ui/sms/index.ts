@@ -1,6 +1,7 @@
 import type { EnrichedSmsMessage, SmsThreadDetail, SmsThreadSummary } from "../../../../src/api-contract.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../../../../src/sms/text-mode.ts";
 import { ApiError } from "../../core/api.ts";
+import { unavailableSection, writesLocked } from "../../core/device-access-view.ts";
 import type { ThreadFilter } from "../../core/endpoints.ts";
 import { DASH } from "../../core/format.ts";
 import { formatDayLabel, formatShortTime, parseMsgTime, threadGroup } from "../../core/sms.ts";
@@ -9,7 +10,7 @@ import type { AppContext } from "../context.ts";
 import { byId, debounce, h, icon, mount, replay, show } from "../dom.ts";
 import { VIEW_EVENT, type ViewName } from "../header.ts";
 import { revealButton } from "../sensitive.ts";
-import { emptyState } from "../widgets.ts";
+import { emptyState, unavailableState } from "../widgets.ts";
 import { openCompose } from "./compose.ts";
 import { openContacts } from "./contacts.ts";
 import { sendAndReport } from "./send.ts";
@@ -74,19 +75,16 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   const privacySlot = h("span");
   const mobileFilters = h("div", { class: "fs-seg md:hidden w-full" });
   const threadList = h("div", { class: "flex-1 overflow-y-auto px-2.5 pb-28" });
+  /** A model FengSui was not verified on is read-only: messages are shown, never sent, marked or deleted. */
+  const locked = (): boolean => writesLocked(ctx.store.state.scheduler);
   const fab = h("button", { class: "fab-compose btn btn-primary btn-circle size-13 absolute right-5 bottom-6 z-10", attrs: { type: "button" } }, icon("plus", "text-2xl"));
   fab.addEventListener("click", () => shared.openCompose());
-  mount(
-    listPane,
-    h(
-      "header",
-      { class: "px-4 pt-5 pb-3 space-y-3 shrink-0" },
-      h("div", { class: "flex items-center gap-2.5" }, listTitleIcon, listTitle, listCount, privacySlot),
-      h("label", { class: "field-soft" }, icon("search"), searchInput, h("kbd", { class: "kbd kbd-xs hidden md:inline-flex opacity-60" }, "/")),
-      mobileFilters
-    ),
-    threadList,
-    fab
+  const listHeader = h(
+    "header",
+    { class: "px-4 pt-5 pb-3 space-y-3 shrink-0" },
+    h("div", { class: "flex items-center gap-2.5" }, listTitleIcon, listTitle, listCount, privacySlot),
+    h("label", { class: "field-soft" }, icon("search"), searchInput, h("kbd", { class: "kbd kbd-xs hidden md:inline-flex opacity-60" }, "/")),
+    mobileFilters
   );
 
   const messagesList = h("div", { class: "flex-1 overflow-y-auto" });
@@ -104,7 +102,12 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   const chatHeader = h("header", { class: "px-4 md:px-6 pt-4 pb-3 flex items-center gap-3 shrink-0 border-b border-base-content/[0.06]" });
   const chatEmpty = h("div", { class: "flex-1 flex flex-col items-center justify-center gap-5 p-8 text-center anim-fade" });
   const chatActive = h("div", { class: "hidden flex-1 flex flex-col min-h-0" }, chatHeader, messagesList, noticeSlot, nonDialable, replyForm);
-  mount(chatPane, chatEmpty, chatActive);
+  /** The two panes as built here (again after a router without SMS made way for one that has it). */
+  const mountPanes = (): void => {
+    mount(listPane, listHeader, threadList, fab);
+    mount(chatPane, chatEmpty, chatActive);
+  };
+  mountPanes();
 
   // ── Data ───────────────────────────────────────────────────────────────────
   const loadThreads = async (): Promise<void> => {
@@ -342,14 +345,15 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
 
   // ── Conversation ───────────────────────────────────────────────────────────
   const renderEmptyChat = (): void => {
+    show(fab, !locked());
     const newBtn = h("button", { class: "btn btn-primary btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("plus"), ctx.t("sms.new"));
     newBtn.addEventListener("click", () => shared.openCompose());
     mount(
       chatEmpty,
       h("div", { class: "size-20 rounded-[1.75rem] bg-base-200 grid place-items-center faint" }, icon("message", "text-4xl")),
       h("div", { class: "space-y-1.5" }, h("h2", { class: "text-base font-semibold serif" }, ctx.t("chat.empty_title")), h("p", { class: "text-sm muted max-w-xs" }, ctx.t("chat.empty_desc"))),
-      newBtn,
-      h("p", { class: "text-xs faint hidden md:block" }, h("kbd", { class: "kbd kbd-xs" }, "N"), ` ${ctx.t("sms.new")} · `, h("kbd", { class: "kbd kbd-xs" }, "/"), ` ${ctx.t("sms.search")}`)
+      locked() ? h("p", { class: "text-xs muted max-w-xs flex items-center gap-1.5" }, icon("lock"), ctx.t("dev.sms_read_only")) : newBtn,
+      locked() ? null : h("p", { class: "text-xs faint hidden md:block" }, h("kbd", { class: "kbd kbd-xs" }, "N"), ` ${ctx.t("sms.new")} · `, h("kbd", { class: "kbd kbd-xs" }, "/"), ` ${ctx.t("sms.search")}`)
     );
   };
 
@@ -423,7 +427,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
       back,
       avatar(title, { brand: isBrandSender(s), known: Boolean(detail.contact), size: "size-10 text-sm", accent: true }),
       h("div", { class: "min-w-0 flex-1" }, h("h2", { class: "text-lg font-bold truncate leading-tight" }, title), h("p", { class: "text-xs muted truncate mt-0.5" }, sub.join(" · "))),
-      h("div", { class: "flex items-center gap-1 shrink-0" }, unreadCount > 0 ? markBtn : null, s.type === "alphanumeric" ? null : editBtn)
+      h("div", { class: "flex items-center gap-1 shrink-0" }, unreadCount > 0 && !locked() ? markBtn : null, s.type === "alphanumeric" ? null : editBtn)
     );
 
     // Bubbles
@@ -457,6 +461,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
         icon("trash", "text-sm")
       );
       del.addEventListener("click", () => void deleteMessage(m));
+      if (locked()) del.classList.add("hidden");
       nodes.push(
         h(
           "div",
@@ -488,9 +493,10 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     // Composer / notices
     renderNotice();
     const dialable = detail.dialable && detail.replyPhone !== null;
-    show(replyForm, dialable);
-    show(nonDialable, !dialable);
-    mount(nonDialable, icon("info"), ctx.t("chat.non_dialable"));
+    show(replyForm, dialable && !locked());
+    show(nonDialable, !dialable || locked());
+    if (locked()) mount(nonDialable, icon("lock"), ctx.t("dev.sms_read_only"));
+    else mount(nonDialable, icon("info"), ctx.t("chat.non_dialable"));
     replyHint.textContent = detail.replyPhone ? ctx.t("chat.reply_to", { phone: shownNumber(ctx, detail.replyPhone) }) : "";
     replyArea.placeholder = ctx.t("chat.reply_placeholder");
     replySend.title = ctx.t("chat.send");
@@ -572,6 +578,13 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     mount(sidebar);
   };
 
+  /** A model without SMS (or without a listing FengSui reads): nothing to show here. */
+  const renderUnavailable = (code: string | null): void => {
+    mount(listPane, unavailableState(ctx.t, "message", code));
+    mount(chatPane);
+    mount(sidebar);
+  };
+
   // ── Wiring ─────────────────────────────────────────────────────────────────
   const renderAll = (): void => {
     renderListHeader();
@@ -595,6 +608,18 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     if (!ctx.store.state.smsEnabled) renderDisabled();
     else renderSidebar();
   });
+  // The router's read-only state and its SMS section, redrawn only when they change (the status polls every 10 s)
+  let deviceKey = "";
+  ctx.store.subscribe("scheduler", () => {
+    const missing = unavailableSection(ctx.store.state.scheduler, "sms");
+    const next = `${locked()}|${missing ? (missing.code ?? "-") : ""}`;
+    if (next === deviceKey) return;
+    const wasMissing = deviceKey.split("|")[1] !== "" && deviceKey !== "";
+    deviceKey = next;
+    if (missing) return renderUnavailable(missing.code);
+    if (wasMissing) mountPanes();
+    renderAll();
+  });
   ctx.store.subscribe("contacts", () => {
     void ctx.api.smsContacts().then((res) => {
       shared.contacts = res.contacts;
@@ -611,7 +636,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     if (!visible || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("input, textarea, select, [contenteditable='true']") || document.querySelector("dialog[open]")) return;
-    if (event.key === "n" || event.key === "N") {
+    if ((event.key === "n" || event.key === "N") && !locked()) {
       event.preventDefault();
       shared.openCompose();
     } else if (event.key === "/") {

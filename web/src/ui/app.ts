@@ -1,5 +1,6 @@
 import { ApiClient, ApiError } from "../core/api.ts";
 import { RECOVERY_COMMANDS, passwordProblem } from "../core/console-view.ts";
+import { versionLabel } from "../core/device-access-view.ts";
 import { createEndpoints } from "../core/endpoints.ts";
 import { type Locale, Translator, detectLocale } from "../core/i18n.ts";
 import { type KeyValueStorage, loadPreferences, savePreference } from "../core/prefs.ts";
@@ -307,10 +308,17 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
       mountNeighbors(ctx);
       mountTopology(ctx);
       applyI18n(tr);
+      // The version with the model the daemon goes by (the router may be another model than the H168-383)
+      let version: string | null = null;
+      const renderVersion = (): void => {
+        if (version !== null) byId("versionLabel").textContent = versionLabel(version, store.state.scheduler);
+      };
+      store.subscribe("scheduler", renderVersion);
       void api
         .health()
         .then((h) => {
-          byId("versionLabel").textContent = `v${h.version} · H168-383`;
+          version = h.version;
+          renderVersion();
         })
         .catch(() => undefined);
       // Once per page, not per sign-in: a re-login submitted with Enter would stack another listener
@@ -406,6 +414,9 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
         return;
       case "open-settings":
         openSettings();
+        return;
+      case "open-device":
+        openSettings("device");
         return;
       case "toggle-privacy":
         privacy.setGlobal(!privacy.globalMasked);

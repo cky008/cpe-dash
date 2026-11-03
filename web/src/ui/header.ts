@@ -1,3 +1,4 @@
+import { readOnlyModel } from "../core/device-access-view.ts";
 import { unreadBadgeCount } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
@@ -56,6 +57,22 @@ export function mountHeader(ctx: AppContext): void {
     sessionPill.title = status?.lastError ?? "";
   };
 
+  // A model FengSui was not verified on: read-only, and one click away from its device page
+  const readOnlyBadge = byId("readOnlyBadge");
+  const controlsBtn = byId("controlsBtn");
+  const renderReadOnly = (): void => {
+    const model = readOnlyModel(ctx.store.state.scheduler);
+    readOnlyBadge.classList.toggle("hidden", model === null);
+    // On a phone the badge takes the controls button's place: there are no controls to offer
+    controlsBtn.classList.toggle("hidden", model !== null);
+    controlsBtn.classList.toggle("sm:inline-flex", model !== null);
+    if (model === null) return;
+    const text = readOnlyBadge.querySelector<HTMLElement>("[data-role=text]");
+    if (text) text.textContent = ctx.t("dev.read_only_badge");
+    readOnlyBadge.title = ctx.t("dev.read_only_title", { model });
+    readOnlyBadge.setAttribute("aria-label", readOnlyBadge.title);
+  };
+
   const ssePill = byId("ssePill");
   const renderSse = (): void => {
     const { state } = ctx.store.state.sse;
@@ -94,16 +111,19 @@ export function mountHeader(ctx: AppContext): void {
   };
 
   ctx.store.subscribe("scheduler", renderSession);
+  ctx.store.subscribe("scheduler", renderReadOnly);
   ctx.store.subscribe("sse", renderSse);
   ctx.store.subscribe("sms", renderUnread);
   ctx.store.subscribe("alerts", renderAlerts);
   ctx.privacy.onChange(renderPrivacy);
   ctx.tr.onChange(() => {
     renderSession();
+    renderReadOnly();
     renderSse();
     renderPrivacy();
   });
   renderSession();
+  renderReadOnly();
   renderSse();
   renderUnread();
   renderAlerts();

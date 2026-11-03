@@ -6,7 +6,8 @@ import type { CellLockPrefill } from "./cell-lock.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount, perFrame, setText } from "./dom.ts";
 import { meter, qualityClass } from "./gauge.ts";
-import { cardHead, emptyState, runBusy } from "./widgets.ts";
+import { unavailableSection, writesLocked } from "../core/device-access-view.ts";
+import { cardHead, emptyState, runBusy, unavailableState } from "./widgets.ts";
 
 type RatFilter = "all" | "LTE" | "NR";
 
@@ -52,7 +53,7 @@ export function mountNeighbors(ctx: AppContext): void {
       }
     });
 
-  const row = (cell: NeighborCellEntry, serving: boolean): HTMLElement => {
+  const row = (cell: NeighborCellEntry, serving: boolean, locked: boolean): HTMLElement => {
     const level = qualityLevel("rsrp", cell.rsrpDbm);
     const band = safeBand(cell.band);
     const lockable =
@@ -88,13 +89,16 @@ export function mountNeighbors(ctx: AppContext): void {
       // Phones keep the columns needed to pick a cell; RAT, RSRQ and SINR appear from the sm breakpoint
       h("td", { class: "num hidden sm:table-cell" }, formatSigned(cell.rsrqDb, "dB", 1)),
       h("td", { class: `num hidden sm:table-cell ${qualityClass(qualityLevel("sinr", cell.sinrDb))}` }, formatSigned(cell.sinrDb, "dB")),
-      h("td", { class: "text-right" }, lockBtn)
+      h("td", { class: "text-right" }, locked ? null : lockBtn)
     );
   };
 
   const render = (): void => {
     const snapshot = ctx.store.state.neighbors;
     const serving = servingKeys(ctx.store.state.telemetry);
+    // A model nobody verified: read-only (no cell locks), and maybe no neighbour list at all
+    const locked = writesLocked(ctx.store.state.scheduler);
+    const missing = unavailableSection(ctx.store.state.scheduler, "neighbors");
     const scanBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("radar"), ctx.t("nb.scan"));
     scanBtn.addEventListener("click", () => scan(scanBtn));
     const manualBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("lock"), ctx.t("nb.manual"));
@@ -116,7 +120,9 @@ export function mountNeighbors(ctx: AppContext): void {
     const cells = snapshot ? [...snapshot.nrNeighbors, ...snapshot.lteNeighbors].filter((c) => filter === "all" || c.rat === filter) : [];
     cells.sort((a, b) => (a.rat === b.rat ? (b.rsrpDbm ?? -999) - (a.rsrpDbm ?? -999) : a.rat === "NR" ? -1 : 1));
 
-    const body = !snapshot
+    const body = missing
+      ? unavailableState(ctx.t, "radar", missing.code)
+      : !snapshot
       ? emptyState("radar", ctx.t("nb.empty"), ctx.t("nb.waiting"))
       : cells.length === 0
         ? emptyState("radar", ctx.t("nb.empty"))
@@ -138,13 +144,13 @@ export function mountNeighbors(ctx: AppContext): void {
                   h("th", { class: "text-right" }, "")
                 )
               ),
-              h("tbody", null, ...cells.map((cell) => row(cell, serving.has(`${cell.rat}|${cell.arfcn}|${cell.pci}`))))
+              h("tbody", null, ...cells.map((cell) => row(cell, serving.has(`${cell.rat}|${cell.arfcn}|${cell.pci}`), locked)))
             )
           );
 
     mount(
       root,
-      cardHead(ctx.t("nb.title"), agoLabel, snapshot ? h("span", { class: "text-[0.6875rem] faint" }, ctx.t("nb.count", { count: snapshot.totalCount })) : null, filters, manualBtn, scanBtn),
+      cardHead(ctx.t("nb.title"), agoLabel, snapshot ? h("span", { class: "text-[0.6875rem] faint" }, ctx.t("nb.count", { count: snapshot.totalCount })) : null, filters, locked ? null : manualBtn, scanBtn),
       h("div", { class: "fs-card-body pt-1" }, body)
     );
     updateAgo();
@@ -155,7 +161,7 @@ export function mountNeighbors(ctx: AppContext): void {
     if (agoLabel && captured) setText(agoLabel, ctx.t("nb.updated", { ago: formatAgo(captured, ctx.now(), ctx.tr.locale) }));
   };
 
-  ctx.store.subscribe(["neighbors", "telemetry"], perFrame(render));
+  ctx.store.subscribe(["neighbors", "telemetry", "scheduler"], perFrame(render));
   ctx.tr.onChange(render);
   ctx.onTick(updateAgo);
   render();

@@ -5,7 +5,7 @@ import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount, setText } from "./dom.ts";
 import { gauge, meter, qualityClass } from "./gauge.ts";
 import { revealButton, sensitive } from "./sensitive.ts";
-import { cardHead, emptyState, kv, runBusy } from "./widgets.ts";
+import { cardHead, emptyState, kv, runBusy, unavailableState } from "./widgets.ts";
 
 type Rf = GlobalTelemetrySnapshot["rf"];
 type McsList = Rf["lteDlMcs"];
@@ -75,6 +75,11 @@ export function mountRfCard(ctx: AppContext): void {
 
     if (!telemetry) {
       mount(root, cardHead(ctx.t("rf.title"), agoLabel, refreshBtn), emptyState("tower", ctx.t("rf.waiting")));
+      return;
+    }
+    // A model nobody verified that answers no signal reading: nothing to draw, rather than an empty radio
+    if (telemetry.unavailable?.includes("signal")) {
+      mount(root, cardHead(ctx.t("rf.title"), agoLabel, refreshBtn), unavailableState(ctx.t, "tower", null));
       return;
     }
     const rf = telemetry.rf;

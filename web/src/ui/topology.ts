@@ -4,7 +4,8 @@ import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount, setText } from "./dom.ts";
 import { sensitive } from "./sensitive.ts";
-import { cardHead, emptyState, runBusy } from "./widgets.ts";
+import { unavailableSection, writesLocked } from "../core/device-access-view.ts";
+import { cardHead, emptyState, runBusy, unavailableState } from "./widgets.ts";
 
 /** `short` is the phone label: the row's icon already says wired or Wi-Fi. */
 const MEDIUM: Readonly<Record<TerminalAccessMedium, { key: MessageKey; short: string; kind: string; icon: string; wired: boolean }>> = {
@@ -41,7 +42,7 @@ export function mountTopology(ctx: AppContext): void {
       }
     });
 
-  const hostRow = (host: TerminalHostEntry, capturedAtMs: number): HTMLElement => {
+  const hostRow = (host: TerminalHostEntry, capturedAtMs: number, locked: boolean): HTMLElement => {
     const medium = MEDIUM[host.medium];
     const blocked = access?.isBlocked(ctx, host) ?? false;
     const ipv6 = host.ipv6Addresses.find((a) => !a.toLowerCase().startsWith("fe80")) ?? host.ipv6Addresses[0] ?? "";
@@ -92,12 +93,15 @@ export function mountTopology(ctx: AppContext): void {
         host.rssi !== null && !medium.wired ? h("div", { class: "faint" }, `RSSI ${host.rssi}`) : null
       ),
       h("td", { class: "text-right hidden sm:table-cell" }, lease),
-      access ? access.cell(ctx, host) : h("td", { class: "text-right faint" }, DASH)
+      locked ? null : access ? access.cell(ctx, host) : h("td", { class: "text-right faint" }, DASH)
     );
   };
 
   const render = (): void => {
     const topology = ctx.store.state.topology;
+    // A model nobody verified: read-only (no blocking), maybe no device list, maybe Wi-Fi devices only
+    const locked = writesLocked(ctx.store.state.scheduler);
+    const missing = unavailableSection(ctx.store.state.scheduler, "topology");
     leaseCells = [];
     const refreshBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("refresh"), ctx.t("topo.refresh"));
     refreshBtn.addEventListener("click", () => refresh(refreshBtn));
@@ -117,7 +121,9 @@ export function mountTopology(ctx: AppContext): void {
     agoLabel = h("span", { class: "text-[0.6875rem] faint hidden md:inline" });
 
     let body: HTMLElement;
-    if (!topology) {
+    if (missing) {
+      body = unavailableState(ctx.t, "network", missing.code);
+    } else if (!topology) {
       body = emptyState("network", ctx.t("topo.empty"));
     } else {
       const hosts = topology.hosts
@@ -129,7 +135,7 @@ export function mountTopology(ctx: AppContext): void {
       body = h(
         "div",
         { class: "space-y-2" },
-        h("div", { class: "text-xs muted" }, ctx.t("topo.summary", { active: wired + wireless, eth: wired, wifi: wireless })),
+        h("div", { class: "text-xs muted" }, ctx.t("topo.summary", { active: wired + wireless, eth: wired, wifi: wireless }), topology.source === "wlan/host-list" ? h("span", { class: "faint" }, ` · ${ctx.t("dev.wifi_only")}`) : null),
         hosts.length === 0
           ? emptyState("network", ctx.t("topo.empty"))
           : h(
@@ -144,12 +150,12 @@ export function mountTopology(ctx: AppContext): void {
                   h(
                     "tr",
                     null,
-                    ...(["topo.device", "topo.link", "topo.address", "topo.rate", "topo.lease", "topo.action"] as const).map((k, i) =>
+                    ...(locked ? (["topo.device", "topo.link", "topo.address", "topo.rate", "topo.lease"] as const) : (["topo.device", "topo.link", "topo.address", "topo.rate", "topo.lease", "topo.action"] as const)).map((k, i) =>
                       h("th", { class: `${i >= 4 ? "text-right" : ""} ${i >= 2 && i <= 4 ? "hidden sm:table-cell" : ""}`.trim() }, ctx.t(k))
                     )
                   )
                 ),
-                h("tbody", null, ...hosts.map((host) => hostRow(host, topology.capturedAtMs)))
+                h("tbody", null, ...hosts.map((host) => hostRow(host, topology.capturedAtMs, locked)))
               )
             )
       );
@@ -157,7 +163,7 @@ export function mountTopology(ctx: AppContext): void {
 
     mount(
       root,
-      cardHead(ctx.t("topo.title"), agoLabel, h("label", { class: "inline-flex items-center gap-1.5 text-xs muted cursor-pointer" }, offlineToggle, ctx.t("topo.show_offline")), accessBtn, refreshBtn),
+      cardHead(ctx.t("topo.title"), agoLabel, h("label", { class: "inline-flex items-center gap-1.5 text-xs muted cursor-pointer" }, offlineToggle, ctx.t("topo.show_offline")), locked ? null : accessBtn, refreshBtn),
       h("div", { class: "fs-card-body pt-1" }, body)
     );
     tick();
@@ -170,7 +176,7 @@ export function mountTopology(ctx: AppContext): void {
     if (agoLabel && captured) setText(agoLabel, ctx.t("topo.updated", { ago: formatAgo(captured, now, ctx.tr.locale) }));
   };
 
-  ctx.store.subscribe(["topology", "accessControl"], render);
+  ctx.store.subscribe(["topology", "accessControl", "scheduler"], render);
   void Promise.all([accessModule(), ctx.api.accessControl()])
     .then(([mod, res]) => {
       access = mod.topologyAccess;

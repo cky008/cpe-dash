@@ -1,4 +1,4 @@
-import type { DeviceFeature, DeviceIdentity, DeviceProfile, DeviceReport, EndpointProbe, EndpointState, ProbeOrigin } from "../../../src/api-contract.ts";
+import type { DeviceFeature, DeviceIdentity, DeviceProfile, DeviceReport, EndpointProbe, EndpointState, ProbeOrigin, ReadSection, ReadState, WriteAccess } from "../../../src/api-contract.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 import { type NoticeTone, schemeText } from "./console-view.ts";
 import { formatAgo } from "./format.ts";
@@ -34,6 +34,35 @@ export const STATE_KEYS: Readonly<Record<EndpointState, SettingsTextKey>> = {
   restricted: "state_restricted",
   unknown: "state_unknown",
 };
+
+/** The read sections, in the order the Device tab lists them. */
+export const SECTION_KEYS: Readonly<Record<ReadSection, SettingsTextKey>> = {
+  telemetry: "section_telemetry",
+  neighbors: "section_neighbors",
+  topology: "section_topology",
+  settings: "section_settings",
+  accessControl: "section_access",
+  sms: "section_sms",
+};
+
+export const READ_STATE_KEYS: Readonly<Record<ReadState, SettingsTextKey>> = {
+  verified: "read_verified",
+  available: "read_available",
+  unavailable: "read_unavailable",
+  unknown: "read_unknown",
+};
+
+export const WRITES_KEYS: Readonly<Record<WriteAccess, SettingsTextKey>> = {
+  allowed: "access_writes_allowed",
+  read_only: "access_writes_locked",
+  unknown: "access_writes_unknown",
+};
+
+/** A read section's state, with the router's code when it answered without it. */
+export function readText(read: { state: ReadState; code: string | null }, t: Text): string {
+  const state = t(READ_STATE_KEYS[read.state]);
+  return read.code ? `${state} · ${read.code}` : state;
+}
 
 const ORIGIN_KEYS: Readonly<Record<ProbeOrigin, SettingsTextKey>> = {
   startup: "origin_startup",

@@ -781,6 +781,15 @@ body {
     background: color-mix(in oklab, var(--color-error) 12%, transparent);
     border-color: color-mix(in oklab, var(--color-error) 30%, transparent);
   }
+  /* Phones: the read-only badge is a lock icon in the slot of the controls button, which it replaces there */
+  @media (width < 40rem) {
+    .fs-readonly {
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      justify-content: center;
+    }
+  }
   .fs-dot {
     position: relative;
     width: 0.4375rem;

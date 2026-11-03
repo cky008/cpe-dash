@@ -6,7 +6,7 @@ import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { ApiError } from "../core/api.ts";
 import { type NoticeTone, auditCaller, connectionNotice, daysLeft, needsLastAttempt, passwordProblem, tokenFlowText, tokenState } from "../core/console-view.ts";
-import { FEATURE_KEYS, STATE_KEYS, bandText, detectedText, endpointText, loginText, reportFileName, reportJson, verificationNotice } from "../core/device-view.ts";
+import { FEATURE_KEYS, READ_STATE_KEYS, SECTION_KEYS, STATE_KEYS, WRITES_KEYS, bandText, detectedText, endpointText, loginText, readText, reportFileName, reportJson, verificationNotice } from "../core/device-view.ts";
 import type { ConnectionInput } from "../core/endpoints.ts";
 import { formatAgo } from "../core/format.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
@@ -315,11 +315,40 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           row(t("device_bands"), bandText(profile.capabilities.lteBands)),
           row(t("device_detected"), detectedText(profile, ctx.now(), ctx.tr.locale, t))
         ),
-        h("div", { class: "space-y-1.5" }, h("div", { class: "fs-label" }, t("features_title")), h("ul", { class: "grid grid-cols-2 sm:grid-cols-3 gap-1.5" }, ...features), h("p", { class: "text-xs faint" }, t("features_note"))),
+        // The verified model's tested features; another model shows what it answered instead (accessBlock)
+        profile.verification === "verified" || profile.verification === "new-firmware"
+          ? h("div", { class: "space-y-1.5" }, h("div", { class: "fs-label" }, t("features_title")), h("ul", { class: "grid grid-cols-2 sm:grid-cols-3 gap-1.5" }, ...features), h("p", { class: "text-xs faint" }, t("features_note")))
+          : null,
         h("div", { class: "space-y-1" }, h("div", { class: "fs-label" }, t("endpoints_title")), h("ul", { class: "divide-y divide-base-content/[0.06]" }, ...endpoints), h("p", { class: "text-xs faint" }, t("endpoints_note")))
       );
     }
-    return h("div", { class: "space-y-4" }, notice(t(verdict.key, verdict.params), verdict.tone), h("p", { class: "muted" }, t("device_intro")), details, reportBlock());
+    return h("div", { class: "space-y-4" }, notice(t(verdict.key, verdict.params), verdict.tone), accessBlock(), h("p", { class: "muted" }, t("device_intro")), details, reportBlock());
+  };
+
+  /** Whether FengSui writes to this router, and per read section what it answered (schedulerStatus.device). */
+  const accessBlock = (): HTMLElement | null => {
+    const access = ctx.store.state.scheduler?.device;
+    if (!access || access.writes === "unknown") return null;
+    const locked = access.writes === "read_only";
+    const reads = (Object.keys(SECTION_KEYS) as Array<keyof typeof SECTION_KEYS>).map((section) => {
+      const read = access.reads[section];
+      const good = read.state === "verified" || read.state === "available";
+      return h(
+        "li",
+        { class: "flex items-center gap-1.5 rounded-lg bg-base-200/40 px-2 py-1 text-xs" },
+        icon(good ? "check" : read.state === "unavailable" ? "x" : "info", good ? "text-success" : "text-base-content/40"),
+        h("span", { class: "whitespace-nowrap" }, t(SECTION_KEYS[section])),
+        h("span", { class: `ml-auto text-right ${read.state === "unavailable" ? "text-warning" : "faint"}`, title: t(READ_STATE_KEYS[read.state]) }, readText(read, t))
+      );
+    });
+    return h(
+      "div",
+      { class: "space-y-1.5" },
+      h("div", { class: "fs-label" }, t("access_title")),
+      h("div", { class: `flex items-center gap-1.5 text-sm ${locked ? "text-warning" : ""}` }, icon(locked ? "lock" : "unlock"), t(WRITES_KEYS[access.writes])),
+      h("ul", { class: "grid grid-cols-1 sm:grid-cols-2 gap-1.5" }, ...reads),
+      locked ? h("p", { class: "text-xs faint" }, t("access_note")) : null
+    );
   };
 
   // ---------------------------------------------------------------- console password

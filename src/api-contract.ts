@@ -40,7 +40,7 @@ import type {
   TokenFlow,
 } from "./device-profile.ts";
 import type { DeviceVerification } from "./firmware.ts";
-import type { DeviceAccessSnapshot, WriteAccess } from "./device-access.ts";
+import type { DeviceAccessSnapshot, ReadCapability, ReadSection, ReadState, WriteAccess } from "./device-access.ts";
 import type { PublicTokenRecord } from "./console-settings.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
@@ -106,6 +106,9 @@ export type {
   ApiErrorSnapshot,
   ApiErrorStat,
   DeviceAccessSnapshot,
+  ReadCapability,
+  ReadSection,
+  ReadState,
   WriteAccess,
   DeviceCapabilities,
   DeviceFeature,

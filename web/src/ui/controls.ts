@@ -1,6 +1,8 @@
 import type { AntennaModeName, BandLockRequest, RouterSettingsSnapshot } from "../../../src/api-contract.ts";
 import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../src/rf-bounds.ts";
+import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
+import { readOnlyModel } from "../core/device-access-view.ts";
 import { formatAgo } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
@@ -508,6 +510,21 @@ export function mountControls(ctx: AppContext): { open(): void } {
     );
 
     const blocked = avoidance?.active || scheduler?.circuitBreaker.tripped || scheduler?.peerStandby.active;
+    // A model FengSui was not verified on is read-only: say so instead of offering the H168-383's controls
+    const lockedModel = readOnlyModel(scheduler);
+    const deviceBtn = h("button", { class: "btn btn-sm btn-primary rounded-lg gap-1.5", attrs: { type: "button" }, data: { action: "open-device" } }, icon("cpu"), ctx.t("dev.open_device"));
+    deviceBtn.addEventListener("click", () => dialog.close());
+    const sections =
+      lockedModel === null
+        ? [bandSection, securitySection, wifiSection, antennaSection, systemSection]
+        : [
+            h(
+              "div",
+              { class: "space-y-3" },
+              h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("lock", "mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.read_only_controls", { model: lockedModel, verified: [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ") }))),
+              h("div", { class: "flex justify-end" }, deviceBtn)
+            ),
+          ];
     mount(
       dialog,
       h(
@@ -523,14 +540,10 @@ export function mountControls(ctx: AppContext): { open(): void } {
         h(
           "div",
           { class: "flex-1 overflow-y-auto px-5 py-4 space-y-6" },
-          blocked
+          blocked && lockedModel === null
             ? h("div", { class: "fs-notice", data: { tone: "danger" } }, icon("alert", "text-error mt-0.5"), h("span", { class: "text-xs" }, ctx.t(scheduler?.circuitBreaker.tripped ? "err.breaker" : scheduler?.peerStandby.active ? "err.peer_standby" : "err.yielded")))
             : null,
-          bandSection,
-          securitySection,
-          wifiSection,
-          antennaSection,
-          systemSection
+          ...sections
         )
       ),
       h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))

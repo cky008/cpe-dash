@@ -119,7 +119,7 @@
             <svg class="fs-mark size-9 shrink-0" aria-hidden="true"><use href="#i-mark" /></svg>
             <div class="leading-tight hidden sm:block">
               <div class="serif font-bold text-[1.05rem] tracking-wide"><span data-i18n="app.brand">烽燧</span> <span class="font-sans font-semibold text-[0.7rem] muted tracking-normal">FengSui</span></div>
-              <div class="text-[0.65rem] faint num" id="versionLabel">H168-383</div>
+              <div class="text-[0.65rem] faint num min-h-[1em]" id="versionLabel"></div>
             </div>
           </div>
           <nav class="fs-seg ml-1 sm:ml-3 shrink-0" aria-label="views">
@@ -127,6 +127,9 @@
             <button type="button" data-view="sms" data-i18n-aria="nav.sms"><svg class="ico"><use href="#i-message" /></svg><span class="hidden sm:inline" data-i18n="nav.sms">短信中心</span><span id="smsUnreadBadge" class="hidden badge badge-xs badge-secondary num rounded-full"></span></button>
           </nav>
           <div class="ml-auto flex items-center gap-0 sm:gap-1.5">
+            <button type="button" id="readOnlyBadge" data-action="open-device" class="fs-pill fs-readonly hidden cursor-pointer" data-tone="warn">
+              <svg class="ico"><use href="#i-lock" /></svg><span class="hidden sm:inline" data-role="text"></span>
+            </button>
             <span id="sessionPill" class="fs-pill hidden md:inline-flex" data-tone="busy"><span class="fs-dot"></span><span data-role="text"></span></span>
             <span id="ssePill" class="fs-pill hidden lg:inline-flex"><span class="fs-dot"></span><span data-role="text"></span></span>
             <button type="button" id="controlsBtn" data-action="open-controls" class="btn btn-ghost btn-sm rounded-lg gap-1.5 font-normal" data-i18n-title="nav.controls">

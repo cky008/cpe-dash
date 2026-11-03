@@ -100,9 +100,16 @@ export function mountTrafficCard(ctx: AppContext): void {
   const render = (): void => {
     const telemetry = ctx.store.state.telemetry;
     const traffic = telemetry?.traffic;
+    // A model nobody verified may lack the counters (or the month statistics, which also hold today)
+    const noRates = telemetry?.unavailable?.includes("traffic") === true;
+    const noMonth = telemetry?.unavailable?.includes("month") === true;
     const last = ctx.store.state.live.at(-1);
     const dl = formatBitRate(last?.downloadBps ?? traffic?.downloadBps ?? 0);
     const ul = formatBitRate(last?.uploadBps ?? traffic?.uploadBps ?? 0);
+    const rate = (value: { value: string; unit: string }, color: string): HTMLElement =>
+      noRates
+        ? h("div", { class: "num text-2xl font-semibold faint" }, DASH, h("span", { class: "block text-[0.6875rem] font-normal" }, ctx.t("dev.part_unavailable")))
+        : h("div", { class: "num text-2xl font-semibold", style: `color: var(${color})` }, value.value, h("span", { class: "text-xs font-normal muted ml-1" }, value.unit));
     const routerCap = routerMonthlyCapBytes(traffic?.dataLimitRaw ?? "");
     const monthlyCap = ctx.prefs.monthlyCapBytes ?? routerCap;
     const dailyCap = ctx.prefs.dailyCapBytes;
@@ -122,22 +129,24 @@ export function mountTrafficCard(ctx: AppContext): void {
             "div",
             { class: "rounded-xl p-2.5 bg-base-content/[0.03]" },
             h("div", { class: "flex items-center gap-1 text-xs muted" }, icon("arrow-down", "chart-dl"), ctx.t("traffic.rate_dl")),
-            h("div", { class: "num text-2xl font-semibold", style: "color: var(--dl)" }, dl.value, h("span", { class: "text-xs font-normal muted ml-1" }, dl.unit))
+            rate(dl, "--dl")
           ),
           h(
             "div",
             { class: "rounded-xl p-2.5 bg-base-content/[0.03]" },
             h("div", { class: "flex items-center gap-1 text-xs muted" }, icon("arrow-up"), ctx.t("traffic.rate_ul")),
-            h("div", { class: "num text-2xl font-semibold", style: "color: var(--ul)" }, ul.value, h("span", { class: "text-xs font-normal muted ml-1" }, ul.unit))
+            rate(ul, "--ul")
           )
         ),
-        h(
-          "div",
-          { class: "grid grid-cols-2 gap-2 justify-items-center" },
-          usageRing(ctx.t("traffic.today"), traffic?.todayUsedBytes ?? 0, dailyCap, dailyCap ? ctx.t("traffic.cap", { cap: joinScaled(formatBytes(dailyCap)) }) : ctx.t("traffic.no_cap")),
-          usageRing(ctx.t("traffic.month"), traffic?.monthTotalBytes ?? 0, monthlyCap, monthlyCap ? ctx.t("traffic.cap", { cap: joinScaled(formatBytes(monthlyCap)) }) : ctx.t("traffic.no_cap"))
-        ),
-        traffic
+        noMonth
+          ? h("div", { class: "text-xs faint text-center py-4" }, `${ctx.t("traffic.today")} · ${ctx.t("traffic.month")}: ${ctx.t("dev.part_unavailable")}`)
+          : h(
+              "div",
+              { class: "grid grid-cols-2 gap-2 justify-items-center" },
+              usageRing(ctx.t("traffic.today"), traffic?.todayUsedBytes ?? 0, dailyCap, dailyCap ? ctx.t("traffic.cap", { cap: joinScaled(formatBytes(dailyCap)) }) : ctx.t("traffic.no_cap")),
+              usageRing(ctx.t("traffic.month"), traffic?.monthTotalBytes ?? 0, monthlyCap, monthlyCap ? ctx.t("traffic.cap", { cap: joinScaled(formatBytes(monthlyCap)) }) : ctx.t("traffic.no_cap"))
+            ),
+        traffic && !noMonth
           ? h(
               "div",
               { class: "text-xs muted text-center space-y-0.5" },

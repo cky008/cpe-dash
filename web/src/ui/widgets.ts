@@ -33,6 +33,11 @@ export function runBusy(button: HTMLButtonElement, task: () => Promise<void>): v
   });
 }
 
+/** A section this model does not provide (multi-model phase 2), with the router's code when it gave one. */
+export function unavailableState(t: (key: "dev.unavailable" | "dev.unavailable_code", params?: Record<string, string>) => string, iconName: string, code: string | null): HTMLElement {
+  return emptyState(iconName, code ? t("dev.unavailable_code", { code }) : t("dev.unavailable"));
+}
+
 export function emptyState(iconName: string, title: string, hint?: string): HTMLElement {
   return h(
     "div",
