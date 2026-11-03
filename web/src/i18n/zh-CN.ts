@@ -7,7 +7,7 @@ export const zhCN = {
   "login.placeholder": "控制台密码",
   "login.submit": "进入控制台",
   "login.submitting": "正在验证…",
-  "login.error_failed": "密码不正确。从旧版本升级后，密码仍是 .env 中的 API_TOKEN（未设置时为路由器管理密码）",
+  "login.error_failed": "密码不正确",
   "login.error_rate_limited": "尝试过于频繁，请在 {seconds} 秒后重试",
   "login.error_network": "无法连接守护进程，请确认 cpe-dash 正在运行",
   "login.note": "会话只保存在此浏览器；守护进程仅在采样瞬间（约 26–260 ms）登录路由器，不占用 192.168.8.1 后台",

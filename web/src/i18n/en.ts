@@ -9,7 +9,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "login.placeholder": "Console password",
   "login.submit": "Enter console",
   "login.submitting": "Verifying…",
-  "login.error_failed": "Wrong password. After an upgrade it is still the API_TOKEN from .env (or the router admin password when that is unset)",
+  "login.error_failed": "Wrong password",
   "login.error_rate_limited": "Too many attempts, retry in {seconds}s",
   "login.error_network": "Cannot reach the daemon — is cpe-dash running?",
   "login.note": "The session lives in this browser only; the daemon logs in to the router just for each ~26–260 ms sample and never holds the 192.168.8.1 admin slot",
