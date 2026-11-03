@@ -201,6 +201,8 @@ describe("web core: endpoint table", () => {
       audit: ["GET", "/api/audit?limit=200"],
       deviceProfile: ["GET", "/api/device/profile"],
       deviceReport: ["GET", "/api/console/device-report"],
+      experimental: ["GET", "/api/console/experimental"],
+      setExperimental: ["POST", "/api/console/experimental", { feature: "reboot", enabled: true, model: "B535-232" }],
       telemetry: ["GET", "/api/telemetry"],
       refreshTelemetry: ["POST", "/api/telemetry/refresh", {}],
       sessionStatus: ["GET", "/api/session/status"],
@@ -261,6 +263,8 @@ describe("web core: endpoint table", () => {
     await ep.audit();
     await ep.deviceProfile();
     await ep.deviceReport();
+    await ep.experimental();
+    await ep.setExperimental({ feature: "reboot", enabled: true, model: "B535-232" });
     await ep.telemetry();
     await ep.refreshTelemetry();
     await ep.sessionStatus();

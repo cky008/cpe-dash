@@ -1,7 +1,7 @@
 import type { EnrichedSmsMessage, SmsThreadDetail, SmsThreadSummary } from "../../../../src/api-contract.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../../../../src/sms/text-mode.ts";
 import { ApiError } from "../../core/api.ts";
-import { unavailableSection, writesLocked } from "../../core/device-access-view.ts";
+import { canWrite, unavailableSection, writeState } from "../../core/device-access-view.ts";
 import type { ThreadFilter } from "../../core/endpoints.ts";
 import { DASH } from "../../core/format.ts";
 import { formatDayLabel, formatShortTime, parseMsgTime, threadGroup } from "../../core/sms.ts";
@@ -76,7 +76,8 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   const mobileFilters = h("div", { class: "fs-seg md:hidden w-full" });
   const threadList = h("div", { class: "flex-1 overflow-y-auto px-2.5 pb-28" });
   /** A model FengSui was not verified on is read-only: messages are shown, never sent, marked or deleted. */
-  const locked = (): boolean => writesLocked(ctx.store.state.scheduler);
+  // A model nobody verified writes SMS only once its owner turned the experimental SMS writes on
+  const locked = (): boolean => !canWrite(ctx.store.state.scheduler, "smsWrite");
   const fab = h("button", { class: "fab-compose btn btn-primary btn-circle size-13 absolute right-5 bottom-6 z-10", attrs: { type: "button" } }, icon("plus", "text-2xl"));
   fab.addEventListener("click", () => shared.openCompose());
   const listHeader = h(
@@ -353,7 +354,11 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
       h("div", { class: "size-20 rounded-[1.75rem] bg-base-200 grid place-items-center faint" }, icon("message", "text-4xl")),
       h("div", { class: "space-y-1.5" }, h("h2", { class: "text-base font-semibold serif" }, ctx.t("chat.empty_title")), h("p", { class: "text-sm muted max-w-xs" }, ctx.t("chat.empty_desc"))),
       locked() ? h("p", { class: "text-xs muted max-w-xs flex items-center gap-1.5" }, icon("lock"), ctx.t("dev.sms_read_only")) : newBtn,
-      locked() ? null : h("p", { class: "text-xs faint hidden md:block" }, h("kbd", { class: "kbd kbd-xs" }, "N"), ` ${ctx.t("sms.new")} · `, h("kbd", { class: "kbd kbd-xs" }, "/"), ` ${ctx.t("sms.search")}`)
+      locked() ? null : h("p", { class: "text-xs faint hidden md:block" }, h("kbd", { class: "kbd kbd-xs" }, "N"), ` ${ctx.t("sms.new")} · `, h("kbd", { class: "kbd kbd-xs" }, "/"), ` ${ctx.t("sms.search")}`),
+      // Turned on as an experimental write on a model nobody verified: say how it differs
+      writeState(ctx.store.state.scheduler, "smsWrite") === "consented"
+        ? h("p", { class: "text-xs text-warning max-w-xs flex items-start gap-1.5" }, icon("alert", "mt-0.5 shrink-0"), ctx.t("dev.sms_experimental"))
+        : null
     );
   };
 

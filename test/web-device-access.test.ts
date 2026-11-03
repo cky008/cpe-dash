@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { DeviceAccessSnapshot, SchedulerStatusSnapshot } from "../src/api-contract.ts";
+import type { DeviceAccessSnapshot, SchedulerStatusSnapshot, WriteResultRecord } from "../src/api-contract.ts";
 import { READ_SECTIONS } from "../src/device-access.ts";
-import { readOnlyModel, unavailableSection, versionLabel, writesLocked } from "../web/src/core/device-access-view.ts";
-import { READ_STATE_KEYS, SECTION_KEYS, WRITES_KEYS, readText } from "../web/src/core/device-view.ts";
+import { WRITE_FEATURES } from "../src/device-access.ts";
+import { canWrite, experimentalOffer, experimentalWrites, readOnlyModel, readbackTone, unavailableSection, versionLabel, writeState, writesLocked } from "../web/src/core/device-access-view.ts";
+import { READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITES_KEYS, WRITE_STATE_KEYS, readText, writeResultDetail } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 
 /** What the console offers for the router it watches (multi-model phase 2), decided without the DOM. */
@@ -51,5 +52,45 @@ describe("console: the router's write and read access", () => {
     const t = (key: keyof (typeof SETTINGS_TEXT)["en"]): string => SETTINGS_TEXT.en[key];
     assert.equal(readText({ state: "unavailable", code: "100002" }, t), "not on this model · 100002");
     assert.equal(readText({ state: "available", code: null }, t), "readable");
+  });
+});
+
+describe("console: experimental writes on a model nobody verified", () => {
+  const features = (over: Partial<DeviceAccessSnapshot["features"]> = {}): DeviceAccessSnapshot["features"] =>
+    ({ ...Object.fromEntries(WRITE_FEATURES.map((f) => [f, "not_implemented"])), bandLock: "available", reboot: "available", ...over }) as DeviceAccessSnapshot["features"];
+
+  it("offers a write it may do, names the ones turned on, and leaves the verified model as it was", () => {
+    const verified = status({ features: Object.fromEntries(WRITE_FEATURES.map((f) => [f, "verified"])) as DeviceAccessSnapshot["features"] });
+    assert.deepEqual([canWrite(verified, "bandLock"), experimentalWrites(verified), experimentalOffer(verified)], [true, [], []]);
+    assert.deepEqual([writeState(null, "reboot"), canWrite(null, "reboot")], ["unknown", true], "no model yet: the daemon checks in the write's session");
+    const legacy = status({ model: "B535-232", writes: "read_only" });
+    delete (legacy.device as Partial<DeviceAccessSnapshot>).features;
+    assert.deepEqual([writeState(legacy, "reboot"), experimentalWrites(legacy), experimentalOffer(legacy)], ["unknown", [], []], "a status without the states offers nothing");
+
+    const other = status({ model: "B535-232", verification: "unverified-model", writes: "read_only", features: features({ smsWrite: "consented", reboot: "consented" }) });
+    assert.deepEqual(experimentalWrites(other), ["reboot", "smsWrite"]);
+    assert.deepEqual([canWrite(other, "smsWrite"), canWrite(other, "bandLock"), canWrite(other, "cellLock")], [true, false, false]);
+    assert.deepEqual(
+      experimentalOffer(other).filter(({ state }) => state !== "not_implemented"),
+      [
+        { feature: "bandLock", state: "available" },
+        { feature: "reboot", state: "consented" },
+        { feature: "smsWrite", state: "consented" },
+      ]
+    );
+  });
+
+  it("reads a write result's tone and detail without any value", () => {
+    const result: WriteResultRecord = { id: "x", atIso: "2026-11-03T08:00:00.000Z", action: "reboot_cpe", feature: "reboot", model: "B535-232", endpoints: ["/api/device/control"], outcome: "applied", code: null, readback: "mismatch", reason: "no_restart" };
+    assert.equal(readbackTone(result), "warning");
+    assert.equal(readbackTone({ outcome: "failed", readback: "none" }), "error");
+    assert.equal(readbackTone({ outcome: "applied", readback: "match" }), "success");
+    assert.equal(readbackTone({ outcome: "applied", readback: "pending" }), "info");
+    const t = (key: keyof (typeof SETTINGS_TEXT)["en"], params?: Record<string, string | number>): string => SETTINGS_TEXT.en[key].replace(/\{(\w+)\}/g, (_, k: string) => String(params?.[k] ?? ""));
+    const detail = writeResultDetail({ ...result, code: "100002" }, Date.parse("2026-11-03T08:05:00.000Z"), "en", t);
+    assert.match(detail, /^5m ago · POST \/api\/device\/control · error code 100002 · the next polls show no restart or new connection$/);
+    for (const locale of ["zh-CN", "en"] as const) {
+      for (const key of [...Object.values(WRITE_STATE_KEYS), ...Object.values(READBACK_KEYS), ...Object.values(REASON_KEYS)]) assert.ok(SETTINGS_TEXT[locale][key].trim(), `${locale}: ${key}`);
+    }
   });
 });

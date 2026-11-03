@@ -2,7 +2,7 @@ import type { AntennaModeName, BandLockRequest, RouterSettingsSnapshot } from ".
 import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../src/rf-bounds.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
-import { readOnlyModel } from "../core/device-access-view.ts";
+import { experimentalWrites, readOnlyModel } from "../core/device-access-view.ts";
 import { formatAgo } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
@@ -93,6 +93,8 @@ export function mountControls(ctx: AppContext): { open(): void } {
   const dialog = byId<HTMLDialogElement>("controlsDialog");
   const lteSelected = new Set<number>(H168_383_LTE_BANDS);
   const nrSelected = new Set<number>(H168_383_NR_BANDS);
+  /** An experimental band lock (a model nobody verified): LTE only, among the bands the router advertises. */
+  const genericSelected = new Set<number>();
 
   const syncSelectionFromLock = (): void => {
     const lock = ctx.store.state.lockState;
@@ -100,6 +102,10 @@ export function mountControls(ctx: AppContext): { open(): void } {
     nrSelected.clear();
     for (const b of !lock || lock.lteBands === "all" ? H168_383_LTE_BANDS : lock.lteBands) lteSelected.add(b);
     for (const b of !lock || lock.nrBands.length === 0 ? H168_383_NR_BANDS : lock.nrBands) nrSelected.add(b);
+    const advertised = ctx.store.state.scheduler?.device.lteBands ?? [];
+    const locked = lock && lock.lteBands !== "all" ? lock.lteBands.filter((b) => advertised.includes(b)) : [];
+    genericSelected.clear();
+    for (const b of locked.length > 0 ? locked : advertised) genericSelected.add(b);
   };
 
   const patchSettings = (patch: Partial<RouterSettingsSnapshot>): void => {
@@ -199,6 +205,123 @@ export function mountControls(ctx: AppContext): { open(): void } {
       .finally(() => {
         input.disabled = false;
       });
+  };
+
+  /** The confirm dialog of an experimental write: its own text, then what makes it experimental. */
+  const confirmExperimental = (options: Parameters<AppContext["confirm"]>[0]): Promise<boolean> =>
+    ctx.confirm({ ...options, body: [...options.body, ctx.t("ctl.experimental_note")] });
+
+  /** LTE band lock on a model nobody verified: the bands it advertises, no NR band or cell lock. */
+  const experimentalBandSection = (bands: ReadonlyArray<number>): HTMLElement => {
+    const mask = h("span", { class: "num text-[0.6875rem] faint" }, maskText(bands, genericSelected));
+    const refreshMask = (): void => {
+      mask.textContent = maskText(bands, genericSelected);
+    };
+    const applyBtn = h("button", { class: "btn btn-warning btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("lock"), ctx.t("ctl.apply_bands"));
+    applyBtn.addEventListener("click", () => {
+      const lte = selection(bands, genericSelected);
+      if (lte === undefined) {
+        ctx.toast(ctx.t("ctl.nothing_selected"), "warning");
+        return;
+      }
+      const summary = lte === "all" ? ctx.t("ctl.all_bands", { rat: "LTE" }) : lte.map((b) => bandLabel("LTE", b)).join("+");
+      void confirmExperimental({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
+        if (!ok) return;
+        runBusy(applyBtn, async () => {
+          try {
+            const res = await ctx.api.bandLock({ lteBands: lte });
+            ctx.store.update({ lockState: res.lockState }, ["locks"]);
+          } catch (err) {
+            fail(err);
+          }
+        });
+      });
+    });
+    const unlockBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("unlock"), ctx.t("ctl.unlock_all"));
+    unlockBtn.addEventListener("click", () => {
+      void confirmExperimental({ title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body")], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
+        if (!ok) return;
+        runBusy(unlockBtn, async () => {
+          try {
+            const res = await ctx.api.unlock();
+            ctx.store.update({ lockState: res.lockState }, ["locks"]);
+            syncSelectionFromLock();
+            render();
+          } catch (err) {
+            fail(err);
+          }
+        });
+      });
+    });
+    const quickAll = (all: boolean): void => {
+      genericSelected.clear();
+      if (all) for (const b of bands) genericSelected.add(b);
+      render();
+    };
+    return section(
+      ctx.t("ctl.band_lock"),
+      h("p", { class: "text-xs muted" }, ctx.t("ctl.current", { summary: describeLock(ctx, ctx.store.state.lockState) })),
+      h(
+        "div",
+        { class: "flex items-center gap-2 text-xs font-semibold" },
+        ctx.t("ctl.lte_bands"),
+        mask,
+        h(
+          "span",
+          { class: "ml-auto inline-flex gap-1" },
+          h("button", { class: "btn btn-ghost btn-xs", attrs: { type: "button" }, on: { click: () => quickAll(true) } }, ctx.t("ctl.select_all")),
+          h("button", { class: "btn btn-ghost btn-xs", attrs: { type: "button" }, on: { click: () => quickAll(false) } }, ctx.t("ctl.select_none"))
+        )
+      ),
+      bandGrid("LTE", bands, genericSelected, refreshMask),
+      h("p", { class: "text-[0.6875rem] faint" }, ctx.t("dev.experimental_lte_only")),
+      h("div", { class: "flex gap-2 justify-end" }, unlockBtn, applyBtn)
+    );
+  };
+
+  /** Mobile data, redial and reboot on a model nobody verified: only those turned on. */
+  const experimentalSystemSection = (open: ReadonlyArray<string>): HTMLElement => {
+    const buttons: HTMLElement[] = [];
+    if (open.includes("mobileData")) {
+      const on = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("signal"), ctx.t("ctl.mobile_data_on"));
+      const off = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("x"), ctx.t("ctl.mobile_data_off"));
+      on.addEventListener("click", () => {
+        void confirmExperimental({ title: ctx.t("ctl.mobile_data_on"), body: [], confirmLabel: ctx.t("common.on") }).then((ok) => {
+          if (ok) runBusy(on, () => ctx.api.mobileData(true).then(() => undefined, fail));
+        });
+      });
+      off.addEventListener("click", () => {
+        void confirmExperimental({ title: ctx.t("ctl.mobile_off_title"), body: [ctx.t("ctl.mobile_off_body")], confirmLabel: ctx.t("common.off"), tone: "warning" }).then((ok) => {
+          if (ok) runBusy(off, () => ctx.api.mobileData(false).then(() => undefined, fail));
+        });
+      });
+      buttons.push(on, off);
+    }
+    if (open.includes("reconnect")) {
+      const redial = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("zap"), ctx.t("ctl.reconnect"));
+      redial.addEventListener("click", () => {
+        void confirmExperimental({ title: ctx.t("ctl.reconnect_title"), body: [ctx.t("ctl.reconnect_body")], confirmLabel: ctx.t("ctl.reconnect"), tone: "warning" }).then((ok) => {
+          if (ok) runBusy(redial, () => ctx.api.reconnect().then(() => undefined, fail));
+        });
+      });
+      buttons.push(redial);
+    }
+    if (open.includes("reboot")) {
+      const reboot = h("button", { class: "btn btn-error btn-outline btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("power"), ctx.t("ctl.reboot"));
+      reboot.addEventListener("click", () => {
+        void confirmExperimental({
+          title: ctx.t("ctl.reboot_title"),
+          body: [ctx.t("ctl.reboot_body"), ctx.t("common.type_to_confirm", { word: ctx.t("ctl.reboot_word") })],
+          confirmLabel: ctx.t("ctl.reboot"),
+          tone: "error",
+          typeToConfirm: ctx.t("ctl.reboot_word"),
+        }).then((ok) => {
+          if (ok) runBusy(reboot, () => ctx.api.reboot().then(() => undefined, fail));
+        });
+      });
+      buttons.push(reboot);
+    }
+    return section(ctx.t("ctl.system"), h("div", { class: "flex flex-wrap gap-2 justify-end" }, ...buttons));
   };
 
   const render = (): void => {
@@ -510,21 +633,36 @@ export function mountControls(ctx: AppContext): { open(): void } {
     );
 
     const blocked = avoidance?.active || scheduler?.circuitBreaker.tripped || scheduler?.peerStandby.active;
-    // A model FengSui was not verified on is read-only: say so instead of offering the H168-383's controls
+    // A model FengSui was not verified on is read-only: say so instead of offering the H168-383's
+    // controls, and offer only the experimental writes its owner turned on, the generic way
     const lockedModel = readOnlyModel(scheduler);
+    const open = experimentalWrites(scheduler);
     const deviceBtn = h("button", { class: "btn btn-sm btn-primary rounded-lg gap-1.5", attrs: { type: "button" }, data: { action: "open-device" } }, icon("cpu"), ctx.t("dev.open_device"));
     deviceBtn.addEventListener("click", () => dialog.close());
-    const sections =
-      lockedModel === null
-        ? [bandSection, securitySection, wifiSection, antennaSection, systemSection]
-        : [
-            h(
-              "div",
-              { class: "space-y-3" },
-              h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("lock", "mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.read_only_controls", { model: lockedModel, verified: [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ") }))),
-              h("div", { class: "flex justify-end" }, deviceBtn)
-            ),
-          ];
+    let sections: HTMLElement[];
+    if (lockedModel === null) {
+      sections = [bandSection, securitySection, wifiSection, antennaSection, systemSection];
+    } else if (open.length === 0) {
+      sections = [
+        h(
+          "div",
+          { class: "space-y-3" },
+          h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("lock", "mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.read_only_controls", { model: lockedModel, verified: [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ") }))),
+          h("div", { class: "flex justify-end" }, deviceBtn)
+        ),
+      ];
+    } else {
+      sections = [
+        h(
+          "div",
+          { class: "space-y-3" },
+          h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("alert", "text-warning mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.experimental_controls", { model: lockedModel }))),
+          h("div", { class: "flex justify-end" }, deviceBtn)
+        ),
+        ...(open.includes("bandLock") ? [experimentalBandSection(scheduler?.device.lteBands ?? [])] : []),
+        ...(open.some((f) => f === "mobileData" || f === "reconnect" || f === "reboot") ? [experimentalSystemSection(open)] : []),
+      ];
+    }
     mount(
       dialog,
       h(

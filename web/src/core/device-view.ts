@@ -1,4 +1,19 @@
-import type { DeviceFeature, DeviceIdentity, DeviceProfile, DeviceReport, EndpointProbe, EndpointState, ProbeOrigin, ReadSection, ReadState, WriteAccess } from "../../../src/api-contract.ts";
+import type {
+  DeviceFeature,
+  DeviceIdentity,
+  DeviceProfile,
+  DeviceReport,
+  EndpointProbe,
+  EndpointState,
+  ProbeOrigin,
+  ReadSection,
+  ReadState,
+  ReadbackOutcome,
+  ReadbackReason,
+  WriteAccess,
+  WriteFeatureState,
+  WriteResultRecord,
+} from "../../../src/api-contract.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 import { type NoticeTone, schemeText } from "./console-view.ts";
@@ -60,6 +75,47 @@ export const WRITES_KEYS: Readonly<Record<WriteAccess, SettingsTextKey>> = {
 };
 
 /** A read section's state, with the router's code when it answered without it. */
+/** What each write is on a model nobody verified (phase 3), as the experimental writes list names it. */
+export const WRITE_STATE_KEYS: Readonly<Record<WriteFeatureState, SettingsTextKey>> = {
+  verified: "exp_state_verified",
+  consented: "exp_state_consented",
+  available: "exp_state_available",
+  unsupported: "exp_state_unsupported",
+  not_implemented: "exp_state_not_implemented",
+  unknown: "exp_state_unknown",
+};
+
+export const READBACK_KEYS: Readonly<Record<ReadbackOutcome, SettingsTextKey>> = {
+  match: "exp_readback_match",
+  mismatch: "exp_readback_mismatch",
+  unknown: "exp_readback_unknown",
+  pending: "exp_readback_pending",
+  none: "exp_readback_none",
+};
+
+export const REASON_KEYS: Readonly<Record<ReadbackReason, SettingsTextKey>> = {
+  differs: "exp_reason_differs",
+  unreadable: "exp_reason_unreadable",
+  send_failed: "exp_reason_send_failed",
+  send_unconfirmed: "exp_reason_send_unconfirmed",
+  no_change: "exp_reason_no_change",
+  unclear_change: "exp_reason_unclear_change",
+  no_restart: "exp_reason_no_restart",
+  no_evidence: "exp_reason_no_evidence",
+};
+
+/** One write result's detail line: when, the endpoints it posted to, the router's code and why the read-back was not a match. */
+export function writeResultDetail(result: WriteResultRecord, nowMs: number, locale: Locale, t: Text): string {
+  return [
+    formatAgo(Date.parse(result.atIso), nowMs, locale),
+    result.endpoints.map((endpoint) => `POST ${endpoint}`).join(", "),
+    result.code ? t("exp_code", { code: result.code }) : "",
+    result.reason ? t(REASON_KEYS[result.reason]) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function readText(read: { state: ReadState; code: string | null }, t: Text): string {
   const state = t(READ_STATE_KEYS[read.state]);
   return read.code ? `${state} · ${read.code}` : state;

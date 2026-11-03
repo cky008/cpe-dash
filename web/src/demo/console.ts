@@ -3,6 +3,8 @@ import type {
   AuditResponse,
   ConsoleSettingsResponse,
   CreateTokenResponse,
+  DeviceAccessSnapshot,
+  ExperimentalWritesResponse,
   PairingCodeResponse,
   RevokeTokenResponse,
   SaveConnectionResponse,
@@ -10,6 +12,7 @@ import type {
 } from "../../../src/api-contract.ts";
 import type { AuditActor, AuditEntry, AuditOutcome } from "../../../src/audit-log.ts";
 import { MAX_TOKENS, readTokenRequest, validateNewPassword } from "../../../src/console-policy.ts";
+import { WRITE_FEATURES } from "../../../src/device-access.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
@@ -201,6 +204,32 @@ export class DemoConsole {
   unlinkTelegram(): { ok: true; unlinked: number } {
     this.record("telegram.unlink-all", "applied", "0 chat(s)");
     return { ok: true, unlinked: 0 };
+  }
+
+  /**
+   * `POST /api/console/experimental` as the daemon answers it. The demo's router is the verified
+   * H168-383, so every write is already open: turning one on is refused the daemon's way, turning
+   * one off changes nothing. Both are audited like the daemon does.
+   */
+  experimental(body: Body, device: DeviceAccessSnapshot): ExperimentalWritesResponse {
+    const feature = body["feature"];
+    if (typeof feature !== "string" || !(WRITE_FEATURES as ReadonlyArray<string>).includes(feature)) {
+      throw new CpeControlValidationError(`"feature" must be one of ${WRITE_FEATURES.join(", ")}`);
+    }
+    if (typeof body["enabled"] !== "boolean") throw new CpeControlValidationError('"enabled" must be true or false');
+    const view: ExperimentalWritesResponse = { ok: true, device, consents: [], writes: [] };
+    if (!body["enabled"]) {
+      this.record("settings.experimental", "applied", `${feature} off (was off)`);
+      return view;
+    }
+    const state = device.features[feature as keyof DeviceAccessSnapshot["features"]];
+    this.record("settings.experimental", "refused", `${feature} on: ${state}`);
+    throw new DemoRefusal(409, {
+      ok: false,
+      errorCode: "EXPERIMENTAL_UNAVAILABLE",
+      message: `${feature} cannot be turned on as an experimental write on this router (${state})`,
+      state,
+    });
   }
 
   switches(body: Body): ConsoleSettingsResponse {

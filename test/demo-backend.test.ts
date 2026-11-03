@@ -6,6 +6,7 @@ import type {
   ApiErrorEnvelope,
   DeviceProfileResponse,
   DeviceReportResponse,
+  ExperimentalWritesResponse,
   GlobalTelemetrySnapshot,
   SmsSendResponse,
   SmsThreadsResponse,
@@ -272,6 +273,29 @@ describe("Static demo backend vs the real daemon", () => {
     await demoCall(backend, "POST", "/api/control/antenna", { mode: "auto" });
     const audit = (await demoCall(backend, "GET", "/api/audit?limit=nope")).json["entries"] as Json[];
     assert.deepEqual([audit[0]?.["action"], audit[0]?.["channel"]], ["set_antenna_mode", "web"], "router writes are logged with the daemon's action names");
+  });
+
+  it("answers the experimental writes switch like the daemon on the verified router", async () => {
+    const [realView, demoView] = await Promise.all([daemonCall(daemon, session, "GET", "/api/console/experimental"), demoCall(backend, "GET", "/api/console/experimental")]);
+    assert.equal(demoView.status, 200);
+    assertSameShape("/api/console/experimental", realView.json, demoView.json);
+    assert.deepEqual((demoView.json as unknown as ExperimentalWritesResponse).device.features, (realView.json as unknown as ExperimentalWritesResponse).device.features);
+    assert.ok(Object.values((demoView.json as unknown as ExperimentalWritesResponse).device.features).every((state) => state === "verified"));
+    for (const body of [
+      { feature: "reboot", enabled: true, model: "H168-383" },
+      { feature: "reboot", enabled: false },
+      { feature: "teleport", enabled: true },
+      { feature: "reboot" },
+    ] as const) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", "/api/console/experimental", body), demoCall(backend, "POST", "/api/console/experimental", body)]);
+      assert.deepEqual([demo.status, demo.json["errorCode"], demo.json["message"], demo.json["state"]], [real.status, real.json["errorCode"], real.json["message"], real.json["state"]], JSON.stringify(body));
+      if (real.status === 200) assertSameShape("POST /api/console/experimental", real.json, demo.json);
+    }
+    const audit = (await demoCall(backend, "GET", "/api/audit?limit=2")).json["entries"] as Json[];
+    assert.deepEqual(audit.map((e) => [e["action"], e["outcome"]]), [
+      ["settings.experimental", "applied"],
+      ["settings.experimental", "refused"],
+    ]);
   });
 
   it("identifies the demo router and builds its device report like the daemon", async () => {

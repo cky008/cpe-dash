@@ -1,4 +1,4 @@
-import { readOnlyModel } from "../core/device-access-view.ts";
+import { experimentalWrites, readOnlyModel } from "../core/device-access-view.ts";
 import { loadAlertsSeen, saveAlertsSeen } from "../core/prefs.ts";
 import { unreadBadgeCount, unseenAlertCount } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
@@ -63,14 +63,19 @@ export function mountHeader(ctx: AppContext): void {
   const controlsBtn = byId("controlsBtn");
   const renderReadOnly = (): void => {
     const model = readOnlyModel(ctx.store.state.scheduler);
-    readOnlyBadge.classList.toggle("hidden", model === null);
-    // On a phone the badge takes the controls button's place: there are no controls to offer
-    controlsBtn.classList.toggle("hidden", model !== null);
-    controlsBtn.classList.toggle("sm:inline-flex", model !== null);
+    const open = experimentalWrites(ctx.store.state.scheduler);
+    // On a phone the badge takes the controls button's place while there are no controls to offer;
+    // with experimental writes on, the controls button keeps it (its drawer says they are experimental)
+    const noControls = model !== null && open.length === 0;
+    const experimental = model !== null && open.length > 0;
+    readOnlyBadge.classList.toggle("hidden", model === null || experimental);
+    readOnlyBadge.classList.toggle("sm:inline-flex", experimental);
+    controlsBtn.classList.toggle("hidden", noControls);
+    controlsBtn.classList.toggle("sm:inline-flex", noControls);
     if (model === null) return;
     const text = readOnlyBadge.querySelector<HTMLElement>("[data-role=text]");
-    if (text) text.textContent = ctx.t("dev.read_only_badge");
-    readOnlyBadge.title = ctx.t("dev.read_only_title", { model });
+    if (text) text.textContent = ctx.t(open.length > 0 ? "dev.experimental_badge" : "dev.read_only_badge");
+    readOnlyBadge.title = open.length > 0 ? ctx.t("dev.experimental_title", { model, count: open.length }) : ctx.t("dev.read_only_title", { model });
     readOnlyBadge.setAttribute("aria-label", readOnlyBadge.title);
   };
 

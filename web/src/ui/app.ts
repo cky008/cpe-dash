@@ -189,7 +189,8 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
         return;
       }
       case "control:applied":
-        ctx.toast(tr.pick(event.data.summaryZh, event.data.summaryEn), "success");
+        // An experimental write whose read-back differs is a warning, not a success
+        ctx.toast(tr.pick(event.data.summaryZh, event.data.summaryEn), event.data.check?.readback === "mismatch" ? "warning" : "success");
         return;
       case "session:avoidance":
         if (!event.data.active && event.data.stateCode === "-1") ctx.toast(tr.pick(event.data.messageZh, event.data.messageEn), "info");

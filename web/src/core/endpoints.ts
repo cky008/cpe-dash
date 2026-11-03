@@ -22,6 +22,8 @@ import type {
   ContactUpsertResponse,
   DeviceProfileResponse,
   DeviceReportResponse,
+  ExperimentalWriteRequest,
+  ExperimentalWritesResponse,
   HealthResponse,
   LockStateResponse,
   MobileDataControlResponse,
@@ -101,6 +103,8 @@ export function createEndpoints(api: ApiClient) {
     audit: (limit = 200) => api.get<AuditResponse>(`/api/audit?limit=${limit}`),
     deviceProfile: () => api.get<DeviceProfileResponse>("/api/device/profile"),
     deviceReport: () => api.get<DeviceReportResponse>("/api/console/device-report"),
+    experimental: () => api.get<ExperimentalWritesResponse>("/api/console/experimental"),
+    setExperimental: (body: ExperimentalWriteRequest) => api.post<ExperimentalWritesResponse>("/api/console/experimental", body),
     logout: () => api.post<AuthLogoutResponse>("/api/auth/logout"),
 
     telemetry: () => api.get<TelemetryEndpointResponse>("/api/telemetry"),

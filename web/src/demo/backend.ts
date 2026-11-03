@@ -18,6 +18,7 @@ import type {
   ContactDeleteResponse,
   ContactUpsertResponse,
   ControlAppliedEvent,
+  ExperimentalWritesResponse,
   DeviceProfileResponse,
   DeviceReportResponse,
   GlobalTelemetrySnapshot,
@@ -450,6 +451,8 @@ export class DemoBackend {
     post("/api/console/switches", (body) => this.#console.switches(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));
     get("/api/device/profile", () => this.#device?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));
+    get("/api/console/experimental", () => ({ ok: true, device: this.#scheduler.device, consents: [], writes: [] }) satisfies ExperimentalWritesResponse);
+    post("/api/console/experimental", (body) => this.#console.experimental(body, this.#scheduler.device));
     get("/api/console/device-report", () => {
       const generatedAtIso = new Date(this.#now()).toISOString();
       const report =
