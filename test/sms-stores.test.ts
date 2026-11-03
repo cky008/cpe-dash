@@ -10,7 +10,8 @@ import { SmsMirrorStore, computeSmsUid } from "../src/sms/mirror.ts";
 import type { SmsWireMessage } from "../src/sms/types.ts";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-stores-"));
-after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
+// A store's last flush may still be landing while the suite ends: retry the removal briefly
+after(() => fs.rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
 let seq = 0;
 const tmpFile = (name: string): string => path.join(tmpRoot, `${++seq}-${name}`);
 
