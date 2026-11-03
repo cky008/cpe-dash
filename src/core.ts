@@ -1,5 +1,6 @@
 import { CpeControlService } from "./cpe-controls.ts";
 import type { HuaweiCpeClient } from "./cpe-client.ts";
+import type { GlobalTelemetrySnapshot } from "./cpe-domain.ts";
 import { CpeMonitor, type CpeMonitorOptions } from "./cpe-monitor.ts";
 import { MutexSessionScheduler, type MutexSessionSchedulerOptions } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
@@ -47,6 +48,8 @@ export function createFengSuiCore(options: FengSuiCoreOptions): FengSuiCore {
     smsCountersEnabled: options.smsCountersEnabled,
   });
   const controls = new CpeControlService({ scheduler, monitor, stateStore });
+  // A generic redial or reboot on a model nobody verified is checked by the polls that follow it
+  monitor.on("telemetry", (snapshot: GlobalTelemetrySnapshot) => scheduler.notePollForWrites(snapshot));
   return { stateStore, scheduler, monitor, controls };
 }
 

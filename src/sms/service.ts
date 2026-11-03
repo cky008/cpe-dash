@@ -15,12 +15,16 @@ import {
   type SmsListingPath,
   checkSmsNotifications,
   deleteSmsByIndex,
+  genericDeleteSms,
+  genericMarkSmsRead,
+  genericSendSms,
   fetchAllMessages,
   fetchPhoneThread,
   fetchRecentMessages,
   markSmsRead,
   prepareSmsSubmission,
   submitSms,
+  validateGenericSmsContent,
   unconfirmedSendResult,
 } from "./protocol.ts";
 import type {
@@ -337,6 +341,10 @@ export class SmsService extends EventEmitter {
       return r.phone;
     });
     const prepared = prepareSmsSubmission(resolved, input.content);
+    // A model nobody verified sends the plaintext way, which takes no emoji: refused before queueing
+    // (a send the gate refuses anyway says so first)
+    const device = this.scheduler.device;
+    if (device.generic && device.writeAccess("smsWrite") !== "read_only") validateGenericSmsContent(prepared.content);
     const to = prepared.phones.map(maskPhoneNumber).join(", ");
 
     let accepted = false;
@@ -344,15 +352,18 @@ export class SmsService extends EventEmitter {
     try {
       sendOutcome = await this.scheduler.executeControl(
         "sms_send",
-        async (session) => {
-          const sendResult = await submitSms(session, prepared, {
+        async (session, write) => {
+          const options = {
             statusTimeoutMs: this.sendStatusTimeoutMs,
             sleep: this.#sleep,
             onAccepted: () => {
               accepted = true;
             },
-          });
+          };
           const back = new Map<string, SmsWireMessage[]>();
+          // A model nobody verified: plaintext send-sms and send-status; the encrypted thread read-back is the H168-383's
+          if (write.generic) return { result: await genericSendSms(session, write.check, prepared, options), readBack: back };
+          const sendResult = await submitSms(session, prepared, options);
           if (sendResult.ok) {
             for (const phone of prepared.phones) {
               back.set(phone, await fetchPhoneThread(session, phone, 10).catch(() => []));
@@ -401,7 +412,7 @@ export class SmsService extends EventEmitter {
     if (indices.length > 0) {
       await this.scheduler.executeControl(
         "sms_mark_read",
-        (session) => markSmsRead(session, indices),
+        (session, write) => (write.generic ? genericMarkSmsRead(session, write.check, indices) : markSmsRead(session, indices)),
         (count): ControlSummary => ({
           zh: t("zh-CN", "sms.marked_read_summary", { count }),
           en: t("en", "sms.marked_read_summary", { count }),
@@ -429,7 +440,7 @@ export class SmsService extends EventEmitter {
     if (indices.length > 0) {
       await this.scheduler.executeControl(
         "sms_delete",
-        (session) => deleteSmsByIndex(session, indices),
+        (session, write) => (write.generic ? genericDeleteSms(session, write.check, indices) : deleteSmsByIndex(session, indices)),
         (count): ControlSummary => ({
           zh: t("zh-CN", "sms.deleted_summary", { count }),
           en: t("en", "sms.deleted_summary", { count }),

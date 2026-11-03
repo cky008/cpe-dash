@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
 import {
@@ -10,8 +11,19 @@ import {
   isInsideCpeSession,
 } from "./cpe-client.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
-import { CpeControlValidationError, type PersistedLockState, readRouterModel, sectionUnavailableCode } from "./cpe-domain.ts";
-import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, type ReadSection, modelLabel } from "./device-access.ts";
+import { CpeControlValidationError, type GlobalTelemetrySnapshot, type PersistedLockState, readRouterModel, sectionUnavailableCode } from "./cpe-domain.ts";
+import {
+  CONTROL_FEATURES,
+  type ControlAction,
+  DeviceAccess,
+  type DeviceAccessSnapshot,
+  type ReadSection,
+  type WriteCheck,
+  type WriteFeature,
+  type WriteResultRecord,
+  modelLabel,
+} from "./device-access.ts";
+import { newWriteCheck } from "./generic-writes.ts";
 import {
   type ApiErrorSnapshot,
   type DeviceFeature,
@@ -22,9 +34,9 @@ import {
   probeDevice,
 } from "./device-profile.ts";
 import { verifiedModelsLabel } from "./firmware.ts";
-import { t } from "./i18n.ts";
+import { type I18nKey, t } from "./i18n.ts";
 import { getXmlTag } from "./xml.ts";
-import type { AlertEventRecord, EncryptedStateStore } from "./state-store.ts";
+import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
 import type { CircuitBreakerState, CpeLoginState } from "./types.ts";
 
 export type SchedulerMode =
@@ -53,7 +65,27 @@ export interface ControlAppliedEvent {
   summaryZh: string;
   summaryEn: string;
   lockState?: PersistedLockState;
+  /** Only a generic write on a model nobody verified (phase 3): the endpoints it wrote and its read-back. */
+  check?: WriteCheck;
 }
+
+/**
+ * What a write learns in its own session, once the gate looked at the model right before it: whether
+ * the router is a model nobody verified (then only the generic implementation may write, `generic`),
+ * the LTE bands such a band lock may use, and the check the generic write fills in as it goes.
+ */
+export interface WriteContext {
+  readonly generic: boolean;
+  readonly lteBands: ReadonlyArray<number> | null;
+  readonly check: WriteCheck;
+}
+
+/** A redial or reboot counts as done once a poll shows the connection or uptime started after it (seconds of clock slack). */
+const RESTART_SLACK_SEC = 30;
+/** Before this long a poll that shows no restart proves nothing yet (the router may not have gone down). */
+const RESTART_GRACE_MS = 120_000;
+/** No poll could tell by then: the check ends `unknown`. */
+const RESTART_DEADLINE_MS = 15 * 60_000;
 
 /** Another FengSui daemon (another host) leads for this CPE; this one stays off the router. */
 export interface PeerStandbyState {
@@ -356,6 +388,8 @@ export class MutexSessionScheduler extends EventEmitter {
   #queue: Array<QueuedTask<unknown>> = [];
   #draining = false;
   #peerStandby: PeerStandbyState = { active: false, peerAddress: null, sinceIso: null };
+  /** Generic redials and reboots waiting for the polls to show them (record id → what to look for). */
+  #pendingRestarts = new Map<string, { kind: "reboot" | "reconnect"; requestedAtMs: number }>();
 
   constructor(options: MutexSessionSchedulerOptions) {
     super();
@@ -536,14 +570,17 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#client.rememberUnverifiedModel(this.device.unverifiedModel);
   }
 
-  /** Refuse a write for a router known to be another model (before any session, in the queue, and in the write's session). */
-  #assertWritable(feature: DeviceFeature): void {
+  /**
+   * Refuse a write the router's model does not allow (before any session, in the queue, and in the
+   * write's session): another model writes only what users verified on it or its owner consented to.
+   */
+  #assertWritable(feature: WriteFeature): void {
     const current = this.device.current;
-    if (current && this.device.writes === "read_only") throw new DeviceReadOnlyError(modelLabel(current.model), feature);
+    if (current && this.device.writeAccess(feature) === "read_only") throw new DeviceReadOnlyError(modelLabel(current.model), feature);
   }
 
   /** A write while this run has not seen the router's model: read it in the write's own session first. */
-  async #confirmModel(session: EphemeralCpeSession, feature: DeviceFeature): Promise<void> {
+  async #confirmModel(session: EphemeralCpeSession, feature: WriteFeature): Promise<void> {
     const reported = await readRouterModel(session);
     if (!reported) throw new DeviceNotIdentifiedError();
     this.#seeModel(reported.model, reported.softwareVersion);
@@ -768,7 +805,7 @@ export class MutexSessionScheduler extends EventEmitter {
    */
   async executeControl<T>(
     actionName: ControlAction,
-    fn: (session: EphemeralCpeSession) => Promise<T>,
+    fn: (session: EphemeralCpeSession, write: WriteContext) => Promise<T>,
     summary?: ControlSummary | ((value: T) => ControlSummary | null)
   ): Promise<T> {
     const actor = currentActor();
@@ -796,18 +833,20 @@ export class MutexSessionScheduler extends EventEmitter {
   async #runControl<T>(
     actor: AuditActor,
     actionName: ControlAction,
-    fn: (session: EphemeralCpeSession) => Promise<T>,
+    fn: (session: EphemeralCpeSession, write: WriteContext) => Promise<T>,
     summary?: ControlSummary | ((value: T) => ControlSummary | null)
   ): Promise<T> {
     if (!this.#client.configured) throw new CpeNotConfiguredError();
     const feature = CONTROL_FEATURES[actionName];
-    // The write gate: a router known to be another model gets no session at all
+    // The write gate: a router whose model does not allow this write gets no session at all
     this.#assertWritable(feature);
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
       // The model may have changed while this write waited
       this.#assertWritable(feature);
       const wasTripped = this.#client.getCircuitBreakerState().tripped;
+      /** Set once the gate let this write through in its session: which implementation applies. */
+      const gate: { write: WriteContext | null } = { write: null };
       try {
         const outcome = await this.#client.withSessionDetailed(
           async (session) => {
@@ -815,7 +854,9 @@ export class MutexSessionScheduler extends EventEmitter {
             // queue's look, so look again here, right before the write
             if (this.device.confirmed) this.#assertWritable(feature);
             else await this.#confirmModel(session, feature);
-            return await fn(session);
+            const write: WriteContext = { generic: this.device.generic, lteBands: this.device.experimentalLteBands, check: newWriteCheck() };
+            gate.write = write;
+            return await fn(session, write);
           },
           { retriesOnOccupied: 0 }
         );
@@ -827,19 +868,30 @@ export class MutexSessionScheduler extends EventEmitter {
         this.#mode = "idle";
         this.#lastError = null;
 
+        // A generic write that wrote something: recorded, its read-back said, a mismatch alerted
+        const generic = gate.write?.generic === true && gate.write.check.endpoints.length > 0 ? gate.write : null;
+        const record = generic ? this.#recordGenericWrite(actionName, feature, generic.check, "applied", null) : null;
+
         const resolvedSummary = typeof summary === "function" ? summary(outcome.value) : summary;
         if (resolvedSummary === null) return outcome.value;
+        const suffix = record ? readbackSuffix(record) : { zh: "", en: "" };
         const appliedEvent: ControlAppliedEvent = {
           action: actionName,
           tsIso: resolvedSummary?.lockState?.updatedAtIso ?? new Date().toISOString(),
-          summaryZh: resolvedSummary?.zh ?? actionName,
-          summaryEn: resolvedSummary?.en ?? actionName,
+          summaryZh: `${resolvedSummary?.zh ?? actionName}${suffix.zh}`,
+          summaryEn: `${resolvedSummary?.en ?? actionName}${suffix.en}`,
           lockState: resolvedSummary?.lockState,
+          ...(generic ? { check: { ...generic.check, endpoints: [...generic.check.endpoints] } } : {}),
         };
         this.#safeEmit("control:applied", appliedEvent);
         this.#audit(actor, actionName, "applied", appliedEvent.summaryEn);
         return outcome.value;
       } catch (err) {
+        // A generic write that failed in its session: what it tried and the router's code are recorded
+        const tried = gate.write;
+        if (tried?.generic && (tried.check.endpoints.length > 0 || err instanceof CpeApiError)) {
+          this.#recordGenericWrite(actionName, feature, { ...tried.check, readback: "none", reason: null }, "failed", err instanceof CpeApiError ? err.code : null);
+        }
         if (err instanceof BrowserSessionYieldedError) {
           throw err;
         }
@@ -852,6 +904,77 @@ export class MutexSessionScheduler extends EventEmitter {
         return await this.#handleExecutionError(err, wasTripped);
       }
     });
+  }
+
+  /** The last generic writes on a model nobody verified, oldest first (the device report's "recent write results"). */
+  get genericWrites(): WriteResultRecord[] {
+    return this.stateStore.getState().genericWrites.map((r) => ({ ...r, endpoints: [...r.endpoints] }));
+  }
+
+  /** Keep a generic write's result (endpoints, code, read-back; never a value), alert on a mismatch, watch a redial or reboot. */
+  #recordGenericWrite(action: ControlAction, feature: WriteFeature, check: WriteCheck, outcome: WriteResultRecord["outcome"], code: string | null): WriteResultRecord {
+    const nowMs = Date.now();
+    const record: WriteResultRecord = {
+      id: crypto.randomUUID(),
+      atIso: new Date(nowMs).toISOString(),
+      action,
+      feature,
+      model: modelLabel(this.device.current?.model ?? "?"),
+      endpoints: [...check.endpoints],
+      outcome,
+      code,
+      readback: check.readback,
+      reason: check.reason,
+    };
+    this.#storeWrites([...this.stateStore.getState().genericWrites, record]);
+    if (record.readback === "pending") this.#pendingRestarts.set(record.id, { kind: feature === "reboot" ? "reboot" : "reconnect", requestedAtMs: nowMs });
+    if (record.readback === "mismatch") this.#raiseMismatch(record);
+    return record;
+  }
+
+  #storeWrites(records: ReadonlyArray<WriteResultRecord>): void {
+    const kept = records.slice(-MAX_GENERIC_WRITES);
+    for (const id of this.#pendingRestarts.keys()) if (!kept.some((r) => r.id === id)) this.#pendingRestarts.delete(id);
+    this.stateStore.update({ genericWrites: kept });
+    void this.stateStore.flushAsync().catch(() => undefined);
+  }
+
+  #raiseMismatch(record: WriteResultRecord): void {
+    const params = (locale: "zh-CN" | "en") => ({ action: record.action, model: record.model, reason: t(locale, readbackReasonKey(record.reason ?? "differs")) });
+    this.raiseAlert({
+      severity: "warning",
+      code: "WRITE_READBACK_MISMATCH",
+      messageZh: t("zh-CN", "alerts.write_readback_mismatch", params("zh-CN")),
+      messageEn: t("en", "alerts.write_readback_mismatch", params("en")),
+    });
+  }
+
+  /**
+   * A poll that follows a generic redial or reboot: done once the connection (redial) or the uptime
+   * (reboot; the connection when the router names no uptime) started after it; a router still running
+   * past the grace period did not do it (an alert); with no poll able to tell by the deadline, unknown.
+   */
+  notePollForWrites(snapshot: GlobalTelemetrySnapshot): void {
+    if (this.#pendingRestarts.size === 0) return;
+    const decided = new Map<string, Pick<WriteResultRecord, "readback" | "reason">>();
+    for (const [id, pending] of this.#pendingRestarts) {
+      const elapsedMs = snapshot.capturedAtMs - pending.requestedAtMs;
+      if (elapsedMs <= 0) continue;
+      const connected = snapshot.device.connectionStatus === "901";
+      const connectAge = snapshot.unavailable?.includes("traffic") || !connected ? null : snapshot.traffic.sessionConnectTimeSec;
+      const age = pending.kind === "reboot" && snapshot.device.uptimeSec > 0 ? snapshot.device.uptimeSec : connectAge;
+      if (age !== null && age <= elapsedMs / 1000 + RESTART_SLACK_SEC) decided.set(id, { readback: "match", reason: null });
+      else if (age !== null && elapsedMs >= RESTART_GRACE_MS) decided.set(id, { readback: "mismatch", reason: "no_restart" });
+      else if (elapsedMs >= RESTART_DEADLINE_MS) decided.set(id, { readback: "unknown", reason: "no_evidence" });
+    }
+    if (decided.size === 0) return;
+    for (const id of decided.keys()) this.#pendingRestarts.delete(id);
+    const records = this.stateStore.getState().genericWrites.map((r) => {
+      const result = decided.get(r.id);
+      return result ? { ...r, ...result } : r;
+    });
+    this.#storeWrites(records);
+    for (const r of records) if (decided.get(r.id)?.readback === "mismatch") this.#raiseMismatch(r);
   }
 
   /**
@@ -1014,4 +1137,20 @@ export class MutexSessionScheduler extends EventEmitter {
     if (!answered && !sawRouter) this.device.forget();
     throw err;
   }
+}
+
+function readbackReasonKey(reason: NonNullable<WriteResultRecord["reason"]>): I18nKey {
+  return `readback.${reason}`;
+}
+
+/** What a generic write's summary adds: experimental, and how its read-back went. */
+function readbackSuffix(record: WriteResultRecord): { zh: string; en: string } {
+  const say = (locale: "zh-CN" | "en"): string => {
+    const reason = record.reason ? t(locale, readbackReasonKey(record.reason)) : "";
+    if (record.readback === "match") return t(locale, "controls.experimental_match");
+    if (record.readback === "mismatch") return t(locale, "controls.experimental_mismatch", { reason });
+    if (record.readback === "pending") return t(locale, "controls.experimental_pending");
+    return t(locale, "controls.experimental_unknown", { reason });
+  };
+  return { zh: say("zh-CN"), en: say("en") };
 }

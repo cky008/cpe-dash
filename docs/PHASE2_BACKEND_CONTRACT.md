@@ -449,7 +449,8 @@ export type AlertCode =
   | "WAN_AUTO_RECONNECT"       // warning：WAN 断开达 WAN_AUTO_RECONNECT_AFTER_MIN 后的自动重拨（action = "auto_reconnect_cellular"；间隔 10/30/60 分钟）
   | "WAN_RECONNECT_EXHAUSTED"  // critical：24 小时内 4 次自动重拨已用完，WAN 仍断开（从不自动重启）
   | "SELF_HEAL_READ_ONLY"      // warning：路由器是未验证的型号（只读，见 2.10），自愈本会解除锁定或重拨但没有写入；每次锁定、每次断网各一次，不计入重拨次数
-  | "MODEL_UNVERIFIED"         // warning：路由器型号不在验证清单上：烽燧只读它，写操作全部锁定；每个型号一次（持久化），指向「设置 → 设备」与兼容性报告
+  | "MODEL_UNVERIFIED"         // warning：路由器型号不在验证清单上：烽燧只读它，写操作默认锁定（可在「设置 → 设备」逐项打开实验性写入，见 2.11）；每个型号一次（持久化），指向「设置 → 设备」与兼容性报告
+  | "WRITE_READBACK_MISMATCH"  // warning：未验证型号上的实验性写入回读与写入不一致（重启、重拨为之后的轮询显示没有重启 / 重新连接）；消息只有写操作名、型号与原因，不含写入的取值（见 2.11）
   | "FIRMWARE_UNVERIFIED"      // warning：已验证型号的固件版本（含补丁号）不在 src/firmware.ts 的 VERIFIED_FIRMWARE 中；每个版本一次（持久化），不阻止写操作；Telegram 推送另附一条核对提示词
   | "DATA_QUARANTINED";        // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
 
@@ -1122,11 +1123,11 @@ export interface DeviceReport {
 
 **所有写操作只有一个入口**：调度器的 `executeControl`。REST、MCP、Telegram、短信、自愈都经它进入队列，闸门就在这里检查，不靠界面隐藏。实现见 [`src/device-access.ts`](../src/device-access.ts) 与 [`src/scheduler.ts`](../src/scheduler.ts)。
 
-- **按型号判断**：验证清单（[`src/firmware.ts`](../src/firmware.ts) 的 `VERIFIED_FIRMWARE`）上的型号可以写；它的新固件照常写，只告警（ADR-007）。其他型号一律只读，写操作返回 `409 DEVICE_UNVERIFIED_READ_ONLY`，路由器收不到任何写请求（阶段 3 才有逐项知情同意）。
+- **按型号与功能判断**：验证清单（[`src/firmware.ts`](../src/firmware.ts) 的 `VERIFIED_FIRMWARE`）上的型号可以写；它的新固件照常写，只告警（ADR-007）。其他型号默认只读，写操作返回 `409 DEVICE_UNVERIFIED_READ_ONLY`，路由器收不到任何写请求；例外是有人在真机上验证过的那项写入（`VERIFIED_FEATURES`），以及用户为这个型号逐项打开的实验性写入（阶段 3，见 2.11），它们走通用实现。
 - **只相信本次运行看到的型号**：识别（启动后、补做、控制台测试当前路由器）、每 5 秒的轮询（本来就读 `device/information`）和写操作自己的会话都算「看到」。上一次运行存下的识别结果可能已经过时（停机期间换了路由器）：
-  - 它说是未验证型号：直接拒绝，连会话都不建；
+  - 它说是未验证型号，这项写入也没有放行：直接拒绝，连会话都不建（放行了的，同下一条，先在写操作自己的会话里确认型号）；
   - 它说是已验证型号，或者还没有任何识别结果：这次写操作先在自己的会话里读 `GET /api/device/information`（读不到型号时再读 `device/basic_information`），确认是验证过的型号再写；读到其他型号就拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`），一个型号都读不到也拒绝（`409 DEVICE_NOT_IDENTIFIED`），都不写入。这次读取只在本次运行还没看到型号时发生，H168-383 轮询之后的写操作请求不变。
-- **写之前再看一次**：读会话看到的型号要等那个会话结束才记下，排在它后面的写操作出队时的检查可能早于这一步，所以写操作在自己的会话里、真正写之前再按当时的型号检查一次；是未验证型号就拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`），路由器只收到登录与登出，收不到写请求。
+- **写之前再看一次**：读会话看到的型号要等那个会话结束才记下，排在它后面的写操作出队时的检查可能早于这一步，所以写操作在自己的会话里、真正写之前再按当时的型号检查一次；这个型号不允许这项写入就拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`），路由器只收到登录与登出，收不到写请求。用哪种实现（H168-383 已验证的写法，还是其他型号的通用写法）也在这里按当时的型号决定，不会把一种型号的请求发给另一种型号。
 - **看不到路由器就重新确认**：会话因传输失败结束（路由器不可达）、熔断后被重置、多守护进程待机结束、有人从另一台设备登录官方后台（第 2 层让位，之后的读取静默 45 秒到 5 分钟）——后三种情况下烽燧有一段时间不访问路由器，期间可能换了路由器——或控制台保存了新的连接之后，下一次写操作前重新确认型号；路由器回了烽燧读不懂的内容不算（它就在那里）。
 - **换了路由器**：看到的型号与存下的识别结果不同时，调度器发出 `device:changed`，守护进程在下一个成功的读会话之后重新识别。轮询失败时也看它这次读到的型号（`device/information`，不多发请求）：换上的路由器按严格读法读不通时，第一次轮询就认出它，之后转为宽容读取。
 - **拒绝也记入审计**（结果为 `refused`）。
@@ -1171,14 +1172,14 @@ export interface DeviceAccessSnapshot {
 
 每个写功能在 `schedulerStatus.device.features` 里有一个状态：
 
-| 状态 | 含义 |
-| :--- | :--- |
-| `verified` | 已验证型号（H168-383），或有人在真机上验证过这个型号的这项写入（`src/firmware.ts` 的 `VERIFIED_FEATURES`） |
-| `consented` | 用户为这个型号打开了这项实验性写入 |
-| `available` | 烽燧有通用实现，识别时的探测也找到了它回读要读的接口（附录 A.11 的「能力判断」），但没打开 |
-| `unsupported` | 有通用实现，但这台路由器没有它需要的接口 |
-| `not_implemented` | 资料不确切，烽燧不猜（暂不支持） |
-| `unknown` | 还没有识别出型号 |
+| 状态 | 含义 | 闸门 |
+| :--- | :--- | :--- |
+| `verified` | 已验证型号（H168-383），或有人在真机上验证过这个型号的这项写入（`src/firmware.ts` 的 `VERIFIED_FEATURES`，只可能是有通用实现的写入） | 放行，不需要同意 |
+| `consented` | 用户为这个型号打开了这项实验性写入 | 放行，走通用实现 |
+| `available` | 烽燧有通用实现，识别时的探测也找到了它回读要读的接口（附录 A.11 的「能力判断」），但没打开 | 拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`） |
+| `unsupported` | 有通用实现，但这台路由器没有它需要的接口（同意了也不放行） | 拒绝 |
+| `not_implemented` | 资料不确切，烽燧不猜（暂不支持） | 拒绝 |
+| `unknown` | 还没有识别出型号 | 写操作先在自己的会话里读型号（2.10） |
 
 - **同意存在哪**：加密的 `settings.json`，按「型号 + 功能」记录；同一时间只保留一个型号的同意。闸门只认当前型号的同意；看到另一个型号（换了路由器）时，其他型号的同意全部删除，换回原来的路由器也要重新同意。
 - **谁能改**：只有控制台会话（`/api/console/*`，令牌访问返回 `403 CONSOLE_ONLY`）。打开、关闭、被拒绝的尝试和换型号时的自动关闭都写进审计日志（`settings.experimental`）。
@@ -1197,6 +1198,21 @@ export interface ExperimentalWritesResponse {
 ```
 
 - **打开**要输入路由器型号作为确认词（控制台的风险对话框也这样要求），这样同意记录里的型号一定是用户看到的那台；**关闭**随时可以，立即生效。
+
+**放行之后怎么写**（[`src/generic-writes.ts`](../src/generic-writes.ts)、[`src/sms/protocol.ts`](../src/sms/protocol.ts)；请求格式见附录 A.11）：
+
+- 仍然只经 `executeControl`，**绝不重试**；REST、WAN 自愈（锁频回滚、自动重拨）与短信服务都走同一个闸门。实验性锁频 **只锁 LTE**，频段只能取 `lteBands`（`net-mode-list` 通告的），NR 频段、锁小区和其他频段在入队前就以 `400 VALIDATION_ERROR` 拒绝；实验性短信不收表情等基本多文种平面以外的字符（同样 `400`）。
+- **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。
+- **记录**：每次实验性写入（以及将来在 `VERIFIED_FEATURES` 里验证过的通用写入）记进加密的 `state.json`（最近 20 条）：操作名、功能、型号、写过的端点、路由器的错误码、回读结果与原因，**不含写入的取值**（频段、开关、号码、正文都不记）。`control:applied` 附 `check`，摘要末尾注明「实验性写入」与回读结果；审计记录同一摘要。
+- **不一致就告警**：`WRITE_READBACK_MISMATCH`（warning），消息只有操作名、型号与原因。
+
+```ts
+export interface WriteCheck {
+  endpoints: string[];                  // 写过的端点，如 "/api/net/net-mode"
+  readback: "match" | "mismatch" | "unknown" | "pending" | "none"; // pending：重拨 / 重启，等之后的轮询；none：没有写成
+  reason: "differs" | "unreadable" | "send_failed" | "send_unconfirmed" | "no_change" | "unclear_change" | "no_restart" | "no_evidence" | null;
+}
+```
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 
@@ -1256,6 +1272,7 @@ export interface ControlAppliedEvent {
   summaryZh: string;
   summaryEn: string;
   lockState?: PersistedLockState;  // 仅 lock_band / lock_cell / unlock_rf_locks / auto_unlock_rf_locks 携带
+  check?: WriteCheck;              // 仅未验证型号上的通用写入（阶段 3，见 2.11）：写过的端点与回读结果
 }
 
 export interface AvoidanceBroadcastPayload {

@@ -9,8 +9,8 @@ import { VERIFIED_FIRMWARE, compatibilityTable } from "../src/firmware.ts";
  */
 
 const READMES = [
-  { file: "README.md", locale: "zh-CN", verified: "烽燧只在 H168-383（固件 4.4.0.1）上验证过", readOnly: "写操作全部锁定", credit: "感谢 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)" },
-  { file: "README_EN.md", locale: "en", verified: "FengSui is verified on the H168-383 (firmware 4.4.0.1) only", readOnly: "every write to them is locked", credit: "Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)" },
+  { file: "README.md", locale: "zh-CN", verified: "烽燧只在 H168-383（固件 4.4.0.1）上验证过", readOnly: "写操作默认锁定", credit: "感谢 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)" },
+  { file: "README_EN.md", locale: "en", verified: "FengSui is verified on the H168-383 (firmware 4.4.0.1) only", readOnly: "writes to them are locked by default", credit: "Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)" },
 ] as const;
 
 describe("README compatibility section", () => {

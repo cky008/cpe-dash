@@ -32,9 +32,17 @@ import {
   verifyLockState,
 } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
+import {
+  genericBandLock,
+  genericMobileData,
+  genericReboot,
+  genericReconnect,
+  readWanRepairBlockerTolerant,
+  validateGenericBandLock,
+} from "./generic-writes.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { maskMacTail } from "./privacy-mask.ts";
-import type { ControlSummary, MutexSessionScheduler } from "./scheduler.ts";
+import type { ControlSummary, MutexSessionScheduler, WriteContext } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
 
 export interface AccessControlResult {
@@ -89,10 +97,16 @@ export class CpeControlService {
   }
 
   async lockBands(command: BandLockCommand): Promise<PersistedLockState> {
-    prepareBandLockPayloads(command);
+    // Checked before queueing against the router the gate goes by (a write it refuses says so first),
+    // and again in the session
+    const device = this.scheduler.device;
+    if (!device.generic) prepareBandLockPayloads(command);
+    else if (device.writeAccess("bandLock") !== "read_only") validateGenericBandLock(command, device.experimentalLteBands);
     return await this.scheduler.executeControl(
       "lock_band",
-      async (session) => {
+      async (session, write) => {
+        // A model nobody verified: LTE only, through net-mode, never the H168-383's lock-freq
+        if (write.generic) return genericLockState(await genericBandLock(session, write.check, validateGenericBandLock(command, write.lteBands), write.lteBands ?? []));
         // Read inside the queued session: a lock queued before this one may have just changed it
         const previous = this.getPersistedLockState();
         const telemetry = this.monitor.getCachedTelemetry();
@@ -114,7 +128,10 @@ export class CpeControlService {
     const params = { rat: command.rat, band: String(command.band), arfcn: command.arfcn };
     return await this.scheduler.executeControl(
       "lock_cell",
-      (session) => applyCellLock(session, command),
+      (session, write) => {
+        verifiedOnly(write, "lock_cell");
+        return applyCellLock(session, command);
+      },
       (state) =>
         this.#commitLockState(state, {
           zh: t("zh-CN", "controls.cell_lock_applied", params),
@@ -126,7 +143,7 @@ export class CpeControlService {
   async unlockAllLocks(): Promise<PersistedLockState> {
     return await this.scheduler.executeControl(
       "unlock_rf_locks",
-      (session) => unlockAllRfLocks(session),
+      async (session, write) => (write.generic ? genericLockState(await genericBandLock(session, write.check, "all", write.lteBands ?? [])) : await unlockAllRfLocks(session)),
       (state) =>
         this.#commitLockState(state, {
           zh: t("zh-CN", "controls.unlock_all_applied"),
@@ -142,7 +159,11 @@ export class CpeControlService {
   async rollBackLocks(): Promise<WanRepairOutcome> {
     return await this.scheduler.executeControl(
       "auto_unlock_rf_locks",
-      async (session): Promise<WanRepairOutcome> => {
+      async (session, write): Promise<WanRepairOutcome> => {
+        if (write.generic) {
+          const skipped = await readWanRepairBlockerTolerant(session);
+          return skipped ? { applied: false, skipped } : { applied: true, lockState: genericLockState(await genericBandLock(session, write.check, "all", write.lteBands ?? [])) };
+        }
         const skipped = await readWanRepairBlocker(session);
         return skipped ? { applied: false, skipped } : { applied: true, lockState: await unlockAllRfLocks(session) };
       },
@@ -157,10 +178,11 @@ export class CpeControlService {
   async reconnectWan(): Promise<WanRepairOutcome> {
     return await this.scheduler.executeControl(
       "auto_reconnect_cellular",
-      async (session): Promise<WanRepairOutcome> => {
-        const skipped = await readWanRepairBlocker(session);
+      async (session, write): Promise<WanRepairOutcome> => {
+        const skipped = write.generic ? await readWanRepairBlockerTolerant(session) : await readWanRepairBlocker(session);
         if (skipped) return { applied: false, skipped };
-        await triggerCellularReconnect(session);
+        if (write.generic) await genericReconnect(session, write.check);
+        else await triggerCellularReconnect(session);
         return { applied: true };
       },
       (outcome) => (outcome.applied ? summaryOf("controls.auto_reconnect_applied") : null)
@@ -173,16 +195,28 @@ export class CpeControlService {
         "Remote reboot rejected: explicit { confirm: true } is mandatory"
       );
     }
-    return await this.scheduler.executeControl("reboot_cpe", (session) => rebootCpe(session, params), {
-      zh: t("zh-CN", "controls.reboot_triggered"),
-      en: t("en", "controls.reboot_triggered"),
-    });
+    return await this.scheduler.executeControl(
+      "reboot_cpe",
+      async (session, write) => {
+        if (!write.generic) return await rebootCpe(session, params);
+        await genericReboot(session, write.check);
+        return { rebooting: true as const, requestedAtIso: new Date().toISOString() };
+      },
+      {
+        zh: t("zh-CN", "controls.reboot_triggered"),
+        en: t("en", "controls.reboot_triggered"),
+      }
+    );
   }
 
   async reconnectCellular(): Promise<{ reconnecting: true; requestedAtIso: string }> {
     return await this.scheduler.executeControl(
       "reconnect_cellular",
-      (session) => triggerCellularReconnect(session),
+      async (session, write) => {
+        if (!write.generic) return await triggerCellularReconnect(session);
+        await genericReconnect(session, write.check);
+        return { reconnecting: true as const, requestedAtIso: new Date().toISOString() };
+      },
       {
         zh: t("zh-CN", "controls.reconnect_triggered"),
         en: t("en", "controls.reconnect_triggered"),
@@ -195,7 +229,10 @@ export class CpeControlService {
     validateSecurityUpdateCommand(command);
     await this.scheduler.executeControl(
       "set_security_switches",
-      (session) => updateSecuritySettings(session, command),
+      (session, write) => {
+        verifiedOnly(write, "set_security_switches");
+        return updateSecuritySettings(session, command);
+      },
       {
         zh: t("zh-CN", "controls.security_updated"),
         en: t("en", "controls.security_updated"),
@@ -213,7 +250,10 @@ export class CpeControlService {
     }
     const wifi7 = await this.scheduler.executeControl(
       "set_wifi7_mlo",
-      (session) => updateWifi7Mlo(session, input),
+      (session, write) => {
+        verifiedOnly(write, "set_wifi7_mlo");
+        return updateWifi7Mlo(session, input);
+      },
       {
         zh: t("zh-CN", "controls.wifi7_updated"),
         en: t("en", "controls.wifi7_updated"),
@@ -229,7 +269,10 @@ export class CpeControlService {
     }
     const antenna = await this.scheduler.executeControl(
       "set_antenna_mode",
-      (session) => updateAntennaMode(session, mode),
+      (session, write) => {
+        verifiedOnly(write, "set_antenna_mode");
+        return updateAntennaMode(session, mode);
+      },
       {
         zh: t("zh-CN", "controls.antenna_updated", { mode }),
         en: t("en", "controls.antenna_updated", { mode }),
@@ -244,7 +287,7 @@ export class CpeControlService {
   async setMobileData(enabled: boolean): Promise<{ mobileDataEnabled: boolean }> {
     const result = await this.scheduler.executeControl(
       "set_mobile_data",
-      (session) => updateMobileDataSwitch(session, enabled),
+      async (session, write) => (write.generic ? { mobileDataEnabled: await genericMobileData(session, write.check, enabled) } : await updateMobileDataSwitch(session, enabled)),
       {
         zh: t("zh-CN", "controls.mobile_data_updated"),
         en: t("en", "controls.mobile_data_updated"),
@@ -263,7 +306,10 @@ export class CpeControlService {
     requireAccessConfirmation(ctx.confirm);
     const result = await this.scheduler.executeControl(
       "set_wifi_access",
-      (session) => applyWifiAccessChange(session, change, ctx),
+      (session, write) => {
+        verifiedOnly(write, "set_wifi_access");
+        return applyWifiAccessChange(session, change, ctx);
+      },
       () => wifiAccessSummary(change)
     );
     return {
@@ -278,7 +324,10 @@ export class CpeControlService {
     requireAccessConfirmation(ctx.confirm);
     const timeRules = await this.scheduler.executeControl(
       "manage_time_rule",
-      (session) => applyTimeRuleChange(session, change, ctx),
+      (session, write) => {
+        verifiedOnly(write, "manage_time_rule");
+        return applyTimeRuleChange(session, change, ctx);
+      },
       () => timeRuleSummary(change)
     );
     return { accessControl: await this.#foldAccessControl({ timeRules }), changed: true, alsoBlocked: [] };
@@ -295,6 +344,19 @@ export class CpeControlService {
     void this.stateStore.flushAsync().catch(() => undefined);
     return { ...text, lockState: state };
   }
+}
+
+/**
+ * A write with no generic implementation never runs on a model nobody verified (the gate keeps it
+ * `not_implemented`); should it get here anyway, it stops before sending the H168-383's request.
+ */
+function verifiedOnly(write: WriteContext, action: string): void {
+  if (write.generic) throw new CpeControlValidationError(`${action} has no implementation for a model FengSui was not verified on; nothing was written`);
+}
+
+/** The lock state after a generic band lock: LTE only (no NR band or cell lock on such a model). */
+function genericLockState(lteBands: number[] | "all"): PersistedLockState {
+  return { mode: lteBands === "all" ? "unlocked" : "band_lock", updatedAtIso: new Date().toISOString(), lteBands, nrBands: [], cellLock: null };
 }
 
 function requireAccessConfirmation(confirm: boolean): void {

@@ -74,7 +74,7 @@
     "mobile_data_updated": "移动数据总开关已更新",
     "yielded_cannot_mutate": "检测到真人正在登录 CPE 官方后台 (192.168.8.1)，为防止踢掉当前管理员，控制指令已礼貌取消",
     "peer_daemon_active": "另一台主机（{address}）上的「烽燧」守护进程正在管理这台 CPE，本进程处于待机，不访问路由器",
-    "device_read_only": "写操作已锁定：烽燧只在 {verified} 上验证过，这台路由器（{model}）是其他型号，烽燧只读取它。可以在「设置 → 设备」报告它的兼容情况",
+    "device_read_only": "写操作已锁定：烽燧只在 {verified} 上验证过，这台路由器（{model}）是其他型号，烽燧只读取它。烽燧能在这台路由器上做的写入，可以在「设置 → 设备」逐项打开为实验性写入；那里也能报告它的兼容情况",
     "device_not_identified": "写操作已锁定：烽燧要先确认路由器的型号，这次没有读到（device/information），没有写入任何东西",
     "wifi_access_blocked": "已禁止 {mac} 连接 Wi-Fi（MAC 黑名单）",
     "wifi_access_unblocked": "已恢复 {mac} 的 Wi-Fi 访问",
@@ -84,7 +84,11 @@
     "time_rule_updated": "已更新上网时段规则：{detail}",
     "time_rule_deleted": "已删除上网时段规则：{detail}",
     "auto_unlock_applied": "WAN 未恢复，已自动解除全部频段与小区锁定",
-    "auto_reconnect_applied": "WAN 已断开，已自动重拨蜂窝数据"
+    "auto_reconnect_applied": "WAN 已断开，已自动重拨蜂窝数据",
+    "experimental_match": "（实验性写入，回读一致）",
+    "experimental_mismatch": "（实验性写入，回读不一致：{reason}）",
+    "experimental_unknown": "（实验性写入，无法回读核对：{reason}）",
+    "experimental_pending": "（实验性写入，之后的轮询会核对它）"
   },
   "topology": {
     "section_title": "局域网接入终端拓扑",
@@ -122,9 +126,20 @@
     "lock_rollback_failed": "锁定后 WAN 仍未恢复，但自动解锁没有完成：{reason}。请在局域网内打开控制台手动解除锁定",
     "wan_auto_reconnect": "WAN 已断开 {minutes} 分钟，已自动重拨（24 小时内第 {count}/{max} 次；烽燧从不自动重启路由器）",
     "wan_reconnect_exhausted": "WAN 仍未恢复，24 小时内的 {max} 次自动重拨已用完；烽燧不会自动重启路由器，请检查 SIM 卡、套餐或基站",
-    "self_heal_read_only_reconnect": "WAN 已断开 {minutes} 分钟。烽燧本会自动重拨（WAN_AUTO_RECONNECT_AFTER_MIN），但这台路由器（{model}）是没有验证过的型号，烽燧只读取、不写入：请在路由器自己的网页上重拨或重启",
-    "self_heal_read_only_rollback": "锁定之后 WAN 仍未恢复，但这台路由器（{model}）是烽燧没有验证过的型号，烽燧不会自动解除锁定（LOCK_ROLLBACK_AFTER_MIN）：请在路由器自己的网页上解除",
-    "model_unverified": "路由器报告的型号是 {model}，烽燧没有在这个型号上验证过（已验证：{verified}）：烽燧只读取它，路由器提供的监控照常可用，写操作全部锁定。控制台「设置 → 设备」可以查看它支持哪些功能，并提交兼容性报告",
-    "firmware_unverified": "路由器报告 {model} 固件 {version}，烽燧只在 {verified} 上验证过协议：锁频、访问控制和短信等写操作可能不兼容。配置了 Telegram 时，推送会附带一段可交给编程智能体（如 Claude Code）核对兼容性的提示词"
+    "self_heal_read_only_reconnect": "WAN 已断开 {minutes} 分钟。烽燧本会自动重拨（WAN_AUTO_RECONNECT_AFTER_MIN），但这台路由器（{model}）是没有验证过的型号，没有在「设置 → 设备」打开实验性重拨，烽燧不写入：请在路由器自己的网页上重拨或重启",
+    "self_heal_read_only_rollback": "锁定之后 WAN 仍未恢复，但这台路由器（{model}）是烽燧没有验证过的型号，没有在「设置 → 设备」打开实验性锁频，烽燧不会自动解除锁定（LOCK_ROLLBACK_AFTER_MIN）：请在路由器自己的网页上解除",
+    "model_unverified": "路由器报告的型号是 {model}，烽燧没有在这个型号上验证过（已验证：{verified}）：烽燧只读取它，路由器提供的监控照常可用，写操作默认锁定。控制台「设置 → 设备」可以查看它支持哪些功能、逐项打开实验性写入（先看风险说明），并提交兼容性报告",
+    "firmware_unverified": "路由器报告 {model} 固件 {version}，烽燧只在 {verified} 上验证过协议：锁频、访问控制和短信等写操作可能不兼容。配置了 Telegram 时，推送会附带一段可交给编程智能体（如 Claude Code）核对兼容性的提示词",
+    "write_readback_mismatch": "实验性写入 {action} 在 {model} 上回读不一致：{reason}。路由器可能没有按请求生效；「设置 → 设备」列出最近的写入结果，可以附在兼容性报告里"
+  },
+  "readback": {
+    "differs": "路由器报告的值与写入的不同",
+    "unreadable": "读不到要核对的值",
+    "send_failed": "路由器报告发送失败",
+    "send_unconfirmed": "路由器没有确认发送结果",
+    "no_change": "短信计数没有变化",
+    "unclear_change": "短信计数的变化对不上",
+    "no_restart": "之后的轮询显示它没有重启或重新连接",
+    "no_evidence": "之后的轮询无法判断"
   }
 }

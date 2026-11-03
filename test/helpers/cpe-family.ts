@@ -48,6 +48,8 @@ export interface CpeFamilyOptions {
   endpoints?: Readonly<Record<string, string | { cpeError: string }>>;
   /** A wrong password's answer says how many attempts are left. Default `true`. */
   reportRemainCount?: boolean;
+  /** `ConnectionStatus` of `monitoring/status` (default `901`, connected); `setConnectionStatus` changes it. */
+  connectionStatus?: string;
   /**
    * A plaintext SMS store (`GET sms/sms-count`, `POST sms/sms-list`, the HiLink listing of appendix
    * A.10); without it both answer `100002`. Listing is a read: it never counts as a write.
@@ -135,6 +137,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     LTEBand: getXmlTag(seeded, "LTEBand") ?? "800800C5",
   };
   let dataSwitch = "1";
+  let connectionStatus = opts.connectionStatus ?? "901";
   let sending: { phones: string[]; polls: number } | null = null;
   let nextSmsIndex = 50_000;
 
@@ -210,7 +213,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
       );
     }
     if (method === "GET" && p === "/api/monitoring/status") {
-      const status = "<response><ConnectionStatus>901</ConnectionStatus><SignalIcon>4</SignalIcon><SimStatus>1</SimStatus></response>";
+      const status = `<response><ConnectionStatus>${connectionStatus}</ConnectionStatus><SignalIcon>4</SignalIcon><SimStatus>1</SimStatus></response>`;
       // The webserver/token family hands out the cookie here; the SesTokInfo family only in SesTokInfo
       if (headers.get("update-cookie") && opts.tokenFlow === "token") return reply(status, { setSid: newSession(), tokens: "none" });
       return reply(status);
@@ -438,6 +441,9 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     smsStore: sms,
     /** The settings the modelled generic writes change (`writes`). */
     settings: { netMode, mobileData: (): string => dataSwitch },
+    setConnectionStatus: (code: string): void => {
+      connectionStatus = code;
+    },
     serverEccPublicKeyHex: SERVER_ECC_PUB,
     isSlotTaken: (): boolean => adminSession !== null,
     isLocked: (): boolean => locked,

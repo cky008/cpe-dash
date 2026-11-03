@@ -224,7 +224,7 @@ describe("AlertEngine firmware rule", () => {
       fx.engine.ingestTelemetry(sample({ t: 30_000, model: "H158-381" }));
       fx.engine.ingestTelemetry(sample({ t: 31_000, model: "H158-381", firmware: "1.0.0.9" }));
       assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED", "FIRMWARE_UNVERIFIED", "MODEL_UNVERIFIED"], "each new build of the verified model, each other model once");
-      assert.match(fx.alerts[2]?.messageEn ?? "", /reports H158-381, a model FengSui was not verified on \(verified: H168-383\)[\s\S]*every write is locked[\s\S]*Settings → Device/);
+      assert.match(fx.alerts[2]?.messageEn ?? "", /reports H158-381, a model FengSui was not verified on \(verified: H168-383\)[\s\S]*writes are locked by default[\s\S]*Settings → Device[\s\S]*experimental writes one at a time/);
       fx.engine.ingestTelemetry(sample({ t: 35_000 }));
       assert.equal(fx.stateStore.getState().firmwareNotice, null, "verified again: the notice is cleared");
       fx.engine.ingestTelemetry(sample({ t: 40_000, firmware: "" }));

@@ -46,10 +46,10 @@ describe("verified features of other models", () => {
     assert.deepEqual(zh.slice(0, 4), compatibilityTable("zh-CN", []).split("\n").slice(0, 4), "the H168-383 rows stay first");
     assert.equal(zh.length, compatibilityTable("zh-CN", []).split("\n").length + 2);
     assert.equal(en.length, zh.length);
-    assert.equal(zh.at(-3), "| B535-232 | `11.0.1.2(H7SP2C00)` | ✅ 已验证：遥测（#12）；其他项目可能可用，未验证 | ✅ 已验证：锁 LTE 频段（#12）、写短信（#15）；其他写操作锁定 |");
-    assert.equal(en.at(-3), "| B535-232 | `11.0.1.2(H7SP2C00)` | ✅ verified: telemetry (#12); other parts may work, not verified | ✅ verified: LTE band lock (#12), SMS writes (#15); other writes locked |");
-    assert.equal(zh.at(-2), "| E5576-320 | `21.180.99.00.00` | ⚠️ 可能可用，未验证 | ✅ 已验证：重启（#21）；其他写操作锁定 |");
-    assert.equal(en.at(-2), "| E5576-320 | `21.180.99.00.00` | ⚠️ may work, not verified | ✅ verified: reboot (#21); other writes locked |");
+    assert.equal(zh.at(-3), "| B535-232 | `11.0.1.2(H7SP2C00)` | ✅ 已验证：遥测（#12）；其他项目可能可用，未验证 | ✅ 已验证：锁 LTE 频段（#12）、写短信（#15）；其他写操作默认锁定 |");
+    assert.equal(en.at(-3), "| B535-232 | `11.0.1.2(H7SP2C00)` | ✅ verified: telemetry (#12); other parts may work, not verified | ✅ verified: LTE band lock (#12), SMS writes (#15); other writes locked by default |");
+    assert.equal(zh.at(-2), "| E5576-320 | `21.180.99.00.00` | ⚠️ 可能可用，未验证 | ✅ 已验证：重启（#21）；其他写操作默认锁定 |");
+    assert.equal(en.at(-2), "| E5576-320 | `21.180.99.00.00` | ⚠️ may work, not verified | ✅ verified: reboot (#21); other writes locked by default |");
     assert.equal(zh.at(-1), compatibilityTable("zh-CN", []).split("\n").at(-1), "every other model last");
     assert.equal(compatibilityTable("en"), compatibilityTable("en", VERIFIED_FEATURES));
     assert.ok(VERIFIED_FIRMWARE.length > 0);

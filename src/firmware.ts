@@ -122,8 +122,8 @@ function verifiedFeatureRows(list: ReadonlyArray<VerifiedFeature>, en: boolean):
     const writes = entries.filter((e) => e.access === "write");
     let readCell = en ? "⚠️ may work, not verified" : "⚠️ 可能可用，未验证";
     if (reads.length > 0) readCell = en ? `✅ verified: ${named(reads)}; other parts may work, not verified` : `✅ 已验证：${named(reads)}；其他项目可能可用，未验证`;
-    let writeCell = en ? "🔒 locked (read-only)" : "🔒 锁定（只读）";
-    if (writes.length > 0) writeCell = en ? `✅ verified: ${named(writes)}; other writes locked` : `✅ 已验证：${named(writes)}；其他写操作锁定`;
+    let writeCell = en ? "🔒 locked by default; experimental writes per feature, after consent" : "🔒 默认锁定；可逐项知情同意后打开实验性写入";
+    if (writes.length > 0) writeCell = en ? `✅ verified: ${named(writes)}; other writes locked by default` : `✅ 已验证：${named(writes)}；其他写操作默认锁定`;
     return `| ${first.model} | \`${first.softwareVersion}\` | ${readCell} | ${writeCell} |`;
   });
 }
@@ -132,7 +132,7 @@ function verifiedFeatureRows(list: ReadonlyArray<VerifiedFeature>, en: boolean):
  * The compatibility table both READMEs carry between `<!-- compat:begin -->` and `<!-- compat:end -->`,
  * written from `VERIFIED_FIRMWARE` and `VERIFIED_FEATURES` (test/readme-compat.test.ts keeps them
  * identical): verified builds read and write, a new build of a verified model warns, a model with
- * features users verified lists them with their issues, every other model is read-only.
+ * features users verified lists them with their issues, every other model is read-only by default.
  */
 export function compatibilityTable(locale: SupportedLocale, verifiedFeatures: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES): string {
   const en = locale === "en";
@@ -147,8 +147,8 @@ export function compatibilityTable(locale: SupportedLocale, verifiedFeatures: Re
     ),
     ...verifiedFeatureRows(verifiedFeatures, en),
     en
-      ? "| Other Huawei HiLink / EMUI models | every build | ⚠️ may work, not verified: what the router provides | 🔒 locked (read-only) |"
-      : "| 其他华为 HiLink / EMUI 型号 | 任意 | ⚠️ 可能可用，未验证：路由器提供的项目 | 🔒 锁定（只读） |",
+      ? "| Other Huawei HiLink / EMUI models | every build | ⚠️ may work, not verified: what the router provides | 🔒 locked by default; experimental writes per feature, after consent |"
+      : "| 其他华为 HiLink / EMUI 型号 | 任意 | ⚠️ 可能可用，未验证：路由器提供的项目 | 🔒 默认锁定；可逐项知情同意后打开实验性写入 |",
   ];
   return rows.join("\n");
 }

@@ -100,6 +100,49 @@ export interface WriteCheck {
   reason: ReadbackReason | null;
 }
 
+/**
+ * One generic write on a model nobody verified, as FengSui keeps it for the device report (the last
+ * 20, `state.json`): the endpoints, the router's code and the read-back, never a value it wrote.
+ */
+export interface WriteResultRecord {
+  id: string;
+  atIso: string;
+  action: ControlAction;
+  feature: WriteFeature;
+  /** The router's model as it may be shown (`?` when it is not plain text). */
+  model: string;
+  endpoints: string[];
+  /** `applied`: the router took the write; `failed`: it refused it (`code`) or the session broke. */
+  outcome: "applied" | "failed";
+  code: string | null;
+  readback: ReadbackOutcome;
+  reason: ReadbackReason | null;
+}
+
+const READBACKS: ReadonlySet<unknown> = new Set<ReadbackOutcome>(["match", "mismatch", "unknown", "pending", "none"]);
+const REASONS: ReadonlySet<unknown> = new Set<ReadbackReason>(["differs", "unreadable", "send_failed", "send_unconfirmed", "no_change", "unclear_change", "no_restart", "no_evidence"]);
+const ENDPOINT_PATH = /^\/api\/[a-z0-9_/-]{1,64}$/;
+
+/** A stored write result this version can read (anything else is dropped). */
+export function isWriteResultRecord(value: unknown): value is WriteResultRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return (
+    typeof r["id"] === "string" &&
+    typeof r["atIso"] === "string" &&
+    typeof r["action"] === "string" &&
+    Object.hasOwn(CONTROL_FEATURES, r["action"]) &&
+    r["feature"] === CONTROL_FEATURES[r["action"] as ControlAction] &&
+    typeof r["model"] === "string" &&
+    Array.isArray(r["endpoints"]) &&
+    r["endpoints"].every((e: unknown) => typeof e === "string" && ENDPOINT_PATH.test(e)) &&
+    (r["outcome"] === "applied" || r["outcome"] === "failed") &&
+    (r["code"] === null || (typeof r["code"] === "string" && /^\d{4,8}$/.test(r["code"]))) &&
+    READBACKS.has(r["readback"]) &&
+    (r["reason"] === null || REASONS.has(r["reason"]))
+  );
+}
+
 /** `allowed`: a verified model; `read_only`: every other model; `unknown`: no model identified yet. */
 export type WriteAccess = "allowed" | "read_only" | "unknown";
 
@@ -283,8 +326,10 @@ export class DeviceAccess {
   writeState(feature: WriteFeature): WriteFeatureState {
     const current = this.current;
     if (!current) return "unknown";
-    if (isVerifiedModel(current.model) || isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures)) return "verified";
+    if (isVerifiedModel(current.model)) return "verified";
+    // Another model only ever writes the generic way: a write without one stays the verified model's alone
     if (!EXPERIMENTAL.has(feature)) return "not_implemented";
+    if (isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures)) return "verified";
     const capability = this.#capability?.model === current.model ? this.#capability : null;
     if (capability?.evidence[feature as ExperimentalFeature] !== true) return "unsupported";
     return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";

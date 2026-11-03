@@ -8,7 +8,7 @@ import type {
   RouterSettingsSnapshot,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
-import { type ReadRecord, isReadRecord } from "./device-access.ts";
+import { type ReadRecord, type WriteResultRecord, isReadRecord, isWriteResultRecord } from "./device-access.ts";
 import { type DeviceProbeResult, type LoginScheme, isDeviceProbeResult } from "./device-profile.ts";
 import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { SerializedTimeSeriesSnapshot } from "./timeseries.ts";
@@ -47,7 +47,12 @@ export interface PersistedRuntimeState {
   knownLoginScheme: LoginScheme | null;
   /** What a model nobody verified answered per read section (it decides which cards and tools show). */
   deviceReads: ReadRecord | null;
+  /** The last generic writes on a model nobody verified (endpoints, codes, read-backs; never a value). */
+  genericWrites: WriteResultRecord[];
 }
+
+/** How many generic write results the state keeps (the device report shows them). */
+export const MAX_GENERIC_WRITES = 20;
 
 function createDefaultState(): PersistedRuntimeState {
   return {
@@ -80,6 +85,7 @@ function createDefaultState(): PersistedRuntimeState {
     deviceProbe: null,
     knownLoginScheme: null,
     deviceReads: null,
+    genericWrites: [],
   };
 }
 
@@ -153,6 +159,7 @@ export class EncryptedStateStore {
         deviceProbe: isDeviceProbeResult(loaded.deviceProbe) ? loaded.deviceProbe : null,
         knownLoginScheme: KNOWN_LOGIN_SCHEMES.has(loaded.knownLoginScheme) ? (loaded.knownLoginScheme ?? null) : null,
         deviceReads: isReadRecord(loaded.deviceReads) ? loaded.deviceReads : null,
+        genericWrites: Array.isArray(loaded.genericWrites) ? loaded.genericWrites.filter(isWriteResultRecord).slice(-MAX_GENERIC_WRITES) : [],
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
       };
     }
