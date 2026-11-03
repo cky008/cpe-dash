@@ -50,6 +50,10 @@ describe("feedback: the compatibility issue", () => {
     assert.ok(deviceIssueTitle(null).startsWith("Device report: "));
     assert.match(TEMPLATE, /labels: \["device-report"\]/);
     assert.match(TEMPLATE, /H168-383/, "says what is verified");
+    // Writes on another model are locked by default, not all of them for good: experimental ones may be on (R3-10)
+    assert.doesNotMatch(TEMPLATE, /全部锁定|every write is locked/i);
+    assert.match(TEMPLATE, /写操作默认锁定[^\n]*实验性写入/);
+    assert.match(TEMPLATE, /writes are locked by default[^\n]*experimental writes/);
     assert.match(TEMPLATE, /required: true\n\s*$/, "the privacy check must be ticked");
     assert.doesNotMatch(TEMPLATE, /render:/, "a plain text area, so the downloaded file can be attached");
   });

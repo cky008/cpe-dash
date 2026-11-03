@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        烽燧只在 **H168-383（固件 4.4.0.1）** 上验证过。其他华为型号会以只读方式工作（写操作全部锁定），这份报告帮我们了解它在你的型号上的表现。
-        FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. Other Huawei models run read-only (every write is locked); this report tells us how it does on yours.
+        烽燧只在 **H168-383（固件 4.4.0.1）** 上验证过。其他华为型号会以只读方式工作（写操作默认锁定，烽燧能做的写入可以在「设置 → 设备」逐项打开为实验性写入），这份报告帮我们了解它在你的型号上的表现。
+        FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. Other Huawei models run read-only (writes are locked by default; those FengSui can do may be turned on one at a time under Settings → Device as experimental writes); this report tells us how it does on yours.
 
         **报告怎么来 / Where the report comes from**：控制台「设置 → 设备 → 生成设备报告」，检查后复制，或下载 JSON 文件。 / In the console: Settings → Device → Create device report; check it, then copy it or download the JSON file.
   - type: input
