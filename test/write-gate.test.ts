@@ -243,6 +243,24 @@ describe("write gate: unverified models are read-only", () => {
     }
   });
 
+  it("keeps the model it saw when the router answers something it cannot read: the router is there", async () => {
+    let odd = false;
+    const cpe = createStrictCpe({ fault: (p, method) => (odd && method === "GET" && p === "/api/security/upnp" ? { body: "<response></response>" } : undefined) });
+    const fx = gateFixture(cpe);
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      odd = true;
+      await assert.rejects(fx.core.monitor.refreshSettings(), /without <UpnpStatus>/);
+      assert.equal(fx.core.scheduler.getStatus().device.confirmed, true, "answered, so not out of sight");
+      odd = false;
+      const before = cpe.stats.requests.length;
+      await fx.core.controls.setMobileData(false);
+      assert.equal(cpe.stats.requests.slice(before).filter((r) => r.path === "/api/device/information").length, 0, "no extra read before the write");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("keeps writing to a verified model on a new firmware (ADR-007 only warns)", async () => {
     const cpe = createStrictCpe({
       fault: (p, method) =>

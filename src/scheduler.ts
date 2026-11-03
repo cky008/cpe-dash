@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
 import {
+  CpeAnswerFormatError,
   CpeApiError,
+  CpeEncryptionUnavailableError,
   type EphemeralCpeSession,
   HuaweiCpeClient,
   ReentrantCpeSessionError,
@@ -990,7 +992,9 @@ export class MutexSessionScheduler extends EventEmitter {
       err instanceof CpeApiError || err instanceof CpeControlValidationError || (err instanceof CpeLoginMethodError && !err.scramKnown);
     this.#mode = answered ? "idle" : "cpe_unreachable";
     // Out of sight, the router may be replaced: its model is confirmed again before the next write
-    if (!answered) this.device.forget();
+    // (an answer FengSui could not read still came from the router that is there)
+    const sawRouter = err instanceof CpeAnswerFormatError || err instanceof CpeEncryptionUnavailableError;
+    if (!answered && !sawRouter) this.device.forget();
     throw err;
   }
 }
