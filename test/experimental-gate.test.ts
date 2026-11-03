@@ -143,6 +143,22 @@ describe("experimental gate: without a consent", () => {
       await fx.cleanup();
     }
   });
+
+  it("has a second line: a write with no generic implementation stops before the H168-383's request, should one ever get past the gate", async () => {
+    const { cpe, fx } = await identified();
+    try {
+      // A gate that let every write through on this model (it never does: these stay not_implemented)
+      fx.core.scheduler.device.writeAccess = () => "experimental";
+      const verifiedOnly = WRITES.filter(([action]) => ["cellLock", "securitySwitches", "wifi", "antenna", "accessControl"].includes(CONTROL_FEATURES[action]));
+      assert.equal(verifiedOnly.length, 6);
+      for (const [action, run] of verifiedOnly) {
+        await assert.rejects(run(fx), (err) => err instanceof CpeControlValidationError && /has no implementation for a model FengSui was not verified on/.test(err.message), action);
+      }
+      assert.deepEqual(cpe.stats.writes, [], "the router got no write");
+    } finally {
+      await fx.cleanup();
+    }
+  });
 });
 
 describe("experimental gate: one consent", () => {

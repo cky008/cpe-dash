@@ -287,7 +287,7 @@ describe("experimental consent: the console's switch", () => {
     }
   });
 
-  it("is dropped at start when no identification is there to match it against", async () => {
+  it("survives a restart, and is dropped at start when no identification is there to match it against", async () => {
     const fx = await startRuntime();
     const settingsFile = fx.stack.config.settingsFile;
     const stateFile = fx.stack.config.stateFile;
@@ -298,10 +298,20 @@ describe("experimental consent: the console's switch", () => {
     } finally {
       await fx.stack.close();
     }
+    const envPath = path.join(path.dirname(path.dirname(stateFile)), ".env");
+    const restart = (): FengSuiRuntimeStack => createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: fx.cpe.fetchImpl, log: () => undefined });
+    // A plain restart: the stored identification names the model the consent was given for
+    const same = restart();
+    try {
+      assert.equal(same.scheduler.device.current?.model, "B535-232");
+      assert.deepEqual(same.settings.experimentalConsents.map((c) => [c.model, c.feature]), [["B535-232", "reboot"]]);
+      assert.equal(same.scheduler.device.writeAccess("reboot"), "experimental");
+    } finally {
+      await same.close();
+    }
     // The identification is gone (state.json deleted), the consent is not
     fs.rmSync(stateFile, { force: true });
-    const envPath = path.join(path.dirname(path.dirname(stateFile)), ".env");
-    const again = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: fx.cpe.fetchImpl, log: () => undefined });
+    const again = restart();
     try {
       assert.equal(again.scheduler.device.current, null);
       assert.equal(again.settings.experimentalConsents.length, 0);

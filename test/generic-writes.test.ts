@@ -220,6 +220,13 @@ describe("generic writes: plaintext SMS", () => {
     assert.match(posts(cpe)[0]?.body ?? "", /<Content>晚上见<\/Content><Length>3<\/Length><Reserved>0<\/Reserved>/);
     assert.throws(() => validateGenericSmsContent("See you 🙂"), CpeControlValidationError);
     validateGenericSmsContent("See you, café");
+    // The send checks it too, before any request (the check before queueing may have seen another model)
+    const emoji = router();
+    await assert.rejects(
+      emoji.session((s) => genericSendSms(s, newWriteCheck(), prepareSmsSubmission(["+353830000002"], "See you 🙂"), { sleep: async () => undefined })),
+      CpeControlValidationError
+    );
+    assert.deepEqual(posts(emoji.cpe), []);
 
     const failed = router({ smsOutcome: "failed" });
     const failedCheck = newWriteCheck();

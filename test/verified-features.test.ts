@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEVICE_FEATURES } from "../src/device-profile.ts";
+import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES } from "../src/device-profile.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, compatibilityTable, isVerifiedFeature, isVerifiedModel } from "../src/firmware.ts";
 
 /**
@@ -19,12 +19,15 @@ const SAMPLE: ReadonlyArray<VerifiedFeature> = [
 describe("verified features of other models", () => {
   it("holds well-formed entries only: another model, a known feature, read or write, an issue number", () => {
     const features: ReadonlySet<string> = new Set(DEVICE_FEATURES);
+    const generic: ReadonlySet<string> = new Set(EXPERIMENTAL_FEATURES);
     for (const entry of VERIFIED_FEATURES) {
       assert.match(entry.model, /^[A-Za-z0-9 ._()+-]{1,64}$/);
       assert.match(entry.softwareVersion, /^[A-Za-z0-9 ._()+-]{1,64}$/);
       assert.ok(!isVerifiedModel(entry.model), `${entry.model}: a verified model needs no per-feature entry`);
       assert.ok(features.has(entry.feature), entry.feature);
       assert.ok(entry.access === "read" || entry.access === "write");
+      // A verified write runs the generic implementation: one without it would be listed but stay locked
+      assert.ok(entry.access === "read" || generic.has(entry.feature), `${entry.model} ${entry.feature}: no generic implementation to verify`);
       assert.ok(Number.isSafeInteger(entry.issue) && entry.issue > 0);
     }
     const keys = VERIFIED_FEATURES.map((e) => `${e.model}|${e.feature}|${e.access}`);
