@@ -194,6 +194,23 @@ describe("MCP and the write gate", () => {
     }
   });
 
+  it("still holds a tool it no longer lists to its schema when an agent calls it by name", async () => {
+    // No SMS on this model: the SMS tools are not listed, yet a call by name still runs (a refresh
+    // someone asks for tries again), so the advertised contract must still apply first
+    const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints: LTE_ROUTER });
+    const fx = mcpFixture(cpe);
+    try {
+      await fx.core.monitor.identifyDevice();
+      await fx.sms.sync("full");
+      assert.ok(!(await fx.tools()).includes("upsert_contact"));
+      const result = await fx.call("upsert_contact", { phone: "+353830000002", name: "Neighbour", unexpected: true });
+      assert.deepEqual([result["ok"], result["errorCode"]], [false, "VALIDATION_ERROR"]);
+      assert.equal(fx.sms.contacts.size, 1, "nothing was filed: the owner's one contact only");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("maps the scheduler's refusal too, for a write that found the model in its own session", async () => {
     // Nothing identified yet: the tool is offered, and the write's own read of the model refuses it
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232" });

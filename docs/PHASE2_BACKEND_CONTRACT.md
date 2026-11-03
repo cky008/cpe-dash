@@ -1319,7 +1319,7 @@ export interface McpToolErrorPayload {
 }
 ```
 
-**未验证型号（只读，见 2.10）**：`tools/list` 不列出任何写路由器的工具（核心的锁频锁站、开关、重拨、重启，访问控制的三个写工具，短信的 `send_sms`、`mark_sms_read`、`delete_sms`）；`upsert_contact` 只改烽燧自己的通讯录，照常列出。按名字强行调用写路由器的工具，在确认与参数检查之前就返回 `DEVICE_UNVERIFIED_READ_ONLY`，调度器也会再拒绝一次（例如型号是在这次写操作自己的会话里才读到的）。`initialize` / `server/discover` 的 `instructions` 末尾追加一句：这台路由器是未验证的型号，只读。读工具按路由器实际提供的读取项筛选：`list_neighbor_cells`（neighbors）、`list_terminal_topology`（topology）、`get_router_settings`（settings）、`get_access_control`（accessControl）与全部短信工具及 `fengsui://sms/status`（sms）在 `device.reads` 为 `unavailable` 时不列出，还没读过时照常列出。列表只在路由器型号或它提供的读取项变化时改变（`tools/list` 的 `ttlMs` 不变），每次调用都会在服务端重新检查。**H168-383 上工具、资源与说明与改动前逐字相同**（[`test/mcp-gate.test.ts`](../test/mcp-gate.test.ts)）。
+**未验证型号（只读，见 2.10）**：`tools/list` 不列出任何写路由器的工具（核心的锁频锁站、开关、重拨、重启，访问控制的三个写工具，短信的 `send_sms`、`mark_sms_read`、`delete_sms`）；`upsert_contact` 只改烽燧自己的通讯录，照常列出。按名字强行调用写路由器的工具，在确认与参数检查之前就返回 `DEVICE_UNVERIFIED_READ_ONLY`，调度器也会再拒绝一次（例如型号是在这次写操作自己的会话里才读到的）。`initialize` / `server/discover` 的 `instructions` 末尾追加一句：这台路由器是未验证的型号，只读。读工具按路由器实际提供的读取项筛选：`list_neighbor_cells`（neighbors）、`list_terminal_topology`（topology）、`get_router_settings`（settings）、`get_access_control`（accessControl）与全部短信工具及 `fengsui://sms/status`（sms）在 `device.reads` 为 `unavailable` 时不列出，还没读过时照常列出；不列出的读工具按名字调用时照常执行（相当于主动刷新），确认与 `inputSchema` 检查同样适用。列表只在路由器型号或它提供的读取项变化时改变（`tools/list` 的 `ttlMs` 不变），每次调用都会在服务端重新检查。**H168-383 上工具、资源与说明与改动前逐字相同**（[`test/mcp-gate.test.ts`](../test/mcp-gate.test.ts)）。
 
 
 ### 4.4 短信工具（`MCP_SMS_ACCESS` 分级 + 提示词注入防护）

@@ -404,7 +404,8 @@ export class FengSuiMcpServer {
       return wrapErr("DEVICE_UNVERIFIED_READ_ONLY", refused.messageEn, { messageZh: refused.messageZh, model: refused.model });
     }
     // Enforce the advertised contract before any work: explicit confirmation first, then the schema
-    const definition = this.getToolDefinitions(readOnly).find((tool) => tool.name === toolName);
+    // (also for a tool left out of the list because this router lacks what it reads: called by name, it still runs)
+    const definition = provider?.getToolDefinitions().find((tool) => tool.name === toolName);
     if (definition) {
       if (definition.inputSchema.properties["confirm"] !== undefined && args["confirm"] !== true) {
         return wrapErr("CONFIRMATION_REQUIRED", `${toolName} requires explicit { confirm: true }`);
