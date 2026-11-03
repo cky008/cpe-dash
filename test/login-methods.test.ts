@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -7,7 +9,7 @@ import { startupNotices } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "../src/cpe-auth.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { CpeApiError, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeApiError, CpeTransportError, HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { DeviceProbeResult } from "../src/device-profile.ts";
 import { CircuitBreakerOpenError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
@@ -21,6 +23,13 @@ import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
  * legacy SHA-256 or base64, over the webserver/token or SesTokInfo token flow, and decides how
  * BEFORE it sends any password. Every variant runs on the strict mock family; no network.
  */
+
+const realFetch = globalThis.fetch;
+/** The real fetch, kept before the suite blocks the network, for a server of this test on 127.0.0.1 only. */
+const loopbackFetch: typeof fetch = async (input, init) => {
+  assert.equal(new URL(String(input)).hostname, "127.0.0.1", "loopback only");
+  return await realFetch(input, init);
+};
 
 const SCHEME: Readonly<Record<FamilyLogin, string>> = { scram: "scram", "scram-ecc": "scram", sha256: "sha256", base64: "base64" };
 const FLOW: Readonly<Record<FamilyTokenFlow, string>> = { token: "webserver-token", sestokinfo: "sestokinfo" };
@@ -447,6 +456,61 @@ describe("login methods and token flows (mock family)", () => {
     const client = clientFor({ fetchImpl: dropping, password: lost.password });
     await assert.rejects(client.withSession(async () => "never"), /\/api\/user\/login/);
     assert.equal(client.getCircuitBreakerState().tripped, false);
+  });
+
+  it("latches after a legacy password answered with a redirect, which redirect: \"error\" turns into a failed request", async () => {
+    // How Node's fetch reports a 3xx under redirect: "error" (every CPE request): the router has answered
+    const redirectTo = (cpe: CpeFamily, p: string): typeof fetch => async (input, init) => {
+      if (new URL(String(input)).pathname !== p) return await cpe.fetchImpl(input, init);
+      cpe.stats.requests.push({ path: p, method: init?.method ?? "GET" });
+      assert.equal(init?.redirect, "error");
+      throw new TypeError("fetch failed", { cause: new Error("unexpected redirect") });
+    };
+    for (const login of ["sha256", "base64"] as const) {
+      const cpe = createCpeFamily({ login, tokenFlow: "token" });
+      const fx = coreFixture({ fetchImpl: redirectTo(cpe, "/api/user/login"), password: cpe.password });
+      try {
+        await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CircuitBreakerOpenError && err.code === LOGIN_UNCONFIRMED_CODE, login);
+        const sent = cpe.stats.requests.length;
+        assert.equal(await fx.core.monitor.refreshTelemetry(), null, login);
+        assert.deepEqual([cpe.stats.requests.length, cpe.count("/api/user/login")], [sent, 1], `${login}: no second submission`);
+        const result = await fx.core.scheduler.testConnection(fx.good);
+        assert.deepEqual(result.ok ? null : [result.reason, result.code], ["unconfirmed_login", null], login);
+      } finally {
+        await fx.cleanup();
+      }
+    }
+
+    // A redirect before the password went out (the token for user/login) is no answer to it
+    const early = createCpeFamily({ login: "base64", tokenFlow: "token" });
+    const client = clientFor({ fetchImpl: redirectTo(early, "/api/webserver/token"), password: early.password });
+    await assert.rejects(client.withSession(async () => "never"), (err: unknown) => err instanceof CpeTransportError && err.redirected);
+    assert.deepEqual([early.count("/api/user/login"), client.getCircuitBreakerState().tripped], [0, false]);
+  });
+
+  it("recognises a redirect the way this Node's fetch reports it, and only a redirect (loopback server)", async () => {
+    const server = http.createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(302, { Location: "/html/index.html" });
+        res.end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const failure = (url: string): Promise<unknown> =>
+      loopbackFetch(url, { method: "POST", body: "<request/>", redirect: "error" }).then(
+        () => assert.fail("the request should fail"),
+        (err: unknown) => err
+      );
+    try {
+      assert.equal(new CpeTransportError("POST", "/api/user/login", await failure(`http://127.0.0.1:${port}/api/user/login`)).redirected, true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    // The port is closed now: a refused connection is no answer
+    const refused = new CpeTransportError("POST", "/api/user/login", await failure(`http://127.0.0.1:${port}/api/user/login`));
+    assert.deepEqual([refused.redirected, refused.causeCode], [false, "ECONNREFUSED"]);
   });
 
   it("needs the router to confirm a login (SCRAM server signature, legacy OK) and logs out one it did not", async () => {

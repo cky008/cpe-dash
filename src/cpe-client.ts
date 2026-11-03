@@ -102,6 +102,11 @@ export class CpeTransportError extends Error {
   readonly apiPath: string;
   /** Socket-level cause, e.g. `ECONNRESET` or `UND_ERR_SOCKET`; `null` when unknown. */
   readonly causeCode: string | null;
+  /**
+   * The CPE answered with a redirect, which `redirect: "error"` turns into a failed request (`fetch`
+   * says "unexpected redirect"): unlike a lost request, the router had all of it and replied.
+   */
+  readonly redirected: boolean;
 
   constructor(method: string, apiPath: string, err: unknown) {
     const cause = err instanceof Error && err.cause && typeof err.cause === "object" ? err.cause : null;
@@ -113,6 +118,7 @@ export class CpeTransportError extends Error {
     this.method = method;
     this.apiPath = apiPath.split("?")[0] ?? apiPath;
     this.causeCode = code;
+    this.redirected = detail === "unexpected redirect";
   }
 }
 
@@ -195,8 +201,9 @@ export class CpeApiError extends Error {
 
 /**
  * The router answered a legacy password in a way FengSui cannot place (`err`: its unknown error code,
- * or why the answer could not be read; `null`: neither `OK` nor an error code). On a model nobody
- * verified that may have counted as a wrong attempt, so the error latches the breaker.
+ * the redirect it answered with, or why the answer could not be read; `null`: neither `OK` nor an
+ * error code). On a model nobody verified that may have counted as a wrong attempt, so the error
+ * latches the breaker.
  */
 function unplacedLegacyAnswer(err: unknown): CpeApiError {
   if (err instanceof CpeApiError) {
@@ -206,7 +213,12 @@ function unplacedLegacyAnswer(err: unknown): CpeApiError {
       latchesBreaker: true,
     });
   }
-  const what = err === null ? "neither OK nor an error code" : `unreadable (${err instanceof Error ? err.message : String(err)})`;
+  const what =
+    err === null
+      ? "neither OK nor an error code"
+      : err instanceof CpeTransportError && err.redirected
+        ? "a redirect"
+        : `unreadable (${err instanceof Error ? err.message : String(err)})`;
   return new CpeApiError(LOGIN_UNCONFIRMED_CODE, `/api/user/login: the answer to the password was ${what}, no further login attempt`, { latchesBreaker: true });
 }
 
@@ -449,7 +461,8 @@ export class EphemeralCpeSession {
 
   /**
    * `body` may depend on the token the request carries (the SHA-256 legacy login hashes it in).
-   * `onAnswer` runs once the router has answered (status and headers arrived), before its body is read.
+   * `onAnswer` runs once the router has answered (status and headers arrived, or a redirect that
+   * `redirect: "error"` refused), before its body is read.
    */
   async #post(
     apiPath: string,
@@ -472,13 +485,19 @@ export class EphemeralCpeSession {
       const cookie = this.#cookieHeader();
       if (cookie) headers.Cookie = cookie;
 
-      const res = await cpeFetch(this.fetchImpl, `${this.baseUrl}${apiPath}`, apiPath, {
-        method: "POST",
-        headers,
-        body: payload,
-        redirect: "error",
-        signal,
-      });
+      let res: Response;
+      try {
+        res = await cpeFetch(this.fetchImpl, `${this.baseUrl}${apiPath}`, apiPath, {
+          method: "POST",
+          headers,
+          body: payload,
+          redirect: "error",
+          signal,
+        });
+      } catch (err) {
+        if (err instanceof CpeTransportError && err.redirected) opts.onAnswer?.();
+        throw err;
+      }
       opts.onAnswer?.();
       this.#updateCookies(res.headers);
       this.#captureTokens(res.headers, Boolean(opts.clearTokensOnResponse));
@@ -639,8 +658,8 @@ export class EphemeralCpeSession {
    * `POST /api/user/login`; the SHA-256 form hashes in the very token the request carries. Once the
    * router has answered, anything but `OK` or a code that refuses a login before the password is
    * checked (`LEGACY_LOGIN_RETRY_SAFE_CODES`) latches the breaker: an unknown code, a page, an empty,
-   * cut-off or oversized body. Without an answer (no token for the request, the connection failed, it
-   * timed out) the next session may try again, as with SCRAM.
+   * cut-off or oversized body, a redirect. Without an answer (no token for the request, the connection
+   * failed, it timed out) the next session may try again, as with SCRAM.
    */
   async #legacyLogin(scheme: LegacyScheme, passwordType: "0" | "3" | "4"): Promise<void> {
     let answered = false;
