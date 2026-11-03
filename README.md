@@ -414,10 +414,9 @@ container stop cpe-dash && container rm cpe-dash
 
 ## 🔐 控制台设置与账号安全
 
-v1.5.0 起，路由器连接、控制台登录密码和 API 令牌都在网页控制台里管理，加密保存在 `data/settings.json`；`.env` 只负责启动参数（`DATA_ENCRYPTION_KEY`、端口、路径等）。
+路由器连接、控制台登录密码和 API 令牌都在网页控制台里管理，加密保存在 `data/settings.json`；`.env` 只负责启动参数（`DATA_ENCRYPTION_KEY`、端口、路径等）。
 
 - **全新安装**：`.env` 只需 `DATA_ENCRYPTION_KEY`。启动后在日志里找到一次性设置码（`sudo docker logs cpe-dash 2>&1 | grep "setup code"`，24 小时内有效，重启容器会生成新的），在登录页用它设置控制台密码，再按引导填写路由器地址、账号和密码。保存前会先做一次登录测试；连不上时会说明原因和处理办法（密码错误并显示剩余次数、路由器已锁定、有人正在登录官方后台、地址不可达等）。保存之前守护进程不会登录路由器。
-- **从旧版本升级**：首次启动时自动导入 `.env` 里的 `CPE_*` 与 `API_TOKEN*`。用原来的 `API_TOKEN` 登录后，引导会预填路由器设置并自动测试，确认即可；原 `API_TOKEN` 继续作为名为 `API_TOKEN (.env)` 的令牌工作，现有 MCP 客户端和脚本不用改。之后 `.env` 里这些值不再生效。
 - **路由器连接**：修改时先测试，成功才保存，并自动解除熔断。测试成功时显示识别到的型号、固件、登录方式（SCRAM / SHA-256 / Base64）、令牌来源（`webserver/token` 或 `SesTokInfo`）和是否启用加密通道；登录方式在提交密码之前就已确定，每次测试只提交一次密码；用 SCRAM 登录成功过的路由器（H168-383 就是），测试也只用 SCRAM，挑战被拒时不改用旧式登录（换了别的型号见 `CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM`）。路由器只剩最后一次尝试机会时，必须勾选确认才会再试，避免触发 `108007` 硬件锁定。路由器要求先改密码（`115002`）或登录方式不受支持时，测试会直接说明，后者不发送密码；旧式登录的应答无法判断时（可能已用掉一次机会），烽燧会立即停下，不再自动重试。
 - **令牌**：在「设置 → 令牌」生成，分「完全控制」和「只读」两种，有效期可选 1 / 7 / 30 / 90 / 365 天或永不过期。令牌只显示一次，可以随时撤销，撤销后用它打开的 SSE 立即断开。令牌不能修改控制台设置。「接入 AI 智能体」指南可以直接生成只读令牌。
 - **Telegram**：在「设置 → Telegram」生成 10 分钟内有效的一次性绑定码，私聊机器人发送 `/auth 绑定码`；也可以一键解绑所有聊天。
@@ -563,7 +562,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 
 两者只依据最新遥测，走控制队列（真人登录官方后台时让位，熔断时不登录），并在写入前于同一会话内重新读取 WAN 状态与移动数据开关：WAN 已恢复或移动数据被手动关闭时不写入。
 
-> **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `.env` 里的 `CPE_PASSWORD`，而通讯录无法从路由器重新同步，建议设置独立密钥。v1.5.0 起路由器密码在控制台修改，不再影响加密密钥；没有独立密钥时请保留 `.env` 里原来的 `CPE_PASSWORD`，否则加密文件将无法解开。更换密钥请用「自检、备份与换密钥」里的 `rekey`。
+> **加密密钥提示**：`DATA_ENCRYPTION_KEY` 留空时等于 `.env` 里的 `CPE_PASSWORD`，而通讯录无法从路由器重新同步，建议设置独立密钥。路由器密码在控制台修改，不影响加密密钥；没有独立密钥时，`.env` 里的 `CPE_PASSWORD` 就是加密密钥，不要改动它，否则加密文件将无法解开。更换密钥请用「自检、备份与换密钥」里的 `rekey`。
 
 ---
 
@@ -595,12 +594,12 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | :--- | :--- | :--- |
 | `CPE_URL` | `http://192.168.8.1` | CPE 管理地址；只允许私网 / 环回 / CGNAT 主机，禁止内嵌凭据、查询串与重定向（防 SSRF） |
 | `CPE_USERNAME` | `admin` | 管理员账号 |
-| `CPE_PASSWORD` | *(空)* | 管理员密码；`108006` 错误立即触发持久化熔断。v1.5.0 起路由器连接在控制台管理：`CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` 只在首次启动时导入一次，之后以控制台为准；全新安装可以不填，在引导里设置 |
+| `CPE_PASSWORD` | *(空)* | 管理员密码；`108006` 错误立即触发持久化熔断。路由器连接在控制台管理：`CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` 只在首次启动时导入一次，之后以控制台为准；可以不填，在引导里设置 |
 | `CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM` | `false` | 用 SCRAM 登录成功过的路由器之后只用 SCRAM 登录，控制台「测试连接」也一样：挑战被拒时不改用旧式登录交出密码。同一地址换成了只支持旧式登录的其他型号时，建议重新部署全新的容器（新的空 `data` 目录）；要保留数据就临时设为 `true` 并重启，测试并保存新路由器后改回 `false`。只影响控制台的测试 |
 | `TZ` | `UTC` | IANA 时区（如 `Asia/Shanghai`）；发出短信的 `<Date>` 按此生成，请与 CPE 所在时区一致 |
 | `DATA_ENCRYPTION_KEY` | *(回退 `CPE_PASSWORD`)* | `data/*.json` 落盘加密主密钥（`scrypt` + `HKDF-SHA256` → `AES-256-GCM`），强烈建议独立设置；全新安装时这是 `.env` 里唯一必填的值 |
-| `API_TOKEN_READONLY` | *(空，不启用)* | 升级时导入为名为 `API_TOKEN_READONLY (.env)` 的只读令牌；新的令牌请在控制台「设置 → 令牌」生成。必须与 `API_TOKEN`、`CPE_PASSWORD` 不同 |
-| `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | 升级时导入一次：成为控制台登录密码，同时成为名为 `API_TOKEN (.env)` 的完全控制令牌（现有 MCP 客户端与脚本不用改）。之后在控制台改密码、发放和撤销令牌，`.env` 里的值不再生效 |
+| `API_TOKEN_READONLY` | *(空，不启用)* | 首次启动时导入为名为 `API_TOKEN_READONLY (.env)` 的只读令牌；新的令牌请在控制台「设置 → 令牌」生成。必须与 `API_TOKEN`、`CPE_PASSWORD` 不同 |
+| `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | 首次启动时导入一次：成为控制台登录密码，同时成为名为 `API_TOKEN (.env)` 的完全控制令牌。之后在控制台改密码、发放和撤销令牌，`.env` 里的值不再生效 |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 可信反向代理 IP / CIDR；只有命中时才解析 `X-Forwarded-For` / `X-Forwarded-Proto` |
 | `ALLOWED_HOSTS` | *(空)* | 额外放行的 `Host`（如 `cpe.example.com`）；私网 IP、`localhost`、`*.local` / `*.lan` / `*.internal` / `*.ts.net` 始终放行 |
 | `WEB_ENABLED` | `true` | 是否启动 HTTP 服务（Web 控制台、REST、SSE 与 `/mcp`）；设为 `false` 时只运行后台采集、短信同步与通知 |
