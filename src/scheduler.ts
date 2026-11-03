@@ -8,8 +8,8 @@ import {
   isInsideCpeSession,
 } from "./cpe-client.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
-import { CpeControlValidationError, type PersistedLockState, readRouterModel } from "./cpe-domain.ts";
-import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, modelLabel } from "./device-access.ts";
+import { CpeControlValidationError, type PersistedLockState, readRouterModel, sectionUnavailableCode } from "./cpe-domain.ts";
+import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, type ReadSection, modelLabel } from "./device-access.ts";
 import {
   type ApiErrorSnapshot,
   type DeviceFeature,
@@ -375,6 +375,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#client.rememberLoginScheme(loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe));
     // Only a likely model until this run sees the router report it (see `DeviceAccess`)
     this.device.remember(loaded.deviceProbe?.identity.model, loaded.deviceProbe?.identity.softwareVersion);
+    this.device.restoreReads(loaded.deviceReads);
     this.#syncLoginPolicy();
     const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {
@@ -483,6 +484,34 @@ export class MutexSessionScheduler extends EventEmitter {
     const changed = this.device.see(model, softwareVersion);
     this.#syncLoginPolicy();
     if (changed) this.#safeEmit("device:changed", this.device.snapshot());
+  }
+
+  /**
+   * Read one section inside a session. On a router identified as a model nobody verified, a section
+   * it answers without (`100002` / `100003`, or an answer FengSui's parser refuses) resolves to `null`
+   * and is recorded as not on this model, instead of failing the session; transport failures still
+   * fail it. A verified or not yet identified router reads exactly as before.
+   */
+  async readSection<T>(section: ReadSection, read: () => Promise<T>): Promise<T | null> {
+    if (!this.device.unverifiedModel) return await read();
+    let value: T;
+    try {
+      value = await read();
+    } catch (err) {
+      const code = sectionUnavailableCode(err);
+      if (code === undefined) throw err;
+      this.noteRead(section, { available: false, code });
+      return null;
+    }
+    this.noteRead(section, { available: true });
+    return value;
+  }
+
+  /** Record what the router answered for a section, kept with the identification. */
+  noteRead(section: ReadSection, outcome: { available: true } | { available: false; code: string | null }): void {
+    if (!this.device.noteRead(section, outcome)) return;
+    this.stateStore.update({ deviceReads: this.device.readRecord });
+    void this.stateStore.flushAsync().catch(() => undefined);
   }
 
   /** On a router identified as another model, SCRAM answers FengSui cannot place latch the breaker (R1-04). */

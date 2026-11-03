@@ -7,7 +7,7 @@ import { createFengSuiRuntime, startServeDaemon } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { CONTROL_FEATURES, type ControlAction } from "../src/device-access.ts";
+import { CONTROL_FEATURES, type ControlAction, type DeviceAccessSnapshot } from "../src/device-access.ts";
 import type { DeviceProbeResult } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { type ControlAuditEvent, DeviceNotIdentifiedError, DeviceReadOnlyError } from "../src/scheduler.ts";
@@ -105,6 +105,9 @@ const WRITES: ReadonlyArray<[ControlAction, (fx: Fixture) => Promise<unknown>]> 
   ["sms_delete", (fx) => fx.sms.deleteMessages({ uids: fx.sms.mirror.list().slice(0, 1).map((m) => m.uid) })],
 ];
 
+/** The gate's part of the status (the read sections have tests of their own). */
+const gateOf = ({ model, verification, confirmed, writes }: DeviceAccessSnapshot) => ({ model, verification, confirmed, writes });
+
 const refusedFor = (action: ControlAction, model: string) => (err: unknown) =>
   err instanceof DeviceReadOnlyError && err.feature === CONTROL_FEATURES[action] && err.model === model && err.statusCode === 409 && /H168-383/.test(err.message);
 
@@ -120,7 +123,7 @@ describe("write gate: unverified models are read-only", () => {
       assert.ok(await fx.core.monitor.identifyDevice());
       assert.ok(await fx.sms.sync("full"), "reading SMS stays allowed");
       assert.ok(fx.sms.mirror.list().some((m) => m.isUnread));
-      assert.deepEqual(fx.core.scheduler.getStatus().device, { model: "H122-373", verification: "unverified-model", confirmed: true, writes: "read_only" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "H122-373", verification: "unverified-model", confirmed: true, writes: "read_only" });
       const sent = cpe.stats.requests.length;
       for (const [action, run] of WRITES) await assert.rejects(run(fx), refusedFor(action, "H122-373"), action);
       assert.deepEqual(cpe.stats.writes, [], "no write request reached the router");
@@ -140,7 +143,7 @@ describe("write gate: unverified models are read-only", () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token" });
     const fx = gateFixture(cpe, { stored: "B535-232" });
     try {
-      assert.deepEqual(fx.core.scheduler.getStatus().device, { model: "B535-232", verification: "unverified-model", confirmed: false, writes: "read_only" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "B535-232", verification: "unverified-model", confirmed: false, writes: "read_only" });
       await assert.rejects(fx.core.controls.unlockAllLocks(), refusedFor("unlock_rf_locks", "B535-232"));
       assert.deepEqual([cpe.stats.requests.length, cpe.stats.writes.length], [0, 0], "no session for a router known to be read-only");
     } finally {
@@ -152,13 +155,13 @@ describe("write gate: unverified models are read-only", () => {
     const cpe = createStrictCpe();
     const fx = gateFixture(cpe);
     try {
-      assert.deepEqual(fx.core.scheduler.getStatus().device, { model: null, verification: "unknown", confirmed: false, writes: "unknown" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: null, verification: "unknown", confirmed: false, writes: "unknown" });
       await fx.core.controls.lockBands({ lteBands: [1, 3] });
       const first = cpe.stats.requests.map((r) => `${r.method} ${r.path}`);
       const read = first.indexOf("GET /api/device/information");
       assert.ok(read > first.indexOf("POST /api/user/authentication_login") && read < first.indexOf("POST /api/net/net-mode"), "read after the login, before the write");
       assert.equal(first.filter((r) => r === "GET /api/device/information").length, 1);
-      assert.deepEqual(fx.core.scheduler.getStatus().device, { model: "H168-383", verification: "verified", confirmed: true, writes: "allowed" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "H168-383", verification: "verified", confirmed: true, writes: "allowed" });
       const before = cpe.stats.requests.length;
       await fx.core.controls.unlockAllLocks();
       assert.equal(cpe.stats.requests.slice(before).filter((r) => r.path === "/api/device/information").length, 0, "seen once, not read again");
@@ -189,7 +192,7 @@ describe("write gate: unverified models are read-only", () => {
       await assert.rejects(fx.core.controls.setMobileData(false), refusedFor("set_mobile_data", "H122-373"));
       assert.deepEqual(cpe.stats.writes, []);
       assert.equal(cpe.count("/api/device/information", "GET"), 1);
-      assert.deepEqual(changed, [{ model: "H122-373", verification: "unverified-model", confirmed: true, writes: "read_only" }], "owed a new identification");
+      assert.deepEqual(changed.map((snap) => gateOf(snap as DeviceAccessSnapshot)), [{ model: "H122-373", verification: "unverified-model", confirmed: true, writes: "read_only" }], "owed a new identification");
       const sent = cpe.stats.requests.length;
       await assert.rejects(fx.core.controls.setMobileData(false), refusedFor("set_mobile_data", "H122-373"));
       assert.equal(cpe.stats.requests.length, sent, "known now: refused without a session");
@@ -214,7 +217,7 @@ describe("write gate: unverified models are read-only", () => {
       fault = "transport";
       await assert.rejects(fx.core.monitor.refreshTelemetry());
       assert.equal(fx.core.scheduler.getStatus().mode, "cpe_unreachable");
-      assert.deepEqual(fx.core.scheduler.getStatus().device, { model: "H168-383", verification: "verified", confirmed: false, writes: "allowed" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "H168-383", verification: "verified", confirmed: false, writes: "allowed" });
       fault = undefined;
 
       // Out of sight, then back: the write reads the model first, and nothing gets written without one
@@ -250,7 +253,7 @@ describe("write gate: unverified models are read-only", () => {
     const fx = gateFixture(cpe);
     try {
       assert.ok(await fx.core.monitor.refreshTelemetry());
-      assert.deepEqual(fx.core.scheduler.getStatus().device, { model: "H168-383", verification: "new-firmware", confirmed: true, writes: "allowed" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "H168-383", verification: "new-firmware", confirmed: true, writes: "allowed" });
       await fx.core.controls.setMobileData(false);
       assert.deepEqual(cpe.stats.writes.map((w) => w.path), ["/api/dialup/mobile-dataswitch"]);
     } finally {

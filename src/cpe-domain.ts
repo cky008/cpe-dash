@@ -13,7 +13,7 @@ import {
   hexMaskToBands,
   parseBandNumber,
 } from "./band-lock.ts";
-import { CpeApiError, type EphemeralCpeSession } from "./cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError, type EphemeralCpeSession } from "./cpe-client.ts";
 import {
   type NeighborCellEntry,
   type RfSignalSnapshot,
@@ -23,6 +23,8 @@ import {
   formatBytesBinary,
   formatRateBitsPerSec,
   parseHostInfoJson,
+  parseHostInfoJsonList,
+  parseHostListXml,
   parseNeighborCellsXml,
   parseNumberWithUnit,
   parseRfSignalSnapshot,
@@ -109,9 +111,19 @@ export interface ThermalSnapshot {
   temperatureSupported: boolean;
 }
 
+/** Parts of a telemetry poll that a model nobody verified may lack (`unavailable`). */
+export type TelemetryPart = "signal" | "status" | "traffic" | "month";
+const TELEMETRY_PARTS: ReadonlyArray<TelemetryPart> = ["signal", "status", "traffic", "month"];
+
 export interface GlobalTelemetrySnapshot {
   capturedAtIso: string;
   capturedAtMs: number;
+  /**
+   * Only on a model nobody verified (read the tolerant way): the parts this poll's router answered
+   * with an error code. Their fields hold no data then (zeros, empty), so show them as not
+   * available, never as measured. Absent on the H168-383, which must answer every part.
+   */
+  unavailable?: TelemetryPart[];
   device: DeviceIdentitySnapshot;
   rf: RfSignalSnapshot;
   bandConfig: BandConfigSnapshot;
@@ -129,9 +141,14 @@ export interface NeighborScanSnapshot {
   totalCount: number;
 }
 
+/** Where a model nobody verified listed its devices when `system/HostInfo` gave nothing (appendix A.10). */
+export type HostListSource = "lan/HostInfo" | "wlan/host-list";
+
 export interface TerminalTopologySnapshot {
   capturedAtIso: string;
   capturedAtMs: number;
+  /** Only when the list came from another endpoint than the H168-383's; `wlan/host-list` holds Wi-Fi clients only. */
+  source?: HostListSource;
   hosts: TerminalHostEntry[];
   summary: TopologySummary;
   countsByMedium: Record<TerminalAccessMedium, number>;
@@ -222,9 +239,36 @@ async function optionalGet(session: EphemeralCpeSession, apiPath: string): Promi
 function requireTag(xml: string, tag: string, apiPath: string): string {
   const value = getXmlTag(xml, tag);
   if (value === null) {
-    throw new Error(`Unexpected ${apiPath} response without <${tag}>; refusing to write guessed values`);
+    throw new CpeAnswerFormatError(`Unexpected ${apiPath} response without <${tag}>; refusing to write guessed values`);
   }
   return value.trim();
+}
+
+/** A read section this router does not provide (a tolerant read on a model nobody verified). */
+export class SectionUnavailableError extends Error {
+  /** The router's error code; `null` when it answered something FengSui could not read. */
+  readonly code: string | null;
+
+  constructor(what: string, code: string | null) {
+    super(`${what} is not available on this router${code ? ` (${code})` : ""}`);
+    this.name = "SectionUnavailableError";
+    this.code = code;
+  }
+}
+
+/** Error codes that say an endpoint is not there for FengSui (as in the identification probe). */
+const NOT_HERE_CODES: ReadonlySet<string> = new Set(["100002", "100003"]);
+
+/**
+ * Whether a tolerant read failed because this model does not provide the section: the router's code
+ * (`null`: an answer FengSui's parser refused, or no encrypted channel), or `undefined` for anything
+ * that may pass (transport, deadline, session, another code), which fails the session as before.
+ */
+export function sectionUnavailableCode(err: unknown): string | null | undefined {
+  if (err instanceof SectionUnavailableError) return err.code;
+  if (err instanceof CpeApiError) return NOT_HERE_CODES.has(err.code) ? err.code : undefined;
+  if (err instanceof CpeAnswerFormatError || err instanceof CpeEncryptionUnavailableError) return null;
+  return undefined;
 }
 
 function splitDnsList(raw: string | null | undefined): string[] {
@@ -259,7 +303,7 @@ function parseWifi7DbhoJson(rawJson: string): { mloEnable: boolean; dbhoEnable: 
   const mlo = obj && "MloEnable" in obj ? obj.MloEnable : undefined;
   const dbho = obj && "DbhoEnable" in obj ? obj.DbhoEnable : undefined;
   if (typeof mlo !== "boolean" || typeof dbho !== "boolean") {
-    throw new Error("Unexpected /api/wlan/wlandbho response (expected MloEnable/DbhoEnable booleans)");
+    throw new CpeAnswerFormatError("Unexpected /api/wlan/wlandbho response (expected MloEnable/DbhoEnable booleans)");
   }
   return { mloEnable: mlo, dbhoEnable: dbho };
 }
@@ -274,8 +318,21 @@ function parseWifi7DbhoJson(rawJson: string): { mloEnable: boolean; dbhoEnable: 
  */
 export async function fetchGlobalTelemetry(
   session: EphemeralCpeSession,
-  options: { includeSmsCounters?: boolean } = {}
+  options: { includeSmsCounters?: boolean; tolerant?: boolean } = {}
 ): Promise<GlobalTelemetrySnapshot> {
+  // `tolerant` (a model nobody verified): a core part the router answers with an error code is left
+  // out and listed in `unavailable`, so one odd endpoint never costs the rest of the poll
+  const missing = new Set<TelemetryPart>();
+  const part = async (name: TelemetryPart, apiPath: string): Promise<string> => {
+    if (!options.tolerant) return await session.get(apiPath);
+    try {
+      return await session.get(apiPath);
+    } catch (err) {
+      if (!(err instanceof CpeApiError)) throw err;
+      missing.add(name);
+      return "";
+    }
+  };
   const [
     signalXml,
     secCellXml,
@@ -291,7 +348,7 @@ export async function fetchGlobalTelemetry(
     startDateXml,
     smsCountXml,
   ] = await Promise.all([
-    session.get("/api/device/signal"),
+    part("signal", "/api/device/signal"),
     optionalGet(session, "/api/device/seccellinfo"),
     optionalGet(session, "/api/device/ri"),
     optionalGet(session, "/api/net/cell-info"),
@@ -299,12 +356,15 @@ export async function fetchGlobalTelemetry(
     optionalGet(session, "/api/net/net-mode"),
     optionalGet(session, "/api/device/information"),
     optionalGet(session, "/api/device/basic_information"),
-    session.get("/api/monitoring/status"),
-    session.get("/api/monitoring/traffic-statistics"),
-    session.get("/api/monitoring/month_statistics"),
+    part("status", "/api/monitoring/status"),
+    part("traffic", "/api/monitoring/traffic-statistics"),
+    part("month", "/api/monitoring/month_statistics"),
     optionalGet(session, "/api/monitoring/start_date"),
     options.includeSmsCounters ? optionalGet(session, "/api/sms/sms-count") : Promise.resolve(""),
   ]);
+
+  const unavailable = TELEMETRY_PARTS.filter((name) => missing.has(name));
+  if (unavailable.length === TELEMETRY_PARTS.length) throw new SectionUnavailableError("Telemetry", null);
 
   const rf = parseRfSignalSnapshot({
     signalXml,
@@ -410,6 +470,7 @@ export async function fetchGlobalTelemetry(
       temperatureSupported: parsedTemp !== null,
     },
     sms: parseSmsCountersOrNull(smsCountXml),
+    ...(options.tolerant ? { unavailable } : {}),
   };
 }
 
@@ -447,14 +508,50 @@ export async function scanNeighborCells(
 /**
  * Query LAN & Wi-Fi 7 terminal topology (`GET /api/system/HostInfo` + `GET /api/system/topology`).
  */
-export async function fetchTerminalTopology(session: EphemeralCpeSession): Promise<TerminalTopologySnapshot> {
+export async function fetchTerminalTopology(session: EphemeralCpeSession, options: { tolerant?: boolean } = {}): Promise<TerminalTopologySnapshot> {
+  if (options.tolerant) return await fetchHostListTolerant(session);
   const [hostInfoJson, topologyJson] = await Promise.all([
     session.get("/api/system/HostInfo"),
     optionalGet(session, "/api/system/topology"),
   ]);
+  return topologySnapshot(parseHostInfoJson(hostInfoJson, { sanitize: false }), summarizeTopologyJson(topologyJson));
+}
 
-  const hosts = parseHostInfoJson(hostInfoJson, { sanitize: false });
-  const summary = summarizeTopologyJson(topologyJson);
+/**
+ * The device list on a model nobody verified (appendix A.10): the H168-383's `system/HostInfo` JSON,
+ * else the HiLink XML lists `lan/HostInfo` (wired and Wi-Fi) and `wlan/host-list` (Wi-Fi only), the
+ * first one the router answers with a list FengSui reads. None: `SectionUnavailableError`.
+ */
+async function fetchHostListTolerant(session: EphemeralCpeSession): Promise<TerminalTopologySnapshot> {
+  const sources: ReadonlyArray<{ path: string; source: HostListSource | null; parse: (body: string) => TerminalHostEntry[] | null }> = [
+    { path: "/api/system/HostInfo", source: null, parse: parseHostInfoJsonList },
+    { path: "/api/lan/HostInfo", source: "lan/HostInfo", parse: (body) => parseHostListXml(body, { wifiOnly: false }) },
+    { path: "/api/wlan/host-list", source: "wlan/host-list", parse: (body) => parseHostListXml(body, { wifiOnly: true }) },
+  ];
+  let code: string | null = null;
+  // A list that came back unreadable says more about this model than an endpoint it lacks
+  let unreadable = false;
+  for (const { path, source, parse } of sources) {
+    let body: string;
+    try {
+      body = await session.get(path);
+    } catch (err) {
+      if (!(err instanceof CpeApiError)) throw err;
+      code = err.code;
+      continue;
+    }
+    const hosts = parse(body);
+    if (hosts === null) {
+      unreadable = true;
+      continue;
+    }
+    if (source !== null) return { ...topologySnapshot(hosts, summarizeTopologyJson("")), source };
+    return topologySnapshot(hosts, summarizeTopologyJson(await optionalGet(session, "/api/system/topology")));
+  }
+  throw new SectionUnavailableError("The device list", unreadable ? null : code);
+}
+
+function topologySnapshot(hosts: TerminalHostEntry[], summary: TopologySummary): TerminalTopologySnapshot {
   const countsByMedium: Record<TerminalAccessMedium, number> = {
     LAN_1000M: 0,
     LAN_100M: 0,

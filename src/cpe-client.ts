@@ -92,6 +92,22 @@ export class CpeSessionClosedError extends Error {
   }
 }
 
+/** The session has no encrypted channel (a legacy login, or no server key), so an encrypted endpoint is out of reach. */
+export class CpeEncryptionUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CpeEncryptionUnavailableError";
+  }
+}
+
+/** The router answered, but not in a shape FengSui reads (a missing tag, odd JSON): nothing is guessed from it. */
+export class CpeAnswerFormatError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CpeAnswerFormatError";
+  }
+}
+
 /**
  * A request that never got an answer from the CPE (connection reset or refused, DNS, socket closed
  * mid-response). The message names the endpoint and the socket-level cause, which `fetch` hides
@@ -348,11 +364,11 @@ export class EphemeralCpeSession {
   async #ensureEcc(): Promise<{ clientPubHex: string; shareKeyHex: string }> {
     if (!this.ecc) {
       // A legacy login offers no key FengSui could verify: no encrypted channel rather than an unverified one
-      if (this.#loginScheme !== "scram") throw new Error("CPE session has no encrypted channel: its login method offers no verified key");
+      if (this.#loginScheme !== "scram") throw new CpeEncryptionUnavailableError("CPE session has no encrypted channel: its login method offers no verified key");
       const pubXml = await this.get("/api/webserver/publickey");
       const serverPub = getXmlTag(pubXml, "ecc_server_pubkey");
       if (!serverPub) {
-        throw new Error("CPE did not return ecc_server_pubkey");
+        throw new CpeEncryptionUnavailableError("CPE did not return ecc_server_pubkey");
       }
       this.ecc = generateEccSession(serverPub);
     }

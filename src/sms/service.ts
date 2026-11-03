@@ -185,6 +185,8 @@ export class SmsService extends EventEmitter {
     this.#started = true;
     this.monitor.on("telemetry", this.#onTelemetry);
     this.#fullTimer = setInterval(() => {
+      // A model without SMS is not asked again in the background
+      if (this.scheduler.device.skips("sms")) return;
       void this.sync("full", { priority: "low" }).catch(() => undefined);
     }, this.fullSyncIntervalMs);
     this.#fullTimer.unref?.();
@@ -192,7 +194,7 @@ export class SmsService extends EventEmitter {
       void this.pollWhileYielding();
     }, this.yieldPollIntervalMs);
     this.#yieldTimer.unref?.();
-    void this.sync("full", { priority: "normal" }).catch(() => undefined);
+    if (!this.scheduler.device.skips("sms")) void this.sync("full", { priority: "normal" }).catch(() => undefined);
   }
 
   async stop(): Promise<void> {
@@ -461,14 +463,17 @@ export class SmsService extends EventEmitter {
   async #runSync(mode: SmsSyncMode, priority: SchedulerPriority): Promise<SmsSyncSummary | null> {
     let fetched: SmsFetchResult | null;
     try {
+      // On a model nobody verified, a router without SMS (or without the listing FengSui reads) skips it
       fetched = await this.scheduler.executeRead(
         (session) =>
-          mode === "full"
-            ? fetchAllMessages(session)
-            : fetchRecentMessages(session, {
-                count: this.recentFetchCount,
-                expandThread: (latest) => this.mirror.get(computeSmsUid(latest)) === undefined,
-              }),
+          this.scheduler.readSection("sms", () =>
+            mode === "full"
+              ? fetchAllMessages(session)
+              : fetchRecentMessages(session, {
+                  count: this.recentFetchCount,
+                  expandThread: (latest) => this.mirror.get(computeSmsUid(latest)) === undefined,
+                })
+          ),
         { priority }
       );
     } catch (err) {

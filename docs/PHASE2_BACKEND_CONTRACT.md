@@ -272,9 +272,11 @@ export interface PersistedLockState {
 export interface GlobalTelemetrySnapshot {
   capturedAtIso: string;
   capturedAtMs: number;
+  // 只出现在未验证型号的快照里（见 2.10）：这一轮路由器回了错误码的部分，其字段没有数据（0 或空），界面显示为「此型号不可用」
+  unavailable?: Array<"signal" | "status" | "traffic" | "month">;
   device: {
-    deviceName: string;         // e.g. "H168-383"
-    marketingName: string;      // e.g. "HUAWEI 5G CPE Ultra 6"
+    deviceName: string;         // 路由器报告的型号，e.g. "H168-383"；没有报告时为 ""（不再补成 H168-383）
+    marketingName: string;      // e.g. "HUAWEI 5G CPE Ultra 6"；没有时为 ""
     hardwareVersion: string;    // e.g. "WL1H168M"
     softwareVersion: string;    // e.g. "4.4.0.1(H1006SP19C00)"
     webUiVersion: string;
@@ -598,6 +600,8 @@ export interface TerminalHostEntry {
 export interface TerminalTopologySnapshot {
   capturedAtIso: string;
   capturedAtMs: number;
+  // 只在未验证型号上、列表来自 system/HostInfo 以外的接口时出现；"wlan/host-list" 只含 Wi-Fi 设备（协议附录 A.10）
+  source?: "lan/HostInfo" | "wlan/host-list";
   hosts: TerminalHostEntry[];
   summary: {
     topLevelNodes: number;
@@ -1124,8 +1128,13 @@ export interface DeviceAccessSnapshot {
   verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
   confirmed: boolean;              // 本次运行已看到型号；之前写操作会先在自己的会话里读型号
   writes: "allowed" | "read_only" | "unknown"; // allowed：已验证型号；read_only：其他型号；unknown：还没有识别结果
+  // telemetry、neighbors、topology、settings、accessControl、sms 各一项：已验证型号为 verified；
+  // 其他型号为它实际的应答：available、unavailable（回了 100002 / 100003 或读不懂的内容；code 为错误码，读不懂时为 null）或 unknown（还没读过）
+  reads: Record<ReadSection, { state: "verified" | "available" | "unavailable" | "unknown"; code: string | null }>;
 }
 ```
+
+**未验证型号的读法**（详见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.10）：每个读取项各自成败。遥测的信号、状态、流量、月统计哪一部分回了错误码，就列进 `GlobalTelemetrySnapshot.unavailable`，其余照常；邻区、终端列表、路由器设置、访问控制、短信整项回 `100002` / `100003` 或读不懂时，刷新接口返回该项的缓存（通常为 `null`），`reads` 记为 `unavailable`，后台定时扫描不再问它，主动刷新时再试。终端列表依次尝试 `system/HostInfo`、`lan/HostInfo`、`wlan/host-list`。没有流量统计的型号不写吞吐时序。H168-383 与还没有识别结果的路由器照旧严格读取，`unavailable`、`source` 都不出现。
 
 每个写操作所属的功能（`CONTROL_FEATURES`，阶段 3 按功能征求同意）：
 

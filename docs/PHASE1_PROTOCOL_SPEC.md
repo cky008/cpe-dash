@@ -960,3 +960,25 @@ $$
 7. **加密通道**：只有 SCRAM 登录响应带的 ECC 公钥会启用（与改动前相同）；旧式登录没有可验证的密钥，不启用加密通道，需要它的请求直接失败，不去取未经验证的公钥。
 8. **测试连接**：控制台「测试连接」走同一条路径，结果附带识别到的型号、固件、登录方式、令牌流程和是否启用了加密通道；`115002` 报告为「需要先改密码」，不支持的登录方式报告为 `unsupported_login`（密码没有发出），已知用 SCRAM 的路由器拒绝挑战报告为 `scram_refused`（密码没有发出），无法判断的旧式应答报告为 `unconfirmed_login`（可能已用掉一次机会）。
 9. **验证**：[`test/helpers/cpe-family.ts`](../test/helpers/cpe-family.ts) 的 Mock 路由器家族（4 种登录方式 × 2 种令牌流程），按本附录的事实自己编写；H168-383 仍以 [`test/helpers/strict-cpe.ts`](../test/helpers/strict-cpe.ts) 为唯一的已验证基准，[`test/h168-wire.test.ts`](../test/h168-wire.test.ts) 逐条比对它的登录、轮询与写操作请求。
+
+### A.10 其他型号的读取策略（阶段 2；只在 Mock 上验证）
+
+阶段 2 起，烽燧对识别为 **未验证型号** 的路由器只读（写闸门见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 2.10 节），并换一种更宽容的读法：每个读取项各自成败，路由器对某一项回 `100002` / `100003`、或回了烽燧读不懂的内容，就把这一项记为「此型号不可用」，**绝不让它拖垮这一轮的其他项**。H168-383 与还没有识别结果的路由器继续走已验证的严格读法（一个核心接口出错就整轮失败，不拼凑数据），请求不变。以下事实取自参考项目 `master@d2eb2af`（2026-11-03 阅读），**均未在真机验证**；标「推断」的是我们自己的判断。
+
+| 读取项 | 已知实现（按顺序尝试） | 来源 | 烽燧的处置 |
+| :--- | :--- | :--- | :--- |
+| 遥测：信号 | `GET /api/device/signal` | 参考项目 `api/Device.py` | LTE-only 型号没有 `nr*` 字段，对应值为 `null`（不是 0）；不认识的字段忽略，单个值读不懂就是 `null` |
+| 遥测：联网状态 | `GET /api/monitoring/status`；信号格数有的型号在 `SignalIcon`、有的在 `SignalIconNr` | 参考项目 `api/Monitoring.py`（`status` 的注释） | 烽燧照旧读 `SignalIcon` |
+| 遥测：流量 | `GET /api/monitoring/traffic-statistics`、`GET /api/monitoring/month_statistics`、`GET /api/monitoring/start_date` | 参考项目 `api/Monitoring.py` | 回错误码的那一部分列进快照的 `unavailable`（`traffic` / `month`），数值不当真；没有流量统计的型号不写吞吐时序（没有数据，就不画一条假的 0） |
+| 遥测：网络 | `GET /api/net/current-plmn`、`GET /api/net/net-mode`、`GET /api/net/cell-info` | 参考项目 `api/Net.py` | 本来就是可缺项 |
+| 遥测：载波聚合细节 | `GET /api/device/seccellinfo`、`GET /api/device/ri` | 参考项目没有这两个接口（H168-383 实测，3.2 节） | 本来就是可缺项；其他型号多半没有 |
+| 邻区 | `GET /api/device/nbrcellinfo` | 参考项目没有这个接口（H168-383 实测，3.3 节） | 回错误码就是「此型号不可用」，后台扫描不再问它，用户手动刷新时才再试 |
+| 频段 | `GET /api/net/net-mode-list` 的 `LTEBandList`（识别时读，A.7） | 参考项目 `api/Net.py` | 设备页显示它通告的 LTE 频段；没有就显示「没有列出」。参考项目没有按型号整理的频段表，烽燧也不猜；H168-383 用已验证的频段表 |
+| 终端列表 | ① `GET /api/system/HostInfo`（JSON 数组，H168-383）② `GET /api/lan/HostInfo` ③ `GET /api/wlan/host-list`（只有 Wi-Fi 客户端） | 参考项目 `api/System.py`（`hostinfo`）、`api/Lan.py`（`host_info`）、`api/WLan.py`（`host_list`）：后两个返回 `<Hosts><Host>…</Host></Hosts>`，只有一台设备时可能只有一个 `Host`，也可能什么都没有 | 依次尝试，用第一个读得懂的；快照的 `source` 记下来源（`wlan/host-list` 时界面注明只有 Wi-Fi 设备）。**推断**：参考项目没有列出 `Host` 里的字段名，烽燧按 `system/HostInfo` 的字段名（`MacAddress` / `MACAddress`、`IpAddress`、`HostName`、`ActualName`、`Active`、`InterfaceType`、`Frequency` 等，不分大小写）读取；没有 MAC 的条目丢弃；有条目却一个都读不懂时算「读不懂」，不显示成「没有设备」 |
+| 路由器设置（UPnP、DMZ、防火墙、NAT、桥接、Wi-Fi 7、天线、移动数据） | H168-383 的 9 个接口（[`fetchRouterSettings`](../src/cpe-domain.ts)，3.7 节） | — | 仍是全有或全无（开关值不能猜）；任何一个回错误码或读不懂，就整项「此型号不可用」（未验证型号本来也不能写） |
+| 访问控制（Wi-Fi MAC 过滤、上网时段） | `GET /api/wlan/multi-macfilter-settings-ex` 等（3.9 节） | — | 同上 |
+| 短信 | `GET /api/sms/sms-count`；明文 `POST /api/sms/sms-list`（字段顺序 `PageIndex`、`ReadCount`、`BoxType`、`SortType`、`Ascending`、`UnreadPreferred`，参考项目注明「至少 B525s-23a 对顺序敏感」；消息字段 `Index`、`Smstat`、`Phone`、`Content`、`Date`）；明文被拒时才用 H168-383 的加密列表 | 参考项目 `api/Sms.py`（`sms_count`、`get_sms_list`、`Message.from_dict`） | 烽燧的明文请求本来就是这个顺序。没有 `sms-count` 的型号「短信不可用」，后台不再同步；旧式登录没有加密通道，明文被拒时加密列表也不可用 |
+
+- **什么算「此型号不可用」**：路由器对该项回 `100002`（不支持）或 `100003`（无权限），或者回了烽燧的解析器拒绝的内容（缺必需的标签、JSON 形状不对、旧式登录要用加密通道）。其他错误码（例如忙、令牌错误）、传输失败、会话超时照旧让这次读取失败，下次再试，不记为不可用。
+- **记住多久**：结果跟着型号加密存进 `state.json`，重启后立即生效；看到另一个型号就清空重来。后台的定时扫描跳过「不可用」的项，用户或智能体主动刷新时仍会再试一次。
+- **验证**：[`test/read-strategies.test.ts`](../test/read-strategies.test.ts) 在阶段 1 的 Mock 家族（4 种登录方式 × 2 种令牌流程）上跑完整一轮只读采集，并覆盖缺失整段、陌生字段与终端列表的回退；H168-383 的请求序列由 [`test/h168-wire.test.ts`](../test/h168-wire.test.ts) 与复审工具逐条比对。

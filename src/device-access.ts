@@ -3,7 +3,8 @@ import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./
 
 /**
  * What FengSui may do with the router it talks to (multi-model support, phase 2): whether it may
- * write. Zero dependencies: the daemon, the web console and the static demo share it.
+ * write, and which read sections this model provides. Zero dependencies: the daemon, the web
+ * console and the static demo share it.
  *
  * Writes go by the router's model alone. A verified model (`VERIFIED_FIRMWARE`) writes, also on a
  * firmware nobody checked (ADR-007 only warns); any other model is read-only (phase 3 adds
@@ -39,6 +40,29 @@ export type ControlAction = keyof typeof CONTROL_FEATURES;
 /** `allowed`: a verified model; `read_only`: every other model; `unknown`: no model identified yet. */
 export type WriteAccess = "allowed" | "read_only" | "unknown";
 
+/** The parts of a router FengSui reads, each in a session of its own (the poll, the sweeps, settings, SMS). */
+export const READ_SECTIONS = ["telemetry", "neighbors", "topology", "settings", "accessControl", "sms"] as const;
+export type ReadSection = (typeof READ_SECTIONS)[number];
+
+/**
+ * `verified`: a verified model, read the verified way; `available`: this model answered it;
+ * `unavailable`: it answered without it (`100002` / `100003`, or an answer FengSui cannot read), so it
+ * is not on this model; `unknown`: not read yet.
+ */
+export type ReadState = "verified" | "available" | "unavailable" | "unknown";
+
+export interface ReadCapability {
+  state: ReadState;
+  /** The router's error code when `unavailable` (`null`: an answer FengSui could not read). */
+  code: string | null;
+}
+
+/** What a model answered per read section, kept with the identification (`state.json`). */
+export interface ReadRecord {
+  model: string;
+  reads: Partial<Record<ReadSection, ReadCapability>>;
+}
+
 /** `scheduler.device` as adapters read it (`SchedulerStatusSnapshot.device`). */
 export interface DeviceAccessSnapshot {
   /** The model the gate goes by (seen in this run, else stored by an earlier one); `null` before any identification, `?` for one that is not plain text. */
@@ -47,6 +71,8 @@ export interface DeviceAccessSnapshot {
   /** This run has seen the model; until then a write first reads it in its own session. */
   confirmed: boolean;
   writes: WriteAccess;
+  /** Per read section: a verified model reads all of them; another model only what it answered. */
+  reads: Record<ReadSection, ReadCapability>;
 }
 
 interface Sighting {
@@ -62,6 +88,22 @@ export function modelLabel(raw: string): string {
   return PLAIN_TEXT.test(text) ? text : "?";
 }
 
+const READ_STATES: ReadonlySet<unknown> = new Set<ReadState>(["available", "unavailable"]);
+const SECTIONS: ReadonlySet<unknown> = new Set<unknown>(READ_SECTIONS);
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** A stored record this version can read (anything else counts as nothing read yet). */
+export function isReadRecord(value: unknown): value is ReadRecord {
+  if (!isRecord(value) || typeof value["model"] !== "string" || !isRecord(value["reads"])) return false;
+  return Object.entries(value["reads"]).every(
+    ([section, capability]) =>
+      SECTIONS.has(section) &&
+      isRecord(capability) &&
+      READ_STATES.has(capability["state"]) &&
+      (capability["code"] === null || (typeof capability["code"] === "string" && /^\d{4,8}$/.test(capability["code"])))
+  );
+}
+
 function sighting(model: string | null | undefined, softwareVersion: string | null | undefined): Sighting | null {
   const name = (model ?? "").replace(/\s+/g, " ").trim().slice(0, 256);
   if (!name) return null;
@@ -74,6 +116,8 @@ export class DeviceAccess {
   #stored: Sighting | null = null;
   /** The model this run saw the router report; `null` until then, and again after losing sight of it. */
   #seen: Sighting | null = null;
+  /** What the current model answered per read section (only kept for a model nobody verified). */
+  #reads: ReadRecord | null = null;
 
   /** The model of the stored identification (state.json at start, or one this run just recorded). */
   remember(model: string | null | undefined, softwareVersion: string | null | undefined): void {
@@ -118,6 +162,44 @@ export class DeviceAccess {
     return this.writes === "read_only";
   }
 
+  /**
+   * What a model nobody verified answered for a read section: `null` when it provided it, its error
+   * code (or `null` too, with `available: false`) when not. Returns `true` when that changed what is
+   * known; nothing is kept for a verified or an unidentified router.
+   */
+  noteRead(section: ReadSection, outcome: { available: true } | { available: false; code: string | null }): boolean {
+    const current = this.current;
+    if (!current || !this.unverifiedModel) return false;
+    if (this.#reads?.model !== current.model) this.#reads = { model: current.model, reads: {} };
+    const next: ReadCapability = outcome.available ? { state: "available", code: null } : { state: "unavailable", code: outcome.code };
+    const before = this.#reads.reads[section];
+    this.#reads.reads[section] = next;
+    return before?.state !== next.state || before.code !== next.code;
+  }
+
+  readState(section: ReadSection): ReadCapability {
+    const current = this.current;
+    if (!current) return { state: "unknown", code: null };
+    if (!this.unverifiedModel) return { state: "verified", code: null };
+    const known = this.#reads?.model === current.model ? this.#reads.reads[section] : undefined;
+    return known ? { ...known } : { state: "unknown", code: null };
+  }
+
+  /** The background sweeps leave out a section this model does not provide; a read someone asks for still tries. */
+  skips(section: ReadSection): boolean {
+    return this.readState(section).state === "unavailable";
+  }
+
+  /** What to store with the identification (`null`: nothing learnt). */
+  get readRecord(): ReadRecord | null {
+    return this.#reads ? { model: this.#reads.model, reads: { ...this.#reads.reads } } : null;
+  }
+
+  /** The record an earlier run stored; it only counts while the model is the same. */
+  restoreReads(record: unknown): void {
+    this.#reads = isReadRecord(record) ? { model: record.model, reads: { ...record.reads } } : null;
+  }
+
   snapshot(): DeviceAccessSnapshot {
     const current = this.current;
     return {
@@ -125,6 +207,7 @@ export class DeviceAccess {
       verification: deviceVerification(current?.model ?? null, current?.softwareVersion ?? null),
       confirmed: this.confirmed,
       writes: this.writes,
+      reads: Object.fromEntries(READ_SECTIONS.map((section) => [section, this.readState(section)])) as Record<ReadSection, ReadCapability>,
     };
   }
 }

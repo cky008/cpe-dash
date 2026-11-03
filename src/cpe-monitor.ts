@@ -12,6 +12,7 @@ import {
   scanNeighborCells,
 } from "./cpe-domain.ts";
 import { type DeviceProbeResult, probeDevice } from "./device-profile.ts";
+import type { ReadSection } from "./device-access.ts";
 import type { MutexSessionScheduler, SchedulerPriority } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
 import type {
@@ -121,8 +122,8 @@ export class CpeMonitor extends EventEmitter {
 
     // Immediate non-blocking seed sweep
     void this.refreshTelemetry().catch(() => undefined);
-    void this.refreshTopology().catch(() => undefined);
-    void this.refreshAccessControl().catch(() => undefined);
+    this.#sweep("topology", () => this.refreshTopology());
+    this.#sweep("accessControl", () => this.refreshAccessControl());
 
     this.#pollTimer = setInterval(() => {
       void this.refreshTelemetry().catch(() => undefined);
@@ -130,9 +131,9 @@ export class CpeMonitor extends EventEmitter {
     this.#pollTimer.unref?.();
 
     this.#slowScanTimer = setInterval(() => {
-      void this.refreshNeighbors().catch(() => undefined);
-      void this.refreshTopology().catch(() => undefined);
-      void this.refreshAccessControl().catch(() => undefined);
+      this.#sweep("neighbors", () => this.refreshNeighbors());
+      this.#sweep("topology", () => this.refreshTopology());
+      this.#sweep("accessControl", () => this.refreshAccessControl());
     }, this.neighborScanIntervalMs);
     this.#slowScanTimer.unref?.();
 
@@ -141,6 +142,12 @@ export class CpeMonitor extends EventEmitter {
       void this.stateStore.flushAsync().catch(() => undefined);
     }, this.stateFlushIntervalMs);
     this.#flushTimer.unref?.();
+  }
+
+  /** A background read, left out for a section this model does not provide (a refresh someone asks for still tries). */
+  #sweep(section: ReadSection, refresh: () => Promise<unknown>): void {
+    if (this.scheduler.device.skips(section)) return;
+    void refresh().catch(() => undefined);
   }
 
   /** Stop the timers and stage the time-series snapshot; `MutexSessionScheduler.stop()` flushes it. */
@@ -244,10 +251,18 @@ export class CpeMonitor extends EventEmitter {
       },
       "normal",
       (session) =>
-        fetchGlobalTelemetry(session, { includeSmsCounters: this.smsCountersEnabled }),
+        this.scheduler.readSection("telemetry", () =>
+          fetchGlobalTelemetry(session, { includeSmsCounters: this.smsCountersEnabled, tolerant: this.scheduler.device.unverifiedModel })
+        ),
       (snap) => {
         // Before anyone hears of the snapshot: a write it prompts (self-heal) goes by this model
         this.scheduler.noteRouterModel(snap.device.deviceName, snap.device.softwareVersion);
+        this.stateStore.update({ latestTelemetry: snap });
+        // A model without traffic counters has no throughput to chart: no sample rather than a made-up zero
+        if (snap.unavailable?.includes("traffic")) {
+          this.#safeEmit("telemetry", snap);
+          return;
+        }
         this.timeseries.push({
           tsMs: snap.capturedAtMs,
           downloadBps: snap.traffic.downloadBps,
@@ -258,7 +273,6 @@ export class CpeMonitor extends EventEmitter {
           nrSinrDb: snap.rf.nrSinrDb,
           temperatureCelsius: snap.thermal.temperatureCelsius,
         });
-        this.stateStore.update({ latestTelemetry: snap });
         const speedTick: SpeedTickPayload = {
           tsMs: snap.capturedAtMs,
           tsIso: snap.capturedAtIso,
@@ -282,7 +296,7 @@ export class CpeMonitor extends EventEmitter {
         this.#inflightNeighbors = p;
       },
       "low",
-      (session) => scanNeighborCells(session),
+      (session) => this.scheduler.readSection("neighbors", () => scanNeighborCells(session)),
       (snap) => {
         this.stateStore.update({ latestNeighbors: snap });
         this.#safeEmit("neighbors", snap);
@@ -299,7 +313,7 @@ export class CpeMonitor extends EventEmitter {
         this.#inflightTopology = p;
       },
       "low",
-      (session) => fetchTerminalTopology(session),
+      (session) => this.scheduler.readSection("topology", () => fetchTerminalTopology(session, { tolerant: this.scheduler.device.unverifiedModel })),
       (snap) => {
         this.stateStore.update({ latestTopology: snap });
         this.#safeEmit("topology", snap);
@@ -316,7 +330,7 @@ export class CpeMonitor extends EventEmitter {
         this.#inflightSettings = p;
       },
       "normal",
-      (session) => fetchRouterSettings(session),
+      (session) => this.scheduler.readSection("settings", () => fetchRouterSettings(session)),
       (snap) => {
         this.stateStore.update({ latestSettings: snap });
         this.#safeEmit("settings", snap);
@@ -333,7 +347,7 @@ export class CpeMonitor extends EventEmitter {
         this.#inflightAccessControl = p;
       },
       "low",
-      (session) => fetchAccessControl(session),
+      (session) => this.scheduler.readSection("accessControl", () => fetchAccessControl(session)),
       (snap) => {
         this.stateStore.update({ latestAccessControl: snap });
         this.#safeEmit("access-control", snap);
@@ -373,7 +387,8 @@ export class CpeMonitor extends EventEmitter {
     getInflight: () => Promise<T | null> | null,
     setInflight: (promise: Promise<T | null> | null) => void,
     priority: SchedulerPriority,
-    read: (session: EphemeralCpeSession) => Promise<T>,
+    /** `null`: nothing to keep (a section this model does not provide). */
+    read: (session: EphemeralCpeSession) => Promise<T | null>,
     onFresh: (value: T) => void
   ): Promise<T | null> {
     const inflight = getInflight();

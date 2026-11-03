@@ -1,6 +1,7 @@
 import { decomposeLteEci } from "./band-lock.ts";
 import { maskMacAddress, sanitizeFreeText, sanitizeIpToken } from "./sanitize.ts";
-import { getXmlTag } from "./xml.ts";
+import { isResponseDocument } from "./device-profile.ts";
+import { getXmlBlocks, getXmlTag } from "./xml.ts";
 
 export { formatBytesBinary, formatRateBitsPerSec } from "./units.ts";
 
@@ -555,58 +556,102 @@ export function parseHostInfoJson(
   let seq = 1;
   for (const item of parsed) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const rec = item as Record<string, unknown>;
-    const idx = seq++;
-
-    const rawMac = asString(rec, "MACAddress");
-    const rawActual = asString(rec, "ActualName");
-    const rawHost = asString(rec, "HostName");
-    const interfaceType = asString(rec, "InterfaceType");
-    const layer2Interface = asString(rec, "Layer2Interface");
-    const frequency = asString(rec, "Frequency");
-    const ethernetSpeed = asNumberOrNull(rec, "EthernetSpeed");
-    const phyType = asNumberOrNull(rec, "PhyType");
-    const wifiRate = asNumberOrNull(rec, "rate");
-    const rssi = asNumberOrNull(rec, "rssi");
-
-    const medium = classifyAccessMedium(interfaceType, ethernetSpeed, phyType, frequency);
-    const negotiatedRateMbps =
-      interfaceType.toLowerCase() === "ethernet"
-        ? (ethernetSpeed && ethernetSpeed > 0 ? ethernetSpeed : phyType)
-        : (wifiRate && wifiRate > 0 ? wifiRate : null);
-
-    const rawIpv4 = asString(rec, "IPAddress");
-    const rawIpv6 = asString(rec, "IPv6Address");
-    const ipv6Parts = rawIpv6
-      .split(";")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((ip) => (sanitize ? sanitizeIpToken(ip) : ip));
-
-    const displayName = sanitize
-      ? `lan-client-${String(idx).padStart(2, "0")}`
-      : sanitizeFreeText(rawActual || rawHost || `client-${idx}`);
-
-    out.push({
-      macAddress: sanitize ? maskMacAddress(rawMac || "00:00:5E:00:53:01", idx) : rawMac,
-      displayName,
-      active: asBool(rec, "Active"),
-      interfaceType,
-      layer2Interface,
-      frequency,
-      medium,
-      negotiatedRateMbps,
-      rssi: interfaceType.toLowerCase() === "wireless" ? rssi : null,
-      ipv4Address: sanitize ? sanitizeIpToken(rawIpv4) : rawIpv4,
-      ipv6Addresses: ipv6Parts,
-      ipv6Active: asBool(rec, "V6Active"),
-      addressSource: asString(rec, "AddressSource"),
-      leaseTimeRemainingSec: asNumberOrNull(rec, "LeaseTime"),
-      associatedTimeSec: asNumberOrNull(rec, "AssociatedTime"),
-      isLocalDevice: asBool(rec, "IsLocalDevice"),
-    });
+    out.push(hostFromRecord(item as Record<string, unknown>, seq++, sanitize));
   }
   return out;
+}
+
+/** One host of a list, from the field names of the H168-383's `system/HostInfo`. */
+function hostFromRecord(rec: Record<string, unknown>, idx: number, sanitize: boolean): TerminalHostEntry {
+  const rawMac = asString(rec, "MACAddress");
+  const rawActual = asString(rec, "ActualName");
+  const rawHost = asString(rec, "HostName");
+  const interfaceType = asString(rec, "InterfaceType");
+  const layer2Interface = asString(rec, "Layer2Interface");
+  const frequency = asString(rec, "Frequency");
+  const ethernetSpeed = asNumberOrNull(rec, "EthernetSpeed");
+  const phyType = asNumberOrNull(rec, "PhyType");
+  const wifiRate = asNumberOrNull(rec, "rate");
+  const rssi = asNumberOrNull(rec, "rssi");
+
+  const medium = classifyAccessMedium(interfaceType, ethernetSpeed, phyType, frequency);
+  const negotiatedRateMbps =
+    interfaceType.toLowerCase() === "ethernet"
+      ? (ethernetSpeed && ethernetSpeed > 0 ? ethernetSpeed : phyType)
+      : (wifiRate && wifiRate > 0 ? wifiRate : null);
+
+  const rawIpv4 = asString(rec, "IPAddress");
+  const rawIpv6 = asString(rec, "IPv6Address");
+  const ipv6Parts = rawIpv6
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((ip) => (sanitize ? sanitizeIpToken(ip) : ip));
+
+  const displayName = sanitize
+    ? `lan-client-${String(idx).padStart(2, "0")}`
+    : sanitizeFreeText(rawActual || rawHost || `client-${idx}`);
+
+  return {
+    macAddress: sanitize ? maskMacAddress(rawMac || "00:00:5E:00:53:01", idx) : rawMac,
+    displayName,
+    active: asBool(rec, "Active"),
+    interfaceType,
+    layer2Interface,
+    frequency,
+    medium,
+    negotiatedRateMbps,
+    rssi: interfaceType.toLowerCase() === "wireless" ? rssi : null,
+    ipv4Address: sanitize ? sanitizeIpToken(rawIpv4) : rawIpv4,
+    ipv6Addresses: ipv6Parts,
+    ipv6Active: asBool(rec, "V6Active"),
+    addressSource: asString(rec, "AddressSource"),
+    leaseTimeRemainingSec: asNumberOrNull(rec, "LeaseTime"),
+    associatedTimeSec: asNumberOrNull(rec, "AssociatedTime"),
+    isLocalDevice: asBool(rec, "IsLocalDevice"),
+  };
+}
+
+/** `system/HostInfo` on a model nobody verified: `null` unless the answer is a JSON list. */
+export function parseHostInfoJsonList(rawJson: string): TerminalHostEntry[] | null {
+  if (!rawJson || rawJson.length > MAX_JSON_LEN) return null;
+  try {
+    if (!Array.isArray(JSON.parse(rawJson))) return null;
+  } catch {
+    return null;
+  }
+  return parseHostInfoJson(rawJson, { sanitize: false });
+}
+
+/** Host fields read from the XML lists, by their `system/HostInfo` names (tags match whatever their case). */
+const HOST_XML_FIELDS = ["MACAddress", "IPAddress", "IPv6Address", "HostName", "ActualName", "Active", "InterfaceType", "Frequency", "LeaseTime", "AssociatedTime", "AddressSource"] as const;
+
+/**
+ * The XML device lists of other HiLink models (`lan/HostInfo`, `wlan/host-list`, appendix A.10):
+ * `<Hosts><Host>…</Host></Hosts>`, possibly one `<Host>` or none. The field names inside a host are
+ * not documented; FengSui reads the `system/HostInfo` names whatever their case (our inference, not
+ * verified on a device). `wifiOnly` lists associated Wi-Fi clients, so they count as active Wi-Fi.
+ * A host without a MAC address is left out; `null` when the answer is no list, or holds hosts none
+ * of which reads (never shown as "no devices").
+ */
+export function parseHostListXml(xml: string, opts: { wifiOnly: boolean }): TerminalHostEntry[] | null {
+  if (!xml || !isResponseDocument(xml)) return null;
+  const blocks = getXmlBlocks(xml, "Host");
+  const hosts: TerminalHostEntry[] = [];
+  for (const block of blocks) {
+    const rec: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    for (const field of HOST_XML_FIELDS) {
+      const value = getXmlTag(block, field);
+      if (value !== null) rec[field] = value;
+    }
+    if (opts.wifiOnly) {
+      rec["InterfaceType"] ??= "Wireless";
+      rec["Active"] ??= "1";
+    }
+    if (typeof rec["MACAddress"] !== "string" || rec["MACAddress"] === "") continue;
+    hosts.push(hostFromRecord(rec, hosts.length + 1, false));
+  }
+  return blocks.length > 0 && hosts.length === 0 ? null : hosts;
 }
 
 /**

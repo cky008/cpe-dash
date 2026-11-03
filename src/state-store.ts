@@ -8,6 +8,7 @@ import type {
   RouterSettingsSnapshot,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
+import { type ReadRecord, isReadRecord } from "./device-access.ts";
 import { type DeviceProbeResult, type LoginScheme, isDeviceProbeResult } from "./device-profile.ts";
 import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { SerializedTimeSeriesSnapshot } from "./timeseries.ts";
@@ -44,6 +45,8 @@ export interface PersistedRuntimeState {
    * it; state written before it existed falls back to the stored identification.
    */
   knownLoginScheme: LoginScheme | null;
+  /** What a model nobody verified answered per read section (it decides which cards and tools show). */
+  deviceReads: ReadRecord | null;
 }
 
 function createDefaultState(): PersistedRuntimeState {
@@ -76,6 +79,7 @@ function createDefaultState(): PersistedRuntimeState {
     firmwareNotice: null,
     deviceProbe: null,
     knownLoginScheme: null,
+    deviceReads: null,
   };
 }
 
@@ -148,6 +152,7 @@ export class EncryptedStateStore {
         latestTopology: upgradeTopology(loaded.latestTopology ?? null),
         deviceProbe: isDeviceProbeResult(loaded.deviceProbe) ? loaded.deviceProbe : null,
         knownLoginScheme: KNOWN_LOGIN_SCHEMES.has(loaded.knownLoginScheme) ? (loaded.knownLoginScheme ?? null) : null,
+        deviceReads: isReadRecord(loaded.deviceReads) ? loaded.deviceReads : null,
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
       };
     }
