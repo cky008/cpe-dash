@@ -2,6 +2,17 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.6.2] — 2026-11-04
+
+### Added
+- **Telegram groups can be linked with a group pairing code.** Settings → Telegram now also creates a group pairing code, after a dialog saying that every member reads what the bot posts there; send the `/auth@<bot> CODE` the console shows in the group, as yourself (not anonymously), for example in a group of just you and the bot that collects notifications in one place. Only that code links a group (it links a private chat too): a private pairing code or an access token sent to a group is refused, and the private code is spent there, so a member who copied it cannot link a private chat with it. A linked group remembers who sent `/auth`: only their commands, replies, files and buttons act there, other members' commands go unanswered and their button taps get a notice. Sent in a forum topic, `/auth` makes that topic the bot's (notifications and answers go there); when the group becomes a supergroup, the link follows it to the new ID; `/reset` stays private. Unlink all forgets group links as well. `POST /api/console/telegram/pairing-code` takes `{ group?: boolean }` and also answers `group` and `command` (the exact message to send); the audit detail of a group code reads `group`. Groups listed in `TELEGRAM_CHAT_IDS` work as before (any member can act).
+
+### Changed
+- **The bot keeps quiet in groups.** It no longer answers chatter in a group with the help text, an unlinked group gets the "not authorized" card for commands only, and commands addressed to another bot (`/cmd@other_bot`, told apart by the bot's own name from `getMe`) are left alone in every chat. Private chats behave as before.
+
+### Upgrading
+- Nothing to change in `.env`, no data to migrate and nothing to merge in an own compose file. Linked chats stay linked; `telegram.json` gains an optional field, which 1.6.1 would ignore. For a group, making the bot a group admin is recommended: it can then delete the message with the code, and the guided send reads what you type without you replying to its prompts.
+
 ## [1.6.1] — 2026-11-03
 
 ### Fixed
