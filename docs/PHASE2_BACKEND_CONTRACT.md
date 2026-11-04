@@ -963,7 +963,7 @@ export interface AccessControlChangeResponse {
 | `GET /api/console/tokens` | — | `{ ok: true, tokens: PublicTokenRecord[] }`（不含哈希） |
 | `POST /api/console/tokens` | `{ name, scope: "full" \| "read", lifetimeDays: 1 \| 7 \| 30 \| 90 \| 365 \| null }` | `{ ok: true, token, record }`，`token` 只返回这一次；上限 50 个 |
 | `POST /api/console/tokens/revoke` | `{ id }` | `{ ok: true, record }`，并断开该令牌的 SSE；不存在 `404` |
-| `POST /api/console/telegram/pairing-code` | `{}` | `{ ok: true, code, expiresInSec: 600 }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；未配置机器人 `409 TELEGRAM_DISABLED` |
+| `POST /api/console/telegram/pairing-code` | `{ group?: boolean }` | `{ ok: true, code, expiresInSec: 600, group, command }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；`group: true` 生成群组绑定码（也可用于私聊），`command` 为要发送的原文（已知机器人用户名时为 `/auth@<bot> <code>`）；审计 `detail` 为 `group`；`group` 非布尔 `400`；未配置机器人 `409 TELEGRAM_DISABLED` |
 | `POST /api/console/telegram/unlink-all` | `{}` | `{ ok: true, unlinked }`（`TELEGRAM_CHAT_IDS` 中的聊天不受影响） |
 | `POST /api/console/switches` | `{ telegramReset?: boolean, metricsEnabled?: boolean \| null }`（`null` = 跟随 `.env`） | `ConsoleSettingsResponse` |
 | `GET /api/console/device-report` | — | `{ ok: true, report: DeviceReport }`：脱敏设备报告，只含结构（见 2.9 节），由用户自己决定是否提交 |

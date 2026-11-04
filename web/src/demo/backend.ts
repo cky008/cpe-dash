@@ -446,7 +446,7 @@ export class DemoBackend {
     get("/api/console/tokens", () => this.#console.tokens());
     post("/api/console/tokens", (body) => this.#console.createToken(body));
     post("/api/console/tokens/revoke", (body) => this.#console.revokeToken(body));
-    post("/api/console/telegram/pairing-code", () => this.#console.pairingCode());
+    post("/api/console/telegram/pairing-code", (body) => this.#console.pairingCode(body));
     post("/api/console/telegram/unlink-all", () => this.#console.unlinkTelegram());
     post("/api/console/switches", (body) => this.#console.switches(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));

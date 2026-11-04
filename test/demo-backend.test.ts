@@ -270,6 +270,9 @@ describe("Static demo backend vs the real daemon", () => {
       ],
       "newest first"
     );
+    const groupCode = (await demoCall(backend, "POST", "/api/console/telegram/pairing-code", { group: true })).json;
+    assert.deepEqual([groupCode["group"], groupCode["command"]], [true, `/auth ${String(groupCode["code"])}`], "the demo has no bot to name");
+    assert.equal((await demoCall(backend, "POST", "/api/console/telegram/pairing-code", { group: 1 })).status, 400);
     await demoCall(backend, "POST", "/api/control/antenna", { mode: "auto" });
     const audit = (await demoCall(backend, "GET", "/api/audit?limit=nope")).json["entries"] as Json[];
     assert.deepEqual([audit[0]?.["action"], audit[0]?.["channel"]], ["set_antenna_mode", "web"], "router writes are logged with the daemon's action names");

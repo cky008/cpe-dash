@@ -11,6 +11,7 @@ import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
 import type { EnrichedSmsMessage } from "../sms/types.ts";
+import type { TelegramLinkOutcome } from "../console-settings.ts";
 import type { AlertEventRecord } from "../state-store.ts";
 import type { SupportedLocale } from "../types.ts";
 import type { NotificationChannel } from "./hub.ts";
@@ -22,6 +23,15 @@ export interface TelegramUpdate {
     message_id?: number;
     /** `type`: "private", "group", "supergroup" or "channel". */
     chat?: { id?: number | string; type?: string };
+    /** The sender; in groups `sender_chat` is set instead of a person when one posts anonymously or as a channel. */
+    from?: { id?: number | string };
+    sender_chat?: { id?: number | string };
+    /** Forum topic of a message in a group with topics (`is_topic_message`). */
+    message_thread_id?: number;
+    is_topic_message?: boolean;
+    /** Service messages when a group becomes a supergroup (and gets a new chat ID). */
+    migrate_to_chat_id?: number | string;
+    migrate_from_chat_id?: number | string;
     text?: string;
     reply_to_message?: { message_id?: number };
     document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
@@ -29,6 +39,8 @@ export interface TelegramUpdate {
   callback_query?: {
     id: string;
     data?: string;
+    /** Who tapped the button. */
+    from?: { id?: number | string };
     message?: { message_id?: number; chat?: { id?: number | string } };
   };
 }
@@ -67,6 +79,11 @@ const INBOX_PAGE_SIZE = 8;
 
 export function escapeTelegramHtml(text: string | number): string {
   return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** The forum topic a message was posted in, or `null` (a private chat, a group without topics, the General topic). */
+function topicOf(msg: NonNullable<TelegramUpdate["message"]>): number | null {
+  return msg.is_topic_message === true && typeof msg.message_thread_id === "number" ? msg.message_thread_id : null;
 }
 
 function callbackData(action: string, arg: string | number): string | null {
@@ -110,7 +127,11 @@ const TEXT = {
     unauthorized: "<b>烽燧 · 会话未授权</b>\n\nChat ID：<code>{chatId}</code>\n在控制台「设置 → Telegram」生成绑定码，然后发送 <code>/auth 绑定码</code>（也可以用完整权限的访问令牌）。",
     auth_usage: "用法：<code>/auth 绑定码</code>",
     auth_private_only:
-      "<b>请在与机器人的私聊中使用 /auth</b>\n\n在群组里绑定会让所有成员都能读取短信与验证码并操作路由器。若消息里是访问令牌且仍可见，请立即删除，并在控制台撤销该令牌。",
+      "<b>这不是群组绑定码</b>\n\n私聊绑定码与访问令牌不能在群组中使用，私聊绑定码发到群里即作废。要在这个群组接收推送，请在控制台「设置 → Telegram」生成群组绑定码。若消息里是访问令牌且仍可见，请立即删除，并在控制台撤销该令牌。",
+    auth_group_ok:
+      "<b>群组绑定成功</b>\n\n新短信、验证码与告警会推送到这里，群里所有成员都能看到。只有你本人可以在群里操作（发短信、标记已读、删除、静音等）。",
+    auth_group_sender: "<b>无法确认是谁发送的 /auth</b>\n\n请以本人身份（不要匿名）在群组里发送：只有绑定群组的人可以在群里操作。",
+    group_owner_only: "只有绑定这个群组的人可以操作",
     auth_ok: "<b>绑定成功</b>\n\n令牌消息已自动撤回。新短信与告警会推送到这里。",
     auth_already: "<b>当前会话已授权</b>",
     auth_bad: "<b>绑定码或令牌不正确</b>：绑定码 10 分钟内有效，只能用一次。",
@@ -209,7 +230,11 @@ const TEXT = {
     unauthorized: "<b>FengSui · chat not authorized</b>\n\nChat ID: <code>{chatId}</code>\nCreate a pairing code in the console (Settings → Telegram), then send <code>/auth CODE</code> (a full-access token works too).",
     auth_usage: "Usage: <code>/auth PAIRING_CODE</code>",
     auth_private_only:
-      "<b>Use /auth in a private chat with the bot</b>\n\nLinking a group would let every member read your SMS and codes and control the router. If your message held an access token and is still visible, delete it now and revoke that token in the console.",
+      "<b>Not a group pairing code</b>\n\nPrivate pairing codes and access tokens do not work in groups; a private code sent to a group is now void. To get notifications in this group, create a group pairing code in the console (Settings → Telegram). If your message held an access token and is still visible, delete it now and revoke that token in the console.",
+    auth_group_ok:
+      "<b>Group linked</b>\n\nNew SMS, codes and alerts are posted here, where every member can read them. Only you can act on them in this group (send, mark read, delete, mute and so on).",
+    auth_group_sender: "<b>Cannot tell who sent /auth</b>\n\nSend it as yourself, not anonymously: only the person who links a group can act in it.",
+    group_owner_only: "Only the person who linked this group can do that",
     auth_ok: "<b>Linked</b>\n\nYour token message was deleted. New SMS and alerts will be delivered here.",
     auth_already: "<b>This chat is already authorized</b>",
     auth_bad: "<b>Wrong code or token</b>: a pairing code works once, within 10 minutes.",
@@ -312,11 +337,27 @@ type TextKey = keyof (typeof TEXT)["en"];
 // Encrypted bot state (authorized chats, reply routing, alert mute)
 // ---------------------------------------------------------------------------------------------
 
+/** A group linked with a group pairing code: who may act in it, and the forum topic it posts to. */
+export interface TelegramGroupLink {
+  userId: string;
+  threadId: number | null;
+}
+
 interface PersistedTelegramState {
   version: 1;
   authorizedChatIds: string[];
+  /** Absent before group linking existed; such a file has none. */
+  groupLinks?: Array<[string, TelegramGroupLink]>;
   replyTargets: Array<[string, string]>;
   alertsMutedUntilMs: number | null;
+}
+
+function isGroupLinkEntry(entry: unknown): entry is [string, TelegramGroupLink] {
+  if (!Array.isArray(entry) || typeof entry[0] !== "string") return false;
+  const link: unknown = entry[1];
+  if (typeof link !== "object" || link === null) return false;
+  const { userId, threadId } = link as Record<string, unknown>;
+  return typeof userId === "string" && userId !== "" && (threadId === null || (typeof threadId === "number" && Number.isSafeInteger(threadId)));
 }
 
 export class TelegramStateStore {
@@ -324,6 +365,7 @@ export class TelegramStateStore {
   #cipher: StorageCipher;
   #writer: AtomicFileWriter;
   #authorized = new Set<string>();
+  #groupLinks = new Map<string, TelegramGroupLink>();
   #replyTargets = new Map<string, string>();
   #mutedUntilMs: number | null = null;
 
@@ -337,6 +379,12 @@ export class TelegramStateStore {
     const parsed = this.#cipher.readJsonFileOrQuarantine<Partial<PersistedTelegramState>>(this.filePath);
     assertKnownDataFormat(this.filePath, parsed?.version, 1);
     this.#authorized = new Set((parsed?.authorizedChatIds ?? []).filter((id): id is string => typeof id === "string"));
+    this.#groupLinks = new Map(
+      (Array.isArray(parsed?.groupLinks) ? parsed.groupLinks : [])
+        .filter(isGroupLinkEntry)
+        .filter(([chatId]) => this.#authorized.has(chatId))
+        .map(([chatId, link]) => [chatId, { userId: link.userId, threadId: link.threadId }])
+    );
     this.#replyTargets = new Map(
       (parsed?.replyTargets ?? []).filter(
         (e): e is [string, string] => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string"
@@ -349,6 +397,7 @@ export class TelegramStateStore {
     const payload: PersistedTelegramState = {
       version: 1,
       authorizedChatIds: [...this.#authorized],
+      groupLinks: [...this.#groupLinks],
       replyTargets: [...this.#replyTargets],
       alertsMutedUntilMs: this.#mutedUntilMs,
     };
@@ -367,9 +416,29 @@ export class TelegramStateStore {
     return [...new Set([...envIds, ...this.#authorized])];
   }
 
-  authorize(chatId: string): void {
+  /** Link a chat; a group links with who linked it (only they may act there) and its forum topic. */
+  authorize(chatId: string, group?: TelegramGroupLink): void {
     this.#authorized.add(chatId);
+    if (group) this.#groupLinks.set(chatId, { userId: group.userId, threadId: group.threadId });
+    else this.#groupLinks.delete(chatId);
     this.#commit();
+  }
+
+  /** The group link of a chat linked with a group pairing code, or `null`. */
+  groupLink(chatId: string): TelegramGroupLink | null {
+    const link = this.#groupLinks.get(chatId);
+    return link ? { ...link } : null;
+  }
+
+  /** A linked group became a supergroup under a new ID: the link follows it. `false` when `from` was not linked. */
+  moveChat(from: string, to: string): boolean {
+    if (from === to || !this.#authorized.delete(from)) return false;
+    this.#authorized.add(to);
+    const link = this.#groupLinks.get(from);
+    this.#groupLinks.delete(from);
+    if (link) this.#groupLinks.set(to, link);
+    this.#commit();
+    return true;
   }
 
   /** Forget every chat linked through `/auth`; returns how many were revoked. */
@@ -377,6 +446,7 @@ export class TelegramStateStore {
     const count = this.#authorized.size;
     if (count === 0) return 0;
     this.#authorized.clear();
+    this.#groupLinks.clear();
     this.#commit();
     return count;
   }
@@ -430,10 +500,13 @@ export interface TelegramBotOptions {
   state: TelegramStateStore;
   /** SMS features are hidden when `null` (SMS_ENABLED=false). */
   sms: SmsService | null;
-  /** Secret accepted by `/auth` when `linkSecret` is not given (tests, embedders). */
+  /** Secret accepted by `/auth` in private chats when `linkSecret` is not given (tests, embedders). */
   authToken: string;
-  /** Decide an `/auth` secret: a one-time pairing code from the console, or a full-access token. */
-  linkSecret?: (secret: string) => boolean;
+  /**
+   * Decide an `/auth` secret sent in a private chat or a group: a one-time pairing code from the
+   * console (a group needs a group code), or a full-access token (private chats only).
+   */
+  linkSecret?: (secret: string, where: "private" | "group") => TelegramLinkOutcome;
   /** A console password reset code for `/reset`, or `null` when Telegram reset is turned off. */
   issueResetCode?: () => string | null;
   allowedChatIds?: ReadonlyArray<string>;
@@ -462,7 +535,12 @@ export class TelegramBot implements NotificationChannel {
   readonly defaultCountryCode: string;
   readonly allowedChatIds: ReadonlyArray<string>;
   #authToken: string;
-  readonly #linkSecret: ((secret: string) => boolean) | null;
+  readonly #linkSecret: ((secret: string, where: "private" | "group") => TelegramLinkOutcome) | null;
+  /** The bot's own @username (from getMe), to tell commands meant for another bot in a group apart. */
+  #username: string | null = null;
+  /** getMe answered once (with or without a usable name): no need to ask again. */
+  #identified = false;
+  #identifying: Promise<void> | null = null;
   readonly #issueResetCode: (() => string | null) | null;
   #resetRequests = new Map<string, number[]>();
   readonly #now: () => number;
@@ -509,7 +587,29 @@ export class TelegramBot implements NotificationChannel {
         ),
       })
       .catch(() => undefined);
+    await this.#identify();
     this.#pollLoop = this.#runPollLoop();
+  }
+
+  /** The bot's @username, once Telegram told it (`null` before, or while Telegram was unreachable). */
+  get username(): string | null {
+    return this.#username;
+  }
+
+  /** Learn the bot's own @username; tried again after each poll until Telegram answered once. */
+  async #identify(): Promise<void> {
+    if (this.#identified) return;
+    this.#identifying ??= this.api
+      .call<{ username?: unknown }>("getMe", {})
+      .then((me) => {
+        this.#identified = true;
+        if (typeof me?.username === "string" && /^[A-Za-z0-9_]{1,64}$/.test(me.username)) this.#username = me.username;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.#identifying = null;
+      });
+    await this.#identifying;
   }
 
   /**
@@ -739,6 +839,7 @@ export class TelegramBot implements NotificationChannel {
         backoffMs = 1500;
         // Telegram answers again (the WAN is back): deliver what queued up meanwhile
         if (this.#outbox.length > 0) void this.flushOutbox();
+        if (!this.#identified) void this.#identify();
         for (const update of Array.isArray(updates) ? updates : []) {
           this.#offset = Math.max(this.#offset, update.update_id + 1);
           const handling = this.handleUpdate(update);
@@ -760,18 +861,29 @@ export class TelegramBot implements NotificationChannel {
   async #handleMessage(msg: NonNullable<TelegramUpdate["message"]>): Promise<void> {
     const chatId = String(msg.chat?.id ?? "");
     if (!chatId) return;
+    if (msg.migrate_to_chat_id !== undefined || msg.migrate_from_chat_id !== undefined) {
+      this.#migrateChat(msg.migrate_to_chat_id === undefined ? String(msg.migrate_from_chat_id) : chatId, String(msg.migrate_to_chat_id ?? chatId));
+      return;
+    }
     const text = (msg.text ?? "").trim();
+    const privateChat = msg.chat?.type === "private";
+    // In a group the bot may see every message: a command for another bot is not ours, nor is chatter
+    const addressedTo = /^\/[A-Za-z0-9_]{1,32}@(\S+)/.exec(text)?.[1];
+    if (addressedTo !== undefined && this.#username !== null && addressedTo.toLowerCase() !== this.#username.toLowerCase()) return;
 
     if (/^\/auth(?:@\S+)?(?:\s|$)/i.test(text)) {
-      await this.#cmdAuth(chatId, text.replace(/^\/auth(?:@\S+)?\s*/i, ""), msg.message_id, msg.chat?.type === "private");
+      await this.#cmdAuth(chatId, text.replace(/^\/auth(?:@\S+)?\s*/i, ""), msg);
       return;
     }
     if (!this.state.isAuthorized(chatId, this.allowedChatIds)) {
-      await this.#send(chatId, this.#tx("unauthorized", { chatId }));
+      if (privateChat || text.startsWith("/")) await this.#send(chatId, this.#tx("unauthorized", { chatId }), undefined, topicOf(msg));
       return;
     }
+    // A group linked with a group code takes commands, replies and files from the member who linked it only
+    const group = this.state.groupLink(chatId);
+    if (group && (msg.sender_chat !== undefined || String(msg.from?.id ?? "") !== group.userId)) return;
     if (/^\/reset(?:@\S+)?$/i.test(text)) {
-      await this.#cmdReset(chatId, msg.chat?.type === "private");
+      await this.#cmdReset(chatId, privateChat);
       return;
     }
 
@@ -796,13 +908,21 @@ export class TelegramBot implements NotificationChannel {
 
     const match = text.match(/^\/([A-Za-z0-9_]{1,32})(?:@\S+)?(?:\s+([\s\S]*))?$/);
     if (!match) {
-      await this.#send(chatId, this.#tx("help"), this.#newSmsKeyboard());
+      if (privateChat) await this.#send(chatId, this.#tx("help"), this.#newSmsKeyboard());
       return;
     }
     const command = (match[1] ?? "").toLowerCase();
     const rest = (match[2] ?? "").trim();
     if (command !== "cancel") this.#wizards.delete(chatId);
     await this.#dispatchCommand(chatId, command, rest);
+  }
+
+  /** A linked group became a supergroup: Telegram tells both chats, so the second notice finds nothing to move. */
+  #migrateChat(from: string, to: string): void {
+    if (this.state.moveChat(from, to)) this.#log("[telegram] a linked group became a supergroup; its link moved to the new chat ID");
+    else if (this.allowedChatIds.includes(from) && !this.allowedChatIds.includes(to)) {
+      this.#log("[telegram] a group in TELEGRAM_CHAT_IDS became a supergroup with a new chat ID; send a command there to see it, then update TELEGRAM_CHAT_IDS");
+    }
   }
 
   async #dispatchCommand(chatId: string, command: string, rest: string): Promise<void> {
@@ -855,6 +975,11 @@ export class TelegramBot implements NotificationChannel {
       this.api.call("answerCallbackQuery", { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) }).catch(() => undefined);
     if (!chatId || !this.state.isAuthorized(chatId, this.allowedChatIds)) {
       await answer(this.#plain("unauthorized", { chatId }), true);
+      return;
+    }
+    const group = this.state.groupLink(chatId);
+    if (group && String(cq.from?.id ?? "") !== group.userId) {
+      await answer(this.#plain("group_owner_only"), true);
       return;
     }
     const data = String(cq.data ?? "");
@@ -975,26 +1100,47 @@ export class TelegramBot implements NotificationChannel {
 
   // ----------------------------------------------------------------- commands
 
-  async #cmdAuth(chatId: string, secret: string, messageId: number | undefined, privateChat: boolean): Promise<void> {
-    if (messageId !== undefined) {
-      void this.api.call("deleteMessage", { chat_id: chatId, message_id: messageId }).catch(() => undefined);
+  async #cmdAuth(chatId: string, secret: string, msg: NonNullable<TelegramUpdate["message"]>): Promise<void> {
+    if (msg.message_id !== undefined) {
+      void this.api.call("deleteMessage", { chat_id: chatId, message_id: msg.message_id }).catch(() => undefined);
     }
-    if (this.state.isAuthorized(chatId, this.allowedChatIds)) return await this.#reply(chatId, "auth_already");
-    // A linked group would open SMS, codes and router controls to every member (pre-authorize it via TELEGRAM_CHAT_IDS)
-    if (!privateChat) return await this.#reply(chatId, "auth_private_only");
-    if (this.#authLimited(chatId)) return await this.#reply(chatId, "auth_limited");
-    if (!secret) return await this.#reply(chatId, "auth_usage");
-    const linked = this.#linkSecret ? this.#linkSecret(secret) : Boolean(this.#authToken) && timingSafeEqualString(secret, this.#authToken);
-    if (linked) {
-      this.state.authorize(chatId);
+    // Answers go to the forum topic /auth was sent in
+    const topic = topicOf(msg);
+    const answer = async (key: TextKey): Promise<void> => {
+      await this.#send(chatId, this.#tx(key), undefined, topic);
+    };
+    if (this.state.isAuthorized(chatId, this.allowedChatIds)) return await answer("auth_already");
+    if (this.#authLimited(chatId)) return await answer("auth_limited");
+    if (!secret) return await answer("auth_usage");
+    const where = msg.chat?.type === "private" ? "private" : "group";
+    // A group is linked to the member who sent /auth, so an anonymous sender cannot link one (checked before the code is spent)
+    const userId = String(msg.from?.id ?? "");
+    if (where === "group" && (!userId || msg.sender_chat !== undefined)) return await answer("auth_group_sender");
+    const outcome = this.#decideSecret(secret, where);
+    if (outcome === "linked") {
       this.#authFailures.delete(chatId);
-      await this.#send(chatId, this.#tx("auth_ok"));
+      if (where === "private") {
+        this.state.authorize(chatId);
+        await this.#send(chatId, this.#tx("auth_ok"));
+      } else {
+        // Notifications go to the forum topic /auth was sent in (none: the group itself, or its General topic)
+        this.state.authorize(chatId, { userId, threadId: topic });
+        await this.#send(chatId, this.#tx("auth_group_ok"));
+      }
       return;
     }
+    // A private-chat secret in a group is refused as such (the console spent a private code), not counted as a guess
+    if (outcome === "private-only") return await answer("auth_private_only");
     const now = this.#now();
     this.#authFailures.set(chatId, [...(this.#authFailures.get(chatId) ?? []), now]);
     this.#globalAuthFailures.push(now);
-    await this.#send(chatId, this.#tx("auth_bad"));
+    await answer("auth_bad");
+  }
+
+  #decideSecret(secret: string, where: "private" | "group"): TelegramLinkOutcome {
+    if (this.#linkSecret) return this.#linkSecret(secret, where);
+    if (!this.#authToken || !timingSafeEqualString(secret, this.#authToken)) return "invalid";
+    return where === "private" ? "linked" : "private-only";
   }
 
   /** A one-time console password reset code, in a linked private chat only, at most 3 an hour. */
@@ -1456,9 +1602,16 @@ export class TelegramBot implements NotificationChannel {
     await this.#send(chatId, this.#tx(key, params), keyboard);
   }
 
-  async #send(chatId: string, html: string, keyboard?: InlineKeyboard): Promise<{ message_id?: number }> {
+  /**
+   * `topic`: the forum topic to answer in when the chat is not a linked group (a linked group gets
+   * everything in the topic it was linked from).
+   */
+  async #send(chatId: string, html: string, keyboard?: InlineKeyboard, topic: number | null = null): Promise<{ message_id?: number }> {
+    const link = this.state.groupLink(chatId);
+    const threadId = link ? link.threadId : topic;
     return await this.api.call<{ message_id?: number }>("sendMessage", {
       chat_id: chatId,
+      ...(threadId !== null ? { message_thread_id: threadId } : {}),
       text: truncateTelegramHtml(html, MAX_TELEGRAM_TEXT),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },

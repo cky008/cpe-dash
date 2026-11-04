@@ -34,6 +34,7 @@ function routesFixture(telegramConfigured: boolean) {
     revokeSessions: () => undefined,
     disconnectToken: () => undefined,
     unlinkTelegram: () => 2,
+    telegramUsername: () => "FengSuiBot",
   });
   const call = async (method: string, pathname: string, body: Record<string, unknown> = {}) => {
     let status = 0;
@@ -62,6 +63,13 @@ describe("console routes", () => {
       const pairing = await fx.call("POST", "/api/console/telegram/pairing-code");
       assert.match(String(pairing.payload["code"]), /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
       assert.equal(fx.settings.consumeCode("pair", String(pairing.payload["code"])), true);
+      assert.deepEqual([pairing.payload["group"], pairing.payload["command"]], [false, `/auth ${String(pairing.payload["code"])}`]);
+      const group = await fx.call("POST", "/api/console/telegram/pairing-code", { group: true });
+      assert.equal(group.payload["group"], true);
+      assert.equal(group.payload["command"], `/auth@FengSuiBot ${String(group.payload["code"])}`, "names the bot, so a group with other bots routes it here");
+      assert.equal(fx.settings.consumeCode("pair", String(group.payload["code"])), false);
+      assert.equal(fx.settings.consumeCode("pair-group", String(group.payload["code"])), true);
+      await assert.rejects(fx.call("POST", "/api/console/telegram/pairing-code", { group: "yes" }), /"group" must be true or false/);
       assert.equal((await fx.call("POST", "/api/console/telegram/unlink-all")).payload["unlinked"], 2);
       assert.deepEqual((await fx.call("GET", "/api/console")).payload["metrics"], { enabled: true, source: "env", envEnabled: true });
       assert.deepEqual((await fx.call("POST", "/api/console/switches", { metricsEnabled: false })).payload["metrics"], { enabled: false, source: "console", envEnabled: true });

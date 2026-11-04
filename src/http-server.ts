@@ -156,6 +156,8 @@ export interface FengSuiHttpServerOptions {
   onConnectionReady?: () => void;
   /** Unlink every Telegram chat linked with /auth (`null` without a bot). */
   unlinkTelegram?: (() => number) | null;
+  /** The bot's @username once known, for the `/auth@bot CODE` a group needs. */
+  telegramUsername?: () => string | null;
 }
 
 /**
@@ -212,6 +214,7 @@ export class FengSuiHttpServer {
         this.sseBus.disconnectByTokenId(tokenId);
       },
       unlinkTelegram: () => unlinkTelegram?.() ?? 0,
+      telegramUsername: options.telegramUsername ?? (() => null),
       onDeviceProbe: (probe) => void options.core.monitor.recordDeviceProbe(probe),
       deviceReport: () =>
         sanitizeDeviceReport(

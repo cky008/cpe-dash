@@ -296,6 +296,10 @@ export interface PairingCodeResponse {
   ok: true;
   code: string;
   expiresInSec: number;
+  /** A group pairing code (it also links a group; the request said `{ group: true }`). */
+  group: boolean;
+  /** The exact message to send: `/auth CODE`, or `/auth@bot CODE` for a group once the bot's name is known. */
+  command: string;
 }
 
 export interface AuditResponse {

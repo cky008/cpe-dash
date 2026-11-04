@@ -95,7 +95,11 @@ interface PersistedConsoleSettings {
   experimental: ExperimentalConsent[];
 }
 
-export type OneTimeCodeKind = "setup" | "reset" | "pair";
+/** `pair` links a private Telegram chat; `pair-group` also links a group (the owner chose so in the console). */
+export type OneTimeCodeKind = "setup" | "reset" | "pair" | "pair-group";
+
+/** What `/auth <secret>` does: link the chat, refuse it (a private-chat secret sent to a group), or fail. */
+export type TelegramLinkOutcome = "linked" | "private-only" | "invalid";
 
 export interface ScryptCost {
   N: number;
@@ -409,7 +413,7 @@ export class ConsoleSettings {
 
   // ------------------------------------------------------------ one-time codes
 
-  /** Issue a one-time code (setup: until used or a day; reset: 15 min; pair: 10 min). */
+  /** Issue a one-time code (setup: until used or a day; reset: 15 min; pairing: 10 min). */
   issueCode(kind: OneTimeCodeKind): string {
     // One live setup code at a time; earlier reset / pairing codes stay valid until they expire
     if (kind === "setup") for (const [code, entry] of this.#codes) if (entry.kind === "setup") this.#codes.delete(code);
@@ -417,6 +421,17 @@ export class ConsoleSettings {
     const ttl = kind === "setup" ? SETUP_CODE_TTL_MS : kind === "reset" ? RESET_CODE_TTL_MS : PAIRING_CODE_TTL_MS;
     this.#codes.set(normalizeCode(code), { kind, expiresAtMs: this.#now() + ttl });
     return code;
+  }
+
+  /**
+   * Decide a Telegram `/auth` secret. A group pairing code links any chat; a private pairing code or a
+   * full-access token links a private chat only. A private code sent to a group is spent there all
+   * the same: the members saw it and could otherwise link their own private chats with it.
+   */
+  linkTelegramChat(secret: string, where: "private" | "group"): TelegramLinkOutcome {
+    if (this.consumeCode("pair-group", secret)) return "linked";
+    if (this.consumeCode("pair", secret) || this.resolveBearer(secret)?.scope === "full") return where === "private" ? "linked" : "private-only";
+    return "invalid";
   }
 
   /** Spend a code of `kind`: `true` once, for an unexpired match. */

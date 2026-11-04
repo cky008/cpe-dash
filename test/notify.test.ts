@@ -10,7 +10,7 @@ import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { NotificationHub, type NotificationChannel, isAlertSeverity } from "../src/notify/hub.ts";
 import { TelegramApi, TelegramApiError, normalizeTelegramApiBase } from "../src/notify/telegram-api.ts";
-import { TelegramBot, TelegramStateStore, type TelegramUpdate, escapeTelegramHtml, truncateTelegramHtml } from "../src/notify/telegram-bot.ts";
+import { TelegramBot, type TelegramBotOptions, TelegramStateStore, type TelegramUpdate, escapeTelegramHtml, truncateTelegramHtml } from "../src/notify/telegram-bot.ts";
 import { WebhookNotifier, normalizeWebhookUrl, signWebhookPayload } from "../src/notify/webhook.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
@@ -51,6 +51,7 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
       return ok({ message_id: ++messageSeq });
     }
     if (method === "getFile") return ok({ file_path: "documents/contacts.vcf", file_size: (opts.vcf ?? "").length });
+    if (method === "getMe") return ok({ id: 42, is_bot: true, username: "FengSuiBot" });
     if (method === "getUpdates") {
       if (opts.failPolls) throw new TypeError("fetch failed");
       if (opts.rateLimitPolls) {
@@ -90,7 +91,15 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
 }
 
 function createBotFixture(
-  opts: { smsEnabled?: boolean; vcf?: string; updates?: TelegramUpdate[][]; failPolls?: boolean; sendDelayMs?: number; rateLimitPolls?: number } = {}
+  opts: {
+    smsEnabled?: boolean;
+    vcf?: string;
+    updates?: TelegramUpdate[][];
+    failPolls?: boolean;
+    sendDelayMs?: number;
+    rateLimitPolls?: number;
+    linkSecret?: TelegramBotOptions["linkSecret"];
+  } = {}
 ) {
   const mock = createMockSmsCpe({
     messages: [
@@ -126,6 +135,7 @@ function createBotFixture(
     state,
     sms: opts.smsEnabled === false ? null : service,
     authToken: "dashboard_api_token",
+    ...(opts.linkSecret ? { linkSecret: opts.linkSecret } : {}),
     allowedChatIds: ["1001"],
     locale: "en",
     now: () => clock,
@@ -135,8 +145,11 @@ function createBotFixture(
   const message = (chatId: number, text: string, extra: Partial<NonNullable<TelegramUpdate["message"]>> = {}) =>
     // Telegram gives private chats positive IDs and groups negative ones
     bot.handleUpdate({ update_id: ++updateId, message: { message_id: 500 + updateId, chat: { id: chatId, type: chatId > 0 ? "private" : "group" }, text, ...extra } });
-  const callback = (chatId: number, data: string, messageId = 777) =>
-    bot.handleUpdate({ update_id: ++updateId, callback_query: { id: `cb${updateId}`, data, message: { message_id: messageId, chat: { id: chatId } } } });
+  const callback = (chatId: number, data: string, messageId = 777, fromId?: number) =>
+    bot.handleUpdate({
+      update_id: ++updateId,
+      callback_query: { id: `cb${updateId}`, data, message: { message_id: messageId, chat: { id: chatId } }, ...(fromId !== undefined ? { from: { id: fromId } } : {}) },
+    });
   /** callback_data of the "Send now" button on the card last sent to this chat. */
   const sendButton = (chatId: number): string =>
     tg.buttons(tg.sends(String(chatId)).at(-1)).find((data) => data.startsWith("wizsend:")) ?? "wizsend:missing";
@@ -415,17 +428,110 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
-  it("links only private chats with /auth: a group would open the inbox and controls to every member", async () => {
-    const fx = createBotFixture();
+  it("refuses tokens and private codes in groups, voiding the code, and stays quiet there until linked", async () => {
+    const outcomes: Array<[string, string]> = [];
+    const fx = createBotFixture({
+      linkSecret: (secret, where) => {
+        outcomes.push([secret, where]);
+        return secret === "PRIV-CODE" ? (where === "private" ? "linked" : "private-only") : "invalid";
+      },
+    });
     const deletesBefore = fx.tg.of("deleteMessage").length;
-    await fx.message(-1003, "/auth dashboard_api_token");
-    assert.match(fx.tg.lastText("-1003"), /private chat/);
+    await fx.message(-1003, "/auth PRIV-CODE", { from: { id: 7001 } });
+    assert.match(fx.tg.lastText("-1003"), /Not a group pairing code[\s\S]*now void/);
     assert.equal(fx.state.isAuthorized("-1003", []), false);
-    assert.equal(fx.tg.of("deleteMessage").length, deletesBefore + 1, "still tries to take the token message down");
-    await fx.message(-1003, "/inbox");
+    assert.equal(fx.tg.of("deleteMessage").length, deletesBefore + 1, "still tries to take the message down");
+    assert.deepEqual(outcomes, [["PRIV-CODE", "group"]]);
+
+    // Sent anonymously (as the group) nobody can be named its owner: refused before the code is spent
+    await fx.message(-1003, "/auth GRP-CODE", { sender_chat: { id: -1003 } });
+    assert.match(fx.tg.lastText("-1003"), /Cannot tell who sent/);
+    assert.equal(outcomes.length, 1);
+
+    // Unlinked group: commands get the card, chatter gets nothing
+    const sendsBefore = fx.tg.sends("-1003").length;
+    await fx.message(-1003, "good morning", { from: { id: 7001 } });
+    assert.equal(fx.tg.sends("-1003").length, sendsBefore);
+    await fx.message(-1003, "/inbox", { from: { id: 7001 } });
     assert.match(fx.tg.lastText("-1003"), /not authorized/);
-    await fx.message(2002, "/auth dashboard_api_token");
-    assert.equal(fx.state.isAuthorized("2002", []), true);
+
+    // The default secret (a full token) links private chats only
+    const plain = createBotFixture();
+    await plain.message(-1005, "/auth dashboard_api_token", { from: { id: 7001 } });
+    assert.match(plain.tg.lastText("-1005"), /Not a group pairing code/);
+    assert.equal(plain.state.isAuthorized("-1005", []), false);
+    await plain.message(2002, "/auth dashboard_api_token");
+    assert.equal(plain.state.isAuthorized("2002", []), true);
+    await plain.cleanup();
+    await fx.cleanup();
+  });
+
+  it("links a group with a group code: it posts to that topic, and only the member who linked it acts there", async () => {
+    const fx = createBotFixture({ linkSecret: (secret) => (secret === "GRP-CODE" ? "linked" : "invalid") });
+    const owner = { from: { id: 7001 } };
+    const member = { from: { id: 7002 } };
+    await fx.message(-1003, "/auth GRP-CODE", { ...owner, message_thread_id: 55, is_topic_message: true });
+    assert.match(fx.tg.lastText("-1003"), /Group linked[\s\S]*every member can read them/);
+    assert.equal(fx.state.isAuthorized("-1003", []), true);
+    assert.deepEqual(fx.state.groupLink("-1003"), { userId: "7001", threadId: 55 });
+    assert.equal(fx.tg.sends("-1003").at(-1)?.payload["message_thread_id"], 55);
+
+    const announced: EnrichedSmsMessage[] = [];
+    fx.service.on("sms:new", (m: EnrichedSmsMessage) => announced.push(m));
+    await fx.service.sync("full");
+    await fx.bot.notifySms(announced.find((m) => m.phone === "DemoBank")!);
+    assert.equal(fx.tg.sends("-1003").at(-1)?.payload["message_thread_id"], 55, "notifications go to the linked topic");
+    assert.equal(fx.tg.sends("1001").at(-1)?.payload["message_thread_id"], undefined, "private chats have no topic");
+
+    // Another member can read the group but not act in it
+    const sendsBefore = fx.tg.sends("-1003").length;
+    await fx.message(-1003, "/status", member);
+    await fx.message(-1003, "/new", member);
+    assert.equal(fx.tg.sends("-1003").length, sendsBefore);
+    const uid = fx.service.getThread("alpha:demobank").messages[0]!.uid;
+    await fx.callback(-1003, `del:${uid}`, 777, 7002);
+    assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /Only the person who linked this group/);
+    await fx.callback(-1003, `del:${uid}`, 777);
+    assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /Only the person who linked this group/);
+
+    await fx.message(-1003, "/status", owner);
+    assert.match(fx.tg.lastText("-1003"), /SMS: unread/);
+    await fx.callback(-1003, `del:${uid}`, 777, 7001);
+    assert.ok(fx.tg.buttons(fx.tg.of("editMessageReplyMarkup").at(-1)).some((data) => data.startsWith("delok:")));
+    // Chatter in the group is not answered with the help text, and /reset stays private
+    const quiet = fx.tg.sends("-1003").length;
+    await fx.message(-1003, "lunch?", owner);
+    assert.equal(fx.tg.sends("-1003").length, quiet);
+    await fx.message(-1003, "/reset", owner);
+    assert.match(fx.tg.lastText("-1003"), /private chat/);
+
+    // The group becomes a supergroup: the link follows it to the new ID
+    await fx.message(-1003, "", { migrate_to_chat_id: -1009 });
+    assert.equal(fx.state.isAuthorized("-1003", []), false);
+    assert.deepEqual(fx.state.groupLink("-1009"), { userId: "7001", threadId: 55 });
+    await fx.message(-1009, "", { migrate_from_chat_id: -1003 });
+    assert.equal(fx.state.isAuthorized("-1009", []), true);
+
+    // The link survives a restart, and unlinking all forgets it
+    await fx.state.flush();
+    const reloaded = new TelegramStateStore({ filePath: fx.state.filePath, cipher: StorageCipher.fromSecret("bot_key") });
+    reloaded.load();
+    assert.deepEqual(reloaded.groupLink("-1009"), { userId: "7001", threadId: 55 });
+    fx.bot.unlinkAllChats();
+    assert.equal(fx.state.groupLink("-1009"), null);
+    await fx.cleanup();
+  });
+
+  it("ignores commands addressed to another bot once it knows its own name", async () => {
+    const fx = createBotFixture();
+    await fx.bot.start();
+    assert.equal(fx.bot.username, "FengSuiBot");
+    await fx.message(1001, "/help@OtherBot");
+    await fx.message(1001, "/auth@OtherBot dashboard_api_token");
+    assert.equal(fx.tg.sends("1001").length, 0);
+    assert.equal(fx.tg.of("deleteMessage").length, 0, "another bot's /auth is not ours to delete");
+    await fx.message(1001, "/help@fengsuibot");
+    assert.match(fx.tg.lastText("1001"), /assistant/);
     await fx.cleanup();
   });
 

@@ -195,9 +195,13 @@ export class DemoConsole {
     return { ok: true, record: revoked };
   }
 
-  pairingCode(): PairingCodeResponse {
-    this.record("telegram.pairing-code", "applied", null);
-    return { ok: true, code: `${this.#chars(CODE_ALPHABET, 4)}-${this.#chars(CODE_ALPHABET, 4)}`, expiresInSec: PAIRING_CODE_SEC };
+  /** The demo has no bot to name, so a group code's command is the plain `/auth CODE`. */
+  pairingCode(body: Body): PairingCodeResponse {
+    const group = body["group"] ?? false;
+    if (typeof group !== "boolean") throw new CpeControlValidationError('"group" must be true or false');
+    this.record("telegram.pairing-code", "applied", group ? "group" : null);
+    const code = `${this.#chars(CODE_ALPHABET, 4)}-${this.#chars(CODE_ALPHABET, 4)}`;
+    return { ok: true, code, expiresInSec: PAIRING_CODE_SEC, group, command: `/auth ${code}` };
   }
 
   /** The demo has no bot, so no chat was ever linked. */

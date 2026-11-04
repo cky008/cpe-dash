@@ -97,7 +97,7 @@ export function createEndpoints(api: ApiClient) {
     tokens: () => api.get<TokensResponse>("/api/console/tokens"),
     createToken: (body: { name: string; scope: "full" | "read"; lifetimeDays: number | null }) => api.post<CreateTokenResponse>("/api/console/tokens", body),
     revokeToken: (id: string) => api.post<RevokeTokenResponse>("/api/console/tokens/revoke", { id }),
-    pairingCode: () => api.post<PairingCodeResponse>("/api/console/telegram/pairing-code"),
+    pairingCode: (group: boolean) => api.post<PairingCodeResponse>("/api/console/telegram/pairing-code", { group }),
     unlinkTelegram: () => api.post<{ ok: true; unlinked: number }>("/api/console/telegram/unlink-all"),
     consoleSwitches: (body: { telegramReset?: boolean; metricsEnabled?: boolean | null }) => api.post<ConsoleSettingsResponse>("/api/console/switches", body),
     audit: (limit = 200) => api.get<AuditResponse>(`/api/audit?limit=${limit}`),

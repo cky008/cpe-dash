@@ -1,8 +1,8 @@
-import type { ApiErrorEnvelope, ConsoleSettingsResponse, DeviceReportResponse, ExperimentalWritesResponse } from "./api-contract.ts";
+import type { ApiErrorEnvelope, ConsoleSettingsResponse, DeviceReportResponse, ExperimentalWritesResponse, PairingCodeResponse } from "./api-contract.ts";
 import type { AuditLog } from "./audit-log.ts";
 import { normalizeCpeUrl } from "./config.ts";
 import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
-import type { ConsoleSettings } from "./console-settings.ts";
+import { type ConsoleSettings, PAIRING_CODE_TTL_MS } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
 import type { ExperimentalFeature } from "./device-profile.ts";
@@ -26,10 +26,17 @@ export interface SettingsRoutesOptions {
   disconnectToken: (tokenId: string) => void;
   /** Unlink every chat linked with /auth; resolves how many. */
   unlinkTelegram: () => number;
+  /** The bot's @username once known (`/auth@bot CODE` reaches it in a group with other bots). */
+  telegramUsername?: () => string | null;
   /** Keep a device probe a connection test made of the router in use (or of the one just saved). */
   onDeviceProbe?: (probe: DeviceProbeResult) => void;
   /** Build the desensitized device report (structure only, second pass through src/sanitize.ts). */
   deviceReport?: () => DeviceReport;
+}
+
+/** What to send the bot: a group code names the bot, so a group with other bots routes it here (privacy mode delivers it). */
+export function pairingCommand(code: string, botUsername: string | null): string {
+  return botUsername ? `/auth@${botUsername} ${code}` : `/auth ${code}`;
 }
 
 function text(body: Record<string, unknown>, key: string, max: number): string | undefined {
@@ -170,9 +177,12 @@ export class SettingsHttpRoutes {
           ctx.sendJson(409, { ok: false, errorCode: "TELEGRAM_DISABLED", message: "Set TELEGRAM_BOT_TOKEN first" });
           return true;
         }
-        const code = settings.issueCode("pair");
-        audit?.record({ action: "telegram.pairing-code", outcome: "applied" });
-        ctx.sendJson(200, { ok: true, code, expiresInSec: 600 });
+        const body = await ctx.readJsonBody();
+        const group = body["group"] ?? false;
+        if (typeof group !== "boolean") throw new CpeControlValidationError('"group" must be true or false');
+        const code = settings.issueCode(group ? "pair-group" : "pair");
+        audit?.record({ action: "telegram.pairing-code", outcome: "applied", detail: group ? "group" : null });
+        ctx.sendJson(200, { ok: true, code, expiresInSec: PAIRING_CODE_TTL_MS / 1000, group, command: pairingCommand(code, group ? (this.#opts.telegramUsername?.() ?? null) : null) } satisfies PairingCodeResponse);
         return true;
       }
       case "/api/console/telegram/unlink-all": {

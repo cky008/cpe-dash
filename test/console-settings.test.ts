@@ -166,6 +166,33 @@ describe("console settings store", () => {
     }
   });
 
+  it("links Telegram chats: a group only with a group code, which a private code or a token seen there never is", () => {
+    const fx = fixture();
+    try {
+      const settings = fx.open();
+      settings.importFromEnv(ENV);
+      const group = settings.issueCode("pair-group");
+      assert.equal(settings.consumeCode("pair", group), false, "a group code is its own kind");
+      assert.equal(settings.linkTelegramChat(group, "group"), "linked");
+      assert.equal(settings.linkTelegramChat(group, "group"), "invalid", "spent");
+      assert.equal(settings.linkTelegramChat(settings.issueCode("pair-group"), "private"), "linked", "a group code also links a private chat");
+
+      // A private code shown to a group is spent there: a member who copied it cannot use it in a private chat
+      const shown = settings.issueCode("pair");
+      assert.equal(settings.linkTelegramChat(shown, "group"), "private-only");
+      assert.equal(settings.linkTelegramChat(shown, "private"), "invalid");
+      assert.equal(settings.linkTelegramChat(settings.issueCode("pair"), "private"), "linked");
+
+      assert.equal(settings.linkTelegramChat(ENV.apiToken, "group"), "private-only");
+      assert.equal(settings.linkTelegramChat(ENV.apiToken, "private"), "linked");
+      assert.equal(settings.linkTelegramChat(ENV.apiTokenReadonly, "private"), "invalid", "a read-only token links nothing");
+      assert.equal(settings.linkTelegramChat(settings.issueCode("reset"), "private"), "invalid");
+      assert.equal(settings.linkTelegramChat("WRNG-CODE", "group"), "invalid");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
   it("hashes logins with scrypt and never matches a malformed hash", async () => {
     const encoded = await hashLogin("pw", FAST);
     assert.match(encoded, /^scrypt\$1024\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/);

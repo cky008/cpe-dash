@@ -1,4 +1,4 @@
-import type { ConsoleSettingsResponse, DeviceProfileResponse, DeviceReport, EndpointState, ExperimentalWritesResponse, WriteFeature } from "../../../src/api-contract.ts";
+import type { ConsoleSettingsResponse, DeviceProfileResponse, DeviceReport, EndpointState, ExperimentalWritesResponse, PairingCodeResponse, WriteFeature } from "../../../src/api-contract.ts";
 import type { AuditEntry } from "../../../src/audit-log.ts";
 import { TOKEN_LIFETIMES_DAYS } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
@@ -107,7 +107,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   let lastResult: ConnectionTestResult | null = null;
   let testing = false;
   let minted: string | null = null;
-  let pairing: string | null = null;
+  let pairing: PairingCodeResponse | null = null;
   let tokens: PublicTokenRecord[] | null = null;
   let audit: AuditEntry[] | null = null;
   let device: DeviceProfileResponse | null = null;
@@ -637,21 +637,19 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   // ---------------------------------------------------------------- telegram
   const telegramTab = (): HTMLElement => {
     if (!summary?.telegram.configured) return notice(t("telegram_off"));
-    const command = pairing ? `/auth ${pairing}` : null;
-    const create = button(
-      t("pairing_create"),
-      "btn-primary",
-      () => {
-        void ctx.api
-          .pairingCode()
-          .then((res) => {
-            pairing = res.code;
-            render();
-          })
-          .catch(fail);
-      },
-      "key"
-    );
+    const issue = (group: boolean): Promise<void> =>
+      ctx.api.pairingCode(group).then((res) => {
+        pairing = res;
+        render();
+      });
+    const create = button(t("pairing_create"), "btn-primary", () => void issue(false).catch(fail), "key");
+    // Everyone in the group reads what the bot posts there, so a group code is asked for on purpose
+    const createGroup = button(t("pairing_group_create"), "btn-ghost", () => {
+      void ctx
+        .confirm({ title: t("pairing_group_title"), body: [t("pairing_group_body"), t("pairing_group_owner"), t("pairing_group_admin")], confirmLabel: t("pairing_group_create"), tone: "warning" })
+        .then((yes) => (yes ? issue(true) : undefined))
+        .catch(fail);
+    }, "contacts");
     const unlink = button(t("unlink_all"), "btn-ghost text-error", () => {
       void ctx
         .confirm({ title: t("unlink_title"), body: [t("unlink_body")], confirmLabel: t("unlink_all"), tone: "error" })
@@ -666,15 +664,15 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       "div",
       { class: "space-y-3" },
       h("p", { class: "muted" }, t("telegram_intro")),
-      command
+      pairing
         ? h(
             "div",
             { class: "rounded-xl bg-base-200/60 p-3 space-y-1" },
-            h("div", { class: "text-xs muted" }, t("pairing_send")),
-            h("div", { class: "flex items-center gap-2" }, h("code", { class: "font-mono text-lg tracking-wider flex-1" }, command), copyButton(command))
+            h("div", { class: "text-xs muted" }, t(pairing.group ? "pairing_group_send" : "pairing_send")),
+            h("div", { class: "flex items-center gap-2" }, h("code", { class: "font-mono text-lg tracking-wider flex-1 break-all" }, pairing.command), copyButton(pairing.command))
           )
         : null,
-      h("div", { class: "flex flex-wrap gap-2 justify-between" }, create, unlink)
+      h("div", { class: "flex flex-wrap gap-2 justify-between" }, h("div", { class: "flex flex-wrap gap-2" }, create, createGroup), unlink)
     );
   };
 

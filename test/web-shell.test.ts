@@ -195,7 +195,7 @@ describe("web core: endpoint table", () => {
       tokens: ["GET", "/api/console/tokens"],
       createToken: ["POST", "/api/console/tokens", { name: "Grafana", scope: "read", lifetimeDays: null }],
       revokeToken: ["POST", "/api/console/tokens/revoke", { id: "t1" }],
-      pairingCode: ["POST", "/api/console/telegram/pairing-code", {}],
+      pairingCode: ["POST", "/api/console/telegram/pairing-code", { group: true }],
       unlinkTelegram: ["POST", "/api/console/telegram/unlink-all", {}],
       consoleSwitches: ["POST", "/api/console/switches", { metricsEnabled: null }],
       audit: ["GET", "/api/audit?limit=200"],
@@ -257,7 +257,7 @@ describe("web core: endpoint table", () => {
     await ep.tokens();
     await ep.createToken({ name: "Grafana", scope: "read", lifetimeDays: null });
     await ep.revokeToken("t1");
-    await ep.pairingCode();
+    await ep.pairingCode(true);
     await ep.unlinkTelegram();
     await ep.consoleSwitches({ metricsEnabled: null });
     await ep.audit();

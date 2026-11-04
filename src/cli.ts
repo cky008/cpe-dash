@@ -327,7 +327,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       state: telegramState,
       sms,
       authToken: "",
-      linkSecret: (secret) => settings.consumeCode("pair", secret) || settings.resolveBearer(secret)?.scope === "full",
+      linkSecret: (secret, where) => settings.linkTelegramChat(secret, where),
       issueResetCode: () => (settings.telegramReset ? settings.issueCode("reset") : null),
       allowedChatIds: config.telegramChatIds,
       locale: config.defaultLocale,
@@ -424,6 +424,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     settings,
     audit,
     unlinkTelegram: telegramBot ? () => telegramBot?.unlinkAllChats() ?? 0 : null,
+    telegramUsername: () => telegramBot?.username ?? null,
     onConnectionReady: () => {
       if (!awaitingSetup) return;
       awaitingSetup = false;
