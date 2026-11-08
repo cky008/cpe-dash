@@ -65,6 +65,33 @@ const SORTED_BY_CODE_LEN = [...COUNTRY_DIAL_CODES].sort((a, b) => b.code.length 
 const BY_CODE_MAP = new Map<string, CountryDialInfo>(COUNTRY_DIAL_CODES.map((c) => [c.code, c]));
 const ALPHA_SENDER_RE = /[A-Za-z一-龥]/;
 
+/**
+ * National formats that `dropTrunkZero` cannot express (each country's national numbering plan):
+ * - `trunk`: the prefix dialled before a national number when it is not "0": 8 in Russia and Kazakhstan, removed
+ *   only in front of the 10-digit national number (area codes such as 812 begin with 8 too), and 06 in Hungary;
+ * - `nationalMax`: the longest national number where one can begin with the country's own digits (Italian mobiles
+ *   39x, Polish numbers 48x, Kazakh numbers 7xx); only a longer number reads as one typed with the code but no `+`.
+ */
+const NATIONAL_FORMATS: Readonly<Record<string, { trunk?: string; trunkBefore?: number; nationalMax?: number }>> = {
+  "+7": { trunk: "8", trunkBefore: 10, nationalMax: 10 },
+  "+36": { trunk: "06" },
+  "+39": { nationalMax: 10 },
+  "+48": { nationalMax: 9 },
+};
+
+/**
+ * `digits` (a number typed without `+` or `00`) as a national number of the country `code`, trunk prefix removed;
+ * `null` when it already begins with the country code (a number pasted without its `+`).
+ */
+function nationalNumber(digits: string, code: string, dropTrunkZero: boolean): string | null {
+  const format = Object.hasOwn(NATIONAL_FORMATS, code) ? NATIONAL_FORMATS[code] : undefined;
+  const bareCode = code.slice(1);
+  if (digits.startsWith(bareCode) && digits.length > (format?.nationalMax ?? bareCode.length + 6)) return null;
+  const trunk = format?.trunk ?? (dropTrunkZero ? "0" : "");
+  const fits = format?.trunkBefore === undefined || digits.length === trunk.length + format.trunkBefore;
+  return trunk && fits && digits.startsWith(trunk) ? digits.slice(trunk.length) : digits;
+}
+
 export function getCountryByDialCode(dialCode: string): CountryDialInfo | null {
   const normalized = dialCode.startsWith("+") ? dialCode : `+${dialCode}`;
   return BY_CODE_MAP.get(normalized) ?? null;
@@ -253,11 +280,10 @@ export function parseSenderInfo(rawPhone: string, smsContent = "", defaultCountr
 
   const defCountry = getCountryByDialCode(defaultCountryCode);
   if (/^\d{7,15}$/.test(cleaned) && defCountry) {
-    const bareCode = defCountry.code.slice(1);
-    if (cleaned.startsWith(bareCode) && cleaned.length >= bareCode.length + 7) {
+    const national = nationalNumber(cleaned, defCountry.code, defCountry.dropTrunkZero);
+    if (national === null) {
       return senderFromCountry("international", raw, `+${cleaned}`, defCountry, brandHint);
     }
-    const national = defCountry.dropTrunkZero && cleaned.startsWith("0") ? cleaned.slice(1) : cleaned;
     const e164 = `${defCountry.code}${national}`;
     return senderFromCountry("national", raw, e164, defCountry, brandHint, `${e164} (${cleaned})`);
   }
@@ -329,13 +355,7 @@ export function resolveRecipientPhone(rawInput: string, selectedCountryCode = "+
   }
   const country = getCountryByDialCode(selectedCountryCode);
   const code = country?.code ?? (selectedCountryCode.startsWith("+") ? selectedCountryCode : `+${selectedCountryCode}`);
-  const bareCode = code.slice(1);
-  const national =
-    cleaned.startsWith(bareCode) && cleaned.length >= bareCode.length + 7
-      ? cleaned.slice(bareCode.length)
-      : (country?.dropTrunkZero ?? true) && cleaned.startsWith("0")
-        ? cleaned.slice(1)
-        : cleaned;
+  const national = nationalNumber(cleaned, code, country?.dropTrunkZero ?? true) ?? cleaned.slice(code.length - 1);
   const e164 = `${code}${national}`;
   if (!/^\+\d{7,18}$/.test(e164)) {
     return { ok: false, error: `Combined number has an invalid length (${e164})` };

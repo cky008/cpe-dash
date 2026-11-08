@@ -162,6 +162,38 @@ describe("Phone directory, sender classification, recipient resolution and threa
     assert.equal(parseSenderInfo("0830000001", "", "").e164, "0830000001", "a national sender stays as it came");
   });
 
+  it("completes national numbers in each country's own format: trunk prefixes other than 0, national numbers that begin with the country's digits", () => {
+    // Built at run time: full international numbers outside the reserved test ranges never appear as literals
+    const intl = (code: string, national: string): string => `+${code}${national}`;
+    const to = (input: string, country: string): string => {
+      const r = resolveRecipientPhone(input, country);
+      return r.ok ? r.phone : `refused: ${r.error}`;
+    };
+    // No trunk prefix, so a national number may begin with the country's digits (Italian mobiles 39x, Radom 48x)
+    assert.equal(to("3900000001", "+39"), intl("39", "3900000001"));
+    assert.equal(to("393900000001", "+39"), intl("39", "3900000001"), "typed with the country code but without +");
+    assert.equal(to("480000001", "+48"), intl("48", "480000001"));
+    assert.equal(to("48480000001", "+48"), intl("48", "480000001"));
+    // Russia and Kazakhstan dial 8 before the 10-digit national number (Kazakh numbers begin with 7); Hungary dials 06
+    assert.equal(to("89000000001", "+7"), intl("7", "9000000001"));
+    assert.equal(to("9000000001", "+7"), intl("7", "9000000001"));
+    assert.equal(to("8120000001", "+7"), intl("7", "8120000001"), "10 digits beginning with 8: an area code, not the trunk");
+    assert.equal(to("7010000001", "+7"), intl("7", "7010000001"), "a Kazakh national number");
+    assert.equal(to("77010000001", "+7"), intl("7", "7010000001"));
+    assert.equal(to("06300000001", "+36"), intl("36", "300000001"));
+    assert.equal(to("300000001", "+36"), intl("36", "300000001"));
+    // Unchanged elsewhere
+    assert.equal(to("0830000001", "+353"), "+353830000001");
+    assert.equal(to("12025550123", "+1"), intl("1", "2025550123"));
+    assert.equal(to("2025550123", "+1"), intl("1", "2025550123"));
+    assert.equal(to("4790000001", "+47"), intl("47", "90000001"), "Norway's 8-digit numbers: 10 digits beginning with 47 carry the code");
+    // Senders that arrive in national format follow the same rules
+    assert.equal(parseSenderInfo("3900000001", "", "+39").e164, intl("39", "3900000001"));
+    assert.equal(parseSenderInfo("89000000001", "", "+7").e164, intl("7", "9000000001"));
+    assert.equal(parseSenderInfo("06300000001", "", "+36").e164, intl("36", "300000001"));
+    assert.equal(parseSenderInfo("353830000001", "", "+353").e164, "+353830000001");
+  });
+
   it("exposes a 54-country dial table with bilingual names and longest-prefix E.164 matching", () => {
     assert.equal(COUNTRY_DIAL_CODES.length, 54);
     assert.ok(COUNTRY_DIAL_CODES.every((c) => c.nameZh && c.nameEn && c.code.startsWith("+")));
