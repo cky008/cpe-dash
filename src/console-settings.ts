@@ -106,6 +106,12 @@ export type OneTimeCodeKind = "setup" | "reset" | "pair" | "pair-group";
 /** What `/auth <secret>` does: link the chat, refuse it (a private-chat secret sent to a group), or fail. */
 export type TelegramLinkOutcome = "linked" | "private-only" | "invalid";
 
+/** `/auth`'s outcome and the token that linked the chat (`null` for a pairing code): revoking that token unlinks it. */
+export interface TelegramLinkDecision {
+  outcome: TelegramLinkOutcome;
+  tokenId: string | null;
+}
+
 export interface ScryptCost {
   N: number;
   r: number;
@@ -436,17 +442,22 @@ export class ConsoleSettings {
    * off whatever else uses it, stays the owner's call).
    */
   linkTelegramChat(secret: string, where: "private" | "group"): TelegramLinkOutcome {
-    if (this.consumeCode("pair-group", secret)) return "linked";
-    if (this.consumeCode("pair", secret)) return where === "private" ? "linked" : "private-only";
+    return this.decideTelegramLink(secret, where).outcome;
+  }
+
+  /** `linkTelegramChat`, naming the token that linked the chat so revoking it can unlink the chat too. */
+  decideTelegramLink(secret: string, where: "private" | "group"): TelegramLinkDecision {
+    if (this.consumeCode("pair-group", secret)) return { outcome: "linked", tokenId: null };
+    if (this.consumeCode("pair", secret)) return { outcome: where === "private" ? "linked" : "private-only", tokenId: null };
     const identity = this.resolveBearer(secret);
     const record = identity?.scope === "full" ? this.#state.tokens.find((t) => t.id === identity.tokenId) : undefined;
-    if (!record) return "invalid";
+    if (!record) return { outcome: "invalid", tokenId: null };
     if (where === "group") {
       record.telegramExposedAtIso ??= new Date(this.#now()).toISOString();
       this.#save();
-      return "private-only";
+      return { outcome: "private-only", tokenId: null };
     }
-    return record.telegramExposedAtIso === undefined ? "linked" : "invalid";
+    return record.telegramExposedAtIso === undefined ? { outcome: "linked", tokenId: record.id } : { outcome: "invalid", tokenId: null };
   }
 
   /** Spend a code of `kind`: `true` once, for an unexpired match. */

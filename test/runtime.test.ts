@@ -231,7 +231,17 @@ describe("createFengSuiRuntime", () => {
       assert.equal(bot.state.isAuthorized("4004", bot.allowedChatIds), true);
       await bot.handleUpdate({ update_id: 4, message: { message_id: 13, chat: { id: 5005, type: "private" }, text: `/auth ${code}` } });
       assert.equal(bot.state.isAuthorized("5005", bot.allowedChatIds), false, "spent");
-      assert.equal(bot.unlinkAllChats(), 3);
+      // Revoking the token in the console unlinks the chat it linked, not the one a code linked
+      const base = `http://${bound.host}:${bound.port}`;
+      const consoleHeaders = { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base };
+      const signIn = await fetch(`${base}/api/auth/login`, { method: "POST", headers: consoleHeaders, body: JSON.stringify({ password: "runtime_api_token_v1" }) });
+      const cookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(signIn.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
+      const imported = stack.settings.listTokens().find((t) => t.name === "API_TOKEN (.env)");
+      const revoke = await fetch(`${base}/api/console/tokens/revoke`, { method: "POST", headers: { ...consoleHeaders, Cookie: cookie }, body: JSON.stringify({ id: imported?.id }) });
+      assert.equal(revoke.status, 200);
+      assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), false, "the revoked token's chat");
+      assert.equal(bot.state.isAuthorized("4004", bot.allowedChatIds), true, "the pairing code's chat");
+      assert.equal(bot.unlinkAllChats(), 2);
       assert.equal(bot.state.isAuthorized("1001", bot.allowedChatIds), true, "TELEGRAM_CHAT_IDS stay authorized");
       // /reset in a linked private chat answers with a one-time console reset code, unless turned off
       await bot.handleUpdate({ update_id: 5, message: { message_id: 14, chat: { id: 1001, type: "private" }, text: "/reset" } });

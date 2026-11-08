@@ -962,7 +962,7 @@ export interface AccessControlChangeResponse {
 | `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD` |
 | `GET /api/console/tokens` | — | `{ ok: true, tokens: PublicTokenRecord[] }`（不含哈希；完整权限令牌曾在 Telegram 群组里用 `/auth` 发出时带 `telegramExposedAtIso`：群成员都看到了它，它从此不能再绑定任何聊天，仍可作令牌使用，控制台提示撤销） |
 | `POST /api/console/tokens` | `{ name, scope: "full" \| "read", lifetimeDays: 1 \| 7 \| 30 \| 90 \| 365 \| null }` | `{ ok: true, token, record }`，`token` 只返回这一次；上限 50 个 |
-| `POST /api/console/tokens/revoke` | `{ id }` | `{ ok: true, record }`，并断开该令牌的 SSE；不存在 `404` |
+| `POST /api/console/tokens/revoke` | `{ id }` | `{ ok: true, record }`，并断开该令牌的 SSE、解绑用它经 `/auth` 绑定的 Telegram 聊天（审计 `detail` 注明解绑了几个）；不存在 `404` |
 | `POST /api/console/telegram/pairing-code` | `{ group?: boolean }` | `{ ok: true, code, expiresInSec: 600, group, command }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；`group: true` 生成群组绑定码（也可用于私聊），`command` 为要发送的原文（已知机器人用户名时为 `/auth@<bot> <code>`）；审计 `detail` 为 `group`；`group` 非布尔 `400`；未配置机器人 `409 TELEGRAM_DISABLED` |
 | `POST /api/console/telegram/unlink-all` | `{}` | `{ ok: true, unlinked }`（`TELEGRAM_CHAT_IDS` 中的聊天不受影响） |
 | `POST /api/console/switches` | `{ telegramReset?: boolean, metricsEnabled?: boolean \| null }`（`null` = 跟随 `.env`） | `ConsoleSettingsResponse` |

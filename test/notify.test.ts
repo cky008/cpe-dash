@@ -522,6 +522,41 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("unlinks the chats a token linked when that token is revoked, and only those", async () => {
+    const fx = createBotFixture({
+      linkSecret: (secret, where) =>
+        secret === "fsk_phone_token"
+          ? { outcome: where === "private" ? "linked" : "private-only", tokenId: "tok-phone" }
+          : secret === "PAIR-CODE"
+            ? "linked"
+            : "invalid",
+    });
+    await fx.message(2001, "/auth fsk_phone_token");
+    await fx.message(2002, "/auth PAIR-CODE");
+    assert.equal(fx.state.isAuthorized("2001", []), true);
+    assert.equal(fx.state.isAuthorized("2002", []), true);
+
+    // Which token linked a chat survives a restart
+    await fx.state.flush();
+    const reloaded = new TelegramStateStore({ filePath: fx.state.filePath, cipher: StorageCipher.fromSecret("bot_key") });
+    reloaded.load();
+    assert.equal(reloaded.revokeLinkedVia("tok-phone"), 1);
+    assert.equal(reloaded.isAuthorized("2001", []), false);
+    assert.equal(reloaded.isAuthorized("2002", []), true);
+
+    assert.equal(fx.bot.unlinkChatsLinkedBy("tok-other"), 0);
+    assert.equal(fx.bot.unlinkChatsLinkedBy("tok-phone"), 1);
+    assert.equal(fx.state.isAuthorized("2001", []), false, "the chat the revoked token linked");
+    assert.equal(fx.state.isAuthorized("2002", []), true, "a chat linked with a pairing code stays");
+    assert.equal(fx.state.isAuthorized("1001", fx.bot.allowedChatIds), true, "TELEGRAM_CHAT_IDS stay");
+    assert.equal(fx.bot.unlinkChatsLinkedBy("tok-phone"), 0);
+    // Linked again with a pairing code, the chat no longer follows the token
+    await fx.message(2001, "/auth PAIR-CODE");
+    assert.equal(fx.bot.unlinkChatsLinkedBy("tok-phone"), 0);
+    assert.equal(fx.state.isAuthorized("2001", []), true);
+    await fx.cleanup();
+  });
+
   it("ignores commands addressed to another bot once it knows its own name", async () => {
     const fx = createBotFixture();
     await fx.bot.start();

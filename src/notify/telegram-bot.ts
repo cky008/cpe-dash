@@ -11,7 +11,7 @@ import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
 import type { EnrichedSmsMessage } from "../sms/types.ts";
-import type { TelegramLinkOutcome } from "../console-settings.ts";
+import type { TelegramLinkDecision, TelegramLinkOutcome } from "../console-settings.ts";
 import type { AlertEventRecord } from "../state-store.ts";
 import type { SupportedLocale } from "../types.ts";
 import type { NotificationChannel } from "./hub.ts";
@@ -348,6 +348,8 @@ interface PersistedTelegramState {
   authorizedChatIds: string[];
   /** Absent before group linking existed; such a file has none. */
   groupLinks?: Array<[string, TelegramGroupLink]>;
+  /** Chats a full-access token linked, with the token's ID: revoking it unlinks them. Absent in older files. */
+  linkedVia?: Array<[string, string]>;
   replyTargets: Array<[string, string]>;
   alertsMutedUntilMs: number | null;
 }
@@ -366,6 +368,8 @@ export class TelegramStateStore {
   #writer: AtomicFileWriter;
   #authorized = new Set<string>();
   #groupLinks = new Map<string, TelegramGroupLink>();
+  /** Chat ID → the ID of the token that linked it (chats a pairing code linked are absent). */
+  #linkedVia = new Map<string, string>();
   #replyTargets = new Map<string, string>();
   #mutedUntilMs: number | null = null;
 
@@ -385,6 +389,11 @@ export class TelegramStateStore {
         .filter(([chatId]) => this.#authorized.has(chatId))
         .map(([chatId, link]) => [chatId, { userId: link.userId, threadId: link.threadId }])
     );
+    this.#linkedVia = new Map(
+      (Array.isArray(parsed?.linkedVia) ? parsed.linkedVia : []).filter(
+        (e): e is [string, string] => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string" && e[1] !== "" && this.#authorized.has(e[0])
+      )
+    );
     this.#replyTargets = new Map(
       (parsed?.replyTargets ?? []).filter(
         (e): e is [string, string] => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string"
@@ -398,6 +407,7 @@ export class TelegramStateStore {
       version: 1,
       authorizedChatIds: [...this.#authorized],
       groupLinks: [...this.#groupLinks],
+      linkedVia: [...this.#linkedVia],
       replyTargets: [...this.#replyTargets],
       alertsMutedUntilMs: this.#mutedUntilMs,
     };
@@ -416,11 +426,16 @@ export class TelegramStateStore {
     return [...new Set([...envIds, ...this.#authorized])];
   }
 
-  /** Link a chat; a group links with who linked it (only they may act there) and its forum topic. */
-  authorize(chatId: string, group?: TelegramGroupLink): void {
+  /**
+   * Link a chat; a group links with who linked it (only they may act there) and its forum topic.
+   * `viaTokenId` names the full-access token `/auth` used, so revoking that token unlinks the chat.
+   */
+  authorize(chatId: string, group?: TelegramGroupLink, viaTokenId: string | null = null): void {
     this.#authorized.add(chatId);
     if (group) this.#groupLinks.set(chatId, { userId: group.userId, threadId: group.threadId });
     else this.#groupLinks.delete(chatId);
+    if (viaTokenId) this.#linkedVia.set(chatId, viaTokenId);
+    else this.#linkedVia.delete(chatId);
     this.#commit();
   }
 
@@ -437,6 +452,9 @@ export class TelegramStateStore {
     const link = this.#groupLinks.get(from);
     this.#groupLinks.delete(from);
     if (link) this.#groupLinks.set(to, link);
+    const via = this.#linkedVia.get(from);
+    this.#linkedVia.delete(from);
+    if (via) this.#linkedVia.set(to, via);
     this.#commit();
     return true;
   }
@@ -447,8 +465,21 @@ export class TelegramStateStore {
     if (count === 0) return 0;
     this.#authorized.clear();
     this.#groupLinks.clear();
+    this.#linkedVia.clear();
     this.#commit();
     return count;
+  }
+
+  /** Unlink the chats the token `tokenId` linked (it was revoked); returns how many. */
+  revokeLinkedVia(tokenId: string): number {
+    const chats = [...this.#linkedVia].filter(([, via]) => via === tokenId).map(([chatId]) => chatId);
+    for (const chatId of chats) {
+      this.#authorized.delete(chatId);
+      this.#groupLinks.delete(chatId);
+      this.#linkedVia.delete(chatId);
+    }
+    if (chats.length > 0) this.#commit();
+    return chats.length;
   }
 
   bindReply(chatId: string, messageId: number, phone: string): void {
@@ -506,7 +537,7 @@ export interface TelegramBotOptions {
    * Decide an `/auth` secret sent in a private chat or a group: a one-time pairing code from the
    * console (a group needs a group code), or a full-access token (private chats only).
    */
-  linkSecret?: (secret: string, where: "private" | "group") => TelegramLinkOutcome;
+  linkSecret?: (secret: string, where: "private" | "group") => TelegramLinkOutcome | TelegramLinkDecision;
   /** A console password reset code for `/reset`, or `null` when Telegram reset is turned off. */
   issueResetCode?: () => string | null;
   allowedChatIds?: ReadonlyArray<string>;
@@ -535,7 +566,7 @@ export class TelegramBot implements NotificationChannel {
   readonly defaultCountryCode: string;
   readonly allowedChatIds: ReadonlyArray<string>;
   #authToken: string;
-  readonly #linkSecret: ((secret: string, where: "private" | "group") => TelegramLinkOutcome) | null;
+  readonly #linkSecret: ((secret: string, where: "private" | "group") => TelegramLinkOutcome | TelegramLinkDecision) | null;
   /** The bot's own @username (from getMe), to tell commands meant for another bot in a group apart. */
   #username: string | null = null;
   /** getMe answered once (with or without a usable name): no need to ask again. */
@@ -651,6 +682,13 @@ export class TelegramBot implements NotificationChannel {
   unlinkAllChats(): number {
     const revoked = this.state.revokeAll();
     if (revoked > 0) this.#log(`[telegram] unlinked ${revoked} chat(s) from the console`);
+    return revoked;
+  }
+
+  /** A full-access token was revoked: unlink the chats it linked with /auth; returns how many. */
+  unlinkChatsLinkedBy(tokenId: string): number {
+    const revoked = this.state.revokeLinkedVia(tokenId);
+    if (revoked > 0) this.#log(`[telegram] unlinked ${revoked} chat(s) linked with a revoked token`);
     return revoked;
   }
 
@@ -1116,15 +1154,16 @@ export class TelegramBot implements NotificationChannel {
     // A group is linked to the member who sent /auth, so an anonymous sender cannot link one (checked before the code is spent)
     const userId = String(msg.from?.id ?? "");
     if (where === "group" && (!userId || msg.sender_chat !== undefined)) return await answer("auth_group_sender");
-    const outcome = this.#decideSecret(secret, where);
+    const { outcome, tokenId } = this.#decideSecret(secret, where);
     if (outcome === "linked") {
       this.#authFailures.delete(chatId);
       if (where === "private") {
-        this.state.authorize(chatId);
+        // Linked with a token: revoking that token unlinks this chat again
+        this.state.authorize(chatId, undefined, tokenId);
         await this.#send(chatId, this.#tx("auth_ok"));
       } else {
         // Notifications go to the forum topic /auth was sent in (none: the group itself, or its General topic)
-        this.state.authorize(chatId, { userId, threadId: topic });
+        this.state.authorize(chatId, { userId, threadId: topic }, tokenId);
         await this.#send(chatId, this.#tx("auth_group_ok"));
       }
       return;
@@ -1137,10 +1176,13 @@ export class TelegramBot implements NotificationChannel {
     await answer("auth_bad");
   }
 
-  #decideSecret(secret: string, where: "private" | "group"): TelegramLinkOutcome {
-    if (this.#linkSecret) return this.#linkSecret(secret, where);
-    if (!this.#authToken || !timingSafeEqualString(secret, this.#authToken)) return "invalid";
-    return where === "private" ? "linked" : "private-only";
+  #decideSecret(secret: string, where: "private" | "group"): TelegramLinkDecision {
+    if (this.#linkSecret) {
+      const decided = this.#linkSecret(secret, where);
+      return typeof decided === "string" ? { outcome: decided, tokenId: null } : decided;
+    }
+    if (!this.#authToken || !timingSafeEqualString(secret, this.#authToken)) return { outcome: "invalid", tokenId: null };
+    return { outcome: where === "private" ? "linked" : "private-only", tokenId: null };
   }
 
   /** A one-time console password reset code, in a linked private chat only, at most 3 an hour. */

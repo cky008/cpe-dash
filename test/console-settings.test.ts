@@ -202,6 +202,8 @@ describe("console settings store", () => {
       const other = settings.createToken({ name: "Phone", scope: "full", lifetimeDays: 7 });
       assert.equal(settings.listTokens().find((t) => t.id === other.record.id)?.telegramExposedAtIso, undefined);
       assert.equal(settings.linkTelegramChat(other.token, "private"), "linked", "other tokens are unaffected");
+      assert.deepEqual(settings.decideTelegramLink(other.token, "private"), { outcome: "linked", tokenId: other.record.id }, "a token link names its token");
+      assert.deepEqual(settings.decideTelegramLink(settings.issueCode("pair"), "private"), { outcome: "linked", tokenId: null }, "a code link names none");
       await settings.flush();
       const reloaded = fx.open();
       reloaded.load();

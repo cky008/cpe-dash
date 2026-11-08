@@ -17,6 +17,7 @@ import { createStrictCpe } from "./helpers/strict-cpe.ts";
 function routesFixture(telegramConfigured: boolean) {
   const cpe = createStrictCpe();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-routes-"));
+  const unlinkedFor: string[] = [];
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "routes_key" }),
@@ -34,6 +35,10 @@ function routesFixture(telegramConfigured: boolean) {
     revokeSessions: () => undefined,
     disconnectToken: () => undefined,
     unlinkTelegram: () => 2,
+    unlinkTelegramToken: (tokenId) => {
+      unlinkedFor.push(tokenId);
+      return 1;
+    },
     telegramUsername: () => "FengSuiBot",
   });
   const call = async (method: string, pathname: string, body: Record<string, unknown> = {}) => {
@@ -49,6 +54,7 @@ function routesFixture(telegramConfigured: boolean) {
     cpe,
     settings,
     call,
+    unlinkedFor,
     cleanup: async () => {
       await stopFengSuiCore(core);
       // Settings saves are queued in the background: removing the dir under one fails with ENOTEMPTY
@@ -97,6 +103,20 @@ describe("console routes", () => {
       assert.equal(saved.status, 200);
       assert.deepEqual((saved.payload["settings"] as { cpe: unknown }).cpe, { url: "http://192.168.8.1", username: "admin", passwordSet: true });
       assert.equal(fx.settings.cpe?.url, "http://192.168.8.1");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("unlinks the Telegram chats a revoked token linked", async () => {
+    const fx = routesFixture(true);
+    try {
+      const created = await fx.call("POST", "/api/console/tokens", { name: "Phone", scope: "full", lifetimeDays: 7 });
+      const id = String((created.payload["record"] as { id: string }).id);
+      assert.equal((await fx.call("POST", "/api/console/tokens/revoke", { id })).status, 200);
+      assert.deepEqual(fx.unlinkedFor, [id]);
+      assert.equal((await fx.call("POST", "/api/console/tokens/revoke", { id })).status, 404);
+      assert.deepEqual(fx.unlinkedFor, [id], "nothing more for an unknown token");
     } finally {
       await fx.cleanup();
     }

@@ -26,6 +26,8 @@ export interface SettingsRoutesOptions {
   disconnectToken: (tokenId: string) => void;
   /** Unlink every chat linked with /auth; resolves how many. */
   unlinkTelegram: () => number;
+  /** A token was revoked: unlink the Telegram chats it linked with /auth; resolves how many. */
+  unlinkTelegramToken?: (tokenId: string) => number;
   /** The bot's @username once known (`/auth@bot CODE` reaches it in a group with other bots). */
   telegramUsername?: () => string | null;
   /** Keep a device probe a connection test made of the router in use (or of the one just saved). */
@@ -168,7 +170,9 @@ export class SettingsHttpRoutes {
           return true;
         }
         this.#opts.disconnectToken(revoked.id);
-        audit?.record({ action: "token.revoke", outcome: "applied", detail: revoked.name });
+        // A chat it linked with /auth would otherwise keep the SMS and the router's controls
+        const unlinked = this.#opts.unlinkTelegramToken?.(revoked.id) ?? 0;
+        audit?.record({ action: "token.revoke", outcome: "applied", detail: unlinked > 0 ? `${revoked.name}; ${unlinked} Telegram chat(s) it linked unlinked` : revoked.name });
         ctx.sendJson(200, { ok: true, record: revoked });
         return true;
       }
