@@ -109,6 +109,8 @@ function createBotFixture(
     rateLimitPolls?: number;
     linkSecret?: TelegramBotOptions["linkSecret"];
     allowedChatIds?: string[];
+    /** Where the bot reads the default country (the daemon passes the SIM's once it is known). */
+    country?: () => string;
   } = {}
 ) {
   const mock = createMockSmsCpe({
@@ -147,6 +149,7 @@ function createBotFixture(
     authToken: "dashboard_api_token",
     ...(opts.linkSecret ? { linkSecret: opts.linkSecret } : {}),
     allowedChatIds: opts.allowedChatIds ?? ["1001"],
+    ...(opts.country ? { defaultCountryCode: opts.country } : {}),
     locale: "en",
     now: () => clock,
     log: (line) => logs.push(line),
@@ -789,6 +792,20 @@ describe("TelegramBot", () => {
     assert.match(fx.tg.lastText("1001"), /FengSui · 5G CPE assistant/);
     await fx.message(1001, "/cancel");
     assert.match(fx.tg.lastText("1001"), /Cancelled/);
+    await fx.cleanup();
+  });
+
+  it("reads a local number in the country learnt after the wizard opened, and in none before", async () => {
+    let country = "";
+    const fx = createBotFixture({ country: () => country });
+    await fx.service.sync("full");
+    await fx.message(1001, "/new");
+    await fx.message(1001, "0830000002");
+    assert.match(fx.tg.lastText("1001"), /No default country is known/);
+    // The first poll read the SIM while the wizard was open
+    country = "+353";
+    await fx.message(1001, "0830000002");
+    assert.match(fx.tg.lastText("1001"), /step 2: text[\s\S]*\+353830000002/);
     await fx.cleanup();
   });
 

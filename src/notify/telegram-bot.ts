@@ -1593,6 +1593,8 @@ export class TelegramBot implements NotificationChannel {
         await this.#send(to, this.#tx("wiz_pick"), { inline_keyboard: rows.slice(0, 10) });
         return;
       }
+      // A wizard opened before the SIM's country was known takes it once it is (and never guesses before)
+      wiz.countryCode ||= this.defaultCountryCode;
       const resolved = resolveRecipientPhone(text, wiz.countryCode);
       if (!resolved.ok) {
         await this.#send(to, this.#tx("error", { error: resolved.error }), this.#countryKeyboard(wiz.countryCode));
