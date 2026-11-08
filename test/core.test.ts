@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import {
@@ -45,6 +44,7 @@ import {
   parseXmlError,
   xmlToFlatRecord,
 } from "../src/xml.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 describe("config & SSRF / XFF security guards", () => {
   it("parses .env lines, quotes, exports, inline comments, and blocks prototype pollution keys", () => {
@@ -114,7 +114,7 @@ describe("config & SSRF / XFF security guards", () => {
   });
 
   it("loads typed AppConfig from a temporary .env file", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cpe-dash-cfg-"));
+    const tmpDir = tempDir("cpe-dash-cfg-");
     const envFile = path.join(tmpDir, ".env");
     fs.writeFileSync(
       envFile,
@@ -137,7 +137,7 @@ describe("config & SSRF / XFF security guards", () => {
       assert.equal(cfg.respectBrowserSession, true);
       assert.equal(cfg.pollIntervalMs, 3000);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
   });
 });
@@ -315,7 +315,7 @@ describe("sanitizer & StorageCipher", () => {
   });
 
   it("encrypts and decrypts JSON state files at rest with 0600 permissions", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cpe-dash-cipher-"));
+    const tmpDir = tempDir("cpe-dash-cipher-");
     const filePath = path.join(tmpDir, "state.json");
     try {
       assert.throws(() => new StorageCipher(""), /non-empty secret/);
@@ -334,7 +334,7 @@ describe("sanitizer & StorageCipher", () => {
       assert.equal(disabled.enabled, false);
       assert.throws(() => disabled.readJsonFile(filePath), /Cannot decrypt/);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
   });
 

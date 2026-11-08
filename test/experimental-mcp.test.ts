@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -18,6 +16,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type FamilySms, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 3 on MCP: on a model nobody verified, a tool that writes to the router appears
@@ -50,7 +49,7 @@ const ROUTER_WRITES = [
 ];
 
 function fixture(cpe: { fetchImpl: typeof fetch; password: string }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-xmcp-"));
+  const dir = tempDir("fengsui-xmcp-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "xmcp_key" }),
@@ -87,7 +86,7 @@ function fixture(cpe: { fetchImpl: typeof fetch; password: string }) {
     cleanup: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

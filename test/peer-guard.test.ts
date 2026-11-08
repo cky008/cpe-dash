@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiRuntime } from "../src/cli.ts";
@@ -13,6 +12,7 @@ import { PeerDaemonStandbyError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /** In-memory broadcast LAN: every datagram reaches every other attached transport. */
 function createLan() {
@@ -140,7 +140,7 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
 
   it("keeps a standby scheduler off the router: reads skip, controls fail with PEER_DAEMON_ACTIVE", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-standby-"));
+    const dir = tempDir("fengsui-standby-");
     const core = createFengSuiCore({
       client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "standby_key" }),
@@ -161,14 +161,14 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
       assert.equal(core.scheduler.getStatus().peerStandby.active, false);
     } finally {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("runs two daemons on different hosts against one router: the second stands by and refuses writes", async () => {
     const cpe = createStrictCpe();
     const lan = createLan();
-    const dirs = [0, 1].map(() => fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-twohosts-")));
+    const dirs = [0, 1].map(() => tempDir("fengsui-twohosts-"));
     const makeConfig = (dir: string) => {
       const envPath = path.join(dir, ".env");
       fs.writeFileSync(
@@ -214,7 +214,7 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
     } finally {
       await mac.close();
       await nas.close();
-      for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+      for (const dir of dirs) removeTempDir(dir);
     }
   });
 

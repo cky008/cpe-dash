@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { ConsoleSettings } from "../src/console-settings.ts";
@@ -13,10 +11,11 @@ import { renderMetrics } from "../src/metrics.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 function routesFixture(telegramConfigured: boolean) {
   const cpe = createStrictCpe();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-routes-"));
+  const dir = tempDir("fengsui-routes-");
   const unlinkedFor: string[] = [];
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
@@ -59,7 +58,7 @@ function routesFixture(telegramConfigured: boolean) {
       await stopFengSuiCore(core);
       // Settings saves are queued in the background: removing the dir under one fails with ENOTEMPTY
       await settings.flush();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

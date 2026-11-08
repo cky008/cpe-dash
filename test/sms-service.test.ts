@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -15,6 +14,7 @@ import type { EnrichedSmsMessage } from "../src/sms/types.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type MockSms, type MockSmsCpeOptions, createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const HUMAN_LOGGED_IN = "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>";
 
@@ -34,7 +34,7 @@ function createSmsFixture(
   } = {}
 ) {
   const mock = createMockSmsCpe({ messages: seed(), ...opts.mock });
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-svc-"));
+  const tmpDir = tempDir("fengsui-sms-svc-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "svc_key" });
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
   const core = createFengSuiCore({
@@ -69,7 +69,7 @@ function createSmsFixture(
   const cleanup = async (): Promise<void> => {
     await service.stop();
     await stopFengSuiCore(core);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeTempDir(tmpDir);
   };
   return { mock, core, scheduler, service, mirror, contacts, events, controls, smsRequests, cleanup };
 }

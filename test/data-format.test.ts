@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { DataFormatTooNewError, StorageCipher } from "../src/encrypted-file.ts";
@@ -8,10 +7,11 @@ import { TelegramStateStore } from "../src/notify/telegram-bot.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 describe("data written by a newer FengSui", () => {
   it("refuses to load (and so to overwrite) every store whose format is newer, and leaves the file alone", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-format-"));
+    const dir = tempDir("fengsui-format-");
     try {
       const cipher = StorageCipher.fromSecret("format_key");
       const write = (name: string, data: unknown): string => {
@@ -47,7 +47,7 @@ describe("data written by a newer FengSui", () => {
       write("ok.json", { version: 1, contacts: [] });
       new ContactBook({ filePath: path.join(dir, "ok.json"), cipher, defaultCountryCode: "+353" }).load();
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

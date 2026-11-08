@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -14,6 +12,7 @@ import { SmsService } from "../src/sms/service.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const HUMAN_LOGGED_IN = "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>";
 
@@ -40,7 +39,7 @@ function createMcpSmsFixture(
       { index: 40004, phone: "+353830000002", content: "Old note", date: "2026-10-28 08:00:00", smstat: "1", box: 1 },
     ],
   });
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-mcp-"));
+  const tmpDir = tempDir("fengsui-sms-mcp-");
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
   const core = createFengSuiCore({
     client,
@@ -83,7 +82,7 @@ function createMcpSmsFixture(
     cleanup: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     },
   };
 }

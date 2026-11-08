@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -15,6 +13,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { FAMILY_LOGINS, FAMILY_TOKEN_FLOWS, type FamilySms, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 2: a model nobody verified is read the tolerant way. A part or a section the
@@ -43,7 +42,7 @@ const MAILBOX: ReadonlyArray<FamilySms> = [
 ];
 
 function readFixture(cpe: { fetchImpl: typeof fetch; password: string }, opts: { neighborScanIntervalMs?: number; dir?: string } = {}) {
-  const dir = opts.dir ?? fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-reads-"));
+  const dir = opts.dir ?? tempDir("fengsui-reads-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "reads_key" }),
@@ -65,7 +64,7 @@ function readFixture(cpe: { fetchImpl: typeof fetch; password: string }, opts: {
     cleanup: async (keep = false) => {
       await sms.stop();
       await stopFengSuiCore(core);
-      if (!keep) fs.rmSync(dir, { recursive: true, force: true });
+      if (!keep) removeTempDir(dir);
     },
   };
 }

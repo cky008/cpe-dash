@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -11,6 +10,7 @@ import { sanitizeDeviceReport } from "../src/sanitize.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 2.4: the console's "report compatibility" entry. The owner creates the
@@ -61,7 +61,7 @@ describe("feedback: the compatibility issue", () => {
   it("builds the report it asks for without an identifier, for a router of another model", async () => {
     // The family router answers device/information with the placeholder IMEI and WAN address
     const cpe = createCpeFamily({ login: "sha256", tokenFlow: "sestokinfo", model: "B535-232" });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-feedback-"));
+    const dir = tempDir("fengsui-feedback-");
     const core = createFengSuiCore({
       client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "feedback_key" }),
@@ -85,7 +85,7 @@ describe("feedback: the compatibility issue", () => {
       assert.deepEqual(cpe.stats.writes, [], "reading for a report writes nothing");
     } finally {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { DeviceProfileResponse, DeviceReportResponse } from "../src/api-contract.ts";
@@ -9,6 +8,7 @@ import { loadConfig } from "../src/config.ts";
 import { ApiErrorTally, DEVICE_PROBE_PATHS, type ProbeSession, buildDeviceReport, probeDevice } from "../src/device-profile.ts";
 import { sanitizeDeviceReport } from "../src/sanitize.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * The device report a user may choose to attach to an issue: structure only (tag paths and value
@@ -126,7 +126,7 @@ describe("device report: desensitization", () => {
 describe("device profile: the token route", () => {
   it("passes the profile tokens and agents read through the report's second pass", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-profile-"));
+    const dir = tempDir("fengsui-profile-");
     const env: Record<string, string> = {
       CPE_URL: "http://192.168.8.1",
       CPE_PASSWORD: cpe.password,
@@ -166,7 +166,7 @@ describe("device profile: the token route", () => {
       assert.equal(served?.verification, "unverified-model");
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
@@ -174,7 +174,7 @@ describe("device profile: the token route", () => {
 describe("device report: the console route", () => {
   it("is generated for the console only (403 CONSOLE_ONLY for tokens) and holds nothing of the strict router's identifiers", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-report-"));
+    const dir = tempDir("fengsui-report-");
     const env: Record<string, string> = {
       CPE_URL: "http://192.168.8.1",
       CPE_PASSWORD: cpe.password,
@@ -224,7 +224,7 @@ describe("device report: the console route", () => {
       assert.deepEqual(Object.values(body.report.access?.reads ?? {}).map((read) => read.state), ["verified", "verified", "verified", "verified", "verified", "verified"]);
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

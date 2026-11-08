@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiRuntime } from "../src/cli.ts";
@@ -16,6 +15,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-11-02T08:00:00.000Z");
@@ -34,7 +34,7 @@ function sample(capturedAtMs: number, connectionStatus: string): GlobalTelemetry
 
 function createCore(fault?: (p: string, method: string, headers: Headers) => StrictFault | undefined) {
   const cpe = createStrictCpe({ fault });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-selfheal-"));
+  const dir = tempDir("fengsui-selfheal-");
   const core: FengSuiCore = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "selfheal_key" }),
@@ -46,7 +46,7 @@ function createCore(fault?: (p: string, method: string, headers: Headers) => Str
     core,
     cleanup: async () => {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }
@@ -476,7 +476,7 @@ describe("WanSelfHeal on a router of an unverified model (read-only)", () => {
 
   it("goes through the real write gate: neither action reaches the router", async () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232" });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-selfheal-gate-"));
+    const dir = tempDir("fengsui-selfheal-gate-");
     const core = createFengSuiCore({
       client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "selfheal_gate_key" }),
@@ -509,7 +509,7 @@ describe("WanSelfHeal on a router of an unverified model (read-only)", () => {
     } finally {
       await heal.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
@@ -576,7 +576,7 @@ describe("self-heal configuration and wiring", () => {
   }
 
   it("is off by default, clamps the windows and builds the watchdog only when asked", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-selfheal-cfg-"));
+    const dir = tempDir("fengsui-selfheal-cfg-");
     try {
       const off = loadConfig({ envPath: envFile(dir, ""), ignoreProcessEnv: true });
       assert.equal(off.lockRollbackAfterMs, 0);
@@ -605,7 +605,7 @@ describe("self-heal configuration and wiring", () => {
       await stack.start();
       await stack.close();
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

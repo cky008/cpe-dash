@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiRuntime } from "../src/cli.ts";
@@ -8,6 +7,7 @@ import { loadConfig } from "../src/config.ts";
 import { BRIDGE_DAEMON_REJECTED, BRIDGE_DAEMON_UNREACHABLE, McpStdioBridge } from "../src/mcp-stdio-bridge.ts";
 import { LATEST_LEGACY_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "../src/mcp-server.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const MODERN = "2026-07-28";
 const META_VERSION = "io.modelcontextprotocol/protocolVersion";
@@ -32,7 +32,7 @@ type Rpc = (body: unknown, headers?: Record<string, string>) => Promise<{ status
 
 async function withDaemon(run: (ctx: { baseUrl: string; rpc: Rpc }) => Promise<void>): Promise<void> {
   const cpe = createStrictCpe();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-mcp-modern-"));
+  const dir = tempDir("fengsui-mcp-modern-");
   const envPath = path.join(dir, ".env");
   fs.writeFileSync(
     envPath,
@@ -65,7 +65,7 @@ async function withDaemon(run: (ctx: { baseUrl: string; rpc: Rpc }) => Promise<v
     await run({ baseUrl, rpc });
   } finally {
     await daemon.close();
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 }
 

@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -9,6 +7,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { blockNetwork } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * The H168-383 is the one verified router: supporting other login methods must not change a single
@@ -70,7 +69,7 @@ function wireFixture(password?: string) {
     log.push(`${init?.method ?? "GET"} ${url.pathname}${query ? `?${query}` : ""} [${names}] {${cookies}} ${body}`.trimEnd());
     return await cpe.fetchImpl(input, init);
   };
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-wire-"));
+  const dir = tempDir("fengsui-wire-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: password ?? cpe.password, fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "wire_key" }),
@@ -85,7 +84,7 @@ function wireFixture(password?: string) {
     take: (): string[] => log.splice(0),
     cleanup: async () => {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

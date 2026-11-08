@@ -3,7 +3,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { DaemonAlreadyRunningError, createFengSuiRuntime, startServeDaemon, startupNotices } from "../src/cli.ts";
@@ -16,6 +15,7 @@ import { redactTelemetry } from "../src/redact.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const BOT_TOKEN = "123456:TEST_TOKEN_abcdefghijklmnopqrstuv";
 
@@ -102,7 +102,7 @@ async function toolNames(stack: ReturnType<typeof createFengSuiRuntime>): Promis
 
 describe("tryAcquireFileLock", () => {
   it("grants a single owner, respects live foreign owners and takes over stale locks", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-lock-"));
+    const dir = tempDir("fengsui-lock-");
     const lockPath = path.join(dir, "nested", "sms.json.lock");
     const sleeper = await startSleeper();
     try {
@@ -131,7 +131,7 @@ describe("tryAcquireFileLock", () => {
       assert.equal(fs.existsSync(lockPath), false);
     } finally {
       await stopSleeper(sleeper);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
@@ -141,7 +141,7 @@ describe("createFengSuiRuntime", () => {
     const mock = createMockSmsCpe({
       messages: [{ index: 40001, phone: "+353830000001", content: "Already here", date: "2026-10-29 18:00:00", smstat: "0", box: 1 }],
     });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-runtime-"));
+    const dir = tempDir("fengsui-runtime-");
     const envPath = writeEnv(dir, baseEnv(dir, mock.password));
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const notify = createNotifyFetch();
@@ -173,14 +173,14 @@ describe("createFengSuiRuntime", () => {
     } finally {
       await stack.close();
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
     assert.equal(fs.existsSync(`${config.stateFile}.lock`), false);
   });
 
   it("re-encrypts every store when reset-breaker reloads .env, while tokens and linked chats stay the console's", async () => {
     const mock = createMockSmsCpe({ messages: [] });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-rotate-"));
+    const dir = tempDir("fengsui-rotate-");
     const env = baseEnv(dir, mock.password);
     const envPath = writeEnv(dir, env);
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
@@ -255,13 +255,13 @@ describe("createFengSuiRuntime", () => {
       if (originalTz === undefined) delete process.env["TZ"];
       else process.env["TZ"] = originalTz;
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("shuts down within docker's stop grace while a CPE request hangs and Telegram backs off, logging out first", async () => {
     const cpe = createStrictCpe({ fault: (p) => (p === "/api/device/nbrcellinfo" ? "timeout" : undefined) });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-shutdown-"));
+    const dir = tempDir("fengsui-shutdown-");
     const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), REQUEST_TIMEOUT_MS: "60000" });
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     // Telegram is unreachable, so the poll loop sits in its backoff when the shutdown begins
@@ -292,13 +292,13 @@ describe("createFengSuiRuntime", () => {
       assert.ok(StorageCipher.fromSecret(config.dataEncryptionKey).readJsonFileOrQuarantine(config.stateFile), "encrypted state was flushed");
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("closes in order when startup fails (port taken), so no CPE session or poller outlives the process", async () => {
     const cpe = createStrictCpe({ latencyMs: 25 });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-startfail-"));
+    const dir = tempDir("fengsui-startfail-");
     const blocker = net.createServer();
     await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
     const takenPort = (blocker.address() as net.AddressInfo).port;
@@ -318,13 +318,13 @@ describe("createFengSuiRuntime", () => {
     } finally {
       await stack.close();
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("says so (log and alert) when stored data could not be decrypted and was moved aside at startup", async () => {
     const cpe = createStrictCpe({ latencyMs: 5 });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-quarantine-"));
+    const dir = tempDir("fengsui-quarantine-");
     const env = { ...baseEnv(dir, cpe.password), WEB_PORT: "0", SMS_ENABLED: "true" };
     // Contacts written under the old key, e.g. CPE_PASSWORD changed while DATA_ENCRYPTION_KEY was unset
     const contactsFile = path.join(dir, "contacts.json");
@@ -345,7 +345,7 @@ describe("createFengSuiRuntime", () => {
       assert.doesNotMatch(alert.messageEn, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "file names only, no host paths");
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
@@ -359,7 +359,7 @@ describe("createFengSuiRuntime", () => {
 
   it("stops cleanly when a stop arrives while startup is still running: nothing starts afterwards", async () => {
     const cpe = createStrictCpe({ latencyMs: 5 });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-stopstart-"));
+    const dir = tempDir("fengsui-stopstart-");
     const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), WEB_PORT: "0", SMS_ENABLED: "false" });
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     // A peer transport makes start() wait ~1 s for a running daemon's reply: the window a SIGTERM can hit
@@ -376,13 +376,13 @@ describe("createFengSuiRuntime", () => {
       assert.equal(fs.existsSync(`${config.stateFile}.lock`), false);
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("honours a persisted 108006 latch from assembly on, before start()", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-latch-"));
+    const dir = tempDir("fengsui-latch-");
     const envPath = writeEnv(dir, baseEnv(dir, cpe.password));
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const seed = new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey });
@@ -412,13 +412,13 @@ describe("createFengSuiRuntime", () => {
       assert.equal(stack.scheduler.getStatus().mode, "circuit_tripped");
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("allows one daemon per data directory and never stores data unencrypted", async () => {
     const mock = createMockSmsCpe({ messages: [] });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-daemon-lock-"));
+    const dir = tempDir("fengsui-daemon-lock-");
     const envPath = writeEnv(dir, baseEnv(dir, mock.password));
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const lockPath = `${config.stateFile}.lock`;
@@ -465,7 +465,7 @@ describe("createFengSuiRuntime", () => {
       await noSms.close();
     } finally {
       await stopSleeper(sleeper);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
@@ -541,7 +541,7 @@ const RAW_IDENTIFIERS = /860000000000000|272010000000000|\+353830000000|198\.51\
 describe("REDACT_SENSITIVE_IN_API at the output boundary", () => {
   it("serves the logged-in web console plain values and Bearer REST, SSE and MCP clients redacted copies", async () => {
     const cpe = createIdentifiedCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-redact-"));
+    const dir = tempDir("fengsui-redact-");
     const env = privacyEnv(dir, cpe.password, true);
     const envPath = writeEnv(dir, env);
     const stack = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
@@ -620,13 +620,13 @@ describe("REDACT_SENSITIVE_IN_API at the output boundary", () => {
     } finally {
       await Promise.all(streams.map((s) => s.close().catch(() => undefined)));
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("drops telemetry and topology a v1.0.0 daemon cached already masked, instead of showing them as real", async () => {
     const cpe = createIdentifiedCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-legacy-cache-"));
+    const dir = tempDir("fengsui-legacy-cache-");
     const envPath = writeEnv(dir, privacyEnv(dir, cpe.password, true));
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const open = () => createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
@@ -652,7 +652,7 @@ describe("REDACT_SENSITIVE_IN_API at the output boundary", () => {
       assert.equal(upgraded.monitor.getCachedTopology(), null);
       await upgraded.close();
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
@@ -667,7 +667,7 @@ describe("Device access control through the daemon (REST, MCP)", () => {
 
   async function startAccessStack(extraEnv: Record<string, string> = {}) {
     const cpe = createStrictCpe({ fault: (p, method) => (method === "GET" && p === "/api/system/HostInfo" ? { body: ACCESS_HOSTS } : undefined) });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-access-"));
+    const dir = tempDir("fengsui-access-");
     const envPath = writeEnv(dir, { ...privacyEnv(dir, cpe.password, true), ...extraEnv });
     const stack = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
     const bound = await startServeDaemon(stack);
@@ -678,7 +678,7 @@ describe("Device access control through the daemon (REST, MCP)", () => {
       JSON.stringify(await stack.mcpServer.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })));
     const close = async (): Promise<void> => {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     };
     return { cpe, stack, base, mcp, close };
   }
@@ -790,7 +790,7 @@ describe("Device access control through the daemon (REST, MCP)", () => {
 describe("Read-only Bearer token (API_TOKEN_READONLY)", () => {
   it("lets dashboards and agents read and refresh but never write, over REST and MCP", async () => {
     const cpe = createStrictCpe({ latencyMs: 2 });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-readonly-"));
+    const dir = tempDir("fengsui-readonly-");
     const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), API_TOKEN_READONLY: "readonly_api_token_v1", SMS_ENABLED: "false" });
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: createNotifyFetch().fetchImpl, log: () => undefined });
@@ -847,19 +847,19 @@ describe("Read-only Bearer token (API_TOKEN_READONLY)", () => {
       assert.equal(login.status, 401);
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("refuses a read-only token that equals the full token or the router password", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-readonly-cfg-"));
+    const dir = tempDir("fengsui-readonly-cfg-");
     try {
       for (const value of ["runtime_api_token_v1", "router_password_x"]) {
         const envPath = writeEnv(dir, { ...baseEnv(dir, "router_password_x"), API_TOKEN_READONLY: value });
         assert.throws(() => loadConfig({ envPath, ignoreProcessEnv: true }), /API_TOKEN_READONLY must differ/);
       }
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

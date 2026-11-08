@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
@@ -18,6 +17,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type MockSmsCpeOptions, createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { consoleSettingsFor } from "./helpers/console-settings.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSmsCpeOptions } = {}) {
   const mock = createMockSmsCpe({
@@ -27,7 +27,7 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
     ],
     ...opts.mock,
   });
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-http-"));
+  const tmpDir = tempDir("fengsui-sms-http-");
   const envPath = path.join(tmpDir, ".env");
   fs.writeFileSync(
     envPath,
@@ -101,7 +101,7 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
       await server.close();
       await sms.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     },
   };
 }
@@ -130,7 +130,7 @@ async function readSseUntil(res: Response, needle: string, timeoutMs = 3000): Pr
 
 describe("SMS / alert / notification configuration", () => {
   it("parses typed SMS, Telegram, alert and MCP SMS settings with safe fallbacks", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-cfg-"));
+    const tmpDir = tempDir("fengsui-sms-cfg-");
     try {
       const base = { CPE_PASSWORD: "pw_fixture", STATE_FILE: path.join(tmpDir, "data", "state.json") };
       const defaults = loadConfig({ overrides: base, ignoreProcessEnv: true, envPath: path.join(tmpDir, "none.env") });
@@ -191,7 +191,7 @@ describe("SMS / alert / notification configuration", () => {
         "+353"
       );
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
   });
 });

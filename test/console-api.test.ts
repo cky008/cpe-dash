@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { AuditResponse, ConsoleSettingsResponse, CreateTokenResponse, TokensResponse } from "../src/api-contract.ts";
@@ -8,12 +7,13 @@ import { type FengSuiRuntimeStack, createFengSuiRuntime, runCli, runResetLogin }
 import { loadConfig } from "../src/config.ts";
 import { resetLoginProof } from "../src/console-settings.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const PASSPHRASE = "a long console passphrase";
 
 async function startRuntime(extraEnv: Record<string, string>) {
   const cpe = createStrictCpe();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-console-"));
+  const dir = tempDir("fengsui-console-");
   const env: Record<string, string> = {
     CPE_URL: "http://192.168.8.1",
     DATA_ENCRYPTION_KEY: "console_data_key",
@@ -47,7 +47,7 @@ async function startRuntime(extraEnv: Record<string, string>) {
     cookieOf,
     cleanup: async () => {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

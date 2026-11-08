@@ -5,7 +5,6 @@ import { once } from "node:events";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from "node:http";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -37,6 +36,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import type { AppConfig } from "../src/types.ts";
 import { getXmlTag } from "../src/xml.ts";
 import { consoleSettingsFor } from "./helpers/console-settings.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 function rawHttpRequest(opts: {
   host: string;
@@ -277,7 +277,7 @@ async function createTestHttpServer(opts: {
   nonExistentStaticDir?: boolean;
   sessionTtlMs?: number;
 } = {}): Promise<TestServerContext> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-http-test-"));
+  const tmpDir = tempDir("fengsui-http-test-");
   const staticDir = opts.nonExistentStaticDir
     ? path.join(tmpDir, "does-not-exist")
     : path.join(tmpDir, "public");
@@ -368,7 +368,7 @@ async function createTestHttpServer(opts: {
     await server.close();
     await stopFengSuiCore(core);
     try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     } catch {
       // Ignore cleanup error
     }
@@ -1920,7 +1920,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
   });
 
   it("createFengSuiRuntime wires all 8 subsystems with custom fetchImpl", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-cli-test-"));
+    const tmpDir = tempDir("fengsui-cli-test-");
     try {
       const config = loadConfig({
         overrides: {
@@ -1947,12 +1947,12 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
       assert.ok(stack.mcpServer);
       assert.ok(stack.httpServer);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
   });
 
   it("createFengSuiRuntime honors RESPECT_BROWSER_SESSION=false end-to-end (config -> client -> scheduler)", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-cli-rbs-"));
+    const tmpDir = tempDir("fengsui-cli-rbs-");
     try {
       const config = loadConfig({
         overrides: {
@@ -1981,7 +1981,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
       assert.equal(stack.scheduler.getStatus().browserYieldCount, 0);
       await stack.scheduler.stop();
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
   });
 
@@ -1990,7 +1990,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
     assert.ok(fs.readFileSync(cliPath, "utf8").startsWith("#!/usr/bin/env node\n"));
 
     // npm links `bin.cpe-dash` as a symlink, so process.argv[1] is the link path, not the real module path
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-cli-bin-"));
+    const tmpDir = tempDir("fengsui-cli-bin-");
     try {
       const binLink = path.join(tmpDir, "cpe-dash");
       fs.symlinkSync(cliPath, binLink);
@@ -2008,7 +2008,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
       assert.equal(isCliEntryPoint(path.join(tmpDir, "missing-entry"), cliUrl), false);
       assert.equal(isCliEntryPoint(path.resolve(process.cwd(), "src", "config.ts"), cliUrl), false);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
   });
 
@@ -2029,7 +2029,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
     await new Promise<void>((resolve) => fakeDaemon.listen(0, "127.0.0.1", resolve));
     const address = fakeDaemon.address();
     const port = typeof address === "object" && address ? address.port : 0;
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-cli-mcp-"));
+    const tmpDir = tempDir("fengsui-cli-mcp-");
     try {
       const envPath = path.join(tmpDir, ".env");
       fs.writeFileSync(
@@ -2064,7 +2064,7 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
       assert.equal(fs.existsSync(path.join(tmpDir, "state.json")), false, "the bridge never creates state");
     } finally {
       await new Promise<void>((resolve) => fakeDaemon.close(() => resolve()));
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
   });
 });

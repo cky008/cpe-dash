@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import {
@@ -31,6 +30,7 @@ import {
   TimeSeriesValidationError,
 } from "../src/timeseries.ts";
 import { getXmlTag } from "../src/xml.ts";
+import { tempDir } from "./helpers/temp-dir.ts";
 
 describe("TimeSeriesRingBuffer multi-scale circular buffer & tier seam joining", () => {
   it("records high-res 5s slots, seals 60s rollups, skips null channels accurately, and serves 1h/6h/12h/24h/custom", () => {
@@ -255,7 +255,7 @@ describe("TimeSeriesRingBuffer multi-scale circular buffer & tier seam joining",
 
 describe("EncryptedStateStore crash-safe persistence & key rotation recovery", () => {
   it("persists encrypted state asynchronously and archives unreadable files on password rotation", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-state-"));
+    const tmpDir = tempDir("fengsui-state-");
     const stateFile = path.join(tmpDir, "state.json");
 
     const store1 = new EncryptedStateStore({
@@ -300,7 +300,7 @@ describe("EncryptedStateStore crash-safe persistence & key rotation recovery", (
   });
 
   it("exposes getState(), trims alerts beyond 100 entries, and handles rotateEncryptionKey() seamlessly", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-store-"));
+    const tmpDir = tempDir("fengsui-store-");
     const stateFile = path.join(tmpDir, "state.json");
 
     const store = new EncryptedStateStore({
@@ -554,7 +554,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       return makeRes("<response>OK</response>");
     };
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sched-"));
+    const tmpDir = tempDir("fengsui-sched-");
     const stateStore = new EncryptedStateStore({
       filePath: path.join(tmpDir, "state.json"),
       encryptionKey: password,

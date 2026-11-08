@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { AlertEngine } from "../src/alert-engine.ts";
@@ -11,6 +9,7 @@ import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /** Parse a real telemetry snapshot from the strict router (PCC B1/100/PCI 357, SCC B3/1700/PCI 25, NR N78/647424/PCI 357). */
 async function snapshot(opts: { lteBandHex?: string; noNr?: boolean } = {}): Promise<GlobalTelemetrySnapshot> {
@@ -27,7 +26,7 @@ async function snapshot(opts: { lteBandHex?: string; noNr?: boolean } = {}): Pro
     return undefined;
   };
   const cpe = createStrictCpe({ fault });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-lockver-"));
+  const dir = tempDir("fengsui-lockver-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockver_key" }),
@@ -40,7 +39,7 @@ async function snapshot(opts: { lteBandHex?: string; noNr?: boolean } = {}): Pro
     return snap;
   } finally {
     await stopFengSuiCore(core);
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 }
 
@@ -110,7 +109,7 @@ describe("lockState reconciliation against what the router reports", () => {
 
   it("exposes the verification through MCP get_cpe_telemetry", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-lockmcp-"));
+    const dir = tempDir("fengsui-lockmcp-");
     const core = createFengSuiCore({
       client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockmcp_key" }),
@@ -128,7 +127,7 @@ describe("lockState reconciliation against what the router reports", () => {
       assert.match(content.lockVerification.issues[0] ?? "", /differ from the applied lock \(B1, B3\)/);
     } finally {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
@@ -162,7 +161,7 @@ describe("lockState reconciliation against what the router reports", () => {
 
   it("records a one-RAT band lock on top of the lock already in force (controls service)", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-lockmerge-"));
+    const dir = tempDir("fengsui-lockmerge-");
     const core = createFengSuiCore({
       client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockmerge_key" }),
@@ -178,14 +177,14 @@ describe("lockState reconciliation against what the router reports", () => {
       assert.equal(netModeWrites, 1, "the NR-only lock did not touch the LTE mask");
     } finally {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
   it("raises LOCK_DRIFT once a drift is sustained and LOCK_REALIGNED when it clears", async () => {
     const full = await snapshot();
     const b1b3 = await snapshot({ lteBandHex: "5" });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-lockalert-"));
+    const dir = tempDir("fengsui-lockalert-");
     const cpe = createStrictCpe();
     const core = createFengSuiCore({
       client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
@@ -211,7 +210,7 @@ describe("lockState reconciliation against what the router reports", () => {
       assert.equal(core.controls.getLockVerification().status, "unknown", "no cached telemetry in this core yet");
     } finally {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

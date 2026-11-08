@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -15,6 +13,7 @@ import { SmsService } from "../src/sms/service.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictCpe, type StrictCpeOptions, createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 interface ContractFixture {
   cpe: StrictCpe;
@@ -40,7 +39,7 @@ function createContractFixture(
   } = {}
 ): ContractFixture {
   const cpe = createStrictCpe(opts);
-  const dir = opts.dir ?? fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-contract-"));
+  const dir = opts.dir ?? tempDir("fengsui-contract-");
   const client = new HuaweiCpeClient({
     cpeUrl: "http://192.168.8.1",
     cpePassword: opts.clientPassword ?? cpe.password,
@@ -95,7 +94,7 @@ function createContractFixture(
     close: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
-      if (!opts.dir) fs.rmSync(dir, { recursive: true, force: true });
+      if (!opts.dir) removeTempDir(dir);
     },
   };
 }
@@ -196,7 +195,7 @@ describe("session contract on a strict single-admin router model", () => {
       }
     } finally {
       await fx.close();
-      fs.rmSync(fx.dir, { recursive: true, force: true });
+      removeTempDir(fx.dir);
     }
   });
 

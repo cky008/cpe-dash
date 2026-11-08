@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, it } from "node:test";
@@ -14,6 +13,7 @@ import {
   attachNdjsonLineReader,
 } from "../src/mcp-stdio-bridge.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 interface RpcLine {
   id: string | number | null;
@@ -48,7 +48,7 @@ describe("cpe-dash mcp: zero-state stdio bridge to the serve daemon", () => {
 
   it("forwards stdio JSON-RPC to the daemon's /mcp, sharing its one CPE session scheduler", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-bridge-"));
+    const dir = tempDir("fengsui-bridge-");
     const envPath = path.join(dir, ".env");
     fs.writeFileSync(
       envPath,
@@ -120,7 +120,7 @@ describe("cpe-dash mcp: zero-state stdio bridge to the serve daemon", () => {
       await session.drained();
     } finally {
       await daemon.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 

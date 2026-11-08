@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { DeviceProfileResponse } from "../src/api-contract.ts";
@@ -15,6 +14,7 @@ import { SettingsHttpRoutes } from "../src/http-settings.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Phase 0 of multi-model support only records: the router is identified once at start and when the
@@ -55,7 +55,7 @@ async function waitFor(what: () => boolean, label: string): Promise<void> {
 
 function coreFixture(opts: { password?: string; smsCounters?: boolean; fault?: (p: string, method: string, headers: Headers) => StrictFault | undefined; fetchWrap?: (inner: typeof fetch) => typeof fetch } = {}) {
   const cpe = createStrictCpe({ fault: opts.fault });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-identify-"));
+  const dir = tempDir("fengsui-identify-");
   const stateFile = path.join(dir, "state.json");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({
@@ -82,7 +82,7 @@ function coreFixture(opts: { password?: string; smsCounters?: boolean; fault?: (
     during,
     cleanup: async () => {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }
@@ -297,6 +297,8 @@ describe("device identification on the strict H168-383", () => {
       assert.notEqual(saved, tested, "saving a connection keeps the profile its test found");
       assert.equal(saved?.origin, "connection-test");
     } finally {
+      // The save writes settings.json in the background: removing the dir under it fails with ENOTEMPTY
+      await settings.flush();
       await fx.cleanup();
     }
   });
@@ -438,7 +440,7 @@ describe("stored identification", () => {
 
 async function startRuntime(env: Record<string, string>) {
   const cpe = createStrictCpe();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-identify-rt-"));
+  const dir = tempDir("fengsui-identify-rt-");
   const values: Record<string, string> = {
     CPE_URL: "http://192.168.8.1",
     DATA_ENCRYPTION_KEY: "identify_data_key",
@@ -473,7 +475,7 @@ async function startRuntime(env: Record<string, string>) {
     waitFor,
     cleanup: async () => {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

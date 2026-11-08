@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -16,6 +14,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type FamilySms, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 2 on MCP: an agent never sees, and cannot call, a tool that writes to a router
@@ -68,7 +67,7 @@ const LTE_ROUTER: Readonly<Record<string, string>> = {
 const MAILBOX: ReadonlyArray<FamilySms> = [{ index: 40001, phone: "+353830000001", content: "Dinner at 7?", date: "2026-11-02 18:00:00", smstat: "0", box: 1 }];
 
 function mcpFixture(cpe: { fetchImpl: typeof fetch; password: string }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-mcp-gate-"));
+  const dir = tempDir("fengsui-mcp-gate-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "mcp_gate_key" }),
@@ -107,7 +106,7 @@ function mcpFixture(cpe: { fetchImpl: typeof fetch; password: string }) {
     cleanup: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

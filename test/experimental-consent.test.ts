@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { ApiErrorEnvelope, AuditResponse, ExperimentalWritesResponse } from "../src/api-contract.ts";
@@ -11,6 +10,7 @@ import { CONTROL_FEATURES, DeviceAccess, WRITE_FEATURES } from "../src/device-ac
 import { type DeviceProbeResult, type ProbeSession, probeDevice } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { type FamilySms, createCpeFamily } from "./helpers/cpe-family.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 3: an owner of a model nobody verified turns experimental writes on one feature
@@ -55,7 +55,7 @@ async function probeOf(model: string, extra: Readonly<Record<string, string>> = 
 
 describe("experimental consent: the store", () => {
   it("keeps one consent per model and feature, encrypted, and only for one model at a time", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-consent-"));
+    const dir = tempDir("fengsui-consent-");
     try {
       const file = path.join(dir, "settings.json");
       const settings = new ConsoleSettings({ filePath: file, cipher: new StorageCipher("consent_key"), now: () => Date.parse(NOW) });
@@ -103,7 +103,7 @@ describe("experimental consent: the store", () => {
       odd.load();
       assert.deepEqual(odd.experimentalConsents.map((c) => `${c.model}:${c.feature}`), ["B535-232:reboot"]);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
@@ -179,7 +179,7 @@ describe("experimental consent: what each write is on a router", () => {
 
 async function startRuntime() {
   const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: "B535-232", endpoints: B535_ANSWERS, sms: MAILBOX, writes: {} });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-consent-rt-"));
+  const dir = tempDir("fengsui-consent-rt-");
   const env: Record<string, string> = {
     CPE_URL: "http://192.168.8.1",
     CPE_PASSWORD: cpe.password,
@@ -218,7 +218,7 @@ async function startRuntime() {
     send,
     cleanup: async () => {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

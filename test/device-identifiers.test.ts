@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -13,6 +11,7 @@ import {
 import { REDACTED, auditForOutput, redactTelemetry, redactTopology } from "../src/redact.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /** RFC / reserved placeholders only (AGENTS.md 铁律二). */
 const DEVICE_INFO_WITH_IDENTIFIERS =
@@ -88,7 +87,7 @@ describe("Device identifiers in the telemetry snapshot (IMEI / IMSI / own number
     const current = redactTelemetry(await collect(DEVICE_INFO_WITH_IDENTIFIERS));
     const { imei, imsi, msisdn, macAddress, sensitiveRedacted, ...olderDevice } = current.device;
     assert.ok(imei && imsi && msisdn && macAddress && sensitiveRedacted);
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-upgrade-"));
+    const dir = tempDir("fengsui-upgrade-");
     try {
       const filePath = path.join(dir, "state.json");
       const writer = new EncryptedStateStore({ filePath, encryptionKey: "upgrade-test-key" });
@@ -103,7 +102,7 @@ describe("Device identifiers in the telemetry snapshot (IMEI / IMSI / own number
       );
       assert.equal(device?.wanIpv4, current.device.wanIpv4);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { ConsoleSettings, PAIRING_CODE_TTL_MS, RESET_CODE_TTL_MS, hashLogin, resetLoginProof, verifyLogin, verifyResetLoginProof } from "../src/console-settings.ts";
 import { DataFormatTooNewError, StorageCipher } from "../src/encrypted-file.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const FAST = { N: 2 ** 10, r: 8, p: 1 };
 const ENV = {
@@ -16,7 +16,7 @@ const ENV = {
 };
 
 function fixture() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-settings-"));
+  const dir = tempDir("fengsui-settings-");
   const cipher = new StorageCipher("settings_key");
   let clock = Date.parse("2026-11-02T10:00:00.000Z");
   const opened: ConsoleSettings[] = [];
@@ -34,7 +34,7 @@ function fixture() {
     // Saves are queued in the background (a token's last use too): removing the dir under one fails with ENOTEMPTY
     cleanup: async () => {
       await Promise.all(opened.map((settings) => settings.flush().catch(() => undefined)));
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

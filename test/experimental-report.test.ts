@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { DeviceReportResponse, ExperimentalWritesResponse } from "../src/api-contract.ts";
@@ -10,6 +9,7 @@ import type { WriteResultRecord } from "../src/device-access.ts";
 import { ApiErrorTally, buildDeviceReport } from "../src/device-profile.ts";
 import { sanitizeDeviceReport } from "../src/sanitize.ts";
 import { type FamilySms, createCpeFamily } from "./helpers/cpe-family.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 3: the device report's "recent write results" carry, per experimental write, the
@@ -62,7 +62,7 @@ describe("experimental writes in the device report", () => {
 
   it("carries none of the values written, end to end through the console", async () => {
     const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: "B535-232", endpoints: ENDPOINTS, sms: MAILBOX, writes: { ignore: false } });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-xreport-"));
+    const dir = tempDir("fengsui-xreport-");
     const env: Record<string, string> = {
       CPE_URL: "http://192.168.8.1",
       CPE_PASSWORD: cpe.password,
@@ -121,7 +121,7 @@ describe("experimental writes in the device report", () => {
       assert.equal(json.includes("<redacted>"), false, "nothing had to be caught by the second pass");
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

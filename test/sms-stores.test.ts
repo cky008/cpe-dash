@@ -1,17 +1,16 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/cpe-domain.ts";
 import { AtomicFileWriter, StorageCipher } from "../src/encrypted-file.ts";
 import { ContactBook, parseVcardContacts } from "../src/sms/contacts.ts";
 import { SmsMirrorStore, computeSmsUid } from "../src/sms/mirror.ts";
 import type { SmsWireMessage } from "../src/sms/types.ts";
+import { tempDir } from "./helpers/temp-dir.ts";
 
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-sms-stores-"));
-// A store's last flush may still be landing while the suite ends: retry the removal briefly
-after(() => fs.rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+// Removed at process exit, when no background store write can recreate it
+const tmpRoot = tempDir("fengsui-sms-stores-");
 let seq = 0;
 const tmpFile = (name: string): string => path.join(tmpRoot, `${++seq}-${name}`);
 

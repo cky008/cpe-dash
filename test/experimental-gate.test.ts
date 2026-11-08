@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -16,6 +14,7 @@ import { type AlertEventRecord, EncryptedStateStore } from "../src/state-store.t
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type FamilySms, type FamilyWrites, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 3: on a model nobody verified, the write gate opens a write only when its owner
@@ -40,7 +39,7 @@ const MAILBOX: ReadonlyArray<FamilySms> = [
 ];
 
 function fixture(router: { fetchImpl: typeof fetch; password: string }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-xgate-"));
+  const dir = tempDir("fengsui-xgate-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "xgate_key" });
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: router.password, fetchImpl: router.fetchImpl, requestTimeoutMs: 2000 }),
@@ -70,7 +69,7 @@ function fixture(router: { fetchImpl: typeof fetch; password: string }) {
     cleanup: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }
@@ -425,7 +424,7 @@ describe("experimental gate: a redial and a reboot are checked by the polls that
 
 describe("experimental gate: the results kept", () => {
   it("keeps the last 20 across a restart and drops one it cannot read", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-xresults-"));
+    const dir = tempDir("fengsui-xresults-");
     try {
       const file = path.join(dir, "state.json");
       const valid = (i: number): WriteResultRecord => ({
@@ -456,14 +455,14 @@ describe("experimental gate: the results kept", () => {
       const loaded = new EncryptedStateStore({ filePath: file, encryptionKey: "results_key" }).load();
       assert.deepEqual(loaded.genericWrites.map((r) => r.id), Array.from({ length: 20 }, (_, i) => `id-${i + 5}`));
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
 
 describe("experimental gate: a check left pending by a restart", () => {
   it("is closed as unknown at the next start: no poll of the old run can decide it any more", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-xpending-"));
+    const dir = tempDir("fengsui-xpending-");
     try {
       const file = path.join(dir, "state.json");
       const pending: WriteResultRecord = { id: "p1", atIso: "2026-11-03T08:00:00.000Z", action: "reboot_cpe", feature: "reboot", model: MODEL, endpoints: ["/api/device/control"], outcome: "applied", code: null, readback: "pending", reason: null };
@@ -483,7 +482,7 @@ describe("experimental gate: a check left pending by a restart", () => {
       );
       await stopFengSuiCore(core);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });

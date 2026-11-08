@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { applyProcessTimeZone } from "../src/cli.ts";
@@ -22,6 +21,7 @@ import {
   t,
   verifyLocaleParity,
 } from "../src/i18n.ts";
+import { tempDir } from "./helpers/temp-dir.ts";
 
 describe("Phase 2 config hardening: CIDR XFF, /64 rate-limit key, DNS rebinding & URL fragment guard", () => {
   it("strips benign SPA hashes while rejecting suspicious URL fragment smuggling in normalizeCpeUrl", () => {
@@ -98,7 +98,7 @@ describe("Phase 2 config hardening: CIDR XFF, /64 rate-limit key, DNS rebinding 
 
 describe("TZ from .env (process time zone for router-local SMS timestamps)", () => {
   const withEnvFile = (body: string): string => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-tz-"));
+    const dir = tempDir("fengsui-tz-");
     const envPath = path.join(dir, ".env");
     fs.writeFileSync(envPath, body);
     return envPath;

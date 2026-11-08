@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
@@ -8,9 +7,10 @@ import { parseCliCommand, runCli, runMaintenance } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { DataDirectoryBusyError, backupDataDir, formatDoctorReport, inspectDataFiles, rekeyDataDir, restoreDataDir, runDoctor } from "../src/maintenance.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 function setup(extraEnv = "") {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-maint-"));
+  const dir = tempDir("fengsui-maint-");
   const dataDir = path.join(dir, "data");
   fs.mkdirSync(dataDir, { mode: 0o700 });
   const envPath = path.join(dir, ".env");
@@ -25,7 +25,7 @@ function setup(extraEnv = "") {
     contacts: config.contactsFile,
     telegram: config.telegramStateFile,
   };
-  return { dir, dataDir, envPath, config, files, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { dir, dataDir, envPath, config, files, cleanup: () => removeTempDir(dir) };
 }
 
 describe("cpe-dash doctor", () => {

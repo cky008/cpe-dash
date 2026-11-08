@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { startupNotices } from "../src/cli.ts";
@@ -17,6 +16,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { MAX_XML_BYTES, getXmlTag } from "../src/xml.ts";
 import { type CpeFamily, FAMILY_LOGINS, FAMILY_TOKEN_FLOWS, type FamilyLogin, type FamilyTokenFlow, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Phase 1 of multi-model support: the client logs in with SCRAM (with or without the ECC channel),
@@ -64,7 +64,7 @@ function coreFixture(
   cpe: { fetchImpl: typeof fetch; password: string },
   opts: { password?: string; deviceProbe?: DeviceProbeResult; allowLegacyLoginAfterScram?: boolean } = {}
 ) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-login-"));
+  const dir = tempDir("fengsui-login-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "login_key" });
   if (opts.deviceProbe) stateStore.update({ deviceProbe: opts.deviceProbe });
   const client = clientFor(cpe, opts.password ?? cpe.password);
@@ -83,7 +83,7 @@ function coreFixture(
     good: { url: "http://192.168.8.1", username: "admin", password: cpe.password },
     cleanup: async () => {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }
@@ -267,7 +267,7 @@ describe("login methods and token flows (mock family)", () => {
   });
 
   it("keeps the known login scheme apart from the identification: only a background login or a save changes it (R1-06, R1-13)", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-scheme-"));
+    const dir = tempDir("fengsui-scheme-");
     const cpe = createStrictCpe();
     const start = (opts: { allowLegacyLoginAfterScram?: boolean } = {}) => {
       const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "scheme_key" });
@@ -308,7 +308,7 @@ describe("login methods and token flows (mock family)", () => {
       assert.equal(third.client.knownLoginScheme, "scram");
       await stopFengSuiCore(third.core);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 
@@ -383,7 +383,7 @@ describe("login methods and token flows (mock family)", () => {
   });
 
   it("reads CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM from .env (off by default) and reminds the owner while it is on", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-login-cfg-"));
+    const dir = tempDir("fengsui-login-cfg-");
     try {
       const file = path.join(dir, ".env");
       const cfg = (extra: string) => {
@@ -398,7 +398,7 @@ describe("login methods and token flows (mock family)", () => {
       assert.equal(on.length, 1);
       assert.match(on[0] ?? "", /CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=true[\s\S]*back to false/);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 

@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { readAntennaMode, readBandSelection, readCellLockCommand, readTimeSeriesPreset } from "../src/control-input.ts";
@@ -12,10 +10,11 @@ import { FengSuiMcpServer, type JsonRpcSuccessResponse, LATEST_MCP_PROTOCOL_VERS
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 function createServer() {
   const cpe = createStrictCpe();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-mcp-contract-"));
+  const dir = tempDir("fengsui-mcp-contract-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "mcp_contract_key" }),
@@ -36,7 +35,7 @@ function createServer() {
     call,
     close: async () => {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

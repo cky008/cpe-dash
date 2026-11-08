@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -19,6 +17,7 @@ import type { EnrichedSmsMessage } from "../src/sms/types.ts";
 import { type AlertEventRecord, EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const TOKEN = "123456:TEST_TOKEN_abcdefghijklmnopqrstuv";
 const HUMAN_LOGGED_IN = "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>";
@@ -108,7 +107,7 @@ function createBotFixture(
       { index: 40003, phone: "+353830000001", content: "Sure", date: "2026-10-29 18:05:00", smstat: "3", box: 2 },
     ],
   });
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-notify-"));
+  const tmpDir = tempDir("fengsui-notify-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "bot_key" });
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
   const core = createFengSuiCore({
@@ -173,7 +172,9 @@ function createBotFixture(
       await bot.stop();
       await service.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      // Linking and unlinking save telegram.json in the background: removing the dir under it fails with ENOTEMPTY
+      await state.flush();
+      removeTempDir(tmpDir);
     },
   };
 }
@@ -543,6 +544,8 @@ describe("TelegramBot", () => {
     assert.equal(reloaded.revokeLinkedVia("tok-phone"), 1);
     assert.equal(reloaded.isAuthorized("2001", []), false);
     assert.equal(reloaded.isAuthorized("2002", []), true);
+    // Its own background save must land before the fixture removes the directory
+    await reloaded.flush();
 
     assert.equal(fx.bot.unlinkChatsLinkedBy("tok-other"), 0);
     assert.equal(fx.bot.unlinkChatsLinkedBy("tok-phone"), 1);

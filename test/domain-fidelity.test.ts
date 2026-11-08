@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -8,10 +6,11 @@ import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictCpe, type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 function setup(fault?: (p: string, method: string) => StrictFault | undefined): { cpe: StrictCpe; core: FengSuiCore; close: () => Promise<void> } {
   const cpe = createStrictCpe({ fault });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-fidelity-"));
+  const dir = tempDir("fengsui-fidelity-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 3000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "fidelity_key" }),
@@ -24,7 +23,7 @@ function setup(fault?: (p: string, method: string) => StrictFault | undefined): 
     core,
     close: async () => {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { createFengSuiCore } from "../src/core.ts";
 import { parseJsonSafeNullProto } from "../src/json-safe.ts";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -16,6 +15,7 @@ import {
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { getXmlTag } from "../src/xml.ts";
+import { tempDir } from "./helpers/temp-dir.ts";
 
 function createMockSchedulerFixture(opts: {
   password?: string;
@@ -189,7 +189,7 @@ function createMockSchedulerFixture(opts: {
     return makeRes("<response>OK</response>");
   };
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-mcp-"));
+  const tmpDir = tempDir("fengsui-mcp-");
   const stateStore = new EncryptedStateStore({
     filePath: path.join(tmpDir, "state.json"),
     encryptionKey: password,

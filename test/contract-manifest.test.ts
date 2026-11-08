@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -15,6 +14,7 @@ import { SmsService } from "../src/sms/service.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Contract manifest (ADR-008): what the code exposes, read from the code itself, must be documented.
@@ -54,7 +54,7 @@ function missing(names: Iterable<string>, docs: Record<string, string>, quote = 
 describe("contract manifest: code ↔ docs", () => {
   it("documents every MCP tool, with every provider at its widest exposure", async () => {
     const cpe = createStrictCpe();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-manifest-"));
+    const dir = tempDir("fengsui-manifest-");
     const core = createFengSuiCore({
       client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "manifest_key" }),
@@ -79,7 +79,7 @@ describe("contract manifest: code ↔ docs", () => {
       assert.deepEqual(missing(tools, { "docs/PHASE2_BACKEND_CONTRACT.md": CONTRACT, ...READMES }), []);
     } finally {
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 

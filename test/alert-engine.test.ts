@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { AlertEngine, parseDataLimitBytes } from "../src/alert-engine.ts";
@@ -11,6 +9,7 @@ import type { AlertEventRecord } from "../src/state-store.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 interface SampleInput {
   t: number;
@@ -66,7 +65,7 @@ function createEngineFixture(opts: { failing?: () => boolean } = {}) {
       return undefined;
     },
   });
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-alerts-"));
+  const tmpDir = tempDir("fengsui-alerts-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "alert_key" });
   const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
   const core = createFengSuiCore({
@@ -94,7 +93,7 @@ function createEngineFixture(opts: { failing?: () => boolean } = {}) {
     cleanup: async () => {
       engine.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     },
   };
 }

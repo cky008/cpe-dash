@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiRuntime, startServeDaemon } from "../src/cli.ts";
@@ -18,6 +17,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type FamilySms, createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * Multi-model phase 2: a router that is not a verified model is read-only, enforced in the scheduler
@@ -46,7 +46,7 @@ function storedProbe(model: string): DeviceProbeResult {
 }
 
 function gateFixture(cpe: { fetchImpl: typeof fetch; password: string }, opts: { stored?: string } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-gate-"));
+  const dir = tempDir("fengsui-gate-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "gate_key" });
   // What an earlier run stored (no file yet, so init() keeps it, as after a restart)
   if (opts.stored) stateStore.update({ deviceProbe: storedProbe(opts.stored) });
@@ -71,7 +71,7 @@ function gateFixture(cpe: { fetchImpl: typeof fetch; password: string }, opts: {
     cleanup: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     },
   };
 }
@@ -366,7 +366,7 @@ describe("write gate: unverified models are read-only", () => {
 describe("write gate over REST: every control and SMS write route answers 409 on an unverified model", () => {
   it("refuses each route, and the router gets no write", async () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", sms: MAILBOX });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-gate-rest-"));
+    const dir = tempDir("fengsui-gate-rest-");
     const envPath = path.join(dir, ".env");
     fs.writeFileSync(envPath, "# write gate test\n", { mode: 0o600 });
     const config = loadConfig({
@@ -436,7 +436,7 @@ describe("write gate over REST: every control and SMS write route answers 409 on
       assert.equal(cpe.stats.requests.length, sent, "no session either");
     } finally {
       await stack.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTempDir(dir);
     }
   });
 });
