@@ -270,9 +270,12 @@ describe("the console in a browser", () => {
     const escape = async (): Promise<void> => {
       for (const type of ["keyDown", "keyUp"]) await page.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     };
-    // Two marks in turn: only the one explained points at the tip, and none once it is hidden
-    await page.evaluate(`${hover("#dashboardView", 0)}; ${hover("#dashboardView", 1)}; true`);
-    assert.deepEqual(await state(), { hidden: false, described: 1 });
+    // Two marks in turn: only the one explained points at the tip, and none once it is hidden. Read in the same
+    // task as the hovers: the dashboard redraws its cards from the event stream, which would take the mark away
+    const turn = await page.evaluate<{ hidden: boolean; described: number }>(
+      `(() => { ${hover("#dashboardView", 0)}; ${hover("#dashboardView", 1)}; return { hidden: document.querySelector(".fs-help-tip").hidden, described: document.querySelectorAll("[aria-describedby='fsHelpTip']").length }; })()`
+    );
+    assert.deepEqual(turn, { hidden: false, described: 1 });
     // Escape dismisses it without moving the pointer or the focus (WCAG 2.2, 1.4.13 Content on Hover or Focus)
     await escape();
     assert.deepEqual(await state(), { hidden: true, described: 0 });
