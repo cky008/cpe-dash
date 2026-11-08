@@ -51,9 +51,9 @@ describe("MCP tool contract enforcement", () => {
 
       const cases: Array<[string, Record<string, unknown>, RegExp]> = [
         ["lock_cell", { rat: "LTE", band: "B3" }, /missing required parameter "arfcn"/],
-        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1700.5 }, /"arfcn" must be an integer/],
-        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1700, pci: 1008 }, /"pci" must be <= 1007/],
-        ["lock_cell", { rat: "UMTS", band: "B3", arfcn: 1700 }, /"rat" must be one of "LTE", "NR"/],
+        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1850.5 }, /"arfcn" must be an integer/],
+        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1850, pci: 1008 }, /"pci" must be <= 1007/],
+        ["lock_cell", { rat: "UMTS", band: "B3", arfcn: 1850 }, /"rat" must be one of "LTE", "NR"/],
         ["lock_band", { lteBands: ["B1", true] }, /"lteBands"/],
         ["query_telemetry_history", { preset: 6 }, /"preset" must be a string/],
         ["get_cpe_telemetry", { refresh: "yes" }, /"refresh" must be a boolean/],
@@ -127,19 +127,19 @@ describe("shared REST/MCP input guards and the schema validator", () => {
     assert.throws(() => readBandSelection({ b: "B1" }, "b"), CpeControlValidationError);
     assert.throws(() => readBandSelection({ b: [null] }, "b"), /Invalid band entry/);
 
-    assert.deepEqual(readCellLockCommand({ rat: "NR", band: "N78", arfcn: 647424 }, { allowNullPci: false }), {
+    assert.deepEqual(readCellLockCommand({ rat: "NR", band: "N78", arfcn: 650000 }, { allowNullPci: false }), {
       rat: "NR",
       band: "N78",
-      arfcn: 647424,
+      arfcn: 650000,
     });
-    assert.deepEqual(readCellLockCommand({ rat: "LTE", band: 3, arfcn: 1700, pci: null }, { allowNullPci: true }), {
+    assert.deepEqual(readCellLockCommand({ rat: "LTE", band: 3, arfcn: 1850, pci: null }, { allowNullPci: true }), {
       rat: "LTE",
       band: 3,
-      arfcn: 1700,
+      arfcn: 1850,
     });
-    assert.throws(() => readCellLockCommand({ rat: "LTE", band: 3, arfcn: 1700, pci: null }, { allowNullPci: false }), /"pci"/);
-    assert.throws(() => readCellLockCommand({ rat: "LTE", band: 3, arfcn: "1700" }, { allowNullPci: true }), /"arfcn"/);
-    assert.throws(() => readCellLockCommand({ rat: "LTE", arfcn: 1700 }, { allowNullPci: true }), /"band"/);
+    assert.throws(() => readCellLockCommand({ rat: "LTE", band: 3, arfcn: 1850, pci: null }, { allowNullPci: false }), /"pci"/);
+    assert.throws(() => readCellLockCommand({ rat: "LTE", band: 3, arfcn: "1850" }, { allowNullPci: true }), /"arfcn"/);
+    assert.throws(() => readCellLockCommand({ rat: "LTE", arfcn: 1850 }, { allowNullPci: true }), /"band"/);
 
     assert.equal(readAntennaMode("external"), "external");
     assert.throws(() => readAntennaMode("satellite"), /"mode" must be/);

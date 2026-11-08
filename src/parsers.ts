@@ -194,7 +194,7 @@ function parseBigIntZero(raw: string | null | undefined): bigint {
 }
 
 /**
- * Parse H168-383 carrier aggregation banner (`"20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)"`).
+ * Parse H168-383 carrier aggregation banner (`"20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)"`).
  */
 export function parseCaBandBanner(banner: string | null | undefined): CaBannerComponent[] {
   if (!banner) return [];

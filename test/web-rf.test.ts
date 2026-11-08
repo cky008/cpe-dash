@@ -42,14 +42,14 @@ describe("web core: RF grading and carrier aggregation", () => {
     assert.equal(bandLabel("NR", "NR 41"), "N41");
     const nsa = carrierChips({
       caCarriers: [
-        { bandwidthMhz: 20, arfcn: 100, band: "B1", rat: "LTE" },
-        { bandwidthMhz: 20, arfcn: 1700, band: "B3", rat: "LTE" },
-        { bandwidthMhz: 100, arfcn: 647424, band: "N78", rat: "NR" },
+        { bandwidthMhz: 20, arfcn: 300, band: "B1", rat: "LTE" },
+        { bandwidthMhz: 20, arfcn: 1850, band: "B3", rat: "LTE" },
+        { bandwidthMhz: 100, arfcn: 650000, band: "N78", rat: "NR" },
       ],
     });
     assert.equal(caSummary(nsa), "PCC B1(20M) + SCC B3(20M) + 5G N78(100M)");
     assert.equal(nsa[2]?.role, "SCC");
-    const sa = carrierChips({ caCarriers: [{ bandwidthMhz: 100, arfcn: 647424, band: "78", rat: "NR" }] });
+    const sa = carrierChips({ caCarriers: [{ bandwidthMhz: 100, arfcn: 650000, band: "78", rat: "NR" }] });
     assert.equal(caSummary(sa), "PCC 5G N78(100M)");
     assert.equal(caSummary([]), "");
   });

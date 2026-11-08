@@ -137,7 +137,7 @@ function createMockCpeFetch(opts: {
     // Default telemetry fixtures strictly adhering to RFC placeholders
     if (pathname === "/api/device/signal") {
       return makeRes(
-        "<response><pci>321</pci><cell_id>134217758</cell_id><tac>10001</tac><band>20MHz@100(B1) + 100MHz@647424(N78)</band><rsrp>-84dBm</rsrp><sinr>20dB</sinr><nrrsrp>-80dBm</nrrsrp><nrsinr>25dB</nrsinr></response>"
+        "<response><pci>321</pci><cell_id>134217758</cell_id><tac>10001</tac><band>20MHz@300(B1) + 100MHz@650000(N78)</band><rsrp>-84dBm</rsrp><sinr>20dB</sinr><nrrsrp>-80dBm</nrrsrp><nrsinr>25dB</nrsinr></response>"
       );
     }
     if (pathname === "/api/monitoring/traffic-statistics") {
@@ -167,7 +167,7 @@ function createMockCpeFetch(opts: {
       return makeRes("<response><devicename>H168-383</devicename><spreadname_en>HUAWEI 5G CPE Ultra 6</spreadname_en></response>");
     }
     if (pathname === "/api/device/seccellinfo") {
-      return makeRes("<response><lteseccell_list>1700,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list></response>");
+      return makeRes("<response><lteseccell_list>1850,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list></response>");
     }
     if (pathname === "/api/device/ri") {
       return makeRes("<response><ri>2</ri></response>");
@@ -183,7 +183,7 @@ function createMockCpeFetch(opts: {
     }
     if (pathname === "/api/device/nbrcellinfo") {
       return makeRes(
-        "<response><nbrcell_ltelist>100,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist><nbrcell_nrlist>647424,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist></response>"
+        "<response><nbrcell_ltelist>300,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist><nbrcell_nrlist>650000,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist></response>"
       );
     }
     if (pathname === "/api/system/HostInfo") {
@@ -1175,7 +1175,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rClOk = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: 100, pci: 321 }),
+        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: 300, pci: 321 }),
       });
       assert.equal(rClOk.status, 200);
 
@@ -1183,7 +1183,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rClFreqOnly = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: 100, pci: null }),
+        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: 300, pci: null }),
       });
       assert.equal(rClFreqOnly.status, 200);
       const rClFreqOnlyBody = (await rClFreqOnly.json()) as {
@@ -1194,14 +1194,14 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rClBadRat = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "GSM", band: "B1", arfcn: 100 }),
+        body: JSON.stringify({ rat: "GSM", band: "B1", arfcn: 300 }),
       });
       assert.equal(rClBadRat.status, 400);
 
       const rClBadBand = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "LTE", arfcn: 100 }),
+        body: JSON.stringify({ rat: "LTE", arfcn: 300 }),
       });
       assert.equal(rClBadBand.status, 400);
 
@@ -1795,7 +1795,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const badCellPci = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "NR", band: "N78", arfcn: 647424, pci: "not_a_number" }),
+        body: JSON.stringify({ rat: "NR", band: "N78", arfcn: 650000, pci: "not_a_number" }),
       });
       assert.equal(badCellPci.status, 400);
       const badCellPciBody = (await badCellPci.json()) as { errorCode: string; message: string };

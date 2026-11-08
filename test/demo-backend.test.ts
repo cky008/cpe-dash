@@ -159,8 +159,8 @@ describe("Static demo backend vs the real daemon", () => {
   it("applies band and cell locks like the daemon, and rejects what it rejects", async () => {
     for (const [route, body] of [
       ["/api/control/band-lock", { lteBands: ["B3", 1, "B3"], nrBands: ["N78"] }],
-      ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 647424, pci: 357 }],
-      ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 1700, pci: null }],
+      ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 650000, pci: 211 }],
+      ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 1850, pci: null }],
       ["/api/control/unlock", {}],
     ] as const) {
       const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
@@ -174,7 +174,7 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/band-lock", {}],
       ["/api/control/band-lock", { lteBands: ["B99"] }],
       ["/api/control/band-lock", { nrBands: "N78" }],
-      ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 99_999, pci: 25 }],
+      ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 99_999, pci: 142 }],
       ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 647_424, pci: 5000 }],
       ["/api/control/cell-lock", { rat: "5G", band: "N78", arfcn: 647_424 }],
       ["/api/control/reboot", { confirm: false }],

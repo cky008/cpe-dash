@@ -81,7 +81,7 @@ type Fixture = ReturnType<typeof gateFixture>;
 /** Every write the scheduler runs, through the service an adapter calls (REST, MCP, Telegram, self-heal). */
 const WRITES: ReadonlyArray<[ControlAction, (fx: Fixture) => Promise<unknown>]> = [
   ["lock_band", (fx) => fx.core.controls.lockBands({ lteBands: [1, 3] })],
-  ["lock_cell", (fx) => fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 100, pci: 1 })],
+  ["lock_cell", (fx) => fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 300, pci: 1 })],
   ["unlock_rf_locks", (fx) => fx.core.controls.unlockAllLocks()],
   ["auto_unlock_rf_locks", (fx) => fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso)],
   ["reboot_cpe", (fx) => fx.core.controls.rebootRouter({ confirm: true })],
@@ -406,7 +406,7 @@ describe("write gate over REST: every control and SMS write route answers 409 on
 
       const routes: ReadonlyArray<[string, unknown]> = [
         ["/api/control/band-lock", { lteBands: ["B1", "B3"] }],
-        ["/api/control/cell-lock", { rat: "LTE", band: "B1", arfcn: 100, pci: 1 }],
+        ["/api/control/cell-lock", { rat: "LTE", band: "B1", arfcn: 300, pci: 1 }],
         ["/api/control/unlock", {}],
         ["/api/control/reboot", { confirm: true }],
         ["/api/control/reconnect", { confirm: true }],

@@ -13,7 +13,7 @@ const VERIFY_KEYS: Readonly<Record<LockVerification["status"], MessageKey>> = {
   unknown: "health.verify_unknown",
 };
 
-/** One-line description of the persisted lock (`B1+B3 · N78`, `NR N78 / 647424 / PCI 357`). */
+/** One-line description of the persisted lock (`B1+B3 · N78`, `NR N78 / 650000 / PCI 211`). */
 export function describeLock(ctx: AppContext, lock: PersistedLockState | null): string {
   if (!lock || lock.mode === "unlocked") return ctx.t("health.lock_unlocked");
   if (lock.mode === "cell_lock" && lock.cellLock) {

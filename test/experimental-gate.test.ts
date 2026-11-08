@@ -89,7 +89,7 @@ const unread = (fx: Fixture): string[] => fx.sms.mirror.list().filter((m) => m.i
 /** Every write the scheduler runs, through the service an adapter calls. */
 const WRITES: ReadonlyArray<[ControlAction, (fx: Fixture) => Promise<unknown>]> = [
   ["lock_band", (fx) => fx.core.controls.lockBands({ lteBands: [1, 3] })],
-  ["lock_cell", (fx) => fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 100, pci: 1 })],
+  ["lock_cell", (fx) => fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 300, pci: 1 })],
   ["unlock_rf_locks", (fx) => fx.core.controls.unlockAllLocks()],
   ["auto_unlock_rf_locks", (fx) => fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso)],
   ["reboot_cpe", (fx) => fx.core.controls.rebootRouter({ confirm: true })],
@@ -205,7 +205,7 @@ describe("experimental gate: one consent", () => {
       await assert.rejects(fx.core.controls.lockBands({ lteBands: [2] }), CpeControlValidationError);
       await assert.rejects(fx.core.controls.lockBands({ nrBands: ["N78"] }), CpeControlValidationError);
       await assert.rejects(fx.core.controls.lockBands({ lteBands: [1], nrBands: "all" }), CpeControlValidationError);
-      await assert.rejects(fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 100, pci: 1 }), refused("lock_cell"), "a consent for an unimplemented write opens nothing");
+      await assert.rejects(fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 300, pci: 1 }), refused("lock_cell"), "a consent for an unimplemented write opens nothing");
       assert.equal(cpe.stats.requests.length, sent);
       assert.deepEqual(cpe.stats.writes, []);
     } finally {

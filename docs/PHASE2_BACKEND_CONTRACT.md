@@ -304,7 +304,7 @@ export interface GlobalTelemetrySnapshot {
     operatorName: string;
     plmnNumeric: string;
     ratCode: string;
-    caBannerRaw: string;        // e.g. "20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)"
+    caBannerRaw: string;        // e.g. "20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)"
     caCarriers: Array<{ bandwidthMhz: number; arfcn: number; band: string; rat: "LTE" | "NR" }>;
     caActive: boolean;
     caComponentCount: number;   // e.g. 3

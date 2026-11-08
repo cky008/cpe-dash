@@ -114,7 +114,7 @@ function mcpFixture(cpe: { fetchImpl: typeof fetch; password: string }) {
 /** Each router write tool, called the way an agent would (confirm included where the schema wants it). */
 const ROUTER_WRITE_CALLS: ReadonlyArray<[string, Record<string, unknown>]> = [
   ["lock_band", { lteBands: ["B1"] }],
-  ["lock_cell", { rat: "LTE", band: "B1", arfcn: 100, pci: 1 }],
+  ["lock_cell", { rat: "LTE", band: "B1", arfcn: 300, pci: 1 }],
   ["unlock_rf_locks", {}],
   ["set_security_switches", { upnpEnabled: false }],
   ["set_wifi_and_antenna", { antennaMode: "auto" }],

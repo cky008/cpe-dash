@@ -437,7 +437,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       // Default telemetry fixtures matching PHASE1_PROTOCOL_SPEC.md & cpe-domain
       if (p === "/api/device/signal") {
         return makeRes(
-          "<response><band>20MHz@100(B1) + 100MHz@647424(N78)</band><rsrp>-84dBm</rsrp><sinr>20dB</sinr><nrrsrp>-80dBm</nrrsrp><nrsinr>25dB</nrsinr></response>"
+          "<response><band>20MHz@300(B1) + 100MHz@650000(N78)</band><rsrp>-84dBm</rsrp><sinr>20dB</sinr><nrrsrp>-80dBm</nrrsrp><nrsinr>25dB</nrsinr></response>"
         );
       }
       if (p === "/api/monitoring/traffic-statistics") {
@@ -465,7 +465,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
         return makeRes("<response><devicename>H168-383</devicename><spreadname_en>HUAWEI 5G CPE Ultra 6</spreadname_en></response>");
       }
       if (p === "/api/device/seccellinfo") {
-        return makeRes("<response><lteseccell_list>1700,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list></response>");
+        return makeRes("<response><lteseccell_list>1850,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list></response>");
       }
       if (p === "/api/device/ri") {
         return makeRes("<response><ri>2</ri></response>");
@@ -483,7 +483,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       // Neighbors
       if (p === "/api/device/nbrcellinfo") {
         return makeRes(
-          "<response><nbrcell_ltelist>100,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist><nbrcell_nrlist>647424,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist></response>"
+          "<response><nbrcell_ltelist>300,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist><nbrcell_nrlist>650000,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist></response>"
         );
       }
 
@@ -884,7 +884,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     const cellState = await core.controls.lockCell({
       rat: "NR",
       band: 78,
-      arfcn: 647424,
+      arfcn: 650000,
       pci: 512,
     } satisfies CellLockCommand);
     assert.equal(cellState.mode, "cell_lock");
@@ -936,7 +936,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       updatedAtIso: new Date().toISOString(),
       lteBands: [1] as number[],
       nrBands: [] as number[],
-      cellLock: { rat: "LTE" as const, band: 1, arfcn: 100, pci: 10 },
+      cellLock: { rat: "LTE" as const, band: 1, arfcn: 300, pci: 10 },
     };
     await scheduler.executeControl(
       "lock_cell",

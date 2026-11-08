@@ -27,24 +27,24 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
   });
 
   it("parses H168-383 3CA EN-DC band banner into structured component carriers", () => {
-    const banner = "20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)";
+    const banner = "20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)";
     const carriers = parseCaBandBanner(banner);
     assert.equal(carriers.length, 3);
     assert.deepEqual(carriers[0], {
       bandwidthMhz: 20,
-      arfcn: 100,
+      arfcn: 300,
       band: "B1",
       rat: "LTE",
     });
     assert.deepEqual(carriers[1], {
       bandwidthMhz: 20,
-      arfcn: 1700,
+      arfcn: 1850,
       band: "B3",
       rat: "LTE",
     });
     assert.deepEqual(carriers[2], {
       bandwidthMhz: 100,
-      arfcn: 647424,
+      arfcn: 650000,
       band: "N78",
       rat: "NR",
     });
@@ -92,18 +92,18 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
   it("parses 8-column secondary component carrier CSV in /api/device/seccellinfo", () => {
     const secXml = `<?xml version="1.0" encoding="UTF-8"?>
 <response>
-  <lteseccell_list>1700,B3,20MHz,357,-84dBm,-8dB,-67dBm,12dB;</lteseccell_list>
-  <nrseccell_list>647424,N78,100MHz,357,-93dBm,-10dB,-70dBm,8dB;</nrseccell_list>
+  <lteseccell_list>1850,B3,20MHz,211,-84dBm,-8dB,-67dBm,12dB;</lteseccell_list>
+  <nrseccell_list>650000,N78,100MHz,211,-93dBm,-10dB,-70dBm,8dB;</nrseccell_list>
 </response>`;
     const parsed = parseSecondaryCellsXml(secXml);
     assert.equal(parsed.lteScc.length, 1);
     assert.equal(parsed.nrScc.length, 1);
     assert.deepEqual(parsed.lteScc[0], {
       rat: "LTE",
-      arfcn: 1700,
+      arfcn: 1850,
       band: "B3",
       bandwidthMhz: 20,
-      pci: 357,
+      pci: 211,
       rsrpDbm: -84,
       rsrqDb: -8,
       rssiDbm: -67,
@@ -111,10 +111,10 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
     });
     assert.deepEqual(parsed.nrScc[0], {
       rat: "NR",
-      arfcn: 647424,
+      arfcn: 650000,
       band: "N78",
       bandwidthMhz: 100,
-      pci: 357,
+      pci: 211,
       rsrpDbm: -93,
       rsrqDb: -10,
       rssiDbm: -70,
@@ -125,7 +125,7 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
   it("parses full RF snapshot, verifies hex/dec cell & TAC equivalence, and redacts raw location IDs", () => {
     // Synthetic RFC-safe CellID=134217758 (0x0800001E -> eNodeB=524288, sector=30), TAC=10001 (0x2711)
     const signalXml = `<response>
-      <pci>357</pci>
+      <pci>211</pci>
       <cell_id>134217758</cell_id>
       <enodeb_id>0524288</enodeb_id>
       <tac>10001</tac>
@@ -135,8 +135,8 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
       <sinr>8dB</sinr>
       <ulbandwidth>20MHz</ulbandwidth>
       <dlbandwidth>20MHz</dlbandwidth>
-      <earfcn>DL:100 UL:18100</earfcn>
-      <band>20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)</band>
+      <earfcn>DL:300 UL:18300</earfcn>
+      <band>20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)</band>
       <bandInfo>B1</bandInfo>
       <transmode>TM[4]</transmode>
       <cqi0>10</cqi0>
@@ -147,7 +147,7 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
       <nrrsrp>-93dBm</nrrsrp>
       <nrrsrq>-10dB</nrrsrq>
       <nrsinr>8dB</nrsinr>
-      <nrearfcn>DL:647424 UL:647424</nrearfcn>
+      <nrearfcn>DL:650000 UL:650000</nrearfcn>
       <nrulbandwidth>100MHz</nrulbandwidth>
       <nrdlbandwidth>100MHz</nrdlbandwidth>
       <nrulmcs>NRmcsUpCarrier1:17@64QAM</nrulmcs>
@@ -158,8 +158,8 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
       <nrcqi1>11</nrcqi1>
     </response>`;
     const secCellXml = `<response>
-      <lteseccell_list>1700,B3,20MHz,357,-84dBm,-8dB,-67dBm,12dB;</lteseccell_list>
-      <nrseccell_list>647424,N78,100MHz,357,-93dBm,-10dB,-70dBm,8dB;</nrseccell_list>
+      <lteseccell_list>1850,B3,20MHz,211,-84dBm,-8dB,-67dBm,12dB;</lteseccell_list>
+      <nrseccell_list>650000,N78,100MHz,211,-93dBm,-10dB,-70dBm,8dB;</nrseccell_list>
     </response>`;
     const riXml = `<response><ri>2</ri></response>`;
     const cellInfoXml = `<response><cellinfo>0800001E</cellinfo><lac>2711</lac></response>`;
@@ -178,7 +178,7 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
     assert.equal(snap.caComponentCount, 3);
     assert.equal(snap.totalAggregatedBandwidthMhz, 140);
     assert.equal(snap.pccBand, "B1");
-    assert.equal(snap.pci, 357);
+    assert.equal(snap.pci, 211);
     assert.equal(snap.lteMimoRank, 2);
     assert.equal(snap.nrMimoRank, 2);
     assert.equal(snap.transmissionMode, "TM[4]");
@@ -195,17 +195,17 @@ describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
 describe("Neighbor Cell, Dual-Period Traffic & Terminal Topology Parsers", () => {
   it("parses 7-column 4G/5G neighbor cell CSV lists", () => {
     const nbrXml = `<response>
-      <nbrcell_ltelist>1700,B3,357,-84dBm,-8dB,-67dBm,--;100,B1,25,-95dBm,-19dB,-67dBm,4dB;</nbrcell_ltelist>
-      <nbrcell_nrlist>647424,N78,357,-93dBm,-10dB,-70dBm,8dB;</nbrcell_nrlist>
+      <nbrcell_ltelist>1850,B3,211,-84dBm,-8dB,-67dBm,--;300,B1,142,-95dBm,-19dB,-67dBm,4dB;</nbrcell_ltelist>
+      <nbrcell_nrlist>650000,N78,211,-93dBm,-10dB,-70dBm,8dB;</nbrcell_nrlist>
     </response>`;
     const parsed = parseNeighborCellsXml(nbrXml);
     assert.equal(parsed.lteNeighbors.length, 2);
     assert.equal(parsed.nrNeighbors.length, 1);
     assert.deepEqual(parsed.lteNeighbors[0], {
       rat: "LTE",
-      arfcn: 1700,
+      arfcn: 1850,
       band: "B3",
-      pci: 357,
+      pci: 211,
       rsrpDbm: -84,
       rsrqDb: -8,
       rssiDbm: -67,

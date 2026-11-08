@@ -80,7 +80,7 @@ function createMockSchedulerFixture(opts: {
     // Default telemetry fixtures strictly adhering to RFC placeholders
     if (pathname === "/api/device/signal") {
       return makeRes(
-        "<response><pci>321</pci><band>20MHz@100(B1) + 100MHz@647424(N78)</band><rsrp>-84dBm</rsrp><sinr>20dB</sinr><nrrsrp>-80dBm</nrrsrp><nrsinr>25dB</nrsinr></response>"
+        "<response><pci>321</pci><band>20MHz@300(B1) + 100MHz@650000(N78)</band><rsrp>-84dBm</rsrp><sinr>20dB</sinr><nrrsrp>-80dBm</nrrsrp><nrsinr>25dB</nrsinr></response>"
       );
     }
     if (pathname === "/api/monitoring/traffic-statistics") {
@@ -110,7 +110,7 @@ function createMockSchedulerFixture(opts: {
       return makeRes("<response><devicename>H168-383</devicename><spreadname_en>HUAWEI 5G CPE Ultra 6</spreadname_en></response>");
     }
     if (pathname === "/api/device/seccellinfo") {
-      return makeRes("<response><lteseccell_list>1700,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list></response>");
+      return makeRes("<response><lteseccell_list>1850,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list></response>");
     }
     if (pathname === "/api/device/ri") {
       return makeRes("<response><ri>2</ri></response>");
@@ -126,7 +126,7 @@ function createMockSchedulerFixture(opts: {
     }
     if (pathname === "/api/device/nbrcellinfo") {
       return makeRes(
-        "<response><nbrcell_ltelist>100,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist><nbrcell_nrlist>647424,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist></response>"
+        "<response><nbrcell_ltelist>300,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist><nbrcell_nrlist>650000,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist></response>"
       );
     }
     if (pathname === "/api/system/HostInfo") {
@@ -761,7 +761,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 640,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 321 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 321 } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lcUnseen.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "CELL_NOT_OBSERVED");
@@ -772,7 +772,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 641,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 499 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 499 } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lcInvented.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "CELL_NOT_OBSERVED");
@@ -782,7 +782,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 642,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 999 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 999 } },
         })
       )) as JsonRpcSuccessResponse;
       const impossible = (lcImpossible.result as { structuredContent: { errorCode: string; message: string } }).structuredContent;
@@ -795,7 +795,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 642,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: 1, arfcn: 100, pci: 322 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: 1, arfcn: 300, pci: 322 } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lcNeighbour.result as { isError: boolean }).isError, false);
@@ -806,7 +806,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "LTE", band: "B1", arfcn: 100, pci: 321 },
+            arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 321 },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -819,7 +819,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "NR", band: "N78", arfcn: 647424 },
+            arguments: { rat: "NR", band: "N78", arfcn: 650000 },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -833,7 +833,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "GSM", band: "B1", arfcn: 100 },
+            arguments: { rat: "GSM", band: "B1", arfcn: 300 },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -846,7 +846,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "LTE", arfcn: 100 },
+            arguments: { rat: "LTE", arfcn: 300 },
           },
         })
       )) as JsonRpcSuccessResponse;

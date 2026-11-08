@@ -95,11 +95,12 @@ cpe-dash/
 - 严禁使用显式或隐式 `any`；对所有网络 I/O、XML 解析与 `catch (err: unknown)` 必须执行显式类型收窄。
 
 ### 铁律二：零密钥与零硬件隐私泄露 (Zero-Secret & Zero-PII Git Hygiene)
-- **严禁泄露清单**：在源码、测试夹具、探针终端输出、文档样本及 Git Commit 记录中，**绝对禁止出现**真实管理密码、API Token、真实公网 IPv4/IPv6、真实 Tailscale 节点 IP、个人公网域名（唯一例外：控制台页脚的作者主页链接 `https://iocky.com/`；NAS 反代主机名等任何子域名仍然禁止）、**IMEI**、**IMSI**、**ICCID**、**手机号 (MSISDN)**、**设备序列号 (SN)**、**真实终端 MAC 地址**、**Wi-Fi 真实 SSID/密码** 以及 **真实基站位置指纹（TAC 跟踪区代码、CellID、gNodeB/eNodeB ID）**。
+- **严禁泄露清单**：在源码、测试夹具、探针终端输出、文档样本及 Git Commit 记录中，**绝对禁止出现**真实管理密码、API Token、真实公网 IPv4/IPv6、真实 Tailscale 节点 IP、个人公网域名（唯一例外：控制台页脚的作者主页链接 `https://iocky.com/`；NAS 反代主机名等任何子域名仍然禁止）、**IMEI**、**IMSI**、**ICCID**、**手机号 (MSISDN)**、**设备序列号 (SN)**、**真实终端 MAC 地址**、**Wi-Fi 真实 SSID/密码** 以及 **真实基站位置指纹（TAC 跟踪区代码、CellID、gNodeB/eNodeB ID，以及服务小区与邻区的 PCI + 频点组合：同一运营商的频点加上几个 PCI 就能在公开基站数据库里定位到具体站点）**。
 - **RFC 占位测试夹具规范**：
   - CPE 局域网网关：`192.168.8.1`；模拟公网 IPv4：RFC 5737 测试网段（`198.51.100.42` / `203.0.113.10`）；模拟公网 IPv6：RFC 3849（`2001:db8::42`）；
   - 模拟域名：`cpe.example.com`；模拟 MAC：`02:00:5E:10:00:01` / `00:00:5E:00:53:01`（RFC 7042 文档保留地址）；
   - 模拟蜂窝身份：`IMEI=860000000000000`、`IMSI=272010000000000`、`ICCID=8935301000000000000`、`MSISDN=+353830000000`、`TAC=10001`、`CellID=134217758`。
+  - 模拟小区（演示世界、测试夹具与协议样本统一使用）：LTE PCC `B1 / EARFCN 300`、SCC `B3 / EARFCN 1850`、NR `N78 / NR-ARFCN 650000`，PCI `211` / `142`；绝不从真机抓包或探针输出复制 PCI 与频点。
 - **物理隔离**：本地 `.env`、`data/*`、`.probe-cache/`、`*.har`、`*.pcap*`、`*.apk*`、`*.dll` 必须写入 [`.gitignore`](.gitignore) 严格隔离；每次提交前必须通过 `npm run audit:secrets` 对工作区与完整 `git log -p --all` 历史进行双向扫描。
 - **短信与通知隐私铁律**：
   - 严禁在源码、测试夹具、文档、Issue、探针输出与 Commit 中出现**真实手机号、短信正文、验证码 (OTP)、联系人姓名/备注、Telegram Bot Token、真实 Telegram 聊天 ID、Webhook 地址与签名密钥**；`audit-secrets` 会把 `.env` 中的 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_IDS`、`WEBHOOK_URL`、`WEBHOOK_SECRET` 视为字面量密钥扫描。

@@ -126,28 +126,28 @@ describe("Browser-shared modules (single source of truth for the web UI)", () =>
     assert.equal(validatePci("NR", 1007), 1007);
     assert.throws(() => validatePci("NR", 1008), /expected integer 0\.\.1007/);
     assert.throws(() => validatePci("NR", 1.5), /Invalid PCI/);
-    assert.equal(validateArfcnInBand("LTE", 3, 1700), 1700);
-    assert.throws(() => validateArfcnInBand("LTE", 3, 100), /Invalid ARFCN 100 for B3 \(3GPP DL EARFCN 1200\.\.1949\)/);
+    assert.equal(validateArfcnInBand("LTE", 3, 1850), 1850);
+    assert.throws(() => validateArfcnInBand("LTE", 3, 300), /Invalid ARFCN 300 for B3 \(3GPP DL EARFCN 1200\.\.1949\)/);
     assert.throws(() => validateArfcnInBand("NR", 2, 400000), /Invalid ARFCN 400000 for N2 \(3GPP DL NR-ARFCN\)/);
   });
 
   it("checks a cell lock request field by field without throwing (for inline form errors)", () => {
-    assert.deepEqual(checkCellLockInput({ rat: "LTE", band: "B3", arfcn: 1700, pci: 357 }), {
+    assert.deepEqual(checkCellLockInput({ rat: "LTE", band: "B3", arfcn: 1850, pci: 211 }), {
       ok: true,
-      value: { rat: "LTE", band: 3, arfcn: 1700, pci: 357 },
+      value: { rat: "LTE", band: 3, arfcn: 1850, pci: 211 },
     });
-    assert.deepEqual(checkCellLockInput({ rat: "NR", band: "n78", arfcn: 647424, pci: null }), {
+    assert.deepEqual(checkCellLockInput({ rat: "NR", band: "n78", arfcn: 650000, pci: null }), {
       ok: true,
-      value: { rat: "NR", band: 78, arfcn: 647424, pci: null },
+      value: { rat: "NR", band: 78, arfcn: 650000, pci: null },
     });
     const badBand = checkCellLockInput({ rat: "LTE", band: "B2", arfcn: 700, pci: 1 });
     assert.equal(badBand.ok, false);
     assert.equal(!badBand.ok && badBand.field, "band");
-    const badArfcn = checkCellLockInput({ rat: "LTE", band: "B3", arfcn: 100, pci: 1 });
+    const badArfcn = checkCellLockInput({ rat: "LTE", band: "B3", arfcn: 300, pci: 1 });
     assert.deepEqual(!badArfcn.ok && [badArfcn.field, badArfcn.range], ["arfcn", [1200, 1949]]);
-    const badPci = checkCellLockInput({ rat: "LTE", band: "B3", arfcn: 1700, pci: 600 });
+    const badPci = checkCellLockInput({ rat: "LTE", band: "B3", arfcn: 1850, pci: 600 });
     assert.deepEqual(!badPci.ok && [badPci.field, badPci.range], ["pci", [0, 503]]);
-    const nrPci = checkCellLockInput({ rat: "NR", band: "N78", arfcn: 647424, pci: 1000 });
+    const nrPci = checkCellLockInput({ rat: "NR", band: "N78", arfcn: 650000, pci: 1000 });
     assert.equal(nrPci.ok, true);
     const nan = checkCellLockInput({ rat: "NR", band: "N78", arfcn: Number.NaN, pci: 1 });
     assert.equal(!nan.ok && nan.field, "arfcn");

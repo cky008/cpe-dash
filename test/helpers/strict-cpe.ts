@@ -42,9 +42,9 @@ const SERVER_ECC_PUB = curve25519Mul(SERVER_ECC_PRIV, 9n).toString(16).padStart(
 
 const TELEMETRY_XML: Readonly<Record<string, string>> = {
   "/api/device/signal":
-    "<response><pci>357</pci><cell_id>134217758</cell_id><rsrq>-5.5dB</rsrq><rsrp>-87dBm</rsrp><rssi>-72dBm</rssi><sinr>13dB</sinr><mode>7</mode><ulbandwidth>20MHz</ulbandwidth><dlbandwidth>20MHz</dlbandwidth><txpower>PPusch:12dBm PPucch:-9dBm PSrs:0dBm PPrach:-3dBm</txpower><ul_mcs>mcsUpCarrier1:27@256QAM</ul_mcs><dl_mcs>mcsDownCarrier1Code0:20@256QAM</dl_mcs><earfcn>DL:100 UL:18100</earfcn><tac>10001</tac><band>20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)</band><plmn>27201</plmn><transmode>TM[4]</transmode><enodeb_id>0524288</enodeb_id><nrearfcn>647424</nrearfcn><nrsinr>8dB</nrsinr><nrrsrp>-95dBm</nrrsrp><nrrsrq>-10.0dB</nrrsrq><nrdlbandwidth>100MHz</nrdlbandwidth><nrulbandwidth>100MHz</nrulbandwidth><nrrank>1</nrrank></response>",
+    "<response><pci>211</pci><cell_id>134217758</cell_id><rsrq>-5.5dB</rsrq><rsrp>-87dBm</rsrp><rssi>-72dBm</rssi><sinr>13dB</sinr><mode>7</mode><ulbandwidth>20MHz</ulbandwidth><dlbandwidth>20MHz</dlbandwidth><txpower>PPusch:12dBm PPucch:-9dBm PSrs:0dBm PPrach:-3dBm</txpower><ul_mcs>mcsUpCarrier1:27@256QAM</ul_mcs><dl_mcs>mcsDownCarrier1Code0:20@256QAM</dl_mcs><earfcn>DL:300 UL:18300</earfcn><tac>10001</tac><band>20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)</band><plmn>27201</plmn><transmode>TM[4]</transmode><enodeb_id>0524288</enodeb_id><nrearfcn>650000</nrearfcn><nrsinr>8dB</nrsinr><nrrsrp>-95dBm</nrrsrp><nrrsrq>-10.0dB</nrrsrq><nrdlbandwidth>100MHz</nrdlbandwidth><nrulbandwidth>100MHz</nrulbandwidth><nrrank>1</nrrank></response>",
   "/api/device/seccellinfo":
-    "<response><lteseccell_list>1700,B3,20MHz,25,-84dBm,-6dB,-70dBm,14dB;</lteseccell_list><nrseccell_list>647424,N78,100MHz,357,-95dBm,-10dB,-72dBm,8dB;</nrseccell_list></response>",
+    "<response><lteseccell_list>1850,B3,20MHz,142,-84dBm,-6dB,-70dBm,14dB;</lteseccell_list><nrseccell_list>650000,N78,100MHz,211,-95dBm,-10dB,-72dBm,8dB;</nrseccell_list></response>",
   "/api/device/ri": "<response><ri>2</ri></response>",
   "/api/net/cell-info": "<response><cellinfo>0800001E</cellinfo><lac>2711</lac></response>",
   "/api/net/current-plmn":
@@ -62,7 +62,7 @@ const TELEMETRY_XML: Readonly<Record<string, string>> = {
   "/api/monitoring/start_date":
     "<response><StartDay>1</StartDay><DataLimit>0MB</DataLimit><MonthThreshold>90</MonthThreshold></response>",
   "/api/device/nbrcellinfo":
-    "<response><nbrcell_ltelist>1700,B3,357,-87dBm,-10dB,-69dBm,--;100,B1,25,-96dBm,-12dB,-70dBm,--;</nbrcell_ltelist><nbrcell_nrlist>647424,N78,357,-95dBm,-10dB,-72dBm,8dB;</nbrcell_nrlist></response>",
+    "<response><nbrcell_ltelist>1850,B3,211,-87dBm,-10dB,-69dBm,--;300,B1,142,-96dBm,-12dB,-70dBm,--;</nbrcell_ltelist><nbrcell_nrlist>650000,N78,211,-95dBm,-10dB,-72dBm,8dB;</nbrcell_nrlist></response>",
   "/api/system/topology": "[]",
   "/api/security/upnp": "<response><UpnpStatus>1</UpnpStatus></response>",
   "/api/security/nat": "<response><NATType>1</NATType></response>",

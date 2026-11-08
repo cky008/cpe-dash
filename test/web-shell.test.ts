@@ -152,7 +152,7 @@ describe("web core: API client", () => {
   it("maps every endpoint to its contract path, method and body", async () => {
     const { fetchImpl, calls } = fakeFetch(() => json(200, { ok: true }));
     const ep = createEndpoints(new ApiClient({ fetchImpl }));
-    await ep.cellLock({ rat: "NR", band: "N78", arfcn: 647424, pci: 357 });
+    await ep.cellLock({ rat: "NR", band: "N78", arfcn: 650000, pci: 211 });
     await ep.reboot();
     await ep.smsThreads("otp", "Demo&Bank", 50);
     await ep.smsThread("+353830000001");
@@ -217,7 +217,7 @@ describe("web core: endpoint table", () => {
       refreshSettings: ["POST", "/api/settings/refresh", {}],
       alerts: ["GET", "/api/alerts"],
       bandLock: ["POST", "/api/control/band-lock", { lteBands: ["B3"] }],
-      cellLock: ["POST", "/api/control/cell-lock", { rat: "LTE", band: 3, arfcn: 1700, pci: null }],
+      cellLock: ["POST", "/api/control/cell-lock", { rat: "LTE", band: 3, arfcn: 1850, pci: null }],
       unlock: ["POST", "/api/control/unlock", {}],
       reboot: ["POST", "/api/control/reboot", { confirm: true }],
       reconnect: ["POST", "/api/control/reconnect", { confirm: true }],
@@ -281,7 +281,7 @@ describe("web core: endpoint table", () => {
     await ep.refreshSettings();
     await ep.alerts();
     await ep.bandLock({ lteBands: ["B3"] });
-    await ep.cellLock({ rat: "LTE", band: 3, arfcn: 1700, pci: null });
+    await ep.cellLock({ rat: "LTE", band: 3, arfcn: 1850, pci: null });
     await ep.unlock();
     await ep.reboot();
     await ep.reconnect();

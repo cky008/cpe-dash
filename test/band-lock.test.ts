@@ -72,32 +72,32 @@ describe("BandMask bitwise codec & Cell Lock payload builders (CpeVendorHUAWEI v
     assert.equal(getXmlBlocks(nrInfo, "freq_info").length, 2);
     assert.throws(() => buildNrBandLockXml([]), /At least one 5G NR band/);
 
-    const lteCellXml = buildLteCellLockXml({ band: "B3", earfcn: 1700, pci: 357 });
+    const lteCellXml = buildLteCellLockXml({ band: "B3", earfcn: 1850, pci: 211 });
     const lteCellBlock = getXmlBlocks(lteCellXml, "lte_info")[0]!;
     assert.equal(getXmlTag(lteCellBlock, "lock_mode"), String(LOCK_MODE_CELL));
     assert.equal(getXmlTag(lteCellBlock, "band"), "3");
-    assert.equal(getXmlTag(lteCellBlock, "freq"), "1700");
-    assert.equal(getXmlTag(lteCellBlock, "pci"), "357");
+    assert.equal(getXmlTag(lteCellBlock, "freq"), "1850");
+    assert.equal(getXmlTag(lteCellBlock, "pci"), "211");
     assert.equal(getXmlTag(lteCellBlock, "all_bands"), "4");
 
-    const lteFreqOnlyXml = buildLteCellLockXml({ band: 1, earfcn: 100 });
+    const lteFreqOnlyXml = buildLteCellLockXml({ band: 1, earfcn: 300 });
     assert.equal(
       getXmlTag(getXmlBlocks(lteFreqOnlyXml, "lte_info")[0]!, "lock_mode"),
       String(LOCK_MODE_FREQ)
     );
 
-    const nrCellXml = buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 357 });
+    const nrCellXml = buildNrCellLockXml({ band: "N78", nrArfcn: 650000, pci: 211 });
     const lteInNr = getXmlBlocks(nrCellXml, "lte_info")[0]!;
     const nrCellBlock = getXmlBlocks(nrCellXml, "nr_info")[0]!;
     assert.equal(getXmlTag(lteInNr, "lock_mode"), String(LOCK_MODE_UNLOCK));
     assert.equal(getXmlTag(nrCellBlock, "lock_mode"), String(LOCK_MODE_CELL));
     assert.equal(getXmlTag(nrCellBlock, "band"), "78");
-    assert.equal(getXmlTag(nrCellBlock, "freq"), "647424");
-    assert.equal(getXmlTag(nrCellBlock, "pci"), "357");
+    assert.equal(getXmlTag(nrCellBlock, "freq"), "650000");
+    assert.equal(getXmlTag(nrCellBlock, "pci"), "211");
     assert.equal(getXmlTag(nrCellBlock, "all_bands"), "20000000000000000000");
 
     assert.throws(() => buildLteCellLockXml({ band: 3, earfcn: 0, pci: 10 }), /Invalid ARFCN/);
-    assert.throws(() => buildNrCellLockXml({ band: 78, nrArfcn: 647424, pci: 1008 }), /Invalid PCI/);
+    assert.throws(() => buildNrCellLockXml({ band: 78, nrArfcn: 650000, pci: 1008 }), /Invalid PCI/);
 
     const unlockXml = buildUnlockAllLocksXml();
     assert.equal(getXmlTag(getXmlBlocks(unlockXml, "lte_info")[0]!, "lock_mode"), "0");
@@ -146,25 +146,25 @@ describe("lock parameters are bounded by the H168-383 band list and 3GPP ARFCN r
   });
 
   it("rejects a cell lock whose ARFCN lies outside the band's downlink range", () => {
-    assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 100, pci: 357 }), /Invalid ARFCN 100 for B3 \(3GPP DL EARFCN 1200\.\.1949\)/);
-    assert.throws(() => buildLteCellLockXml({ band: "B20", earfcn: 1700 }), /for B20/);
+    assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 300, pci: 211 }), /Invalid ARFCN 300 for B3 \(3GPP DL EARFCN 1200\.\.1949\)/);
+    assert.throws(() => buildLteCellLockXml({ band: "B20", earfcn: 1850 }), /for B20/);
     assert.throws(() => buildNrCellLockXml({ band: "N78", nrArfcn: 422000, pci: 1 }), /Invalid ARFCN 422000 for N78/);
     assert.throws(() => buildLteCellLockXml({ band: "B2", earfcn: 900 }), /not supported by the H168-383/);
-    assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 1700.5 }), /Invalid ARFCN/);
+    assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 1850.5 }), /Invalid ARFCN/);
     // Real neighbour-scan pairs and the band edges are accepted
     for (const [band, earfcn] of [["B1", 100], ["B3", 1700], ["B3", 1200], ["B3", 1949], ["B1", 0], ["B71", 68600]] as const) {
       assert.equal(getXmlTag(buildLteCellLockXml({ band, earfcn }), "freq"), String(earfcn));
     }
-    assert.equal(getXmlTag(buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 357 }), "freq"), "647424");
+    assert.equal(getXmlTag(buildNrCellLockXml({ band: "N78", nrArfcn: 650000, pci: 211 }), "freq"), "650000");
   });
 
   it("bounds the PCI per RAT: LTE has 504 cell identities (TS 36.211), NR 1008 (TS 38.211)", () => {
-    assert.equal(getXmlTag(buildLteCellLockXml({ band: "B3", earfcn: 1700, pci: 0 }), "pci"), "0");
-    assert.equal(getXmlTag(buildLteCellLockXml({ band: "B3", earfcn: 1700, pci: 503 }), "pci"), "503");
+    assert.equal(getXmlTag(buildLteCellLockXml({ band: "B3", earfcn: 1850, pci: 0 }), "pci"), "0");
+    assert.equal(getXmlTag(buildLteCellLockXml({ band: "B3", earfcn: 1850, pci: 503 }), "pci"), "503");
     for (const pci of [504, 1007, -1, 3.5]) {
-      assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 1700, pci }), /Invalid PCI .* for LTE \(expected integer 0\.\.503\)/, String(pci));
+      assert.throws(() => buildLteCellLockXml({ band: "B3", earfcn: 1850, pci }), /Invalid PCI .* for LTE \(expected integer 0\.\.503\)/, String(pci));
     }
-    assert.equal(getXmlTag(buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 1007 }), "pci"), "1007");
-    assert.throws(() => buildNrCellLockXml({ band: "N78", nrArfcn: 647424, pci: 1008 }), /Invalid PCI "1008" for NR \(expected integer 0\.\.1007\)/);
+    assert.equal(getXmlTag(buildNrCellLockXml({ band: "N78", nrArfcn: 650000, pci: 1007 }), "pci"), "1007");
+    assert.throws(() => buildNrCellLockXml({ band: "N78", nrArfcn: 650000, pci: 1008 }), /Invalid PCI "1008" for NR \(expected integer 0\.\.1007\)/);
   });
 });

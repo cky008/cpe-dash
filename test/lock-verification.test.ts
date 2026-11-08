@@ -11,16 +11,16 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
-/** Parse a real telemetry snapshot from the strict router (PCC B1/100/PCI 357, SCC B3/1700/PCI 25, NR N78/647424/PCI 357). */
+/** Parse a real telemetry snapshot from the strict router (PCC B1/300/PCI 211, SCC B3/1850/PCI 142, NR N78/650000/PCI 211). */
 async function snapshot(opts: { lteBandHex?: string; noNr?: boolean } = {}): Promise<GlobalTelemetrySnapshot> {
   const fault = (p: string): StrictFault | undefined => {
     if (p === "/api/net/net-mode" && opts.lteBandHex) {
       return { body: `<response><NetworkMode>00</NetworkMode><NetworkBand>3fffffff</NetworkBand><LTEBand>${opts.lteBandHex}</LTEBand></response>` };
     }
-    if (opts.noNr && p === "/api/device/seccellinfo") return { body: "<response><lteseccell_list>1700,B3,20MHz,25,-84dBm,-6dB,-70dBm,14dB;</lteseccell_list><nrseccell_list></nrseccell_list></response>" };
+    if (opts.noNr && p === "/api/device/seccellinfo") return { body: "<response><lteseccell_list>1850,B3,20MHz,142,-84dBm,-6dB,-70dBm,14dB;</lteseccell_list><nrseccell_list></nrseccell_list></response>" };
     if (opts.noNr && p === "/api/device/signal") {
       return {
-        body: "<response><pci>357</pci><rsrp>-87dBm</rsrp><sinr>13dB</sinr><earfcn>DL:100 UL:18100</earfcn><band>20MHz@100(B1) + 20MHz@1700(B3)</band><bandInfo>B1</bandInfo></response>",
+        body: "<response><pci>211</pci><rsrp>-87dBm</rsrp><sinr>13dB</sinr><earfcn>DL:300 UL:18300</earfcn><band>20MHz@300(B1) + 20MHz@1850(B3)</band><bandInfo>B1</bandInfo></response>",
       };
     }
     return undefined;
@@ -81,18 +81,18 @@ describe("lockState reconciliation against what the router reports", () => {
     assert.equal(wrongNr.status, "drift");
     assert.match(wrongNr.issues.join(" "), /NR carrier N78 is outside the locked NR bands \(N41\)/);
 
-    const servingCell = lock({ mode: "cell_lock", lteBands: [1], cellLock: { rat: "LTE", band: 1, arfcn: 100, pci: 357 } });
+    const servingCell = lock({ mode: "cell_lock", lteBands: [1], cellLock: { rat: "LTE", band: 1, arfcn: 300, pci: 211 } });
     assert.equal(verifyLockState(servingCell, full).status, "consistent");
-    const sccOnly = lock({ mode: "cell_lock", lteBands: [3], cellLock: { rat: "LTE", band: 3, arfcn: 1700, pci: 25 } });
+    const sccOnly = lock({ mode: "cell_lock", lteBands: [3], cellLock: { rat: "LTE", band: 3, arfcn: 1850, pci: 142 } });
     const sccResult = verifyLockState(sccOnly, full);
     assert.equal(sccResult.status, "drift", "an LTE cell lock must be the primary serving cell");
-    assert.match(sccResult.issues.join(" "), /serving LTE cell B1\/100\/PCI 357 is not the locked cell B3\/1700\/PCI 25/);
-    const lteFreq = lock({ mode: "cell_lock", lteBands: [1], cellLock: { rat: "LTE", band: 1, arfcn: 100, pci: null } });
+    assert.match(sccResult.issues.join(" "), /serving LTE cell B1\/300\/PCI 211 is not the locked cell B3\/1850\/PCI 142/);
+    const lteFreq = lock({ mode: "cell_lock", lteBands: [1], cellLock: { rat: "LTE", band: 1, arfcn: 300, pci: null } });
     assert.equal(verifyLockState(lteFreq, full).status, "consistent");
 
-    const nrCell = lock({ mode: "cell_lock", nrBands: [78], cellLock: { rat: "NR", band: 78, arfcn: 647424, pci: 357 } });
+    const nrCell = lock({ mode: "cell_lock", nrBands: [78], cellLock: { rat: "NR", band: 78, arfcn: 650000, pci: 211 } });
     assert.equal(verifyLockState(nrCell, full).status, "consistent");
-    assert.equal(verifyLockState({ ...nrCell, cellLock: { rat: "NR", band: 78, arfcn: 647424, pci: 1 } }, full).status, "drift");
+    assert.equal(verifyLockState({ ...nrCell, cellLock: { rat: "NR", band: 78, arfcn: 650000, pci: 1 } }, full).status, "drift");
     const idleNr = await snapshot({ noNr: true });
     assert.equal(verifyLockState(nrCell, idleNr).status, "unknown", "no NR carrier observed: nothing decides it");
     assert.equal(verifyLockState(lock({ mode: "band_lock", nrBands: [78] }), idleNr).status, "unknown");
@@ -144,7 +144,7 @@ describe("lockState reconciliation against what the router reports", () => {
     const lteOnly = mergeBandLockState(nrLocked, { lteBands: ["B1", "B3"] }, lock({ mode: "band_lock", lteBands: [1, 3], updatedAtIso: now }), [1, 3]);
     assert.deepEqual([lteOnly.mode, lteOnly.lteBands, lteOnly.nrBands], ["band_lock", [1, 3], [78]]);
     // A cell lock lives in lock-freq too: an LTE-only band lock leaves it in force
-    const cell = lock({ mode: "cell_lock", lteBands: [1], cellLock: { rat: "LTE", band: 1, arfcn: 100, pci: 357 } });
+    const cell = lock({ mode: "cell_lock", lteBands: [1], cellLock: { rat: "LTE", band: 1, arfcn: 300, pci: 211 } });
     const keepsCell = mergeBandLockState(cell, { lteBands: ["B1", "B3"] }, lock({ mode: "band_lock", lteBands: [1, 3], updatedAtIso: now }), [1, 3]);
     assert.deepEqual([keepsCell.mode, keepsCell.cellLock], ["cell_lock", cell.cellLock]);
     assert.equal(keepsCell.updatedAtIso, now);

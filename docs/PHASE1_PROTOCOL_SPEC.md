@@ -3,7 +3,7 @@
 > **目标硬件**：华为 5G CPE Ultra 6 (`H168-383` / 硬件代号 `WL1H168M`)  
 > **实测固件**：`4.4.0.1 (H1006SP19C00)` | **WebUI 版本**：`WEBUI 4.4.0.1 (W2SP24C03)`  
 > **适用范围**：「烽燧」(FengSui / `cpe-dash`) Phase 1 侦察收官与 Phase 2 后端守护进程 / 前端可视化开发权威契约（Phase 2.2 起纳入短信接口，见 3.8 节；其他华为型号的未验证资料见附录 A）  
-> **脱敏审计承诺**：本文档全部报文样本均严格遵循 RFC 5737 / RFC 3849 / RFC 7042 与合成占位符规范，零真实密码、零真实公网 IP、零真实 MAC/IMEI/IMSI/ICCID/TAC/CellID。
+> **脱敏审计承诺**：本文档全部报文样本均严格遵循 RFC 5737 / RFC 3849 / RFC 7042 与合成占位符规范，零真实密码、零真实公网 IP、零真实 MAC/IMEI/IMSI/ICCID/TAC/CellID；PCI、频点（EARFCN / NR-ARFCN）与载频同样换成了合成值（这些参数组合起来能定位到具体基站）。
 
 ---
 
@@ -177,11 +177,11 @@ sequenceDiagram
 
 #### `GET /api/device/signal`（主小区 PCC + 5G NR 锚点 + MCS + 发射功率核心遥测）
 - **鉴权要求**：需 `SessionID` Cookie | **编码**：明文 XML
-- **真机实测完整脱敏响应样本**：
+- **完整响应样本**（字段与格式取自真机，标识与小区参数为合成值）：
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <response>
-  <pci>357</pci>
+  <pci>211</pci>
   <sc></sc>
   <cell_id>134217758</cell_id>
   <rsrq>-5.5dB</rsrq>
@@ -197,31 +197,31 @@ sequenceDiagram
   <tdd></tdd>
   <ul_mcs>mcsUpCarrier1:27@256QAM</ul_mcs>
   <dl_mcs>mcsDownCarrier1Code0:20@256QAM mcsDownCarrier1Code1:18@64QAM</dl_mcs>
-  <earfcn>DL:100 UL:18100</earfcn>
+  <earfcn>DL:300 UL:18300</earfcn>
   <rrc_status>1</rrc_status>
   <rac></rac>
   <lac></lac>
   <tac>10001</tac>
-  <band>20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)</band>
+  <band>20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)</band>
   <bandInfo>B1</bandInfo>
   <nei_cellid></nei_cellid>
   <plmn>27201</plmn>
   <ims>0</ims>
   <wdlfreq></wdlfreq>
-  <lteulfreq>19300</lteulfreq>
-  <ltedlfreq>21200</ltedlfreq>
+  <lteulfreq>19500</lteulfreq>
+  <ltedlfreq>21400</ltedlfreq>
   <transmode>TM[4]</transmode>
   <enodeb_id>0524288</enodeb_id>
   <cqi0>12</cqi0>
   <cqi1>11</cqi1>
-  <ulfrequency>1930000kHz</ulfrequency>
-  <dlfrequency>2120000kHz</dlfrequency>
+  <ulfrequency>1950000kHz</ulfrequency>
+  <dlfrequency>2140000kHz</dlfrequency>
   <nrulbandwidth>100MHz</nrulbandwidth>
   <nrdlbandwidth>100MHz</nrdlbandwidth>
   <nrulmcs>NRmcsUpCarrier1:20@256QAM</nrulmcs>
   <nrdlmcs>NRmcsDownCarrier1Code0:17@64QAM NRmcsDownCarrier1Code1:0</nrdlmcs>
   <nrtxpower>PPusch:23dBm PPucch:23dBm PSrs:0dBm PPrach:5dBm</nrtxpower>
-  <nrearfcn>647424</nrearfcn>
+  <nrearfcn>650000</nrearfcn>
   <nrulfreq>3750000kHz</nrulfreq>
   <nrdlfreq>3750000kHz</nrdlfreq>
   <nrsinr>8dB</nrsinr>
@@ -232,7 +232,7 @@ sequenceDiagram
   <nrrank>1</nrrank>
   <nrcqi0>12</nrcqi0>
   <nrcqi1>11</nrcqi1>
-  <scc_pci>357</scc_pci>
+  <scc_pci>211</scc_pci>
 </response>
 ```
 
@@ -241,8 +241,8 @@ sequenceDiagram
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <response>
-  <lteseccell_list>1700,B3,20MHz,357,-84dBm,-6dB,-70dBm,14dB;</lteseccell_list>
-  <nrseccell_list>647424,N78,100MHz,357,-95dBm,-10dB,-72dBm,8dB;</nrseccell_list>
+  <lteseccell_list>1850,B3,20MHz,211,-84dBm,-6dB,-70dBm,14dB;</lteseccell_list>
+  <nrseccell_list>650000,N78,100MHz,211,-95dBm,-10dB,-72dBm,8dB;</nrseccell_list>
 </response>
 ```
 
@@ -284,7 +284,7 @@ sequenceDiagram
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <response>
-  <nbrcell_ltelist>1700,B3,357,-87dBm,-10dB,-69dBm,--;1700,B3,25,-93dBm,-16dB,-69dBm,--;100,B1,25,-96dBm,-12dB,-70dBm,--;</nbrcell_ltelist>
+  <nbrcell_ltelist>1850,B3,211,-87dBm,-10dB,-69dBm,--;1850,B3,142,-93dBm,-16dB,-69dBm,--;300,B1,142,-96dBm,-12dB,-70dBm,--;</nbrcell_ltelist>
   <nbrcell_nrlist></nbrcell_nrlist>
 </response>
 ```
@@ -684,7 +684,7 @@ $$
 | B43 | 43590–45589 | N78 | 620000–653333 |
 | B71 | 68586–68935 | N79 | 693334–733333 |
 
-  真机邻区样本 `1700,B3`、`100,B1`、`647424,N78` 均落在表内。
+  样本中的 `1850,B3`、`300,B1`、`650000,N78` 均落在表内。
 
 ---
 
@@ -713,7 +713,7 @@ $$
   </nr_info>
 </request>
 
-<!-- 示例 B：4G LTE 锁物理小区 B3 / EARFCN 1700 / PCI 357 (buildLteCellLockXml) -->
+<!-- 示例 B：4G LTE 锁物理小区 B3 / EARFCN 1850 / PCI 211 (buildLteCellLockXml) -->
 <?xml version="1.0" encoding="UTF-8"?>
 <request>
   <lte_info>
@@ -721,15 +721,15 @@ $$
     <freq_infos>
       <freq_info>
         <band>3</band>
-        <freq>1700</freq>
-        <pci>357</pci>
+        <freq>1850</freq>
+        <pci>211</pci>
       </freq_info>
     </freq_infos>
     <all_bands>4</all_bands>
   </lte_info>
 </request>
 
-<!-- 示例 C：5G NR 锁物理小区 N78 / NR-ARFCN 647424 / PCI 357 (buildNrCellLockXml) -->
+<!-- 示例 C：5G NR 锁物理小区 N78 / NR-ARFCN 650000 / PCI 211 (buildNrCellLockXml) -->
 <?xml version="1.0" encoding="UTF-8"?>
 <request>
   <lte_info>
@@ -742,8 +742,8 @@ $$
     <freq_infos>
       <freq_info>
         <band>78</band>
-        <freq>647424</freq>
-        <pci>357</pci>
+        <freq>650000</freq>
+        <pci>211</pci>
       </freq_info>
     </freq_infos>
     <all_bands>20000000000000000000</all_bands>
@@ -779,7 +779,7 @@ $$
 | [`scripts/probe-har-endpoints.ts`](../scripts/probe-har-endpoints.ts) | `npm run probe:har -- --har <path>` | 流式解构 HAR 抓包，提取去重 API 路由与自动脱敏样本 | 成功解构 `754` 条请求、`122` 个 `/api/*` 端点，零敏感数据残留 |
 | [`scripts/probe-locking-algo.ts`](../scripts/probe-locking-algo.ts) | `npm run probe:locking` | 验证 PC/APK 逆向 `BandMask` 与锁小区载荷，对账真机频段表 | `37 ms` 完成短连，真机 14 频段掩码 `0x40000007a0880800d5` 100% 吻合 |
 | [`scripts/probe-rf-ca.ts`](../scripts/probe-rf-ca.ts) | `npm run probe:rf` | 抓取 3CA 聚合链、256QAM MCS、MIMO 流数、发射功率与基站恒等校验 | 实测 `B1(20M)+B3(20M)+N78(100M)` 140MHz 3CA、UL/DL 256QAM、TM4 RI=2、PUSCH 12/23dBm |
-| [`scripts/probe-neighbor-cells.ts`](../scripts/probe-neighbor-cells.ts) | `npm run probe:neighbors` | 扫描周边 4G/5G 候选邻区并生成只读锁小区预览 XML | 成功抓取 B1/B3 多扇区候选邻区（PCI 357/25/127/360）及 RSRP/RSRQ/RSSI |
+| [`scripts/probe-neighbor-cells.ts`](../scripts/probe-neighbor-cells.ts) | `npm run probe:neighbors` | 扫描周边 4G/5G 候选邻区并生成只读锁小区预览 XML | 成功抓取 B1/B3 多扇区候选邻区（样本中的 PCI 为合成值）及 RSRP/RSRQ/RSSI |
 | [`scripts/probe-traffic.ts`](../scripts/probe-traffic.ts) | `npm run probe:traffic` | 验证瞬时上下行速率、当日流量与当月流量双周期统计 | `30 ms` 短连读取当日流量、当月上下行明细、结算日及 `100002` 降级边界 |
 | [`scripts/probe-topology.ts`](../scripts/probe-topology.ts) | `npm run probe:topology` | 解析 `HostInfo` 与 `topology` JSON，分类千兆网口与双频 Wi-Fi 终端 | `47 ms` 识别 `32` 台历史设备、`12` 台在线（`LAN_1000M` / `2.4G` / `5G`）、双栈 IPv6 与租期 |
 | [`scripts/probe-session-avoidance.ts`](../scripts/probe-session-avoidance.ts) | `npm run probe:session` | 压测瞬时短连耗时，验证 Cookie 作用域与双层真人浏览器避让 | 3 轮均值 `26 ms` 即登出释放；验证同 IP 零抢占及 `State=0` / `108003` 双层静默让位 |

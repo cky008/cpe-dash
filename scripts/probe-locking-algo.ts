@@ -26,8 +26,8 @@ async function main(): Promise<void> {
   console.log(`[Vector 2] 5G NR N78 Mask            : 0x${computedN78Mask}`);
   console.log(`[Sample]   LTE B1+B3 Lock XML        : ${buildLteBandNetModeXml(["B1", "B3"])}`);
   console.log(`[Sample]   5G N78 Band Lock XML      : ${buildNrBandLockXml(["N78"])}`);
-  console.log(`[Sample]   4G Cell Lock (B3/1700/357): ${buildLteCellLockXml({ band: 3, earfcn: 1700, pci: 357 })}`);
-  console.log(`[Sample]   5G Cell Lock (N78/647424) : ${buildNrCellLockXml({ band: 78, nrArfcn: 647424, pci: 357 })}`);
+  console.log(`[Sample]   4G Cell Lock (B3/1850/211): ${buildLteCellLockXml({ band: 3, earfcn: 1850, pci: 211 })}`);
+  console.log(`[Sample]   5G Cell Lock (N78/650000) : ${buildNrCellLockXml({ band: 78, nrArfcn: 650000, pci: 211 })}`);
   console.log(`[Sample]   Full Unlock XML           : ${buildUnlockAllLocksXml()}`);
 
   if (offlineOnly) return;

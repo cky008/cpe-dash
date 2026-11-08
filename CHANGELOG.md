@@ -10,6 +10,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Fixed
 - **A group whose forum topic was deleted or closed keeps getting its messages.** A group linked with a group pairing code from a forum topic posts there, and once that topic was gone Telegram refused every message (`400 Bad Request: message thread not found`): notifications were dropped and even the bot's answers in the group failed, until the group was unlinked and linked again. The bot now sends such a message to the group's General topic, moves the link there for good (kept in `telegram.json`) and says once in General what happened and how to move it to another topic. A command answered into a topic that has just gone, in a group `TELEGRAM_CHAT_IDS` lists, is answered in General too; any other refusal is not retried.
 
+### Security
+- **The demo, the screenshots and the test fixtures use a made-up cell.** The demo household, the strict mock router, the protocol samples and several tests carried the PCI and frequency values of a real serving cell and its neighbours, copied from a capture; such values together can locate a cell site in public databases, and the live demo served them. They are now synthetic (LTE B1 EARFCN 300 and B3 EARFCN 1850, NR N78 NR-ARFCN 650000, PCI 211 / 142), the screenshots were retaken, and `AGENTS.md` asks for synthetic cells only. The live demo changes with the next release.
+
 ### Documentation
 - `docs/PHASE2_ARCHITECTURE_REPORT.md` §13.8 records the measurements on the NAS after the v1.6.3 deploy and what was built after them; the README and `.env.example` say when to raise `STATE_FLUSH_INTERVAL_MS` (disk hibernation on an otherwise idle NAS).
 

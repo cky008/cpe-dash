@@ -116,10 +116,10 @@ function buildMockCpeRouter(opts: {
             <cell_id>134217758</cell_id>
             <enodeb_id>0524288</enodeb_id>
             <tac>10001</tac>
-            <band>20MHz@100(B1) + 20MHz@1700(B3) + 100MHz@647424(N78)</band>
+            <band>20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)</band>
             <bandInfo>B1</bandInfo>
-            <earfcn>DL:100 UL:18100</earfcn>
-            <nrearfcn>DL:647424 UL:647424</nrearfcn>
+            <earfcn>DL:300 UL:18300</earfcn>
+            <nrearfcn>DL:650000 UL:650000</nrearfcn>
             <ulbandwidth>20MHz</ulbandwidth>
             <dlbandwidth>20MHz</dlbandwidth>
             <nrulbandwidth>100MHz</nrulbandwidth>
@@ -149,8 +149,8 @@ function buildMockCpeRouter(opts: {
       case "/api/device/seccellinfo":
         return makeRes(
           `<response>
-            <lteseccell_list>1700,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list>
-            <nrseccell_list>647424,78,100MHz,512,-82dBm,-10dB,-54dBm,24dB;</nrseccell_list>
+            <lteseccell_list>1850,3,20MHz,321,-89dBm,-9dB,-60dBm,17dB;</lteseccell_list>
+            <nrseccell_list>650000,78,100MHz,512,-82dBm,-10dB,-54dBm,24dB;</nrseccell_list>
           </response>`
         );
       case "/api/device/ri":
@@ -207,8 +207,8 @@ function buildMockCpeRouter(opts: {
       case "/api/device/nbrcellinfo":
         return makeRes(
           `<response>
-            <nbrcell_ltelist>100,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist>
-            <nbrcell_nrlist>647424,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist>
+            <nbrcell_ltelist>300,1,322,-94dBm,-11dB,-66dBm,8dB;</nbrcell_ltelist>
+            <nbrcell_nrlist>650000,78,513,-88dBm,-11dB,-60dBm,18dB;</nbrcell_nrlist>
           </response>`
         );
       case "/api/system/HostInfo":
@@ -463,7 +463,7 @@ describe("CpeDomain telemetry & router control actions", () => {
       );
 
       await applyBandLock(session, { lteBands: ["B1", "B3"], nrBands: ["N78"] });
-      await applyCellLock(session, { rat: "NR", band: "N78", arfcn: 647424, pci: 512 });
+      await applyCellLock(session, { rat: "NR", band: "N78", arfcn: 650000, pci: 512 });
       await unlockAllRfLocks(session);
       await updateSecuritySettings(session, {
         upnpEnabled: true,
@@ -543,7 +543,7 @@ describe("CpeDomain telemetry & router control actions", () => {
       const lteCell = await applyCellLock(session, {
         rat: "LTE",
         band: "B3",
-        arfcn: 1700,
+        arfcn: 1850,
         pci: 321,
       });
       assert.equal(lteCell.mode, "cell_lock");
@@ -565,7 +565,7 @@ describe("CpeDomain telemetry & router control actions", () => {
         CpeControlValidationError
       );
       await assert.rejects(
-        () => applyCellLock(session, { rat: "GSM" as unknown as "LTE", band: "B1", arfcn: 100 }),
+        () => applyCellLock(session, { rat: "GSM" as unknown as "LTE", band: "B1", arfcn: 300 }),
         CpeControlValidationError
       );
       await assert.rejects(
