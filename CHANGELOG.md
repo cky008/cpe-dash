@@ -2,7 +2,12 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/). Each release section opens with `### Highlights` (a few changes worth a short paragraph); the GitHub release lists the other changes by their lead sentence and links here for the details.
 
-## [Unreleased]
+## [1.7.2] — 2026-11-08
+
+### Highlights
+- **Every line of `docker-compose.yml`, explained.** A new guide page shows the example compose file in full and says what each entry does, which ones to leave alone, how `.env` feeds both Compose and FengSui, and how to make the common changes.
+- **The themes on the home page.** Scroll through the documentation site's home page and the dashboard wipes from one theme to the next, light and dark in turn.
+- **Help links that always open.** The console's "?" marks link straight to the guide on fengsui.iocky.com, and steps with code blocks render properly on the site.
 
 ### Fixed
 - **The console's "?" marks open the guide on its own domain.** They linked to `cky008.github.io/cpe-dash`, which reaches the guide only through GitHub's redirect to the custom domain and gave a 404 in some browsers; the marks, the READMEs and the release notes now link to https://fengsui.iocky.com/ directly.
@@ -14,6 +19,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **The home page shows the themes.** Scrolling through a section of the documentation site's home page wipes the dashboard from one theme to the next on a slant, light and dark in turn, with the themes' names to jump between them. The pictures come from one frozen dashboard (`npm run screenshots -- themes`), so only the colours change; the section replaces the single dashboard picture below the hero.
 - **Support FengSui from the documentation site.** A heart in the header, a "Support FengSui" column in the footer, a short section on the home page and an FAQ answer link to GitHub Sponsors and Buy Me a Coffee (the same pages as GitHub's Sponsor button); the footer links the author's site, as the console's does.
 - **"Devices and internet access" in Chinese too.** The guide page and the home page said 终端 (terminal) where the console says 设备 (device); they now use the console's word.
+
+### Upgrading
+- Nothing to change: no setting or data format changed, and `docker-compose.yml` changed only in its comments, so an existing compose file keeps working.
 
 ## [1.7.1] — 2026-11-08
 
