@@ -1,8 +1,7 @@
-import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { type Page, type Viewport, closeChrome, launchChrome, openPage } from "./cdp.ts";
 import { type DemoDaemon, startDemoDaemon } from "./demo-router.ts";
 
 /**
@@ -28,14 +27,14 @@ interface Shot {
   scenario: Scenario;
   theme: string;
   locale?: "zh-CN" | "en";
-  viewport?: { width: number; height: number; scale: number; mobile: boolean };
+  viewport?: Viewport;
   fullPage?: boolean;
   /** Brings the page into the state to capture, after the dashboard is ready. */
   prepare?: (page: Page, demo: DemoDaemon) => Promise<void>;
 }
 
-const DESKTOP = { width: 1440, height: 900, scale: 1, mobile: false };
-const PHONE = { width: 390, height: 844, scale: 2, mobile: true };
+const DESKTOP: Viewport = { width: 1440, height: 900, scale: 1, mobile: false };
+const PHONE: Viewport = { width: 390, height: 844, scale: 2, mobile: true };
 
 const openSms = async (page: Page): Promise<void> => {
   await page.click('[data-view="sms"]');
@@ -167,171 +166,7 @@ const SHOTS: ReadonlyArray<Shot> = [
   },
 ];
 
-// ---------------------------------------------------------------- DevTools protocol client
-
-interface CdpMessage {
-  id?: number;
-  method?: string;
-  sessionId?: string;
-  params?: Record<string, unknown>;
-  result?: unknown;
-  error?: { message: string };
-}
-
-class Cdp {
-  readonly #ws: WebSocket;
-  #nextId = 0;
-  readonly #pending = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void }>();
-  readonly #listeners = new Set<(msg: CdpMessage) => void>();
-
-  private constructor(ws: WebSocket) {
-    this.#ws = ws;
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as CdpMessage;
-      if (msg.id !== undefined) {
-        const waiter = this.#pending.get(msg.id);
-        this.#pending.delete(msg.id);
-        if (msg.error) waiter?.reject(new Error(msg.error.message));
-        else waiter?.resolve(msg.result);
-        return;
-      }
-      for (const listener of this.#listeners) listener(msg);
-    });
-  }
-
-  static async connect(url: string): Promise<Cdp> {
-    const ws = new WebSocket(url);
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener("open", () => resolve(), { once: true });
-      ws.addEventListener("error", () => reject(new Error(`cannot reach Chrome at ${url}`)), { once: true });
-    });
-    return new Cdp(ws);
-  }
-
-  send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<T> {
-    const id = ++this.#nextId;
-    return new Promise<T>((resolve, reject) => {
-      this.#pending.set(id, { resolve: (value) => resolve(value as T), reject });
-      this.#ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-    });
-  }
-
-  /** The next event `method` for `sessionId`. */
-  once(method: string, sessionId: string, timeoutMs = 30_000): Promise<Record<string, unknown>> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#listeners.delete(listener);
-        reject(new Error(`timed out waiting for ${method}`));
-      }, timeoutMs);
-      const listener = (msg: CdpMessage): void => {
-        if (msg.method !== method || msg.sessionId !== sessionId) return;
-        clearTimeout(timer);
-        this.#listeners.delete(listener);
-        resolve(msg.params ?? {});
-      };
-      this.#listeners.add(listener);
-    });
-  }
-
-  close(): void {
-    this.#ws.close();
-  }
-}
-
-class Page {
-  readonly #cdp: Cdp;
-  readonly #sessionId: string;
-
-  constructor(cdp: Cdp, sessionId: string) {
-    this.#cdp = cdp;
-    this.#sessionId = sessionId;
-  }
-
-  send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    return this.#cdp.send<T>(method, params, this.#sessionId);
-  }
-
-  async evaluate<T = unknown>(expression: string): Promise<T> {
-    const reply = await this.send<{ result?: { value?: unknown }; exceptionDetails?: { text?: string; exception?: { description?: string } } }>("Runtime.evaluate", {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-    });
-    if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text ?? "evaluation failed");
-    return reply.result?.value as T;
-  }
-
-  async waitUntil(expression: string, what: string, timeoutMs = 20_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (await this.evaluate<boolean>(`Boolean(${expression})`).catch(() => false)) return;
-      await sleep(150);
-    }
-    throw new Error(`timed out waiting for ${what}`);
-  }
-
-  async click(selector: string): Promise<void> {
-    const found = await this.evaluate<boolean>(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.click(); return true; })()`);
-    if (!found) throw new Error(`nothing matches ${selector}`);
-  }
-
-  async clickText(selector: string, text: string): Promise<void> {
-    const found = await this.evaluate<boolean>(
-      `(() => { const el = [...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => e.textContent?.includes(${JSON.stringify(text)})); if (!el) return false; el.click(); return true; })()`
-    );
-    if (!found) throw new Error(`no ${selector} with "${text}"`);
-  }
-
-  async goto(url: string): Promise<void> {
-    const loaded = this.#cdp.once("Page.loadEventFired", this.#sessionId);
-    await this.send("Page.navigate", { url });
-    await loaded;
-  }
-
-  async viewport(v: { width: number; height: number; scale: number; mobile: boolean }): Promise<void> {
-    await this.send("Emulation.setDeviceMetricsOverride", { width: v.width, height: v.height, deviceScaleFactor: v.scale, mobile: v.mobile });
-  }
-
-  async capture(file: string, fullPage: boolean, v: { width: number; height: number; scale: number; mobile: boolean }): Promise<void> {
-    if (fullPage) {
-      const height = await this.evaluate<number>("Math.ceil(document.documentElement.scrollHeight)");
-      await this.viewport({ ...v, height });
-      await sleep(400);
-    }
-    const shot = await this.send<{ data: string }>("Page.captureScreenshot", { format: "webp", quality: 85 });
-    fs.writeFileSync(file, Buffer.from(shot.data, "base64"));
-    if (fullPage) await this.viewport(v);
-  }
-}
-
-// ---------------------------------------------------------------- demo world and browser
-
-function findChrome(): string {
-  const candidates = [
-    process.env["CHROME_PATH"],
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-  ];
-  const found = candidates.find((c): c is string => typeof c === "string" && c !== "" && fs.existsSync(c));
-  if (!found) throw new Error("no Chrome or Chromium found: set CHROME_PATH");
-  return found;
-}
-
-async function launchChrome(): Promise<{ cdp: Cdp; process: ChildProcess; profile: string }> {
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-shots-"));
-  const child = spawn(
-    findChrome(),
-    ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--hide-scrollbars", "--mute-audio", "--disable-extensions", "about:blank"],
-    { stdio: "ignore" }
-  );
-  const portFile = path.join(profile, "DevToolsActivePort");
-  for (let i = 0; i < 150 && !fs.existsSync(portFile); i++) await sleep(100);
-  const [port, wsPath] = fs.readFileSync(portFile, "utf8").trim().split("\n");
-  return { cdp: await Cdp.connect(`ws://127.0.0.1:${port}${wsPath}`), process: child, profile };
-}
+// ---------------------------------------------------------------- demo world
 
 /** Two hours of 5 s samples behind "now", so the charts and their summaries have a history to show. */
 function backfillHistory(demo: DemoDaemon): void {
@@ -415,11 +250,7 @@ async function main(): Promise<void> {
   const chrome = await launchChrome();
   const worlds = new Map<Scenario, DemoDaemon>();
   try {
-    const { targetId } = await chrome.cdp.send<{ targetId: string }>("Target.createTarget", { url: "about:blank" });
-    const { sessionId } = await chrome.cdp.send<{ sessionId: string }>("Target.attachToTarget", { targetId, flatten: true });
-    const page = new Page(chrome.cdp, sessionId);
-    await page.send("Page.enable");
-    await page.send("Runtime.enable");
+    const page = await openPage(chrome);
     for (const shot of shots) {
       let demo = worlds.get(shot.scenario);
       if (!demo) {
@@ -438,10 +269,8 @@ async function main(): Promise<void> {
       console.log(`  ${shot.name}.webp  ${(fs.statSync(file).size / 1024).toFixed(0)} KiB`);
     }
   } finally {
-    chrome.cdp.close();
-    chrome.process.kill();
+    await closeChrome(chrome);
     for (const demo of worlds.values()) await demo.close();
-    fs.rmSync(chrome.profile, { recursive: true, force: true });
   }
 }
 
