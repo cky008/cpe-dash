@@ -68,7 +68,7 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
     config,
     core,
     sseBus,
-    mcpServer: new FengSuiMcpServer({ core }),
+    mcpServer: new FengSuiMcpServer({ allowMutations: true, core }),
     envPath,
     sms: smsEnabled ? sms : null,
     notificationHub: hub,

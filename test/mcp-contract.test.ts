@@ -21,7 +21,7 @@ function createServer() {
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
   });
   core.monitor.init();
-  const server = new FengSuiMcpServer({ core });
+  const server = new FengSuiMcpServer({ allowMutations: true, core });
   let id = 0;
   const rpc = async (method: string, params: Record<string, unknown> = {}) =>
     ((await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }))) as JsonRpcSuccessResponse).result;

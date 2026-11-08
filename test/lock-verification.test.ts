@@ -118,7 +118,7 @@ describe("lockState reconciliation against what the router reports", () => {
     core.monitor.init();
     core.stateStore.update({ lockState: lock({ mode: "band_lock", lteBands: [1, 3] }) });
     try {
-      const server = new FengSuiMcpServer({ core });
+      const server = new FengSuiMcpServer({ allowMutations: true, core });
       const res = (await server.handleRawJsonMessage(
         JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_cpe_telemetry", arguments: { refresh: true } } })
       )) as JsonRpcSuccessResponse;

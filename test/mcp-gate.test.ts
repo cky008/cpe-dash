@@ -151,6 +151,27 @@ describe("MCP and the write gate", () => {
     }
   });
 
+  it("keeps router writes hidden and refused when the embedder never says to allow them", async () => {
+    const cpe = createStrictCpe();
+    const fx = mcpFixture(cpe);
+    try {
+      // MCP_ALLOW_MUTATIONS defaults to false; a server built without the option must not be the exception
+      const plain = new FengSuiMcpServer({ core: fx.core });
+      const rpc = async (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
+        ((await plain.handleHttpMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), {}, { readOnly: false })).body as JsonRpcSuccessResponse).result as Record<string, unknown>;
+      const listed = ((await rpc("tools/list"))["tools"] as Array<{ name: string }>).map((t) => t.name);
+      assert.ok(listed.includes("get_cpe_telemetry"));
+      for (const write of ["lock_band", "lock_cell", "unlock_rf_locks", "set_security_switches", "set_wifi_and_antenna", "reconnect_cellular", "reboot_cpe"]) {
+        assert.ok(!listed.includes(write), `${write} is listed`);
+      }
+      const refused = (await rpc("tools/call", { name: "reboot_cpe", arguments: { confirm: true } }))["structuredContent"] as Record<string, unknown>;
+      assert.equal(refused["errorCode"], "MUTATIONS_DISABLED");
+      assert.equal(cpe.stats.writes.length, 0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("hides every router write on an unverified model and refuses each one called by name: the router gets no write", async () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints: LTE_ROUTER, sms: MAILBOX });
     const fx = mcpFixture(cpe);

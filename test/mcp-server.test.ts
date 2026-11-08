@@ -272,7 +272,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("isSupportedProtocolVersion checks supported protocol versions and trim variations", () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ core: fx.core });
+      const server = new FengSuiMcpServer({ allowMutations: true, core: fx.core });
       assert.equal(server.isSupportedProtocolVersion(undefined), true);
       assert.equal(server.isSupportedProtocolVersion(""), true);
       assert.equal(server.isSupportedProtocolVersion("2025-06-18"), true);
@@ -292,7 +292,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("handleRawJsonMessage handles parse errors, invalid envelopes, batches, notifications, and unknown methods", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ core: fx.core });
+      const server = new FengSuiMcpServer({ allowMutations: true, core: fx.core });
 
       // Invalid JSON syntax (-32700)
       const parseErr = (await server.handleRawJsonMessage("{ not valid json")) as JsonRpcErrorResponse;
@@ -448,7 +448,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("resources/list and resources/read serve telemetry, session, locks, and reject unknown URIs", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ core: fx.core });
+      const server = new FengSuiMcpServer({ allowMutations: true, core: fx.core });
 
       // Pre-warm cache
       await fx.core.monitor.refreshTelemetry();
@@ -519,7 +519,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("handles internal exception in resources/read producing code -32603", async () => {
     const fx = createMockSchedulerFixture({ throwOnGetCachedTelemetry: true });
     try {
-      const server = new FengSuiMcpServer({ core: fx.core });
+      const server = new FengSuiMcpServer({ allowMutations: true, core: fx.core });
       const res = (await server.handleRawJsonMessage(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -538,7 +538,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("executes every read-only tool: get_cpe_telemetry, query_telemetry_history, list_neighbor_cells, get_cpe_session_status, list_terminal_topology, get_router_settings", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ core: fx.core });
+      const server = new FengSuiMcpServer({ allowMutations: true, core: fx.core });
 
       // 1. get_cpe_telemetry (refresh: true vs refresh: false)
       const telFresh = (await server.handleRawJsonMessage(
@@ -1158,7 +1158,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
   it("rejects every invalid multi-write argument before the first write (zero sessions, no partial apply)", async () => {
     const fx = createMockSchedulerFixture();
     try {
-      const server = new FengSuiMcpServer({ core: fx.core });
+      const server = new FengSuiMcpServer({ allowMutations: true, core: fx.core });
 
       // 7. Opus acceptance checks: unlock_rf_locks destructiveHint + pre-session validation on multi-write tools
       const unlockTool = server.getToolDefinitions().find((t) => t.name === "unlock_rf_locks");

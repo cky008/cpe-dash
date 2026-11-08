@@ -117,6 +117,7 @@ export type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
 export interface FengSuiMcpServerOptions {
   /** Served by the built-in `CoreMcpTools` provider, which always comes first. */
   core: FengSuiCore;
+  /** List and run the write tools (`MCP_ALLOW_MUTATIONS`); left out, they stay hidden and refused, as by default. */
   allowMutations?: boolean;
   /**
    * Whether core tools return REDACT_SENSITIVE_IN_API copies of telemetry and topology; read per
@@ -147,7 +148,7 @@ export class FengSuiMcpServer {
   readonly #scheduler: MutexSessionScheduler;
 
   constructor(options: FengSuiMcpServerOptions) {
-    this.allowMutations = options.allowMutations !== false;
+    this.allowMutations = options.allowMutations === true;
     this.toolProviders = [
       new CoreMcpTools(options.core, { redactSensitive: options.redactSensitive, selfHealStatus: options.selfHealStatus }),
       ...(options.toolProviders ?? []),

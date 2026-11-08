@@ -62,7 +62,7 @@ function createMcpSmsFixture(
     sendLimitPerHour: opts.sendLimitPerHour ?? 10,
     now: () => clock,
   });
-  const server = new FengSuiMcpServer({ core, allowMutations: opts.allowMutations, toolProviders: [tools] });
+  const server = new FengSuiMcpServer({ core, allowMutations: opts.allowMutations ?? true, toolProviders: [tools] });
   let id = 0;
   const rpc = async (method: string, params?: Record<string, unknown>) =>
     ((await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: ++id, method, ...(params ? { params } : {}) }))) as JsonRpcSuccessResponse)

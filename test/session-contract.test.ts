@@ -70,6 +70,7 @@ function createContractFixture(
     sleep: async () => undefined,
   });
   const mcp = new FengSuiMcpServer({
+      allowMutations: true,
     core,
     toolProviders: [new SmsMcpTools({ sms, access: "full", sendPolicy: "any", sendLimitPerHour: 10 })],
   });
