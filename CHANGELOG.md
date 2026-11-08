@@ -39,6 +39,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ### Documentation
 - `docs/PHASE2_ARCHITECTURE_REPORT.md` §12 records the second full audit: findings and fixes, conclusions per review dimension, the v1.0.1 → current data upgrade and resource measurements, new known limitations and the roadmap; §12.8 records the owner's decisions on it and what was then built.
+- §13 records the third full audit: findings and fixes, conclusions per review dimension, the v1.6.2 ↔ current data round trip, new known limitations and the roadmap.
 
 ## [1.6.2] — 2026-11-04
 
