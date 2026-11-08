@@ -56,7 +56,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   const shared: SmsShared = {
     contacts: [],
     countries: [],
-    defaultCountryCode: ctx.store.state.sms?.defaultCountryCode ?? "+353",
+    defaultCountryCode: ctx.store.state.sms?.defaultCountryCode ?? "",
     reload: () => reload(),
     openThread: (key) => openThread(key),
     setNotice: (next) => {

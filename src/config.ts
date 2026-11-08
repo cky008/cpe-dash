@@ -500,10 +500,9 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     const raw = get(key);
     return raw ? path.resolve(process.cwd(), raw) : path.join(dataDir, fallbackName);
   };
-  const rawCountry = (get("DEFAULT_COUNTRY_CODE") ?? "+353").trim();
-  const defaultCountryCode = /^\+?\d{1,4}$/.test(rawCountry)
-    ? `+${rawCountry.replace(/^\+/, "")}`
-    : "+353";
+  // Empty (the default): the daemon takes the country from the SIM's IMSI once it has read it
+  const rawCountry = (get("DEFAULT_COUNTRY_CODE") ?? "").trim();
+  const defaultCountryCode = /^\+?\d{1,4}$/.test(rawCountry) ? `+${rawCountry.replace(/^\+/, "")}` : "";
   const pickEnum = <T extends string>(raw: string | undefined, allowed: ReadonlyArray<T>, fallback: T): T => {
     const v = raw?.trim().toLowerCase();
     return (allowed as ReadonlyArray<string>).includes(v ?? "") ? (v as T) : fallback;

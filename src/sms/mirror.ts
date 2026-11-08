@@ -59,22 +59,30 @@ function defaultMeta(): SmsMirrorMeta {
  */
 export class SmsMirrorStore {
   readonly filePath: string;
-  readonly defaultCountryCode: string;
   readonly contacts: ContactBook;
   #cipher: StorageCipher;
   #writer: AtomicFileWriter;
   #messages = new Map<string, SmsMessageRecord>();
   #notified = new Set<string>();
   #meta: SmsMirrorMeta = defaultMeta();
-  readonly #view: ThreadViewContext;
+  #view: ThreadViewContext;
 
   constructor(opts: { filePath: string; cipher: StorageCipher; defaultCountryCode: string; contacts: ContactBook }) {
     this.filePath = opts.filePath;
-    this.defaultCountryCode = opts.defaultCountryCode;
     this.contacts = opts.contacts;
     this.#view = { defaultCountryCode: opts.defaultCountryCode, contactOf: (phone) => this.#contactBrief(phone) };
     this.#cipher = opts.cipher;
     this.#writer = new AtomicFileWriter(opts.filePath);
+  }
+
+  /** Dial code local numbers are grouped in (`""`: none known yet). */
+  get defaultCountryCode(): string {
+    return this.#view.defaultCountryCode;
+  }
+
+  /** The default country became known (read from the SIM): threads group local numbers in it from now on. */
+  setDefaultCountryCode(code: string): void {
+    this.#view = { ...this.#view, defaultCountryCode: code };
   }
 
   load(): void {

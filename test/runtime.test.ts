@@ -182,7 +182,8 @@ describe("createFengSuiRuntime", () => {
   it("re-encrypts every store when reset-breaker reloads .env, while tokens and linked chats stay the console's", async () => {
     const mock = createMockSmsCpe({ messages: [] });
     const dir = tempDir("fengsui-rotate-");
-    const env = baseEnv(dir, mock.password);
+    // The contact below is saved in its local spelling: the country comes from .env (this mock reports no IMSI)
+    const env = { ...baseEnv(dir, mock.password), DEFAULT_COUNTRY_CODE: "+353" };
     const envPath = writeEnv(dir, env);
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const notify = createNotifyFetch();
@@ -348,6 +349,37 @@ describe("createFengSuiRuntime", () => {
     } finally {
       await stack.close();
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
+      removeTempDir(dir);
+    }
+  });
+
+  it("takes SMS's default country from the SIM when DEFAULT_COUNTRY_CODE is empty, keeps it across a restart, and lets .env win", async () => {
+    const dir = tempDir("fengsui-country-");
+    const notify = createNotifyFetch();
+    const start = (extra: Record<string, string>) => {
+      const cpe = createIdentifiedCpe();
+      const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), WEB_PORT: "0", SMS_ENABLED: "true", ...extra });
+      return createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: notify.fetchImpl, log: () => undefined });
+    };
+    let stack = start({});
+    try {
+      assert.equal(stack.sms?.defaultCountryCode, "", "nothing in .env and no SIM read yet: no guess");
+      await stack.start();
+      await waitFor(() => stack.monitor.getCachedTelemetry() !== null, "first poll");
+      assert.equal(stack.sms?.defaultCountryCode, "+353", "the SIM's IMSI starts with 272 (Ireland)");
+      assert.equal(stack.sms?.contacts.defaultCountryCode, "+353");
+      assert.equal(stack.telegramBot?.defaultCountryCode, "+353", "Telegram's /sms reads the same country");
+      await stack.close();
+      // A restart starts from the telemetry saved in state.json, before the first poll
+      stack = start({});
+      assert.equal(stack.sms?.defaultCountryCode, "+353");
+      await stack.close();
+      stack = start({ DEFAULT_COUNTRY_CODE: "+44" });
+      await stack.start();
+      await waitFor(() => stack.monitor.getCachedTelemetry() !== null, "first poll");
+      assert.equal(stack.sms?.defaultCountryCode, "+44", "what .env sets is kept whatever the SIM says");
+    } finally {
+      await stack.close();
       removeTempDir(dir);
     }
   });

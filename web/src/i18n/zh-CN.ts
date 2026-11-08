@@ -486,6 +486,7 @@ export const zhCN = {
   "new.title": "新信息",
   "new.recipient": "收件人",
   "new.country": "国家 / 区号",
+  "new.country_pick": "选择国家 / 地区",
   "new.phone_placeholder": "号码或联系人姓名",
   "new.content_placeholder": "信息内容",
   "new.send": "发送",

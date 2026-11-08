@@ -524,6 +524,7 @@ export interface SmsStatusResponse {
 
 export interface SmsCountriesResponse {
   ok: true;
+  /** `DEFAULT_COUNTRY_CODE`, else the SIM's country; `""` while neither is known (a number without `+` is refused). */
   defaultCountryCode: string;
   countries: ReadonlyArray<CountryDialInfo>;
 }

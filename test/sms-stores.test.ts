@@ -86,6 +86,26 @@ describe("StorageCipher.readJsonFileOrQuarantine", () => {
 });
 
 describe("SmsMirrorStore: CPE mirror, notification cursor and thread views", () => {
+  it("re-indexes contacts and regroups threads once the default country becomes known", () => {
+    const cipher = StorageCipher.fromSecret("store_test_secret");
+    const contacts = new ContactBook({ filePath: tmpFile("contacts-country.json"), cipher, defaultCountryCode: "" });
+    const mirror = new SmsMirrorStore({ filePath: tmpFile("sms-country.json"), cipher, defaultCountryCode: "", contacts });
+    // The router reported one sender in its local spelling and once in full
+    mirror.ingest(
+      [
+        wire({ index: 40101, phone: "0830000001", content: "local", date: "2026-10-28 18:00:00" }),
+        wire({ index: 40102, phone: "+353830000001", content: "full", date: "2026-10-28 18:01:00" }),
+      ],
+      "incremental"
+    );
+    assert.equal(mirror.listThreads().length, 2, "without a country the local spelling cannot be placed");
+    contacts.setDefaultCountryCode("+353");
+    mirror.setDefaultCountryCode("+353");
+    assert.equal(mirror.defaultCountryCode, "+353");
+    assert.equal(contacts.defaultCountryCode, "+353");
+    assert.equal(mirror.listThreads().length, 1, "both spellings are one conversation once the SIM says Ireland");
+  });
+
   it("derives opaque stable uids that never embed the phone number", () => {
     const uid = computeSmsUid({ index: 40002, date: "2026-10-28 18:00:00", phone: "+353830000001" });
     assert.match(uid, /^[0-9a-f]{20}$/);

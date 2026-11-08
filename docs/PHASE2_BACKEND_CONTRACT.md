@@ -748,7 +748,7 @@ export interface SettingsRefreshResponse {
 | 路由 | 请求 | 成功响应 |
 | :--- | :--- | :--- |
 | `GET /api/sms/status` | — | `{ ok: true, status: SmsStatusSnapshot }` |
-| `GET /api/sms/countries` | — | `{ ok: true, defaultCountryCode: string, countries: CountryDialInfo[] }`（54 个国家/地区） |
+| `GET /api/sms/countries` | — | `{ ok: true, defaultCountryCode: string, countries: CountryDialInfo[] }`（54 个国家/地区）。`defaultCountryCode` 取 `DEFAULT_COUNTRY_CODE`，未设置时取 SIM 卡的国家（IMSI 前三位），两者都不知道时为 `""`，此时不带 `+` 的号码返回 `VALIDATION_ERROR` |
 | `GET /api/sms/threads` | `?filter=all\|unread\|otp&search=<≤100 字符>&limit=1..500`（默认 `all` / 500） | `{ ok: true, threads: SmsThreadSummary[], status: SmsStatusSnapshot }`，按最新消息倒序 |
 | `GET /api/sms/thread` | `?key=<threadKey 或号码>`（别名 `phone=`，≤64 字符） | `{ ok: true, thread: SmsThreadDetail }`，消息按时间正序；无记录时 `messages` 为空数组 |
 | `GET /api/sms/contacts` | `?search=<≤100 字符>&limit=1..5000`（默认 500） | `{ ok: true, total: number, contacts: ContactRecord[] }` |

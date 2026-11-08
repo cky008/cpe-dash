@@ -34,7 +34,7 @@ function copyContact(c: ContactRecord): ContactRecord {
  */
 export class ContactBook {
   readonly filePath: string;
-  readonly defaultCountryCode: string;
+  #defaultCountryCode: string;
   #cipher: StorageCipher;
   #writer: AtomicFileWriter;
   #contacts: ContactRecord[] = [];
@@ -42,9 +42,21 @@ export class ContactBook {
 
   constructor(opts: { filePath: string; cipher: StorageCipher; defaultCountryCode: string }) {
     this.filePath = opts.filePath;
-    this.defaultCountryCode = opts.defaultCountryCode;
+    this.#defaultCountryCode = opts.defaultCountryCode;
     this.#cipher = opts.cipher;
     this.#writer = new AtomicFileWriter(opts.filePath);
+  }
+
+  /** Dial code local numbers are read in (`""`: none known yet, so they match only as written). */
+  get defaultCountryCode(): string {
+    return this.#defaultCountryCode;
+  }
+
+  /** The default country became known (read from the SIM): index every number again in it. */
+  setDefaultCountryCode(code: string): void {
+    if (code === this.#defaultCountryCode) return;
+    this.#defaultCountryCode = code;
+    this.#rebuildIndex();
   }
 
   load(): void {

@@ -12,6 +12,8 @@ import { type SmsShared, avatar, countryName, shownNumber } from "./shared.ts";
 export function openCompose(ctx: AppContext, shared: SmsShared, prefill?: { phone?: string; content?: string }): void {
   const dialog = byId<HTMLDialogElement>("newSmsDialog");
   const country = h("select", { class: "select select-sm rounded-lg w-auto max-w-[9.5rem]", attrs: { "aria-label": ctx.t("new.country") } });
+  // No default country yet (none in .env, the SIM not read): ask rather than preselect one
+  if (!shared.defaultCountryCode) country.appendChild(h("option", { attrs: { value: "", disabled: "", selected: "" } }, ctx.t("new.country_pick")));
   for (const c of shared.countries) {
     const option = h("option", { attrs: { value: c.code } }, `${c.flag} ${countryName(ctx, c)} ${c.code}`);
     if (c.code === shared.defaultCountryCode) option.selected = true;

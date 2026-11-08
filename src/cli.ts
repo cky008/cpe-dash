@@ -28,6 +28,7 @@ import { SELF_HEAL_OFF, WanSelfHeal } from "./self-heal.ts";
 import { ContactBook } from "./sms/contacts.ts";
 import { SmsMcpTools } from "./sms/mcp-tools.ts";
 import { SmsMirrorStore } from "./sms/mirror.ts";
+import { dialCodeFromImsi } from "./sms/phone.ts";
 import { SmsService } from "./sms/service.ts";
 import { SseEventBus } from "./sse-bus.ts";
 import { EncryptedStateStore } from "./state-store.ts";
@@ -291,17 +292,21 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     });
   };
 
+  // SMS's default country: DEFAULT_COUNTRY_CODE, else the SIM's (from the telemetry saved last time, then live),
+  // else none, and a number typed without + is refused rather than sent to a guessed country
+  const simCountry = (): string => dialCodeFromImsi(monitor.getCachedTelemetry()?.device.imsi ?? "") ?? "";
+  let countryCode = config.defaultCountryCode || simCountry();
   let sms: SmsService | null = null;
   if (config.smsEnabled) {
     const contacts = new ContactBook({
       filePath: config.contactsFile,
       cipher,
-      defaultCountryCode: config.defaultCountryCode,
+      defaultCountryCode: countryCode,
     });
     const mirror = new SmsMirrorStore({
       filePath: config.smsFile,
       cipher,
-      defaultCountryCode: config.defaultCountryCode,
+      defaultCountryCode: countryCode,
       contacts,
     });
     contacts.load();
@@ -311,11 +316,20 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       monitor,
       mirror,
       contacts,
-      defaultCountryCode: config.defaultCountryCode,
+      defaultCountryCode: countryCode,
       fullSyncIntervalMs: config.smsFullSyncIntervalMs,
       seedExistingOnStart: config.smsSeedExistingOnStart,
       autoMarkRead: config.smsAutoMarkRead,
       sendStatusTimeoutMs: config.smsSendStatusTimeoutMs,
+    });
+  }
+  if (!config.defaultCountryCode) {
+    // The first read of the SIM (or a SIM from another country) sets it; a missing or masked IMSI keeps the last one
+    monitor.on("telemetry", () => {
+      const fromSim = simCountry();
+      if (!fromSim || fromSim === countryCode) return;
+      countryCode = fromSim;
+      sms?.setDefaultCountryCode(fromSim);
     });
   }
 
@@ -358,7 +372,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       issueResetCode: () => (settings.telegramReset ? settings.issueCode("reset") : null),
       allowedChatIds: config.telegramChatIds,
       locale: config.defaultLocale,
-      defaultCountryCode: config.defaultCountryCode,
+      defaultCountryCode: () => countryCode,
       log,
     });
   }

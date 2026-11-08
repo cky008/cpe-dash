@@ -488,6 +488,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "new.title": "New message",
   "new.recipient": "To",
   "new.country": "Country / code",
+  "new.country_pick": "Choose a country",
   "new.phone_placeholder": "Number or contact name",
   "new.content_placeholder": "Message",
   "new.send": "Send",

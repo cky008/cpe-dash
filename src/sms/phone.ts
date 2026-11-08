@@ -70,6 +70,32 @@ export function getCountryByDialCode(dialCode: string): CountryDialInfo | null {
   return BY_CODE_MAP.get(normalized) ?? null;
 }
 
+/**
+ * Mobile country codes (ITU-T E.212, the first three IMSI digits) of the countries in the dial table, to the
+ * country's dial code. Canada (302) shares +1 with the United States.
+ */
+const MCC_DIAL_CODES: Readonly<Record<string, string>> = {
+  "272": "+353", "460": "+86", "461": "+86", "234": "+44", "235": "+44", "454": "+852", "455": "+853", "466": "+886",
+  "310": "+1", "311": "+1", "312": "+1", "313": "+1", "314": "+1", "315": "+1", "316": "+1", "302": "+1",
+  "262": "+49", "208": "+33", "214": "+34", "222": "+39", "204": "+31", "206": "+32", "228": "+41", "232": "+43",
+  "268": "+351", "270": "+352", "244": "+358", "238": "+45", "240": "+46", "242": "+47", "260": "+48", "230": "+420",
+  "202": "+30", "216": "+36", "226": "+40", "255": "+380", "250": "+7", "286": "+90", "424": "+971", "430": "+971",
+  "431": "+971", "425": "+972", "420": "+966", "440": "+81", "441": "+81", "450": "+82", "525": "+65", "502": "+60",
+  "520": "+66", "452": "+84", "510": "+62", "515": "+63", "404": "+91", "405": "+91", "406": "+91", "505": "+61",
+  "530": "+64", "724": "+55", "334": "+52", "722": "+54", "655": "+27", "602": "+20", "621": "+234", "278": "+356",
+  "280": "+357", "246": "+370", "247": "+371", "248": "+372",
+};
+
+/**
+ * The SIM's country dial code from its IMSI (e.g. `272…` -> `+353`), or `null` for a missing, masked or unknown
+ * one. FengSui uses it as the default country when `DEFAULT_COUNTRY_CODE` is left empty.
+ */
+export function dialCodeFromImsi(imsi: string): string | null {
+  const digits = imsi.trim();
+  if (!/^\d{6,15}$/.test(digits)) return null;
+  return Object.hasOwn(MCC_DIAL_CODES, digits.slice(0, 3)) ? (MCC_DIAL_CODES[digits.slice(0, 3)] ?? null) : null;
+}
+
 export function matchCountryFromE164(e164: string): CountryDialInfo | null {
   if (!e164.startsWith("+")) return null;
   for (const entry of SORTED_BY_CODE_LEN) {
@@ -297,6 +323,10 @@ export function resolveRecipientPhone(rawInput: string, selectedCountryCode = "+
     };
   }
 
+  // No default country yet (none in .env and none read from the SIM): never guess where a local number goes
+  if (!selectedCountryCode.replace("+", "")) {
+    return { ok: false, error: "No default country is known: type the number with its country code (e.g. +44…) or choose a country" };
+  }
   const country = getCountryByDialCode(selectedCountryCode);
   const code = country?.code ?? (selectedCountryCode.startsWith("+") ? selectedCountryCode : `+${selectedCountryCode}`);
   const bareCode = code.slice(1);

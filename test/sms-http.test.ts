@@ -135,7 +135,7 @@ describe("SMS / alert / notification configuration", () => {
       const base = { CPE_PASSWORD: "pw_fixture", STATE_FILE: path.join(tmpDir, "data", "state.json") };
       const defaults = loadConfig({ overrides: base, ignoreProcessEnv: true, envPath: path.join(tmpDir, "none.env") });
       assert.equal(defaults.smsEnabled, true);
-      assert.equal(defaults.defaultCountryCode, "+353");
+      assert.equal(defaults.defaultCountryCode, "", "unset: taken from the SIM at runtime");
       assert.equal(defaults.smsFile, path.join(tmpDir, "data", "sms.json"));
       assert.equal(defaults.contactsFile, path.join(tmpDir, "data", "contacts.json"));
       assert.equal(defaults.telegramStateFile, path.join(tmpDir, "data", "telegram.json"));
@@ -188,7 +188,8 @@ describe("SMS / alert / notification configuration", () => {
       assert.equal(
         loadConfig({ overrides: { ...base, DEFAULT_COUNTRY_CODE: "abc" }, ignoreProcessEnv: true, envPath: path.join(tmpDir, "none.env") })
           .defaultCountryCode,
-        "+353"
+        "",
+        "an unreadable value is ignored: the SIM decides"
       );
     } finally {
       removeTempDir(tmpDir);

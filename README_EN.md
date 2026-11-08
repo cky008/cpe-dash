@@ -638,7 +638,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `SESSION_TTL_MS` | `86400000` | Lifetime of a console login session (24 hours) |
 | `STATIC_DIR` | *(build output)* | Console static files; defaults to `dist/web/public` and rarely needs setting |
 | `SMS_ENABLED` | `true` | Enables SMS synchronization, REST, SSE, and MCP SMS tools |
-| `DEFAULT_COUNTRY_CODE` | `+353` | Default country calling code for numbers without international prefix |
+| `DEFAULT_COUNTRY_CODE` | empty (from the SIM) | Country code for local numbers typed without `+` (sending and grouping); when empty it is taken from the router's SIM, and until it is known such numbers are refused: type the full international number or choose a country |
 | `SMS_FILE` / `CONTACTS_FILE` | *(Same directory as `STATE_FILE`)* | Encrypted SMS mirror and contacts store |
 | `SMS_FULL_SYNC_INTERVAL_MS` | `1800000` | Fallback full reconciliation interval (minimum `60000`) |
 | `SMS_SEED_EXISTING_ON_START` | `true` | Treats existing SMS on CPE as history on initial sync (will not push notifications) |

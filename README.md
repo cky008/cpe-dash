@@ -638,7 +638,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `SESSION_TTL_MS` | `86400000` | 控制台登录会话有效期（24 小时） |
 | `STATIC_DIR` | *(构建产物)* | 控制台静态文件目录，默认 `dist/web/public`，一般无需设置 |
 | `SMS_ENABLED` | `true` | 启用短信同步、REST、SSE 与 MCP 短信工具 |
-| `DEFAULT_COUNTRY_CODE` | `+353` | 无国际前缀号码的默认国家区号 |
+| `DEFAULT_COUNTRY_CODE` | 空（按 SIM 卡推断） | 不带 + 的本地号码按哪个国家区号发送与归类；留空时按路由器 SIM 卡的国家推断，推断不出时要求输入完整国际号码或手动选择国家 |
 | `SMS_FILE` / `CONTACTS_FILE` | *(与 `STATE_FILE` 同目录)* | 加密短信镜像与通讯录 |
 | `SMS_FULL_SYNC_INTERVAL_MS` | `1800000` | 兜底全量对账间隔（最小 `60000`） |
 | `SMS_SEED_EXISTING_ON_START` | `true` | 首次同步时把已有短信视为历史（不推送） |

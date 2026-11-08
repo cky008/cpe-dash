@@ -144,7 +144,7 @@ export class SmsService extends EventEmitter {
   readonly monitor: CpeMonitor;
   readonly mirror: SmsMirrorStore;
   readonly contacts: ContactBook;
-  readonly defaultCountryCode: string;
+  #defaultCountryCode: string;
   readonly fullSyncIntervalMs: number;
   readonly seedExistingOnStart: boolean;
   readonly autoMarkRead: boolean;
@@ -173,7 +173,7 @@ export class SmsService extends EventEmitter {
     this.monitor = opts.monitor;
     this.mirror = opts.mirror;
     this.contacts = opts.contacts;
-    this.defaultCountryCode = opts.defaultCountryCode;
+    this.#defaultCountryCode = opts.defaultCountryCode;
     this.fullSyncIntervalMs = Math.max(60_000, opts.fullSyncIntervalMs ?? 30 * 60_000);
     this.seedExistingOnStart = opts.seedExistingOnStart !== false;
     this.autoMarkRead = opts.autoMarkRead === true;
@@ -181,6 +181,22 @@ export class SmsService extends EventEmitter {
     this.recentFetchCount = Math.min(50, Math.max(5, opts.recentFetchCount ?? 20));
     this.yieldPollIntervalMs = Math.max(1000, opts.yieldPollIntervalMs ?? 5000);
     this.#sleep = opts.sleep;
+  }
+
+  /**
+   * Dial code a number typed without `+` is sent to, and local numbers are grouped in: `DEFAULT_COUNTRY_CODE`, or
+   * else the SIM's country once it has been read; `""` while neither is known (such a number is then refused).
+   */
+  get defaultCountryCode(): string {
+    return this.#defaultCountryCode;
+  }
+
+  /** The SIM's country became known (or changed with the SIM): contacts and threads follow it. */
+  setDefaultCountryCode(code: string): void {
+    if (code === this.#defaultCountryCode) return;
+    this.#defaultCountryCode = code;
+    this.contacts.setDefaultCountryCode(code);
+    this.mirror.setDefaultCountryCode(code);
   }
 
   /** Subscribe to telemetry counters, start the safety-net and yield timers, and run the initial full sync. */

@@ -5,6 +5,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Added
+- **SMS takes its default country from the SIM.** `DEFAULT_COUNTRY_CODE` is now empty by default: a local number typed without `+` (and a local sender's number, for grouping and contacts) is read in the country of the router's SIM, taken from the first three IMSI digits once the router has been read (at start from the last saved reading). Until a country is known, such a number is refused with a message to type the full international number or choose a country, never sent to a guessed one; the console's new-message sheet asks for a country then. A value in `.env` still wins.
 - **The console says what self-healing will do.** The controls drawer has a "WAN self-healing" part: whether the lock rollback and the automatic redial are on, the lock being watched and the time by which the WAN must be back (or since when it is back and the lock about to be kept), the redials of the last 24 hours against the cap of 4, and the earliest next redial. A band or cell lock's confirmation now says, before the lock is applied, whether it would be rolled back automatically if it cut the WAN, or that it would have to be cleared by hand. `GET /api/session/status` and MCP `get_cpe_session_status` answer the same as `selfHeal` (read from the daemon's memory, never from the router), so an agent can tell too. The demo household runs both parts (10 / 3 minutes), as the static demo shows.
 
 ### Fixed
@@ -22,6 +23,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - `docs/PHASE2_ARCHITECTURE_REPORT.md` §13.8 records the measurements on the NAS after the v1.6.3 deploy and what was built after them; the README and `.env.example` say when to raise `STATE_FLUSH_INTERVAL_MS` (disk hibernation on an otherwise idle NAS).
 
 ### Upgrading
+- `DEFAULT_COUNTRY_CODE` no longer defaults to `+353`: with it unset, the country comes from the SIM (an Irish SIM still gives `+353`). Set it in `.env` to keep a fixed one.
 - If your agents lock bands, reboot or redial through MCP, add `MCP_ALLOW_MUTATIONS=true` to `.env` before upgrading. If you rely on the cross-host duplicate-daemon guard (host network, a second machine), add `PEER_DISCOVERY_ENABLED=true`. Nothing else changes.
 
 ## [1.6.3] — 2026-11-08
