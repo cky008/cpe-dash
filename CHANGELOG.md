@@ -32,6 +32,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Contributing rules that match the repository.** `CONTRIBUTING.md` and the pull request checklist point behaviour changes at the user guide in both languages instead of the READMEs, which no longer describe features, and say that signed commits are welcome but not required (pull requests are squash-merged on GitHub).
 
 ### Container and CI
+- **Images you can verify.** Once the repository is public, each release image also gets a signed build-provenance attestation from GitHub, so anyone can check which commit and workflow built it: `gh attestation verify oci://ghcr.io/cky008/cpe-dash:<version> -R cky008/cpe-dash`. GitHub offers these to public repositories only; until then the step is skipped.
 - **Release notes link the commits since the release before.** Each GitHub release ends with a "Full Changelog" link comparing it with the previous tag, as GitHub's own notes do (the first release links its commits); every GitHub release was regenerated with it.
 
 ## [1.7.2] — 2026-11-08

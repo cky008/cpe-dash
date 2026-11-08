@@ -36,10 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     needs: check
-    # The only job allowed to write: it pushes the image package
+    # The only job allowed to write: it pushes the image package and, once the repository is public, attests it
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,18 +63,27 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Signed build provenance (which commit and workflow built it) and an SBOM of the image
+          # Build provenance (which commit and workflow built it) and an SBOM, attached to the image
           provenance: mode=max
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # A signed attestation anyone can check: gh attestation verify oci://ghcr.io/<owner>/cpe-dash:<version> -R <owner>/cpe-dash
+      # GitHub offers these to public repositories only, so the step waits until this one is public
+      - if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
   notes:
     name: GitHub release notes from CHANGELOG.md
