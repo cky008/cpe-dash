@@ -12,8 +12,8 @@ import path from "node:path";
 
 /** CHANGELOG section -> release-notes group, in the order they are listed. */
 const GROUPS: ReadonlyArray<readonly [ReadonlyArray<string>, string]> = [
-  [["Added"], "🚀 Features"],
-  [["Changed", "Daemon", "Web console"], "🌟 Enhancements"],
+  [["Added", "Daemon", "Web console"], "🚀 Features"],
+  [["Changed"], "🌟 Enhancements"],
   [["Fixed", "Fixed in this release"], "🐛 Bug fixes"],
   [["Security"], "🔒 Security"],
   [["Documentation"], "📚 Documentation"],
@@ -26,12 +26,18 @@ function bullets(lines: ReadonlyArray<string>): string[] {
   return lines.filter((line) => line.startsWith("- ")).map((line) => line.slice(2).trim());
 }
 
-/** `**Lead.** Rest` -> ["Lead.", "Rest"]; without a bold lead, the first sentence is the lead. */
+/**
+ * `**Lead.** Rest` -> ["Lead.", "Rest"]. Without a bold lead, the first sentence is the lead, cut short at
+ * its first ": " or "; " (an older entry often runs a whole list into its first sentence).
+ */
 function splitLead(item: string): [string, string] {
   const bold = /^\*\*(.+?)\*\*[,.:]?\s*(.*)$/.exec(item);
   if (bold) return [bold[1] ?? "", bold[2] ?? ""];
   const end = item.search(/\.\s/);
-  return end < 0 ? [item, ""] : [item.slice(0, end + 1), item.slice(end + 1).trim()];
+  const sentence = end < 0 ? item : item.slice(0, end + 1);
+  const cut = sentence.search(/[:;]\s/);
+  if (cut >= 12) return [sentence.slice(0, cut), item.slice(cut + 1).trim()];
+  return [sentence, end < 0 ? "" : item.slice(end + 1).trim()];
 }
 
 export function releaseNotes(changelog: string, tag: string, repository = "cky008/cpe-dash"): string {

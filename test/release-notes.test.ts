@@ -19,6 +19,7 @@ const CHANGELOG = `# Changelog
 ### Added
 - **A thing.** Long technical details that belong in the changelog, not in the release.
 - \`npm run thing\` without a bold lead. Second sentence.
+- The scheduler as the only path: ephemeral sessions with a logout; more details.
 
 ### Fixed
 - **A fix.** Details.
@@ -60,6 +61,7 @@ describe("release notes from CHANGELOG.md", () => {
         "### 🚀 Features",
         "- A thing.",
         "- `npm run thing` without a bold lead.",
+        "- The scheduler as the only path",
         "",
         "### 🐛 Bug fixes",
         "- A fix.",
