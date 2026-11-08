@@ -809,6 +809,17 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("puts the country numbers are read in first on the wizard's country buttons, marked, beside the quick picks", async () => {
+    const fx = createBotFixture({ country: () => "+49" });
+    await fx.service.sync("full");
+    await fx.message(1001, "/new");
+    const card = fx.tg.sends("1001").at(-1);
+    assert.match(fx.tg.lastText("1001"), /Germany \(\+49\)/);
+    assert.deepEqual(fx.tg.buttons(card).slice(0, 6), ["wizcc:+49", "wizcc:+353", "wizcc:+86", "wizcc:+44", "wizcc:+1", "wizcc:+852"]);
+    assert.ok(JSON.stringify(card?.payload).includes("+49 ✓"), "the country in use is marked");
+    await fx.cleanup();
+  });
+
   it("binds each confirmation card's Send button to its own draft, so an older card never sends a newer one", async () => {
     const fx = createBotFixture();
     await fx.service.sync("full");

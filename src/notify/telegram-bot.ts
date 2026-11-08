@@ -1564,7 +1564,9 @@ export class TelegramBot implements NotificationChannel {
   }
 
   #countryKeyboard(active: string): InlineKeyboard {
-    const buttons = QUICK_COUNTRIES.map((code) => {
+    // The country numbers are read in (the SIM's, or the one tapped) comes first when it is not a quick pick
+    const codes = (QUICK_COUNTRIES as ReadonlyArray<string>).includes(active) || !getCountryByDialCode(active) ? QUICK_COUNTRIES : [active, ...QUICK_COUNTRIES];
+    const buttons = codes.map((code) => {
       const c = getCountryByDialCode(code);
       return { text: `${c?.flag ?? ""} ${code}${code === active ? " ✓" : ""}`, callback_data: `wizcc:${code}` };
     });
