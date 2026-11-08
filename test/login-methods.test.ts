@@ -287,6 +287,7 @@ describe("login methods and token flows (mock family)", () => {
       const first = start({ allowLegacyLoginAfterScram: true });
       assert.ok(await first.core.monitor.refreshTelemetry());
       assert.equal(first.stateStore.getState().knownLoginScheme, "scram", "a background login records how it logged in");
+      assert.equal(first.stateStore.getState().eccSigned, true, "and that this router signs its encryption key");
       const probe = (await first.core.scheduler.testConnectionDetailed({ url: "http://192.168.8.1", username: "admin", password: cpe.password })).probe;
       assert.ok(probe);
       // With the flag on, a test of this address that is never saved may find another method (a replaced router)
@@ -295,8 +296,10 @@ describe("login methods and token flows (mock family)", () => {
 
       const second = start();
       assert.equal(second.client.knownLoginScheme, "scram", "the unsaved test's method does not reach the live client after a restart");
+      assert.equal(second.client.eccSignedKnown, true, "a restart keeps requiring the signature");
       await second.core.scheduler.applyConnection({ url: "http://192.168.8.1", username: "admin", password: cpe.password }, { loginScheme: "sha256" });
       assert.equal(second.stateStore.getState().knownLoginScheme, "sha256", "a saved connection takes the method its test found");
+      assert.equal(second.stateStore.getState().eccSigned, false, "a saved connection starts over: the router may be another one");
       await stopFengSuiCore(second.core);
 
       // State written before the field existed: the stored identification still pins SCRAM

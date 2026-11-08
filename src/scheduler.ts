@@ -412,6 +412,7 @@ export class MutexSessionScheduler extends EventEmitter {
     const loaded = this.stateStore.load();
     // Its own field since phase 2; state written before that keeps the stored identification's
     this.#client.rememberLoginScheme(loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe));
+    this.#client.rememberEccSigned(loaded.eccSigned === true);
     // Only a likely model until this run sees the router report it (see `DeviceAccess`)
     this.device.remember(loaded.deviceProbe?.identity.model, loaded.deviceProbe?.identity.softwareVersion);
     this.device.noteProbe(loaded.deviceProbe);
@@ -1061,14 +1062,17 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   /**
-   * Persist how the live client logs in once a session or a saved connection changed it. Connection
-   * tests use a throwaway client, so one that is not saved never moves it (R1-13).
+   * Persist how the live client logs in, and whether its router signs its encryption key, once a session
+   * or a saved connection changed either. Connection tests use a throwaway client, so one that is not
+   * saved never moves them (R1-13).
    */
   #recordLoginScheme(): void {
     if (!this.#initialized) return;
     const scheme = this.#client.knownLoginScheme;
-    if (scheme === this.stateStore.getState().knownLoginScheme) return;
-    this.stateStore.update({ knownLoginScheme: scheme });
+    const eccSigned = this.#client.eccSignedKnown;
+    const stored = this.stateStore.getState();
+    if (scheme === stored.knownLoginScheme && eccSigned === stored.eccSigned) return;
+    this.stateStore.update({ knownLoginScheme: scheme, eccSigned });
     void this.stateStore.flushAsync().catch(() => undefined);
   }
 

@@ -45,6 +45,8 @@ export interface PersistedRuntimeState {
    * it; state written before it existed falls back to the stored identification.
    */
   knownLoginScheme: LoginScheme | null;
+  /** The router has signed its encryption key at a login (CPE_REQUIRE_ECC_SIGNATURE then requires it). */
+  eccSigned: boolean;
   /** What a model nobody verified answered per read section (it decides which cards and tools show). */
   deviceReads: ReadRecord | null;
   /** The last generic writes on a model nobody verified (endpoints, codes, read-backs; never a value). */
@@ -106,6 +108,7 @@ function createDefaultState(): PersistedRuntimeState {
     firmwareNotice: null,
     deviceProbe: null,
     knownLoginScheme: null,
+    eccSigned: false,
     deviceReads: null,
     genericWrites: [],
     selfHealReconnect: null,
@@ -182,6 +185,7 @@ export class EncryptedStateStore {
         latestTopology: upgradeTopology(loaded.latestTopology ?? null),
         deviceProbe: isDeviceProbeResult(loaded.deviceProbe) ? loaded.deviceProbe : null,
         knownLoginScheme: KNOWN_LOGIN_SCHEMES.has(loaded.knownLoginScheme) ? (loaded.knownLoginScheme ?? null) : null,
+        eccSigned: loaded.eccSigned === true,
         deviceReads: isReadRecord(loaded.deviceReads) ? loaded.deviceReads : null,
         genericWrites: Array.isArray(loaded.genericWrites) ? loaded.genericWrites.filter(isWriteResultRecord).slice(-MAX_GENERIC_WRITES) : [],
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],

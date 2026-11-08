@@ -168,6 +168,19 @@ async function cpeFetch(fetchImpl: typeof fetch, url: string, apiPath: string, i
 /** Default upper bound for one admin session (covers SMS send-status polling plus read-back). */
 export const DEFAULT_SESSION_MAX_HOLD_MS = 90_000;
 
+/**
+ * A router that signed its encryption key before handed one over unsigned: the answer may have been
+ * altered on the way, so the session is ended (and logged out) instead of encrypting to that key.
+ */
+export class CpeEccSignatureMissingError extends Error {
+  constructor() {
+    super(
+      "The router sent its encryption key without the signature it sent before, so FengSui ended the session (the answer may have been altered on the way). If the router stopped signing after a firmware change, set CPE_REQUIRE_ECC_SIGNATURE=false in .env"
+    );
+    this.name = "CpeEccSignatureMissingError";
+  }
+}
+
 export function isInsideCpeSession(client: HuaweiCpeClient): boolean {
   return activeSessionContext.getStore() === client;
 }
@@ -260,6 +273,8 @@ export class EphemeralCpeSession {
   /** Session-wide deadline; `logout()` uses fresh signals so the slot can always be released. */
   readonly #deadline: AbortSignal | null;
   #releasing = false;
+  /** This router is known to sign its encryption key: an unsigned one ends the session (CPE_REQUIRE_ECC_SIGNATURE). */
+  #eccSignatureRequired = false;
   /** Aborted when logout begins: a request still in flight then (work that did not wait for it) never goes out again. */
   readonly #closing = new AbortController();
   /** Counts every error code the router answers (the device report's error statistics). */
@@ -368,6 +383,8 @@ export class EphemeralCpeSession {
     if (!this.ecc) {
       // A legacy login offers no key FengSui could verify: no encrypted channel rather than an unverified one
       if (this.#loginScheme !== "scram") throw new CpeEncryptionUnavailableError("CPE session has no encrypted channel: its login method offers no verified key");
+      // A router known to sign its key gave none at login: an unsigned one from publickey is not taken instead
+      if (this.#eccSignatureRequired) throw new CpeEccSignatureMissingError();
       const pubXml = await this.get("/api/webserver/publickey");
       const serverPub = getXmlTag(pubXml, "ecc_server_pubkey");
       if (!serverPub) {
@@ -585,7 +602,8 @@ export class EphemeralCpeSession {
    * challenge refused the way appendix A.8 allows (or redirected, A.5) leads to the legacy `user/login`; a router known to
    * use SCRAM (`scramKnown`) never gets there. Without options it is SCRAM only, as on the H168-383.
    */
-  async login(opts: { passwordType?: string | null; scramKnown?: boolean; unverifiedModel?: boolean } = {}): Promise<void> {
+  async login(opts: { passwordType?: string | null; scramKnown?: boolean; unverifiedModel?: boolean; eccSignatureRequired?: boolean } = {}): Promise<void> {
+    this.#eccSignatureRequired = opts.eccSignatureRequired === true;
     if (!this.password) {
       throw new Error("The router password is not set: the daemon takes it from Settings → Router in the console, the probes from CPE_PASSWORD in .env");
     }
@@ -692,6 +710,7 @@ export class EphemeralCpeSession {
       if (eccPubSig && !verifyPubkeySignature(eccServerPub, scram.serverKey, eccPubSig)) {
         throw new Error("CPE ECC public key signature verification failed");
       }
+      if (!eccPubSig && this.#eccSignatureRequired) throw new CpeEccSignatureMissingError();
       this.ecc = generateEccSession(eccServerPub);
       this.#eccVerified = Boolean(eccPubSig);
     }
@@ -756,6 +775,8 @@ export interface HuaweiCpeClientOptions {
   cpePassword: string;
   requestTimeoutMs?: number;
   respectBrowserSession?: boolean;
+  /** `CPE_REQUIRE_ECC_SIGNATURE` (default true): end a session whose router, known to sign its encryption key, sends it unsigned. */
+  requireEccSignature?: boolean;
   allowPublicCpeHost?: boolean;
   fetchImpl?: typeof fetch;
   /** Hard upper bound for one session, login to logout (default `DEFAULT_SESSION_MAX_HOLD_MS`). */
@@ -845,9 +866,13 @@ export class HuaweiCpeClient {
   #browserYieldCount: number;
   #knownLoginScheme: LoginScheme | null = null;
   #unverifiedModel = false;
+  readonly #requireEccSignature: boolean;
+  /** This router has signed its encryption key at a login (kept in state.json): from then on it must. */
+  #eccSigned = false;
 
   constructor(config: HuaweiCpeClientOptions) {
     this.#allowPublicHost = Boolean(config.allowPublicCpeHost);
+    this.#requireEccSignature = config.requireEccSignature !== false;
     this.#baseUrl = normalizeCpeUrl(config.cpeUrl, { allowPublicHost: this.#allowPublicHost });
     this.#username = config.cpeUsername ?? "admin";
     this.#password = config.cpePassword;
@@ -938,6 +963,16 @@ export class HuaweiCpeClient {
   }
 
   /** Remember how the router logs in (from a stored identification); `unknown` or `null` forgets it. */
+  /** Whether this router has signed its encryption key at a login (it then has to, unless the owner turned that off). */
+  get eccSignedKnown(): boolean {
+    return this.#eccSigned;
+  }
+
+  /** What state.json remembers about this router's key signature. */
+  rememberEccSigned(signed: boolean): void {
+    this.#eccSigned = signed;
+  }
+
   rememberLoginScheme(scheme: LoginScheme | null): void {
     this.#knownLoginScheme = scheme === "unknown" ? null : scheme;
   }
@@ -964,6 +999,8 @@ export class HuaweiCpeClient {
     this.#username = next.cpeUsername;
     this.#password = next.cpePassword;
     this.rememberLoginScheme(next.loginScheme ?? null);
+    // Possibly another router: whether it signs its key is learnt again
+    this.#eccSigned = false;
     this.resetCircuitBreaker();
   }
 
@@ -1177,11 +1214,17 @@ export class HuaweiCpeClient {
       let lastHoldMs = 0;
       try {
         await raceDeadline(
-          session.login({ passwordType: loginState.passwordType, scramKnown: this.#knownLoginScheme === "scram", unverifiedModel: this.#unverifiedModel }),
+          session.login({
+            passwordType: loginState.passwordType,
+            scramKnown: this.#knownLoginScheme === "scram",
+            unverifiedModel: this.#unverifiedModel,
+            eccSignatureRequired: this.#requireEccSignature && this.#eccSigned,
+          }),
           deadline.signal
         );
         loginFinished = true;
         if (session.loginScheme) this.#knownLoginScheme = session.loginScheme;
+        if (session.eccVerified) this.#eccSigned = true;
         const value = await raceDeadline(
           activeSessionContext.run(this, () => fn(session)),
           deadline.signal

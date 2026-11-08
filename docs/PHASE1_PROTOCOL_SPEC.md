@@ -66,6 +66,7 @@ sequenceDiagram
    - `serverKey = HMAC-SHA256(key = "Server Key", data = saltedPwd)`
    - `expectedServerSig = HMAC-SHA256(key = authMsg, data = serverKey)`
    - `eccPubSigCheck = HMAC-SHA256(key = serverKey, data = hex(ecc_server_pubkey))`
+   - 签名不符时登录失败。路由器签过一次之后（记在 `state.json` 的 `eccSigned`），不带签名的密钥同样结束并登出会话，`/api/webserver/publickey` 取到的未签名密钥也不再代替（`CPE_REQUIRE_ECC_SIGNATURE`，默认开启）；从没签过名的路由器照旧
 2. **非钳位大端 Curve25519 (`curve25519Mul`)**：
    - 素数域 $p = 2^{255} - 19$，$A_{24} = 121665$，基点 $u = 9$；
    - 私钥为 32 字节随机数直接按**大端序**解析为 `BigInt`（**严禁执行 RFC 7748 小端反转与低 3 位清零钳位**），左移 256 位内保持 `64` 个十六进制字符定长输出。

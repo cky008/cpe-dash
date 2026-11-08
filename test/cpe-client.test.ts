@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { describe, it } from "node:test";
-import { CpeApiError, CpeSessionClosedError, type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeApiError, CpeEccSignatureMissingError, CpeSessionClosedError, type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
 import { aesGcmDecrypt, aesGcmEncrypt, curve25519Mul } from "../src/crypto.ts";
 import { getXmlTag } from "../src/xml.ts";
 
@@ -12,6 +12,8 @@ interface MockCpeOptions {
   occupiedAttempts?: number;
   /** Answer the SCRAM proof with a server signature the password does not produce (an impostor router). */
   forgedServerSignature?: boolean;
+  /** Whether the login answer signs its encryption key (read at every login; default yes). */
+  signEccKey?: () => boolean;
 }
 
 function createMockCpeFetch(opts: MockCpeOptions): {
@@ -106,7 +108,7 @@ function createMockCpeFetch(opts: MockCpeOptions): {
         .digest("hex");
 
       return makeXmlRes(
-        `<response><serversignature>${serverSig}</serversignature><ecc_server_pubkey>${serverPubHex}</ecc_server_pubkey><ecc_pubkey_signature>${pubSig}</ecc_pubkey_signature></response>`
+        `<response><serversignature>${serverSig}</serversignature><ecc_server_pubkey>${serverPubHex}</ecc_server_pubkey>${(opts.signEccKey?.() ?? true) ? `<ecc_pubkey_signature>${pubSig}</ecc_pubkey_signature>` : ""}</response>`
       );
     }
 
@@ -228,6 +230,35 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
     );
     assert.equal(calls.length, 1);
     assert.equal(client.getCircuitBreakerState().code, "108007");
+  });
+
+  it("refuses an unsigned encryption key from a router known to sign it, logs out, and keeps the breaker closed", async () => {
+    let signs = true;
+    const { fetchImpl, calls } = createMockCpeFetch({ password: "unit_password", signEccKey: () => signs });
+    const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl });
+    assert.equal(await client.withSession(async () => "first"), "first");
+    assert.equal(client.eccSignedKnown, true, "this router signs its key");
+    // The same router now hands over a key without the signature (a stripped answer on the way)
+    signs = false;
+    const logouts = (): number => calls.filter((c) => c.path === "/api/user/logout").length;
+    const before = logouts();
+    await assert.rejects(() => client.withSession(async () => "never runs"), CpeEccSignatureMissingError);
+    assert.equal(logouts(), before + 1, "the refused session still logs out");
+    assert.equal(client.getCircuitBreakerState().tripped, false, "not a wrong password");
+    // Known from state.json after a restart: refused at the first login already
+    const restarted = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl });
+    restarted.rememberEccSigned(true);
+    await assert.rejects(() => restarted.withSession(async () => "never runs"), CpeEccSignatureMissingError);
+  });
+
+  it("accepts an unsigned key from a router never seen signing one, and when the owner turned the check off", async () => {
+    const { fetchImpl } = createMockCpeFetch({ password: "unit_password", signEccKey: () => false });
+    const fresh = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl });
+    assert.equal(await fresh.withSession(async () => "ok"), "ok");
+    assert.equal(fresh.eccSignedKnown, false);
+    const off = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl, requireEccSignature: false });
+    off.rememberEccSigned(true);
+    assert.equal(await off.withSession(async () => "ok"), "ok");
   });
 
   it("refuses a router whose server signature does not match the password, without opening the breaker", async () => {

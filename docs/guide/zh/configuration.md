@@ -29,6 +29,7 @@ order: 14
 | `CPE_URL` | `http://192.168.8.1` | 路由器管理地址。只接受局域网地址 |
 | `CPE_USERNAME` | `admin` | 管理员账号 |
 | `CPE_PASSWORD` | 空 | 管理员密码 |
+| `CPE_REQUIRE_ECC_SIGNATURE` | `true` | 路由器登录时给出的加密密钥签过名之后，烽燧就要求它一直签名：某次登录的密钥没有签名（应答可能在途中被改过），就结束并登出这次会话，不用这个密钥加密。从没签过名的路由器不受影响；固件更新后路由器确实不再签名时设为 `false` |
 | `CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM` | `false` | 换成只支持旧式登录的路由器时临时设为 `true`，测试并保存新路由器后改回。推荐的做法是用一个新的空 `data/` 重新部署 |
 | `RESPECT_BROWSER_SESSION` | `true` | 有人登录官方网页时自动让开。强烈建议保持开启 |
 | `REQUEST_TIMEOUT_MS` | `15000` | 单次请求路由器的超时（毫秒） |

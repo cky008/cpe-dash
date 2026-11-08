@@ -228,6 +228,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     cpePassword: connection?.password ?? "",
     requestTimeoutMs: config.requestTimeoutMs,
     respectBrowserSession: config.respectBrowserSession,
+    requireEccSignature: config.cpeRequireEccSignature,
     fetchImpl,
     // An SMS send polls send-status inside its session, so the hold budget must outlast that poll
     sessionMaxHoldMs: Math.max(DEFAULT_SESSION_MAX_HOLD_MS, config.smsSendStatusTimeoutMs + 30_000),

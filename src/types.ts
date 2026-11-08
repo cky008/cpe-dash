@@ -13,6 +13,11 @@ export interface AppConfig {
    */
   cpeAllowLegacyLoginAfterScram: boolean;
   /**
+   * `CPE_REQUIRE_ECC_SIGNATURE` (default `true`): once the router has signed its encryption key at a
+   * login, a login that hands it over unsigned is ended (logged out) instead of trusted.
+   */
+  cpeRequireEccSignature: boolean;
+  /**
    * Canonical IANA zone from `TZ` (e.g. `Europe/Dublin`), or `null` when unset. `.env` values never
    * reach `process.env` on their own, so the CLI applies it (it stamps the `<Date>` of sent SMS).
    */
