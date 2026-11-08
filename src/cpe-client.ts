@@ -20,6 +20,7 @@ import {
   aesGcmEncrypt,
   computeScram,
   generateEccSession,
+  timingSafeEqualString,
   verifyPubkeySignature,
 } from "./crypto.ts";
 import { ApiErrorTally, type LoginScheme, type TokenFlow } from "./device-profile.ts";
@@ -680,7 +681,8 @@ export class EphemeralCpeSession {
       if (strict) throw unplacedLoginAnswer("/api/user/authentication_login", null, "a server signature");
       throw new Error("SCRAM server signature missing (potential MITM)");
     }
-    if (serverSig.toLowerCase() !== scram.expectedServerSig.toLowerCase()) {
+    // Compared in constant time, as every other secret-derived value is
+    if (!timingSafeEqualString(serverSig.toLowerCase(), scram.expectedServerSig.toLowerCase())) {
       throw new Error("SCRAM server signature mismatch (potential MITM)");
     }
 

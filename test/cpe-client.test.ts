@@ -10,6 +10,8 @@ interface MockCpeOptions {
   loginStateXml?: string;
   failAuthCode?: string;
   occupiedAttempts?: number;
+  /** Answer the SCRAM proof with a server signature the password does not produce (an impostor router). */
+  forgedServerSignature?: boolean;
 }
 
 function createMockCpeFetch(opts: MockCpeOptions): {
@@ -96,7 +98,8 @@ function createMockCpeFetch(opts: MockCpeOptions): {
         `${lastFirstNonce},${lastServerNonce},${lastServerNonce}`,
         "utf8"
       );
-      const serverSig = crypto.createHmac("sha256", authMsg).update(serverKey).digest("hex");
+      const realSig = crypto.createHmac("sha256", authMsg).update(serverKey).digest("hex");
+      const serverSig = opts.forgedServerSignature ? `${realSig.slice(0, -1)}${realSig.endsWith("0") ? "1" : "0"}` : realSig;
       const pubSig = crypto
         .createHmac("sha256", serverKey)
         .update(Buffer.from(serverPubHex, "hex"))
@@ -225,6 +228,13 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
     );
     assert.equal(calls.length, 1);
     assert.equal(client.getCircuitBreakerState().code, "108007");
+  });
+
+  it("refuses a router whose server signature does not match the password, without opening the breaker", async () => {
+    const { fetchImpl } = createMockCpeFetch({ password: "unit_password", forgedServerSignature: true });
+    const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl });
+    await assert.rejects(() => client.withSession(async () => "never runs"), /SCRAM server signature mismatch/);
+    assert.equal(client.getCircuitBreakerState().tripped, false, "an impostor is not a wrong password");
   });
 
   it("retries a transient 108003 only when it does not respect the browser (respecting it, it yields at once)", async () => {
