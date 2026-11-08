@@ -89,12 +89,12 @@ export function escapeTelegramHtml(text: string | number): string {
   return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** The forum topic a message was posted in, or `null` (a private chat, a group without topics, the General topic). */
 /** Telegram's answer to a message for a forum topic that was deleted or closed since. */
 function isGoneTopicError(err: unknown): boolean {
   return err instanceof TelegramApiError && err.errorCode === 400 && /message thread not found|TOPIC_(?:CLOSED|DELETED)/i.test(err.description);
 }
 
+/** The forum topic a message was posted in, or `null` (a private chat, a group without topics, the General topic). */
 function topicOf(msg: { message_thread_id?: number; is_topic_message?: boolean } | undefined): number | null {
   return msg?.is_topic_message === true && typeof msg.message_thread_id === "number" ? msg.message_thread_id : null;
 }
