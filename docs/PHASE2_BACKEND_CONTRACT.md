@@ -956,7 +956,7 @@ export interface AccessControlChangeResponse {
 | 方法与路径 | 请求体 | 响应 |
 | :--- | :--- | :--- |
 | `GET /api/console` | — | `ConsoleSettingsResponse` |
-| `POST /api/console/cpe/test` | `{ url?, username?, password?, lastAttempt? }`（缺省字段用已保存的值） | `{ ok: true, result: ConnectionTestResult }` |
+| `POST /api/console/cpe/test` | `{ url?, username?, password?, lastAttempt? }`（缺省字段用已保存的值；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult }` |
 | `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `connectionTest`，不保存） |
 | `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
 | `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD` |

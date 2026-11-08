@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- **The saved router password goes only to the saved router address.** A connection test or save that named another address without a password used the saved one, so anyone at an open console could point it at a host of their own on the LAN and receive the router's admin password (a legacy login sends it nearly in the clear) or a SCRAM proof to crack offline, although the console never shows that password. Trying another address now needs its password typed (`400 VALIDATION_ERROR` otherwise, and nothing is sent); the saved address keeps working without retyping, however it is written. Settings → Router stops offering "leave empty to keep the saved password" once the address is changed; the static demo follows the same rule.
+
 ## [1.6.2] — 2026-11-04
 
 ### Added

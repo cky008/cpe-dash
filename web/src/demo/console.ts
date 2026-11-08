@@ -262,7 +262,7 @@ export class DemoConsole {
     return { ok: true, entries: this.#audit.slice(-count).reverse() };
   }
 
-  /** Given fields, the stored ones for anything left out (the daemon's rules). */
+  /** Given fields, the stored ones for anything left out (the daemon's rules: the stored password only for the stored address). */
   #candidate(body: Body): { url: string; username: string } {
     const given = (key: string, stored: string): string => {
       const value = body[key];
@@ -270,7 +270,18 @@ export class DemoConsole {
     };
     const url = given("url", this.#cpe.url);
     if (!url) throw new CpeControlValidationError('"url" is required, e.g. http://192.168.8.1');
+    if (!(typeof body["password"] === "string" && body["password"]) && !this.#isStored(url)) {
+      throw new CpeControlValidationError('"password" is required to try another router address');
+    }
     return { url, username: given("username", this.#cpe.username) || "admin" };
+  }
+
+  #isStored(url: string): boolean {
+    try {
+      return normalizedUrl(url) === this.#cpe.url;
+    } catch {
+      return false;
+    }
   }
 
   #chars(alphabet: string, length: number): string {

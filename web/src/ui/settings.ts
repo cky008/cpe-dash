@@ -212,6 +212,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     save.disabled = testing;
     // Confirming keeps the imported connection: offered only while the form still shows it
     const sync = (): void => {
+      // The stored password is used for the stored address only: another one needs it typed
+      pass.placeholder = stored?.passwordSet && draft.url.trim() === stored.url ? t("password_keep") : "";
       const untouched = stored !== null && draft.url.trim() === stored.url && draft.username.trim() === stored.username && draft.password === "";
       const confirmable = summary?.reviewPending === true && lastResult?.ok === true && untouched && !testing;
       show(review, confirmable);

@@ -280,14 +280,19 @@ export class SettingsHttpRoutes {
     }
   }
 
-  /** The connection to try: given fields, the stored ones for anything left out (the password is never sent back). */
+  /**
+   * The connection to try: given fields, the stored ones for anything left out (the password is never
+   * sent back). The stored password goes only to the stored address: another host would receive it
+   * with a legacy login, or a SCRAM proof it could crack offline, so a new address needs it typed.
+   */
   #candidate(body: Record<string, unknown>): ConnectionCandidate {
     const stored = this.#opts.settings.cpe;
     const url = (text(body, "url", 256) ?? stored?.url ?? "").trim();
     const username = (text(body, "username", 64) ?? stored?.username ?? "admin").trim() || "admin";
-    const password = text(body, "password", 256) || stored?.password || "";
     if (!url) throw new CpeControlValidationError('"url" is required, e.g. http://192.168.8.1');
-    if (!password) throw new CpeControlValidationError('"password" is required');
-    return { url, username, password };
+    const typed = text(body, "password", 256);
+    if (typed) return { url, username, password: typed };
+    if (stored?.password && this.#isCurrentRouter(url)) return { url, username, password: stored.password };
+    throw new CpeControlValidationError(stored?.password ? '"password" is required to try another router address' : '"password" is required');
   }
 }

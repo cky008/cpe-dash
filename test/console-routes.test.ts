@@ -102,6 +102,29 @@ describe("console routes", () => {
     }
   });
 
+  it("tries the stored router password only on the stored address", async () => {
+    const fx = routesFixture(false);
+    try {
+      // Another host would see the password (a legacy login) or a proof it can crack offline (SCRAM)
+      const before = fx.cpe.stats.requests.length;
+      await assert.rejects(fx.call("POST", "/api/console/cpe/test", { url: "http://192.168.8.66" }), /"password" is required to try another router address/);
+      await assert.rejects(fx.call("POST", "/api/console/cpe", { url: "192.168.8.66", username: "root" }), /"password" is required to try another router address/);
+      assert.equal(fx.cpe.stats.requests.length, before, "nothing went anywhere");
+      assert.equal(fx.settings.cpe?.url, "http://192.168.8.1", "nothing saved");
+
+      // The stored address keeps its password however it is written, and with another user name
+      for (const body of [{}, { url: " 192.168.8.1/ " }, { url: "http://192.168.8.1", username: "admin" }]) {
+        const kept = await fx.call("POST", "/api/console/cpe/test", body);
+        assert.equal((kept.payload["result"] as { ok: boolean }).ok, true, JSON.stringify(body));
+      }
+      // Another address is tried once its password is typed
+      const typed = await fx.call("POST", "/api/console/cpe/test", { url: "http://192.168.8.66", password: fx.cpe.password });
+      assert.equal((typed.payload["result"] as { ok: boolean }).ok, true);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("renders metrics with and without telemetry, never with identifiers", () => {
     const scheduler = {
       mode: "polling",

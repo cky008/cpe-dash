@@ -238,18 +238,20 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/console/switches", {}],
       ["/api/console/switches", { telegramReset: "yes" }],
       ["/api/console/cpe/test", { url: " " }],
+      ["/api/console/cpe/test", { url: "http://192.168.8.66" }],
+      ["/api/console/cpe", { url: "http://203.0.113.10" }],
     ] as const) {
       const [real, demo] = await both("POST", route, body);
       assert.deepEqual([demo.status, demo.json["message"]], [real.status, real.json["message"]], `${route} ${JSON.stringify(body)}`);
     }
     for (const [route, body] of [
       ["/api/console/tokens/revoke", { id: "no-such-token" }],
-      ["/api/console/cpe", { url: "http://203.0.113.10" }],
+      ["/api/console/cpe", { url: "http://203.0.113.10", password: "typed" }],
     ] as const) {
       const [real, demo] = await both("POST", route, body);
       assert.deepEqual([demo.status, demo.json["errorCode"]], [real.status, real.json["errorCode"]], route);
     }
-    const refused = (await demoCall(backend, "POST", "/api/console/cpe", { url: "http://203.0.113.10" })).json;
+    const refused = (await demoCall(backend, "POST", "/api/console/cpe", { url: "http://203.0.113.10", password: "typed" })).json;
     assert.equal((refused["connectionTest"] as Json)["reason"], "invalid_url");
     const saved = (await demoCall(backend, "POST", "/api/console/cpe", { url: "192.168.8.1/", username: "" })).json;
     assert.deepEqual((saved["settings"] as Json)["cpe"], { url: "http://192.168.8.1", username: "admin", passwordSet: true });
