@@ -416,10 +416,14 @@ export class CpeMonitor extends EventEmitter {
   }
 
   #safeEmit(event: string, payload: unknown): void {
-    try {
-      this.emit(event, payload);
-    } catch {
-      // A failing listener (e.g. a disconnected SSE client) must never break polling
+    // Each listener on its own: a failing one (e.g. a disconnected SSE client) must never break polling, nor keep
+    // the snapshot from the listeners after it (self-healing, the SMS counters). Raw listeners keep `once` working.
+    for (const listener of this.rawListeners(event)) {
+      try {
+        Reflect.apply(listener, this, [payload]);
+      } catch {
+        // Already isolated: the other listeners still get the snapshot
+      }
     }
   }
 }

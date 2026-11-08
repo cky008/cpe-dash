@@ -589,10 +589,14 @@ export class SmsService extends EventEmitter {
   }
 
   #safeEmit(event: string, payload: unknown): void {
-    try {
-      this.emit(event, payload);
-    } catch {
-      // A failing listener (e.g. a disconnected SSE client) must never break SMS sync
+    // Each listener on its own: a failing one (e.g. a disconnected SSE client) must never break SMS sync, nor keep
+    // the event from the listeners after it (the notification hub). Raw listeners keep `once` working.
+    for (const listener of this.rawListeners(event)) {
+      try {
+        Reflect.apply(listener, this, [payload]);
+      } catch {
+        // Already isolated: the other listeners still get the event
+      }
     }
   }
 }

@@ -92,6 +92,25 @@ describe("telemetry snapshots never fabricate data from failed reads", () => {
   });
 });
 
+describe("telemetry listeners", () => {
+  it("hands every snapshot to every listener even when one registered before them throws", async () => {
+    const fx = setup();
+    try {
+      fx.core.monitor.on("telemetry", () => {
+        throw new Error("a listener registered first fails");
+      });
+      let heard = 0;
+      fx.core.monitor.on("telemetry", () => {
+        heard += 1;
+      });
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      assert.equal(heard, 1, "self-healing and the SMS counters listen after the event stream");
+    } finally {
+      await fx.close();
+    }
+  });
+});
+
 describe("stale keep-alive sockets (UND_ERR_SOCKET) on the real router", () => {
   it("retries an idempotent GET on a closed reused socket instead of failing the snapshot", async () => {
     const hits = new Map<string, number>();

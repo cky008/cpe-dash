@@ -103,6 +103,23 @@ describe("Telemetry piggyback of SMS counters", () => {
 });
 
 describe("SmsService sync, change detection and notifications", () => {
+  it("tells every listener about a sync even when one registered before them throws", async () => {
+    const fx = createSmsFixture();
+    try {
+      fx.service.on("sms:sync", () => {
+        throw new Error("a listener registered first fails");
+      });
+      let heard = 0;
+      fx.service.on("sms:sync", () => {
+        heard += 1;
+      });
+      await fx.service.sync("full");
+      assert.equal(heard, 1, "the notification hub listens after the event stream");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("seeds history on the first full sync, then announces new SMS detected via telemetry counters", async () => {
     const fx = createSmsFixture();
     fx.contacts.upsert({ phone: "0830000001", name: "Aoife" });
