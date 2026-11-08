@@ -442,6 +442,21 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("forgets failed /auth attempts once their window has passed, however many chats tried", async () => {
+    const fx = createBotFixture();
+    try {
+      for (let chat = 3000; chat < 3015; chat++) await fx.message(chat, "/auth wrong-token");
+      assert.equal(fx.bot.authFailureChats, 15);
+      fx.advance(11 * 60_000);
+      await fx.message(3100, "/auth wrong-token");
+      assert.equal(fx.bot.authFailureChats, 1, "only the chat whose failure is inside the window is kept");
+      await fx.message(3200, "/auth");
+      assert.equal(fx.bot.authFailureChats, 1, "asking for the usage leaves nothing behind");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("refuses tokens and private codes in groups, voiding the code, and stays quiet there until linked", async () => {
     const outcomes: Array<[string, string]> = [];
     const fx = createBotFixture({

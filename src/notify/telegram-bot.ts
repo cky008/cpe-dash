@@ -838,6 +838,11 @@ export class TelegramBot implements NotificationChannel {
     return this.#outbox.length;
   }
 
+  /** Chats whose failed `/auth` attempts still count against them (inside the rate-limit window). */
+  get authFailureChats(): number {
+    return this.#authFailures.size;
+  }
+
   /**
    * Retry queued notifications in order. Stops at the first one that still cannot be delivered
    * (still offline); one Telegram refuses for good (blocked bot, gone chat) is dropped.
@@ -1717,9 +1722,14 @@ export class TelegramBot implements NotificationChannel {
   #authLimited(chatId: string): boolean {
     const cutoff = this.#now() - AUTH_WINDOW_MS;
     this.#globalAuthFailures = this.#globalAuthFailures.filter((ts) => ts > cutoff);
-    const mine = (this.#authFailures.get(chatId) ?? []).filter((ts) => ts > cutoff);
-    this.#authFailures.set(chatId, mine);
-    return mine.length >= AUTH_MAX_FAILURES_PER_CHAT || this.#globalAuthFailures.length >= AUTH_MAX_FAILURES_GLOBAL;
+    // Any Telegram user can send /auth: keep only chats with a failure inside the window (at most the global budget)
+    for (const [chat, stamps] of this.#authFailures) {
+      const fresh = stamps.filter((ts) => ts > cutoff);
+      if (fresh.length === 0) this.#authFailures.delete(chat);
+      else this.#authFailures.set(chat, fresh);
+    }
+    const mine = this.#authFailures.get(chatId)?.length ?? 0;
+    return mine >= AUTH_MAX_FAILURES_PER_CHAT || this.#globalAuthFailures.length >= AUTH_MAX_FAILURES_GLOBAL;
   }
 
   #tx(key: TextKey, params?: Readonly<Record<string, string | number>>): string {
