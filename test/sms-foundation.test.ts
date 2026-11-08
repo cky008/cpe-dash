@@ -143,10 +143,11 @@ describe("Phone directory, sender classification, recipient resolution and threa
     assert.equal(dialCodeFromImsi(imsi("310")), "+1");
     assert.equal(dialCodeFromImsi(imsi("302")), "+1", "Canada shares +1");
     assert.equal(dialCodeFromImsi(imsi("454")), "+852");
+    assert.equal(dialCodeFromImsi(imsi("401")), "+7", "Kazakhstan shares +7 with Russia");
     // Unknown, test-network, masked or missing IMSIs give no guess
     for (const value of [imsi("001"), imsi("999"), "272*****", "", "abc", "27"]) assert.equal(dialCodeFromImsi(value), null, value);
     // Every guess is a country the dial table knows, so flags and national formats follow
-    for (const mcc of ["272", "460", "461", "234", "235", "454", "455", "466", "310", "302", "262", "208", "214", "222", "204", "206", "228", "232", "268", "270", "244", "238", "240", "242", "260", "230", "202", "216", "226", "255", "250", "286", "424", "425", "420", "440", "441", "450", "525", "502", "520", "452", "510", "515", "404", "405", "505", "530", "724", "334", "722", "655", "602", "621", "278", "280", "246", "247", "248"]) {
+    for (const mcc of ["272", "460", "461", "234", "235", "454", "455", "466", "310", "302", "262", "208", "214", "222", "204", "206", "228", "232", "268", "270", "244", "238", "240", "242", "260", "230", "202", "216", "226", "255", "250", "286", "424", "425", "420", "440", "441", "450", "525", "502", "520", "452", "510", "515", "404", "405", "505", "530", "724", "334", "722", "655", "602", "621", "278", "280", "246", "247", "248", "401"]) {
       const code = dialCodeFromImsi(imsi(mcc));
       assert.ok(code && getCountryByDialCode(code), mcc);
     }

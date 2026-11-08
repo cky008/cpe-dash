@@ -9,6 +9,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ### Fixed
 - **Local numbers in Italy, Poland, Russia, Kazakhstan and Hungary.** A number typed without `+` is completed in the default country's own format. Italian mobiles that begin with 39 and Polish numbers that begin with 48 keep those digits (they were taken for a country code typed without `+`, giving a wrong number), and the trunk prefix 8 (Russia, Kazakhstan, in front of the 10-digit number) and 06 (Hungary) is removed as a leading 0 is elsewhere. Senders that arrive in national format follow the same rules. Now that the default country follows the SIM, people in these countries meet this by default.
+- **A Kazakh SIM sets the default country.** Its mobile country code (401) was missing, so a number without `+` was refused until a country was chosen; it now means +7, as the dial table's "Russia / Kazakhstan" entry does.
 - **Building the documentation never empties the repository.** `npm run build:docs -- --out .` (or a parent folder) deleted that folder before building, `.git` included; the build now refuses an output folder that holds the sources. A term anchor written directly under a line of text also becomes an anchor instead of showing as text.
 
 ### Container and CI
