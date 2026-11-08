@@ -243,8 +243,8 @@ describe("sanitizer & StorageCipher", () => {
       `<Imei>${fakeImei}</Imei>`,
       `<Imsi>${fakeImsi}</Imsi>`,
       "<MacAddress1>AA:BB:CC:DD:EE:FF</MacAddress1>",
-      "<WanIPAddress>89.101.202.33</WanIPAddress>",
-      "<WanIPv6Address>2a02:8084:1234::99</WanIPv6Address>",
+      "<WanIPAddress>198.18.0.33</WanIPAddress>",
+      "<WanIPv6Address>3fff:1234::99</WanIPv6Address>",
       "<tac>49152</tac>",
       "<cell_id>12345678</cell_id>",
       "<HostName>Personal-MacBook</HostName>",
@@ -260,8 +260,8 @@ describe("sanitizer & StorageCipher", () => {
     assert.equal(clean.includes(fakeImei), false);
     assert.equal(clean.includes(fakeImsi), false);
     assert.equal(clean.includes("AA:BB:CC:DD:EE:FF"), false);
-    assert.equal(clean.includes("89.101.202.33"), false);
-    assert.equal(clean.includes("2a02:8084"), false);
+    assert.equal(clean.includes("198.18.0.33"), false);
+    assert.equal(clean.includes("3fff:"), false);
     assert.equal(clean.includes("49152"), false);
     assert.equal(clean.includes("12345678"), false);
     assert.equal(clean.includes("Personal-MacBook"), false);
@@ -300,7 +300,7 @@ describe("sanitizer & StorageCipher", () => {
         HostName: "Secret-iPhone",
         ActualName: "OwnerPhone",
         IPAddress: "192.168.8.120",
-        IPv6Address: "fe80::99;2a02:8084::55",
+        IPv6Address: "fe80::99;3fff:abcd::55",
         InterfaceType: "Wireless",
         Frequency: "5GHz_1",
         rate: 1201,
@@ -309,7 +309,7 @@ describe("sanitizer & StorageCipher", () => {
     const cleanJson = sanitizeJsonPayload(rawJson);
     assert.equal(cleanJson.includes("AA:BB:CC:11:22:33"), false);
     assert.equal(cleanJson.includes("Secret-iPhone"), false);
-    assert.equal(cleanJson.includes("2a02:8084"), false);
+    assert.equal(cleanJson.includes("3fff:"), false);
     assert.equal(cleanJson.includes("1201"), true);
     assert.equal(sanitizeJsonPayload("not-json 8.8.8.8"), "not-json 198.51.100.42");
   });
