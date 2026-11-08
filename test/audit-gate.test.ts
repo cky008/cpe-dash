@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { TYPE_ESCAPES, isForbiddenTrackedFile, isTypeScriptFile, scanTypeEscapes } from "../scripts/audit-secrets.ts";
+import { TYPE_ESCAPES, isForbiddenTrackedFile, isTypeScriptFile, scanPhoneLiterals, scanTypeEscapes } from "../scripts/audit-secrets.ts";
 
 function escapesIn(line: string): string[] {
   return TYPE_ESCAPES.filter((escape) => escape.regex.test(line)).map((escape) => escape.name);
@@ -66,6 +66,25 @@ describe("audit:secrets gate", () => {
       scanTypeEscapes(singleLine).map((f) => ({ line: f.line, name: f.name })),
       [{ line: 1, name: "explicit " + ANY }]
     );
+  });
+
+  it("refuses full international phone numbers outside the reserved test ranges", () => {
+    // Built at run time so this file itself passes the rule it tests
+    const irish = ["+353", "831234567"].join("");
+    const british = ["+44", "7911123456"].join("");
+    assert.deepEqual(scanPhoneLiterals(`grouped whether written \`0831234567\` or \`${irish}\``), [{ line: 1 }]);
+    assert.deepEqual(scanPhoneLiterals(`first\nTEL:${british}\nlast ${irish}`), [{ line: 2 }, { line: 3 }]);
+    for (const text of [
+      "+353830000001 and +353830000099, MSISDN=+353830000000",
+      "+447700900123",
+      "+8613000000000",
+      "TEL:+3538300${n} and the prefix +35383000000",
+      "load-test bounds +353830010000 / +353830099999, LU +35212345678, unassigned +999123456789",
+      "integrity sha512-Ab+12345678Cd== and x+1234567",
+      "offsets +0100 and +0000, version 1.7.2+353",
+    ]) {
+      assert.deepEqual(scanPhoneLiterals(text), [], text);
+    }
   });
 
   it("refuses to let captures, contact exports and secrets be tracked", () => {

@@ -14,6 +14,7 @@ import { loadConfig, parseDotEnv } from "../src/config.ts";
  *   3. Literal secrets loaded from `.env` (`CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TELEGRAM_API`,
  *      `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_IDS`, `WEBHOOK_URL`, `WEBHOOK_SECRET`).
  *   4. Private keys, real tokens, or unredacted 15-digit IMEI/IMSI numbers outside allowed RFC test placeholders.
+ *   5. In the working tree only: full international phone numbers outside the reserved test ranges.
  */
 const HIGH_RISK_PATTERNS: ReadonlyArray<{ name: string; regex: RegExp }> = [
   { name: "PEM Private Key", regex: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/ },
@@ -93,6 +94,43 @@ const ALLOWED_PLACEHOLDERS = new Set([
   "460000000000000",
   "8935301000000000000",
 ]);
+
+/** Reserved fiction ranges for phone numbers (AGENTS.md 铁律二): Irish +3538300000xx, Ofcom drama +447700900xxx, China +8613000000000. */
+const RESERVED_PHONE_RANGES: ReadonlyArray<{ prefix: string; extra: number }> = [
+  { prefix: "3538300000", extra: 2 },
+  { prefix: "447700900", extra: 3 },
+  { prefix: "8613000000000", extra: 0 },
+];
+
+/**
+ * Test literals outside those ranges, kept on purpose and never dialled: the bounds of a 5000-card load test
+ * (more numbers than the Irish range holds), a Luxembourg prefix case and an unassigned country code.
+ */
+const ALLOWED_PHONE_LITERALS = new Set(["+353830010000", "+353830099999", "+35212345678", "+999123456789"]);
+
+/** One phone number outside the reserved ranges: its 1-based line (the number itself is never printed). */
+export interface PhoneLiteralFinding {
+  readonly line: number;
+}
+
+/**
+ * Full international numbers (`+` and 7–15 digits) that are neither in a reserved range nor a prefix of one (code
+ * that appends digits, e.g. `+3538300${i}`). Only the working tree is checked: the published history keeps earlier
+ * examples. Base64 runs (`…Ab+1234…`) are not numbers.
+ */
+export function scanPhoneLiterals(content: string): PhoneLiteralFinding[] {
+  const findings: PhoneLiteralFinding[] = [];
+  content.split("\n").forEach((line, i) => {
+    for (const m of line.matchAll(/(?<![A-Za-z0-9+/])\+([1-9]\d{6,14})(?!\d)/g)) {
+      const digits = m[1] ?? "";
+      const reserved = RESERVED_PHONE_RANGES.some(
+        (r) => r.prefix.startsWith(digits) || (digits.startsWith(r.prefix) && digits.length <= r.prefix.length + r.extra)
+      );
+      if (!reserved && !ALLOWED_PHONE_LITERALS.has(`+${digits}`)) findings.push({ line: i + 1 });
+    }
+  });
+  return findings;
+}
 
 /** Webhook URLs on RFC 2606 documentation domains are placeholders, not secrets. */
 function isDocumentationUrl(raw: string): boolean {
@@ -258,7 +296,11 @@ function main(): void {
         walk(full);
       } else if (ent.isFile()) {
         const text = fs.readFileSync(full, "utf8");
-        findings.push(...scanText(path.relative(root, full), text, dynamicSecrets));
+        const rel = path.relative(root, full);
+        findings.push(...scanText(rel, text, dynamicSecrets));
+        for (const phone of scanPhoneLiterals(text)) {
+          findings.push(`${rel}:${phone.line}: phone number outside the reserved test ranges (AGENTS.md)`);
+        }
       }
     }
   };

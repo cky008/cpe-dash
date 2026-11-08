@@ -13,7 +13,7 @@ With a SIM card inserted, the router can send and receive SMS messages. FengSui 
 
 FengSui reads the router's SMS count every 5 seconds, syncs only when there are new messages, and performs a full reconciliation every 30 minutes. On initial launch, existing messages on the router are treated as history and do not trigger notifications.
 
-- **Threads**: The same number (whether formatted as `0831234567` or `+353831234567`) is grouped into one conversation thread, sorted chronologically.
+- **Threads**: The same number is grouped into one conversation thread however it is written (with a UK SIM, `07700900123` and `+447700900123`), sorted chronologically.
 - **Verification codes**: Automatically detected and copied with a single click.
 - **Multipart messages**: Multi-segment messages received in parts are merged into a single display.
 - **Privacy toggle**: The eye icon in the header can hide both numbers and message bodies, useful for screenshots or screencasting.
