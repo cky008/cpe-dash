@@ -1151,6 +1151,23 @@ describe("TelegramBot notification outbox", () => {
     }
   });
 
+  it("holds notifications for the wait a rate-limited poll was given, too", async () => {
+    const fx = createBotFixture({ rateLimitPolls: 37 });
+    try {
+      await fx.bot.start();
+      while (!fx.logs.some((line) => line.includes("poll error"))) await new Promise((r) => setTimeout(r, 2));
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      assert.equal(fx.tg.sends("1001").length, 0, "nothing sent inside the window Telegram named");
+      assert.equal(fx.bot.pendingNotifications, 1);
+      fx.advance(37_001);
+      await fx.bot.flushOutbox();
+      assert.equal(fx.bot.pendingNotifications, 0);
+      assert.match(fx.tg.lastText("1001"), /WAN_DOWN/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("never delivers a queued notification to a chat that was unlinked while it waited", async () => {
     const fx = createBotFixture();
     try {

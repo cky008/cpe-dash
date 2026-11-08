@@ -989,8 +989,9 @@ export class TelegramBot implements NotificationChannel {
       } catch (err) {
         if (!this.#running) break;
         if (this.#standby) continue;
-        // A 429 names its own wait; polling sooner only extends Telegram's limit
+        // A 429 names its own wait; polling or notifying sooner only extends Telegram's limit
         const waitMs = err instanceof TelegramApiError && err.retryAfterSec !== null ? Math.max(backoffMs, err.retryAfterSec * 1000) : backoffMs;
+        this.#noteRetryAfter(err);
         this.#log(`[telegram] poll error, retrying in ${waitMs} ms: ${err instanceof Error ? err.message : String(err)}`);
         await this.#pause(waitMs);
         backoffMs = Math.min(30_000, backoffMs * 2);
