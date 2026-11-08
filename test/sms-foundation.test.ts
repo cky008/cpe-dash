@@ -207,34 +207,34 @@ describe("Phone directory, sender classification, recipient resolution and threa
   });
 
   it("classifies alphanumeric, gateway, short-code, international, national and unknown senders", () => {
-    const brand = parseSenderInfo("Three", "Welcome to Three 5G");
+    const brand = parseSenderInfo("Three", "Welcome to Three 5G", "+353");
     assert.equal(brand.type, "alphanumeric");
     assert.equal(brand.dialable, false);
     assert.equal(brand.brandHint, "Three");
     assert.equal(brand.countryEn, "Brand / service sender");
 
-    const gateway = parseSenderInfo("1069000000001", "【示例银行】您的验证码 123456");
+    const gateway = parseSenderInfo("1069000000001", "【示例银行】您的验证码 123456", "+353");
     assert.equal(gateway.type, "gateway");
     assert.equal(gateway.countryCode, "+86");
     assert.equal(gateway.brandHint, "示例银行");
 
-    const shortcode = parseSenderInfo("50000");
+    const shortcode = parseSenderInfo("50000", "", "+353");
     assert.equal(shortcode.type, "shortcode");
     assert.equal(shortcode.dialable, true);
 
-    const intl = parseSenderInfo("+447700900123");
+    const intl = parseSenderInfo("+447700900123", "", "+353");
     assert.equal(intl.type, "international");
     assert.equal(intl.countryIso, "GB");
     assert.equal(intl.countryEn, "United Kingdom");
 
-    const doubleZero = parseSenderInfo("00447700900123");
+    const doubleZero = parseSenderInfo("00447700900123", "", "+353");
     assert.equal(doubleZero.e164, "+447700900123");
 
-    const unknownCountry = parseSenderInfo("+999123456789");
+    const unknownCountry = parseSenderInfo("+999123456789", "", "+353");
     assert.equal(unknownCountry.flag, "🌐");
     assert.equal(unknownCountry.countryEn, "International number");
 
-    const cnMobile = parseSenderInfo("8613000000000");
+    const cnMobile = parseSenderInfo("8613000000000", "", "+353");
     assert.equal(cnMobile.e164, "+8613000000000");
 
     const national = parseSenderInfo("0830000001", "", "+353");
@@ -246,13 +246,13 @@ describe("Phone directory, sender classification, recipient resolution and threa
     assert.equal(withCode.type, "international");
     assert.equal(withCode.e164, "+353830000001");
 
-    const empty = parseSenderInfo("");
+    const empty = parseSenderInfo("", "", "+353");
     assert.equal(empty.type, "unknown");
     assert.equal(empty.countryEn, "Unknown sender");
 
     const other = parseSenderInfo("12-34", "", "+999");
     assert.equal(other.type, "shortcode");
-    const weird = parseSenderInfo("#123*");
+    const weird = parseSenderInfo("#123*", "", "+353");
     assert.equal(weird.type, "other");
     assert.equal(weird.dialable, false);
   });
@@ -276,13 +276,13 @@ describe("Phone directory, sender classification, recipient resolution and threa
       countryEn: "Ireland",
       isShortCode: false,
     });
-    assert.equal((resolveRecipientPhone("0044 7700 900123") as { phone: string }).phone, "+447700900123");
+    assert.equal((resolveRecipientPhone("0044 7700 900123", "+353") as { phone: string }).phone, "+447700900123");
     assert.equal((resolveRecipientPhone("353830000001", "+353") as { phone: string }).phone, "+353830000001");
     assert.equal((resolveRecipientPhone("13000000000", "+86") as { phone: string }).phone, "+8613000000000");
-    assert.equal((resolveRecipientPhone("50000") as { isShortCode: boolean }).isShortCode, true);
+    assert.equal((resolveRecipientPhone("50000", "+353") as { isShortCode: boolean }).isShortCode, true);
     assert.equal(resolveRecipientPhone("", "+353").ok, false);
-    assert.equal(resolveRecipientPhone("not a number").ok, false);
-    assert.equal(resolveRecipientPhone("+12").ok, false);
+    assert.equal(resolveRecipientPhone("not a number", "+353").ok, false);
+    assert.equal(resolveRecipientPhone("+12", "+353").ok, false);
     assert.equal(resolveRecipientPhone("1234567", "+999").ok, true);
     assert.equal(cleanPhoneFormatting(" +353 (83) 000-0001 "), "+353830000001");
   });
@@ -290,15 +290,15 @@ describe("Phone directory, sender classification, recipient resolution and threa
   it("derives stable thread keys and lookup keys across national / international spellings", () => {
     assert.equal(canonicalThreadKey("0830000001", "+353"), "+353830000001");
     assert.equal(canonicalThreadKey("+353830000001", "+353"), "+353830000001");
-    assert.equal(canonicalThreadKey("Three"), "alpha:three");
-    assert.equal(canonicalThreadKey(""), "unknown");
+    assert.equal(canonicalThreadKey("Three", "+353"), "alpha:three");
+    assert.equal(canonicalThreadKey("", "+353"), "unknown");
 
     const keys = buildPhoneLookupKeys("0830000001", "+353");
     assert.ok(keys.includes("+353830000001"));
     assert.ok(keys.includes("tail9:830000001"));
-    assert.deepEqual(buildPhoneLookupKeys("Three"), ["alpha:three"]);
-    assert.deepEqual(buildPhoneLookupKeys(""), []);
-    assert.ok(buildPhoneLookupKeys("#1234567890").includes("tail9:234567890"));
+    assert.deepEqual(buildPhoneLookupKeys("Three", "+353"), ["alpha:three"]);
+    assert.deepEqual(buildPhoneLookupKeys("", "+353"), []);
+    assert.ok(buildPhoneLookupKeys("#1234567890", "+353").includes("tail9:234567890"));
   });
 
   it("masks personal numbers for logs while keeping brand senders and short codes readable", () => {

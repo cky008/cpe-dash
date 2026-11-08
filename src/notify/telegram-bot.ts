@@ -611,8 +611,8 @@ export interface TelegramBotOptions {
   issueResetCode?: () => string | null;
   allowedChatIds?: ReadonlyArray<string>;
   locale?: SupportedLocale;
-  /** A fixed dial code, or where to read the current one (it can become known after start). */
-  defaultCountryCode?: string | (() => string);
+  /** A fixed dial code, or where to read the current one (it can become known after start; `""`: none yet). */
+  defaultCountryCode: string | (() => string);
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -674,7 +674,7 @@ export class TelegramBot implements NotificationChannel {
     this.#issueResetCode = opts.issueResetCode ?? null;
     this.allowedChatIds = (opts.allowedChatIds ?? []).map(String);
     this.locale = opts.locale ?? "zh-CN";
-    const country = opts.defaultCountryCode ?? "+353";
+    const country = opts.defaultCountryCode;
     this.#countryCode = typeof country === "function" ? country : () => country;
     this.#now = opts.now ?? Date.now;
     this.#log = opts.log ?? (() => undefined);

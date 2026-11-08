@@ -149,7 +149,7 @@ function createBotFixture(
     authToken: "dashboard_api_token",
     ...(opts.linkSecret ? { linkSecret: opts.linkSecret } : {}),
     allowedChatIds: opts.allowedChatIds ?? ["1001"],
-    ...(opts.country ? { defaultCountryCode: opts.country } : {}),
+    defaultCountryCode: opts.country ?? "+353",
     locale: "en",
     now: () => clock,
     log: (line) => logs.push(line),

@@ -180,7 +180,7 @@ function senderFromCountry(
  * Classify a sender as a brand ID, Chinese 106 gateway, short code, international or national
  * number (normalized to E.164 using `defaultCountryCode`).
  */
-export function parseSenderInfo(rawPhone: string, smsContent = "", defaultCountryCode = "+353"): SenderInfo {
+export function parseSenderInfo(rawPhone: string, smsContent: string, defaultCountryCode: string): SenderInfo {
   const raw = rawPhone.trim();
   const brandHint = extractBrandSignature(smsContent);
 
@@ -308,7 +308,7 @@ export function parseSenderInfo(rawPhone: string, smsContent = "", defaultCountr
  * Normalize a user-typed recipient (`0830000001`, `+44…`, `0044…`, short code) to the number
  * submitted to `send-sms`, using `selectedCountryCode` for national numbers.
  */
-export function resolveRecipientPhone(rawInput: string, selectedCountryCode = "+353"): ResolvedRecipient {
+export function resolveRecipientPhone(rawInput: string, selectedCountryCode: string): ResolvedRecipient {
   const cleaned = cleanPhoneFormatting(rawInput);
   if (!cleaned) {
     return { ok: false, error: "Recipient number is empty" };
@@ -374,7 +374,7 @@ export function resolveRecipientPhone(rawInput: string, selectedCountryCode = "+
 /**
  * Thread grouping key: E.164 for dialable numbers, `alpha:<lowercase>` for brand senders.
  */
-export function canonicalThreadKey(rawPhone: string, defaultCountryCode = "+353"): string {
+export function canonicalThreadKey(rawPhone: string, defaultCountryCode: string): string {
   const raw = rawPhone.trim();
   if (!raw) return "unknown";
   if (ALPHA_SENDER_RE.test(raw)) return `alpha:${raw.toLowerCase()}`;
@@ -385,7 +385,7 @@ export function canonicalThreadKey(rawPhone: string, defaultCountryCode = "+353"
  * All keys a number may be stored under (raw, E.164, bare digits, last-9-digit tail) for
  * contact matching across national / international spellings.
  */
-export function buildPhoneLookupKeys(rawPhone: string, defaultCountryCode = "+353"): string[] {
+export function buildPhoneLookupKeys(rawPhone: string, defaultCountryCode: string): string[] {
   const raw = rawPhone.trim();
   if (!raw) return [];
   if (ALPHA_SENDER_RE.test(raw)) return [`alpha:${raw.toLowerCase()}`];
