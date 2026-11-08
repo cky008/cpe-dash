@@ -5,7 +5,7 @@ import { type Page, type Viewport, closeChrome, launchChrome, openPage } from ".
 import { type DemoDaemon, startDemoDaemon } from "./demo-router.ts";
 
 /**
- * Regenerate the README screenshots (docs/screenshots/*.webp) from the offline demo: the real daemon
+ * Regenerate the screenshots of the READMEs and the documentation site (docs/screenshots/*.webp) from the offline demo: the real daemon
  * against the in-process mock router (placeholder data only, no network, no .env), the built console,
  * and a headless Chrome driven over the DevTools protocol through Node's own WebSocket.
  *

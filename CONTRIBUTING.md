@@ -24,9 +24,17 @@ You need Node.js 22.6 or later. You do not need a router: the demo runs the real
 ```bash
 npm ci
 npm run demo        # console at http://127.0.0.1:18484, no .env, no network
-npm run check       # typecheck, web build, tests with coverage, secret scan
+npm run check       # the gate, below
 npm run test:ui     # browser tests (headless Chrome), for console changes
+npm run build:docs  # the documentation site, into dist/site
 ```
+
+`npm run check` runs, and stops at the first failure:
+
+1. `npm run typecheck` → strict TypeScript for the daemon, scripts, tests and the console
+2. `npm run build:web` → builds the console; more than 160 KiB gzip fails, as in CI, releases and the Docker build
+3. `npm run test:coverage` → every test offline, with statements, lines and functions at 90 % or more
+4. `npm run audit:secrets` → scans the working tree and the whole git history for secrets, device identifiers, phone numbers and `.js` files
 
 ## Rules / 规则
 

@@ -6,7 +6,7 @@ import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, compatibili
 /**
  * Multi-model phase 3: a feature of another model that a user checked on a real router joins the
  * verified list, per model and feature, reads and writes apart, naming the issue that reported it
- * (never the person). The READMEs' compatibility table is written from it. Placeholders only.
+ * (never the person). The guide's compatibility table is written from it. Placeholders only.
  */
 
 const SAMPLE: ReadonlyArray<VerifiedFeature> = [

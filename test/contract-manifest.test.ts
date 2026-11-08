@@ -23,7 +23,9 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const read = (file: string): string => fs.readFileSync(file, "utf8");
 const CONTRACT = read("docs/PHASE2_BACKEND_CONTRACT.md");
-const READMES = { "README.md": read("README.md"), "README_EN.md": read("README_EN.md") };
+/** The user guide is the reference for settings and agent tools (the READMEs link to it). */
+const GUIDE_CONFIG = { "docs/guide/zh/configuration.md": read("docs/guide/zh/configuration.md"), "docs/guide/en/configuration.md": read("docs/guide/en/configuration.md") };
+const GUIDE_AGENTS = { "docs/guide/zh/agents.md": read("docs/guide/zh/agents.md"), "docs/guide/en/agents.md": read("docs/guide/en/agents.md") };
 const ENV_EXAMPLE = read(".env.example");
 
 function sourceFiles(dir: string): string[] {
@@ -76,7 +78,7 @@ describe("contract manifest: code ↔ docs", () => {
       const reply = (await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }))) as JsonRpcSuccessResponse;
       const tools = ((reply.result as { tools: Array<{ name: string }> }).tools ?? []).map((t) => t.name);
       assert.ok(tools.length >= 27, `found ${tools.length} tools`);
-      assert.deepEqual(missing(tools, { "docs/PHASE2_BACKEND_CONTRACT.md": CONTRACT, ...READMES }), []);
+      assert.deepEqual(missing(tools, { "docs/PHASE2_BACKEND_CONTRACT.md": CONTRACT, ...GUIDE_AGENTS }), []);
     } finally {
       await stopFengSuiCore(core);
       removeTempDir(dir);
@@ -108,11 +110,11 @@ describe("contract manifest: code ↔ docs", () => {
     assert.deepEqual(missing(routes, { "docs/PHASE2_BACKEND_CONTRACT.md": CONTRACT }, false), []);
   });
 
-  it("documents every setting the loader reads in .env.example and both READMEs", () => {
+  it("documents every setting the loader reads in .env.example and the configuration guide in both languages", () => {
     const keys = matchesIn(read("src/config.ts"), /(?:get|dataFile)\(\s*"([A-Z][A-Z0-9_]+)"/g);
     assert.ok(keys.length >= 50, `found ${keys.length} keys`);
     // .env.example names each setting as a (possibly commented-out) `KEY=` line
     const unlisted = [...new Set(keys)].filter((key) => !new RegExp(`^#?\\s*${key}=`, "m").test(ENV_EXAMPLE)).map((key) => `.env.example: ${key}`);
-    assert.deepEqual([...unlisted, ...missing(keys, READMES)].sort(), []);
+    assert.deepEqual([...unlisted, ...missing(keys, GUIDE_CONFIG)].sort(), []);
   });
 });

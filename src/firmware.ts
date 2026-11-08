@@ -12,7 +12,7 @@ export const VERIFIED_FIRMWARE: ReadonlyArray<{ model: string; softwareVersion: 
 
 /**
  * Features of other models that a user checked on a real router (multi-model phase 3), reads and
- * writes apart: added when an issue reports one working, with a test, the README table
+ * writes apart: added when an issue reports one working, with a test, the guide's table
  * (`compatibilityTable`) and a CHANGELOG line naming the issue, never the person. The model stays
  * unverified as a whole; a verified write no longer needs its owner's consent on that model. Empty
  * until the first report.
@@ -129,7 +129,7 @@ function verifiedFeatureRows(list: ReadonlyArray<VerifiedFeature>, en: boolean):
 }
 
 /**
- * The compatibility table both READMEs carry between `<!-- compat:begin -->` and `<!-- compat:end -->`,
+ * The compatibility table both "other routers" guide pages (docs/guide/{zh,en}) carry between `<!-- compat:begin -->` and `<!-- compat:end -->`,
  * written from `VERIFIED_FIRMWARE` and `VERIFIED_FEATURES` (test/readme-compat.test.ts keeps them
  * identical): verified builds read and write, a new build of a verified model warns, a model with
  * features users verified lists them with their issues, every other model is read-only by default.

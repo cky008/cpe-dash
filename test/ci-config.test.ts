@@ -71,7 +71,7 @@ describe("The local gate (npm run check)", () => {
     const { scripts } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     // The build takes well under a second and fails fast, before the tests
     assert.deepEqual(scripts["check"]?.split("&&").map((step) => step.trim()), ["npm run typecheck", "npm run build:web", "npm run test:coverage", "npm run audit:secrets"]);
-    for (const doc of ["AGENTS.md", "README.md", "README_EN.md"]) {
+    for (const doc of ["AGENTS.md", "CONTRIBUTING.md"]) {
       assert.ok(/`?npm run build:web`?\s*(?:→|：)/.test(fs.readFileSync(path.join(ROOT, doc), "utf8")), `${doc} lists the build among the gate's steps`);
     }
   });
