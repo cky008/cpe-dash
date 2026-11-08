@@ -1,11 +1,31 @@
-import type { ConsoleSettingsResponse, DeviceProfileResponse, DeviceReport, EndpointState, ExperimentalWritesResponse, PairingCodeResponse, WriteFeature } from "../../../src/api-contract.ts";
+import type {
+  ConsoleSettingsResponse,
+  DeviceProfileResponse,
+  DeviceReport,
+  EndpointState,
+  ExperimentalWritesResponse,
+  PairingCodeResponse,
+  TelegramChatRecord,
+  WriteFeature,
+} from "../../../src/api-contract.ts";
 import type { AuditEntry } from "../../../src/audit-log.ts";
 import { TOKEN_LIFETIMES_DAYS } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { ApiError } from "../core/api.ts";
-import { type NoticeTone, auditCaller, connectionNotice, daysLeft, needsLastAttempt, passwordProblem, tokenFlowText, tokenState } from "../core/console-view.ts";
+import {
+  type NoticeTone,
+  auditCaller,
+  chatIdText,
+  connectionNotice,
+  daysLeft,
+  needsLastAttempt,
+  passwordProblem,
+  telegramChatDetails,
+  tokenFlowText,
+  tokenState,
+} from "../core/console-view.ts";
 import { experimentalOffer, experimentalWrites, readbackTone } from "../core/device-access-view.ts";
 import {
   FEATURE_KEYS,
@@ -111,6 +131,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   let minted: string | null = null;
   let pairing: PairingCodeResponse | null = null;
   let tokens: PublicTokenRecord[] | null = null;
+  /** The chats the bot reaches (read again each time the Telegram tab opens). */
+  let chats: TelegramChatRecord[] | null = null;
   let audit: AuditEntry[] | null = null;
   let device: DeviceProfileResponse | null = null;
   let report: DeviceReport | null = null;
@@ -119,7 +141,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   const switching = new Set<WriteFeature>();
   /** Counts finished connection tests and saves: a profile read that one of them may have outdated is read again. */
   let deviceEpoch = 0;
-  const loading = new Set<"tokens" | "audit" | "device">();
+  const loading = new Set<"tokens" | "audit" | "device" | "chats">();
 
   const fail = (err: unknown): void => {
     const code = err instanceof ApiError ? err.envelope?.errorCode : undefined;
@@ -641,6 +663,46 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   };
 
   // ---------------------------------------------------------------- telegram
+  const chatRow = (chat: TelegramChatRecord, now: number, masked: boolean): HTMLElement => {
+    const kind = t(chat.kind === "group" ? "chat_group" : "chat_private");
+    const id = chatIdText(chat.chatId, masked);
+    // A chat only .env authorizes is removed there, not here
+    const unlink =
+      chat.linkedWith === null
+        ? null
+        : button(t("unlink_one"), "btn-ghost btn-xs text-error", () => {
+            void ctx
+              .confirm({ title: t("unlink_one_title"), body: [`${kind} ${id}`, t("unlink_one_body")], confirmLabel: t("unlink_one"), tone: "error" })
+              .then(async (yes) => {
+                if (!yes) return;
+                chats = (await ctx.api.unlinkTelegramChat(chat.chatId)).chats;
+                ctx.toast(t(chat.fromEnv ? "unlinked_one_env" : "unlinked_one"), "success");
+                render();
+              })
+              .catch(fail);
+          });
+    unlink?.setAttribute("aria-label", `${t("unlink_one")} ${kind} ${id}`);
+    const linkedAt = chat.linkedAtIso ? [t("chat_linked_at", { when: formatAgo(Date.parse(chat.linkedAtIso), now, ctx.tr.locale) })] : [];
+    return h(
+      "li",
+      { class: "flex items-center gap-3 rounded-xl px-3 py-2 bg-base-200/40" },
+      icon(chat.kind === "group" ? "contacts" : "user", "text-base-content/50 shrink-0"),
+      h(
+        "div",
+        { class: "min-w-0 flex-1 space-y-0.5" },
+        h(
+          "div",
+          { class: "flex flex-wrap items-center gap-1.5" },
+          h("span", { class: "font-semibold" }, kind),
+          h("span", { class: "font-mono text-xs num" }, id),
+          chat.fromEnv ? h("span", { class: "fs-badge" }, ".env") : null
+        ),
+        h("div", { class: "text-[0.6875rem] faint break-words" }, [...telegramChatDetails(chat, masked, t), ...linkedAt].join(" · "))
+      ),
+      unlink
+    );
+  };
+
   const telegramTab = (): HTMLElement => {
     if (!summary?.telegram.configured) return notice(t("telegram_off"));
     const issue = async (group: boolean): Promise<void> => {
@@ -670,16 +732,24 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     }, "contacts");
     create.disabled = pairingInFlight;
     createGroup.disabled = pairingInFlight;
-    const unlink = button(t("unlink_all"), "btn-ghost text-error", () => {
+    const unlink = button(t("unlink_all"), "btn-ghost btn-sm text-error", () => {
       void ctx
         .confirm({ title: t("unlink_title"), body: [t("unlink_body")], confirmLabel: t("unlink_all"), tone: "error" })
         .then(async (yes) => {
           if (!yes) return;
           const res = await ctx.api.unlinkTelegram();
           ctx.toast(t("unlinked", { count: res.unlinked }), "success");
+          load("chats");
         })
         .catch(fail);
     });
+    const refresh = button(t("chats_refresh"), "btn-ghost btn-xs", () => load("chats"), "refresh");
+    const now = ctx.now();
+    const masked = ctx.privacy.isMasked("telegram");
+    let list: HTMLElement | null = null;
+    if (chats === null) list = loading.has("chats") ? spinner() : null;
+    else if (chats.length === 0) list = h("p", { class: "text-xs faint" }, t("chats_empty"));
+    else list = h("ul", { class: "space-y-1.5" }, ...chats.map((chat) => chatRow(chat, now, masked)));
     return h(
       "div",
       { class: "space-y-3" },
@@ -692,7 +762,15 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
             h("div", { class: "flex items-center gap-2" }, h("code", { class: "font-mono text-lg tracking-wider flex-1 break-all" }, pairing.command), copyButton(pairing.command))
           )
         : null,
-      h("div", { class: "flex flex-wrap gap-2 justify-between" }, h("div", { class: "flex flex-wrap gap-2" }, create, createGroup), unlink)
+      h("div", { class: "flex flex-wrap gap-2" }, create, createGroup),
+      h(
+        "section",
+        { class: "space-y-2 pt-2", attrs: { "aria-label": t("chats_title") } },
+        h("div", { class: "flex items-center justify-between gap-2" }, h("div", { class: "fs-label" }, t("chats_title")), refresh),
+        list,
+        // Nothing to unlink: no "unlink all" either
+        chats?.some((chat) => chat.linkedWith !== null) ? h("div", { class: "flex justify-end" }, unlink) : null
+      )
     );
   };
 
@@ -809,7 +887,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   };
 
   // ---------------------------------------------------------------- frame
-  const load = (what: "tokens" | "audit" | "device"): void => {
+  const load = (what: "tokens" | "audit" | "device" | "chats"): void => {
     if (loading.has(what)) return;
     loading.add(what);
     const epoch = deviceEpoch;
@@ -818,7 +896,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         ? ctx.api.tokens().then((res) => void (tokens = res.tokens))
         : what === "audit"
           ? ctx.api.audit(AUDIT_LIMIT).then((res) => void (audit = res.entries))
-          : ctx.api.deviceProfile().then((res) => void (device = res));
+          : what === "chats"
+            ? ctx.api.telegramChats().then((res) => void (chats = res.chats))
+            : ctx.api.deviceProfile().then((res) => void (device = res));
     void request.catch(fail).finally(() => {
       loading.delete(what);
       // A test or save ended while the profile was on its way: what came back may predate it
@@ -836,6 +916,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     if (next === "tokens" && tokens === null) load("tokens");
     else if (next === "audit" && audit === null) load("audit");
     else if (next === "device" && device === null) load("device");
+    // A chat may have sent /auth since the tab was last open: read the list each time
+    else if (next === "telegram" && summary?.telegram.configured === true) load("chats");
     else render();
     // The experimental writes and their results change with every write: read them each time
     if (next === "device") loadExperimental();
@@ -913,6 +995,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           draft = { url: s.cpe?.url ?? DEFAULT_CPE_URL, username: s.cpe?.username ?? "admin", password: "", lastAttempt: false };
           lastResult = null;
           tokens = null;
+          chats = null;
           audit = null;
           device = null;
           report = null;

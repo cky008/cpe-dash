@@ -965,6 +965,8 @@ export interface AccessControlChangeResponse {
 | `POST /api/console/tokens` | `{ name, scope: "full" \| "read", lifetimeDays: 1 \| 7 \| 30 \| 90 \| 365 \| null }` | `{ ok: true, token, record }`，`token` 只返回这一次；上限 50 个 |
 | `POST /api/console/tokens/revoke` | `{ id }` | `{ ok: true, record }`，并断开该令牌的 SSE、解绑用它经 `/auth` 绑定的 Telegram 聊天（审计 `detail` 注明解绑了几个）；不存在 `404` |
 | `POST /api/console/telegram/pairing-code` | `{ group?: boolean }` | `{ ok: true, code, expiresInSec: 600, group, command }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；`group: true` 生成群组绑定码（也可用于私聊），`command` 为要发送的原文（已知机器人用户名时为 `/auth@<bot> <code>`）；审计 `detail` 为 `group`；`group` 非布尔 `400`；未配置机器人 `409 TELEGRAM_DISABLED` |
+| `GET /api/console/telegram/chats` | — | `TelegramChatsResponse`：机器人能到达的每个聊天，先是经 `/auth` 绑定的（最新在前；怎么绑定的、用的令牌名、群组的话题与绑定者），再是只由 `TELEGRAM_CHAT_IDS` 授权的（按其顺序）；没有机器人时为空列表 |
+| `POST /api/console/telegram/unlink` | `{ chatId }`（如 `"1001"`、`"-1001"`） | 解绑一个经 `/auth` 绑定的聊天，`TelegramChatsResponse` 为剩下的列表；该聊天若也列在 `TELEGRAM_CHAT_IDS` 中则仍被授权；审计 `detail` 为聊天类型与 ID 末三位；不是聊天 ID `400`；没有这样绑定的聊天 `404 NOT_FOUND`（只由 `.env` 授权的聊天，提示到 `.env` 中移除） |
 | `POST /api/console/telegram/unlink-all` | `{}` | `{ ok: true, unlinked }`（`TELEGRAM_CHAT_IDS` 中的聊天不受影响） |
 | `POST /api/console/switches` | `{ telegramReset?: boolean, metricsEnabled?: boolean \| null }`（`null` = 跟随 `.env`） | `ConsoleSettingsResponse` |
 | `GET /api/console/device-report` | — | `{ ok: true, report: DeviceReport }`：脱敏设备报告，只含结构（见 2.9 节），由用户自己决定是否提交 |
@@ -1010,6 +1012,22 @@ export interface ConsoleSettingsResponse {
   reviewPending: boolean;                                               // 从 .env 导入后尚未在引导中确认
   telegram: { configured: boolean; resetEnabled: boolean };
   metrics: { enabled: boolean; source: "console" | "env"; envEnabled: boolean }; // envEnabled：.env 的 METRICS_ENABLED
+}
+
+export interface TelegramChatRecord {
+  chatId: string;
+  kind: "private" | "group";                               // Telegram 的私聊 ID 为正数，群组为负数
+  fromEnv: boolean;                                        // 列在 TELEGRAM_CHAT_IDS 中（只能在 .env 里移除）
+  linkedWith: "token" | "code" | "group-code" | null;      // /auth 用了完整权限令牌 / 私聊绑定码 / 群组绑定码；null = 只由 .env 授权
+  tokenName: string | null;                                // 绑定它的令牌名（撤销该令牌即解绑）
+  linkedBy: string | null;                                 // 群组绑定码：绑定它的成员（只有 ta 能在群里操作）
+  topic: number | null;                                    // 群组绑定码：推送进的论坛话题（null = 群本身或 General）
+  linkedAtIso: string | null;                              // /auth 绑定的时间；只由 .env 授权时为 null
+}
+
+export interface TelegramChatsResponse {
+  ok: true;
+  chats: TelegramChatRecord[];                             // 经 /auth 绑定的在前（最新在前），只由 .env 授权的在后
 }
 
 export interface AuditEntry {

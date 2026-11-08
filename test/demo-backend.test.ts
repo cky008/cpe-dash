@@ -280,6 +280,43 @@ describe("Static demo backend vs the real daemon", () => {
     assert.deepEqual([audit[0]?.["action"], audit[0]?.["channel"]], ["set_antenna_mode", "web"], "router writes are logged with the daemon's action names");
   });
 
+  it("lists the Telegram chats and unlinks one like the daemon, with its checks and messages", async () => {
+    const fresh = new DemoBackend({ seed: rebaseSeed(seed, Date.now()), latencyScale: 0 });
+    try {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "GET", "/api/console/telegram/chats"), demoCall(fresh, "GET", "/api/console/telegram/chats")]);
+      assert.deepEqual([real.status, demo.status, real.json["chats"]], [200, 200, []], "the demo daemon runs without a bot");
+      assert.deepEqual(
+        (demo.json["chats"] as Json[]).map((c) => [c["chatId"], c["kind"], c["linkedWith"], c["fromEnv"], c["topic"]]),
+        [
+          ["-1002", "group", "group-code", false, 7],
+          ["1001", "private", "code", false, null],
+          ["1003", "private", null, true, null],
+        ]
+      );
+      for (const body of [{ chatId: "abc" }, { chatId: 7 }, { chatId: "999" }, {}]) {
+        const [r, d] = await Promise.all([daemonCall(daemon, session, "POST", "/api/console/telegram/unlink", body), demoCall(fresh, "POST", "/api/console/telegram/unlink", body)]);
+        assert.deepEqual([d.status, d.json["errorCode"], d.json["message"]], [r.status, r.json["errorCode"], r.json["message"]], JSON.stringify(body));
+      }
+      const env = await demoCall(fresh, "POST", "/api/console/telegram/unlink", { chatId: "1003" });
+      assert.deepEqual([env.status, env.json["message"]], [404, "TELEGRAM_CHAT_IDS in .env authorizes this chat: remove it there"]);
+      const left = await demoCall(fresh, "POST", "/api/console/telegram/unlink", { chatId: " -1002 " });
+      assert.equal(left.status, 200);
+      assert.deepEqual((left.json["chats"] as Json[]).map((c) => c["chatId"]), ["1001", "1003"]);
+      assert.equal((await demoCall(fresh, "POST", "/api/console/telegram/unlink-all")).json["unlinked"], 1);
+      assert.deepEqual(((await demoCall(fresh, "GET", "/api/console/telegram/chats")).json["chats"] as Json[]).map((c) => c["chatId"]), ["1003"], ".env's chat stays");
+      const audit = (await demoCall(fresh, "GET", "/api/audit?limit=2")).json["entries"] as Json[];
+      assert.deepEqual(
+        audit.map((e) => [e["action"], e["detail"]]),
+        [
+          ["telegram.unlink-all", "1 chat(s)"],
+          ["telegram.unlink", "group chat …002"],
+        ]
+      );
+    } finally {
+      fresh.stop();
+    }
+  });
+
   it("answers the experimental writes switch like the daemon on the verified router", async () => {
     const [realView, demoView] = await Promise.all([daemonCall(daemon, session, "GET", "/api/console/experimental"), demoCall(backend, "GET", "/api/console/experimental")]);
     assert.equal(demoView.status, 200);

@@ -8,6 +8,8 @@ import type {
   PairingCodeResponse,
   RevokeTokenResponse,
   SaveConnectionResponse,
+  TelegramChatRecord,
+  TelegramChatsResponse,
   TokensResponse,
 } from "../../../src/api-contract.ts";
 import type { AuditActor, AuditEntry, AuditOutcome } from "../../../src/audit-log.ts";
@@ -86,6 +88,8 @@ export class DemoConsole {
   #telegramReset = true;
   #metrics: boolean | null = null;
   #tokens: PublicTokenRecord[];
+  /** Linked with /auth (newest first), then the one TELEGRAM_CHAT_IDS lists, as the daemon orders them. */
+  #chats: TelegramChatRecord[];
 
   constructor(opts: DemoConsoleOptions) {
     this.#now = opts.now;
@@ -105,6 +109,23 @@ export class DemoConsole {
         expiresAtIso: iso(now + 84 * DAY_MS),
         lastUsedAtIso: iso(now - 2 * 3_600_000),
       },
+    ];
+    // The owner's own chat (Telegram IDs are placeholders), a family group they linked, and one from .env
+    const chat = (chatId: string, extra: Partial<TelegramChatRecord>): TelegramChatRecord => ({
+      chatId,
+      kind: chatId.startsWith("-") ? "group" : "private",
+      fromEnv: false,
+      linkedWith: null,
+      tokenName: null,
+      linkedBy: null,
+      topic: null,
+      linkedAtIso: null,
+      ...extra,
+    });
+    this.#chats = [
+      chat("-1002", { linkedWith: "group-code", linkedBy: "1001", topic: 7, linkedAtIso: iso(now - 2 * DAY_MS) }),
+      chat("1001", { linkedWith: "code", linkedAtIso: iso(now - 12 * DAY_MS) }),
+      chat("1003", { fromEnv: true }),
     ];
     this.record("token.create", "applied", "Grafana (read, never expires)", { channel: "web" }, now - 20 * DAY_MS);
     this.record("token.create", "applied", "Claude Code (read, 90 d)", { channel: "web" }, now - 6 * DAY_MS);
@@ -204,10 +225,38 @@ export class DemoConsole {
     return { ok: true, code, expiresInSec: PAIRING_CODE_SEC, group, command: `/auth ${code}` };
   }
 
-  /** The demo has no bot, so no chat was ever linked. */
+  telegramChats(): TelegramChatsResponse {
+    return { ok: true, chats: this.#chats.map((chat) => ({ ...chat })) };
+  }
+
+  /** `POST /api/console/telegram/unlink`, with the daemon's checks and messages. */
+  unlinkTelegramChat(body: Body): TelegramChatsResponse {
+    const raw = body["chatId"];
+    if (raw !== undefined && raw !== null && (typeof raw !== "string" || raw.length > 24)) throw new CpeControlValidationError('"chatId" must be text of at most 24 characters');
+    const chatId = (typeof raw === "string" ? raw : "").trim();
+    if (!/^-?\d{1,20}$/.test(chatId)) throw new CpeControlValidationError('"chatId" must be a Telegram chat ID, e.g. 1001 or -1001');
+    const linked = this.#chats.find((chat) => chat.chatId === chatId && chat.linkedWith !== null);
+    if (!linked) {
+      const fromEnv = this.#chats.some((chat) => chat.chatId === chatId && chat.fromEnv);
+      throw new DemoRefusal(404, { ok: false, errorCode: "NOT_FOUND", message: fromEnv ? "TELEGRAM_CHAT_IDS in .env authorizes this chat: remove it there" : "No chat linked with /auth has this ID" });
+    }
+    this.#unlink(linked);
+    this.record("telegram.unlink", "applied", `${linked.kind} chat …${chatId.slice(-3)}`);
+    return this.telegramChats();
+  }
+
+  /** Every chat linked with /auth goes; the one TELEGRAM_CHAT_IDS lists stays. */
   unlinkTelegram(): { ok: true; unlinked: number } {
-    this.record("telegram.unlink-all", "applied", "0 chat(s)");
-    return { ok: true, unlinked: 0 };
+    const linked = this.#chats.filter((chat) => chat.linkedWith !== null);
+    for (const chat of linked) this.#unlink(chat);
+    this.record("telegram.unlink-all", "applied", `${linked.length} chat(s)`);
+    return { ok: true, unlinked: linked.length };
+  }
+
+  /** A chat .env also lists stays, after the linked ones, like the daemon lists it. */
+  #unlink(chat: TelegramChatRecord): void {
+    this.#chats.splice(this.#chats.indexOf(chat), 1);
+    if (chat.fromEnv) this.#chats.push({ ...chat, linkedWith: null, tokenName: null, linkedBy: null, topic: null, linkedAtIso: null });
   }
 
   /**

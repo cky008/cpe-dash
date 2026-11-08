@@ -1,4 +1,12 @@
-import type { ApiErrorEnvelope, ConsoleSettingsResponse, DeviceReportResponse, ExperimentalWritesResponse, PairingCodeResponse } from "./api-contract.ts";
+import type {
+  ApiErrorEnvelope,
+  ConsoleSettingsResponse,
+  DeviceReportResponse,
+  ExperimentalWritesResponse,
+  PairingCodeResponse,
+  TelegramChatRecord,
+  TelegramChatsResponse,
+} from "./api-contract.ts";
 import type { AuditLog } from "./audit-log.ts";
 import { normalizeCpeUrl } from "./config.ts";
 import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
@@ -28,6 +36,10 @@ export interface SettingsRoutesOptions {
   unlinkTelegram: () => number;
   /** A token was revoked: unlink the Telegram chats it linked with /auth; resolves how many. */
   unlinkTelegramToken?: (tokenId: string) => number;
+  /** Every chat the bot reaches (none without a bot). */
+  telegramChats?: () => TelegramChatRecord[];
+  /** Unlink one chat linked with /auth; `false` when it was not linked that way. */
+  unlinkTelegramChat?: (chatId: string) => boolean;
   /** The bot's @username once known (`/auth@bot CODE` reaches it in a group with other bots). */
   telegramUsername?: () => string | null;
   /** Keep a device probe a connection test made of the router in use (or of the one just saved). */
@@ -83,6 +95,10 @@ export class SettingsHttpRoutes {
       }
       if (ctx.pathname === "/api/console/tokens") {
         ctx.sendJson(200, { ok: true, tokens: settings.listTokens() });
+        return true;
+      }
+      if (ctx.pathname === "/api/console/telegram/chats") {
+        ctx.sendJson(200, { ok: true, chats: this.#opts.telegramChats?.() ?? [] } satisfies TelegramChatsResponse);
         return true;
       }
       if (ctx.pathname === "/api/console/device-report" && this.#opts.deviceReport) {
@@ -187,6 +203,23 @@ export class SettingsHttpRoutes {
         const code = settings.issueCode(group ? "pair-group" : "pair");
         audit?.record({ action: "telegram.pairing-code", outcome: "applied", detail: group ? "group" : null });
         ctx.sendJson(200, { ok: true, code, expiresInSec: PAIRING_CODE_TTL_MS / 1000, group, command: pairingCommand(code, group ? (this.#opts.telegramUsername?.() ?? null) : null) } satisfies PairingCodeResponse);
+        return true;
+      }
+      case "/api/console/telegram/unlink": {
+        const chatId = (text(await ctx.readJsonBody(), "chatId", 24) ?? "").trim();
+        if (!/^-?\d{1,20}$/.test(chatId)) throw new CpeControlValidationError('"chatId" must be a Telegram chat ID, e.g. 1001 or -1001');
+        if (!this.#opts.unlinkTelegramChat?.(chatId)) {
+          // A chat .env authorizes is not linked: say where it can be removed
+          const fromEnv = this.#opts.telegramChats?.().some((chat) => chat.chatId === chatId && chat.fromEnv) === true;
+          ctx.sendJson(404, {
+            ok: false,
+            errorCode: "NOT_FOUND",
+            message: fromEnv ? "TELEGRAM_CHAT_IDS in .env authorizes this chat: remove it there" : "No chat linked with /auth has this ID",
+          } satisfies ApiErrorEnvelope);
+          return true;
+        }
+        audit?.record({ action: "telegram.unlink", outcome: "applied", detail: `${chatId.startsWith("-") ? "group" : "private"} chat …${chatId.slice(-3)}` });
+        ctx.sendJson(200, { ok: true, chats: this.#opts.telegramChats?.() ?? [] } satisfies TelegramChatsResponse);
         return true;
       }
       case "/api/console/telegram/unlink-all": {

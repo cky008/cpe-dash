@@ -5,6 +5,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { describe, it } from "node:test";
+import type { TelegramChatsResponse } from "../src/api-contract.ts";
 import { DaemonAlreadyRunningError, createFengSuiRuntime, startServeDaemon, startupNotices } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -236,12 +237,41 @@ describe("createFengSuiRuntime", () => {
       const consoleHeaders = { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base };
       const signIn = await fetch(`${base}/api/auth/login`, { method: "POST", headers: consoleHeaders, body: JSON.stringify({ password: "runtime_api_token_v1" }) });
       const cookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(signIn.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
+      // Settings → Telegram lists every chat: how /auth linked it (with the token's name), or .env
+      const chats = async (res?: Response): Promise<Array<[string, string | null, string | null, boolean]>> =>
+        ((await (res ?? (await fetch(`${base}/api/console/telegram/chats`, { headers: { Cookie: cookie } }))).json()) as TelegramChatsResponse).chats.map((c) => [
+          c.chatId,
+          c.linkedWith,
+          c.tokenName,
+          c.fromEnv,
+        ]);
+      assert.deepEqual(await chats(), [
+        ["4004", "code", null, false],
+        ["3003", "token", "API_TOKEN (.env)", false],
+        ["2002", "code", null, false],
+        ["1001", null, null, true],
+      ]);
       const imported = stack.settings.listTokens().find((t) => t.name === "API_TOKEN (.env)");
       const revoke = await fetch(`${base}/api/console/tokens/revoke`, { method: "POST", headers: { ...consoleHeaders, Cookie: cookie }, body: JSON.stringify({ id: imported?.id }) });
       assert.equal(revoke.status, 200);
       assert.equal(bot.state.isAuthorized("3003", bot.allowedChatIds), false, "the revoked token's chat");
       assert.equal(bot.state.isAuthorized("4004", bot.allowedChatIds), true, "the pairing code's chat");
-      assert.equal(bot.unlinkAllChats(), 2);
+      // ... and unlinks one at a time, audited with the chat ID's last digits only
+      const unlinkOne = await fetch(`${base}/api/console/telegram/unlink`, { method: "POST", headers: { ...consoleHeaders, Cookie: cookie }, body: JSON.stringify({ chatId: "4004" }) });
+      assert.equal(unlinkOne.status, 200);
+      assert.deepEqual(await chats(unlinkOne), [
+        ["2002", "code", null, false],
+        ["1001", null, null, true],
+      ]);
+      assert.equal(bot.state.isAuthorized("4004", bot.allowedChatIds), false);
+      assert.deepEqual(
+        stack.audit.list(1).map((e) => [e.action, e.outcome, e.detail, e.channel]),
+        [["telegram.unlink", "applied", "private chat …004", "web"]]
+      );
+      const agent = stack.settings.createToken({ name: "Agent", scope: "full", lifetimeDays: 1 });
+      const bearerList = await fetch(`${base}/api/console/telegram/chats`, { headers: { Authorization: `Bearer ${agent.token}` } });
+      assert.equal(bearerList.status, 403, "a token, even a full one, never reads the chat list");
+      assert.equal(bot.unlinkAllChats(), 1);
       assert.equal(bot.state.isAuthorized("1001", bot.allowedChatIds), true, "TELEGRAM_CHAT_IDS stay authorized");
       // /reset in a linked private chat answers with a one-time console reset code, unless turned off
       await bot.handleUpdate({ update_id: 5, message: { message_id: 14, chat: { id: 1001, type: "private" }, text: "/reset" } });

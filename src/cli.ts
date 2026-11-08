@@ -451,6 +451,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     audit,
     unlinkTelegram: telegramBot ? () => telegramBot?.unlinkAllChats() ?? 0 : null,
     unlinkTelegramToken: telegramBot ? (tokenId: string) => telegramBot?.unlinkChatsLinkedBy(tokenId) ?? 0 : null,
+    telegramChats: telegramBot ? () => telegramBot?.chatRecords((tokenId) => settings.listTokens().find((token) => token.id === tokenId)?.name ?? null) ?? [] : null,
+    unlinkTelegramChat: telegramBot ? (chatId: string) => telegramBot?.unlinkChat(chatId) ?? false : null,
     telegramUsername: () => telegramBot?.username ?? null,
     onConnectionReady: () => {
       if (!awaitingSetup) return;

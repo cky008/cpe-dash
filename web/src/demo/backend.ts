@@ -448,6 +448,8 @@ export class DemoBackend {
     post("/api/console/tokens/revoke", (body) => this.#console.revokeToken(body));
     post("/api/console/telegram/pairing-code", (body) => this.#console.pairingCode(body));
     post("/api/console/telegram/unlink-all", () => this.#console.unlinkTelegram());
+    get("/api/console/telegram/chats", () => this.#console.telegramChats());
+    post("/api/console/telegram/unlink", (body) => this.#console.unlinkTelegramChat(body));
     post("/api/console/switches", (body) => this.#console.switches(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));
     get("/api/device/profile", () => this.#device?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));

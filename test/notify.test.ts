@@ -129,8 +129,8 @@ function createBotFixture(
   const service = new SmsService({ scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353", sleep: async () => undefined, seedExistingOnStart: false });
   const tg = createFakeTelegram({ vcf: opts.vcf, updates: opts.updates, failPolls: opts.failPolls, sendDelayMs: opts.sendDelayMs, rateLimitPolls: opts.rateLimitPolls });
   const api = new TelegramApi({ token: TOKEN, fetchImpl: tg.fetchImpl });
-  const state = new TelegramStateStore({ filePath: path.join(tmpDir, "telegram.json"), cipher });
   let clock = Date.parse("2026-10-30T10:00:00Z");
+  const state = new TelegramStateStore({ filePath: path.join(tmpDir, "telegram.json"), cipher, now: () => clock });
   const logs: string[] = [];
   const bot = new TelegramBot({
     api,
@@ -178,6 +178,9 @@ function createBotFixture(
     advance: (ms: number) => {
       clock += ms;
     },
+    now: () => clock,
+    cipher,
+    stateFile: path.join(tmpDir, "telegram.json"),
     cleanup: async () => {
       await bot.stop();
       await service.stop();
@@ -511,6 +514,65 @@ describe("TelegramBot", () => {
       await fx.bot.notifyAlert({ id: "a1", tsIso: "2026-10-30T10:00:00.000Z", severity: "warning", code: "SIGNAL_WEAK", messageZh: "信号弱", messageEn: "Signal weak" });
       assert.equal(lastTopic(), undefined, "notifications");
       assert.equal(fx.tg.sends("1001").at(-1)?.payload["message_thread_id"], undefined, "a private chat never gets a topic");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("lists every chat with how and when it was linked, unlinks one at a time, and keeps that across restarts", async () => {
+    const fx = createBotFixture({
+      allowedChatIds: ["1001", "-1004"],
+      linkSecret: (secret, where) => {
+        if (secret === "TOKEN-A") return where === "private" ? { outcome: "linked", tokenId: "tok-a" } : { outcome: "private-only", tokenId: null };
+        if (secret === "PAIR-CODE") return where === "private" ? "linked" : "private-only";
+        return secret === "GRP-CODE" ? "linked" : "invalid";
+      },
+    });
+    try {
+      const t0 = fx.now();
+      const iso = (ms: number) => new Date(ms).toISOString();
+      await fx.message(2002, "/auth TOKEN-A");
+      fx.advance(60_000);
+      await fx.message(2003, "/auth PAIR-CODE");
+      fx.advance(60_000);
+      await fx.message(-1003, "/auth GRP-CODE", { from: { id: 7001 }, message_thread_id: 55, is_topic_message: true });
+      const records = fx.bot.chatRecords((tokenId) => (tokenId === "tok-a" ? "Phone" : null));
+      assert.deepEqual(records, [
+        { chatId: "-1003", kind: "group", fromEnv: false, linkedWith: "group-code", tokenName: null, linkedBy: "7001", topic: 55, linkedAtIso: iso(t0 + 120_000) },
+        { chatId: "2003", kind: "private", fromEnv: false, linkedWith: "code", tokenName: null, linkedBy: null, topic: null, linkedAtIso: iso(t0 + 60_000) },
+        { chatId: "2002", kind: "private", fromEnv: false, linkedWith: "token", tokenName: "Phone", linkedBy: null, topic: null, linkedAtIso: iso(t0) },
+        { chatId: "1001", kind: "private", fromEnv: true, linkedWith: null, tokenName: null, linkedBy: null, topic: null, linkedAtIso: null },
+        { chatId: "-1004", kind: "group", fromEnv: true, linkedWith: null, tokenName: null, linkedBy: null, topic: null, linkedAtIso: null },
+      ]);
+      assert.equal(fx.bot.chatRecords()[2]?.tokenName, null, "no token names without a lookup");
+
+      // One chat goes, with the send it had started; the others and .env stay
+      await fx.message(2003, "/new");
+      assert.equal(fx.bot.unlinkChat("2003"), true);
+      assert.equal(fx.state.isAuthorized("2003", fx.bot.allowedChatIds), false);
+      assert.equal(fx.bot.unlinkChat("2003"), false, "not linked any more");
+      assert.equal(fx.bot.unlinkChat("1001"), false, "only .env authorizes it");
+      assert.equal(fx.state.isAuthorized("1001", fx.bot.allowedChatIds), true);
+      assert.ok(fx.logs.some((line) => line.includes("unlinked a chat from the console")));
+      fx.advance(60_000);
+      await fx.message(2003, "/auth PAIR-CODE");
+      await fx.message(2003, "+353830000001");
+      assert.doesNotMatch(fx.tg.lastText("2003"), /step 2: text/, "the old send did not come back with the new link");
+      assert.equal(fx.bot.chatRecords().find((chat) => chat.chatId === "2003")?.linkedAtIso, iso(t0 + 180_000));
+
+      // A supergroup migration keeps how and when the group was linked; a restart reads it all back
+      await fx.message(-1003, "", { migrate_to_chat_id: -100555 });
+      await fx.state.flush();
+      const reloaded = new TelegramStateStore({ filePath: fx.stateFile, cipher: fx.cipher });
+      reloaded.load();
+      assert.deepEqual(reloaded.linkedChats().sort((a, b) => a.chatId.localeCompare(b.chatId)), [
+        { chatId: "-100555", group: { userId: "7001", threadId: 55 }, viaTokenId: null, linkedAtMs: t0 + 120_000 },
+        { chatId: "2002", group: null, viaTokenId: "tok-a", linkedAtMs: t0 },
+        { chatId: "2003", group: null, viaTokenId: null, linkedAtMs: t0 + 180_000 },
+      ]);
+      reloaded.revokeAll();
+      assert.deepEqual(reloaded.linkedChats(), []);
+      await reloaded.flush();
     } finally {
       await fx.cleanup();
     }

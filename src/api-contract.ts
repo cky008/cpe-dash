@@ -302,6 +302,32 @@ export interface PairingCodeResponse {
   command: string;
 }
 
+/** A Telegram chat that gets the bot's notifications and may use its commands (Settings → Telegram). */
+export interface TelegramChatRecord {
+  chatId: string;
+  /** Telegram gives private chats positive IDs and groups negative ones. */
+  kind: "private" | "group";
+  /** Listed in TELEGRAM_CHAT_IDS: authorized by `.env`, so only editing `.env` removes it. */
+  fromEnv: boolean;
+  /** How `/auth` linked it: a full-access token, a pairing code in a private chat, a group pairing code; `null` when only `.env` authorizes it. */
+  linkedWith: "token" | "code" | "group-code" | null;
+  /** The token that linked it (revoking that token unlinks the chat). */
+  tokenName: string | null;
+  /** A group linked with a group code: the member who linked it, the only one who may act there. */
+  linkedBy: string | null;
+  /** A group linked with a group code: the forum topic it posts to (`null`: the group itself, or General). */
+  topic: number | null;
+  /** When `/auth` linked it (`null` for a chat only `.env` authorizes). */
+  linkedAtIso: string | null;
+}
+
+/** `GET /api/console/telegram/chats`, and `POST /api/console/telegram/unlink` with the list that is left. */
+export interface TelegramChatsResponse {
+  ok: true;
+  /** Chats linked with `/auth`, newest first, then those only TELEGRAM_CHAT_IDS authorizes, in its order. */
+  chats: TelegramChatRecord[];
+}
+
 export interface AuditResponse {
   ok: true;
   entries: AuditEntry[];

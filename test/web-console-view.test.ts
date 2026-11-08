@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { MIN_PASSWORD_LENGTH, TOKEN_LIFETIMES_DAYS, readTokenRequest, validateNewPassword } from "../src/console-policy.ts";
+import type { TelegramChatRecord } from "../src/api-contract.ts";
 import type { ConnectionTestResult } from "../src/scheduler.ts";
 import {
   AGENT_TOKEN_DAYS,
@@ -9,13 +10,16 @@ import {
   RECOVERY_COMMANDS,
   agentTokenName,
   auditCaller,
+  chatIdText,
   connectionNotice,
   daysLeft,
   guidanceParams,
   needsLastAttempt,
   passwordProblem,
+  telegramChatDetails,
   tokenState,
 } from "../web/src/core/console-view.ts";
+import { interpolate } from "../web/src/core/i18n.ts";
 import { en } from "../web/src/i18n/en.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../web/src/i18n/settings.ts";
 import { zhCN } from "../web/src/i18n/zh-CN.ts";
@@ -95,6 +99,34 @@ describe("web core: console settings view", () => {
     assert.throws(() => readTokenRequest({ name: "x", scope: "admin", lifetimeDays: 7 }), /"scope"/);
     assert.throws(() => readTokenRequest({ name: "x", scope: "read", lifetimeDays: 2 }), /"lifetimeDays" must be one of 1, 7, 30, 90, 365 or null/);
     assert.throws(() => readTokenRequest({ name: "x", scope: "read" }), /"lifetimeDays"/);
+  });
+
+  it("describes each Telegram chat: how it was linked, a group's topic and member, .env; IDs cut short in privacy mode", () => {
+    const tEn = (key: SettingsTextKey, params?: Readonly<Record<string, string | number>>): string => interpolate(SETTINGS_TEXT.en[key], params);
+    const chat = (extra: Partial<TelegramChatRecord>): TelegramChatRecord => ({
+      chatId: "2002",
+      kind: "private",
+      fromEnv: false,
+      linkedWith: "code",
+      tokenName: null,
+      linkedBy: null,
+      topic: null,
+      linkedAtIso: "2026-11-08T10:00:00.000Z",
+      ...extra,
+    });
+    assert.deepEqual(telegramChatDetails(chat({}), true, tEn), ["linked with a pairing code"]);
+    assert.deepEqual(telegramChatDetails(chat({ linkedWith: "token", tokenName: "Phone" }), true, tEn), ["linked with the token “Phone”"]);
+    assert.deepEqual(telegramChatDetails(chat({ linkedWith: "token" }), true, tEn), ["linked with a token"]);
+    const group = chat({ chatId: "-1001234567890", kind: "group", linkedWith: "group-code", linkedBy: "123456789", topic: 55, fromEnv: true });
+    assert.deepEqual(telegramChatDetails(group, true, tEn), [
+      "linked with a group pairing code",
+      "posts to topic #55",
+      "only member …789 can act",
+      "also listed in TELEGRAM_CHAT_IDS (.env): it keeps working after unlinking",
+    ]);
+    assert.equal(telegramChatDetails(group, false, tEn)[2], "only member 123456789 can act");
+    assert.deepEqual(telegramChatDetails(chat({ fromEnv: true, linkedWith: null, linkedAtIso: null }), true, tEn), ["listed in TELEGRAM_CHAT_IDS (.env): remove it there"]);
+    assert.deepEqual([chatIdText("-1001234567890", true), chatIdText("-1001234567890", false), chatIdText("1001", true)], ["…890", "-1001234567890", "1001"]);
   });
 
   it("ships the settings strings in both languages with the same placeholders and no markup", () => {

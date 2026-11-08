@@ -55,6 +55,7 @@ import type {
   SettingsEndpointResponse,
   SettingsRefreshResponse,
   SseInitialSnapshot,
+  TelegramChatRecord,
   TelemetryEndpointResponse,
   TelemetryRefreshResponse,
   TimeSeriesEndpointResponse,
@@ -158,6 +159,10 @@ export interface FengSuiHttpServerOptions {
   unlinkTelegram?: (() => number) | null;
   /** Unlink the Telegram chats a revoked token linked with /auth (`null` without a bot). */
   unlinkTelegramToken?: ((tokenId: string) => number) | null;
+  /** Every Telegram chat the bot reaches, for Settings → Telegram (`null` without a bot). */
+  telegramChats?: (() => TelegramChatRecord[]) | null;
+  /** Unlink one Telegram chat linked with /auth (`null` without a bot). */
+  unlinkTelegramChat?: ((chatId: string) => boolean) | null;
   /** The bot's @username once known, for the `/auth@bot CODE` a group needs. */
   telegramUsername?: () => string | null;
 }
@@ -217,6 +222,8 @@ export class FengSuiHttpServer {
       },
       unlinkTelegram: () => unlinkTelegram?.() ?? 0,
       unlinkTelegramToken: (tokenId: string) => options.unlinkTelegramToken?.(tokenId) ?? 0,
+      telegramChats: () => options.telegramChats?.() ?? [],
+      unlinkTelegramChat: (chatId: string) => options.unlinkTelegramChat?.(chatId) ?? false,
       telegramUsername: options.telegramUsername ?? (() => null),
       onDeviceProbe: (probe) => void options.core.monitor.recordDeviceProbe(probe),
       deviceReport: () =>

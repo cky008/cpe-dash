@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
+import type { TelegramChatRecord } from "../src/api-contract.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
@@ -17,6 +18,17 @@ function routesFixture(telegramConfigured: boolean) {
   const cpe = createStrictCpe();
   const dir = tempDir("fengsui-routes-");
   const unlinkedFor: string[] = [];
+  const chat = (chatId: string, fromEnv: boolean, linkedWith: TelegramChatRecord["linkedWith"]): TelegramChatRecord => ({
+    chatId,
+    kind: chatId.startsWith("-") ? "group" : "private",
+    fromEnv,
+    linkedWith,
+    tokenName: null,
+    linkedBy: null,
+    topic: null,
+    linkedAtIso: linkedWith ? "2026-11-08T10:00:00.000Z" : null,
+  });
+  const chats = [chat("2002", false, "code"), chat("-1003", true, "group-code"), chat("1001", true, null)];
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "routes_key" }),
@@ -37,6 +49,15 @@ function routesFixture(telegramConfigured: boolean) {
     unlinkTelegramToken: (tokenId) => {
       unlinkedFor.push(tokenId);
       return 1;
+    },
+    telegramChats: () => chats.map((c) => ({ ...c })),
+    // Like the bot: a linked chat loses its link (one .env also lists stays in the list, as from .env only)
+    unlinkTelegramChat: (chatId) => {
+      const linked = chats.find((c) => c.chatId === chatId && c.linkedWith !== null);
+      if (!linked) return false;
+      if (linked.fromEnv) linked.linkedWith = null;
+      else chats.splice(chats.indexOf(linked), 1);
+      return true;
     },
     telegramUsername: () => "FengSuiBot",
   });
@@ -90,6 +111,33 @@ describe("console routes", () => {
       await assert.rejects(fx.call("POST", "/api/console/tokens/revoke", { id: 7 }), /"id" must be text/);
       for (let i = fx.settings.listTokens().length; i < 50; i++) fx.settings.createToken({ name: `t${i}`, scope: "read", lifetimeDays: 1 });
       await assert.rejects(fx.call("POST", "/api/console/tokens", { name: "one more", scope: "read", lifetimeDays: null }), /At most 50 tokens/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("lists the Telegram chats and unlinks one at a time, naming .env for a chat only it authorizes", async () => {
+    const fx = routesFixture(true);
+    try {
+      const ids = (payload: Record<string, unknown>) => (payload["chats"] as TelegramChatRecord[]).map((c) => `${c.chatId}:${c.linkedWith ?? "env"}`);
+      const listed = await fx.call("GET", "/api/console/telegram/chats");
+      assert.deepEqual([listed.status, ids(listed.payload)], [200, ["2002:code", "-1003:group-code", "1001:env"]]);
+      const unlinked = await fx.call("POST", "/api/console/telegram/unlink", { chatId: " 2002 " });
+      assert.deepEqual([unlinked.status, ids(unlinked.payload)], [200, ["-1003:group-code", "1001:env"]], "answers with the chats that are left");
+      assert.deepEqual(ids((await fx.call("POST", "/api/console/telegram/unlink", { chatId: "-1003" })).payload), ["-1003:env", "1001:env"], ".env still authorizes it");
+      for (const [chatId, message] of [
+        ["2002", "No chat linked with /auth has this ID"],
+        ["-1003", "TELEGRAM_CHAT_IDS in .env authorizes this chat: remove it there"],
+        ["1001", "TELEGRAM_CHAT_IDS in .env authorizes this chat: remove it there"],
+      ] as const) {
+        const refused = await fx.call("POST", "/api/console/telegram/unlink", { chatId });
+        assert.deepEqual([refused.status, refused.payload["errorCode"], refused.payload["message"]], [404, "NOT_FOUND", message], chatId);
+      }
+      for (const chatId of ["", " ", "abc", "12 34", "-", "+1001", "1".repeat(21)]) {
+        await assert.rejects(fx.call("POST", "/api/console/telegram/unlink", { chatId }), /"chatId" must be a Telegram chat ID/, JSON.stringify(chatId));
+      }
+      await assert.rejects(fx.call("POST", "/api/console/telegram/unlink", { chatId: 1001 }), /"chatId" must be text/);
+      await assert.rejects(fx.call("POST", "/api/console/telegram/unlink", {}), /"chatId" must be a Telegram chat ID/);
     } finally {
       await fx.cleanup();
     }

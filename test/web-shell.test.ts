@@ -197,6 +197,8 @@ describe("web core: endpoint table", () => {
       revokeToken: ["POST", "/api/console/tokens/revoke", { id: "t1" }],
       pairingCode: ["POST", "/api/console/telegram/pairing-code", { group: true }],
       unlinkTelegram: ["POST", "/api/console/telegram/unlink-all", {}],
+      telegramChats: ["GET", "/api/console/telegram/chats"],
+      unlinkTelegramChat: ["POST", "/api/console/telegram/unlink", { chatId: "-1003" }],
       consoleSwitches: ["POST", "/api/console/switches", { metricsEnabled: null }],
       audit: ["GET", "/api/audit?limit=200"],
       deviceProfile: ["GET", "/api/device/profile"],
@@ -259,6 +261,8 @@ describe("web core: endpoint table", () => {
     await ep.revokeToken("t1");
     await ep.pairingCode(true);
     await ep.unlinkTelegram();
+    await ep.telegramChats();
+    await ep.unlinkTelegramChat("-1003");
     await ep.consoleSwitches({ metricsEnabled: null });
     await ep.audit();
     await ep.deviceProfile();

@@ -11,6 +11,7 @@ import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
 import type { EnrichedSmsMessage } from "../sms/types.ts";
+import type { TelegramChatRecord } from "../api-contract.ts";
 import type { TelegramLinkDecision, TelegramLinkOutcome } from "../console-settings.ts";
 import type { AlertEventRecord } from "../state-store.ts";
 import type { SupportedLocale } from "../types.ts";
@@ -91,6 +92,11 @@ export function escapeTelegramHtml(text: string | number): string {
 /** The forum topic a message was posted in, or `null` (a private chat, a group without topics, the General topic). */
 function topicOf(msg: { message_thread_id?: number; is_topic_message?: boolean } | undefined): number | null {
   return msg?.is_topic_message === true && typeof msg.message_thread_id === "number" ? msg.message_thread_id : null;
+}
+
+/** Telegram gives private chats positive IDs and groups (and channels) negative ones. */
+function chatKind(chatId: string): TelegramChatRecord["kind"] {
+  return chatId.startsWith("-") ? "group" : "private";
 }
 
 function callbackData(action: string, arg: string | number): string | null {
@@ -357,6 +363,8 @@ interface PersistedTelegramState {
   groupLinks?: Array<[string, TelegramGroupLink]>;
   /** Chats a full-access token linked, with the token's ID: revoking it unlinks them. Absent in older files. */
   linkedVia?: Array<[string, string]>;
+  /** When `/auth` linked each chat (ms). */
+  linkedAt: Array<[string, number]>;
   replyTargets: Array<[string, string]>;
   alertsMutedUntilMs: number | null;
 }
@@ -377,13 +385,17 @@ export class TelegramStateStore {
   #groupLinks = new Map<string, TelegramGroupLink>();
   /** Chat ID → the ID of the token that linked it (chats a pairing code linked are absent). */
   #linkedVia = new Map<string, string>();
+  /** Chat ID → when `/auth` linked it. */
+  #linkedAt = new Map<string, number>();
   #replyTargets = new Map<string, string>();
   #mutedUntilMs: number | null = null;
+  readonly #now: () => number;
 
-  constructor(opts: { filePath: string; cipher: StorageCipher }) {
+  constructor(opts: { filePath: string; cipher: StorageCipher; now?: () => number }) {
     this.filePath = opts.filePath;
     this.#cipher = opts.cipher;
     this.#writer = new AtomicFileWriter(opts.filePath);
+    this.#now = opts.now ?? Date.now;
   }
 
   load(): void {
@@ -401,6 +413,11 @@ export class TelegramStateStore {
         (e): e is [string, string] => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string" && e[1] !== "" && this.#authorized.has(e[0])
       )
     );
+    this.#linkedAt = new Map(
+      (Array.isArray(parsed?.linkedAt) ? parsed.linkedAt : []).filter(
+        (e): e is [string, number] => Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1]) && this.#authorized.has(e[0])
+      )
+    );
     this.#replyTargets = new Map(
       (parsed?.replyTargets ?? []).filter(
         (e): e is [string, string] => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string"
@@ -415,6 +432,7 @@ export class TelegramStateStore {
       authorizedChatIds: [...this.#authorized],
       groupLinks: [...this.#groupLinks],
       linkedVia: [...this.#linkedVia],
+      linkedAt: [...this.#linkedAt],
       replyTargets: [...this.#replyTargets],
       alertsMutedUntilMs: this.#mutedUntilMs,
     };
@@ -443,6 +461,7 @@ export class TelegramStateStore {
     else this.#groupLinks.delete(chatId);
     if (viaTokenId) this.#linkedVia.set(chatId, viaTokenId);
     else this.#linkedVia.delete(chatId);
+    this.#linkedAt.set(chatId, this.#now());
     this.#commit();
   }
 
@@ -462,6 +481,9 @@ export class TelegramStateStore {
     const via = this.#linkedVia.get(from);
     this.#linkedVia.delete(from);
     if (via) this.#linkedVia.set(to, via);
+    const at = this.#linkedAt.get(from);
+    this.#linkedAt.delete(from);
+    if (at !== undefined) this.#linkedAt.set(to, at);
     this.#commit();
     return true;
   }
@@ -473,6 +495,7 @@ export class TelegramStateStore {
     this.#authorized.clear();
     this.#groupLinks.clear();
     this.#linkedVia.clear();
+    this.#linkedAt.clear();
     this.#commit();
     return count;
   }
@@ -480,13 +503,27 @@ export class TelegramStateStore {
   /** Unlink the chats the token `tokenId` linked (it was revoked); returns how many. */
   revokeLinkedVia(tokenId: string): number {
     const chats = [...this.#linkedVia].filter(([, via]) => via === tokenId).map(([chatId]) => chatId);
-    for (const chatId of chats) {
-      this.#authorized.delete(chatId);
-      this.#groupLinks.delete(chatId);
-      this.#linkedVia.delete(chatId);
-    }
+    for (const chatId of chats) this.#forget(chatId);
     if (chats.length > 0) this.#commit();
     return chats.length;
+  }
+
+  /** Unlink one chat linked through `/auth`; `false` when it was not linked that way. */
+  unlink(chatId: string): boolean {
+    if (!this.#authorized.has(chatId)) return false;
+    this.#forget(chatId);
+    this.#commit();
+    return true;
+  }
+
+  /** The chats linked through `/auth`: how (a group link, the token) and when (`null` when not known). */
+  linkedChats(): Array<{ chatId: string; group: TelegramGroupLink | null; viaTokenId: string | null; linkedAtMs: number | null }> {
+    return [...this.#authorized].map((chatId) => ({
+      chatId,
+      group: this.groupLink(chatId),
+      viaTokenId: this.#linkedVia.get(chatId) ?? null,
+      linkedAtMs: this.#linkedAt.get(chatId) ?? null,
+    }));
   }
 
   bindReply(chatId: string, messageId: number, phone: string): void {
@@ -511,6 +548,13 @@ export class TelegramStateStore {
 
   alertsMutedUntil(): number | null {
     return this.#mutedUntilMs;
+  }
+
+  #forget(chatId: string): void {
+    this.#authorized.delete(chatId);
+    this.#groupLinks.delete(chatId);
+    this.#linkedVia.delete(chatId);
+    this.#linkedAt.delete(chatId);
   }
 
   #commit(): void {
@@ -695,6 +739,44 @@ export class TelegramBot implements NotificationChannel {
     const revoked = this.state.revokeLinkedVia(tokenId);
     if (revoked > 0) this.#log(`[telegram] unlinked ${revoked} chat(s) linked with a revoked token`);
     return revoked;
+  }
+
+  /** Unlink one chat linked with /auth (one TELEGRAM_CHAT_IDS lists stays authorized); `false` when it was not linked. */
+  unlinkChat(chatId: string): boolean {
+    if (!this.state.unlink(chatId)) return false;
+    this.#wizards.delete(chatId);
+    this.#log("[telegram] unlinked a chat from the console");
+    return true;
+  }
+
+  /**
+   * Every chat the bot reaches: those linked with /auth, newest first, then those only
+   * TELEGRAM_CHAT_IDS authorizes, in its order. `tokenName` names the token that linked a chat.
+   */
+  chatRecords(tokenName: (tokenId: string) => string | null = () => null): TelegramChatRecord[] {
+    const env = new Set(this.allowedChatIds);
+    // Reversed first, so links made in the same millisecond also list the newest first
+    const linked = this.state
+      .linkedChats()
+      .reverse()
+      .sort((a, b) => (b.linkedAtMs ?? 0) - (a.linkedAtMs ?? 0))
+      .map(
+        (chat): TelegramChatRecord => ({
+          chatId: chat.chatId,
+          kind: chatKind(chat.chatId),
+          fromEnv: env.has(chat.chatId),
+          linkedWith: chat.group ? "group-code" : chat.viaTokenId ? "token" : "code",
+          tokenName: chat.viaTokenId ? tokenName(chat.viaTokenId) : null,
+          linkedBy: chat.group?.userId ?? null,
+          topic: chat.group?.threadId ?? null,
+          linkedAtIso: chat.linkedAtMs === null ? null : new Date(chat.linkedAtMs).toISOString(),
+        })
+      );
+    const linkedIds = new Set(linked.map((chat) => chat.chatId));
+    const envOnly = [...env]
+      .filter((chatId) => !linkedIds.has(chatId))
+      .map((chatId): TelegramChatRecord => ({ chatId, kind: chatKind(chatId), fromEnv: true, linkedWith: null, tokenName: null, linkedBy: null, topic: null, linkedAtIso: null }));
+    return [...linked, ...envOnly];
   }
 
   // ----------------------------------------------------------------- notification channel
