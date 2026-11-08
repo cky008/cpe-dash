@@ -7,6 +7,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Added
 - **The console says what self-healing will do.** The controls drawer has a "WAN self-healing" part: whether the lock rollback and the automatic redial are on, the lock being watched and the time by which the WAN must be back (or since when it is back and the lock about to be kept), the redials of the last 24 hours against the cap of 4, and the earliest next redial. A band or cell lock's confirmation now says, before the lock is applied, whether it would be rolled back automatically if it cut the WAN, or that it would have to be cleared by hand. `GET /api/session/status` and MCP `get_cpe_session_status` answer the same as `selfHeal` (read from the daemon's memory, never from the router), so an agent can tell too. The demo household runs both parts (10 / 3 minutes), as the static demo shows.
 
+### Fixed
+- **A group whose forum topic was deleted or closed keeps getting its messages.** A group linked with a group pairing code from a forum topic posts there, and once that topic was gone Telegram refused every message (`400 Bad Request: message thread not found`): notifications were dropped and even the bot's answers in the group failed, until the group was unlinked and linked again. The bot now sends such a message to the group's General topic, moves the link there for good (kept in `telegram.json`) and says once in General what happened and how to move it to another topic. A command answered into a topic that has just gone, in a group `TELEGRAM_CHAT_IDS` lists, is answered in General too; any other refusal is not retried.
+
 ## [1.6.3] — 2026-11-08
 
 ### Added

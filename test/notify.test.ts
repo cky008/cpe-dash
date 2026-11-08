@@ -31,6 +31,8 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
   const calls: TgCall[] = [];
   /** Switch at run time: `"network"` fails every sendMessage like an unreachable host, a number is a Telegram error code. */
   const failures: { send?: "network" | number } = {};
+  /** Forum topics deleted or closed since: a sendMessage into one is refused the way Telegram does. */
+  const goneTopics = new Set<number>();
   let completedSends = 0;
   let messageSeq = 100;
   const batches = [...(opts.updates ?? [])];
@@ -42,6 +44,10 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
     const ok = (result: unknown): Response => new Response(JSON.stringify({ ok: true, result }), { status: 200 });
     if (method === "sendMessage") {
       if (failures.send === "network") throw new TypeError("fetch failed");
+      const thread = calls.at(-1)?.payload["message_thread_id"];
+      if (typeof thread === "number" && goneTopics.has(thread)) {
+        return new Response(JSON.stringify({ ok: false, error_code: 400, description: "Bad Request: message thread not found" }), { status: 400 });
+      }
       if (failures.send === 429) {
         return new Response(JSON.stringify({ ok: false, error_code: 429, description: "Too Many Requests: retry after 30", parameters: { retry_after: 30 } }), { status: 429 });
       }
@@ -84,6 +90,7 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
     fetchImpl,
     calls,
     failures,
+    goneTopics,
     sends,
     lastText,
     buttons,
@@ -1146,6 +1153,50 @@ describe("TelegramBot notification outbox", () => {
       const cardId = 100 + 3;
       await fx.message(1001, "Delayed reply", { reply_to_message: { message_id: cardId } });
       assert.match(fx.mock.sentRequests.at(-1) ?? "", /Delayed reply/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("moves a group-code group to General when its forum topic is gone, says so once, and posts there from then on", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.state.authorize("-1002", { userId: "1001", threadId: 7 });
+      fx.tg.goneTopics.add(7);
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      const toGroup = (): Array<[unknown, string]> => fx.tg.sends("-1002").map((c) => [c.payload["message_thread_id"], String(c.payload["text"]).split("\n")[0] ?? ""]);
+      assert.deepEqual(toGroup(), [
+        [7, "⚠️ <b>WAN_DOWN</b>"],
+        [undefined, "⚠️ <b>WAN_DOWN</b>"],
+        [undefined, "<b>The topic is gone</b>"],
+      ]);
+      assert.deepEqual(fx.state.groupLink("-1002"), { userId: "1001", threadId: null }, "the link now posts to General");
+      assert.equal(fx.logs.filter((l) => l.includes("forum topic a linked group posts to")).length, 1);
+      assert.equal(fx.bot.pendingNotifications, 0);
+      await fx.bot.notifyAlert(alert("WAN_UP", "info"));
+      assert.deepEqual(toGroup().slice(3), [[undefined, "ℹ️ <b>WAN_UP</b>"]], "straight to General, no failed attempt");
+      await fx.state.flush();
+      const reread = new TelegramStateStore({ filePath: fx.stateFile, cipher: fx.cipher });
+      reread.load();
+      assert.deepEqual(reread.groupLink("-1002"), { userId: "1001", threadId: null }, "kept across a restart");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("answers in General when the topic a command came from is gone, changing nothing stored", async () => {
+    const fx = createBotFixture({ allowedChatIds: ["1001", "-1003"] });
+    try {
+      fx.tg.goneTopics.add(9);
+      await fx.message(-1003, "/help", { message_thread_id: 9, is_topic_message: true });
+      assert.deepEqual(fx.tg.sends("-1003").map((c) => c.payload["message_thread_id"]), [9, undefined]);
+      assert.match(fx.tg.lastText("-1003"), /FengSui/);
+      assert.equal(fx.state.groupLink("-1003"), null);
+      // Any other refusal is not a gone topic: no second try
+      fx.tg.goneTopics.clear();
+      fx.tg.failures.send = 403;
+      await fx.message(-1003, "/help", { message_thread_id: 9, is_topic_message: true });
+      assert.deepEqual(fx.tg.sends("-1003").map((c) => c.payload["message_thread_id"]), [9, undefined, 9]);
     } finally {
       await fx.cleanup();
     }

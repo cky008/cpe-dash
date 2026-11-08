@@ -5,6 +5,8 @@ import { parseJsonSafeNullProto } from "../json-safe.ts";
 export class TelegramApiError extends Error {
   readonly method: string;
   readonly errorCode: number | null;
+  /** Telegram's own `description` (e.g. "Bad Request: message thread not found"). */
+  readonly description: string;
   /** `parameters.retry_after` of a `429`: seconds Telegram asks the bot to wait. */
   readonly retryAfterSec: number | null;
 
@@ -13,6 +15,7 @@ export class TelegramApiError extends Error {
     this.name = "TelegramApiError";
     this.method = method;
     this.errorCode = errorCode;
+    this.description = description;
     this.retryAfterSec = retryAfterSec;
   }
 }

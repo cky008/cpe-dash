@@ -90,6 +90,11 @@ export function escapeTelegramHtml(text: string | number): string {
 }
 
 /** The forum topic a message was posted in, or `null` (a private chat, a group without topics, the General topic). */
+/** Telegram's answer to a message for a forum topic that was deleted or closed since. */
+function isGoneTopicError(err: unknown): boolean {
+  return err instanceof TelegramApiError && err.errorCode === 400 && /message thread not found|TOPIC_(?:CLOSED|DELETED)/i.test(err.description);
+}
+
 function topicOf(msg: { message_thread_id?: number; is_topic_message?: boolean } | undefined): number | null {
   return msg?.is_topic_message === true && typeof msg.message_thread_id === "number" ? msg.message_thread_id : null;
 }
@@ -137,6 +142,8 @@ export function truncateTelegramHtml(html: string, max: number): string {
 
 const TEXT = {
   "zh-CN": {
+    topic_gone:
+      "<b>原话题已不存在</b>\n\n我发帖的论坛话题已被删除或关闭，之后改在这里（通用话题）发送。要换到别的话题：在控制台「设置 → Telegram」解绑本群，再在那个话题里发送新的群组配对码。",
     unauthorized: "<b>烽燧 · 会话未授权</b>\n\nChat ID：<code>{chatId}</code>\n在控制台「设置 → Telegram」生成绑定码，然后发送 <code>/auth 绑定码</code>（也可以用完整权限的访问令牌）。",
     auth_usage: "用法：<code>/auth 绑定码</code>",
     auth_private_only:
@@ -240,6 +247,8 @@ const TEXT = {
     cmd_help: "使用说明",
   },
   en: {
+    topic_gone:
+      "<b>The topic is gone</b>\n\nThe forum topic I posted to was deleted or closed, so I post here (General) from now on. To move me to another topic, unlink this group in Settings → Telegram and send a new group pairing code in that topic.",
     unauthorized: "<b>FengSui · chat not authorized</b>\n\nChat ID: <code>{chatId}</code>\nCreate a pairing code in the console (Settings → Telegram), then send <code>/auth CODE</code> (a full-access token works too).",
     auth_usage: "Usage: <code>/auth PAIRING_CODE</code>",
     auth_private_only:
@@ -469,6 +478,15 @@ export class TelegramStateStore {
   groupLink(chatId: string): TelegramGroupLink | null {
     const link = this.#groupLinks.get(chatId);
     return link ? { ...link } : null;
+  }
+
+  /** Move a group link from forum topic `from` to `to` (`null`: General); `false` when it no longer posts to `from`. */
+  setGroupTopic(chatId: string, from: number | null, to: number | null): boolean {
+    const link = this.#groupLinks.get(chatId);
+    if (!link || link.threadId !== from) return false;
+    this.#groupLinks.set(chatId, { userId: link.userId, threadId: to });
+    this.#commit();
+    return true;
   }
 
   /** A linked group became a supergroup under a new ID: the link follows it. `false` when `from` was not linked. */
@@ -1758,14 +1776,31 @@ export class TelegramBot implements NotificationChannel {
   async #send(to: ReplyTo, html: string, keyboard?: InlineKeyboard): Promise<{ message_id?: number }> {
     const link = this.state.groupLink(to.chatId);
     const threadId = link ? link.threadId : to.topic;
-    return await this.api.call<{ message_id?: number }>("sendMessage", {
-      chat_id: to.chatId,
-      ...(threadId !== null ? { message_thread_id: threadId } : {}),
-      text: truncateTelegramHtml(html, MAX_TELEGRAM_TEXT),
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-      ...(keyboard ? { reply_markup: keyboard } : {}),
-    });
+    const call = (thread: number | null): Promise<{ message_id?: number }> =>
+      this.api.call<{ message_id?: number }>("sendMessage", {
+        chat_id: to.chatId,
+        ...(thread !== null ? { message_thread_id: thread } : {}),
+        text: truncateTelegramHtml(html, MAX_TELEGRAM_TEXT),
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        ...(keyboard ? { reply_markup: keyboard } : {}),
+      });
+    try {
+      return await call(threadId);
+    } catch (err) {
+      // The forum topic was deleted or closed since: the group's General topic rather than nowhere
+      if (threadId === null || !isGoneTopicError(err)) throw err;
+      const sent = await call(null);
+      if (link) this.#leaveGoneTopic(to.chatId, threadId);
+      return sent;
+    }
+  }
+
+  /** A group linked from a topic that is gone posts to its General topic from now on, and says so there once. */
+  #leaveGoneTopic(chatId: string, threadId: number): void {
+    if (!this.state.setGroupTopic(chatId, threadId, null)) return;
+    this.#log("[telegram] the forum topic a linked group posts to was deleted or closed; posting to its General topic now");
+    void this.#send({ chatId, topic: null }, this.#tx("topic_gone")).catch(() => undefined);
   }
 
   async #edit(chatId: string, messageId: number, html: string, keyboard?: InlineKeyboard): Promise<void> {
