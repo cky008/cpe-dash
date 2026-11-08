@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
+import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
@@ -167,6 +167,31 @@ describe("MCP and the write gate", () => {
       const refused = (await rpc("tools/call", { name: "reboot_cpe", arguments: { confirm: true } }))["structuredContent"] as Record<string, unknown>;
       assert.equal(refused["errorCode"], "MUTATIONS_DISABLED");
       assert.equal(cpe.stats.writes.length, 0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("labels device names as untrusted in what an access-control write returns, as the read does", async () => {
+    // Only what the provider adds to the controls' answer matters here
+    const answer = { changed: true, alsoBlocked: [], accessControl: null };
+    const core = {
+      controls: { setWifiAccess: async () => answer, manageTimeRule: async () => answer },
+      monitor: { getCachedTopology: () => null },
+      scheduler: { device: { skips: () => false } },
+    } as unknown as FengSuiCore;
+    const tools = new AccessControlMcpTools({ core, allowWrites: true, redactSensitive: () => false });
+    const written = await tools.execute("set_device_internet_access", { action: "block", macAddress: "02:00:5E:10:00:03", confirm: true });
+    assert.match(String(written["untrustedDataNotice"]), /untrusted/);
+  });
+
+  it("states in each SMS tool's schema how many messages one call may take", async () => {
+    const fx = mcpFixture(createStrictCpe());
+    try {
+      const definitions = new SmsMcpTools({ sms: fx.sms, access: "full", sendPolicy: "known", sendLimitPerHour: 10 }).getToolDefinitions();
+      const uids = (name: string): unknown => definitions.find((t) => t.name === name)?.inputSchema.properties["uids"];
+      assert.equal((uids("delete_sms") as { maxItems?: number }).maxItems, 20);
+      assert.equal((uids("mark_sms_read") as { maxItems?: number }).maxItems, 50);
     } finally {
       await fx.cleanup();
     }

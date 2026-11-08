@@ -1478,7 +1478,7 @@ export interface McpToolErrorPayload {
 | `set_wifi_mac_filter` | `mode?`、`macAddresses?`（该模式的完整名单）、`add?` / `remove?`（MAC 数组）、`confirm: true` | 设备名从拓扑补齐 |
 | `manage_internet_time_rule` | `action`、`id?`、`macAddress` 或 `ipv4Address`、`weekMask`、`startTime`、`endTime`、`enabled?`、`confirm: true` | 规则语义为"允许上网时段" |
 
-MCP 调用没有"请求方设备"（`requesterIp` 为空），但运行烽燧的主机同样受保护；其余校验与 REST 相同。
+三个写工具的结果为 `{ ok, untrustedDataNotice, changed, alsoBlocked, accessControl }`：回读的快照同样带设备名，所以同样附上不可信数据声明。MCP 调用没有"请求方设备"（`requesterIp` 为空），但运行烽燧的主机同样受保护；其余校验与 REST 相同。
 
 ---
 

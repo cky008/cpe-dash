@@ -130,7 +130,7 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     inputSchema: {
       type: "object",
       properties: {
-        uids: { type: "array", items: { type: "string" }, description: `At most ${MAX_READ_PER_CALL}.` },
+        uids: { type: "array", items: { type: "string" }, maxItems: MAX_READ_PER_CALL, description: `At most ${MAX_READ_PER_CALL}.` },
         threadKey: { type: "string" },
       },
       additionalProperties: false,
@@ -144,7 +144,7 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     inputSchema: {
       type: "object",
       properties: {
-        uids: { type: "array", items: { type: "string" } },
+        uids: { type: "array", items: { type: "string" }, maxItems: MAX_DELETE_PER_CALL },
         confirm: { type: "boolean", description: "Must be true." },
         includeUnread: { type: "boolean", description: "Allow deleting unread messages (default false)." },
       },

@@ -82,7 +82,8 @@ export function validateToolArguments(schema: McpInputSchema, args: Readonly<Rec
     if (args[key] === undefined) return `missing required parameter "${key}"`;
   }
   for (const [key, value] of Object.entries(args)) {
-    const property = schema.properties[key];
+    // An own property only: names every object inherits (toString, constructor…) are no declared parameter
+    const property = Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined;
     if (property === undefined) {
       if (schema.additionalProperties === false) {
         const known = Object.keys(schema.properties);

@@ -169,5 +169,9 @@ describe("shared REST/MCP input guards and the schema validator", () => {
     assert.match(validateToolArguments(schema, { name: "a", level: -1 }) ?? "", />= 0/);
     assert.match(validateToolArguments(schema, { name: "a", extra: 1 }) ?? "", /unknown parameter "extra" \(expected "bands", "name", "level"\)/);
     assert.equal(validateToolArguments({ ...schema, additionalProperties: true }, { name: "a", extra: 1 }), null);
+    // Names every object inherits are no declared parameter either
+    for (const inherited of ["toString", "valueOf", "hasOwnProperty", "constructor"]) {
+      assert.match(validateToolArguments(schema, { name: "a", [inherited]: "x" }) ?? "", new RegExp(`unknown parameter "${inherited}"`), inherited);
+    }
   });
 });
