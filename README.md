@@ -571,7 +571,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 这两项会在没人操作时写路由器，所以默认关闭，需要在 `.env` 中显式开启：
 
 - **锁频回滚** `LOCK_ROLLBACK_AFTER_MIN`：锁频段或锁小区后，WAN 必须恢复并连续在线 2 分钟；到时间仍然断开，就自动解除全部锁定一次并发出 `LOCK_ROLLED_BACK`。窗口内重启守护进程会继续计时；解锁没能完成（熔断、连续失败、到期 1 小时后仍被真人登录挡住）时发出 `LOCK_ROLLBACK_FAILED`。
-- **WAN 自动重拨** `WAN_AUTO_RECONNECT_AFTER_MIN`：WAN 断开持续这么久后自动重拨，之后间隔 10 / 30 / 60 分钟再试，24 小时内最多 4 次（`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`），从不自动重启路由器。锁定后的观察期由锁频回滚负责。
+- **WAN 自动重拨** `WAN_AUTO_RECONNECT_AFTER_MIN`：WAN 断开持续这么久后自动重拨，之后间隔 10 / 30 / 60 分钟再试，24 小时内最多 4 次（`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`；次数与间隔记在加密的 `state.json` 里，重启守护进程不会清零），从不自动重启路由器。锁定后的观察期由锁频回滚负责。
 
 两者只依据最新遥测，走控制队列（真人登录官方后台时让位，熔断时不登录），并在写入前于同一会话内重新读取 WAN 状态与移动数据开关：WAN 已恢复或移动数据被手动关闭时不写入。
 

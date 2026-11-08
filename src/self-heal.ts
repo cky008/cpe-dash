@@ -15,7 +15,7 @@ import {
   SchedulerQueueFullError,
   SchedulerStoppedError,
 } from "./scheduler.ts";
-import type { AlertEventRecord } from "./state-store.ts";
+import type { AlertEventRecord, SelfHealReconnectState } from "./state-store.ts";
 
 export interface WanSelfHealOptions {
   scheduler: MutexSessionScheduler;
@@ -61,7 +61,8 @@ interface LockWatch {
  * - **Lock rollback** (`LOCK_ROLLBACK_AFTER_MIN`): after a band or cell lock, the WAN must come back
  *   and stay up for 2 min; if it is still down when the window ends, every lock is cleared once.
  * - **Reconnect** (`WAN_AUTO_RECONNECT_AFTER_MIN`): a WAN down that long is redialled, then again
- *   after 10, 30 and 60 min, at most 4 times in 24 h. Never a reboot.
+ *   after 10, 30 and 60 min, at most 4 times in 24 h (kept in state.json, so a restart neither
+ *   refills the budget nor shortens the wait). Never a reboot.
  *
  * Both act only on fresh telemetry, go through the control queue (so a human logged into the WebUI
  * is never overridden and the breaker is respected), re-read the WAN and the mobile-data switch
@@ -85,6 +86,8 @@ export class WanSelfHeal {
   #reconnects: number[] = [];
   #backoffIndex = 0;
   #nextReconnectAtMs = 0;
+  /** The redials and backoff step last saved, to write state.json only when they change. */
+  #savedReconnects = budgetKey([], 0);
   #exhaustedAlerted = false;
   /** The read-only alert of this outage was raised (a router of an unverified model writes nothing). */
   #readOnlyAlerted = false;
@@ -122,6 +125,7 @@ export class WanSelfHeal {
     this.#started = true;
     this.scheduler.on("control:applied", this.#onControl);
     this.monitor.on("telemetry", this.#onTelemetry);
+    if (this.reconnectAfterMs > 0) this.#restoreReconnects(this.scheduler.stateStore.getState().selfHealReconnect);
     // A restart inside the window (deploy, crash) keeps the switch armed for the lock in place
     const lock = this.controls.getPersistedLockState();
     if (this.lockRollbackAfterMs > 0 && lock.mode !== "unlocked") {
@@ -162,6 +166,7 @@ export class WanSelfHeal {
       this.#nextReconnectAtMs = 0;
       this.#exhaustedAlerted = false;
       this.#readOnlyAlerted = false;
+      this.#saveReconnects();
     } else {
       this.#downSinceMs ??= at;
     }
@@ -297,8 +302,11 @@ export class WanSelfHeal {
         err instanceof DeviceNotIdentifiedError ||
         isQueueRefusal(err)
       );
-      if (reachedRouter) this.#reconnects.push(at);
       this.#nextReconnectAtMs = at + SELF_HEAL_RETRY_MS;
+      if (reachedRouter) {
+        this.#reconnects.push(at);
+        this.#saveReconnects();
+      }
       return;
     }
     this.#lastFailure = null;
@@ -312,11 +320,42 @@ export class WanSelfHeal {
     const gap = RECONNECT_BACKOFF_MS[Math.min(this.#backoffIndex, RECONNECT_BACKOFF_MS.length - 1)] ?? SELF_HEAL_RETRY_MS;
     this.#backoffIndex += 1;
     this.#nextReconnectAtMs = at + gap;
+    this.#saveReconnects();
     this.#raise("warning", "WAN_AUTO_RECONNECT", "alerts.wan_auto_reconnect", {
       minutes: Math.max(1, Math.round((at - downSince) / 60_000)),
       count: this.#reconnects.length,
       max: RECONNECT_MAX_PER_DAY,
     });
+  }
+
+  /**
+   * Take back what an earlier run saved, as far as it is plausible now: redials within 24 h of this
+   * clock, and a wait no longer than the longest backoff step (a clock that has moved since says nothing).
+   */
+  #restoreReconnects(saved: SelfHealReconnectState | null): void {
+    if (!saved) return;
+    const now = this.#now();
+    const reconnects = Array.isArray(saved.reconnectsMs) ? saved.reconnectsMs : [];
+    this.#reconnects = reconnects.filter((ts) => typeof ts === "number" && Math.abs(now - ts) < DAY_MS);
+    const next = saved.nextReconnectAtMs;
+    this.#nextReconnectAtMs = typeof next === "number" && next - now <= Math.max(...RECONNECT_BACKOFF_MS) ? next : 0;
+    const step = saved.backoffIndex;
+    this.#backoffIndex = Number.isSafeInteger(step) && step > 0 ? Math.min(step, RECONNECT_BACKOFF_MS.length) : 0;
+    this.#savedReconnects = budgetKey(this.#reconnects, this.#backoffIndex);
+  }
+
+  /**
+   * Save the day's redials and the backoff step when either changed (a redial, or the WAN back up),
+   * at once: a daemon crashing in a loop would otherwise start each run with a full budget. The
+   * one-minute retries after a refusal are not worth a write.
+   */
+  #saveReconnects(): void {
+    const key = budgetKey(this.#reconnects, this.#backoffIndex);
+    if (key === this.#savedReconnects) return;
+    this.#savedReconnects = key;
+    const next = Number.isFinite(this.#nextReconnectAtMs) ? this.#nextReconnectAtMs : 0;
+    this.scheduler.stateStore.update({ selfHealReconnect: { reconnectsMs: [...this.#reconnects], nextReconnectAtMs: next, backoffIndex: this.#backoffIndex } });
+    void this.scheduler.stateStore.flushAsync().catch(() => undefined);
   }
 
   /** Log a failure once per distinct reason (a tripped breaker would otherwise log every minute). */
@@ -329,6 +368,10 @@ export class WanSelfHeal {
   #raise(severity: AlertEventRecord["severity"], code: string, key: I18nKey, params?: Readonly<Record<string, string | number>>): void {
     this.scheduler.raiseAlert({ severity, code, messageZh: t("zh-CN", key, params), messageEn: t("en", key, params) });
   }
+}
+
+function budgetKey(reconnects: ReadonlyArray<number>, backoffIndex: number): string {
+  return `${reconnects.join(",")}/${backoffIndex}`;
 }
 
 function isQueueRefusal(err: unknown): boolean {

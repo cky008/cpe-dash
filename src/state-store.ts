@@ -49,6 +49,17 @@ export interface PersistedRuntimeState {
   deviceReads: ReadRecord | null;
   /** The last generic writes on a model nobody verified (endpoints, codes, read-backs; never a value). */
   genericWrites: WriteResultRecord[];
+  /**
+   * The WAN redials self-heal spent in the last 24 h and the backoff of the outage it is in, so a
+   * restart (a deploy, a crash loop) neither refills the day's budget nor shortens the next wait.
+   */
+  selfHealReconnect: SelfHealReconnectState | null;
+}
+
+export interface SelfHealReconnectState {
+  reconnectsMs: number[];
+  nextReconnectAtMs: number;
+  backoffIndex: number;
 }
 
 /** How many generic write results the state keeps (the device report shows them). */
@@ -86,6 +97,7 @@ function createDefaultState(): PersistedRuntimeState {
     knownLoginScheme: null,
     deviceReads: null,
     genericWrites: [],
+    selfHealReconnect: null,
   };
 }
 

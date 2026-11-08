@@ -571,7 +571,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 Both write to the router without anyone asking, so they stay off until enabled in `.env`:
 
 - **Lock rollback** `LOCK_ROLLBACK_AFTER_MIN`: after a band or cell lock, the WAN must come back and stay up for 2 minutes; if it is still down when the time is up, every lock is cleared once and `LOCK_ROLLED_BACK` is raised. A daemon restart inside the window keeps the clock running; an unlock that cannot complete (breaker open, repeated failures, still blocked by a human login an hour after the deadline) raises `LOCK_ROLLBACK_FAILED`.
-- **WAN auto-reconnect** `WAN_AUTO_RECONNECT_AFTER_MIN`: a WAN down that long is redialled, then again after 10 / 30 / 60 minutes, at most 4 times in 24 hours (`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`); the router is never rebooted. The window after a lock belongs to the lock rollback.
+- **WAN auto-reconnect** `WAN_AUTO_RECONNECT_AFTER_MIN`: a WAN down that long is redialled, then again after 10 / 30 / 60 minutes, at most 4 times in 24 hours (`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`; the count and the wait are kept in the encrypted `state.json`, so restarting the daemon does not reset them); the router is never rebooted. The window after a lock belongs to the lock rollback.
 
 Both act only on fresh telemetry, go through the control queue (yielding to a human logged into the WebUI, no login while the breaker is open), and re-read the WAN state and the mobile-data switch inside the same session before writing: nothing is written if the WAN is back or mobile data was switched off by hand.
 

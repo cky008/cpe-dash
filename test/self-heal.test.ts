@@ -32,12 +32,13 @@ function sample(capturedAtMs: number, connectionStatus: string): GlobalTelemetry
   return { capturedAtMs, capturedAtIso: new Date(capturedAtMs).toISOString(), device: { connectionStatus } } as unknown as GlobalTelemetrySnapshot;
 }
 
-function createCore(fault?: (p: string, method: string, headers: Headers) => StrictFault | undefined) {
+/** `stateFile`: start from the state an earlier core left there (a restarted daemon); that core's cleanup removes it. */
+function createCore(fault?: (p: string, method: string, headers: Headers) => StrictFault | undefined, stateFile?: string) {
   const cpe = createStrictCpe({ fault });
-  const dir = tempDir("fengsui-selfheal-");
+  const dir = stateFile ? null : tempDir("fengsui-selfheal-");
   const core: FengSuiCore = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
-    stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "selfheal_key" }),
+    stateStore: new EncryptedStateStore({ filePath: stateFile ?? path.join(dir ?? "", "state.json"), encryptionKey: "selfheal_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
   });
   core.monitor.init();
@@ -46,15 +47,15 @@ function createCore(fault?: (p: string, method: string, headers: Headers) => Str
     core,
     cleanup: async () => {
       await stopFengSuiCore(core);
-      removeTempDir(dir);
+      if (dir) removeTempDir(dir);
     },
   };
 }
 
 type Plan = Array<() => Promise<WanRepairOutcome>>;
 
-function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: PersistedLockState }) {
-  const base = createCore();
+function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: PersistedLockState; stateFile?: string }) {
+  const base = createCore(undefined, opts.stateFile);
   let clock = T0;
   let lockState = opts.lock ?? unlocked(T0 - 60 * MIN);
   const calls = { rollback: 0, reconnect: 0 };
@@ -424,6 +425,73 @@ describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
       // The failed write and three redials are the day's four; the yield and the skips did not count
       assert.equal(fx.calls.reconnect, 7);
       assert.deepEqual(fx.codes(), ["WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED"]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("keeps the day's redials and the outage's backoff across a restart", async () => {
+    const fx = fixture({ reconnectMin: 3 });
+    let restarted: ReturnType<typeof fixture> | null = null;
+    try {
+      fx.heal.start();
+      for (const minute of [0, 3, 13, 43]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, 3);
+      assert.equal(fx.core.scheduler.stateStore.getState().selfHealReconnect?.reconnectsMs.length, 3, "each redial is saved at once");
+      await fx.heal.stop();
+      // A deploy or a crash: the next daemon reads state.json afresh
+      await fx.core.scheduler.stateStore.flushAsync();
+      restarted = fixture({ reconnectMin: 3, stateFile: fx.core.scheduler.stateStore.filePath });
+      restarted.setClock(T0 + 44 * MIN);
+      restarted.heal.start();
+      for (const minute of [44, 47, 102.9]) await restarted.at(minute, "902");
+      assert.equal(restarted.calls.reconnect, 0, "the outage's 60 min step still holds after the restart");
+      await restarted.at(103, "902");
+      assert.equal(restarted.calls.reconnect, 1);
+      assert.match(restarted.alerts[0]?.messageEn ?? "", /\(4\/4 in 24 h/);
+      await restarted.at(163, "902");
+      assert.equal(restarted.calls.reconnect, 1, "the day's four were spent before and after the restart");
+      assert.deepEqual(restarted.codes(), ["WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED"]);
+
+      // Back up: the backoff starts over, the day's redials stay counted, and both are saved
+      await restarted.at(170, "901");
+      assert.deepEqual(restarted.core.scheduler.stateStore.getState().selfHealReconnect, {
+        reconnectsMs: [3, 13, 43, 103].map((minute) => T0 + minute * MIN),
+        nextReconnectAtMs: 0,
+        backoffIndex: 0,
+      });
+    } finally {
+      await restarted?.cleanup();
+      await fx.cleanup();
+    }
+  });
+
+  it("restores only what is plausible from a damaged or out-of-range saved budget", async () => {
+    const fx = fixture({ reconnectMin: 3 });
+    try {
+      fx.core.scheduler.stateStore.update({
+        // One redial within the day survives; the junk, a day-old entry and a wait ten days out do not
+        selfHealReconnect: { reconnectsMs: ["x", T0 - 25 * 60 * MIN, T0 - 30 * MIN, Number.NaN], nextReconnectAtMs: T0 + 10 * 24 * 60 * MIN, backoffIndex: -3 },
+      } as unknown as Parameters<typeof fx.core.scheduler.stateStore.update>[0]);
+      fx.heal.start();
+      for (const minute of [0, 3]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, 1);
+      assert.match(fx.alerts[0]?.messageEn ?? "", /\(2\/4 in 24 h/);
+      await fx.at(12.9, "902");
+      assert.equal(fx.calls.reconnect, 1);
+      await fx.at(13, "902");
+      assert.equal(fx.calls.reconnect, 2, "the first backoff step, as in a fresh outage");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("starts with an empty budget when nothing was saved, and saves nothing while the WAN is up", async () => {
+    const fx = fixture({ reconnectMin: 3 });
+    try {
+      fx.heal.start();
+      for (const minute of [0, 1, 2]) await fx.at(minute, "901");
+      assert.equal(fx.core.scheduler.stateStore.getState().selfHealReconnect, null);
     } finally {
       await fx.cleanup();
     }
