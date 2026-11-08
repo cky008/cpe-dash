@@ -2,7 +2,7 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.6.3] — 2026-11-08
 
 ### Added
 - **A save that fails is said out loud.** Every encrypted store saves in the background, and a failure (a full or read-only data volume, a container running as another user) used to be ignored: the console accepted a new password, token, consent or Telegram link that was gone after the next restart. Such a failure now writes one log line and raises the critical `STORAGE_WRITE_FAILED` alert (pushed like the others) naming the file and the error code, once an hour per file and cause; nothing changes while saves work.
@@ -40,6 +40,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Documentation
 - `docs/PHASE2_ARCHITECTURE_REPORT.md` §12 records the second full audit: findings and fixes, conclusions per review dimension, the v1.0.1 → current data upgrade and resource measurements, new known limitations and the roadmap; §12.8 records the owner's decisions on it and what was then built.
 - §13 records the third full audit: findings and fixes, conclusions per review dimension, the v1.6.2 ↔ current data round trip, new known limitations and the roadmap.
+
+### Upgrading
+- Nothing to change in `.env`, no data to migrate and nothing to merge in an own compose file. `state.json` gains the self-healing watch and redial budget and `telegram.json` when and with which token each chat was linked; 1.6.2 opens both files and ignores the new fields, so going back to it is safe. Chats linked with a token before this version are not tied to it: use "Unlink all" once if a token may have leaked.
 
 ## [1.6.2] — 2026-11-04
 
