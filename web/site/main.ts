@@ -237,3 +237,51 @@ document.addEventListener("keydown", (event) => {
     openSearch();
   }
 });
+
+// The home page's theme wipe: scrolling through the section uncovers each palette over the last, on a slant
+const themes = document.querySelector<HTMLElement>("[data-themes]");
+if (themes) setUpThemeWipe(themes);
+
+function setUpThemeWipe(section: HTMLElement): void {
+  const track = section.querySelector<HTMLElement>("[data-themes-track]");
+  const sticky = section.querySelector<HTMLElement>("[data-themes-sticky]");
+  const layers = [...section.querySelectorAll<HTMLElement>("[data-theme-layer]")];
+  const chips = [...section.querySelectorAll<HTMLButtonElement>("[data-theme-chip]")];
+  if (!track || !sticky || layers.length < 2) return;
+  /** How far the cut leans, in percent of the width (matches site.css). */
+  const slant = 40;
+  const steps = layers.length - 1;
+  section.classList.add("themes-live");
+  track.style.setProperty("--steps", String(steps));
+  const range = (): { start: number; length: number } => {
+    const stickTop = Number.parseFloat(getComputedStyle(sticky).top) || 0;
+    const start = track.getBoundingClientRect().top + window.scrollY - stickTop;
+    return { start, length: Math.max(1, track.offsetHeight - sticky.offsetHeight) };
+  };
+  let frame = 0;
+  const update = (): void => {
+    frame = 0;
+    const { start, length } = range();
+    const position = Math.min(1, Math.max(0, (window.scrollY - start) / length)) * steps;
+    layers.forEach((layer, i) => {
+      if (i === 0) return;
+      const shown = Math.min(1, Math.max(0, position - (i - 1)));
+      layer.style.setProperty("--wipe", String(-slant + shown * (100 + slant)));
+    });
+    const current = Math.round(position);
+    chips.forEach((chip, i) => chip.setAttribute("aria-pressed", String(i === current)));
+  };
+  const schedule = (): void => {
+    if (frame === 0) frame = requestAnimationFrame(update);
+  };
+  window.addEventListener("scroll", schedule, { passive: true });
+  window.addEventListener("resize", schedule);
+  chips.forEach((chip, i) =>
+    chip.addEventListener("click", () => {
+      const { start, length } = range();
+      const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.scrollTo({ top: Math.ceil(start + (i / steps) * length), behavior: smooth ? "smooth" : "auto" });
+    })
+  );
+  update();
+}

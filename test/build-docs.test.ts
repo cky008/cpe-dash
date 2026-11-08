@@ -3,6 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { buildDocsSite, webpSize } from "../scripts/build-docs.ts";
+import { SHOWCASE_THEMES, showcaseImage } from "../scripts/site-home.ts";
+import { THEME_META } from "../web/src/core/prefs.ts";
+import { THEME_NAMES } from "../web/src/i18n/appearance.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const GUIDE = (dir: string): string[] =>
@@ -152,6 +155,24 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     const funding = fs.readFileSync(".github/FUNDING.yml", "utf8");
     assert.match(funding, /^github: cky008$/m);
     assert.match(funding, /^buy_me_a_coffee: iocky$/m, "the site links the same sponsor pages as GitHub's Sponsor button");
+  });
+
+  it("wipes through the dashboard in light and dark themes in turn on the home page, named as in the console", () => {
+    SHOWCASE_THEMES.forEach((id, i) => {
+      assert.equal(THEME_META[id].scheme, i % 2 === 0 ? "light" : "dark", id);
+      // npm run screenshots -- themes: one size, so the shots stack exactly
+      assert.deepEqual(webpSize(fs.readFileSync(path.join("docs", "screenshots", showcaseImage(id)))), { width: 1440, height: 900 }, id);
+    });
+    for (const [rel, locale] of [["index.html", "zh-CN"], [path.join("en", "index.html"), "en"]] as const) {
+      const home = fs.readFileSync(path.join(site, rel), "utf8");
+      const layers = [...home.matchAll(/<img [^>]*data-theme-layer[^>]*>/g)].map((m) => m[0]);
+      assert.deepEqual(layers.map((tag) => /screenshots\/([\w.-]+)"/.exec(tag)?.[1]), SHOWCASE_THEMES.map(showcaseImage), rel);
+      // Only the first picture is described; the others are the same dashboard in other colours
+      assert.match(layers[0] ?? "", /alt="[^"]+"/);
+      assert.ok(layers.slice(1).every((tag) => tag.includes('alt=""')));
+      const chips = [...home.matchAll(/<button type="button" class="theme-chip"[^>]*>(.*?)<\/button>/g)].map((m) => m[1]?.replace(/<[^>]+>[^<]*<\/span>/, ""));
+      assert.deepEqual(chips, SHOWCASE_THEMES.map((id) => THEME_NAMES[locale][id]), rel);
+    }
   });
 
   it("reads image sizes from WebP headers so pictures reserve their space", () => {

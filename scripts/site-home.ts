@@ -2,6 +2,8 @@
  * The documentation site's home page (scripts/build-docs.ts renders it): what FengSui is, in a few seconds,
  * in both languages. Words live here; the layout is the builder's.
  */
+import { THEME_META, type ThemeId } from "../web/src/core/prefs.ts";
+import { THEME_NAMES } from "../web/src/i18n/appearance.ts";
 import { escapeHtml } from "./markdown.ts";
 
 export type SiteLocale = "zh-CN" | "en";
@@ -22,6 +24,25 @@ export interface HomeContext {
 
 export const INSTALL_COMMAND = "docker pull ghcr.io/cky008/cpe-dash:latest";
 
+/**
+ * The home page's theme wipe, light and dark in turn: one frozen dashboard per palette, captured by
+ * `npm run screenshots -- themes` as docs/screenshots/theme-<name>.webp, so only the colours change.
+ */
+export const SHOWCASE_THEMES = [
+  "fengsui-sujian",
+  "fengsui-jiye",
+  "fengsui-sakura",
+  "fengsui-dailan",
+  "fengsui-tianqing",
+  "fengsui-ziming",
+  "fengsui-chenxi",
+  "fengsui-yozakura",
+] as const satisfies ReadonlyArray<ThemeId>;
+
+export function showcaseImage(id: ThemeId): string {
+  return `theme-${id.replace(/^fengsui-/, "")}.webp`;
+}
+
 const TEXT = {
   "zh-CN": {
     metaTitle: "烽燧 FengSui · 华为 5G 路由器的自托管控制台",
@@ -35,8 +56,10 @@ const TEXT = {
     demo: "在线演示",
     verified: "只在华为 5G CPE Ultra 6（H168-383）上验证过，其他华为型号以只读方式工作。",
     copyLabel: "复制命令",
-    showcaseTitle: "一眼看清你的网络",
-    showcaseLead: "信号、载波、附近的基站、流量和设备都在同一个页面上，每 5 秒刷新一次。",
+    themesTitle: "十四套主题",
+    themesLead: "浅色和深色各 7 套，有几套取自中国和日本的传统色。往下滚动看看；在控制台的「设置 → 外观」里一键切换，也可以调出自己的配色。",
+    themesPick: "选择主题",
+    themesAlt: "烽燧控制台",
     featuresTitle: "需要的都在这里",
     features: [
       ["i-signal", "信号与载波聚合", "RSRP、SINR、MCS、发射功率和每个载波的频段、带宽，一眼看清 4G 与 5G 现在用的是什么。"],
@@ -81,8 +104,10 @@ const TEXT = {
     demo: "Live demo",
     verified: "Verified on the Huawei 5G CPE Ultra 6 (H168-383) only. Other Huawei models work read-only.",
     copyLabel: "Copy command",
-    showcaseTitle: "Your network at a glance",
-    showcaseLead: "Signal, carriers, neighbouring cells, traffic and devices on one screen, refreshed every 5 seconds.",
+    themesTitle: "Fourteen themes",
+    themesLead: "Seven light and seven dark, several drawn from traditional Chinese and Japanese colours. Scroll to see some of them; switch in the console under Settings → Appearance, or mix your own.",
+    themesPick: "Choose a theme",
+    themesAlt: "The FengSui console",
     featuresTitle: "Everything you need",
     features: [
       ["i-signal", "Signal and carrier aggregation", "RSRP, SINR, MCS, transmit power and every carrier's band and bandwidth: see what 4G and 5G are using right now."],
@@ -152,12 +177,19 @@ export function renderHome(ctx: HomeContext): string {
   </div>
 </section>`;
 
-  const showcase = `
-<section class="band py-20 sm:py-28">
-  <div class="mx-auto max-w-6xl px-4 sm:px-6 text-center">
-    <h2 class="section-title text-4xl sm:text-5xl">${e(t.showcaseTitle)}</h2>
-    <p class="lead mt-4 text-lg max-w-2xl mx-auto">${e(t.showcaseLead)}</p>
-    <div class="shot mt-12 text-left"><div class="window-bar" aria-hidden="true"><span></span><span></span><span></span></div>${img(ctx, "dashboard-jiye.webp", t.showcaseTitle, ' loading="lazy"')}</div>
+  // Scrolling through the section wipes each palette over the last (web/site/main.ts); without script, the first shows
+  const names = THEME_NAMES[ctx.locale];
+  const themes = `
+<section class="band themes pb-20 sm:pb-28" data-themes>
+  <div class="mx-auto max-w-6xl px-4 sm:px-6 pt-20 sm:pt-28 text-center">
+    <h2 class="section-title text-4xl sm:text-5xl">${e(t.themesTitle)}</h2>
+    <p class="lead mt-4 text-lg max-w-2xl mx-auto">${e(t.themesLead)}</p>
+  </div>
+  <div class="themes-track px-4 sm:px-6" data-themes-track>
+    <div class="themes-sticky" data-themes-sticky>
+      <div class="themes-stage shot"><div class="window-bar" aria-hidden="true"><span></span><span></span><span></span></div><div class="themes-layers">${SHOWCASE_THEMES.map((id, i) => img(ctx, showcaseImage(id), i === 0 ? `${t.themesAlt} · ${names[id]}` : "", ` class="theme-layer" data-theme-layer loading="lazy"`)).join("")}</div></div>
+      <div class="themes-picker" role="group" aria-label="${e(t.themesPick)}">${SHOWCASE_THEMES.map((id, i) => `<button type="button" class="theme-chip" data-theme-chip aria-pressed="${i === 0}"><span class="theme-scheme" aria-hidden="true">${THEME_META[id].scheme === "dark" ? "●" : "○"}</span>${e(names[id])}</button>`).join("")}</div>
+    </div>
   </div>
 </section>`;
 
@@ -211,5 +243,5 @@ export function renderHome(ctx: HomeContext): string {
   </div>
 </section>`;
 
-  return hero + showcase + features + safe + gallery + support + cta;
+  return hero + themes + features + safe + gallery + support + cta;
 }

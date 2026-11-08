@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { type Page, type Viewport, closeChrome, launchChrome, openPage } from "./cdp.ts";
+import { THEME_META } from "../web/src/core/prefs.ts";
+import { type ChromeHandle, type Page, type Viewport, closeChrome, launchChrome, openPage } from "./cdp.ts";
 import { type DemoDaemon, startDemoDaemon } from "./demo-router.ts";
+import { SHOWCASE_THEMES, showcaseImage } from "./site-home.ts";
 
 /**
  * Regenerate the screenshots of the READMEs and the documentation site (docs/screenshots/*.webp) from the offline demo: the real daemon
@@ -11,6 +13,7 @@ import { type DemoDaemon, startDemoDaemon } from "./demo-router.ts";
  *
  *   npm run build:web && npm run screenshots                 # every shot
  *   npm run screenshots -- dashboard-sujian mobile           # only these
+ *   npm run screenshots -- themes                            # the home page's theme wipe
  *   CHROME_PATH=/path/to/chrome npm run screenshots          # another Chrome / Chromium
  *
  * Run it before tagging a release, so the pictures land in the signed release commit.
@@ -240,11 +243,38 @@ async function signIn(page: Page, demo: DemoDaemon, shot: Shot): Promise<void> {
   await sleep(800);
 }
 
+/**
+ * The home page's theme wipe: the dashboard is captured once per palette with its live stream closed, so
+ * every picture shows the same numbers and only the colours change between them.
+ */
+async function captureThemes(chrome: ChromeHandle, demo: DemoDaemon): Promise<void> {
+  const page = await openPage(chrome);
+  // Keep the console's event streams within reach; close() fires no error event, so it does not reconnect
+  await page.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: "window.__fsStreams = []; window.EventSource = class extends window.EventSource { constructor(...args) { super(...args); window.__fsStreams.push(this); } };",
+  });
+  await page.viewport(DESKTOP);
+  await signIn(page, demo, { name: "themes", scenario: "normal", theme: SHOWCASE_THEMES[0] });
+  await page.waitUntil("document.getElementById('toasts')?.childElementCount === 0", "toasts to clear", 12_000).catch(() => undefined);
+  // No more updates, and a clock that stands still so "updated just now" stays as it is
+  await page.evaluate("for (const stream of window.__fsStreams) stream.close(); const now = Date.now(); Date.now = () => now; true");
+  // Let the last update's transitions (gauges, counters) settle
+  await sleep(2000);
+  for (const id of SHOWCASE_THEMES) {
+    await page.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(id)}; document.documentElement.dataset.scheme = ${JSON.stringify(THEME_META[id].scheme)}; true`);
+    await sleep(300);
+    const file = path.join(OUT_DIR, showcaseImage(id));
+    await page.capture(file, false, DESKTOP);
+    console.log(`  ${path.basename(file)}  ${(fs.statSync(file).size / 1024).toFixed(0)} KiB`);
+  }
+}
+
 async function main(): Promise<void> {
   if (!fs.existsSync(path.join(ROOT, "dist", "web", "public", "index.html"))) throw new Error("build the console first: npm run build:web");
   const only = new Set(process.argv.slice(2));
   const shots = SHOTS.filter((s) => only.size === 0 || only.has(s.name));
-  if (shots.length === 0) throw new Error(`unknown shot(s); known: ${SHOTS.map((s) => s.name).join(", ")}`);
+  const themes = only.size === 0 || only.has("themes");
+  if (shots.length === 0 && !themes) throw new Error(`unknown shot(s); known: ${[...SHOTS.map((s) => s.name), "themes"].join(", ")}`);
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const chrome = await launchChrome();
@@ -267,6 +297,11 @@ async function main(): Promise<void> {
       const file = path.join(OUT_DIR, `${shot.name}.webp`);
       await page.capture(file, shot.fullPage === true, view);
       console.log(`  ${shot.name}.webp  ${(fs.statSync(file).size / 1024).toFixed(0)} KiB`);
+    }
+    if (themes) {
+      const demo = worlds.get("normal") ?? (await startWorld("normal"));
+      worlds.set("normal", demo);
+      await captureThemes(chrome, demo);
     }
   } finally {
     await closeChrome(chrome);

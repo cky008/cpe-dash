@@ -779,4 +779,76 @@ kbd {
   top: -5rem;
   visibility: hidden;
 }
+
+/* Theme wipe on the home page: the shots stack in one cell; each later one is cut on a slant at --wipe
+   (percent of the width, set by web/site/main.ts while scrolling). Without script only the first shows. */
+.themes-stage {
+  width: min(100%, 72rem);
+  margin: 3rem auto 0;
+}
+.themes-layers {
+  display: grid;
+}
+.themes-stage .theme-layer {
+  grid-area: 1 / 1;
+}
+.theme-layer + .theme-layer {
+  clip-path: polygon(0 0, calc(var(--wipe, -40) * 1%) 0, calc((var(--wipe, -40) + 40) * 1%) 100%, 0 100%);
+}
+.themes-picker {
+  display: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+.theme-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.875rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.875rem;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.theme-chip:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.theme-chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+.theme-scheme {
+  font-size: 0.625rem;
+  line-height: 1;
+}
+/* With script: the section grows by one step of scrolling per theme while the stage stays in view */
+.themes-live {
+  --step: 45svh;
+}
+.themes-live .themes-track {
+  height: calc(100svh + var(--steps, 0) * var(--step));
+}
+.themes-live .themes-sticky {
+  position: sticky;
+  top: 5rem;
+}
+.themes-live .themes-stage {
+  /* Short windows: keep the shot and the theme names on screen together */
+  width: min(100%, 72rem, calc((100svh - 12rem) * 1.6));
+  margin-top: 2rem;
+}
+.themes-live .themes-picker {
+  display: flex;
+}
+@media (max-width: 640px) {
+  .themes-live {
+    --step: 30svh;
+  }
+}
 }
