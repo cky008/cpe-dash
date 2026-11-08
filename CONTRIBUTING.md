@@ -62,13 +62,13 @@ npm run build:docs  # the documentation site, into dist/site
   Types: `feat`, `fix`, `refactor`, `security`, `test`, `docs`, `chore`, `ci`.
 - Keep a pull request to one change. Update `CHANGELOG.md` under `[Unreleased]`, and the user guide in both languages
   (`docs/guide/en`, `docs/guide/zh`) when behaviour changes.
-- `main` accepts signed commits only
-  ([how to sign commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)).
-  If yours are not signed, the maintainer squashes the pull request locally and signs the result.
+- Signed commits are welcome
+  ([how to sign commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits))
+  but not required: pull requests are squash-merged on GitHub.
 - By contributing, you agree that your contribution is licensed under the project's license
   ([PolyForm Noncommercial 1.0.0](LICENSE)).
 
 - 提交信息遵循 Conventional Commits，例如 `fix(sms): keep the draft when sending fails`。类型：`feat`、`fix`、`refactor`、`security`、`test`、`docs`、`chore`、`ci`。
 - 一个 PR 只做一件事。在 `CHANGELOG.md` 的 `[Unreleased]` 下记录改动；行为有变化时同步更新中英文用户指南（`docs/guide/zh`、`docs/guide/en`）。
-- `main` 分支只接受签名的提交（[如何签名提交](https://docs.github.com/zh/authentication/managing-commit-signature-verification/signing-commits)）。没有签名的 PR 由维护者在本地压缩合并、签名后推送。
+- 欢迎签名提交（[如何签名提交](https://docs.github.com/zh/authentication/managing-commit-signature-verification/signing-commits)），但不强制：PR 在 GitHub 上压缩合并。
 - 提交贡献即表示你同意以本项目的许可证（[PolyForm Noncommercial 1.0.0](LICENSE)）授权你的贡献。

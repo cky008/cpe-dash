@@ -27,7 +27,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ### Documentation
 - `docs/PHASE2_ARCHITECTURE_REPORT.md` §15 records the second final review: what was found and fixed, each dimension's conclusion, the public-exposure summary, the subagents' false positives, known limitations and the decisions left to the owner.
-- **Contributing rules that match the repository.** `CONTRIBUTING.md` and the pull request checklist now say that `main` accepts signed commits only (unsigned pull requests are squashed and signed by the maintainer) and point behaviour changes at the user guide in both languages instead of the READMEs, which no longer describe features.
+- **Contributing rules that match the repository.** `CONTRIBUTING.md` and the pull request checklist point behaviour changes at the user guide in both languages instead of the READMEs, which no longer describe features, and say that signed commits are welcome but not required (pull requests are squash-merged on GitHub).
 
 ### Container and CI
 - **Release notes link the commits since the release before.** Each GitHub release ends with a "Full Changelog" link comparing it with the previous tag, as GitHub's own notes do (the first release links its commits); every GitHub release was regenerated with it.
