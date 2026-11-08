@@ -37,6 +37,54 @@ export const TYPE_ESCAPES: ReadonlyArray<{ name: string; regex: RegExp }> = [
   { name: "TypeScript suppression directive", regex: /@ts-(?:ignore|expect-error|nocheck)\b/ },
 ];
 
+/** One explicit type escape: its 1-based line and the rule that caught it. */
+export interface TypeEscapeFinding {
+  readonly line: number;
+  readonly name: string;
+}
+
+/** Sources the type-escape scan reads (`.tsx` too, should a view ever use it). */
+export function isTypeScriptFile(f: string): boolean {
+  return f.endsWith(".ts") || f.endsWith(".tsx");
+}
+
+
+/**
+ * Explicit type escapes in one file. Each line is checked on its own, then each pair of lines joined
+ * with a space (an annotation split as `x:` + `any`), reported once at the second line.
+ */
+export function scanTypeEscapes(content: string): TypeEscapeFinding[] {
+  const lines = content.split("\n");
+  const findings: TypeEscapeFinding[] = [];
+  const matchedLineIndices = new Set<number>();
+
+  lines.forEach((line, i) => {
+    for (const escape of TYPE_ESCAPES) {
+      if (escape.regex.test(line)) {
+        findings.push({ line: i + 1, name: escape.name });
+        matchedLineIndices.add(i);
+      }
+    }
+  });
+
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (matchedLineIndices.has(i) || matchedLineIndices.has(i + 1)) {
+      continue;
+    }
+    const lineA = lines[i] ?? "";
+    const lineB = lines[i + 1] ?? "";
+    const joined = `${lineA} ${lineB}`;
+    for (const escape of TYPE_ESCAPES) {
+      if (escape.regex.test(joined)) {
+        findings.push({ line: i + 2, name: escape.name });
+      }
+    }
+  }
+
+  return findings;
+}
+
+
 const ALLOWED_PLACEHOLDERS = new Set([
   "1234567890:AAExampleBotTokenFromBotFather",
   "860000000000000",
@@ -78,20 +126,27 @@ function scanText(label: string, content: string, dynamicSecrets: ReadonlyArray<
 
 /** Files that must never be tracked: secrets, runtime data, captures, contact exports and binaries. */
 export function isForbiddenTrackedFile(f: string): boolean {
+  const normalized = f.toLowerCase();
+  const base = normalized.split(/[/\\]/).pop() ?? normalized;
   return (
-    f === ".env" ||
-    (f.startsWith(".env.") && f !== ".env.example") ||
+    base === ".env" ||
+    (base.startsWith(".env.") && base !== ".env.example") ||
     (f.startsWith("data/") && f !== "data/.gitkeep") ||
     f.startsWith(".probe-cache/") ||
-    f.endsWith(".har") ||
-    /\.pcap(?:ng)?(?:\.|$)/.test(f) ||
-    f.endsWith(".saz") ||
-    f.endsWith(".vcf") ||
-    f.endsWith(".apk") ||
-    f.includes(".apk.") ||
-    f.endsWith(".dll") ||
-    f.endsWith(".pem") ||
-    f.endsWith(".key")
+    normalized.endsWith(".har") ||
+    /\.pcap(?:ng)?(?:\.|$)/i.test(f) ||
+    normalized.endsWith(".saz") ||
+    normalized.endsWith(".vcf") ||
+    normalized.endsWith(".apk") ||
+    normalized.includes(".apk.") ||
+    normalized.endsWith(".dll") ||
+    normalized.endsWith(".exe") ||
+    normalized.endsWith(".dex") ||
+    normalized.endsWith(".so") ||
+    normalized.endsWith(".p12") ||
+    normalized.endsWith(".pfx") ||
+    normalized.endsWith(".pem") ||
+    normalized.endsWith(".key")
   );
 }
 
@@ -166,14 +221,10 @@ function main(): void {
       const rel = path.relative(root, full);
       if (ent.isDirectory()) {
         walkTs(full);
-      } else if (ent.name.endsWith(".ts") && rel !== auditSelf) {
-        fs.readFileSync(full, "utf8")
-          .split("\n")
-          .forEach((line, i) => {
-            for (const escape of TYPE_ESCAPES) {
-              if (escape.regex.test(line)) typeEscapes.push(`${rel}:${i + 1} (${escape.name})`);
-            }
-          });
+      } else if (isTypeScriptFile(ent.name) && rel !== auditSelf) {
+        for (const finding of scanTypeEscapes(fs.readFileSync(full, "utf8"))) {
+          typeEscapes.push(`${rel}:${finding.line} (${finding.name})`);
+        }
       }
     }
   };
