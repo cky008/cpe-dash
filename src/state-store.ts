@@ -54,12 +54,23 @@ export interface PersistedRuntimeState {
    * restart (a deploy, a crash loop) neither refills the day's budget nor shortens the next wait.
    */
   selfHealReconnect: SelfHealReconnectState | null;
+  /**
+   * The lock self-heal's rollback watches (by the lock's `updatedAtIso`) and whether that watch has
+   * ended (the WAN proved the lock, or it was rolled back or given up), so a restart neither drops an
+   * open watch past its deadline nor re-arms a lock the WAN already proved.
+   */
+  selfHealLockWatch: SelfHealLockWatchState | null;
 }
 
 export interface SelfHealReconnectState {
   reconnectsMs: number[];
   nextReconnectAtMs: number;
   backoffIndex: number;
+}
+
+export interface SelfHealLockWatchState {
+  lockUpdatedAtIso: string;
+  settled: boolean;
 }
 
 /** How many generic write results the state keeps (the device report shows them). */
@@ -98,6 +109,7 @@ function createDefaultState(): PersistedRuntimeState {
     deviceReads: null,
     genericWrites: [],
     selfHealReconnect: null,
+    selfHealLockWatch: null,
   };
 }
 

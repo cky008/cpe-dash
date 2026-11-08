@@ -317,6 +317,45 @@ describe("WanSelfHeal lock rollback (LOCK_ROLLBACK_AFTER_MIN)", () => {
     }
   });
 
+  it("picks an open watch back up after a restart past the deadline, and never re-arms a lock the WAN proved", async () => {
+    const open = fixture({ lockMin: 10 });
+    const proved = fixture({ lockMin: 10 });
+    const restarted: Array<ReturnType<typeof fixture>> = [];
+    const restart = async (before: ReturnType<typeof fixture>, minutes: number): Promise<ReturnType<typeof fixture>> => {
+      await before.heal.stop();
+      await before.core.scheduler.stateStore.flushAsync();
+      const next = fixture({ lockMin: 10, lock: bandLock(T0), stateFile: before.core.scheduler.stateStore.filePath });
+      restarted.push(next);
+      next.setClock(T0 + minutes * MIN);
+      next.heal.start();
+      return next;
+    };
+    try {
+      // Down since the lock; the daemon is away across the deadline and comes back with the WAN still down
+      open.lockAt(0);
+      await open.at(5, "902");
+      const back = await restart(open, 25);
+      assert.equal(back.heal.lockDeadlineMs, T0 + 10 * MIN);
+      await back.at(25, "902");
+      assert.equal(back.calls.rollback, 1);
+      assert.deepEqual(back.codes(), ["LOCK_ROLLED_BACK"]);
+
+      // Up for two minutes after the lock: proved, so a restart inside the window leaves it alone
+      proved.lockAt(0);
+      await proved.at(0.5, "901");
+      await proved.at(2.5, "901");
+      assert.equal(proved.heal.lockDeadlineMs, null);
+      const later = await restart(proved, 4);
+      assert.equal(later.heal.lockDeadlineMs, null);
+      await later.at(12, "902");
+      assert.equal(later.calls.rollback, 0, "an outage after the proof is not the lock's fault, restart or not");
+    } finally {
+      for (const fx of restarted) await fx.cleanup();
+      await open.cleanup();
+      await proved.cleanup();
+    }
+  });
+
   it("re-arms after a restart inside the window, and never for an older lock or with the switch off", async () => {
     const recent = fixture({ lockMin: 10, lock: bandLock(T0 - 4 * MIN) });
     const old = fixture({ lockMin: 10, lock: bandLock(T0 - 11 * MIN) });

@@ -15,7 +15,7 @@ import {
   SchedulerQueueFullError,
   SchedulerStoppedError,
 } from "./scheduler.ts";
-import type { AlertEventRecord, SelfHealReconnectState } from "./state-store.ts";
+import type { AlertEventRecord, SelfHealLockWatchState, SelfHealReconnectState } from "./state-store.ts";
 
 export interface WanSelfHealOptions {
   scheduler: MutexSessionScheduler;
@@ -63,6 +63,9 @@ interface LockWatch {
  * - **Reconnect** (`WAN_AUTO_RECONNECT_AFTER_MIN`): a WAN down that long is redialled, then again
  *   after 10, 30 and 60 min, at most 4 times in 24 h (kept in state.json, so a restart neither
  *   refills the budget nor shortens the wait). Never a reboot.
+ *
+ * The lock watch is kept in state.json too: a restart picks up a watch still open (until the
+ * rollback, or giving up an hour after the deadline) and never re-arms a lock the WAN proved.
  *
  * Both act only on fresh telemetry, go through the control queue (so a human logged into the WebUI
  * is never overridden and the breaker is respected), re-read the WAN and the mobile-data switch
@@ -126,11 +129,14 @@ export class WanSelfHeal {
     this.scheduler.on("control:applied", this.#onControl);
     this.monitor.on("telemetry", this.#onTelemetry);
     if (this.reconnectAfterMs > 0) this.#restoreReconnects(this.scheduler.stateStore.getState().selfHealReconnect);
-    // A restart inside the window (deploy, crash) keeps the switch armed for the lock in place
+    // A restart (deploy, crash) picks up the watch of the lock in place: one still open runs to its
+    // end, one that ended stays ended; a lock with no record (from before it was kept) only inside the window
     const lock = this.controls.getPersistedLockState();
     if (this.lockRollbackAfterMs > 0 && lock.mode !== "unlocked") {
       const appliedMs = Date.parse(lock.updatedAtIso);
-      if (Number.isFinite(appliedMs) && this.#now() - appliedMs < this.lockRollbackAfterMs) this.#arm(lock, appliedMs);
+      const record = watchRecordFor(this.scheduler.stateStore.getState().selfHealLockWatch, lock.updatedAtIso);
+      const openForMs = record ? this.lockRollbackAfterMs + ROLLBACK_GIVE_UP_MS : this.lockRollbackAfterMs;
+      if (!record?.settled && Number.isFinite(appliedMs) && this.#now() - appliedMs < openForMs) this.#arm(lock, appliedMs);
     }
   }
 
@@ -147,7 +153,7 @@ export class WanSelfHeal {
     const lock = event.lockState;
     if (!lock) return;
     if (lock.mode === "unlocked") {
-      this.#lockWatch = null;
+      this.#setWatch(null);
     } else if (this.lockRollbackAfterMs > 0 && (event.action === "lock_band" || event.action === "lock_cell")) {
       const appliedMs = Date.parse(lock.updatedAtIso);
       this.#arm(lock, Number.isFinite(appliedMs) ? appliedMs : this.#now());
@@ -182,14 +188,32 @@ export class WanSelfHeal {
   }
 
   #arm(lock: PersistedLockState, appliedMs: number): void {
-    this.#lockWatch = {
+    this.#setWatch({
       lockUpdatedAtIso: lock.updatedAtIso,
       armedAtMs: appliedMs,
       deadlineMs: appliedMs + this.lockRollbackAfterMs,
       upSinceMs: null,
       retryAtMs: 0,
       failures: 0,
-    };
+    });
+  }
+
+  /**
+   * Open, replace or end the lock watch, and record it in state.json at once (it changes once or
+   * twice per lock), so a restart picks it up where it was.
+   */
+  #setWatch(next: LockWatch | null): void {
+    const ended = this.#lockWatch;
+    this.#lockWatch = next;
+    const record: SelfHealLockWatchState | null = next
+      ? { lockUpdatedAtIso: next.lockUpdatedAtIso, settled: false }
+      : ended
+        ? { lockUpdatedAtIso: ended.lockUpdatedAtIso, settled: true }
+        : null;
+    const stored = this.scheduler.stateStore.getState().selfHealLockWatch;
+    if (record === null || (stored?.lockUpdatedAtIso === record.lockUpdatedAtIso && stored.settled === record.settled)) return;
+    this.scheduler.stateStore.update({ selfHealLockWatch: record });
+    void this.scheduler.stateStore.flushAsync().catch(() => undefined);
   }
 
   #watchLock(watch: LockWatch, up: boolean, at: number): Promise<void> | null {
@@ -197,7 +221,7 @@ export class WanSelfHeal {
     if (up) {
       watch.upSinceMs ??= at;
       if (at - watch.upSinceMs >= LOCK_CONFIRM_MS) {
-        this.#lockWatch = null;
+        this.#setWatch(null);
         this.#log("[self-heal] WAN stayed up after the lock; keeping it");
       }
       return null;
@@ -205,11 +229,11 @@ export class WanSelfHeal {
     watch.upSinceMs = null;
     if (at < watch.deadlineMs || at < watch.retryAtMs) return null;
     if (this.controls.getPersistedLockState().updatedAtIso !== watch.lockUpdatedAtIso) {
-      this.#lockWatch = null;
+      this.#setWatch(null);
       return null;
     }
     if (at - watch.deadlineMs > ROLLBACK_GIVE_UP_MS) {
-      this.#lockWatch = null;
+      this.#setWatch(null);
       this.#raise("critical", "LOCK_ROLLBACK_FAILED", "alerts.lock_rollback_failed", { reason: this.#lastFailure ?? "timeout" });
       return null;
     }
@@ -225,12 +249,12 @@ export class WanSelfHeal {
       this.#noteFailure("lock rollback", reason);
       // A router of an unverified model is read-only: say so once instead of retrying a write that never comes
       if (err instanceof DeviceReadOnlyError) {
-        this.#lockWatch = null;
+        this.#setWatch(null);
         this.#raise("warning", "SELF_HEAL_READ_ONLY", "alerts.self_heal_read_only_rollback", { model: err.model });
         return;
       }
       if (err instanceof CircuitBreakerOpenError || err instanceof PeerDaemonStandbyError) {
-        this.#lockWatch = null;
+        this.#setWatch(null);
         this.#raise("critical", "LOCK_ROLLBACK_FAILED", "alerts.lock_rollback_failed", { reason });
         return;
       }
@@ -238,7 +262,7 @@ export class WanSelfHeal {
       // A human on the WebUI is not a failure of the rollback: wait for them, never fight them
       if (!(err instanceof BrowserSessionYieldedError) && !isQueueRefusal(err)) watch.failures += 1;
       if (watch.failures >= MAX_ROLLBACK_FAILURES) {
-        this.#lockWatch = null;
+        this.#setWatch(null);
         this.#raise("critical", "LOCK_ROLLBACK_FAILED", "alerts.lock_rollback_failed", { reason });
       }
       return;
@@ -248,12 +272,12 @@ export class WanSelfHeal {
       if (outcome.skipped === "wan_up") {
         watch.upSinceMs = at;
       } else {
-        this.#lockWatch = null;
+        this.#setWatch(null);
         this.#log("[self-heal] mobile data is switched off; not rolling the lock back");
       }
       return;
     }
-    this.#lockWatch = null;
+    this.#setWatch(null);
     // The unlocked modem needs time to attach before a redial could help
     this.#downSinceMs = at;
     this.#raise("warning", "LOCK_ROLLED_BACK", "alerts.lock_rolled_back", {
@@ -368,6 +392,11 @@ export class WanSelfHeal {
   #raise(severity: AlertEventRecord["severity"], code: string, key: I18nKey, params?: Readonly<Record<string, string | number>>): void {
     this.scheduler.raiseAlert({ severity, code, messageZh: t("zh-CN", key, params), messageEn: t("en", key, params) });
   }
+}
+
+/** The saved watch record when it is about the lock `lockUpdatedAtIso` and reads as one (state.json is input). */
+function watchRecordFor(saved: SelfHealLockWatchState | null, lockUpdatedAtIso: string): SelfHealLockWatchState | null {
+  return saved !== null && typeof saved === "object" && saved.lockUpdatedAtIso === lockUpdatedAtIso && typeof saved.settled === "boolean" ? saved : null;
 }
 
 function budgetKey(reconnects: ReadonlyArray<number>, backoffIndex: number): string {
