@@ -218,6 +218,9 @@ function sprite(root: string): string {
 export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl?: string | null } = {}): Promise<SiteReport> {
   const root = opts.root ?? process.cwd();
   const out = opts.out ?? path.join(root, "dist", "site");
+  // The output folder is emptied first: never one that holds the sources (`--out .` would take .git with it)
+  const fromOut = path.relative(path.resolve(out), path.resolve(root));
+  if (fromOut !== ".." && !fromOut.startsWith(`..${path.sep}`) && !path.isAbsolute(fromOut)) throw new Error(`refusing to empty ${path.resolve(out)}: it holds the sources`);
   const siteUrl = opts.siteUrl ? opts.siteUrl.replace(/\/?$/, "/") : null;
   if (siteUrl !== null && !/^https:\/\/[^/\s]+\/(?:[^\s]*)$/.test(siteUrl)) throw new Error(`DOCS_SITE_URL must be an https URL, got ${siteUrl}`);
   const version = (JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as { version: string }).version;

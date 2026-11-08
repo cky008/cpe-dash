@@ -7,6 +7,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Security
 - **No dialable phone numbers in the guide.** The SMS page showed one number written two ways with a dialable Irish mobile number; it now uses the UK's reserved drama range. `npm run audit:secrets` also refuses a full international number in the working tree unless it comes from the reserved test ranges in `AGENTS.md` (it names the file and line, never the number).
 
+### Fixed
+- **Building the documentation never empties the repository.** `npm run build:docs -- --out .` (or a parent folder) deleted that folder before building, `.git` included; the build now refuses an output folder that holds the sources. A term anchor written directly under a line of text also becomes an anchor instead of showing as text.
+
 ### Container and CI
 - **Release notes link the commits since the release before.** Each GitHub release ends with a "Full Changelog" link comparing it with the previous tag, as GitHub's own notes do (the first release links its commits); every GitHub release was regenerated with it.
 

@@ -117,6 +117,12 @@ describe("docs Markdown renderer (scripts/markdown.ts)", () => {
     assert.match(text, /Signal power 3GPP TS 36\.214/);
   });
 
+  it("starts a term anchor on its own line even right under a paragraph line", () => {
+    const { html } = renderMarkdown('Signal power, averaged.\n<a id="rsrp"></a>\n### RSRP');
+    assert.ok(html.includes('<p>Signal power, averaged.</p><a id="rsrp" class="term-anchor"></a>'), html);
+    assert.ok(!html.includes("&lt;a id="), "the anchor is never printed as text");
+  });
+
   it("collects the plain text for the search index and skips HTML comments", () => {
     const { text } = renderMarkdown("<!-- compat:begin -->\n## Hello\n\nSome **bold** `code` [link](x.md).\n<!-- compat:end -->");
     assert.equal(text, "Hello Some bold code link.");

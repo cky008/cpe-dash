@@ -180,7 +180,7 @@ function cells(row: string): string[] {
 }
 
 function startsBlock(line: string, next: string | undefined): boolean {
-  return HEADING.test(line) || FENCE.test(line) || line.startsWith(">") || LIST_ITEM.test(line) || RULE.test(line) || COMMENT.test(line) || (line.includes("|") && next !== undefined && TABLE_RULE.test(next));
+  return HEADING.test(line) || FENCE.test(line) || line.startsWith(">") || LIST_ITEM.test(line) || RULE.test(line) || COMMENT.test(line) || TERM_ANCHOR.test(line.trim()) || (line.includes("|") && next !== undefined && TABLE_RULE.test(next));
 }
 
 export function renderMarkdown(source: string, opts: RenderOptions = {}): RenderedMarkdown {

@@ -175,6 +175,22 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     }
   });
 
+  it("refuses to empty an output folder that holds the sources", async () => {
+    // A test-owned tree: `--out .` (or a parent folder) must not delete the repository, .git included
+    const base = tempDir("fengsui-out-guard-");
+    try {
+      const root = path.join(base, "repo");
+      fs.mkdirSync(root);
+      fs.writeFileSync(path.join(root, "package.json"), '{"version":"0.0.0"}');
+      fs.writeFileSync(path.join(root, "keep.txt"), "kept");
+      await assert.rejects(buildDocsSite({ root, out: root }), /holds the sources/);
+      await assert.rejects(buildDocsSite({ root, out: base }), /holds the sources/);
+      assert.equal(fs.readFileSync(path.join(root, "keep.txt"), "utf8"), "kept");
+    } finally {
+      removeTempDir(base);
+    }
+  });
+
   it("reads image sizes from WebP headers so pictures reserve their space", () => {
     assert.deepEqual(webpSize(fs.readFileSync("docs/screenshots/dashboard-sujian.webp")), { width: 1440, height: 900 });
     const home = fs.readFileSync(path.join(site, "index.html"), "utf8");
