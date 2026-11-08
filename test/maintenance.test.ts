@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import { parseCliCommand, runCli, runMaintenance } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { DataDirectoryBusyError, backupDataDir, formatDoctorReport, inspectDataFiles, rekeyDataDir, restoreDataDir, runDoctor } from "../src/maintenance.ts";
+import { DataDirectoryBusyError, backupDataDir, formatDoctorReport, inspectDataFiles, rekeyDataDir, replaceFile, restoreDataDir, runDoctor } from "../src/maintenance.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 function setup(extraEnv = "") {
@@ -181,6 +181,30 @@ describe("cpe-dash rekey", () => {
 });
 
 describe("maintenance commands on the CLI", () => {
+  it("keeps a store where the daemon looks for it when writing its replacement fails (restore, rekey)", () => {
+    const dir = tempDir("fengsui-replace-");
+    try {
+      const file = path.join(dir, "settings.json");
+      StorageCipher.fromSecret("replace_key").writeJsonFile(file, { version: 1, kept: true });
+      const before = fs.readFileSync(file, "utf8");
+      const failing = StorageCipher.fromSecret("replace_key");
+      failing.writeJsonFile = () => {
+        throw new Error("disk full");
+      };
+      assert.throws(() => replaceFile(file, failing, { version: 1, kept: false }, "replaced", 1), /disk full/);
+      assert.equal(fs.readFileSync(file, "utf8"), before, "the old store is still in place");
+      assert.deepEqual(fs.readdirSync(dir), ["settings.json"], "no copy left behind");
+      // And when it works: the new store in place, the old one kept beside it, both 0600
+      const aside = replaceFile(file, StorageCipher.fromSecret("replace_key"), { version: 1, kept: false }, "replaced", 2);
+      assert.equal(aside, `${file}.replaced-2`);
+      assert.equal(fs.readFileSync(aside ?? "", "utf8"), before);
+      assert.equal(fs.statSync(aside ?? "").mode & 0o777, 0o600);
+      assert.deepEqual(StorageCipher.fromSecret("replace_key").readJsonFile(file), { version: 1, kept: false });
+    } finally {
+      removeTempDir(dir);
+    }
+  });
+
   it("parses the commands and runs them with exit codes", async () => {
     assert.deepEqual(parseCliCommand(["node", "cli", "doctor", "--env", "/x/.env"]), { mode: "doctor", envPath: "/x/.env", warnings: [] });
     assert.deepEqual(parseCliCommand(["node", "cli", "backup", "--out", "/b"]), { mode: "backup", envPath: undefined, warnings: [], outDir: "/b" });

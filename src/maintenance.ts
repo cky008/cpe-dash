@@ -243,15 +243,26 @@ function withDataDirectoryLock<T>(config: DataConfig, work: () => T): T {
   }
 }
 
-/** Write `data` encrypted under `cipher` to `filePath`, keeping what was there as `<file>.<label>-<time>`. */
-function replaceFile(filePath: string, cipher: StorageCipher, data: unknown, label: string, now: number): string | null {
-  let movedAside: string | null = null;
+/**
+ * Write `data` encrypted under `cipher` to `filePath`, keeping what was there as `<file>.<label>-<time>`. The old
+ * store is copied aside and the new one written over it atomically, so a crash or a failed write never leaves
+ * `filePath` missing (a missing store would make the daemon start as a fresh install).
+ */
+export function replaceFile(filePath: string, cipher: StorageCipher, data: unknown, label: string, now: number): string | null {
+  let keptAside: string | null = null;
   if (fs.existsSync(filePath)) {
-    movedAside = `${filePath}.${label}-${now}`;
-    fs.renameSync(filePath, movedAside);
+    keptAside = `${filePath}.${label}-${now}`;
+    fs.copyFileSync(filePath, keptAside, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(keptAside, 0o600);
   }
-  cipher.writeJsonFile(filePath, data);
-  return movedAside;
+  try {
+    cipher.writeJsonFile(filePath, data);
+  } catch (err) {
+    // Nothing was replaced: the copy would only be a duplicate
+    if (keptAside) fs.rmSync(keptAside, { force: true });
+    throw err;
+  }
+  return keptAside;
 }
 
 /**

@@ -295,6 +295,19 @@ function readLockPid(lockPath: string): number | null {
   }
 }
 
+/** How long an empty lock counts as one another process is still writing its PID into. */
+const LOCK_WRITE_GRACE_MS = 2000;
+
+/** An empty lock created moments ago: another process opened it and has not written its PID yet. */
+function isLockBeingWritten(lockPath: string): boolean {
+  try {
+    const stat = fs.statSync(lockPath);
+    return stat.size === 0 && Date.now() - stat.mtimeMs < LOCK_WRITE_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -307,7 +320,8 @@ function isProcessAlive(pid: number): boolean {
 /**
  * Advisory single-owner lock (`<file>.lock` holding the owner PID, mode 0600) so two FengSui
  * processes never write the same encrypted store. A lock whose PID is dead, unreadable or equal
- * to our own (a restarted container reusing its PID) is stale and taken over.
+ * to our own (a restarted container reusing its PID) is stale and taken over; an empty one created
+ * moments ago is not (another process is still writing its PID into it).
  */
 export function tryAcquireFileLock(lockPath: string): FileLockResult {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
@@ -335,6 +349,8 @@ export function tryAcquireFileLock(lockPath: string): FileLockResult {
       if (errnoCode(err) !== "EEXIST") throw err;
       const pid = readLockPid(lockPath);
       if (pid !== null && pid !== process.pid && isProcessAlive(pid)) return { ok: false, heldByPid: pid };
+      // Two processes starting together: the other one's lock is not stale just because its PID is not in yet
+      if (pid === null && isLockBeingWritten(lockPath)) return { ok: false, heldByPid: null };
       fs.rmSync(lockPath, { force: true });
     }
   }

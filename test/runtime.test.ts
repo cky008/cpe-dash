@@ -137,6 +137,28 @@ describe("tryAcquireFileLock", () => {
   });
 });
 
+describe("tryAcquireFileLock: two processes starting together", () => {
+  it("leaves an empty lock that another process has only just created, and takes over an old empty one", () => {
+    const dir = tempDir("fengsui-lock-race-");
+    const lockPath = path.join(dir, "state.json.lock");
+    try {
+      // Another process opened the lock a moment ago and has not written its PID yet
+      fs.writeFileSync(lockPath, "", { mode: 0o600 });
+      assert.deepEqual(tryAcquireFileLock(lockPath), { ok: false, heldByPid: null });
+      assert.equal(fs.existsSync(lockPath), true, "the other process keeps its lock");
+      // An empty lock nobody finished writing long ago is stale
+      const past = new Date(Date.now() - 60_000);
+      fs.utimesSync(lockPath, past, past);
+      const taken = tryAcquireFileLock(lockPath);
+      assert.equal(taken.ok, true);
+      assert.equal(fs.readFileSync(lockPath, "utf8"), `${process.pid}\n`);
+      if (taken.ok) taken.lock.release();
+    } finally {
+      removeTempDir(dir);
+    }
+  });
+});
+
 describe("createFengSuiRuntime", () => {
   it("runs SMS, alerts, Telegram and webhooks in serve mode and pushes new SMS and alerts to both channels", async () => {
     const mock = createMockSmsCpe({
