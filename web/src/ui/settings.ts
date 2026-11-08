@@ -53,7 +53,7 @@ import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../i18n/settings.ts";
 import { copyText } from "./clipboard.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount, show } from "./dom.ts";
+import { byId, h, icon, modalBackdrop, mount, show } from "./dom.ts";
 
 export type SettingsTab = "router" | "device" | "login" | "tokens" | "telegram" | "security" | "audit";
 
@@ -969,7 +969,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           VIEWS[tab]()
         )
       ),
-      h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+      modalBackdrop(ctx.t("common.close"))
     );
   };
 

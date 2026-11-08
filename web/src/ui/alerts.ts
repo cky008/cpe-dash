@@ -2,7 +2,7 @@ import type { ChannelDeliveryStats } from "../../../src/api-contract.ts";
 import { formatAgo } from "../core/format.ts";
 import { mergeAlerts } from "../core/store.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount } from "./dom.ts";
+import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 import { ALERTS_SEEN_EVENT } from "./header.ts";
 import { emptyState } from "./widgets.ts";
 
@@ -81,7 +81,7 @@ export function mountAlerts(ctx: AppContext): { open(): void } {
               )
         )
       ),
-      h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+      modalBackdrop(ctx.t("common.close"))
     );
   };
 

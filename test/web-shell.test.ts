@@ -730,6 +730,16 @@ describe("web shell: markup and source guards", () => {
     assert.doesNotMatch(html, /(?:src|href)="(?:https?:)?\/\/(?!github\.com\/(?:sponsors\/)?cky008|iocky\.com\/")/i, "no CDN or remote asset");
   });
 
+  it("builds every dialog's click-outside layer with the shared helper (translated, out of the tab order)", () => {
+    const dom = fs.readFileSync("web/src/ui/dom.ts", "utf8");
+    assert.match(dom, /export function modalBackdrop\(label: string\)/);
+    assert.match(dom, /tabindex: "-1"/);
+    for (const file of sourceFiles("web/src/ui")) {
+      if (file.endsWith(path.join("ui", "dom.ts"))) continue;
+      assert.doesNotMatch(fs.readFileSync(file, "utf8"), /"modal-backdrop"/, `${file}: use modalBackdrop(ctx.t("common.close"))`);
+    }
+  });
+
   it("never writes HTML from strings and never imports Node built-ins in browser code", () => {
     for (const file of sourceFiles("web/src")) {
       const text = fs.readFileSync(file, "utf8").replace(/^\s*(?:\/\/|\*|\/\*).*$/gm, "");

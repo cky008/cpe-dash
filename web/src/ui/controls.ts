@@ -7,7 +7,7 @@ import { formatAgo } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
-import { type Child, byId, h, icon, mount } from "./dom.ts";
+import { type Child, byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 import { describeLock } from "./health-card.ts";
 import { runBusy } from "./widgets.ts";
 
@@ -693,7 +693,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
           ...sections
         )
       ),
-      h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+      modalBackdrop(ctx.t("common.close"))
     );
   };
 

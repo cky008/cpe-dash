@@ -18,7 +18,7 @@ import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { maskValue } from "../core/privacy.ts";
 import { ACCESS_ERRORS, ACCESS_TEXT, type AccessTextKey } from "../i18n/access.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount } from "./dom.ts";
+import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 import { sensitive } from "./sensitive.ts";
 import { runBusy } from "./widgets.ts";
 
@@ -517,7 +517,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
           rulesSection()
         )
       ),
-      h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+      modalBackdrop(ctx.t("common.close"))
     );
   };
 

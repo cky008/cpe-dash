@@ -4,7 +4,7 @@ import { claudeCodeCommand, maskToken, mcpEndpoint, mcpJsonConfig, tokenOrPlaceh
 import { MCP_GUIDE_TEXT, type McpGuideTextKey } from "../i18n/mcp-guide.ts";
 import { copyText } from "./clipboard.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount } from "./dom.ts";
+import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 
 interface Snippet {
   title: McpGuideTextKey;
@@ -112,7 +112,7 @@ export function mountMcpGuide(ctx: AppContext): { open(): void } {
           h("p", { class: "text-xs faint" }, t("notes"))
         )
       ),
-      h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+      modalBackdrop(ctx.t("common.close"))
     );
   };
 

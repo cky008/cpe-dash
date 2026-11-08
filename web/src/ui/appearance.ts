@@ -19,7 +19,7 @@ import {
 import { type ThemeChoice, type ThemeSlot, chooseTheme, currentSlot, selectedTheme, setFollowSystem, switchCustomScheme, themeGroups } from "../core/theme-choice.ts";
 import { ACCENT_NAMES, APPEARANCE_TEXT, type AppearanceTextKey, FAMILY_NAMES, THEME_NAMES } from "../i18n/appearance.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount } from "./dom.ts";
+import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 import { applyTheme, systemIsDark } from "./theme.ts";
 
 /** Swatch colours (the light-scheme value of each accent; `default` shows a sampler of theme primaries). */
@@ -257,7 +257,7 @@ export function mountAppearance(ctx: AppContext, switchLocale: (locale: Locale) 
           )
         )
       ),
-      h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+      modalBackdrop(ctx.t("common.close"))
     );
   };
 

@@ -1,7 +1,7 @@
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../../../../src/sms/text-mode.ts";
 import { isLikelyContactNameQuery } from "../../core/sms.ts";
 import type { AppContext } from "../context.ts";
-import { byId, debounce, h, icon, mount } from "../dom.ts";
+import { byId, debounce, h, icon, modalBackdrop, mount } from "../dom.ts";
 import { sendAndReport } from "./send.ts";
 import { type SmsShared, avatar, countryName, shownNumber } from "./shared.ts";
 
@@ -184,7 +184,7 @@ export function openCompose(ctx: AppContext, shared: SmsShared, prefill?: { phon
       });
   });
 
-  mount(dialog, h("div", { class: "modal-box p-0 sm:max-w-lg overflow-hidden" }, form), h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close")));
+  mount(dialog, h("div", { class: "modal-box p-0 sm:max-w-lg overflow-hidden" }, form), modalBackdrop(ctx.t("common.close")));
   updatePreview();
   dialog.showModal();
   setTimeout(() => (phone.value ? content : phone).focus(), 50);

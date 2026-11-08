@@ -8,7 +8,7 @@ import {
 } from "../../../src/rf-bounds.ts";
 import { bandLabel } from "../core/rf.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount } from "./dom.ts";
+import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 
 export interface CellLockPrefill {
   rat: RatName;
@@ -129,7 +129,7 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
   arfcnInput.value = prefill?.arfcn === null || prefill?.arfcn === undefined ? "" : String(prefill.arfcn);
   pciInput.value = prefill?.pci === null || prefill?.pci === undefined ? "" : String(prefill.pci);
   freqOnly.checked = prefill !== null && prefill.pci === null;
-  mount(dialog, form, h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close")));
+  mount(dialog, form, modalBackdrop(ctx.t("common.close")));
   validate();
   dialog.showModal();
 }

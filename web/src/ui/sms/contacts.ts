@@ -1,7 +1,7 @@
 import type { ContactRecord } from "../../../../src/api-contract.ts";
 import { writesLocked } from "../../core/device-access-view.ts";
 import type { AppContext } from "../context.ts";
-import { byId, debounce, h, icon, mount, replay } from "../dom.ts";
+import { byId, debounce, h, icon, modalBackdrop, mount, replay } from "../dom.ts";
 import { emptyState } from "../widgets.ts";
 import { type SmsShared, avatar, shownNumber } from "./shared.ts";
 
@@ -165,7 +165,7 @@ export function openContacts(ctx: AppContext, shared: SmsShared, prefill?: { pho
       list,
       h("p", { class: "px-5 py-3 text-[11px] faint border-t border-base-content/[0.06] flex items-start gap-1.5" }, icon("lock", "mt-px"), ctx.t("contacts.privacy"))
     ),
-    h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", null, "close"))
+    modalBackdrop(ctx.t("common.close"))
   );
   if (prefill) showForm(prefill);
   count.textContent = contacts.length > 0 ? String(contacts.length) : "";

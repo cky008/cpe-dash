@@ -50,6 +50,14 @@ export function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Readonl
   return el;
 }
 
+/**
+ * The click-outside layer of a daisyUI modal: its invisible button closes the dialog. It is named in
+ * the console's language and left out of the tab order (the dialog's own close button and Esc do that).
+ */
+export function modalBackdrop(label: string): HTMLFormElement {
+  return h("form", { class: "modal-backdrop", attrs: { method: "dialog" } }, h("button", { attrs: { tabindex: "-1" } }, label));
+}
+
 /** `<svg class="ico …"><use href="#i-name"/></svg>` from the sprite in index.html. */
 export function icon(name: string, cls = ""): SVGSVGElement {
   const el = svg("svg", { class: `ico ${cls}`.trim(), "aria-hidden": "true" });
