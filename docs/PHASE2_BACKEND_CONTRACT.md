@@ -163,7 +163,7 @@ export interface HealthResponse {
 ```
 
 #### `POST /api/setup/reset-code`（`cpe-dash reset-login` 专用）
-只接受来自本机回环地址（`127.0.0.1` / `::1`）、且带 `X-FengSui-Proof: <unix ms>.<HMAC-SHA256(DATA_ENCRYPTION_KEY, "fengsui-reset-login|<unix ms>")>` 的请求（60 秒内有效）：证明调用方能读取守护进程的 `.env`。成功返回 `{ ok: true, code, expiresInSec: 900 }`，否则 `401`（计入限流）。
+只接受来自本机回环地址（`127.0.0.1` / `::1`；按 `TRUSTED_PROXIES` 解析后的客户端地址判断，同机反代转发的局域网请求不算回环）、且带 `X-FengSui-Proof: <unix ms>.<HMAC-SHA256(DATA_ENCRYPTION_KEY, "fengsui-reset-login|<unix ms>")>` 的请求（60 秒内有效）：证明调用方能读取守护进程的 `.env`。成功返回 `{ ok: true, code, expiresInSec: 900 }`，否则 `401`（计入限流）。
 
 #### `GET /api/i18n/:locale`（免鉴权离线词典，`locale` 取值 `"zh-CN"` | `"en"`，其他取值返回 `404 LOCALE_NOT_FOUND`）
 ```ts

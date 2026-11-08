@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import type { AuditResponse, ConsoleSettingsResponse, CreateTokenResponse, TokensResponse } from "../src/api-contract.ts";
 import { type FengSuiRuntimeStack, createFengSuiRuntime, runCli, runResetLogin } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
+import { resetLoginProof } from "../src/console-settings.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 
 const PASSPHRASE = "a long console passphrase";
@@ -224,6 +225,22 @@ describe("console settings after an upgrade (.env imported)", () => {
         assert.ok(actions.includes(expected), expected);
       }
       assert.equal(JSON.stringify(audit).includes(minted.token), false, "no secret in the audit");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("hands a reset code to the daemon's own host only, not to a client behind a proxy on it", async () => {
+    // The NAS runs an HTTPS proxy on 127.0.0.1: every request it forwards reaches the daemon from loopback
+    const fx = await startRuntime({ TRUSTED_PROXIES: "127.0.0.1" });
+    try {
+      const base = new URL((await fx.get("/api/health")).url).origin;
+      const ask = (headers: Record<string, string>) =>
+        fetch(`${base}/api/setup/reset-code`, { method: "POST", headers: { "X-FengSui-Proof": resetLoginProof(fx.stack.config.dataEncryptionKey, Date.now()), ...headers } });
+      assert.equal((await ask({ "X-Forwarded-For": "192.168.8.50" })).status, 401, "a LAN client forwarded by the proxy");
+      const direct = await ask({});
+      assert.equal(direct.status, 200, "cpe-dash reset-login on the host itself");
+      assert.match(String(((await direct.json()) as { code: string }).code), /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
     } finally {
       await fx.cleanup();
     }

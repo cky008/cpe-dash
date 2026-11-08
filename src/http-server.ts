@@ -560,10 +560,10 @@ export class FengSuiHttpServer {
       return;
     }
 
-    // `cpe-dash reset-login` on the daemon's own host: proof of the data key, from loopback only
+    // `cpe-dash reset-login` on the daemon's own host: proof of the data key, from loopback only. The
+    // client address after TRUSTED_PROXIES: a reverse proxy on this host forwards every client from loopback
     if (pathname === "/api/setup/reset-code" && method === "POST") {
-      const remote = req.socket.remoteAddress ?? "";
-      const loopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+      const loopback = clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "::ffff:127.0.0.1";
       const proof = typeof req.headers["x-fengsui-proof"] === "string" ? req.headers["x-fengsui-proof"] : "";
       const verdict = this.#auth.guard(bucketKey, loopback && verifyResetLoginProof(this.#config.dataEncryptionKey, proof, Date.now()));
       if (!verdict.ok) {
