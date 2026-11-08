@@ -24,7 +24,7 @@ import {
   SchedulerStoppedError,
 } from "../src/scheduler.ts";
 import type { SpeedTickPayload } from "../src/cpe-monitor.ts";
-import { EncryptedStateStore } from "../src/state-store.ts";
+import { type AlertEventRecord, EncryptedStateStore } from "../src/state-store.ts";
 import {
   TimeSeriesRingBuffer,
   TimeSeriesValidationError,
@@ -1263,6 +1263,24 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(fx.getLoginCount(), 0);
 
     await stopFengSuiCore(core);
+  });
+
+  it("delivers an event to every listener even when one registered before them throws", async () => {
+    const fx = createSchedulerFixture();
+    const core = createFengSuiCore({ client: fx.client, stateStore: fx.stateStore, timeseries: fx.ring });
+    try {
+      // The event stream attaches before self-healing and the notification hub: its failure must not hide an event from them
+      core.scheduler.on("alert", () => {
+        throw new Error("a listener registered first fails");
+      });
+      const heard: string[] = [];
+      core.scheduler.on("alert", (record: AlertEventRecord) => heard.push(record.code));
+      core.scheduler.raiseAlert({ severity: "warning", code: "LOCK_ROLLED_BACK", messageZh: "测试", messageEn: "test" });
+      assert.deepEqual(heard, ["LOCK_ROLLED_BACK"]);
+      assert.match(core.scheduler.getStatus().lastError ?? "", /"alert" listener failed: a listener registered first fails/);
+    } finally {
+      await stopFengSuiCore(core);
+    }
   });
 
   it("hardens concurrency & clock edge cases (Opus audit #1-#12): stop() drains queue safely, deduplicates control:applied & breaker alerts, isolates listener throws, blocks scheduler reentrancy, and rebases NTP clock steps", async () => {

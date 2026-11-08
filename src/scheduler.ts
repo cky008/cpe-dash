@@ -1009,12 +1009,16 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   #safeEmit(event: string, payload: unknown): void {
-    try {
-      this.emit(event, payload);
-    } catch (listenerErr) {
-      this.#lastError = `"${event}" listener failed: ${
-        listenerErr instanceof Error ? listenerErr.message : String(listenerErr)
-      }`;
+    // Each listener on its own: one that throws (the event stream attaches first) must not hide the event from
+    // the ones after it, such as self-healing's lock watch or the notification hub. Raw listeners keep `once` working.
+    for (const listener of this.rawListeners(event)) {
+      try {
+        Reflect.apply(listener, this, [payload]);
+      } catch (listenerErr) {
+        this.#lastError = `"${event}" listener failed: ${
+          listenerErr instanceof Error ? listenerErr.message : String(listenerErr)
+        }`;
+      }
     }
   }
 
