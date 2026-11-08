@@ -61,6 +61,35 @@ describe("docs Markdown renderer (scripts/markdown.ts)", () => {
     assert.ok(html.includes('<td class="align-left"><code>WEB_PORT</code></td>'));
   });
 
+  it("keeps a code block, a paragraph or a nested list that belongs to a list item inside it, and one numbering", () => {
+    const { html } = renderMarkdown(
+      [
+        "1. **Prepare the folder**:",
+        "",
+        "   ```bash",
+        "   mkdir -p data && cd data",
+        "   chmod 700 data   # keep it private",
+        "   ```",
+        "",
+        "2. **Edit .env**: set the key.",
+        "",
+        "   A second paragraph of step 2.",
+        "",
+        "   - a nested point",
+        "3. Start it.",
+        "   ```text",
+        "   right after the line",
+        "   ```",
+      ].join("\n")
+    );
+    assert.equal(
+      html,
+      "<ol><li><strong>Prepare the folder</strong>:<pre><code class=\"language-bash\">mkdir -p data &amp;&amp; cd data\nchmod 700 data   # keep it private</code></pre></li>" +
+        "<li><strong>Edit .env</strong>: set the key.<p>A second paragraph of step 2.</p><ul><li>a nested point</li></ul></li>" +
+        "<li>Start it.<pre><code class=\"language-text\">right after the line</code></pre></li></ol>"
+    );
+  });
+
   it("turns GitHub alerts into callouts and keeps plain quotes", () => {
     const { html } = renderMarkdown(["> [!WARNING]", "> Three wrong passwords lock the router.", "> - really", "", "> Just a quote."].join("\n"));
     assert.ok(html.includes('<div class="callout callout-warning" role="note"><p class="callout-title">Warning</p><p>Three wrong passwords lock the router.</p><ul><li>really</li></ul></div>'));

@@ -287,15 +287,55 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
     const first = LIST_ITEM.exec(lines[start] ?? "");
     const ordered = /\d/.test(first?.[2] ?? "");
     const items: Array<{ text: string; nested: string }> = [];
+    const indentOf = (l: string): number => l.length - l.trimStart().length;
+    /** Content past the marker belongs to the item: a code block, another paragraph, a list after a blank line. */
+    const base = indent + 2;
+    const takeBody = (from: number, at: number): number => {
+      const body: string[] = [];
+      let k = from;
+      let inFence = false;
+      while (k < lines.length) {
+        const l = lines[k] ?? "";
+        if (!inFence && l.trim() && indentOf(l) < at) break;
+        if (FENCE.test(l.trim())) inFence = !inFence;
+        body.push(l.slice(Math.min(at, indentOf(l))));
+        k += 1;
+      }
+      while (body.length > 0 && !(body[body.length - 1] ?? "").trim()) body.pop();
+      const last = items[items.length - 1];
+      if (last) last.nested += blocks(body);
+      return k;
+    };
     let i = start;
     while (i < lines.length) {
       const line = lines[i] ?? "";
       const m = LIST_ITEM.exec(line);
       if (!m) {
-        // A continuation line of the last item (indented, not blank)
-        if (line.trim() && /^\s+/.test(line) && items.length > 0) {
-          const last = items[items.length - 1];
-          if (last) last.text += `\n${line.trim()}`;
+        const last = items[items.length - 1];
+        if (!last) break;
+        if (!line.trim()) {
+          // After a blank line the item goes on if what follows is indented under it, the list if its next item follows
+          let j = i + 1;
+          while (j < lines.length && !(lines[j] ?? "").trim()) j += 1;
+          const next = lines[j] ?? "";
+          if (next.trim() && indentOf(next) >= base) {
+            i = takeBody(j, indentOf(next));
+            continue;
+          }
+          const nm = LIST_ITEM.exec(next);
+          if (nm && (nm[1] ?? "").length === indent && /\d/.test(nm[2] ?? "") === ordered) {
+            i = j;
+            continue;
+          }
+          break;
+        }
+        if (indentOf(line) >= base && FENCE.test(line.trim())) {
+          i = takeBody(i, indentOf(line));
+          continue;
+        }
+        // A continuation line of the item's text
+        if (/^\s+/.test(line)) {
+          last.text += `\n${line.trim()}`;
           i += 1;
           continue;
         }

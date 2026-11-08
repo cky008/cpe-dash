@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/). Each release section opens with `### Highlights` (a few changes worth a short paragraph); the GitHub release lists the other changes by their lead sentence and links here for the details.
 
+## [Unreleased]
+
+### Fixed
+- **Steps with a code block render as steps.** On the documentation site, a code block, a second paragraph or a list indented under a numbered step (Synology's install steps, changing the encryption key) came out as one line of text and restarted the numbering. The Markdown renderer now keeps such blocks inside their step.
+
 ## [1.7.1] — 2026-11-08
 
 ### Highlights
