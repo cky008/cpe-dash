@@ -7,6 +7,7 @@ import {
   checkCellLockInput,
 } from "../../../src/rf-bounds.ts";
 import { bandLabel } from "../core/rf.ts";
+import { lockRollbackNote } from "../core/self-heal-view.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 
@@ -36,6 +37,8 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
   const bandHint = h("p", { class: "text-[0.6875rem] faint mt-1" });
   const formError = h("div", { class: "text-sm text-error min-h-5", attrs: { role: "alert" } });
   const submit = h("button", { class: "btn btn-warning btn-sm rounded-lg gap-1.5", attrs: { type: "submit" } }, icon("lock"), ctx.t("cl.confirm"));
+  // Whether a lock that cuts the WAN is rolled back on its own, said before it is applied
+  const rollback = lockRollbackNote(ctx.store.state.selfHeal, ctx.t);
 
   const fillBands = (selected: number | null): void => {
     const bands = rat === "LTE" ? H168_383_LTE_BANDS : H168_383_NR_BANDS;
@@ -96,7 +99,12 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
     h("label", { class: "block" }, h("span", { class: "fs-label" }, ctx.t("cl.arfcn")), arfcnInput, arfcnHint),
     h("label", { class: "block" }, h("span", { class: "fs-label" }, ctx.t("cl.pci")), pciInput, pciHint),
     h("label", { class: "flex items-center gap-2 text-sm cursor-pointer" }, freqOnly, ctx.t("cl.freq_only")),
-    h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("alert", "text-warning mt-0.5"), h("span", null, ctx.t("cl.warning"))),
+    h(
+      "div",
+      { class: "fs-notice", data: { tone: "pending" } },
+      icon("alert", "text-warning mt-0.5"),
+      h("span", null, ctx.t("cl.warning"), rollback ? h("span", { class: "block mt-1" }, rollback) : null)
+    ),
     formError,
     h(
       "div",

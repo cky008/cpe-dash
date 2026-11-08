@@ -489,8 +489,30 @@ export interface TelemetryRefreshResponse {
 export interface SessionStatusResponse {
   ok: true;
   status: SchedulerStatusSnapshot;
+  selfHeal: SelfHealStatus; // WAN 自愈接下来会做什么（两部分都关闭时 afterMin 为 null）
+}
+
+/** src/self-heal-status.ts（零依赖，守护进程、控制台与在线演示共用）；不含路由器或设备标识 */
+export interface SelfHealStatus {
+  lockRollback: {
+    afterMin: number | null;     // LOCK_ROLLBACK_AFTER_MIN；null = 关闭
+    watch: {                     // 正在观察的锁定；null = 没有
+      lockUpdatedAtIso: string;
+      deadlineIso: string;       // 到此 WAN 须已恢复并连续在线 2 分钟，否则解除全部锁定
+      wanUpSinceIso: string | null;
+    } | null;
+  };
+  reconnect: {
+    afterMin: number | null;     // WAN_AUTO_RECONNECT_AFTER_MIN；null = 关闭
+    redialsLast24h: number;      // 近 24 小时到达路由器的重拨次数
+    maxPer24h: number;           // 上限（4）
+    nextAllowedAtIso: string | null; // 在此之前不会重拨；null = 没有等待
+    wanDownSinceIso: string | null;  // 正在计时的断网；null = WAN 在线或尚未看到断开
+  };
 }
 ```
+
+> **自愈状态**：`selfHeal` 只读、来自守护进程内存，查询不访问路由器；MCP `get_cpe_session_status` 返回同一对象。控制台控制抽屉的「WAN 自愈」一节与锁频 / 锁小区确认据此说明锁定若导致断网会不会被自动回滚、正在观察的锁定何时到期，以及当天的重拨次数。
 
 > **刷新被跳过时的语义**：当真人在线让位、处于 Layer-2 退避冷却期或熔断器已熔断时，`POST /api/*/refresh` 与 `POST /api/neighbors/scan` 不会登录 CPE，而是返回 `200` 与缓存快照。请对比快照的 `capturedAtIso`，并查看 `schedulerStatus.mode` / `schedulerStatus.avoidance` 判断是否拿到了新数据。只有 CPE 通信失败时才返回 `502`；恰好触发熔断的那一次刷新返回 `423 CIRCUIT_BREAKER_OPEN`，此后的刷新返回 `200` 与缓存。
 >
@@ -1366,7 +1388,7 @@ export interface AvoidanceBroadcastPayload {
    - JSON-RPC Notification（无 `id`）按规范返回 `202 Accepted` 空响应体；JSON-RPC Request 返回 `200 application/json` 单个响应对象（不使用 SSE 流式响应）。
 
 ### 4.2 暴露的 13 项 MCP Tools 与 3 项 Resources
-- **只读观测类（6 项，`readOnlyHint: true`）**：`get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`、`list_terminal_topology`、`get_router_settings`。
+- **只读观测类（6 项，`readOnlyHint: true`）**：`get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`（含 `selfHeal`，见 2.2 节）、`list_terminal_topology`、`get_router_settings`。
   - `get_cpe_telemetry` / `list_terminal_topology` / `get_router_settings`：传入 `refresh: true` 或缓存为空时触发一次瞬时采集。
   - `get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 在 `REDACT_SENSITIVE_IN_API=true`（默认）时返回脱敏副本（规则见 1.2 节第 4 条），设为 `false` 后返回原值。
   - `list_neighbor_cells`：`scanNow: true` 强制扫描；省略时仅在缓存为空时扫描；`scanNow: false` 只读缓存。

@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **The console says what self-healing will do.** The controls drawer has a "WAN self-healing" part: whether the lock rollback and the automatic redial are on, the lock being watched and the time by which the WAN must be back (or since when it is back and the lock about to be kept), the redials of the last 24 hours against the cap of 4, and the earliest next redial. A band or cell lock's confirmation now says, before the lock is applied, whether it would be rolled back automatically if it cut the WAN, or that it would have to be cleared by hand. `GET /api/session/status` and MCP `get_cpe_session_status` answer the same as `selfHeal` (read from the daemon's memory, never from the router), so an agent can tell too. The demo household runs both parts (10 / 3 minutes), as the static demo shows.
+
 ## [1.6.3] — 2026-11-08
 
 ### Added

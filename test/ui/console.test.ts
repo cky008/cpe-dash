@@ -157,6 +157,34 @@ describe("the console in a browser", () => {
     await closeDialogs(page);
   });
 
+  it("says what self-healing will do, before a lock and in the drawer, and shows the window a lock opens", async () => {
+    const d = live();
+    await signIn(page, d);
+    await page.click('[data-action="open-controls"]');
+    const drawer = "document.getElementById('controlsDialog').textContent";
+    await page.waitUntil(`${drawer}.includes('Lock rollback') && ${drawer}.includes('within 10 min')`, "the self-healing section");
+    assert.match(await page.evaluate<string>(drawer), /Redials after 3 min down; 0\/4 in 24 h/);
+
+    // The lock confirmation says the lock would be rolled back; a cancel writes nothing
+    const lockWrites = (): number => (d.router.cpe?.stats.writes ?? []).filter((write) => write.path === "/api/net/net-mode" || write.path === "/api/net/lock-freq").length;
+    const before = lockWrites();
+    await page.evaluate("[...document.querySelectorAll('#controlsDialog button')].find((b) => b.textContent.trim() === 'Apply band lock').click(); true");
+    await page.waitUntil(isOpen("confirmDialog"), "the confirmation");
+    assert.match(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), /Lock rollback is on: unless the WAN is back/);
+    await page.click("#confirmCancel");
+    await sleep(300);
+    assert.equal(lockWrites(), before, "a cancel writes nothing");
+
+    // A lock opens the window, shown at once; the unlock closes it
+    const post = (route: string, body: string): string =>
+      `fetch(${JSON.stringify(route)}, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' }, body: ${JSON.stringify(body)} }).then((res) => res.status)`;
+    assert.equal(await page.evaluate<number>(post("/api/control/band-lock", '{"lteBands":[3]}')), 200);
+    await page.waitUntil(`/Watching the last lock|the lock is kept once/.test(${drawer})`, "the lock window in the drawer");
+    assert.equal(await page.evaluate<number>(post("/api/control/unlock", "{}")), 200);
+    await page.waitUntil(`${drawer}.includes('within 10 min')`, "the window closed again");
+    await closeDialogs(page);
+  });
+
   it("closes every dialog, the token it just showed included, when the session ends elsewhere", async () => {
     await signIn(page, live());
     await openSettings(page, "Tokens");

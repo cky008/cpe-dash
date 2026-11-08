@@ -57,6 +57,7 @@ import type {
 } from "./device-access.ts";
 import type { ExperimentalConsent, PublicTokenRecord } from "./console-settings.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
+import type { SelfHealStatus } from "./self-heal-status.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
 import type {
   SmsSendPreview,
@@ -406,6 +407,8 @@ export interface TelemetryRefreshResponse {
 export interface SessionStatusResponse {
   ok: true;
   status: SchedulerStatusSnapshot;
+  /** What WAN self-healing will do next (both parts off: `afterMin` is `null`). */
+  selfHeal: SelfHealStatus;
 }
 
 export type TimeSeriesEndpointResponse = { ok: true } & TimeSeriesQueryResult;

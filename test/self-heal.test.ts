@@ -6,10 +6,11 @@ import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import type { WanRepairOutcome } from "../src/cpe-controls.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "../src/cpe-domain.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { BrowserSessionYieldedError, CircuitBreakerOpenError, type ControlAppliedEvent, DeviceReadOnlyError } from "../src/scheduler.ts";
-import { RECONNECT_MAX_PER_DAY, WanSelfHeal } from "../src/self-heal.ts";
+import { RECONNECT_MAX_PER_DAY, SELF_HEAL_OFF, type SelfHealStatus, WanSelfHeal } from "../src/self-heal.ts";
 import type { AlertEventRecord } from "../src/state-store.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
@@ -568,6 +569,44 @@ describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
   });
 });
 
+describe("WanSelfHeal status (what it will do next, for the console and agents)", () => {
+  it("reports the lock window, the day's redials and the next allowed redial, and nothing when off", async () => {
+    assert.deepEqual(SELF_HEAL_OFF, {
+      lockRollback: { afterMin: null, watch: null },
+      reconnect: { afterMin: null, redialsLast24h: 0, maxPer24h: RECONNECT_MAX_PER_DAY, nextAllowedAtIso: null, wanDownSinceIso: null },
+    });
+    const fx = fixture({ lockMin: 10, reconnectMin: 3 });
+    try {
+      assert.deepEqual(fx.heal.status(), {
+        lockRollback: { afterMin: 10, watch: null },
+        reconnect: { afterMin: 3, redialsLast24h: 0, maxPer24h: RECONNECT_MAX_PER_DAY, nextAllowedAtIso: null, wanDownSinceIso: null },
+      });
+      fx.lockAt(0);
+      await fx.at(1, "901");
+      assert.deepEqual(fx.heal.status().lockRollback.watch, {
+        lockUpdatedAtIso: new Date(T0).toISOString(),
+        deadlineIso: new Date(T0 + 10 * MIN).toISOString(),
+        wanUpSinceIso: new Date(T0 + MIN).toISOString(),
+      });
+      await fx.at(3, "901");
+      assert.equal(fx.heal.status().lockRollback.watch, null, "proved: no longer watched");
+
+      // An outage: the redial clock, then a redial and its backoff
+      await fx.at(20, "902");
+      assert.equal(fx.heal.status().reconnect.wanDownSinceIso, new Date(T0 + 20 * MIN).toISOString());
+      await fx.at(23, "902");
+      const after = fx.heal.status().reconnect;
+      assert.deepEqual([after.redialsLast24h, after.nextAllowedAtIso], [1, new Date(T0 + 33 * MIN).toISOString()]);
+      await fx.at(40, "901");
+      assert.deepEqual(fx.heal.status().reconnect, { afterMin: 3, redialsLast24h: 1, maxPer24h: RECONNECT_MAX_PER_DAY, nextAllowedAtIso: null, wanDownSinceIso: null });
+      fx.setClock(T0 + (23 + 24 * 60) * MIN);
+      assert.equal(fx.heal.status().reconnect.redialsLast24h, 0, "a day later the redial no longer counts");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
 describe("WanSelfHeal on a router of an unverified model (read-only)", () => {
   it("redials nothing in that outage and alerts once, without spending the day's budget", async () => {
     const fx = fixture({ reconnectMin: 1 });
@@ -745,8 +784,15 @@ describe("self-heal configuration and wiring", () => {
       assert.equal(cfg("LOCK_ROLLBACK_AFTER_MIN=ten\nWAN_AUTO_RECONNECT_AFTER_MIN=-5\n").lockRollbackAfterMs, 0);
       assert.equal(cfg("WAN_AUTO_RECONNECT_AFTER_MIN=-5\n").wanReconnectAfterMs, 0);
 
+      const sessionStatus = async (stack: ReturnType<typeof createFengSuiRuntime>): Promise<unknown> => {
+        const res = (await stack.mcpServer.handleRawJsonMessage(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_cpe_session_status", arguments: {} } })
+        )) as JsonRpcSuccessResponse;
+        return (res.result as { structuredContent: { selfHeal: unknown } }).structuredContent.selfHeal;
+      };
       const plain = createFengSuiRuntime({ config: off, log: () => undefined });
       assert.equal(plain.selfHeal, null);
+      assert.deepEqual(await sessionStatus(plain), SELF_HEAL_OFF, "agents see that nothing writes on its own");
       await plain.close();
 
       const cpe = createStrictCpe();
@@ -758,6 +804,8 @@ describe("self-heal configuration and wiring", () => {
       assert.ok(stack.selfHeal);
       assert.equal(stack.selfHeal.lockRollbackAfterMs, 10 * MIN);
       assert.equal(stack.selfHeal.reconnectAfterMs, 3 * MIN);
+      const status = (await sessionStatus(stack)) as SelfHealStatus;
+      assert.deepEqual([status.lockRollback.afterMin, status.reconnect.afterMin], [10, 3]);
       await stack.start();
       await stack.close();
     } finally {

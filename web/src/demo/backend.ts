@@ -76,6 +76,7 @@ import {
 } from "../../../src/control-input.ts";
 import { maskMacTail, maskPhoneNumber } from "../../../src/privacy-mask.ts";
 import { checkCellLockInput, parseSupportedLteBand, parseSupportedNrBand } from "../../../src/rf-bounds.ts";
+import { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, type SelfHealStatus } from "../../../src/self-heal-status.ts";
 import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../../../src/timeseries.ts";
 import { previewGuard } from "../core/access-view.ts";
 import type { EventSourceLike } from "../core/sse.ts";
@@ -169,6 +170,10 @@ export class DemoEventSource implements EventSourceLike {
     for (const listener of this.#listeners.get(type) ?? []) listener({ data });
   }
 }
+
+/** The demo household's self-healing (`LOCK_ROLLBACK_AFTER_MIN` / `WAN_AUTO_RECONNECT_AFTER_MIN`, as in `npm run demo`). */
+const DEMO_LOCK_ROLLBACK_MIN = 10;
+const DEMO_RECONNECT_MIN = 3;
 
 export class DemoBackend {
   readonly #now: () => number;
@@ -397,7 +402,7 @@ export class DemoBackend {
       this.tick();
       return { ok: true, schedulerStatus: this.#scheduler, telemetry: this.#telemetry } satisfies TelemetryRefreshResponse;
     });
-    get("/api/session/status", () => ({ ok: true, status: this.#scheduler }) satisfies SessionStatusResponse);
+    get("/api/session/status", () => ({ ok: true, status: this.#scheduler, selfHeal: this.#selfHeal() }) satisfies SessionStatusResponse);
     get("/api/timeseries", (_body, query) => {
       const result = this.#series.query({
         preset: readTimeSeriesPreset(query.get("preset") ?? undefined),
@@ -620,6 +625,23 @@ export class DemoBackend {
   }
 
   // ── Controls ───────────────────────────────────────────────────────────────
+
+  /**
+   * Self-healing as `npm run demo` runs it (lock rollback after 10 min, redial after 3). This WAN never
+   * drops: a fresh lock is watched until it has stayed up two minutes, and nothing is redialled.
+   */
+  #selfHeal(): SelfHealStatus {
+    const lock = this.#lockState;
+    const appliedMs = Date.parse(lock.updatedAtIso);
+    const watching = lock.mode !== "unlocked" && this.#now() - appliedMs < LOCK_CONFIRM_MS;
+    return {
+      lockRollback: {
+        afterMin: DEMO_LOCK_ROLLBACK_MIN,
+        watch: watching ? { lockUpdatedAtIso: lock.updatedAtIso, deadlineIso: new Date(appliedMs + DEMO_LOCK_ROLLBACK_MIN * 60_000).toISOString(), wanUpSinceIso: lock.updatedAtIso } : null,
+      },
+      reconnect: { afterMin: DEMO_RECONNECT_MIN, redialsLast24h: 0, maxPer24h: RECONNECT_MAX_PER_DAY, nextAllowedAtIso: null, wanDownSinceIso: null },
+    };
+  }
 
   async #lock(action: string, state: PersistedLockState, key: string, params?: Readonly<Record<string, string | number>>): Promise<PersistedLockState> {
     await this.#control(action, key, params, state);

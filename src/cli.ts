@@ -24,7 +24,7 @@ import { TelegramApi } from "./notify/telegram-api.ts";
 import { TelegramBot, TelegramStateStore } from "./notify/telegram-bot.ts";
 import { WebhookNotifier } from "./notify/webhook.ts";
 import type { ControlAuditEvent, MutexSessionScheduler } from "./scheduler.ts";
-import { WanSelfHeal } from "./self-heal.ts";
+import { SELF_HEAL_OFF, WanSelfHeal } from "./self-heal.ts";
 import { ContactBook } from "./sms/contacts.ts";
 import { SmsMcpTools } from "./sms/mcp-tools.ts";
 import { SmsMirrorStore } from "./sms/mirror.ts";
@@ -393,6 +393,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     core,
     allowMutations: config.mcpAllowMutations,
     redactSensitive: () => redactApiOutput,
+    selfHealStatus: () => selfHeal?.status() ?? SELF_HEAL_OFF,
     toolProviders: sms
       ? [
           accessTools,
@@ -458,6 +459,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     unlinkTelegramChat: telegramBot ? (chatId: string) => telegramBot?.unlinkChat(chatId) ?? false : null,
     telegramUsername: () => telegramBot?.username ?? null,
     runtimeSample: () => runtime.sample({ sseClients: sseBus.getClientCount(), telegramPending: telegramBot?.pendingNotifications ?? null }),
+    selfHealStatus: () => selfHeal?.status() ?? SELF_HEAL_OFF,
     onConnectionReady: () => {
       if (!awaitingSetup) return;
       awaitingSetup = false;

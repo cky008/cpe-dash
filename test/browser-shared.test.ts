@@ -34,6 +34,7 @@ const BROWSER_SHARED_MODULES = [
   "src/sms/text-mode.ts",
   "src/text-sanitize.ts",
   "src/privacy-mask.ts",
+  "src/self-heal-status.ts",
   "src/access-plan.ts",
   "src/access-state.ts",
   "src/console-policy.ts",

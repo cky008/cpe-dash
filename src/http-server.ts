@@ -86,6 +86,7 @@ import type { NotificationHub } from "./notify/hub.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
 import { sanitizeDeviceProfile, sanitizeDeviceReport } from "./sanitize.ts";
+import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
 import type { SseEventBus } from "./sse-bus.ts";
@@ -167,6 +168,8 @@ export interface FengSuiHttpServerOptions {
   telegramUsername?: () => string | null;
   /** The daemon process's own figures for `/metrics` (memory, CPU, event-loop delay). */
   runtimeSample?: (() => RuntimeSample) | null;
+  /** What WAN self-healing will do next, for `GET /api/session/status` (default: off). */
+  selfHealStatus?: (() => SelfHealStatus) | null;
 }
 
 /**
@@ -194,6 +197,7 @@ export class FengSuiHttpServer {
   readonly #audit: AuditLog | null;
   readonly #consoleRoutes: SettingsHttpRoutes;
   readonly #runtimeSample: (() => RuntimeSample) | null;
+  readonly #selfHealStatus: () => SelfHealStatus;
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
@@ -201,6 +205,7 @@ export class FengSuiHttpServer {
     this.sseBus = options.sseBus;
     this.mcpServer = options.mcpServer;
     this.#runtimeSample = options.runtimeSample ?? null;
+    this.#selfHealStatus = options.selfHealStatus ?? (() => SELF_HEAL_OFF);
     this.envPath = options.envPath;
     this.startedAtMs = Date.now();
     this.sms = options.sms ?? null;
@@ -905,6 +910,7 @@ export class FengSuiHttpServer {
             this.#sendJson(res, 200, {
               ok: true,
               status: this.core.scheduler.getStatus(),
+              selfHeal: this.#selfHealStatus(),
             } satisfies SessionStatusResponse);
             return;
 

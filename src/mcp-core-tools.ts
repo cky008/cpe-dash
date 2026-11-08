@@ -12,6 +12,7 @@ import type { ReadSection, WriteFeature } from "./device-access.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
 import { telemetryForOutput, topologyForOutput } from "./redact.ts";
+import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
 
 function asNumberOpt(obj: Record<string, unknown>, key: string): number | undefined {
   const val = obj[key];
@@ -96,7 +97,7 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "get_cpe_session_status",
     title: "Check CPE Single-Admin Session & Browser Avoidance Status",
     description:
-      "Check whether a human administrator is currently using the official CPE WebUI (http://192.168.8.1), inspect ephemeral session hold latency, and check the 108006/108007 circuit breaker.",
+      "Check whether a human administrator is currently using the official CPE WebUI (http://192.168.8.1), inspect ephemeral session hold latency, check the 108006/108007 circuit breaker, and see what WAN self-healing does on its own (selfHeal: whether a lock is rolled back when the WAN is still down lockRollback.afterMin minutes later, an open lock window's deadline, and the WAN redials spent of the 24 h cap).",
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -318,10 +319,12 @@ const CORE_RESOURCES: ReadonlyArray<McpResourceDescriptor> = [
 export class CoreMcpTools implements McpToolProvider {
   readonly core: FengSuiCore;
   readonly #redact: () => boolean;
+  readonly #selfHealStatus: () => SelfHealStatus;
 
-  constructor(core: FengSuiCore, options: { redactSensitive?: () => boolean } = {}) {
+  constructor(core: FengSuiCore, options: { redactSensitive?: (() => boolean) | undefined; selfHealStatus?: (() => SelfHealStatus) | undefined } = {}) {
     this.core = core;
     this.#redact = options.redactSensitive ?? (() => true);
+    this.#selfHealStatus = options.selfHealStatus ?? (() => SELF_HEAL_OFF);
   }
 
   getToolDefinitions(): ReadonlyArray<McpToolDefinition> {
@@ -442,6 +445,7 @@ export class CoreMcpTools implements McpToolProvider {
         return {
           ok: true,
           status: this.core.scheduler.getStatus(),
+          selfHeal: this.#selfHealStatus(),
           liveStateLogin,
         };
       }

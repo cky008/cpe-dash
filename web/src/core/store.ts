@@ -13,6 +13,7 @@ import type {
   TerminalTopologySnapshot,
   TimeSeriesBucketPoint,
 } from "../../../src/api-contract.ts";
+import type { SelfHealStatus } from "../../../src/self-heal-status.ts";
 import type { SseEvent, SseStatus } from "./sse.ts";
 
 /**
@@ -29,6 +30,8 @@ export interface LiveSample {
 export interface AppState {
   sse: SseStatus;
   scheduler: SchedulerStatusSnapshot | null;
+  /** What WAN self-healing will do next (from `GET /api/session/status`, "scheduler" topic). */
+  selfHeal: SelfHealStatus | null;
   avoidance: AvoidanceBroadcastPayload | null;
   telemetry: GlobalTelemetrySnapshot | null;
   lockState: PersistedLockState | null;
@@ -75,6 +78,7 @@ export function initialState(): AppState {
   return {
     sse: { state: "stopped", attempt: 0, nextRetryAtMs: null },
     scheduler: null,
+    selfHeal: null,
     avoidance: null,
     telemetry: null,
     lockState: null,

@@ -1084,6 +1084,8 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       // 6. GET /api/session/status
       const resSess = await fetch(`${fx.baseUrl}/api/session/status`, { headers: authHeader });
       assert.equal(resSess.status, 200);
+      const sess = (await resSess.json()) as { selfHeal?: { lockRollback: { afterMin: number | null }; reconnect: { afterMin: number | null } } };
+      assert.deepEqual([sess.selfHeal?.lockRollback.afterMin, sess.selfHeal?.reconnect.afterMin], [null, null], "self-healing off: said so");
 
       // 7. Unknown GET endpoint -> 404
       const resUnk = await fetch(`${fx.baseUrl}/api/unknown_route`, { headers: authHeader });

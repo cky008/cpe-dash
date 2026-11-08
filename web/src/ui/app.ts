@@ -58,6 +58,9 @@ const DICTIONARIES: Readonly<Record<Locale, () => Promise<Readonly<Record<Messag
   en: () => import("../i18n/en.ts").then((m) => m.en),
 };
 
+/** Alerts after which what self-healing will do next has changed. */
+const SELF_HEAL_ALERTS: ReadonlySet<string> = new Set(["LOCK_ROLLED_BACK", "LOCK_ROLLBACK_FAILED", "WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED", "SELF_HEAL_READ_ONLY"]);
+
 /** How the console reaches its daemon: the page's own origin, or the static demo's in-page backend. */
 export interface AppTransport {
   fetchImpl: typeof fetch;
@@ -137,8 +140,8 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
 
   const refreshSessionStatus = async (): Promise<void> => {
     try {
-      const { status } = await api.sessionStatus();
-      store.update({ scheduler: status, avoidance: status.avoidance }, ["scheduler"]);
+      const { status, selfHeal } = await api.sessionStatus();
+      store.update({ scheduler: status, avoidance: status.avoidance, selfHeal }, ["scheduler"]);
     } catch {
       // The SSE banner already reports an unreachable daemon
     }
@@ -181,16 +184,20 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
     switch (event.name) {
       case "hello":
         void loadSnapshots();
+        // `hello` carries the scheduler but not what self-healing will do next
+        void refreshSessionStatus();
         return;
       case "alert": {
         const alert = event.data;
-        if (alert.code.startsWith("CIRCUIT_")) void refreshSessionStatus();
+        if (alert.code.startsWith("CIRCUIT_") || SELF_HEAL_ALERTS.has(alert.code)) void refreshSessionStatus();
         if (alert.severity !== "info") ctx.toast(tr.pick(alert.messageZh, alert.messageEn), alert.severity === "critical" ? "error" : "warning");
         return;
       }
       case "control:applied":
         // An experimental write whose read-back differs is a warning, not a success
         ctx.toast(tr.pick(event.data.summaryZh, event.data.summaryEn), event.data.check?.readback === "mismatch" ? "warning" : "success");
+        // A lock opens (an unlock closes) self-healing's window: show it without waiting for the next poll
+        if (event.data.lockState) void refreshSessionStatus();
         return;
       case "session:avoidance":
         if (!event.data.active && event.data.stateCode === "-1") ctx.toast(tr.pick(event.data.messageZh, event.data.messageEn), "info");

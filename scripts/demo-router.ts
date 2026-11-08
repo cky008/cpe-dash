@@ -341,6 +341,9 @@ export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaem
       POLL_INTERVAL_MS: "5000",
       NEIGHBOR_SCAN_INTERVAL_MS: "60000",
       SMS_SEND_STATUS_TIMEOUT_MS: "8000",
+      // The household runs self-healing (the static demo shows the same): its WAN never drops, so it never writes
+      LOCK_ROLLBACK_AFTER_MIN: "10",
+      WAN_AUTO_RECONNECT_AFTER_MIN: "3",
       TZ: Intl.DateTimeFormat().resolvedOptions().timeZone,
     },
   });

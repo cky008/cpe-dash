@@ -573,7 +573,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 这两项会在没人操作时写路由器，所以默认关闭，需要在 `.env` 中显式开启：
 
 - **锁频回滚** `LOCK_ROLLBACK_AFTER_MIN`：锁频段或锁小区后，WAN 必须恢复并连续在线 2 分钟；到时间仍然断开，就自动解除全部锁定一次并发出 `LOCK_ROLLED_BACK`。守护进程重启后接着看：到期前重启照常计时，到期后重启而 WAN 仍断开就照常解锁，已经证明可用（连续在线 2 分钟）的锁定不会因重启再被盯上；解锁排队期间你又锁了一次时，只解除原来那次的监视，不碰新的锁定；解锁没能完成（熔断、连续失败、到期 1 小时后仍被真人登录挡住）时发出 `LOCK_ROLLBACK_FAILED`。
-- **WAN 自动重拨** `WAN_AUTO_RECONNECT_AFTER_MIN`：WAN 断开持续这么久后自动重拨，之后间隔 10 / 30 / 60 分钟再试，24 小时内最多 4 次（`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`；可能已到达路由器的失败重拨同样计数、同样按间隔等待；次数与间隔记在加密的 `state.json` 里，重启守护进程不会清零），从不自动重启路由器。锁定后的观察期由锁频回滚负责。
+- **WAN 自动重拨** `WAN_AUTO_RECONNECT_AFTER_MIN`：WAN 断开持续这么久后自动重拨，之后间隔 10 / 30 / 60 分钟再试，24 小时内最多 4 次（`WAN_AUTO_RECONNECT` / `WAN_RECONNECT_EXHAUSTED`；可能已到达路由器的失败重拨同样计数、同样按间隔等待；次数与间隔记在加密的 `state.json` 里，重启守护进程不会清零），从不自动重启路由器。锁定后的观察期由锁频回滚负责。控制台控制抽屉的「WAN 自愈」一节显示两者是否开启、正在观察的锁定何时到期、近 24 小时的重拨次数与下次最早重拨的时间，锁频 / 锁小区的确认也会说明这次锁定若导致断网是否会被自动回滚；`GET /api/session/status` 与 MCP `get_cpe_session_status` 返回同样的 `selfHeal`。
 
 两者只依据最新遥测，走控制队列（真人登录官方后台时让位，熔断时不登录），并在写入前于同一会话内重新读取 WAN 状态与移动数据开关：WAN 已恢复或移动数据被手动关闭时不写入。
 

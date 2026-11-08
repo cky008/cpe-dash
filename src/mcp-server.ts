@@ -17,6 +17,7 @@ import {
   SchedulerQueueFullError,
   SchedulerStoppedError,
 } from "./scheduler.ts";
+import type { SelfHealStatus } from "./self-heal-status.ts";
 import { TimeSeriesValidationError } from "./timeseries.ts";
 import { FENGSUI_VERSION } from "./version.ts";
 
@@ -124,6 +125,8 @@ export interface FengSuiMcpServerOptions {
   redactSensitive?: () => boolean;
   /** Further domain providers (e.g. `SmsMcpTools`). */
   toolProviders?: ReadonlyArray<McpToolProvider>;
+  /** What WAN self-healing will do next, for `get_cpe_session_status` (default: off). */
+  selfHealStatus?: () => SelfHealStatus;
 }
 
 /**
@@ -146,7 +149,7 @@ export class FengSuiMcpServer {
   constructor(options: FengSuiMcpServerOptions) {
     this.allowMutations = options.allowMutations !== false;
     this.toolProviders = [
-      new CoreMcpTools(options.core, { redactSensitive: options.redactSensitive }),
+      new CoreMcpTools(options.core, { redactSensitive: options.redactSensitive, selfHealStatus: options.selfHealStatus }),
       ...(options.toolProviders ?? []),
     ];
     const { scheduler } = options.core;

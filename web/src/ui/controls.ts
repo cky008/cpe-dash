@@ -3,8 +3,9 @@ import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
 import { experimentalWrites, readOnlyModel } from "../core/device-access-view.ts";
-import { formatAgo } from "../core/format.ts";
+import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
+import { lockRollbackNote, selfHealRows } from "../core/self-heal-view.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { type Child, byId, h, icon, modalBackdrop, mount } from "./dom.ts";
@@ -108,6 +109,22 @@ export function mountControls(ctx: AppContext): { open(): void } {
     for (const b of locked.length > 0 ? locked : advertised) genericSelected.add(b);
   };
 
+  // What self-healing will do next: updated in place, because the "scheduler" topic it comes with is
+  // polled every 10 s and a full render would reset a half-typed DMZ address
+  const selfHealList = h("div");
+  const renderSelfHeal = (): void => {
+    selfHealList.replaceChildren(
+      ...selfHealRows(ctx.store.state.selfHeal, ctx.t, (ms) => formatClock(ms, false)).map((row) =>
+        h(
+          "div",
+          { class: "flex items-start justify-between gap-3 py-1.5 border-b border-dashed border-base-content/10" },
+          h("span", { class: "text-sm shrink-0" }, row.label),
+          h("span", { class: `text-xs text-right ${row.tone === "pending" ? "text-warning" : row.tone === "muted" ? "faint" : "muted"}` }, row.value)
+        )
+      )
+    );
+  };
+
   const patchSettings = (patch: Partial<RouterSettingsSnapshot>): void => {
     const current = ctx.store.state.settings;
     if (current) ctx.store.update({ settings: { ...current, ...patch } }, ["settings"]);
@@ -163,8 +180,10 @@ export function mountControls(ctx: AppContext): { open(): void } {
     const describe = (rat: "LTE" | "NR", value: Array<number> | "all" | undefined): string =>
       value === undefined ? "" : value === "all" ? ctx.t("ctl.all_bands", { rat }) : value.map((b) => bandLabel(rat, b)).join("+");
     const summary = [describe("LTE", lte), describe("NR", nr)].filter(Boolean).join(" · ");
+    // Whether a lock that cuts the WAN is rolled back on its own, said before it is applied
+    const rollback = lockRollbackNote(ctx.store.state.selfHeal, ctx.t);
     void ctx
-      .confirm({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" })
+      .confirm({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary }), ...(rollback ? [rollback] : [])], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" })
       .then((ok) => {
         if (!ok) return;
         runBusy(button, async () => {
@@ -648,9 +667,11 @@ export function mountControls(ctx: AppContext): { open(): void } {
     const open = experimentalWrites(scheduler);
     const deviceBtn = h("button", { class: "btn btn-sm btn-primary rounded-lg gap-1.5", attrs: { type: "button" }, data: { action: "open-device" } }, icon("cpu"), ctx.t("dev.open_device"));
     deviceBtn.addEventListener("click", () => dialog.close());
+    renderSelfHeal();
+    const selfHealSection = section(ctx.t("ctl.self_heal"), selfHealList, h("p", { class: "text-[0.6875rem] faint" }, ctx.t("heal.hint")));
     let sections: HTMLElement[];
     if (lockedModel === null) {
-      sections = [bandSection, securitySection, wifiSection, antennaSection, systemSection];
+      sections = [bandSection, selfHealSection, securitySection, wifiSection, antennaSection, systemSection];
     } else if (open.length === 0) {
       sections = [
         h(
@@ -700,6 +721,9 @@ export function mountControls(ctx: AppContext): { open(): void } {
   // Not on "scheduler": its 10 s poll would reset a half-typed DMZ address
   ctx.store.subscribe(["settings", "locks"], () => {
     if (dialog.open) render();
+  });
+  ctx.store.subscribe(["scheduler"], () => {
+    if (dialog.open) renderSelfHeal();
   });
   ctx.tr.onChange(() => {
     if (dialog.open) render();

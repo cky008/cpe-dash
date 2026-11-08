@@ -15,7 +15,10 @@ import {
   SchedulerQueueFullError,
   SchedulerStoppedError,
 } from "./scheduler.ts";
+import { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, type SelfHealStatus } from "./self-heal-status.ts";
 import type { AlertEventRecord, SelfHealLockWatchState, SelfHealReconnectState } from "./state-store.ts";
+
+export { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
 
 export interface WanSelfHealOptions {
   scheduler: MutexSessionScheduler;
@@ -30,16 +33,12 @@ export interface WanSelfHealOptions {
   log?: (line: string) => void;
 }
 
-/** The WAN must stay up this long after a lock for the lock to be kept. */
-export const LOCK_CONFIRM_MS = 2 * 60_000;
 /** After the deadline a rollback that keeps being refused (human on the WebUI, router errors) gives up. */
 export const ROLLBACK_GIVE_UP_MS = 60 * 60_000;
 /** Wait before trying again after a refusal or failure. */
 export const SELF_HEAL_RETRY_MS = 60_000;
 /** Gaps between redials of one outage: 10, 30, then 60 min. */
 export const RECONNECT_BACKOFF_MS: ReadonlyArray<number> = [10 * 60_000, 30 * 60_000, 60 * 60_000];
-/** Redials that reached the router within 24 h. */
-export const RECONNECT_MAX_PER_DAY = 4;
 const DAY_MS = 24 * 60 * 60_000;
 /** Snapshots older than this (restored from disk at startup) never drive a write. */
 const STALE_SNAPSHOT_MS = 2 * 60_000;
@@ -121,6 +120,28 @@ export class WanSelfHeal {
   /** When the watched lock is rolled back if the WAN is still down (`null`: no lock is watched). */
   get lockDeadlineMs(): number | null {
     return this.#lockWatch?.deadlineMs ?? null;
+  }
+
+  /** What it will do next: the open lock window and the redial budget (read-only, from memory). */
+  status(): SelfHealStatus {
+    const now = this.#now();
+    const iso = (ms: number): string => new Date(ms).toISOString();
+    const watch = this.#lockWatch;
+    const redialing = this.reconnectAfterMs > 0;
+    const next = this.#nextReconnectAtMs;
+    return {
+      lockRollback: {
+        afterMin: this.lockRollbackAfterMs > 0 ? Math.round(this.lockRollbackAfterMs / 60_000) : null,
+        watch: watch ? { lockUpdatedAtIso: watch.lockUpdatedAtIso, deadlineIso: iso(watch.deadlineMs), wanUpSinceIso: watch.upSinceMs === null ? null : iso(watch.upSinceMs) } : null,
+      },
+      reconnect: {
+        afterMin: redialing ? Math.round(this.reconnectAfterMs / 60_000) : null,
+        redialsLast24h: this.#reconnects.filter((ts) => now - ts < DAY_MS).length,
+        maxPer24h: RECONNECT_MAX_PER_DAY,
+        nextAllowedAtIso: redialing && Number.isFinite(next) && next > now ? iso(next) : null,
+        wanDownSinceIso: redialing && this.#downSinceMs !== null ? iso(this.#downSinceMs) : null,
+      },
+    };
   }
 
   start(): void {
