@@ -266,6 +266,7 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
   byId("loginModeToggle").addEventListener("click", () => setLoginMode(loginMode === "reset" ? "login" : "reset"));
 
   const showLogin = (expired: boolean, setupRequired = false): void => {
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
     sse?.stop();
     if (statusTimer) clearInterval(statusTimer);
     statusTimer = null;

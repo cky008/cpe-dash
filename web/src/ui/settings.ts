@@ -106,6 +106,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   let draft: RouterDraft = { url: DEFAULT_CPE_URL, username: "admin", password: "", lastAttempt: false };
   let lastResult: ConnectionTestResult | null = null;
   let testing = false;
+  let pairingInFlight = false;
+  let savingSwitches = false;
   let minted: string | null = null;
   let pairing: PairingCodeResponse | null = null;
   let tokens: PublicTokenRecord[] | null = null;
@@ -386,7 +388,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
    */
   const switchExperimental = async (feature: WriteFeature, input: HTMLInputElement): Promise<void> => {
     const on = input.checked;
-    const model = ctx.store.state.scheduler?.device.model ?? "?";
+    const model = ctx.store.state.scheduler?.device.model?.trim() || "?";
     const label = t(FEATURE_KEYS[feature]);
     if (on) {
       input.checked = false;
@@ -582,6 +584,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   const tokensTab = (): HTMLElement => {
     const name = input("text", "", "off", t("token_name"));
     name.maxLength = 64;
+    name.setAttribute("aria-label", t("token_name"));
     const scope = h(
       "select",
       { class: "select select-sm rounded-lg", attrs: { "aria-label": t("scope_read") } },
@@ -640,19 +643,33 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   // ---------------------------------------------------------------- telegram
   const telegramTab = (): HTMLElement => {
     if (!summary?.telegram.configured) return notice(t("telegram_off"));
-    const issue = (group: boolean): Promise<void> =>
-      ctx.api.pairingCode(group).then((res) => {
-        pairing = res;
+    const issue = async (group: boolean): Promise<void> => {
+      if (pairingInFlight) return;
+      pairingInFlight = true;
+      create.disabled = true;
+      createGroup.disabled = true;
+      try {
+        pairing = await ctx.api.pairingCode(group);
+      } catch (err) {
+        fail(err);
+      } finally {
+        pairingInFlight = false;
+        create.disabled = false;
+        createGroup.disabled = false;
         render();
-      });
-    const create = button(t("pairing_create"), "btn-primary", () => void issue(false).catch(fail), "key");
+      }
+    };
+    const create = button(t("pairing_create"), "btn-primary", () => void issue(false), "key");
     // Everyone in the group reads what the bot posts there, so a group code is asked for on purpose
     const createGroup = button(t("pairing_group_create"), "btn-ghost", () => {
+      if (pairingInFlight) return;
       void ctx
         .confirm({ title: t("pairing_group_title"), body: [t("pairing_group_body"), t("pairing_group_owner"), t("pairing_group_admin")], confirmLabel: t("pairing_group_create"), tone: "warning" })
         .then((yes) => (yes ? issue(true) : undefined))
         .catch(fail);
     }, "contacts");
+    create.disabled = pairingInFlight;
+    createGroup.disabled = pairingInFlight;
     const unlink = button(t("unlink_all"), "btn-ghost text-error", () => {
       void ctx
         .confirm({ title: t("unlink_title"), body: [t("unlink_body")], confirmLabel: t("unlink_all"), tone: "error" })
@@ -681,6 +698,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
 
   // ---------------------------------------------------------------- security
   const saveSwitches = (body: { telegramReset?: boolean; metricsEnabled?: boolean | null }): void => {
+    if (savingSwitches) return;
+    savingSwitches = true;
     void ctx.api
       .consoleSwitches(body)
       .then((next) => {
@@ -689,17 +708,21 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       })
       .catch(fail)
       // A refused change puts the control back to the stored value
-      .finally(render);
+      .finally(() => {
+        savingSwitches = false;
+        render();
+      });
   };
 
   const securityTab = (): HTMLElement => {
     const s = summary;
     if (!s) return h("div");
     let reset: HTMLElement | null = null;
+    let toggle: HTMLInputElement | null = null;
     if (s.telegram.configured) {
-      const toggle = h("input", { class: "toggle toggle-sm toggle-primary mt-0.5", attrs: { type: "checkbox" } });
+      toggle = h("input", { class: "toggle toggle-sm toggle-primary mt-0.5", attrs: { type: "checkbox" } });
       toggle.checked = s.telegram.resetEnabled;
-      toggle.addEventListener("change", () => saveSwitches({ telegramReset: toggle.checked }));
+      toggle.disabled = savingSwitches;
       reset = h(
         "label",
         { class: "flex items-start gap-3 cursor-pointer" },
@@ -715,7 +738,21 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       h("option", { attrs: { value: "off" } }, t("metrics_off"))
     );
     metrics.value = s.metrics.source === "env" ? "env" : s.metrics.enabled ? "on" : "off";
-    metrics.addEventListener("change", () => saveSwitches({ metricsEnabled: metrics.value === "env" ? null : metrics.value === "on" }));
+    metrics.disabled = savingSwitches;
+    const disableControls = (): void => {
+      if (toggle) toggle.disabled = true;
+      metrics.disabled = true;
+    };
+    if (toggle) {
+      toggle.addEventListener("change", () => {
+        disableControls();
+        saveSwitches({ telegramReset: toggle.checked });
+      });
+    }
+    metrics.addEventListener("change", () => {
+      disableControls();
+      saveSwitches({ metricsEnabled: metrics.value === "env" ? null : metrics.value === "on" });
+    });
     return h(
       "div",
       { class: "space-y-5" },
@@ -858,6 +895,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     // A minted token, a pairing code and a typed router password live only while the dialog is open
     minted = null;
     pairing = null;
+    pairingInFlight = false;
+    savingSwitches = false;
     draft.password = "";
   });
   ctx.tr.onChange(() => {

@@ -68,7 +68,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   };
 
   // ── Static skeleton ────────────────────────────────────────────────────────
-  const searchInput = h("input", { attrs: { type: "search", autocomplete: "off", "aria-label": "search" } });
+  const searchInput = h("input", { attrs: { type: "search", autocomplete: "off", "aria-label": ctx.t("sms.search") } });
   const listTitle = h("h1", { class: "serif text-2xl font-bold leading-none" });
   const listTitleIcon = h("span", { class: "text-[1.35rem]" });
   const listCount = h("span", { class: "ml-auto text-sm muted num" });
@@ -248,6 +248,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     listTitle.textContent = ctx.t(meta.key);
     mount(listTitleIcon, icon(meta.icon, `${meta.cls} anim-pop-in`));
     searchInput.placeholder = ctx.t("sms.search");
+    searchInput.setAttribute("aria-label", ctx.t("sms.search"));
     mount(privacySlot, revealButton(ctx, SMS_SCOPE));
     fab.title = ctx.t("sms.new");
     fab.setAttribute("aria-label", ctx.t("sms.new"));

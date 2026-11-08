@@ -199,6 +199,14 @@ export function mountControls(ctx: AppContext): { open(): void } {
     input.disabled = true;
     task()
       .catch((err: unknown) => {
+        if (mayHaveApplied && err instanceof ApiError && err.kind === "upstream") {
+          fail(err, true);
+          void ctx.api
+            .refreshSettings()
+            .then((res) => ctx.store.update({ settings: res.settings, scheduler: res.schedulerStatus }, ["settings", "scheduler"]))
+            .catch(() => undefined);
+          return;
+        }
         input.checked = !input.checked;
         fail(err, mayHaveApplied);
       })
@@ -389,7 +397,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
       })
     );
 
-    const dmzInput = h("input", { class: "input input-sm rounded-lg num w-36", attrs: { type: "text", inputmode: "decimal", placeholder: "192.168.8.10" } });
+    const dmzInput = h("input", { class: "input input-sm rounded-lg num w-36", attrs: { type: "text", inputmode: "decimal", placeholder: "192.168.8.10", "aria-label": ctx.t("ctl.dmz_ip") } });
     dmzInput.value = settings?.dmzIpAddress ?? "";
     dmzInput.disabled = noSettings;
     const dmzToggle = toggle(settings?.dmzEnabled ?? false, noSettings, (next, input) => {
@@ -421,6 +429,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
           );
         });
     });
+    dmzToggle.setAttribute("aria-label", ctx.t("ctl.dmz"));
 
     const securitySection = section(
       ctx.t("ctl.security"),
@@ -678,7 +687,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         h(
           "div",
           { class: "flex-1 overflow-y-auto px-5 py-4 space-y-6" },
-          blocked && lockedModel === null
+          blocked
             ? h("div", { class: "fs-notice", data: { tone: "danger" } }, icon("alert", "text-error mt-0.5"), h("span", { class: "text-xs" }, ctx.t(scheduler?.circuitBreaker.tripped ? "err.breaker" : scheduler?.peerStandby.active ? "err.peer_standby" : "err.yielded")))
             : null,
           ...sections
