@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/). Each release section opens with `### Highlights` (a few changes worth a short paragraph); the GitHub release lists the other changes by their lead sentence and links here for the details.
 
+## [Unreleased]
+
+### Fixed
+- **A term's help is never cut off.** The one-line explanation of a "?" was a bubble drawn by CSS around the mark, so a card cut it off when the "?" sat near its edge (the access mode, PCI) and it hid behind open drawers. It is now one floating line placed next to the mark and kept inside the window (below the mark when there is no room above), shown inside the drawer when the "?" is in one, and gone on scroll.
+
 ## [1.7.0] — 2026-11-08
 
 ### Highlights

@@ -1002,32 +1002,23 @@ body {
     color: var(--color-primary);
     border-color: var(--color-primary);
   }
-  .fs-help::after {
-    content: attr(data-tip);
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 0.45rem);
-    z-index: 60;
-    width: max-content;
-    max-width: 16rem;
+  /* The one floating line for a hovered or focused "?" (placed by ui/help.ts, kept inside the viewport) */
+  .fs-help-tip {
+    position: fixed;
+    z-index: 1000;
+    max-width: min(16rem, calc(100vw - 1rem));
     padding: 0.45rem 0.6rem;
     border-radius: 0.5rem;
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.45;
-    white-space: normal;
-    text-align: left;
     color: var(--color-base-100);
     background: var(--color-base-content);
     box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
-    transform: translateX(-50%);
-    opacity: 0;
     pointer-events: none;
-    transition: opacity 0.12s;
   }
-  .fs-help:hover::after,
-  .fs-help:focus-visible::after {
-    opacity: 1;
+  .fs-help-tip[hidden] {
+    display: none;
   }
   :root[data-help="off"] .fs-help {
     display: none;

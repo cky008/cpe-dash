@@ -228,6 +228,39 @@ describe("the console in a browser", () => {
     await closeDialogs(page);
   });
 
+  it("shows a term's help fully on screen, even for a '?' at a card's edge or inside a drawer", async () => {
+    await signIn(page, live());
+    /** Hover the leftmost visible "?" under `scope` and return where its tip landed. */
+    const hoverLeftmost = (scope: string): Promise<{ text: string; left: number; right: number; top: number; bottom: number; vw: number; vh: number; inDialog: boolean } | null> =>
+      page.evaluate(`(() => {
+        const marks = [...document.querySelectorAll(${JSON.stringify(scope + " .fs-help")})].filter((m) => m.getBoundingClientRect().width > 0);
+        marks.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+        const mark = marks[0];
+        if (!mark) return null;
+        mark.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        const tip = document.querySelector(".fs-help-tip");
+        if (!tip || tip.hidden) return null;
+        const r = tip.getBoundingClientRect();
+        return { text: tip.textContent, left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight, inDialog: Boolean(tip.closest("dialog")) };
+      })()`);
+    const onScreen = (t: NonNullable<Awaited<ReturnType<typeof hoverLeftmost>>>): boolean => t.left >= 0 && t.top >= 0 && t.right <= t.vw && t.bottom <= t.vh;
+
+    const card = await hoverLeftmost("#operatorCard");
+    assert.ok(card, "a tip appears on hover");
+    assert.match(card.text, /NSA/);
+    assert.ok(onScreen(card), `tip off screen: ${JSON.stringify(card)}`);
+    await page.evaluate(`document.querySelector("#operatorCard .fs-help").dispatchEvent(new MouseEvent("mouseout", { bubbles: true })); true`);
+    assert.equal(await page.evaluate<boolean>(`document.querySelector(".fs-help-tip").hidden`), true, "it goes away");
+
+    // Inside a modal drawer the tip must sit in the drawer's top layer, not behind it
+    await page.click('[data-action="open-controls"]');
+    await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+    await page.waitUntil(`document.querySelectorAll("#controlsDialog .fs-help").length > 3`, "help marks in the drawer");
+    const drawer = await hoverLeftmost("#controlsDialog");
+    assert.ok(drawer && drawer.inDialog && onScreen(drawer), `drawer tip: ${JSON.stringify(drawer)}`);
+    await closeDialogs(page);
+  });
+
   it("gives every control in the dashboard, the settings tabs and the drawers a name", async () => {
     await signIn(page, live());
     const problems: string[] = [];
