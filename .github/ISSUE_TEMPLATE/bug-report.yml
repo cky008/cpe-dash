@@ -1,0 +1,58 @@
+name: 缺陷报告 / Bug report
+description: 烽燧有地方不对 / Something in FengSui does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全问题请不要在这里提交，按 [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md) 私下报告。其他华为型号能不能用，请用「设备兼容性报告」。
+        Do not report security problems here; follow [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md). For another Huawei model, use the device compatibility report.
+
+        **不要贴真实信息**：路由器密码、令牌、IMEI / IMSI / 手机号、短信内容、MAC、公网 IP、抓包。日志里出现这些请先替换掉。
+        **Leave out real information**: router passwords, tokens, IMEI / IMSI / phone numbers, SMS text, MAC or public IP addresses, captures. Replace them in any log you paste.
+  - type: input
+    id: version
+    attributes:
+      label: 烽燧版本 / FengSui version
+      description: 控制台左上角，或 `GET /api/health` / Top left of the console, or `GET /api/health`
+      placeholder: 1.6.3
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式 / How you run it
+      options:
+        - 群晖 Container Manager / Synology Container Manager
+        - Docker / Docker Compose（其他系统 / other host）
+        - 源码 npm start / From source
+        - 在线演示 / Live demo
+    validations:
+      required: true
+  - type: input
+    id: router
+    attributes:
+      label: 路由器型号与固件 / Router model and firmware
+      description: 「设置 → 设备」里显示的内容 / As shown in Settings → Device
+      placeholder: H168-383, 4.4.0.1
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么 / What happened
+      description: 你做了什么、期望看到什么、实际看到了什么 / What you did, what you expected, what you saw
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（已去掉真实信息）/ Logs (real information removed)
+      description: "`docker logs cpe-dash` 里相关的几行 / The relevant lines of `docker logs cpe-dash`"
+      render: text

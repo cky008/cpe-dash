@@ -1,0 +1,21 @@
+name: 功能建议 / Feature request
+description: 希望烽燧能做到的事 / Something you would like FengSui to do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题 / The problem
+      description: 你现在遇到了什么不方便的地方 / What is hard or impossible today
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 希望怎么做 / What you would like
+      description: 你设想的做法；有参考的产品或截图也可以贴上 / How you picture it; references or screenshots are welcome
+  - type: textarea
+    id: router
+    attributes:
+      label: 与路由器有关吗 / Does it involve the router
+      description: 如果需要读取或写入路由器的新接口，写上型号和固件 / If it needs a new router read or write, give the model and firmware

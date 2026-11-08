@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题 / Security problem
+    url: https://github.com/cky008/cpe-dash/security/advisories/new
+    about: 请私下报告，不要公开提交 / Report it privately, not in a public issue
+  - name: 在线演示 / Live demo
+    url: https://cky008.github.io/fengsui-demo/
+    about: 不用安装，先看看烽燧能做什么 / See what FengSui does without installing it
