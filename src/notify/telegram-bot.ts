@@ -41,12 +41,19 @@ export interface TelegramUpdate {
     data?: string;
     /** Who tapped the button. */
     from?: { id?: number | string };
-    message?: { message_id?: number; chat?: { id?: number | string } };
+    /** The card the button is on (with its forum topic in a group with topics). */
+    message?: { message_id?: number; chat?: { id?: number | string }; message_thread_id?: number; is_topic_message?: boolean };
   };
 }
 
 type InlineButton = { text: string; callback_data: string };
 type InlineKeyboard = { inline_keyboard: InlineButton[][] };
+
+/** Where an answer goes: the chat, and the forum topic the command, reply or button came from (`null`: none). */
+interface ReplyTo {
+  chatId: string;
+  topic: number | null;
+}
 
 interface PendingNotification {
   chatId: string;
@@ -82,8 +89,8 @@ export function escapeTelegramHtml(text: string | number): string {
 }
 
 /** The forum topic a message was posted in, or `null` (a private chat, a group without topics, the General topic). */
-function topicOf(msg: NonNullable<TelegramUpdate["message"]>): number | null {
-  return msg.is_topic_message === true && typeof msg.message_thread_id === "number" ? msg.message_thread_id : null;
+function topicOf(msg: { message_thread_id?: number; is_topic_message?: boolean } | undefined): number | null {
+  return msg?.is_topic_message === true && typeof msg.message_thread_id === "number" ? msg.message_thread_id : null;
 }
 
 function callbackData(action: string, arg: string | number): string | null {
@@ -763,7 +770,7 @@ export class TelegramBot implements NotificationChannel {
           continue;
         }
         try {
-          const sent = await this.#send(next.chatId, next.html, next.keyboard);
+          const sent = await this.#send({ chatId: next.chatId, topic: null }, next.html, next.keyboard);
           this.#outbox.shift();
           this.#afterNotification(next, sent);
         } catch (err) {
@@ -798,7 +805,7 @@ export class TelegramBot implements NotificationChannel {
       return;
     }
     try {
-      this.#afterNotification(notification, await this.#send(notification.chatId, notification.html, notification.keyboard));
+      this.#afterNotification(notification, await this.#send({ chatId: notification.chatId, topic: null }, notification.html, notification.keyboard));
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       if (!isTransientTelegramError(err)) {
@@ -910,6 +917,8 @@ export class TelegramBot implements NotificationChannel {
       this.#migrateChat(msg.migrate_to_chat_id === undefined ? String(msg.migrate_from_chat_id) : chatId, String(msg.migrate_to_chat_id ?? chatId));
       return;
     }
+    // In a group with topics everything this message causes is answered in its topic
+    const to: ReplyTo = { chatId, topic: topicOf(msg) };
     const text = (msg.text ?? "").trim();
     const privateChat = msg.chat?.type === "private";
     // In a group the bot may see every message: a command for another bot is not ours, nor is chatter
@@ -917,23 +926,23 @@ export class TelegramBot implements NotificationChannel {
     if (addressedTo !== undefined && this.#username !== null && addressedTo.toLowerCase() !== this.#username.toLowerCase()) return;
 
     if (/^\/auth(?:@\S+)?(?:\s|$)/i.test(text)) {
-      await this.#cmdAuth(chatId, text.replace(/^\/auth(?:@\S+)?\s*/i, ""), msg);
+      await this.#cmdAuth(to, text.replace(/^\/auth(?:@\S+)?\s*/i, ""), msg);
       return;
     }
     if (!this.state.isAuthorized(chatId, this.allowedChatIds)) {
-      if (privateChat || text.startsWith("/")) await this.#send(chatId, this.#tx("unauthorized", { chatId }), undefined, topicOf(msg));
+      if (privateChat || text.startsWith("/")) await this.#send(to, this.#tx("unauthorized", { chatId }));
       return;
     }
     // A group linked with a group code takes commands, replies and files from the member who linked it only
     const group = this.state.groupLink(chatId);
     if (group && (msg.sender_chat !== undefined || String(msg.from?.id ?? "") !== group.userId)) return;
     if (/^\/reset(?:@\S+)?$/i.test(text)) {
-      await this.#cmdReset(chatId, privateChat);
+      await this.#cmdReset(to, privateChat);
       return;
     }
 
     if (msg.document) {
-      await this.#importVcf(chatId, msg.document);
+      await this.#importVcf(to, msg.document);
       return;
     }
     if (!text) return;
@@ -942,24 +951,24 @@ export class TelegramBot implements NotificationChannel {
       const target = this.state.replyTarget(chatId, msg.reply_to_message.message_id);
       if (target) {
         this.#wizards.delete(chatId);
-        await this.#executeSend(chatId, target, text);
+        await this.#executeSend(to, target, text);
         return;
       }
     }
     if (!text.startsWith("/") && this.#wizard(chatId)) {
-      await this.#handleWizardInput(chatId, text);
+      await this.#handleWizardInput(to, text);
       return;
     }
 
     const match = text.match(/^\/([A-Za-z0-9_]{1,32})(?:@\S+)?(?:\s+([\s\S]*))?$/);
     if (!match) {
-      if (privateChat) await this.#send(chatId, this.#tx("help"), this.#newSmsKeyboard());
+      if (privateChat) await this.#send(to, this.#tx("help"), this.#newSmsKeyboard());
       return;
     }
     const command = (match[1] ?? "").toLowerCase();
     const rest = (match[2] ?? "").trim();
     if (command !== "cancel") this.#wizards.delete(chatId);
-    await this.#dispatchCommand(chatId, command, rest);
+    await this.#dispatchCommand(to, command, rest);
   }
 
   /** A linked group became a supergroup: Telegram tells both chats, so the second notice finds nothing to move. */
@@ -970,52 +979,54 @@ export class TelegramBot implements NotificationChannel {
     }
   }
 
-  async #dispatchCommand(chatId: string, command: string, rest: string): Promise<void> {
+  async #dispatchCommand(to: ReplyTo, command: string, rest: string): Promise<void> {
     switch (command) {
       case "start":
       case "help":
-        return await this.#reply(chatId, "help", undefined, this.#newSmsKeyboard());
+        return await this.#reply(to, "help", undefined, this.#newSmsKeyboard());
       case "status":
-        return await this.#cmdStatus(chatId);
+        return await this.#cmdStatus(to);
       case "alerts":
-        return await this.#cmdAlerts(chatId);
+        return await this.#cmdAlerts(to);
       case "mute":
-        return await this.#cmdMute(chatId, rest);
+        return await this.#cmdMute(to, rest);
       case "cancel":
-        this.#wizards.delete(chatId);
-        return await this.#reply(chatId, "wiz_cancelled");
+        this.#wizards.delete(to.chatId);
+        return await this.#reply(to, "wiz_cancelled");
     }
     const sms = this.sms;
     if (!sms) {
-      await this.#send(chatId, this.#tx(["new", "inbox", "unread", "chat", "send", "contacts", "contact", "sync"].includes(command) ? "sms_disabled" : "unknown_command", { command }));
+      await this.#send(to, this.#tx(["new", "inbox", "unread", "chat", "send", "contacts", "contact", "sync"].includes(command) ? "sms_disabled" : "unknown_command", { command }));
       return;
     }
-    if ((command === "new" || command === "send") && (await this.#refuseReadOnly(chatId))) return;
+    if ((command === "new" || command === "send") && (await this.#refuseReadOnly(to))) return;
     switch (command) {
       case "new":
-        return await this.#startWizard(chatId);
+        return await this.#startWizard(to);
       case "inbox":
-        return await this.#cmdInbox(chatId, sms, Number.parseInt(rest || "1", 10) || 1);
+        return await this.#cmdInbox(to, sms, Number.parseInt(rest || "1", 10) || 1);
       case "unread":
-        return await this.#cmdUnread(chatId, sms);
+        return await this.#cmdUnread(to, sms);
       case "chat":
-        return await this.#cmdChat(chatId, sms, rest);
+        return await this.#cmdChat(to, sms, rest);
       case "send":
-        return await this.#cmdSend(chatId, rest);
+        return await this.#cmdSend(to, rest);
       case "contacts":
-        return await this.#cmdContacts(chatId, sms, rest);
+        return await this.#cmdContacts(to, sms, rest);
       case "contact":
-        return await this.#cmdContact(chatId, sms, rest);
+        return await this.#cmdContact(to, sms, rest);
       case "sync":
-        return await this.#cmdSync(chatId, sms);
+        return await this.#cmdSync(to, sms);
       default:
-        await this.#send(chatId, this.#tx("unknown_command", { command }));
+        await this.#send(to, this.#tx("unknown_command", { command }));
     }
   }
 
   async #handleCallback(cq: NonNullable<TelegramUpdate["callback_query"]>): Promise<void> {
     const chatId = String(cq.message?.chat?.id ?? "");
     const messageId = cq.message?.message_id;
+    // A button answers in the forum topic its card is in
+    const to: ReplyTo = { chatId, topic: topicOf(cq.message) };
     const answer = (text?: string, alert = false): Promise<unknown> =>
       this.api.call("answerCallbackQuery", { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) }).catch(() => undefined);
     if (!chatId || !this.state.isAuthorized(chatId, this.allowedChatIds)) {
@@ -1036,7 +1047,7 @@ export class TelegramBot implements NotificationChannel {
     try {
       if (action === "status") {
         await answer();
-        return await this.#cmdStatus(chatId);
+        return await this.#cmdStatus(to);
       }
       if (!sms) {
         await answer(this.#plain("sms_disabled"), true);
@@ -1051,7 +1062,7 @@ export class TelegramBot implements NotificationChannel {
       switch (action) {
         case "wizstart":
           await answer();
-          return await this.#startWizard(chatId);
+          return await this.#startWizard(to);
         case "wizcancel":
           this.#wizards.delete(chatId);
           await answer(this.#plain("wiz_cancelled"));
@@ -1067,12 +1078,12 @@ export class TelegramBot implements NotificationChannel {
         }
         case "wizpick":
           await answer();
-          return await this.#advanceToContent(chatId, arg);
+          return await this.#advanceToContent(to, arg);
         case "wizback": {
           await answer();
           const wiz = this.#wizard(chatId);
-          if (arg === "content" && wiz?.phone) return await this.#advanceToContent(chatId, wiz.phone);
-          return await this.#startWizard(chatId, wiz?.countryCode);
+          if (arg === "content" && wiz?.phone) return await this.#advanceToContent(to, wiz.phone);
+          return await this.#startWizard(to, wiz?.countryCode);
         }
         case "wizsend": {
           const wiz = this.#wizard(chatId);
@@ -1082,7 +1093,7 @@ export class TelegramBot implements NotificationChannel {
           }
           this.#wizards.delete(chatId);
           await answer();
-          return await this.#executeSend(chatId, wiz.phone, wiz.content, messageId);
+          return await this.#executeSend(to, wiz.phone, wiz.content, messageId);
         }
         case "read":
           await sms.markRead({ uids: [arg] });
@@ -1100,13 +1111,13 @@ export class TelegramBot implements NotificationChannel {
         }
         case "chat":
           await answer();
-          return await this.#cmdChat(chatId, sms, arg);
+          return await this.#cmdChat(to, sms, arg);
         case "inbox":
           await answer();
-          return await this.#cmdInbox(chatId, sms, Number.parseInt(arg || "1", 10) || 1);
+          return await this.#cmdInbox(to, sms, Number.parseInt(arg || "1", 10) || 1);
         case "unread":
           await answer();
-          return await this.#cmdUnread(chatId, sms);
+          return await this.#cmdUnread(to, sms);
         case "del": {
           const okCb = callbackData("delok", arg);
           await answer();
@@ -1145,14 +1156,14 @@ export class TelegramBot implements NotificationChannel {
 
   // ----------------------------------------------------------------- commands
 
-  async #cmdAuth(chatId: string, secret: string, msg: NonNullable<TelegramUpdate["message"]>): Promise<void> {
+  async #cmdAuth(to: ReplyTo, secret: string, msg: NonNullable<TelegramUpdate["message"]>): Promise<void> {
+    const { chatId } = to;
     if (msg.message_id !== undefined) {
       void this.api.call("deleteMessage", { chat_id: chatId, message_id: msg.message_id }).catch(() => undefined);
     }
     // Answers go to the forum topic /auth was sent in
-    const topic = topicOf(msg);
     const answer = async (key: TextKey): Promise<void> => {
-      await this.#send(chatId, this.#tx(key), undefined, topic);
+      await this.#send(to, this.#tx(key));
     };
     if (this.state.isAuthorized(chatId, this.allowedChatIds)) return await answer("auth_already");
     if (this.#authLimited(chatId)) return await answer("auth_limited");
@@ -1167,11 +1178,11 @@ export class TelegramBot implements NotificationChannel {
       if (where === "private") {
         // Linked with a token: revoking that token unlinks this chat again
         this.state.authorize(chatId, undefined, tokenId);
-        await this.#send(chatId, this.#tx("auth_ok"));
+        await this.#send(to, this.#tx("auth_ok"));
       } else {
         // Notifications go to the forum topic /auth was sent in (none: the group itself, or its General topic)
-        this.state.authorize(chatId, { userId, threadId: topic }, tokenId);
-        await this.#send(chatId, this.#tx("auth_group_ok"));
+        this.state.authorize(chatId, { userId, threadId: to.topic }, tokenId);
+        await this.#send(to, this.#tx("auth_group_ok"));
       }
       return;
     }
@@ -1193,21 +1204,21 @@ export class TelegramBot implements NotificationChannel {
   }
 
   /** A one-time console password reset code, in a linked private chat only, at most 3 an hour. */
-  async #cmdReset(chatId: string, privateChat: boolean): Promise<void> {
-    if (!privateChat) return await this.#reply(chatId, "reset_private_only");
+  async #cmdReset(to: ReplyTo, privateChat: boolean): Promise<void> {
+    if (!privateChat) return await this.#reply(to, "reset_private_only");
     const issue = this.#issueResetCode;
-    if (!issue) return await this.#reply(chatId, "reset_disabled");
+    if (!issue) return await this.#reply(to, "reset_disabled");
     const now = this.#now();
-    const recent = (this.#resetRequests.get(chatId) ?? []).filter((ts) => now - ts < 60 * 60_000);
-    if (recent.length >= 3) return await this.#reply(chatId, "reset_limited");
+    const recent = (this.#resetRequests.get(to.chatId) ?? []).filter((ts) => now - ts < 60 * 60_000);
+    if (recent.length >= 3) return await this.#reply(to, "reset_limited");
     const code = issue();
-    if (code === null) return await this.#reply(chatId, "reset_disabled");
-    this.#resetRequests.set(chatId, [...recent, now]);
+    if (code === null) return await this.#reply(to, "reset_disabled");
+    this.#resetRequests.set(to.chatId, [...recent, now]);
     this.#log("[telegram] issued a console password reset code to a linked chat");
-    await this.#send(chatId, this.#tx("reset_code", { code }));
+    await this.#send(to, this.#tx("reset_code", { code }));
   }
 
-  async #cmdStatus(chatId: string): Promise<void> {
+  async #cmdStatus(to: ReplyTo): Promise<void> {
     const telemetry = this.core.monitor.getCachedTelemetry();
     const status = this.core.scheduler.getStatus();
     const lines: string[] = [];
@@ -1237,12 +1248,12 @@ export class TelegramBot implements NotificationChannel {
       );
     }
     lines.push(this.#tx("status_line_session", { mode: this.#tx(`status_mode_${status.mode}`) }));
-    await this.#send(chatId, lines.join("\n"), this.#newSmsKeyboard());
+    await this.#send(to, lines.join("\n"), this.#newSmsKeyboard());
   }
 
-  async #cmdAlerts(chatId: string): Promise<void> {
+  async #cmdAlerts(to: ReplyTo): Promise<void> {
     const recent = [...this.core.scheduler.getRecentAlerts()].slice(-10).reverse();
-    if (recent.length === 0) return await this.#reply(chatId, "alerts_empty");
+    if (recent.length === 0) return await this.#reply(to, "alerts_empty");
     const lines = [this.#tx("alerts_title"), ""];
     for (const a of recent) {
       lines.push(
@@ -1250,26 +1261,26 @@ export class TelegramBot implements NotificationChannel {
         escapeTelegramHtml(this.locale === "en" ? a.messageEn : a.messageZh)
       );
     }
-    await this.#send(chatId, lines.join("\n"));
+    await this.#send(to, lines.join("\n"));
   }
 
-  async #cmdMute(chatId: string, rest: string): Promise<void> {
+  async #cmdMute(to: ReplyTo, rest: string): Promise<void> {
     const arg = rest.trim().toLowerCase();
     if (arg === "off") {
       this.state.setAlertsMutedUntil(null);
-      return await this.#reply(chatId, "mute_off");
+      return await this.#reply(to, "mute_off");
     }
     const match = arg.match(/^(\d{1,4})\s*([mhd])$/);
-    if (!match?.[1] || !match[2]) return await this.#reply(chatId, "mute_usage");
+    if (!match?.[1] || !match[2]) return await this.#reply(to, "mute_usage");
     const unitMs = match[2] === "m" ? 60_000 : match[2] === "h" ? 3_600_000 : 86_400_000;
     const until = this.#now() + Math.min(MAX_MUTE_MS, Number(match[1]) * unitMs);
     this.state.setAlertsMutedUntil(until);
-    await this.#send(chatId, this.#tx("mute_set", { until: new Date(until).toISOString() }));
+    await this.#send(to, this.#tx("mute_set", { until: new Date(until).toISOString() }));
   }
 
-  async #cmdInbox(chatId: string, sms: SmsService, page: number): Promise<void> {
+  async #cmdInbox(to: ReplyTo, sms: SmsService, page: number): Promise<void> {
     const threads = sms.listThreads();
-    if (threads.length === 0) return await this.#reply(chatId, "inbox_empty", undefined, this.#newSmsKeyboard());
+    if (threads.length === 0) return await this.#reply(to, "inbox_empty", undefined, this.#newSmsKeyboard());
     const pages = Math.max(1, Math.ceil(threads.length / INBOX_PAGE_SIZE));
     const current = Math.min(Math.max(1, page), pages);
     const slice = threads.slice((current - 1) * INBOX_PAGE_SIZE, current * INBOX_PAGE_SIZE);
@@ -1298,12 +1309,12 @@ export class TelegramBot implements NotificationChannel {
     if (current > 1) nav.push({ text: this.#tx("btn_prev"), callback_data: `inbox:${current - 1}` });
     if (current < pages) nav.push({ text: this.#tx("btn_next"), callback_data: `inbox:${current + 1}` });
     if (nav.length > 0) keyboard.push(nav);
-    await this.#send(chatId, lines.join("\n"), { inline_keyboard: keyboard });
+    await this.#send(to, lines.join("\n"), { inline_keyboard: keyboard });
   }
 
-  async #cmdUnread(chatId: string, sms: SmsService): Promise<void> {
+  async #cmdUnread(to: ReplyTo, sms: SmsService): Promise<void> {
     const threads = sms.listThreads({ filter: "unread" });
-    if (threads.length === 0) return await this.#reply(chatId, "unread_empty");
+    if (threads.length === 0) return await this.#reply(to, "unread_empty");
     const lines = [this.#tx("unread_title", { count: threads.length }), ""];
     const keyboard: InlineButton[][] = [];
     for (const thread of threads.slice(0, 10)) {
@@ -1320,13 +1331,13 @@ export class TelegramBot implements NotificationChannel {
       if (cb) keyboard.push([{ text: `💬 ${truncate(thread.displayName, 24)}`, callback_data: cb }]);
     }
     keyboard.push([{ text: this.#tx("btn_read_all"), callback_data: "readall:1" }]);
-    await this.#send(chatId, lines.join("\n"), { inline_keyboard: keyboard });
+    await this.#send(to, lines.join("\n"), { inline_keyboard: keyboard });
   }
 
-  async #cmdChat(chatId: string, sms: SmsService, key: string): Promise<void> {
-    if (!key) return await this.#reply(chatId, "chat_usage");
+  async #cmdChat(to: ReplyTo, sms: SmsService, key: string): Promise<void> {
+    if (!key) return await this.#reply(to, "chat_usage");
     const thread = sms.getThread(key);
-    if (thread.messages.length === 0) return await this.#reply(chatId, "chat_empty", { phone: key });
+    if (thread.messages.length === 0) return await this.#reply(to, "chat_empty", { phone: key });
     const name = thread.contact?.name ?? thread.sender.e164 ?? thread.phone;
     const lines = [this.#tx("chat_title", { name, count: thread.messages.length }), ""];
     for (const m of thread.messages.slice(-10)) {
@@ -1340,47 +1351,47 @@ export class TelegramBot implements NotificationChannel {
     const unreadUid = thread.messages.find((m) => m.isUnread)?.uid;
     const readCb = unreadUid ? callbackData("read", unreadUid) : null;
     const sent = await this.#send(
-      chatId,
+      to,
       lines.join("\n"),
       readCb ? { inline_keyboard: [[{ text: this.#tx("btn_read"), callback_data: readCb }]] } : undefined
     );
-    if (thread.replyPhone && sent.message_id) this.state.bindReply(chatId, sent.message_id, thread.replyPhone);
+    if (thread.replyPhone && sent.message_id) this.state.bindReply(to.chatId, sent.message_id, thread.replyPhone);
   }
 
-  async #cmdSend(chatId: string, rest: string): Promise<void> {
+  async #cmdSend(to: ReplyTo, rest: string): Promise<void> {
     const match = rest.match(/^(\S+)\s+([\s\S]+)$/);
-    if (!match?.[1] || !match[2]) return await this.#startWizard(chatId);
+    if (!match?.[1] || !match[2]) return await this.#startWizard(to);
     const resolved = resolveRecipientPhone(match[1], this.defaultCountryCode);
-    if (!resolved.ok) return await this.#reply(chatId, "error", { error: resolved.error });
-    const wiz = this.#newWizard(chatId);
+    if (!resolved.ok) return await this.#reply(to, "error", { error: resolved.error });
+    const wiz = this.#newWizard(to.chatId);
     wiz.phone = resolved.phone;
-    await this.#showConfirm(chatId, wiz, match[2]);
+    await this.#showConfirm(to, wiz, match[2]);
   }
 
-  async #cmdContacts(chatId: string, sms: SmsService, query: string): Promise<void> {
+  async #cmdContacts(to: ReplyTo, sms: SmsService, query: string): Promise<void> {
     const list = sms.listContacts(query, 20);
-    if (list.length === 0) return await this.#reply(chatId, "contacts_empty");
+    if (list.length === 0) return await this.#reply(to, "contacts_empty");
     const lines = [this.#tx("contacts_title", { shown: list.length, total: sms.contacts.size }), ""];
     for (const c of list) lines.push(`<b>${escapeTelegramHtml(c.name)}</b> · <code>${escapeTelegramHtml(c.phones.join(", "))}</code>`);
-    await this.#send(chatId, lines.join("\n"));
+    await this.#send(to, lines.join("\n"));
   }
 
-  async #cmdContact(chatId: string, sms: SmsService, rest: string): Promise<void> {
+  async #cmdContact(to: ReplyTo, sms: SmsService, rest: string): Promise<void> {
     const match = rest.match(/^(\S+)\s+([\s\S]+)$/);
-    if (!match?.[1] || !match[2]) return await this.#reply(chatId, "contact_usage");
+    if (!match?.[1] || !match[2]) return await this.#reply(to, "contact_usage");
     try {
       const saved = sms.upsertContact({ phone: match[1], name: match[2] });
-      await this.#send(chatId, this.#tx("contact_saved", { name: saved.name, phone: saved.phones[0] ?? "" }));
+      await this.#send(to, this.#tx("contact_saved", { name: saved.name, phone: saved.phones[0] ?? "" }));
     } catch (err) {
-      await this.#send(chatId, this.#tx("error", { error: this.#describeError(err) }));
+      await this.#send(to, this.#tx("error", { error: this.#describeError(err) }));
     }
   }
 
-  async #cmdSync(chatId: string, sms: SmsService): Promise<void> {
+  async #cmdSync(to: ReplyTo, sms: SmsService): Promise<void> {
     try {
       const summary = await sms.sync("full", { priority: "normal" });
       await this.#send(
-        chatId,
+        to,
         summary
           ? this.#tx("sync_done", {
               added: summary.added,
@@ -1391,20 +1402,20 @@ export class TelegramBot implements NotificationChannel {
           : this.#tx("sync_skipped")
       );
     } catch (err) {
-      await this.#send(chatId, this.#tx("error", { error: this.#describeError(err) }));
+      await this.#send(to, this.#tx("error", { error: this.#describeError(err) }));
     }
   }
 
-  async #importVcf(chatId: string, doc: NonNullable<NonNullable<TelegramUpdate["message"]>["document"]>): Promise<void> {
+  async #importVcf(to: ReplyTo, doc: NonNullable<NonNullable<TelegramUpdate["message"]>["document"]>): Promise<void> {
     const sms = this.sms;
     const isVcf = /\.vcf$/i.test(doc.file_name ?? "") || /vcard/i.test(doc.mime_type ?? "");
     if (!sms || !isVcf) return;
     try {
       if ((doc.file_size ?? 0) > MAX_VCF_BYTES) throw new CpeControlValidationError(`vCard file exceeds ${MAX_VCF_BYTES} bytes`);
       const summary = sms.importVcard(await this.api.downloadFileText(doc.file_id, MAX_VCF_BYTES));
-      await this.#send(chatId, this.#tx("vcf_imported", { ...summary }));
+      await this.#send(to, this.#tx("vcf_imported", { ...summary }));
     } catch (err) {
-      await this.#send(chatId, this.#tx("vcf_failed", { error: this.#describeError(err) }));
+      await this.#send(to, this.#tx("vcf_failed", { error: this.#describeError(err) }));
     }
   }
 
@@ -1427,9 +1438,9 @@ export class TelegramBot implements NotificationChannel {
     return wiz;
   }
 
-  async #startWizard(chatId: string, countryCode?: string): Promise<void> {
-    const wiz = this.#newWizard(chatId, countryCode);
-    await this.#send(chatId, this.#wizardPhonePrompt(wiz), this.#countryKeyboard(wiz.countryCode));
+  async #startWizard(to: ReplyTo, countryCode?: string): Promise<void> {
+    const wiz = this.#newWizard(to.chatId, countryCode);
+    await this.#send(to, this.#wizardPhonePrompt(wiz), this.#countryKeyboard(wiz.countryCode));
   }
 
   #wizardPhonePrompt(wiz: WizardSession): string {
@@ -1448,42 +1459,42 @@ export class TelegramBot implements NotificationChannel {
     };
   }
 
-  async #handleWizardInput(chatId: string, text: string): Promise<void> {
-    const wiz = this.#wizard(chatId);
+  async #handleWizardInput(to: ReplyTo, text: string): Promise<void> {
+    const wiz = this.#wizard(to.chatId);
     if (!wiz) return;
     if (wiz.step === "phone") {
       if (/[A-Za-z一-龥]/.test(text) && this.sms) {
         const matches = this.sms.listContacts(text, 8);
         const options = matches.flatMap((c) => c.phones.slice(0, 2).map((phone) => ({ name: c.name, phone })));
         if (options.length === 0) {
-          await this.#send(chatId, this.#tx("wiz_no_contact", { query: text }), this.#countryKeyboard(wiz.countryCode));
+          await this.#send(to, this.#tx("wiz_no_contact", { query: text }), this.#countryKeyboard(wiz.countryCode));
           return;
         }
-        if (options.length === 1 && options[0]) return await this.#advanceToContent(chatId, options[0].phone);
+        if (options.length === 1 && options[0]) return await this.#advanceToContent(to, options[0].phone);
         const rows = options.flatMap((o) => {
           const cb = callbackData("wizpick", o.phone);
           return cb ? [[{ text: truncate(`${o.name} · ${o.phone}`, 40), callback_data: cb }]] : [];
         });
         rows.push([{ text: this.#tx("btn_cancel"), callback_data: "wizcancel:1" }]);
-        await this.#send(chatId, this.#tx("wiz_pick"), { inline_keyboard: rows.slice(0, 10) });
+        await this.#send(to, this.#tx("wiz_pick"), { inline_keyboard: rows.slice(0, 10) });
         return;
       }
       const resolved = resolveRecipientPhone(text, wiz.countryCode);
       if (!resolved.ok) {
-        await this.#send(chatId, this.#tx("error", { error: resolved.error }), this.#countryKeyboard(wiz.countryCode));
+        await this.#send(to, this.#tx("error", { error: resolved.error }), this.#countryKeyboard(wiz.countryCode));
         return;
       }
-      return await this.#advanceToContent(chatId, resolved.phone);
+      return await this.#advanceToContent(to, resolved.phone);
     }
-    if (wiz.step === "content") return await this.#showConfirm(chatId, wiz, text);
-    await this.#send(chatId, this.#tx("wiz_tap_confirm"));
+    if (wiz.step === "content") return await this.#showConfirm(to, wiz, text);
+    await this.#send(to, this.#tx("wiz_tap_confirm"));
   }
 
-  async #advanceToContent(chatId: string, phone: string): Promise<void> {
-    const wiz = this.#wizard(chatId) ?? this.#newWizard(chatId);
+  async #advanceToContent(to: ReplyTo, phone: string): Promise<void> {
+    const wiz = this.#wizard(to.chatId) ?? this.#newWizard(to.chatId);
     wiz.phone = phone;
     wiz.step = "content";
-    await this.#send(chatId, this.#tx("wiz_content", { recipient: this.#recipientLabel(phone) }), {
+    await this.#send(to, this.#tx("wiz_content", { recipient: this.#recipientLabel(phone) }), {
       inline_keyboard: [
         [
           { text: this.#tx("btn_change_phone"), callback_data: "wizback:phone" },
@@ -1493,18 +1504,18 @@ export class TelegramBot implements NotificationChannel {
     });
   }
 
-  async #showConfirm(chatId: string, wiz: WizardSession, content: string): Promise<void> {
+  async #showConfirm(to: ReplyTo, wiz: WizardSession, content: string): Promise<void> {
     const mode = detectSmsTextMode(content);
     if (mode.segments > MAX_SMS_SEGMENTS) {
       wiz.step = "content";
-      await this.#send(chatId, this.#tx("wiz_too_long", { segments: mode.segments, max: MAX_SMS_SEGMENTS }));
+      await this.#send(to, this.#tx("wiz_too_long", { segments: mode.segments, max: MAX_SMS_SEGMENTS }));
       return;
     }
     wiz.step = "confirm";
     wiz.content = content;
     wiz.confirmToken = crypto.randomBytes(4).toString("hex");
     await this.#send(
-      chatId,
+      to,
       this.#tx("wiz_confirm", {
         recipient: this.#recipientLabel(wiz.phone ?? ""),
         encoding: mode.encoding,
@@ -1526,16 +1537,16 @@ export class TelegramBot implements NotificationChannel {
     );
   }
 
-  async #executeSend(chatId: string, phone: string, content: string, editMessageId?: number): Promise<void> {
+  async #executeSend(to: ReplyTo, phone: string, content: string, editMessageId?: number): Promise<void> {
     const sms = this.sms;
-    if (!sms) return await this.#reply(chatId, "sms_disabled");
-    if (await this.#refuseReadOnly(chatId)) return;
+    if (!sms) return await this.#reply(to, "sms_disabled");
+    if (await this.#refuseReadOnly(to)) return;
     const recipient = this.#recipientLabel(phone);
     let statusMessageId = editMessageId;
     if (statusMessageId !== undefined) {
-      await this.#edit(chatId, statusMessageId, this.#tx("sending", { recipient }));
+      await this.#edit(to.chatId, statusMessageId, this.#tx("sending", { recipient }));
     } else {
-      statusMessageId = (await this.#send(chatId, this.#tx("sending", { recipient }))).message_id;
+      statusMessageId = (await this.#send(to, this.#tx("sending", { recipient }))).message_id;
     }
 
     let text: string;
@@ -1551,10 +1562,10 @@ export class TelegramBot implements NotificationChannel {
       text = err instanceof BrowserSessionYieldedError ? this.#tx("yielded") : this.#tx("error", { error: this.#describeError(err) });
     }
     if (statusMessageId !== undefined) {
-      await this.#edit(chatId, statusMessageId, text);
-      this.state.bindReply(chatId, statusMessageId, phone);
+      await this.#edit(to.chatId, statusMessageId, text);
+      this.state.bindReply(to.chatId, statusMessageId, phone);
     } else {
-      await this.#send(chatId, text);
+      await this.#send(to, text);
     }
   }
 
@@ -1606,11 +1617,11 @@ export class TelegramBot implements NotificationChannel {
   }
 
   /** Explain instead of writing when the router is read-only; `true` when it was. */
-  async #refuseReadOnly(chatId: string): Promise<boolean> {
+  async #refuseReadOnly(to: ReplyTo): Promise<boolean> {
     const model = this.#readOnlyModel();
     if (model === null) return false;
-    this.#wizards.delete(chatId);
-    await this.#reply(chatId, "read_only", { model });
+    this.#wizards.delete(to.chatId);
+    await this.#reply(to, "read_only", { model });
     return true;
   }
 
@@ -1642,24 +1653,19 @@ export class TelegramBot implements NotificationChannel {
       .slice(0, 190);
   }
 
-  async #reply(
-    chatId: string,
-    key: TextKey,
-    params?: Readonly<Record<string, string | number>>,
-    keyboard?: InlineKeyboard
-  ): Promise<void> {
-    await this.#send(chatId, this.#tx(key, params), keyboard);
+  async #reply(to: ReplyTo, key: TextKey, params?: Readonly<Record<string, string | number>>, keyboard?: InlineKeyboard): Promise<void> {
+    await this.#send(to, this.#tx(key, params), keyboard);
   }
 
   /**
-   * `topic`: the forum topic to answer in when the chat is not a linked group (a linked group gets
-   * everything in the topic it was linked from).
+   * A group linked with a group code gets everything in the topic it was linked from; anywhere else
+   * an answer goes to the topic of what it answers (`to.topic`), and a notification to none.
    */
-  async #send(chatId: string, html: string, keyboard?: InlineKeyboard, topic: number | null = null): Promise<{ message_id?: number }> {
-    const link = this.state.groupLink(chatId);
-    const threadId = link ? link.threadId : topic;
+  async #send(to: ReplyTo, html: string, keyboard?: InlineKeyboard): Promise<{ message_id?: number }> {
+    const link = this.state.groupLink(to.chatId);
+    const threadId = link ? link.threadId : to.topic;
     return await this.api.call<{ message_id?: number }>("sendMessage", {
-      chat_id: chatId,
+      chat_id: to.chatId,
       ...(threadId !== null ? { message_thread_id: threadId } : {}),
       text: truncateTelegramHtml(html, MAX_TELEGRAM_TEXT),
       parse_mode: "HTML",

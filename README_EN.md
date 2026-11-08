@@ -543,7 +543,7 @@ JSON-RPC layer: Bridge returns `-32010` (daemon unreachable) and `-32011` (token
 3. Link a chat, one of three ways:
    - **Private chat**: create a pairing code in Settings → Telegram and send `/auth CODE` to the bot in a private chat (a full-access token works too; the message is deleted automatically);
    - **Group** (for example one with just you and the bot, to collect notifications in one place): create a group pairing code and send the `/auth@BotUsername CODE` the console shows in the group, as yourself (not anonymously). Every member reads the SMS, codes and alerts posted there, but only the person who sent `/auth` can act in the group; sent in a forum topic, notifications go to that topic; when the group becomes a supergroup the link follows it. Private pairing codes and access tokens are never accepted in a group: a private code sent to one is void, and a token sent to one never links a chat again (Settings → Tokens flags it; revoke it). Make the bot a group admin so it can delete the message with the code and read the number and text you type during a guided send (otherwise reply to its prompts); `/reset` works in private chats only;
-   - **Pre-authorized**: put the chat ID in `TELEGRAM_CHAT_IDS` (groups too; then any member can act there).
+   - **Pre-authorized**: put the chat ID in `TELEGRAM_CHAT_IDS` (groups too; then any member can act there; in a group with topics, the answers to commands, replies and buttons stay in the topic they came from, and notifications go to General).
 
 | Command / Interaction | Action |
 | :--- | :--- |

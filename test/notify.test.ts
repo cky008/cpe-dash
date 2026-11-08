@@ -101,6 +101,7 @@ function createBotFixture(
     sendDelayMs?: number;
     rateLimitPolls?: number;
     linkSecret?: TelegramBotOptions["linkSecret"];
+    allowedChatIds?: string[];
   } = {}
 ) {
   const mock = createMockSmsCpe({
@@ -138,7 +139,7 @@ function createBotFixture(
     sms: opts.smsEnabled === false ? null : service,
     authToken: "dashboard_api_token",
     ...(opts.linkSecret ? { linkSecret: opts.linkSecret } : {}),
-    allowedChatIds: ["1001"],
+    allowedChatIds: opts.allowedChatIds ?? ["1001"],
     locale: "en",
     now: () => clock,
     log: (line) => logs.push(line),
@@ -147,10 +148,16 @@ function createBotFixture(
   const message = (chatId: number, text: string, extra: Partial<NonNullable<TelegramUpdate["message"]>> = {}) =>
     // Telegram gives private chats positive IDs and groups negative ones
     bot.handleUpdate({ update_id: ++updateId, message: { message_id: 500 + updateId, chat: { id: chatId, type: chatId > 0 ? "private" : "group" }, text, ...extra } });
-  const callback = (chatId: number, data: string, messageId = 777, fromId?: number) =>
+  /** `topic`: the forum topic of the card the button is on. */
+  const callback = (chatId: number, data: string, messageId = 777, fromId?: number, topic?: number) =>
     bot.handleUpdate({
       update_id: ++updateId,
-      callback_query: { id: `cb${updateId}`, data, message: { message_id: messageId, chat: { id: chatId } }, ...(fromId !== undefined ? { from: { id: fromId } } : {}) },
+      callback_query: {
+        id: `cb${updateId}`,
+        data,
+        message: { message_id: messageId, chat: { id: chatId }, ...(topic !== undefined ? { message_thread_id: topic, is_topic_message: true } : {}) },
+        ...(fromId !== undefined ? { from: { id: fromId } } : {}),
+      },
     });
   /** callback_data of the "Send now" button on the card last sent to this chat. */
   const sendButton = (chatId: number): string =>
@@ -468,6 +475,45 @@ describe("TelegramBot", () => {
     assert.equal(plain.state.isAuthorized("2002", []), true);
     await plain.cleanup();
     await fx.cleanup();
+  });
+
+  it("answers in the forum topic a command, a reply or a button came from in a TELEGRAM_CHAT_IDS group", async () => {
+    const fx = createBotFixture({ allowedChatIds: ["1001", "-1004"] });
+    try {
+      const topic = { message_thread_id: 77, is_topic_message: true };
+      const lastTopic = () => fx.tg.sends("-1004").at(-1)?.payload["message_thread_id"];
+      for (const command of ["/status", "/help", "/alerts", "/unread", "/inbox", "/contacts", "/mute 1h", "/mute off", "/reset", "/chat", "/nope", "/cancel"]) {
+        const before = fx.tg.sends("-1004").length;
+        await fx.message(-1004, command, topic);
+        assert.equal(fx.tg.sends("-1004").length, before + 1, `${command} answered`);
+        assert.equal(lastTopic(), 77, command);
+      }
+      // The send wizard and its confirmation stay in the topic, step by step
+      await fx.message(-1004, "/new", topic);
+      assert.equal(lastTopic(), 77, "/new");
+      await fx.message(-1004, "+353830000001", topic);
+      assert.match(fx.tg.lastText("-1004"), /step 2: text/);
+      assert.equal(lastTopic(), 77, "the content step");
+      await fx.message(-1004, "See you there", topic);
+      assert.match(fx.tg.lastText("-1004"), /New SMS · confirm/);
+      assert.equal(lastTopic(), 77, "the confirmation");
+      // A button on a card in the topic answers there too
+      await fx.callback(-1004, "status:1", 778, undefined, 77);
+      assert.equal(lastTopic(), 77, "status button");
+      await fx.callback(-1004, "inbox:1", 779, undefined, 77);
+      assert.equal(lastTopic(), 77, "inbox button");
+
+      // The General topic and the group's notifications have no topic to answer in
+      await fx.message(-1004, "/status");
+      assert.equal(lastTopic(), undefined, "General");
+      await fx.callback(-1004, "status:1");
+      assert.equal(lastTopic(), undefined, "a button in General");
+      await fx.bot.notifyAlert({ id: "a1", tsIso: "2026-10-30T10:00:00.000Z", severity: "warning", code: "SIGNAL_WEAK", messageZh: "信号弱", messageEn: "Signal weak" });
+      assert.equal(lastTopic(), undefined, "notifications");
+      assert.equal(fx.tg.sends("1001").at(-1)?.payload["message_thread_id"], undefined, "a private chat never gets a topic");
+    } finally {
+      await fx.cleanup();
+    }
   });
 
   it("links a group with a group code: it posts to that topic, and only the member who linked it acts there", async () => {
