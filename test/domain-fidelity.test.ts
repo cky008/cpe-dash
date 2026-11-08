@@ -130,6 +130,51 @@ describe("stale keep-alive sockets (UND_ERR_SOCKET) on the real router", () => {
     }
   });
 
+  it("aborts a request its session left running once logout begins, so a stale socket never resends it", async () => {
+    const cpe = createStrictCpe();
+    let logoutBegan = false;
+    let sentAfterLogout = 0;
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const p = new URL(String(input)).pathname;
+      if (p === "/api/user/logout") logoutBegan = true;
+      if (p !== "/api/device/signal") return cpe.fetchImpl(input, init);
+      if (logoutBegan) sentAfterLogout += 1;
+      // In flight until logout begins, then the reused socket turns out closed, unless the request was aborted first
+      await new Promise<void>((resolve, reject) => {
+        const poll = setInterval(() => {
+          if (!logoutBegan) return;
+          clearInterval(poll);
+          resolve();
+        }, 1);
+        init?.signal?.addEventListener("abort", () => {
+          clearInterval(poll);
+          reject(init.signal?.reason);
+        }, { once: true });
+      });
+      throw new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });
+    };
+    const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl });
+    let abandoned: Promise<unknown> = Promise.resolve();
+    const outcome = await client.withSessionDetailed(async (session) => {
+      // Work that does not wait for its own request: the request outlives the session
+      abandoned = session.get("/api/device/signal").catch((err: unknown) => err);
+      return "returned early";
+    });
+    assert.equal(outcome.status, "ok");
+    await abandoned;
+    assert.equal(sentAfterLogout, 0, "no request with the old cookie after logout began");
+    assert.equal(cpe.isSlotTaken(), false);
+  });
+
+  it("yields at once to an occupied slot while it respects the browser, whatever retry count it is given", async () => {
+    const cpe = createStrictCpe();
+    cpe.human.loginCrossIp();
+    const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl });
+    const outcome = await client.withSessionDetailed(async () => "never runs", { respectBrowserSession: true, retriesOnOccupied: 2, occupiedRetryDelayMs: 1 });
+    assert.equal(outcome.status, "yielded");
+    assert.equal(cpe.stats.challengeCalls, 1, "one login attempt, no retry against the person in the router's page");
+  });
+
   it("never retries a POST, even on a stale socket", async () => {
     const fx = setup((p, method) => (method === "POST" && p === "/api/security/upnp" ? "stale-socket" : undefined));
     try {

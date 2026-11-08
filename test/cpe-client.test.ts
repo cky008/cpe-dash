@@ -227,7 +227,7 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
     assert.equal(client.getCircuitBreakerState().code, "108007");
   });
 
-  it("retries gracefully when 108003 occupied occurs during transient race", async () => {
+  it("retries a transient 108003 only when it does not respect the browser (respecting it, it yields at once)", async () => {
     const { fetchImpl } = createMockCpeFetch({
       password: "unit_password",
       occupiedAttempts: 1,
@@ -240,7 +240,7 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
 
     const val = await client.withSession(
       async (s) => getXmlTag(await s.get("/api/device/signal"), "sinr"),
-      { retriesOnOccupied: 2, occupiedRetryDelayMs: 5 }
+      { respectBrowserSession: false, retriesOnOccupied: 2, occupiedRetryDelayMs: 5 }
     );
     assert.equal(val, "22dB");
   });

@@ -259,6 +259,8 @@ export class EphemeralCpeSession {
   /** Session-wide deadline; `logout()` uses fresh signals so the slot can always be released. */
   readonly #deadline: AbortSignal | null;
   #releasing = false;
+  /** Aborted when logout begins: a request still in flight then (work that did not wait for it) never goes out again. */
+  readonly #closing = new AbortController();
   /** Counts every error code the router answers (the device report's error statistics). */
   readonly #onApiError: ((method: "GET" | "POST", apiPath: string, code: string) => void) | null;
   #loginScheme: LoginScheme | null = null;
@@ -320,7 +322,7 @@ export class EphemeralCpeSession {
     if (releasing) return timeout;
     if (this.#deadline?.aborted) throw this.#deadline.reason;
     if (this.#releasing) throw new CpeSessionClosedError();
-    return this.#deadline ? AbortSignal.any([this.#deadline, timeout]) : timeout;
+    return AbortSignal.any(this.#deadline ? [this.#deadline, this.#closing.signal, timeout] : [this.#closing.signal, timeout]);
   }
 
   #updateCookies(headers: Headers): void {
@@ -726,8 +728,9 @@ export class EphemeralCpeSession {
   }
 
   async logout(): Promise<number | null> {
-    // From here on only logout's own requests may use this session
+    // From here on only logout's own requests may use this session, and none still in flight is resent
     this.#releasing = true;
+    this.#closing.abort(new CpeSessionClosedError());
     if (!this.loggedIn && !this.#authOutcomeUnknown) return null;
     const boundedLogoutMs = Math.min(this.timeoutMs, 3000);
     try {
@@ -761,6 +764,7 @@ export interface HuaweiCpeClientOptions {
 
 export interface WithSessionOptions {
   respectBrowserSession?: boolean;
+  /** Logins tried again when the admin slot is occupied (default 2); always 0 while respecting the browser. */
   retriesOnOccupied?: number;
   occupiedRetryDelayMs?: number;
 }
@@ -1086,7 +1090,8 @@ export class HuaweiCpeClient {
 
     const respectBrowser = options.respectBrowserSession ?? this.defaultRespectBrowserSession;
     const retryBaseDelayMs = options.occupiedRetryDelayMs ?? 1500;
-    const retriesOnOccupied = options.retriesOnOccupied ?? (respectBrowser ? 0 : 2);
+    // Respecting the browser means never trying again against an occupied slot, whatever the caller asked
+    const retriesOnOccupied = respectBrowser ? 0 : (options.retriesOnOccupied ?? 2);
 
     const run = async (): Promise<SessionExecutionOutcome<T>> => {
       if (this.#trippedError) {
