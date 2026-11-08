@@ -17,6 +17,12 @@ order: 16
 docker exec cpe-dash node dist/cli.js doctor
 ```
 
+如果它报告某个文件「stored without encryption」（早期版本写下的未加密文件），就原地加密它，把当前密钥当作「旧密钥」传入：
+
+```bash
+docker exec -e FENGSUI_OLD_DATA_KEY="<你的 DATA_ENCRYPTION_KEY>" cpe-dash node dist/cli.js rekey
+```
+
 ## 备份
 
 把所有加密文件连同一份 SHA-256 校验清单复制到 `data/backups/fengsui-backup-<时间>/`。运行中也可以执行：

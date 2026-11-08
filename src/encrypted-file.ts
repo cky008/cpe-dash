@@ -30,6 +30,18 @@ function deriveMasterKey(secret: string): Buffer {
   return derived;
 }
 
+/**
+ * A store that parses as JSON but is not an encrypted envelope: written before encryption was required. The cipher
+ * still reads it (the migration path), so `cpe-dash doctor` reports it and `cpe-dash rekey` encrypts it.
+ */
+export function isPlaintextStore(filePath: string): boolean {
+  try {
+    return !isEncryptedEnvelope(JSON.parse(fs.readFileSync(filePath, "utf8")));
+  } catch {
+    return false;
+  }
+}
+
 function isEncryptedEnvelope(val: unknown): val is EncryptedFileEnvelope {
   if (!val || typeof val !== "object") return false;
   const obj = val as Record<string, unknown>;

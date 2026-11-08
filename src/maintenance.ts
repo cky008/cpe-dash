@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { StorageCipher, tryAcquireFileLock } from "./encrypted-file.ts";
+import { StorageCipher, isPlaintextStore, tryAcquireFileLock } from "./encrypted-file.ts";
 import type { AppConfig } from "./types.ts";
 import { FENGSUI_VERSION } from "./version.ts";
 
@@ -17,7 +17,7 @@ type DataConfig = Pick<AppConfig, "stateFile" | "smsFile" | "contactsFile" | "te
 export interface DataFileReport {
   name: string;
   path: string;
-  status: "missing" | "ok" | "undecryptable" | "too-new";
+  status: "missing" | "ok" | "plaintext" | "undecryptable" | "too-new";
   /** The stored format number (`schemaVersion` of state.json, `format` of settings / audit, `version` elsewhere). */
   format: number | null;
   /** Copies moved aside after a failed decryption (`<name>.unreadable-<ms>`), newest first. */
@@ -84,7 +84,8 @@ export function inspectDataFiles(config: DataConfig): DataFileReport[] {
     const read = tryRead(cipher, file.path);
     if (!read.ok) return { ...base, status: "undecryptable", format: null };
     const format = formatOf(read.data, file.formatKey);
-    return { ...base, status: format !== null && format > file.supported ? "too-new" : "ok", format };
+    if (format !== null && format > file.supported) return { ...base, status: "too-new", format };
+    return { ...base, status: isPlaintextStore(file.path) ? "plaintext" : "ok", format };
   });
 }
 
@@ -168,6 +169,7 @@ export async function runDoctor(config: AppConfig, opts: DoctorOptions): Promise
   for (const file of files) {
     if (file.status === "missing") checks.push({ level: "info", label: `${file.name}: not created yet` });
     else if (file.status === "ok") checks.push({ level: "ok", label: `${file.name}: decrypts with the current key (format ${file.format ?? "?"})` });
+    else if (file.status === "plaintext") checks.push({ level: "warn", label: `${file.name}: stored without encryption (written before encryption was required)`, hint: "encrypt it: set FENGSUI_OLD_DATA_KEY to the current DATA_ENCRYPTION_KEY and run: cpe-dash rekey" });
     else if (file.status === "too-new") checks.push({ level: "error", label: `${file.name}: written by a newer FengSui (format ${file.format})`, hint: "run the newer version, or restore a backup" });
     else checks.push({ level: "error", label: `${file.name}: cannot be decrypted with the current DATA_ENCRYPTION_KEY`, hint: "put the old key in FENGSUI_OLD_DATA_KEY and run: cpe-dash rekey" });
     if (file.quarantined.length > 0) {
@@ -302,7 +304,7 @@ export function restoreDataDir(config: DataConfig, backupDir: string, opts: { no
 
 export interface RekeyResult {
   name: string;
-  action: "missing" | "already-current" | "rekeyed" | "recovered" | "not-decryptable";
+  action: "missing" | "already-current" | "encrypted" | "rekeyed" | "recovered" | "not-decryptable";
   /** For `recovered`: the moved-aside copy that was brought back. */
   source?: string;
 }
@@ -329,7 +331,13 @@ export function rekeyDataDir(config: DataConfig, oldKey: string, opts: { now?: (
         return { name, action: "recovered", source: copy };
       }
       if (!fs.existsSync(file.path)) return { name, action: "missing" };
-      if (tryRead(current, file.path).ok) return { name, action: "already-current" };
+      const readable = tryRead(current, file.path);
+      if (readable.ok && isPlaintextStore(file.path)) {
+        // Written before encryption was required: the same content, now encrypted under the current key
+        replaceFile(file.path, current, readable.data, "plaintext", now);
+        return { name, action: "encrypted" };
+      }
+      if (readable.ok) return { name, action: "already-current" };
       const read = tryRead(old, file.path);
       if (!read.ok) return { name, action: "not-decryptable" };
       current.writeJsonFile(file.path, read.data);

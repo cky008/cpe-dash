@@ -17,6 +17,12 @@ Check your configuration, data directory permissions, daemon process status, and
 docker exec cpe-dash node dist/cli.js doctor
 ```
 
+If it reports a file as "stored without encryption" (written by an early version), encrypt it in place. Pass your current key as the "old" one:
+
+```bash
+docker exec -e FENGSUI_OLD_DATA_KEY="<your DATA_ENCRYPTION_KEY>" cpe-dash node dist/cli.js rekey
+```
+
 ## Back up data
 
 Copy all encrypted files along with a SHA-256 verification manifest to `data/backups/fengsui-backup-<time>/`. You can run this command while the service is running:

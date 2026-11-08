@@ -181,6 +181,28 @@ describe("cpe-dash rekey", () => {
 });
 
 describe("maintenance commands on the CLI", () => {
+  it("reports a store written without encryption and encrypts it with rekey", async () => {
+    const fx = setup();
+    try {
+      const key = new StorageCipher("new_key");
+      key.writeJsonFile(fx.files.telegram, { version: 1, authorizedChatIds: [] });
+      // An early store, from before encryption was required: plain JSON the cipher still reads
+      fs.writeFileSync(fx.files.sms, JSON.stringify({ version: 1, messages: [] }), { mode: 0o600 });
+      const statuses = (): string[] => inspectDataFiles(fx.config).map((f) => `${f.name}:${f.status}`);
+      assert.ok(statuses().includes("sms.json:plaintext"));
+      assert.ok(statuses().includes("telegram.json:ok"));
+      const checks = await runDoctor({ ...loadConfig({ envPath: fx.envPath, ignoreProcessEnv: true }) }, { notices: [] });
+      assert.ok(checks.some((c) => c.level === "warn" && c.label.startsWith("sms.json: stored without encryption")), JSON.stringify(checks));
+      const results = rekeyDataDir(fx.config, "new_key");
+      assert.ok(results.some((r) => r.name === "sms.json" && r.action === "encrypted"), JSON.stringify(results));
+      assert.ok(statuses().includes("sms.json:ok"));
+      assert.match(fs.readFileSync(fx.files.sms, "utf8"), /"__encrypted"/);
+      assert.deepEqual(key.readJsonFile(fx.files.sms), { version: 1, messages: [] });
+    } finally {
+      fx.cleanup();
+    }
+  });
+
   it("keeps a store where the daemon looks for it when writing its replacement fails (restore, rekey)", () => {
     const dir = tempDir("fengsui-replace-");
     try {
