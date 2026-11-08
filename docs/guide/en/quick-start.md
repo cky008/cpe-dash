@@ -66,4 +66,4 @@ Open `http://<this machine IP>:18384` in your browser:
 - To receive SMS messages and alerts on your phone or Telegram: see [Alerts and notifications](notifications.md).
 - To lock bands or cells: read [Band and cell locking](locking.md) first to learn how to avoid losing your connection.
 - To access the console remotely: read [Security and privacy](security.md) first. Do not map the port directly to the public internet.
-- To adjust more settings: see [Configuration reference](configuration.md).
+- To adjust more settings: see [Configuration reference](configuration.md); each entry of `docker-compose.yml` is explained in [Docker Compose file](docker-compose.md).

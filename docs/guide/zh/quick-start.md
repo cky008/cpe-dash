@@ -66,4 +66,4 @@ docker compose logs cpe-dash | grep "setup code"
 - 想在手机或 Telegram 上收短信和告警：看[告警与通知](notifications.md)。
 - 想锁定频段或小区：先读[锁频与锁小区](locking.md)，里面讲了怎样避免断网。
 - 准备在外面访问控制台：先读[安全与隐私](security.md)。不要把端口直接映射到公网。
-- 想调整更多设置：看[配置参考](configuration.md)。
+- 想调整更多设置：看[配置参考](configuration.md)；`docker-compose.yml` 的每一项见 [Docker Compose 配置](docker-compose.md)。

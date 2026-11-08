@@ -9,6 +9,8 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Steps with a code block render as steps.** On the documentation site, a code block, a second paragraph or a list indented under a numbered step (Synology's install steps, changing the encryption key) came out as one line of text and restarted the numbering. The Markdown renderer now keeps such blocks inside their step.
 
 ### Documentation
+- **A page for `docker-compose.yml`.** The guide shows the example compose file in full (a test keeps the copy identical) and explains every entry: what it does, which ones to leave alone, how `.env` feeds both Compose (`TZ`, `WEB_PORT`, `PUID`, `PGID`) and FengSui, and common changes (another port, local-only access behind a reverse proxy, a pinned version, building from source, host networking). Its comments no longer ask for `CPE_PASSWORD` / `API_TOKEN` in `.env` (the console sets them) and give the right port under host networking.
+- **Applying `.env` changes.** The configuration reference said to restart the container; `docker compose restart` can keep reading the old `.env` when an editor saved it as a new file, so the guide now says `docker compose up -d --force-recreate`.
 - **Support FengSui from the documentation site.** A heart in the header, a "Support FengSui" column in the footer, a short section on the home page and an FAQ answer link to GitHub Sponsors and Buy Me a Coffee (the same pages as GitHub's Sponsor button); the footer links the author's site, as the console's does.
 - **"Devices and internet access" in Chinese too.** The guide page and the home page said 终端 (terminal) where the console says 设备 (device); they now use the console's word.
 

@@ -2,7 +2,7 @@
 title: Security and privacy
 description: How to safely access the console remotely, how to use tokens, and what data FengSui stores.
 section: Manage
-order: 14
+order: 15
 ---
 
 FengSui can modify your router and read your SMS messages, so treat it with the same care as your router's administration interface.
@@ -16,6 +16,8 @@ To access the console remotely, use either of the following approaches:
 
 - **Tailscale or another VPN** (simplest): Connect your phone or laptop to the VPN, then access the local NAS IP address. Hostnames matching `*.ts.net` are allowed by default.
 - **HTTPS reverse proxy**: Use tools such as Synology's built-in reverse proxy, Caddy, or Nginx, and configure a strong console password.
+
+<a id="reverse-proxy"></a>
 
 ## Access behind a reverse proxy
 

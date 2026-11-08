@@ -88,4 +88,4 @@ FengSui leaves nothing on the router. If you configured band locking, Wi-Fi bloc
 | Web console, API, MCP | `18384` | Change host port using `WEB_PORT` in `.env` |
 | LAN beacon | `18385` (UDP) | Used only when `PEER_DISCOVERY_ENABLED` is enabled; disabled by default |
 
-The default Docker network (bridge) is sufficient. Change compose to `network_mode: host` only if you need FengSui instances on multiple machines to discover each other, at the cost of losing container network isolation.
+The default Docker network (bridge) is sufficient. Change compose to `network_mode: host` only if you need FengSui instances on multiple machines to discover each other, at the cost of losing container network isolation. What each entry in `docker-compose.yml` does, and common changes, are in [Docker Compose file](docker-compose.md).

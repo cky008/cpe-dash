@@ -2,14 +2,14 @@
 title: Configuration reference
 description: Meanings and defaults for every setting in .env. Most users only need to set the encryption key and time zone.
 section: Manage
-order: 13
+order: 14
 ---
 
 FengSui reads `.env` (`/app/.env` inside the container) and environment variables at startup. For a complete template, see [`.env.example`](../../../.env.example) in the repository.
 
 Most users only need to set three items: `DATA_ENCRYPTION_KEY`, `TZ`, and `PUID` / `PGID` when using Docker. Router connections, console passwords, and tokens are managed directly in the web console and stored encrypted in `data/settings.json`.
 
-Restart the container after editing `.env` to apply changes.
+After editing `.env`, apply it with `docker compose up -d --force-recreate` (why: [Docker Compose file](docker-compose.md#apply)). That page also explains each entry of `docker-compose.yml` itself.
 
 ## Basics
 

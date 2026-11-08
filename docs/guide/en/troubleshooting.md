@@ -2,7 +2,7 @@
 title: Troubleshooting
 description: What to do when the console does not open, the router cannot be reached, the router rejects the password, someone is using its admin page, or Telegram notifications do not arrive.
 section: Help
-order: 17
+order: 18
 ---
 
 Start by checking two places: the **session state** in the console header, and the container logs via `docker compose logs --tail 100 cpe-dash`. Most issues are explained in these two locations.

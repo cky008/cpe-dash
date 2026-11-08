@@ -88,4 +88,4 @@ rm -rf ~/cpe-dash     # 会删除 data/ 里的全部数据，先确认已经不�
 | 网页控制台、API、MCP | `18384` | 在 `.env` 的 `WEB_PORT` 修改宿主机端口 |
 | 局域网信标 | `18385`（UDP） | 只在打开 `PEER_DISCOVERY_ENABLED` 时使用，默认关闭 |
 
-默认的 Docker 网络（bridge）就够用。只有你需要「多台机器上的烽燧互相发现」时，才要把 compose 改成 `network_mode: host`，代价是容器不再有独立的网络隔离。
+默认的 Docker 网络（bridge）就够用。只有你需要「多台机器上的烽燧互相发现」时，才要把 compose 改成 `network_mode: host`，代价是容器不再有独立的网络隔离。`docker-compose.yml` 每一项的作用和常见改法见 [Docker Compose 配置](docker-compose.md)。

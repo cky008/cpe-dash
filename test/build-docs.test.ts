@@ -54,6 +54,7 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       "www.rohde-schwarz.com", "www.ericsson.com", "www.fortinet.com", "www.cellmapper.net",
       // The author's site and the sponsor pages of .github/FUNDING.yml
       "iocky.com", "buymeacoffee.com",
+      "docs.docker.com", "docs.kernel.org",
     ]);
     let internal = 0;
     for (const file of htmlFiles(site)) {
@@ -122,8 +123,21 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     }
     assert.ok(fs.readFileSync(path.join(site, "THIRD_PARTY_NOTICES.txt"), "utf8").includes("daisyUI"));
     for (const file of fs.readdirSync(site, { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && /\.(html|json|xml|txt|js|css)$/.test(e.name))) {
-      // No subdomain (a NAS host name, say) and no deeper path: just https://iocky.com/ (AGENTS.md)
-      assert.doesNotMatch(fs.readFileSync(path.join(file.parentPath, file.name), "utf8"), /[\w-]\.iocky\.com|iocky\.com\/[\w#?%-]/, file.name);
+      // The site's own domain (docker-compose.yml names it), else no subdomain (a NAS host name, say) and
+      // no deeper path: just https://iocky.com/ (AGENTS.md)
+      const text = fs.readFileSync(path.join(file.parentPath, file.name), "utf8").replaceAll("https://fengsui.iocky.com/", "");
+      assert.doesNotMatch(text, /[\w-]\.iocky\.com|iocky\.com\/[\w#?%-]/, path.relative(site, path.join(file.parentPath, file.name)));
+    }
+  });
+
+  it("shows docker-compose.yml on its guide page exactly as the repository has it, in both languages", () => {
+    const compose = fs.readFileSync("docker-compose.yml", "utf8").trimEnd();
+    for (const lang of ["zh", "en"]) {
+      const page = fs.readFileSync(path.join("docs", "guide", lang, "docker-compose.md"), "utf8");
+      assert.ok(page.includes("```yaml\n" + compose + "\n```"), `docs/guide/${lang}/docker-compose.md: copy docker-compose.yml into its yaml block again`);
+      // Every entry of the service, and every variable it sets, is explained on the page
+      for (const key of compose.matchAll(/^ {4}#? ?([a-z_]+):/gm)) assert.ok(page.includes(`\`${key[1]}`), `${lang}: ${key[1]}`);
+      for (const env of compose.matchAll(/^ {6}- ([A-Z_]+=)/gm)) assert.ok(page.includes(`| \`${env[1]}`), `${lang}: ${env[1]}`);
     }
   });
 

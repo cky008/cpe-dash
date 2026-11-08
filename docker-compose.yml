@@ -1,7 +1,9 @@
 # 烽燧 FengSui (cpe-dash) — Synology DS923+ / any Docker host, also `container-compose` on macOS.
 #
-#   mkdir -p data && cp .env.example .env    # then set CPE_PASSWORD, API_TOKEN, DATA_ENCRYPTION_KEY
+#   mkdir -p data && cp .env.example .env    # then set DATA_ENCRYPTION_KEY and TZ
 #   docker compose up -d                       # Web console: http://<nas-ip>:18384
+#
+# Every line is explained in the guide: https://fengsui.iocky.com/en/docs/docker-compose/
 #
 # Run exactly ONE daemon per router: it owns the router's single admin slot and the Telegram bot
 # token. Stop any other cpe-dash / cpe-sms instance (NAS or laptop) before starting this one.
@@ -17,12 +19,13 @@ services:
     user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       # Container networking: listen on every interface of the container, store state in the volume.
-      # Everything else (CPE_PASSWORD, API_TOKEN, SMS / Telegram / alert settings) comes from the
-      # mounted .env, which POST /api/session/reset-breaker re-reads without a restart.
+      # Everything else (encryption key, SMS / Telegram / alert settings) comes from the mounted .env;
+      # the router connection, the console password and the tokens are set in the console.
       - TZ=${TZ:-UTC}
       - WEB_HOST=0.0.0.0
       - WEB_PORT=18384
       - STATE_FILE=/app/data/state.json
+    # After editing .env: `docker compose up -d --force-recreate` (`restart` may keep the old file)
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
@@ -30,8 +33,8 @@ services:
       - "${WEB_PORT:-18384}:18384"
     # The cross-host duplicate-daemon guard (PEER_DISCOVERY_ENABLED=true, UDP 18385 broadcast beacons,
     # off by default) needs the host network: Docker's bridge does not forward LAN broadcasts. To use
-    # it, uncomment the next line and remove `ports:` above (the console is then served on the host's
-    # WEB_PORT directly).
+    # it, uncomment the next line and remove `ports:` above (the console is then served on port 18384
+    # of the host: WEB_PORT under `environment:`, not the one in .env).
     # network_mode: host
     read_only: true
     tmpfs:

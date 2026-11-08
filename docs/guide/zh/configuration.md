@@ -2,14 +2,14 @@
 title: 配置参考
 description: .env 里每一项设置的含义和默认值。大多数人只需要填加密密钥和时区。
 section: 管理
-order: 13
+order: 14
 ---
 
 烽燧在启动时读取 `.env`（容器里是 `/app/.env`）和环境变量。完整模板见仓库里的 [`.env.example`](../../../.env.example)。
 
 大多数人只需要设置三项：`DATA_ENCRYPTION_KEY`、`TZ`，以及 Docker 下的 `PUID` / `PGID`。路由器连接、控制台密码和令牌都在网页控制台里管理，加密保存在 `data/settings.json`。
 
-改完 `.env` 后重启容器生效。
+改完 `.env` 后，用 `docker compose up -d --force-recreate` 让它生效（原因见 [Docker Compose 配置](docker-compose.md#apply)）。`docker-compose.yml` 本身每一项的作用也在那一页。
 
 ## 基本
 
