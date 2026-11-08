@@ -1,0 +1,239 @@
+/**
+ * The documentation site's only script (built by scripts/build-docs.ts): light / dark theme, copy buttons,
+ * ⌘K search over a prebuilt index, the mobile menu and the "on this page" highlight. No imports, no network
+ * beyond the site's own search index, no storage beyond the chosen theme.
+ */
+
+interface SearchEntry {
+  title: string;
+  section: string;
+  url: string;
+  headings: ReadonlyArray<{ text: string; id: string }>;
+  text: string;
+}
+
+interface SearchHit {
+  title: string;
+  where: string;
+  url: string;
+  snippet: string;
+  score: number;
+}
+
+const root = document.documentElement;
+const base = root.dataset["root"] ?? "./";
+
+function storedTheme(): string | null {
+  try {
+    return localStorage.getItem("fengsui-site-theme");
+  } catch {
+    return null;
+  }
+}
+
+function applyTheme(theme: string | null): void {
+  const dark = theme === "dark" || (theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  root.dataset["theme"] = dark ? "dark" : "light";
+}
+
+applyTheme(storedTheme());
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applyTheme(storedTheme()));
+
+document.querySelector<HTMLButtonElement>("[data-theme-toggle]")?.addEventListener("click", () => {
+  const next = root.dataset["theme"] === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem("fengsui-site-theme", next);
+  } catch {
+    // Private windows: the choice lasts for this page only
+  }
+  applyTheme(next);
+});
+
+// ---------- Copy ----------
+const copiedLabel = root.lang.startsWith("zh") ? "已复制" : "Copied";
+async function copy(text: string, button: HTMLElement): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    button.dataset["copied"] = "true";
+    button.setAttribute("aria-label", copiedLabel);
+    window.setTimeout(() => {
+      delete button.dataset["copied"];
+      button.setAttribute("aria-label", button.dataset["label"] ?? "");
+    }, 1600);
+  } catch {
+    // No clipboard permission: the text stays selectable
+  }
+}
+
+for (const chip of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+  chip.addEventListener("click", () => void copy(chip.dataset["copy"] ?? "", chip));
+}
+
+const copyLabel = root.lang.startsWith("zh") ? "复制" : "Copy";
+for (const pre of document.querySelectorAll<HTMLPreElement>(".article pre")) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "pre-copy";
+  button.dataset["label"] = copyLabel;
+  button.setAttribute("aria-label", copyLabel);
+  button.textContent = copyLabel;
+  button.addEventListener("click", () => void copy(pre.querySelector("code")?.textContent ?? pre.textContent ?? "", button));
+  pre.appendChild(button);
+}
+
+// ---------- Mobile menu ----------
+const menu = document.querySelector<HTMLElement>("[data-sidebar]");
+document.querySelector<HTMLButtonElement>("[data-menu-toggle]")?.addEventListener("click", (event) => {
+  const open = menu?.dataset["open"] !== "true";
+  if (menu) menu.dataset["open"] = String(open);
+  (event.currentTarget as HTMLButtonElement).setAttribute("aria-expanded", String(open));
+});
+
+// ---------- On this page ----------
+const tocLinks = [...document.querySelectorAll<HTMLAnchorElement>("[data-toc] a")];
+if (tocLinks.length > 0 && "IntersectionObserver" in window) {
+  const byId = new Map(tocLinks.map((a) => [decodeURIComponent(a.hash.slice(1)), a]));
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        for (const a of tocLinks) a.removeAttribute("aria-current");
+        byId.get(entry.target.id)?.setAttribute("aria-current", "true");
+      }
+    },
+    { rootMargin: "0px 0px -70% 0px" }
+  );
+  for (const id of byId.keys()) {
+    const target = document.getElementById(id);
+    if (target) observer.observe(target);
+  }
+}
+
+// ---------- Search ----------
+const dialog = document.querySelector<HTMLDialogElement>("#search");
+const input = dialog?.querySelector<HTMLInputElement>("input");
+const results = dialog?.querySelector<HTMLElement>("[data-results]");
+const popular = dialog?.querySelector<HTMLElement>("[data-popular]");
+const count = dialog?.querySelector<HTMLElement>("[data-count]");
+let index: SearchEntry[] | null = null;
+let active = 0;
+
+async function loadIndex(): Promise<SearchEntry[]> {
+  if (index) return index;
+  const url = root.dataset["search"];
+  if (!url) return [];
+  try {
+    const res = await fetch(base + url);
+    index = (await res.json()) as SearchEntry[];
+  } catch {
+    index = [];
+  }
+  return index;
+}
+
+function snippetOf(text: string, at: number, length: number): string {
+  const start = Math.max(0, at - 40);
+  return `${start > 0 ? "…" : ""}${text.slice(start, at + length + 80)}…`;
+}
+
+function search(entries: ReadonlyArray<SearchEntry>, query: string): SearchHit[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+  const hits: SearchHit[] = [];
+  for (const entry of entries) {
+    const title = entry.title.toLowerCase();
+    const text = entry.text.toLowerCase();
+    let score = 0;
+    let missing = false;
+    for (const term of terms) {
+      const inTitle = title.includes(term);
+      const heading = entry.headings.find((h) => h.text.toLowerCase().includes(term));
+      const inText = text.includes(term);
+      if (!inTitle && !heading && !inText) missing = true;
+      score += (inTitle ? 10 : 0) + (heading ? 5 : 0) + (inText ? 1 : 0);
+    }
+    if (missing) continue;
+    const first = terms[0] ?? "";
+    const heading = entry.headings.find((h) => h.text.toLowerCase().includes(first));
+    if (heading && !title.includes(first)) {
+      hits.push({ title: heading.text, where: `${entry.section} · ${entry.title}`, url: `${entry.url}#${heading.id}`, snippet: "", score: score + 1 });
+    }
+    const at = text.indexOf(first);
+    hits.push({ title: entry.title, where: entry.section, url: entry.url, snippet: at >= 0 ? snippetOf(entry.text, at, first.length) : "", score });
+  }
+  return hits.sort((a, b) => b.score - a.score).slice(0, 12);
+}
+
+function render(hits: ReadonlyArray<SearchHit>, query: string): void {
+  if (!results || !popular || !count) return;
+  popular.hidden = query.length > 0;
+  results.replaceChildren();
+  count.textContent = query ? `${hits.length}` : "";
+  hits.forEach((hit, i) => {
+    const a = document.createElement("a");
+    a.href = base + hit.url;
+    a.className = "search-hit";
+    a.setAttribute("role", "option");
+    if (i === active) a.setAttribute("aria-selected", "true");
+    const t = document.createElement("span");
+    t.className = "search-hit-title";
+    t.textContent = hit.title;
+    const w = document.createElement("span");
+    w.className = "search-hit-where";
+    w.textContent = hit.where;
+    a.append(t, w);
+    if (hit.snippet) {
+      const s = document.createElement("span");
+      s.className = "search-hit-snippet";
+      s.textContent = hit.snippet;
+      a.append(s);
+    }
+    results.append(a);
+  });
+  if (query && hits.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "search-empty";
+    empty.textContent = root.lang.startsWith("zh") ? "没有找到相关页面" : "No matching pages";
+    results.append(empty);
+  }
+}
+
+async function update(): Promise<void> {
+  const query = input?.value.trim() ?? "";
+  active = 0;
+  render(search(await loadIndex(), query), query);
+}
+
+function openSearch(): void {
+  if (!dialog || dialog.open) return;
+  dialog.showModal();
+  input?.focus();
+  input?.select();
+  void loadIndex();
+}
+
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-search-open]")) button.addEventListener("click", openSearch);
+input?.addEventListener("input", () => void update());
+dialog?.addEventListener("click", (event) => {
+  if (event.target === dialog) dialog.close();
+});
+dialog?.addEventListener("keydown", (event) => {
+  const items = [...(results?.querySelectorAll<HTMLAnchorElement>(".search-hit") ?? [])];
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    if (items.length === 0) return;
+    active = (active + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
+    items.forEach((a, i) => (i === active ? a.setAttribute("aria-selected", "true") : a.removeAttribute("aria-selected")));
+    items[active]?.scrollIntoView({ block: "nearest" });
+  } else if (event.key === "Enter" && items[active]) {
+    event.preventDefault();
+    items[active]?.click();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+  if ((event.key === "k" && (event.metaKey || event.ctrlKey)) || (event.key === "/" && !typing)) {
+    event.preventDefault();
+    openSearch();
+  }
+});

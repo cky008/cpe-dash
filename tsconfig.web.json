@@ -5,6 +5,6 @@
     "noEmit": true,
     "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
-  "include": ["web/src/**/*.ts"],
+  "include": ["web/src/**/*.ts", "web/site/**/*.ts"],
   "exclude": ["node_modules", "dist", "coverage"]
 }
