@@ -9,7 +9,7 @@ import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "../src/cpe-domain.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { BrowserSessionYieldedError, CircuitBreakerOpenError, type ControlAppliedEvent, DeviceReadOnlyError } from "../src/scheduler.ts";
+import { BrowserSessionYieldedError, CircuitBreakerOpenError, type ControlAppliedEvent, DeviceReadOnlyError, PeerDaemonStandbyError } from "../src/scheduler.ts";
 import { RECONNECT_MAX_PER_DAY, SELF_HEAL_OFF, type SelfHealStatus, WanSelfHeal } from "../src/self-heal.ts";
 import type { AlertEventRecord } from "../src/state-store.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
@@ -407,6 +407,99 @@ describe("WanSelfHeal lock rollback (LOCK_ROLLBACK_AFTER_MIN)", () => {
       await off.cleanup();
     }
   });
+
+  it("drops telemetry snapshots that arrive while a write is in flight", async () => {
+    const fx = fixture({ lockMin: 10 });
+    let unblock: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    try {
+      fx.lockAt(0);
+      fx.rollbackPlan.push(async () => {
+        await gate;
+        return { applied: true };
+      });
+      fx.setClock(T0 + 10 * MIN);
+      const first = fx.heal.ingestTelemetry(sample(T0 + 10 * MIN, "902"));
+      assert.equal(fx.calls.rollback, 1);
+      fx.setClock(T0 + 11 * MIN);
+      const second = fx.heal.ingestTelemetry(sample(T0 + 11 * MIN, "902"));
+      assert.equal(fx.calls.rollback, 1);
+      unblock();
+      await Promise.all([first, second]);
+      assert.equal(fx.calls.rollback, 1);
+    } finally {
+      unblock();
+      await fx.cleanup();
+    }
+  });
+
+  it("stop() does not resolve while a write is in flight", async () => {
+    const fx = fixture({ lockMin: 10 });
+    let unblock: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    try {
+      fx.heal.start();
+      fx.lockAt(0);
+      fx.rollbackPlan.push(async () => {
+        await gate;
+        return { applied: true };
+      });
+      fx.setClock(T0 + 10 * MIN);
+      const writePromise = fx.heal.ingestTelemetry(sample(T0 + 10 * MIN, "902"));
+      assert.equal(fx.calls.rollback, 1);
+      let stopped = false;
+      const stopPromise = fx.heal.stop().then(() => {
+        stopped = true;
+      });
+      await Promise.resolve();
+      assert.equal(stopped, false, "stop() must not resolve before write completes");
+      unblock();
+      await Promise.all([writePromise, stopPromise]);
+      assert.equal(stopped, true, "stop() resolves once write completes");
+    } finally {
+      unblock();
+      await fx.cleanup();
+    }
+  });
+
+  it("ends the watch at once with a critical alert when the peer daemon is standby", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.lockAt(0);
+      fx.rollbackPlan.push(async () => {
+        throw new PeerDaemonStandbyError("192.168.8.2");
+      });
+      await fx.at(10, "902");
+      assert.deepEqual(fx.codes(), ["LOCK_ROLLBACK_FAILED"]);
+      assert.equal(fx.alerts[0]?.severity, "critical");
+      assert.equal(fx.heal.lockDeadlineMs, null, "watch ended at once");
+      await fx.at(11, "902");
+      assert.equal(fx.calls.rollback, 1, "no retry when standby");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("does not re-arm an unsettled lock after a restart past the give-up window", async () => {
+    const lock = bandLock(T0 - 71 * MIN);
+    const fx = fixture({ lockMin: 10, lock });
+    try {
+      fx.core.scheduler.stateStore.update({
+        selfHealLockWatch: { lockUpdatedAtIso: lock.updatedAtIso, settled: false },
+      });
+      fx.heal.start();
+      assert.equal(fx.heal.status().lockRollback.watch, null);
+      await fx.at(0, "902");
+      assert.equal(fx.calls.rollback, 0);
+      assert.equal(fx.heal.status().lockRollback.watch, null);
+    } finally {
+      await fx.cleanup();
+    }
+  });
 });
 
 describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
@@ -584,6 +677,26 @@ describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
       fx.heal.start();
       for (const minute of [0, 1, 2]) await fx.at(minute, "901");
       assert.equal(fx.core.scheduler.stateStore.getState().selfHealReconnect, null);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("does not spend the budget or save state when the peer daemon is standby and retries in one minute", async () => {
+    const fx = fixture({ reconnectMin: 1 });
+    try {
+      fx.reconnectPlan.push(async () => {
+        throw new PeerDaemonStandbyError("192.168.8.2");
+      });
+      await fx.at(0, "902");
+      await fx.at(1, "902");
+      assert.equal(fx.calls.reconnect, 1);
+      assert.equal(fx.heal.status().reconnect.redialsLast24h, 0, "does not spend a redial");
+      assert.equal(fx.core.scheduler.stateStore.getState().selfHealReconnect, null, "nothing saved in state store");
+      await fx.at(1.5, "902");
+      assert.equal(fx.calls.reconnect, 1, "retry waits a minute");
+      await fx.at(2, "902");
+      assert.equal(fx.calls.reconnect, 2, "retried after SELF_HEAL_RETRY_MS");
     } finally {
       await fx.cleanup();
     }
