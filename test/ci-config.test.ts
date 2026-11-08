@@ -44,10 +44,18 @@ describe("GitHub Actions supply chain", () => {
     const froms = dockerfile.split("\n").filter((line) => line.startsWith("FROM "));
     assert.equal(froms.length, 2);
     for (const line of froms) assert.match(line, /node:\d+-alpine@sha256:[0-9a-f]{64}\s/, line);
+    const digests = froms.map((line) => /sha256:[0-9a-f]{64}/.exec(line)?.[0]);
+    assert.equal(digests.length, 2);
+    assert.ok(digests[0], "first FROM line has a digest");
+    assert.equal(digests[0], digests[1], "both Dockerfile FROM lines pin the same digest");
     const release = fs.readFileSync(path.join(WORKFLOWS, "release.yml"), "utf8");
     assert.match(release, /^\s+provenance: mode=max$/m);
     assert.match(release, /^\s+sbom: true$/m);
     const compose = fs.readFileSync(path.resolve(WORKFLOWS, "..", "..", "docker-compose.yml"), "utf8");
+    assert.match(compose, /^\s+read_only:\s*true$/m);
+    assert.match(compose, /^\s+cap_drop:\r?\n\s+-\s+ALL$/m);
+    assert.match(compose, /^\s+security_opt:\r?\n\s+-\s+no-new-privileges:true$/m);
+    assert.match(compose, /^\s+tmpfs:\r?\n\s+-\s+\/tmp$/m);
     assert.match(compose, /^\s+mem_limit: \d+[mg]$/m);
     // Synology's kernel has no pids cgroup: Docker drops pids_limit with a warning, so it stays a comment
     assert.doesNotMatch(compose, /^\s+pids_limit:/m);

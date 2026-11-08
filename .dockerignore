@@ -5,11 +5,15 @@
 data
 *.har
 *.pcap*
+*.saz
+*.vcf
 *.apk*
 *.dll
 *.pem
 *.key
 .probe-cache
+scratch/
+tmp/
 
 # Build outputs and tooling caches (the image builds its own dist/)
 node_modules

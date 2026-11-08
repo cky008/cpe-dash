@@ -41,6 +41,7 @@ jobs:
         env:
           DEPLOY_KEY: ${{ secrets.DEMO_DEPLOY_KEY }}
           DEMO_DOMAIN: ${{ vars.DEMO_DOMAIN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "$DEPLOY_KEY" ]; then
@@ -52,7 +53,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/key"
           chmod 600 "$ssh_dir/key"
           # Trust exactly GitHub's published SSH host keys (fetched over HTTPS)
-          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$ssh_dir/known_hosts"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$ssh_dir/known_hosts"
           trap 'rm -rf "$ssh_dir"' EXIT
 
           cd dist/demo
