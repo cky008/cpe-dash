@@ -565,7 +565,7 @@ export class TelegramBot implements NotificationChannel {
   readonly locale: SupportedLocale;
   readonly defaultCountryCode: string;
   readonly allowedChatIds: ReadonlyArray<string>;
-  #authToken: string;
+  readonly #authToken: string;
   readonly #linkSecret: ((secret: string, where: "private" | "group") => TelegramLinkOutcome | TelegramLinkDecision) | null;
   /** The bot's own @username (from getMe), to tell commands meant for another bot in a group apart. */
   #username: string | null = null;
@@ -674,10 +674,6 @@ export class TelegramBot implements NotificationChannel {
     }
   }
 
-  /**
-   * Apply a hot-reloaded `API_TOKEN`. When it changed, chats linked with the previous token via
-   * `/auth` are revoked (a leaked token must not keep granting access); `TELEGRAM_CHAT_IDS` stay.
-   */
   /** Unlink every chat linked with /auth (TELEGRAM_CHAT_IDS stay authorized); returns how many. */
   unlinkAllChats(): number {
     const revoked = this.state.revokeAll();
@@ -689,14 +685,6 @@ export class TelegramBot implements NotificationChannel {
   unlinkChatsLinkedBy(tokenId: string): number {
     const revoked = this.state.revokeLinkedVia(tokenId);
     if (revoked > 0) this.#log(`[telegram] unlinked ${revoked} chat(s) linked with a revoked token`);
-    return revoked;
-  }
-
-  rotateAuthToken(token: string): number {
-    if (timingSafeEqualString(token, this.#authToken)) return 0;
-    this.#authToken = token;
-    const revoked = this.state.revokeAll();
-    if (revoked > 0) this.#log(`[telegram] API token rotated; revoked ${revoked} linked chat(s)`);
     return revoked;
   }
 
