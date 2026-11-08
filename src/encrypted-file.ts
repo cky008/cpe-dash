@@ -205,6 +205,20 @@ export function quarantinedSince(filePath: string, sinceMs: number): string[] {
   return names.filter((name) => name.startsWith(prefix) && Number(name.slice(prefix.length)) >= sinceMs).sort();
 }
 
+const writeFailureListeners = new Set<(filePath: string, err: unknown) => void>();
+
+/**
+ * Hear about saves that failed (a full or read-only data volume, a UID change). The stores keep the
+ * change in memory and most callers save in the background and ignore the rejection, so this is
+ * where a failure gets said. Returns the function that stops listening.
+ */
+export function onStorageWriteFailure(listener: (filePath: string, err: unknown) => void): () => void {
+  writeFailureListeners.add(listener);
+  return () => {
+    writeFailureListeners.delete(listener);
+  };
+}
+
 /**
  * Crash-safe async writer for one file (`0600` temp file + `fsync` + atomic `rename`).
  * Writes are chained so concurrent calls land in call order; `serialize` runs when the write
@@ -220,20 +234,16 @@ export class AtomicFileWriter {
 
   write(serialize: () => string): Promise<void> {
     const doWrite = async (): Promise<void> => {
-      const serialized = serialize();
-      await fsp.mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-      const tmpFile = `${this.filePath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
       try {
-        const handle = await fsp.open(tmpFile, "w", 0o600);
-        try {
-          await handle.writeFile(serialized, "utf8");
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-        await fsp.rename(tmpFile, this.filePath);
+        await this.#writeOnce(serialize);
       } catch (err) {
-        await fsp.rm(tmpFile, { force: true }).catch(() => undefined);
+        for (const listener of writeFailureListeners) {
+          try {
+            listener(this.filePath, err);
+          } catch {
+            // A listener never changes the outcome of the save
+          }
+        }
         throw err;
       }
     };
@@ -243,6 +253,25 @@ export class AtomicFileWriter {
       () => undefined
     );
     return next;
+  }
+
+  async #writeOnce(serialize: () => string): Promise<void> {
+    const serialized = serialize();
+    await fsp.mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
+    const tmpFile = `${this.filePath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+    try {
+      const handle = await fsp.open(tmpFile, "w", 0o600);
+      try {
+        await handle.writeFile(serialized, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fsp.rename(tmpFile, this.filePath);
+    } catch (err) {
+      await fsp.rm(tmpFile, { force: true }).catch(() => undefined);
+      throw err;
+    }
   }
 }
 

@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Added
+- **A save that fails is said out loud.** Every encrypted store saves in the background, and a failure (a full or read-only data volume, a container running as another user) used to be ignored: the console accepted a new password, token, consent or Telegram link that was gone after the next restart. Such a failure now writes one log line and raises the critical `STORAGE_WRITE_FAILED` alert (pushed like the others) naming the file and the error code, once an hour per file and cause; nothing changes while saves work.
+
 ### Security
 - **The saved router password goes only to the saved router address.** A connection test or save that named another address without a password used the saved one, so anyone at an open console could point it at a host of their own on the LAN and receive the router's admin password (a legacy login sends it nearly in the clear) or a SCRAM proof to crack offline, although the console never shows that password. Trying another address now needs its password typed (`400 VALIDATION_ERROR` otherwise, and nothing is sent); the saved address keeps working without retyping, however it is written. Settings → Router stops offering "leave empty to keep the saved password" once the address is changed; the static demo follows the same rule.
 - **`cpe-dash reset-login` codes go to the daemon's own host only, also behind a reverse proxy.** `POST /api/setup/reset-code` judged "from loopback" by the TCP peer, so with an HTTPS proxy on the same host every client it forwarded counted as local and only the data-key proof stood in the way. It now uses the client address resolved through `TRUSTED_PROXIES`, so a forwarded LAN client is refused (`401`) while `reset-login` on the host keeps working.

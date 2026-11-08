@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
 import { AuditLog } from "./audit-log.ts";
@@ -9,7 +10,7 @@ import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts"
 import { DEFAULT_SESSION_MAX_HOLD_MS, HuaweiCpeClient } from "./cpe-client.ts";
 import type { CpeControlService } from "./cpe-controls.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
-import { type FileLockHandle, StorageCipher, quarantinedSince, tryAcquireFileLock } from "./encrypted-file.ts";
+import { type FileLockHandle, StorageCipher, onStorageWriteFailure, quarantinedSince, tryAcquireFileLock } from "./encrypted-file.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
 import { backupDataDir, formatDoctorReport, rekeyDataDir, restoreDataDir, runDoctor } from "./maintenance.ts";
 import { AccessControlMcpTools } from "./mcp-access-tools.ts";
@@ -263,6 +264,31 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   // Restore the persisted breaker latch (and the time series) now: from here on any adapter can
   // queue a session, and none may spend a password attempt the latch already ruled out.
   monitor.init();
+
+  // A save that fails (a full or read-only data volume, a UID change) keeps the change in memory only,
+  // lost on restart unless a later save works: said once per file and cause an hour, in the log and
+  // as a critical alert (whose own state.json save may fail too, which the same limit keeps quiet)
+  const ownStores = new Set(
+    [config.stateFile, config.smsFile, config.contactsFile, config.telegramStateFile, config.settingsFile, config.auditFile].map((file) => path.resolve(file))
+  );
+  const writeFailuresSaid = new Map<string, number>();
+  let stopWriteFailureReports: (() => void) | null = null;
+  const reportWriteFailure = (filePath: string, err: unknown): void => {
+    if (!ownStores.has(path.resolve(filePath))) return;
+    const file = path.basename(filePath);
+    const reason = err && typeof err === "object" && "code" in err && typeof err.code === "string" ? err.code : "unknown error";
+    const key = `${file}:${reason}`;
+    const nowMs = Date.now();
+    if (nowMs - (writeFailuresSaid.get(key) ?? Number.NEGATIVE_INFINITY) < 60 * 60_000) return;
+    writeFailuresSaid.set(key, nowMs);
+    log(`[fengsui] could not save ${file} (${reason}): the change stays in memory and is lost on restart unless a save works again; check the data volume's free space and permissions`);
+    scheduler.raiseAlert({
+      severity: "critical",
+      code: "STORAGE_WRITE_FAILED",
+      messageZh: t("zh-CN", "alerts.storage_write_failed", { file, reason }),
+      messageEn: t("en", "alerts.storage_write_failed", { file, reason }),
+    });
+  };
 
   let sms: SmsService | null = null;
   if (config.smsEnabled) {
@@ -521,6 +547,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     async start(): Promise<void> {
       if (started) return;
       started = true;
+      stopWriteFailureReports ??= onStorageWriteFailure(reportWriteFailure);
       monitor.init();
       sseBus.attachCore(core);
       if (sms) sseBus.attachSms(sms);
@@ -575,6 +602,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       await telegramState?.flush().catch(() => undefined);
       await settings.flush().catch(() => undefined);
       await audit.flush().catch(() => undefined);
+      stopWriteFailureReports?.();
+      stopWriteFailureReports = null;
       daemonLock.release();
     },
     releaseLocks(): void {

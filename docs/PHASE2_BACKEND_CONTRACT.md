@@ -452,7 +452,8 @@ export type AlertCode =
   | "MODEL_UNVERIFIED"         // warning：路由器型号不在验证清单上：烽燧只读它，写操作默认锁定（可在「设置 → 设备」逐项打开实验性写入，见 2.11）；每个型号一次（持久化），指向「设置 → 设备」与兼容性报告
   | "WRITE_READBACK_MISMATCH"  // warning：未验证型号上的实验性写入回读与写入不一致（重启、重拨为之后的轮询显示没有重启 / 重新连接）；消息只有写操作名、型号与原因，不含写入的取值（见 2.11）
   | "FIRMWARE_UNVERIFIED"      // warning：已验证型号的固件版本（含补丁号）不在 src/firmware.ts 的 VERIFIED_FIRMWARE 中；每个版本一次（持久化），不阻止写操作；Telegram 推送另附一条核对提示词
-  | "DATA_QUARANTINED";        // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
+  | "DATA_QUARANTINED"         // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
+  | "STORAGE_WRITE_FAILED";    // critical：加密数据文件保存失败（数据卷满、只读或属主不对）：更改只在内存里，重启前若仍不能保存即丢失；同一文件同一原因（如 EACCES / ENOSPC）每小时一次，消息只含文件名与错误码
 
 /** GET /api/telemetry */
 /**

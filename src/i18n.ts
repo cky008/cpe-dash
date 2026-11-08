@@ -103,6 +103,7 @@ export type I18nKey =
   | "alerts.duplicate_daemon_leader"
   | "alerts.duplicate_daemon_cleared"
   | "alerts.data_quarantined"
+  | "alerts.storage_write_failed"
   | "alerts.lock_rolled_back"
   | "alerts.lock_rollback_failed"
   | "alerts.wan_auto_reconnect"
