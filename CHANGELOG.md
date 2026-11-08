@@ -19,6 +19,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - Settings → Telegram creates one pairing code at a time and Settings → Security saves one switch at a time (their controls wait while a request runs); the experimental-write consent never accepts an empty model name; the controls drawer shows the "someone is on the router's page" / breaker / standby notice on other models too; a security switch whose write may have applied (the read-back failed) keeps its position and the drawer reads the router's settings again instead of flipping back; the token name, DMZ address and DMZ switch have accessible names, and the SMS search box's name follows the language.
 - Telegram notifications wait out a `429` (`retry_after`): queued ones are not retried, and new ones are queued instead of sent, until Telegram's window has passed; sending sooner only lengthened the limit.
 
+### Documentation
+- `docs/PHASE2_ARCHITECTURE_REPORT.md` §12 records the second full audit: findings and fixes, conclusions per review dimension, the v1.0.1 → current data upgrade and resource measurements, new known limitations and the roadmap.
+
 ## [1.6.2] — 2026-11-04
 
 ### Added
