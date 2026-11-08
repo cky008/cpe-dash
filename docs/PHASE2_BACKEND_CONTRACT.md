@@ -982,7 +982,7 @@ export interface AccessControlChangeResponse {
 | `POST /api/console/cpe/test` | `{ url?, username?, password?, lastAttempt? }`（缺省字段用已保存的值；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult }` |
 | `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `connectionTest`，不保存） |
 | `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
-| `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD` |
+| `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD`，并与登录共用同一地址的失败计数：超限后 `429 RATE_LIMITED`（`retryAfterSec`） |
 | `GET /api/console/tokens` | — | `{ ok: true, tokens: PublicTokenRecord[] }`（不含哈希；完整权限令牌曾在 Telegram 群组里用 `/auth` 发出时带 `telegramExposedAtIso`：群成员都看到了它，它从此不能再绑定任何聊天，仍可作令牌使用，控制台提示撤销） |
 | `POST /api/console/tokens` | `{ name, scope: "full" \| "read", lifetimeDays: 1 \| 7 \| 30 \| 90 \| 365 \| null }` | `{ ok: true, token, record }`，`token` 只返回这一次；上限 50 个 |
 | `POST /api/console/tokens/revoke` | `{ id }` | `{ ok: true, record }`，并断开该令牌的 SSE、解绑用它经 `/auth` 绑定的 Telegram 聊天（审计 `detail` 注明解绑了几个）；不存在 `404` |

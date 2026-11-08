@@ -66,7 +66,8 @@ function routesFixture(telegramConfigured: boolean) {
     let payload: unknown = null;
     const handled = await routes.handle(
       { method, pathname, query: Object.create(null) as Record<string, string>, readJsonBody: async () => body, sendJson: (code, json) => ((status = code), (payload = json)) },
-      "session-1"
+      "session-1",
+      async (candidate) => ((await settings.verifyLogin(candidate)) ? { ok: true } : { ok: false, statusCode: 401 })
     );
     return { handled, status, payload: payload as Record<string, unknown> };
   };

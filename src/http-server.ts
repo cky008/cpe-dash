@@ -830,7 +830,8 @@ export class FengSuiHttpServer {
             readJsonBody: (maxBytes?: number) => this.#readBoundedJsonBody(req, maxBytes),
             sendJson: (statusCode: number, body: unknown) => this.#sendJson(res, statusCode, body),
           },
-          caller.sessionId
+          caller.sessionId,
+          (candidate) => this.#auth.guardLogin(caller.clientIp, candidate)
         );
         if (!handled) this.#sendJson(res, 404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown ${method} endpoint ${pathname}` });
         return;

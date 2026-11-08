@@ -8,6 +8,7 @@ import type {
   TelegramChatsResponse,
 } from "./api-contract.ts";
 import type { AuditLog } from "./audit-log.ts";
+import type { CredentialVerdict } from "./http-auth.ts";
 import { normalizeCpeUrl } from "./config.ts";
 import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
 import { type ConsoleSettings, PAIRING_CODE_TTL_MS } from "./console-settings.ts";
@@ -85,8 +86,11 @@ export class SettingsHttpRoutes {
     };
   }
 
-  /** `true` when the route was handled. `sessionId` is the console session making the request. */
-  async handle(ctx: ApiRouteContext, sessionId: string): Promise<boolean> {
+  /**
+   * `true` when the route was handled. `sessionId` is the console session making the request;
+   * `checkPassword` verifies a console password through the sign-in limiter of the caller's address.
+   */
+  async handle(ctx: ApiRouteContext, sessionId: string, checkPassword: (candidate: string) => Promise<CredentialVerdict>): Promise<boolean> {
     const { settings, audit } = this.#opts;
     if (ctx.method === "GET") {
       if (ctx.pathname === "/api/console") {
@@ -154,7 +158,15 @@ export class SettingsHttpRoutes {
       case "/api/console/password": {
         const body = await ctx.readJsonBody();
         const next = validateNewPassword(body["next"]);
-        if (!(await settings.verifyLogin(typeof body["current"] === "string" ? body["current"] : ""))) {
+        // Through the sign-in limiter: a session cannot try current passwords without limit (nor tie up scrypt)
+        const verdict = await checkPassword(typeof body["current"] === "string" ? body["current"] : "");
+        if (!verdict.ok && verdict.statusCode === 429) {
+          const retryAfterSec = verdict.retrySec ?? 60;
+          audit?.record({ action: "settings.password", outcome: "refused", detail: "too many wrong passwords" });
+          ctx.sendJson(429, { ok: false, errorCode: "RATE_LIMITED", retryAfterSec, message: `Too many wrong passwords: try again in ${retryAfterSec} s` } satisfies ApiErrorEnvelope);
+          return true;
+        }
+        if (!verdict.ok) {
           audit?.record({ action: "settings.password", outcome: "refused", detail: "wrong current password" });
           ctx.sendJson(403, { ok: false, errorCode: "WRONG_PASSWORD", message: "The current console password is wrong" });
           return true;

@@ -277,7 +277,7 @@ describe("device identification on the strict H168-383", () => {
     });
     const post = async (pathname: string, body: Record<string, unknown>) => {
       let status = 0;
-      await routes.handle({ method: "POST", pathname, query: Object.create(null) as Record<string, string>, readJsonBody: async () => body, sendJson: (code) => void (status = code) }, "session-1");
+      await routes.handle({ method: "POST", pathname, query: Object.create(null) as Record<string, string>, readJsonBody: async () => body, sendJson: (code) => void (status = code) }, "session-1", async () => ({ ok: false, statusCode: 401 }));
       return status;
     };
     try {

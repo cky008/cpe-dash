@@ -250,6 +250,23 @@ describe("console settings after an upgrade (.env imported)", () => {
 });
 
 describe("one-time codes and the sign-in limit", () => {
+  it("counts wrong current passwords in a password change against the sign-in limit", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", RATE_LIMIT_MAX_AUTH_FAILURES: "3" });
+    try {
+      const cookie = fx.cookieOf(await fx.post("/api/auth/login", { password: "legacy_full_token" }));
+      for (const guess of ["guess one", "guess two", "guess three"]) {
+        assert.equal((await fx.post("/api/console/password", { current: guess, next: PASSPHRASE }, cookie)).status, 403);
+      }
+      // Locked out like a sign-in: even the right password waits for the window, and nothing changed
+      const locked = await fx.post("/api/console/password", { current: "legacy_full_token", next: PASSPHRASE }, cookie);
+      assert.equal(locked.status, 429);
+      assert.equal(((await locked.json()) as { errorCode: string }).errorCode, "RATE_LIMITED");
+      assert.equal(await fx.stack.settings.verifyLogin("legacy_full_token"), true, "the password is unchanged");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("keeps a valid one-time code that the sign-in limit refused, so it still works", async () => {
     const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", RATE_LIMIT_MAX_AUTH_FAILURES: "3", TRUSTED_PROXIES: "127.0.0.1" });
     try {
