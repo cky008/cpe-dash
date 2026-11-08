@@ -6,8 +6,8 @@
  */
 import type { Locale } from "./i18n.ts";
 
-/** The documentation site; GitHub redirects it to the custom domain once one is set. */
-export const DOCS_SITE = "https://cky008.github.io/cpe-dash/";
+/** The documentation site (GitHub Pages on the project's own domain, linked directly: no redirect to depend on). */
+export const DOCS_SITE = "https://fengsui.iocky.com/";
 
 export interface HelpTopic {
   /** Guide page (docs/guide/<lang>/<page>.md). */

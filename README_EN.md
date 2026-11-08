@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="docs/guide/en/quick-start.md"><b>Quick start</b></a> ·
-  <a href="https://cky008.github.io/cpe-dash/en/">Documentation</a> ·
+  <a href="https://fengsui.iocky.com/en/">Documentation</a> ·
   <a href="https://cky008.github.io/fengsui-demo/">Live demo</a> ·
   <a href="README.md">简体中文</a>
 </p>
@@ -82,7 +82,7 @@ FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink
 | Help | [Troubleshooting](docs/guide/en/troubleshooting.md) · [FAQ](docs/guide/en/faq.md) |
 | Technical docs (Chinese) | [Protocol spec](docs/PHASE1_PROTOCOL_SPEC.md) · [Architecture report](docs/PHASE2_ARCHITECTURE_REPORT.md) · [Backend contract (REST / SSE / MCP)](docs/PHASE2_BACKEND_CONTRACT.md) · [Changelog](CHANGELOG.md) |
 
-The same pages, with search, are on the [documentation site](https://cky008.github.io/cpe-dash/en/).
+The same pages, with search, are on the [documentation site](https://fengsui.iocky.com/en/).
 
 ## Contributing
 

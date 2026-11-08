@@ -67,7 +67,7 @@ describe("release notes from CHANGELOG.md", () => {
         "- A fix.",
         "",
         "---",
-        "Details of every change: [CHANGELOG.md](https://github.com/cky008/cpe-dash/blob/v1.2.0/CHANGELOG.md) · Documentation: [cky008.github.io/cpe-dash](https://cky008.github.io/cpe-dash/) · Container image: `ghcr.io/cky008/cpe-dash:1.2.0`",
+        "Details of every change: [CHANGELOG.md](https://github.com/cky008/cpe-dash/blob/v1.2.0/CHANGELOG.md) · Documentation: [fengsui.iocky.com](https://fengsui.iocky.com/) · Container image: `ghcr.io/cky008/cpe-dash:1.2.0`",
         "",
       ].join("\n")
     );

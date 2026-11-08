@@ -34,7 +34,7 @@ describe("term help in the console", () => {
     assert.equal(helpUrl("pci", "en"), `${DOCS_SITE}en/docs/bands-and-cells/#pci`);
     assert.equal(helpLabel("upnp", "zh-CN"), "什么是UPnP？");
     assert.equal(helpLabel("upnp", "en"), "What is UPnP?");
-    assert.match(DOCS_SITE, /^https:\/\/cky008\.github\.io\/cpe-dash\/$/, "the project's own site, never a personal domain");
+    assert.equal(DOCS_SITE, "https://fengsui.iocky.com/", "the documentation site's own domain (AGENTS.md lists it as the one allowed)");
   });
 
   it("shows the marks unless the browser turned them off in Settings → Appearance", () => {

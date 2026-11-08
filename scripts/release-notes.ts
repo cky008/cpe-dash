@@ -87,7 +87,7 @@ export function releaseNotes(changelog: string, tag: string, repository = "cky00
 
   out.push(
     "---",
-    `Details of every change: [CHANGELOG.md](https://github.com/${repository}/blob/v${version}/CHANGELOG.md) · Documentation: [cky008.github.io/cpe-dash](https://cky008.github.io/cpe-dash/) · Container image: \`ghcr.io/${repository}:${version}\``,
+    `Details of every change: [CHANGELOG.md](https://github.com/${repository}/blob/v${version}/CHANGELOG.md) · Documentation: [fengsui.iocky.com](https://fengsui.iocky.com/) · Container image: \`ghcr.io/${repository}:${version}\``,
     ""
   );
   return out.join("\n");

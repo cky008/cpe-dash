@@ -3,8 +3,7 @@ name: Documentation site
 # Builds the home page and the user guide (docs/guide) with scripts/build-docs.ts and publishes them
 # to this repository's GitHub Pages. It runs once Pages is set up: set the repository variable
 # DOCS_PAGES_ENABLED to "true" (Settings -> Pages -> Source: GitHub Actions first) and DOCS_SITE_URL to
-# the site's address, so canonical URLs, hreflang pairs and the sitemap name the right domain without
-# the domain ever entering the source tree.
+# the site's address, which canonical URLs, hreflang pairs and the sitemap use.
 on:
   push:
     branches: [main]

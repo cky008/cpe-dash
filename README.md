@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="docs/guide/zh/quick-start.md"><b>快速开始</b></a> ·
-  <a href="https://cky008.github.io/cpe-dash/">文档站</a> ·
+  <a href="https://fengsui.iocky.com/">文档站</a> ·
   <a href="https://cky008.github.io/fengsui-demo/">在线演示</a> ·
   <a href="README_EN.md">English</a>
 </p>
@@ -82,7 +82,7 @@ docker compose logs cpe-dash | grep "setup code"
 | 帮助 | [排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md) |
 | 技术文档 | [协议规范](docs/PHASE1_PROTOCOL_SPEC.md) · [架构报告](docs/PHASE2_ARCHITECTURE_REPORT.md) · [后端契约（REST / SSE / MCP）](docs/PHASE2_BACKEND_CONTRACT.md) · [更新日志](CHANGELOG.md) |
 
-这些页面也发布在[文档站](https://cky008.github.io/cpe-dash/)上，支持搜索。
+这些页面也发布在[文档站](https://fengsui.iocky.com/)上，支持搜索。
 
 ## 参与
 

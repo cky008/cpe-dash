@@ -11,8 +11,9 @@ import { type SiteLocale, homeMeta, renderHome } from "./site-home.ts";
  * The documentation site (GitHub Pages, .github/workflows/docs-pages.yml): a home page and the user guide in
  * docs/guide/{zh,en}, rendered with the zero-dependency scripts/markdown.ts and the console's own Tailwind
  * toolchain. Every link is relative, so the same files work under a project path or a custom domain.
- * The domain itself never enters the source: `DOCS_SITE_URL` (an Actions variable) adds the canonical URLs,
- * hreflang pairs, Open Graph image and sitemap at deploy time; without it those are left out.
+ * The pages never name the domain: `DOCS_SITE_URL` (an Actions variable) adds the canonical URLs, hreflang
+ * pairs, Open Graph image and sitemap at deploy time; without it those are left out. (The READMEs, the release
+ * notes and the console's "?" marks link to https://fengsui.iocky.com/ directly.)
  *
  *   node --experimental-strip-types scripts/build-docs.ts [--out dist/site]
  */
