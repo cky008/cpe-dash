@@ -89,3 +89,19 @@ describe("feedback: the compatibility issue", () => {
     }
   });
 });
+
+describe("issue forms", () => {
+  it("are YAML that GitHub accepts: no ': ' inside an unquoted value (it reads as a new key and the form is rejected)", () => {
+    const dir = path.join(".github", "ISSUE_TEMPLATE");
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".yml"));
+    assert.ok(files.length >= 4, "bug report, feature request, device report and the chooser config");
+    for (const file of files) {
+      fs.readFileSync(path.join(dir, file), "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          const plain = /^\s*(?:- )?[A-Za-z_]+:\s+([^|>"'\s].*)$/.exec(line)?.[1];
+          if (plain !== undefined) assert.doesNotMatch(plain, /:\s/, `${file}:${i + 1} needs quotes`);
+        });
+    }
+  });
+});

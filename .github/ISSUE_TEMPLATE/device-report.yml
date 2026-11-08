@@ -47,7 +47,7 @@ body:
     id: privacy
     attributes:
       label: 隐私 / Privacy
-      description: 报告已经脱敏：只有接口结构和少量白名单值（型号、固件、网页版本、开关的小数字、频段号），没有 IMEI、IMSI、MAC、IP 地址、号码、小区或 Wi-Fi 名称。提交前请再看一遍。 / The report is desensitized: endpoint structure and a few allowlisted values (model, firmware and WebUI version, small switch numbers, band numbers), no IMEI, IMSI, MAC, IP address, phone number, cell or Wi-Fi name. Please read it once more before you submit.
+      description: '报告已经脱敏：只有接口结构和少量白名单值（型号、固件、网页版本、开关的小数字、频段号），没有 IMEI、IMSI、MAC、IP 地址、号码、小区或 Wi-Fi 名称。提交前请再看一遍。 / The report is desensitized: endpoint structure and a few allowlisted values (model, firmware and WebUI version, small switch numbers, band numbers), no IMEI, IMSI, MAC, IP address, phone number, cell or Wi-Fi name. Please read it once more before you submit.'
       options:
         - label: 我看过报告，里面没有我的个人信息 / I read the report and it holds nothing personal
           required: true
