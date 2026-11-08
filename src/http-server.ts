@@ -1296,7 +1296,7 @@ export class FengSuiHttpServer {
 
     // Streamable HTTP `/mcp` strictly requires Bearer API_TOKEN authentication
     const mcpMessages = {
-      unauthorized: "Missing or invalid Bearer API_TOKEN for /mcp",
+      unauthorized: "Missing or invalid Bearer token for /mcp (tokens are created in the console under Settings → Tokens)",
       rateLimited: () => "Too many authentication failures",
     };
     if (req.headers.authorization === undefined) {

@@ -433,7 +433,7 @@ export class FengSuiMcpServer {
 
     const provider = this.toolProviders.find((p) => p.handles(toolName));
     if (provider?.isMutating(toolName) && readOnly) {
-      return wrapErr("READ_ONLY_TOKEN", "This Bearer token is read-only (API_TOKEN_READONLY); mutating tools need API_TOKEN");
+      return wrapErr("READ_ONLY_TOKEN", "This Bearer token is read-only; mutating tools need a full-access token (created in the console under Settings → Tokens)");
     }
     if (provider?.isMutating(toolName) && !this.allowMutations) {
       return wrapErr(

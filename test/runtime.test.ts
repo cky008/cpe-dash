@@ -872,6 +872,7 @@ describe("Read-only Bearer token (API_TOKEN_READONLY)", () => {
       const refused = await mcp(ro, "tools/call", { name: "reboot_cpe", arguments: { confirm: true } });
       assert.equal(refused.result.isError, true);
       assert.equal(refused.result.structuredContent?.errorCode, "READ_ONLY_TOKEN");
+      assert.doesNotMatch(JSON.stringify(refused.result.structuredContent), /API_TOKEN/, "tokens come from the console, not .env");
       assert.equal((await mcp(ro, "tools/call", { name: "get_cpe_telemetry", arguments: {} })).result.isError, false);
       assert.equal(cpe.stats.writes.length, 0);
 

@@ -179,6 +179,9 @@ describe("session contract on a strict single-admin router model", () => {
       assert.equal(afterTrip[8]?.status, "rejected");
       assert.equal(mcpUnlock.isError, true);
       assert.equal(mcpUnlock.structuredContent["errorCode"], "CIRCUIT_BREAKER_OPEN");
+      // The way out an agent relays: the console's router settings, where the password lives
+      assert.match(String(mcpUnlock.structuredContent["message"]), /Settings → Router/);
+      assert.doesNotMatch(String(mcpUnlock.structuredContent["message"]), /\.env|CPE_PASSWORD/);
       assert.equal((mcpUnlock.structuredContent["circuitBreaker"] as { code?: string }).code, "108006");
       const alerts = fx.core.scheduler.getRecentAlerts().filter((a) => a.code === "CIRCUIT_108006");
       assert.equal(alerts.length, 1, "the breaker alert is raised once");

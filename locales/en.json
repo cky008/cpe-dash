@@ -11,7 +11,7 @@
   },
   "auth": {
     "login_title": "Sign in to FengSui Console",
-    "password_placeholder": "Enter API_TOKEN or CPE admin password",
+    "password_placeholder": "Enter the console password",
     "submit": "Sign In",
     "logout": "Sign Out",
     "unauthorized": "Unauthorized or invalid access token",

@@ -196,7 +196,7 @@ export class CircuitBreakerOpenError extends CpeApiError {
         ? "circuit breaker open: the router has locked logins; once the lock has expired, POST /api/session/reset-breaker"
         : code === "115002"
           ? "circuit breaker open: the router wants its admin password changed on its own web page first; then save the new password in the console"
-          : "circuit breaker open: no further login attempts until CPE_PASSWORD in .env is fixed and POST /api/session/reset-breaker is called",
+          : "circuit breaker open: no further login attempts until the router password is corrected in the console (Settings → Router tests it once and, if it logs in, saves it and clears the breaker)",
       { remainCount: circuitBreaker.remainCount ?? null, waitTime: circuitBreaker.waitTime ?? null }
     );
     this.name = "CircuitBreakerOpenError";
@@ -627,7 +627,7 @@ export class MutexSessionScheduler extends EventEmitter {
     const changed = this.#client.reloadCredentials(newPassword, newUsername);
     if (!changed && latched.tripped && latched.code !== "108007") {
       throw new CpeControlValidationError(
-        "Circuit breaker latched on wrong password; update CPE_PASSWORD in .env before resetting"
+        "Circuit breaker latched on a wrong password: save the correct router password in the console (Settings → Router) instead, which clears it"
       );
     }
     if (!changed) {

@@ -288,7 +288,7 @@ describe("/api/sms REST routes, /api/alerts and SMS SSE events", () => {
       assert.equal(first.body["errorCode"], "CIRCUIT_BREAKER_OPEN");
       const breaker = first.body["circuitBreaker"] as { code: string; remainCount: number };
       assert.deepEqual([breaker.code, breaker.remainCount], ["108006", 2]);
-      assert.match(String(first.body["message"]), /reset-breaker/);
+      assert.match(String(first.body["message"]), /Settings → Router/, "the way out: fix the password in the console");
       const retried = await fx.post("/api/sms/send", { phone: "+353830000001", content: "x" });
       assert.equal(retried.status, 423);
       assert.equal(logins(), 1, "the latched breaker spends no second password attempt");

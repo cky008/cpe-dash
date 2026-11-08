@@ -997,6 +997,9 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     const skipped = await core.monitor.refreshTelemetry();
     assert.equal(skipped, null);
 
+    // The same password cannot clear a wrong-password latch: the refusal names where to fix it
+    await assert.rejects(scheduler.reloadCredentialsAndResetBreaker("sched_test_password"), /Settings → Router/);
+
     // Reset via reloadCredentialsAndResetBreaker
     authError = false;
     const newPassword = "new_correct_password";

@@ -11,7 +11,7 @@
   },
   "auth": {
     "login_title": "登录「烽燧」控制台",
-    "password_placeholder": "输入 API_TOKEN 或 CPE 管理密码",
+    "password_placeholder": "输入控制台密码",
     "submit": "进入控制台",
     "logout": "安全退出",
     "unauthorized": "未登录或访问令牌无效",

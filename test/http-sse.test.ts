@@ -1514,6 +1514,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
         body: JSON.stringify({ jsonrpc: "2.0", method: "ping", id: 1 }),
       });
       assert.equal(resNoAuth.status, 401);
+      assert.doesNotMatch(await resNoAuth.text(), /API_TOKEN/, "tokens come from the console, not .env");
 
       // 4. Content-Type not application/json -> 415
       const resCt = await fetch(`${fx.baseUrl}/mcp`, {
