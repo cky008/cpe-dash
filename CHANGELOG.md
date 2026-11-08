@@ -2,6 +2,11 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/). Each release section opens with `### Highlights` (a few changes worth a short paragraph); the GitHub release lists the other changes by their lead sentence and links here for the details.
 
+## [Unreleased]
+
+### Container and CI
+- **Release notes link the commits since the release before.** Each GitHub release ends with a "Full Changelog" link comparing it with the previous tag, as GitHub's own notes do (the first release links its commits); every GitHub release was regenerated with it.
+
 ## [1.7.2] — 2026-11-08
 
 ### Highlights

@@ -66,6 +66,8 @@ describe("release notes from CHANGELOG.md", () => {
         "### 🐛 Bug fixes",
         "- A fix.",
         "",
+        "**Full Changelog**: [`v1.1.0...v1.2.0`](https://github.com/cky008/cpe-dash/compare/v1.1.0...v1.2.0)",
+        "",
         "---",
         "Details of every change: [CHANGELOG.md](https://github.com/cky008/cpe-dash/blob/v1.2.0/CHANGELOG.md) · Documentation: [fengsui.iocky.com](https://fengsui.iocky.com/) · Container image: `ghcr.io/cky008/cpe-dash:1.2.0`",
         "",
@@ -75,7 +77,8 @@ describe("release notes from CHANGELOG.md", () => {
 
   it("keeps older sections that have no highlights readable, with no big heading anywhere", () => {
     const notes = releaseNotes(CHANGELOG, "1.1.0");
-    assert.match(notes, /^Welcome to FengSui `v1\.1\.0`!\n\n## What's changed\n\n### 🚀 Features\n- Older\.\n\n---/);
+    // The first release has nothing to compare with: its commits instead
+    assert.match(notes, /^Welcome to FengSui `v1\.1\.0`!\n\n## What's changed\n\n### 🚀 Features\n- Older\.\n\n\*\*Full Changelog\*\*: \[`v1\.1\.0`\]\(https:\/\/github\.com\/cky008\/cpe-dash\/commits\/v1\.1\.0\)\n\n---/);
     assert.doesNotMatch(notes, /^# /m, "GitHub shows the release title already");
   });
 
@@ -89,10 +92,13 @@ describe("release notes from CHANGELOG.md", () => {
     const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
     const versions = [...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map((m) => m[1] ?? "");
     assert.ok(versions.length >= 9);
-    for (const version of versions) {
+    versions.forEach((version, i) => {
       const notes = releaseNotes(changelog, `v${version}`);
       assert.ok(notes.length > 80, version);
+      // Compared with the release before it (CHANGELOG lists the newest first)
+      const previous = versions[i + 1];
+      assert.ok(notes.includes(previous ? `/compare/v${previous}...v${version})` : `/commits/v${version})`), version);
       assert.doesNotMatch(notes, /^### (?:Added|Fixed|Security|Changed|Documentation|Upgrading)$/m, `${version}: every section is mapped`);
-    }
+    });
   });
 });

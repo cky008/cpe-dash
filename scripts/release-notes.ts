@@ -5,7 +5,8 @@ import path from "node:path";
  * GitHub release notes for a tag, written from its CHANGELOG.md section (the one place release notes are
  * written) in the shape people read quickly: a welcome line, what to do before upgrading, the highlights
  * (`### Highlights`, one short heading and paragraph each), then every change grouped and listed by its lead
- * sentence only. The details stay in CHANGELOG.md and the documentation, which the notes link to.
+ * sentence only, and the commits since the release before (as GitHub's own notes link them). The details stay
+ * in CHANGELOG.md and the documentation, which the notes link to.
  *
  *   node --experimental-strip-types scripts/release-notes.ts v1.7.0 > notes.md
  */
@@ -47,6 +48,8 @@ export function releaseNotes(changelog: string, tag: string, repository = "cky00
   const start = lines.findIndex((line) => line.startsWith(`## [${version}]`));
   if (start < 0) throw new Error(`CHANGELOG.md has no section for ${version}`);
   const next = lines.findIndex((line, i) => i > start && line.startsWith("## ["));
+  // The release before is the next section down (every section is a tagged release)
+  const previous = /^## \[(\d+\.\d+\.\d+)\]/.exec(lines[next] ?? "")?.[1];
   const body = lines.slice(start + 1, next < 0 ? lines.length : next);
   if (!body.join("").trim()) throw new Error(`The CHANGELOG.md section for ${version} is empty`);
 
@@ -84,6 +87,12 @@ export function releaseNotes(changelog: string, tag: string, repository = "cky00
   // A section name the map does not know keeps its own heading
   for (const name of sections.keys()) if (!listed.has(name)) addGroup(name, [name]);
   if (groups.length > 0) out.push("## What's changed", "", ...groups);
+  out.push(
+    previous
+      ? `**Full Changelog**: [\`v${previous}...v${version}\`](https://github.com/${repository}/compare/v${previous}...v${version})`
+      : `**Full Changelog**: [\`v${version}\`](https://github.com/${repository}/commits/v${version})`,
+    ""
+  );
 
   out.push(
     "---",
