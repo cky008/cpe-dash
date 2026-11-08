@@ -277,6 +277,8 @@ describe("WanSelfHeal lock rollback (LOCK_ROLLBACK_AFTER_MIN)", () => {
       await fx.at(10, "902");
       assert.equal(fx.calls.rollback, 1);
       assert.notEqual(fx.heal.lockDeadlineMs, null);
+      await fx.at(10.5, "902");
+      assert.equal(fx.calls.rollback, 1, "the session just saw it up: look again after a minute, not at every poll");
       await fx.at(11, "902");
       assert.equal(fx.calls.rollback, 2, "down again after the deadline: roll back");
       assert.deepEqual(fx.codes(), ["LOCK_ROLLED_BACK"]);
@@ -479,13 +481,17 @@ describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
       assert.equal(fx.calls.reconnect, 1, "a refusal is retried after a minute");
       await fx.at(2, "902");
       assert.equal(fx.calls.reconnect, 2);
+      // The failed write may have reached the router: it counts, and waits its backoff step like a redial
       await fx.at(3, "902");
+      await fx.at(11.9, "902");
+      assert.equal(fx.calls.reconnect, 2, "not again a minute later");
+      await fx.at(12, "902");
       assert.equal(fx.calls.reconnect, 3);
       assert.ok(fx.logs.some((l) => l.includes("not redialling")));
-      await fx.at(12.9, "902");
+      await fx.at(21.9, "902");
       assert.equal(fx.calls.reconnect, 3, "mobile data off: look again after 10 min");
-      await fx.at(13, "902");
-      for (const minute of [23, 33, 63, 123]) await fx.at(minute, "902");
+      await fx.at(22, "902");
+      for (const minute of [32, 62, 122, 182]) await fx.at(minute, "902");
       // The failed write and three redials are the day's four; the yield and the skips did not count
       assert.equal(fx.calls.reconnect, 7);
       assert.deepEqual(fx.codes(), ["WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED"]);

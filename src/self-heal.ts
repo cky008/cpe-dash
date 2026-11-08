@@ -275,7 +275,9 @@ export class WanSelfHeal {
     this.#lastFailure = null;
     if (!outcome.applied) {
       if (outcome.skipped === "wan_up") {
+        // Seen up inside the session: look again in a minute, not at every poll while the WAN flaps
         watch.upSinceMs = at;
+        watch.retryAtMs = at + SELF_HEAL_RETRY_MS;
       } else if (outcome.skipped === "lock_changed") {
         // Replaced while the rollback waited in the queue: the newer lock has its own watch
         this.#endWatch(watch);
@@ -334,10 +336,13 @@ export class WanSelfHeal {
         err instanceof DeviceNotIdentifiedError ||
         isQueueRefusal(err)
       );
-      this.#nextReconnectAtMs = at + SELF_HEAL_RETRY_MS;
       if (reachedRouter) {
+        // It may have redialled: it spends one of the day's attempts and waits its step like a redial
         this.#reconnects.push(at);
+        this.#nextReconnectAtMs = at + this.#takeBackoffStep();
         this.#saveReconnects();
+      } else {
+        this.#nextReconnectAtMs = at + SELF_HEAL_RETRY_MS;
       }
       return;
     }
@@ -349,15 +354,20 @@ export class WanSelfHeal {
       return;
     }
     this.#reconnects.push(at);
-    const gap = RECONNECT_BACKOFF_MS[Math.min(this.#backoffIndex, RECONNECT_BACKOFF_MS.length - 1)] ?? SELF_HEAL_RETRY_MS;
-    this.#backoffIndex += 1;
-    this.#nextReconnectAtMs = at + gap;
+    this.#nextReconnectAtMs = at + this.#takeBackoffStep();
     this.#saveReconnects();
     this.#raise("warning", "WAN_AUTO_RECONNECT", "alerts.wan_auto_reconnect", {
       minutes: Math.max(1, Math.round((at - downSince) / 60_000)),
       count: this.#reconnects.length,
       max: RECONNECT_MAX_PER_DAY,
     });
+  }
+
+  /** The wait before the next redial of this outage (10, 30, then 60 min); each redial moves one step on. */
+  #takeBackoffStep(): number {
+    const gap = RECONNECT_BACKOFF_MS[Math.min(this.#backoffIndex, RECONNECT_BACKOFF_MS.length - 1)] ?? SELF_HEAL_RETRY_MS;
+    this.#backoffIndex += 1;
+    return gap;
   }
 
   /**
