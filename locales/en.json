@@ -17,14 +17,14 @@
     "unauthorized": "Unauthorized or invalid access token",
     "csrf_rejected": "CSRF security check failed; please refresh and retry",
     "rate_limited": "Too many attempts; please retry in {seconds}s",
-    "session_note": "Independent local session; touches CPE for ~26ms per poll and never blocks http://192.168.8.1"
+    "session_note": "FengSui logs in to the router only for the moment it reads (a few tens of milliseconds) and never holds http://192.168.8.1"
   },
   "session": {
     "mode_idle": "Idle",
     "mode_active": "Ephemeral Polling",
-    "mode_yielding": "Human administrator is using the CPE WebUI; monitoring is politely yielding",
-    "mode_resumed": "CPE WebUI is free again; live telemetry automatically resumed",
-    "mode_circuit_tripped": "Anti-brute-force circuit breaker tripped ({code}); auto-retries halted",
+    "mode_yielding": "Someone is using the router's admin page; FengSui has paused its reads",
+    "mode_resumed": "The router's admin page is free again; FengSui resumed its reads",
+    "mode_circuit_tripped": "The router rejected the password ({code}); FengSui stopped logging in automatically",
     "circuit_reset_ok": "Circuit breaker manually reset"
   },
   "rf": {
@@ -72,8 +72,8 @@
     "wifi7_updated": "Wi-Fi 7 MLO / Dual-Band Handover settings updated",
     "antenna_updated": "Antenna mode switched to: {mode}",
     "mobile_data_updated": "Mobile data master switch updated",
-    "yielded_cannot_mutate": "A human admin is currently logged into CPE WebUI (192.168.8.1); control mutation politely aborted",
-    "peer_daemon_active": "Another FengSui daemon ({address}) drives this CPE; this one is on standby and stays off the router",
+    "yielded_cannot_mutate": "Someone is using the router's admin page (192.168.8.1); to avoid signing them out, this action was cancelled",
+    "peer_daemon_active": "FengSui on another machine ({address}) manages this router; this one is on standby and stays off the router",
     "device_read_only": "Writes are locked: FengSui was verified on {verified} only, and this router ({model}) is another model, so FengSui only reads it. Writes FengSui can do here can be turned on one at a time as experimental writes under Settings → Device, which can also report how the router works",
     "device_not_identified": "Writes are locked until FengSui knows the router's model, and this time it could not read it (device/information). Nothing was written",
     "wifi_access_blocked": "Blocked {mac} from Wi-Fi (MAC blacklist)",
@@ -118,9 +118,9 @@
     "data_threshold": "Monthly data {used} reached {percent}% of the {limit} plan",
     "lock_drift": "The router no longer matches the applied lock: {issue}",
     "lock_realigned": "The router matches the applied lock again",
-    "duplicate_daemon_standby": "Another FengSui daemon ({address}) drives the same CPE: this one is on standby (no CPE sessions, no Telegram) until it stops",
-    "duplicate_daemon_leader": "Another FengSui daemon ({address}) drives the same CPE: it went on standby; stop one of them",
-    "duplicate_daemon_cleared": "The other FengSui daemon stopped; this one drives the CPE again",
+    "duplicate_daemon_standby": "FengSui on another machine ({address}) also manages this router: this one went on standby (no router access, no Telegram) until it stops",
+    "duplicate_daemon_leader": "FengSui on another machine ({address}) also manages this router: it went on standby; stop one of them",
+    "duplicate_daemon_cleared": "The other FengSui stopped; this one manages the router again",
     "data_quarantined": "These encrypted data files could not be decrypted with the current DATA_ENCRYPTION_KEY and were moved aside (not deleted): {files}. If CPE_PASSWORD just changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the files back and restart",
     "storage_write_failed": "Could not save {file} ({reason}): the change is only in memory and is lost on restart unless a save works again. Check the free space and permissions of the data volume (said once an hour per file and cause)",
     "lock_rolled_back": "The WAN was still down {minutes} min after the lock, so every band and cell lock was cleared automatically (LOCK_ROLLBACK_AFTER_MIN)",

@@ -8,6 +8,7 @@ import { byId, h, icon, mount, perFrame, setText } from "./dom.ts";
 import { meter, qualityClass } from "./gauge.ts";
 import { unavailableSection, writesLocked } from "../core/device-access-view.ts";
 import { cardHead, emptyState, runBusy, unavailableState } from "./widgets.ts";
+import { withHelp } from "./help.ts";
 
 type RatFilter = "all" | "LTE" | "NR";
 
@@ -150,7 +151,7 @@ export function mountNeighbors(ctx: AppContext): void {
 
     mount(
       root,
-      cardHead(ctx.t("nb.title"), agoLabel, snapshot ? h("span", { class: "text-[0.6875rem] faint" }, ctx.t("nb.count", { count: snapshot.totalCount })) : null, filters, locked ? null : manualBtn, scanBtn),
+      cardHead(withHelp(ctx, ctx.t("nb.title"), "neighbors"), agoLabel, snapshot ? h("span", { class: "text-[0.6875rem] faint" }, ctx.t("nb.count", { count: snapshot.totalCount })) : null, filters, locked ? null : manualBtn, scanBtn),
       h("div", { class: "fs-card-body pt-1" }, body)
     );
     updateAgo();

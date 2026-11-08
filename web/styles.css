@@ -978,6 +978,61 @@ body {
     background: color-mix(in oklab, var(--color-primary) 7%, transparent);
   }
 
+  /* Term help: a small "?" after a technical word; hover or focus shows one line, a click opens the guide */
+  .fs-help {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 0.95rem;
+    height: 0.95rem;
+    border-radius: 999px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    line-height: 1;
+    text-decoration: none;
+    color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-base-content) 22%, transparent);
+    vertical-align: middle;
+    cursor: help;
+  }
+  .fs-help:hover,
+  .fs-help:focus-visible {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+  .fs-help::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 0.45rem);
+    z-index: 60;
+    width: max-content;
+    max-width: 16rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: normal;
+    text-align: left;
+    color: var(--color-base-100);
+    background: var(--color-base-content);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+    transform: translateX(-50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+  }
+  .fs-help:hover::after,
+  .fs-help:focus-visible::after {
+    opacity: 1;
+  }
+  :root[data-help="off"] .fs-help {
+    display: none;
+  }
+
   .fs-badge {
     display: inline-flex;
     align-items: center;

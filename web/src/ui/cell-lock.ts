@@ -10,6 +10,7 @@ import { bandLabel } from "../core/rf.ts";
 import { lockRollbackNote } from "../core/self-heal-view.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
+import { helpMark } from "./help.ts";
 
 export interface CellLockPrefill {
   rat: RatName;
@@ -88,7 +89,7 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
   const form = h(
     "form",
     { class: "modal-box sm:max-w-md space-y-3" },
-    h("h3", { class: "text-lg font-bold serif flex items-center gap-2" }, icon("lock", "text-warning"), ctx.t("cl.title")),
+    h("h3", { class: "text-lg font-bold serif flex items-center gap-2" }, icon("lock", "text-warning"), ctx.t("cl.title"), helpMark(ctx, "lock-cell")),
     h(
       "div",
       { class: "grid grid-cols-2 gap-3" },

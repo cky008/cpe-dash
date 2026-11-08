@@ -32,6 +32,9 @@ const zh = {
   accent_hint: "强调色会替换主题自带的主色；选「随主题」就用回主题原色。",
   accent_pick: "选一个自己的强调色",
   language: "语言 / Language",
+  help: "术语说明",
+  help_toggle: "在专业名词旁显示 ?",
+  help_hint: "鼠标移到 ? 上看一句话解释，点开看文档里的详细说明。熟悉之后可以关掉。",
   close: "关闭",
 };
 
@@ -64,6 +67,9 @@ const en: Readonly<Record<AppearanceTextKey, string>> = {
   accent_hint: "An accent replaces the theme's own primary colour; choose “Theme” to go back to it.",
   accent_pick: "Pick your own accent",
   language: "Language / 语言",
+  help: "Term help",
+  help_toggle: "Show ? next to technical terms",
+  help_hint: "Hover over a ? for a one-line explanation; click it for the full guide. Turn it off once you know the terms.",
   close: "Close",
 };
 

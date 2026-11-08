@@ -12,6 +12,7 @@ try {
   const root = document.documentElement;
   applyAppearance(root, resolveAppearance(prefs, systemDark));
   root.lang = detectLocale(prefs.locale, navigator.languages ?? [navigator.language]);
+  root.dataset["help"] = prefs.showHelp ? "on" : "off";
 } catch {
   // Storage blocked (private mode): the defaults in index.html apply
 }

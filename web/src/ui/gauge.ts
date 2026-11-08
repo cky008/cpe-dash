@@ -1,8 +1,10 @@
+import type { HelpTopicId } from "../core/help.ts";
 import { DASH } from "../core/format.ts";
 import { type QualityLevel, type SignalMetric, gaugeFraction, qualityLevel } from "../core/rf.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { h, svg } from "./dom.ts";
+import { withHelp } from "./help.ts";
 
 /** RF instruments: quality colours, 270° gauge rings and horizontal meters. */
 
@@ -20,7 +22,7 @@ const GAUGE_RADIUS = 42;
 const GAUGE_SWEEP = 0.75;
 
 /** 270° ring gauge: track + value arc coloured by the metric's quality level. */
-export function gauge(ctx: AppContext, metric: SignalMetric, value: number | null, label: string, unit: string, sizeClass = "size-28"): HTMLElement {
+export function gauge(ctx: AppContext, metric: SignalMetric, value: number | null, label: string, unit: string, sizeClass = "size-28", help?: HelpTopicId): HTMLElement {
   const circumference = 2 * Math.PI * GAUGE_RADIUS;
   const level = qualityLevel(metric, value);
   const arc = gaugeFraction(metric, value) * GAUGE_SWEEP * circumference;
@@ -52,7 +54,7 @@ export function gauge(ctx: AppContext, metric: SignalMetric, value: number | nul
         h("span", { class: "text-[0.625rem] faint" }, unit)
       )
     ),
-    h("div", { class: "text-xs font-semibold" }, label),
+    h("div", { class: "text-xs font-semibold" }, help ? withHelp(ctx, label, help) : label),
     h("div", { class: `text-[0.6875rem] ${qualityClass(level)}` }, qualityLabel(ctx, level))
   );
 }

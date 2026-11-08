@@ -6,7 +6,7 @@ import { type Child, h, icon } from "./dom.ts";
  * Card title with right-aligned controls. On a narrow screen the controls wrap below the title as a
  * group instead of squeezing it, and no control breaks its own label across lines.
  */
-export function cardHead(title: string, ...trailing: Child[]): HTMLElement {
+export function cardHead(title: Child, ...trailing: Child[]): HTMLElement {
   return h(
     "div",
     { class: "fs-card-head" },
@@ -15,7 +15,7 @@ export function cardHead(title: string, ...trailing: Child[]): HTMLElement {
   );
 }
 
-export function kv(label: string, value: Child, valueClass = "num text-right"): HTMLElement {
+export function kv(label: Child, value: Child, valueClass = "num text-right"): HTMLElement {
   return h("div", { class: "fs-kv" }, h("span", { class: "muted shrink-0" }, label), h("span", { class: `${valueClass} min-w-0 truncate` }, value));
 }
 

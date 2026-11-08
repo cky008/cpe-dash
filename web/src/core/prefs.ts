@@ -91,6 +91,8 @@ export interface Preferences {
   /** Browser-local caps for the usage rings, in bytes (`null` = use the router's limit / none). */
   dailyCapBytes: number | null;
   monthlyCapBytes: number | null;
+  /** The "?" marks after technical terms (Settings → Appearance). */
+  showHelp: boolean;
 }
 
 export const DEFAULT_PREFERENCES: Readonly<Preferences> = {
@@ -104,6 +106,7 @@ export const DEFAULT_PREFERENCES: Readonly<Preferences> = {
   locale: null,
   dailyCapBytes: null,
   monthlyCapBytes: null,
+  showHelp: true,
 };
 
 /** Storage keys; shared with the pre-paint boot script so the first frame already has the theme. */
@@ -118,6 +121,7 @@ export const PREF_KEYS = {
   locale: "fengsui.locale",
   dailyCapBytes: "fengsui.dailyCapBytes",
   monthlyCapBytes: "fengsui.monthlyCapBytes",
+  showHelp: "fengsui.showHelp",
 } as const satisfies Record<keyof Preferences, string>;
 
 export interface KeyValueStorage {
@@ -179,6 +183,7 @@ export function loadPreferences(storage: KeyValueStorage): Preferences {
     locale: isLocale(locale) ? locale : null,
     dailyCapBytes: parseCap(safeGet(storage, PREF_KEYS.dailyCapBytes)),
     monthlyCapBytes: parseCap(safeGet(storage, PREF_KEYS.monthlyCapBytes)),
+    showHelp: safeGet(storage, PREF_KEYS.showHelp) !== "0",
   };
 }
 

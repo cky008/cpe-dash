@@ -101,7 +101,7 @@ const SHOTS: ReadonlyArray<Shot> = [
     prepare: async (page, demo) => {
       // A person opens the router's own admin page: the next poll yields and the banner appears
       demo.router.human.loginSameIp();
-      await page.waitUntil("document.querySelector('#bannerArea')?.textContent?.includes('真人用户正在访问官方后台') === true", "the avoidance banner", 30_000);
+      await page.waitUntil("document.querySelector('#bannerArea')?.textContent?.includes('有人正在使用路由器管理页') === true", "the avoidance banner", 30_000);
     },
   },
   {
@@ -109,7 +109,7 @@ const SHOTS: ReadonlyArray<Shot> = [
     scenario: "breaker",
     theme: "fengsui-sujian",
     prepare: async (page) => {
-      await page.waitUntil("document.querySelector('#bannerArea')?.textContent?.includes('防爆破熔断已触发') === true", "the breaker banner", 30_000);
+      await page.waitUntil("document.querySelector('#bannerArea')?.textContent?.includes('路由器拒绝了密码') === true", "the breaker banner", 30_000);
     },
   },
   {

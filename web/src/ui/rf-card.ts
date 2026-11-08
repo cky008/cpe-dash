@@ -2,9 +2,10 @@ import type { GlobalTelemetrySnapshot } from "../../../src/api-contract.ts";
 import { DASH, formatAgo, formatSigned } from "../core/format.ts";
 import { accessMode, bandLabel, bestModulation, carrierChips, qualityLevel, txPowerFraction } from "../core/rf.ts";
 import type { AppContext } from "./context.ts";
-import { byId, h, icon, mount, setText } from "./dom.ts";
+import { type Child, byId, h, icon, mount, setText } from "./dom.ts";
 import { gauge, meter, qualityClass } from "./gauge.ts";
 import { revealButton, sensitive } from "./sensitive.ts";
+import { helpMark, withHelp } from "./help.ts";
 import { cardHead, emptyState, kv, runBusy, unavailableState } from "./widgets.ts";
 
 type Rf = GlobalTelemetrySnapshot["rf"];
@@ -18,7 +19,7 @@ function mcsText(list: McsList): string {
     .join(" / ");
 }
 
-function modulationRow(label: string, list: McsList): HTMLElement {
+function modulationRow(label: Child, list: McsList): HTMLElement {
   const best = bestModulation(list);
   return kv(
     label,
@@ -97,7 +98,7 @@ export function mountRfCard(ctx: AppContext): void {
         { class: "flex items-center gap-2" },
         h("span", { class: "fs-badge text-primary" }, ctx.t("rf.nr")),
         h("span", { class: "num text-sm font-semibold" }, nrBands.join(" + ") || DASH),
-        h("span", { class: "ml-auto num text-xs muted" }, bandwidth(rf.nrDlBandwidthMhz, rf.nrUlBandwidthMhz))
+        h("span", { class: "ml-auto num text-xs muted inline-flex items-center gap-1" }, bandwidth(rf.nrDlBandwidthMhz, rf.nrUlBandwidthMhz), helpMark(ctx, "bandwidth"))
       ),
       mode === "SA" || mode === "NSA"
         ? h(
@@ -106,17 +107,17 @@ export function mountRfCard(ctx: AppContext): void {
             h(
               "div",
               { class: "grid grid-cols-3 gap-1 justify-items-center" },
-              gauge(ctx, "rsrp", rf.nrRsrpDbm, ctx.t("rf.rsrp"), "dBm"),
-              gauge(ctx, "rsrq", rf.nrRsrqDb, ctx.t("rf.rsrq"), "dB"),
-              gauge(ctx, "sinr", rf.nrSinrDb, ctx.t("rf.sinr"), "dB")
+              gauge(ctx, "rsrp", rf.nrRsrpDbm, ctx.t("rf.rsrp"), "dBm", undefined, "rsrp"),
+              gauge(ctx, "rsrq", rf.nrRsrqDb, ctx.t("rf.rsrq"), "dB", undefined, "rsrq"),
+              gauge(ctx, "sinr", rf.nrSinrDb, ctx.t("rf.sinr"), "dB", undefined, "sinr")
             ),
-            kv(ctx.t("rf.pci"), nrPci === null ? DASH : String(nrPci)),
-            kv(ctx.t("rf.arfcn"), rf.nrArfcnRaw || DASH),
-            kv(ctx.t("rf.mimo"), rf.nrMimoRank === null ? DASH : ctx.t("rf.mimo_value", { rank: rf.nrMimoRank })),
-            kv(ctx.t("rf.cqi"), [rf.nrCqi0, rf.nrCqi1].filter((v) => v !== null).join(" / ") || DASH),
-            modulationRow(ctx.t("rf.mod_ul"), rf.nrUlMcs),
-            modulationRow(ctx.t("rf.mod_dl"), rf.nrDlMcs),
-            h("div", { class: "fs-label pt-1" }, ctx.t("rf.txpower")),
+            kv(withHelp(ctx, ctx.t("rf.pci"), "pci"), nrPci === null ? DASH : String(nrPci)),
+            kv(withHelp(ctx, ctx.t("rf.arfcn"), "arfcn"), rf.nrArfcnRaw || DASH),
+            kv(withHelp(ctx, ctx.t("rf.mimo"), "mimo"), rf.nrMimoRank === null ? DASH : ctx.t("rf.mimo_value", { rank: rf.nrMimoRank })),
+            kv(withHelp(ctx, ctx.t("rf.cqi"), "cqi"), [rf.nrCqi0, rf.nrCqi1].filter((v) => v !== null).join(" / ") || DASH),
+            modulationRow(withHelp(ctx, ctx.t("rf.mod_ul"), "mcs"), rf.nrUlMcs),
+            modulationRow(withHelp(ctx, ctx.t("rf.mod_dl"), "mcs"), rf.nrDlMcs),
+            h("div", { class: "fs-label pt-1" }, withHelp(ctx, ctx.t("rf.txpower"), "tx-power")),
             txRows(rf.nrTxPower)
           )
         : h("p", { class: "text-sm muted py-6 text-center" }, ctx.t("rf.no_nr"))
@@ -129,6 +130,7 @@ export function mountRfCard(ctx: AppContext): void {
         "header",
         { class: "flex items-center gap-2" },
         h("span", { class: "fs-badge" }, mode === "NSA" ? ctx.t("rf.lte_anchor") : ctx.t("rf.lte")),
+        mode === "NSA" ? helpMark(ctx, "anchor") : null,
         h("span", { class: "num text-sm font-semibold" }, lteBands.join(" + ") || (rf.pccBand ? bandLabel("LTE", rf.pccBand) : DASH)),
         h("span", { class: "ml-auto num text-xs muted" }, bandwidth(rf.lteDlBandwidthMhz, rf.lteUlBandwidthMhz))
       ),
@@ -140,18 +142,18 @@ export function mountRfCard(ctx: AppContext): void {
             h(
               "div",
               { class: "grid grid-cols-3 gap-1 justify-items-center" },
-              gauge(ctx, "rsrp", rf.lteRsrpDbm, ctx.t("rf.rsrp"), "dBm"),
-              gauge(ctx, "rsrq", rf.lteRsrqDb, ctx.t("rf.rsrq"), "dB"),
-              gauge(ctx, "sinr", rf.lteSinrDb, ctx.t("rf.sinr"), "dB")
+              gauge(ctx, "rsrp", rf.lteRsrpDbm, ctx.t("rf.rsrp"), "dBm", undefined, "rsrp"),
+              gauge(ctx, "rsrq", rf.lteRsrqDb, ctx.t("rf.rsrq"), "dB", undefined, "rsrq"),
+              gauge(ctx, "sinr", rf.lteSinrDb, ctx.t("rf.sinr"), "dB", undefined, "sinr")
             ),
-            kv(ctx.t("rf.pci"), rf.pci === null ? DASH : String(rf.pci)),
-            kv(ctx.t("rf.arfcn"), rf.earfcnRaw ? rf.earfcnRaw.replace(":", " ").replace(" UL:", " · UL ") : DASH),
-            kv(ctx.t("rf.rssi"), formatSigned(rf.lteRssiDbm, "dBm")),
-            kv(ctx.t("rf.mimo"), `${rf.lteMimoRank === null ? DASH : ctx.t("rf.mimo_value", { rank: rf.lteMimoRank })} · ${rf.transmissionMode || DASH}`),
-            kv(ctx.t("rf.cqi"), [rf.lteCqi0, rf.lteCqi1].filter((v) => v !== null).join(" / ") || DASH),
-            modulationRow(ctx.t("rf.mod_ul"), rf.lteUlMcs),
-            modulationRow(ctx.t("rf.mod_dl"), rf.lteDlMcs),
-            h("div", { class: "fs-label pt-1" }, ctx.t("rf.txpower")),
+            kv(withHelp(ctx, ctx.t("rf.pci"), "pci"), rf.pci === null ? DASH : String(rf.pci)),
+            kv(withHelp(ctx, ctx.t("rf.arfcn"), "arfcn"), rf.earfcnRaw ? rf.earfcnRaw.replace(":", " ").replace(" UL:", " · UL ") : DASH),
+            kv(withHelp(ctx, ctx.t("rf.rssi"), "rssi"), formatSigned(rf.lteRssiDbm, "dBm")),
+            kv(withHelp(ctx, ctx.t("rf.mimo"), "mimo"), `${rf.lteMimoRank === null ? DASH : ctx.t("rf.mimo_value", { rank: rf.lteMimoRank })} · ${rf.transmissionMode || DASH}`),
+            kv(withHelp(ctx, ctx.t("rf.cqi"), "cqi"), [rf.lteCqi0, rf.lteCqi1].filter((v) => v !== null).join(" / ") || DASH),
+            modulationRow(withHelp(ctx, ctx.t("rf.mod_ul"), "mcs"), rf.lteUlMcs),
+            modulationRow(withHelp(ctx, ctx.t("rf.mod_dl"), "mcs"), rf.lteDlMcs),
+            h("div", { class: "fs-label pt-1" }, withHelp(ctx, ctx.t("rf.txpower"), "tx-power")),
             txRows(rf.lteTxPower)
           )
     );
@@ -162,7 +164,7 @@ export function mountRfCard(ctx: AppContext): void {
         ? h(
             "div",
             { class: "pt-1" },
-            h("div", { class: "fs-label mb-1.5" }, ctx.t("rf.scc")),
+            h("div", { class: "fs-label mb-1.5" }, withHelp(ctx, ctx.t("rf.scc"), "pcc-scc")),
             h(
               "div",
               { class: "flex flex-wrap gap-1.5" },
@@ -182,7 +184,7 @@ export function mountRfCard(ctx: AppContext): void {
     const identity = h(
       "div",
       { class: "grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-x-4 items-center border-t border-dashed border-base-content/10 pt-2" },
-      kv(ctx.t("rf.tac"), sensitive(ctx, "cell", rf.tacDisplay, "cell")),
+      kv(withHelp(ctx, ctx.t("rf.tac"), "cell-id"), sensitive(ctx, "cell", rf.tacDisplay, "cell")),
       kv(ctx.t("rf.cell_id"), sensitive(ctx, "cell", rf.cellIdDisplay, "cell")),
       kv(ctx.t("rf.enodeb"), sensitive(ctx, "cell", rf.eNodeBDisplay, "cell")),
       h("div", { class: "justify-self-end" }, revealButton(ctx, "cell"))

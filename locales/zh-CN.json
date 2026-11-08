@@ -17,14 +17,14 @@
     "unauthorized": "未登录或访问令牌无效",
     "csrf_rejected": "CSRF 安全校验未通过，请刷新页面后重试",
     "rate_limited": "请求过于频繁，请在 {seconds} 秒后重试",
-    "session_note": "本地独立加密会话，仅在采样瞬间 (~26ms) 访问路由器，绝不霸占 192.168.8.1 后台"
+    "session_note": "烽燧只在读取的一瞬间（约几十毫秒）登录路由器，读完就退出，不会占着 192.168.8.1 的管理页"
   },
   "session": {
     "mode_idle": "空闲待命",
     "mode_active": "瞬时采集中",
-    "mode_yielding": "用户正在使用 CPE 后台，监控自动避让中",
-    "mode_resumed": "CPE 官方后台已空闲，实时遥测自动恢复",
-    "mode_circuit_tripped": "防爆破熔断器已触发 ({code})，已停止一切自动登录重试",
+    "mode_yielding": "有人正在使用路由器管理页，烽燧已暂停读取",
+    "mode_resumed": "路由器管理页已空闲，烽燧恢复读取",
+    "mode_circuit_tripped": "路由器拒绝了密码（{code}），烽燧已停止自动登录",
     "circuit_reset_ok": "熔断断路器已人工复位"
   },
   "rf": {
@@ -72,8 +72,8 @@
     "wifi7_updated": "Wi-Fi 7 MLO / 双频优选配置已更新",
     "antenna_updated": "天线模式已切换为：{mode}",
     "mobile_data_updated": "移动数据总开关已更新",
-    "yielded_cannot_mutate": "检测到真人正在登录 CPE 官方后台 (192.168.8.1)，为防止踢掉当前管理员，控制指令已礼貌取消",
-    "peer_daemon_active": "另一台主机（{address}）上的「烽燧」守护进程正在管理这台 CPE，本进程处于待机，不访问路由器",
+    "yielded_cannot_mutate": "有人正在使用路由器管理页（192.168.8.1），为了不把对方挤下线，这次操作已取消",
+    "peer_daemon_active": "另一台机器（{address}）上的烽燧正在管理这台路由器，这里处于待机，不会访问路由器",
     "device_read_only": "写操作已锁定：烽燧只在 {verified} 上验证过，这台路由器（{model}）是其他型号，烽燧只读取它。烽燧能在这台路由器上做的写入，可以在「设置 → 设备」逐项打开为实验性写入；那里也能报告它的兼容情况",
     "device_not_identified": "写操作已锁定：烽燧要先确认路由器的型号，这次没有读到（device/information），没有写入任何东西",
     "wifi_access_blocked": "已禁止 {mac} 连接 Wi-Fi（MAC 黑名单）",
@@ -118,9 +118,9 @@
     "data_threshold": "本月已用流量 {used}，达到 {limit} 套餐的 {percent}%",
     "lock_drift": "锁定配置与路由器实际状态不一致：{issue}",
     "lock_realigned": "路由器已重新符合当前锁定配置",
-    "duplicate_daemon_standby": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：本进程转入待机，暂停 CPE 访问与 Telegram，直至对方停止",
-    "duplicate_daemon_leader": "检测到另一台主机（{address}）上的「烽燧」守护进程管理同一台 CPE：对方已转入待机，请停止其中一个",
-    "duplicate_daemon_cleared": "另一台「烽燧」守护进程已停止，本进程恢复管理 CPE",
+    "duplicate_daemon_standby": "另一台机器（{address}）上的烽燧也在管理这台路由器：这里转入待机，暂停访问路由器和 Telegram，直到对方停止",
+    "duplicate_daemon_leader": "另一台机器（{address}）上的烽燧也在管理这台路由器：对方已转入待机，请停掉其中一个",
+    "duplicate_daemon_cleared": "另一个烽燧已经停止，这里恢复管理路由器",
     "data_quarantined": "以下加密数据文件无法用当前 DATA_ENCRYPTION_KEY 解密，已改名隔离（未删除）：{files}。若刚更换了 CPE_PASSWORD 而未单独设置 DATA_ENCRYPTION_KEY，请把它设为原来的密码，并把这些文件改回原名后重启",
     "storage_write_failed": "无法保存 {file}（{reason}）：这次更改只在内存里，重启前若仍无法保存就会丢失。请检查数据卷的剩余空间与权限（同一文件同一原因每小时只提醒一次）",
     "lock_rolled_back": "锁定后 {minutes} 分钟 WAN 仍未恢复，已自动解除全部频段与小区锁定（LOCK_ROLLBACK_AFTER_MIN）",

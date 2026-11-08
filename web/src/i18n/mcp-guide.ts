@@ -6,12 +6,12 @@ import type { Locale } from "../core/i18n.ts";
  */
 const zh = {
   title: "接入 AI 智能体",
-  intro: "烽燧在下面的地址提供 MCP（Streamable HTTP），智能体用 Bearer 令牌访问。它的每次调用都经同一个会话调度器，不会产生第二个路由器会话，真人登录官方后台时同样让位。",
+  intro: "烽燧在下面的地址提供 MCP（Streamable HTTP），智能体用令牌访问。智能体的每次调用都和烽燧自己的读取排在一起，不会多登录一次路由器；有人在用路由器管理页时同样会等待。",
   demo_note: "在线演示没有真实的 MCP 端点，下面用示例地址演示格式。",
   endpoint: "MCP 地址",
   token_label: "令牌（可选）",
   token_placeholder: "粘贴令牌，或在右边生成一个只读令牌",
-  token_hint: "令牌只用来填写下面的内容：屏幕上只显示末 4 位，复制的是完整令牌，本页不保存。建议只给智能体只读令牌：它能看遥测、邻区和短信状态，但看不到任何写工具。所有令牌都可以在「设置 → 令牌」查看和撤销。",
+  token_hint: "令牌只用来填写下面的内容：屏幕上只显示末 4 位，复制的是完整令牌，本页不保存。建议只给智能体只读令牌：它能看信号、附近的基站和短信状态，但看不到任何会改动路由器的工具。所有令牌都可以在「设置 → 令牌」查看和撤销。",
   mint: "生成只读令牌",
   minted: "已生成只读令牌「{name}」（{days} 天有效）并填入下面的内容。它只显示这一次，可在「设置 → 令牌」撤销。",
   agent_name: "AI 智能体",
@@ -28,12 +28,12 @@ export type McpGuideTextKey = keyof typeof zh;
 
 const en: Readonly<Record<McpGuideTextKey, string>> = {
   title: "Connect an AI agent",
-  intro: "FengSui serves MCP (Streamable HTTP) at the address below; agents authenticate with a Bearer token. Every call goes through the same session scheduler, so it never opens a second router session and still yields to a human on the WebUI.",
+  intro: "FengSui serves MCP (Streamable HTTP) at the address below; agents sign in with a token. Their calls queue with FengSui's own reads, so they never add a router login, and they wait while someone uses the router's admin page.",
   demo_note: "The live demo has no real MCP endpoint; the snippets below use an example address.",
   endpoint: "MCP endpoint",
   token_label: "Token (optional)",
   token_placeholder: "Paste a token, or create a read-only one",
-  token_hint: "The token only fills the snippets below: the screen shows its last 4 characters, the clipboard gets all of it, and this page keeps nothing. Give agents a read-only token: it sees telemetry, neighbor cells and SMS status, but no write tool. Every token can be reviewed and revoked under Settings → Tokens.",
+  token_hint: "The token only fills the snippets below: the screen shows its last 4 characters, the clipboard gets all of it, and this page keeps nothing. Give agents a read-only token: it sees the signal, nearby cells and SMS status, but no tool that changes the router. Every token can be reviewed and revoked under Settings → Tokens.",
   mint: "Create read-only token",
   minted: "Created the read-only token “{name}” (valid {days} days) and filled it in below. It is shown only now; revoke it under Settings → Tokens.",
   agent_name: "AI agent",

@@ -21,6 +21,7 @@ import type { AppContext } from "./context.ts";
 import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 import { sensitive } from "./sensitive.ts";
 import { runBusy } from "./widgets.ts";
+import { helpMark } from "./help.ts";
 
 /**
  * Access-control panel (lazy chunk): the Wi-Fi MAC filter (mode, lists, add / remove) and the
@@ -308,7 +309,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
     return h(
       "section",
       { class: "space-y-3" },
-      h("div", { class: "flex items-center gap-2" }, icon("wifi", "text-primary"), h("h4", { class: "font-semibold" }, t("wifi_title"))),
+      h("div", { class: "flex items-center gap-2" }, icon("wifi", "text-primary"), h("h4", { class: "font-semibold" }, t("wifi_title")), helpMark(ctx, "mac-filter")),
       h("p", { class: "text-xs muted" }, t("wifi_desc")),
       h("div", { class: "join" }, modeButton("off", "mode_off"), modeButton("deny", "mode_deny"), modeButton("allow", "mode_allow")),
       h("p", { class: "text-xs faint" }, t(mode === "off" ? "hint_off" : mode === "deny" ? "hint_deny" : "hint_allow")),
@@ -425,7 +426,7 @@ export function mountAccessPanel(ctx: AppContext): { open(): void } {
     const t = texts(ctx);
     const ac = ctx.store.state.accessControl;
     const tr = ac?.timeRules;
-    const head = h("div", { class: "flex items-center gap-2" }, icon("history", "text-primary"), h("h4", { class: "font-semibold" }, t("rules_title")), tr?.supported ? h("span", { class: "text-xs faint" }, t("rules_count", { count: tr.rules.length, max: tr.maxRules })) : null);
+    const head = h("div", { class: "flex items-center gap-2" }, icon("history", "text-primary"), h("h4", { class: "font-semibold" }, t("rules_title")), helpMark(ctx, "time-rule"), tr?.supported ? h("span", { class: "text-xs faint" }, t("rules_count", { count: tr.rules.length, max: tr.maxRules })) : null);
     if (!ac || !tr) return h("section", { class: "space-y-3" }, head, h("div", { class: "text-sm muted" }, t("loading")));
     if (!tr.supported) return h("section", { class: "space-y-3" }, head, h("div", { class: "text-sm muted" }, t("rules_unsupported")));
     const addBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1 ml-auto", attrs: { type: "button" } }, icon("plus"), t("add_rule"));

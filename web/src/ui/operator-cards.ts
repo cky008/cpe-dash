@@ -4,6 +4,7 @@ import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount } from "./dom.ts";
 import { cardHead, kv } from "./widgets.ts";
+import { withHelp } from "./help.ts";
 
 const SIM_KEYS: Readonly<Record<string, MessageKey>> = { "1": "op.sim_ready", "0": "op.sim_invalid", "255": "op.sim_absent" };
 
@@ -39,7 +40,7 @@ export function mountOperatorCards(ctx: AppContext): void {
           h("span", { class: "text-xl font-bold truncate" }, rf?.operatorName || DASH),
           h("span", { class: "num text-xs faint" }, rf?.plmnNumeric ?? "")
         ),
-        kv(ctx.t("op.mode"), h("span", { class: `fs-badge ${mode === "SA" || mode === "NSA" ? "text-primary" : ""}` }, ctx.t(`ca.mode_${mode}`)), "text-right"),
+        kv(withHelp(ctx, ctx.t("op.mode"), "nsa-sa"), h("span", { class: `fs-badge ${mode === "SA" || mode === "NSA" ? "text-primary" : ""}` }, ctx.t(`ca.mode_${mode}`)), "text-right"),
         kv(ctx.t("op.sim"), device ? ctx.t(SIM_KEYS[device.simStatus] ?? "common.unknown") : DASH, "text-right"),
         kv(
           ctx.t("op.connection"),
@@ -56,7 +57,7 @@ export function mountOperatorCards(ctx: AppContext): void {
     const totalBw = rf?.totalAggregatedBandwidthMhz ?? 0;
     mount(
       caRoot,
-      cardHead(ctx.t("ca.title"), icon("layers", "muted")),
+      cardHead(withHelp(ctx, ctx.t("ca.title"), "ca"), icon("layers", "muted")),
       h(
         "div",
         { class: "fs-card-body space-y-3" },

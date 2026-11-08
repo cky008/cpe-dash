@@ -51,6 +51,16 @@ export function mountAppearance(ctx: AppContext, switchLocale: (locale: Locale) 
     for (const key of Object.keys(changes) as Array<keyof Preferences>) savePreference(ctx.storage, key, ctx.prefs[key]);
   };
   const choice = (): ThemeChoice => ctx.prefs;
+  /** Term help: every "?" mark follows `<html data-help>` at once, no re-render. */
+  const helpToggle = (): HTMLInputElement => {
+    const input = h("input", { class: "toggle toggle-sm toggle-primary", attrs: { type: "checkbox", "data-help-toggle": "" } });
+    input.checked = ctx.prefs.showHelp;
+    input.addEventListener("change", () => {
+      save({ showHelp: input.checked });
+      document.documentElement.dataset["help"] = input.checked ? "on" : "off";
+    });
+    return input;
+  };
   const themeName = (id: ThemeId): string => THEME_NAMES[ctx.tr.locale][id];
 
   const themeCard = (id: ThemeId): HTMLElement => {
@@ -255,6 +265,13 @@ export function mountAppearance(ctx: AppContext, switchLocale: (locale: Locale) 
               h("button", { class: `btn btn-sm join-item flex-1 ${ctx.tr.locale === code ? "btn-primary" : "btn-ghost"}`, attrs: { type: "button" }, data: { localeOption: code } }, name)
             )
           )
+        ),
+        h(
+          "section",
+          null,
+          h("h4", { class: "fs-label mb-3" }, t("help")),
+          h("label", { class: "flex items-center justify-between gap-3 cursor-pointer" }, h("span", { class: "text-sm" }, t("help_toggle")), helpToggle()),
+          h("p", { class: "text-xs muted mt-2" }, t("help_hint"))
         )
       ),
       modalBackdrop(ctx.t("common.close"))

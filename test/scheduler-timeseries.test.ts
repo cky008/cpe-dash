@@ -633,7 +633,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     assert.equal(y2, null);
     assert.equal(avoidanceEvents.length, 1);
     assert.equal(avoidanceEvents[0]?.active, true);
-    assert.equal(avoidanceEvents[0]?.messageZh, "用户正在使用 CPE 后台，监控自动避让中");
+    assert.equal(avoidanceEvents[0]?.messageZh, "有人正在使用路由器管理页，烽燧已暂停读取");
     assert.equal(scheduler.getStatus().mode, "yielding_browser");
 
     // Control mutations during human browser session must politely abort with BrowserSessionYieldedError

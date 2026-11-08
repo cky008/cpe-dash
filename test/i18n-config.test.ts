@@ -170,7 +170,7 @@ describe("zero-dependency strongly-typed i18n engine", () => {
   it("interpolates {params} deterministically and stores catalogs in null-prototype maps", () => {
     assert.equal(
       t("zh-CN", "session.mode_yielding"),
-      "用户正在使用 CPE 后台，监控自动避让中"
+      "有人正在使用路由器管理页，烽燧已暂停读取"
     );
     assert.equal(
       t("en", "rf.ca_active", { count: 3, bandwidth: 140 }),

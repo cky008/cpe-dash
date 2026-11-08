@@ -11,15 +11,17 @@ import type { AppContext } from "./context.ts";
 import { type Child, byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 import { describeLock } from "./health-card.ts";
 import { runBusy } from "./widgets.ts";
+import type { HelpTopicId } from "../core/help.ts";
+import { withHelp } from "./help.ts";
 
 type FirewallKey = keyof RouterSettingsSnapshot["firewall"];
 
-const FIREWALL_SWITCHES: ReadonlyArray<[FirewallKey, MessageKey]> = [
-  ["mainSwitch", "ctl.firewall"],
-  ["ipFilterSwitch", "ctl.fw_ip"],
-  ["wanPortPingSwitch", "ctl.fw_ping"],
-  ["macFilterSwitch", "ctl.fw_mac"],
-  ["urlFilterSwitch", "ctl.fw_url"],
+const FIREWALL_SWITCHES: ReadonlyArray<[FirewallKey, MessageKey, HelpTopicId]> = [
+  ["mainSwitch", "ctl.firewall", "firewall"],
+  ["ipFilterSwitch", "ctl.fw_ip", "firewall"],
+  ["wanPortPingSwitch", "ctl.fw_ping", "wan-ping"],
+  ["macFilterSwitch", "ctl.fw_mac", "fw-mac"],
+  ["urlFilterSwitch", "ctl.fw_url", "firewall"],
 ];
 
 interface FirewallConfirmCopy {
@@ -85,7 +87,7 @@ const ANTENNA_CONFIRM: Readonly<Record<AntennaModeName, { title: MessageKey; bod
 
 const IPV4_RE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 
-function section(title: string, ...children: Child[]): HTMLElement {
+function section(title: Child, ...children: Child[]): HTMLElement {
   return h("section", { class: "space-y-2.5" }, h("h4", { class: "fs-card-title text-[0.9rem]" }, title), ...children);
 }
 
@@ -205,7 +207,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     return input;
   };
 
-  const switchRow = (label: string, control: HTMLElement, hint?: string): HTMLElement =>
+  const switchRow = (label: Child, control: HTMLElement, hint?: string): HTMLElement =>
     h(
       "label",
       { class: "flex items-center justify-between gap-3 py-1.5 border-b border-dashed border-base-content/10 cursor-pointer" },
@@ -286,7 +288,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
       render();
     };
     return section(
-      ctx.t("ctl.band_lock"),
+      withHelp(ctx, ctx.t("ctl.band_lock"), "lock-band"),
       h("p", { class: "text-xs muted" }, ctx.t("ctl.current", { summary: describeLock(ctx, ctx.store.state.lockState) })),
       h(
         "div",
@@ -393,7 +395,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
       );
 
     const bandSection = section(
-      ctx.t("ctl.band_lock"),
+      withHelp(ctx, ctx.t("ctl.band_lock"), "lock-band"),
       h("p", { class: "text-xs muted" }, ctx.t("ctl.current", { summary: describeLock(ctx, lockState) }), lockVerification?.status === "drift" ? h("span", { class: "text-warning" }, ` · ${lockVerification.issues.join("; ")}`) : null),
       h("div", { class: "flex items-center gap-2 text-xs font-semibold" }, ctx.t("ctl.lte_bands"), lteMask, quick(H168_383_LTE_BANDS, lteSelected)),
       bandGrid("LTE", H168_383_LTE_BANDS, lteSelected, refreshMasks),
@@ -457,7 +459,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         : h("p", { class: "text-[0.6875rem] faint" }, ctx.t("ctl.settings_captured", { ago: formatAgo(settings.capturedAtMs, ctx.now(), ctx.tr.locale) })),
       readBtn,
       switchRow(
-        ctx.t("ctl.upnp"),
+        withHelp(ctx, ctx.t("ctl.upnp"), "upnp"),
         toggle(settings?.upnpEnabled ?? false, noSettings, (next, input) => {
           void ctx
             .confirm({
@@ -482,11 +484,11 @@ export function mountControls(ctx: AppContext): { open(): void } {
             });
         })
       ),
-      h("div", { class: "flex items-center gap-2 py-1.5 border-b border-dashed border-base-content/10" }, h("span", { class: "text-sm flex-1" }, ctx.t("ctl.dmz")), dmzInput, dmzToggle),
-      ...FIREWALL_SWITCHES.map(([key, label]) => {
+      h("div", { class: "flex items-center gap-2 py-1.5 border-b border-dashed border-base-content/10" }, h("span", { class: "text-sm flex-1" }, withHelp(ctx, ctx.t("ctl.dmz"), "dmz")), dmzInput, dmzToggle),
+      ...FIREWALL_SWITCHES.map(([key, label, help]) => {
         const conf = FIREWALL_CONFIRM[key];
         return switchRow(
-          ctx.t(label),
+          withHelp(ctx, ctx.t(label), help),
           toggle(settings?.firewall[key] ?? false, noSettings, (next, input) => {
             // Switching protection off weakens it; the firewall MAC list can cut devices off (even this host) when on
             const tone = (!next && key !== "wanPortPingSwitch") || (next && key === "macFilterSwitch") ? ("warning" as const) : undefined;
@@ -520,7 +522,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     const wifiSection = section(
       ctx.t("ctl.wifi7"),
       switchRow(
-        ctx.t("ctl.mlo"),
+        withHelp(ctx, ctx.t("ctl.mlo"), "mlo"),
         toggle(settings?.wifi7.mloEnable ?? false, noSettings, (next, input) => {
           void ctx
             .confirm({
@@ -541,7 +543,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         })
       ),
       switchRow(
-        ctx.t("ctl.dbho"),
+        withHelp(ctx, ctx.t("ctl.dbho"), "dbho"),
         toggle(settings?.wifi7.dbhoEnable ?? false, noSettings, (next, input) => {
           void ctx
             .confirm({
@@ -564,7 +566,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     );
 
     const antennaSection = section(
-      ctx.t("ctl.antenna"),
+      withHelp(ctx, ctx.t("ctl.antenna"), "antenna"),
       h(
         "div",
         { class: "join w-full" },
@@ -640,7 +642,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     const systemSection = section(
       ctx.t("ctl.system"),
       switchRow(
-        ctx.t("ctl.mobile_data"),
+        withHelp(ctx, ctx.t("ctl.mobile_data"), "mobile-data"),
         toggle(settings?.mobileDataEnabled ?? true, noSettings, (next, input) => {
           const run = (): void =>
             write(input, async () => {
@@ -668,7 +670,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     const deviceBtn = h("button", { class: "btn btn-sm btn-primary rounded-lg gap-1.5", attrs: { type: "button" }, data: { action: "open-device" } }, icon("cpu"), ctx.t("dev.open_device"));
     deviceBtn.addEventListener("click", () => dialog.close());
     renderSelfHeal();
-    const selfHealSection = section(ctx.t("ctl.self_heal"), selfHealList, h("p", { class: "text-[0.6875rem] faint" }, ctx.t("heal.hint")));
+    const selfHealSection = section(withHelp(ctx, ctx.t("ctl.self_heal"), "self-heal"), selfHealList, h("p", { class: "text-[0.6875rem] faint" }, ctx.t("heal.hint")));
     let sections: HTMLElement[];
     if (lockedModel === null) {
       sections = [bandSection, selfHealSection, securitySection, wifiSection, antennaSection, systemSection];

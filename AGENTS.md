@@ -63,7 +63,7 @@ cpe-dash/
 ├── web/                    # 「烽燧」Web 控制台：100% 严格 TS（tsconfig.web.json）+ Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
 │   ├── index.html · styles.css · brand/logo.svg（标志唯一来源：构建生成页面图标与 favicon.svg）
 │   ├── site/main.ts        # 文档站唯一的脚本（主题、复制、搜索、目录高亮），无导入、无外部请求
-│   └── src/                # core/（无 DOM、node:test 覆盖率门禁）· ui/（视图）· i18n/（类型化中英词典）· demo/（在线演示的页面内后端，纳入覆盖率门禁）· boot.ts · main.ts
+│   └── src/                # core/（无 DOM、node:test 覆盖率门禁；core/help.ts 为术语帮助：每个专业名词的一句话解释与文档站锚点，ui/help.ts 画「?」，「设置 → 外观」可关）· ui/（视图）· i18n/（类型化中英词典）· demo/（在线演示的页面内后端，纳入覆盖率门禁）· boot.ts · main.ts
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器（覆盖 src/ scripts/ test/ web/）
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示）

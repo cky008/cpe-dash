@@ -168,7 +168,7 @@ describe("the console in a browser", () => {
     // The lock confirmation says the lock would be rolled back; a cancel writes nothing
     const lockWrites = (): number => (d.router.cpe?.stats.writes ?? []).filter((write) => write.path === "/api/net/net-mode" || write.path === "/api/net/lock-freq").length;
     const before = lockWrites();
-    await page.evaluate("[...document.querySelectorAll('#controlsDialog button')].find((b) => b.textContent.trim() === 'Apply band lock').click(); true");
+    await page.evaluate("[...document.querySelectorAll('#controlsDialog button')].find((b) => b.textContent.trim() === 'Lock the selected bands').click(); true");
     await page.waitUntil(isOpen("confirmDialog"), "the confirmation");
     assert.match(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), /Lock rollback is on: unless the WAN is back/);
     await page.click("#confirmCancel");
