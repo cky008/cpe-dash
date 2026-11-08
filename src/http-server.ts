@@ -69,7 +69,7 @@ import {
   t,
 } from "./i18n.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
-import { renderMetrics } from "./metrics.ts";
+import { type RuntimeSample, renderMetrics } from "./metrics.ts";
 import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
 import {
@@ -165,6 +165,8 @@ export interface FengSuiHttpServerOptions {
   unlinkTelegramChat?: ((chatId: string) => boolean) | null;
   /** The bot's @username once known, for the `/auth@bot CODE` a group needs. */
   telegramUsername?: () => string | null;
+  /** The daemon process's own figures for `/metrics` (memory, CPU, event-loop delay). */
+  runtimeSample?: (() => RuntimeSample) | null;
 }
 
 /**
@@ -191,12 +193,14 @@ export class FengSuiHttpServer {
   readonly settings: ConsoleSettings;
   readonly #audit: AuditLog | null;
   readonly #consoleRoutes: SettingsHttpRoutes;
+  readonly #runtimeSample: (() => RuntimeSample) | null;
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
     this.core = options.core;
     this.sseBus = options.sseBus;
     this.mcpServer = options.mcpServer;
+    this.#runtimeSample = options.runtimeSample ?? null;
     this.envPath = options.envPath;
     this.startedAtMs = Date.now();
     this.sms = options.sms ?? null;
@@ -513,6 +517,7 @@ export class FengSuiHttpServer {
         daemonUptimeSec: Math.floor((Date.now() - this.startedAtMs) / 1000),
         scheduler: this.core.scheduler.getStatus(),
         telemetry: this.core.monitor.getCachedTelemetry(),
+        ...(this.#runtimeSample ? { runtime: this.#runtimeSample() } : {}),
       });
       res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8", "Cache-Control": "no-store" });
       res.end(body);

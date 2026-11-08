@@ -1,3 +1,4 @@
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { GlobalTelemetrySnapshot } from "./cpe-domain.ts";
 import type { SchedulerMode, SchedulerStatusSnapshot } from "./scheduler.ts";
 
@@ -24,11 +25,86 @@ function family(name: string, type: "gauge" | "counter", help: string, samples: 
   return lines;
 }
 
+/** The daemon process itself, to watch it over weeks on a NAS (no router data). */
+export interface RuntimeSample {
+  residentBytes: number;
+  heapUsedBytes: number;
+  /** User and system CPU time since the process started. */
+  cpuSeconds: number;
+  /** Event-loop delay over the last full window (seconds); `null` before the first window closed. */
+  eventLoopDelayP99Sec: number | null;
+  eventLoopDelayMaxSec: number | null;
+  sseClients: number;
+  /** Telegram notifications waiting for Telegram to answer (`null` without a bot). */
+  telegramPending: number | null;
+}
+
+/**
+ * Measures the event loop's delay in fixed windows (a minute in the daemon), so `/metrics` reports
+ * the last full window however often, or rarely, it is scraped.
+ */
+export class RuntimeSampler {
+  readonly #delay = monitorEventLoopDelay({ resolution: 20 });
+  readonly #windowMs: number;
+  #timer: ReturnType<typeof setInterval> | null = null;
+  #last: { p99Sec: number; maxSec: number } | null = null;
+
+  constructor(opts: { windowMs?: number } = {}) {
+    this.#windowMs = opts.windowMs ?? 60_000;
+  }
+
+  start(): void {
+    if (this.#timer) return;
+    this.#delay.enable();
+    this.#timer = setInterval(() => {
+      // A percentile is its bucket's upper bound and may round past the exact maximum
+      const maxSec = this.#delay.max / 1e9;
+      this.#last = { p99Sec: Math.min(this.#delay.percentile(99) / 1e9, maxSec), maxSec };
+      this.#delay.reset();
+    }, this.#windowMs);
+    this.#timer.unref();
+  }
+
+  stop(): void {
+    if (this.#timer) clearInterval(this.#timer);
+    this.#timer = null;
+    this.#delay.disable();
+  }
+
+  sample(extra: Pick<RuntimeSample, "sseClients" | "telegramPending">): RuntimeSample {
+    const memory = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    return {
+      residentBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      cpuSeconds: (cpu.user + cpu.system) / 1e6,
+      eventLoopDelayP99Sec: this.#last?.p99Sec ?? null,
+      eventLoopDelayMaxSec: this.#last?.maxSec ?? null,
+      ...extra,
+    };
+  }
+}
+
 export interface MetricsInput {
   version: string;
   daemonUptimeSec: number;
   scheduler: SchedulerStatusSnapshot;
   telemetry: GlobalTelemetrySnapshot | null;
+  /** The process's own figures (left out where no sampler runs). */
+  runtime?: RuntimeSample;
+}
+
+/** Standard process / Node.js names, so ready-made Node dashboards and alerts apply. */
+function runtimeFamilies(runtime: RuntimeSample): string[] {
+  return [
+    ...family("process_resident_memory_bytes", "gauge", "Resident memory of the daemon process.", [{ value: runtime.residentBytes }]),
+    ...family("process_cpu_seconds_total", "counter", "User and system CPU time the daemon process has used.", [{ value: runtime.cpuSeconds }]),
+    ...family("nodejs_heap_size_used_bytes", "gauge", "JavaScript heap in use.", [{ value: runtime.heapUsedBytes }]),
+    ...family("nodejs_eventloop_lag_p99_seconds", "gauge", "Event-loop delay, 99th percentile over the last minute.", [{ value: runtime.eventLoopDelayP99Sec }]),
+    ...family("nodejs_eventloop_lag_max_seconds", "gauge", "Event-loop delay, maximum over the last minute.", [{ value: runtime.eventLoopDelayMaxSec }]),
+    ...family("fengsui_sse_clients", "gauge", "Open /api/events streams.", [{ value: runtime.sseClients }]),
+    ...family("fengsui_telegram_outbox_pending", "gauge", "Telegram notifications waiting for Telegram to answer.", [{ value: runtime.telegramPending }]),
+  ];
 }
 
 export function renderMetrics(input: MetricsInput): string {
@@ -74,6 +150,7 @@ export function renderMetrics(input: MetricsInput): string {
     ...family("fengsui_sms_unread", "gauge", "Unread SMS on the router.", [{ value: sms?.localUnread ?? null }]),
     ...family("fengsui_sms_storage_used", "gauge", "SMS slots in use on the router.", [{ value: sms ? sms.localInbox + sms.localOutbox + sms.localDraft : null }]),
     ...family("fengsui_sms_storage_capacity", "gauge", "SMS slots on the router.", [{ value: sms?.localMax ?? null }]),
+    ...(input.runtime ? runtimeFamilies(input.runtime) : []),
   ];
   return `${lines.join("\n")}\n`;
 }

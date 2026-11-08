@@ -150,6 +150,8 @@ describe("console settings after an upgrade (.env imported)", () => {
       const text = await scraped.text();
       assert.match(text, /^fengsui_info\{version="\d+\.\d+\.\d+"\} 1$/m);
       assert.match(text, /^fengsui_scheduler_mode\{mode="idle"\} [01]$/m);
+      assert.match(text, /^process_resident_memory_bytes \d+$/m, "the daemon's own memory, to watch it over weeks");
+      assert.match(text, /^fengsui_sse_clients \d+$/m);
       for (const identifier of ["860000000000000", "272010000000000", "198.51.100.42", "134217758"]) assert.equal(text.includes(identifier), false, identifier);
       summary = (await (await fx.post("/api/console/switches", { metricsEnabled: null, telegramReset: false }, cookie)).json()) as ConsoleSettingsResponse;
       assert.deepEqual([summary.metrics, summary.telegram.resetEnabled], [{ enabled: false, source: "env", envEnabled: false }, false]);

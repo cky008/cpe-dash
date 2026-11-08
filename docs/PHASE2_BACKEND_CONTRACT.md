@@ -971,7 +971,7 @@ export interface AccessControlChangeResponse {
 | `POST /api/console/switches` | `{ telegramReset?: boolean, metricsEnabled?: boolean \| null }`（`null` = 跟随 `.env`） | `ConsoleSettingsResponse` |
 | `GET /api/console/device-report` | — | `{ ok: true, report: DeviceReport }`：脱敏设备报告，只含结构（见 2.9 节），由用户自己决定是否提交 |
 | `GET /api/audit?limit=200` | — | `{ ok: true, entries: AuditEntry[] }`（最新在前，最多 500 条；任何已登录调用方可读，`REDACT_SENSITIVE_IN_API` 下 Bearer 调用方拿到的 `detail` 遮住 IP 地址） |
-| `GET /metrics` | — | Prometheus 文本格式；需 Bearer 令牌（只读即可）；关闭时 `404` |
+| `GET /metrics` | — | Prometheus 文本格式；需 Bearer 令牌（只读即可）；关闭时 `404`。除 `fengsui_*` 路由器与调度器指标外，还有守护进程自身的 `process_resident_memory_bytes`、`process_cpu_seconds_total`、`nodejs_heap_size_used_bytes`、`nodejs_eventloop_lag_p99_seconds` / `_max_seconds`（最近一个完整的 1 分钟窗口）、`fengsui_sse_clients`、`fengsui_telegram_outbox_pending`（无机器人时不输出） |
 
 ```ts
 export type ConnectionTestResult =

@@ -8,7 +8,7 @@ import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { SettingsHttpRoutes } from "../src/http-settings.ts";
-import { renderMetrics } from "../src/metrics.ts";
+import { RuntimeSampler, renderMetrics } from "../src/metrics.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
@@ -228,5 +228,41 @@ describe("console routes", () => {
     }
     assert.equal(full.includes("860000000000000") || full.includes("134217758"), false);
     assert.match(renderMetrics({ version: 'x"y', daemonUptimeSec: 1, scheduler, telemetry: null }), /fengsui_info\{version="x_y"\} 1/, "label values cannot break the format");
+  });
+
+  it("reports the daemon process itself: memory, CPU, event-loop delay, streams and queued notifications", async () => {
+    const scheduler = { mode: "idle", queueDepth: 0, circuitBreaker: { tripped: false } } as unknown as Parameters<typeof renderMetrics>[0]["scheduler"];
+    const runtime = { residentBytes: 134_217_728, heapUsedBytes: 20_971_520, cpuSeconds: 12.5, eventLoopDelayP99Sec: 0.012, eventLoopDelayMaxSec: 0.05, sseClients: 3, telegramPending: 0 };
+    const text = renderMetrics({ version: "1.6.3", daemonUptimeSec: 60, scheduler, telemetry: null, runtime });
+    for (const line of [
+      "process_resident_memory_bytes 134217728",
+      "process_cpu_seconds_total 12.5",
+      "nodejs_heap_size_used_bytes 20971520",
+      "nodejs_eventloop_lag_p99_seconds 0.012",
+      "nodejs_eventloop_lag_max_seconds 0.05",
+      "fengsui_sse_clients 3",
+      "fengsui_telegram_outbox_pending 0",
+    ]) {
+      assert.ok(text.split("\n").includes(line), line);
+    }
+    assert.match(text, /^# TYPE process_cpu_seconds_total counter$/m);
+    const quiet = renderMetrics({ version: "1.6.3", daemonUptimeSec: 1, scheduler, telemetry: null, runtime: { ...runtime, eventLoopDelayP99Sec: null, eventLoopDelayMaxSec: null, telegramPending: null } });
+    assert.doesNotMatch(quiet, /^nodejs_eventloop_lag_p99_seconds /m, "no full window yet, no value");
+    assert.doesNotMatch(quiet, /^fengsui_telegram_outbox_pending /m, "no bot, no value");
+
+    // The sampler measures the event loop in whole windows, whatever the scrape rate
+    const sampler = new RuntimeSampler({ windowMs: 30 });
+    assert.equal(sampler.sample({ sseClients: 0, telegramPending: null }).eventLoopDelayP99Sec, null);
+    sampler.start();
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const sample = sampler.sample({ sseClients: 1, telegramPending: 2 });
+      assert.ok(sample.residentBytes > 0 && sample.heapUsedBytes > 0 && sample.cpuSeconds > 0);
+      assert.ok(typeof sample.eventLoopDelayP99Sec === "number" && sample.eventLoopDelayP99Sec >= 0);
+      assert.ok(typeof sample.eventLoopDelayMaxSec === "number" && sample.eventLoopDelayMaxSec >= (sample.eventLoopDelayP99Sec ?? 0));
+      assert.deepEqual([sample.sseClients, sample.telegramPending], [1, 2]);
+    } finally {
+      sampler.stop();
+    }
   });
 });

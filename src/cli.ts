@@ -15,6 +15,7 @@ import { FengSuiHttpServer } from "./http-server.ts";
 import { backupDataDir, formatDoctorReport, rekeyDataDir, restoreDataDir, runDoctor } from "./maintenance.ts";
 import { AccessControlMcpTools } from "./mcp-access-tools.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
+import { RuntimeSampler } from "./metrics.ts";
 import { McpStdioBridge } from "./mcp-stdio-bridge.ts";
 import { PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "./peer-guard.ts";
 import { t } from "./i18n.ts";
@@ -439,6 +440,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     if (identify) void monitor.identifyDevice().catch(() => undefined);
   };
 
+  // The process's own memory, CPU and event-loop delay, for /metrics (watching it over weeks on a NAS)
+  const runtime = new RuntimeSampler();
   const httpServer = new FengSuiHttpServer({
     config,
     core,
@@ -454,6 +457,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     telegramChats: telegramBot ? () => telegramBot?.chatRecords((tokenId) => settings.listTokens().find((token) => token.id === tokenId)?.name ?? null) ?? [] : null,
     unlinkTelegramChat: telegramBot ? (chatId: string) => telegramBot?.unlinkChat(chatId) ?? false : null,
     telegramUsername: () => telegramBot?.username ?? null,
+    runtimeSample: () => runtime.sample({ sseClients: sseBus.getClientCount(), telegramPending: telegramBot?.pendingNotifications ?? null }),
     onConnectionReady: () => {
       if (!awaitingSetup) return;
       awaitingSetup = false;
@@ -554,6 +558,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       sseBus.attachCore(core);
       if (sms) sseBus.attachSms(sms);
       sseBus.start();
+      runtime.start();
       notificationHub?.start();
       alertEngine?.start();
       selfHeal?.start();
@@ -589,6 +594,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       // nothing may wait for a CPE session before the scheduler has cancelled it.
       peerGuard?.stop();
       sseBus.stop();
+      runtime.stop();
       const httpClosed = httpServer.close();
       await telegramBot?.stop();
       notificationHub?.stop();
