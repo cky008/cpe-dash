@@ -15,6 +15,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **A term's help lets go.** Escape hides the one-line explanation of a "?" without moving the pointer or the focus (in a drawer, the first Escape does only that, the next closes the drawer); a card that redraws under the pointer no longer leaves the line on screen; and a screen reader hears the line only on the mark it explains, not on marks shown earlier.
 - **Building the documentation never empties the repository.** `npm run build:docs -- --out .` (or a parent folder) deleted that folder before building, `.git` included; the build now refuses an output folder that holds the sources. A term anchor written directly under a line of text also becomes an anchor instead of showing as text.
 
+### Documentation
+- **Contributing rules that match the repository.** `CONTRIBUTING.md` and the pull request checklist now say that `main` accepts signed commits only (unsigned pull requests are squashed and signed by the maintainer) and point behaviour changes at the user guide in both languages instead of the READMEs, which no longer describe features.
+
 ### Container and CI
 - **Release notes link the commits since the release before.** Each GitHub release ends with a "Full Changelog" link comparing it with the previous tag, as GitHub's own notes do (the first release links its commits); every GitHub release was regenerated with it.
 
