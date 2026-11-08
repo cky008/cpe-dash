@@ -41,6 +41,11 @@ export interface TokenRecord {
   lastUsedAtIso: string | null;
   /** Imported from `.env` (API_TOKEN / API_TOKEN_READONLY) on the first start. */
   imported?: true;
+  /**
+   * When it was sent to a Telegram group with `/auth`: every member saw it, so it no longer links a
+   * chat (it keeps working as a token, and the console points at it to be revoked).
+   */
+  telegramExposedAtIso?: string;
 }
 
 export type PublicTokenRecord = Omit<TokenRecord, "hash">;
@@ -426,12 +431,22 @@ export class ConsoleSettings {
   /**
    * Decide a Telegram `/auth` secret. A group pairing code links any chat; a private pairing code or a
    * full-access token links a private chat only. A private code sent to a group is spent there all
-   * the same: the members saw it and could otherwise link their own private chats with it.
+   * the same: the members saw it and could otherwise link their own private chats with it. A full
+   * token sent to a group never links a chat again for the same reason (revoking it, which would cut
+   * off whatever else uses it, stays the owner's call).
    */
   linkTelegramChat(secret: string, where: "private" | "group"): TelegramLinkOutcome {
     if (this.consumeCode("pair-group", secret)) return "linked";
-    if (this.consumeCode("pair", secret) || this.resolveBearer(secret)?.scope === "full") return where === "private" ? "linked" : "private-only";
-    return "invalid";
+    if (this.consumeCode("pair", secret)) return where === "private" ? "linked" : "private-only";
+    const identity = this.resolveBearer(secret);
+    const record = identity?.scope === "full" ? this.#state.tokens.find((t) => t.id === identity.tokenId) : undefined;
+    if (!record) return "invalid";
+    if (where === "group") {
+      record.telegramExposedAtIso ??= new Date(this.#now()).toISOString();
+      this.#save();
+      return "private-only";
+    }
+    return record.telegramExposedAtIso === undefined ? "linked" : "invalid";
   }
 
   /** Spend a code of `kind`: `true` once, for an unexpired match. */

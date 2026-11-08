@@ -998,7 +998,8 @@ body {
     color: var(--color-primary);
     background: color-mix(in oklab, var(--color-primary) 11%, transparent);
   }
-  .fs-badge[data-kind="wifi24"] {
+  .fs-badge[data-kind="wifi24"],
+  .fs-badge[data-kind="warn"] {
     color: color-mix(in oklab, var(--color-warning) 80%, var(--color-base-content));
     background: color-mix(in oklab, var(--color-warning) 14%, transparent);
   }

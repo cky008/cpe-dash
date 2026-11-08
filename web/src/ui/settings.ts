@@ -570,7 +570,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           { class: "flex flex-wrap items-center gap-1.5" },
           h("span", { class: "font-semibold truncate" }, token.name),
           h("span", { class: "fs-badge" }, token.scope === "full" ? t("scope_full") : t("scope_read")),
-          token.imported ? h("span", { class: "fs-badge" }, t("imported")) : null
+          token.imported ? h("span", { class: "fs-badge" }, t("imported")) : null,
+          token.telegramExposedAtIso ? h("span", { class: "fs-badge", data: { kind: "warn" } }, t("telegram_exposed")) : null
         ),
         h("div", { class: "text-[0.6875rem] faint num" }, `…${token.hint} · ${validity} · ${used}`)
       ),

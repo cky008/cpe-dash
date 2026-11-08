@@ -192,9 +192,24 @@ describe("console settings store", () => {
       assert.equal(settings.linkTelegramChat(shown, "private"), "invalid");
       assert.equal(settings.linkTelegramChat(settings.issueCode("pair"), "private"), "linked");
 
-      assert.equal(settings.linkTelegramChat(ENV.apiToken, "group"), "private-only");
+      // So is a full token, for linking: every member saw it and could link a private chat of their own with it
       assert.equal(settings.linkTelegramChat(ENV.apiToken, "private"), "linked");
+      assert.equal(settings.linkTelegramChat(ENV.apiToken, "group"), "private-only");
+      assert.equal(settings.linkTelegramChat(ENV.apiToken, "private"), "invalid", "a token seen in a group links nothing any more");
+      assert.equal(settings.resolveBearer(ENV.apiToken)?.scope, "full", "it still works as a token until the owner revokes it");
+      const exposed = settings.listTokens().find((t) => t.name === "API_TOKEN (.env)");
+      assert.equal(exposed?.telegramExposedAtIso, "2026-11-02T10:00:00.000Z", "the console can point at the token to revoke");
+      const other = settings.createToken({ name: "Phone", scope: "full", lifetimeDays: 7 });
+      assert.equal(settings.listTokens().find((t) => t.id === other.record.id)?.telegramExposedAtIso, undefined);
+      assert.equal(settings.linkTelegramChat(other.token, "private"), "linked", "other tokens are unaffected");
+      await settings.flush();
+      const reloaded = fx.open();
+      reloaded.load();
+      assert.equal(reloaded.linkTelegramChat(ENV.apiToken, "private"), "invalid", "kept across a restart");
+
       assert.equal(settings.linkTelegramChat(ENV.apiTokenReadonly, "private"), "invalid", "a read-only token links nothing");
+      assert.equal(settings.linkTelegramChat(ENV.apiTokenReadonly, "group"), "invalid");
+      assert.equal(settings.listTokens().find((t) => t.name === "API_TOKEN_READONLY (.env)")?.telegramExposedAtIso, undefined);
       assert.equal(settings.linkTelegramChat(settings.issueCode("reset"), "private"), "invalid");
       assert.equal(settings.linkTelegramChat("WRNG-CODE", "group"), "invalid");
     } finally {
