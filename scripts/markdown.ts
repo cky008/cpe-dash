@@ -102,6 +102,20 @@ function renderInline(src: string, opts: RenderOptions): InlineResult {
         continue;
       }
     }
+    if (ch === "[" && src[i + 1] === "[") {
+      // A citation: [[Source title](https://…)]
+      const m = /^\[\[([^\]]+)\]\(([^)\s]+)\)\]/.exec(src.slice(i));
+      const target = m ? safeHref(m[2] ?? "") : null;
+      if (m && target !== null) {
+        const inner = renderInline(m[1] ?? "", opts);
+        const href = opts.link ? opts.link(target) : target;
+        const external = /^https?:/i.test(href) ? ' rel="noopener" target="_blank"' : "";
+        html += `<span class="cite">[<a href="${escapeHtml(href)}"${external}>${inner.html}</a>]</span>`;
+        text += inner.text;
+        i += m[0].length;
+        continue;
+      }
+    }
     if (ch === "[") {
       const m = /^\[([^\]]+)\]\(([^)\s]+)\)/.exec(src.slice(i));
       if (m) {
@@ -158,6 +172,8 @@ const FENCE = /^```\s*([\w-]*)\s*$/;
 const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
 const RULE = /^\s*(?:-{3,}|\*{3,})\s*$/;
 const COMMENT = /^\s*<!--.*-->\s*$/;
+/** A stable anchor for a term (`<a id="rsrp"></a>` on its own line): the console's help links point at it. */
+const TERM_ANCHOR = /^<a id="([a-z0-9-]+)"><\/a>$/;
 
 function cells(row: string): string[] {
   return row.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
@@ -180,6 +196,12 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
     while (i < lines.length) {
       const line = lines[i] ?? "";
       if (!line.trim() || COMMENT.test(line)) {
+        i += 1;
+        continue;
+      }
+      const term = TERM_ANCHOR.exec(line.trim());
+      if (term) {
+        out += `<a id="${term[1]}" class="term-anchor"></a>`;
         i += 1;
         continue;
       }

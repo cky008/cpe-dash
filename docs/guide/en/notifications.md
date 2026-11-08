@@ -2,7 +2,7 @@
 title: Alerts and notifications
 description: Get notified when the internet drops, signal degrades, or a new message arrives: Telegram bots, webhooks, and alert rules.
 section: Use FengSui
-order: 8
+order: 9
 ---
 
 FengSui alerts you when problems happen and pushes new SMS messages. You can send notifications to a Telegram bot or to your own webhook URL.

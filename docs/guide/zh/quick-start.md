@@ -57,7 +57,7 @@ docker compose logs cpe-dash | grep "setup code"
 
 1. 输入设置码，给控制台设一个登录密码。
 2. 按引导填写路由器地址、管理员账号（通常是 `admin`）和密码。烽燧会先测试一次登录，成功才保存。
-3. 几秒后，监控大屏上就会出现信号、载波和流量。
+3. 几秒后，控制台上就会出现信号、载波和流量。
 
 ![首次设置：填写路由器连接](../../screenshots/settings-router.webp)
 

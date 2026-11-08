@@ -1,50 +1,56 @@
 ---
-title: Device and access management
-description: See who is connected to your network, block a device from the internet, or set internet access schedules for it.
+title: Manage devices and access
+description: See who is connected to your network, pause Internet access for a device, or set scheduled access hours.
 section: Use FengSui
-order: 7
+order: 8
 ---
 
-FengSui uses the router's built-in Wi-Fi MAC filtering and parental control features, which share the same lists as "Device Management" on the router's own web page, so changes made on either side are visible on both.
+FengSui uses the router's built-in Wi-Fi MAC filtering and parental controls. This is the same list found under Device Management on the router's own web page, so changes made on either side stay in sync.
 
-![Device topology and access control](../../screenshots/topology-access.webp)
+![Connected devices and access control](../../screenshots/topology-access.webp)
 
 ## View devices
 
-The **Device topology** at the bottom of the dashboard lists all devices connected to the router:
+The **Connected devices** card at the bottom of the Dashboard lists all devices connected to the router:
 
-- Wired (`LAN 1000M`) or Wi-Fi (2.4G / 5G);
-- IPv4 and IPv6 addresses, negotiated rate, and Wi-Fi signal;
+- Connection type: wired (`LAN 1000M`) or Wi-Fi (2.4G / 5G).
+- IPv4 and IPv6 addresses, negotiated link speed, and Wi-Fi signal strength.
 - Remaining DHCP lease time.
 
-Turn on "Show offline" to see devices that are currently offline.
+Turn on "Show offline" to view devices that are currently offline.
 
-## Block a device from the internet
+## Pause Internet access for a device
 
-Clicking "Block" next to a Wi-Fi device adds it to the router's Wi-Fi blocklist, disconnecting the device immediately. Blocked devices remain in the list; click "Restore" to reconnect them.
+Clicking "Block" next to a Wi-Fi device adds it to the router's Wi-Fi blocklist, disconnecting it immediately. Blocked devices remain in the list; click "Restore" to reconnect them.
 
 > [!NOTE]
-> Currently, you can only block Wi-Fi devices. For wired devices, manage them in the firewall on the router's own web page. The router firmware provides no interface for per-device rate limiting, so FengSui does not offer rate limiting.
+> You can currently pause only Wi-Fi devices. To manage wired devices, use the firewall on the router's own web page. The router firmware provides no API for per-device rate limiting, so FengSui does not offer rate limiting either.
+
+<a id="mac-filter"></a>
 
 ## Blocklists and allowlists
 
-The "Access control" drawer lets you switch Wi-Fi MAC filtering modes:
+Every network adapter has a MAC address. With **MAC filtering**, the router decides whether to let a device connect to Wi-Fi based on this address [[Huawei: Setting a Wi-Fi blocklist or allowlist on a CPE](https://consumer.huawei.com/en/support/content/en-us00761358/)]. Note that smartphones can change their MAC addresses easily (many use randomized addresses for each Wi-Fi network by default), so MAC filtering is useful for home device management rather than security.
 
-- **Disabled**: All devices can connect.
-- **Blocklist**: Devices on the list cannot connect.
-- **Allowlist**: Only devices on the list can connect. Use the checkboxes to select permitted devices before turning this on.
+You can switch the Wi-Fi MAC filtering mode in the Access control drawer:
 
-The router stores up to 64 entries; the drawer shows how many are currently in use.
+- **Disabled**: all devices can connect.
+- **Blocklist**: devices on the list cannot connect.
+- **Allowlist**: only devices on the list can connect. Use the selector to choose permitted devices before enabling.
 
-## Internet access schedules
+The router stores up to 64 entries. The drawer shows how many slots are currently used.
 
-You can set allowed internet access times by device: select days of the week and 15-minute time slots, which can cross midnight (for example, 22:00 to 07:00 the next day). If time slots for the same device overlap, FengSui highlights the conflict directly.
+<a id="time-rule"></a>
 
-## How it avoids locking you out
+## Scheduled access hours
 
-Every modification executes within a single login session: "read devices → read current list → plan changes → write → read back to verify". Two devices will never be blocked:
+This uses the router's parental control feature [[Huawei: Setting parental controls on a CPE](https://consumer.huawei.com/en/support/content/en-us00761375/)]. You can set permitted online times per device: select the days of the week and choose time slots in 15-minute increments. Schedules can span across midnight (such as 22:00 to 07:00 the next day). If time slots overlap for the same device, FengSui warns you of the conflict.
 
-- **The machine running FengSui** (the router identifies the device making the request);
+## Never get locked out
+
+Every modification executes within a single login session: "read devices → read current list → plan changes → write → read back to verify". Two devices are never blocked:
+
+- **The machine running FengSui** (the router identifies the device making the request).
 - **The device you are currently using**.
 
-If a planned change would disconnect either of them, FengSui rejects the operation and explains why.
+If a planned change would disconnect either of them, FengSui refuses the change and explains why.

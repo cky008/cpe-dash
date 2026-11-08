@@ -80,6 +80,14 @@ describe("docs Markdown renderer (scripts/markdown.ts)", () => {
     assert.ok(html.includes('<figure><img src="assets/dashboard.webp" alt="The dashboard" loading="lazy"><figcaption>The dashboard</figcaption></figure>'));
   });
 
+  it("keeps stable term anchors and renders [[source](url)] citations", () => {
+    const { html, text } = renderMarkdown('<a id="rsrp"></a>\n\n### RSRP 是什么\n\nSignal power [[3GPP TS 36.214](https://www.3gpp.org/DynaReport/36214.htm)].\n\n<a id="Bad Id"></a>');
+    assert.ok(html.includes('<a id="rsrp" class="term-anchor"></a>'));
+    assert.ok(html.includes('<span class="cite">[<a href="https://www.3gpp.org/DynaReport/36214.htm" rel="noopener" target="_blank">3GPP TS 36.214</a>]</span>'));
+    assert.ok(html.includes("&lt;a id=&quot;Bad Id&quot;&gt;"), "only [a-z0-9-] ids pass; anything else is escaped text");
+    assert.match(text, /Signal power 3GPP TS 36\.214/);
+  });
+
   it("collects the plain text for the search index and skips HTML comments", () => {
     const { text } = renderMarkdown("<!-- compat:begin -->\n## Hello\n\nSome **bold** `code` [link](x.md).\n<!-- compat:end -->");
     assert.equal(text, "Hello Some bold code link.");

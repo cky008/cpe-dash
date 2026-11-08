@@ -2,7 +2,7 @@
 title: 备份与恢复
 description: 自检、备份、恢复数据，以及更换加密密钥。这些命令都不会连接路由器。
 section: 管理
-order: 12
+order: 15
 ---
 
 烽燧的数据都在 `data/` 里，用 `DATA_ENCRYPTION_KEY` 加密。最重要的两样东西是 **`data/` 目录**和**加密密钥**：有了这两样，就能在另一台机器上原样恢复。

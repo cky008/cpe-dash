@@ -2,7 +2,7 @@
 title: Frequently asked questions
 description: Short answers about cost, privacy, compatibility, and usage.
 section: Help
-order: 15
+order: 18
 ---
 
 ## Is FengSui free?

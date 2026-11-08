@@ -2,7 +2,7 @@
 title: 短信
 description: 在网页、Telegram 或 AI 智能体里收发路由器上的短信，以及短信是怎样保存的。
 section: 使用烽燧
-order: 6
+order: 7
 ---
 
 路由器插着 SIM 卡，就能收发短信。烽燧把它们整理成会话，验证码一键复制，还能推送到 Telegram。

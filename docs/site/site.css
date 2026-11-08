@@ -760,4 +760,20 @@ kbd {
   -webkit-appearance: none;
   appearance: none;
 }
+
+.article .cite {
+  font-size: 0.8em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.article .cite a {
+  color: var(--muted);
+  text-decoration-color: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+.term-anchor {
+  display: block;
+  position: relative;
+  top: -5rem;
+  visibility: hidden;
+}
 }

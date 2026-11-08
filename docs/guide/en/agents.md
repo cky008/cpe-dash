@@ -2,7 +2,7 @@
 title: AI agents (MCP)
 description: Allow AI agents like Claude and Cursor to inspect signal metrics and SMS, control the router with your permission, and use the REST API and real-time events.
 section: Use FengSui
-order: 9
+order: 10
 ---
 
 FengSui includes an embedded [MCP](https://modelcontextprotocol.io) server hosted at `/mcp`. AI agents can use it to inspect signal metrics, history, and SMS messages to help diagnose network problems.
@@ -45,14 +45,14 @@ claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp --header "Auth
 
 ### Clients with local (stdio) support only
 
-Clients like Claude Desktop can connect through the bridge utility inside the container, provided the client and the container run on the same machine:
+Clients like Claude Desktop can connect through the bridge inside the container, provided the client and the container run on the same machine. Replace `<token>` with a token you created (a read-only one is best):
 
 ```json
 {
   "mcpServers": {
     "fengsui": {
       "command": "docker",
-      "args": ["exec", "-i", "cpe-dash", "node", "dist/cli.js", "mcp"]
+      "args": ["exec", "-i", "-e", "API_TOKEN=<token>", "cpe-dash", "node", "dist/cli.js", "mcp"]
     }
   }
 }

@@ -2,7 +2,7 @@
 title: Configuration reference
 description: Meanings and defaults for every setting in .env. Most users only need to set the encryption key and time zone.
 section: Manage
-order: 10
+order: 13
 ---
 
 FengSui reads `.env` (`/app/.env` inside the container) and environment variables at startup. For a complete template, see [`.env.example`](../../../.env.example) in the repository.
@@ -96,7 +96,7 @@ These settings are imported only on the **first startup**. After that, values in
 | `LOCK_ROLLBACK_AFTER_MIN` | `0` (disabled) | Number of minutes WAN remains disconnected after locking before automatically releasing all locks (`3` to `1440`) |
 | `WAN_AUTO_RECONNECT_AFTER_MIN` | `0` (disabled) | Number of minutes WAN remains disconnected before automatically reconnecting (`1` to `1440`). Maximum of 4 times in 24 hours; never reboots the router |
 
-See [Band and cell locking](locking.md#what-to-do-if-you-lose-connection-after-locking).
+See [Band and cell locking](locking.md#rollback).
 
 ## Data and storage
 

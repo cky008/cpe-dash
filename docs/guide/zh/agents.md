@@ -2,7 +2,7 @@
 title: AI 智能体（MCP）
 description: 让 Claude、Cursor 等 AI 智能体读取信号和短信、在你允许时操作路由器，以及 REST API 和实时事件。
 section: 使用烽燧
-order: 9
+order: 10
 ---
 
 烽燧内置一个 [MCP](https://modelcontextprotocol.io) 服务器，挂在 `/mcp` 上。AI 智能体可以通过它查看信号、历史和短信，帮你分析网络问题。
@@ -11,7 +11,7 @@ order: 9
 
 ## 最快的接法
 
-控制台页头的机器人图标（手机上在大屏底部的「接入 AI」）会打开接入指南：
+控制台页头的机器人图标（手机上在控制台底部的「接入 AI」）会打开接入指南：
 
 1. 在「设置 → 令牌」生成一个**只读**令牌（指南里也能直接生成）。
 2. 把令牌粘贴进指南，它会生成可以直接复制的 Claude Code 命令、JSON 配置和一段提示词。
@@ -45,14 +45,14 @@ claude mcp add --transport http fengsui http://<NAS 的 IP>:18384/mcp --header "
 
 ### 只支持本地（stdio）的客户端
 
-Claude Desktop 等客户端可以通过容器里的桥接程序连接，前提是客户端和容器在同一台机器上：
+Claude Desktop 等客户端可以通过容器里的桥接程序连接，前提是客户端和容器在同一台机器上。把 `<令牌>` 换成你生成的令牌（建议只读令牌）：
 
 ```json
 {
   "mcpServers": {
     "fengsui": {
       "command": "docker",
-      "args": ["exec", "-i", "cpe-dash", "node", "dist/cli.js", "mcp"]
+      "args": ["exec", "-i", "-e", "API_TOKEN=<令牌>", "cpe-dash", "node", "dist/cli.js", "mcp"]
     }
   }
 }

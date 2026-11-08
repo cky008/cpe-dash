@@ -24,10 +24,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard-sujian.webp" alt="烽燧的监控大屏" width="100%" />
+  <img src="docs/screenshots/dashboard-sujian.webp" alt="烽燧的控制台" width="100%" />
 </p>
 
-烽燧是一个装在你自己 NAS 或电脑上的网页控制台，用来查看和管理华为 5G 路由器。它把官方网页里分散的信息集中到一块大屏上，再补上官方网页没有的东西：历史曲线、告警、Telegram 通知、短信会话，以及给 AI 智能体用的接口。数据只留在你家里。
+烽燧是一个装在你自己 NAS 或电脑上的网页控制台，用来查看和管理华为 5G 路由器。它把官方网页里分散的信息集中到一个页面上，再补上官方网页没有的东西：历史曲线、告警、Telegram 通知、短信会话，以及给 AI 智能体用的接口。数据只留在你家里。
 
 ## 它能做什么
 
@@ -64,7 +64,7 @@ docker compose logs cpe-dash | grep "setup code"
 | :---: | :---: |
 | <img src="docs/screenshots/sms-suzhi.webp" alt="短信中心" /> | <img src="docs/screenshots/controls-chenxi.webp" alt="控制抽屉：锁频、自愈与开关" /> |
 | **终端与上网管理** | **手机布局** |
-| <img src="docs/screenshots/topology-access.webp" alt="终端拓扑与访问控制" /> | <img src="docs/screenshots/mobile.webp" alt="手机上的监控大屏" width="60%" /> |
+| <img src="docs/screenshots/topology-access.webp" alt="已连接设备与访问控制" /> | <img src="docs/screenshots/mobile.webp" alt="手机上的控制台" width="60%" /> |
 
 更多界面可以直接在[在线演示](https://cky008.github.io/fengsui-demo/)里点：数据全是虚构的，刷新即复原。
 
@@ -77,7 +77,7 @@ docker compose logs cpe-dash | grep "setup code"
 | | |
 | :--- | :--- |
 | 开始使用 | [烽燧是什么](docs/guide/zh/overview.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md) |
-| 使用烽燧 | [监控大屏](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [终端与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md) |
+| 使用烽燧 | [控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [终端与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md) |
 | 管理 | [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他华为型号](docs/guide/zh/other-routers.md) |
 | 帮助 | [排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md) |
 | 技术文档 | [协议规范](docs/PHASE1_PROTOCOL_SPEC.md) · [架构报告](docs/PHASE2_ARCHITECTURE_REPORT.md) · [后端契约（REST / SSE / MCP）](docs/PHASE2_BACKEND_CONTRACT.md) · [更新日志](CHANGELOG.md) |

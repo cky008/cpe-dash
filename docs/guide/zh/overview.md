@@ -7,9 +7,9 @@ order: 1
 
 烽燧（FengSui，仓库名 `cpe-dash`）是一个网页控制台，运行在你家里的 NAS 或电脑上，用来查看和管理华为 5G 路由器（CPE）。
 
-它把路由器官方网页里分散的信息集中到一块大屏上，并补上官方网页没有的功能：历史曲线、告警、Telegram 通知、短信会话视图，以及给 AI 智能体用的接口。
+它把路由器官方网页里分散的信息集中到一个页面上，并补上官方网页没有的功能：历史曲线、告警、Telegram 通知、短信会话视图，以及给 AI 智能体用的接口。
 
-![烽燧的监控大屏](../../screenshots/dashboard-sujian.webp)
+![烽燧的控制台](../../screenshots/dashboard-sujian.webp)
 
 ## 它能做什么
 

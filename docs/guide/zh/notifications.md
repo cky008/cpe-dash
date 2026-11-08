@@ -2,7 +2,7 @@
 title: 告警与通知
 description: 断网、信号变差、新短信时通知你：Telegram 机器人、Webhook 和告警规则。
 section: 使用烽燧
-order: 8
+order: 9
 ---
 
 烽燧会在出问题时提醒你，并把新短信推送出去。通知可以发往 Telegram 机器人，或你自己的 Webhook 地址。

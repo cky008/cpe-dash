@@ -35,7 +35,7 @@ const TEXT = {
     verified: "只在华为 5G CPE Ultra 6（H168-383）上验证过，其他华为型号以只读方式工作。",
     copyLabel: "复制命令",
     showcaseTitle: "一眼看清你的网络",
-    showcaseLead: "信号、载波、邻区、流量和设备都在同一块大屏上，每 5 秒刷新一次。",
+    showcaseLead: "信号、载波、附近的基站、流量和设备都在同一个页面上，每 5 秒刷新一次。",
     featuresTitle: "需要的都在这里",
     features: [
       ["i-signal", "信号与载波聚合", "RSRP、SINR、MCS、发射功率和每个载波的频段、带宽，一眼看清 4G 与 5G 现在用的是什么。"],

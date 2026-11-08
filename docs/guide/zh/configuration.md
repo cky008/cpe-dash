@@ -2,7 +2,7 @@
 title: 配置参考
 description: .env 里每一项设置的含义和默认值。大多数人只需要填加密密钥和时区。
 section: 管理
-order: 10
+order: 13
 ---
 
 烽燧在启动时读取 `.env`（容器里是 `/app/.env`）和环境变量。完整模板见仓库里的 [`.env.example`](../../../.env.example)。
@@ -96,7 +96,7 @@ order: 10
 | `LOCK_ROLLBACK_AFTER_MIN` | `0`（关闭） | 锁定后 WAN 仍断开多少分钟就自动解除全部锁定（`3` 到 `1440`） |
 | `WAN_AUTO_RECONNECT_AFTER_MIN` | `0`（关闭） | WAN 断开多少分钟后自动重拨（`1` 到 `1440`），24 小时最多 4 次，从不重启路由器 |
 
-详见[锁频与锁小区](locking.md#锁完断网了怎么办)。
+详见[锁频与锁小区](locking.md#rollback)。
 
 ## 数据与存储
 

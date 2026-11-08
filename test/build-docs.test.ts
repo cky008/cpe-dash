@@ -47,7 +47,12 @@ describe("documentation site (scripts/build-docs.ts)", () => {
   });
 
   it("links only to pages, anchors and assets that exist, or to known outside sites", () => {
-    const allowedHosts = new Set(["github.com", "cky008.github.io", "modelcontextprotocol.io", "docs.example.com", "polyformproject.org", "schema.org", "www.sitemaps.org", "www.w3.org"]);
+    // The project's own sites, and the standards and vendor pages the guide cites as sources
+    const allowedHosts = new Set([
+      "github.com", "cky008.github.io", "docs.example.com", "polyformproject.org", "schema.org", "www.sitemaps.org", "www.w3.org",
+      "modelcontextprotocol.io", "www.3gpp.org", "standards.ieee.org", "www.wi-fi.org", "www.rfc-editor.org", "consumer.huawei.com",
+      "www.rohde-schwarz.com", "www.ericsson.com", "www.fortinet.com", "www.cellmapper.net",
+    ]);
     let internal = 0;
     for (const file of htmlFiles(site)) {
       const html = fs.readFileSync(file, "utf8");

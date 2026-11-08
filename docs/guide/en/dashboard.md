@@ -1,55 +1,55 @@
 ---
 title: Dashboard
-description: Understand every section of the dashboard: signals, carrier aggregation, neighbor cells, traffic, devices, and historical charts.
+description: What each section on the Dashboard shows: Signal, Carrier aggregation, Nearby cells, Data usage, Connected devices, and historical charts.
 section: Use FengSui
 order: 4
 ---
 
-After logging in to the console, you see the dashboard. Data refreshes every 5 seconds. When querying the router, FengSui logs in for only tens to hundreds of milliseconds each time and logs out immediately, so you can log in to the router's own web page at any time.
+When you log in, you see the Dashboard. Data refreshes every 5 seconds. When reading the router, FengSui stays logged in for only a few dozen to a few hundred milliseconds and logs out immediately, so you can log into the router's own web page at any time.
 
-![Dashboard (Midnight theme)](../../screenshots/dashboard-full-jiye.webp)
+![Dashboard (Polar Night theme)](../../screenshots/dashboard-full-jiye.webp)
 
 ## Header
 
-- **Carrier and SIM**: Carrier name, SIM status, and connection mode (4G, 5G NSA, 5G SA).
-- **Device identifiers**: IMEI, IMSI, and phone number are masked by default. Click the eye icon to reveal raw values for easy screenshots.
-- **Session status**: "idle" means everything is normal; "Human admin online · yielding" means someone logged in to the router's own web page and FengSui is waiting; "Anti-lockout breaker tripped" means the router password is incorrect and you need to correct it under "Settings → Router".
-- **Alert bell**: Recent alerts.
+- **Operator & SIM**: operator name, SIM status, and access mode (4G, 5G NSA, 5G SA).
+- **Device**: model, firmware, and masked IMEI, IMSI, and phone number. Click the eye icon to reveal the values when needed; they stay masked by default for safe screenshots.
+- **Network addresses**: IPv4, IPv6, and DNS addresses assigned by the operator network, also masked by default.
+- **Router admin page status**: "free" means everything is normal; "Someone is using the router's admin page · paused" means someone signed in to the router's own web page and FengSui waits for them to sign out; "Router rejected the password · logins stopped" means you need to correct the password under Settings → Router.
+- **Alert bell**: recent alerts.
 
-## Signals and carriers
+Hover over any term with a <kbd>?</kbd> to see a short explanation, or click it for detailed notes. If you do not need them, turn them off under Settings → Appearance.
 
-The **Carrier aggregation** section lists each carrier the router is actively using simultaneously, such as `PCC B1(20M) + SCC B3(20M) + 5G N78(100M)`: PCC is the primary carrier, SCC is a secondary carrier. Greater combined bandwidth allows higher maximum speeds.
+## Carrier aggregation
 
-The **RF cards** are displayed separately for 4G and 5G:
+Lists every carrier the router is currently using together, such as `B1(20M) + B3(20M) + n78(100M)`. More carriers and wider bandwidth provide higher peak speeds. To learn what these notations mean, see [Bands, carriers, and cells](bands-and-cells.md#ca).
 
-| Metric | What it is | How to read it |
-| :--- | :--- | :--- |
-| RSRP | Reference signal received power | Closer to 0 is stronger: -80 dBm is excellent, below -110 dBm is weak |
-| RSRQ | Reference signal received quality | Closer to 0 is better |
-| SINR | Signal-to-interference-plus-noise ratio | Higher is better: above 20 dB is excellent, below 0 dB is very poor |
-| PCI / Frequency | Cell identifier and frequency | Used when locking cells |
-| Modulation | e.g., 256QAM | Higher indicates a cleaner signal |
-| Transmit power | PUSCH / PUCCH | Higher means the router is working harder to transmit to the tower |
+## Signal
 
-Ring colors indicate quality levels. Cell identifiers (TAC, Cell ID, eNodeB) are masked by default.
+Split into 5G and 4G sections, this card shows signal strength, quality, modulation, transmit power, and other metrics. To learn what each number means, what counts as good, and what to do when the signal is poor, see [Understand signal readings](signal.md).
 
-## Neighbor cells
+The three most important numbers are **RSRP** (signal strength), **RSRQ** (signal quality), and **SINR** (signal purity). Ring colors indicate rating levels from good to poor. Cell identifiers (TAC, Cell ID, eNodeB) are masked by default.
 
-The **Neighbor cells** table lists surrounding cells the router can detect, sorted by signal strength. Each row offers "Lock to this cell"; see [Band and cell locking](locking.md). The table scans every minute, or you can click "Scan now" manually.
+## Nearby cells
 
-## Traffic
+Lists neighboring cells the router detects, sorted by signal strength. The cell labeled "Serving" is the active one. You can click "Lock to this cell" on any row; see [Lock bands and cells](locking.md#lock-cell). The table refreshes every minute, or you can click "Scan now" to scan immediately.
 
-- **Real-time rates**: Uplink and downlink throughput curves.
-- **Daily / Monthly usage**: Two circular gauges. Click "Caps" to configure a monthly data limit, which changes color and triggers alerts when exceeded; the billing reset day follows the router's setting.
+## Data usage
+
+- **Real-time rates**: upload and download rate curves.
+- **Daily and monthly usage**: two gauge rings. Click "Usage caps" to set a monthly data cap; the ring changes color and triggers an alert when exceeded. The billing day follows the router's setting.
+
+## Status
+
+Uptime, number of connected devices, response time of the last read from the router, and lock status. FengSui checks whether the locks on the router match what it applied; if they differ, it displays "differs from router".
 
 ## Historical charts
 
-View throughput and signals for the past 1, 6, 12, 24 hours, or a custom time range. Drag the brush slider at the bottom to zoom into a specific period. High-frequency data (one point every 5 seconds) is kept for 3 hours, then aggregated by minute, retained for 7 days total.
+View rate and signal trends for the last 1, 6, 12, or 24 hours, or a custom time range. Drag the brush bar at the bottom to zoom into a specific period. Data points sampled every 5 seconds are kept for 3 hours, then aggregated by minute and kept for 7 days.
 
-## Devices
+## Connected devices
 
-The **Device topology** lists devices connected to the router: name, wired or Wi-Fi (2.4G / 5G), IP address, negotiated rate, and DHCP lease duration. Wi-Fi devices have "Block / Restore" buttons next to them; for more management, see [Device and access management](devices.md).
+Lists devices connected to the router: device name, connection type (wired or 2.4G/5G Wi-Fi), IP address, link speed, and DHCP lease duration. Wi-Fi devices feature "Block / Restore" buttons. For more management options, see [Manage devices and access](devices.md).
 
 ## Appearance
 
-The top-right corner allows switching between Chinese / English and themes. FengSui includes 14 themes (7 light, 7 dark). When set to follow the system, you can select distinct themes for day and night, or create a custom palette using three colors. Preferences are stored only in your browser.
+Switch between Chinese and English and choose a theme in the top right corner. FengSui includes 14 themes (7 light and 7 dark). When following the system appearance, you can pick separate themes for day and night, or create a custom theme using three colors. Preferences are saved only in your browser.

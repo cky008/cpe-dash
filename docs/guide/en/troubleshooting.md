@@ -1,8 +1,8 @@
 ---
 title: Troubleshooting
-description: What to do when you cannot open the console, cannot connect to the router, see breaker tripped or yielding, or do not receive Telegram notifications.
+description: What to do when the console does not open, the router cannot be reached, the router rejects the password, someone is using its admin page, or Telegram notifications do not arrive.
 section: Help
-order: 14
+order: 17
 ---
 
 Start by checking two places: the **session state** in the console header, and the container logs via `docker compose logs --tail 100 cpe-dash`. Most issues are explained in these two locations.
@@ -34,11 +34,15 @@ Under "Settings → Router", click "Test connection" to see the reason:
 | Someone is logged in to the router's web page | Log out from the router's own web page, then test again |
 | Password must be changed first | The router requires changing the default password on the router's own web page first |
 
-## Header shows "Anti-lockout breaker tripped"
+<a id="breaker"></a>
 
-The router rejected the password, and FengSui stopped immediately to avoid locking out the router. Go to "Settings → Router", enter the correct password, and save: FengSui runs a test first, and automatically clears the breaker once the test succeeds.
+## Header shows "Router rejected the password · logins stopped"
 
-## Header shows "Human admin online · yielding"
+The router rejected the password, and FengSui stopped at once so the router does not lock its admin account (three wrong passwords in a row lock it). Go to Settings → Router, enter the correct password and save: FengSui tests it first and carries on once the test succeeds.
+
+<a id="yielding"></a>
+
+## Header shows "Someone is using the router's admin page · paused"
 
 Someone logged in to the router's own web page (this could be you on another device, or a family member). FengSui checks periodically and resumes automatically once they log out. In the meantime, metrics stay at their last polled values, and actions that modify the router return "Someone is using the router".
 
