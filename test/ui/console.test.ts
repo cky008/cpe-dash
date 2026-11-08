@@ -261,6 +261,37 @@ describe("the console in a browser", () => {
     await closeDialogs(page);
   });
 
+  it("lets a term's help go: Escape hides it first, a redrawn card leaves none behind, one mark points at it", async () => {
+    await signIn(page, live());
+    const state = (): Promise<{ hidden: boolean; described: number }> =>
+      page.evaluate(`(() => ({ hidden: document.querySelector(".fs-help-tip")?.hidden ?? true, described: document.querySelectorAll("[aria-describedby='fsHelpTip']").length }))()`);
+    const marks = (scope: string): string => `[...document.querySelectorAll(${JSON.stringify(scope + " .fs-help")})].filter((m) => m.getBoundingClientRect().width > 0)`;
+    const hover = (scope: string, i: number): string => `${marks(scope)}[${i}].dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))`;
+    const escape = async (): Promise<void> => {
+      for (const type of ["keyDown", "keyUp"]) await page.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    };
+    // Two marks in turn: only the one explained points at the tip, and none once it is hidden
+    await page.evaluate(`${hover("#dashboardView", 0)}; ${hover("#dashboardView", 1)}; true`);
+    assert.deepEqual(await state(), { hidden: false, described: 1 });
+    // Escape dismisses it without moving the pointer or the focus (WCAG 2.2, 1.4.13 Content on Hover or Focus)
+    await escape();
+    assert.deepEqual(await state(), { hidden: true, described: 0 });
+    // A card redrawn under the pointer takes its mark away without a mouseout: the next move hides the tip
+    await page.evaluate(`(() => { const m = ${marks("#dashboardView")}[0]; m.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); m.remove(); document.getElementById("dashboardView").dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); return true; })()`);
+    assert.deepEqual(await state(), { hidden: true, described: 0 });
+    // In a drawer the first Escape takes the tip away and leaves the drawer open; the next one closes it
+    await page.click('[data-action="open-controls"]');
+    await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+    await page.waitUntil(`${marks("#controlsDialog")}.length > 3`, "help marks in the drawer");
+    await page.evaluate(`${hover("#controlsDialog", 0)}; true`);
+    assert.equal((await state()).hidden, false);
+    await escape();
+    assert.equal((await state()).hidden, true);
+    assert.equal(await page.evaluate<boolean>(isOpen("controlsDialog")), true, "the drawer stays open");
+    await escape();
+    await page.waitUntil(`!${isOpen("controlsDialog")}`, "the drawer to close on the second Escape");
+  });
+
   it("gives every control in the dashboard, the settings tabs and the drawers a name", async () => {
     await signIn(page, live());
     const problems: string[] = [];

@@ -13,6 +13,8 @@ import { type Child, h } from "./dom.ts";
 const EDGE_PX = 8;
 const GAP_PX = 8;
 let tip: HTMLElement | null = null;
+/** The mark whose line is shown: the only one that points at the tip (`aria-describedby`). */
+let shownFor: HTMLElement | null = null;
 let installed = false;
 
 function tipElement(): HTMLElement {
@@ -43,11 +45,15 @@ function show(mark: HTMLElement): void {
   const top = above >= EDGE_PX ? above : Math.min(anchor.bottom + GAP_PX, window.innerHeight - height - EDGE_PX);
   el.style.left = `${Math.max(EDGE_PX, left)}px`;
   el.style.top = `${Math.max(EDGE_PX, top)}px`;
+  if (shownFor !== mark) shownFor?.removeAttribute("aria-describedby");
   mark.setAttribute("aria-describedby", "fsHelpTip");
+  shownFor = mark;
 }
 
 function hide(): void {
   if (tip) tip.hidden = true;
+  shownFor?.removeAttribute("aria-describedby");
+  shownFor = null;
 }
 
 function markOf(target: EventTarget | null): HTMLElement | null {
@@ -62,6 +68,8 @@ function install(): void {
   document.addEventListener("mouseover", (event) => {
     const mark = markOf(event.target);
     if (mark) show(mark);
+    // A re-render removed the mark under the pointer, and a removed node sends no mouseout
+    else if (shownFor && !shownFor.isConnected) hide();
   });
   document.addEventListener("mouseout", (event) => {
     if (markOf(event.target)) hide();
@@ -73,6 +81,12 @@ function install(): void {
   });
   document.addEventListener("focusout", (event) => {
     if (markOf(event.target)) hide();
+  });
+  // Escape dismisses the line without moving the pointer or the focus; in a drawer, the first Escape only does that
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !tip || tip.hidden) return;
+    event.preventDefault();
+    hide();
   });
   window.addEventListener("scroll", hide, true);
   window.addEventListener("resize", hide);
