@@ -795,7 +795,7 @@ describe("Device access control through the daemon (REST, MCP)", () => {
   });
 
   it("lets MCP agents block and restore devices by LAN address once MCP_ALLOW_ACCESS_CONTROL=true, with confirmation", async () => {
-    const { cpe, mcp, close } = await startAccessStack({ MCP_ALLOW_ACCESS_CONTROL: "true" });
+    const { cpe, mcp, close } = await startAccessStack({ MCP_ALLOW_MUTATIONS: "true", MCP_ALLOW_ACCESS_CONTROL: "true" });
     try {
       assert.match(await mcp("tools/list", {}), /set_device_internet_access.*set_wifi_mac_filter.*manage_internet_time_rule/s);
       assert.match(await mcp("tools/call", { name: "set_device_internet_access", arguments: { action: "block", ipv4Address: "192.168.8.30" } }), /CONFIRMATION_REQUIRED/);
@@ -830,7 +830,7 @@ describe("Read-only Bearer token (API_TOKEN_READONLY)", () => {
   it("lets dashboards and agents read and refresh but never write, over REST and MCP", async () => {
     const cpe = createStrictCpe({ latencyMs: 2 });
     const dir = tempDir("fengsui-readonly-");
-    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), API_TOKEN_READONLY: "readonly_api_token_v1", SMS_ENABLED: "false" });
+    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), API_TOKEN_READONLY: "readonly_api_token_v1", SMS_ENABLED: "false", MCP_ALLOW_MUTATIONS: "true" });
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: createNotifyFetch().fetchImpl, log: () => undefined });
     try {

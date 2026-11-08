@@ -28,9 +28,10 @@ services:
       - ./.env:/app/.env:ro
     ports:
       - "${WEB_PORT:-18384}:18384"
-    # The cross-host duplicate-daemon guard (UDP 18385 broadcast beacons) needs the host network:
-    # Docker's bridge does not forward LAN broadcasts. To enable it, uncomment the next line and
-    # remove `ports:` above (the console is then served on the host's WEB_PORT directly).
+    # The cross-host duplicate-daemon guard (PEER_DISCOVERY_ENABLED=true, UDP 18385 broadcast beacons,
+    # off by default) needs the host network: Docker's bridge does not forward LAN broadcasts. To use
+    # it, uncomment the next line and remove `ports:` above (the console is then served on the host's
+    # WEB_PORT directly).
     # network_mode: host
     read_only: true
     tmpfs:

@@ -1394,7 +1394,7 @@ export interface AvoidanceBroadcastPayload {
   - `list_neighbor_cells`：`scanNow: true` 强制扫描；省略时仅在缓存为空时扫描；`scanNow: false` 只读缓存。
   - `query_telemetry_history`：参数与校验规则同 `GET /api/timeseries`。
 - **射频与系统控制类（7 项，均标注 `destructiveHint: true`）**：`lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`（强制 `confirm: true`）、`reboot_cpe`（强制 `confirm: true`）。
-  - 设置 `.env` 中 `MCP_ALLOW_MUTATIONS=false` 后，这 7 项工具不会出现在 `tools/list` 中，直接调用返回 `MUTATIONS_DISABLED`。
+  - `MCP_ALLOW_MUTATIONS` 默认 `false`：这 7 项工具不会出现在 `tools/list` 中，直接调用返回 `MUTATIONS_DISABLED`；在 `.env` 设为 `true` 后才开放。
   - 所有参数在第一次写入之前完成校验，非法参数返回 `VALIDATION_ERROR` 且不产生 CPE 会话。服务端在执行前强制校验每个工具声明的 `inputSchema`：未知参数（如拼错的键）、缺失的必填参数、类型或范围不符都会返回 `VALIDATION_ERROR`，消息指出具体参数；带 `confirm` 参数的工具先检查 `confirm === true`（否则 `CONFIRMATION_REQUIRED`），再做 Schema 校验。
   - `lock_band`：频段规则同 REST（2.4 节）。
   - `lock_cell`：`arfcn` / `pci` 为整数（`pci` LTE `0..503`、NR `0..1007`，MCP 不接受 `null`），频段与 ARFCN 规则同 REST；此外**只能锁定已观测到的小区**：(`rat`, `band`, `arfcn`[, `pci`]) 必须与当前服务小区、载波聚合分量、辅小区或最近一次邻区扫描中的条目一致，否则返回 `CELL_NOT_OBSERVED`（请先调用 `list_neighbor_cells({ scanNow: true })` 并从结果中复制参数）。REST 不受此限制。
@@ -1513,7 +1513,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 7. **MCP 发送额度保存在内存中**：`MCP_SMS_SEND_LIMIT_PER_HOUR` 的计数在进程重启后清零。
 8. **Telegram 仅支持长轮询**：不注册 Bot Webhook；同一 Bot Token 只能由一个 `serve` 进程使用（否则 `getUpdates` 冲突）。跨主机由 LAN 信标保护（见第 9 条之后的说明）。
 >
-> **跨主机重复守护进程**：每个守护进程每 15s 在局域网 UDP `PEER_DISCOVERY_PORT`（默认 `18385`）广播一次信标，签名密钥由 `CPE_PASSWORD` 经 scrypt（`N=2^15, r=8, p=1`，盐含 CPE 主机名，每个进程只算一次）派生（只有能登录这台 CPE 的进程才能伪造信标，信标中不含明文地址与密码）。信标对局域网所有主机可见，因此每个信标都可被用来离线猜测路由器密码：scrypt 让每次猜测代价高昂，但弱密码仍可能被猜中，单主机部署可设 `PEER_DISCOVERY_ENABLED=false`。信标格式 v2 起不再接受 v1（快速 HKDF），升级时请同时升级所有主机，否则新旧版本互相看不见。两个守护进程管理同一台 CPE 时，启动较早者领先（同时启动则按实例 ID），较晚者转入待机：不建立 CPE 会话、暂停 Telegram 长轮询、控制写返回 `409 PEER_DAEMON_ACTIVE`，双方各推送一条 `DUPLICATE_DAEMON` 告警；领先方 45s 无信标后待机方恢复（`DUPLICATE_DAEMON_CLEARED`）。守护进程启动时先等待约 1s 接收应答再开始轮询。Docker 桥接网络不转发广播，NAS 上请使用 host 网络，否则该保护不生效；`PEER_DISCOVERY_ENABLED=false` 可关闭。
+> **跨主机重复守护进程**（`PEER_DISCOVERY_ENABLED=true` 时，默认关闭）：每个守护进程每 15s 在局域网 UDP `PEER_DISCOVERY_PORT`（默认 `18385`）广播一次信标，签名密钥由 `CPE_PASSWORD` 经 scrypt（`N=2^15, r=8, p=1`，盐含 CPE 主机名，每个进程只算一次）派生（只有能登录这台 CPE 的进程才能伪造信标，信标中不含明文地址与密码）。信标对局域网所有主机可见，因此每个信标都可被用来离线猜测路由器密码：scrypt 让每次猜测代价高昂，但弱密码仍可能被猜中，所以默认关闭，只在可能多主机运行时打开。信标格式 v2 起不再接受 v1（快速 HKDF），升级时请同时升级所有主机，否则新旧版本互相看不见。两个守护进程管理同一台 CPE 时，启动较早者领先（同时启动则按实例 ID），较晚者转入待机：不建立 CPE 会话、暂停 Telegram 长轮询、控制写返回 `409 PEER_DAEMON_ACTIVE`，双方各推送一条 `DUPLICATE_DAEMON` 告警；领先方 45s 无信标后待机方恢复（`DUPLICATE_DAEMON_CLEARED`）。守护进程启动时先等待约 1s 接收应答再开始轮询。Docker 桥接网络不转发广播，NAS 上请使用 host 网络，否则该保护不生效；`PEER_DISCOVERY_ENABLED=false` 可关闭。
 9. **NR 频段表来自规格书而非路由器**：H168-383 不通告 NR 频段列表，NR 白名单取自 Huawei 规格书（其 LTE 列表与路由器 `net-mode-list` 通告的 14 个频段完全一致，`n78` 在真机上实际服务）。SUL 频段 `n80–n84` 仅用于上行，不可作为下行频段锁定。
 10. **Webhook / Telegram 传输**：`WEBHOOK_URL` 与 `TELEGRAM_API_BASE` 只有局域网 / 环回主机可用明文 `http`，其余必须 `https`。
 

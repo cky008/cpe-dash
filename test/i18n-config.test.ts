@@ -93,6 +93,9 @@ describe("Phase 2 config hardening: CIDR XFF, /64 rate-limit key, DNS rebinding 
     assert.equal(cfg.webPort, 18384);
     assert.equal(cfg.mcpHttpEnabled, true);
     assert.equal(cfg.redactSensitiveInApi, true);
+    // Safe for a stranger who copies nothing: agents read only, and no password-derived beacon on the LAN
+    assert.equal(cfg.mcpAllowMutations, false);
+    assert.equal(cfg.peerDiscoveryEnabled, false);
   });
 });
 

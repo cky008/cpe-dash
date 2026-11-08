@@ -457,10 +457,10 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const defaultLocale = normalizeLocale(get("DEFAULT_LOCALE"), "zh-CN");
 
   const mcpHttpEnabled = parseBool(get("MCP_HTTP_ENABLED"), true);
-  const mcpAllowMutations = parseBool(get("MCP_ALLOW_MUTATIONS"), true);
+  const mcpAllowMutations = parseBool(get("MCP_ALLOW_MUTATIONS"), false);
   const mcpAllowAccessControl = parseBool(get("MCP_ALLOW_ACCESS_CONTROL"), false);
   const mcpDaemonUrl = resolveDaemonMcpUrl(get("MCP_DAEMON_URL"), webHost, webPort);
-  const peerDiscoveryEnabled = parseBool(get("PEER_DISCOVERY_ENABLED"), true);
+  const peerDiscoveryEnabled = parseBool(get("PEER_DISCOVERY_ENABLED"), false);
   const peerDiscoveryPort = Math.min(65535, Math.max(1, parseIntSafe(get("PEER_DISCOVERY_PORT"), 18385)));
   const sseHeartbeatMs = Math.max(3000, parseIntSafe(get("SSE_HEARTBEAT_MS"), 15000));
   const sseMaxClients = Math.max(1, parseIntSafe(get("SSE_MAX_CLIENTS"), 32));

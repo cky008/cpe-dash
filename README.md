@@ -621,10 +621,10 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `WEB_HOST` / `WEB_PORT` | `0.0.0.0` / `18384` | 监听地址与端口；compose 下 `WEB_PORT` 决定宿主机端口 |
 | `DEFAULT_LOCALE` | `zh-CN` | 默认界面与提示语言（`zh-CN` / `en`） |
 | `MCP_HTTP_ENABLED` | `true` | 是否启用 `POST /mcp`（stdio 桥接也依赖它） |
-| `MCP_ALLOW_MUTATIONS` | `true` | 是否允许 MCP 调用写操作工具 |
+| `MCP_ALLOW_MUTATIONS` | `false` | 是否允许 MCP 调用写操作工具（默认智能体只能读取） |
 | `MCP_ALLOW_ACCESS_CONTROL` | `false` | 是否向 MCP 开放会断网的工具（拉黑 / 恢复设备、MAC 过滤、上网时段）；读取访问控制状态始终可用 |
 | `MCP_DAEMON_URL` | *(由 `WEB_HOST`/`WEB_PORT` 推导)* | stdio 桥接转发的 `/mcp` 地址；只接受局域网 / 环回主机 |
-| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `true` / `18385` | 跨主机重复守护进程保护（签名 UDP 广播信标；Docker 需 host 网络）。信标签名密钥由 `CPE_PASSWORD` 经 scrypt 派生，局域网内的设备可借信标离线猜测弱密码，只运行一台守护进程时可关闭 |
+| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `false` / `18385` | 跨主机重复守护进程保护（签名 UDP 广播信标；Docker 需 host 网络）。信标签名密钥由 `CPE_PASSWORD` 经 scrypt 派生，局域网内的设备可借信标离线猜测弱密码，所以默认关闭，只在可能多台机器运行时打开 |
 | `REDACT_SENSITIVE_IN_API` | `true` | 对 Bearer API、SSE 与 MCP 输出脱敏 IMEI、IMSI、本机号码、MAC、WAN 地址与 TAC / CellID 等位置指纹。Web 控制台不受影响：始终收到原值，界面默认打码、点眼睛显示。修改后重启或调用 `reset-breaker` 生效 |
 | `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | SSE 心跳间隔与最大并发连接数 |
 | `POLL_INTERVAL_MS` | `5000` | 遥测与实时速率采样周期 |

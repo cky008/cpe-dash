@@ -21,7 +21,7 @@ const zh = {
   claude_title: "Claude Code 命令",
   json_title: "JSON 配置（.mcp.json、Cursor、VS Code 等）",
   copy: "复制",
-  notes: "需要 MCP_HTTP_ENABLED=true（默认开启）。智能体所在的机器要能访问这个地址；换用其他主机名访问时，把它加入 ALLOWED_HOSTS。写工具受 MCP_ALLOW_MUTATIONS 控制，访问控制写工具另需 MCP_ALLOW_ACCESS_CONTROL=true，所有写操作都要求 confirm: true。",
+  notes: "需要 MCP_HTTP_ENABLED=true（默认开启）。智能体所在的机器要能访问这个地址；换用其他主机名访问时，把它加入 ALLOWED_HOSTS。写工具默认关闭（在 .env 设 MCP_ALLOW_MUTATIONS=true 打开），访问控制写工具另需 MCP_ALLOW_ACCESS_CONTROL=true，所有写操作都要求 confirm: true。",
 };
 
 export type McpGuideTextKey = keyof typeof zh;
@@ -43,7 +43,7 @@ const en: Readonly<Record<McpGuideTextKey, string>> = {
   claude_title: "Claude Code command",
   json_title: "JSON config (.mcp.json, Cursor, VS Code, …)",
   copy: "Copy",
-  notes: "Needs MCP_HTTP_ENABLED=true (the default). The agent's machine must reach this address; add any other host name you use to ALLOWED_HOSTS. Write tools follow MCP_ALLOW_MUTATIONS, access-control writes also need MCP_ALLOW_ACCESS_CONTROL=true, and every write requires confirm: true.",
+  notes: "Needs MCP_HTTP_ENABLED=true (the default). The agent's machine must reach this address; add any other host name you use to ALLOWED_HOSTS. Write tools are off by default (set MCP_ALLOW_MUTATIONS=true in .env to turn them on), access-control writes also need MCP_ALLOW_ACCESS_CONTROL=true, and every write requires confirm: true.",
 };
 
 export const MCP_GUIDE_TEXT: Readonly<Record<Locale, Readonly<Record<McpGuideTextKey, string>>>> = { "zh-CN": zh, en };
