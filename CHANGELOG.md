@@ -4,6 +4,13 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.3] — 2026-11-08
+
+### Highlights
+- **Local numbers in your country's format.** A number typed without `+` is completed the way your country writes it: Italian mobiles that begin with 39 and Polish numbers that begin with 48 keep their digits, and the trunk prefix 8 (Russia, Kazakhstan) or 06 (Hungary) is dropped. A Kazakh SIM now sets the default country, and Telegram's send wizard shows your country on its buttons.
+- **Tighter security.** The router's encryption key must stay signed once it has been, a stream opened with an expiring token ends when the token does, a one-time setup code survives a few typos, wrong current passwords count against the sign-in limit, and stopping FengSui in the middle of a router connection test logs out of the router.
+- **Find old unencrypted files.** `cpe-dash doctor` reports a data file written before encryption was required, and `cpe-dash rekey` encrypts it in place.
+
 ### Security
 - **The router's encryption key must stay signed.** At login the router hands over the key FengSui encrypts sensitive requests with, signed with a value only the router and FengSui can compute. FengSui already rejected a wrong signature but accepted a missing one. Once a router has signed its key, a login whose key arrives unsigned (an answer altered on the way) is now ended and logged out instead of trusted; this is remembered across restarts and starts over when the router connection changes. Routers that never sign are not affected. `CPE_REQUIRE_ECC_SIGNATURE=false` turns it off.
 - **An expiring token's event stream ends when the token does.** `/api/events` closed a stream when its token was revoked, but a stream opened with a token that has an expiry kept running after it expired; it now ends at the expiry, as a console session's stream does.
@@ -34,6 +41,12 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Container and CI
 - **Images you can verify.** Once the repository is public, each release image also gets a signed build-provenance attestation from GitHub, so anyone can check which commit and workflow built it: `gh attestation verify oci://ghcr.io/cky008/cpe-dash:<version> -R cky008/cpe-dash`. GitHub offers these to public repositories only; until then the step is skipped.
 - **Release notes link the commits since the release before.** Each GitHub release ends with a "Full Changelog" link comparing it with the previous tag, as GitHub's own notes do (the first release links its commits); every GitHub release was regenerated with it.
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`.
+- New setting `CPE_REQUIRE_ECC_SIGNATURE` (default `true`): once your router has signed its encryption key at a login, a login without that signature is ended instead of trusted. Routers that never sign are not affected; set it to `false` only if a firmware update made your router stop signing.
+- Run `docker exec cpe-dash node dist/cli.js doctor` once after upgrading. If it reports a file as "stored without encryption", encrypt it as the backup page of the guide shows; a later release will refuse such files.
+- `state.json` gains one field (`eccSigned`); an older version ignores it, so you can still go back.
 
 ## [1.7.2] — 2026-11-08
 
