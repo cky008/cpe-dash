@@ -614,7 +614,7 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret).update(`${req.h
 | `TZ` | `UTC` | IANA 时区（如 `Asia/Shanghai`）；发出短信的 `<Date>` 按此生成，请与 CPE 所在时区一致 |
 | `DATA_ENCRYPTION_KEY` | *(回退 `CPE_PASSWORD`)* | `data/*.json` 落盘加密主密钥（`scrypt` + `HKDF-SHA256` → `AES-256-GCM`），强烈建议独立设置；全新安装时这是 `.env` 里唯一必填的值 |
 | `API_TOKEN_READONLY` | *(空，不启用)* | 首次启动时导入为名为 `API_TOKEN_READONLY (.env)` 的只读令牌；新的令牌请在控制台「设置 → 令牌」生成。必须与 `API_TOKEN`、`CPE_PASSWORD` 不同 |
-| `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | 首次启动时导入一次：成为控制台登录密码，同时成为名为 `API_TOKEN (.env)` 的完全控制令牌。之后在控制台改密码、发放和撤销令牌，`.env` 里的值不再生效 |
+| `API_TOKEN` | *(回退 `CPE_PASSWORD`)* | 首次启动时导入一次：成为控制台登录密码，同时成为名为 `API_TOKEN (.env)` 的完全控制令牌。之后在控制台改密码、发放和撤销令牌，`.env` 里的值不再生效。只要还有令牌或控制台密码与路由器密码相同，每次启动都会在日志里提示 |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 可信反向代理 IP / CIDR；只有命中时才解析 `X-Forwarded-For` / `X-Forwarded-Proto` |
 | `ALLOWED_HOSTS` | *(空)* | 额外放行的 `Host`（如 `cpe.example.com`）；私网 IP、`localhost`、`*.local` / `*.lan` / `*.internal` / `*.ts.net` 始终放行 |
 | `WEB_ENABLED` | `true` | 是否启动 HTTP 服务（Web 控制台、REST、SSE 与 `/mcp`）；设为 `false` 时只运行后台采集、短信同步与通知 |

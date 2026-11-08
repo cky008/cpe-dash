@@ -40,6 +40,28 @@ function fixture() {
 }
 
 describe("console settings store", () => {
+  it("tells when the saved router password is also a live token or the console password, without touching either", async () => {
+    const fx = fixture();
+    try {
+      const settings = fx.open();
+      settings.importFromEnv({ ...ENV, apiToken: "router_pw" });
+      assert.deepEqual(await settings.routerPasswordReuse(), { tokenName: "API_TOKEN (.env)", login: true });
+      assert.equal(settings.listTokens().find((t) => t.name === "API_TOKEN (.env)")?.lastUsedAtIso, null, "the check is not a use");
+
+      await settings.setLogin("a-new-console-password");
+      const imported = settings.listTokens().find((t) => t.name === "API_TOKEN (.env)");
+      assert.ok(imported);
+      settings.revokeToken(imported.id);
+      assert.deepEqual(await settings.routerPasswordReuse(), { tokenName: null, login: false });
+
+      const fresh = fx.open();
+      fresh.importFromEnv({ ...ENV, cpePassword: "", apiToken: "", apiTokenReadonly: "" });
+      assert.deepEqual(await fresh.routerPasswordReuse(), { tokenName: null, login: false }, "no router password, nothing reused");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("imports the .env setup once: router, login, and the existing tokens keep working", async () => {
     const fx = fixture();
     try {

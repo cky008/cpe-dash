@@ -81,6 +81,14 @@ export interface BearerIdentity {
   scope: TokenScope;
 }
 
+/** Where the saved router password is also a secret of the console (see `routerPasswordReuse`). */
+export interface RouterPasswordReuse {
+  /** A live token whose value is the router password (an `.env` import makes one). */
+  tokenName: string | null;
+  /** The console password is the router password. */
+  login: boolean;
+}
+
 interface PersistedConsoleSettings {
   format: 1;
   cpe: CpeConnection | null;
@@ -420,6 +428,19 @@ export class ConsoleSettings {
       this.#save();
     }
     return { tokenId: record.id, name: record.name, scope: record.scope };
+  }
+
+  /**
+   * Whether the saved router password also opens the console: as a live token (the first start
+   * imports API_TOKEN, which falls back to CPE_PASSWORD) or as the console password. Either puts the
+   * router's admin password into client configs or Telegram. Uses nothing: no token's last use moves.
+   */
+  async routerPasswordReuse(): Promise<RouterPasswordReuse> {
+    const password = this.#state.cpe?.password ?? "";
+    if (!password) return { tokenName: null, login: false };
+    const record = this.#byHash.get(sha256Hex(password));
+    const live = record !== undefined && (record.expiresAtIso === null || Date.parse(record.expiresAtIso) > this.#now());
+    return { tokenName: live ? record.name : null, login: await this.verifyLogin(password) };
   }
 
   // ------------------------------------------------------------ one-time codes

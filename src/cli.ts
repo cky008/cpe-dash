@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
 import { AuditLog } from "./audit-log.ts";
-import { ConsoleSettings, resetLoginProof } from "./console-settings.ts";
+import { ConsoleSettings, type RouterPasswordReuse, resetLoginProof } from "./console-settings.ts";
 import { loadConfig } from "./config.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts";
 import { DEFAULT_SESSION_MAX_HOLD_MS, HuaweiCpeClient } from "./cpe-client.ts";
@@ -639,21 +639,26 @@ export async function startServeDaemon(stack: FengSuiRuntimeStack): Promise<{ ho
 
 /**
  * Notices for configuration that works but leaks or risks something, printed to stderr at startup:
- * secrets that silently fall back to CPE_PASSWORD, and a switch meant to be on only for a while.
+ * a data key that falls back to CPE_PASSWORD, the saved router password still opening the console
+ * (`reuse`, from the console store), and a switch meant to be on only for a while.
  */
 export function startupNotices(
-  config: Pick<AppConfig, "cpePassword" | "apiToken" | "dataEncryptionKey"> & Partial<Pick<AppConfig, "cpeAllowLegacyLoginAfterScram">>
+  config: Pick<AppConfig, "cpePassword" | "dataEncryptionKey"> & Partial<Pick<AppConfig, "cpeAllowLegacyLoginAfterScram">>,
+  reuse: RouterPasswordReuse = { tokenName: null, login: false }
 ): string[] {
   const notices: string[] = [];
-  if (config.dataEncryptionKey === config.cpePassword) {
+  if (config.cpePassword !== "" && config.dataEncryptionKey === config.cpePassword) {
     notices.push(
       "DATA_ENCRYPTION_KEY is not set, so the encrypted data is keyed to CPE_PASSWORD in .env: keep that value even though the router password is now managed in the console. Move to a dedicated key with `cpe-dash rekey`; restarting with a different key instead leaves the files unreadable (quarantined as *.unreadable-<timestamp>)."
     );
   }
-  if (config.apiToken === config.cpePassword) {
+  if (reuse.tokenName !== null) {
     notices.push(
-      "API_TOKEN is not set, so the router's admin password is also the web login, the Bearer token in every REST and MCP client config, and the secret sent to Telegram with /auth. Set a dedicated random API_TOKEN and apply it with POST /api/session/reset-breaker or a restart."
+      `The router's admin password is also the token "${reuse.tokenName}" (imported from .env), so it sits in the config of every REST and MCP client that uses it and links Telegram chats with /auth. Create a token for those clients in Settings → Tokens, then revoke "${reuse.tokenName}" there.`
     );
+  }
+  if (reuse.login) {
+    notices.push("The console password is the router's admin password: whoever knows one knows the other. Choose another one in Settings → Password.");
   }
   if (config.cpeAllowLegacyLoginAfterScram === true) {
     notices.push(
@@ -844,7 +849,7 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
 
   const boundAddress = await startServeDaemon(stack);
   if (shuttingDown) return;
-  for (const notice of startupNotices(config)) process.stderr.write(`[fengsui] Notice: ${notice}\n`);
+  for (const notice of startupNotices(config, await stack.settings.routerPasswordReuse())) process.stderr.write(`[fengsui] Notice: ${notice}\n`);
   const smsSummary = stack.sms ? `sms=on (mirror ${stack.sms.mirror.size} messages)` : "sms=off (SMS_ENABLED=false)";
 
   // `serve` daemon mode

@@ -379,12 +379,21 @@ describe("createFengSuiRuntime", () => {
     }
   });
 
-  it("warns at startup when API_TOKEN or DATA_ENCRYPTION_KEY silently fall back to the router password", () => {
-    const fallback = startupNotices({ cpePassword: "router_pw", apiToken: "router_pw", dataEncryptionKey: "router_pw" });
-    assert.equal(fallback.length, 2);
+  it("warns at startup only about the router password reuse that is still true", () => {
+    const fallback = startupNotices({ cpePassword: "router_pw", dataEncryptionKey: "router_pw" }, { tokenName: "API_TOKEN (.env)", login: true });
+    assert.equal(fallback.length, 3);
     assert.match(fallback[0] ?? "", /DATA_ENCRYPTION_KEY is not set/);
-    assert.match(fallback[1] ?? "", /API_TOKEN is not set[\s\S]*Telegram/);
-    assert.deepEqual(startupNotices({ cpePassword: "router_pw", apiToken: "random_api_token", dataEncryptionKey: "random_data_key" }), []);
+    assert.match(fallback[1] ?? "", /also the token "API_TOKEN \(\.env\)"[\s\S]*Settings → Tokens/);
+    assert.match(fallback[2] ?? "", /console password is the router's admin password[\s\S]*Settings → Password/);
+    assert.deepEqual(startupNotices({ cpePassword: "router_pw", dataEncryptionKey: "random_data_key" }, { tokenName: null, login: false }), []);
+    // The README's setup: only DATA_ENCRYPTION_KEY in .env, the router and console passwords set in the console
+    const dir = tempDir("fengsui-notices-");
+    try {
+      fs.writeFileSync(path.join(dir, ".env"), "DATA_ENCRYPTION_KEY=random_data_key\n");
+      assert.deepEqual(startupNotices(loadConfig({ envPath: path.join(dir, ".env"), ignoreProcessEnv: true })), []);
+    } finally {
+      removeTempDir(dir);
+    }
   });
 
   it("stops cleanly when a stop arrives while startup is still running: nothing starts afterwards", async () => {
