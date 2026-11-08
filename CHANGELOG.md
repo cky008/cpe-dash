@@ -8,6 +8,10 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **The console's "?" marks open the guide on its own domain.** They linked to `cky008.github.io/cpe-dash`, which reaches the guide only through GitHub's redirect to the custom domain and gave a 404 in some browsers; the marks, the READMEs and the release notes now link to https://fengsui.iocky.com/ directly.
 - **Steps with a code block render as steps.** On the documentation site, a code block, a second paragraph or a list indented under a numbered step (Synology's install steps, changing the encryption key) came out as one line of text and restarted the numbering. The Markdown renderer now keeps such blocks inside their step.
 
+### Documentation
+- **Support FengSui from the documentation site.** A heart in the header, a "Support FengSui" column in the footer, a short section on the home page and an FAQ answer link to GitHub Sponsors and Buy Me a Coffee (the same pages as GitHub's Sponsor button); the footer links the author's site, as the console's does.
+- **"Devices and internet access" in Chinese too.** The guide page and the home page said 终端 (terminal) where the console says 设备 (device); they now use the console's word.
+
 ## [1.7.1] — 2026-11-08
 
 ### Highlights

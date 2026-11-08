@@ -63,7 +63,7 @@ docker compose logs cpe-dash | grep "setup code"
 | 短信中心 | 控制抽屉 |
 | :---: | :---: |
 | <img src="docs/screenshots/sms-suzhi.webp" alt="短信中心" /> | <img src="docs/screenshots/controls-chenxi.webp" alt="控制抽屉：锁频、自愈与开关" /> |
-| **终端与上网管理** | **手机布局** |
+| **设备与上网管理** | **手机布局** |
 | <img src="docs/screenshots/topology-access.webp" alt="已连接设备与访问控制" /> | <img src="docs/screenshots/mobile.webp" alt="手机上的控制台" width="60%" /> |
 
 更多界面可以直接在[在线演示](https://cky008.github.io/fengsui-demo/)里点：数据全是虚构的，刷新即复原。
@@ -77,7 +77,7 @@ docker compose logs cpe-dash | grep "setup code"
 | | |
 | :--- | :--- |
 | 开始使用 | [烽燧是什么](docs/guide/zh/overview.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md) |
-| 使用烽燧 | [控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [终端与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md) |
+| 使用烽燧 | [控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [设备与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md) |
 | 管理 | [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他华为型号](docs/guide/zh/other-routers.md) |
 | 帮助 | [排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md) |
 | 技术文档 | [协议规范](docs/PHASE1_PROTOCOL_SPEC.md) · [架构报告](docs/PHASE2_ARCHITECTURE_REPORT.md) · [后端契约（REST / SSE / MCP）](docs/PHASE2_BACKEND_CONTRACT.md) · [更新日志](CHANGELOG.md) |
@@ -89,6 +89,7 @@ docker compose logs cpe-dash | grep "setup code"
 - 问题和建议：[GitHub Issues](https://github.com/cky008/cpe-dash/issues)
 - 参与开发：[CONTRIBUTING.md](CONTRIBUTING.md)（不需要路由器：`npm run demo` 在本机模拟一台）
 - 安全问题：按 [SECURITY.md](SECURITY.md) 私下报告
+- 赞助：[GitHub Sponsors](https://github.com/sponsors/cky008) · [Buy Me a Coffee](https://buymeacoffee.com/iocky)
 
 ## 许可与声明
 

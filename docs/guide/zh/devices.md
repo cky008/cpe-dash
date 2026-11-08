@@ -1,5 +1,5 @@
 ---
-title: 终端与上网管理
+title: 设备与上网管理
 description: 看清谁连着你的网络，暂停某台设备上网，或者给它设定上网时段。
 section: 使用烽燧
 order: 8

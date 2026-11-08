@@ -54,3 +54,7 @@ order: 18
 - 问题和建议：[GitHub Issues](https://github.com/cky008/cpe-dash/issues)
 - 参与开发：[CONTRIBUTING.md](../../../CONTRIBUTING.md)
 - 安全问题：按 [SECURITY.md](../../../SECURITY.md) 私下报告
+
+## 怎样支持烽燧？
+
+在 GitHub 上点个 Star、报告问题、为其他型号提交兼容性报告，都是帮助。想赞助的话，可以用 [GitHub Sponsors](https://github.com/sponsors/cky008) 或 [Buy Me a Coffee](https://buymeacoffee.com/iocky)。作者的主页是 [iocky.com](https://iocky.com/)。

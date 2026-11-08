@@ -54,3 +54,7 @@ No. FengSui is an independent open-source project and is neither affiliated with
 - Issues and feature requests: [GitHub Issues](https://github.com/cky008/cpe-dash/issues)
 - Contributing: [CONTRIBUTING.md](../../../CONTRIBUTING.md)
 - Security vulnerabilities: report privately according to [SECURITY.md](../../../SECURITY.md)
+
+## How can I support FengSui?
+
+Starring the repository, reporting problems and sending a compatibility report for another model all help. To sponsor the project, use [GitHub Sponsors](https://github.com/sponsors/cky008) or [Buy Me a Coffee](https://buymeacoffee.com/iocky). The author's site is [iocky.com](https://iocky.com/).

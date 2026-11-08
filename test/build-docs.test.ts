@@ -52,6 +52,8 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       "github.com", "cky008.github.io", "docs.example.com", "polyformproject.org", "schema.org", "www.sitemaps.org", "www.w3.org",
       "modelcontextprotocol.io", "www.3gpp.org", "standards.ieee.org", "www.wi-fi.org", "www.rfc-editor.org", "consumer.huawei.com",
       "www.rohde-schwarz.com", "www.ericsson.com", "www.fortinet.com", "www.cellmapper.net",
+      // The author's site and the sponsor pages of .github/FUNDING.yml
+      "iocky.com", "buymeacoffee.com",
     ]);
     let internal = 0;
     for (const file of htmlFiles(site)) {
@@ -110,7 +112,7 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     assert.doesNotMatch(fs.readFileSync(path.join(plain, "robots.txt"), "utf8"), /Sitemap/);
   });
 
-  it("indexes every page for search, ships the licence notices and names no personal domain", () => {
+  it("indexes every page for search, ships the licence notices and names the author's site only by its home page", () => {
     for (const [locale, prefix] of [["zh-CN", ""], ["en", "en/"]] as const) {
       const file = fs.readdirSync(path.join(site, "assets")).find((f) => f.startsWith(`search.${locale}.`));
       assert.ok(file, locale);
@@ -120,8 +122,22 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     }
     assert.ok(fs.readFileSync(path.join(site, "THIRD_PARTY_NOTICES.txt"), "utf8").includes("daisyUI"));
     for (const file of fs.readdirSync(site, { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && /\.(html|json|xml|txt|js|css)$/.test(e.name))) {
-      assert.doesNotMatch(fs.readFileSync(path.join(file.parentPath, file.name), "utf8"), /iocky\.com/, file.name);
+      // No subdomain (a NAS host name, say) and no deeper path: just https://iocky.com/ (AGENTS.md)
+      assert.doesNotMatch(fs.readFileSync(path.join(file.parentPath, file.name), "utf8"), /[\w-]\.iocky\.com|iocky\.com\/[\w#?%-]/, file.name);
     }
+  });
+
+  it("lets readers support the project and find its author, on every page", () => {
+    for (const rel of ["index.html", path.join("docs", "faq", "index.html"), path.join("en", "docs", "install", "index.html")]) {
+      const html = fs.readFileSync(path.join(site, rel), "utf8");
+      assert.ok(html.includes('href="https://github.com/sponsors/cky008"') && html.includes('href="https://buymeacoffee.com/iocky"'), `${rel}: sponsor links`);
+      assert.match(html, /© 2026 <a [^>]*href="https:\/\/iocky\.com\/"[^>]*>iocky<\/a>/, `${rel}: the author's site`);
+    }
+    assert.match(fs.readFileSync(path.join(site, "index.html"), "utf8"), /<h2[^>]*>支持烽燧<\/h2>/);
+    assert.match(fs.readFileSync(path.join(site, "en", "index.html"), "utf8"), /<h2[^>]*>Support FengSui<\/h2>/);
+    const funding = fs.readFileSync(".github/FUNDING.yml", "utf8");
+    assert.match(funding, /^github: cky008$/m);
+    assert.match(funding, /^buy_me_a_coffee: iocky$/m, "the site links the same sponsor pages as GitHub's Sponsor button");
   });
 
   it("reads image sizes from WebP headers so pictures reserve their space", () => {

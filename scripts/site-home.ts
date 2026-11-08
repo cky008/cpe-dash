@@ -15,6 +15,7 @@ export interface HomeContext {
   version: string;
   demoUrl: string;
   repoUrl: string;
+  sponsorUrls: { readonly github: string; readonly coffee: string };
   image: (name: string) => { src: string; width: number; height: number };
   icon: (id: string) => string;
 }
@@ -24,12 +25,12 @@ export const INSTALL_COMMAND = "docker pull ghcr.io/cky008/cpe-dash:latest";
 const TEXT = {
   "zh-CN": {
     metaTitle: "烽燧 FengSui · 华为 5G 路由器的自托管控制台",
-    metaDescription: "烽燧是装在你自己 NAS 上的华为 5G CPE 网页控制台：实时信号与载波聚合、锁频锁站、短信收发、终端管理、Telegram 告警和 AI 智能体接口，数据只留在家里。",
+    metaDescription: "烽燧是装在你自己 NAS 上的华为 5G CPE 网页控制台：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和 AI 智能体接口，数据只留在家里。",
     eyebrow: "开源 · 自托管 · 零运行时依赖",
     titleStrong: "看清信号，",
     // "|" marks where the line may break (each part stays whole)
     titleSoft: "管好家里的|5G 路由器",
-    lead: "烽燧是装在你自己 NAS 上的网页控制台。实时信号与载波聚合、锁频锁站、短信收发、终端管理和 Telegram 通知，一个页面都能看到、都能操作。数据只留在你家里。",
+    lead: "烽燧是装在你自己 NAS 上的网页控制台。实时信号与载波聚合、锁频锁站、短信收发、已连接设备和 Telegram 通知，一个页面都能看到、都能操作。数据只留在你家里。",
     start: "快速开始",
     demo: "在线演示",
     verified: "只在华为 5G CPE Ultra 6（H168-383）上验证过，其他华为型号以只读方式工作。",
@@ -41,7 +42,7 @@ const TEXT = {
       ["i-signal", "信号与载波聚合", "RSRP、SINR、MCS、发射功率和每个载波的频段、带宽，一眼看清 4G 与 5G 现在用的是什么。"],
       ["i-lock", "锁频锁站，可以撤回", "锁定频段或某个小区之前先预览；如果锁完断了网，可以设置在几分钟后自动解锁。"],
       ["i-inbox", "短信中心", "收发短信、会话视图、验证码一键复制、通讯录导入，短信内容加密存在本地。"],
-      ["i-network", "终端与上网管理", "谁连着你的网络、用的是 Wi-Fi 还是网线；暂停某台设备上网，或者给孩子设定上网时段。"],
+      ["i-network", "设备与上网管理", "谁连着你的网络、用的是 Wi-Fi 还是网线；暂停某台设备上网，或者给孩子设定上网时段。"],
       ["i-bell", "告警与 Telegram", "断网、信号变差、路由器重启、短信满了时提醒你；在 Telegram 里也能收短信、回短信。"],
       ["i-cpu", "交给 AI 助手", "内置 MCP 服务器，Claude 等智能体可以查信号、看历史；写操作默认关闭，需要你确认。"],
     ],
@@ -59,6 +60,10 @@ const TEXT = {
       ["mobile.webp", "手机布局"],
       ["controls-chenxi.webp", "控制抽屉"],
     ],
+    supportTitle: "支持烽燧",
+    supportLead: "烽燧由作者独立开发和维护，个人和非商业使用免费。如果它对你有用，可以通过 GitHub Sponsors 或 Buy Me a Coffee 支持后续开发。",
+    sponsor: "在 GitHub 上赞助",
+    coffee: "请作者喝杯咖啡",
     ctaTitle: "几分钟装好",
     ctaLead: "一台能运行 Docker 的 NAS 或电脑，和华为路由器在同一个局域网里就够了。",
     ctaButton: "阅读快速开始",
@@ -101,6 +106,10 @@ const TEXT = {
       ["mobile.webp", "Phone layout"],
       ["controls-chenxi.webp", "Controls drawer"],
     ],
+    supportTitle: "Support FengSui",
+    supportLead: "FengSui is built and maintained by one developer and is free for personal and other non-commercial use. If it is useful to you, you can support its development through GitHub Sponsors or Buy Me a Coffee.",
+    sponsor: "Sponsor on GitHub",
+    coffee: "Buy me a coffee",
     ctaTitle: "Up and running in minutes",
     ctaLead: "All you need is a NAS or computer that runs Docker, on the same network as your Huawei router.",
     ctaButton: "Read the quick start",
@@ -178,8 +187,21 @@ export function renderHome(ctx: HomeContext): string {
   <div class="mt-12 grid gap-6 md:grid-cols-3">${t.gallery.map(([name, alt]) => `<figure><div class="shot ${name === "mobile.webp" ? "shot-phone mx-auto w-3/5" : "shot-frame"}">${img(ctx, name, alt, ' loading="lazy"')}</div><figcaption class="faint text-sm text-center mt-3">${e(alt)}</figcaption></figure>`).join("")}</div>
 </section>`;
 
+  const support = `
+<section id="support" class="band py-16 sm:py-20">
+  <div class="mx-auto max-w-3xl px-4 sm:px-6 text-center">
+    <span class="feature-icon mx-auto">${ctx.icon("i-heart")}</span>
+    <h2 class="section-title text-3xl sm:text-4xl mt-5">${e(t.supportTitle)}</h2>
+    <p class="lead mt-4">${e(t.supportLead)}</p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <a class="btn-secondary" href="${e(ctx.sponsorUrls.github)}" rel="noopener" target="_blank">${e(t.sponsor)}</a>
+      <a class="btn-secondary" href="${e(ctx.sponsorUrls.coffee)}" rel="noopener" target="_blank">${e(t.coffee)}</a>
+    </div>
+  </div>
+</section>`;
+
   const cta = `
-<section class="mx-auto max-w-4xl px-4 sm:px-6 pb-24 text-center">
+<section class="mx-auto max-w-4xl px-4 sm:px-6 pt-20 sm:pt-24 pb-24 text-center">
   <h2 class="section-title text-4xl sm:text-5xl">${e(t.ctaTitle)}</h2>
   <p class="lead mt-4 text-lg">${e(t.ctaLead)}</p>
   <div class="mt-8 flex flex-wrap justify-center gap-3">
@@ -189,5 +211,5 @@ export function renderHome(ctx: HomeContext): string {
   </div>
 </section>`;
 
-  return hero + showcase + features + safe + gallery + cta;
+  return hero + showcase + features + safe + gallery + support + cta;
 }

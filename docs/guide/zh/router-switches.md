@@ -48,7 +48,7 @@ DMZ 主机会把所有没有被别的规则处理的外部连接，统统转给�
 
 ### MAC 过滤（防火墙）
 
-这是路由器防火墙里的 MAC 名单，和[终端与上网管理](devices.md#mac-filter)里的 Wi-Fi MAC 过滤不是一回事：它对有线和无线设备都生效 [[华为：路由器如何设置 MAC 地址过滤](https://consumer.huawei.com/cn/support/content/zh-cn15933072/)]。
+这是路由器防火墙里的 MAC 名单，和[设备与上网管理](devices.md#mac-filter)里的 Wi-Fi MAC 过滤不是一回事：它对有线和无线设备都生效 [[华为：路由器如何设置 MAC 地址过滤](https://consumer.huawei.com/cn/support/content/zh-cn15933072/)]。
 
 > [!WARNING]
 > 如果名单是「只允许」模式，名单外的设备都会断网，可能包括运行烽燧的那台机器。

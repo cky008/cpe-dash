@@ -89,6 +89,7 @@ The same pages, with search, are on the [documentation site](https://fengsui.ioc
 - Questions and ideas: [GitHub Issues](https://github.com/cky008/cpe-dash/issues)
 - Development: [CONTRIBUTING.md](CONTRIBUTING.md) (no router needed: `npm run demo` simulates one)
 - Security problems: report privately as described in [SECURITY.md](SECURITY.md)
+- Sponsoring: [GitHub Sponsors](https://github.com/sponsors/cky008) · [Buy Me a Coffee](https://buymeacoffee.com/iocky)
 
 ## Licence and disclaimers
 

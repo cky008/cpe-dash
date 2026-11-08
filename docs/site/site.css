@@ -146,6 +146,9 @@ a {
   background: var(--bg-soft);
   color: var(--ink);
 }
+.icon-btn-sponsor:hover {
+  color: #e5484d;
+}
 
 .search-btn {
   display: inline-flex;

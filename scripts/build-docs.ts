@@ -20,10 +20,13 @@ import { type SiteLocale, homeMeta, renderHome } from "./site-home.ts";
 
 export const REPO_URL = "https://github.com/cky008/cpe-dash";
 export const DEMO_URL = "https://cky008.github.io/fengsui-demo/";
+/** The author's site (the console's footer links it too) and the sponsor pages of .github/FUNDING.yml. */
+export const AUTHOR_URL = "https://iocky.com/";
+export const SPONSOR_URLS = { github: "https://github.com/sponsors/cky008", coffee: "https://buymeacoffee.com/iocky" } as const;
 const SITE_NAME = "烽燧 FengSui";
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
-const ICONS_USED = ["i-signal", "i-lock", "i-inbox", "i-network", "i-bell", "i-cpu", "i-eye", "i-shield", "i-key", "i-layers", "i-search", "i-sun", "i-moon", "i-copy", "i-github", "i-languages", "i-x"];
+const ICONS_USED = ["i-signal", "i-lock", "i-inbox", "i-network", "i-bell", "i-cpu", "i-eye", "i-shield", "i-key", "i-layers", "i-search", "i-sun", "i-moon", "i-copy", "i-github", "i-languages", "i-x", "i-heart"];
 const MENU_ICON = '<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></symbol>';
 
 interface LocaleInfo {
@@ -57,11 +60,15 @@ const UI = {
     skip: "跳到正文",
     footerDocs: "文档",
     footerProject: "项目",
+    footerSupport: "支持烽燧",
     footerLegal: "许可与声明",
     releases: "版本发布",
     changelog: "更新日志",
     security: "安全策略",
     contributing: "参与贡献",
+    sponsor: "在 GitHub 上赞助",
+    coffee: "请作者喝杯咖啡",
+    author: "作者主页",
     license: "许可证（PolyForm Noncommercial 1.0.0）",
     notices: "第三方声明",
     disclaimer: "烽燧是独立的开源项目，与华为、群晖及任何运营商均无关联，也未获其认可。所有商标归各自所有者。",
@@ -85,11 +92,15 @@ const UI = {
     skip: "Skip to content",
     footerDocs: "Docs",
     footerProject: "Project",
+    footerSupport: "Support FengSui",
     footerLegal: "Licence",
     releases: "Releases",
     changelog: "Changelog",
     security: "Security policy",
     contributing: "Contributing",
+    sponsor: "Sponsor on GitHub",
+    coffee: "Buy me a coffee",
+    author: "The author's site",
     license: "Licence (PolyForm Noncommercial 1.0.0)",
     notices: "Third-party notices",
     disclaimer: "FengSui is an independent open-source project, not affiliated with or endorsed by Huawei, Synology or any carrier. All trademarks belong to their owners.",
@@ -350,6 +361,7 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
       <button type="button" class="search-btn" data-search-open aria-label="${ui.search}"><svg class="svg-icon w-4 h-4" aria-hidden="true"><use href="#i-search"/></svg><span class="hidden sm:inline pr-6">${ui.searchPlaceholder}</span><kbd class="hidden sm:inline">⌘K</kbd></button>
       <a class="icon-btn" href="${r}${otherRel.replace(/index\.html$/, "")}" hreflang="${other.locale}" lang="${other.locale}" aria-label="${ui.otherLanguage}" title="${ui.otherLanguage}"><svg class="svg-icon" aria-hidden="true"><use href="#i-languages"/></svg></a>
       <button type="button" class="icon-btn" data-theme-toggle aria-label="${ui.theme}" title="${ui.theme}"><svg class="svg-icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      <a class="icon-btn icon-btn-sponsor hidden sm:inline-flex" href="${SPONSOR_URLS.github}" rel="noopener" target="_blank" aria-label="${ui.sponsor}" title="${ui.sponsor}"><svg class="svg-icon" aria-hidden="true"><use href="#i-heart"/></svg></a>
       <a class="icon-btn hidden sm:inline-flex" href="${REPO_URL}" rel="noopener" target="_blank" aria-label="GitHub"><svg class="svg-icon" aria-hidden="true"><use href="#i-github"/></svg></a>
     </div>
   </div>
@@ -358,7 +370,7 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
       const title = (slug: string): string => bySlug.get(slug)?.title ?? slug;
       const footer = `
 <footer class="band mt-8">
-  <div class="mx-auto max-w-7xl px-4 sm:px-6 py-12 grid gap-8 sm:grid-cols-3 text-sm">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 py-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4 text-sm">
     <div><p class="font-semibold mb-3">${ui.footerDocs}</p><ul class="space-y-2 muted">${["quick-start", "install", "configuration", "faq"].map((s) => `<li><a class="hover:underline" href="${link(s)}">${e(title(s))}</a></li>`).join("")}</ul></div>
     <div><p class="font-semibold mb-3">${ui.footerProject}</p><ul class="space-y-2 muted">
       <li><a class="hover:underline" href="${REPO_URL}" rel="noopener" target="_blank">GitHub</a></li>
@@ -367,12 +379,17 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
       <li><a class="hover:underline" href="${REPO_URL}/blob/main/SECURITY.md" rel="noopener" target="_blank">${ui.security}</a></li>
       <li><a class="hover:underline" href="${REPO_URL}/blob/main/CONTRIBUTING.md" rel="noopener" target="_blank">${ui.contributing}</a></li>
     </ul></div>
+    <div><p class="font-semibold mb-3">${ui.footerSupport}</p><ul class="space-y-2 muted">
+      <li><a class="hover:underline" href="${SPONSOR_URLS.github}" rel="noopener" target="_blank">${ui.sponsor}</a></li>
+      <li><a class="hover:underline" href="${SPONSOR_URLS.coffee}" rel="noopener" target="_blank">${ui.coffee}</a></li>
+      <li><a class="hover:underline" href="${AUTHOR_URL}" rel="noopener" target="_blank">${ui.author}</a></li>
+    </ul></div>
     <div><p class="font-semibold mb-3">${ui.footerLegal}</p><ul class="space-y-2 muted">
       <li><a class="hover:underline" href="${REPO_URL}/blob/main/LICENSE" rel="noopener" target="_blank">${ui.license}</a></li>
       <li><a class="hover:underline" href="${r}THIRD_PARTY_NOTICES.txt">${ui.notices}</a></li>
     </ul><p class="faint mt-4 leading-relaxed">${ui.disclaimer}</p></div>
   </div>
-  <div class="mx-auto max-w-7xl px-4 sm:px-6 pb-10 faint text-xs">© 2026 <a class="hover:underline" href="https://github.com/cky008" rel="noopener" target="_blank">cky008</a> · ${SITE_NAME} v${e(version)}</div>
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 pb-10 faint text-xs">© 2026 <a class="hover:underline" href="${AUTHOR_URL}" rel="noopener" target="_blank">iocky</a> · ${SITE_NAME} v${e(version)}</div>
 </footer>`;
       const searchDialog = `
 <dialog id="search" aria-label="${ui.search}">
@@ -429,6 +446,7 @@ ${searchDialog}
         version,
         demoUrl: DEMO_URL,
         repoUrl: REPO_URL,
+        sponsorUrls: SPONSOR_URLS,
         image: (name) => ({ src: `${toRoot(homeRel)}assets/screenshots/${name}`, ...useImage(name) }),
         icon: (id) => `<svg class="svg-icon" aria-hidden="true"><use href="#${id}"/></svg>`,
       }), false)
