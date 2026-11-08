@@ -19,14 +19,23 @@ function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-settings-"));
   const cipher = new StorageCipher("settings_key");
   let clock = Date.parse("2026-11-02T10:00:00.000Z");
-  const open = () => new ConsoleSettings({ filePath: path.join(dir, "settings.json"), cipher, now: () => clock, scryptCost: FAST });
+  const opened: ConsoleSettings[] = [];
+  const open = () => {
+    const settings = new ConsoleSettings({ filePath: path.join(dir, "settings.json"), cipher, now: () => clock, scryptCost: FAST });
+    opened.push(settings);
+    return settings;
+  };
   return {
     dir,
     open,
     advance: (ms: number) => {
       clock += ms;
     },
-    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+    // Saves are queued in the background (a token's last use too): removing the dir under one fails with ENOTEMPTY
+    cleanup: async () => {
+      await Promise.all(opened.map((settings) => settings.flush().catch(() => undefined)));
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
   };
 }
 
@@ -62,11 +71,11 @@ describe("console settings store", () => {
       assert.equal(await reloaded.verifyLogin("legacy_api_token_1234"), true);
       assert.equal(reloaded.resolveBearer("legacy_read_token_5678")?.name, "API_TOKEN_READONLY (.env)");
     } finally {
-      fx.cleanup();
+      await fx.cleanup();
     }
   });
 
-  it("starts empty (setup mode) when .env has neither router password nor API token", () => {
+  it("starts empty (setup mode) when .env has neither router password nor API token", async () => {
     const fx = fixture();
     try {
       const settings = fx.open();
@@ -76,7 +85,7 @@ describe("console settings store", () => {
       assert.equal(settings.reviewPending, false);
       assert.deepEqual(settings.listTokens(), []);
     } finally {
-      fx.cleanup();
+      await fx.cleanup();
     }
   });
 
@@ -107,7 +116,7 @@ describe("console settings store", () => {
       assert.throws(() => settings.createToken({ name: "one too many", scope: "read", lifetimeDays: 1 }), /At most 50 tokens/);
       await settings.flush();
     } finally {
-      fx.cleanup();
+      await fx.cleanup();
     }
   });
 
@@ -136,11 +145,11 @@ describe("console settings store", () => {
       new StorageCipher("settings_key").writeJsonFile(path.join(fx.dir, "settings.json"), { format: 2 });
       assert.throws(() => fx.open().load(), DataFormatTooNewError);
     } finally {
-      fx.cleanup();
+      await fx.cleanup();
     }
   });
 
-  it("issues one-time codes that work once, before they expire, for their own purpose only", () => {
+  it("issues one-time codes that work once, before they expire, for their own purpose only", async () => {
     const fx = fixture();
     try {
       const settings = fx.open();
@@ -162,11 +171,11 @@ describe("console settings store", () => {
       assert.equal(settings.consumeCode("setup", first), false, "a new setup code replaces the old one");
       assert.equal(settings.consumeCode("setup", second), true);
     } finally {
-      fx.cleanup();
+      await fx.cleanup();
     }
   });
 
-  it("links Telegram chats: a group only with a group code, which a private code or a token seen there never is", () => {
+  it("links Telegram chats: a group only with a group code, which a private code or a token seen there never is", async () => {
     const fx = fixture();
     try {
       const settings = fx.open();
@@ -189,7 +198,7 @@ describe("console settings store", () => {
       assert.equal(settings.linkTelegramChat(settings.issueCode("reset"), "private"), "invalid");
       assert.equal(settings.linkTelegramChat("WRNG-CODE", "group"), "invalid");
     } finally {
-      fx.cleanup();
+      await fx.cleanup();
     }
   });
 

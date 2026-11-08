@@ -51,6 +51,8 @@ function routesFixture(telegramConfigured: boolean) {
     call,
     cleanup: async () => {
       await stopFengSuiCore(core);
+      // Settings saves are queued in the background: removing the dir under one fails with ENOTEMPTY
+      await settings.flush();
       fs.rmSync(dir, { recursive: true, force: true });
     },
   };
