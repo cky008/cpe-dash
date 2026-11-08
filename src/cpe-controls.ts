@@ -54,10 +54,13 @@ export interface AccessControlResult {
   alsoBlocked: string[];
 }
 
-/** Result of an automatic WAN repair: written, or skipped for the reason read inside the session. */
+/**
+ * Result of an automatic WAN repair: written, or skipped for the reason read inside the session
+ * (`lock_changed`: the lock to roll back was replaced while the rollback waited in the queue).
+ */
 export type WanRepairOutcome =
   | { applied: true; lockState?: PersistedLockState }
-  | { applied: false; skipped: WanRepairSkipReason };
+  | { applied: false; skipped: WanRepairSkipReason | "lock_changed" };
 
 export interface CpeControlServiceOptions {
   scheduler: MutexSessionScheduler;
@@ -156,13 +159,16 @@ export class CpeControlService {
   }
 
   /**
-   * Automatic lock rollback (`LOCK_ROLLBACK_AFTER_MIN`): clear every lock unless, re-read inside the
-   * session, the WAN is back or mobile data is switched off. Broadcasts only when it wrote.
+   * Automatic lock rollback (`LOCK_ROLLBACK_AFTER_MIN`) of the lock applied at `lockUpdatedAtIso`:
+   * clear every lock unless, inside the session, that lock turns out replaced, or the WAN re-reads as
+   * back or mobile data as switched off. Broadcasts only when it wrote.
    */
-  async rollBackLocks(): Promise<WanRepairOutcome> {
+  async rollBackLocks(lockUpdatedAtIso: string): Promise<WanRepairOutcome> {
     return await this.scheduler.executeControl(
       "auto_unlock_rf_locks",
       async (session, write): Promise<WanRepairOutcome> => {
+        // A lock queued before this rollback may have just replaced the one it was meant for
+        if (this.getPersistedLockState().updatedAtIso !== lockUpdatedAtIso) return { applied: false, skipped: "lock_changed" };
         if (write.generic) {
           const skipped = await readWanRepairBlockerTolerant(session);
           return skipped ? { applied: false, skipped } : { applied: true, lockState: genericLockState(await genericBandLock(session, write.check, "all", write.lteBands ?? [])) };

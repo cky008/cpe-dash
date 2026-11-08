@@ -91,7 +91,7 @@ const WRITES: ReadonlyArray<[ControlAction, (fx: Fixture) => Promise<unknown>]> 
   ["lock_band", (fx) => fx.core.controls.lockBands({ lteBands: [1, 3] })],
   ["lock_cell", (fx) => fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 100, pci: 1 })],
   ["unlock_rf_locks", (fx) => fx.core.controls.unlockAllLocks()],
-  ["auto_unlock_rf_locks", (fx) => fx.core.controls.rollBackLocks()],
+  ["auto_unlock_rf_locks", (fx) => fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso)],
   ["reboot_cpe", (fx) => fx.core.controls.rebootRouter({ confirm: true })],
   ["reconnect_cellular", (fx) => fx.core.controls.reconnectCellular()],
   ["auto_reconnect_cellular", (fx) => fx.core.controls.reconnectWan()],
@@ -324,10 +324,10 @@ describe("experimental gate: every generic write", () => {
     const { cpe, fx } = await identified();
     try {
       cpe.setConnectionStatus("902");
-      await assert.rejects(fx.core.controls.rollBackLocks(), refused("auto_unlock_rf_locks"));
+      await assert.rejects(fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso), refused("auto_unlock_rf_locks"));
       await assert.rejects(fx.core.controls.reconnectWan(), refused("auto_reconnect_cellular"));
       fx.consent("bandLock", "reconnect");
-      assert.deepEqual(await fx.core.controls.rollBackLocks(), { applied: true, lockState: fx.core.controls.getPersistedLockState() });
+      assert.deepEqual(await fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso), { applied: true, lockState: fx.core.controls.getPersistedLockState() });
       assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: true });
       assert.deepEqual(posts(cpe), [
         "/api/net/net-mode <request><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>7fffffffffffffff</LTEBand></request>",

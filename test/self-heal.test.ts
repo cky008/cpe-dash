@@ -59,12 +59,15 @@ function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: Persist
   let clock = T0;
   let lockState = opts.lock ?? unlocked(T0 - 60 * MIN);
   const calls = { rollback: 0, reconnect: 0 };
+  /** The lock each rollback was asked to clear (its `updatedAtIso`). */
+  const rollbackArgs: string[] = [];
   const rollbackPlan: Plan = [];
   const reconnectPlan: Plan = [];
   const controls = {
     getPersistedLockState: () => lockState,
-    rollBackLocks: async (): Promise<WanRepairOutcome> => {
+    rollBackLocks: async (expectedLockUpdatedAtIso: string): Promise<WanRepairOutcome> => {
       calls.rollback += 1;
+      rollbackArgs.push(expectedLockUpdatedAtIso);
       const next = rollbackPlan.shift();
       if (next) return await next();
       lockState = unlocked(clock);
@@ -92,6 +95,7 @@ function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: Persist
     heal,
     core: base.core,
     calls,
+    rollbackArgs,
     alerts,
     logs,
     setLock: (next: PersistedLockState) => {
@@ -283,6 +287,27 @@ describe("WanSelfHeal lock rollback (LOCK_ROLLBACK_AFTER_MIN)", () => {
       assert.equal(fx.heal.lockDeadlineMs, null);
       assert.deepEqual(fx.codes(), ["LOCK_ROLLED_BACK"]);
       assert.ok(fx.logs.some((l) => l.includes("mobile data is switched off")));
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("names the lock it rolls back, and keeps a newer lock's watch when that one replaced it in the queue", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.lockAt(0);
+      // The owner locks again while the rollback of the first lock waits behind that write
+      fx.rollbackPlan.push(async () => {
+        fx.lockAt(10.05);
+        return { applied: false, skipped: "lock_changed" };
+      });
+      await fx.at(10, "902");
+      assert.deepEqual(fx.rollbackArgs, [new Date(T0).toISOString()]);
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 20.05 * MIN, "the newer lock keeps its own window");
+      assert.deepEqual(fx.codes(), []);
+      await fx.at(20.05, "902");
+      assert.deepEqual(fx.rollbackArgs.at(-1), new Date(T0 + 10.05 * MIN).toISOString());
+      assert.deepEqual(fx.codes(), ["LOCK_ROLLED_BACK"]);
     } finally {
       await fx.cleanup();
     }
@@ -634,7 +659,7 @@ describe("guarded automatic writes through the control queue", () => {
     try {
       const events: ControlAppliedEvent[] = [];
       live.core.scheduler.on("control:applied", (e: ControlAppliedEvent) => events.push(e));
-      assert.deepEqual(await live.core.controls.rollBackLocks(), { applied: false, skipped: "wan_up" });
+      assert.deepEqual(await live.core.controls.rollBackLocks(live.core.controls.getPersistedLockState().updatedAtIso), { applied: false, skipped: "wan_up" });
       assert.deepEqual(await live.core.controls.reconnectWan(), { applied: false, skipped: "wan_up" });
       assert.deepEqual(live.cpe.stats.writes.map((w) => w.path), [], "nothing written while the WAN is up");
       assert.deepEqual(events, [], "no control:applied for a write that did not happen");
@@ -646,7 +671,7 @@ describe("guarded automatic writes through the control queue", () => {
     try {
       const events: ControlAppliedEvent[] = [];
       dead.core.scheduler.on("control:applied", (e: ControlAppliedEvent) => events.push(e));
-      const outcome = await dead.core.controls.rollBackLocks();
+      const outcome = await dead.core.controls.rollBackLocks(dead.core.controls.getPersistedLockState().updatedAtIso);
       assert.equal(outcome.applied, true);
       assert.equal(dead.core.controls.getPersistedLockState().mode, "unlocked");
       assert.deepEqual(dead.cpe.stats.writes.map((w) => w.path), ["/api/net/lock-freq", "/api/net/net-mode"]);
@@ -664,10 +689,28 @@ describe("guarded automatic writes through the control queue", () => {
     const dataOff = createCore(down("0"));
     try {
       assert.deepEqual(await dataOff.core.controls.reconnectWan(), { applied: false, skipped: "mobile_data_off" });
-      assert.deepEqual(await dataOff.core.controls.rollBackLocks(), { applied: false, skipped: "mobile_data_off" });
+      assert.deepEqual(await dataOff.core.controls.rollBackLocks(dataOff.core.controls.getPersistedLockState().updatedAtIso), { applied: false, skipped: "mobile_data_off" });
       assert.deepEqual(dataOff.cpe.stats.writes, []);
     } finally {
       await dataOff.cleanup();
+    }
+  });
+
+  it("leaves alone a lock that replaced the one it was asked to roll back while it waited in the queue", async () => {
+    const dead = createCore(down("1"));
+    try {
+      const watched = dead.core.controls.getPersistedLockState().updatedAtIso;
+      // The owner's lock is queued first; the rollback of the lock before it runs right after it
+      const owner = dead.core.controls.lockBands({ lteBands: [20] });
+      const rollback = dead.core.controls.rollBackLocks(watched);
+      const lock = await owner;
+      const written = dead.cpe.stats.writes.length;
+      assert.deepEqual(await rollback, { applied: false, skipped: "lock_changed" });
+      assert.equal(dead.cpe.stats.writes.length, written, "nothing written over the owner's lock");
+      assert.deepEqual(dead.core.controls.getPersistedLockState(), lock);
+      assert.equal(dead.cpe.stats.logins, dead.cpe.stats.logouts);
+    } finally {
+      await dead.cleanup();
     }
   });
 });

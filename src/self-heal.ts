@@ -198,6 +198,11 @@ export class WanSelfHeal {
     });
   }
 
+  /** End `watch` if it is still the open one: a newer lock may have replaced it while a rollback waited. */
+  #endWatch(watch: LockWatch): void {
+    if (this.#lockWatch === watch) this.#setWatch(null);
+  }
+
   /**
    * Open, replace or end the lock watch, and record it in state.json at once (it changes once or
    * twice per lock), so a restart picks it up where it was.
@@ -243,18 +248,18 @@ export class WanSelfHeal {
   async #rollBack(watch: LockWatch, at: number): Promise<void> {
     let outcome: WanRepairOutcome;
     try {
-      outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.rollBackLocks());
+      outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.rollBackLocks(watch.lockUpdatedAtIso));
     } catch (err) {
       const reason = describe(err);
       this.#noteFailure("lock rollback", reason);
       // A router of an unverified model is read-only: say so once instead of retrying a write that never comes
       if (err instanceof DeviceReadOnlyError) {
-        this.#setWatch(null);
+        this.#endWatch(watch);
         this.#raise("warning", "SELF_HEAL_READ_ONLY", "alerts.self_heal_read_only_rollback", { model: err.model });
         return;
       }
       if (err instanceof CircuitBreakerOpenError || err instanceof PeerDaemonStandbyError) {
-        this.#setWatch(null);
+        this.#endWatch(watch);
         this.#raise("critical", "LOCK_ROLLBACK_FAILED", "alerts.lock_rollback_failed", { reason });
         return;
       }
@@ -262,7 +267,7 @@ export class WanSelfHeal {
       // A human on the WebUI is not a failure of the rollback: wait for them, never fight them
       if (!(err instanceof BrowserSessionYieldedError) && !isQueueRefusal(err)) watch.failures += 1;
       if (watch.failures >= MAX_ROLLBACK_FAILURES) {
-        this.#setWatch(null);
+        this.#endWatch(watch);
         this.#raise("critical", "LOCK_ROLLBACK_FAILED", "alerts.lock_rollback_failed", { reason });
       }
       return;
@@ -271,13 +276,16 @@ export class WanSelfHeal {
     if (!outcome.applied) {
       if (outcome.skipped === "wan_up") {
         watch.upSinceMs = at;
+      } else if (outcome.skipped === "lock_changed") {
+        // Replaced while the rollback waited in the queue: the newer lock has its own watch
+        this.#endWatch(watch);
       } else {
-        this.#setWatch(null);
+        this.#endWatch(watch);
         this.#log("[self-heal] mobile data is switched off; not rolling the lock back");
       }
       return;
     }
-    this.#setWatch(null);
+    this.#endWatch(watch);
     // The unlocked modem needs time to attach before a redial could help
     this.#downSinceMs = at;
     this.#raise("warning", "LOCK_ROLLED_BACK", "alerts.lock_rolled_back", {
