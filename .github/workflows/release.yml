@@ -97,11 +97,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           node --experimental-strip-types scripts/release-notes.ts "$TAG" > "$RUNNER_TEMP/notes.md"
-          # The annotated tag's subject line ("cpe-dash vX.Y.Z — 烽燧 FengSui: …") is the title
-          sha=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)
-          title=$(gh api "repos/$GH_REPO/git/tags/$sha" --jq .message 2>/dev/null | head -n 1)
+          # The title is the version alone; the notes open with the highlights
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "${title:-cpe-dash $TAG}" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
           else
-            gh release create "$TAG" --verify-tag --title "${title:-cpe-dash $TAG}" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
           fi

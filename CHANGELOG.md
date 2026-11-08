@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/).
+All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/). Each release section opens with `### Highlights` (a few changes worth a short paragraph); the GitHub release lists the other changes by their lead sentence and links here for the details.
 
 ## [Unreleased]
 
@@ -18,6 +18,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **The demo, the screenshots and the test fixtures use a made-up cell.** PCI and frequency values together can locate a cell site in public databases, so the demo household, the strict mock router, the protocol samples and the tests now share one synthetic cell (LTE B1 EARFCN 300 and B3 EARFCN 1850, NR N78 NR-ARFCN 650000, PCI 211 / 142), the screenshots were retaken, and `AGENTS.md` asks for synthetic cells only.
 
 ### Documentation
+- **Release notes read like a release, not a changelog.** The GitHub release is titled with the version alone and opens with a welcome line, what to do before upgrading and a few highlights, then lists every change grouped (features, fixes, security…) by its one-line lead; the details stay here and in the documentation, which it links to.
 - `docs/PHASE2_ARCHITECTURE_REPORT.md` §14 records the final review and the pre-public audit: what was found and fixed, each dimension's conclusion, the public-exposure summary, known limitations and the roadmap.
 - **`SECURITY.md` and `CONTRIBUTING.md`.** How to report a vulnerability privately (GitHub's private reporting), what is in scope, and the testing rules (your own equipment only, the mock router for writes, never SMS to numbers you do not own); how to contribute (tests first, strict TypeScript, no runtime dependencies, one router session, placeholders only, `npm run check`). New bug-report and feature-request forms, a pull-request checklist that asks for no real identifiers, and the issue chooser points security reports to private reporting.
 - **Third-party notices ship with every copy.** The console's stylesheet compiles in Tailwind CSS and daisyUI (MIT) and its icons are adapted from Lucide (ISC, partly Feather under MIT); their licenses ask for the notice to travel with the code. `THIRD_PARTY_NOTICES.md` holds the full texts, the build puts it next to the console and the demo as `THIRD_PARTY_NOTICES.txt` (served as text), and the container image carries it and `LICENSE` in `/app`.
