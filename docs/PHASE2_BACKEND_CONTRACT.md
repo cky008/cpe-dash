@@ -28,7 +28,7 @@
 2. **自动化脚本与 Streamable HTTP MCP 客户端（Bearer Token）**：
    - 请求头：`Authorization: Bearer <令牌>`。令牌在控制台「设置 → 令牌」生成（`fsk_` 前缀 + 256 位随机数，**只显示一次**），服务端只保存其 SHA-256，按哈希查找；可设有效期（1 / 7 / 30 / 90 / 365 天或永不过期）、随时撤销，并记录最近使用时间。
    - **排他鉴权规则**：一旦请求携带了 `Authorization` 头，服务端**仅**验证 Bearer Token，绝不回退读取 Cookie。`/mcp` 端点只接受 Bearer。
-   - **两种权限**：`full`（完全控制）与 `read`（只读）。只读令牌可调用全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`、`/api/sms/preview`、`/api/sms/sync`；其余 `POST` 返回 `403 READ_ONLY_TOKEN`。在 `/mcp` 上，所有写工具既不出现在 `tools/list` 中，直接调用也返回 `READ_ONLY_TOKEN`。撤销令牌时，用它打开的 SSE 连接立即断开。
+   - **两种权限**：`full`（完全控制）与 `read`（只读）。只读令牌可调用全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`、`/api/sms/preview`、`/api/sms/sync`；其余 `POST` 返回 `403 READ_ONLY_TOKEN`。在 `/mcp` 上，所有写工具既不出现在 `tools/list` 中，直接调用也返回 `READ_ONLY_TOKEN`。撤销令牌时，用它打开的 SSE 连接立即断开；有期限的令牌到期时，这些连接同样断开（与控制台会话到期一致）。
    - **任何令牌都不能修改控制台设置**：`/api/console/*` 只接受控制台 Cookie 会话，令牌访问返回 `403 CONSOLE_ONLY`（令牌不能改动签发它的凭据）。
    - **从 `.env` 升级**：首次启动带 `settings.json` 的版本时，`.env` 中的值只导入一次：`CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` 成为路由器连接；`API_TOKEN`（未设置时为 `CPE_PASSWORD`）成为控制台密码，同时与 `API_TOKEN_READONLY` 一起成为名为 `API_TOKEN (.env)` / `API_TOKEN_READONLY (.env)` 的令牌，现有客户端无需改动。此后以控制台为准，`.env` 中这些值被忽略。
    - **全新安装**：`.env` 只需 `DATA_ENCRYPTION_KEY`。守护进程启动时在日志中打印一次性**设置码**（`XXXX-XXXX`，24 小时内有效，重启后换新）；登录页凭设置码设定控制台密码，然后在引导中填写并测试路由器连接。保存之前守护进程不会登录路由器。

@@ -1701,6 +1701,32 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
     }
   });
 
+  it("ends an event stream when the token that opened it expires, as a console session's stream ends with the session", async () => {
+    const fx = await createTestHttpServer();
+    try {
+      const validHost = new URL(fx.baseUrl).host;
+      const consoleHeaders = (cookie: string) => ({ "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: `http://${validHost}`, Cookie: cookie });
+      const login = await fetch(`${fx.baseUrl}/api/auth/login`, { method: "POST", headers: consoleHeaders(""), body: JSON.stringify({ password: fx.apiToken }) });
+      assert.equal(login.status, 200);
+      const cookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(login.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
+      const mint = await fetch(`${fx.baseUrl}/api/console/tokens`, { method: "POST", headers: consoleHeaders(cookie), body: JSON.stringify({ name: "wall", scope: "read", lifetimeDays: 7 }) });
+      const minted = (await mint.json()) as { token: string; record: { expiresAtIso: string } };
+      // What the bus is told: it closes a stream once its expiry passes (bus-level test above)
+      const seen: Array<number | null | undefined> = [];
+      const subscribe = fx.sseBus.subscribe.bind(fx.sseBus);
+      fx.sseBus.subscribe = (params) => {
+        seen.push(params.expiresAtMs);
+        return subscribe(params);
+      };
+      const stream = await fetch(`${fx.baseUrl}/api/events`, { headers: { Authorization: `Bearer ${minted.token}` } });
+      assert.equal(stream.status, 200);
+      await stream.body?.cancel().catch(() => undefined);
+      assert.deepEqual(seen, [Date.parse(minted.record.expiresAtIso)]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("enforces Opus security audit regressions: status Bearer rate-limit, cookie IP-bucket binding, strict security validation, breaker 108006 guard, token-rotation revocation, and dotfile/@eaDir blocking", async () => {
     const fx = await createTestHttpServer({ rateLimitMaxAuthFailures: 3 });
     try {

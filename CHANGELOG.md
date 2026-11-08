@@ -5,6 +5,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Security
+- **An expiring token's event stream ends when the token does.** `/api/events` closed a stream when its token was revoked, but a stream opened with a token that has an expiry kept running after it expired; it now ends at the expiry, as a console session's stream does.
 - **No dialable phone numbers in the guide.** The SMS page showed one number written two ways with a dialable Irish mobile number; it now uses the UK's reserved drama range. `npm run audit:secrets` also refuses a full international number in the working tree unless it comes from the reserved test ranges in `AGENTS.md` (it names the file and line, never the number).
 
 ### Fixed

@@ -734,7 +734,8 @@ export class FengSuiHttpServer {
         clientIp: bucketKey,
         sessionId: session?.id ?? null,
         tokenId: identity?.tokenId ?? null,
-        expiresAtMs: session?.expiresAtMs ?? null,
+        // The stream ends when what opened it does: the console session, or an expiring token
+        expiresAtMs: session?.expiresAtMs ?? identity?.expiresAtMs ?? null,
         redact,
         initialSnapshot: {
           schedulerStatus: this.core.scheduler.getStatus(),

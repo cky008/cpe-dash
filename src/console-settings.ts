@@ -79,6 +79,8 @@ export interface BearerIdentity {
   tokenId: string;
   name: string;
   scope: TokenScope;
+  /** When the token stops working (`null`: never), so a stream it opened ends then too. */
+  expiresAtMs: number | null;
 }
 
 /** Where the saved router password is also a secret of the console (see `routerPasswordReuse`). */
@@ -427,7 +429,7 @@ export class ConsoleSettings {
       this.#persistedUse.set(record.id, nowMs);
       this.#save();
     }
-    return { tokenId: record.id, name: record.name, scope: record.scope };
+    return { tokenId: record.id, name: record.name, scope: record.scope, expiresAtMs: record.expiresAtIso === null ? null : Date.parse(record.expiresAtIso) };
   }
 
   /**
