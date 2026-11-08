@@ -324,6 +324,33 @@ describe("session contract on a strict single-admin router model", () => {
     }
   });
 
+  it("cancels a console connection test's session too when the scheduler stops, so the slot is free before exit", async () => {
+    const fx = createContractFixture({
+      requestTimeoutMs: 60_000,
+      sessionMaxHoldMs: 90_000,
+      stopGraceMs: 50,
+      fault: (p) => (p === "/api/device/information" ? "timeout" : undefined),
+    });
+    try {
+      // The test logs in on a throwaway client of its own, inside the shared queue
+      const test = fx.core.scheduler.testConnectionDetailed({ url: "http://192.168.8.1", username: "admin", password: fx.cpe.password }).then(
+        (outcome) => outcome,
+        (err: unknown) => err
+      );
+      await waitFor(() => fx.cpe.count("/api/device/information") === 1, "the test's request hanging inside its session");
+      assert.equal(fx.cpe.isSlotTaken(), true);
+
+      const startedAt = performance.now();
+      await fx.core.scheduler.stop();
+      assert.ok(performance.now() - startedAt < 1500, "stop() does not wait out a hung test");
+      assert.equal(fx.cpe.isSlotTaken(), false, "the test's session logged out before stop() returned");
+      await test;
+      assertSingleSlotInvariants(fx.cpe);
+    } finally {
+      await fx.close();
+    }
+  });
+
   it("reports an SMS interrupted by shutdown as submitted once the router accepted it", async () => {
     const fx = createContractFixture({
       requestTimeoutMs: 60_000,

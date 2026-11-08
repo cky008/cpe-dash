@@ -374,6 +374,8 @@ export class MutexSessionScheduler extends EventEmitter {
   #mode: SchedulerMode = "idle";
   /** Login attempts the router said were left after the console's last failed connection test. */
   #remainingLogins: number | null = null;
+  /** The throwaway client of a console connection test while its session runs (stop() cancels it as well). */
+  #testClient: HuaweiCpeClient | null = null;
   #lastError: string | null = null;
   #running = false;
 
@@ -447,9 +449,12 @@ export class MutexSessionScheduler extends EventEmitter {
     for (const queued of this.#queue.splice(0)) {
       queued.reject(stopped);
     }
-    if (!(await this.#client.waitForIdle(this.stopGraceMs))) {
-      this.#client.abortActiveSession(stopped);
-      await this.#client.waitForIdle(4000);
+    // A connection test runs its session on a throwaway client: it is cancelled and logged out the same way
+    for (const client of [this.#client, this.#testClient]) {
+      if (client && !(await client.waitForIdle(this.stopGraceMs))) {
+        client.abortActiveSession(stopped);
+        await client.waitForIdle(4000);
+      }
     }
     if (!this.#initialized) {
       return;
@@ -695,6 +700,7 @@ export class MutexSessionScheduler extends EventEmitter {
       if (!this.#allowLegacyLoginAfterScram) client.rememberLoginScheme(this.#client.knownLoginScheme);
       // And a router identified as another model latches an answer to the password it cannot place
       client.rememberUnverifiedModel(this.#client.unverifiedModel);
+      this.#testClient = client;
       try {
         const outcome = await client.withSessionDetailed(
           async (session) => {
@@ -727,6 +733,8 @@ export class MutexSessionScheduler extends EventEmitter {
         if (err instanceof CpeLoginMethodError) return failure(err.scramKnown ? "scram_refused" : "unsupported_login", message, { code: err.probeCode });
         if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
         return failure("unreachable", message);
+      } finally {
+        this.#testClient = null;
       }
     });
   }
