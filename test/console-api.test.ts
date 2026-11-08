@@ -248,3 +248,26 @@ describe("console settings after an upgrade (.env imported)", () => {
     }
   });
 });
+
+describe("one-time codes and the sign-in limit", () => {
+  it("keeps a valid one-time code that the sign-in limit refused, so it still works", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", RATE_LIMIT_MAX_AUTH_FAILURES: "3", TRUSTED_PROXIES: "127.0.0.1" });
+    try {
+      const base = new URL((await fx.get("/api/health")).url).origin;
+      const reset = (address: string, code: string): Promise<Response> =>
+        fetch(`${base}/api/auth/reset`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base, "X-Forwarded-For": address },
+          body: JSON.stringify({ code, password: "a reset passphrase to keep" }),
+        });
+      // Typos lock this address out for the window
+      for (const typo of ["WRNG-0001", "WRNG-0002", "WRNG-0003"]) assert.equal((await reset("192.168.8.60", typo)).status, 401);
+      const code = fx.stack.settings.issueCode("reset");
+      assert.equal((await reset("192.168.8.60", code)).status, 429, "refused while locked out");
+      // The refusal spent nothing: the same code works (here from an address that is not locked out)
+      assert.equal((await reset("192.168.8.61", code)).status, 200);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});

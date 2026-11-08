@@ -789,7 +789,7 @@ export class FengSuiHttpServer {
       throw err;
     }
     const code = typeof body["code"] === "string" ? body["code"] : "";
-    const verdict = this.#auth.guard(bucketKey, Boolean(code) && this.settings.consumeCode(kind, code));
+    const verdict = this.#auth.guardCode(bucketKey, () => Boolean(code) && this.settings.consumeCode(kind, code));
     if (!verdict.ok) {
       this.#audit?.record({ action: kind === "setup" ? "setup" : "login.reset", outcome: "refused", detail: "wrong or expired code", actor: { channel: "web" } });
       this.#sendAuthRejection(res, verdict, this.#apiAuthMessages(locale));

@@ -142,6 +142,16 @@ export class HttpAuthGuard {
     return this.guard(bucketKey, await this.#directory.verifyLogin(candidate));
   }
 
+  /**
+   * Check a one-time code through the limiter. `consume` spends the code when it matches, so it runs only
+   * once the bucket is known not to be locked out: a valid code typed after a few typos still works later.
+   */
+  guardCode(bucketKey: string, consume: () => boolean): CredentialVerdict {
+    const retrySec = this.checkBucket(bucketKey);
+    if (retrySec !== null) return { ok: false, statusCode: 429, retrySec };
+    return this.guard(bucketKey, consume());
+  }
+
   /** Validate an `Authorization: Bearer <token>` header through the limiter. */
   guardBearer(bucketKey: string, authHeader: string): CredentialVerdict {
     const verdict = this.guardBearerRole(bucketKey, authHeader);
