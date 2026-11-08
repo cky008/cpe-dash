@@ -2,10 +2,21 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/). Each release section opens with `### Highlights` (a few changes worth a short paragraph); the GitHub release lists the other changes by their lead sentence and links here for the details.
 
-## [Unreleased]
+## [1.7.1] — 2026-11-08
+
+### Highlights
+- **Term help that is never cut off.** The one-line explanation of a "?" now always shows in full, next to the mark, also inside the controls and access drawers.
 
 ### Fixed
 - **A term's help is never cut off.** The one-line explanation of a "?" was a bubble drawn by CSS around the mark, so a card cut it off when the "?" sat near its edge (the access mode, PCI) and it hid behind open drawers. It is now one floating line placed next to the mark and kept inside the window (below the mark when there is no room above), shown inside the drawer when the "?" is in one, and gone on scroll.
+- **The documentation site deploys from `main` only.** Its workflow also ran on each published release, on the release's tag, which GitHub's `github-pages` environment refuses; a release reaches the site through its commit on `main`.
+- **The documentation site builds with read-only access.** Its first run failed (`Resource not accessible by integration`): the build job called `actions/configure-pages`, which reads the Pages settings and so needs `pages: read`, only to compute a base path the site does not use (its links are relative). The step is gone; the build keeps `contents: read`, the deploy job alone has `pages: write`.
+
+### Documentation
+- **Older releases read like the new ones.** Release notes list a first release's sections as features and keep each change to its lead (up to the first colon); every GitHub release since v1.0.0 was regenerated in this layout, titled by its version.
+
+### Upgrading
+- Nothing to change: no setting, data format or compose change since v1.7.0.
 
 ## [1.7.0] — 2026-11-08
 
