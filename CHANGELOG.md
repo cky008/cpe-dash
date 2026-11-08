@@ -2,7 +2,13 @@
 
 All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Versioning](https://semver.org/). Each release section opens with `### Highlights` (a few changes worth a short paragraph); the GitHub release lists the other changes by their lead sentence and links here for the details.
 
-## [Unreleased]
+## [1.7.0] — 2026-11-08
+
+### Highlights
+- **A guide and a home page.** FengSui has a documentation site: a quick start, install and upgrade steps, and pages that explain what every number on the signal card and every router switch means, in Chinese and English, with search. The READMEs are short front pages again.
+- **Help right where the words are.** A small "?" next to RSRP, PCI, carrier aggregation, UPnP and the like explains the term in one sentence and opens the guide on a click; turn the marks off in Settings → Appearance. The console's labels now use plain words.
+- **Safer for a fresh install.** New installs start with AI agents read-only, no LAN beacon, and the SMS country taken from the router's SIM. Setups that relied on the old defaults add a line or two to `.env` (see "Upgrading" / "Before you upgrade").
+- **See what self-healing will do.** The controls drawer shows whether lock rollback and automatic redial are on, the lock being watched and the redials left today, and a lock's confirmation says whether it would be rolled back.
 
 ### Added
 - **A "?" next to technical terms.** The signal card, carrier aggregation, nearby cells, the controls drawer and the access-control drawer put a small "?" after words such as RSRP, SINR, PCI, frequency, anchor, carrier aggregation, UPnP, DMZ, MLO or MAC filter: hover or focus shows one plain sentence, a click opens the guide where the term is explained with examples and sources. Settings → Appearance turns every mark off (kept in this browser, applied before the first paint).
