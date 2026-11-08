@@ -128,7 +128,10 @@ export class WanSelfHeal {
     const iso = (ms: number): string => new Date(ms).toISOString();
     const watch = this.#lockWatch;
     const redialing = this.reconnectAfterMs > 0;
-    const next = this.#nextReconnectAtMs;
+    const recent = this.#reconnects.filter((ts) => now - ts < DAY_MS).sort((a, b) => a - b);
+    // The day's cap also holds one back: until enough of the last 24 h's redials have aged out
+    const capUntil = recent.length >= RECONNECT_MAX_PER_DAY ? (recent[recent.length - RECONNECT_MAX_PER_DAY] ?? now) + DAY_MS : 0;
+    const next = Number.isFinite(this.#nextReconnectAtMs) ? Math.max(this.#nextReconnectAtMs, capUntil) : this.#nextReconnectAtMs;
     return {
       lockRollback: {
         afterMin: this.lockRollbackAfterMs > 0 ? Math.round(this.lockRollbackAfterMs / 60_000) : null,
@@ -136,7 +139,7 @@ export class WanSelfHeal {
       },
       reconnect: {
         afterMin: redialing ? Math.round(this.reconnectAfterMs / 60_000) : null,
-        redialsLast24h: this.#reconnects.filter((ts) => now - ts < DAY_MS).length,
+        redialsLast24h: recent.length,
         maxPer24h: RECONNECT_MAX_PER_DAY,
         nextAllowedAtIso: redialing && Number.isFinite(next) && next > now ? iso(next) : null,
         wanDownSinceIso: redialing && this.#downSinceMs !== null ? iso(this.#downSinceMs) : null,
@@ -402,8 +405,10 @@ export class WanSelfHeal {
     this.#reconnects = reconnects.filter((ts) => typeof ts === "number" && Math.abs(now - ts) < DAY_MS);
     const next = saved.nextReconnectAtMs;
     this.#nextReconnectAtMs = typeof next === "number" && next - now <= Math.max(...RECONNECT_BACKOFF_MS) ? next : 0;
+    // The backoff belongs to the outage of those redials: with none left within the day (a long stop, or an
+    // older version that never updated the record), a new outage starts from the first step
     const step = saved.backoffIndex;
-    this.#backoffIndex = Number.isSafeInteger(step) && step > 0 ? Math.min(step, RECONNECT_BACKOFF_MS.length) : 0;
+    this.#backoffIndex = this.#reconnects.length > 0 && Number.isSafeInteger(step) && step > 0 ? Math.min(step, RECONNECT_BACKOFF_MS.length) : 0;
     this.#savedReconnects = budgetKey(this.#reconnects, this.#backoffIndex);
   }
 

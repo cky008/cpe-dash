@@ -506,7 +506,7 @@ export interface SelfHealStatus {
     afterMin: number | null;     // WAN_AUTO_RECONNECT_AFTER_MIN；null = 关闭
     redialsLast24h: number;      // 近 24 小时到达路由器的重拨次数
     maxPer24h: number;           // 上限（4）
-    nextAllowedAtIso: string | null; // 在此之前不会重拨；null = 没有等待
+    nextAllowedAtIso: string | null; // 在此之前不会重拨（退避间隔或 24 小时 4 次的上限）；null = 没有等待
     wanDownSinceIso: string | null;  // 正在计时的断网；null = WAN 在线或尚未看到断开
   };
 }

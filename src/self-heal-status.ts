@@ -22,7 +22,7 @@ export interface SelfHealStatus {
     /** Redials that reached the router in the last 24 h, of at most `maxPer24h`. */
     redialsLast24h: number;
     maxPer24h: number;
-    /** No redial before this; `null` when nothing holds one back. */
+    /** No redial before this (the backoff step or the 24 h cap); `null` when nothing holds one back. */
     nextAllowedAtIso: string | null;
     /** The outage being timed (`null`: the WAN is up, or not seen down yet). */
     wanDownSinceIso: string | null;

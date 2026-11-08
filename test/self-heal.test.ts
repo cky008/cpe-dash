@@ -557,6 +557,27 @@ describe("WanSelfHeal reconnect (WAN_AUTO_RECONNECT_AFTER_MIN)", () => {
     }
   });
 
+  it("paces a new outage from the first step when every saved redial is over a day old", async () => {
+    // A daemon stopped for more than a day, or an older version that never updated the record, ran meanwhile
+    const fx = fixture({ reconnectMin: 3 });
+    try {
+      const DAY = 24 * 60 * MIN;
+      fx.core.scheduler.stateStore.update({
+        selfHealReconnect: { reconnectsMs: [T0 - DAY - 100 * MIN, T0 - DAY - 90 * MIN, T0 - DAY - 60 * MIN], nextReconnectAtMs: T0 - DAY, backoffIndex: 3 },
+      });
+      fx.heal.start();
+      for (const minute of [0, 3]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, 1);
+      assert.match(fx.alerts[0]?.messageEn ?? "", /\(1\/4 in 24 h/);
+      await fx.at(12.9, "902");
+      assert.equal(fx.calls.reconnect, 1);
+      await fx.at(13, "902");
+      assert.equal(fx.calls.reconnect, 2, "10 min after the first redial, not the old outage's 60 min step");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("starts with an empty budget when nothing was saved, and saves nothing while the WAN is up", async () => {
     const fx = fixture({ reconnectMin: 3 });
     try {
@@ -601,6 +622,23 @@ describe("WanSelfHeal status (what it will do next, for the console and agents)"
       assert.deepEqual(fx.heal.status().reconnect, { afterMin: 3, redialsLast24h: 1, maxPer24h: RECONNECT_MAX_PER_DAY, nextAllowedAtIso: null, wanDownSinceIso: null });
       fx.setClock(T0 + (23 + 24 * 60) * MIN);
       assert.equal(fx.heal.status().reconnect.redialsLast24h, 0, "a day later the redial no longer counts");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("names when the day's cap lets the next redial through once all four are spent", async () => {
+    const fx = fixture({ reconnectMin: 3 });
+    try {
+      fx.heal.start();
+      for (const minute of [0, 3, 13, 43, 103, 163]) await fx.at(minute, "902");
+      assert.equal(fx.calls.reconnect, 4);
+      const capped = new Date(T0 + (3 + 24 * 60) * MIN).toISOString();
+      assert.deepEqual([fx.heal.status().reconnect.redialsLast24h, fx.heal.status().reconnect.nextAllowedAtIso], [4, capped], "the 60 min step is over, the cap is not");
+      await fx.at(170, "901");
+      assert.equal(fx.heal.status().reconnect.nextAllowedAtIso, capped, "the cap holds while the WAN is up too");
+      fx.setClock(T0 + (3 + 24 * 60) * MIN);
+      assert.deepEqual([fx.heal.status().reconnect.redialsLast24h, fx.heal.status().reconnect.nextAllowedAtIso], [3, null]);
     } finally {
       await fx.cleanup();
     }
