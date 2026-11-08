@@ -14,6 +14,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - An access-control change that can cut a device off (block, a whitelist, a time rule) now also refuses when the router marks the machine running FengSui without a MAC address it can use: the host was "identified" but nothing was protected. The H168-383 always reports one; nothing changes there.
 - **The console tidies up after a session ends.** When the console falls back to the sign-in page (the session expired or was ended elsewhere), every open dialog closes, so a freshly created token, a pairing code or a typed router password no longer stays on screen over the sign-in page.
 - Settings → Telegram creates one pairing code at a time and Settings → Security saves one switch at a time (their controls wait while a request runs); the experimental-write consent never accepts an empty model name; the controls drawer shows the "someone is on the router's page" / breaker / standby notice on other models too; a security switch whose write may have applied (the read-back failed) keeps its position and the drawer reads the router's settings again instead of flipping back; the token name, DMZ address and DMZ switch have accessible names, and the SMS search box's name follows the language.
+- Telegram notifications wait out a `429` (`retry_after`): queued ones are not retried, and new ones are queued instead of sent, until Telegram's window has passed; sending sooner only lengthened the limit.
 
 ## [1.6.2] — 2026-11-04
 

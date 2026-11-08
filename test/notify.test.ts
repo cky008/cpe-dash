@@ -42,6 +42,9 @@ function createFakeTelegram(opts: { updates?: TelegramUpdate[][]; vcf?: string; 
     const ok = (result: unknown): Response => new Response(JSON.stringify({ ok: true, result }), { status: 200 });
     if (method === "sendMessage") {
       if (failures.send === "network") throw new TypeError("fetch failed");
+      if (failures.send === 429) {
+        return new Response(JSON.stringify({ ok: false, error_code: 429, description: "Too Many Requests: retry after 30", parameters: { retry_after: 30 } }), { status: 429 });
+      }
       if (typeof failures.send === "number") {
         return new Response(JSON.stringify({ ok: false, error_code: failures.send, description: "Forbidden: bot was blocked by the user" }), { status: failures.send });
       }
@@ -962,6 +965,33 @@ describe("TelegramBot notification outbox", () => {
     code,
     messageZh: code,
     messageEn: code,
+  });
+
+  it("waits out Telegram's retry_after before sending notifications again", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.tg.failures.send = 429;
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      assert.equal(fx.bot.pendingNotifications, 1);
+      const tried = fx.tg.sends("1001").length;
+
+      // Telegram would answer again, but it asked for 30 s: nothing is sent before then
+      fx.tg.failures.send = undefined;
+      await fx.bot.flushOutbox();
+      await fx.bot.notifyAlert(alert("LOCK_ROLLED_BACK"));
+      assert.equal(fx.tg.sends("1001").length, tried, "no request inside the window");
+      assert.equal(fx.bot.pendingNotifications, 2, "a new one queues behind");
+
+      fx.advance(30_001);
+      await fx.bot.flushOutbox();
+      assert.equal(fx.bot.pendingNotifications, 0);
+      assert.deepEqual(
+        fx.tg.sends("1001").slice(-2).map((c) => String(c.payload["text"]).split("\n")[0]),
+        ["⚠️ <b>WAN_DOWN</b>", "⚠️ <b>LOCK_ROLLED_BACK</b>"]
+      );
+    } finally {
+      await fx.cleanup();
+    }
   });
 
   it("keeps notifications while Telegram is unreachable and delivers them in order, replies still routed", async () => {

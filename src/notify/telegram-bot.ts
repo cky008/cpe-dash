@@ -590,6 +590,8 @@ export class TelegramBot implements NotificationChannel {
   /** Notifications that failed on a network error, oldest first (delivered once Telegram answers again). */
   #outbox: PendingNotification[] = [];
   #flushing: Promise<void> | null = null;
+  /** Telegram answered 429 with `retry_after`: no notification is sent before this time. */
+  #outboxRetryAtMs = 0;
   #globalAuthFailures: number[] = [];
 
   constructor(opts: TelegramBotOptions) {
@@ -753,6 +755,7 @@ export class TelegramBot implements NotificationChannel {
    */
   async flushOutbox(): Promise<void> {
     if (this.#flushing) return await this.#flushing;
+    if (this.#now() < this.#outboxRetryAtMs) return;
     const run = async (): Promise<void> => {
       for (let next = this.#outbox[0]; next; next = this.#outbox[0]) {
         if (this.#now() - next.queuedAtMs > OUTBOX_MAX_AGE_MS) {
@@ -764,7 +767,10 @@ export class TelegramBot implements NotificationChannel {
           this.#outbox.shift();
           this.#afterNotification(next, sent);
         } catch (err) {
-          if (isTransientTelegramError(err)) return;
+          if (isTransientTelegramError(err)) {
+            this.#noteRetryAfter(err);
+            return;
+          }
           this.#outbox.shift();
           this.#log(`[telegram] queued notification dropped: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -781,6 +787,11 @@ export class TelegramBot implements NotificationChannel {
    * after a network error, typically while the WAN this NAS reaches Telegram through is down.
    */
   async #deliver(notification: Omit<PendingNotification, "queuedAtMs">): Promise<void> {
+    // Sending inside a 429 window would only extend Telegram's limit: queue it for later
+    if (this.#now() < this.#outboxRetryAtMs) {
+      this.#enqueue(notification);
+      return;
+    }
     if (this.#outbox.some((pending) => pending.chatId === notification.chatId)) {
       this.#enqueue(notification);
       await this.flushOutbox();
@@ -795,7 +806,15 @@ export class TelegramBot implements NotificationChannel {
         return;
       }
       if (this.#outbox.length === 0) this.#log(`[telegram] Telegram unreachable; queueing notifications until it answers: ${reason}`);
+      this.#noteRetryAfter(err);
       this.#enqueue(notification);
+    }
+  }
+
+  /** A 429 names how long to wait: keep notifications queued until then. */
+  #noteRetryAfter(err: unknown): void {
+    if (err instanceof TelegramApiError && err.retryAfterSec !== null) {
+      this.#outboxRetryAtMs = Math.max(this.#outboxRetryAtMs, this.#now() + err.retryAfterSec * 1000);
     }
   }
 
