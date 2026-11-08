@@ -847,7 +847,8 @@ export class TelegramBot implements NotificationChannel {
     if (this.#now() < this.#outboxRetryAtMs) return;
     const run = async (): Promise<void> => {
       for (let next = this.#outbox[0]; next; next = this.#outbox[0]) {
-        if (this.#now() - next.queuedAtMs > OUTBOX_MAX_AGE_MS) {
+        // Too old to be news, or for a chat unlinked while it waited (it may carry SMS and codes)
+        if (this.#now() - next.queuedAtMs > OUTBOX_MAX_AGE_MS || !this.state.isAuthorized(next.chatId, this.allowedChatIds)) {
           this.#outbox.shift();
           continue;
         }

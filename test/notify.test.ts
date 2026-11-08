@@ -1136,6 +1136,44 @@ describe("TelegramBot notification outbox", () => {
     }
   });
 
+  it("never delivers a queued notification to a chat that was unlinked while it waited", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.state.authorize("2003");
+      fx.state.authorize("2004", undefined, "tok-phone");
+      fx.state.authorize("2005");
+      fx.tg.failures.send = "network";
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      assert.equal(fx.bot.pendingNotifications, 4);
+
+      // The owner unlinks a chat and revokes a token while Telegram is unreachable
+      assert.equal(fx.bot.unlinkChat("2003"), true);
+      assert.equal(fx.bot.unlinkChatsLinkedBy("tok-phone"), 1);
+      const tried = (chatId: string): number => fx.tg.sends(chatId).length;
+      const before = { c2003: tried("2003"), c2004: tried("2004") };
+      fx.tg.failures.send = undefined;
+      await fx.bot.flushOutbox();
+      assert.equal(fx.bot.pendingNotifications, 0);
+      assert.equal(tried("2003"), before.c2003, "an unlinked chat gets nothing that was queued for it");
+      assert.equal(tried("2004"), before.c2004, "nor does a chat whose token was revoked");
+      assert.match(fx.tg.lastText("2005"), /WAN_DOWN/);
+      assert.match(fx.tg.lastText("1001"), /WAN_DOWN/);
+
+      // "Unlink all" drops what waits for the linked chats; a chat .env authorizes still gets its own
+      fx.tg.failures.send = "network";
+      await fx.bot.notifyAlert(alert("LOCK_ROLLED_BACK"));
+      assert.equal(fx.bot.unlinkAllChats(), 1);
+      const c2005 = tried("2005");
+      fx.tg.failures.send = undefined;
+      await fx.bot.flushOutbox();
+      assert.equal(tried("2005"), c2005);
+      assert.match(fx.tg.lastText("1001"), /LOCK_ROLLED_BACK/);
+      assert.equal(fx.bot.pendingNotifications, 0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("drops what Telegram refuses for good, bounds the queue and forgets notifications older than a day", async () => {
     const fx = createBotFixture();
     try {
