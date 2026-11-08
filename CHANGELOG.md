@@ -26,6 +26,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Building the documentation never empties the repository.** `npm run build:docs -- --out .` (or a parent folder) deleted that folder before building, `.git` included; the build now refuses an output folder that holds the sources. A term anchor written directly under a line of text also becomes an anchor instead of showing as text.
 
 ### Documentation
+- `docs/PHASE2_ARCHITECTURE_REPORT.md` §15 records the second final review: what was found and fixed, each dimension's conclusion, the public-exposure summary, the subagents' false positives, known limitations and the decisions left to the owner.
 - **Contributing rules that match the repository.** `CONTRIBUTING.md` and the pull request checklist now say that `main` accepts signed commits only (unsigned pull requests are squashed and signed by the maintainer) and point behaviour changes at the user guide in both languages instead of the READMEs, which no longer describe features.
 
 ### Container and CI
