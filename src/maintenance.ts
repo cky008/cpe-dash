@@ -255,24 +255,27 @@ function replaceFile(filePath: string, cipher: StorageCipher, data: unknown, lab
 }
 
 /**
- * Put a backup back. The daemon must be stopped. Every file must match its manifest checksum and
- * decrypt with the current key before anything is touched; the files it replaces are kept as
- * `<name>.before-restore-<time>`.
+ * Put a backup back. The daemon must be stopped. Every file must match its manifest checksum,
+ * decrypt with the current key and be in a format this version reads before anything is touched;
+ * the files it replaces are kept as `<name>.before-restore-<time>`.
  */
 export function restoreDataDir(config: DataConfig, backupDir: string, opts: { now?: () => number } = {}): { restored: string[]; movedAside: string[] } {
   const now = (opts.now ?? Date.now)();
   const manifest = JSON.parse(fs.readFileSync(path.join(backupDir, "manifest.json"), "utf8")) as Partial<BackupManifest>;
   if (manifest.format !== 1 || !Array.isArray(manifest.files)) throw new Error(`${backupDir} has no FengSui backup manifest`);
   const cipher = new StorageCipher(config.dataEncryptionKey);
-  const targets = new Map(dataFiles(config).map((file) => [path.basename(file.path), file.path]));
+  const targets = new Map(dataFiles(config).map((file) => [path.basename(file.path), file]));
   const plan = manifest.files.map((entry) => {
-    const target = targets.get(entry.name);
-    if (!target) throw new Error(`${entry.name} is not a FengSui data file`);
+    const file = targets.get(entry.name);
+    if (!file) throw new Error(`${entry.name} is not a FengSui data file`);
     const source = path.join(backupDir, entry.name);
     if (sha256(source) !== entry.sha256) throw new Error(`${entry.name} does not match its checksum in the manifest`);
     const read = tryRead(cipher, source);
     if (!read.ok) throw new Error(`${entry.name} does not decrypt with the current DATA_ENCRYPTION_KEY; set the key the backup was made with`);
-    return { target, data: read.data };
+    // This version would refuse to start on it: restore it with the version that wrote it
+    const format = formatOf(read.data, file.formatKey);
+    if (format !== null && format > file.supported) throw new Error(`${entry.name} was written by a newer FengSui (format ${format}); restore this backup with that version`);
+    return { target: file.path, data: read.data };
   });
   return withDataDirectoryLock(config, () => {
     const restored: string[] = [];

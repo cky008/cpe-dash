@@ -389,7 +389,7 @@ sudo docker exec cpe-dash node dist/cli.js backup
 
 # The next two take the data-directory lock: stop the daemon first
 sudo docker compose stop cpe-dash
-# Restore: checks the manifest and the current key before writing; replaced files are kept as *.before-restore-<time>
+# Restore: checks the manifest, the current key and the data format (a backup a newer version wrote needs that version) before writing; replaced files are kept as *.before-restore-<time>
 sudo docker compose run --rm cpe-dash node dist/cli.js restore /app/data/backups/fengsui-backup-<time>
 # Rotate the data key: set the new DATA_ENCRYPTION_KEY in .env, then type the old key (kept out of shell history).
 # Files moved aside as *.unreadable-* after a key mismatch at startup are opened with the old key and put back too

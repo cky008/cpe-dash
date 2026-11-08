@@ -389,7 +389,7 @@ sudo docker exec cpe-dash node dist/cli.js backup
 
 # 以下两项要先停止守护进程（它们会获取数据目录锁）
 sudo docker compose stop cpe-dash
-# 恢复备份：校验清单与当前密钥后才写入，被替换的文件保留为 *.before-restore-<时间>
+# 恢复备份：校验清单、当前密钥与数据格式（更新版本写的备份要用那个版本恢复）后才写入，被替换的文件保留为 *.before-restore-<时间>
 sudo docker compose run --rm cpe-dash node dist/cli.js restore /app/data/backups/fengsui-backup-<时间>
 # 换主密钥：先把 .env 的 DATA_ENCRYPTION_KEY 改成新值，再输入旧密钥（不进命令历史）。
 # 启动时因密钥不对而被隔离的 *.unreadable-* 文件也会用旧密钥解开并放回原处

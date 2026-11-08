@@ -129,6 +129,22 @@ describe("cpe-dash backup / restore", () => {
       fx.cleanup();
     }
   });
+
+  it("refuses a backup that a newer FengSui wrote, before touching anything", () => {
+    const fx = setup();
+    try {
+      const cipher = new StorageCipher("new_key");
+      cipher.writeJsonFile(fx.files.contacts, { version: 1, contacts: [] });
+      cipher.writeJsonFile(fx.files.state, { schemaVersion: 2 });
+      const { dir } = backupDataDir(fx.config);
+      cipher.writeJsonFile(fx.files.state, { schemaVersion: 1 });
+      assert.throws(() => restoreDataDir(fx.config, dir), /state\.json was written by a newer FengSui \(format 2\)/);
+      assert.equal(cipher.readJsonFile<{ schemaVersion: number }>(fx.files.state)?.schemaVersion, 1, "nothing was replaced");
+      assert.deepEqual(fs.readdirSync(fx.dataDir).filter((name) => name.includes("before-restore")), []);
+    } finally {
+      fx.cleanup();
+    }
+  });
 });
 
 describe("cpe-dash rekey", () => {
