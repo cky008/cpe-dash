@@ -15,6 +15,7 @@ COPY src ./src
 COPY web ./web
 COPY locales ./locales
 COPY scripts/build-web.ts scripts/brand.ts ./scripts/
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 RUN npm run build
 
 FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS runtime
@@ -28,6 +29,7 @@ ENV NODE_ENV=production \
     STATE_FILE=/app/data/state.json
 WORKDIR /app
 COPY package.json ./
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 COPY --from=build /src/dist ./dist
 COPY locales ./locales
 # The data directory holds only AES-256-GCM encrypted files written 0600; keep the directory private too

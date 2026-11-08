@@ -141,6 +141,8 @@ async function buildOnce(): Promise<void> {
   // Pages would otherwise run the site through Jekyll
   if (DEMO) fs.writeFileSync(path.join(OUT, ".nojekyll"), "");
   fs.writeFileSync(path.join(OUT, "favicon.svg"), brand.svg);
+  // The licenses of Tailwind CSS, daisyUI and Lucide travel with every copy of the console
+  fs.copyFileSync(path.join(ROOT, "THIRD_PARTY_NOTICES.md"), path.join(OUT, "THIRD_PARTY_NOTICES.txt"));
 
   const gzipKiB = (text: string): number => zlib.gzipSync(text, { level: 9 }).length / 1024;
   const report = (name: string, text: string, role: ChunkRole): number => {

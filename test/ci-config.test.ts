@@ -85,3 +85,30 @@ describe("The local gate (npm run check)", () => {
     assert.match(ci, /run: npm run check\n(?:\s+#[^\n]*\n)?\s+- name: Console in a headless browser[^\n]*\n\s+if: matrix\.node == '26\.x'\n\s+run: npm run test:ui\n/);
   });
 });
+
+describe("Third-party notices", () => {
+  const ROOT = path.resolve(import.meta.dirname, "..");
+  const read = (file: string): string => fs.readFileSync(path.join(ROOT, file), "utf8");
+
+  it("names every project whose code the console's build contains, with its full license text", () => {
+    const notices = read("THIRD_PARTY_NOTICES.md");
+    for (const [name, license] of [
+      ["Tailwind CSS", "Copyright (c) Tailwind Labs, Inc."],
+      ["daisyUI", "Copyright (c) 2020 Pouya Saadeghi"],
+      ["Lucide", "Copyright (c) 2026 Lucide Icons and Contributors"],
+      ["Lucide", "Copyright (c) 2013-present Cole Bemis"],
+    ] as const) {
+      assert.match(notices, new RegExp(`^## ${name}$`, "m"), name);
+      assert.ok(notices.includes(license), `${name}: ${license}`);
+    }
+    // The stylesheet's own sources: daisyUI and Tailwind are the only packages it compiles in
+    assert.match(read("web/styles.css"), /@plugin "daisyui"/);
+  });
+
+  it("ships the notices with the console, the demo and the container image", () => {
+    assert.match(read("scripts/build-web.ts"), /THIRD_PARTY_NOTICES\.md[\s\S]{0,200}THIRD_PARTY_NOTICES\.txt/);
+    assert.match(read(".dockerignore"), /^!THIRD_PARTY_NOTICES\.md$/m);
+    const dockerfile = read("Dockerfile");
+    assert.equal(dockerfile.match(/^COPY LICENSE THIRD_PARTY_NOTICES\.md \.\/$/gm)?.length, 2, "the build stage (for the console) and the runtime image");
+  });
+});

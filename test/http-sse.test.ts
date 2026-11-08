@@ -290,6 +290,7 @@ async function createTestHttpServer(opts: {
     fs.writeFileSync(path.join(staticDir, "icon.svg"), "<svg></svg>", "utf8");
     fs.writeFileSync(path.join(staticDir, "data.json"), '{"static":true}', "utf8");
     fs.writeFileSync(path.join(staticDir, "blob.bin"), Buffer.from([1, 2, 3]));
+    fs.writeFileSync(path.join(staticDir, "THIRD_PARTY_NOTICES.txt"), "# Third-party notices", "utf8");
   }
 
   const envPath = path.join(tmpDir, ".env");
@@ -1641,6 +1642,11 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const resJson = await fetch(`${fx.baseUrl}/data.json`);
       assert.equal(resJson.status, 200);
       assert.equal(resJson.headers.get("content-type"), "application/json; charset=utf-8");
+
+      // The license notices the build puts next to the console read as text, not a download
+      const resTxt = await fetch(`${fx.baseUrl}/THIRD_PARTY_NOTICES.txt`);
+      assert.equal(resTxt.status, 200);
+      assert.equal(resTxt.headers.get("content-type"), "text/plain; charset=utf-8");
 
       const resBin = await fetch(`${fx.baseUrl}/blob.bin`);
       assert.equal(resBin.status, 200);
