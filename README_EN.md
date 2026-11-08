@@ -633,7 +633,7 @@ Full template available in [`.env.example`](.env.example). The daemon reads only
 | `RESPECT_BROWSER_SESSION` | `true` | Automatic yielding when human admin is online (strongly recommended to keep enabled) |
 | `STATE_FILE` | `./data/state.json` | Encrypted state file; `/app/data/state.json` inside container |
 | `HISTORY_RETENTION_HOURS` | `168` | Time-series history retention duration (7 days) |
-| `STATE_FLUSH_INTERVAL_MS` | `1800000` | Periodic flush of the encrypted state (30 minutes, minimum `10000`; it is always flushed on shutdown) |
+| `STATE_FLUSH_INTERVAL_MS` | `1800000` | Periodic flush of the encrypted state (30 minutes, minimum `10000`; it is always flushed on shutdown). On a NAS with disk hibernation and nothing else writing, a flush every 30 minutes keeps waking the disks: raise it to a few hours (a crash then loses up to that much chart history); a token in steady use (Prometheus, an agent) also saves its last use every 5 minutes |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_AUTH_FAILURES` | `60000` / `8` | Login failure rate limit: window and failures allowed in it (per direct client address) |
 | `SESSION_TTL_MS` | `86400000` | Lifetime of a console login session (24 hours) |
 | `STATIC_DIR` | *(build output)* | Console static files; defaults to `dist/web/public` and rarely needs setting |

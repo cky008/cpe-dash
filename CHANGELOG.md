@@ -10,6 +10,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Fixed
 - **A group whose forum topic was deleted or closed keeps getting its messages.** A group linked with a group pairing code from a forum topic posts there, and once that topic was gone Telegram refused every message (`400 Bad Request: message thread not found`): notifications were dropped and even the bot's answers in the group failed, until the group was unlinked and linked again. The bot now sends such a message to the group's General topic, moves the link there for good (kept in `telegram.json`) and says once in General what happened and how to move it to another topic. A command answered into a topic that has just gone, in a group `TELEGRAM_CHAT_IDS` lists, is answered in General too; any other refusal is not retried.
 
+### Documentation
+- `docs/PHASE2_ARCHITECTURE_REPORT.md` §13.8 records the measurements on the NAS after the v1.6.3 deploy and what was built after them; the README and `.env.example` say when to raise `STATE_FLUSH_INTERVAL_MS` (disk hibernation on an otherwise idle NAS).
+
 ## [1.6.3] — 2026-11-08
 
 ### Added
