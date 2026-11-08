@@ -9,6 +9,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **`cpe-dash reset-login` codes go to the daemon's own host only, also behind a reverse proxy.** `POST /api/setup/reset-code` judged "from loopback" by the TCP peer, so with an HTTPS proxy on the same host every client it forwarded counted as local and only the data-key proof stood in the way. It now uses the client address resolved through `TRUSTED_PROXIES`, so a forwarded LAN client is refused (`401`) while `reset-login` on the host keeps working.
 - **A full-access token sent to a Telegram group can no longer link a chat.** A private pairing code shown to a group was already spent there, but a token was only refused: any member who read it could send `/auth` with it to the bot in a private chat and get SMS, codes and the router's controls until its owner revoked it. The token is now marked when it reaches a group (`telegramExposedAtIso` in `GET /api/console/tokens`), links no chat from then on, and Settings → Tokens flags it to be revoked; it keeps working as a token, since revoking it would also cut off whatever else uses it.
 
+### Fixed
+- An access-control change that can cut a device off (block, a whitelist, a time rule) now also refuses when the router marks the machine running FengSui without a MAC address it can use: the host was "identified" but nothing was protected. The H168-383 always reports one; nothing changes there.
+
 ## [1.6.2] — 2026-11-04
 
 ### Added

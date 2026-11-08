@@ -204,12 +204,13 @@ export function accessGuardFromHosts(hosts: ReadonlyArray<TerminalHostEntry>, re
 
 /**
  * The guard for one write. A change that can cut a device off fails closed when the host list does
- * not mark the machine running FengSui (`IsLocalDevice`): a HostInfo that did not parse, came back
- * empty or lacks the mark would otherwise leave nothing protected. Restoring access needs no guard.
+ * not mark the machine running FengSui (`IsLocalDevice`) with a MAC it can protect: a HostInfo that
+ * did not parse, came back empty, lacks the mark or marks a host without a valid MAC would otherwise
+ * leave nothing protected. Restoring access needs no guard.
  */
 async function readGuard(session: EphemeralCpeSession, ctx: AccessRequestContext, canCutOff: boolean): Promise<AccessGuard> {
   const hosts = parseHostInfoJson(await session.get("/api/system/HostInfo"), { sanitize: false });
-  if (canCutOff && !hosts.some((host) => host.isLocalDevice)) {
+  if (canCutOff && !hosts.some((host) => host.isLocalDevice && normalizeMac(host.macAddress) !== null)) {
     throw new CpeControlValidationError(
       "The router's host list does not identify the machine running FengSui (IsLocalDevice), so this change cannot be checked against cutting it off; nothing was written"
     );

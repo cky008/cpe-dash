@@ -166,7 +166,10 @@ describe("access-control: Wi-Fi MAC filter writes", () => {
     const ruleWrites = writes("/api/timerule/timerule").length;
 
     const unmarked = JSON.stringify((JSON.parse(HOSTS) as Array<Record<string, unknown>>).map((h) => ({ ...h, IsLocalDevice: false })));
-    for (const body of ['[{"MACAddress":"00:00:5E:00:53:01","IsLocalDevice":true', "[]", unmarked]) {
+    // Marked, but with no MAC to protect: as good as unmarked
+    const macless = (mac: string): string =>
+      JSON.stringify((JSON.parse(HOSTS) as Array<Record<string, unknown>>).map((h) => (h["IsLocalDevice"] === true ? { ...h, MACAddress: mac } : h)));
+    for (const body of ['[{"MACAddress":"00:00:5E:00:53:01","IsLocalDevice":true', "[]", unmarked, macless(""), macless("not-a-mac")]) {
       hostInfo = body;
       const refused = (err: unknown): boolean => err instanceof CpeControlValidationError && /machine running FengSui/.test(err.message);
       await assert.rejects(() => run((session) => applyWifiAccessChange(session, { kind: "block", macAddress: TABLET, name: "t" }, { requesterIp: null })), refused);
