@@ -276,6 +276,11 @@ export interface DemoDaemonOptions {
   token: string;
   /** `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another model, read-only. */
   scenario?: "normal" | "yield" | "breaker" | "unverified";
+  /**
+   * Run the Telegram bot against an in-process stand-in for the Bot API (nothing leaves the process),
+   * with `TELEGRAM_CHAT_IDS=1003`: Settings → Telegram can then link, list and unlink chats.
+   */
+  telegram?: boolean;
   log?: (line: string) => void;
 }
 
@@ -285,6 +290,35 @@ export interface DemoDaemon {
   baseUrl: string;
   dataDir: string;
   close(): Promise<void>;
+}
+
+/** A token of BotFather's shape that no bot has: the demo's bot only ever talks to `offlineTelegram()`. */
+const DEMO_BOT_TOKEN = "123456:DEMO_TOKEN_abcdefghijklmnopqrstuv";
+
+/** The Bot API as far as the bot uses it, in this process: every send accepted, long polls that bring nothing. */
+function offlineTelegram(): typeof fetch {
+  let messageId = 0;
+  return async (input, init) => {
+    const method = new URL(String(input)).pathname.split("/").pop() ?? "";
+    const ok = (result: unknown): Response => new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (method === "getMe") return ok({ id: 1, is_bot: true, username: "FengSuiDemoBot" });
+    if (method === "sendMessage") return ok({ message_id: ++messageId });
+    if (method === "getUpdates") {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 1000);
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(init.signal?.reason ?? new DOMException("aborted", "AbortError"));
+          },
+          { once: true }
+        );
+      });
+      return ok([]);
+    }
+    return ok(true);
+  };
 }
 
 /** The real daemon (scheduler, monitor, SMS, SSE, REST, MCP, web UI) against the demo router. */
@@ -310,10 +344,23 @@ export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaem
       TZ: Intl.DateTimeFormat().resolvedOptions().timeZone,
     },
   });
-  // Belt and braces: nothing in this process may notify or announce itself
-  const demoConfig = { ...config, telegramBotToken: "", telegramChatIds: [], webhookUrl: "", webhookSecret: "", peerDiscoveryEnabled: false };
+  // Belt and braces: nothing in this process may notify or announce itself (a bot, if asked for, talks to a stand-in)
+  const demoConfig = {
+    ...config,
+    telegramBotToken: opts.telegram ? DEMO_BOT_TOKEN : "",
+    telegramChatIds: opts.telegram ? ["1003"] : [],
+    webhookUrl: "",
+    webhookSecret: "",
+    peerDiscoveryEnabled: false,
+  };
 
-  const stack = createFengSuiRuntime({ config: demoConfig, envPath: envFile, fetchImpl: router.fetchImpl, log: opts.log ?? (() => undefined) });
+  const stack = createFengSuiRuntime({
+    config: demoConfig,
+    envPath: envFile,
+    fetchImpl: router.fetchImpl,
+    ...(opts.telegram ? { notifyFetchImpl: offlineTelegram() } : {}),
+    log: opts.log ?? (() => undefined),
+  });
   // The household is set up already: no first-run review over the dashboard
   stack.settings.markReviewed();
   let address: { host: string; port: number } | null;

@@ -306,6 +306,7 @@ npm run demo          # http://127.0.0.1:18484 ，登录口令 fengsui-demo
 # DEMO_SCENARIO=breaker npm run demo   → 错误的路由器密码，触发防爆破熔断（423 横幅）
 # DEMO_SCENARIO=unverified npm run demo → 换成一台未验证的华为型号（只有 4G、旧式登录）：只读、徽章、设备报告
 npm run screenshots   # 用本机 Chrome 无头模式从演示环境重新生成 docs/screenshots/ 下的全部截图（发版前运行）
+npm run test:ui       # 浏览器回归测试：本机无头 Chrome 在演示环境里走一遍控制台（登录、写入确认、会话结束、Telegram 聊天、无障碍名称、手机宽度）
 npm run brand:trace -- concept.png   # 把标志概念图描成 web/brand/logo.svg（标志的唯一来源，见 docs/BRAND.md）
 ```
 
@@ -671,6 +672,7 @@ npm run check
 
 - 单元测试只对接注入式 Mock 路由器，**从不访问真实 `192.168.8.1`**；测试号码只用保留号段，从不向真实号码发短信。
 - CI 在 Node.js 22.x（`engines` 下限）与 26.x 上跑完整门禁，再构建 `linux/amd64` 镜像，以无特权只读方式运行并验证健康检查、Web 与 CSP、登录、SSE、MCP、`SIGTERM` 停机与仅加密落盘。
+- `npm run test:ui` 不在门禁里（门禁不需要浏览器）：它先构建控制台，再用无头 Chrome 对着真实守护进程与演示路由器走一遍控制台的关键流程；CI 在 Node.js 26.x 上运行它。
 - 七大工程与安全铁律见 [`AGENTS.md`](AGENTS.md)。
 
 ---
@@ -690,8 +692,8 @@ cpe-dash/
 ├── web/                     # Web 控制台：严格 TS + Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
 │   ├── index.html · styles.css
 │   └── src/                 # core/（无 DOM 逻辑，纳入覆盖率门禁）· ui/ · i18n/ · demo/（在线演示的页面内后端）
-├── scripts/                 # build-web.ts · demo-router.ts · demo-server.ts · capture-demo-seed.ts · audit-secrets.ts · probe-*.ts
-├── test/                    # node:test 离线测试（helpers/ 内含加密 Mock 路由器）
+├── scripts/                 # build-web.ts · demo-router.ts · demo-server.ts · capture-demo-seed.ts · screenshots.ts · cdp.ts · audit-secrets.ts · probe-*.ts
+├── test/                    # node:test 离线测试（helpers/ 内含加密 Mock 路由器；ui/ 为无头 Chrome 浏览器测试）
 ├── docs/                    # 协议规范、架构报告、后端契约与界面截图
 ├── Dockerfile · docker-compose.yml · .dockerignore
 └── .github/workflows/       # ci-docker.yml · release.yml · demo-pages.yml

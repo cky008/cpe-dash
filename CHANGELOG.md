@@ -23,6 +23,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - In a group with topics listed in `TELEGRAM_CHAT_IDS`, the bot answers a command, a reply to one of its cards or a button in the topic it came from, every step of a guided send included; all of it went to General. A group linked with a group code keeps posting to the topic it was linked from, and notifications to such a pre-authorized group still go to General.
 - Telegram notifications wait out a `429` (`retry_after`): queued ones are not retried, and new ones are queued instead of sent, until Telegram's window has passed; sending sooner only lengthened the limit.
 
+### Tests
+- **The console has browser tests.** `npm run test:ui` builds the console and drives it in a headless Chrome against the real daemon and the in-process demo router (no `.env`, no network; the bot talks to an in-process stand-in): sign-in without a script error, a router write that a cancel leaves alone and a confirmation sends, every dialog closing when the session ends elsewhere, the Telegram chat list and its unlink, an accessible name on every control of the dashboard, the settings tabs, the drawers and the SMS view, no sideways scrolling at phone width, and the typed model an experimental write needs on another model. CI runs it on Node.js 26.x; `npm run check` still needs no browser. `npm run screenshots` and the tests share one zero-dependency DevTools driver (`scripts/cdp.ts`).
+
 ### Documentation
 - `docs/PHASE2_ARCHITECTURE_REPORT.md` §12 records the second full audit: findings and fixes, conclusions per review dimension, the v1.0.1 → current data upgrade and resource measurements, new known limitations and the roadmap.
 

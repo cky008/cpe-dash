@@ -40,6 +40,10 @@ jobs:
         run: npm run build
       - name: Typecheck, coverage gate (>= 90 %) and secret / pure-TS audit
         run: npm run check
+      # The runner's Chrome against the real daemon and the in-process demo router; once is enough
+      - name: Console in a headless browser (sign-in, write confirmations, Telegram chats, accessible names, phone width)
+        if: matrix.node == '26.x'
+        run: npm run test:ui
 
   docker:
     name: Docker image (linux/amd64) + container smoke test

@@ -306,6 +306,7 @@ npm run demo          # http://127.0.0.1:18484 , login token: fengsui-demo
 # DEMO_SCENARIO=breaker npm run demo   → Simulates bad router password, triggering anti-lockout breaker (423 banner)
 # DEMO_SCENARIO=unverified npm run demo → Another, unverified Huawei model (LTE only, legacy login): read-only, badge, device report
 npm run screenshots   # Regenerate every image in docs/screenshots/ from the demo with a local headless Chrome (run before a release)
+npm run test:ui       # Browser regression tests: a local headless Chrome walks the console in the demo world (sign-in, write confirmations, session end, Telegram chats, accessible names, phone width)
 npm run brand:trace -- concept.png   # Trace a logo concept into web/brand/logo.svg, the logo's single source (docs/BRAND.md)
 ```
 
@@ -671,6 +672,7 @@ npm run check
 
 - Unit tests interact exclusively with an injected mock router, **never accessing the real `192.168.8.1`**; test phone numbers use reserved number blocks only, never sending SMS to real numbers.
 - CI executes the complete verification gate on Node.js 22.x (minimum `engines` requirement) and 26.x, builds the `linux/amd64` image, runs it in unprivileged read-only mode, and validates health checks, Web and CSP, login, SSE, MCP, `SIGTERM` shutdown, and that state reaches disk only encrypted.
+- `npm run test:ui` is not part of the gate (the gate needs no browser): it builds the console, then walks its key flows in a headless Chrome against the real daemon and the demo router; CI runs it on Node.js 26.x.
 - See [`AGENTS.md`](AGENTS.md) for the seven engineering and security iron rules.
 
 ---
@@ -690,8 +692,8 @@ cpe-dash/
 ├── web/                     # Web console: Strict TS + Tailwind v4 / daisyUI v5, built offline to dist/web/public
 │   ├── index.html · styles.css
 │   └── src/                 # core/ (DOM-free logic, covered by test gate) · ui/ · i18n/ · demo/ (the live demo's in-page backend)
-├── scripts/                 # build-web.ts · demo-router.ts · demo-server.ts · capture-demo-seed.ts · audit-secrets.ts · probe-*.ts
-├── test/                    # node:test offline tests (helpers/ contains encrypted mock router)
+├── scripts/                 # build-web.ts · demo-router.ts · demo-server.ts · capture-demo-seed.ts · screenshots.ts · cdp.ts · audit-secrets.ts · probe-*.ts
+├── test/                    # node:test offline tests (helpers/ contains encrypted mock router; ui/ holds the headless Chrome browser tests)
 ├── docs/                    # Protocol specs, architecture reports, backend contracts, and UI screenshots
 ├── Dockerfile · docker-compose.yml · .dockerignore
 └── .github/workflows/       # ci-docker.yml · release.yml · demo-pages.yml
