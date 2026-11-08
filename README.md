@@ -74,13 +74,11 @@ docker compose logs cpe-dash | grep "setup code"
 
 ## 文档
 
-| | |
-| :--- | :--- |
-| 开始使用 | [烽燧是什么](docs/guide/zh/overview.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md) |
-| 使用烽燧 | [控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [设备与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md) |
-| 管理 | [Docker Compose 配置](docs/guide/zh/docker-compose.md) · [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他华为型号](docs/guide/zh/other-routers.md) |
-| 帮助 | [排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md) |
-| 技术文档 | [协议规范](docs/PHASE1_PROTOCOL_SPEC.md) · [架构报告](docs/PHASE2_ARCHITECTURE_REPORT.md) · [后端契约（REST / SSE / MCP）](docs/PHASE2_BACKEND_CONTRACT.md) · [更新日志](CHANGELOG.md) |
+- **开始使用**：[烽燧是什么](docs/guide/zh/overview.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md)
+- **使用烽燧**：[控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [设备与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md)
+- **管理**：[Docker Compose 配置](docs/guide/zh/docker-compose.md) · [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他华为型号](docs/guide/zh/other-routers.md)
+- **帮助**：[排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md)
+- **技术文档**：[协议规范](docs/PHASE1_PROTOCOL_SPEC.md) · [架构报告](docs/PHASE2_ARCHITECTURE_REPORT.md) · [后端契约（REST / SSE / MCP）](docs/PHASE2_BACKEND_CONTRACT.md) · [更新日志](CHANGELOG.md)
 
 这些页面也发布在[文档站](https://fengsui.iocky.com/)上，支持搜索。
 
