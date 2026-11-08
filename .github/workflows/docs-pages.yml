@@ -18,8 +18,7 @@ on:
       - "THIRD_PARTY_NOTICES.md"
       - "package.json"
       - ".github/workflows/docs-pages.yml"
-  release:
-    types: [published]
+  # No release trigger: a release runs on its tag, and the github-pages environment deploys from main only
   workflow_dispatch:
 
 permissions:
