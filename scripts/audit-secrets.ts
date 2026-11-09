@@ -95,18 +95,20 @@ const ALLOWED_PLACEHOLDERS = new Set([
   "8935301000000000000",
 ]);
 
-/** Reserved fiction ranges for phone numbers (AGENTS.md 铁律二): Irish +3538300000xx, Ofcom drama +447700900xxx, China +8613000000000. */
+/**
+ * Reserved fiction ranges for phone numbers (AGENTS.md 铁律二): Irish +3538300000xx, Ofcom drama +447700900xxx, China
+ * +8613000000000, and the country code 999, which ITU-T E.164 keeps spare (no subscriber anywhere has one), for tests
+ * that need thousands of distinct numbers.
+ */
 const RESERVED_PHONE_RANGES: ReadonlyArray<{ prefix: string; extra: number }> = [
   { prefix: "3538300000", extra: 2 },
   { prefix: "447700900", extra: 3 },
   { prefix: "8613000000000", extra: 0 },
+  { prefix: "999", extra: 12 },
 ];
 
-/**
- * Test literals outside those ranges, kept on purpose and never dialled: the bounds of a 5000-card load test
- * (more numbers than the Irish range holds), a Luxembourg prefix case and an unassigned country code.
- */
-const ALLOWED_PHONE_LITERALS = new Set(["+353830010000", "+353830099999", "+35212345678", "+999123456789"]);
+/** Test literals outside those ranges, kept on purpose and never dialled: a Luxembourg prefix case. */
+const ALLOWED_PHONE_LITERALS = new Set(["+35212345678"]);
 
 /** One phone number outside the reserved ranges: its 1-based line (the number itself is never printed). */
 export interface PhoneLiteralFinding {

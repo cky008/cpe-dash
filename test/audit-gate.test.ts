@@ -79,12 +79,15 @@ describe("audit:secrets gate", () => {
       "+447700900123",
       "+8613000000000",
       "TEL:+3538300${n} and the prefix +35383000000",
-      "load-test bounds +353830010000 / +353830099999, LU +35212345678, unassigned +999123456789",
+      "load-test numbers +99910000000 / +99919999999 (999: no subscriber anywhere), LU +35212345678",
       "integrity sha512-Ab+12345678Cd== and x+1234567",
       "offsets +0100 and +0000, version 1.7.2+353",
     ]) {
       assert.deepEqual(scanPhoneLiterals(text), [], text);
     }
+    // Real-format Irish mobiles outside the reserved block, once allowed for a load test, are refused like any other
+    const formerBounds = [["+3538300", "10000"].join(""), ["+3538300", "99999"].join("")];
+    assert.deepEqual(scanPhoneLiterals(formerBounds.join(" / ")), [{ line: 1 }, { line: 1 }]);
   });
 
   it("refuses to let captures, contact exports and secrets be tracked", () => {

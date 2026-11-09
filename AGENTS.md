@@ -110,7 +110,7 @@ cpe-dash/
 - **物理隔离**：本地 `.env`、`data/*`、`.probe-cache/`、`*.har`、`*.pcap*`、`*.apk*`、`*.dll` 必须写入 [`.gitignore`](.gitignore) 严格隔离；每次提交前必须通过 `npm run audit:secrets` 对工作区与完整 `git log -p --all` 历史进行双向扫描。
 - **短信与通知隐私铁律**：
   - 严禁在源码、测试夹具、文档、Issue、探针输出与 Commit 中出现**真实手机号、短信正文、验证码 (OTP)、联系人姓名/备注、Telegram Bot Token、真实 Telegram 聊天 ID、Webhook 地址与签名密钥**；`audit-secrets` 会把 `.env` 中的 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_IDS`、`WEBHOOK_URL`、`WEBHOOK_SECRET` 视为字面量密钥扫描。
-  - 测试号码与文档示例只用保留号段：爱尔兰 `+3538300000xx`、英国 Ofcom 影视号段 `+447700900xxx`、中国 `+8613000000000`（`audit:secrets` 拦截工作区里其他完整国际号码，只报文件与行号）；字母发件人用 `DemoBank`、`Three` 等虚构名；Telegram 夹具用短 ID（如 `1001`）。
+  - 测试号码与文档示例只用保留号段：爱尔兰 `+3538300000xx`、英国 Ofcom 影视号段 `+447700900xxx`、中国 `+8613000000000`；需要成千上万个不同号码的测试用 ITU 空号国家码 `+999`（全世界没有用户）（`audit:secrets` 拦截工作区里其他完整国际号码，只报文件与行号）；字母发件人用 `DemoBank`、`Three` 等虚构名；Telegram 夹具用短 ID（如 `1001`）。
   - 日志、控制摘要（`control:applied`）与审计输出中的号码一律经 `maskPhoneNumber()` 脱敏，**严禁记录短信正文与验证码**；`probe-sms` 只输出计数、列表通道与会话耗时。
   - 短信镜像、通讯录与 Telegram 状态必须经 `StorageCipher` 加密落盘（`0600`）；消息标识统一使用不含号码的不透明 `uid`（索引 + 时间 + 号码的 SHA-256 截断），不得以号码或会被复用的 CPE 索引充当消息 ID。
   - 测试与探针**严禁向任何真实号码发送短信**；发送、标记已读、删除仅在注入式 Mock 路由器上验证。

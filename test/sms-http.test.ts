@@ -305,7 +305,8 @@ describe("/api/sms REST routes, /api/alerts and SMS SSE events", () => {
     assert.equal((await fx.post("/api/sms/contacts/upsert", { phone: "0830000001" })).status, 400);
     assert.deepEqual((await fx.post("/api/sms/contacts/delete", { id })).body, { ok: true, deleted: true });
 
-    const cards = Array.from({ length: 900 }, (_, i) => `BEGIN:VCARD\nFN:Person ${i}\nNOTE:${"n".repeat(60)}\nTEL:+3538300${String(i).padStart(5, "0")}\nEND:VCARD`).join("\n");
+    // Numbers in the spare country code 999 (no subscriber anywhere): the reserved test blocks hold too few
+    const cards = Array.from({ length: 900 }, (_, i) => `BEGIN:VCARD\nFN:Person ${i}\nNOTE:${"n".repeat(60)}\nTEL:+9992${String(i).padStart(7, "0")}\nEND:VCARD`).join("\n");
     assert.ok(cards.length > 64 * 1024);
     const imported = await fx.post("/api/sms/contacts/import-vcf", { vcf: cards });
     assert.equal(imported.status, 200);

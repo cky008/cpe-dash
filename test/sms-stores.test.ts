@@ -341,16 +341,17 @@ describe("ContactBook & vCard import", () => {
     const { contacts } = makeStores();
     contacts.upsert({ phone: "0830000001", name: "Aoife (manual)" });
     const cards = [["BEGIN:VCARD", "FN:Aoife export", "TEL:+353830000001", "END:VCARD"].join("\n")];
-    for (let i = 0; i < 4990; i++) cards.push(["BEGIN:VCARD", `FN:Contact ${i}`, `TEL:+3538300${String(10000 + i).padStart(5, "0")}`, "END:VCARD"].join("\n"));
+    // In the spare country code 999 (no subscriber anywhere): the reserved test blocks hold too few numbers for this
+    for (let i = 0; i < 4990; i++) cards.push(["BEGIN:VCARD", `FN:Contact ${i}`, `TEL:+9991${String(i).padStart(7, "0")}`, "END:VCARD"].join("\n"));
     // A repeat inside the same file extends the card added earlier instead of adding a second contact
-    cards.push(["BEGIN:VCARD", "FN:Contact 0 again", "TEL:+353830010000", "TEL:+353830099999", "END:VCARD"].join("\n"));
+    cards.push(["BEGIN:VCARD", "FN:Contact 0 again", "TEL:+99910000000", "TEL:+99919999999", "END:VCARD"].join("\n"));
     const started = performance.now();
     const summary = contacts.importVcard(cards.join("\n"));
     const elapsedMs = performance.now() - started;
     // Rebuilding the whole index for every card took ~5 s here for 5000 cards (quadratic)
     assert.ok(elapsedMs < 2000, `import took ${Math.round(elapsedMs)} ms`);
     assert.deepEqual(summary, { parsed: 4992, added: 4990, updated: 2, total: 4991 });
-    assert.equal(contacts.resolvePhone("+353830099999")?.name, "Contact 0 again");
+    assert.equal(contacts.resolvePhone("+99919999999")?.name, "Contact 0 again");
     assert.equal(contacts.resolvePhone("+353830000001")?.name, "Aoife (manual)", "manual names win");
   });
 

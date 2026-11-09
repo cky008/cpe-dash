@@ -22,6 +22,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Console settings and the audit log are reported when they cannot be decrypted at startup.** A store that cannot be decrypted (after a mistyped `DATA_ENCRYPTION_KEY`, say) is moved aside, logged and raised as the critical `DATA_QUARANTINED` alert, but the console settings and the audit log were left out of that report, so settings moved aside looked like a fresh install asking for a setup code.
 
 ### Documentation
+- **Tests no longer use real-format phone numbers.** A 5000-contact import test generated Irish mobile numbers outside the reserved test block, and `npm run audit:secrets` allowed two of them by name. It now uses the country code 999, which no subscriber anywhere has; the gate accepts that range and nothing else beyond the reserved blocks in `AGENTS.md`.
 - **What a group in `TELEGRAM_CHAT_IDS` may do.** The configuration and notification pages now say that every member of a group listed there can read SMS and codes, send SMS and run commands, while a group paired with a group code obeys only the person who paired it.
 - **The fix for a file stored without encryption works as written.** The backup page said to run `rekey` with `docker exec` while FengSui was running, which `rekey` refuses (the daemon must be stopped), and to type the key on the command line. It now stops the daemon and runs `rekey --plaintext`, which needs no key.
 
