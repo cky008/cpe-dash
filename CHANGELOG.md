@@ -4,18 +4,34 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.4] — 2026-11-09
+
+### Highlights
+- **Safer answers to the unexpected.** When a request runs into a bug, the API no longer sends the error's internal message back, and one-time setup, reset and binding codes draw every character evenly. GitHub's code scanning found both once the repository went public.
+- **An image you can verify.** This is the first release built while the repository is public, so its image carries a signed build-provenance attestation: `gh attestation verify oci://ghcr.io/cky008/cpe-dash:1.7.4 -R cky008/cpe-dash`.
+- **A code of conduct and a plain licence statement.** Contributions follow the Contributor Covenant 2.1, and the README says plainly that FengSui is free for personal and non-commercial use only.
+
 ### Security
 - **Unexpected errors answer with a generic message.** When a request ran into a bug, the API answered `500` with the error's own message, which can carry internal detail. The client now gets "Unexpected server error" and the detail goes to the daemon's log. GitHub code scanning found this and the two changes below.
 - **One-time codes draw every character evenly.** Setup, reset and Telegram binding codes took each character from a random byte modulo 31, so 8 of the 31 characters came up slightly more often (9 in 256 instead of 8). They now use an unbiased draw.
 - **Request input is read without backtracking patterns.** The `Authorization: Bearer` header and the number at the end of a time rule's path are now read in one pass, not with regular expressions that can slow down on long input. Neither was slow in practice: a header value cannot hold the characters that would make that pattern backtrack, and a time rule's path reaches that code only after the router accepted the change.
 
+### Fixed
+- **The Chinese README's release badge shows again.** Its label was Chinese text that was not percent-encoded, which shields.io refuses, so GitHub showed a broken image.
+- **The documentation home page draws its whole title.** The tail of the "y" in the English title hung outside the box its gradient is painted in and was cut off.
+
 ### Documentation
 - **A code of conduct.** `CODE_OF_CONDUCT.md` adopts the Contributor Covenant 2.1; problems are reported privately through the repository's Security tab.
 - **The licence, stated plainly.** English pages now describe FengSui as source-available under the PolyForm Noncommercial License 1.0.0 (free for personal and non-commercial use) instead of calling it open source, and the Chinese README ends with a statement that commercial sale, paid deployment and bundling are not allowed.
 - **Router passwords with spaces in `.env`.** The router accepts spaces in its admin password. In `.env` a value without quotes loses spaces at either end and everything after ` #`, so the configuration reference and `.env.example` now say to put such a password in single quotes. A password entered in the console was never affected.
+- **What the router's own login page checks.** The protocol notes now record that the router's page hashes the password exactly as FengSui does, requires both login signatures, and has a password-hash upgrade step that FengSui leaves to the router's own page.
 
 ### Container and CI
 - **Development tools without known vulnerabilities.** The coverage tool's file matching now uses glob 14 and minimatch 11 through an npm override, clearing the moderate minimatch advisory (GHSA-g3hv-75wg-m249) that Dependabot could not fix while c8 still asks for minimatch 10. Development only: the image and the console contain none of these packages.
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`, and no data format changed: you can go back to 1.7.3.
+- If you keep the router password in `.env` (it is imported on the first start only) and it begins or ends with a space or contains ` #`, put it in single quotes.
 
 ## [1.7.3] — 2026-11-08
 
