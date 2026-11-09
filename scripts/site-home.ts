@@ -96,7 +96,7 @@ const TEXT = {
   en: {
     metaTitle: "FengSui · Self-hosted console for Huawei 5G routers",
     metaDescription: "FengSui is a web console for Huawei 5G CPEs that runs on your own NAS: live signal and carrier aggregation, band and cell locking, SMS, connected devices, Telegram alerts and an MCP server for AI agents. Your data stays at home.",
-    eyebrow: "Open source · Self-hosted · No runtime dependencies",
+    eyebrow: "Self-hosted · Free for personal use · No runtime dependencies",
     titleStrong: "See your signal.",
     titleSoft: "Run your 5G router.",
     lead: "FengSui is a web console you run on your own NAS. Live signal and carrier aggregation, band and cell locking, SMS, connected devices and Telegram alerts, all on one page. Your data never leaves home.",

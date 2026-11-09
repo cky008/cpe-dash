@@ -47,7 +47,7 @@ FengSui only calls features already present on the router's own web page. It doe
 
 ## Is this affiliated with Huawei?
 
-No. FengSui is an independent open-source project and is neither affiliated with nor endorsed by Huawei, Synology, or any carrier. All trademarks belong to their respective owners.
+No. FengSui is an independent project and is neither affiliated with nor endorsed by Huawei, Synology, or any carrier. All trademarks belong to their respective owners.
 
 ## How do I contribute or give feedback?
 

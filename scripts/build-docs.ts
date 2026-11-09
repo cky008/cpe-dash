@@ -103,7 +103,7 @@ const UI = {
     author: "The author's site",
     license: "Licence (PolyForm Noncommercial 1.0.0)",
     notices: "Third-party notices",
-    disclaimer: "FengSui is an independent open-source project, not affiliated with or endorsed by Huawei, Synology or any carrier. All trademarks belong to their owners.",
+    disclaimer: "FengSui is an independent project, not affiliated with or endorsed by Huawei, Synology or any carrier. All trademarks belong to their owners.",
     notFound: "Page not found",
     notFoundLead: "There is nothing at this address. Start again from the home page or the docs.",
     home: "Home",

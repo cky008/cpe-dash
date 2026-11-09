@@ -87,12 +87,13 @@ The same pages, with search, are on the [documentation site](https://fengsui.ioc
 - Questions and ideas: [GitHub Issues](https://github.com/cky008/cpe-dash/issues)
 - Development: [CONTRIBUTING.md](CONTRIBUTING.md) (no router needed: `npm run demo` simulates one)
 - Security problems: report privately as described in [SECURITY.md](SECURITY.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - Sponsoring: [GitHub Sponsors](https://github.com/sponsors/cky008) · [Buy Me a Coffee](https://buymeacoffee.com/iocky)
 
 ## Licence and disclaimers
 
-- **Licence**: [PolyForm Noncommercial 1.0.0](LICENSE). Free to use and modify for personal, study, research and other non-commercial purposes; commercial use needs separate permission from the author. Third-party components in the build are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-- **Unofficial**: FengSui is an independent open-source project, not affiliated with or endorsed by Huawei, Synology or any carrier. All trademarks belong to their owners.
+- **Licence**: Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE) (free for personal and non-commercial use). Commercial use needs separate permission from the author. Third-party components in the build are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- **Unofficial**: FengSui is an independent project, not affiliated with or endorsed by Huawei, Synology or any carrier. All trademarks belong to their owners.
 - **As is**: no warranty of any kind. Band and cell locks, reboots and blocking can leave you without internet for a while; SMS is billed by your carrier and you are responsible for what you send. Use it only on equipment and networks you are allowed to manage, and follow local law and your carrier's terms.
 
 ## Acknowledgements

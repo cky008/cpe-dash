@@ -87,6 +87,7 @@ docker compose logs cpe-dash | grep "setup code"
 - 问题和建议：[GitHub Issues](https://github.com/cky008/cpe-dash/issues)
 - 参与开发：[CONTRIBUTING.md](CONTRIBUTING.md)（不需要路由器：`npm run demo` 在本机模拟一台）
 - 安全问题：按 [SECURITY.md](SECURITY.md) 私下报告
+- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - 赞助：[GitHub Sponsors](https://github.com/sponsors/cky008) · [Buy Me a Coffee](https://buymeacoffee.com/iocky)
 
 ## 许可与声明
@@ -98,3 +99,7 @@ docker compose logs cpe-dash | grep "setup code"
 ## 致谢
 
 感谢 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)：烽燧为其他华为型号做兼容时，参考了它整理的接口与机型资料。烽燧不包含它的代码，也不依赖它。
+
+---
+
+**本项目开放源码（PolyForm Noncommercial 1.0.0），仅供个人与非商业免费使用，严禁任何形式的商业售卖、付费代部署及商业捆绑。**
