@@ -47,7 +47,6 @@ const TEXT = {
   "zh-CN": {
     metaTitle: "烽燧 FengSui · 华为 5G 路由器的自托管控制台",
     metaDescription: "烽燧是装在你自己 NAS 上的华为 5G CPE 网页控制台：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和 AI 智能体接口，数据只留在家里。",
-    eyebrow: "开源 · 自托管 · 零运行时依赖",
     titleStrong: "看清信号，",
     // "|" marks where the line may break (each part stays whole)
     titleSoft: "管好家里的|5G 路由器",
@@ -96,7 +95,6 @@ const TEXT = {
   en: {
     metaTitle: "FengSui · Self-hosted console for Huawei 5G routers",
     metaDescription: "FengSui is a web console for Huawei 5G CPEs that runs on your own NAS: live signal and carrier aggregation, band and cell locking, SMS, connected devices, Telegram alerts and an MCP server for AI agents. Your data stays at home.",
-    eyebrow: "Self-hosted · Free for personal use · No runtime dependencies",
     titleStrong: "See your signal.",
     titleSoft: "Run your 5G router.",
     lead: "FengSui is a web console you run on your own NAS. Live signal and carrier aggregation, band and cell locking, SMS, connected devices and Telegram alerts, all on one page. Your data never leaves home.",
