@@ -4,6 +4,13 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.5] — 2026-11-09
+
+### Highlights
+- **Data files stored without encryption are no longer trusted.** With an encryption key set, a data file in plain JSON is now moved aside and reported instead of read, so a file planted in the data directory cannot bring a console password of its own. Run `doctor` before you upgrade; the upgrade notes say what to do if it reports such a file.
+- **Each SMS is sent once.** Pressing Cmd/Ctrl+Enter again while the console was still sending a message sent it a second time.
+- **Duplicate-daemon protection works with the recommended setup.** With `PEER_DISCOVERY_ENABLED=true`, the daemon refused to start when the router password was kept in the console rather than in `.env`; the beacon now uses the password saved in the console.
+
 ### Security
 - **Data files stored without encryption are no longer read.** FengSui read a data file that was plain JSON as it was, the way in from before encryption was required, so anyone able to write the data directory without knowing the key could plant one, such as console settings with a password of their own. Such a file is now moved aside at startup and reported like one that cannot be decrypted. `cpe-dash doctor` names it, and `cpe-dash rekey --plaintext`, run with the daemon stopped, encrypts it when it is yours (or brings back one already moved aside) without keeping an unencrypted copy; a key change never adopts one.
 - **Wrong current passwords count across an IPv6 /64.** Changing the console password counts wrong current passwords with sign-in failures, but per address, while sign-in counts per IPv6 /64 (the block a device's privacy addresses rotate in), so a signed-in browser on IPv6 started afresh with each new address. Both now share the /64 count, and the refusal carries the `Retry-After` header the API promises.
@@ -38,6 +45,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Upgrading
 - Run `docker exec cpe-dash node dist/cli.js doctor` before upgrading. A file it reports as "stored without encryption" is moved aside at the first start of this version: encrypt it first, with the daemon stopped, by `docker compose run --rm cpe-dash node dist/cli.js rekey --plaintext` (the same command also brings it back afterwards).
 - Running FengSui on more than one host with `PEER_DISCOVERY_ENABLED=true`: each host's beacon key now comes from the router password saved in its console instead of `CPE_PASSWORD` in `.env`, so the hosts recognise each other once they have saved the same router password.
+- Nothing else to change in `.env` or `docker-compose.yml`, and no data format changed: you can go back to 1.7.4.
 
 ## [1.7.4] — 2026-11-09
 

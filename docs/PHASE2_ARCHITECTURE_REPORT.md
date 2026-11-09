@@ -975,6 +975,6 @@ v1.6.3 推送后由主人在 DS923+ 上重建，随后只读实测（不访问�
 
 ### 16.7 待主人决定
 
-- F3-004（拒绝明文存储）改变默认行为：发版前请确认；CHANGELOG 的 Upgrading 写明升级前先运行 `doctor`。
+- F3-004（拒绝明文存储）改变默认行为：主人 2026-11-09 同意，随 v1.7.5 发布；CHANGELOG 的 Upgrading 写明升级前先运行 `doctor`。
 - ADR-F3-02：让维护命令拒绝另一 PID 命名空间的锁（建议在需要时实现）。
 - ADR-F3-07：建议在仓库设置里打开 Secret scanning 的 non-provider patterns。
