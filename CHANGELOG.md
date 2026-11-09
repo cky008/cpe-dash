@@ -4,6 +4,11 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.7] — 2026-11-09
+
+### Highlights
+- **Every change an AI agent makes asks for confirmation.** Over MCP, every tool that changes the router, an SMS or a contact now requires `confirm: true`, as the AI agents page already said; band and cell locks, unlocking, the router switches, Wi-Fi and antenna, marking SMS as read and saving a contact did not ask before. The `.env` switches that turn these tools on are unchanged.
+
 ### Security
 - **Every agent write needs `confirm: true`.** Over MCP, only reboot, reconnect, access control and sending or deleting SMS asked for `confirm: true`, although the AI agents page and the console's "Connect an AI agent" window said every write did. Band and cell locks, unlocking, the router switches, Wi-Fi 7 and antenna mode, marking SMS as read and saving a contact now ask for it too, and a call without it is refused before anything reaches the router. They still need `MCP_ALLOW_MUTATIONS=true` (the SMS ones also `MCP_SMS_ACCESS=full`), as before.
 
