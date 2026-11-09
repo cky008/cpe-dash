@@ -373,7 +373,7 @@ export class CoreMcpTools implements McpToolProvider {
   }
 
   instructions(): string {
-    return "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses, and pass confirm: true only when the user explicitly requests reboot_cpe.";
+    return "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses, and pass confirm: true to reboot_cpe or reconnect_cellular only when the user explicitly asked for that.";
   }
 
   listResources(): ReadonlyArray<McpResourceDescriptor> {
