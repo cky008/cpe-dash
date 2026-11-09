@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Fixed
+- **Indian mobile numbers that begin with 91.** A 10-digit Indian mobile typed without `+` whose first digits are 91 (the 91xx blocks of the 9xxx range) was taken for a number typed with the country code but without `+`, so two digits were lost and the message would have gone to a wrong number; a sender that arrives in national format was filed under that wrong number too. Such a number now reads as a national number, as Italian, Polish and Kazakh numbers already did.
+
 ## [1.7.4] — 2026-11-09
 
 ### Highlights

@@ -70,13 +70,15 @@ const ALPHA_SENDER_RE = /[A-Za-z一-龥]/;
  * - `trunk`: the prefix dialled before a national number when it is not "0": 8 in Russia and Kazakhstan, removed
  *   only in front of the 10-digit national number (area codes such as 812 begin with 8 too), and 06 in Hungary;
  * - `nationalMax`: the longest national number where one can begin with the country's own digits (Italian mobiles
- *   39x, Polish numbers 48x, Kazakh numbers 7xx); only a longer number reads as one typed with the code but no `+`.
+ *   39x, Polish numbers 48x, Kazakh numbers 7xx, Indian mobiles 91xx); only a longer number reads as one typed with
+ *   the code but no `+`.
  */
 const NATIONAL_FORMATS: Readonly<Record<string, { trunk?: string; trunkBefore?: number; nationalMax?: number }>> = {
   "+7": { trunk: "8", trunkBefore: 10, nationalMax: 10 },
   "+36": { trunk: "06" },
   "+39": { nationalMax: 10 },
   "+48": { nationalMax: 9 },
+  "+91": { nationalMax: 10 },
 };
 
 /**

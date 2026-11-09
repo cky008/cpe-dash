@@ -195,6 +195,20 @@ describe("Phone directory, sender classification, recipient resolution and threa
     assert.equal(parseSenderInfo("353830000001", "", "+353").e164, "+353830000001");
   });
 
+  it("reads a 10-digit Indian mobile that begins with 91 as a national number, not as the country code without +", () => {
+    const intl = (code: string, national: string): string => `+${code}${national}`;
+    const to = (input: string, country: string): string => {
+      const r = resolveRecipientPhone(input, country);
+      return r.ok ? r.phone : `refused: ${r.error}`;
+    };
+    // Indian mobiles are 10 digits, and the 91xx blocks of the 9xxx range begin with the country's own digits
+    assert.equal(to("9100000001", "+91"), intl("91", "9100000001"));
+    assert.equal(to("09100000001", "+91"), intl("91", "9100000001"), "with the trunk 0");
+    assert.equal(to("919100000001", "+91"), intl("91", "9100000001"), "typed with the country code but without +");
+    assert.equal(to("9800000001", "+91"), intl("91", "9800000001"));
+    assert.equal(parseSenderInfo("9100000001", "", "+91").e164, intl("91", "9100000001"));
+  });
+
   it("exposes a 54-country dial table with bilingual names and longest-prefix E.164 matching", () => {
     assert.equal(COUNTRY_DIAL_CODES.length, 54);
     assert.ok(COUNTRY_DIAL_CODES.every((c) => c.nameZh && c.nameEn && c.code.startsWith("+")));
