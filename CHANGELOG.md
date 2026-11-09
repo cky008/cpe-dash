@@ -9,6 +9,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **One-time codes draw every character evenly.** Setup, reset and Telegram binding codes took each character from a random byte modulo 31, so 8 of the 31 characters came up slightly more often (9 in 256 instead of 8). They now use an unbiased draw.
 - **Request input is read without backtracking patterns.** The `Authorization: Bearer` header and the number at the end of a time rule's path are now read in one pass, not with regular expressions that can slow down on long input. Neither was slow in practice: a header value cannot hold the characters that would make that pattern backtrack, and a time rule's path reaches that code only after the router accepted the change.
 
+### Container and CI
+- **Development tools without known vulnerabilities.** The coverage tool's file matching now uses glob 14 and minimatch 11 through an npm override, clearing the moderate minimatch advisory (GHSA-g3hv-75wg-m249) that Dependabot could not fix while c8 still asks for minimatch 10. Development only: the image and the console contain none of these packages.
+
 ## [1.7.3] — 2026-11-08
 
 ### Highlights
