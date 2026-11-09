@@ -4,6 +4,19 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.6] — 2026-11-09
+
+### Highlights
+- **Same FengSui as 1.7.5.** This release changes one test that GitHub's code scanning flagged; the console, the daemon and the image are the same as in 1.7.5 apart from the version number. Coming from 1.7.4 or earlier, follow the upgrade notes: they repeat what 1.7.5 asks you to do.
+
+### Tests
+- **The licence-label check compares text.** A test of the image's licence label built a regular expression from the licence name and escaped only its dots, which code scanning reported as incomplete escaping (alerts 20 and 21). It now compares the label as text, and still fails when `release.yml` or the Dockerfile labels the image `NOASSERTION`.
+
+### Upgrading
+- From 1.7.5: nothing to change.
+- From 1.7.4 or earlier: run `docker exec cpe-dash node dist/cli.js doctor` first. A file it reports as "stored without encryption" is moved aside at the first start of 1.7.5 or later: encrypt it first, with the daemon stopped, by `docker compose run --rm cpe-dash node dist/cli.js rekey --plaintext`. With `PEER_DISCOVERY_ENABLED=true` on more than one host, each host's beacon key now comes from the router password saved in its console.
+- No data format changed: you can go back to 1.7.5.
+
 ## [1.7.5] — 2026-11-09
 
 ### Highlights

@@ -148,7 +148,7 @@ export interface HealthResponse {
   ok: true;
   service: "cpe-dash";
   codename: "FengSui";
-  version: string;            // 当前为 "1.7.5"
+  version: string;            // 当前为 "1.7.6"
   uptimeSec: number;
 }
 ```
