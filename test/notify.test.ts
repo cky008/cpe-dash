@@ -1285,6 +1285,45 @@ describe("TelegramBot notification outbox", () => {
     }
   });
 
+  it("keeps the next queued notification when a new one pushes the oldest out while it is being sent", async () => {
+    const fx = createBotFixture({ sendDelayMs: 20 });
+    try {
+      fx.tg.failures.send = "network";
+      for (let i = 0; i < 50; i++) await fx.bot.notifyAlert(alert(`Q${i}`));
+      assert.equal(fx.bot.pendingNotifications, 50, "a full queue");
+      fx.tg.failures.send = undefined;
+      const start = fx.tg.calls.length;
+      const flushing = fx.bot.flushOutbox();
+      // While the oldest is on its way, one more arrives and the full queue lets the oldest go
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await fx.bot.notifyAlert(alert("NEW"));
+      await flushing;
+      const sent = fx.tg.calls.slice(start).filter((c) => c.method === "sendMessage").map((c) => String(c.payload["text"]).split("\n")[0]);
+      assert.ok(sent.includes("⚠️ <b>Q1</b>"), `the one behind the oldest was sent: ${sent.slice(0, 3).join(" | ")}`);
+      assert.equal(sent.at(-1), "⚠️ <b>NEW</b>");
+      assert.equal(fx.bot.pendingNotifications, 0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("carries a linked group's queued notifications over when it becomes a supergroup", async () => {
+    const fx = createBotFixture();
+    try {
+      fx.state.authorize("-1003", { userId: "7001", threadId: null });
+      fx.tg.failures.send = "network";
+      await fx.bot.notifyAlert(alert("WHILE_OFFLINE"));
+      assert.ok(fx.bot.pendingNotifications >= 1);
+      fx.tg.failures.send = undefined;
+      await fx.message(-1003, "", { migrate_to_chat_id: -100777 });
+      await fx.bot.flushOutbox();
+      assert.ok(fx.tg.sends("-100777").some((c) => String(c.payload["text"]).includes("WHILE_OFFLINE")), "delivered to the supergroup");
+      assert.equal(fx.bot.pendingNotifications, 0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("drops what Telegram refuses for good, bounds the queue and forgets notifications older than a day", async () => {
     const fx = createBotFixture();
     try {

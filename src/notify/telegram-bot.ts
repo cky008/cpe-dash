@@ -879,19 +879,19 @@ export class TelegramBot implements NotificationChannel {
       for (let next = this.#outbox[0]; next; next = this.#outbox[0]) {
         // Too old to be news, or for a chat unlinked while it waited (it may carry SMS and codes)
         if (this.#now() - next.queuedAtMs > OUTBOX_MAX_AGE_MS || !this.state.isAuthorized(next.chatId, this.allowedChatIds)) {
-          this.#outbox.shift();
+          this.#dequeue(next);
           continue;
         }
         try {
           const sent = await this.#send({ chatId: next.chatId, topic: null }, next.html, next.keyboard);
-          this.#outbox.shift();
+          this.#dequeue(next);
           this.#afterNotification(next, sent);
         } catch (err) {
           if (isTransientTelegramError(err)) {
             this.#noteRetryAfter(err);
             return;
           }
-          this.#outbox.shift();
+          this.#dequeue(next);
           this.#log(`[telegram] queued notification dropped: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
@@ -936,6 +936,15 @@ export class TelegramBot implements NotificationChannel {
     if (err instanceof TelegramApiError && err.retryAfterSec !== null) {
       this.#outboxRetryAtMs = Math.max(this.#outboxRetryAtMs, this.#now() + err.retryAfterSec * 1000);
     }
+  }
+
+  /**
+   * Take a notification off the queue by identity: while it was being sent, a new one may have pushed the oldest out
+   * of a full queue, so the head is not necessarily it any more (and it may be gone already).
+   */
+  #dequeue(notification: PendingNotification): void {
+    const at = this.#outbox.indexOf(notification);
+    if (at >= 0) this.#outbox.splice(at, 1);
   }
 
   #enqueue(notification: Omit<PendingNotification, "queuedAtMs">): void {
@@ -1087,8 +1096,11 @@ export class TelegramBot implements NotificationChannel {
 
   /** A linked group became a supergroup: Telegram tells both chats, so the second notice finds nothing to move. */
   #migrateChat(from: string, to: string): void {
-    if (this.state.moveChat(from, to)) this.#log("[telegram] a linked group became a supergroup; its link moved to the new chat ID");
-    else if (this.allowedChatIds.includes(from) && !this.allowedChatIds.includes(to)) {
+    if (this.state.moveChat(from, to)) {
+      // What waited for the old chat (an outage) goes to the new one, rather than failing the authorisation check
+      for (const pending of this.#outbox) if (pending.chatId === from) pending.chatId = to;
+      this.#log("[telegram] a linked group became a supergroup; its link moved to the new chat ID");
+    } else if (this.allowedChatIds.includes(from) && !this.allowedChatIds.includes(to)) {
       this.#log("[telegram] a group in TELEGRAM_CHAT_IDS became a supergroup with a new chat ID; send a command there to see it, then update TELEGRAM_CHAT_IDS");
     }
   }
