@@ -789,8 +789,12 @@ export class FengSuiHttpServer {
       body = await this.#readBoundedJsonBody(req);
       password = validateNewPassword(body["password"]);
     } catch (err) {
-      if (err instanceof HttpPayloadError || err instanceof CpeControlValidationError) {
-        this.#sendJson(res, err instanceof HttpPayloadError ? err.statusCode : 400, { ok: false, errorCode: "VALIDATION_ERROR", message: err.message });
+      if (err instanceof HttpPayloadError) {
+        this.#sendJson(res, err.statusCode, { ok: false, errorCode: "BAD_PAYLOAD", message: err.message });
+        return;
+      }
+      if (err instanceof CpeControlValidationError) {
+        this.#sendJson(res, 400, { ok: false, errorCode: "VALIDATION_ERROR", message: err.message });
         return;
       }
       throw err;

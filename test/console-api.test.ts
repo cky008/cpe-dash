@@ -291,6 +291,23 @@ describe("one-time codes and the sign-in limit", () => {
     }
   });
 
+  it("tells a malformed body (BAD_PAYLOAD) from a password the rules refuse (VALIDATION_ERROR) on a code sign-in", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token" });
+    try {
+      const base = new URL((await fx.get("/api/health")).url).origin;
+      const raw = (body: string): Promise<Response> =>
+        fetch(`${base}/api/auth/reset`, { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base }, body });
+      const malformed = await raw("{ not json");
+      assert.equal(malformed.status, 400);
+      assert.equal(((await malformed.json()) as { errorCode: string }).errorCode, "BAD_PAYLOAD");
+      const weak = await raw(JSON.stringify({ code: "WRNG-0001", password: "short" }));
+      assert.equal(weak.status, 400);
+      assert.equal(((await weak.json()) as { errorCode: string }).errorCode, "VALIDATION_ERROR");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("keeps a valid one-time code that the sign-in limit refused, so it still works", async () => {
     const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", RATE_LIMIT_MAX_AUTH_FAILURES: "3", TRUSTED_PROXIES: "127.0.0.1" });
     try {
