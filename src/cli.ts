@@ -459,6 +459,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   // The process's own memory, CPU and event-loop delay, for /metrics (watching it over weeks on a NAS)
   const runtime = new RuntimeSampler();
   const httpServer = new FengSuiHttpServer({
+    log,
     config,
     core,
     sseBus,

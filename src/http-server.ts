@@ -85,7 +85,7 @@ import {
 import type { NotificationHub } from "./notify/hub.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
-import { sanitizeDeviceProfile, sanitizeDeviceReport } from "./sanitize.ts";
+import { sanitizeDeviceProfile, sanitizeDeviceReport, sanitizeFreeText } from "./sanitize.ts";
 import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
@@ -154,6 +154,8 @@ export interface FengSuiHttpServerOptions {
   /** The console login, Bearer tokens and router connection (`/api/console/*`). */
   settings: ConsoleSettings;
   audit?: AuditLog | null;
+  /** Where an unexpected error's detail goes (the daemon's log); the client only gets a generic message. */
+  log?: (line: string) => void;
   /** The first router connection was saved during setup: start the background work. */
   onConnectionReady?: () => void;
   /** Unlink every Telegram chat linked with /auth (`null` without a bot). */
@@ -195,6 +197,7 @@ export class FengSuiHttpServer {
   readonly #auth: HttpAuthGuard;
   readonly settings: ConsoleSettings;
   readonly #audit: AuditLog | null;
+  readonly #log: (line: string) => void;
   readonly #consoleRoutes: SettingsHttpRoutes;
   readonly #runtimeSample: (() => RuntimeSample) | null;
   readonly #selfHealStatus: () => SelfHealStatus;
@@ -214,6 +217,7 @@ export class FengSuiHttpServer {
     this.#onConfigReloaded = options.onConfigReloaded;
     this.settings = options.settings;
     this.#audit = options.audit ?? null;
+    this.#log = options.log ?? (() => undefined);
     this.#auth = new HttpAuthGuard(() => this.#config, options.settings);
     const unlinkTelegram = options.unlinkTelegram ?? null;
     this.#consoleRoutes = new SettingsHttpRoutes({
@@ -267,11 +271,14 @@ export class FengSuiHttpServer {
 
     const srv = http.createServer((req, res) => {
       void this.#handleRequest(req, res).catch((err: unknown) => {
+        // A bug's message can carry internal detail: it goes to the daemon's log, the client gets a generic answer
+        const where = `${req.method ?? "?"} ${((req.url ?? "").split("?")[0] ?? "").slice(0, 120)}`;
+        this.#log(`[http] unexpected error on ${sanitizeFreeText(`${where}: ${err instanceof Error ? err.message : String(err)}`).slice(0, 320)}`);
         if (!res.headersSent) {
           this.#sendJson(res, 500, {
             ok: false,
             errorCode: "INTERNAL_ERROR",
-            message: err instanceof Error ? err.message : "Unexpected server error",
+            message: "Unexpected server error",
           });
         } else if (!res.writableEnded) {
           res.end();

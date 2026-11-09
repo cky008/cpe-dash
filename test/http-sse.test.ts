@@ -276,6 +276,7 @@ async function createTestHttpServer(opts: {
   sseMaxClients?: number;
   nonExistentStaticDir?: boolean;
   sessionTtlMs?: number;
+  log?: (line: string) => void;
 } = {}): Promise<TestServerContext> {
   const tmpDir = tempDir("fengsui-http-test-");
   const staticDir = opts.nonExistentStaticDir
@@ -359,6 +360,7 @@ async function createTestHttpServer(opts: {
     mcpServer,
     envPath,
     settings: consoleSettingsFor(config),
+    ...(opts.log ? { log: opts.log } : {}),
   });
 
   const bound = await server.listen();
@@ -627,7 +629,8 @@ describe("constantTimeSecretMatch utility", () => {
 
 describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static file serving", () => {
   it("exposes server config getter and handles internal 500 error gracefully", async () => {
-    const fx = await createTestHttpServer();
+    const logged: string[] = [];
+    const fx = await createTestHttpServer({ log: (line) => logged.push(line) });
     try {
       assert.ok(fx.server.config.cpeUrl);
 
@@ -639,8 +642,11 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
         };
         const res500 = await fetch(`${fx.baseUrl}/api/health`);
         assert.equal(res500.status, 500);
-        const data500 = (await res500.json()) as { errorCode: string };
+        const data500 = (await res500.json()) as { errorCode: string; message: string };
         assert.equal(data500.errorCode, "INTERNAL_ERROR");
+        // An unexpected error stays in the daemon's log: its message can carry internal detail
+        assert.equal(data500.message, "Unexpected server error");
+        assert.ok(logged.some((line) => line.includes("GET /api/health") && line.includes("Internal timestamp failure")), "the detail is in the daemon's log");
       } finally {
         Date.now = originalNow;
       }
@@ -1698,6 +1704,21 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       assert.equal(dataNoRoot.errorCode, "STATIC_ROOT_NOT_FOUND");
     } finally {
       await fxNoStatic.cleanup();
+    }
+  });
+
+  it("reads the Bearer scheme in any case and refuses a header with no token after it", async () => {
+    const fx = await createTestHttpServer({ rateLimitMaxAuthFailures: 10 });
+    try {
+      const status = async (authorization: string): Promise<number> => (await fetch(`${fx.baseUrl}/api/telemetry`, { headers: { Authorization: authorization } })).status;
+      assert.equal(await status(`bearer ${fx.apiToken}`), 200);
+      assert.equal(await status(`Bearer \t  ${fx.apiToken}  `), 200);
+      assert.equal(await status("Bearer      "), 401);
+      assert.equal(await status(`Bearer${fx.apiToken}`), 401, "the scheme and the token are separated by whitespace");
+      // A long run of spaces is read in one pass (no backtracking pattern on unauthenticated input)
+      assert.equal(await status(`Bearer ${" ".repeat(8000)}x`), 401);
+    } finally {
+      await fx.cleanup();
     }
   });
 

@@ -10,6 +10,7 @@ import {
 } from "../src/access-control.ts";
 import { HuaweiCpeClient, type EphemeralCpeSession } from "../src/cpe-client.ts";
 import { CpeControlValidationError, fetchTerminalTopology } from "../src/cpe-domain.ts";
+import { trailingNumber } from "../src/cpe-controls.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 
 /** RFC 7042 documentation MACs and the 192.168.8.0/24 LAN only (AGENTS.md 铁律二). */
@@ -239,5 +240,14 @@ describe("access-control: internet time rules", () => {
     assert.match(writes("/api/timerule/timerule")[2] ?? "", /<Action>delete<\/Action>/);
     assert.deepEqual(deleted.rules, []);
     assert.equal(cpe.router.timeRules.rules.length, 0);
+  });
+});
+
+describe("time-rule numbers in control summaries", () => {
+  it("takes the number at the end of a TR-069 path, in one pass", () => {
+    assert.equal(trailingNumber("InternetGatewayDevice.X_FireWall.TimeRule.3."), "3");
+    assert.equal(trailingNumber("InternetGatewayDevice.X_FireWall.TimeRule.12"), "12");
+    assert.equal(trailingNumber("rule-without-number"), null);
+    assert.equal(trailingNumber(`${"1".repeat(5000)}x`), null);
   });
 });

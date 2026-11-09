@@ -160,7 +160,8 @@ export class HttpAuthGuard {
 
   /** Resolve a Bearer token (unknown, revoked and expired ones fail) through the limiter. */
   guardBearerRole(bucketKey: string, authHeader: string): ({ ok: true; role: BearerRole; identity: BearerIdentity }) | Extract<CredentialVerdict, { ok: false }> {
-    const token = /^Bearer\s+(.+)$/i.exec(authHeader)?.[1]?.trim() ?? "";
+    // "Bearer", whitespace, the token: read without a backtracking pattern (the header is unauthenticated input)
+    const token = /^Bearer\s/i.test(authHeader) ? authHeader.slice(6).trim() : "";
     const identity = token ? this.#directory.resolveBearer(token) : null;
     const verdict = this.guard(bucketKey, identity !== null);
     if (!verdict.ok) return verdict;

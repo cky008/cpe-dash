@@ -173,8 +173,8 @@ export async function verifyLogin(secret: string, encoded: string): Promise<bool
 }
 
 function randomCode(): string {
-  const bytes = crypto.randomBytes(8);
-  const chars = [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+  // randomInt draws without the modulo bias of byte % 31
+  const chars = Array.from({ length: 8 }, () => CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join("");
   return `${chars.slice(0, 4)}-${chars.slice(4)}`;
 }
 

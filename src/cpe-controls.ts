@@ -392,9 +392,17 @@ function wifiAccessSummary(change: WifiAccessChange): ControlSummary {
   }
 }
 
+/** The number at the end of a path such as `…TimeRule.3.` (one trailing dot allowed), or `null`; one pass, no backtracking. */
+export function trailingNumber(id: string): string | null {
+  const body = id.endsWith(".") ? id.slice(0, -1) : id;
+  let start = body.length;
+  while (start > 0 && body.charCodeAt(start - 1) >= 48 && body.charCodeAt(start - 1) <= 57) start -= 1;
+  return start < body.length ? body.slice(start) : null;
+}
+
 function timeRuleSummary(change: TimeRuleChange): ControlSummary {
   // The router's IDs are TR-069 paths (`InternetGatewayDevice.X_FireWall.TimeRule.3.`); show the number
-  if (change.kind === "delete") return summaryOf("controls.time_rule_deleted", { detail: `#${/(\d+)\.?$/.exec(change.id)?.[1] ?? change.id}` });
+  if (change.kind === "delete") return summaryOf("controls.time_rule_deleted", { detail: `#${trailingNumber(change.id) ?? change.id}` });
   const r = change.rule;
   const detail = `${maskMacTail(r.macAddress)} ${r.weekMask} ${r.startTime}-${r.endTime}`;
   return summaryOf(change.kind === "create" ? "controls.time_rule_created" : "controls.time_rule_updated", { detail });

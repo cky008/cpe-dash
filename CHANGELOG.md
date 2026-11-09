@@ -4,6 +4,11 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Security
+- **Unexpected errors answer with a generic message.** When a request ran into a bug, the API answered `500` with the error's own message, which can carry internal detail. The client now gets "Unexpected server error" and the detail goes to the daemon's log. GitHub code scanning found this and the two changes below.
+- **One-time codes draw every character evenly.** Setup, reset and Telegram binding codes took each character from a random byte modulo 31, so 8 of the 31 characters came up slightly more often (9 in 256 instead of 8). They now use an unbiased draw.
+- **Request input is read without backtracking patterns.** The `Authorization: Bearer` header and the number at the end of a time rule's path are now read in one pass, not with regular expressions that can slow down on long input. Neither was slow in practice: a header value cannot hold the characters that would make that pattern backtrack, and a time rule's path reaches that code only after the router accepted the change.
+
 ## [1.7.3] — 2026-11-08
 
 ### Highlights
