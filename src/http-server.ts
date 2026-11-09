@@ -764,7 +764,7 @@ export class FengSuiHttpServer {
     }
 
     const actor: AuditActor = session ? { channel: "web" } : { channel: "token", label: identity?.name ?? "?" };
-    await runAsActor(actor, () => this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, { redact, clientIp, sessionId: session?.id ?? null }));
+    await runAsActor(actor, () => this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, { redact, clientIp, bucketKey, sessionId: session?.id ?? null }));
   }
 
   /** `POST /api/setup/login` (no password yet) and `POST /api/auth/reset`: a one-time code sets the password and signs in. */
@@ -820,7 +820,7 @@ export class FengSuiHttpServer {
     method: string,
     pathname: string,
     searchParams: URLSearchParams,
-    caller: { redact: boolean; clientIp: string; sessionId: string | null }
+    caller: { redact: boolean; clientIp: string; bucketKey: string; sessionId: string | null }
   ): Promise<void> {
     const { redact, clientIp } = caller;
     try {
@@ -835,10 +835,11 @@ export class FengSuiHttpServer {
             pathname,
             query: parseQueryNullProto(searchParams),
             readJsonBody: (maxBytes?: number) => this.#readBoundedJsonBody(req, maxBytes),
-            sendJson: (statusCode: number, body: unknown) => this.#sendJson(res, statusCode, body),
+            sendJson: (statusCode: number, body: unknown, headers?: Record<string, string>) => this.#sendJson(res, statusCode, body, headers),
           },
           caller.sessionId,
-          (candidate) => this.#auth.guardLogin(caller.clientIp, candidate)
+          // The sign-in bucket (an IPv6 /64, as the session is bound to), so rotating addresses does not reset it
+          (candidate) => this.#auth.guardLogin(caller.bucketKey, candidate)
         );
         if (!handled) this.#sendJson(res, 404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown ${method} endpoint ${pathname}` });
         return;

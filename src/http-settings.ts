@@ -163,7 +163,7 @@ export class SettingsHttpRoutes {
         if (!verdict.ok && verdict.statusCode === 429) {
           const retryAfterSec = verdict.retrySec ?? 60;
           audit?.record({ action: "settings.password", outcome: "refused", detail: "too many wrong passwords" });
-          ctx.sendJson(429, { ok: false, errorCode: "RATE_LIMITED", retryAfterSec, message: `Too many wrong passwords: try again in ${retryAfterSec} s` } satisfies ApiErrorEnvelope);
+          ctx.sendJson(429, { ok: false, errorCode: "RATE_LIMITED", retryAfterSec, message: `Too many wrong passwords: try again in ${retryAfterSec} s` } satisfies ApiErrorEnvelope, { "Retry-After": String(retryAfterSec) });
           return true;
         }
         if (!verdict.ok) {

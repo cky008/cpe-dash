@@ -267,6 +267,30 @@ describe("one-time codes and the sign-in limit", () => {
     }
   });
 
+  it("shares that limit with sign-in across an IPv6 /64, and says when to retry", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", RATE_LIMIT_MAX_AUTH_FAILURES: "3", TRUSTED_PROXIES: "127.0.0.1" });
+    try {
+      const base = new URL((await fx.get("/api/health")).url).origin;
+      const from = (address: string, p: string, body: unknown, cookie = ""): Promise<Response> =>
+        fetch(`${base}${p}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base, "X-Forwarded-For": address, ...(cookie ? { Cookie: cookie } : {}) },
+          body: JSON.stringify(body),
+        });
+      const cookie = fx.cookieOf(await from("2001:db8:1:2::10", "/api/auth/login", { password: "legacy_full_token" }));
+      // Privacy addresses rotate inside the /64 the session is bound to: they share one count
+      for (const address of ["2001:db8:1:2::10", "2001:db8:1:2::11", "2001:db8:1:2::12"]) {
+        assert.equal((await from(address, "/api/console/password", { current: "a wrong guess", next: PASSPHRASE }, cookie)).status, 403);
+      }
+      const locked = await from("2001:db8:1:2::13", "/api/console/password", { current: "legacy_full_token", next: PASSPHRASE }, cookie);
+      assert.equal(locked.status, 429);
+      assert.match(locked.headers.get("retry-after") ?? "", /^\d+$/);
+      assert.equal((await from("2001:db8:1:2::14", "/api/auth/login", { password: "legacy_full_token" })).status, 429, "sign-in from that /64 waits too");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("keeps a valid one-time code that the sign-in limit refused, so it still works", async () => {
     const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", RATE_LIMIT_MAX_AUTH_FAILURES: "3", TRUSTED_PROXIES: "127.0.0.1" });
     try {

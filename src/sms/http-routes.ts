@@ -25,7 +25,7 @@ export interface ApiRouteContext {
   pathname: string;
   query: Readonly<Record<string, string>>;
   readJsonBody(maxBytes?: number): Promise<Record<string, unknown>>;
-  sendJson(statusCode: number, body: unknown): void;
+  sendJson(statusCode: number, body: unknown, headers?: Record<string, string>): void;
 }
 
 export const MAX_VCF_BODY_BYTES = 4 * 1024 * 1024;
