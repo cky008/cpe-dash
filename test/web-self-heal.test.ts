@@ -24,7 +24,7 @@ describe("web core: WAN self-healing in the controls drawer", () => {
       ["Lock rollback", "Off", "muted"],
       ["Auto redial", "Off", "muted"],
     ]);
-    assert.match(lockRollbackNote(SELF_HEAL_OFF, tEn) ?? "", /off[\s\S]*by hand[\s\S]*LOCK_ROLLBACK_AFTER_MIN/);
+    assert.match(lockRollbackNote(SELF_HEAL_OFF, tEn) ?? "", /off[\s\S]*by hand[\s\S]*Settings → General → Self-healing/);
   });
 
   it("follows a lock window from the watch to the WAN coming back, and the redial budget", () => {

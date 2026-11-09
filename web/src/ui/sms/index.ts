@@ -443,7 +443,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     const country = s.countryCode ? `${countryName(ctx, s)} ${s.countryCode}` : countryName(ctx, s);
     const number = s.e164 ?? detail.phone;
     const sub = (detail.contact ? [shownNumber(ctx, number), country, detail.contact.note ?? ""] : [s.type === "alphanumeric" ? "" : country]).filter(Boolean);
-    sub.push(ctx.t("chat.records", { count: detail.messages.length }));
+    sub.push(detail.messages.length === 1 ? ctx.t("chat.records_one") : ctx.t("chat.records", { count: detail.messages.length }));
     const unreadCount = detail.messages.filter((m) => m.isUnread).length;
     const back = h("button", { class: "btn btn-ghost btn-sm btn-square -ml-2 md:hidden", attrs: { type: "button", "aria-label": ctx.t("chat.back") } }, icon("chevron-left", "text-xl"));
     back.addEventListener("click", () => {
