@@ -333,6 +333,69 @@ describe("the console in a browser", () => {
     assert.deepEqual(problems, []);
   });
 
+  it("sends a reply once, however often Cmd+Enter is pressed while it goes out", async () => {
+    const d = live();
+    const cpe = d.router.cpe;
+    assert.ok(cpe, "the H168-383 world");
+    await signIn(page, d);
+    await page.click('[data-view="sms"]');
+    await page.waitUntil("document.querySelector('#smsListPane [data-thread-key]') !== null", "the SMS threads");
+    // A conversation with a number (a sender name such as a bank's cannot be answered)
+    await page.click('#smsListPane [data-thread-key^="+"]');
+    // The conversation itself, not just the reply box (which exists before a thread has loaded)
+    await page.waitUntil("document.querySelectorAll('#smsChatPane .bubble').length > 0 && document.querySelector('#smsChatPane form textarea') !== null", "the conversation");
+    const text = "One reply, sent once";
+    const sent = (): number => cpe.outbox.filter((m) => m.content === text).length;
+    // Three presses in one task: the first starts the send, a held-key repeat and a second press find it in flight
+    await page.evaluate(`(() => {
+      const area = document.querySelector('#smsChatPane form textarea');
+      area.value = ${JSON.stringify(text)};
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      for (let i = 0; i < 3; i++) area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, repeat: i === 1, bubbles: true, cancelable: true }));
+      return true;
+    })()`);
+    await until(() => sent() > 0, "the reply");
+    // Typing while it is in flight does not re-arm the button either (an emptied box means it already finished)
+    assert.equal(
+      await page.evaluate<boolean>(`(() => { const area = document.querySelector('#smsChatPane form textarea'); area.dispatchEvent(new Event('input', { bubbles: true })); return area.form.querySelector('button[type="submit"]').disabled || area.value === ''; })()`),
+      true
+    );
+    // Each send holds the router while it polls send-status, so a second one would land seconds later
+    for (const deadline = Date.now() + 8000; Date.now() < deadline && sent() < 2; ) await sleep(200);
+    assert.equal(sent(), 1);
+    assert.deepEqual(page.exceptions, []);
+  });
+
+  it("sends a new message once, however often Cmd+Enter is pressed while it goes out", async () => {
+    const d = live();
+    const cpe = d.router.cpe;
+    assert.ok(cpe, "the H168-383 world");
+    await signIn(page, d);
+    await page.click('[data-view="sms"]');
+    await page.waitUntil("document.querySelector('#smsListPane [data-thread-key]') !== null", "the SMS threads");
+    // "N" opens a new message while nothing that takes typing has the focus
+    await page.evaluate(`(() => { document.activeElement?.blur?.(); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true })); return true; })()`);
+    await page.waitUntil(isOpen("newSmsDialog"), "the new message");
+    const text = "One new message, sent once";
+    const sent = (): number => cpe.outbox.filter((m) => m.content === text).length;
+    await page.evaluate(`(() => {
+      const dialog = document.getElementById('newSmsDialog');
+      const phone = dialog.querySelector('input[type="text"]');
+      const content = dialog.querySelector('textarea');
+      phone.value = "+447700900123";
+      phone.dispatchEvent(new Event('input', { bubbles: true }));
+      content.value = ${JSON.stringify(text)};
+      content.dispatchEvent(new Event('input', { bubbles: true }));
+      for (let i = 0; i < 3; i++) content.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, repeat: i === 1, bubbles: true, cancelable: true }));
+      return true;
+    })()`);
+    await until(() => sent() > 0, "the message");
+    for (const deadline = Date.now() + 8000; Date.now() < deadline && sent() < 2; ) await sleep(200);
+    assert.equal(sent(), 1);
+    await closeDialogs(page);
+    assert.deepEqual(page.exceptions, []);
+  });
+
   it("fits a phone screen without scrolling sideways", async () => {
     await signIn(page, live(), PHONE);
     const overflow: string[] = [];

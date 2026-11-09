@@ -536,6 +536,8 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     );
   };
 
+  /** A reply on its way: another press, a key repeat or typing must not post it again. */
+  let replying = false;
   const syncComposer = (): void => {
     replyArea.style.height = "auto";
     replyArea.style.height = `${Math.min(replyArea.scrollHeight, 160)}px`;
@@ -544,13 +546,13 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     const enc = mode.encoding === "7BIT" ? "GSM-7" : "UCS-2";
     replyMode.textContent = text ? ctx.t("new.mode", { encoding: enc, units: mode.charUnits, segments: mode.segments }) : "";
     replyMode.classList.toggle("text-error", mode.segments > MAX_SMS_SEGMENTS);
-    replySend.disabled = !text.trim() || mode.segments > MAX_SMS_SEGMENTS;
+    replySend.disabled = replying || !text.trim() || mode.segments > MAX_SMS_SEGMENTS;
   };
   replyArea.addEventListener("input", syncComposer);
   replyArea.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
-      replyForm.requestSubmit();
+      if (!event.repeat) replyForm.requestSubmit();
     }
   });
 
@@ -559,7 +561,9 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     const detail = thread;
     const phone = detail?.replyPhone;
     const content = replyArea.value.trim();
-    if (!detail || !phone || !content) return;
+    // requestSubmit() does not look at the disabled button, so the flag is what keeps it to one send
+    if (replying || !detail || !phone || !content) return;
+    replying = true;
     replySend.disabled = true;
     const spinner = h("span", { class: "loading loading-spinner loading-xs" });
     replySend.replaceChildren(spinner);
@@ -573,6 +577,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
         return reload();
       })
       .finally(() => {
+        replying = false;
         replySend.replaceChildren(icon("arrow-up", "text-base"));
         syncComposer();
       });

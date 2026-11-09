@@ -30,6 +30,8 @@ export function openCompose(ctx: AppContext, shared: SmsShared, prefill?: { phon
   const noticeSlot = h("div", { class: "px-5" });
   const send = h("button", { class: "btn btn-primary btn-sm rounded-lg gap-1.5", attrs: { type: "submit" } }, icon("send"), ctx.t("new.send"));
 
+  /** A message on its way: another press, a key repeat or typing must not post it again. */
+  let sending = false;
   const updateMode = (): void => {
     const info = detectSmsTextMode(content.value);
     const enc = info.encoding === "7BIT" ? "GSM-7" : "UCS-2";
@@ -38,7 +40,7 @@ export function openCompose(ctx: AppContext, shared: SmsShared, prefill?: { phon
       ? `${ctx.t("new.mode", { encoding: enc, units: info.charUnits, segments: info.segments })}${tooLong ? ` · ${ctx.t("new.too_long", { max: MAX_SMS_SEGMENTS })}` : ""}`
       : ctx.t("new.mode_empty", { encoding: enc });
     mode.classList.toggle("text-error", tooLong);
-    send.disabled = !content.value.trim() || !phone.value.trim() || tooLong;
+    send.disabled = sending || !content.value.trim() || !phone.value.trim() || tooLong;
   };
 
   const pick = (number: string): void => {
@@ -119,7 +121,7 @@ export function openCompose(ctx: AppContext, shared: SmsShared, prefill?: { phon
   content.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
-      form.requestSubmit();
+      if (!event.repeat) form.requestSubmit();
     }
   });
 
@@ -153,7 +155,9 @@ export function openCompose(ctx: AppContext, shared: SmsShared, prefill?: { phon
     event.preventDefault();
     const number = phone.value.trim();
     const text = content.value.trim();
-    if (!number || !text) return;
+    // requestSubmit() does not look at the disabled button, so the flag is what keeps it to one send
+    if (sending || !number || !text) return;
+    sending = true;
     send.disabled = true;
     send.replaceChildren(h("span", { class: "loading loading-spinner loading-xs" }), ctx.t("new.sending"));
     mount(noticeSlot);
@@ -181,6 +185,7 @@ export function openCompose(ctx: AppContext, shared: SmsShared, prefill?: { phon
         }
       })
       .finally(() => {
+        sending = false;
         send.replaceChildren(icon("send"), ctx.t("new.send"));
         updateMode();
       });
