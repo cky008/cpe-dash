@@ -54,8 +54,8 @@ describe("GitHub Actions supply chain", () => {
     // metadata-action derives the licence label from GitHub's licence field ("Other", so NOASSERTION) and that label
     // overrides the Dockerfile's: the release states the SPDX ID of package.json itself
     const license = (JSON.parse(fs.readFileSync(path.resolve(WORKFLOWS, "..", "..", "package.json"), "utf8")) as { license: string }).license;
-    assert.match(release, new RegExp(`^\\s+org\\.opencontainers\\.image\\.licenses=${license.replace(/[.]/g, "\\.")}$`, "m"));
-    assert.match(dockerfile, new RegExp(`org\\.opencontainers\\.image\\.licenses="${license.replace(/[.]/g, "\\.")}"`));
+    assert.ok(release.split("\n").some((line) => line.trim() === `org.opencontainers.image.licenses=${license}`), "release.yml labels the licence");
+    assert.ok(dockerfile.includes(`org.opencontainers.image.licenses="${license}"`), "the Dockerfile labels the licence");
     for (const file of fs.readdirSync(WORKFLOWS)) {
       assert.doesNotMatch(fs.readFileSync(path.join(WORKFLOWS, file), "utf8"), /this private repository/, `${file} still calls the repository private`);
     }
