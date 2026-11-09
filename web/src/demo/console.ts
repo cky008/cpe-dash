@@ -7,6 +7,7 @@ import type {
   ExperimentalWritesResponse,
   PairingCodeResponse,
   RevokeTokenResponse,
+  TokenPermissionsResponse,
   SaveConnectionResponse,
   TelegramChatRecord,
   TelegramChatsResponse,
@@ -14,7 +15,7 @@ import type {
 } from "../../../src/api-contract.ts";
 import type { AuditActor, AuditEntry, AuditOutcome } from "../../../src/audit-log.ts";
 import { BEHAVIOUR_ENV, type BehaviourOverrides, type BehaviourValues, describeBehaviour, readBehaviourPatch, resolveBehaviour } from "../../../src/behaviour-settings.ts";
-import { MAX_TOKENS, readTokenRequest, validateNewPassword } from "../../../src/console-policy.ts";
+import { MAX_TOKENS, describePermissions, readTokenPermissions, readTokenRequest, scopeForPermissions, validateNewPassword } from "../../../src/console-policy.ts";
 import { WRITE_FEATURES } from "../../../src/device-access.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
@@ -105,11 +106,13 @@ export class DemoConsole {
     const iso = (ms: number): string => new Date(ms).toISOString();
     this.#loginChangedAtIso = iso(now - 21 * DAY_MS);
     this.#tokens = [
-      { id: globalThis.crypto.randomUUID(), name: "Grafana", scope: "read", hint: this.#chars(TOKEN_ALPHABET, 4), createdAtIso: iso(now - 20 * DAY_MS), expiresAtIso: null, lastUsedAtIso: iso(now - 25_000) },
+      // A dashboard reads the router only; an agent also reads SMS (what a read-only token did before permissions)
+      { id: globalThis.crypto.randomUUID(), name: "Grafana", scope: "read", permissions: [], hint: this.#chars(TOKEN_ALPHABET, 4), createdAtIso: iso(now - 20 * DAY_MS), expiresAtIso: null, lastUsedAtIso: iso(now - 25_000) },
       {
         id: globalThis.crypto.randomUUID(),
         name: "Claude Code",
         scope: "read",
+        permissions: ["sms-read"],
         hint: this.#chars(TOKEN_ALPHABET, 4),
         createdAtIso: iso(now - 6 * DAY_MS),
         expiresAtIso: iso(now + 84 * DAY_MS),
@@ -218,22 +221,35 @@ export class DemoConsole {
   }
 
   createToken(body: Body): CreateTokenResponse {
-    const { name, scope, lifetimeDays } = readTokenRequest(body);
+    const { name, permissions, lifetimeDays } = readTokenRequest(body);
     if (this.#tokens.length >= MAX_TOKENS) throw new CpeControlValidationError(`At most ${MAX_TOKENS} tokens; revoke one first`);
     const token = `fsk_${this.#chars(TOKEN_ALPHABET, 43)}`;
     const now = this.#now();
     const record: PublicTokenRecord = {
       id: globalThis.crypto.randomUUID(),
       name,
-      scope,
+      scope: scopeForPermissions(permissions),
+      permissions,
       hint: token.slice(-4),
       createdAtIso: new Date(now).toISOString(),
       expiresAtIso: lifetimeDays === null ? null : new Date(now + lifetimeDays * DAY_MS).toISOString(),
       lastUsedAtIso: null,
     };
     this.#tokens.push(record);
-    this.record("token.create", "applied", `${name} (${scope}, ${lifetimeDays === null ? "never expires" : `${lifetimeDays} d`})`);
+    this.record("token.create", "applied", `${name} (${describePermissions(permissions)}, ${lifetimeDays === null ? "never expires" : `${lifetimeDays} d`})`);
     return { ok: true, token, record: { ...record } };
+  }
+
+  /** `POST /api/console/tokens/permissions`, as the daemon checks it. */
+  tokenPermissions(body: Body): TokenPermissionsResponse {
+    const id = typeof body["id"] === "string" ? body["id"] : "";
+    const permissions = readTokenPermissions(body["permissions"]);
+    const token = this.#tokens.find((t) => t.id === id);
+    if (!token) throw new DemoRefusal(404, { ok: false, errorCode: "NOT_FOUND", message: "No such token" });
+    token.permissions = permissions;
+    token.scope = scopeForPermissions(permissions);
+    this.record("token.permissions", "applied", `${token.name}: ${describePermissions(permissions)}`);
+    return { ok: true, record: { ...token, permissions: [...permissions] } };
   }
 
   revokeToken(body: Body): RevokeTokenResponse {

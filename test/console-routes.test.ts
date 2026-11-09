@@ -110,7 +110,7 @@ describe("console routes", () => {
       await assert.rejects(fx.call("POST", "/api/console/cpe/test", { url: "http://192.168.8.1", password: 12 }), /"password" must be text/);
       await assert.rejects(fx.call("POST", "/api/console/switches", { metricsEnabled: "on" }), /"metricsEnabled" must be/);
       await assert.rejects(fx.call("POST", "/api/console/tokens/revoke", { id: 7 }), /"id" must be text/);
-      for (let i = fx.settings.listTokens().length; i < 50; i++) fx.settings.createToken({ name: `t${i}`, scope: "read", lifetimeDays: 1 });
+      for (let i = fx.settings.listTokens().length; i < 50; i++) fx.settings.createToken({ name: `t${i}`, permissions: ["sms-read"], lifetimeDays: 1 });
       await assert.rejects(fx.call("POST", "/api/console/tokens", { name: "one more", scope: "read", lifetimeDays: null }), /At most 50 tokens/);
     } finally {
       await fx.cleanup();

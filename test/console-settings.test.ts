@@ -1,3 +1,4 @@
+import { TOKEN_PERMISSIONS } from "../src/console-policy.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -116,7 +117,7 @@ describe("console settings store", () => {
     try {
       const settings = fx.open();
       settings.importFromEnv({ ...ENV, apiTokenReadonly: "" });
-      const { token, record } = settings.createToken({ name: "Claude Code", scope: "read", lifetimeDays: 7 });
+      const { token, record } = settings.createToken({ name: "Claude Code", permissions: ["sms-read"], lifetimeDays: 7 });
       assert.match(token, /^fsk_[A-Za-z0-9_-]{43}$/);
       assert.equal(record.hint, token.slice(-4));
       assert.equal("hash" in record, false, "the hash never leaves the store");
@@ -124,7 +125,7 @@ describe("console settings store", () => {
       assert.equal(settings.resolveBearer(token)?.name, "Claude Code");
       assert.equal(settings.listTokens().find((t) => t.id === record.id)?.lastUsedAtIso, "2026-11-02T10:00:00.000Z");
 
-      const forever = settings.createToken({ name: "Grafana", scope: "read", lifetimeDays: null });
+      const forever = settings.createToken({ name: "Grafana", permissions: ["sms-read"], lifetimeDays: null });
       fx.advance(8 * 86_400_000);
       assert.equal(settings.resolveBearer(token), null, "expired");
       assert.equal(settings.resolveBearer(forever.token)?.scope, "read");
@@ -134,8 +135,8 @@ describe("console settings store", () => {
       assert.equal(settings.resolveBearer(""), null);
       assert.equal(settings.resolveBearer("fsk_unknown"), null);
 
-      for (let i = settings.listTokens().length; i < 50; i++) settings.createToken({ name: `t${i}`, scope: "read", lifetimeDays: 1 });
-      assert.throws(() => settings.createToken({ name: "one too many", scope: "read", lifetimeDays: 1 }), /At most 50 tokens/);
+      for (let i = settings.listTokens().length; i < 50; i++) settings.createToken({ name: `t${i}`, permissions: ["sms-read"], lifetimeDays: 1 });
+      assert.throws(() => settings.createToken({ name: "one too many", permissions: ["sms-read"], lifetimeDays: 1 }), /At most 50 tokens/);
       await settings.flush();
     } finally {
       await fx.cleanup();
@@ -221,7 +222,7 @@ describe("console settings store", () => {
       assert.equal(settings.resolveBearer(ENV.apiToken)?.scope, "full", "it still works as a token until the owner revokes it");
       const exposed = settings.listTokens().find((t) => t.name === "API_TOKEN (.env)");
       assert.equal(exposed?.telegramExposedAtIso, "2026-11-02T10:00:00.000Z", "the console can point at the token to revoke");
-      const other = settings.createToken({ name: "Phone", scope: "full", lifetimeDays: 7 });
+      const other = settings.createToken({ name: "Phone", permissions: [...TOKEN_PERMISSIONS], lifetimeDays: 7 });
       assert.equal(settings.listTokens().find((t) => t.id === other.record.id)?.telegramExposedAtIso, undefined);
       assert.equal(settings.linkTelegramChat(other.token, "private"), "linked", "other tokens are unaffected");
       assert.deepEqual(settings.decideTelegramLink(other.token, "private"), { outcome: "linked", tokenId: other.record.id }, "a token link names its token");

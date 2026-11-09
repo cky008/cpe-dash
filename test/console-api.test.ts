@@ -407,3 +407,54 @@ describe("behaviour settings from the console", () => {
     }
   });
 });
+
+describe("token permissions", () => {
+  it("lets each token do what its permissions allow over REST and MCP, and an edit applies at once", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", MCP_ALLOW_MUTATIONS: "true", MCP_ALLOW_ACCESS_CONTROL: "true" });
+    try {
+      await fx.stack.start();
+      const cookie = fx.cookieOf(await fx.post("/api/auth/login", { password: "legacy_full_token" }));
+      const mint = async (name: string, permissions: string[]): Promise<CreateTokenResponse> =>
+        (await (await fx.post("/api/console/tokens", { name, permissions, lifetimeDays: 7 }, cookie)).json()) as CreateTokenResponse;
+      const dashboard = await mint("Dashboard", []);
+      const locker = await mint("Locker", ["control"]);
+      assert.deepEqual([dashboard.record.permissions, dashboard.record.scope, locker.record.permissions], [[], "read", ["control"]]);
+      const tokenPost = (token: string, p: string, body: unknown) =>
+        fetch(`${fx.base}${p}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" }, body: JSON.stringify(body) });
+      const refusal = async (res: Response) => {
+        const body = (await res.json()) as { errorCode?: string; permission?: string };
+        return [res.status, body.errorCode, body.permission];
+      };
+
+      // Every token reads the router; SMS only with sms-read
+      assert.equal((await fx.get("/api/telemetry", { token: dashboard.token })).status, 200);
+      assert.deepEqual(await refusal(await fx.get("/api/sms/threads", { token: dashboard.token })), [403, "TOKEN_NOT_PERMITTED", "sms-read"]);
+      // A token that may change nothing keeps the read-only answer; another one is told what it lacks
+      assert.deepEqual(await refusal(await tokenPost(dashboard.token, "/api/control/unlock", {})), [403, "READ_ONLY_TOKEN", undefined]);
+      assert.deepEqual(await refusal(await tokenPost(locker.token, "/api/control/wifi-mac-filter", { mode: "off", confirm: true })), [403, "TOKEN_NOT_PERMITTED", "access"]);
+      assert.notEqual((await tokenPost(locker.token, "/api/control/unlock", {})).status, 403, "control lets it unlock");
+
+      // MCP: it sees and calls the router's writes, not device access
+      const mcp = async (method: string, params: Record<string, unknown>, permissions: ReadonlyArray<string>) =>
+        ((await fx.stack.mcpServer.handleHttpMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), {}, { permissions: permissions as never })).body as { result: Record<string, unknown> }).result;
+      const tools = ((await mcp("tools/list", {}, locker.record.permissions))["tools"] as Array<{ name: string }>).map((t) => t.name);
+      assert.ok(tools.includes("lock_band") && tools.includes("get_access_control"));
+      assert.equal(tools.includes("set_wifi_mac_filter"), false);
+      const call = await mcp("tools/call", { name: "set_wifi_mac_filter", arguments: { mode: "off", confirm: true } }, locker.record.permissions);
+      assert.deepEqual([(call["structuredContent"] as { errorCode: string }).errorCode, (call["structuredContent"] as { permission: string }).permission], ["TOKEN_NOT_PERMITTED", "access"]);
+
+      // An edit in the console applies at once to the same token; a token cannot edit permissions itself
+      const edited = await fx.post("/api/console/tokens/permissions", { id: locker.record.id, permissions: ["control", "access"] }, cookie);
+      assert.equal(edited.status, 200);
+      assert.notEqual((await tokenPost(locker.token, "/api/control/wifi-mac-filter", { mode: "off", confirm: true })).status, 403);
+      assert.equal((await tokenPost(locker.token, "/api/console/tokens/permissions", { id: locker.record.id, permissions: [...["sms-read", "control", "access", "sms-write"]] })).status, 403);
+      assert.equal((await fx.post("/api/console/tokens/permissions", { id: locker.record.id, permissions: ["root"] }, cookie)).status, 400);
+      assert.equal((await fx.post("/api/console/tokens/permissions", { id: "nope", permissions: [] }, cookie)).status, 404);
+      const audit = (await (await fx.get("/api/audit", { cookie })).json()) as AuditResponse;
+      assert.ok(audit.entries.some((e) => e.action === "token.permissions" && e.detail === "Locker: read + control + access"));
+      assert.ok(audit.entries.some((e) => e.action === "token.create" && e.detail === "Dashboard (read, no SMS, 7 d)"));
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});

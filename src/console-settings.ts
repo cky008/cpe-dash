@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides } from "./behaviour-settings.ts";
-import { MAX_TOKENS, type TokenRequest, type TokenScope } from "./console-policy.ts";
+import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest, type TokenScope, permissionsForScope, scopeForPermissions } from "./console-policy.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "./device-profile.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { AppConfig } from "./types.ts";
@@ -32,7 +32,10 @@ export interface CpeConnection {
 export interface TokenRecord {
   id: string;
   name: string;
+  /** Kept for older versions and scope-only clients: `full` only with every permission. */
   scope: TokenScope;
+  /** What it may do besides reading (REST and MCP alike). */
+  permissions: TokenPermission[];
   /** SHA-256 (hex) of the token: tokens are 256-bit random, so a fast hash is enough. */
   hash: string;
   /** Its last four characters, to tell tokens apart in the list. */
@@ -80,6 +83,7 @@ export interface BearerIdentity {
   tokenId: string;
   name: string;
   scope: TokenScope;
+  permissions: TokenPermission[];
   /** When the token stops working (`null`: never), so a stream it opened ends then too. */
   expiresAtMs: number | null;
 }
@@ -186,6 +190,18 @@ function normalizeCode(raw: string): string {
   return raw.toUpperCase().replace(/[\s-]+/g, "");
 }
 
+/**
+ * A stored token with its permissions: one from before permissions keeps what its scope allowed (read:
+ * read SMS too; full: everything); unknown entries are dropped, and the scope follows the permissions.
+ */
+function withPermissions(token: TokenRecord): TokenRecord {
+  const known: ReadonlyArray<unknown> = TOKEN_PERMISSIONS;
+  const permissions = Array.isArray(token.permissions)
+    ? TOKEN_PERMISSIONS.filter((permission) => (token.permissions as unknown[]).includes(permission) && known.includes(permission))
+    : permissionsForScope(token.scope === "full" ? "full" : "read");
+  return { ...token, permissions, scope: scopeForPermissions(permissions) };
+}
+
 function defaultState(): PersistedConsoleSettings {
   return {
     format: FORMAT,
@@ -234,7 +250,7 @@ export class ConsoleSettings {
     const parsed = this.#cipher.readJsonFileOrQuarantine<Partial<PersistedConsoleSettings>>(this.filePath);
     assertKnownDataFormat(this.filePath, parsed?.format, FORMAT);
     if (!parsed) return false;
-    const tokens = Array.isArray(parsed.tokens) ? parsed.tokens.filter((t) => t && typeof t.hash === "string" && typeof t.id === "string") : [];
+    const tokens = Array.isArray(parsed.tokens) ? parsed.tokens.filter((t) => t && typeof t.hash === "string" && typeof t.id === "string").map(withPermissions) : [];
     const experimental = Array.isArray(parsed.experimental) ? parsed.experimental.filter(isExperimentalConsent).map((c) => ({ ...c })) : [];
     this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens, experimental, behaviour: sanitizeBehaviourOverrides(parsed.behaviour) };
     this.#reindex();
@@ -254,9 +270,9 @@ export class ConsoleSettings {
       state.loginHash = hashLoginSync(config.apiToken, this.#cost);
       state.loginChangedAtIso = nowIso;
       state.loginFromEnv = true;
-      state.tokens.push(this.#record("API_TOKEN (.env)", "full", config.apiToken, nowIso, null, true));
+      state.tokens.push(this.#record("API_TOKEN (.env)", permissionsForScope("full"), config.apiToken, nowIso, null, true));
     }
-    if (config.apiTokenReadonly) state.tokens.push(this.#record("API_TOKEN_READONLY (.env)", "read", config.apiTokenReadonly, nowIso, null, true));
+    if (config.apiTokenReadonly) state.tokens.push(this.#record("API_TOKEN_READONLY (.env)", permissionsForScope("read"), config.apiTokenReadonly, nowIso, null, true));
     state.reviewPending = state.cpe !== null || state.loginHash !== null;
     this.#state = state;
     this.#reindex();
@@ -390,11 +406,12 @@ export class ConsoleSettings {
 
   // ------------------------------------------------------------ Bearer tokens
 
-  #record(name: string, scope: TokenScope, token: string, nowIso: string, expiresAtIso: string | null, imported = false): TokenRecord {
+  #record(name: string, permissions: TokenPermission[], token: string, nowIso: string, expiresAtIso: string | null, imported = false): TokenRecord {
     return {
       id: crypto.randomUUID(),
       name,
-      scope,
+      scope: scopeForPermissions(permissions),
+      permissions: [...permissions],
       hash: sha256Hex(token),
       hint: token.slice(-4),
       createdAtIso: nowIso,
@@ -412,18 +429,29 @@ export class ConsoleSettings {
     return this.#state.tokens.map(({ hash: _hash, ...rest }) => ({ ...rest }));
   }
 
-  /** Mint a token; the value is returned once and only its hash is kept. */
+  /** Mint a token with its permissions; the value is returned once and only its hash is kept. */
   createToken(input: TokenRequest): { token: string; record: PublicTokenRecord } {
     if (this.#state.tokens.length >= MAX_TOKENS) throw new Error(`At most ${MAX_TOKENS} tokens; revoke one first`);
     const nowMs = this.#now();
     const token = `${TOKEN_PREFIX}${crypto.randomBytes(32).toString("base64url")}`;
     const expiresAtIso = input.lifetimeDays === null ? null : new Date(nowMs + input.lifetimeDays * 86_400_000).toISOString();
-    const record = this.#record(input.name, input.scope, token, new Date(nowMs).toISOString(), expiresAtIso);
+    const record = this.#record(input.name, input.permissions, token, new Date(nowMs).toISOString(), expiresAtIso);
     this.#state.tokens.push(record);
     this.#byHash.set(record.hash, record);
     this.#save();
     const { hash: _hash, ...visible } = record;
     return { token, record: visible };
+  }
+
+  /** Change what a token may do (it keeps its value, name and lifetime); `null` when there is no such token. */
+  setTokenPermissions(id: string, permissions: TokenPermission[]): PublicTokenRecord | null {
+    const record = this.#state.tokens.find((t) => t.id === id);
+    if (!record) return null;
+    record.permissions = [...permissions];
+    record.scope = scopeForPermissions(permissions);
+    this.#save();
+    const { hash: _hash, ...visible } = record;
+    return { ...visible, permissions: [...visible.permissions] };
   }
 
   revokeToken(id: string): PublicTokenRecord | null {
@@ -449,7 +477,7 @@ export class ConsoleSettings {
       this.#persistedUse.set(record.id, nowMs);
       this.#save();
     }
-    return { tokenId: record.id, name: record.name, scope: record.scope, expiresAtMs: record.expiresAtIso === null ? null : Date.parse(record.expiresAtIso) };
+    return { tokenId: record.id, name: record.name, scope: record.scope, permissions: [...record.permissions], expiresAtMs: record.expiresAtIso === null ? null : Date.parse(record.expiresAtIso) };
   }
 
   /**

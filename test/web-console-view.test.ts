@@ -92,12 +92,20 @@ describe("web core: console settings view", () => {
     const name = agentTokenName(NOW, "AI agent");
     assert.equal(name, "AI agent 2026-11-02");
     assert.ok((TOKEN_LIFETIMES_DAYS as ReadonlyArray<number>).includes(AGENT_TOKEN_DAYS));
-    assert.deepEqual(readTokenRequest({ name, scope: "read", lifetimeDays: AGENT_TOKEN_DAYS }), { name, scope: "read", lifetimeDays: AGENT_TOKEN_DAYS });
-    assert.deepEqual(readTokenRequest({ name: "  Grafana ", scope: "full", lifetimeDays: null }), { name: "Grafana", scope: "full", lifetimeDays: null });
-    assert.throws(() => readTokenRequest({ name: " ", scope: "read", lifetimeDays: 7 }), /Give the token a name/);
-    assert.throws(() => readTokenRequest({ name: "x".repeat(65), scope: "read", lifetimeDays: 7 }), /at most 64/);
-    assert.throws(() => readTokenRequest({ name: "x", scope: "admin", lifetimeDays: 7 }), /"scope"/);
-    assert.throws(() => readTokenRequest({ name: "x", scope: "read", lifetimeDays: 2 }), /"lifetimeDays" must be one of 1, 7, 30, 90, 365 or null/);
+    assert.deepEqual(readTokenRequest({ name, permissions: ["sms-read"], lifetimeDays: AGENT_TOKEN_DAYS }), { name, permissions: ["sms-read"], lifetimeDays: AGENT_TOKEN_DAYS });
+    assert.deepEqual(readTokenRequest({ name: "  Grafana ", permissions: [], lifetimeDays: null }), { name: "Grafana", permissions: [], lifetimeDays: null });
+    assert.deepEqual(readTokenRequest({ name: "x", permissions: ["sms-write", "control"], lifetimeDays: 7 }).permissions, ["control", "sms-write"], "in the canonical order");
+    // The older scope still means what it did: read (SMS too) or everything
+    assert.deepEqual(readTokenRequest({ name: "x", scope: "read", lifetimeDays: 7 }).permissions, ["sms-read"]);
+    assert.deepEqual(readTokenRequest({ name: "x", scope: "full", lifetimeDays: 7 }).permissions, ["sms-read", "control", "access", "sms-write"]);
+    assert.throws(() => readTokenRequest({ name: " ", permissions: [], lifetimeDays: 7 }), /Give the token a name/);
+    assert.throws(() => readTokenRequest({ name: "x".repeat(65), permissions: [], lifetimeDays: 7 }), /at most 64/);
+    assert.throws(() => readTokenRequest({ name: "x", scope: "admin", lifetimeDays: 7 }), /"permissions"/);
+    assert.throws(() => readTokenRequest({ name: "x", lifetimeDays: 7 }), /"permissions"/);
+    assert.throws(() => readTokenRequest({ name: "x", permissions: ["root"], lifetimeDays: 7 }), /"permissions" must list/);
+    assert.throws(() => readTokenRequest({ name: "x", permissions: ["control", "control"], lifetimeDays: 7 }), /each once/);
+    assert.throws(() => readTokenRequest({ name: "x", permissions: "control", lifetimeDays: 7 }), /"permissions" must list/);
+    assert.throws(() => readTokenRequest({ name: "x", permissions: [], lifetimeDays: 2 }), /"lifetimeDays" must be one of 1, 7, 30, 90, 365 or null/);
     assert.throws(() => readTokenRequest({ name: "x", scope: "read" }), /"lifetimeDays"/);
   });
 

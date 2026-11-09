@@ -1,3 +1,4 @@
+import type { TokenPermission } from "./console-policy.ts";
 import { type TimeRuleChange, type TimeRuleInput, normalizeMac } from "./access-plan.ts";
 import { readOptionalBoolean } from "./control-input.ts";
 import type { FengSuiCore } from "./core.ts";
@@ -105,6 +106,11 @@ export class AccessControlMcpTools implements McpToolProvider {
   readonly #redact: () => boolean;
 
   /** `allowWrites`: the console's switch, else `MCP_ALLOW_ACCESS_CONTROL` (a function is read per call). */
+  /** Changing who reaches the internet takes the token's `access` permission; reading it, none. */
+  requiredPermission(toolName: string): TokenPermission | null {
+    return WRITE_NAMES.has(toolName) ? "access" : null;
+  }
+
   constructor(opts: { core: FengSuiCore; allowWrites: boolean | (() => boolean); redactSensitive?: () => boolean }) {
     this.#core = opts.core;
     const allow = opts.allowWrites;

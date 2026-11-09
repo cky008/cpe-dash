@@ -1,3 +1,4 @@
+import { TOKEN_PERMISSIONS, type TokenPermission, permissionsForScope } from "./console-policy.ts";
 import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
@@ -114,6 +115,31 @@ export interface JsonRpcErrorResponse {
 
 export type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
 
+/** What the caller's token may do (a trusted caller: everything). */
+type Grant = ReadonlySet<TokenPermission>;
+const FULL_GRANT: Grant = new Set(TOKEN_PERMISSIONS);
+
+/** `true` stands for a read token (it reads SMS), `false` for a trusted caller; a list is the token's permissions. */
+function grantOf(access: boolean | ReadonlyArray<TokenPermission>): Grant {
+  if (Array.isArray(access)) return new Set(access);
+  return access === true ? new Set(permissionsForScope("read")) : FULL_GRANT;
+}
+
+/** The permission a tool needs: the provider's word, else `control` for a write and none for a read. */
+function permissionFor(provider: McpToolProvider, toolName: string): TokenPermission | null {
+  return provider.requiredPermission ? provider.requiredPermission(toolName) : provider.isMutating(toolName) ? "control" : null;
+}
+
+function mayUse(grant: Grant, provider: McpToolProvider, toolName: string): boolean {
+  const needed = permissionFor(provider, toolName);
+  return needed === null || grant.has(needed);
+}
+
+function mayRead(grant: Grant, provider: McpToolProvider, uri: string): boolean {
+  const needed = provider.resourcePermission?.(uri) ?? null;
+  return needed === null || grant.has(needed);
+}
+
 export interface FengSuiMcpServerOptions {
   /** Served by the built-in `CoreMcpTools` provider, which always comes first. */
   core: FengSuiCore;
@@ -172,11 +198,12 @@ export class FengSuiMcpServer {
    * open there (phase 3: then in their experimental form); and tools for what this router turned
    * out not to provide.
    */
-  getToolDefinitions(readOnly = false): ReadonlyArray<McpToolDefinition> {
+  getToolDefinitions(access: boolean | ReadonlyArray<TokenPermission> = false): ReadonlyArray<McpToolDefinition> {
+    const grant = grantOf(access);
     return this.toolProviders.flatMap((p) =>
       p
         .getToolDefinitions()
-        .filter((tool) => ((this.allowMutations && !readOnly) || !p.isMutating(tool.name)) && (p.isAvailable?.(tool.name) ?? true))
+        .filter((tool) => mayUse(grant, p, tool.name) && (this.allowMutations || !p.isMutating(tool.name)) && (p.isAvailable?.(tool.name) ?? true))
         .flatMap((tool) => {
           const shown = this.#onThisRouter(p, tool);
           return shown.definition ? [shown.definition] : [];
@@ -228,7 +255,7 @@ export class FengSuiMcpServer {
    * Returns `null` when the message is a valid JSON-RPC notification (`id === undefined`).
    */
   async handleRawJsonMessage(rawText: string): Promise<JsonRpcResponse | null> {
-    return (await this.#handle(rawText, null, false)).body;
+    return (await this.#handle(rawText, null, FULL_GRANT)).body;
   }
 
   /**
@@ -236,11 +263,19 @@ export class FengSuiMcpServer {
    * must mirror the body (`400` + `-32020` otherwise), unsupported versions answer `400` + `-32022`,
    * and a modern request for an unknown method answers `404`. Legacy requests keep `200` throughout.
    */
-  async handleHttpMessage(rawText: string, headers: McpHttpRequestHeaders, opts: { readOnly?: boolean } = {}): Promise<McpHttpOutcome> {
-    return await this.#handle(rawText, headers, opts.readOnly === true);
+  /**
+   * `permissions`: what the caller's token may do (it sees and calls only that); `readOnly` stands for a
+   * read token's (SMS reading); neither: everything (a trusted caller).
+   */
+  async handleHttpMessage(
+    rawText: string,
+    headers: McpHttpRequestHeaders,
+    opts: { readOnly?: boolean; permissions?: ReadonlyArray<TokenPermission> } = {}
+  ): Promise<McpHttpOutcome> {
+    return await this.#handle(rawText, headers, grantOf(opts.permissions ?? opts.readOnly === true));
   }
 
-  async #handle(rawText: string, http: McpHttpRequestHeaders | null, readOnly: boolean): Promise<McpHttpOutcome> {
+  async #handle(rawText: string, http: McpHttpRequestHeaders | null, grant: Grant): Promise<McpHttpOutcome> {
     const reply = (status: number, id: JsonRpcId, code: number, message: string, data?: unknown): McpHttpOutcome => ({
       status,
       body: { jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } },
@@ -304,7 +339,7 @@ export class FengSuiMcpServer {
       if (modern && REMOVED_IN_MODERN.has(method)) {
         throw new McpProtocolRpcError(-32601, `Method not found: ${method} (removed in ${requested})`);
       }
-      const result = await this.#dispatchMethod(method, params, modern, readOnly);
+      const result = await this.#dispatchMethod(method, params, modern, grant);
       // Stateless results declare their completion, cacheability and the server in `_meta`
       const ttlMs = MODERN_CACHE_TTL_MS[method];
       const body = modern
@@ -340,7 +375,7 @@ export class FengSuiMcpServer {
     return [...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])), ...readOnly].filter(Boolean).join(" ");
   }
 
-  async #dispatchMethod(method: string, params: Record<string, unknown>, modern: boolean, readOnly: boolean): Promise<unknown> {
+  async #dispatchMethod(method: string, params: Record<string, unknown>, modern: boolean, grant: Grant): Promise<unknown> {
     switch (method) {
       case "initialize": {
         const requestedVer =
@@ -381,7 +416,7 @@ export class FengSuiMcpServer {
 
       case "tools/list":
         return {
-          tools: this.getToolDefinitions(readOnly),
+          tools: this.getToolDefinitions([...grant]),
         };
 
       case "tools/call": {
@@ -391,15 +426,16 @@ export class FengSuiMcpServer {
           rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
             ? (rawArgs as Record<string, unknown>)
             : (Object.create(null) as Record<string, unknown>);
-        return await this.#executeToolCall(toolName, args, readOnly);
+        return await this.#executeToolCall(toolName, args, grant);
       }
 
       case "resources/list":
-        return { resources: this.toolProviders.flatMap((p) => p.listResources?.() ?? []) };
+        return { resources: this.toolProviders.flatMap((p) => (p.listResources?.() ?? []).filter((r) => mayRead(grant, p, r.uri))) };
 
       case "resources/read": {
         const uri = typeof params["uri"] === "string" ? params["uri"] : "";
-        const data = this.toolProviders.map((p) => p.readResource?.(uri)).find((value) => value !== undefined);
+        // A resource the token may not read is answered as one that does not exist
+        const data = this.toolProviders.map((p) => (mayRead(grant, p, uri) ? p.readResource?.(uri) : undefined)).find((value) => value !== undefined);
         if (data === undefined) {
           throw new McpProtocolRpcError(modern ? -32602 : MCP_LEGACY_RESOURCE_NOT_FOUND, `Resource not found: "${uri}"`, { uri });
         }
@@ -422,7 +458,7 @@ export class FengSuiMcpServer {
   async #executeToolCall(
     toolName: string,
     args: Record<string, unknown>,
-    readOnly: boolean
+    grant: Grant
   ): Promise<{
     content: Array<{ type: "text"; text: string }>;
     structuredContent: Record<string, unknown>;
@@ -444,8 +480,13 @@ export class FengSuiMcpServer {
     };
 
     const provider = this.toolProviders.find((p) => p.handles(toolName));
-    if (provider?.isMutating(toolName) && readOnly) {
-      return wrapErr("READ_ONLY_TOKEN", "This Bearer token is read-only; mutating tools need a full-access token (created in the console under Settings → Tokens)");
+    const needed = provider ? permissionFor(provider, toolName) : null;
+    if (provider && needed !== null && !grant.has(needed)) {
+      // A token that may change nothing keeps the old answer; another one is told what it lacks
+      const changesNothing = [...grant].every((permission) => permission === "sms-read");
+      return provider.isMutating(toolName) && changesNothing
+        ? wrapErr("READ_ONLY_TOKEN", "This Bearer token is read-only; mutating tools need a token allowed to make the change (set in the console under Settings → Tokens)")
+        : wrapErr("TOKEN_NOT_PERMITTED", `This token may not use ${toolName}: it needs the "${needed}" permission (set in the console under Settings → Tokens)`, { permission: needed });
     }
     if (provider?.isMutating(toolName) && !this.allowMutations) {
       return wrapErr(

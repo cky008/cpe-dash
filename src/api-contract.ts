@@ -8,6 +8,7 @@ import type { AccessControlSnapshot, TimeRulesState } from "./access-control.ts"
 import type { MacFilterEntry, TimeRule, TimeRuleInput, WifiFilterMode, WifiFilterPolicy, WifiMacFilterState } from "./access-plan.ts";
 import type { AlertEventRecord } from "./state-store.ts";
 import type { BehaviourReport } from "./behaviour-settings.ts";
+import type { TokenPermission } from "./console-policy.ts";
 import type {
   AntennaModeName,
   FirewallSwitchState,
@@ -179,6 +180,7 @@ export type ApiErrorCode =
   | "SMS_SEND_FAILED"
   | "SSE_LIMIT_REACHED"
   | "READ_ONLY_TOKEN"
+  | "TOKEN_NOT_PERMITTED"         // 403: the token lacks the permission this request needs (`permission`; v1.8.0)
   | "CONSOLE_ONLY"                // 403: /api/console/* with a Bearer token (credentials change only from a console session)
   | "CPE_NOT_CONFIGURED"          // 409: no router connection yet (finish the setup in the console)
   | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on and this write is not open there (nothing was sent)
@@ -212,6 +214,8 @@ export interface ApiErrorEnvelope {
   feature?: DeviceFeature;
   /** Only `429 RATE_LIMITED`. */
   retryAfterSec?: number;
+  /** Only `403 TOKEN_NOT_PERMITTED`: the permission the token lacks (`all`: a change that needs every permission). */
+  permission?: TokenPermission | "all";
   /** Only `409 BROWSER_SESSION_YIELDED`. */
   avoidance?: AvoidanceBroadcastPayload;
   /** Only `409 PEER_DAEMON_ACTIVE`. */
@@ -292,6 +296,12 @@ export interface CreateTokenResponse {
 }
 
 export interface RevokeTokenResponse {
+  ok: true;
+  record: PublicTokenRecord;
+}
+
+/** `POST /api/console/tokens/permissions`: the token with its new permissions (its value is unchanged). */
+export interface TokenPermissionsResponse {
   ok: true;
   record: PublicTokenRecord;
 }

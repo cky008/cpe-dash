@@ -23,7 +23,7 @@ import { CpeControlValidationError } from "./cpe-domain.ts";
 import { buildDeviceReport, deviceProfileOf } from "./device-profile.ts";
 import { VERIFIED_FIRMWARE } from "./firmware.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
-import { validateNewPassword } from "./console-policy.ts";
+import { type TokenPermission, tokenMay, validateNewPassword } from "./console-policy.ts";
 import { type BearerIdentity, type ConsoleSettings, verifyResetLoginProof } from "./console-settings.ts";
 import {
   type CredentialVerdict,
@@ -106,6 +106,25 @@ const READ_ONLY_POSTS: ReadonlySet<string> = new Set([
   "/api/sms/preview",
   "/api/sms/sync",
 ]);
+
+/** Changing who reaches the internet: the `access` permission (REST and MCP alike). */
+const ACCESS_CONTROL_ROUTES = ["/api/control/wifi-access", "/api/control/wifi-mac-filter", "/api/control/time-rule"];
+
+/**
+ * The permission a token needs for a request: none to read the router's data (or run the read
+ * sessions above), `sms-read` / `sms-write` under `/api/sms`, `access` for device access, `control` for
+ * the router's other controls, and every permission for any other change.
+ */
+export function permissionForRoute(method: string, pathname: string): TokenPermission | "all" | null {
+  const reading = method === "GET" || method === "HEAD";
+  if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
+    return reading || pathname === "/api/sms/preview" || pathname === "/api/sms/sync" ? "sms-read" : "sms-write";
+  }
+  if (reading || READ_ONLY_POSTS.has(pathname)) return null;
+  if (ACCESS_CONTROL_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))) return "access";
+  if (pathname.startsWith("/api/control/") || pathname === "/api/session/reset-breaker") return "control";
+  return "all";
+}
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 class HttpPayloadError extends Error {
@@ -695,7 +714,6 @@ export class FengSuiHttpServer {
     // 5. Protected `/api/*` routes (Cookie OR Bearer auth; a present Authorization header is exclusive)
     const isSseRoute = pathname === "/api/events";
     let session: WebSessionRecord | null = null;
-    let readOnly = false;
     let identity: BearerIdentity | null = null;
     if (req.headers.authorization !== undefined) {
       const verdict = this.#auth.guardBearerRole(bucketKey, req.headers.authorization);
@@ -703,7 +721,6 @@ export class FengSuiHttpServer {
         this.#sendAuthRejection(res, verdict, authMessages);
         return;
       }
-      readOnly = verdict.role === "readonly";
       identity = verdict.identity;
     } else {
       session = this.#auth.authenticateCookie(req, bucketKey);
@@ -719,13 +736,22 @@ export class FengSuiHttpServer {
       return;
     }
 
-    // A read token may read and run read sessions, never change the router, SMS, contacts or config
-    if (readOnly && method !== "GET" && method !== "HEAD" && !READ_ONLY_POSTS.has(pathname)) {
-      this.#sendJson(res, 403, {
-        ok: false,
-        errorCode: "READ_ONLY_TOKEN",
-        message: "This Bearer token is read-only; this request needs a full-access token",
-      } satisfies ApiErrorEnvelope);
+    // A token reads the router's data and runs read sessions; anything else needs its permission (Settings → Tokens)
+    const needed = identity ? permissionForRoute(method, pathname) : null;
+    if (identity && needed !== null && !tokenMay(identity.permissions, needed)) {
+      const changesNothing = identity.permissions.every((permission) => permission === "sms-read");
+      this.#sendJson(
+        res,
+        403,
+        needed !== "sms-read" && changesNothing
+          ? ({ ok: false, errorCode: "READ_ONLY_TOKEN", message: "This Bearer token is read-only; this request needs a token allowed to make this change" } satisfies ApiErrorEnvelope)
+          : ({
+              ok: false,
+              errorCode: "TOKEN_NOT_PERMITTED",
+              message: `This token may not do this: it needs the "${needed}" permission (change it in the console under Settings → Tokens)`,
+              permission: needed,
+            } satisfies ApiErrorEnvelope)
+      );
       return;
     }
 
@@ -742,6 +768,8 @@ export class FengSuiHttpServer {
     // A cookie session is the web console, which masks identifiers on screen until revealed; Bearer
     // clients (scripts, agents, integrations) get the REDACT_SENSITIVE_IN_API copies instead
     const redact = session === null && this.redactApi;
+    // A token without the sms-read permission gets no SMS over the event stream either
+    const smsAllowed = identity === null || identity.permissions.includes("sms-read");
 
     // SSE Stream (`GET /api/events`)
     if (isSseRoute && method === "GET") {
@@ -754,13 +782,14 @@ export class FengSuiHttpServer {
         // The stream ends when what opened it does: the console session, or an expiring token
         expiresAtMs: session?.expiresAtMs ?? identity?.expiresAtMs ?? null,
         redact,
+        sms: smsAllowed,
         initialSnapshot: {
           schedulerStatus: this.core.scheduler.getStatus(),
           avoidance: this.core.scheduler.getAvoidanceState(),
           telemetry: telemetryForOutput(this.core.monitor.getCachedTelemetry(), redact),
           lockState: this.core.controls.getPersistedLockState(),
           lockVerification: this.core.controls.getLockVerification(),
-          sms: this.sms?.getStatus() ?? null,
+          sms: smsAllowed ? (this.sms?.getStatus() ?? null) : null,
         } satisfies SseInitialSnapshot,
       });
       if (!sub.accepted) {
@@ -1386,7 +1415,7 @@ export class FengSuiHttpServer {
           method: header("mcp-method"),
           name: header("mcp-name"),
         },
-        { readOnly: mcpVerdict.role === "readonly" }
+        { permissions: mcpVerdict.identity.permissions }
       )
     );
     const rpcResponse = outcome.body;

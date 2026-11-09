@@ -11,7 +11,7 @@ import type { AuditLog } from "./audit-log.ts";
 import { BEHAVIOUR_ENV, type BehaviourValues, DEFAULT_BEHAVIOUR, describeBehaviour, readBehaviourPatch, resolveBehaviour } from "./behaviour-settings.ts";
 import type { CredentialVerdict } from "./http-auth.ts";
 import { normalizeCpeUrl } from "./config.ts";
-import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
+import { describePermissions, readTokenPermissions, readTokenRequest, validateNewPassword } from "./console-policy.ts";
 import { type ConsoleSettings, PAIRING_CODE_TTL_MS } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
@@ -189,15 +189,30 @@ export class SettingsHttpRoutes {
       }
       case "/api/console/tokens": {
         const request = readTokenRequest(await ctx.readJsonBody());
-        const { name, scope, lifetimeDays } = request;
+        const { name, permissions, lifetimeDays } = request;
         let minted;
         try {
           minted = settings.createToken(request);
         } catch (err) {
           throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
         }
-        audit?.record({ action: "token.create", outcome: "applied", detail: `${name} (${scope}, ${lifetimeDays === null ? "never expires" : `${lifetimeDays} d`})` });
+        audit?.record({ action: "token.create", outcome: "applied", detail: `${name} (${describePermissions(permissions)}, ${lifetimeDays === null ? "never expires" : `${lifetimeDays} d`})` });
         ctx.sendJson(200, { ok: true, token: minted.token, record: minted.record });
+        return true;
+      }
+      case "/api/console/tokens/permissions": {
+        const body = await ctx.readJsonBody();
+        const id = text(body, "id", 64) ?? "";
+        const permissions = readTokenPermissions(body["permissions"]);
+        const updated = settings.setTokenPermissions(id, permissions);
+        if (!updated) {
+          ctx.sendJson(404, { ok: false, errorCode: "NOT_FOUND", message: "No such token" });
+          return true;
+        }
+        // Its event streams reconnect under the new permissions (SMS events follow sms-read)
+        this.#opts.disconnectToken(updated.id);
+        audit?.record({ action: "token.permissions", outcome: "applied", detail: `${updated.name}: ${describePermissions(permissions)}` });
+        ctx.sendJson(200, { ok: true, record: updated });
         return true;
       }
       case "/api/console/tokens/revoke": {

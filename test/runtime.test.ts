@@ -1,3 +1,4 @@
+import { TOKEN_PERMISSIONS } from "../src/console-policy.ts";
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -291,7 +292,7 @@ describe("createFengSuiRuntime", () => {
         stack.audit.list(1).map((e) => [e.action, e.outcome, e.detail, e.channel]),
         [["telegram.unlink", "applied", "private chat …004", "web"]]
       );
-      const agent = stack.settings.createToken({ name: "Agent", scope: "full", lifetimeDays: 1 });
+      const agent = stack.settings.createToken({ name: "Agent", permissions: [...TOKEN_PERMISSIONS], lifetimeDays: 1 });
       const bearerList = await fetch(`${base}/api/console/telegram/chats`, { headers: { Authorization: `Bearer ${agent.token}` } });
       assert.equal(bearerList.status, 403, "a token, even a full one, never reads the chat list");
       assert.equal(bot.unlinkAllChats(), 1);

@@ -35,6 +35,8 @@ interface SseClientEntry {
   expiresAtMs: number | null;
   /** Bearer subscriber under REDACT_SENSITIVE_IN_API: receives the redacted copy of an event. */
   redact: boolean;
+  /** Receives SMS and contact events (a token without the sms-read permission does not). */
+  sms: boolean;
   res: ServerResponse;
   connectedAtMs: number;
   consecutiveBackpressureCount: number;
@@ -175,6 +177,8 @@ export class SseEventBus {
     expiresAtMs?: number | null;
     /** Send redacted copies of later telemetry / topology events (the initial snapshot is the caller's). */
     redact?: boolean;
+    /** Send SMS and contact events (default); `false` for a token without the sms-read permission. */
+    sms?: boolean;
     initialSnapshot?: {
       schedulerStatus: unknown;
       avoidance: unknown;
@@ -215,6 +219,7 @@ export class SseEventBus {
       tokenId: params.tokenId ?? null,
       expiresAtMs: params.expiresAtMs ?? null,
       redact: params.redact === true,
+      sms: params.sms !== false,
       res,
       connectedAtMs: Date.now(),
       consecutiveBackpressureCount: 0,
@@ -302,12 +307,14 @@ export class SseEventBus {
 
     let delivered = 0;
     const nowMs = Date.now();
+    const smsEvent = (SMS_SSE_EVENTS as ReadonlyArray<string>).includes(eventName);
     for (const [id, entry] of this.#clients.entries()) {
       if (entry.expiresAtMs !== null && nowMs >= entry.expiresAtMs) {
         this.#clients.delete(id);
         this.#closeClient(entry);
         continue;
       }
+      if (smsEvent && !entry.sms) continue;
       const chunk = entry.redact && redact ? (redactedFrame ??= frameOf(redact(payload))) : frame;
       if (this.#writeRaw(entry, chunk)) {
         delivered += 1;

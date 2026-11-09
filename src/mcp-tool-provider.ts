@@ -1,3 +1,4 @@
+import type { TokenPermission } from "./console-policy.ts";
 import type { WriteFeature } from "./device-access.ts";
 import type { McpInputSchema } from "./mcp-schema.ts";
 
@@ -49,6 +50,13 @@ export interface McpToolProvider {
    * it; default `isMutating`. `upsert_contact` mutates FengSui's own contact book only.
    */
   isRouterWrite?(toolName: string): boolean;
+  /**
+   * The token permission a tool needs (`null`: none, any token may use it); default: `control` for a
+   * mutating tool, none otherwise. A token sees and calls only what its permissions allow.
+   */
+  requiredPermission?(toolName: string): TokenPermission | null;
+  /** The token permission a resource needs (`null`: none); default none. */
+  resourcePermission?(uri: string): TokenPermission | null;
   /** Whether this router provides what the tool reads (an unverified model may lack a section); default `true`. */
   isAvailable?(toolName: string): boolean;
   /**

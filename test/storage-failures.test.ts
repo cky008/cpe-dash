@@ -61,9 +61,9 @@ describe("failed background saves", () => {
       await stack.start();
       await stack.settings.flush();
       fs.chmodSync(dataDir, 0o500);
-      stack.settings.createToken({ name: "Phone", scope: "read", lifetimeDays: 7 });
+      stack.settings.createToken({ name: "Phone", permissions: ["sms-read"], lifetimeDays: 7 });
       await assert.rejects(stack.settings.flush(), (err: unknown) => codeOf(err) === "EACCES");
-      stack.settings.createToken({ name: "Tablet", scope: "read", lifetimeDays: 7 });
+      stack.settings.createToken({ name: "Tablet", permissions: ["sms-read"], lifetimeDays: 7 });
       await assert.rejects(stack.settings.flush());
       const alerts = stack.core.scheduler.getRecentAlerts().filter((a) => a.code === "STORAGE_WRITE_FAILED");
       const forSettings = alerts.filter((a) => a.messageEn.includes("settings.json"));

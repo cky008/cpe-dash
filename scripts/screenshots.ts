@@ -199,9 +199,9 @@ async function startWorld(scenario: Scenario): Promise<DemoDaemon> {
   const demo = await startDemoDaemon({ port: 0, token: TOKEN, scenario });
   backfillHistory(demo);
   for (const contact of DEMO_CONTACTS) demo.stack.sms?.upsertContact(contact);
-  // A dashboard and an agent use their own read-only tokens next to the one imported from .env
-  const grafana = demo.stack.settings.createToken({ name: "Grafana", scope: "read", lifetimeDays: null });
-  demo.stack.settings.createToken({ name: "Claude Code", scope: "read", lifetimeDays: 90 });
+  // A dashboard (router data only) and an agent (SMS too) use their own tokens next to the one imported from .env
+  const grafana = demo.stack.settings.createToken({ name: "Grafana", permissions: [], lifetimeDays: null });
+  demo.stack.settings.createToken({ name: "Claude Code", permissions: ["sms-read"], lifetimeDays: 90 });
   demo.stack.settings.resolveBearer(grafana.token);
   // Another model's Settings → Device lists its experimental writes once it is identified
   if (scenario === "unverified") await demo.stack.monitor.identifyDevice();

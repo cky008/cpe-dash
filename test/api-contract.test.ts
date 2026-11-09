@@ -40,6 +40,7 @@ describe("REST / SSE contract module", () => {
       SMS_SEND_FAILED: true,
       SSE_LIMIT_REACHED: true,
       READ_ONLY_TOKEN: true,
+      TOKEN_NOT_PERMITTED: true,
       CONSOLE_ONLY: true,
       CPE_NOT_CONFIGURED: true,
       DEVICE_UNVERIFIED_READ_ONLY: true,

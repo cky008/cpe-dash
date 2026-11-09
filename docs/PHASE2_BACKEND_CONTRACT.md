@@ -95,7 +95,8 @@ export interface ApiErrorEnvelope {
     | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
     | "SSE_LIMIT_REACHED"        // 429: SSE 全局 (SSE_MAX_CLIENTS，默认 32) 或单 IP 桶 (6) 连接数达上限
-    | "READ_ONLY_TOKEN"          // 403: 用只读令牌发起写操作（控制写、短信发送 / 已读 / 删除、通讯录、reset-breaker）
+    | "READ_ONLY_TOKEN"          // 403: 不能做任何改动的令牌（只有读取，最多加读短信）发起写操作（控制写、短信发送 / 已读 / 删除、通讯录、reset-breaker）
+    | "TOKEN_NOT_PERMITTED"      // 403: 令牌缺少这个请求需要的权限（附 `permission`：`sms-read` / `control` / `access` / `sms-write` / `all`，v1.8.0，见 2.8 节）
     | "CONSOLE_ONLY"             // 403: 用 Bearer 令牌访问 /api/console/*（控制台设置只接受 Cookie 会话）
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号（只读），写操作被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
@@ -984,7 +985,8 @@ export interface AccessControlChangeResponse {
 | `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
 | `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD`，并与登录共用同一地址的失败计数：超限后 `429 RATE_LIMITED`（`retryAfterSec`） |
 | `GET /api/console/tokens` | — | `{ ok: true, tokens: PublicTokenRecord[] }`（不含哈希；完整权限令牌曾在 Telegram 群组里用 `/auth` 发出时带 `telegramExposedAtIso`：群成员都看到了它，它从此不能再绑定任何聊天，仍可作令牌使用，控制台提示撤销） |
-| `POST /api/console/tokens` | `{ name, scope: "full" \| "read", lifetimeDays: 1 \| 7 \| 30 \| 90 \| 365 \| null }` | `{ ok: true, token, record }`，`token` 只返回这一次；上限 50 个 |
+| `POST /api/console/tokens` | `{ name, permissions: TokenPermission[], lifetimeDays: 1 \| 7 \| 30 \| 90 \| 365 \| null }`（v1.8.0；旧写法 `scope: "read"` 等于 `["sms-read"]`，`"full"` 等于全部四项，仍然接受） | `{ ok: true, token, record }`，`token` 只返回这一次；`record.permissions` 为它的权限，`record.scope` 是给旧版本看的派生值（四项齐全为 `full`，否则 `read`）；上限 50 个 |
+| `POST /api/console/tokens/permissions` | `{ id, permissions: TokenPermission[] }`（v1.8.0；每项为 `"sms-read"`、`"control"`、`"access"`、`"sms-write"` 之一，不重复） | `{ ok: true, record }`：令牌的值、名称与有效期不变；它打开的 SSE 断开，按新权限重连；审计 `token.permissions`；不存在 `404` |
 | `POST /api/console/tokens/revoke` | `{ id }` | `{ ok: true, record }`，并断开该令牌的 SSE、解绑用它经 `/auth` 绑定的 Telegram 聊天（审计 `detail` 注明解绑了几个）；不存在 `404` |
 | `POST /api/console/telegram/pairing-code` | `{ group?: boolean }` | `{ ok: true, code, expiresInSec: 600, group, command }`：私聊机器人发 `/auth <code>` 绑定，只能用一次；`group: true` 生成群组绑定码（也可用于私聊），`command` 为要发送的原文（已知机器人用户名时为 `/auth@<bot> <code>`）；审计 `detail` 为 `group`；`group` 非布尔 `400`；未配置机器人 `409 TELEGRAM_DISABLED` |
 | `GET /api/console/telegram/chats` | — | `TelegramChatsResponse`：机器人能到达的每个聊天，先是经 `/auth` 绑定的（最新在前；怎么绑定的、用的令牌名、群组的话题与绑定者），再是只由 `TELEGRAM_CHAT_IDS` 授权的（按其顺序）；没有机器人时为空列表 |
@@ -1417,7 +1419,8 @@ export interface McpToolErrorPayload {
   ok: false;
   errorCode:
     | "MUTATIONS_DISABLED"       // MCP_ALLOW_MUTATIONS=false
-    | "READ_ONLY_TOKEN"          // 用 API_TOKEN_READONLY 调用了写工具
+    | "READ_ONLY_TOKEN"          // 不能做任何改动的令牌调用了写工具
+    | "TOKEN_NOT_PERMITTED"      // 令牌缺少这个工具需要的权限（附 `permission`）；令牌只看得到自己能用的工具（v1.8.0）
     | "CONFIRMATION_REQUIRED"    // 任何写工具未传 confirm: true（在 Schema 校验与任何会话之前）
     | "SMS_ACCESS_DENIED"        // 短信工具超出 MCP_SMS_ACCESS 权限
     | "RECIPIENT_NOT_ALLOWED"    // MCP_SMS_SEND_POLICY=known 且收件人既非主人保存的联系人、也未曾发过短信（智能体自建的联系人不算）

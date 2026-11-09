@@ -1,3 +1,4 @@
+import type { TokenPermission } from "../console-policy.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import type { WriteFeature } from "../device-access.ts";
 import {
@@ -310,6 +311,15 @@ export class SmsMcpTools implements McpToolProvider {
 
   isMutating(toolName: string): boolean {
     return WRITE_TOOL_NAMES.has(toolName);
+  }
+
+  /** Reading SMS takes the token's `sms-read` permission, sending, marking, deleting and contacts `sms-write`. */
+  requiredPermission(toolName: string): TokenPermission | null {
+    return WRITE_TOOL_NAMES.has(toolName) ? "sms-write" : ALL_TOOL_NAMES.has(toolName) ? "sms-read" : null;
+  }
+
+  resourcePermission(uri: string): TokenPermission | null {
+    return uri === "fengsui://sms/status" ? "sms-read" : null;
   }
 
   /** `upsert_contact` only changes FengSui's own contact book; the other writes reach the router. */
