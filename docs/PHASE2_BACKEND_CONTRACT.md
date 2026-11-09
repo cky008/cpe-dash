@@ -1459,7 +1459,7 @@ export interface McpToolErrorPayload {
 | `search_contacts` | `query?`、`limit?: 1..50` | `ContactRecord[]` |
 | `preview_sms` | `phone`、`content`、`countryCode?` | `SmsSendPreview` + `recipientKnown` + `wouldBeAllowed`（按当前发送策略）；不发送 |
 | `sync_sms` | `mode?: "full" \| "incremental"` | 通过共享调度器同步（真人在线时让位） |
-| `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限主人保存的联系人（Web 控制台、Telegram 或 vCard 导入）或曾发过短信的号码（只给我们发过短信的号码不算；智能体经 `upsert_contact` 新建的联系人也不算，主人保存后才算）；超长（>4 段）或号码非法时不占用每小时额度；未把短信交给 CPE 的尝试都会退还额度（校验失败、真人让位、另一守护进程领先、队列已满或停机、断路器熔断、CPE 以错误码拒绝）；只有传输层故障（`send-sms` 可能已到达 CPE）计入额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
+| `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限主人保存的联系人（Web 控制台、Telegram 或 vCard 导入）或曾发过短信的号码（只给我们发过短信的号码不算；智能体经 `upsert_contact` 新建的联系人也不算，主人保存后才算）；超长（>4 段）或号码非法时不占用每小时额度；未把短信交给 CPE 的尝试都会退还额度（校验失败、真人让位、另一守护进程领先、队列已满或停机、断路器熔断、未验证型号的写闸门、尚未连接路由器、CPE 以错误码拒绝）；只有传输层故障（`send-sms` 可能已到达 CPE）计入额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
 | `mark_sms_read` | `uids?: string[]`（≤50）或 `threadKey?` | `{ count, uids }` |
 | `delete_sms` | `uids: string[]`（≤20）、`confirm: true`、`includeUnread?: boolean` | 目标含未读短信时默认拒绝（`UNREAD_PROTECTED`） |
 | `upsert_contact` | `phone`、`name`、`note?` | `ContactRecord` |

@@ -71,6 +71,7 @@ function createMcpSmsFixture(
   const toolNames = async () => ((await rpc("tools/list")) as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
   return {
     mock,
+    client,
     sms,
     tools,
     rpc,
@@ -265,6 +266,13 @@ describe("MCP SMS tools: write guardrails", () => {
     fx.sms.scheduler.setPeerStandby("192.168.8.44");
     assert.equal((await send("while another daemon leads")).structuredContent["errorCode"], "PEER_DAEMON_ACTIVE");
     fx.sms.scheduler.setPeerStandby(null);
+    // The write gate on a model nobody verified (no consent to send), and no router connection: refused before the router
+    fx.sms.scheduler.noteRouterModel("E5576-320", null);
+    assert.equal((await send("on another model")).structuredContent["errorCode"], "DEVICE_UNVERIFIED_READ_ONLY");
+    fx.sms.scheduler.noteRouterModel("H168-383", "4.4.0.1");
+    fx.client.reconfigure({ cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: "" });
+    assert.equal((await send("without a router connection")).isError, true);
+    fx.client.reconfigure({ cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: fx.mock.password });
     await fx.sms.scheduler.stop();
     assert.equal((await send("while stopping")).structuredContent["errorCode"], "QUEUE_FULL");
     fx.sms.scheduler.markRunning(true);

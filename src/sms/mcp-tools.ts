@@ -7,7 +7,15 @@ import {
   type McpToolProvider,
 } from "../mcp-tool-provider.ts";
 import { CpeApiError } from "../cpe-client.ts";
-import { BrowserSessionYieldedError, PeerDaemonStandbyError, SchedulerQueueFullError, SchedulerStoppedError } from "../scheduler.ts";
+import {
+  BrowserSessionYieldedError,
+  CpeNotConfiguredError,
+  DeviceNotIdentifiedError,
+  DeviceReadOnlyError,
+  PeerDaemonStandbyError,
+  SchedulerQueueFullError,
+  SchedulerStoppedError,
+} from "../scheduler.ts";
 import { resolveRecipientPhone } from "./phone.ts";
 import type { SmsService } from "./service.ts";
 import type { SmsMessageRecord, SmsThreadSummary } from "./types.ts";
@@ -175,8 +183,9 @@ const WRITE_TOOL_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
 
 /**
  * A send that failed this way never handed a message to the router: refused before any session
- * (validation, human admin, peer daemon, full queue, shutdown, latched breaker) or answered with a
- * CPE error code. Transport failures stay charged, since send-sms may have reached the router.
+ * (validation, human admin, peer daemon, full queue, shutdown, latched breaker, the write gate, no
+ * router connection) or answered with a CPE error code. Transport failures stay charged, since
+ * send-sms may have reached the router.
  */
 function neverSent(err: unknown): boolean {
   return (
@@ -185,6 +194,10 @@ function neverSent(err: unknown): boolean {
     err instanceof PeerDaemonStandbyError ||
     err instanceof SchedulerQueueFullError ||
     err instanceof SchedulerStoppedError ||
+    // The write gate and a missing router connection refuse before any session
+    err instanceof DeviceReadOnlyError ||
+    err instanceof DeviceNotIdentifiedError ||
+    err instanceof CpeNotConfiguredError ||
     err instanceof CpeApiError
   );
 }
