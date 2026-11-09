@@ -166,7 +166,7 @@ describe("session contract on a strict single-admin router model", () => {
         fx.core.controls.rebootRouter({ confirm: true }),
         fx.tool("get_cpe_telemetry", { refresh: true }),
       ]);
-      const mcpUnlock = await fx.tool("unlock_rf_locks");
+      const mcpUnlock = await fx.tool("unlock_rf_locks", { confirm: true });
       assert.equal(fx.cpe.stats.authCalls, 1, "no second authentication_login after the breaker tripped");
       assert.equal(fx.cpe.failedLogins(), 1);
       assert.equal(fx.cpe.isLocked(), false, "the router never reaches the 3-strike 108007 lockout");
@@ -210,7 +210,7 @@ describe("session contract on a strict single-admin router model", () => {
       assert.equal(await fx.core.monitor.refreshTelemetry(), null);
       assert.equal(await fx.core.monitor.refreshTelemetry(), null);
       await assert.rejects(() => fx.core.controls.unlockAllLocks(), BrowserSessionYieldedError);
-      const mcpWrite = await fx.tool("lock_band", { lteBands: ["B1"] });
+      const mcpWrite = await fx.tool("lock_band", { lteBands: ["B1"], confirm: true });
       assert.equal(mcpWrite.isError, true);
       assert.equal(mcpWrite.structuredContent["errorCode"], "BROWSER_SESSION_YIELDED");
       assert.equal(fx.cpe.stats.challengeCalls, 0, "Layer 1 never sends a SCRAM handshake");

@@ -1393,7 +1393,7 @@ export interface AvoidanceBroadcastPayload {
   - `get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 在 `REDACT_SENSITIVE_IN_API=true`（默认）时返回脱敏副本（规则见 1.2 节第 4 条），设为 `false` 后返回原值。
   - `list_neighbor_cells`：`scanNow: true` 强制扫描；省略时仅在缓存为空时扫描；`scanNow: false` 只读缓存。
   - `query_telemetry_history`：参数与校验规则同 `GET /api/timeseries`。
-- **射频与系统控制类（7 项，均标注 `destructiveHint: true`）**：`lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`（强制 `confirm: true`）、`reboot_cpe`（强制 `confirm: true`）。
+- **射频与系统控制类（7 项，均标注 `destructiveHint: true`，均强制 `confirm: true`）**：`lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`、`reboot_cpe`。每个 MCP 写工具（含 4.4 节的短信写工具与 4.5 节的访问控制工具）的 `inputSchema` 都把 `confirm` 列为必填（v1.7.7 起；此前只有重启、重拨、访问控制与短信发送 / 删除要求）。
   - `MCP_ALLOW_MUTATIONS` 默认 `false`：这 7 项工具不会出现在 `tools/list` 中，直接调用返回 `MUTATIONS_DISABLED`；在 `.env` 设为 `true` 后才开放。
   - 所有参数在第一次写入之前完成校验，非法参数返回 `VALIDATION_ERROR` 且不产生 CPE 会话。服务端在执行前强制校验每个工具声明的 `inputSchema`：未知参数（如拼错的键）、缺失的必填参数、类型或范围不符都会返回 `VALIDATION_ERROR`，消息指出具体参数；带 `confirm` 参数的工具先检查 `confirm === true`（否则 `CONFIRMATION_REQUIRED`），再做 Schema 校验。
   - `lock_band`：频段规则同 REST（2.4 节）。
@@ -1417,7 +1417,7 @@ export interface McpToolErrorPayload {
   errorCode:
     | "MUTATIONS_DISABLED"       // MCP_ALLOW_MUTATIONS=false
     | "READ_ONLY_TOKEN"          // 用 API_TOKEN_READONLY 调用了写工具
-    | "CONFIRMATION_REQUIRED"    // reboot_cpe / reconnect_cellular / send_sms / delete_sms 未传 confirm: true
+    | "CONFIRMATION_REQUIRED"    // 任何写工具未传 confirm: true（在 Schema 校验与任何会话之前）
     | "SMS_ACCESS_DENIED"        // 短信工具超出 MCP_SMS_ACCESS 权限
     | "RECIPIENT_NOT_ALLOWED"    // MCP_SMS_SEND_POLICY=known 且收件人既非主人保存的联系人、也未曾发过短信（智能体自建的联系人不算）
     | "SMS_RATE_LIMITED"         // 超出 MCP_SMS_SEND_LIMIT_PER_HOUR
@@ -1460,9 +1460,9 @@ export interface McpToolErrorPayload {
 | `preview_sms` | `phone`、`content`、`countryCode?` | `SmsSendPreview` + `recipientKnown` + `wouldBeAllowed`（按当前发送策略）；不发送 |
 | `sync_sms` | `mode?: "full" \| "incremental"` | 通过共享调度器同步（真人在线时让位） |
 | `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限主人保存的联系人（Web 控制台、Telegram 或 vCard 导入）或曾发过短信的号码（只给我们发过短信的号码不算；智能体经 `upsert_contact` 新建的联系人也不算，主人保存后才算）；超长（>4 段）或号码非法时不占用每小时额度；未把短信交给 CPE 的尝试都会退还额度（校验失败、真人让位、另一守护进程领先、队列已满或停机、断路器熔断、未验证型号的写闸门、尚未连接路由器、CPE 以错误码拒绝）；只有传输层故障（`send-sms` 可能已到达 CPE）计入额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
-| `mark_sms_read` | `uids?: string[]`（≤50）或 `threadKey?` | `{ count, uids }` |
+| `mark_sms_read` | `uids?: string[]`（≤50）或 `threadKey?`、`confirm: true` | `{ count, uids }` |
 | `delete_sms` | `uids: string[]`（≤20）、`confirm: true`、`includeUnread?: boolean` | 目标含未读短信时默认拒绝（`UNREAD_PROTECTED`） |
-| `upsert_contact` | `phone`、`name`、`note?` | `ContactRecord` |
+| `upsert_contact` | `phone`、`name`、`note?`、`confirm: true` | `ContactRecord` |
 
 ### 4.5 访问控制工具（v1.1.0，`MCP_ALLOW_ACCESS_CONTROL` 默认关闭）
 

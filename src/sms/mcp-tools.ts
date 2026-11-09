@@ -133,14 +133,16 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
     name: "mark_sms_read",
     title: "Mark SMS as Read",
-    description: "Mark messages (by uid) or a whole conversation (threadKey) as read on the router.",
+    description: "Mark messages (by uid) or a whole conversation (threadKey) as read on the router. Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
         uids: { type: "array", items: { type: "string" }, maxItems: MAX_READ_PER_CALL, description: `At most ${MAX_READ_PER_CALL}.` },
         threadKey: { type: "string" },
+        confirm: { type: "boolean", description: "Must be true." },
       },
+      required: ["confirm"],
       additionalProperties: false,
     },
   },
@@ -164,7 +166,7 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "upsert_contact",
     title: "Add or Rename a Contact",
     description:
-      "Add a contact or rename the contact that owns this number in the local encrypted contact book. A number you add here does not become an allowed send_sms recipient until the user saves it themselves.",
+      "Add a contact or rename the contact that owns this number in the local encrypted contact book. A number you add here does not become an allowed send_sms recipient until the user saves it themselves. Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -172,8 +174,9 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
         phone: { type: "string" },
         name: { type: "string" },
         note: { type: "string" },
+        confirm: { type: "boolean", description: "Must be true." },
       },
-      required: ["phone", "name"],
+      required: ["phone", "name", "confirm"],
       additionalProperties: false,
     },
   },
@@ -312,7 +315,7 @@ export class SmsMcpTools implements McpToolProvider {
   instructions(): string {
     return this.access === "none" || !this.isAvailable()
       ? ""
-      : `SMS tools read FengSui's encrypted mirror; ${UNTRUSTED_NOTICE} Only call send_sms / delete_sms with confirm: true when the user explicitly asked for that exact action.`;
+      : `SMS tools read FengSui's encrypted mirror; ${UNTRUSTED_NOTICE} Only pass confirm: true to send_sms, mark_sms_read, delete_sms or upsert_contact when the user explicitly asked for that exact action.`;
   }
 
   listResources(): ReadonlyArray<McpResourceDescriptor> {

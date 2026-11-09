@@ -22,6 +22,9 @@ function asNumberOpt(obj: Record<string, unknown>, key: string): number | undefi
 const LTE_BAND_LIST = H168_383_LTE_BANDS.map((b) => `B${b}`).join(", ");
 const NR_BAND_LIST = H168_383_NR_BANDS.map((b) => `N${b}`).join(", ");
 
+/** Every write takes it: the server refuses a call without `confirm: true` before the schema and before any session. */
+const CONFIRM = { type: "boolean", description: "Must be true: the user explicitly asked for this change." } as const;
+
 const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
     name: "get_cpe_telemetry",
@@ -141,7 +144,7 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
     name: "lock_band",
     title: "Lock 4G LTE & 5G NR Frequency Bands",
-    description: `Dynamically lock 4G LTE bands (via BandMask bitwise codec) and/or 5G NR bands (via lock_mode=3), e.g., lteBands=['B1','B3'], nrBands=['N78']. LTE bands must be ones the H168-383 supports (${LTE_BAND_LIST}); NR bands must be ones it supports (${NR_BAND_LIST}). Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.`,
+    description: `Dynamically lock 4G LTE bands (via BandMask bitwise codec) and/or 5G NR bands (via lock_mode=3), e.g., lteBands=['B1','B3'], nrBands=['N78']. LTE bands must be ones the H168-383 supports (${LTE_BAND_LIST}); NR bands must be ones it supports (${NR_BAND_LIST}). Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in. Requires confirm: true.`,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -160,7 +163,9 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
           ],
           description: "5G NR bands to lock (e.g. ['N78', 'N41']) or 'all' to unlock NR bands.",
         },
+        confirm: CONFIRM,
       },
+      required: ["confirm"],
       additionalProperties: false,
     },
   },
@@ -168,7 +173,7 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "lock_cell",
     title: "Lock Specific 4G/5G Base Station Cell (PCI + ARFCN)",
     description:
-      "Lock the modem onto a specific 4G LTE or 5G NR frequency (lock_mode=1) or physical cell PCI + ARFCN (lock_mode=2). Only cells FengSui has observed (serving cell, aggregated carriers or the latest neighbour scan) can be locked: call list_neighbor_cells first and copy rat/band/arfcn/pci from its result.",
+      "Lock the modem onto a specific 4G LTE or 5G NR frequency (lock_mode=1) or physical cell PCI + ARFCN (lock_mode=2). Only cells FengSui has observed (serving cell, aggregated carriers or the latest neighbour scan) can be locked: call list_neighbor_cells first and copy rat/band/arfcn/pci from its result. Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -185,8 +190,9 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
           maximum: 1007,
           description: "Optional Physical Cell ID (LTE 0..503, NR 0..1007). Omit to lock frequency only.",
         },
+        confirm: CONFIRM,
       },
-      required: ["rat", "band", "arfcn"],
+      required: ["rat", "band", "arfcn", "confirm"],
       additionalProperties: false,
     },
   },
@@ -194,11 +200,12 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "unlock_rf_locks",
     title: "Clear All Band & Cell Locks",
     description:
-      "Clear all 4G/5G cell, frequency, and band locks and restore automatic full-band selection (the modem may briefly re-attach, dropping the cellular link).",
+      "Clear all 4G/5G cell, frequency, and band locks and restore automatic full-band selection (the modem may briefly re-attach, dropping the cellular link). Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: { confirm: CONFIRM },
+      required: ["confirm"],
       additionalProperties: false,
     },
   },
@@ -206,7 +213,7 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "set_security_switches",
     title: "Update UPnP, DMZ & Firewall Switches",
     description:
-      "Toggle HAR-verified H168-383 security switches: UPnP, DMZ host, Main Firewall, IP/MAC/URL filter, and WAN Ping block.",
+      "Toggle HAR-verified H168-383 security switches: UPnP, DMZ host, Main Firewall, IP/MAC/URL filter, and WAN Ping block. Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -219,7 +226,9 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
         firewallWanPortPingSwitch: { type: "boolean" },
         firewallMacFilterSwitch: { type: "boolean" },
         firewallUrlFilterSwitch: { type: "boolean" },
+        confirm: CONFIRM,
       },
+      required: ["confirm"],
       additionalProperties: false,
     },
   },
@@ -227,7 +236,7 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "set_wifi_and_antenna",
     title: "Configure Wi-Fi 7 MLO & Antenna Mode",
     description:
-      "Toggle Wi-Fi 7 (802.11be) Multi-Link Operation (mloEnable), Dual-Band Handover (dbhoEnable), and/or cellular antenna mode ('auto' | 'internal' | 'external').",
+      "Toggle Wi-Fi 7 (802.11be) Multi-Link Operation (mloEnable), Dual-Band Handover (dbhoEnable), and/or cellular antenna mode ('auto' | 'internal' | 'external'). Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -235,7 +244,9 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
         mloEnable: { type: "boolean" },
         dbhoEnable: { type: "boolean" },
         antennaMode: { type: "string", enum: ["auto", "internal", "external"] },
+        confirm: CONFIRM,
       },
+      required: ["confirm"],
       additionalProperties: false,
     },
   },
@@ -373,7 +384,7 @@ export class CoreMcpTools implements McpToolProvider {
   }
 
   instructions(): string {
-    return "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses, and pass confirm: true to reboot_cpe or reconnect_cellular only when the user explicitly asked for that.";
+    return "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses. Every tool that changes the router requires confirm: true: pass it only when the user explicitly asked for that exact action.";
   }
 
   listResources(): ReadonlyArray<McpResourceDescriptor> {

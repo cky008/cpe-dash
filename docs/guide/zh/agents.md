@@ -65,12 +65,12 @@ Claude Desktop 等客户端可以通过容器里的桥接程序连接，前提�
 | 分组 | 工具 |
 | :--- | :--- |
 | 查看（始终可用） | `get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`、`list_terminal_topology`、`get_router_settings`、`get_access_control` |
-| 路由器控制（需 `MCP_ALLOW_MUTATIONS=true`） | `lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`†、`reboot_cpe`† |
+| 路由器控制（需 `MCP_ALLOW_MUTATIONS=true`） | `lock_band`†、`lock_cell`†、`unlock_rf_locks`†、`set_security_switches`†、`set_wifi_and_antenna`†、`reconnect_cellular`†、`reboot_cpe`† |
 | 设备上网管理（另需 `MCP_ALLOW_ACCESS_CONTROL=true`） | `set_device_internet_access`†、`set_wifi_mac_filter`†、`manage_internet_time_rule`† |
 | 短信（`MCP_SMS_ACCESS=read`，默认） | `list_sms_threads`、`get_sms_thread`、`get_sms_status`、`search_contacts`、`preview_sms`、`sync_sms` |
-| 短信（`MCP_SMS_ACCESS=full`） | `send_sms`†、`mark_sms_read`、`delete_sms`†、`upsert_contact` |
+| 短信（`MCP_SMS_ACCESS=full`） | `send_sms`†、`mark_sms_read`†、`delete_sms`†、`upsert_contact`† |
 
-† 调用时必须传 `{ "confirm": true }`。
+† 调用时必须传 `{ "confirm": true }`，否则在碰路由器之前就被拒绝。所有写工具都是这样。
 
 ## 安全措施
 

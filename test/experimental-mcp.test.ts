@@ -154,13 +154,13 @@ describe("MCP and experimental writes", () => {
     }
   });
 
-  it("keeps the H168-383's tools as they were: no confirm added, NR bands offered", async () => {
+  it("keeps the H168-383's tools as verified: NR bands offered, nothing experimental, confirm as on every write", async () => {
     const fx = fixture(createStrictCpe());
     try {
       assert.ok(await fx.core.monitor.identifyDevice());
       const lockBand = (await fx.tools()).find((t) => t.name === "lock_band");
       assert.ok(lockBand?.inputSchema.properties["nrBands"]);
-      assert.equal(lockBand?.inputSchema.properties["confirm"], undefined);
+      assert.deepEqual(lockBand?.inputSchema.required, ["confirm"]);
       assert.doesNotMatch(lockBand?.description ?? "", /EXPERIMENTAL/);
     } finally {
       await fx.cleanup();

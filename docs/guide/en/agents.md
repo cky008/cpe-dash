@@ -65,12 +65,12 @@ The bridge itself does not connect to the router. It forwards requests to the da
 | Group | Tools |
 | :--- | :--- |
 | Read (always available) | `get_cpe_telemetry`, `query_telemetry_history`, `list_neighbor_cells`, `get_cpe_session_status`, `list_terminal_topology`, `get_router_settings`, `get_access_control` |
-| Router control (requires `MCP_ALLOW_MUTATIONS=true`) | `lock_band`, `lock_cell`, `unlock_rf_locks`, `set_security_switches`, `set_wifi_and_antenna`, `reconnect_cellular`†, `reboot_cpe`† |
+| Router control (requires `MCP_ALLOW_MUTATIONS=true`) | `lock_band`†, `lock_cell`†, `unlock_rf_locks`†, `set_security_switches`†, `set_wifi_and_antenna`†, `reconnect_cellular`†, `reboot_cpe`† |
 | Device access management (also requires `MCP_ALLOW_ACCESS_CONTROL=true`) | `set_device_internet_access`†, `set_wifi_mac_filter`†, `manage_internet_time_rule`† |
 | SMS (`MCP_SMS_ACCESS=read`, default) | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms` |
-| SMS (`MCP_SMS_ACCESS=full`) | `send_sms`†, `mark_sms_read`, `delete_sms`†, `upsert_contact` |
+| SMS (`MCP_SMS_ACCESS=full`) | `send_sms`†, `mark_sms_read`†, `delete_sms`†, `upsert_contact`† |
 
-† Must be called with `{ "confirm": true }`.
+† Must be called with `{ "confirm": true }`; without it the call is refused before anything reaches the router. Every write tool works this way.
 
 ## Security safeguards
 

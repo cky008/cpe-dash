@@ -431,7 +431,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 21,
           method: "tools/call",
-          params: { name: "lock_band", arguments: { lteBands: ["B1"] } },
+          params: { name: "lock_band", arguments: { lteBands: ["B1"], confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       const mutPayload = mutRes.result as {
@@ -715,7 +715,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_band",
-            arguments: { lteBands: ["B1", "B3"], nrBands: ["N78"] },
+            arguments: { lteBands: ["B1", "B3"], nrBands: ["N78"], confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -728,7 +728,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_band",
-            arguments: { lteBands: "all", nrBands: "all" },
+            arguments: { lteBands: "all", nrBands: "all", confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -740,7 +740,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 62,
           method: "tools/call",
-          params: { name: "lock_band", arguments: { lteBands: 12345 } },
+          params: { name: "lock_band", arguments: { lteBands: 12345, confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lbBad1.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "VALIDATION_ERROR");
@@ -750,7 +750,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 63,
           method: "tools/call",
-          params: { name: "lock_band", arguments: { lteBands: [true] } },
+          params: { name: "lock_band", arguments: { lteBands: [true], confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lbBad2.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "VALIDATION_ERROR");
@@ -761,7 +761,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 640,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 321 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 321, confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lcUnseen.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "CELL_NOT_OBSERVED");
@@ -772,7 +772,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 641,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 499 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 499, confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lcInvented.result as { structuredContent: { errorCode: string } }).structuredContent.errorCode, "CELL_NOT_OBSERVED");
@@ -782,7 +782,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 642,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 999 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 999, confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       const impossible = (lcImpossible.result as { structuredContent: { errorCode: string; message: string } }).structuredContent;
@@ -795,7 +795,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 642,
           method: "tools/call",
-          params: { name: "lock_cell", arguments: { rat: "LTE", band: 1, arfcn: 300, pci: 322 } },
+          params: { name: "lock_cell", arguments: { rat: "LTE", band: 1, arfcn: 300, pci: 322, confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((lcNeighbour.result as { isError: boolean }).isError, false);
@@ -806,7 +806,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 321 },
+            arguments: { rat: "LTE", band: "B1", arfcn: 300, pci: 321, confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -819,7 +819,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "NR", band: "N78", arfcn: 650000 },
+            arguments: { rat: "NR", band: "N78", arfcn: 650000, confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -833,7 +833,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "GSM", band: "B1", arfcn: 300 },
+            arguments: { rat: "GSM", band: "B1", arfcn: 300, confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -846,7 +846,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "LTE", arfcn: 300 },
+            arguments: { rat: "LTE", arfcn: 300, confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -859,7 +859,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "LTE", band: "B1", arfcn: "not_a_number" },
+            arguments: { rat: "LTE", band: "B1", arfcn: "not_a_number", confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -872,7 +872,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "lock_cell",
-            arguments: { rat: "LTE", band: "B1" },
+            arguments: { rat: "LTE", band: "B1", confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -884,7 +884,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 69,
           method: "tools/call",
-          params: { name: "unlock_rf_locks", arguments: {} },
+          params: { name: "unlock_rf_locks", arguments: { confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       assert.equal((unl.result as { isError: boolean }).isError, false);
@@ -906,6 +906,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
               firewallWanPortPingSwitch: false,
               firewallMacFilterSwitch: true,
               firewallUrlFilterSwitch: true,
+              confirm: true,
             },
           },
         })
@@ -919,7 +920,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "set_security_switches",
-            arguments: { upnpEnabled: false },
+            arguments: { upnpEnabled: false, confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -937,6 +938,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
               mloEnable: true,
               dbhoEnable: true,
               antennaMode: "external",
+              confirm: true,
             },
           },
         })
@@ -951,7 +953,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "set_wifi_and_antenna",
-            arguments: { antennaMode: "auto" },
+            arguments: { antennaMode: "auto", confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -964,7 +966,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "set_wifi_and_antenna",
-            arguments: { antennaMode: "internal" },
+            arguments: { antennaMode: "internal", confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -978,7 +980,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "set_wifi_and_antenna",
-            arguments: { antennaMode: "invalid_antenna" },
+            arguments: { antennaMode: "invalid_antenna", confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -991,7 +993,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           method: "tools/call",
           params: {
             name: "set_wifi_and_antenna",
-            arguments: {},
+            arguments: { confirm: true },
           },
         })
       )) as JsonRpcSuccessResponse;
@@ -1088,7 +1090,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 90,
           method: "tools/call",
-          params: { name: "lock_band", arguments: { lteBands: ["B1"] } },
+          params: { name: "lock_band", arguments: { lteBands: ["B1"], confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
 
@@ -1119,7 +1121,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 95,
           method: "tools/call",
-          params: { name: "lock_band", arguments: { lteBands: ["B1"] } },
+          params: { name: "lock_band", arguments: { lteBands: ["B1"], confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
 
@@ -1141,7 +1143,7 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
           jsonrpc: "2.0",
           id: 96,
           method: "tools/call",
-          params: { name: "lock_band", arguments: { lteBands: ["B1"] } },
+          params: { name: "lock_band", arguments: { lteBands: ["B1"], confirm: true } },
         })
       )) as JsonRpcSuccessResponse;
       const payloadStr = resStr.result as {
@@ -1167,10 +1169,10 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       // Every invalid argument must be rejected before the first write: zero CPE sessions, no partial apply
       const sessionsBefore = fx.scheduler.getStatus().totalSessionsCompleted;
       const invalidMultiWriteCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [
-        { name: "set_wifi_and_antenna", arguments: { mloEnable: true, antennaMode: "invalid_mode" } },
-        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzEnabled: true, dmzIpAddress: "bad_ip" } },
-        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzEnabled: true, dmzIpAddress: 42 } },
-        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzIpAddress: "192.168.8.100" } },
+        { name: "set_wifi_and_antenna", arguments: { mloEnable: true, antennaMode: "invalid_mode", confirm: true } },
+        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzEnabled: true, dmzIpAddress: "bad_ip", confirm: true } },
+        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzEnabled: true, dmzIpAddress: 42, confirm: true } },
+        { name: "set_security_switches", arguments: { upnpEnabled: true, dmzIpAddress: "192.168.8.100", confirm: true } },
       ];
       for (const [idx, call] of invalidMultiWriteCalls.entries()) {
         const res = (await server.handleRawJsonMessage(

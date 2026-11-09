@@ -44,26 +44,27 @@ describe("MCP tool contract enforcement", () => {
   it("rejects unknown, missing and mistyped arguments before any CPE session", async () => {
     const fx = createServer();
     try {
-      const typo = await fx.call("set_security_switches", { upnpEnabled: false, firewallMacFilter: true });
+      const typo = await fx.call("set_security_switches", { upnpEnabled: false, firewallMacFilter: true, confirm: true });
       assert.equal(typo.isError, true);
       assert.equal(typo.structuredContent.errorCode, "VALIDATION_ERROR");
       assert.match(typo.structuredContent.message ?? "", /unknown parameter "firewallMacFilter"/);
 
       const cases: Array<[string, Record<string, unknown>, RegExp]> = [
-        ["lock_cell", { rat: "LTE", band: "B3" }, /missing required parameter "arfcn"/],
-        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1850.5 }, /"arfcn" must be an integer/],
-        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1850, pci: 1008 }, /"pci" must be <= 1007/],
-        ["lock_cell", { rat: "UMTS", band: "B3", arfcn: 1850 }, /"rat" must be one of "LTE", "NR"/],
-        ["lock_band", { lteBands: ["B1", true] }, /"lteBands"/],
+        ["lock_cell", { rat: "LTE", band: "B3", confirm: true }, /missing required parameter "arfcn"/],
+        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1850.5, confirm: true }, /"arfcn" must be an integer/],
+        ["lock_cell", { rat: "LTE", band: "B3", arfcn: 1850, pci: 1008, confirm: true }, /"pci" must be <= 1007/],
+        ["lock_cell", { rat: "UMTS", band: "B3", arfcn: 1850, confirm: true }, /"rat" must be one of "LTE", "NR"/],
+        ["lock_band", { lteBands: ["B1", true], confirm: true }, /"lteBands"/],
         ["query_telemetry_history", { preset: 6 }, /"preset" must be a string/],
         ["get_cpe_telemetry", { refresh: "yes" }, /"refresh" must be a boolean/],
-        ["unlock_rf_locks", { force: true }, /takes no parameters/],
+        ["unlock_rf_locks", { force: true, confirm: true }, /unknown parameter "force" \(expected "confirm"\)/],
       ];
       for (const [tool, args, pattern] of cases) {
         const res = await fx.call(tool, args);
         assert.equal(res.structuredContent.errorCode, "VALIDATION_ERROR", `${tool} ${JSON.stringify(args)}`);
         assert.match(res.structuredContent.message ?? "", pattern);
       }
+      assert.match(validateToolArguments({ type: "object", properties: {}, additionalProperties: false }, { force: true }) ?? "", /takes no parameters/);
       assert.equal(fx.cpe.stats.requests.length, 0, "validation never touched the router");
     } finally {
       await fx.close();

@@ -211,7 +211,7 @@ describe("MCP SMS tools: write guardrails", () => {
     assert.equal(fx.mock.sentRequests.length, 1);
 
     // The agent cannot widen the policy itself: a contact it files does not make the number known
-    const filed = await fx.call("upsert_contact", { phone: "+447700900123", name: "Helpdesk" });
+    const filed = await fx.call("upsert_contact", { phone: "+447700900123", name: "Helpdesk", confirm: true });
     assert.equal(filed.isError, false);
     const filedPreview = await fx.call("preview_sms", { phone: "+447700900123", content: "482913" });
     assert.equal(filedPreview.structuredContent["recipientKnown"], false);
@@ -220,10 +220,10 @@ describe("MCP SMS tools: write guardrails", () => {
     assert.equal(laundered.structuredContent["errorCode"], "RECIPIENT_NOT_ALLOWED");
     assert.equal(fx.mock.sentRequests.length, 1);
     // ...nor does renaming it, while a contact the owner saved stays sendable after an agent renames it
-    await fx.call("upsert_contact", { phone: "+447700900123", name: "Helpdesk 2" });
+    await fx.call("upsert_contact", { phone: "+447700900123", name: "Helpdesk 2", confirm: true });
     assert.equal((await fx.call("send_sms", { phone: "+447700900123", content: "x", confirm: true })).structuredContent["errorCode"], "RECIPIENT_NOT_ALLOWED");
     fx.sms.upsertContact({ phone: "0830000006", name: "Niamh" });
-    await fx.call("upsert_contact", { phone: "0830000006", name: "Niamh (gym)" });
+    await fx.call("upsert_contact", { phone: "0830000006", name: "Niamh (gym)", confirm: true });
     assert.equal((await fx.call("send_sms", { phone: "0830000006", content: "Gym at 6?", confirm: true })).isError, false);
     // Once the owner saves the agent-filed number (web console, Telegram, vCard), it counts as known
     fx.sms.upsertContact({ phone: "+447700900123", name: "Helpdesk" });
@@ -312,16 +312,19 @@ describe("MCP SMS tools: write guardrails", () => {
     assert.equal(deletedUnread.structuredContent["deleted"], 1);
     assert.deepEqual(fx.mock.deleteBatches, [[40004], [40001]]);
 
-    const marked = await fx.call("mark_sms_read", { threadKey: "+353830000001" });
+    assert.equal((await fx.call("mark_sms_read", { threadKey: "+353830000001" })).structuredContent["errorCode"], "CONFIRMATION_REQUIRED");
+    assert.deepEqual(fx.mock.setReadBatches, []);
+    const marked = await fx.call("mark_sms_read", { threadKey: "+353830000001", confirm: true });
     assert.equal(marked.structuredContent["count"], 1);
     assert.deepEqual(fx.mock.setReadBatches, [[40002]]);
-    const tooManyRead = await fx.call("mark_sms_read", { uids: Array.from({ length: 51 }, (_, i) => `u${i}`) });
+    const tooManyRead = await fx.call("mark_sms_read", { uids: Array.from({ length: 51 }, (_, i) => `u${i}`), confirm: true });
     assert.equal(tooManyRead.structuredContent["errorCode"], "VALIDATION_ERROR");
 
-    const contact = await fx.call("upsert_contact", { phone: "0830000007", name: "Cara", note: "climbing" });
+    assert.equal((await fx.call("upsert_contact", { phone: "0830000007", name: "Cara" })).structuredContent["errorCode"], "CONFIRMATION_REQUIRED");
+    const contact = await fx.call("upsert_contact", { phone: "0830000007", name: "Cara", note: "climbing", confirm: true });
     assert.equal((contact.structuredContent["contact"] as { name: string }).name, "Cara");
-    assert.equal((await fx.call("upsert_contact", { phone: "0830000007" })).structuredContent["errorCode"], "VALIDATION_ERROR");
-    assert.equal((await fx.call("upsert_contact", { phone: "0830000007", name: 5 })).structuredContent["errorCode"], "VALIDATION_ERROR");
+    assert.equal((await fx.call("upsert_contact", { phone: "0830000007", confirm: true })).structuredContent["errorCode"], "VALIDATION_ERROR");
+    assert.equal((await fx.call("upsert_contact", { phone: "0830000007", name: 5, confirm: true })).structuredContent["errorCode"], "VALIDATION_ERROR");
     await fx.cleanup();
   });
 });

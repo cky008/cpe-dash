@@ -4,6 +4,14 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Security
+- **Every agent write needs `confirm: true`.** Over MCP, only reboot, reconnect, access control and sending or deleting SMS asked for `confirm: true`, although the AI agents page and the console's "Connect an AI agent" window said every write did. Band and cell locks, unlocking, the router switches, Wi-Fi 7 and antenna mode, marking SMS as read and saving a contact now ask for it too, and a call without it is refused before anything reaches the router. They still need `MCP_ALLOW_MUTATIONS=true` (the SMS ones also `MCP_SMS_ACCESS=full`), as before.
+
+### Upgrading
+- Agents and scripts that call `lock_band`, `lock_cell`, `unlock_rf_locks`, `set_security_switches`, `set_wifi_and_antenna`, `mark_sms_read` or `upsert_contact` over MCP must now pass `confirm: true`. Agents that read the tool list see the new parameter on their own.
+- From 1.7.4 or earlier: run `docker exec cpe-dash node dist/cli.js doctor` first. A file it reports as "stored without encryption" is moved aside at the first start of 1.7.5 or later: encrypt it first, with the daemon stopped, by `docker compose run --rm cpe-dash node dist/cli.js rekey --plaintext`.
+- Nothing to change in `.env` or `docker-compose.yml`, and no data format changed: you can go back to 1.7.6.
+
 ## [1.7.6] — 2026-11-09
 
 ### Highlights
