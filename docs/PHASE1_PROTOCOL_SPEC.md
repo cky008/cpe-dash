@@ -67,6 +67,8 @@ sequenceDiagram
    - `expectedServerSig = HMAC-SHA256(key = authMsg, data = serverKey)`
    - `eccPubSigCheck = HMAC-SHA256(key = serverKey, data = hex(ecc_server_pubkey))`
    - 签名不符时登录失败。路由器签过一次之后（记在 `state.json` 的 `eccSigned`），不带签名的密钥同样结束并登出会话，`/api/webserver/publickey` 取到的未签名密钥也不再代替（`CPE_REQUIRE_ECC_SIGNATURE`，默认开启）；从没签过名的路由器照旧
+   - 路由器自己的登录页与上面逐项一致（2026-11-09 对照固件 4.4.0.1 不登录就能取到的 `js/main.js` 核实）：密码输入框里的字符串直接交给 node-forge 的 PBKDF2，没有先转成 UTF-8。forge 把字符串的每个 UTF-16 码元当作一个字节，U+0000–U+00FF 正好是 latin1；更高的码元没有确定的字节形式（烽燧取低字节，两边可能不同），所以路由器密码应只用可打印 ASCII。登录后 `serversignature` 与 `ecc_pubkey_signature` 两项都必须相符，缺一项也算登录失败（烽燧对从没签过名的其他型号放宽 ECC 签名，见上一条）
+   - 登录页还有一个烽燧没有实现的分支：`challenge_login` 的应答带 `newType=1`、`newSalt`、`newIterations` 时，页面用新的盐与迭代次数再派生一次，在 `authentication_login` 里附上 `newStoredKey`、`newServerKey` 与 `hashOldNewPwd`（这两项与 `clientproof` 的十六进制串拼接后取 SHA-256），让路由器换用新的密码哈希。这会改写路由器保存的凭据，烽燧不做；H168-383 4.4.0.1 上没有见过 `newType=1`
 2. **非钳位大端 Curve25519 (`curve25519Mul`)**：
    - 素数域 $p = 2^{255} - 19$，$A_{24} = 121665$，基点 $u = 9$；
    - 私钥为 32 字节随机数直接按**大端序**解析为 `BigInt`（**严禁执行 RFC 7748 小端反转与低 3 位清零钳位**），左移 256 位内保持 `64` 个十六进制字符定长输出。
@@ -904,7 +906,7 @@ $$
 | `password_type=3` | 参考项目的枚举名是「改密码后的 base64」并自注名称不确定；编码走与 `0` 相同的 base64 分支 |
 | `password_type=4` | `Password = base64(hex(sha256(utf8(username) + base64(hex(sha256(utf8(password)))) + token)))`，`hex` 为小写 |
 | 用哪个令牌 | 这次请求头 `__RequestVerificationToken` 里发出的那个令牌（令牌池的第一个）。前一步 SCRAM 探测被拒时：探测的响应头带了新令牌就用它，没带就重新取一个（`tests/test_user_scram_session.py` 的 `test_legacy_fallback_uses_current_csrf_token`） |
-| 字符编码 | 参考项目对密码一律按 UTF-8 编码（包括 SCRAM 的 PBKDF2）。烽燧从 H168-383 网页逆向的 SCRAM 按 latin1 编码（2.1 节）；ASCII 密码两者相同 |
+| 字符编码 | 参考项目对密码一律按 UTF-8 编码（包括 SCRAM 的 PBKDF2）。烽燧从 H168-383 网页逆向的 SCRAM 按 latin1 编码（2.1 节，2026-11-09 已对照路由器登录页的脚本核实）；ASCII 密码两者相同 |
 | 登录后 | 请求带 `refresh_csrf`：响应到达后清空令牌池，只用响应头带回的新令牌 |
 
 **令牌流程**（参考项目 `Session.py` 的 `_initialize_csrf_tokens_and_session`、`_get_token`、`_post`、`get`、`_try_or_reload_and_retry`；`api/WebServer.py`）：
