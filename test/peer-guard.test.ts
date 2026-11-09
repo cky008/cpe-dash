@@ -3,10 +3,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { createFengSuiRuntime } from "../src/cli.ts";
+import { beaconKeyMaterial, createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
+import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { StorageCipher } from "../src/encrypted-file.ts";
 import { PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "../src/peer-guard.ts";
 import { PeerDaemonStandbyError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
@@ -165,6 +167,81 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
     }
   });
 
+  it("stays silent until it has a key, takes it from its key source and follows a changed router password", () => {
+    const lan = createLan();
+    let clock = 1_000_000;
+    const now = (): number => clock;
+    let source: { secret: string; cpeHost: string } | null = null;
+    const fresh = new PeerDaemonGuard({ keySource: () => source, transport: lan.attach("192.168.8.10"), now, startedAtMs: 9000, instanceId: "bbbbbbbbbbbbbbbb" });
+    const leader = new PeerDaemonGuard({ secret: SECRET, cpeHost: "192.168.8.1", transport: lan.attach("192.168.8.20"), now, startedAtMs: 1000, instanceId: "aaaaaaaaaaaaaaaa" });
+    const before = lan.sent.length;
+    fresh.announce();
+    assert.equal(lan.sent.length, before, "no router connection yet: nothing to sign with, so nothing is sent");
+    leader.announce();
+    assert.equal(fresh.getState().standby, false, "and nothing it could verify is accepted");
+    source = { secret: SECRET, cpeHost: "192.168.8.1" };
+    leader.announce();
+    assert.equal(fresh.getState().standby, true, "keyed from the router connection once there is one");
+    // A new router password saved here: beacons signed with the old one no longer verify, so the leader times out
+    source = { secret: "new_router_password", cpeHost: "192.168.8.1" };
+    clock += leader.peerTimeoutMs + 1;
+    leader.announce();
+    fresh.sweep();
+    assert.equal(fresh.getState().standby, false);
+  });
+
+  it("takes the beacon key only from a saved router connection with a password and a readable address", () => {
+    assert.equal(beaconKeyMaterial(null), null, "no router connection saved yet");
+    assert.equal(beaconKeyMaterial({ url: "http://192.168.8.1", username: "admin", password: "" }), null);
+    assert.equal(beaconKeyMaterial({ url: "not a url", username: "admin", password: SECRET }), null, "a store edited by hand never throws in the beacon");
+    assert.deepEqual(beaconKeyMaterial({ url: "http://192.168.8.1", username: "admin", password: SECRET }), { secret: SECRET, cpeHost: "192.168.8.1" });
+  });
+
+  it("keys the beacon on the router password saved in the console when .env holds none", async () => {
+    const cpe = createStrictCpe();
+    const lan = createLan();
+    const dirs = [0, 1].map(() => tempDir("fengsui-twohosts-console-"));
+    const makeConfig = async (dir: string) => {
+      const envPath = path.join(dir, ".env");
+      // The recommended .env: no router credentials, the console keeps them
+      fs.writeFileSync(
+        envPath,
+        [
+          "API_TOKEN=two_hosts_token",
+          "DATA_ENCRYPTION_KEY=two_hosts_key",
+          "WEB_HOST=127.0.0.1",
+          "WEB_PORT=0",
+          `STATE_FILE=${path.join(dir, "data", "state.json")}`,
+          "POLL_INTERVAL_MS=600000",
+          "NEIGHBOR_SCAN_INTERVAL_MS=600000",
+          "SMS_ENABLED=false",
+        ].join("\n")
+      );
+      const config = loadConfig({ envPath, ignoreProcessEnv: true });
+      const settings = new ConsoleSettings({ filePath: config.settingsFile, cipher: new StorageCipher(config.dataEncryptionKey) });
+      settings.setCpe({ url: "http://192.168.8.1", username: "admin", password: cpe.password });
+      await settings.flush();
+      return { envPath, config };
+    };
+    const first = await makeConfig(dirs[0]!);
+    const second = await makeConfig(dirs[1]!);
+    const nas = createFengSuiRuntime({ ...first, fetchImpl: cpe.fetchImpl, peerTransport: lan.attach("192.168.8.10"), log: () => undefined });
+    // The daemon created first leads: keep the two creation times apart (equal ones fall to the random instance id)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const mac = createFengSuiRuntime({ ...second, fetchImpl: cpe.fetchImpl, peerTransport: lan.attach("192.168.8.44"), log: () => undefined });
+    try {
+      await nas.start();
+      await mac.start();
+      assert.equal(mac.scheduler.getStatus().mode, "standby_peer");
+      assert.notEqual(nas.scheduler.getStatus().mode, "standby_peer");
+      assert.equal(cpe.stats.overlapLoginAttempts, 0);
+    } finally {
+      await mac.close();
+      await nas.close();
+      for (const dir of dirs) removeTempDir(dir);
+    }
+  });
+
   it("runs two daemons on different hosts against one router: the second stands by and refuses writes", async () => {
     const cpe = createStrictCpe();
     const lan = createLan();
@@ -191,6 +268,8 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
     const first = makeConfig(dirs[0]!);
     const second = makeConfig(dirs[1]!);
     const nas = createFengSuiRuntime({ ...first, fetchImpl: cpe.fetchImpl, peerTransport: lan.attach("192.168.8.10"), log: () => undefined });
+    // The daemon created first leads: keep the two creation times apart (equal ones fall to the random instance id)
+    await new Promise((resolve) => setTimeout(resolve, 5));
     const mac = createFengSuiRuntime({ ...second, fetchImpl: cpe.fetchImpl, peerTransport: lan.attach("192.168.8.44"), log: () => undefined });
     try {
       await nas.start();

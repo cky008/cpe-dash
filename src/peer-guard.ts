@@ -9,8 +9,9 @@ import { parseJsonSafeNullProto } from "./json-safe.ts";
  * hosts would run two schedulers against one single-admin router and two Telegram pollers.
  *
  * Every daemon broadcasts a small signed beacon on the LAN and listens for others. The key is
- * derived from `CPE_PASSWORD` (anything that can drive this CPE knows it; nothing else can forge a
- * beacon to put a daemon on standby). Two live daemons for the same CPE agree on one leader without
+ * derived from the router password saved in the console (anything that can drive this CPE knows it;
+ * nothing else can forge a beacon to put a daemon on standby); until a router connection is saved
+ * nothing is sent or accepted. Two live daemons for the same CPE agree on one leader without
  * comparing clocks: the earlier `startedAtMs` wins, ties broken by instance id. The other goes on
  * standby (no CPE sessions, no Telegram polling) until the leader's beacons stop.
  *
@@ -100,9 +101,21 @@ export interface PeerGuardState {
   peers: PeerInfo[];
 }
 
-export interface PeerDaemonGuardOptions {
+/** What the beacon key is derived from: the router password and the router's host name. */
+export interface BeaconKeyMaterial {
   secret: string;
   cpeHost: string;
+}
+
+export interface PeerDaemonGuardOptions {
+  /** A fixed key (tests); the daemon passes `keySource` instead. */
+  secret?: string;
+  cpeHost?: string;
+  /**
+   * The router connection saved in the console, read before each beacon is sent or checked (`null` until there is
+   * one). A changed password or router is derived again; beacons signed with the old key stop verifying.
+   */
+  keySource?: () => BeaconKeyMaterial | null;
   transport: PeerTransport;
   intervalMs?: number;
   /** A peer counts as gone after this long without a valid beacon (default 3 intervals). */
@@ -127,8 +140,9 @@ export class PeerDaemonGuard extends EventEmitter {
   readonly startedAtMs: number;
   readonly intervalMs: number;
   readonly peerTimeoutMs: number;
-  readonly #key: Buffer;
-  readonly #cpe: string;
+  readonly #keySource: () => BeaconKeyMaterial | null;
+  /** The current key, the router tag it signs, and a digest of the material it came from (to notice a change). */
+  #keyed: { key: Buffer; cpe: string; material: string } | null = null;
   readonly #transport: PeerTransport;
   readonly #maxSkewMs: number;
   readonly #now: () => number;
@@ -138,15 +152,16 @@ export class PeerDaemonGuard extends EventEmitter {
 
   constructor(options: PeerDaemonGuardOptions) {
     super();
-    if (!options.secret) throw new Error("PeerDaemonGuard requires the CPE password as its key");
+    const fixed = options.secret ? { secret: options.secret, cpeHost: options.cpeHost ?? "" } : null;
+    const keySource = options.keySource ?? (fixed ? () => fixed : null);
+    if (!keySource) throw new Error("PeerDaemonGuard requires the CPE password as its key");
+    this.#keySource = keySource;
     this.#now = options.now ?? Date.now;
     this.instanceId = options.instanceId ?? crypto.randomBytes(8).toString("hex");
     this.startedAtMs = options.startedAtMs ?? this.#now();
     this.intervalMs = Math.max(1000, options.intervalMs ?? 15_000);
     this.peerTimeoutMs = options.peerTimeoutMs ?? this.intervalMs * 3;
     this.#maxSkewMs = options.maxClockSkewMs ?? 120_000;
-    this.#key = deriveBeaconKey(options.secret, options.cpeHost);
-    this.#cpe = crypto.createHmac("sha256", this.#key).update(options.cpeHost.trim().toLowerCase()).digest("hex").slice(0, 16);
     this.#transport = options.transport;
     this.#transport.onMessage((payload, address) => this.handle(payload, address));
   }
@@ -181,16 +196,34 @@ export class PeerDaemonGuard extends EventEmitter {
     };
   }
 
-  /** Broadcast one signed beacon. */
+  /** The key for the current router connection (derived again only when it changed), or `null` without one. */
+  #currentKey(): { key: Buffer; cpe: string } | null {
+    const source = this.#keySource();
+    if (!source?.secret) {
+      this.#keyed = null;
+      return null;
+    }
+    const host = source.cpeHost.trim().toLowerCase();
+    const material = crypto.createHash("sha256").update(`${host}\u0000${source.secret}`).digest("hex");
+    if (this.#keyed?.material !== material) {
+      const key = deriveBeaconKey(source.secret, host);
+      this.#keyed = { key, cpe: crypto.createHmac("sha256", key).update(host).digest("hex").slice(0, 16), material };
+    }
+    return this.#keyed;
+  }
+
+  /** Broadcast one signed beacon (nothing without a router connection to key it on). */
   announce(): void {
+    const keyed = this.#currentKey();
+    if (!keyed) return;
     const beacon: PeerBeacon = {
       v: BEACON_VERSION,
       id: this.instanceId,
       startedAtMs: this.startedAtMs,
       sentAtMs: this.#now(),
-      cpe: this.#cpe,
+      cpe: keyed.cpe,
     };
-    const mac = crypto.createHmac("sha256", this.#key).update(canonical(beacon)).digest("hex");
+    const mac = crypto.createHmac("sha256", keyed.key).update(canonical(beacon)).digest("hex");
     this.#transport.send(Buffer.from(JSON.stringify({ ...beacon, mac }), "utf8"));
   }
 
@@ -217,12 +250,14 @@ export class PeerDaemonGuard extends EventEmitter {
     ) {
       return;
     }
+    const keyed = this.#currentKey();
+    if (!keyed) return;
     const beacon: PeerBeacon = { v: BEACON_VERSION, id, startedAtMs, sentAtMs, cpe };
-    const expected = crypto.createHmac("sha256", this.#key).update(canonical(beacon)).digest();
+    const expected = crypto.createHmac("sha256", keyed.key).update(canonical(beacon)).digest();
     const given = Buffer.from(mac, "hex");
     if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return;
     const nowMs = this.#now();
-    if (id === this.instanceId || cpe !== this.#cpe || Math.abs(nowMs - sentAtMs) > this.#maxSkewMs) return;
+    if (id === this.instanceId || cpe !== keyed.cpe || Math.abs(nowMs - sentAtMs) > this.#maxSkewMs) return;
 
     const known = this.#peers.has(id);
     this.#peers.set(id, { address, startedAtMs, lastSeenMs: nowMs });

@@ -111,5 +111,5 @@ See [Band and cell locking](locking.md#rollback).
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
-| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `false` / `18385` | Discovers other FengSui instances across multiple machines to prevent two instances from managing the same router at once. Requires host networking. The beacon key is derived from the router password, allowing devices on the local network to guess weak passwords offline, so it is disabled by default |
+| `PEER_DISCOVERY_ENABLED` / `PEER_DISCOVERY_PORT` | `false` / `18385` | Discovers other FengSui instances across multiple machines to prevent two instances from managing the same router at once. Requires host networking. The beacon key is derived from the router password saved in Settings → Router, allowing devices on the local network to guess weak passwords offline, so it is disabled by default |
 | `CPE_HAR_PATH` | Empty | Used only by read-only probe scripts for development; do not commit to repository |

@@ -125,7 +125,7 @@ sequenceDiagram
    - **短信发送例外**：`send-sms` 被路由器接受后消息已在发送途中；之后的任何失败（截止、取消、断线）都报告为「已提交、状态未确认」，绝不报告为发送失败，以免重发。
 2. **读取失败绝不变成数据**：会话内的可选读取只在路由器返回 CPE 错误码（如 `100002`）时降级为空；超时、连接重置等传输层失败使整个快照失败。遥测核心接口（`/api/device/signal`、`/api/monitoring/status`、`/api/monitoring/traffic-statistics`、`/api/monitoring/month_statistics`）与全部路由器配置接口必须成功。
 3. **读-改-写**：`/api/security/firewall-switch`、`/api/security/dmz`、`/api/wlan/wlandbho` 的写入以严格读取的当前值为基础，读取失败或缺字段即在任何写入之前中止。
-4. **唯一 CPE 进程**：只有 `serve` 守护进程连接 CPE，并独占数据目录（`state.json.lock`）。`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，不会登录 CPE。跨主机的第二个守护进程由签名 LAN 信标（UDP `18385`，密钥派生自 `CPE_PASSWORD`）发现，较晚启动者待机、不登录 CPE。
+4. **唯一 CPE 进程**：只有 `serve` 守护进程连接 CPE，并独占数据目录（`state.json.lock`）。`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，不会登录 CPE。跨主机的第二个守护进程由签名 LAN 信标（UDP `18385`，密钥派生自控制台保存的路由器密码）发现，较晚启动者待机、不登录 CPE。
 
 ---
 

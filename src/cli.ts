@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
 import { AuditLog } from "./audit-log.ts";
-import { ConsoleSettings, type RouterPasswordReuse, resetLoginProof } from "./console-settings.ts";
+import { ConsoleSettings, type CpeConnection, type RouterPasswordReuse, resetLoginProof } from "./console-settings.ts";
 import { loadConfig } from "./config.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts";
 import { DEFAULT_SESSION_MAX_HOLD_MS, HuaweiCpeClient } from "./cpe-client.ts";
@@ -17,7 +17,7 @@ import { AccessControlMcpTools } from "./mcp-access-tools.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
 import { RuntimeSampler } from "./metrics.ts";
 import { McpStdioBridge } from "./mcp-stdio-bridge.ts";
-import { PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "./peer-guard.ts";
+import { type BeaconKeyMaterial, PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "./peer-guard.ts";
 import { t } from "./i18n.ts";
 import { type NotificationChannel, NotificationHub } from "./notify/hub.ts";
 import { TelegramApi } from "./notify/telegram-api.ts";
@@ -504,8 +504,9 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     },
   });
 
+  // Keyed on the router connection saved in the console, as the client is (.env only seeds it on the first start)
   const peerGuard = options.peerTransport
-    ? new PeerDaemonGuard({ secret: config.cpePassword, cpeHost: new URL(config.cpeUrl).hostname, transport: options.peerTransport })
+    ? new PeerDaemonGuard({ keySource: () => beaconKeyMaterial(settings.cpe), transport: options.peerTransport })
     : null;
   if (peerGuard) {
     const raiseDuplicate = (key: "alerts.duplicate_daemon_standby" | "alerts.duplicate_daemon_leader", address: string): void => {
@@ -658,6 +659,16 @@ export async function startServeDaemon(stack: FengSuiRuntimeStack): Promise<{ ho
   } catch (err) {
     await stack.close().catch(() => undefined);
     throw err;
+  }
+}
+
+/** The LAN beacon's key material: the saved router connection's password and host (`null` before one is saved). */
+export function beaconKeyMaterial(connection: CpeConnection | null): BeaconKeyMaterial | null {
+  if (!connection?.password) return null;
+  try {
+    return { secret: connection.password, cpeHost: new URL(connection.url).hostname };
+  } catch {
+    return null;
   }
 }
 
