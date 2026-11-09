@@ -71,6 +71,8 @@ export interface AppConfig {
   smsFullSyncIntervalMs: number;
   smsSeedExistingOnStart: boolean;
   smsAutoMarkRead: boolean;
+  /** Days a deleted SMS stays in Recently deleted (`SMS_TRASH_RETENTION_DAYS`, 0–365, default 30; `0`: deleted for good at once). */
+  smsTrashRetentionDays: number;
   smsSendStatusTimeoutMs: number;
   telegramBotToken: string;
   telegramChatIds: string[];

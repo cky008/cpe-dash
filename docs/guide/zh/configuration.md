@@ -72,13 +72,14 @@ AI 智能体、自愈、告警和部分短信设置也可以直接在控制台�
 
 ## 短信
 
-`SMS_AUTO_MARK_READ` 和 `DEFAULT_COUNTRY_CODE` 也可以在控制台「设置 → 常规」里改。
+`SMS_AUTO_MARK_READ`、`SMS_TRASH_RETENTION_DAYS` 和 `DEFAULT_COUNTRY_CODE` 也可以在控制台「设置 → 常规」里改。
 
 | 设置 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `SMS_ENABLED` | `true` | 是否启用短信 |
 | `DEFAULT_COUNTRY_CODE` | 空（按 SIM 卡） | 不带 `+` 的本地号码按哪个国家区号补全，如 `+86`。留空时按路由器 SIM 卡的国家推断；推断不出时要求输入完整号码或选择国家 |
 | `SMS_AUTO_MARK_READ` | `false` | 推送新短信后自动在路由器上标为已读 |
+| `SMS_TRASH_RETENTION_DAYS` | `30` | 删除的短信在短信中心的「最近删除」里保留几天（`0` 到 `365`），期间可以恢复，到期自动彻底删除。`0` 表示删除后立即彻底删除。见[短信](sms.md#trash) |
 | `SMS_SEED_EXISTING_ON_START` | `true` | 第一次同步时，把路由器上已有的短信当作历史，不推送 |
 | `SMS_FULL_SYNC_INTERVAL_MS` | `1800000` | 完整核对一次的间隔（30 分钟） |
 | `SMS_SEND_STATUS_TIMEOUT_MS` | `45000` | 发送后等待路由器报告结果的最长时间 |

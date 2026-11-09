@@ -19,6 +19,7 @@ const ENV: BehaviourValues = {
   alertRsrpThresholdDbm: -110,
   alertSinrThresholdDb: 0,
   smsAutoMarkRead: false,
+  smsTrashDays: 30,
   defaultCountryCode: "",
 };
 
@@ -27,7 +28,7 @@ describe("Behaviour settings the console sets over .env", () => {
     const config = loadConfig({
       envPath: "/nonexistent/.env",
       ignoreProcessEnv: true,
-      overrides: { MCP_ALLOW_MUTATIONS: "true", MCP_SMS_ACCESS: "full", LOCK_ROLLBACK_AFTER_MIN: "10", WAN_AUTO_RECONNECT_AFTER_MIN: "3", DEFAULT_COUNTRY_CODE: "353", ALERT_RSRP_THRESHOLD_DBM: "-105" },
+      overrides: { MCP_ALLOW_MUTATIONS: "true", MCP_SMS_ACCESS: "full", LOCK_ROLLBACK_AFTER_MIN: "10", WAN_AUTO_RECONNECT_AFTER_MIN: "3", DEFAULT_COUNTRY_CODE: "353", ALERT_RSRP_THRESHOLD_DBM: "-105", SMS_TRASH_RETENTION_DAYS: "7" },
     });
     const env = behaviourFromConfig(config);
     assert.equal(env.agentWrites, true);
@@ -36,6 +37,10 @@ describe("Behaviour settings the console sets over .env", () => {
     assert.equal(env.wanReconnectAfterMin, 3);
     assert.equal(env.defaultCountryCode, "+353");
     assert.equal(env.alertRsrpThresholdDbm, -105);
+    assert.equal(env.smsTrashDays, 7);
+    // Out of range in .env: clamped as the loader does elsewhere
+    const clamped = (raw: string): number => behaviourFromConfig(loadConfig({ envPath: "/nonexistent/.env", ignoreProcessEnv: true, overrides: { SMS_TRASH_RETENTION_DAYS: raw } })).smsTrashDays;
+    assert.deepEqual([clamped("0"), clamped("999"), clamped("-3"), clamped("junk")], [0, 365, 0, 30]);
     assert.deepEqual(Object.keys(env).sort(), Object.keys(BEHAVIOUR_ENV).sort(), "every setting names its .env key");
   });
 
@@ -66,6 +71,7 @@ describe("Behaviour settings the console sets over .env", () => {
       alertRsrpThresholdDbm: -120,
       alertSinrThresholdDb: -5,
       smsAutoMarkRead: true,
+      smsTrashDays: 0,
       defaultCountryCode: "44",
     });
     assert.equal(patch.agentAccessControl, null);
@@ -73,6 +79,7 @@ describe("Behaviour settings the console sets over .env", () => {
     assert.equal(patch.lockRollbackAfterMin, 3);
     assert.equal(readBehaviourPatch({ defaultCountryCode: "" }).defaultCountryCode, "", "empty: from the SIM");
     assert.deepEqual(readBehaviourPatch({ lockRollbackAfterMin: 1440, wanReconnectAfterMin: 1 }), { lockRollbackAfterMin: 1440, wanReconnectAfterMin: 1 });
+    assert.deepEqual(readBehaviourPatch({ smsTrashDays: 365 }), { smsTrashDays: 365 });
   });
 
   it("refuses what .env would refuse or clamp, an unknown setting and an empty patch", () => {
@@ -91,6 +98,9 @@ describe("Behaviour settings the console sets over .env", () => {
       { alertRsrpThresholdDbm: -43 },
       { alertSinrThresholdDb: 41 },
       { alertSinrThresholdDb: -21 },
+      { smsTrashDays: -1 },
+      { smsTrashDays: 366 },
+      { smsTrashDays: 1.5 },
       { defaultCountryCode: "+12345" },
       { defaultCountryCode: "Ireland" },
       { pollIntervalMs: 1000 },

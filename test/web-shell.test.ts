@@ -242,6 +242,9 @@ describe("web core: endpoint table", () => {
       smsSend: ["POST", "/api/sms/send", { phone: "+353830000001", content: "hi" }],
       smsRead: ["POST", "/api/sms/read", { threadKey: "alpha:demobank" }],
       smsDelete: ["POST", "/api/sms/delete", { uids: ["u1"] }],
+      smsTrash: ["GET", "/api/sms/trash"],
+      smsRestore: ["POST", "/api/sms/trash/restore", { uids: ["u1"] }],
+      smsPurge: ["POST", "/api/sms/trash/purge", { all: true }],
       smsSync: ["POST", "/api/sms/sync", { mode: "full" }],
       contactUpsert: ["POST", "/api/sms/contacts/upsert", { phone: "+353830000001", name: "Demo" }],
       contactDelete: ["POST", "/api/sms/contacts/delete", { id: "c1" }],
@@ -308,6 +311,9 @@ describe("web core: endpoint table", () => {
     await ep.smsSend({ phone: "+353830000001", content: "hi" });
     await ep.smsRead({ threadKey: "alpha:demobank" });
     await ep.smsDelete(["u1"]);
+    await ep.smsTrash();
+    await ep.smsRestore(["u1"]);
+    await ep.smsPurge({ all: true });
     await ep.smsSync();
     await ep.contactUpsert({ phone: "+353830000001", name: "Demo" });
     await ep.contactDelete("c1");
@@ -584,7 +590,7 @@ const SMS_STATUS: SmsStatusSnapshot = {
   unreadOnCpe: 3,
   storageFull: false,
   storageUsedPercent: 2.6,
-  mirror: { messagesTotal: 13, unreadTotal: 2, threadsTotal: 4 },
+  mirror: { messagesTotal: 13, unreadTotal: 2, threadsTotal: 4, trashTotal: 1 },
   contactsTotal: 5,
   seeded: true,
   lastSyncAt: null,
@@ -593,6 +599,7 @@ const SMS_STATUS: SmsStatusSnapshot = {
   syncInProgress: false,
   syncPending: true,
   defaultCountryCode: "+353",
+  trashDays: 30,
 };
 
 describe("web core: state store and SSE reducer", () => {

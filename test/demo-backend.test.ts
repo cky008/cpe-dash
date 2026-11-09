@@ -529,6 +529,39 @@ describe("Static demo backend on its own", () => {
     backend.stop();
   });
 
+  it("keeps deleted messages in Recently deleted like the daemon: restore, delete for good, and the retention from the console", async () => {
+    const clock = { now: Date.now() };
+    const backend = fresh(clock);
+    const events = listen(backend.createEventSource("/api/events") as DemoEventSource);
+    const threads = (await demoCall(backend, "GET", "/api/sms/threads?filter=all")).json as unknown as SmsThreadsResponse;
+    const [first, second] = threads.threads.map((t) => t.latestMessage.uid);
+    assert.ok(first && second);
+    const deleted = await demoCall(backend, "POST", "/api/sms/delete", { uids: [first, second] });
+    assert.equal(deleted.json["trashDays"], 30);
+    const trash = (await demoCall(backend, "GET", "/api/sms/trash")).json as { messages: Array<{ uid: string; purgeAtIso: string }>; trashDays: number };
+    assert.deepEqual(trash.messages.map((m) => m.uid).sort(), [first, second].sort());
+    assert.equal(((await demoCall(backend, "GET", "/api/sms/status")).json["status"] as { mirror: { trashTotal: number } }).mirror.trashTotal, 2);
+
+    assert.equal((await demoCall(backend, "POST", "/api/sms/trash/restore", { uids: ["missing-uid"] })).status, 400);
+    assert.equal((await demoCall(backend, "POST", "/api/sms/trash/restore", {})).status, 400);
+    assert.deepEqual((await demoCall(backend, "POST", "/api/sms/trash/restore", { uids: [first] })).json, { ok: true, restored: 1, uids: [first] });
+    assert.ok(events.some((e) => e.name === "sms:updated" && e.data["action"] === "restored"));
+    assert.equal((await demoCall(backend, "POST", "/api/sms/trash/purge", { all: "yes" })).status, 400);
+    assert.deepEqual((await demoCall(backend, "POST", "/api/sms/trash/purge", { uids: [second] })).json, { ok: true, purged: 1, uids: [second] });
+    assert.deepEqual((await demoCall(backend, "POST", "/api/sms/trash/purge", { all: true })).json, { ok: true, purged: 0, uids: [] });
+
+    // The visitor's retention applies: 0 keeps nothing, and what outlived a retention is gone
+    await demoCall(backend, "POST", "/api/console/behaviour", { smsTrashDays: 0 });
+    assert.equal((await demoCall(backend, "POST", "/api/sms/delete", { uids: [first] })).json["trashDays"], 0);
+    assert.equal(((await demoCall(backend, "GET", "/api/sms/trash")).json["messages"] as unknown[]).length, 0);
+    await demoCall(backend, "POST", "/api/console/behaviour", { smsTrashDays: 1 });
+    const third = ((await demoCall(backend, "GET", "/api/sms/threads?filter=all")).json as unknown as SmsThreadsResponse).threads[0]?.latestMessage.uid;
+    await demoCall(backend, "POST", "/api/sms/delete", { uids: [third] });
+    clock.now += 2 * 24 * 60 * 60_000;
+    assert.equal(((await demoCall(backend, "GET", "/api/sms/trash")).json["messages"] as unknown[]).length, 0);
+    backend.stop();
+  });
+
   it("delivers DemoBank codes, refreshes on demand and keeps scans moving", async () => {
     const clock = { now: Date.now() };
     const backend = fresh(clock);

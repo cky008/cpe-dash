@@ -41,6 +41,9 @@ import type {
   SmsContactsResponse,
   SmsCountriesResponse,
   SmsDeleteResponse,
+  SmsPurgeResponse,
+  SmsRestoreResponse,
+  SmsTrashResponse,
   SmsPreviewResponse,
   SmsReadResponse,
   SmsSendResponse,
@@ -240,7 +243,7 @@ export class DemoBackend {
     this.#guard = seed.accessControl.guard;
     this.#countries = seed.sms.countries;
     this.#device = seed.device ?? null;
-    this.#sms = new DemoSmsBox(seed.sms, this.#now);
+    this.#sms = new DemoSmsBox(seed.sms, this.#now, () => this.#console.behaviourValues.smsTrashDays);
     this.#base = signalBase(this.#telemetry);
     this.#nextRuleId = Math.max(0, ...this.#access.timeRules.rules.map((r) => Number(/(\d+)\.?$/.exec(r.id)?.[1] ?? 0))) + 1;
     const filter = this.#access.wifiMacFilter;
@@ -600,7 +603,23 @@ export class DemoBackend {
       await this.#control("sms_delete", "sms.deleted_summary", { count: uids.length });
       this.#emit("sms:updated", { action: "deleted", uids });
       this.#emit("sms:status", this.#sms.status());
-      return { ok: true, deleted: uids.length, uids } satisfies SmsDeleteResponse;
+      return { ok: true, deleted: uids.length, uids, trashDays: this.#sms.trashDays } satisfies SmsDeleteResponse;
+    });
+    get("/api/sms/trash", () => ({ ok: true, messages: this.#sms.trash(), trashDays: this.#sms.trashDays }) satisfies SmsTrashResponse);
+    post("/api/sms/trash/restore", async (body) => {
+      const uids = this.#sms.restore(stringList(body, "uids") ?? []);
+      this.#emit("sms:updated", { action: "restored", uids });
+      this.#emit("sms:status", this.#sms.status());
+      return { ok: true, restored: uids.length, uids } satisfies SmsRestoreResponse;
+    });
+    post("/api/sms/trash/purge", async (body) => {
+      if (body["all"] !== undefined && body["all"] !== true) throw new CpeControlValidationError('Field "all" must be true when given');
+      const uids = this.#sms.purge(body["all"] === true ? { all: true } : { uids: stringList(body, "uids") ?? [] });
+      if (uids.length > 0) {
+        this.#emit("sms:updated", { action: "purged", uids });
+        this.#emit("sms:status", this.#sms.status());
+      }
+      return { ok: true, purged: uids.length, uids } satisfies SmsPurgeResponse;
     });
     post("/api/sms/sync", async (body) => {
       const mode = optionalString(body, "mode") ?? "full";

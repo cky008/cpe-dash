@@ -408,6 +408,43 @@ describe("behaviour settings from the console", () => {
   });
 });
 
+describe("Recently deleted SMS", () => {
+  it("keeps deleted SMS for the days set in the console, applies a shorter time at once, and audits restores and permanent deletes", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", SMS_ENABLED: "true", SMS_TRASH_RETENTION_DAYS: "7" });
+    try {
+      const sms = fx.stack.sms;
+      assert.ok(sms);
+      assert.equal(sms.trashDays, 7, "from .env");
+      const cookie = fx.cookieOf(await fx.post("/api/auth/login", { password: "legacy_full_token" }));
+      const day = 24 * 60 * 60_000;
+      const wire = (index: number, content: string) => ({ index, phone: "+353830000001", content, date: "2026-11-02 18:00:00", smstat: "1" as const, isUnread: false, direction: "in" as const });
+      sms.mirror.ingest([wire(40001, "Dinner at 7?"), wire(40002, "Parcel at the door"), wire(40003, "See you")], "incremental");
+      const [older, newer, kept] = sms.getThread("+353830000001").messages.map((m) => m.uid);
+      assert.ok(older && newer && kept);
+      sms.mirror.trash([older], new Date(Date.now() - 3 * day).toISOString());
+      sms.mirror.trash([newer], new Date(Date.now() - day).toISOString());
+
+      await fx.post("/api/console/behaviour", { smsTrashDays: 2 }, cookie);
+      assert.equal(sms.trashDays, 2);
+      assert.deepEqual(sms.listTrash().map((m) => m.uid), [newer], "a shorter time applies to what is already there");
+
+      assert.equal((await fx.post("/api/sms/trash/restore", { uids: [newer] }, cookie)).status, 200);
+      sms.mirror.trash([kept], new Date().toISOString());
+      assert.equal((await fx.post("/api/sms/trash/purge", { uids: [kept] }, cookie)).status, 200);
+
+      const audit = (await (await fx.get("/api/audit", { cookie })).json()) as AuditResponse;
+      const entries = audit.entries.filter((e) => e.action.startsWith("sms.")).map((e) => [e.action, e.channel, e.detail]).reverse();
+      assert.deepEqual(entries, [
+        ["sms.purge", "system", "1 message, kept the set number of days"],
+        ["sms.restore", "web", "1 message"],
+        ["sms.purge", "web", "1 message"],
+      ]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
 describe("token permissions", () => {
   it("lets each token do what its permissions allow over REST and MCP, and an edit applies at once", async () => {
     const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", MCP_ALLOW_MUTATIONS: "true", MCP_ALLOW_ACCESS_CONTROL: "true" });

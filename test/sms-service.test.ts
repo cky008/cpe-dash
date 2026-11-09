@@ -381,7 +381,7 @@ describe("SmsService writes: send, mark read, delete and contacts", () => {
 
     const brand = fx.service.getThread("alpha:three").messages[0]!;
     const deleted = await fx.service.deleteMessages({ uids: [brand.uid] });
-    assert.deepEqual(deleted, { deleted: 1, uids: [brand.uid] });
+    assert.deepEqual(deleted, { deleted: 1, uids: [brand.uid], trashDays: 30 });
     assert.deepEqual(fx.mock.deleteBatches, [[40001]]);
 
     // Provisional records are dropped locally without a CPE session
@@ -390,6 +390,80 @@ describe("SmsService writes: send, mark read, delete and contacts", () => {
     await fx.service.deleteMessages({ uids: [pending.messages[0]!.uid] });
     assert.equal(fx.mock.getLoginCount(), sessions);
     assert.equal(fx.mock.deleteBatches.length, 1);
+    await fx.cleanup();
+  });
+
+  it("keeps what it deletes in Recently deleted, restores it without the router, and deletes for good on request or when the retention runs out", async () => {
+    const DAY = 24 * 60 * 60_000;
+    let clock = Date.parse("2026-11-03T10:00:00.000Z");
+    let days = 30;
+    const fx = createSmsFixture({ service: { now: () => clock, trashDays: () => days } });
+    await fx.service.sync("full");
+    const thread = fx.service.getThread("+353830000001").messages;
+    const dinner = thread.find((m) => m.content === "Dinner at 7?");
+    const sure = thread.find((m) => m.content === "Sure");
+    const welcome = fx.service.getThread("alpha:three").messages[0];
+    assert.ok(dinner && sure && welcome);
+
+    // Deleted: gone from the router, kept in the bin until the retention runs out
+    assert.deepEqual(await fx.service.deleteMessages({ uids: [dinner.uid] }), { deleted: 1, uids: [dinner.uid], trashDays: 30 });
+    assert.deepEqual(fx.mock.deleteBatches, [[40002]]);
+    const [binned] = fx.service.listTrash();
+    assert.deepEqual([binned?.uid, binned?.deletedAtIso, binned?.purgeAtIso, binned?.threadKey], [dinner.uid, "2026-11-03T10:00:00.000Z", "2026-12-03T10:00:00.000Z", "+353830000001"]);
+    assert.deepEqual([fx.service.getStatus().mirror.trashTotal, fx.service.getStatus().trashDays], [1, 30]);
+
+    // Restored without a session: back in its thread as FengSui's own copy; marking it read stays local too
+    const logins = fx.mock.getLoginCount();
+    assert.deepEqual(await fx.service.restoreMessages({ uids: [dinner.uid] }), { restored: 1, uids: [dinner.uid] });
+    assert.equal(fx.service.getThread("+353830000001").messages.find((m) => m.uid === dinner.uid)?.localOnly, true);
+    assert.equal((await fx.service.markRead({ uids: [dinner.uid] })).count, 1);
+    assert.equal(fx.mock.getLoginCount(), logins, "restoring and reading a local copy never log in");
+    assert.deepEqual(
+      named(fx.events, "sms:updated").map((e) => (e as { action: string }).action),
+      ["deleted", "restored", "read"]
+    );
+    await fx.service.sync("full");
+    assert.ok(fx.service.getThread("+353830000001").messages.some((m) => m.uid === dinner.uid), "a full sync leaves it");
+    // Deleting the local copy again needs no router either
+    await fx.service.deleteMessages({ uids: [dinner.uid] });
+    assert.deepEqual(fx.mock.deleteBatches, [[40002]]);
+
+    await assert.rejects(() => fx.service.restoreMessages({ uids: ["nope"] }), /Unknown message uid/);
+    await assert.rejects(() => fx.service.restoreMessages({ uids: [] }), CpeControlValidationError);
+    assert.throws(() => fx.service.purgeTrash({ uids: [] }), CpeControlValidationError);
+    assert.throws(() => fx.service.purgeTrash({ uids: ["nope"] }), /Unknown message uid/);
+
+    // The retention runs out: purged at the next check, the event says it was the expiry
+    clock += 31 * DAY;
+    assert.equal(fx.service.purgeExpiredTrash(), 1);
+    assert.equal(fx.service.listTrash().length, 0);
+    const expired = named(fx.events, "sms:updated").at(-1) as { action: string; expired?: boolean; uids: string[] };
+    assert.deepEqual([expired.action, expired.expired, expired.uids], ["purged", true, [dinner.uid]]);
+    assert.equal(fx.service.purgeExpiredTrash(), 0, "nothing more to purge, no event");
+
+    // For good on request, one or all; with the bin off (0 days) a delete is final at once
+    await fx.service.deleteMessages({ uids: [sure.uid] });
+    assert.deepEqual(fx.service.purgeTrash({ uids: [sure.uid] }), { purged: 1, uids: [sure.uid] });
+    days = 0;
+    assert.deepEqual(await fx.service.deleteMessages({ uids: [welcome.uid] }), { deleted: 1, uids: [welcome.uid], trashDays: 0 });
+    assert.equal(fx.service.listTrash().length, 0);
+    assert.deepEqual(fx.service.purgeTrash({ all: true }), { purged: 0, uids: [] });
+    await fx.cleanup();
+  });
+
+  it("purges what outlived the retention when it starts, and takes a shorter retention at once", async () => {
+    let days = 30;
+    const fx = createSmsFixture({ service: { now: () => Date.parse("2026-11-03T10:00:00.000Z"), trashDays: () => days } });
+    await fx.service.sync("full");
+    const [old, recent] = fx.service.getThread("+353830000001").messages;
+    assert.ok(old && recent);
+    fx.mirror.trash([old.uid], "2026-09-01T10:00:00.000Z");
+    fx.mirror.trash([recent.uid], "2026-11-01T10:00:00.000Z");
+    fx.service.start();
+    assert.deepEqual(fx.service.listTrash().map((m) => m.uid), [recent.uid]);
+    days = 1;
+    assert.equal(fx.service.purgeExpiredTrash(), 1);
+    assert.equal(fx.service.listTrash().length, 0);
     await fx.cleanup();
   });
 

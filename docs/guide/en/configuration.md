@@ -72,13 +72,14 @@ Except for `MCP_HTTP_ENABLED` and `MCP_DAEMON_URL`, the settings in this section
 
 ## SMS
 
-`SMS_AUTO_MARK_READ` and `DEFAULT_COUNTRY_CODE` can also be changed in the console under Settings → General.
+`SMS_AUTO_MARK_READ`, `SMS_TRASH_RETENTION_DAYS` and `DEFAULT_COUNTRY_CODE` can also be changed in the console under Settings → General.
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `SMS_ENABLED` | `true` | Whether to enable SMS |
 | `DEFAULT_COUNTRY_CODE` | Empty (derived from SIM card) | Country calling code to prepend to local numbers without a leading `+`, such as `+86`. When left blank, FengSui infers the country from the router's SIM card. If it cannot infer the country, you must enter the full number or select a country |
 | `SMS_AUTO_MARK_READ` | `false` | Automatically mark new SMS messages as read on the router after pushing them |
+| `SMS_TRASH_RETENTION_DAYS` | `30` | How many days a deleted message stays in the SMS centre's Recently deleted (`0` to `365`), where it can be restored, before it is deleted for good. `0` deletes for good at once. See [SMS](sms.md#trash) |
 | `SMS_SEED_EXISTING_ON_START` | `true` | On initial sync, treat existing messages on the router as history and do not push them |
 | `SMS_FULL_SYNC_INTERVAL_MS` | `1800000` | Interval for full synchronization checks (30 minutes) |
 | `SMS_SEND_STATUS_TIMEOUT_MS` | `45000` | Maximum time to wait for the router to report the send result after sending |

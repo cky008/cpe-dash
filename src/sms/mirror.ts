@@ -13,11 +13,13 @@ import type {
   SmsThreadDetail,
   SmsThreadFilter,
   SmsThreadSummary,
+  SmsTrashRecord,
   SmsWireMessage,
 } from "./types.ts";
 
 const MAX_NOTIFIED = 3000;
 const MAX_MESSAGES = 5000;
+const MAX_TRASH = 5000;
 
 /**
  * Opaque, stable message id derived from `(index, date, phone)`. A reused CPE index carrying a
@@ -46,6 +48,8 @@ interface PersistedSmsMirror extends SmsMirrorMeta {
   savedAtIso: string;
   notified: string[];
   messages: SmsMessageRecord[];
+  /** Recently deleted (absent before 1.8.0). */
+  trash?: SmsTrashRecord[];
 }
 
 function defaultMeta(): SmsMirrorMeta {
@@ -55,7 +59,9 @@ function defaultMeta(): SmsMirrorMeta {
 /**
  * Encrypted local mirror of the router's SMS store. The CPE stays the source of truth: full syncs
  * replace the mirror, incremental syncs upsert. Also holds the new-message notification cursor so
- * restarts neither re-notify old messages nor miss ones that arrived while the daemon was down.
+ * restarts neither re-notify old messages nor miss ones that arrived while the daemon was down, and
+ * Recently deleted: messages FengSui deleted from the router, kept until they are restored (as
+ * FengSui's own copies, which full syncs leave) or purged.
  */
 export class SmsMirrorStore {
   readonly filePath: string;
@@ -64,6 +70,7 @@ export class SmsMirrorStore {
   #writer: AtomicFileWriter;
   #messages = new Map<string, SmsMessageRecord>();
   #notified = new Set<string>();
+  #trash = new Map<string, SmsTrashRecord>();
   #meta: SmsMirrorMeta = defaultMeta();
   #view: ThreadViewContext;
 
@@ -90,10 +97,14 @@ export class SmsMirrorStore {
     assertKnownDataFormat(this.filePath, parsed?.version, 1);
     this.#messages.clear();
     this.#notified.clear();
+    this.#trash.clear();
     this.#meta = defaultMeta();
     if (!parsed || parsed.version !== 1) return;
     for (const m of Array.isArray(parsed.messages) ? parsed.messages : []) {
       if (m && typeof m.uid === "string") this.#messages.set(m.uid, m);
+    }
+    for (const m of Array.isArray(parsed.trash) ? parsed.trash : []) {
+      if (m && typeof m.uid === "string" && typeof m.deletedAtIso === "string" && Number.isFinite(Date.parse(m.deletedAtIso))) this.#trash.set(m.uid, m);
     }
     for (const uid of Array.isArray(parsed.notified) ? parsed.notified : []) {
       if (typeof uid === "string") this.#notified.add(uid);
@@ -114,6 +125,7 @@ export class SmsMirrorStore {
       ...this.#meta,
       notified: [...this.#notified],
       messages: [...this.#messages.values()],
+      trash: [...this.#trash.values()],
     };
     await this.#writer.write(() => this.#cipher.serializeJson(payload));
   }
@@ -160,6 +172,8 @@ export class SmsMirrorStore {
     for (const wire of messages) {
       const uid = computeSmsUid(wire);
       seen.add(uid);
+      // Deleted by the owner: a listing from before the delete (or a router that ignored it) does not bring it back
+      if (this.#trash.has(uid)) continue;
       const existing = this.#messages.get(uid);
       const record: SmsMessageRecord = {
         ...wire,
@@ -173,7 +187,8 @@ export class SmsMirrorStore {
           const replaced = this.#takeMatchingPending(record);
           if (replaced) result.removed.push(replaced);
         }
-      } else if (existing.isUnread !== wire.isUnread || existing.smstat !== wire.smstat || existing.content !== wire.content) {
+      } else if (existing.localOnly || existing.isUnread !== wire.isUnread || existing.smstat !== wire.smstat || existing.content !== wire.content) {
+        // A restored copy the router lists again is the router's copy again
         this.#messages.set(uid, record);
         result.updated.push(record);
       }
@@ -182,7 +197,8 @@ export class SmsMirrorStore {
     const nowIso = new Date().toISOString();
     if (mode === "full") {
       for (const [uid, record] of this.#messages) {
-        if (!seen.has(uid)) {
+        // A message restored from Recently deleted is FengSui's own copy: the router never has it again
+        if (!seen.has(uid) && !record.localOnly) {
           this.#messages.delete(uid);
           result.removed.push(record);
         }
@@ -243,6 +259,77 @@ export class SmsMirrorStore {
     return removed;
   }
 
+  /**
+   * Move messages into Recently deleted, stamped `deletedAtIso` (their router copies are gone); a
+   * provisional send is only dropped. Returns what left the threads.
+   */
+  trash(uids: ReadonlyArray<string>, deletedAtIso: string): SmsMessageRecord[] {
+    const moved: SmsMessageRecord[] = [];
+    for (const uid of uids) {
+      const hit = this.#messages.get(uid);
+      if (!hit) continue;
+      this.#messages.delete(uid);
+      moved.push(hit);
+      if (!hit.pending) this.#trash.set(uid, { ...hit, deletedAtIso });
+    }
+    for (const oldest of [...this.#trash.values()].sort(byDeletion).slice(MAX_TRASH)) this.#trash.delete(oldest.uid);
+    if (moved.length > 0) this.#commit();
+    return moved;
+  }
+
+  /** Recently deleted, the newest deletion first. */
+  listTrash(): SmsTrashRecord[] {
+    return [...this.#trash.values()].sort(byDeletion).map((m) => ({ ...m }));
+  }
+
+  findTrash(uids: ReadonlyArray<string>): SmsTrashRecord[] {
+    return uids.flatMap((uid) => {
+      const hit = this.#trash.get(uid);
+      return hit ? [{ ...hit }] : [];
+    });
+  }
+
+  /** Back into their threads from Recently deleted, as FengSui's own copies (`localOnly`). */
+  restore(uids: ReadonlyArray<string>): SmsMessageRecord[] {
+    const restored: SmsMessageRecord[] = [];
+    for (const uid of uids) {
+      const hit = this.#trash.get(uid);
+      if (!hit) continue;
+      const { deletedAtIso: _deleted, ...record } = hit;
+      const back: SmsMessageRecord = { ...record, localOnly: true };
+      this.#trash.delete(uid);
+      this.#messages.set(uid, back);
+      restored.push(back);
+    }
+    if (restored.length > 0) {
+      this.#enforceCap();
+      this.#commit();
+    }
+    return restored;
+  }
+
+  /** Delete for good from Recently deleted. */
+  purge(uids: ReadonlyArray<string>): SmsTrashRecord[] {
+    return this.#purgeWhere((record) => uids.includes(record.uid));
+  }
+
+  purgeAll(): SmsTrashRecord[] {
+    return this.#purgeWhere(() => true);
+  }
+
+  /** Delete for good what was deleted before `cutoffIso` (its retention ran out). */
+  purgeDeletedBefore(cutoffIso: string): SmsTrashRecord[] {
+    const cutoff = Date.parse(cutoffIso);
+    return this.#purgeWhere((record) => Date.parse(record.deletedAtIso) < cutoff);
+  }
+
+  #purgeWhere(match: (record: SmsTrashRecord) => boolean): SmsTrashRecord[] {
+    const purged = [...this.#trash.values()].filter(match).sort(byDeletion);
+    for (const record of purged) this.#trash.delete(record.uid);
+    if (purged.length > 0) this.#commit();
+    return purged;
+  }
+
   isNotified(uid: string): boolean {
     return this.#notified.has(uid);
   }
@@ -278,8 +365,8 @@ export class SmsMirrorStore {
     return getSmsThread(this.#messages.values(), this.#view, keyOrPhone);
   }
 
-  stats(): { messagesTotal: number; unreadTotal: number; threadsTotal: number } {
-    return smsThreadStats(this.#messages.values(), this.defaultCountryCode);
+  stats(): { messagesTotal: number; unreadTotal: number; threadsTotal: number; trashTotal: number } {
+    return { ...smsThreadStats(this.#messages.values(), this.defaultCountryCode), trashTotal: this.#trash.size };
   }
 
   #contactBrief(phone: string): ContactBrief | null {
@@ -315,4 +402,9 @@ export class SmsMirrorStore {
   #commit(): void {
     void this.flush().catch(() => undefined);
   }
+}
+
+/** The newest deletion first. */
+function byDeletion(a: SmsTrashRecord, b: SmsTrashRecord): number {
+  return Date.parse(b.deletedAtIso) - Date.parse(a.deletedAtIso);
 }

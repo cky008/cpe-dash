@@ -46,7 +46,7 @@ If you want to receive notifications in a group (for example, a group with only 
 | Command / Action | Description |
 | :--- | :--- |
 | Reply to an SMS card | Reply to that number directly |
-| Buttons on the card | Mark as read, view thread, delete (asks for confirmation) |
+| Buttons on the card | Mark as read, view thread, delete (asks for confirmation; the message goes to the console's [Recently deleted](sms.md#trash)) |
 | `/new` | Send a new message step by step |
 | `/send <number> <content>` | Send quickly (also requires confirmation) |
 | `/inbox`, `/unread`, `/chat <number>` | Thread list, unread messages, and a specific thread |

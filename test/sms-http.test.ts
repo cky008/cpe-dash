@@ -247,7 +247,7 @@ describe("/api/sms REST routes, /api/alerts and SMS SSE events", () => {
     assert.equal((await fx.post("/api/sms/delete", { uids: ["unknown"] })).status, 400);
     assert.equal((await fx.post("/api/sms/delete", {})).status, 400);
     const deleted = await fx.post("/api/sms/delete", { uids: [otpUid] });
-    assert.deepEqual(deleted.body, { ok: true, deleted: 1, uids: [otpUid] });
+    assert.deepEqual(deleted.body, { ok: true, deleted: 1, uids: [otpUid], trashDays: 30 });
     assert.deepEqual(fx.mock.deleteBatches, [[40001]]);
 
     assert.equal((await fx.post("/api/sms/sync", { mode: "weekly" })).status, 400);
@@ -261,6 +261,51 @@ describe("/api/sms REST routes, /api/alerts and SMS SSE events", () => {
     const anon = await fetch(`${fx.baseUrl}/api/sms/status`);
     assert.equal(anon.status, 401);
     await fx.cleanup();
+  });
+
+  it("lists and restores Recently deleted with a token, and deletes for good only from a signed-in console", async () => {
+    const fx = await createSmsHttpFixture();
+    try {
+      await fx.sms.sync("full");
+      const otpUid = fx.sms.getThread("alpha:demobank").messages[0]!.uid;
+      const dinnerUid = fx.sms.getThread("+353830000001").messages[0]!.uid;
+      await fx.post("/api/sms/delete", { uids: [otpUid, dinnerUid] });
+
+      const listed = await fx.get("/api/sms/trash");
+      assert.equal(listed.status, 200);
+      assert.equal(listed.body["trashDays"], 30);
+      const messages = listed.body["messages"] as Array<{ uid: string; deletedAtIso: string; purgeAtIso: string; content: string }>;
+      assert.deepEqual(messages.map((m) => m.uid).sort(), [otpUid, dinnerUid].sort());
+      assert.ok(messages.every((m) => Date.parse(m.purgeAtIso) - Date.parse(m.deletedAtIso) === 30 * 24 * 60 * 60_000));
+
+      assert.equal((await fx.post("/api/sms/trash/restore", { uids: ["unknown"] })).status, 400);
+      assert.equal((await fx.post("/api/sms/trash/restore", {})).status, 400);
+      assert.deepEqual((await fx.post("/api/sms/trash/restore", { uids: [dinnerUid] })).body, { ok: true, restored: 1, uids: [dinnerUid] });
+      assert.equal(fx.sms.getThread("+353830000001").messages[0]?.localOnly, true);
+
+      // For good: never with a token, however strong
+      const refused = await fx.post("/api/sms/trash/purge", { all: true });
+      assert.deepEqual([refused.status, refused.body["errorCode"]], [403, "CONSOLE_ONLY"]);
+      assert.equal(fx.sms.listTrash().length, 1);
+
+      const origin = fx.baseUrl;
+      const console = (cookie: string) => ({ "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: origin, Cookie: cookie });
+      const login = await fetch(`${fx.baseUrl}/api/auth/login`, { method: "POST", headers: console(""), body: JSON.stringify({ password: "sms_http_api_token" }) });
+      assert.equal(login.status, 200);
+      const cookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(login.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
+      const purge = async (body: unknown) => {
+        const res = await fetch(`${fx.baseUrl}/api/sms/trash/purge`, { method: "POST", headers: console(cookie), body: JSON.stringify(body) });
+        return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+      };
+      assert.equal((await purge({ uids: ["unknown"] })).status, 400);
+      assert.equal((await purge({ all: "yes" })).status, 400);
+      assert.equal((await purge({})).status, 400);
+      assert.deepEqual((await purge({ uids: [otpUid] })).body, { ok: true, purged: 1, uids: [otpUid] });
+      assert.deepEqual((await purge({ all: true })).body, { ok: true, purged: 0, uids: [] });
+      assert.equal(fx.sms.listTrash().length, 0);
+    } finally {
+      await fx.cleanup();
+    }
   });
 
   it("maps router send failures to 502 SMS_SEND_FAILED and a yielding router to 409", async () => {

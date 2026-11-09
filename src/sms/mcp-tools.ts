@@ -150,7 +150,7 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
     name: "delete_sms",
     title: "Delete SMS From the Router",
-    description: `Permanently delete specific messages (uids from get_sms_thread) from the router. Requires confirm: true, at most ${MAX_DELETE_PER_CALL} per call, and refuses unread messages unless includeUnread is true.`,
+    description: `Delete specific messages (uids from get_sms_thread) from the router. FengSui keeps them in Recently deleted for the days the owner chose (trashDays in the result; 0 means deleted for good), where only the owner can restore them or delete them for good. Requires confirm: true, at most ${MAX_DELETE_PER_CALL} per call, and refuses unread messages unless includeUnread is true.`,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",

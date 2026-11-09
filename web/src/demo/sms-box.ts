@@ -1,5 +1,6 @@
 import type {
   ContactRecord,
+  DeletedSmsMessage,
   EnrichedSmsMessage,
   SmsSendPreview,
   SmsSendResult,
@@ -13,7 +14,7 @@ import { extractVerificationCode } from "../../../src/sms/otp.ts";
 import { buildPhoneLookupKeys, resolveRecipientPhone } from "../../../src/sms/phone.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../../../src/sms/text-mode.ts";
 import { type ThreadViewContext, enrichSmsMessage, getSmsThread, listSmsThreads, smsThreadStats } from "../../../src/sms/thread-view.ts";
-import type { ContactBrief, SmsCounters, SmsMessageRecord, SmsThreadFilter } from "../../../src/sms/types.ts";
+import type { ContactBrief, SmsCounters, SmsMessageRecord, SmsThreadFilter, SmsTrashRecord } from "../../../src/sms/types.ts";
 import { parseVcardContacts } from "../../../src/sms/vcard.ts";
 import { formatRouterDate } from "./seed.ts";
 
@@ -60,9 +61,19 @@ function copyContact(c: ContactRecord): ContactRecord {
   return { ...c, phones: [...c.phones] };
 }
 
+const DAY_MS = 24 * 60 * 60_000;
+
+/** The newest deletion first. */
+function byDeletion(a: SmsTrashRecord, b: SmsTrashRecord): number {
+  return Date.parse(b.deletedAtIso) - Date.parse(a.deletedAtIso);
+}
+
 export class DemoSmsBox {
   readonly defaultCountryCode: string;
   #messages = new Map<string, SmsMessageRecord>();
+  /** Recently deleted, as the daemon keeps it. */
+  #trash = new Map<string, SmsTrashRecord>();
+  readonly #trashDays: () => number;
   #contacts: ContactRecord[];
   #lookup = new Map<string, ContactRecord>();
   #status: SmsStatusSnapshot;
@@ -70,9 +81,10 @@ export class DemoSmsBox {
   readonly #now: () => number;
   readonly #view: ThreadViewContext;
 
-  constructor(seed: DemoSmsSeed, now: () => number) {
+  constructor(seed: DemoSmsSeed, now: () => number, trashDays: () => number = () => 30) {
     this.defaultCountryCode = seed.status.defaultCountryCode;
     this.#now = now;
+    this.#trashDays = trashDays;
     for (const m of seed.messages) this.#messages.set(m.uid, { ...m });
     this.#contacts = seed.contacts.map(copyContact);
     this.#status = { ...seed.status };
@@ -101,11 +113,17 @@ export class DemoSmsBox {
       unreadOnCpe: counters.localUnread,
       storageFull: counters.localMax > 0 && stored >= counters.localMax,
       storageUsedPercent: counters.localMax > 0 ? Math.round((stored / counters.localMax) * 100) : null,
-      mirror: smsThreadStats(this.#messages.values(), this.defaultCountryCode),
+      mirror: { ...smsThreadStats(this.#messages.values(), this.defaultCountryCode), trashTotal: this.#trash.size },
       contactsTotal: this.#contacts.length,
       syncInProgress: false,
       syncPending: false,
+      trashDays: this.#trashDays(),
     };
+  }
+
+  /** Days a deleted message stays in Recently deleted (`0`: deleted for good at once). */
+  get trashDays(): number {
+    return this.#trashDays();
   }
 
   threads(filter: SmsThreadFilter, search: string, limit: number): SmsThreadSummary[] {
@@ -201,7 +219,60 @@ export class DemoSmsBox {
     if (uids.some((uid) => !this.#messages.has(uid))) {
       throw new DemoValidationError("Unknown message uid; refresh the conversation and retry");
     }
-    for (const uid of uids) this.#messages.delete(uid);
+    const days = this.#trashDays();
+    const deletedAtIso = new Date(this.#now()).toISOString();
+    for (const uid of uids) {
+      const message = this.#messages.get(uid);
+      this.#messages.delete(uid);
+      if (message && days > 0) this.#trash.set(uid, { ...message, deletedAtIso });
+    }
+    return uids;
+  }
+
+  /** Recently deleted, the newest deletion first, after purging what outlived the retention. */
+  trash(): DeletedSmsMessage[] {
+    this.purgeExpired();
+    const keepMs = this.#trashDays() * DAY_MS;
+    return [...this.#trash.values()].sort(byDeletion).map((record) => ({
+      ...enrichSmsMessage(record, this.#view),
+      deletedAtIso: record.deletedAtIso,
+      purgeAtIso: new Date(Date.parse(record.deletedAtIso) + keepMs).toISOString(),
+    }));
+  }
+
+  /** Back into their threads, as FengSui's own copies. */
+  restore(rawUids: ReadonlyArray<string>): string[] {
+    const uids = this.#trashUids(rawUids);
+    for (const uid of uids) {
+      const record = this.#trash.get(uid);
+      if (!record) continue;
+      const { deletedAtIso: _deleted, ...message } = record;
+      this.#trash.delete(uid);
+      this.#messages.set(uid, { ...message, localOnly: true });
+    }
+    return uids;
+  }
+
+  /** Delete for good: the named messages, or all of them. */
+  purge(input: { uids?: ReadonlyArray<string>; all?: boolean }): string[] {
+    const uids = input.all === true ? [...this.#trash.keys()] : this.#trashUids(input.uids ?? []);
+    for (const uid of uids) this.#trash.delete(uid);
+    return uids;
+  }
+
+  /** Delete for good what stayed longer than the retention now in force. */
+  purgeExpired(): string[] {
+    const cutoff = this.#now() - this.#trashDays() * DAY_MS;
+    const expired = [...this.#trash.values()].filter((record) => Date.parse(record.deletedAtIso) < cutoff).map((record) => record.uid);
+    for (const uid of expired) this.#trash.delete(uid);
+    return expired;
+  }
+
+  #trashUids(raw: ReadonlyArray<string>): string[] {
+    const uids = [...new Set(raw)];
+    if (uids.length === 0) throw new DemoValidationError("Provide at least one message uid");
+    if (uids.length > MAX_UIDS_PER_REQUEST) throw new DemoValidationError(`At most ${MAX_UIDS_PER_REQUEST} uids per request`);
+    if (uids.some((uid) => !this.#trash.has(uid))) throw new DemoValidationError("Unknown message uid; refresh Recently deleted and retry");
     return uids;
   }
 

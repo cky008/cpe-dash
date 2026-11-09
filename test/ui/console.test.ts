@@ -432,6 +432,32 @@ describe("the console in a browser", () => {
     assert.deepEqual(page.exceptions, []);
   });
 
+  it("keeps a deleted message in Recently deleted, says so, and restores it into its conversation", async () => {
+    const d = live();
+    await signIn(page, d);
+    await page.click('[data-view="sms"]');
+    await page.click('#smsListPane [data-thread-key^="+"]');
+    await page.waitUntil("document.querySelectorAll('#smsChatPane .bubble').length > 0", "the conversation");
+    const bubbles = await page.evaluate<number>("document.querySelectorAll('#smsChatPane .bubble').length");
+    await page.evaluate(`document.querySelector('#smsChatPane button[aria-label="Delete"]').click(); true`);
+    await page.waitUntil(isOpen("confirmDialog"), "the confirmation");
+    assert.match(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), /Recently deleted for 30 days/);
+    await page.click("#confirmOk");
+    await page.waitUntil(`document.querySelectorAll('#smsChatPane .bubble').length === ${bubbles - 1}`, "the message gone from the conversation");
+    await page.waitUntil("document.querySelector('#smsSidebar [data-sms-trash=nav] .count')?.textContent === '1'", "the bin's count");
+    assert.equal(d.stack.sms?.listTrash().length, 1);
+
+    await page.click("#smsSidebar [data-sms-trash=nav]");
+    await page.waitUntil(`${isOpen("smsTrashDialog")} && document.querySelector('#smsTrashDialog [data-trash=restore]') !== null`, "Recently deleted with the message");
+    assert.match(await page.evaluate<string>("document.getElementById('smsTrashDialog').textContent"), /Deleted for good in 29 days|Deleted for good in 30 days/);
+    await page.click("#smsTrashDialog [data-trash=restore]");
+    await page.waitUntil("document.querySelector('#smsTrashDialog')?.textContent.includes('Nothing deleted recently')", "the bin empty again");
+    await page.waitUntil(`document.querySelectorAll('#smsChatPane .bubble').length === ${bubbles}`, "the message back in its conversation");
+    assert.ok(await page.evaluate<boolean>("document.getElementById('smsChatPane').textContent.includes('Kept only in FengSui')"), "marked as FengSui's own copy");
+    assert.deepEqual(page.exceptions, []);
+    await closeDialogs(page);
+  });
+
   it("puts a code chip's label back after two quick copies", async () => {
     const d = live();
     assert.ok(chrome, "Chrome is running");

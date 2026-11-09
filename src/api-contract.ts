@@ -71,6 +71,7 @@ import type {
 import type {
   ContactRecord,
   CountryDialInfo,
+  DeletedSmsMessage,
   EnrichedSmsMessage,
   SenderInfo,
   SmsSendResult,
@@ -91,6 +92,7 @@ export type {
   ContactRecord,
   ControlAppliedEvent,
   CountryDialInfo,
+  DeletedSmsMessage,
   EnrichedSmsMessage,
   GlobalTelemetrySnapshot,
   LockVerification,
@@ -580,6 +582,27 @@ export interface SmsReadResponse {
 export interface SmsDeleteResponse {
   ok: true;
   deleted: number;
+  uids: string[];
+  /** Days FengSui keeps them in Recently deleted (`0`: deleted for good). */
+  trashDays: number;
+}
+
+/** `GET /api/sms/trash`: Recently deleted, the newest deletion first. */
+export interface SmsTrashResponse {
+  ok: true;
+  messages: DeletedSmsMessage[];
+  trashDays: number;
+}
+
+export interface SmsRestoreResponse {
+  ok: true;
+  restored: number;
+  uids: string[];
+}
+
+export interface SmsPurgeResponse {
+  ok: true;
+  purged: number;
   uids: string[];
 }
 

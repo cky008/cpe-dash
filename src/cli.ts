@@ -31,7 +31,7 @@ import { ContactBook } from "./sms/contacts.ts";
 import { SmsMcpTools } from "./sms/mcp-tools.ts";
 import { SmsMirrorStore } from "./sms/mirror.ts";
 import { dialCodeFromImsi } from "./sms/phone.ts";
-import { SmsService } from "./sms/service.ts";
+import { SmsService, type SmsUpdatedEvent } from "./sms/service.ts";
 import { SseEventBus } from "./sse-bus.ts";
 import { EncryptedStateStore } from "./state-store.ts";
 import { TimeSeriesRingBuffer } from "./timeseries.ts";
@@ -332,7 +332,14 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       fullSyncIntervalMs: config.smsFullSyncIntervalMs,
       seedExistingOnStart: config.smsSeedExistingOnStart,
       autoMarkRead: () => behaviour.smsAutoMarkRead,
+      trashDays: () => behaviour.smsTrashDays,
       sendStatusTimeoutMs: config.smsSendStatusTimeoutMs,
+    });
+    // Restoring from Recently deleted and deleting for good touch no router, so they are audited here (counts only)
+    sms.on("sms:updated", (event: SmsUpdatedEvent) => {
+      const count = `${event.uids.length} message${event.uids.length === 1 ? "" : "s"}`;
+      if (event.action === "restored") audit.record({ action: "sms.restore", outcome: "applied", detail: count });
+      else if (event.action === "purged") audit.record({ action: "sms.purge", outcome: "applied", detail: event.expired ? `${count}, kept the set number of days` : count, ...(event.expired ? { actor: { channel: "system" } } : {}) });
     });
   }
   // While no country is set: the first read of the SIM (or a SIM from another country) sets it; a missing
@@ -371,6 +378,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   const applyBehaviour = (next: BehaviourValues): void => {
     behaviour = next;
     selfHeal.reconfigure();
+    // A shorter time in Recently deleted applies to what is already there
+    sms?.purgeExpiredTrash();
     const code = behaviour.defaultCountryCode || simCountry();
     if (code && code !== countryCode) {
       countryCode = code;

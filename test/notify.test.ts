@@ -911,6 +911,8 @@ describe("TelegramBot", () => {
     await fx.callback(1001, "delno:0");
     await fx.callback(1001, `delok:${otp.uid}`);
     assert.deepEqual(fx.mock.deleteBatches, [[40001]]);
+    // It says where the message went: the owner's Recently deleted
+    assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /Recently deleted for 30 days/);
     await fx.callback(1001, `delok:${otp.uid}`);
     const answers = fx.tg.of("answerCallbackQuery");
     assert.match(String(answers.at(-1)?.payload["text"]), /Unknown message uid/);

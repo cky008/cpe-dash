@@ -30,6 +30,7 @@ import {
 import type {
   ContactRecord,
   CountryDialInfo,
+  DeletedSmsMessage,
   EnrichedSmsMessage,
   ResolvedRecipient,
   SmsCounters,
@@ -63,7 +64,7 @@ export interface SmsStatusSnapshot {
   unreadOnCpe: number | null;
   storageFull: boolean;
   storageUsedPercent: number | null;
-  mirror: { messagesTotal: number; unreadTotal: number; threadsTotal: number };
+  mirror: { messagesTotal: number; unreadTotal: number; threadsTotal: number; trashTotal: number };
   contactsTotal: number;
   seeded: boolean;
   lastSyncAt: string | null;
@@ -73,6 +74,8 @@ export interface SmsStatusSnapshot {
   /** Router counters differ from the last synced state (e.g. new SMS arrived while yielding). */
   syncPending: boolean;
   defaultCountryCode: string;
+  /** Days a deleted message stays in Recently deleted (`0`: deleted for good at once). */
+  trashDays: number;
 }
 
 export interface SmsSendPreview {
@@ -96,8 +99,10 @@ export interface SmsSentEvent {
 }
 
 export interface SmsUpdatedEvent {
-  action: "read" | "deleted";
+  action: "read" | "deleted" | "restored" | "purged";
   uids: string[];
+  /** `purged` because their time in Recently deleted ran out, not on request. */
+  expired?: true;
 }
 
 export interface SmsServiceOptions {
@@ -119,11 +124,15 @@ export interface SmsServiceOptions {
   recentFetchCount?: number;
   /** Interval of the unauthenticated unread probe while yielding to a human (default 5 s). */
   yieldPollIntervalMs?: number;
+  /** Days a deleted message stays in Recently deleted, or a function read each time (the console's setting, else SMS_TRASH_RETENTION_DAYS); default 30. */
+  trashDays?: number | (() => number);
+  now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
 
 const SYNC_RETRY_BACKOFF_MS = 60_000;
 const MAX_UIDS_PER_REQUEST = 200;
+const DAY_MS = 24 * 60 * 60_000;
 export const MAX_DELETE_BATCH = 50;
 
 function sameCounters(a: SmsCounters, b: SmsCounters): boolean {
@@ -149,6 +158,8 @@ export class SmsService extends EventEmitter {
   readonly fullSyncIntervalMs: number;
   readonly seedExistingOnStart: boolean;
   readonly #autoMarkRead: () => boolean;
+  readonly #trashDays: () => number;
+  readonly #now: () => number;
   readonly sendStatusTimeoutMs: number;
   readonly recentFetchCount: number;
   readonly yieldPollIntervalMs: number;
@@ -179,6 +190,9 @@ export class SmsService extends EventEmitter {
     this.seedExistingOnStart = opts.seedExistingOnStart !== false;
     const markRead = opts.autoMarkRead;
     this.#autoMarkRead = typeof markRead === "function" ? markRead : () => markRead === true;
+    const trashDays = opts.trashDays ?? 30;
+    this.#trashDays = typeof trashDays === "function" ? trashDays : () => trashDays;
+    this.#now = opts.now ?? Date.now;
     this.sendStatusTimeoutMs = opts.sendStatusTimeoutMs ?? 45_000;
     this.recentFetchCount = Math.min(50, Math.max(5, opts.recentFetchCount ?? 20));
     this.yieldPollIntervalMs = Math.max(1000, opts.yieldPollIntervalMs ?? 5000);
@@ -191,6 +205,11 @@ export class SmsService extends EventEmitter {
    */
   get autoMarkRead(): boolean {
     return this.#autoMarkRead();
+  }
+
+  /** Days a deleted message stays in Recently deleted (`0`: deleted for good at once). */
+  get trashDays(): number {
+    return this.#trashDays();
   }
 
   get defaultCountryCode(): string {
@@ -210,7 +229,9 @@ export class SmsService extends EventEmitter {
     if (this.#started) return;
     this.#started = true;
     this.monitor.on("telemetry", this.#onTelemetry);
+    this.purgeExpiredTrash();
     this.#fullTimer = setInterval(() => {
+      this.purgeExpiredTrash();
       // A model without SMS is not asked again in the background
       if (this.scheduler.device.skips("sms")) return;
       void this.sync("full", { priority: "low" }).catch(() => undefined);
@@ -256,6 +277,7 @@ export class SmsService extends EventEmitter {
       syncInProgress: this.#inflight !== null,
       syncPending: this.#isSyncPending(meta.lastSyncAt),
       defaultCountryCode: this.defaultCountryCode,
+      trashDays: this.#trashDays(),
     };
   }
 
@@ -430,7 +452,7 @@ export class SmsService extends EventEmitter {
     const unread = targets.filter((m) => m.isUnread);
     if (unread.length === 0) return { count: 0, uids: [] };
 
-    const indices = unread.filter((m) => !m.pending && m.index > 0).map((m) => m.index);
+    const indices = unread.filter(onRouter).map((m) => m.index);
     if (indices.length > 0) {
       await this.scheduler.executeControl(
         "sms_mark_read",
@@ -447,8 +469,11 @@ export class SmsService extends EventEmitter {
     return { count: uids.length, uids };
   }
 
-  /** Delete messages from the router (and the mirror). Unknown uids are rejected before any session. */
-  async deleteMessages(input: { uids: ReadonlyArray<string> }): Promise<{ deleted: number; uids: string[] }> {
+  /**
+   * Delete messages from the router; FengSui keeps them in Recently deleted for `trashDays` (none
+   * when `0`). Unknown uids are rejected before any session.
+   */
+  async deleteMessages(input: { uids: ReadonlyArray<string> }): Promise<{ deleted: number; uids: string[]; trashDays: number }> {
     const uids = [...new Set(input.uids)];
     if (uids.length === 0) throw new CpeControlValidationError("Provide at least one message uid");
     if (uids.length > MAX_DELETE_BATCH) {
@@ -458,7 +483,7 @@ export class SmsService extends EventEmitter {
     if (records.length !== uids.length) {
       throw new CpeControlValidationError("Unknown message uid; refresh the conversation and retry");
     }
-    const indices = records.filter((m) => !m.pending && m.index > 0).map((m) => m.index);
+    const indices = records.filter(onRouter).map((m) => m.index);
     if (indices.length > 0) {
       await this.scheduler.executeControl(
         "sms_delete",
@@ -469,10 +494,62 @@ export class SmsService extends EventEmitter {
         })
       );
     }
-    const removed = this.mirror.remove(uids).map((m) => m.uid);
+    const trashDays = this.#trashDays();
+    const removed = (trashDays > 0 ? this.mirror.trash(uids, new Date(this.#now()).toISOString()) : this.mirror.remove(uids)).map((m) => m.uid);
     this.#safeEmit("sms:updated", { action: "deleted", uids: removed } satisfies SmsUpdatedEvent);
     this.#emitStatus();
-    return { deleted: removed.length, uids: removed };
+    return { deleted: removed.length, uids: removed, trashDays };
+  }
+
+  /** Recently deleted, the newest deletion first, each with when it is deleted for good. */
+  listTrash(): DeletedSmsMessage[] {
+    const keepMs = this.#trashDays() * DAY_MS;
+    return this.mirror.listTrash().map((record) => ({
+      ...this.mirror.enrich(record),
+      deletedAtIso: record.deletedAtIso,
+      purgeAtIso: new Date(Date.parse(record.deletedAtIso) + keepMs).toISOString(),
+    }));
+  }
+
+  /** Back into their threads from Recently deleted, as FengSui's own copies (their router copies are gone). No session. */
+  async restoreMessages(input: { uids: ReadonlyArray<string> }): Promise<{ restored: number; uids: string[] }> {
+    const uids = this.#trashUids(input.uids);
+    const restored = this.mirror.restore(uids).map((m) => m.uid);
+    this.#safeEmit("sms:updated", { action: "restored", uids: restored } satisfies SmsUpdatedEvent);
+    this.#emitStatus();
+    return { restored: restored.length, uids: restored };
+  }
+
+  /** Delete for good from Recently deleted: the named messages, or all of them. */
+  purgeTrash(input: { uids?: ReadonlyArray<string>; all?: boolean }): { purged: number; uids: string[] } {
+    const purged = (input.all === true ? this.mirror.purgeAll() : this.mirror.purge(this.#trashUids(input.uids ?? []))).map((m) => m.uid);
+    if (purged.length > 0) {
+      this.#safeEmit("sms:updated", { action: "purged", uids: purged } satisfies SmsUpdatedEvent);
+      this.#emitStatus();
+    }
+    return { purged: purged.length, uids: purged };
+  }
+
+  /** Delete for good what stayed in Recently deleted longer than the retention now in force; how many. */
+  purgeExpiredTrash(): number {
+    const cutoff = new Date(this.#now() - this.#trashDays() * DAY_MS).toISOString();
+    const purged = this.mirror.purgeDeletedBefore(cutoff).map((m) => m.uid);
+    if (purged.length > 0) {
+      this.#safeEmit("sms:updated", { action: "purged", uids: purged, expired: true } satisfies SmsUpdatedEvent);
+      this.#emitStatus();
+    }
+    return purged.length;
+  }
+
+  /** The uids of a Recently deleted request: 1–200, each in the bin. */
+  #trashUids(raw: ReadonlyArray<string>): string[] {
+    const uids = [...new Set(raw)];
+    if (uids.length === 0) throw new CpeControlValidationError("Provide at least one message uid");
+    if (uids.length > MAX_UIDS_PER_REQUEST) throw new CpeControlValidationError(`At most ${MAX_UIDS_PER_REQUEST} uids per request`);
+    if (this.mirror.findTrash(uids).length !== uids.length) {
+      throw new CpeControlValidationError("Unknown message uid; refresh Recently deleted and retry");
+    }
+    return uids;
   }
 
   upsertContact(input: { phone: string; name: string; note?: string }, opts: { source?: "manual" | "mcp" } = {}): ContactRecord {
@@ -605,4 +682,9 @@ export class SmsService extends EventEmitter {
       }
     }
   }
+}
+
+/** A message the router still stores: not a provisional send, not FengSui's own restored copy. */
+function onRouter(m: SmsMessageRecord): boolean {
+  return !m.pending && !m.localOnly && m.index > 0;
 }

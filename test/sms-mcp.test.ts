@@ -307,7 +307,9 @@ describe("MCP SMS tools: write guardrails", () => {
     assert.equal((await fx.call("delete_sms", { uids: "all", confirm: true })).structuredContent["errorCode"], "VALIDATION_ERROR");
 
     const deletedRead = await fx.call("delete_sms", { uids: [oldUid], confirm: true });
-    assert.deepEqual(deletedRead.structuredContent, { ok: true, deleted: 1, uids: [oldUid] });
+    assert.deepEqual(deletedRead.structuredContent, { ok: true, deleted: 1, uids: [oldUid], trashDays: 30 });
+    // An agent's delete lands in the owner's Recently deleted, from where only the owner takes it further
+    assert.deepEqual(fx.sms.listTrash().map((m) => m.uid), [oldUid]);
     const deletedUnread = await fx.call("delete_sms", { uids: [otpUid], confirm: true, includeUnread: true });
     assert.equal(deletedUnread.structuredContent["deleted"], 1);
     assert.deepEqual(fx.mock.deleteBatches, [[40004], [40001]]);

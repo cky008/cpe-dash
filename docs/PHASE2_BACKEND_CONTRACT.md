@@ -97,7 +97,7 @@ export interface ApiErrorEnvelope {
     | "SSE_LIMIT_REACHED"        // 429: SSE 全局 (SSE_MAX_CLIENTS，默认 32) 或单 IP 桶 (6) 连接数达上限
     | "READ_ONLY_TOKEN"          // 403: 不能做任何改动的令牌（只有读取，最多加读短信）发起写操作（控制写、短信发送 / 已读 / 删除、通讯录、reset-breaker）
     | "TOKEN_NOT_PERMITTED"      // 403: 令牌缺少这个请求需要的权限（附 `permission`：`sms-read` / `control` / `access` / `sms-write` / `all`，v1.8.0，见 2.8 节）
-    | "CONSOLE_ONLY"             // 403: 用 Bearer 令牌访问 /api/console/*（控制台设置只接受 Cookie 会话）
+    | "CONSOLE_ONLY"             // 403: 用 Bearer 令牌访问 /api/console/*（控制台设置只接受 Cookie 会话），或 POST /api/sms/trash/purge（彻底删除短信，v1.8.0）
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号（只读），写操作被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
     | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（device/information），没有写入（见 2.10）
@@ -756,7 +756,10 @@ export interface SettingsRefreshResponse {
 | `POST /api/sms/preview` | `{ phone?: string; content: string; countryCode?: string }` | `{ ok: true, preview: SmsSendPreview }`（不发送） |
 | `POST /api/sms/send` | `{ phone: string } \| { phones: string[] }`（≤5 个收件人）`+ { content: string; countryCode?: string }`（≤2000 字符且 ≤4 段） | `{ ok: true, result: SmsSendResult, resolvedPhones: string[], messages: EnrichedSmsMessage[] }`；CPE 报告失败时 `502 SMS_SEND_FAILED`（附 `result`、`resolvedPhones`）；CPE 接受提交后即使会话超时或服务停机也返回 `200`（`result.timedOutWaitingStatus: true`） |
 | `POST /api/sms/read` | `{ uids?: string[] }`（≤200）或 `{ threadKey: string }` | `{ ok: true, count: number, uids: string[] }` |
-| `POST /api/sms/delete` | `{ uids: string[] }`（1..50；任一 uid 未知则在任何会话前返回 `400`） | `{ ok: true, deleted: number, uids: string[] }`：同时从 CPE 与本地镜像删除 |
+| `POST /api/sms/delete` | `{ uids: string[] }`（1..50；任一 uid 未知则在任何会话前返回 `400`） | `{ ok: true, deleted: number, uids: string[], trashDays: number }`：从 CPE 删除（恢复过的、只保存在烽燧的副本不发路由器请求），镜像把它们移进「最近删除」保留 `trashDays` 天（v1.8.0；`0` 时彻底删除） |
+| `GET /api/sms/trash` | — | `{ ok: true, messages: DeletedSmsMessage[], trashDays: number }`：「最近删除」，最近删除的在前（v1.8.0） |
+| `POST /api/sms/trash/restore` | `{ uids: string[] }`（1..200，必须都在「最近删除」里，否则 `400`） | `{ ok: true, restored: number, uids: string[] }`：放回原来的会话，标 `localOnly: true`（路由器上的已删除，全量同步不会移除它；路由器之后又列出同一条时改回路由器的副本）；不产生 CPE 会话 |
+| `POST /api/sms/trash/purge` | `{ uids: string[] }`（1..200，必须都在「最近删除」里）或 `{ all: true }` | `{ ok: true, purged: number, uids: string[] }`：彻底删除。**只接受控制台 Cookie 会话**：令牌（任何权限）返回 `403 CONSOLE_ONLY` |
 | `POST /api/sms/sync` | `{ mode?: "full" \| "incremental" }`（默认 `full`） | `{ ok: true, summary: SmsSyncSummary \| null, status: SmsStatusSnapshot }`；真人在线让位时 `summary` 为 `null` |
 | `POST /api/sms/contacts/upsert` | `{ phone: string; name: string; note?: string }`（姓名 ≤64，备注 ≤200；同号码已存在则更新） | `{ ok: true, contact: ContactRecord }` |
 | `POST /api/sms/contacts/delete` | `{ id: string }` | `{ ok: true, deleted: boolean }` |
@@ -776,7 +779,7 @@ export interface SmsStatusSnapshot {
   unreadOnCpe: number | null;         // 让位期间来自免登录 check-notifications 探测
   storageFull: boolean;
   storageUsedPercent: number | null;  // (inbox + outbox + draft) / localMax
-  mirror: { messagesTotal: number; unreadTotal: number; threadsTotal: number };
+  mirror: { messagesTotal: number; unreadTotal: number; threadsTotal: number; trashTotal: number }; // trashTotal：「最近删除」里的条数（v1.8.0）
   contactsTotal: number;
   seeded: boolean;                    // 首次全量同步已完成（此前已存在的短信视为历史，不推送通知）
   lastSyncAt: string | null;
@@ -785,6 +788,7 @@ export interface SmsStatusSnapshot {
   syncInProgress: boolean;
   syncPending: boolean;               // CPE 计数与上次同步不一致（如让位期间收到新短信）
   defaultCountryCode: string;
+  trashDays: number;                  // 删除的短信在「最近删除」里保留几天（SMS_TRASH_RETENTION_DAYS 或控制台设置，0..365；0 为删除即彻底删除；v1.8.0）
 }
 
 export interface SmsMessageRecord {
@@ -798,12 +802,18 @@ export interface SmsMessageRecord {
   direction: "in" | "out";
   verificationCode: string | null;    // 自动提取的验证码
   pending?: true;                     // 发送后尚未从 CPE 回读的临时记录，下次同步时替换
+  localOnly?: true;                   // 从「最近删除」恢复：路由器上已删除，只有烽燧保存（v1.8.0）
 }
 
 export interface EnrichedSmsMessage extends SmsMessageRecord {
   threadKey: string;
   sender: SenderInfo;
   contact: { id: string; name: string; note?: string } | null;
+}
+
+export interface DeletedSmsMessage extends EnrichedSmsMessage { // 「最近删除」里的一条（v1.8.0）
+  deletedAtIso: string;
+  purgeAtIso: string;                 // 按当前保留天数，到这个时间彻底删除（服务端在启动、每次全量同步定时器与改短天数时清理到期的）
 }
 
 export interface SenderInfo {
@@ -1312,7 +1322,7 @@ export interface WriteCheck {
 | `alert` | 断路器**首次**熔断时（`CIRCUIT_<code>`），以及 AlertEngine 触发任一告警时（见 2.2 节 `AlertCode`） | `AlertEventRecord` |
 | `sms:new` | 同步发现**新到达的未读来信**（首次同步时已存在的短信不推送），每条一帧 | `EnrichedSmsMessage` |
 | `sms:sent` | 任一入口（Web / MCP / Telegram）发送完成 | `{ source: "web" \| "mcp" \| "telegram" \| "cli", result: SmsSendResult, messages: EnrichedSmsMessage[] }` |
-| `sms:updated` | 标记已读或删除完成 | `{ action: "read" \| "deleted", uids: string[] }` |
+| `sms:updated` | 标记已读、删除（移进「最近删除」）、恢复或彻底删除完成 | `{ action: "read" \| "deleted" \| "restored" \| "purged", uids: string[], expired?: true }`（`restored` / `purged` 为 v1.8.0；`expired: true` 表示超过保留天数自动清理，而不是有人操作） |
 | `sms:sync` | 每次增量或全量同步完成 | `SmsSyncSummary` |
 | `sms:status` | 计数、同步状态或镜像发生变化 | `SmsStatusSnapshot` |
 | `contacts:updated` | 联系人新增、修改、删除或 vCard 导入 | `{ total: number }` |
@@ -1474,7 +1484,7 @@ export interface McpToolErrorPayload {
 | `sync_sms` | `mode?: "full" \| "incremental"` | 通过共享调度器同步（真人在线时让位） |
 | `send_sms` | `phone`、`content`、`countryCode?`、`confirm: true` | **单收件人**；`known` 策略下仅限主人保存的联系人（Web 控制台、Telegram 或 vCard 导入）或曾发过短信的号码（只给我们发过短信的号码不算；智能体经 `upsert_contact` 新建的联系人也不算，主人保存后才算）；超长（>4 段）或号码非法时不占用每小时额度；未把短信交给 CPE 的尝试都会退还额度（校验失败、真人让位、另一守护进程领先、队列已满或停机、断路器熔断、未验证型号的写闸门、尚未连接路由器、CPE 以错误码拒绝）；只有传输层故障（`send-sms` 可能已到达 CPE）计入额度；CPE 报告失败时返回 `isError: true` 的 `SMS_SEND_FAILED`（附 `result`），该次尝试计入额度；已提交但状态未确认时为成功结果且 `result.timedOutWaitingStatus: true` |
 | `mark_sms_read` | `uids?: string[]`（≤50）或 `threadKey?`、`confirm: true` | `{ count, uids }` |
-| `delete_sms` | `uids: string[]`（≤20）、`confirm: true`、`includeUnread?: boolean` | 目标含未读短信时默认拒绝（`UNREAD_PROTECTED`） |
+| `delete_sms` | `uids: string[]`（≤20）、`confirm: true`、`includeUnread?: boolean` | 目标含未读短信时默认拒绝（`UNREAD_PROTECTED`）；结果附 `trashDays`：删除的短信进主人的「最近删除」，智能体不能恢复或彻底删除（v1.8.0） |
 | `upsert_contact` | `phone`、`name`、`note?`、`confirm: true` | `ContactRecord` |
 
 ### 4.5 访问控制工具（v1.1.0，`MCP_ALLOW_ACCESS_CONTROL` 默认关闭）
@@ -1542,7 +1552,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 | 侧栏筛选「全部 / 未读 / 验证码」+ 搜索框 | `GET /api/archive/threads?filter&search` | `GET /api/sms/threads?filter&search&limit` | 返回 `{ threads, status }`；国家列表改由 `GET /api/sms/countries` 获取 |
 | 会话详情（标题、国旗、联系人备注、记录数） | `GET /api/archive/thread?key=` | `GET /api/sms/thread?key=` | 消息以 `uid` 标识，`index` 仅供参考 |
 | 「标记已读 · N」按钮 | `POST /api/read { indices }` | `POST /api/sms/read { threadKey }` 或 `{ uids }` | 不再传 CPE 索引 |
-| 消息气泡删除（CPE / 本地归档二选一） | `POST /api/delete { indices, uids, deleteFromCpe, deleteFromArchive }` | `POST /api/sms/delete { uids }` | 镜像与 CPE 严格一致，删除即同时删除；没有「仅删本地」 |
+| 消息气泡删除（CPE / 本地归档二选一） | `POST /api/delete { indices, uids, deleteFromCpe, deleteFromArchive }` | `POST /api/sms/delete { uids }` | 删除即从 CPE 删除；烽燧在「最近删除」里保留副本，可恢复或彻底删除（v1.8.0）；没有「只删本地」 |
 | 会话底部快捷回复 | `POST /api/send { phone, countryCode, content }` | `POST /api/sms/send { phone, countryCode, content }` | 失败时为 `502 SMS_SEND_FAILED`；状态未确认时见第 6 节第 5 条 |
 | 「新建短信」弹窗：国家选择、号码解析预览、编码 / 分段计数 | `POST /api/sms/preview`、`POST /api/send` | `POST /api/sms/preview`、`POST /api/sms/send { phones?: string[] }` | 预览返回 `encoding.segments` 与 `withinLimit`（上限 4 段）；最多 5 个收件人 |
 | 顶部设备名、运营商与信号 | `GET /api/status` | `GET /api/telemetry` 或 SSE `telemetry` | 遥测更完整（3CA、SINR 等） |

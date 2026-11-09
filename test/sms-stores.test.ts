@@ -196,6 +196,72 @@ describe("SmsMirrorStore: CPE mirror, notification cursor and thread views", () 
     assert.equal(mirror.getMeta().seeded, true);
   });
 
+  it("keeps deleted messages in Recently deleted, restores them as FengSui's own copies a full sync leaves, and purges by age", () => {
+    const { mirror } = makeStores();
+    const a = wire({ index: 40001, phone: "+353830000001", content: "Dinner at 7?", date: "2026-11-02 18:00:00" });
+    const b = wire({ index: 40002, phone: "+353830000002", content: "Parcel at the door", date: "2026-11-02 19:00:00", smstat: "0" });
+    mirror.ingest([a, b], "full");
+    const [uidA, uidB] = [computeSmsUid(a), computeSmsUid(b)];
+    const pending = mirror.addPending("+353830000003", "On my way", "2026-11-02 20:00:00");
+
+    // Deleted: out of the threads, search and counts, into the bin with its time; a provisional send is only dropped
+    const moved = mirror.trash([uidA, pending.uid], "2026-11-03T10:00:00.000Z");
+    assert.deepEqual(moved.map((m) => m.uid).sort(), [uidA, pending.uid].sort());
+    assert.equal(mirror.get(uidA), undefined);
+    assert.deepEqual(mirror.listTrash().map((m) => [m.uid, m.deletedAtIso]), [[uidA, "2026-11-03T10:00:00.000Z"]]);
+    assert.deepEqual(mirror.findTrash([uidA, uidB]).map((m) => m.uid), [uidA]);
+    assert.deepEqual([mirror.stats().messagesTotal, mirror.stats().trashTotal], [1, 1]);
+    assert.equal(mirror.listThreads({ search: "Dinner" }).length, 0);
+    // A sync that still lists it (fetched before the delete, or a router that ignored it) does not bring it back
+    mirror.ingest([a, b], "incremental");
+    assert.equal(mirror.get(uidA), undefined);
+
+    // Restored: back in its thread, kept only in FengSui (the router copy is gone), and a full sync leaves it
+    assert.deepEqual(mirror.restore([uidA, "unknown"]).map((m) => [m.uid, m.localOnly]), [[uidA, true]]);
+    assert.equal("deletedAtIso" in (mirror.get(uidA) ?? {}), false);
+    mirror.ingest([b], "full");
+    assert.equal(mirror.get(uidA)?.localOnly, true);
+    assert.equal(mirror.listThreads({ search: "Dinner" }).length, 1);
+    assert.equal(mirror.stats().trashTotal, 0);
+    // Listed by the router again: the router's copy from now on, so a later delete reaches the router
+    mirror.ingest([a, b], "full");
+    assert.equal(mirror.get(uidA)?.localOnly, undefined);
+
+    // Purged by age (deleted before the cutoff), by uid, or all at once
+    mirror.trash([uidA], "2026-11-03T10:00:00.000Z");
+    mirror.trash([uidB], "2026-11-05T10:00:00.000Z");
+    assert.deepEqual(mirror.listTrash().map((m) => m.uid), [uidB, uidA], "newest deletion first");
+    assert.deepEqual(mirror.purgeDeletedBefore("2026-11-04T00:00:00.000Z").map((m) => m.uid), [uidA]);
+    assert.deepEqual(mirror.purge([uidB, "unknown"]).map((m) => m.uid), [uidB]);
+    mirror.ingest([a], "incremental");
+    mirror.trash([uidA], "2026-11-06T10:00:00.000Z");
+    assert.deepEqual(mirror.purgeAll().map((m) => m.uid), [uidA]);
+    assert.deepEqual([mirror.stats().trashTotal, mirror.listTrash().length], [0, 0]);
+  });
+
+  it("keeps Recently deleted encrypted across a restart and drops stored entries it cannot place", async () => {
+    const { cipher, contacts, mirror } = makeStores();
+    const a = wire({ index: 40001, phone: "+353830000001", content: "Dinner at 7?", date: "2026-11-02 18:00:00" });
+    const b = wire({ index: 40002, phone: "+353830000002", content: "Parcel at the door", date: "2026-11-02 19:00:00" });
+    mirror.ingest([a, b], "full");
+    mirror.trash([computeSmsUid(a)], "2026-11-03T10:00:00.000Z");
+    mirror.trash([computeSmsUid(b)], "2026-11-03T11:00:00.000Z");
+    mirror.restore([computeSmsUid(b)]);
+    await mirror.flush();
+    const raw = fs.readFileSync(mirror.filePath, "utf8");
+    assert.ok(!raw.includes("Dinner") && !raw.includes("+353830000001"), "encrypted on disk");
+    const again = new SmsMirrorStore({ filePath: mirror.filePath, cipher, defaultCountryCode: "+353", contacts });
+    again.load();
+    assert.deepEqual(again.listTrash().map((m) => [m.content, m.deletedAtIso]), [["Dinner at 7?", "2026-11-03T10:00:00.000Z"]]);
+    assert.equal(again.get(computeSmsUid(b))?.localOnly, true);
+
+    // A stored entry without a uid or a deletion time is not guessed at
+    const junk = new SmsMirrorStore({ filePath: tmpFile("sms-junk.json"), cipher, defaultCountryCode: "+353", contacts });
+    fs.writeFileSync(junk.filePath, cipher.serializeJson({ version: 1, messages: [], notified: [], trash: [{ uid: "x" }, { deletedAtIso: "2026-11-03T10:00:00.000Z" }, null, { ...again.listTrash()[0] }] }));
+    junk.load();
+    assert.deepEqual(junk.listTrash().map((m) => m.content), ["Dinner at 7?"]);
+  });
+
   it("groups threads across number spellings with filters, search, contact names and brand hints", () => {
     const { mirror, contacts } = makeStores();
     contacts.upsert({ phone: "0830000001", name: "Aoife", note: "neighbour" });
@@ -235,7 +301,7 @@ describe("SmsMirrorStore: CPE mirror, notification cursor and thread views", () 
     assert.equal(mirror.getThread("alpha:demobank").messages.length, 1);
     assert.equal(mirror.getThread("+353830000099").messages.length, 0);
 
-    assert.deepEqual(mirror.stats(), { messagesTotal: 4, unreadTotal: 2, threadsTotal: 3 });
+    assert.deepEqual(mirror.stats(), { messagesTotal: 4, unreadTotal: 2, threadsTotal: 3, trashTotal: 0 });
   });
 
   it("persists encrypted (no plaintext bodies or numbers on disk) and archives unreadable files on key change", async () => {

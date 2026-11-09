@@ -28,6 +28,12 @@ export function daysAgo(datePart: string, now: Date = new Date()): number {
   return Math.round((today - then) / 86_400_000);
 }
 
+/** Whole days a message in Recently deleted has left before it is deleted for good (0: within a day). */
+export function trashDaysLeft(purgeAtIso: string, nowMs: number): number {
+  const left = Date.parse(purgeAtIso) - nowMs;
+  return Number.isFinite(left) && left > 0 ? Math.floor(left / 86_400_000) : 0;
+}
+
 /** Router `yyyy-MM-dd HH:mm:ss` (local) → epoch ms; 0 when malformed. */
 export function parseMsgTime(dateStr: string): number {
   const [d, t] = dateStr.split(" ");

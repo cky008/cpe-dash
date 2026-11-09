@@ -575,6 +575,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     smsFullSyncIntervalMs: Math.max(60_000, parseIntSafe(get("SMS_FULL_SYNC_INTERVAL_MS"), 30 * 60_000)),
     smsSeedExistingOnStart: parseBool(get("SMS_SEED_EXISTING_ON_START"), true),
     smsAutoMarkRead: parseBool(get("SMS_AUTO_MARK_READ"), false),
+    smsTrashRetentionDays: Math.min(365, Math.max(0, parseIntSafe(get("SMS_TRASH_RETENTION_DAYS"), 30))),
     smsSendStatusTimeoutMs: Math.min(120_000, Math.max(5000, parseIntSafe(get("SMS_SEND_STATUS_TIMEOUT_MS"), 45_000))),
     telegramBotToken: get("TELEGRAM_BOT_TOKEN") ?? "",
     telegramChatIds,

@@ -48,7 +48,7 @@ cpe-dash/
 │   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
 │   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
-│   ├── sms/                # 短信：编解码、号码解析、协议、加密镜像、通讯录、应用服务、REST 路由与 MCP 工具
+│   ├── sms/                # 短信：编解码、号码解析、协议、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具
 │   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
 │   ├── control-input.ts    # REST、MCP 与在线演示共用的入参校验（零依赖；control-error.ts 为其错误类）；mcp-schema.ts 工具 inputSchema 运行时校验

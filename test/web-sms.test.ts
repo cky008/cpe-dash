@@ -1,18 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SmsSendResult } from "../src/api-contract.ts";
-import {
-  classifySendError,
-  classifySendResult,
-  daysAgo,
-  formatDayLabel,
-  formatShortTime,
-  initialsOf,
-  isLikelyContactNameQuery,
-  linkifySegments,
-  parseMsgTime,
-  threadGroup,
-} from "../web/src/core/sms.ts";
+import { classifySendError, classifySendResult, daysAgo, formatDayLabel, formatShortTime, initialsOf, isLikelyContactNameQuery, linkifySegments, parseMsgTime, threadGroup, trashDaysLeft } from "../web/src/core/sms.ts";
 
 const NOW = new Date(2026, 9, 31, 12, 0, 0); // local time, Saturday 2026-10-31 12:00
 
@@ -71,6 +60,14 @@ describe("web core: SMS presentation and send outcomes", () => {
     assert.equal(isLikelyContactNameQuery("083 000 0001"), false);
     assert.equal(isLikelyContactNameQuery("0830000001"), false);
     assert.equal(isLikelyContactNameQuery(""), false);
+  });
+
+  it("counts the whole days a deleted message has left, never below zero", () => {
+    const now = Date.parse("2026-11-03T10:00:00.000Z");
+    assert.equal(trashDaysLeft("2026-12-03T10:00:00.000Z", now), 30);
+    assert.equal(trashDaysLeft("2026-11-04T09:00:00.000Z", now), 0, "under a day: today");
+    assert.equal(trashDaysLeft("2026-11-01T10:00:00.000Z", now), 0);
+    assert.equal(trashDaysLeft("not a date", now), 0);
   });
 
   it("never reports an accepted-but-unconfirmed send as a failure", () => {

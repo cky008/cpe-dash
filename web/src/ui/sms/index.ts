@@ -14,6 +14,7 @@ import { emptyState, unavailableState } from "../widgets.ts";
 import { openCompose } from "./compose.ts";
 import { openContacts } from "./contacts.ts";
 import { sendAndReport } from "./send.ts";
+import { openTrash } from "./trash.ts";
 import { SMS_SCOPE, type SendNotice, type SmsShared, avatar, copyOtp, countryName, isBrandSender, messageBody, otpChip, senderTitle, shownNumber } from "./shared.ts";
 
 const FILTERS: ReadonlyArray<{ id: ThreadFilter; key: MessageKey; icon: string; cls: string; empty: MessageKey }> = [
@@ -73,6 +74,15 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   const listTitleIcon = h("span", { class: "text-[1.35rem]" });
   const listCount = h("span", { class: "ml-auto text-sm muted num" });
   const privacySlot = h("span");
+  // Phones have no sidebar: Recently deleted opens from the list header
+  const trashCount = h("span", { class: "text-[10px] num" });
+  const trashButton = h(
+    "button",
+    { class: "btn btn-ghost btn-xs rounded-lg gap-1 md:hidden", title: ctx.t("sms.trash"), attrs: { type: "button", "aria-label": ctx.t("sms.trash") }, data: { smsTrash: "header" } },
+    icon("trash", "text-sm"),
+    trashCount
+  );
+  trashButton.addEventListener("click", () => openTrash(ctx, shared));
   const mobileFilters = h("div", { class: "fs-seg md:hidden w-full" });
   const threadList = h("div", { class: "flex-1 overflow-y-auto px-2.5 pb-28" });
   /** A model FengSui was not verified on is read-only: messages are shown, never sent, marked or deleted. */
@@ -83,7 +93,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   const listHeader = h(
     "header",
     { class: "px-4 pt-5 pb-3 space-y-3 shrink-0" },
-    h("div", { class: "flex items-center gap-2.5" }, listTitleIcon, listTitle, listCount, privacySlot),
+    h("div", { class: "flex items-center gap-2.5" }, listTitleIcon, listTitle, listCount, trashButton, privacySlot),
     h("label", { class: "field-soft" }, icon("search"), searchInput, h("kbd", { class: "kbd kbd-xs hidden md:inline-flex opacity-60" }, "/")),
     mobileFilters
   );
@@ -171,6 +181,10 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   // ── Sidebar ────────────────────────────────────────────────────────────────
   const renderSidebar = (): void => {
     const status = ctx.store.state.sms;
+    const trashTotal = status?.mirror.trashTotal ?? 0;
+    trashCount.textContent = trashTotal > 0 ? String(trashTotal) : "";
+    trashButton.title = ctx.t("sms.trash");
+    trashButton.setAttribute("aria-label", ctx.t("sms.trash"));
     const counters = status?.counters;
     const used = counters ? counters.localInbox + counters.localOutbox + counters.localDraft : 0;
     const pct = counters && counters.localMax > 0 ? Math.min(100, (used / counters.localMax) * 100) : 0;
@@ -195,6 +209,13 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
         icon("contacts", "text-secondary"),
         ctx.t("sms.contacts"),
         h("span", { class: "count" }, shared.contacts.length > 0 ? String(shared.contacts.length) : "")
+      ),
+      h(
+        "button",
+        { class: "nav-item", attrs: { type: "button" }, data: { smsTrash: "nav" }, on: { click: () => openTrash(ctx, shared) } },
+        icon("trash", "text-base-content/50"),
+        ctx.t("sms.trash"),
+        h("span", { class: "count" }, trashTotal > 0 ? String(trashTotal) : "")
       ),
       h("div", { class: "flex-1" }),
       h(
@@ -380,16 +401,18 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   };
 
   const deleteMessage = async (message: EnrichedSmsMessage): Promise<void> => {
+    const days = ctx.store.state.sms?.trashDays ?? 30;
+    const where = days > 0 ? ctx.t("chat.delete_body", { days }) : ctx.t("chat.delete_body_final");
     const ok = await ctx.confirm({
       title: ctx.t("chat.delete_title"),
-      body: message.isUnread ? [ctx.t("chat.delete_body"), ctx.t("chat.delete_unread")] : [ctx.t("chat.delete_body")],
+      body: message.isUnread ? [where, ctx.t("chat.delete_unread")] : [where],
       confirmLabel: ctx.t("chat.delete"),
       tone: "error",
     });
     if (!ok) return;
     try {
-      await ctx.api.smsDelete([message.uid]);
-      ctx.toast(ctx.t("toast.deleted"), "success");
+      const res = await ctx.api.smsDelete([message.uid]);
+      ctx.toast(ctx.t(res.trashDays > 0 ? "toast.deleted_to_trash" : "toast.deleted"), "success");
       await reload();
     } catch (err) {
       ctx.toast(ctx.describeError(err), "error");
@@ -462,7 +485,8 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
       const meta: Array<string | HTMLElement> = [m.date.split(" ")[1]?.slice(0, 5) ?? ""];
       if (m.isUnread) meta.push(h("span", { class: "text-primary font-medium" }, ctx.t("chat.unread")));
       if (m.pending) meta.push(h("span", { class: "text-warning font-medium" }, ctx.t("chat.pending")));
-      const showMeta = !sameAsNext || m.isUnread || Boolean(m.pending) || Boolean(m.verificationCode);
+      if (m.localOnly) meta.push(h("span", { class: "faint", title: ctx.t("chat.local_only_hint") }, ctx.t("chat.local_only")));
+      const showMeta = !sameAsNext || m.isUnread || Boolean(m.pending) || Boolean(m.localOnly) || Boolean(m.verificationCode);
       const del = h(
         "button",
         { class: "reveal-on-hover btn btn-ghost btn-xs btn-circle faint hover:text-error shrink-0", title: ctx.t("chat.delete"), attrs: { type: "button", "aria-label": ctx.t("chat.delete") } },

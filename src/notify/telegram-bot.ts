@@ -171,6 +171,8 @@ const TEXT = {
     btn_chat: "💬 对话",
     btn_delete: "🗑 删除",
     btn_delete_confirm: "⚠️ 确认删除",
+    deleted_to_trash: "已删除：在烽燧的「最近删除」里保留 {days} 天，可以恢复",
+    deleted_for_good: "已彻底删除",
     btn_cancel: "✖ 取消",
     btn_new: "✍️ 发短信",
     btn_prev: "◀ 上一页",
@@ -276,6 +278,8 @@ const TEXT = {
     btn_chat: "💬 Thread",
     btn_delete: "🗑 Delete",
     btn_delete_confirm: "⚠️ Confirm delete",
+    deleted_to_trash: "Deleted: FengSui keeps it in Recently deleted for {days} days, where it can be restored",
+    deleted_for_good: "Deleted for good",
     btn_cancel: "✖ Cancel",
     btn_new: "✍️ New SMS",
     btn_prev: "◀ Prev",
@@ -1263,11 +1267,12 @@ export class TelegramBot implements NotificationChannel {
           }
           return;
         }
-        case "delok":
-          await sms.deleteMessages({ uids: [arg] });
-          await answer(this.#plain("btn_delete"));
+        case "delok": {
+          const { trashDays } = await sms.deleteMessages({ uids: [arg] });
+          await answer(trashDays > 0 ? this.#plain("deleted_to_trash", { days: trashDays }) : this.#plain("deleted_for_good"));
           if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
           return;
+        }
         case "delno":
           await answer(this.#plain("btn_cancel"));
           if (messageId !== undefined) await this.#clearButtons(chatId, messageId);

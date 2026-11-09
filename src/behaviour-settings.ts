@@ -31,6 +31,8 @@ export interface BehaviourValues {
   alertRsrpThresholdDbm: number;
   alertSinrThresholdDb: number;
   smsAutoMarkRead: boolean;
+  /** Days a deleted SMS stays in Recently deleted, where it can be restored; `0`: deleted for good at once. */
+  smsTrashDays: number;
   /** `+353` and the like; `""` takes the country from the SIM. */
   defaultCountryCode: string;
 }
@@ -54,6 +56,7 @@ export const BEHAVIOUR_ENV: Readonly<Record<BehaviourKey, string>> = {
   alertRsrpThresholdDbm: "ALERT_RSRP_THRESHOLD_DBM",
   alertSinrThresholdDb: "ALERT_SINR_THRESHOLD_DB",
   smsAutoMarkRead: "SMS_AUTO_MARK_READ",
+  smsTrashDays: "SMS_TRASH_RETENTION_DAYS",
   defaultCountryCode: "DEFAULT_COUNTRY_CODE",
 };
 
@@ -75,10 +78,12 @@ export const DEFAULT_BEHAVIOUR: Readonly<BehaviourValues> = {
   alertRsrpThresholdDbm: -110,
   alertSinrThresholdDb: 0,
   smsAutoMarkRead: false,
+  smsTrashDays: 30,
   defaultCountryCode: "",
 };
 
 export const SMS_SEND_LIMIT_MAX = 1000;
+export const SMS_TRASH_DAYS = { min: 0, max: 365 } as const;
 export const LOCK_ROLLBACK_MIN = { min: 3, max: 1440 } as const;
 export const WAN_RECONNECT_MIN = { min: 1, max: 1440 } as const;
 /** 3GPP TS 36.133 reports RSRP from -140 to -44 dBm. */
@@ -101,6 +106,7 @@ export function behaviourFromConfig(config: {
   alertRsrpThresholdDbm: number;
   alertSinrThresholdDb: number;
   smsAutoMarkRead: boolean;
+  smsTrashRetentionDays: number;
   defaultCountryCode: string;
 }): BehaviourValues {
   return {
@@ -118,6 +124,7 @@ export function behaviourFromConfig(config: {
     alertRsrpThresholdDbm: config.alertRsrpThresholdDbm,
     alertSinrThresholdDb: config.alertSinrThresholdDb,
     smsAutoMarkRead: config.smsAutoMarkRead,
+    smsTrashDays: config.smsTrashRetentionDays,
     defaultCountryCode: config.defaultCountryCode,
   };
 }
@@ -212,6 +219,8 @@ function readValue(key: BehaviourKey, raw: unknown): BehaviourValues[BehaviourKe
       return readInteger(key, raw, RSRP_THRESHOLD.min, RSRP_THRESHOLD.max);
     case "alertSinrThresholdDb":
       return readInteger(key, raw, SINR_THRESHOLD.min, SINR_THRESHOLD.max);
+    case "smsTrashDays":
+      return readInteger(key, raw, SMS_TRASH_DAYS.min, SMS_TRASH_DAYS.max);
     case "defaultCountryCode":
       return readCountryCode(raw);
   }

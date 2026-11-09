@@ -31,7 +31,19 @@ Click "New message", select a country, enter a phone number or contact name, and
 
 ## Mark as read and delete
 
-Within a thread, you can mark messages as read or delete them. Deleting **removes the message from both the router and local storage**. With "Mark read on the router after forwarding" on under Settings → General (`SMS_AUTO_MARK_READ=true` in `.env`), newly forwarded messages are automatically marked as read on the router.
+Within a thread, you can mark messages as read or delete them. With "Mark read on the router after forwarding" on under Settings → General (`SMS_AUTO_MARK_READ=true` in `.env`), newly forwarded messages are automatically marked as read on the router.
+
+<a id="trash"></a>
+
+### Recently deleted
+
+Deleting a message removes it from the router at once (the router's SMS storage is small), but FengSui keeps it encrypted in Recently deleted for a while (30 days by default), in case you deleted it by mistake. Open it from the left of the SMS centre (on a phone, the bin icon at the top of the list):
+
+- **Restore**: the message goes back to its conversation. The router's copy is already gone, so a restored message is kept only in FengSui and is marked "Kept only in FengSui".
+- **Delete for good**: one message, or all of them with "Delete all for good". This cannot be undone.
+- **Expiry**: what stays longer than the set number of days is deleted for good automatically. Change the days under Settings → General → SMS (`SMS_TRASH_RETENTION_DAYS` in `.env`, `0` to `365`); `0` keeps nothing, so a delete is final at once. A shorter time clears what is already older at once.
+
+Messages deleted from Telegram, with a token or by an AI agent go to Recently deleted too. Only a signed-in web console can delete for good or empty it, never a token or an agent, so a mistaken delete, or one that a message's text talked an agent into, can always be undone.
 
 ## Contacts
 
@@ -43,6 +55,6 @@ While someone is logged in to the router's own web page, send, mark as read, and
 
 ## Where SMS messages are stored
 
-SMS messages and contacts are encrypted with your `DATA_ENCRYPTION_KEY` and saved in `data/sms.json` and `data/contacts.json`. Each message is identified by a random ID containing no phone numbers. When router SMS storage fills up, FengSui triggers `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL` alerts to remind you to clean up.
+SMS messages (those in Recently deleted too) and contacts are encrypted with your `DATA_ENCRYPTION_KEY` and saved in `data/sms.json` and `data/contacts.json`. Each message is identified by a random ID containing no phone numbers. When router SMS storage fills up, FengSui triggers `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL` alerts to remind you to clean up.
 
 To send and receive SMS messages in Telegram, see [Alerts and notifications](notifications.md); to let AI agents read messages, see [AI agents (MCP)](agents.md).

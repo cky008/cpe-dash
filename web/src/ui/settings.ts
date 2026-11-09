@@ -9,7 +9,17 @@ import type {
   WriteFeature,
 } from "../../../src/api-contract.ts";
 import type { AuditEntry } from "../../../src/audit-log.ts";
-import { type BehaviourKey, type BehaviourOverrides, type BehaviourValues, LOCK_ROLLBACK_MIN, RSRP_THRESHOLD, SINR_THRESHOLD, SMS_SEND_LIMIT_MAX, WAN_RECONNECT_MIN } from "../../../src/behaviour-settings.ts";
+import {
+  type BehaviourKey,
+  type BehaviourOverrides,
+  type BehaviourValues,
+  LOCK_ROLLBACK_MIN,
+  RSRP_THRESHOLD,
+  SINR_THRESHOLD,
+  SMS_SEND_LIMIT_MAX,
+  SMS_TRASH_DAYS,
+  WAN_RECONNECT_MIN,
+} from "../../../src/behaviour-settings.ts";
 import { TOKEN_LIFETIMES_DAYS, TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
@@ -81,7 +91,7 @@ const PERMISSION_TEXT: Readonly<Record<TokenPermission, { label: SettingsTextKey
   access: { label: "perm_access", badge: "badge_access" },
   "sms-write": { label: "perm_sms_write", badge: "badge_sms_write" },
 };
-type NumberSetting = "lockRollbackAfterMin" | "wanReconnectAfterMin" | "alertRsrpThresholdDbm" | "alertSinrThresholdDb" | "agentSmsSendLimitPerHour";
+type NumberSetting = "lockRollbackAfterMin" | "wanReconnectAfterMin" | "alertRsrpThresholdDbm" | "alertSinrThresholdDb" | "agentSmsSendLimitPerHour" | "smsTrashDays";
 /**
  * Tab labels follow the dialog's own width (a container query): the labelled row needs about 46rem
  * in English and 40rem in Chinese; below that the tabs show icons and the current tab's name.
@@ -1007,7 +1017,12 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         numberRow("alertRsrpThresholdDbm", t("rsrp_threshold"), t("rsrp_threshold_note"), RSRP_THRESHOLD, "dBm"),
         numberRow("alertSinrThresholdDb", t("sinr_threshold"), t("sinr_threshold_note"), SINR_THRESHOLD, "dB")
       ),
-      group(t("sec_sms"), choiceRow("smsAutoMarkRead", t("sms_auto_read"), t("sms_auto_read_note"), onOff()), countryRow())
+      group(
+        t("sec_sms"),
+        choiceRow("smsAutoMarkRead", t("sms_auto_read"), t("sms_auto_read_note"), onOff()),
+        numberRow("smsTrashDays", t("sms_trash_days"), t("sms_trash_days_note"), { min: 1, max: SMS_TRASH_DAYS.max }, t("unit_days"), true),
+        countryRow()
+      )
     );
   };
 

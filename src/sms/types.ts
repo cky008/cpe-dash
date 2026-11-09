@@ -36,6 +36,13 @@ export interface SmsMessageRecord extends SmsWireMessage {
   verificationCode: string | null;
   /** Provisional outgoing record kept only until the router copy is read back. */
   pending?: true;
+  /** Restored from Recently deleted: its router copy was deleted, so only FengSui keeps it (a full sync leaves it). */
+  localOnly?: true;
+}
+
+/** A message in Recently deleted: kept encrypted in FengSui after its router copy was deleted. */
+export interface SmsTrashRecord extends SmsMessageRecord {
+  deletedAtIso: string;
 }
 
 /** `GET /api/sms/sms-count` counters (piggybacked on the telemetry session). */
@@ -117,6 +124,13 @@ export interface EnrichedSmsMessage extends SmsMessageRecord {
   threadKey: string;
   sender: SenderInfo;
   contact: ContactBrief | null;
+}
+
+/** A message in Recently deleted as the console lists it. */
+export interface DeletedSmsMessage extends EnrichedSmsMessage {
+  deletedAtIso: string;
+  /** When it is deleted for good, at the retention now in force. */
+  purgeAtIso: string;
 }
 
 export interface SmsThreadSummary {

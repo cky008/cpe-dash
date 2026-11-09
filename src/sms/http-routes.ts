@@ -6,12 +6,15 @@ import type {
   SmsCountriesResponse,
   SmsDeleteResponse,
   SmsPreviewResponse,
+  SmsPurgeResponse,
   SmsReadResponse,
+  SmsRestoreResponse,
   SmsSendResponse,
   SmsStatusResponse,
   SmsSyncResponse,
   SmsThreadResponse,
   SmsThreadsResponse,
+  SmsTrashResponse,
   VcardImportResponse,
 } from "../api-contract.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
@@ -112,6 +115,9 @@ export class SmsHttpRoutes {
         ctx.sendJson(200, { ok: true, total: this.sms.contacts.size, contacts } satisfies SmsContactsResponse);
         return true;
       }
+      case "/api/sms/trash":
+        ctx.sendJson(200, { ok: true, messages: this.sms.listTrash(), trashDays: this.sms.trashDays } satisfies SmsTrashResponse);
+        return true;
       default:
         return false;
     }
@@ -164,6 +170,20 @@ export class SmsHttpRoutes {
         const body = await ctx.readJsonBody();
         const result = await this.sms.deleteMessages({ uids: stringArray(body, "uids", 200) ?? [] });
         ctx.sendJson(200, { ok: true, ...result } satisfies SmsDeleteResponse);
+        return true;
+      }
+      case "/api/sms/trash/restore": {
+        const body = await ctx.readJsonBody();
+        const result = await this.sms.restoreMessages({ uids: stringArray(body, "uids", 200) ?? [] });
+        ctx.sendJson(200, { ok: true, ...result } satisfies SmsRestoreResponse);
+        return true;
+      }
+      case "/api/sms/trash/purge": {
+        // A console session only (the server refuses tokens before this)
+        const body = await ctx.readJsonBody();
+        if (body["all"] !== undefined && body["all"] !== true) throw new CpeControlValidationError('Field "all" must be true when given');
+        const result = this.sms.purgeTrash(body["all"] === true ? { all: true } : { uids: stringArray(body, "uids", 200) ?? [] });
+        ctx.sendJson(200, { ok: true, ...result } satisfies SmsPurgeResponse);
         return true;
       }
       case "/api/sms/sync": {

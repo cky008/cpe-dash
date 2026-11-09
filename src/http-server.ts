@@ -116,6 +116,9 @@ const ACCESS_CONTROL_ROUTES = ["/api/control/wifi-access", "/api/control/wifi-ma
  * sessions above), `sms-read` / `sms-write` under `/api/sms`, `access` for device access, `control` for
  * the router's other controls, and every permission for any other change.
  */
+/** Deleting SMS for good from Recently deleted: a console session only. */
+const SMS_PURGE_ROUTE = "/api/sms/trash/purge";
+
 export function permissionForRoute(method: string, pathname: string): TokenPermission | "all" | null {
   const reading = method === "GET" || method === "HEAD";
   if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
@@ -724,6 +727,16 @@ export class FengSuiHttpServer {
     // Enforce CSRF validation on ALL Cookie-authenticated state mutations
     if (session && method !== "GET" && method !== "HEAD" && !this.#auth.validateCsrf(req, rawHost, isHttps)) {
       this.#sendJson(res, 403, { ok: false, errorCode: "CSRF_REJECTED", message: t(locale, "auth.csrf_rejected") });
+      return;
+    }
+
+    // Recently deleted is the owner's safety net: tokens (scripts, agents) may fill it and restore from it, never empty it
+    if (identity && pathname === SMS_PURGE_ROUTE) {
+      this.#sendJson(res, 403, {
+        ok: false,
+        errorCode: "CONSOLE_ONLY",
+        message: "Messages are deleted for good only from a signed-in web console, not with a Bearer token",
+      } satisfies ApiErrorEnvelope);
       return;
     }
 
