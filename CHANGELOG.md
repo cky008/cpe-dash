@@ -31,6 +31,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **What a group in `TELEGRAM_CHAT_IDS` may do.** The configuration and notification pages now say that every member of a group listed there can read SMS and codes, send SMS and run commands, while a group paired with a group code obeys only the person who paired it.
 - **The fix for a file stored without encryption works as written.** The backup page said to run `rekey` with `docker exec` while FengSui was running, which `rekey` refuses (the daemon must be stopped), and to type the key on the command line. It now stops the daemon and runs `rekey --plaintext`, which needs no key.
 
+### Container and CI
+- **The image states its licence.** Release images were labelled `org.opencontainers.image.licenses=NOASSERTION`, because the build took GitHub's "Other" over the Dockerfile's label; they now carry `PolyForm-Noncommercial-1.0.0`, so licence scanners see that commercial use is not allowed.
+
 ### Upgrading
 - Run `docker exec cpe-dash node dist/cli.js doctor` before upgrading. A file it reports as "stored without encryption" is moved aside at the first start of this version: encrypt it first, with the daemon stopped, by `docker compose run --rm cpe-dash node dist/cli.js rekey --plaintext` (the same command also brings it back afterwards).
 - Running FengSui on more than one host with `PEER_DISCOVERY_ENABLED=true`: each host's beacon key now comes from the router password saved in its console instead of `CPE_PASSWORD` in `.env`, so the hosts recognise each other once they have saved the same router password.

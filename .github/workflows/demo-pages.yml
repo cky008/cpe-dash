@@ -2,9 +2,9 @@ name: Demo site
 
 # Publishes the static demo (npm run build:demo: the web console with an in-page backend and a
 # seed recorded from the real daemon on the mock router) to the public cky008/fengsui-demo
-# repository's gh-pages branch, which GitHub Pages serves. Only built files leave this private
-# repository. Needs the DEMO_DEPLOY_KEY secret (a deploy key with write access to that one
-# repository) and, for the custom domain, the DEMO_DOMAIN variable (kept out of the source tree).
+# repository's gh-pages branch, which GitHub Pages serves. Only built files go there. Needs the
+# DEMO_DEPLOY_KEY secret (a deploy key with write access to that one repository) and, for the
+# custom domain, the DEMO_DOMAIN variable (kept out of the source tree).
 on:
   push:
     tags: ["v*"]
