@@ -23,6 +23,10 @@ const CONTROL_ROLES: ReadonlySet<string> = new Set(["button", "checkbox", "switc
 const visible = (id: string): string => `!document.getElementById(${JSON.stringify(id)}).classList.contains('hidden')`;
 const isOpen = (id: string): string => `document.getElementById(${JSON.stringify(id)}).open === true`;
 
+const UNSAFE_IN_CODE: Readonly<Record<string, string>> = { "<": "\\u003C", ">": "\\u003E", "/": "\\u002F", "\u2028": "\\u2028", "\u2029": "\\u2029" };
+/** A string as a JS literal inside a page expression: JSON, plus escapes for what JSON leaves raw (CodeQL js/bad-code-sanitization). */
+const literal = (value: string): string => JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, (c) => UNSAFE_IN_CODE[c] ?? c);
+
 async function world(opts: { scenario?: "unverified"; telegram?: boolean } = {}): Promise<DemoDaemon> {
   const demo = await startDemoDaemon({ port: 0, token: TOKEN, ...opts });
   if (opts.scenario === "unverified") await demo.stack.monitor.identifyDevice();
@@ -233,7 +237,7 @@ describe("the console in a browser", () => {
 
     // The agents' master switch, then a window typed on the General tab
     const pick = (key: string, value: string): string =>
-      `(() => { const s = document.querySelector('#settingsDialog select[data-setting="${key}"]'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change')); return true; })()`;
+      `(() => { const s = document.querySelector(${literal(`#settingsDialog select[data-setting="${key}"]`)}); s.value = ${literal(value)}; s.dispatchEvent(new Event('change')); return true; })()`;
     await page.evaluate(pick("agentWrites", "0"));
     await page.waitUntil(`document.querySelector('#settingsDialog select[data-setting="agentWrites"]')?.value === '0' && !document.querySelector('#settingsDialog select[data-setting="agentWrites"]').disabled`, "the switch saved");
     assert.equal(d.stack.settings.behaviourOverrides.agentWrites, true);
@@ -436,6 +440,7 @@ describe("the console in a browser", () => {
     const d = live();
     await signIn(page, d);
     await page.click('[data-view="sms"]');
+    await page.waitUntil(`document.querySelector('#smsListPane [data-thread-key^="+"]') !== null`, "the conversations");
     await page.click('#smsListPane [data-thread-key^="+"]');
     await page.waitUntil("document.querySelectorAll('#smsChatPane .bubble').length > 0", "the conversation");
     const bubbles = await page.evaluate<number>("document.querySelectorAll('#smsChatPane .bubble').length");
