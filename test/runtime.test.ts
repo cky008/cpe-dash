@@ -927,6 +927,22 @@ describe("Device access control through the daemon (REST, MCP)", () => {
       await close();
     }
   });
+
+  it("refuses an agent's incomplete access-control call without opening a router session or writing", async () => {
+    const { cpe, mcp, close } = await startAccessStack({ MCP_ALLOW_MUTATIONS: "true", MCP_ALLOW_ACCESS_CONTROL: "true" });
+    try {
+      const call = (name: string, args: Record<string, unknown>): Promise<string> => mcp("tools/call", { name, arguments: { ...args, confirm: true } });
+      const writes = (): number => cpe.stats.requests.filter((r) => r.method === "POST" && !r.path.startsWith("/api/user/")).length;
+      const before = { logins: cpe.stats.challengeCalls, writes: writes() };
+      assert.match(await call("set_wifi_mac_filter", {}), /VALIDATION_ERROR/, "nothing to change: no rewrite of the current list");
+      assert.match(await call("manage_internet_time_rule", { action: "delete" }), /VALIDATION_ERROR/);
+      assert.match(await call("manage_internet_time_rule", { action: "create", ipv4Address: "192.168.8.30" }), /VALIDATION_ERROR/);
+      assert.equal(cpe.stats.challengeCalls, before.logins, "refused before any router session");
+      assert.equal(writes(), before.writes);
+    } finally {
+      await close();
+    }
+  });
 });
 
 describe("Read-only Bearer token (API_TOKEN_READONLY)", () => {

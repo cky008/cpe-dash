@@ -154,14 +154,16 @@ export class AccessControlMcpTools implements McpToolProvider {
       case "set_wifi_mac_filter": {
         const mode = args["mode"];
         const list = (key: string) => this.#macList(args[key]).map((macAddress) => ({ macAddress, name: this.#nameOf(macAddress) }));
-        const result =
-          mode === "off" || mode === "allow" || mode === "deny"
-            ? await controls.setWifiAccess(
-                args["macAddresses"] === undefined ? { kind: "mode", mode } : { kind: "mode", mode, entries: list("macAddresses") },
-                ctx
-              )
-            : await controls.setWifiAccess({ kind: "entries", add: list("add"), remove: this.#macList(args["remove"]) }, ctx);
-        return this.#result(result);
+        if (mode === "off" || mode === "allow" || mode === "deny") {
+          return this.#result(
+            await controls.setWifiAccess(args["macAddresses"] === undefined ? { kind: "mode", mode } : { kind: "mode", mode, entries: list("macAddresses") }, ctx)
+          );
+        }
+        const add = list("add");
+        const remove = this.#macList(args["remove"]);
+        // As REST: nothing to change is refused here, not written back to the router unchanged
+        if (add.length === 0 && remove.length === 0) throw new CpeControlValidationError('Specify "mode", or "add" / "remove" entries');
+        return this.#result(await controls.setWifiAccess({ kind: "entries", add, remove }, ctx));
       }
       case "manage_internet_time_rule":
         return this.#result(await controls.manageTimeRule(this.#timeRuleChange(args), ctx));
@@ -205,15 +207,17 @@ export class AccessControlMcpTools implements McpToolProvider {
     throw new CpeControlValidationError('Specify "macAddress" or "ipv4Address"');
   }
 
+  /** Checked as REST checks it, before anything is queued: a missing value is refused, never sent as "". */
   #timeRuleChange(args: Record<string, unknown>): TimeRuleChange {
     const action = args["action"];
-    const id = typeof args["id"] === "string" ? args["id"] : "";
-    if (action === "delete") return { kind: "delete", id };
-    const device = this.#device(args);
     const text = (key: string): string => {
       const value = args[key];
-      return typeof value === "string" ? value : "";
+      if (typeof value !== "string" || !value.trim()) throw new CpeControlValidationError(`"${key}" is required for action "${String(action)}"`);
+      return value;
     };
+    if (action === "delete") return { kind: "delete", id: text("id") };
+    const id = action === "update" ? text("id") : "";
+    const device = this.#device(args);
     const rule: TimeRuleInput = {
       ...device,
       weekMask: text("weekMask"),
