@@ -82,7 +82,7 @@ order: 14
 | 设置 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | 空 | Telegram 机器人令牌（找 `@BotFather` 创建） |
-| `TELEGRAM_CHAT_IDS` | 空 | 预先授权的聊天 ID（逗号分隔）。一般用绑定码，不需要填 |
+| `TELEGRAM_CHAT_IDS` | 空 | 预先授权的聊天 ID（逗号分隔）。一般用绑定码，不需要填。写在这里的群，每个成员都能使用机器人：看短信和验证码、发短信、执行命令。想在群里只让你自己操作，改用群组绑定码 |
 | `TELEGRAM_API_BASE` | `https://api.telegram.org` | 自建 Bot API 时改成你的地址 |
 | `TELEGRAM_STATE_FILE` | `data/telegram.json` | 加密的 Telegram 状态文件 |
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` | 空 | 新短信和告警的推送地址，以及签名密钥 |

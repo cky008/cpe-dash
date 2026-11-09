@@ -82,7 +82,7 @@ These settings are imported only on the **first startup**. After that, values in
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | Empty | Telegram bot token (created with `@BotFather`) |
-| `TELEGRAM_CHAT_IDS` | Empty | Pre-authorized chat IDs (comma-separated). You typically pair chats using pairing codes, so you can leave this blank |
+| `TELEGRAM_CHAT_IDS` | Empty | Pre-authorized chat IDs (comma-separated). You typically pair chats using pairing codes, so you can leave this blank. Every member of a group listed here can use the bot: read SMS and verification codes, send SMS and run commands. To let only yourself act in a group, pair it with a group pairing code instead |
 | `TELEGRAM_API_BASE` | `https://api.telegram.org` | Custom Bot API address if self-hosting |
 | `TELEGRAM_STATE_FILE` | `data/telegram.json` | Encrypted Telegram state file |
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` | Empty | Endpoint URL for pushing new SMS messages and alerts, and signature secret |

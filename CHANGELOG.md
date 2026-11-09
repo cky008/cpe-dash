@@ -21,6 +21,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **Console settings and the audit log are reported when they cannot be decrypted at startup.** A store that cannot be decrypted (after a mistyped `DATA_ENCRYPTION_KEY`, say) is moved aside, logged and raised as the critical `DATA_QUARANTINED` alert, but the console settings and the audit log were left out of that report, so settings moved aside looked like a fresh install asking for a setup code.
 
 ### Documentation
+- **What a group in `TELEGRAM_CHAT_IDS` may do.** The configuration and notification pages now say that every member of a group listed there can read SMS and codes, send SMS and run commands, while a group paired with a group code obeys only the person who paired it.
 - **The fix for a file stored without encryption works as written.** The backup page said to run `rekey` with `docker exec` while FengSui was running, which `rekey` refuses (the daemon must be stopped), and to type the key on the command line. It now stops the daemon and runs `rekey --plaintext`, which needs no key.
 
 ### Upgrading

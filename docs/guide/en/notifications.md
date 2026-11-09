@@ -39,7 +39,7 @@ After pairing, FengSui pushes new messages and alerts to you.
 
 ### Receive messages in a group
 
-If you want to receive notifications in a group (for example, a group with only you and your bot), generate a **group pairing code** under "Settings → Telegram". Send the command shown in the console to the group under your own account (do not send anonymously). All group members can view notifications, but only the person who sent the pairing command can run actions in the group. If you send the command inside a topic, notifications go to that topic; if the topic is deleted, notifications fall back to the general topic automatically.
+If you want to receive notifications in a group (for example, a group with only you and your bot), generate a **group pairing code** under "Settings → Telegram". Send the command shown in the console to the group under your own account (do not send anonymously). All group members can view notifications, but only the person who sent the pairing command can run actions in the group. (A group listed in `TELEGRAM_CHAT_IDS` instead lets every member run them.) If you send the command inside a topic, notifications go to that topic; if the topic is deleted, notifications fall back to the general topic automatically.
 
 ### Actions in Telegram
 
