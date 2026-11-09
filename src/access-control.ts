@@ -170,9 +170,23 @@ function isWireless(host: TerminalHostEntry): boolean {
   return host.medium === "WIFI_2_4G" || host.medium === "WIFI_5G" || host.medium === "WIFI_OTHER";
 }
 
+/**
+ * One spelling per address: IPv4-mapped IPv6 as the IPv4 it carries, any other IPv6 in its canonical form (the URL
+ * parser writes `2001:0DB8:0:0:0:0:0:20` and `2001:db8::20` alike), so the requester is found however either side
+ * wrote it.
+ */
+function canonicalAddress(ip: string): string {
+  const plain = ip.trim().toLowerCase().replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/, "");
+  if (net.isIP(plain) !== 6) return plain;
+  try {
+    return new URL(`http://[${plain}]/`).hostname;
+  } catch {
+    return plain;
+  }
+}
+
 function sameAddress(a: string, b: string): boolean {
-  const strip = (ip: string): string => ip.trim().toLowerCase().replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/, "");
-  return strip(a) === strip(b);
+  return canonicalAddress(a) === canonicalAddress(b);
 }
 
 /**

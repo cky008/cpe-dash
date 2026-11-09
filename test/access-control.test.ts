@@ -101,6 +101,10 @@ describe("access-control: reading the router", () => {
       onlineWifiMacs: [LAPTOP, PHONE, TABLET],
     });
     assert.deepEqual(accessGuardFromHosts(hosts, "2001:DB8::20").protectedDevices.map((d) => d.reason), ["daemon-host", "requester"]);
+    // The same address written out in full, as a client or a router may: still the requester
+    assert.deepEqual(accessGuardFromHosts(hosts, "2001:0db8:0000:0000:0000:0000:0000:0020").protectedDevices.map((d) => d.reason), ["daemon-host", "requester"]);
+    const written = hosts.map((h) => (h.macAddress === LAPTOP ? { ...h, ipv6Addresses: ["2001:0DB8:0:0:0:0:0:20"] } : h));
+    assert.deepEqual(accessGuardFromHosts(written, "2001:db8::20").protectedDevices.map((d) => d.reason), ["daemon-host", "requester"]);
     assert.deepEqual(accessGuardFromHosts(hosts, "100.64.0.7").protectedDevices.map((d) => d.reason), ["daemon-host"], "a Tailscale peer is not a LAN host");
   });
 });
