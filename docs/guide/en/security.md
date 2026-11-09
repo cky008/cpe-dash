@@ -33,7 +33,7 @@ To access the console remotely, use either of the following approaches:
 ## Console password and tokens
 
 - **Console password**: Created during initial setup and updated under "Settings → Password". Only its scrypt hash is stored.
-- **Tokens**: Generated under "Settings → Tokens". They come in two varieties: "Full control" and "Read-only". You can set an expiration (1 to 365 days or never expire). Tokens are displayed only once and can be revoked at any time. Tokens cannot modify console settings.
+- **Tokens**: Generated under "Settings → Tokens". They come in two varieties: "Full access" and "Read-only". You can set an expiration (1 to 365 days or never expire). Tokens are displayed only once and can be revoked at any time. Tokens cannot modify console settings.
 - **Agents, dashboards, or scripts**: Always use read-only tokens.
 - **Forgot password?**: Run `docker exec cpe-dash node dist/cli.js reset-login` on your NAS to obtain a reset code valid for 15 minutes, or send `/reset` in a direct message with your paired Telegram bot (can be disabled under "Settings → Security"). Then click "Forgot password?" on the login page.
 

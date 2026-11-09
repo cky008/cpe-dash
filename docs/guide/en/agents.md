@@ -7,7 +7,7 @@ order: 10
 
 FengSui includes an embedded [MCP](https://modelcontextprotocol.io) server hosted at `/mcp`. AI agents can use it to inspect signal metrics, history, and SMS messages to help diagnose network problems.
 
-By default, agents are **read-only**. You must explicitly enable tools that modify the router in `.env`, and each mutating call must include a confirmation flag.
+By default, agents are **read-only**. To let one change anything, turn on the matching switch in `.env`, give it a full-access token, and have it pass a confirmation on every call; see [Turning on writes](#writes).
 
 ## Connect quickly
 
@@ -68,9 +68,35 @@ The bridge itself does not connect to the router. It forwards requests to the da
 | Router control (requires `MCP_ALLOW_MUTATIONS=true`) | `lock_band`†, `lock_cell`†, `unlock_rf_locks`†, `set_security_switches`†, `set_wifi_and_antenna`†, `reconnect_cellular`†, `reboot_cpe`† |
 | Device access management (also requires `MCP_ALLOW_ACCESS_CONTROL=true`) | `set_device_internet_access`†, `set_wifi_mac_filter`†, `manage_internet_time_rule`† |
 | SMS (`MCP_SMS_ACCESS=read`, default) | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms` |
-| SMS (`MCP_SMS_ACCESS=full`) | `send_sms`†, `mark_sms_read`†, `delete_sms`†, `upsert_contact`† |
+| SMS writes (`MCP_SMS_ACCESS=full`, also requires `MCP_ALLOW_MUTATIONS=true`) | `send_sms`†, `mark_sms_read`†, `delete_sms`†, `upsert_contact`† |
 
 † Must be called with `{ "confirm": true }`; without it the call is refused before anything reaches the router. Every write tool works this way.
+
+<a id="writes"></a>
+
+## Turning on writes
+
+Agents can only read by default. For an agent to change anything, all three conditions below must hold; if one is missing, the call is refused and nothing reaches the router.
+
+### Switches in `.env`
+
+| What the agent should be able to do | Set in `.env` |
+| :--- | :--- |
+| Lock bands or cells, unlock, router switches, Wi-Fi and antenna, reconnect, reboot | `MCP_ALLOW_MUTATIONS=true` |
+| Block or restore devices, Wi-Fi blocklist or allowlist, access schedules | `MCP_ALLOW_MUTATIONS=true` and `MCP_ALLOW_ACCESS_CONTROL=true` |
+| Send SMS, mark SMS as read, delete SMS, edit contacts | `MCP_ALLOW_MUTATIONS=true` and `MCP_SMS_ACCESS=full` |
+
+After editing `.env`, apply it with `docker compose up -d --force-recreate` (why: [Docker Compose file](docker-compose.md#apply)).
+
+### A full-access token
+
+A read-only token sees no write tools, and calling one by name is refused (`READ_ONLY_TOKEN`). Create a token with the "Full access" scope under Settings → Tokens and give it only to agents that need to make changes; keep read-only tokens for agents that only read.
+
+### `{ "confirm": true }` on every call
+
+A write call without it is refused (`CONFIRMATION_REQUIRED`). The prompt in the connection guide tells the agent to pass it only after you asked for that exact action.
+
+On models FengSui was not verified on, each write must also be turned on under Settings → Device first; see [Other Huawei models](other-routers.md).
 
 ## Security safeguards
 

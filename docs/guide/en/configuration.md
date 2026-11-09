@@ -46,7 +46,7 @@ These settings are imported only on the **first startup**. After that, values in
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | Reverse proxy IP addresses or subnets. FengSui trusts `X-Forwarded-For` and `X-Forwarded-Proto` only for requests from these addresses (see [Security and privacy](security.md#access-behind-a-reverse-proxy)) |
 | `SESSION_TTL_MS` | `86400000` | Console login session duration (24 hours) |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_AUTH_FAILURES` | `60000` / `8` | Login failure rate limiting: maximum of 8 failed attempts per minute |
-| `API_TOKEN` | Empty | Imported on the first startup only: becomes the console login password and a full-control token. Managed in the console afterward, so you can leave it blank |
+| `API_TOKEN` | Empty | Imported on the first startup only: becomes the console login password and a full-access token. Managed in the console afterward, so you can leave it blank |
 | `API_TOKEN_READONLY` | Empty | Imported on the first startup only as a read-only token. Generate new tokens under "Settings → Tokens" |
 | `STATIC_DIR` | Build output | Directory for console static files. Typically left unchanged |
 | `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | Heartbeat interval and maximum client connections for the real-time event stream |
@@ -59,7 +59,7 @@ These settings are imported only on the **first startup**. After that, values in
 | `MCP_HTTP_ENABLED` | `true` | Whether to expose `POST /mcp` |
 | `MCP_ALLOW_MUTATIONS` | `false` | Whether to allow agents to call tools that modify the router. Read-only by default |
 | `MCP_ALLOW_ACCESS_CONTROL` | `false` | Whether to allow agents to block internet access, modify Wi-Fi blocklists/allowlists, and change access schedules (also requires `MCP_ALLOW_MUTATIONS=true`) |
-| `MCP_SMS_ACCESS` | `read` | Agent SMS permissions: `none`, `read`, or `full` |
+| `MCP_SMS_ACCESS` | `read` | Agent SMS permissions: `none` (no SMS tools), `read` (read only), or `full` (also send, mark as read, delete and edit contacts; also requires `MCP_ALLOW_MUTATIONS=true`) |
 | `MCP_SMS_SEND_POLICY` | `known` | `known`: only allows sending to saved contacts or numbers you have messaged before; `any`: no restrictions |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | Maximum messages an agent can send per hour (`0` disables sending) |
 | `MCP_DAEMON_URL` | Derived automatically | `/mcp` URL forwarded by the stdio bridge; only accepts local network addresses |

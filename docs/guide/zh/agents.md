@@ -7,7 +7,7 @@ order: 10
 
 烽燧内置一个 [MCP](https://modelcontextprotocol.io) 服务器，挂在 `/mcp` 上。AI 智能体可以通过它查看信号、历史和短信，帮你分析网络问题。
 
-默认情况下，智能体**只能读取**。会改动路由器的工具要你在 `.env` 里打开，而且每次都要带上确认。
+默认情况下，智能体**只能读取**。要让它改动东西，得在 `.env` 里打开对应的开关、给它完全控制令牌，而且每次调用都要带上确认，详见[打开写操作](#writes)。
 
 ## 最快的接法
 
@@ -68,9 +68,35 @@ Claude Desktop 等客户端可以通过容器里的桥接程序连接，前提�
 | 路由器控制（需 `MCP_ALLOW_MUTATIONS=true`） | `lock_band`†、`lock_cell`†、`unlock_rf_locks`†、`set_security_switches`†、`set_wifi_and_antenna`†、`reconnect_cellular`†、`reboot_cpe`† |
 | 设备上网管理（另需 `MCP_ALLOW_ACCESS_CONTROL=true`） | `set_device_internet_access`†、`set_wifi_mac_filter`†、`manage_internet_time_rule`† |
 | 短信（`MCP_SMS_ACCESS=read`，默认） | `list_sms_threads`、`get_sms_thread`、`get_sms_status`、`search_contacts`、`preview_sms`、`sync_sms` |
-| 短信（`MCP_SMS_ACCESS=full`） | `send_sms`†、`mark_sms_read`†、`delete_sms`†、`upsert_contact`† |
+| 短信写操作（`MCP_SMS_ACCESS=full`，另需 `MCP_ALLOW_MUTATIONS=true`） | `send_sms`†、`mark_sms_read`†、`delete_sms`†、`upsert_contact`† |
 
 † 调用时必须传 `{ "confirm": true }`，否则在碰路由器之前就被拒绝。所有写工具都是这样。
+
+<a id="writes"></a>
+
+## 打开写操作
+
+默认情况下智能体只能读取。要让它改动东西，下面三个条件要**同时**满足；缺一个，调用就会被拒绝，路由器也收不到任何请求。
+
+### 在 `.env` 里打开对应的开关
+
+| 想让智能体做的事 | `.env` 里要设 |
+| :--- | :--- |
+| 锁频段、锁小区、解锁、安全开关、Wi-Fi 与天线、重拨、重启 | `MCP_ALLOW_MUTATIONS=true` |
+| 断网 / 恢复设备、Wi-Fi 黑白名单、上网时段 | `MCP_ALLOW_MUTATIONS=true` 和 `MCP_ALLOW_ACCESS_CONTROL=true` |
+| 发短信、标记已读、删短信、改通讯录 | `MCP_ALLOW_MUTATIONS=true` 和 `MCP_SMS_ACCESS=full` |
+
+改完 `.env` 后，运行 `docker compose up -d --force-recreate` 让它生效（原因见 [Docker Compose 配置](docker-compose.md#apply)）。
+
+### 给智能体完全控制令牌
+
+只读令牌看不到任何写工具，按名字直接调用也会被拒绝（`READ_ONLY_TOKEN`）。在「设置 → 令牌」生成「完全控制」令牌，只交给需要改动东西的智能体；只看数据的智能体继续用只读令牌。
+
+### 每次调用都带上 `{ "confirm": true }`
+
+没带就会被拒绝（`CONFIRMATION_REQUIRED`）。接入指南里的提示词会要求智能体只在你明确要求了这一具体操作时才带上它。
+
+在未验证的型号上，写操作还要先在「设置 → 设备」逐项同意，见[其他华为型号](other-routers.md)。
 
 ## 安全措施
 
