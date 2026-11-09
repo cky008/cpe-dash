@@ -121,7 +121,7 @@
     "duplicate_daemon_standby": "另一台机器（{address}）上的烽燧也在管理这台路由器：这里转入待机，暂停访问路由器和 Telegram，直到对方停止",
     "duplicate_daemon_leader": "另一台机器（{address}）上的烽燧也在管理这台路由器：对方已转入待机，请停掉其中一个",
     "duplicate_daemon_cleared": "另一个烽燧已经停止，这里恢复管理路由器",
-    "data_quarantined": "以下加密数据文件无法用当前 DATA_ENCRYPTION_KEY 解密，已改名隔离（未删除）：{files}。若刚更换了 CPE_PASSWORD 而未单独设置 DATA_ENCRYPTION_KEY，请把它设为原来的密码，并把这些文件改回原名后重启",
+    "data_quarantined": "以下数据文件无法用当前 DATA_ENCRYPTION_KEY 解密（用别的密钥写的、已损坏，或者没有加密），已改名隔离（未删除）：{files}。先运行 cpe-dash doctor 查看是哪一种，再用 cpe-dash rekey 找回（文档的「备份与恢复」一页有步骤）",
     "storage_write_failed": "无法保存 {file}（{reason}）：这次更改只在内存里，重启前若仍无法保存就会丢失。请检查数据卷的剩余空间与权限（同一文件同一原因每小时只提醒一次）",
     "lock_rolled_back": "锁定后 {minutes} 分钟 WAN 仍未恢复，已自动解除全部频段与小区锁定（LOCK_ROLLBACK_AFTER_MIN）",
     "lock_rollback_failed": "锁定后 WAN 仍未恢复，但自动解锁没有完成：{reason}。请在局域网内打开控制台手动解除锁定",

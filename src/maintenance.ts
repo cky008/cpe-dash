@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { StorageCipher, isPlaintextStore, tryAcquireFileLock } from "./encrypted-file.ts";
+import { StorageCipher, readPlaintextStore, tryAcquireFileLock } from "./encrypted-file.ts";
 import type { AppConfig } from "./types.ts";
 import { FENGSUI_VERSION } from "./version.ts";
 
@@ -22,6 +22,8 @@ export interface DataFileReport {
   format: number | null;
   /** Copies moved aside after a failed decryption (`<name>.unreadable-<ms>`), newest first. */
   quarantined: string[];
+  /** Those of them stored without encryption (moved aside for that, not for a key mismatch). */
+  quarantinedPlaintext: string[];
 }
 
 export interface DoctorCheck {
@@ -79,13 +81,18 @@ function formatOf(data: unknown, key: string): number | null {
 export function inspectDataFiles(config: DataConfig): DataFileReport[] {
   const cipher = new StorageCipher(config.dataEncryptionKey);
   return dataFiles(config).map((file) => {
-    const base = { name: path.basename(file.path), path: file.path, quarantined: quarantinedCopies(file.path) };
+    const quarantined = quarantinedCopies(file.path);
+    const dir = path.dirname(file.path);
+    const quarantinedPlaintext = quarantined.filter((copy) => readPlaintextStore(path.join(dir, copy)) !== null);
+    const base = { name: path.basename(file.path), path: file.path, quarantined, quarantinedPlaintext };
     if (!fs.existsSync(file.path)) return { ...base, status: "missing", format: null };
+    const plain = readPlaintextStore(file.path);
+    if (plain) return { ...base, status: "plaintext", format: formatOf(plain.data, file.formatKey) };
     const read = tryRead(cipher, file.path);
     if (!read.ok) return { ...base, status: "undecryptable", format: null };
     const format = formatOf(read.data, file.formatKey);
     if (format !== null && format > file.supported) return { ...base, status: "too-new", format };
-    return { ...base, status: isPlaintextStore(file.path) ? "plaintext" : "ok", format };
+    return { ...base, status: "ok", format };
   });
 }
 
@@ -169,11 +176,15 @@ export async function runDoctor(config: AppConfig, opts: DoctorOptions): Promise
   for (const file of files) {
     if (file.status === "missing") checks.push({ level: "info", label: `${file.name}: not created yet` });
     else if (file.status === "ok") checks.push({ level: "ok", label: `${file.name}: decrypts with the current key (format ${file.format ?? "?"})` });
-    else if (file.status === "plaintext") checks.push({ level: "warn", label: `${file.name}: stored without encryption (written before encryption was required)`, hint: "encrypt it: set FENGSUI_OLD_DATA_KEY to the current DATA_ENCRYPTION_KEY and run: cpe-dash rekey" });
+    else if (file.status === "plaintext") checks.push({ level: "error", label: `${file.name}: stored without encryption: FengSui moves it aside at its next start`, hint: PLAINTEXT_HINT });
     else if (file.status === "too-new") checks.push({ level: "error", label: `${file.name}: written by a newer FengSui (format ${file.format})`, hint: "run the newer version, or restore a backup" });
     else checks.push({ level: "error", label: `${file.name}: cannot be decrypted with the current DATA_ENCRYPTION_KEY`, hint: "put the old key in FENGSUI_OLD_DATA_KEY and run: cpe-dash rekey" });
-    if (file.quarantined.length > 0) {
-      checks.push({ level: "warn", label: `${file.name}: ${file.quarantined.length} copy(ies) moved aside after a key mismatch (${file.quarantined[0]})`, hint: "recover with the old key: cpe-dash rekey" });
+    const keyMismatch = file.quarantined.filter((copy) => !file.quarantinedPlaintext.includes(copy));
+    if (keyMismatch.length > 0) {
+      checks.push({ level: "warn", label: `${file.name}: ${keyMismatch.length} copy(ies) moved aside after a key mismatch (${keyMismatch[0]})`, hint: "recover with the old key: cpe-dash rekey" });
+    }
+    if (file.quarantinedPlaintext.length > 0) {
+      checks.push({ level: "warn", label: `${file.name}: ${file.quarantinedPlaintext.length} copy(ies) moved aside for being stored without encryption (${file.quarantinedPlaintext[0]})`, hint: PLAINTEXT_HINT });
     }
   }
 
@@ -190,6 +201,9 @@ export async function runDoctor(config: AppConfig, opts: DoctorOptions): Promise
   });
   return checks;
 }
+
+/** A store written without encryption is the owner's own only if they say so: nothing adopts one on its own. */
+const PLAINTEXT_HINT = "if it is yours, stop FengSui and run: cpe-dash rekey --plaintext";
 
 export function formatDoctorReport(checks: ReadonlyArray<DoctorCheck>): string {
   const mark = { ok: "✓", info: "·", warn: "!", error: "✗" } as const;
@@ -283,6 +297,9 @@ export function restoreDataDir(config: DataConfig, backupDir: string, opts: { no
     if (!file) throw new Error(`${entry.name} is not a FengSui data file`);
     const source = path.join(backupDir, entry.name);
     if (sha256(source) !== entry.sha256) throw new Error(`${entry.name} does not match its checksum in the manifest`);
+    if (readPlaintextStore(source)) {
+      throw new Error(`${entry.name} is stored without encryption, which FengSui does not read; if it is yours, copy it into the data directory and run cpe-dash rekey --plaintext`);
+    }
     const read = tryRead(cipher, source);
     if (!read.ok) throw new Error(`${entry.name} does not decrypt with the current DATA_ENCRYPTION_KEY; set the key the backup was made with`);
     // This version would refuse to start on it: restore it with the version that wrote it
@@ -304,7 +321,8 @@ export function restoreDataDir(config: DataConfig, backupDir: string, opts: { no
 
 export interface RekeyResult {
   name: string;
-  action: "missing" | "already-current" | "encrypted" | "rekeyed" | "recovered" | "not-decryptable";
+  /** `plaintext`: stored without encryption and left as it is (only `--plaintext` encrypts it). */
+  action: "missing" | "already-current" | "encrypted" | "rekeyed" | "recovered" | "plaintext" | "not-decryptable";
   /** For `recovered`: the moved-aside copy that was brought back. */
   source?: string;
 }
@@ -313,17 +331,28 @@ export interface RekeyResult {
  * Re-encrypt the stores under the current `DATA_ENCRYPTION_KEY`. The daemon must be stopped. For
  * each store, a copy moved aside after a key mismatch that opens with the old key is brought back
  * (the file the daemon started afresh is kept as `<name>.replaced-<time>`); otherwise a store still
- * under the old key is re-encrypted in place.
+ * under the old key is re-encrypted in place. A store written without encryption, or a copy moved
+ * aside for that, is encrypted under the current key only with `plaintext` (the owner says it is
+ * theirs: a key change never vouches for one), and no unencrypted copy is kept.
  */
-export function rekeyDataDir(config: DataConfig, oldKey: string, opts: { now?: () => number } = {}): RekeyResult[] {
+export function rekeyDataDir(config: DataConfig, oldKey: string | null, opts: { plaintext?: boolean; now?: () => number } = {}): RekeyResult[] {
   const now = (opts.now ?? Date.now)();
   const current = new StorageCipher(config.dataEncryptionKey);
-  const old = new StorageCipher(oldKey);
+  const old = oldKey ? new StorageCipher(oldKey) : null;
   return withDataDirectoryLock(config, () =>
     dataFiles(config).map((file): RekeyResult => {
       const name = path.basename(file.path);
       for (const copy of quarantinedCopies(file.path)) {
         const copyPath = path.join(path.dirname(file.path), copy);
+        const plain = readPlaintextStore(copyPath);
+        if (plain) {
+          if (!opts.plaintext) continue;
+          replaceFile(file.path, current, plain.data, "replaced", now);
+          // Its content is in place, encrypted (a failed write threw above and kept it): no plain copy stays behind
+          fs.rmSync(copyPath);
+          return { name, action: "recovered", source: copy };
+        }
+        if (!old) continue;
         const read = tryRead(old, copyPath);
         if (!read.ok) continue;
         replaceFile(file.path, current, read.data, "replaced", now);
@@ -331,15 +360,16 @@ export function rekeyDataDir(config: DataConfig, oldKey: string, opts: { now?: (
         return { name, action: "recovered", source: copy };
       }
       if (!fs.existsSync(file.path)) return { name, action: "missing" };
-      const readable = tryRead(current, file.path);
-      if (readable.ok && isPlaintextStore(file.path)) {
-        // Written before encryption was required: the same content, now encrypted under the current key
-        replaceFile(file.path, current, readable.data, "plaintext", now);
+      const plain = readPlaintextStore(file.path);
+      if (plain) {
+        if (!opts.plaintext) return { name, action: "plaintext" };
+        // Replaced in one atomic step: the plain file is gone the moment the encrypted one is in place
+        current.writeJsonFile(file.path, plain.data);
         return { name, action: "encrypted" };
       }
-      if (readable.ok) return { name, action: "already-current" };
-      const read = tryRead(old, file.path);
-      if (!read.ok) return { name, action: "not-decryptable" };
+      if (tryRead(current, file.path).ok) return { name, action: "already-current" };
+      const read = old ? tryRead(old, file.path) : null;
+      if (!read?.ok) return { name, action: "not-decryptable" };
       current.writeJsonFile(file.path, read.data);
       return { name, action: "rekeyed" };
     })

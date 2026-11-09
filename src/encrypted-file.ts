@@ -31,14 +31,27 @@ function deriveMasterKey(secret: string): Buffer {
 }
 
 /**
- * A store that parses as JSON but is not an encrypted envelope: written before encryption was required. The cipher
- * still reads it (the migration path), so `cpe-dash doctor` reports it and `cpe-dash rekey` encrypts it.
+ * A store that parses as JSON but is not an encrypted envelope (written before encryption was required): its content,
+ * or `null` for an envelope or a missing or unparsable file. A keyed cipher refuses such a store, so `cpe-dash doctor`
+ * reports it and `cpe-dash rekey --plaintext` encrypts it when the owner says it is theirs.
  */
-export function isPlaintextStore(filePath: string): boolean {
+export function readPlaintextStore(filePath: string): { data: unknown } | null {
   try {
-    return !isEncryptedEnvelope(JSON.parse(fs.readFileSync(filePath, "utf8")));
+    const parsed: unknown = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return isEncryptedEnvelope(parsed) ? null : { data: parsed };
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/**
+ * A store read with a key that turned out not to be encrypted. Plain JSON was the way in from before encryption was
+ * required; trusted now, anyone able to write the data directory could plant a store (a console password of their own).
+ */
+export class PlaintextStoreError extends Error {
+  constructor() {
+    super("stored without encryption, which FengSui does not read while DATA_ENCRYPTION_KEY is set (cpe-dash doctor reports it, cpe-dash rekey --plaintext encrypts it)");
+    this.name = "PlaintextStoreError";
   }
 }
 
@@ -163,12 +176,16 @@ export class StorageCipher {
     if (isEncryptedEnvelope(parsed)) {
       return this.decryptEnvelope<T>(parsed);
     }
+    // Only a cipher without a key (tests, tools) takes plain JSON; with one it is refused and moved aside like a
+    // store under another key
+    if (this.enabled) throw new PlaintextStoreError();
     return parsed as T;
   }
 
   /**
    * Read a JSON document; if its content cannot be decrypted or parsed (e.g. `DATA_ENCRYPTION_KEY`
-   * rotated), rename it to `<file>.unreadable-<ts>` instead of crash-looping and return `null`.
+   * rotated, or plain JSON while a key is set), rename it to `<file>.unreadable-<ts>` instead of
+   * crash-looping and return `null`.
    * A failure to read the file at all (`EACCES` after a container UID change, `EISDIR`, `EIO`) says
    * nothing about its content and is thrown: moving it aside would silently start the store empty.
    */

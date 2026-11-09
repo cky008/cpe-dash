@@ -46,6 +46,8 @@ export interface ParsedCliCommand {
   target?: string;
   /** `rekey --old-key-stdin`: read the previous DATA_ENCRYPTION_KEY from stdin instead of FENGSUI_OLD_DATA_KEY. */
   oldKeyStdin?: boolean;
+  /** `rekey --plaintext`: encrypt stores written without encryption (and copies moved aside for that). */
+  plaintext?: boolean;
   /** Notices for the user (e.g. deprecated flags), printed to stderr. */
   warnings: string[];
 }
@@ -57,6 +59,7 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
   let outDir: string | undefined;
   let target: string | undefined;
   let oldKeyStdin = false;
+  let plaintext = false;
   const warnings: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -79,6 +82,10 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
     }
     if (arg === "--old-key-stdin" && mode === "rekey") {
       oldKeyStdin = true;
+      continue;
+    }
+    if (arg === "--plaintext" && mode === "rekey") {
+      plaintext = true;
       continue;
     }
     if (mode === "restore" && target === undefined && !arg.startsWith("-")) {
@@ -104,7 +111,7 @@ export function parseCliCommand(argv: ReadonlyArray<string>): ParsedCliCommand {
   }
   if (mode === "restore" && target === undefined) throw new Error('"restore" needs the backup directory: cpe-dash restore <dir>');
 
-  return { mode, envPath, warnings, ...(outDir ? { outDir } : {}), ...(target ? { target } : {}), ...(oldKeyStdin ? { oldKeyStdin } : {}) };
+  return { mode, envPath, warnings, ...(outDir ? { outDir } : {}), ...(target ? { target } : {}), ...(oldKeyStdin ? { oldKeyStdin } : {}), ...(plaintext ? { plaintext } : {}) };
 }
 
 /** A second daemon on the same data directory would run its own CPE scheduler next to ours. */
@@ -540,7 +547,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   const quarantined = storeFiles(config).flatMap((file) => quarantinedSince(file, assemblyStartedMs));
   for (const name of quarantined) {
     log(
-      `[fengsui] Warning: ${name} could not be decrypted with the current DATA_ENCRYPTION_KEY and was moved aside; its store starts empty. If CPE_PASSWORD changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the file back and restart.`
+      `[fengsui] Warning: ${name} could not be decrypted with the current DATA_ENCRYPTION_KEY (written under another key, damaged, or stored without encryption) and was moved aside; its store starts empty. cpe-dash doctor says which; cpe-dash rekey brings it back (the backup page of the guide shows how).`
     );
   }
 
@@ -730,6 +737,7 @@ export function formatCliHelp(): string {
     "  cpe-dash restore <dir>            Put a backup back (daemon stopped; replaced files are kept)",
     "  cpe-dash rekey [--old-key-stdin]  Re-encrypt under the current DATA_ENCRYPTION_KEY and recover copies",
     "                                    moved aside after a key change (old key: FENGSUI_OLD_DATA_KEY or stdin)",
+    "  cpe-dash rekey --plaintext        Encrypt stores written without encryption (yours), and copies moved aside for that",
     "  cpe-dash reset-login              Forgot the console password: get a one-time reset code from the",
     "                                    daemon running on this host (proves access to its .env)",
     "  cpe-dash --help                   Show this help message",
@@ -822,13 +830,17 @@ export async function runMaintenance(
       return 0;
     }
     const oldKey = cmd.oldKeyStdin ? await readFirstLine(stdin) : (process.env["FENGSUI_OLD_DATA_KEY"] ?? "");
-    if (!oldKey) {
-      write("✗ rekey needs the previous DATA_ENCRYPTION_KEY (or the old CPE_PASSWORD if it was unset): set FENGSUI_OLD_DATA_KEY or pipe it with --old-key-stdin");
+    if (!oldKey && !cmd.plaintext) {
+      write("✗ rekey needs the previous DATA_ENCRYPTION_KEY (or the old CPE_PASSWORD if it was unset): set FENGSUI_OLD_DATA_KEY or pipe it with --old-key-stdin; --plaintext alone encrypts stores written without encryption");
       return 1;
     }
-    const results = rekeyDataDir(config, oldKey);
-    for (const r of results) write(`${r.action === "not-decryptable" ? "✗" : "✓"} ${r.name}: ${r.action}${r.source ? ` (from ${r.source})` : ""}`);
-    return results.some((r) => r.action === "not-decryptable") ? 1 : 0;
+    const results = rekeyDataDir(config, oldKey || null, { plaintext: cmd.plaintext === true });
+    for (const r of results) {
+      const mark = r.action === "not-decryptable" ? "✗" : r.action === "plaintext" ? "!" : "✓";
+      const note = r.action === "plaintext" ? " (stored without encryption, left as it is: if it is yours, run cpe-dash rekey --plaintext)" : "";
+      write(`${mark} ${r.name}: ${r.action}${r.source ? ` (from ${r.source})` : ""}${note}`);
+    }
+    return results.some((r) => r.action === "not-decryptable" || r.action === "plaintext") ? 1 : 0;
   } catch (err) {
     write(`✗ ${err instanceof Error ? err.message : String(err)}`);
     return 1;

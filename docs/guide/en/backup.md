@@ -17,11 +17,15 @@ Check your configuration, data directory permissions, daemon process status, and
 docker exec cpe-dash node dist/cli.js doctor
 ```
 
-If it reports a file as "stored without encryption" (written by an early version), encrypt it in place. Pass your current key as the "old" one:
+FengSui never reads a data file stored without encryption: anyone able to write the data directory could otherwise plant one, such as console settings with a password of their own. At startup it moves such a file aside as `*.unreadable-<time>` and raises the `DATA_QUARANTINED` alert. If `doctor` reports a file "stored without encryption" and it is yours (written by an early version), encrypt it with the daemon stopped:
 
 ```bash
-docker exec -e FENGSUI_OLD_DATA_KEY="<your DATA_ENCRYPTION_KEY>" cpe-dash node dist/cli.js rekey
+docker compose stop cpe-dash
+docker compose run --rm cpe-dash node dist/cli.js rekey --plaintext
+docker compose start cpe-dash
 ```
+
+The same command brings back a file moved aside for that reason. You do not type a key: the file is encrypted under the current `DATA_ENCRYPTION_KEY`, and no unencrypted copy is kept.
 
 ## Back up data
 
@@ -61,4 +65,4 @@ Any `*.unreadable-*` files that were quarantined during startup due to mismatche
 
 ## If data cannot be opened
 
-If FengSui cannot decrypt a file at startup (due to a typo in the key or file corruption), it renames the file to `*.unreadable-<time>` in place and triggers a `DATA_QUARANTINED` alert. It **never deletes** your files. Once you locate the original key, restore your data using the `rekey` procedure above.
+If FengSui cannot decrypt a file at startup (due to a typo in the key, file corruption, or a file stored without encryption, see above), it renames the file to `*.unreadable-<time>` in place and triggers a `DATA_QUARANTINED` alert. It **never deletes** your files. Once you locate the original key, restore your data using the `rekey` procedure above.

@@ -121,7 +121,7 @@
     "duplicate_daemon_standby": "FengSui on another machine ({address}) also manages this router: this one went on standby (no router access, no Telegram) until it stops",
     "duplicate_daemon_leader": "FengSui on another machine ({address}) also manages this router: it went on standby; stop one of them",
     "duplicate_daemon_cleared": "The other FengSui stopped; this one manages the router again",
-    "data_quarantined": "These encrypted data files could not be decrypted with the current DATA_ENCRYPTION_KEY and were moved aside (not deleted): {files}. If CPE_PASSWORD just changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the files back and restart",
+    "data_quarantined": "These data files could not be decrypted with the current DATA_ENCRYPTION_KEY (written under another key, damaged, or stored without encryption) and were moved aside (not deleted): {files}. Run cpe-dash doctor to see which, then bring them back with cpe-dash rekey (the backup page of the guide shows how)",
     "storage_write_failed": "Could not save {file} ({reason}): the change is only in memory and is lost on restart unless a save works again. Check the free space and permissions of the data volume (said once an hour per file and cause)",
     "lock_rolled_back": "The WAN was still down {minutes} min after the lock, so every band and cell lock was cleared automatically (LOCK_ROLLBACK_AFTER_MIN)",
     "lock_rollback_failed": "The WAN is still down after the lock, but the automatic unlock did not complete: {reason}. Clear the locks from the console on the LAN",

@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { parseCliCommand, runCli, runMaintenance } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { StorageCipher } from "../src/encrypted-file.ts";
+import { PlaintextStoreError, StorageCipher, quarantinedSince } from "../src/encrypted-file.ts";
 import { DataDirectoryBusyError, backupDataDir, formatDoctorReport, inspectDataFiles, rekeyDataDir, replaceFile, restoreDataDir, runDoctor } from "../src/maintenance.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
@@ -52,7 +52,7 @@ describe("cpe-dash doctor", () => {
     try {
       new StorageCipher("old_key").writeJsonFile(fx.files.sms, { version: 1, messages: [] });
       new StorageCipher("new_key").writeJsonFile(fx.files.state, { schemaVersion: 2 });
-      fs.writeFileSync(`${fx.files.contacts}.unreadable-1700000000000`, "{}");
+      fs.writeFileSync(`${fx.files.contacts}.unreadable-1700000000000`, new StorageCipher("old_key").serializeJson({ version: 1, contacts: [] }));
       fs.chmodSync(fx.dataDir, 0o755);
       const checks = await runDoctor(fx.config, { notices: ["API_TOKEN falls back to CPE_PASSWORD"] });
       const report = formatDoctorReport(checks);
@@ -180,25 +180,104 @@ describe("cpe-dash rekey", () => {
   });
 });
 
-describe("maintenance commands on the CLI", () => {
-  it("reports a store written without encryption and encrypts it with rekey", async () => {
+describe("stores written without encryption", () => {
+  it("moves a store written without encryption aside once a key is set; without a key it still reads it", () => {
+    const dir = tempDir("fengsui-plain-");
+    try {
+      const file = path.join(dir, "settings.json");
+      // Anyone who can write the data directory could plant one, with a console password of their own
+      fs.writeFileSync(file, JSON.stringify({ format: 1, login: "planted" }), { mode: 0o600 });
+      const keyed = new StorageCipher("new_key");
+      assert.throws(() => keyed.readJsonFile(file), PlaintextStoreError);
+      assert.equal(keyed.readJsonFileOrQuarantine(file), null);
+      assert.equal(fs.existsSync(file), false);
+      assert.equal(quarantinedSince(file, 0).length, 1, "moved aside, not deleted");
+      const other = path.join(dir, "sms.json");
+      fs.writeFileSync(other, JSON.stringify({ version: 1, messages: [] }), { mode: 0o600 });
+      assert.deepEqual(StorageCipher.fromSecret("").readJsonFile(other), { version: 1, messages: [] });
+    } finally {
+      removeTempDir(dir);
+    }
+  });
+
+  it("reports a plain store, leaves it alone on a key change and encrypts it in place with rekey --plaintext", async () => {
     const fx = setup();
     try {
       const key = new StorageCipher("new_key");
       key.writeJsonFile(fx.files.telegram, { version: 1, authorizedChatIds: [] });
-      // An early store, from before encryption was required: plain JSON the cipher still reads
       fs.writeFileSync(fx.files.sms, JSON.stringify({ version: 1, messages: [] }), { mode: 0o600 });
       const statuses = (): string[] => inspectDataFiles(fx.config).map((f) => `${f.name}:${f.status}`);
       assert.ok(statuses().includes("sms.json:plaintext"));
       assert.ok(statuses().includes("telegram.json:ok"));
-      const checks = await runDoctor({ ...loadConfig({ envPath: fx.envPath, ignoreProcessEnv: true }) }, { notices: [] });
-      assert.ok(checks.some((c) => c.level === "warn" && c.label.startsWith("sms.json: stored without encryption")), JSON.stringify(checks));
-      const results = rekeyDataDir(fx.config, "new_key");
+      const report = formatDoctorReport(await runDoctor(fx.config, { notices: [] }));
+      assert.match(report, /✗ sms\.json: stored without encryption: FengSui moves it aside at its next start\n {4}→ if it is yours, stop FengSui and run: cpe-dash rekey --plaintext/);
+      // A key change never vouches for a plain store
+      const rotated = rekeyDataDir(fx.config, "old_key");
+      assert.ok(rotated.some((r) => r.name === "sms.json" && r.action === "plaintext"), JSON.stringify(rotated));
+      assert.doesNotMatch(fs.readFileSync(fx.files.sms, "utf8"), /"__encrypted"/);
+      const results = rekeyDataDir(fx.config, null, { plaintext: true });
       assert.ok(results.some((r) => r.name === "sms.json" && r.action === "encrypted"), JSON.stringify(results));
       assert.ok(statuses().includes("sms.json:ok"));
-      assert.match(fs.readFileSync(fx.files.sms, "utf8"), /"__encrypted"/);
       assert.deepEqual(key.readJsonFile(fx.files.sms), { version: 1, messages: [] });
+      assert.deepEqual(fs.readdirSync(fx.dataDir).filter((f) => f.startsWith("sms.json.")), [], "no unencrypted copy is left beside it");
     } finally {
+      fx.cleanup();
+    }
+  });
+
+  it("brings back a store moved aside for being unencrypted only with rekey --plaintext, keeping no plain copy", async () => {
+    const fx = setup();
+    try {
+      const key = new StorageCipher("new_key");
+      // What the daemon left: the plain contacts moved aside at startup, and the empty store it started instead
+      const copy = `${fx.files.contacts}.unreadable-1700000000000`;
+      fs.writeFileSync(copy, JSON.stringify({ version: 1, contacts: [{ name: "Kept" }] }), { mode: 0o600 });
+      key.writeJsonFile(fx.files.contacts, { version: 1, contacts: [] });
+      const report = formatDoctorReport(await runDoctor(fx.config, { notices: [] }));
+      assert.match(report, /! contacts\.json: 1 copy\(ies\) moved aside for being stored without encryption \(contacts\.json\.unreadable-1700000000000\)\n {4}→ if it is yours, stop FengSui and run: cpe-dash rekey --plaintext/);
+      assert.ok(rekeyDataDir(fx.config, "old_key").some((r) => r.name === "contacts.json" && r.action === "already-current"));
+      assert.ok(fs.existsSync(copy), "a key change leaves it where it is");
+      const results = rekeyDataDir(fx.config, null, { plaintext: true, now: () => 1800000000000 });
+      assert.ok(results.some((r) => r.name === "contacts.json" && r.action === "recovered" && r.source === "contacts.json.unreadable-1700000000000"), JSON.stringify(results));
+      assert.deepEqual(key.readJsonFile(fx.files.contacts), { version: 1, contacts: [{ name: "Kept" }] });
+      assert.equal(fs.existsSync(copy), false);
+      assert.deepEqual(fs.readdirSync(fx.dataDir).filter((f) => f.startsWith("contacts.json.")), ["contacts.json.replaced-1800000000000"]);
+      assert.match(fs.readFileSync(`${fx.files.contacts}.replaced-1800000000000`, "utf8"), /"__encrypted"/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it("refuses to restore a backup file stored without encryption, saying so", () => {
+    const fx = setup();
+    try {
+      fs.writeFileSync(fx.files.sms, JSON.stringify({ version: 1, messages: [] }), { mode: 0o600 });
+      const { dir } = backupDataDir(fx.config, { outDir: path.join(fx.dir, "out") });
+      assert.throws(() => restoreDataDir(fx.config, dir), /sms\.json is stored without encryption/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe("maintenance commands on the CLI", () => {
+  it("parses rekey --plaintext and runs it without an old key", async () => {
+    assert.deepEqual(parseCliCommand(["node", "cli", "rekey", "--plaintext"]), { mode: "rekey", envPath: undefined, warnings: [], plaintext: true });
+    const fx = setup();
+    const lines: string[] = [];
+    const saved = process.env["FENGSUI_OLD_DATA_KEY"];
+    try {
+      fs.writeFileSync(fx.files.sms, JSON.stringify({ version: 1, messages: [] }), { mode: 0o600 });
+      // A key change leaves it and says so, with a non-zero exit for scripts
+      process.env["FENGSUI_OLD_DATA_KEY"] = "old_key";
+      assert.equal(await runMaintenance({ mode: "rekey", envPath: fx.envPath, warnings: [] }, (line) => lines.push(line)), 1);
+      assert.ok(lines.some((line) => line.startsWith("! sms.json: plaintext (stored without encryption, left as it is")), lines.join("\n"));
+      delete process.env["FENGSUI_OLD_DATA_KEY"];
+      assert.equal(await runMaintenance({ mode: "rekey", envPath: fx.envPath, warnings: [], plaintext: true }, (line) => lines.push(line)), 0);
+      assert.ok(lines.includes("✓ sms.json: encrypted"), lines.join("\n"));
+    } finally {
+      if (saved === undefined) delete process.env["FENGSUI_OLD_DATA_KEY"];
+      else process.env["FENGSUI_OLD_DATA_KEY"] = saved;
       fx.cleanup();
     }
   });

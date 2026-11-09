@@ -433,6 +433,28 @@ describe("createFengSuiRuntime", () => {
     }
   });
 
+  it("moves a store written without encryption aside at startup instead of trusting it, and says so", async () => {
+    const cpe = createStrictCpe({ latencyMs: 5 });
+    const dir = tempDir("fengsui-plaintext-");
+    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), WEB_PORT: "0" });
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    // Planted by someone who can write the data directory but lacks the key: a console login of their own
+    fs.mkdirSync(path.dirname(config.settingsFile), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(config.settingsFile, JSON.stringify({ format: 1, cpe: { url: "http://192.168.8.1", username: "admin", password: "planted" } }), { mode: 0o600 });
+    const logs: string[] = [];
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: createNotifyFetch().fetchImpl, log: (line) => logs.push(line) });
+    try {
+      // Nothing from the plain file is used: the router connection comes from .env's one-time import instead
+      assert.equal(stack.settings.cpe?.password, cpe.password);
+      await stack.start();
+      assert.ok(logs.some((line) => /settings\.json\.unreadable-[\s\S]*stored without encryption/.test(line)), logs.join("\n"));
+      assert.ok(stack.scheduler.getRecentAlerts().some((a) => a.code === "DATA_QUARANTINED" && a.messageEn.includes("settings.json")));
+    } finally {
+      await stack.close();
+      removeTempDir(dir);
+    }
+  });
+
   it("names the console settings and the audit log too when they were moved aside at startup", async () => {
     const cpe = createStrictCpe({ latencyMs: 5 });
     const dir = tempDir("fengsui-quarantine-console-");

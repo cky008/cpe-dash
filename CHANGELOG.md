@@ -4,12 +4,19 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Security
+- **Data files stored without encryption are no longer read.** FengSui read a data file that was plain JSON as it was, the way in from before encryption was required, so anyone able to write the data directory without knowing the key could plant one, such as console settings with a password of their own. Such a file is now moved aside at startup and reported like one that cannot be decrypted. `cpe-dash doctor` names it, and `cpe-dash rekey --plaintext`, run with the daemon stopped, encrypts it when it is yours (or brings back one already moved aside) without keeping an unencrypted copy; a key change never adopts one.
+
 ### Fixed
 - **Indian mobile numbers that begin with 91.** A 10-digit Indian mobile typed without `+` whose first digits are 91 (the 91xx blocks of the 9xxx range) was taken for a number typed with the country code but without `+`, so two digits were lost and the message would have gone to a wrong number; a sender that arrives in national format was filed under that wrong number too. Such a number now reads as a national number, as Italian, Polish and Kazakh numbers already did.
 - **Duplicate-daemon protection works with the router password kept in the console.** With `PEER_DISCOVERY_ENABLED=true`, the LAN beacon took its key from `CPE_PASSWORD` in `.env`, which the recommended setup leaves empty because the console keeps the router password, so the daemon refused to start. The beacon now uses the router password saved in Settings → Router, as the router client does; it sends and accepts nothing until a router connection is saved, and follows a newly saved password.
 - **Console settings and the audit log are reported when they cannot be decrypted at startup.** A store that cannot be decrypted (after a mistyped `DATA_ENCRYPTION_KEY`, say) is moved aside, logged and raised as the critical `DATA_QUARANTINED` alert, but the console settings and the audit log were left out of that report, so settings moved aside looked like a fresh install asking for a setup code.
 
+### Documentation
+- **The fix for a file stored without encryption works as written.** The backup page said to run `rekey` with `docker exec` while FengSui was running, which `rekey` refuses (the daemon must be stopped), and to type the key on the command line. It now stops the daemon and runs `rekey --plaintext`, which needs no key.
+
 ### Upgrading
+- Run `docker exec cpe-dash node dist/cli.js doctor` before upgrading. A file it reports as "stored without encryption" is moved aside at the first start of this version: encrypt it first, with the daemon stopped, by `docker compose run --rm cpe-dash node dist/cli.js rekey --plaintext` (the same command also brings it back afterwards).
 - Running FengSui on more than one host with `PEER_DISCOVERY_ENABLED=true`: each host's beacon key now comes from the router password saved in its console instead of `CPE_PASSWORD` in `.env`, so the hosts recognise each other once they have saved the same router password.
 
 ## [1.7.4] — 2026-11-09

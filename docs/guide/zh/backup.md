@@ -17,11 +17,15 @@ order: 16
 docker exec cpe-dash node dist/cli.js doctor
 ```
 
-如果它报告某个文件「stored without encryption」（早期版本写下的未加密文件），就原地加密它，把当前密钥当作「旧密钥」传入：
+烽燧从不读取没有加密的数据文件：否则能写数据目录的人就能放进一个，比如带着他自己密码的控制台设置。启动时遇到这样的文件，它会改名为 `*.unreadable-<时间>` 放在一边，并发出 `DATA_QUARANTINED` 告警。如果 `doctor` 报告某个文件「stored without encryption」，而它确实是你的（早期版本写下的），就先停止守护进程再加密它：
 
 ```bash
-docker exec -e FENGSUI_OLD_DATA_KEY="<你的 DATA_ENCRYPTION_KEY>" cpe-dash node dist/cli.js rekey
+docker compose stop cpe-dash
+docker compose run --rm cpe-dash node dist/cli.js rekey --plaintext
+docker compose start cpe-dash
 ```
+
+因为这个原因被放在一边的文件，也用同一条命令找回。不需要输入密钥：文件用当前的 `DATA_ENCRYPTION_KEY` 加密，也不会留下未加密的副本。
 
 ## 备份
 
@@ -61,4 +65,4 @@ docker compose start cpe-dash
 
 ## 数据打不开了
 
-烽燧启动时如果某个文件解不开（密钥改错了、文件损坏），会把它改名为 `*.unreadable-<时间>` 放在原处，然后发出 `DATA_QUARANTINED` 告警，**不会删除**。找回旧密钥后用上面的 `rekey` 恢复即可。
+烽燧启动时如果某个文件解不开（密钥改错了、文件损坏，或者文件没有加密，见上文），会把它改名为 `*.unreadable-<时间>` 放在原处，然后发出 `DATA_QUARANTINED` 告警，**不会删除**。找回旧密钥后用上面的 `rekey` 恢复即可。
