@@ -28,7 +28,7 @@ These settings are imported only on the **first startup**. After that, values in
 | :--- | :--- | :--- |
 | `CPE_URL` | `http://192.168.8.1` | Router management URL. Only accepts local network addresses |
 | `CPE_USERNAME` | `admin` | Administrator username |
-| `CPE_PASSWORD` | Empty | Administrator password |
+| `CPE_PASSWORD` | Empty | Administrator password. If it begins or ends with a space or contains ` #`, put it in single quotes (`CPE_PASSWORD='…'`): without quotes, spaces at either end are removed and everything after ` #` is read as a comment. A password entered in the console is kept exactly as typed |
 | `CPE_REQUIRE_ECC_SIGNATURE` | `true` | Once the router has signed the encryption key it hands over at login, FengSui requires that signature from then on: a login whose key is unsigned (the answer may have been altered on the way) is ended and logged out, and the key is not used. Routers that never signed are not affected. Set to `false` if a firmware update really made the router stop signing |
 | `CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM` | `false` | Set to `true` temporarily when switching to a router that only supports legacy login. Switch back to `false` after testing and saving the new router. The recommended approach is to redeploy with a new, empty `data/` directory |
 | `RESPECT_BROWSER_SESSION` | `true` | Automatically step aside when someone logs in to the router's own web page. Strongly recommended to keep enabled |

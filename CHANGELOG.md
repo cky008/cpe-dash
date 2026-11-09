@@ -12,6 +12,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Documentation
 - **A code of conduct.** `CODE_OF_CONDUCT.md` adopts the Contributor Covenant 2.1; problems are reported privately through the repository's Security tab.
 - **The licence, stated plainly.** English pages now describe FengSui as source-available under the PolyForm Noncommercial License 1.0.0 (free for personal and non-commercial use) instead of calling it open source, and the Chinese README ends with a statement that commercial sale, paid deployment and bundling are not allowed.
+- **Router passwords with spaces in `.env`.** The router accepts spaces in its admin password. In `.env` a value without quotes loses spaces at either end and everything after ` #`, so the configuration reference and `.env.example` now say to put such a password in single quotes. A password entered in the console was never affected.
 
 ### Container and CI
 - **Development tools without known vulnerabilities.** The coverage tool's file matching now uses glob 14 and minimatch 11 through an npm override, clearing the moderate minimatch advisory (GHSA-g3hv-75wg-m249) that Dependabot could not fix while c8 still asks for minimatch 10. Development only: the image and the console contain none of these packages.
