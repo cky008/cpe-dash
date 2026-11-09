@@ -193,13 +193,15 @@ describe("web core: endpoint table", () => {
       confirmReview: ["POST", "/api/console/review", {}],
       changePassword: ["POST", "/api/console/password", { current: "old", next: "a long passphrase" }],
       tokens: ["GET", "/api/console/tokens"],
-      createToken: ["POST", "/api/console/tokens", { name: "Grafana", scope: "read", lifetimeDays: null }],
+      createToken: ["POST", "/api/console/tokens", { name: "Grafana", permissions: [], lifetimeDays: null }],
+      setTokenPermissions: ["POST", "/api/console/tokens/permissions", { id: "t1", permissions: ["sms-read", "control"] }],
       revokeToken: ["POST", "/api/console/tokens/revoke", { id: "t1" }],
       pairingCode: ["POST", "/api/console/telegram/pairing-code", { group: true }],
       unlinkTelegram: ["POST", "/api/console/telegram/unlink-all", {}],
       telegramChats: ["GET", "/api/console/telegram/chats"],
       unlinkTelegramChat: ["POST", "/api/console/telegram/unlink", { chatId: "-1003" }],
       consoleSwitches: ["POST", "/api/console/switches", { metricsEnabled: null }],
+      consoleBehaviour: ["POST", "/api/console/behaviour", { agentWrites: true, lockRollbackAfterMin: null }],
       audit: ["GET", "/api/audit?limit=200"],
       deviceProfile: ["GET", "/api/device/profile"],
       deviceReport: ["GET", "/api/console/device-report"],
@@ -257,13 +259,15 @@ describe("web core: endpoint table", () => {
     await ep.confirmReview();
     await ep.changePassword("old", "a long passphrase");
     await ep.tokens();
-    await ep.createToken({ name: "Grafana", scope: "read", lifetimeDays: null });
+    await ep.createToken({ name: "Grafana", permissions: [], lifetimeDays: null });
+    await ep.setTokenPermissions("t1", ["sms-read", "control"]);
     await ep.revokeToken("t1");
     await ep.pairingCode(true);
     await ep.unlinkTelegram();
     await ep.telegramChats();
     await ep.unlinkTelegramChat("-1003");
     await ep.consoleSwitches({ metricsEnabled: null });
+    await ep.consoleBehaviour({ agentWrites: true, lockRollbackAfterMin: null });
     await ep.audit();
     await ep.deviceProfile();
     await ep.deviceReport();

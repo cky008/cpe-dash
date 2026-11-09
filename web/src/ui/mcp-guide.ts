@@ -72,7 +72,7 @@ export function mountMcpGuide(ctx: AppContext): { open(): void } {
     mint.addEventListener("click", () => {
       mint.disabled = true;
       void ctx.api
-        .createToken({ name: agentTokenName(ctx.now(), t("agent_name")), scope: "read", lifetimeDays: AGENT_TOKEN_DAYS })
+        .createToken({ name: agentTokenName(ctx.now(), t("agent_name")), permissions: ["sms-read"], lifetimeDays: AGENT_TOKEN_DAYS })
         .then((res) => {
           token = res.token;
           tokenInput.value = token;

@@ -15,6 +15,7 @@ import type {
   RevokeTokenResponse,
   SaveConnectionResponse,
   TelegramChatsResponse,
+  TokenPermissionsResponse,
   TokensResponse,
   BandLockRequest,
   CellLockRequest,
@@ -61,6 +62,8 @@ import type {
   WifiDeviceAccessRequest,
   WifiMacFilterRequest,
 } from "../../../src/api-contract.ts";
+import type { BehaviourOverrides } from "../../../src/behaviour-settings.ts";
+import type { TokenPermission } from "../../../src/console-policy.ts";
 import type { ApiClient } from "./api.ts";
 
 /**
@@ -96,13 +99,15 @@ export function createEndpoints(api: ApiClient) {
     confirmReview: () => api.post<ConsoleSettingsResponse>("/api/console/review"),
     changePassword: (current: string, next: string) => api.post<ConsoleSettingsResponse>("/api/console/password", { current, next }),
     tokens: () => api.get<TokensResponse>("/api/console/tokens"),
-    createToken: (body: { name: string; scope: "full" | "read"; lifetimeDays: number | null }) => api.post<CreateTokenResponse>("/api/console/tokens", body),
+    createToken: (body: { name: string; permissions: TokenPermission[]; lifetimeDays: number | null }) => api.post<CreateTokenResponse>("/api/console/tokens", body),
+    setTokenPermissions: (id: string, permissions: TokenPermission[]) => api.post<TokenPermissionsResponse>("/api/console/tokens/permissions", { id, permissions }),
     revokeToken: (id: string) => api.post<RevokeTokenResponse>("/api/console/tokens/revoke", { id }),
     pairingCode: (group: boolean) => api.post<PairingCodeResponse>("/api/console/telegram/pairing-code", { group }),
     unlinkTelegram: () => api.post<{ ok: true; unlinked: number }>("/api/console/telegram/unlink-all"),
     telegramChats: () => api.get<TelegramChatsResponse>("/api/console/telegram/chats"),
     unlinkTelegramChat: (chatId: string) => api.post<TelegramChatsResponse>("/api/console/telegram/unlink", { chatId }),
     consoleSwitches: (body: { telegramReset?: boolean; metricsEnabled?: boolean | null }) => api.post<ConsoleSettingsResponse>("/api/console/switches", body),
+    consoleBehaviour: (body: BehaviourOverrides) => api.post<ConsoleSettingsResponse>("/api/console/behaviour", body),
     audit: (limit = 200) => api.get<AuditResponse>(`/api/audit?limit=${limit}`),
     deviceProfile: () => api.get<DeviceProfileResponse>("/api/device/profile"),
     deviceReport: () => api.get<DeviceReportResponse>("/api/console/device-report"),

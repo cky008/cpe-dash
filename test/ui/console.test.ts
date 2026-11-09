@@ -16,7 +16,7 @@ const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const TOKEN = "fengsui-ui-test";
 const DESKTOP: Viewport = { width: 1280, height: 900, scale: 1, mobile: false };
 const PHONE: Viewport = { width: 390, height: 844, scale: 2, mobile: true };
-const SETTINGS_TABS = ["Router", "Device", "Password", "Tokens", "Telegram", "Security", "Audit"] as const;
+const SETTINGS_TABS = ["Router", "Device", "General", "Password", "Tokens & AI", "Telegram", "Security", "Audit"] as const;
 /** Roles a person operates, which a screen reader must be able to name. */
 const CONTROL_ROLES: ReadonlySet<string> = new Set(["button", "checkbox", "switch", "textbox", "searchbox", "combobox", "listbox", "slider", "spinbutton", "radio", "link", "menuitem", "tab"]);
 
@@ -187,7 +187,7 @@ describe("the console in a browser", () => {
 
   it("closes every dialog, the token it just showed included, when the session ends elsewhere", async () => {
     await signIn(page, live());
-    await openSettings(page, "Tokens");
+    await openSettings(page, "Tokens & AI");
     const name = "[...document.querySelectorAll('#settingsDialog input')].find((input) => input.getAttribute('aria-label') === 'Name (who uses it)')";
     await page.evaluate(`${name}.value = 'UI test'; true`);
     await page.clickText("#settingsDialog button", "Create token");
@@ -200,7 +200,7 @@ describe("the console in a browser", () => {
 
   it("takes a token it just showed off the page when the settings close, not only off the screen", async () => {
     await signIn(page, live());
-    await openSettings(page, "Tokens");
+    await openSettings(page, "Tokens & AI");
     const name = "[...document.querySelectorAll('#settingsDialog input')].find((input) => input.getAttribute('aria-label') === 'Name (who uses it)')";
     await page.evaluate(`${name}.value = 'UI test, closed'; true`);
     await page.clickText("#settingsDialog button", "Create token");
@@ -209,6 +209,40 @@ describe("the console in a browser", () => {
     await closeDialogs(page);
     // The close event comes a task later; the token must then be gone from the page, not just hidden
     await page.waitUntil(`!document.body.textContent.includes(${JSON.stringify(token)})`, "the token gone from the page", 3000);
+  });
+
+  it("creates a token with its permissions, edits them, and sets the agents' switch and a self-healing window", async () => {
+    const d = live();
+    await signIn(page, d);
+    await openSettings(page, "Tokens & AI");
+    const name = "[...document.querySelectorAll('#settingsDialog input')].find((input) => input.getAttribute('aria-label') === 'Name (who uses it)')";
+    await page.evaluate(`${name}.value = 'Dashboard'; true`);
+    // Untick reading SMS: a dashboard reads the router only
+    await page.evaluate("document.querySelector('#settingsDialog [data-new-token] input[data-permission=\"sms-read\"]').click(); true");
+    await page.clickText("#settingsDialog button", "Create token");
+    await page.waitUntil("document.querySelector('#settingsDialog code')?.textContent?.startsWith('fsk_')", "the new token on screen");
+    const row = "[...document.querySelectorAll('#settingsDialog li')].find((li) => li.textContent.includes('Dashboard'))";
+    await page.waitUntil(`${row}?.textContent.includes('Data only')`, "its badge");
+    assert.deepEqual(d.stack.settings.listTokens().find((t) => t.name === "Dashboard")?.permissions, []);
+
+    await page.evaluate(`[...${row}.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Permissions').click(); true`);
+    await page.waitUntil(`${row}?.querySelector('[data-editing] input[data-permission="control"]') !== null`, "the editor");
+    await page.evaluate(`${row}.querySelector('[data-editing] input[data-permission="control"]').click(); [...${row}.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Save').click(); true`);
+    await page.waitUntil(`${row}?.textContent.includes('Router') && !${row}?.querySelector('[data-editing]')`, "the new badge");
+    assert.deepEqual(d.stack.settings.listTokens().find((t) => t.name === "Dashboard")?.permissions, ["control"]);
+
+    // The agents' master switch, then a window typed on the General tab
+    const pick = (key: string, value: string): string =>
+      `(() => { const s = document.querySelector('#settingsDialog select[data-setting="${key}"]'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change')); return true; })()`;
+    await page.evaluate(pick("agentWrites", "0"));
+    await page.waitUntil(`document.querySelector('#settingsDialog select[data-setting="agentWrites"]')?.value === '0' && !document.querySelector('#settingsDialog select[data-setting="agentWrites"]').disabled`, "the switch saved");
+    assert.equal(d.stack.settings.behaviourOverrides.agentWrites, true);
+    await openSettings(page, "General");
+    await page.evaluate(`(() => { const box = document.querySelector('#settingsDialog input[data-setting="lockRollbackAfterMin"]'); box.value = '15'; box.dispatchEvent(new Event('change')); return true; })()`);
+    await page.waitUntil(`document.querySelector('#settingsDialog input[data-setting="lockRollbackAfterMin"]')?.value === '15' && document.querySelector('#settingsDialog')?.textContent.includes('Follow .env again')`, "the window saved");
+    assert.equal(d.stack.settings.behaviourOverrides.lockRollbackAfterMin, 15);
+    assert.equal(d.stack.selfHeal?.lockRollbackAfterMs, 15 * 60_000, "the running watchdog follows at once");
+    await closeDialogs(page);
   });
 
   it("lists the Telegram chats with how they were linked and unlinks one", async () => {

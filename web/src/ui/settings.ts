@@ -9,7 +9,8 @@ import type {
   WriteFeature,
 } from "../../../src/api-contract.ts";
 import type { AuditEntry } from "../../../src/audit-log.ts";
-import { TOKEN_LIFETIMES_DAYS } from "../../../src/console-policy.ts";
+import { type BehaviourKey, type BehaviourOverrides, type BehaviourValues, LOCK_ROLLBACK_MIN, RSRP_THRESHOLD, SINR_THRESHOLD, SMS_SEND_LIMIT_MAX, WAN_RECONNECT_MIN } from "../../../src/behaviour-settings.ts";
+import { TOKEN_LIFETIMES_DAYS, TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
@@ -55,11 +56,12 @@ import { copyText } from "./clipboard.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, modalBackdrop, mount, show } from "./dom.ts";
 
-export type SettingsTab = "router" | "device" | "login" | "tokens" | "telegram" | "security" | "audit";
+export type SettingsTab = "router" | "device" | "general" | "login" | "tokens" | "telegram" | "security" | "audit";
 
 const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string }> = [
   { id: "router", key: "tab_router", icon: "tower" },
   { id: "device", key: "tab_device", icon: "cpu" },
+  { id: "general", key: "tab_general", icon: "sliders" },
   { id: "login", key: "tab_login", icon: "key" },
   { id: "tokens", key: "tab_tokens", icon: "bot" },
   { id: "telegram", key: "tab_telegram", icon: "send" },
@@ -70,13 +72,22 @@ const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string 
 const LIFETIMES: ReadonlyArray<number | null> = [...TOKEN_LIFETIMES_DAYS, null];
 const isExperimentalFeature = (feature: WriteFeature): feature is ExperimentalFeature => (EXPERIMENTAL_FEATURES as ReadonlyArray<string>).includes(feature);
 const DEFAULT_LIFETIME_DAYS = 90;
+/** A new token reads SMS too unless unticked (what a read-only token did before permissions). */
+const DEFAULT_PERMISSIONS: ReadonlyArray<TokenPermission> = ["sms-read"];
+const PERMISSION_TEXT: Readonly<Record<TokenPermission, { label: SettingsTextKey; badge: SettingsTextKey }>> = {
+  "sms-read": { label: "perm_sms_read", badge: "badge_sms_read" },
+  control: { label: "perm_control", badge: "badge_control" },
+  access: { label: "perm_access", badge: "badge_access" },
+  "sms-write": { label: "perm_sms_write", badge: "badge_sms_write" },
+};
+type NumberSetting = "lockRollbackAfterMin" | "wanReconnectAfterMin" | "alertRsrpThresholdDbm" | "alertSinrThresholdDb" | "agentSmsSendLimitPerHour";
 /**
- * Tab labels follow the dialog's own width (a container query): the labelled row needs about 37rem
- * in English and 32rem in Chinese; below that the tabs show icons and the current tab's name.
+ * Tab labels follow the dialog's own width (a container query): the labelled row needs about 46rem
+ * in English and 40rem in Chinese; below that the tabs show icons and the current tab's name.
  */
 const TAB_LABEL_CLASS: Readonly<Record<"zh-CN" | "en", { label: string; heading: string }>> = {
-  "zh-CN": { label: "hidden @[32rem]:inline", heading: "fs-label @[32rem]:hidden" },
-  en: { label: "hidden @[37rem]:inline", heading: "fs-label @[37rem]:hidden" },
+  "zh-CN": { label: "hidden @[40rem]:inline", heading: "fs-label @[40rem]:hidden" },
+  en: { label: "hidden @[46rem]:inline", heading: "fs-label @[46rem]:hidden" },
 };
 const DEFAULT_CPE_URL = "http://192.168.8.1";
 const AUDIT_LIMIT = 200;
@@ -128,6 +139,10 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   let testing = false;
   let pairingInFlight = false;
   let savingSwitches = false;
+  let savingBehaviour = false;
+  /** The new token's permissions, and the token whose permissions are being edited (with the edit so far). */
+  let draftPermissions: TokenPermission[] = [...DEFAULT_PERMISSIONS];
+  let editing: { id: string; permissions: TokenPermission[] } | null = null;
   let minted: string | null = null;
   let pairing: PairingCodeResponse | null = null;
   let tokens: PublicTokenRecord[] | null = null;
@@ -593,13 +608,69 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           "div",
           { class: "flex flex-wrap items-center gap-1.5" },
           h("span", { class: "font-semibold truncate" }, token.name),
-          h("span", { class: "fs-badge" }, token.scope === "full" ? t("scope_full") : t("scope_read")),
+          ...(token.permissions.length === 0
+            ? [h("span", { class: "fs-badge" }, t("badge_data_only"))]
+            : token.permissions.map((permission) => h("span", { class: "fs-badge", data: { permission } }, t(PERMISSION_TEXT[permission].badge)))),
           token.imported ? h("span", { class: "fs-badge" }, t("imported")) : null,
           token.telegramExposedAtIso ? h("span", { class: "fs-badge", data: { kind: "warn" } }, t("telegram_exposed")) : null
         ),
-        h("div", { class: "text-[0.6875rem] faint num" }, `…${token.hint} · ${validity} · ${used}`)
+        h("div", { class: "text-[0.6875rem] faint num" }, `…${token.hint} · ${validity} · ${used}`),
+        editing?.id === token.id ? permissionEditor(token) : null
       ),
+      editing?.id === token.id
+        ? null
+        : button(t("edit_permissions"), "btn-ghost btn-xs", () => {
+            editing = { id: token.id, permissions: [...token.permissions] };
+            render();
+          }),
       revoke
+    );
+  };
+
+  /** Checkboxes for what a token may do besides reading; `current` reads the latest choice, `set` stores it. */
+  const permissionChecks = (current: () => TokenPermission[], set: (next: TokenPermission[]) => void): HTMLElement =>
+    h(
+      "div",
+      { class: "grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5" },
+      ...TOKEN_PERMISSIONS.map((permission) => {
+        const box = h("input", { class: "checkbox checkbox-xs checkbox-primary mt-0.5", attrs: { type: "checkbox" }, data: { permission } });
+        box.checked = current().includes(permission);
+        box.addEventListener("change", () => {
+          const chosen = current();
+          set(TOKEN_PERMISSIONS.filter((p) => (p === permission ? box.checked : chosen.includes(p))));
+        });
+        return h("label", { class: "flex items-start gap-2 cursor-pointer" }, box, h("span", { class: "text-xs" }, t(PERMISSION_TEXT[permission].label)));
+      })
+    );
+
+  const permissionEditor = (token: PublicTokenRecord): HTMLElement => {
+    const save = button(t("save_permissions"), "btn-primary btn-xs", () => {
+      const next = editing?.permissions ?? token.permissions;
+      save.disabled = true;
+      void ctx.api
+        .setTokenPermissions(token.id, next)
+        .then((res) => {
+          tokens = tokens?.map((x) => (x.id === token.id ? res.record : x)) ?? null;
+          editing = null;
+          ctx.toast(t("permissions_saved"), "success");
+        })
+        .catch(fail)
+        .finally(() => render());
+    });
+    const cancel = button(t("cancel_edit"), "btn-ghost btn-xs", () => {
+      editing = null;
+      render();
+    });
+    return h(
+      "div",
+      { class: "pt-2 space-y-2", data: { editing: token.id } },
+      permissionChecks(
+        () => editing?.permissions ?? token.permissions,
+        (next) => {
+          if (editing) editing.permissions = next;
+        }
+      ),
+      h("div", { class: "flex gap-2" }, save, cancel)
     );
   };
 
@@ -607,12 +678,6 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     const name = input("text", "", "off", t("token_name"));
     name.maxLength = 64;
     name.setAttribute("aria-label", t("token_name"));
-    const scope = h(
-      "select",
-      { class: "select select-sm rounded-lg", attrs: { "aria-label": t("scope_read") } },
-      h("option", { attrs: { value: "read" } }, t("scope_read")),
-      h("option", { attrs: { value: "full" } }, t("scope_full"))
-    );
     const lifetime = h(
       "select",
       { class: "select select-sm rounded-lg", attrs: { "aria-label": t("lifetime") } },
@@ -629,10 +694,11 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       }
       create.disabled = true;
       void ctx.api
-        .createToken({ name: name.value.trim(), scope: scope.value === "full" ? "full" : "read", lifetimeDays: lifetime.value === "never" ? null : Number(lifetime.value) })
+        .createToken({ name: name.value.trim(), permissions: [...draftPermissions], lifetimeDays: lifetime.value === "never" ? null : Number(lifetime.value) })
         .then((res) => {
           minted = res.token;
           tokens = [...(tokens ?? []), res.record];
+          draftPermissions = [...DEFAULT_PERMISSIONS];
           ctx.toast(t("token_created"), "success");
           // Closed meanwhile: shown at the next open, never written into the hidden dialog
           if (dialog.open) render();
@@ -649,6 +715,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     return h(
       "div",
       { class: "space-y-3" },
+      agentSection(),
       h("p", { class: "muted" }, t("tokens_intro")),
       shown
         ? h(
@@ -658,7 +725,18 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
             h("div", { class: "flex items-center gap-2" }, h("code", { class: "font-mono text-xs break-all flex-1 rounded-lg bg-base-200/70 p-2" }, shown), copyButton(shown))
           )
         : null,
-      h("div", { class: "grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2" }, name, scope, lifetime, create),
+      h("div", { class: "grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2" }, name, lifetime, create),
+      h(
+        "div",
+        { class: "space-y-1.5", data: { newToken: "permissions" } },
+        h("div", { class: "text-xs muted" }, t("perm_title")),
+        permissionChecks(
+          () => draftPermissions,
+          (next) => {
+            draftPermissions = next;
+          }
+        )
+      ),
       list
     );
   };
@@ -772,6 +850,159 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         // Nothing to unlink: no "unlink all" either
         chats?.some((chat) => chat.linkedWith !== null) ? h("div", { class: "flex justify-end" }, unlink) : null
       )
+    );
+  };
+
+  // ---------------------------------------------------------------- behaviour (general, AI agents)
+  const saveBehaviour = (body: BehaviourOverrides): void => {
+    if (savingBehaviour) return;
+    savingBehaviour = true;
+    void ctx.api
+      .consoleBehaviour(body)
+      .then((next) => {
+        summary = next;
+        ctx.toast(t("switch_saved"), "success");
+      })
+      // A refused change puts the control back to the stored value
+      .catch(fail)
+      .finally(() => {
+        savingBehaviour = false;
+        render();
+      });
+  };
+
+  const settingBlock = (label: string, control: HTMLElement, ...notes: Array<HTMLElement | null>): HTMLElement =>
+    h("div", { class: "space-y-1.5" }, h("div", { class: "fs-label" }, label), control, ...notes);
+
+  /** A setting picked from a list, the first entry following `.env` (as the metrics switch does). */
+  const choiceRow = <K extends BehaviourKey>(key: K, label: string, note: string | null, options: ReadonlyArray<readonly [BehaviourValues[K], string]>): HTMLElement | null => {
+    const entry = summary?.behaviour[key];
+    if (!entry) return null;
+    const nameOf = (value: unknown): string => options.find(([option]) => option === value)?.[1] ?? String(value);
+    const select = h(
+      "select",
+      { class: "select select-sm rounded-lg w-full sm:w-auto", attrs: { "aria-label": label }, data: { setting: key } },
+      h("option", { attrs: { value: "env" } }, t("follow_env", { value: nameOf(entry.envValue) })),
+      ...options.map(([, text], index) => h("option", { attrs: { value: String(index) } }, text))
+    );
+    select.value = entry.source === "env" ? "env" : String(options.findIndex(([option]) => option === entry.value));
+    select.disabled = savingBehaviour;
+    select.addEventListener("change", () => {
+      select.disabled = true;
+      const picked = select.value === "env" ? null : (options[Number(select.value)]?.[0] ?? null);
+      saveBehaviour({ [key]: picked } as BehaviourOverrides);
+    });
+    return settingBlock(label, select, note ? h("p", { class: "text-xs muted" }, note) : null);
+  };
+
+  /** Where a typed value comes from, with the way back to `.env`. */
+  const sourceLine = (key: BehaviourKey, shown: string): HTMLElement => {
+    const entry = summary?.behaviour[key];
+    return entry?.source === "console"
+      ? h("p", { class: "text-xs faint" }, t("set_here"), " · ", button(t("back_to_env"), "btn-link btn-xs px-0 h-auto min-h-0", () => saveBehaviour({ [key]: null } as BehaviourOverrides)))
+      : h("p", { class: "text-xs faint" }, t("from_env", { value: shown }));
+  };
+
+  /** A whole number (minutes, a threshold, a limit), saved when it changes; `off` accepts 0 for off. */
+  const numberRow = (key: NumberSetting, label: string, note: string, range: { min: number; max: number }, unit: string, off = false): HTMLElement | null => {
+    const entry = summary?.behaviour[key];
+    if (!entry) return null;
+    const box = h("input", { class: "input input-sm rounded-lg w-28 num", attrs: { type: "number", step: "1", min: String(off ? 0 : range.min), max: String(range.max), "aria-label": label }, data: { setting: key } });
+    box.value = String(entry.value);
+    box.disabled = savingBehaviour;
+    box.addEventListener("change", () => {
+      const value = Number(box.value);
+      if (box.value.trim() === "" || value === entry.value) {
+        box.value = String(entry.value);
+        return;
+      }
+      if (!Number.isInteger(value) || !((off && value === 0) || (value >= range.min && value <= range.max))) {
+        ctx.toast(t(off ? "number_range_off" : "number_range", { min: range.min, max: range.max }), "warning");
+        box.value = String(entry.value);
+        return;
+      }
+      box.disabled = true;
+      saveBehaviour({ [key]: value } as BehaviourOverrides);
+    });
+    const envShown = off && entry.envValue === 0 ? t("off") : `${entry.envValue} ${unit}`;
+    return settingBlock(label, h("div", { class: "flex items-center gap-2" }, box, h("span", { class: "text-xs muted" }, unit)), h("p", { class: "text-xs muted" }, note), sourceLine(key, envShown));
+  };
+
+  const countryRow = (): HTMLElement | null => {
+    const entry = summary?.behaviour.defaultCountryCode;
+    if (!entry) return null;
+    const box = input("text", entry.value, "off", t("country_placeholder"));
+    box.classList.replace("w-full", "w-28");
+    box.setAttribute("aria-label", t("country_code"));
+    box.dataset["setting"] = "defaultCountryCode";
+    box.disabled = savingBehaviour;
+    box.addEventListener("change", () => {
+      const raw = box.value.trim();
+      if (raw === entry.value) return;
+      if (raw !== "" && !/^\+?\d{1,4}$/.test(raw)) {
+        ctx.toast(t("country_invalid"), "warning");
+        box.value = entry.value;
+        return;
+      }
+      box.disabled = true;
+      saveBehaviour({ defaultCountryCode: raw });
+    });
+    return settingBlock(t("country_code"), box, h("p", { class: "text-xs muted" }, t("country_code_note")), sourceLine("defaultCountryCode", entry.envValue || t("country_placeholder")));
+  };
+
+  const group = (title: string, ...rows: Array<HTMLElement | null>): HTMLElement =>
+    h("section", { class: "space-y-3 rounded-xl bg-base-200/40 p-3" }, h("h5", { class: "font-semibold" }, title), ...rows);
+
+  const onOff = (): ReadonlyArray<readonly [boolean, string]> => [
+    [true, t("on")],
+    [false, t("off")],
+  ];
+
+  const generalTab = (): HTMLElement => {
+    if (!summary) return spinner();
+    return h(
+      "div",
+      { class: "space-y-4" },
+      h("p", { class: "muted" }, t("general_intro")),
+      group(
+        t("sec_self_heal"),
+        numberRow("lockRollbackAfterMin", t("lock_rollback"), t("lock_rollback_note"), LOCK_ROLLBACK_MIN, t("unit_min"), true),
+        numberRow("wanReconnectAfterMin", t("wan_redial"), t("wan_redial_note"), WAN_RECONNECT_MIN, t("unit_min"), true)
+      ),
+      group(
+        t("sec_alerts"),
+        choiceRow("alertsEnabled", t("alerts_enabled"), t("alerts_enabled_note"), onOff()),
+        choiceRow("alertNotifyMinSeverity", t("alert_floor"), t("alert_floor_note"), [
+          ["info", t("sev_info")],
+          ["warning", t("sev_warning")],
+          ["critical", t("sev_critical")],
+        ]),
+        numberRow("alertRsrpThresholdDbm", t("rsrp_threshold"), t("rsrp_threshold_note"), RSRP_THRESHOLD, "dBm"),
+        numberRow("alertSinrThresholdDb", t("sinr_threshold"), t("sinr_threshold_note"), SINR_THRESHOLD, "dB")
+      ),
+      group(t("sec_sms"), choiceRow("smsAutoMarkRead", t("sms_auto_read"), t("sms_auto_read_note"), onOff()), countryRow())
+    );
+  };
+
+  /** The AI agents' master switches, above the tokens they use. */
+  const agentSection = (): HTMLElement | null => {
+    if (!summary) return null;
+    return group(
+      t("sec_agents"),
+      h("p", { class: "text-xs muted" }, t("agents_intro")),
+      choiceRow("agentWrites", t("agent_writes"), t("agent_writes_note"), onOff()),
+      choiceRow("agentAccessControl", t("agent_access"), t("agent_access_note"), onOff()),
+      choiceRow("agentSms", t("agent_sms"), t("agent_sms_note"), [
+        ["none", t("agent_sms_none")],
+        ["read", t("agent_sms_read")],
+        ["full", t("agent_sms_full")],
+      ]),
+      choiceRow("agentSmsSendPolicy", t("agent_send_policy"), t("agent_send_policy_note"), [
+        ["known", t("policy_known")],
+        ["any", t("policy_any")],
+      ]),
+      numberRow("agentSmsSendLimitPerHour", t("agent_send_limit"), t("agent_send_limit_note"), { min: 0, max: SMS_SEND_LIMIT_MAX }, t("unit_per_hour")),
+      choiceRow("redactApi", t("redact_api"), t("redact_api_note"), onOff())
     );
   };
 
@@ -927,6 +1158,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   const VIEWS: Readonly<Record<SettingsTab, () => HTMLElement>> = {
     router: routerTab,
     device: deviceTab,
+    general: generalTab,
     login: loginTab,
     tokens: tokensTab,
     telegram: telegramTab,
@@ -953,7 +1185,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       dialog,
       h(
         "div",
-        { class: "modal-box sm:max-w-2xl p-0 flex flex-col max-h-[90vh]" },
+        { class: "modal-box sm:max-w-3xl p-0 flex flex-col max-h-[90vh]" },
         h(
           "div",
           { class: "flex items-center gap-2 px-5 pt-5 pb-3" },
@@ -980,6 +1212,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     pairing = null;
     pairingInFlight = false;
     savingSwitches = false;
+    savingBehaviour = false;
+    editing = null;
+    draftPermissions = [...DEFAULT_PERMISSIONS];
     draft.password = "";
     // Off the page too, not only off the screen: the closed dialog keeps its last content otherwise
     render();
