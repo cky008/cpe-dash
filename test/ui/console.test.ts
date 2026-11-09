@@ -530,4 +530,31 @@ describe("the console in a browser", () => {
       await other.close();
     }
   });
+
+  it("lets the owner allow AI agents to test the router: the switch on every model, the prompt where there are writes to test", async () => {
+    // The verified model: the switch (the read-only endpoint probe), no write test to walk an agent through
+    const d = live();
+    await signIn(page, d);
+    await openSettings(page, "Device");
+    await page.waitUntil(`document.querySelector('#settingsDialog [data-agent-test=section] select[data-setting="agentExperimental"]') !== null`, "the switch");
+    assert.equal(await page.evaluate<boolean>("document.querySelector('#settingsDialog [data-agent-test=prompt]') === null"), true);
+    await closeDialogs(page);
+
+    const other = await world({ scenario: "unverified" });
+    try {
+      await signIn(page, other);
+      await openSettings(page, "Device");
+      const pre = "document.querySelector('#settingsDialog [data-agent-test=prompt] pre')";
+      await page.waitUntil(`${pre}?.textContent.includes('B535-232')`, "the prompt for this model");
+      const prompt = await page.evaluate<string>(`${pre}.textContent`);
+      assert.match(prompt, /probe_router_endpoints/);
+      assert.match(prompt, /github\.com\/cky008\/cpe-dash\/issues\/new/);
+      await page.evaluate(`(() => { const s = document.querySelector('#settingsDialog select[data-setting="agentExperimental"]'); s.value = '0'; s.dispatchEvent(new Event('change')); return true; })()`);
+      await until(() => other.stack.settings.behaviourOverrides.agentExperimental === true, "the switch saved");
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await other.close();
+    }
+  });
 });

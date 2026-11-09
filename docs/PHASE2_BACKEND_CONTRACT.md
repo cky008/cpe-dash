@@ -1352,7 +1352,7 @@ export interface AvoidanceBroadcastPayload {
 
 ---
 
-## 4. MCP Server 双模传输与工具契约（核心 13 项 + 访问控制 4 项 + 短信 10 项）
+## 4. MCP Server 双模传输与工具契约（核心 16 项 + 访问控制 4 项 + 短信 10 项）
 
 「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，同时支持两代协议（dual-era）：
 
@@ -1390,7 +1390,7 @@ export interface AvoidanceBroadcastPayload {
    - 若携带 `Origin` 头，必须与当前 `Host` 同源，否则返回 `403 FORBIDDEN_ORIGIN`；
    - JSON-RPC Notification（无 `id`）按规范返回 `202 Accepted` 空响应体；JSON-RPC Request 返回 `200 application/json` 单个响应对象（不使用 SSE 流式响应）。
 
-### 4.2 暴露的 13 项 MCP Tools 与 3 项 Resources
+### 4.2 暴露的 16 项 MCP Tools 与 3 项 Resources
 - **只读观测类（6 项，`readOnlyHint: true`）**：`get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`（含 `selfHeal`，见 2.2 节）、`list_terminal_topology`、`get_router_settings`。
   - `get_cpe_telemetry` / `list_terminal_topology` / `get_router_settings`：传入 `refresh: true` 或缓存为空时触发一次瞬时采集。
   - `get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 在 `REDACT_SENSITIVE_IN_API=true`（默认）时返回脱敏副本（规则见 1.2 节第 4 条），设为 `false` 后返回原值。
@@ -1403,6 +1403,11 @@ export interface AvoidanceBroadcastPayload {
   - `lock_cell`：`arfcn` / `pci` 为整数（`pci` LTE `0..503`、NR `0..1007`，MCP 不接受 `null`），频段与 ARFCN 规则同 REST；此外**只能锁定已观测到的小区**：(`rat`, `band`, `arfcn`[, `pci`]) 必须与当前服务小区、载波聚合分量、辅小区或最近一次邻区扫描中的条目一致，否则返回 `CELL_NOT_OBSERVED`（请先调用 `list_neighbor_cells({ scanNow: true })` 并从结果中复制参数）。REST 不受此限制。
   - `set_security_switches`：`dmzIpAddress` 若提供必须为合法 IPv4 字符串，且必须同时提供 `dmzEnabled`。
   - `set_wifi_and_antenna`：同时提供 Wi-Fi 7 参数与 `antennaMode` 时，两项写入在两个独立的瞬时会话中依次执行。若第二次写入失败（例如真人恰好在两次会话之间登录），第一项写入仍然生效而工具返回错误，请调用 `get_router_settings({ refresh: true })` 核对。
+- **兼容性测试类（3 项，v1.8.0）**：`get_device_report`（只读，任何令牌，始终列出）、`probe_router_endpoints`（只读）、`set_experimental_write`（改的是烽燧的同意记录，不写路由器；强制 `confirm: true`）。后两项只在主人允许智能体测试这台路由器时列出（「设置 → 设备」的开关，或 `MCP_ALLOW_EXPERIMENTAL=true`；控制台里改过的以控制台为准），按名字调用返回 `EXPERIMENTAL_NOT_ALLOWED`。
+  - `get_device_report`：返回 `{ ok, report, agentsMayTestExperimental, agentsMayProbeEndpoints }`，`report` 与 `GET /api/console/device-report` 相同（脱敏，只含结构）。
+  - `probe_router_endpoints({ paths })`：`paths` 为 1–12 个 `/api/` 加 2–4 段（字母、数字、`-`、`_`）的路径，最长 96 个字符，重复的只读一次，其他返回 `VALIDATION_ERROR`。每次调用在一个低优先级读会话里逐个 `GET`（单个超时 5 s），经 `EphemeralCpeSession.peek()`：应答不能替换会话 Cookie（以免登出漏掉这个会话、占住管理员会话），错误码不计入设备报告的错误码统计。直接拒绝、不发出的路径（`refused`）：`user`、`webserver`、`stk`、`ussd`、`filemanager` 开头的（`session`），`/api/net/plmn-list`（搜网会断网几分钟）、`/api/online-update/check-new-version`、`/api/device/compressed-logs`，以及任一段（按 `-`、`_` 与驼峰拆词）含有动作词（`reboot`、`reset`、`send`、`delete`、`set`、`scan`、`control` 等，见 [`src/endpoint-discovery.ts`](../src/endpoint-discovery.ts)）的（`acts`）；全部被拒时不开会话。返回 `{ ok, endpoints: DiscoveredEndpoint[], note }`，每项为 `{ path, known, state, code, format, fields, truncated, refused? }`：`known` 表示烽燧的协议模块已在使用；`state` 与设备报告相同（`supported` / `unsupported` = `100002` / `restricted` = `100003` / `unknown`）或 `refused`；`fields` 只有标签路径、值的形状与出现次数，**不含任何值**。两次调用至少隔 10 s（`PROBE_TOO_SOON`，附 `retryAfterSec`），同一时间只跑一个；调度器跳过会话（真人在线、熔断）时返回 `PROBE_SKIPPED`（附 `sessionStatus`）。每次调用记一条审计 `router.probe`（`detail` 列出路径，被拒的标 `(refused)`）。
+  - `set_experimental_write({ feature, enabled, model?, confirm })`：只在未验证型号上列出；规则同 `POST /api/console/experimental`（打开要填路由器型号），另需 `MCP_ALLOW_MUTATIONS`、令牌的 `control` 权限与 `confirm: true`；审计记为 `settings.experimental`。错误：`EXPERIMENTAL_UNAVAILABLE`（已验证或尚未识别的型号；这项写入在这台路由器上不能打开，附 `state`）、`VALIDATION_ERROR`（型号不符等）。
+  - 智能体（MCP 调用方）在未验证型号上锁 LTE 频段后，`WanSelfHeal` 至少看守 3 分钟（不受 `LOCK_ROLLBACK_AFTER_MIN` 是否打开影响，取两者中较长的）：WAN 一直没恢复，就把这次锁频在同一会话里写入前读到的 `LTEBand` 掩码原样写回（`auto_unlock_rf_locks`，摘要为 `controls.auto_restore_applied`，告警 `LOCK_ROLLED_BACK`）；读不到掩码时按原规则解除全部锁定；WAN 恢复并保持 2 分钟则保留。
 - **只读资源 URI（3 项 + 短信 1 项，`mimeType: "application/json"`）**：`fengsui://telemetry/latest`（`GlobalTelemetrySnapshot | null`）、`fengsui://session/status`（`SchedulerStatusSnapshot`）、`fengsui://locks/state`（`PersistedLockState`），以及 `MCP_SMS_ACCESS` 不为 `none` 时的 `fengsui://sms/status`（`SmsStatusSnapshot`）。
 
 ### 4.3 工具调用结果与错误
@@ -1435,6 +1440,10 @@ export interface McpToolErrorPayload {
     | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）
     | "CIRCUIT_BREAKER_OPEN"     // 防爆破断路器已熔断（附 circuitBreaker）：不会尝试登录，需人工修正 .env 并 reset-breaker
     | "QUEUE_FULL"               // 调度队列已满或守护进程正在停机，可稍后重试
+    | "EXPERIMENTAL_NOT_ALLOWED" // 主人没有允许智能体测试这台路由器（probe_router_endpoints、set_experimental_write）
+    | "EXPERIMENTAL_UNAVAILABLE" // set_experimental_write：已验证或尚未识别的型号，或这项写入在这台路由器上不能打开（附 state）
+    | "PROBE_TOO_SOON"           // probe_router_endpoints：离上次调用不到 10 s 或上一次还在进行（附 retryAfterSec）
+    | "PROBE_SKIPPED"            // probe_router_endpoints：调度器没有开会话（真人在线、熔断等），什么都没读（附 sessionStatus）
     | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、会话超过占用上限等
   message: string;               // 英文
   messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED、DEVICE_UNVERIFIED_READ_ONLY、DEVICE_NOT_IDENTIFIED
@@ -1442,7 +1451,7 @@ export interface McpToolErrorPayload {
 }
 ```
 
-**未验证型号（只读，见 2.10）**：`tools/list` 不列出写路由器的工具（核心的锁频锁站、开关、重拨、重启，访问控制的三个写工具，短信的 `send_sms`、`mark_sms_read`、`delete_sms`），除非这个工具需要的写功能在这台路由器上都已打开（阶段 3：用户为这个型号同意的实验性写入，或 `VERIFIED_FEATURES` 里验证过的写入，见 2.11）。打开的工具以通用形式列出：说明以 `EXPERIMENTAL on this router (<型号>, …)`（用户验证过的为 `VERIFIED BY USERS …`）开头，`inputSchema` 一律要求 `confirm: true`；`lock_band` 只收 LTE 频段（去掉 `nrBands`，说明里列出路由器通告的频段）。`upsert_contact` 只改烽燧自己的通讯录，照常列出。按名字强行调用没打开的写工具，在确认与参数检查之前就返回 `DEVICE_UNVERIFIED_READ_ONLY`（附 `model` 与没打开的 `feature`），调度器也会再拒绝一次（例如型号是在这次写操作自己的会话里才读到的）。`initialize` / `server/discover` 的 `instructions` 末尾追加一句：这台路由器是未验证的型号，只读；有打开的实验性写入时改为列出它们，并提醒只在用户明确要求时传 `confirm: true`。读工具按路由器实际提供的读取项筛选：`list_neighbor_cells`（neighbors）、`list_terminal_topology`（topology）、`get_router_settings`（settings）、`get_access_control`（accessControl）与全部短信工具及 `fengsui://sms/status`（sms）在 `device.reads` 为 `unavailable` 时不列出，还没读过时照常列出；不列出的读工具按名字调用时照常执行（相当于主动刷新），确认与 `inputSchema` 检查同样适用。列表只在路由器型号、它提供的读取项或打开的实验性写入变化时改变（`tools/list` 的 `ttlMs` 不变），每次调用都会在服务端重新检查。**H168-383 上工具、资源与说明与改动前逐字相同**（[`test/mcp-gate.test.ts`](../test/mcp-gate.test.ts)）。
+**未验证型号（只读，见 2.10）**：`tools/list` 不列出写路由器的工具（核心的锁频锁站、开关、重拨、重启，访问控制的三个写工具，短信的 `send_sms`、`mark_sms_read`、`delete_sms`），除非这个工具需要的写功能在这台路由器上都已打开（阶段 3：用户为这个型号同意的实验性写入，或 `VERIFIED_FEATURES` 里验证过的写入，见 2.11）。打开的工具以通用形式列出：说明以 `EXPERIMENTAL on this router (<型号>, …)`（用户验证过的为 `VERIFIED BY USERS …`）开头，`inputSchema` 一律要求 `confirm: true`；`lock_band` 只收 LTE 频段（去掉 `nrBands`，说明里列出路由器通告的频段）。`upsert_contact` 只改烽燧自己的通讯录，照常列出。按名字强行调用没打开的写工具，在确认与参数检查之前就返回 `DEVICE_UNVERIFIED_READ_ONLY`（附 `model` 与没打开的 `feature`），调度器也会再拒绝一次（例如型号是在这次写操作自己的会话里才读到的）。`initialize` / `server/discover` 的 `instructions` 末尾追加一句：这台路由器是未验证的型号，只读；有打开的实验性写入时改为列出它们，并提醒只在用户明确要求时传 `confirm: true`。读工具按路由器实际提供的读取项筛选：`list_neighbor_cells`（neighbors）、`list_terminal_topology`（topology）、`get_router_settings`（settings）、`get_access_control`（accessControl）与全部短信工具及 `fengsui://sms/status`（sms）在 `device.reads` 为 `unavailable` 时不列出，还没读过时照常列出；不列出的读工具按名字调用时照常执行（相当于主动刷新），确认与 `inputSchema` 检查同样适用。列表只在路由器型号、它提供的读取项或打开的实验性写入变化时改变（`tools/list` 的 `ttlMs` 不变），每次调用都会在服务端重新检查。**H168-383 上工具、资源与说明与改动前逐字相同**，只多了 v1.8.0 起始终列出的 `get_device_report`（[`test/mcp-gate.test.ts`](../test/mcp-gate.test.ts)）。
 
 
 ### 4.4 短信工具（`MCP_SMS_ACCESS` 分级 + 提示词注入防护）

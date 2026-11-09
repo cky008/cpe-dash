@@ -60,7 +60,8 @@ describe("generic writes: LTE band lock (net/net-mode)", () => {
     const { cpe, session } = router();
     const check = newWriteCheck();
     const { value, inside } = await session((s) => genericBandLock(s, check, [1, 3], ADVERTISED));
-    assert.deepEqual(value, [1, 3]);
+    // The mask it replaced comes back too (lowercase, as A.11 writes it), for an AI agent's test to be undone
+    assert.deepEqual(value, { bands: [1, 3], before: "800800c5" });
     assert.deepEqual(posts(cpe), [{ path: "/api/net/net-mode", body: "<request><NetworkMode>03</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>5</LTEBand></request>" }]);
     assert.deepEqual(inside, ["GET /api/net/net-mode", "POST /api/net/net-mode", "GET /api/net/net-mode"]);
     assert.deepEqual(check, { endpoints: ["/api/net/net-mode"], readback: "match", reason: null });
@@ -83,6 +84,23 @@ describe("generic writes: LTE band lock (net/net-mode)", () => {
     const blindCheck = newWriteCheck();
     await blind.session((s) => genericBandLock(s, blindCheck, "all", []));
     assert.deepEqual([blindCheck.readback, blindCheck.reason], ["unknown", "unreadable"]);
+  });
+
+  it("writes a saved mask back as it was and reads it back: the setting from before an AI agent's test", async () => {
+    const { cpe, session } = router();
+    await session((s) => genericBandLock(s, newWriteCheck(), [1, 3], ADVERTISED));
+    const check = newWriteCheck();
+    const { value, inside } = await session((s) => genericBandLock(s, check, { savedMask: "800800c5" }, ADVERTISED));
+    assert.equal(posts(cpe)[1]?.body, "<request><NetworkMode>03</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>800800c5</LTEBand></request>");
+    assert.deepEqual(inside, ["GET /api/net/net-mode", "POST /api/net/net-mode", "GET /api/net/net-mode"]);
+    assert.deepEqual(check, { endpoints: ["/api/net/net-mode"], readback: "match", reason: null });
+    // That mask turns on every advertised band: unlocked again
+    assert.deepEqual(value, { bands: "all", before: "5" });
+    // A saved lock comes back as that lock
+    assert.deepEqual((await session((s) => genericBandLock(s, newWriteCheck(), { savedMask: "5" }, ADVERTISED))).value, { bands: [1, 3], before: "800800c5" });
+    // Anything that is not a mask is never sent
+    await assert.rejects(session((s) => genericBandLock(s, newWriteCheck(), { savedMask: "5</LTEBand>" }, ADVERTISED)), CpeControlValidationError);
+    assert.equal(posts(cpe).length, 3);
   });
 
   it("reports a router that acknowledges the lock but keeps its old bands", async () => {
@@ -140,7 +158,7 @@ describe("generic writes: LTE band lock (net/net-mode)", () => {
       postXml: async () => "<response>OK</response>",
     } as unknown as EphemeralCpeSession;
     const check = newWriteCheck();
-    assert.deepEqual(await genericBandLock(session, check, [1], ADVERTISED), [1]);
+    assert.deepEqual(await genericBandLock(session, check, [1], ADVERTISED), { bands: [1], before: "800800c5" });
     assert.deepEqual(check, { endpoints: ["/api/net/net-mode"], readback: "unknown", reason: "unreadable" });
   });
 });

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
+import { changeExperimentalConsent } from "./experimental-consent.ts";
 import { type BehaviourValues, behaviourFromConfig, resolveBehaviour } from "./behaviour-settings.ts";
 import { AuditLog } from "./audit-log.ts";
 import { ConsoleSettings, type CpeConnection, type RouterPasswordReuse, resetLoginProof } from "./console-settings.ts";
@@ -363,6 +364,9 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     log,
   });
 
+  // An AI agent's experimental write that can cut the WAN is watched, and undone if the WAN stays down
+  controls.onAgentExperiment = (change) => selfHeal.guardAgentExperiment(change);
+
   /** Settings changed in the console (or `.env` reloaded): what reads them per use needs nothing; these act now. */
   const applyBehaviour = (next: BehaviourValues): void => {
     behaviour = next;
@@ -424,6 +428,17 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     allowMutations: () => behaviour.agentWrites,
     redactSensitive: () => behaviour.redactApi,
     selfHealStatus: () => (selfHeal.enabled ? selfHeal.status() : SELF_HEAL_OFF),
+    // Agents testing this router: the owner's switch, then the console's own consent rules; every probe is audited
+    experimental: {
+      allowed: () => behaviour.agentExperimental,
+      settings,
+      change: (request) => {
+        const result = changeExperimentalConsent(settings, scheduler.device, request);
+        if (result.ok || result.detail) audit.record({ action: "settings.experimental", outcome: result.ok ? "applied" : "refused", detail: result.ok ? result.detail : (result.detail ?? "") });
+        return result;
+      },
+      probed: (outcome, detail) => audit.record({ action: "router.probe", outcome, detail }),
+    },
     toolProviders: sms
       ? [
           accessTools,

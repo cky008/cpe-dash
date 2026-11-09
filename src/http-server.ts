@@ -20,7 +20,7 @@ import {
   readWifiMacFilterChange,
 } from "./control-input.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
-import { buildDeviceReport, deviceProfileOf } from "./device-profile.ts";
+import { deviceProfileOf } from "./device-profile.ts";
 import { VERIFIED_FIRMWARE } from "./firmware.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
 import { type TokenPermission, tokenMay, validateNewPassword } from "./console-policy.ts";
@@ -72,6 +72,7 @@ import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { type RuntimeSample, renderMetrics } from "./metrics.ts";
 import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
+import { deviceReportOf } from "./core.ts";
 import {
   BrowserSessionYieldedError,
   DeviceNotIdentifiedError,
@@ -86,7 +87,7 @@ import type { NotificationHub } from "./notify/hub.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
 import { type BehaviourValues, behaviourFromConfig } from "./behaviour-settings.ts";
-import { sanitizeDeviceProfile, sanitizeDeviceReport, sanitizeFreeText } from "./sanitize.ts";
+import { sanitizeDeviceProfile, sanitizeFreeText } from "./sanitize.ts";
 import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
 import type { SmsService } from "./sms/service.ts";
@@ -263,17 +264,7 @@ export class FengSuiHttpServer {
       unlinkTelegramChat: (chatId: string) => options.unlinkTelegramChat?.(chatId) ?? false,
       telegramUsername: options.telegramUsername ?? (() => null),
       onDeviceProbe: (probe) => void options.core.monitor.recordDeviceProbe(probe),
-      deviceReport: () =>
-        sanitizeDeviceReport(
-          buildDeviceReport({
-            probe: options.core.monitor.getDeviceProbe(),
-            apiErrors: options.core.scheduler.apiErrorSnapshot(),
-            fengsuiVersion: FENGSUI_VERSION,
-            generatedAtIso: new Date().toISOString(),
-            access: options.core.scheduler.device.snapshot(),
-            writes: options.core.scheduler.genericWrites,
-          })
-        ),
+      deviceReport: () => deviceReportOf(options.core),
     });
   }
 

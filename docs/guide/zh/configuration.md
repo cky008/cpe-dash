@@ -9,6 +9,8 @@ order: 14
 
 大多数人只需要设置三项：`DATA_ENCRYPTION_KEY`、`TZ`，以及 Docker 下的 `PUID` / `PGID`。路由器连接、控制台密码和令牌都在网页控制台里管理，加密保存在 `data/settings.json`。
 
+AI 智能体、自愈、告警和部分短信设置也可以直接在控制台「设置」里改，立即生效，不用重建容器。控制台里没改过的跟随 `.env`；改过的以控制台为准，选「跟随 .env」就恢复。下面各节写明了哪些设置可以这样改、在哪一页。
+
 改完 `.env` 后，用 `docker compose up -d --force-recreate` 让它生效（原因见 [Docker Compose 配置](docker-compose.md#apply)）。`docker-compose.yml` 本身每一项的作用也在那一页。
 
 ## 基本
@@ -46,18 +48,21 @@ order: 14
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | 反向代理的 IP 或网段。只有来自这里的请求，烽燧才相信 `X-Forwarded-For` / `X-Forwarded-Proto`（见[安全与隐私](security.md#经反向代理访问)） |
 | `SESSION_TTL_MS` | `86400000` | 控制台登录有效期（24 小时） |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_AUTH_FAILURES` | `60000` / `8` | 登录失败限流：每分钟最多 8 次失败 |
-| `API_TOKEN` | 空 | 只在第一次启动时导入：成为控制台登录密码，也成为一个完全控制的令牌。之后在控制台管理，不必填写 |
-| `API_TOKEN_READONLY` | 空 | 只在第一次启动时导入为一个只读令牌。新令牌请在「设置 → 令牌」生成 |
+| `API_TOKEN` | 空 | 只在第一次启动时导入：成为控制台登录密码，也成为一个拥有全部权限的令牌。之后在控制台管理，不必填写 |
+| `API_TOKEN_READONLY` | 空 | 只在第一次启动时导入为一个能查看数据和读短信、不能改动任何东西的令牌。新令牌请在「设置 → 令牌与 AI」生成 |
 | `STATIC_DIR` | 构建产物 | 控制台静态文件目录，一般不用改 |
 | `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | 实时事件流的心跳间隔和最大连接数 |
 | `METRICS_ENABLED` | `false` | 打开 `GET /metrics`（Prometheus 格式，需要任意令牌）。控制台「设置 → 安全」里的开关优先 |
 
 ## AI 智能体（MCP）
 
+除了 `MCP_HTTP_ENABLED` 和 `MCP_DAEMON_URL`，这一节的设置都可以在控制台「设置 → 令牌与 AI」里改（`MCP_ALLOW_EXPERIMENTAL` 在「设置 → 设备」）。
+
 | 设置 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `MCP_HTTP_ENABLED` | `true` | 是否提供 `POST /mcp` |
 | `MCP_ALLOW_MUTATIONS` | `false` | 是否允许智能体调用会改动路由器的工具。默认只能读取 |
+| `MCP_ALLOW_EXPERIMENTAL` | `false` | 是否允许 AI 智能体测试这台路由器：只读地查找烽燧还没用到的接口；在未验证型号上还能自己打开 / 关闭实验性写入（写入另需 `MCP_ALLOW_MUTATIONS=true` 和有「改动路由器」权限的令牌）。见 [AI 智能体](agents.md#testing) |
 | `MCP_ALLOW_ACCESS_CONTROL` | `false` | 是否允许智能体断网、改 Wi-Fi 黑白名单和上网时段（还需要上一项为 `true`） |
 | `MCP_SMS_ACCESS` | `read` | 智能体的短信权限：`none`（不能用短信工具）、`read`（只读）或 `full`（还能发送、标记已读、删除和改通讯录，另需 `MCP_ALLOW_MUTATIONS=true`） |
 | `MCP_SMS_SEND_POLICY` | `known` | `known`：只能发给你保存的联系人或发过短信的号码；`any`：不限制 |
@@ -66,6 +71,8 @@ order: 14
 | `REDACT_SENSITIVE_IN_API` | `true` | 给令牌访问的 API、实时事件和 MCP 的数据打码（IMEI、IMSI、号码、MAC、WAN 地址、小区标识）。网页控制台不受影响 |
 
 ## 短信
+
+`SMS_AUTO_MARK_READ` 和 `DEFAULT_COUNTRY_CODE` 也可以在控制台「设置 → 常规」里改。
 
 | 设置 | 默认值 | 说明 |
 | :--- | :--- | :--- |
@@ -79,6 +86,8 @@ order: 14
 
 ## 通知与告警
 
+`ALERTS_ENABLED`、`ALERT_NOTIFY_MIN_SEVERITY` 和两个阈值也可以在控制台「设置 → 常规」里改。
+
 | 设置 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | 空 | Telegram 机器人令牌（找 `@BotFather` 创建） |
@@ -91,6 +100,8 @@ order: 14
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | 信号变差告警的阈值 |
 
 ## 自愈（默认关闭）
+
+这两项也可以在控制台「设置 → 常规」里改，立即生效。
 
 | 设置 | 默认值 | 说明 |
 | :--- | :--- | :--- |

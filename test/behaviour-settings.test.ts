@@ -7,6 +7,7 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 const ENV: BehaviourValues = {
   agentWrites: false,
   agentAccessControl: false,
+  agentExperimental: false,
   agentSms: "read",
   agentSmsSendPolicy: "known",
   agentSmsSendLimitPerHour: 10,
@@ -53,6 +54,7 @@ describe("Behaviour settings the console sets over .env", () => {
     const patch = readBehaviourPatch({
       agentWrites: true,
       agentAccessControl: null,
+      agentExperimental: true,
       agentSms: "full",
       agentSmsSendPolicy: "any",
       agentSmsSendLimitPerHour: 0,

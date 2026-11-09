@@ -15,6 +15,8 @@ export interface BehaviourValues {
   agentWrites: boolean;
   /** MCP access-control writes, on top of `agentWrites`. */
   agentAccessControl: boolean;
+  /** On a model nobody verified, agents may turn experimental writes on or off and test them (on top of `agentWrites`). */
+  agentExperimental: boolean;
   agentSms: AgentSmsAccess;
   agentSmsSendPolicy: "known" | "any";
   agentSmsSendLimitPerHour: number;
@@ -40,6 +42,7 @@ export type BehaviourOverrides = { [K in BehaviourKey]?: BehaviourValues[K] | nu
 export const BEHAVIOUR_ENV: Readonly<Record<BehaviourKey, string>> = {
   agentWrites: "MCP_ALLOW_MUTATIONS",
   agentAccessControl: "MCP_ALLOW_ACCESS_CONTROL",
+  agentExperimental: "MCP_ALLOW_EXPERIMENTAL",
   agentSms: "MCP_SMS_ACCESS",
   agentSmsSendPolicy: "MCP_SMS_SEND_POLICY",
   agentSmsSendLimitPerHour: "MCP_SMS_SEND_LIMIT_PER_HOUR",
@@ -60,6 +63,7 @@ const KEYS = Object.keys(BEHAVIOUR_ENV) as BehaviourKey[];
 export const DEFAULT_BEHAVIOUR: Readonly<BehaviourValues> = {
   agentWrites: false,
   agentAccessControl: false,
+  agentExperimental: false,
   agentSms: "read",
   agentSmsSendPolicy: "known",
   agentSmsSendLimitPerHour: 10,
@@ -85,6 +89,7 @@ export const SINR_THRESHOLD = { min: -20, max: 40 } as const;
 export function behaviourFromConfig(config: {
   mcpAllowMutations: boolean;
   mcpAllowAccessControl: boolean;
+  mcpAllowExperimental: boolean;
   mcpSmsAccess: AgentSmsAccess;
   mcpSmsSendPolicy: "known" | "any";
   mcpSmsSendLimitPerHour: number;
@@ -101,6 +106,7 @@ export function behaviourFromConfig(config: {
   return {
     agentWrites: config.mcpAllowMutations,
     agentAccessControl: config.mcpAllowAccessControl,
+    agentExperimental: config.mcpAllowExperimental,
     agentSms: config.mcpSmsAccess,
     agentSmsSendPolicy: config.mcpSmsSendPolicy,
     agentSmsSendLimitPerHour: config.mcpSmsSendLimitPerHour,
@@ -185,6 +191,7 @@ function readValue(key: BehaviourKey, raw: unknown): BehaviourValues[BehaviourKe
   switch (key) {
     case "agentWrites":
     case "agentAccessControl":
+    case "agentExperimental":
     case "redactApi":
     case "alertsEnabled":
     case "smsAutoMarkRead":

@@ -39,6 +39,8 @@ export interface AppConfig {
    * block / unblock, MAC filter changes, internet time rules). Reading the state is always available.
    */
   mcpAllowAccessControl: boolean;
+  /** `MCP_ALLOW_EXPERIMENTAL`: AI agents may turn experimental writes on (a model nobody verified) and test them. */
+  mcpAllowExperimental: boolean;
   /**
    * The serve daemon's Streamable HTTP endpoint that `cpe-dash mcp` (the stdio bridge) forwards to:
    * `MCP_DAEMON_URL`, or `http://127.0.0.1:<WEB_PORT>/mcp` (the bound `WEB_HOST` when it is specific).

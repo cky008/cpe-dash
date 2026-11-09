@@ -9,6 +9,8 @@ FengSui reads `.env` (`/app/.env` inside the container) and environment variable
 
 Most users only need to set three items: `DATA_ENCRYPTION_KEY`, `TZ`, and `PUID` / `PGID` when using Docker. Router connections, console passwords, and tokens are managed directly in the web console and stored encrypted in `data/settings.json`.
 
+The AI agent, self-healing, alert and some SMS settings can also be changed in the console's Settings, where they apply at once without recreating the container. A setting you never changed in the console follows `.env`; one you changed there wins, and "Follow .env" hands it back. Each section below says which settings work this way and on which tab.
+
 After editing `.env`, apply it with `docker compose up -d --force-recreate` (why: [Docker Compose file](docker-compose.md#apply)). That page also explains each entry of `docker-compose.yml` itself.
 
 ## Basics
@@ -46,18 +48,21 @@ These settings are imported only on the **first startup**. After that, values in
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | Reverse proxy IP addresses or subnets. FengSui trusts `X-Forwarded-For` and `X-Forwarded-Proto` only for requests from these addresses (see [Security and privacy](security.md#access-behind-a-reverse-proxy)) |
 | `SESSION_TTL_MS` | `86400000` | Console login session duration (24 hours) |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_AUTH_FAILURES` | `60000` / `8` | Login failure rate limiting: maximum of 8 failed attempts per minute |
-| `API_TOKEN` | Empty | Imported on the first startup only: becomes the console login password and a full-access token. Managed in the console afterward, so you can leave it blank |
-| `API_TOKEN_READONLY` | Empty | Imported on the first startup only as a read-only token. Generate new tokens under "Settings → Tokens" |
+| `API_TOKEN` | Empty | Imported on the first startup only: becomes the console login password and a token with every permission. Managed in the console afterward, so you can leave it blank |
+| `API_TOKEN_READONLY` | Empty | Imported on the first startup only as a token that can read the data and SMS and change nothing. Generate new tokens under "Settings → Tokens & AI" |
 | `STATIC_DIR` | Build output | Directory for console static files. Typically left unchanged |
 | `SSE_HEARTBEAT_MS` / `SSE_MAX_CLIENTS` | `15000` / `32` | Heartbeat interval and maximum client connections for the real-time event stream |
 | `METRICS_ENABLED` | `false` | Enables `GET /metrics` (Prometheus format, requires any token). The toggle under "Settings → Security" in the console takes precedence |
 
 ## AI agents (MCP)
 
+Except for `MCP_HTTP_ENABLED` and `MCP_DAEMON_URL`, the settings in this section can be changed in the console under Settings → Tokens & AI (`MCP_ALLOW_EXPERIMENTAL` under Settings → Device).
+
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `MCP_HTTP_ENABLED` | `true` | Whether to expose `POST /mcp` |
 | `MCP_ALLOW_MUTATIONS` | `false` | Whether to allow agents to call tools that modify the router. Read-only by default |
+| `MCP_ALLOW_EXPERIMENTAL` | `false` | Whether AI agents may test this router: find, read-only, the endpoints FengSui does not use yet, and on a model FengSui was not verified on turn experimental writes on or off (writes also require `MCP_ALLOW_MUTATIONS=true` and a token with the router permission). See [AI agents](agents.md#testing) |
 | `MCP_ALLOW_ACCESS_CONTROL` | `false` | Whether to allow agents to block internet access, modify Wi-Fi blocklists/allowlists, and change access schedules (also requires `MCP_ALLOW_MUTATIONS=true`) |
 | `MCP_SMS_ACCESS` | `read` | Agent SMS permissions: `none` (no SMS tools), `read` (read only), or `full` (also send, mark as read, delete and edit contacts; also requires `MCP_ALLOW_MUTATIONS=true`) |
 | `MCP_SMS_SEND_POLICY` | `known` | `known`: only allows sending to saved contacts or numbers you have messaged before; `any`: no restrictions |
@@ -66,6 +71,8 @@ These settings are imported only on the **first startup**. After that, values in
 | `REDACT_SENSITIVE_IN_API` | `true` | Redacts sensitive data (IMEI, IMSI, phone numbers, MAC addresses, WAN addresses, cell identifiers) in token-authenticated API, real-time events, and MCP endpoints. The web console is unaffected |
 
 ## SMS
+
+`SMS_AUTO_MARK_READ` and `DEFAULT_COUNTRY_CODE` can also be changed in the console under Settings → General.
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
@@ -79,6 +86,8 @@ These settings are imported only on the **first startup**. After that, values in
 
 ## Notifications and alerts
 
+`ALERTS_ENABLED`, `ALERT_NOTIFY_MIN_SEVERITY` and the two thresholds can also be changed in the console under Settings → General.
+
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `TELEGRAM_BOT_TOKEN` | Empty | Telegram bot token (created with `@BotFather`) |
@@ -91,6 +100,8 @@ These settings are imported only on the **first startup**. After that, values in
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | Thresholds for degraded signal alerts |
 
 ## Self-healing (disabled by default)
+
+Both can also be changed in the console under Settings → General, where they apply at once.
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |

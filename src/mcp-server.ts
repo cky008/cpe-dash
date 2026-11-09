@@ -3,7 +3,7 @@ import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
-import { CoreMcpTools } from "./mcp-core-tools.ts";
+import { type AgentExperimentalOptions, CoreMcpTools } from "./mcp-core-tools.ts";
 import { MCP_META_PROTOCOL_VERSION, MCP_META_SERVER_INFO, decodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
 import { validateToolArguments } from "./mcp-schema.ts";
 import { McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
@@ -157,6 +157,8 @@ export interface FengSuiMcpServerOptions {
   toolProviders?: ReadonlyArray<McpToolProvider>;
   /** What WAN self-healing will do next, for `get_cpe_session_status` (default: off). */
   selfHealStatus?: () => SelfHealStatus;
+  /** Agents testing experimental writes on a model nobody verified (`set_experimental_write`); absent: never offered. */
+  experimental?: AgentExperimentalOptions;
 }
 
 /**
@@ -184,7 +186,7 @@ export class FengSuiMcpServer {
     const allow = options.allowMutations;
     this.#allowMutations = typeof allow === "function" ? allow : () => allow === true;
     this.toolProviders = [
-      new CoreMcpTools(options.core, { redactSensitive: options.redactSensitive, selfHealStatus: options.selfHealStatus }),
+      new CoreMcpTools(options.core, { redactSensitive: options.redactSensitive, selfHealStatus: options.selfHealStatus, experimental: options.experimental }),
       ...(options.toolProviders ?? []),
     ];
     const { scheduler } = options.core;

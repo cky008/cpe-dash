@@ -13,6 +13,7 @@ import { type BehaviourKey, type BehaviourOverrides, type BehaviourValues, LOCK_
 import { TOKEN_LIFETIMES_DAYS, TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
+import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { ApiError } from "../core/api.ts";
 import {
@@ -406,7 +407,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         h("div", { class: "space-y-1" }, h("div", { class: "fs-label" }, t("endpoints_title")), h("ul", { class: "divide-y divide-base-content/[0.06]" }, ...endpoints), h("p", { class: "text-xs faint" }, t("endpoints_note")))
       );
     }
-    return h("div", { class: "space-y-4" }, notice(t(verdict.key, verdict.params), verdict.tone), accessBlock(), experimentalBlock(), h("p", { class: "muted" }, t("device_intro")), details, reportBlock());
+    return h("div", { class: "space-y-4" }, notice(t(verdict.key, verdict.params), verdict.tone), accessBlock(), experimentalBlock(), agentBlock(), h("p", { class: "muted" }, t("device_intro")), details, reportBlock());
   };
 
   const loadExperimental = (): void => {
@@ -503,6 +504,32 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       h("div", { class: "fs-label pt-2" }, t("exp_results_title")),
       resultRows.length > 0 ? h("ul", { class: "divide-y divide-base-content/[0.06]" }, ...resultRows) : h("p", { class: "text-xs faint" }, t("exp_results_empty")),
       h("p", { class: "text-xs faint" }, t("exp_results_note"))
+    );
+  };
+
+  /**
+   * Agents testing this router, only while the owner says so here: the read-only endpoint probe on any
+   * model, and on a model nobody verified the experimental writes, with the prompt that walks them through.
+   */
+  const agentBlock = (): HTMLElement => {
+    const testable = experimentalOffer(ctx.store.state.scheduler).length > 0;
+    const model = ctx.store.state.scheduler?.device.model ?? "?";
+    const identity = device?.profile?.identity ?? null;
+    const prompt = t("agent_test_prompt", { model, issueUrl: deviceIssueUrl(identity ? { model: identity.model, softwareVersion: identity.softwareVersion } : { model, softwareVersion: null }) });
+    return h(
+      "div",
+      { class: "space-y-2", data: { agentTest: "section" } },
+      h("div", { class: "fs-label" }, t("agent_section")),
+      choiceRow("agentExperimental", t("agent_exp"), t("agent_exp_note"), onOff()),
+      testable
+        ? h(
+            "div",
+            { class: "space-y-1.5", data: { agentTest: "prompt" } },
+            h("div", { class: "flex items-center justify-between gap-2" }, h("div", { class: "fs-label" }, t("agent_test_title")), copyButton(prompt)),
+            h("p", { class: "text-xs muted" }, t("agent_test_note")),
+            h("pre", { class: "font-mono text-[0.6875rem] whitespace-pre-wrap break-words rounded-lg bg-base-200/70 p-2 max-h-48 overflow-y-auto" }, prompt)
+          )
+        : null
     );
   };
 

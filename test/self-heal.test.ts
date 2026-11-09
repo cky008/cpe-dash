@@ -62,13 +62,16 @@ function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: Persist
   const calls = { rollback: 0, reconnect: 0 };
   /** The lock each rollback was asked to clear (its `updatedAtIso`). */
   const rollbackArgs: string[] = [];
+  /** The saved LTE mask each rollback was asked to write back instead (`null`: clear every lock). */
+  const restoreArgs: Array<string | null> = [];
   const rollbackPlan: Plan = [];
   const reconnectPlan: Plan = [];
   const controls = {
     getPersistedLockState: () => lockState,
-    rollBackLocks: async (expectedLockUpdatedAtIso: string): Promise<WanRepairOutcome> => {
+    rollBackLocks: async (expectedLockUpdatedAtIso: string, restore?: { lteMask: string }): Promise<WanRepairOutcome> => {
       calls.rollback += 1;
       rollbackArgs.push(expectedLockUpdatedAtIso);
+      restoreArgs.push(restore?.lteMask ?? null);
       const next = rollbackPlan.shift();
       if (next) return await next();
       lockState = unlocked(clock);
@@ -97,6 +100,7 @@ function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: Persist
     core: base.core,
     calls,
     rollbackArgs,
+    restoreArgs,
     alerts,
     logs,
     setLock: (next: PersistedLockState) => {
@@ -964,3 +968,70 @@ describe("self-heal configuration and wiring", () => {
     }
   });
 });
+
+describe("WanSelfHeal and an AI agent's experiments on a model nobody verified", () => {
+  it("writes back the band setting from before an agent's lock after 3 minutes down with the rollback off, and keeps watching when the owner changes the rollback", async () => {
+    const fx = fixture({});
+    try {
+      fx.setClock(T0);
+      const lock = bandLock(T0);
+      fx.setLock(lock);
+      // The owner had their own lock (B3) before the agent's test: that is what comes back, not "every band"
+      fx.heal.guardAgentExperiment({ lock, savedLteMask: "4" });
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 3 * MIN);
+      fx.heal.reconfigure();
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 3 * MIN, "the rollback being off does not end an agent's watch");
+      await fx.at(2, "902");
+      assert.equal(fx.calls.rollback, 0);
+      await fx.at(3, "902");
+      assert.deepEqual([fx.rollbackArgs, fx.restoreArgs], [[lock.updatedAtIso], ["4"]]);
+      const rolled = fx.alerts.find((a) => a.code === "LOCK_ROLLED_BACK");
+      assert.match(rolled?.messageEn ?? "", /band setting from before the test was written back/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("restores the saved setting even when the owner's own rollback window is the longer one, and clears every lock when nothing was saved", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.setClock(T0);
+      const lock = bandLock(T0);
+      fx.setLock(lock);
+      fx.heal.guardAgentExperiment({ lock, savedLteMask: "800800c5" });
+      await fx.at(10, "902");
+      assert.deepEqual(fx.restoreArgs, ["800800c5"]);
+      assert.match(fx.alerts.find((a) => a.code === "LOCK_ROLLED_BACK")?.messageEn ?? "", /written back/);
+
+      // No mask to read before the lock: the documented rollback (every lock cleared)
+      fx.setClock(T0 + 20 * MIN);
+      const blind = bandLock(T0 + 20 * MIN);
+      fx.setLock(blind);
+      fx.heal.guardAgentExperiment({ lock: blind, savedLteMask: null });
+      await fx.at(30, "902");
+      assert.deepEqual(fx.restoreArgs, ["800800c5", null]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("keeps an agent's band lock the WAN proves, and ignores an unlock handed to the guard", async () => {
+    const fx = fixture({ lockMin: 10 });
+    try {
+      fx.setClock(T0);
+      const lock = bandLock(T0);
+      fx.setLock(lock);
+      fx.heal.guardAgentExperiment({ lock, savedLteMask: "800800c5" });
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 10 * MIN, "a longer rollback window wins");
+      await fx.at(1, "901");
+      await fx.at(3.5, "901");
+      assert.equal(fx.heal.lockDeadlineMs, null, "up 2 minutes: kept");
+      fx.heal.guardAgentExperiment({ lock: unlocked(T0 + 5 * MIN), savedLteMask: "5" });
+      assert.equal(fx.heal.lockDeadlineMs, null);
+      assert.equal(fx.calls.rollback, 0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+

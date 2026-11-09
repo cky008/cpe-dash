@@ -7,7 +7,11 @@ import {
   readOptionalIpv4,
   readTimeSeriesPreset,
 } from "./control-input.ts";
-import type { FengSuiCore } from "./core.ts";
+import type { ConsoleSettings } from "./console-settings.ts";
+import { type FengSuiCore, deviceReportOf } from "./core.ts";
+import { EXPERIMENTAL_FEATURES } from "./device-profile.ts";
+import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS, type DiscoveredEndpoint, discoverEndpoints, discoveryRefusal, readDiscoveryPaths } from "./endpoint-discovery.ts";
+import type { ExperimentalConsentResult } from "./experimental-consent.ts";
 import type { ReadSection, WriteFeature } from "./device-access.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
@@ -140,6 +144,14 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: "get_device_report",
+    title: "Desensitized Device Report",
+    description:
+      "The router's compatibility report as FengSui shares it in a compatibility issue: model and firmware, which read endpoints answered (and the router's error codes), each write feature's state on this router (verified, experimental and turned on, offered, unsupported) and the recent experimental write results with their read-back (match = the router took it). Structure only: no identifier, address or value from the router. Also says whether the owner lets AI agents turn experimental writes on (set_experimental_write) and read endpoints FengSui does not use (probe_router_endpoints).",
+    annotations: { readOnlyHint: true },
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "lock_band",
@@ -283,7 +295,57 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
       additionalProperties: false,
     },
   },
+  {
+    name: "set_experimental_write",
+    title: "Turn an Experimental Write On or Off (Unverified Model)",
+    description:
+      "On a router of a model FengSui was not verified on, turn one experimental write on or off to test it: bandLock (LTE bands), reboot, reconnect, mobileData or smsWrite. Offered only while the owner lets AI agents test experimental writes (Settings → Device). Turning one on needs the router's model typed back as get_device_report shows it. Before an agent's band lock, FengSui reads the router's LTE band setting and writes it back if the WAN stays down 3 minutes. Ask the user before each write test; turn the writes off again when done. Requires confirm: true.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        feature: { type: "string", enum: [...EXPERIMENTAL_FEATURES], description: "The experimental write to turn on or off." },
+        enabled: { type: "boolean", description: "true turns it on, false off." },
+        model: { type: "string", description: "The router's model as get_device_report shows it (needed to turn a write on)." },
+        confirm: CONFIRM,
+      },
+      required: ["feature", "enabled", "confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "probe_router_endpoints",
+    title: "Probe Router API Endpoints (Read-Only)",
+    description: `Find what FengSui does not use yet on this router: read up to ${DISCOVERY_MAX_PATHS} HiLink API endpoints (GET only, e.g. /api/device/autorun-version) inside FengSui's own session; never log in to the router yourself (it allows one admin session, and wrong passwords lock it). Each result says whether FengSui already uses the endpoint (known), its state (supported; unsupported = router error 100002; restricted = 100003; unknown) and the structure of its answer: tag paths and value shapes, never a value. Paths that act on some firmware (an operator scan, reboot, reset, send, delete…) and the login, token and session endpoints are refused without being sent. Calls at least ${DISCOVERY_PAUSE_MS / 1000} s apart. Offered only while the owner lets AI agents test this router (Settings → Device).`,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          items: { type: "string", maxLength: 96 },
+          maxItems: DISCOVERY_MAX_PATHS,
+          description: `1–${DISCOVERY_MAX_PATHS} API paths: /api/ and two to four segments of letters, digits, - and _.`,
+        },
+      },
+      required: ["paths"],
+      additionalProperties: false,
+    },
+  },
 ];
+
+/**
+ * Agents testing this router: whether the owner allows it, the console's consent rules for the
+ * experimental writes of a model nobody verified, and where each endpoint probe is recorded.
+ */
+export interface AgentExperimentalOptions {
+  allowed: () => boolean;
+  change: (request: { feature: unknown; enabled: unknown; model: unknown }) => ExperimentalConsentResult;
+  settings: Pick<ConsoleSettings, "experimentalConsents">;
+  /** Each `probe_router_endpoints` call, for the audit log (`detail` lists the paths). */
+  probed?: (outcome: "applied" | "refused", detail: string) => void;
+  now?: () => number;
+}
 
 const CORE_MUTATING_TOOLS: ReadonlySet<string> = new Set([
   "lock_band",
@@ -293,6 +355,7 @@ const CORE_MUTATING_TOOLS: ReadonlySet<string> = new Set([
   "set_wifi_and_antenna",
   "reconnect_cellular",
   "reboot_cpe",
+  "set_experimental_write",
 ]);
 
 const CORE_TOOL_NAMES: ReadonlySet<string> = new Set(CORE_TOOLS.map((tool) => tool.name));
@@ -331,11 +394,24 @@ export class CoreMcpTools implements McpToolProvider {
   readonly core: FengSuiCore;
   readonly #redact: () => boolean;
   readonly #selfHealStatus: () => SelfHealStatus;
+  readonly #experimental: AgentExperimentalOptions | null;
+  /** One endpoint probe at a time, the next no sooner than this. */
+  #probing = false;
+  #probeFreeAtMs = 0;
 
-  constructor(core: FengSuiCore, options: { redactSensitive?: (() => boolean) | undefined; selfHealStatus?: (() => SelfHealStatus) | undefined } = {}) {
+  constructor(
+    core: FengSuiCore,
+    options: { redactSensitive?: (() => boolean) | undefined; selfHealStatus?: (() => SelfHealStatus) | undefined; experimental?: AgentExperimentalOptions | undefined } = {}
+  ) {
     this.core = core;
     this.#redact = options.redactSensitive ?? (() => true);
     this.#selfHealStatus = options.selfHealStatus ?? (() => SELF_HEAL_OFF);
+    this.#experimental = options.experimental ?? null;
+  }
+
+  /** Turning experimental writes on changes FengSui's consent, not the router: it shows on an unverified model. */
+  isRouterWrite(toolName: string): boolean {
+    return CORE_MUTATING_TOOLS.has(toolName) && toolName !== "set_experimental_write";
   }
 
   getToolDefinitions(): ReadonlyArray<McpToolDefinition> {
@@ -351,6 +427,9 @@ export class CoreMcpTools implements McpToolProvider {
   }
 
   isAvailable(toolName: string): boolean {
+    // Only where there is something to test, and only while the owner allows agents to
+    if (toolName === "set_experimental_write") return this.core.scheduler.device.writes === "read_only" && this.#experimental?.allowed() === true;
+    if (toolName === "probe_router_endpoints") return this.#experimental?.allowed() === true;
     const section = TOOL_SECTIONS[toolName];
     return section === undefined || !this.core.scheduler.device.skips(section);
   }
@@ -575,8 +654,68 @@ export class CoreMcpTools implements McpToolProvider {
         return { ok: true, ...res };
       }
 
+      case "get_device_report":
+        return {
+          ok: true,
+          report: deviceReportOf(this.core),
+          agentsMayTestExperimental: this.core.scheduler.device.writes === "read_only" && this.#experimental?.allowed() === true,
+          agentsMayProbeEndpoints: this.#experimental?.allowed() === true,
+        };
+
+      case "set_experimental_write": {
+        const experimental = this.#experimental;
+        if (!experimental?.allowed()) {
+          throw new McpToolError(
+            "EXPERIMENTAL_NOT_ALLOWED",
+            'The owner has not let AI agents test this router: ask them to turn on "Let AI agents test this router" in Settings → Device'
+          );
+        }
+        if (this.core.scheduler.device.writes !== "read_only") {
+          throw new McpToolError("EXPERIMENTAL_UNAVAILABLE", "This router is a model FengSui was verified on (or not identified yet): it has no experimental writes to test");
+        }
+        const result = experimental.change({ feature: args["feature"], enabled: args["enabled"], model: args["model"] });
+        if (!result.ok) throw new McpToolError(result.errorCode, result.message, result.errorCode === "EXPERIMENTAL_UNAVAILABLE" ? { state: result.state } : {});
+        return { ok: true, change: result.detail, consents: experimental.settings.experimentalConsents };
+      }
+
+      case "probe_router_endpoints":
+        return await this.#probe(args);
+
       default:
         throw new McpToolError("UNKNOWN_TOOL", `Unknown CPE tool "${toolName}"`);
     }
+  }
+
+  /** `probe_router_endpoints`: one session at a time, paused between calls, recorded in the audit log. */
+  async #probe(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const experimental = this.#experimental;
+    if (!experimental?.allowed()) {
+      throw new McpToolError("EXPERIMENTAL_NOT_ALLOWED", 'The owner has not let AI agents test this router: ask them to turn on "Let AI agents test this router" in Settings → Device');
+    }
+    const paths = readDiscoveryPaths(args["paths"]);
+    const now = experimental.now ?? Date.now;
+    const waitMs = this.#probing ? DISCOVERY_PAUSE_MS : this.#probeFreeAtMs - now();
+    if (waitMs > 0) {
+      const retryAfterSec = Math.ceil(waitMs / 1000);
+      throw new McpToolError("PROBE_TOO_SOON", `Wait ${retryAfterSec} s: probes are at least ${DISCOVERY_PAUSE_MS / 1000} s apart, to keep the router's one admin session free`, { retryAfterSec });
+    }
+    this.#probing = true;
+    let endpoints: DiscoveredEndpoint[] | null;
+    try {
+      endpoints = await discoverEndpoints(paths, (probe) => this.core.scheduler.executeRead(probe, { priority: "low" }));
+    } finally {
+      this.#probing = false;
+      this.#probeFreeAtMs = now() + DISCOVERY_PAUSE_MS;
+    }
+    const listed = paths.map((path) => (discoveryRefusal(path) === null ? path : `${path} (refused)`)).join(", ");
+    if (endpoints === null) {
+      experimental.probed?.("refused", `skipped: ${listed}`);
+      throw new McpToolError("PROBE_SKIPPED", "FengSui did not open a session (someone is logged in to the router's web page, or the breaker is open): nothing was read", {
+        sessionStatus: this.core.scheduler.getStatus(),
+      });
+    }
+    const read = endpoints.filter((endpoint) => endpoint.state !== "refused").length;
+    experimental.probed?.(read > 0 ? "applied" : "refused", `${read} read: ${listed}`);
+    return { ok: true, endpoints, note: "Structure only: tag paths and value shapes (int, hex(n), text(n)…), never a value from the router." };
   }
 }

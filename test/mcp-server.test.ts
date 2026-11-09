@@ -399,22 +399,22 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
     }
   });
 
-  it("tools/list switches between allowMutations: true (13 tools) and allowMutations: false (6 tools)", async () => {
+  it("tools/list switches between allowMutations: true (14 tools) and allowMutations: false (7 tools)", async () => {
     const fx = createMockSchedulerFixture();
     try {
       const serverRw = new FengSuiMcpServer({ core: fx.core, allowMutations: true });
       const toolsRw = serverRw.getToolDefinitions();
-      assert.equal(toolsRw.length, 13);
+      assert.equal(toolsRw.length, 14);
 
       const listRw = (await serverRw.handleRawJsonMessage(
         JSON.stringify({ jsonrpc: "2.0", id: 20, method: "tools/list" })
       )) as JsonRpcSuccessResponse;
       const listRwPayload = listRw.result as { tools: Array<{ name: string }> };
-      assert.equal(listRwPayload.tools.length, 13);
+      assert.equal(listRwPayload.tools.length, 14);
 
       const serverRo = new FengSuiMcpServer({ core: fx.core, allowMutations: false });
       const toolsRo = serverRo.getToolDefinitions();
-      assert.equal(toolsRo.length, 6);
+      assert.equal(toolsRo.length, 7);
       const toolNames = new Set(toolsRo.map((t) => t.name));
       assert.ok(toolNames.has("get_cpe_telemetry"));
       assert.ok(toolNames.has("query_telemetry_history"));

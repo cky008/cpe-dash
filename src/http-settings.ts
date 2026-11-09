@@ -14,8 +14,7 @@ import { normalizeCpeUrl } from "./config.ts";
 import { describePermissions, readTokenPermissions, readTokenRequest, validateNewPassword } from "./console-policy.ts";
 import { type ConsoleSettings, PAIRING_CODE_TTL_MS } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
-import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
-import type { ExperimentalFeature } from "./device-profile.ts";
+import { changeExperimentalConsent } from "./experimental-consent.ts";
 import type { DeviceProbeResult, DeviceReport } from "./device-profile.ts";
 import type { ConnectionCandidate, MutexSessionScheduler } from "./scheduler.ts";
 import type { ApiRouteContext } from "./sms/http-routes.ts";
@@ -317,41 +316,18 @@ export class SettingsHttpRoutes {
    */
   async #setExperimental(ctx: ApiRouteContext, body: Record<string, unknown>): Promise<void> {
     const { settings, audit, scheduler } = this.#opts;
-    const feature = body["feature"];
-    if (typeof feature !== "string" || !(WRITE_FEATURES as ReadonlyArray<string>).includes(feature)) {
-      throw new CpeControlValidationError(`"feature" must be one of ${WRITE_FEATURES.join(", ")}`);
-    }
-    if (typeof body["enabled"] !== "boolean") throw new CpeControlValidationError('"enabled" must be true or false');
-    const device = scheduler.device;
-    if (!body["enabled"]) {
-      const was = settings.revokeExperimental(feature);
-      device.setConsents(settings.experimentalConsents);
-      audit?.record({ action: "settings.experimental", outcome: "applied", detail: `${feature} off${was ? "" : " (was off)"}` });
+    const result = changeExperimentalConsent(settings, scheduler.device, { feature: body["feature"], enabled: body["enabled"], model: body["model"] });
+    if (result.ok) {
+      audit?.record({ action: "settings.experimental", outcome: "applied", detail: result.detail });
       ctx.sendJson(200, this.#experimental());
       return;
     }
-    const state = device.writeState(feature as WriteFeature);
-    const model = device.snapshot().model;
-    if (state !== "available" && state !== "consented") {
-      audit?.record({ action: "settings.experimental", outcome: "refused", detail: `${feature} on: ${state}` });
-      ctx.sendJson(409, {
-        ok: false,
-        errorCode: "EXPERIMENTAL_UNAVAILABLE",
-        message: `${feature} cannot be turned on as an experimental write on this router (${state})`,
-        state,
-      } satisfies ApiErrorEnvelope);
+    if (result.detail) audit?.record({ action: "settings.experimental", outcome: "refused", detail: result.detail });
+    if (result.errorCode === "EXPERIMENTAL_UNAVAILABLE") {
+      ctx.sendJson(409, { ok: false, errorCode: "EXPERIMENTAL_UNAVAILABLE", message: result.message, state: result.state } satisfies ApiErrorEnvelope);
       return;
     }
-    const typed = text(body, "model", 256)?.trim().toLowerCase() ?? "";
-    const current = device.current?.model;
-    if (!current || !model || model === "?" || typed !== model.toLowerCase()) {
-      audit?.record({ action: "settings.experimental", outcome: "refused", detail: `${feature} on: model not confirmed` });
-      throw new CpeControlValidationError(`Type the router's model (${model ?? "?"}) to confirm the experimental ${feature} write`);
-    }
-    settings.grantExperimental(current, feature as ExperimentalFeature);
-    device.setConsents(settings.experimentalConsents);
-    audit?.record({ action: "settings.experimental", outcome: "applied", detail: `${feature} on for ${model}` });
-    ctx.sendJson(200, this.#experimental());
+    throw new CpeControlValidationError(result.message);
   }
 
   /** `url` is the address of the stored router connection (both compared as the client uses them). */

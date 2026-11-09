@@ -40,6 +40,7 @@ import {
   readWanRepairBlockerTolerant,
   validateGenericBandLock,
 } from "./generic-writes.ts";
+import { currentActor } from "./audit-log.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import type { ControlSummary, MutexSessionScheduler, WriteContext } from "./scheduler.ts";
@@ -75,7 +76,22 @@ export interface CpeControlServiceOptions {
  * replayed, refused with `409` while a human is logged in), and updates the persisted lock state or
  * the cached settings snapshot afterwards.
  */
+/**
+ * An AI agent's experimental band lock, which can cut the WAN (see `WanSelfHeal.guardAgentExperiment`):
+ * the lock and the LTE mask the router had right before it (`null`: none to read).
+ */
+export interface AgentExperimentChange {
+  lock: PersistedLockState;
+  savedLteMask: string | null;
+}
+
 export class CpeControlService {
+  /**
+   * An AI agent's experimental write that can cut the WAN (testing a model nobody verified), after it
+   * applied: self-healing watches it and writes the saved setting back if the WAN stays down.
+   */
+  onAgentExperiment: ((change: AgentExperimentChange) => void) | null = null;
+
   readonly scheduler: MutexSessionScheduler;
   readonly monitor: CpeMonitor;
   readonly stateStore: EncryptedStateStore;
@@ -108,11 +124,18 @@ export class CpeControlService {
     const device = this.scheduler.device;
     if (!device.generic) prepareBandLockPayloads(command);
     else if (device.writeAccess("bandLock") !== "read_only") validateGenericBandLock(command, device.experimentalLteBands);
-    return await this.scheduler.executeControl(
+    let experimental = false;
+    let savedLteMask: string | null = null;
+    const state = await this.scheduler.executeControl(
       "lock_band",
       async (session, write) => {
         // A model nobody verified: LTE only, through net-mode, never the H168-383's lock-freq
-        if (write.generic) return genericLockState(await genericBandLock(session, write.check, validateGenericBandLock(command, write.lteBands), write.lteBands ?? []));
+        if (write.generic) {
+          experimental = true;
+          const locked = await genericBandLock(session, write.check, validateGenericBandLock(command, write.lteBands), write.lteBands ?? []);
+          savedLteMask = locked.before;
+          return genericLockState(locked.bands);
+        }
         // Read inside the queued session: a lock queued before this one may have just changed it
         const previous = this.getPersistedLockState();
         const telemetry = this.monitor.getCachedTelemetry();
@@ -127,6 +150,8 @@ export class CpeControlService {
         });
       }
     );
+    if (experimental && currentActor().channel === "mcp") this.onAgentExperiment?.({ lock: state, savedLteMask });
+    return state;
   }
 
   async lockCell(command: CellLockCommand): Promise<PersistedLockState> {
@@ -149,7 +174,7 @@ export class CpeControlService {
   async unlockAllLocks(): Promise<PersistedLockState> {
     return await this.scheduler.executeControl(
       "unlock_rf_locks",
-      async (session, write) => (write.generic ? genericLockState(await genericBandLock(session, write.check, "all", write.lteBands ?? [])) : await unlockAllRfLocks(session)),
+      async (session, write) => (write.generic ? genericLockState((await genericBandLock(session, write.check, "all", write.lteBands ?? [])).bands) : await unlockAllRfLocks(session)),
       (state) =>
         this.#commitLockState(state, {
           zh: t("zh-CN", "controls.unlock_all_applied"),
@@ -161,9 +186,11 @@ export class CpeControlService {
   /**
    * Automatic lock rollback (`LOCK_ROLLBACK_AFTER_MIN`) of the lock applied at `lockUpdatedAtIso`:
    * clear every lock unless, inside the session, that lock turns out replaced, or the WAN re-reads as
-   * back or mobile data as switched off. Broadcasts only when it wrote.
+   * back or mobile data as switched off. After an AI agent's band lock on a model nobody verified,
+   * `restore` writes back the LTE mask the router had before it instead. Broadcasts only when it wrote.
    */
-  async rollBackLocks(lockUpdatedAtIso: string): Promise<WanRepairOutcome> {
+  async rollBackLocks(lockUpdatedAtIso: string, restore?: { lteMask: string }): Promise<WanRepairOutcome> {
+    let restored = false;
     return await this.scheduler.executeControl(
       "auto_unlock_rf_locks",
       async (session, write): Promise<WanRepairOutcome> => {
@@ -171,14 +198,17 @@ export class CpeControlService {
         if (this.getPersistedLockState().updatedAtIso !== lockUpdatedAtIso) return { applied: false, skipped: "lock_changed" };
         if (write.generic) {
           const skipped = await readWanRepairBlockerTolerant(session);
-          return skipped ? { applied: false, skipped } : { applied: true, lockState: genericLockState(await genericBandLock(session, write.check, "all", write.lteBands ?? [])) };
+          if (skipped) return { applied: false, skipped };
+          const locked = await genericBandLock(session, write.check, restore ? { savedMask: restore.lteMask } : "all", write.lteBands ?? []);
+          restored = restore !== undefined;
+          return { applied: true, lockState: genericLockState(locked.bands) };
         }
         const skipped = await readWanRepairBlocker(session);
         return skipped ? { applied: false, skipped } : { applied: true, lockState: await unlockAllRfLocks(session) };
       },
       (outcome) =>
         outcome.applied && outcome.lockState
-          ? this.#commitLockState(outcome.lockState, summaryOf("controls.auto_unlock_applied"))
+          ? this.#commitLockState(outcome.lockState, summaryOf(restored ? "controls.auto_restore_applied" : "controls.auto_unlock_applied"))
           : null
     );
   }

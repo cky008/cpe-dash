@@ -37,11 +37,13 @@ cpe-dash/
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
-│   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）；监视与重拨额度存于 state.json，重启后接着算
+│   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）；监视与重拨额度存于 state.json，重启后接着算；AI 智能体在未验证型号上锁频后断网 3 分钟，写回锁频前读到的频段设置（不受自愈开关影响）
 │   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
 │   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单，未验证型号另加实验性写入回读要读的 3 个；四种接口状态；实验性写入的能力依据）、路由器错误码计数与只含结构的脱敏设备报告（守护进程、控制台与在线演示同一实现）
 │   ├── device-access.ts    # 零依赖：写闸门（未验证型号只读，逐项同意的实验性写入除外；只相信本次运行看到的型号，否则写操作先在自己的会话里确认）、每个写操作所属的功能与它在这台路由器上的状态、写入记录与回读结果的类型，以及未验证型号各读取项可用与否
 │   ├── feedback.ts         # 零依赖：兼容性反馈入口（cky008/cpe-dash 新 issue 的地址，只带模板与标题，绝不带报告内容）
+│   ├── experimental-consent.ts # 打开 / 关闭一项实验性写入（控制台与 MCP 的 set_experimental_write 共用：打开要填型号，关闭总是可以）
+│   ├── endpoint-discovery.ts   # 零依赖：智能体的只读接口探查（probe_router_endpoints）：路径校验、会话接口与会改动路由器的路径直接拒绝、烽燧已用的接口清单（测试与协议模块对齐）、只留结构的结果
 │   ├── console-settings.ts # 控制台管理的加密设置：路由器连接、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码、实验性写入的同意（按型号 + 功能）；首次启动从 .env 导入一次
 │   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
@@ -51,7 +53,7 @@ cpe-dash/
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
 │   ├── control-input.ts    # REST、MCP 与在线演示共用的入参校验（零依赖；control-error.ts 为其错误类）；mcp-schema.ts 工具 inputSchema 运行时校验
 │   ├── sse-bus.ts          # /api/events SSE 总线
-│   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者，挂载于 /mcp；mcp-core-tools.ts 核心 13 项工具、mcp-access-tools.ts 访问控制工具、mcp-tool-provider.ts 提供者契约、mcp-headers.ts 2026-07-28 路由头）
+│   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者，挂载于 /mcp；mcp-core-tools.ts 核心 16 项工具、mcp-access-tools.ts 访问控制工具、mcp-tool-provider.ts 提供者契约、mcp-headers.ts 2026-07-28 路由头）
 │   ├── mcp-stdio-bridge.ts # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不连接 CPE）
 │   ├── cli.ts              # serve 守护进程（数据目录锁、运行时装配与有序启停）与 mcp 桥接入口
 │   ├── maintenance.ts      # cpe-dash doctor / backup / restore / rekey：离线自检、加密备份与恢复、换密钥与找回被隔离的数据（不连接 CPE）

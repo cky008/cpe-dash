@@ -1,4 +1,4 @@
-import type { CpeControlService, WanRepairOutcome } from "./cpe-controls.ts";
+import type { AgentExperimentChange, CpeControlService, WanRepairOutcome } from "./cpe-controls.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { runAsActor } from "./audit-log.ts";
@@ -35,6 +35,8 @@ export interface WanSelfHealOptions {
 
 /** After the deadline a rollback that keeps being refused (human on the WebUI, router errors) gives up. */
 export const ROLLBACK_GIVE_UP_MS = 60 * 60_000;
+/** How long the WAN may stay down after an AI agent's experimental band lock before the saved band setting is written back. */
+export const EXPERIMENT_GUARD_MS = 3 * 60_000;
 /** Wait before trying again after a refusal or failure. */
 export const SELF_HEAL_RETRY_MS = 60_000;
 /** Gaps between redials of one outage: 10, 30, then 60 min. */
@@ -48,6 +50,10 @@ interface LockWatch {
   lockUpdatedAtIso: string;
   armedAtMs: number;
   deadlineMs: number;
+  /** An AI agent's experiment: watched at least this long whatever the rollback setting says (0: none). */
+  minWindowMs: number;
+  /** An AI agent's experiment: the LTE mask from before it, written back instead of clearing every lock (`null`: none). */
+  restoreLteMask: string | null;
   upSinceMs: number | null;
   retryAtMs: number;
   failures: number;
@@ -178,11 +184,11 @@ export class WanSelfHeal {
    */
   reconfigure(): void {
     const watch = this.#lockWatch;
-    if (watch && this.lockRollbackAfterMs <= 0) {
+    if (watch && this.lockRollbackAfterMs <= 0 && watch.minWindowMs <= 0) {
       this.#setWatch(null);
       this.#log("[self-heal] lock rollback turned off; the lock in place is kept");
     } else if (watch) {
-      watch.deadlineMs = watch.armedAtMs + this.lockRollbackAfterMs;
+      watch.deadlineMs = watch.armedAtMs + Math.max(this.lockRollbackAfterMs, watch.minWindowMs);
     } else {
       this.#pickUpLockInPlace();
     }
@@ -208,6 +214,18 @@ export class WanSelfHeal {
     this.scheduler.off("control:applied", this.#onControl);
     this.monitor.off("telemetry", this.#onTelemetry);
     await this.#busy;
+  }
+
+  /**
+   * An AI agent's experimental band lock, while testing a model nobody verified: the LTE mask from
+   * right before it was read in the lock's own session, and if the WAN is down and not back within
+   * `EXPERIMENT_GUARD_MS`, whatever the self-healing settings say, that mask is written back. A lock
+   * the WAN proves (up 2 min) is kept, as with the lock rollback. Never a reboot.
+   */
+  guardAgentExperiment(change: AgentExperimentChange): void {
+    if (change.lock.mode === "unlocked") return;
+    const appliedMs = Date.parse(change.lock.updatedAtIso);
+    this.#arm(change.lock, Number.isFinite(appliedMs) ? appliedMs : this.#now(), EXPERIMENT_GUARD_MS, change.savedLteMask);
   }
 
   /** Arm the rollback for a new lock; any unlock (by anyone, through FengSui) disarms it. */
@@ -249,11 +267,13 @@ export class WanSelfHeal {
     await running;
   }
 
-  #arm(lock: PersistedLockState, appliedMs: number): void {
+  #arm(lock: PersistedLockState, appliedMs: number, minWindowMs = 0, restoreLteMask: string | null = null): void {
     this.#setWatch({
       lockUpdatedAtIso: lock.updatedAtIso,
       armedAtMs: appliedMs,
-      deadlineMs: appliedMs + this.lockRollbackAfterMs,
+      deadlineMs: appliedMs + Math.max(this.lockRollbackAfterMs, minWindowMs),
+      minWindowMs,
+      restoreLteMask,
       upSinceMs: null,
       retryAtMs: 0,
       failures: 0,
@@ -310,7 +330,8 @@ export class WanSelfHeal {
   async #rollBack(watch: LockWatch, at: number): Promise<void> {
     let outcome: WanRepairOutcome;
     try {
-      outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.rollBackLocks(watch.lockUpdatedAtIso));
+      const restore = watch.restoreLteMask === null ? undefined : { lteMask: watch.restoreLteMask };
+      outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.rollBackLocks(watch.lockUpdatedAtIso, restore));
     } catch (err) {
       const reason = describe(err);
       this.#noteFailure("lock rollback", reason);
@@ -352,9 +373,13 @@ export class WanSelfHeal {
     this.#endWatch(watch);
     // The unlocked modem needs time to attach before a redial could help
     this.#downSinceMs = at;
-    this.#raise("warning", "LOCK_ROLLED_BACK", "alerts.lock_rolled_back", {
-      minutes: Math.round((at - watch.armedAtMs) / 60_000),
-    });
+    const key =
+      watch.restoreLteMask !== null
+        ? "alerts.experiment_lock_restored"
+        : watch.minWindowMs > this.lockRollbackAfterMs
+          ? "alerts.experiment_lock_rolled_back"
+          : "alerts.lock_rolled_back";
+    this.#raise("warning", "LOCK_ROLLED_BACK", key, { minutes: Math.round((at - watch.armedAtMs) / 60_000) });
   }
 
   #watchOutage(up: boolean, at: number): Promise<void> | null {

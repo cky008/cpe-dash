@@ -73,38 +73,73 @@ export function validateGenericBandLock(
 }
 
 /**
- * Lock the LTE bands (or unlock all with the all-bands mask) with `POST /api/net/net-mode`:
- * `NetworkMode`, `NetworkBand` and `LTEBand` in that order, the first two sent back exactly as the
- * router reported them in this session, so only the LTE mask changes. Reads the mask back: an unlock
- * matches when the router reports the all-bands mask or every band it advertises (with no advertised
- * band to compare, any other mask says nothing).
+ * What a band lock writes: these LTE bands, every band (`"all"`), or a mask saved before an AI
+ * agent's test, written back as it was.
+ */
+export type GenericBandTarget = ReadonlyArray<number> | "all" | { savedMask: string };
+
+export interface GenericBandLockResult {
+  /** The bands locked now (`"all"`: unlocked). */
+  bands: number[] | "all";
+  /** The LTE mask the router reported before the write, as A.11 writes it (`null`: none to read). */
+  before: string | null;
+}
+
+/** An LTE mask as A.11 writes it (lowercase hex, no leading zeros), or `null` for anything else. */
+function lteMask(raw: string | null): string | null {
+  const text = (raw ?? "").trim();
+  return /^[0-9A-Fa-f]{1,32}$/.test(text) ? BigInt(`0x${text}`).toString(16) : null;
+}
+
+/** The bands a mask locks: `"all"` for the all-bands mask or one with every advertised band on. */
+function bandsOfMask(mask: string, advertised: ReadonlyArray<number>): number[] | "all" {
+  const bands = maskToBands(mask) ?? [];
+  return isAllBandsMask(mask) || (advertised.length > 0 && advertised.every((band) => bands.includes(band))) ? "all" : bands;
+}
+
+/**
+ * Lock the LTE bands (or unlock all with the all-bands mask, or write a saved mask back) with
+ * `POST /api/net/net-mode`: `NetworkMode`, `NetworkBand` and `LTEBand` in that order, the first two
+ * sent back exactly as the router reported them in this session, so only the LTE mask changes. Reads
+ * the mask back: an unlock matches when the router reports the all-bands mask or every band it
+ * advertises (with no advertised band to compare, any other mask says nothing).
  */
 export async function genericBandLock(
   session: EphemeralCpeSession,
   check: WriteCheck,
-  bands: ReadonlyArray<number> | "all",
+  target: GenericBandTarget,
   advertised: ReadonlyArray<number>
-): Promise<number[] | "all"> {
+): Promise<GenericBandLockResult> {
+  let mask: string;
+  if (target === "all") {
+    mask = LTE_ALL_BANDS_MASK;
+  } else if ("savedMask" in target) {
+    const saved = lteMask(target.savedMask);
+    if (saved === null) throw new CpeControlValidationError("A saved LTE band mask must be hexadecimal");
+    mask = saved;
+  } else {
+    mask = bandsToHexMask([...target]);
+  }
   const current = await session.get(NET_MODE);
   const networkMode = (getXmlTag(current, "NetworkMode") ?? "").trim();
   const networkBand = (getXmlTag(current, "NetworkBand") ?? "").trim();
   if (!/^\d{2,8}$/.test(networkMode) || !/^[0-9A-Fa-f]{1,16}$/.test(networkBand)) {
     throw new CpeAnswerFormatError(`Unexpected ${NET_MODE} answer without a NetworkMode and NetworkBand to send back; refusing to write guessed values`);
   }
-  const mask = bands === "all" ? LTE_ALL_BANDS_MASK : bandsToHexMask([...bands]);
+  const before = lteMask(getXmlTag(current, "LTEBand"));
   check.endpoints.push(NET_MODE);
   await session.postXml(NET_MODE, { NetworkMode: networkMode, NetworkBand: networkBand, LTEBand: mask });
 
   const read = await readBack(session, NET_MODE, "LTEBand");
   if (read === null || !/^[0-9A-Fa-f]{1,32}$/.test(read)) {
     settleCheck(check, null);
-  } else if (bands === "all") {
+  } else if (target === "all") {
     const enabled = new Set(maskToBands(read) ?? []);
     settleCheck(check, isAllBandsMask(read) ? true : advertised.length === 0 ? null : advertised.every((band) => enabled.has(band)));
   } else {
     settleCheck(check, BigInt(`0x${read}`) === BigInt(`0x${mask}`));
   }
-  return bands === "all" ? "all" : [...bands];
+  return { bands: target === "all" ? "all" : "savedMask" in target ? bandsOfMask(mask, advertised) : [...target], before };
 }
 
 /** Switch mobile data (`POST /api/dialup/mobile-dataswitch`, `<dataswitch>`) and read the switch back. */

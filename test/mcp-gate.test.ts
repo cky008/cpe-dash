@@ -30,6 +30,8 @@ const H168_TOOLS = [
   "get_cpe_session_status",
   "list_terminal_topology",
   "get_router_settings",
+  // 1.8.0: the desensitized device report, for any token
+  "get_device_report",
   "lock_band",
   "lock_cell",
   "unlock_rf_locks",
@@ -258,7 +260,7 @@ describe("MCP and the write gate", () => {
       await fx.core.monitor.refreshSettings();
       await fx.core.monitor.refreshAccessControl();
       await fx.sms.sync("full");
-      assert.deepEqual(await fx.tools(), ["get_cpe_telemetry", "query_telemetry_history", "get_cpe_session_status", "list_terminal_topology"]);
+      assert.deepEqual(await fx.tools(), ["get_cpe_telemetry", "query_telemetry_history", "get_cpe_session_status", "list_terminal_topology", "get_device_report"]);
       assert.deepEqual(((await fx.rpc("resources/list"))["resources"] as Array<{ uri: string }>).map((r) => r.uri), ["fengsui://telemetry/latest", "fengsui://session/status", "fengsui://locks/state"]);
       assert.doesNotMatch(String((await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"]), /SMS tools/);
     } finally {

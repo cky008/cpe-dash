@@ -476,6 +476,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const mcpHttpEnabled = parseBool(get("MCP_HTTP_ENABLED"), true);
   const mcpAllowMutations = parseBool(get("MCP_ALLOW_MUTATIONS"), false);
   const mcpAllowAccessControl = parseBool(get("MCP_ALLOW_ACCESS_CONTROL"), false);
+  const mcpAllowExperimental = parseBool(get("MCP_ALLOW_EXPERIMENTAL"), false);
   const mcpDaemonUrl = resolveDaemonMcpUrl(get("MCP_DAEMON_URL"), webHost, webPort);
   const peerDiscoveryEnabled = parseBool(get("PEER_DISCOVERY_ENABLED"), false);
   const peerDiscoveryPort = Math.min(65535, Math.max(1, parseIntSafe(get("PEER_DISCOVERY_PORT"), 18385)));
@@ -548,6 +549,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     mcpHttpEnabled,
     mcpAllowMutations,
     mcpAllowAccessControl,
+    mcpAllowExperimental,
     mcpDaemonUrl,
     peerDiscoveryEnabled,
     peerDiscoveryPort,

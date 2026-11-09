@@ -402,7 +402,17 @@ export class EphemeralCpeSession {
     return await this.#get(apiPath, extraHeaders, overrideTimeoutMs ?? this.timeoutMs, false);
   }
 
-  async #get(apiPath: string, extraHeaders: Record<string, string>, timeoutMs: number, releasing: boolean): Promise<string> {
+  /**
+   * A GET of an endpoint FengSui does not know (an AI agent's read-only discovery): its answer never
+   * replaces the session's cookies (a stray `SessionID` would make the logout miss this session and
+   * leave the router's one admin slot taken) and its error code never counts in the device report's
+   * tally.
+   */
+  async peek(apiPath: string, timeoutMs: number): Promise<string> {
+    return await this.#get(apiPath, {}, timeoutMs, false, true);
+  }
+
+  async #get(apiPath: string, extraHeaders: Record<string, string>, timeoutMs: number, releasing: boolean, foreign = false): Promise<string> {
     const signal = this.#requestSignal(timeoutMs, releasing);
     const headers: Record<string, string> = {
       "X-Requested-With": "XMLHttpRequest",
@@ -419,11 +429,11 @@ export class EphemeralCpeSession {
       redirect: "error",
       signal,
     });
-    this.#updateCookies(res.headers);
+    if (!foreign) this.#updateCookies(res.headers);
     const text = await readCpeResponseText(res);
     const err = parseXmlError(text);
     if (err) {
-      this.#onApiError?.("GET", apiPath, err.code);
+      if (!foreign) this.#onApiError?.("GET", apiPath, err.code);
       throw new CpeApiError(err.code, apiPath, err);
     }
     return text;

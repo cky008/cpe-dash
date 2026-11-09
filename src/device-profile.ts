@@ -369,7 +369,11 @@ function allowedValue(endpoint: DeviceProbePath, tag: string, text: string): str
 
 const MAX_SHAPES = 3;
 
-function observeFields(endpoint: DeviceProbePath, leaves: ReadonlyArray<StructureLeaf>): FieldShape[] {
+/**
+ * Each tag path of an answer once, with up to three value shapes and how often it came; a value only
+ * where `valueOf` keeps one (by default none).
+ */
+export function observeFields(leaves: ReadonlyArray<StructureLeaf>, valueOf: (tag: string, text: string) => string | null = () => null): FieldShape[] {
   const byTag = new Map<string, { shapes: string[]; count: number; value: string | null }>();
   for (const leaf of leaves) {
     const text = decodeEntities(leaf.raw);
@@ -380,7 +384,7 @@ function observeFields(endpoint: DeviceProbePath, leaves: ReadonlyArray<Structur
       if (!seen.shapes.includes(shape) && seen.shapes.length < MAX_SHAPES) seen.shapes.push(shape);
       continue;
     }
-    byTag.set(leaf.path, { shapes: [shape], count: 1, value: allowedValue(endpoint, leaf.path, text) });
+    byTag.set(leaf.path, { shapes: [shape], count: 1, value: valueOf(leaf.path, text) });
   }
   return [...byTag].map(([tag, seen]) => ({ tag, shape: seen.shapes.join("|"), count: seen.count, ...(seen.value === null ? {} : { value: seen.value }) }));
 }
@@ -408,7 +412,7 @@ export function isAllBandsMask(hex: string): boolean {
 // ── Probe ────────────────────────────────────────────────────────────────────
 
 /** The router's error code on an error thrown for its answer (`CpeApiError`), else `null`. */
-function cpeErrorCode(err: unknown): string | null {
+export function cpeErrorCode(err: unknown): string | null {
   if (!(err instanceof Error) || !("code" in err)) return null;
   return typeof err.code === "string" && /^\d{4,8}$/.test(err.code) ? err.code : null;
 }
@@ -439,7 +443,8 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
     const answered = structure.kind === "json" || isResponseDocument(body);
     if (answered) leavesOf.set(path, structure.leaves);
     endpoints.push({ path, state: answered ? "supported" : "unknown", code: null });
-    observations.push({ path, format: structure.kind, fields: answered ? observeFields(path, structure.leaves) : [], truncated: answered && structure.truncated });
+    const fields = answered ? observeFields(structure.leaves, (tag, text) => allowedValue(path, tag, text)) : [];
+    observations.push({ path, format: structure.kind, fields, truncated: answered && structure.truncated });
   };
   for (const path of DEVICE_PROBE_PATHS) await probe(path);
 

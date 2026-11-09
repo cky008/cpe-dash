@@ -1,5 +1,8 @@
 import { CpeControlService } from "./cpe-controls.ts";
 import type { HuaweiCpeClient } from "./cpe-client.ts";
+import { type DeviceReport, buildDeviceReport } from "./device-profile.ts";
+import { sanitizeDeviceReport } from "./sanitize.ts";
+import { FENGSUI_VERSION } from "./version.ts";
 import type { GlobalTelemetrySnapshot } from "./cpe-domain.ts";
 import { CpeMonitor, type CpeMonitorOptions } from "./cpe-monitor.ts";
 import { MutexSessionScheduler, type MutexSessionSchedulerOptions } from "./scheduler.ts";
@@ -57,4 +60,21 @@ export function createFengSuiCore(options: FengSuiCoreOptions): FengSuiCore {
 export async function stopFengSuiCore(core: FengSuiCore): Promise<void> {
   core.monitor.stop();
   await core.scheduler.stop();
+}
+
+/**
+ * The desensitized device report (structure only: endpoints, codes, read-backs, never a value from the
+ * router), as Settings → Device and the agents' `get_device_report` hand it out to be shared.
+ */
+export function deviceReportOf(core: FengSuiCore): DeviceReport {
+  return sanitizeDeviceReport(
+    buildDeviceReport({
+      probe: core.monitor.getDeviceProbe(),
+      apiErrors: core.scheduler.apiErrorSnapshot(),
+      fengsuiVersion: FENGSUI_VERSION,
+      generatedAtIso: new Date().toISOString(),
+      access: core.scheduler.device.snapshot(),
+      writes: core.scheduler.genericWrites,
+    })
+  );
 }
