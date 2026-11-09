@@ -5,7 +5,8 @@ import { describe, it } from "node:test";
 import type { AuditResponse, ConsoleSettingsResponse, CreateTokenResponse, TokensResponse } from "../src/api-contract.ts";
 import { type FengSuiRuntimeStack, createFengSuiRuntime, runCli, runResetLogin } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { resetLoginProof } from "../src/console-settings.ts";
+import { ConsoleSettings, resetLoginProof } from "../src/console-settings.ts";
+import { StorageCipher } from "../src/encrypted-file.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
@@ -42,6 +43,7 @@ async function startRuntime(extraEnv: Record<string, string>) {
     stack,
     logs,
     envPath,
+    base,
     post,
     get,
     cookieOf,
@@ -324,6 +326,82 @@ describe("one-time codes and the sign-in limit", () => {
       assert.equal((await reset("192.168.8.60", code)).status, 429, "refused while locked out");
       // The refusal spent nothing: the same code works (here from an address that is not locked out)
       assert.equal((await reset("192.168.8.61", code)).status, 200);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("behaviour settings from the console", () => {
+  it("sets AI switches, self-healing, alerts and SMS behaviour over .env from a console session only, and keeps them", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", MCP_ALLOW_MUTATIONS: "true", LOCK_ROLLBACK_AFTER_MIN: "10" });
+    try {
+      const cookie = fx.cookieOf(await fx.post("/api/auth/login", { password: "legacy_full_token" }));
+      let summary = (await (await fx.get("/api/console", { cookie })).json()) as ConsoleSettingsResponse;
+      assert.deepEqual(summary.behaviour.agentWrites, { value: true, source: "env", envValue: true });
+      assert.deepEqual(summary.behaviour.lockRollbackAfterMin, { value: 10, source: "env", envValue: 10 });
+      assert.deepEqual(summary.behaviour.agentSms, { value: "read", source: "env", envValue: "read" });
+
+      const changed = await fx.post("/api/console/behaviour", { agentWrites: false, lockRollbackAfterMin: 0, agentSms: "full", defaultCountryCode: "353" }, cookie);
+      assert.equal(changed.status, 200);
+      summary = (await changed.json()) as ConsoleSettingsResponse;
+      assert.deepEqual(summary.behaviour.agentWrites, { value: false, source: "console", envValue: true });
+      assert.deepEqual(summary.behaviour.lockRollbackAfterMin, { value: 0, source: "console", envValue: 10 });
+      assert.deepEqual(summary.behaviour.agentSms, { value: "full", source: "console", envValue: "read" });
+      assert.equal(summary.behaviour.defaultCountryCode.value, "+353");
+
+      // A token, even a full one, cannot change them; a refused value changes nothing
+      const byToken = await fetch(`${fx.base}/api/console/behaviour`, {
+        method: "POST",
+        headers: { Authorization: "Bearer legacy_full_token", "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+        body: JSON.stringify({ agentWrites: true }),
+      });
+      assert.deepEqual([byToken.status, ((await byToken.json()) as { errorCode: string }).errorCode], [403, "CONSOLE_ONLY"]);
+      assert.equal((await fx.post("/api/console/behaviour", { lockRollbackAfterMin: 2 }, cookie)).status, 400);
+      assert.equal((await fx.post("/api/console/behaviour", { pollIntervalMs: 1000 }, cookie)).status, 400);
+      assert.equal((await fx.post("/api/console/behaviour", {}, cookie)).status, 400);
+
+      // null goes back to .env
+      summary = (await (await fx.post("/api/console/behaviour", { agentWrites: null }, cookie)).json()) as ConsoleSettingsResponse;
+      assert.deepEqual(summary.behaviour.agentWrites, { value: true, source: "env", envValue: true });
+
+      const audit = (await (await fx.get("/api/audit", { cookie })).json()) as AuditResponse;
+      const changes = audit.entries.filter((e) => e.action === "settings.behaviour").map((e) => e.detail);
+      assert.deepEqual(changes.reverse(), ["MCP_ALLOW_MUTATIONS false, LOCK_ROLLBACK_AFTER_MIN 0, MCP_SMS_ACCESS full, DEFAULT_COUNTRY_CODE +353", "MCP_ALLOW_MUTATIONS from .env"]);
+
+      // Kept encrypted in settings.json, read back as set
+      await fx.stack.settings.flush();
+      const reloaded = new ConsoleSettings({ filePath: fx.stack.settings.filePath, cipher: StorageCipher.fromSecret("console_data_key") });
+      assert.equal(reloaded.load(), true);
+      assert.deepEqual(reloaded.behaviourOverrides, { lockRollbackAfterMin: 0, agentSms: "full", defaultCountryCode: "+353" });
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("applies a change at once: agents' tools, self-healing, alerts and masking follow without a restart", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token" });
+    try {
+      await fx.stack.start();
+      const cookie = fx.cookieOf(await fx.post("/api/auth/login", { password: "legacy_full_token" }));
+      const toolNames = async (): Promise<string[]> => {
+        const outcome = await fx.stack.mcpServer.handleHttpMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }), {}, { readOnly: false });
+        return ((outcome.body as { result: { tools: Array<{ name: string }> } }).result.tools).map((t) => t.name);
+      };
+      const status = async () => ((await (await fx.get("/api/session/status", { cookie })).json()) as { selfHeal: { lockRollback: { afterMin: number | null }; reconnect: { afterMin: number | null } } }).selfHeal;
+      assert.equal((await toolNames()).includes("lock_band"), false, ".env leaves agent writes off");
+      assert.deepEqual([(await status()).lockRollback.afterMin, fx.stack.alertEngine?.enabled, fx.stack.httpServer.redactApi], [null, true, true]);
+
+      await fx.post("/api/console/behaviour", { agentWrites: true, agentAccessControl: true, lockRollbackAfterMin: 10, wanReconnectAfterMin: 3, alertsEnabled: false, redactApi: false }, cookie);
+      const tools = await toolNames();
+      assert.ok(tools.includes("lock_band") && tools.includes("set_wifi_mac_filter"), "the master switch opens the write tools at once");
+      const heal = await status();
+      assert.deepEqual([heal.lockRollback.afterMin, heal.reconnect.afterMin], [10, 3]);
+      assert.deepEqual([fx.stack.alertEngine?.enabled, fx.stack.httpServer.redactApi], [false, false]);
+
+      await fx.post("/api/console/behaviour", { agentWrites: null, lockRollbackAfterMin: null, wanReconnectAfterMin: null, alertsEnabled: null, redactApi: null }, cookie);
+      assert.equal((await toolNames()).includes("lock_band"), false, "back to .env: off");
+      assert.deepEqual([(await status()).lockRollback.afterMin, fx.stack.alertEngine?.enabled, fx.stack.httpServer.redactApi], [null, true, true]);
     } finally {
       await fx.cleanup();
     }

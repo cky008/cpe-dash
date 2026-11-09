@@ -921,7 +921,7 @@ describe("self-heal configuration and wiring", () => {
     return file;
   }
 
-  it("is off by default, clamps the windows and builds the watchdog only when asked", async () => {
+  it("is off by default, clamps the windows and writes only when asked", async () => {
     const dir = tempDir("fengsui-selfheal-cfg-");
     try {
       const off = loadConfig({ envPath: envFile(dir, ""), ignoreProcessEnv: true });
@@ -942,7 +942,7 @@ describe("self-heal configuration and wiring", () => {
         return (res.result as { structuredContent: { selfHeal: unknown } }).structuredContent.selfHeal;
       };
       const plain = createFengSuiRuntime({ config: off, log: () => undefined });
-      assert.equal(plain.selfHeal, null);
+      assert.equal(plain.selfHeal?.enabled, false, "built (Settings can turn it on), but off");
       assert.deepEqual(await sessionStatus(plain), SELF_HEAL_OFF, "agents see that nothing writes on its own");
       await plain.close();
 

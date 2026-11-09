@@ -60,6 +60,7 @@ import type {
   Wifi7ControlResponse,
   WifiMacFilterState,
 } from "../../../src/api-contract.ts";
+import { DEFAULT_BEHAVIOUR } from "../../../src/behaviour-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import { buildDeviceReport } from "../../../src/device-profile.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
@@ -261,6 +262,7 @@ export class DemoBackend {
         tokenFlow: identity?.tokenFlow ?? "webserver-token",
         ecc: identity?.ecc ?? true,
       },
+      behaviourEnv: { ...DEFAULT_BEHAVIOUR, lockRollbackAfterMin: DEMO_LOCK_ROLLBACK_MIN, wanReconnectAfterMin: DEMO_RECONNECT_MIN },
     });
     this.#routes = this.#buildRoutes();
   }
@@ -456,6 +458,7 @@ export class DemoBackend {
     get("/api/console/telegram/chats", () => this.#console.telegramChats());
     post("/api/console/telegram/unlink", (body) => this.#console.unlinkTelegramChat(body));
     post("/api/console/switches", (body) => this.#console.switches(body));
+    post("/api/console/behaviour", (body) => this.#console.behaviour(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));
     get("/api/device/profile", () => this.#device?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));
     get("/api/console/experimental", () => ({ ok: true, device: this.#scheduler.device, consents: [], writes: [] }) satisfies ExperimentalWritesResponse);
@@ -627,19 +630,20 @@ export class DemoBackend {
   // ── Controls ───────────────────────────────────────────────────────────────
 
   /**
-   * Self-healing as `npm run demo` runs it (lock rollback after 10 min, redial after 3). This WAN never
+   * Self-healing as `npm run demo` runs it (lock rollback after 10 min, redial after 3) unless the visitor changes it in Settings. This WAN never
    * drops: a fresh lock is watched until it has stayed up two minutes, and nothing is redialled.
    */
   #selfHeal(): SelfHealStatus {
+    const { lockRollbackAfterMin, wanReconnectAfterMin } = this.#console.behaviourValues;
     const lock = this.#lockState;
     const appliedMs = Date.parse(lock.updatedAtIso);
-    const watching = lock.mode !== "unlocked" && this.#now() - appliedMs < LOCK_CONFIRM_MS;
+    const watching = lockRollbackAfterMin > 0 && lock.mode !== "unlocked" && this.#now() - appliedMs < LOCK_CONFIRM_MS;
     return {
       lockRollback: {
-        afterMin: DEMO_LOCK_ROLLBACK_MIN,
-        watch: watching ? { lockUpdatedAtIso: lock.updatedAtIso, deadlineIso: new Date(appliedMs + DEMO_LOCK_ROLLBACK_MIN * 60_000).toISOString(), wanUpSinceIso: lock.updatedAtIso } : null,
+        afterMin: lockRollbackAfterMin > 0 ? lockRollbackAfterMin : null,
+        watch: watching ? { lockUpdatedAtIso: lock.updatedAtIso, deadlineIso: new Date(appliedMs + lockRollbackAfterMin * 60_000).toISOString(), wanUpSinceIso: lock.updatedAtIso } : null,
       },
-      reconnect: { afterMin: DEMO_RECONNECT_MIN, redialsLast24h: 0, maxPer24h: RECONNECT_MAX_PER_DAY, nextAllowedAtIso: null, wanDownSinceIso: null },
+      reconnect: { afterMin: wanReconnectAfterMin > 0 ? wanReconnectAfterMin : null, redialsLast24h: 0, maxPer24h: RECONNECT_MAX_PER_DAY, nextAllowedAtIso: null, wanDownSinceIso: null },
     };
   }
 

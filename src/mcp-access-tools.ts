@@ -101,21 +101,23 @@ const DEVICE_NAMES_NOTICE = "Device names come from LAN clients' DHCP/mDNS adver
  */
 export class AccessControlMcpTools implements McpToolProvider {
   readonly #core: FengSuiCore;
-  readonly #allowWrites: boolean;
+  readonly #allowWrites: () => boolean;
   readonly #redact: () => boolean;
 
-  constructor(opts: { core: FengSuiCore; allowWrites: boolean; redactSensitive?: () => boolean }) {
+  /** `allowWrites`: the console's switch, else `MCP_ALLOW_ACCESS_CONTROL` (a function is read per call). */
+  constructor(opts: { core: FengSuiCore; allowWrites: boolean | (() => boolean); redactSensitive?: () => boolean }) {
     this.#core = opts.core;
-    this.#allowWrites = opts.allowWrites;
+    const allow = opts.allowWrites;
+    this.#allowWrites = typeof allow === "function" ? allow : () => allow;
     this.#redact = opts.redactSensitive ?? (() => true);
   }
 
   getToolDefinitions(): ReadonlyArray<McpToolDefinition> {
-    return this.#allowWrites ? [READ_TOOL, ...WRITE_TOOLS] : [READ_TOOL];
+    return this.#allowWrites() ? [READ_TOOL, ...WRITE_TOOLS] : [READ_TOOL];
   }
 
   handles(toolName: string): boolean {
-    return toolName === READ_TOOL.name || (this.#allowWrites && WRITE_NAMES.has(toolName));
+    return toolName === READ_TOOL.name || (this.#allowWrites() && WRITE_NAMES.has(toolName));
   }
 
   isMutating(toolName: string): boolean {

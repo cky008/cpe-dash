@@ -13,6 +13,7 @@ import type {
   TokensResponse,
 } from "../../../src/api-contract.ts";
 import type { AuditActor, AuditEntry, AuditOutcome } from "../../../src/audit-log.ts";
+import { BEHAVIOUR_ENV, type BehaviourOverrides, type BehaviourValues, describeBehaviour, readBehaviourPatch, resolveBehaviour } from "../../../src/behaviour-settings.ts";
 import { MAX_TOKENS, readTokenRequest, validateNewPassword } from "../../../src/console-policy.ts";
 import { WRITE_FEATURES } from "../../../src/device-access.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
@@ -71,6 +72,8 @@ export interface DemoConsoleOptions {
   random: () => number;
   /** What a connection test reports back: the demo router's own model, firmware and login. */
   device: Pick<Extract<ConnectionTestResult, { ok: true }>, "model" | "firmware" | "loginScheme" | "tokenFlow" | "ecc">;
+  /** What the demo's `.env` says for the behaviour settings (as `npm run demo` runs it). */
+  behaviourEnv: BehaviourValues;
 }
 
 /**
@@ -87,12 +90,15 @@ export class DemoConsole {
   #loginChangedAtIso: string;
   #telegramReset = true;
   #metrics: boolean | null = null;
+  readonly #behaviourEnv: BehaviourValues;
+  #behaviour: BehaviourOverrides = {};
   #tokens: PublicTokenRecord[];
   /** Linked with /auth (newest first), then the one TELEGRAM_CHAT_IDS lists, as the daemon orders them. */
   #chats: TelegramChatRecord[];
 
   constructor(opts: DemoConsoleOptions) {
     this.#now = opts.now;
+    this.#behaviourEnv = opts.behaviourEnv;
     this.#random = opts.random;
     this.#device = opts.device;
     const now = this.#now();
@@ -145,7 +151,29 @@ export class DemoConsole {
       reviewPending: false,
       telegram: { configured: true, resetEnabled: this.#telegramReset },
       metrics: { enabled: this.#metrics ?? false, source: this.#metrics === null ? "env" : "console", envEnabled: false },
+      behaviour: describeBehaviour(this.#behaviourEnv, this.#behaviour),
     };
+  }
+
+  /** The behaviour settings in force (the visitor's choices over the demo's `.env`). */
+  get behaviourValues(): BehaviourValues {
+    return resolveBehaviour(this.#behaviourEnv, this.#behaviour);
+  }
+
+  /** `POST /api/console/behaviour`, as the daemon checks it. */
+  behaviour(body: Body): ConsoleSettingsResponse {
+    const patch = readBehaviourPatch(body);
+    const next: Record<string, unknown> = { ...this.#behaviour };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) delete next[key];
+      else next[key] = value;
+    }
+    this.#behaviour = next as BehaviourOverrides;
+    const detail = Object.entries(patch)
+      .map(([key, value]) => `${BEHAVIOUR_ENV[key as keyof typeof BEHAVIOUR_ENV]} ${value === null ? "from .env" : String(value)}`)
+      .join(", ");
+    this.record("settings.behaviour", "applied", detail);
+    return this.summary();
   }
 
   /** The connection a body asks for; anything left out keeps the stored value, like the daemon. */

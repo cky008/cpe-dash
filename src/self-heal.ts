@@ -25,10 +25,10 @@ export interface WanSelfHealOptions {
   /** Source of `telemetry` events. */
   monitor: CpeMonitor;
   controls: Pick<CpeControlService, "getPersistedLockState" | "rollBackLocks" | "reconnectWan">;
-  /** `LOCK_ROLLBACK_AFTER_MIN` in ms; `0` keeps every lock (off). */
-  lockRollbackAfterMs: number;
-  /** `WAN_AUTO_RECONNECT_AFTER_MIN` in ms; `0` never redials (off). */
-  reconnectAfterMs: number;
+  /** Lock rollback window in ms (`0` keeps every lock: off); a function is read each time (the console's setting, else `LOCK_ROLLBACK_AFTER_MIN`). */
+  lockRollbackAfterMs: number | (() => number);
+  /** Redial after this long down, in ms (`0` never redials: off); a function as above (else `WAN_AUTO_RECONNECT_AFTER_MIN`). */
+  reconnectAfterMs: number | (() => number);
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -76,8 +76,8 @@ export class WanSelfHeal {
   readonly scheduler: MutexSessionScheduler;
   readonly monitor: CpeMonitor;
   readonly controls: WanSelfHealOptions["controls"];
-  readonly lockRollbackAfterMs: number;
-  readonly reconnectAfterMs: number;
+  readonly #lockRollbackAfterMs: () => number;
+  readonly #reconnectAfterMs: () => number;
   readonly #now: () => number;
   readonly #log: (line: string) => void;
 
@@ -107,10 +107,20 @@ export class WanSelfHeal {
     this.scheduler = opts.scheduler;
     this.monitor = opts.monitor;
     this.controls = opts.controls;
-    this.lockRollbackAfterMs = Math.max(0, opts.lockRollbackAfterMs);
-    this.reconnectAfterMs = Math.max(0, opts.reconnectAfterMs);
+    const rollback = opts.lockRollbackAfterMs;
+    const redial = opts.reconnectAfterMs;
+    this.#lockRollbackAfterMs = typeof rollback === "function" ? rollback : () => rollback;
+    this.#reconnectAfterMs = typeof redial === "function" ? redial : () => redial;
     this.#now = opts.now ?? Date.now;
     this.#log = opts.log ?? (() => undefined);
+  }
+
+  get lockRollbackAfterMs(): number {
+    return Math.max(0, this.#lockRollbackAfterMs());
+  }
+
+  get reconnectAfterMs(): number {
+    return Math.max(0, this.#reconnectAfterMs());
   }
 
   get enabled(): boolean {
@@ -147,21 +157,49 @@ export class WanSelfHeal {
     };
   }
 
+  /**
+   * Listen even while both parts are off: the console can turn either on at any time, and nothing is
+   * written to the router unless one is on.
+   */
   start(): void {
-    if (this.#started || !this.enabled) return;
+    if (this.#started) return;
     this.#started = true;
     this.scheduler.on("control:applied", this.#onControl);
     this.monitor.on("telemetry", this.#onTelemetry);
-    if (this.reconnectAfterMs > 0) this.#restoreReconnects(this.scheduler.stateStore.getState().selfHealReconnect);
-    // A restart (deploy, crash) picks up the watch of the lock in place: one still open runs to its
-    // end, one that ended stays ended; a lock with no record (from before it was kept) only inside the window
-    const lock = this.controls.getPersistedLockState();
-    if (this.lockRollbackAfterMs > 0 && lock.mode !== "unlocked") {
-      const appliedMs = Date.parse(lock.updatedAtIso);
-      const record = watchRecordFor(this.scheduler.stateStore.getState().selfHealLockWatch, lock.updatedAtIso);
-      const openForMs = record ? this.lockRollbackAfterMs + ROLLBACK_GIVE_UP_MS : this.lockRollbackAfterMs;
-      if (!record?.settled && Number.isFinite(appliedMs) && this.#now() - appliedMs < openForMs) this.#arm(lock, appliedMs);
+    // The redials of the last 24 h count whenever redialing is on, so the budget is read even while it is off
+    this.#restoreReconnects(this.scheduler.stateStore.getState().selfHealReconnect);
+    this.#pickUpLockInPlace();
+  }
+
+  /**
+   * The settings changed (in the console): turning the rollback off ends an open watch without a write, a
+   * new window moves the deadline of the lock being watched, and a lock already in place is picked up
+   * if it is still inside the new window. Redialing reads its setting on every snapshot.
+   */
+  reconfigure(): void {
+    const watch = this.#lockWatch;
+    if (watch && this.lockRollbackAfterMs <= 0) {
+      this.#setWatch(null);
+      this.#log("[self-heal] lock rollback turned off; the lock in place is kept");
+    } else if (watch) {
+      watch.deadlineMs = watch.armedAtMs + this.lockRollbackAfterMs;
+    } else {
+      this.#pickUpLockInPlace();
     }
+  }
+
+  /**
+   * At a start (deploy, crash) or when the rollback is turned on: watch the lock in place. One still open
+   * runs to its end, one that ended stays ended; a lock with no record (from before it was kept) only inside the window.
+   */
+  #pickUpLockInPlace(): void {
+    if (!this.#started || this.lockRollbackAfterMs <= 0) return;
+    const lock = this.controls.getPersistedLockState();
+    if (lock.mode === "unlocked") return;
+    const appliedMs = Date.parse(lock.updatedAtIso);
+    const record = watchRecordFor(this.scheduler.stateStore.getState().selfHealLockWatch, lock.updatedAtIso);
+    const openForMs = record ? this.lockRollbackAfterMs + ROLLBACK_GIVE_UP_MS : this.lockRollbackAfterMs;
+    if (!record?.settled && Number.isFinite(appliedMs) && this.#now() - appliedMs < openForMs) this.#arm(lock, appliedMs);
   }
 
   async stop(): Promise<void> {

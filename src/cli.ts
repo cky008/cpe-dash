@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AlertEngine } from "./alert-engine.ts";
+import { type BehaviourValues, behaviourFromConfig, resolveBehaviour } from "./behaviour-settings.ts";
 import { AuditLog } from "./audit-log.ts";
 import { ConsoleSettings, type CpeConnection, type RouterPasswordReuse, resetLoginProof } from "./console-settings.ts";
 import { loadConfig } from "./config.ts";
@@ -298,10 +299,14 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     });
   };
 
-  // SMS's default country: DEFAULT_COUNTRY_CODE, else the SIM's (from the telemetry saved last time, then live),
-  // else none, and a number typed without + is refused rather than sent to a guessed country
+  // AI master switches, self-healing, alerts and SMS behaviour: the console's choice, else `.env`. Every part
+  // reads them per use, so a change in Settings applies at once (see applyBehaviour below)
+  let behaviour: BehaviourValues = resolveBehaviour(behaviourFromConfig(config), settings.behaviourOverrides);
+
+  // SMS's default country: the console's or DEFAULT_COUNTRY_CODE, else the SIM's (from the telemetry saved
+  // last time, then live), else none, and a number typed without + is refused rather than sent to a guessed country
   const simCountry = (): string => dialCodeFromImsi(monitor.getCachedTelemetry()?.device.imsi ?? "") ?? "";
-  let countryCode = config.defaultCountryCode || simCountry();
+  let countryCode = behaviour.defaultCountryCode || simCountry();
   let sms: SmsService | null = null;
   if (config.smsEnabled) {
     const contacts = new ContactBook({
@@ -325,43 +330,49 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       defaultCountryCode: countryCode,
       fullSyncIntervalMs: config.smsFullSyncIntervalMs,
       seedExistingOnStart: config.smsSeedExistingOnStart,
-      autoMarkRead: config.smsAutoMarkRead,
+      autoMarkRead: () => behaviour.smsAutoMarkRead,
       sendStatusTimeoutMs: config.smsSendStatusTimeoutMs,
     });
   }
-  if (!config.defaultCountryCode) {
-    // The first read of the SIM (or a SIM from another country) sets it; a missing or masked IMSI keeps the last one
-    monitor.on("telemetry", () => {
-      const fromSim = simCountry();
-      if (!fromSim || fromSim === countryCode) return;
-      countryCode = fromSim;
-      sms?.setDefaultCountryCode(fromSim);
-    });
-  }
+  // While no country is set: the first read of the SIM (or a SIM from another country) sets it; a missing
+  // or masked IMSI keeps the last one
+  monitor.on("telemetry", () => {
+    if (behaviour.defaultCountryCode) return;
+    const fromSim = simCountry();
+    if (!fromSim || fromSim === countryCode) return;
+    countryCode = fromSim;
+    sms?.setDefaultCountryCode(fromSim);
+  });
 
-  const alertEngine =
-    config.alertsEnabled
-      ? new AlertEngine({
-          scheduler,
-          monitor,
-          controls,
-          rsrpThresholdDbm: config.alertRsrpThresholdDbm,
-          sinrThresholdDb: config.alertSinrThresholdDb,
-        })
-      : null;
+  const alertEngine = new AlertEngine({
+    scheduler,
+    monitor,
+    controls,
+    enabled: () => behaviour.alertsEnabled,
+    rsrpThresholdDbm: () => behaviour.alertRsrpThresholdDbm,
+    sinrThresholdDb: () => behaviour.alertSinrThresholdDb,
+  });
 
-  // Opt-in automatic router writes (lock rollback, WAN redial); off unless configured
-  const selfHeal =
-    config.lockRollbackAfterMs > 0 || config.wanReconnectAfterMs > 0
-      ? new WanSelfHeal({
-          scheduler,
-          monitor,
-          controls,
-          lockRollbackAfterMs: config.lockRollbackAfterMs,
-          reconnectAfterMs: config.wanReconnectAfterMs,
-          log,
-        })
-      : null;
+  // Opt-in automatic router writes (lock rollback, WAN redial); off unless turned on
+  const selfHeal = new WanSelfHeal({
+    scheduler,
+    monitor,
+    controls,
+    lockRollbackAfterMs: () => behaviour.lockRollbackAfterMin * 60_000,
+    reconnectAfterMs: () => behaviour.wanReconnectAfterMin * 60_000,
+    log,
+  });
+
+  /** Settings changed in the console (or `.env` reloaded): what reads them per use needs nothing; these act now. */
+  const applyBehaviour = (next: BehaviourValues): void => {
+    behaviour = next;
+    selfHeal.reconfigure();
+    const code = behaviour.defaultCountryCode || simCountry();
+    if (code && code !== countryCode) {
+      countryCode = code;
+      sms?.setDefaultCountryCode(code);
+    }
+  };
 
   let telegramState: TelegramStateStore | null = null;
   let telegramBot: TelegramBot | null = null;
@@ -392,7 +403,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
           scheduler,
           sms,
           channels,
-          alertMinSeverity: config.alertNotifyMinSeverity,
+          alertMinSeverity: () => behaviour.alertNotifyMinSeverity,
           log,
         })
       : null;
@@ -402,26 +413,25 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     maxClients: config.sseMaxClients,
   });
 
-  // REST and SSE read it from the HTTP server's config, which reset-breaker reloads; MCP follows here
-  let redactApiOutput = config.redactSensitiveInApi;
+  // REST and SSE ask the HTTP server (the console's setting, else its config, which reset-breaker reloads); MCP follows here
   const accessTools = new AccessControlMcpTools({
     core,
-    allowWrites: config.mcpAllowAccessControl,
-    redactSensitive: () => redactApiOutput,
+    allowWrites: () => behaviour.agentAccessControl,
+    redactSensitive: () => behaviour.redactApi,
   });
   const mcpServer = new FengSuiMcpServer({
     core,
-    allowMutations: config.mcpAllowMutations,
-    redactSensitive: () => redactApiOutput,
-    selfHealStatus: () => selfHeal?.status() ?? SELF_HEAL_OFF,
+    allowMutations: () => behaviour.agentWrites,
+    redactSensitive: () => behaviour.redactApi,
+    selfHealStatus: () => (selfHeal.enabled ? selfHeal.status() : SELF_HEAL_OFF),
     toolProviders: sms
       ? [
           accessTools,
           new SmsMcpTools({
             sms,
-            access: config.mcpSmsAccess,
-            sendPolicy: config.mcpSmsSendPolicy,
-            sendLimitPerHour: config.mcpSmsSendLimitPerHour,
+            access: () => behaviour.agentSms,
+            sendPolicy: () => behaviour.agentSmsSendPolicy,
+            sendLimitPerHour: () => behaviour.agentSmsSendLimitPerHour,
           }),
         ]
       : [accessTools],
@@ -480,7 +490,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     unlinkTelegramChat: telegramBot ? (chatId: string) => telegramBot?.unlinkChat(chatId) ?? false : null,
     telegramUsername: () => telegramBot?.username ?? null,
     runtimeSample: () => runtime.sample({ sseClients: sseBus.getClientCount(), telegramPending: telegramBot?.pendingNotifications ?? null }),
-    selfHealStatus: () => selfHeal?.status() ?? SELF_HEAL_OFF,
+    selfHealStatus: () => (selfHeal.enabled ? selfHeal.status() : SELF_HEAL_OFF),
+    onBehaviourChanged: applyBehaviour,
     onConnectionReady: () => {
       if (!awaitingSetup) return;
       awaitingSetup = false;
@@ -489,7 +500,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     },
     onConfigReloaded: async (reloaded) => {
       if (options.applyTimeZone) applyProcessTimeZone(reloaded);
-      redactApiOutput = reloaded.redactSensitiveInApi;
+      applyBehaviour(resolveBehaviour(behaviourFromConfig(reloaded), settings.behaviourOverrides));
       // Re-encrypt immediately: DATA_ENCRYPTION_KEY defaults to CPE_PASSWORD, so fixing the password
       // changes the key, and files left under the old key would be unreadable after a restart.
       const rekeyed: Array<Promise<void>> = [];
@@ -911,8 +922,10 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
       `[fengsui] Background telemetry daemon started with WEB_ENABLED=false (cpe=${config.cpeUrl}, poll=${config.pollIntervalMs}ms)\n`
     );
   }
+  const rollbackMs = stack.selfHeal?.lockRollbackAfterMs ?? 0;
+  const redialMs = stack.selfHeal?.reconnectAfterMs ?? 0;
   process.stdout.write(
-    `[fengsui] ${smsSummary}, alerts=${stack.alertEngine ? "on" : "off"}, telegram=${stack.telegramBot ? "on" : "off"}, webhook=${stack.webhook ? "on" : "off"}, lockRollback=${config.lockRollbackAfterMs > 0 ? `${config.lockRollbackAfterMs / 60_000}min` : "off"}, wanReconnect=${config.wanReconnectAfterMs > 0 ? `${config.wanReconnectAfterMs / 60_000}min` : "off"}\n`
+    `[fengsui] ${smsSummary}, alerts=${stack.alertEngine?.enabled ? "on" : "off"}, telegram=${stack.telegramBot ? "on" : "off"}, webhook=${stack.webhook ? "on" : "off"}, lockRollback=${rollbackMs > 0 ? `${rollbackMs / 60_000}min` : "off"}, wanReconnect=${redialMs > 0 ? `${redialMs / 60_000}min` : "off"}\n`
   );
 }
 

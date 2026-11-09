@@ -46,10 +46,14 @@ export class NotificationHub {
   readonly scheduler: MutexSessionScheduler;
   readonly sms: SmsService | null;
   readonly channels: ReadonlyArray<NotificationChannel>;
-  readonly alertMinSeverity: AlertSeverity;
+  readonly #alertMinSeverity: () => AlertSeverity;
   readonly #log: (line: string) => void;
   #stats = new Map<string, ChannelDeliveryStats>();
   #started = false;
+
+  get alertMinSeverity(): AlertSeverity {
+    return this.#alertMinSeverity();
+  }
 
   readonly #onSms = (message: EnrichedSmsMessage): void => {
     void this.dispatchSms(message);
@@ -63,13 +67,15 @@ export class NotificationHub {
     scheduler: MutexSessionScheduler;
     sms?: SmsService | null;
     channels: ReadonlyArray<NotificationChannel>;
-    alertMinSeverity?: AlertSeverity;
+    /** A value, or a function read per alert (the console's setting, else ALERT_NOTIFY_MIN_SEVERITY). */
+    alertMinSeverity?: AlertSeverity | (() => AlertSeverity);
     log?: (line: string) => void;
   }) {
     this.scheduler = opts.scheduler;
     this.sms = opts.sms ?? null;
     this.channels = opts.channels;
-    this.alertMinSeverity = opts.alertMinSeverity ?? "warning";
+    const floor = opts.alertMinSeverity ?? "warning";
+    this.#alertMinSeverity = typeof floor === "function" ? floor : () => floor;
     this.#log = opts.log ?? (() => undefined);
     for (const channel of this.channels) this.#stats.set(channel.name, { delivered: 0, failed: 0, lastError: null });
   }
@@ -98,7 +104,7 @@ export class NotificationHub {
 
   async dispatchAlert(alert: AlertEventRecord): Promise<void> {
     const routed = NOTIFY_SEVERITY.get(alert.code) ?? alert.severity;
-    if (SEVERITY_RANK[routed] < SEVERITY_RANK[this.alertMinSeverity]) return;
+    if (SEVERITY_RANK[routed] < SEVERITY_RANK[this.#alertMinSeverity()]) return;
     await this.#fanOut("alert", (channel) => channel.notifyAlert?.(alert));
   }
 

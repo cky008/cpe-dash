@@ -117,8 +117,11 @@ export type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
 export interface FengSuiMcpServerOptions {
   /** Served by the built-in `CoreMcpTools` provider, which always comes first. */
   core: FengSuiCore;
-  /** List and run the write tools (`MCP_ALLOW_MUTATIONS`); left out, they stay hidden and refused, as by default. */
-  allowMutations?: boolean;
+  /**
+   * List and run the write tools (the console's master switch, else `MCP_ALLOW_MUTATIONS`; read per call so a
+   * change applies at once); left out, they stay hidden and refused, as by default.
+   */
+  allowMutations?: boolean | (() => boolean);
   /**
    * Whether core tools return REDACT_SENSITIVE_IN_API copies of telemetry and topology; read per
    * call so a `.env` reload applies (default: always redact).
@@ -139,7 +142,7 @@ export interface FengSuiMcpServerOptions {
  * mutation switch, error mapping); the tools and resources come from `McpToolProvider`s.
  */
 export class FengSuiMcpServer {
-  readonly allowMutations: boolean;
+  readonly #allowMutations: () => boolean;
   /** `CoreMcpTools` followed by the configured domain providers, in listing order. */
   readonly toolProviders: ReadonlyArray<McpToolProvider>;
   /** Attached to `BROWSER_SESSION_YIELDED` tool errors. */
@@ -147,8 +150,13 @@ export class FengSuiMcpServer {
   /** The write gate's view of the router (a read-only model hides and refuses the router writes). */
   readonly #scheduler: MutexSessionScheduler;
 
+  get allowMutations(): boolean {
+    return this.#allowMutations();
+  }
+
   constructor(options: FengSuiMcpServerOptions) {
-    this.allowMutations = options.allowMutations === true;
+    const allow = options.allowMutations;
+    this.#allowMutations = typeof allow === "function" ? allow : () => allow === true;
     this.toolProviders = [
       new CoreMcpTools(options.core, { redactSensitive: options.redactSensitive, selfHealStatus: options.selfHealStatus }),
       ...(options.toolProviders ?? []),

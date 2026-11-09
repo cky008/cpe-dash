@@ -23,8 +23,11 @@ export interface AlertEngineOptions {
   signalDegradedAfterMs?: number;
   /** Good signal (with hysteresis) must persist this long before `SIGNAL_RECOVERED` (default 60 s). */
   signalRecoverAfterMs?: number;
-  rsrpThresholdDbm?: number;
-  sinrThresholdDb?: number;
+  /** A value, or a function read per evaluation (the console's setting, else `.env`). */
+  rsrpThresholdDbm?: number | (() => number);
+  sinrThresholdDb?: number | (() => number);
+  /** Whether to raise alerts at all (the console's switch, else ALERTS_ENABLED; read per evaluation). */
+  enabled?: () => boolean;
   /** Component-carrier count must stay below the stable count this long before `CA_DROPPED` (default 5 min). */
   caDropAfterMs?: number;
   smsStorageWarnPercent?: number;
@@ -94,8 +97,9 @@ export class AlertEngine {
   readonly wanDownAfterMs: number;
   readonly signalDegradedAfterMs: number;
   readonly signalRecoverAfterMs: number;
-  readonly rsrpThresholdDbm: number;
-  readonly sinrThresholdDb: number;
+  readonly #rsrpThresholdDbm: () => number;
+  readonly #sinrThresholdDb: () => number;
+  readonly #enabled: () => boolean;
   readonly caDropAfterMs: number;
   readonly smsStorageWarnPercent: number;
   readonly evalIntervalMs: number;
@@ -128,12 +132,28 @@ export class AlertEngine {
     this.wanDownAfterMs = opts.wanDownAfterMs ?? 60_000;
     this.signalDegradedAfterMs = opts.signalDegradedAfterMs ?? 5 * 60_000;
     this.signalRecoverAfterMs = opts.signalRecoverAfterMs ?? 60_000;
-    this.rsrpThresholdDbm = opts.rsrpThresholdDbm ?? -110;
-    this.sinrThresholdDb = opts.sinrThresholdDb ?? 0;
+    const rsrp = opts.rsrpThresholdDbm ?? -110;
+    const sinr = opts.sinrThresholdDb ?? 0;
+    this.#rsrpThresholdDbm = typeof rsrp === "function" ? rsrp : () => rsrp;
+    this.#sinrThresholdDb = typeof sinr === "function" ? sinr : () => sinr;
+    this.#enabled = opts.enabled ?? (() => true);
     this.caDropAfterMs = opts.caDropAfterMs ?? 5 * 60_000;
     this.smsStorageWarnPercent = opts.smsStorageWarnPercent ?? 90;
     this.evalIntervalMs = Math.max(1000, opts.evalIntervalMs ?? 5000);
     this.#now = opts.now ?? Date.now;
+  }
+
+  get rsrpThresholdDbm(): number {
+    return this.#rsrpThresholdDbm();
+  }
+
+  get sinrThresholdDb(): number {
+    return this.#sinrThresholdDb();
+  }
+
+  /** Alerts are switched on (turned off in the console, nothing is evaluated or raised until it is on again). */
+  get enabled(): boolean {
+    return this.#enabled();
   }
 
   start(): void {
@@ -152,6 +172,7 @@ export class AlertEngine {
 
   /** `CPE_UNREACHABLE` / `CPE_RECOVERED` from the scheduler mode (recovery only on a healthy session). */
   evaluateSchedulerHealth(nowMs = this.#now()): void {
+    if (!this.#enabled()) return;
     const status = this.scheduler.getStatus();
     const healthy = status.mode === "idle" || status.mode === "polling";
     const sinceMs = this.#unreachable.sinceMs;
@@ -175,6 +196,7 @@ export class AlertEngine {
 
   /** Evaluate every telemetry-driven rule against one snapshot (time = `capturedAtMs`). */
   ingestTelemetry(snap: GlobalTelemetrySnapshot): void {
+    if (!this.#enabled()) return;
     const nowMs = snap.capturedAtMs;
     this.#evaluateWan(snap, nowMs);
     this.#evaluateSignal(snap, nowMs);

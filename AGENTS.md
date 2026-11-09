@@ -58,7 +58,7 @@ cpe-dash/
 │   ├── peer-guard.ts       # 跨主机重复守护进程保护：scrypt 派生密钥签名的 UDP 广播信标，较晚启动者待机
 │   ├── json-safe.ts · http-body.ts · text-sanitize.ts · i18n.ts · version.ts  # 无原型 JSON 解析、有界读取响应体、控制字符清理、后端中英词典（locales/*.json）、版本号
 │   ├── api-contract.ts     # REST / SSE 载荷类型（服务端以 satisfies 校验，Web 前端直接复用）
-│   ├── rf-bounds.ts · privacy-mask.ts · units.ts · console-policy.ts · self-heal-status.ts · sms/{text-mode,otp,vcard,thread-view}.ts  # 零依赖共享模块：锁定边界、脱敏规则、流量单位、控制台密码与令牌规则、短信分段 / 验证码 / vCard / 会话列表（守护进程、控制台与在线演示同一实现）
+│   ├── rf-bounds.ts · privacy-mask.ts · units.ts · console-policy.ts · behaviour-settings.ts · self-heal-status.ts · sms/{text-mode,otp,vcard,thread-view}.ts  # 零依赖共享模块：锁定边界、脱敏规则、流量单位、控制台密码与令牌规则、控制台可改的行为设置（AI 总开关、自愈、告警、短信行为；不设则跟随 .env）、短信分段 / 验证码 / vCard / 会话列表（守护进程、控制台与在线演示同一实现）
 │   └── index.ts            # 公共模块导出入口
 ├── web/                    # 「烽燧」Web 控制台：100% 严格 TS（tsconfig.web.json）+ Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
 │   ├── index.html · styles.css · brand/logo.svg（标志唯一来源：构建生成页面图标与 favicon.svg）

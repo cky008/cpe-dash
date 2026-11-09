@@ -265,24 +265,38 @@ function compactMessage(m: SmsMessageRecord) {
  */
 export class SmsMcpTools implements McpToolProvider {
   readonly sms: SmsService;
-  readonly access: McpSmsAccess;
-  readonly sendPolicy: McpSmsSendPolicy;
-  readonly sendLimitPerHour: number;
+  readonly #access: () => McpSmsAccess;
+  readonly #sendPolicy: () => McpSmsSendPolicy;
+  readonly #sendLimitPerHour: () => number;
   readonly #now: () => number;
   #sendTimestamps: number[] = [];
 
+  /** Each limit is a value or a function read per call (the console's settings, else `.env`). */
   constructor(opts: {
     sms: SmsService;
-    access: McpSmsAccess;
-    sendPolicy: McpSmsSendPolicy;
-    sendLimitPerHour: number;
+    access: McpSmsAccess | (() => McpSmsAccess);
+    sendPolicy: McpSmsSendPolicy | (() => McpSmsSendPolicy);
+    sendLimitPerHour: number | (() => number);
     now?: () => number;
   }) {
     this.sms = opts.sms;
-    this.access = opts.access;
-    this.sendPolicy = opts.sendPolicy;
-    this.sendLimitPerHour = opts.sendLimitPerHour;
+    const { access, sendPolicy, sendLimitPerHour } = opts;
+    this.#access = typeof access === "function" ? access : () => access;
+    this.#sendPolicy = typeof sendPolicy === "function" ? sendPolicy : () => sendPolicy;
+    this.#sendLimitPerHour = typeof sendLimitPerHour === "function" ? sendLimitPerHour : () => sendLimitPerHour;
     this.#now = opts.now ?? Date.now;
+  }
+
+  get access(): McpSmsAccess {
+    return this.#access();
+  }
+
+  get sendPolicy(): McpSmsSendPolicy {
+    return this.#sendPolicy();
+  }
+
+  get sendLimitPerHour(): number {
+    return this.#sendLimitPerHour();
   }
 
   getToolDefinitions(): ReadonlyArray<McpToolDefinition> {

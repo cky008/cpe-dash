@@ -85,6 +85,7 @@ import {
 import type { NotificationHub } from "./notify/hub.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
+import { type BehaviourValues, behaviourFromConfig } from "./behaviour-settings.ts";
 import { sanitizeDeviceProfile, sanitizeDeviceReport, sanitizeFreeText } from "./sanitize.ts";
 import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
 import { SmsHttpRoutes } from "./sms/http-routes.ts";
@@ -172,6 +173,8 @@ export interface FengSuiHttpServerOptions {
   runtimeSample?: (() => RuntimeSample) | null;
   /** What WAN self-healing will do next, for `GET /api/session/status` (default: off). */
   selfHealStatus?: (() => SelfHealStatus) | null;
+  /** The behaviour settings in force changed in the console (AI switches, self-heal, alerts, SMS behaviour). */
+  onBehaviourChanged?: ((values: BehaviourValues) => void) | null;
 }
 
 /**
@@ -225,6 +228,8 @@ export class FengSuiHttpServer {
       scheduler: options.core.scheduler,
       audit: this.#audit,
       metricsFromEnv: options.config.metricsEnabled,
+      behaviourFromEnv: () => behaviourFromConfig(this.#config),
+      onBehaviourChanged: (values) => options.onBehaviourChanged?.(values),
       telegramConfigured: unlinkTelegram !== null,
       onConnectionReady: options.onConnectionReady ?? (() => undefined),
       revokeSessions: (keep: string | null) => {
@@ -256,6 +261,11 @@ export class FengSuiHttpServer {
   /** Metrics follow the console's switch when set, else METRICS_ENABLED from `.env`. */
   get metricsEnabled(): boolean {
     return this.settings.metricsEnabled ?? this.#config.metricsEnabled;
+  }
+
+  /** Tokens get masked identifiers when the console says so, else as REDACT_SENSITIVE_IN_API says. */
+  get redactApi(): boolean {
+    return this.settings.behaviourOverrides.redactApi ?? this.#config.redactSensitiveInApi;
   }
 
   get config(): AppConfig {
@@ -731,7 +741,7 @@ export class FengSuiHttpServer {
 
     // A cookie session is the web console, which masks identifiers on screen until revealed; Bearer
     // clients (scripts, agents, integrations) get the REDACT_SENSITIVE_IN_API copies instead
-    const redact = session === null && this.#config.redactSensitiveInApi;
+    const redact = session === null && this.redactApi;
 
     // SSE Stream (`GET /api/events`)
     if (isSseRoute && method === "GET") {

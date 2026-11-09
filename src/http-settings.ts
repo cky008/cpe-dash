@@ -8,6 +8,7 @@ import type {
   TelegramChatsResponse,
 } from "./api-contract.ts";
 import type { AuditLog } from "./audit-log.ts";
+import { BEHAVIOUR_ENV, type BehaviourValues, DEFAULT_BEHAVIOUR, describeBehaviour, readBehaviourPatch, resolveBehaviour } from "./behaviour-settings.ts";
 import type { CredentialVerdict } from "./http-auth.ts";
 import { normalizeCpeUrl } from "./config.ts";
 import { readTokenRequest, validateNewPassword } from "./console-policy.ts";
@@ -25,6 +26,10 @@ export interface SettingsRoutesOptions {
   audit: AuditLog | null;
   /** METRICS_ENABLED from `.env`, used while the console has not set its own choice. */
   metricsFromEnv: boolean;
+  /** What `.env` says for the behaviour settings (it can be reloaded, hence a function). */
+  behaviourFromEnv?: () => BehaviourValues;
+  /** The behaviour settings in force changed: hand them to the running parts. */
+  onBehaviourChanged?: (values: BehaviourValues) => void;
   /** The bot is configured (TELEGRAM_BOT_TOKEN). */
   telegramConfigured: boolean;
   /** The first router connection was saved: start polling, SMS and Telegram. */
@@ -83,7 +88,12 @@ export class SettingsHttpRoutes {
       reviewPending: settings.reviewPending,
       telegram: { configured: telegramConfigured, resetEnabled: settings.telegramReset },
       metrics: { enabled: settings.metricsEnabled ?? metricsFromEnv, source: settings.metricsEnabled === null ? "env" : "console", envEnabled: metricsFromEnv },
+      behaviour: describeBehaviour(this.#behaviourFromEnv(), settings.behaviourOverrides),
     };
+  }
+
+  #behaviourFromEnv(): BehaviourValues {
+    return this.#opts.behaviourFromEnv?.() ?? DEFAULT_BEHAVIOUR;
   }
 
   /**
@@ -242,6 +252,17 @@ export class SettingsHttpRoutes {
       }
       case "/api/console/experimental": {
         await this.#setExperimental(ctx, await ctx.readJsonBody());
+        return true;
+      }
+      case "/api/console/behaviour": {
+        const patch = readBehaviourPatch(await ctx.readJsonBody());
+        settings.setBehaviour(patch);
+        this.#opts.onBehaviourChanged?.(resolveBehaviour(this.#behaviourFromEnv(), settings.behaviourOverrides));
+        const detail = Object.entries(patch)
+          .map(([key, value]) => `${BEHAVIOUR_ENV[key as keyof typeof BEHAVIOUR_ENV]} ${value === null ? "from .env" : String(value)}`)
+          .join(", ");
+        audit?.record({ action: "settings.behaviour", outcome: "applied", detail });
+        ctx.sendJson(200, this.summary());
         return true;
       }
       case "/api/console/switches": {

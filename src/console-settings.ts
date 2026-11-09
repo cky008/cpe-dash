@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides } from "./behaviour-settings.ts";
 import { MAX_TOKENS, type TokenRequest, type TokenScope } from "./console-policy.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "./device-profile.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
@@ -104,6 +105,8 @@ interface PersistedConsoleSettings {
   telegramReset: boolean;
   /** `null` follows METRICS_ENABLED from `.env`. */
   metricsEnabled: boolean | null;
+  /** AI master switches, self-healing, alerts and SMS behaviour set in the console; a missing key follows `.env`. */
+  behaviour: BehaviourOverrides;
   /** Imported from `.env` and not yet confirmed in the console's guided check. */
   reviewPending: boolean;
   /** Experimental writes the owner turned on (one model at a time). */
@@ -193,6 +196,7 @@ function defaultState(): PersistedConsoleSettings {
     tokens: [],
     telegramReset: true,
     metricsEnabled: null,
+    behaviour: {},
     reviewPending: false,
     experimental: [],
   };
@@ -232,7 +236,7 @@ export class ConsoleSettings {
     if (!parsed) return false;
     const tokens = Array.isArray(parsed.tokens) ? parsed.tokens.filter((t) => t && typeof t.hash === "string" && typeof t.id === "string") : [];
     const experimental = Array.isArray(parsed.experimental) ? parsed.experimental.filter(isExperimentalConsent).map((c) => ({ ...c })) : [];
-    this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens, experimental };
+    this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens, experimental, behaviour: sanitizeBehaviourOverrides(parsed.behaviour) };
     this.#reindex();
     return true;
   }
@@ -333,6 +337,22 @@ export class ConsoleSettings {
 
   setMetricsEnabled(enabled: boolean | null): void {
     this.#state.metricsEnabled = enabled;
+    this.#save();
+  }
+
+  /** What the console set over `.env` (a missing key follows `.env`). */
+  get behaviourOverrides(): BehaviourOverrides {
+    return { ...this.#state.behaviour };
+  }
+
+  /** Apply a validated patch: a value sets it, `null` goes back to `.env`. */
+  setBehaviour(patch: BehaviourOverrides): void {
+    const next: Record<string, unknown> = { ...this.#state.behaviour };
+    for (const [key, value] of Object.entries(patch) as Array<[BehaviourKey, unknown]>) {
+      if (value === null || value === undefined) delete next[key];
+      else next[key] = value;
+    }
+    this.#state.behaviour = next as BehaviourOverrides;
     this.#save();
   }
 

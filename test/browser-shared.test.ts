@@ -37,6 +37,7 @@ const BROWSER_SHARED_MODULES = [
   "src/self-heal-status.ts",
   "src/access-plan.ts",
   "src/access-state.ts",
+  "src/behaviour-settings.ts",
   "src/console-policy.ts",
   "src/control-error.ts",
   "src/control-input.ts",

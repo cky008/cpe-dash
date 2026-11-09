@@ -112,7 +112,8 @@ export interface SmsServiceOptions {
   /** Treat messages already stored at the very first sync as history (no notifications). */
   seedExistingOnStart?: boolean;
   /** Mark newly announced messages as read on the router. */
-  autoMarkRead?: boolean;
+  /** A value, or a function read per sync (the console's setting, else SMS_AUTO_MARK_READ). */
+  autoMarkRead?: boolean | (() => boolean);
   sendStatusTimeoutMs?: number;
   /** Inbox page size for incremental syncs; larger jumps trigger a full sync. */
   recentFetchCount?: number;
@@ -147,7 +148,7 @@ export class SmsService extends EventEmitter {
   #defaultCountryCode: string;
   readonly fullSyncIntervalMs: number;
   readonly seedExistingOnStart: boolean;
-  readonly autoMarkRead: boolean;
+  readonly #autoMarkRead: () => boolean;
   readonly sendStatusTimeoutMs: number;
   readonly recentFetchCount: number;
   readonly yieldPollIntervalMs: number;
@@ -176,7 +177,8 @@ export class SmsService extends EventEmitter {
     this.#defaultCountryCode = opts.defaultCountryCode;
     this.fullSyncIntervalMs = Math.max(60_000, opts.fullSyncIntervalMs ?? 30 * 60_000);
     this.seedExistingOnStart = opts.seedExistingOnStart !== false;
-    this.autoMarkRead = opts.autoMarkRead === true;
+    const markRead = opts.autoMarkRead;
+    this.#autoMarkRead = typeof markRead === "function" ? markRead : () => markRead === true;
     this.sendStatusTimeoutMs = opts.sendStatusTimeoutMs ?? 45_000;
     this.recentFetchCount = Math.min(50, Math.max(5, opts.recentFetchCount ?? 20));
     this.yieldPollIntervalMs = Math.max(1000, opts.yieldPollIntervalMs ?? 5000);
@@ -187,6 +189,10 @@ export class SmsService extends EventEmitter {
    * Dial code a number typed without `+` is sent to, and local numbers are grouped in: `DEFAULT_COUNTRY_CODE`, or
    * else the SIM's country once it has been read; `""` while neither is known (such a number is then refused).
    */
+  get autoMarkRead(): boolean {
+    return this.#autoMarkRead();
+  }
+
   get defaultCountryCode(): string {
     return this.#defaultCountryCode;
   }
@@ -526,7 +532,7 @@ export class SmsService extends EventEmitter {
     };
     this.#safeEmit("sms:sync", summary);
     this.#emitStatus();
-    if (this.autoMarkRead && fresh.length > 0) {
+    if (this.#autoMarkRead() && fresh.length > 0) {
       void this.markRead({ uids: fresh.map((m) => m.uid) }).catch(() => undefined);
     }
     return summary;

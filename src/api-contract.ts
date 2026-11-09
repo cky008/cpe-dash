@@ -7,6 +7,7 @@
 import type { AccessControlSnapshot, TimeRulesState } from "./access-control.ts";
 import type { MacFilterEntry, TimeRule, TimeRuleInput, WifiFilterMode, WifiFilterPolicy, WifiMacFilterState } from "./access-plan.ts";
 import type { AlertEventRecord } from "./state-store.ts";
+import type { BehaviourReport } from "./behaviour-settings.ts";
 import type {
   AntennaModeName,
   FirewallSwitchState,
@@ -262,6 +263,8 @@ export interface ConsoleSettingsResponse {
   telegram: { configured: boolean; resetEnabled: boolean };
   /** `/metrics`: the effective switch, who set it, and what `.env` (METRICS_ENABLED) says. */
   metrics: { enabled: boolean; source: "console" | "env"; envEnabled: boolean };
+  /** AI master switches, self-healing, alerts and SMS behaviour: each value in force, who set it, and `.env`'s. */
+  behaviour: BehaviourReport;
 }
 
 /** `POST /api/console/cpe/test` (and the `result` of a refused `POST /api/console/cpe`). */
