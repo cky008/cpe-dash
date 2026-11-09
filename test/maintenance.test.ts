@@ -282,6 +282,27 @@ describe("maintenance commands on the CLI", () => {
     }
   });
 
+  it("puts a replacement store on disk (fsync) before it takes the old one's place (restore, rekey)", (t) => {
+    const dir = tempDir("fengsui-fsync-");
+    try {
+      const order: string[] = [];
+      const fsync = fs.fsyncSync.bind(fs);
+      const rename = fs.renameSync.bind(fs);
+      t.mock.method(fs, "fsyncSync", (fd: number) => {
+        order.push("fsync");
+        fsync(fd);
+      });
+      t.mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+        order.push("rename");
+        rename(from, to);
+      });
+      new StorageCipher("new_key").writeJsonFile(path.join(dir, "settings.json"), { format: 1 });
+      assert.deepEqual(order, ["fsync", "rename"]);
+    } finally {
+      removeTempDir(dir);
+    }
+  });
+
   it("keeps a store where the daemon looks for it when writing its replacement fails (restore, rekey)", () => {
     const dir = tempDir("fengsui-replace-");
     try {

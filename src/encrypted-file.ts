@@ -214,7 +214,14 @@ export class StorageCipher {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const suffix = crypto.randomBytes(4).toString("hex");
     const tmpFile = `${filePath}.${process.pid}.${suffix}.tmp`;
-    fs.writeFileSync(tmpFile, this.serializeJson(data), { encoding: "utf8", mode: 0o600 });
+    // On disk before it takes the old file's place, as AtomicFileWriter does (restore and rekey write through here)
+    const fd = fs.openSync(tmpFile, "w", 0o600);
+    try {
+      fs.writeFileSync(fd, this.serializeJson(data), "utf8");
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
     fs.renameSync(tmpFile, filePath);
   }
 }
