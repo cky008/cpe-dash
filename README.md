@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/github/v/release/cky008/cpe-dash?style=flat-square&label=版本" alt="最新版本" /></a>
+  <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/github/v/release/cky008/cpe-dash?style=flat-square&label=%E7%89%88%E6%9C%AC" alt="最新版本" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 和 arm64" />
-  <img src="https://img.shields.io/badge/运行时依赖-0-black?style=flat-square" alt="零运行时依赖" />
-  <a href="LICENSE"><img src="https://img.shields.io/badge/许可-PolyForm_NC_1.0.0-orange?style=flat-square" alt="PolyForm Noncommercial 1.0.0" /></a>
+  <img src="https://img.shields.io/badge/%E8%BF%90%E8%A1%8C%E6%97%B6%E4%BE%9D%E8%B5%96-0-black?style=flat-square" alt="零运行时依赖" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF-PolyForm_NC_1.0.0-orange?style=flat-square" alt="PolyForm Noncommercial 1.0.0" /></a>
 </p>
 
 <p align="center">
