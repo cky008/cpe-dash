@@ -36,7 +36,7 @@ FengSui is a web console that runs on your own NAS or computer and lets you see 
 - **SMS**: threads, one-click copy for verification codes, contact import. Messages are stored encrypted on your disk.
 - **Devices and internet access**: see who is connected and how; pause a device's internet access or give it a schedule.
 - **Alerts and Telegram**: get told when the WAN drops, the signal weakens, the router restarts or the SMS box fills up. Read and answer SMS in Telegram.
-- **Works with AI agents**: a built-in MCP server lets Claude, Cursor and others read the signal and its history. Actions that change the router are off by default.
+- **Works with AI agents**: a built-in MCP server lets Claude, Cursor and others read the signal and its history. Actions that change the router are off by default, and you choose what each token may do.
 
 It is also built not to get in the way: it steps aside when you sign in to the router's own page, it stops after one wrong password instead of locking the router, and it uses only what ships with Node.js, with no third-party runtime dependencies.
 
@@ -70,7 +70,7 @@ You can try the rest in the [live demo](https://cky008.github.io/fengsui-demo/):
 
 ## Compatibility
 
-FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers usually connect too, but they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more models verified. See [Other Huawei routers](docs/guide/en/other-routers.md).
+FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers usually connect too, but they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more models verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. See [Other Huawei routers](docs/guide/en/other-routers.md).
 
 ## Documentation
 

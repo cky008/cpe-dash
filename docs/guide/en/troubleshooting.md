@@ -56,7 +56,7 @@ Someone logged in to the router's own web page (this could be you on another dev
 
 ## Sending SMS fails
 
-- **Error "No default country is known"**: FengSui does not know your country yet (the router did not report SIM card information). Enter the full number with `+`, select a country in the compose dialog, or set `DEFAULT_COUNTRY_CODE` in `.env`.
+- **Error "No default country is known"**: FengSui does not know your country yet (the router did not report SIM card information). Enter the full number with `+`, select a country in the compose dialog, or fix the default country under Settings → General → SMS.
 - **Shows "Submitted to the router, status unconfirmed"**: The message was likely sent. Do not resend; check the thread shortly.
 - **Router rejects sending**: Check your SIM card balance and confirm that SMS service is active.
 

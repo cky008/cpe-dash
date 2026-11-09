@@ -22,7 +22,7 @@ FengSui reads the router's SMS count every 5 seconds, syncs only when there are 
 
 Click "New message", select a country, enter a phone number or contact name, and compose your message. Before sending, the console shows the encoding (GSM-7 or UCS-2) and the number of segments; each message can have up to 4 segments, and you can send to up to 5 recipients at once.
 
-**Country code**: Local numbers without a leading `+` are completed using the default country. The default country is derived from the country of the router's SIM card (for example, an Irish SIM card maps to `+353`), or can be fixed with `DEFAULT_COUNTRY_CODE` in `.env`. If FengSui does not yet know the country, it requires you to enter a full international number or select a country manually; it never guesses.
+**Country code**: Local numbers without a leading `+` are completed using the default country. The default country is derived from the country of the router's SIM card (for example, an Irish SIM card maps to `+353`), or can be fixed under Settings → General → SMS (`DEFAULT_COUNTRY_CODE` in `.env`). If FengSui does not yet know the country, it requires you to enter a full international number or select a country manually; it never guesses.
 
 **"Submitted to the router, status unconfirmed"**: When the router accepts the message but does not report the delivery status within the expected window, this amber status is displayed. The message was likely sent already; **do not resend**.
 
@@ -31,7 +31,7 @@ Click "New message", select a country, enter a phone number or contact name, and
 
 ## Mark as read and delete
 
-Within a thread, you can mark messages as read or delete them. Deleting **removes the message from both the router and local storage**. When `SMS_AUTO_MARK_READ=true` is set, newly forwarded messages are automatically marked as read on the router.
+Within a thread, you can mark messages as read or delete them. Deleting **removes the message from both the router and local storage**. With "Mark read on the router after forwarding" on under Settings → General (`SMS_AUTO_MARK_READ=true` in `.env`), newly forwarded messages are automatically marked as read on the router.
 
 ## Contacts
 

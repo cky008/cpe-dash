@@ -56,7 +56,7 @@ docker compose logs cpe-dash 2>&1 | grep "setup code"
 
 ## 发短信失败
 
-- **提示「No default country is known」**：烽燧还不知道你的国家（路由器没有报告 SIM 卡信息）。输入带 `+` 的完整号码，或在发送界面选择国家，也可以在 `.env` 设置 `DEFAULT_COUNTRY_CODE`。
+- **提示「No default country is known」**：烽燧还不知道你的国家（路由器没有报告 SIM 卡信息）。输入带 `+` 的完整号码，或在发送界面选择国家，也可以在「设置 → 常规」的「短信」里固定默认国家。
 - **显示「已提交、状态未确认」**：短信很可能已经发出，不要重发，稍后在会话里查看。
 - **路由器拒绝发送**：检查 SIM 卡余额和短信功能是否开通。
 

@@ -52,7 +52,7 @@ Cell locking fixes the router to a specific base station sector. A cell is ident
 
 You have three recovery options, from fastest to slowest:
 
-1. **Automatic rollback** (recommended to enable in advance): set `LOCK_ROLLBACK_AFTER_MIN` in `.env`, such as `10`. After locking, the WAN connection must restore within 10 minutes and stay online for 2 consecutive minutes. If it fails to do so, FengSui automatically clears all locks and triggers a `LOCK_ROLLED_BACK` alert.
+1. **Automatic rollback** (recommended to enable in advance): enter the minutes after a lock under Settings → General → Self-healing (or set `LOCK_ROLLBACK_AFTER_MIN` in `.env`), such as `10`. After locking, the WAN connection must restore within 10 minutes and stay online for 2 consecutive minutes. If it fails to do so, FengSui automatically clears all locks and triggers a `LOCK_ROLLED_BACK` alert.
 2. **Click "Unlock" in the console**: FengSui accesses the router over your local network and does not depend on the Internet, so you can still unlock even when the Internet connection is down.
 3. **Log into the router's own web page** (usually `http://192.168.8.1`) to restore all bands, or restart the router.
 
@@ -60,7 +60,7 @@ You have three recovery options, from fastest to slowest:
 
 ## Automatic WAN reconnection
 
-For disconnections unrelated to locking (such as operator network issues), FengSui can reconnect automatically. Set `WAN_AUTO_RECONNECT_AFTER_MIN` in `.env`, such as `3`. FengSui reconnects once after the WAN has been disconnected for 3 minutes, then retries at intervals of 10, 30, and 60 minutes, up to 4 times within 24 hours. FengSui **never** restarts the router automatically.
+For disconnections unrelated to locking (such as operator network issues), FengSui can reconnect automatically. Enter the minutes down under Settings → General → Self-healing (or set `WAN_AUTO_RECONNECT_AFTER_MIN` in `.env`), such as `3`. FengSui reconnects once after the WAN has been disconnected for 3 minutes, then retries at intervals of 10, 30, and 60 minutes, up to 4 times within 24 hours. FengSui **never** restarts the router automatically.
 
 Both options are disabled by default because they modify router settings without direct user interaction. When enabled, the "WAN self-healing" section in the Controls drawer shows:
 

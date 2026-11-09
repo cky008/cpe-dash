@@ -9,7 +9,7 @@ FengSui alerts you when problems happen and pushes new SMS messages. You can sen
 
 ## Alerts
 
-Alerts appear under the bell icon in the console and can also be pushed to you. By default, FengSui only pushes `warning` and higher severity levels (`ALERT_NOTIFY_MIN_SEVERITY` in `.env`).
+Alerts appear under the bell icon in the console and can also be pushed to you. By default, FengSui only pushes `warning` and higher severity levels; change it under Settings → General → Alerts (`ALERT_NOTIFY_MIN_SEVERITY` in `.env`), where the signal alert thresholds are too.
 
 | Alert | When it appears |
 | :--- | :--- |
