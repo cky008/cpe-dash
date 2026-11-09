@@ -355,6 +355,20 @@ describe("ContactBook & vCard import", () => {
     assert.equal(contacts.resolvePhone("+353830000001")?.name, "Aoife (manual)", "manual names win");
   });
 
+  it("decides 'the same number' exactly: another country's number with the same last nine digits is a new contact, not a known one", () => {
+    const { contacts } = makeStores();
+    contacts.upsert({ phone: "+353830000001", name: "Aoife" });
+    // Same last nine digits (830000001), another country: not Aoife's number
+    const lookalike = "+999830000001";
+    assert.equal(contacts.knowsNumber(lookalike), false, "the MCP known-recipient policy must not accept it");
+    const added = contacts.upsert({ phone: lookalike, name: "Someone else" });
+    assert.notEqual(added.id, contacts.resolvePhone("+353830000001")?.id);
+    assert.equal(contacts.resolvePhone("+353830000001")?.name, "Aoife", "the saved contact is not renamed");
+    assert.deepEqual(contacts.resolvePhone("+353830000001")?.phones, ["+353830000001"]);
+    // Showing a sender is still forgiving: a national-format sender finds the saved name
+    assert.equal(contacts.resolvePhone("0830000001")?.name, "Aoife");
+  });
+
   it("keeps agent-filed contacts apart from owner-saved ones until the owner vouches for them", () => {
     const { contacts } = makeStores();
     const filed = contacts.upsert({ phone: "+447700900123", name: "Helpdesk" }, { source: "mcp" });

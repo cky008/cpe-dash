@@ -211,8 +211,14 @@ export class ContactBook {
     return { parsed: parsed.length, added, updated, total: this.#contacts.length };
   }
 
+  /**
+   * The contact that owns exactly this number, for decisions (merging on save or import, the MCP known-recipient
+   * policy): the forgiving last-nine-digits key that `resolvePhone` uses to name a sender is left out, since a number
+   * in another country can share it.
+   */
   #findInternal(rawPhone: string): ContactRecord | null {
     for (const key of buildPhoneLookupKeys(rawPhone, this.defaultCountryCode)) {
+      if (key.startsWith("tail9:")) continue;
       const hit = this.#lookup.get(key);
       if (hit) return hit;
     }
