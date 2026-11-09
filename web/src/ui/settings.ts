@@ -634,7 +634,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           minted = res.token;
           tokens = [...(tokens ?? []), res.record];
           ctx.toast(t("token_created"), "success");
-          render();
+          // Closed meanwhile: shown at the next open, never written into the hidden dialog
+          if (dialog.open) render();
         })
         .catch(fail)
         .finally(() => (create.disabled = false));
@@ -718,7 +719,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         pairingInFlight = false;
         create.disabled = false;
         createGroup.disabled = false;
-        render();
+        if (dialog.open) render();
       }
     };
     const create = button(t("pairing_create"), "btn-primary", () => void issue(false), "key");
@@ -980,6 +981,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     pairingInFlight = false;
     savingSwitches = false;
     draft.password = "";
+    // Off the page too, not only off the screen: the closed dialog keeps its last content otherwise
+    render();
   });
   ctx.tr.onChange(() => {
     if (dialog.open) render();

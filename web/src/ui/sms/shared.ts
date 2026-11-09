@@ -86,6 +86,9 @@ export function otpChip(ctx: AppContext, code: string, withHint: boolean): HTMLB
   return chip;
 }
 
+/** Each chip's pending "Copied" reset: a second click restarts it instead of stacking a second one. */
+const copiedResets = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
 export async function copyOtp(ctx: AppContext, chip: HTMLElement): Promise<void> {
   const code = chip.dataset["copyOtp"] ?? "";
   try {
@@ -93,12 +96,17 @@ export async function copyOtp(ctx: AppContext, chip: HTMLElement): Promise<void>
     ctx.toast(ctx.t("toast.otp_copied"), "success");
     chip.classList.add("is-copied");
     const hint = chip.querySelector<HTMLElement>("[data-copy-hint]");
-    const previous = hint?.textContent ?? "";
     if (hint) hint.textContent = ctx.t("chat.copied");
-    setTimeout(() => {
-      chip.classList.remove("is-copied");
-      if (hint) hint.textContent = previous;
-    }, 1600);
+    clearTimeout(copiedResets.get(chip));
+    copiedResets.set(
+      chip,
+      setTimeout(() => {
+        copiedResets.delete(chip);
+        chip.classList.remove("is-copied");
+        // Back to the chip's own label (otpChip's), never to a "Copied" read during a second click
+        if (hint) hint.textContent = ctx.t("chat.copy_code");
+      }, 1600)
+    );
   } catch {
     ctx.toast(ctx.t("toast.copy_failed"), "warning");
   }

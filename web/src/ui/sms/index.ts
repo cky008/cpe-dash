@@ -331,6 +331,8 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   });
   threadList.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
+    // The code chip is a button of its own: Enter or Space there copies the code (its click), not open the thread
+    if (event.target instanceof Element && event.target.closest("[data-copy-otp]")) return;
     const key = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-thread-key]")?.dataset["threadKey"] : undefined;
     if (key) {
       event.preventDefault();

@@ -198,6 +198,19 @@ describe("the console in a browser", () => {
     assert.equal(await page.evaluate<number>("document.querySelectorAll('dialog[open]').length"), 0);
   });
 
+  it("takes a token it just showed off the page when the settings close, not only off the screen", async () => {
+    await signIn(page, live());
+    await openSettings(page, "Tokens");
+    const name = "[...document.querySelectorAll('#settingsDialog input')].find((input) => input.getAttribute('aria-label') === 'Name (who uses it)')";
+    await page.evaluate(`${name}.value = 'UI test, closed'; true`);
+    await page.clickText("#settingsDialog button", "Create token");
+    await page.waitUntil("document.querySelector('#settingsDialog code')?.textContent?.startsWith('fsk_')", "the new token on screen");
+    const token = await page.evaluate<string>("document.querySelector('#settingsDialog code').textContent");
+    await closeDialogs(page);
+    // The close event comes a task later; the token must then be gone from the page, not just hidden
+    await page.waitUntil(`!document.body.textContent.includes(${JSON.stringify(token)})`, "the token gone from the page", 3000);
+  });
+
   it("lists the Telegram chats with how they were linked and unlinks one", async () => {
     const d = live();
     const bot = d.stack.telegramBot;
@@ -364,6 +377,46 @@ describe("the console in a browser", () => {
     for (const deadline = Date.now() + 8000; Date.now() < deadline && sent() < 2; ) await sleep(200);
     assert.equal(sent(), 1);
     assert.deepEqual(page.exceptions, []);
+  });
+
+  it("copies a code from the thread list with Enter on its chip, without opening that thread", async () => {
+    const d = live();
+    await signIn(page, d);
+    await page.click('[data-view="sms"]');
+    await page.waitUntil("document.querySelector('#smsListPane [data-copy-otp]') !== null", "a thread with a code");
+    await page.click('#smsListPane [data-thread-key^="+"]');
+    await page.waitUntil("document.querySelectorAll('#smsChatPane .bubble').length > 0", "the conversation");
+    const active = "document.querySelector('#smsListPane .thread-row.is-active')?.dataset.threadKey ?? ''";
+    const before = await page.evaluate<string>(active);
+    const toasts = await page.evaluate<number>("document.getElementById('toasts').childElementCount");
+    await page.evaluate("document.querySelector('#smsListPane [data-copy-otp]').focus(); true");
+    // A real key press (trusted), so the chip's own Enter activation can run
+    await page.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
+    await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await page.waitUntil(`document.getElementById('toasts').childElementCount > ${toasts}`, "the copy's toast (copied or not allowed)", 5000);
+    assert.equal(await page.evaluate<string>(active), before, "the thread with the code did not open");
+    assert.deepEqual(page.exceptions, []);
+  });
+
+  it("puts a code chip's label back after two quick copies", async () => {
+    const d = live();
+    assert.ok(chrome, "Chrome is running");
+    await chrome.cdp.send("Browser.grantPermissions", { origin: d.baseUrl, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
+    await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+    await signIn(page, d);
+    await page.click('[data-view="sms"]');
+    await page.waitUntil("document.querySelector('#smsListPane [data-copy-otp]') !== null", "a thread with a code");
+    await page.evaluate("document.querySelector('#smsListPane [data-copy-otp]').closest('[data-thread-key]').click(); true");
+    const hint = "document.querySelector('#smsChatPane [data-copy-otp] [data-copy-hint]')";
+    await page.waitUntil(`${hint} !== null`, "the code in the conversation");
+    const label = await page.evaluate<string>(`${hint}.textContent`);
+    await page.evaluate(`(() => { const chip = document.querySelector('#smsChatPane [data-copy-otp]'); chip.click(); chip.click(); return true; })()`);
+    // Both copies worked (the clipboard is allowed here), so the label said so...
+    await page.waitUntil(`${hint}.textContent !== ${JSON.stringify(label)}`, "the copied label", 3000);
+    // ...and comes back once the pause is over, not stuck on what the second click read
+    await page.waitUntil(`${hint}.textContent === ${JSON.stringify(label)}`, "the label back", 5000);
+    await sleep(600);
+    assert.equal(await page.evaluate<string>(`${hint}.textContent`), label);
   });
 
   it("sends a new message once, however often Cmd+Enter is pressed while it goes out", async () => {
