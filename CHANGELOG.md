@@ -4,6 +4,8 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-11-09
+
 ### Highlights
 - **Choose what each token may do.** Every token can read the router's data; what else it may do is up to you: read SMS and codes, change the router, manage devices' internet access, send SMS and edit contacts. You tick it when you create the token and can change it later. The REST API, the MCP tools and the live events follow it, and an agent sees only the tools its token may use. Existing tokens keep exactly what they could do.
 - **Agent, self-healing, alert and SMS settings in the console.** The AI agents' switches, the self-healing windows, the alerts and the SMS behaviour can now be set under Settings, and apply at once. Until you change one there, it follows `.env` as before.
@@ -22,9 +24,13 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **A prompt for testing with an AI agent.** On a model FengSui was not verified on, Settings → Device shows a prompt (with a copy button) that walks an agent through the read tests, asks the owner before each write test, keeps the agent online (lock only the bands in use, put the setting back right after), finds the endpoints FengSui does not use with `probe_router_endpoints`, and ends with a desensitized report and the link to post it as an issue, for the owner to check and post.
 
 ### Changed
-- **Settings → Tokens & AI** replaces the "Read-only" / "Full access" choice with permission checkboxes, and each token shows badges for what it may do. The connection guide's token can read the data and SMS, as its read-only token could.
+- **Tokens get permission checkboxes.** Settings → Tokens & AI replaces the "Read-only" / "Full access" choice with permission checkboxes, and each token shows badges for what it may do. The connection guide's token can read the data and SMS, as its read-only token could.
 - **Self-healing and the alerts are always running**, so the console can turn them on without a restart; with both self-healing windows off, `selfHeal` in the session status still reports it off.
-- **MCP's refusal of an agent that may not test** names the console switch "Let AI agents test this router" (`EXPERIMENTAL_NOT_ALLOWED`).
+- **An agent that may not test is told which switch to ask for.** MCP's refusal (`EXPERIMENTAL_NOT_ALLOWED`) names the console switch "Let AI agents test this router".
+- **The self-healing hints point to Settings.** The controls drawer and the experimental band lock and redial dialogs said self-healing is turned on in `.env`; they now name Settings → General → Self-healing first.
+
+### Fixed
+- **A one-message conversation says "1 message".** The English SMS centre headed such a conversation "1 messages".
 
 ### Documentation
 - The AI agents page describes the console switches, token permissions and agent testing; the configuration page says which settings the console can change and on which tab; the security, locking, notifications and SMS pages point to the Settings tabs; "Other Huawei models" explains testing with an AI agent.
