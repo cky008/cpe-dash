@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { describe, it } from "node:test";
 import { CpeApiError, CpeEccSignatureMissingError, CpeSessionClosedError, type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
 import { aesGcmDecrypt, aesGcmEncrypt, curve25519Mul } from "../src/crypto.ts";
+import { sanitizeFreeText } from "../src/sanitize.ts";
 import { getXmlTag } from "../src/xml.ts";
 
 interface MockCpeOptions {
@@ -249,6 +250,12 @@ describe("HuaweiCpeClient ephemeral session, browser avoidance & 108006 circuit 
     const restarted = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "unit_password", fetchImpl });
     restarted.rememberEccSigned(true);
     await assert.rejects(() => restarted.withSession(async () => "never runs"), CpeEccSignatureMissingError);
+  });
+
+  it("names the remedy within what the router-unreachable alert carries of the refusal (160 characters)", () => {
+    const reason = sanitizeFreeText(new CpeEccSignatureMissingError().message).slice(0, 160);
+    assert.match(reason, /CPE_REQUIRE_ECC_SIGNATURE=false/);
+    assert.match(reason, /unsigned/);
   });
 
   it("accepts an unsigned key from a router never seen signing one, and when the owner turned the check off", async () => {

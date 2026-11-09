@@ -174,9 +174,8 @@ export const DEFAULT_SESSION_MAX_HOLD_MS = 90_000;
  */
 export class CpeEccSignatureMissingError extends Error {
   constructor() {
-    super(
-      "The router sent its encryption key without the signature it sent before, so FengSui ended the session (the answer may have been altered on the way). If the router stopped signing after a firmware change, set CPE_REQUIRE_ECC_SIGNATURE=false in .env"
-    );
+    // Short enough for the router-unreachable alert (160 characters) to keep the remedy
+    super("Router key came unsigned though signed before (answer may be altered): session ended. If a firmware update stopped it: CPE_REQUIRE_ECC_SIGNATURE=false in .env");
     this.name = "CpeEccSignatureMissingError";
   }
 }
@@ -428,21 +427,6 @@ export class EphemeralCpeSession {
       throw new CpeApiError(err.code, apiPath, err);
     }
     return text;
-  }
-
-  /**
-   * Perform an authenticated GET that automatically decrypts AES-256-GCM hex payloads if returned.
-   */
-  async getDecryptedIfNeeded(apiPath: string): Promise<string> {
-    const trimmedCheck = await this.get(apiPath);
-    const clean = trimmedCheck.trim();
-    if (clean.startsWith("<") || clean.length < 64 || !/^[0-9a-fA-F]+$/.test(clean)) {
-      return trimmedCheck;
-    }
-    if (this.ecc) {
-      return aesGcmDecrypt(clean, this.ecc.shareKeyHex);
-    }
-    return trimmedCheck;
   }
 
   /**
@@ -962,7 +946,6 @@ export class HuaweiCpeClient {
     return this.#knownLoginScheme;
   }
 
-  /** Remember how the router logs in (from a stored identification); `unknown` or `null` forgets it. */
   /** Whether this router has signed its encryption key at a login (it then has to, unless the owner turned that off). */
   get eccSignedKnown(): boolean {
     return this.#eccSigned;
@@ -973,6 +956,7 @@ export class HuaweiCpeClient {
     this.#eccSigned = signed;
   }
 
+  /** Remember how the router logs in (from a stored identification); `unknown` or `null` forgets it. */
   rememberLoginScheme(scheme: LoginScheme | null): void {
     this.#knownLoginScheme = scheme === "unknown" ? null : scheme;
   }
