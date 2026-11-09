@@ -252,6 +252,10 @@ kbd {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  /* The gradient paints only inside the box, and the tight line height leaves descenders (the "y") below it:
+     extend the box without moving what follows */
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
 }
 .lead {
   color: var(--muted);
