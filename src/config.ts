@@ -116,6 +116,22 @@ export function isAllowedHttpHostHeader(
 }
 
 /**
+ * A quoted value followed by a comment (`'a b' # note`) without the comment: the last quote that is followed by
+ * whitespace and `#` closes it. One pass from the end, no backtracking pattern; anything else is returned as it is.
+ */
+function stripCommentAfterQuote(value: string): string {
+  const quote = value[0];
+  if ((quote !== '"' && quote !== "'") || value.endsWith(quote)) return value;
+  for (let i = value.length - 1; i > 0; i--) {
+    if (value[i] !== quote) continue;
+    const rest = value.slice(i + 1);
+    const after = rest.trimStart();
+    if (after.startsWith("#") && after.length < rest.length) return value.slice(0, i + 1);
+  }
+  return value;
+}
+
+/**
  * Parse a `.env` file string into a prototype-free dictionary without mutating `process.env`.
  */
 export function parseDotEnv(content: string): Record<string, string> {
@@ -128,7 +144,7 @@ export function parseDotEnv(content: string): Record<string, string> {
     if (eqIdx <= 0) continue;
     const key = cleaned.slice(0, eqIdx).trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || FORBIDDEN_KEYS.has(key)) continue;
-    let value = cleaned.slice(eqIdx + 1).trim();
+    let value = stripCommentAfterQuote(cleaned.slice(eqIdx + 1).trim());
     if (
       (value.startsWith('"') && value.endsWith('"')) ||
       (value.startsWith("'") && value.endsWith("'"))

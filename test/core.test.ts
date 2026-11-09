@@ -65,6 +65,24 @@ describe("config & SSRF / XFF security guards", () => {
     assert.equal(Object.hasOwn(parsed, "constructor"), false);
   });
 
+  it("keeps a quoted value exactly when a comment follows it on the line", () => {
+    // The configuration page says to single-quote a router password with spaces or " #"
+    const parsed = parseDotEnv(
+      [
+        "CPE_PASSWORD=' pass #word ' # the router's admin password",
+        'DOUBLE="two words"   # a comment',
+        "NO_COMMENT='a #b'",
+        "LAST_QUOTE='it's' # the last quote before the comment closes it",
+        "NOT_A_COMMENT='a'#b",
+      ].join("\n")
+    );
+    assert.equal(parsed["CPE_PASSWORD"], " pass #word ");
+    assert.equal(parsed["DOUBLE"], "two words");
+    assert.equal(parsed["NO_COMMENT"], "a #b");
+    assert.equal(parsed["LAST_QUOTE"], "it's");
+    assert.equal(parsed["NOT_A_COMMENT"], "'a'#b", "a comment needs a space before #, as for unquoted values");
+  });
+
   it("validates RFC1918, Tailscale CGNAT, loopback, and IPv6 ULA/Link-Local addresses", () => {
     assert.equal(isPrivateOrLanIpv4("192.168.8.1"), true);
     assert.equal(isPrivateOrLanIpv4("10.0.0.1"), true);
