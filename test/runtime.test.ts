@@ -433,6 +433,33 @@ describe("createFengSuiRuntime", () => {
     }
   });
 
+  it("names the console settings and the audit log too when they were moved aside at startup", async () => {
+    const cpe = createStrictCpe({ latencyMs: 5 });
+    const dir = tempDir("fengsui-quarantine-console-");
+    const envPath = writeEnv(dir, { ...baseEnv(dir, cpe.password), WEB_PORT: "0" });
+    const config = loadConfig({ envPath, ignoreProcessEnv: true });
+    // Written under another key: a typo in DATA_ENCRYPTION_KEY would otherwise look like a fresh install
+    const other = StorageCipher.fromSecret("another_key");
+    fs.mkdirSync(path.dirname(config.settingsFile), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(config.settingsFile, other.serializeJson({ format: 1 }), { mode: 0o600 });
+    fs.writeFileSync(config.auditFile, other.serializeJson({ format: 1, entries: [] }), { mode: 0o600 });
+    const logs: string[] = [];
+    const stack = createFengSuiRuntime({ config, envPath, fetchImpl: cpe.fetchImpl, notifyFetchImpl: createNotifyFetch().fetchImpl, log: (line) => logs.push(line) });
+    try {
+      await stack.start();
+      for (const name of [path.basename(config.settingsFile), path.basename(config.auditFile)]) {
+        assert.ok(logs.some((line) => line.includes(`${name}.unreadable-`)), `${name} is reported: ${logs.join("\n")}`);
+      }
+      const alert = stack.scheduler.getRecentAlerts().find((a) => a.code === "DATA_QUARANTINED");
+      assert.ok(alert, "an alert reaches the console and notifications");
+      assert.match(alert.messageEn, new RegExp(path.basename(config.settingsFile).replace(".", "\\.")));
+      assert.match(alert.messageEn, new RegExp(path.basename(config.auditFile).replace(".", "\\.")));
+    } finally {
+      await stack.close();
+      removeTempDir(dir);
+    }
+  });
+
   it("warns at startup only about the router password reuse that is still true", () => {
     const fallback = startupNotices({ cpePassword: "router_pw", dataEncryptionKey: "router_pw" }, { tokenName: "API_TOKEN (.env)", login: true });
     assert.equal(fallback.length, 3);

@@ -271,9 +271,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   // A save that fails (a full or read-only data volume, a UID change) keeps the change in memory only,
   // lost on restart unless a later save works: said once per file and cause an hour, in the log and
   // as a critical alert (whose own state.json save may fail too, which the same limit keeps quiet)
-  const ownStores = new Set(
-    [config.stateFile, config.smsFile, config.contactsFile, config.telegramStateFile, config.settingsFile, config.auditFile].map((file) => path.resolve(file))
-  );
+  const ownStores = new Set(storeFiles(config).map((file) => path.resolve(file)));
   const writeFailuresSaid = new Map<string, number>();
   let stopWriteFailureReports: (() => void) | null = null;
   const reportWriteFailure = (filePath: string, err: unknown): void => {
@@ -537,10 +535,9 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     });
   }
 
-  // A store that could not decrypt its file starts empty: say so instead of losing contacts quietly
-  const quarantined = [config.stateFile, config.smsFile, config.contactsFile, config.telegramStateFile].flatMap((file) =>
-    quarantinedSince(file, assemblyStartedMs)
-  );
+  // A store that could not decrypt its file starts empty: say so instead of losing contacts quietly (or the
+  // console's settings, which would otherwise look like a fresh install)
+  const quarantined = storeFiles(config).flatMap((file) => quarantinedSince(file, assemblyStartedMs));
   for (const name of quarantined) {
     log(
       `[fengsui] Warning: ${name} could not be decrypted with the current DATA_ENCRYPTION_KEY and was moved aside; its store starts empty. If CPE_PASSWORD changed while DATA_ENCRYPTION_KEY was unset, set DATA_ENCRYPTION_KEY to the previous password, rename the file back and restart.`
@@ -660,6 +657,11 @@ export async function startServeDaemon(stack: FengSuiRuntimeStack): Promise<{ ho
     await stack.close().catch(() => undefined);
     throw err;
   }
+}
+
+/** Every encrypted store of the data directory. */
+function storeFiles(config: AppConfig): string[] {
+  return [config.stateFile, config.smsFile, config.contactsFile, config.telegramStateFile, config.settingsFile, config.auditFile];
 }
 
 /** The LAN beacon's key material: the saved router connection's password and host (`null` before one is saved). */
