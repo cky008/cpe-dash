@@ -5,19 +5,7 @@ section: Manage
 order: 18
 ---
 
-**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink / EMUI routers generally connect as well, but no one has verified them, so writes to them are locked by default: FengSui reads metrics only and does not change router settings.
-
-<!-- compat:begin -->
-| Model | Firmware | Reads | Writes |
-| :--- | :--- | :--- | :--- |
-| H168-383 | `4.4.0.1(H1006SP19C00)` | ✅ verified | ✅ verified |
-| H168-383 | another build | ✅ as usual, with a `FIRMWARE_UNVERIFIED` warning | ✅ as usual, with the same warning |
-| Other Huawei HiLink / EMUI models | every build | ⚠️ may work, not verified: what the router provides | 🔒 locked by default; experimental writes per feature, after consent |
-<!-- compat:end -->
-
-Huawei updates router firmware automatically. When your H168-383 receives a new firmware build, FengSui continues to function normally and emits a one-time `FIRMWARE_UNVERIFIED` notice.
-
-The models FengSui may support are listed by brand under [Supported devices](supported-devices.md), each with a link to report how it works.
+**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink / EMUI routers generally connect as well, but no one has verified them, so writes to them are locked by default: FengSui reads metrics only and does not change router settings. This page covers how FengSui works on those models; which models may work, and where each feature stands on each, is under [Supported devices](supported-devices.md).
 
 ## How FengSui detects your router
 
@@ -50,6 +38,8 @@ Cell locking, security switches, Wi-Fi 7, antenna selection, and access control 
 
 ![Consent dialog for experimental writes](../../screenshots/experimental-writes.webp)
 
+<a id="report"></a>
+
 ## Report compatibility
 
 Your feedback helps verify more router models:
@@ -59,7 +49,7 @@ Your feedback helps verify more router models:
 
 The report contains only API structures and safe metadata (model, firmware, web interface version, feature toggles, and band numbers). It excludes IMEI, IMSI, MAC addresses, IP addresses, phone numbers, cell identifiers, and Wi-Fi network names. FengSui never uploads anything automatically.
 
-Once someone confirms and reports that a feature works on physical hardware, maintainers add it to `VERIFIED_FEATURES` in the codebase. The compatibility table gains a verified row, and that feature no longer requires individual consent on that model.
+Once someone confirms and reports that a feature works on physical hardware, maintainers add it to `VERIFIED_FEATURES` in the codebase. Its mark under [Supported devices](supported-devices.md) turns into ○, and that feature no longer requires individual consent on that model.
 
 <a id="ai"></a>
 

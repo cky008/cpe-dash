@@ -12,10 +12,10 @@ export const VERIFIED_FIRMWARE: ReadonlyArray<{ model: string; softwareVersion: 
 
 /**
  * Features of other models that a user checked on a real router (multi-model phase 3), reads and
- * writes apart: added when an issue reports one working, with a test, the guide's table
- * (`compatibilityTable`) and a CHANGELOG line naming the issue, never the person. The model stays
- * unverified as a whole; a verified write no longer needs its owner's consent on that model. Empty
- * until the first report.
+ * writes apart: added when an issue reports one working, with a test and a CHANGELOG line naming the
+ * issue, never the person; the Supported devices table (`supportedDevicesSection`, device-catalog.ts)
+ * then marks it verified. The model stays unverified as a whole; a verified write no longer needs its
+ * owner's consent on that model. Empty until the first report.
  */
 export interface VerifiedFeature {
   model: string;
@@ -87,70 +87,6 @@ export function inertRouterText(raw: string): string {
 /** The verified models, each once (`H168-383`), for messages about other models. */
 export function verifiedModelsLabel(): string {
   return [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ");
-}
-
-/** How the guide's tables (compatibility here, supported devices in device-catalog.ts) name a feature. */
-export const FEATURE_LABELS: Readonly<Record<DeviceFeature, { zh: string; en: string }>> = {
-  telemetry: { zh: "信号与流量", en: "signal and traffic" },
-  neighbors: { zh: "附近的基站", en: "nearby cells" },
-  topology: { zh: "已连接设备", en: "connected devices" },
-  smsRead: { zh: "读取短信", en: "reading SMS" },
-  smsWrite: { zh: "发送与管理短信", en: "sending and managing SMS" },
-  bandLock: { zh: "锁 4G 频段", en: "LTE band lock" },
-  cellLock: { zh: "锁小区", en: "cell lock" },
-  reboot: { zh: "重启", en: "reboot" },
-  reconnect: { zh: "重拨", en: "redial" },
-  mobileData: { zh: "移动数据开关", en: "mobile data switch" },
-  securitySwitches: { zh: "安全开关", en: "security switches" },
-  wifi: { zh: "Wi-Fi 7", en: "Wi-Fi 7" },
-  antenna: { zh: "天线", en: "antenna" },
-  accessControl: { zh: "访问控制", en: "access control" },
-};
-
-/** One row per model and build a user verified features of: what was verified, with its issue. */
-function verifiedFeatureRows(list: ReadonlyArray<VerifiedFeature>, en: boolean): string[] {
-  const groups = new Map<string, VerifiedFeature[]>();
-  for (const entry of list) {
-    const key = `${entry.model}\u0000${entry.softwareVersion}`;
-    groups.set(key, [...(groups.get(key) ?? []), entry]);
-  }
-  const named = (entries: ReadonlyArray<VerifiedFeature>): string =>
-    entries.map((e) => (en ? `${FEATURE_LABELS[e.feature].en} (#${e.issue})` : `${FEATURE_LABELS[e.feature].zh}（#${e.issue}）`)).join(en ? ", " : "、");
-  return [...groups.values()].map((entries) => {
-    const first = entries[0] as VerifiedFeature;
-    const reads = entries.filter((e) => e.access === "read");
-    const writes = entries.filter((e) => e.access === "write");
-    let readCell = en ? "⚠️ may work, not verified" : "⚠️ 可能可用，未验证";
-    if (reads.length > 0) readCell = en ? `✅ verified: ${named(reads)}; other parts may work, not verified` : `✅ 已验证：${named(reads)}；其他项目可能可用，未验证`;
-    let writeCell = en ? "🔒 locked by default; experimental writes per feature, after consent" : "🔒 默认锁定；可逐项知情同意后打开实验性写入";
-    if (writes.length > 0) writeCell = en ? `✅ verified: ${named(writes)}; other writes locked by default` : `✅ 已验证：${named(writes)}；其他写操作默认锁定`;
-    return `| ${first.model} | \`${first.softwareVersion}\` | ${readCell} | ${writeCell} |`;
-  });
-}
-
-/**
- * The compatibility table both "other routers" guide pages (docs/guide/{zh,en}) carry between `<!-- compat:begin -->` and `<!-- compat:end -->`,
- * written from `VERIFIED_FIRMWARE` and `VERIFIED_FEATURES` (test/readme-compat.test.ts keeps them
- * identical): verified builds read and write, a new build of a verified model warns, a model with
- * features users verified lists them with their issues, every other model is read-only by default.
- */
-export function compatibilityTable(locale: SupportedLocale, verifiedFeatures: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES): string {
-  const en = locale === "en";
-  const rows = [
-    en ? "| Model | Firmware | Reads | Writes |" : "| 型号 | 固件 | 读取 | 写入 |",
-    "| :--- | :--- | :--- | :--- |",
-    ...VERIFIED_FIRMWARE.map((entry) => `| ${entry.model} | \`${entry.softwareVersion}\` | ${en ? "✅ verified" : "✅ 已验证"} | ${en ? "✅ verified" : "✅ 已验证"} |`),
-    ...[...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].map((model) =>
-      en
-        ? `| ${model} | another build | ✅ as usual, with a \`FIRMWARE_UNVERIFIED\` warning | ✅ as usual, with the same warning |`
-        : `| ${model} | 其他固件 | ✅ 照常，附 \`FIRMWARE_UNVERIFIED\` 告警 | ✅ 照常，附同一告警 |`
-    ),
-    ...verifiedFeatureRows(verifiedFeatures, en),
-    en
-      ? "| Other Huawei HiLink / EMUI models | every build | ⚠️ may work, not verified: what the router provides | 🔒 locked by default; experimental writes per feature, after consent |"
-      : "| 其他华为 HiLink / EMUI 型号 | 任意 | ⚠️ 可能可用，未验证：路由器提供的项目 | 🔒 默认锁定；可逐项知情同意后打开实验性写入 |",
-  ];
-  return rows.join("\n");
 }
 
 export function verifiedFirmwareLabel(): string {

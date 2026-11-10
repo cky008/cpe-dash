@@ -624,6 +624,15 @@ kbd {
 .article tr:last-child td {
   border-bottom: none;
 }
+/* A wide table, such as the support marks on Supported devices: tighter cells and the data on one line
+   (a model name never breaks); the headers wrap, and the table scrolls sideways where the page is narrower. */
+.article table:has(th:nth-child(10)) th,
+.article table:has(th:nth-child(10)) td {
+  padding: 0.5rem 0.4rem;
+}
+.article table:has(th:nth-child(10)) td {
+  white-space: nowrap;
+}
 .article .align-center {
   text-align: center;
 }

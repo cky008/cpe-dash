@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Documentation
+- **Supported devices marks each feature per model**: one mark per console module (○ verified, △ may work, ? unknown, × not supported) instead of a sentence, with a legend, and the page names no other project (the guide credits huawei-lte-api once, on "Other Huawei models"). It is now the guide's only table of models: "Other Huawei models" drops its compatibility table and keeps how FengSui works on such a model, how to report it and how to test it with an AI agent, and the device page links there instead of repeating the steps. Wide tables on the documentation site keep their cells on one line.
+
 ### Changed
 - **Plain words in the console.** Settings → Device names the reads and features as the dashboard does (nearby cells, connected devices), and the banners and messages no longer speak of the "daemon", "telemetry" or a "breaker": for example, "Someone is logged in to the 192.168.8.1 admin page (state-login 0). FengSui has paused its logins: the page shows the data it read last, and changes to the router are declined."
 

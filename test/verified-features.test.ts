@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES } from "../src/device-profile.ts";
-import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, compatibilityTable, isVerifiedFeature, isVerifiedModel } from "../src/firmware.ts";
+import { MODULES, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
+import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isVerifiedFeature, isVerifiedModel } from "../src/firmware.ts";
 
 /**
  * Multi-model phase 3: a feature of another model that a user checked on a real router joins the
  * verified list, per model and feature, reads and writes apart, naming the issue that reported it
- * (never the person). The guide's compatibility table is written from it. Placeholders only.
+ * (never the person). The Supported devices table marks it verified. Placeholders only.
  */
 
 const SAMPLE: ReadonlyArray<VerifiedFeature> = [
@@ -43,18 +44,16 @@ describe("verified features of other models", () => {
     assert.equal(isVerifiedFeature("B535-232", "bandLock", "write"), VERIFIED_FEATURES.some((e) => e.model === "B535-232" && e.feature === "bandLock" && e.access === "write"));
   });
 
-  it("writes one table row per model and build, naming the features and their issues", () => {
-    const zh = compatibilityTable("zh-CN", SAMPLE).split("\n");
-    const en = compatibilityTable("en", SAMPLE).split("\n");
-    assert.deepEqual(zh.slice(0, 4), compatibilityTable("zh-CN", []).split("\n").slice(0, 4), "the H168-383 rows stay first");
-    assert.equal(zh.length, compatibilityTable("zh-CN", []).split("\n").length + 2);
-    assert.equal(en.length, zh.length);
-    assert.equal(zh.at(-3), "| B535-232 | `11.0.1.2(H7SP2C00)` | ✅ 已验证：信号与流量（#12）；其他项目可能可用，未验证 | ✅ 已验证：锁 4G 频段（#12）、发送与管理短信（#15）；其他写操作默认锁定 |");
-    assert.equal(en.at(-3), "| B535-232 | `11.0.1.2(H7SP2C00)` | ✅ verified: signal and traffic (#12); other parts may work, not verified | ✅ verified: LTE band lock (#12), sending and managing SMS (#15); other writes locked by default |");
-    assert.equal(zh.at(-2), "| E5576-320 | `21.180.99.00.00` | ⚠️ 可能可用，未验证 | ✅ 已验证：重启（#21）；其他写操作默认锁定 |");
-    assert.equal(en.at(-2), "| E5576-320 | `21.180.99.00.00` | ⚠️ may work, not verified | ✅ verified: reboot (#21); other writes locked by default |");
-    assert.equal(zh.at(-1), compatibilityTable("zh-CN", []).split("\n").at(-1), "every other model last");
-    assert.equal(compatibilityTable("en"), compatibilityTable("en", VERIFIED_FEATURES));
+  it("marks each verified feature ○ on its model's row of the Supported devices table, and nothing else", () => {
+    const row = (model: string): string | undefined => supportedDevicesSection("en", SAMPLE).split("\n").find((line) => line.startsWith(`| ${model} |`));
+    const smsColumn = MODULES.findIndex((module) => module.features.includes("smsWrite"));
+    assert.equal(row("B535-232")?.split(" | ")[2 + smsColumn], "△/○", "SMS reading still may work, sending verified (#15)");
+    assert.equal(supportMark("B535-232", "telemetry", SAMPLE), "○");
+    assert.equal(supportMark("B535-232", "bandLock", SAMPLE), "○");
+    assert.equal(supportMark("E5576-320", "reboot", SAMPLE), "○");
+    assert.equal(supportMark("E5576-320", "reconnect", SAMPLE), "△", "only the feature reported");
+    assert.equal(supportMark("B535-233", "bandLock", SAMPLE), "△", "only the model reported");
+    assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", VERIFIED_FEATURES));
     assert.ok(VERIFIED_FIRMWARE.length > 0);
   });
 });
