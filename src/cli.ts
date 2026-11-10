@@ -377,8 +377,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     log,
   });
 
-  // An AI agent's experimental write that can cut the WAN is watched, and undone if the WAN stays down
-  controls.onAgentExperiment = (change) => selfHeal.guardAgentExperiment(change);
+  // A band or cell lock on a router nobody verified is watched whoever asked for it, and undone if the WAN stays down
+  controls.onExperimentalLock = (change) => selfHeal.guardExperimentalLock(change);
 
   /** Settings changed in the console (or `.env` reloaded): what reads them per use needs nothing; these act now. */
   const applyBehaviour = (next: BehaviourValues): void => {

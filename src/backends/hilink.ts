@@ -24,7 +24,7 @@ import {
 } from "../cpe-domain.ts";
 import { type DeviceProbeResult, probeDevice } from "../device-profile.ts";
 import { genericBandLock, genericReboot, readWanRepairBlockerTolerant } from "../generic-writes.ts";
-import type { BandLockOutcome, LockContext, LockSummary, ReadRequest, RollbackRequest, RouterBackend, WanRepairOutcome } from "../router-backend.ts";
+import type { BandLockOutcome, LockContext, LockOutcome, LockSummary, ReadRequest, RollbackRequest, RouterBackend, WanRepairOutcome } from "../router-backend.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteContext } from "../scheduler.ts";
 
 /**
@@ -113,9 +113,10 @@ export class HilinkBackend implements RouterBackend {
     return { state, experimental, savedLteMask };
   }
 
-  async lockCell(command: CellLockCommand, summary: LockSummary): Promise<PersistedLockState> {
+  /** The verified model's alone: no generic cell lock exists, so this one is never an experimental write. */
+  async lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome> {
     prepareCellLockPayload(command);
-    return await this.#scheduler.executeControl(
+    const state = await this.#scheduler.executeControl(
       "lock_cell",
       (session, write) => {
         verifiedOnly(write, "lock_cell");
@@ -123,6 +124,7 @@ export class HilinkBackend implements RouterBackend {
       },
       summary
     );
+    return { state, experimental: false };
   }
 
   async unlockAll(summary: LockSummary): Promise<PersistedLockState> {

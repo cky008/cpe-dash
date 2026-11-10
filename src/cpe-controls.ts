@@ -28,7 +28,6 @@ import { routerBackendOf } from "./backends/index.ts";
 import { verifiedOnly } from "./backends/hilink.ts";
 import { genericMobileData, genericReconnect, readWanRepairBlockerTolerant } from "./generic-writes.ts";
 import type { RouterBackend, WanRepairOutcome } from "./router-backend.ts";
-import { currentActor } from "./audit-log.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import type { ControlSummary, MutexSessionScheduler } from "./scheduler.ts";
@@ -62,20 +61,22 @@ export interface CpeControlServiceOptions {
  * gate refuses them on any other family.
  */
 /**
- * An AI agent's experimental band lock, which can cut the WAN (see `WanSelfHeal.guardAgentExperiment`):
- * the lock and the LTE mask the router had right before it (`null`: none to read).
+ * A band or cell lock on a router nobody verified, which can cut the WAN (see
+ * `WanSelfHeal.guardExperimentalLock`): the lock, and for a band lock the LTE mask the router had
+ * right before it (`null`: none to read, or a cell lock, which has no setting to go back to).
  */
-export interface AgentExperimentChange {
+export interface ExperimentalLockChange {
   lock: PersistedLockState;
   savedLteMask: string | null;
 }
 
 export class CpeControlService {
   /**
-   * An AI agent's experimental write that can cut the WAN (testing a model nobody verified), after it
-   * applied: self-healing watches it and writes the saved setting back if the WAN stays down.
+   * A band or cell lock on a router nobody verified, after it applied, whoever asked for it (the
+   * console, a token, an AI agent, Telegram): self-healing watches it, and if the WAN stays down
+   * writes the saved bands back or takes the locks off.
    */
-  onAgentExperiment: ((change: AgentExperimentChange) => void) | null = null;
+  onExperimentalLock: ((change: ExperimentalLockChange) => void) | null = null;
 
   readonly scheduler: MutexSessionScheduler;
   readonly monitor: CpeMonitor;
@@ -119,19 +120,22 @@ export class CpeControlService {
         });
       }
     );
-    // An AI agent's lock on a model nobody verified is watched, and undone if the WAN stays down
-    if (experimental && currentActor().channel === "mcp") this.onAgentExperiment?.({ lock: state, savedLteMask });
+    // A lock on a router nobody verified is watched, and undone if the WAN stays down
+    if (experimental) this.onExperimentalLock?.({ lock: state, savedLteMask });
     return state;
   }
 
   async lockCell(command: CellLockCommand): Promise<PersistedLockState> {
-    return await this.#backend().lockCell(command, (state) => {
+    const { state, experimental } = await this.#backend().lockCell(command, (state) => {
       const params = { rat: state.cellLock?.rat ?? command.rat, band: String(state.cellLock?.band ?? command.band), arfcn: state.cellLock?.arfcn ?? command.arfcn };
       return this.#commitLockState(state, {
         zh: t("zh-CN", "controls.cell_lock_applied", params),
         en: t("en", "controls.cell_lock_applied", params),
       });
     });
+    // Watched like a band lock; a cell lock has nothing to write back, so its way back is the unlock
+    if (experimental) this.onExperimentalLock?.({ lock: state, savedLteMask: null });
+    return state;
   }
 
   async unlockAllLocks(): Promise<PersistedLockState> {
@@ -146,8 +150,8 @@ export class CpeControlService {
   /**
    * Automatic lock rollback (`LOCK_ROLLBACK_AFTER_MIN`) of the lock applied at `lockUpdatedAtIso`:
    * clear every lock unless, inside the session, that lock turns out replaced, or the WAN re-reads as
-   * back (on the HiLink stack also: mobile data as switched off). After an AI agent's band lock on a
-   * model nobody verified, `restore` writes back the LTE mask the router had before it instead.
+   * back (on the HiLink stack also: mobile data as switched off). After a band lock on a router
+   * nobody verified, `restore` writes back the LTE mask the router had before it instead.
    * Broadcasts only when it wrote.
    */
   async rollBackLocks(lockUpdatedAtIso: string, restore?: { lteMask: string }): Promise<WanRepairOutcome> {

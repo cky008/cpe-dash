@@ -46,13 +46,14 @@ export interface RouterBackend {
 
   /** Lock LTE / NR bands. `summary` commits the new lock state before the write is broadcast. */
   lockBands(command: BandLockCommand, ctx: LockContext, summary: LockSummary): Promise<BandLockOutcome>;
-  lockCell(command: CellLockCommand, summary: LockSummary): Promise<PersistedLockState>;
+  lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome>;
   /** Take every band and cell lock off. */
   unlockAll(summary: LockSummary): Promise<PersistedLockState>;
   /**
    * The automatic way back from a lock that cut the WAN: skipped when the lock was replaced meanwhile
-   * or the WAN re-reads as up; otherwise the bands saved before an AI agent's lock are written back
-   * (`restore`), or every lock is cleared. `summary` gets whether the saved bands went back.
+   * or the WAN re-reads as up; otherwise the bands saved before a band lock on a router nobody
+   * verified are written back (`restore`), or every lock is cleared. `summary` gets whether the
+   * saved bands went back.
    */
   rollBackLocks(request: RollbackRequest, summary: (outcome: WanRepairOutcome, restored: boolean) => ControlSummary | null): Promise<WanRepairOutcome>;
   reboot(params: { confirm: boolean }, summary: ControlSummary): Promise<{ rebooting: true; requestedAtIso: string }>;
@@ -73,13 +74,16 @@ export interface LockContext {
 /** Commits a lock state and words the write for the broadcast and the audit log. */
 export type LockSummary = (state: PersistedLockState) => ControlSummary;
 
-export interface BandLockOutcome {
+export interface LockOutcome {
   state: PersistedLockState;
   /**
-   * The lock went out as an experimental write (a model nobody verified): an AI agent's lock of this
-   * kind is watched, and undone if the WAN stays down.
+   * The lock went out as an experimental write (a router nobody verified): whoever asked for it, it
+   * is watched, and undone if the WAN stays down.
    */
   experimental: boolean;
+}
+
+export interface BandLockOutcome extends LockOutcome {
   /** The LTE band mask the router had right before the lock (`null`: none read), what that undo writes back. */
   savedLteMask: string | null;
 }

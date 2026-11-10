@@ -5,7 +5,7 @@ import { runAsActor } from "../src/audit-log.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import type { AgentExperimentChange } from "../src/cpe-controls.ts";
+import type { ExperimentalLockChange } from "../src/cpe-controls.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { changeExperimentalConsent } from "../src/experimental-consent.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
@@ -114,9 +114,9 @@ describe("AI agents testing a model nobody verified", () => {
       assert.equal(fx.core.scheduler.device.writeAccess("bandLock"), "experimental");
       assert.ok((await fx.tools()).includes("lock_band"), "the write it turned on is offered now");
 
-      // The safety net hears of an agent's band lock, not of one made otherwise
-      const guarded: AgentExperimentChange[] = [];
-      fx.core.controls.onAgentExperiment = (change) => guarded.push(change);
+      // The safety net hears of an agent's band lock
+      const guarded: ExperimentalLockChange[] = [];
+      fx.core.controls.onExperimentalLock = (change) => guarded.push(change);
       const locked = await runAsActor({ channel: "mcp", label: "test agent" }, () => fx.call("lock_band", { lteBands: ["B1"], confirm: true }));
       assert.equal(locked["ok"], true);
       // With the router's mask from right before the lock, read in the lock's own session
@@ -130,13 +130,16 @@ describe("AI agents testing a model nobody verified", () => {
       assert.equal(restored.applied ? restored.lockState?.mode : restored.skipped, "unlocked");
       assert.equal(cpe.settings.netMode["LTEBand"], "800800c5");
       assert.equal(applied[0]?.check?.readback, "match");
-      assert.match(applied[0]?.summaryEn ?? "", /^The WAN did not come back: wrote back the band setting from before the AI agent's test/);
+      assert.match(applied[0]?.summaryEn ?? "", /^The WAN did not come back: wrote back the band setting from before the lock/);
       cpe.setConnectionStatus("901");
 
-      await fx.core.controls.lockBands({ lteBands: [1] });
+      // And of every other lock on this router alike: the console, a token, Telegram
+      await runAsActor({ channel: "web" }, () => fx.core.controls.lockBands({ lteBands: [1] }));
       await fx.core.controls.unlockAllLocks();
-      await fx.core.controls.lockBands({ lteBands: [3] });
-      assert.equal(guarded.length, 1, "a lock from the console is the owner's own decision");
+      assert.equal(guarded.length, 2, "taking the locks off is nothing to watch");
+      await runAsActor({ channel: "token", label: "a token" }, () => fx.core.controls.lockBands({ lteBands: [3] }));
+      // Each with the mask the router had right before it (after the unlock: every band)
+      assert.deepEqual(guarded.map((change) => [change.lock.lteBands, change.savedLteMask]), [[[1], "800800c5"], [[1], "800800c5"], [[3], "7fffffffffffffff"]]);
 
       const off = await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, confirm: true });
       assert.deepEqual([off["ok"], off["change"]], [true, "bandLock off"]);

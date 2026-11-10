@@ -969,24 +969,25 @@ describe("self-heal configuration and wiring", () => {
   });
 });
 
-describe("WanSelfHeal and an AI agent's experiments on a model nobody verified", () => {
-  it("writes back the band setting from before an agent's lock after 3 minutes down with the rollback off, and keeps watching when the owner changes the rollback", async () => {
+describe("WanSelfHeal and a lock on a router nobody verified", () => {
+  it("writes back the band setting from before the lock after 3 minutes down with the rollback off, and keeps watching when the owner changes the rollback", async () => {
     const fx = fixture({});
     try {
       fx.setClock(T0);
       const lock = bandLock(T0);
       fx.setLock(lock);
-      // The owner had their own lock (B3) before the agent's test: that is what comes back, not "every band"
-      fx.heal.guardAgentExperiment({ lock, savedLteMask: "4" });
+      // The router was locked to B3 before this lock: that is what comes back, not "every band"
+      fx.heal.guardExperimentalLock({ lock, savedLteMask: "4" });
       assert.equal(fx.heal.lockDeadlineMs, T0 + 3 * MIN);
       fx.heal.reconfigure();
-      assert.equal(fx.heal.lockDeadlineMs, T0 + 3 * MIN, "the rollback being off does not end an agent's watch");
+      assert.equal(fx.heal.lockDeadlineMs, T0 + 3 * MIN, "the rollback being off does not end this watch");
       await fx.at(2, "902");
       assert.equal(fx.calls.rollback, 0);
       await fx.at(3, "902");
       assert.deepEqual([fx.rollbackArgs, fx.restoreArgs], [[lock.updatedAtIso], ["4"]]);
       const rolled = fx.alerts.find((a) => a.code === "LOCK_ROLLED_BACK");
-      assert.match(rolled?.messageEn ?? "", /band setting from before the test was written back/);
+      assert.match(rolled?.messageEn ?? "", /^The WAN was still down 3 min after a lock on a router FengSui was not verified on, so the band setting from before the lock was written back/);
+      assert.doesNotMatch(`${rolled?.messageEn} ${rolled?.messageZh}`, /agent|智能体/i, "whoever locked: the console, a token, an agent or Telegram");
     } finally {
       await fx.cleanup();
     }
@@ -998,7 +999,7 @@ describe("WanSelfHeal and an AI agent's experiments on a model nobody verified",
       fx.setClock(T0);
       const lock = bandLock(T0);
       fx.setLock(lock);
-      fx.heal.guardAgentExperiment({ lock, savedLteMask: "800800c5" });
+      fx.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
       await fx.at(10, "902");
       assert.deepEqual(fx.restoreArgs, ["800800c5"]);
       assert.match(fx.alerts.find((a) => a.code === "LOCK_ROLLED_BACK")?.messageEn ?? "", /written back/);
@@ -1007,26 +1008,137 @@ describe("WanSelfHeal and an AI agent's experiments on a model nobody verified",
       fx.setClock(T0 + 20 * MIN);
       const blind = bandLock(T0 + 20 * MIN);
       fx.setLock(blind);
-      fx.heal.guardAgentExperiment({ lock: blind, savedLteMask: null });
+      fx.heal.guardExperimentalLock({ lock: blind, savedLteMask: null });
       await fx.at(30, "902");
       assert.deepEqual(fx.restoreArgs, ["800800c5", null]);
+      // The owner's own, longer window decided this one: it is named as the rollback they set
+      assert.match(fx.alerts.filter((a) => a.code === "LOCK_ROLLED_BACK").at(-1)?.messageEn ?? "", /^The WAN was still down 10 min after the lock, so every band and cell lock was cleared automatically \(LOCK_ROLLBACK_AFTER_MIN\)/);
     } finally {
       await fx.cleanup();
     }
   });
 
-  it("keeps an agent's band lock the WAN proves, and ignores an unlock handed to the guard", async () => {
+  it("takes a cell lock off after 3 minutes down: there is no setting to write back", async () => {
+    const fx = fixture({});
+    try {
+      fx.setClock(T0);
+      const lock: PersistedLockState = { mode: "cell_lock", updatedAtIso: new Date(T0).toISOString(), lteBands: "all", nrBands: [78], cellLock: { rat: "NR", band: 78, arfcn: 650000, pci: 211 } };
+      fx.setLock(lock);
+      fx.heal.guardExperimentalLock({ lock, savedLteMask: null });
+      await fx.at(2.9, "902");
+      assert.equal(fx.calls.rollback, 0);
+      await fx.at(3, "902");
+      assert.deepEqual([fx.rollbackArgs, fx.restoreArgs], [[lock.updatedAtIso], [null]]);
+      assert.match(fx.alerts.find((a) => a.code === "LOCK_ROLLED_BACK")?.messageZh ?? "", /未验证的路由器上锁定后 3 分钟 WAN 仍未恢复，已自动解除全部频段与小区锁定/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("goes on counting after a restart, with the rollback off: the saved setting, the same deadline, and never for a lock the WAN proved", async () => {
+    const open = fixture({});
+    const proved = fixture({});
+    const restarted: Array<ReturnType<typeof fixture>> = [];
+    const restart = async (before: ReturnType<typeof fixture>, lock: PersistedLockState, minutes: number): Promise<ReturnType<typeof fixture>> => {
+      await before.heal.stop();
+      await before.core.scheduler.stateStore.flushAsync();
+      const next = fixture({ lock, stateFile: before.core.scheduler.stateStore.filePath });
+      restarted.push(next);
+      next.setClock(T0 + minutes * MIN);
+      next.heal.start();
+      return next;
+    };
+    try {
+      const lock = bandLock(T0);
+      open.setClock(T0);
+      open.setLock(lock);
+      open.heal.start();
+      open.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
+      await open.at(1, "902");
+      // The daemon is away for a minute and comes back inside the 3 minutes
+      const back = await restart(open, lock, 2);
+      assert.equal(back.heal.lockDeadlineMs, T0 + 3 * MIN, "the lock's own 3 minutes, not 3 more from the restart");
+      await back.at(2.5, "902");
+      assert.equal(back.calls.rollback, 0);
+      await back.at(3, "902");
+      assert.deepEqual([back.rollbackArgs, back.restoreArgs], [[lock.updatedAtIso], ["800800c5"]]);
+      // Done once: another restart finds the watch ended
+      const again = await restart(back, bandLock(T0), 4);
+      assert.equal(again.heal.lockDeadlineMs, null);
+
+      // Away across the deadline: undone at the first poll that still shows the WAN down
+      const late = fixture({});
+      restarted.push(late);
+      late.setClock(T0);
+      late.setLock(lock);
+      late.heal.start();
+      late.heal.guardExperimentalLock({ lock, savedLteMask: null });
+      const after = await restart(late, lock, 30);
+      await after.at(30, "902");
+      assert.deepEqual(after.restoreArgs, [null]);
+
+      // Up two minutes after the lock: kept, and a restart does not watch it again
+      proved.setClock(T0);
+      proved.setLock(lock);
+      proved.heal.start();
+      proved.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
+      await proved.at(0.5, "901");
+      await proved.at(2.5, "901");
+      const kept = await restart(proved, lock, 2.8);
+      assert.equal(kept.heal.lockDeadlineMs, null);
+      await kept.at(5, "902");
+      assert.equal(kept.calls.rollback, 0);
+    } finally {
+      for (const fx of restarted) await fx.cleanup();
+      await open.cleanup();
+      await proved.cleanup();
+    }
+  });
+
+  it("reads a stored watch as input: a mask that is not one is not written back, and a watch of an older version has no guard", async () => {
+    const lock = bandLock(T0);
+    const opened: Array<ReturnType<typeof fixture>> = [];
+    /** A daemon starting a minute after the lock on the state an earlier run left with this watch record. */
+    const startWith = async (record: Record<string, unknown>): Promise<ReturnType<typeof fixture>> => {
+      const earlier = fixture({});
+      opened.push(earlier);
+      earlier.core.scheduler.stateStore.update({ selfHealLockWatch: record as never });
+      await earlier.core.scheduler.stateStore.flushAsync();
+      const next = fixture({ lock, stateFile: earlier.core.scheduler.stateStore.filePath });
+      opened.unshift(next);
+      next.setClock(T0 + MIN);
+      next.heal.start();
+      return next;
+    };
+    try {
+      const odd = await startWith({ lockUpdatedAtIso: lock.updatedAtIso, settled: false, guard: true, restoreLteMask: "not-a-mask" });
+      assert.equal(odd.heal.lockDeadlineMs, T0 + 3 * MIN);
+      await odd.at(3, "902");
+      assert.deepEqual(odd.restoreArgs, [null], "the documented way back: every lock cleared");
+
+      // What 1.8.3 stored: no guard, so with the rollback off nothing is watched
+      const old = await startWith({ lockUpdatedAtIso: lock.updatedAtIso, settled: false });
+      assert.equal(old.heal.lockDeadlineMs, null);
+      // And a guard that is not `true` is not one
+      const vague = await startWith({ lockUpdatedAtIso: lock.updatedAtIso, settled: false, guard: "yes", restoreLteMask: "800800c5" });
+      assert.equal(vague.heal.lockDeadlineMs, null);
+    } finally {
+      for (const fx of opened) await fx.cleanup();
+    }
+  });
+
+  it("keeps a lock the WAN proves, and ignores an unlock handed to the guard", async () => {
     const fx = fixture({ lockMin: 10 });
     try {
       fx.setClock(T0);
       const lock = bandLock(T0);
       fx.setLock(lock);
-      fx.heal.guardAgentExperiment({ lock, savedLteMask: "800800c5" });
+      fx.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
       assert.equal(fx.heal.lockDeadlineMs, T0 + 10 * MIN, "a longer rollback window wins");
       await fx.at(1, "901");
       await fx.at(3.5, "901");
       assert.equal(fx.heal.lockDeadlineMs, null, "up 2 minutes: kept");
-      fx.heal.guardAgentExperiment({ lock: unlocked(T0 + 5 * MIN), savedLteMask: "5" });
+      fx.heal.guardExperimentalLock({ lock: unlocked(T0 + 5 * MIN), savedLteMask: "5" });
       assert.equal(fx.heal.lockDeadlineMs, null);
       assert.equal(fx.calls.rollback, 0);
     } finally {

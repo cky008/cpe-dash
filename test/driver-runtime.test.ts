@@ -339,16 +339,23 @@ describe("driver runtime: writes", () => {
     }
   });
 
-  it("hands an AI agent's band lock to the safety net with the LTE bands read before it", async () => {
+  it("hands every band and cell lock to the safety net, whoever asked: a band lock with the LTE bands read before it, a cell lock with nothing to write back", async () => {
     const fx = runtimeFixture();
     try {
-      fx.core.scheduler.device.setConsents([{ model: "RM520N-GL", feature: "bandLock" }]);
-      const seen: Array<{ lteBands: number[] | "all"; savedLteMask: string | null }> = [];
-      fx.core.controls.onAgentExperiment = (change) => seen.push({ lteBands: change.lock.lteBands, savedLteMask: change.savedLteMask });
+      fx.core.scheduler.device.setConsents([
+        { model: "RM520N-GL", feature: "bandLock" },
+        { model: "RM520N-GL", feature: "cellLock" },
+      ]);
+      const seen: Array<{ mode: string; lteBands: number[] | "all"; savedLteMask: string | null }> = [];
+      fx.core.controls.onExperimentalLock = (change) => seen.push({ mode: change.lock.mode, lteBands: change.lock.lteBands, savedLteMask: change.savedLteMask });
       await runAsActor({ channel: "mcp" }, () => fx.core.controls.lockBands({ lteBands: [3] }));
-      assert.deepEqual(seen, [{ lteBands: [3], savedLteMask: bandsToHex([1, 3, 7]) }]);
+      assert.deepEqual(seen, [{ mode: "band_lock", lteBands: [3], savedLteMask: bandsToHex([1, 3, 7]) }]);
       await runAsActor({ channel: "web" }, () => fx.core.controls.lockBands({ lteBands: [1] }));
-      assert.equal(seen.length, 1, "only an agent's lock is watched");
+      assert.deepEqual(seen[1], { mode: "band_lock", lteBands: [1], savedLteMask: bandsToHex([3]) }, "a lock from the console is watched like an agent's");
+      await runAsActor({ channel: "telegram" }, () => fx.core.controls.lockCell({ rat: "NR", band: 78, arfcn: 627264, pci: 142 }));
+      assert.deepEqual(seen[2], { mode: "cell_lock", lteBands: "all", savedLteMask: null });
+      await fx.core.controls.unlockAllLocks();
+      assert.equal(seen.length, 3, "an unlock is nothing to watch");
     } finally {
       await fx.cleanup();
     }

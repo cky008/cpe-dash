@@ -73,6 +73,13 @@ export interface SelfHealReconnectState {
 export interface SelfHealLockWatchState {
   lockUpdatedAtIso: string;
   settled: boolean;
+  /**
+   * The lock went to a router nobody verified: watched for 3 minutes whatever the rollback setting
+   * says (absent in a record of a version before 1.8.4: no such watch).
+   */
+  guard?: boolean;
+  /** With `guard`: the LTE band mask from right before a band lock, written back instead of clearing every lock (`null`: none). */
+  restoreLteMask?: string | null;
 }
 
 /** How many generic write results the state keeps (the device report shows them). */

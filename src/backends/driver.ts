@@ -13,7 +13,7 @@ import {
 import type { DeviceProbeResult } from "../device-profile.ts";
 import { bandsToHex, hexToBands } from "../drivers/bands.ts";
 import type { DriverLockState, DriverSession } from "../drivers/types.ts";
-import type { BandLockOutcome, LockContext, LockSummary, ReadRequest, RollbackRequest, RouterBackend, WanRepairOutcome } from "../router-backend.ts";
+import type { BandLockOutcome, LockContext, LockOutcome, LockSummary, ReadRequest, RollbackRequest, RouterBackend, WanRepairOutcome } from "../router-backend.ts";
 import { type DriverFamily, ROUTER_FAMILY_FACTS } from "../router-family.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
 import { genericLockState } from "./hilink.ts";
@@ -65,7 +65,7 @@ export class DriverBackend implements RouterBackend {
 
   /**
    * A RAT the command leaves out keeps the bands the router reports before the write; the LTE bands
-   * read before it are what an AI agent's lock is put back to if the WAN stays down.
+   * read before it are what the lock is put back to if the WAN stays down.
    */
   async lockBands(command: BandLockCommand, _ctx: LockContext, summary: LockSummary): Promise<BandLockOutcome> {
     // Checked before queueing: numbers, NR only where the family locks NR, a mode the family offers
@@ -90,9 +90,9 @@ export class DriverBackend implements RouterBackend {
   }
 
   /** Band, channel and PCI, read back in the session. */
-  async lockCell(command: CellLockCommand, summary: LockSummary): Promise<PersistedLockState> {
+  async lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome> {
     const target = readDriverCellLockTarget(command);
-    return await this.#scheduler.executeDriverControl(
+    const state = await this.#scheduler.executeDriverControl(
       "lock_cell",
       async (session, write): Promise<PersistedLockState> => {
         await session.setCellLock(target, write.check);
@@ -106,6 +106,7 @@ export class DriverBackend implements RouterBackend {
       },
       summary
     );
+    return { state, experimental: true };
   }
 
   async unlockAll(summary: LockSummary): Promise<PersistedLockState> {

@@ -1,4 +1,4 @@
-import type { AgentExperimentChange, CpeControlService, WanRepairOutcome } from "./cpe-controls.ts";
+import type { CpeControlService, ExperimentalLockChange, WanRepairOutcome } from "./cpe-controls.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { runAsActor } from "./audit-log.ts";
@@ -35,7 +35,10 @@ export interface WanSelfHealOptions {
 
 /** After the deadline a rollback that keeps being refused (human on the WebUI, router errors) gives up. */
 export const ROLLBACK_GIVE_UP_MS = 60 * 60_000;
-/** How long the WAN may stay down after an AI agent's experimental band lock before the saved band setting is written back. */
+/**
+ * How long the WAN may stay down after a band or cell lock on a router nobody verified before the
+ * saved band setting is written back, or the locks are taken off.
+ */
 export const EXPERIMENT_GUARD_MS = 3 * 60_000;
 /** Wait before trying again after a refusal or failure. */
 export const SELF_HEAL_RETRY_MS = 60_000;
@@ -50,9 +53,9 @@ interface LockWatch {
   lockUpdatedAtIso: string;
   armedAtMs: number;
   deadlineMs: number;
-  /** An AI agent's experiment: watched at least this long whatever the rollback setting says (0: none). */
+  /** A lock on a router nobody verified: watched at least this long whatever the rollback setting says (0: none). */
   minWindowMs: number;
-  /** An AI agent's experiment: the LTE mask from before it, written back instead of clearing every lock (`null`: none). */
+  /** Such a band lock: the LTE mask from before it, written back instead of clearing every lock (`null`: none). */
   restoreLteMask: string | null;
   upSinceMs: number | null;
   retryAtMs: number;
@@ -60,7 +63,7 @@ interface LockWatch {
 }
 
 /**
- * Opt-in WAN self-healing (both parts default off, because they write to the router without a
+ * WAN self-healing. Two opt-in parts (both default off, because they write to the router without a
  * human request):
  *
  * - **Lock rollback** (`LOCK_ROLLBACK_AFTER_MIN`): after a band or cell lock, the WAN must come back
@@ -69,14 +72,23 @@ interface LockWatch {
  *   after 10, 30 and 60 min, at most 4 times in 24 h (kept in state.json, so a restart neither
  *   refills the budget nor shortens the wait). Never a reboot.
  *
- * The lock watch is kept in state.json too: a restart picks up a watch still open (until the
- * rollback, or giving up an hour after the deadline) and never re-arms a lock the WAN proved.
+ * And one part that is always on, because the write it undoes was never checked on a real router:
  *
- * Both act only on fresh telemetry, go through the control queue (so a human logged into the WebUI
+ * - **Experimental lock fallback** (`guardExperimentalLock`): a band or cell lock on a router nobody
+ *   verified, asked for through the console, a token, an AI agent or Telegram alike, is watched for
+ *   `EXPERIMENT_GUARD_MS` whatever the rollback setting says. Still down then, a band lock is put
+ *   back to the bands read right before it, and a cell lock (or a band lock with nothing read) is
+ *   taken off.
+ *
+ * The lock watch is kept in state.json too, the fallback's saved bands with it: a restart picks up a
+ * watch still open (until the rollback, or giving up an hour after the deadline) and never re-arms a
+ * lock the WAN proved.
+ *
+ * All act only on fresh telemetry, go through the control queue (so a human logged into the WebUI
  * is never overridden and the breaker is respected), re-read the WAN and the mobile-data switch
  * inside the session, and raise an alert for every write. On a router of an unverified model the
- * write gate refuses both: nothing is written, and one `SELF_HEAL_READ_ONLY` alert per outage or
- * lock says what would have been done.
+ * write gate refuses what it has no open write for: nothing is written, and one
+ * `SELF_HEAL_READ_ONLY` alert per outage or lock says what would have been done.
  */
 export class WanSelfHeal {
   readonly scheduler: MutexSessionScheduler;
@@ -199,13 +211,17 @@ export class WanSelfHeal {
    * runs to its end, one that ended stays ended; a lock with no record (from before it was kept) only inside the window.
    */
   #pickUpLockInPlace(): void {
-    if (!this.#started || this.lockRollbackAfterMs <= 0) return;
+    if (!this.#started) return;
     const lock = this.controls.getPersistedLockState();
     if (lock.mode === "unlocked") return;
     const appliedMs = Date.parse(lock.updatedAtIso);
     const record = watchRecordFor(this.scheduler.stateStore.getState().selfHealLockWatch, lock.updatedAtIso);
-    const openForMs = record ? this.lockRollbackAfterMs + ROLLBACK_GIVE_UP_MS : this.lockRollbackAfterMs;
-    if (!record?.settled && Number.isFinite(appliedMs) && this.#now() - appliedMs < openForMs) this.#arm(lock, appliedMs);
+    // The 3 minutes of a lock on a router nobody verified go on across a restart, rollback on or off
+    const guardMs = record?.guard === true ? EXPERIMENT_GUARD_MS : 0;
+    const windowMs = Math.max(this.lockRollbackAfterMs, guardMs);
+    if (windowMs <= 0) return;
+    const openForMs = record ? windowMs + ROLLBACK_GIVE_UP_MS : windowMs;
+    if (!record?.settled && Number.isFinite(appliedMs) && this.#now() - appliedMs < openForMs) this.#arm(lock, appliedMs, guardMs, guardMs > 0 ? savedMaskOf(record) : null);
   }
 
   async stop(): Promise<void> {
@@ -217,12 +233,13 @@ export class WanSelfHeal {
   }
 
   /**
-   * An AI agent's experimental band lock, while testing a model nobody verified: the LTE mask from
-   * right before it was read in the lock's own session, and if the WAN is down and not back within
-   * `EXPERIMENT_GUARD_MS`, whatever the self-healing settings say, that mask is written back. A lock
-   * the WAN proves (up 2 min) is kept, as with the lock rollback. Never a reboot.
+   * A band or cell lock on a router nobody verified, whoever asked for it: if the WAN is down and
+   * not back within `EXPERIMENT_GUARD_MS`, whatever the self-healing settings say, a band lock is put
+   * back to the LTE mask read right before it in the lock's own session, and a cell lock (or a band
+   * lock with no mask read) is taken off. A lock the WAN proves (up 2 min) is kept, as with the lock
+   * rollback. Never a reboot.
    */
-  guardAgentExperiment(change: AgentExperimentChange): void {
+  guardExperimentalLock(change: ExperimentalLockChange): void {
     if (change.lock.mode === "unlocked") return;
     const appliedMs = Date.parse(change.lock.updatedAtIso);
     this.#arm(change.lock, Number.isFinite(appliedMs) ? appliedMs : this.#now(), EXPERIMENT_GUARD_MS, change.savedLteMask);
@@ -293,12 +310,12 @@ export class WanSelfHeal {
     const ended = this.#lockWatch;
     this.#lockWatch = next;
     const record: SelfHealLockWatchState | null = next
-      ? { lockUpdatedAtIso: next.lockUpdatedAtIso, settled: false }
+      ? { lockUpdatedAtIso: next.lockUpdatedAtIso, settled: false, ...(next.minWindowMs > 0 ? { guard: true, restoreLteMask: next.restoreLteMask } : {}) }
       : ended
         ? { lockUpdatedAtIso: ended.lockUpdatedAtIso, settled: true }
         : null;
     const stored = this.scheduler.stateStore.getState().selfHealLockWatch;
-    if (record === null || (stored?.lockUpdatedAtIso === record.lockUpdatedAtIso && stored.settled === record.settled)) return;
+    if (record === null || sameWatchRecord(stored, record)) return;
     this.scheduler.stateStore.update({ selfHealLockWatch: record });
     void this.scheduler.stateStore.flushAsync().catch(() => undefined);
   }
@@ -504,6 +521,22 @@ export class WanSelfHeal {
 /** The saved watch record when it is about the lock `lockUpdatedAtIso` and reads as one (state.json is input). */
 function watchRecordFor(saved: SelfHealLockWatchState | null, lockUpdatedAtIso: string): SelfHealLockWatchState | null {
   return saved !== null && typeof saved === "object" && saved.lockUpdatedAtIso === lockUpdatedAtIso && typeof saved.settled === "boolean" ? saved : null;
+}
+
+/** The LTE mask a stored watch says to write back, when it reads as one (else `null`: every lock is cleared). */
+function savedMaskOf(record: SelfHealLockWatchState | null): string | null {
+  const mask = record?.restoreLteMask;
+  return typeof mask === "string" && /^[0-9a-f]{1,32}$/i.test(mask) ? mask : null;
+}
+
+function sameWatchRecord(stored: SelfHealLockWatchState | null, next: SelfHealLockWatchState): boolean {
+  return (
+    stored !== null &&
+    stored.lockUpdatedAtIso === next.lockUpdatedAtIso &&
+    stored.settled === next.settled &&
+    (stored.guard === true) === (next.guard === true) &&
+    (stored.restoreLteMask ?? null) === (next.restoreLteMask ?? null)
+  );
 }
 
 function budgetKey(reconnects: ReadonlyArray<number>, backoffIndex: number): string {
