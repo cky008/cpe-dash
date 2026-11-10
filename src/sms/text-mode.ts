@@ -1,3 +1,4 @@
+import { CpeControlValidationError } from "../control-error.ts";
 import { stripInvalidControlChars } from "../text-sanitize.ts";
 import type { SmsTextModeCode, SmsTextModeInfo } from "./types.ts";
 
@@ -58,3 +59,13 @@ export function detectSmsTextMode(content: string): SmsTextModeInfo {
   };
 }
 
+/**
+ * Text outside the basic multilingual plane (emoji and the like): the reference project sends the
+ * request body as CESU-8, FengSui sends UTF-8, and the two differ only there, so the generic send
+ * refuses it instead of guessing how the router decodes it (docs/PHASE1_PROTOCOL_SPEC.md A.11).
+ */
+export function validateGenericSmsContent(content: string): void {
+  if (/[\u{10000}-\u{10FFFF}]/u.test(content)) {
+    throw new CpeControlValidationError("This router is a model FengSui was not verified on: its experimental SMS send takes no emoji or other characters outside the basic plane");
+  }
+}

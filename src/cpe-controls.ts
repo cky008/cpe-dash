@@ -32,13 +32,13 @@ import {
   verifyLockState,
 } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
+import { validateGenericBandLock } from "./control-input.ts";
 import {
   genericBandLock,
   genericMobileData,
   genericReboot,
   genericReconnect,
   readWanRepairBlockerTolerant,
-  validateGenericBandLock,
 } from "./generic-writes.ts";
 import { currentActor } from "./audit-log.ts";
 import { type I18nKey, t } from "./i18n.ts";

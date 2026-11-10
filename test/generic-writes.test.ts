@@ -9,9 +9,10 @@ import {
   genericReconnect,
   newWriteCheck,
   readWanRepairBlockerTolerant,
-  validateGenericBandLock,
 } from "../src/generic-writes.ts";
-import { genericDeleteSms, genericMarkSmsRead, genericSendSms, prepareSmsSubmission, validateGenericSmsContent } from "../src/sms/protocol.ts";
+import { validateGenericBandLock } from "../src/control-input.ts";
+import { genericDeleteSms, genericMarkSmsRead, genericSendSms, prepareSmsSubmission } from "../src/sms/protocol.ts";
+import { validateGenericSmsContent } from "../src/sms/text-mode.ts";
 import { type CpeFamilyOptions, type FamilySms, type FamilyWrites, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 
 /**

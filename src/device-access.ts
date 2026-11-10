@@ -313,9 +313,17 @@ export class DeviceAccess {
 
   /** What the identification probe found (start, catch-up, a console test of this router); a probe naming no model changes nothing. */
   noteProbe(probe: DeviceProbeResult | null | undefined): void {
-    const model = sighting(probe?.identity.model, null)?.model;
-    if (!probe || !model) return;
-    this.#capability = { model, evidence: experimentalEvidence(probe), lteBands: probe.lteBands ? [...probe.lteBands] : null };
+    if (probe) this.noteEvidence(probe.identity.model, experimentalEvidence(probe), probe.lteBands);
+  }
+
+  /**
+   * What a probe of `model` showed of the generic writes, and the LTE bands it advertised (the online
+   * demo hands over the identification its seed carries this way); no model, no change.
+   */
+  noteEvidence(model: string | null | undefined, evidence: Readonly<Record<ExperimentalFeature, boolean>>, lteBands: ReadonlyArray<number> | null): void {
+    const name = sighting(model, null)?.model;
+    if (!name) return;
+    this.#capability = { model: name, evidence: { ...evidence }, lteBands: lteBands ? [...lteBands] : null };
   }
 
   /** The owner's consents (the console's store hands them over at start and after every change). */

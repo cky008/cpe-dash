@@ -2,6 +2,7 @@ import type { MacFilterEntry, TimeRuleChange, TimeRuleInput, WifiAccessChange } 
 import type { BandInput } from "./band-lock.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import type { AntennaModeName, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
+import { parseBandNumber } from "./rf-bounds.ts";
 import { TimeSeriesValidationError, type TimeSeriesPreset } from "./timeseries.ts";
 
 /**
@@ -61,6 +62,38 @@ export function readBandSelection(args: Args, key: string): ReadonlyArray<BandIn
       throw new CpeControlValidationError(`Invalid band entry in "${key}"`);
     }
     bands.push(item);
+  }
+  return bands;
+}
+
+/**
+ * The LTE bands of an experimental band lock, checked before any session: LTE only (no NR band, no
+ * cell lock: the generic net-mode write has neither) and only bands the router advertises in
+ * `net/net-mode-list`, or `"all"` to unlock.
+ */
+export function validateGenericBandLock(
+  command: { lteBands?: ReadonlyArray<BandInput> | "all"; nrBands?: ReadonlyArray<BandInput> | "all" },
+  advertised: ReadonlyArray<number> | null
+): number[] | "all" {
+  if (command.nrBands !== undefined) {
+    throw new CpeControlValidationError("On a model FengSui was not verified on, the experimental band lock covers LTE bands only: leave nrBands out");
+  }
+  if (command.lteBands === undefined) throw new CpeControlValidationError("Give lteBands (the experimental band lock covers LTE bands only)");
+  if (!advertised || advertised.length === 0) {
+    throw new CpeControlValidationError("This router advertises no LTE bands (net/net-mode-list), so a band lock could not be checked");
+  }
+  if (command.lteBands === "all") return "all";
+  if (command.lteBands.length === 0) throw new CpeControlValidationError("At least one LTE band is required (or pass 'all' to unlock)");
+  let bands: number[];
+  try {
+    bands = [...new Set(command.lteBands.map(parseBandNumber))].sort((a, b) => a - b);
+  } catch (err) {
+    throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
+  }
+  const outside = bands.filter((band) => !advertised.includes(band));
+  if (outside.length > 0) {
+    const label = (list: ReadonlyArray<number>): string => list.map((band) => `B${band}`).join(", ");
+    throw new CpeControlValidationError(`${label(outside)} ${outside.length === 1 ? "is" : "are"} not among the LTE bands this router advertises (${label(advertised)})`);
   }
   return bands;
 }

@@ -24,9 +24,9 @@ import {
   markSmsRead,
   prepareSmsSubmission,
   submitSms,
-  validateGenericSmsContent,
   unconfirmedSendResult,
 } from "./protocol.ts";
+import { validateGenericSmsContent } from "./text-mode.ts";
 import type {
   ContactRecord,
   CountryDialInfo,

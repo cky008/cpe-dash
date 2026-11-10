@@ -1,7 +1,6 @@
 import type { ConsoleSettings } from "./console-settings.ts";
-import { WRITE_FEATURES, type WriteFeature, type WriteFeatureState } from "./device-access.ts";
+import { type DeviceAccess, WRITE_FEATURES, type WriteFeature, type WriteFeatureState } from "./device-access.ts";
 import type { ExperimentalFeature } from "./device-profile.ts";
-import type { MutexSessionScheduler } from "./scheduler.ts";
 
 export type ExperimentalConsentResult =
   | { ok: true; detail: string }
@@ -12,11 +11,12 @@ export type ExperimentalConsentResult =
  * Turn one experimental write on or off (multi-model phase 3), for the console and for AI agents
  * alike. On needs the feature to be offered on this router (a generic implementation and the
  * probe's evidence) and the router's model typed back, so a consent always names the model seen;
- * off always works. The write gate sees the change at once; the caller audits `detail`.
+ * off always works. The write gate sees the change at once; the caller audits `detail`. No
+ * dependencies beyond the parts it uses: the online demo turns its writes on and off with it too.
  */
 export function changeExperimentalConsent(
-  settings: ConsoleSettings,
-  device: MutexSessionScheduler["device"],
+  settings: Pick<ConsoleSettings, "experimentalConsents" | "grantExperimental" | "revokeExperimental">,
+  device: Pick<DeviceAccess, "current" | "setConsents" | "snapshot" | "writeState">,
   request: { feature: unknown; enabled: unknown; model?: unknown }
 ): ExperimentalConsentResult {
   const { feature, enabled } = request;
