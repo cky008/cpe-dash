@@ -5,7 +5,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "app.title": "FengSui · H168-383 5G RF & SMS Console",
   "app.brand": "烽燧",
 
-  "login.subtitle": "Huawei 5G CPE Ultra 6 · private RF monitoring, control and SMS centre",
+  "login.subtitle": "5G router · private RF monitoring, control and SMS centre",
   "login.placeholder": "Console password",
   "login.submit": "Enter console",
   "login.submitting": "Verifying…",

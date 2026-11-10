@@ -3,7 +3,7 @@ export const zhCN = {
   "app.title": "烽燧 · H168-383 5G 射频与短信控制台",
   "app.brand": "烽燧",
 
-  "login.subtitle": "华为 5G CPE Ultra 6 · 私有化射频监控、控制与短信中心",
+  "login.subtitle": "5G 路由器 · 私有化射频监控、控制与短信中心",
   "login.placeholder": "控制台密码",
   "login.submit": "进入控制台",
   "login.submitting": "正在验证…",
