@@ -2,7 +2,7 @@ import { normalizeCpeUrl } from "../config.ts";
 import type { RouterFamily } from "../router-family.ts";
 import { getXmlTag } from "../xml.ts";
 import { DRIVER_PROTOCOLS } from "./brands.ts";
-import { LanHttp } from "./transport.ts";
+import { LanHttp, deadlineSignal } from "./transport.ts";
 
 /**
  * Which family the router at an address is, told from what it answers without a login: each family
@@ -45,8 +45,8 @@ export interface DetectOptions {
 export async function detectRouterFamily(options: DetectOptions): Promise<RouterFamily | null> {
   const baseUrl = normalizeCpeUrl(options.cpeUrl, { allowPublicHost: options.allowPublicCpeHost === true });
   const timeoutMs = Math.min(options.requestTimeoutMs ?? DETECTION_TIMEOUT_MS, DETECTION_TIMEOUT_MS);
-  const deadline = AbortSignal.timeout(DETECTION_TIMEOUT_MS);
-  const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  const deadline = deadlineSignal(DETECTION_TIMEOUT_MS);
+  const signal = options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
   const fetchImpl = options.fetchImpl ?? fetch;
   const matched = await Promise.all(
     DETECTION_ORDER.map(async (family): Promise<boolean> => {
@@ -59,6 +59,7 @@ export async function detectRouterFamily(options: DetectOptions): Promise<Router
       }
     })
   );
+  deadline.clear();
   const index = matched.indexOf(true);
   return index < 0 ? null : (DETECTION_ORDER[index] ?? null);
 }

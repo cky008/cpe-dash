@@ -6,7 +6,7 @@ import { ApiErrorTally } from "../device-profile.ts";
 import { t } from "../i18n.ts";
 import type { DriverFamily } from "../router-family.ts";
 import type { CircuitBreakerState, SessionExecutionOutcome, SessionTelemetry } from "../types.ts";
-import { LanHttp } from "./transport.ts";
+import { LanHttp, deadlineSignal } from "./transport.ts";
 import type { DriverSession, DriverSessionHandle } from "./types.ts";
 
 /**
@@ -324,13 +324,15 @@ export class DriverCpeClient {
 
   /** Free the admin slot on a fresh bounded signal (the session's own may have fired); never throws. */
   async #logout(http: LanHttp, session: DriverSessionHandle): Promise<void> {
-    const bound = AbortSignal.timeout(this.#logoutTimeoutMs);
-    http.retarget(bound);
+    const bound = deadlineSignal(this.#logoutTimeoutMs);
+    http.retarget(bound.signal);
     try {
       // Bounded on its own as well: a logout that never settles must not keep the slot
-      await raceSignal(session.logout(), bound);
+      await raceSignal(session.logout(), bound.signal);
     } catch {
       // The router ends an idle session on its own; nothing to do here
+    } finally {
+      bound.clear();
     }
   }
 }

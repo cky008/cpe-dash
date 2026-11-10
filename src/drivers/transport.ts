@@ -19,6 +19,17 @@ const MAX_COOKIES = 16;
 /** A stale keep-alive socket: the request never reached the router, so a GET may go again. */
 const STALE_SOCKET_CODES: ReadonlySet<string> = new Set(["UND_ERR_SOCKET", "UND_ERR_CLOSED", "ECONNRESET", "EPIPE"]);
 
+/**
+ * A signal that aborts after `ms`, on a timer of its own that is cleared once the work is done.
+ * `AbortSignal.timeout()`'s timer does not keep the process alive: with a router that never answers
+ * and nothing else pending, Node 22 ends before the deadline fires.
+ */
+export function deadlineSignal(ms: number): { signal: AbortSignal; clear(): void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
 export interface LanHttpOptions {
   /** The router's base address (`normalizeCpeUrl`). */
   baseUrl: string;
@@ -106,26 +117,31 @@ export class LanHttp {
     if (cookie) headers["Cookie"] = cookie;
     const label = `${req.method} ${req.path.split("?")[0] ?? req.path}`;
     for (let attempt = 0; ; attempt++) {
-      const signal = AbortSignal.any([this.#signal, AbortSignal.timeout(req.timeoutMs ?? this.#timeoutMs)]);
-      let res: Response;
+      const timeout = deadlineSignal(req.timeoutMs ?? this.#timeoutMs);
+      const signal = AbortSignal.any([this.#signal, timeout.signal]);
       try {
-        res = await this.#fetchImpl(url, { method: req.method, headers, body: req.body, redirect: req.redirect ?? "error", signal });
-      } catch (err) {
-        if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : err;
-        const failure = new CpeTransportError(req.method, req.path, err);
-        if (req.method === "GET" && failure.causeCode !== null && STALE_SOCKET_CODES.has(failure.causeCode) && attempt < 2) continue;
-        throw failure;
+        let res: Response;
+        try {
+          res = await this.#fetchImpl(url, { method: req.method, headers, body: req.body, redirect: req.redirect ?? "error", signal });
+        } catch (err) {
+          if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : err;
+          const failure = new CpeTransportError(req.method, req.path, err);
+          if (req.method === "GET" && failure.causeCode !== null && STALE_SOCKET_CODES.has(failure.causeCode) && attempt < 2) continue;
+          throw failure;
+        }
+        this.#keepCookies(res.headers);
+        let text: string;
+        try {
+          text = await readBoundedResponseText(res, MAX_ANSWER_BYTES);
+        } catch (err) {
+          if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : err;
+          throw new CpeAnswerFormatError(`${label}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+        return { status: res.status, text, location };
+      } finally {
+        timeout.clear();
       }
-      this.#keepCookies(res.headers);
-      let text: string;
-      try {
-        text = await readBoundedResponseText(res, MAX_ANSWER_BYTES);
-      } catch (err) {
-        if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : err;
-        throw new CpeAnswerFormatError(`${label}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
-      return { status: res.status, text, location };
     }
   }
 
