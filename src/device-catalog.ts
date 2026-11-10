@@ -199,7 +199,7 @@ export function supportedDevicesSection(
         "What the marks mean:",
         "",
         `- **○ Verified**: someone confirmed it on a real router, and it is in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels}, which also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.`,
-        "- **△ May work**: the protocol has the feature and FengSui implements it, but nobody has checked it on this model yet. Band lock (LTE only), sending and managing SMS, reboot, redial and mobile data can be tried there as experimental writes, each turned on under Settings → Device; changes to the router switches and access control are offered on verified models only for now.",
+        "- **△ May work**: the protocol has the feature and FengSui implements it, but nobody has checked it on this model yet. Band lock (LTE only), sending and managing SMS, reboot, redial and mobile data are available there by default as experimental writes, each sent once and read back, and you can turn each one off under Settings → Device; changes to the router switches and access control are offered on verified models only for now.",
         `- **? Unknown**: FengSui knows only the ${verifiedModels}'s endpoints for it, and the protocol notes say nothing about other models; whether it works depends on the router.`,
         `- **× Not supported**: the protocol does not have the feature, or someone tested it on this model and it did not work${anyUnsupported ? "" : " (none in the table yet)"}.`,
         `- "Router switches" are ${joinAll(switches?.en ?? [], true)}, where the router has them (Wi-Fi 7, for one, takes a Wi-Fi 7 router). A USB modem works only in HiLink mode, with its web interface.`,
@@ -209,7 +209,7 @@ export function supportedDevicesSection(
         "表里的符号：",
         "",
         `- **○ 已验证**：有人在真机上确认过，并已写进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 的全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。`,
-        "- **△ 可能支持**：协议里有这项功能，烽燧也已经实现，只是还没人在这个型号上验证过。其中锁频段（只锁 4G）、短信的发送与管理、重启、重拨和移动数据，可以在「设置 → 设备」逐项同意后作为实验性写入试用；路由器开关和访问控制的改动，烽燧目前只在验证过的型号上开放。",
+        "- **△ 可能支持**：协议里有这项功能，烽燧也已经实现，只是还没人在这个型号上验证过。其中锁频段（只锁 4G）、短信的发送与管理、重启、重拨和移动数据，在这些型号上作为实验性写入默认可用：每次只发一次，写后回读核对，可以在「设置 → 设备」逐项关闭；路由器开关和访问控制的改动，烽燧目前只在验证过的型号上开放。",
         `- **? 未知**：烽燧只知道 ${verifiedModels} 的接口，协议资料里没有其他型号的做法，能不能用要看路由器。`,
         `- **× 不支持**：协议里没有这项功能，或者有人在这个型号上实测过不能用${anyUnsupported ? "" : "（表里暂时还没有）"}。`,
         `- 「路由器开关」指${joinAll(switches?.zh ?? [], false)}，路由器本身有这些功能才谈得上（比如 Wi-Fi 7 要路由器支持 Wi-Fi 7）。USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连。`,
@@ -258,14 +258,14 @@ export function otherBrandsSection(locale: SupportedLocale): string {
     ? [
         "What the marks mean here:",
         "",
-        "- **△ May work**: FengSui implements it from the brand's interface notes, and nobody has checked it on a real router yet. Reading needs nothing turned on. Band lock, cell lock and reboot are experimental writes: each is turned on under Settings → Device, sent once, and read back.",
+        "- **△ May work**: FengSui implements it from the brand's interface notes, and nobody has checked it on a real router yet. Band lock, cell lock and reboot are experimental writes: available by default, each sent once and read back, and you can turn each one off under Settings → Device.",
         "- **? Unknown**: FengSui has nothing for this brand here yet, so that part of the console stays empty.",
         ...(mixed ? [`- Where a cell has more than one mark, they follow the column's parts in order: ${split.map((module) => `${module.en} is ${(module.parts?.en ?? []).join(" / ")}`).join("; ")}.`] : []),
       ]
     : [
         "这张表里的符号：",
         "",
-        "- **△ 可能支持**：烽燧按这个品牌的接口资料实现了，还没有人在真机上验证过。读取不需要打开任何开关；锁频段、锁小区和重启是实验性写入，要在「设置 → 设备」逐项打开，每次只发一次，写后回读核对。",
+        "- **△ 可能支持**：烽燧按这个品牌的接口资料实现了，还没有人在真机上验证过。锁频段、锁小区和重启是实验性写入：默认可用，每次只发一次，写后回读核对，可以在「设置 → 设备」逐项关闭。",
         "- **? 未知**：烽燧在这个品牌上还没有这一项，控制台里对应的部分是空的。",
         ...(mixed ? [`- 一格里有几个符号时，依次对应这一列包含的功能：${split.map((module) => `「${module.zh}」是${(module.parts?.zh ?? []).join(" / ")}`).join("，")}。`] : []),
       ];

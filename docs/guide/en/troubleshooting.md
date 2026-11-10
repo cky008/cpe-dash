@@ -56,6 +56,20 @@ Someone logged in to the router's own web page (this could be you on another dev
 4. Notifications generated while offline are stored temporarily and sent after connectivity recovers.
 5. A single bot token can be used by only one application at a time. If another program uses it, both will encounter errors.
 
+<a id="write-refused"></a>
+
+## A write is refused (a router that was not verified)
+
+On a router other than the H168-383, FengSui makes only the writes it implements for that router. When one is refused, the router received no request:
+
+| Message or error code | Cause and what to do |
+| :--- | :--- |
+| "This write is turned off for this router", `DEVICE_WRITE_DISABLED` | The write was turned off. Turn it back on under Experimental writes in Settings → Device |
+| "FengSui cannot make this change on this router", `DEVICE_UNVERIFIED_READ_ONLY` | FengSui has no implementation of this write for the model yet, or the router lacks what the write needs (Settings → Device shows "not on this router"). Use the router's own web page instead, and consider [posting a device report](other-routers.md#report) |
+| The alert `WRITE_READBACK_MISMATCH` | The write was sent, but reading it back shows another value, so the router may not have applied it. Check on the router's own web page; if the write is unreliable, turn it off and post a report |
+
+See [Other models and brands](other-routers.md#writes).
+
 ## Sending SMS fails
 
 - **Error "No default country is known"**: FengSui does not know your country yet (the router did not report SIM card information). Enter the full number with `+`, select a country in the compose dialog, or fix the default country under Settings → General → SMS.

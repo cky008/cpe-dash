@@ -3,24 +3,27 @@ import fs from "node:fs";
 import { describe, it } from "node:test";
 
 /**
- * Multi-model phase 2.5: the READMEs and the "other routers" guide pages say FengSui is verified on the
- * H168-383 only. The per-model table lives on "Supported devices" alone (test/device-catalog.test.ts),
- * written from the verified list, so no page can drift from it.
+ * The READMEs and the "other routers" guide pages say FengSui is verified on the H168-383 only so
+ * far, and that on other routers the writes it implements are on by default and can be turned off
+ * (never that those routers are read-only). The per-model table lives on "Supported devices" alone
+ * (test/device-catalog.test.ts), written from the verified list, so no page can drift from it.
  */
 
 const DOCS = [
   {
     readme: "README.md",
     guide: "docs/guide/zh/other-routers.md",
-    verified: "烽燧只在 H168-383（固件 4.4.0.1）上验证过",
-    readOnly: "写操作默认锁定",
+    verified: "烽燧目前仅在 H168-383（固件 4.4.0.1）上验证过",
+    writes: "它们默认开着，你可以",
+    gone: /写操作默认锁定|只以只读方式工作|逐项打开实验性写入|输入路由器型号/,
     credit: "感谢 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)",
   },
   {
     readme: "README_EN.md",
     guide: "docs/guide/en/other-routers.md",
-    verified: "FengSui is verified on the H168-383 (firmware 4.4.0.1) only",
-    readOnly: "writes to them are locked by default",
+    verified: "So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only",
+    writes: "they are on by default, and you can turn each one off",
+    gone: /locked by default|run read-only|What read-only means|type the router model/i,
     credit: "Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)",
   },
 ] as const;
@@ -34,12 +37,19 @@ describe("compatibility claims in the READMEs and the guide", () => {
     }
   });
 
-  it("claims the H168-383 only, says other models are read-only, and keeps the credit", () => {
-    for (const { readme, guide, verified, readOnly, credit } of DOCS) {
+  it("claims the H168-383 only, says the writes FengSui implements are on by default elsewhere, and keeps the credit", () => {
+    for (const { readme, guide, verified, writes, gone, credit } of DOCS) {
       const front = fs.readFileSync(readme, "utf8");
-      for (const phrase of [verified, readOnly, credit]) assert.ok(front.includes(phrase), `${readme}: ${phrase}`);
+      for (const phrase of [verified, writes, credit]) assert.ok(front.includes(phrase), `${readme}: ${phrase}`);
+      assert.equal(gone.test(front), false, `${readme}: no longer says other routers are read-only`);
       const text = fs.readFileSync(guide, "utf8");
-      for (const phrase of [verified, readOnly, credit, "DEVICE_UNVERIFIED_READ_ONLY", "DEMO_SCENARIO=unverified", "VERIFIED_FEATURES"]) assert.ok(text.includes(phrase), `${guide}: ${phrase}`);
+      for (const phrase of [verified, writes, credit, "DEVICE_UNVERIFIED_READ_ONLY", "DEVICE_WRITE_DISABLED", "WRITE_READBACK_MISMATCH", "DEMO_SCENARIO=unverified", "VERIFIED_FEATURES"]) {
+        assert.ok(text.includes(phrase), `${guide}: ${phrase}`);
+      }
+      assert.equal(gone.test(text), false, `${guide}: no longer says other routers are read-only`);
+      // Where to turn a write off, and what protects a lock, have anchors other pages can link to
+      for (const anchor of ["writes", "safeguards", "turn-off", "report", "ai", "brand"]) assert.ok(text.includes(`<a id="${anchor}"></a>`), `${guide}: #${anchor}`);
     }
   });
+
 });

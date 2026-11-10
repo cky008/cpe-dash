@@ -23,7 +23,7 @@ No. FengSui stops immediately on its first failed login (the breaker trips) unti
 
 ## Can I use it if my router is not an H168-383?
 
-Most likely for reading, but not necessarily for changing settings. Other Huawei models connect, and so do routers from ZTE, Pinsu, Tozed, FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself. They are read-only by default; you can enable experimental writes per feature at your own risk. See [Other models and brands](other-routers.md). You can also submit a device report to help verify more models.
+Most likely, but nobody has verified it on a real device. Other Huawei models connect, and so do routers from ZTE, Pinsu, Tozed, FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself. What FengSui implements for those routers works straight away, and its writes are on by default: each is sent once and read back, and you can turn each one off. See [Other models and brands](other-routers.md). You can also submit a device report to help verify more models.
 
 ## Do I need a NAS?
 

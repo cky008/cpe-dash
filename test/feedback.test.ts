@@ -50,10 +50,10 @@ describe("feedback: the compatibility issue", () => {
     assert.ok(deviceIssueTitle(null).startsWith("Device report: "));
     assert.match(TEMPLATE, /labels: \["device-report"\]/);
     assert.match(TEMPLATE, /H168-383/, "says what is verified");
-    // Writes on another model are locked by default, not all of them for good: experimental ones may be on (R3-10)
-    assert.doesNotMatch(TEMPLATE, /全部锁定|every write is locked/i);
-    assert.match(TEMPLATE, /写操作默认锁定[^\n]*实验性写入/);
-    assert.match(TEMPLATE, /writes are locked by default[^\n]*experimental writes/);
+    // On another model the writes FengSui implements are on by default and can be turned off; the form no longer calls such a router read-only
+    assert.doesNotMatch(TEMPLATE, /全部锁定|every write is locked|只读方式|read-only|写操作默认锁定|locked by default/i);
+    assert.match(TEMPLATE, /目前仅在 \*\*H168-383[^\n]*写操作默认开着[^\n]*没有在真机上验证过[^\n]*逐项关闭/);
+    assert.match(TEMPLATE, /So far FengSui is verified on the \*\*H168-383[^\n]*writes are on by default[^\n]*never checked on a real device[^\n]*turned off one at a time/);
     assert.match(TEMPLATE, /required: true\n\s*$/, "the privacy check must be ticked");
     assert.doesNotMatch(TEMPLATE, /render:/, "a plain text area, so the downloaded file can be attached");
   });

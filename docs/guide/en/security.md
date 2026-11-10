@@ -43,7 +43,7 @@ All files reside in `data/`, encrypted with `DATA_ENCRYPTION_KEY` (AES-256-GCM) 
 
 | File | Contents |
 | :--- | :--- |
-| `settings.json` | Router connection (including router password), console password hash, token hashes, and consents for experimental writes |
+| `settings.json` | Router connection (including router password), console password hash, token hashes, and the experimental writes you turned off |
 | `state.json` | Latest metrics cache, 7-day history series, alerts, lock state, and self-healing records |
 | `sms.json` / `contacts.json` | SMS messages and contacts |
 | `telegram.json` | Paired Telegram chats |

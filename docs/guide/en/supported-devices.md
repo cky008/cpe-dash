@@ -5,9 +5,9 @@ section: Get started
 order: 2
 ---
 
-**FengSui is verified on the Huawei H168-383 (firmware 4.4.0.1) only.** It also connects to two more kinds of router. Nobody has verified those with FengSui on a real device, so they run read-only and each write has to be turned on first:
+**So far FengSui is verified on the Huawei H168-383 (firmware 4.4.0.1) only.** It also connects to two more kinds of router, which nobody has verified with FengSui on a real device. What FengSui implements for them works straight away, and its writes are on by default; you can turn each one off:
 
-- **Other Huawei HiLink routers**: they use the same web interface as the H168-383 and are listed by model below. If your model is not listed, try it anyway: Huawei HiLink routers usually connect, read-only.
+- **Other Huawei HiLink routers**: they use the same web interface as the H168-383 and are listed by model below. If your model is not listed, try it anyway: Huawei HiLink routers usually connect.
 - **Other brands**: ZTE, Pinsu, Tozed (ZLT), FiberHome, NRadio, and OpenWrt routers with a Quectel or Fibocom module. FengSui has an implementation for each, written from the brand's interface notes; see [Other brands](#brands).
 
 You do not need to know which kind your router is: leave the brand on "Detect automatically" under Settings → Router, and FengSui tells the brand before it signs in. How FengSui works on these routers is under [Other models and brands](other-routers.md).
@@ -18,7 +18,7 @@ To see what FengSui looks like on a router nobody verified, open the [live demo'
 What the marks mean:
 
 - **○ Verified**: someone confirmed it on a real router, and it is in the code (`VERIFIED_FEATURES`). Everything is verified on the H168-383, which also works as usual on another firmware build and warns once with `FIRMWARE_UNVERIFIED`.
-- **△ May work**: the protocol has the feature and FengSui implements it, but nobody has checked it on this model yet. Band lock (LTE only), sending and managing SMS, reboot, redial and mobile data can be tried there as experimental writes, each turned on under Settings → Device; changes to the router switches and access control are offered on verified models only for now.
+- **△ May work**: the protocol has the feature and FengSui implements it, but nobody has checked it on this model yet. Band lock (LTE only), sending and managing SMS, reboot, redial and mobile data are available there by default as experimental writes, each sent once and read back, and you can turn each one off under Settings → Device; changes to the router switches and access control are offered on verified models only for now.
 - **? Unknown**: FengSui knows only the H168-383's endpoints for it, and the protocol notes say nothing about other models; whether it works depends on the router.
 - **× Not supported**: the protocol does not have the feature, or someone tested it on this model and it did not work (none in the table yet).
 - "Router switches" are the security switches, Wi-Fi 7 and the antenna, where the router has them (Wi-Fi 7, for one, takes a Wi-Fi 7 router). A USB modem works only in HiLink mode, with its web interface.
@@ -70,7 +70,7 @@ FengSui has an implementation for each brand below, written from notes on the br
 <!-- brands:begin -->
 What the marks mean here:
 
-- **△ May work**: FengSui implements it from the brand's interface notes, and nobody has checked it on a real router yet. Reading needs nothing turned on. Band lock, cell lock and reboot are experimental writes: each is turned on under Settings → Device, sent once, and read back.
+- **△ May work**: FengSui implements it from the brand's interface notes, and nobody has checked it on a real router yet. Band lock, cell lock and reboot are experimental writes: available by default, each sent once and read back, and you can turn each one off under Settings → Device.
 - **? Unknown**: FengSui has nothing for this brand here yet, so that part of the console stays empty.
 - Where a cell has more than one mark, they follow the column's parts in order: Reboot & redial is reboot / redial.
 

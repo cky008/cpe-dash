@@ -72,6 +72,15 @@ describe("the supported devices guide page", () => {
       assert.ok(!row.includes("×") && !row.includes("○"), `${family}: neither verified nor ruled out`);
     }
     assert.match(otherBrandsSection("zh-CN"), /「重启与重拨」是重启 \/ 重拨/);
+    // The legends say what the gate does: implemented writes are on by default and can be turned off
+    for (const legend of [otherBrandsSection("zh-CN"), supportedDevicesSection("zh-CN")]) {
+      assert.match(legend, /默认可用[^\n]*只发一次，写后回读核对[^\n]*逐项关闭/);
+      assert.doesNotMatch(legend, /逐项同意|逐项打开/);
+    }
+    for (const legend of [otherBrandsSection("en"), supportedDevicesSection("en")]) {
+      assert.match(legend, /available[^\n]*by default[^\n]*sent once and read back[^\n]*turn each one off/);
+      assert.doesNotMatch(legend, /each turned on under|each is turned on under/);
+    }
     assert.equal(/huawei-lte-api|Salamek/i.test(otherBrandsSection("en") + otherBrandsSection("zh-CN")), false);
   });
 

@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        烽燧只在 **H168-383（固件 4.4.0.1）** 上验证过。其他华为型号和其他品牌的路由器会以只读方式工作（写操作默认锁定，烽燧能做的写入可以在「设置 → 设备」逐项打开为实验性写入），这份报告帮我们了解它在你的路由器上的表现。
-        FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. Other Huawei models and routers of other brands run read-only (writes are locked by default; those FengSui can do may be turned on one at a time under Settings → Device as experimental writes); this report tells us how it does on yours.
+        烽燧目前仅在 **H168-383（固件 4.4.0.1）** 上验证过。其他华为型号和其他品牌的路由器上，烽燧实现了的功能直接可用（写操作默认开着，没有在真机上验证过，可以在「设置 → 设备」逐项关闭），这份报告帮我们了解它在你的路由器上的表现。
+        So far FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. On other Huawei models and routers of other brands, what FengSui implements is available (its writes are on by default, were never checked on a real device, and can be turned off one at a time under Settings → Device); this report tells us how it does on yours.
 
         **报告怎么来 / Where the report comes from**：控制台「设置 → 设备 → 生成设备报告」，检查后复制，或下载 JSON 文件。 / In the console: Settings → Device → Create device report; check it, then copy it or download the JSON file.
   - type: input
@@ -46,12 +46,12 @@ body:
     id: works
     attributes:
       label: 能用的功能 / What works
-      description: 例如信号、流量、附近的基站、终端列表、短信；打开过实验性写入的，写上哪些在真机上生效了（锁频、锁小区、重启、重拨、移动数据、短信）/ For example signal, traffic, nearby cells, the device list, SMS; if you turned on experimental writes, which took effect on the real router (band lock, cell lock, reboot, redial, mobile data, SMS)
+      description: 例如信号、流量、附近的基站、终端列表、短信；用过写操作的，写上哪些在真机上生效了（锁频、锁小区、重启、重拨、移动数据、短信）/ For example signal, traffic, nearby cells, the device list, SMS; if you used any of the writes, which took effect on the real router (band lock, cell lock, reboot, redial, mobile data, SMS)
   - type: textarea
     id: broken
     attributes:
       label: 不能用或有问题的 / What does not work
-      description: 哪里不对、看到了什么提示（实验性写入的「回读不一致」也写在这里）/ What looks wrong, and any message you saw (including an experimental write whose read-back differed)
+      description: 哪里不对、看到了什么提示（写操作的「回读不一致」也写在这里）/ What looks wrong, and any message you saw (including a write whose read-back differed)
   - type: textarea
     id: report
     attributes:

@@ -1,11 +1,11 @@
 ---
 title: Other models and brands
-description: How FengSui works on routers other than the H168-383: telling the brand, read-only by default, enabling experimental writes per feature, and reporting compatibility.
+description: How FengSui works on routers other than the H168-383: telling the brand, which writes are available by default, turning one off, and reporting compatibility.
 section: Manage
 order: 18
 ---
 
-**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module. No one has verified any of them with FengSui on a real device, so writes to them are locked by default: FengSui reads only and does not change router settings. This page covers how FengSui works on those routers; which brands and models may work, and where each feature stands, is under [Supported devices](supported-devices.md).
+**So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module, but no one has verified any of them with FengSui on a real device. On those routers, what FengSui implements works straight away, writes included: they are on by default, and you can turn each one off. This page covers how FengSui works on those routers; which brands and models may work, and where each feature stands, is under [Supported devices](supported-devices.md).
 
 <a id="brand"></a>
 
@@ -17,42 +17,65 @@ order: 18
 
 FengSui settles the login method before sending the password (on Huawei, SCRAM for newer models, SHA-256 or Base64 for older ones). It never retries the same password another way, so it cannot use up the router's login attempts.
 
-## What read-only means
+## What you can see
 
-- What you can see: Signal metrics, data usage, connected devices, and SMS messages reported by the router. Items that the router does not provide or that FengSui cannot parse are labeled "Not on this model", leaving other metrics unaffected. Models without 5G do not display 5G values.
-- What is blocked: All write operations. The web interface, API, MCP, Telegram, and self-healing cannot bypass this barrier. The router receives no write requests, and endpoints return `409 DEVICE_UNVERIFIED_READ_ONLY`. The header displays "Unverified model · read-only".
+Signal, data usage, connected devices, SMS and whatever else the router provides show as usual. An item the router does not provide, or that FengSui cannot read, is labeled "Not on this model" and leaves the others unaffected; a model without 5G shows no 5G values.
 
-## Experimental writes (risky, disabled by default)
+The header shows "Unverified model"; choose it to open Settings → Device.
 
-For operations with dependable protocol documentation, FengSui has implementations that you can enable individually.
+<a id="writes"></a>
+
+## Writes: what FengSui implements is available by default
+
+FengSui implements some writes from each brand's interface notes. Where it implements a write for your router, that write is available by default, with no switch to turn on first. Because none of them was checked on a real device, they are called experimental writes.
 
 **Other Huawei HiLink models:**
 
-- Band locking (4G only, using bands reported by the router)
+- Band lock (4G only, among the bands the router reports)
 - Reboot
-- Reconnect
+- Redial
 - Mobile data switch
 - SMS (send, mark as read, delete)
 
-Cell locking, security switches, Wi-Fi 7, antenna selection, and access control are not supported yet.
+Each one also needs the router to have what it takes: when FengSui identifies the router, it reads the endpoint that the write is read back from, and a write whose endpoint does not answer is marked "not on this router" and is never sent. Cell lock, security switches, Wi-Fi 7, antenna selection and access control are not implemented on these models yet.
 
 **Other brands:**
 
-- Band locking (4G and 5G bands, typed as band numbers in the controls drawer)
-- Cell locking (channel + PCI, from Nearby cells)
+- Band lock (4G and 5G bands, typed as band numbers in the controls drawer)
+- Cell lock (channel + PCI, from Nearby cells)
 - Reboot
 
-SMS, connected devices, reconnect, mobile data, router switches and access control are not implemented on other brands yet, and those parts of the console stay empty. What is particular to each brand is under [Supported devices](supported-devices.md#brands).
+SMS, connected devices, redial, mobile data, router switches and access control are not implemented on other brands yet, and those parts of the console stay empty. What is particular to each brand is under [Supported devices](supported-devices.md#brands).
 
-Taking locks off has no switch of its own: with either the band lock or the cell lock turned on, you can unlock.
+A write FengSui does not implement is never sent to the router: the web console, the API, MCP, Telegram and self-healing all go through the same gate on the server, and the endpoint answers `409 DEVICE_UNVERIFIED_READ_ONLY`.
 
-**How to enable**: Go to "Settings → Device" under "Experimental writes" to enable eligible items. Before enabling an item, a dialog explains which operations will be permitted and details the risks (writing incorrect configurations, losing internet connectivity, or triggering router login lockouts from unexpected responses). You must type the router model to confirm. Consent applies only to this specific model; switching to another router invalidates all prior consents automatically. Every activation and deactivation is recorded in the audit log.
+<a id="safeguards"></a>
 
-**After enabling**: Only that specific feature is unlocked. Each write is sent once without retries, followed immediately by a read-back check that displays "read back: matches" or "differs". A mismatch raises a `WRITE_READBACK_MISMATCH` alert.
+### How FengSui lowers the risk
 
-**If issues occur**: Open the router's own web page to revert settings or restart, and use the physical reset button to restore factory settings if necessary.
+> **Warning**: a write nobody verified may write a wrong setting or take the router offline, and an unexpected answer may trigger the router's login lockout.
 
-![Consent dialog for experimental writes](../../screenshots/experimental-writes.webp)
+- **Sent once, then read back.** Each write is sent once, never retried, and read back right away, with the result shown as "read back: matches" or "differs"; a mismatch raises a `WRITE_READBACK_MISMATCH` alert. The results are listed under Recent write results in Settings → Device.
+- **A lock that cuts the internet is undone after 3 minutes.** Whether the lock came from the console, the API, an AI agent or Telegram: if the WAN stays down 3 minutes after a band lock, FengSui writes back the bands from before it; after a cell lock, it takes the lock off. A lock is kept once the WAN is back and stays up 2 minutes. This protection does not need the lock rollback under [self-healing](locking.md#self-heal), and it carries on after the daemon restarts.
+- **You confirm every write.** Each write in the console has a confirmation of its own, which says the write was not verified on a real device. An AI agent's write tools need `confirm: true`, "Let agents change the router" and a token with the permission; see [AI agents](agents.md).
+- **FengSui writes nothing on its own.** Apart from the fallback above, FengSui writes only when you (or an agent you allowed) ask for it; self-healing is off by default.
+
+**If something goes wrong**: set it back or restart the router on its own web page, and use the reset button to restore factory settings if necessary.
+
+<a id="turn-off"></a>
+
+### Turn a write off
+
+To stop using one of the writes:
+
+1. Open Settings → Device.
+2. Under Experimental writes, turn that write's switch off.
+
+It takes effect at once, and nobody can make that write afterwards, AI agents and FengSui itself (self-healing's redial, for one) included; the endpoint answers `409 DEVICE_WRITE_DISABLED`. Turn the switch back on to restore it. Each change is recorded in the audit log.
+
+- One switch covers everything filed under the feature: "Send and manage SMS" covers sending, marking read and deleting; "Band lock" covers unlocking too.
+- Taking locks off has no switch of its own: with either the band lock or the cell lock on, you can unlock.
+- A switch-off is kept per model. On a router of another model, the writes FengSui implements for it are on again; back on the first router, the ones you turned off are still off.
 
 <a id="report"></a>
 
@@ -65,7 +88,7 @@ Your feedback helps verify more router models:
 
 The report contains only API structures and safe metadata (model, firmware, web interface version, feature toggles, and band numbers). It excludes IMEI, IMSI, MAC addresses, IP addresses, phone numbers, cell identifiers, and Wi-Fi network names. FengSui never uploads anything automatically.
 
-Once someone confirms and reports that a feature works on physical hardware, maintainers add it to `VERIFIED_FEATURES` in the codebase. Its mark under [Supported devices](supported-devices.md) turns into ○, and that feature no longer requires individual consent on that model.
+Once someone confirms and reports that a feature works on a real router, maintainers add it to `VERIFIED_FEATURES` in the codebase, and its mark under [Supported devices](supported-devices.md) turns into ○.
 
 <a id="ai"></a>
 
@@ -73,26 +96,25 @@ Once someone confirms and reports that a feature works on physical hardware, mai
 
 An AI agent connected to FengSui (Claude Code, Codex and the like) can run the tests for you:
 
-1. Under Settings → Device, choose "Copy prompt and start test". FengSui first lists the settings the test turns on; confirm once, and it turns them all on and copies the prompt:
+1. Under Settings → Device, choose "Copy prompt and start test". The writes are on already; what the agent lacks is your leave. FengSui first lists the settings the test turns on; confirm once, and it turns them all on and copies the prompt:
    - "Let AI agents test this router" and "Let agents change the router";
-   - the experimental writes for band lock, redial and reboot (those this router offers);
    - the "Change the router" permission for the agent's token: FengSui picks the token that last connected to it, and you can pick another one or none;
-   - SMS (ticked in the confirmation; you can untick it): the experimental SMS write, the agents' SMS access set to read and write and their sending to any number (the hourly limit still applies), and the SMS permissions for the token. The agent sends one test SMS to a number you give it (your plan charges for it); once you reply from your phone, it marks the reply read and deletes both.
+   - SMS (ticked in the confirmation; you can untick it): the agents' SMS access set to read and write and their sending to any number (the hourly limit still applies), and the SMS permissions for the token. The agent sends one test SMS to a number you give it (your plan charges for it); once you reply from your phone, it marks the reply read and deletes both.
 2. Give the prompt to the agent. If the agent is already running, have it reconnect to FengSui first (in Claude Code: `/mcp`), so it sees the new tools.
-3. The agent tests every read first; it asks you before each write test.
+3. The agent tests every read first; it asks you before each write test. It does not test a write you turned off, and the test does not turn it back on for you.
 4. It also uses `probe_router_endpoints` to find, on this router, the endpoints FengSui does not use yet: only `GET`s, inside FengSui's own session, with results that hold structure and never a value.
 5. Finally it gives you a desensitized report and the issue link, for you to check and post yourself.
-6. When the test is done, you may keep whatever passed: those features work on your router. To undo the test, or if something failed, choose "End test" under Settings → Device: FengSui puts back only what the test turned on and you have not changed since.
+6. When the test is done, choose "End test" under Settings → Device: FengSui puts back only what the test turned on and you have not changed since (the agent switches and the token's permissions). The writes stay as they are; if one of them failed, you can turn it off.
 
-While something the test turned on is still on, FengSui reminds you 3 hours after the agent's last test step (`AGENT_TEST_STILL_ON`: in the console's alerts, on Telegram if it is set up, and as a system notification when the console is open in a background browser tab that may show notifications), then once a day. The reminders stop as soon as one of these happens: the test's writes all read back as a match (those features work on your router, so you may keep them); you have seen the reminder in the console's alerts or chosen "Got it" in Telegram; you end the test.
+While something the test turned on is still on, FengSui reminds you 3 hours after the agent's last test step (`AGENT_TEST_STILL_ON`: in the console's alerts, on Telegram if it is set up, and as a system notification when the console is open in a background browser tab that may show notifications), then once a day. The reminders stop as soon as one of these happens: the test's writes all read back as a match; you have seen the reminder in the console's alerts or chosen "Got it" in Telegram; you end the test.
 
-After an agent locks bands, if the WAN stays down 3 minutes, FengSui writes back the band setting from before the lock. The agent never logs in to the router itself: every request goes through FengSui, which still steps aside when someone logs in to the router's web page.
+The agent never logs in to the router itself: every request goes through FengSui, which still steps aside when someone logs in to the router's web page. A band or cell lock it makes is covered by the same [3-minute fallback](#safeguards).
 
 ## Try it first
 
-No install needed: the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other) simulates a Huawei router FengSui was not verified on (4G only). You can try the read-only mode, consents, experimental writes, the device report and the one-click AI agent test there; every value is fictional, and a reload resets it.
+No install needed: the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other) simulates a Huawei router FengSui was not verified on (4G only). You can try the writes that are on by default, turn one off, see the read-back results, the device report and the one-click AI agent test there; every value is fictional, and a reload resets it.
 
-On your own computer, `DEMO_SCENARIO=unverified npm run demo` runs the real daemon against the same simulated router (4G only, legacy login), so you can go through the read-only mode, consents, writes and the report in full.
+On your own computer, `DEMO_SCENARIO=unverified npm run demo` runs the real daemon against the same simulated router (4G only, legacy login), so you can go through the writes, the switches, the read-backs and the report in full.
 
 ## Acknowledgments
 

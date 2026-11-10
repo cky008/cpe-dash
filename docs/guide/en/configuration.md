@@ -62,7 +62,7 @@ Except for `MCP_HTTP_ENABLED` and `MCP_DAEMON_URL`, the settings in this section
 | :--- | :--- | :--- |
 | `MCP_HTTP_ENABLED` | `true` | Whether to expose `POST /mcp` |
 | `MCP_ALLOW_MUTATIONS` | `false` | Whether to allow agents to call tools that modify the router. Read-only by default |
-| `MCP_ALLOW_EXPERIMENTAL` | `false` | Whether AI agents may test this router: find, read-only, the endpoints FengSui does not use yet, and on a model FengSui was not verified on turn experimental writes on or off (writes also require `MCP_ALLOW_MUTATIONS=true` and a token with the router permission). See [AI agents](agents.md#testing) |
+| `MCP_ALLOW_EXPERIMENTAL` | `false` | Whether AI agents may test this router: find, read-only, the endpoints FengSui does not use yet, and on a model FengSui was not verified on turn an experimental write off or back on (that also requires `MCP_ALLOW_MUTATIONS=true` and a token with the router permission). See [AI agents](agents.md#testing) |
 | `MCP_ALLOW_ACCESS_CONTROL` | `false` | Whether to allow agents to block internet access, modify Wi-Fi blocklists/allowlists, and change access schedules (also requires `MCP_ALLOW_MUTATIONS=true`) |
 | `MCP_SMS_ACCESS` | `read` | Agent SMS permissions: `none` (no SMS tools), `read` (read only), or `full` (also send, mark as read, delete and edit contacts; also requires `MCP_ALLOW_MUTATIONS=true`) |
 | `MCP_SMS_SEND_POLICY` | `known` | `known`: only allows sending to saved contacts or numbers you have messaged before; `any`: no restrictions |

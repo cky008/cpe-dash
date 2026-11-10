@@ -4,6 +4,25 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+- **The writes FengSui implements are on by default on a router that was not verified.** On another Huawei HiLink model or a router of another brand, a write was refused until you turned it on, one feature at a time, by typing the model. Now a write FengSui implements for the router works as soon as the router is identified, and you turn off the ones you do not want under Settings → Device. A write FengSui has no implementation of there is refused as before. On a HiLink model the generic writes (LTE band lock, reboot, redial, mobile data, SMS) still need the router to show what each is read back from; on another brand it is what that brand's driver sends (band lock, cell lock and reboot today). Every write is still sent once, read back in the same session and alerted on when the read-back differs; the console still asks before each write, and MCP write tools still need `confirm: true`, the agents' switch and a token that may change the router.
+- **A lock that cuts the internet is undone after 3 minutes, whoever made it.** On a router that was not verified, the 3-minute fallback used to cover only a band lock made by an AI agent. It now covers every band lock and cell lock, from the console, a token, an agent or Telegram: after a band lock FengSui writes back the bands it read right before it, and after a cell lock it takes the lock off. It does not depend on `LOCK_ROLLBACK_AFTER_MIN`, and it carries on from the lock's own time after the daemon restarts.
+- **A write you turned off answers `409 DEVICE_WRITE_DISABLED`**; a write FengSui cannot do on the router still answers `409 DEVICE_UNVERIFIED_READ_ONLY`. Neither opens a session. `schedulerStatus.device.writes` is `experimental` (it was `read_only`) on a model that was not verified, and each feature under `device.features` is `enabled` or `disabled` where it was `consented` or `available`.
+- **What is off is kept per model** (`disabledWrites` in the encrypted `settings.json`): a router of another model starts with its own writes on, and the first one is as you left it when it is back. `POST /api/console/experimental` takes `{ feature, enabled }` with no model, and answers with `disabled` in place of `consents`.
+- **`set_experimental_write` turns a write off or back on.** The MCP tool keeps its name; `enabled: false` turns one of the default-on writes off, `true` restores it, and it no longer takes the router's model. It answers with the state of every write feature.
+- **The one-click AI agent test no longer turns writes on.** They are on already, so starting the test only sets the agents' switches and the token's permissions, and ending it puts those back. It leaves a write you turned off alone.
+- **The console says "Unverified model"** where it said "read-only", shows each write's switch on, and no longer asks you to type the model. The note that a write was never checked on a real router stays at each switch and in each write's confirmation.
+- **An agent can unlock what it locked.** On MCP, `unlock_rf_locks` is listed wherever the band lock or the cell lock is open; with the band lock off and the cell lock on it used to be hidden, although the lock tool was offered.
+
+### Documentation
+- "Other models and brands" is rewritten around what is on by default, how FengSui lowers the risk and how to turn a write off; the READMEs, the overview, the FAQ, the AI agents page, troubleshooting, the Supported devices legends, the documentation site's home page and the device report form say the same.
+- `AGENTS.md` has the rules every brand's capabilities follow (implement what is documented, writes on by default with their protections, one backend verb per capability, the H168-383's requests unchanged, claim only what was verified, and what is never implemented), and counts a milestone as done only once CI, CodeQL and the alert counts are clean.
+
+### Upgrading
+- **If your router is not an H168-383, check Settings → Device after upgrading.** The writes FengSui implements for your router are now available without being turned on first, including ones you never turned on: on another Huawei model the LTE band lock, reboot, redial, mobile data and SMS (each only where the router shows it can take it), on another brand band lock, cell lock and reboot. Turn off the ones you do not want; that holds for the model, and nobody (AI agents and FengSui itself included) can make that write afterwards. Nothing writes on its own: FengSui still writes only when you or an agent you allowed ask for it, and agents still need their own switch and a token that may change the router.
+- A script or agent that read `device.writes === "read_only"`, the `consented` / `available` states or `consents` needs the new names above; `DEVICE_UNVERIFIED_READ_ONLY` keeps its meaning for a write FengSui cannot do there.
+- Nothing to change in `.env` or `docker-compose.yml`. On an H168-383 nothing changes: the requests FengSui sends it are the same.
+
 ## [1.8.3] — 2026-11-10
 
 ### Highlights

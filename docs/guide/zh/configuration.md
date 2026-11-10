@@ -62,7 +62,7 @@ AI 智能体、自愈、告警和部分短信设置也可以直接在控制台�
 | :--- | :--- | :--- |
 | `MCP_HTTP_ENABLED` | `true` | 是否提供 `POST /mcp` |
 | `MCP_ALLOW_MUTATIONS` | `false` | 是否允许智能体调用会改动路由器的工具。默认只能读取 |
-| `MCP_ALLOW_EXPERIMENTAL` | `false` | 是否允许 AI 智能体测试这台路由器：只读地查找烽燧还没用到的接口；在未验证型号上还能自己打开 / 关闭实验性写入（写入另需 `MCP_ALLOW_MUTATIONS=true` 和有「改动路由器」权限的令牌）。见 [AI 智能体](agents.md#testing) |
+| `MCP_ALLOW_EXPERIMENTAL` | `false` | 是否允许 AI 智能体测试这台路由器：只读地查找烽燧还没用到的接口；在未验证型号上还能关闭或恢复实验性写入（另需 `MCP_ALLOW_MUTATIONS=true` 和有「改动路由器」权限的令牌）。见 [AI 智能体](agents.md#testing) |
 | `MCP_ALLOW_ACCESS_CONTROL` | `false` | 是否允许智能体断网、改 Wi-Fi 黑白名单和上网时段（还需要上一项为 `true`） |
 | `MCP_SMS_ACCESS` | `read` | 智能体的短信权限：`none`（不能用短信工具）、`read`（只读）或 `full`（还能发送、标记已读、删除和改通讯录，另需 `MCP_ALLOW_MUTATIONS=true`） |
 | `MCP_SMS_SEND_POLICY` | `known` | `known`：只能发给你保存的联系人或发过短信的号码；`any`：不限制 |
