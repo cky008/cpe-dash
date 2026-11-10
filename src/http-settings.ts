@@ -19,6 +19,7 @@ import { type ConsoleSettings, PAIRING_CODE_TTL_MS } from "./console-settings.ts
 import { CpeControlValidationError } from "./control-error.ts";
 import { changeExperimentalConsent } from "./experimental-consent.ts";
 import type { DeviceProbeResult, DeviceReport } from "./device-profile.ts";
+import { ROUTER_FAMILY_FACTS, routerFamilyOf } from "./router-family.ts";
 import type { ConnectionCandidate, MutexSessionScheduler } from "./scheduler.ts";
 import type { ApiRouteContext } from "./sms/http-routes.ts";
 
@@ -87,7 +88,7 @@ export class SettingsHttpRoutes {
     const cpe = settings.cpe;
     return {
       ok: true,
-      cpe: cpe ? { url: cpe.url, username: cpe.username, passwordSet: cpe.password !== "" } : null,
+      cpe: cpe ? { url: cpe.url, username: cpe.username, passwordSet: cpe.password !== "", ...(cpe.family && cpe.family !== "huawei" ? { family: cpe.family } : {}) } : null,
       login: { changedAtIso: settings.loginChangedAtIso, fromEnv: settings.loginFromEnv },
       reviewPending: settings.reviewPending,
       telegram: { configured: telegramConfigured, resetEnabled: settings.telegramReset },
@@ -390,11 +391,13 @@ export class SettingsHttpRoutes {
   #candidate(body: Record<string, unknown>): ConnectionCandidate {
     const stored = this.#opts.settings.cpe;
     const url = (text(body, "url", 256) ?? stored?.url ?? "").trim();
-    const username = (text(body, "username", 64) ?? stored?.username ?? "admin").trim() || "admin";
+    const family = routerFamilyOf(body["family"] ?? stored?.family);
+    const facts = ROUTER_FAMILY_FACTS[family];
+    const username = (text(body, "username", 64) ?? stored?.username ?? facts.defaultUsername).trim();
     if (!url) throw new CpeControlValidationError('"url" is required, e.g. http://192.168.8.1');
     const typed = text(body, "password", 256);
-    if (typed) return { url, username, password: typed };
-    if (stored?.password && this.#isCurrentRouter(url)) return { url, username, password: stored.password };
+    if (typed) return { url, username, password: typed, family };
+    if (stored?.password && this.#isCurrentRouter(url)) return { url, username, password: stored.password, family };
     throw new CpeControlValidationError(stored?.password ? '"password" is required to try another router address' : '"password" is required');
   }
 }

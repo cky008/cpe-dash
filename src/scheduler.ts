@@ -35,6 +35,9 @@ import {
 } from "./device-profile.ts";
 import { verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
+import { isDriverFamily, routerFamilyOf, type RouterFamily } from "./router-family.ts";
+import { createDriverClient } from "./drivers/brands.ts";
+import type { DriverCpeClient } from "./drivers/client.ts";
 import { getXmlTag } from "./xml.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
 import type { CircuitBreakerState, CpeLoginState } from "./types.ts";
@@ -245,6 +248,7 @@ export interface ConnectionCandidate {
   url: string;
   username: string;
   password: string;
+  family?: RouterFamily;
 }
 
 export type ConnectionTestResult =
@@ -676,6 +680,52 @@ export class MutexSessionScheduler extends EventEmitter {
       probe: null,
     });
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
+    const family = routerFamilyOf(candidate.family);
+    if (isDriverFamily(family)) {
+      let driverClient: DriverCpeClient;
+      try {
+        driverClient = createDriverClient(family, {
+          cpeUrl: candidate.url,
+          cpeUsername: candidate.username,
+          cpePassword: candidate.password,
+          fetchImpl: this.#client.fetchImpl,
+          requestTimeoutMs: this.#client.timeoutMs,
+          respectBrowserSession: true,
+          apiErrors: this.#client.apiErrors,
+        });
+      } catch (err) {
+        return failure("invalid_url", err instanceof Error ? err.message : String(err));
+      }
+      return await this.#enqueue("high", async (): Promise<ConnectionTestOutcome> => {
+        try {
+          const outcome = await driverClient.withSessionDetailed(async (session) => {
+            const identity = await session.identify();
+            return {
+              identified: {
+                model: identity.model,
+                firmware: identity.softwareVersion,
+                loginScheme: "unknown" as const,
+                tokenFlow: "unknown" as const,
+                ecc: false,
+              },
+              probe: null,
+            };
+          });
+          if (outcome.status === "yielded") return failure("human_logged_in", "someone is logged into the router's web page", { code: outcome.stateCode });
+          return { result: { ok: true, holdMs: outcome.holdMs, ...outcome.value.identified }, probe: outcome.value.probe };
+        } catch (err) {
+          const breaker = driverClient.getCircuitBreakerState();
+          const message = err instanceof Error ? err.message : String(err);
+          if (breaker.tripped && breaker.code === "108007") return failure("locked", message, { code: "108007", waitTimeSec: breaker.waitTime ?? null });
+          if (err instanceof CpeApiError && err.latchesBreaker) return failure("unconfirmed_login", message, { code: err.code === LOGIN_UNCONFIRMED_CODE ? null : err.code });
+          if (breaker.tripped) {
+            return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });
+          }
+          if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
+          return failure("unreachable", message);
+        }
+      });
+    }
     let client: HuaweiCpeClient;
     try {
       client = new HuaweiCpeClient({

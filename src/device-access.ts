@@ -121,7 +121,7 @@ export interface WriteResultRecord {
 
 const READBACKS: ReadonlySet<unknown> = new Set<ReadbackOutcome>(["match", "mismatch", "unknown", "pending", "none"]);
 const REASONS: ReadonlySet<unknown> = new Set<ReadbackReason>(["differs", "unreadable", "send_failed", "send_unconfirmed", "no_change", "unclear_change", "no_restart", "no_evidence"]);
-const ENDPOINT_PATH = /^\/api\/[a-z0-9_/-]{1,64}$/;
+const ENDPOINT_PATH = /^(\/api\/[a-z0-9_/-]{1,64}|[a-z0-9_-]+:[A-Za-z0-9_.-][A-Za-z0-9_.+=/-]{0,63})$/;
 
 /** A stored write result this version can read (anything else is dropped). */
 export function isWriteResultRecord(value: unknown): value is WriteResultRecord {

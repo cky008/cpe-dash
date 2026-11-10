@@ -9,6 +9,7 @@ import type { MacFilterEntry, TimeRule, TimeRuleInput, WifiFilterMode, WifiFilte
 import type { AlertEventRecord } from "./state-store.ts";
 import type { BehaviourReport } from "./behaviour-settings.ts";
 import type { TokenPermission } from "./console-policy.ts";
+import type { RouterFamily } from "./router-family.ts";
 import type {
   AntennaModeName,
   FirewallSwitchState,
@@ -265,7 +266,7 @@ export interface AuthStatusResponse {
 export interface ConsoleSettingsResponse {
   ok: true;
   /** The router connection; the password itself is never sent back. */
-  cpe: { url: string; username: string; passwordSet: boolean } | null;
+  cpe: { url: string; username: string; passwordSet: boolean; family?: RouterFamily } | null;
   login: { changedAtIso: string | null; fromEnv: boolean };
   /** Imported from `.env` on upgrade and not yet confirmed in the guided check. */
   reviewPending: boolean;

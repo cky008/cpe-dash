@@ -4,6 +4,7 @@ import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides 
 import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest, type TokenScope, permissionsForScope, scopeForPermissions } from "./console-policy.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "./device-profile.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
+import type { RouterFamily } from "./router-family.ts";
 import type { AppConfig } from "./types.ts";
 
 /**
@@ -28,6 +29,7 @@ export interface CpeConnection {
   url: string;
   username: string;
   password: string;
+  family?: RouterFamily;
 }
 
 export interface TokenRecord {
