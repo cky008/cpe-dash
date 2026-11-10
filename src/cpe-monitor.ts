@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import { type AccessControlSnapshot, fetchAccessControl } from "./access-control.ts";
-import type { EphemeralCpeSession } from "./cpe-client.ts";
 import {
   type GlobalTelemetrySnapshot,
   type NeighborScanSnapshot,
@@ -52,8 +51,10 @@ const MAX_IDENTIFY_FAILURES = 3;
 /**
  * Read side of FengSui: background polling, single-flight refreshes and cached snapshots.
  *
- * - Every refresh is one `MutexSessionScheduler.executeRead` session; concurrent callers of the same
- *   refresh join the in-flight promise (Single-Flight Request Coalescing).
+ * - Every refresh is one `MutexSessionScheduler.executeRead` session (on a router of a driver family,
+ *   the driver's telemetry / neighbour read, in the same snapshot shapes; the sections such a family
+ *   does not document are skipped); concurrent callers of the same refresh join the in-flight
+ *   promise (Single-Flight Request Coalescing).
  * - Telemetry feeds the time-series ring buffer and emits `speed` + `telemetry`; sweeps emit
  *   `neighbors` / `topology` / `access-control`; settings reads emit `settings`.
  * - Snapshots live in the encrypted state store so a restart can serve the last known values. They
@@ -204,8 +205,11 @@ export class CpeMonitor extends EventEmitter {
   }
 
   #identify(priority: SchedulerPriority): Promise<DeviceProbeResult | null> {
-    this.#inflightIdentify ??= this.scheduler
-      .executeRead((session) => probeDevice(session, { nowIso: new Date().toISOString(), origin: "startup" }), { priority })
+    // A driver family's router is identified by its driver (no HiLink endpoints to probe)
+    const read = this.scheduler.isDriverMode()
+      ? this.scheduler.executeDriverIdentify({ priority })
+      : this.scheduler.executeRead((session) => probeDevice(session, { nowIso: new Date().toISOString(), origin: "startup" }), { priority });
+    this.#inflightIdentify ??= read
       .then(
         async (probe) => {
           if (probe) await this.recordDeviceProbe(probe);
@@ -243,22 +247,28 @@ export class CpeMonitor extends EventEmitter {
 
   /** Coalesced high-frequency telemetry refresh (`5s` default poll + manual/MCP triggers). */
   refreshTelemetry(opts: RefreshOptions = {}): Promise<GlobalTelemetrySnapshot | null> {
+    const read = this.scheduler.isDriverMode()
+      ? () => this.scheduler.executeDriverTelemetryRead({ priority: "normal", ignoreCooldown: opts.ignoreCooldown })
+      : () =>
+          this.scheduler.executeRead(
+            (session) =>
+              this.scheduler.readSection("telemetry", () =>
+                fetchGlobalTelemetry(session, {
+                  includeSmsCounters: this.smsCountersEnabled,
+                  tolerant: this.scheduler.device.unverifiedModel,
+                  // A poll that fails on a router replaced by another model still tells it apart
+                  onFailedPollModel: (model, softwareVersion) => this.scheduler.noteRouterModel(model, softwareVersion),
+                })
+              ),
+            { priority: "normal", ignoreCooldown: opts.ignoreCooldown }
+          );
     return this.#coalesce(
       opts,
       () => this.#inflightTelemetry,
       (p) => {
         this.#inflightTelemetry = p;
       },
-      "normal",
-      (session) =>
-        this.scheduler.readSection("telemetry", () =>
-          fetchGlobalTelemetry(session, {
-            includeSmsCounters: this.smsCountersEnabled,
-            tolerant: this.scheduler.device.unverifiedModel,
-            // A poll that fails on a router replaced by another model still tells it apart
-            onFailedPollModel: (model, softwareVersion) => this.scheduler.noteRouterModel(model, softwareVersion),
-          })
-        ),
+      read,
       (snap) => {
         // Before anyone hears of the snapshot: a write it prompts (self-heal) goes by this model
         this.scheduler.noteRouterModel(snap.device.deviceName, snap.device.softwareVersion);
@@ -292,16 +302,18 @@ export class CpeMonitor extends EventEmitter {
     );
   }
 
-  /** Coalesced 4G/5G neighbor cell scan (`GET /api/device/nbrcellinfo`). */
+  /** Coalesced 4G/5G neighbor cell scan (`GET /api/device/nbrcellinfo`; a driver family's own list). */
   refreshNeighbors(opts: RefreshOptions = {}): Promise<NeighborScanSnapshot | null> {
+    const read = this.scheduler.isDriverMode()
+      ? () => this.scheduler.executeDriverNeighbourRead({ priority: "low", ignoreCooldown: opts.ignoreCooldown })
+      : () => this.scheduler.executeRead((session) => this.scheduler.readSection("neighbors", () => scanNeighborCells(session)), { priority: "low", ignoreCooldown: opts.ignoreCooldown });
     return this.#coalesce(
       opts,
       () => this.#inflightNeighbors,
       (p) => {
         this.#inflightNeighbors = p;
       },
-      "low",
-      (session) => this.scheduler.readSection("neighbors", () => scanNeighborCells(session)),
+      read,
       (snap) => {
         this.stateStore.update({ latestNeighbors: snap });
         this.#safeEmit("neighbors", snap);
@@ -317,8 +329,11 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightTopology = p;
       },
-      "low",
-      (session) => this.scheduler.readSection("topology", () => fetchTerminalTopology(session, { tolerant: this.scheduler.device.unverifiedModel })),
+      () =>
+        this.scheduler.executeRead((session) => this.scheduler.readSection("topology", () => fetchTerminalTopology(session, { tolerant: this.scheduler.device.unverifiedModel })), {
+          priority: "low",
+          ignoreCooldown: opts.ignoreCooldown,
+        }),
       (snap) => {
         this.stateStore.update({ latestTopology: snap });
         this.#safeEmit("topology", snap);
@@ -334,8 +349,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightSettings = p;
       },
-      "normal",
-      (session) => this.scheduler.readSection("settings", () => fetchRouterSettings(session)),
+      () => this.scheduler.executeRead((session) => this.scheduler.readSection("settings", () => fetchRouterSettings(session)), { priority: "normal", ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestSettings: snap });
         this.#safeEmit("settings", snap);
@@ -351,8 +365,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightAccessControl = p;
       },
-      "low",
-      (session) => this.scheduler.readSection("accessControl", () => fetchAccessControl(session)),
+      () => this.scheduler.executeRead((session) => this.scheduler.readSection("accessControl", () => fetchAccessControl(session)), { priority: "low", ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestAccessControl: snap });
         this.#safeEmit("access-control", snap);
@@ -391,16 +404,14 @@ export class CpeMonitor extends EventEmitter {
     opts: RefreshOptions,
     getInflight: () => Promise<T | null> | null,
     setInflight: (promise: Promise<T | null> | null) => void,
-    priority: SchedulerPriority,
-    /** `null`: nothing to keep (a section this model does not provide). */
-    read: (session: EphemeralCpeSession) => Promise<T | null>,
+    /** One read session through the scheduler; `null`: nothing to keep (skipped, or a section this model does not provide). */
+    read: () => Promise<T | null>,
     onFresh: (value: T) => void
   ): Promise<T | null> {
     const inflight = getInflight();
     if (inflight && !opts.ignoreCooldown) return inflight;
 
-    const promise: Promise<T | null> = this.scheduler
-      .executeRead(read, { priority, ignoreCooldown: opts.ignoreCooldown })
+    const promise: Promise<T | null> = read()
       .then((value) => {
         if (value === null) return null;
         onFresh(value);

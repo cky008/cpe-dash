@@ -133,13 +133,30 @@ export function extractAtResponse(raw: unknown): string {
   return "";
 }
 
-/** Identify whether the modem is Quectel or Fibocom from `ATI` or version query. */
+/**
+ * The module's make from what `ATI` / `AT+CGMM` say, when they say: the maker's name, or a model
+ * name of its series (Fibocom FM150 / FM160 / FM350 / FM650 / FG370...; Quectel RM5xx / RG5xx and
+ * the EM / EG / EC / EP 4G series). `null` when neither names one (the session then probes).
+ */
+export function modemBrandOf(text: string): ModemBrand | null {
+  // A series letter pair and three digits, whatever follows (`FM160-NA`, `RM520N-GL`, `EM120R-GL`)
+  const upper = text.toUpperCase();
+  if (upper.includes("FIBOCOM") || /\bF[MG]\d{3}/.test(upper)) return "fibocom";
+  if (upper.includes("QUECTEL") || /\b(?:R[MG]|E[MGCP])\d{3}/.test(upper)) return "quectel";
+  return null;
+}
+
+/** Identify whether the modem is Quectel or Fibocom from `ATI` or version query (Quectel when it says neither). */
 export function detectModemBrand(atiText: string): ModemBrand {
-  const upper = atiText.toUpperCase();
-  if (upper.includes("FIBOCOM") || upper.includes("FM650") || upper.includes("FM350") || upper.includes("FM160") || upper.includes("FG160") || upper.includes("FG370")) {
-    return "fibocom";
-  }
-  return "quectel";
+  return modemBrandOf(atiText) ?? "quectel";
+}
+
+/** The answer to an AT command was an error (`ERROR`, `+CME ERROR: ...`, `+CMS ERROR: ...`): the command is not one of this module's. */
+export function isAtError(text: string): boolean {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim().toUpperCase())
+    .some((line) => line === "ERROR" || line.startsWith("+CME ERROR") || line.startsWith("+CMS ERROR"));
 }
 
 /** Split a raw comma-separated AT line, stripping quotes and whitespace. */
@@ -473,6 +490,16 @@ export function parseFibocomCcInfo(text: string): FibocomCcInfoParsed {
   return { mode, plmn, lte, nr, neighbours };
 }
 
+/** The first line of an `ATI` / `AT+CGMM` answer that names the module rather than its maker (or `OK`). */
+function modelLineOf(text: string): string | null {
+  return labelOf(
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line !== "" && line.toUpperCase() !== "OK" && !line.toUpperCase().includes("QUECTEL") && !line.toUpperCase().includes("FIBOCOM"))
+  );
+}
+
 // --------------------------------------------------------------------------
 // OpenWrt ubus JSON-RPC Helper
 // --------------------------------------------------------------------------
@@ -575,10 +602,26 @@ export class OpenwrtSession implements DriverSessionHandle {
     if (!this.#open) throw new DriverSessionClosedError();
   }
 
+  /**
+   * Which make the module is, and its identity: `ATI` names it on most modules; `AT+CGMM` (the
+   * model alone) when `ATI` does not; failing both, a Quectel-only query (`AT+QENG="servingcell"`)
+   * that answers `ERROR` tells a Fibocom module apart from a Quectel one.
+   */
   async initModem(): Promise<void> {
     const ati = await this.#ubus.execAt("ATI").catch(() => "");
-    this.#brand = detectModemBrand(ati);
-    const model = labelOf(ati.split(/\r?\n/).find((l) => l.trim() && !l.toUpperCase().includes("QUECTEL") && !l.toUpperCase().includes("FIBOCOM") && !l.toUpperCase().includes("OK")));
+    let brand = modemBrandOf(ati);
+    let cgmm = "";
+    if (brand === null) {
+      cgmm = await this.#ubus.execAt("AT+CGMM").catch(() => "");
+      brand = modemBrandOf(cgmm);
+    }
+    if (brand === null) {
+      const probe = await this.#ubus.execAt('AT+QENG="servingcell"').catch(() => "");
+      brand = isAtError(probe) ? "fibocom" : "quectel";
+    }
+    this.#brand = brand;
+    // The model: what `AT+CGMM` named when it was asked (an `ATI` that names no make may not name the module either), else `ATI`'s line
+    const model = (cgmm !== "" ? modelLineOf(cgmm) : null) ?? modelLineOf(ati);
     let gmr = "";
     if (this.#brand === "quectel") {
       gmr = await this.#ubus.execAt("AT+QGMR").catch(() => "");
@@ -603,32 +646,15 @@ export class OpenwrtSession implements DriverSessionHandle {
     this.#guard();
     if (!this.#identity) await this.initModem();
 
-    if (this.#brand === "fibocom") {
-      const ccInfoRaw = await this.#ubus.execAt("AT+GTCCINFO?").catch(() => "");
-      const cc = parseFibocomCcInfo(ccInfoRaw);
-      const tempRaw = await this.#ubus.execAt("AT+MTSM=1").catch(() => "");
-      const tempMatch = tempRaw.match(/(-?\d+(?:\.\d+)?)/);
-      const temp = tempMatch ? temperatureOf(tempMatch[1]) : null;
+    if (this.#brand === "fibocom") return await this.#fibocomTelemetry();
 
-      return {
-        model: this.#identity!.model,
-        softwareVersion: this.#identity!.softwareVersion,
-        hardwareVersion: this.#identity!.hardwareVersion,
-        operatorName: null,
-        plmn: cc.plmn,
-        mode: cc.mode,
-        lte: cc.lte,
-        nr: cc.nr,
-        carriers: [],
-        wan: { connected: cc.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
-        traffic: null,
-        temperatureC: temp,
-        signalBars: cc.lte?.rsrpDbm !== null || cc.nr?.rsrpDbm !== null ? 4 : 0,
-      };
-    }
-
-    // Quectel Telemetry
+    // Quectel Telemetry; a module that answers the Quectel serving-cell query with an error is a Fibocom one after all
     const servingRaw = await this.#ubus.execAt('AT+QENG="servingcell"').catch(() => "");
+    if (isAtError(servingRaw)) {
+      this.#brand = "fibocom";
+      this.#identity = { ...this.#identity!, hardwareVersion: "fibocom" };
+      return await this.#fibocomTelemetry();
+    }
     const serving = parseQuectelServingCell(servingRaw);
     const caRaw = await this.#ubus.execAt("AT+QCAINFO").catch(() => "");
     const carriers = parseQuectelCaInfo(caRaw);
@@ -655,6 +681,30 @@ export class OpenwrtSession implements DriverSessionHandle {
       traffic: null,
       temperatureC: temp,
       signalBars: primaryCell?.rsrpDbm !== null ? 4 : 0,
+    };
+  }
+
+  async #fibocomTelemetry(): Promise<DriverTelemetry> {
+    const ccInfoRaw = await this.#ubus.execAt("AT+GTCCINFO?").catch(() => "");
+    const cc = parseFibocomCcInfo(ccInfoRaw);
+    const tempRaw = await this.#ubus.execAt("AT+MTSM=1").catch(() => "");
+    const tempMatch = tempRaw.match(/(-?\d+(?:\.\d+)?)/);
+    const temp = tempMatch ? temperatureOf(tempMatch[1]) : null;
+
+    return {
+      model: this.#identity!.model,
+      softwareVersion: this.#identity!.softwareVersion,
+      hardwareVersion: this.#identity!.hardwareVersion,
+      operatorName: null,
+      plmn: cc.plmn,
+      mode: cc.mode,
+      lte: cc.lte,
+      nr: cc.nr,
+      carriers: [],
+      wan: { connected: cc.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
+      traffic: null,
+      temperatureC: temp,
+      signalBars: cc.lte?.rsrpDbm !== null || cc.nr?.rsrpDbm !== null ? 4 : 0,
     };
   }
 

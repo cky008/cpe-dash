@@ -1,7 +1,8 @@
 import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, TelemetryPart, TrafficTelemetryDto } from "../cpe-domain.ts";
+import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import type { CaBannerComponent, NeighborCellEntry, RfSignalSnapshot, SecondaryCellEntry } from "../parsers.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../units.ts";
-import type { DriverCarrier, DriverCell, DriverNeighbour, DriverTelemetry } from "./types.ts";
+import type { DriverCarrier, DriverCell, DriverIdentity, DriverNeighbour, DriverTelemetry } from "./types.ts";
 
 /**
  * A driver family's readings in the snapshot shapes the HiLink stack produces, laid out the way
@@ -269,4 +270,31 @@ export function emptyCell(): DriverCell {
 /** Whether a cell carries anything (a band, a channel or a reading). */
 export function cellHasData(cell: DriverCell): boolean {
   return cell.band !== null || cell.arfcn !== null || cell.pci !== null || cell.rsrpDbm !== null || cell.sinrDb !== null;
+}
+
+/**
+ * A driver family's identification in the shape the HiLink probe produces (`DeviceProbeResult`), so
+ * the device report, the console and the write gate keep one record of who the router is: the model
+ * and firmware the driver read, no HiLink endpoints (none were probed) and no login scheme (the
+ * family's own login is not one of HiLink's).
+ */
+export function driverDeviceProbe(identity: DriverIdentity, opts: { nowIso: string; origin: ProbeOrigin }): DeviceProbeResult {
+  return {
+    identity: {
+      model: identity.model,
+      marketingName: null,
+      softwareVersion: identity.softwareVersion,
+      webUiVersion: null,
+      passwordType: null,
+      loginScheme: "unknown",
+      ecc: false,
+      tokenFlow: "unknown",
+      detectedAtIso: opts.nowIso,
+    },
+    endpoints: [],
+    lteBands: null,
+    probedAtIso: opts.nowIso,
+    origin: opts.origin,
+    observations: [],
+  };
 }

@@ -1,5 +1,6 @@
 import { type DeviceFeature, type DeviceProbeResult, EXPERIMENTAL_FEATURES, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
 import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
+import { DRIVER_WRITE_FEATURES, ROUTER_FAMILY_FACTS, type RouterFamily, isDriverFamily } from "./router-family.ts";
 
 /**
  * What FengSui may do with the router it talks to (multi-model support, phase 2): whether it may
@@ -16,6 +17,10 @@ import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, devic
  * Losing sight of the router (unreachable, another connection saved, or a spell of sending it nothing:
  * a reset breaker, the end of a peer standby, the quiet window after someone signed in to the
  * router's page from another device) asks for that again.
+ *
+ * A router of a driver family (`src/drivers/`, every family but Huawei's) is a model nobody verified
+ * as well: it reads the sections its family documents (`ROUTER_FAMILY_FACTS`) and writes only what
+ * its driver implements (`DRIVER_WRITE_FEATURES`) once its owner turned that write on for the model.
  */
 
 /** Every router write the scheduler runs, and the feature it belongs to (phase 3 asks consent per feature). */
@@ -193,6 +198,7 @@ interface ProbeCapability {
 }
 
 const EXPERIMENTAL: ReadonlySet<string> = new Set<string>(EXPERIMENTAL_FEATURES);
+const DRIVER_WRITES: ReadonlySet<string> = new Set<string>(DRIVER_WRITE_FEATURES);
 
 interface Sighting {
   model: string;
@@ -236,9 +242,26 @@ export class DeviceAccess {
   #capability: ProbeCapability | null = null;
   /** The owner's consents, as the console keeps them (only the current model's count). */
   #consents: ReadonlyArray<ExperimentalConsentRef> = [];
+  /** The family of the router connection (Settings → Router): what it reads and may write goes by it. */
+  #family: RouterFamily = "huawei";
 
-  constructor(options: { verifiedFeatures?: ReadonlyArray<VerifiedFeature> } = {}) {
+  constructor(options: { verifiedFeatures?: ReadonlyArray<VerifiedFeature>; family?: RouterFamily } = {}) {
     this.#verifiedFeatures = options.verifiedFeatures ?? VERIFIED_FEATURES;
+    this.#family = options.family ?? "huawei";
+  }
+
+  get family(): RouterFamily {
+    return this.#family;
+  }
+
+  /** The connection was switched to a router of another family (the scheduler keeps this in step). */
+  setFamily(family: RouterFamily): void {
+    this.#family = family;
+  }
+
+  /** The router is of a driver family: its driver, not the HiLink stack, reads and writes it. */
+  get driverFamily(): boolean {
+    return isDriverFamily(this.#family);
   }
 
   /** The identification an earlier run stored, or the last one this run recorded. */
@@ -335,6 +358,11 @@ export class DeviceAccess {
     const current = this.current;
     if (!current) return "unknown";
     if (isVerifiedModel(current.model)) return "verified";
+    // A driver family writes what its driver implements, each write once its owner turned it on for this model
+    if (isDriverFamily(this.#family)) {
+      if (!DRIVER_WRITES.has(feature)) return "not_implemented";
+      return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";
+    }
     // Another model only ever writes the generic way: a write without one stays the verified model's alone
     if (!EXPERIMENTAL.has(feature)) return "not_implemented";
     if (isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures)) return "verified";
@@ -378,6 +406,10 @@ export class DeviceAccess {
   }
 
   readState(section: ReadSection): ReadCapability {
+    // A driver family reads the sections it documents; the others are not on any router of it
+    if (isDriverFamily(this.#family) && !(ROUTER_FAMILY_FACTS[this.#family].reads as ReadonlyArray<string>).includes(section)) {
+      return { state: "unavailable", code: null };
+    }
     const current = this.current;
     if (!current) return { state: "unknown", code: null };
     if (!this.unverifiedModel) return { state: "verified", code: null };

@@ -269,6 +269,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     client: cpeClient,
     stateStore,
     timeseries,
+    // The router's family as the console saved it (absent: Huawei); the driver of every other family reads and writes it
+    family: connection?.family,
     pollIntervalMs: config.pollIntervalMs,
     neighborScanIntervalMs: config.neighborScanIntervalMs,
     stateFlushIntervalMs: config.stateFlushIntervalMs,

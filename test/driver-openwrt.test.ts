@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CpeApiError } from "../src/cpe-client.ts";
 import type { WriteCheck } from "../src/device-access.ts";
-import { DriverCpeClient } from "../src/drivers/client.ts";
 import {
   OPENWRT_ANONYMOUS_SESSION,
   detectModemBrand,
   extractAtResponse,
+  isAtError,
+  modemBrandOf,
   openwrtProtocol,
   parseFibocomCcInfo,
   parseQuectelCaInfo,
@@ -18,227 +19,10 @@ import {
   splitAtCsv,
 } from "../src/drivers/openwrt.ts";
 import { LanHttp } from "../src/drivers/transport.ts";
-import { LanRouterMock } from "./helpers/lan-router.ts";
-
-const PASSWORD = "test-root-password";
-const SESSION_TOKEN = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+import { OPENWRT_SESSION_TOKEN as SESSION_TOKEN, openwrtRouter } from "./helpers/openwrt-router.ts";
 
 function newCheck(): WriteCheck {
   return { endpoints: [], readback: "none", reason: null };
-}
-
-interface UbusCall {
-  session: string;
-  object: string;
-  method: string;
-  args: Record<string, unknown>;
-}
-
-function openwrtRouter(opts: {
-  brand?: "quectel" | "fibocom";
-  modemRpcObject?: string;
-  loginStatus?: number;
-  loginPayload?: Record<string, unknown>;
-} = {}) {
-  const brand = opts.brand ?? "quectel";
-  const rpcObj = opts.modemRpcObject ?? "gl-modem";
-  const calls: UbusCall[] = [];
-  const state = {
-    loggedIn: false,
-    destroyed: false,
-    executedCommands: [] as string[],
-    lteBand: "1:3:7",
-    nrBand: "41:78",
-    modePref: "AUTO",
-    nrDisableMode: "0",
-    lock4g: "0",
-    lock5g: "0",
-    fibocomAct: "17,6,2,101,103,541,578",
-    fibocomCellLock: "0",
-  };
-
-  const mock = new LanRouterMock((req) => {
-    assert.equal(req.method, "POST");
-    assert.equal(req.path, "/ubus");
-    const body = JSON.parse(req.body) as { id: number; method: string; params: [string, string, string, Record<string, unknown>] };
-    const [session, object, method, args] = body.params;
-    calls.push({ session, object, method, args });
-
-    const reply = (payload: unknown, status = 0) => ({
-      json: { jsonrpc: "2.0", id: body.id, result: payload === null ? [status] : [status, payload] },
-    });
-
-    if (object === "system" && method === "board") {
-      return reply({ release: { distribution: "OpenWrt", version: "23.05.3" } });
-    }
-
-    if (object === "session" && method === "login") {
-      if (opts.loginStatus !== undefined && opts.loginStatus !== 0) {
-        return reply(null, opts.loginStatus);
-      }
-      if (opts.loginPayload) return reply(opts.loginPayload);
-      if (args["password"] === PASSWORD) {
-        state.loggedIn = true;
-        return reply({ ubus_rpc_session: SESSION_TOKEN });
-      }
-      return reply(null, 6); // permission denied
-    }
-
-    if (object === "session" && method === "destroy") {
-      state.destroyed = true;
-      return reply({});
-    }
-
-    // AT dispatch object
-    if (object === rpcObj && (method === "send_at" || method === "at_cmd" || method === "at" || method === "send")) {
-      const cmd = String(args["cmd"] ?? "");
-      state.executedCommands.push(cmd);
-
-      // Identify
-      if (cmd === "ATI") {
-        if (brand === "quectel") {
-          return reply("Quectel\nRM520N-GL\nRevision: RM520NGLAAR01A07M4G\n\nOK\n");
-        } else {
-          return reply("Fibocom Wireless Inc.\nFM650-CN\nRevision: 19001.1000.00.01.01.01\n\nOK\n");
-        }
-      }
-      if (cmd === "AT+QGMR") {
-        return reply("RM520NGLAAR01A07M4G\n\nOK\n");
-      }
-      if (cmd === "AT+CGMR" || cmd === "AT+GMR") {
-        return reply("19001.1000.00.01.01.01\n\nOK\n");
-      }
-
-      // Quectel Telemetry
-      if (cmd === 'AT+QENG="servingcell"') {
-        return reply(
-          '+QENG: "servingcell","NOCONN","NR5G-SA","TDD",460,00,01A2B3C,142,000A,627264,78,11,-82,-10,18,1,0\n\nOK\n'
-        );
-      }
-      if (cmd === "AT+QCAINFO") {
-        return reply(
-          '+QCAINFO: "PCC",627264,11,"NR5G BAND 78",1,142,-82,-10,-55,18\n+QCAINFO: "SCC",634000,11,"NR5G BAND 78",1,143,-85,-11,-58,16\n\nOK\n'
-        );
-      }
-      if (cmd === 'AT+QENG="neighbourcell"') {
-        return reply(
-          '+QENG: "neighbourcell","NR5G",627264,145,-88,-12,12\n+QENG: "neighbourcell intra","LTE",1650,211,-90,-11,-60,10\n\nOK\n'
-        );
-      }
-      if (cmd === "AT+QRSRP") {
-        return reply("+QRSRP: -82,-84,-85,-86,NR5G\n\nOK\n");
-      }
-      if (cmd === "AT+QTEMP") {
-        return reply('+QTEMP: "soc-thermal",42\n+QTEMP: "pa-thermal",46\n+QTEMP: "modem-thermal",44\n\nOK\n');
-      }
-
-      // Quectel Locks
-      if (cmd === 'AT+QNWPREFCFG="lte_band"') {
-        return reply(`+QNWPREFCFG: "lte_band",${state.lteBand}\n\nOK\n`);
-      }
-      if (cmd.startsWith('AT+QNWPREFCFG="lte_band",')) {
-        state.lteBand = cmd.slice('AT+QNWPREFCFG="lte_band",'.length);
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWPREFCFG="nr5g_band"') {
-        return reply(`+QNWPREFCFG: "nr5g_band",${state.nrBand}\n\nOK\n`);
-      }
-      if (cmd.startsWith('AT+QNWPREFCFG="nr5g_band",')) {
-        state.nrBand = cmd.slice('AT+QNWPREFCFG="nr5g_band",'.length);
-        return reply("OK\n");
-      }
-      if (cmd.startsWith('AT+QNWPREFCFG="nsa_nr5g_band",')) {
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWPREFCFG="mode_pref"') {
-        return reply(`+QNWPREFCFG: "mode_pref",${state.modePref}\n\nOK\n`);
-      }
-      if (cmd.startsWith('AT+QNWPREFCFG="mode_pref",')) {
-        state.modePref = cmd.slice('AT+QNWPREFCFG="mode_pref",'.length);
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWPREFCFG="nr5g_disable_mode"') {
-        return reply(`+QNWPREFCFG: "nr5g_disable_mode",${state.nrDisableMode}\n\nOK\n`);
-      }
-      if (cmd.startsWith('AT+QNWPREFCFG="nr5g_disable_mode",')) {
-        state.nrDisableMode = cmd.slice('AT+QNWPREFCFG="nr5g_disable_mode",'.length);
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWLOCK="common/4g"') {
-        return reply(state.lock4g === "0" ? '+QNWLOCK: "common/4g",0\n\nOK\n' : `+QNWLOCK: "common/4g",1,${state.lock4g}\n\nOK\n`);
-      }
-      if (cmd.startsWith('AT+QNWLOCK="common/4g",1,')) {
-        state.lock4g = cmd.slice('AT+QNWLOCK="common/4g",1,'.length);
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWLOCK="common/4g",0') {
-        state.lock4g = "0";
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWLOCK="common/5g"') {
-        return reply(state.lock5g === "0" ? '+QNWLOCK: "common/5g",0\n\nOK\n' : `+QNWLOCK: "common/5g",${state.lock5g}\n\nOK\n`);
-      }
-      if (cmd.startsWith('AT+QNWLOCK="common/5g",') && cmd !== 'AT+QNWLOCK="common/5g",0') {
-        state.lock5g = cmd.slice('AT+QNWLOCK="common/5g",'.length);
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWLOCK="common/5g",0') {
-        state.lock5g = "0";
-        return reply("OK\n");
-      }
-      if (cmd === 'AT+QNWPREFCFG="ue_capability_band"') {
-        return reply('+QNWPREFCFG: "ue_capability_band","lte_band",1:3:5:7:8:20:28:38:40:41,"nr5g_band",1:3:28:41:77:78:79\n\nOK\n');
-      }
-
-      // Fibocom Telemetry & Locks
-      if (cmd === "AT+GTCCINFO?") {
-        return reply(
-          '+GTCCINFO: 1,9,460,00,000A,01A2B3C,627264,142,-70,-10,74,18\n' +
-          '+GTCCINFO: 2,9,460,00,000A,01A2B3D,627264,143,-75,-12,68,14\n\nOK\n'
-        );
-      }
-      if (cmd === "AT+MTSM=1") {
-        return reply("+MTSM: 45.5\n\nOK\n");
-      }
-      if (cmd === "AT+GTACT?") {
-        return reply(`+GTACT: ${state.fibocomAct}\n\nOK\n`);
-      }
-      if (cmd.startsWith("AT+GTACT=")) {
-        const parts = cmd.slice("AT+GTACT=".length);
-        state.fibocomAct = parts;
-        return reply("OK\n");
-      }
-      if (cmd === "AT+GTCELLLOCK?") {
-        return reply(state.fibocomCellLock === "0" ? "+GTCELLLOCK: 0\n\nOK\n" : `+GTCELLLOCK: 1,${state.fibocomCellLock}\n\nOK\n`);
-      }
-      if (cmd.startsWith("AT+GTCELLLOCK=1,")) {
-        state.fibocomCellLock = cmd.slice("AT+GTCELLLOCK=1,".length);
-        return reply("OK\n");
-      }
-      if (cmd === "AT+GTCELLLOCK=0") {
-        state.fibocomCellLock = "0";
-        return reply("OK\n");
-      }
-
-      if (cmd === "AT+CFUN=1,1") {
-        return reply("OK\n");
-      }
-
-      return reply("OK\n");
-    }
-
-    return reply(null, 6);
-  });
-
-  const client = new DriverCpeClient({
-    protocol: openwrtProtocol,
-    cpeUrl: "http://192.168.1.1",
-    cpePassword: PASSWORD,
-    fetchImpl: mock.fetchImpl,
-    requestTimeoutMs: 2000,
-  });
-
-  return { mock, calls, state, client };
 }
 
 describe("openwrt: helpers and parsing", () => {
@@ -532,6 +316,93 @@ describe("openwrt: session and Fibocom integration", () => {
       await s.reboot(rebootCheck);
       assert.equal(rebootCheck.readback, "pending");
       assert.ok(state.executedCommands.includes("AT+CFUN=1,1"));
+    });
+  });
+});
+
+describe("openwrt: telling the module's make apart", () => {
+  it("names the make from ATI / CGMM text, or none", () => {
+    assert.equal(modemBrandOf("Fibocom Wireless Inc.\nFM650-CN\nOK"), "fibocom");
+    assert.equal(modemBrandOf("FM150-AE"), "fibocom");
+    assert.equal(modemBrandOf("fm160-na"), "fibocom");
+    assert.equal(modemBrandOf("Model: FM350-GL"), "fibocom");
+    assert.equal(modemBrandOf("FG370-EA"), "fibocom");
+    assert.equal(modemBrandOf("Quectel\nRM520N-GL\nOK"), "quectel");
+    assert.equal(modemBrandOf("RG500Q-EA"), "quectel");
+    assert.equal(modemBrandOf("EM120R-GL"), "quectel");
+    assert.equal(modemBrandOf("Manufacturer: Generic Inc.\nRevision: 1.0"), null);
+    assert.equal(modemBrandOf(""), null);
+    assert.equal(detectModemBrand("Generic Module"), "quectel");
+    assert.equal(isAtError("ERROR"), true);
+    assert.equal(isAtError("\r\nerror\r\n"), true);
+    assert.equal(isAtError("+CME ERROR: 100"), true);
+    assert.equal(isAtError("+CMS ERROR: 500\n"), true);
+    assert.equal(isAtError('+QENG: "servingcell","SEARCH"\n\nOK'), false);
+    assert.equal(isAtError(""), false);
+  });
+
+  it("identifies a Fibocom FM160 from AT+CGMM when ATI names no make, and runs the Fibocom commands", async () => {
+    const { state, client } = openwrtRouter({
+      brand: "fibocom",
+      ati: "Manufacturer: Generic Inc.\nRevision: 81600.0000.00.29.19.21\n\nOK\n",
+      cgmm: "FM160-NA\n\nOK\n",
+    });
+    await client.withSession(async (s) => {
+      const identity = await s.identify();
+      assert.equal(identity.hardwareVersion, "fibocom");
+      assert.equal(identity.model, "FM160-NA");
+      assert.equal(identity.softwareVersion, "19001.1000.00.01.01.01");
+
+      const telem = await s.telemetry();
+      assert.equal(telem.mode, "SA");
+      assert.equal(telem.nr?.rsrpDbm, -82);
+      assert.equal(telem.temperatureC, 45.5);
+
+      const check = newCheck();
+      await s.setBandLock({ lte: [1, 3], nr: [78], networkMode: null }, check);
+      assert.equal(check.readback, "match");
+      assert.equal(state.fibocomAct, "17,6,2,101,103,578");
+    });
+    assert.ok(state.executedCommands.includes("AT+CGMM"), "asked the model when ATI named no make");
+    assert.ok(!state.executedCommands.some((c) => c.startsWith("AT+QNWPREFCFG") || c.startsWith("AT+QENG")), "no Quectel command went out");
+  });
+
+  it("falls back to Fibocom when neither ATI nor CGMM names the make and the Quectel serving-cell query answers ERROR", async () => {
+    const { state, client } = openwrtRouter({
+      brand: "fibocom",
+      ati: "Manufacturer: Generic Inc.\nModel: 5G Module\n\nOK\n",
+      cgmm: "5G Module\n\nOK\n",
+      qengError: true,
+    });
+    await client.withSession(async (s) => {
+      const identity = await s.identify();
+      assert.equal(identity.hardwareVersion, "fibocom");
+      assert.equal(identity.model, "5G Module");
+
+      const telem = await s.telemetry();
+      assert.equal(telem.mode, "SA");
+      assert.equal(telem.plmn, "46000");
+      const neigh = await s.neighbours();
+      assert.equal(neigh.length, 1);
+    });
+    assert.equal(state.executedCommands.filter((c) => c === 'AT+QENG="servingcell"').length, 1, "probed once");
+    assert.ok(state.executedCommands.includes("AT+GTCCINFO?"));
+  });
+
+  it("switches to the Fibocom commands when a module taken for Quectel answers the serving-cell query with ERROR", async () => {
+    const { state, client } = openwrtRouter({ brand: "fibocom", ati: "Quectel\nRM500Q-GL\n\nOK\n", qengError: true });
+    await client.withSession(async (s) => {
+      assert.equal((await s.identify()).hardwareVersion, "quectel");
+      const telem = await s.telemetry();
+      assert.equal(telem.mode, "SA");
+      assert.equal(telem.hardwareVersion, "fibocom");
+      assert.equal((await s.identify()).hardwareVersion, "fibocom");
+
+      // From here on the session speaks Fibocom
+      const check = newCheck();
+      await s.setBandLock({ lte: [1], nr: null, networkMode: null }, check);
+      assert.equal(check.readback, "match");
+      assert.equal(state.fibocomAct, "17,6,2,101");
     });
   });
 });

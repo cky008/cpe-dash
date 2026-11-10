@@ -11,7 +11,7 @@ import {
   isInsideCpeSession,
 } from "./cpe-client.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
-import { CpeControlValidationError, type GlobalTelemetrySnapshot, type PersistedLockState, readRouterModel, sectionUnavailableCode } from "./cpe-domain.ts";
+import { CpeControlValidationError, type GlobalTelemetrySnapshot, type NeighborScanSnapshot, type PersistedLockState, readRouterModel, sectionUnavailableCode } from "./cpe-domain.ts";
 import {
   CONTROL_FEATURES,
   type ControlAction,
@@ -35,12 +35,15 @@ import {
 } from "./device-profile.ts";
 import { verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
-import { isDriverFamily, routerFamilyOf, type RouterFamily } from "./router-family.ts";
+import { ROUTER_FAMILY_LABELS, isDriverFamily, routerFamilyOf, type RouterFamily } from "./router-family.ts";
 import { createDriverClient } from "./drivers/brands.ts";
-import type { DriverCpeClient } from "./drivers/client.ts";
+import { type DriverCpeClient, isInsideDriverSession } from "./drivers/client.ts";
+import { DriverLoginMethodError } from "./drivers/login.ts";
+import { CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./drivers/snapshot.ts";
+import type { DriverSession } from "./drivers/types.ts";
 import { getXmlTag } from "./xml.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
-import type { CircuitBreakerState, CpeLoginState } from "./types.ts";
+import type { CircuitBreakerState, CpeLoginState, SessionExecutionOutcome } from "./types.ts";
 
 export type SchedulerMode =
   | "idle"
@@ -336,6 +339,12 @@ const PRIORITY_WEIGHT: Readonly<Record<SchedulerPriority, number>> = {
 export interface MutexSessionSchedulerOptions {
   client: HuaweiCpeClient;
   stateStore: EncryptedStateStore;
+  /**
+   * The router's family (Settings → Router; default `huawei`). Any other family is read and written by
+   * its driver (`src/drivers/`) on the HiLink client's connection: the HiLink client then never opens
+   * a session, so no HiLink request reaches a router that does not speak it.
+   */
+  family?: RouterFamily;
   maxQueueDepth?: number;
   layer2InitialBackoffMs?: number;
   layer2MaxBackoffMs?: number;
@@ -347,6 +356,19 @@ export interface MutexSessionSchedulerOptions {
    * by an older model at the same address). Background sessions keep to SCRAM either way.
    */
   allowLegacyLoginAfterScram?: boolean;
+}
+
+/** What the scheduler asks of whichever client holds the live connection (the HiLink client, or a driver family's). */
+type LiveClient = Pick<HuaweiCpeClient, "configured" | "getCircuitBreakerState" | "getTelemetry" | "hydrateCircuitBreaker" | "resetCircuitBreaker" | "waitForIdle" | "abortActiveSession">;
+
+/** A read or write asked of the driver family's client on a Huawei connection: there is none. */
+export class NotDriverFamilyError extends Error {
+  readonly statusCode = 409;
+
+  constructor() {
+    super("The router connection is a Huawei (HiLink) one: there is no driver to use");
+    this.name = "NotDriverFamilyError";
+  }
 }
 
 /**
@@ -361,6 +383,9 @@ export interface MutexSessionSchedulerOptions {
  *   Avoidance follows the client's `respectBrowserSession` setting (`RESPECT_BROWSER_SESSION`).
  * - Persists `108006`/`108007` circuit-breaker latches across restarts via `EncryptedStateStore`
  *   and raises a `CIRCUIT_<code>` alert the first time the breaker trips.
+ * - On a router of a driver family (`family`), the same queue, avoidance and breaker drive the
+ *   family's driver (`executeDriverTelemetryRead`, `executeDriverNeighbourRead`, `executeDriverControl`)
+ *   while `executeRead` reads nothing and `executeControl` refuses: the HiLink client stays off it.
  */
 export class MutexSessionScheduler extends EventEmitter {
   readonly stateStore: EncryptedStateStore;
@@ -373,6 +398,12 @@ export class MutexSessionScheduler extends EventEmitter {
   readonly #allowLegacyLoginAfterScram: boolean;
 
   readonly #client: HuaweiCpeClient;
+  /** The router's family; the driver client exists for every family but Huawei's. */
+  #family: RouterFamily;
+  /** The driver family's session client, on the HiLink client's connection (`null` on Huawei). */
+  #driverClient: DriverCpeClient | null = null;
+  /** Rates from the running byte counters of a driver family that reports no rate (reset with the connection). */
+  readonly #counterRates = new CounterRates();
   #initialized = false;
   #stopping = false;
   #mode: SchedulerMode = "idle";
@@ -406,6 +437,53 @@ export class MutexSessionScheduler extends EventEmitter {
     this.layer2MaxBackoffMs = options.layer2MaxBackoffMs ?? 300_000;
     this.stopGraceMs = Math.max(0, options.stopGraceMs ?? 2000);
     this.#allowLegacyLoginAfterScram = options.allowLegacyLoginAfterScram === true;
+    this.#family = routerFamilyOf(options.family);
+    this.device.setFamily(this.#family);
+    this.#syncDriverClient();
+  }
+
+  /** The family of the router connection in use. */
+  getFamily(): RouterFamily {
+    return this.#family;
+  }
+
+  /** The router is of a driver family: its driver reads and writes it, never the HiLink client. */
+  isDriverMode(): boolean {
+    return this.#driverClient !== null;
+  }
+
+  /** The client whose sessions, breaker and telemetry are the live connection's. */
+  #active(): LiveClient {
+    return this.#driverClient ?? this.#client;
+  }
+
+  /** The driver client, on a driver family only. */
+  #driver(): DriverCpeClient {
+    if (!this.#driverClient) throw new NotDriverFamilyError();
+    return this.#driverClient;
+  }
+
+  /**
+   * The driver client mirrors the HiLink client's connection (which keeps the credentials): built
+   * anew whenever the connection or the family changes, with a fresh breaker, as new credentials
+   * clear the HiLink one. Rates derived from counters start over with it.
+   */
+  #syncDriverClient(): void {
+    this.#counterRates.reset();
+    if (!isDriverFamily(this.#family)) {
+      this.#driverClient = null;
+      return;
+    }
+    this.#driverClient = createDriverClient(this.#family, {
+      cpeUrl: this.#client.baseUrl,
+      cpeUsername: this.#client.username,
+      cpePassword: this.#client.password,
+      fetchImpl: this.#client.fetchImpl,
+      requestTimeoutMs: this.#client.timeoutMs,
+      respectBrowserSession: this.#client.defaultRespectBrowserSession,
+      sessionMaxHoldMs: this.#client.sessionMaxHoldMs,
+      apiErrors: this.#client.apiErrors,
+    });
   }
 
   /**
@@ -428,7 +506,7 @@ export class MutexSessionScheduler extends EventEmitter {
       });
     }
     this.#syncLoginPolicy();
-    const latched = this.#client.hydrateCircuitBreaker(loaded.circuitBreaker);
+    const latched = this.#active().hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {
       this.#mode = "circuit_tripped";
     }
@@ -455,7 +533,7 @@ export class MutexSessionScheduler extends EventEmitter {
       queued.reject(stopped);
     }
     // A connection test runs its session on a throwaway client: it is cancelled and logged out the same way
-    for (const client of [this.#client, this.#testClient]) {
+    for (const client of [this.#client, this.#driverClient, this.#testClient]) {
       if (client && !(await client.waitForIdle(this.stopGraceMs))) {
         client.abortActiveSession(stopped);
         await client.waitForIdle(4000);
@@ -464,7 +542,7 @@ export class MutexSessionScheduler extends EventEmitter {
     if (!this.#initialized) {
       return;
     }
-    this.stateStore.update({ circuitBreaker: this.#client.getCircuitBreakerState() });
+    this.stateStore.update({ circuitBreaker: this.#active().getCircuitBreakerState() });
     await this.stateStore.flushAsync();
   }
 
@@ -498,7 +576,7 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   getStatus(): SchedulerStatusSnapshot {
-    const telemetry = this.#client.getTelemetry();
+    const telemetry = this.#active().getTelemetry();
     const cb = telemetry.circuitBreaker;
     const effectiveMode: SchedulerMode = cb.tripped
       ? "circuit_tripped"
@@ -559,7 +637,8 @@ export class MutexSessionScheduler extends EventEmitter {
    * fail it. A verified or not yet identified router reads exactly as before.
    */
   async readSection<T>(section: ReadSection, read: () => Promise<T>): Promise<T | null> {
-    const tolerant = this.device.unverifiedModel;
+    // A driver family is never a verified model: what it answers without is noted, not failed on
+    const tolerant = this.device.unverifiedModel || this.isDriverMode();
     let value: T;
     try {
       value = await read();
@@ -603,8 +682,16 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#assertWritable(feature);
   }
 
+  /** The same, in a driver family's session: the driver reads who the router is. */
+  async #confirmDriverModel(session: DriverSession, feature: WriteFeature): Promise<void> {
+    const identity = await session.identify();
+    if (!identity.model) throw new DeviceNotIdentifiedError();
+    this.#seeModel(identity.model, identity.softwareVersion);
+    this.#assertWritable(feature);
+  }
+
   isCircuitTripped(): boolean {
-    return this.#client.getCircuitBreakerState().tripped;
+    return this.#active().getCircuitBreakerState().tripped;
   }
 
   getRecentAlerts(): ReadonlyArray<AlertEventRecord> {
@@ -616,11 +703,14 @@ export class MutexSessionScheduler extends EventEmitter {
    * an ephemeral session; it never logs in, so it cannot disturb a human or our own session.
    */
   async probeLoginState(): Promise<CpeLoginState> {
+    // A HiLink endpoint: a router of another family gets no HiLink request, not even a login-free one
+    if (this.isDriverMode()) throw new CpeControlValidationError(`state-login is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
     return await this.#client.getLoginState();
   }
 
   /** Unauthenticated GET of an allowlisted login-free endpoint (see `PublicProbePath`). */
   async probePublic(apiPath: PublicProbePath): Promise<string> {
+    if (this.isDriverMode()) throw new CpeControlValidationError(`${apiPath} is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
     return await this.#client.getPublic(apiPath);
   }
 
@@ -628,24 +718,33 @@ export class MutexSessionScheduler extends EventEmitter {
    * Reload credentials & reset the anti-brute-force circuit breaker after a human updates `.env`.
    * Enforces 铁律五: refuses to clear a wrong-password latch (`108006`/`108002`/`108001`) if the
    * configured password has not changed, preventing accidental exhaustion of remaining strikes to `108007`.
+   * `family` (when given) switches the router's family as well: another family is another router.
    */
   async reloadCredentialsAndResetBreaker(
     newPassword: string,
-    newUsername?: string
+    newUsername?: string,
+    family?: RouterFamily
   ): Promise<CircuitBreakerState> {
-    const latched = this.#client.getCircuitBreakerState();
+    const nextFamily = family === undefined ? this.#family : routerFamilyOf(family);
+    const familyChanged = nextFamily !== this.#family;
+    const latched = this.#active().getCircuitBreakerState();
     const changed = this.#client.reloadCredentials(newPassword, newUsername);
-    if (!changed && latched.tripped && latched.code !== "108007") {
+    if (!changed && !familyChanged && latched.tripped && latched.code !== "108007") {
       throw new CpeControlValidationError(
         "Circuit breaker latched on a wrong password: save the correct router password in the console (Settings → Router) instead, which clears it"
       );
     }
-    if (!changed) {
-      this.#client.resetCircuitBreaker();
+    if (familyChanged) {
+      this.#family = nextFamily;
+      this.device.setFamily(nextFamily);
+      this.device.forget();
     }
+    // The driver client follows the connection; on Huawei the HiLink client's own reload cleared its breaker
+    if (changed || familyChanged) this.#syncDriverClient();
+    else this.#active().resetCircuitBreaker();
     // Nothing went to the router while the breaker was open: it may have been replaced meanwhile
     if (latched.tripped) this.device.forget();
-    const cb = this.#client.getCircuitBreakerState();
+    const cb = this.#active().getCircuitBreakerState();
     this.#mode = "idle";
     this.#lastError = null;
     this.stateStore.update({ circuitBreaker: cb });
@@ -708,7 +807,8 @@ export class MutexSessionScheduler extends EventEmitter {
                 tokenFlow: "unknown" as const,
                 ecc: false,
               },
-              probe: null,
+              // The identification the console keeps of the router it saves (no HiLink endpoints to probe)
+              probe: driverDeviceProbe(identity, { nowIso: new Date().toISOString(), origin: "connection-test" }),
             };
           });
           if (outcome.status === "yielded") return failure("human_logged_in", "someone is logged into the router's web page", { code: outcome.stateCode });
@@ -802,10 +902,14 @@ export class MutexSessionScheduler extends EventEmitter {
   async applyConnection(candidate: ConnectionCandidate, opts: { loginScheme?: LoginScheme | null } = {}): Promise<CircuitBreakerState> {
     return await this.#enqueue("high", async () => {
       this.#client.reconfigure({ cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, loginScheme: opts.loginScheme ?? null });
+      // The family the console chose with the connection: its driver (or none) takes over from here
+      this.#family = routerFamilyOf(candidate.family);
+      this.device.setFamily(this.#family);
+      this.#syncDriverClient();
       // Possibly another router: its model is confirmed again before the next write
       this.device.forget();
       this.#remainingLogins = null;
-      const cb = this.#client.getCircuitBreakerState();
+      const cb = this.#active().getCircuitBreakerState();
       this.#mode = "idle";
       this.#lastError = null;
       this.stateStore.update({ circuitBreaker: cb });
@@ -823,10 +927,24 @@ export class MutexSessionScheduler extends EventEmitter {
     fn: (session: EphemeralCpeSession) => Promise<T>,
     opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}
   ): Promise<T | null> {
+    // A HiLink read on a router of a driver family: nothing to read (its driver reads it; see `executeDriverTelemetryRead`)
+    if (this.isDriverMode()) return Promise.resolve(null);
+    return this.#executeSessionRead((run) => this.#client.withSessionDetailed(run), fn, opts);
+  }
+
+  /**
+   * One read session on whichever client the family uses, through the shared queue with breaker,
+   * browser-avoidance and Layer-2 cooldown semantics (`executeRead`'s contract).
+   */
+  #executeSessionRead<S, T>(
+    open: (fn: (session: S) => Promise<T>) => Promise<SessionExecutionOutcome<T>>,
+    fn: (session: S) => Promise<T>,
+    opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean }
+  ): Promise<T | null> {
     const ignoreCooldown = opts.ignoreCooldown === true;
-    if (!this.#client.configured) return Promise.resolve(null);
+    if (!this.#active().configured) return Promise.resolve(null);
     return this.#enqueue(opts.priority ?? "normal", async () => {
-      if (this.#client.getCircuitBreakerState().tripped) {
+      if (this.#active().getCircuitBreakerState().tripped) {
         this.#mode = "circuit_tripped";
         return null;
       }
@@ -843,10 +961,10 @@ export class MutexSessionScheduler extends EventEmitter {
         return null;
       }
 
-      const wasTripped = this.#client.getCircuitBreakerState().tripped;
+      const wasTripped = this.#active().getCircuitBreakerState().tripped;
       this.#mode = "polling";
       try {
-        const outcome = await this.#client.withSessionDetailed(fn);
+        const outcome = await open(fn);
         if (outcome.status === "yielded") {
           this.#enterAvoidance(outcome.layer, outcome.stateCode);
           return null;
@@ -858,6 +976,49 @@ export class MutexSessionScheduler extends EventEmitter {
       } catch (err) {
         return await this.#handleExecutionError(err, wasTripped);
       }
+    });
+  }
+
+  /**
+   * A read session of the driver family's client (`executeRead` for a driver family): the same
+   * queue, avoidance, cooldown and breaker; `null` when skipped or yielded.
+   */
+  #executeDriverRead<T>(fn: (session: DriverSession) => Promise<T>, opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}): Promise<T | null> {
+    const driver = this.#driverClient;
+    if (!driver) return Promise.reject(new NotDriverFamilyError());
+    return this.#executeSessionRead((run) => driver.withSessionDetailed(run), fn, opts);
+  }
+
+  /**
+   * The driver family's telemetry as one `GlobalTelemetrySnapshot` (the 5 s poll on such a router):
+   * the driver's reading, rates derived from its byte counters when it reports no rate, in the
+   * shapes the HiLink stack produces, so the cache, the history, the alerts and the console need
+   * nothing per family. `null` when the read was skipped or yielded.
+   */
+  executeDriverTelemetryRead(opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}): Promise<GlobalTelemetrySnapshot | null> {
+    return this.#executeDriverRead(
+      (session) =>
+        this.readSection("telemetry", async () => {
+          const raw = await session.telemetry();
+          const nowMs = Date.now();
+          return driverTelemetrySnapshot(this.#counterRates.apply(raw, nowMs), nowMs);
+        }),
+      { priority: opts.priority ?? "normal", ignoreCooldown: opts.ignoreCooldown }
+    );
+  }
+
+  /** The driver family's nearby cells as one `NeighborScanSnapshot` (`null`: skipped, yielded, or not on this family). */
+  executeDriverNeighbourRead(opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}): Promise<NeighborScanSnapshot | null> {
+    return this.#executeDriverRead(
+      (session) => this.readSection("neighbors", async () => driverNeighbourSnapshot(await session.neighbours(), Date.now())),
+      { priority: opts.priority ?? "low", ignoreCooldown: opts.ignoreCooldown }
+    );
+  }
+
+  /** The driver family's identification, in the probe's shape (`CpeMonitor.identifyDevice` on such a router). */
+  executeDriverIdentify(opts: { priority?: SchedulerPriority } = {}): Promise<DeviceProbeResult | null> {
+    return this.#executeDriverRead(async (session) => driverDeviceProbe(await session.identify(), { nowIso: new Date().toISOString(), origin: "startup" }), {
+      priority: opts.priority ?? "low",
     });
   }
 
@@ -877,16 +1038,27 @@ export class MutexSessionScheduler extends EventEmitter {
     try {
       return await this.#runControl(actor, actionName, fn, summary);
     } catch (err) {
-      const refused =
-        err instanceof BrowserSessionYieldedError ||
-        err instanceof DeviceReadOnlyError ||
-        err instanceof DeviceNotIdentifiedError ||
-        err instanceof PeerDaemonStandbyError ||
-        err instanceof CircuitBreakerOpenError ||
-        err instanceof CpeNotConfiguredError ||
-        err instanceof SchedulerQueueFullError ||
-        err instanceof SchedulerStoppedError;
-      this.#audit(actor, actionName, refused ? "refused" : "failed", err instanceof Error ? err.message : String(err));
+      this.#audit(actor, actionName, isRefusal(err) ? "refused" : "failed", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  /**
+   * `executeControl` for a router of a driver family: the same gate (the write's feature must be one
+   * the owner turned on for this model), queue, audit and `control:applied` broadcast, with the
+   * driver's session. Every driver write counts as experimental: what it sent (command names) and
+   * its read-back are recorded like a generic HiLink write's, and a mismatch alerts.
+   */
+  async executeDriverControl<T>(
+    actionName: ControlAction,
+    fn: (session: DriverSession, write: WriteContext) => Promise<T>,
+    summary?: ControlSummary | ((value: T) => ControlSummary | null)
+  ): Promise<T> {
+    const actor = currentActor();
+    try {
+      return await this.#runDriverControl(actor, actionName, fn, summary);
+    } catch (err) {
+      this.#audit(actor, actionName, isRefusal(err) ? "refused" : "failed", err instanceof Error ? err.message : String(err));
       throw err;
     }
   }
@@ -903,28 +1075,72 @@ export class MutexSessionScheduler extends EventEmitter {
   ): Promise<T> {
     if (!this.#client.configured) throw new CpeNotConfiguredError();
     const feature = CONTROL_FEATURES[actionName];
+    // A HiLink write on a router of a driver family: its driver has no implementation of this one
+    // (the writes it has go through `executeDriverControl`), so nothing is sent, least of all HiLink
+    if (this.isDriverMode()) throw new DeviceReadOnlyError(modelLabel(this.device.current?.model ?? ROUTER_FAMILY_LABELS[this.#family].en), feature);
+    return await this.#runGatedControl(actor, actionName, feature, summary, (gate) =>
+      this.#client.withSessionDetailed(
+        async (session) => {
+          // A read that ended just before this session notes the model it saw only after the
+          // queue's look, so look again here, right before the write
+          if (this.device.confirmed) this.#assertWritable(feature);
+          else await this.#confirmModel(session, feature);
+          const write: WriteContext = { generic: this.device.generic, lteBands: this.device.experimentalLteBands, check: newWriteCheck() };
+          gate.write = write;
+          return await fn(session, write);
+        },
+        { retriesOnOccupied: 0 }
+      )
+    );
+  }
+
+  async #runDriverControl<T>(
+    actor: AuditActor,
+    actionName: ControlAction,
+    fn: (session: DriverSession, write: WriteContext) => Promise<T>,
+    summary?: ControlSummary | ((value: T) => ControlSummary | null)
+  ): Promise<T> {
+    const driver = this.#driver();
+    if (!driver.configured) throw new CpeNotConfiguredError();
+    const feature = CONTROL_FEATURES[actionName];
+    return await this.#runGatedControl(actor, actionName, feature, summary, (gate) =>
+      driver.withSessionDetailed(
+        async (session) => {
+          if (this.device.confirmed) this.#assertWritable(feature);
+          else await this.#confirmDriverModel(session, feature);
+          // A driver write is experimental on every model: recorded with its read-back (no LTE band list to go by)
+          const write: WriteContext = { generic: true, lteBands: null, check: newWriteCheck() };
+          gate.write = write;
+          return await fn(session, write);
+        },
+        { retriesOnOccupied: 0 }
+      )
+    );
+  }
+
+  /**
+   * The write gate, the queue and the bookkeeping around one control session, whichever client
+   * opens it (`open` runs the session once the queue reaches it and fills `gate.write` once the
+   * gate let the write through in that session).
+   */
+  async #runGatedControl<T>(
+    actor: AuditActor,
+    actionName: ControlAction,
+    feature: WriteFeature,
+    summary: ControlSummary | ((value: T) => ControlSummary | null) | undefined,
+    open: (gate: { write: WriteContext | null }) => Promise<SessionExecutionOutcome<T>>
+  ): Promise<T> {
     // The write gate: a router whose model does not allow this write gets no session at all
     this.#assertWritable(feature);
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
       // The model may have changed while this write waited
       this.#assertWritable(feature);
-      const wasTripped = this.#client.getCircuitBreakerState().tripped;
+      const wasTripped = this.#active().getCircuitBreakerState().tripped;
       /** Set once the gate let this write through in its session: which implementation applies. */
       const gate: { write: WriteContext | null } = { write: null };
       try {
-        const outcome = await this.#client.withSessionDetailed(
-          async (session) => {
-            // A read that ended just before this session notes the model it saw only after the
-            // queue's look, so look again here, right before the write
-            if (this.device.confirmed) this.#assertWritable(feature);
-            else await this.#confirmModel(session, feature);
-            const write: WriteContext = { generic: this.device.generic, lteBands: this.device.experimentalLteBands, check: newWriteCheck() };
-            gate.write = write;
-            return await fn(session, write);
-          },
-          { retriesOnOccupied: 0 }
-        );
+        const outcome = await open(gate);
         if (outcome.status === "yielded") {
           this.#enterAvoidance(outcome.layer, outcome.stateCode);
           throw new BrowserSessionYieldedError();
@@ -1074,7 +1290,7 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   #enqueue<T>(priority: SchedulerPriority, execute: () => Promise<T>): Promise<T> {
-    if (isInsideCpeSession(this.#client)) {
+    if (isInsideCpeSession(this.#client) || (this.#driverClient !== null && isInsideDriverSession(this.#driverClient))) {
       return Promise.reject(new ReentrantCpeSessionError());
     }
     if (this.#stopping) {
@@ -1186,7 +1402,7 @@ export class MutexSessionScheduler extends EventEmitter {
       throw err;
     }
     this.#lastError = err instanceof Error ? err.message : String(err);
-    const cb = this.#client.getCircuitBreakerState();
+    const cb = this.#active().getCircuitBreakerState();
     if (cb.tripped) {
       this.#mode = "circuit_tripped";
       if (!wasTripped) {
@@ -1206,8 +1422,12 @@ export class MutexSessionScheduler extends EventEmitter {
 
     // A CPE error code or rejected input means the router answered; only transport failures mean unreachable,
     // and a router that logged in with SCRAM before but now refuses it: nothing gets in until the owner acts, so it alerts
+    // (a driver family whose login method could not be settled answered as well: no password went out)
     const answered =
-      err instanceof CpeApiError || err instanceof CpeControlValidationError || (err instanceof CpeLoginMethodError && !err.scramKnown);
+      err instanceof CpeApiError ||
+      err instanceof CpeControlValidationError ||
+      (err instanceof CpeLoginMethodError && !err.scramKnown) ||
+      err instanceof DriverLoginMethodError;
     this.#mode = answered ? "idle" : "cpe_unreachable";
     // Out of sight, the router may be replaced: its model is confirmed again before the next write
     // (an answer FengSui could not read still came from the router that is there)
@@ -1219,6 +1439,21 @@ export class MutexSessionScheduler extends EventEmitter {
 
 function readbackReasonKey(reason: NonNullable<WriteResultRecord["reason"]>): I18nKey {
   return `readback.${reason}`;
+}
+
+/** A write that was refused before it could fail (audited as `refused`, not `failed`). */
+function isRefusal(err: unknown): boolean {
+  return (
+    err instanceof BrowserSessionYieldedError ||
+    err instanceof DeviceReadOnlyError ||
+    err instanceof DeviceNotIdentifiedError ||
+    err instanceof PeerDaemonStandbyError ||
+    err instanceof CircuitBreakerOpenError ||
+    err instanceof CpeNotConfiguredError ||
+    err instanceof NotDriverFamilyError ||
+    err instanceof SchedulerQueueFullError ||
+    err instanceof SchedulerStoppedError
+  );
 }
 
 /** What a generic write's summary adds: experimental, and how its read-back went. */

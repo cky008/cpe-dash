@@ -13,7 +13,8 @@ import type { TimeSeriesRingBuffer } from "./timeseries.ts";
  * The CPE-facing core shared by every adapter (REST, SSE, MCP, Telegram, SMS, alerts):
  * one scheduler (the only path to an admin session), the read side and the write side.
  *
- * Dependency direction: adapters → `monitor` / `controls` → `scheduler` → `HuaweiCpeClient`.
+ * Dependency direction: adapters → `monitor` / `controls` → `scheduler` → `HuaweiCpeClient` (or,
+ * for a router of another family, the driver client the scheduler builds on its connection).
  */
 export interface FengSuiCore {
   readonly stateStore: EncryptedStateStore;
@@ -35,6 +36,7 @@ export function createFengSuiCore(options: FengSuiCoreOptions): FengSuiCore {
   const scheduler = new MutexSessionScheduler({
     client,
     stateStore,
+    family: options.family,
     maxQueueDepth: options.maxQueueDepth,
     layer2InitialBackoffMs: options.layer2InitialBackoffMs,
     layer2MaxBackoffMs: options.layer2MaxBackoffMs,

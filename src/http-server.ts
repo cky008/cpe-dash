@@ -1099,7 +1099,7 @@ export class FengSuiHttpServer {
           // The router connection and the tokens live in the console store now, not in .env
           const cpe = this.settings.cpe;
           if (!cpe) throw new CpeNotConfiguredError();
-          const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, cpe.username);
+          const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, cpe.username, cpe.family);
           this.#sendJson(res, 200, {
             ok: true,
             circuitBreaker: breaker,

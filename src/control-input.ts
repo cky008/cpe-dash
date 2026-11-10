@@ -3,6 +3,8 @@ import type { BandInput } from "./band-lock.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import type { AntennaModeName, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
 import { parseBandNumber } from "./rf-bounds.ts";
+import type { DriverCellLockTarget, DriverNetworkMode } from "./drivers/types.ts";
+import type { RouterFamilyFacts } from "./router-family.ts";
 import { TimeSeriesValidationError, type TimeSeriesPreset } from "./timeseries.ts";
 
 /**
@@ -282,4 +284,71 @@ export function readSecurityControl(args: Args): SecurityControlInput {
     firewall = cleanFw;
   }
   return { upnpEnabled, dmz, firewall };
+}
+
+/** A band lock as a driver family's session takes it; `null` for a RAT the command leaves as it is. */
+export interface DriverBandLockRequest {
+  lte: number[] | "all" | null;
+  nr: number[] | "all" | null;
+  networkMode: DriverNetworkMode | null;
+}
+
+/** The HiLink network-mode codes the REST / MCP band lock takes, as a driver family names the modes. */
+const DRIVER_NETWORK_MODES: Readonly<Record<string, DriverNetworkMode>> = { "00": "auto", "03": "lte", "08": "nr_sa" };
+
+function parseDriverBands(rat: "LTE" | "NR", bands: ReadonlyArray<BandInput> | "all"): number[] | "all" {
+  if (bands === "all") return "all";
+  if (bands.length === 0) throw new CpeControlValidationError(`At least one ${rat} band is required (or pass 'all')`);
+  try {
+    return [...new Set(bands.map(parseBandNumber))].sort((a, b) => a - b);
+  } catch (err) {
+    throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * The band lock a router of a driver family gets, checked before any session: the bands as numbers
+ * (each driver checks them against the 3GPP tables and, where the router names them, its own), NR
+ * bands only on a family that locks them, and a network mode only among the ones the family offers.
+ */
+export function readDriverBandLockTarget(
+  command: { lteBands?: ReadonlyArray<BandInput> | "all"; nrBands?: ReadonlyArray<BandInput> | "all"; networkMode?: string },
+  facts: Pick<RouterFamilyFacts, "nrBandLock" | "networkModes">
+): DriverBandLockRequest {
+  if (command.lteBands === undefined && command.nrBands === undefined) {
+    throw new CpeControlValidationError("At least one of lteBands or nrBands must be provided");
+  }
+  if (command.nrBands !== undefined && !facts.nrBandLock) {
+    throw new CpeControlValidationError("This router locks LTE bands only: leave nrBands out");
+  }
+  let networkMode: DriverNetworkMode | null = null;
+  if (command.networkMode !== undefined) {
+    const mode = DRIVER_NETWORK_MODES[command.networkMode];
+    if (mode === undefined) throw new CpeControlValidationError(`Invalid networkMode "${command.networkMode}" (expected 00 auto, 03 4G only or 08 5G only)`);
+    if (!facts.networkModes.includes(mode)) throw new CpeControlValidationError(`This router offers no "${mode}" network mode (it offers ${facts.networkModes.join(", ")})`);
+    networkMode = mode;
+  }
+  return {
+    lte: command.lteBands === undefined ? null : parseDriverBands("LTE", command.lteBands),
+    nr: command.nrBands === undefined ? null : parseDriverBands("NR", command.nrBands),
+    networkMode,
+  };
+}
+
+/**
+ * The cell lock a router of a driver family gets: band, channel and PCI as numbers (a driver cell
+ * lock always names the PCI; the driver checks the channel against the band's range).
+ */
+export function readDriverCellLockTarget(command: CellLockCommand): DriverCellLockTarget {
+  if (command.rat !== "LTE" && command.rat !== "NR") throw new CpeControlValidationError('rat must be "LTE" or "NR"');
+  let band: number;
+  try {
+    band = parseBandNumber(command.band);
+  } catch (err) {
+    throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
+  }
+  if (!Number.isInteger(command.arfcn) || command.arfcn < 0) throw new CpeControlValidationError("arfcn must be a non-negative integer");
+  if (command.pci === undefined || command.pci === null) throw new CpeControlValidationError("pci is required for a cell lock on this router (it locks one cell, not a frequency)");
+  if (!Number.isInteger(command.pci) || command.pci < 0) throw new CpeControlValidationError("pci must be a non-negative integer");
+  return { rat: command.rat, band, arfcn: command.arfcn, pci: command.pci, scsKhz: null };
 }
