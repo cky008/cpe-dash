@@ -84,7 +84,9 @@ order: 18
 
 ## 先试试
 
-`DEMO_SCENARIO=unverified npm run demo` 会模拟一台未验证的华为路由器（只有 4G、旧式登录），可以把只读、同意、写入和报告的流程完整走一遍。
+不用安装：打开[在线演示的「其他华为型号」模式](https://cky008.github.io/fengsui-demo/?router=other)，它模拟一台烽燧没验证过的华为路由器（只有 4G）。只读、逐项同意、实验性写入、设备报告和一键 AI 智能体测试都能点；数据全是虚构的，刷新即复原。
+
+在自己的电脑上，`DEMO_SCENARIO=unverified npm run demo` 会让真守护进程连同样一台模拟路由器（只有 4G、旧式登录），可以把只读、同意、写入和报告的流程完整走一遍。
 
 ## 致谢
 

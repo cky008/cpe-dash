@@ -70,7 +70,7 @@ You can try the rest in the [live demo](https://cky008.github.io/fengsui-demo/):
 
 ## Compatibility
 
-FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers usually connect too, but they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more models verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. The models it may support are listed under [Supported devices](docs/guide/en/supported-devices.md); see also [Other Huawei routers](docs/guide/en/other-routers.md).
+FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers usually connect too, but they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more models verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. The models it may support are listed under [Supported devices](docs/guide/en/supported-devices.md); see also [Other Huawei routers](docs/guide/en/other-routers.md), or see it first in the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).
 
 ## Documentation
 

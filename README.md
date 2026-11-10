@@ -70,7 +70,7 @@ docker compose logs cpe-dash | grep "setup code"
 
 ## 兼容性
 
-烽燧只在 H168-383（固件 4.4.0.1）上验证过。其他华为 HiLink 路由器通常也能连上，但以只读方式工作，写操作默认锁定；你可以在控制台里逐项打开实验性写入，风险自负。欢迎用控制台生成设备报告并提交，帮助验证更多型号；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。可能支持的型号见[支持的设备](docs/guide/zh/supported-devices.md)，详见[其他华为型号](docs/guide/zh/other-routers.md)。
+烽燧只在 H168-383（固件 4.4.0.1）上验证过。其他华为 HiLink 路由器通常也能连上，但以只读方式工作，写操作默认锁定；你可以在控制台里逐项打开实验性写入，风险自负。欢迎用控制台生成设备报告并提交，帮助验证更多型号；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。可能支持的型号见[支持的设备](docs/guide/zh/supported-devices.md)，详见[其他华为型号](docs/guide/zh/other-routers.md)；想先看看效果，可以打开[在线演示的「其他华为型号」模式](https://cky008.github.io/fengsui-demo/?router=other)。
 
 ## 文档
 

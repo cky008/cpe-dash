@@ -4,8 +4,19 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Highlights
+- **See FengSui on another Huawei model in the live demo.** Choose "See how FengSui works on other Huawei models" in the demo's notice, or open the demo with `?router=other`: it simulates an LTE-only Huawei router FengSui was not verified on, so you can try the read-only mode, turn experimental writes on one at a time, lock LTE bands, read the device report and start the one-click AI agent test, all inside the page.
+- **A list of the routers FengSui may support.** The new Supported devices page lists, by brand, the Huawei HiLink routers FengSui will most likely connect to, what may work on each, and a link to report how it does on yours.
+
+### Added
+- **The live demo's other-model mode** (`?router=other`). `npm run build:demo` records a second seed from the real daemon on the LTE-only B535-232 demo router (`demo-seed-other.json`), and the in-page backend runs that router's write gate, consents, experimental writes with their read-backs, device report and one-click agent test on the daemon's own rules; a contract test compares it with the daemon on the same router, request by request. The demo's notice links from one router to the other.
+
+### Fixed
+- **The live demo notice's links look like links.** "About the demo" was shown as plain text; the notice's links are now underlined in the theme's colour.
+
 ### Documentation
 - **Supported devices**, a new guide page right after "What FengSui is": the router FengSui is verified on and, by brand, the Huawei HiLink routers another HiLink client was tested on (the "Tested on" list of huawei-lte-api), each with what is verified on it, what may work (FengSui's reads and experimental writes on a model it was not verified on) and a link that opens a device report for that model. A feature users verify (`VERIFIED_FEATURES`) moves from "may work" to "verified" by itself: the tables are written from `src/device-catalog.ts`, and a test keeps the page identical to them. The compatibility table now names features in plain words too (signal and traffic, connected devices).
+- "Other Huawei models" and both READMEs point to the live demo's other-model mode.
 
 ## [1.8.1] — 2026-11-10
 

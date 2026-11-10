@@ -84,7 +84,9 @@ After an agent locks bands, if the WAN stays down 3 minutes, FengSui writes back
 
 ## Try it first
 
-`DEMO_SCENARIO=unverified npm run demo` simulates an unverified Huawei router (4G only, legacy login). You can use it to test read-only mode, consent flows, writes, and reporting workflows.
+No install needed: the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other) simulates a Huawei router FengSui was not verified on (4G only). You can try the read-only mode, consents, experimental writes, the device report and the one-click AI agent test there; every value is fictional, and a reload resets it.
+
+On your own computer, `DEMO_SCENARIO=unverified npm run demo` runs the real daemon against the same simulated router (4G only, legacy login), so you can go through the read-only mode, consents, writes and the report in full.
 
 ## Acknowledgments
 

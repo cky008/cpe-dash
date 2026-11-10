@@ -544,6 +544,15 @@ storage    state-store · encrypted-file · timeseries · sms/mirror · sms/cont
 - 演示不模拟真人登录避让、熔断与多守护进程互斥（这些仍可用 `DEMO_SCENARIO=yield|breaker npm run demo` 在本地体验；`DEMO_SCENARIO=unverified` 换成一台未验证的型号，看只读的样子）。
 - 演示仓库的部署提交由 `github-actions[bot]` 署名、不带用户签名；本仓库自身的提交规则不变。
 
+### 9.6 其他华为型号模式（2026-11-10）
+
+`?router=other` 把在线演示换成一台烽燧没验证过的华为路由器：演示世界里那台只有 4G 的 B535-232（旧式 SHA-256 登录，不报营销名称，也不报运行时长）。
+
+- **两份种子**：`npm run build:demo` 录下 `demo-seed.json`（H168-383）与 `demo-seed-other.json`。采集先等识别完成，再等每个部分要么读到、要么被记为「此型号不提供」；邻区、路由器设置和访问控制在这台上是 `null`。
+- **同一套规则**：`web/src/demo/device.ts` 用守护进程自己的零依赖模块重建写闸门。`DeviceAccess` 从种子里的识别结果恢复（`noteEvidence` 接收探测证据，读取项按种子登记），同意走 `changeExperimentalConsent`，一键测试走 `agent-test.ts` 的规则，输入校验用 `validateGenericBandLock` 与 `validateGenericSmsContent`（为此从依赖 Node 的模块挪进了 `control-input.ts` 与 `sms/text-mode.ts`）。没同意的写操作返回 `409 DEVICE_UNVERIFIED_READ_ONLY` 并记审计；同意后按通用格式写入，回读结果进设备报告，摘要带「实验性写入，回读一致」；重拨和重启等路由器回来后才回读一致。
+- **锁定核对**：通用锁频后，下一次轮询前路由器还显示旧的 LTE 掩码（`settling`，问题文字与守护进程相同），轮询后一致。
+- **契约测试**：`test/demo-backend-other.test.ts` 在同一台未验证路由器上逐项对照演示与真守护进程：读取、拒绝、同意、通用写入与回读、轮询前后的锁定核对、一键测试与设备报告（两边各有同样的两个令牌）。
+
 ## 10. v1.3.0：主题系统（2026-11-01）
 
 ### 10.1 需求
