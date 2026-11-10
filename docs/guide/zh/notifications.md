@@ -22,6 +22,7 @@ order: 9
 | `DATA_THRESHOLD` | 本月流量超过你设的阈值 |
 | `LOCK_ROLLED_BACK` 等 | 自愈解锁或重拨了（见[锁频与锁小区](locking.md)） |
 | `FIRMWARE_UNVERIFIED` / `MODEL_UNVERIFIED` | 路由器固件更新了，或者不是已验证的型号 |
+| `AGENT_TEST_STILL_ON` | AI 智能体测试打开的设置还开着：测完 3 小时后提醒，之后每天一次，直到你看过提醒或测试结束（见[用 AI 智能体测试](other-routers.md#ai)） |
 | `STORAGE_WRITE_FAILED` | 数据保存失败（硬盘满、只读或权限不对） |
 
 故障恢复时会再发一条恢复消息（如 `WAN_UP`）。短暂的波动不会立刻告警：每类告警都有持续时间要求和恢复缓冲。

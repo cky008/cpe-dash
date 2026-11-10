@@ -65,11 +65,17 @@ Once someone confirms and reports that a feature works on physical hardware, mai
 
 An AI agent connected to FengSui (Claude Code, Codex and the like) can run the tests for you:
 
-1. Turn on "Let AI agents test this router" under Settings → Device. To test writes, also turn on "Let agents change the router" under Settings → Tokens & AI and give the agent's token the "Change the router" permission (see [AI agents](agents.md#testing)).
-2. Copy the prompt under "Test this router with an AI agent" on the same page and give it to the agent.
-3. The agent tests every read first; it asks you before each write test, and turns the experimental writes it turned on off again when done.
+1. Under Settings → Device, choose "Copy prompt and start test". FengSui first lists the settings the test turns on; confirm once, and it turns them all on and copies the prompt:
+   - "Let AI agents test this router" and "Let agents change the router";
+   - the experimental writes for band lock, redial and reboot (those this router offers);
+   - the "Change the router" permission for the agent's token: FengSui picks the token that last connected to it, and you can pick another one or none.
+2. Give the prompt to the agent. If the agent is already running, have it reconnect to FengSui first (in Claude Code: `/mcp`), so it sees the new tools.
+3. The agent tests every read first; it asks you before each write test.
 4. It also uses `probe_router_endpoints` to find, on this router, the endpoints FengSui does not use yet: only `GET`s, inside FengSui's own session, with results that hold structure and never a value.
 5. Finally it gives you a desensitized report and the issue link, for you to check and post yourself.
+6. When the test is done, choose "End test" under Settings → Device. FengSui puts back only what the test turned on and you have not changed since.
+
+If you forget to end it: 3 hours after the agent's last test step, while something the test turned on is still on, FengSui reminds you in the console's alerts (`AGENT_TEST_STILL_ON`, and on Telegram if it is set up), then once a day. The reminders stop as soon as one of these happens: the test's writes all read back as a match (those features work on your router, so you may keep them); you have seen the reminder in the console's alerts or chosen "Got it" in Telegram; you end the test.
 
 After an agent locks bands, if the WAN stays down 3 minutes, FengSui writes back the band setting from before the lock. The agent never logs in to the router itself: every request goes through FengSui, which still steps aside when someone logs in to the router's web page.
 

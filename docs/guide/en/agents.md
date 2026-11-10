@@ -116,7 +116,7 @@ Turn on "Let AI agents test this router" under Settings → Device (or set `MCP_
 
 After an agent locks bands, if the WAN stays down 3 minutes, FengSui writes back the band setting it read right before the lock, whether self-healing is on or not; if the WAN comes back and stays up 2 minutes, the lock is kept.
 
-On a model FengSui was not verified on, Settings → Device has a ready-made prompt. Give it to your agent: it tests step by step, finds the endpoints FengSui does not use with `probe_router_endpoints`, and writes a desensitized report for you to check and post as an issue. See [Other Huawei models](other-routers.md#ai).
+On a model FengSui was not verified on, Settings → Device has a ready-made prompt. Choose "Copy prompt and start test" and confirm once: FengSui turns on everything the test uses (this switch, "Let agents change the router", the experimental writes for band lock, redial and reboot, and the "Change the router" permission for the agent's token) and copies the prompt. Give it to your agent: it tests step by step, finds the endpoints FengSui does not use with `probe_router_endpoints`, and writes a desensitized report for you to check and post as an issue. When it is done, "End test" puts everything back; if you forget, FengSui reminds you (`AGENT_TEST_STILL_ON`). See [Other Huawei models](other-routers.md#ai).
 
 ## Security safeguards
 

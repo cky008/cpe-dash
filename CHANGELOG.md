@@ -4,6 +4,19 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Highlights
+- **Start an AI agent's router test with one click.** On a model FengSui was not verified on, "Copy prompt and start test" under Settings → Device lists everything the test needs and, once you confirm, turns it all on and copies the prompt: the agents' two switches, the experimental band lock, redial and reboot, and the router permission for the agent's token. "End test" puts back what the test turned on. If you forget, FengSui reminds you 3 hours after the agent's last step and then daily, until the test's writes have all read back as a match, you have read a reminder, or you end the test.
+
+### Added
+- **The AI agent test at one click** (`POST /api/console/agent-test`, console session only, audited as `agents.test`). `start` turns on, for the model the console showed, what `agentTest.plan` lists: `MCP_ALLOW_EXPERIMENTAL` and `MCP_ALLOW_MUTATIONS` as console settings where they are off, the experimental writes the test covers that this router offers (`bandLock`, `reconnect`, `reboot`; not mobile data, which no agent tool writes, nor SMS, which sends real messages), and the `control` permission for one token the console picked. The console suggests the token that called `/mcp` last in this run, or the only one there is to choose. `end` puts back only what the test turned on and the owner has not changed since (a switch to its earlier console value or `.env`, a consent with the time the test gave it, the token's permission). The test is kept encrypted in `settings.json`, and `GET` / `POST /api/console/experimental` answer with `agentTest` (the test in progress and what starting it would turn on). A router with nothing to test answers `409 AGENT_TEST_UNAVAILABLE`.
+- **A reminder while the test is on** (`AGENT_TEST_STILL_ON`, warning): 3 hours after the test's last tool call by an agent (the report, the probe, the covered writes) or its start, then every 24 hours, through the alert history, the console and the notification channels. None comes once every covered write that is on was tried since the start and read back as a match, once a reminder is read (the console's alerts panel showing it, or "Got it" under the Telegram message), or once nothing the test turned on is still on (the test then ends by itself).
+
+### Changed
+- **The agent test prompt follows the one-click start.** The agent no longer turns experimental writes on and off itself: if a write tool is missing it asks the owner to reconnect it to FengSui or start the test again, it asks before a reboot as before a redial, and it ends by reminding the owner to choose "End test".
+
+### Documentation
+- "Other Huawei models", "AI agents" and "Notifications" describe the one-click test, what it turns on and when the reminder comes.
+
 ## [1.8.0] — 2026-11-09
 
 ### Highlights
