@@ -1,4 +1,5 @@
 import type { DeviceFeature } from "./device-profile.ts";
+import type { RouterFamily } from "./router-family.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -11,13 +12,18 @@ export const VERIFIED_FIRMWARE: ReadonlyArray<{ model: string; softwareVersion: 
 ];
 
 /**
- * Features of other models that a user checked on a real router (multi-model phase 3), reads and
- * writes apart: added when an issue reports one working, with a test and a CHANGELOG line naming the
- * issue, never the person; the Supported devices table (`supportedDevicesSection`, device-catalog.ts)
- * then marks it verified. The model stays unverified as a whole; a verified write no longer counts
- * as experimental on that model (its owner can still turn it off). Empty until the first report.
+ * Features of other models, of any brand, that someone checked on a real router: added when an issue
+ * reports one working (a read that had data, or a write whose read-back matched in the device report's
+ * write record), with a test and a CHANGELOG line naming the issue, never the person. The steps are in
+ * CONTRIBUTING.md. The Supported devices table (`supportedDevicesSection`, device-catalog.ts) then marks
+ * it ✓, and the console shows it as verified on that router. The model stays unverified as a whole; a
+ * verified write no longer counts as experimental there (its owner can still turn it off). Empty until
+ * the first report.
  */
 export interface VerifiedFeature {
+  /** The brand the router connected as (Settings → Router): the device report's `access.family`. */
+  family: RouterFamily;
+  /** The model as the router reports it: the device report's `identity.model`. */
   model: string;
   /** The build it was checked on (the table names it; any build of the model counts, as for the H168-383). */
   softwareVersion: string;
@@ -29,15 +35,19 @@ export interface VerifiedFeature {
 
 export const VERIFIED_FEATURES: ReadonlyArray<VerifiedFeature> = [];
 
-/** A user verified this feature of this model (exact model name, surrounding spaces ignored). */
+/**
+ * Someone verified this feature of this model on a router of this brand (the model as the router reports
+ * it, surrounding spaces ignored; the same name on another brand is another router).
+ */
 export function isVerifiedFeature(
+  family: RouterFamily,
   model: string,
   feature: DeviceFeature,
   access: VerifiedFeature["access"],
   list: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES
 ): boolean {
   const name = model.trim();
-  return name !== "" && list.some((entry) => entry.model === name && entry.feature === feature && entry.access === access);
+  return name !== "" && list.some((entry) => entry.family === family && entry.model === name && entry.feature === feature && entry.access === access);
 }
 
 /** `"4.4.0.1 (H1006SP19C00)"` and `"4.4.0.1(H1006SP19C00)"` are the same build. */

@@ -4,7 +4,7 @@ import type { DeviceAccessSnapshot, SchedulerStatusSnapshot, WriteResultRecord }
 import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS } from "../src/device-access.ts";
 import { WRITE_FEATURES } from "../src/device-access.ts";
 import { FAMILY_WRITE_FEATURES } from "../src/router-family.ts";
-import { canWrite, experimentalOffer, experimentalWrites, hasSwitch, readbackTone, unavailableSection, unverifiedModel, versionLabel, writeState } from "../web/src/core/device-access-view.ts";
+import { canWrite, experimentalOffer, experimentalWrites, hasSwitch, readbackTone, unavailableSection, unconfirmedWrite, unverifiedModel, versionLabel, writeState } from "../web/src/core/device-access-view.ts";
 import { FEATURE_KEYS, READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITE_STATE_KEYS, readText, switchScope, writeResultDetail, writesText } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 
@@ -75,7 +75,11 @@ describe("console: experimental writes on a model nobody verified", () => {
 
     // On by default; one its owner turned off; one the router lacks; one users verified on this model
     const other = status({ model: "B535-232", verification: "unverified-model", writes: "experimental", features: features({ smsWrite: "disabled", mobileData: "unsupported", reconnect: "verified" }) });
-    assert.deepEqual(experimentalWrites(other), ["bandLock", "reboot"]);
+    // A write someone verified on this model stays offered with the others; its confirmation drops "never checked"
+    assert.deepEqual(experimentalWrites(other), ["bandLock", "reboot", "reconnect"]);
+    assert.deepEqual([unconfirmedWrite(other, ["reboot"]), unconfirmedWrite(other, ["reconnect"])], [true, false]);
+    assert.equal(unconfirmedWrite(other, ["reconnect", "bandLock"]), true, "an unlock that either lock allows: one of them was never checked");
+    assert.equal(unconfirmedWrite(verified, ["bandLock"]), false);
     assert.deepEqual([canWrite(other, "bandLock"), canWrite(other, "reconnect"), canWrite(other, "smsWrite"), canWrite(other, "mobileData"), canWrite(other, "cellLock")], [true, true, false, false, false]);
     assert.deepEqual(
       experimentalOffer(other).filter(({ state }) => state !== "not_implemented"),

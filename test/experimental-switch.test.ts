@@ -252,7 +252,7 @@ describe("experimental switch: what each write is on a router", () => {
     unprobed.remember("B535-232", null);
     assert.deepEqual(new Set(["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"].map((f) => unprobed.writeState(f as "reboot"))), new Set(["unsupported"]));
 
-    const reported = new DeviceAccess({ verifiedFeatures: [{ model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "reboot", access: "write", issue: 12 }] });
+    const reported = new DeviceAccess({ verifiedFeatures: [{ family: "huawei", model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "reboot", access: "write", issue: 12 }] });
     reported.remember("B535-232", null);
     assert.equal(reported.writeState("reboot"), "verified", "a write users verified on this model needs no sign from the probe");
     assert.equal(reported.writeAccess("reboot"), "allowed");
@@ -261,6 +261,28 @@ describe("experimental switch: what each write is on a router", () => {
     // Its owner may still turn it off
     reported.setDisabledWrites([{ model: "B535-232", feature: "reboot" }]);
     assert.deepEqual([reported.writeState("reboot"), reported.writeAccess("reboot")], ["disabled", "disabled"]);
+  });
+
+  it("counts a write someone verified on a router of another brand, for that brand and model only", () => {
+    const entry = { family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", feature: "cellLock", access: "write", issue: 41 } as const;
+    const zwrt = new DeviceAccess({ family: "zte-zwrt", verifiedFeatures: [entry] });
+    zwrt.see("MU5250", "BD_ZTE_MU5250V1.0.0B05");
+    assert.deepEqual([zwrt.writeState("cellLock"), zwrt.writeAccess("cellLock")], ["verified", "allowed"]);
+    assert.equal(zwrt.writeState("bandLock"), "enabled", "only the feature reported");
+    assert.equal(zwrt.writes, "experimental", "the model as a whole stays unverified");
+    zwrt.setDisabledWrites([{ model: "MU5250", feature: "cellLock" }]);
+    assert.equal(zwrt.writeState("cellLock"), "disabled", "its owner may still turn it off");
+    // The same name on the other ZTE interface, or another model, is another router
+    const goform = new DeviceAccess({ family: "zte-goform", verifiedFeatures: [entry] });
+    goform.see("MU5250", null);
+    assert.equal(goform.writeState("cellLock"), "enabled");
+    const other = new DeviceAccess({ family: "zte-zwrt", verifiedFeatures: [entry] });
+    other.see("MC8530", null);
+    assert.equal(other.writeState("cellLock"), "enabled");
+    // A write the brand does not implement stays refused whatever a report says
+    const unimplemented = new DeviceAccess({ family: "zte-zwrt", verifiedFeatures: [{ ...entry, feature: "mobileData" }] });
+    unimplemented.see("MU5250", null);
+    assert.equal(unimplemented.writeState("mobileData"), "not_implemented");
   });
 
   it("opens what a driver family's driver implements without a probe, and keeps an unlock open while either lock is", () => {

@@ -3,7 +3,8 @@ import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
 import type { DriverFamily } from "../../../src/router-family.ts";
-import { experimentalWrites, unverifiedModel } from "../core/device-access-view.ts";
+import type { WriteFeature } from "../../../src/device-access.ts";
+import { experimentalWrites, unconfirmedWrite, unverifiedModel } from "../core/device-access-view.ts";
 import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
@@ -242,9 +243,12 @@ export function mountControls(ctx: AppContext): { open(): void } {
       });
   };
 
-  /** The confirm dialog of an experimental write: its own text, then that it was never checked on a real router. */
-  const confirmExperimental = (options: Parameters<AppContext["confirm"]>[0]): Promise<boolean> =>
-    ctx.confirm({ ...options, body: [...options.body, ctx.t("ctl.experimental_note")] });
+  /**
+   * The confirm dialog of a write on a model nobody verified: its own text, then that it was never checked
+   * on a real router, unless someone verified it on this model (an unlock: either lock).
+   */
+  const confirmExperimental = (features: ReadonlyArray<WriteFeature>, options: Parameters<AppContext["confirm"]>[0]): Promise<boolean> =>
+    ctx.confirm(unconfirmedWrite(ctx.store.state.scheduler, features) ? { ...options, body: [...options.body, ctx.t("ctl.experimental_note")] } : options);
 
   /** LTE band lock on a model nobody verified: the bands it advertises, no NR band or cell lock. */
   const experimentalBandSection = (bands: ReadonlyArray<number>): HTMLElement => {
@@ -260,7 +264,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         return;
       }
       const summary = lte === "all" ? ctx.t("ctl.all_bands", { rat: "LTE" }) : lte.map((b) => bandLabel("LTE", b)).join("+");
-      void confirmExperimental({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
+      void confirmExperimental(["bandLock"], { title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
         if (!ok) return;
         runBusy(applyBtn, async () => {
           try {
@@ -303,7 +307,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
   const experimentalUnlockButton = (): HTMLButtonElement => {
     const unlockBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("unlock"), ctx.t("ctl.unlock_all"));
     unlockBtn.addEventListener("click", () => {
-      void confirmExperimental({ title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body")], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
+      void confirmExperimental(["bandLock", "cellLock"], { title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body")], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
         if (!ok) return;
         runBusy(unlockBtn, async () => {
           try {
@@ -354,7 +358,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         value === undefined ? "" : value === "all" ? ctx.t("ctl.all_bands", { rat }) : value.map((b) => bandLabel(rat, b)).join("+");
       const summary = [describe("LTE", lte), describe("NR", nr)].filter(Boolean).join(" · ");
       const body: BandLockRequest = { ...(lte !== undefined ? { lteBands: lte } : {}), ...(nr !== undefined ? { nrBands: nr } : {}) };
-      void confirmExperimental({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
+      void confirmExperimental(["bandLock"], { title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
         if (!ok) return;
         runBusy(applyBtn, async () => {
           try {
@@ -383,12 +387,12 @@ export function mountControls(ctx: AppContext): { open(): void } {
       const on = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("signal"), ctx.t("ctl.mobile_data_on"));
       const off = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("x"), ctx.t("ctl.mobile_data_off"));
       on.addEventListener("click", () => {
-        void confirmExperimental({ title: ctx.t("ctl.mobile_data_on"), body: [], confirmLabel: ctx.t("common.on") }).then((ok) => {
+        void confirmExperimental(["mobileData"], { title: ctx.t("ctl.mobile_data_on"), body: [], confirmLabel: ctx.t("common.on") }).then((ok) => {
           if (ok) runBusy(on, () => ctx.api.mobileData(true).then(() => undefined, fail));
         });
       });
       off.addEventListener("click", () => {
-        void confirmExperimental({ title: ctx.t("ctl.mobile_off_title"), body: [ctx.t("ctl.mobile_off_body")], confirmLabel: ctx.t("common.off"), tone: "warning" }).then((ok) => {
+        void confirmExperimental(["mobileData"], { title: ctx.t("ctl.mobile_off_title"), body: [ctx.t("ctl.mobile_off_body")], confirmLabel: ctx.t("common.off"), tone: "warning" }).then((ok) => {
           if (ok) runBusy(off, () => ctx.api.mobileData(false).then(() => undefined, fail));
         });
       });
@@ -397,7 +401,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     if (open.includes("reconnect")) {
       const redial = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("zap"), ctx.t("ctl.reconnect"));
       redial.addEventListener("click", () => {
-        void confirmExperimental({ title: ctx.t("ctl.reconnect_title"), body: [ctx.t("ctl.reconnect_body")], confirmLabel: ctx.t("ctl.reconnect"), tone: "warning" }).then((ok) => {
+        void confirmExperimental(["reconnect"], { title: ctx.t("ctl.reconnect_title"), body: [ctx.t("ctl.reconnect_body")], confirmLabel: ctx.t("ctl.reconnect"), tone: "warning" }).then((ok) => {
           if (ok) runBusy(redial, () => ctx.api.reconnect().then(() => undefined, fail));
         });
       });
@@ -406,7 +410,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     if (open.includes("reboot")) {
       const reboot = h("button", { class: "btn btn-error btn-outline btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("power"), ctx.t("ctl.reboot"));
       reboot.addEventListener("click", () => {
-        void confirmExperimental({
+        void confirmExperimental(["reboot"], {
           title: ctx.t("ctl.reboot_title"),
           body: [ctx.t("ctl.reboot_body"), ctx.t("common.type_to_confirm", { word: ctx.t("ctl.reboot_word") })],
           confirmLabel: ctx.t("ctl.reboot"),

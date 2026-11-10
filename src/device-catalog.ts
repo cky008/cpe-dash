@@ -103,7 +103,7 @@ export function supportMark(
   unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
 ): SupportMark {
   if (isVerifiedModel(model)) return "○";
-  if (isVerifiedFeature(model, feature, READ_FEATURES.has(feature) ? "read" : "write", verifiedFeatures)) return "○";
+  if (isVerifiedFeature("huawei", model, feature, READ_FEATURES.has(feature) ? "read" : "write", verifiedFeatures)) return "○";
   if (unsupported.some((entry) => entry.model === model.trim() && entry.feature === feature)) return "×";
   return baselineMark(feature);
 }

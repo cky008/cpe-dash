@@ -36,10 +36,18 @@ export function canWrite(scheduler: SchedulerStatusSnapshot | null, feature: Wri
   return state === "verified" || state === "enabled" || state === "unknown";
 }
 
-/** The experimental writes open on this router (a model nobody verified), in the daemon's order. */
+/**
+ * The writes open on a router of a model nobody verified, in the daemon's order: the experimental ones,
+ * and those someone verified on this model (`VERIFIED_FEATURES`), which stay open the same way.
+ */
 export function experimentalWrites(scheduler: SchedulerStatusSnapshot | null): WriteFeature[] {
   const features = scheduler?.device.writes === "experimental" ? scheduler.device.features : undefined;
-  return features ? (Object.keys(features) as WriteFeature[]).filter((feature) => features[feature] === "enabled") : [];
+  return features ? (Object.keys(features) as WriteFeature[]).filter((feature) => features[feature] === "enabled" || features[feature] === "verified") : [];
+}
+
+/** A write's confirmation says it was never checked on a real router: an open write nobody verified on this model. */
+export function unconfirmedWrite(scheduler: SchedulerStatusSnapshot | null, features: ReadonlyArray<WriteFeature>): boolean {
+  return features.some((feature) => writeState(scheduler, feature) === "enabled");
 }
 
 /** Every write feature with its state, for the Device tab of a model nobody verified (empty otherwise). */

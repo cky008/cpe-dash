@@ -144,12 +144,12 @@ describe("the supported devices guide page", () => {
 
   it("turns what users verified into ○, splits a module whose features now differ, and lists a model only users verified", () => {
     const verified: VerifiedFeature[] = [
-      { model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "bandLock", access: "write", issue: 12 },
-      { model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "telemetry", access: "read", issue: 12 },
-      { model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "smsWrite", access: "write", issue: 15 },
+      { family: "huawei", model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "bandLock", access: "write", issue: 12 },
+      { family: "huawei", model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "telemetry", access: "read", issue: 12 },
+      { family: "huawei", model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "smsWrite", access: "write", issue: 15 },
       // A read checked is not the write of the same feature
-      { model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "reboot", access: "read", issue: 16 },
-      { model: "B999-001", softwareVersion: "1.0", feature: "reboot", access: "write", issue: 21 },
+      { family: "huawei", model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "reboot", access: "read", issue: 16 },
+      { family: "huawei", model: "B999-001", softwareVersion: "1.0", feature: "reboot", access: "write", issue: 21 },
     ];
     assert.equal(supportMark("B535-232", "bandLock", verified), "○");
     assert.equal(supportMark("B535-232", "reboot", verified), "△");

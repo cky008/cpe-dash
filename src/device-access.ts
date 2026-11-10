@@ -12,7 +12,8 @@ import { ROUTER_FAMILY_FACTS, type RouterFamily, isDriverFamily } from "./router
  * turn it off for that model; a write FengSui has no implementation of there is refused. "Implements"
  * means the family's own list (`ROUTER_FAMILY_FACTS`): what a driver family's driver sends, and on a
  * HiLink model the generic writes, each only where the identification probe found what it reads
- * back. A write users verified on a model (`VERIFIED_FEATURES`) needs no such evidence.
+ * back. A write someone verified on a model of any brand (`VERIFIED_FEATURES`) is `verified` and needs
+ * no such evidence.
  *
  * The gate trusts only a model seen in this run: an identification, a poll (which reads
  * `device/information` anyway) or the write's own session. What an earlier run stored may be stale
@@ -379,8 +380,9 @@ export class DeviceAccess {
     // A model nobody verified writes only what FengSui implements for its family: a driver's writes,
     // or on a HiLink model the generic ones (a write without one stays the verified model's alone)
     if (!(ROUTER_FAMILY_FACTS[this.#family].writes as ReadonlyArray<string>).includes(feature)) return "not_implemented";
-    // A HiLink model shows in the identification probe what a generic write reads back; one users verified needs no such sign
-    const usersVerified = !isDriverFamily(this.#family) && isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures);
+    // A HiLink model shows in the identification probe what a generic write reads back; one users verified
+    // (on a router of any brand: VERIFIED_FEATURES) needs no such sign
+    const usersVerified = isVerifiedFeature(this.#family, current.model, feature, "write", this.#verifiedFeatures);
     if (!isDriverFamily(this.#family) && !usersVerified) {
       const capability = this.#capability?.model === current.model ? this.#capability : null;
       if (capability?.evidence[feature as ExperimentalFeature] !== true) return "unsupported";
