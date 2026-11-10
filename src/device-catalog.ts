@@ -1,4 +1,4 @@
-import { type DeviceFeature, EXPERIMENTAL_FEATURES } from "./device-profile.ts";
+import type { DeviceFeature } from "./device-profile.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
 import type { SupportedLocale } from "./types.ts";
@@ -11,7 +11,7 @@ import type { SupportedLocale } from "./types.ts";
  * on" list of Salamek/huawei-lte-api groups them (README at df87e5f, 2026-08-13; facts only, none of
  * its code; the guide credits it once, on "Other Huawei models"). Each row gives one mark per console
  * module: verified, may work, unknown or not supported. A feature users verify (`VERIFIED_FEATURES`)
- * turns its mark into "verified".
+ * turns its mark into "verified", one a report shows failing (`UNSUPPORTED_FEATURES`) into "not supported".
  */
 
 /** How the reference list groups a router: 5G routers, 3G/LTE routers, 3G/LTE USB sticks in HiLink mode. */
@@ -53,7 +53,7 @@ export const KNOWN_ROUTERS: ReadonlyArray<KnownRouter> = [
   { brand: "SoyeaLink", model: "B535-333", kind: "lte" },
 ];
 
-/** Verified, may work (FengSui tries it where the router provides it), unknown, not supported. */
+/** Verified, may work (the protocol has it and FengSui implements it), unknown, not supported. */
 export type SupportMark = "○" | "△" | "?" | "×";
 
 /** Features read rather than written: a user's verified read of one makes it verified. */
@@ -62,22 +62,47 @@ const READ_FEATURES: ReadonlySet<DeviceFeature> = new Set<DeviceFeature>(["telem
 /** What FengSui reads on any model, where the router provides it: the HiLink basics (docs/PHASE1_PROTOCOL_SPEC.md A.10). */
 export const GENERIC_READS: ReadonlyArray<DeviceFeature> = ["telemetry", "topology", "smsRead"];
 
-const MAY_WORK: ReadonlySet<DeviceFeature> = new Set<DeviceFeature>([...GENERIC_READS, ...EXPERIMENTAL_FEATURES]);
+/**
+ * Features FengSui knows only the H168-383's endpoints for, with no protocol facts for other models
+ * (A.10: no `device/nbrcellinfo`; A.11: no `net/lock-freq`): whether another model has them is unknown.
+ */
+const H168_ONLY: ReadonlySet<DeviceFeature> = new Set<DeviceFeature>(["neighbors", "cellLock"]);
 
 /**
- * A feature's mark on a model nobody verified: the generic reads and the experimental writes may work;
- * another read goes the H168-383's way, which the model may or may not answer; any other write has no
- * generic form, so FengSui never makes it there.
+ * A feature a report showed not working on a model, or one its protocol rules out: marked × (the
+ * table's only source of "not supported"). Added like a verified feature, naming the issue. Empty
+ * until the first report.
  */
-export function baselineMark(feature: DeviceFeature): SupportMark {
-  if (MAY_WORK.has(feature)) return "△";
-  return READ_FEATURES.has(feature) ? "?" : "×";
+export interface UnsupportedFeature {
+  model: string;
+  feature: DeviceFeature;
+  /** The cky008/cpe-dash issue that reported it. */
+  issue: number;
 }
 
-/** A feature's mark on `model`: verified on a verified model or by a user's report, else its baseline. */
-export function supportMark(model: string, feature: DeviceFeature, verifiedFeatures: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES): SupportMark {
+export const UNSUPPORTED_FEATURES: ReadonlyArray<UnsupportedFeature> = [];
+
+/**
+ * A feature's mark on a model nobody verified, before any report: may work where the protocol has the
+ * feature and FengSui implements it (the generic reads and experimental writes, and the security
+ * switches, antenna and access control the protocol also covers, which FengSui writes on verified
+ * models only for now); unknown where only the H168-383's way is known.
+ */
+export function baselineMark(feature: DeviceFeature): SupportMark {
+  return H168_ONLY.has(feature) ? "?" : "△";
+}
+
+/** A feature's mark on `model`: verified on a verified model or by a report, not supported by a report, else its baseline. */
+export function supportMark(
+  model: string,
+  feature: DeviceFeature,
+  verifiedFeatures: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES,
+  unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
+): SupportMark {
   if (isVerifiedModel(model)) return "○";
-  return isVerifiedFeature(model, feature, READ_FEATURES.has(feature) ? "read" : "write", verifiedFeatures) ? "○" : baselineMark(feature);
+  if (isVerifiedFeature(model, feature, READ_FEATURES.has(feature) ? "read" : "write", verifiedFeatures)) return "○";
+  if (unsupported.some((entry) => entry.model === model.trim() && entry.feature === feature)) return "×";
+  return baselineMark(feature);
 }
 
 interface Module {
@@ -130,17 +155,23 @@ function joinAll(items: ReadonlyArray<string>, en: boolean): string {
  * order ("○/△") when they differ. A verified model, or one only users verified features of, gets a row
  * under Huawei even when the reference does not list it.
  */
-export function supportedDevicesSection(locale: SupportedLocale, verifiedFeatures: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES): string {
+export function supportedDevicesSection(
+  locale: SupportedLocale,
+  verifiedFeatures: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES,
+  unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
+): string {
   const en = locale === "en";
   const routers: Array<{ brand: KnownRouter["brand"]; model: string; kind: RouterKind | null }> = [...KNOWN_ROUTERS];
-  for (const model of [...VERIFIED_FIRMWARE.map((entry) => entry.model), ...verifiedFeatures.map((entry) => entry.model)]) {
+  for (const model of [...VERIFIED_FIRMWARE.map((entry) => entry.model), ...verifiedFeatures.map((entry) => entry.model), ...unsupported.map((entry) => entry.model)]) {
     if (!routers.some((router) => router.model === model)) routers.push({ brand: "Huawei", model, kind: null });
   }
   let mixed = false;
+  let anyUnsupported = false;
   const row = (router: { model: string; kind: RouterKind | null }): string => {
     const kind = router.kind ? (en ? KIND_LABELS[router.kind].en : KIND_LABELS[router.kind].zh) : "—";
     const cells = MODULES.map((module) => {
-      const marks = module.features.map((feature) => supportMark(router.model, feature, verifiedFeatures));
+      const marks = module.features.map((feature) => supportMark(router.model, feature, verifiedFeatures, unsupported));
+      if (marks.includes("×")) anyUnsupported = true;
       if (new Set(marks).size === 1) return marks[0] ?? "?";
       mixed = true;
       return marks.join("/");
@@ -165,20 +196,20 @@ export function supportedDevicesSection(locale: SupportedLocale, verifiedFeature
         "What the marks mean:",
         "",
         `- **○ Verified**: someone confirmed it on a real router, and it is in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels}, which also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.`,
-        "- **△ May work**: FengSui tries it on a model it was not verified on, and it works where the router provides it. Band lock (LTE only), sending and managing SMS, reboot, redial and mobile data are experimental writes there: locked until you turn each one on under Settings → Device.",
-        `- **? Unknown**: FengSui reads it the ${verifiedModels}'s way; whether the router answers is not known.`,
-        "- **× Not supported**: FengSui does not make these writes on a model it was not verified on.",
-        `- "Router switches" are ${joinAll(switches?.en ?? [], true)}. A USB modem works only in HiLink mode, with its web interface.`,
+        "- **△ May work**: the protocol has the feature and FengSui implements it, but nobody has checked it on this model yet. Band lock (LTE only), sending and managing SMS, reboot, redial and mobile data can be tried there as experimental writes, each turned on under Settings → Device; changes to the router switches and access control are offered on verified models only for now.",
+        `- **? Unknown**: FengSui knows only the ${verifiedModels}'s endpoints for it, and the protocol notes say nothing about other models; whether it works depends on the router.`,
+        `- **× Not supported**: the protocol does not have the feature, or someone tested it on this model and it did not work${anyUnsupported ? "" : " (none in the table yet)"}.`,
+        `- "Router switches" are ${joinAll(switches?.en ?? [], true)}, where the router has them (Wi-Fi 7, for one, takes a Wi-Fi 7 router). A USB modem works only in HiLink mode, with its web interface.`,
         ...(mixed ? [`- Where a cell has more than one mark, they follow the column's parts in order: ${split.map((module) => `${module.en} is ${(module.parts?.en ?? []).join(" / ")}`).join("; ")}.`] : []),
       ]
     : [
         "表里的符号：",
         "",
         `- **○ 已验证**：有人在真机上确认过，并已写进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 的全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。`,
-        "- **△ 可能支持**：烽燧在没验证过的型号上会尝试，路由器提供就能用。其中锁频段（只锁 4G）、短信的发送与管理、重启、重拨和移动数据是实验性写入，默认锁定，要在「设置 → 设备」逐项同意后才会打开。",
-        `- **? 未知**：烽燧按 ${verifiedModels} 的方式读取，要看路由器给不给。`,
-        "- **× 不支持**：烽燧不在没验证过的型号上做这些写操作。",
-        `- 「路由器开关」指${joinAll(switches?.zh ?? [], false)}。USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连。`,
+        "- **△ 可能支持**：协议里有这项功能，烽燧也已经实现，只是还没人在这个型号上验证过。其中锁频段（只锁 4G）、短信的发送与管理、重启、重拨和移动数据，可以在「设置 → 设备」逐项同意后作为实验性写入试用；路由器开关和访问控制的改动，烽燧目前只在验证过的型号上开放。",
+        `- **? 未知**：烽燧只知道 ${verifiedModels} 的接口，协议资料里没有其他型号的做法，能不能用要看路由器。`,
+        `- **× 不支持**：协议里没有这项功能，或者有人在这个型号上实测过不能用${anyUnsupported ? "" : "（表里暂时还没有）"}。`,
+        `- 「路由器开关」指${joinAll(switches?.zh ?? [], false)}，路由器本身有这些功能才谈得上（比如 Wi-Fi 7 要路由器支持 Wi-Fi 7）。USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连。`,
         ...(mixed ? [`- 一格里有几个符号时，依次对应这一列包含的功能：${split.map((module) => `「${module.zh}」是${(module.parts?.zh ?? []).join(" / ")}`).join("，")}。`] : []),
       ];
   return [legend.join("\n"), ...sections].join("\n\n");

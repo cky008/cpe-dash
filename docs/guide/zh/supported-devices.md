@@ -13,47 +13,47 @@ order: 2
 表里的符号：
 
 - **○ 已验证**：有人在真机上确认过，并已写进代码（`VERIFIED_FEATURES`）。H168-383 的全部功能都验证过；它换了别的固件也照常工作，只发一次 `FIRMWARE_UNVERIFIED` 提醒。
-- **△ 可能支持**：烽燧在没验证过的型号上会尝试，路由器提供就能用。其中锁频段（只锁 4G）、短信的发送与管理、重启、重拨和移动数据是实验性写入，默认锁定，要在「设置 → 设备」逐项同意后才会打开。
-- **? 未知**：烽燧按 H168-383 的方式读取，要看路由器给不给。
-- **× 不支持**：烽燧不在没验证过的型号上做这些写操作。
-- 「路由器开关」指安全开关、Wi-Fi 7 和天线。USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连。
+- **△ 可能支持**：协议里有这项功能，烽燧也已经实现，只是还没人在这个型号上验证过。其中锁频段（只锁 4G）、短信的发送与管理、重启、重拨和移动数据，可以在「设置 → 设备」逐项同意后作为实验性写入试用；路由器开关和访问控制的改动，烽燧目前只在验证过的型号上开放。
+- **? 未知**：烽燧只知道 H168-383 的接口，协议资料里没有其他型号的做法，能不能用要看路由器。
+- **× 不支持**：协议里没有这项功能，或者有人在这个型号上实测过不能用（表里暂时还没有）。
+- 「路由器开关」指安全开关、Wi-Fi 7 和天线，路由器本身有这些功能才谈得上（比如 Wi-Fi 7 要路由器支持 Wi-Fi 7）。USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连。
 
 ## 华为
 
 | 型号 | 类型 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | H168-383 | 5G 路由器 | ○ | ○ | ○ | ○ | ○ | ○ | ○ | ○ | ○ | ○ | — |
-| H112-372 | 5G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-372) |
-| H122-373 | 5G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H122-373) |
-| H165-383 | 5G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H165-383) |
-| B310s-22 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-22) |
-| B311-221 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-221) |
-| B315s-22 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-22) |
-| B525s-23a | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-23a) |
-| B525s-65a | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-65a) |
-| B528s | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B528s) |
-| B535-232 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-232) |
-| B612-233 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612-233) |
-| B628-265 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-265) |
-| B715s-23c | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B715s-23c) |
-| B818-263 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-263) |
-| E5180s-22 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5180s-22) |
-| E5186s-22a | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5186s-22a) |
-| E5573s-320 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5573s-320) |
-| E5576-320 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-320) |
-| E5577Cs-321 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5577Cs-321) |
-| E8231 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8231) |
-| E3131 | USB 上网卡 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3131) |
-| E3372 | USB 上网卡 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372) |
-| E3531 | USB 上网卡 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3531) |
-| E5530As-2 | USB 上网卡 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5530As-2) |
-| E8372h-608 | USB 上网卡 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-608) |
+| H112-372 | 5G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-372) |
+| H122-373 | 5G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H122-373) |
+| H165-383 | 5G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H165-383) |
+| B310s-22 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-22) |
+| B311-221 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-221) |
+| B315s-22 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-22) |
+| B525s-23a | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-23a) |
+| B525s-65a | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-65a) |
+| B528s | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B528s) |
+| B535-232 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-232) |
+| B612-233 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612-233) |
+| B628-265 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-265) |
+| B715s-23c | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B715s-23c) |
+| B818-263 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-263) |
+| E5180s-22 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5180s-22) |
+| E5186s-22a | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5186s-22a) |
+| E5573s-320 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5573s-320) |
+| E5576-320 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-320) |
+| E5577Cs-321 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5577Cs-321) |
+| E8231 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8231) |
+| E3131 | USB 上网卡 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3131) |
+| E3372 | USB 上网卡 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372) |
+| E3531 | USB 上网卡 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3531) |
+| E5530As-2 | USB 上网卡 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5530As-2) |
+| E8372h-608 | USB 上网卡 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-608) |
 
 ## SoyeaLink
 
 | 型号 | 类型 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| B535-333 | 3G/4G 路由器 | △ | ? | △ | △ | △ | × | △ | △ | × | × | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-333) |
+| B535-333 | 3G/4G 路由器 | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-333) |
 <!-- devices:end -->
 
 ## 帮忙验证你的型号

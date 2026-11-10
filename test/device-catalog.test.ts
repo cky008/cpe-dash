@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
-import { GENERIC_READS, KNOWN_ROUTERS, MODULES, baselineMark, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
+import { GENERIC_READS, KNOWN_ROUTERS, MODULES, UNSUPPORTED_FEATURES, type UnsupportedFeature, baselineMark, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES } from "../src/device-profile.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
 import { VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
@@ -57,18 +57,35 @@ describe("the supported devices guide page", () => {
     assert.deepEqual(rows(en)[0], ["H168-383", "5G router", ...MODULES.map(() => "○"), "—"], "the verified model: everything verified, nothing to report");
   });
 
-  it("marks what FengSui does on a model nobody verified: generic reads and experimental writes may work, other reads are unknown, other writes not supported", () => {
+  it("marks a model nobody verified from the protocol: what it has and FengSui implements may work, what only the H168-383 is known for is unknown", () => {
     assert.deepEqual(GENERIC_READS, ["telemetry", "topology", "smsRead"]);
     // The legend names the experimental writes: a new one belongs in its sentence
     assert.deepEqual([...EXPERIMENTAL_FEATURES], ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"]);
-    for (const feature of [...GENERIC_READS, ...EXPERIMENTAL_FEATURES]) assert.equal(baselineMark(feature), "△", feature);
-    assert.equal(baselineMark("neighbors"), "?");
-    for (const feature of ["cellLock", "securitySwitches", "wifi", "antenna", "accessControl"] as const) assert.equal(baselineMark(feature), "×", feature);
-    assert.deepEqual(marksOf(supportedDevicesSection("en"), "B535-232"), ["△", "?", "△", "△", "△", "×", "△", "△", "×", "×"]);
+    for (const feature of [...GENERIC_READS, ...EXPERIMENTAL_FEATURES, "securitySwitches", "wifi", "antenna", "accessControl"] as const) assert.equal(baselineMark(feature), "△", feature);
+    for (const feature of ["neighbors", "cellLock"] as const) assert.equal(baselineMark(feature), "?", feature);
+    assert.deepEqual(UNSUPPORTED_FEATURES, [], "nothing reported as not working yet");
+    assert.deepEqual(marksOf(supportedDevicesSection("en"), "B535-232"), ["△", "?", "△", "△", "△", "?", "△", "△", "△", "△"]);
     const legend = supportedDevicesSection("zh-CN").split("\n## ")[0] ?? "";
     for (const mark of ["**○ 已验证**", "**△ 可能支持**", "**? 未知**", "**× 不支持**"]) assert.ok(legend.includes(mark), mark);
+    assert.ok(legend.includes("协议里没有这项功能，或者有人在这个型号上实测过不能用（表里暂时还没有）"), legend);
+    assert.ok(legend.includes("路由器开关和访问控制的改动，烽燧目前只在验证过的型号上开放"), "△ says what an owner can do today");
     assert.ok(legend.includes("「路由器开关」指安全开关、Wi-Fi 7 和天线"), legend);
     assert.equal(legend.includes("一格里有几个符号"), false, "no cell has two marks yet, so no word about them");
+  });
+
+  it("marks × only from a report, and lists a model only reported as not working", () => {
+    const failed: UnsupportedFeature[] = [
+      { model: "B535-232", feature: "accessControl", issue: 31 },
+      { model: "B999-002", feature: "antenna", issue: 32 },
+    ];
+    assert.equal(supportMark("B535-232", "accessControl", [], failed), "×");
+    assert.equal(supportMark(" B535-232 ", "accessControl", [], failed), "×", "surrounding spaces aside");
+    assert.equal(supportMark("H168-383", "accessControl", [], [{ model: "H168-383", feature: "accessControl", issue: 1 }]), "○", "a verified model stays verified");
+    const en = supportedDevicesSection("en", [], failed);
+    assert.deepEqual(marksOf(en, "B535-232")?.slice(-1), ["×"]);
+    assert.deepEqual(rows(en).find((cells) => cells[0] === "B999-002")?.slice(0, 2), ["B999-002", "—"]);
+    assert.ok(marksOf(en, "B999-002")?.includes("△/△/×"), "router switches: the antenna reported failing");
+    assert.equal(en.includes("(none in the table yet)"), false);
   });
 
   it("links every other model to a new device report titled with it, and to nothing else", () => {
@@ -96,10 +113,10 @@ describe("the supported devices guide page", () => {
     assert.equal(supportMark("B535-232", "bandLock", verified), "○");
     assert.equal(supportMark("B535-232", "reboot", verified), "△");
     const zh = supportedDevicesSection("zh-CN", verified);
-    assert.deepEqual(marksOf(zh, "B535-232"), ["○", "?", "△", "△/○", "○", "×", "△", "△", "×", "×"]);
+    assert.deepEqual(marksOf(zh, "B535-232"), ["○", "?", "△", "△/○", "○", "?", "△", "△", "△", "△"]);
     assert.ok(zh.includes("- 一格里有几个符号时，依次对应这一列包含的功能：「短信」是读取 / 发送与管理，「重启与重拨」是重启 / 重拨，「路由器开关」是安全开关 / Wi-Fi 7 / 天线。"), zh);
     const en = supportedDevicesSection("en", verified);
-    assert.deepEqual(rows(en).find((cells) => cells[0] === "B999-001")?.slice(0, 2 + MODULES.length), ["B999-001", "—", "△", "?", "△", "△", "△", "×", "○/△", "△", "×", "×"]);
+    assert.deepEqual(rows(en).find((cells) => cells[0] === "B999-001")?.slice(0, 2 + MODULES.length), ["B999-001", "—", "△", "?", "△", "△", "△", "?", "○/△", "△", "△", "△"]);
     assert.ok(en.includes("they follow the column's parts in order: SMS is reading / sending and managing; Reboot & redial is reboot / redial;"), en);
   });
 });
