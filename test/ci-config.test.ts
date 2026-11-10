@@ -87,8 +87,8 @@ describe("The local gate (npm run check)", () => {
   it("keeps the browser tests out of the gate and runs them in CI against a fresh build (ADR-R2-04)", () => {
     const { scripts } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     // test/*.test.ts does not reach test/ui/: the gate and its coverage never need a browser
-    for (const name of ["test", "test:coverage"]) assert.match(scripts[name] ?? "", /--test test\/\*\.test\.ts$/, name);
-    assert.equal(scripts["test:ui"], "npm run build:web && node --experimental-strip-types --test test/ui/*.test.ts");
+    for (const name of ["test", "test:coverage"]) assert.match(scripts[name] ?? "", /--test(?: --test-reporter(?:-destination)?=\S+)* test\/\*\.test\.ts$/, name);
+    assert.match(scripts["test:ui"] ?? "", /^npm run build:web && node --experimental-strip-types --test(?: --test-reporter(?:-destination)?=\S+)* test\/ui\/\*\.test\.ts$/);
     const ci = fs.readFileSync(path.join(ROOT, ".github", "workflows", "ci-docker.yml"), "utf8");
     assert.match(ci, /run: npm run check\n(?:\s+#[^\n]*\n)?\s+- name: Console in a headless browser[^\n]*\n\s+if: matrix\.node == '26\.x'\n\s+run: npm run test:ui\n/);
   });
