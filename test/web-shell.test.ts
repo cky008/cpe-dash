@@ -32,8 +32,9 @@ import {
   saveAlertsSeen,
   savePreference,
 } from "../web/src/core/prefs.ts";
-import { type EventSourceLike, SSE_EVENT_NAMES, SseClient, type SseEvent, type SseStatus, backoffDelayMs } from "../web/src/core/sse.ts";
+import { type EventSourceLike, SSE_EVENT_NAMES, SseClient, type SseEvent, type SseStatus, backoffDelayMs, liveStreamPill } from "../web/src/core/sse.ts";
 import { LIVE_CAPACITY, MAX_ALERTS, Store, appendLive, initialState, mergeAlerts, reduceSseEvent, seedLive, unreadBadgeCount, unseenAlertCount } from "../web/src/core/store.ts";
+import { en } from "../web/src/i18n/en.ts";
 import { zhCN } from "../web/src/i18n/zh-CN.ts";
 
 const NOW = new Date(2026, 9, 31, 12, 0, 0); // local time, Saturday 2026-10-31 12:00
@@ -465,6 +466,29 @@ describe("web core: SSE reconnect state machine", () => {
     assert.equal(flaky.timers.size, 0);
     flaky.client.reconnectNow(); // not reconnecting: no-op
     assert.equal(flaky.sources.length, 1);
+  });
+});
+
+describe("web core: the live-updates pill in the header", () => {
+  it("says the state in words, and takes room on a medium screen only when the page is not live", () => {
+    assert.deepEqual(liveStreamPill("live"), { tone: "ok", key: "sse.live", hint: "sse.hint_live", pulsing: true, wideOnly: true });
+    assert.deepEqual(liveStreamPill("connecting"), { tone: "busy", key: "sse.connecting", hint: "sse.hint_stale", pulsing: false, wideOnly: false });
+    assert.deepEqual(liveStreamPill("reconnecting"), { tone: "warn", key: "sse.reconnecting", hint: "sse.hint_stale", pulsing: false, wideOnly: false });
+    for (const gone of ["unauthorized", "stopped"] as const) assert.deepEqual(liveStreamPill(gone), { tone: "danger", key: "sse.offline", hint: "sse.hint_stale", pulsing: false, wideOnly: false }, gone);
+  });
+
+  it("never draws the pill as a bare dot: its label shows whenever the pill does, and names what is live", () => {
+    const html = fs.readFileSync("web/index.html", "utf8");
+    const pill = /<span id="ssePill"[^>]*>(.*?)<\/span>\s*\n/.exec(html)?.[0] ?? "";
+    assert.match(pill, /<span data-role="text"><\/span>/, "the label carries no class that hides it at some width");
+    assert.doesNotMatch(pill, /2xl:inline"|lg:inline-flex/, "which widths show the pill is decided with its state, in header.ts");
+    const header = fs.readFileSync("web/src/ui/header.ts", "utf8");
+    assert.match(header, /liveStreamPill\(/);
+    for (const key of ["sse.live", "sse.connecting", "sse.reconnecting", "sse.offline"] as const) {
+      assert.match(zhCN[key], /实时更新/, `zh-CN ${key} says what the dot is about`);
+      assert.match(en[key], /Live updates/, `en ${key} says what the dot is about`);
+    }
+    assert.ok(zhCN["sse.hint_live"].trim() && zhCN["sse.hint_stale"].trim() && en["sse.hint_live"].trim() && en["sse.hint_stale"].trim());
   });
 });
 

@@ -692,6 +692,31 @@ describe("the console in a browser", () => {
     }
   });
 
+  it("names the page's live updates in words where there is room, and draws no bare dot where there is not", async () => {
+    const d = live();
+    const pill = (): Promise<{ display: string; text: string; labelWidth: number; title: string }> =>
+      page.evaluate(
+        `(() => { const el = document.getElementById('ssePill'); const label = el.querySelector('[data-role=text]'); return { display: getComputedStyle(el).display, text: label.textContent, labelWidth: Math.round(label.getBoundingClientRect().width), title: el.title }; })()`
+      );
+    // A wide screen: the pill with its label
+    await signIn(page, d, { width: 1600, height: 900, scale: 1, mobile: false });
+    await page.waitUntil("document.querySelector('#ssePill [data-role=text]').textContent === 'Live updates'", "the live stream");
+    const wide = await pill();
+    assert.notEqual(wide.display, "none");
+    assert.deepEqual([wide.text, wide.title], ["Live updates", "Live updates · The page updates by itself; no need to reload"]);
+    assert.ok(wide.labelWidth > 40, `the label is drawn (${wide.labelWidth}px)`);
+    // A medium screen has no room for the label: while the page is live, no pill at all (it used to be a dot alone)
+    await signIn(page, d, { width: 1280, height: 800, scale: 1, mobile: false });
+    await page.waitUntil("document.querySelector('#ssePill [data-role=text]').textContent === 'Live updates'", "the live stream");
+    assert.equal((await pill()).display, "none");
+    // Not receiving updates is said there, in words
+    await page.evaluate("(() => { const el = document.getElementById('ssePill'); el.classList.remove('2xl:inline-flex'); el.classList.add('lg:inline-flex'); el.querySelector('[data-role=text]').textContent = 'Live updates: reconnecting'; return true; })()");
+    const stale = await pill();
+    assert.notEqual(stale.display, "none");
+    assert.ok(stale.labelWidth > 40, `the label is drawn (${stale.labelWidth}px)`);
+    assert.deepEqual(page.exceptions, []);
+  });
+
   it("keeps every header button on screen at any width, in both languages, however long the status pills get", async () => {
     // The longest header: a model nobody verified whose owner turned every write off (the badge says both)
     const other = await world({ scenario: "unverified" });

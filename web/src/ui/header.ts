@@ -1,5 +1,6 @@
 import { experimentalWrites, unverifiedModel } from "../core/device-access-view.ts";
 import { loadAlertsSeen, saveAlertsSeen } from "../core/prefs.ts";
+import { liveStreamPill } from "../core/sse.ts";
 import { unreadBadgeCount, unseenAlertCount } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
@@ -83,13 +84,14 @@ export function mountHeader(ctx: AppContext): void {
     readOnlyBadge.setAttribute("aria-label", readOnlyBadge.title);
   };
 
+  // The page's own live updates. Live is the normal state: it shows where there is room for its
+  // label (a dot alone says nothing); a page that is not receiving updates says so from desktop width up
   const ssePill = byId("ssePill");
   const renderSse = (): void => {
-    const { state } = ctx.store.state.sse;
-    if (state === "live") setPill(ssePill, "ok", ctx.t("sse.live"), true);
-    else if (state === "connecting") setPill(ssePill, "busy", ctx.t("sse.connecting"), false);
-    else if (state === "reconnecting") setPill(ssePill, "warn", ctx.t("sse.reconnecting"), false);
-    else setPill(ssePill, "danger", ctx.t("sse.offline"), false);
+    const pill = liveStreamPill(ctx.store.state.sse.state);
+    setPill(ssePill, pill.tone, ctx.t(pill.key), pill.pulsing, ctx.t(pill.hint));
+    ssePill.classList.toggle("2xl:inline-flex", pill.wideOnly);
+    ssePill.classList.toggle("lg:inline-flex", !pill.wideOnly);
   };
 
   const unreadBadge = byId("smsUnreadBadge");

@@ -40,6 +40,25 @@ export interface EventSourceLike {
 
 export type SseConnectionState = "connecting" | "live" | "reconnecting" | "unauthorized" | "stopped";
 
+/**
+ * How the header shows the live stream: in words wherever it shows, never as a dot alone. While the
+ * stream is live there is nothing to act on, so the pill is left to wide screens that have room for
+ * its label (`wideOnly`); a stream that is connecting, retrying or gone is said on every desktop width.
+ */
+export function liveStreamPill(state: SseConnectionState): {
+  tone: "ok" | "busy" | "warn" | "danger";
+  key: "sse.live" | "sse.connecting" | "sse.reconnecting" | "sse.offline";
+  hint: "sse.hint_live" | "sse.hint_stale";
+  pulsing: boolean;
+  wideOnly: boolean;
+} {
+  if (state === "live") return { tone: "ok", key: "sse.live", hint: "sse.hint_live", pulsing: true, wideOnly: true };
+  const stale = { hint: "sse.hint_stale", pulsing: false, wideOnly: false } as const;
+  if (state === "connecting") return { tone: "busy", key: "sse.connecting", ...stale };
+  if (state === "reconnecting") return { tone: "warn", key: "sse.reconnecting", ...stale };
+  return { tone: "danger", key: "sse.offline", ...stale };
+}
+
 export interface SseStatus {
   state: SseConnectionState;
   /** Consecutive failed attempts since the last `hello`. */
