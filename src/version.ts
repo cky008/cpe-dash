@@ -1,2 +1,2 @@
 /** Release version reported by `GET /api/health` and the web dashboard; kept equal to package.json. */
-export const FENGSUI_VERSION = "1.8.2";
+export const FENGSUI_VERSION = "1.8.3";

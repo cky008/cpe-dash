@@ -4,6 +4,8 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.8.3] — 2026-11-10
+
 ### Highlights
 - **Routers of other brands.** FengSui now connects to ZTE (the goform web interface and the zWRT one of the G5, U60 and U50 series), Pinsu, Tozed / ZLT (also China Unicom's VN007), FiberHome and NRadio routers, and to OpenWrt routers with a Quectel or Fibocom module. Each brand has an implementation of its own, written from notes on the brand's management interface: the signal on all of them, nearby cells on most, and band lock, cell lock and reboot as experimental writes you turn on one at a time. None of them has been run on a real router yet: FengSui is still verified on the H168-383 only, and the other brands are read-only until you say otherwise.
 - **FengSui tells the brand itself.** Settings → Router has a brand field that starts on "Detect automatically". FengSui sends the router a few requests that need no login, sees which brand answers, and only then sends the password: no password goes to a router of the wrong brand, and no login attempt is used up. If it cannot tell, it says so and you choose the brand yourself.
