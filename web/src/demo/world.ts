@@ -12,15 +12,22 @@ import { formatBytesBinary, formatRateBitsPerSec } from "../../../src/units.ts";
 export const TICK_MS = 5_000;
 const HISTORY_MS = 24 * 60 * 60_000;
 
+/** The NR values: `null` on a router that has no 5G (an LTE-only model), so none is ever invented. */
+interface NrSignal {
+  rsrpDbm: number;
+  rsrqDb: number;
+  sinrDb: number;
+}
+
 export interface SignalBase {
   lteRsrpDbm: number;
   lteRsrqDb: number;
   lteSinrDb: number;
   lteRssiDbm: number;
-  nrRsrpDbm: number;
-  nrRsrqDb: number;
-  nrSinrDb: number;
+  nr: NrSignal | null;
   temperatureCelsius: number;
+  /** The router reports its uptime; one that does not (an LTE-only model may not) keeps 0, so none is invented. */
+  uptime: boolean;
 }
 
 export interface WorldSample {
@@ -31,23 +38,23 @@ export interface WorldSample {
   lteRsrqDb: number;
   lteSinrDb: number;
   lteRssiDbm: number;
-  nrRsrpDbm: number;
-  nrRsrqDb: number;
-  nrSinrDb: number;
+  nrRsrpDbm: number | null;
+  nrRsrqDb: number | null;
+  nrSinrDb: number | null;
   temperatureCelsius: number;
 }
 
 export function signalBase(t: GlobalTelemetrySnapshot): SignalBase {
   const rf = t.rf;
+  const hasNr = rf.nrRsrpDbm !== null || rf.nrSinrDb !== null || rf.nrScc.length > 0;
   return {
     lteRsrpDbm: rf.lteRsrpDbm ?? -88,
     lteRsrqDb: rf.lteRsrqDb ?? -8,
     lteSinrDb: rf.lteSinrDb ?? 13,
     lteRssiDbm: rf.lteRssiDbm ?? -70,
-    nrRsrpDbm: rf.nrRsrpDbm ?? -95,
-    nrRsrqDb: rf.nrRsrqDb ?? -10.5,
-    nrSinrDb: rf.nrSinrDb ?? 9,
+    nr: hasNr ? { rsrpDbm: rf.nrRsrpDbm ?? -95, rsrqDb: rf.nrRsrqDb ?? -10.5, sinrDb: rf.nrSinrDb ?? 9 } : null,
     temperatureCelsius: t.thermal.temperatureCelsius ?? 46,
+    uptime: t.device.uptimeSec > 0,
   };
 }
 
@@ -99,9 +106,9 @@ export function worldSample(tsMs: number, base: SignalBase, random: () => number
     lteRsrqDb: round1(base.lteRsrqDb - load * 1.5 + noise(0.8)),
     lteSinrDb: round1(base.lteSinrDb + drift * 0.6 - load * 3 + noise(2)),
     lteRssiDbm: round1(base.lteRssiDbm + drift + noise(1.2)),
-    nrRsrpDbm: round1(base.nrRsrpDbm + drift * 1.3 + noise(2.2)),
-    nrRsrqDb: round1(base.nrRsrqDb - load * 1.5 + noise(0.8)),
-    nrSinrDb: round1(base.nrSinrDb + drift * 0.8 - load * 4 + noise(2.6)),
+    nrRsrpDbm: base.nr ? round1(base.nr.rsrpDbm + drift * 1.3 + noise(2.2)) : null,
+    nrRsrqDb: base.nr ? round1(base.nr.rsrqDb - load * 1.5 + noise(0.8)) : null,
+    nrSinrDb: base.nr ? round1(base.nr.sinrDb + drift * 0.8 - load * 4 + noise(2.6)) : null,
     temperatureCelsius: round1(base.temperatureCelsius - 2 + activity * 5 + noise(0.4)),
   };
 }
@@ -156,7 +163,7 @@ export function advanceTelemetry(
     ...prev,
     capturedAtIso: new Date(sample.tsMs).toISOString(),
     capturedAtMs: sample.tsMs,
-    device: { ...prev.device, uptimeSec: prev.device.uptimeSec + elapsedSec },
+    device: { ...prev.device, uptimeSec: base.uptime ? prev.device.uptimeSec + elapsedSec : prev.device.uptimeSec },
     rf: {
       ...prev.rf,
       lteRsrpDbm: sample.lteRsrpDbm,
@@ -167,7 +174,10 @@ export function advanceTelemetry(
       nrRsrqDb: sample.nrRsrqDb,
       nrSinrDb: sample.nrSinrDb,
       lteScc: shiftScc(prev.rf.lteScc, sample.lteRsrpDbm - (prev.rf.lteRsrpDbm ?? base.lteRsrpDbm), sample.lteSinrDb - (prev.rf.lteSinrDb ?? base.lteSinrDb)),
-      nrScc: shiftScc(prev.rf.nrScc, sample.nrRsrpDbm - (prev.rf.nrRsrpDbm ?? base.nrRsrpDbm), sample.nrSinrDb - (prev.rf.nrSinrDb ?? base.nrSinrDb)),
+      nrScc:
+        sample.nrRsrpDbm === null || sample.nrSinrDb === null || !base.nr
+          ? prev.rf.nrScc
+          : shiftScc(prev.rf.nrScc, sample.nrRsrpDbm - (prev.rf.nrRsrpDbm ?? base.nr.rsrpDbm), sample.nrSinrDb - (prev.rf.nrSinrDb ?? base.nr.sinrDb)),
     },
     traffic: {
       ...tr,

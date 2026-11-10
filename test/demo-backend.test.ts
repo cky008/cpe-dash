@@ -15,8 +15,9 @@ import type {
 } from "../src/api-contract.ts";
 import { type DemoSession, captureDemoSeed, openDemoSession } from "../scripts/capture-demo-seed.ts";
 import { type DemoDaemon, startDemoDaemon } from "../scripts/demo-router.ts";
-import { DemoBackend, DemoEventSource } from "../web/src/demo/backend.ts";
+import { DemoBackend, type DemoEventSource } from "../web/src/demo/backend.ts";
 import { type DemoSeed, readDemoSeed, rebaseSeed, rebaseTimestamps } from "../web/src/demo/seed.ts";
+import { type Json, assertSameShape, daemonCall, demoCall, listen, settle } from "./helpers/demo-contract.ts";
 
 /**
  * The static demo's in-page backend against the daemon it imitates: both start from the same seed
@@ -24,71 +25,6 @@ import { type DemoSeed, readDemoSeed, rebaseSeed, rebaseTimestamps } from "../we
  * the same shapes, the same state changes and the same validation errors. Placeholders only.
  */
 
-type Json = Record<string, unknown>;
-
-/** Every key path (arrays collapsed to `[]`) with the JSON types seen there, nulls ignored. */
-function shapeOf(value: unknown): Map<string, Set<string>> {
-  const out = new Map<string, Set<string>>();
-  const visit = (node: unknown, path: string): void => {
-    if (node === null || node === undefined) {
-      if (!out.has(path)) out.set(path, new Set());
-      return;
-    }
-    if (Array.isArray(node)) {
-      if (!out.has(path)) out.set(path, new Set(["array"]));
-      for (const item of node) visit(item, `${path}[]`);
-      return;
-    }
-    if (typeof node === "object") {
-      out.set(path, new Set([...(out.get(path) ?? []), "object"]));
-      for (const [k, v] of Object.entries(node)) visit(v, `${path}.${k}`);
-      return;
-    }
-    out.set(path, new Set([...(out.get(path) ?? []), typeof node]));
-  };
-  visit(value, "$");
-  return out;
-}
-
-function assertSameShape(label: string, daemon: unknown, demo: unknown): void {
-  const a = shapeOf(daemon);
-  const b = shapeOf(demo);
-  assert.deepEqual([...b.keys()].filter((k) => !a.has(k)), [], `${label}: fields only the demo returns`);
-  assert.deepEqual([...a.keys()].filter((k) => !b.has(k)), [], `${label}: fields the demo lacks`);
-  for (const [path, types] of a) {
-    const other = b.get(path) ?? new Set();
-    if (types.size === 0 || other.size === 0) continue;
-    assert.deepEqual([...other].sort(), [...types].sort(), `${label}: type of ${path}`);
-  }
-}
-
-async function demoCall(backend: DemoBackend, method: string, route: string, body?: unknown): Promise<{ status: number; json: Json }> {
-  const res = await backend.fetch(route, body === undefined ? { method } : { method, body: JSON.stringify(body) });
-  return { status: res.status, json: (await res.json()) as Json };
-}
-
-async function daemonCall(daemon: DemoDaemon, session: DemoSession, method: string, route: string, body?: unknown): Promise<{ status: number; json: Json }> {
-  try {
-    const json = method === "GET" ? await session.get<Json>(route) : await session.post<Json>(route, body ?? {});
-    return { status: 200, json };
-  } catch (err: unknown) {
-    // openDemoSession throws "<METHOD> <route>: HTTP <status> <body>" on non-2xx
-    const m = /HTTP (\d{3}) (.*)$/s.exec(err instanceof Error ? err.message : "");
-    if (!m) throw err;
-    void daemon;
-    return { status: Number(m[1]), json: JSON.parse(m[2] ?? "{}") as Json };
-  }
-}
-
-function listen(source: DemoEventSource): Array<{ name: string; data: Json }> {
-  const events: Array<{ name: string; data: Json }> = [];
-  for (const name of ["hello", "speed", "telemetry", "neighbors", "topology", "settings", "access-control", "control:applied", "alert", "sms:new", "sms:sent", "sms:updated", "sms:sync", "sms:status", "contacts:updated"]) {
-    source.addEventListener(name, (event) => events.push({ name, data: JSON.parse(String(event.data)) as Json }));
-  }
-  return events;
-}
-
-const settle = (ms = 30): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const TOKEN = "fengsui-demo-test";
 
 describe("Static demo backend vs the real daemon", () => {
@@ -136,7 +72,7 @@ describe("Static demo backend vs the real daemon", () => {
       "/api/sms/thread?key=%2B353830000001",
       "/api/sms/contacts?search=&limit=5000",
     ]) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "GET", route), demoCall(backend, "GET", route)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "GET", route), demoCall(backend, "GET", route)]);
       assert.equal(demo.status, real.status, route);
       assertSameShape(route, real.json, demo.json);
     }
@@ -146,11 +82,11 @@ describe("Static demo backend vs the real daemon", () => {
     const day = (await demoCall(backend, "GET", "/api/timeseries?preset=24h&maxPoints=288")).json as unknown as TimeSeriesEndpointResponse;
     assert.ok(day.points.length > 250, `24 h of points (got ${day.points.length})`);
     assert.ok(day.points.every((p) => p.lteRsrpAvgDbm !== null && p.dlPeakBps >= p.dlAvgBps));
-    const real = await daemonCall(daemon, session, "GET", "/api/timeseries?preset=1h&maxPoints=60");
+    const real = await daemonCall(session, "GET", "/api/timeseries?preset=1h&maxPoints=60");
     const demo = await demoCall(backend, "GET", "/api/timeseries?preset=1h&maxPoints=60");
     assertSameShape("timeseries", real.json, demo.json);
     for (const bad of ["/api/timeseries?preset=week", "/api/timeseries?preset=custom&fromMs=5&toMs=1", "/api/timeseries?preset=1h&maxPoints=1e3"]) {
-      const [r, d] = await Promise.all([daemonCall(daemon, session, "GET", bad), demoCall(backend, "GET", bad)]);
+      const [r, d] = await Promise.all([daemonCall(session, "GET", bad), demoCall(backend, "GET", bad)]);
       assert.equal(d.status, r.status, bad);
       assert.equal(d.json["message"], r.json["message"], bad);
     }
@@ -163,7 +99,7 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 1850, pci: null }],
       ["/api/control/unlock", {}],
     ] as const) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
       assert.equal(demo.status, 200, route);
       assertSameShape(route, real.json, demo.json);
       const { updatedAtIso: _a, ...realLock } = real.json["lockState"] as Json;
@@ -180,11 +116,12 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/reboot", { confirm: false }],
       ["/api/control/reconnect", {}],
       ["/api/control/antenna", { mode: "sideways" }],
+      ["/api/control/wifi7", {}],
       ["/api/control/mobile-data", {}],
       ["/api/control/security", { dmz: { enabled: true, ipAddress: "192.168.8.300" } }],
       ["/api/control/security", { firewall: { teleport: true } }],
     ] as const) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
       assert.equal(real.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.json["message"], real.json["message"], `${route} ${JSON.stringify(body)}`);
@@ -198,7 +135,7 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/antenna", { mode: "external" }],
       ["/api/control/mobile-data", { enabled: true }],
     ] as const) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
       assert.equal(demo.status, 200, route);
       assertSameShape(route, real.json, demo.json);
     }
@@ -209,7 +146,7 @@ describe("Static demo backend vs the real daemon", () => {
   });
 
   it("manages the console's router, tokens, switches and audit log like the daemon", async () => {
-    const both = (method: string, route: string, body?: Json) => Promise.all([daemonCall(daemon, session, method, route, body), demoCall(backend, method, route, body)]);
+    const both = (method: string, route: string, body?: Json) => Promise.all([daemonCall(session, method, route, body), demoCall(backend, method, route, body)]);
     const withoutImported = (json: Json): Json => ({ ...json, tokens: (json["tokens"] as Json[]).map(({ imported: _imported, ...token }) => token) });
 
     for (const [method, route, body] of [
@@ -283,7 +220,7 @@ describe("Static demo backend vs the real daemon", () => {
   it("lists the Telegram chats and unlinks one like the daemon, with its checks and messages", async () => {
     const fresh = new DemoBackend({ seed: rebaseSeed(seed, Date.now()), latencyScale: 0 });
     try {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "GET", "/api/console/telegram/chats"), demoCall(fresh, "GET", "/api/console/telegram/chats")]);
+      const [real, demo] = await Promise.all([daemonCall(session, "GET", "/api/console/telegram/chats"), demoCall(fresh, "GET", "/api/console/telegram/chats")]);
       assert.deepEqual([real.status, demo.status, real.json["chats"]], [200, 200, []], "the demo daemon runs without a bot");
       assert.deepEqual(
         (demo.json["chats"] as Json[]).map((c) => [c["chatId"], c["kind"], c["linkedWith"], c["fromEnv"], c["topic"]]),
@@ -294,7 +231,7 @@ describe("Static demo backend vs the real daemon", () => {
         ]
       );
       for (const body of [{ chatId: "abc" }, { chatId: 7 }, { chatId: "999" }, {}]) {
-        const [r, d] = await Promise.all([daemonCall(daemon, session, "POST", "/api/console/telegram/unlink", body), demoCall(fresh, "POST", "/api/console/telegram/unlink", body)]);
+        const [r, d] = await Promise.all([daemonCall(session, "POST", "/api/console/telegram/unlink", body), demoCall(fresh, "POST", "/api/console/telegram/unlink", body)]);
         assert.deepEqual([d.status, d.json["errorCode"], d.json["message"]], [r.status, r.json["errorCode"], r.json["message"]], JSON.stringify(body));
       }
       const env = await demoCall(fresh, "POST", "/api/console/telegram/unlink", { chatId: "1003" });
@@ -318,7 +255,7 @@ describe("Static demo backend vs the real daemon", () => {
   });
 
   it("answers the experimental writes switch like the daemon on the verified router", async () => {
-    const [realView, demoView] = await Promise.all([daemonCall(daemon, session, "GET", "/api/console/experimental"), demoCall(backend, "GET", "/api/console/experimental")]);
+    const [realView, demoView] = await Promise.all([daemonCall(session, "GET", "/api/console/experimental"), demoCall(backend, "GET", "/api/console/experimental")]);
     assert.equal(demoView.status, 200);
     assertSameShape("/api/console/experimental", realView.json, demoView.json);
     assert.deepEqual((demoView.json as unknown as ExperimentalWritesResponse).device.features, (realView.json as unknown as ExperimentalWritesResponse).device.features);
@@ -329,7 +266,7 @@ describe("Static demo backend vs the real daemon", () => {
       { feature: "teleport", enabled: true },
       { feature: "reboot" },
     ] as const) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", "/api/console/experimental", body), demoCall(backend, "POST", "/api/console/experimental", body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", "/api/console/experimental", body), demoCall(backend, "POST", "/api/console/experimental", body)]);
       assert.deepEqual([demo.status, demo.json["errorCode"], demo.json["message"], demo.json["state"]], [real.status, real.json["errorCode"], real.json["message"], real.json["state"]], JSON.stringify(body));
       if (real.status === 200) assertSameShape("POST /api/console/experimental", real.json, demo.json);
     }
@@ -342,7 +279,7 @@ describe("Static demo backend vs the real daemon", () => {
 
   it("answers the AI agent test like the daemon on the verified router", async () => {
     for (const body of [{ action: "start", model: "H168-383" }, { action: "end" }, { action: "ack" }, { action: "ack", alertId: 7 }, { action: "go" }, {}] as const) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", "/api/console/agent-test", body), demoCall(backend, "POST", "/api/console/agent-test", body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", "/api/console/agent-test", body), demoCall(backend, "POST", "/api/console/agent-test", body)]);
       assert.deepEqual([demo.status, demo.json["errorCode"], demo.json["message"]], [real.status, real.json["errorCode"], real.json["message"]], JSON.stringify(body));
       if (real.status === 200) {
         assertSameShape("POST /api/console/agent-test", real.json, demo.json);
@@ -354,7 +291,7 @@ describe("Static demo backend vs the real daemon", () => {
   it("identifies the demo router and builds its device report like the daemon", async () => {
     assert.ok(seed.device, "the seed carries the daemon's identification and report");
     for (const route of ["/api/device/profile", "/api/console/device-report"]) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "GET", route), demoCall(backend, "GET", route)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "GET", route), demoCall(backend, "GET", route)]);
       assert.equal(demo.status, real.status, route);
       assertSameShape(route, real.json, demo.json);
     }
@@ -386,7 +323,7 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/time-rule", { action: "delete", id: "InternetGatewayDevice.X_FireWall.TimeRule.1.", confirm: true }],
     ];
     for (const [route, body] of requests) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
       assert.equal(real.status, 200, `${route} ${JSON.stringify(real.json)}`);
       assert.equal(demo.status, 200, `${route} ${JSON.stringify(demo.json)}`);
       const r = real.json as unknown as AccessControlChangeResponse;
@@ -405,7 +342,7 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/time-rule", { action: "create", rule: { macAddress: "02:00:5E:10:00:04", name: "phone-wifi7", weekMask: "1111111", startTime: "07:07", endTime: "08:00" }, confirm: true }],
       ["/api/control/time-rule", { action: "delete", id: "InternetGatewayDevice.X_FireWall.TimeRule.9.", confirm: true }],
     ] as const) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
       assert.equal(real.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.json["message"], real.json["message"], `${route} ${JSON.stringify(body)}`);
@@ -414,19 +351,19 @@ describe("Static demo backend vs the real daemon", () => {
 
   it("handles SMS and contacts like the daemon", async () => {
     const preview = { phone: "0830000003", content: "Hello from the demo 👋", countryCode: "+353" };
-    const [rp, dp] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/preview", preview), demoCall(backend, "POST", "/api/sms/preview", preview)]);
+    const [rp, dp] = await Promise.all([daemonCall(session, "POST", "/api/sms/preview", preview), demoCall(backend, "POST", "/api/sms/preview", preview)]);
     assert.deepEqual(dp.json, rp.json);
 
     const contact = { phone: "+447700900456", name: "Demo Florist", note: "Fictional" };
-    const [rc, dc] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/contacts/upsert", contact), demoCall(backend, "POST", "/api/sms/contacts/upsert", contact)]);
+    const [rc, dc] = await Promise.all([daemonCall(session, "POST", "/api/sms/contacts/upsert", contact), demoCall(backend, "POST", "/api/sms/contacts/upsert", contact)]);
     assertSameShape("contacts/upsert", rc.json, dc.json);
 
     const vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Demo Bakery\nTEL:+447700900789\nEND:VCARD\n";
-    const [rv, dv] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/contacts/import-vcf", { vcf }), demoCall(backend, "POST", "/api/sms/contacts/import-vcf", { vcf })]);
+    const [rv, dv] = await Promise.all([daemonCall(session, "POST", "/api/sms/contacts/import-vcf", { vcf }), demoCall(backend, "POST", "/api/sms/contacts/import-vcf", { vcf })]);
     assert.deepEqual(dv.json, rv.json);
 
     const send = { phone: "+353830000001", content: "See you at 7 🍜" };
-    const [rs, ds] = await Promise.all([daemonCall(daemon, session, "POST", "/api/sms/send", send), demoCall(backend, "POST", "/api/sms/send", send)]);
+    const [rs, ds] = await Promise.all([daemonCall(session, "POST", "/api/sms/send", send), demoCall(backend, "POST", "/api/sms/send", send)]);
     assert.equal(rs.status, 200, JSON.stringify(rs.json));
     assert.equal(ds.status, 200, JSON.stringify(ds.json));
     assertSameShape("sms/send", rs.json, ds.json);
@@ -441,7 +378,7 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/sms/contacts/upsert", { phone: "+353830000009", name: "  " }],
       ["/api/sms/sync", { mode: "sideways" }],
     ] as const) {
-      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
       assert.equal(real.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.json["message"], real.json["message"], `${route} ${JSON.stringify(body)}`);

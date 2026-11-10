@@ -42,7 +42,7 @@ cpe-dash/
 │   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单，未验证型号另加实验性写入回读要读的 3 个；四种接口状态；实验性写入的能力依据）、路由器错误码计数与只含结构的脱敏设备报告（守护进程、控制台与在线演示同一实现）
 │   ├── device-access.ts    # 零依赖：写闸门（未验证型号只读，逐项同意的实验性写入除外；只相信本次运行看到的型号，否则写操作先在自己的会话里确认）、每个写操作所属的功能与它在这台路由器上的状态、写入记录与回读结果的类型，以及未验证型号各读取项可用与否
 │   ├── feedback.ts         # 零依赖：兼容性反馈入口（cky008/cpe-dash 新 issue 的地址，只带模板与标题，绝不带报告内容）
-│   ├── experimental-consent.ts # 打开 / 关闭一项实验性写入（控制台与 MCP 的 set_experimental_write 共用：打开要填型号，关闭总是可以）
+│   ├── experimental-consent.ts # 零依赖：打开 / 关闭一项实验性写入（控制台、MCP 的 set_experimental_write 与在线演示共用：打开要填型号，关闭总是可以）
 │   ├── agent-test.ts       # 零依赖：一键开始 AI 智能体测试的规则（要改的设置、测试覆盖的实验性写入与可选的短信、智能体令牌缺的权限、结束时只恢复还保持测试样子的、提醒时间与「全部通过」；守护进程、控制台与在线演示同一实现）
 │   ├── agent-test-service.ts # 守护进程：一键开始 / 结束测试、记下哪个令牌在调用 MCP、每分钟检查并发出 AGENT_TEST_STILL_ON 提醒（控制台看过或 Telegram「知道了」后停止）
 │   ├── endpoint-discovery.ts   # 零依赖：智能体的只读接口探查（probe_router_endpoints）：路径校验、会话接口与会改动路由器的路径直接拒绝、烽燧已用的接口清单（测试与协议模块对齐）、只留结构的结果
@@ -73,7 +73,7 @@ cpe-dash/
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示）
 │   ├── demo-router.ts      # 演示世界：严格 Mock 路由器 + 家庭场景 + 真实守护进程启动（demo-server、种子采集与契约测试共用）
 │   ├── demo-server.ts      # npm run demo：真实守护进程栈 + 进程内严格 Mock 路由器（不读 .env、不联网）
-│   ├── capture-demo-seed.ts # npm run build:demo：从真守护进程录制在线演示的初始数据（只含占位值）
+│   ├── capture-demo-seed.ts # npm run build:demo：从真守护进程录制在线演示的两份初始数据（H168-383，与 ?router=other 打开的未验证型号；只含占位值）
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/BRAND.md）

@@ -44,6 +44,8 @@ export interface CpeFamilyOptions {
   basicInformationPublic?: boolean;
   model?: string;
   firmware?: string;
+  /** `spreadname_en` of `device/basic_information`; `null` leaves the tag out. Default `HUAWEI 5G CPE Lab`. */
+  marketingName?: string | null;
   /** Extra GETs needing a login (feature switches, optional interfaces); unlisted ones answer `100002`. */
   endpoints?: Readonly<Record<string, string | { cpeError: string }>>;
   /** A wrong password's answer says how many attempts are left. Default `true`. */
@@ -125,6 +127,8 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
   const model = opts.model ?? "H122-373";
   const sms: FamilySms[] | null = opts.sms ? opts.sms.map((m) => ({ ...m })) : null;
   const firmware = opts.firmware ?? "10.0.2.1(H195SP3C983)";
+  const marketingName = opts.marketingName === undefined ? "HUAWEI 5G CPE Lab" : opts.marketingName;
+  const basicInformation = `<response><devicename>${model}</devicename>${marketingName === null ? "" : `<spreadname_en>${marketingName}</spreadname_en>`}</response>`;
   let adminSession: AdminSession | null = null;
   let humanCrossIp = false;
   let failedLogins = 0;
@@ -223,7 +227,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
       return reply(status);
     }
     if (method === "GET" && p === "/api/device/basic_information" && opts.basicInformationPublic !== false) {
-      return reply(`<response><devicename>${model}</devicename><spreadname_en>HUAWEI 5G CPE Lab</spreadname_en></response>`);
+      return reply(basicInformation);
     }
     if (method === "GET" && p === "/api/webserver/token") {
       if (opts.tokenFlow !== "token") return xmlError("100002");
@@ -375,7 +379,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
         return reply(`<response><DeviceName>${model}</DeviceName><SoftwareVersion>${firmware}</SoftwareVersion><WebUIVersion>WEBUI 10.0.2.1</WebUIVersion><Imei>860000000000000</Imei><WanIPAddress>203.0.113.10</WanIPAddress></response>`);
       }
       if (p === "/api/device/basic_information") {
-        return reply(`<response><devicename>${model}</devicename><spreadname_en>HUAWEI 5G CPE Lab</spreadname_en></response>`);
+        return reply(basicInformation);
       }
       const extra = opts.endpoints?.[p];
       if (typeof extra === "string") return reply(extra);

@@ -18,9 +18,7 @@ import type {
   ContactDeleteResponse,
   ContactUpsertResponse,
   ControlAppliedEvent,
-  ExperimentalWritesResponse,
   DeviceProfileResponse,
-  DeviceReportResponse,
   GlobalTelemetrySnapshot,
   HealthResponse,
   LockStateResponse,
@@ -65,7 +63,8 @@ import type {
 } from "../../../src/api-contract.ts";
 import { DEFAULT_BEHAVIOUR } from "../../../src/behaviour-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
-import { buildDeviceReport } from "../../../src/device-profile.ts";
+import type { ControlAction } from "../../../src/device-access.ts";
+import { LTE_ALL_BANDS_MASK, maskToBands } from "../../../src/device-profile.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import {
   readAntennaMode,
@@ -77,14 +76,17 @@ import {
   readTimeSeriesPreset,
   readWifiDeviceAccess,
   readWifiMacFilterChange,
+  validateGenericBandLock,
 } from "../../../src/control-input.ts";
 import { maskMacTail, maskPhoneNumber } from "../../../src/privacy-mask.ts";
-import { checkCellLockInput, parseSupportedLteBand, parseSupportedNrBand } from "../../../src/rf-bounds.ts";
+import { bandsToHexMask, checkCellLockInput, parseSupportedLteBand, parseSupportedNrBand } from "../../../src/rf-bounds.ts";
 import { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, type SelfHealStatus } from "../../../src/self-heal-status.ts";
+import { validateGenericSmsContent } from "../../../src/sms/text-mode.ts";
 import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../../../src/timeseries.ts";
 import { previewGuard } from "../core/access-view.ts";
 import type { EventSourceLike } from "../core/sse.ts";
 import { DemoConsole, DemoRefusal } from "./console.ts";
+import { DemoDevice } from "./device.ts";
 import type { DemoSeed } from "./seed.ts";
 import { DemoSmsBox, DemoValidationError } from "./sms-box.ts";
 import { type SignalBase, TICK_MS, advanceTelemetry, backfillHistory, seriesInput, signalBase, speedTick, worldSample } from "./world.ts";
@@ -94,7 +96,10 @@ import { type SignalBase, TICK_MS, advanceTelemetry, backfillHistory, seriesInpu
  * console's REST calls (`fetch`) and feeds its `/api/events` stream, starting from a seed the real
  * daemon produced. Inputs go through the daemon's own guards (control-input, access-plan,
  * rf-bounds, the SMS helpers), so the console sees the same validation errors, state changes and
- * toasts it would on a real router. Nothing is persisted and no request leaves the page.
+ * toasts it would on a real router. The seed decides which router it is: the verified H168-383, or
+ * an LTE-only model FengSui was not verified on (`?router=other`), which provides no neighbour cells,
+ * router settings or access control and takes only the writes the visitor turns on (DemoDevice).
+ * Nothing is persisted and no request leaves the page.
  */
 
 export interface DemoBackendOptions {
@@ -125,6 +130,8 @@ const LATENCY = { read: 40, session: 650, control: 1200, scan: 2200 } as const;
 const REBOOT_OFFLINE_MS = 45_000;
 const RECONNECT_OFFLINE_MS = 8_000;
 const LOCK_SETTLE_MS = 30_000;
+/** How long the daemon lets a lock settle before a router that still disagrees reads as drift (its LOCK_SETTLE_MS). */
+const MASK_SETTLE_MS = 90_000;
 const TOPOLOGY_EVERY_TICKS = 12;
 const FIRST_SMS_MS = 40_000;
 const SMS_EVERY_MS = 150_000;
@@ -194,8 +201,9 @@ export class DemoBackend {
   readonly #timers = new Set<ReturnType<typeof setTimeout>>();
   readonly #routes: ReadonlyMap<string, Handler>;
   readonly #console: DemoConsole;
-  /** The demo router as the daemon identified it when the seed was taken. */
-  readonly #device: DemoSeed["device"] | null;
+  /** The demo router as the daemon identified it when the seed was taken, and its write gate. */
+  readonly #profile: DemoSeed["device"] | null;
+  readonly #device: DemoDevice;
   /** Wi-Fi devices seen online when the seed was taken, before any filter cut them off. */
   readonly #presentWifi: ReadonlySet<string>;
 
@@ -204,13 +212,18 @@ export class DemoBackend {
   #lockState: PersistedLockState;
   #lockVerification: LockVerification;
   readonly #unlockedVerification: LockVerification;
+  /** `null` on a model that does not provide them (neighbour cells, router settings, access control). */
   #neighbors: NeighborScanSnapshot | null;
   #topology: TerminalTopologySnapshot;
-  #settings: RouterSettingsSnapshot;
+  #settings: RouterSettingsSnapshot | null;
   #alerts: AlertEventRecord[];
   readonly #notifications: AlertsResponse["notifications"];
-  #access: AccessControlSnapshot;
+  #access: AccessControlSnapshot | null;
   readonly #guard: AccessGuardInfo;
+  /** The mobile data switch, which a model without router settings still has. */
+  #mobileData: boolean;
+  /** The LTE mask an experimental band lock wrote, which the next poll reads (net-mode). */
+  #routerMask: string | null = null;
   #authenticated = true;
   #offlineUntilMs = 0;
   #offlineReason: "reboot" | "reconnect" | null = null;
@@ -226,7 +239,7 @@ export class DemoBackend {
     this.#catalog = seed.catalog;
     this.#health = seed.health;
     this.#startedAtMs = this.#now();
-    if (!seed.telemetry.telemetry || !seed.topology.topology || !seed.settings.settings || !seed.accessControl.accessControl) {
+    if (!seed.telemetry.telemetry || !seed.topology.topology) {
       throw new Error("demo seed: a snapshot is missing");
     }
     this.#telemetry = seed.telemetry.telemetry;
@@ -242,19 +255,20 @@ export class DemoBackend {
     this.#access = seed.accessControl.accessControl;
     this.#guard = seed.accessControl.guard;
     this.#countries = seed.sms.countries;
-    this.#device = seed.device ?? null;
+    this.#profile = seed.device ?? null;
+    this.#mobileData = this.#settings?.mobileDataEnabled ?? this.#telemetry.device.connectionStatus === "901";
     this.#sms = new DemoSmsBox(seed.sms, this.#now, () => this.#console.behaviourValues.smsTrashDays);
     this.#base = signalBase(this.#telemetry);
-    this.#nextRuleId = Math.max(0, ...this.#access.timeRules.rules.map((r) => Number(/(\d+)\.?$/.exec(r.id)?.[1] ?? 0))) + 1;
-    const filter = this.#access.wifiMacFilter;
+    this.#nextRuleId = Math.max(0, ...(this.#access?.timeRules.rules ?? []).map((r) => Number(/(\d+)\.?$/.exec(r.id)?.[1] ?? 0))) + 1;
+    const filter = this.#access?.wifiMacFilter ?? null;
     this.#presentWifi = new Set(
       this.#topology.hosts
-        .filter((h) => h.medium.startsWith("WIFI") && (h.active || isDeviceBlocked(filter, h.macAddress)))
+        .filter((h) => h.medium.startsWith("WIFI") && (h.active || (filter !== null && isDeviceBlocked(filter, h.macAddress))))
         .map((h) => normalizeMac(h.macAddress) ?? h.macAddress)
     );
     backfillHistory(this.#series, this.#base, this.#now(), this.#random);
     // The login the daemon identified when the seed was taken (an older seed: the demo router's SCRAM with ECC)
-    const identity = this.#device?.profile.profile?.identity;
+    const identity = this.#profile?.profile.profile?.identity;
     this.#console = new DemoConsole({
       now: this.#now,
       random: this.#random,
@@ -267,6 +281,7 @@ export class DemoBackend {
       },
       behaviourEnv: { ...DEFAULT_BEHAVIOUR, lockRollbackAfterMin: DEMO_LOCK_ROLLBACK_MIN, wanReconnectAfterMin: DEMO_RECONNECT_MIN },
     });
+    this.#device = new DemoDevice({ seed, now: this.#now, console: this.#console, text: (key, params) => this.#text(key, params) });
     this.#routes = this.#buildRoutes();
   }
 
@@ -306,7 +321,7 @@ export class DemoBackend {
         clientId: globalThis.crypto.randomUUID(),
         connectedAtIso: new Date(this.#now()).toISOString(),
         heartbeatMs: 15_000,
-        schedulerStatus: this.#scheduler,
+        schedulerStatus: this.#status(),
         avoidance: this.#scheduler.avoidance,
         telemetry: this.#telemetry,
         lockState: this.#lockState,
@@ -345,12 +360,15 @@ export class DemoBackend {
     if (this.#offlineReason !== null) this.#comeBack(now);
     this.#ticks += 1;
     const sample = worldSample(now, this.#base, this.#random);
-    if (!this.#settings.mobileDataEnabled) {
+    if (!this.#mobileData) {
       sample.downloadBytesPerSec = 0;
       sample.uploadBytesPerSec = 0;
     }
     const elapsedSec = Math.max(1, Math.round((now - this.#telemetry.capturedAtMs) / 1000));
-    this.#telemetry = { ...advanceTelemetry(this.#telemetry, sample, this.#base, elapsedSec), sms: this.#sms.counters() };
+    const next = advanceTelemetry(this.#telemetry, sample, this.#base, elapsedSec);
+    // Without mobile data the router drops its connection (monitoring/status: 902), and connects again when it is back
+    const device = { ...next.device, connectionStatus: this.#mobileData ? "901" : "902" };
+    this.#telemetry = { ...next, device, bandConfig: this.#readMask(next.bandConfig), sms: this.#sms.counters() };
     this.#series.push(seriesInput(sample), now);
     this.#scheduler = {
       ...this.#scheduler,
@@ -358,7 +376,9 @@ export class DemoBackend {
       totalSessionsCompleted: this.#scheduler.totalSessionsCompleted + 1,
       lastSessionHoldMs: Math.round(30 + this.#random() * 190),
     };
-    if (this.#lockVerification.status === "settling" && now - Date.parse(this.#lockState.updatedAtIso) >= LOCK_SETTLE_MS) {
+    if (this.#device.generic) {
+      this.#lockVerification = this.#maskVerification();
+    } else if (this.#lockVerification.status === "settling" && now - Date.parse(this.#lockState.updatedAtIso) >= LOCK_SETTLE_MS) {
       this.#lockVerification = { ...this.#lockVerification, status: "consistent", checkedAtIso: this.#telemetry.capturedAtIso, issues: [] };
     } else {
       this.#lockVerification = { ...this.#lockVerification, checkedAtIso: this.#telemetry.capturedAtIso };
@@ -366,7 +386,7 @@ export class DemoBackend {
     this.#emit("speed", speedTick(this.#telemetry));
     this.#emit("telemetry", this.#telemetry);
     if (this.#ticks % TOPOLOGY_EVERY_TICKS === 0) {
-      this.#topology = this.#nextTopology(this.#access.wifiMacFilter);
+      this.#topology = this.#nextTopology();
       this.#emit("topology", this.#topology);
     }
   }
@@ -401,13 +421,13 @@ export class DemoBackend {
       return { ok: true, authenticated: false } satisfies AuthLogoutResponse;
     });
 
-    get("/api/telemetry", () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#scheduler, telemetry: this.#telemetry, recentAlerts: this.#alerts.slice(-20) }) satisfies TelemetryEndpointResponse);
+    get("/api/telemetry", () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#status(), telemetry: this.#telemetry, recentAlerts: this.#alerts.slice(-20) }) satisfies TelemetryEndpointResponse);
     post("/api/telemetry/refresh", async () => {
       await this.#session(LATENCY.session);
       this.tick();
-      return { ok: true, schedulerStatus: this.#scheduler, telemetry: this.#telemetry } satisfies TelemetryRefreshResponse;
+      return { ok: true, schedulerStatus: this.#status(), telemetry: this.#telemetry } satisfies TelemetryRefreshResponse;
     });
-    get("/api/session/status", () => ({ ok: true, status: this.#scheduler, selfHeal: this.#selfHeal() }) satisfies SessionStatusResponse);
+    get("/api/session/status", () => ({ ok: true, status: this.#status(), selfHeal: this.#selfHeal() }) satisfies SessionStatusResponse);
     get("/api/timeseries", (_body, query) => {
       const result = this.#series.query({
         preset: readTimeSeriesPreset(query.get("preset") ?? undefined),
@@ -419,26 +439,29 @@ export class DemoBackend {
       });
       return { ok: true, ...result } satisfies TimeSeriesEndpointResponse;
     });
-    get("/api/neighbors", () => ({ ok: true, schedulerStatus: this.#scheduler, neighbors: this.#neighbors }) satisfies NeighborsEndpointResponse);
+    get("/api/neighbors", () => ({ ok: true, schedulerStatus: this.#status(), neighbors: this.#neighbors }) satisfies NeighborsEndpointResponse);
     post("/api/neighbors/scan", async () => {
       await this.#session(LATENCY.scan);
       this.#neighbors = this.#nextNeighbors();
       if (this.#neighbors) this.#emit("neighbors", this.#neighbors);
-      return { ok: true, schedulerStatus: this.#scheduler, neighbors: this.#neighbors } satisfies NeighborsEndpointResponse;
+      return { ok: true, schedulerStatus: this.#status(), neighbors: this.#neighbors } satisfies NeighborsEndpointResponse;
     });
-    get("/api/topology", () => ({ ok: true, schedulerStatus: this.#scheduler, topology: this.#topology }) satisfies TopologyEndpointResponse);
+    get("/api/topology", () => ({ ok: true, schedulerStatus: this.#status(), topology: this.#topology }) satisfies TopologyEndpointResponse);
     post("/api/topology/refresh", async () => {
       await this.#session(LATENCY.session);
-      this.#topology = this.#nextTopology(this.#access.wifiMacFilter);
+      this.#topology = this.#nextTopology();
       this.#emit("topology", this.#topology);
-      return { ok: true, schedulerStatus: this.#scheduler, topology: this.#topology } satisfies TopologyEndpointResponse;
+      return { ok: true, schedulerStatus: this.#status(), topology: this.#topology } satisfies TopologyEndpointResponse;
     });
-    get("/api/settings", () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#scheduler, settings: this.#settings }) satisfies SettingsEndpointResponse);
+    get("/api/settings", () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#status(), settings: this.#settings }) satisfies SettingsEndpointResponse);
     post("/api/settings/refresh", async () => {
       await this.#session(LATENCY.session);
-      this.#settings = { ...this.#settings, ...this.#stamp() };
-      this.#emit("settings", this.#settings);
-      return { ok: true, schedulerStatus: this.#scheduler, settings: this.#settings } satisfies SettingsRefreshResponse;
+      // A model without router settings answers the sweep with nothing to show
+      if (this.#settings) {
+        this.#settings = { ...this.#settings, ...this.#stamp() };
+        this.#emit("settings", this.#settings);
+      }
+      return { ok: true, schedulerStatus: this.#status(), settings: this.#settings } satisfies SettingsRefreshResponse;
     });
     get("/api/alerts", () => ({ ok: true, alerts: this.#alerts, notifications: this.#notifications }) satisfies AlertsResponse);
 
@@ -464,21 +487,23 @@ export class DemoBackend {
     post("/api/console/switches", (body) => this.#console.switches(body));
     post("/api/console/behaviour", (body) => this.#console.behaviour(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));
-    get("/api/device/profile", () => this.#device?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));
-    get("/api/console/experimental", () => DemoConsole.experimentalView(this.#scheduler.device) satisfies ExperimentalWritesResponse);
-    post("/api/console/experimental", (body) => this.#console.experimental(body, this.#scheduler.device));
-    post("/api/console/agent-test", (body) => this.#console.agentTest(body, this.#scheduler.device));
-    get("/api/console/device-report", () => {
-      const generatedAtIso = new Date(this.#now()).toISOString();
-      const report =
-        this.#device?.report.report ??
-        buildDeviceReport({ probe: null, apiErrors: { sinceIso: new Date(this.#startedAtMs).toISOString(), entries: [] }, fengsuiVersion: this.#health.version, generatedAtIso });
-      return { ok: true, report: { ...report, generatedAtIso } } satisfies DeviceReportResponse;
-    });
+    get("/api/device/profile", () => this.#profile?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));
+    get("/api/console/experimental", () => this.#device.view());
+    post("/api/console/experimental", (body) => this.#device.setExperimental(body));
+    post("/api/console/agent-test", (body) => this.#device.agentTest(body));
+    get("/api/console/device-report", () => this.#device.report(this.#health.version));
 
     post("/api/control/band-lock", async (body) => {
       const lteBands = readBandSelection(body, "lteBands");
       const nrBands = readBandSelection(body, "nrBands");
+      if (this.#device.generic) {
+        // LTE only, among the bands the router advertises; checked once the gate lets it through, like the daemon
+        this.#device.gate("lock_band");
+        const locked = validateGenericBandLock({ lteBands, nrBands }, this.#device.lteBands);
+        const state: PersistedLockState = { mode: locked === "all" ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: locked, nrBands: [], cellLock: null };
+        const summary = `LTE=${JSON.stringify(locked)}, NR=[]`;
+        return { ok: true, lockState: await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }) } satisfies LockStateResponse;
+      }
       if (lteBands === undefined && nrBands === undefined) throw new CpeControlValidationError("At least one of lteBands or nrBands must be provided");
       const lte = lteBands === undefined || lteBands === "all" ? "all" : sortedUnique(lteBands.map(guard(parseSupportedLteBand)));
       const nr = nrBands === undefined || nrBands === "all" ? [] : sortedUnique(nrBands.map(guard(parseSupportedNrBand)));
@@ -519,13 +544,14 @@ export class DemoBackend {
     post("/api/control/security", async (body) => {
       const input = readSecurityControl(body);
       await this.#control("set_security_switches", "controls.security_updated");
+      const settings = this.#routerSettings();
       this.#settings = {
-        ...this.#settings,
+        ...settings,
         ...this.#stamp(),
-        upnpEnabled: input.upnpEnabled ?? this.#settings.upnpEnabled,
-        dmzEnabled: input.dmz?.enabled ?? this.#settings.dmzEnabled,
-        dmzIpAddress: input.dmz?.ipAddress ?? this.#settings.dmzIpAddress,
-        firewall: { ...this.#settings.firewall, ...input.firewall },
+        upnpEnabled: input.upnpEnabled ?? settings.upnpEnabled,
+        dmzEnabled: input.dmz?.enabled ?? settings.dmzEnabled,
+        dmzIpAddress: input.dmz?.ipAddress ?? settings.dmzIpAddress,
+        firewall: { ...settings.firewall, ...input.firewall },
       };
       this.#emit("settings", this.#settings);
       return { ok: true, settings: this.#settings } satisfies SecurityControlResponse;
@@ -533,9 +559,11 @@ export class DemoBackend {
     post("/api/control/wifi7", async (body) => {
       const mloEnable = readOptionalBoolean(body, "mloEnable");
       const dbhoEnable = readOptionalBoolean(body, "dbhoEnable");
-      await this.#control("set_wifi7", "controls.wifi7_updated");
-      const wifi7 = { mloEnable: mloEnable ?? this.#settings.wifi7.mloEnable, dbhoEnable: dbhoEnable ?? this.#settings.wifi7.dbhoEnable };
-      this.#settings = { ...this.#settings, ...this.#stamp(), wifi7 };
+      if (mloEnable === undefined && dbhoEnable === undefined) throw new CpeControlValidationError("Specify mloEnable and/or dbhoEnable");
+      await this.#control("set_wifi7_mlo", "controls.wifi7_updated");
+      const settings = this.#routerSettings();
+      const wifi7 = { mloEnable: mloEnable ?? settings.wifi7.mloEnable, dbhoEnable: dbhoEnable ?? settings.wifi7.dbhoEnable };
+      this.#settings = { ...settings, ...this.#stamp(), wifi7 };
       this.#emit("settings", this.#settings);
       return { ok: true, wifi7 } satisfies Wifi7ControlResponse;
     });
@@ -543,7 +571,8 @@ export class DemoBackend {
       const mode = readAntennaMode(body["mode"]);
       await this.#control("set_antenna_mode", "controls.antenna_updated", { mode });
       const rawCode = mode === "internal" ? 1 : mode === "external" ? 2 : 0;
-      this.#settings = { ...this.#settings, ...this.#stamp(), antenna: { ...this.#settings.antenna, mode, rawCode: String(rawCode) } };
+      const settings = this.#routerSettings();
+      this.#settings = { ...settings, ...this.#stamp(), antenna: { ...settings.antenna, mode, rawCode: String(rawCode) } };
       this.#emit("settings", this.#settings);
       return { ok: true, antenna: { mode, rawCode } } satisfies AntennaControlResponse;
     });
@@ -551,20 +580,26 @@ export class DemoBackend {
       const enabled = readOptionalBoolean(body, "enabled");
       if (enabled === undefined) throw new CpeControlValidationError('"enabled" must be a boolean');
       await this.#control("set_mobile_data", "controls.mobile_data_updated");
-      this.#settings = { ...this.#settings, ...this.#stamp(), mobileDataEnabled: enabled };
-      this.#emit("settings", this.#settings);
+      this.#mobileData = enabled;
+      if (this.#settings) {
+        this.#settings = { ...this.#settings, ...this.#stamp(), mobileDataEnabled: enabled };
+        this.#emit("settings", this.#settings);
+      }
       return { ok: true, mobileDataEnabled: enabled } satisfies MobileDataControlResponse;
     });
     post("/api/session/reset-breaker", async () => {
       await this.#wait(LATENCY.read);
-      return { ok: true, circuitBreaker: this.#scheduler.circuitBreaker, status: this.#scheduler } satisfies ResetBreakerResponse;
+      return { ok: true, circuitBreaker: this.#scheduler.circuitBreaker, status: this.#status() } satisfies ResetBreakerResponse;
     });
 
     get("/api/access-control", () => this.#accessView());
     post("/api/access-control/refresh", async () => {
       await this.#session(LATENCY.session);
-      this.#access = { ...this.#access, ...this.#stamp() };
-      this.#emit("access-control", this.#access);
+      // A model without access control answers the sweep with nothing to show
+      if (this.#access) {
+        this.#access = { ...this.#access, ...this.#stamp() };
+        this.#emit("access-control", this.#access);
+      }
       return this.#accessView();
     });
     post("/api/control/wifi-access", (body) => this.#wifiAccess(readWifiDeviceAccess(body), body));
@@ -591,17 +626,25 @@ export class DemoBackend {
     });
     post("/api/sms/send", async (body) => this.#sendSms(body));
     post("/api/sms/read", async (body) => {
-      const uids = this.#sms.markRead({ uids: stringList(body, "uids"), threadKey: optionalString(body, "threadKey") });
+      let onRouter = 0;
+      const uids = this.#sms.markRead({ uids: stringList(body, "uids"), threadKey: optionalString(body, "threadKey") }, (count) => {
+        this.#device.gate("sms_mark_read");
+        onRouter = count;
+      });
       if (uids.length > 0) {
-        await this.#control("sms_mark_read", "sms.marked_read_summary", { count: uids.length });
+        if (onRouter > 0) await this.#control("sms_mark_read", "sms.marked_read_summary", { count: onRouter });
         this.#emit("sms:updated", { action: "read", uids });
         this.#emit("sms:status", this.#sms.status());
       }
       return { ok: true, count: uids.length, uids } satisfies SmsReadResponse;
     });
     post("/api/sms/delete", async (body) => {
-      const uids = this.#sms.delete(stringList(body, "uids") ?? []);
-      await this.#control("sms_delete", "sms.deleted_summary", { count: uids.length });
+      let onRouter = 0;
+      const uids = this.#sms.delete(stringList(body, "uids") ?? [], (count) => {
+        this.#device.gate("sms_delete");
+        onRouter = count;
+      });
+      if (onRouter > 0) await this.#control("sms_delete", "sms.deleted_summary", { count: onRouter });
       this.#emit("sms:updated", { action: "deleted", uids });
       this.#emit("sms:status", this.#sms.status());
       return { ok: true, deleted: uids.length, uids, trashDays: this.#sms.trashDays } satisfies SmsDeleteResponse;
@@ -668,9 +711,15 @@ export class DemoBackend {
     };
   }
 
-  async #lock(action: string, state: PersistedLockState, key: string, params?: Readonly<Record<string, string | number>>): Promise<PersistedLockState> {
+  async #lock(action: ControlAction, state: PersistedLockState, key: string, params?: Readonly<Record<string, string | number>>): Promise<PersistedLockState> {
     await this.#control(action, key, params, state);
     this.#lockState = state;
+    if (this.#device.generic) {
+      // net-mode takes the new LTE mask; the next poll reads it, and until then the router still shows the old one
+      this.#routerMask = state.lteBands === "all" ? LTE_ALL_BANDS_MASK : bandsToHexMask(state.lteBands);
+      this.#lockVerification = this.#maskVerification();
+      return state;
+    }
     this.#lockVerification =
       state.mode === "unlocked"
         ? { ...this.#unlockedVerification, checkedAtIso: this.#telemetry.capturedAtIso }
@@ -685,7 +734,9 @@ export class DemoBackend {
 
   async #wifiAccess(change: WifiAccessChange, body: Body): Promise<AccessControlChangeResponse> {
     requireConfirm(body);
-    const plan = planWifiAccessChange(this.#access.wifiMacFilter, change, previewGuard(this.#guard, this.#topology.hosts));
+    this.#device.gate("set_wifi_access");
+    const access = this.#accessControl();
+    const plan = planWifiAccessChange(access.wifiMacFilter, change, previewGuard(this.#guard, this.#topology.hosts));
     const summary =
       change.kind === "block"
         ? this.#text("controls.wifi_access_blocked", { mac: maskMacTail(change.macAddress) })
@@ -696,11 +747,11 @@ export class DemoBackend {
             : this.#text("controls.wifi_filter_entries", { count: (change.add?.length ?? 0) + (change.remove?.length ?? 0) });
     await this.#controlWith("set_wifi_access", summary);
     if (plan.write) {
-      this.#access = { ...this.#access, ...this.#stamp(), wifiMacFilter: applyFilterWrite(this.#access.wifiMacFilter, plan.write) };
+      this.#access = { ...access, ...this.#stamp(), wifiMacFilter: applyFilterWrite(access.wifiMacFilter, plan.write) };
       this.#emit("access-control", this.#access);
       // The router drops (or lets back) a filtered device a few seconds after the write
       this.#later(3_000 * this.#latencyScale, () => {
-        this.#topology = this.#nextTopology(this.#access.wifiMacFilter);
+        this.#topology = this.#nextTopology();
         this.#emit("topology", this.#topology);
       });
     }
@@ -709,7 +760,9 @@ export class DemoBackend {
 
   async #timeRule(change: TimeRuleChange, body: Body): Promise<AccessControlChangeResponse> {
     requireConfirm(body);
-    const rules = this.#access.timeRules;
+    this.#device.gate("manage_time_rule");
+    const access = this.#accessControl();
+    const rules = access.timeRules;
     const write = planTimeRuleChange(rules.rules, rules.maxRules, change, previewGuard(this.#guard, this.#topology.hosts));
     const detail =
       change.kind === "delete"
@@ -717,7 +770,7 @@ export class DemoBackend {
         : `${maskMacTail(change.rule.macAddress)} ${change.rule.weekMask} ${change.rule.startTime}-${change.rule.endTime}`;
     const key = change.kind === "create" ? "controls.time_rule_created" : change.kind === "update" ? "controls.time_rule_updated" : "controls.time_rule_deleted";
     await this.#controlWith("manage_time_rule", this.#text(key, { detail }));
-    this.#access = { ...this.#access, ...this.#stamp(), timeRules: { ...rules, rules: this.#applyRuleWrite(rules.rules, write) } };
+    this.#access = { ...access, ...this.#stamp(), timeRules: { ...rules, rules: this.#applyRuleWrite(rules.rules, write) } };
     this.#emit("access-control", this.#access);
     return { ok: true, accessControl: this.#access, changed: true, alsoBlocked: [] };
   }
@@ -737,7 +790,11 @@ export class DemoBackend {
 
   async #sendSms(body: Body): Promise<SmsSendResponse> {
     const phones = stringList(body, "phones") ?? [requiredString(body, "phone")];
-    const outcome = this.#sms.send({ phones, content: requiredString(body, "content"), countryCode: optionalString(body, "countryCode") });
+    const outcome = this.#sms.send({ phones, content: requiredString(body, "content"), countryCode: optionalString(body, "countryCode") }, (content) => {
+      // A model nobody verified sends the plaintext way: refused before queueing (a send the gate refuses says so first)
+      if (this.#device.generic && this.#device.writeAccess("smsWrite") !== "read_only") validateGenericSmsContent(content);
+      this.#device.gate("sms_send");
+    });
     const to = outcome.resolvedPhones.map(maskPhoneNumber).join(", ");
     await this.#control("sms_send", "sms.sent_summary", { to, segments: outcome.result.segments });
     this.#emit("sms:sent", { source: "web", result: outcome.result, messages: outcome.messages });
@@ -754,20 +811,35 @@ export class DemoBackend {
   }
 
   /** A queued control session: busy for a moment, then `control:applied` with the daemon's wording. */
-  async #control(action: string, key: string, params?: Readonly<Record<string, string | number>>, lockState?: PersistedLockState): Promise<void> {
+  async #control(action: ControlAction, key: string, params?: Readonly<Record<string, string | number>>, lockState?: PersistedLockState): Promise<void> {
     await this.#controlWith(action, this.#text(key, params), lockState);
   }
 
-  async #controlWith(action: string, summary: { zh: string; en: string }, lockState?: PersistedLockState): Promise<void> {
+  /**
+   * The daemon's write path: the gate (a write this router may not take gets no session), the session,
+   * then on a model nobody verified the experimental write's read-back, kept for the device report and
+   * added to the summary.
+   */
+  async #controlWith(action: ControlAction, summary: { zh: string; en: string }, lockState?: PersistedLockState): Promise<void> {
+    this.#device.gate(action);
     if (this.#now() < this.#offlineUntilMs) {
       const message = "The router is restarting; try again in a minute";
       this.#console.record(action, "failed", message);
       throw new DemoHttpError(502, "CPE_UPSTREAM_ERROR", message);
     }
     await this.#session(LATENCY.control);
-    const event: ControlAppliedEvent = { action, tsIso: new Date(this.#now()).toISOString(), summaryZh: summary.zh, summaryEn: summary.en };
-    this.#emit("control:applied", lockState ? { ...event, lockState } : event);
-    this.#console.record(action, "applied", summary.en);
+    const record = this.#device.generic ? this.#device.noteWrite(action) : null;
+    const suffix = record ? this.#device.readbackSuffix(record) : { zh: "", en: "" };
+    const event: ControlAppliedEvent = {
+      action,
+      tsIso: lockState?.updatedAtIso ?? new Date(this.#now()).toISOString(),
+      summaryZh: `${summary.zh}${suffix.zh}`,
+      summaryEn: `${summary.en}${suffix.en}`,
+      ...(lockState ? { lockState } : {}),
+      ...(record ? { check: { endpoints: [...record.endpoints], readback: record.readback, reason: record.reason } } : {}),
+    };
+    this.#emit("control:applied", event);
+    this.#console.record(action, "applied", event.summaryEn);
   }
 
   async #session(ms: number): Promise<void> {
@@ -806,9 +878,11 @@ export class DemoBackend {
     const restarted = { ...t, capturedAtMs: now - TICK_MS, traffic };
     this.#telemetry = reason === "reboot" ? { ...restarted, device: { ...t.device, uptimeSec: 0 } } : restarted;
     this.#scheduler = { ...this.#scheduler, mode: "idle", lastError: null };
+    this.#device.settleRestarts();
     if (reason === "reboot") {
       this.#raise("info", "CPE_RECOVERED", "alerts.cpe_recovered", { seconds: Math.round(REBOOT_OFFLINE_MS / 1000) });
-      this.#raise("warning", "REBOOT_DETECTED", "alerts.reboot_detected", { uptime: Math.round(TICK_MS / 1000) });
+      // The daemon sees a reboot in the uptime, which a router that reports none cannot show
+      if (this.#base.uptime) this.#raise("warning", "REBOOT_DETECTED", "alerts.reboot_detected", { uptime: Math.round(TICK_MS / 1000) });
     }
   }
 
@@ -825,17 +899,66 @@ export class DemoBackend {
     return { lockState: this.#lockState, lockVerification: this.#lockVerification };
   }
 
+  /** The scheduler as the daemon reports it, with the write gate as it is now (the visitor's consents). */
+  #status(): SchedulerStatusSnapshot {
+    return { ...this.#scheduler, device: this.#device.snapshot() };
+  }
+
   #accessView(): AccessControlEndpointResponse {
-    return { ok: true, schedulerStatus: this.#scheduler, accessControl: this.#access, guard: this.#guard };
+    return { ok: true, schedulerStatus: this.#status(), accessControl: this.#access, guard: this.#guard };
+  }
+
+  /** Router settings, which only a verified model's writes change (the gate refuses them on any other). */
+  #routerSettings(): RouterSettingsSnapshot {
+    if (!this.#settings) throw new Error("this demo router has no router settings to change");
+    return this.#settings;
+  }
+
+  /** Access control, which only a verified model's writes change (the gate refuses them on any other). */
+  #accessControl(): AccessControlSnapshot {
+    if (!this.#access) throw new Error("this demo router has no access control to change");
+    return this.#access;
+  }
+
+  /** The LTE mask net-mode reports at this poll: the one an experimental band lock wrote, once. */
+  #readMask(bandConfig: GlobalTelemetrySnapshot["bandConfig"]): GlobalTelemetrySnapshot["bandConfig"] {
+    const mask = this.#routerMask;
+    if (mask === null) return bandConfig;
+    this.#routerMask = null;
+    return { ...bandConfig, lteBandHex: mask, activeLteBands: maskToBands(mask) ?? [] };
+  }
+
+  /**
+   * The daemon's lock check (verifyLockState) on a model nobody verified: its LTE mask against the
+   * lock, with no carrier or cell detail to compare; a snapshot from before the lock cannot contradict it yet.
+   */
+  #maskVerification(): LockVerification {
+    const lock = this.#lockState;
+    const telemetry = this.#telemetry;
+    const router = telemetry.bandConfig.lteBandHex ? [...telemetry.bandConfig.activeLteBands] : null;
+    const list = (bands: ReadonlyArray<number>): string => bands.map((band) => `B${band}`).join(", ");
+    const issues: string[] = [];
+    if (router && lock.lteBands === "all") {
+      const every = (bands: ReadonlyArray<number>): boolean => bands.every((band) => router.includes(band));
+      const unlocked = every(this.#device.lteBands ?? []) || every(Array.from({ length: 63 }, (_, i) => i + 1));
+      if (!unlocked) issues.push(`LTE is not unlocked: the router enables only ${list(router)}`);
+    } else if (router && lock.lteBands !== "all") {
+      const expected = [...lock.lteBands].sort((a, b) => a - b);
+      if (expected.join() !== router.join()) issues.push(`LTE bands on the router (${list(router)}) differ from the applied lock (${list(expected)})`);
+    }
+    const settling = telemetry.capturedAtMs - Date.parse(lock.updatedAtIso) < MASK_SETTLE_MS;
+    const status: LockVerification["status"] = issues.length > 0 ? (settling ? "settling" : "drift") : router ? "consistent" : "unknown";
+    return { status, checkedAtIso: telemetry.capturedAtIso, routerLteBands: router, issues };
   }
 
   /** Hosts as the router would list them now: filtered Wi-Fi devices offline, leases counting down. */
-  #nextTopology(filter: WifiMacFilterState): TerminalTopologySnapshot {
+  #nextTopology(): TerminalTopologySnapshot {
+    const filter = this.#access?.wifiMacFilter ?? null;
     const elapsedSec = Math.max(0, Math.round((this.#now() - this.#topology.capturedAtMs) / 1000));
     const hosts = this.#topology.hosts.map((h) => {
       const mac = normalizeMac(h.macAddress) ?? h.macAddress;
       const wifi = h.medium.startsWith("WIFI");
-      const active = wifi ? this.#presentWifi.has(mac) && !isDeviceBlocked(filter, mac) : h.active;
+      const active = wifi ? this.#presentWifi.has(mac) && !(filter !== null && isDeviceBlocked(filter, mac)) : h.active;
       const lease = h.leaseTimeRemainingSec === null || h.leaseTimeRemainingSec === 0 ? h.leaseTimeRemainingSec : Math.max(60, h.leaseTimeRemainingSec - elapsedSec);
       const rssi = h.rssi !== null && h.rssi > 0 && active ? Math.max(5, Math.round(h.rssi + (this.#random() - 0.5) * 4)) : h.rssi;
       return { ...h, active, leaseTimeRemainingSec: lease, rssi };

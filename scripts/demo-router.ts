@@ -239,7 +239,8 @@ export function createUnverifiedDemoRouter(): DemoRouter {
     { index: 40010, phone: "+353830000001", content: "Back home by 8, see you then", date: routerDate(90), smstat: "1", box: 1 },
     { index: 39010, phone: "+353830000001", content: "Great, dinner is on me", date: routerDate(85), smstat: "3", box: 2 },
   ];
-  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", password: DEMO_CPE_PASSWORD, model: "B535-232", firmware: "11.0.1.2(H7SP2C00)", endpoints, sms: mailbox, writes: {} });
+  // No marketing name: a 4G router should not show the family's "5G CPE" one, and the model says enough
+  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", password: DEMO_CPE_PASSWORD, model: "B535-232", firmware: "11.0.1.2(H7SP2C00)", marketingName: null, endpoints, sms: mailbox, writes: {} });
   let nextIndex = 40_012;
   // What a generic write does to the household: a new connection, or no WAN without mobile data
   const demoFetch: typeof fetch = async (input, init) => {

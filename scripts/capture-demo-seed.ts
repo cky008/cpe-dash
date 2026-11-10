@@ -13,19 +13,23 @@ import type {
   SmsStatusResponse,
   SmsThreadResponse,
   SmsThreadsResponse,
+  SchedulerStatusSnapshot,
   TelemetryEndpointResponse,
   TopologyEndpointResponse,
 } from "../src/api-contract.ts";
+import type { ReadSection } from "../src/device-access.ts";
 import { getFlatCatalog } from "../src/i18n.ts";
 import type { SmsMessageRecord } from "../src/sms/types.ts";
 import type { DemoSeed } from "../web/src/demo/seed.ts";
 import { startDemoDaemon } from "./demo-router.ts";
 
 /**
- * Record the static demo's starting point: run the real daemon against the demo router, sign in as
+ * Record the static demo's starting points: run the real daemon against each demo router, sign in as
  * the web console does, wait until every poll has landed, and save each snapshot the console reads
- * at start-up. `npm run build:demo` writes it to dist/demo/demo-seed.json; the contract test uses
- * `captureDemoSeed` to compare the browser backend with the daemon it imitates.
+ * at start-up. `npm run build:demo` writes them to dist/demo: `demo-seed.json` (the verified
+ * H168-383) and `demo-seed-other.json` (an LTE-only model FengSui was not verified on, which the demo
+ * opens with `?router=other`). The contract tests use `captureDemoSeed` to compare the browser backend
+ * with the daemon it imitates.
  */
 
 /** Fictional contacts on reserved numbers, so the SMS centre shows names and a new conversation. */
@@ -95,6 +99,9 @@ function plainRecord(m: SmsMessageRecord): SmsMessageRecord {
   return m.pending ? { ...record, pending: true } : record;
 }
 
+/** A part the router answered, or one this model does not provide (it reads as unavailable). */
+const unavailable = (status: SchedulerStatusSnapshot, section: ReadSection): boolean => status.device.reads[section].state === "unavailable";
+
 /** Capture a seed from a running daemon (contacts are added through the API first). */
 export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
   for (const contact of DEMO_CONTACTS) await session.post("/api/sms/contacts/upsert", contact);
@@ -103,21 +110,26 @@ export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
     () => session.get<TelemetryEndpointResponse>("/api/telemetry"),
     (r) => r.telemetry !== null && r.telemetry.sms !== null
   );
+  // Identified first: on a model FengSui was not verified on, what the sweeps find missing is noted for that model
+  const deviceProfile = await settle("device identification", () => session.get<DeviceProfileResponse>("/api/device/profile"), (r) => r.profile !== null);
   // The slow sweeps (topology, settings, access control) run minutes apart: ask for them now
   await session.post("/api/topology/refresh", {});
   await session.post("/api/settings/refresh", {});
   await session.post("/api/access-control/refresh", {});
   const topology = await settle("topology", () => session.get<TopologyEndpointResponse>("/api/topology"), (r) => r.topology !== null);
-  const settings = await settle("settings", () => session.get<SettingsEndpointResponse>("/api/settings"), (r) => r.settings !== null);
+  const settings = await settle(
+    "settings",
+    () => session.get<SettingsEndpointResponse>("/api/settings"),
+    (r) => r.settings !== null || unavailable(r.schedulerStatus, "settings")
+  );
   const accessControl = await settle(
     "access control",
     () => session.get<AccessControlEndpointResponse>("/api/access-control"),
-    (r) => r.accessControl !== null && r.guard.daemonHostMac !== null
+    (r) => (r.accessControl !== null && r.guard.daemonHostMac !== null) || unavailable(r.schedulerStatus, "accessControl")
   );
   const smsStatus = await settle("SMS sync", () => session.get<SmsStatusResponse>("/api/sms/status"), (r) => r.status.seeded && !r.status.syncInProgress);
-  const deviceProfile = await settle("device identification", () => session.get<DeviceProfileResponse>("/api/device/profile"), (r) => r.profile !== null);
   const neighbors = await session.post<NeighborsEndpointResponse>("/api/neighbors/scan", {});
-  if (!neighbors.neighbors) throw new Error("demo capture: the neighbor scan returned nothing");
+  if (!neighbors.neighbors && !unavailable(neighbors.schedulerStatus, "neighbors")) throw new Error("demo capture: the neighbor scan returned nothing");
 
   const threads = await session.get<SmsThreadsResponse>("/api/sms/threads?filter=all&search=&limit=500");
   const messages: SmsMessageRecord[] = [];
@@ -150,17 +162,27 @@ export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
   };
 }
 
+/** The demo's worlds and the seed file each one is recorded to (the page picks one by `?router=`). */
+export const DEMO_SEEDS = [
+  { file: "demo-seed.json", scenario: "normal" },
+  { file: "demo-seed-other.json", scenario: "unverified" },
+] as const;
+
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
-  const out = path.resolve(process.argv[2] ?? path.join("dist", "demo", "demo-seed.json"));
+  const outDir = path.resolve(process.argv[2] ?? path.join("dist", "demo"));
   const token = "fengsui-demo-capture";
-  const demo = await startDemoDaemon({ port: 0, token });
-  try {
-    const seed = await captureDemoSeed(await openDemoSession(demo.baseUrl, token));
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, `${JSON.stringify(seed)}\n`);
-    const kib = (fs.statSync(out).size / 1024).toFixed(1);
-    console.log(`  demo seed ${kib} KiB (${seed.sms.messages.length} SMS, ${seed.topology.topology?.hosts.length ?? 0} hosts) -> ${path.relative(process.cwd(), out)}`);
-  } finally {
-    await demo.close();
+  fs.mkdirSync(outDir, { recursive: true });
+  for (const { file, scenario } of DEMO_SEEDS) {
+    const demo = await startDemoDaemon({ port: 0, token, scenario });
+    try {
+      const seed = await captureDemoSeed(await openDemoSession(demo.baseUrl, token));
+      const out = path.join(outDir, file);
+      fs.writeFileSync(out, `${JSON.stringify(seed)}\n`);
+      const kib = (fs.statSync(out).size / 1024).toFixed(1);
+      const model = seed.device?.profile.profile?.identity.model ?? "?";
+      console.log(`  demo seed ${kib} KiB (${model}, ${seed.sms.messages.length} SMS, ${seed.topology.topology?.hosts.length ?? 0} hosts) -> ${path.relative(process.cwd(), out)}`);
+    } finally {
+      await demo.close();
+    }
   }
 }

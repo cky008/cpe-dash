@@ -15,9 +15,11 @@ import type {
 import type { SmsMessageRecord } from "../../../src/sms/types.ts";
 
 /**
- * What the static demo starts from: every snapshot the real daemon served while it ran against the
+ * What the static demo starts from: every snapshot the real daemon served while it ran against a
  * demo router (scripts/capture-demo-seed.ts records it at build time), so the shapes are the
- * daemon's own. All identifiers in it are RFC / reserved placeholders.
+ * daemon's own. There are two: the verified H168-383, and for `?router=other` an LTE-only model
+ * FengSui was not verified on, whose neighbour cells, router settings and access control are `null`
+ * (the model does not provide them). All identifiers in it are RFC / reserved placeholders.
  */
 export interface DemoSeed {
   version: 1;

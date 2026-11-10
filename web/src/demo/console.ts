@@ -1,12 +1,9 @@
-import { AGENT_TEST_UNAVAILABLE_MESSAGE, noAgentTestPlan } from "../../../src/agent-test.ts";
+import type { AgentTestTokenInfo } from "../../../src/agent-test.ts";
 import type {
-  AgentTestResponse,
   ApiErrorEnvelope,
   AuditResponse,
   ConsoleSettingsResponse,
   CreateTokenResponse,
-  DeviceAccessSnapshot,
-  ExperimentalWritesResponse,
   PairingCodeResponse,
   RevokeTokenResponse,
   TokenPermissionsResponse,
@@ -17,8 +14,7 @@ import type {
 } from "../../../src/api-contract.ts";
 import type { AuditActor, AuditEntry, AuditOutcome } from "../../../src/audit-log.ts";
 import { BEHAVIOUR_ENV, type BehaviourOverrides, type BehaviourValues, describeBehaviour, readBehaviourPatch, resolveBehaviour } from "../../../src/behaviour-settings.ts";
-import { MAX_TOKENS, describePermissions, readTokenPermissions, readTokenRequest, scopeForPermissions, validateNewPassword } from "../../../src/console-policy.ts";
-import { WRITE_FEATURES } from "../../../src/device-access.ts";
+import { MAX_TOKENS, type TokenPermission, describePermissions, readTokenPermissions, readTokenRequest, scopeForPermissions, validateNewPassword } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
@@ -96,6 +92,8 @@ export class DemoConsole {
   readonly #behaviourEnv: BehaviourValues;
   #behaviour: BehaviourOverrides = {};
   #tokens: PublicTokenRecord[];
+  /** Each token's last call to the MCP endpoint (ms), as the daemon notes it for the agent test. */
+  readonly #agentUse = new Map<string, number>();
   /** Linked with /auth (newest first), then the one TELEGRAM_CHAT_IDS lists, as the daemon orders them. */
   #chats: TelegramChatRecord[];
 
@@ -107,20 +105,23 @@ export class DemoConsole {
     const now = this.#now();
     const iso = (ms: number): string => new Date(ms).toISOString();
     this.#loginChangedAtIso = iso(now - 21 * DAY_MS);
+    const agent: PublicTokenRecord = {
+      id: globalThis.crypto.randomUUID(),
+      name: "Claude Code",
+      scope: "read",
+      permissions: ["sms-read"],
+      hint: this.#chars(TOKEN_ALPHABET, 4),
+      createdAtIso: iso(now - 6 * DAY_MS),
+      expiresAtIso: iso(now + 84 * DAY_MS),
+      lastUsedAtIso: iso(now - 2 * 3_600_000),
+    };
+    // A dashboard reads the router only; an agent also reads SMS (what a read-only token did before permissions)
     this.#tokens = [
-      // A dashboard reads the router only; an agent also reads SMS (what a read-only token did before permissions)
       { id: globalThis.crypto.randomUUID(), name: "Grafana", scope: "read", permissions: [], hint: this.#chars(TOKEN_ALPHABET, 4), createdAtIso: iso(now - 20 * DAY_MS), expiresAtIso: null, lastUsedAtIso: iso(now - 25_000) },
-      {
-        id: globalThis.crypto.randomUUID(),
-        name: "Claude Code",
-        scope: "read",
-        permissions: ["sms-read"],
-        hint: this.#chars(TOKEN_ALPHABET, 4),
-        createdAtIso: iso(now - 6 * DAY_MS),
-        expiresAtIso: iso(now + 84 * DAY_MS),
-        lastUsedAtIso: iso(now - 2 * 3_600_000),
-      },
+      agent,
     ];
+    // The agent last called FengSui's MCP endpoint with its token when it was last used
+    this.#agentUse.set(agent.id, now - 2 * 3_600_000);
     // The owner's own chat (Telegram IDs are placeholders), a family group they linked, and one from .env
     const chat = (chatId: string, extra: Partial<TelegramChatRecord>): TelegramChatRecord => ({
       chatId,
@@ -165,15 +166,25 @@ export class DemoConsole {
     return resolveBehaviour(this.#behaviourEnv, this.#behaviour);
   }
 
-  /** `POST /api/console/behaviour`, as the daemon checks it. */
-  behaviour(body: Body): ConsoleSettingsResponse {
-    const patch = readBehaviourPatch(body);
+  /** What the visitor set over the demo's `.env` (a missing key follows `.env`). */
+  get behaviourOverrides(): BehaviourOverrides {
+    return { ...this.#behaviour };
+  }
+
+  /** Apply a checked patch, as the daemon's settings do: a value sets it, `null` goes back to `.env`. */
+  setBehaviour(patch: BehaviourOverrides): void {
     const next: Record<string, unknown> = { ...this.#behaviour };
     for (const [key, value] of Object.entries(patch)) {
-      if (value === null) delete next[key];
+      if (value === null || value === undefined) delete next[key];
       else next[key] = value;
     }
     this.#behaviour = next as BehaviourOverrides;
+  }
+
+  /** `POST /api/console/behaviour`, as the daemon checks it. */
+  behaviour(body: Body): ConsoleSettingsResponse {
+    const patch = readBehaviourPatch(body);
+    this.setBehaviour(patch);
     const detail = Object.entries(patch)
       .map(([key, value]) => `${BEHAVIOUR_ENV[key as keyof typeof BEHAVIOUR_ENV]} ${value === null ? "from .env" : String(value)}`)
       .join(", ");
@@ -219,7 +230,32 @@ export class DemoConsole {
   }
 
   tokens(): TokensResponse {
-    return { ok: true, tokens: this.#tokens.map((token) => ({ ...token })) };
+    return { ok: true, tokens: this.listTokens() };
+  }
+
+  listTokens(): PublicTokenRecord[] {
+    return this.#tokens.map((token) => ({ ...token, permissions: [...token.permissions] }));
+  }
+
+  /** Change what a token may do, as the daemon's settings do (the route audits; the agent test audits its own). */
+  setTokenPermissions(id: string, permissions: TokenPermission[]): PublicTokenRecord | null {
+    const token = this.#tokens.find((t) => t.id === id);
+    if (!token) return null;
+    token.permissions = [...permissions];
+    token.scope = scopeForPermissions(permissions);
+    return { ...token, permissions: [...permissions] };
+  }
+
+  /** The tokens as the agent test's plan reads them, with each one's last MCP call. */
+  agentTokens(): AgentTestTokenInfo[] {
+    return this.#tokens.map((token) => ({
+      id: token.id,
+      name: token.name,
+      permissions: [...token.permissions],
+      createdAtIso: token.createdAtIso,
+      expiresAtIso: token.expiresAtIso,
+      agentUsedAtMs: this.#agentUse.get(token.id) ?? null,
+    }));
   }
 
   createToken(body: Body): CreateTokenResponse {
@@ -246,18 +282,17 @@ export class DemoConsole {
   tokenPermissions(body: Body): TokenPermissionsResponse {
     const id = typeof body["id"] === "string" ? body["id"] : "";
     const permissions = readTokenPermissions(body["permissions"]);
-    const token = this.#tokens.find((t) => t.id === id);
-    if (!token) throw new DemoRefusal(404, { ok: false, errorCode: "NOT_FOUND", message: "No such token" });
-    token.permissions = permissions;
-    token.scope = scopeForPermissions(permissions);
-    this.record("token.permissions", "applied", `${token.name}: ${describePermissions(permissions)}`);
-    return { ok: true, record: { ...token, permissions: [...permissions] } };
+    const record = this.setTokenPermissions(id, permissions);
+    if (!record) throw new DemoRefusal(404, { ok: false, errorCode: "NOT_FOUND", message: "No such token" });
+    this.record("token.permissions", "applied", `${record.name}: ${describePermissions(permissions)}`);
+    return { ok: true, record };
   }
 
   revokeToken(body: Body): RevokeTokenResponse {
     const index = this.#tokens.findIndex((token) => token.id === body["id"]);
     const [revoked] = index < 0 ? [] : this.#tokens.splice(index, 1);
     if (!revoked) throw new DemoRefusal(404, { ok: false, errorCode: "NOT_FOUND", message: "No such token" });
+    this.#agentUse.delete(revoked.id);
     this.record("token.revoke", "applied", revoked.name);
     return { ok: true, record: revoked };
   }
@@ -303,58 +338,6 @@ export class DemoConsole {
   #unlink(chat: TelegramChatRecord): void {
     this.#chats.splice(this.#chats.indexOf(chat), 1);
     if (chat.fromEnv) this.#chats.push({ ...chat, linkedWith: null, tokenName: null, linkedBy: null, topic: null, linkedAtIso: null });
-  }
-
-  /**
-   * `POST /api/console/experimental` as the daemon answers it. The demo's router is the verified
-   * H168-383, so every write is already open: turning one on is refused the daemon's way, turning
-   * one off changes nothing. Both are audited like the daemon does.
-   */
-  experimental(body: Body, device: DeviceAccessSnapshot): ExperimentalWritesResponse {
-    const feature = body["feature"];
-    if (typeof feature !== "string" || !(WRITE_FEATURES as ReadonlyArray<string>).includes(feature)) {
-      throw new CpeControlValidationError(`"feature" must be one of ${WRITE_FEATURES.join(", ")}`);
-    }
-    if (typeof body["enabled"] !== "boolean") throw new CpeControlValidationError('"enabled" must be true or false');
-    const view = DemoConsole.experimentalView(device);
-    if (!body["enabled"]) {
-      this.record("settings.experimental", "applied", `${feature} off (was off)`);
-      return view;
-    }
-    const state = device.features[feature as keyof DeviceAccessSnapshot["features"]];
-    this.record("settings.experimental", "refused", `${feature} on: ${state}`);
-    throw new DemoRefusal(409, {
-      ok: false,
-      errorCode: "EXPERIMENTAL_UNAVAILABLE",
-      message: `${feature} cannot be turned on as an experimental write on this router (${state})`,
-      state,
-    });
-  }
-
-  /** `GET /api/console/experimental` on the demo's verified router: every write is open, so there is nothing to turn on or test. */
-  static experimentalView(device: DeviceAccessSnapshot): ExperimentalWritesResponse {
-    return { ok: true, device, consents: [], writes: [], agentTest: { current: null, plan: noAgentTestPlan() } };
-  }
-
-  /**
-   * `POST /api/console/agent-test` as the daemon answers it on the verified H168-383: nothing for an
-   * agent's test to write, so starting is refused; ending and reading a reminder change nothing.
-   */
-  agentTest(body: Body, device: DeviceAccessSnapshot): AgentTestResponse {
-    const action = body["action"];
-    if (action !== "start" && action !== "end" && action !== "ack") throw new CpeControlValidationError('"action" must be "start", "end" or "ack"');
-    if (action === "start") {
-      throw new DemoRefusal(409, {
-        ok: false,
-        errorCode: "AGENT_TEST_UNAVAILABLE",
-        message: AGENT_TEST_UNAVAILABLE_MESSAGE,
-      });
-    }
-    const alertId = body["alertId"];
-    if (action === "ack" && alertId !== undefined && (typeof alertId !== "string" || alertId.length > 64)) {
-      throw new CpeControlValidationError('"alertId" must be the reminder\'s alert ID');
-    }
-    return { ...DemoConsole.experimentalView(device), settings: this.summary() };
   }
 
   switches(body: Body): ConsoleSettingsResponse {

@@ -63,6 +63,11 @@ function copyContact(c: ContactRecord): ContactRecord {
 
 const DAY_MS = 24 * 60 * 60_000;
 
+/** A message the router still stores: not a provisional send, not FengSui's own restored copy (src/sms/service.ts). */
+function storedOnRouter(m: SmsMessageRecord): boolean {
+  return !m.pending && !m.localOnly && m.index > 0;
+}
+
 /** The newest deletion first. */
 function byDeletion(a: SmsTrashRecord, b: SmsTrashRecord): number {
   return Date.parse(b.deletedAtIso) - Date.parse(a.deletedAtIso);
@@ -154,8 +159,8 @@ export class DemoSmsBox {
     };
   }
 
-  /** Store the outgoing copies; nothing leaves the page. */
-  send(input: { phones: ReadonlyArray<string>; content: string; countryCode?: string }): DemoSmsSendOutcome {
+  /** Store the outgoing copies; nothing leaves the page. `beforeSend` sees the checked text first and may refuse the send. */
+  send(input: { phones: ReadonlyArray<string>; content: string; countryCode?: string }, beforeSend: (content: string) => void = () => undefined): DemoSmsSendOutcome {
     const countryCode = input.countryCode ?? this.defaultCountryCode;
     const resolved = input.phones.map((raw) => {
       const r = resolveRecipientPhone(raw, countryCode);
@@ -171,6 +176,7 @@ export class DemoSmsBox {
     if (mode.segments > MAX_SMS_SEGMENTS) {
       throw new DemoValidationError(`Message needs ${mode.segments} segments; the CPE accepts at most ${MAX_SMS_SEGMENTS} segments per send`);
     }
+    beforeSend(content);
     const messages = phones.map((phone) => enrichSmsMessage(this.#store(phone, content, "out"), this.#view));
     return {
       result: {
@@ -193,7 +199,8 @@ export class DemoSmsBox {
     return enrichSmsMessage(this.#store(phone, content, "in"), this.#view);
   }
 
-  markRead(input: { uids?: ReadonlyArray<string>; threadKey?: string }): string[] {
+  /** `beforeWrite` hears how many of the unread messages the router stores, and may refuse the write first. */
+  markRead(input: { uids?: ReadonlyArray<string>; threadKey?: string }, beforeWrite: (onRouter: number) => void = () => undefined): string[] {
     if (input.threadKey === undefined && (!input.uids || input.uids.length === 0)) {
       throw new DemoValidationError("Provide message uids or a threadKey");
     }
@@ -202,23 +209,29 @@ export class DemoSmsBox {
       input.threadKey !== undefined
         ? this.thread(input.threadKey).messages.map((m) => this.#messages.get(m.uid))
         : (input.uids ?? []).map((uid) => this.#messages.get(uid));
-    const uids: string[] = [];
-    for (const m of targets) {
-      if (!m?.isUnread) continue;
+    const unread = targets.filter((m): m is SmsMessageRecord => m?.isUnread === true);
+    const onRouter = unread.filter(storedOnRouter).length;
+    if (onRouter > 0) beforeWrite(onRouter);
+    for (const m of unread) {
       m.isUnread = false;
       m.smstat = "1";
-      uids.push(m.uid);
     }
-    return uids;
+    return unread.map((m) => m.uid);
   }
 
-  delete(rawUids: ReadonlyArray<string>): string[] {
+  /** `beforeWrite` hears how many of the messages the router stores, and may refuse the write first. */
+  delete(rawUids: ReadonlyArray<string>, beforeWrite: (onRouter: number) => void = () => undefined): string[] {
     const uids = [...new Set(rawUids)];
     if (uids.length === 0) throw new DemoValidationError("Provide at least one message uid");
     if (uids.length > MAX_DELETE_BATCH) throw new DemoValidationError(`Delete at most ${MAX_DELETE_BATCH} messages per request`);
     if (uids.some((uid) => !this.#messages.has(uid))) {
       throw new DemoValidationError("Unknown message uid; refresh the conversation and retry");
     }
+    const onRouter = uids.filter((uid) => {
+      const message = this.#messages.get(uid);
+      return message !== undefined && storedOnRouter(message);
+    }).length;
+    if (onRouter > 0) beforeWrite(onRouter);
     const days = this.#trashDays();
     const deletedAtIso = new Date(this.#now()).toISOString();
     for (const uid of uids) {
