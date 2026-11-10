@@ -22,7 +22,7 @@ Alerts appear under the bell icon in the console and can also be pushed to you. 
 | `DATA_THRESHOLD` | Monthly data usage exceeds your configured cap |
 | `LOCK_ROLLED_BACK` and others | Self-healing released a lock or reconnected (see [Band and cell locking](locking.md)) |
 | `FIRMWARE_UNVERIFIED` / `MODEL_UNVERIFIED` | Router firmware was updated, or the model is unverified |
-| `AGENT_TEST_STILL_ON` | What the AI agent test turned on is still on: 3 hours after the test, then once a day, until you have read a reminder or ended the test (see [Test with an AI agent](other-routers.md#ai)) |
+| `AGENT_TEST_STILL_ON` | What the AI agent test turned on is still on: 3 hours after the test, then once a day, until its writes all pass, you have read a reminder or you end the test; also a system notification while the console is in a background tab (see [Test with an AI agent](other-routers.md#ai)) |
 | `STORAGE_WRITE_FAILED` | Saving data failed (disk full, read-only, or incorrect permissions) |
 
 When an issue resolves, FengSui sends a recovery message (such as `WAN_UP`). Brief fluctuations do not trigger alerts immediately: every alert type has a minimum duration requirement and a recovery buffer.
