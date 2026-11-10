@@ -193,9 +193,9 @@ export function createDemoRouter(): DemoRouter {
  * The unverified-model world (multi-model phase 2): an LTE-only router of another Huawei model from
  * the phase-1 mock family, with a legacy SHA-256 login, the HiLink basics (signal, status, traffic,
  * month statistics, an XML device list, plaintext SMS) and nothing else. FengSui reads what it
- * provides and writes nothing until its owner turns experimental writes on (phase 3): the router then
- * takes the generic writes of appendix A.11 (band mask, mobile data, redial, reboot, plaintext SMS),
- * a redial or reboot starts the connection again and mobile data off takes the WAN down. Facts and
+ * provides and writes what it implements for such a model, each write on until its owner turns it
+ * off: the router takes the generic writes of appendix A.11 (band mask, mobile data, redial, reboot,
+ * plaintext SMS), a redial or reboot starts the connection again and mobile data off takes the WAN down. Facts and
  * placeholders only (docs/PHASE1_PROTOCOL_SPEC.md A.10, A.11).
  */
 export function createUnverifiedDemoRouter(): DemoRouter {
@@ -275,7 +275,7 @@ export interface DemoDaemonOptions {
   /** `0` picks a free port. */
   port: number;
   token: string;
-  /** `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another model, read-only. */
+  /** `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another model, with experimental writes. */
   scenario?: "normal" | "yield" | "breaker" | "unverified";
   /**
    * Run the Telegram bot against an in-process stand-in for the Bot API (nothing leaves the process),

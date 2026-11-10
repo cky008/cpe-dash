@@ -3,7 +3,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import type { WriteFeature } from "../src/device-access.ts";
+import { WRITE_FEATURES, type WriteFeature } from "../src/device-access.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
@@ -19,11 +19,11 @@ import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
- * Multi-model phase 3 on MCP: on a model nobody verified, a tool that writes to the router appears
- * only once its owner consented to that feature for that model, marked experimental and asking for
- * `confirm: true` every time; the experimental band lock offers LTE bands only. Called by name
- * without a consent it is refused before anything else. The H168-383's tools stay as they were.
- * Mocks and placeholders only, no network.
+ * Experimental writes on MCP: on a model nobody verified, a tool that writes to the router shows
+ * for the writes FengSui implements there, marked experimental and asking for `confirm: true` every
+ * time; the experimental band lock offers LTE bands only. A tool whose write its owner turned off,
+ * or FengSui has nothing for, is hidden, and called by name it is refused before anything else, each
+ * with its own code. The H168-383's tools stay as they were. Mocks and placeholders only, no network.
  */
 
 const MODEL = "B535-232";
@@ -82,7 +82,8 @@ function fixture(cpe: { fetchImpl: typeof fetch; password: string }) {
     rpc,
     tools,
     call,
-    consent: (...features: WriteFeature[]) => core.scheduler.device.setConsents(features.map((feature) => ({ model: MODEL, feature }))),
+    /** Leave only these writes on: every other one is turned off for this model, as its owner would in Settings → Device. */
+    only: (...features: WriteFeature[]) => core.scheduler.device.setDisabledWrites(WRITE_FEATURES.filter((feature) => !features.includes(feature)).map((feature) => ({ model: MODEL, feature }))),
     cleanup: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
@@ -98,29 +99,58 @@ before(() => {
 after(() => restore());
 
 describe("MCP and experimental writes", () => {
-  it("lists no router write without a consent, and refuses one called by name before it reaches the router", async () => {
+  it("lists by default the tools of every write FengSui implements for the model, and none of the rest", async () => {
     const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: ENDPOINTS, sms: MAILBOX, writes: {} });
     const fx = fixture(cpe);
     try {
       assert.ok(await fx.core.monitor.identifyDevice());
-      const listed = (await fx.tools()).map((t) => t.name);
-      assert.deepEqual(listed.filter((name) => ROUTER_WRITES.includes(name)), []);
-      assert.ok(listed.includes("upsert_contact"));
-      const refusal = await fx.call("lock_band", { lteBands: ["B1"], confirm: true });
-      assert.deepEqual([refusal["errorCode"], refusal["model"], refusal["feature"]], ["DEVICE_UNVERIFIED_READ_ONLY", MODEL, "bandLock"]);
+      const listed = await fx.tools();
+      const names = listed.map((t) => t.name).filter((name) => ROUTER_WRITES.includes(name));
+      assert.deepEqual(names, ["lock_band", "unlock_rf_locks", "reconnect_cellular", "reboot_cpe", "send_sms", "mark_sms_read", "delete_sms"]);
+      for (const tool of listed.filter((t) => names.includes(t.name))) {
+        assert.match(tool.description, new RegExp(`^EXPERIMENTAL on this router \\(${MODEL}, a model FengSui was not verified on; FengSui sends this write once`), tool.name);
+        assert.doesNotMatch(tool.description, /its owner turned this write on/, tool.name);
+      }
+      assert.ok(listed.some((t) => t.name === "upsert_contact"));
+      const instructions = (await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"] as string;
+      assert.match(instructions, /open as experimental writes \(bandLock, reboot, reconnect, mobileData, smsWrite\)[\s\S]*its owner can turn each off[\s\S]*confirm: true/);
+      // A write FengSui has no implementation of for this model: hidden, and refused by name as such
+      const refusal = await fx.call("lock_cell", { rat: "LTE", band: "B1", arfcn: 300, pci: 211, confirm: true });
+      assert.deepEqual([refusal["errorCode"], refusal["model"], refusal["feature"]], ["DEVICE_UNVERIFIED_READ_ONLY", MODEL, "cellLock"]);
       assert.deepEqual(cpe.stats.writes, []);
     } finally {
       await fx.cleanup();
     }
   });
 
-  it("lists a consented feature's tools as experimental, asking for confirm every time, and only those", async () => {
+  it("lists no router write once its owner turned them all off, and refuses one called by name before it reaches the router", async () => {
+    const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: ENDPOINTS, sms: MAILBOX, writes: {} });
+    const fx = fixture(cpe);
+    try {
+      assert.ok(await fx.core.monitor.identifyDevice());
+      fx.only();
+      const listed = (await fx.tools()).map((t) => t.name);
+      assert.deepEqual(listed.filter((name) => ROUTER_WRITES.includes(name)), []);
+      assert.ok(listed.includes("upsert_contact"));
+      const refusal = await fx.call("lock_band", { lteBands: ["B1"], confirm: true });
+      assert.deepEqual([refusal["errorCode"], refusal["model"], refusal["feature"]], ["DEVICE_WRITE_DISABLED", MODEL, "bandLock"]);
+      assert.match(refusal["message"] as string, /turned off for this router/);
+      const unlock = await fx.call("unlock_rf_locks", { confirm: true });
+      assert.deepEqual([unlock["errorCode"], unlock["feature"]], ["DEVICE_WRITE_DISABLED", "bandLock"]);
+      assert.match((await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"] as string, /no write is open on it[\s\S]*no tool can change it/);
+      assert.deepEqual(cpe.stats.writes, []);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("lists the tools of the writes left on as experimental, asking for confirm every time, and only those", async () => {
     const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: ENDPOINTS, sms: MAILBOX, writes: {} });
     const fx = fixture(cpe);
     try {
       assert.ok(await fx.core.monitor.identifyDevice());
       assert.ok(await fx.sms.sync("full"));
-      fx.consent("bandLock", "reboot", "smsWrite");
+      fx.only("bandLock", "reboot", "smsWrite");
       const listed = await fx.tools();
       const names = listed.map((t) => t.name).filter((name) => ROUTER_WRITES.includes(name));
       assert.deepEqual(names, ["lock_band", "unlock_rf_locks", "reboot_cpe", "send_sms", "mark_sms_read", "delete_sms"]);
@@ -143,11 +173,11 @@ describe("MCP and experimental writes", () => {
       assert.equal((await fx.call("reboot_cpe", { confirm: true }))["ok"], true);
       assert.deepEqual(cpe.stats.writes.map((w) => w.path), ["/api/net/net-mode", "/api/device/control"]);
       const refusal = await fx.call("reconnect_cellular", { confirm: true });
-      assert.deepEqual([refusal["errorCode"], refusal["feature"]], ["DEVICE_UNVERIFIED_READ_ONLY", "reconnect"]);
+      assert.deepEqual([refusal["errorCode"], refusal["feature"]], ["DEVICE_WRITE_DISABLED", "reconnect"]);
 
-      fx.consent();
+      fx.only();
       assert.deepEqual((await fx.tools()).map((t) => t.name).filter((name) => ROUTER_WRITES.includes(name)), [], "gone once turned off");
-      assert.equal((await fx.call("reboot_cpe", { confirm: true }))["errorCode"], "DEVICE_UNVERIFIED_READ_ONLY");
+      assert.equal((await fx.call("reboot_cpe", { confirm: true }))["errorCode"], "DEVICE_WRITE_DISABLED");
       assert.equal(cpe.stats.writes.length, 2);
     } finally {
       await fx.cleanup();

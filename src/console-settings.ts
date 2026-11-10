@@ -2,8 +2,9 @@ import crypto from "node:crypto";
 import { type AgentTestRecord, copyAgentTestRecord, isAgentTestRecord } from "./agent-test.ts";
 import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides } from "./behaviour-settings.ts";
 import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest, type TokenScope, permissionsForScope, scopeForPermissions } from "./console-policy.ts";
+import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
-import { FAMILY_WRITE_FEATURES, type FamilyWriteFeature, type RouterFamily } from "./router-family.ts";
+import type { RouterFamily } from "./router-family.ts";
 import type { AppConfig } from "./types.ts";
 
 /**
@@ -57,30 +58,32 @@ export interface TokenRecord {
 export type PublicTokenRecord = Omit<TokenRecord, "hash">;
 
 /**
- * An owner's informed consent to one experimental write on one router model (multi-model phase 3).
- * Kept only for one model at a time: a router of another model ends them all.
+ * One write its owner turned off on one router model. On a model nobody verified, the writes FengSui
+ * implements are on by default, so this list is what is off. Entries are kept per model: one made
+ * for another model says nothing about the router in use, and counts again when that model is back.
  */
-export interface ExperimentalConsent {
+export interface DisabledWrite {
   model: string;
-  feature: ConsentFeature;
-  grantedAtIso: string;
+  feature: WriteFeature;
+  disabledAtIso: string;
 }
 
-/** A write its owner can turn on for a model nobody verified: the generic HiLink writes, and the ones a driver family implements. */
-export type ConsentFeature = FamilyWriteFeature;
+/** How many switched-off writes are kept (the oldest go first): a dozen routers with every write off. */
+export const MAX_DISABLED_WRITES = 120;
 
-const EXPERIMENTAL: ReadonlySet<unknown> = new Set<unknown>(FAMILY_WRITE_FEATURES);
+const WRITES: ReadonlySet<unknown> = new Set<unknown>(WRITE_FEATURES);
 
-/** A stored consent this version can read; anything else is dropped, never half-honoured. */
-function isExperimentalConsent(value: unknown): value is ExperimentalConsent {
+/** A stored entry this version can read; anything else is dropped, never half-honoured. */
+function isDisabledWrite(value: unknown): value is DisabledWrite {
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
   return (
     typeof entry["model"] === "string" &&
     entry["model"].length > 0 &&
     entry["model"].length <= 256 &&
-    EXPERIMENTAL.has(entry["feature"]) &&
-    typeof entry["grantedAtIso"] === "string"
+    WRITES.has(entry["feature"]) &&
+    typeof entry["disabledAtIso"] === "string" &&
+    entry["disabledAtIso"].length <= 64
   );
 }
 
@@ -118,8 +121,8 @@ interface PersistedConsoleSettings {
   behaviour: BehaviourOverrides;
   /** Imported from `.env` and not yet confirmed in the console's guided check. */
   reviewPending: boolean;
-  /** Experimental writes the owner turned on (one model at a time). */
-  experimental: ExperimentalConsent[];
+  /** Experimental writes the owner turned off, each for the model it was turned off on. */
+  disabledWrites: DisabledWrite[];
   /** The AI agent test the owner started at one click, while it is on (what it turned on and the reminders). */
   agentTest: AgentTestRecord | null;
 }
@@ -221,7 +224,7 @@ function defaultState(): PersistedConsoleSettings {
     metricsEnabled: null,
     behaviour: {},
     reviewPending: false,
-    experimental: [],
+    disabledWrites: [],
     agentTest: null,
   };
 }
@@ -259,9 +262,12 @@ export class ConsoleSettings {
     assertKnownDataFormat(this.filePath, parsed?.format, FORMAT);
     if (!parsed) return false;
     const tokens = Array.isArray(parsed.tokens) ? parsed.tokens.filter((t) => t && typeof t.hash === "string" && typeof t.id === "string").map(withPermissions) : [];
-    const experimental = Array.isArray(parsed.experimental) ? parsed.experimental.filter(isExperimentalConsent).map((c) => ({ ...c })) : [];
+    const disabledWrites = Array.isArray(parsed.disabledWrites) ? parsed.disabledWrites.filter(isDisabledWrite).map((d) => ({ ...d })).slice(-MAX_DISABLED_WRITES) : [];
     const agentTest = isAgentTestRecord(parsed.agentTest) ? copyAgentTestRecord(parsed.agentTest) : null;
-    this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens, experimental, agentTest, behaviour: sanitizeBehaviourOverrides(parsed.behaviour) };
+    // Versions before 1.8.4 kept the writes an owner had consented to (`experimental`): those writes
+    // are on by default now, so the list has nothing left to say and is not carried over
+    const { experimental: _consents, ...known } = parsed as Partial<PersistedConsoleSettings> & { experimental?: unknown };
+    this.#state = { ...defaultState(), ...known, format: FORMAT, tokens, disabledWrites, agentTest, behaviour: sanitizeBehaviourOverrides(parsed.behaviour) };
     this.#reindex();
     return true;
   }
@@ -383,34 +389,27 @@ export class ConsoleSettings {
 
   // ------------------------------------------------------------ experimental writes
 
-  get experimentalConsents(): ExperimentalConsent[] {
-    return this.#state.experimental.map((c) => ({ ...c }));
+  /** Every write turned off, for whichever model (the gate counts only the entries of the router in use). */
+  get disabledWrites(): DisabledWrite[] {
+    return this.#state.disabledWrites.map((d) => ({ ...d }));
   }
 
-  /** Turn an experimental write on for `model`; consents for any other model end (a router of another model). */
-  grantExperimental(model: string, feature: ConsentFeature): ExperimentalConsent {
-    const consent: ExperimentalConsent = { model, feature, grantedAtIso: new Date(this.#now()).toISOString() };
-    this.#state.experimental = [...this.#state.experimental.filter((c) => c.model === model && c.feature !== feature), consent];
-    this.#save();
-    return { ...consent };
-  }
-
-  /** Turn an experimental write off, whatever model it was given for; `false` when it was off. */
-  revokeExperimental(feature: string): boolean {
-    const before = this.#state.experimental.length;
-    this.#state.experimental = this.#state.experimental.filter((c) => c.feature !== feature);
-    if (this.#state.experimental.length === before) return false;
+  /** Turn a write off on `model`; `false` when it was off there already (its entry keeps its time). */
+  disableWrite(model: string, feature: WriteFeature): boolean {
+    if (this.#state.disabledWrites.some((d) => d.model === model && d.feature === feature)) return false;
+    const entry: DisabledWrite = { model, feature, disabledAtIso: new Date(this.#now()).toISOString() };
+    this.#state.disabledWrites = [...this.#state.disabledWrites, entry].slice(-MAX_DISABLED_WRITES);
     this.#save();
     return true;
   }
 
-  /** The router is `model` now: drop every consent given for another; returns how many. */
-  retainExperimentalFor(model: string): number {
-    const before = this.#state.experimental.length;
-    this.#state.experimental = this.#state.experimental.filter((c) => c.model === model);
-    const dropped = before - this.#state.experimental.length;
-    if (dropped > 0) this.#save();
-    return dropped;
+  /** Turn a write back on for `model` (what it is by default); `false` when it was not off there. */
+  enableWrite(model: string, feature: string): boolean {
+    const before = this.#state.disabledWrites.length;
+    this.#state.disabledWrites = this.#state.disabledWrites.filter((d) => !(d.model === model && d.feature === feature));
+    if (this.#state.disabledWrites.length === before) return false;
+    this.#save();
+    return true;
   }
 
   // ------------------------------------------------------------ AI agent test

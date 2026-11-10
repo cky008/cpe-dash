@@ -1,15 +1,15 @@
 import { agentTestPermissions } from "../../../src/agent-test.ts";
-import type { AgentTestFeature, AgentTestPlan, AgentTestSetting, AgentTestView } from "../../../src/api-contract.ts";
+import type { AgentTestPlan, AgentTestSetting, AgentTestView } from "../../../src/api-contract.ts";
 import type { TokenPermission } from "../../../src/console-policy.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
-import { FEATURE_KEYS } from "./device-view.ts";
 import { formatAgo, formatClock } from "./format.ts";
 import type { Locale } from "./i18n.ts";
 
 /**
  * What the Device tab says about the AI agent test at one click, decided without the DOM: whether
- * copying the prompt first asks to turn things on, the confirmation's lines and its SMS option, and
- * how the test in progress reads (what ending it puts back, and when a reminder comes).
+ * copying the prompt first asks to set things (the agent switches and the token's permissions; the
+ * writes themselves are on already), the confirmation's lines and its SMS option, and how the test
+ * in progress reads (what ending it puts back, and when a reminder comes).
  */
 
 type Text = (key: SettingsTextKey, params?: Record<string, string | number>) => string;
@@ -39,15 +39,11 @@ export function tokenGets(plan: AgentTestPlan, tokenId: string, sms: boolean): T
   return plan.tokens.find((token) => token.id === tokenId)?.missing.filter((permission) => needed.includes(permission)) ?? [];
 }
 
-/** Copying the prompt turns something on first (and so asks): a setting, a write, or what the chosen token needs. */
+/** Copying the prompt sets something first (and so asks): a setting, or what the chosen token needs. */
 export function startTurnsOn(plan: AgentTestPlan, tokenId: string, sms: boolean): boolean {
   if (!plan.available) return false;
-  const smsParts = sms && plan.sms.available && (plan.sms.settings.length > 0 || plan.sms.feature);
-  return plan.settings.length > 0 || plan.features.length > 0 || smsParts || tokenGets(plan, tokenId, sms && plan.sms.available).length > 0;
-}
-
-function featureList(features: ReadonlyArray<AgentTestFeature>, t: Text): string {
-  return features.map((feature) => t(FEATURE_KEYS[feature])).join(t("agent_list_separator"));
+  const smsParts = sms && plan.sms.available && plan.sms.settings.length > 0;
+  return plan.settings.length > 0 || smsParts || tokenGets(plan, tokenId, sms && plan.sms.available).length > 0;
 }
 
 function permissionList(permissions: ReadonlyArray<TokenPermission>, t: Text): string {
@@ -63,7 +59,6 @@ export function agentStartBody(plan: AgentTestPlan, tokenId: string, t: Text): s
   const routerPermission = token !== null && tokenGets(plan, tokenId, false).length > 0;
   const items = [
     ...plan.settings.map((key) => t(SETTING_KEYS[key])),
-    ...(plan.features.length > 0 ? [t("agent_item_features", { features: featureList(plan.features, t) })] : []),
     ...(token && routerPermission ? [t("agent_item_token", { name: token.name })] : []),
   ];
   return [
@@ -85,7 +80,6 @@ export function smsOption(plan: AgentTestPlan, t: Text): string | null {
 export function agentTestStatus(view: AgentTestView, nowMs: number, locale: Locale, t: Text): string[] {
   const items = [
     ...view.settings.map((key) => t(SETTING_KEYS[key])),
-    ...(view.features.length > 0 ? [featureList(view.features, t)] : []),
     ...view.tokens.map((token) => t("agent_item_token_perms", { name: token.name, permissions: permissionList(token.permissions, t) })),
   ];
   const lines = [t("agent_status_on", { when: formatAgo(Date.parse(view.startedAtIso), nowMs, locale), items: items.join(t("agent_item_separator")) })];

@@ -211,8 +211,9 @@ export class AlertEngine {
   /**
    * `FIRMWARE_UNVERIFIED` once per firmware build of a verified model the protocol was not verified
    * on: Huawei updates the firmware on its own, so this warns (persisted across restarts) instead of
-   * blocking. A model nobody verified is read-only instead (the write gate): `MODEL_UNVERIFIED` once
-   * per model, pointing to the device page and its compatibility report rather than to a build check.
+   * blocking. A model nobody verified goes by the write gate instead (the writes FengSui implements
+   * for it are open as experimental writes): `MODEL_UNVERIFIED` once per model, pointing to the
+   * device page and its compatibility report rather than to a build check.
    */
   #evaluateFirmware(snap: GlobalTelemetrySnapshot): void {
     const { deviceName, softwareVersion } = snap.device;

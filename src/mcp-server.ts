@@ -1,7 +1,7 @@
 import { TOKEN_PERMISSIONS, type TokenPermission, permissionsForScope } from "./console-policy.ts";
 import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
-import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
+import { CONTROL_FEATURES, WRITE_FEATURES, type WriteFeature, gateRefuses } from "./device-access.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { type AgentExperimentalOptions, CoreMcpTools } from "./mcp-core-tools.ts";
 import { MCP_META_PROTOCOL_VERSION, MCP_META_SERVER_INFO, decodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
@@ -177,7 +177,7 @@ export class FengSuiMcpServer {
   readonly toolProviders: ReadonlyArray<McpToolProvider>;
   /** Attached to `BROWSER_SESSION_YIELDED` tool errors. */
   readonly #avoidanceState: () => AvoidanceBroadcastPayload;
-  /** The write gate's view of the router (a read-only model hides and refuses the router writes). */
+  /** The write gate's view of the router (on a model nobody verified, the router writes it refuses are hidden and refused). */
   readonly #scheduler: MutexSessionScheduler;
   readonly #onToolCall: ((toolName: string) => void) | null;
 
@@ -200,9 +200,8 @@ export class FengSuiMcpServer {
 
   /**
    * Tools this caller may see: mutating tools are hidden by `MCP_ALLOW_MUTATIONS=false` and for
-   * read-only tokens; on a router of an unverified model, router writes unless their features are
-   * open there (phase 3: then in their experimental form); and tools for what this router turned
-   * out not to provide.
+   * read-only tokens; on a router of an unverified model, router writes the gate refuses there (the
+   * others show in their experimental form); and tools for what this router turned out not to provide.
    */
   getToolDefinitions(access: boolean | ReadonlyArray<TokenPermission> = false): ReadonlyArray<McpToolDefinition> {
     const grant = grantOf(access);
@@ -220,25 +219,29 @@ export class FengSuiMcpServer {
   /**
    * How a tool shows on this router. Not a router write, a verified model or no model yet: as it is
    * (the scheduler still checks the model before the write). On a model nobody verified, a router
-   * write shows only while each of its features is open there, then in its generic form, marked
-   * experimental (or verified by users) and asking for `confirm: true`; `refused` names the first
-   * feature that is not open.
+   * write shows only while the gate has each of its features and actions open there, then in its
+   * generic form, marked experimental (or verified by users) and asking for `confirm: true`;
+   * `refused` names the first feature that is not open, and `disabled` whether its owner turned it off.
    */
-  #onThisRouter(provider: McpToolProvider, tool: McpToolDefinition): { definition: McpToolDefinition | null; refused: WriteFeature | null } {
+  #onThisRouter(provider: McpToolProvider, tool: McpToolDefinition): { definition: McpToolDefinition | null; refused: WriteFeature | null; disabled: boolean } {
     const device = this.#scheduler.device;
-    if (!isRouterWrite(provider, tool.name) || device.writes !== "read_only") return { definition: tool, refused: null };
-    const features = provider.routerWriteFeatures?.(tool.name) ?? [];
-    const refused = features.length === 0 ? null : (features.find((feature) => device.writeAccess(feature) === "read_only") ?? null);
-    if (features.length === 0 || refused) return { definition: null, refused };
-    const experimental = features.some((feature) => device.writeAccess(feature) === "experimental");
+    if (!isRouterWrite(provider, tool.name) || device.writes !== "experimental") return { definition: tool, refused: null, disabled: false };
+    const needs = [
+      ...(provider.routerWriteFeatures?.(tool.name) ?? []).map((feature) => ({ feature, access: device.writeAccess(feature) })),
+      ...(provider.routerWriteActions?.(tool.name) ?? []).map((action) => ({ feature: CONTROL_FEATURES[action] as WriteFeature, access: device.actionAccess(action) })),
+    ];
+    const closed = needs.find((need) => gateRefuses(need.access)) ?? null;
+    if (needs.length === 0 || closed) return { definition: null, refused: closed?.feature ?? null, disabled: closed?.access === "disabled" };
+    const experimental = needs.some((need) => need.access === "experimental");
     const model = device.snapshot().model ?? "?";
     const generic = provider.adaptForGenericWrite?.(tool, { lteBands: device.experimentalLteBands }) ?? tool;
     const required = generic.inputSchema.required ?? [];
     return {
       refused: null,
+      disabled: false,
       definition: {
         ...generic,
-        description: `${experimental ? "EXPERIMENTAL" : "VERIFIED BY USERS"} on this router (${model}, a model FengSui was not verified on${experimental ? "; its owner turned this write on in Settings → Device, and every result is read back" : ""}): ${generic.description} Pass confirm: true only when the user explicitly asked for this exact change.`,
+        description: `${experimental ? "EXPERIMENTAL" : "VERIFIED BY USERS"} on this router (${model}, a model FengSui was not verified on${experimental ? "; FengSui sends this write once, in the form its interface notes give, and reads every result back" : ""}): ${generic.description} Pass confirm: true only when the user explicitly asked for this exact change.`,
         inputSchema: {
           ...generic.inputSchema,
           properties: {
@@ -368,17 +371,17 @@ export class FengSuiMcpServer {
   #instructions(): string {
     const device = this.#scheduler.device;
     const model = device.snapshot().model ?? "?";
-    const open = WRITE_FEATURES.filter((feature) => device.writeAccess(feature) !== "read_only");
-    let readOnly: string[] = [];
-    if (device.writes === "read_only") {
-      readOnly =
+    const open = WRITE_FEATURES.filter((feature) => !gateRefuses(device.writeAccess(feature)));
+    let unverified: string[] = [];
+    if (device.writes === "experimental") {
+      unverified =
         open.length === 0
-          ? [`This router (${model}) is a model FengSui was not verified on: it is read-only, so no tool can change it.`]
+          ? [`This router (${model}) is a model FengSui was not verified on, and no write is open on it (FengSui implements none for it, or its owner turned them off): no tool can change it.`]
           : [
-              `This router (${model}) is a model FengSui was not verified on: it is read-only except the experimental writes its owner turned on (${open.join(", ")}). Their tools say so and need confirm: true; pass it only when the user explicitly asked for that exact change.`,
+              `This router (${model}) is a model FengSui was not verified on. The writes FengSui implements for it are open as experimental writes (${open.join(", ")}): each is sent once and read back, and its owner can turn each off. Their tools say so and need confirm: true; pass it only when the user explicitly asked for that exact change.`,
             ];
     }
-    return [...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])), ...readOnly].filter(Boolean).join(" ");
+    return [...this.toolProviders.flatMap((p) => (p.instructions ? [p.instructions()] : [])), ...unverified].filter(Boolean).join(" ");
   }
 
   async #dispatchMethod(method: string, params: Record<string, unknown>, modern: boolean, grant: Grant): Promise<unknown> {
@@ -506,8 +509,8 @@ export class FengSuiMcpServer {
     const listed = provider?.getToolDefinitions().find((tool) => tool.name === toolName);
     const shown = provider && listed ? this.#onThisRouter(provider, listed) : null;
     if (provider && listed && shown?.definition === null) {
-      const refused = new DeviceReadOnlyError(this.#scheduler.device.snapshot().model ?? "?", shown.refused);
-      return wrapErr("DEVICE_UNVERIFIED_READ_ONLY", refused.messageEn, { messageZh: refused.messageZh, model: refused.model, feature: refused.feature });
+      const refused = new DeviceReadOnlyError(this.#scheduler.device.snapshot().model ?? "?", shown.refused, shown.disabled);
+      return wrapErr(refused.errorCode, refused.messageEn, { messageZh: refused.messageZh, model: refused.model, feature: refused.feature });
     }
     // Enforce the advertised contract before any work: explicit confirmation first, then the schema
     // (also for a tool left out of the list because this router lacks what it reads: called by name, it still runs)
@@ -541,7 +544,7 @@ export class FengSuiMcpServer {
         return wrapErr("PEER_DAEMON_ACTIVE", err.message, { peerAddress: err.peerAddress });
       }
       if (err instanceof DeviceReadOnlyError) {
-        return wrapErr("DEVICE_UNVERIFIED_READ_ONLY", err.messageEn, { messageZh: err.messageZh, model: err.model, feature: err.feature });
+        return wrapErr(err.errorCode, err.messageEn, { messageZh: err.messageZh, model: err.model, feature: err.feature });
       }
       if (err instanceof DeviceNotIdentifiedError) {
         return wrapErr("DEVICE_NOT_IDENTIFIED", err.messageEn, { messageZh: err.messageZh });

@@ -67,7 +67,7 @@ describe("device report: desensitization", () => {
     const tally = new ApiErrorTally(() => Date.parse(NOW));
     tally.record("POST", "/api/sms/sms-list-contact?ecc-client-pubkey=0123456789abcdef0123456789abcdef&enc-type=1", "100002");
     const access = {
-      writes: "read_only" as const,
+      writes: "experimental" as const,
       reads: {
         telemetry: { state: "available" as const, code: null },
         neighbors: { state: "unavailable" as const, code: "100002" },

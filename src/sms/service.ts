@@ -3,6 +3,7 @@ import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../cpe-
 import type { CpeMonitor } from "../cpe-monitor.ts";
 import { t } from "../i18n.ts";
 import { maskPhoneNumber } from "../sanitize.ts";
+import { gateRefuses } from "../device-access.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
 import { formatHuaweiDate } from "../xml.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "./codec.ts";
@@ -388,7 +389,7 @@ export class SmsService extends EventEmitter {
     // A model nobody verified sends the plaintext way, which takes no emoji: refused before queueing
     // (a send the gate refuses anyway says so first)
     const device = this.scheduler.device;
-    if (device.generic && device.writeAccess("smsWrite") !== "read_only") validateGenericSmsContent(prepared.content);
+    if (device.generic && !gateRefuses(device.writeAccess("smsWrite"))) validateGenericSmsContent(prepared.content);
     const to = prepared.phones.map(maskPhoneNumber).join(", ");
 
     let accepted = false;

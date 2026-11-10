@@ -85,8 +85,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   trashButton.addEventListener("click", () => openTrash(ctx, shared));
   const mobileFilters = h("div", { class: "fs-seg md:hidden w-full" });
   const threadList = h("div", { class: "flex-1 overflow-y-auto px-2.5 pb-28" });
-  /** A model FengSui was not verified on is read-only: messages are shown, never sent, marked or deleted. */
-  // A model nobody verified writes SMS only once its owner turned the experimental SMS writes on
+  // A model nobody verified writes SMS where FengSui implements it for the model, unless its owner turned that off
   const locked = (): boolean => !canWrite(ctx.store.state.scheduler, "smsWrite");
   const fab = h("button", { class: "fab-compose btn btn-primary btn-circle size-13 absolute right-5 bottom-6 z-10", attrs: { type: "button" } }, icon("plus", "text-2xl"));
   fab.addEventListener("click", () => shared.openCompose());
@@ -379,8 +378,8 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
       h("div", { class: "space-y-1.5" }, h("h2", { class: "text-base font-semibold serif" }, ctx.t("chat.empty_title")), h("p", { class: "text-sm muted max-w-xs" }, ctx.t("chat.empty_desc"))),
       locked() ? h("p", { class: "text-xs muted max-w-xs flex items-center gap-1.5" }, icon("lock"), ctx.t("dev.sms_read_only")) : newBtn,
       locked() ? null : h("p", { class: "text-xs faint hidden md:block" }, h("kbd", { class: "kbd kbd-xs" }, "N"), ` ${ctx.t("sms.new")} · `, h("kbd", { class: "kbd kbd-xs" }, "/"), ` ${ctx.t("sms.search")}`),
-      // Turned on as an experimental write on a model nobody verified: say how it differs
-      writeState(ctx.store.state.scheduler, "smsWrite") === "consented"
+      // An experimental write on a model nobody verified: say how it differs
+      writeState(ctx.store.state.scheduler, "smsWrite") === "enabled"
         ? h("p", { class: "text-xs text-warning max-w-xs flex items-start gap-1.5" }, icon("alert", "mt-0.5 shrink-0"), ctx.t("dev.sms_experimental"))
         : null
     );
@@ -645,7 +644,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     if (!ctx.store.state.smsEnabled) renderDisabled();
     else renderSidebar();
   });
-  // The router's read-only state and its SMS section, redrawn only when they change (the status polls every 10 s)
+  // Whether SMS writes are open on this router, and its SMS section, redrawn only when they change (the status polls every 10 s)
   let deviceKey = "";
   ctx.store.subscribe("scheduler", () => {
     const missing = unavailableSection(ctx.store.state.scheduler, "sms");

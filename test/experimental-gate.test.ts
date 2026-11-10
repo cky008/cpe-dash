@@ -4,9 +4,9 @@ import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { CpeApiError, HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
-import { CONTROL_FEATURES, type ControlAction, type WriteFeature, type WriteResultRecord, isWriteResultRecord } from "../src/device-access.ts";
+import { CONTROL_FEATURES, type ControlAction, WRITE_FEATURES, type WriteFeature, type WriteResultRecord, isWriteResultRecord } from "../src/device-access.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError } from "../src/scheduler.ts";
+import { type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { SmsService } from "../src/sms/service.ts";
@@ -17,11 +17,11 @@ import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
- * Multi-model phase 3: on a model nobody verified, the write gate opens a write only when its owner
- * consented to that feature for that model, and then the write goes the generic way (appendix A.11),
- * is read back, recorded without any value and alerted on when the read-back differs. Everything
- * else stays refused before any session; the H168-383 needs no consent and writes as it always did.
- * Mocks and placeholders only, no network.
+ * On a model nobody verified, the write gate has the writes FengSui implements for the router open
+ * by default: such a write goes the generic way (appendix A.11), is read back, recorded without any
+ * value and alerted on when the read-back differs. One its owner turned off, and every write FengSui
+ * has no implementation of there, is refused before any session; the H168-383 has no switches and
+ * writes as it always did. Mocks and placeholders only, no network.
  */
 
 const MODEL = "B535-232";
@@ -65,7 +65,8 @@ function fixture(router: { fetchImpl: typeof fetch; password: string }) {
     audits,
     applied,
     alerts,
-    consent: (...features: WriteFeature[]) => core.scheduler.device.setConsents(features.map((feature) => ({ model: MODEL, feature }))),
+    /** Leave only these writes on: every other one is turned off for this model, as its owner would in Settings → Device. */
+    only: (...features: WriteFeature[]) => core.scheduler.device.setDisabledWrites(WRITE_FEATURES.filter((feature) => !features.includes(feature)).map((feature) => ({ model: MODEL, feature }))),
     cleanup: async () => {
       await sms.stop();
       await stopFengSuiCore(core);
@@ -127,17 +128,52 @@ before(() => {
 });
 after(() => restore());
 
-describe("experimental gate: without a consent", () => {
-  it("refuses every write, those FengSui could do here too, before any session: the router gets no write", async () => {
+describe("experimental gate: by default", () => {
+  it("has the writes FengSui implements for the model on, and refuses the rest before any session", async () => {
     const { cpe, fx } = await identified();
     try {
-      const { features } = fx.core.scheduler.getStatus().device;
-      assert.deepEqual([features.bandLock, features.reboot, features.reconnect, features.mobileData, features.smsWrite], ["available", "available", "available", "available", "available"]);
+      const { features, writes } = fx.core.scheduler.getStatus().device;
+      assert.equal(writes, "experimental");
+      assert.deepEqual([features.bandLock, features.reboot, features.reconnect, features.mobileData, features.smsWrite], ["enabled", "enabled", "enabled", "enabled", "enabled"]);
+      assert.deepEqual([features.cellLock, features.securitySwitches, features.wifi, features.antenna, features.accessControl], Array.from({ length: 5 }, () => "not_implemented"));
       const sent = cpe.stats.requests.length;
-      for (const [action, run] of WRITES) await assert.rejects(run(fx), refused(action), action);
+      const unimplemented = WRITES.filter(([action]) => features[CONTROL_FEATURES[action]] === "not_implemented");
+      assert.equal(unimplemented.length, 6);
+      for (const [action, run] of unimplemented) {
+        await assert.rejects(run(fx), (err) => refused(action)(err) && !(err instanceof DeviceWriteDisabledError) && (err as DeviceReadOnlyError).errorCode === "DEVICE_UNVERIFIED_READ_ONLY", action);
+      }
       assert.deepEqual(cpe.stats.writes, []);
       assert.equal(cpe.stats.requests.length, sent, "not even a login");
       assert.deepEqual(fx.core.scheduler.genericWrites, [], "nothing to record");
+      // With nothing asked of its owner, an implemented write goes out
+      await fx.core.controls.setMobileData(false);
+      assert.deepEqual(posts(cpe), ["/api/dialup/mobile-dataswitch <request><dataswitch>0</dataswitch></request>"]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("refuses every write once its owner turned them all off, before any session, and says which kind of refusal it is", async () => {
+    const { cpe, fx } = await identified();
+    try {
+      fx.only();
+      const { features } = fx.core.scheduler.getStatus().device;
+      assert.deepEqual([features.bandLock, features.reboot, features.reconnect, features.mobileData, features.smsWrite], ["disabled", "disabled", "disabled", "disabled", "disabled"]);
+      assert.equal(features.cellLock, "not_implemented", "turning off a write FengSui has nothing for changes nothing");
+      const sent = cpe.stats.requests.length;
+      for (const [action, run] of WRITES) {
+        const off = features[CONTROL_FEATURES[action]] === "disabled";
+        await assert.rejects(
+          run(fx),
+          (err) => refused(action)(err) && err instanceof DeviceWriteDisabledError === off && (err as DeviceReadOnlyError).errorCode === (off ? "DEVICE_WRITE_DISABLED" : "DEVICE_UNVERIFIED_READ_ONLY"),
+          action
+        );
+      }
+      assert.deepEqual(cpe.stats.writes, []);
+      assert.equal(cpe.stats.requests.length, sent, "not even a login");
+      assert.deepEqual(fx.core.scheduler.genericWrites, [], "nothing to record");
+      const audit = fx.audits.find((a) => a.action === "reboot_cpe");
+      assert.deepEqual([audit?.outcome, /turned off for this router \(B535-232\)/.test(audit?.detail ?? "")], ["refused", true]);
     } finally {
       await fx.cleanup();
     }
@@ -160,11 +196,11 @@ describe("experimental gate: without a consent", () => {
   });
 });
 
-describe("experimental gate: one consent", () => {
-  it("opens that one write, the generic way, and nothing else", async () => {
+describe("experimental gate: one write left on", () => {
+  it("writes that one, the generic way, and nothing else", async () => {
     const { cpe, fx } = await identified();
     try {
-      fx.consent("bandLock");
+      fx.only("bandLock");
       const lock = await fx.core.controls.lockBands({ lteBands: ["B66", 1] });
       assert.deepEqual([lock.mode, lock.lteBands, lock.nrBands, lock.cellLock], ["band_lock", [1, 66], [], null]);
       assert.deepEqual(posts(cpe), ["/api/net/net-mode <request><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>20000000000000001</LTEBand></request>"]);
@@ -199,13 +235,13 @@ describe("experimental gate: one consent", () => {
   it("refuses a band net-mode-list does not advertise, an NR band and a cell lock before any session", async () => {
     const { cpe, fx } = await identified();
     try {
-      fx.consent("bandLock", "cellLock" as WriteFeature);
+      fx.only("bandLock");
       const sent = cpe.stats.requests.length;
       await assert.rejects(fx.core.controls.lockBands({ lteBands: [28] }), CpeControlValidationError, "B28 is the H168-383's, not this router's");
       await assert.rejects(fx.core.controls.lockBands({ lteBands: [2] }), CpeControlValidationError);
       await assert.rejects(fx.core.controls.lockBands({ nrBands: ["N78"] }), CpeControlValidationError);
       await assert.rejects(fx.core.controls.lockBands({ lteBands: [1], nrBands: "all" }), CpeControlValidationError);
-      await assert.rejects(fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 300, pci: 1 }), refused("lock_cell"), "a consent for an unimplemented write opens nothing");
+      await assert.rejects(fx.core.controls.lockCell({ rat: "LTE", band: 1, arfcn: 300, pci: 1 }), refused("lock_cell"), "a write FengSui has no implementation of here stays refused");
       assert.equal(cpe.stats.requests.length, sent);
       assert.deepEqual(cpe.stats.writes, []);
     } finally {
@@ -213,14 +249,14 @@ describe("experimental gate: one consent", () => {
     }
   });
 
-  it("closes again at once when it is turned off or the router turns out to be another model", async () => {
+  it("closes at once when it is turned off or the router turns out to be another model", async () => {
     const { cpe, fx } = await identified();
     try {
-      fx.consent("mobileData");
+      fx.only("mobileData");
       await fx.core.controls.setMobileData(false);
-      fx.consent();
+      fx.only();
       await assert.rejects(fx.core.controls.setMobileData(true), refused("set_mobile_data"));
-      fx.consent("mobileData");
+      fx.only("mobileData");
       fx.core.scheduler.noteRouterModel("E5576-320", null);
       await assert.rejects(fx.core.controls.setMobileData(true), (err) => err instanceof DeviceReadOnlyError && err.model === "E5576-320");
       assert.equal(cpe.stats.writes.length, 1);
@@ -244,7 +280,7 @@ describe("experimental gate: every generic write", () => {
     it(`${c.action}: the reference form, read back, recorded`, async () => {
       const { cpe, fx } = await identified();
       try {
-        fx.consent(c.feature);
+        fx.only(c.feature);
         await c.run(fx);
         assert.equal(cpe.stats.writes.length, 1);
         assert.match(posts(cpe)[0] ?? "", c.post);
@@ -260,7 +296,7 @@ describe("experimental gate: every generic write", () => {
   it("alerts when the read-back differs, and names neither value nor content", async () => {
     const { fx } = await identified({ ignore: true });
     try {
-      fx.consent("bandLock", "mobileData", "smsWrite");
+      fx.only("bandLock", "mobileData", "smsWrite");
       await fx.core.controls.lockBands({ lteBands: [3] });
       await fx.core.controls.setMobileData(false);
       await fx.sms.deleteMessages({ uids: fx.sms.mirror.list().filter((m) => m.index === 39001).map((m) => m.uid) });
@@ -284,7 +320,7 @@ describe("experimental gate: every generic write", () => {
   it("never retries: a refused write is one request, recorded with the router's code", async () => {
     const { cpe, fx } = await identified({ errors: { "/api/net/net-mode": "100003", "/api/device/control": "100002" } });
     try {
-      fx.consent("bandLock", "reboot");
+      fx.only("bandLock", "reboot");
       await assert.rejects(fx.core.controls.lockBands({ lteBands: [1] }), (err) => err instanceof CpeApiError && err.code === "100003");
       await assert.rejects(fx.core.controls.rebootRouter({ confirm: true }), (err) => err instanceof CpeApiError && err.code === "100002");
       assert.deepEqual(cpe.stats.writes.map((w) => w.path), ["/api/net/net-mode", "/api/device/control"], "one request each");
@@ -304,7 +340,7 @@ describe("experimental gate: every generic write", () => {
   it("keeps only a router code that is a code: router text in its place is not recorded", async () => {
     const { cpe, fx } = await identified({ errors: { "/api/dialup/mobile-dataswitch": "busy 860000000000000", "/api/device/control": "860000000000000" } });
     try {
-      fx.consent("mobileData", "reboot");
+      fx.only("mobileData", "reboot");
       await assert.rejects(fx.core.controls.setMobileData(false), CpeApiError);
       await assert.rejects(fx.core.controls.rebootRouter({ confirm: true }), CpeApiError);
       assert.equal(cpe.stats.writes.length, 2, "one request each");
@@ -320,13 +356,14 @@ describe("experimental gate: every generic write", () => {
     }
   });
 
-  it("repairs the WAN the generic way once the owner consented, and stays refused otherwise", async () => {
+  it("repairs the WAN the generic way, and stays refused where the owner turned that write off", async () => {
     const { cpe, fx } = await identified();
     try {
       cpe.setConnectionStatus("902");
-      await assert.rejects(fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso), refused("auto_unlock_rf_locks"));
-      await assert.rejects(fx.core.controls.reconnectWan(), refused("auto_reconnect_cellular"));
-      fx.consent("bandLock", "reconnect");
+      fx.only("reboot");
+      await assert.rejects(fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso), (err) => refused("auto_unlock_rf_locks")(err) && err instanceof DeviceWriteDisabledError);
+      await assert.rejects(fx.core.controls.reconnectWan(), (err) => refused("auto_reconnect_cellular")(err) && err instanceof DeviceWriteDisabledError);
+      fx.only("bandLock", "reconnect");
       assert.deepEqual(await fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso), { applied: true, lockState: fx.core.controls.getPersistedLockState() });
       assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: true });
       assert.deepEqual(posts(cpe), [
@@ -354,7 +391,7 @@ describe("experimental gate: a redial and a reboot are checked by the polls that
   it("calls a reboot done when the uptime starts again, and alerts when the router kept running", async () => {
     const { fx } = await identified();
     try {
-      fx.consent("reboot");
+      fx.only("reboot");
       await fx.core.controls.rebootRouter({ confirm: true });
       const first = fx.core.scheduler.genericWrites.at(-1) as WriteResultRecord;
       fx.core.scheduler.notePollForWrites(poll(first, 30, { uptime: 100_000 }));
@@ -375,7 +412,7 @@ describe("experimental gate: a redial and a reboot are checked by the polls that
   it("calls a redial done when the connection starts again, and unknown when no poll could tell", async () => {
     const { fx } = await identified();
     try {
-      fx.consent("reconnect");
+      fx.only("reconnect");
       await fx.core.controls.reconnectCellular();
       const redial = fx.core.scheduler.genericWrites.at(-1) as WriteResultRecord;
       fx.core.scheduler.notePollForWrites(poll(redial, 20, { connect: 5, wan: "902" }));
@@ -398,7 +435,7 @@ describe("experimental gate: a redial and a reboot are checked by the polls that
   it("takes a connection time of 0 for no evidence: traffic statistics without CurrentConnectTime read as 0", async () => {
     const { fx } = await identified();
     try {
-      fx.consent("reconnect", "reboot");
+      fx.only("reconnect", "reboot");
       await fx.core.controls.reconnectCellular();
       const redial = fx.core.scheduler.genericWrites.at(-1) as WriteResultRecord;
       fx.core.scheduler.notePollForWrites(poll(redial, 30, { connect: 0 }));
@@ -488,11 +525,13 @@ describe("experimental gate: a check left pending by a restart", () => {
 });
 
 describe("experimental gate: the H168-383", () => {
-  it("writes as it always did, with no consent and nothing recorded", async () => {
+  it("writes as it always did, with no switch to turn off and nothing recorded", async () => {
     const cpe = createStrictCpe();
     const fx = fixture(cpe);
     try {
       assert.ok(await fx.core.monitor.identifyDevice());
+      // A list naming the verified model (there is no way to make one in the console) changes nothing
+      fx.core.scheduler.device.setDisabledWrites(WRITE_FEATURES.map((feature) => ({ model: "H168-383", feature })));
       assert.deepEqual(new Set(Object.values(fx.core.scheduler.getStatus().device.features)), new Set(["verified"]));
       await fx.core.controls.lockBands({ lteBands: [1, 3], nrBands: ["N78"] });
       await fx.core.controls.setMobileData(true);

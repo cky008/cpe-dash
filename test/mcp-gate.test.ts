@@ -226,21 +226,31 @@ describe("MCP and the write gate", () => {
     }
   });
 
-  it("hides every router write on an unverified model and refuses each one called by name: the router gets no write", async () => {
+  it("hides every router write the gate refuses on an unverified model and refuses each one called by name, with its own code: the router gets no write", async () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232", endpoints: LTE_ROUTER, sms: MAILBOX });
     const fx = mcpFixture(cpe);
     try {
       await fx.core.monitor.identifyDevice();
       assert.ok(await fx.sms.sync("full"));
+      // This router shows what a reboot and the SMS writes need, and nothing of the other generic writes:
+      // those two are on by default, and listed
+      const open = ["reboot_cpe", "send_sms", "mark_sms_read", "delete_sms"];
+      assert.deepEqual((await fx.tools()).filter((name) => ROUTER_WRITE_CALLS.some(([write]) => write === name)), open);
+      // Its owner turns both off: no router write is left
+      fx.core.scheduler.device.setDisabledWrites([
+        { model: "B535-232", feature: "reboot" },
+        { model: "B535-232", feature: "smsWrite" },
+      ]);
       const listed = await fx.tools();
       for (const [name] of ROUTER_WRITE_CALLS) assert.ok(!listed.includes(name), `${name} is not listed`);
       assert.ok(listed.includes("upsert_contact"), "the contact book is FengSui's own, not the router's");
-      assert.match(String((await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"]), /\(B535-232\) is a model FengSui was not verified on: it is read-only/);
+      assert.match(String((await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"]), /\(B535-232\) is a model FengSui was not verified on, and no write is open on it[^.]*: no tool can change it/);
 
       const sent = cpe.stats.requests.length;
       for (const [name, args] of ROUTER_WRITE_CALLS) {
         const result = await fx.call(name, args);
-        assert.deepEqual([result["ok"], result["errorCode"], result["model"]], [false, "DEVICE_UNVERIFIED_READ_ONLY", "B535-232"], name);
+        const code = open.includes(name) ? "DEVICE_WRITE_DISABLED" : "DEVICE_UNVERIFIED_READ_ONLY";
+        assert.deepEqual([result["ok"], result["errorCode"], result["model"]], [false, code, "B535-232"], name);
       }
       assert.deepEqual(cpe.stats.writes, [], "no write request reached the router");
       assert.equal(cpe.stats.requests.length, sent, "and no session either");
@@ -260,7 +270,8 @@ describe("MCP and the write gate", () => {
       await fx.core.monitor.refreshSettings();
       await fx.core.monitor.refreshAccessControl();
       await fx.sms.sync("full");
-      assert.deepEqual(await fx.tools(), ["get_cpe_telemetry", "query_telemetry_history", "get_cpe_session_status", "list_terminal_topology", "get_device_report"]);
+      // What is left: the reads it provides, and the one write FengSui implements that this router shows it can take
+      assert.deepEqual(await fx.tools(), ["get_cpe_telemetry", "query_telemetry_history", "get_cpe_session_status", "list_terminal_topology", "get_device_report", "reboot_cpe"]);
       assert.deepEqual(((await fx.rpc("resources/list"))["resources"] as Array<{ uri: string }>).map((r) => r.uri), ["fengsui://telemetry/latest", "fengsui://session/status", "fengsui://locks/state"]);
       assert.doesNotMatch(String((await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"]), /SMS tools/);
     } finally {

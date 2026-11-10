@@ -537,24 +537,33 @@ describe("the console in a browser", () => {
     assert.deepEqual(overflow, []);
   });
 
-  it("asks for another model's name before an experimental write, and only takes it typed right", async () => {
+  it("shows another model's writes on by default, and turns one off and back on with a click each, with no model to type", async () => {
     const other = await world({ scenario: "unverified" });
     try {
       await signIn(page, other);
+      // The header names the model as not verified, and no longer as read-only
+      await page.waitUntil("document.getElementById('readOnlyBadge').title.includes('B535-232')", "the model badge");
+      assert.equal(await page.evaluate<string>("document.querySelector('#readOnlyBadge [data-role=text]').textContent"), "Unverified model");
+      assert.doesNotMatch(await page.evaluate<string>("document.getElementById('readOnlyBadge').title"), /read-only|locked/i);
       await openSettings(page, "Device");
-      const bandLock = "#settingsDialog li[data-feature=bandLock] input";
-      await page.waitUntil(`document.querySelector(${JSON.stringify(bandLock)}) !== null`, "the experimental writes");
-      await page.click(bandLock);
-      await page.waitUntil(isOpen("confirmDialog"), "the risk dialog");
-      const type = (text: string): Promise<unknown> =>
-        page.evaluate(`(() => { const input = document.getElementById('confirmTypeInput'); input.value = ${JSON.stringify(text)}; input.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
-      assert.equal(await page.evaluate<boolean>("document.getElementById('confirmOk').disabled"), true, "nothing typed yet");
-      await type("B535");
-      assert.equal(await page.evaluate<boolean>("document.getElementById('confirmOk').disabled"), true, "not the whole model");
-      await type("b535-232");
-      await page.waitUntil("document.getElementById('confirmOk').disabled === false", "the model typed (any case)");
-      await page.click("#confirmOk");
-      await until(() => other.stack.settings.experimentalConsents.some((consent) => consent.feature === "bandLock"), "the consent");
+      const row = (feature: string, rest = ""): string => `document.querySelector('#settingsDialog li[data-feature=${feature}]${rest}')`;
+      await page.waitUntil(`${row("bandLock", " input")} !== null`, "the experimental writes");
+      assert.equal(await page.evaluate<boolean>(`${row("bandLock", " input")}.checked`), true, "on by default");
+      assert.match(await page.evaluate<string>(`${row("bandLock")}.textContent`), /never checked on a real router/, "said at the switch");
+      assert.equal(await page.evaluate<boolean>(`${row("cellLock", " input")} === null`), true, "no switch for a write FengSui has nothing for on this model");
+      assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=writes]').textContent"), /^Writes: 5 available \(never checked on a real router\)$/);
+
+      await page.click("#settingsDialog li[data-feature=bandLock] input");
+      await until(() => other.stack.settings.disabledWrites.some((entry) => entry.feature === "bandLock"), "turned off");
+      await page.waitUntil(`${row("bandLock", "[data-state=disabled] input")}?.checked === false && !${row("bandLock", " input")}.disabled`, "shown as off");
+      assert.equal(await page.evaluate<boolean>(isOpen("confirmDialog")), false, "no dialog: nothing to type, nothing to consent to");
+      assert.equal(other.stack.scheduler.device.writeAccess("bandLock"), "disabled", "the gate refuses it from now on");
+      assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=writes]').textContent"), /^Writes: 4 available/);
+
+      await page.click("#settingsDialog li[data-feature=bandLock] input");
+      await until(() => other.stack.settings.disabledWrites.length === 0, "turned back on");
+      await page.waitUntil(`${row("bandLock", "[data-state=enabled] input")}?.checked === true`, "shown as on");
+      assert.equal(other.stack.scheduler.device.writeAccess("bandLock"), "experimental");
       assert.deepEqual(page.exceptions, []);
       await closeDialogs(page);
     } finally {
@@ -606,16 +615,17 @@ describe("the console in a browser", () => {
       await page.click(start);
       await page.waitUntil(isOpen("confirmDialog"), "one confirmation");
       const body = await page.evaluate<string>("document.getElementById('confirmBody').textContent");
-      for (const item of ["Let AI agents test this router", "Let agents change the router", "Experimental writes: Band lock, Redial, Reboot", "The token “Claude”: may change the router", "End test"]) {
+      for (const item of ["Let AI agents test this router", "Let agents change the router", "The token “Claude”: may change the router", "never checked on a real one", "End test"]) {
         assert.ok(body.includes(item), item);
       }
+      assert.doesNotMatch(body, /Experimental writes:/, "the test turns no write on: they are on already");
       // SMS is in unless the owner unticks it
       assert.equal(await page.evaluate<boolean>("!document.getElementById('confirmCheckRow').classList.contains('hidden') && document.getElementById('confirmCheckInput').checked"), true, "SMS ticked");
       assert.match(await page.evaluate<string>("document.getElementById('confirmCheckLabel').textContent"), /^Also test SMS: .*at most 10 an hour/);
       await page.click("#confirmOk");
       await until(() => other.stack.settings.agentTest !== null, "the test started");
       assert.deepEqual(other.stack.settings.behaviourOverrides, { agentExperimental: true, agentWrites: true, agentSms: "full", agentSmsSendPolicy: "any" });
-      assert.deepEqual(other.stack.settings.experimentalConsents.map((c) => c.feature).sort(), ["bandLock", "reboot", "reconnect", "smsWrite"]);
+      assert.equal(other.stack.settings.disabledWrites.length, 0, "no write's switch was touched");
       assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control", "sms-write"]);
       assert.match(await page.evaluate<string>("navigator.clipboard.readText()"), /^Please test how FengSui works with this router \(B535-232\)/, "the prompt is copied");
       await page.waitUntil("document.querySelector('#settingsDialog [data-agent-test=status]')?.textContent.includes('Ending the test puts back')", "the test in progress");
@@ -623,7 +633,8 @@ describe("the console in a browser", () => {
 
       await page.clickText("#settingsDialog [data-agent-test=prompt] button", "End test");
       await until(() => other.stack.settings.agentTest === null, "the test ended");
-      assert.deepEqual([other.stack.settings.behaviourOverrides, other.stack.settings.experimentalConsents], [{}, []]);
+      assert.deepEqual([other.stack.settings.behaviourOverrides, other.stack.settings.disabledWrites], [{}, []]);
+      assert.equal(other.stack.scheduler.device.writeAccess("bandLock"), "experimental", "ending the test leaves the writes on");
       assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read"]);
       await page.waitUntil(`document.querySelector(${JSON.stringify(start)})?.textContent.includes('Copy prompt and start test')`, "ready to start again");
 
@@ -682,12 +693,17 @@ describe("the console in a browser", () => {
   });
 
   it("keeps every header button on screen at any width, in both languages, however long the status pills get", async () => {
-    // The longest header: a model nobody verified, with experimental writes on
+    // The longest header: a model nobody verified whose owner turned every write off (the badge says both)
     const other = await world({ scenario: "unverified" });
     const offscreen: string[] = [];
     try {
-      other.stack.settings.grantExperimental("B535-232", "bandLock");
-      other.stack.scheduler.device.setConsents(other.stack.settings.experimentalConsents);
+      const deadline = Date.now() + 8000;
+      while (other.stack.scheduler.device.writeState("bandLock") !== "enabled") {
+        assert.ok(Date.now() < deadline, "the router is identified");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      for (const feature of ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const) other.stack.settings.disableWrite("B535-232", feature);
+      other.stack.scheduler.device.setDisabledWrites(other.stack.settings.disabledWrites);
       for (const locale of ["en", "zh-CN"]) {
         for (const width of [640, 768, 1024, 1180, 1280, 1366]) {
           await signIn(page, other, { width, height: 800, scale: 1, mobile: false });

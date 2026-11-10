@@ -9,7 +9,7 @@ import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { DeviceAccess, type DeviceAccessSnapshot } from "../src/device-access.ts";
 import { bandsToHex } from "../src/drivers/bands.ts";
 import { ROUTER_FAMILY_FACTS, type RouterFamily } from "../src/router-family.ts";
-import { CircuitBreakerOpenError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, NotDriverFamilyError } from "../src/scheduler.ts";
+import { CircuitBreakerOpenError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError, NotDriverFamilyError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
@@ -100,7 +100,7 @@ describe("driver runtime: reads", () => {
       assert.equal(fx.core.monitor.getCachedTelemetry()?.capturedAtMs, snap.capturedAtMs);
 
       const status = fx.core.scheduler.getStatus();
-      assert.deepEqual(gateOf(status.device), { model: "RM520N-GL", verification: "unverified-model", confirmed: true, writes: "read_only" });
+      assert.deepEqual(gateOf(status.device), { model: "RM520N-GL", verification: "unverified-model", confirmed: true, writes: "experimental" });
       assert.equal(status.mode, "idle");
       assert.equal(status.totalSessionsCompleted, 1, "the driver's sessions are the live connection's");
       assert.equal(status.device.reads.telemetry.state, "available");
@@ -145,7 +145,7 @@ describe("driver runtime: reads", () => {
       assert.equal(probe.origin, "startup");
       assert.deepEqual(probe.endpoints, []);
       assert.equal(fx.core.monitor.getDeviceProbe()?.identity.model, "RM520N-GL");
-      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "RM520N-GL", verification: "unverified-model", confirmed: true, writes: "read_only" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "RM520N-GL", verification: "unverified-model", confirmed: true, writes: "experimental" });
 
       const test = await fx.core.scheduler.testConnectionDetailed({ ...OPENWRT, family: "openwrt" });
       assert.equal(test.result.ok, true);
@@ -194,21 +194,26 @@ describe("driver runtime: reads", () => {
 });
 
 describe("driver runtime: writes", () => {
-  it("opens the driver's writes per consent, refuses the rest, and records every write with its read-back", async () => {
+  it("opens the driver's writes by default, refuses the rest and what its owner turned off, and records every write with its read-back", async () => {
     const fx = runtimeFixture();
     try {
-      // Before any read the write's own session identifies the router, then the gate refuses (no consent yet)
+      // The owner turned the band lock off for this model. Before any read the write's own session
+      // identifies the router, then the gate refuses it as turned off
+      fx.core.scheduler.device.setDisabledWrites([{ model: "RM520N-GL", feature: "bandLock" }]);
       await assert.rejects(
         fx.core.controls.lockBands({ lteBands: [1, 3] }),
-        (err: unknown) => err instanceof DeviceReadOnlyError && err.feature === "bandLock" && err.model === "RM520N-GL"
+        (err: unknown) => err instanceof DeviceWriteDisabledError && err.errorCode === "DEVICE_WRITE_DISABLED" && err.feature === "bandLock" && err.model === "RM520N-GL"
       );
       assert.equal(fx.logins(), 1, "identified in the write's own session");
       assert.ok(!fx.state.executedCommands.some((c) => c.startsWith('AT+QNWPREFCFG="lte_band",')), "nothing was written");
       assert.deepEqual(fx.audits.map((a) => [a.action, a.outcome]), [["lock_band", "refused"]]);
 
-      // Writes no driver implements are refused before any session, HiLink ones included
+      // Writes no driver implements are refused before any session, HiLink ones included, and not as turned off
       const logins = fx.logins();
-      await assert.rejects(fx.core.controls.reconnectCellular(), (err: unknown) => err instanceof DeviceReadOnlyError && err.feature === "reconnect");
+      await assert.rejects(
+        fx.core.controls.reconnectCellular(),
+        (err: unknown) => err instanceof DeviceReadOnlyError && !(err instanceof DeviceWriteDisabledError) && err.errorCode === "DEVICE_UNVERIFIED_READ_ONLY" && err.feature === "reconnect"
+      );
       await assert.rejects(fx.core.controls.reconnectWan(), DeviceReadOnlyError);
       await assert.rejects(fx.core.controls.setMobileData(false), DeviceReadOnlyError);
       await assert.rejects(fx.core.scheduler.executeControl("set_antenna_mode", async () => 1), DeviceReadOnlyError);
@@ -216,16 +221,12 @@ describe("driver runtime: writes", () => {
       const features = fx.core.scheduler.getStatus().device.features;
       assert.deepEqual(
         [features.bandLock, features.cellLock, features.reboot, features.reconnect, features.mobileData, features.smsWrite, features.accessControl],
-        ["available", "available", "available", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
+        ["disabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
       );
 
-      // The owner's consent (as the console keeps it) opens the driver's writes for this model
-      fx.core.scheduler.device.setConsents([
-        { model: "RM520N-GL", feature: "bandLock" },
-        { model: "RM520N-GL", feature: "cellLock" },
-        { model: "RM520N-GL", feature: "reboot" },
-      ]);
-      assert.equal(fx.core.scheduler.getStatus().device.features.bandLock, "consented");
+      // Turned back on (as the console keeps it): what the driver implements is open again, with no consent to give
+      fx.core.scheduler.device.setDisabledWrites([]);
+      assert.equal(fx.core.scheduler.getStatus().device.features.bandLock, "enabled");
 
       const locked = await runAsActor({ channel: "web" }, () => fx.core.controls.lockBands({ lteBands: ["B1", 3], nrBands: [78], networkMode: "08" }));
       assert.deepEqual({ mode: locked.mode, lteBands: locked.lteBands, nrBands: locked.nrBands, cellLock: locked.cellLock }, { mode: "band_lock", lteBands: [1, 3], nrBands: [78], cellLock: null });
@@ -288,7 +289,6 @@ describe("driver runtime: writes", () => {
     const fx = runtimeFixture({ atErrors: ['AT+QNWPREFCFG="lte_band"'] });
     try {
       await fx.core.monitor.refreshTelemetry();
-      fx.core.scheduler.device.setConsents([{ model: "RM520N-GL", feature: "bandLock" }]);
       await assert.rejects(fx.core.controls.lockBands({ nrBands: [78] }), (err: unknown) => err instanceof CpeControlValidationError && /could not be read/.test(err.message));
       assert.deepEqual([fx.state.lteBand, fx.state.nrBand], ["1:3:7", "41:78"], "nothing was written");
       assert.equal(fx.destroys(), fx.logins(), "the session was closed all the same");
@@ -302,7 +302,6 @@ describe("driver runtime: writes", () => {
   it("rolls a lock back through the driver: skipped when replaced or the WAN is up, else the saved bands or every lock cleared", async () => {
     const fx = runtimeFixture();
     try {
-      fx.core.scheduler.device.setConsents([{ model: "RM520N-GL", feature: "bandLock" }]);
       const locked = await fx.core.controls.lockBands({ lteBands: [1, 3] });
       assert.deepEqual(await fx.core.controls.rollBackLocks("2020-01-01T00:00:00.000Z"), { applied: false, skipped: "lock_changed" });
       assert.deepEqual(await fx.core.controls.rollBackLocks(locked.updatedAtIso), { applied: false, skipped: "wan_up" });
@@ -342,10 +341,6 @@ describe("driver runtime: writes", () => {
   it("hands every band and cell lock to the safety net, whoever asked: a band lock with the LTE bands read before it, a cell lock with nothing to write back", async () => {
     const fx = runtimeFixture();
     try {
-      fx.core.scheduler.device.setConsents([
-        { model: "RM520N-GL", feature: "bandLock" },
-        { model: "RM520N-GL", feature: "cellLock" },
-      ]);
       const seen: Array<{ mode: string; lteBands: number[] | "all"; savedLteMask: string | null }> = [];
       fx.core.controls.onExperimentalLock = (change) => seen.push({ mode: change.lock.mode, lteBands: change.lock.lteBands, savedLteMask: change.savedLteMask });
       await runAsActor({ channel: "mcp" }, () => fx.core.controls.lockBands({ lteBands: [3] }));
@@ -456,7 +451,7 @@ describe("driver runtime: the connection's family", () => {
 });
 
 describe("write gate on a driver family", () => {
-  it("offers the driver's writes once the model is seen, nothing else, and only the family's documented reads", () => {
+  it("opens the driver's writes once the model is seen, nothing else, and only the family's documented reads", () => {
     const access = new DeviceAccess({ family: "zte-goform" });
     assert.equal(access.driverFamily, true);
     assert.equal(access.writeState("bandLock"), "unknown");
@@ -465,18 +460,20 @@ describe("write gate on a driver family", () => {
     assert.deepEqual(access.readState("telemetry"), { state: "unknown", code: null });
 
     access.see("MC888", "1.0");
-    assert.equal(access.writes, "read_only");
+    assert.equal(access.writes, "experimental");
     assert.equal(access.generic, true);
     assert.deepEqual(
       (["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "accessControl"] as const).map((f) => access.writeState(f)),
-      ["available", "available", "available", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
+      ["enabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
     );
-    access.setConsents([{ model: "MC888", feature: "cellLock" }]);
-    assert.equal(access.writeState("cellLock"), "consented");
-    assert.equal(access.writeAccess("cellLock"), "experimental");
-    assert.equal(access.writeAccess("bandLock"), "read_only");
-    access.setConsents([{ model: "OTHER", feature: "cellLock" }]);
-    assert.equal(access.writeState("cellLock"), "available", "a consent names the model");
+    assert.equal(access.writeAccess("cellLock"), "experimental", "open by default: the driver implements it");
+    access.setDisabledWrites([{ model: "MC888", feature: "cellLock" }]);
+    assert.equal(access.writeState("cellLock"), "disabled");
+    assert.equal(access.writeAccess("cellLock"), "disabled");
+    assert.equal(access.writeAccess("bandLock"), "experimental");
+    assert.equal(access.writeAccess("reconnect"), "unavailable");
+    access.setDisabledWrites([{ model: "OTHER", feature: "cellLock" }]);
+    assert.equal(access.writeState("cellLock"), "enabled", "a switch-off names the model");
     assert.equal(access.snapshot().reads.sms.state, "unavailable");
     assert.equal(access.skips("sms"), true);
     assert.equal(access.skips("neighbors"), false);
@@ -498,31 +495,37 @@ describe("write gate: taking a lock off", () => {
   it("is open wherever a lock may be put on, so no lock is left that nobody may undo", async () => {
     const access = new DeviceAccess({ family: "zte-goform" });
     access.see("MC888", null);
-    assert.equal(access.actionAccess("unlock_rf_locks"), "read_only");
-    access.setConsents([{ model: "MC888", feature: "cellLock" }]);
+    assert.equal(access.actionAccess("unlock_rf_locks"), "experimental");
+    // The band lock turned off, the cell lock left on
+    access.setDisabledWrites([{ model: "MC888", feature: "bandLock" }]);
     assert.equal(access.actionAccess("lock_cell"), "experimental");
     assert.equal(access.actionAccess("unlock_rf_locks"), "experimental");
     assert.equal(access.actionAccess("auto_unlock_rf_locks"), "experimental");
-    assert.equal(access.actionAccess("lock_band"), "read_only", "the band lock stays a consent of its own");
-    assert.equal(access.actionAccess("reboot_cpe"), "read_only");
+    assert.equal(access.actionAccess("lock_band"), "disabled", "the band lock stays a switch of its own");
+    assert.equal(access.actionAccess("reboot_cpe"), "experimental");
+    // Both turned off: nothing can be locked, so there is no unlock either
+    access.setDisabledWrites([
+      { model: "MC888", feature: "bandLock" },
+      { model: "MC888", feature: "cellLock" },
+    ]);
+    assert.equal(access.actionAccess("unlock_rf_locks"), "disabled");
     // A HiLink model nobody verified has no cell lock to go by: nothing changes there
     const hilink = new DeviceAccess();
     hilink.see("B535-232", null);
-    hilink.setConsents([{ model: "B535-232", feature: "cellLock" }]);
-    assert.equal(hilink.actionAccess("unlock_rf_locks"), "read_only");
+    assert.equal(hilink.actionAccess("unlock_rf_locks"), "unavailable", "not identified: no sign that it has a band lock to take off");
     // The verified router writes everything, as before
     const verified = new DeviceAccess();
     verified.see("H168-383", "4.4.0.1");
     assert.equal(verified.actionAccess("unlock_rf_locks"), "allowed");
 
-    // In the running daemon: the cell lock alone turned on, a cell locked, and unlocked again
+    // In the running daemon: the band lock turned off, a cell locked, and unlocked again
     const fx = runtimeFixture();
     try {
       await fx.core.monitor.refreshTelemetry();
-      fx.core.scheduler.device.setConsents([{ model: "RM520N-GL", feature: "cellLock" }]);
+      fx.core.scheduler.device.setDisabledWrites([{ model: "RM520N-GL", feature: "bandLock" }]);
       await fx.core.controls.lockCell({ rat: "NR", band: 78, arfcn: 627264, pci: 142 });
       assert.equal(fx.state.lock5g, "142,627264,30,78");
-      await assert.rejects(fx.core.controls.lockBands({ lteBands: [3] }), DeviceReadOnlyError);
+      await assert.rejects(fx.core.controls.lockBands({ lteBands: [3] }), DeviceWriteDisabledError);
       const unlocked = await fx.core.controls.unlockAllLocks();
       assert.equal(unlocked.mode, "unlocked");
       assert.equal(fx.state.lock5g, "0");

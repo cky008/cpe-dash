@@ -5,11 +5,13 @@ import type { ExperimentalFeature } from "./device-profile.ts";
 
 /**
  * Testing the router with an AI agent at one click (Settings → Device, on a model FengSui was not
- * verified on). Starting the test turns on everything it needs as one informed choice (SMS included
- * unless the owner leaves it out), and ending it puts back exactly what it turned on that is still as
- * it left it. While something it turned on stays on, the owner is reminded a few hours after the
- * test's last call, then daily, until a reminder is read or every write the test covers has read back
- * as a match. No dependencies: the daemon, the console and the online demo share these rules.
+ * verified on). The writes FengSui implements for such a router are on already; what an agent still
+ * lacks is the owner's leave: starting the test sets the agent switches and gives the agent's token
+ * what it needs, as one informed choice (SMS included unless the owner leaves it out), and ending it
+ * puts back exactly what it set that is still as it left it. While something it set stays so, the
+ * owner is reminded a few hours after the test's last call, then daily, until a reminder is read or
+ * every write the test covers has read back as a match. No dependencies: the daemon, the console and
+ * the online demo share these rules.
  */
 
 /** The experimental writes the test covers: what an agent's tools can write (there is no mobile-data tool); SMS only while the owner keeps it in. */
@@ -42,7 +44,7 @@ export const AGENT_TEST_REMIND_AFTER_MS = 3 * 3_600_000;
 export const AGENT_TEST_REMIND_EVERY_MS = 24 * 3_600_000;
 
 /** Why the test cannot start on this router (`409 AGENT_TEST_UNAVAILABLE`). */
-export const AGENT_TEST_UNAVAILABLE_MESSAGE = "This router has no experimental write for an AI agent to test (a model FengSui was verified on, or none identified yet)";
+export const AGENT_TEST_UNAVAILABLE_MESSAGE = "This router has no experimental write for an AI agent to test (a model FengSui was verified on, none identified yet, or every write the test covers is turned off or not implemented for it)";
 
 /** MCP tools whose calls mean the test is still going on: the report, the probe and the writes it covers. */
 export const AGENT_TEST_TOOLS: ReadonlySet<string> = new Set([
@@ -72,8 +74,6 @@ export interface AgentTestRecord {
   /** The owner kept SMS in the test: its writes count towards a pass. */
   sms: boolean;
   settings: AgentTestSettingChange[];
-  /** Experimental writes the test turned on, with each consent's time (one given again later is the owner's own). */
-  features: Array<{ feature: AgentTestFeature; grantedAtIso: string }>;
   /** Tokens the test gave permissions, and which. */
   tokens: Array<{ id: string; name: string; added: TokenPermission[] }>;
   /** The test's last call by an agent (`AGENT_TEST_TOOLS`), or its latest start. */
@@ -95,21 +95,17 @@ export interface AgentTestTokenChoice {
   agentUsedAtIso: string | null;
 }
 
-/** What starting the test would turn on now. */
+/** What starting the test would set now. */
 export interface AgentTestPlan {
-  /** The router is a model FengSui was not verified on, with a write the test covers on offer or on. */
+  /** The router is a model FengSui was not verified on, with a write the test covers open on it. */
   available: boolean;
   /** Console settings the test needs that are not set its way. */
   settings: AgentTestSetting[];
-  /** Writes the test covers (besides SMS) that this router offers and that are still off. */
-  features: AgentTestFeature[];
   sms: {
-    /** SMS can be part of the test: FengSui and the router have SMS, and its experimental write is offered or on. */
+    /** SMS can be part of the test: FengSui and the router have SMS, and its experimental write is open. */
     available: boolean;
     /** Console settings SMS testing needs that are not set its way. */
     settings: AgentTestSetting[];
-    /** The experimental SMS write is still off. */
-    feature: boolean;
     /** The agents' hourly SMS budget (the confirmation names it). */
     sendLimitPerHour: number;
   };
@@ -126,14 +122,13 @@ export interface AgentTestView {
   model: string;
   startedAtIso: string;
   sms: boolean;
-  /** What the test turned on that is still as it left it: ending the test puts these back. */
+  /** What the test set that is still as it left it: ending the test puts these back. */
   settings: AgentTestSetting[];
-  features: AgentTestFeature[];
   tokens: Array<{ id: string; name: string; permissions: TokenPermission[] }>;
   lastActivityAtIso: string;
   remindedAtIso: string | null;
   acknowledged: boolean;
-  /** Every write the test covers that is on was tried since the start, and each time read back as a match. */
+  /** Every write the test covers that is open was tried since the start, and each time read back as a match. */
   passed: boolean;
   /** When the next reminder goes out (`null`: none, because the writes passed, a reminder was read or nothing is left on). */
   remindAtIso: string | null;
@@ -141,13 +136,13 @@ export interface AgentTestView {
 
 /** `agentTest` of the console's experimental-writes answer. */
 export interface AgentTestStatus {
-  /** The test in progress, while something it turned on is still on. */
+  /** The test in progress, while something it set is still so. */
   current: AgentTestView | null;
   plan: AgentTestPlan;
 }
 
 export function noAgentTestPlan(): AgentTestPlan {
-  return { available: false, settings: [], features: [], sms: { available: false, settings: [], feature: false, sendLimitPerHour: 0 }, tokens: [], suggestedTokenId: null, tokenNeeded: false };
+  return { available: false, settings: [], sms: { available: false, settings: [], sendLimitPerHour: 0 }, tokens: [], suggestedTokenId: null, tokenNeeded: false };
 }
 
 /** The token permissions the test needs, with or without SMS. */
@@ -165,12 +160,11 @@ export interface AgentTestTokenInfo {
   agentUsedAtMs: number | null;
 }
 
-const offered = (state: WriteFeatureState | undefined): boolean => state === "available" || state === "consented";
-
 /**
- * What starting the test would turn on: on a model FengSui was not verified on with a write the test
- * covers, the settings not set its way, the covered writes on offer and not on (SMS apart, for the
- * owner to keep or leave out), and the tokens that lack what the test needs, the agent's first.
+ * What starting the test would set: on a model FengSui was not verified on with a write the test
+ * covers open on it (one its owner turned off stays off: the test leaves that choice alone), the
+ * settings not set its way (those of SMS apart, for the owner to keep or leave out), and the tokens
+ * that lack what the test needs, the agent's first.
  */
 export function agentTestPlan(input: {
   device: { writes: WriteAccess; features: Readonly<Record<WriteFeature, WriteFeatureState>> };
@@ -181,9 +175,9 @@ export function agentTestPlan(input: {
   nowMs: number;
 }): AgentTestPlan {
   const { device, values } = input;
-  const covered = BASE_FEATURES.filter((feature) => offered(device.features[feature]));
-  const smsOffered = input.smsReadable && offered(device.features.smsWrite);
-  if (device.writes !== "read_only" || (covered.length === 0 && !smsOffered)) return noAgentTestPlan();
+  const covered = BASE_FEATURES.filter((feature) => device.features[feature] === "enabled");
+  const smsOffered = input.smsReadable && device.features.smsWrite === "enabled";
+  if (device.writes !== "experimental" || (covered.length === 0 && !smsOffered)) return noAgentTestPlan();
   const unset = (keys: ReadonlyArray<AgentTestSetting>): AgentTestSetting[] => keys.filter((key) => values[key] !== AGENT_TEST_SETTINGS[key]);
   const needed = agentTestPermissions(smsOffered);
   const live = input.tokens.filter((token) => token.expiresAtIso === null || Date.parse(token.expiresAtIso) > input.nowMs);
@@ -199,11 +193,9 @@ export function agentTestPlan(input: {
   return {
     available: true,
     settings: unset(BASE_SETTINGS),
-    features: covered.filter((feature) => device.features[feature] === "available"),
     sms: {
       available: smsOffered,
       settings: smsOffered ? unset(SMS_SETTINGS) : [],
-      feature: smsOffered && device.features.smsWrite === "available",
       sendLimitPerHour: values.agentSmsSendLimitPerHour,
     },
     tokens: candidates.map((token) => ({
@@ -217,10 +209,9 @@ export function agentTestPlan(input: {
   };
 }
 
-/** What the test turned on that is still as it left it. */
+/** What the test set that is still as it left it. */
 export interface AgentTestStillOn {
   settings: AgentTestSetting[];
-  features: AgentTestFeature[];
   tokens: Array<{ id: string; name: string; permissions: TokenPermission[] }>;
 }
 
@@ -229,15 +220,11 @@ export function agentTestStillOn(
   now: {
     /** The console's own values (`null` or missing: it follows `.env`). */
     overrides: Readonly<Partial<Record<AgentTestSetting, unknown>>>;
-    consents: ReadonlyArray<{ feature: string; grantedAtIso: string }>;
     tokens: ReadonlyArray<{ id: string; permissions: ReadonlyArray<TokenPermission> }>;
   }
 ): AgentTestStillOn {
   return {
     settings: record.settings.filter(({ key }) => now.overrides[key] === AGENT_TEST_SETTINGS[key]).map(({ key }) => key),
-    features: record.features
-      .filter(({ feature, grantedAtIso }) => now.consents.some((consent) => consent.feature === feature && consent.grantedAtIso === grantedAtIso))
-      .map(({ feature }) => feature),
     tokens: record.tokens
       .map(({ id, name, added }) => {
         const has = now.tokens.find((token) => token.id === id)?.permissions ?? [];
@@ -248,16 +235,16 @@ export function agentTestStillOn(
 }
 
 export function anyStillOn(on: AgentTestStillOn): boolean {
-  return on.settings.length > 0 || on.features.length > 0 || on.tokens.length > 0;
+  return on.settings.length > 0 || on.tokens.length > 0;
 }
 
-/** The covered writes that count for a pass: those on now, SMS only when the owner kept it in the test. */
-export function agentTestCovered(record: Pick<AgentTestRecord, "sms">, consented: (feature: AgentTestFeature) => boolean): AgentTestFeature[] {
-  return AGENT_TEST_FEATURES.filter((feature) => consented(feature) && (feature !== "smsWrite" || record.sms));
+/** The covered writes that count for a pass: those open now (not turned off), SMS only when the owner kept it in the test. */
+export function agentTestCovered(record: Pick<AgentTestRecord, "sms">, open: (feature: AgentTestFeature) => boolean): AgentTestFeature[] {
+  return AGENT_TEST_FEATURES.filter((feature) => open(feature) && (feature !== "smsWrite" || record.sms));
 }
 
 /**
- * The report passed: each covered write that is on now was tried since the test started, and every
+ * The report passed: each covered write that is open now was tried since the test started, and every
  * try reached the router and read back as a match (a redial or reboot still being checked has not).
  */
 export function agentTestPassed(
@@ -286,7 +273,6 @@ export function agentTestView(record: AgentTestRecord, on: AgentTestStillOn, pas
     startedAtIso: record.startedAtIso,
     sms: record.sms,
     settings: [...on.settings],
-    features: [...on.features],
     tokens: on.tokens.map((token) => ({ ...token, permissions: [...token.permissions] })),
     lastActivityAtIso: record.lastActivityAtIso,
     remindedAtIso: record.remindedAtIso,
@@ -296,7 +282,6 @@ export function agentTestView(record: AgentTestRecord, on: AgentTestStillOn, pas
   };
 }
 
-const FEATURES: ReadonlySet<unknown> = new Set<unknown>(AGENT_TEST_FEATURES);
 const PERMISSIONS: ReadonlySet<unknown> = new Set<unknown>([...BASE_PERMISSIONS, ...SMS_PERMISSIONS]);
 const BEFORE: Readonly<Record<AgentTestSetting, ReadonlySet<unknown>>> = {
   agentExperimental: new Set([true, false, null]),
@@ -309,18 +294,20 @@ const isTime = (value: unknown): value is string => isText(value, 64) && Number.
 const isTimeOrNull = (value: unknown): boolean => value === null || isTime(value);
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** A stored test this version can read; anything else is dropped, never half-honoured. */
+/**
+ * A stored test this version can read; anything else is dropped, never half-honoured. One a version
+ * before 1.8.4 stored also lists the writes it had turned on (`features`): they are on by default
+ * now, so that list is read past and not kept.
+ */
 export function isAgentTestRecord(value: unknown): value is AgentTestRecord {
   if (!isRecord(value)) return false;
-  const { settings, features, tokens } = value;
+  const { settings, tokens } = value;
   return (
     isText(value["model"]) &&
     isTime(value["startedAtIso"]) &&
     typeof value["sms"] === "boolean" &&
     Array.isArray(settings) &&
     settings.every((entry: unknown) => isRecord(entry) && Object.hasOwn(BEFORE, String(entry["key"])) && BEFORE[entry["key"] as AgentTestSetting].has(entry["before"])) &&
-    Array.isArray(features) &&
-    features.every((entry: unknown) => isRecord(entry) && FEATURES.has(entry["feature"]) && isTime(entry["grantedAtIso"])) &&
     Array.isArray(tokens) &&
     tokens.every(
       (entry: unknown) =>
@@ -338,12 +325,17 @@ export function isAgentTestRecord(value: unknown): value is AgentTestRecord {
   );
 }
 
-/** A deep copy (the store hands out copies). */
+/** A deep copy with this version's fields only (the store hands out copies). */
 export function copyAgentTestRecord(record: AgentTestRecord): AgentTestRecord {
   return {
-    ...record,
+    model: record.model,
+    startedAtIso: record.startedAtIso,
+    sms: record.sms,
     settings: record.settings.map((entry) => ({ ...entry })),
-    features: record.features.map((entry) => ({ ...entry })),
     tokens: record.tokens.map((entry) => ({ ...entry, added: [...entry.added] })),
+    lastActivityAtIso: record.lastActivityAtIso,
+    remindedAtIso: record.remindedAtIso,
+    reminderAlertId: record.reminderAlertId,
+    acknowledgedAtIso: record.acknowledgedAtIso,
   };
 }

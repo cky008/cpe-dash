@@ -17,8 +17,7 @@ function plan(extra: Partial<AgentTestPlan> = {}): AgentTestPlan {
   return {
     available: true,
     settings: ["agentExperimental", "agentWrites"],
-    features: ["bandLock", "reconnect", "reboot"],
-    sms: { available: true, settings: ["agentSms", "agentSmsSendPolicy"], feature: true, sendLimitPerHour: 10 },
+    sms: { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10 },
     tokens: [
       { id: "t1", name: "Claude", missing: ["control", "sms-write"], agentUsedAtIso: new Date(NOW - 120_000).toISOString() },
       { id: "t2", name: "Home Assistant", missing: ["sms-write"], agentUsedAtIso: null },
@@ -35,7 +34,6 @@ function view(extra: Partial<AgentTestView> = {}): AgentTestView {
     startedAtIso: new Date(NOW - 2 * 3_600_000).toISOString(),
     sms: true,
     settings: ["agentExperimental", "agentWrites", "agentSms", "agentSmsSendPolicy"],
-    features: ["bandLock", "reconnect", "reboot", "smsWrite"],
     tokens: [{ id: "t1", name: "Claude", permissions: ["control", "sms-write"] }],
     lastActivityAtIso: new Date(NOW - 3_600_000).toISOString(),
     remindedAtIso: null,
@@ -47,36 +45,42 @@ function view(extra: Partial<AgentTestView> = {}): AgentTestView {
 }
 
 describe("the agent test in the Device tab", () => {
-  it("starts on the agent's token, and asks first only when copying turns something on", () => {
+  it("starts on the agent's token, and asks first only when copying sets something", () => {
     assert.equal(defaultAgentToken(plan()), "t1");
     assert.equal(defaultAgentToken(plan({ suggestedTokenId: null })), "", "no guess: none chosen");
     assert.equal(defaultAgentToken(plan({ tokenNeeded: false })), "", "the agent's token has what it needs");
 
     assert.deepEqual([tokenGets(plan(), "t1", true), tokenGets(plan(), "t1", false), tokenGets(plan(), "t2", false), tokenGets(plan(), "", true)], [["control", "sms-write"], ["control"], [], []]);
     assert.equal(startTurnsOn(plan(), "t1", true), true);
-    const baseOn = plan({ settings: [], features: [] });
-    assert.equal(startTurnsOn(baseOn, "", true), true, "SMS still to turn on");
+    const baseOn = plan({ settings: [] });
+    assert.equal(startTurnsOn(baseOn, "", true), true, "the SMS settings still to set");
+    assert.equal(startTurnsOn(plan({ settings: [], sms: { available: true, settings: [], sendLimitPerHour: 10 } }), "", true), false, "everything set already, and the writes need no turning on: copy only");
     assert.equal(startTurnsOn(baseOn, "", false), false, "SMS left out: copy only");
     assert.equal(startTurnsOn(baseOn, "t2", false), false, "that token lacks only SMS");
     assert.equal(startTurnsOn(baseOn, "t2", true), true);
-    assert.equal(startTurnsOn(plan({ settings: [], features: [], sms: { available: false, settings: ["agentSms"], feature: true, sendLimitPerHour: 10 } }), "", true), false, "no SMS here");
+    assert.equal(startTurnsOn(plan({ settings: [], sms: { available: false, settings: ["agentSms"], sendLimitPerHour: 10 } }), "", true), false, "no SMS here");
     assert.equal(startTurnsOn(noAgentTestPlan(), "", true), false);
   });
 
-  it("lists in the confirmation what the test turns on, the risk and how it ends, with SMS as the option below", () => {
+  it("lists in the confirmation what the test sets, the risk and how it ends, with SMS as the option below", () => {
     const body = agentStartBody(plan(), "t1", zh);
-    assert.deepEqual(body.slice(0, 5), ["烽燧会打开下面这些设置，并复制提示词：", "· 允许 AI 智能体测试这台路由器", "· 允许智能体改动路由器", "· 实验性写入：锁频段、重拨、重启", "· 令牌「Claude」：可以改动路由器"]);
-    assert.deepEqual(body.slice(5), [zh("agent_start_risk"), zh("agent_start_end"), zh("agent_start_reconnect")]);
+    assert.deepEqual(body.slice(0, 4), ["烽燧会打开下面这些设置，并复制提示词：", "· 允许 AI 智能体测试这台路由器", "· 允许智能体改动路由器", "· 令牌「Claude」：可以改动路由器"]);
+    assert.deepEqual(body.slice(4), [zh("agent_start_risk"), zh("agent_start_end"), zh("agent_start_reconnect")]);
     assert.match(body.join("\n"), /3 小时/);
+    // The test turns no write on, and says so nowhere; it says the writes were never checked on a real router
+    assert.doesNotMatch(body.join("\n") + (smsOption(plan(), zh) ?? ""), /打开实验性|实验性写入：/);
+    assert.match(zh("agent_start_risk"), /没有在真机上验证过/);
+    assert.match(en("agent_start_risk"), /never checked on a real one/);
+    assert.doesNotMatch(agentStartBody(plan(), "t1", en).join("\n") + (smsOption(plan(), en) ?? ""), /turns on the experimental|Experimental writes:/);
     assert.equal(agentStartBody(plan(), "t2", zh).some((line) => line.includes("Home Assistant")), false, "it lacks only SMS: the option below covers it");
 
-    const none = agentStartBody(plan({ settings: ["agentWrites"], features: [] }), "", en);
+    const none = agentStartBody(plan({ settings: ["agentWrites"] }), "", en);
     assert.deepEqual(none.slice(0, 3), ["FengSui turns on the following and copies the prompt:", "· Let agents change the router", en("agent_no_token")]);
     assert.equal(agentStartBody(plan({ tokenNeeded: false, tokens: [] }), "", en).includes(en("agent_no_token")), false, "no token is needed");
 
     assert.equal(smsOption(plan(), en), en("agent_sms_check", { limit: 10 }));
     assert.match(smsOption(plan(), zh) ?? "", /每小时最多 10 条/);
-    assert.equal(smsOption(plan({ sms: { available: false, settings: [], feature: false, sendLimitPerHour: 10 } }), en), null);
+    assert.equal(smsOption(plan({ sms: { available: false, settings: [], sendLimitPerHour: 10 } }), en), null);
     assert.equal(smsOption(noAgentTestPlan(), en), null);
   });
 
@@ -84,11 +88,11 @@ describe("the agent test in the Device tab", () => {
     const [started, reminder] = agentTestStatus(view(), NOW, "zh-CN", zh);
     assert.equal(
       started,
-      "2 小时前开始测试。结束测试会恢复：允许 AI 智能体测试这台路由器；允许智能体改动路由器；智能体的短信权限：读写；智能体发短信：任何号码；锁频段、重拨、重启、发送与管理短信；令牌「Claude」：改动路由器、发短信、删短信。"
+      "2 小时前开始测试。结束测试会恢复：允许 AI 智能体测试这台路由器；允许智能体改动路由器；智能体的短信权限：读写；智能体发短信：任何号码；令牌「Claude」：改动路由器、发短信、删短信。"
     );
     assert.equal(reminder, "如果到 16:00 还没结束，烽燧会提醒你。");
 
-    const tomorrow = agentTestStatus(view({ settings: ["agentWrites"], features: [], tokens: [], remindedAtIso: new Date(NOW).toISOString(), remindAtIso: new Date(NOW + 24 * 3_600_000).toISOString() }), NOW, "en", en);
+    const tomorrow = agentTestStatus(view({ settings: ["agentWrites"], tokens: [], remindedAtIso: new Date(NOW).toISOString(), remindAtIso: new Date(NOW + 24 * 3_600_000).toISOString() }), NOW, "en", en);
     assert.deepEqual(tomorrow, ["Started 2h ago. Ending the test puts back: Let agents change the router.", "You were reminded; if the test is still on at 11-11 14:00, you are reminded again."]);
     assert.equal(agentTestStatus(view({ passed: true, remindAtIso: null }), NOW, "en", en)[1], "The test's writes all read back as a match: no reminder.");
     assert.equal(agentTestStatus(view({ acknowledged: true, remindAtIso: null }), NOW, "en", en)[1], "You read the reminder: none follows for this test.");

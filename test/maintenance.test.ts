@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import { parseCliCommand, runCli, runMaintenance } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
+import { ConsoleSettings } from "../src/console-settings.ts";
 import { PlaintextStoreError, StorageCipher, quarantinedSince } from "../src/encrypted-file.ts";
 import { DataDirectoryBusyError, backupDataDir, formatDoctorReport, inspectDataFiles, rekeyDataDir, replaceFile, restoreDataDir, runDoctor } from "../src/maintenance.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
@@ -141,6 +142,45 @@ describe("cpe-dash backup / restore", () => {
       assert.throws(() => restoreDataDir(fx.config, dir), /state\.json was written by a newer FengSui \(format 2\)/);
       assert.equal(cipher.readJsonFile<{ schemaVersion: number }>(fx.files.state)?.schemaVersion, 1, "nothing was replaced");
       assert.deepEqual(fs.readdirSync(fx.dataDir).filter((name) => name.includes("before-restore")), []);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  // Kept last in this group: on Node 26 a synchronous test that follows this one (it awaits a store's
+  // own save) in the same group runs but is left out of the report
+  it("checks, backs up and restores settings.json as an earlier version wrote it and as this one does: the writes turned off survive, old consents turn nothing off", async () => {
+    const fx = setup();
+    try {
+      const cipher = new StorageCipher("new_key");
+      const at = "2026-11-10T08:00:00.000Z";
+      // 1.8.3: the experimental writes its owner had consented to (they are on by default now)
+      const old = { format: 1, cpe: { url: "http://192.168.8.1", username: "admin", password: "maint_pw" }, experimental: [{ model: "B535-232", feature: "bandLock", grantedAtIso: at }] };
+      cipher.writeJsonFile(fx.config.settingsFile, old);
+      const report = formatDoctorReport(await runDoctor(fx.config, { notices: [] }));
+      assert.match(report, /✓ settings\.json: decrypts with the current key \(format 1\)/);
+      const before = backupDataDir(fx.config, { outDir: path.join(fx.dir, "old-backup") });
+      assert.deepEqual(before.manifest.files.map((f) => f.name), ["settings.json"]);
+
+      // This version reads it, and its owner turns one write off
+      const settings = new ConsoleSettings({ filePath: fx.config.settingsFile, cipher });
+      assert.equal(settings.load(), true);
+      assert.deepEqual(settings.disabledWrites, [], "a consent of an earlier version turns nothing off");
+      settings.disableWrite("B535-232", "reboot");
+      await settings.flush();
+      assert.match(formatDoctorReport(await runDoctor(fx.config, { notices: [] })), /✓ settings\.json: decrypts with the current key \(format 1\)/);
+      const after = backupDataDir(fx.config, { outDir: path.join(fx.dir, "new-backup") });
+
+      // Either backup restores, and the daemon reads what comes back
+      const reload = (): ConsoleSettings => {
+        const store = new ConsoleSettings({ filePath: fx.config.settingsFile, cipher });
+        assert.equal(store.load(), true);
+        return store;
+      };
+      assert.deepEqual(restoreDataDir(fx.config, before.dir, { now: () => 1 }).restored, ["settings.json"]);
+      assert.deepEqual([reload().disabledWrites.length, reload().cpe?.username], [0, "admin"], "the old file: every implemented write on");
+      assert.deepEqual(restoreDataDir(fx.config, after.dir, { now: () => 2 }).restored, ["settings.json"]);
+      assert.deepEqual(reload().disabledWrites.map((d) => [d.model, d.feature]), [["B535-232", "reboot"]], "the new file: what was off stays off");
     } finally {
       fx.cleanup();
     }

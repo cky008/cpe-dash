@@ -3,7 +3,7 @@ import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
 import type { DriverFamily } from "../../../src/router-family.ts";
-import { experimentalWrites, readOnlyModel } from "../core/device-access-view.ts";
+import { experimentalWrites, unverifiedModel } from "../core/device-access-view.ts";
 import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
@@ -242,7 +242,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
       });
   };
 
-  /** The confirm dialog of an experimental write: its own text, then what makes it experimental. */
+  /** The confirm dialog of an experimental write: its own text, then that it was never checked on a real router. */
   const confirmExperimental = (options: Parameters<AppContext["confirm"]>[0]): Promise<boolean> =>
     ctx.confirm({ ...options, body: [...options.body, ctx.t("ctl.experimental_note")] });
 
@@ -731,9 +731,9 @@ export function mountControls(ctx: AppContext): { open(): void } {
     );
 
     const blocked = avoidance?.active || scheduler?.circuitBreaker.tripped || scheduler?.peerStandby.active;
-    // A model FengSui was not verified on is read-only: say so instead of offering the H168-383's
-    // controls, and offer only the experimental writes its owner turned on, the generic way
-    const lockedModel = readOnlyModel(scheduler);
+    // A model FengSui was not verified on: say so instead of offering the H168-383's controls, and
+    // offer the experimental writes open there (those FengSui implements for it, unless turned off)
+    const lockedModel = unverifiedModel(scheduler);
     const open = experimentalWrites(scheduler);
     const otherBrand = driverFamilyOf(scheduler);
     const deviceBtn = h("button", { class: "btn btn-sm btn-primary rounded-lg gap-1.5", attrs: { type: "button" }, data: { action: "open-device" } }, icon("cpu"), ctx.t("dev.open_device"));
@@ -748,7 +748,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         h(
           "div",
           { class: "space-y-3" },
-          h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("lock", "mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.read_only_controls", { model: lockedModel, verified: [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ") }))),
+          h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("lock", "mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.no_writes_controls", { model: lockedModel, verified: [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ") }))),
           h("div", { class: "flex justify-end" }, deviceBtn)
         ),
       ];

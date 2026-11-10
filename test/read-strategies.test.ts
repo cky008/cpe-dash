@@ -84,7 +84,7 @@ describe("read strategies on models nobody verified", () => {
         const fx = readFixture(cpe);
         try {
           assert.ok(await fx.core.monitor.identifyDevice(), label);
-          assert.equal(fx.core.scheduler.getStatus().device.writes, "read_only", label);
+          assert.equal(fx.core.scheduler.getStatus().device.writes, "experimental", label);
 
           const telemetry = await fx.core.monitor.refreshTelemetry();
           assert.ok(telemetry, label);
@@ -332,7 +332,7 @@ describe("read strategies on models nobody verified", () => {
       await assert.rejects(fx.core.monitor.refreshTelemetry(), (err: unknown) => err instanceof CpeApiError && err.code === "100002", "read the verified way, the poll fails");
       assert.equal(changed, 1, "the model the router named in that poll contradicts the identification");
       const { model, writes } = fx.core.scheduler.getStatus().device;
-      assert.deepEqual([model, writes], ["B535-232", "read_only"]);
+      assert.deepEqual([model, writes], ["B535-232", "experimental"]);
       const snap = await fx.core.monitor.refreshTelemetry();
       assert.equal(snap?.device.deviceName, "B535-232", "the next poll reads it the tolerant way");
       for (let i = 0; i < 100 && fx.core.monitor.getDeviceProbe()?.identity.model !== "B535-232"; i++) await new Promise((resolve) => setTimeout(resolve, 10));

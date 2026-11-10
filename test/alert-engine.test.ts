@@ -219,11 +219,13 @@ describe("AlertEngine firmware rule", () => {
       assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED"]);
 
       fx.engine.ingestTelemetry(sample({ t: 25_000, firmware: "4.4.0.3(H1006SP1C00)" }));
-      // Another model is read-only (phase 2): it says so once per model, with no build to check
+      // Another model was never checked on a real router: it says so once per model, with no build to check
       fx.engine.ingestTelemetry(sample({ t: 30_000, model: "H158-381" }));
       fx.engine.ingestTelemetry(sample({ t: 31_000, model: "H158-381", firmware: "1.0.0.9" }));
       assert.deepEqual(fx.codes(), ["FIRMWARE_UNVERIFIED", "FIRMWARE_UNVERIFIED", "MODEL_UNVERIFIED"], "each new build of the verified model, each other model once");
-      assert.match(fx.alerts[2]?.messageEn ?? "", /reports H158-381, a model FengSui was not verified on \(verified: H168-383\)[\s\S]*writes are locked by default[\s\S]*Settings → Device[\s\S]*experimental writes one at a time/);
+      assert.match(fx.alerts[2]?.messageEn ?? "", /reports H158-381, a model FengSui was not verified on \(verified: H168-383\)[\s\S]*writes FengSui implements for this model are available by default[\s\S]*sent once and read back[\s\S]*Settings → Device[\s\S]*turns writes off one at a time/);
+      assert.doesNotMatch(`${fx.alerts[2]?.messageEn} ${fx.alerts[2]?.messageZh}`, /only reads it|locked by default|只读取它|默认锁定/);
+      assert.match(fx.alerts[2]?.messageZh ?? "", /实现了的写操作默认可用[\s\S]*没有在真机上验证过[\s\S]*逐项关闭/);
       fx.engine.ingestTelemetry(sample({ t: 35_000 }));
       assert.equal(fx.stateStore.getState().firmwareNotice, null, "verified again: the notice is cleared");
       fx.engine.ingestTelemetry(sample({ t: 40_000, firmware: "" }));

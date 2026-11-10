@@ -1,5 +1,5 @@
 import type { ContactRecord } from "../../../../src/api-contract.ts";
-import { writesLocked } from "../../core/device-access-view.ts";
+import { canWrite } from "../../core/device-access-view.ts";
 import type { AppContext } from "../context.ts";
 import { byId, debounce, h, icon, modalBackdrop, mount, replay } from "../dom.ts";
 import { emptyState } from "../widgets.ts";
@@ -86,8 +86,8 @@ export function openContacts(ctx: AppContext, shared: SmsShared, prefill?: { pho
             h("div", { class: "text-sm font-medium truncate" }, c.name, c.note ? h("span", { class: "ml-1.5 font-normal faint" }, c.note) : null),
             h("div", { class: "text-xs num muted truncate" }, c.phones.map((p) => shownNumber(ctx, p)).join(" · "))
           ),
-          // A read-only router (a model FengSui was not verified on) sends nothing: no message button
-          h("div", { class: "flex items-center gap-0.5 shrink-0 reveal-on-hover" }, writesLocked(ctx.store.state.scheduler) ? null : message, edit, remove)
+          // Where the gate refuses SMS writes (not implemented for this model, or turned off), nothing is sent: no message button
+          h("div", { class: "flex items-center gap-0.5 shrink-0 reveal-on-hover" }, canWrite(ctx.store.state.scheduler, "smsWrite") ? message : null, edit, remove)
         );
       })
     );

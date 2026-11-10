@@ -14,8 +14,8 @@ export const VERIFIED_FIRMWARE: ReadonlyArray<{ model: string; softwareVersion: 
  * Features of other models that a user checked on a real router (multi-model phase 3), reads and
  * writes apart: added when an issue reports one working, with a test and a CHANGELOG line naming the
  * issue, never the person; the Supported devices table (`supportedDevicesSection`, device-catalog.ts)
- * then marks it verified. The model stays unverified as a whole; a verified write no longer needs its
- * owner's consent on that model. Empty until the first report.
+ * then marks it verified. The model stays unverified as a whole; a verified write no longer counts
+ * as experimental on that model (its owner can still turn it off). Empty until the first report.
  */
 export interface VerifiedFeature {
   model: string;

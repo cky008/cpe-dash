@@ -27,7 +27,7 @@ export const DEVICE_PROBE_PATHS = [
 
 /**
  * GETs the probe adds, after the list above, only for a model nobody verified (multi-model phase 3):
- * the read side of the writes FengSui may do there once its owner consents, i.e. the endpoint such a
+ * the read side of the writes FengSui does there (the generic ones), i.e. the endpoint such a
  * write reads back. A verified model, and a router that names no model, never get them.
  */
 export const EXPERIMENTAL_PROBE_PATHS = ["/api/net/net-mode", "/api/dialup/mobile-dataswitch", "/api/sms/sms-count"] as const;
@@ -114,8 +114,8 @@ export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
 
 /**
  * The writes FengSui has a generic implementation for (HiLink request formats from the reference
- * project's facts, docs/PHASE1_PROTOCOL_SPEC.md A.11): what a model nobody verified may be offered as
- * an experimental write once its owner consents. Every other write stays the verified model's alone.
+ * project's facts, docs/PHASE1_PROTOCOL_SPEC.md A.11): what a HiLink model nobody verified writes,
+ * as experimental writes, where the probe shows it can. Every other write stays the verified model's alone.
  */
 export const EXPERIMENTAL_FEATURES = ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const;
 
@@ -457,7 +457,7 @@ export async function probeDevice(session: ProbeSession, opts: { nowIso: string;
     top("/api/device/information", tag) ?? top("/api/device/basic_information", tag) ?? top("/api/device/basicinformation", tag);
   const passwordType = top("/api/user/state-login", "password_type");
   const model = identityTag("DeviceName");
-  // A model nobody verified: the read side of the writes its owner may consent to (never the H168-383's)
+  // A model nobody verified: the read side of the generic writes, which says whether each can be offered (never the H168-383's)
   if (model !== null && !isVerifiedModel(model)) for (const path of EXPERIMENTAL_PROBE_PATHS) await probe(path);
 
   let lteBands: number[] | null = null;
@@ -681,7 +681,7 @@ export type DeviceReportWrite = Omit<WriteResultRecord, "id">;
 export interface DeviceReportAccess {
   writes: WriteAccess;
   reads: Record<ReadSection, ReadCapability>;
-  /** Per write feature, what it is on this router (verified, consented, available, unsupported, not implemented; phase 3). */
+  /** Per write feature, what it is on this router (verified, enabled, disabled, unsupported, not implemented). */
   features?: Record<WriteFeature, WriteFeatureState>;
 }
 

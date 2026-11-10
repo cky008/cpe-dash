@@ -44,6 +44,7 @@ describe("REST / SSE contract module", () => {
       CONSOLE_ONLY: true,
       CPE_NOT_CONFIGURED: true,
       DEVICE_UNVERIFIED_READ_ONLY: true,
+      DEVICE_WRITE_DISABLED: true,
       DEVICE_NOT_IDENTIFIED: true,
       EXPERIMENTAL_UNAVAILABLE: true,
       AGENT_TEST_UNAVAILABLE: true,

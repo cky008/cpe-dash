@@ -109,7 +109,7 @@ export class WanSelfHeal {
   /** The redials and backoff step last saved, to write state.json only when they change. */
   #savedReconnects = budgetKey([], 0);
   #exhaustedAlerted = false;
-  /** The read-only alert of this outage was raised (a router of an unverified model writes nothing). */
+  /** The `SELF_HEAL_READ_ONLY` alert of this outage was raised (the gate refuses the redial on this unverified model). */
   #readOnlyAlerted = false;
   #lastFailure: string | null = null;
 
@@ -352,7 +352,7 @@ export class WanSelfHeal {
     } catch (err) {
       const reason = describe(err);
       this.#noteFailure("lock rollback", reason);
-      // A router of an unverified model is read-only: say so once instead of retrying a write that never comes
+      // The gate refuses the unlock on this unverified model (no lock write for it, or both turned off): say so once instead of retrying a write that never comes
       if (err instanceof DeviceReadOnlyError) {
         this.#endWatch(watch);
         this.#raise("warning", "SELF_HEAL_READ_ONLY", "alerts.self_heal_read_only_rollback", { model: err.model });
@@ -420,7 +420,7 @@ export class WanSelfHeal {
       outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.reconnectWan());
     } catch (err) {
       this.#noteFailure("reconnect", describe(err));
-      // A router of an unverified model is read-only: no redial in this outage, one alert saying so
+      // The gate refuses the redial on this unverified model (none for it, or turned off): no redial in this outage, one alert saying so
       if (err instanceof DeviceReadOnlyError) {
         this.#nextReconnectAtMs = Number.POSITIVE_INFINITY;
         if (!this.#readOnlyAlerted) {

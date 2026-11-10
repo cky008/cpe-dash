@@ -944,14 +944,15 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
-  it("answers every SMS write with the read-only explanation on an unverified model, and the router gets no write", async () => {
+  it("answers every SMS write with an explanation where the gate refuses it on an unverified model, and the router gets no write", async () => {
     const fx = createBotFixture();
     try {
-      // The poll saw a model nobody verified: SMS stays readable, writes are locked
+      // The poll saw a model nobody verified, which no identification has shown to have SMS writes:
+      // SMS stays readable, nothing is written on a guess
       fx.scheduler.noteRouterModel("B535-232", null);
       assert.ok(await fx.service.sync("full"));
       const unread = fx.service.getThread("+353830000001").messages.find((m) => m.isUnread)!;
-      const readOnly = /This router is read-only[\s\S]*B535-232/;
+      const readOnly = /FengSui cannot change SMS on this router[\s\S]*B535-232/;
 
       await fx.message(1001, "/new");
       assert.match(fx.tg.lastText("1001"), readOnly);
@@ -964,7 +965,7 @@ describe("TelegramBot", () => {
       for (const data of ["wizstart:1", `read:${unread.uid}`, "readall:1", `del:${unread.uid}`, `delok:${unread.uid}`, "wizsend:stale"]) {
         await fx.callback(1001, data);
         const answer = fx.tg.of("answerCallbackQuery").at(-1)?.payload;
-        assert.deepEqual([String(answer?.["text"]).includes("Read-only router (B535-232)"), answer?.["show_alert"]], [true, true], data);
+        assert.deepEqual([String(answer?.["text"]).includes("FengSui cannot change SMS on this router (B535-232)"), answer?.["show_alert"]], [true, true], data);
       }
       assert.deepEqual([fx.mock.sentRequests.length, fx.mock.setReadBatches, fx.mock.deleteBatches], [0, [], []], "no SMS write reached the router");
 
@@ -981,7 +982,7 @@ describe("TelegramBot", () => {
     }
   });
 
-  it("opens SMS writes on an unverified model once its owner consented, the plaintext way", async () => {
+  it("has SMS writes open on an unverified model that shows what they read back, the plaintext way, until its owner turns them off", async () => {
     const fx = createBotFixture();
     try {
       fx.scheduler.noteRouterModel("B535-232", null);
@@ -994,10 +995,9 @@ describe("TelegramBot", () => {
         origin: "startup",
         observations: [{ path: "/api/sms/sms-count", format: "xml", truncated: false, fields: [{ tag: "LocalUnread", shape: "int", count: 1 }, { tag: "LocalInbox", shape: "int", count: 1 }] }],
       });
-      fx.scheduler.device.setConsents([{ model: "B535-232", feature: "smsWrite" }]);
       assert.ok(await fx.service.sync("full"));
       const unread = fx.service.getThread("+353830000001").messages.find((m) => m.isUnread)!;
-      const readOnly = /read-only/i;
+      const readOnly = /cannot change SMS/i;
 
       await fx.message(1001, "/new");
       assert.doesNotMatch(fx.tg.lastText("1001"), readOnly);
@@ -1012,10 +1012,10 @@ describe("TelegramBot", () => {
       assert.deepEqual(sends.map((r) => [r.method, r.encType]), [["POST", null]], "plaintext send-sms, not the H168-383's encrypted one");
       assert.ok(fx.scheduler.genericWrites.some((w) => w.action === "sms_send"));
 
-      // Turned off: back to the read-only answer at once
-      fx.scheduler.device.setConsents([]);
+      // Turned off under Settings → Device: the explanation at once, naming where to turn it back on
+      fx.scheduler.device.setDisabledWrites([{ model: "B535-232", feature: "smsWrite" }]);
       await fx.message(1001, "/new");
-      assert.match(fx.tg.lastText("1001"), /This router is read-only[\s\S]*B535-232[\s\S]*experimental/);
+      assert.match(fx.tg.lastText("1001"), /FengSui cannot change SMS on this router[\s\S]*B535-232[\s\S]*turned off under Settings → Device/);
     } finally {
       await fx.cleanup();
     }

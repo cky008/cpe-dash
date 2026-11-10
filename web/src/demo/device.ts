@@ -1,7 +1,6 @@
 import {
   AGENT_TEST_SETTINGS,
   AGENT_TEST_UNAVAILABLE_MESSAGE,
-  type AgentTestFeature,
   type AgentTestPlan,
   type AgentTestRecord,
   type AgentTestSettingChange,
@@ -18,11 +17,11 @@ import {
 import type { AgentTestResponse, DeviceReportResponse, ExperimentalWritesResponse } from "../../../src/api-contract.ts";
 import { BEHAVIOUR_ENV, type BehaviourOverrides } from "../../../src/behaviour-settings.ts";
 import { TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
-import type { ExperimentalConsent } from "../../../src/console-settings.ts";
+import type { DisabledWrite } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
-import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, READ_SECTIONS, type WriteFeature, type WriteResultRecord, modelLabel } from "../../../src/device-access.ts";
+import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, READ_SECTIONS, type WriteFeature, type WriteResultRecord, gateRefuses, modelLabel } from "../../../src/device-access.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature, buildDeviceReport } from "../../../src/device-profile.ts";
-import { changeExperimentalConsent } from "../../../src/experimental-consent.ts";
+import { switchExperimentalWrite } from "../../../src/experimental-switch.ts";
 import { verifiedModelsLabel } from "../../../src/firmware.ts";
 import { type DemoConsole, DemoRefusal } from "./console.ts";
 import type { DemoSeed } from "./seed.ts";
@@ -55,10 +54,11 @@ export interface DemoDeviceOptions {
 
 /**
  * The demo router as FengSui's write gate sees it, with the daemon's own rules (src/device-access.ts,
- * src/experimental-consent.ts, src/agent-test.ts). On the verified H168-383 every write is open. On a
- * model FengSui was not verified on (`?router=other`), writes are refused until the visitor turns one
- * on in Settings → Device; an experimental write is then read back and kept for the device report,
- * and the one-click AI agent test turns on what it needs and puts it back.
+ * src/experimental-switch.ts, src/agent-test.ts). On the verified H168-383 every write is open. On a
+ * model FengSui was not verified on (`?router=other`), the writes FengSui implements for it are open
+ * as experimental writes, each read back and kept for the device report, until the visitor turns one
+ * off in Settings → Device; the rest are refused. The one-click AI agent test sets the agent
+ * switches and the token's permissions and puts them back.
  */
 export class DemoDevice {
   readonly #now: () => number;
@@ -67,7 +67,7 @@ export class DemoDevice {
   readonly #seed: DemoSeed;
   readonly #access = new DeviceAccess();
   readonly #startedAtIso: string;
-  #consents: ExperimentalConsent[] = [];
+  #disabled: DisabledWrite[] = [];
   #writes: WriteResultRecord[] = [];
   #agentTest: AgentTestRecord | null = null;
 
@@ -112,15 +112,20 @@ export class DemoDevice {
     return this.#access.writeAccess(feature);
   }
 
-  /** The daemon's write gate: a write this router may not take is refused before any session (`409`, audited). */
+  /**
+   * The daemon's write gate: a write this router may not take is refused before any session (`409`,
+   * audited), as turned off (`DEVICE_WRITE_DISABLED`) or as one FengSui has nothing for here.
+   */
   gate(action: ControlAction): void {
     const current = this.#access.current;
     const feature = CONTROL_FEATURES[action];
-    if (!current || this.#access.writeAccess(feature) !== "read_only") return;
+    const access = this.#access.actionAccess(action);
+    if (!current || !gateRefuses(access)) return;
     const model = modelLabel(current.model);
-    const text = this.#text("controls.device_read_only", { model, verified: verifiedModelsLabel() });
+    const disabled = access === "disabled";
+    const text = this.#text(disabled ? "controls.device_write_disabled" : "controls.device_read_only", { model, verified: verifiedModelsLabel() });
     this.#console.record(action, "refused", text.en);
-    throw new DemoRefusal(409, { ok: false, errorCode: "DEVICE_UNVERIFIED_READ_ONLY", message: text.en, messageZh: text.zh, model, feature });
+    throw new DemoRefusal(409, { ok: false, errorCode: disabled ? "DEVICE_WRITE_DISABLED" : "DEVICE_UNVERIFIED_READ_ONLY", message: text.en, messageZh: text.zh, model, feature });
   }
 
   /**
@@ -158,22 +163,22 @@ export class DemoDevice {
     this.#writes = this.#writes.map((record) => (record.readback === "pending" ? { ...record, readback: "match" } : record));
   }
 
-  // ── Consents (the daemon's ConsoleSettings, in memory) ─────────────────────
+  // ── The writes turned off (the daemon's ConsoleSettings, in memory) ────────
 
-  get experimentalConsents(): ExperimentalConsent[] {
-    return this.#consents.map((consent) => ({ ...consent }));
+  get disabledWrites(): DisabledWrite[] {
+    return this.#disabled.map((entry) => ({ ...entry }));
   }
 
-  grantExperimental(model: string, feature: ExperimentalFeature): ExperimentalConsent {
-    const consent: ExperimentalConsent = { model, feature, grantedAtIso: new Date(this.#now()).toISOString() };
-    this.#consents = [...this.#consents.filter((c) => c.model === model && c.feature !== feature), consent];
-    return { ...consent };
+  disableWrite(model: string, feature: WriteFeature): boolean {
+    if (this.#disabled.some((entry) => entry.model === model && entry.feature === feature)) return false;
+    this.#disabled = [...this.#disabled, { model, feature, disabledAtIso: new Date(this.#now()).toISOString() }];
+    return true;
   }
 
-  revokeExperimental(feature: string): boolean {
-    const before = this.#consents.length;
-    this.#consents = this.#consents.filter((c) => c.feature !== feature);
-    return this.#consents.length !== before;
+  enableWrite(model: string, feature: string): boolean {
+    const before = this.#disabled.length;
+    this.#disabled = this.#disabled.filter((entry) => !(entry.model === model && entry.feature === feature));
+    return this.#disabled.length !== before;
   }
 
   /** `GET /api/console/experimental`. */
@@ -181,7 +186,7 @@ export class DemoDevice {
     return {
       ok: true,
       device: this.#access.snapshot(),
-      consents: this.experimentalConsents,
+      disabled: this.disabledWrites,
       writes: this.#writes.map((record) => ({ ...record, endpoints: [...record.endpoints] })),
       agentTest: this.#agentTestStatus(),
     };
@@ -189,7 +194,7 @@ export class DemoDevice {
 
   /** `POST /api/console/experimental`, answered and audited as the daemon does. */
   setExperimental(body: Body): ExperimentalWritesResponse {
-    const result = changeExperimentalConsent(this, this.#access, { feature: body["feature"], enabled: body["enabled"], model: body["model"] });
+    const result = switchExperimentalWrite(this, this.#access, { feature: body["feature"], enabled: body["enabled"] });
     if (result.ok) {
       this.#console.record("settings.experimental", "applied", result.detail);
       return this.view();
@@ -242,9 +247,6 @@ export class DemoDevice {
     const keys = [...plan.settings, ...(sms ? plan.sms.settings : [])];
     const changes = keys.map((key) => ({ key, before: overrides[key] ?? null }) as AgentTestSettingChange);
     if (changes.length > 0) this.#console.setBehaviour(Object.fromEntries(keys.map((key) => [key, AGENT_TEST_SETTINGS[key]])) as BehaviourOverrides);
-    const toGrant: AgentTestFeature[] = [...plan.features, ...(sms && plan.sms.feature ? (["smsWrite"] as const) : [])];
-    const features = toGrant.map((feature) => ({ feature, grantedAtIso: this.grantExperimental(current, feature).grantedAtIso }));
-    if (features.length > 0) this.#access.setConsents(this.#consents);
     const tokens: Array<{ id: string; name: string; added: TokenPermission[] }> = [];
     const record = token && token.added.length > 0 ? this.#console.listTokens().find((entry) => entry.id === token.id) : undefined;
     if (token && record) {
@@ -253,7 +255,7 @@ export class DemoDevice {
       tokens.push(token);
     }
     const before = this.#agentTest;
-    if (changes.length + features.length + tokens.length === 0) {
+    if (changes.length + tokens.length === 0) {
       // Nothing new to turn on: only keeping SMS in a test that is on changes what counts for a pass
       if (before && sms && !before.sms) this.#agentTest = { ...before, sms: true };
       return;
@@ -270,7 +272,6 @@ export class DemoDevice {
       startedAtIso: before?.startedAtIso ?? nowIso,
       sms: (before?.sms ?? false) || sms,
       settings: replace(before?.settings ?? [], changes, (a, b) => a.key === b.key),
-      features: replace(before?.features ?? [], features, (a, b) => a.feature === b.feature),
       tokens: [...given, ...tokens.filter((next) => !given.some((entry) => entry.id === next.id))],
       lastActivityAtIso: nowIso,
       remindedAtIso: null,
@@ -279,21 +280,18 @@ export class DemoDevice {
     };
     const turnedOn = [
       ...changes.map(({ key }) => `${BEHAVIOUR_ENV[key]} ${String(AGENT_TEST_SETTINGS[key])}`),
-      ...features.map(({ feature }) => `${feature} on`),
       ...tokens.map(({ name, added }) => `token "${name}" + ${added.join(" + ")}`),
     ];
     this.#console.record("agents.test", "applied", `${before ? "more" : "start"} for ${shown}${sms ? " with SMS" : ""}: ${turnedOn.join(", ")}`);
   }
 
-  /** Put back what the test turned on that is still as it left it, and forget the test. */
+  /** Put back what the test set that is still as it left it, and forget the test. */
   #endAgentTest(): void {
     const record = this.#agentTest;
     if (!record) return;
     const on = this.#stillOn(record);
     const restored = record.settings.filter(({ key }) => on.settings.includes(key));
     if (restored.length > 0) this.#console.setBehaviour(Object.fromEntries(restored.map(({ key, before }) => [key, before])) as BehaviourOverrides);
-    for (const feature of on.features) this.revokeExperimental(feature);
-    if (on.features.length > 0) this.#access.setConsents(this.#consents);
     for (const { id, permissions } of on.tokens) {
       const token = this.#console.listTokens().find((entry) => entry.id === id);
       if (token) this.#console.setTokenPermissions(id, token.permissions.filter((permission) => !permissions.includes(permission)));
@@ -301,7 +299,6 @@ export class DemoDevice {
     this.#agentTest = null;
     const putBack = [
       ...restored.map(({ key, before }) => `${BEHAVIOUR_ENV[key]} ${before === null ? "from .env" : String(before)}`),
-      ...on.features.map((feature) => `${feature} off`),
       ...on.tokens.map(({ name, permissions }) => `token "${name}" - ${permissions.join(" - ")}`),
     ];
     this.#console.record("agents.test", "applied", `end: ${putBack.length > 0 ? putBack.join(", ") : "nothing left to put back"}`);
@@ -329,11 +326,11 @@ export class DemoDevice {
   }
 
   #stillOn(record: AgentTestRecord): AgentTestStillOn {
-    return agentTestStillOn(record, { overrides: this.#console.behaviourOverrides, consents: this.#consents, tokens: this.#console.listTokens() });
+    return agentTestStillOn(record, { overrides: this.#console.behaviourOverrides, tokens: this.#console.listTokens() });
   }
 
   #passed(record: AgentTestRecord): boolean {
-    return agentTestPassed(record, agentTestCovered(record, (feature) => this.#access.writeState(feature) === "consented"), this.#writes);
+    return agentTestPassed(record, agentTestCovered(record, (feature) => this.#access.writeState(feature) === "enabled"), this.#writes);
   }
 
   // ── The device report ─────────────────────────────────────────────────────

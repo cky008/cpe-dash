@@ -7,12 +7,11 @@ import {
   readOptionalIpv4,
   readTimeSeriesPreset,
 } from "./control-input.ts";
-import type { ConsoleSettings } from "./console-settings.ts";
 import { type FengSuiCore, deviceReportOf } from "./core.ts";
-import { EXPERIMENTAL_FEATURES } from "./device-profile.ts";
 import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS, type DiscoveredEndpoint, discoverEndpoints, discoveryRefusal, readDiscoveryPaths } from "./endpoint-discovery.ts";
-import type { ExperimentalConsentResult } from "./experimental-consent.ts";
-import type { ReadSection, WriteFeature } from "./device-access.ts";
+import type { ExperimentalSwitchResult } from "./experimental-switch.ts";
+import type { ControlAction, ReadSection, WriteFeature } from "./device-access.ts";
+import { FAMILY_WRITE_FEATURES } from "./router-family.ts";
 import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
 import { telemetryForOutput, topologyForOutput } from "./redact.ts";
@@ -297,16 +296,15 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
   },
   {
     name: "set_experimental_write",
-    title: "Turn an Experimental Write On or Off (Unverified Model)",
+    title: "Turn an Experimental Write Off or Back On (Unverified Model)",
     description:
-      "On a router of a model FengSui was not verified on, turn one experimental write on or off to test it: bandLock (LTE bands), reboot, reconnect, mobileData or smsWrite. Offered only while the owner lets AI agents test experimental writes (Settings → Device). Turning one on needs the router's model typed back as get_device_report shows it. Before an agent's band lock, FengSui reads the router's LTE band setting and writes it back if the WAN stays down 3 minutes. Ask the user before each write test; turn the writes off again when done. Requires confirm: true.",
+      "On a router of a model FengSui was not verified on, the writes FengSui implements for it are on by default (get_device_report lists each under access.features: enabled, disabled, unsupported or not_implemented). This turns one off (enabled: false), after which every caller is refused it with DEVICE_WRITE_DISABLED, or back on (enabled: true). A write FengSui does not implement for this router, or one the router lacks what it needs for, has no switch. Offered only while the owner lets AI agents test this router (Settings → Device). After a band or cell lock on such a router, FengSui undoes the lock if the WAN stays down 3 minutes. Ask the user before changing a switch. Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
-        feature: { type: "string", enum: [...EXPERIMENTAL_FEATURES], description: "The experimental write to turn on or off." },
-        enabled: { type: "boolean", description: "true turns it on, false off." },
-        model: { type: "string", description: "The router's model as get_device_report shows it (needed to turn a write on)." },
+        feature: { type: "string", enum: [...FAMILY_WRITE_FEATURES], description: "The experimental write to turn off or back on." },
+        enabled: { type: "boolean", description: "false turns it off, true back on." },
         confirm: CONFIRM,
       },
       required: ["feature", "enabled", "confirm"],
@@ -335,13 +333,12 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
 ];
 
 /**
- * Agents testing this router: whether the owner allows it, the console's consent rules for the
+ * Agents testing this router: whether the owner allows it, the console's own switch for the
  * experimental writes of a model nobody verified, and where each endpoint probe is recorded.
  */
 export interface AgentExperimentalOptions {
   allowed: () => boolean;
-  change: (request: { feature: unknown; enabled: unknown; model: unknown }) => ExperimentalConsentResult;
-  settings: Pick<ConsoleSettings, "experimentalConsents">;
+  change: (request: { feature: unknown; enabled: unknown }) => ExperimentalSwitchResult;
   /** Each `probe_router_endpoints` call, for the audit log (`detail` lists the paths). */
   probed?: (outcome: "applied" | "refused", detail: string) => void;
   now?: () => number;
@@ -364,11 +361,15 @@ const CORE_TOOL_NAMES: ReadonlySet<string> = new Set(CORE_TOOLS.map((tool) => to
 const CORE_WRITE_FEATURES: Readonly<Partial<Record<string, ReadonlyArray<WriteFeature>>>> = {
   lock_band: ["bandLock"],
   lock_cell: ["cellLock"],
-  unlock_rf_locks: ["bandLock"],
   set_security_switches: ["securitySwitches"],
   set_wifi_and_antenna: ["wifi", "antenna"],
   reconnect_cellular: ["reconnect"],
   reboot_cpe: ["reboot"],
+};
+
+/** Tools the gate decides by action: taking locks off is open wherever the band lock or the cell lock is. */
+const CORE_WRITE_ACTIONS: Readonly<Partial<Record<string, ReadonlyArray<ControlAction>>>> = {
+  unlock_rf_locks: ["unlock_rf_locks"],
 };
 
 /** Read tools that need a section a model nobody verified may lack (`device.reads`). */
@@ -409,7 +410,7 @@ export class CoreMcpTools implements McpToolProvider {
     this.#experimental = options.experimental ?? null;
   }
 
-  /** Turning experimental writes on changes FengSui's consent, not the router: it shows on an unverified model. */
+  /** Turning an experimental write off or on changes FengSui's own switch, not the router: it shows on an unverified model. */
   isRouterWrite(toolName: string): boolean {
     return CORE_MUTATING_TOOLS.has(toolName) && toolName !== "set_experimental_write";
   }
@@ -427,8 +428,8 @@ export class CoreMcpTools implements McpToolProvider {
   }
 
   isAvailable(toolName: string): boolean {
-    // Only where there is something to test, and only while the owner allows agents to
-    if (toolName === "set_experimental_write") return this.core.scheduler.device.writes === "read_only" && this.#experimental?.allowed() === true;
+    // Only where there is something to switch, and only while the owner allows agents to
+    if (toolName === "set_experimental_write") return this.core.scheduler.device.writes === "experimental" && this.#experimental?.allowed() === true;
     if (toolName === "probe_router_endpoints") return this.#experimental?.allowed() === true;
     const section = TOOL_SECTIONS[toolName];
     return section === undefined || !this.core.scheduler.device.skips(section);
@@ -436,6 +437,10 @@ export class CoreMcpTools implements McpToolProvider {
 
   routerWriteFeatures(toolName: string): ReadonlyArray<WriteFeature> {
     return CORE_WRITE_FEATURES[toolName] ?? [];
+  }
+
+  routerWriteActions(toolName: string): ReadonlyArray<ControlAction> {
+    return CORE_WRITE_ACTIONS[toolName] ?? [];
   }
 
   /** On a model nobody verified the band lock writes LTE bands only, from those the router advertises. */
@@ -658,7 +663,7 @@ export class CoreMcpTools implements McpToolProvider {
         return {
           ok: true,
           report: deviceReportOf(this.core),
-          agentsMayTestExperimental: this.core.scheduler.device.writes === "read_only" && this.#experimental?.allowed() === true,
+          agentsMayTestExperimental: this.core.scheduler.device.writes === "experimental" && this.#experimental?.allowed() === true,
           agentsMayProbeEndpoints: this.#experimental?.allowed() === true,
         };
 
@@ -670,12 +675,13 @@ export class CoreMcpTools implements McpToolProvider {
             'The owner has not let AI agents test this router: ask them to turn on "Let AI agents test this router" in Settings → Device'
           );
         }
-        if (this.core.scheduler.device.writes !== "read_only") {
-          throw new McpToolError("EXPERIMENTAL_UNAVAILABLE", "This router is a model FengSui was verified on (or not identified yet): it has no experimental writes to test");
+        if (this.core.scheduler.device.writes !== "experimental") {
+          throw new McpToolError("EXPERIMENTAL_UNAVAILABLE", "This router is a model FengSui was verified on (or not identified yet): it has no experimental writes to turn off");
         }
-        const result = experimental.change({ feature: args["feature"], enabled: args["enabled"], model: args["model"] });
+        const result = experimental.change({ feature: args["feature"], enabled: args["enabled"] });
         if (!result.ok) throw new McpToolError(result.errorCode, result.message, result.errorCode === "EXPERIMENTAL_UNAVAILABLE" ? { state: result.state } : {});
-        return { ok: true, change: result.detail, consents: experimental.settings.experimentalConsents };
+        // What each write is on this router now: enabled, disabled, unsupported or not_implemented
+        return { ok: true, change: result.detail, features: this.core.scheduler.device.snapshot().features };
       }
 
       case "probe_router_endpoints":

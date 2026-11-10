@@ -3,27 +3,27 @@ import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, devic
 import { ROUTER_FAMILY_FACTS, type RouterFamily, isDriverFamily } from "./router-family.ts";
 
 /**
- * What FengSui may do with the router it talks to (multi-model support, phase 2): whether it may
- * write, and which read sections this model provides. Zero dependencies: the daemon, the web
- * console and the static demo share it.
+ * What FengSui may do with the router it talks to: whether it may write, and which read sections
+ * this model provides. Zero dependencies: the daemon, the web console and the static demo share it.
  *
  * Writes go by the router's model. A verified model (`VERIFIED_FIRMWARE`) writes, also on a
- * firmware nobody checked (ADR-007 only warns); any other model is read-only, except a write users
- * verified on it (`VERIFIED_FEATURES`) and, since phase 3, an experimental write its owner consented
- * to for that model, which goes through the generic implementation. The gate trusts only a model seen in this run: an identification, a poll
- * (which reads `device/information` anyway) or the write's own session. What an earlier run stored
- * may be stale (the router was swapped while the daemon was down), so it refuses at once when it
- * names an unverified model, and otherwise the write reads the model inside its own session first.
- * Losing sight of the router (unreachable, another connection saved, or a spell of sending it nothing:
- * a reset breaker, the end of a peer standby, the quiet window after someone signed in to the
- * router's page from another device) asks for that again.
+ * firmware nobody checked (ADR-007 only warns). On any other model a write FengSui implements for
+ * the router is open by default, as an experimental write (sent once, read back), and its owner can
+ * turn it off for that model; a write FengSui has no implementation of there is refused. "Implements"
+ * means the family's own list (`ROUTER_FAMILY_FACTS`): what a driver family's driver sends, and on a
+ * HiLink model the generic writes, each only where the identification probe found what it reads
+ * back. A write users verified on a model (`VERIFIED_FEATURES`) needs no such evidence.
  *
- * A router of a driver family (`src/drivers/`, every family but Huawei's) is a model nobody verified
- * as well: it reads the sections its family documents and writes only what its driver implements
- * (`ROUTER_FAMILY_FACTS`, per family) once its owner turned that write on for the model.
+ * The gate trusts only a model seen in this run: an identification, a poll (which reads
+ * `device/information` anyway) or the write's own session. What an earlier run stored may be stale
+ * (the router was swapped while the daemon was down), so a write it would refuse for the stored
+ * model is refused at once, and otherwise the write reads the model inside its own session first.
+ * Losing sight of the router (unreachable, another connection saved, or a spell of sending it
+ * nothing: a reset breaker, the end of a peer standby, the quiet window after someone signed in to
+ * the router's page from another device) asks for that again.
  */
 
-/** Every router write the scheduler runs, and the feature it belongs to (phase 3 asks consent per feature). */
+/** Every router write the scheduler runs, and the feature it belongs to (a write is turned off per feature). */
 export const CONTROL_FEATURES = {
   lock_band: "bandLock",
   lock_cell: "cellLock",
@@ -65,22 +65,31 @@ export const WRITE_FEATURES = [
 export type WriteFeature = (typeof WRITE_FEATURES)[number];
 
 /**
- * What a write feature is on the router the gate goes by (multi-model phase 3):
+ * What a write feature is on the router the gate goes by:
  * - `verified`: a verified model, or a write users verified on this model (`VERIFIED_FEATURES`): open;
- * - `consented`: an experimental write its owner turned on for this model: open, written the generic way;
- * - `available`: an experimental write FengSui could offer here (a generic implementation, and the
- *   probe found what it reads back), not turned on: locked;
- * - `unsupported`: a generic implementation exists, but the probe did not find what it needs: locked;
- * - `not_implemented`: no generic implementation (no exact request format): locked;
+ * - `enabled`: a write FengSui implements for this router, which nobody verified on a real one: open
+ *   by default, sent as an experimental write;
+ * - `disabled`: such a write (or one users verified on this model) its owner turned off: refused;
+ * - `unsupported`: FengSui implements it for the family, but the probe did not find what it needs: refused;
+ * - `not_implemented`: FengSui has no implementation of it for this router: refused;
  * - `unknown`: no model identified yet (a write reads it in its own session first).
  */
-export type WriteFeatureState = "verified" | "consented" | "available" | "unsupported" | "not_implemented" | "unknown";
+export type WriteFeatureState = "verified" | "enabled" | "disabled" | "unsupported" | "not_implemented" | "unknown";
 
-/** What the gate does with a write of this feature: open (`allowed`, `experimental`), `read_only`, or `unknown` (no model yet). */
-export type FeatureWriteAccess = "allowed" | "experimental" | "read_only" | "unknown";
+/**
+ * What the gate does with a write of this feature: open (`allowed`, or `experimental` on a router
+ * nobody verified), refused (`disabled`: its owner turned it off; `unavailable`: nothing implemented
+ * for this router), or `unknown` (no model yet).
+ */
+export type FeatureWriteAccess = "allowed" | "experimental" | "disabled" | "unavailable" | "unknown";
 
-/** An owner's consent to one experimental write on one model (kept by the console, `settings.json`). */
-export interface ExperimentalConsentRef {
+/** The gate refuses a write of this access. */
+export function gateRefuses(access: FeatureWriteAccess): access is "disabled" | "unavailable" {
+  return access === "disabled" || access === "unavailable";
+}
+
+/** One write its owner turned off on one model (kept by the console, `settings.json`). */
+export interface DisabledWriteRef {
   model: string;
   feature: string;
 }
@@ -151,8 +160,12 @@ export function isWriteResultRecord(value: unknown): value is WriteResultRecord 
   );
 }
 
-/** `allowed`: a verified model; `read_only`: every other model; `unknown`: no model identified yet. */
-export type WriteAccess = "allowed" | "read_only" | "unknown";
+/**
+ * `allowed`: a verified model; `experimental`: every other model, whose writes are experimental and
+ * go by `features` (open where FengSui implements them, unless turned off); `unknown`: no model
+ * identified yet.
+ */
+export type WriteAccess = "allowed" | "experimental" | "unknown";
 
 /** The parts of a router FengSui reads, each in a session of its own (the poll, the sweeps, settings, SMS). */
 export const READ_SECTIONS = ["telemetry", "neighbors", "topology", "settings", "accessControl", "sms"] as const;
@@ -189,7 +202,7 @@ export interface DeviceAccessSnapshot {
   writes: WriteAccess;
   /** Per read section: a verified model reads all of them; another model only what it answered. */
   reads: Record<ReadSection, ReadCapability>;
-  /** Per write feature, what it is on this router (phase 3: experimental writes per consent). */
+  /** Per write feature, what it is on this router (on a model nobody verified: on by default, off where its owner turned it off). */
   features: Record<WriteFeature, WriteFeatureState>;
   /** LTE bands an experimental band lock may use (what `net/net-mode-list` advertised); `null` on a verified model or none. */
   lteBands: number[] | null;
@@ -242,8 +255,8 @@ export class DeviceAccess {
   readonly #verifiedFeatures: ReadonlyArray<VerifiedFeature>;
   /** The latest identification probe's evidence (only counts while its model is the current one). */
   #capability: ProbeCapability | null = null;
-  /** The owner's consents, as the console keeps them (only the current model's count). */
-  #consents: ReadonlyArray<ExperimentalConsentRef> = [];
+  /** The writes the owner turned off, as the console keeps them (only the current model's count). */
+  #disabled: ReadonlyArray<DisabledWriteRef> = [];
   /** The family of the router connection (Settings → Router): what it reads and may write goes by it. */
   #family: RouterFamily = "huawei";
 
@@ -323,12 +336,12 @@ export class DeviceAccess {
   get writes(): WriteAccess {
     const current = this.current;
     if (!current) return "unknown";
-    return isVerifiedModel(current.model) ? "allowed" : "read_only";
+    return isVerifiedModel(current.model) ? "allowed" : "experimental";
   }
 
-  /** A known model nobody verified: FengSui reads it the tolerant way and writes nothing it has not been allowed to. */
+  /** A known model nobody verified: FengSui reads it the tolerant way, and what it writes there is experimental. */
   get unverifiedModel(): boolean {
-    return this.writes === "read_only";
+    return this.writes === "experimental";
   }
 
   /** A known model nobody verified: whatever it may write goes through the generic (HiLink) implementation. */
@@ -351,9 +364,12 @@ export class DeviceAccess {
     this.#capability = { model: name, evidence: { ...evidence }, lteBands: lteBands ? [...lteBands] : null };
   }
 
-  /** The owner's consents (the console's store hands them over at start and after every change). */
-  setConsents(consents: ReadonlyArray<ExperimentalConsentRef>): void {
-    this.#consents = consents.map(({ model, feature }) => ({ model, feature }));
+  /**
+   * The writes the owner turned off (the console's store hands them over at start and after every
+   * change). Each names its model: one made for another model says nothing about this router.
+   */
+  setDisabledWrites(disabled: ReadonlyArray<DisabledWriteRef>): void {
+    this.#disabled = disabled.map(({ model, feature }) => ({ model, feature }));
   }
 
   writeState(feature: WriteFeature): WriteFeatureState {
@@ -363,30 +379,38 @@ export class DeviceAccess {
     // A model nobody verified writes only what FengSui implements for its family: a driver's writes,
     // or on a HiLink model the generic ones (a write without one stays the verified model's alone)
     if (!(ROUTER_FAMILY_FACTS[this.#family].writes as ReadonlyArray<string>).includes(feature)) return "not_implemented";
-    // A driver family: each write once its owner turned it on for this model
-    if (isDriverFamily(this.#family)) return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";
-    if (isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures)) return "verified";
-    const capability = this.#capability?.model === current.model ? this.#capability : null;
-    if (capability?.evidence[feature as ExperimentalFeature] !== true) return "unsupported";
-    return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";
+    // A HiLink model shows in the identification probe what a generic write reads back; one users verified needs no such sign
+    const usersVerified = !isDriverFamily(this.#family) && isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures);
+    if (!isDriverFamily(this.#family) && !usersVerified) {
+      const capability = this.#capability?.model === current.model ? this.#capability : null;
+      if (capability?.evidence[feature as ExperimentalFeature] !== true) return "unsupported";
+    }
+    // Open by default; its owner's "off" for this model wins, over a write users verified too
+    if (this.#disabled.some((d) => d.model === current.model && d.feature === feature)) return "disabled";
+    return usersVerified ? "verified" : "enabled";
   }
 
   /**
    * Whether the gate lets a write through. A write goes by its feature, with one exception: taking a
-   * lock off is open to whoever may put one on. Where a router's owner turned on the cell lock alone,
-   * an unlock is not refused for the band lock's sake: a lock nobody may undo is worse than either write.
+   * lock off is open to whoever may put one on. Where the band lock is off or not on this router but
+   * the cell lock is open, an unlock is not refused for the band lock's sake: a lock nobody may undo
+   * is worse than either write. With both closed it is refused, as turned off when either lock was.
    */
   actionAccess(action: ControlAction): FeatureWriteAccess {
     const access = this.writeAccess(CONTROL_FEATURES[action]);
-    if (access === "read_only" && UNLOCK_ACTIONS.has(action) && this.writeAccess("cellLock") === "experimental") return "experimental";
-    return access;
+    if (!gateRefuses(access) || !UNLOCK_ACTIONS.has(action)) return access;
+    // A model is known here (the band lock was refused for it), so the cell lock's answer is one too
+    const cell = this.writeAccess("cellLock");
+    if (!gateRefuses(cell)) return cell;
+    return access === "disabled" || cell === "disabled" ? "disabled" : "unavailable";
   }
 
   writeAccess(feature: WriteFeature): FeatureWriteAccess {
     const state = this.writeState(feature);
     if (state === "unknown") return "unknown";
     if (state === "verified") return "allowed";
-    return state === "consented" ? "experimental" : "read_only";
+    if (state === "enabled") return "experimental";
+    return state === "disabled" ? "disabled" : "unavailable";
   }
 
   /** LTE bands a generic band lock may use on the current model (`null`: a verified model, or none advertised). */

@@ -9,7 +9,7 @@ import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CONTROL_FEATURES, type ControlAction, type DeviceAccessSnapshot } from "../src/device-access.ts";
 import type { DeviceProbeResult } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { type ControlAuditEvent, DeviceNotIdentifiedError, DeviceReadOnlyError } from "../src/scheduler.ts";
+import { type ControlAuditEvent, DeviceNotIdentifiedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { SmsService } from "../src/sms/service.ts";
@@ -20,11 +20,13 @@ import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
- * Multi-model phase 2: a router that is not a verified model is read-only, enforced in the scheduler
- * (`executeControl`), the one door every write goes through. Each write path is tried and the mock
- * must receive no write. The gate trusts only a model seen in this run; a model stored by an earlier
- * run refuses at once when it names an unverified model, and otherwise the write reads the model in
- * its own session first. Mocks and placeholders only, no network.
+ * The write gate, enforced in the scheduler (`executeControl`), the one door every write goes
+ * through: on a router that is not a verified model, a write FengSui has no implementation of for
+ * it, one the router lacks what it needs for, and one its owner turned off are refused before any
+ * session. Each write path is tried and the mock must receive no write. The gate trusts only a model
+ * seen in this run; a write it would refuse for the model an earlier run stored is refused at once,
+ * and otherwise the write reads the model in its own session first. Mocks and placeholders only, no
+ * network.
  */
 
 const MAILBOX: ReadonlyArray<FamilySms> = [
@@ -108,29 +110,49 @@ const WRITES: ReadonlyArray<[ControlAction, (fx: Fixture) => Promise<unknown>]> 
 /** The gate's part of the status (the read sections have tests of their own). */
 const gateOf = ({ model, verification, confirmed, writes }: DeviceAccessSnapshot) => ({ model, verification, confirmed, writes });
 
+/** Refused by the gate: as turned off (the message says where), or as nothing FengSui can do there (it names the verified model). */
 const refusedFor = (action: ControlAction, model: string) => (err: unknown) =>
-  err instanceof DeviceReadOnlyError && err.feature === CONTROL_FEATURES[action] && err.model === model && err.statusCode === 409 && /H168-383/.test(err.message);
+  err instanceof DeviceReadOnlyError &&
+  err.feature === CONTROL_FEATURES[action] &&
+  err.model === model &&
+  err.statusCode === 409 &&
+  (err instanceof DeviceWriteDisabledError ? /Settings → Device/.test(err.message) : /H168-383/.test(err.message));
 
-describe("write gate: unverified models are read-only", () => {
+/** The two writes FengSui implements that the mock router of these tests shows it can take: a reboot and the SMS writes. */
+const IMPLEMENTED_HERE = ["reboot", "smsWrite"] as const;
+
+describe("write gate: what an unverified model may not write", () => {
   it("covers every write the scheduler runs", () => {
     assert.deepEqual(WRITES.map(([action]) => action).sort(), Object.keys(CONTROL_FEATURES).sort());
   });
 
-  it("refuses every write on an identified unverified model before any session: the router gets no write", async () => {
+  it("refuses every write on an identified unverified model once its owner turned off what FengSui implements there, before any session: the router gets no write", async () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", sms: MAILBOX });
     const fx = gateFixture(cpe);
     try {
       assert.ok(await fx.core.monitor.identifyDevice());
       assert.ok(await fx.sms.sync("full"), "reading SMS stays allowed");
       assert.ok(fx.sms.mirror.list().some((m) => m.isUnread));
-      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "H122-373", verification: "unverified-model", confirmed: true, writes: "read_only" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "H122-373", verification: "unverified-model", confirmed: true, writes: "experimental" });
+      // On by default: what FengSui implements and this router shows it can take. Nothing else is open
+      const { features } = fx.core.scheduler.getStatus().device;
+      assert.deepEqual(Object.entries(features).filter(([, state]) => state === "enabled").map(([feature]) => feature), ["reboot", "smsWrite"]);
+      assert.ok(Object.values(features).every((state) => state === "enabled" || state === "unsupported" || state === "not_implemented"));
+      fx.core.scheduler.device.setDisabledWrites(IMPLEMENTED_HERE.map((feature) => ({ model: "H122-373", feature })));
       const sent = cpe.stats.requests.length;
-      for (const [action, run] of WRITES) await assert.rejects(run(fx), refusedFor(action, "H122-373"), action);
+      for (const [action, run] of WRITES) {
+        await assert.rejects(run(fx), refusedFor(action, "H122-373"), action);
+        const off = (IMPLEMENTED_HERE as ReadonlyArray<string>).includes(CONTROL_FEATURES[action]);
+        await assert.rejects(run(fx), (err) => err instanceof DeviceWriteDisabledError === off, `${action}: ${off ? "turned off" : "nothing FengSui can do here"}`);
+      }
       assert.deepEqual(cpe.stats.writes, [], "no write request reached the router");
       assert.equal(cpe.stats.requests.length, sent, "refused before a session: not even a login");
       assert.deepEqual(
         fx.audits.map((a) => [a.action, a.outcome]),
-        WRITES.map(([action]) => [action, "refused"]),
+        WRITES.flatMap(([action]) => [
+          [action, "refused"],
+          [action, "refused"],
+        ]),
         "every refusal is audited"
       );
       assert.ok(fx.sms.mirror.list().some((m) => m.isUnread), "a refused mark-read leaves the mirror as it was");
@@ -143,9 +165,9 @@ describe("write gate: unverified models are read-only", () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token" });
     const fx = gateFixture(cpe, { stored: "B535-232" });
     try {
-      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "B535-232", verification: "unverified-model", confirmed: false, writes: "read_only" });
+      assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "B535-232", verification: "unverified-model", confirmed: false, writes: "experimental" });
       await assert.rejects(fx.core.controls.unlockAllLocks(), refusedFor("unlock_rf_locks", "B535-232"));
-      assert.deepEqual([cpe.stats.requests.length, cpe.stats.writes.length], [0, 0], "no session for a router known to be read-only");
+      assert.deepEqual([cpe.stats.requests.length, cpe.stats.writes.length], [0, 0], "no session for a write the stored model does not have");
     } finally {
       await fx.cleanup();
     }
@@ -192,7 +214,7 @@ describe("write gate: unverified models are read-only", () => {
       await assert.rejects(fx.core.controls.setMobileData(false), refusedFor("set_mobile_data", "H122-373"));
       assert.deepEqual(cpe.stats.writes, []);
       assert.equal(cpe.count("/api/device/information", "GET"), 1);
-      assert.deepEqual(changed.map((snap) => gateOf(snap as DeviceAccessSnapshot)), [{ model: "H122-373", verification: "unverified-model", confirmed: true, writes: "read_only" }], "owed a new identification");
+      assert.deepEqual(changed.map((snap) => gateOf(snap as DeviceAccessSnapshot)), [{ model: "H122-373", verification: "unverified-model", confirmed: true, writes: "experimental" }], "owed a new identification");
       const sent = cpe.stats.requests.length;
       await assert.rejects(fx.core.controls.setMobileData(false), refusedFor("set_mobile_data", "H122-373"));
       assert.equal(cpe.stats.requests.length, sent, "known now: refused without a session");
@@ -363,8 +385,8 @@ describe("write gate: unverified models are read-only", () => {
   });
 });
 
-describe("write gate over REST: every control and SMS write route answers 409 on an unverified model", () => {
-  it("refuses each route, and the router gets no write", async () => {
+describe("write gate over REST: every control and SMS write route answers 409 where the gate refuses it on an unverified model", () => {
+  it("refuses each route with the gate's code, and the router gets no write", async () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", sms: MAILBOX });
     const dir = tempDir("fengsui-gate-rest-");
     const envPath = path.join(dir, ".env");
@@ -394,7 +416,7 @@ describe("write gate over REST: every control and SMS write route answers 409 on
       const headers = { Authorization: "Bearer gate_rest_api_token", "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" };
       const get = async (p: string): Promise<Record<string, unknown>> => (await (await fetch(`${base}${p}`, { headers })).json()) as Record<string, unknown>;
       const deadline = Date.now() + 5000;
-      while (((await get("/api/session/status"))["status"] as { device: { writes: string } }).device.writes !== "read_only") {
+      while (((await get("/api/session/status"))["status"] as { device: { writes: string } }).device.writes !== "experimental") {
         assert.ok(Date.now() < deadline, "the daemon identifies the router after it starts");
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
@@ -425,12 +447,19 @@ describe("write gate over REST: every control and SMS write route answers 409 on
       const served = [...fs.readFileSync("src/http-server.ts", "utf8").matchAll(/case "(\/api\/control\/[a-z0-9-]+)"/g)].map((m) => m[1]);
       assert.deepEqual(served.sort(), routes.map(([p]) => p).filter((p) => p.startsWith("/api/control/")).sort());
 
+      // The owner turned off the two writes FengSui implements that this router can take (Settings → Device)
+      for (const feature of IMPLEMENTED_HERE) stack.settings.disableWrite("H122-373", feature);
+      stack.scheduler.device.setDisabledWrites(stack.settings.disabledWrites);
+      const turnedOff: ReadonlySet<string> = new Set(["/api/control/reboot", "/api/sms/send", "/api/sms/read", "/api/sms/delete"]);
       const sent = cpe.stats.requests.length;
       for (const [route, body] of routes) {
         const res = await fetch(`${base}${route}`, { method: "POST", headers, body: JSON.stringify(body) });
         const json = (await res.json()) as Record<string, unknown>;
-        assert.deepEqual([res.status, json["errorCode"], json["model"]], [409, "DEVICE_UNVERIFIED_READ_ONLY", "H122-373"], route);
-        assert.match(String(json["messageZh"]), /只读/, route);
+        const off = turnedOff.has(route);
+        assert.deepEqual([res.status, json["errorCode"], json["model"]], [409, off ? "DEVICE_WRITE_DISABLED" : "DEVICE_UNVERIFIED_READ_ONLY", "H122-373"], route);
+        assert.match(String(json["messageZh"]), off ? /已经在「设置 → 设备」关闭/ : /烽燧不能在这台路由器（H122-373）上做这项写入/, route);
+        assert.match(String(json["message"]), off ? /turned off for this router/ : /FengSui cannot make this change on this router/, route);
+        assert.doesNotMatch(`${String(json["message"])} ${String(json["messageZh"])}`, /read-only|只读/, route);
       }
       assert.deepEqual(cpe.stats.writes, [], "no write request reached the router");
       assert.equal(cpe.stats.requests.length, sent, "no session either");

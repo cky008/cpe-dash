@@ -158,13 +158,10 @@ const SHOTS: ReadonlyArray<Shot> = [
     scenario: "unverified",
     theme: "fengsui-jiye",
     prepare: async (page) => {
-      // Another model (the demo's B535-232): turning on an experimental write asks for its model first
+      // Another model (the demo's B535-232): the writes FengSui implements for it, each with its switch, on by default
       await openSettings(page, "设备");
-      await page.waitUntil("document.querySelector('#settingsDialog li[data-feature=bandLock] input') !== null", "the experimental writes");
-      await page.click("#settingsDialog li[data-feature=bandLock] input");
-      await page.waitUntil("document.querySelector('#confirmDialog')?.open === true", "the risk dialog");
-      await page.evaluate("(() => { const input = document.getElementById('confirmTypeInput'); input.value = 'B535-232'; input.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
-      await page.waitUntil("document.getElementById('confirmOk').disabled === false", "the model typed");
+      await page.waitUntil("document.querySelector('#settingsDialog li[data-feature=bandLock][data-state=enabled] input')?.checked === true", "the experimental writes");
+      await page.evaluate("document.querySelector('#settingsDialog li[data-feature=bandLock]').scrollIntoView({ block: 'center' }); true");
     },
   },
 ];

@@ -2,7 +2,6 @@ import {
   AGENT_TEST_SETTINGS,
   AGENT_TEST_TOOLS,
   AGENT_TEST_UNAVAILABLE_MESSAGE,
-  type AgentTestFeature,
   type AgentTestPlan,
   type AgentTestRecord,
   type AgentTestSetting,
@@ -57,9 +56,9 @@ export interface AgentTestServiceOptions {
 const ACTIVITY_SAVE_MS = 60_000;
 
 /**
- * The AI agent test at one click, in the daemon: starting it turns on what the plan lists (console
- * settings, the covered experimental writes, what the agent's token needs; SMS when the owner keeps
- * it in), ending it puts back what it turned on that is still as it left it, and a check every minute
+ * The AI agent test at one click, in the daemon: starting it sets what the plan lists (console
+ * settings and what the agent's token needs; those of SMS when the owner keeps it in; the writes
+ * themselves are on already), ending it puts back what it set that is still as it left it, and a check every minute
  * raises the `AGENT_TEST_STILL_ON` reminder (alert history, console, Telegram, webhook) when one is
  * due. Every start and end is audited; only a console session or a linked Telegram chat reads a reminder.
  */
@@ -107,8 +106,8 @@ export class AgentTestService {
   }
 
   /**
-   * Turn on what the plan lists, for the model the owner saw (typed back by the console, as a consent
-   * is), with SMS when `sms` is true and the router offers it, and give `tokenId` (one of the plan's
+   * Set what the plan lists, for the model the owner saw (sent back by the console, so a test never
+   * starts for another router), with SMS when `sms` is true and the router offers it, and give `tokenId` (one of the plan's
    * tokens) what the test needs. Starting again while a test is on adds what is missing and starts the
    * reminder clock again; with nothing to turn on, nothing changes.
    */
@@ -140,9 +139,6 @@ export class AgentTestService {
       settings.setBehaviour(Object.fromEntries(keys.map((key) => [key, AGENT_TEST_SETTINGS[key]])) as BehaviourOverrides);
       this.#opts.onBehaviourChanged?.(this.#behaviour());
     }
-    const toGrant: AgentTestFeature[] = [...plan.features, ...(sms && plan.sms.feature ? (["smsWrite"] as const) : [])];
-    const features = toGrant.map((feature) => ({ feature, grantedAtIso: settings.grantExperimental(current, feature).grantedAtIso }));
-    if (features.length > 0) scheduler.device.setConsents(settings.experimentalConsents);
     const tokens: Array<{ id: string; name: string; added: TokenPermission[] }> = [];
     const record = token && token.added.length > 0 ? settings.listTokens().find((entry) => entry.id === token.id) : undefined;
     if (token && record) {
@@ -152,7 +148,7 @@ export class AgentTestService {
       tokens.push(token);
     }
     const before = settings.agentTest;
-    if (changes.length + features.length + tokens.length === 0) {
+    if (changes.length + tokens.length === 0) {
       // Nothing new to turn on: only keeping SMS in a test that is on changes what counts for a pass
       if (before && sms && !before.sms) settings.setAgentTest({ ...before, sms: true });
       return this.status();
@@ -169,7 +165,6 @@ export class AgentTestService {
       startedAtIso: before?.startedAtIso ?? nowIso,
       sms: (before?.sms ?? false) || sms,
       settings: replace(before?.settings ?? [], changes, (a, b) => a.key === b.key),
-      features: replace(before?.features ?? [], features, (a, b) => a.feature === b.feature),
       tokens: [...given, ...tokens.filter((next) => !given.some((entry) => entry.id === next.id))],
       lastActivityAtIso: nowIso,
       remindedAtIso: null,
@@ -178,16 +173,15 @@ export class AgentTestService {
     });
     const turnedOn = [
       ...changes.map(({ key }) => `${BEHAVIOUR_ENV[key]} ${String(AGENT_TEST_SETTINGS[key])}`),
-      ...features.map(({ feature }) => `${feature} on`),
       ...tokens.map(({ name, added }) => `token "${name}" + ${added.join(" + ")}`),
     ];
     this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `${before ? "more" : "start"} for ${shown}${sms ? " with SMS" : ""}: ${turnedOn.join(", ")}` });
     return this.status();
   }
 
-  /** Put back what the test turned on that is still as it left it, and forget the test. */
+  /** Put back what the test set that is still as it left it, and forget the test. The writes stay as they are: on by default, off where the owner turned one off. */
   end(): AgentTestStatus {
-    const { settings, scheduler } = this.#opts;
+    const { settings } = this.#opts;
     const record = settings.agentTest;
     if (!record) return this.status();
     const on = this.#stillOn(record);
@@ -196,8 +190,6 @@ export class AgentTestService {
       settings.setBehaviour(Object.fromEntries(restored.map(({ key, before }) => [key, before])) as BehaviourOverrides);
       this.#opts.onBehaviourChanged?.(this.#behaviour());
     }
-    for (const feature of on.features) settings.revokeExperimental(feature);
-    if (on.features.length > 0) scheduler.device.setConsents(settings.experimentalConsents);
     for (const { id, permissions } of on.tokens) {
       const token = settings.listTokens().find((entry) => entry.id === id);
       if (!token) continue;
@@ -207,7 +199,6 @@ export class AgentTestService {
     settings.setAgentTest(null);
     const putBack = [
       ...restored.map(({ key, before }) => `${BEHAVIOUR_ENV[key]} ${before === null ? "from .env" : String(before)}`),
-      ...on.features.map((feature) => `${feature} off`),
       ...on.tokens.map(({ name, permissions }) => `token "${name}" - ${permissions.join(" - ")}`),
     ];
     this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `end: ${putBack.length > 0 ? putBack.join(", ") : "nothing left to put back"}` });
@@ -265,13 +256,13 @@ export class AgentTestService {
 
   #stillOn(record: AgentTestRecord): AgentTestStillOn {
     const { settings } = this.#opts;
-    return agentTestStillOn(record, { overrides: settings.behaviourOverrides, consents: settings.experimentalConsents, tokens: settings.listTokens() });
+    return agentTestStillOn(record, { overrides: settings.behaviourOverrides, tokens: settings.listTokens() });
   }
 
-  /** Every covered write that is on now passed since the test started. */
+  /** Every covered write that is open now passed since the test started. */
   #passed(record: AgentTestRecord): boolean {
     const { device } = this.#opts.scheduler;
-    return agentTestPassed(record, agentTestCovered(record, (feature) => device.writeState(feature) === "consented"), this.#opts.scheduler.genericWrites);
+    return agentTestPassed(record, agentTestCovered(record, (feature) => device.writeState(feature) === "enabled"), this.#opts.scheduler.genericWrites);
   }
 
   #message(locale: SupportedLocale, record: AgentTestRecord, on: AgentTestStillOn): string {
@@ -279,7 +270,6 @@ export class AgentTestService {
     const list = (items: ReadonlyArray<string>): string => items.join(text("list_separator"));
     const items = [
       ...on.settings.map((key: AgentTestSetting) => text(`setting_${key}`)),
-      ...(on.features.length > 0 ? [text("features", { features: list(on.features.map((feature) => text(`feature_${feature}`))) })] : []),
       ...on.tokens.map(({ name, permissions }) => text("token", { name: sanitizeFreeText(name), permissions: list(permissions.map((permission) => text(`permission_${permission}`))) })),
     ];
     return t(locale, "alerts.agent_test_still_on", { model: record.model, items: items.join(text("item_separator")) });

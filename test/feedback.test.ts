@@ -79,7 +79,7 @@ describe("feedback: the compatibility issue", () => {
       );
       const json = JSON.stringify(report);
       for (const identifier of ["860000000000000", "203.0.113.10"]) assert.equal(json.includes(identifier), false, identifier);
-      assert.deepEqual([report.identity?.model, report.identity?.loginScheme, report.access?.writes], ["B535-232", "sha256", "read_only"]);
+      assert.deepEqual([report.identity?.model, report.identity?.loginScheme, report.access?.writes], ["B535-232", "sha256", "experimental"]);
       const issue = deviceIssueUrl(report.identity);
       assert.equal(issue.includes("860000000000000") || issue.includes("203.0.113"), false);
       assert.deepEqual(cpe.stats.writes, [], "reading for a report writes nothing");

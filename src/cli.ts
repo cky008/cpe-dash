@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AgentTestService } from "./agent-test-service.ts";
 import { AlertEngine } from "./alert-engine.ts";
-import { changeExperimentalConsent } from "./experimental-consent.ts";
+import { switchExperimentalWrite } from "./experimental-switch.ts";
 import { type BehaviourValues, behaviourFromConfig, resolveBehaviour } from "./behaviour-settings.ts";
 import { AuditLog } from "./audit-log.ts";
 import { ConsoleSettings, type CpeConnection, type RouterPasswordReuse, resetLoginProof } from "./console-settings.ts";
@@ -457,13 +457,12 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     allowMutations: () => behaviour.agentWrites,
     redactSensitive: () => behaviour.redactApi,
     selfHealStatus: () => (selfHeal.enabled ? selfHeal.status() : SELF_HEAL_OFF),
-    // Agents testing this router: the owner's switch, then the console's own consent rules; every probe is audited
+    // Agents testing this router: the owner's switch, then the console's own switch per write; every probe is audited
     experimental: {
       allowed: () => behaviour.agentExperimental,
-      settings,
       change: (request) => {
-        const result = changeExperimentalConsent(settings, scheduler.device, request);
-        if (result.ok || result.detail) audit.record({ action: "settings.experimental", outcome: result.ok ? "applied" : "refused", detail: result.ok ? result.detail : (result.detail ?? "") });
+        const result = switchExperimentalWrite(settings, scheduler.device, request);
+        if (result.detail !== null) audit.record({ action: "settings.experimental", outcome: result.ok ? "applied" : "refused", detail: result.detail });
         return result;
       },
       probed: (outcome, detail) => audit.record({ action: "router.probe", outcome, detail }),
@@ -482,18 +481,10 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       : [accessTools],
   });
 
-  // The owner's experimental writes (phase 3): only the current model's count, a router of another
-  // model ends them for good (a router put back later needs a new consent), and so does a start with
-  // no identification to match them against (state.json gone while settings.json stayed)
-  const keepConsentsFor = (model: string | null): void => {
-    if (settings.retainExperimentalFor(model ?? "") > 0) {
-      const why = model === null ? "no router identified to match them against" : `the router is now ${model}`;
-      audit.record({ action: "settings.experimental", outcome: "applied", detail: `all off: ${why}`, actor: { channel: "system" } });
-    }
-    scheduler.device.setConsents(settings.experimentalConsents);
-  };
-  keepConsentsFor(scheduler.device.current?.model ?? null);
-  scheduler.on("device:model", keepConsentsFor);
+  // The writes the owner turned off on a router nobody verified. Each entry names its model and the
+  // gate counts only those of the router in use, so a router of another model starts with every
+  // implemented write on, and one put back later is as its owner left it
+  scheduler.device.setDisabledWrites(settings.disabledWrites);
 
   // Every write that reached the router queue, with the caller captured where it was requested
   scheduler.on("control:audit", (event: ControlAuditEvent) => {

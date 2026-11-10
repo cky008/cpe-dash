@@ -71,7 +71,7 @@ describe("contract manifest: code ↔ docs", () => {
       const server = new FengSuiMcpServer({
         core,
         allowMutations: true,
-        experimental: { allowed: () => true, settings: { experimentalConsents: [] }, change: () => ({ ok: true, detail: "" }) },
+        experimental: { allowed: () => true, change: () => ({ ok: true, detail: "" }) },
         toolProviders: [
           new AccessControlMcpTools({ core, allowWrites: true, redactSensitive: () => false }),
           new SmsMcpTools({ sms, access: "full", sendPolicy: "known", sendLimitPerHour: 10 }),

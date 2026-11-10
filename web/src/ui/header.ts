@@ -1,4 +1,4 @@
-import { experimentalWrites, readOnlyModel } from "../core/device-access-view.ts";
+import { experimentalWrites, unverifiedModel } from "../core/device-access-view.ts";
 import { loadAlertsSeen, saveAlertsSeen } from "../core/prefs.ts";
 import { unreadBadgeCount, unseenAlertCount } from "../core/store.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
@@ -59,14 +59,15 @@ export function mountHeader(ctx: AppContext): void {
     sessionPill.classList.toggle("fs-breathe", key === "session.yielding");
   };
 
-  // A model FengSui was not verified on: read-only, and one click away from its device page
+  // A model FengSui was not verified on: said in the header, one click away from its device page
   const readOnlyBadge = byId("readOnlyBadge");
   const controlsBtn = byId("controlsBtn");
   const renderReadOnly = (): void => {
-    const model = readOnlyModel(ctx.store.state.scheduler);
+    const model = unverifiedModel(ctx.store.state.scheduler);
     const open = experimentalWrites(ctx.store.state.scheduler);
-    // On a phone the badge takes the controls button's place while there are no controls to offer;
-    // with experimental writes on, the controls button keeps it (its drawer says they are experimental)
+    // On a phone the badge takes the controls button's place while there are no controls to offer
+    // (nothing implemented for this model, or every write turned off); with writes open, the
+    // controls button keeps it (its drawer says they were never checked on a real router)
     const noControls = model !== null && open.length === 0;
     const experimental = model !== null && open.length > 0;
     readOnlyBadge.classList.toggle("hidden", model === null || experimental);
@@ -75,8 +76,10 @@ export function mountHeader(ctx: AppContext): void {
     controlsBtn.classList.toggle("sm:inline-flex", noControls);
     if (model === null) return;
     const text = readOnlyBadge.querySelector<HTMLElement>("[data-role=text]");
-    if (text) text.textContent = ctx.t(open.length > 0 ? "dev.experimental_badge" : "dev.read_only_badge");
-    readOnlyBadge.title = open.length > 0 ? ctx.t("dev.experimental_title", { model, count: open.length }) : ctx.t("dev.read_only_title", { model });
+    if (text) text.textContent = ctx.t(open.length > 0 ? "dev.unverified_badge" : "dev.no_writes_badge");
+    // A lock only while nothing can be written; else the sign that says "not checked"
+    readOnlyBadge.querySelector("use")?.setAttribute("href", open.length > 0 ? "#i-alert" : "#i-lock");
+    readOnlyBadge.title = open.length > 0 ? ctx.t("dev.unverified_title", { model, count: open.length }) : ctx.t("dev.no_writes_title", { model });
     readOnlyBadge.setAttribute("aria-label", readOnlyBadge.title);
   };
 

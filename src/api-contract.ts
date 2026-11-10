@@ -58,8 +58,8 @@ import type {
   WriteFeatureState,
   WriteResultRecord,
 } from "./device-access.ts";
-import type { ExperimentalConsent, PublicTokenRecord } from "./console-settings.ts";
-import type { AgentTestFeature, AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView } from "./agent-test.ts";
+import type { DisabledWrite, PublicTokenRecord } from "./console-settings.ts";
+import type { AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView } from "./agent-test.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { SelfHealStatus } from "./self-heal-status.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
@@ -123,12 +123,12 @@ export type {
   WifiFilterPolicy,
   WifiMacFilterState,
 };
-export type { AgentTestFeature, AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView };
+export type { AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView };
 export type {
   ApiErrorSnapshot,
   ApiErrorStat,
   DeviceAccessSnapshot,
-  ExperimentalConsent,
+  DisabledWrite,
   FeatureWriteAccess,
   ReadCapability,
   ReadSection,
@@ -188,9 +188,10 @@ export type ApiErrorCode =
   | "TOKEN_NOT_PERMITTED"         // 403: the token lacks the permission this request needs (`permission`; v1.8.0)
   | "CONSOLE_ONLY"                // 403: /api/console/* with a Bearer token (credentials change only from a console session)
   | "CPE_NOT_CONFIGURED"          // 409: no router connection yet (finish the setup in the console)
-  | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on and this write is not open there (nothing was sent)
+  | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on, and FengSui has no implementation of this write for it (nothing was sent)
+  | "DEVICE_WRITE_DISABLED"       // 409: a write FengSui implements for this router, which its owner turned off for the model (nothing was sent; v1.8.4)
   | "DEVICE_NOT_IDENTIFIED"       // 409: the write's own session could not read the router's model; nothing was written
-  | "EXPERIMENTAL_UNAVAILABLE"    // 409: an experimental write that cannot be turned on for this router (see `state`)
+  | "EXPERIMENTAL_UNAVAILABLE"    // 409: a write that has no switch on this router: not implemented for it, or a verified model (see `state`)
   | "AGENT_TEST_UNAVAILABLE"      // 409: the router has no experimental write for an AI agent's test (a verified model, or none identified)
   | "ALREADY_SET_UP"              // 409: /api/setup/login after the console password was set
   | "WRONG_PASSWORD"              // 403: the current console password did not match
@@ -212,11 +213,11 @@ export interface ApiErrorEnvelope {
   message: string;
   /** Only `409 BROWSER_SESSION_YIELDED`. */
   messageEn?: string;
-  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY` and `409 DEVICE_NOT_IDENTIFIED` (`message` is English there). */
+  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY`, `409 DEVICE_WRITE_DISABLED` and `409 DEVICE_NOT_IDENTIFIED` (`message` is English there). */
   messageZh?: string;
-  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY`: the router's model (`?` when it is not plain text). */
+  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY` and `409 DEVICE_WRITE_DISABLED`: the router's model (`?` when it is not plain text). */
   model?: string;
-  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY`: the feature the refused write belongs to. */
+  /** Only `409 DEVICE_UNVERIFIED_READ_ONLY` and `409 DEVICE_WRITE_DISABLED`: the feature the refused write belongs to. */
   feature?: DeviceFeature;
   /** Only `429 RATE_LIMITED`. */
   retryAfterSec?: number;
@@ -234,7 +235,7 @@ export interface ApiErrorEnvelope {
   resolvedPhones?: string[];
   /** Only `400 CPE_TEST_FAILED`: why the router connection did not log in. */
   connectionTest?: ConnectionTestResult;
-  /** Only `409 EXPERIMENTAL_UNAVAILABLE`: what the feature is on this router (verified, not implemented, unsupported, unknown). */
+  /** Only `409 EXPERIMENTAL_UNAVAILABLE`: what the feature is on this router (not implemented, unsupported, unknown; verified on a verified model). */
   state?: WriteFeatureState;
 }
 
@@ -380,13 +381,14 @@ export interface DeviceProfileResponse {
 }
 
 /**
- * `GET` / `POST /api/console/experimental` (console session only; multi-model phase 3): what each write
- * is on this router (`device.features`) and the experimental writes its owner turned on for this model.
+ * `GET` / `POST /api/console/experimental` (console session only): what each write is on this router
+ * (`device.features`: on a model nobody verified, `enabled` by default where FengSui implements it)
+ * and the writes its owner turned off for this model.
  */
 export interface ExperimentalWritesResponse {
   ok: true;
   device: DeviceAccessSnapshot;
-  consents: ExperimentalConsent[];
+  disabled: DisabledWrite[];
   /** The last generic writes (oldest first): endpoints, router code and read-back, never a value written. */
   writes: WriteResultRecord[];
   /** The AI agent test at one click: the one in progress, and what starting it would turn on now. */
@@ -394,8 +396,8 @@ export interface ExperimentalWritesResponse {
 }
 
 /**
- * `POST /api/console/agent-test` (console session only): `start` turns on what `agentTest.plan` lists for
- * the router's `model` as the console showed it, SMS too with `sms: true`, and gives `tokenId` (one of
+ * `POST /api/console/agent-test` (console session only): `start` sets what `agentTest.plan` lists for
+ * the router's `model` as the console showed it, for SMS too with `sms: true`, and gives `tokenId` (one of
  * the plan's tokens; `null`: none) what the test needs; `end` puts back what the test turned on; `ack`
  * reads its reminder (`alertId`: the reminder alert the console showed).
  */
@@ -409,12 +411,10 @@ export interface AgentTestResponse extends ExperimentalWritesResponse {
   settings: ConsoleSettingsResponse;
 }
 
-/** `POST /api/console/experimental`: turn one experimental write on (typing the router's model) or off. */
+/** `POST /api/console/experimental`: turn one experimental write off (`enabled: false`) or back on, for the router's model. */
 export interface ExperimentalWriteRequest {
   feature: WriteFeature;
   enabled: boolean;
-  /** Required to turn one on: the router's model as the console shows it (case and surrounding spaces aside). */
-  model?: string;
 }
 
 /**

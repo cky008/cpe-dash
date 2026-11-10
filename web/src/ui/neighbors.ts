@@ -99,7 +99,7 @@ export function mountNeighbors(ctx: AppContext): void {
   const render = (): void => {
     const snapshot = ctx.store.state.neighbors;
     const serving = servingKeys(ctx.store.state.telemetry);
-    // No cell lock where the daemon would refuse one (a model nobody verified, until its owner turned that write on)
+    // No cell lock where the daemon would refuse one (not implemented for this model, or turned off by its owner)
     const locked = !canWrite(ctx.store.state.scheduler, "cellLock");
     const otherBrand = isDriverFamily(ctx.store.state.scheduler?.device.family);
     const missing = unavailableSection(ctx.store.state.scheduler, "neighbors");

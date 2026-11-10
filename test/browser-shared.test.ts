@@ -46,7 +46,7 @@ const BROWSER_SHARED_MODULES = [
   "src/control-input.ts",
   "src/device-access.ts",
   "src/device-profile.ts",
-  "src/experimental-consent.ts",
+  "src/experimental-switch.ts",
   "src/feedback.ts",
   "src/firmware.ts",
   "src/timeseries.ts",

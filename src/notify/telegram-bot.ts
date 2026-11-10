@@ -6,6 +6,7 @@ import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encry
 import { firmwareReviewPrompt } from "../firmware.ts";
 import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
+import { gateRefuses } from "../device-access.ts";
 import { BrowserSessionYieldedError, DeviceReadOnlyError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
@@ -230,8 +231,8 @@ const TEXT = {
     unknown_command: "未知命令 <code>/{command}</code>，发送 /help 查看用法。",
     sms_disabled: "短信功能未启用（SMS_ENABLED=false）。",
     read_only:
-      "🔒 <b>这台路由器只读</b>\n\n它是烽燧没有验证过的型号（{model}），烽燧只读取它：不能在这里发短信、标为已读或删除。请在路由器自己的网页上操作；在控制台「设置 → 设备」可以打开实验性短信写入（先看风险说明），也可以报告它的兼容情况。",
-    read_only_short: "🔒 这台路由器只读（{model}），烽燧不能在这里改动短信",
+      "🔒 <b>烽燧不能在这台路由器上改动短信</b>\n\n它是烽燧没有验证过的型号（{model}）：烽燧在这个型号上没有短信写入的实现，或者短信写入已经在控制台「设置 → 设备」关闭。所以不能在这里发短信、标为已读或删除，请在路由器自己的网页上操作；「设置 → 设备」里能看到它是哪一种，也可以报告它的兼容情况。",
+    read_only_short: "🔒 烽燧不能在这台路由器（{model}）上改动短信",
     status_no_data: "暂无遥测数据（服务刚启动或正在让位）。",
     status_mode_idle: "空闲",
     status_mode_polling: "采集中",
@@ -340,8 +341,8 @@ const TEXT = {
     unknown_command: "Unknown command <code>/{command}</code>; send /help.",
     sms_disabled: "SMS is disabled (SMS_ENABLED=false).",
     read_only:
-      "🔒 <b>This router is read-only</b>\n\nIt is a model FengSui was not verified on ({model}), so FengSui only reads it: sending, marking read and deleting SMS are not available here. Use the router's own web page; Settings → Device in the console can turn on experimental SMS writes (read the risks first) and report how the router works.",
-    read_only_short: "🔒 Read-only router ({model}): FengSui cannot change SMS here",
+      "🔒 <b>FengSui cannot change SMS on this router</b>\n\nIt is a model FengSui was not verified on ({model}): FengSui has no SMS write for it, or SMS writes are turned off under Settings → Device in the console. So sending, marking read and deleting are not available here; use the router's own web page. Settings → Device shows which of the two it is and can report how the router works.",
+    read_only_short: "🔒 FengSui cannot change SMS on this router ({model})",
     status_no_data: "No telemetry yet (just started or yielding).",
     status_mode_idle: "idle",
     status_mode_polling: "polling",
@@ -824,7 +825,7 @@ export class TelegramBot implements NotificationChannel {
     const lines = [this.#tx("new_sms"), "", this.#senderLine(message), `⏱ ${escapeTelegramHtml(message.date)}`];
     if (message.verificationCode) lines.push(this.#tx("otp", { code: message.verificationCode }));
     lines.push("", `<blockquote>${escapeTelegramHtml(truncate(message.content, 3000))}</blockquote>`);
-    // A read-only router (a model nobody verified, SMS writes not turned on) can be read, not answered: no reply, read or delete
+    // Where the gate refuses SMS writes (a model nobody verified without them, or with them turned off), a message can be read, not answered: no reply, read or delete
     const writable = this.#readOnlyModel() === null;
     const replyPhone = writable && message.sender.dialable ? (message.sender.e164 ?? message.phone) : null;
     if (replyPhone) lines.push(this.#tx("reply_hint", { phone: replyPhone }));
@@ -1762,15 +1763,15 @@ export class TelegramBot implements NotificationChannel {
   }
 
   /**
-   * The router's model when SMS writes are closed there (a model nobody verified, unless its owner
-   * turned on experimental SMS writes for it), else `null`.
+   * The router's model when SMS writes are closed there (a model nobody verified that FengSui has no
+   * SMS write for, or whose owner turned SMS writes off), else `null`.
    */
   #readOnlyModel(): string | null {
     const device = this.core.scheduler.device;
-    return device.writeAccess("smsWrite") === "read_only" ? (device.snapshot().model ?? "?") : null;
+    return gateRefuses(device.writeAccess("smsWrite")) ? (device.snapshot().model ?? "?") : null;
   }
 
-  /** Explain instead of writing when the router is read-only; `true` when it was. */
+  /** Explain instead of writing when the gate refuses SMS writes on this router; `true` when it does. */
   async #refuseReadOnly(to: ReplyTo): Promise<boolean> {
     const model = this.#readOnlyModel();
     if (model === null) return false;

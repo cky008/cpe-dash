@@ -91,9 +91,8 @@ describe("experimental writes in the device report", () => {
       const cookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(login.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
       assert.ok(await stack.monitor.identifyDevice());
       assert.ok(await stack.sms?.sync("full"));
-      for (const feature of ["bandLock", "mobileData", "smsWrite"]) {
-        assert.equal((await send("POST", "/api/console/experimental", cookie, { feature, enabled: true, model: "B535-232" })).status, 200, feature);
-      }
+      // The owner turned one write off: the report says so (a state, never a reason or a value)
+      assert.equal((await send("POST", "/api/console/experimental", cookie, { feature: "reboot", enabled: false })).status, 200);
       await stack.controls.lockBands({ lteBands: [1, 3] });
       await stack.controls.setMobileData(false);
       await stack.sms?.send({ phones: ["+353830000000"], content: "IMEI 860000000000000, IP 198.51.100.42", source: "web" });
@@ -108,7 +107,7 @@ describe("experimental writes in the device report", () => {
       ]);
       const report = ((await (await send("GET", "/api/console/device-report", cookie)).json()) as DeviceReportResponse).report;
       assert.deepEqual(report.access?.features, { ...view.device.features }, "which writes were on, and which this router lacks");
-      assert.deepEqual([report.access?.features?.bandLock, report.access?.features?.reboot, report.access?.features?.cellLock], ["consented", "available", "not_implemented"]);
+      assert.deepEqual([report.access?.writes, report.access?.features.bandLock, report.access?.features.reboot, report.access?.features.cellLock], ["experimental", "enabled", "disabled", "not_implemented"]);
       assert.deepEqual(report.writes.map((w) => [w.action, w.endpoints.join(","), w.outcome, w.readback]), [
         ["lock_band", "/api/net/net-mode", "applied", "match"],
         ["set_mobile_data", "/api/dialup/mobile-dataswitch", "applied", "match"],

@@ -22,10 +22,10 @@ import {
   WAN_RECONNECT_MIN,
 } from "../../../src/behaviour-settings.ts";
 import { TOKEN_LIFETIMES_DAYS, TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
-import type { ConsentFeature, PublicTokenRecord } from "../../../src/console-settings.ts";
+import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
-import { FAMILY_AUTO, FAMILY_WRITE_FEATURES, type RouterFamily, routerFamilyOf } from "../../../src/router-family.ts";
+import { FAMILY_AUTO, type RouterFamily, routerFamilyOf } from "../../../src/router-family.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn } from "../core/agent-test-view.ts";
 import { ApiError } from "../core/api.ts";
@@ -42,26 +42,26 @@ import {
   tokenFlowText,
   tokenState,
 } from "../core/console-view.ts";
-import { experimentalOffer, experimentalWrites, readbackTone } from "../core/device-access-view.ts";
+import { experimentalOffer, experimentalWrites, hasSwitch, readbackTone } from "../core/device-access-view.ts";
 import {
   FEATURE_KEYS,
   READBACK_KEYS,
   READ_STATE_KEYS,
   SECTION_KEYS,
   STATE_KEYS,
-  WRITES_KEYS,
   WRITE_STATE_KEYS,
   bandText,
   detectedText,
   endpointText,
-  experimentalRiskBody,
   loginText,
   readText,
   reportFileName,
   reportIssueLink,
   reportJson,
+  switchScope,
   verificationNotice,
   writeResultDetail,
+  writesText,
 } from "../core/device-view.ts";
 import { type RouterDraft, asksUsername, brandLabel, brandNote, brandOf, brandOptions, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../core/router-brand.ts";
 import { formatAgo } from "../core/format.ts";
@@ -86,7 +86,6 @@ const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string 
 /** Every lifetime the daemon accepts, then "never expires". */
 const LIFETIMES: ReadonlyArray<number | null> = [...TOKEN_LIFETIMES_DAYS, null];
 /** A write its owner can turn on: a generic HiLink write, or one another brand's driver implements. */
-const isConsentFeature = (feature: WriteFeature): feature is ConsentFeature => (FAMILY_WRITE_FEATURES as ReadonlyArray<string>).includes(feature);
 const DEFAULT_LIFETIME_DAYS = 90;
 /** A new token reads SMS too unless unticked (what a read-only token did before permissions). */
 const DEFAULT_PERMISSIONS: ReadonlyArray<TokenPermission> = ["sms-read"];
@@ -461,34 +460,21 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   };
 
   /**
-   * Turn one experimental write on (after the risk dialog, typing the model back) or off (at once).
-   * The daemon decides; its answer updates the gate's view everywhere in the console.
+   * Turn one experimental write off, or back on (both at once: the writes FengSui implements for the
+   * router are on by default). The daemon decides; its answer updates the gate's view everywhere in
+   * the console.
    */
   const switchExperimental = async (feature: WriteFeature, input: HTMLInputElement): Promise<void> => {
     const on = input.checked;
-    const model = ctx.store.state.scheduler?.device.model?.trim() || "?";
     const label = t(FEATURE_KEYS[feature]);
-    if (on) {
-      input.checked = false;
-      // The daemon offers the switch only for a write it has an implementation of on this router
-      if (!isConsentFeature(feature)) return;
-      const ok = await ctx.confirm({
-        title: t("exp_on_title", { feature: label }),
-        body: experimentalRiskBody(feature, model, t),
-        confirmLabel: t("exp_confirm"),
-        tone: "error",
-        typeToConfirm: model,
-      });
-      if (!ok) return;
-    }
     switching.add(feature);
     render();
     try {
-      const res = await ctx.api.setExperimental(on ? { feature, enabled: true, model } : { feature, enabled: false });
+      const res = await ctx.api.setExperimental({ feature, enabled: on });
       experimental = res;
       const scheduler = ctx.store.state.scheduler;
       if (scheduler) ctx.store.update({ scheduler: { ...scheduler, device: res.device } }, ["scheduler"]);
-      ctx.toast(t(on ? "exp_on_done" : "exp_off_done", { feature: label }), on ? "warning" : "success");
+      ctx.toast(t(on ? "exp_on_done" : "exp_off_done", { feature: label }), "success");
     } catch (err) {
       fail(err);
     } finally {
@@ -497,25 +483,34 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     }
   };
 
-  /** A model nobody verified: each write with its state, a switch where it can be turned on, and the recent results. */
+  /** A model nobody verified: each write with its state, a switch where FengSui implements it (on by default), and the recent results. */
   const experimentalBlock = (): HTMLElement | null => {
-    const offer = experimentalOffer(ctx.store.state.scheduler);
+    const scheduler = ctx.store.state.scheduler;
+    const offer = experimentalOffer(scheduler);
     if (offer.length === 0) return null;
-    const model = ctx.store.state.scheduler?.device.model ?? "?";
+    const model = scheduler?.device.model ?? "?";
     const rows = offer.map(({ feature, state }) => {
       const label = t(FEATURE_KEYS[feature]);
       let control: HTMLElement | null = null;
-      if (state === "available" || state === "consented") {
+      let scope: string | null = null;
+      if (hasSwitch(scheduler, feature)) {
         const input = h("input", { class: "toggle toggle-sm toggle-warning", attrs: { type: "checkbox", "aria-label": t("exp_switch", { feature: label }) } });
-        input.checked = state === "consented";
+        input.checked = state !== "disabled";
         input.disabled = switching.has(feature);
         input.addEventListener("change", () => void switchExperimental(feature, input));
         control = input;
+        scope = switchScope(feature, t);
       }
       return h(
         "li",
-        { class: "flex items-center gap-3 py-1.5", data: { feature } },
-        h("span", { class: "flex-1 min-w-0 text-sm" }, label, h("span", { class: `block text-[0.6875rem] ${state === "consented" ? "text-warning" : "faint"}` }, t(WRITE_STATE_KEYS[state]))),
+        { class: "flex items-center gap-3 py-1.5", data: { feature, state } },
+        h(
+          "span",
+          { class: "flex-1 min-w-0 text-sm" },
+          label,
+          h("span", { class: `block text-[0.6875rem] ${state === "enabled" ? "text-warning" : "faint"}` }, t(WRITE_STATE_KEYS[state])),
+          scope ? h("span", { class: "block text-[0.6875rem] faint" }, scope) : null
+        ),
         control
       );
     });
@@ -547,7 +542,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     );
   };
 
-  /** The test's answer: the experimental writes, the gate's view everywhere in the console, and the switches it changed. */
+  /** The test's answer: the experimental writes, the gate's view everywhere in the console, and the settings it changed. */
   const applyAgentTest = (res: AgentTestResponse): void => {
     experimental = res;
     summary = res.settings;
@@ -558,9 +553,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   };
 
   /**
-   * Copy the test prompt. When that turns something on (a setting, a covered write, what the agent's
-   * token needs), one confirmation lists it all first, with SMS as an option kept by default; the
-   * confirming click also copies, before the request.
+   * Copy the test prompt. When that sets something (an agent switch, what the agent's token needs),
+   * one confirmation lists it all first, with SMS as an option kept by default; the confirming click
+   * also copies, before the request.
    */
   const startAgentTest = async (prompt: string): Promise<void> => {
     const plan = experimental?.agentTest.plan;
@@ -679,7 +674,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   const accessBlock = (): HTMLElement | null => {
     const access = ctx.store.state.scheduler?.device;
     if (!access || access.writes === "unknown") return null;
-    const locked = access.writes === "read_only";
+    const unverified = access.writes === "experimental";
     const open = experimentalWrites(ctx.store.state.scheduler);
     const reads = (Object.keys(SECTION_KEYS) as Array<keyof typeof SECTION_KEYS>).map((section) => {
       const read = access.reads[section];
@@ -698,12 +693,12 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       h("div", { class: "fs-label" }, t("access_title")),
       h(
         "div",
-        { class: `flex items-center gap-1.5 text-sm ${locked ? "text-warning" : ""}` },
-        icon(locked ? "lock" : "unlock"),
-        open.length > 0 ? t("access_writes_locked_some", { count: open.length }) : t(WRITES_KEYS[access.writes])
+        { class: `flex items-center gap-1.5 text-sm ${unverified ? "text-warning" : ""}`, data: { role: "writes" } },
+        icon(!unverified ? "unlock" : open.length > 0 ? "alert" : "lock"),
+        writesText(access.writes, open.length, t)
       ),
       h("ul", { class: "grid grid-cols-1 sm:grid-cols-2 gap-1.5" }, ...reads),
-      locked ? h("p", { class: "text-xs faint" }, t("access_note")) : null
+      unverified ? h("p", { class: "text-xs faint" }, t("access_note")) : null
     );
   };
 

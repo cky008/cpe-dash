@@ -261,7 +261,7 @@ describe("Static demo backend vs the real daemon", () => {
     assert.deepEqual((demoView.json as unknown as ExperimentalWritesResponse).device.features, (realView.json as unknown as ExperimentalWritesResponse).device.features);
     assert.ok(Object.values((demoView.json as unknown as ExperimentalWritesResponse).device.features).every((state) => state === "verified"));
     for (const body of [
-      { feature: "reboot", enabled: true, model: "H168-383" },
+      { feature: "reboot", enabled: true },
       { feature: "reboot", enabled: false },
       { feature: "teleport", enabled: true },
       { feature: "reboot" },
@@ -271,9 +271,10 @@ describe("Static demo backend vs the real daemon", () => {
       if (real.status === 200) assertSameShape("POST /api/console/experimental", real.json, demo.json);
     }
     const audit = (await demoCall(backend, "GET", "/api/audit?limit=2")).json["entries"] as Json[];
-    assert.deepEqual(audit.map((e) => [e["action"], e["outcome"]]), [
-      ["settings.experimental", "applied"],
-      ["settings.experimental", "refused"],
+    // A verified model has no switch to turn off or on: both directions are refused, and audited as such
+    assert.deepEqual(audit.map((e) => [e["action"], e["outcome"], e["detail"]]), [
+      ["settings.experimental", "refused", "reboot off: verified"],
+      ["settings.experimental", "refused", "reboot on: verified"],
     ]);
   });
 

@@ -18,7 +18,7 @@ import { normalizeCpeUrl } from "./config.ts";
 import { describePermissions, readTokenPermissions, readTokenRequest, validateNewPassword } from "./console-policy.ts";
 import { type ConsoleSettings, PAIRING_CODE_TTL_MS } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
-import { changeExperimentalConsent } from "./experimental-consent.ts";
+import { switchExperimentalWrite } from "./experimental-switch.ts";
 import type { DeviceProbeResult, DeviceReport } from "./device-profile.ts";
 import { FAMILY_AUTO, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, type RouterFamily, isRouterFamily, routerFamilyOf } from "./router-family.ts";
 import type { ConnectionCandidate, ConnectionTestResult, MutexSessionScheduler } from "./scheduler.ts";
@@ -325,10 +325,12 @@ export class SettingsHttpRoutes {
     }
   }
 
-  /** What each write is on this router, the experimental writes its owner turned on, the recent results and the agent test. */
+  /** What each write is on this router, the writes its owner turned off on this model, the recent results and the agent test. */
   #experimental(): ExperimentalWritesResponse {
+    const { scheduler, settings } = this.#opts;
     const agentTest = this.#opts.agentTest?.status() ?? { current: null, plan: noAgentTestPlan() };
-    return { ok: true, device: this.#opts.scheduler.device.snapshot(), consents: this.#opts.settings.experimentalConsents, writes: this.#opts.scheduler.genericWrites, agentTest };
+    const model = scheduler.device.current?.model ?? null;
+    return { ok: true, device: scheduler.device.snapshot(), disabled: settings.disabledWrites.filter((entry) => entry.model === model), writes: scheduler.genericWrites, agentTest };
   }
 
   /**
@@ -363,14 +365,14 @@ export class SettingsHttpRoutes {
   }
 
   /**
-   * Turn one experimental write on or off (multi-model phase 3). On needs the feature to be offered on
-   * this router (a generic implementation and the probe's evidence) and the router's model typed back,
-   * so a consent always names the model the owner saw; off always works. The gate sees the change at
-   * once; both directions are audited, refusals too.
+   * Turn one experimental write off, or back on. On a model nobody verified the writes FengSui
+   * implements for the router are on by default; only such a write has a switch (the others answer
+   * `409 EXPERIMENTAL_UNAVAILABLE`). The gate sees the change at once; both directions are audited,
+   * refusals too.
    */
   async #setExperimental(ctx: ApiRouteContext, body: Record<string, unknown>): Promise<void> {
     const { settings, audit, scheduler } = this.#opts;
-    const result = changeExperimentalConsent(settings, scheduler.device, { feature: body["feature"], enabled: body["enabled"], model: body["model"] });
+    const result = switchExperimentalWrite(settings, scheduler.device, { feature: body["feature"], enabled: body["enabled"] });
     if (result.ok) {
       audit?.record({ action: "settings.experimental", outcome: "applied", detail: result.detail });
       ctx.sendJson(200, this.#experimental());

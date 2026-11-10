@@ -21,7 +21,7 @@ describe("the AI agent test over the console's API", () => {
     const consoleHeaders = (cookie: string) => ({ "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base, Cookie: cookie });
     try {
       const deadline = Date.now() + 8000;
-      while ((((await (await fetch(`${base}/api/session/status`, { headers: bearer(TOKEN) })).json()) as SessionStatusResponse).status.device.writes) !== "read_only") {
+      while ((((await (await fetch(`${base}/api/session/status`, { headers: bearer(TOKEN) })).json()) as SessionStatusResponse).status.device.writes) !== "experimental") {
         assert.ok(Date.now() < deadline, "identified after start");
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
@@ -36,8 +36,10 @@ describe("the AI agent test over the console's API", () => {
 
       const before = await view();
       assert.deepEqual([before.agentTest.current, before.agentTest.plan.available], [null, true]);
-      assert.deepEqual([before.agentTest.plan.settings, before.agentTest.plan.features], [["agentExperimental", "agentWrites"], ["bandLock", "reconnect", "reboot"]]);
-      assert.deepEqual(before.agentTest.plan.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], feature: true, sendLimitPerHour: 10 });
+      assert.deepEqual(before.agentTest.plan.settings, ["agentExperimental", "agentWrites"]);
+      assert.deepEqual(before.agentTest.plan.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10 });
+      // The writes are on before any test: nothing for it to turn on
+      assert.deepEqual([before.device.features.bandLock, before.device.features.smsWrite, before.disabled], ["enabled", "enabled", []]);
       assert.deepEqual([before.agentTest.plan.tokens, before.agentTest.plan.tokenNeeded], [[], false], "the imported API_TOKEN may do everything already");
 
       // The agent connects with a read-only token from the connection guide
@@ -60,11 +62,11 @@ describe("the AI agent test over the console's API", () => {
       const started = await post("/api/console/agent-test", { action: "start", model: MODEL.toLowerCase(), tokenId: minted.record.id, sms: true });
       assert.equal(started.status, 200);
       const on = (await started.json()) as AgentTestResponse;
-      assert.deepEqual([on.agentTest.current?.settings, on.agentTest.current?.features], [["agentExperimental", "agentWrites", "agentSms", "agentSmsSendPolicy"], ["bandLock", "reconnect", "reboot", "smsWrite"]]);
+      assert.deepEqual(on.agentTest.current?.settings, ["agentExperimental", "agentWrites", "agentSms", "agentSmsSendPolicy"]);
       assert.deepEqual(on.agentTest.current?.tokens.map((t) => [t.name, t.permissions]), [["Claude", ["control", "sms-write"]]]);
       const behaviour = on.settings.behaviour;
       assert.deepEqual([behaviour.agentWrites.value, behaviour.agentWrites.source, behaviour.agentExperimental.value, behaviour.agentSms.value, behaviour.agentSmsSendPolicy.value], [true, "console", true, "full", "any"]);
-      assert.deepEqual([on.device.features.bandLock, on.device.features.smsWrite, on.consents.length], ["consented", "consented", 4]);
+      assert.deepEqual([on.device.features.bandLock, on.device.features.smsWrite, on.disabled.length], ["enabled", "enabled", 0]);
       assert.equal(on.agentTest.current?.remindAtIso, new Date(Date.parse(on.agentTest.current?.lastActivityAtIso ?? "") + 3 * 3_600_000).toISOString());
       const tools = await mcpTools(minted.token);
       for (const tool of ["lock_band", "unlock_rf_locks", "reconnect_cellular", "reboot_cpe", "probe_router_endpoints", "set_experimental_write", "send_sms", "mark_sms_read", "delete_sms"]) assert.ok(tools.includes(tool), tool);
@@ -78,7 +80,7 @@ describe("the AI agent test over the console's API", () => {
       const audit = (await (await fetch(`${base}/api/audit?limit=5`, { headers: { Cookie: cookie } })).json()) as AuditResponse;
       const entry = audit.entries.find((e) => e.action === "agents.test");
       assert.deepEqual([entry?.channel, entry?.outcome], ["web", "applied"]);
-      assert.match(entry?.detail ?? "", /^start for B535-232 with SMS: MCP_ALLOW_EXPERIMENTAL true, MCP_ALLOW_MUTATIONS true, MCP_SMS_ACCESS full, MCP_SMS_SEND_POLICY any, bandLock on, reconnect on, reboot on, smsWrite on, token "Claude" \+ control \+ sms-write$/);
+      assert.match(entry?.detail ?? "", /^start for B535-232 with SMS: MCP_ALLOW_EXPERIMENTAL true, MCP_ALLOW_MUTATIONS true, MCP_SMS_ACCESS full, MCP_SMS_SEND_POLICY any, token "Claude" \+ control \+ sms-write$/);
 
       // No reminder yet: reading one changes nothing
       const ack = (await (await post("/api/console/agent-test", { action: "ack", alertId: "a1" })).json()) as AgentTestResponse;
@@ -86,8 +88,9 @@ describe("the AI agent test over the console's API", () => {
 
       const ended = (await (await post("/api/console/agent-test", { action: "end" })).json()) as AgentTestResponse;
       assert.equal(ended.agentTest.current, null);
-      assert.deepEqual([ended.settings.behaviour.agentWrites.source, ended.settings.behaviour.agentSms.source, ended.settings.behaviour.agentSmsSendPolicy.source, ended.consents], ["env", "env", "env", []]);
-      assert.deepEqual([ended.agentTest.plan.settings, ended.agentTest.plan.features, ended.agentTest.plan.sms.feature], [["agentExperimental", "agentWrites"], ["bandLock", "reconnect", "reboot"], true], "ready to start again");
+      assert.deepEqual([ended.settings.behaviour.agentWrites.source, ended.settings.behaviour.agentSms.source, ended.settings.behaviour.agentSmsSendPolicy.source], ["env", "env", "env"]);
+      assert.deepEqual([ended.device.features.bandLock, ended.device.features.smsWrite, ended.disabled], ["enabled", "enabled", []], "the writes are as they were: ending the test turns none off");
+      assert.deepEqual([ended.agentTest.plan.settings, ended.agentTest.plan.sms.settings], [["agentExperimental", "agentWrites"], ["agentSms", "agentSmsSendPolicy"]], "ready to start again");
       const after = await mcpTools(minted.token);
       assert.deepEqual([after.includes("lock_band"), after.includes("send_sms")], [false, false], "the agent's token reads only again");
       const refused = (await (

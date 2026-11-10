@@ -4,7 +4,7 @@ import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount, setText } from "./dom.ts";
 import { sensitive } from "./sensitive.ts";
-import { unavailableSection, writesLocked } from "../core/device-access-view.ts";
+import { canWrite, unavailableSection } from "../core/device-access-view.ts";
 import { cardHead, emptyState, runBusy, unavailableState } from "./widgets.ts";
 
 /** `short` is the phone label: the row's icon already says wired or Wi-Fi. */
@@ -99,8 +99,8 @@ export function mountTopology(ctx: AppContext): void {
 
   const render = (): void => {
     const topology = ctx.store.state.topology;
-    // A model nobody verified: read-only (no blocking), maybe no device list, maybe Wi-Fi devices only
-    const locked = writesLocked(ctx.store.state.scheduler);
+    // A model nobody verified: no blocking (FengSui has no access control for it), maybe no device list, maybe Wi-Fi devices only
+    const locked = !canWrite(ctx.store.state.scheduler, "accessControl");
     const missing = unavailableSection(ctx.store.state.scheduler, "topology");
     leaseCells = [];
     const refreshBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("refresh"), ctx.t("topo.refresh"));

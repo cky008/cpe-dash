@@ -1,5 +1,5 @@
 import type { TokenPermission } from "./console-policy.ts";
-import type { WriteFeature } from "./device-access.ts";
+import type { ControlAction, WriteFeature } from "./device-access.ts";
 import type { McpInputSchema } from "./mcp-schema.ts";
 
 /**
@@ -46,8 +46,9 @@ export interface McpToolProvider {
   handles(toolName: string): boolean;
   isMutating(toolName: string): boolean;
   /**
-   * The tool writes to the router, so a router of an unverified model (read-only) hides and refuses
-   * it; default `isMutating`. `upsert_contact` mutates FengSui's own contact book only.
+   * The tool writes to the router, so on a router of an unverified model it goes by the write gate
+   * (hidden and refused where the gate refuses it); default `isMutating`. `upsert_contact` mutates
+   * FengSui's own contact book only.
    */
   isRouterWrite?(toolName: string): boolean;
   /**
@@ -60,11 +61,16 @@ export interface McpToolProvider {
   /** Whether this router provides what the tool reads (an unverified model may lack a section); default `true`. */
   isAvailable?(toolName: string): boolean;
   /**
-   * The write features a router-write tool needs (phase 3): on a model nobody verified the tool shows
-   * only while every one is open there (consented as experimental, or verified on that model). A
-   * router write without any stays hidden on such a model.
+   * The write features a router-write tool needs: on a model nobody verified the tool shows only
+   * while every one is open there (implemented for the router and not turned off, or verified on
+   * that model). A router write that names neither a feature nor an action stays hidden on such a model.
    */
   routerWriteFeatures?(toolName: string): ReadonlyArray<WriteFeature>;
+  /**
+   * The scheduler actions a router-write tool runs, where the gate decides by the action and not by
+   * its feature alone (taking locks off is open wherever either lock is); default none.
+   */
+  routerWriteActions?(toolName: string): ReadonlyArray<ControlAction>;
   /** The tool as it applies to a model nobody verified (e.g. the band lock's LTE-only form); default unchanged. */
   adaptForGenericWrite?(tool: McpToolDefinition, context: { lteBands: ReadonlyArray<number> | null }): McpToolDefinition;
   execute(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;

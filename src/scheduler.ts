@@ -144,11 +144,15 @@ export class PeerDaemonStandbyError extends Error {
 }
 
 /**
- * A write refused because the router is a model FengSui was not verified on: unverified models are
- * read-only (`409 DEVICE_UNVERIFIED_READ_ONLY`). Nothing reached the router.
+ * A write the gate refused on a model FengSui was not verified on. This class: FengSui has no
+ * implementation of the write for that router, or the router lacks what it needs (`409
+ * DEVICE_UNVERIFIED_READ_ONLY`). Its subclass `DeviceWriteDisabledError`: its owner turned the write
+ * off. Either way nothing reached the router.
  */
 export class DeviceReadOnlyError extends Error {
   readonly statusCode = 409;
+  /** What REST and MCP answer with. */
+  readonly errorCode: "DEVICE_UNVERIFIED_READ_ONLY" | "DEVICE_WRITE_DISABLED";
   /** The router's model as it may be shown (`?` when it is not plain text). */
   readonly model: string;
   /** The feature the refused write belongs to (`null`: refused before it was known, e.g. an MCP tool). */
@@ -156,15 +160,28 @@ export class DeviceReadOnlyError extends Error {
   readonly messageZh: string;
   readonly messageEn: string;
 
-  constructor(model: string, feature: DeviceFeature | null) {
+  constructor(model: string, feature: DeviceFeature | null, disabled = false) {
+    const key = disabled ? "controls.device_write_disabled" : "controls.device_read_only";
     const params = { model, verified: verifiedModelsLabel() };
-    const en = t("en", "controls.device_read_only", params);
+    const en = t("en", key, params);
     super(en);
     this.name = "DeviceReadOnlyError";
+    this.errorCode = disabled ? "DEVICE_WRITE_DISABLED" : "DEVICE_UNVERIFIED_READ_ONLY";
     this.model = model;
     this.feature = feature;
-    this.messageZh = t("zh-CN", "controls.device_read_only", params);
+    this.messageZh = t("zh-CN", key, params);
     this.messageEn = en;
+  }
+}
+
+/**
+ * A write FengSui implements for this router, refused because its owner turned it off for the model
+ * under Settings → Device (`409 DEVICE_WRITE_DISABLED`). Nothing reached the router.
+ */
+export class DeviceWriteDisabledError extends DeviceReadOnlyError {
+  constructor(model: string, feature: DeviceFeature | null) {
+    super(model, feature, true);
+    this.name = "DeviceWriteDisabledError";
   }
 }
 
@@ -606,10 +623,9 @@ export class MutexSessionScheduler extends EventEmitter {
    * model from now on, and seen in this run.
    */
   noteIdentification(probe: DeviceProbeResult): void {
-    const before = this.device.current?.model ?? null;
     this.device.remember(probe.identity.model, probe.identity.softwareVersion);
     this.device.noteProbe(probe);
-    this.#seeModel(probe.identity.model, probe.identity.softwareVersion, before);
+    this.#seeModel(probe.identity.model, probe.identity.softwareVersion);
     this.#syncLoginPolicy();
     // What the start-up reads found counts for the model just identified (stored with it by the caller's flush)
     const reads = this.device.readRecord;
@@ -621,16 +637,11 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#seeModel(model, softwareVersion);
   }
 
-  /**
-   * `device:changed` when the model contradicts the stored identification: the router was replaced.
-   * `device:model` whenever the model the gate goes by becomes another one (its consents end).
-   */
-  #seeModel(model: string | null, softwareVersion: string | null, before: string | null = this.device.current?.model ?? null): void {
+  /** `device:changed` when the model contradicts the stored identification: the router was replaced. */
+  #seeModel(model: string | null, softwareVersion: string | null): void {
     const changed = this.device.see(model, softwareVersion);
     this.#syncLoginPolicy();
     if (changed) this.#safeEmit("device:changed", this.device.snapshot());
-    const now = this.device.current?.model ?? null;
-    if (now !== null && now !== before) this.#safeEmit("device:model", now);
   }
 
   /**
@@ -669,12 +680,16 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   /**
-   * Refuse a write the router's model does not allow (before any session, in the queue, and in the
-   * write's session): another model writes only what users verified on it or its owner consented to.
+   * Refuse a write the gate does not let through (before any session, in the queue, and in the
+   * write's session): on a model nobody verified, one FengSui has no implementation of for the
+   * router, and one its owner turned off.
    */
   #assertWritable(action: ControlAction): void {
     const current = this.device.current;
-    if (current && this.device.actionAccess(action) === "read_only") throw new DeviceReadOnlyError(modelLabel(current.model), CONTROL_FEATURES[action]);
+    if (!current) return;
+    const access = this.device.actionAccess(action);
+    if (access === "disabled") throw new DeviceWriteDisabledError(modelLabel(current.model), CONTROL_FEATURES[action]);
+    if (access === "unavailable") throw new DeviceReadOnlyError(modelLabel(current.model), CONTROL_FEATURES[action]);
   }
 
   /** A write while this run has not seen the router's model: read it in the write's own session first. */
@@ -1067,9 +1082,10 @@ export class MutexSessionScheduler extends EventEmitter {
 
   /**
    * `executeControl` for a router of a driver family: the same gate (the write's feature must be one
-   * the owner turned on for this model), queue, audit and `control:applied` broadcast, with the
-   * driver's session. Every driver write counts as experimental: what it sent (command names) and
-   * its read-back are recorded like a generic HiLink write's, and a mismatch alerts.
+   * the family's driver implements, and not turned off for this model), queue, audit and
+   * `control:applied` broadcast, with the driver's session. Every driver write counts as
+   * experimental: what it sent (command names) and its read-back are recorded like a generic HiLink
+   * write's, and a mismatch alerts.
    */
   async executeDriverControl<T>(
     actionName: ControlAction,

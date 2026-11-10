@@ -77,9 +77,14 @@ describe("Static demo backend vs the real daemon on another Huawei model", () =>
     await daemon.close();
   });
 
-  it("captures an LTE-only router of another model, read-only, with what it does not provide", () => {
+  it("captures an LTE-only router of another model, with the writes FengSui implements for it on, and what it does not provide", () => {
     const device = seed.telemetry.schedulerStatus.device;
-    assert.deepEqual([device.model, device.verification, device.writes], [MODEL, "unverified-model", "read_only"]);
+    assert.deepEqual([device.model, device.verification, device.writes], [MODEL, "unverified-model", "experimental"]);
+    assert.deepEqual(
+      [device.features.bandLock, device.features.reboot, device.features.reconnect, device.features.mobileData, device.features.smsWrite, device.features.cellLock, device.features.accessControl],
+      ["enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented", "not_implemented"],
+      "a visitor finds the writes on, as on a real router of this model"
+    );
     assert.deepEqual(
       [device.reads.neighbors.state, device.reads.settings.state, device.reads.accessControl.state, device.reads.telemetry.state, device.reads.sms.state],
       ["unavailable", "unavailable", "unavailable", "available", "available"]
@@ -124,9 +129,16 @@ describe("Static demo backend vs the real daemon on another Huawei model", () =>
     assert.deepEqual([d.json["settings"], r.json["settings"]], [null, null]);
   });
 
-  it("refuses every write the daemon refuses until it is turned on, with the same checks first", async () => {
+  it("refuses every write the daemon refuses once they are turned off, with the daemon's code and the same checks first", async () => {
     const demoBank = await threadUids((route) => demoCall(backend, "GET", route), "DemoBank");
     assert.deepEqual(demoBank, await threadUids((route) => daemonCall(session, "GET", route), "DemoBank"), "the seed keeps the daemon's uids");
+    // The owner turns off every write FengSui implements for this model, in the daemon and in the demo alike
+    for (const feature of ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"]) {
+      const [real, demo] = await both("POST", "/api/console/experimental", { feature, enabled: false });
+      assert.deepEqual([demo.status, real.status], [200, 200], feature);
+      assert.deepEqual((demo.json as unknown as ExperimentalWritesResponse).device.features, (real.json as unknown as ExperimentalWritesResponse).device.features, feature);
+    }
+    const codes = new Set<string>();
     for (const [route, body] of [
       ["/api/control/band-lock", { lteBands: ["B3"] }],
       ["/api/control/band-lock", {}],
@@ -160,23 +172,26 @@ describe("Static demo backend vs the real daemon on another Huawei model", () =>
     ] as const) {
       const [real, demo] = await both("POST", route, body);
       assert.deepEqual(verdict(demo), verdict(real), `${route} ${JSON.stringify(body)}`);
+      if (typeof real.json["errorCode"] === "string") codes.add(real.json["errorCode"]);
     }
+    assert.ok(codes.has("DEVICE_WRITE_DISABLED") && codes.has("DEVICE_UNVERIFIED_READ_ONLY"), "a write turned off and one FengSui has nothing for are told apart");
     const audit = (await demoCall(backend, "GET", "/api/audit?limit=1")).json["entries"] as Json[];
     assert.deepEqual([audit[0]?.["action"], audit[0]?.["outcome"]], ["sms_delete", "refused"], "a refused write is audited like the daemon's");
   });
 
-  it("turns experimental writes on and off like the daemon", async () => {
+  it("turns experimental writes off and back on like the daemon", async () => {
     for (const body of [
-      { feature: "cellLock", enabled: true, model: MODEL },
-      { feature: "bandLock", enabled: true, model: "H168-383" },
-      { feature: "bandLock", enabled: true },
+      { feature: "cellLock", enabled: true },
+      { feature: "cellLock", enabled: false },
       { feature: "bandLock", enabled: false },
-      { feature: "bandLock", enabled: true, model: " b535-232 " },
-      { feature: "reconnect", enabled: true, model: MODEL },
-      { feature: "reboot", enabled: true, model: MODEL },
-      { feature: "mobileData", enabled: true, model: MODEL },
-      { feature: "smsWrite", enabled: true, model: MODEL },
+      { feature: "bandLock", enabled: true },
+      { feature: "bandLock", enabled: true },
+      { feature: "reconnect", enabled: true },
+      { feature: "reboot", enabled: true },
+      { feature: "mobileData", enabled: true },
+      { feature: "smsWrite", enabled: true },
       { feature: "teleport", enabled: true },
+      { feature: "bandLock" },
     ] as const) {
       const [real, demo] = await both("POST", "/api/console/experimental", body);
       assert.deepEqual(verdict(demo), verdict(real), JSON.stringify(body));
@@ -185,14 +200,16 @@ describe("Static demo backend vs the real daemon on another Huawei model", () =>
       const d = demo.json as unknown as ExperimentalWritesResponse;
       assertSameShape("POST /api/console/experimental", r, d);
       assert.deepEqual(d.device.features, r.device.features, JSON.stringify(body));
-      assert.deepEqual(d.consents.map((c) => [c.model, c.feature]), r.consents.map((c) => [c.model, c.feature]));
+      assert.deepEqual(d.disabled.map((entry) => [entry.model, entry.feature]), r.disabled.map((entry) => [entry.model, entry.feature]));
     }
-    const [real, demo] = await both("GET", "/api/audit?limit=12");
+    const [last] = await both("GET", "/api/console/experimental");
+    assert.deepEqual((last.json as unknown as ExperimentalWritesResponse).disabled, [], "everything is back on");
+    const [real, demo] = await both("GET", "/api/audit?limit=60");
     const entries = (json: Json): unknown[] => (json["entries"] as Json[]).filter((e) => e["action"] === "settings.experimental").map((e) => [e["outcome"], e["detail"]]);
     assert.deepEqual(entries(demo.json), entries(real.json));
   });
 
-  it("writes the generic way once turned on, LTE bands only, and reads each write back", async () => {
+  it("writes the generic way, LTE bands only, and reads each write back", async () => {
     for (const [route, body] of [
       ["/api/control/band-lock", { lteBands: ["B3", 1, "B3"] }],
       ["/api/control/band-lock", { lteBands: ["B28"] }],
@@ -309,7 +326,7 @@ describe("Static demo backend vs the real daemon: the one-click AI agent test on
     await daemon.close();
   });
 
-  it("starts the test, turns on the same settings and writes, and puts them back", async () => {
+  it("starts the test, sets the same settings, leaves the writes as they are, and puts the settings back", async () => {
     for (const body of [
       { action: "start", model: "H168-383" },
       { action: "start", model: MODEL, sms: "yes" },
@@ -333,23 +350,23 @@ describe("Static demo backend vs the real daemon: the one-click AI agent test on
     assertSameShape("POST /api/console/agent-test", real.json, demo.json);
     const current = (json: Json): unknown => {
       const view = (json as unknown as AgentTestResponse).agentTest.current;
-      return view && [view.model, view.sms, view.settings, view.features, view.passed, view.acknowledged];
+      return view && [view.model, view.sms, view.settings, view.passed, view.acknowledged];
     };
     assert.deepEqual(current(demo.json), current(real.json));
-    assert.deepEqual(current(demo.json), [MODEL, true, ["agentExperimental", "agentWrites", "agentSms", "agentSmsSendPolicy"], ["bandLock", "reconnect", "reboot", "smsWrite"], false, false]);
+    assert.deepEqual(current(demo.json), [MODEL, true, ["agentExperimental", "agentWrites", "agentSms", "agentSmsSendPolicy"], false, false]);
     const behaviour = (json: Json): unknown => {
       const values = (json as unknown as AgentTestResponse).settings.behaviour;
       return [values.agentExperimental, values.agentWrites, values.agentSms, values.agentSmsSendPolicy];
     };
     assert.deepEqual(behaviour(demo.json), behaviour(real.json));
-    assert.deepEqual(
-      (demo.json as unknown as AgentTestResponse).consents.map((c) => c.feature),
-      (real.json as unknown as AgentTestResponse).consents.map((c) => c.feature)
-    );
+    const writes = (json: Json): unknown => [(json as unknown as AgentTestResponse).device.features, (json as unknown as AgentTestResponse).disabled];
+    assert.deepEqual(writes(demo.json), writes(real.json));
+    assert.deepEqual((demo.json as unknown as AgentTestResponse).disabled, [], "the test turned no write off or on");
 
     const [realEnd, demoEnd] = await both("POST", "/api/console/agent-test", { action: "end" });
     assert.deepEqual(current(demoEnd.json), current(realEnd.json));
-    assert.deepEqual([(demoEnd.json as unknown as AgentTestResponse).consents, behaviour(demoEnd.json)], [[], behaviour(realEnd.json)]);
+    assert.deepEqual([writes(demoEnd.json), behaviour(demoEnd.json)], [writes(realEnd.json), behaviour(realEnd.json)]);
+    assert.equal((demoEnd.json as unknown as AgentTestResponse).device.features.bandLock, "enabled", "ending the test leaves the writes on");
     const [realAudit, demoAudit] = await both("GET", "/api/audit?limit=5");
     const tests = (json: Json): unknown[] => (json["entries"] as Json[]).filter((e) => e["action"] === "agents.test").map((e) => e["detail"]);
     assert.deepEqual(tests(demoAudit.json), tests(realAudit.json));
@@ -369,10 +386,6 @@ describe("The static demo's other router on its own", () => {
     return new DemoBackend({ seed: rebaseSeed(seed, clock.now), now: () => clock.now, random: () => 0.5, latencyScale: 0 });
   }
 
-  const consent = async (backend: DemoBackend, ...features: string[]): Promise<void> => {
-    for (const feature of features) assert.equal((await demoCall(backend, "POST", "/api/console/experimental", { feature, enabled: true, model: MODEL })).status, 200, feature);
-  };
-
   it("keeps 5G and the uptime empty on a router without them, history included", async () => {
     const clock = { now: Date.now() };
     const backend = fresh(clock);
@@ -389,7 +402,6 @@ describe("The static demo's other router on its own", () => {
     const clock = { now: Date.now() };
     const backend = fresh(clock);
     const events = listen(backend.createEventSource("/api/events") as DemoEventSource);
-    await consent(backend, "reboot");
     assert.equal((await demoCall(backend, "POST", "/api/control/reboot", { confirm: true })).status, 200);
     const applied = events.find((e) => e.name === "control:applied")?.data;
     assert.match(String(applied?.["summaryEn"]), /experimental write, the next polls check it/);
@@ -407,7 +419,6 @@ describe("The static demo's other router on its own", () => {
   it("drops the connection while mobile data is off", async () => {
     const clock = { now: Date.now() };
     const backend = fresh(clock);
-    await consent(backend, "mobileData");
     await demoCall(backend, "POST", "/api/control/mobile-data", { enabled: false });
     clock.now += 5_000;
     backend.tick();
@@ -451,7 +462,7 @@ describe("The static demo's other router on its own", () => {
     assert.deepEqual([passed.agentTest.current?.passed, passed.agentTest.current?.remindAtIso], [true, null], "every covered write matched: no reminder");
 
     const ended = (await demoCall(backend, "POST", "/api/console/agent-test", { action: "end" })).json as unknown as AgentTestResponse;
-    assert.deepEqual([ended.agentTest.current, ended.consents], [null, []]);
+    assert.deepEqual([ended.agentTest.current, ended.disabled], [null, []]);
     tokens = (await demoCall(backend, "GET", "/api/console/tokens")).json as unknown as TokensResponse;
     assert.deepEqual(tokens.tokens.find((t) => t.id === claude.id)?.permissions, ["sms-read"]);
     assert.equal(((await demoCall(backend, "POST", "/api/console/agent-test", { action: "end" })).json as unknown as AgentTestResponse).agentTest.current, null, "ending twice changes nothing");
@@ -465,7 +476,6 @@ describe("The static demo's other router on its own", () => {
     await demoCall(backend, "POST", "/api/console/tokens/revoke", { id: grafana.id });
     assert.equal((await demoCall(backend, "POST", "/api/console/agent-test", { action: "start", model: MODEL, tokenId: grafana.id })).status, 400);
     await demoCall(backend, "POST", "/api/console/agent-test", { action: "start", model: MODEL });
-    for (const feature of ["bandLock", "reconnect", "reboot"]) await demoCall(backend, "POST", "/api/console/experimental", { feature, enabled: false });
     await demoCall(backend, "POST", "/api/console/behaviour", { agentExperimental: null, agentWrites: null });
     const view = (await demoCall(backend, "GET", "/api/console/experimental")).json as unknown as ExperimentalWritesResponse;
     assert.equal(view.agentTest.current, null);
@@ -474,10 +484,9 @@ describe("The static demo's other router on its own", () => {
     backend.stop();
   });
 
-  it("deletes FengSui's own restored copy without the router, so without a consent", async () => {
+  it("deletes FengSui's own restored copy without the router, so with SMS writes turned off too", async () => {
     const backend = fresh({ now: Date.now() });
     const events = listen(backend.createEventSource("/api/events") as DemoEventSource);
-    await consent(backend, "smsWrite");
     const [uid] = await threadUids((route) => demoCall(backend, "GET", route), "DemoBank");
     await demoCall(backend, "POST", "/api/sms/delete", { uids: [uid] });
     await demoCall(backend, "POST", "/api/sms/trash/restore", { uids: [uid] });

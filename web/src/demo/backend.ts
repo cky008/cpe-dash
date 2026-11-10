@@ -63,7 +63,7 @@ import type {
 } from "../../../src/api-contract.ts";
 import { DEFAULT_BEHAVIOUR } from "../../../src/behaviour-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
-import type { ControlAction } from "../../../src/device-access.ts";
+import { type ControlAction, gateRefuses } from "../../../src/device-access.ts";
 import { LTE_ALL_BANDS_MASK, maskToBands } from "../../../src/device-profile.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import {
@@ -792,7 +792,7 @@ export class DemoBackend {
     const phones = stringList(body, "phones") ?? [requiredString(body, "phone")];
     const outcome = this.#sms.send({ phones, content: requiredString(body, "content"), countryCode: optionalString(body, "countryCode") }, (content) => {
       // A model nobody verified sends the plaintext way: refused before queueing (a send the gate refuses says so first)
-      if (this.#device.generic && this.#device.writeAccess("smsWrite") !== "read_only") validateGenericSmsContent(content);
+      if (this.#device.generic && !gateRefuses(this.#device.writeAccess("smsWrite"))) validateGenericSmsContent(content);
       this.#device.gate("sms_send");
     });
     const to = outcome.resolvedPhones.map(maskPhoneNumber).join(", ");
@@ -899,7 +899,7 @@ export class DemoBackend {
     return { lockState: this.#lockState, lockVerification: this.#lockVerification };
   }
 
-  /** The scheduler as the daemon reports it, with the write gate as it is now (the visitor's consents). */
+  /** The scheduler as the daemon reports it, with the write gate as it is now (what the visitor turned off). */
   #status(): SchedulerStatusSnapshot {
     return { ...this.#scheduler, device: this.#device.snapshot() };
   }

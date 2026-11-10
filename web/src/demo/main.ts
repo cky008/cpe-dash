@@ -6,7 +6,7 @@ import { readDemoSeed, rebaseSeed } from "./seed.ts";
  * Entry of the static GitHub Pages demo (`npm run build:demo`): the unchanged web console, wired to
  * an in-page backend instead of a daemon. Only the seed file is fetched; nothing else leaves the page.
  * `?router=other` opens it on an LTE-only Huawei model FengSui was not verified on instead of the
- * H168-383, so visitors can see the read-only mode, experimental writes and the device report.
+ * H168-383, so visitors can see what FengSui does there: the experimental writes with their switches, and the device report.
  */
 
 const NOTICE = {

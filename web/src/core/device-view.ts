@@ -14,7 +14,6 @@ import type {
   WriteFeatureState,
   WriteResultRecord,
 } from "../../../src/api-contract.ts";
-import type { ConsentFeature } from "../../../src/console-settings.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 import { type NoticeTone, schemeText } from "./console-view.ts";
@@ -69,18 +68,18 @@ export const READ_STATE_KEYS: Readonly<Record<ReadState, SettingsTextKey>> = {
   unknown: "read_unknown",
 };
 
-export const WRITES_KEYS: Readonly<Record<WriteAccess, SettingsTextKey>> = {
-  allowed: "access_writes_allowed",
-  read_only: "access_writes_locked",
-  unknown: "access_writes_unknown",
-};
+/** Whether FengSui writes to this router; on a model nobody verified, by how many writes are open there. */
+export function writesText(writes: WriteAccess, open: number, t: Text): string {
+  if (writes === "allowed") return t("access_writes_allowed");
+  if (writes === "unknown") return t("access_writes_unknown");
+  return open > 0 ? t("access_writes_experimental", { count: open }) : t("access_writes_none");
+}
 
-/** A read section's state, with the router's code when it answered without it. */
-/** What each write is on a model nobody verified (phase 3), as the experimental writes list names it. */
+/** What each write is on a model nobody verified, as the experimental writes list names it. */
 export const WRITE_STATE_KEYS: Readonly<Record<WriteFeatureState, SettingsTextKey>> = {
   verified: "exp_state_verified",
-  consented: "exp_state_consented",
-  available: "exp_state_available",
+  enabled: "exp_state_enabled",
+  disabled: "exp_state_disabled",
   unsupported: "exp_state_unsupported",
   not_implemented: "exp_state_not_implemented",
   unknown: "exp_state_unknown",
@@ -106,22 +105,21 @@ export const REASON_KEYS: Readonly<Record<ReadbackReason, SettingsTextKey>> = {
 };
 
 /**
- * What turning an experimental write on lets through, as the gate files the actions under it: every
- * SMS write (send, mark read, delete), and the self-healing's own unlock or redial when `.env` turns
- * it on (R3-11). The consent names all of it, not only the feature's label.
+ * What a write's switch covers beyond its own name, as the gate files the actions under it: every
+ * SMS write (send, mark read, delete), and the unlock or redial FengSui does on its own (R3-11).
+ * Shown under the switch, so turning one off is an informed choice too. `null`: nothing more to say.
  */
-const EXPERIMENTAL_SCOPE_KEYS: Readonly<Record<ConsentFeature, SettingsTextKey>> = {
+const SWITCH_SCOPE_KEYS: Readonly<Partial<Record<DeviceFeature, SettingsTextKey>>> = {
   bandLock: "exp_scope_bandLock",
+  cellLock: "exp_scope_cellLock",
   reboot: "exp_scope_reboot",
   reconnect: "exp_scope_reconnect",
-  mobileData: "exp_scope_mobileData",
   smsWrite: "exp_scope_smsWrite",
-  cellLock: "exp_scope_cellLock",
 };
 
-/** The risk dialog shown before an experimental write is turned on: what it opens, then its risks and the model to type. */
-export function experimentalRiskBody(feature: ConsentFeature, model: string, t: Text): string[] {
-  return [t(EXPERIMENTAL_SCOPE_KEYS[feature]), t("exp_risk_breaks"), t("exp_risk_unverified", { model }), t("exp_risk_recover"), t("exp_type_model", { model })];
+export function switchScope(feature: DeviceFeature, t: Text): string | null {
+  const key = SWITCH_SCOPE_KEYS[feature];
+  return key ? t(key) : null;
 }
 
 /** One write result's detail line: when, the endpoints it posted to, the router's code and why the read-back was not a match. */

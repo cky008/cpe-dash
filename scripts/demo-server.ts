@@ -7,7 +7,7 @@ import { startDemoDaemon } from "./demo-router.ts";
  *   npm run build:web && npm run demo        → http://127.0.0.1:18484  (token printed on start)
  *   DEMO_SCENARIO=yield   a "human admin" logs in every few minutes (avoidance banner)
  *   DEMO_SCENARIO=breaker wrong CPE password: the anti-lockout breaker trips (423 banner)
- *   DEMO_SCENARIO=unverified another Huawei model (LTE-only, legacy login): read-only, badge, device report
+ *   DEMO_SCENARIO=unverified another Huawei model (LTE-only, legacy login): experimental writes, badge, device report
  *
  * It never reads the project's .env: config comes from a throwaway env file with explicit
  * overrides, Telegram and webhooks are off, and the data directory is a temp dir removed on exit.

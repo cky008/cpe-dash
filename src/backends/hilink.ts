@@ -22,6 +22,7 @@ import {
   scanNeighborCells,
   unlockAllRfLocks,
 } from "../cpe-domain.ts";
+import { gateRefuses } from "../device-access.ts";
 import { type DeviceProbeResult, probeDevice } from "../device-profile.ts";
 import { genericBandLock, genericReboot, readWanRepairBlockerTolerant } from "../generic-writes.ts";
 import type { BandLockOutcome, LockContext, LockOutcome, LockSummary, ReadRequest, RollbackRequest, RouterBackend, WanRepairOutcome } from "../router-backend.ts";
@@ -29,7 +30,7 @@ import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteCon
 
 /**
  * Huawei's HiLink stack as a `RouterBackend`: the H168-383's verified request sequences, and on
- * another HiLink model the tolerant reads and the generic writes its owner turned on (`write.generic`,
+ * another HiLink model the tolerant reads and the generic writes the gate has open (`write.generic`,
  * appendix A.11 of the protocol spec). Each verb is one session of the HiLink client through the
  * scheduler's queue, avoidance, breaker and write gate.
  */
@@ -89,7 +90,7 @@ export class HilinkBackend implements RouterBackend {
     // and again in the session
     const device = this.#scheduler.device;
     if (!device.generic) prepareBandLockPayloads(command);
-    else if (device.writeAccess("bandLock") !== "read_only") validateGenericBandLock(command, device.experimentalLteBands);
+    else if (!gateRefuses(device.writeAccess("bandLock"))) validateGenericBandLock(command, device.experimentalLteBands);
     let experimental = false;
     let savedLteMask: string | null = null;
     const state = await this.#scheduler.executeControl(

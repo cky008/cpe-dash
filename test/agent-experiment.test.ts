@@ -7,7 +7,7 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { ExperimentalLockChange } from "../src/cpe-controls.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { changeExperimentalConsent } from "../src/experimental-consent.ts";
+import { switchExperimentalWrite } from "../src/experimental-switch.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { ControlAppliedEvent } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
@@ -18,8 +18,9 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
  * AI agents testing a model nobody verified: `get_device_report` for everyone, and
- * `set_experimental_write` only while the owner allows it (Settings → Device), under the console's
- * own consent rules. Mocks and placeholders only, no network.
+ * `set_experimental_write` (turning one of the default-on writes off, or back on) only while the
+ * owner allows it (Settings → Device), under the console's own rules. Mocks and placeholders only,
+ * no network.
  */
 
 const MODEL = "B535-232";
@@ -48,8 +49,7 @@ function fixture(cpe: { fetchImpl: typeof fetch; password: string }) {
     allowMutations: true,
     experimental: {
       allowed: () => allowed,
-      settings,
-      change: (request) => changeExperimentalConsent(settings, core.scheduler.device, request),
+      change: (request) => switchExperimentalWrite(settings, core.scheduler.device, request),
       probed: (outcome, detail) => probes.push(`${outcome} ${detail}`),
       now: () => clock,
     },
@@ -86,7 +86,7 @@ before(() => {
 after(() => restore());
 
 describe("AI agents testing a model nobody verified", () => {
-  it("gives every token the desensitized report, and lets an agent turn experimental writes on only while the owner allows it", async () => {
+  it("gives every token the desensitized report, and lets an agent turn an experimental write off or back on only while the owner allows it", async () => {
     const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: ENDPOINTS, writes: {} });
     const fx = fixture(cpe);
     try {
@@ -95,24 +95,39 @@ describe("AI agents testing a model nobody verified", () => {
       assert.equal(report["ok"], true);
       assert.equal(report["agentsMayTestExperimental"], false);
       assert.match(JSON.stringify(report["report"]), /B535-232/);
+      // The report says what each write is on this router: on by default where FengSui implements it
+      const access = (report["report"] as { access: { writes: string; features: Record<string, string> } }).access;
+      assert.deepEqual([access.writes, access.features["bandLock"], access.features["cellLock"]], ["experimental", "enabled", "not_implemented"]);
+      assert.ok((await fx.tools()).includes("lock_band"), "the write is offered without anyone turning it on");
 
-      // Not allowed: not listed, refused by name, nothing consented
+      // Not allowed: not listed, refused by name, nothing changed
       assert.equal((await fx.tools()).includes("set_experimental_write"), false);
-      const refused = await fx.call("set_experimental_write", { feature: "bandLock", enabled: true, model: MODEL, confirm: true });
+      const refused = await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, confirm: true });
       assert.equal(refused["errorCode"], "EXPERIMENTAL_NOT_ALLOWED");
-      assert.deepEqual(fx.settings.experimentalConsents, []);
+      assert.equal(fx.settings.disabledWrites.length, 0);
 
-      // Allowed: the console's rules (the model typed back), the router permission, confirm
+      // Allowed: the console's rules, the router permission, confirm
       fx.allow(true);
       assert.ok((await fx.tools()).includes("set_experimental_write"));
       assert.equal((await fx.call("get_device_report", {}))["agentsMayTestExperimental"], true);
-      assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: true, confirm: true }))["errorCode"], "VALIDATION_ERROR");
-      assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: true, model: MODEL, confirm: true }, ["sms-read"]))["errorCode"], "READ_ONLY_TOKEN");
-      assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: true, model: MODEL }))["errorCode"], "CONFIRMATION_REQUIRED");
-      const on = await fx.call("set_experimental_write", { feature: "bandLock", enabled: true, model: MODEL.toLowerCase(), confirm: true }, ["control"]);
-      assert.deepEqual([on["ok"], on["change"]], [true, `bandLock on for ${MODEL}`]);
+      assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, confirm: true }, ["sms-read"]))["errorCode"], "READ_ONLY_TOKEN");
+      assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: false }))["errorCode"], "CONFIRMATION_REQUIRED");
+      assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, model: MODEL, confirm: true }))["errorCode"], "VALIDATION_ERROR", "there is no model to type any more");
+      assert.equal((await fx.call("set_experimental_write", { feature: "antenna", enabled: false, confirm: true }))["errorCode"], "VALIDATION_ERROR");
+      // A write FengSui has nothing for on this router has no switch
+      const none = await fx.call("set_experimental_write", { feature: "cellLock", enabled: true, confirm: true });
+      assert.deepEqual([none["errorCode"], none["state"]], ["EXPERIMENTAL_UNAVAILABLE", "not_implemented"]);
+
+      const off = await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, confirm: true }, ["control"]);
+      assert.deepEqual([off["ok"], off["change"], (off["features"] as Record<string, string>)["bandLock"]], [true, `bandLock off for ${MODEL}`, "disabled"]);
+      assert.equal(fx.core.scheduler.device.writeAccess("bandLock"), "disabled");
+      assert.deepEqual(fx.settings.disabledWrites.map((d) => [d.model, d.feature]), [[MODEL, "bandLock"]]);
+      assert.equal((await fx.tools()).includes("lock_band"), false, "the write it turned off is gone from the list");
+      assert.equal((await fx.call("lock_band", { lteBands: ["B1"], confirm: true }))["errorCode"], "DEVICE_WRITE_DISABLED");
+      const on = await fx.call("set_experimental_write", { feature: "bandLock", enabled: true, confirm: true }, ["control"]);
+      assert.deepEqual([on["ok"], on["change"], (on["features"] as Record<string, string>)["bandLock"]], [true, `bandLock on for ${MODEL}`, "enabled"]);
       assert.equal(fx.core.scheduler.device.writeAccess("bandLock"), "experimental");
-      assert.ok((await fx.tools()).includes("lock_band"), "the write it turned on is offered now");
+      assert.ok((await fx.tools()).includes("lock_band"), "and offered again");
 
       // The safety net hears of an agent's band lock
       const guarded: ExperimentalLockChange[] = [];
@@ -141,10 +156,6 @@ describe("AI agents testing a model nobody verified", () => {
       // Each with the mask the router had right before it (after the unlock: every band)
       assert.deepEqual(guarded.map((change) => [change.lock.lteBands, change.savedLteMask]), [[[1], "800800c5"], [[1], "800800c5"], [[3], "7fffffffffffffff"]]);
 
-      const off = await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, confirm: true });
-      assert.deepEqual([off["ok"], off["change"]], [true, "bandLock off"]);
-      assert.equal(fx.core.scheduler.device.writeAccess("bandLock"), "read_only");
-      assert.equal((await fx.call("set_experimental_write", { feature: "cellLock", enabled: true, model: MODEL, confirm: true }))["errorCode"], "VALIDATION_ERROR");
     } finally {
       await fx.cleanup();
     }
@@ -159,7 +170,7 @@ describe("AI agents testing a model nobody verified", () => {
       assert.ok((await fx.tools()).includes("probe_router_endpoints"));
       const report = await fx.call("get_device_report", {});
       assert.deepEqual([report["agentsMayTestExperimental"], report["agentsMayProbeEndpoints"]], [false, true]);
-      assert.equal((await fx.call("set_experimental_write", { feature: "reboot", enabled: true, model: "H168-383", confirm: true }))["errorCode"], "EXPERIMENTAL_UNAVAILABLE");
+      assert.equal((await fx.call("set_experimental_write", { feature: "reboot", enabled: false, confirm: true }))["errorCode"], "EXPERIMENTAL_UNAVAILABLE");
     } finally {
       await fx.cleanup();
     }
