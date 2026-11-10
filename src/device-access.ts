@@ -1,6 +1,6 @@
-import { type DeviceFeature, type DeviceProbeResult, EXPERIMENTAL_FEATURES, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
+import { type DeviceFeature, type DeviceProbeResult, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
 import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
-import { DRIVER_WRITE_FEATURES, ROUTER_FAMILY_FACTS, type RouterFamily, isDriverFamily } from "./router-family.ts";
+import { ROUTER_FAMILY_FACTS, type RouterFamily, isDriverFamily } from "./router-family.ts";
 
 /**
  * What FengSui may do with the router it talks to (multi-model support, phase 2): whether it may
@@ -19,8 +19,8 @@ import { DRIVER_WRITE_FEATURES, ROUTER_FAMILY_FACTS, type RouterFamily, isDriver
  * router's page from another device) asks for that again.
  *
  * A router of a driver family (`src/drivers/`, every family but Huawei's) is a model nobody verified
- * as well: it reads the sections its family documents (`ROUTER_FAMILY_FACTS`) and writes only what
- * its driver implements (`DRIVER_WRITE_FEATURES`) once its owner turned that write on for the model.
+ * as well: it reads the sections its family documents and writes only what its driver implements
+ * (`ROUTER_FAMILY_FACTS`, per family) once its owner turned that write on for the model.
  */
 
 /** Every router write the scheduler runs, and the feature it belongs to (phase 3 asks consent per feature). */
@@ -202,9 +202,6 @@ interface ProbeCapability {
   lteBands: number[] | null;
 }
 
-const EXPERIMENTAL: ReadonlySet<string> = new Set<string>(EXPERIMENTAL_FEATURES);
-const DRIVER_WRITES: ReadonlySet<string> = new Set<string>(DRIVER_WRITE_FEATURES);
-
 interface Sighting {
   model: string;
   softwareVersion: string | null;
@@ -363,13 +360,11 @@ export class DeviceAccess {
     const current = this.current;
     if (!current) return "unknown";
     if (isVerifiedModel(current.model)) return "verified";
-    // A driver family writes what its driver implements, each write once its owner turned it on for this model
-    if (isDriverFamily(this.#family)) {
-      if (!DRIVER_WRITES.has(feature)) return "not_implemented";
-      return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";
-    }
-    // Another model only ever writes the generic way: a write without one stays the verified model's alone
-    if (!EXPERIMENTAL.has(feature)) return "not_implemented";
+    // A model nobody verified writes only what FengSui implements for its family: a driver's writes,
+    // or on a HiLink model the generic ones (a write without one stays the verified model's alone)
+    if (!(ROUTER_FAMILY_FACTS[this.#family].writes as ReadonlyArray<string>).includes(feature)) return "not_implemented";
+    // A driver family: each write once its owner turned it on for this model
+    if (isDriverFamily(this.#family)) return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";
     if (isVerifiedFeature(current.model, feature, "write", this.#verifiedFeatures)) return "verified";
     const capability = this.#capability?.model === current.model ? this.#capability : null;
     if (capability?.evidence[feature as ExperimentalFeature] !== true) return "unsupported";

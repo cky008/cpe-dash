@@ -1,8 +1,9 @@
 /**
  * The router families FengSui can talk to, chosen with the router connection (Settings → Router).
  * `huawei` is the HiLink stack (the H168-383 is the verified model); every other family has its own
- * driver in `src/drivers/` and counts as a model nobody verified: it reads, and writes only what its
- * owner turned on as an experimental write (the write gate, `src/device-access.ts`).
+ * driver in `src/drivers/` and counts as a model nobody verified: it reads, and writes what FengSui
+ * implements for the family (`writes` below), each as an experimental write (the write gate,
+ * `src/device-access.ts`).
  *
  * Zero dependencies: the daemon, the web console and the docs build share these facts.
  */
@@ -30,10 +31,10 @@ export function isDriverFamily(value: unknown): value is DriverFamily {
   return isRouterFamily(value) && value !== "huawei";
 }
 
-/** The writes a driver implements (all of them experimental: consent per model, read back after). */
-export const DRIVER_WRITE_FEATURES = ["bandLock", "cellLock", "reboot"] as const;
+/** Every write some family implements for a router nobody verified (an experimental write: sent once, read back after). */
+export const FAMILY_WRITE_FEATURES = ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const;
 
-export type DriverWriteFeature = (typeof DRIVER_WRITE_FEATURES)[number];
+export type FamilyWriteFeature = (typeof FAMILY_WRITE_FEATURES)[number];
 
 /** What a family reads and writes, and how its owner signs in. */
 export interface RouterFamilyFacts {
@@ -43,6 +44,13 @@ export interface RouterFamilyFacts {
   defaultAddress: string;
   /** Read sections the family implements (the others are not available on it). */
   reads: ReadonlyArray<"telemetry" | "neighbors" | "topology">;
+  /**
+   * The writes FengSui implements for a router of this family that nobody verified: a driver family's
+   * are what its driver sends, Huawei's are the generic HiLink writes (appendix A.11 of the protocol
+   * spec, each only where the identification probe found what it reads back). A verified model
+   * writes everything FengSui does.
+   */
+  writes: ReadonlyArray<FamilyWriteFeature>;
   /** Network modes the driver can switch to with a band lock. */
   networkModes: ReadonlyArray<"auto" | "lte" | "nr_sa" | "nr_nsa">;
   /** The driver can lock 5G NR bands (every driver locks LTE bands). */
@@ -54,14 +62,14 @@ export interface RouterFamilyFacts {
  * in a format FengSui could read without guessing.
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
-  huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
-  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
-  tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  fiberhome: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
+  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
+  tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  fiberhome: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 
 /** The family's name as the console and the docs show it. */

@@ -23,9 +23,9 @@ import {
 } from "../../../src/behaviour-settings.ts";
 import { TOKEN_LIFETIMES_DAYS, TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
 import type { ConsentFeature, PublicTokenRecord } from "../../../src/console-settings.ts";
-import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES } from "../../../src/device-profile.ts";
+import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
-import { DRIVER_WRITE_FEATURES, FAMILY_AUTO, type RouterFamily, routerFamilyOf } from "../../../src/router-family.ts";
+import { FAMILY_AUTO, FAMILY_WRITE_FEATURES, type RouterFamily, routerFamilyOf } from "../../../src/router-family.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn } from "../core/agent-test-view.ts";
 import { ApiError } from "../core/api.ts";
@@ -86,7 +86,7 @@ const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string 
 /** Every lifetime the daemon accepts, then "never expires". */
 const LIFETIMES: ReadonlyArray<number | null> = [...TOKEN_LIFETIMES_DAYS, null];
 /** A write its owner can turn on: a generic HiLink write, or one another brand's driver implements. */
-const isConsentFeature = (feature: WriteFeature): feature is ConsentFeature => ([...EXPERIMENTAL_FEATURES, ...DRIVER_WRITE_FEATURES] as ReadonlyArray<string>).includes(feature);
+const isConsentFeature = (feature: WriteFeature): feature is ConsentFeature => (FAMILY_WRITE_FEATURES as ReadonlyArray<string>).includes(feature);
 const DEFAULT_LIFETIME_DAYS = 90;
 /** A new token reads SMS too unless unticked (what a read-only token did before permissions). */
 const DEFAULT_PERMISSIONS: ReadonlyArray<TokenPermission> = ["sms-read"];

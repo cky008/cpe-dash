@@ -64,8 +64,11 @@ describe("the supported devices guide page", () => {
       // What the driver implements may work; what FengSui has nothing for on the brand is unknown; nothing is ruled out
       assert.equal(brandMark(family, "telemetry"), "△");
       assert.equal(brandMark(family, "neighbors"), ROUTER_FAMILY_FACTS[family].reads.includes("neighbors") ? "△" : "?");
-      for (const feature of ["bandLock", "cellLock", "reboot"] as const) assert.equal(brandMark(family, feature), "△", `${family} ${feature}`);
-      for (const feature of ["topology", "smsRead", "smsWrite", "reconnect", "mobileData", "securitySwitches", "wifi", "antenna", "accessControl"] as const) assert.equal(brandMark(family, feature), "?", `${family} ${feature}`);
+      // Each brand's writes are its own list: a write one driver gains later changes that brand's row alone
+      const writes: ReadonlyArray<string> = ROUTER_FAMILY_FACTS[family].writes;
+      assert.deepEqual([...writes], ["bandLock", "cellLock", "reboot"], `${family}: what its driver writes today`);
+      for (const feature of ["bandLock", "cellLock", "reboot", "smsWrite", "reconnect", "mobileData"] as const) assert.equal(brandMark(family, feature), writes.includes(feature) ? "△" : "?", `${family} ${feature}`);
+      for (const feature of ["topology", "smsRead", "securitySwitches", "wifi", "antenna", "accessControl"] as const) assert.equal(brandMark(family, feature), "?", `${family} ${feature}`);
       assert.ok(!row.includes("×") && !row.includes("○"), `${family}: neither verified nor ruled out`);
     }
     assert.match(otherBrandsSection("zh-CN"), /「重启与重拨」是重启 \/ 重拨/);

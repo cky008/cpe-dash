@@ -11,6 +11,8 @@ import {
   isDeviceProbeResult,
   probeDevice,
 } from "../src/device-profile.ts";
+import { WRITE_FEATURES } from "../src/device-access.ts";
+import { FAMILY_WRITE_FEATURES, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 
 /**
  * Multi-model phase 3: what a model nobody verified shows of the writes FengSui could do there once
@@ -114,6 +116,9 @@ describe("experimental capability: the probe", () => {
 describe("experimental capability: evidence per write", () => {
   it("finds every generic write on a router that shows them all", async () => {
     assert.deepEqual([...EXPERIMENTAL_FEATURES], ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"]);
+    // The gate goes by the family's list; on a HiLink model it is these generic writes, and every family's are known write features
+    assert.deepEqual([...ROUTER_FAMILY_FACTS.huawei.writes], [...EXPERIMENTAL_FEATURES]);
+    for (const family of ROUTER_FAMILIES) for (const feature of ROUTER_FAMILY_FACTS[family].writes) assert.ok((FAMILY_WRITE_FEATURES as ReadonlyArray<string>).includes(feature) && (WRITE_FEATURES as ReadonlyArray<string>).includes(feature), `${family} ${feature}`);
     const probe = await probeDevice(fakeSession(B535), { nowIso: NOW, origin: "startup" });
     assert.deepEqual(experimentalEvidence(probe), { bandLock: true, reboot: true, reconnect: true, mobileData: true, smsWrite: true });
     const { features } = deviceProfileOf(probe).capabilities;

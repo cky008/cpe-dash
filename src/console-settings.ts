@@ -2,9 +2,8 @@ import crypto from "node:crypto";
 import { type AgentTestRecord, copyAgentTestRecord, isAgentTestRecord } from "./agent-test.ts";
 import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides } from "./behaviour-settings.ts";
 import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest, type TokenScope, permissionsForScope, scopeForPermissions } from "./console-policy.ts";
-import { EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "./device-profile.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
-import { DRIVER_WRITE_FEATURES, type DriverWriteFeature, type RouterFamily } from "./router-family.ts";
+import { FAMILY_WRITE_FEATURES, type FamilyWriteFeature, type RouterFamily } from "./router-family.ts";
 import type { AppConfig } from "./types.ts";
 
 /**
@@ -68,9 +67,9 @@ export interface ExperimentalConsent {
 }
 
 /** A write its owner can turn on for a model nobody verified: the generic HiLink writes, and the ones a driver family implements. */
-export type ConsentFeature = ExperimentalFeature | DriverWriteFeature;
+export type ConsentFeature = FamilyWriteFeature;
 
-const EXPERIMENTAL: ReadonlySet<unknown> = new Set<unknown>([...EXPERIMENTAL_FEATURES, ...DRIVER_WRITE_FEATURES]);
+const EXPERIMENTAL: ReadonlySet<unknown> = new Set<unknown>(FAMILY_WRITE_FEATURES);
 
 /** A stored consent this version can read; anything else is dropped, never half-honoured. */
 function isExperimentalConsent(value: unknown): value is ExperimentalConsent {

@@ -1,7 +1,7 @@
 import type { DeviceFeature } from "./device-profile.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
-import { DRIVER_FAMILIES, DRIVER_WRITE_FEATURES, type DriverFamily, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS } from "./router-family.ts";
+import { DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS } from "./router-family.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -226,13 +226,13 @@ export function supportedDevicesSection(
 export function brandMark(family: DriverFamily, feature: DeviceFeature): SupportMark {
   if (feature === "telemetry") return "△";
   if (feature === "neighbors" || feature === "topology") return (ROUTER_FAMILY_FACTS[family].reads as ReadonlyArray<string>).includes(feature) ? "△" : "?";
-  return (DRIVER_WRITE_FEATURES as ReadonlyArray<string>).includes(feature) ? "△" : "?";
+  return (ROUTER_FAMILY_FACTS[family].writes as ReadonlyArray<string>).includes(feature) ? "△" : "?";
 }
 
 /**
  * The page's section on the other brands: one row per brand FengSui has a driver for, with the
  * address its routers usually have, a mark per module and where to report a real router. The marks
- * come from what each driver implements (`ROUTER_FAMILY_FACTS`, `DRIVER_WRITE_FEATURES`).
+ * come from what each driver implements (`ROUTER_FAMILY_FACTS`, per brand).
  */
 export function otherBrandsSection(locale: SupportedLocale): string {
   const en = locale === "en";
