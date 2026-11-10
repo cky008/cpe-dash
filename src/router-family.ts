@@ -17,6 +17,15 @@ export type DriverFamily = Exclude<RouterFamily, "huawei">;
 
 export const DRIVER_FAMILIES = ROUTER_FAMILIES.filter((f): f is DriverFamily => f !== "huawei");
 
+/**
+ * The order brand detection names a router in when it answers more than one family's signature
+ * (`src/drivers/detect.ts`). NROS and ZTE's zWRT are OpenWrt underneath (they answer `/ubus` as well),
+ * and NROS' module bridge answers HiLink-style paths: the family with pages or objects of its own goes
+ * first, plain OpenWrt and HiLink last. A model whose notes name two families connects through the
+ * first of them here unless its owner picks the other.
+ */
+export const DETECTION_ORDER: ReadonlyArray<RouterFamily> = ["nradio", "zte-zwrt", "fiberhome", "tozed", "pinsu", "zte-goform", "openwrt", "huawei"];
+
 /** The brand left to FengSui in a connection test or save: told from the router's login-free answers, then stored as a family. */
 export const FAMILY_AUTO = "auto";
 

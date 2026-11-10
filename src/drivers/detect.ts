@@ -1,5 +1,5 @@
 import { normalizeCpeUrl } from "../config.ts";
-import type { RouterFamily } from "../router-family.ts";
+import { DETECTION_ORDER, type RouterFamily } from "../router-family.ts";
 import { getXmlTag } from "../xml.ts";
 import { DRIVER_PROTOCOLS } from "./brands.ts";
 import { LanHttp, deadlineSignal } from "./transport.ts";
@@ -12,12 +12,8 @@ import { LanHttp, deadlineSignal } from "./transport.ts";
  * brand on "detect"; the daemon never runs it on its own.
  */
 
-/**
- * The order a router with more than one matching signature is named in. NROS and ZTE's zWRT are
- * OpenWrt underneath (they answer `/ubus` as well), and NROS' module bridge answers HiLink-style
- * paths: the family with pages or objects of its own goes first, plain OpenWrt and HiLink last.
- */
-export const DETECTION_ORDER: ReadonlyArray<RouterFamily> = ["nradio", "zte-zwrt", "fiberhome", "tozed", "pinsu", "zte-goform", "openwrt", "huawei"];
+/** The order a router with more than one matching signature is named in (kept with the brand facts). */
+export { DETECTION_ORDER };
 
 /** How long a router gets to answer the signature requests (they run side by side). */
 export const DETECTION_TIMEOUT_MS = 5000;
