@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import crypto from "node:crypto";
 import { normalizeCpeUrl } from "../config.ts";
-import { CpeApiError, CpeSessionDeadlineError, DEFAULT_SESSION_MAX_HOLD_MS, ReentrantCpeSessionError } from "../cpe-client.ts";
+import { CpeApiError, CpeSessionDeadlineError, DEFAULT_SESSION_MAX_HOLD_MS, ReentrantCpeSessionError, hashCredentialsFingerprint } from "../cpe-client.ts";
 import { ApiErrorTally } from "../device-profile.ts";
 import { t } from "../i18n.ts";
 import type { DriverFamily } from "../router-family.ts";
@@ -74,10 +73,6 @@ export interface DriverSessionOptions {
 const LOGOUT_TIMEOUT_MS = 4000;
 
 const activeDriverSession = new AsyncLocalStorage<DriverCpeClient>();
-
-function fingerprint(username: string, password: string): string {
-  return crypto.createHash("sha256").update(`fengsui-cpe-cred:${username}:${password}`, "utf8").digest("hex");
-}
 
 function raceSignal<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
@@ -153,7 +148,7 @@ export class DriverCpeClient {
   }
 
   getPasswordFingerprint(): string {
-    return fingerprint(this.#username, this.#password);
+    return hashCredentialsFingerprint(this.#username, this.#password);
   }
 
   getCircuitBreakerState(): CircuitBreakerState {
@@ -282,7 +277,7 @@ export class DriverCpeClient {
 
   async #runSession<T>(fn: (session: DriverSession) => Promise<T>, cancel: AbortSignal, respectBrowser: boolean): Promise<SessionExecutionOutcome<T>> {
     const credentials: DriverCredentials = { username: this.#username, password: this.#password };
-    const credentialFp = fingerprint(credentials.username, credentials.password);
+    const credentialFp = hashCredentialsFingerprint(credentials.username, credentials.password);
     const deadline = new AbortController();
     // Not unref()'d: a session waiting only on its deadline keeps the process alive until the slot is free
     const timer = setTimeout(() => deadline.abort(new CpeSessionDeadlineError(this.sessionMaxHoldMs)), this.sessionMaxHoldMs);

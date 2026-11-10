@@ -824,7 +824,12 @@ function raceDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-function hashCredentialsFingerprint(username: string, password: string): string {
+/**
+ * Tells whether the router credentials changed since a breaker latched on them (kept with the latch
+ * in the encrypted state file; it never leaves the daemon). One implementation for every client:
+ * the driver families' client uses it too.
+ */
+export function hashCredentialsFingerprint(username: string, password: string): string {
   return crypto
     .createHash("sha256")
     .update(`fengsui-cpe-cred:${username}:${password}`, "utf8")
