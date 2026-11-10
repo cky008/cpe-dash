@@ -70,11 +70,11 @@ docker compose logs cpe-dash | grep "setup code"
 
 ## 兼容性
 
-烽燧只在 H168-383（固件 4.4.0.1）上验证过。其他华为 HiLink 路由器通常也能连上，但以只读方式工作，写操作默认锁定；你可以在控制台里逐项打开实验性写入，风险自负。欢迎用控制台生成设备报告并提交，帮助验证更多型号；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。详见[其他华为型号](docs/guide/zh/other-routers.md)。
+烽燧只在 H168-383（固件 4.4.0.1）上验证过。其他华为 HiLink 路由器通常也能连上，但以只读方式工作，写操作默认锁定；你可以在控制台里逐项打开实验性写入，风险自负。欢迎用控制台生成设备报告并提交，帮助验证更多型号；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。可能支持的型号见[支持的设备](docs/guide/zh/supported-devices.md)，详见[其他华为型号](docs/guide/zh/other-routers.md)。
 
 ## 文档
 
-- **开始使用**：[烽燧是什么](docs/guide/zh/overview.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md)
+- **开始使用**：[烽燧是什么](docs/guide/zh/overview.md) · [支持的设备](docs/guide/zh/supported-devices.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md)
 - **使用烽燧**：[控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [设备与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md)
 - **管理**：[Docker Compose 配置](docs/guide/zh/docker-compose.md) · [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他华为型号](docs/guide/zh/other-routers.md)
 - **帮助**：[排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md)

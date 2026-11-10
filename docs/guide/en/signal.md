@@ -2,7 +2,7 @@
 title: Understand signal readings
 description: What each number on the Signal card means, what values are good, and what you can do when your signal is poor.
 section: Understand the readings
-order: 11
+order: 12
 ---
 
 The Signal card in the console is divided into two sections: **5G NR** and **4G LTE**. Most 5G routers connect to both networks at the same time (5G NSA; see [Bands, carriers, and cells](bands-and-cells.md#nsa-sa)), so both sections display numbers. This page explains each item in the order it appears on the card.

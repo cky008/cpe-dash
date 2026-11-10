@@ -2,7 +2,7 @@
 title: Configuration reference
 description: Meanings and defaults for every setting in .env. Most users only need to set the encryption key and time zone.
 section: Manage
-order: 14
+order: 15
 ---
 
 FengSui reads `.env` (`/app/.env` inside the container) and environment variables at startup. For a complete template, see [`.env.example`](../../../.env.example) in the repository.

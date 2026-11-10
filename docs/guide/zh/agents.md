@@ -2,7 +2,7 @@
 title: AI 智能体（MCP）
 description: 让 Claude、Cursor 等 AI 智能体读取信号和短信、在你允许时操作路由器，以及 REST API 和实时事件。
 section: 使用烽燧
-order: 10
+order: 11
 ---
 
 烽燧内置一个 [MCP](https://modelcontextprotocol.io) 服务器，挂在 `/mcp` 上。AI 智能体可以通过它查看信号、历史和短信，帮你分析网络问题。

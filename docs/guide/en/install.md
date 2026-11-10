@@ -2,7 +2,7 @@
 title: Installation and upgrade
 description: Install FengSui on Synology, other Docker hosts, or directly with Node.js, and how to upgrade, stop, and uninstall.
 section: Get started
-order: 3
+order: 4
 ---
 
 FengSui runs as a single container, published on GitHub Container Registry (`ghcr.io/cky008/cpe-dash`), supporting `amd64` and `arm64`. Choose the method that fits your setup.

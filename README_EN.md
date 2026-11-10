@@ -70,11 +70,11 @@ You can try the rest in the [live demo](https://cky008.github.io/fengsui-demo/):
 
 ## Compatibility
 
-FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers usually connect too, but they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more models verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. See [Other Huawei routers](docs/guide/en/other-routers.md).
+FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers usually connect too, but they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more models verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. The models it may support are listed under [Supported devices](docs/guide/en/supported-devices.md); see also [Other Huawei routers](docs/guide/en/other-routers.md).
 
 ## Documentation
 
-- **Get started**: [What FengSui is](docs/guide/en/overview.md) · [Quick start](docs/guide/en/quick-start.md) · [Install and upgrade](docs/guide/en/install.md)
+- **Get started**: [What FengSui is](docs/guide/en/overview.md) · [Supported devices](docs/guide/en/supported-devices.md) · [Quick start](docs/guide/en/quick-start.md) · [Install and upgrade](docs/guide/en/install.md)
 - **Use FengSui**: [Dashboard](docs/guide/en/dashboard.md) · [Band and cell locks](docs/guide/en/locking.md) · [SMS](docs/guide/en/sms.md) · [Devices and internet access](docs/guide/en/devices.md) · [Alerts and notifications](docs/guide/en/notifications.md) · [AI agents (MCP)](docs/guide/en/agents.md)
 - **Manage**: [Docker Compose file](docs/guide/en/docker-compose.md) · [Configuration](docs/guide/en/configuration.md) · [Security and privacy](docs/guide/en/security.md) · [Backup and restore](docs/guide/en/backup.md) · [Other Huawei routers](docs/guide/en/other-routers.md)
 - **Help**: [Troubleshooting](docs/guide/en/troubleshooting.md) · [FAQ](docs/guide/en/faq.md)

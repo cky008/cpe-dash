@@ -2,7 +2,7 @@
 title: Quick start
 description: Install FengSui on a NAS or computer with Docker, connect your router, and view signals within 10 minutes.
 section: Get started
-order: 2
+order: 3
 ---
 
 This is the shortest path: a machine that runs Docker, on the same local network as your Huawei router. For Synology Container Manager graphical setup, see [Installation and upgrade](install.md#synology-container-manager).

@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Documentation
+- **Supported devices**, a new guide page right after "What FengSui is": the router FengSui is verified on and, by brand, the Huawei HiLink routers another HiLink client was tested on (the "Tested on" list of huawei-lte-api), each with what is verified on it, what may work (FengSui's reads and experimental writes on a model it was not verified on) and a link that opens a device report for that model. A feature users verify (`VERIFIED_FEATURES`) moves from "may work" to "verified" by itself: the tables are written from `src/device-catalog.ts`, and a test keeps the page identical to them. The compatibility table now names features in plain words too (signal and traffic, connected devices).
+
 ## [1.8.1] — 2026-11-10
 
 ### Highlights

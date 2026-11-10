@@ -2,7 +2,7 @@
 title: Manage devices and access
 description: See who is connected to your network, pause Internet access for a device, or set scheduled access hours.
 section: Use FengSui
-order: 8
+order: 9
 ---
 
 FengSui uses the router's built-in Wi-Fi MAC filtering and parental controls. This is the same list found under Device Management on the router's own web page, so changes made on either side stay in sync.

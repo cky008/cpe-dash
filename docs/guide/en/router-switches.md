@@ -2,7 +2,7 @@
 title: Router switches
 description: What each switch in the Controls drawer does: UPnP, DMZ, firewall, WAN ping, MLO, 5 GHz priority, antennas, mobile data, reconnecting, and rebooting.
 section: Use FengSui
-order: 6
+order: 7
 ---
 
 In the "Controls" drawer in the top right, alongside [Band and cell locking](locking.md), you will find a set of router switches. These are the same settings found in the router's own web page; changing a setting on one side updates the other. Every time you turn a switch on or off, a confirmation dialog appears to explain the impact.

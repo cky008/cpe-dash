@@ -2,7 +2,7 @@
 title: Lock bands and cells
 description: Fix the router to specific bands or a specific cell, and learn how to automatically restore Internet access if a lock fails.
 section: Use FengSui
-order: 5
+order: 6
 ---
 
 The router normally decides which band to use and which cell to connect to on its own, but its choice is not always the fastest. Band and cell locking lets you make that decision for it.

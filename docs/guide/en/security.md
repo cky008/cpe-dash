@@ -2,7 +2,7 @@
 title: Security and privacy
 description: How to safely access the console remotely, how to use tokens, and what data FengSui stores.
 section: Manage
-order: 15
+order: 16
 ---
 
 FengSui can modify your router and read your SMS messages, so treat it with the same care as your router's administration interface.

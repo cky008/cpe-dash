@@ -2,7 +2,7 @@
 title: Other Huawei models
 description: How FengSui works on Huawei routers other than the H168-383: read-only by default, enabling experimental writes per feature, and reporting compatibility.
 section: Manage
-order: 17
+order: 18
 ---
 
 **FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink / EMUI routers generally connect as well, but no one has verified them, so writes to them are locked by default: FengSui reads metrics only and does not change router settings.
@@ -16,6 +16,8 @@ order: 17
 <!-- compat:end -->
 
 Huawei updates router firmware automatically. When your H168-383 receives a new firmware build, FengSui continues to function normally and emits a one-time `FIRMWARE_UNVERIFIED` notice.
+
+The models FengSui may support are listed by brand under [Supported devices](supported-devices.md), each with a link to report how it works.
 
 ## How FengSui detects your router
 

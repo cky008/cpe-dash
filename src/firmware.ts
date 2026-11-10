@@ -89,14 +89,14 @@ export function verifiedModelsLabel(): string {
   return [...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))].join(", ");
 }
 
-/** How the compatibility table names a feature. */
-const FEATURE_LABELS: Readonly<Record<DeviceFeature, { zh: string; en: string }>> = {
-  telemetry: { zh: "遥测", en: "telemetry" },
-  neighbors: { zh: "邻区", en: "neighbour cells" },
-  topology: { zh: "终端列表", en: "device list" },
-  smsRead: { zh: "读短信", en: "reading SMS" },
-  smsWrite: { zh: "写短信", en: "SMS writes" },
-  bandLock: { zh: "锁 LTE 频段", en: "LTE band lock" },
+/** How the guide's tables (compatibility here, supported devices in device-catalog.ts) name a feature. */
+export const FEATURE_LABELS: Readonly<Record<DeviceFeature, { zh: string; en: string }>> = {
+  telemetry: { zh: "信号与流量", en: "signal and traffic" },
+  neighbors: { zh: "附近的基站", en: "nearby cells" },
+  topology: { zh: "已连接设备", en: "connected devices" },
+  smsRead: { zh: "读取短信", en: "reading SMS" },
+  smsWrite: { zh: "发送与管理短信", en: "sending and managing SMS" },
+  bandLock: { zh: "锁 4G 频段", en: "LTE band lock" },
   cellLock: { zh: "锁小区", en: "cell lock" },
   reboot: { zh: "重启", en: "reboot" },
   reconnect: { zh: "重拨", en: "redial" },

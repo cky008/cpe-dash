@@ -2,7 +2,7 @@
 title: Dashboard
 description: What each section on the Dashboard shows: Signal, Carrier aggregation, Nearby cells, Data usage, Connected devices, and historical charts.
 section: Use FengSui
-order: 4
+order: 5
 ---
 
 When you log in, you see the Dashboard. Data refreshes every 5 seconds. When reading the router, FengSui stays logged in for only a few dozen to a few hundred milliseconds and logs out immediately, so you can log into the router's own web page at any time.

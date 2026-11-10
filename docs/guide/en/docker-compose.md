@@ -2,7 +2,7 @@
 title: Docker Compose file
 description: The example docker-compose.yml in full, what each line does, what you can change and how, and how it works with .env.
 section: Manage
-order: 13
+order: 14
 ---
 
 FengSui runs as a Docker Compose project. The [`docker-compose.yml`](../../../docker-compose.yml) in the repository is the recommended setup; [Quick start](quick-start.md) and [Installation and upgrade](install.md) download it, and most people never change it. This page explains it line by line. FengSui's own settings (the encryption key, SMS, notifications and so on) live in `.env`; see [Configuration reference](configuration.md).

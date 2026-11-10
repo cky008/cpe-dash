@@ -2,7 +2,7 @@
 title: AI agents (MCP)
 description: Allow AI agents like Claude and Cursor to inspect signal metrics and SMS, control the router with your permission, and use the REST API and real-time events.
 section: Use FengSui
-order: 10
+order: 11
 ---
 
 FengSui includes an embedded [MCP](https://modelcontextprotocol.io) server hosted at `/mcp`. AI agents can use it to inspect signal metrics, history, and SMS messages to help diagnose network problems.

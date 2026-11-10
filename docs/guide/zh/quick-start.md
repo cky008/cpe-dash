@@ -2,7 +2,7 @@
 title: 快速开始
 description: 用 Docker 在 NAS 或电脑上装好烽燧，连上路由器，十分钟内看到信号。
 section: 开始使用
-order: 2
+order: 3
 ---
 
 这是最短的路线：一台能运行 Docker 的机器，和华为路由器在同一个局域网里。群晖用户的图形界面步骤见[安装与升级](install.md#群晖-container-manager)。

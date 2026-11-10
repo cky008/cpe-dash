@@ -2,7 +2,7 @@
 title: 配置参考
 description: .env 里每一项设置的含义和默认值。大多数人只需要填加密密钥和时区。
 section: 管理
-order: 14
+order: 15
 ---
 
 烽燧在启动时读取 `.env`（容器里是 `/app/.env`）和环境变量。完整模板见仓库里的 [`.env.example`](../../../.env.example)。

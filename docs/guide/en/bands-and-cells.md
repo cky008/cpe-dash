@@ -2,7 +2,7 @@
 title: Bands, carriers, and cells
 description: How 4G and 5G work together, and what bands, bandwidth, carrier aggregation, frequencies, and cells mean. Read this before locking bands or cells.
 section: Understand the readings
-order: 12
+order: 13
 ---
 
 Your router does not connect to "a single signal." It connects to one or more **carriers** transmitted by your operator on specific **bands** from a particular **cell**. This page clarifies these terms so the details on the Signal card, the Carrier aggregation bar, and the Nearby cells table make sense.

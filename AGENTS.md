@@ -42,6 +42,7 @@ cpe-dash/
 │   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单，未验证型号另加实验性写入回读要读的 3 个；四种接口状态；实验性写入的能力依据）、路由器错误码计数与只含结构的脱敏设备报告（守护进程、控制台与在线演示同一实现）
 │   ├── device-access.ts    # 零依赖：写闸门（未验证型号只读，逐项同意的实验性写入除外；只相信本次运行看到的型号，否则写操作先在自己的会话里确认）、每个写操作所属的功能与它在这台路由器上的状态、写入记录与回读结果的类型，以及未验证型号各读取项可用与否
 │   ├── feedback.ts         # 零依赖：兼容性反馈入口（cky008/cpe-dash 新 issue 的地址，只带模板与标题，绝不带报告内容）
+│   ├── device-catalog.ts   # 零依赖：可能支持的路由器清单（huawei-lte-api 测试清单里的型号，只取事实）与「支持的设备」页按品牌生成的表格（已验证 / 可能支持 / 每个型号的实测报告链接）
 │   ├── experimental-consent.ts # 零依赖：打开 / 关闭一项实验性写入（控制台、MCP 的 set_experimental_write 与在线演示共用：打开要填型号，关闭总是可以）
 │   ├── agent-test.ts       # 零依赖：一键开始 AI 智能体测试的规则（要改的设置、测试覆盖的实验性写入与可选的短信、智能体令牌缺的权限、结束时只恢复还保持测试样子的、提醒时间与「全部通过」；守护进程、控制台与在线演示同一实现）
 │   ├── agent-test-service.ts # 守护进程：一键开始 / 结束测试、记下哪个令牌在调用 MCP、每分钟检查并发出 AGENT_TEST_STILL_ON 提醒（控制台看过或 Telegram「知道了」后停止）
@@ -91,7 +92,7 @@ cpe-dash/
     ├── PHASE2_ARCHITECTURE_REPORT.md # 架构选型、调度器、时序引擎与短信融合架构
     ├── PHASE2_BACKEND_CONTRACT.md    # REST / SSE / MCP 权威契约（含短信、告警与 cpe-sms 视图映射）
     ├── BRAND.md                      # 标志：唯一来源、颜色如何跟随主题、怎么换标志
-    ├── guide/{zh,en}/*.md            # 用户指南（快速开始、安装、功能、Docker Compose 配置、配置参考、安全、备份、其他型号、排障、FAQ）：文档站与 README 的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具
+    ├── guide/{zh,en}/*.md            # 用户指南（支持的设备、快速开始、安装、功能、Docker Compose 配置、配置参考、安全、备份、其他型号、排障、FAQ）：文档站与 README 的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具
     └── site/site.css                 # 文档站样式（Tailwind v4，浅色 / 深色）
 ```
 

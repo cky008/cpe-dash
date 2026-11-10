@@ -2,7 +2,7 @@
 title: 安装与升级
 description: 在群晖、其他 Docker 主机或直接用 Node.js 安装烽燧，以及怎样升级、停止和卸载。
 section: 开始使用
-order: 3
+order: 4
 ---
 
 烽燧以一个容器运行，镜像发布在 GitHub Container Registry（`ghcr.io/cky008/cpe-dash`），支持 `amd64` 和 `arm64`。选一种适合你的方式即可。

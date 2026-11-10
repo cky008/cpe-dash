@@ -2,7 +2,7 @@
 title: SMS
 description: Send and receive router SMS messages in the web console, Telegram, or AI agents, and how messages are stored.
 section: Use FengSui
-order: 7
+order: 8
 ---
 
 With a SIM card inserted, the router can send and receive SMS messages. FengSui organizes them into threads, lets you copy verification codes with one click, and can forward them to Telegram.

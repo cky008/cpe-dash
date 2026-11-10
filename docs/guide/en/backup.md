@@ -2,7 +2,7 @@
 title: Backup and restore
 description: Run diagnostics, back up, restore data, and change encryption keys. None of these commands connect to the router.
 section: Manage
-order: 16
+order: 17
 ---
 
 FengSui stores all its data in `data/`, encrypted with `DATA_ENCRYPTION_KEY`. The two most critical items are the **`data/` directory** and your **encryption key**: with both, you can restore everything on another machine exactly as it was.

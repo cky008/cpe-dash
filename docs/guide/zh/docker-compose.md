@@ -2,7 +2,7 @@
 title: Docker Compose 配置
 description: 示例 docker-compose.yml 的完整内容：每一项做什么、哪些可以改、怎么改，以及它和 .env 的关系。
 section: 管理
-order: 13
+order: 14
 ---
 
 烽燧以 Docker Compose 项目的形式运行。仓库里的 [`docker-compose.yml`](../../../docker-compose.yml) 就是推荐配置，[快速开始](quick-start.md)和[安装与升级](install.md)下载的都是它，大多数人不需要改动。本页逐项解释它的内容。烽燧自己的设置（加密密钥、短信、通知等）写在 `.env` 里，见[配置参考](configuration.md)。
