@@ -84,7 +84,7 @@ cpe-dash/
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/BRAND.md）
 │   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL），输出 dist/site
-│   ├── test-count-reporter.ts # node --test 报告器（test:coverage 与 test:ui 使用）：开始了的测试必须报结果，各目录报出的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
+│   ├── test-count-reporter.ts # node --test 报告器（test:coverage 与 test:ui 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
 ├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为 npm run test:ui 的浏览器测试：无头 Chrome 对着真实守护进程与演示路由器，不在 npm run check 里，CI 运行）
@@ -156,7 +156,7 @@ cpe-dash/
 3. **Refactor & Gate（全量门禁校验）**：每次 Git Commit 前必须跑通 `npm run check` 且退出码为 `0`：
    - `npm run typecheck`：全仓 `src/` + `scripts/` + `test/` 零类型错误；
    - `npm run build:web`：构建 Web 控制台，首屏与按需加载合计超过 160 KiB gzip 即失败（与 CI、发版和 Docker 构建同一上限）；
-   - `npm run test:coverage`：`c8` 语句覆盖率 `>= 90%`、行覆盖率 `>= 90%`、函数覆盖率 `>= 90%`；每条开始了的测试都报了结果，测试总数不低于 `scripts/test-count-reporter.ts` 的下限；
+   - `npm run test:coverage`：`c8` 语句覆盖率 `>= 90%`、行覆盖率 `>= 90%`、函数覆盖率 `>= 90%`；失败的测试一条都没有被运行器漏报，测试总数不低于 `scripts/test-count-reporter.ts` 的下限；
    - `npm run audit:secrets`：工作区与全量 Git 历史零密钥、零敏感指纹、零 `.js` 混入。
 
 ---

@@ -31,8 +31,15 @@ function result(kind: "test:pass" | "test:fail", w: Where): TestEvent {
   } as unknown as TestEvent;
 }
 
+// What the test itself sends when it finishes running, before the runner orders the report
+function complete(w: Where, passed = true): TestEvent {
+  return { type: "test:complete", data: { file: w.file, name: w.name, line: w.line ?? 1, column: 3, nesting: w.nesting ?? 0, details: { passed, duration_ms: 1, type: w.type ?? "test" } } } as unknown as TestEvent;
+}
+
+/** A run as the runner sends it: each test finishes, then the report starts and settles it. */
 function run(where: ReadonlyArray<Where>, extra: ReadonlyArray<TestEvent> = []): TestTally {
   const tally = new TestTally();
+  for (const w of where) tally.observe(complete(w));
   for (const w of where) tally.observe(start(w));
   for (const w of where) tally.observe(result("test:pass", w));
   for (const event of extra) tally.observe(event);
@@ -43,24 +50,42 @@ describe("The test-count reporter (scripts/test-count-reporter.ts)", () => {
   const cwd = "/repo";
   const unit = (name: string, line = 1): Where => ({ file: "/repo/test/a.test.ts", name, line, nesting: 1 });
 
-  it("passes when every started test reported a result and the folder is at its floor, and says when the floor can go up", () => {
+  it("passes at the floor, says when the floor can go up, and counts no group as a test", () => {
     const suite: Where = { file: "/repo/test/a.test.ts", name: "group", type: "suite" };
     const atFloor = run([suite, unit("one", 2), unit("two", 3)]).verdict({ test: 2 }, cwd);
     assert.equal(atFloor.ok, true);
-    assert.deepEqual(atFloor.lines, ["test count: 2 tests in test/ (at least 2), every test that started reported a result"]);
+    assert.deepEqual(atFloor.lines, ["test count: 2 tests in test/ (at least 2)"]);
 
     const above = run([suite, unit("one", 2), unit("two", 3), unit("three", 4)]).verdict({ test: 2 }, cwd);
     assert.equal(above.ok, true);
-    assert.match(above.lines.join("\n"), /3 tests in test\/ \(at least 2; raise TEST_FLOORS\["test"\] in scripts\/test-count-reporter\.ts to 3\)/);
+    assert.deepEqual(above.lines, ['test count: 3 tests in test/ (at least 2; raise TEST_FLOORS["test"] in scripts/test-count-reporter.ts to 3)']);
   });
 
-  it("fails when a test started but never reported a result, even though the run itself passed", () => {
+  it("fails when a test failed but the runner left the failure out of its report", () => {
     const tally = run([unit("first", 2)]);
+    tally.observe(complete(unit("dropped", 9), false));
     tally.observe(start(unit("dropped", 9)));
     const verdict = tally.verdict({ test: 1 }, cwd);
     assert.equal(verdict.ok, false);
-    assert.match(verdict.lines.join("\n"), /1 test started but never reported a result/);
-    assert.match(verdict.lines.join("\n"), /test\/a\.test\.ts:9 dropped/);
+    assert.match(verdict.lines.join("\n"), /1 test failed, but the failure is not in the report:\n {2}- test\/a\.test\.ts:9 dropped/);
+    // Reported as failed, it is the runner's own failure: nothing hidden
+    const reported = run([unit("first", 2)], [complete(unit("seen", 9), false), start(unit("seen", 9)), result("test:fail", unit("seen", 9))]);
+    assert.equal(reported.verdict({ test: 2 }, cwd).ok, true);
+  });
+
+  it("names a passed result the runner left out without failing the run, and still counts the test", () => {
+    // Node 26: the test ran and passed (test:complete), its start was reported, its result never was
+    const tally = run([unit("first", 2)], [complete(unit("unreported", 9)), start(unit("unreported", 9))]);
+    // Node 22: the end of a group went missing
+    tally.observe(start({ file: "/repo/test/a.test.ts", name: "group", type: "suite" }));
+    const verdict = tally.verdict({ test: 2 }, cwd);
+    assert.equal(verdict.ok, true, verdict.lines.join("\n"));
+    assert.deepEqual(verdict.lines, [
+      "test count: the test runner left 2 results out of its report (nothing failed there):",
+      "  - test/a.test.ts:9 unreported",
+      "  - test/a.test.ts:1 group",
+      "test count: 2 tests in test/ (at least 2)",
+    ]);
   });
 
   it("tells apart tests that share a line (a loop) by name, and counts skipped and failed tests too", () => {
@@ -68,17 +93,17 @@ describe("The test-count reporter (scripts/test-count-reporter.ts)", () => {
     for (const name of ["case 1", "case 2"]) tally.observe(start(unit(name, 5)));
     tally.observe(result("test:fail", unit("case 1", 5)));
     tally.observe(result("test:pass", { ...unit("case 2", 5), skip: true }));
-    assert.equal(tally.verdict({ test: 2 }, cwd).ok, true);
+    assert.deepEqual(tally.verdict({ test: 2 }, cwd), { ok: true, lines: ["test count: 2 tests in test/ (at least 2)"] });
 
     // Two tests with the same name on the same line: each needs its own result
     const twins = new TestTally();
-    twins.observe(start(unit("same", 7)));
-    twins.observe(start(unit("same", 7)));
-    twins.observe(result("test:pass", unit("same", 7)));
+    twins.observe(complete(unit("same", 7), false));
+    twins.observe(complete(unit("same", 7), false));
+    twins.observe(result("test:fail", unit("same", 7)));
     assert.equal(twins.verdict({}, cwd).ok, false);
   });
 
-  it("fails when a folder reports fewer tests than its floor, and leaves folders without a floor alone", () => {
+  it("fails when a folder runs fewer tests than its floor, and leaves folders without a floor alone", () => {
     const short = run([unit("only")]).verdict({ test: 5 }, cwd);
     assert.equal(short.ok, false);
     assert.match(short.lines.join("\n"), /1 test in test\/, expected at least 5 \(TEST_FLOORS in scripts\/test-count-reporter\.ts\)/);
@@ -94,12 +119,15 @@ describe("The test-count reporter (scripts/test-count-reporter.ts)", () => {
     assert.equal(run([elsewhere]).verdict({ test: 5 }, cwd).ok, true);
   });
 
-  it("ignores a result that had no start (a file that failed to load) and events that carry no test", () => {
+  it("counts a result that had no start (a file that failed to load) and ignores events that carry no test", () => {
     const tally = new TestTally();
+    // The run of the file itself finishes too; the report only names it when the file failed to load
+    tally.observe(complete({ file: "/repo/test/b.test.ts", name: "test/b.test.ts" }));
+    tally.observe(complete({ file: "/repo/test/c.test.ts", name: "test/c.test.ts" }, false));
+    tally.observe(result("test:fail", { file: "/repo/test/c.test.ts", name: "test/c.test.ts" }));
     tally.observe(result("test:fail", unit("could not load")));
     tally.observe({ type: "test:diagnostic", data: { message: "tests 1", nesting: 0 } } as unknown as TestEvent);
-    const verdict = tally.verdict({ test: 1 }, cwd);
-    assert.equal(verdict.ok, true, verdict.lines.join("\n"));
+    assert.deepEqual(tally.verdict({ test: 2 }, cwd), { ok: true, lines: ["test count: 2 tests in test/ (at least 2)"] });
   });
 
   it("holds a floor for the unit tests and the browser tests, as they run in npm run check and npm run test:ui", () => {
