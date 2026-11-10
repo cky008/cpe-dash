@@ -1,17 +1,10 @@
 import { EventEmitter } from "node:events";
-import { type AccessControlSnapshot, fetchAccessControl } from "./access-control.ts";
-import {
-  type GlobalTelemetrySnapshot,
-  type NeighborScanSnapshot,
-  type RouterSettingsSnapshot,
-  type TerminalTopologySnapshot,
-  fetchGlobalTelemetry,
-  fetchRouterSettings,
-  fetchTerminalTopology,
-  scanNeighborCells,
-} from "./cpe-domain.ts";
-import { type DeviceProbeResult, probeDevice } from "./device-profile.ts";
+import type { AccessControlSnapshot } from "./access-control.ts";
+import { routerBackendOf } from "./backends/index.ts";
+import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, RouterSettingsSnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
+import type { DeviceProbeResult } from "./device-profile.ts";
 import type { ReadSection } from "./device-access.ts";
+import type { RouterBackend } from "./router-backend.ts";
 import type { MutexSessionScheduler, SchedulerPriority } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
 import type {
@@ -84,6 +77,9 @@ export class CpeMonitor extends EventEmitter {
   #slowScanTimer: ReturnType<typeof setInterval> | null = null;
   #flushTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** The backend of the router's family: every read goes through it, whatever the brand. */
+  readonly #backend: () => RouterBackend;
+
   constructor(options: CpeMonitorOptions) {
     super();
     this.scheduler = options.scheduler;
@@ -93,6 +89,7 @@ export class CpeMonitor extends EventEmitter {
     this.neighborScanIntervalMs = options.neighborScanIntervalMs ?? 60000;
     this.stateFlushIntervalMs = options.stateFlushIntervalMs ?? 30 * 60 * 1000;
     this.smsCountersEnabled = options.smsCountersEnabled === true;
+    this.#backend = routerBackendOf(options.scheduler);
     // A poll or a write saw another model than the stored identification: the router was replaced
     this.scheduler.on("device:changed", () => {
       this.#identifyPending = true;
@@ -205,11 +202,9 @@ export class CpeMonitor extends EventEmitter {
   }
 
   #identify(priority: SchedulerPriority): Promise<DeviceProbeResult | null> {
-    // A driver family's router is identified by its driver (no HiLink endpoints to probe)
-    const read = this.scheduler.isDriverMode()
-      ? this.scheduler.executeDriverIdentify({ priority })
-      : this.scheduler.executeRead((session) => probeDevice(session, { nowIso: new Date().toISOString(), origin: "startup" }), { priority });
-    this.#inflightIdentify ??= read
+    // Each family's backend knows how its routers say who they are
+    this.#inflightIdentify ??= this.#backend()
+      .identify(priority)
       .then(
         async (probe) => {
           if (probe) await this.recordDeviceProbe(probe);
@@ -247,28 +242,13 @@ export class CpeMonitor extends EventEmitter {
 
   /** Coalesced high-frequency telemetry refresh (`5s` default poll + manual/MCP triggers). */
   refreshTelemetry(opts: RefreshOptions = {}): Promise<GlobalTelemetrySnapshot | null> {
-    const read = this.scheduler.isDriverMode()
-      ? () => this.scheduler.executeDriverTelemetryRead({ priority: "normal", ignoreCooldown: opts.ignoreCooldown })
-      : () =>
-          this.scheduler.executeRead(
-            (session) =>
-              this.scheduler.readSection("telemetry", () =>
-                fetchGlobalTelemetry(session, {
-                  includeSmsCounters: this.smsCountersEnabled,
-                  tolerant: this.scheduler.device.unverifiedModel,
-                  // A poll that fails on a router replaced by another model still tells it apart
-                  onFailedPollModel: (model, softwareVersion) => this.scheduler.noteRouterModel(model, softwareVersion),
-                })
-              ),
-            { priority: "normal", ignoreCooldown: opts.ignoreCooldown }
-          );
     return this.#coalesce(
       opts,
       () => this.#inflightTelemetry,
       (p) => {
         this.#inflightTelemetry = p;
       },
-      read,
+      () => this.#backend().readTelemetry({ ignoreCooldown: opts.ignoreCooldown, smsCounters: this.smsCountersEnabled }),
       (snap) => {
         // Before anyone hears of the snapshot: a write it prompts (self-heal) goes by this model
         this.scheduler.noteRouterModel(snap.device.deviceName, snap.device.softwareVersion);
@@ -302,18 +282,15 @@ export class CpeMonitor extends EventEmitter {
     );
   }
 
-  /** Coalesced 4G/5G neighbor cell scan (`GET /api/device/nbrcellinfo`; a driver family's own list). */
+  /** Coalesced 4G/5G neighbor cell scan (each family's own list). */
   refreshNeighbors(opts: RefreshOptions = {}): Promise<NeighborScanSnapshot | null> {
-    const read = this.scheduler.isDriverMode()
-      ? () => this.scheduler.executeDriverNeighbourRead({ priority: "low", ignoreCooldown: opts.ignoreCooldown })
-      : () => this.scheduler.executeRead((session) => this.scheduler.readSection("neighbors", () => scanNeighborCells(session)), { priority: "low", ignoreCooldown: opts.ignoreCooldown });
     return this.#coalesce(
       opts,
       () => this.#inflightNeighbors,
       (p) => {
         this.#inflightNeighbors = p;
       },
-      read,
+      () => this.#backend().readNeighbors({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestNeighbors: snap });
         this.#safeEmit("neighbors", snap);
@@ -321,7 +298,7 @@ export class CpeMonitor extends EventEmitter {
     );
   }
 
-  /** Coalesced LAN & Wi-Fi 7 terminal topology sweep (`HostInfo` + `topology`). */
+  /** Coalesced sweep of the devices connected to the router (LAN and Wi-Fi). */
   refreshTopology(opts: RefreshOptions = {}): Promise<TerminalTopologySnapshot | null> {
     return this.#coalesce(
       opts,
@@ -329,11 +306,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightTopology = p;
       },
-      () =>
-        this.scheduler.executeRead((session) => this.scheduler.readSection("topology", () => fetchTerminalTopology(session, { tolerant: this.scheduler.device.unverifiedModel })), {
-          priority: "low",
-          ignoreCooldown: opts.ignoreCooldown,
-        }),
+      () => this.#backend().readTopology({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestTopology: snap });
         this.#safeEmit("topology", snap);
@@ -349,7 +322,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightSettings = p;
       },
-      () => this.scheduler.executeRead((session) => this.scheduler.readSection("settings", () => fetchRouterSettings(session)), { priority: "normal", ignoreCooldown: opts.ignoreCooldown }),
+      () => this.#backend().readSettings({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestSettings: snap });
         this.#safeEmit("settings", snap);
@@ -357,7 +330,7 @@ export class CpeMonitor extends EventEmitter {
     );
   }
 
-  /** Coalesced read of the Wi-Fi MAC filter and the internet time rules (3 GETs, low priority). */
+  /** Coalesced read of the Wi-Fi MAC filter and the internet time rules (low priority). */
   refreshAccessControl(opts: RefreshOptions = {}): Promise<AccessControlSnapshot | null> {
     return this.#coalesce(
       opts,
@@ -365,7 +338,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightAccessControl = p;
       },
-      () => this.scheduler.executeRead((session) => this.scheduler.readSection("accessControl", () => fetchAccessControl(session)), { priority: "low", ignoreCooldown: opts.ignoreCooldown }),
+      () => this.#backend().readAccessControl({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestAccessControl: snap });
         this.#safeEmit("access-control", snap);

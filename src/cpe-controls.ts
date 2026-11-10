@@ -14,16 +14,8 @@ import {
   type PersistedLockState,
   type RouterSettingsSnapshot,
   type SecurityUpdateCommand,
-  type WanRepairSkipReason,
-  applyBandLock,
-  applyCellLock,
-  mergeBandLockState,
-  prepareBandLockPayloads,
-  prepareCellLockPayload,
   readWanRepairBlocker,
-  rebootCpe,
   triggerCellularReconnect,
-  unlockAllRfLocks,
   updateAntennaMode,
   updateMobileDataSwitch,
   updateSecuritySettings,
@@ -32,21 +24,14 @@ import {
   verifyLockState,
 } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
-import { type DriverBandLockRequest, readDriverBandLockTarget, readDriverCellLockTarget, validateGenericBandLock } from "./control-input.ts";
-import { bandsToHex, hexToBands } from "./drivers/bands.ts";
-import type { DriverLockState, DriverSession } from "./drivers/types.ts";
-import { ROUTER_FAMILY_FACTS } from "./router-family.ts";
-import {
-  genericBandLock,
-  genericMobileData,
-  genericReboot,
-  genericReconnect,
-  readWanRepairBlockerTolerant,
-} from "./generic-writes.ts";
+import { routerBackendOf } from "./backends/index.ts";
+import { verifiedOnly } from "./backends/hilink.ts";
+import { genericMobileData, genericReconnect, readWanRepairBlockerTolerant } from "./generic-writes.ts";
+import type { RouterBackend, WanRepairOutcome } from "./router-backend.ts";
 import { currentActor } from "./audit-log.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { maskMacTail } from "./privacy-mask.ts";
-import type { ControlSummary, MutexSessionScheduler, WriteContext } from "./scheduler.ts";
+import type { ControlSummary, MutexSessionScheduler } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
 
 export interface AccessControlResult {
@@ -58,13 +43,7 @@ export interface AccessControlResult {
   alsoBlocked: string[];
 }
 
-/**
- * Result of an automatic WAN repair: written, or skipped for the reason read inside the session
- * (`lock_changed`: the lock to roll back was replaced while the rollback waited in the queue).
- */
-export type WanRepairOutcome =
-  | { applied: true; lockState?: PersistedLockState }
-  | { applied: false; skipped: WanRepairSkipReason | "lock_changed" };
+export type { WanRepairOutcome } from "./router-backend.ts";
 
 export interface CpeControlServiceOptions {
   scheduler: MutexSessionScheduler;
@@ -77,9 +56,10 @@ export interface CpeControlServiceOptions {
  * (Wi-Fi MAC filter, internet time rules). Every command is validated
  * before it is queued (no session for bad input), runs as one `executeControl` session (never
  * replayed, refused with `409` while a human is logged in), and updates the persisted lock state or
- * the cached settings snapshot afterwards. On a router of a driver family the locks, the unlock,
- * the reboot and the automatic lock rollback go through its driver (`executeDriverControl`); every
- * other write is refused by the gate (no driver implements it).
+ * the cached settings snapshot afterwards. The locks, the unlock, the automatic lock rollback and the
+ * reboot go through the backend of the router's family (`RouterBackend`), so nothing here names a
+ * brand; the writes only the HiLink stack implements so far are sent as HiLink sessions, and the
+ * gate refuses them on any other family.
  */
 /**
  * An AI agent's experimental band lock, which can cut the WAN (see `WanSelfHeal.guardAgentExperiment`):
@@ -101,10 +81,14 @@ export class CpeControlService {
   readonly monitor: CpeMonitor;
   readonly stateStore: EncryptedStateStore;
 
+  /** The backend of the router's family: every write both stacks have goes through it. */
+  readonly #backend: () => RouterBackend;
+
   constructor(options: CpeControlServiceOptions) {
     this.scheduler = options.scheduler;
     this.monitor = options.monitor;
     this.stateStore = options.stateStore;
+    this.#backend = routerBackendOf(options.scheduler);
   }
 
   /**
@@ -124,30 +108,9 @@ export class CpeControlService {
   }
 
   async lockBands(command: BandLockCommand): Promise<PersistedLockState> {
-    if (this.scheduler.isDriverMode()) return await this.#driverLockBands(command);
-    // Checked before queueing against the router the gate goes by (a write it refuses says so first),
-    // and again in the session
-    const device = this.scheduler.device;
-    if (!device.generic) prepareBandLockPayloads(command);
-    else if (device.writeAccess("bandLock") !== "read_only") validateGenericBandLock(command, device.experimentalLteBands);
-    let experimental = false;
-    let savedLteMask: string | null = null;
-    const state = await this.scheduler.executeControl(
-      "lock_band",
-      async (session, write) => {
-        // A model nobody verified: LTE only, through net-mode, never the H168-383's lock-freq
-        if (write.generic) {
-          experimental = true;
-          const locked = await genericBandLock(session, write.check, validateGenericBandLock(command, write.lteBands), write.lteBands ?? []);
-          savedLteMask = locked.before;
-          return genericLockState(locked.bands);
-        }
-        // Read inside the queued session: a lock queued before this one may have just changed it
-        const previous = this.getPersistedLockState();
-        const telemetry = this.monitor.getCachedTelemetry();
-        const routerLteBands = telemetry?.bandConfig.lteBandHex ? telemetry.bandConfig.activeLteBands : null;
-        return mergeBandLockState(previous, command, await applyBandLock(session, command), routerLteBands);
-      },
+    const { state, experimental, savedLteMask } = await this.#backend().lockBands(
+      command,
+      { previousLock: () => this.getPersistedLockState(), cachedTelemetry: () => this.monitor.getCachedTelemetry() },
       (state) => {
         const summaryText = `LTE=${JSON.stringify(state.lteBands)}, NR=${JSON.stringify(state.nrBands)}`;
         return this.#commitLockState(state, {
@@ -156,165 +119,40 @@ export class CpeControlService {
         });
       }
     );
+    // An AI agent's lock on a model nobody verified is watched, and undone if the WAN stays down
     if (experimental && currentActor().channel === "mcp") this.onAgentExperiment?.({ lock: state, savedLteMask });
     return state;
   }
 
-  /**
-   * A band lock through the driver of the router's family: a RAT the command leaves out keeps the
-   * bands the router reports before the write; the LTE bands read before it are what an AI agent's
-   * lock is put back to if the WAN stays down (`onAgentExperiment`).
-   */
-  async #driverLockBands(command: BandLockCommand): Promise<PersistedLockState> {
-    // Checked before queueing: numbers, NR only where the family locks NR, a mode the family offers
-    const target = readDriverBandLockTarget(command, ROUTER_FAMILY_FACTS[this.scheduler.getFamily()]);
-    let savedLteMask: string | null = null;
-    const state = await this.scheduler.executeDriverControl(
-      "lock_band",
-      async (session, write) => {
-        const before = await session.lockState().catch((): DriverLockState | null => null);
-        // The bands a command leaves out are the router's to keep: unread, they would be overwritten with a guess
-        if (target.lte === null && (before?.lteBands ?? null) === null) {
-          throw new CpeControlValidationError("The router's current LTE bands could not be read, and locking NR bands alone would overwrite them: name lteBands as well (or 'all')");
-        }
-        const lte = target.lte ?? before?.lteBands ?? "all";
-        savedLteMask = Array.isArray(before?.lteBands) ? bandsToHex(before.lteBands) : null;
-        await session.setBandLock({ lte, nr: target.nr, networkMode: target.networkMode }, write.check);
-        return driverBandLockState({ ...target, lte }, before);
-      },
-      (state) => {
-        const summaryText = `LTE=${JSON.stringify(state.lteBands)}, NR=${JSON.stringify(state.nrBands)}`;
-        return this.#commitLockState(state, {
-          zh: t("zh-CN", "controls.band_lock_applied", { summary: summaryText }),
-          en: t("en", "controls.band_lock_applied", { summary: summaryText }),
-        });
-      }
-    );
-    if (currentActor().channel === "mcp") this.onAgentExperiment?.({ lock: state, savedLteMask });
-    return state;
-  }
-
   async lockCell(command: CellLockCommand): Promise<PersistedLockState> {
-    if (this.scheduler.isDriverMode()) return await this.#driverLockCell(command);
-    prepareCellLockPayload(command);
-    const params = { rat: command.rat, band: String(command.band), arfcn: command.arfcn };
-    return await this.scheduler.executeControl(
-      "lock_cell",
-      (session, write) => {
-        verifiedOnly(write, "lock_cell");
-        return applyCellLock(session, command);
-      },
-      (state) =>
-        this.#commitLockState(state, {
-          zh: t("zh-CN", "controls.cell_lock_applied", params),
-          en: t("en", "controls.cell_lock_applied", params),
-        })
-    );
-  }
-
-  /** A cell lock through the driver of the router's family (band, channel and PCI, read back in the session). */
-  async #driverLockCell(command: CellLockCommand): Promise<PersistedLockState> {
-    const target = readDriverCellLockTarget(command);
-    const params = { rat: target.rat, band: String(target.band), arfcn: target.arfcn };
-    return await this.scheduler.executeDriverControl(
-      "lock_cell",
-      async (session, write): Promise<PersistedLockState> => {
-        await session.setCellLock(target, write.check);
-        return {
-          mode: "cell_lock",
-          updatedAtIso: new Date().toISOString(),
-          lteBands: target.rat === "LTE" ? [target.band] : "all",
-          nrBands: target.rat === "NR" ? [target.band] : [],
-          cellLock: { rat: target.rat, band: target.band, arfcn: target.arfcn, pci: target.pci },
-        };
-      },
-      (state) =>
-        this.#commitLockState(state, {
-          zh: t("zh-CN", "controls.cell_lock_applied", params),
-          en: t("en", "controls.cell_lock_applied", params),
-        })
-    );
+    return await this.#backend().lockCell(command, (state) => {
+      const params = { rat: state.cellLock?.rat ?? command.rat, band: String(state.cellLock?.band ?? command.band), arfcn: state.cellLock?.arfcn ?? command.arfcn };
+      return this.#commitLockState(state, {
+        zh: t("zh-CN", "controls.cell_lock_applied", params),
+        en: t("en", "controls.cell_lock_applied", params),
+      });
+    });
   }
 
   async unlockAllLocks(): Promise<PersistedLockState> {
-    const summary = (state: PersistedLockState): ControlSummary =>
+    return await this.#backend().unlockAll((state) =>
       this.#commitLockState(state, {
         zh: t("zh-CN", "controls.unlock_all_applied"),
         en: t("en", "controls.unlock_all_applied"),
-      });
-    if (this.scheduler.isDriverMode()) {
-      return await this.scheduler.executeDriverControl(
-        "unlock_rf_locks",
-        async (session, write) => {
-          await session.unlockAll(write.check);
-          return genericLockState("all");
-        },
-        summary
-      );
-    }
-    return await this.scheduler.executeControl(
-      "unlock_rf_locks",
-      async (session, write) => (write.generic ? genericLockState((await genericBandLock(session, write.check, "all", write.lteBands ?? [])).bands) : await unlockAllRfLocks(session)),
-      summary
+      })
     );
   }
 
   /**
    * Automatic lock rollback (`LOCK_ROLLBACK_AFTER_MIN`) of the lock applied at `lockUpdatedAtIso`:
    * clear every lock unless, inside the session, that lock turns out replaced, or the WAN re-reads as
-   * back or mobile data as switched off. After an AI agent's band lock on a model nobody verified,
-   * `restore` writes back the LTE mask the router had before it instead. Broadcasts only when it wrote.
+   * back (on the HiLink stack also: mobile data as switched off). After an AI agent's band lock on a
+   * model nobody verified, `restore` writes back the LTE mask the router had before it instead.
+   * Broadcasts only when it wrote.
    */
   async rollBackLocks(lockUpdatedAtIso: string, restore?: { lteMask: string }): Promise<WanRepairOutcome> {
-    if (this.scheduler.isDriverMode()) return await this.#driverRollBackLocks(lockUpdatedAtIso, restore);
-    let restored = false;
-    return await this.scheduler.executeControl(
-      "auto_unlock_rf_locks",
-      async (session, write): Promise<WanRepairOutcome> => {
-        // A lock queued before this rollback may have just replaced the one it was meant for
-        if (this.getPersistedLockState().updatedAtIso !== lockUpdatedAtIso) return { applied: false, skipped: "lock_changed" };
-        if (write.generic) {
-          const skipped = await readWanRepairBlockerTolerant(session);
-          if (skipped) return { applied: false, skipped };
-          const locked = await genericBandLock(session, write.check, restore ? { savedMask: restore.lteMask } : "all", write.lteBands ?? []);
-          restored = restore !== undefined;
-          return { applied: true, lockState: genericLockState(locked.bands) };
-        }
-        const skipped = await readWanRepairBlocker(session);
-        return skipped ? { applied: false, skipped } : { applied: true, lockState: await unlockAllRfLocks(session) };
-      },
-      (outcome) =>
-        outcome.applied && outcome.lockState
-          ? this.#commitLockState(outcome.lockState, summaryOf(restored ? "controls.auto_restore_applied" : "controls.auto_unlock_applied"))
-          : null
-    );
-  }
-
-  /**
-   * `rollBackLocks` through the driver of the router's family: skipped when the lock was replaced
-   * meanwhile or the router reports its WAN up (its driver has no mobile-data switch to read);
-   * otherwise the LTE bands read before an AI agent's lock are written back, or every lock cleared.
-   */
-  async #driverRollBackLocks(lockUpdatedAtIso: string, restore?: { lteMask: string }): Promise<WanRepairOutcome> {
-    const savedBands = restore ? hexToBands(restore.lteMask) : null;
-    const restoring = savedBands !== null && savedBands.length > 0;
-    return await this.scheduler.executeDriverControl(
-      "auto_unlock_rf_locks",
-      async (session: DriverSession, write): Promise<WanRepairOutcome> => {
-        if (this.getPersistedLockState().updatedAtIso !== lockUpdatedAtIso) return { applied: false, skipped: "lock_changed" };
-        const telemetry = await session.telemetry().catch(() => null);
-        if (telemetry?.wan.connected === true) return { applied: false, skipped: "wan_up" };
-        if (restoring) {
-          await session.setBandLock({ lte: savedBands, nr: null, networkMode: null }, write.check);
-          return { applied: true, lockState: driverBandLockState({ lte: savedBands, nr: null, networkMode: null }, null) };
-        }
-        await session.unlockAll(write.check);
-        return { applied: true, lockState: genericLockState("all") };
-      },
-      (outcome) =>
-        outcome.applied && outcome.lockState
-          ? this.#commitLockState(outcome.lockState, summaryOf(restoring ? "controls.auto_restore_applied" : "controls.auto_unlock_applied"))
-          : null
+    return await this.#backend().rollBackLocks({ lockUpdatedAtIso, restore, currentLock: () => this.getPersistedLockState() }, (outcome, restored) =>
+      outcome.applied && outcome.lockState ? this.#commitLockState(outcome.lockState, summaryOf(restored ? "controls.auto_restore_applied" : "controls.auto_unlock_applied")) : null
     );
   }
 
@@ -339,29 +177,7 @@ export class CpeControlService {
         "Remote reboot rejected: explicit { confirm: true } is mandatory"
       );
     }
-    const summary = {
-      zh: t("zh-CN", "controls.reboot_triggered"),
-      en: t("en", "controls.reboot_triggered"),
-    };
-    if (this.scheduler.isDriverMode()) {
-      return await this.scheduler.executeDriverControl(
-        "reboot_cpe",
-        async (session, write) => {
-          await session.reboot(write.check);
-          return { rebooting: true as const, requestedAtIso: new Date().toISOString() };
-        },
-        summary
-      );
-    }
-    return await this.scheduler.executeControl(
-      "reboot_cpe",
-      async (session, write) => {
-        if (!write.generic) return await rebootCpe(session, params);
-        await genericReboot(session, write.check);
-        return { rebooting: true as const, requestedAtIso: new Date().toISOString() };
-      },
-      summary
-    );
+    return await this.#backend().reboot(params, summaryOf("controls.reboot_triggered"));
   }
 
   async reconnectCellular(): Promise<{ reconnecting: true; requestedAtIso: string }> {
@@ -499,35 +315,6 @@ export class CpeControlService {
     void this.stateStore.flushAsync().catch(() => undefined);
     return { ...text, lockState: state };
   }
-}
-
-/**
- * A write with no generic implementation never runs on a model nobody verified (the gate keeps it
- * `not_implemented`); should it get here anyway, it stops before sending the H168-383's request.
- */
-function verifiedOnly(write: WriteContext, action: string): void {
-  if (write.generic) throw new CpeControlValidationError(`${action} has no implementation for a model FengSui was not verified on; nothing was written`);
-}
-
-/** The lock state after a generic band lock: LTE only (no NR band or cell lock on such a model). */
-function genericLockState(lteBands: number[] | "all"): PersistedLockState {
-  return { mode: lteBands === "all" ? "unlocked" : "band_lock", updatedAtIso: new Date().toISOString(), lteBands, nrBands: [], cellLock: null };
-}
-
-/**
- * The lock state after a driver band lock: the LTE bands it set, the NR bands it set or (left out)
- * the ones the router reported before it; `unlocked` only when neither RAT keeps a band list.
- */
-function driverBandLockState(target: DriverBandLockRequest & { lte: number[] | "all" }, before: DriverLockState | null): PersistedLockState {
-  const nr = target.nr ?? before?.nrBands ?? "all";
-  const nrBands = nr === "all" ? [] : [...nr];
-  return {
-    mode: target.lte === "all" && nrBands.length === 0 ? "unlocked" : "band_lock",
-    updatedAtIso: new Date().toISOString(),
-    lteBands: target.lte === "all" ? "all" : [...target.lte],
-    nrBands,
-    cellLock: null,
-  };
 }
 
 function requireAccessConfirmation(confirm: boolean): void {
