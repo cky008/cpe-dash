@@ -9,7 +9,9 @@ import {
   isAtError,
   modemBrandOf,
   openwrtProtocol,
+  parseFibocomAct,
   parseFibocomCcInfo,
+  parseOperatorName,
   parseQuectelCaInfo,
   parseQuectelNeighbours,
   parseQuectelRsrp,
@@ -147,6 +149,16 @@ describe("openwrt: helpers and parsing", () => {
     assert.equal(parseQuectelTemp("none"), null);
   });
 
+  it("reads the operator's name from AT+COPS?, never a PLMN or a missing registration for one", () => {
+    assert.equal(parseOperatorName('+COPS: 0,0,"Three",11\r\n\r\nOK\r\n'), "Three");
+    assert.equal(parseOperatorName('+COPS: 1,1,"3 IRL",7\nOK\n'), "3 IRL");
+    assert.equal(parseOperatorName('+COPS: 0,2,"27201",7\nOK\n'), null, "the numeric format is a PLMN, not a name");
+    assert.equal(parseOperatorName("+COPS: 0\nOK\n"), null, "not registered");
+    assert.equal(parseOperatorName("ERROR\n"), null);
+    assert.equal(parseOperatorName(""), null);
+    assert.equal(parseOperatorName(`+COPS: 0,0,"${"x".repeat(80)}",7`), null, "an over-long name is not one");
+  });
+
   it("parses Fibocom GTCCINFO serving cells and neighbours with RSRP conversion", () => {
     // raw Rsrp 74: NR RSRP is 74 - 156 = -82 dBm; LTE raw Rsrp 60 is 60 - 140 = -80 dBm
     const text =
@@ -212,6 +224,8 @@ describe("openwrt: session and Quectel integration", () => {
       assert.equal(telem.mode, "SA");
       assert.equal(telem.plmn, "46000");
       assert.equal(telem.temperatureC, 46);
+      assert.equal(telem.operatorName, "Three");
+      assert.equal(telem.signalBars, null, "the module reports no bars: none are made up");
       assert.equal(telem.carriers.length, 1);
       assert.deepEqual(telem.nr?.rxRsrpDbm, [-82, -84, -85, -86]);
 
@@ -274,6 +288,8 @@ describe("openwrt: session and Fibocom integration", () => {
       assert.equal(telem.mode, "SA");
       assert.equal(telem.plmn, "46000");
       assert.equal(telem.temperatureC, 45.5);
+      assert.equal(telem.operatorName, "Three");
+      assert.equal(telem.signalBars, null);
       assert.ok(telem.nr !== null);
       assert.equal(telem.nr.rsrpDbm, -82);
 
@@ -287,6 +303,75 @@ describe("openwrt: session and Fibocom integration", () => {
       assert.deepEqual(locks.lteCell, { locked: false });
       assert.deepEqual(locks.nrCell, { locked: false });
     });
+  });
+
+  it("writes the module's own capability list for every band, and stops at a command the module refuses", async () => {
+    const { state, client } = openwrtRouter({ brand: "quectel" });
+    await client.withSession(async (s) => {
+      // Locked first, so "all" has something to undo
+      await s.setBandLock({ lte: [3], nr: [78], networkMode: null }, newCheck());
+      const check = newCheck();
+      await s.setBandLock({ lte: "all", nr: "all", networkMode: "nr_nsa" }, check);
+      assert.equal(state.lteBand, "1:3:5:7:8:20:28:38:40:41");
+      assert.equal(state.nrBand, "1:3:28:41:77:78:79");
+      assert.deepEqual([state.modePref, state.nrDisableMode], ["LTE:NR5G", "1"]);
+      assert.deepEqual([check.readback, check.reason], ["match", null]);
+      assert.deepEqual(check.endpoints, [
+        "openwrt:AT+QNWPREFCFG/lte_band",
+        "openwrt:AT+QNWPREFCFG/nr5g_band",
+        "openwrt:AT+QNWPREFCFG/nsa_nr5g_band",
+        "openwrt:AT+QNWPREFCFG/nr5g_disable_mode",
+        "openwrt:AT+QNWPREFCFG/mode_pref",
+      ]);
+    });
+
+    const refusing = openwrtRouter({ brand: "quectel", atErrors: ['AT+QNWPREFCFG="nr5g_band",'] });
+    const refused = newCheck();
+    await assert.rejects(
+      refusing.client.withSession((s) => s.setBandLock({ lte: [3], nr: [78], networkMode: "lte" }, refused)),
+      (err: unknown) => err instanceof CpeApiError && err.code === "at-error"
+    );
+    assert.equal(refusing.state.lteBand, "3", "what went before the refusal was written");
+    assert.equal(refusing.state.modePref, "AUTO", "nothing after it was sent");
+    assert.deepEqual(refused.endpoints, ["openwrt:AT+QNWPREFCFG/lte_band", "openwrt:AT+QNWPREFCFG/nr5g_band"]);
+
+    // No capability list to go by: "all" is not guessed
+    const mute = openwrtRouter({ brand: "quectel", atErrors: ['AT+QNWPREFCFG="ue_capability_band"'] });
+    await assert.rejects(mute.client.withSession((s) => s.setBandLock({ lte: "all", nr: null, networkMode: null }, newCheck())), /no capability band list/);
+    assert.equal(mute.state.lteBand, "1:3:7");
+  });
+
+  it("reads a lock setting the module does not answer for as unknown, never as unlocked", async () => {
+    const quectel = openwrtRouter({ brand: "quectel", atErrors: ['AT+QNWPREFCFG="lte_band"', 'AT+QNWLOCK="common/5g"'] });
+    const q = await quectel.client.withSession((s) => s.lockState());
+    assert.deepEqual([q?.lteBands, q?.nrCell, q?.lteCell], [null, null, { locked: false }]);
+    assert.deepEqual(q?.nrBands, [41, 78]);
+    const fibocom = openwrtRouter({ brand: "fibocom", atErrors: ["AT+GTACT?", "AT+GTCELLLOCK?"] });
+    const f = await fibocom.client.withSession((s) => s.lockState());
+    assert.deepEqual([f?.lteBands, f?.nrBands, f?.lteCell, f?.nrCell, f?.networkMode], [null, null, null, null, null]);
+  });
+
+  it("reads and writes the Fibocom RAT selection with the bands, and refuses a mode the command is not documented for", async () => {
+    assert.deepEqual(parseFibocomAct("+GTACT: 17,6,2,101,103,541,578\n\nOK\n"), { rat: 17, preferRat: 6, preferBand: 2, lte: [1, 3], nr: [41, 78] });
+    assert.deepEqual(parseFibocomAct("+GTACT: 14,6,2\nOK\n"), { rat: 14, preferRat: 6, preferBand: 2, lte: "all", nr: "all" });
+    assert.equal(parseFibocomAct("ERROR\n"), null);
+    assert.equal(parseFibocomAct("+GTACT: 17\nOK\n"), null);
+
+    const { state, client } = openwrtRouter({ brand: "fibocom" });
+    await client.withSession(async (s) => {
+      assert.equal((await s.lockState()).networkMode, "auto");
+      const check = newCheck();
+      await s.setBandLock({ lte: "all", nr: [41, 78], networkMode: "nr_sa" }, check);
+      // 14 is 5G standalone only; the preferences stay as the module reports them
+      assert.equal(state.fibocomAct, "14,6,2,541,578");
+      assert.deepEqual([check.readback, check.reason], ["match", null]);
+      assert.equal((await s.lockState()).networkMode, "nr_sa");
+      const before = state.executedCommands.length;
+      await assert.rejects(s.setBandLock({ lte: [1], nr: null, networkMode: "lte" }, newCheck()), /documented for automatic/);
+      assert.ok(!state.executedCommands.slice(before).some((cmd) => cmd.startsWith("AT+GTACT=")), "nothing was written");
+    });
+    const refusing = openwrtRouter({ brand: "fibocom", atErrors: ["AT+GTACT="] });
+    await assert.rejects(refusing.client.withSession((s) => s.setBandLock({ lte: [1], nr: null, networkMode: null }, newCheck())), (err: unknown) => err instanceof CpeApiError && err.code === "at-error");
   });
 
   it("executes Fibocom band lock with +100/+500 offsets and cell lock", async () => {
@@ -402,7 +487,8 @@ describe("openwrt: telling the module's make apart", () => {
       const check = newCheck();
       await s.setBandLock({ lte: [1], nr: null, networkMode: null }, check);
       assert.equal(check.readback, "match");
-      assert.equal(state.fibocomAct, "17,6,2,101");
+      // One command carries every band: the NR bands the lock did not name go back as the module reports them
+      assert.equal(state.fibocomAct, "17,6,2,101,541,578");
     });
   });
 });

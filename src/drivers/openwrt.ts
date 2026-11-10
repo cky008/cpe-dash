@@ -1,3 +1,4 @@
+import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import type { WriteCheck } from "../device-access.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
@@ -59,8 +60,8 @@ import {
  *      `AT+QNWLOCK="common/4g"` / `AT+QNWLOCK="common/5g"` for cell locking, and `AT+CFUN=1,1` for reboot.
  *
  * 3. Fibocom modules:
- *    - Telemetry: `ATI`, `AT+GMR` / `AT+CGMR`, `AT+GTCCINFO?` (serving & neighbours),
- *      `AT+GTCAINFO?`, `AT+MTSM=1`.
+ *    - Telemetry: `ATI`, `AT+GMR` / `AT+CGMR`, `AT+GTCCINFO?` (serving & neighbours), `AT+MTSM=1`.
+ *      Secondary carriers are not read: the answer format of `AT+GTCAINFO?` is not documented.
  *    - Serving cell RSRP conversion: LTE `idx - 140` dBm; NR `idx - 156` dBm.
  *    - Controls: `AT+GTACT` band locking with `+100` for LTE and `+500` for NR,
  *      `AT+GTCELLLOCK` for 4G/5G cell locking, and `AT+CFUN=1,1` for reboot.
@@ -395,6 +396,46 @@ export function parseQuectelRsrp(text: string): Array<number | null> | null {
   return chains.some((v) => v !== null) ? chains : null;
 }
 
+/** `AT+GTACT`'s RAT selection as the modes FengSui names (the two the command is documented for). */
+const FIBOCOM_RAT_OF_MODE: Readonly<Partial<Record<DriverNetworkMode, number>>> = { auto: 17, nr_sa: 14 };
+const FIBOCOM_MODE_OF_RAT: Readonly<Record<number, DriverNetworkMode>> = { 17: "auto", 14: "nr_sa" };
+
+/** `mode_pref` and `nr5g_disable_mode` of each network mode (`disable: null`: left as it is). */
+const QUECTEL_MODES: Readonly<Record<DriverNetworkMode, { pref: string; disable: number | null }>> = {
+  auto: { pref: "AUTO", disable: 0 },
+  nr_sa: { pref: "NR5G", disable: 2 },
+  nr_nsa: { pref: "LTE:NR5G", disable: 1 },
+  lte: { pref: "LTE", disable: null },
+};
+
+/**
+ * `+GTACT: <rat>,<prefer_rat>,<prefer_band>[,<band>…]`: LTE bands as 100 + band, NR bands as 500 +
+ * band; a RAT with no band listed has every band. `null` when the answer is not one.
+ */
+export function parseFibocomAct(raw: string): { rat: number; preferRat: number; preferBand: number; lte: number[] | "all"; nr: number[] | "all" } | null {
+  const match = /\+GTACT:\s*([0-9]{1,3}(?:\s*,\s*[0-9]{1,4}){2,80})/.exec(raw.slice(0, 1024));
+  if (!match?.[1]) return null;
+  const nums = match[1].split(",").map((n) => Number.parseInt(n.trim(), 10));
+  const [rat, preferRat, preferBand, ...bands] = nums;
+  if (rat === undefined || preferRat === undefined || preferBand === undefined) return null;
+  const lte = bands.filter((n) => n > 100 && n < 200).map((n) => n - 100);
+  const nr = bands.filter((n) => n > 500 && n < 1000).map((n) => n - 500);
+  return { rat, preferRat, preferBand, lte: lte.length > 0 ? lte : "all", nr: nr.length > 0 ? nr : "all" };
+}
+
+const COPS_LINE = /\+COPS:\s*\d\s*,\s*([012])\s*,\s*"([^"\r\n]{1,64})"/;
+
+/**
+ * The operator of `AT+COPS?` (`+COPS: <mode>,<format>,"<oper>"[,<AcT>]`, 3GPP TS 27.007): the name in
+ * the long or short alphanumeric format; `null` for the numeric format (a PLMN, not a name) or no
+ * registration.
+ */
+export function parseOperatorName(raw: string): string | null {
+  const match = COPS_LINE.exec(raw.slice(0, 512));
+  if (!match || match[1] === "2") return null;
+  return labelOf(match[2]);
+}
+
 export function parseQuectelTemp(text: string): number | null {
   const lines = text.split(/\r?\n/);
   const temps: number[] = [];
@@ -666,12 +707,11 @@ export class OpenwrtSession implements DriverSessionHandle {
     const tempRaw = await this.#ubus.execAt("AT+QTEMP").catch(() => "");
     const temp = parseQuectelTemp(tempRaw);
 
-    const primaryCell = serving.mode === "SA" ? serving.nr : serving.lte;
     return {
       model: this.#identity!.model,
       softwareVersion: this.#identity!.softwareVersion,
       hardwareVersion: this.#identity!.hardwareVersion,
-      operatorName: null,
+      operatorName: await this.#operatorName(),
       plmn: serving.plmn,
       mode: serving.mode,
       lte: serving.lte,
@@ -680,8 +720,13 @@ export class OpenwrtSession implements DriverSessionHandle {
       wan: { connected: serving.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
       traffic: null,
       temperatureC: temp,
-      signalBars: primaryCell?.rsrpDbm !== null ? 4 : 0,
+      signalBars: null,
     };
+  }
+
+  /** The registered operator's name (`AT+COPS?`, 3GPP TS 27.007); `null` when the module names none. */
+  async #operatorName(): Promise<string | null> {
+    return parseOperatorName(await this.#ubus.execAt("AT+COPS?").catch(() => ""));
   }
 
   async #fibocomTelemetry(): Promise<DriverTelemetry> {
@@ -695,7 +740,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       model: this.#identity!.model,
       softwareVersion: this.#identity!.softwareVersion,
       hardwareVersion: this.#identity!.hardwareVersion,
-      operatorName: null,
+      operatorName: await this.#operatorName(),
       plmn: cc.plmn,
       mode: cc.mode,
       lte: cc.lte,
@@ -704,7 +749,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       wan: { connected: cc.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
       traffic: null,
       temperatureC: temp,
-      signalBars: cc.lte?.rsrpDbm !== null || cc.nr?.rsrpDbm !== null ? 4 : 0,
+      signalBars: null,
     };
   }
 
@@ -727,19 +772,11 @@ export class OpenwrtSession implements DriverSessionHandle {
       const gtact = await this.#ubus.execAt("AT+GTACT?").catch(() => "");
       const cell = await this.#ubus.execAt("AT+GTCELLLOCK?").catch(() => "");
 
-      let lteBands: number[] | "all" | null = null;
-      let nrBands: number[] | "all" | null = null;
-      const gtactMatch = gtact.match(/\+GTACT:\s*([\d,]+)/);
-      if (gtactMatch && gtactMatch[1]) {
-        const nums = gtactMatch[1].split(",").map((n) => Number.parseInt(n.trim(), 10)).filter((n) => Number.isFinite(n));
-        const lteList = nums.filter((n) => n > 100 && n < 200).map((n) => n - 100);
-        const nrList = nums.filter((n) => n > 500 && n < 600).map((n) => n - 500);
-        lteBands = lteList.length > 0 ? lteList : "all";
-        nrBands = nrList.length > 0 ? nrList : "all";
-      }
-
-      let lteCell: CellLockState | null = { locked: false };
-      let nrCell: CellLockState | null = { locked: false };
+      const act = parseFibocomAct(gtact);
+      // An answer that names no lock setting is not "unlocked": what was not read stays unknown
+      const answered = cell.includes("+GTCELLLOCK:");
+      let lteCell: CellLockState | null = answered ? { locked: false } : null;
+      let nrCell: CellLockState | null = answered ? { locked: false } : null;
       // Format: +GTCELLLOCK: 1,rat,is_nr,arfcn,pci[,scs] or +GTCELLLOCK: 0
       const lockMatch = cell.match(/\+GTCELLLOCK:\s*1,\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
       if (lockMatch) {
@@ -751,11 +788,11 @@ export class OpenwrtSession implements DriverSessionHandle {
       }
 
       return {
-        lteBands,
-        nrBands,
+        lteBands: act?.lte ?? null,
+        nrBands: act?.nr ?? null,
         lteCell,
         nrCell,
-        networkMode: null,
+        networkMode: act ? (FIBOCOM_MODE_OF_RAT[act.rat] ?? null) : null,
         supportedLte: null,
         supportedNr: null,
       };
@@ -774,8 +811,9 @@ export class OpenwrtSession implements DriverSessionHandle {
 
     const lteRaw = prefLte.match(/\+QNWPREFCFG:\s*"lte_band",\s*([0-9:]+)/)?.[1];
     const nrRaw = prefNr.match(/\+QNWPREFCFG:\s*"nr5g_band",\s*([0-9:]+)/)?.[1];
-    const lteBands = lteRaw ? (lteCaps && lteRaw === lteCaps ? "all" : listToBands(lteRaw.replace(/:/g, ","))) : "all";
-    const nrBands = nrRaw ? (nrCaps && nrRaw === nrCaps ? "all" : listToBands(nrRaw.replace(/:/g, ","))) : "all";
+    // A setting the module did not answer for is unknown, never "every band"
+    const lteBands = lteRaw ? (lteCaps && lteRaw === lteCaps ? "all" : listToBands(lteRaw.replace(/:/g, ","))) : null;
+    const nrBands = nrRaw ? (nrCaps && nrRaw === nrCaps ? "all" : listToBands(nrRaw.replace(/:/g, ","))) : null;
 
     let networkMode: DriverNetworkMode | null = null;
     const modeUpper = prefMode.toUpperCase();
@@ -785,13 +823,13 @@ export class OpenwrtSession implements DriverSessionHandle {
     else if (modeUpper.includes("NR5G")) networkMode = disableVal === 2 ? "nr_sa" : "auto";
     else if (modeUpper.includes("LTE")) networkMode = "lte";
 
-    let lteCell: CellLockState | null = { locked: false };
+    let lteCell: CellLockState | null = lock4g.includes("+QNWLOCK:") ? { locked: false } : null;
     const lteLockMatch = lock4g.match(/\+QNWLOCK:\s*"common\/4g",\s*1,\s*(\d+),\s*(\d+)/);
     if (lteLockMatch) {
       lteCell = { locked: true, arfcn: intOf(lteLockMatch[1]), pci: pciOf(lteLockMatch[2], "LTE"), band: null };
     }
 
-    let nrCell: CellLockState | null = { locked: false };
+    let nrCell: CellLockState | null = lock5g.includes("+QNWLOCK:") ? { locked: false } : null;
     const nrLockMatch = lock5g.match(/\+QNWLOCK:\s*"common\/5g",\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
     if (nrLockMatch) {
       nrCell = { locked: true, pci: pciOf(nrLockMatch[1], "NR"), arfcn: intOf(nrLockMatch[2]), band: bandOf(nrLockMatch[4]) };
@@ -816,49 +854,47 @@ export class OpenwrtSession implements DriverSessionHandle {
     const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
 
     if (this.#brand === "fibocom") {
+      // One command carries the RAT selection and every band: what is not asked for goes back as reported
+      const mode = target.networkMode;
+      if (mode !== null && FIBOCOM_RAT_OF_MODE[mode] === undefined) {
+        throw new CpeControlValidationError("This module's AT+GTACT is documented for automatic (4G + 5G) and 5G standalone only: leave the network mode out, or pick one of those");
+      }
+      const current = parseFibocomAct(await this.#ubus.execAt("AT+GTACT?").catch(() => ""));
+      const nrBands = nr ?? current?.nr ?? "all";
       const bands: number[] = [];
-      if (lte !== "all") {
-        for (const b of lte) bands.push(100 + b);
-      }
-      if (nr !== null && nr !== "all") {
-        for (const b of nr) bands.push(500 + b);
-      }
-      const gtactCmd = bands.length > 0 ? `AT+GTACT=17,6,2,${bands.join(",")}` : "AT+GTACT=17,6,2";
+      if (lte !== "all") for (const b of lte) bands.push(100 + b);
+      if (nrBands !== "all") for (const b of nrBands) bands.push(500 + b);
+      const rat = mode !== null ? FIBOCOM_RAT_OF_MODE[mode] : (current?.rat ?? FIBOCOM_RAT_OF_MODE.auto);
+      const prefix = `${rat},${current?.preferRat ?? 6},${current?.preferBand ?? 2}`;
+      const gtactCmd = bands.length > 0 ? `AT+GTACT=${prefix},${bands.join(",")}` : `AT+GTACT=${prefix}`;
       noteSent(check, FAMILY, "AT+GTACT");
       const answer = await this.#ubus.execAt(gtactCmd);
-      if (answer.includes("ERROR")) throw new CpeApiError("at-error", `GTACT band lock failed: ${answer}`);
-      settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
+      if (isAtError(answer)) throw new CpeApiError("at-error", "AT+GTACT refused the band lock");
+      settleBandLock(check, { lte, nr, networkMode: mode }, await this.lockState().catch(() => null));
       return;
     }
 
-    // Quectel Band Lock
-    if (lte !== "all") {
-      const cmd = `AT+QNWPREFCFG="lte_band",${bandsToList(lte, ":")}`;
-      noteSent(check, FAMILY, "AT+QNWPREFCFG/lte_band");
-      await this.#ubus.execAt(cmd);
+    // Quectel Band Lock. "all" is the module's own capability list, written back as it reports it
+    const wantsAll = lte === "all" || nr === "all";
+    const caps = wantsAll ? await this.#ubus.execAt('AT+QNWPREFCFG="ue_capability_band"').catch(() => "") : "";
+    const lteList = lte === "all" ? (caps.match(/"lte_band",\s*([0-9:]+)/)?.[1] ?? null) : bandsToList(lte, ":");
+    const nrList = nr === null ? null : nr === "all" ? (caps.match(/"nr5g_band",\s*([0-9:]+)/)?.[1] ?? null) : bandsToList(nr, ":");
+    if ((lte === "all" && lteList === null) || (nr === "all" && nrList === null)) {
+      throw new CpeAnswerFormatError("The module named no capability band list to unlock to: nothing was written");
     }
-    if (nr !== null && nr !== "all") {
-      const cmdSa = `AT+QNWPREFCFG="nr5g_band",${bandsToList(nr, ":")}`;
-      noteSent(check, FAMILY, "AT+QNWPREFCFG/nr5g_band");
-      await this.#ubus.execAt(cmdSa);
-      const cmdNsa = `AT+QNWPREFCFG="nsa_nr5g_band",${bandsToList(nr, ":")}`;
-      noteSent(check, FAMILY, "AT+QNWPREFCFG/nsa_nr5g_band");
-      await this.#ubus.execAt(cmdNsa);
+    const send = async (label: string, cmd: string): Promise<void> => {
+      noteSent(check, FAMILY, label);
+      if (isAtError(await this.#ubus.execAt(cmd))) throw new CpeApiError("at-error", `${label} refused`);
+    };
+    if (lteList !== null) await send("AT+QNWPREFCFG/lte_band", `AT+QNWPREFCFG="lte_band",${lteList}`);
+    if (nrList !== null) {
+      await send("AT+QNWPREFCFG/nr5g_band", `AT+QNWPREFCFG="nr5g_band",${nrList}`);
+      await send("AT+QNWPREFCFG/nsa_nr5g_band", `AT+QNWPREFCFG="nsa_nr5g_band",${nrList}`);
     }
     if (target.networkMode !== null) {
-      noteSent(check, FAMILY, "AT+QNWPREFCFG/mode_pref");
-      if (target.networkMode === "auto") {
-        await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode",0');
-        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",AUTO');
-      } else if (target.networkMode === "nr_sa") {
-        await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode",2');
-        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",NR5G');
-      } else if (target.networkMode === "nr_nsa") {
-        await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode",1');
-        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",LTE:NR5G');
-      } else if (target.networkMode === "lte") {
-        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",LTE');
-      }
+      const mode = QUECTEL_MODES[target.networkMode];
+      if (mode.disable !== null) await send("AT+QNWPREFCFG/nr5g_disable_mode", `AT+QNWPREFCFG="nr5g_disable_mode",${mode.disable}`);
+      await send("AT+QNWPREFCFG/mode_pref", `AT+QNWPREFCFG="mode_pref",${mode.pref}`);
     }
     settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
   }
@@ -957,6 +993,16 @@ export class OpenwrtSession implements DriverSessionHandle {
 
 export const openwrtProtocol: DriverProtocol = {
   family: FAMILY,
+
+  async detect(http: LanHttp): Promise<boolean> {
+    try {
+      await new OpenwrtUbusClient(http).call("system", "board", {});
+      return true;
+    } catch (err) {
+      // "Access denied" to an anonymous caller is ubus speaking; anything else is not a ubus endpoint
+      return err instanceof CpeApiError;
+    }
+  },
 
   async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
     try {

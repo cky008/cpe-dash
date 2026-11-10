@@ -1,11 +1,5 @@
-import {
-  H168_383_LTE_BANDS,
-  H168_383_NR_BANDS,
-  MAX_PCI,
-  type RatName,
-  arfcnRangeOf,
-  checkCellLockInput,
-} from "../../../src/rf-bounds.ts";
+import { MAX_PCI, type RatName } from "../../../src/rf-bounds.ts";
+import { cellLockForm } from "../core/lock-form.ts";
 import { bandLabel } from "../core/rf.ts";
 import { lockRollbackNote } from "../core/self-heal-view.ts";
 import type { AppContext } from "./context.ts";
@@ -20,12 +14,14 @@ export interface CellLockPrefill {
 }
 
 /**
- * Cell / frequency lock form. Every field is checked with `checkCellLockInput` from
- * src/rf-bounds.ts — the very function behind the daemon's own validation — so the form shows the
- * exact bound (LTE PCI 0–503, NR PCI 0–1007, the band's 3GPP downlink ARFCN range) before sending.
+ * Cell / frequency lock form. Every field is checked the way the daemon checks it for the router in
+ * use (`cellLockForm`), so the form shows the exact bound (LTE PCI 0–503, NR PCI 0–1007, the band's
+ * 3GPP downlink ARFCN range) before sending. The verified router lists its own bands and may lock a
+ * frequency alone; a router of another brand takes any 3GPP band and always one cell.
  */
 export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | null): void {
   const dialog = byId<HTMLDialogElement>("cellLockDialog");
+  const lockForm = cellLockForm(ctx.store.state.scheduler);
   let rat: RatName = prefill?.rat ?? "NR";
 
   const ratSelect = h("select", { class: "select select-sm rounded-lg w-full" }, h("option", { attrs: { value: "LTE" } }, "LTE"), h("option", { attrs: { value: "NR" } }, "NR (5G)"));
@@ -42,20 +38,21 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
   const rollback = lockRollbackNote(ctx.store.state.selfHeal, ctx.t);
 
   const fillBands = (selected: number | null): void => {
-    const bands = rat === "LTE" ? H168_383_LTE_BANDS : H168_383_NR_BANDS;
+    const bands = lockForm.bands(rat);
     mount(bandSelect, ...bands.map((b) => h("option", { attrs: { value: String(b) } }, bandLabel(rat, b))));
     bandSelect.value = String(selected !== null && bands.includes(selected) ? selected : (bands[0] ?? ""));
-    bandHint.textContent = ctx.t("cl.band_hint", { bands: bands.map((b) => bandLabel(rat, b)).join(" ") });
+    // The verified router's own bands are few enough to name; another brand gets the whole 3GPP table
+    bandHint.textContent = lockForm.driver ? ctx.t("cl.band_hint_any") : ctx.t("cl.band_hint", { bands: bands.map((b) => bandLabel(rat, b)).join(" ") });
   };
 
-  const validate = (): ReturnType<typeof checkCellLockInput> => {
+  const validate = (): ReturnType<typeof lockForm.check> => {
     const band = Number(bandSelect.value);
-    const range = arfcnRangeOf(rat, band);
+    const range = lockForm.range(rat, band);
     arfcnHint.textContent = range ? ctx.t("cl.arfcn_hint", { band: bandLabel(rat, band), min: range[0], max: range[1] }) : "";
     pciHint.textContent = ctx.t("cl.pci_hint", { rat, max: MAX_PCI[rat] });
     pciInput.max = String(MAX_PCI[rat]);
     pciInput.disabled = freqOnly.checked;
-    const check = checkCellLockInput({
+    const check = lockForm.check({
       rat,
       band,
       arfcn: arfcnInput.value.trim() === "" ? Number.NaN : Number(arfcnInput.value),
@@ -99,7 +96,7 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
     bandHint,
     h("label", { class: "block" }, h("span", { class: "fs-label" }, ctx.t("cl.arfcn")), arfcnInput, arfcnHint),
     h("label", { class: "block" }, h("span", { class: "fs-label" }, ctx.t("cl.pci")), pciInput, pciHint),
-    h("label", { class: "flex items-center gap-2 text-sm cursor-pointer" }, freqOnly, ctx.t("cl.freq_only")),
+    lockForm.pciRequired ? null : h("label", { class: "flex items-center gap-2 text-sm cursor-pointer" }, freqOnly, ctx.t("cl.freq_only")),
     h(
       "div",
       { class: "fs-notice", data: { tone: "pending" } },

@@ -283,6 +283,22 @@ describe("driver runtime: writes", () => {
     }
   });
 
+  it("refuses a lock of NR bands alone when the router's LTE bands cannot be read", async () => {
+    // The LTE bands a command leaves out are kept as the router reports them; unread, they would be overwritten
+    const fx = runtimeFixture({ atErrors: ['AT+QNWPREFCFG="lte_band"'] });
+    try {
+      await fx.core.monitor.refreshTelemetry();
+      fx.core.scheduler.device.setConsents([{ model: "RM520N-GL", feature: "bandLock" }]);
+      await assert.rejects(fx.core.controls.lockBands({ nrBands: [78] }), (err: unknown) => err instanceof CpeControlValidationError && /could not be read/.test(err.message));
+      assert.deepEqual([fx.state.lteBand, fx.state.nrBand], ["1:3:7", "41:78"], "nothing was written");
+      assert.equal(fx.destroys(), fx.logins(), "the session was closed all the same");
+      assert.equal(fx.core.controls.getPersistedLockState().mode, "unlocked");
+      assert.equal(fx.onlyUbus(), true);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("rolls a lock back through the driver: skipped when replaced or the WAN is up, else the saved bands or every lock cleared", async () => {
     const fx = runtimeFixture();
     try {
@@ -471,6 +487,45 @@ describe("write gate on a driver family", () => {
   });
 });
 
+describe("write gate: taking a lock off", () => {
+  it("is open wherever a lock may be put on, so no lock is left that nobody may undo", async () => {
+    const access = new DeviceAccess({ family: "zte-goform" });
+    access.see("MC888", null);
+    assert.equal(access.actionAccess("unlock_rf_locks"), "read_only");
+    access.setConsents([{ model: "MC888", feature: "cellLock" }]);
+    assert.equal(access.actionAccess("lock_cell"), "experimental");
+    assert.equal(access.actionAccess("unlock_rf_locks"), "experimental");
+    assert.equal(access.actionAccess("auto_unlock_rf_locks"), "experimental");
+    assert.equal(access.actionAccess("lock_band"), "read_only", "the band lock stays a consent of its own");
+    assert.equal(access.actionAccess("reboot_cpe"), "read_only");
+    // A HiLink model nobody verified has no cell lock to go by: nothing changes there
+    const hilink = new DeviceAccess();
+    hilink.see("B535-232", null);
+    hilink.setConsents([{ model: "B535-232", feature: "cellLock" }]);
+    assert.equal(hilink.actionAccess("unlock_rf_locks"), "read_only");
+    // The verified router writes everything, as before
+    const verified = new DeviceAccess();
+    verified.see("H168-383", "4.4.0.1");
+    assert.equal(verified.actionAccess("unlock_rf_locks"), "allowed");
+
+    // In the running daemon: the cell lock alone turned on, a cell locked, and unlocked again
+    const fx = runtimeFixture();
+    try {
+      await fx.core.monitor.refreshTelemetry();
+      fx.core.scheduler.device.setConsents([{ model: "RM520N-GL", feature: "cellLock" }]);
+      await fx.core.controls.lockCell({ rat: "NR", band: 78, arfcn: 627264, pci: 142 });
+      assert.equal(fx.state.lock5g, "142,627264,30,78");
+      await assert.rejects(fx.core.controls.lockBands({ lteBands: [3] }), DeviceReadOnlyError);
+      const unlocked = await fx.core.controls.unlockAllLocks();
+      assert.equal(unlocked.mode, "unlocked");
+      assert.equal(fx.state.lock5g, "0");
+      assert.deepEqual(fx.core.scheduler.genericWrites.at(-1)?.feature, "bandLock", "the record keeps the feature the action is filed under");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
 describe("driver lock input", () => {
   it("reads a band lock against the family's facts", () => {
     const openwrt = ROUTER_FAMILY_FACTS.openwrt;
@@ -482,10 +537,20 @@ describe("driver lock input", () => {
     assert.throws(() => readDriverBandLockTarget({ nrBands: [] }, openwrt), /At least one NR band/);
     assert.throws(() => readDriverBandLockTarget({ lteBands: ["x"] }, openwrt), CpeControlValidationError);
     assert.throws(() => readDriverBandLockTarget({ lteBands: [1], networkMode: "99" }, openwrt), /networkMode/);
-    // NRadio locks LTE bands only and offers no 5G-only mode
-    assert.throws(() => readDriverBandLockTarget({ nrBands: [78] }, ROUTER_FAMILY_FACTS.nradio), /LTE bands only/);
-    assert.throws(() => readDriverBandLockTarget({ lteBands: [1], networkMode: "08" }, ROUTER_FAMILY_FACTS.nradio), /offers no/);
-    assert.deepEqual(readDriverBandLockTarget({ lteBands: [1], networkMode: "03" }, ROUTER_FAMILY_FACTS.nradio), { lte: [1], nr: null, networkMode: "lte" });
+    // A family that locks LTE bands only and offers no 5G-only mode
+    const lteOnly = { nrBandLock: false, networkModes: ["auto", "lte"] } as const;
+    assert.throws(() => readDriverBandLockTarget({ nrBands: [78] }, lteOnly), /LTE bands only/);
+    assert.throws(() => readDriverBandLockTarget({ lteBands: [1], networkMode: "08" }, lteOnly), /offers no/);
+    assert.deepEqual(readDriverBandLockTarget({ lteBands: [1], networkMode: "03" }, lteOnly), { lte: [1], nr: null, networkMode: "lte" });
+    // NRadio's bridge takes an NR mask and the 5G modes as well
+    assert.deepEqual(readDriverBandLockTarget({ nrBands: [78], networkMode: "08" }, ROUTER_FAMILY_FACTS.nradio), { lte: null, nr: [78], networkMode: "nr_sa" });
+    // A mode is one of the codes, never a name every object answers to
+    for (const mode of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+      assert.throws(() => readDriverBandLockTarget({ lteBands: [1], networkMode: mode }, ROUTER_FAMILY_FACTS.openwrt), (err: unknown) => err instanceof CpeControlValidationError && err.message.startsWith(`Invalid networkMode "${mode}"`), mode);
+    }
+    // Bands are a list (of a size a band table could hold) or "all"
+    assert.throws(() => readDriverBandLockTarget({ lteBands: 3 as unknown as number[] }, ROUTER_FAMILY_FACTS.openwrt), /list of band numbers/);
+    assert.throws(() => readDriverBandLockTarget({ nrBands: Array.from({ length: 129 }, () => 78) }, ROUTER_FAMILY_FACTS.openwrt), /At most 128/);
   });
 
   it("reads a cell lock with its PCI", () => {

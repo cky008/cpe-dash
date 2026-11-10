@@ -92,7 +92,7 @@ describe("experimental consent: the store", () => {
           format: 1,
           experimental: [
             { model: "B535-232", feature: "reboot", grantedAtIso: NOW },
-            { model: "B535-232", feature: "cellLock", grantedAtIso: NOW },
+            { model: "B535-232", feature: "antenna", grantedAtIso: NOW },
             { model: 5, feature: "bandLock", grantedAtIso: NOW },
             { model: "B535-232", feature: "bandLock" },
             "nonsense",
@@ -102,6 +102,14 @@ describe("experimental consent: the store", () => {
       const odd = new ConsoleSettings({ filePath: file, cipher });
       odd.load();
       assert.deepEqual(odd.experimentalConsents.map((c) => `${c.model}:${c.feature}`), ["B535-232:reboot"]);
+
+      // A write a driver family implements is consented to and kept like a generic one (a cell lock is no generic write)
+      const driver = new ConsoleSettings({ filePath: path.join(dir, "driver.json"), cipher });
+      driver.grantExperimental("RM520N-GL", "cellLock");
+      await driver.flush();
+      const reloaded = new ConsoleSettings({ filePath: path.join(dir, "driver.json"), cipher });
+      reloaded.load();
+      assert.deepEqual(reloaded.experimentalConsents.map((c) => `${c.model}:${c.feature}`), ["RM520N-GL:cellLock"]);
     } finally {
       removeTempDir(dir);
     }

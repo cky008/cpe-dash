@@ -30,6 +30,8 @@ export interface OpenwrtRouterOptions {
   cgmm?: string;
   /** `AT+QENG="servingcell"` answers `ERROR` (a module without Quectel's query). */
   qengError?: boolean;
+  /** Commands (by prefix) the module answers `ERROR` to. */
+  atErrors?: ReadonlyArray<string>;
 }
 
 export interface OpenwrtRouterState {
@@ -103,6 +105,7 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     if (object === rpcObj && (method === "send_at" || method === "at_cmd" || method === "at" || method === "send")) {
       const cmd = String(args["cmd"] ?? "");
       state.executedCommands.push(cmd);
+      if (opts.atErrors?.some((prefix) => cmd.startsWith(prefix))) return reply("ERROR\n");
 
       // Identify
       if (cmd === "ATI") {
@@ -204,6 +207,11 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
       }
       if (cmd === 'AT+QNWPREFCFG="ue_capability_band"') {
         return reply('+QNWPREFCFG: "ue_capability_band","lte_band",1:3:5:7:8:20:28:38:40:41,"nr5g_band",1:3:28:41:77:78:79\n\nOK\n');
+      }
+
+      // 3GPP TS 27.007: mode, format (0: long name), operator, access technology
+      if (cmd === "AT+COPS?") {
+        return reply(state.serving === "none" ? "+COPS: 0\n\nOK\n" : '+COPS: 0,0,"Three",11\n\nOK\n');
       }
 
       // Fibocom Telemetry & Locks

@@ -31,7 +31,7 @@ function newCheck(): WriteCheck {
   return { endpoints: [], readback: "none", reason: null };
 }
 
-function pinsuRouter(opts: { loginStatus?: string; login?: Record<string, unknown>; refuse?: string } = {}) {
+function pinsuRouter(opts: { loginStatus?: string; login?: Record<string, unknown>; refuse?: string; noSync?: boolean } = {}) {
   const values: Record<string, string> = {
     mnet_sysmode: "lte",
     mnet_rsrp: "58",
@@ -48,6 +48,7 @@ function pinsuRouter(opts: { loginStatus?: string; login?: Record<string, unknow
   let loggedIn = false;
   const mock = new LanRouterMock((req) => {
     const body = req.body === "" ? {} : (JSON.parse(req.body) as Record<string, unknown>);
+    if (req.path === "/goform/sync") return opts.noSync ? { status: 404, text: "<html>Not Found</html>" } : { json: { retcode: "0" } };
     if (req.path === "/goform/get_login_info") return { json: { retcode: "0", loginStatus: opts.loginStatus ?? "0" } };
     if (req.path === "/goform/login") {
       if (opts.login) return { json: opts.login };
@@ -113,10 +114,24 @@ describe("pinsu: indexes and login", () => {
     const { mock, client } = pinsuRouter();
     const t = await client.withSession((s) => s.telemetry());
     assert.equal(t?.lte?.rsrpDbm, -82);
-    assert.deepEqual(mock.trail, ["POST /goform/get_login_info", "POST /goform/login", "POST /action/get_mgdb_params", "POST /action/logout"]);
+    assert.deepEqual(mock.trail, ["POST /goform/sync", "POST /goform/get_login_info", "POST /goform/login", "POST /action/get_mgdb_params", "POST /action/logout"]);
     assert.ok(mock.requests.every((r) => r.headers["referer"] === "http://192.168.0.1/common/login.html" && r.headers["content-type"] === "application/json"));
     assert.deepEqual(await client.withSession((s) => s.identify()), { model: null, softwareVersion: null, hardwareVersion: null });
     await assert.rejects(client.withSession((s) => s.neighbours()), SectionUnavailableError);
+  });
+
+  it("sends no password to a router that does not answer the page's handshake", async () => {
+    // Another brand at this address (the wrong choice in Settings): it is told apart before the login
+    const other = pinsuRouter({ noSync: true });
+    await assert.rejects(other.client.withSession((s) => s.telemetry()));
+    assert.deepEqual(other.mock.trail, ["POST /goform/sync"]);
+    assert.equal(other.client.getCircuitBreakerState().tripped, false, "nothing was tried, nothing latched");
+  });
+
+  it("takes a running countdown for a lock, whatever the attempts left say", async () => {
+    const counting = pinsuRouter({ login: { retcode: "201", remain_secs: "240" } });
+    await assert.rejects(counting.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108007");
+    assert.equal(counting.client.getCircuitBreakerState().waitTime, 240);
   });
 
   it("yields to someone on the router's page, and latches on a wrong password or a lock", async () => {

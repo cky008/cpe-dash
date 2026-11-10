@@ -142,6 +142,9 @@ describe("zte-goform: login and digests", () => {
     assert.equal(zteBranch({ hardwareVersion: "MC8830", modelName: "" }), 2);
     assert.equal(zteBranch({ hardwareVersion: "MC8020", modelName: "" }), 3);
     assert.equal(zteBranch({ hardwareVersion: "", modelName: "MU5250" }), 4);
+    // A version string of the standard generation carries "V1.0.0" too: the model decides, not that mark
+    const standard = { hardwareVersion: "MC801A_HW1.0", modelName: "MC801A", waInnerVersion: "BD_ZTE_MC801AV1.0.0B05", crVersion: "CR_ZTE_MC801AV1.0.0B05" };
+    assert.equal(zteBranch(standard), 1);
   });
 
   it("logs in with the double SHA-256, reads, and logs out with a fresh AD", async () => {
@@ -286,6 +289,10 @@ describe("zte-goform: telemetry", () => {
     assert.equal(t.traffic?.monthDownloadBytes, 85899345920n);
     assert.equal(t.temperatureC, 49);
     assert.equal(t.signalBars, 4);
+    // Lifetime totals only where the firmware keeps them: no made-up zero
+    assert.equal(t.traffic?.totalDownloadBytes, null);
+    const totals = parseZteGoformTelemetry({ ...raw, total_rx_bytes: "214748364800", total_tx_bytes: "10737418240" }).traffic;
+    assert.deepEqual([totals?.totalDownloadBytes, totals?.totalUploadBytes], [214748364800n, 10737418240n]);
   });
 
   it("reads the other carrier layout the same way", () => {
@@ -383,7 +390,8 @@ describe("zte-goform: locks", () => {
     const check = newCheck();
     await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: [78], networkMode: "nr_nsa" }, check));
     assert.deepEqual(state.posts.map((p) => p.goformId), ["DEVELOPER_OPTION_LOGIN", "BAND_SELECT", "WAN_PERFORM_NR5G_BAND_LOCK_MERGE", "SET_BEARER_PREFERENCE", "LOGOUT"]);
-    assert.deepEqual(check, { endpoints: ["zte-goform:BAND_SELECT", "zte-goform:WAN_PERFORM_NR5G_BAND_LOCK_MERGE", "zte-goform:SET_BEARER_PREFERENCE"], readback: "match", reason: null });
+    // The developer-option login is part of the write's record, ahead of the forms it opens the way for
+    assert.deepEqual(check, { endpoints: ["zte-goform:DEVELOPER_OPTION_LOGIN", "zte-goform:BAND_SELECT", "zte-goform:WAN_PERFORM_NR5G_BAND_LOCK_MERGE", "zte-goform:SET_BEARER_PREFERENCE"], readback: "match", reason: null });
   });
 
   it("locks a cell and unlocks everything, writing only what is locked", async () => {
@@ -405,7 +413,7 @@ describe("zte-goform: locks", () => {
     mock.handler = ((inner) => (req) => (req.method === "POST" && LanRouterMock.form(req).get("goformId") === "BAND_SELECT" ? { json: { result: "failure" } } : inner(req)))(mock.handler);
     const check = newCheck();
     await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [1], nr: null, networkMode: null }, check)), (err: unknown) => err instanceof CpeApiError && err.code === "failure");
-    assert.deepEqual(check.endpoints, ["zte-goform:BAND_SELECT"]);
+    assert.deepEqual(check.endpoints, ["zte-goform:DEVELOPER_OPTION_LOGIN", "zte-goform:BAND_SELECT"]);
   });
 
   it("reboots without a logout after it, and reads an empty nearby-cell list as no cells", async () => {

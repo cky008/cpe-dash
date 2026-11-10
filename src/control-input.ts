@@ -293,11 +293,16 @@ export interface DriverBandLockRequest {
   networkMode: DriverNetworkMode | null;
 }
 
+/** More bands than any band table holds: a longer list is not a band lock. */
+const MAX_LOCK_BANDS = 128;
+
 /** The HiLink network-mode codes the REST / MCP band lock takes, as a driver family names the modes. */
 const DRIVER_NETWORK_MODES: Readonly<Record<string, DriverNetworkMode>> = { "00": "auto", "03": "lte", "08": "nr_sa" };
 
 function parseDriverBands(rat: "LTE" | "NR", bands: ReadonlyArray<BandInput> | "all"): number[] | "all" {
   if (bands === "all") return "all";
+  if (!Array.isArray(bands)) throw new CpeControlValidationError(`${rat} bands must be a list of band numbers or 'all'`);
+  if (bands.length > MAX_LOCK_BANDS) throw new CpeControlValidationError(`At most ${MAX_LOCK_BANDS} ${rat} bands can be named`);
   if (bands.length === 0) throw new CpeControlValidationError(`At least one ${rat} band is required (or pass 'all')`);
   try {
     return [...new Set(bands.map(parseBandNumber))].sort((a, b) => a - b);
@@ -323,7 +328,7 @@ export function readDriverBandLockTarget(
   }
   let networkMode: DriverNetworkMode | null = null;
   if (command.networkMode !== undefined) {
-    const mode = DRIVER_NETWORK_MODES[command.networkMode];
+    const mode = Object.hasOwn(DRIVER_NETWORK_MODES, command.networkMode) ? DRIVER_NETWORK_MODES[command.networkMode] : undefined;
     if (mode === undefined) throw new CpeControlValidationError(`Invalid networkMode "${command.networkMode}" (expected 00 auto, 03 4G only or 08 5G only)`);
     if (!facts.networkModes.includes(mode)) throw new CpeControlValidationError(`This router offers no "${mode}" network mode (it offers ${facts.networkModes.join(", ")})`);
     networkMode = mode;

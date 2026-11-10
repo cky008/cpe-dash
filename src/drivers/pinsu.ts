@@ -365,7 +365,14 @@ class PinsuSession implements DriverSessionHandle {
 export const pinsuProtocol: DriverProtocol = {
   family: FAMILY,
 
+  async detect(http: LanHttp): Promise<boolean> {
+    const status = textOf((await post(http, "/goform/get_login_info", ""))["loginStatus"]);
+    return status === "0" || status === "1";
+  },
+
   async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
+    // The page's own first request: a router that does not answer it is not of this family, and gets no password
+    await post(http, "/goform/sync", "");
     const info = await post(http, "/goform/get_login_info", "");
     // Signed in, and not by this session (it has none yet): someone is on the router's page
     return { occupied: textOf(info["loginStatus"]) === "1", locked: null };
@@ -376,7 +383,9 @@ export const pinsuProtocol: DriverProtocol = {
     const code = textOf(answer["retcode"]);
     if (code === "0") return new PinsuSession(http);
     const remain = intOf(answer["remain_times"]);
-    if (code === "201" && remain === 0) throw loginLocked("the router has locked its login", intOf(answer["remain_secs"]));
+    const waitSec = intOf(answer["remain_secs"]);
+    // Locked: no attempt left, or a countdown running (some builds name only the countdown)
+    if (code === "201" && (remain === 0 || (waitSec !== null && waitSec > 0))) throw loginLocked("the router has locked its login", waitSec);
     if (code === "201") throw wrongPassword("the router refused the user name or password", remain);
     throw loginUnplaced(`login answered ${code ?? "no retcode"}`);
   },

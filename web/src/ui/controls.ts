@@ -2,7 +2,9 @@ import type { AntennaModeName, BandLockRequest, RouterSettingsSnapshot } from ".
 import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../src/rf-bounds.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
+import type { DriverFamily } from "../../../src/router-family.ts";
 import { experimentalWrites, readOnlyModel } from "../core/device-access-view.ts";
+import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
 import { lockRollbackNote, selfHealRows } from "../core/self-heal-view.ts";
@@ -98,6 +100,8 @@ export function mountControls(ctx: AppContext): { open(): void } {
   const nrSelected = new Set<number>(H168_383_NR_BANDS);
   /** An experimental band lock (a model nobody verified): LTE only, among the bands the router advertises. */
   const genericSelected = new Set<number>();
+  /** A band lock on another brand's router: the bands as typed (kept across re-renders). */
+  const typedBands = { lte: "", nr: "" };
 
   const syncSelectionFromLock = (): void => {
     const lock = ctx.store.state.lockState;
@@ -109,6 +113,8 @@ export function mountControls(ctx: AppContext): { open(): void } {
     const locked = lock && lock.lteBands !== "all" ? lock.lteBands.filter((b) => advertised.includes(b)) : [];
     genericSelected.clear();
     for (const b of locked.length > 0 ? locked : advertised) genericSelected.add(b);
+    typedBands.lte = bandText(lock && lock.mode !== "unlocked" && lock.lteBands !== "all" ? lock.lteBands : null);
+    typedBands.nr = bandText(lock && lock.mode !== "unlocked" ? lock.nrBands : null);
   };
 
   // What self-healing will do next: updated in place, because the "scheduler" topic it comes with is
@@ -266,22 +272,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         });
       });
     });
-    const unlockBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("unlock"), ctx.t("ctl.unlock_all"));
-    unlockBtn.addEventListener("click", () => {
-      void confirmExperimental({ title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body")], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
-        if (!ok) return;
-        runBusy(unlockBtn, async () => {
-          try {
-            const res = await ctx.api.unlock();
-            ctx.store.update({ lockState: res.lockState }, ["locks"]);
-            syncSelectionFromLock();
-            render();
-          } catch (err) {
-            fail(err);
-          }
-        });
-      });
-    });
+    const unlockBtn = experimentalUnlockButton();
     const quickAll = (all: boolean): void => {
       genericSelected.clear();
       if (all) for (const b of bands) genericSelected.add(b);
@@ -305,6 +296,83 @@ export function mountControls(ctx: AppContext): { open(): void } {
       bandGrid("LTE", bands, genericSelected, refreshMask),
       h("p", { class: "text-[0.6875rem] faint" }, ctx.t("dev.experimental_lte_only")),
       h("div", { class: "flex gap-2 justify-end" }, unlockBtn, applyBtn)
+    );
+  };
+
+  /** Take every lock off, on a model nobody verified (asked first, like every experimental write). */
+  const experimentalUnlockButton = (): HTMLButtonElement => {
+    const unlockBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("unlock"), ctx.t("ctl.unlock_all"));
+    unlockBtn.addEventListener("click", () => {
+      void confirmExperimental({ title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body")], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
+        if (!ok) return;
+        runBusy(unlockBtn, async () => {
+          try {
+            const res = await ctx.api.unlock();
+            ctx.store.update({ lockState: res.lockState }, ["locks"]);
+            syncSelectionFromLock();
+            render();
+          } catch (err) {
+            fail(err);
+          }
+        });
+      });
+    });
+    return unlockBtn;
+  };
+
+  /**
+   * Locks on another brand's router: its driver takes any 3GPP band, so the bands are typed, 5G ones
+   * where the brand locks them; a field left empty keeps what the router has. With the cell lock
+   * alone turned on there is no band to lock, only the way back.
+   */
+  const driverLockSection = (family: DriverFamily, bandLockOpen: boolean): HTMLElement => {
+    const current = h("p", { class: "text-xs muted" }, ctx.t("ctl.current", { summary: describeLock(ctx, ctx.store.state.lockState) }));
+    if (!bandLockOpen) return section(withHelp(ctx, ctx.t("ctl.band_lock"), "lock-band"), current, h("div", { class: "flex gap-2 justify-end" }, experimentalUnlockButton()));
+    const field = (rat: "LTE" | "NR", key: "lte" | "nr", placeholder: string): HTMLElement => {
+      const input = h("input", { class: "input input-sm rounded-lg w-full num", attrs: { type: "text", spellcheck: "false", autocomplete: "off", placeholder }, data: { bands: key } });
+      input.value = typedBands[key];
+      input.addEventListener("input", () => {
+        typedBands[key] = input.value;
+        input.classList.toggle("input-error", parseBandText(rat, input.value) === null);
+      });
+      return h("label", { class: "block space-y-1" }, h("span", { class: "text-xs font-semibold" }, ctx.t(rat === "LTE" ? "ctl.lte_bands" : "ctl.nr_bands")), input);
+    };
+    const nrShown = locksNrBands(family);
+    const applyBtn = h("button", { class: "btn btn-warning btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("lock"), ctx.t("ctl.apply_bands"));
+    applyBtn.addEventListener("click", () => {
+      const lte = parseBandText("LTE", typedBands.lte);
+      const nr = nrShown ? parseBandText("NR", typedBands.nr) : undefined;
+      if (lte === null || nr === null) {
+        ctx.toast(ctx.t("ctl.bands_invalid", { rat: lte === null ? "4G" : "5G" }), "warning");
+        return;
+      }
+      if (lte === undefined && nr === undefined) {
+        ctx.toast(ctx.t("ctl.bands_nothing"), "warning");
+        return;
+      }
+      const describe = (rat: "LTE" | "NR", value: Array<number> | "all" | undefined): string =>
+        value === undefined ? "" : value === "all" ? ctx.t("ctl.all_bands", { rat }) : value.map((b) => bandLabel(rat, b)).join("+");
+      const summary = [describe("LTE", lte), describe("NR", nr)].filter(Boolean).join(" · ");
+      const body: BandLockRequest = { ...(lte !== undefined ? { lteBands: lte } : {}), ...(nr !== undefined ? { nrBands: nr } : {}) };
+      void confirmExperimental({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
+        if (!ok) return;
+        runBusy(applyBtn, async () => {
+          try {
+            const res = await ctx.api.bandLock(body);
+            ctx.store.update({ lockState: res.lockState }, ["locks"]);
+          } catch (err) {
+            fail(err);
+          }
+        });
+      });
+    });
+    return section(
+      withHelp(ctx, ctx.t("ctl.band_lock"), "lock-band"),
+      current,
+      field("LTE", "lte", "1, 3, 41"),
+      nrShown ? field("NR", "nr", "41, 78") : null,
+      h("p", { class: "text-[0.6875rem] faint" }, ctx.t("ctl.bands_typed", { example: "1, 3, 41" })),
+      h("div", { class: "flex gap-2 justify-end" }, experimentalUnlockButton(), applyBtn)
     );
   };
 
@@ -667,6 +735,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
     // controls, and offer only the experimental writes its owner turned on, the generic way
     const lockedModel = readOnlyModel(scheduler);
     const open = experimentalWrites(scheduler);
+    const otherBrand = driverFamilyOf(scheduler);
     const deviceBtn = h("button", { class: "btn btn-sm btn-primary rounded-lg gap-1.5", attrs: { type: "button" }, data: { action: "open-device" } }, icon("cpu"), ctx.t("dev.open_device"));
     deviceBtn.addEventListener("click", () => dialog.close());
     renderSelfHeal();
@@ -691,7 +760,9 @@ export function mountControls(ctx: AppContext): { open(): void } {
           h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("alert", "text-warning mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.experimental_controls", { model: lockedModel }))),
           h("div", { class: "flex justify-end" }, deviceBtn)
         ),
-        ...(open.includes("bandLock") ? [experimentalBandSection(scheduler?.device.lteBands ?? [])] : []),
+        // Another brand's driver locks what is typed; a HiLink model the LTE bands it advertises
+        ...(otherBrand !== null && (open.includes("bandLock") || open.includes("cellLock")) ? [driverLockSection(otherBrand, open.includes("bandLock"))] : []),
+        ...(otherBrand === null && open.includes("bandLock") ? [experimentalBandSection(scheduler?.device.lteBands ?? [])] : []),
         ...(open.some((f) => f === "mobileData" || f === "reconnect" || f === "reboot") ? [experimentalSystemSection(open)] : []),
       ];
     }

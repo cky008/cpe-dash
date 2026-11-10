@@ -17,6 +17,7 @@ import { BEHAVIOUR_ENV, type BehaviourOverrides, type BehaviourValues, describeB
 import { MAX_TOKENS, type TokenPermission, describePermissions, readTokenPermissions, readTokenRequest, scopeForPermissions, validateNewPassword } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
+import { FAMILY_AUTO, ROUTER_FAMILIES, type RouterFamily, isDriverFamily, isRouterFamily } from "../../../src/router-family.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 
 type Body = Readonly<Record<string, unknown>>;
@@ -192,15 +193,26 @@ export class DemoConsole {
     return this.summary();
   }
 
-  /** The connection a body asks for; anything left out keeps the stored value, like the daemon. */
-  test(body: Body): ConnectionTestResult {
+  /**
+   * The connection a body asks for; anything left out keeps the stored value, like the daemon. The
+   * demo's router is a HiLink one: detection (`family: "auto"`) finds that brand, and another brand
+   * named for it gets the answer a real router of the wrong brand gives.
+   */
+  test(body: Body): { result: ConnectionTestResult; family: RouterFamily } {
+    const asked = body["family"];
+    if (asked !== undefined && asked !== null && asked !== FAMILY_AUTO && !isRouterFamily(asked)) {
+      throw new CpeControlValidationError(`"family" must be "${FAMILY_AUTO}" or one of ${ROUTER_FAMILIES.join(", ")}`);
+    }
+    const family = isRouterFamily(asked) ? asked : "huawei";
+    const failed = (reason: "invalid_url" | "router_error", message: string): ConnectionTestResult => ({ ok: false, reason, code: null, remainCount: null, waitTimeSec: null, message });
     const problem = urlProblem(this.#candidate(body).url);
-    if (problem) return { ok: false, reason: "invalid_url", code: null, remainCount: null, waitTimeSec: null, message: problem };
-    return { ok: true, holdMs: 80 + Math.round(this.#random() * 160), ...this.#device };
+    if (problem) return { result: failed("invalid_url", problem), family };
+    if (isDriverFamily(family)) return { result: failed("router_error", "the demo's router is a Huawei (HiLink) one: its answers do not fit another brand"), family };
+    return { result: { ok: true, holdMs: 80 + Math.round(this.#random() * 160), ...this.#device }, family };
   }
 
   save(body: Body): SaveConnectionResponse {
-    const result = this.test(body);
+    const { result } = this.test(body);
     if (!result.ok) {
       this.record("settings.cpe", "refused", `test failed: ${result.reason}`);
       throw new DemoRefusal(400, { ok: false, errorCode: "CPE_TEST_FAILED", message: result.message, connectionTest: result });

@@ -355,6 +355,11 @@ class FiberhomeSession implements DriverSessionHandle {
 export const fiberhomeProtocol: DriverProtocol = {
   family: FAMILY,
 
+  async detect(http: LanHttp): Promise<boolean> {
+    await freshSession(http);
+    return true;
+  },
+
   async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
     const status = await tool(http, "app_get_login_status", null);
     const locked = textOf(status["lockstatus"]) === "1";
@@ -371,6 +376,8 @@ export const fiberhomeProtocol: DriverProtocol = {
       throw loginLocked("the router has locked its login", minutes !== null && minutes >= 0 ? Math.round(minutes * 60) : null);
     }
     if (result === "3") throw signedInElsewhere("another administrator is signed in");
+    // The router's policy keeps this administrator out: no other password would get in either
+    if (result === "4") throw loginUnplaced("the router forbids this administrator to sign in");
     throw loginUnplaced(`login answered ${result ?? "no result"}`);
   },
 };

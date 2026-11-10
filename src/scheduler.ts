@@ -38,6 +38,7 @@ import { type I18nKey, t } from "./i18n.ts";
 import { ROUTER_FAMILY_LABELS, isDriverFamily, routerFamilyOf, type RouterFamily } from "./router-family.ts";
 import { createDriverClient } from "./drivers/brands.ts";
 import { type DriverCpeClient, isInsideDriverSession } from "./drivers/client.ts";
+import { detectRouterFamily } from "./drivers/detect.ts";
 import { DriverLoginMethodError } from "./drivers/login.ts";
 import { CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./drivers/snapshot.ts";
 import type { DriverSession } from "./drivers/types.ts";
@@ -280,7 +281,9 @@ export type ConnectionTestResult =
         | "human_logged_in"
         | "unreachable"
         | "standby"
-        | "router_error";
+        | "router_error"
+        /** Brand detection: the router answered none of the families' login-free requests (no password went out). */
+        | "unknown_brand";
       code: string | null;
       /** Login attempts the router says are left (after a wrong password). */
       remainCount: number | null;
@@ -669,25 +672,25 @@ export class MutexSessionScheduler extends EventEmitter {
    * Refuse a write the router's model does not allow (before any session, in the queue, and in the
    * write's session): another model writes only what users verified on it or its owner consented to.
    */
-  #assertWritable(feature: WriteFeature): void {
+  #assertWritable(action: ControlAction): void {
     const current = this.device.current;
-    if (current && this.device.writeAccess(feature) === "read_only") throw new DeviceReadOnlyError(modelLabel(current.model), feature);
+    if (current && this.device.actionAccess(action) === "read_only") throw new DeviceReadOnlyError(modelLabel(current.model), CONTROL_FEATURES[action]);
   }
 
   /** A write while this run has not seen the router's model: read it in the write's own session first. */
-  async #confirmModel(session: EphemeralCpeSession, feature: WriteFeature): Promise<void> {
+  async #confirmModel(session: EphemeralCpeSession, action: ControlAction): Promise<void> {
     const reported = await readRouterModel(session);
     if (!reported) throw new DeviceNotIdentifiedError();
     this.#seeModel(reported.model, reported.softwareVersion);
-    this.#assertWritable(feature);
+    this.#assertWritable(action);
   }
 
   /** The same, in a driver family's session: the driver reads who the router is. */
-  async #confirmDriverModel(session: DriverSession, feature: WriteFeature): Promise<void> {
+  async #confirmDriverModel(session: DriverSession, action: ControlAction): Promise<void> {
     const identity = await session.identify();
     if (!identity.model) throw new DeviceNotIdentifiedError();
     this.#seeModel(identity.model, identity.softwareVersion);
-    this.#assertWritable(feature);
+    this.#assertWritable(action);
   }
 
   isCircuitTripped(): boolean {
@@ -890,6 +893,25 @@ export class MutexSessionScheduler extends EventEmitter {
     });
   }
 
+  /**
+   * Tell the family of the router at `url` from what it answers without a login (`detectRouterFamily`):
+   * one queued step of its own, so it never overlaps a session. No password and no session are
+   * involved; the live connection stays untouched. The console asks this when its owner leaves the
+   * brand to FengSui; the daemon never does on its own.
+   */
+  async detectFamily(url: string): Promise<RouterFamily | Extract<ConnectionTestResult, { ok: false }>> {
+    const failure = (reason: "standby" | "invalid_url" | "unknown_brand", message: string): Extract<ConnectionTestResult, { ok: false }> => ({ ok: false, reason, code: null, remainCount: null, waitTimeSec: null, message });
+    if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
+    return await this.#enqueue("high", async () => {
+      try {
+        const family = await detectRouterFamily({ cpeUrl: url, fetchImpl: this.#client.fetchImpl, requestTimeoutMs: this.#client.timeoutMs });
+        return family ?? failure("unknown_brand", "the router answered none of the brands FengSui knows; nothing was sent to it but login-free requests");
+      } catch (err) {
+        return failure("invalid_url", err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
   /** Router error codes per endpoint since start, connection tests included (the device report). */
   apiErrorSnapshot(): ApiErrorSnapshot {
     return this.#client.apiErrors.snapshot();
@@ -1083,8 +1105,8 @@ export class MutexSessionScheduler extends EventEmitter {
         async (session) => {
           // A read that ended just before this session notes the model it saw only after the
           // queue's look, so look again here, right before the write
-          if (this.device.confirmed) this.#assertWritable(feature);
-          else await this.#confirmModel(session, feature);
+          if (this.device.confirmed) this.#assertWritable(actionName);
+          else await this.#confirmModel(session, actionName);
           const write: WriteContext = { generic: this.device.generic, lteBands: this.device.experimentalLteBands, check: newWriteCheck() };
           gate.write = write;
           return await fn(session, write);
@@ -1106,8 +1128,8 @@ export class MutexSessionScheduler extends EventEmitter {
     return await this.#runGatedControl(actor, actionName, feature, summary, (gate) =>
       driver.withSessionDetailed(
         async (session) => {
-          if (this.device.confirmed) this.#assertWritable(feature);
-          else await this.#confirmDriverModel(session, feature);
+          if (this.device.confirmed) this.#assertWritable(actionName);
+          else await this.#confirmDriverModel(session, actionName);
           // A driver write is experimental on every model: recorded with its read-back (no LTE band list to go by)
           const write: WriteContext = { generic: true, lteBands: null, check: newWriteCheck() };
           gate.write = write;
@@ -1131,11 +1153,11 @@ export class MutexSessionScheduler extends EventEmitter {
     open: (gate: { write: WriteContext | null }) => Promise<SessionExecutionOutcome<T>>
   ): Promise<T> {
     // The write gate: a router whose model does not allow this write gets no session at all
-    this.#assertWritable(feature);
+    this.#assertWritable(actionName);
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
       // The model may have changed while this write waited
-      this.#assertWritable(feature);
+      this.#assertWritable(actionName);
       const wasTripped = this.#active().getCircuitBreakerState().tripped;
       /** Set once the gate let this write through in its session: which implementation applies. */
       const gate: { write: WriteContext | null } = { write: null };

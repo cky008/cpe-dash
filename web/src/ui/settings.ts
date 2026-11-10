@@ -22,14 +22,16 @@ import {
   WAN_RECONNECT_MIN,
 } from "../../../src/behaviour-settings.ts";
 import { TOKEN_LIFETIMES_DAYS, TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
-import type { PublicTokenRecord } from "../../../src/console-settings.ts";
-import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
+import type { ConsentFeature, PublicTokenRecord } from "../../../src/console-settings.ts";
+import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES } from "../../../src/device-profile.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
+import { DRIVER_WRITE_FEATURES, FAMILY_AUTO, type RouterFamily, routerFamilyOf } from "../../../src/router-family.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn } from "../core/agent-test-view.ts";
 import { ApiError } from "../core/api.ts";
 import {
   type NoticeTone,
+  type TestedConnection,
   auditCaller,
   chatIdText,
   connectionNotice,
@@ -61,7 +63,7 @@ import {
   verificationNotice,
   writeResultDetail,
 } from "../core/device-view.ts";
-import type { ConnectionInput } from "../core/endpoints.ts";
+import { type RouterDraft, asksUsername, brandLabel, brandNote, brandOf, brandOptions, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../core/router-brand.ts";
 import { formatAgo } from "../core/format.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../i18n/settings.ts";
@@ -83,7 +85,8 @@ const TABS: ReadonlyArray<{ id: SettingsTab; key: SettingsTextKey; icon: string 
 ];
 /** Every lifetime the daemon accepts, then "never expires". */
 const LIFETIMES: ReadonlyArray<number | null> = [...TOKEN_LIFETIMES_DAYS, null];
-const isExperimentalFeature = (feature: WriteFeature): feature is ExperimentalFeature => (EXPERIMENTAL_FEATURES as ReadonlyArray<string>).includes(feature);
+/** A write its owner can turn on: a generic HiLink write, or one another brand's driver implements. */
+const isConsentFeature = (feature: WriteFeature): feature is ConsentFeature => ([...EXPERIMENTAL_FEATURES, ...DRIVER_WRITE_FEATURES] as ReadonlyArray<string>).includes(feature);
 const DEFAULT_LIFETIME_DAYS = 90;
 /** A new token reads SMS too unless unticked (what a read-only token did before permissions). */
 const DEFAULT_PERMISSIONS: ReadonlyArray<TokenPermission> = ["sms-read"];
@@ -102,7 +105,6 @@ const TAB_LABEL_CLASS: Readonly<Record<"zh-CN" | "en", { label: string; heading:
   "zh-CN": { label: "hidden @[40rem]:inline", heading: "fs-label @[40rem]:hidden" },
   en: { label: "hidden @[46rem]:inline", heading: "fs-label @[46rem]:hidden" },
 };
-const DEFAULT_CPE_URL = "http://192.168.8.1";
 const AUDIT_LIMIT = 200;
 const NOTICE_ICON: Readonly<Record<NoticeTone, readonly [string, string]>> = {
   info: ["info", "text-info"],
@@ -122,14 +124,6 @@ const OUTCOME: Readonly<Record<AuditEntry["outcome"], readonly [SettingsTextKey,
   failed: ["outcome_failed", "text-error"],
 };
 
-/** The router form as typed: it survives re-renders, tab switches and failed tests. */
-interface RouterDraft {
-  url: string;
-  username: string;
-  password: string;
-  lastAttempt: boolean;
-}
-
 /** A refused save carries the failed test in its envelope. */
 function refusedTest(err: unknown): ConnectionTestResult | null {
   return err instanceof ApiError ? (err.envelope?.connectionTest ?? null) : null;
@@ -147,8 +141,10 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   let tab: SettingsTab = "router";
   let guided = false;
   let summary: ConsoleSettingsResponse | null = null;
-  let draft: RouterDraft = { url: DEFAULT_CPE_URL, username: "admin", password: "", lastAttempt: false };
+  let draft: RouterDraft = draftOf(null);
   let lastResult: ConnectionTestResult | null = null;
+  /** What the last test ran against, and whether FengSui told the brand itself (said with the result). */
+  let lastTested: (TestedConnection & { detected: boolean }) | null = null;
   let testing = false;
   let pairingInFlight = false;
   let savingSwitches = false;
@@ -206,11 +202,13 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   // ---------------------------------------------------------------- router
   const runTest = async (save: boolean): Promise<void> => {
     if (testing) return;
-    const body: ConnectionInput = {
-      url: draft.url.trim(),
-      username: draft.username.trim() || "admin",
-      ...(draft.password ? { password: draft.password } : {}),
-      ...(draft.lastAttempt ? { lastAttempt: true } : {}),
+    const body = connectionBody(draft);
+    const asked = draft.brand;
+    const address = draft.url;
+    /** The brand the test ran as: once FengSui has told it, the form shows it (and the next test skips the detection). */
+    const tested = (family: RouterFamily | undefined): void => {
+      lastTested = { family: family ?? (asked === FAMILY_AUTO ? "huawei" : asked), address, detected: asked === FAMILY_AUTO && family !== undefined };
+      if (asked === FAMILY_AUTO && family !== undefined && draft.brand === FAMILY_AUTO) draft = switchBrand(draft, family);
     };
     testing = true;
     render();
@@ -219,7 +217,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         const res = await ctx.api.saveConnection(body);
         lastResult = res.result;
         summary = res.settings;
-        draft = { url: res.settings.cpe?.url ?? draft.url, username: res.settings.cpe?.username ?? draft.username, password: "", lastAttempt: false };
+        tested(routerFamilyOf(res.settings.cpe?.family));
+        draft = draftOf(res.settings.cpe);
         guided = false;
         ctx.toast(t("saved"), "success");
         // The save cleared the breaker: drop its banner now rather than at the next status poll
@@ -228,10 +227,13 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           .then(({ status }) => ctx.store.update({ scheduler: status, avoidance: status.avoidance }, ["scheduler"]))
           .catch(() => undefined);
       } else {
-        lastResult = (await ctx.api.testConnection(body)).result;
+        const res = await ctx.api.testConnection(body);
+        lastResult = res.result;
+        tested(res.family);
       }
     } catch (err) {
       lastResult = refusedTest(err);
+      tested(undefined);
       if (!lastResult) fail(err);
     } finally {
       testing = false;
@@ -261,8 +263,23 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
 
   const routerTab = (): HTMLElement => {
     const stored = summary?.cpe ?? null;
-    const url = input("text", draft.url, "off", DEFAULT_CPE_URL);
-    const user = input("text", draft.username, "username");
+    const brand = h("select", { class: "select select-sm rounded-lg w-full", attrs: { "aria-label": t("brand") }, data: { field: "brand" } });
+    for (const option of brandOptions(ctx.tr.locale, t("brand_auto"))) {
+      const el = h("option", { attrs: { value: option.value } }, option.label);
+      el.selected = option.value === draft.brand;
+      brand.append(el);
+    }
+    brand.disabled = testing;
+    // Another brand is another router: its usual address and user take the place of the old brand's, and the old result goes
+    brand.addEventListener("change", () => {
+      draft = switchBrand(draft, brandOf(brand.value));
+      lastResult = null;
+      lastTested = null;
+      render();
+    });
+    const note = brandNote(draft.brand);
+    const url = input("text", draft.url, "off", usualAddress(draft.brand));
+    const user = input("text", draft.username, "username", draft.brand === FAMILY_AUTO ? t("username_default") : "");
     const pass = input("password", draft.password, "new-password", stored?.passwordSet ? t("password_keep") : "");
     const test = button(t("test"), "", () => void runTest(false));
     const save = button(t("save"), "btn-primary", () => void runTest(true));
@@ -273,8 +290,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     const sync = (): void => {
       // The stored password is used for the stored address only: another one needs it typed
       pass.placeholder = stored?.passwordSet && draft.url.trim() === stored.url ? t("password_keep") : "";
-      const untouched = stored !== null && draft.url.trim() === stored.url && draft.username.trim() === stored.username && draft.password === "";
-      const confirmable = summary?.reviewPending === true && lastResult?.ok === true && untouched && !testing;
+      const confirmable = summary?.reviewPending === true && lastResult?.ok === true && showsStored(draft, stored) && !testing;
       show(review, confirmable);
       show(save, !confirmable);
     };
@@ -286,8 +302,10 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     let status: HTMLElement | null = null;
     if (testing) status = notice(t("testing"));
     else if (lastResult) {
-      const n = connectionNotice(lastResult, t);
-      status = notice(t(n.key, n.params), n.tone);
+      const n = connectionNotice(lastResult, t, lastTested ?? undefined);
+      // A brand FengSui told itself is named first: the owner did not choose it
+      const told = lastTested?.detected ? `${t("brand_detected", { brand: brandLabel(lastTested.family, ctx.tr.locale) })} ` : "";
+      status = notice(told + t(n.key, n.params), n.tone);
     }
     let lastAttempt: HTMLElement | null = null;
     if (!testing && needsLastAttempt(lastResult)) {
@@ -299,8 +317,11 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     return h(
       "div",
       { class: "space-y-3" },
+      field(t("brand"), brand),
+      note ? h("p", { class: "text-xs faint leading-relaxed", data: { note: note.key } }, note.key === "brand_note" ? t("brand_note", { reads: t(note.reads) }) : t(note.key)) : null,
       field(t("url"), url),
-      h("div", { class: "grid grid-cols-1 sm:grid-cols-2 gap-3" }, field(t("username"), user), field(t("password"), pass)),
+      // A brand whose own page asks for a password only shows no user field
+      asksUsername(draft.brand) ? h("div", { class: "grid grid-cols-1 sm:grid-cols-2 gap-3" }, field(t("username"), user), field(t("password"), pass)) : field(t("password"), pass),
       status,
       lastAttempt,
       h("div", { class: "flex flex-wrap gap-2 justify-end" }, test, save, review)
@@ -449,8 +470,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     const label = t(FEATURE_KEYS[feature]);
     if (on) {
       input.checked = false;
-      // The daemon offers the switch only for a write with a generic implementation
-      if (!isExperimentalFeature(feature)) return;
+      // The daemon offers the switch only for a write it has an implementation of on this router
+      if (!isConsentFeature(feature)) return;
       const ok = await ctx.confirm({
         title: t("exp_on_title", { feature: label }),
         body: experimentalRiskBody(feature, model, t),
@@ -1386,8 +1407,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         .then((s) => {
           summary = s;
           guided = isGuided;
-          draft = { url: s.cpe?.url ?? DEFAULT_CPE_URL, username: s.cpe?.username ?? "admin", password: "", lastAttempt: false };
+          draft = draftOf(s.cpe);
           lastResult = null;
+          lastTested = null;
           tokens = null;
           chats = null;
           audit = null;

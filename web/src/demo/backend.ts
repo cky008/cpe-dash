@@ -468,7 +468,7 @@ export class DemoBackend {
     get("/api/console", () => this.#console.summary());
     post("/api/console/cpe/test", async (body) => {
       await this.#session(LATENCY.session);
-      return { ok: true, result: this.#console.test(body) } satisfies ConnectionTestResponse;
+      return { ok: true, ...this.#console.test(body) } satisfies ConnectionTestResponse;
     });
     post("/api/console/cpe", async (body) => {
       await this.#session(LATENCY.session);

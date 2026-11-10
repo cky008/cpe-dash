@@ -6,7 +6,8 @@ import type { CellLockPrefill } from "./cell-lock.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount, perFrame, setText } from "./dom.ts";
 import { meter, qualityClass } from "./gauge.ts";
-import { unavailableSection, writesLocked } from "../core/device-access-view.ts";
+import { isDriverFamily } from "../../../src/router-family.ts";
+import { canWrite, unavailableSection } from "../core/device-access-view.ts";
 import { cardHead, emptyState, runBusy, unavailableState } from "./widgets.ts";
 import { withHelp } from "./help.ts";
 
@@ -54,17 +55,18 @@ export function mountNeighbors(ctx: AppContext): void {
       }
     });
 
-  const row = (cell: NeighborCellEntry, serving: boolean, locked: boolean): HTMLElement => {
+  const row = (cell: NeighborCellEntry, serving: boolean, locked: boolean, otherBrand: boolean): HTMLElement => {
     const level = qualityLevel("rsrp", cell.rsrpDbm);
     const band = safeBand(cell.band);
+    // Another brand's driver takes any 3GPP band and always one cell (the dialog checks the channel); the verified router its own bands
     const lockable =
-      band !== null && cell.arfcn !== null && checkCellLockInput({ rat: cell.rat, band, arfcn: cell.arfcn, pci: cell.pci }).ok;
+      band !== null && cell.arfcn !== null && (otherBrand ? cell.pci !== null : checkCellLockInput({ rat: cell.rat, band, arfcn: cell.arfcn, pci: cell.pci }).ok);
     const lockBtn = h(
       "button",
       {
         class: "btn btn-ghost btn-xs rounded-md gap-1 text-warning",
         attrs: { type: "button" },
-        title: lockable ? ctx.t("nb.lock") : ctx.t("nb.unsupported"),
+        title: lockable ? ctx.t("nb.lock") : ctx.t(otherBrand ? "nb.no_pci" : "nb.unsupported"),
       },
       icon("lock"),
       h("span", { class: "hidden lg:inline" }, ctx.t("nb.lock"))
@@ -97,8 +99,9 @@ export function mountNeighbors(ctx: AppContext): void {
   const render = (): void => {
     const snapshot = ctx.store.state.neighbors;
     const serving = servingKeys(ctx.store.state.telemetry);
-    // A model nobody verified: read-only (no cell locks), and maybe no neighbour list at all
-    const locked = writesLocked(ctx.store.state.scheduler);
+    // No cell lock where the daemon would refuse one (a model nobody verified, until its owner turned that write on)
+    const locked = !canWrite(ctx.store.state.scheduler, "cellLock");
+    const otherBrand = isDriverFamily(ctx.store.state.scheduler?.device.family);
     const missing = unavailableSection(ctx.store.state.scheduler, "neighbors");
     const scanBtn = h("button", { class: "btn btn-ghost btn-xs rounded-lg gap-1", attrs: { type: "button" } }, icon("radar"), ctx.t("nb.scan"));
     scanBtn.addEventListener("click", () => scan(scanBtn));
@@ -145,7 +148,7 @@ export function mountNeighbors(ctx: AppContext): void {
                   h("th", { class: "text-right" }, "")
                 )
               ),
-              h("tbody", null, ...cells.map((cell) => row(cell, serving.has(`${cell.rat}|${cell.arfcn}|${cell.pci}`), locked)))
+              h("tbody", null, ...cells.map((cell) => row(cell, serving.has(`${cell.rat}|${cell.arfcn}|${cell.pci}`), locked, otherBrand)))
             )
           );
 

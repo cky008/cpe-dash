@@ -3,6 +3,7 @@ import { type AgentTestService, AgentTestUnavailableError } from "./agent-test-s
 import type {
   AgentTestResponse,
   ApiErrorEnvelope,
+  ConnectionTestResponse,
   ConsoleSettingsResponse,
   DeviceReportResponse,
   ExperimentalWritesResponse,
@@ -19,8 +20,8 @@ import { type ConsoleSettings, PAIRING_CODE_TTL_MS } from "./console-settings.ts
 import { CpeControlValidationError } from "./control-error.ts";
 import { changeExperimentalConsent } from "./experimental-consent.ts";
 import type { DeviceProbeResult, DeviceReport } from "./device-profile.ts";
-import { ROUTER_FAMILY_FACTS, routerFamilyOf } from "./router-family.ts";
-import type { ConnectionCandidate, MutexSessionScheduler } from "./scheduler.ts";
+import { FAMILY_AUTO, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, type RouterFamily, isRouterFamily, routerFamilyOf } from "./router-family.ts";
+import type { ConnectionCandidate, ConnectionTestResult, MutexSessionScheduler } from "./scheduler.ts";
 import type { ApiRouteContext } from "./sms/http-routes.ts";
 
 export interface SettingsRoutesOptions {
@@ -135,16 +136,26 @@ export class SettingsHttpRoutes {
     switch (ctx.pathname) {
       case "/api/console/cpe/test": {
         const body = await ctx.readJsonBody();
-        const candidate = this.#candidate(body);
+        const candidate = await this.#candidate(body);
+        // No brand could be told: nothing but login-free requests went out
+        if ("ok" in candidate) {
+          ctx.sendJson(200, { ok: true, result: candidate } satisfies ConnectionTestResponse);
+          return true;
+        }
         const { result, probe } = await this.#opts.scheduler.testConnectionDetailed(candidate, { lastAttempt: body["lastAttempt"] === true });
         // Testing the router in use identifies it again; a test of another address changes nothing
         if (probe && this.#isCurrentRouter(candidate.url)) this.#opts.onDeviceProbe?.(probe);
-        ctx.sendJson(200, { ok: true, result });
+        ctx.sendJson(200, { ok: true, result, family: candidate.family } satisfies ConnectionTestResponse);
         return true;
       }
       case "/api/console/cpe": {
         const body = await ctx.readJsonBody();
-        const candidate = this.#candidate(body);
+        const candidate = await this.#candidate(body);
+        if ("ok" in candidate) {
+          audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${candidate.reason}` });
+          ctx.sendJson(400, { ok: false, errorCode: "CPE_TEST_FAILED", message: candidate.message, connectionTest: candidate } satisfies ApiErrorEnvelope);
+          return true;
+        }
         const { result, probe } = await this.#opts.scheduler.testConnectionDetailed(candidate, { lastAttempt: body["lastAttempt"] === true });
         if (!result.ok) {
           audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${result.reason}` });
@@ -159,7 +170,8 @@ export class SettingsHttpRoutes {
         // The scheme the test logged in with: a SCRAM router never gets a legacy password afterwards
         await this.#opts.scheduler.applyConnection(saved, { loginScheme: probe?.identity.loginScheme ?? null });
         if (probe) this.#opts.onDeviceProbe?.(probe);
-        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host} as ${saved.username}` });
+        // The brand is part of the record: a change of it is a change of everything FengSui sends
+        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host}${saved.username ? ` as ${saved.username}` : ""} (${saved.family})` });
         if (first) this.#opts.onConnectionReady();
         ctx.sendJson(200, { ok: true, result, settings: this.summary() });
         return true;
@@ -387,17 +399,35 @@ export class SettingsHttpRoutes {
    * The connection to try: given fields, the stored ones for anything left out (the password is never
    * sent back). The stored password goes only to the stored address: another host would receive it
    * with a legacy login, or a SCRAM proof it could crack offline, so a new address needs it typed.
+   * `family: "auto"` has FengSui tell the brand from the router's login-free answers before anything
+   * else is sent; a router it cannot place comes back as a failed test instead of a candidate. A user
+   * name left out is the stored one for the stored brand, else the brand's usual one.
    */
-  #candidate(body: Record<string, unknown>): ConnectionCandidate {
+  async #candidate(body: Record<string, unknown>): Promise<(ConnectionCandidate & { family: RouterFamily }) | Extract<ConnectionTestResult, { ok: false }>> {
     const stored = this.#opts.settings.cpe;
     const url = (text(body, "url", 256) ?? stored?.url ?? "").trim();
-    const family = routerFamilyOf(body["family"] ?? stored?.family);
-    const facts = ROUTER_FAMILY_FACTS[family];
-    const username = (text(body, "username", 64) ?? stored?.username ?? facts.defaultUsername).trim();
+    const asked = body["family"];
+    if (asked !== undefined && asked !== null && asked !== FAMILY_AUTO && !isRouterFamily(asked)) {
+      throw new CpeControlValidationError(`"family" must be "${FAMILY_AUTO}" or one of ${ROUTER_FAMILIES.join(", ")}`);
+    }
     if (!url) throw new CpeControlValidationError('"url" is required, e.g. http://192.168.8.1');
+    const typedUser = text(body, "username", 64);
     const typed = text(body, "password", 256);
-    if (typed) return { url, username, password: typed, family };
-    if (stored?.password && this.#isCurrentRouter(url)) return { url, username, password: stored.password, family };
-    throw new CpeControlValidationError(stored?.password ? '"password" is required to try another router address' : '"password" is required');
+    let password: string;
+    if (typed) password = typed;
+    else if (stored?.password && this.#isCurrentRouter(url)) password = stored.password;
+    else throw new CpeControlValidationError(stored?.password ? '"password" is required to try another router address' : '"password" is required');
+
+    const storedFamily = routerFamilyOf(stored?.family);
+    let family: RouterFamily;
+    if (asked === FAMILY_AUTO) {
+      const detected = await this.#opts.scheduler.detectFamily(url);
+      if (typeof detected !== "string") return detected;
+      family = detected;
+    } else {
+      family = isRouterFamily(asked) ? asked : storedFamily;
+    }
+    const username = (typedUser ?? (stored && family === storedFamily ? stored.username : ROUTER_FAMILY_FACTS[family].defaultUsername)).trim();
+    return { url, username, password, family };
   }
 }

@@ -5,7 +5,7 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { cellGlobalId, fiberhomeProtocol, parseFiberhomeLockState, parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
-import { NRADIO_LTE_ALL_MASK, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter } from "../src/drivers/nradio.ts";
+import { NRADIO_ALL_MASK, NRADIO_LTE_ALL_MASK, nradioNrMask, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter } from "../src/drivers/nradio.ts";
 import { getXmlTag } from "../src/xml.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
@@ -232,8 +232,11 @@ describe("fiberhome: writes", () => {
 
 const OVERVIEW_HTML = `<html><body><div>设备型号: C2000 MAX</div><div>系统版本:1.9.2.n6</div><script>var a={};a['token']='a8f5f167f44f4964e6c998dee827110c';</script></body></html>`;
 
-function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview?: string } = {}) {
-  let netMode = "<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>7FFFFFFFFFFFFFFF</LTEBand></response>";
+function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview?: string; nrTag?: "NR5GBand" | "NRBand" } = {}) {
+  // A module that names its NR mask does so under one of two tags; one that names none locks LTE bands only
+  const nrTag = opts.nrTag ?? null;
+  const nrPart = (mask: string): string => (nrTag ? `<${nrTag}>${mask}</${nrTag}>` : "");
+  let netMode = `<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>7FFFFFFFFFFFFFFF</LTEBand>${nrPart("7FFFFFFFFFFFFFFF")}</response>`;
   const posts: Array<{ path: string; body: string; token: string | null }> = [];
   const mock = new LanRouterMock((req) => {
     if (req.method === "POST" && req.path === "/cgi-bin/luci") {
@@ -252,7 +255,7 @@ function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview
     if (req.path === "/cgi-bin/luci/nradio/logout") return { status: 302, headers: { location: "/" } };
     posts.push({ path: req.path, body: req.body, token: req.query.get("token") });
     if (req.path === "/api/net/net-mode") {
-      netMode = `<response><NetworkMode>${getXmlTag(req.body, "NetworkMode") ?? ""}</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>${getXmlTag(req.body, "LTEBand") ?? ""}</LTEBand></response>`;
+      netMode = `<response><NetworkMode>${getXmlTag(req.body, "NetworkMode") ?? ""}</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>${getXmlTag(req.body, "LTEBand") ?? ""}</LTEBand>${nrTag ? nrPart(getXmlTag(req.body, nrTag) ?? "") : ""}</response>`;
       return { text: "<response>OK</response>" };
     }
     if (req.path === "/api/net/lock-freq") return { text: "<response>OK</response>" };
@@ -291,6 +294,9 @@ describe("nradio: session and readings", () => {
   it("reads the overview without regular expressions and nearby cells from the scan", () => {
     assert.deepEqual(parseNradioOverview(OVERVIEW_HTML), { model: "C2000 MAX", version: "1.9.2.n6", token: "a8f5f167f44f4964e6c998dee827110c" });
     assert.deepEqual(parseNradioOverview("<p>nothing</p>"), { model: null, version: null, token: null });
+    // Newer builds carry the token as JSON; anything that is not a token is not taken for one
+    assert.equal(parseNradioOverview('<script>var cfg={"token":"0123456789abcdef0123456789abcdef"};</script>').token, "0123456789abcdef0123456789abcdef");
+    assert.equal(parseNradioOverview('<script>var cfg={"token":"not a token!"};</script>').token, null);
     assert.equal(textAfter("a: b", "a:", "<"), null);
     assert.equal(textAfter(`x:${"y".repeat(100)}<`, "x:", "<"), null);
     assert.deepEqual(
@@ -326,12 +332,49 @@ describe("nradio: writes", () => {
     assert.equal(posts[0]?.token, "a8f5f167f44f4964e6c998dee827110c");
     assert.match(posts[0]?.body ?? "", /<request><NetworkMode>03<\/NetworkMode><NetworkBand>3FFFFFFF<\/NetworkBand><LTEBand>5<\/LTEBand><\/request>/);
     assert.equal(check.readback, "match");
-    await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [1], nr: [78], networkMode: null }, newCheck())), /LTE bands only/);
-    await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [1], nr: null, networkMode: "nr_sa" }, newCheck())), CpeControlValidationError);
+    // This module reports no NR mask: an NR lock has no tag to go under, and the LTE lock sends none
+    const before = posts.length;
+    await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [1], nr: [78], networkMode: null }, newCheck())), (err: unknown) => err instanceof CpeControlValidationError && /LTE bands only/.test(err.message));
+    assert.equal(posts.length, before, "refused before anything was written");
+    assert.ok(!(posts[0]?.body ?? "").includes("NR"));
     const unlock = newCheck();
     await client.withSession((s) => s.unlockAll(unlock));
     assert.match(posts.at(-3)?.body ?? "", new RegExp(`<NetworkMode>00</NetworkMode>.*<LTEBand>${NRADIO_LTE_ALL_MASK}</LTEBand>`));
     assert.equal(unlock.readback, "match");
+  });
+
+  it("locks NR bands under the tag the module reports, switches to the 5G modes, and unlocks both RATs", async () => {
+    for (const nrTag of ["NR5GBand", "NRBand"] as const) {
+      const { posts, client } = nradioRouter({ nrTag });
+      const check = newCheck();
+      await client.withSession((s) => s.setBandLock({ lte: "all", nr: [41, 78], networkMode: "nr_sa" }, check));
+      // n41 + n78 as one mask (bit 0 is band 1), uppercase, no 0x; 0801 is 5G standalone only
+      assert.match(posts[0]?.body ?? "", new RegExp(`<request><NetworkMode>0801</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>${NRADIO_ALL_MASK}</LTEBand><${nrTag}>20000000010000000000</${nrTag}></request>`), nrTag);
+      assert.deepEqual([check.readback, check.reason], ["match", null]);
+      const locked = await client.withSession((s) => s.lockState());
+      assert.deepEqual([locked?.lteBands, locked?.nrBands, locked?.networkMode], ["all", [41, 78], "nr_sa"]);
+
+      // A lock of LTE bands alone sends the NR mask back as the router reports it
+      await client.withSession((s) => s.setBandLock({ lte: [3], nr: null, networkMode: "nr_nsa" }, newCheck()));
+      assert.match(posts.at(-1)?.body ?? "", new RegExp(`<NetworkMode>0802</NetworkMode>.*<LTEBand>4</LTEBand><${nrTag}>20000000010000000000</${nrTag}>`));
+
+      const unlock = newCheck();
+      await client.withSession((s) => s.unlockAll(unlock));
+      assert.match(posts.at(-3)?.body ?? "", new RegExp(`<NetworkMode>00</NetworkMode>.*<LTEBand>${NRADIO_ALL_MASK}</LTEBand><${nrTag}>${NRADIO_ALL_MASK}</${nrTag}>`));
+      assert.equal(unlock.readback, "match");
+      assert.deepEqual((await client.withSession((s) => s.lockState()))?.nrBands, "all");
+    }
+    assert.deepEqual(nradioNrMask("<response><NRBand>10000000000</NRBand></response>"), { tag: "NRBand", hex: "10000000000" });
+    assert.equal(nradioNrMask("<response><NR5GBand></NR5GBand><LTEBand>5</LTEBand></response>"), null);
+    assert.deepEqual(parseNradioLockState("<response><NetworkMode>0802</NetworkMode><LTEBand>5</LTEBand><NR5GBand>10000000000</NR5GBand></response>"), {
+      lteBands: [1, 3],
+      nrBands: [41],
+      lteCell: null,
+      nrCell: null,
+      networkMode: "nr_nsa",
+      supportedLte: null,
+      supportedNr: null,
+    });
   });
 
   it("locks a cell with the spacing code it needs, and says it cannot read that back", async () => {

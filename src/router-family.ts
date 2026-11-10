@@ -16,6 +16,12 @@ export type DriverFamily = Exclude<RouterFamily, "huawei">;
 
 export const DRIVER_FAMILIES = ROUTER_FAMILIES.filter((f): f is DriverFamily => f !== "huawei");
 
+/** The brand left to FengSui in a connection test or save: told from the router's login-free answers, then stored as a family. */
+export const FAMILY_AUTO = "auto";
+
+/** What the console's brand field holds: a family, or "detect it". */
+export type RouterFamilyChoice = RouterFamily | typeof FAMILY_AUTO;
+
 export function isRouterFamily(value: unknown): value is RouterFamily {
   return typeof value === "string" && (ROUTER_FAMILIES as ReadonlyArray<string>).includes(value);
 }
@@ -54,7 +60,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   fiberhome: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte"], nrBandLock: false },
+  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 

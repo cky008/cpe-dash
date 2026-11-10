@@ -4,7 +4,9 @@ import { MIN_PASSWORD_LENGTH } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import type { LoginScheme, TokenFlow } from "../../../src/device-profile.ts";
+import { type RouterFamily, isDriverFamily } from "../../../src/router-family.ts";
 import type { MessageParams } from "./i18n.ts";
+import { usualAddress } from "./router-brand.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 
 /**
@@ -45,15 +47,26 @@ export function tokenFlowText(flow: TokenFlow, t: (key: SettingsTextKey) => stri
   return t(TOKEN_FLOW_KEYS[flow]);
 }
 
+/** The connection a test ran against: its brand (the detected one when FengSui told it) and the address typed. */
+export interface TestedConnection {
+  family: RouterFamily;
+  address: string;
+}
+
 /**
  * The text, its parameters and the tone the settings dialog shows for a router test; a working one
- * also names how it logged in (`t` translates those names).
+ * also names how it logged in (`t` translates those names). `tested` is the connection the test ran
+ * against (default: the verified router's brand and usual address): a brand FengSui was never run on
+ * says so instead of naming HiLink's login details, and the guidance names the address typed.
  */
 export function connectionNotice(
   result: ConnectionTestResult,
-  t: (key: SettingsTextKey) => string
+  t: (key: SettingsTextKey) => string,
+  tested: TestedConnection = { family: "huawei", address: usualAddress("huawei") }
 ): { key: SettingsTextKey; params: Record<string, string | number>; tone: NoticeTone } {
+  const otherBrand = isDriverFamily(tested.family);
   if (result.ok) {
+    if (otherBrand) return { key: "ok_result_brand", params: { model: result.model ?? "?", firmware: result.firmware ?? "?", ms: result.holdMs }, tone: "success" };
     return {
       key: "ok_result",
       params: {
@@ -68,8 +81,12 @@ export function connectionNotice(
     };
   }
   // Every failure reason has its own guidance text (checked by the type)
-  const key: `fail_${ConnectionFailure["reason"]}` = `fail_${result.reason}`;
-  return { key, params: guidanceParams(result), tone: result.reason === "human_logged_in" || result.reason === "standby" ? "pending" : "danger" };
+  let key: SettingsTextKey = `fail_${result.reason}` satisfies `fail_${ConnectionFailure["reason"]}`;
+  // No count of attempts left: none is made up; an answer that does not fit another brand's interface points at the brand
+  if (result.reason === "wrong_password" && result.remainCount === null) key = "fail_wrong_password_nocount";
+  else if (result.reason === "router_error" && otherBrand) key = "fail_router_error_brand";
+  const params = { ...guidanceParams(result), address: tested.address.trim() || usualAddress(tested.family), usual: usualAddress(tested.family) };
+  return { key, params, tone: result.reason === "human_logged_in" || result.reason === "standby" ? "pending" : "danger" };
 }
 
 /** Why a new console password cannot be used: too short, or the repeat differs. */

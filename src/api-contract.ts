@@ -281,6 +281,8 @@ export interface ConsoleSettingsResponse {
 export interface ConnectionTestResponse {
   ok: true;
   result: ConnectionTestResult;
+  /** The family the test ran as: the one asked for, the stored one, or the one detection told (absent when detection placed none). */
+  family?: RouterFamily;
 }
 
 export interface SaveConnectionResponse {

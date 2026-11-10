@@ -67,6 +67,7 @@ import type {
   WifiDeviceAccessRequest,
   WifiMacFilterRequest,
 } from "../../../src/api-contract.ts";
+import type { RouterFamilyChoice } from "../../../src/router-family.ts";
 import type { BehaviourOverrides } from "../../../src/behaviour-settings.ts";
 import type { TokenPermission } from "../../../src/console-policy.ts";
 import type { ApiClient } from "./api.ts";
@@ -84,6 +85,8 @@ export type ThreadFilter = "all" | "unread" | "otp";
 /** A router connection to test or save; fields left out keep the stored values. */
 export interface ConnectionInput {
   url?: string;
+  /** The router's brand, or `"auto"` to have FengSui tell it before anything else is sent. */
+  family?: RouterFamilyChoice;
   username?: string;
   password?: string;
   /** Spend the router's last login attempt deliberately. */

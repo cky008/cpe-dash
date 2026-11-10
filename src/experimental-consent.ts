@@ -1,6 +1,5 @@
-import type { ConsoleSettings } from "./console-settings.ts";
+import type { ConsentFeature, ConsoleSettings } from "./console-settings.ts";
 import { type DeviceAccess, WRITE_FEATURES, type WriteFeature, type WriteFeatureState } from "./device-access.ts";
-import type { ExperimentalFeature } from "./device-profile.ts";
 
 export type ExperimentalConsentResult =
   | { ok: true; detail: string }
@@ -39,7 +38,8 @@ export function changeExperimentalConsent(
   if (!current || !model || model === "?" || typed !== model.toLowerCase()) {
     return { ok: false, errorCode: "VALIDATION_ERROR", message: `Type the router's model (${model ?? "?"}) to confirm the experimental ${feature} write`, detail: `${feature} on: model not confirmed` };
   }
-  settings.grantExperimental(current, feature as ExperimentalFeature);
+  // The gate offered it (`available`): a generic write, or one the router's driver implements
+  settings.grantExperimental(current, feature as ConsentFeature);
   device.setConsents(settings.experimentalConsents);
   return { ok: true, detail: `${feature} on for ${model}` };
 }

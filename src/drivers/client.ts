@@ -38,6 +38,12 @@ export interface DriverCredentials {
 /** How one family opens a session. */
 export interface DriverProtocol {
   readonly family: DriverFamily;
+  /**
+   * The router answers this family's own login-free request the way only this family does (the
+   * brand is told before any password goes out; `src/drivers/detect.ts`). Throws or resolves `false`
+   * for any other router.
+   */
+  detect(http: LanHttp): Promise<boolean>;
   precheck?(http: LanHttp): Promise<DriverPrecheck | null>;
   /** Submit the password once; throw `CpeApiError` with a login code when the router refuses it. */
   login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle>;

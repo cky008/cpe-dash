@@ -77,6 +77,11 @@ export interface ZteVersion {
   crVersion: string;
 }
 
+/**
+ * The generation goes by the hardware version and the model name alone. One protocol note also
+ * sends a `cr_version` containing `V1.0.0` or `HW1.0` to branch 4, but version strings of the
+ * standard generation carry the same marks, so that rule would move an MC801A off the forms it takes.
+ */
 export function zteBranch(version: Pick<ZteVersion, "hardwareVersion" | "modelName">): ZteBranch {
   const hw = `${version.hardwareVersion} ${version.modelName}`;
   if (hw.includes("8020") || hw.includes("3351")) return 3;
@@ -224,6 +229,8 @@ export const ZTE_TELEMETRY_KEYS: ReadonlyArray<string> = [
   "flux_monthly_rx_bytes",
   "flux_monthly_tx_bytes",
   "flux_monthly_time",
+  "total_rx_bytes",
+  "total_tx_bytes",
   "network_information",
 ];
 
@@ -372,8 +379,8 @@ export function parseZteGoformTelemetry(raw: Record<string, unknown>): DriverTel
     traffic: {
       downloadBytesPerSec: nonNegativeOf(v("realtime_rx_thrpt")) ?? nonNegativeOf(v("flux_realtime_rx_thrpt")),
       uploadBytesPerSec: nonNegativeOf(v("realtime_tx_thrpt")) ?? nonNegativeOf(v("flux_realtime_tx_thrpt")),
-      totalDownloadBytes: null,
-      totalUploadBytes: null,
+      totalDownloadBytes: counterOf(v("total_rx_bytes")),
+      totalUploadBytes: counterOf(v("total_tx_bytes")),
       sessionDownloadBytes: counterOf(v("realtime_rx_bytes")),
       sessionUploadBytes: counterOf(v("realtime_tx_bytes")),
       sessionSeconds: nonNegativeOf(v("realtime_time")) ?? nonNegativeOf(v("flux_realtime_time")),
@@ -595,16 +602,20 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   /**
-   * On MC8020 (branch 3) and MC888 (branch 2), entering developer option mode unlocks
-   * band and cell locking. Runs lazily once before the first lock write in the session.
+   * On the MC8020 (branch 3) and the MC888 (branch 2) the login alone may not lock bands or cells:
+   * the router wants its developer options opened first, with the same password over a fresh nonce
+   * (`DEVELOPER_OPTION_LOGIN`, the one write besides the login that carries no `AD`). Sent once per
+   * session, before its first lock write, and named in that write's record. When it fails the lock
+   * write still goes out: the router's own answer to it is what the write reports.
    */
-  async #ensureDeveloperMode(): Promise<void> {
+  async #ensureDeveloperMode(check: WriteCheck): Promise<void> {
     if (this.#developerUnlocked || (this.#branch !== 2 && this.#branch !== 3) || !this.#password) return;
     this.#developerUnlocked = true;
     try {
       const devLd = textOf((await getCmd(this.#http, ["LD"], false))["LD"]);
       const devMethod = zteLoginMethodOf(devLd, this.#configJs);
       if (devMethod !== null) {
+        noteSent(check, FAMILY, "DEVELOPER_OPTION_LOGIN");
         await setCmd(this.#http, [
           ["isTest", "false"],
           ["goformId", "DEVELOPER_OPTION_LOGIN"],
@@ -612,7 +623,7 @@ class ZteGoformSession implements DriverSessionHandle {
         ]);
       }
     } catch {
-      // Best-effort developer option login on MC8020 / MC888
+      // The lock write that follows reports what the router makes of it
     }
   }
 
@@ -651,7 +662,7 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
-    await this.#ensureDeveloperMode();
+    await this.#ensureDeveloperMode(check);
     const lte = target.lte === "all" ? "all" : checkLockBands("LTE", target.lte, null);
     const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
     const lteForm = zteLteBandForm(this.#branch, lte);
@@ -665,7 +676,7 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
-    await this.#ensureDeveloperMode();
+    await this.#ensureDeveloperMode(check);
     const checked = checkCellLock(target);
     const form = zteCellForm(this.#branch, checked);
     await this.#post(check, form.goformId, form.fields);
@@ -673,7 +684,7 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   async unlockAll(check: WriteCheck): Promise<void> {
-    await this.#ensureDeveloperMode();
+    await this.#ensureDeveloperMode(check);
     const before = await this.lockState();
     if (before.lteBands !== "all") {
       const form = zteLteBandForm(this.#branch, "all");
@@ -727,6 +738,11 @@ function lockOf(status: Record<string, unknown>): { waitSec: number | null } | n
 
 export const zteGoformProtocol: DriverProtocol = {
   family: FAMILY,
+
+  async detect(http: LanHttp): Promise<boolean> {
+    const versions = await getCmd(http, VERSION_KEYS);
+    return textOf(versions["wa_inner_version"]) !== null || textOf(versions["hardware_version"]) !== null;
+  },
 
   async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
     const status = await getCmd(http, LOCK_STATUS_KEYS);

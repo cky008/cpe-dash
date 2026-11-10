@@ -326,6 +326,12 @@ function lockOf(payload: Record<string, unknown>): { waitSec: number | null } | 
 export const zteZwrtProtocol: DriverProtocol = {
   family: FAMILY,
 
+  async detect(http: LanHttp): Promise<boolean> {
+    // Only ZTE's firmware carries the zwrt_web object; any other ubus answers it with an error
+    await new Rpc(http).call("zwrt_web", "web_language_get");
+    return true;
+  },
+
   async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
     const info = await new Rpc(http).call("zwrt_web", "web_login_info");
     return { occupied: false, locked: lockOf(info) };

@@ -45,6 +45,9 @@ export const CONTROL_FEATURES = {
 
 export type ControlAction = keyof typeof CONTROL_FEATURES;
 
+/** The writes that take locks off (filed under the band lock; see `DeviceAccess.actionAccess`). */
+const UNLOCK_ACTIONS: ReadonlySet<ControlAction> = new Set<ControlAction>(["unlock_rf_locks", "auto_unlock_rf_locks"]);
+
 /** The features a router write belongs to, in the order the console lists them. */
 export const WRITE_FEATURES = [
   "bandLock",
@@ -176,6 +179,8 @@ export interface ReadRecord {
 
 /** `scheduler.device` as adapters read it (`SchedulerStatusSnapshot.device`). */
 export interface DeviceAccessSnapshot {
+  /** The brand the connection was saved with (Settings → Router): which stack reads and writes this router. */
+  family: RouterFamily;
   /** The model the gate goes by (seen in this run, else stored by an earlier one); `null` before any identification, `?` for one that is not plain text. */
   model: string | null;
   verification: DeviceVerification;
@@ -371,6 +376,17 @@ export class DeviceAccess {
     return this.#consents.some((c) => c.model === current.model && c.feature === feature) ? "consented" : "available";
   }
 
+  /**
+   * Whether the gate lets a write through. A write goes by its feature, with one exception: taking a
+   * lock off is open to whoever may put one on. Where a router's owner turned on the cell lock alone,
+   * an unlock is not refused for the band lock's sake: a lock nobody may undo is worse than either write.
+   */
+  actionAccess(action: ControlAction): FeatureWriteAccess {
+    const access = this.writeAccess(CONTROL_FEATURES[action]);
+    if (access === "read_only" && UNLOCK_ACTIONS.has(action) && this.writeAccess("cellLock") === "experimental") return "experimental";
+    return access;
+  }
+
   writeAccess(feature: WriteFeature): FeatureWriteAccess {
     const state = this.writeState(feature);
     if (state === "unknown") return "unknown";
@@ -435,6 +451,7 @@ export class DeviceAccess {
   snapshot(): DeviceAccessSnapshot {
     const current = this.current;
     return {
+      family: this.#family,
       model: current ? modelLabel(current.model) : null,
       verification: deviceVerification(current?.model ?? null, current?.softwareVersion ?? null),
       confirmed: this.confirmed,

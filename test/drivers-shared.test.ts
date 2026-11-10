@@ -323,6 +323,7 @@ function fakeProtocol(opts: { precheck?: () => Promise<{ occupied: boolean; lock
   const counts = { logins: 0, logouts: 0 };
   const protocol: DriverProtocol = {
     family: "tozed",
+    detect: async () => true,
     precheck: opts.precheck,
     async login(): Promise<DriverSessionHandle> {
       counts.logins += 1;

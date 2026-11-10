@@ -28,8 +28,9 @@ import { arfcnOf, bandOf, counterOf, fieldOf, identityOf, ipv4Of, ipv6Of, isPlai
  * cookie, the overview page carries the model, the version and the request token later writes add
  * as `?token=`. Readings come from LuCI (`status/runtime/wan,cpe_4`, the nearby-cell scan); band and
  * cell locks go through the HiLink-style XML the cellular module's bridge offers (`/api/net/net-mode`,
- * `/api/net/lock-freq`), as FengSui writes it on other Huawei models: LTE bands only, keeping the
- * mode and the other bands the router reports.
+ * `/api/net/lock-freq`): the LTE mask, the NR mask under the tag the module itself reports it with
+ * (`NR5GBand` or `NRBand`; a module that reports neither locks LTE bands only), and the network mode;
+ * whatever a write does not change is sent back as the router reports it.
  */
 
 const FAMILY = "nradio" as const;
@@ -44,10 +45,35 @@ const LOCK_FREQ = "/api/net/lock-freq";
 const REFERER = "/html/content.html";
 const TOKEN = /^[0-9A-Za-z]{8,64}$/;
 
-/** Every LTE band, as HiLink modules take "no lock". */
-export const NRADIO_LTE_ALL_MASK = "7FFFFFFFFFFFFFFF";
+/** Every band of a RAT, as HiLink-style modules take "no lock". */
+export const NRADIO_ALL_MASK = "7FFFFFFFFFFFFFFF";
+export const NRADIO_LTE_ALL_MASK = NRADIO_ALL_MASK;
 
-const NETWORK_MODES: Readonly<Record<"auto" | "lte", string>> = { auto: "00", lte: "03" };
+/** `NetworkMode` codes of the module's bridge: automatic, 4G only, 5G standalone only, 5G non-standalone. */
+const NETWORK_MODES: Readonly<Record<DriverNetworkMode, string>> = { auto: "00", lte: "03", nr_sa: "0801", nr_nsa: "0802" };
+
+/** The tags a module names its NR band mask with (both are in the field; FengSui answers with the one it read). */
+const NR_BAND_TAGS = ["NR5GBand", "NRBand"] as const;
+
+type NrBandTag = (typeof NR_BAND_TAGS)[number];
+
+/** The NR band mask of a `net-mode` answer with the tag that carried it (`null`: the module reports none). */
+export function nradioNrMask(netMode: string): { tag: NrBandTag; hex: string } | null {
+  for (const tag of NR_BAND_TAGS) {
+    const hex = getXmlTag(netMode, tag);
+    if (hex !== null && hex !== "") return { tag, hex };
+  }
+  return null;
+}
+
+function bandsOfMask(hex: string | null): number[] | "all" | null {
+  if (hex === null) return null;
+  return hex.toUpperCase() === NRADIO_ALL_MASK ? "all" : hexToBands(hex);
+}
+
+function maskOfBands(bands: ReadonlyArray<number> | "all"): string {
+  return bands === "all" ? NRADIO_ALL_MASK : bandsToHex(bands, { upper: true });
+}
 
 /** The text after `label` up to the next `<` (or `'` for the token), bounded: no regex on router HTML. */
 export function textAfter(html: string, label: string, end: string, max = 64): string | null {
@@ -67,7 +93,8 @@ export interface NradioOverview {
 }
 
 export function parseNradioOverview(html: string): NradioOverview {
-  const token = textAfter(html, "'token']='", "'");
+  // The page's script sets the token as ['token']='…'; newer builds carry it as "token":"…"
+  const token = textAfter(html, "'token']='", "'") ?? textAfter(html, '"token":"', '"');
   return { model: labelOf(textAfter(html, "设备型号:", "<")), version: labelOf(textAfter(html, "系统版本:", "<")), token: token !== null && TOKEN.test(token) ? token : null };
 }
 
@@ -139,11 +166,17 @@ export function parseNradioNeighbours(answer: unknown): DriverNeighbour[] | null
 }
 
 export function parseNradioLockState(netMode: string): DriverLockState {
-  const lteHex = getXmlTag(netMode, "LTEBand");
-  const lteBands = lteHex === null ? null : lteHex.toUpperCase() === NRADIO_LTE_ALL_MASK ? "all" : hexToBands(lteHex);
   const code = getXmlTag(netMode, "NetworkMode");
   const networkMode = (Object.entries(NETWORK_MODES) as Array<[DriverNetworkMode, string]>).find(([, v]) => v === code)?.[0] ?? null;
-  return { lteBands, nrBands: null, lteCell: null, nrCell: null, networkMode, supportedLte: null, supportedNr: null };
+  return {
+    lteBands: bandsOfMask(getXmlTag(netMode, "LTEBand")),
+    nrBands: bandsOfMask(nradioNrMask(netMode)?.hex ?? null),
+    lteCell: null,
+    nrCell: null,
+    networkMode,
+    supportedLte: null,
+    supportedNr: null,
+  };
 }
 
 class NradioSession implements DriverSessionHandle {
@@ -208,21 +241,31 @@ class NradioSession implements DriverSessionHandle {
     if (getXmlTag(res.text, "response")?.toUpperCase() !== "OK") throw new CpeAnswerFormatError(`${path}: the router did not answer OK`);
   }
 
-  /** `net-mode` with the LTE mask changed (and the mode, when asked); what the router reports is sent back as it is. */
-  async #writeNetMode(check: WriteCheck, lteMask: string, mode: string | null): Promise<void> {
+  /**
+   * `net-mode` with the LTE mask changed, and the NR mask and the mode when asked; what the router
+   * reports is sent back as it is, the NR mask under the tag it came with. A module that reports no
+   * NR mask gets none: there is no telling which tag it would take.
+   */
+  async #writeNetMode(check: WriteCheck, write: { lte: ReadonlyArray<number> | "all"; nr: ReadonlyArray<number> | "all" | null; mode: DriverNetworkMode | null }): Promise<void> {
     const current = await this.#netMode();
     const networkMode = getXmlTag(current, "NetworkMode");
     const networkBand = getXmlTag(current, "NetworkBand");
     if (!networkMode || !networkBand) throw new CpeAnswerFormatError(`${NET_MODE} named no NetworkMode and NetworkBand to send back; refusing to write guessed values`);
-    await this.#postXml(check, NET_MODE, { NetworkMode: mode ?? networkMode, NetworkBand: networkBand, LTEBand: lteMask });
+    const nr = nradioNrMask(current);
+    if (write.nr !== null && nr === null) throw new CpeControlValidationError("This router's cellular module reports no NR band setting: it locks LTE bands only");
+    await this.#postXml(check, NET_MODE, {
+      NetworkMode: write.mode === null ? networkMode : NETWORK_MODES[write.mode],
+      NetworkBand: networkBand,
+      LTEBand: maskOfBands(write.lte),
+      ...(nr === null ? {} : { [nr.tag]: write.nr === null ? nr.hex : maskOfBands(write.nr) }),
+    });
   }
 
   async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
-    if (target.nr !== null && target.nr !== "all") throw new CpeControlValidationError("This router locks LTE bands only");
-    if (target.networkMode !== null && target.networkMode !== "auto" && target.networkMode !== "lte") throw new CpeControlValidationError("This router switches between automatic and 4G only");
     const lte = target.lte === "all" ? "all" : checkLockBands("LTE", target.lte, null);
-    await this.#writeNetMode(check, lte === "all" ? NRADIO_LTE_ALL_MASK : bandsToHex(lte, { upper: true }), target.networkMode === null ? null : NETWORK_MODES[target.networkMode]);
-    settleBandLock(check, { lte, nr: null, networkMode: target.networkMode }, await this.lockState().catch(() => null));
+    const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
+    await this.#writeNetMode(check, { lte, nr, mode: target.networkMode });
+    settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
   }
 
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
@@ -244,9 +287,13 @@ class NradioSession implements DriverSessionHandle {
   async unlockAll(check: WriteCheck): Promise<void> {
     const before = await this.lockState();
     const resetMode = before.networkMode !== null && before.networkMode !== "auto";
-    if (before.lteBands !== "all" || resetMode) await this.#writeNetMode(check, NRADIO_LTE_ALL_MASK, resetMode ? NETWORK_MODES.auto : null);
+    // The NR bands are unlocked where the module reports them
+    const nrReported = before.nrBands !== null;
+    if (before.lteBands !== "all" || (nrReported && before.nrBands !== "all") || resetMode) {
+      await this.#writeNetMode(check, { lte: "all", nr: nrReported ? "all" : null, mode: resetMode ? "auto" : null });
+    }
     for (const mode of [0, 1]) await this.#postXml(check, LOCK_FREQ, { mode, enable: 0, freq: 0, band: 0, cellid: 0 });
-    settleUnlock(check, await this.lockState().catch(() => null), { nr: false, mode: resetMode });
+    settleUnlock(check, await this.lockState().catch(() => null), { nr: nrReported, mode: resetMode });
   }
 
   async reboot(check: WriteCheck): Promise<void> {
@@ -273,6 +320,13 @@ function hasSysauth(http: LanHttp): boolean {
 
 export const nradioProtocol: DriverProtocol = {
   family: FAMILY,
+
+  async detect(http: LanHttp): Promise<boolean> {
+    const res = await http.request({ method: "GET", path: LOGIN, referer: LOGIN, redirect: "manual" });
+    if (res.status !== 200 && res.status !== 302) return false;
+    // NROS mounts its pages under /cgi-bin/luci/nradio: plain OpenWrt has no such path
+    return `${res.location ?? ""} ${res.text.slice(0, 262_144)}`.toLowerCase().includes("nradio");
+  },
 
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
     // The form POST, never the password in a query string; the cookie comes with the redirect

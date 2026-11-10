@@ -173,6 +173,10 @@ export class CpeControlService {
       "lock_band",
       async (session, write) => {
         const before = await session.lockState().catch((): DriverLockState | null => null);
+        // The bands a command leaves out are the router's to keep: unread, they would be overwritten with a guess
+        if (target.lte === null && (before?.lteBands ?? null) === null) {
+          throw new CpeControlValidationError("The router's current LTE bands could not be read, and locking NR bands alone would overwrite them: name lteBands as well (or 'all')");
+        }
         const lte = target.lte ?? before?.lteBands ?? "all";
         savedLteMask = Array.isArray(before?.lteBands) ? bandsToHex(before.lteBands) : null;
         await session.setBandLock({ lte, nr: target.nr, networkMode: target.networkMode }, write.check);

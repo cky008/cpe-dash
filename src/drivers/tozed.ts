@@ -313,6 +313,10 @@ class TozedSession implements DriverSessionHandle {
 export const tozedProtocol: DriverProtocol = {
   family: FAMILY,
 
+  async detect(http: LanHttp): Promise<boolean> {
+    return textOf((await call(http, "", 232, "GET"))["token"]) !== null;
+  },
+
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
     const challenge = await call(http, "", 232, "GET");
     const token = textOf(challenge["token"]);

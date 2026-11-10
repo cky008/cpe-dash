@@ -4,7 +4,7 @@ import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides 
 import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest, type TokenScope, permissionsForScope, scopeForPermissions } from "./console-policy.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "./device-profile.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
-import type { RouterFamily } from "./router-family.ts";
+import { DRIVER_WRITE_FEATURES, type DriverWriteFeature, type RouterFamily } from "./router-family.ts";
 import type { AppConfig } from "./types.ts";
 
 /**
@@ -63,11 +63,14 @@ export type PublicTokenRecord = Omit<TokenRecord, "hash">;
  */
 export interface ExperimentalConsent {
   model: string;
-  feature: ExperimentalFeature;
+  feature: ConsentFeature;
   grantedAtIso: string;
 }
 
-const EXPERIMENTAL: ReadonlySet<unknown> = new Set<unknown>(EXPERIMENTAL_FEATURES);
+/** A write its owner can turn on for a model nobody verified: the generic HiLink writes, and the ones a driver family implements. */
+export type ConsentFeature = ExperimentalFeature | DriverWriteFeature;
+
+const EXPERIMENTAL: ReadonlySet<unknown> = new Set<unknown>([...EXPERIMENTAL_FEATURES, ...DRIVER_WRITE_FEATURES]);
 
 /** A stored consent this version can read; anything else is dropped, never half-honoured. */
 function isExperimentalConsent(value: unknown): value is ExperimentalConsent {
@@ -386,7 +389,7 @@ export class ConsoleSettings {
   }
 
   /** Turn an experimental write on for `model`; consents for any other model end (a router of another model). */
-  grantExperimental(model: string, feature: ExperimentalFeature): ExperimentalConsent {
+  grantExperimental(model: string, feature: ConsentFeature): ExperimentalConsent {
     const consent: ExperimentalConsent = { model, feature, grantedAtIso: new Date(this.#now()).toISOString() };
     this.#state.experimental = [...this.#state.experimental.filter((c) => c.model === model && c.feature !== feature), consent];
     this.#save();

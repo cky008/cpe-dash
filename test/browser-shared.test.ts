@@ -32,9 +32,11 @@ import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../src/sms/text-mode.ts";
 const BROWSER_SHARED_MODULES = [
   "src/agent-test.ts",
   "src/rf-bounds.ts",
+  "src/rf-math.ts",
   "src/sms/text-mode.ts",
   "src/text-sanitize.ts",
   "src/privacy-mask.ts",
+  "src/router-family.ts",
   "src/self-heal-status.ts",
   "src/access-plan.ts",
   "src/access-state.ts",
