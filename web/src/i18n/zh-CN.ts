@@ -547,6 +547,7 @@ export const zhCN = {
   "toast.deleted_to_trash": "已删除，可以在「最近删除」里恢复",
   "toast.restored": "已恢复 {count} 条",
   "toast.purged": "已彻底删除 {count} 条",
+  "toast.agent_test_still_on": "烽燧 · AI 智能体测试打开的设置还开着",
   "toast.sync_done": "同步完成：新增 {added}，更新 {updated}，移除 {removed}",
   "toast.sync_yielded": "有人在用路由器管理页，短信同步已暂停，稍后自动补上",
   "toast.refreshed": "已刷新",

@@ -148,13 +148,19 @@
     "no_evidence": "之后的轮询无法判断"
   },
   "agent_test": {
-    "switch_agentExperimental": "允许 AI 智能体测试这台路由器",
-    "switch_agentWrites": "允许智能体改动路由器",
+    "setting_agentExperimental": "允许 AI 智能体测试这台路由器",
+    "setting_agentWrites": "允许智能体改动路由器",
+    "setting_agentSms": "智能体的短信权限：读写",
+    "setting_agentSmsSendPolicy": "智能体发短信：任何号码",
     "features": "实验性写入（{features}）",
     "feature_bandLock": "锁频段",
     "feature_reconnect": "重拨",
     "feature_reboot": "重启",
-    "token": "令牌「{name}」可以改动路由器",
+    "feature_smsWrite": "发送与管理短信",
+    "token": "令牌「{name}」：{permissions}",
+    "permission_control": "改动路由器",
+    "permission_sms-read": "读短信和验证码",
+    "permission_sms-write": "发短信、删短信",
     "list_separator": "、",
     "item_separator": "；"
   }

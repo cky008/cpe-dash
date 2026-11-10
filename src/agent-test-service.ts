@@ -1,14 +1,17 @@
 import {
-  AGENT_TEST_FEATURES,
+  AGENT_TEST_SETTINGS,
   AGENT_TEST_TOOLS,
   AGENT_TEST_UNAVAILABLE_MESSAGE,
   type AgentTestFeature,
   type AgentTestPlan,
   type AgentTestRecord,
+  type AgentTestSetting,
+  type AgentTestSettingChange,
   type AgentTestStatus,
   type AgentTestStillOn,
-  type AgentTestSwitch,
+  agentTestCovered,
   agentTestPassed,
+  agentTestPermissions,
   agentTestPlan,
   agentTestReminderDueMs,
   agentTestStillOn,
@@ -17,7 +20,7 @@ import {
 } from "./agent-test.ts";
 import type { AuditLog } from "./audit-log.ts";
 import { BEHAVIOUR_ENV, type BehaviourOverrides, type BehaviourValues, resolveBehaviour } from "./behaviour-settings.ts";
-import { TOKEN_PERMISSIONS } from "./console-policy.ts";
+import { TOKEN_PERMISSIONS, type TokenPermission } from "./console-policy.ts";
 import type { ConsoleSettings } from "./console-settings.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import { type I18nKey, t } from "./i18n.ts";
@@ -39,7 +42,9 @@ export interface AgentTestServiceOptions {
   audit: AuditLog | null;
   /** What `.env` says for the behaviour settings (it can be reloaded, hence a function). */
   behaviourFromEnv: () => BehaviourValues;
-  /** The test changed console switches: hand the values in force to the running parts, as a change in Settings does. */
+  /** FengSui reads SMS (SMS_ENABLED): only then can SMS be part of the test. */
+  smsEnabled?: boolean;
+  /** The test changed console settings: hand the values in force to the running parts, as a change in Settings does. */
   onBehaviourChanged?: (values: BehaviourValues) => void;
   /** The test changed what a token may do: its event streams reconnect under the new permissions. */
   onTokenChanged?: (tokenId: string) => void;
@@ -53,10 +58,10 @@ const ACTIVITY_SAVE_MS = 60_000;
 
 /**
  * The AI agent test at one click, in the daemon: starting it turns on what the plan lists (console
- * switches, the covered experimental writes, the router permission for the agent's token), ending it
- * puts back what it turned on that is still as it left it, and a check every minute raises the
- * `AGENT_TEST_STILL_ON` reminder (alert history, console, Telegram, webhook) when one is due. Every
- * start and end is audited; only a console session or a linked Telegram chat reads a reminder.
+ * settings, the covered experimental writes, what the agent's token needs; SMS when the owner keeps
+ * it in), ending it puts back what it turned on that is still as it left it, and a check every minute
+ * raises the `AGENT_TEST_STILL_ON` reminder (alert history, console, Telegram, webhook) when one is
+ * due. Every start and end is audited; only a console session or a linked Telegram chat reads a reminder.
  */
 export class AgentTestService {
   readonly #opts: AgentTestServiceOptions;
@@ -103,11 +108,11 @@ export class AgentTestService {
 
   /**
    * Turn on what the plan lists, for the model the owner saw (typed back by the console, as a consent
-   * is), and `tokenId` (one of the plan's tokens) may change the router. Starting again while a test
-   * is on adds what is missing and starts the reminder clock again; with nothing to turn on, nothing
-   * changes.
+   * is), with SMS when `sms` is true and the router offers it, and give `tokenId` (one of the plan's
+   * tokens) what the test needs. Starting again while a test is on adds what is missing and starts the
+   * reminder clock again; with nothing to turn on, nothing changes.
    */
-  begin(request: { model: unknown; tokenId?: unknown }): AgentTestStatus {
+  begin(request: { model: unknown; tokenId?: unknown; sms?: unknown }): AgentTestStatus {
     const { settings, scheduler } = this.#opts;
     const plan = this.#plan();
     if (!plan.available) throw new AgentTestUnavailableError();
@@ -117,50 +122,66 @@ export class AgentTestService {
     if (!current || !shown || shown === "?" || typed !== shown.toLowerCase()) {
       throw new CpeControlValidationError(`Start the test for the router's model (${shown ?? "?"})`);
     }
-    let token: { id: string; name: string } | null = null;
+    if (request.sms !== undefined && typeof request.sms !== "boolean") throw new CpeControlValidationError('"sms" must be true or false');
+    const sms = request.sms === true && plan.sms.available;
+    let token: { id: string; name: string; added: TokenPermission[] } | null = null;
     if (request.tokenId !== undefined && request.tokenId !== null) {
       const choice = typeof request.tokenId === "string" ? plan.tokens.find((entry) => entry.id === request.tokenId) : undefined;
-      if (!choice) throw new CpeControlValidationError("That token cannot be allowed to change the router for the test (it may already be allowed, have expired or been revoked)");
-      token = { id: choice.id, name: choice.name };
+      if (!choice) throw new CpeControlValidationError("That token cannot be given what the test needs (it may have it already, have expired or been revoked)");
+      const needed = agentTestPermissions(sms);
+      token = { id: choice.id, name: choice.name, added: choice.missing.filter((permission) => needed.includes(permission)) };
     }
 
     const nowIso = new Date(this.#now()).toISOString();
     const overrides = settings.behaviourOverrides;
-    const switches = plan.switches.map((key) => ({ key, before: overrides[key] ?? null }));
-    if (switches.length > 0) {
-      settings.setBehaviour(Object.fromEntries(switches.map(({ key }) => [key, true])) as BehaviourOverrides);
+    const keys = [...plan.settings, ...(sms ? plan.sms.settings : [])];
+    const changes = keys.map((key) => ({ key, before: overrides[key] ?? null }) as AgentTestSettingChange);
+    if (changes.length > 0) {
+      settings.setBehaviour(Object.fromEntries(keys.map((key) => [key, AGENT_TEST_SETTINGS[key]])) as BehaviourOverrides);
       this.#opts.onBehaviourChanged?.(this.#behaviour());
     }
-    const features = plan.features.map((feature) => ({ feature, grantedAtIso: settings.grantExperimental(current, feature).grantedAtIso }));
+    const toGrant: AgentTestFeature[] = [...plan.features, ...(sms && plan.sms.feature ? (["smsWrite"] as const) : [])];
+    const features = toGrant.map((feature) => ({ feature, grantedAtIso: settings.grantExperimental(current, feature).grantedAtIso }));
     if (features.length > 0) scheduler.device.setConsents(settings.experimentalConsents);
-    const tokens: Array<{ id: string; name: string }> = [];
-    const record = token ? settings.listTokens().find((entry) => entry.id === token.id) : undefined;
+    const tokens: Array<{ id: string; name: string; added: TokenPermission[] }> = [];
+    const record = token && token.added.length > 0 ? settings.listTokens().find((entry) => entry.id === token.id) : undefined;
     if (token && record) {
-      settings.setTokenPermissions(record.id, TOKEN_PERMISSIONS.filter((permission) => permission === "control" || record.permissions.includes(permission)));
+      const added = token.added;
+      settings.setTokenPermissions(record.id, TOKEN_PERMISSIONS.filter((permission) => added.includes(permission) || record.permissions.includes(permission)));
       this.#opts.onTokenChanged?.(record.id);
       tokens.push(token);
     }
-    if (switches.length + features.length + tokens.length === 0) return this.status();
-
     const before = settings.agentTest;
+    if (changes.length + features.length + tokens.length === 0) {
+      // Nothing new to turn on: only keeping SMS in a test that is on changes what counts for a pass
+      if (before && sms && !before.sms) settings.setAgentTest({ ...before, sms: true });
+      return this.status();
+    }
+
     const replace = <T>(kept: ReadonlyArray<T>, added: ReadonlyArray<T>, same: (a: T, b: T) => boolean): T[] => [...kept.filter((a) => !added.some((b) => same(a, b))), ...added];
+    // A token given more keeps what the test gave it before: ending takes all of it back
+    const given = (before?.tokens ?? []).map((entry) => {
+      const more = tokens.find((next) => next.id === entry.id);
+      return more ? { ...entry, added: TOKEN_PERMISSIONS.filter((permission) => entry.added.includes(permission) || more.added.includes(permission)) } : entry;
+    });
     settings.setAgentTest({
       model: shown,
       startedAtIso: before?.startedAtIso ?? nowIso,
-      switches: replace(before?.switches ?? [], switches, (a, b) => a.key === b.key),
+      sms: (before?.sms ?? false) || sms,
+      settings: replace(before?.settings ?? [], changes, (a, b) => a.key === b.key),
       features: replace(before?.features ?? [], features, (a, b) => a.feature === b.feature),
-      tokens: replace(before?.tokens ?? [], tokens, (a, b) => a.id === b.id),
+      tokens: [...given, ...tokens.filter((next) => !given.some((entry) => entry.id === next.id))],
       lastActivityAtIso: nowIso,
       remindedAtIso: null,
       reminderAlertId: null,
       acknowledgedAtIso: null,
     });
     const turnedOn = [
-      ...switches.map(({ key }) => `${BEHAVIOUR_ENV[key]} on`),
+      ...changes.map(({ key }) => `${BEHAVIOUR_ENV[key]} ${String(AGENT_TEST_SETTINGS[key])}`),
       ...features.map(({ feature }) => `${feature} on`),
-      ...tokens.map(({ name }) => `token "${name}" + control`),
+      ...tokens.map(({ name, added }) => `token "${name}" + ${added.join(" + ")}`),
     ];
-    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `${before ? "more" : "start"} for ${shown}: ${turnedOn.join(", ")}` });
+    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `${before ? "more" : "start"} for ${shown}${sms ? " with SMS" : ""}: ${turnedOn.join(", ")}` });
     return this.status();
   }
 
@@ -170,25 +191,24 @@ export class AgentTestService {
     const record = settings.agentTest;
     if (!record) return this.status();
     const on = this.#stillOn(record);
-    const patch: Record<string, boolean | null> = {};
-    for (const { key, before } of record.switches) if (on.switches.includes(key)) patch[key] = before;
-    if (Object.keys(patch).length > 0) {
-      settings.setBehaviour(patch as BehaviourOverrides);
+    const restored = record.settings.filter(({ key }) => on.settings.includes(key));
+    if (restored.length > 0) {
+      settings.setBehaviour(Object.fromEntries(restored.map(({ key, before }) => [key, before])) as BehaviourOverrides);
       this.#opts.onBehaviourChanged?.(this.#behaviour());
     }
     for (const feature of on.features) settings.revokeExperimental(feature);
     if (on.features.length > 0) scheduler.device.setConsents(settings.experimentalConsents);
-    for (const { id } of on.tokens) {
+    for (const { id, permissions } of on.tokens) {
       const token = settings.listTokens().find((entry) => entry.id === id);
       if (!token) continue;
-      settings.setTokenPermissions(id, token.permissions.filter((permission) => permission !== "control"));
+      settings.setTokenPermissions(id, token.permissions.filter((permission) => !permissions.includes(permission)));
       this.#opts.onTokenChanged?.(id);
     }
     settings.setAgentTest(null);
     const putBack = [
-      ...record.switches.filter(({ key }) => on.switches.includes(key)).map(({ key, before }) => `${BEHAVIOUR_ENV[key]} ${before === null ? "from .env" : String(before)}`),
+      ...restored.map(({ key, before }) => `${BEHAVIOUR_ENV[key]} ${before === null ? "from .env" : String(before)}`),
       ...on.features.map((feature) => `${feature} off`),
-      ...on.tokens.map(({ name }) => `token "${name}" - control`),
+      ...on.tokens.map(({ name, permissions }) => `token "${name}" - ${permissions.join(" - ")}`),
     ];
     this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `end: ${putBack.length > 0 ? putBack.join(", ") : "nothing left to put back"}` });
     return this.status();
@@ -231,11 +251,12 @@ export class AgentTestService {
   }
 
   #plan(): AgentTestPlan {
-    const values = this.#behaviour();
+    const { scheduler, settings } = this.#opts;
     return agentTestPlan({
-      device: this.#opts.scheduler.device.snapshot(),
-      switches: { agentExperimental: values.agentExperimental, agentWrites: values.agentWrites },
-      tokens: this.#opts.settings
+      device: scheduler.device.snapshot(),
+      values: this.#behaviour(),
+      smsReadable: this.#opts.smsEnabled === true && !scheduler.device.skips("sms"),
+      tokens: settings
         .listTokens()
         .map((token) => ({ id: token.id, name: token.name, permissions: token.permissions, createdAtIso: token.createdAtIso, expiresAtIso: token.expiresAtIso, agentUsedAtMs: this.#agentUse.get(token.id) ?? null })),
       nowMs: this.#now(),
@@ -250,18 +271,17 @@ export class AgentTestService {
   /** Every covered write that is on now passed since the test started. */
   #passed(record: AgentTestRecord): boolean {
     const { device } = this.#opts.scheduler;
-    const consented = AGENT_TEST_FEATURES.filter((feature) => device.writeState(feature) === "consented");
-    return agentTestPassed(record, consented, this.#opts.scheduler.genericWrites);
+    return agentTestPassed(record, agentTestCovered(record, (feature) => device.writeState(feature) === "consented"), this.#opts.scheduler.genericWrites);
   }
 
   #message(locale: SupportedLocale, record: AgentTestRecord, on: AgentTestStillOn): string {
-    const label = (switchKey: AgentTestSwitch): string => t(locale, `agent_test.switch_${switchKey}` as I18nKey);
-    const feature = (name: AgentTestFeature): string => t(locale, `agent_test.feature_${name}` as I18nKey);
+    const text = (key: string, params?: Readonly<Record<string, string | number>>): string => t(locale, `agent_test.${key}` as I18nKey, params);
+    const list = (items: ReadonlyArray<string>): string => items.join(text("list_separator"));
     const items = [
-      ...on.switches.map(label),
-      ...(on.features.length > 0 ? [t(locale, "agent_test.features", { features: on.features.map(feature).join(t(locale, "agent_test.list_separator")) })] : []),
-      ...on.tokens.map(({ name }) => t(locale, "agent_test.token", { name: sanitizeFreeText(name) })),
+      ...on.settings.map((key: AgentTestSetting) => text(`setting_${key}`)),
+      ...(on.features.length > 0 ? [text("features", { features: list(on.features.map((feature) => text(`feature_${feature}`))) })] : []),
+      ...on.tokens.map(({ name, permissions }) => text("token", { name: sanitizeFreeText(name), permissions: list(permissions.map((permission) => text(`permission_${permission}`))) })),
     ];
-    return t(locale, "alerts.agent_test_still_on", { model: record.model, items: items.join(t(locale, "agent_test.item_separator")) });
+    return t(locale, "alerts.agent_test_still_on", { model: record.model, items: items.join(text("item_separator")) });
   }
 }

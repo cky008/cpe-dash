@@ -333,7 +333,7 @@ export class SettingsHttpRoutes {
     }
     if (action === "start") {
       try {
-        service.begin({ model: body["model"], tokenId: body["tokenId"] });
+        service.begin({ model: body["model"], tokenId: body["tokenId"], sms: body["sms"] });
       } catch (err) {
         if (!(err instanceof AgentTestUnavailableError)) throw err;
         ctx.sendJson(409, { ok: false, errorCode: "AGENT_TEST_UNAVAILABLE", message: err.message } satisfies ApiErrorEnvelope);

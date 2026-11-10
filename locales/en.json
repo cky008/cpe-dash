@@ -148,13 +148,19 @@
     "no_evidence": "the next polls could not tell"
   },
   "agent_test": {
-    "switch_agentExperimental": "Let AI agents test this router",
-    "switch_agentWrites": "Let agents change the router",
+    "setting_agentExperimental": "Let AI agents test this router",
+    "setting_agentWrites": "Let agents change the router",
+    "setting_agentSms": "agents' SMS access: read and write",
+    "setting_agentSmsSendPolicy": "agents may send SMS to any number",
     "features": "experimental writes ({features})",
     "feature_bandLock": "band lock",
     "feature_reconnect": "redial",
     "feature_reboot": "reboot",
-    "token": "the token “{name}” may change the router",
+    "feature_smsWrite": "send and manage SMS",
+    "token": "the token “{name}”: {permissions}",
+    "permission_control": "change the router",
+    "permission_sms-read": "read SMS and codes",
+    "permission_sms-write": "send and delete SMS",
     "list_separator": ", ",
     "item_separator": "; "
   }

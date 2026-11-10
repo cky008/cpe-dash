@@ -398,6 +398,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     scheduler,
     audit,
     behaviourFromEnv: () => envBehaviour,
+    smsEnabled: sms !== null,
     onBehaviourChanged: applyBehaviour,
     // A token allowed (or no longer allowed) to change the router reconnects its event streams
     onTokenChanged: (tokenId) => sseBus.disconnectByTokenId(tokenId),

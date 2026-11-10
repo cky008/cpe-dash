@@ -6,6 +6,7 @@ import {
   AGENT_TEST_REMIND_EVERY_MS,
   type AgentTestRecord,
   type AgentTestTokenInfo,
+  agentTestCovered,
   agentTestPassed,
   agentTestPlan,
   agentTestReminderDueMs,
@@ -32,8 +33,9 @@ import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
- * The AI agent test at one click (Settings → Device): what starting it turns on, how ending it puts
- * back exactly that, and when the owner is reminded that it is still on. Mocks and placeholders only.
+ * The AI agent test at one click (Settings → Device): what starting it turns on (SMS too unless the
+ * owner leaves it out), how ending it puts back exactly that, and when the owner is reminded that it
+ * is still on. Mocks and placeholders only.
  */
 
 const MODEL = "B535-232";
@@ -42,6 +44,7 @@ const ENDPOINTS: Readonly<Record<string, string>> = {
   "/api/net/net-mode-list": "<response><LTEBandList><LTEBand><Name>LTE</Name><Value>800800C5</Value></LTEBand></LTEBandList></response>",
   "/api/net/net-mode": "<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>800800C5</LTEBand></response>",
 };
+const VALUES = { ...DEFAULT_BEHAVIOUR };
 
 function features(states: Partial<Record<WriteFeature, WriteFeatureState>>): Record<WriteFeature, WriteFeatureState> {
   return Object.fromEntries(WRITE_FEATURES.map((feature) => [feature, states[feature] ?? "not_implemented"])) as Record<WriteFeature, WriteFeatureState>;
@@ -55,12 +58,18 @@ function record(extra: Partial<AgentTestRecord> = {}): AgentTestRecord {
   return {
     model: MODEL,
     startedAtIso: "2026-11-10T08:00:00.000Z",
-    switches: [
+    sms: true,
+    settings: [
       { key: "agentExperimental", before: null },
       { key: "agentWrites", before: false },
+      { key: "agentSms", before: "read" },
+      { key: "agentSmsSendPolicy", before: null },
     ],
-    features: [{ feature: "bandLock", grantedAtIso: "2026-11-10T08:00:00.000Z" }],
-    tokens: [{ id: "t1", name: "agent" }],
+    features: [
+      { feature: "bandLock", grantedAtIso: "2026-11-10T08:00:00.000Z" },
+      { feature: "smsWrite", grantedAtIso: "2026-11-10T08:00:00.000Z" },
+    ],
+    tokens: [{ id: "t1", name: "agent", added: ["control", "sms-write"] }],
     lastActivityAtIso: "2026-11-10T08:00:00.000Z",
     remindedAtIso: null,
     reminderAlertId: null,
@@ -71,57 +80,74 @@ function record(extra: Partial<AgentTestRecord> = {}): AgentTestRecord {
 
 describe("the agent test's rules", () => {
   const NOW = Date.parse("2026-11-10T09:00:00.000Z");
-  const OFF = { agentExperimental: false, agentWrites: false };
+  const plan = (input: { states: Partial<Record<WriteFeature, WriteFeatureState>>; writes?: "allowed" | "read_only" | "unknown"; values?: Partial<BehaviourValues>; smsReadable?: boolean; tokens?: AgentTestTokenInfo[] }) =>
+    agentTestPlan({
+      device: { writes: input.writes ?? "read_only", features: features(input.states) },
+      values: { ...VALUES, ...input.values },
+      smsReadable: input.smsReadable ?? true,
+      tokens: input.tokens ?? [],
+      nowMs: NOW,
+    });
 
-  it("offers the test only on a model nobody verified that has a covered write", () => {
-    const writable = features({ bandLock: "available", reboot: "available", reconnect: "consented", mobileData: "available", smsWrite: "available" });
-    for (const writes of ["allowed", "unknown"] as const) {
-      assert.deepEqual(agentTestPlan({ device: { writes, features: writable }, switches: OFF, tokens: [], nowMs: NOW }).available, false, writes);
-    }
-    const none = features({ bandLock: "unsupported", reboot: "unsupported", reconnect: "not_implemented", mobileData: "available", smsWrite: "available" });
-    assert.equal(agentTestPlan({ device: { writes: "read_only", features: none }, switches: OFF, tokens: [], nowMs: NOW }).available, false, "mobile data and SMS are not the test's");
+  it("offers the test only on a model nobody verified that has a covered write, SMS apart", () => {
+    const writable = { bandLock: "available", reboot: "available", reconnect: "consented", mobileData: "available", smsWrite: "available" } as const;
+    for (const writes of ["allowed", "unknown"] as const) assert.equal(plan({ states: writable, writes }).available, false, writes);
+    assert.equal(plan({ states: { bandLock: "unsupported", reboot: "unsupported", mobileData: "available" } }).available, false, "mobile data is not the test's");
 
-    const plan = agentTestPlan({ device: { writes: "read_only", features: writable }, switches: { agentExperimental: true, agentWrites: false }, tokens: [], nowMs: NOW });
-    assert.deepEqual([plan.available, plan.switches, plan.features], [true, ["agentWrites"], ["bandLock", "reboot"]], "what is off, the covered writes still off");
-    assert.deepEqual([plan.tokens, plan.suggestedTokenId, plan.tokenNeeded], [[], null, false], "no token to offer");
+    const all = plan({ states: writable, values: { agentExperimental: true } });
+    assert.deepEqual([all.available, all.settings, all.features], [true, ["agentWrites"], ["bandLock", "reboot"]], "what is off, the covered writes still off");
+    assert.deepEqual(all.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], feature: true, sendLimitPerHour: 10 });
+    assert.deepEqual(plan({ states: writable, values: { agentSms: "full", agentSmsSendPolicy: "any" } }).sms.settings, [], "SMS already set its way");
+    assert.deepEqual(plan({ states: { ...writable, smsWrite: "consented" } }).sms.feature, false);
+    assert.equal(plan({ states: writable, smsReadable: false }).sms.available, false, "no SMS here (SMS_ENABLED=false, or the router has none)");
+    assert.equal(plan({ states: { ...writable, smsWrite: "unsupported" } }).sms.available, false);
+    const smsOnly = plan({ states: { smsWrite: "available" } });
+    assert.deepEqual([smsOnly.available, smsOnly.features, smsOnly.sms.available], [true, [], true], "SMS alone is a test too");
   });
 
-  it("suggests the token an agent called with last, else the only one there is to choose", () => {
-    const device = { writes: "read_only" as const, features: features({ bandLock: "available" }) };
-    const plan = (tokens: AgentTestTokenInfo[]) => agentTestPlan({ device, switches: OFF, tokens, nowMs: NOW });
-
-    const seen = plan([token("old", { agentUsedAtMs: NOW - 9 * HOUR }), token("ha"), token("agent", { agentUsedAtMs: NOW - 60_000 })]);
-    assert.deepEqual(seen.tokens.map((t) => t.id), ["agent", "old", "ha"], "the agent's first");
+  it("suggests the token an agent called with last, else the only one there is to choose, and says what each lacks", () => {
+    const states = { bandLock: "available", smsWrite: "available" } as const;
+    const seen = plan({ states, tokens: [token("old", { agentUsedAtMs: NOW - 9 * HOUR }), token("ha", { permissions: [] }), token("agent", { agentUsedAtMs: NOW - 60_000 })] });
+    assert.deepEqual(seen.tokens.map((t) => [t.id, t.missing]), [["agent", ["control", "sms-write"]], ["old", ["control", "sms-write"]], ["ha", ["control", "sms-read", "sms-write"]]], "the agent's first");
     assert.deepEqual([seen.suggestedTokenId, seen.tokenNeeded], ["agent", true]);
     assert.equal(seen.tokens[0]?.agentUsedAtIso, new Date(NOW - 60_000).toISOString());
 
-    const allowed = plan([token("ha"), token("agent", { permissions: ["control"], agentUsedAtMs: NOW })]);
-    assert.deepEqual([allowed.tokens.map((t) => t.id), allowed.suggestedTokenId, allowed.tokenNeeded], [["ha"], null, false], "the agent's token may change the router already");
+    const allowed = plan({ states, tokens: [token("ha"), token("agent", { permissions: ["sms-read", "control", "sms-write"], agentUsedAtMs: NOW })] });
+    assert.deepEqual([allowed.tokens.map((t) => t.id), allowed.suggestedTokenId, allowed.tokenNeeded], [["ha"], null, false], "the agent's token has all it needs");
+    const noSms = plan({ states, smsReadable: false, tokens: [token("agent", { permissions: ["control"], agentUsedAtMs: NOW })] });
+    assert.deepEqual([noSms.tokens, noSms.tokenNeeded], [[], false], "without SMS the router permission is all it needs");
 
-    assert.deepEqual([plan([token("only")]).suggestedTokenId, plan([token("only")]).tokenNeeded], ["only", true], "no agent seen, one token");
-    const two = plan([token("a", { createdAtIso: "2026-11-02T00:00:00.000Z" }), token("b", { createdAtIso: "2026-11-03T00:00:00.000Z" })]);
+    assert.deepEqual([plan({ states, tokens: [token("only")] }).suggestedTokenId, plan({ states, tokens: [token("only")] }).tokenNeeded], ["only", true], "no agent seen, one token");
+    const two = plan({ states, tokens: [token("a", { createdAtIso: "2026-11-02T00:00:00.000Z" }), token("b", { createdAtIso: "2026-11-03T00:00:00.000Z" })] });
     assert.deepEqual([two.tokens.map((t) => t.id), two.suggestedTokenId, two.tokenNeeded], [["b", "a"], null, true], "no agent seen, two tokens: newest first, no guess");
-
-    const expired = plan([token("gone", { expiresAtIso: new Date(NOW - 1).toISOString(), agentUsedAtMs: NOW }), token("live")]);
+    const expired = plan({ states, tokens: [token("gone", { expiresAtIso: new Date(NOW - 1).toISOString(), agentUsedAtMs: NOW }), token("live")] });
     assert.deepEqual([expired.tokens.map((t) => t.id), expired.suggestedTokenId], [["live"], "live"], "an expired token is neither offered nor the agent's");
-    assert.equal(plan([token("full", { permissions: ["control"] })]).tokenNeeded, false, "every token may change the router");
   });
 
   it("counts as still on only what is as the test left it", () => {
     const test = record();
-    const now = { overrides: { agentExperimental: true, agentWrites: true }, consents: [{ feature: "bandLock", grantedAtIso: test.features[0]?.grantedAtIso ?? "" }], tokens: [{ id: "t1", permissions: ["control" as const] }] };
-    assert.deepEqual(agentTestStillOn(test, now), { switches: ["agentExperimental", "agentWrites"], features: ["bandLock"], tokens: [{ id: "t1", name: "agent" }] });
-    const changed = agentTestStillOn(test, {
-      overrides: { agentExperimental: null, agentWrites: false },
-      consents: [{ feature: "bandLock", grantedAtIso: "2026-11-10T08:30:00.000Z" }],
-      tokens: [{ id: "t1", permissions: ["sms-read"] }],
+    const granted = test.features[0]?.grantedAtIso ?? "";
+    const now = {
+      overrides: { agentExperimental: true, agentWrites: true, agentSms: "full", agentSmsSendPolicy: "any" },
+      consents: [{ feature: "bandLock", grantedAtIso: granted }, { feature: "smsWrite", grantedAtIso: granted }],
+      tokens: [{ id: "t1", permissions: ["sms-read", "control", "sms-write"] as const }],
+    };
+    assert.deepEqual(agentTestStillOn(test, now), {
+      settings: ["agentExperimental", "agentWrites", "agentSms", "agentSmsSendPolicy"],
+      features: ["bandLock", "smsWrite"],
+      tokens: [{ id: "t1", name: "agent", permissions: ["control", "sms-write"] }],
     });
-    assert.deepEqual(changed, { switches: [], features: [], tokens: [] }, "set back by the owner, turned on again later, or no longer allowed");
+    const changed = agentTestStillOn(test, {
+      overrides: { agentExperimental: null, agentWrites: false, agentSms: "read", agentSmsSendPolicy: "known" },
+      consents: [{ feature: "bandLock", grantedAtIso: "2026-11-10T08:30:00.000Z" }],
+      tokens: [{ id: "t1", permissions: ["sms-read", "sms-write"] }],
+    });
+    assert.deepEqual(changed, { settings: [], features: [], tokens: [{ id: "t1", name: "agent", permissions: ["sms-write"] }] }, "set back, turned on again later, or partly taken back by the owner");
   });
 
   it("passes when every covered write that is on was tried since the start and always read back as a match", () => {
     const test = record();
-    const write = (feature: "bandLock" | "reconnect", atIso: string, outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending") => ({ feature, atIso, outcome, readback });
+    const write = (feature: "bandLock" | "reconnect" | "smsWrite", atIso: string, outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending") => ({ feature, atIso, outcome, readback });
     const after = "2026-11-10T08:10:00.000Z";
     assert.equal(agentTestPassed(test, [], [write("bandLock", after, "applied", "match")]), false, "nothing on to pass");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", "2026-11-10T07:00:00.000Z", "applied", "match")]), false, "tried before the test only");
@@ -130,6 +156,10 @@ describe("the agent test's rules", () => {
     assert.equal(agentTestPassed(test, ["bandLock", "reconnect"], [write("bandLock", after, "applied", "match"), write("reconnect", after, "applied", "pending")]), false, "still being checked");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", after, "applied", "match"), write("bandLock", after, "applied", "mismatch")]), false, "one try read back differently");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", after, "failed", "match")]), false, "refused by the router");
+
+    const on = (feature: string): boolean => feature === "bandLock" || feature === "smsWrite";
+    assert.deepEqual(agentTestCovered({ sms: true }, on), ["bandLock", "smsWrite"]);
+    assert.deepEqual(agentTestCovered({ sms: false }, on), ["bandLock"], "SMS left out of the test does not count, even if it is on");
   });
 
   it("reminds 3 hours after the last activity, then daily, and never after a read reminder, a pass or with nothing on", () => {
@@ -140,21 +170,25 @@ describe("the agent test's rules", () => {
     assert.equal(agentTestReminderDueMs(record({ remindedAtIso: "2026-11-10T12:30:00.000Z", acknowledgedAtIso: "2026-11-10T13:00:00.000Z" }), true, false), null);
     assert.equal(agentTestReminderDueMs(test, false, false), null);
     assert.equal(agentTestReminderDueMs(test, true, true), null);
-    const view = agentTestView(test, { switches: ["agentWrites"], features: [], tokens: [] }, false);
-    assert.deepEqual([view.switches, view.passed, view.acknowledged, view.remindAtIso], [["agentWrites"], false, false, "2026-11-10T12:30:00.000Z"]);
+    const view = agentTestView(test, { settings: ["agentWrites"], features: [], tokens: [] }, false);
+    assert.deepEqual([view.settings, view.sms, view.passed, view.acknowledged, view.remindAtIso], [["agentWrites"], true, false, false, "2026-11-10T12:30:00.000Z"]);
   });
 
   it("keeps only a stored test it can read in full", () => {
     assert.equal(isAgentTestRecord(record()), true);
-    assert.equal(isAgentTestRecord(record({ remindedAtIso: "2026-11-10T10:00:00.000Z", reminderAlertId: "a1", acknowledgedAtIso: "2026-11-10T11:00:00.000Z" })), true);
+    assert.equal(isAgentTestRecord(record({ sms: false, remindedAtIso: "2026-11-10T10:00:00.000Z", reminderAlertId: "a1", acknowledgedAtIso: "2026-11-10T11:00:00.000Z" })), true);
     const broken: Array<[string, unknown]> = [
       ["not an object", "test"],
       ["no model", { ...record(), model: "" }],
       ["a bad time", { ...record(), startedAtIso: "yesterday" }],
-      ["an unknown switch", { ...record(), switches: [{ key: "agentSms", before: null }] }],
-      ["a bad before", { ...record(), switches: [{ key: "agentWrites", before: "off" }] }],
-      ["an uncovered write", { ...record(), features: [{ feature: "smsWrite", grantedAtIso: "2026-11-10T08:00:00.000Z" }] }],
-      ["a token without a name", { ...record(), tokens: [{ id: "t1" }] }],
+      ["no SMS choice", { ...record(), sms: "yes" }],
+      ["an unknown setting", { ...record(), settings: [{ key: "redactApi", before: null }] }],
+      ["a bad before", { ...record(), settings: [{ key: "agentWrites", before: "off" }] }],
+      ["a before of another setting", { ...record(), settings: [{ key: "agentSms", before: true }] }],
+      ["an uncovered write", { ...record(), features: [{ feature: "mobileData", grantedAtIso: "2026-11-10T08:00:00.000Z" }] }],
+      ["a token without a name", { ...record(), tokens: [{ id: "t1", added: ["control"] }] }],
+      ["a token given nothing", { ...record(), tokens: [{ id: "t1", name: "agent", added: [] }] }],
+      ["a permission the test never gives", { ...record(), tokens: [{ id: "t1", name: "agent", added: ["access"] }] }],
       ["a bad alert id", { ...record(), reminderAlertId: 7 }],
       ["a bad read time", { ...record(), acknowledgedAtIso: "soon" }],
     ];
@@ -162,9 +196,9 @@ describe("the agent test's rules", () => {
   });
 });
 
-/** A B535-232 (a model nobody verified), the console's store, the audit log, MCP and the test service on one clock. */
+/** A B535-232 (a model nobody verified) with SMS, the console's store, the audit log, MCP and the test service on one clock. */
 async function fixture(env: BehaviourValues = DEFAULT_BEHAVIOUR) {
-  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: ENDPOINTS, writes: {} });
+  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: ENDPOINTS, writes: {}, sms: [] });
   const dir = tempDir("fengsui-agent-test-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
@@ -187,6 +221,7 @@ async function fixture(env: BehaviourValues = DEFAULT_BEHAVIOUR) {
     scheduler: core.scheduler,
     audit,
     behaviourFromEnv: () => env,
+    smsEnabled: true,
     onBehaviourChanged: (values) => changes.push(values),
     onTokenChanged: (id) => tokenChanges.push(id),
     now: () => clock,
@@ -240,7 +275,7 @@ before(() => {
 after(() => restoreNetwork());
 
 describe("the agent test at one click", () => {
-  it("turns on what the test needs in one go, the agent's token included, and ends by putting exactly that back", async () => {
+  it("turns on what the test needs in one go, SMS and the agent's token included, and ends by putting exactly that back", async () => {
     const fx = await fixture();
     try {
       const agent = fx.settings.createToken({ name: "Claude", permissions: ["sms-read"], lifetimeDays: 1 }).record;
@@ -248,39 +283,77 @@ describe("the agent test at one click", () => {
       fx.settings.setBehaviour({ agentWrites: false });
       fx.service.noteAgentCall(agent.id);
       const plan = fx.service.status().plan;
-      assert.deepEqual([plan.available, plan.switches, plan.features], [true, ["agentExperimental", "agentWrites"], ["bandLock", "reconnect", "reboot"]]);
-      assert.deepEqual([plan.tokens.map((t) => t.id), plan.suggestedTokenId, plan.tokenNeeded], [[agent.id, other.id], agent.id, true]);
+      assert.deepEqual([plan.available, plan.settings, plan.features], [true, ["agentExperimental", "agentWrites"], ["bandLock", "reconnect", "reboot"]]);
+      assert.deepEqual(plan.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], feature: true, sendLimitPerHour: 10 });
+      assert.deepEqual([plan.tokens.map((t) => [t.id, t.missing]), plan.suggestedTokenId, plan.tokenNeeded], [[[agent.id, ["control", "sms-write"]], [other.id, ["control", "sms-read", "sms-write"]]], agent.id, true]);
       assert.equal((await fx.tools(agent.permissions)).includes("lock_band"), false, "nothing to test with yet");
 
-      const started = await runAsActor({ channel: "web" }, async () => fx.service.begin({ model: MODEL.toLowerCase(), tokenId: agent.id }));
-      assert.equal(started.plan.switches.length + started.plan.features.length, 0, "nothing left to turn on");
-      assert.deepEqual([started.current?.switches, started.current?.features, started.current?.tokens], [["agentExperimental", "agentWrites"], ["bandLock", "reconnect", "reboot"], [{ id: agent.id, name: "Claude" }]]);
-      assert.deepEqual([fx.inForce().agentExperimental, fx.inForce().agentWrites], [true, true]);
+      const started = await runAsActor({ channel: "web" }, async () => fx.service.begin({ model: MODEL.toLowerCase(), tokenId: agent.id, sms: true }));
+      assert.equal(started.plan.settings.length + started.plan.features.length + started.plan.sms.settings.length + Number(started.plan.sms.feature), 0, "nothing left to turn on");
+      assert.deepEqual([started.current?.settings, started.current?.features, started.current?.sms], [["agentExperimental", "agentWrites", "agentSms", "agentSmsSendPolicy"], ["bandLock", "reconnect", "reboot", "smsWrite"], true]);
+      assert.deepEqual(started.current?.tokens, [{ id: agent.id, name: "Claude", permissions: ["control", "sms-write"] }]);
+      const values = fx.inForce();
+      assert.deepEqual([values.agentExperimental, values.agentWrites, values.agentSms, values.agentSmsSendPolicy], [true, true, "full", "any"]);
       assert.deepEqual([fx.changes.length, fx.tokenChanges], [1, [agent.id]], "the running parts and the token's event streams hear of it");
-      for (const feature of ["bandLock", "reconnect", "reboot"] as const) assert.equal(fx.core.scheduler.device.writeState(feature), "consented", feature);
-      assert.deepEqual(fx.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control"]);
+      for (const feature of ["bandLock", "reconnect", "reboot", "smsWrite"] as const) assert.equal(fx.core.scheduler.device.writeState(feature), "consented", feature);
+      assert.deepEqual(fx.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control", "sms-write"]);
       assert.deepEqual(fx.settings.listTokens().find((t) => t.id === other.id)?.permissions, [], "another token keeps what it had");
-      const listed = await fx.tools(["sms-read", "control"]);
+      const listed = await fx.tools(["sms-read", "control", "sms-write"]);
       for (const tool of ["lock_band", "unlock_rf_locks", "reconnect_cellular", "reboot_cpe", "probe_router_endpoints"]) assert.ok(listed.includes(tool), tool);
       const entry = fx.audit.list(5).find((e) => e.action === "agents.test");
       assert.equal(entry?.channel, "web");
-      assert.equal(entry?.detail, `start for ${MODEL}: MCP_ALLOW_EXPERIMENTAL on, MCP_ALLOW_MUTATIONS on, bandLock on, reconnect on, reboot on, token "Claude" + control`);
+      assert.equal(
+        entry?.detail,
+        `start for ${MODEL} with SMS: MCP_ALLOW_EXPERIMENTAL true, MCP_ALLOW_MUTATIONS true, MCP_SMS_ACCESS full, MCP_SMS_SEND_POLICY any, bandLock on, reconnect on, reboot on, smsWrite on, token "Claude" + control + sms-write`
+      );
 
       // Starting again with nothing new to turn on changes nothing
-      const again = fx.service.begin({ model: MODEL });
+      const again = fx.service.begin({ model: MODEL, sms: true });
       assert.equal(again.current?.startedAtIso, started.current?.startedAtIso);
       assert.equal(fx.audit.list(10).filter((e) => e.action === "agents.test").length, 1);
 
       const ended = fx.service.end();
       assert.equal(ended.current, null);
-      assert.deepEqual(fx.settings.behaviourOverrides, { agentWrites: false }, "the switch that followed .env follows it again; the other is off again");
+      assert.deepEqual(fx.settings.behaviourOverrides, { agentWrites: false }, "the settings that followed .env follow it again; the other is off again");
       assert.deepEqual(fx.settings.experimentalConsents, []);
       assert.deepEqual(fx.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read"]);
       assert.deepEqual(fx.tokenChanges, [agent.id, agent.id]);
       assert.equal((await fx.tools(["sms-read"])).includes("probe_router_endpoints"), false);
-      assert.equal(fx.audit.list(1)[0]?.detail, `end: MCP_ALLOW_EXPERIMENTAL from .env, MCP_ALLOW_MUTATIONS false, bandLock off, reconnect off, reboot off, token "Claude" - control`);
+      assert.equal(
+        fx.audit.list(1)[0]?.detail,
+        `end: MCP_ALLOW_EXPERIMENTAL from .env, MCP_ALLOW_MUTATIONS false, MCP_SMS_ACCESS from .env, MCP_SMS_SEND_POLICY from .env, bandLock off, reconnect off, reboot off, smsWrite off, token "Claude" - control - sms-write`
+      );
       assert.equal(fx.settings.agentTest, null);
       assert.deepEqual(fx.service.end().current, null, "ending twice changes nothing");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("leaves SMS out when the owner does, and adds it when started again with SMS", async () => {
+    const fx = await fixture();
+    try {
+      const agent = fx.settings.createToken({ name: "Claude", permissions: ["sms-read"], lifetimeDays: 1 }).record;
+      const first = fx.service.begin({ model: MODEL, tokenId: agent.id, sms: false });
+      assert.deepEqual([first.current?.settings, first.current?.features, first.current?.sms], [["agentExperimental", "agentWrites"], ["bandLock", "reconnect", "reboot"], false]);
+      assert.deepEqual(first.current?.tokens.map((t) => t.permissions), [["control"]], "the router permission only");
+      assert.deepEqual([fx.inForce().agentSms, fx.core.scheduler.device.writeState("smsWrite")], ["read", "available"]);
+      assert.deepEqual([first.plan.sms.settings, first.plan.sms.feature, first.plan.tokens.map((t) => t.missing)], [["agentSms", "agentSmsSendPolicy"], true, [["sms-write"]]], "SMS still on offer");
+
+      const more = fx.service.begin({ model: MODEL, tokenId: agent.id, sms: true });
+      assert.deepEqual([more.current?.sms, more.current?.features.includes("smsWrite"), more.current?.tokens.map((t) => t.permissions)], [true, true, [["control", "sms-write"]]]);
+      assert.equal(fx.audit.list(1)[0]?.detail, `more for ${MODEL} with SMS: MCP_SMS_ACCESS full, MCP_SMS_SEND_POLICY any, smsWrite on, token "Claude" + sms-write`);
+      fx.service.end();
+      assert.deepEqual([fx.settings.behaviourOverrides, fx.settings.listTokens().find((t) => t.id === agent.id)?.permissions], [{}, ["sms-read"]]);
+
+      assert.throws(() => fx.service.begin({ model: MODEL, sms: "yes" }), CpeControlValidationError);
+      // A test already on with everything set: keeping SMS in only changes what counts for a pass
+      fx.settings.setBehaviour({ agentSms: "full", agentSmsSendPolicy: "any" });
+      changeExperimentalConsent(fx.settings, fx.core.scheduler.device, { feature: "smsWrite", enabled: true, model: MODEL });
+      fx.service.begin({ model: MODEL, sms: false });
+      assert.equal(fx.service.status().current?.sms, false);
+      fx.service.begin({ model: MODEL, sms: true });
+      assert.equal(fx.service.status().current?.sms, true);
     } finally {
       await fx.cleanup();
     }
@@ -290,7 +363,7 @@ describe("the agent test at one click", () => {
     const fx = await fixture();
     try {
       fx.service.begin({ model: MODEL });
-      assert.deepEqual(fx.service.status().current?.tokens, [], "no token chosen");
+      assert.deepEqual([fx.service.status().current?.tokens, fx.service.status().current?.sms], [[], false], "no token chosen, SMS left out by default");
       // The owner turns the redial off and on again (a consent of their own) and hands the agents' switch back to .env
       changeExperimentalConsent(fx.settings, fx.core.scheduler.device, { feature: "reconnect", enabled: false });
       fx.tick(1000);
@@ -298,12 +371,12 @@ describe("the agent test at one click", () => {
       changeExperimentalConsent(fx.settings, fx.core.scheduler.device, { feature: "reconnect", enabled: true, model: MODEL });
       fx.settings.setBehaviour({ agentWrites: null });
       assert.deepEqual(fx.service.status().current?.features, ["bandLock", "reboot"]);
-      assert.deepEqual(fx.service.status().plan.switches, ["agentWrites"], "the test needs it again");
+      assert.deepEqual(fx.service.status().plan.settings, ["agentWrites"], "the test needs it again");
 
       const agent = fx.settings.createToken({ name: "Codex", permissions: [], lifetimeDays: 7 }).record;
       const more = fx.service.begin({ model: MODEL, tokenId: agent.id });
-      assert.deepEqual([more.current?.switches, more.current?.tokens.map((t) => t.name)], [["agentExperimental", "agentWrites"], ["Codex"]]);
-      assert.match(fx.audit.list(1)[0]?.detail ?? "", /^more for B535-232: MCP_ALLOW_MUTATIONS on, token "Codex" \+ control$/);
+      assert.deepEqual([more.current?.settings, more.current?.tokens.map((t) => t.name)], [["agentExperimental", "agentWrites"], ["Codex"]]);
+      assert.match(fx.audit.list(1)[0]?.detail ?? "", /^more for B535-232: MCP_ALLOW_MUTATIONS true, token "Codex" \+ control$/);
 
       fx.service.end();
       assert.deepEqual(fx.settings.experimentalConsents.map((c) => c.feature), ["reconnect"], "the owner's own consent stays");
@@ -317,12 +390,16 @@ describe("the agent test at one click", () => {
   it("refuses a start for another model or a token it cannot offer, and on a verified router", async () => {
     const fx = await fixture();
     try {
-      const allowed = fx.settings.createToken({ name: "full", permissions: ["control"], lifetimeDays: 1 }).record;
+      const allowed = fx.settings.createToken({ name: "full", permissions: ["sms-read", "control", "sms-write"], lifetimeDays: 1 }).record;
       assert.throws(() => fx.service.begin({ model: "H168-383" }), CpeControlValidationError);
       assert.throws(() => fx.service.begin({ model: 42 }), CpeControlValidationError);
-      assert.throws(() => fx.service.begin({ model: MODEL, tokenId: allowed.id }), /cannot be allowed to change the router/, "it may already");
+      assert.throws(() => fx.service.begin({ model: MODEL, tokenId: allowed.id }), /cannot be given what the test needs/, "it has it already");
       assert.throws(() => fx.service.begin({ model: MODEL, tokenId: 7 }), CpeControlValidationError);
       assert.deepEqual([fx.settings.behaviourOverrides, fx.settings.experimentalConsents, fx.settings.agentTest], [{}, [], null], "nothing changed");
+      // A token that lacks only SMS permissions gets nothing when SMS is left out
+      const smsless = fx.settings.createToken({ name: "agent", permissions: ["control"], lifetimeDays: 1 }).record;
+      const started = fx.service.begin({ model: MODEL, tokenId: smsless.id, sms: false });
+      assert.deepEqual([started.current?.tokens, fx.settings.listTokens().find((t) => t.id === smsless.id)?.permissions], [[], ["control"]]);
     } finally {
       await fx.cleanup();
     }
@@ -352,7 +429,7 @@ describe("the agent test at one click", () => {
     const fx = await fixture();
     try {
       const agent = fx.settings.createToken({ name: "Claude", permissions: ["sms-read"], lifetimeDays: 1 }).record;
-      fx.service.begin({ model: MODEL, tokenId: agent.id });
+      fx.service.begin({ model: MODEL, tokenId: agent.id, sms: true });
       fx.tick(2 * HOUR);
       // A read of the report is the test going on; reading the signal is not
       await fx.call("get_device_report", {}, ["sms-read", "control"]);
@@ -369,9 +446,9 @@ describe("the agent test at one click", () => {
       assert.equal(reminder?.severity, "warning");
       assert.equal(
         reminder?.messageEn,
-        `What the AI agent test turned on is still on (${MODEL}): Let AI agents test this router; Let agents change the router; experimental writes (band lock, redial, reboot); the token “Claude” may change the router. When the test is done, choose “End test” under Settings → Device and FengSui puts back the settings from before it. Once you have seen this in the console's alerts, or chosen “Got it” in Telegram, it is not repeated`
+        `What the AI agent test turned on is still on (${MODEL}): Let AI agents test this router; Let agents change the router; agents' SMS access: read and write; agents may send SMS to any number; experimental writes (band lock, redial, reboot, send and manage SMS); the token “Claude”: change the router, send and delete SMS. When the test is done, choose “End test” under Settings → Device and FengSui puts back the settings from before it. Once you have seen this in the console's alerts, or chosen “Got it” in Telegram, it is not repeated`
       );
-      assert.match(reminder?.messageZh ?? "", /^AI 智能体测试打开的设置还开着（B535-232）：允许 AI 智能体测试这台路由器；允许智能体改动路由器；实验性写入（锁频段、重拨、重启）；令牌「Claude」可以改动路由器。/);
+      assert.match(reminder?.messageZh ?? "", /^AI 智能体测试打开的设置还开着（B535-232）：允许 AI 智能体测试这台路由器；允许智能体改动路由器；智能体的短信权限：读写；智能体发短信：任何号码；实验性写入（锁频段、重拨、重启、发送与管理短信）；令牌「Claude」：改动路由器、发短信、删短信。/);
       const shown = fx.service.status().current;
       assert.deepEqual([shown?.remindedAtIso, shown?.acknowledged, shown?.remindAtIso], [new Date(fx.now()).toISOString(), false, new Date(fx.now() + AGENT_TEST_REMIND_EVERY_MS).toISOString()]);
 
@@ -421,7 +498,7 @@ describe("the agent test at one click", () => {
   it("does not remind once every covered write that is on passed", async () => {
     const fx = await fixture();
     try {
-      fx.service.begin({ model: MODEL });
+      fx.service.begin({ model: MODEL, sms: false });
       // The owner keeps only the band lock, which the agent then tests and puts back
       for (const feature of ["reconnect", "reboot"]) changeExperimentalConsent(fx.settings, fx.core.scheduler.device, { feature, enabled: false });
       assert.equal(fx.service.status().current?.passed, false, "not tried yet");
@@ -436,6 +513,12 @@ describe("the agent test at one click", () => {
       fx.service.check();
       assert.deepEqual(fx.alerts.map((a) => a.code), [], "passed: no reminder");
       assert.notEqual(fx.settings.agentTest, null, "still on until the owner ends it");
+
+      // SMS kept in the test counts too: on and never tried, so no pass
+      changeExperimentalConsent(fx.settings, fx.core.scheduler.device, { feature: "smsWrite", enabled: true, model: MODEL });
+      assert.equal(fx.service.status().current?.passed, true, "SMS was left out of this test");
+      fx.service.begin({ model: MODEL, sms: true });
+      assert.equal(fx.service.status().current?.passed, false, "SMS is in now, and untried");
     } finally {
       await fx.cleanup();
     }
@@ -445,15 +528,15 @@ describe("the agent test at one click", () => {
     const fx = await fixture();
     try {
       const agent = fx.settings.createToken({ name: "Claude", permissions: [], lifetimeDays: 1 }).record;
-      fx.service.begin({ model: MODEL, tokenId: agent.id });
+      fx.service.begin({ model: MODEL, tokenId: agent.id, sms: true });
       await fx.settings.flush();
       const reloaded = new ConsoleSettings({ filePath: path.join(fx.dir, "settings.json"), cipher: fx.cipher });
       assert.equal(reloaded.load(), true);
       assert.deepEqual(reloaded.agentTest, fx.settings.agentTest, "kept in settings.json");
 
       // Everything set back by hand: the next check forgets the test
-      fx.settings.setBehaviour({ agentExperimental: null, agentWrites: null });
-      for (const feature of ["bandLock", "reconnect", "reboot"]) fx.settings.revokeExperimental(feature);
+      fx.settings.setBehaviour({ agentExperimental: null, agentWrites: null, agentSms: null, agentSmsSendPolicy: null });
+      for (const feature of ["bandLock", "reconnect", "reboot", "smsWrite"]) fx.settings.revokeExperimental(feature);
       fx.settings.setTokenPermissions(agent.id, []);
       assert.equal(fx.service.status().current, null);
       fx.service.check();

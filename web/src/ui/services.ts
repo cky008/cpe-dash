@@ -34,10 +34,16 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   const cancel = byId<HTMLButtonElement>("confirmCancel");
   const typeRow = byId("confirmTypeRow");
   const typeInput = byId<HTMLInputElement>("confirmTypeInput");
+  const checkRow = byId("confirmCheckRow");
+  const checkInput = byId<HTMLInputElement>("confirmCheckInput");
   byId("confirmTitle").textContent = options.title;
   byId("confirmBody").replaceChildren(...options.body.map((line) => h("p", null, line)));
   ok.textContent = options.confirmLabel;
   ok.className = `btn btn-sm rounded-lg ${options.tone === "error" ? "btn-error" : options.tone === "warning" ? "btn-warning" : "btn-primary"}`;
+  const check = options.check;
+  checkRow.classList.toggle("hidden", !check);
+  byId("confirmCheckLabel").textContent = check?.label ?? "";
+  checkInput.checked = check?.checked ?? false;
   const word = options.typeToConfirm;
   typeRow.classList.toggle("hidden", !word);
   typeInput.value = "";
@@ -52,6 +58,7 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
       ok.removeEventListener("click", onOk);
       cancel.removeEventListener("click", onCancel);
       typeInput.removeEventListener("input", onType);
+      checkInput.removeEventListener("change", onCheck);
       dialog.removeEventListener("close", onClose);
       if (dialog.open) dialog.close();
       resolve(value);
@@ -62,9 +69,11 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
     const onType = (): void => {
       ok.disabled = typeInput.value.trim().toLowerCase() !== (word ?? "").toLowerCase();
     };
+    const onCheck = (): void => check?.onChange(checkInput.checked);
     ok.addEventListener("click", onOk);
     cancel.addEventListener("click", onCancel);
     typeInput.addEventListener("input", onType);
+    checkInput.addEventListener("change", onCheck);
     dialog.addEventListener("close", onClose);
     dialog.showModal();
     (word ? typeInput : cancel).focus();

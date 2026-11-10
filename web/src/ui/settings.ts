@@ -26,7 +26,7 @@ import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
-import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, startTurnsOn } from "../core/agent-test-view.ts";
+import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn } from "../core/agent-test-view.ts";
 import { ApiError } from "../core/api.ts";
 import {
   type NoticeTone,
@@ -167,8 +167,12 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   /** The experimental writes and their recent results (read again each time the Device tab opens). */
   let experimental: ExperimentalWritesResponse | null = null;
   const switching = new Set<WriteFeature>();
-  /** The token chosen for the agent's test (`null`: the plan's suggestion; `""`: none), and a start or end on its way. */
+  /**
+   * The token chosen for the agent's test (`null`: the plan's suggestion; `""`: none), whether SMS stays
+   * in it (the owner's last answer in this dialog; in by default), and a start or end on its way.
+   */
   let agentToken: string | null = null;
+  let agentSms = true;
   let agentBusy = false;
   /** Counts finished connection tests and saves: a profile read that one of them may have outdated is read again. */
   let deviceEpoch = 0;
@@ -533,26 +537,36 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   };
 
   /**
-   * Copy the test prompt. When that turns something on (a switch, a covered write, the agent's token),
-   * one confirmation lists it all first; the confirming click also copies, before the request.
+   * Copy the test prompt. When that turns something on (a setting, a covered write, what the agent's
+   * token needs), one confirmation lists it all first, with SMS as an option kept by default; the
+   * confirming click also copies, before the request.
    */
   const startAgentTest = async (prompt: string): Promise<void> => {
     const plan = experimental?.agentTest.plan;
     if (!plan || agentBusy) return;
     const tokenId = agentToken ?? defaultAgentToken(plan);
-    if (!startTurnsOn(plan, tokenId)) {
+    let sms = agentSms && plan.sms.available;
+    if (!startTurnsOn(plan, tokenId, sms)) {
       const ok = await copyText(dialog, prompt);
       ctx.toast(ctx.t(ok ? "toast.copied" : "toast.copy_failed"), ok ? "success" : "warning");
       return;
     }
     const model = ctx.store.state.scheduler?.device.model?.trim() || "?";
-    const yes = await ctx.confirm({ title: t("agent_start_title", { model }), body: agentStartBody(plan, tokenId, t), confirmLabel: t("agent_start_confirm"), tone: "warning" });
+    const smsLabel = smsOption(plan, t);
+    const yes = await ctx.confirm({
+      title: t("agent_start_title", { model }),
+      body: agentStartBody(plan, tokenId, t),
+      confirmLabel: t("agent_start_confirm"),
+      tone: "warning",
+      ...(smsLabel ? { check: { label: smsLabel, checked: sms, onChange: (checked: boolean) => (sms = checked) } } : {}),
+    });
     if (!yes) return;
+    if (smsLabel) agentSms = sms;
     const copied = await copyText(dialog, prompt);
     agentBusy = true;
     render();
     try {
-      applyAgentTest(await ctx.api.agentTest({ action: "start", model, tokenId: tokenId || null }));
+      applyAgentTest(await ctx.api.agentTest({ action: "start", model, tokenId: tokenId || null, sms }));
       agentToken = null;
       ctx.toast(t(copied ? "agent_started" : "agent_started_copy_failed"), "warning");
     } catch (err) {
@@ -622,7 +636,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       if (reminderWaiting(current)) buttons.push(button(t("agent_ack"), "btn-ghost", () => agentTestAction("ack"), "check"));
       if (current) buttons.push(button(t("agent_end"), "btn-ghost text-warning", () => agentTestAction("end"), "x"));
       if (plan?.available) {
-        const turnsOn = startTurnsOn(plan, tokenId);
+        const turnsOn = startTurnsOn(plan, tokenId, agentSms);
         buttons.push(button(t(turnsOn ? "agent_start" : "agent_copy"), turnsOn ? "btn-primary" : "", () => void startAgentTest(prompt), "copy"));
       }
       for (const control of buttons) control.disabled = agentBusy;
@@ -1353,6 +1367,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     savingSwitches = false;
     savingBehaviour = false;
     agentToken = null;
+    agentSms = true;
     agentBusy = false;
     editing = null;
     draftPermissions = [...DEFAULT_PERMISSIONS];

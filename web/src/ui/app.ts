@@ -124,6 +124,10 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
   // Dialogs and drawers are lazy chunks, loaded on first use
   let appearanceLoading: Promise<{ open(): void }> | null = null;
   let alertsLoading: Promise<{ open(): void }> | null = null;
+  const openAlerts = (): void => {
+    alertsLoading ??= import("./alerts.ts").then((m) => m.mountAlerts(ctx));
+    void alertsLoading.then((panel) => panel.open());
+  };
   let controlsLoading: Promise<{ open(): void }> | null = null;
   let mcpGuideLoading: Promise<{ open(): void }> | null = null;
   let settingsLoading: Promise<{ open(tab?: SettingsTab, guided?: boolean): void }> | null = null;
@@ -191,6 +195,15 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
         const alert = event.data;
         if (alert.code.startsWith("CIRCUIT_") || SELF_HEAL_ALERTS.has(alert.code)) void refreshSessionStatus();
         if (alert.severity !== "info") ctx.toast(tr.pick(alert.messageZh, alert.messageEn), alert.severity === "critical" ? "error" : "warning");
+        // The AI agent test's reminder also reaches a console left in a background tab; a click opens the alerts, which reads it
+        if (alert.code === "AGENT_TEST_STILL_ON" && "Notification" in window && Notification.permission === "granted" && document.hidden) {
+          const notice = new Notification(tr.t("toast.agent_test_still_on"), { body: tr.pick(alert.messageZh, alert.messageEn), tag: alert.id });
+          notice.addEventListener("click", () => {
+            window.focus();
+            notice.close();
+            openAlerts();
+          });
+        }
         return;
       }
       case "control:applied":
@@ -410,8 +423,7 @@ export async function startApp(transport: AppTransport = BROWSER_TRANSPORT): Pro
         void appearanceLoading.then((dialog) => dialog.open());
         return;
       case "open-alerts":
-        alertsLoading ??= import("./alerts.ts").then((m) => m.mountAlerts(ctx));
-        void alertsLoading.then((panel) => panel.open());
+        openAlerts();
         return;
       case "open-controls":
         controlsLoading ??= import("./controls.ts").then((m) => m.mountControls(ctx));

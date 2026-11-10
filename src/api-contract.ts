@@ -58,7 +58,7 @@ import type {
   WriteResultRecord,
 } from "./device-access.ts";
 import type { ExperimentalConsent, PublicTokenRecord } from "./console-settings.ts";
-import type { AgentTestFeature, AgentTestPlan, AgentTestStatus, AgentTestSwitch, AgentTestTokenChoice, AgentTestView } from "./agent-test.ts";
+import type { AgentTestFeature, AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView } from "./agent-test.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { SelfHealStatus } from "./self-heal-status.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
@@ -122,7 +122,7 @@ export type {
   WifiFilterPolicy,
   WifiMacFilterState,
 };
-export type { AgentTestFeature, AgentTestPlan, AgentTestStatus, AgentTestSwitch, AgentTestTokenChoice, AgentTestView };
+export type { AgentTestFeature, AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView };
 export type {
   ApiErrorSnapshot,
   ApiErrorStat,
@@ -392,12 +392,12 @@ export interface ExperimentalWritesResponse {
 
 /**
  * `POST /api/console/agent-test` (console session only): `start` turns on what `agentTest.plan` lists for
- * the router's `model` as the console showed it, and lets `tokenId` (one of the plan's tokens; `null`:
- * none) change the router; `end` puts back what the test turned on; `ack` reads its reminder
- * (`alertId`: the reminder alert the console showed).
+ * the router's `model` as the console showed it, SMS too with `sms: true`, and gives `tokenId` (one of
+ * the plan's tokens; `null`: none) what the test needs; `end` puts back what the test turned on; `ack`
+ * reads its reminder (`alertId`: the reminder alert the console showed).
  */
 export type AgentTestRequest =
-  | { action: "start"; model: string; tokenId?: string | null }
+  | { action: "start"; model: string; tokenId?: string | null; sms?: boolean }
   | { action: "end" }
   | { action: "ack"; alertId?: string };
 

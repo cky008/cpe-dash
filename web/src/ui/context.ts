@@ -14,6 +14,8 @@ export interface ConfirmOptions {
   tone?: "primary" | "warning" | "error";
   /** Second safeguard for destructive actions: the user must type this word. */
   typeToConfirm?: string;
+  /** An option to keep or leave out, shown as a checkbox; `onChange` hears each change before the answer. */
+  check?: { label: string; checked: boolean; onChange: (checked: boolean) => void };
 }
 
 /** Services every view receives; views never reach for globals. */

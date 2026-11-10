@@ -589,7 +589,7 @@ describe("the console in a browser", () => {
     }
   });
 
-  it("starts an agent's test with one confirmation and the agent's token, copies the prompt, and ends it with one click", async () => {
+  it("starts an agent's test with one confirmation, SMS and the agent's token included, copies the prompt, and ends it with one click", async () => {
     const other = await world({ scenario: "unverified" });
     try {
       assert.ok(chrome, "Chrome is running");
@@ -609,11 +609,14 @@ describe("the console in a browser", () => {
       for (const item of ["Let AI agents test this router", "Let agents change the router", "Experimental writes: Band lock, Redial, Reboot", "The token “Claude”: may change the router", "End test"]) {
         assert.ok(body.includes(item), item);
       }
+      // SMS is in unless the owner unticks it
+      assert.equal(await page.evaluate<boolean>("!document.getElementById('confirmCheckRow').classList.contains('hidden') && document.getElementById('confirmCheckInput').checked"), true, "SMS ticked");
+      assert.match(await page.evaluate<string>("document.getElementById('confirmCheckLabel').textContent"), /^Also test SMS: .*at most 10 an hour/);
       await page.click("#confirmOk");
       await until(() => other.stack.settings.agentTest !== null, "the test started");
-      assert.deepEqual(other.stack.settings.behaviourOverrides, { agentExperimental: true, agentWrites: true });
-      assert.equal(other.stack.settings.experimentalConsents.length, 3);
-      assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control"]);
+      assert.deepEqual(other.stack.settings.behaviourOverrides, { agentExperimental: true, agentWrites: true, agentSms: "full", agentSmsSendPolicy: "any" });
+      assert.deepEqual(other.stack.settings.experimentalConsents.map((c) => c.feature).sort(), ["bandLock", "reboot", "reconnect", "smsWrite"]);
+      assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control", "sms-write"]);
       assert.match(await page.evaluate<string>("navigator.clipboard.readText()"), /^Please test how FengSui works with this router \(B535-232\)/, "the prompt is copied");
       await page.waitUntil("document.querySelector('#settingsDialog [data-agent-test=status]')?.textContent.includes('Ending the test puts back')", "the test in progress");
       assert.equal(await page.evaluate<boolean>("document.querySelector('#settingsDialog [data-agent-test=token]') === null"), true, "nothing left to choose");
@@ -623,6 +626,54 @@ describe("the console in a browser", () => {
       assert.deepEqual([other.stack.settings.behaviourOverrides, other.stack.settings.experimentalConsents], [{}, []]);
       assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read"]);
       await page.waitUntil(`document.querySelector(${JSON.stringify(start)})?.textContent.includes('Copy prompt and start test')`, "ready to start again");
+
+      // Unticked, SMS stays out: the rest goes on
+      await page.click(start);
+      await page.waitUntil(isOpen("confirmDialog"), "the confirmation again");
+      await page.evaluate("(() => { const box = document.getElementById('confirmCheckInput'); box.click(); return box.checked; })()");
+      await page.click("#confirmOk");
+      await until(() => other.stack.settings.agentTest !== null, "the test started without SMS");
+      assert.deepEqual(other.stack.settings.behaviourOverrides, { agentExperimental: true, agentWrites: true });
+      assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control"]);
+      assert.equal(other.stack.settings.agentTest?.sms, false);
+      await page.clickText("#settingsDialog [data-agent-test=prompt] button", "End test");
+      await until(() => other.stack.settings.agentTest === null, "ended again");
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("puts the reminder in a system notification while the console is in a background tab, and a click on it reads the reminder", async () => {
+    const other = await world({ scenario: "unverified" });
+    try {
+      other.stack.agentTest.begin({ model: "B535-232" });
+      await signIn(page, other);
+      // A tab in the background whose notifications are allowed: stand-ins record what the page shows
+      await page.evaluate(`(() => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+        window.__notices = [];
+        window.Notification = class {
+          static permission = 'granted';
+          static requestPermission() { return Promise.resolve('granted'); }
+          constructor(title, options) { this.title = title; this.options = options; this.listeners = {}; window.__notices.push(this); }
+          addEventListener(name, fn) { this.listeners[name] = fn; }
+          close() { this.closed = true; }
+        };
+        return true;
+      })()`);
+      const record = other.stack.settings.agentTest;
+      assert.ok(record);
+      other.stack.settings.setAgentTest({ ...record, lastActivityAtIso: new Date(Date.now() - 4 * 3_600_000).toISOString() });
+      other.stack.agentTest.check();
+      await page.waitUntil("window.__notices.length === 1", "the system notification");
+      assert.equal(await page.evaluate<string>("window.__notices[0].title"), "FengSui · What the AI agent test turned on is still on");
+      assert.match(await page.evaluate<string>("window.__notices[0].options.body"), /^What the AI agent test turned on is still on \(B535-232\)/);
+      assert.equal(other.stack.settings.agentTest?.acknowledgedAtIso, null, "a notification is not a read");
+      await page.evaluate("window.__notices[0].listeners.click(); true");
+      await page.waitUntil(isOpen("alertsDialog"), "the alerts it opens");
+      await until(() => other.stack.settings.agentTest?.acknowledgedAtIso !== null, "the reminder read");
       assert.deepEqual(page.exceptions, []);
       await closeDialogs(page);
     } finally {

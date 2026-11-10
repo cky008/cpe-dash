@@ -549,6 +549,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "toast.deleted_to_trash": "Deleted: you can restore it from Recently deleted",
   "toast.restored": "Restored {count}",
   "toast.purged": "Deleted {count} for good",
+  "toast.agent_test_still_on": "FengSui · What the AI agent test turned on is still on",
   "toast.sync_done": "Sync done: {added} added, {updated} updated, {removed} removed",
   "toast.sync_yielded": "Someone is using the router's admin page; the SMS sync paused and catches up later",
   "toast.refreshed": "Refreshed",
