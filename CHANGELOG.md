@@ -4,6 +4,8 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-11-10
+
 ### Highlights
 - **Start an AI agent's router test with one click.** On a model FengSui was not verified on, "Copy prompt and start test" under Settings → Device lists everything the test needs and, once you confirm, turns it all on and copies the prompt: the agents' two switches, the experimental band lock, redial and reboot, SMS (ticked by default, so the agent can send one test SMS to a number you give it), and the permissions for the agent's token. Keep what passed, or choose "End test" to put back what the test turned on. While the test is on, FengSui reminds you 3 hours after the agent's last step and then daily, until the test's writes have all read back as a match, you have read a reminder, or you end the test.
 
@@ -20,6 +22,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ### Documentation
 - "Other Huawei models", "AI agents" and "Notifications" describe the one-click test, its SMS option, what to keep or end afterwards, and when the reminder comes.
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`, and nothing turns on by itself: the one-click test is offered only on a model FengSui was not verified on, and changes settings only when you start it.
 
 ## [1.8.0] — 2026-11-09
 
