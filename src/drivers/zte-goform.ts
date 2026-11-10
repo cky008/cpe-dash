@@ -572,13 +572,18 @@ class ZteGoformSession implements DriverSessionHandle {
   readonly #version: ZteVersion;
   readonly #hash: "sha256" | "md5";
   readonly #branch: ZteBranch;
+  readonly #password: string;
+  readonly #configJs: string | null;
+  #developerUnlocked = false;
   #open = true;
 
-  constructor(http: LanHttp, version: ZteVersion, hash: "sha256" | "md5") {
+  constructor(http: LanHttp, version: ZteVersion, hash: "sha256" | "md5", password = "", configJs: string | null = null) {
     this.#http = http;
     this.#version = version;
     this.#hash = hash;
     this.#branch = zteBranch(version);
+    this.#password = password;
+    this.#configJs = configJs;
   }
 
   get open(): boolean {
@@ -587,6 +592,28 @@ class ZteGoformSession implements DriverSessionHandle {
 
   #guard(): void {
     if (!this.#open) throw new DriverSessionClosedError();
+  }
+
+  /**
+   * On MC8020 (branch 3) and MC888 (branch 2), entering developer option mode unlocks
+   * band and cell locking. Runs lazily once before the first lock write in the session.
+   */
+  async #ensureDeveloperMode(): Promise<void> {
+    if (this.#developerUnlocked || (this.#branch !== 2 && this.#branch !== 3) || !this.#password) return;
+    this.#developerUnlocked = true;
+    try {
+      const devLd = textOf((await getCmd(this.#http, ["LD"], false))["LD"]);
+      const devMethod = zteLoginMethodOf(devLd, this.#configJs);
+      if (devMethod !== null) {
+        await setCmd(this.#http, [
+          ["isTest", "false"],
+          ["goformId", "DEVELOPER_OPTION_LOGIN"],
+          ["password", zteLoginPassword(devMethod, this.#password)],
+        ]);
+      }
+    } catch {
+      // Best-effort developer option login on MC8020 / MC888
+    }
   }
 
   async identify(): Promise<DriverIdentity> {
@@ -624,6 +651,7 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
+    await this.#ensureDeveloperMode();
     const lte = target.lte === "all" ? "all" : checkLockBands("LTE", target.lte, null);
     const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
     const lteForm = zteLteBandForm(this.#branch, lte);
@@ -637,6 +665,7 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
+    await this.#ensureDeveloperMode();
     const checked = checkCellLock(target);
     const form = zteCellForm(this.#branch, checked);
     await this.#post(check, form.goformId, form.fields);
@@ -644,6 +673,7 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   async unlockAll(check: WriteCheck): Promise<void> {
+    await this.#ensureDeveloperMode();
     const before = await this.lockState();
     if (before.lteBands !== "all") {
       const form = zteLteBandForm(this.#branch, "all");
@@ -726,7 +756,7 @@ export const zteGoformProtocol: DriverProtocol = {
       ["password", zteLoginPassword(method, credentials.password)],
     ]);
     const result = textOf(answer["result"]);
-    if (result === "0") return new ZteGoformSession(http, version, method.kind === "sha256-ld" ? "sha256" : "md5");
+    if (result === "0") return new ZteGoformSession(http, version, method.kind === "sha256-ld" ? "sha256" : "md5", credentials.password, configJs);
     if (result === "4") throw signedInElsewhere("another administrator is signed in");
     // The router's own count of attempts left and of the lock, read without a password
     const status = await getCmd(http, LOCK_STATUS_KEYS).catch(() => ({}) as Record<string, unknown>);

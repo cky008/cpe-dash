@@ -89,6 +89,10 @@ function zteRouter(opts: { ld?: string | null; configJs?: string; hw?: string; m
         state.loggedIn = true;
         return { json: { result: "0" }, setCookie: ["stok=abc123; Path=/; HttpOnly"] };
       }
+      if (goformId === "DEVELOPER_OPTION_LOGIN") {
+        state.posts.push({ goformId, fields });
+        return { json: { result: "0" } };
+      }
       if (!state.loggedIn || !req.headers["cookie"]?.includes("stok=abc123")) return { json: { result: "failure" } };
       if (fields.get("AD") !== zteActionDigest(hash, version, `RD${state.rd}`)) return { json: { result: "failure" } };
       state.posts.push({ goformId, fields });
@@ -157,6 +161,14 @@ describe("zte-goform: login and digests", () => {
     assert.ok(mock.requests.every((r) => r.headers["referer"] === "http://192.168.0.1/index.html" && r.headers["x-requested-with"] === "XMLHttpRequest"));
     assert.deepEqual(state.posts.map((p) => p.goformId), ["LOGOUT"]);
     assert.equal(state.loggedIn, false);
+  });
+
+  it("triggers DEVELOPER_OPTION_LOGIN on MC888 (branch 2) and MC8020 (branch 3)", async () => {
+    for (const hw of ["MC888HW-1.0.0", "MC8020HW-1.0.0"]) {
+      const { state, client } = zteRouter({ hw });
+      await client.withSession((s) => s.setBandLock({ lte: [1], nr: null, networkMode: null }, newCheck()));
+      assert.ok(state.posts.some((p) => p.goformId === "DEVELOPER_OPTION_LOGIN"));
+    }
   });
 
   it("logs in with the single SHA-256 or Base64 the page announces, and signs writes with MD5", async () => {
@@ -370,7 +382,7 @@ describe("zte-goform: locks", () => {
     const { state, client } = zteRouter();
     const check = newCheck();
     await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: [78], networkMode: "nr_nsa" }, check));
-    assert.deepEqual(state.posts.map((p) => p.goformId), ["BAND_SELECT", "WAN_PERFORM_NR5G_BAND_LOCK_MERGE", "SET_BEARER_PREFERENCE", "LOGOUT"]);
+    assert.deepEqual(state.posts.map((p) => p.goformId), ["DEVELOPER_OPTION_LOGIN", "BAND_SELECT", "WAN_PERFORM_NR5G_BAND_LOCK_MERGE", "SET_BEARER_PREFERENCE", "LOGOUT"]);
     assert.deepEqual(check, { endpoints: ["zte-goform:BAND_SELECT", "zte-goform:WAN_PERFORM_NR5G_BAND_LOCK_MERGE", "zte-goform:SET_BEARER_PREFERENCE"], readback: "match", reason: null });
   });
 
