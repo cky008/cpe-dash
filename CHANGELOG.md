@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+- **Plain words in the console.** Settings → Device names the reads and features as the dashboard does (nearby cells, connected devices), and the banners and messages no longer speak of the "daemon", "telemetry" or a "breaker": for example, "Someone is logged in to the 192.168.8.1 admin page (state-login 0). FengSui has paused its logins: the page shows the data it read last, and changes to the router are declined."
+
 ## [1.8.2] — 2026-11-10
 
 ### Highlights

@@ -41,7 +41,7 @@ Band locks apply to both 5G SA and NSA. To restore normal operation, click "Unlo
 Cell locking fixes the router to a specific base station sector. A cell is identified by its band, [frequency](bands-and-cells.md#arfcn), and [PCI](bands-and-cells.md#pci).
 
 1. In the **Nearby cells** table on the Dashboard, find a cell with good signal and click "Lock to this cell", or fill in the details manually in the Controls drawer.
-2. FengSui only allows locking to cells that have **already been observed**: the current serving cell, carrier aggregation cells, or cells seen in the latest neighbor scan. This prevents connection drops caused by mistyped numbers.
+2. FengSui only allows locking to cells that have **already been observed**: the current serving cell, carrier aggregation cells, or cells seen in the latest scan of "Nearby cells". This prevents connection drops caused by mistyped numbers.
 3. You can also select "Frequency only (no PCI)" to lock only the frequency.
 
 ![Confirmation dialog for locking a cell](../../screenshots/cell-lock.webp)

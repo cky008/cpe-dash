@@ -25,7 +25,7 @@ const zh = {
   you: "你的设备",
   daemon: "运行烽燧",
   add_title: "添加设备",
-  add_pick: "从终端列表选择…",
+  add_pick: "从已连接设备里选…",
   mac_placeholder: "或手动输入 MAC，如 AA:BB:CC:DD:EE:FF",
   name_placeholder: "备注名（可选）",
   add: "添加",

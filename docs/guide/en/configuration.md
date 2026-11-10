@@ -36,7 +36,7 @@ These settings are imported only on the **first startup**. After that, values in
 | `RESPECT_BROWSER_SESSION` | `true` | Automatically step aside when someone logs in to the router's own web page. Strongly recommended to keep enabled |
 | `REQUEST_TIMEOUT_MS` | `15000` | Timeout for a single request to the router (in milliseconds) |
 | `POLL_INTERVAL_MS` | `5000` | Interval for reading signal and data rate metrics |
-| `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | Interval for scanning neighbor cells |
+| `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | Interval for scanning nearby cells |
 
 ## Web, login, and tokens
 

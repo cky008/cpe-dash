@@ -36,7 +36,7 @@ AI 智能体、自愈、告警和部分短信设置也可以直接在控制台�
 | `RESPECT_BROWSER_SESSION` | `true` | 有人登录官方网页时自动让开。强烈建议保持开启 |
 | `REQUEST_TIMEOUT_MS` | `15000` | 单次请求路由器的超时（毫秒） |
 | `POLL_INTERVAL_MS` | `5000` | 读取信号和速率的间隔 |
-| `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | 扫描邻区的间隔 |
+| `NEIGHBOR_SCAN_INTERVAL_MS` | `60000` | 扫描附近基站的间隔 |
 
 ## 网页、登录与令牌
 
