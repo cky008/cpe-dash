@@ -107,7 +107,14 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     const sitemap = fs.readFileSync(path.join(site, "sitemap.xml"), "utf8");
     for (const slug of GUIDE("zh")) assert.ok(sitemap.includes(`<loc>https://docs.example.com/docs/${slug}/</loc>`) && sitemap.includes(`https://docs.example.com/en/docs/${slug}/`), slug);
     assert.match(fs.readFileSync(path.join(site, "robots.txt"), "utf8"), /Sitemap: https:\/\/docs\.example\.com\/sitemap\.xml/);
-    assert.match(fs.readFileSync(path.join(site, "404.html"), "utf8"), /<meta name="robots" content="noindex">/);
+    const notFound = fs.readFileSync(path.join(site, "404.html"), "utf8");
+    assert.match(notFound, /<meta name="robots" content="noindex">/);
+    // Served for any missing path: its stylesheet, script and links are absolute to the site, and both languages are there
+    const assets = [...notFound.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)].map((m) => m[1] ?? "");
+    assert.deepEqual(assets.map((a) => a.replace(/\.[0-9a-f]+\./, ".#.")).sort(), ["/assets/site.#.css", "/assets/site.#.js"]);
+    for (const asset of assets) assert.ok(fs.existsSync(path.join(site, asset)), asset);
+    for (const href of ['href="/"', 'href="/docs/quick-start/"', 'href="/en/"', 'href="/en/docs/quick-start/"']) assert.ok(notFound.includes(href), href);
+    assert.deepEqual([...notFound.matchAll(/data-nf="([^"]+)"/g)].map((m) => m[1]), ["zh-CN", "en"]);
 
     // Without DOCS_SITE_URL (a local build): no canonical, no sitemap, nothing pointing at a domain
     const local = fs.readFileSync(path.join(plain, "index.html"), "utf8");

@@ -5,6 +5,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ## [Unreleased]
 
 ### Documentation
+- **A friendlier not-found page on the documentation site**: the site's own look in light and dark, a kaomoji that changes when you poke it, "No signal here" with a way back to the home page or the docs, in the language of the address (`/en/…` in English).
 - **Supported devices marks each feature per model**: one mark per console module (○ verified, △ may work, ? unknown, × not supported) instead of a sentence, with a legend, and the page names no other project (the guide credits huawei-lte-api once, on "Other Huawei models"). It is now the guide's only table of models: "Other Huawei models" drops its compatibility table and keeps how FengSui works on such a model, how to report it and how to test it with an AI agent, and the device page links there instead of repeating the steps. Wide tables on the documentation site keep their cells on one line.
 
 ### Changed

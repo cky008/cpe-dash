@@ -1,7 +1,7 @@
 /**
  * The documentation site's only script (built by scripts/build-docs.ts): light / dark theme, copy buttons,
- * ⌘K search over a prebuilt index, the mobile menu and the "on this page" highlight. No imports, no network
- * beyond the site's own search index, no storage beyond the chosen theme.
+ * ⌘K search over a prebuilt index, the mobile menu, the "on this page" highlight and the not-found page. No
+ * imports, no network beyond the site's own search index, no storage beyond the chosen theme.
  */
 
 interface SearchEntry {
@@ -237,6 +237,27 @@ document.addEventListener("keydown", (event) => {
     openSearch();
   }
 });
+
+// The not-found page (served for any missing path): show the card in the address's language, and change the face when poked
+if (root.dataset["notFound"] !== undefined) {
+  const english = location.pathname.slice(new URL(base, location.href).pathname.length).startsWith("en/");
+  for (const card of document.querySelectorAll<HTMLElement>("[data-nf]")) {
+    const shown = (card.dataset["nf"] === "en") === english;
+    card.hidden = !shown;
+    if (shown) {
+      root.lang = card.dataset["nf"] ?? root.lang;
+      document.title = card.dataset["title"] ?? document.title;
+    }
+  }
+  const faces = ["(´・ω・`)", "(・_・;)", "(°ロ°) !", "¯\\_(ツ)_/¯", "(｡•ㅅ•｡)?"];
+  for (const face of document.querySelectorAll<HTMLButtonElement>("[data-nf-face]")) {
+    let at = 0;
+    face.addEventListener("click", () => {
+      at = (at + 1) % faces.length;
+      face.textContent = faces[at] ?? faces[0] ?? "";
+    });
+  }
+}
 
 // The home page's theme wipe: scrolling through the section uncovers each palette over the last, on a slant
 const themes = document.querySelector<HTMLElement>("[data-themes]");

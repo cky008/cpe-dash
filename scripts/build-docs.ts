@@ -73,8 +73,12 @@ const UI = {
     notices: "第三方声明",
     disclaimer: "烽燧是独立的开源项目，与华为、群晖及任何运营商均无关联，也未获其认可。所有商标归各自所有者。",
     notFound: "页面不存在",
-    notFoundLead: "这个地址没有内容。可以从首页或文档目录重新开始。",
-    home: "首页",
+    notFoundTitle: "这里收不到信号",
+    notFoundLead: "这个地址上没有页面。可能是链接写错了，或者页面搬了家。",
+    notFoundHome: "回到首页",
+    notFoundDocs: "打开文档",
+    notFoundMeter: "已扫描全部频段 · RSRP −∞ dBm · 没找到这一页",
+    notFoundFace: "换个表情",
   },
   en: {
     docs: "Docs",
@@ -105,8 +109,12 @@ const UI = {
     notices: "Third-party notices",
     disclaimer: "FengSui is an independent project, not affiliated with or endorsed by Huawei, Synology or any carrier. All trademarks belong to their owners.",
     notFound: "Page not found",
-    notFoundLead: "There is nothing at this address. Start again from the home page or the docs.",
-    home: "Home",
+    notFoundTitle: "No signal here",
+    notFoundLead: "There is no page at this address. The link may be mistyped, or the page has moved.",
+    notFoundHome: "Back to the home page",
+    notFoundDocs: "Open the docs",
+    notFoundMeter: "Scanned every band · RSRP −∞ dBm · no page in range",
+    notFoundFace: "Change the face",
   },
 } as const;
 
@@ -485,23 +493,46 @@ ${searchDialog}
     });
   }
 
-  // Not found (GitHub Pages serves /404.html for any missing path, so its links are absolute to the site)
-  const nf = UI["zh-CN"];
-  const nfEn = UI.en;
+  // Not found: GitHub Pages serves /404.html for any missing path, so its links are absolute to the site. Both
+  // languages are in the page; the site script shows the one of the address (`/en/…`) and lets the face be poked.
+  const siteBase = siteUrl ? new URL(siteUrl).pathname : "/";
+  const notFoundCard = (locale: "zh-CN" | "en", prefix: string): string => {
+    const t = UI[locale];
+    return `
+<section class="nf-card" lang="${locale}" data-nf="${locale}" data-title="${t.notFound} · ${SITE_NAME}">
+  <button type="button" class="nf-face" data-nf-face aria-label="${t.notFoundFace}" title="${t.notFoundFace}">(´・ω・\`)</button>
+  <p class="nf-code" aria-hidden="true">404</p>
+  <h1 class="nf-title">${t.notFoundTitle}</h1>
+  <p class="nf-lead">${t.notFoundLead}</p>
+  <div class="nf-actions"><a class="btn-primary" href="${siteBase}${prefix}">${t.notFoundHome}</a><a class="btn-secondary" href="${siteBase}${prefix}docs/quick-start/">${t.notFoundDocs}</a></div>
+  <p class="nf-meter"><svg class="svg-icon" aria-hidden="true"><use href="#i-signal"/></svg>${t.notFoundMeter}</p>
+</section>`;
+  };
   fs.writeFileSync(
     path.join(out, "404.html"),
     `<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-root="${siteBase}" data-not-found>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${nf.notFound} · ${SITE_NAME}</title>
+<title>${UI["zh-CN"].notFound} · ${SITE_NAME}</title>
 <meta name="robots" content="noindex">
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="${siteBase}favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="${siteBase}${cssFile}">
+<script src="${siteBase}${jsFile}" defer></script>
 </head>
 <body>
-<main lang="zh-CN"><h1>${nf.notFound}</h1><p>${nf.notFoundLead}</p><p><a href="/">${nf.home}</a></p></main>
-<main lang="en"><h1>${nfEn.notFound}</h1><p>${nfEn.notFoundLead}</p></main>
+${icons}
+<header class="site-header">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 h-16 flex items-center gap-3">
+    <a href="${siteBase}" class="flex items-center gap-2.5 shrink-0" aria-label="${SITE_NAME}"><svg class="w-8 h-8" aria-hidden="true"><use href="#i-mark"/></svg><span class="font-semibold text-lg tracking-tight">烽燧</span><span class="faint hidden sm:inline text-sm">FengSui</span></a>
+    <div class="ml-auto"><button type="button" class="icon-btn" data-theme-toggle aria-label="${UI["zh-CN"].theme} / ${UI.en.theme}" title="${UI["zh-CN"].theme} / ${UI.en.theme}"><svg class="svg-icon" aria-hidden="true"><use href="#i-moon"/></svg></button></div>
+  </div>
+</header>
+<main id="main" class="not-found">${notFoundCard("zh-CN", "")}${notFoundCard("en", "en/")}
+</main>
 </body>
 </html>
 `

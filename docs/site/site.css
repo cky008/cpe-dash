@@ -865,3 +865,106 @@ kbd {
   }
 }
 }
+
+/* ---------- Not found (404.html) ---------- */
+.not-found {
+  min-height: calc(100vh - 4rem);
+  display: grid;
+  place-items: center;
+  gap: 4rem;
+  padding: 3rem 1rem 5rem;
+  /* A soft glow of the brand's blues behind the card */
+  background: radial-gradient(36rem 22rem at 50% 42%, color-mix(in srgb, var(--brand-2) 16%, transparent), transparent 70%);
+}
+.nf-card {
+  max-width: 34rem;
+  text-align: center;
+}
+.nf-face {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border: 0;
+  border-radius: 1.25rem;
+  background: none;
+  color: var(--ink);
+  font-size: clamp(2.4rem, 9vw, 4rem);
+  line-height: 1.25;
+  letter-spacing: -0.08em;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: nf-bob 3.2s ease-in-out infinite;
+}
+.nf-face:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 4px;
+}
+.nf-code {
+  margin-top: 0.5rem;
+  font-family: var(--font-display);
+  font-size: clamp(4.5rem, 18vw, 8rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  background: linear-gradient(120deg, var(--brand), var(--brand-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.nf-title {
+  margin-top: 1rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.nf-lead {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.nf-actions {
+  margin-top: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+.nf-meter {
+  margin-top: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 100%;
+  padding: 0.4rem 0.9rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+.nf-meter .svg-icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  animation: nf-blink 1.6s steps(2, start) infinite;
+}
+@keyframes nf-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(2deg);
+  }
+}
+@keyframes nf-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nf-face,
+  .nf-meter .svg-icon {
+    animation: none;
+  }
+}
