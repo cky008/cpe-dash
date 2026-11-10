@@ -174,6 +174,9 @@ const TEXT = {
     deleted_to_trash: "已删除：在烽燧的「最近删除」里保留 {days} 天，可以恢复",
     deleted_for_good: "已彻底删除",
     btn_cancel: "✖ 取消",
+    btn_agent_test_ack: "👌 知道了，不再提醒",
+    agent_test_acked: "好的，这次测试不再提醒。要恢复测试前的设置，在控制台「设置 → 设备」点「结束测试」",
+    agent_test_nothing: "没有要确认的测试提醒",
     btn_new: "✍️ 发短信",
     btn_prev: "◀ 上一页",
     btn_next: "下一页 ▶",
@@ -281,6 +284,9 @@ const TEXT = {
     deleted_to_trash: "Deleted: FengSui keeps it in Recently deleted for {days} days, where it can be restored",
     deleted_for_good: "Deleted for good",
     btn_cancel: "✖ Cancel",
+    btn_agent_test_ack: "👌 Got it, no more reminders",
+    agent_test_acked: "OK, no more reminders for this test. To put back the settings from before it, choose “End test” under Settings → Device in the console",
+    agent_test_nothing: "No test reminder is waiting for an answer",
     btn_new: "✍️ New SMS",
     btn_prev: "◀ Prev",
     btn_next: "Next ▶",
@@ -613,6 +619,8 @@ export interface TelegramBotOptions {
   linkSecret?: (secret: string, where: "private" | "group") => TelegramLinkOutcome | TelegramLinkDecision;
   /** A console password reset code for `/reset`, or `null` when Telegram reset is turned off. */
   issueResetCode?: () => string | null;
+  /** "Got it" under the AI agent test's reminder: no more reminders for that test (`false`: none was waiting). */
+  acknowledgeAgentTest?: () => boolean;
   allowedChatIds?: ReadonlyArray<string>;
   locale?: SupportedLocale;
   /** A fixed dial code, or where to read the current one (it can become known after start; `""`: none yet). */
@@ -647,6 +655,7 @@ export class TelegramBot implements NotificationChannel {
   #identified = false;
   #identifying: Promise<void> | null = null;
   readonly #issueResetCode: (() => string | null) | null;
+  readonly #acknowledgeAgentTest: (() => boolean) | null;
   #resetRequests = new Map<string, number[]>();
   readonly #now: () => number;
   readonly #log: (line: string) => void;
@@ -676,6 +685,7 @@ export class TelegramBot implements NotificationChannel {
     this.#authToken = opts.authToken;
     this.#linkSecret = opts.linkSecret ?? null;
     this.#issueResetCode = opts.issueResetCode ?? null;
+    this.#acknowledgeAgentTest = opts.acknowledgeAgentTest ?? null;
     this.allowedChatIds = (opts.allowedChatIds ?? []).map(String);
     this.locale = opts.locale ?? "zh-CN";
     const country = opts.defaultCountryCode;
@@ -842,8 +852,11 @@ export class TelegramBot implements NotificationChannel {
       `<i>${escapeTelegramHtml(alert.tsIso)}</i>`,
     ].join("\n");
     const prompt = alert.code === "FIRMWARE_UNVERIFIED" ? this.#firmwarePromptHtml(alert) : null;
+    // The AI agent test's reminder is read with a tap (Telegram cannot tell that a message was read)
+    const keyboard: InlineKeyboard | undefined =
+      alert.code === "AGENT_TEST_STILL_ON" && this.#acknowledgeAgentTest ? { inline_keyboard: [[{ text: this.#tx("btn_agent_test_ack"), callback_data: "testok:1" }]] } : undefined;
     for (const chatId of this.state.authorizedChats(this.allowedChatIds)) {
-      await this.#deliver({ chatId, html: text });
+      await this.#deliver({ chatId, html: text, ...(keyboard ? { keyboard } : {}) });
       // A separate message, so the prompt is one tap to copy
       if (prompt) await this.#deliver({ chatId, html: prompt });
     }
@@ -1178,6 +1191,12 @@ export class TelegramBot implements NotificationChannel {
       if (action === "status") {
         await answer();
         return await this.#cmdStatus(to);
+      }
+      if (action === "testok") {
+        const read = this.#acknowledgeAgentTest?.() ?? false;
+        await answer(this.#plain(read ? "agent_test_acked" : "agent_test_nothing"), read);
+        if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
+        return;
       }
       if (!sms) {
         await answer(this.#plain("sms_disabled"), true);

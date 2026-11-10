@@ -134,7 +134,8 @@
     "self_heal_read_only_rollback": "锁定之后 WAN 仍未恢复，但这台路由器（{model}）是烽燧没有验证过的型号，没有在「设置 → 设备」打开实验性锁频，烽燧不会自动解除锁定（LOCK_ROLLBACK_AFTER_MIN）：请在路由器自己的网页上解除",
     "model_unverified": "路由器报告的型号是 {model}，烽燧没有在这个型号上验证过（已验证：{verified}）：烽燧只读取它，路由器提供的监控照常可用，写操作默认锁定。控制台「设置 → 设备」可以查看它支持哪些功能、逐项打开实验性写入（先看风险说明），并提交兼容性报告",
     "firmware_unverified": "路由器报告 {model} 固件 {version}，烽燧只在 {verified} 上验证过协议：锁频、访问控制和短信等写操作可能不兼容。配置了 Telegram 时，推送会附带一段可交给编程智能体（如 Claude Code）核对兼容性的提示词",
-    "write_readback_mismatch": "实验性写入 {action} 在 {model} 上回读不一致：{reason}。路由器可能没有按请求生效；「设置 → 设备」列出最近的写入结果，可以附在兼容性报告里"
+    "write_readback_mismatch": "实验性写入 {action} 在 {model} 上回读不一致：{reason}。路由器可能没有按请求生效；「设置 → 设备」列出最近的写入结果，可以附在兼容性报告里",
+    "agent_test_still_on": "AI 智能体测试打开的设置还开着（{model}）：{items}。测完了请在「设置 → 设备」点「结束测试」，烽燧会恢复测试前的设置。在控制台的通知里看过这条提醒，或在 Telegram 里点了「知道了」，就不再提醒"
   },
   "readback": {
     "differs": "路由器报告的值与写入的不同",
@@ -145,5 +146,16 @@
     "unclear_change": "短信计数的变化对不上",
     "no_restart": "之后的轮询显示它没有重启或重新连接",
     "no_evidence": "之后的轮询无法判断"
+  },
+  "agent_test": {
+    "switch_agentExperimental": "允许 AI 智能体测试这台路由器",
+    "switch_agentWrites": "允许智能体改动路由器",
+    "features": "实验性写入（{features}）",
+    "feature_bandLock": "锁频段",
+    "feature_reconnect": "重拨",
+    "feature_reboot": "重启",
+    "token": "令牌「{name}」可以改动路由器",
+    "list_separator": "、",
+    "item_separator": "；"
   }
 }

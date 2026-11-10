@@ -588,4 +588,45 @@ describe("the console in a browser", () => {
       await other.close();
     }
   });
+
+  it("starts an agent's test with one confirmation and the agent's token, copies the prompt, and ends it with one click", async () => {
+    const other = await world({ scenario: "unverified" });
+    try {
+      assert.ok(chrome, "Chrome is running");
+      await chrome.cdp.send("Browser.grantPermissions", { origin: other.baseUrl, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
+      await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      // The agent is connected with the read-only token of the connection guide
+      const agent = other.stack.settings.createToken({ name: "Claude", permissions: ["sms-read"], lifetimeDays: 1 }).record;
+      other.stack.agentTest.noteAgentCall(agent.id);
+      await signIn(page, other);
+      await openSettings(page, "Device");
+      const start = "#settingsDialog [data-agent-test=prompt] .btn-primary";
+      await page.waitUntil(`document.querySelector(${JSON.stringify(start)})?.textContent.includes('Copy prompt and start test')`, "the one-click start");
+      assert.equal(await page.evaluate<string>("document.querySelector('#settingsDialog [data-agent-test=token]').value"), agent.id, "the agent's token is chosen");
+      await page.click(start);
+      await page.waitUntil(isOpen("confirmDialog"), "one confirmation");
+      const body = await page.evaluate<string>("document.getElementById('confirmBody').textContent");
+      for (const item of ["Let AI agents test this router", "Let agents change the router", "Experimental writes: Band lock, Redial, Reboot", "The token “Claude”: may change the router", "End test"]) {
+        assert.ok(body.includes(item), item);
+      }
+      await page.click("#confirmOk");
+      await until(() => other.stack.settings.agentTest !== null, "the test started");
+      assert.deepEqual(other.stack.settings.behaviourOverrides, { agentExperimental: true, agentWrites: true });
+      assert.equal(other.stack.settings.experimentalConsents.length, 3);
+      assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control"]);
+      assert.match(await page.evaluate<string>("navigator.clipboard.readText()"), /^Please test how FengSui works with this router \(B535-232\)/, "the prompt is copied");
+      await page.waitUntil("document.querySelector('#settingsDialog [data-agent-test=status]')?.textContent.includes('Ending the test puts back')", "the test in progress");
+      assert.equal(await page.evaluate<boolean>("document.querySelector('#settingsDialog [data-agent-test=token]') === null"), true, "nothing left to choose");
+
+      await page.clickText("#settingsDialog [data-agent-test=prompt] button", "End test");
+      await until(() => other.stack.settings.agentTest === null, "the test ended");
+      assert.deepEqual([other.stack.settings.behaviourOverrides, other.stack.settings.experimentalConsents], [{}, []]);
+      assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read"]);
+      await page.waitUntil(`document.querySelector(${JSON.stringify(start)})?.textContent.includes('Copy prompt and start test')`, "ready to start again");
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await other.close();
+    }
+  });
 });

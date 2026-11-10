@@ -194,6 +194,13 @@ export function reduceSseEvent(state: Readonly<AppState>, event: SseEvent): Redu
   }
 }
 
+/** The AI agent test's newest reminder among the alerts (the alerts panel marks it read when it shows it). */
+export function latestAgentTestReminder(alerts: ReadonlyArray<AlertEventRecord>): AlertEventRecord | null {
+  let latest: AlertEventRecord | null = null;
+  for (const alert of alerts) if (alert.code === "AGENT_TEST_STILL_ON" && (latest === null || alert.tsIso >= latest.tsIso)) latest = alert;
+  return latest;
+}
+
 /** Bell badge: warnings and criticals newer than the last look at the alerts panel (`seenAtIso`); info never counts. */
 export function unseenAlertCount(alerts: ReadonlyArray<AlertEventRecord>, seenAtIso: string): number {
   return alerts.filter((alert) => alert.severity !== "info" && alert.tsIso > seenAtIso).length;

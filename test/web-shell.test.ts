@@ -207,6 +207,7 @@ describe("web core: endpoint table", () => {
       deviceReport: ["GET", "/api/console/device-report"],
       experimental: ["GET", "/api/console/experimental"],
       setExperimental: ["POST", "/api/console/experimental", { feature: "reboot", enabled: true, model: "B535-232" }],
+      agentTest: ["POST", "/api/console/agent-test", { action: "start", model: "B535-232", tokenId: "t1" }],
       telemetry: ["GET", "/api/telemetry"],
       refreshTelemetry: ["POST", "/api/telemetry/refresh", {}],
       sessionStatus: ["GET", "/api/session/status"],
@@ -276,6 +277,7 @@ describe("web core: endpoint table", () => {
     await ep.deviceReport();
     await ep.experimental();
     await ep.setExperimental({ feature: "reboot", enabled: true, model: "B535-232" });
+    await ep.agentTest({ action: "start", model: "B535-232", tokenId: "t1" });
     await ep.telemetry();
     await ep.refreshTelemetry();
     await ep.sessionStatus();

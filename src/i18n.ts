@@ -116,6 +116,7 @@ export type I18nKey =
   | "alerts.model_unverified"
   | "alerts.firmware_unverified"
   | "alerts.write_readback_mismatch"
+  | "alerts.agent_test_still_on"
   | "controls.experimental_match"
   | "controls.experimental_mismatch"
   | "controls.experimental_unknown"
@@ -128,7 +129,16 @@ export type I18nKey =
   | "readback.unclear_change"
   | "readback.no_restart"
   | "readback.no_evidence"
-  | "controls.peer_daemon_active";
+  | "controls.peer_daemon_active"
+  | "agent_test.switch_agentExperimental"
+  | "agent_test.switch_agentWrites"
+  | "agent_test.features"
+  | "agent_test.feature_bandLock"
+  | "agent_test.feature_reconnect"
+  | "agent_test.feature_reboot"
+  | "agent_test.token"
+  | "agent_test.list_separator"
+  | "agent_test.item_separator";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 

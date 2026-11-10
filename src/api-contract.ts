@@ -58,6 +58,7 @@ import type {
   WriteResultRecord,
 } from "./device-access.ts";
 import type { ExperimentalConsent, PublicTokenRecord } from "./console-settings.ts";
+import type { AgentTestFeature, AgentTestPlan, AgentTestStatus, AgentTestSwitch, AgentTestTokenChoice, AgentTestView } from "./agent-test.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { SelfHealStatus } from "./self-heal-status.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
@@ -121,6 +122,7 @@ export type {
   WifiFilterPolicy,
   WifiMacFilterState,
 };
+export type { AgentTestFeature, AgentTestPlan, AgentTestStatus, AgentTestSwitch, AgentTestTokenChoice, AgentTestView };
 export type {
   ApiErrorSnapshot,
   ApiErrorStat,
@@ -188,6 +190,7 @@ export type ApiErrorCode =
   | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on and this write is not open there (nothing was sent)
   | "DEVICE_NOT_IDENTIFIED"       // 409: the write's own session could not read the router's model; nothing was written
   | "EXPERIMENTAL_UNAVAILABLE"    // 409: an experimental write that cannot be turned on for this router (see `state`)
+  | "AGENT_TEST_UNAVAILABLE"      // 409: the router has no experimental write for an AI agent's test (a verified model, or none identified)
   | "ALREADY_SET_UP"              // 409: /api/setup/login after the console password was set
   | "WRONG_PASSWORD"              // 403: the current console password did not match
   | "CPE_TEST_FAILED"             // 400: the new router connection did not log in; nothing was saved
@@ -383,6 +386,24 @@ export interface ExperimentalWritesResponse {
   consents: ExperimentalConsent[];
   /** The last generic writes (oldest first): endpoints, router code and read-back, never a value written. */
   writes: WriteResultRecord[];
+  /** The AI agent test at one click: the one in progress, and what starting it would turn on now. */
+  agentTest: AgentTestStatus;
+}
+
+/**
+ * `POST /api/console/agent-test` (console session only): `start` turns on what `agentTest.plan` lists for
+ * the router's `model` as the console showed it, and lets `tokenId` (one of the plan's tokens; `null`:
+ * none) change the router; `end` puts back what the test turned on; `ack` reads its reminder
+ * (`alertId`: the reminder alert the console showed).
+ */
+export type AgentTestRequest =
+  | { action: "start"; model: string; tokenId?: string | null }
+  | { action: "end" }
+  | { action: "ack"; alertId?: string };
+
+/** `POST /api/console/agent-test`: the experimental writes and the test after the change, and the settings (the switches may have changed). */
+export interface AgentTestResponse extends ExperimentalWritesResponse {
+  settings: ConsoleSettingsResponse;
 }
 
 /** `POST /api/console/experimental`: turn one experimental write on (typing the router's model) or off. */

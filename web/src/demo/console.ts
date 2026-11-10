@@ -1,4 +1,6 @@
+import { AGENT_TEST_UNAVAILABLE_MESSAGE, noAgentTestPlan } from "../../../src/agent-test.ts";
 import type {
+  AgentTestResponse,
   ApiErrorEnvelope,
   AuditResponse,
   ConsoleSettingsResponse,
@@ -314,7 +316,7 @@ export class DemoConsole {
       throw new CpeControlValidationError(`"feature" must be one of ${WRITE_FEATURES.join(", ")}`);
     }
     if (typeof body["enabled"] !== "boolean") throw new CpeControlValidationError('"enabled" must be true or false');
-    const view: ExperimentalWritesResponse = { ok: true, device, consents: [], writes: [] };
+    const view = DemoConsole.experimentalView(device);
     if (!body["enabled"]) {
       this.record("settings.experimental", "applied", `${feature} off (was off)`);
       return view;
@@ -327,6 +329,32 @@ export class DemoConsole {
       message: `${feature} cannot be turned on as an experimental write on this router (${state})`,
       state,
     });
+  }
+
+  /** `GET /api/console/experimental` on the demo's verified router: every write is open, so there is nothing to turn on or test. */
+  static experimentalView(device: DeviceAccessSnapshot): ExperimentalWritesResponse {
+    return { ok: true, device, consents: [], writes: [], agentTest: { current: null, plan: noAgentTestPlan() } };
+  }
+
+  /**
+   * `POST /api/console/agent-test` as the daemon answers it on the verified H168-383: nothing for an
+   * agent's test to write, so starting is refused; ending and reading a reminder change nothing.
+   */
+  agentTest(body: Body, device: DeviceAccessSnapshot): AgentTestResponse {
+    const action = body["action"];
+    if (action !== "start" && action !== "end" && action !== "ack") throw new CpeControlValidationError('"action" must be "start", "end" or "ack"');
+    if (action === "start") {
+      throw new DemoRefusal(409, {
+        ok: false,
+        errorCode: "AGENT_TEST_UNAVAILABLE",
+        message: AGENT_TEST_UNAVAILABLE_MESSAGE,
+      });
+    }
+    const alertId = body["alertId"];
+    if (action === "ack" && alertId !== undefined && (typeof alertId !== "string" || alertId.length > 64)) {
+      throw new CpeControlValidationError('"alertId" must be the reminder\'s alert ID');
+    }
+    return { ...DemoConsole.experimentalView(device), settings: this.summary() };
   }
 
   switches(body: Body): ConsoleSettingsResponse {

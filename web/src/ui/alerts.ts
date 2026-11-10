@@ -1,6 +1,6 @@
 import type { ChannelDeliveryStats } from "../../../src/api-contract.ts";
 import { formatAgo } from "../core/format.ts";
-import { mergeAlerts } from "../core/store.ts";
+import { latestAgentTestReminder, mergeAlerts } from "../core/store.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, modalBackdrop, mount } from "./dom.ts";
 import { ALERTS_SEEN_EVENT } from "./header.ts";
@@ -16,6 +16,16 @@ const SEVERITY = {
 export function mountAlerts(ctx: AppContext): { open(): void } {
   const dialog = byId<HTMLDialogElement>("alertsDialog");
   let channels: Record<string, ChannelDeliveryStats> | null = null;
+  /** AI agent test reminders this page has already marked read. */
+  const readReminders = new Set<string>();
+
+  /** The list shows the AI agent test's latest reminder: it is read, so no more come for that test. */
+  const readAgentTestReminder = (): void => {
+    const reminder = latestAgentTestReminder(ctx.store.state.alerts);
+    if (!reminder || readReminders.has(reminder.id)) return;
+    readReminders.add(reminder.id);
+    void ctx.api.agentTest({ action: "ack", alertId: reminder.id }).catch(() => undefined);
+  };
 
   const render = (): void => {
     const alerts = [...ctx.store.state.alerts].reverse();
@@ -89,6 +99,7 @@ export function mountAlerts(ctx: AppContext): { open(): void } {
     render();
     dialog.showModal();
     document.dispatchEvent(new CustomEvent(ALERTS_SEEN_EVENT));
+    readAgentTestReminder();
     void ctx.api
       .alerts()
       .then((res) => {
@@ -102,6 +113,7 @@ export function mountAlerts(ctx: AppContext): { open(): void } {
     if (dialog.open) {
       render();
       document.dispatchEvent(new CustomEvent(ALERTS_SEEN_EVENT));
+      readAgentTestReminder();
     }
   });
   ctx.tr.onChange(() => {

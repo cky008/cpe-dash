@@ -111,6 +111,8 @@ function createBotFixture(
     allowedChatIds?: string[];
     /** Where the bot reads the default country (the daemon passes the SIM's once it is known). */
     country?: () => string;
+    /** "Got it" under the AI agent test's reminder. */
+    acknowledgeAgentTest?: () => boolean;
   } = {}
 ) {
   const mock = createMockSmsCpe({
@@ -148,6 +150,7 @@ function createBotFixture(
     sms: opts.smsEnabled === false ? null : service,
     authToken: "dashboard_api_token",
     ...(opts.linkSecret ? { linkSecret: opts.linkSecret } : {}),
+    ...(opts.acknowledgeAgentTest ? { acknowledgeAgentTest: opts.acknowledgeAgentTest } : {}),
     allowedChatIds: opts.allowedChatIds ?? ["1001"],
     defaultCountryCode: opts.country ?? "+353",
     locale: "en",
@@ -1378,6 +1381,52 @@ describe("TelegramBot notification outbox", () => {
       assert.equal(fx.tg.sends("1001").length, before + 2, "no telemetry, nothing to describe");
     } finally {
       await fx.cleanup();
+    }
+  });
+
+  it("puts a Got it button under the AI agent test's reminder, which reads it once", async () => {
+    let waiting = true;
+    const reads: string[] = [];
+    const fx = createBotFixture({
+      allowedChatIds: ["1001", "-1004"],
+      acknowledgeAgentTest: () => {
+        reads.push("read");
+        const was = waiting;
+        waiting = false;
+        return was;
+      },
+    });
+    try {
+      await fx.bot.notifyAlert(alert("AGENT_TEST_STILL_ON"));
+      assert.deepEqual(fx.tg.buttons(fx.tg.sends("1001").at(-1)), ["testok:1"]);
+      assert.equal(fx.tg.buttons(fx.tg.sends("1001").at(-1)).length, 1);
+      await fx.bot.notifyAlert(alert("WAN_DOWN"));
+      assert.deepEqual(fx.tg.buttons(fx.tg.sends("1001").at(-1)), [], "other alerts have no button");
+
+      await fx.callback(1001, "testok:1", 901);
+      const answer = fx.tg.of("answerCallbackQuery").at(-1)?.payload;
+      assert.match(String(answer?.["text"]), /^OK, no more reminders for this test/);
+      assert.equal(answer?.["show_alert"], true);
+      assert.deepEqual(fx.tg.of("editMessageReplyMarkup").at(-1)?.payload["message_id"], 901, "the button goes");
+      await fx.callback(1001, "testok:1", 902);
+      assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /^No test reminder is waiting/);
+      assert.equal(reads.length, 2);
+
+      // A chat FengSui does not know reads nothing
+      await fx.callback(5555, "testok:1");
+      assert.equal(reads.length, 2);
+    } finally {
+      await fx.cleanup();
+    }
+
+    const plain = createBotFixture();
+    try {
+      await plain.bot.notifyAlert(alert("AGENT_TEST_STILL_ON"));
+      assert.deepEqual(plain.tg.buttons(plain.tg.sends("1001").at(-1)), [], "no button without a test to read");
+      await plain.callback(1001, "testok:1");
+      assert.match(String(plain.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /^No test reminder is waiting/);
+    } finally {
+      await plain.cleanup();
     }
   });
 

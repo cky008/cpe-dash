@@ -1,4 +1,5 @@
 import type {
+  AgentTestResponse,
   ConsoleSettingsResponse,
   DeviceProfileResponse,
   DeviceReport,
@@ -25,6 +26,7 @@ import type { PublicTokenRecord } from "../../../src/console-settings.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "../../../src/device-profile.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
+import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, startTurnsOn } from "../core/agent-test-view.ts";
 import { ApiError } from "../core/api.ts";
 import {
   type NoticeTone,
@@ -165,6 +167,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   /** The experimental writes and their recent results (read again each time the Device tab opens). */
   let experimental: ExperimentalWritesResponse | null = null;
   const switching = new Set<WriteFeature>();
+  /** The token chosen for the agent's test (`null`: the plan's suggestion; `""`: none), and a start or end on its way. */
+  let agentToken: string | null = null;
+  let agentBusy = false;
   /** Counts finished connection tests and saves: a profile read that one of them may have outdated is read again. */
   let deviceEpoch = 0;
   const loading = new Set<"tokens" | "audit" | "device" | "chats">();
@@ -517,30 +522,122 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     );
   };
 
+  /** The test's answer: the experimental writes, the gate's view everywhere in the console, and the switches it changed. */
+  const applyAgentTest = (res: AgentTestResponse): void => {
+    experimental = res;
+    summary = res.settings;
+    // A token's permissions may have changed: the Tokens tab reads them again
+    tokens = null;
+    const scheduler = ctx.store.state.scheduler;
+    if (scheduler) ctx.store.update({ scheduler: { ...scheduler, device: res.device } }, ["scheduler"]);
+  };
+
   /**
-   * Agents testing this router, only while the owner says so here: the read-only endpoint probe on any
-   * model, and on a model nobody verified the experimental writes, with the prompt that walks them through.
+   * Copy the test prompt. When that turns something on (a switch, a covered write, the agent's token),
+   * one confirmation lists it all first; the confirming click also copies, before the request.
+   */
+  const startAgentTest = async (prompt: string): Promise<void> => {
+    const plan = experimental?.agentTest.plan;
+    if (!plan || agentBusy) return;
+    const tokenId = agentToken ?? defaultAgentToken(plan);
+    if (!startTurnsOn(plan, tokenId)) {
+      const ok = await copyText(dialog, prompt);
+      ctx.toast(ctx.t(ok ? "toast.copied" : "toast.copy_failed"), ok ? "success" : "warning");
+      return;
+    }
+    const model = ctx.store.state.scheduler?.device.model?.trim() || "?";
+    const yes = await ctx.confirm({ title: t("agent_start_title", { model }), body: agentStartBody(plan, tokenId, t), confirmLabel: t("agent_start_confirm"), tone: "warning" });
+    if (!yes) return;
+    const copied = await copyText(dialog, prompt);
+    agentBusy = true;
+    render();
+    try {
+      applyAgentTest(await ctx.api.agentTest({ action: "start", model, tokenId: tokenId || null }));
+      agentToken = null;
+      ctx.toast(t(copied ? "agent_started" : "agent_started_copy_failed"), "warning");
+    } catch (err) {
+      fail(err);
+    } finally {
+      agentBusy = false;
+      render();
+    }
+  };
+
+  /** End the test (put back what it turned on) or read its reminder. */
+  const agentTestAction = (action: "end" | "ack"): void => {
+    if (agentBusy) return;
+    agentBusy = true;
+    render();
+    void ctx.api
+      .agentTest({ action })
+      .then((res) => {
+        applyAgentTest(res);
+        ctx.toast(t(action === "end" ? "agent_ended" : "agent_acked"), "success");
+      })
+      .catch(fail)
+      .finally(() => {
+        agentBusy = false;
+        render();
+      });
+  };
+
+  /**
+   * Agents testing this router: on a model nobody verified, the prompt with the one-click start (what
+   * it turns on, then the test in progress with its reminder and the way back); on every model the
+   * switch that lets agents probe the router.
    */
   const agentBlock = (): HTMLElement => {
-    const testable = experimentalOffer(ctx.store.state.scheduler).length > 0;
+    const status = experimental?.agentTest ?? null;
+    const plan = status?.plan ?? null;
+    const current = status?.current ?? null;
     const model = ctx.store.state.scheduler?.device.model ?? "?";
     const identity = device?.profile?.identity ?? null;
     const prompt = t("agent_test_prompt", { model, issueUrl: deviceIssueUrl(identity ? { model: identity.model, softwareVersion: identity.softwareVersion } : { model, softwareVersion: null }) });
-    return h(
-      "div",
-      { class: "space-y-2", data: { agentTest: "section" } },
-      h("div", { class: "fs-label" }, t("agent_section")),
-      choiceRow("agentExperimental", t("agent_exp"), t("agent_exp_note"), onOff()),
-      testable
-        ? h(
-            "div",
-            { class: "space-y-1.5", data: { agentTest: "prompt" } },
-            h("div", { class: "flex items-center justify-between gap-2" }, h("div", { class: "fs-label" }, t("agent_test_title")), copyButton(prompt)),
-            h("p", { class: "text-xs muted" }, t("agent_test_note")),
-            h("pre", { class: "font-mono text-[0.6875rem] whitespace-pre-wrap break-words rounded-lg bg-base-200/70 p-2 max-h-48 overflow-y-auto" }, prompt)
-          )
-        : null
-    );
+    let test: HTMLElement | null = null;
+    if (plan?.available || current) {
+      const tokenId = plan ? (agentToken ?? defaultAgentToken(plan)) : "";
+      let picker: HTMLElement | null = null;
+      if (plan?.available && plan.tokenNeeded) {
+        const select = h(
+          "select",
+          { class: "select select-sm rounded-lg w-full sm:w-auto", attrs: { "aria-label": t("agent_token_label") }, data: { agentTest: "token" } },
+          ...plan.tokens.map((token) =>
+            h(
+              "option",
+              { attrs: { value: token.id } },
+              token.agentUsedAtIso ? t("agent_token_used", { name: token.name, when: formatAgo(Date.parse(token.agentUsedAtIso), ctx.now(), ctx.tr.locale) }) : token.name
+            )
+          ),
+          h("option", { attrs: { value: "" } }, t("agent_token_none"))
+        );
+        select.value = tokenId;
+        select.disabled = agentBusy;
+        select.addEventListener("change", () => {
+          agentToken = select.value;
+          render();
+        });
+        picker = settingBlock(t("agent_token_label"), select, h("p", { class: "text-xs muted" }, t("agent_token_note")));
+      }
+      const buttons: HTMLButtonElement[] = [];
+      if (reminderWaiting(current)) buttons.push(button(t("agent_ack"), "btn-ghost", () => agentTestAction("ack"), "check"));
+      if (current) buttons.push(button(t("agent_end"), "btn-ghost text-warning", () => agentTestAction("end"), "x"));
+      if (plan?.available) {
+        const turnsOn = startTurnsOn(plan, tokenId);
+        buttons.push(button(t(turnsOn ? "agent_start" : "agent_copy"), turnsOn ? "btn-primary" : "", () => void startAgentTest(prompt), "copy"));
+      }
+      for (const control of buttons) control.disabled = agentBusy;
+      test = h(
+        "div",
+        { class: "space-y-2", data: { agentTest: "prompt" } },
+        h("div", { class: "fs-label" }, t("agent_test_title")),
+        h("p", { class: "text-xs muted" }, t("agent_test_note")),
+        current ? h("div", { data: { agentTest: "status" } }, notice(agentTestStatus(current, ctx.now(), ctx.tr.locale, t).join(" "), current.passed ? "success" : "pending")) : null,
+        picker,
+        plan?.available ? h("pre", { class: "font-mono text-[0.6875rem] whitespace-pre-wrap break-words rounded-lg bg-base-200/70 p-2 max-h-48 overflow-y-auto" }, prompt) : null,
+        h("div", { class: "flex flex-wrap gap-2 justify-end" }, ...buttons)
+      );
+    }
+    return h("div", { class: "space-y-2", data: { agentTest: "section" } }, h("div", { class: "fs-label" }, t("agent_section")), test, choiceRow("agentExperimental", t("agent_exp"), t("agent_exp_note"), onOff()));
   };
 
   /** Whether FengSui writes to this router, and per read section what it answered (schedulerStatus.device). */
@@ -1255,6 +1352,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     pairingInFlight = false;
     savingSwitches = false;
     savingBehaviour = false;
+    agentToken = null;
+    agentBusy = false;
     editing = null;
     draftPermissions = [...DEFAULT_PERMISSIONS];
     draft.password = "";

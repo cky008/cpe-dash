@@ -159,6 +159,8 @@ export interface FengSuiMcpServerOptions {
   selfHealStatus?: () => SelfHealStatus;
   /** Agents testing experimental writes on a model nobody verified (`set_experimental_write`); absent: never offered. */
   experimental?: AgentExperimentalOptions;
+  /** Every `tools/call` of a known tool, refused or not (the AI agent test's reminder waits for its last call). */
+  onToolCall?: (toolName: string) => void;
 }
 
 /**
@@ -177,6 +179,7 @@ export class FengSuiMcpServer {
   readonly #avoidanceState: () => AvoidanceBroadcastPayload;
   /** The write gate's view of the router (a read-only model hides and refuses the router writes). */
   readonly #scheduler: MutexSessionScheduler;
+  readonly #onToolCall: ((toolName: string) => void) | null;
 
   get allowMutations(): boolean {
     return this.#allowMutations();
@@ -191,6 +194,7 @@ export class FengSuiMcpServer {
     ];
     const { scheduler } = options.core;
     this.#scheduler = scheduler;
+    this.#onToolCall = options.onToolCall ?? null;
     this.#avoidanceState = () => scheduler.getAvoidanceState();
   }
 
@@ -482,6 +486,7 @@ export class FengSuiMcpServer {
     };
 
     const provider = this.toolProviders.find((p) => p.handles(toolName));
+    if (provider) this.#onToolCall?.(toolName);
     const needed = provider ? permissionFor(provider, toolName) : null;
     if (provider && needed !== null && !grant.has(needed)) {
       // A token that may change nothing keeps the old answer; another one is told what it lacks

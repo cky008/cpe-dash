@@ -1,6 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { TLSSocket } from "node:tls";
 import { type AccessControlSnapshot, accessGuardFromHosts } from "./access-control.ts";
+import type { AgentTestService } from "./agent-test-service.ts";
 import {
   canonicalizeRateLimitBucketKey,
   isAllowedHttpHostHeader,
@@ -198,6 +199,8 @@ export interface FengSuiHttpServerOptions {
   selfHealStatus?: (() => SelfHealStatus) | null;
   /** The behaviour settings in force changed in the console (AI switches, self-heal, alerts, SMS behaviour). */
   onBehaviourChanged?: ((values: BehaviourValues) => void) | null;
+  /** The AI agent test at one click (Settings → Device); it learns which token calls MCP (the agent's). */
+  agentTest?: AgentTestService | null;
 }
 
 /**
@@ -227,6 +230,7 @@ export class FengSuiHttpServer {
   readonly #consoleRoutes: SettingsHttpRoutes;
   readonly #runtimeSample: (() => RuntimeSample) | null;
   readonly #selfHealStatus: () => SelfHealStatus;
+  readonly #agentTest: AgentTestService | null;
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
@@ -268,7 +272,9 @@ export class FengSuiHttpServer {
       telegramUsername: options.telegramUsername ?? (() => null),
       onDeviceProbe: (probe) => void options.core.monitor.recordDeviceProbe(probe),
       deviceReport: () => deviceReportOf(options.core),
+      agentTest: options.agentTest ?? null,
     });
+    this.#agentTest = options.agentTest ?? null;
   }
 
   /** Metrics follow the console's switch when set, else METRICS_ENABLED from `.env`. */
@@ -1411,6 +1417,8 @@ export class FengSuiHttpServer {
       const value = req.headers[name];
       return typeof value === "string" ? value : undefined;
     };
+    // The token an agent calls with: the one the console offers to allow changing the router for a test
+    this.#agentTest?.noteAgentCall(mcpVerdict.identity.tokenId);
     const outcome = await runAsActor({ channel: "mcp", label: mcpVerdict.identity.name }, () =>
       this.mcpServer.handleHttpMessage(
         rawBody,

@@ -1,4 +1,7 @@
+import { AGENT_TEST_UNAVAILABLE_MESSAGE, noAgentTestPlan } from "./agent-test.ts";
+import { type AgentTestService, AgentTestUnavailableError } from "./agent-test-service.ts";
 import type {
+  AgentTestResponse,
   ApiErrorEnvelope,
   ConsoleSettingsResponse,
   DeviceReportResponse,
@@ -51,6 +54,8 @@ export interface SettingsRoutesOptions {
   onDeviceProbe?: (probe: DeviceProbeResult) => void;
   /** Build the desensitized device report (structure only, second pass through src/sanitize.ts). */
   deviceReport?: () => DeviceReport;
+  /** The AI agent test at one click (absent: never offered). */
+  agentTest?: Pick<AgentTestService, "status" | "begin" | "end" | "acknowledge"> | null;
 }
 
 /** What to send the bot: a group code names the bot, so a group with other bots routes it here (privacy mode delivers it). */
@@ -268,6 +273,10 @@ export class SettingsHttpRoutes {
         await this.#setExperimental(ctx, await ctx.readJsonBody());
         return true;
       }
+      case "/api/console/agent-test": {
+        this.#agentTest(ctx, await ctx.readJsonBody());
+        return true;
+      }
       case "/api/console/behaviour": {
         const patch = readBehaviourPatch(await ctx.readJsonBody());
         settings.setBehaviour(patch);
@@ -303,9 +312,41 @@ export class SettingsHttpRoutes {
     }
   }
 
-  /** What each write is on this router, the experimental writes its owner turned on, and the recent results. */
+  /** What each write is on this router, the experimental writes its owner turned on, the recent results and the agent test. */
   #experimental(): ExperimentalWritesResponse {
-    return { ok: true, device: this.#opts.scheduler.device.snapshot(), consents: this.#opts.settings.experimentalConsents, writes: this.#opts.scheduler.genericWrites };
+    const agentTest = this.#opts.agentTest?.status() ?? { current: null, plan: noAgentTestPlan() };
+    return { ok: true, device: this.#opts.scheduler.device.snapshot(), consents: this.#opts.settings.experimentalConsents, writes: this.#opts.scheduler.genericWrites, agentTest };
+  }
+
+  /**
+   * The AI agent test at one click: `start` (what the plan lists, for the model the console showed and
+   * the token it chose), `end` (put back what it turned on) and `ack` (its reminder was read). The
+   * service audits each change; the answer carries the switches too, which the test may have changed.
+   */
+  #agentTest(ctx: ApiRouteContext, body: Record<string, unknown>): void {
+    const service = this.#opts.agentTest;
+    const action = body["action"];
+    if (action !== "start" && action !== "end" && action !== "ack") throw new CpeControlValidationError('"action" must be "start", "end" or "ack"');
+    if (!service) {
+      ctx.sendJson(409, { ok: false, errorCode: "AGENT_TEST_UNAVAILABLE", message: AGENT_TEST_UNAVAILABLE_MESSAGE } satisfies ApiErrorEnvelope);
+      return;
+    }
+    if (action === "start") {
+      try {
+        service.begin({ model: body["model"], tokenId: body["tokenId"] });
+      } catch (err) {
+        if (!(err instanceof AgentTestUnavailableError)) throw err;
+        ctx.sendJson(409, { ok: false, errorCode: "AGENT_TEST_UNAVAILABLE", message: err.message } satisfies ApiErrorEnvelope);
+        return;
+      }
+    } else if (action === "end") {
+      service.end();
+    } else {
+      const alertId = body["alertId"];
+      if (alertId !== undefined && (typeof alertId !== "string" || alertId.length > 64)) throw new CpeControlValidationError('"alertId" must be the reminder\'s alert ID');
+      service.acknowledge(alertId ?? null);
+    }
+    ctx.sendJson(200, { ...this.#experimental(), settings: this.summary() } satisfies AgentTestResponse);
   }
 
   /**

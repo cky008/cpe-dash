@@ -1,4 +1,6 @@
 import type {
+  AgentTestRequest,
+  AgentTestResponse,
   AccessControlChangeResponse,
   AccessControlEndpointResponse,
   AlertsResponse,
@@ -116,6 +118,7 @@ export function createEndpoints(api: ApiClient) {
     deviceReport: () => api.get<DeviceReportResponse>("/api/console/device-report"),
     experimental: () => api.get<ExperimentalWritesResponse>("/api/console/experimental"),
     setExperimental: (body: ExperimentalWriteRequest) => api.post<ExperimentalWritesResponse>("/api/console/experimental", body),
+    agentTest: (body: AgentTestRequest) => api.post<AgentTestResponse>("/api/console/agent-test", body),
     logout: () => api.post<AuthLogoutResponse>("/api/auth/logout"),
 
     telemetry: () => api.get<TelemetryEndpointResponse>("/api/telemetry"),

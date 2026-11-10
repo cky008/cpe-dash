@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { AgentTestService } from "./agent-test-service.ts";
 import { AlertEngine } from "./alert-engine.ts";
 import { changeExperimentalConsent } from "./experimental-consent.ts";
 import { type BehaviourValues, behaviourFromConfig, resolveBehaviour } from "./behaviour-settings.ts";
@@ -148,6 +149,8 @@ export interface FengSuiRuntimeStack {
   alertEngine: AlertEngine | null;
   /** `null` unless LOCK_ROLLBACK_AFTER_MIN or WAN_AUTO_RECONNECT_AFTER_MIN is set. */
   selfHeal: WanSelfHeal | null;
+  /** The AI agent test at one click and its reminders. */
+  agentTest: AgentTestService;
   /** Router connection, console login and tokens (encrypted `settings.json`). */
   settings: ConsoleSettings;
   audit: AuditLog;
@@ -302,7 +305,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
 
   // AI master switches, self-healing, alerts and SMS behaviour: the console's choice, else `.env`. Every part
   // reads them per use, so a change in Settings applies at once (see applyBehaviour below)
-  let behaviour: BehaviourValues = resolveBehaviour(behaviourFromConfig(config), settings.behaviourOverrides);
+  let envBehaviour: BehaviourValues = behaviourFromConfig(config);
+  let behaviour: BehaviourValues = resolveBehaviour(envBehaviour, settings.behaviourOverrides);
 
   // SMS's default country: the console's or DEFAULT_COUNTRY_CODE, else the SIM's (from the telemetry saved
   // last time, then live), else none, and a number typed without + is refused rather than sent to a guessed country
@@ -387,6 +391,18 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     }
   };
 
+  // The AI agent test at one click (Settings → Device): it turns on what the test needs, puts it back at
+  // the end, and reminds the owner while something it turned on stays on
+  const agentTest = new AgentTestService({
+    settings,
+    scheduler,
+    audit,
+    behaviourFromEnv: () => envBehaviour,
+    onBehaviourChanged: applyBehaviour,
+    // A token allowed (or no longer allowed) to change the router reconnects its event streams
+    onTokenChanged: (tokenId) => sseBus.disconnectByTokenId(tokenId),
+  });
+
   let telegramState: TelegramStateStore | null = null;
   let telegramBot: TelegramBot | null = null;
   if (telegramApi) {
@@ -400,6 +416,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       authToken: "",
       linkSecret: (secret, where) => settings.decideTelegramLink(secret, where),
       issueResetCode: () => (settings.telegramReset ? settings.issueCode("reset") : null),
+      acknowledgeAgentTest: () => agentTest.acknowledge(),
       allowedChatIds: config.telegramChatIds,
       locale: config.defaultLocale,
       defaultCountryCode: () => countryCode,
@@ -448,6 +465,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       },
       probed: (outcome, detail) => audit.record({ action: "router.probe", outcome, detail }),
     },
+    onToolCall: (toolName) => agentTest.noteToolCall(toolName),
     toolProviders: sms
       ? [
           accessTools,
@@ -516,6 +534,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     runtimeSample: () => runtime.sample({ sseClients: sseBus.getClientCount(), telegramPending: telegramBot?.pendingNotifications ?? null }),
     selfHealStatus: () => (selfHeal.enabled ? selfHeal.status() : SELF_HEAL_OFF),
     onBehaviourChanged: applyBehaviour,
+    agentTest,
     onConnectionReady: () => {
       if (!awaitingSetup) return;
       awaitingSetup = false;
@@ -524,7 +543,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     },
     onConfigReloaded: async (reloaded) => {
       if (options.applyTimeZone) applyProcessTimeZone(reloaded);
-      applyBehaviour(resolveBehaviour(behaviourFromConfig(reloaded), settings.behaviourOverrides));
+      envBehaviour = behaviourFromConfig(reloaded);
+      applyBehaviour(resolveBehaviour(envBehaviour, settings.behaviourOverrides));
       // Re-encrypt immediately: DATA_ENCRYPTION_KEY defaults to CPE_PASSWORD, so fixing the password
       // changes the key, and files left under the old key would be unreadable after a restart.
       const rekeyed: Array<Promise<void>> = [];
@@ -602,6 +622,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     peerGuard,
     alertEngine,
     selfHeal,
+    agentTest,
     settings,
     audit,
     awaitingSetup: () => awaitingSetup,
@@ -620,6 +641,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       notificationHub?.start();
       alertEngine?.start();
       selfHeal?.start();
+      agentTest.start();
       if (quarantined.length > 0) {
         const files = quarantined.join(", ");
         scheduler.raiseAlert({
@@ -657,6 +679,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       await telegramBot?.stop();
       notificationHub?.stop();
       alertEngine?.stop();
+      agentTest.stop();
       // No new automatic write starts; one in flight ends with the scheduler below
       const selfHealStopped = selfHeal?.stop();
       // Queued requests answer 503 now; the in-flight session gets its grace, is cancelled and logs out

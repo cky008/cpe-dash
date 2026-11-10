@@ -340,6 +340,17 @@ describe("Static demo backend vs the real daemon", () => {
     ]);
   });
 
+  it("answers the AI agent test like the daemon on the verified router", async () => {
+    for (const body of [{ action: "start", model: "H168-383" }, { action: "end" }, { action: "ack" }, { action: "ack", alertId: 7 }, { action: "go" }, {}] as const) {
+      const [real, demo] = await Promise.all([daemonCall(daemon, session, "POST", "/api/console/agent-test", body), demoCall(backend, "POST", "/api/console/agent-test", body)]);
+      assert.deepEqual([demo.status, demo.json["errorCode"], demo.json["message"]], [real.status, real.json["errorCode"], real.json["message"]], JSON.stringify(body));
+      if (real.status === 200) {
+        assertSameShape("POST /api/console/agent-test", real.json, demo.json);
+        assert.deepEqual(demo.json["agentTest"], real.json["agentTest"], "nothing to test on the verified router");
+      }
+    }
+  });
+
   it("identifies the demo router and builds its device report like the daemon", async () => {
     assert.ok(seed.device, "the seed carries the daemon's identification and report");
     for (const route of ["/api/device/profile", "/api/console/device-report"]) {

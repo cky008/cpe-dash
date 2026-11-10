@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { type AgentTestRecord, copyAgentTestRecord, isAgentTestRecord } from "./agent-test.ts";
 import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides } from "./behaviour-settings.ts";
 import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest, type TokenScope, permissionsForScope, scopeForPermissions } from "./console-policy.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature } from "./device-profile.ts";
@@ -115,6 +116,8 @@ interface PersistedConsoleSettings {
   reviewPending: boolean;
   /** Experimental writes the owner turned on (one model at a time). */
   experimental: ExperimentalConsent[];
+  /** The AI agent test the owner started at one click, while it is on (what it turned on and the reminders). */
+  agentTest: AgentTestRecord | null;
 }
 
 /** `pair` links a private Telegram chat; `pair-group` also links a group (the owner chose so in the console). */
@@ -215,6 +218,7 @@ function defaultState(): PersistedConsoleSettings {
     behaviour: {},
     reviewPending: false,
     experimental: [],
+    agentTest: null,
   };
 }
 
@@ -252,7 +256,8 @@ export class ConsoleSettings {
     if (!parsed) return false;
     const tokens = Array.isArray(parsed.tokens) ? parsed.tokens.filter((t) => t && typeof t.hash === "string" && typeof t.id === "string").map(withPermissions) : [];
     const experimental = Array.isArray(parsed.experimental) ? parsed.experimental.filter(isExperimentalConsent).map((c) => ({ ...c })) : [];
-    this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens, experimental, behaviour: sanitizeBehaviourOverrides(parsed.behaviour) };
+    const agentTest = isAgentTestRecord(parsed.agentTest) ? copyAgentTestRecord(parsed.agentTest) : null;
+    this.#state = { ...defaultState(), ...parsed, format: FORMAT, tokens, experimental, agentTest, behaviour: sanitizeBehaviourOverrides(parsed.behaviour) };
     this.#reindex();
     return true;
   }
@@ -402,6 +407,18 @@ export class ConsoleSettings {
     const dropped = before - this.#state.experimental.length;
     if (dropped > 0) this.#save();
     return dropped;
+  }
+
+  // ------------------------------------------------------------ AI agent test
+
+  /** The test started at one click, or `null`. */
+  get agentTest(): AgentTestRecord | null {
+    return this.#state.agentTest ? copyAgentTestRecord(this.#state.agentTest) : null;
+  }
+
+  setAgentTest(record: AgentTestRecord | null): void {
+    this.#state.agentTest = record ? copyAgentTestRecord(record) : null;
+    this.#save();
   }
 
   // ------------------------------------------------------------ Bearer tokens

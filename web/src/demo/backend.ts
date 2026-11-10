@@ -465,8 +465,9 @@ export class DemoBackend {
     post("/api/console/behaviour", (body) => this.#console.behaviour(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));
     get("/api/device/profile", () => this.#device?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));
-    get("/api/console/experimental", () => ({ ok: true, device: this.#scheduler.device, consents: [], writes: [] }) satisfies ExperimentalWritesResponse);
+    get("/api/console/experimental", () => DemoConsole.experimentalView(this.#scheduler.device) satisfies ExperimentalWritesResponse);
     post("/api/console/experimental", (body) => this.#console.experimental(body, this.#scheduler.device));
+    post("/api/console/agent-test", (body) => this.#console.agentTest(body, this.#scheduler.device));
     get("/api/console/device-report", () => {
       const generatedAtIso = new Date(this.#now()).toISOString();
       const report =

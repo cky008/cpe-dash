@@ -102,6 +102,7 @@ export interface ApiErrorEnvelope {
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号（只读），写操作被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
     | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（device/information），没有写入（见 2.10）
     | "EXPERIMENTAL_UNAVAILABLE" // 409: 这项实验性写入不能在这台路由器上打开（已验证、暂不支持、路由器没有、还没识别型号；附 state，见 2.11）
+    | "AGENT_TEST_UNAVAILABLE"   // 409: 这台路由器没有可供 AI 智能体测试的实验性写入（已验证型号、还没识别型号，或测试覆盖的写入它都没有），一键测试不能开始（见 2.12）
     | "ALREADY_SET_UP"           // 409: 控制台密码已设定后再调用 /api/setup/login
     | "WRONG_PASSWORD"           // 403: 修改密码时当前密码不正确
     | "CPE_TEST_FAILED"          // 400: 新的路由器连接测试失败（附 connectionTest），未保存任何内容
@@ -453,6 +454,7 @@ export type AlertCode =
   | "MODEL_UNVERIFIED"         // warning：路由器型号不在验证清单上：烽燧只读它，写操作默认锁定（可在「设置 → 设备」逐项打开实验性写入，见 2.11）；每个型号一次（持久化），指向「设置 → 设备」与兼容性报告
   | "WRITE_READBACK_MISMATCH"  // warning：未验证型号上的实验性写入回读与写入不一致（重启、重拨为之后的轮询显示没有重启 / 重新连接）；消息只有写操作名、型号与原因，不含写入的取值（见 2.11）
   | "FIRMWARE_UNVERIFIED"      // warning：已验证型号的固件版本（含补丁号）不在 src/firmware.ts 的 VERIFIED_FIRMWARE 中；每个版本一次（持久化），不阻止写操作；Telegram 推送另附一条核对提示词
+  | "AGENT_TEST_STILL_ON"      // warning：一键开始的 AI 智能体测试打开的设置还开着（见 2.12）：智能体最后一次测试调用（或开始）3 小时后提醒，之后每天一次；测试覆盖的写入全部回读一致、主人看过提醒（控制台通知列表显示了它，或在 Telegram 点「知道了」）或测试结束后不再提醒。消息列出还开着的设置（型号、开关、写功能、令牌名称），不含任何值
   | "DATA_QUARANTINED"         // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
   | "STORAGE_WRITE_FAILED";    // critical：加密数据文件保存失败（数据卷满、只读或属主不对）：更改只在内存里，重启前若仍不能保存即丢失；同一文件同一原因（如 EACCES / ENOSPC）每小时一次，消息只含文件名与错误码
 
@@ -1267,6 +1269,7 @@ export interface ExperimentalWritesResponse {
   device: DeviceAccessSnapshot;      // 同 2.10，含 features 与 lteBands
   consents: Array<{ model: string; feature: "bandLock" | "reboot" | "reconnect" | "mobileData" | "smsWrite"; grantedAtIso: string }>;
   writes: WriteResultRecord[];       // 最近的写入结果（最早的在前，最多 20 条），字段同设备报告的 writes，另有 id
+  agentTest: AgentTestStatus;        // 一键开始的 AI 智能体测试（v1.8.1，见 2.12）
 }
 ```
 
@@ -1285,6 +1288,48 @@ export interface WriteCheck {
   endpoints: string[];                  // 写过的端点，如 "/api/net/net-mode"
   readback: "match" | "mismatch" | "unknown" | "pending" | "none"; // pending：重拨 / 重启，等之后的轮询；none：没有写成
   reason: "differs" | "unreadable" | "send_failed" | "send_unconfirmed" | "no_change" | "unclear_change" | "no_restart" | "no_evidence" | null;
+}
+```
+
+### 2.12 一键开始 AI 智能体测试与提醒（v1.8.1）
+
+未验证型号上，「设置 → 设备」的「复制提示词并开始测试」把测试要用的设置**一次**打开（[`src/agent-test.ts`](../src/agent-test.ts) 的规则，[`src/agent-test-service.ts`](../src/agent-test-service.ts) 执行）：控制台确认框列出要打开的全部内容，主人确认一次即打开并复制提示词，不再逐项打开、逐项输入型号。
+
+- **打开什么**（`plan`）：还关着的 `agentExperimental`（`MCP_ALLOW_EXPERIMENTAL`）与 `agentWrites`（`MCP_ALLOW_MUTATIONS`），以控制台设置的形式打开；测试覆盖的实验性写入里状态为 `available` 的（`bandLock`、`reconnect`、`reboot`：智能体有工具能写的；没有移动数据工具，短信会发出真实短信，都不在内），同意记录的型号就是控制台显示、随请求送回的那个；以及主人选的一个令牌加上 `control` 权限。只有已验证型号以外、至少有一项覆盖的写入是 `available` 或 `consented` 时才能开始（`plan.available`），否则 `409 AGENT_TEST_UNAVAILABLE`。
+- **哪个令牌**：守护进程记下本次运行里每个令牌最后一次调用 `/mcp` 的时间（只在内存里）。最近调用过的令牌就是智能体的：它还不能改动路由器时控制台默认选它；没人调用过时，只有一个不能改动路由器的令牌就默认选它，有多个就不替主人猜（`suggestedTokenId: null`）。智能体的令牌已经能改动路由器，或所有令牌都能，就不需要选（`tokenNeeded: false`）。
+- **记录**：加密的 `settings.json` 的 `agentTest`：开始时间、打开的每个开关和它之前在控制台的值（`null` 表示跟随 `.env`）、每项同意的时间、加了权限的令牌、最后一次测试调用、提醒时间与提醒的告警 ID、主人看过提醒的时间。再次开始只补上还没打开的，并重新开始计时。
+- **结束**（`end`）：只恢复测试打开、并且**还保持测试留下的样子**的：开关还是控制台设的「开」才改回之前的值，同意的时间没变才关闭（主人后来自己重新打开的不动），令牌还有 `control` 才收回；然后删除记录。测试打开的东西都被主人改回去之后，下一次检查自动删除记录（审计 `ended: nothing it turned on is still on`，渠道 `system`）。
+- **提醒**：每分钟检查一次。还有东西开着时，智能体最后一次测试调用（`get_device_report`、`probe_router_endpoints`、`set_experimental_write`、`lock_band`、`unlock_rf_locks`、`reconnect_cellular`、`reboot_cpe`，任何令牌，被拒绝的也算）或开始之后 **3 小时**发出 `AGENT_TEST_STILL_ON`（warning，进告警历史、SSE、按 `ALERT_NOTIFY_MIN_SEVERITY` 推送 Telegram 与 Webhook），之后每 **24 小时**一次。以下情况不再提醒：测试覆盖、现在开着的写入都在开始之后试过、每次都写成且回读一致（`passed`，重拨 / 重启还在等轮询核对时不算）；主人看过提醒（控制台通知列表显示了最新的那条提醒时，控制台带着它的 ID 发 `ack`；Telegram 推送带「知道了」按钮，回调 `testok:1`）；测试结束。
+- **谁能改**：`POST /api/console/agent-test` 只接受控制台会话（令牌 `403 CONSOLE_ONLY`），Telegram 只能读提醒。开始、结束与看过提醒记审计 `agents.test`（`start for <型号>: …` / `more for …` / `end: …` / `reminder read`），只有设置名、功能名和令牌名称。
+
+| 方法与路径 | 请求体 | 响应 |
+| :--- | :--- | :--- |
+| `POST /api/console/agent-test` | `{ action: "start"; model: string; tokenId?: string \| null }` / `{ action: "end" }` / `{ action: "ack"; alertId?: string }` | `AgentTestResponse`（`ExperimentalWritesResponse` 加 `settings: ConsoleSettingsResponse`，开关可能变了）；`start` 没有可测的写入时 `409 AGENT_TEST_UNAVAILABLE`；`model` 不是控制台显示的型号、`tokenId` 不是 `plan.tokens` 里的、`action` 不认识时 `400 VALIDATION_ERROR`；没有可读的提醒时 `ack` 什么都不改 |
+
+`GET` / `POST /api/console/experimental` 的响应多了 `agentTest`：
+
+```ts
+export interface AgentTestStatus {
+  current: {                       // 进行中的测试（测试打开的东西还有开着的才有）
+    model: string;
+    startedAtIso: string;
+    switches: Array<"agentExperimental" | "agentWrites">;   // 结束时会恢复的（还保持测试留下的样子）
+    features: Array<"bandLock" | "reconnect" | "reboot">;
+    tokens: Array<{ id: string; name: string }>;
+    lastActivityAtIso: string;
+    remindedAtIso: string | null;
+    acknowledged: boolean;
+    passed: boolean;
+    remindAtIso: string | null;    // 下一次提醒；null：通过了、看过了，或没有开着的
+  } | null;
+  plan: {                          // 现在开始会打开什么
+    available: boolean;
+    switches: Array<"agentExperimental" | "agentWrites">;
+    features: Array<"bandLock" | "reconnect" | "reboot">;
+    tokens: Array<{ id: string; name: string; agentUsedAtIso: string | null }>; // 还不能改动路由器的令牌，智能体的排第一
+    suggestedTokenId: string | null;
+    tokenNeeded: boolean;
+  };
 }
 ```
 
