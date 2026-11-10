@@ -1,13 +1,14 @@
 # AGENTS.md — 「烽燧」(FengSui / cpe-dash) 工程、协议安全与 TDD 铁律守则
 
-本文档定义私有化射频监控与网管平台 **「烽燧」(FengSui / `cpe-dash`)** 的强制架构契约（已验证型号：华为 5G CPE Ultra 6 `H168-383`，固件 `4.4.0.1`；其他华为型号只读兼容，未验证）、类型安全铁律、协议排他避让机制、高危漏洞防御准则及 TDD 质量门禁。所有 AI 编码代理与人类贡献者均须无条件遵守。
+本文档定义私有化射频监控与网管平台 **「烽燧」(FengSui / `cpe-dash`)** 的强制架构契约（已验证型号：华为 5G CPE Ultra 6 `H168-383`，固件 `4.4.0.1`；其他华为型号与其他品牌的路由器只读兼容，未验证）、类型安全铁律、协议排他避让机制、高危漏洞防御准则及 TDD 质量门禁。所有 AI 编码代理与人类贡献者均须无条件遵守。
 
 ---
 
 ## 1. 项目定位与独立自包含架构契约
 
 - **项目代号**：「烽燧」(FengSui / `cpe-dash`) —— 面向群晖 Synology DS923+ (AMD Ryzen R1600 / 32GB RAM) 局域网 (`192.168.8.1`) 与私有内网场景打造的 5G 高阶射频监控、3CA 载波聚合观测、4G/5G 邻区扫描、锁频段/锁小区控制、分周期流量审计、终端拓扑管理，以及短信收发（加密镜像、通讯录、Telegram 双向机器人、签名 Webhook 与告警推送）一体化平台。
-- **兼容范围**：**已验证型号 H168-383（固件 `4.4.0.1`），其他华为型号只读兼容（未验证）。** 写闸门在服务端（`src/device-access.ts` + 调度器 `executeControl`）：未验证型号的写操作默认被拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`），只有用户在控制台为该型号逐项知情同意的实验性写入（通用实现、写后回读核对，协议附录 A.11）放行，REST、MCP、Telegram 与自愈都绕不过去；读取按路由器实际提供的项目宽容进行（协议附录 A.10）。对外只说「仅在 H168-383 上验证过」。本守则的铁律对所有型号一视同仁，不因兼容其他型号而放松。
+- **兼容范围**：**已验证型号 H168-383（固件 `4.4.0.1`），其他华为型号与其他品牌只读兼容（未验证）。** 其他品牌（中兴 goform / zWRT、品速、通则康威 ZLT、烽火、鲲鹏无限、OpenWrt + 移远 / 广和通模组）各有一份按接口资料写的驱动（`src/drivers/`），没有在真机上验证过；它们的写操作（锁频、锁小区、重启）同样是逐项同意的实验性写入。写闸门在服务端（`src/device-access.ts` + 调度器 `executeControl` / `executeDriverControl`）：未验证型号的写操作默认被拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`），只有用户在控制台为该型号逐项知情同意的实验性写入（通用实现、写后回读核对，协议附录 A.11）放行，REST、MCP、Telegram 与自愈都绕不过去；读取按路由器实际提供的项目宽容进行（协议附录 A.10）。对外只说「仅在 H168-383 上验证过」。本守则的铁律对所有型号和品牌一视同仁，不因兼容其他路由器而放松。
+- **品牌与后端**：路由器的品牌（`RouterFamily`，`src/router-family.ts`）随连接保存（「设置 → 路由器」）；留在「自动识别」时，烽燧只用免登录请求认出品牌（`src/drivers/detect.ts`），认出之后才发送密码，守护进程从不在后台自行识别。读写服务（`CpeMonitor`、`CpeControlService`）只面向 `RouterBackend`（`src/router-backend.ts`）：华为 HiLink 是 `HilinkBackend`，其他品牌是 `DriverBackend`；**除调度器、`router-backend.ts` 与 `src/backends/` 外，任何代码都不得判断品牌或自行打开驱动会话**（`test/router-backend.test.ts` 守着这条线）。给某个品牌增加能力，就在它的后端里实现对应的动词。
 - **短信与遥测同源调度**：短信不再由独立进程（如旧 `cpe-sms`）登录 CPE，而是与遥测共用唯一的 `MutexSessionScheduler`，从根本上消除单管理员会话争抢。
 - **100% 独立闭环原则**：`cpe-dash` 必须是完全独立闭环的开源仓库，**严禁对任何外部兄弟目录（如 `cpe-sms`）产生跨目录相对路径引用、`file:` 依赖或软链接**。
 - **零运行时外部依赖**：生产运行时仅依赖 Node.js (`>= 22.6.0`) 原生内置模块（`node:crypto`、`node:http`、`node:fs`、`node:net`、全局 `fetch`），彻底杜绝第三方供应链投毒面。
@@ -29,20 +30,24 @@ cpe-dash/
 │   ├── cpe-client.ts       # H168-383 瞬时会话客户端、双层真人避让与 108006 防爆破断路器
 │   ├── cpe-auth.ts         # 登录方式选择（提交密码前定：password_type → SCRAM 挑战探测 → 旧式 SHA-256 / base64）与 SesTokInfo 令牌解析
 │   ├── cpe-domain.ts       # 遥测/邻区/拓扑/设置采集与控制写操作（含 sms-count 捎带）
-│   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断）
-│   ├── cpe-monitor.ts      # 读侧：后台轮询、单飞刷新、快照缓存与时序写入；启动后识别路由器一次（当时连不上则在第一次读成功后补上；不进入轮询）
-│   ├── cpe-controls.ts     # 写侧：锁频锁站、重启重拨、路由器开关、设备访问控制（入队前校验）
+│   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断、写闸门）；按连接的品牌持有 HiLink 客户端或驱动客户端，两者共用同一个队列
+│   ├── cpe-monitor.ts      # 读侧（只面向 RouterBackend）：后台轮询、单飞刷新、快照缓存与时序写入；启动后识别路由器一次（当时连不上则在第一次读成功后补上；不进入轮询）
+│   ├── cpe-controls.ts     # 写侧：锁频锁站、解锁、自动回滚与重启经 RouterBackend（不分品牌）；重拨、路由器开关、设备访问控制目前只有 HiLink 实现（入队前校验）
 │   ├── generic-writes.ts   # 未验证型号的实验性写入（附录 A.11 的 HiLink 格式）：LTE 锁频、重启、重拨、移动数据，同一会话回读核对，绝不重试（明文短信写入在 sms/protocol.ts）
 │   ├── access-state.ts · access-plan.ts  # 零依赖：Wi-Fi MAC 过滤状态与访问控制规划（受保护设备、名单、上网时段冲突；前后端同一实现）
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
+│   ├── router-family.ts    # 零依赖：路由器品牌（RouterFamily）、各品牌的常见地址 / 默认账号 / 能读能写的事实、控制台显示的名字，以及「自动识别」这个选项
+│   ├── router-backend.ts   # RouterBackend：烽燧对一台路由器的全部读写动词（识别、信号、附近的基站、已连接设备、设置、访问控制；锁频、锁小区、解锁、自动回滚、重启），以及按连接的品牌选后端的唯一一处
+│   ├── backends/           # hilink.ts（华为 HiLink：H168-383 的已验证序列与其他 HiLink 型号的通用写入）· driver.ts（其他品牌，经各自的驱动）· index.ts
+│   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts · zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
 │   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）；监视与重拨额度存于 state.json，重启后接着算；AI 智能体在未验证型号上锁频后断网 3 分钟，写回锁频前读到的频段设置（不受自愈开关影响）
 │   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
 │   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单，未验证型号另加实验性写入回读要读的 3 个；四种接口状态；实验性写入的能力依据）、路由器错误码计数与只含结构的脱敏设备报告（守护进程、控制台与在线演示同一实现）
-│   ├── device-access.ts    # 零依赖：写闸门（未验证型号只读，逐项同意的实验性写入除外；只相信本次运行看到的型号，否则写操作先在自己的会话里确认）、每个写操作所属的功能与它在这台路由器上的状态、写入记录与回读结果的类型，以及未验证型号各读取项可用与否
+│   ├── device-access.ts    # 零依赖：写闸门（未验证型号只读，逐项同意的实验性写入除外；其他品牌只放行驱动实现的锁频 / 锁小区 / 重启；解除锁定只要求两种锁定中任一项已开启；只相信本次运行看到的型号，否则写操作先在自己的会话里确认）、每个写操作所属的功能与它在这台路由器上的状态、写入记录与回读结果的类型，以及未验证型号各读取项可用与否
 │   ├── feedback.ts         # 零依赖：兼容性反馈入口（cky008/cpe-dash 新 issue 的地址，只带模板与标题，绝不带报告内容）
-│   ├── device-catalog.ts   # 零依赖：可能支持的路由器清单（huawei-lte-api 测试清单里的型号，只取事实）与「支持的设备」页按品牌生成的功能状态表（每个模块一格：○ 已验证、△ 可能支持、? 未知、× 不支持；每个型号的实测报告链接）；指南里唯一的型号表
+│   ├── device-catalog.ts   # 零依赖：可能支持的路由器清单（huawei-lte-api 测试清单里的型号，只取事实）、其他品牌的功能状态表（一个品牌一行，取自驱动的事实）与「支持的设备」页按品牌生成的功能状态表（每个模块一格：○ 已验证、△ 可能支持、? 未知、× 不支持；每个型号的实测报告链接）；指南里唯一的型号表
 │   ├── experimental-consent.ts # 零依赖：打开 / 关闭一项实验性写入（控制台、MCP 的 set_experimental_write 与在线演示共用：打开要填型号，关闭总是可以）
 │   ├── agent-test.ts       # 零依赖：一键开始 AI 智能体测试的规则（要改的设置、测试覆盖的实验性写入与可选的短信、智能体令牌缺的权限、结束时只恢复还保持测试样子的、提醒时间与「全部通过」；守护进程、控制台与在线演示同一实现）
 │   ├── agent-test-service.ts # 守护进程：一键开始 / 结束测试、记下哪个令牌在调用 MCP、每分钟检查并发出 AGENT_TEST_STILL_ON 提醒（控制台看过或 Telegram「知道了」后停止）
@@ -68,7 +73,7 @@ cpe-dash/
 ├── web/                    # 「烽燧」Web 控制台：100% 严格 TS（tsconfig.web.json）+ Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
 │   ├── index.html · styles.css · brand/logo.svg（标志唯一来源：构建生成页面图标与 favicon.svg）
 │   ├── site/main.ts        # 文档站唯一的脚本（主题、复制、搜索、目录高亮），无导入、无外部请求
-│   └── src/                # core/（无 DOM、node:test 覆盖率门禁；core/help.ts 为术语帮助：每个专业名词的一句话解释与文档站锚点，ui/help.ts 画「?」，「设置 → 外观」可关）· ui/（视图）· i18n/（类型化中英词典）· demo/（在线演示的页面内后端，纳入覆盖率门禁）· boot.ts · main.ts
+│   └── src/                # core/（无 DOM、node:test 覆盖率门禁；router-brand.ts 为品牌字段与连接表单的规则，lock-form.ts 为各品牌的锁频 / 锁小区表单规则；core/help.ts 为术语帮助：每个专业名词的一句话解释与文档站锚点，ui/help.ts 画「?」，「设置 → 外观」可关）· ui/（视图）· i18n/（类型化中英词典）· demo/（在线演示的页面内后端，纳入覆盖率门禁）· boot.ts · main.ts
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器（覆盖 src/ scripts/ test/ web/）
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示）
@@ -83,6 +88,7 @@ cpe-dash/
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
 ├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为 npm run test:ui 的浏览器测试：无头 Chrome 对着真实守护进程与演示路由器，不在 npm run check 里，CI 运行）
 ├── Dockerfile · docker-compose.yml · .dockerignore   # 非 root、只读根文件系统、HEALTHCHECK 的生产镜像与群晖编排
+├── SUPPORTED_DEVICES_DOCS.md                        # 各品牌型号的接口资料汇总（不是实测结果；实际实现以「支持的设备」页为准）
 ├── LICENSE · THIRD_PARTY_NOTICES.md                # PolyForm Noncommercial 1.0.0；构建产物所含 Tailwind CSS / daisyUI / Lucide 的许可声明（构建放到控制台旁，镜像放在 /app）
 ├── .github/workflows/      # ci-docker.yml（门禁 + amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）· docs-pages.yml（文档站发布到本仓库 Pages，仓库变量 DOCS_PAGES_ENABLED 打开后才运行）
 ├── .github/ISSUE_TEMPLATE/ # device-report.yml：其他型号的兼容性报告表单（型号、固件、能用 / 不能用、报告、隐私确认）；bug-report.yml、feature-request.yml；config.yml 把安全问题引到私密报告
@@ -124,8 +130,9 @@ cpe-dash/
 - 所有启动参数与环境调优参数必须统一通过 [`src/config.ts`](src/config.ts) 从项目根目录 `.env`（及环境变量覆盖）加载，严禁在任何业务逻辑或探针脚本中硬编码密码、IP 或路径，且不引入第三方 `dotenv` 包。
 - v1.5.0 起，路由器连接、控制台登录密码与 API 令牌由控制台管理，加密保存在 `settings.json`（[`src/console-settings.ts`](src/console-settings.ts)）：`.env` 中的 `CPE_*` / `API_TOKEN*` 只在首次启动时导入一次。密码只存 scrypt 哈希、令牌只存 SHA-256；任何令牌都不能修改控制台设置。探针脚本仍从 `.env` 读取路由器凭据。
 
-### 铁律四：华为单管理员会话排他保护与真人在线避让
+### 铁律四：单管理员会话排他保护与真人在线避让
 - H168-383 固件严格限制**同一时刻仅允许 1 个管理员会话在线**。若后台守护进程持久霸占会话，用户在浏览器打开 `http://192.168.8.1` 登录时将被迫报错或发生会话抢占。
+- **其他品牌同样适用**：驱动品牌的会话走 `DriverCpeClient.withSession()`，与 HiLink 客户端共用同一个调度器队列，登录前先做各品牌自己的免登录检查（有人在线即让位、已锁定即不登录），`finally` 无条件注销，密码被拒即熔断、绝不重试。识别品牌（`detectRouterFamily`）只发免登录请求，不带密码、不建会话。
 - **强制瞬时短连 (`withSession`)**：任何需要鉴权的读写操作必须包裹在串行互斥的 `HuaweiCpeClient.withSession()` 中，并在 `finally` 块内无条件调用 `POST /api/user/logout`（真机实测单次会话占用窗口仅 `~26ms–260ms`）。
 - **短信同样受本铁律约束**：短信同步、发送、标记已读与删除只能经 `SmsService` 进入 `MutexSessionScheduler`（读走 `executeRead`、写走 `executeControl`），短信计数捎带在 5s 遥测会话内，严禁另起轮询或独立登录。只有 `serve` 守护进程连接 CPE：它独占数据目录（`state.json.lock`），第二个守护进程启动即失败；`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，严禁在其他进程中实例化 `HuaweiCpeClient` 或调度器。
 - **双层真人在线主动避让（`state-login` 预检 + 跨 IP `108003` 让位）**：每次发起登录前先请求 `GET /api/user/state-login`；当 `respectBrowserSession: true`（后台轮询与探针默认开启）时，若 `<State>` 不为 `"-1"`（第 1 层）或跨局域网终端已有浏览器在线返回 `108003`/`108009`（第 2 层），客户端必须**立即静默挂起让位（返回 `null`）**，严禁强行抢占或循环重试干扰真人会话。

@@ -1,6 +1,7 @@
 import type { DeviceFeature } from "./device-profile.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
+import { DRIVER_FAMILIES, DRIVER_WRITE_FEATURES, type DriverFamily, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS } from "./router-family.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -9,9 +10,11 @@ import type { SupportedLocale } from "./types.ts";
  * test/device-catalog.test.ts keeps both identical to `supportedDevicesSection`): the verified
  * H168-383, and the Huawei HiLink routers another HiLink client was tested on, grouped as the "Tested
  * on" list of Salamek/huawei-lte-api groups them (README at df87e5f, 2026-08-13; facts only, none of
- * its code; the guide credits it once, on "Other Huawei models"). Each row gives one mark per console
+ * its code; the guide credits it once, on "Other models and brands"). Each row gives one mark per console
  * module: verified, may work, unknown or not supported. A feature users verify (`VERIFIED_FEATURES`)
  * turns its mark into "verified", one a report shows failing (`UNSUPPORTED_FEATURES`) into "not supported".
+ * The brands FengSui has a driver for get a table of their own, one row per brand, between
+ * `<!-- brands:begin -->` and `<!-- brands:end -->` (`otherBrandsSection`).
  */
 
 /** How the reference list groups a router: 5G routers, 3G/LTE routers, 3G/LTE USB sticks in HiLink mode. */
@@ -213,4 +216,58 @@ export function supportedDevicesSection(
         ...(mixed ? [`- 一格里有几个符号时，依次对应这一列包含的功能：${split.map((module) => `「${module.zh}」是${(module.parts?.zh ?? []).join(" / ")}`).join("，")}。`] : []),
       ];
   return [legend.join("\n"), ...sections].join("\n\n");
+}
+
+/**
+ * A feature's mark on a router of a driver family (every brand but Huawei's): may work where the
+ * family's driver implements it from the brand's interface notes (nobody verified it on a real
+ * router), unknown where FengSui has nothing for the brand yet. Never ×: nothing was ruled out.
+ */
+export function brandMark(family: DriverFamily, feature: DeviceFeature): SupportMark {
+  if (feature === "telemetry") return "△";
+  if (feature === "neighbors" || feature === "topology") return (ROUTER_FAMILY_FACTS[family].reads as ReadonlyArray<string>).includes(feature) ? "△" : "?";
+  return (DRIVER_WRITE_FEATURES as ReadonlyArray<string>).includes(feature) ? "△" : "?";
+}
+
+/**
+ * The page's section on the other brands: one row per brand FengSui has a driver for, with the
+ * address its routers usually have, a mark per module and where to report a real router. The marks
+ * come from what each driver implements (`ROUTER_FAMILY_FACTS`, `DRIVER_WRITE_FEATURES`).
+ */
+export function otherBrandsSection(locale: SupportedLocale): string {
+  const en = locale === "en";
+  let mixed = false;
+  const rows = DRIVER_FAMILIES.map((family) => {
+    const cells = MODULES.map((module) => {
+      const marks = module.features.map((feature) => brandMark(family, feature));
+      if (new Set(marks).size === 1) return marks[0] ?? "?";
+      mixed = true;
+      return marks.join("/");
+    });
+    const label = ROUTER_FAMILY_LABELS[family];
+    // The issue is titled with the brand's short name in FengSui (a model goes into the form itself)
+    const report = `[${en ? "Report" : "提交报告"}](${deviceIssueUrl({ model: family, softwareVersion: null })})`;
+    return `| ${en ? label.en : label["zh-CN"]} | \`${ROUTER_FAMILY_FACTS[family].defaultAddress}\` | ${cells.join(" | ")} | ${report} |`;
+  });
+  const header = [
+    `| ${en ? "Brand" : "品牌"} | ${en ? "Usual address" : "常见地址"} | ${MODULES.map((module) => (en ? module.en : module.zh)).join(" | ")} | ${en ? "Your results" : "实测反馈"} |`,
+    `| :--- | :--- | ${MODULES.map(() => ":---:").join(" | ")} | :--- |`,
+  ];
+  const split = MODULES.filter((module) => module.features.length > 1 && new Set(module.features.map((feature) => brandMark(DRIVER_FAMILIES[0] ?? "openwrt", feature))).size > 1);
+  const legend = en
+    ? [
+        "What the marks mean here:",
+        "",
+        "- **△ May work**: FengSui implements it from the brand's interface notes, and nobody has checked it on a real router yet. Reading needs nothing turned on. Band lock, cell lock and reboot are experimental writes: each is turned on under Settings → Device, sent once, and read back.",
+        "- **? Unknown**: FengSui has nothing for this brand here yet, so that part of the console stays empty.",
+        ...(mixed ? [`- Where a cell has more than one mark, they follow the column's parts in order: ${split.map((module) => `${module.en} is ${(module.parts?.en ?? []).join(" / ")}`).join("; ")}.`] : []),
+      ]
+    : [
+        "这张表里的符号：",
+        "",
+        "- **△ 可能支持**：烽燧按这个品牌的接口资料实现了，还没有人在真机上验证过。读取不需要打开任何开关；锁频段、锁小区和重启是实验性写入，要在「设置 → 设备」逐项打开，每次只发一次，写后回读核对。",
+        "- **? 未知**：烽燧在这个品牌上还没有这一项，控制台里对应的部分是空的。",
+        ...(mixed ? [`- 一格里有几个符号时，依次对应这一列包含的功能：${split.map((module) => `「${module.zh}」是${(module.parts?.zh ?? []).join(" / ")}`).join("，")}。`] : []),
+      ];
+  return [legend.join("\n"), [...header, ...rows].join("\n")].join("\n\n");
 }

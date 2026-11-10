@@ -1,13 +1,13 @@
 name: 设备兼容性报告 / Device compatibility report
-description: 烽燧在你的华为路由器上能不能用 / How FengSui works with your Huawei router
+description: 烽燧在你的路由器上能不能用 / How FengSui works with your router
 title: "Device report: "
 labels: ["device-report"]
 body:
   - type: markdown
     attributes:
       value: |
-        烽燧只在 **H168-383（固件 4.4.0.1）** 上验证过。其他华为型号会以只读方式工作（写操作默认锁定，烽燧能做的写入可以在「设置 → 设备」逐项打开为实验性写入），这份报告帮我们了解它在你的型号上的表现。
-        FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. Other Huawei models run read-only (writes are locked by default; those FengSui can do may be turned on one at a time under Settings → Device as experimental writes); this report tells us how it does on yours.
+        烽燧只在 **H168-383（固件 4.4.0.1）** 上验证过。其他华为型号和其他品牌的路由器会以只读方式工作（写操作默认锁定，烽燧能做的写入可以在「设置 → 设备」逐项打开为实验性写入），这份报告帮我们了解它在你的路由器上的表现。
+        FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. Other Huawei models and routers of other brands run read-only (writes are locked by default; those FengSui can do may be turned on one at a time under Settings → Device as experimental writes); this report tells us how it does on yours.
 
         **报告怎么来 / Where the report comes from**：控制台「设置 → 设备 → 生成设备报告」，检查后复制，或下载 JSON 文件。 / In the console: Settings → Device → Create device report; check it, then copy it or download the JSON file.
   - type: input
@@ -16,6 +16,22 @@ body:
       label: 型号 / Model
       description: 「设置 → 设备」里的型号 / The model shown in Settings → Device
       placeholder: B535-232
+    validations:
+      required: true
+  - type: dropdown
+    id: brand
+    attributes:
+      label: 路由器品牌 / Router brand
+      description: 「设置 → 路由器」里的品牌（自动识别出来的，或者你选的）/ The brand under Settings → Router (the one FengSui detected, or the one you chose)
+      options:
+        - 华为 HiLink / Huawei HiLink
+        - 中兴 goform / ZTE goform
+        - 中兴 zWRT / ZTE zWRT
+        - 品速 / Pinsu
+        - 通则康威 ZLT / Tozed ZLT
+        - 烽火 / FiberHome
+        - 鲲鹏无限 / NRadio
+        - OpenWrt + 移远或广和通模组 / OpenWrt with a Quectel or Fibocom module
     validations:
       required: true
   - type: input
@@ -30,7 +46,7 @@ body:
     id: works
     attributes:
       label: 能用的功能 / What works
-      description: 例如信号、流量、终端列表、短信；打开过实验性写入的，写上哪些在真机上生效了（锁频、重启、重拨、移动数据、短信）/ For example signal, traffic, the device list, SMS; if you turned on experimental writes, which took effect on the real router (band lock, reboot, redial, mobile data, SMS)
+      description: 例如信号、流量、附近的基站、终端列表、短信；打开过实验性写入的，写上哪些在真机上生效了（锁频、锁小区、重启、重拨、移动数据、短信）/ For example signal, traffic, nearby cells, the device list, SMS; if you turned on experimental writes, which took effect on the real router (band lock, cell lock, reboot, redial, mobile data, SMS)
   - type: textarea
     id: broken
     attributes:

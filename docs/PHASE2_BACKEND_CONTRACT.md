@@ -992,7 +992,7 @@ export interface AccessControlChangeResponse {
 | 方法与路径 | 请求体 | 响应 |
 | :--- | :--- | :--- |
 | `GET /api/console` | — | `ConsoleSettingsResponse` |
-| `POST /api/console/cpe/test` | `{ url?, username?, password?, lastAttempt? }`（缺省字段用已保存的值；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult }` |
+| `POST /api/console/cpe/test` | `{ url?, username?, password?, family?, lastAttempt? }`（缺省字段用已保存的值；`family` 是路由器品牌：`huawei`、`zte-goform`、`zte-zwrt`、`pinsu`、`tozed`、`fiberhome`、`nradio`、`openwrt` 之一，或 `auto`：先只用免登录请求认出品牌，认出之后才登录，认不出则 `result.reason` 为 `unknown_brand`、什么密码都没发；其他取值 `400 VALIDATION_ERROR`。没给 `username` 时，品牌与已保存的相同就用已保存的，否则用该品牌的默认账号；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult, family? }`（`family`：这次测试所用的品牌；没认出品牌时不带） |
 | `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `connectionTest`，不保存） |
 | `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
 | `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD`，并与登录共用同一地址的失败计数：超限后 `429 RATE_LIMITED`（`retryAfterSec`） |
@@ -1032,10 +1032,11 @@ export type ConnectionTestResult =
       // unconfirmed_login：旧式 user/login 的应答无法判断（未知错误码，或页面、空的、截断或过大的响应、重定向），那次提交可能已算作一次错误，
       //   守护进程遇到时会熔断；code 为路由器的错误码（没有错误码时为 null）；
       // human_logged_in：有人正在登录官方后台（不抢占）；
-      // unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理
+      // unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理；
+      // unknown_brand：`family: "auto"` 时路由器没有回应任何一种品牌的免登录特征请求（没有发送密码）
       reason:
         | "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "password_change_required"
-        | "unsupported_login" | "scram_refused" | "unconfirmed_login" | "human_logged_in" | "unreachable" | "standby" | "router_error";
+        | "unsupported_login" | "scram_refused" | "unconfirmed_login" | "human_logged_in" | "unreachable" | "standby" | "router_error" | "unknown_brand";
       code: string | null;
       remainCount: number | null;
       waitTimeSec: number | null;
@@ -1209,6 +1210,7 @@ export interface DeviceReport {
 ```ts
 // SchedulerStatusSnapshot.device（GET /api/session/status、/api/telemetry 等的 schedulerStatus、SSE hello、MCP get_cpe_session_status）
 export interface DeviceAccessSnapshot {
+  family: RouterFamily;            // 连接保存的品牌（「设置 → 路由器」）：huawei 走 HiLink，其余走各自的驱动
   model: string | null;            // 闸门所依据的型号：本次运行看到的，否则是上次存下的；从未识别时为 null，不是纯文本时为 "?"
   verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
   confirmed: boolean;              // 本次运行已看到型号；之前写操作会先在自己的会话里读型号

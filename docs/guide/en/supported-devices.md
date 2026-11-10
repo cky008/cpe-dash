@@ -1,13 +1,18 @@
 ---
 title: Supported devices
-description: Which Huawei routers FengSui is verified on, which it may work with, and where each feature stands on each.
+description: The router FengSui is verified on, the brands and models it may work with, and where each feature stands on each.
 section: Get started
 order: 2
 ---
 
-**FengSui is verified on the Huawei H168-383 (firmware 4.4.0.1) only.** The tables below also list, by brand, other routers that use Huawei's HiLink web interface: FengSui will most likely connect to them too, but nobody has verified them with FengSui yet, so they run read-only and each write has to be turned on first; see [Other Huawei models](other-routers.md). If your model is not listed, try it anyway: Huawei HiLink routers usually connect as well, read-only.
+**FengSui is verified on the Huawei H168-383 (firmware 4.4.0.1) only.** It also connects to two more kinds of router. Nobody has verified those with FengSui on a real device, so they run read-only and each write has to be turned on first:
 
-To see what FengSui looks like on such a router first, open the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).
+- **Other Huawei HiLink routers**: they use the same web interface as the H168-383 and are listed by model below. If your model is not listed, try it anyway: Huawei HiLink routers usually connect, read-only.
+- **Other brands**: ZTE, Pinsu, Tozed (ZLT), FiberHome, NRadio, and OpenWrt routers with a Quectel or Fibocom module. FengSui has an implementation for each, written from the brand's interface notes; see [Other brands](#brands).
+
+You do not need to know which kind your router is: leave the brand on "Detect automatically" under Settings → Router, and FengSui tells the brand before it signs in. How FengSui works on these routers is under [Other models and brands](other-routers.md).
+
+To see what FengSui looks like on a router nobody verified, open the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).
 
 <!-- devices:begin -->
 What the marks mean:
@@ -56,6 +61,38 @@ What the marks mean:
 | B535-333 | 3G/LTE router | △ | ? | △ | △ | △ | ? | △ | △ | △ | △ | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-333) |
 <!-- devices:end -->
 
-## Help verify your model
+<a id="brands"></a>
 
-Choose "Report" on your model's row to open a new GitHub issue with the model already in its title. How to create and post a device report is under [Report compatibility](other-routers.md#report); an AI agent can also run the tests and draft the report for you, see [Test with an AI agent](other-routers.md#ai). Once someone reports a feature working on a real router, its mark in the table turns into ○.
+## Other brands
+
+FengSui has an implementation for each brand below, written from notes on the brand's management interface and not verified on a real router. Models of one brand largely share an interface, so this table has a row per brand, not per model.
+
+<!-- brands:begin -->
+What the marks mean here:
+
+- **△ May work**: FengSui implements it from the brand's interface notes, and nobody has checked it on a real router yet. Reading needs nothing turned on. Band lock, cell lock and reboot are experimental writes: each is turned on under Settings → Device, sent once, and read back.
+- **? Unknown**: FengSui has nothing for this brand here yet, so that part of the console stays empty.
+- Where a cell has more than one mark, they follow the column's parts in order: Reboot & redial is reboot / redial.
+
+| Brand | Usual address | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Your results |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| ZTE (goform web interface) | `192.168.0.1` | △ | △ | ? | ? | △ | △ | △/? | ? | ? | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+zte-goform) |
+| ZTE (zWRT interface: G5, U60, U50 series) | `192.168.0.1` | △ | ? | ? | ? | △ | △ | △/? | ? | ? | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+zte-zwrt) |
+| Pinsu | `192.168.0.1` | △ | ? | ? | ? | △ | △ | △/? | ? | ? | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+pinsu) |
+| Tozed / ZLT (also China Unicom VN007) | `192.168.0.1` | △ | △ | ? | ? | △ | △ | △/? | ? | ? | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+tozed) |
+| FiberHome | `192.168.8.1` | △ | △ | ? | ? | △ | △ | △/? | ? | ? | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+fiberhome) |
+| NRadio | `192.168.66.1` | △ | △ | ? | ? | △ | △ | △/? | ? | ? | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+nradio) |
+| OpenWrt with a Quectel or Fibocom module | `192.168.1.1` | △ | △ | ? | ? | △ | △ | △/? | ? | ? | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+openwrt) |
+<!-- brands:end -->
+
+What is particular to a brand:
+
+- **ZTE MC8020 and MC888**: these two want the router's developer options opened before a band or cell lock. FengSui does that itself before the lock, with the same admin password, and names it in the write's record.
+- **ZTE zWRT (G5, U60, U50 series)**: locks 5G cells only, not 4G cells.
+- **NRadio**: locking 5G bands needs the router's cellular module to report its 5G band setting; a model that does not locks 4G bands only.
+- **OpenWrt**: FengSui sends AT commands to the module through the router's ubus interface and tells Quectel from Fibocom itself. "Reboot" restarts the cellular module, not the whole router. A Fibocom module's network mode can be set to automatic or 5G standalone only.
+- **Tozed / ZLT**: some operator builds wrap the interface in a layer of encryption; FengSui cannot connect to those.
+
+## Help verify your router
+
+Choose "Report" on your model's (or brand's) row to open a new GitHub issue with its title already written. How to create and post a device report is under [Report compatibility](other-routers.md#report); an AI agent can also run the tests and draft the report for you, see [Test with an AI agent](other-routers.md#ai). Once someone reports a feature working on a real router, its mark in the table turns into ○.

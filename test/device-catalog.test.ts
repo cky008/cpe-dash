@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
-import { GENERIC_READS, KNOWN_ROUTERS, MODULES, UNSUPPORTED_FEATURES, type UnsupportedFeature, baselineMark, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
+import { GENERIC_READS, KNOWN_ROUTERS, MODULES, UNSUPPORTED_FEATURES, type UnsupportedFeature, baselineMark, brandMark, otherBrandsSection, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
+import { DRIVER_FAMILIES, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS } from "../src/router-family.ts";
 import { DEVICE_FEATURES, EXPERIMENTAL_FEATURES } from "../src/device-profile.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
 import { VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
@@ -39,8 +40,36 @@ describe("the supported devices guide page", () => {
       const text = fs.readFileSync(file, "utf8");
       const block = /<!-- devices:begin -->\n([\s\S]*?)\n<!-- devices:end -->/.exec(text)?.[1];
       assert.equal(block, supportedDevicesSection(locale), `${file}: regenerate the tables from supportedDevicesSection("${locale}")`);
-      assert.equal(/huawei-lte-api|Salamek/i.test(text), false, `${file}: the guide credits other projects on "Other Huawei models" only`);
+      assert.equal(/huawei-lte-api|Salamek/i.test(text), false, `${file}: the guide credits other projects on "Other models and brands" only`);
     }
+  });
+
+  it("lists the other brands from what each driver implements, one row per brand, in both languages", () => {
+    for (const [file, locale] of [
+      ["docs/guide/zh/supported-devices.md", "zh-CN"],
+      ["docs/guide/en/supported-devices.md", "en"],
+    ] as const) {
+      const text = fs.readFileSync(file, "utf8");
+      const block = /<!-- brands:begin -->\n([\s\S]*?)\n<!-- brands:end -->/.exec(text)?.[1];
+      assert.equal(block, otherBrandsSection(locale), `${file}: regenerate the brand table from otherBrandsSection("${locale}")`);
+      assert.ok(text.includes('<a id="brands"></a>'), `${file}: the anchor other pages link to`);
+    }
+    const table = otherBrandsSection("en").split("\n").filter((line) => line.startsWith("| ") && !line.startsWith("| Brand") && !line.startsWith("| :"));
+    assert.equal(table.length, DRIVER_FAMILIES.length, "one row per brand with a driver");
+    for (const family of DRIVER_FAMILIES) {
+      const row = table.find((line) => line.startsWith(`| ${ROUTER_FAMILY_LABELS[family].en} |`));
+      assert.ok(row, family);
+      assert.ok(row.includes(`\`${ROUTER_FAMILY_FACTS[family].defaultAddress}\``), `${family}: its usual address`);
+      assert.ok(row.endsWith(`[Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+${family}) |`), `${family}: a report titled with the brand`);
+      // What the driver implements may work; what FengSui has nothing for on the brand is unknown; nothing is ruled out
+      assert.equal(brandMark(family, "telemetry"), "△");
+      assert.equal(brandMark(family, "neighbors"), ROUTER_FAMILY_FACTS[family].reads.includes("neighbors") ? "△" : "?");
+      for (const feature of ["bandLock", "cellLock", "reboot"] as const) assert.equal(brandMark(family, feature), "△", `${family} ${feature}`);
+      for (const feature of ["topology", "smsRead", "smsWrite", "reconnect", "mobileData", "securitySwitches", "wifi", "antenna", "accessControl"] as const) assert.equal(brandMark(family, feature), "?", `${family} ${feature}`);
+      assert.ok(!row.includes("×") && !row.includes("○"), `${family}: neither verified nor ruled out`);
+    }
+    assert.match(otherBrandsSection("zh-CN"), /「重启与重拨」是重启 \/ 重拨/);
+    assert.equal(/huawei-lte-api|Salamek/i.test(otherBrandsSection("en") + otherBrandsSection("zh-CN")), false);
   });
 
   it("gives every feature of the console one column, and lists each router once under its brand", () => {

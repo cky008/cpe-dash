@@ -1,17 +1,21 @@
 ---
-title: Other Huawei models
-description: How FengSui works on Huawei routers other than the H168-383: read-only by default, enabling experimental writes per feature, and reporting compatibility.
+title: Other models and brands
+description: How FengSui works on routers other than the H168-383: telling the brand, read-only by default, enabling experimental writes per feature, and reporting compatibility.
 section: Manage
 order: 18
 ---
 
-**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink / EMUI routers generally connect as well, but no one has verified them, so writes to them are locked by default: FengSui reads metrics only and does not change router settings. This page covers how FengSui works on those models; which models may work, and where each feature stands on each, is under [Supported devices](supported-devices.md).
+**FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module. No one has verified any of them with FengSui on a real device, so writes to them are locked by default: FengSui reads only and does not change router settings. This page covers how FengSui works on those routers; which brands and models may work, and where each feature stands, is under [Supported devices](supported-devices.md).
+
+<a id="brand"></a>
 
 ## How FengSui detects your router
 
-After startup, and whenever you test or save a connection in "Settings → Router", FengSui reads the model, authentication scheme, and supported features once (read-only, without altering settings). The results appear in "Settings → Device".
+**The brand first.** Under "Settings → Router", the router brand starts on "Detect automatically". When you test or save a connection, FengSui first sends the router a few requests that need no login (the kind each brand's own login page sends), sees which brand answers, and only then sends the password. This step carries no password, takes no login and uses up no attempt. If FengSui cannot tell, it asks you to choose the brand; you can also choose it yourself from the start. The brand it found is what gets saved, and FengSui does not detect again on its own.
 
-FengSui determines the authentication scheme before sending credentials (SCRAM for newer models, SHA-256 or Base64 for legacy models). It never retries the same password with alternative schemes, avoiding accidental consumption of router login attempts.
+**Then the model.** After startup, and whenever you test or save a connection, FengSui reads the model and supported features once (read-only, without altering settings). The results appear in "Settings → Device".
+
+FengSui settles the login method before sending the password (on Huawei, SCRAM for newer models, SHA-256 or Base64 for older ones). It never retries the same password another way, so it cannot use up the router's login attempts.
 
 ## What read-only means
 
@@ -20,7 +24,9 @@ FengSui determines the authentication scheme before sending credentials (SCRAM f
 
 ## Experimental writes (risky, disabled by default)
 
-For operations with dependable protocol documentation, FengSui provides generic implementations that you can enable individually:
+For operations with dependable protocol documentation, FengSui has implementations that you can enable individually.
+
+**Other Huawei HiLink models:**
 
 - Band locking (4G only, using bands reported by the router)
 - Reboot
@@ -30,11 +36,21 @@ For operations with dependable protocol documentation, FengSui provides generic 
 
 Cell locking, security switches, Wi-Fi 7, antenna selection, and access control are not supported yet.
 
+**Other brands:**
+
+- Band locking (4G and 5G bands, typed as band numbers in the controls drawer)
+- Cell locking (channel + PCI, from Nearby cells)
+- Reboot
+
+SMS, connected devices, reconnect, mobile data, router switches and access control are not implemented on other brands yet, and those parts of the console stay empty. What is particular to each brand is under [Supported devices](supported-devices.md#brands).
+
+Taking locks off has no switch of its own: with either the band lock or the cell lock turned on, you can unlock.
+
 **How to enable**: Go to "Settings → Device" under "Experimental writes" to enable eligible items. Before enabling an item, a dialog explains which operations will be permitted and details the risks (writing incorrect configurations, losing internet connectivity, or triggering router login lockouts from unexpected responses). You must type the router model to confirm. Consent applies only to this specific model; switching to another router invalidates all prior consents automatically. Every activation and deactivation is recorded in the audit log.
 
 **After enabling**: Only that specific feature is unlocked. Each write is sent once without retries, followed immediately by a read-back check that displays "read back: matches" or "differs". A mismatch raises a `WRITE_READBACK_MISMATCH` alert.
 
-**If issues occur**: Open the router's own web page (typically `http://192.168.8.1`) to revert settings or restart, and use the physical reset button to restore factory settings if necessary.
+**If issues occur**: Open the router's own web page to revert settings or restart, and use the physical reset button to restore factory settings if necessary.
 
 ![Consent dialog for experimental writes](../../screenshots/experimental-writes.webp)
 

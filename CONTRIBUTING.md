@@ -13,7 +13,7 @@ every change comes with tests, and nothing real (passwords, phone numbers, captu
 - **Conduct:** everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 - **缺陷或想法**：比小修复大的改动，请先开 Issue 商量做法。
-- **其他华为型号**：先提交设备兼容性报告（Issues → New issue → 设备兼容性报告），这比直接提 PR 更有帮助。
+- **其他型号与品牌**：先提交设备兼容性报告（Issues → New issue → 设备兼容性报告），这比直接提 PR 更有帮助。
 - **安全问题**：不要开 Issue，请按 [SECURITY.md](SECURITY.md) 私下报告。
 - **行为准则**：所有参与者都遵守[行为准则](CODE_OF_CONDUCT.md)。
 

@@ -5,7 +5,7 @@
 <h1 align="center">烽燧 FengSui</h1>
 
 <p align="center">
-  华为 5G 路由器的自托管控制台：看清信号，管好路由器，短信和告警一处收。
+  5G 路由器的自托管控制台：看清信号，管好路由器，短信和告警一处收。
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
   <img src="docs/screenshots/dashboard-sujian.webp" alt="烽燧的控制台" width="100%" />
 </p>
 
-烽燧是一个装在你自己 NAS 或电脑上的网页控制台，用来查看和管理华为 5G 路由器。它把官方网页里分散的信息集中到一个页面上，再补上官方网页没有的东西：历史曲线、告警、Telegram 通知、短信会话，以及给 AI 智能体用的接口。数据只留在你家里。
+烽燧是一个装在你自己 NAS 或电脑上的网页控制台，用来查看和管理 5G 路由器：在华为 H168-383 上验证过，也能连其他品牌。它把官方网页里分散的信息集中到一个页面上，再补上官方网页没有的东西：历史曲线、告警、Telegram 通知、短信会话，以及给 AI 智能体用的接口。数据只留在你家里。
 
 ## 它能做什么
 
@@ -70,13 +70,13 @@ docker compose logs cpe-dash | grep "setup code"
 
 ## 兼容性
 
-烽燧只在 H168-383（固件 4.4.0.1）上验证过。其他华为 HiLink 路由器以及中兴（goform/zWRT）、品速、通则康威（ZLT）、烽火、鲲鹏无限、OpenWrt 模组（移远/广和通）等路由器写操作默认锁定，以只读方式安全工作；你可以在控制台里逐项打开实验性写入，风险自负。欢迎用控制台生成设备报告并提交，帮助验证更多型号；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。可能支持的型号见[支持的设备](docs/guide/zh/supported-devices.md)与 [完整支持矩阵 (SUPPORTED_DEVICES_DOCS.md)](SUPPORTED_DEVICES_DOCS.md)，详见[其他华为型号](docs/guide/zh/other-routers.md)；想先看看效果，可以打开[在线演示](https://cky008.github.io/fengsui-demo/)。
+烽燧只在 H168-383（固件 4.4.0.1）上验证过。其他华为 HiLink 路由器，以及中兴、品速、通则康威（ZLT）、烽火、鲲鹏无限和 OpenWrt（移远 / 广和通模组）的路由器也能连上，品牌由烽燧自动识别；但它们都没有在真机上验证过，所以写操作默认锁定，只以只读方式工作，你可以在控制台里逐项打开实验性写入，风险自负。欢迎用控制台生成设备报告并提交，帮助验证更多路由器；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。每个品牌和型号的支持情况见[支持的设备](docs/guide/zh/supported-devices.md)，各品牌型号的资料汇总见[设备资料表](SUPPORTED_DEVICES_DOCS.md)，烽燧在这些路由器上怎样工作见[其他型号与品牌](docs/guide/zh/other-routers.md)；想先看看效果，可以打开[在线演示的「其他华为型号」模式](https://cky008.github.io/fengsui-demo/?router=other)。
 
 ## 文档
 
-- **开始使用**：[烽燧是什么](docs/guide/zh/overview.md) · [支持的设备](SUPPORTED_DEVICES_DOCS.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md)
+- **开始使用**：[烽燧是什么](docs/guide/zh/overview.md) · [支持的设备](docs/guide/zh/supported-devices.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md)
 - **使用烽燧**：[控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [设备与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md)
-- **管理**：[Docker Compose 配置](docs/guide/zh/docker-compose.md) · [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他华为型号](docs/guide/zh/other-routers.md)
+- **管理**：[Docker Compose 配置](docs/guide/zh/docker-compose.md) · [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他型号与品牌](docs/guide/zh/other-routers.md)
 - **帮助**：[排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md)
 - **技术文档**：[协议规范](docs/PHASE1_PROTOCOL_SPEC.md) · [架构报告](docs/PHASE2_ARCHITECTURE_REPORT.md) · [后端契约（REST / SSE / MCP）](docs/PHASE2_BACKEND_CONTRACT.md) · [更新日志](CHANGELOG.md)
 

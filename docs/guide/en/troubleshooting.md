@@ -28,7 +28,9 @@ Under "Settings → Router", click "Test connection" to see the reason:
 
 | Message | What to do |
 | :--- | :--- |
-| Address unreachable | Confirm this machine can reach `http://192.168.8.1`; under Docker, check whether the container can access the local network |
+| Cannot tell the router's brand | FengSui got no answer it knows from this address, and sent no password. Check that it is the router's own address (its login page opens in a browser on this machine) and, under Docker, that the container can access the local network; if both hold, choose the brand yourself under "Router brand". FengSui cannot connect to a router whose brand is not in that list yet |
+| Address unreachable | Confirm this machine can reach the router's address (usually `http://192.168.8.1` on Huawei); under Docker, check whether the container can access the local network |
+| The router's answer does not fit the chosen brand | The brand is wrong, or this model uses another interface. Set "Router brand" back to "Detect automatically" and try again |
 | Incorrect password, N attempts remaining | Verify your password in a browser first, then return and save. When only 1 attempt remains, FengSui asks you to check a confirmation box before trying again |
 | Router locked | Too many incorrect password attempts caused the router to lock temporarily. Wait until the lockout expires before saving the correct password |
 | Someone is logged in to the router's web page | Log out from the router's own web page, then test again |
@@ -38,7 +40,7 @@ Under "Settings → Router", click "Test connection" to see the reason:
 
 ## Header shows "Router rejected the password · logins stopped"
 
-The router rejected the password, and FengSui stopped at once so the router does not lock its admin account (three wrong passwords in a row lock it). Go to Settings → Router, enter the correct password and save: FengSui tests it first and carries on once the test succeeds.
+The router rejected the password, and FengSui stopped at once so the router does not lock its admin account (several wrong passwords in a row lock it; three on Huawei). Go to Settings → Router, enter the correct password and save: FengSui tests it first and carries on once the test succeeds.
 
 <a id="yielding"></a>
 

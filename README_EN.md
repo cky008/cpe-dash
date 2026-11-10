@@ -5,7 +5,7 @@
 <h1 align="center">FengSui 烽燧</h1>
 
 <p align="center">
-  A self-hosted console for Huawei 5G routers. See your signal, run your router, and get SMS and alerts in one place.
+  A self-hosted console for 5G routers. See your signal, run your router, and get SMS and alerts in one place.
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
   <img src="docs/screenshots/dashboard-sujian.webp" alt="The FengSui dashboard" width="100%" />
 </p>
 
-FengSui is a web console that runs on your own NAS or computer and lets you see and manage a Huawei 5G router. It brings what the router's own web page scatters across many screens onto one dashboard, and adds what that page lacks: history charts, alerts, Telegram notifications, SMS threads and an interface for AI agents. Your data stays at home.
+FengSui is a web console that runs on your own NAS or computer and lets you see and manage a 5G router: verified on the Huawei H168-383, and able to connect to other brands. It brings what the router's own web page scatters across many screens onto one dashboard, and adds what that page lacks: history charts, alerts, Telegram notifications, SMS threads and an interface for AI agents. Your data stays at home.
 
 ## What it does
 
@@ -70,13 +70,13 @@ You can try the rest in the [live demo](https://cky008.github.io/fengsui-demo/):
 
 ## Compatibility
 
-FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers usually connect too, but they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more models verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. The models it may support are listed under [Supported devices](docs/guide/en/supported-devices.md); see also [Other Huawei routers](docs/guide/en/other-routers.md), or see it first in the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).
+FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers connect too, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself. None of them has been verified on a real device, so they run read-only and writes to them are locked by default; you can turn on experimental writes one feature at a time in the console, at your own risk. Device reports from the console help get more routers verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. Where each brand and model stands is under [Supported devices](docs/guide/en/supported-devices.md), the notes on each brand's models are in the [device reference](SUPPORTED_DEVICES_DOCS.md), and how FengSui works on these routers is under [Other models and brands](docs/guide/en/other-routers.md); or see it first in the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).
 
 ## Documentation
 
 - **Get started**: [What FengSui is](docs/guide/en/overview.md) · [Supported devices](docs/guide/en/supported-devices.md) · [Quick start](docs/guide/en/quick-start.md) · [Install and upgrade](docs/guide/en/install.md)
 - **Use FengSui**: [Dashboard](docs/guide/en/dashboard.md) · [Band and cell locks](docs/guide/en/locking.md) · [SMS](docs/guide/en/sms.md) · [Devices and internet access](docs/guide/en/devices.md) · [Alerts and notifications](docs/guide/en/notifications.md) · [AI agents (MCP)](docs/guide/en/agents.md)
-- **Manage**: [Docker Compose file](docs/guide/en/docker-compose.md) · [Configuration](docs/guide/en/configuration.md) · [Security and privacy](docs/guide/en/security.md) · [Backup and restore](docs/guide/en/backup.md) · [Other Huawei routers](docs/guide/en/other-routers.md)
+- **Manage**: [Docker Compose file](docs/guide/en/docker-compose.md) · [Configuration](docs/guide/en/configuration.md) · [Security and privacy](docs/guide/en/security.md) · [Backup and restore](docs/guide/en/backup.md) · [Other models and brands](docs/guide/en/other-routers.md)
 - **Help**: [Troubleshooting](docs/guide/en/troubleshooting.md) · [FAQ](docs/guide/en/faq.md)
 - **Technical docs (Chinese)**: [Protocol spec](docs/PHASE1_PROTOCOL_SPEC.md) · [Architecture report](docs/PHASE2_ARCHITECTURE_REPORT.md) · [Backend contract (REST / SSE / MCP)](docs/PHASE2_BACKEND_CONTRACT.md) · [Changelog](CHANGELOG.md)
 

@@ -103,7 +103,7 @@ A token sees only the tools it may use. Calling another one by name is refused: 
 
 A write call without it is refused (`CONFIRMATION_REQUIRED`). The prompt in the connection guide tells the agent to pass it only after you asked for that exact action.
 
-On models FengSui was not verified on, each write must also be turned on under Settings → Device first; see [Other Huawei models](other-routers.md).
+On models FengSui was not verified on, each write must also be turned on under Settings → Device first; see [Other models and brands](other-routers.md).
 
 <a id="testing"></a>
 

@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        安全问题请不要在这里提交，按 [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md) 私下报告。其他华为型号能不能用，请用「设备兼容性报告」。
+        安全问题请不要在这里提交，按 [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md) 私下报告。其他型号或品牌的路由器能不能用，请用「设备兼容性报告」。
         Do not report security problems here; follow [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md). For another Huawei model, use the device compatibility report.
 
         **不要贴真实信息**：路由器密码、令牌、IMEI / IMSI / 手机号、短信内容、MAC、公网 IP、抓包。日志里出现这些请先替换掉。

@@ -28,7 +28,7 @@ It brings scattered information from the router's own web page onto a single das
 
 ## Supported routers
 
-FengSui is fully verified only on the **Huawei 5G CPE Ultra 6 (H168-383, firmware 4.4.0.1)**. Other Huawei HiLink routers can usually connect as well, but work in read-only mode: you can view signals and SMS messages without changing router settings, unless you explicitly agree to enable experimental writes item by item in the console. The models it may support are listed under [Supported devices](supported-devices.md); for the read-only mode and experimental writes, see [Other Huawei models](other-routers.md).
+FengSui is fully verified only on the **Huawei 5G CPE Ultra 6 (H168-383, firmware 4.4.0.1)**. Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself. They work in read-only mode: you can view the signal (on Huawei models also SMS and connected devices) without changing router settings, unless you explicitly agree to enable experimental writes item by item in the console. The brands and models it may support are listed under [Supported devices](supported-devices.md); for the read-only mode and experimental writes, see [Other models and brands](other-routers.md).
 
 ## What it will not do
 

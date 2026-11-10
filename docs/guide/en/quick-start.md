@@ -10,11 +10,11 @@ This is the shortest path: a machine that runs Docker, on the same local network
 ## Prerequisites
 
 - A NAS or computer capable of running Docker and Docker Compose (Linux, macOS, or Windows), on either `amd64` or `arm64`.
-- The router management address (usually `http://192.168.8.1`) and administrator password.
+- The router management address (usually `http://192.168.8.1` on Huawei; see [Supported devices](supported-devices.md#brands) for other brands) and administrator password. You do not choose the brand: FengSui detects it.
 - This machine and the router must be on the same local network.
 
 > [!WARNING]
-> Entering the router administrator password incorrectly 3 consecutive times locks the router for a period. Verify the password in your browser before giving it to FengSui.
+> Entering the router administrator password incorrectly several consecutive times (3 on Huawei) locks the router for a period. Verify the password in your browser before giving it to FengSui.
 
 ## 1. Download configuration files
 
