@@ -781,6 +781,31 @@ body {
     background: color-mix(in oklab, var(--color-error) 12%, transparent);
     border-color: color-mix(in oklab, var(--color-error) 30%, transparent);
   }
+  /*
+   * The header's status pills give way before any button does: their text ends in an ellipsis (the
+   * live-stream pill first, then the router-page pill, the model badge last), so no button is pushed
+   * off a medium-width screen whatever the language.
+   */
+  .fs-header .btn {
+    flex-shrink: 0;
+  }
+  .fs-header .fs-pill {
+    min-width: 0;
+  }
+  .fs-header .fs-pill > .ico {
+    flex-shrink: 0;
+  }
+  .fs-header .fs-pill > [data-role="text"] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #sessionPill {
+    flex-shrink: 2;
+  }
+  #ssePill {
+    flex-shrink: 4;
+  }
   /* Phones: the read-only badge is a lock icon in the slot of the controls button, which it replaces there */
   @media (width < 40rem) {
     .fs-readonly {

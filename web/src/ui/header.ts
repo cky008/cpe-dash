@@ -14,12 +14,14 @@ export const ALERTS_SEEN_EVENT = "fengsui:alerts-seen";
 
 type Tone = "ok" | "busy" | "warn" | "danger" | "none";
 
-function setPill(pill: HTMLElement, tone: Tone, text: string, pulsing: boolean): void {
+/** A pill's text may be cut short (or, for the live stream, shown as its dot only): the tooltip keeps all of it. */
+function setPill(pill: HTMLElement, tone: Tone, text: string, pulsing: boolean, detail = ""): void {
   if (tone === "none") pill.removeAttribute("data-tone");
   else pill.dataset["tone"] = tone;
   pill.querySelector(".fs-dot")?.classList.toggle("is-pulsing", pulsing);
   const label = pill.querySelector<HTMLElement>("[data-role=text]");
   if (label && label.textContent !== text) label.textContent = text;
+  pill.title = detail ? `${text} · ${detail}` : text;
 }
 
 export function mountHeader(ctx: AppContext): void {
@@ -53,9 +55,8 @@ export function mountHeader(ctx: AppContext): void {
       else if (status.mode === "polling") [tone, key, pulsing] = ["busy", "session.polling", true];
       else [tone, key] = ["ok", "session.idle"];
     }
-    setPill(sessionPill, tone, ctx.t(key), pulsing);
+    setPill(sessionPill, tone, ctx.t(key), pulsing, status?.lastError ?? "");
     sessionPill.classList.toggle("fs-breathe", key === "session.yielding");
-    sessionPill.title = status?.lastError ?? "";
   };
 
   // A model FengSui was not verified on: read-only, and one click away from its device page

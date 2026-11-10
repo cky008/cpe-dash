@@ -629,4 +629,30 @@ describe("the console in a browser", () => {
       await other.close();
     }
   });
+
+  it("keeps every header button on screen at any width, in both languages, however long the status pills get", async () => {
+    // The longest header: a model nobody verified, with experimental writes on
+    const other = await world({ scenario: "unverified" });
+    const offscreen: string[] = [];
+    try {
+      other.stack.settings.grantExperimental("B535-232", "bandLock");
+      other.stack.scheduler.device.setConsents(other.stack.settings.experimentalConsents);
+      for (const locale of ["en", "zh-CN"]) {
+        for (const width of [640, 768, 1024, 1180, 1280, 1366]) {
+          await signIn(page, other, { width, height: 800, scale: 1, mobile: false });
+          await page.evaluate(`localStorage.setItem("fengsui.locale", ${JSON.stringify(locale)}); true`);
+          await page.goto(`${other.baseUrl}/`);
+          await page.waitUntil(visible("appView"), "the console");
+          await page.waitUntil("document.getElementById('readOnlyBadge').offsetWidth > 0 && document.querySelector('#readOnlyBadge [data-role=text]').textContent !== ''", "the model badge");
+          const over = await page.evaluate<number>("Math.round(Math.max(0, ...[...document.querySelectorAll('.fs-header button, .fs-header a')].map((el) => el.getBoundingClientRect().right - window.innerWidth)))");
+          if (over > 0) offscreen.push(`${locale} ${width}px: ${over}px`);
+        }
+      }
+      assert.deepEqual(offscreen, []);
+      assert.deepEqual(page.exceptions, []);
+    } finally {
+      await page.evaluate(`localStorage.setItem("fengsui.locale", "en"); true`).catch(() => undefined);
+      await other.close();
+    }
+  });
 });
