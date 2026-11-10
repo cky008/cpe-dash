@@ -1,0 +1,949 @@
+import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import type { WriteCheck } from "../device-access.ts";
+import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
+import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
+import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
+import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { emptyCell } from "./snapshot.ts";
+import type { LanHttp } from "./transport.ts";
+import type {
+  CellLockState,
+  DriverBandLockTarget,
+  DriverCarrier,
+  DriverCell,
+  DriverCellLockTarget,
+  DriverIdentity,
+  DriverLockState,
+  DriverNeighbour,
+  DriverNetworkMode,
+  DriverRat,
+  DriverSessionHandle,
+  DriverTelemetry,
+  SubcarrierSpacingKhz,
+} from "./types.ts";
+import {
+  arfcnOf,
+  bandOf,
+  fieldOf,
+  hexIntOf,
+  identityOf,
+  intOf,
+  isPlainObject,
+  labelOf,
+  pciOf,
+  plmnOf,
+  rsrpOf,
+  rsrqOf,
+  rssiOf,
+  sinrOf,
+  smallIntOf,
+  temperatureOf,
+  textOf,
+} from "./values.ts";
+
+/**
+ * OpenWrt routers with Quectel (RM500, RM520, RG500, RG520, RM551...) or Fibocom (FM650, FM350,
+ * FM160, FG370...) 5G/4G cellular modules:
+ *
+ * 1. OpenWrt ubus JSON-RPC 2.0 lifecycle over `POST /ubus`:
+ *    - Anonymous token `"00000000000000000000000000000000"` calls `session.login` with username & password.
+ *    - AT commands executed via ubus modem RPC (`gl-modem`, `modem_ctrl`, `QModem`, `at`, `modem`).
+ *    - Single session released in `finally` via `session.destroy`.
+ *
+ * 2. Quectel modules:
+ *    - Telemetry: `ATI`, `AT+QGMR`, `AT+QENG="servingcell"` (SA/NSA/LTE), `AT+QCAINFO`,
+ *      `AT+QENG="neighbourcell"`, `AT+QRSRP`, `AT+QNWCFG`, `AT+QTEMP`.
+ *    - LTE SINR formula: `SINR_dB = 2 * X - 20` for raw integer $X \in [0, 30]$.
+ *    - Bandwidth & SCS lookup tables per 3GPP & Quectel AT specifications.
+ *    - Controls: `AT+QNWPREFCFG` for mode and colon-delimited band locking,
+ *      `AT+QNWLOCK="common/4g"` / `AT+QNWLOCK="common/5g"` for cell locking, and `AT+CFUN=1,1` for reboot.
+ *
+ * 3. Fibocom modules:
+ *    - Telemetry: `ATI`, `AT+GMR` / `AT+CGMR`, `AT+GTCCINFO?` (serving & neighbours),
+ *      `AT+GTCAINFO?`, `AT+MTSM=1`.
+ *    - Serving cell RSRP conversion: LTE `idx - 140` dBm; NR `idx - 156` dBm.
+ *    - Controls: `AT+GTACT` band locking with `+100` for LTE and `+500` for NR,
+ *      `AT+GTCELLLOCK` for 4G/5G cell locking, and `AT+CFUN=1,1` for reboot.
+ */
+
+const FAMILY = "openwrt" as const;
+const UBUS_PATH = "/ubus";
+export const OPENWRT_ANONYMOUS_SESSION = "00000000000000000000000000000000";
+
+export type ModemBrand = "quectel" | "fibocom";
+
+/** Quectel LTE DL/UL bandwidth code table (code -> MHz). */
+export const QUECTEL_LTE_BANDWIDTH_MHZ: Readonly<Record<number, number>> = {
+  0: 1.4,
+  1: 3,
+  2: 5,
+  3: 10,
+  4: 15,
+  5: 20,
+};
+
+/** Quectel 5G NR DL bandwidth code table (code -> MHz). */
+export const QUECTEL_NR_BANDWIDTH_MHZ: Readonly<Record<number, number>> = {
+  0: 5,
+  1: 10,
+  2: 15,
+  3: 20,
+  4: 25,
+  5: 30,
+  6: 40,
+  7: 50,
+  8: 60,
+  9: 80,
+  10: 90,
+  11: 100,
+  12: 200,
+  13: 400,
+};
+
+/** Quectel Subcarrier Spacing (SCS) code table (code -> kHz). */
+export const QUECTEL_SCS_KHZ: Readonly<Record<number, SubcarrierSpacingKhz>> = {
+  0: 15,
+  1: 30,
+  2: 60,
+  3: 120,
+  4: 240,
+};
+
+/** Quectel QCAINFO LTE Resource Block count table (RB -> MHz). */
+export const QUECTEL_RB_TO_MHZ: Readonly<Record<number, number>> = {
+  6: 1.4,
+  15: 3,
+  25: 5,
+  50: 10,
+  75: 15,
+  100: 20,
+};
+
+/** Extract string response from varied OpenWrt AT RPC wrapper responses. */
+export function extractAtResponse(raw: unknown): string {
+  if (typeof raw === "string") return raw.trim();
+  if (Array.isArray(raw)) return raw.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join("\n").trim();
+  if (isPlainObject(raw)) {
+    for (const key of ["response", "result", "stdout", "at_response", "data", "output", "at_cmd", "cmd_result"]) {
+      const val = raw[key];
+      if (typeof val === "string") return val.trim();
+      if (Array.isArray(val)) return val.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join("\n").trim();
+    }
+  }
+  return "";
+}
+
+/** Identify whether the modem is Quectel or Fibocom from `ATI` or version query. */
+export function detectModemBrand(atiText: string): ModemBrand {
+  const upper = atiText.toUpperCase();
+  if (upper.includes("FIBOCOM") || upper.includes("FM650") || upper.includes("FM350") || upper.includes("FM160") || upper.includes("FG160") || upper.includes("FG370")) {
+    return "fibocom";
+  }
+  return "quectel";
+}
+
+/** Split a raw comma-separated AT line, stripping quotes and whitespace. */
+export function splitAtCsv(line: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  parts.push(current.trim());
+  return parts;
+}
+
+/**
+ * Convert Quectel LTE SINR raw index $X \in [0, 30]$ to true dB:
+ * $\text{SINR}_{\text{dB}} = 2 \times X - 20$. Direct values outside 0..30 (or negative) stay untouched.
+ */
+export function quectelLteSinr(rawVal: unknown): number | null {
+  const n = intOf(rawVal);
+  if (n === null) return null;
+  if (n >= 0 && n <= 30) return 2 * n - 20;
+  return sinrOf(n);
+}
+
+// --------------------------------------------------------------------------
+// Quectel AT Parsers
+// --------------------------------------------------------------------------
+
+export interface QuectelServingCellParsed {
+  mode: "SA" | "NSA" | "LTE" | "NONE";
+  plmn: string | null;
+  lte: DriverCell | null;
+  nr: DriverCell | null;
+}
+
+export function parseQuectelServingCell(text: string): QuectelServingCellParsed {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+QENG:"));
+  if (lines.length === 0) return { mode: "NONE", plmn: null, lte: null, nr: null };
+
+  let saLine: string[] | null = null;
+  let lteLine: string[] | null = null;
+  let nsaNrLine: string[] | null = null;
+
+  for (const rawLine of lines) {
+    const content = rawLine.slice(7).trim(); // after "+QENG: "
+    const fields = splitAtCsv(content);
+    const tag = fields[0]?.toUpperCase();
+    if (tag === "SERVINGCELL") {
+      const subTag = fields[2]?.toUpperCase();
+      if (subTag === "NR5G-SA") saLine = fields;
+      else if (subTag === "LTE") lteLine = fields;
+    } else if (tag === "LTE") {
+      lteLine = fields;
+    } else if (tag === "NR5G-NSA") {
+      nsaNrLine = fields;
+    }
+  }
+
+  // 1. 5G SA Mode
+  if (saLine && saLine.length >= 15) {
+    // fields: ["servingcell", state, "NR5G-SA", duplex, mcc, mnc, cellIdHex, pcid, tacHex, arfcn, band, bwCode, rsrp, rsrq, sinr, scs, srxlev]
+    const mcc = saLine[4] ?? "";
+    const mnc = saLine[5] ?? "";
+    const plmn = plmnOf(mcc, mnc);
+    const bwCode = intOf(saLine[11]);
+    const bwMhz = bwCode !== null ? (QUECTEL_NR_BANDWIDTH_MHZ[bwCode] ?? null) : null;
+    const nr: DriverCell = {
+      ...emptyCell(),
+      cellId: identityOf(saLine[6], 16),
+      pci: pciOf(saLine[7], "NR"),
+      tac: identityOf(saLine[8], 16),
+      arfcn: arfcnOf(saLine[9], "NR"),
+      band: bandOf(saLine[10]),
+      bandwidthMhz: bwMhz,
+      rsrpDbm: rsrpOf(saLine[12]),
+      rsrqDb: rsrqOf(saLine[13]),
+      sinrDb: sinrOf(saLine[14]),
+    };
+    return { mode: "SA", plmn, lte: null, nr };
+  }
+
+  // 2. 5G NSA Mode (EN-DC)
+  if (lteLine && nsaNrLine) {
+    const lteOffset = lteLine[0]?.toUpperCase() === "SERVINGCELL" ? 3 : 1;
+    const mcc = lteLine[lteOffset + 1] ?? "";
+    const mnc = lteLine[lteOffset + 2] ?? "";
+    const plmn = plmnOf(mcc, mnc);
+    const dlBwCode = intOf(lteLine[lteOffset + 8]);
+    const lteBwMhz = dlBwCode !== null ? (QUECTEL_LTE_BANDWIDTH_MHZ[dlBwCode] ?? null) : null;
+    const lte: DriverCell = {
+      ...emptyCell(),
+      cellId: identityOf(lteLine[lteOffset + 3], 16),
+      pci: pciOf(lteLine[lteOffset + 4], "LTE"),
+      arfcn: arfcnOf(lteLine[lteOffset + 5], "LTE"),
+      band: bandOf(lteLine[lteOffset + 6]),
+      bandwidthMhz: lteBwMhz,
+      tac: identityOf(lteLine[lteOffset + 9], 16),
+      rsrpDbm: rsrpOf(lteLine[lteOffset + 10]),
+      rsrqDb: rsrqOf(lteLine[lteOffset + 11]),
+      rssiDbm: rssiOf(lteLine[lteOffset + 12]),
+      sinrDb: quectelLteSinr(lteLine[lteOffset + 13]),
+      cqi: smallIntOf(lteLine[lteOffset + 14], 15),
+    };
+
+    // nsaNrLine: ["NR5G-NSA", mcc, mnc, pcid, rsrp, sinr, rsrq, arfcn, band, dlBwCode, scs]
+    const nrDlBwCode = intOf(nsaNrLine[9]);
+    const nrBwMhz = nrDlBwCode !== null ? (QUECTEL_NR_BANDWIDTH_MHZ[nrDlBwCode] ?? null) : null;
+    const nr: DriverCell = {
+      ...emptyCell(),
+      pci: pciOf(nsaNrLine[3], "NR"),
+      rsrpDbm: rsrpOf(nsaNrLine[4]),
+      sinrDb: sinrOf(nsaNrLine[5]),
+      rsrqDb: rsrqOf(nsaNrLine[6]),
+      arfcn: arfcnOf(nsaNrLine[7], "NR"),
+      band: bandOf(nsaNrLine[8]),
+      bandwidthMhz: nrBwMhz,
+    };
+    return { mode: "NSA", plmn, lte, nr };
+  }
+
+  // 3. LTE Only Mode
+  if (lteLine) {
+    const lteOffset = lteLine[0]?.toUpperCase() === "SERVINGCELL" ? 3 : 1;
+    const mcc = lteLine[lteOffset + 1] ?? "";
+    const mnc = lteLine[lteOffset + 2] ?? "";
+    const plmn = plmnOf(mcc, mnc);
+    const dlBwCode = intOf(lteLine[lteOffset + 8]);
+    const lteBwMhz = dlBwCode !== null ? (QUECTEL_LTE_BANDWIDTH_MHZ[dlBwCode] ?? null) : null;
+    const lte: DriverCell = {
+      ...emptyCell(),
+      cellId: identityOf(lteLine[lteOffset + 3], 16),
+      pci: pciOf(lteLine[lteOffset + 4], "LTE"),
+      arfcn: arfcnOf(lteLine[lteOffset + 5], "LTE"),
+      band: bandOf(lteLine[lteOffset + 6]),
+      bandwidthMhz: lteBwMhz,
+      tac: identityOf(lteLine[lteOffset + 9], 16),
+      rsrpDbm: rsrpOf(lteLine[lteOffset + 10]),
+      rsrqDb: rsrqOf(lteLine[lteOffset + 11]),
+      rssiDbm: rssiOf(lteLine[lteOffset + 12]),
+      sinrDb: quectelLteSinr(lteLine[lteOffset + 13]),
+      cqi: smallIntOf(lteLine[lteOffset + 14], 15),
+    };
+    return { mode: "LTE", plmn, lte, nr: null };
+  }
+
+  return { mode: "NONE", plmn: null, lte: null, nr: null };
+}
+
+export function parseQuectelCaInfo(text: string): DriverCarrier[] {
+  const carriers: DriverCarrier[] = [];
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+QCAINFO:"));
+  for (const rawLine of lines) {
+    const content = rawLine.slice(9).trim(); // after "+QCAINFO: "
+    const fields = splitAtCsv(content);
+    if (fields.length < 5) continue;
+    const type = fields[0]?.toUpperCase(); // "PCC" or "SCC"
+    if (type !== "SCC") continue; // secondary carriers only
+    const arfcnRaw = fields[1];
+    const bwRaw = intOf(fields[2]);
+    const bandRaw = fields[3] ?? "";
+    const pciRaw = fields[5];
+    const rsrpRaw = fields[6];
+    const rsrqRaw = fields[7];
+    const rssiRaw = fields[8];
+    const sinrRaw = fields[9];
+
+    const isNr = bandRaw.toUpperCase().includes("NR5G");
+    const rat: DriverRat = isNr ? "NR" : "LTE";
+    let bwMhz: number | null = null;
+    if (bwRaw !== null) {
+      if (isNr) bwMhz = QUECTEL_NR_BANDWIDTH_MHZ[bwRaw] ?? bwRaw;
+      else bwMhz = QUECTEL_RB_TO_MHZ[bwRaw] ?? bwRaw;
+    }
+
+    carriers.push({
+      rat,
+      arfcn: arfcnOf(arfcnRaw, rat),
+      band: bandOf(bandRaw),
+      bandwidthMhz: bwMhz,
+      pci: pciOf(pciRaw, rat),
+      rsrpDbm: rsrpOf(rsrpRaw),
+      rsrqDb: rsrqOf(rsrqRaw),
+      rssiDbm: rssiOf(rssiRaw),
+      sinrDb: isNr ? sinrOf(sinrRaw) : quectelLteSinr(sinrRaw),
+    });
+  }
+  return carriers;
+}
+
+export function parseQuectelNeighbours(text: string): DriverNeighbour[] {
+  const neighbours: DriverNeighbour[] = [];
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+QENG:"));
+  for (const rawLine of lines) {
+    const content = rawLine.slice(7).trim();
+    const fields = splitAtCsv(content);
+    const tag = fields[0]?.toLowerCase();
+    if (!tag || !tag.includes("neighbourcell")) continue;
+    const ratStr = (fields[1] ?? "").toUpperCase();
+    const isNr = ratStr.includes("NR") || ratStr.includes("5G");
+    const rat: DriverRat = isNr ? "NR" : "LTE";
+    if (isNr) {
+      // "+QENG: neighbourcell,NR5G,arfcn,pci,rsrp,rsrq,sinr"
+      const arfcn = arfcnOf(fields[2], "NR");
+      const pci = pciOf(fields[3], "NR");
+      const rsrpDbm = rsrpOf(fields[4]);
+      const rsrqDb = rsrqOf(fields[5]);
+      const sinrDb = sinrOf(fields[6]);
+      if (arfcn !== null || pci !== null) neighbours.push({ rat, arfcn, pci, band: null, rsrpDbm, rsrqDb, rssiDbm: null, sinrDb });
+    } else {
+      // "+QENG: neighbourcell intra,LTE,earfcn,pci,rsrp,rsrq,rssi,sinr"
+      const arfcn = arfcnOf(fields[2], "LTE");
+      const pci = pciOf(fields[3], "LTE");
+      const rsrpDbm = rsrpOf(fields[4]);
+      const rsrqDb = rsrqOf(fields[5]);
+      const rssiDbm = rssiOf(fields[6]);
+      const sinrDb = quectelLteSinr(fields[7]);
+      if (arfcn !== null || pci !== null) neighbours.push({ rat, arfcn, pci, band: null, rsrpDbm, rsrqDb, rssiDbm, sinrDb });
+    }
+  }
+  return neighbours;
+}
+
+export function parseQuectelRsrp(text: string): Array<number | null> | null {
+  const match = text.match(/\+QRSRP:\s*(-?\d+),(-?\d+),(-?\d+),(-?\d+)/);
+  if (!match) return null;
+  const chains = [rsrpOf(match[1]), rsrpOf(match[2]), rsrpOf(match[3]), rsrpOf(match[4])];
+  return chains.some((v) => v !== null) ? chains : null;
+}
+
+export function parseQuectelTemp(text: string): number | null {
+  const lines = text.split(/\r?\n/);
+  const temps: number[] = [];
+  for (const line of lines) {
+    const match = line.match(/\+QTEMP:\s*(?:"[^"]+",)?(-?\d+(?:\.\d+)?)/);
+    if (match && match[1]) {
+      const t = temperatureOf(match[1]);
+      if (t !== null) temps.push(t);
+    }
+  }
+  if (temps.length === 0) return null;
+  // Pick highest reasonable temperature reported among sensors
+  return Math.max(...temps);
+}
+
+// --------------------------------------------------------------------------
+// Fibocom AT Parsers
+// --------------------------------------------------------------------------
+
+export interface FibocomCcInfoParsed {
+  mode: "SA" | "NSA" | "LTE" | "NONE";
+  plmn: string | null;
+  lte: DriverCell | null;
+  nr: DriverCell | null;
+  neighbours: DriverNeighbour[];
+}
+
+export function parseFibocomCcInfo(text: string): FibocomCcInfoParsed {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+GTCCINFO:") || /^[12],\d+,/.test(l));
+  let lte: DriverCell | null = null;
+  let nr: DriverCell | null = null;
+  const neighbours: DriverNeighbour[] = [];
+  let plmn: string | null = null;
+
+  for (const rawLine of lines) {
+    const cleaned = rawLine.startsWith("+GTCCINFO:") ? rawLine.slice(10).trim() : rawLine;
+    const fields = splitAtCsv(cleaned);
+    if (fields.length < 8) continue;
+    const isServing = fields[0] === "1";
+    const ratType = fields[1]; // "4" = LTE, "9" = NR
+    const isNr = ratType === "9";
+    const rat: DriverRat = isNr ? "NR" : "LTE";
+
+    const mcc = fields[2] ?? "";
+    const mnc = fields[3] ?? "";
+    if (isServing && plmn === null) plmn = plmnOf(mcc, mnc);
+
+    const tac = identityOf(fields[4], 16);
+    const cellId = identityOf(fields[5], 16);
+    const arfcn = arfcnOf(hexIntOf(fields[6]) ?? fields[6], rat);
+    const pci = pciOf(hexIntOf(fields[7]) ?? fields[7], rat);
+
+    const rssi = rssiOf(fields[8]);
+    const rsrq = rsrqOf(fields[9]);
+    const rawRsrp = intOf(fields[10]);
+    // LTE RSRP: idx - 140 dBm; NR RSRP: idx - 156 dBm
+    const rsrpDbm = rawRsrp !== null ? rsrpOf(isNr ? rawRsrp - 156 : rawRsrp - 140) : null;
+    const sinrDb = sinrOf(fields[11]);
+
+    if (isServing) {
+      const cell: DriverCell = {
+        ...emptyCell(),
+        cellId,
+        tac,
+        arfcn,
+        pci,
+        rssiDbm: rssi,
+        rsrqDb: rsrq,
+        rsrpDbm,
+        sinrDb,
+      };
+      if (isNr) nr = cell;
+      else lte = cell;
+    } else {
+      neighbours.push({
+        rat,
+        arfcn,
+        pci,
+        band: null,
+        rsrpDbm,
+        rsrqDb: rsrq,
+        rssiDbm: rssi,
+        sinrDb,
+      });
+    }
+  }
+
+  let mode: "SA" | "NSA" | "LTE" | "NONE" = "NONE";
+  if (lte && nr) mode = "NSA";
+  else if (nr) mode = "SA";
+  else if (lte) mode = "LTE";
+
+  return { mode, plmn, lte, nr, neighbours };
+}
+
+// --------------------------------------------------------------------------
+// OpenWrt ubus JSON-RPC Helper
+// --------------------------------------------------------------------------
+
+interface UbusRpcCallTarget {
+  object: string;
+  method: string;
+  cmdKey: string;
+}
+
+const MODEM_RPC_CANDIDATES: ReadonlyArray<UbusRpcCallTarget> = [
+  { object: "gl-modem", method: "send_at", cmdKey: "cmd" },
+  { object: "modem_ctrl", method: "at_cmd", cmdKey: "cmd" },
+  { object: "QModem", method: "send_at", cmdKey: "cmd" },
+  { object: "at", method: "send", cmdKey: "cmd" },
+  { object: "modem", method: "at", cmdKey: "cmd" },
+];
+
+class OpenwrtUbusClient {
+  readonly #http: LanHttp;
+  #id = 1;
+  session = OPENWRT_ANONYMOUS_SESSION;
+  #resolvedModemRpc: UbusRpcCallTarget | null = null;
+
+  constructor(http: LanHttp) {
+    this.#http = http;
+  }
+
+  async call(object: string, method: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    const id = this.#id++;
+    const answer = await this.#http.postJson(UBUS_PATH, {
+      jsonrpc: "2.0",
+      id,
+      method: "call",
+      params: [this.session, object, method, args],
+    });
+    if (!isPlainObject(answer)) throw new CpeAnswerFormatError(`${object}.${method}: invalid JSON-RPC response`);
+    const error = fieldOf(answer, "error");
+    if (isPlainObject(error)) {
+      throw new CpeApiError(`rpc-${intOf(fieldOf(error, "code")) ?? "error"}`, `${object}.${method} failed: ${textOf(fieldOf(error, "message")) ?? "RPC error"}`);
+    }
+    const result = fieldOf(answer, "result");
+    if (!Array.isArray(result) || typeof result[0] !== "number") {
+      throw new CpeAnswerFormatError(`${object}.${method}: missing result array`);
+    }
+    const status = result[0];
+    if (status !== 0) {
+      if (status === 6) throw wrongPassword("permission denied (ubus status 6)");
+      throw new CpeApiError(`ubus-${status}`, `${object}.${method} error status ${status}`);
+    }
+    return result[1];
+  }
+
+  /** Run an AT command through the resolved modem RPC target or probe candidates. */
+  async execAt(cmd: string): Promise<string> {
+    if (this.#resolvedModemRpc) {
+      const res = await this.call(this.#resolvedModemRpc.object, this.#resolvedModemRpc.method, { [this.#resolvedModemRpc.cmdKey]: cmd });
+      return extractAtResponse(res);
+    }
+    for (const target of MODEM_RPC_CANDIDATES) {
+      try {
+        const res = await this.call(target.object, target.method, { [target.cmdKey]: cmd });
+        const text = extractAtResponse(res);
+        if (text !== "" || cmd.startsWith("AT")) {
+          this.#resolvedModemRpc = target;
+          return text;
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+    throw new CpeApiError("no-modem-rpc", "No known modem AT RPC service found on OpenWrt (tried gl-modem, modem_ctrl, QModem, at, modem)");
+  }
+}
+
+// --------------------------------------------------------------------------
+// Session Implementation
+// --------------------------------------------------------------------------
+
+export class OpenwrtSession implements DriverSessionHandle {
+  readonly family = FAMILY;
+  readonly #ubus: OpenwrtUbusClient;
+  #brand: ModemBrand = "quectel";
+  #identity: DriverIdentity | null = null;
+  #open = true;
+
+  constructor(ubus: OpenwrtUbusClient) {
+    this.#ubus = ubus;
+  }
+
+  get open(): boolean {
+    return this.#open;
+  }
+
+  get brand(): ModemBrand {
+    return this.#brand;
+  }
+
+  #guard(): void {
+    if (!this.#open) throw new DriverSessionClosedError();
+  }
+
+  async initModem(): Promise<void> {
+    const ati = await this.#ubus.execAt("ATI").catch(() => "");
+    this.#brand = detectModemBrand(ati);
+    const model = labelOf(ati.split(/\r?\n/).find((l) => l.trim() && !l.toUpperCase().includes("QUECTEL") && !l.toUpperCase().includes("FIBOCOM") && !l.toUpperCase().includes("OK")));
+    let gmr = "";
+    if (this.#brand === "quectel") {
+      gmr = await this.#ubus.execAt("AT+QGMR").catch(() => "");
+    } else {
+      gmr = await this.#ubus.execAt("AT+CGMR").catch(() => "");
+    }
+    const version = labelOf(gmr.split(/\r?\n/).find((l) => l.trim() && !l.toUpperCase().includes("OK")));
+    this.#identity = {
+      model: model ?? (this.#brand === "quectel" ? "Quectel 5G Module" : "Fibocom 5G Module"),
+      softwareVersion: version,
+      hardwareVersion: this.#brand,
+    };
+  }
+
+  async identify(): Promise<DriverIdentity> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+    return this.#identity!;
+  }
+
+  async telemetry(): Promise<DriverTelemetry> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+
+    if (this.#brand === "fibocom") {
+      const ccInfoRaw = await this.#ubus.execAt("AT+GTCCINFO?").catch(() => "");
+      const cc = parseFibocomCcInfo(ccInfoRaw);
+      const tempRaw = await this.#ubus.execAt("AT+MTSM=1").catch(() => "");
+      const tempMatch = tempRaw.match(/(-?\d+(?:\.\d+)?)/);
+      const temp = tempMatch ? temperatureOf(tempMatch[1]) : null;
+
+      return {
+        model: this.#identity!.model,
+        softwareVersion: this.#identity!.softwareVersion,
+        hardwareVersion: this.#identity!.hardwareVersion,
+        operatorName: null,
+        plmn: cc.plmn,
+        mode: cc.mode,
+        lte: cc.lte,
+        nr: cc.nr,
+        carriers: [],
+        wan: { connected: cc.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
+        traffic: null,
+        temperatureC: temp,
+        signalBars: cc.lte?.rsrpDbm !== null || cc.nr?.rsrpDbm !== null ? 4 : 0,
+      };
+    }
+
+    // Quectel Telemetry
+    const servingRaw = await this.#ubus.execAt('AT+QENG="servingcell"').catch(() => "");
+    const serving = parseQuectelServingCell(servingRaw);
+    const caRaw = await this.#ubus.execAt("AT+QCAINFO").catch(() => "");
+    const carriers = parseQuectelCaInfo(caRaw);
+    const rsrpRaw = await this.#ubus.execAt("AT+QRSRP").catch(() => "");
+    const rxChains = parseQuectelRsrp(rsrpRaw);
+    if (rxChains && serving.lte) serving.lte.rxRsrpDbm = rxChains;
+    if (rxChains && serving.nr) serving.nr.rxRsrpDbm = rxChains;
+
+    const tempRaw = await this.#ubus.execAt("AT+QTEMP").catch(() => "");
+    const temp = parseQuectelTemp(tempRaw);
+
+    const primaryCell = serving.mode === "SA" ? serving.nr : serving.lte;
+    return {
+      model: this.#identity!.model,
+      softwareVersion: this.#identity!.softwareVersion,
+      hardwareVersion: this.#identity!.hardwareVersion,
+      operatorName: null,
+      plmn: serving.plmn,
+      mode: serving.mode,
+      lte: serving.lte,
+      nr: serving.nr,
+      carriers,
+      wan: { connected: serving.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
+      traffic: null,
+      temperatureC: temp,
+      signalBars: primaryCell?.rsrpDbm !== null ? 4 : 0,
+    };
+  }
+
+  async neighbours(): Promise<DriverNeighbour[]> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+    if (this.#brand === "fibocom") {
+      const ccInfoRaw = await this.#ubus.execAt("AT+GTCCINFO?").catch(() => "");
+      return parseFibocomCcInfo(ccInfoRaw).neighbours;
+    }
+    const neighRaw = await this.#ubus.execAt('AT+QENG="neighbourcell"').catch(() => "");
+    return parseQuectelNeighbours(neighRaw);
+  }
+
+  async lockState(): Promise<DriverLockState> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+
+    if (this.#brand === "fibocom") {
+      const gtact = await this.#ubus.execAt("AT+GTACT?").catch(() => "");
+      const cell = await this.#ubus.execAt("AT+GTCELLLOCK?").catch(() => "");
+
+      let lteBands: number[] | "all" | null = null;
+      let nrBands: number[] | "all" | null = null;
+      const gtactMatch = gtact.match(/\+GTACT:\s*([\d,]+)/);
+      if (gtactMatch && gtactMatch[1]) {
+        const nums = gtactMatch[1].split(",").map((n) => Number.parseInt(n.trim(), 10)).filter((n) => Number.isFinite(n));
+        const lteList = nums.filter((n) => n > 100 && n < 200).map((n) => n - 100);
+        const nrList = nums.filter((n) => n > 500 && n < 600).map((n) => n - 500);
+        lteBands = lteList.length > 0 ? lteList : "all";
+        nrBands = nrList.length > 0 ? nrList : "all";
+      }
+
+      let lteCell: CellLockState | null = { locked: false };
+      let nrCell: CellLockState | null = { locked: false };
+      // Format: +GTCELLLOCK: 1,rat,is_nr,arfcn,pci[,scs] or +GTCELLLOCK: 0
+      const lockMatch = cell.match(/\+GTCELLLOCK:\s*1,\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
+      if (lockMatch) {
+        const isNr = lockMatch[2] === "1";
+        const arfcn = intOf(lockMatch[3]);
+        const pci = pciOf(lockMatch[4], isNr ? "NR" : "LTE");
+        if (isNr) nrCell = { locked: true, arfcn, pci, band: null };
+        else lteCell = { locked: true, arfcn, pci, band: null };
+      }
+
+      return {
+        lteBands,
+        nrBands,
+        lteCell,
+        nrCell,
+        networkMode: null,
+        supportedLte: null,
+        supportedNr: null,
+      };
+    }
+
+    // Quectel Lock State
+    const caps = await this.#ubus.execAt('AT+QNWPREFCFG="ue_capability_band"').catch(() => "");
+    const lteCaps = caps.match(/"lte_band",\s*([0-9:]+)/)?.[1];
+    const nrCaps = caps.match(/"nr5g_band",\s*([0-9:]+)/)?.[1];
+    const prefLte = await this.#ubus.execAt('AT+QNWPREFCFG="lte_band"').catch(() => "");
+    const prefNr = await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_band"').catch(() => "");
+    const prefMode = await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref"').catch(() => "");
+    const prefDisable = await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode"').catch(() => "");
+    const lock4g = await this.#ubus.execAt('AT+QNWLOCK="common/4g"').catch(() => "");
+    const lock5g = await this.#ubus.execAt('AT+QNWLOCK="common/5g"').catch(() => "");
+
+    const lteRaw = prefLte.match(/\+QNWPREFCFG:\s*"lte_band",\s*([0-9:]+)/)?.[1];
+    const nrRaw = prefNr.match(/\+QNWPREFCFG:\s*"nr5g_band",\s*([0-9:]+)/)?.[1];
+    const lteBands = lteRaw ? (lteCaps && lteRaw === lteCaps ? "all" : listToBands(lteRaw.replace(/:/g, ","))) : "all";
+    const nrBands = nrRaw ? (nrCaps && nrRaw === nrCaps ? "all" : listToBands(nrRaw.replace(/:/g, ","))) : "all";
+
+    let networkMode: DriverNetworkMode | null = null;
+    const modeUpper = prefMode.toUpperCase();
+    const disableVal = intOf(prefDisable.match(/\+QNWPREFCFG:\s*"nr5g_disable_mode",\s*(\d+)/)?.[1]);
+    if (modeUpper.includes("AUTO")) networkMode = "auto";
+    else if (modeUpper.includes("LTE:NR5G")) networkMode = disableVal === 1 ? "nr_nsa" : "auto";
+    else if (modeUpper.includes("NR5G")) networkMode = disableVal === 2 ? "nr_sa" : "auto";
+    else if (modeUpper.includes("LTE")) networkMode = "lte";
+
+    let lteCell: CellLockState | null = { locked: false };
+    const lteLockMatch = lock4g.match(/\+QNWLOCK:\s*"common\/4g",\s*1,\s*(\d+),\s*(\d+)/);
+    if (lteLockMatch) {
+      lteCell = { locked: true, arfcn: intOf(lteLockMatch[1]), pci: pciOf(lteLockMatch[2], "LTE"), band: null };
+    }
+
+    let nrCell: CellLockState | null = { locked: false };
+    const nrLockMatch = lock5g.match(/\+QNWLOCK:\s*"common\/5g",\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
+    if (nrLockMatch) {
+      nrCell = { locked: true, pci: pciOf(nrLockMatch[1], "NR"), arfcn: intOf(nrLockMatch[2]), band: bandOf(nrLockMatch[4]) };
+    }
+
+    return {
+      lteBands,
+      nrBands,
+      lteCell,
+      nrCell,
+      networkMode,
+      supportedLte: null,
+      supportedNr: null,
+    };
+  }
+
+  async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+
+    const lte = target.lte === "all" ? "all" : checkLockBands("LTE", target.lte, null);
+    const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
+
+    if (this.#brand === "fibocom") {
+      const bands: number[] = [];
+      if (lte !== "all") {
+        for (const b of lte) bands.push(100 + b);
+      }
+      if (nr !== null && nr !== "all") {
+        for (const b of nr) bands.push(500 + b);
+      }
+      const gtactCmd = bands.length > 0 ? `AT+GTACT=17,6,2,${bands.join(",")}` : "AT+GTACT=17,6,2";
+      noteSent(check, FAMILY, "AT+GTACT");
+      const answer = await this.#ubus.execAt(gtactCmd);
+      if (answer.includes("ERROR")) throw new CpeApiError("at-error", `GTACT band lock failed: ${answer}`);
+      settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
+      return;
+    }
+
+    // Quectel Band Lock
+    if (lte !== "all") {
+      const cmd = `AT+QNWPREFCFG="lte_band",${bandsToList(lte, ":")}`;
+      noteSent(check, FAMILY, "AT+QNWPREFCFG/lte_band");
+      await this.#ubus.execAt(cmd);
+    }
+    if (nr !== null && nr !== "all") {
+      const cmdSa = `AT+QNWPREFCFG="nr5g_band",${bandsToList(nr, ":")}`;
+      noteSent(check, FAMILY, "AT+QNWPREFCFG/nr5g_band");
+      await this.#ubus.execAt(cmdSa);
+      const cmdNsa = `AT+QNWPREFCFG="nsa_nr5g_band",${bandsToList(nr, ":")}`;
+      noteSent(check, FAMILY, "AT+QNWPREFCFG/nsa_nr5g_band");
+      await this.#ubus.execAt(cmdNsa);
+    }
+    if (target.networkMode !== null) {
+      noteSent(check, FAMILY, "AT+QNWPREFCFG/mode_pref");
+      if (target.networkMode === "auto") {
+        await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode",0');
+        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",AUTO');
+      } else if (target.networkMode === "nr_sa") {
+        await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode",2');
+        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",NR5G');
+      } else if (target.networkMode === "nr_nsa") {
+        await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode",1');
+        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",LTE:NR5G');
+      } else if (target.networkMode === "lte") {
+        await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",LTE');
+      }
+    }
+    settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
+  }
+
+  async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+    const checked = checkCellLock(target);
+
+    if (this.#brand === "fibocom") {
+      noteSent(check, FAMILY, "AT+GTCELLLOCK");
+      let cmd = "";
+      if (checked.rat === "LTE") {
+        cmd = `AT+GTCELLLOCK=1,0,0,${checked.arfcn},${checked.pci}`;
+      } else {
+        cmd = `AT+GTCELLLOCK=1,1,0,${checked.arfcn},${checked.pci},${checked.scsKhz ?? 30}`;
+      }
+      const answer = await this.#ubus.execAt(cmd);
+      if (answer.includes("ERROR")) throw new CpeApiError("at-error", `GTCELLLOCK failed: ${answer}`);
+      settleCellLock(check, checked, await this.lockState().catch(() => null));
+      return;
+    }
+
+    // Quectel Cell Lock
+    if (checked.rat === "LTE") {
+      const cmd = `AT+QNWLOCK="common/4g",1,${checked.arfcn},${checked.pci}`;
+      noteSent(check, FAMILY, "AT+QNWLOCK/4g");
+      const answer = await this.#ubus.execAt(cmd);
+      if (answer.includes("ERROR")) throw new CpeApiError("at-error", `QNWLOCK 4G failed: ${answer}`);
+    } else {
+      const scs = checked.scsKhz ?? 30;
+      const cmd = `AT+QNWLOCK="common/5g",${checked.pci},${checked.arfcn},${scs},${checked.band}`;
+      noteSent(check, FAMILY, "AT+QNWLOCK/5g");
+      const answer = await this.#ubus.execAt(cmd);
+      if (answer.includes("ERROR")) throw new CpeApiError("at-error", `QNWLOCK 5G failed: ${answer}`);
+    }
+    settleCellLock(check, checked, await this.lockState().catch(() => null));
+  }
+
+  async unlockAll(check: WriteCheck): Promise<void> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+
+    if (this.#brand === "fibocom") {
+      noteSent(check, FAMILY, "AT+GTCELLLOCK");
+      await this.#ubus.execAt("AT+GTCELLLOCK=0").catch(() => "");
+      noteSent(check, FAMILY, "AT+GTACT");
+      await this.#ubus.execAt("AT+GTACT=17,6,2").catch(() => "");
+      settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: false });
+      return;
+    }
+
+    // Quectel Unlock All
+    noteSent(check, FAMILY, "AT+QNWLOCK/4g");
+    await this.#ubus.execAt('AT+QNWLOCK="common/4g",0').catch(() => "");
+    noteSent(check, FAMILY, "AT+QNWLOCK/5g");
+    await this.#ubus.execAt('AT+QNWLOCK="common/5g",0').catch(() => "");
+
+    // Restore full bands from factory capability if available
+    const caps = await this.#ubus.execAt('AT+QNWPREFCFG="ue_capability_band"').catch(() => "");
+    const lteCaps = caps.match(/"lte_band",\s*([0-9:]+)/)?.[1];
+    const nrCaps = caps.match(/"nr5g_band",\s*([0-9:]+)/)?.[1];
+    if (lteCaps) await this.#ubus.execAt(`AT+QNWPREFCFG="lte_band",${lteCaps}`).catch(() => "");
+    if (nrCaps) {
+      await this.#ubus.execAt(`AT+QNWPREFCFG="nr5g_band",${nrCaps}`).catch(() => "");
+      await this.#ubus.execAt(`AT+QNWPREFCFG="nsa_nr5g_band",${nrCaps}`).catch(() => "");
+    }
+    await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode",0').catch(() => "");
+    await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",AUTO').catch(() => "");
+
+    settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: true });
+  }
+
+  async reboot(check: WriteCheck): Promise<void> {
+    this.#guard();
+    noteSent(check, FAMILY, "AT+CFUN");
+    await this.#ubus.execAt("AT+CFUN=1,1").catch(() => "");
+    settleRestart(check);
+    this.#open = false;
+  }
+
+  async logout(): Promise<void> {
+    if (!this.#open) return;
+    this.#open = false;
+    try {
+      await this.#ubus.call("session", "destroy", {});
+    } catch {
+      // Session destroy on OpenWrt
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// Protocol Definition
+// --------------------------------------------------------------------------
+
+export const openwrtProtocol: DriverProtocol = {
+  family: FAMILY,
+
+  async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
+    try {
+      const ubus = new OpenwrtUbusClient(http);
+      // Attempt anonymous RPC call to verify OpenWrt ubus endpoint reachability
+      await ubus.call("system", "board", {});
+      return { occupied: false, locked: null };
+    } catch {
+      return null;
+    }
+  },
+
+  async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
+    const ubus = new OpenwrtUbusClient(http);
+    let answer: unknown;
+    try {
+      answer = await ubus.call("session", "login", {
+        username: credentials.username || "root",
+        password: credentials.password,
+        timeout: 60,
+      });
+    } catch (err) {
+      if (err instanceof CpeApiError && (err.code === "ubus-6" || err.code.includes("permission"))) {
+        throw wrongPassword("the router refused the password (ubus status 6)");
+      }
+      throw err;
+    }
+
+    if (!isPlainObject(answer)) throw new DriverLoginMethodError("OpenWrt session.login returned invalid payload");
+    const sessionToken = textOf(answer["ubus_rpc_session"]);
+    if (!sessionToken || sessionToken === OPENWRT_ANONYMOUS_SESSION) {
+      throw wrongPassword("the router refused the password or returned no session token");
+    }
+
+    ubus.session = sessionToken;
+    const session = new OpenwrtSession(ubus);
+    await session.initModem().catch(() => undefined);
+    return session;
+  },
+};
