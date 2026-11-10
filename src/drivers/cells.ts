@@ -14,7 +14,7 @@ export function servingModeOf(value: unknown): ServingMode | null {
   const text = textOf(value)?.toUpperCase().replace(/[\s_]+/g, "-");
   if (!text) return null;
   if (/NO-?SERVICE|LIMITED|无服务|NOSERVICE|^NONE$|^NO-?SIGNAL$/.test(text)) return "NONE";
-  if (/NSA|ENDC|EN-DC|LTE\+5G|LTE-AND-5G|LTE-NR/.test(text)) return "NSA";
+  if (/NSA|ENDC|EN-DC|LTE\+5G|LTE\+NR|LTE-AND-5G|LTE-NR/.test(text)) return "NSA";
   if (/^(?:NR5G-SA|NR-SA|5G-SA|SA|NR|NR5G|5G|NR5G-SA-ONLY)$/.test(text)) return "SA";
   if (/LTE|^4G$|FDD|TDD/.test(text)) return "LTE";
   if (/WCDMA|UMTS|HSPA|HSDPA|HSUPA|^HS|^3G$|^U$|TD-SCDMA/.test(text)) return "WCDMA";

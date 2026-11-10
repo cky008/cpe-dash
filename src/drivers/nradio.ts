@@ -1,0 +1,299 @@
+import { CpeControlValidationError } from "../control-error.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import type { WriteCheck } from "../device-access.ts";
+import { buildXmlRequest, getXmlTag, parseXmlError } from "../xml.ts";
+import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
+import { bandOfChannel, neighbourOf, ratOfChannel, servingModeOf } from "./cells.ts";
+import type { DriverCredentials, DriverProtocol } from "./client.ts";
+import { DriverSessionClosedError, loginUnplaced, wrongPassword } from "./login.ts";
+import { noteSent, settleBandLock, settleRestart, settleUnlock } from "./readback.ts";
+import { cellHasData, emptyCell } from "./snapshot.ts";
+import type { LanHttp } from "./transport.ts";
+import type {
+  DriverBandLockTarget,
+  DriverCell,
+  DriverCellLockTarget,
+  DriverIdentity,
+  DriverLockState,
+  DriverNeighbour,
+  DriverNetworkMode,
+  DriverSessionHandle,
+  DriverTelemetry,
+} from "./types.ts";
+import { arfcnOf, bandOf, counterOf, fieldOf, identityOf, ipv4Of, ipv6Of, isPlainObject, labelOf, nonNegativeOf, pciOf, rsrpOf, rsrqOf, sinrOf } from "./values.ts";
+
+/**
+ * NRadio routers (C2000 Max / Ultra / Pro, C8-668GL, C5800, C8-660, C3000…) on NROS, NRadio's
+ * OpenWrt: the LuCI login (`root` and the password the router's page asks for) sets a `sysauth`
+ * cookie, the overview page carries the model, the version and the request token later writes add
+ * as `?token=`. Readings come from LuCI (`status/runtime/wan,cpe_4`, the nearby-cell scan); band and
+ * cell locks go through the HiLink-style XML the cellular module's bridge offers (`/api/net/net-mode`,
+ * `/api/net/lock-freq`), as FengSui writes it on other Huawei models: LTE bands only, keeping the
+ * mode and the other bands the router reports.
+ */
+
+const FAMILY = "nradio" as const;
+const LOGIN = "/cgi-bin/luci";
+const OVERVIEW = "/cgi-bin/luci/nradio/system/overview";
+const RUNTIME = "/cgi-bin/luci/nradio/status/runtime/wan,cpe_4";
+const SCAN = "/cgi-bin/luci/nradioadv/cellular/cpestatus/scaninfo";
+const LOGOUT = "/cgi-bin/luci/nradio/logout";
+const REBOOT = "/cgi-bin/luci/admin/system/reboot/call";
+const NET_MODE = "/api/net/net-mode";
+const LOCK_FREQ = "/api/net/lock-freq";
+const REFERER = "/html/content.html";
+const TOKEN = /^[0-9A-Za-z]{8,64}$/;
+
+/** Every LTE band, as HiLink modules take "no lock". */
+export const NRADIO_LTE_ALL_MASK = "7FFFFFFFFFFFFFFF";
+
+const NETWORK_MODES: Readonly<Record<"auto" | "lte", string>> = { auto: "00", lte: "03" };
+
+/** The text after `label` up to the next `<` (or `'` for the token), bounded: no regex on router HTML. */
+export function textAfter(html: string, label: string, end: string, max = 64): string | null {
+  const at = html.indexOf(label);
+  if (at < 0) return null;
+  const start = at + label.length;
+  const stop = html.indexOf(end, start);
+  if (stop < 0 || stop - start > max) return null;
+  const text = html.slice(start, stop).replace(/&nbsp;|\s+/g, " ").trim();
+  return text === "" ? null : text;
+}
+
+export interface NradioOverview {
+  model: string | null;
+  version: string | null;
+  token: string | null;
+}
+
+export function parseNradioOverview(html: string): NradioOverview {
+  const token = textAfter(html, "'token']='", "'");
+  return { model: labelOf(textAfter(html, "设备型号:", "<")), version: labelOf(textAfter(html, "系统版本:", "<")), token: token !== null && TOKEN.test(token) ? token : null };
+}
+
+/** `cpe_4` of the runtime status (the `wan` block next to it has counters of its own, never read). */
+export function parseNradioTelemetry(answer: unknown, overview: NradioOverview): DriverTelemetry {
+  const cpe = fieldOf(answer, "cpe_4");
+  const c = (key: string): unknown => (isPlainObject(cpe) ? fieldOf(cpe, key) : undefined);
+  const mode = servingModeOf(c("mode"));
+  const rat = mode === "SA" ? "NR" : "LTE";
+  const cell: DriverCell = {
+    ...emptyCell(),
+    band: bandOf(c("band")),
+    arfcn: arfcnOf(c("earfcn"), rat),
+    pci: pciOf(c("pci"), rat, "auto"),
+    tac: identityOf(c("tac"), "auto"),
+    cellId: identityOf(c("cell"), "auto"),
+    rsrpDbm: rsrpOf(c("rsrp")),
+    rsrqDb: rsrqOf(c("rsrq")),
+    sinrDb: sinrOf(c("sinr")),
+  };
+  const up = fieldOf(cpe, "up");
+  return {
+    model: overview.model,
+    softwareVersion: overview.version,
+    hardwareVersion: null,
+    operatorName: labelOf(c("isp")),
+    plmn: null,
+    mode,
+    lte: rat === "LTE" && cellHasData(cell) ? cell : null,
+    nr: rat === "NR" && cellHasData(cell) ? cell : null,
+    carriers: [],
+    wan: { connected: typeof up === "boolean" ? up : null, ipv4: ipv4Of(c("ipaddr")), ipv6: ipv6Of(c("ipv6addr")), uptimeSec: nonNegativeOf(c("uptime")) },
+    traffic: isPlainObject(cpe)
+      ? {
+          downloadBytesPerSec: null,
+          uploadBytesPerSec: null,
+          totalDownloadBytes: counterOf(c("download")),
+          totalUploadBytes: counterOf(c("upload")),
+          sessionDownloadBytes: null,
+          sessionUploadBytes: null,
+          sessionSeconds: nonNegativeOf(c("uptime")),
+          monthDownloadBytes: null,
+          monthUploadBytes: null,
+          monthTotalBytes: null,
+          monthSeconds: null,
+        }
+      : null,
+    temperatureC: null,
+    signalBars: null,
+  };
+}
+
+/** `result.neighbour[0]` (or a flat `result.neighbour`): `BAND`, `EARFCN`, `PCI`, `RSRP`, `RSRQ`. */
+export function parseNradioNeighbours(answer: unknown): DriverNeighbour[] | null {
+  const list = fieldOf(fieldOf(answer, "result"), "neighbour");
+  if (!Array.isArray(list)) return null;
+  const items: unknown[] = Array.isArray(list[0]) ? (list[0] as unknown[]) : list;
+  const out: DriverNeighbour[] = [];
+  for (const item of items.slice(0, 64)) {
+    if (!isPlainObject(item)) continue;
+    const arfcn = arfcnOf(item["EARFCN"], "NR");
+    const band = bandOf(item["BAND"]);
+    // The band tells the RAT when the channel number alone could be either
+    const rat = band !== null && arfcn !== null && bandOfChannel("LTE", arfcn) === band ? "LTE" : ratOfChannel(arfcn);
+    const cell = rat ? neighbourOf(rat, { band: item["BAND"], arfcn: item["EARFCN"], pci: item["PCI"], rsrp: item["RSRP"], rsrq: item["RSRQ"] }) : null;
+    if (cell) out.push(cell);
+  }
+  return out;
+}
+
+export function parseNradioLockState(netMode: string): DriverLockState {
+  const lteHex = getXmlTag(netMode, "LTEBand");
+  const lteBands = lteHex === null ? null : lteHex.toUpperCase() === NRADIO_LTE_ALL_MASK ? "all" : hexToBands(lteHex);
+  const code = getXmlTag(netMode, "NetworkMode");
+  const networkMode = (Object.entries(NETWORK_MODES) as Array<[DriverNetworkMode, string]>).find(([, v]) => v === code)?.[0] ?? null;
+  return { lteBands, nrBands: null, lteCell: null, nrCell: null, networkMode, supportedLte: null, supportedNr: null };
+}
+
+class NradioSession implements DriverSessionHandle {
+  readonly family = FAMILY;
+  readonly #http: LanHttp;
+  readonly #overview: NradioOverview;
+  #open = true;
+
+  constructor(http: LanHttp, overview: NradioOverview) {
+    this.#http = http;
+    this.#overview = overview;
+  }
+
+  get open(): boolean {
+    return this.#open;
+  }
+
+  #guard(): void {
+    if (!this.#open) throw new DriverSessionClosedError();
+  }
+
+  async identify(): Promise<DriverIdentity> {
+    this.#guard();
+    return { model: this.#overview.model, softwareVersion: this.#overview.version, hardwareVersion: null };
+  }
+
+  async telemetry(): Promise<DriverTelemetry> {
+    this.#guard();
+    return parseNradioTelemetry(await this.#http.getJson(RUNTIME, { referer: REFERER }), this.#overview);
+  }
+
+  async neighbours(): Promise<DriverNeighbour[]> {
+    this.#guard();
+    const list = parseNradioNeighbours(await this.#http.getJson(SCAN, { referer: REFERER }));
+    if (list === null) throw new CpeAnswerFormatError("GET scaninfo: no neighbour list");
+    return list;
+  }
+
+  async #netMode(): Promise<string> {
+    const res = await this.#http.request({ method: "GET", path: NET_MODE, referer: REFERER });
+    if (res.status !== 200) throw new CpeAnswerFormatError(`GET ${NET_MODE}: HTTP ${res.status}`);
+    const error = parseXmlError(res.text);
+    if (error) throw new CpeApiError(error.code, `GET ${NET_MODE}`);
+    return res.text;
+  }
+
+  async lockState(): Promise<DriverLockState> {
+    this.#guard();
+    return parseNradioLockState(await this.#netMode());
+  }
+
+  /** A write through the module's bridge, with the session's request token; the router must answer `OK`. */
+  async #postXml(check: WriteCheck, path: string, data: Record<string, unknown>): Promise<void> {
+    this.#guard();
+    const token = this.#overview.token;
+    if (token === null) throw new CpeAnswerFormatError("The router's overview page named no request token: nothing was written");
+    noteSent(check, FAMILY, path);
+    const res = await this.#http.request({ method: "POST", path, query: [["token", token]], body: buildXmlRequest(data), contentType: "application/xml; charset=UTF-8", referer: REFERER });
+    if (res.status !== 200) throw new CpeApiError(`http${res.status}`, `${path} refused`);
+    const error = parseXmlError(res.text);
+    if (error) throw new CpeApiError(error.code, `${path} refused`);
+    if (getXmlTag(res.text, "response")?.toUpperCase() !== "OK") throw new CpeAnswerFormatError(`${path}: the router did not answer OK`);
+  }
+
+  /** `net-mode` with the LTE mask changed (and the mode, when asked); what the router reports is sent back as it is. */
+  async #writeNetMode(check: WriteCheck, lteMask: string, mode: string | null): Promise<void> {
+    const current = await this.#netMode();
+    const networkMode = getXmlTag(current, "NetworkMode");
+    const networkBand = getXmlTag(current, "NetworkBand");
+    if (!networkMode || !networkBand) throw new CpeAnswerFormatError(`${NET_MODE} named no NetworkMode and NetworkBand to send back; refusing to write guessed values`);
+    await this.#postXml(check, NET_MODE, { NetworkMode: mode ?? networkMode, NetworkBand: networkBand, LTEBand: lteMask });
+  }
+
+  async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
+    if (target.nr !== null && target.nr !== "all") throw new CpeControlValidationError("This router locks LTE bands only");
+    if (target.networkMode !== null && target.networkMode !== "auto" && target.networkMode !== "lte") throw new CpeControlValidationError("This router switches between automatic and 4G only");
+    const lte = target.lte === "all" ? "all" : checkLockBands("LTE", target.lte, null);
+    await this.#writeNetMode(check, lte === "all" ? NRADIO_LTE_ALL_MASK : bandsToHex(lte, { upper: true }), target.networkMode === null ? null : NETWORK_MODES[target.networkMode]);
+    settleBandLock(check, { lte, nr: null, networkMode: target.networkMode }, await this.lockState().catch(() => null));
+  }
+
+  async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
+    const t = checkCellLock(target);
+    const scs = t.scsKhz === null ? null : [15, 30, 60, 120, 240].indexOf(t.scsKhz);
+    await this.#postXml(check, LOCK_FREQ, {
+      mode: t.rat === "LTE" ? 0 : 1,
+      enable: 2,
+      ...(scs !== null && scs >= 0 ? { scstype: scs } : {}),
+      freq: t.arfcn,
+      band: t.band,
+      cellid: t.pci,
+    });
+    // The bridge has no documented way to read a cell lock back
+    check.readback = "unknown";
+    check.reason = "unreadable";
+  }
+
+  async unlockAll(check: WriteCheck): Promise<void> {
+    const before = await this.lockState();
+    const resetMode = before.networkMode !== null && before.networkMode !== "auto";
+    if (before.lteBands !== "all" || resetMode) await this.#writeNetMode(check, NRADIO_LTE_ALL_MASK, resetMode ? NETWORK_MODES.auto : null);
+    for (const mode of [0, 1]) await this.#postXml(check, LOCK_FREQ, { mode, enable: 0, freq: 0, band: 0, cellid: 0 });
+    settleUnlock(check, await this.lockState().catch(() => null), { nr: false, mode: resetMode });
+  }
+
+  async reboot(check: WriteCheck): Promise<void> {
+    this.#guard();
+    const token = this.#overview.token;
+    if (token === null) throw new CpeAnswerFormatError("The router's overview page named no request token: nothing was written");
+    noteSent(check, FAMILY, REBOOT);
+    const res = await this.#http.request({ method: "POST", path: REBOOT, query: [["token", token]], body: buildXmlRequest({ Control: 1 }), contentType: "application/xml; charset=UTF-8", referer: REFERER, redirect: "manual" });
+    if (res.status >= 400) throw new CpeApiError(`http${res.status}`, "reboot refused");
+    settleRestart(check);
+    this.#open = false;
+  }
+
+  async logout(): Promise<void> {
+    if (!this.#open) return;
+    this.#open = false;
+    await this.#http.request({ method: "GET", path: LOGOUT, referer: REFERER, redirect: "manual" });
+  }
+}
+
+function hasSysauth(http: LanHttp): boolean {
+  return http.cookie("sysauth") !== undefined || http.cookie("sysauth_http") !== undefined || http.cookie("sysauth_https") !== undefined;
+}
+
+export const nradioProtocol: DriverProtocol = {
+  family: FAMILY,
+
+  async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
+    // The form POST, never the password in a query string; the cookie comes with the redirect
+    const res = await http.request({
+      method: "POST",
+      path: LOGIN,
+      body: new URLSearchParams([
+        ["luci_username", credentials.username || "root"],
+        ["luci_password", credentials.password],
+      ]).toString(),
+      contentType: "application/x-www-form-urlencoded",
+      referer: LOGIN,
+      redirect: "manual",
+    });
+    if (!hasSysauth(http)) {
+      if (res.status === 403 || res.text.includes("密码错误") || res.text.includes("Invalid password") || res.text.includes("luci_password")) throw wrongPassword("the router refused the password");
+      throw loginUnplaced(`login answered HTTP ${res.status} without a session`);
+    }
+    const page = await http.request({ method: "GET", path: OVERVIEW, referer: REFERER });
+    if (page.status !== 200) throw new CpeAnswerFormatError(`GET overview: HTTP ${page.status}`);
+    return new NradioSession(http, parseNradioOverview(page.text));
+  },
+};
+
