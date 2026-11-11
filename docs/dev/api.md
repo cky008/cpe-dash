@@ -29,7 +29,13 @@
 2. **自动化脚本与 Streamable HTTP MCP 客户端（Bearer Token）**：
    - 请求头：`Authorization: Bearer <令牌>`。令牌在控制台「设置 → 令牌」生成（`fsk_` 前缀 + 256 位随机数，**只显示一次**），服务端只保存其 SHA-256，按哈希查找；可设有效期（1 / 7 / 30 / 90 / 365 天或永不过期）、随时撤销，并记录最近使用时间。
    - **排他鉴权规则**：一旦请求携带了 `Authorization` 头，服务端**仅**验证 Bearer Token，绝不回退读取 Cookie。`/mcp` 端点只接受 Bearer。
-   - **两种权限**：`full`（完全控制）与 `read`（只读）。只读令牌可调用全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`、`/api/sms/preview`、`/api/sms/sync`；其余 `POST` 返回 `403 READ_ONLY_TOKEN`。在 `/mcp` 上，所有写工具既不出现在 `tools/list` 中，直接调用也返回 `READ_ONLY_TOKEN`。撤销令牌时，用它打开的 SSE 连接立即断开；有期限的令牌到期时，这些连接同样断开（与控制台会话到期一致）。
+   - **四项权限**（v1.8.0 起；`src/console-policy.ts` 的 `TOKEN_PERMISSIONS`，每个请求要哪一项由 `src/http-server.ts` 的 `permissionForRoute` 决定）：每个令牌都能调用 `/api/sms/*` 以外的全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`。其余请求要令牌带有对应的权限：
+     - `sms-read`（读短信和验证码）：`/api/sms/*` 的 `GET`，以及 `POST /api/sms/preview`、`/api/sms/sync`。没有它的令牌在 SSE 上也收不到短信事件（`sms:*`、`contacts:updated`）；
+     - `control`（改动路由器）：`/api/control/*`（下一项的三个除外）与 `POST /api/session/reset-breaker`；
+     - `access`（管理设备上网）：`POST /api/control/wifi-access`、`/api/control/wifi-mac-filter`、`/api/control/time-rule`；
+     - `sms-write`（发短信、删短信、改通讯录）：`/api/sms/*` 的其余 `POST`（发送、标为已读、删除、恢复、通讯录）；
+     - 不属于以上任何一项的改动要四项都有（`all`）。
+   - **缺权限时**：令牌除 `sms-read` 外什么权限都没有（不能做任何改动），而请求要的不是 `sms-read` 时，返回 `403 READ_ONLY_TOKEN`；其余情况返回 `403 TOKEN_NOT_PERMITTED`，附 `permission`（缺的那一项）。旧的两种范围仍然认：`read` 等于 `["sms-read"]`，`full` 等于全部四项（见 2.8 节）。在 `/mcp` 上，令牌只看得到自己能用的工具，直接调用别的工具同样返回 `READ_ONLY_TOKEN` 或 `TOKEN_NOT_PERMITTED`（见 4.3 节）。撤销令牌时，用它打开的 SSE 连接立即断开；有期限的令牌到期时，这些连接同样断开（与控制台会话到期一致）。
    - **任何令牌都不能修改控制台设置**：`/api/console/*` 只接受控制台 Cookie 会话，令牌访问返回 `403 CONSOLE_ONLY`（令牌不能改动签发它的凭据）。
    - **从 `.env` 升级**：首次启动带 `settings.json` 的版本时，`.env` 中的值只导入一次：`CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` 成为路由器连接；`API_TOKEN`（未设置时为 `CPE_PASSWORD`）成为控制台密码，同时与 `API_TOKEN_READONLY` 一起成为名为 `API_TOKEN (.env)` / `API_TOKEN_READONLY (.env)` 的令牌，现有客户端无需改动。此后以控制台为准，`.env` 中这些值被忽略。
    - **全新安装**：`.env` 只需 `DATA_ENCRYPTION_KEY`。守护进程启动时在日志中打印一次性**设置码**（`XXXX-XXXX`，24 小时内有效，重启后换新）；登录页凭设置码设定控制台密码，然后在引导中填写并测试路由器连接。保存之前守护进程不会登录路由器。
@@ -147,15 +153,11 @@ export interface ApiErrorEnvelope {
 ### 2.1 公共探活、多语言字典与会话认证路由
 
 #### `GET /api/health`（免鉴权探活）
-```ts
-export interface HealthResponse {
-  ok: true;
-  service: "cpe-dash";
-  codename: "FengSui";
-  version: string;            // 当前为 "1.8.3"
-  uptimeSec: number;
-}
-```
+
+类型定义以源码为准：[`HealthResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`HealthResponse`**
+  - `version`：当前为 "1.8.3"
 
 #### `POST /api/setup/login`（免鉴权，仅限尚无控制台密码时）与 `POST /api/auth/reset`（免鉴权，重置码）
 ```ts
@@ -170,62 +172,109 @@ export interface HealthResponse {
 只接受来自本机回环地址（`127.0.0.1` / `::1`；按 `TRUSTED_PROXIES` 解析后的客户端地址判断，同机反代转发的局域网请求不算回环）、且带 `X-FengSui-Proof: <unix ms>.<HMAC-SHA256(DATA_ENCRYPTION_KEY, "fengsui-reset-login|<unix ms>")>` 的请求（60 秒内有效）：证明调用方能读取守护进程的 `.env`。成功返回 `{ ok: true, code, expiresInSec: 900 }`，否则 `401`（计入限流）。
 
 #### `GET /api/i18n/:locale`（免鉴权离线词典，`locale` 取值 `"zh-CN"` | `"en"`，其他取值返回 `404 LOCALE_NOT_FOUND`）
-```ts
-export interface LocaleCatalogResponse {
-  ok: true;
-  locale: "zh-CN" | "en";
-  catalog: {
-    _meta: { name: string; code: string };
-    app: Record<string, string>;
-    auth: Record<string, string>;
-    session: Record<string, string>;
-    rf: Record<string, string>;
-    traffic: Record<string, string>;
-    neighbors: Record<string, string>;
-    controls: Record<string, string>;
-    topology: Record<string, string>;
-  };
-}
-```
+
+类型定义以源码为准：[`LocaleCatalogResponse`](../../src/api-contract.ts)。
 
 #### `GET /api/auth/status`
 携带 `Authorization` 头时按 Bearer 校验（错误令牌计入限流，超限返回 `429`），否则检查 Cookie 会话。
-```ts
-export interface AuthStatusResponse {
-  ok: true;
-  authenticated: boolean;
-  locale: "zh-CN" | "en";
-  setupRequired: boolean;      // 尚无控制台密码（全新安装）：登录页显示首次设置
-}
-```
+
+类型定义以源码为准：[`AuthStatusResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`AuthStatusResponse`**
+  - `setupRequired`：尚无控制台密码（全新安装）：登录页显示首次设置
 
 #### `POST /api/auth/login`（需满足 1.3 节 CSRF 头部；凭据错误返回 `401`，超限返回 `429`）
+
+类型定义以源码为准：[`AuthLoginResponse`](../../src/api-contract.ts)。
+
+源码里没有同名定义、只在本文里写明的类型：
+
 ```ts
 export interface AuthLoginRequest {
-  token?: string;     // 推荐字段：填入 .env 中的 API_TOKEN（未设置时默认同 CPE_PASSWORD）
+  token?: string;     // 推荐字段：控制台密码（v1.5.0 起；首次启动时由 .env 的 API_TOKEN 导入一次，之后在控制台修改）
   password?: string;  // 兼容别名字段（仅在 token 缺失时读取）
-}
-
-export interface AuthLoginResponse {
-  ok: true;
-  authenticated: true;
-  expiresAtIso: string;
 }
 ```
 
 #### `POST /api/auth/logout`（无 Bearer 头时强制校验 CSRF 头部；响应同时下发清除 Cookie 的 `Set-Cookie`）
-```ts
-export interface AuthLogoutResponse {
-  ok: true;
-  authenticated: false;
-}
-```
+
+类型定义以源码为准：[`AuthLogoutResponse`](../../src/api-contract.ts)。
 
 ---
 
 ### 2.2 射频遥测、3CA 载波聚合、流量与时序历史路由
 
 #### `GET /api/telemetry` · `POST /api/telemetry/refresh` · `GET /api/session/status`
+
+类型定义以源码为准：[`SchedulerStatusSnapshot`](../../src/scheduler.ts) · [`PersistedLockState`](../../src/cpe-domain.ts) · [`GlobalTelemetrySnapshot`](../../src/cpe-domain.ts) · [`AlertEventRecord`](../../src/state-store.ts) · [`LockVerification`](../../src/cpe-domain.ts) · [`TelemetryEndpointResponse`](../../src/api-contract.ts) · [`TelemetryRefreshResponse`](../../src/api-contract.ts) · [`SessionStatusResponse`](../../src/api-contract.ts) · [`SelfHealStatus`](../../src/self-heal-status.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`SchedulerStatusSnapshot`**
+  - `mode`：circuit_tripped：熔断器已熔断（优先于其他状态）
+  - `mode`：yielding_browser：正在礼貌让位真人会话
+  - `mode`：polling：只读采集会话进行中
+  - `mode`：cpe_unreachable：最近一次会话因超时/网络错误失败（CPE 返回错误码或参数被拒仍视为 idle）
+  - `mode`：standby_peer：另一台主机上的「烽燧」守护进程正在管理同一台 CPE，本进程待机、不访问路由器（仅次于 circuit_tripped）
+  - `device`：写闸门所依据的路由器型号与写权限（见 2.10）
+- **`PersistedLockState`**：「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。H168-383 不支持 GET /api/net/lock-freq， 因此本字段不会因官方后台的修改而自动更新；它与路由器实际状态的对账结果见 LockVerification。 锁频段只给出一个制式时，另一制式保持原有锁定：LTE 掩码只经 net-mode 写入（lteBands），NR 频段与锁小区只经 lock-freq 写入（nrBands），未写入的部分不变；只给 lteBands 时已有的锁小区继续生效（mode 仍为 cell_lock）。
+  - `cellLock.pci`：null = 锁频点 (lock_mode=1)
+- **`GlobalTelemetrySnapshot`**
+  - `unavailable`：只出现在未验证型号的快照里（见 2.10）：这一轮路由器回了错误码的部分，其字段没有数据（0 或空），界面显示为「此型号不可用」
+  - `device.deviceName`：路由器报告的型号，e.g. "H168-383"；没有报告时为 ""（不再补成 H168-383）
+  - `device.marketingName`：e.g. "HUAWEI 5G CPE Ultra 6"；没有时为 ""
+  - `device.hardwareVersion`：e.g. "WL1H168M"
+  - `device.softwareVersion`：e.g. "4.4.0.1(H1006SP19C00)"
+  - `device.wanIpv4`：原值；Bearer / MCP 脱敏副本为 "198.51.*.*"（见 1.2 节第 4 条）
+  - `device.connectionStatus`：e.g. "901" (Connected)
+  - `device.signalIconBars`：0..5
+  - `device.imei`：Phase 3：/api/device/information 中的设备与 SIM 标识（固件未返回时为 ""，不额外发起请求）。
+  - `device.imei`：Web 控制台收到原值；Bearer / MCP 在 REDACT_SENSITIVE_IN_API=true 时收到 src/privacy-mask.ts 的部分掩码：
+  - `device.imei`：IMEI 仅留前 6 位、IMSI 仅留 MCC+MNC 5 位、本机号码 "+353*******00"、MAC 仅留厂商 OUI
+  - `device.imei`：e.g. "860000000000000"，脱敏副本 "860000*********"
+  - `device.imsi`：e.g. "272010000000000"，脱敏副本 "27201**********"
+  - `device.msisdn`：SIM 写入的本机号码，多数 SIM 为空
+  - `device.macAddress`：<WanMacAddress>，缺失时取 <MacAddress1>；脱敏副本 "02:00:5E:**:**:**"
+  - `device.sensitiveRedacted`：true = 这是 Bearer / MCP 的脱敏副本（上述标识、WAN 地址与 DNS 已掩码）；Web 控制台恒为 false
+  - `rf.caBannerRaw`：e.g. "20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)"
+  - `rf.caComponentCount`：e.g. 3
+  - `rf.totalAggregatedBandwidthMhz`：e.g. 140
+  - `rf.transmissionMode`：e.g. "TM[4]"
+  - `rf.lteMimoRank`：e.g. 2
+  - `rf.cellIdDisplay`：十进制原值；Bearer / MCP 脱敏副本为 "<REDACTED>"
+  - `rf.eNodeBDisplay`：同上
+  - `rf.tacDisplay`：同上
+  - `traffic.downloadBps`：实时下行比特率 (bps)
+  - `traffic.uploadBps`：实时上行比特率 (bps)
+  - `traffic.todayUsedBytes`：当日累计流量（字节）
+  - `traffic.todayUsedBytesStr`：BigInt 无损十进制字符串
+  - `traffic.monthTotalBytes`：当月累计总流量（字节）
+  - `thermal.temperatureCelsius`：H168-383 4.4.0.1 默认 null（优雅降级为 N/A，绝不伪造 0°C）
+  - `sms`：短信计数：本进程持有短信存储时捎带在遥测会话内（GET /api/sms/sms-count）；否则为 null
+  - `sms`：SmsCounters 见 2.5 节
+- **`AlertEventRecord`**
+  - `id`：UUID
+- **`LockVerification`**：GET /api/telemetry；lockState 与最新遥测的对账（Phase 2.5）。LTE 频段掩码来自 GET /api/net/net-mode，是唯一能读回的锁定设置； NR 锁频段与锁小区只能对照实际服务的载波（主小区、载波聚合分量、辅小区）判断。
+  - `status`：consistent：路由器与已下发的锁定一致；drift：不一致（官方后台改过、调制解调器放弃了锁定或锁定未生效）；
+  - `status`：settling：不一致但距下发不足 90s（可能仍在重新附着）；unknown：尚无遥测，或没有观测能判定某个已锁定的部分（如 NR 空闲）
+  - `checkedAtIso`：所核对遥测快照的 capturedAtIso
+  - `routerLteBands`：路由器实际启用的 LTE 频段（解锁时为 14 个全频段）
+  - `issues`：英文，每个不一致一条
+- **`TelemetryEndpointResponse`**
+  - `recentAlerts`：最多保留最近 100 条，按时间升序
+- **`TelemetryRefreshResponse`**：POST /api/telemetry/refresh（不含 lockState / recentAlerts）
+- **`SessionStatusResponse`**：GET /api/session/status
+  - `selfHeal`：WAN 自愈接下来会做什么（两部分都关闭时 afterMin 为 null）
+- **`SelfHealStatus`**：src/self-heal-status.ts（零依赖，守护进程、控制台与在线演示共用）；不含路由器或设备标识
+  - `lockRollback.afterMin`：LOCK_ROLLBACK_AFTER_MIN；null = 关闭
+  - `lockRollback.watch`：正在观察的锁定；null = 没有
+  - `lockRollback.watch.deadlineIso`：到此 WAN 须已恢复并连续在线 2 分钟，否则解除全部锁定
+  - `reconnect.afterMin`：WAN_AUTO_RECONNECT_AFTER_MIN；null = 关闭
+  - `reconnect.redialsLast24h`：近 24 小时到达路由器的重拨次数
+  - `reconnect.maxPer24h`：上限（4）
+  - `reconnect.nextAllowedAtIso`：在此之前不会重拨（退避间隔或 24 小时 4 次的上限）；null = 没有等待
+  - `reconnect.wanDownSinceIso`：正在计时的断网；null = WAN 在线或尚未看到断开
+
+源码里没有同名定义、只在本文里写明的类型：
+
 ```ts
 /** 公开熔断器状态：内部 passwordFingerprintHex 不会出现在任何 REST / SSE / MCP 输出中 */
 export interface PublicCircuitBreakerState {
@@ -235,196 +284,6 @@ export interface PublicCircuitBreakerState {
   trippedAtIso: string | null;
   remainCount: number | null;   // 108006 时 CPE 返回的剩余尝试次数
   waitTime: number | null;      // 108007 时剩余锁定秒数
-}
-
-export interface SchedulerStatusSnapshot {
-  // circuit_tripped：熔断器已熔断（优先于其他状态）
-  // yielding_browser：正在礼貌让位真人会话
-  // polling：只读采集会话进行中
-  // cpe_unreachable：最近一次会话因超时/网络错误失败（CPE 返回错误码或参数被拒仍视为 idle）
-  // standby_peer：另一台主机上的「烽燧」守护进程正在管理同一台 CPE，本进程待机、不访问路由器（仅次于 circuit_tripped）
-  mode: "idle" | "polling" | "yielding_browser" | "circuit_tripped" | "cpe_unreachable" | "standby_peer";
-  running: boolean;
-  avoidance: AvoidanceBroadcastPayload;
-  peerStandby: { active: boolean; peerAddress: string | null; sinceIso: string | null };
-  circuitBreaker: PublicCircuitBreakerState;
-  lastSessionHoldMs: number | null;
-  totalSessionsCompleted: number;
-  browserYieldCount: number;
-  queueDepth: number;
-  lastError: string | null;
-  device: DeviceAccessSnapshot;   // 写闸门所依据的路由器型号与写权限（见 2.10）
-}
-
-/**
- * 「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。H168-383 不支持 GET /api/net/lock-freq，
- * 因此本字段不会因官方后台的修改而自动更新；它与路由器实际状态的对账结果见 LockVerification。
- * 锁频段只给出一个制式时，另一制式保持原有锁定：LTE 掩码只经 net-mode 写入（lteBands），NR 频段与锁小区只经
- * lock-freq 写入（nrBands），未写入的部分不变；只给 lteBands 时已有的锁小区继续生效（mode 仍为 cell_lock）。
- */
-export interface PersistedLockState {
-  mode: "unlocked" | "band_lock" | "cell_lock";
-  updatedAtIso: string;
-  lteBands: number[] | "all";
-  nrBands: number[];
-  cellLock: {
-    rat: "LTE" | "NR";
-    band: number;
-    arfcn: number;
-    pci: number | null;       // null = 锁频点 (lock_mode=1)
-  } | null;
-}
-
-export interface GlobalTelemetrySnapshot {
-  capturedAtIso: string;
-  capturedAtMs: number;
-  // 只出现在未验证型号的快照里（见 2.10）：这一轮路由器回了错误码的部分，其字段没有数据（0 或空），界面显示为「此型号不可用」
-  unavailable?: Array<"signal" | "status" | "traffic" | "month">;
-  device: {
-    deviceName: string;         // 路由器报告的型号，e.g. "H168-383"；没有报告时为 ""（不再补成 H168-383）
-    marketingName: string;      // e.g. "HUAWEI 5G CPE Ultra 6"；没有时为 ""
-    hardwareVersion: string;    // e.g. "WL1H168M"
-    softwareVersion: string;    // e.g. "4.4.0.1(H1006SP19C00)"
-    webUiVersion: string;
-    uptimeSec: number;
-    workMode: string;
-    wanIpv4: string;            // 原值；Bearer / MCP 脱敏副本为 "198.51.*.*"（见 1.2 节第 4 条）
-    wanDnsV4: string[];
-    wanIpv6: string;
-    wanDnsV6: string[];
-    connectionStatus: string;   // e.g. "901" (Connected)
-    signalIconBars: number;     // 0..5
-    simStatus: string;
-    // Phase 3：/api/device/information 中的设备与 SIM 标识（固件未返回时为 ""，不额外发起请求）。
-    // Web 控制台收到原值；Bearer / MCP 在 REDACT_SENSITIVE_IN_API=true 时收到 src/privacy-mask.ts 的部分掩码：
-    // IMEI 仅留前 6 位、IMSI 仅留 MCC+MNC 5 位、本机号码 "+353*******00"、MAC 仅留厂商 OUI
-    imei: string;               // e.g. "860000000000000"，脱敏副本 "860000*********"
-    imsi: string;               // e.g. "272010000000000"，脱敏副本 "27201**********"
-    msisdn: string;             // SIM 写入的本机号码，多数 SIM 为空
-    macAddress: string;         // <WanMacAddress>，缺失时取 <MacAddress1>；脱敏副本 "02:00:5E:**:**:**"
-    sensitiveRedacted: boolean; // true = 这是 Bearer / MCP 的脱敏副本（上述标识、WAN 地址与 DNS 已掩码）；Web 控制台恒为 false
-  };
-  rf: {
-    operatorName: string;
-    plmnNumeric: string;
-    ratCode: string;
-    caBannerRaw: string;        // e.g. "20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)"
-    caCarriers: Array<{ bandwidthMhz: number; arfcn: number; band: string; rat: "LTE" | "NR" }>;
-    caActive: boolean;
-    caComponentCount: number;   // e.g. 3
-    totalAggregatedBandwidthMhz: number; // e.g. 140
-    pccBand: string;
-    pci: number | null;
-    earfcnRaw: string;
-    nrArfcnRaw: string;
-    lteUlBandwidthMhz: number | null;
-    lteDlBandwidthMhz: number | null;
-    nrUlBandwidthMhz: number | null;
-    nrDlBandwidthMhz: number | null;
-    lteRsrpDbm: number | null;
-    lteRsrqDb: number | null;
-    lteRssiDbm: number | null;
-    lteSinrDb: number | null;
-    nrRsrpDbm: number | null;
-    nrRsrqDb: number | null;
-    nrSinrDb: number | null;
-    transmissionMode: string;   // e.g. "TM[4]"
-    lteMimoRank: number | null; // e.g. 2
-    nrMimoRank: number | null;
-    lteCqi0: number | null;
-    lteCqi1: number | null;
-    nrCqi0: number | null;
-    nrCqi1: number | null;
-    lteUlMcs: Array<{ label: string; index: number; modulation: string | null }>;
-    lteDlMcs: Array<{ label: string; index: number; modulation: string | null }>;
-    nrUlMcs: Array<{ label: string; index: number; modulation: string | null }>;
-    nrDlMcs: Array<{ label: string; index: number; modulation: string | null }>;
-    lteTxPower: { puschDbm: number | null; pucchDbm: number | null; srsDbm: number | null; prachDbm: number | null };
-    nrTxPower: { puschDbm: number | null; pucchDbm: number | null; srsDbm: number | null; prachDbm: number | null };
-    lteScc: Array<{
-      rat: "LTE" | "NR";
-      arfcn: number | null;
-      band: string;
-      bandwidthMhz: number | null;
-      pci: number | null;
-      rsrpDbm: number | null;
-      rsrqDb: number | null;
-      rssiDbm: number | null;
-      sinrDb: number | null;
-    }>;
-    nrScc: Array<{
-      rat: "LTE" | "NR";
-      arfcn: number | null;
-      band: string;
-      bandwidthMhz: number | null;
-      pci: number | null;
-      rsrpDbm: number | null;
-      rsrqDb: number | null;
-      rssiDbm: number | null;
-      sinrDb: number | null;
-    }>;
-    cellIdDisplay: string;      // 十进制原值；Bearer / MCP 脱敏副本为 "<REDACTED>"
-    eNodeBDisplay: string;      // 同上
-    tacDisplay: string;         // 同上
-    identityVerification: {
-      hasCellIdDecimal: boolean;
-      hasCellInfoHex: boolean;
-      eciDecimalMatchesHex: boolean | null;
-      tacDecimalMatchesHex: boolean | null;
-      eNodeBDerivationMatchesTag: boolean | null;
-      sectorIdBitWidthOk: boolean | null;
-    };
-  };
-  bandConfig: {
-    networkMode: string;
-    networkBandHex: string;
-    lteBandHex: string;
-    activeLteBands: number[];
-  };
-  traffic: {
-    downloadBytesPerSec: number;
-    uploadBytesPerSec: number;
-    downloadBps: number;             // 实时下行比特率 (bps)
-    uploadBps: number;               // 实时上行比特率 (bps)
-    downloadRateFormatted: string;
-    uploadRateFormatted: string;
-    todayUsedBytes: number;          // 当日累计流量（字节）
-    todayUsedBytesStr: string;       // BigInt 无损十进制字符串
-    todayUsedFormatted: string;
-    todayDurationSec: number;
-    monthDownloadBytes: number;
-    monthDownloadBytesStr: string;
-    monthUploadBytes: number;
-    monthUploadBytesStr: string;
-    monthTotalBytes: number;         // 当月累计总流量（字节）
-    monthTotalBytesStr: string;
-    monthTotalFormatted: string;
-    monthDurationSec: number;
-    monthLastClearDate: string;
-    sessionConnectTimeSec: number;
-    sessionDownloadBytesStr: string;
-    sessionUploadBytesStr: string;
-    totalUsedBytesStr: string;
-    totalConnectTimeSec: number;
-    billingStartDay: number | null;
-    dataLimitRaw: string;
-    monthThresholdPercent: number | null;
-  };
-  thermal: {
-    temperatureCelsius: number | null; // H168-383 4.4.0.1 默认 null（优雅降级为 N/A，绝不伪造 0°C）
-    temperatureSupported: boolean;
-  };
-  /** 短信计数：本进程持有短信存储时捎带在遥测会话内（GET /api/sms/sms-count）；否则为 null */
-  sms: SmsCounters | null;            // SmsCounters 见 2.5 节
-}
-
-export interface AlertEventRecord {
-  id: string;                        // UUID
-  tsIso: string;
-  severity: "info" | "warning" | "critical";
-  code: AlertCode;
-  messageZh: string;
-  messageEn: string;
 }
 
 /**
@@ -459,62 +318,6 @@ export type AlertCode =
   | "AGENT_TEST_STILL_ON"      // warning：一键开始的 AI 智能体测试打开的设置还开着（见 2.12）：智能体最后一次测试调用（或开始）3 小时后提醒，之后每天一次；测试覆盖的写入全部回读一致、主人看过提醒（控制台告警列表显示了它，或在 Telegram 点「知道了」）或测试结束后不再提醒。消息列出还开着的设置（型号、设置、令牌名称与权限），不含任何值
   | "DATA_QUARANTINED"         // critical：启动时有加密数据文件无法用当前密钥解密，已改名为 *.unreadable-<时间戳> 隔离（消息只列文件名）
   | "STORAGE_WRITE_FAILED";    // critical：加密数据文件保存失败（数据卷满、只读或属主不对）：更改只在内存里，重启前若仍不能保存即丢失；同一文件同一原因（如 EACCES / ENOSPC）每小时一次，消息只含文件名与错误码
-
-/** GET /api/telemetry */
-/**
- * lockState 与最新遥测的对账（Phase 2.5）。LTE 频段掩码来自 GET /api/net/net-mode，是唯一能读回的锁定设置；
- * NR 锁频段与锁小区只能对照实际服务的载波（主小区、载波聚合分量、辅小区）判断。
- */
-export interface LockVerification {
-  // consistent：路由器与已下发的锁定一致；drift：不一致（官方后台改过、调制解调器放弃了锁定或锁定未生效）；
-  // settling：不一致但距下发不足 90s（可能仍在重新附着）；unknown：尚无遥测，或没有观测能判定某个已锁定的部分（如 NR 空闲）
-  status: "consistent" | "drift" | "settling" | "unknown";
-  checkedAtIso: string | null;       // 所核对遥测快照的 capturedAtIso
-  routerLteBands: number[] | null;   // 路由器实际启用的 LTE 频段（解锁时为 14 个全频段）
-  issues: string[];                  // 英文，每个不一致一条
-}
-
-export interface TelemetryEndpointResponse {
-  ok: true;
-  schedulerStatus: SchedulerStatusSnapshot;
-  lockState: PersistedLockState;
-  lockVerification: LockVerification;
-  telemetry: GlobalTelemetrySnapshot | null;
-  recentAlerts: AlertEventRecord[];  // 最多保留最近 100 条，按时间升序
-}
-
-/** POST /api/telemetry/refresh（不含 lockState / recentAlerts） */
-export interface TelemetryRefreshResponse {
-  ok: true;
-  schedulerStatus: SchedulerStatusSnapshot;
-  telemetry: GlobalTelemetrySnapshot | null;
-}
-
-/** GET /api/session/status */
-export interface SessionStatusResponse {
-  ok: true;
-  status: SchedulerStatusSnapshot;
-  selfHeal: SelfHealStatus; // WAN 自愈接下来会做什么（两部分都关闭时 afterMin 为 null）
-}
-
-/** src/self-heal-status.ts（零依赖，守护进程、控制台与在线演示共用）；不含路由器或设备标识 */
-export interface SelfHealStatus {
-  lockRollback: {
-    afterMin: number | null;     // LOCK_ROLLBACK_AFTER_MIN；null = 关闭
-    watch: {                     // 正在观察的锁定；null = 没有
-      lockUpdatedAtIso: string;
-      deadlineIso: string;       // 到此 WAN 须已恢复并连续在线 2 分钟，否则解除全部锁定
-      wanUpSinceIso: string | null;
-    } | null;
-  };
-  reconnect: {
-    afterMin: number | null;     // WAN_AUTO_RECONNECT_AFTER_MIN；null = 关闭
-    redialsLast24h: number;      // 近 24 小时到达路由器的重拨次数
-    maxPer24h: number;           // 上限（4）
-    nextAllowedAtIso: string | null; // 在此之前不会重拨（退避间隔或 24 小时 4 次的上限）；null = 没有等待
-    wanDownSinceIso: string | null;  // 正在计时的断网；null = WAN 在线或尚未看到断开
-  };
-}
 ```
 
 > **自愈状态**：`selfHeal` 只读、来自守护进程内存，查询不访问路由器；MCP `get_cpe_session_status` 返回同一对象。控制台控制抽屉的「WAN 自愈」一节与锁频 / 锁小区确认据此说明锁定若导致断网会不会被自动回滚、正在观察的锁定何时到期，以及当天的重拨次数。
@@ -536,34 +339,12 @@ export interface SelfHealStatus {
 - **实际桶宽**：响应中的 `bucketMs` 为服务端最终采用值，即 `max(请求或预设桶宽, ceil(跨度 / maxPoints))` 向上取整到 `5s`（细粒度环）或 `60s`（分钟环）步长，可能大于请求值。
 - **空桶省略**：没有样本的时间桶（例如服务停止或 CPE 不可达期间）不会出现在 `points` 中。`points` 按 `tsMs` 升序排列，前端绘图须按 `tsMs` 间隔自行断线，不能假设点位等距连续。
 
-```ts
-export interface TimeSeriesBucketPoint {
-  tsMs: number;                         // 桶起点，对齐到 floor(ts / bucketMs) * bucketMs
-  tsIso: string;
-  sampleCount: number;
-  dlAvgBps: number;
-  dlPeakBps: number;
-  ulAvgBps: number;
-  ulPeakBps: number;
-  lteRsrpAvgDbm: number | null;
-  lteRsrpMinDbm: number | null;
-  lteSinrAvgDb: number | null;
-  nrRsrpAvgDbm: number | null;          // NSA 空闲回落期间保持 null，绝不被拉向 0 dBm
-  nrRsrpMinDbm: number | null;
-  nrSinrAvgDb: number | null;
-  temperatureAvgCelsius: number | null; // 硬件不支持时保持 null，前端请隐藏或显示 N/A
-  temperatureMaxCelsius: number | null;
-}
+类型定义以源码为准：[`TimeSeriesBucketPoint`](../../src/timeseries.ts) · [`TimeSeriesEndpointResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface TimeSeriesEndpointResponse {
-  ok: true;
-  preset: "1h" | "6h" | "12h" | "24h" | "custom";
-  fromMs: number;
-  toMs: number;
-  bucketMs: number;
-  points: TimeSeriesBucketPoint[];
-}
-```
+- **`TimeSeriesBucketPoint`**
+  - `tsMs`：桶起点，对齐到 floor(ts / bucketMs) * bucketMs
+  - `nrRsrpAvgDbm`：NSA 空闲回落期间保持 null，绝不被拉向 0 dBm
+  - `temperatureAvgCelsius`：硬件不支持时保持 null，前端请隐藏或显示 N/A
 
 ---
 
@@ -571,137 +352,44 @@ export interface TimeSeriesEndpointResponse {
 
 #### `GET /api/neighbors` & `POST /api/neighbors/scan`
 后台每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）扫描一次，首次后台扫描发生在服务启动约 `60s` 后；在此之前 `neighbors` 为 `null` 或上次运行的持久化快照，可调用 `POST /api/neighbors/scan` 立即扫描。
-```ts
-export interface NeighborCellEntry {
-  rat: "LTE" | "NR";
-  arfcn: number | null;
-  band: string;               // e.g. "B1", "B3", "N78"
-  pci: number | null;         // LTE 0..503、NR 0..1007，可直接带入 POST /api/control/cell-lock
-  rsrpDbm: number | null;
-  rsrqDb: number | null;
-  rssiDbm: number | null;
-  sinrDb: number | null;
-}
 
-export interface NeighborScanSnapshot {
-  capturedAtIso: string;
-  capturedAtMs: number;
-  lteNeighbors: NeighborCellEntry[];
-  nrNeighbors: NeighborCellEntry[];
-  totalCount: number;
-}
+类型定义以源码为准：[`NeighborCellEntry`](../../src/parsers.ts) · [`NeighborScanSnapshot`](../../src/cpe-domain.ts) · [`NeighborsEndpointResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface NeighborsEndpointResponse {   // GET 与 POST 响应结构相同
-  ok: true;
-  schedulerStatus: SchedulerStatusSnapshot;
-  neighbors: NeighborScanSnapshot | null;
-}
-```
+- **`NeighborCellEntry`**
+  - `band`：e.g. "B1", "B3", "N78"
+  - `pci`：LTE 0..503、NR 0..1007，可直接带入 POST /api/control/cell-lock
+- **`NeighborsEndpointResponse`**：GET 与 POST 响应结构相同
 
 #### `GET /api/topology` & `POST /api/topology/refresh`
 后台在服务启动时及此后每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）刷新一次。
 
 > **XSS 安全提醒**：终端 `displayName` 源自局域网客户端不可信 DHCP/mDNS 广播，Phase 3 前端渲染时**必须**使用纯文本节点（`textContent` 或自动转义绑定），严禁使用 `innerHTML`！
 
-```ts
-export type TerminalAccessMedium =
-  | "LAN_1000M"
-  | "LAN_100M"
-  | "LAN_OTHER"
-  | "WIFI_2_4G"
-  | "WIFI_5G"
-  | "WIFI_OTHER"
-  | "UNKNOWN"; // the router lists the device without its link (a DHCP lease, other brands)
+类型定义以源码为准：[`TerminalAccessMedium`](../../src/parsers.ts) · [`TerminalHostEntry`](../../src/parsers.ts) · [`TerminalTopologySnapshot`](../../src/cpe-domain.ts) · [`TopologyEndpointResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface TerminalHostEntry {
-  macAddress: string;           // 原值；Bearer / MCP 脱敏副本只留厂商 OUI（"00:00:5E:**:**:**"）
-  displayName: string;          // 原值；Bearer / MCP 脱敏副本为 "<REDACTED>"
-  active: boolean;
-  interfaceType: string;
-  layer2Interface: string;
-  frequency: string;
-  medium: TerminalAccessMedium;
-  negotiatedRateMbps: number | null;
-  rssi: number | null;
-  ipv4Address: string;          // 局域网地址，始终原样输出
-  ipv6Addresses: string[];      // 原值；Bearer / MCP 脱敏副本留前两组（"2001:db8:****"）
-  ipv6Active: boolean;
-  addressSource: string;
-  leaseTimeRemainingSec: number | null;
-  associatedTimeSec: number | null;
-}
-
-export interface TerminalTopologySnapshot {
-  capturedAtIso: string;
-  capturedAtMs: number;
-  // 只在未验证型号上、列表来自 system/HostInfo 以外的接口时出现；"wlan/host-list" 只含 Wi-Fi 设备（协议附录 A.10）
-  source?: "lan/HostInfo" | "wlan/host-list";
-  hosts: TerminalHostEntry[];
-  summary: {
-    topLevelNodes: number;
-    totalActiveNodes: number;
-    meshChildNodes: number;
-    ethernetNodes: number;
-    wirelessNodes: number;
-  };
-  countsByMedium: Record<TerminalAccessMedium, number>; // 仅统计 active 终端
-}
-
-export interface TopologyEndpointResponse {   // GET 与 POST 响应结构相同
-  ok: true;
-  schedulerStatus: SchedulerStatusSnapshot;
-  topology: TerminalTopologySnapshot | null;
-}
-```
+- **`TerminalAccessMedium`**
+  - `TerminalAccessMedium` 取 `"UNKNOWN"`：the router lists the device without its link (a DHCP lease, other brands)
+- **`TerminalHostEntry`**
+  - `macAddress`：原值；Bearer / MCP 脱敏副本只留厂商 OUI（"00:00:5E:**:**:**"）
+  - `displayName`：原值；Bearer / MCP 脱敏副本为 "<REDACTED>"
+  - `ipv4Address`：局域网地址，始终原样输出
+  - `ipv6Addresses`：原值；Bearer / MCP 脱敏副本留前两组（"2001:db8:****"）
+- **`TerminalTopologySnapshot`**
+  - `source`：只在未验证型号上、列表来自 system/HostInfo 以外的接口时出现；"wlan/host-list" 只含 Wi-Fi 设备（协议附录 A.10）
+  - `countsByMedium`：仅统计 active 终端
+- **`TopologyEndpointResponse`**：GET 与 POST 响应结构相同
 
 #### `GET /api/settings` & `POST /api/settings/refresh`
 路由器配置**没有后台定时刷新**，且读取为**全有或全无**：9 个接口中任一读取失败或缺少字段，刷新即返回 `502`，缓存快照保持不变（不会报告猜测的开关状态）。缓存只会在以下时机更新：`POST /api/settings/refresh`、MCP `get_router_settings`（缓存为空或 `refresh: true`）、安全开关写入后的回读刷新；Wi-Fi 7 / 天线 / 移动数据写入成功后，服务端直接用写入值修补缓存快照（见 2.4 节）。
 
-```ts
-export interface RouterSettingsSnapshot {
-  capturedAtIso: string;        // 最近一次完整读取时间（写入修补不会更新该时间）
-  capturedAtMs: number;
-  upnpEnabled: boolean;
-  dmzEnabled: boolean;
-  dmzIpAddress: string;         // 局域网地址，始终原样输出（v1.0.1 起不再映射）
-  firewall: {
-    mainSwitch: boolean;
-    ipFilterSwitch: boolean;
-    wanPortPingSwitch: boolean;
-    macFilterSwitch: boolean;
-    urlFilterSwitch: boolean;
-  };
-  natType: number;
-  bridgeModeEnabled: boolean;
-  wifi7: {
-    mloEnable: boolean;
-    dbhoEnable: boolean;
-  };
-  antenna: {
-    mode: "auto" | "internal" | "external";
-    rawCode: string;            // "0" | "1" | "2"（注意：POST /api/control/antenna 响应中为 number）
-    antenna1Inserted: boolean;
-    antenna2Inserted: boolean;
-  };
-  mobileDataEnabled: boolean;
-}
+类型定义以源码为准：[`RouterSettingsSnapshot`](../../src/cpe-domain.ts) · [`SettingsEndpointResponse`](../../src/api-contract.ts) · [`SettingsRefreshResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-/** GET /api/settings */
-export interface SettingsEndpointResponse {
-  ok: true;
-  schedulerStatus: SchedulerStatusSnapshot;
-  lockState: PersistedLockState;
-  lockVerification: LockVerification;
-  settings: RouterSettingsSnapshot | null;
-}
-
-/** POST /api/settings/refresh（不含 lockState） */
-export interface SettingsRefreshResponse {
-  ok: true;
-  schedulerStatus: SchedulerStatusSnapshot;
-  settings: RouterSettingsSnapshot | null;
-}
-```
+- **`RouterSettingsSnapshot`**
+  - `capturedAtIso`：最近一次完整读取时间（写入修补不会更新该时间）
+  - `dmzIpAddress`：局域网地址，始终原样输出（v1.0.1 起不再映射）
+  - `antenna.rawCode`："0" | "1" | "2"（注意：POST /api/control/antenna 响应中为 number）
+- **`SettingsEndpointResponse`**：GET /api/settings
+- **`SettingsRefreshResponse`**：POST /api/settings/refresh（不含 lockState）
 
 ---
 
@@ -770,149 +458,53 @@ export interface SettingsRefreshResponse {
 | `POST /api/sms/contacts/delete` | `{ id: string }` | `{ ok: true, deleted: boolean }` |
 | `POST /api/sms/contacts/import-vcf` | `{ vcf: string }`（请求体上限 4 MiB，最多 5000 位联系人） | `{ ok: true, summary: { parsed: number; added: number; updated: number; total: number } }` |
 
-```ts
-export interface SmsCounters {
-  localUnread: number;
-  localInbox: number;
-  localOutbox: number;
-  localDraft: number;
-  localMax: number;                   // CPE 短信容量（H168-383 通常为 500；0 表示这台路由器不报告容量）
-  newest?: number;                    // 只在计数看不出新短信的路由器上有（它只能数自己列出的那一页）：最新一条的存储句柄，变了就同步
-}
+类型定义以源码为准：[`SmsCounters`](../../src/sms/types.ts) · [`SmsStatusSnapshot`](../../src/sms/service.ts) · [`SmsMessageRecord`](../../src/sms/types.ts) · [`EnrichedSmsMessage`](../../src/sms/types.ts) · [`DeletedSmsMessage`](../../src/sms/types.ts) · [`SenderInfo`](../../src/sms/types.ts) · [`SmsThreadSummary`](../../src/sms/types.ts) · [`SmsThreadDetail`](../../src/sms/types.ts) · [`CountryDialInfo`](../../src/sms/types.ts) · [`SmsSendPreview`](../../src/sms/service.ts) · [`SmsSendResult`](../../src/sms/types.ts) · [`SmsSyncSummary`](../../src/sms/service.ts) · [`ContactRecord`](../../src/sms/types.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface SmsStatusSnapshot {
-  counters: SmsCounters | null;       // 最近一次遥测捎带或同步得到的计数
-  unreadOnCpe: number | null;         // 让位期间来自免登录 check-notifications 探测
-  storageFull: boolean;
-  storageUsedPercent: number | null;  // (inbox + outbox + draft) / localMax
-  mirror: { messagesTotal: number; unreadTotal: number; threadsTotal: number; trashTotal: number }; // trashTotal：「最近删除」里的条数（v1.8.0）
-  contactsTotal: number;
-  seeded: boolean;                    // 首次全量同步已完成（此前已存在的短信视为历史，不推送通知）
-  lastSyncAt: string | null;
-  lastFullSyncAt: string | null;
-  via: "sms-list" | "contact-list" | "driver" | null; // 实际使用的列表通道（华为：明文 sms-list 或加密联系人列表回退；driver：其他品牌按各自的接口列出）
-  syncInProgress: boolean;
-  syncPending: boolean;               // CPE 计数与上次同步不一致（如让位期间收到新短信）
-  defaultCountryCode: string;
-  trashDays: number;                  // 删除的短信在「最近删除」里保留几天（SMS_TRASH_RETENTION_DAYS 或控制台设置，0..365；0 为删除即彻底删除；v1.8.0）
-  abilities: { send: boolean; delete: "message" | "conversation" | "none"; markRead: "router" | "fengsui" } | null; // 路由器的短信接口除读取外能做什么（最近一次列表时得到）：能不能发送；逐条删、只能整段对话删、不能删。null：本次运行还没列过。markRead 说标为已读落在路由器上还是只由烽燧记（这类路由器上标为已读不写路由器）。控制台与 Telegram 只显示做得到的按钮
-}
-
-export interface SmsMessageRecord {
-  uid: string;
-  index: number;                      // CPE 存储索引（删除后可能被复用，前端请使用 uid）
-  phone: string;
-  content: string;
-  date: string;                       // "yyyy-MM-dd HH:mm:ss"（路由器本地时间）
-  smstat: string;                     // "0" 未读、"1" 已读、"3"/"4" 发件
-  isUnread: boolean;
-  direction: "in" | "out";
-  verificationCode: string | null;    // 自动提取的验证码
-  pending?: true;                     // 发送后尚未从 CPE 回读的临时记录，下次同步时替换
-  localOnly?: true;                   // 从「最近删除」恢复：路由器上已删除，只有烽燧保存（v1.8.0）
-}
-
-export interface EnrichedSmsMessage extends SmsMessageRecord {
-  threadKey: string;
-  sender: SenderInfo;
-  contact: { id: string; name: string; note?: string } | null;
-}
-
-export interface DeletedSmsMessage extends EnrichedSmsMessage { // 「最近删除」里的一条（v1.8.0）
-  deletedAtIso: string;
-  purgeAtIso: string;                 // 按当前保留天数，到这个时间彻底删除（服务端在启动、每次全量同步定时器与改短天数时清理到期的）
-}
-
-export interface SenderInfo {
-  type: "unknown" | "alphanumeric" | "gateway" | "shortcode" | "international" | "national" | "other";
-  raw: string;
-  e164: string | null;
-  dialable: boolean;                  // 可回复
-  flag: string;                       // 国旗 emoji
-  countryCode: string | null;
-  countryZh: string;
-  countryEn: string;
-  countryIso: string | null;
-  brandHint: string | null;           // 从正文签名（如【DemoBank】）提取的品牌
-  displayNumber: string;
-}
-
-export interface SmsThreadSummary {
-  threadKey: string;
-  phone: string;
-  replyPhone: string | null;          // 可回复时的 E.164
-  dialable: boolean;
-  sender: SenderInfo;
-  contact: { id: string; name: string; note?: string } | null;
-  displayName: string;
-  unreadCount: number;
-  totalCount: number;
-  hasOtp: boolean;
-  latestOtp: string | null;
-  latestMessage: SmsMessageRecord;
-  matchedPreview?: string;            // 搜索命中片段
-}
-
-export interface SmsThreadDetail {
-  threadKey: string;
-  phone: string;
-  replyPhone: string | null;
-  dialable: boolean;
-  sender: SenderInfo;
-  contact: { id: string; name: string; note?: string } | null;
-  messages: EnrichedSmsMessage[];
-}
-
-export interface CountryDialInfo {
-  code: string;                       // "+353"
-  iso: string;                        // "IE"
-  flag: string;
-  nameZh: string;
-  nameEn: string;
-  dropTrunkZero: boolean;             // 国内号码去掉前导 0
-}
-
-export interface SmsSendPreview {
-  recipient:
-    | { ok: true; phone: string; flag: string; countryCode: string | null; countryZh: string; countryEn: string; isShortCode: boolean }
-    | { ok: false; error: string }    // 英文，以 "Invalid recipient" 开头
-    | null;                           // 未提供 phone
-  encoding: { textMode: 0 | 1; encoding: "7BIT" | "UCS2"; segments: number; charUnits: number };
-  maxSegments: 4;
-  withinLimit: boolean;
-}
-
-export interface SmsSendResult {
-  ok: boolean;
-  submitted: boolean;
-  timedOutWaitingStatus: boolean;     // 已提交、投递状态未确认：send-status 超时（SMS_SEND_STATUS_TIMEOUT_MS，按墙钟计时）、提交后的状态轮询失败，或提交后会话被中止（占用上限、停机）。此时 ok 为 true，切勿自动重发
-  sentPhones: string[];
-  failedPhones: string[];
-  failCode: string | null;
-  encoding: "7BIT" | "UCS2";
-  segments: number;
-}
-
-export interface SmsSyncSummary {
-  mode: "incremental" | "full";       // 这次同步实际做的：其他品牌一次列出全部短信，请求的是 incremental 时这里也是 full
-  via: "sms-list" | "contact-list" | "driver";
-  added: number;
-  updated: number;
-  removed: number;                    // 仅全量对账：CPE 上已不存在的记录从镜像移除
-  newIncoming: number;                // 本次推送 sms:new 的新未读来信数
-  counters: SmsCounters;
-  syncedAtIso: string;
-}
-
-export interface ContactRecord {
-  id: string;
-  name: string;
-  phones: string[];                   // E.164 或原始写法
-  note?: string;
-  source: "manual" | "vcard" | "mcp"; // mcp = MCP 智能体用 upsert_contact 新建；主人保存（Web / Telegram / vCard）之前不算 MCP 发送策略中的已知号码
-  updatedAt: string;
-}
-```
+- **`SmsCounters`**
+  - `localMax`：CPE 短信容量（H168-383 通常为 500；0 表示这台路由器不报告容量）
+  - `newest`：只在计数看不出新短信的路由器上有（它只能数自己列出的那一页）：最新一条的存储句柄，变了就同步
+- **`SmsStatusSnapshot`**
+  - `counters`：最近一次遥测捎带或同步得到的计数
+  - `unreadOnCpe`：让位期间来自免登录 check-notifications 探测
+  - `storageUsedPercent`：(inbox + outbox + draft) / localMax
+  - `mirror`：trashTotal：「最近删除」里的条数（v1.8.0）
+  - `seeded`：首次全量同步已完成（此前已存在的短信视为历史，不推送通知）
+  - `via`：实际使用的列表通道（华为：明文 sms-list 或加密联系人列表回退；driver：其他品牌按各自的接口列出）
+  - `syncPending`：CPE 计数与上次同步不一致（如让位期间收到新短信）
+  - `trashDays`：删除的短信在「最近删除」里保留几天（SMS_TRASH_RETENTION_DAYS 或控制台设置，0..365；0 为删除即彻底删除；v1.8.0）
+  - `abilities`：路由器的短信接口除读取外能做什么（最近一次列表时得到）：能不能发送；逐条删、只能整段对话删、不能删。null：本次运行还没列过。markRead 说标为已读落在路由器上还是只由烽燧记（这类路由器上标为已读不写路由器）。控制台与 Telegram 只显示做得到的按钮
+- **`SmsMessageRecord`**
+  - `index`：CPE 存储索引（删除后可能被复用，前端请使用 uid）
+  - `date`："yyyy-MM-dd HH:mm:ss"（路由器本地时间）
+  - `smstat`："0" 未读、"1" 已读、"3"/"4" 发件
+  - `verificationCode`：自动提取的验证码
+  - `pending`：发送后尚未从 CPE 回读的临时记录，下次同步时替换
+  - `localOnly`：从「最近删除」恢复：路由器上已删除，只有烽燧保存（v1.8.0）
+- **`DeletedSmsMessage`**：「最近删除」里的一条（v1.8.0）
+  - `purgeAtIso`：按当前保留天数，到这个时间彻底删除（服务端在启动、每次全量同步定时器与改短天数时清理到期的）
+- **`SenderInfo`**
+  - `dialable`：可回复
+  - `flag`：国旗 emoji
+  - `brandHint`：从正文签名（如【DemoBank】）提取的品牌
+- **`SmsThreadSummary`**
+  - `replyPhone`：可回复时的 E.164
+  - `matchedPreview`：搜索命中片段
+- **`CountryDialInfo`**
+  - `code`："+353"
+  - `iso`："IE"
+  - `dropTrunkZero`：国内号码去掉前导 0
+- **`SmsSendPreview`**
+  - `recipient`：英文，以 "Invalid recipient" 开头
+  - `recipient` 取 `null`：未提供 phone
+- **`SmsSendResult`**
+  - `timedOutWaitingStatus`：已提交、投递状态未确认：send-status 超时（SMS_SEND_STATUS_TIMEOUT_MS，按墙钟计时）、提交后的状态轮询失败，或提交后会话被中止（占用上限、停机）。此时 ok 为 true，切勿自动重发
+- **`SmsSyncSummary`**
+  - `mode`：这次同步实际做的：其他品牌一次列出全部短信，请求的是 incremental 时这里也是 full
+  - `removed`：仅全量对账：CPE 上已不存在的记录从镜像移除
+  - `newIncoming`：本次推送 sms:new 的新未读来信数
+- **`ContactRecord`**
+  - `phones`：E.164 或原始写法
+  - `source`：mcp = MCP 智能体用 upsert_contact 新建；主人保存（Web / Telegram / vCard）之前不算 MCP 发送策略中的已知号码
 
 ---
 
@@ -922,13 +514,10 @@ export interface ContactRecord {
 | :--- | :--- |
 | `GET /api/alerts` | `{ ok: true, alerts: AlertEventRecord[], notifications: Record<string, ChannelDeliveryStats> \| null }`：最近 100 条告警（时间升序）；`notifications` 以通道名（`telegram` / `webhook`）为键，未配置任何通道时为 `null` |
 
-```ts
-export interface ChannelDeliveryStats {
-  delivered: number;
-  failed: number;
-  lastError: string | null;           // 不含号码与正文
-}
-```
+类型定义以源码为准：[`ChannelDeliveryStats`](../../src/notify/hub.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`ChannelDeliveryStats`**
+  - `lastError`：不含号码与正文
 
 - **推送范围**：告警仅当级别 ≥ `ALERT_NOTIFY_MIN_SEVERITY`（默认 `warning`）时推送到 Telegram / Webhook，但所有告警都会写入 `/api/alerts` 与 SSE `alert`。推送时恢复类告警按对应故障的级别判断（`WAN_UP`、`SIGNAL_RECOVERED`、`LOCK_REALIGNED` 视为 warning，`CPE_RECOVERED`、`DUPLICATE_DAEMON_CLEARED` 视为 critical），`CA_DROPPED` 视为 warning；历史记录中的级别不变。新短信只推送**新到达的未读来信**（首次同步时已存在的短信视为历史）。
 - **Webhook 载荷**：`POST WEBHOOK_URL`，`Content-Type: application/json`，请求体 `{ event: "sms.received" | "alert", deliveredAt: string, data: { message: EnrichedSmsMessage } | { alert: AlertEventRecord } }`；请求头 `X-FengSui-Event`、`X-FengSui-Timestamp`（Unix 秒），配置 `WEBHOOK_SECRET` 时追加 `X-FengSui-Signature: sha256=<hex HMAC-SHA256(secret, "<timestamp>.<body>")>`。网络错误或 `5xx` 重试一次，`4xx` 不重试。接收方应校验签名并拒绝时间戳偏差过大的请求。
@@ -945,40 +534,26 @@ export interface ChannelDeliveryStats {
 | `POST /api/control/wifi-mac-filter` | `{ mode: "off" \| "deny" \| "allow", entries?: MacFilterEntry[], confirm: true }`，或 `{ add?: MacFilterEntry[], remove?: string[], confirm: true }` 编辑当前生效名单 | `AccessControlChangeResponse` |
 | `POST /api/control/time-rule` | `{ action: "create" \| "update" \| "delete", id?, rule?: TimeRuleInput, confirm: true }` | `AccessControlChangeResponse` |
 
-```ts
-export interface WifiMacFilterState {
-  enabled: boolean;               // 路由器全局开关 <enable>；false 时名单不拦任何设备
-  policy: "allow" | "deny";       // <wifimacfilterstatus>：1 白名单 / 2 黑名单
-  allowList: MacFilterEntry[];    // { macAddress: "AA:BB:CC:DD:EE:FF", name }，两份名单分别保存
-  denyList: MacFilterEntry[];
-  maxEntries: number;             // <wifimaxmacfilternum>（H168-383 为 64）
-}
-export interface TimeRule {       // "允许上网时段"：有启用规则的设备只能在这些时段上网
-  id: string; enabled: boolean;   // id 为路由器分配的 TR-069 路径，如 "InternetGatewayDevice.X_FireWall.TimeRule.1."
-  devices: Array<{ macAddress: string; name: string }>;
-  weekMask: string;               // 7 位，周一在前，"1111111" = 每天
-  startTime: string; endTime: string; // HH:mm，15 分钟步进；结束早于开始 = 跨天
-}
-export interface AccessControlSnapshot {
-  capturedAtIso: string; capturedAtMs: number;
-  wifiMacFilter: WifiMacFilterState;
-  timeRules: { supported: boolean; maxRules: number; rules: TimeRule[] }; // maxRules = <TimeRuleMaxNum>（16）
-}
-export interface AccessControlEndpointResponse {
-  ok: true; schedulerStatus: SchedulerStatusSnapshot;
-  accessControl: AccessControlSnapshot | null;
-  guard: {
-    daemonHostMac: string | null;   // 运行烽燧的主机（HostInfo 中 IsLocalDevice）
-    requesterMac: string | null;    // 调用方自己的设备（按请求来源 IP 匹配；经反代或 Tailscale 访问时为 null）
-  };
-}
-export interface AccessControlChangeResponse {
-  ok: true;
-  accessControl: AccessControlSnapshot | null; // 写入后回读的状态
-  changed: boolean;               // false = 路由器已是目标状态，未写入
-  alsoBlocked: string[];          // 本次变更连带断开的其他设备（开启过滤时名单里的旧条目、白名单外的在线 Wi-Fi 设备）
-}
-```
+类型定义以源码为准：[`WifiMacFilterState`](../../src/access-state.ts) · [`TimeRule`](../../src/access-plan.ts) · [`AccessControlSnapshot`](../../src/access-control.ts) · [`AccessControlEndpointResponse`](../../src/api-contract.ts) · [`AccessControlChangeResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`WifiMacFilterState`**
+  - `enabled`：路由器全局开关 <enable>；false 时名单不拦任何设备
+  - `policy`：<wifimacfilterstatus>：1 白名单 / 2 黑名单
+  - `allowList`：{ macAddress: "AA:BB:CC:DD:EE:FF", name }，两份名单分别保存
+  - `maxEntries`：<wifimaxmacfilternum>（H168-383 为 64）
+- **`TimeRule`**："允许上网时段"：有启用规则的设备只能在这些时段上网
+  - `id`：id 为路由器分配的 TR-069 路径，如 "InternetGatewayDevice.X_FireWall.TimeRule.1."
+  - `weekMask`：7 位，周一在前，"1111111" = 每天
+  - `startTime`：HH:mm，15 分钟步进；结束早于开始 = 跨天
+- **`AccessControlSnapshot`**
+  - `timeRules`：maxRules = <TimeRuleMaxNum>（16）
+- **`AccessControlEndpointResponse`**
+  - `guard.daemonHostMac`：运行烽燧的主机（HostInfo 中 IsLocalDevice）
+  - `guard.requesterMac`：调用方自己的设备（按请求来源 IP 匹配；经反代或 Tailscale 访问时为 null）
+- **`AccessControlChangeResponse`**
+  - `accessControl`：写入后回读的状态
+  - `changed`：false = 路由器已是目标状态，未写入
+  - `alsoBlocked`：本次变更连带断开的其他设备（开启过滤时名单里的旧条目、白名单外的在线 Wi-Fi 设备）
 
 - **必须 `confirm: true`**：缺少时 `400 VALIDATION_ERROR`，不产生会话。前端每次写入前都会用同一份规划代码预览影响并弹出确认。
 - **一次控制会话完成整次变更**：先读 HostInfo（得到受保护设备）与当前状态，规划，写入，再回读核对；回读与预期不符时返回 `502`（"router acknowledged … but did not apply it"）。写操作与遥测共用调度队列，真人在线时 `409`、熔断时 `423`。
@@ -1015,73 +590,42 @@ export interface AccessControlChangeResponse {
 | `GET /api/audit?limit=200` | — | `{ ok: true, entries: AuditEntry[] }`（最新在前，最多 500 条；任何已登录调用方可读，`REDACT_SENSITIVE_IN_API` 下 Bearer 调用方拿到的 `detail` 遮住 IP 地址） |
 | `GET /metrics` | — | Prometheus 文本格式；需 Bearer 令牌（只读即可）；关闭时 `404`。除 `fengsui_*` 路由器与调度器指标外，还有守护进程自身的 `process_resident_memory_bytes`、`process_cpu_seconds_total`、`nodejs_heap_size_used_bytes`、`nodejs_eventloop_lag_p99_seconds` / `_max_seconds`（最近一个完整的 1 分钟窗口）、`fengsui_sse_clients`、`fengsui_telegram_outbox_pending`（无机器人时不输出） |
 
-```ts
-export type ConnectionTestResult =
-  | {
-      ok: true;
-      holdMs: number;
-      model: string | null;
-      firmware: string | null;
-      loginScheme: "scram" | "sha256" | "base64" | "unknown"; // 这次测试怎么登录的（提交密码前已确定，见协议文档附录 A.9）
-      tokenFlow: "webserver-token" | "sestokinfo" | "unknown"; // CSRF 令牌来自哪个接口
-      ecc: boolean;                                            // 登录响应带了签名已验证的 ECC 公钥（加密通道可用）
-    }
-  | {
-      ok: false;
-      // invalid_url：不是私网地址（SSRF 防护）；wrong_password：附 remainCount（路由器剩余尝试次数）；
-      // last_attempt：路由器只剩 1 次机会，未带 lastAttempt: true 时不尝试（防止 108007 硬件锁定）；
-      // locked：108007，附 waitTimeSec；password_change_required：115002，路由器要求先在它自己的网页改密码（已熔断，不自动重试）；
-      // unsupported_login：password_type 缺失或未知且 SCRAM 挑战被拒，code 为拒绝挑战的错误码（不是挑战的响应时为 null），密码没有发出；
-      // scram_refused：这台路由器用 SCRAM 登录成功过，这次挑战被拒（code 同上），按 CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=false（默认）
-      //   不改用旧式登录，密码没有发出；同一地址换了型号时重新部署全新的容器，或临时把它设为 true 再测试、保存；
-      // unconfirmed_login：旧式 user/login 的应答无法判断（未知错误码，或页面、空的、截断或过大的响应、重定向），那次提交可能已算作一次错误，
-      //   守护进程遇到时会熔断；code 为路由器的错误码（没有错误码时为 null）；
-      // human_logged_in：有人正在登录官方后台（不抢占）；
-      // unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理；
-      // unknown_brand：`family: "auto"` 时路由器没有回应任何一种品牌的免登录特征请求（没有发送密码）
-      reason:
-        | "invalid_url" | "wrong_password" | "last_attempt" | "locked" | "password_change_required"
-        | "unsupported_login" | "scram_refused" | "unconfirmed_login" | "human_logged_in" | "unreachable" | "standby" | "router_error" | "unknown_brand";
-      code: string | null;
-      remainCount: number | null;
-      waitTimeSec: number | null;
-      message: string;
-    };
+类型定义以源码为准：[`ConnectionTestResult`](../../src/scheduler.ts) · [`ConsoleSettingsResponse`](../../src/api-contract.ts) · [`TelegramChatRecord`](../../src/api-contract.ts) · [`TelegramChatsResponse`](../../src/api-contract.ts) · [`AuditEntry`](../../src/audit-log.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface ConsoleSettingsResponse {
-  ok: true;
-  cpe: { url: string; username: string; passwordSet: boolean } | null;  // 密码本身永不返回
-  login: { changedAtIso: string | null; fromEnv: boolean };             // fromEnv：仍是从 .env 导入的 API_TOKEN
-  reviewPending: boolean;                                               // 从 .env 导入后尚未在引导中确认
-  telegram: { configured: boolean; resetEnabled: boolean };
-  metrics: { enabled: boolean; source: "console" | "env"; envEnabled: boolean }; // envEnabled：.env 的 METRICS_ENABLED
-}
-
-export interface TelegramChatRecord {
-  chatId: string;
-  kind: "private" | "group";                               // Telegram 的私聊 ID 为正数，群组为负数
-  fromEnv: boolean;                                        // 列在 TELEGRAM_CHAT_IDS 中（只能在 .env 里移除）
-  linkedWith: "token" | "code" | "group-code" | null;      // /auth 用了完整权限令牌 / 私聊绑定码 / 群组绑定码；null = 只由 .env 授权
-  tokenName: string | null;                                // 绑定它的令牌名（撤销该令牌即解绑）
-  linkedBy: string | null;                                 // 群组绑定码：绑定它的成员（只有 ta 能在群里操作）
-  topic: number | null;                                    // 群组绑定码：推送进的论坛话题（null = 群本身或 General）
-  linkedAtIso: string | null;                              // /auth 绑定的时间；只由 .env 授权时为 null
-}
-
-export interface TelegramChatsResponse {
-  ok: true;
-  chats: TelegramChatRecord[];                             // 经 /auth 绑定的在前（最新在前），只由 .env 授权的在后
-}
-
-export interface AuditEntry {
-  tsIso: string;
-  channel: "web" | "token" | "mcp" | "telegram" | "self-heal" | "system";
-  label: string | null;     // 令牌名或聊天 ID 末三位；从不含密钥
-  action: string;           // 控制动作（如 "lock_band"）或设置动作（如 "token.create"、"login"）
-  outcome: "applied" | "refused" | "failed";
-  detail: string | null;    // 已脱敏的摘要或拒绝 / 失败原因；从不含短信正文
-}
-```
+- **`ConnectionTestResult`**
+  - `loginScheme`：这次测试怎么登录的（提交密码前已确定，见协议文档附录 A.9）
+  - `tokenFlow`：CSRF 令牌来自哪个接口
+  - `ecc`：登录响应带了签名已验证的 ECC 公钥（加密通道可用）
+- **`ConsoleSettingsResponse`**
+  - `reason`：invalid_url：不是私网地址（SSRF 防护）；wrong_password：附 remainCount（路由器剩余尝试次数）；
+  - `reason`：last_attempt：路由器只剩 1 次机会，未带 lastAttempt: true 时不尝试（防止 108007 硬件锁定）；
+  - `reason`：locked：108007，附 waitTimeSec；password_change_required：115002，路由器要求先在它自己的网页改密码（已熔断，不自动重试）；
+  - `reason`：unsupported_login：password_type 缺失或未知且 SCRAM 挑战被拒，code 为拒绝挑战的错误码（不是挑战的响应时为 null），密码没有发出；
+  - `reason`：scram_refused：这台路由器用 SCRAM 登录成功过，这次挑战被拒（code 同上），按 CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=false（默认）
+  - `reason`：不改用旧式登录，密码没有发出；同一地址换了型号时重新部署全新的容器，或临时把它设为 true 再测试、保存；
+  - `reason`：unconfirmed_login：旧式 user/login 的应答无法判断（未知错误码，或页面、空的、截断或过大的响应、重定向），那次提交可能已算作一次错误，
+  - `reason`：守护进程遇到时会熔断；code 为路由器的错误码（没有错误码时为 null）；
+  - `reason`：human_logged_in：有人正在登录官方后台（不抢占）；
+  - `reason`：unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理；
+  - `reason`：unknown_brand：`family: "auto"` 时路由器没有回应任何一种品牌的免登录特征请求（没有发送密码）
+  - `cpe`：密码本身永不返回
+  - `login`：fromEnv：仍是从 .env 导入的 API_TOKEN
+  - `reviewPending`：从 .env 导入后尚未在引导中确认
+  - `metrics`：envEnabled：.env 的 METRICS_ENABLED
+- **`TelegramChatRecord`**
+  - `kind`：Telegram 的私聊 ID 为正数，群组为负数
+  - `fromEnv`：列在 TELEGRAM_CHAT_IDS 中（只能在 .env 里移除）
+  - `linkedWith`：/auth 用了完整权限令牌 / 私聊绑定码 / 群组绑定码；null = 只由 .env 授权
+  - `tokenName`：绑定它的令牌名（撤销该令牌即解绑）
+  - `linkedBy`：群组绑定码：绑定它的成员（只有 ta 能在群里操作）
+  - `topic`：群组绑定码：推送进的论坛话题（null = 群本身或 General）
+  - `linkedAtIso`：/auth 绑定的时间；只由 .env 授权时为 null
+- **`TelegramChatsResponse`**
+  - `chats`：经 /auth 绑定的在前（最新在前），只由 .env 授权的在后
+- **`AuditEntry`**
+  - `label`：令牌名或聊天 ID 末三位；从不含密钥
+  - `action`：控制动作（如 "lock_band"）或设置动作（如 "token.create"、"login"）
+  - `detail`：已脱敏的摘要或拒绝 / 失败原因；从不含短信正文
 
 - **连接测试**：作为一次独立的排队会话执行，使用一次性客户端，绝不影响正在使用的客户端及其熔断器；只登录一次、从不重试；遇到真人登录官方后台时让位。
 - **审计**：记录到达路由器队列的每次写入（控制、访问控制、短信发送 / 已读 / 删除、自动修复）、控制台登录与每次设置修改，调用方经 `AsyncLocalStorage` 从受理请求的入口一路传到调度器。加密保存在 `audit.json`。
@@ -1099,61 +643,39 @@ export interface AuditEntry {
 | :--- | :--- | :--- |
 | `GET /api/device/profile` | 任何已登录调用方（控制台、完全或只读令牌）；不含任何设备标识，`REDACT_SENSITIVE_IN_API` 不影响它；与设备报告一样再过一遍第二道防线（见下） | `DeviceProfileResponse` |
 
-```ts
-export interface DeviceProfileResponse {
-  ok: true;
-  profile: DeviceProfile | null;      // 第一次识别之前为 null
-  verifiedFirmware: Array<{ model: string; softwareVersion: string }>; // 当前为 [{ model: "H168-383", softwareVersion: "4.4.0.1(H1006SP19C00)" }]
-  // 这台路由器在「支持的设备」表里的那一行（src/device-catalog.ts 的 deviceSupportRow，按闸门所用的品牌与型号算出）；
-  // 识别之前为 null。控制台「设置 → 设备」只显示这一行，整张表留在文档站
-  support: {
-    family: RouterFamily;
-    model: string | null;              // 表里的型号名；表里没有这个型号时为 null（按品牌的默认情况，从不回显路由器自报的型号）
-    section: string;                   // 品牌一节，文档站锚点为 brand-<section>
-    modules: Array<{ zh: string; en: string; mark: "✓" | "?" | "△" | "—" | "" | string }>; // 一格多个功能的标记不同时为 "✓/?" 这样的组合
-    notes: Array<{ zh: string; en: string }>; // △ 与 — 那几格的条件，以及表下关于这个型号的说明
-  } | null;
-}
+类型定义以源码为准：[`DeviceProfileResponse`](../../src/api-contract.ts) · [`DeviceProfile`](../../src/device-profile.ts) · [`DeviceIdentity`](../../src/device-profile.ts) · [`DeviceCapabilities`](../../src/device-profile.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface DeviceProfile {
-  identity: DeviceIdentity;
-  // verified：已验证型号 + 已验证固件；new-firmware：已验证型号的新固件（ADR-007：只告警，不阻止写）；
-  // report-verified：烽燧在这个型号（按连接的品牌）上实现的每项功能都已由真机报告登记（VERIFIED_FEATURES，或报告为没有这项功能），算验证过的型号，写入仍按它的品牌发送；
-  // unverified-model：未验证型号；unknown：型号未读到，或已验证型号的固件未读到
-  verification: "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
-  capabilities: DeviceCapabilities;
-  origin: "startup" | "connection-test";   // startup：守护进程启动后的识别（含启动时连不上、之后补做的）；connection-test：控制台测试连接时
-}
-
-export interface DeviceIdentity {
-  model: string | null;            // device/information 的 DeviceName，没有时取 basic_information / basicinformation 的 devicename
-  marketingName: string | null;    // basic_information 的 spreadname_en
-  softwareVersion: string | null;
-  webUiVersion: string | null;
-  passwordType: string | null;     // state-login 的 password_type（原样）
-  loginScheme: "scram" | "sha256" | "base64" | "unknown"; // 烽燧这次如何登录（协议文档附录 A.9）
-  ecc: boolean;                    // 登录响应带有签名且验证通过的 ECC 公钥（可用加密通道）
-  tokenFlow: "webserver-token" | "sestokinfo" | "unknown"; // 首个 CSRF 令牌的来源
-  detectedAtIso: string;
-  variant?: string;                // 品牌的另一种接口写法（如烽火 Pro 系列为 "pro"），由驱动识别时报告；没有这个字段即该品牌自己的写法。闸门、「设置 → 设备」与 support 行都按这种写法能做的功能算
-}
-// 型号、版本号与 spreadname_en 合并空白后，只在全部字符属于 [A-Za-z0-9 ._()+-] 且不超过 64 个字符时保留；
-// 否则整个丢弃为 null（没有就取下一个识别接口的值），不替换字符、不截断，以免标识的片段混进报告
-
-export interface DeviceCapabilities {
-  probedAtIso: string;
-  // 每个探测接口一项。supported：有响应；unsupported：100002；restricted：100003（不等于不支持）；
-  // unknown：其他错误码、传输失败、单个请求超时或读不了的响应（过大、中途断开、错误码不是数字）
-  endpoints: Array<{ path: DeviceProbePath; state: EndpointState; code: string | null }>;
-  lteBands: number[] | null;       // net-mode-list 通告的 LTE 频段，没有时为 null
-  // telemetry、neighbors、topology、smsRead、smsWrite、bandLock、cellLock、reboot、reconnect、
-  // mobileData、securitySwitches、wifi、antenna、accessControl 各一项：已验证型号为
-  // { state: "supported", source: "verified" }；其他型号上，烽燧有通用实现的写操作（bandLock、reboot、
-  // reconnect、mobileData、smsWrite，阶段 3）在探测找到它回读要读的接口（只写接口则为同一模块）时为
-  // { state: "supported", source: "probe" }（依据见 protocol.md 附录 A.11），其余为 { state: "unknown", source: "none" }
-  features: Record<DeviceFeature, { state: EndpointState; source: "verified" | "probe" | "none" }>;
-}
-```
+- **`DeviceProfileResponse`**
+  - `profile`：第一次识别之前为 null
+  - `verifiedFirmware`：当前为 [{ model: "H168-383", softwareVersion: "4.4.0.1(H1006SP19C00)" }]
+  - `support`：这台路由器在「支持的设备」表里的那一行（src/device-catalog.ts 的 deviceSupportRow，按闸门所用的品牌与型号算出）；
+  - `support`：识别之前为 null。控制台「设置 → 设备」只显示这一行，整张表留在文档站
+  - `support.model`：表里的型号名；表里没有这个型号时为 null（按品牌的默认情况，从不回显路由器自报的型号）
+  - `support.section`：品牌一节，文档站锚点为 brand-<section>
+  - `support.modules`：一格多个功能的标记不同时为 "✓/?" 这样的组合
+  - `support.notes`：△ 与 — 那几格的条件，以及表下关于这个型号的说明
+- **`DeviceProfile`**
+  - `verification`：verified：已验证型号 + 已验证固件；new-firmware：已验证型号的新固件（ADR-007：只告警，不阻止写）；
+  - `verification`：report-verified：烽燧在这个型号（按连接的品牌）上实现的每项功能都已由真机报告登记（VERIFIED_FEATURES，或报告为没有这项功能），算验证过的型号，写入仍按它的品牌发送；
+  - `verification`：unverified-model：未验证型号；unknown：型号未读到，或已验证型号的固件未读到
+  - `origin`：startup：守护进程启动后的识别（含启动时连不上、之后补做的）；connection-test：控制台测试连接时
+- **`DeviceIdentity`**
+  - `model`：device/information 的 DeviceName，没有时取 basic_information / basicinformation 的 devicename
+  - `marketingName`：basic_information 的 spreadname_en
+  - `passwordType`：state-login 的 password_type（原样）
+  - `loginScheme`：烽燧这次如何登录（协议文档附录 A.9）
+  - `ecc`：登录响应带有签名且验证通过的 ECC 公钥（可用加密通道）
+  - `tokenFlow`：首个 CSRF 令牌的来源
+  - `variant`：品牌的另一种接口写法（如烽火 Pro 系列为 "pro"），由驱动识别时报告；没有这个字段即该品牌自己的写法。闸门、「设置 → 设备」与 support 行都按这种写法能做的功能算
+- **`DeviceCapabilities`**：型号、版本号与 spreadname_en 合并空白后，只在全部字符属于 [A-Za-z0-9 ._()+-] 且不超过 64 个字符时保留；；否则整个丢弃为 null（没有就取下一个识别接口的值），不替换字符、不截断，以免标识的片段混进报告
+  - `endpoints`：每个探测接口一项。supported：有响应；unsupported：100002；restricted：100003（不等于不支持）；
+  - `endpoints`：unknown：其他错误码、传输失败、单个请求超时或读不了的响应（过大、中途断开、错误码不是数字）
+  - `lteBands`：net-mode-list 通告的 LTE 频段，没有时为 null
+  - `features`：telemetry、neighbors、topology、smsRead、smsWrite、bandLock、cellLock、reboot、reconnect、
+  - `features`：mobileData、securitySwitches、wifi、antenna、accessControl 各一项：已验证型号为
+  - `features`：{ state: "supported", source: "verified" }；其他型号上，烽燧有通用实现的写操作（bandLock、reboot、
+  - `features`：reconnect、mobileData、smsWrite，阶段 3）在探测找到它回读要读的接口（只写接口则为同一模块）时为
+  - `features`：{ state: "supported", source: "probe" }（依据见 protocol.md 附录 A.11），其余为 { state: "unknown", source: "none" }
 
 - **派生值**：`verification` 与 `features` 在读取时按 [`src/firmware.ts`](../../src/firmware.ts) 的验证清单计算，升级后新加入清单的固件对已存的识别结果立即生效。
 
@@ -1161,61 +683,30 @@ export interface DeviceCapabilities {
 
 报告给其他型号的用户在提交兼容性问题时附上。**只有结构，没有取值**；不自动上传，也不记录任何遥测。
 
-```ts
-export interface DeviceReport {
-  reportVersion: 1;
-  fengsuiVersion: string;
-  generatedAtIso: string;
-  verification: "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
-  identity: DeviceIdentity | null;          // 同 2.9 节；尚未识别时为 null
-  capabilities: { probedAtIso: string; lteBands: number[] | null; features: Record<DeviceFeature, FeatureCapability> } | null;
-  endpoints: Array<{
-    path: DeviceProbePath;                   // 探测清单中的每个接口一项
-    state: "supported" | "unsupported" | "restricted" | "unknown";
-    code: string | null;                     // 路由器的错误码
-    format: "xml" | "json" | "text" | null;  // 响应的格式；报错时为 null
-    fields: Array<{
-      tag: string;                           // 叶子标签路径，如 "LTEBandList.LTEBand.Value"
-      shape: string;                         // 值的形状：empty / int / decimal / mac / ipv4 / ipv6 / hex(n) / text(n)，多种时以 | 连接（最多 3 种）
-      count: number;
-      value?: string;                        // 只出现在白名单上：型号、固件与网页版本、spreadname_en（规则同上，不合规的整个不出现）、password_type、功能开关的 0–99 小整数
-    }>;
-    truncated: boolean;                      // 超过 400 个叶子时截断
-  }>;
-  // 守护进程启动以来路由器返回的错误码，按方法 + 接口（不含查询串）+ 错误码计数（最多 100 项），测试连接也计入
-  apiErrors: { sinceIso: string; entries: Array<{ method: "GET" | "POST"; path: string; code: string; count: number; lastAtIso: string }> };
-  // 烽燧对这台路由器做了什么（2.10）：写操作是否放行，以及每个读取项的状态与路由器的错误码；只有状态和错误码，没有取值
-  access: {
-    family?: RouterFamily;                   // 连接时的品牌（「设置 → 路由器」）：与 identity.model 一起就是 VERIFIED_FEATURES 一条登记的品牌与型号
-    writes: "allowed" | "experimental" | "unknown";
-    reads: Record<ReadSection, { state: "verified" | "available" | "unavailable" | "unknown"; code: string | null }>;
-    // 每个写功能在这台路由器上的状态（同 2.10 的 features：verified / enabled / disabled / unsupported / not_implemented / unknown）
-    features?: Record<WriteFeature, WriteFeatureState>;
-  } | null;
-  // 最近写入结果（阶段 3，见 2.11）：未验证型号上每次实验性写入的操作、功能、型号、写过的端点、路由器的错误码与回读结果，
-  // 最多 20 条，不含写入的取值；H168-383 为空
-  writes: Array<{
-    atIso: string;
-    action: string;                          // 如 "lock_band"、"sms_send"（与 control:applied 的 action 相同）
-    feature: "bandLock" | "reboot" | "reconnect" | "mobileData" | "smsWrite"; // 以及 2.10 表中的其他写功能
-    model: string;
-    endpoints: string[];
-    outcome: "applied" | "failed";
-    code: string | null;                     // 路由器拒绝时的错误码（只保留 4–8 位数字，其他内容记为 null）
-    readback: "match" | "mismatch" | "unknown" | "pending" | "none";
-    reason: string | null;                   // WriteCheck.reason，见 2.11
-  }>;
-  // 每个功能一行（DEVICE_FEATURES 的顺序），功能名与读 / 写的划分和 VERIFIED_FEATURES 相同，照着就能写一条登记：
-  // 读取项看它所在读取项的状态（verified / available 为 works，unavailable 为 failed，其余 untested）；
-  // 写入项看写入记录里这个功能最近一次（被路由器拒绝为 failed / refused，回读 match 为 works，mismatch 为 failed，其余 untested）
-  checks: Array<{
-    feature: DeviceFeature;
-    access: "read" | "write";
-    result: "works" | "failed" | "untested";
-    evidence: "verified" | "available" | "unavailable" | "unknown" | "match" | "mismatch" | "pending" | "none" | "refused" | null;
-  }>;
-}
-```
+类型定义以源码为准：[`DeviceReport`](../../src/device-profile.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`DeviceReport`**
+  - `identity`：同 2.9 节；尚未识别时为 null
+  - `endpoints.path`：探测清单中的每个接口一项
+  - `endpoints.code`：路由器的错误码
+  - `endpoints.format`：响应的格式；报错时为 null
+  - `endpoints.fields.tag`：叶子标签路径，如 "LTEBandList.LTEBand.Value"
+  - `endpoints.fields.shape`：值的形状：empty / int / decimal / mac / ipv4 / ipv6 / hex(n) / text(n)，多种时以 | 连接（最多 3 种）
+  - `endpoints.fields.value`：只出现在白名单上：型号、固件与网页版本、spreadname_en（规则同上，不合规的整个不出现）、password_type、功能开关的 0–99 小整数
+  - `endpoints.truncated`：超过 400 个叶子时截断
+  - `apiErrors`：守护进程启动以来路由器返回的错误码，按方法 + 接口（不含查询串）+ 错误码计数（最多 100 项），测试连接也计入
+  - `access`：烽燧对这台路由器做了什么（2.10）：写操作是否放行，以及每个读取项的状态与路由器的错误码；只有状态和错误码，没有取值
+  - `access.family`：连接时的品牌（「设置 → 路由器」）：与 identity.model 一起就是 VERIFIED_FEATURES 一条登记的品牌与型号
+  - `access.features`：每个写功能在这台路由器上的状态（同 2.10 的 features：verified / enabled / disabled / unsupported / not_implemented / unknown）
+  - `writes`：最近写入结果（阶段 3，见 2.11）：未验证型号上每次实验性写入的操作、功能、型号、写过的端点、路由器的错误码与回读结果，
+  - `writes`：最多 20 条，不含写入的取值；H168-383 为空
+  - `writes.action`：如 "lock_band"、"sms_send"（与 control:applied 的 action 相同）
+  - `writes.feature`：以及 2.10 表中的其他写功能
+  - `writes.code`：路由器拒绝时的错误码（只保留 4–8 位数字，其他内容记为 null）
+  - `writes.reason`：WriteCheck.reason，见 2.11
+  - `checks`：每个功能一行（DEVICE_FEATURES 的顺序），功能名与读 / 写的划分和 VERIFIED_FEATURES 相同，照着就能写一条登记：
+  - `checks`：读取项看它所在读取项的状态（verified / available 为 works，unavailable 为 failed，其余 untested）；
+  - `checks`：写入项看写入记录里这个功能最近一次（被路由器拒绝为 failed / refused，回读 match 为 works，mismatch 为 failed，其余 untested）
 
 - **报告兼容性（阶段 2）**：控制台「设置 → 设备」先生成报告并完整显示，用户检查后复制或下载，再点「在 GitHub 报告」，在新标签页打开 `https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device%20report%3A%20<型号>%20·%20<固件>`（[`src/feedback.ts`](../../src/feedback.ts)；表单在 `.github/ISSUE_TEMPLATE/device-report.yml`）。**地址里只有模板与标题**，报告由用户自己粘贴或作为文件附上；烽燧不上传任何东西，也没有对应的后端路由。
 - **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍（`GET /api/device/profile` 同样经 `sanitizeDeviceProfile`，因为令牌与智能体也读它）：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../../test/device-report.test.ts)）。
@@ -1234,23 +725,18 @@ export interface DeviceReport {
 - **解除锁定跟着两种锁定走**：`unlock_rf_locks` 与 `auto_unlock_rf_locks` 归在 `bandLock` 名下，但只要锁频段和锁小区中任一项开着就放行，避免出现「能锁不能解」；两项都被拒绝时它才被拒绝（其中一项是用户关闭的，就按 `DEVICE_WRITE_DISABLED`）。
 - **拒绝也记入审计**（结果为 `refused`）。
 
-```ts
-// SchedulerStatusSnapshot.device（GET /api/session/status、/api/telemetry 等的 schedulerStatus、SSE hello、MCP get_cpe_session_status）
-export interface DeviceAccessSnapshot {
-  family: RouterFamily;            // 连接保存的品牌（「设置 → 路由器」）：huawei 走 HiLink，其余走各自的驱动
-  model: string | null;            // 闸门所依据的型号：本次运行看到的，否则是上次存下的；从未识别时为 null，不是纯文本时为 "?"
-  verification: "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
-  confirmed: boolean;              // 本次运行已看到型号；之前写操作会先在自己的会话里读型号
-  writes: "allowed" | "experimental" | "unknown"; // allowed：已验证型号；experimental：其他型号（写入都是实验性写入，哪些可用看 features）；unknown：还没有识别结果
-  // telemetry、neighbors、topology、settings、accessControl、sms 各一项：已验证型号为 verified；
-  // 其他型号为它实际的应答：available、unavailable（回了 100002 / 100003 或读不懂的内容；code 为错误码，读不懂时为 null）或 unknown（还没读过）
-  reads: Record<ReadSection, { state: "verified" | "available" | "unavailable" | "unknown"; code: string | null }>;
-  // 每个写功能（WRITE_FEATURES：bandLock、cellLock、reboot、reconnect、mobileData、securitySwitches、
-  // wifi、antenna、accessControl、smsWrite）在这台路由器上的状态，见 2.11
-  features: Record<WriteFeature, "verified" | "enabled" | "disabled" | "unsupported" | "not_implemented" | "unknown">;
-  lteBands: number[] | null;        // 实验性锁频可用的 LTE 频段（net-mode-list 通告的）；已验证型号或没有通告时为 null
-}
-```
+类型定义以源码为准：[`DeviceAccessSnapshot`](../../src/device-access.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`DeviceAccessSnapshot`**：SchedulerStatusSnapshot.device（GET /api/session/status、/api/telemetry 等的 schedulerStatus、SSE hello、MCP get_cpe_session_status）
+  - `family`：连接保存的品牌（「设置 → 路由器」）：huawei 走 HiLink，其余走各自的驱动
+  - `model`：闸门所依据的型号：本次运行看到的，否则是上次存下的；从未识别时为 null，不是纯文本时为 "?"
+  - `confirmed`：本次运行已看到型号；之前写操作会先在自己的会话里读型号
+  - `writes`：allowed：已验证型号；experimental：其他型号（写入都是实验性写入，哪些可用看 features）；unknown：还没有识别结果
+  - `reads`：telemetry、neighbors、topology、settings、accessControl、sms 各一项：已验证型号为 verified；
+  - `reads`：其他型号为它实际的应答：available、unavailable（回了 100002 / 100003 或读不懂的内容；code 为错误码，读不懂时为 null）或 unknown（还没读过）
+  - `features`：每个写功能（WRITE_FEATURES：bandLock、cellLock、reboot、reconnect、mobileData、securitySwitches、
+  - `features`：wifi、antenna、accessControl、smsWrite）在这台路由器上的状态，见 2.11
+  - `lteBands`：实验性锁频可用的 LTE 频段（net-mode-list 通告的）；已验证型号或没有通告时为 null
 
 **未验证型号的读法**（详见 [`protocol.md`](protocol.md) 附录 A.10）：每个读取项各自成败。遥测的信号、状态、流量、月统计哪一部分回了错误码，就列进 `GlobalTelemetrySnapshot.unavailable`，其余照常；邻区、终端列表、路由器设置、访问控制、短信整项回 `100002` / `100003` 或读不懂时，刷新接口返回该项的缓存（通常为 `null`），`reads` 记为 `unavailable`，后台定时扫描不再问它，主动刷新时再试。终端列表依次尝试 `system/HostInfo`、`lan/HostInfo`、`wlan/host-list`（回 `100002` / `100003` 才换下一个，其他错误码让这次读取失败）。没有流量统计的型号不写吞吐时序。H168-383 与还没有识别结果的路由器照旧严格读取，`unavailable`、`source` 都不出现。
 
@@ -1292,15 +778,13 @@ export interface DeviceAccessSnapshot {
 | `GET /api/console/experimental` | — | `ExperimentalWritesResponse` |
 | `POST /api/console/experimental` | `{ feature: WriteFeature; enabled: boolean }` | `ExperimentalWritesResponse`。`enabled: false` 关闭，`true` 重新打开，都立即生效，重复操作不报错。只有烽燧在这台路由器上实现了的写入有开关：状态是 `unsupported`、`not_implemented`、`unknown`，或者路由器是已验证型号时，两个方向都返回 `409 EXPERIMENTAL_UNAVAILABLE`（附 `state`）；`feature` 不认识或 `enabled` 不是布尔值时 `400 VALIDATION_ERROR` |
 
-```ts
-export interface ExperimentalWritesResponse {
-  ok: true;
-  device: DeviceAccessSnapshot;      // 同 2.10，含 features 与 lteBands
-  disabled: Array<{ model: string; feature: WriteFeature; disabledAtIso: string }>; // 用户在当前型号上关闭的写入
-  writes: WriteResultRecord[];       // 最近的写入结果（最早的在前，最多 20 条），字段同设备报告的 writes，另有 id
-  agentTest: AgentTestStatus;        // 一键开始的 AI 智能体测试（v1.8.1，见 2.12）
-}
-```
+类型定义以源码为准：[`ExperimentalWritesResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`ExperimentalWritesResponse`**
+  - `device`：同 2.10，含 features 与 lteBands
+  - `disabled`：用户在当前型号上关闭的写入
+  - `writes`：最近的写入结果（最早的在前，最多 20 条），字段同设备报告的 writes，另有 id
+  - `agentTest`：一键开始的 AI 智能体测试（v1.8.1，见 2.12）
 
 - 关闭与重新打开都不需要确认词：默认就是开的，开关只表达「我不要这一项」。控制台在开关旁写明「没有在真机上验证过」，每个写操作自己的确认框里也保留这句提醒。
 
@@ -1313,13 +797,11 @@ export interface ExperimentalWritesResponse {
 - **断网 3 分钟的回退**：未验证的路由器上，不管从控制台、令牌、MCP 还是 Telegram 发起的锁频段或锁小区，`WanSelfHeal` 都至少看守 3 分钟（独立于 `LOCK_ROLLBACK_AFTER_MIN`，取两者中较长的）。WAN 一直没恢复：锁频段写回这次锁频在同一会话里写入前读到的 LTE 频段（`auto_unlock_rf_locks`，摘要 `controls.auto_restore_applied`，告警 `LOCK_ROLLED_BACK`）；锁小区没有可以写回的设置，解除全部锁定；读不到锁前频段时同样解除全部锁定。WAN 恢复并保持 2 分钟则保留这次锁定。看守与锁前的频段掩码存在加密的 `state.json`（`selfHealLockWatch` 的 `guard`、`restoreLteMask`），守护进程重启后从锁定的时间接着算；存下的掩码不是十六进制掩码时不写回，改为解除全部锁定。回退也要过闸门：两种锁定都被关闭时不写入，发 `SELF_HEAL_READ_ONLY`。
 - **Telegram**：未验证型号上，短信写命令（`/new`、`/send`、回复卡片、已读 / 全部已读 / 删除按钮）在 `smsWrite` 开着时可用，走明文通用实现；闸门拒绝时（这个型号上没有实现，或用户关闭了）回复说明并指向「设置 → 设备」，卡片不带写按钮。
 
-```ts
-export interface WriteCheck {
-  endpoints: string[];                  // 写过的端点，如 "/api/net/net-mode"
-  readback: "match" | "mismatch" | "unknown" | "pending" | "none"; // pending：重拨 / 重启，等之后的轮询；none：没有写成
-  reason: "differs" | "unreadable" | "send_failed" | "send_unconfirmed" | "no_change" | "unclear_change" | "no_restart" | "no_evidence" | null;
-}
-```
+类型定义以源码为准：[`WriteCheck`](../../src/device-access.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+
+- **`WriteCheck`**
+  - `endpoints`：写过的端点，如 "/api/net/net-mode"
+  - `readback`：pending：重拨 / 重启，等之后的轮询；none：没有写成
 
 ### 2.12 一键开始 AI 智能体测试与提醒（v1.8.1）
 
@@ -1339,32 +821,17 @@ export interface WriteCheck {
 
 `GET` / `POST /api/console/experimental` 的响应多了 `agentTest`：
 
-```ts
-type AgentTestSetting = "agentExperimental" | "agentWrites" | "agentSms" | "agentSmsSendPolicy";
+类型定义以源码为准：[`AgentTestSetting`](../../src/agent-test.ts) · [`AgentTestStatus`](../../src/agent-test.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface AgentTestStatus {
-  current: {                       // 进行中的测试（测试打开的东西还有开着的才有）
-    model: string;
-    startedAtIso: string;
-    sms: boolean;                  // 包含短信（短信写入才算进「通过」）
-    settings: AgentTestSetting[];  // 结束时会恢复的（还保持测试留下的样子）
-    tokens: Array<{ id: string; name: string; permissions: TokenPermission[] }>; // 测试加的、现在还在的权限
-    lastActivityAtIso: string;
-    remindedAtIso: string | null;
-    acknowledged: boolean;
-    passed: boolean;
-    remindAtIso: string | null;    // 下一次提醒；null：通过了、看过了，或没有开着的
-  } | null;
-  plan: {                          // 现在开始会打开什么（只有设置和令牌权限：写入本来就开着）
-    available: boolean;
-    settings: AgentTestSetting[];  // 不含短信的那部分
-    sms: { available: boolean; settings: AgentTestSetting[]; sendLimitPerHour: number };
-    tokens: Array<{ id: string; name: string; missing: TokenPermission[]; agentUsedAtIso: string | null }>; // 缺权限的令牌，智能体的排第一
-    suggestedTokenId: string | null;
-    tokenNeeded: boolean;
-  };
-}
-```
+- **`AgentTestStatus`**
+  - `current`：进行中的测试（测试打开的东西还有开着的才有）
+  - `current.sms`：包含短信（短信写入才算进「通过」）
+  - `current.settings`：结束时会恢复的（还保持测试留下的样子）
+  - `current.tokens`：测试加的、现在还在的权限
+  - `current.remindAtIso`：下一次提醒；null：通过了、看过了，或没有开着的
+  - `plan`：现在开始会打开什么（只有设置和令牌权限：写入本来就开着）
+  - `plan.settings`：不含短信的那部分
+  - `plan.tokens`：缺权限的令牌，智能体的排第一
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 
@@ -1405,38 +872,22 @@ export interface AgentTestStatus {
 | `sms:status` | 计数、同步状态或镜像发生变化 | `SmsStatusSnapshot` |
 | `contacts:updated` | 联系人新增、修改、删除或 vCard 导入 | `{ total: number }` |
 
-```ts
-export interface SpeedTickPayload {
-  tsMs: number;
-  tsIso: string;
-  downloadBps: number;
-  uploadBps: number;
-  downloadRateFormatted: string;
-  uploadRateFormatted: string;
-}
+类型定义以源码为准：[`SpeedTickPayload`](../../src/cpe-monitor.ts) · [`ControlAppliedEvent`](../../src/scheduler.ts) · [`AvoidanceBroadcastPayload`](../../src/scheduler.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
-export interface ControlAppliedEvent {
-  // 已知取值："lock_band" | "lock_cell" | "unlock_rf_locks" | "reboot_cpe" | "reconnect_cellular"
-  //          | "set_security_switches" | "set_wifi7_mlo" | "set_antenna_mode" | "set_mobile_data"
-  //          | "auto_unlock_rf_locks" | "auto_reconnect_cellular"（WAN 自愈；只在同一会话内确认 WAN 仍断开、移动数据开启并真正写入时广播）
-  action: string;
-  tsIso: string;
-  summaryZh: string;
-  summaryEn: string;
-  lockState?: PersistedLockState;  // 仅 lock_band / lock_cell / unlock_rf_locks / auto_unlock_rf_locks 携带
-  check?: WriteCheck;              // 仅未验证型号上的通用写入（阶段 3，见 2.11）：写过的端点与回读结果
-}
-
-export interface AvoidanceBroadcastPayload {
-  active: boolean;                 // true = 正在礼貌挂起让位真人会话；false = 未避让或已恢复
-  layer: 1 | 2 | null;             // 1 = state-login 预检命中；2 = 跨终端 IP 108003/108009 退避冷却中
-  stateCode: string | null;        // 避让中为 state-login 的 State（如 "0"）或错误码（如 "108003"）；恢复帧为 "-1"；空闲时为 null
-  sinceIso: string | null;         // 本次避让开始时间
-  cooldownUntilMs: number | null;  // 仅 Layer 2：静默截止时间戳（45s 起指数翻倍、封顶 300s，每级另加 5%）
-  messageZh: string;               // 避让中 "用户正在使用 CPE 后台，监控自动避让中"；恢复帧 "CPE 官方后台已空闲，实时遥测自动恢复"；空闲 "空闲待命"
-  messageEn: string;               // 对应 locales/en.json 中 session.mode_yielding / mode_resumed / mode_idle 的英文文案
-}
-```
+- **`ControlAppliedEvent`**
+  - `action`：已知取值："lock_band" | "lock_cell" | "unlock_rf_locks" | "reboot_cpe" | "reconnect_cellular"
+  - `action`：| "set_security_switches" | "set_wifi7_mlo" | "set_antenna_mode" | "set_mobile_data"
+  - `action`：| "auto_unlock_rf_locks" | "auto_reconnect_cellular"（WAN 自愈；只在同一会话内确认 WAN 仍断开、移动数据开启并真正写入时广播）
+  - `lockState`：仅 lock_band / lock_cell / unlock_rf_locks / auto_unlock_rf_locks 携带
+  - `check`：仅未验证型号上的通用写入（阶段 3，见 2.11）：写过的端点与回读结果
+- **`AvoidanceBroadcastPayload`**
+  - `active`：true = 正在礼貌挂起让位真人会话；false = 未避让或已恢复
+  - `layer`：1 = state-login 预检命中；2 = 跨终端 IP 108003/108009 退避冷却中
+  - `stateCode`：避让中为 state-login 的 State（如 "0"）或错误码（如 "108003"）；恢复帧为 "-1"；空闲时为 null
+  - `sinceIso`：本次避让开始时间
+  - `cooldownUntilMs`：仅 Layer 2：静默截止时间戳（45s 起指数翻倍、封顶 300s，每级另加 5%）
+  - `messageZh`：避让中 "用户正在使用 CPE 后台，监控自动避让中"；恢复帧 "CPE 官方后台已空闲，实时遥测自动恢复"；空闲 "空闲待命"
+  - `messageEn`：对应 locales/en.json 中 session.mode_yielding / mode_resumed / mode_idle 的英文文案
 
 ---
 
