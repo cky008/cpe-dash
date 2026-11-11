@@ -88,7 +88,7 @@ order: 18
 
 报告只含接口结构和少量白名单信息（型号、固件、网页版本、功能开关、频段号），不含 IMEI、IMSI、MAC、IP、号码、小区或 Wi-Fi 名称。烽燧不会自动上传任何东西。
 
-有人在真机上确认某项功能可用并报告后，维护者会把它加进代码里的 `VERIFIED_FEATURES` 清单，[支持的设备](supported-devices.md)里那一格随之变成 ○。
+有人在真机上确认某项功能可用并报告后，维护者会把它加进代码里的 `VERIFIED_FEATURES` 清单，[支持的设备](supported-devices.md)里那一格随之变成 ✓。
 
 <a id="ai"></a>
 

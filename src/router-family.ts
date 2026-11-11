@@ -52,7 +52,7 @@ export interface RouterFamilyFacts {
   /** The router's usual address, a hint for the connection form. */
   defaultAddress: string;
   /** Read sections the family implements (the others are not available on it). */
-  reads: ReadonlyArray<"telemetry" | "neighbors" | "topology">;
+  reads: ReadonlyArray<"telemetry" | "neighbors" | "topology" | "sms">;
   /**
    * The writes FengSui implements for a router of this family that nobody verified: a driver family's
    * are what its driver sends, Huawei's are the generic HiLink writes (appendix A.11 of the protocol
@@ -71,7 +71,7 @@ export interface RouterFamilyFacts {
  * in a format FengSui could read without guessing.
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
-  huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
+  huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },

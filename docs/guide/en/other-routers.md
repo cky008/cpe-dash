@@ -88,7 +88,7 @@ Your feedback helps verify more router models:
 
 The report contains only API structures and safe metadata (model, firmware, web interface version, feature toggles, and band numbers). It excludes IMEI, IMSI, MAC addresses, IP addresses, phone numbers, cell identifiers, and Wi-Fi network names. FengSui never uploads anything automatically.
 
-Once someone confirms and reports that a feature works on a real router, maintainers add it to `VERIFIED_FEATURES` in the codebase, and its mark under [Supported devices](supported-devices.md) turns into ○.
+Once someone confirms and reports that a feature works on a real router, maintainers add it to `VERIFIED_FEATURES` in the codebase, and its mark under [Supported devices](supported-devices.md) turns into ✓.
 
 <a id="ai"></a>
 

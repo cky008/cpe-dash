@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEVICE_FEATURES } from "../src/device-profile.ts";
-import { MODULES, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
+import { DeviceAccess } from "../src/device-access.ts";
+import { MODULES, deviceSupportRow, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
+import type { SchedulerStatusSnapshot } from "../src/scheduler.ts";
+import { experimentalOffer, unconfirmedWrite } from "../web/src/core/device-access-view.ts";
+import { WRITE_STATE_KEYS } from "../web/src/core/device-view.ts";
+import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isVerifiedFeature, isVerifiedModel } from "../src/firmware.ts";
 import { ROUTER_FAMILY_FACTS, isRouterFamily } from "../src/router-family.ts";
 
@@ -47,16 +52,38 @@ describe("verified features of other models", () => {
     assert.equal(isVerifiedFeature("huawei", "B535-232", "bandLock", "write"), VERIFIED_FEATURES.some((e) => e.model === "B535-232" && e.feature === "bandLock" && e.access === "write"));
   });
 
-  it("marks each verified feature ○ on its model's row of the Supported devices table, and nothing else", () => {
-    const row = (model: string): string | undefined => supportedDevicesSection("en", SAMPLE).split("\n").find((line) => line.startsWith(`| ${model} |`));
-    const smsColumn = MODULES.findIndex((module) => module.features.includes("smsWrite"));
-    assert.equal(row("B535-232")?.split(" | ")[2 + smsColumn], "△/○", "SMS reading still may work, sending verified (#15)");
-    assert.equal(supportMark("B535-232", "telemetry", SAMPLE), "○");
-    assert.equal(supportMark("B535-232", "bandLock", SAMPLE), "○");
-    assert.equal(supportMark("E5576-320", "reboot", SAMPLE), "○");
-    assert.equal(supportMark("E5576-320", "reconnect", SAMPLE), "△", "only the feature reported");
-    assert.equal(supportMark("B535-233", "bandLock", SAMPLE), "△", "only the model reported");
+  it("carries one registered report from the entry to the table, the gate and the console, on a router of another brand", () => {
+    // One entry, written as CONTRIBUTING.md says from a device report: brand, the model as the router reports it, build, feature, access, issue
+    const report: VerifiedFeature = { family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", feature: "cellLock", access: "write", issue: 41 };
+    const list = [report];
+    // The table: that cell of that model's row turns into ✓, and nothing else changes
+    const table = (verified: ReadonlyArray<VerifiedFeature>): string[] | undefined =>
+      supportedDevicesSection("en", verified)
+        .split("\n")
+        .find((line) => line.startsWith("| U60 Pro (MU5250) |"))
+        ?.slice(1, -1)
+        .split("|")
+        .map((cell) => cell.trim());
+    const cellColumn = 3 + MODULES.findIndex((module) => module.features.includes("cellLock"));
+    assert.deepEqual([table([])?.[cellColumn], table(list)?.[cellColumn]], ["△", "✓"]);
+    assert.deepEqual(table(list)?.filter((_, i) => i !== cellColumn), table([])?.filter((_, i) => i !== cellColumn));
+    assert.equal(supportMark("zte-zwrt", "U60 Pro (MU5250)", "cellLock", list), "✓");
+    assert.equal(supportMark("zte-zwrt", "U60 Pro (MU5250)", "bandLock", list), "?", "only the feature reported");
+    // The router: the gate counts it as verified, so Settings → Device and the controls say so
+    const access = new DeviceAccess({ family: "zte-zwrt", verifiedFeatures: list });
+    access.see("MU5250", report.softwareVersion);
+    const device = access.snapshot();
+    assert.equal(device.features.cellLock, "verified");
+    const scheduler = { device } as unknown as SchedulerStatusSnapshot;
+    const offered = experimentalOffer(scheduler).find((entry) => entry.feature === "cellLock");
+    assert.deepEqual([offered?.state, SETTINGS_TEXT["zh-CN"][WRITE_STATE_KEYS.verified], SETTINGS_TEXT.en[WRITE_STATE_KEYS.verified]], ["verified", "已验证", "verified"]);
+    assert.equal(unconfirmedWrite(scheduler, ["cellLock"]), false, "its confirmation no longer says it was never checked");
+    assert.equal(unconfirmedWrite(scheduler, ["bandLock"]), true);
+    // And the row the console shows for this router
+    assert.equal(deviceSupportRow("zte-zwrt", "MU5250", list).modules.find((m) => m.en === "Cell lock")?.mark, "✓");
+    // Nothing of this stays in the real list
     assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", VERIFIED_FEATURES));
+    assert.equal(VERIFIED_FEATURES.some((entry) => entry.issue === 41), false);
     assert.ok(VERIFIED_FIRMWARE.length > 0);
   });
 });
