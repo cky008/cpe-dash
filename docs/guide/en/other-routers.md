@@ -143,3 +143,7 @@ Thanks to [Curtion/fiberhome-cpe-lg6121f-sms-notice](https://github.com/Curtion/
 Thanks to [upchr/fiberhome-cpe](https://github.com/upchr/fiberhome-cpe): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
 
 Thanks to [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
+
+Thanks to [kukume/fiberhome-cpe](https://github.com/kukume/fiberhome-cpe): FengSui consulted the interface notes it collects when adding signal readings and SMS for FiberHome's Pro series. FengSui contains none of its code and does not depend on it.
+
+Thanks to [xxtg666/FiberHome-LG6851F-SMS-Forward](https://github.com/xxtg666/FiberHome-LG6851F-SMS-Forward): FengSui consulted the interface notes it collects when adding signal readings and SMS for FiberHome's Pro series. FengSui contains none of its code and does not depend on it.

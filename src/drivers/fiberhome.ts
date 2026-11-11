@@ -1,12 +1,13 @@
 import crypto from "node:crypto";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import type { SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
 import { neighbourOf, ratOfChannel } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
-import { DriverSessionClosedError, loginLocked, loginUnplaced, signedInElsewhere, wrongPassword } from "./login.ts";
+import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, signedInElsewhere, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
 import { countListed, dateOfParts, settleSmsListing, storedIndices, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
@@ -63,6 +64,16 @@ import {
  * received message opened, `send_msg` sends, `sms_del_session` deletes a whole conversation. It is
  * asked in the session this driver's login opened; a router that wants its web login for it answers
  * nothing FengSui can read, and SMS then counts as not on that router (no second password goes out).
+ *
+ * The Pro series (LG6851F and its kin) answers under `/fh_api/` instead, with the web login only
+ * (`/fh_api/sign/DO_WEB_LOGIN`) and its readings as TR-069 nodes (`get_value_by_xmlnode`). Its
+ * `is_encrypt` says whether requests and answers are encrypted: then AES-128-CBC under a key worked
+ * out from the session id and a five-character token, an IV of the bytes 111 to 126, a body of six
+ * random characters before the hexadecimal, an answer with six characters before it. The token is
+ * the one on record (`FIBERHOME_PRO_TOKEN`); the key is tried on a login-free call before any
+ * password goes out, and a firmware whose key it does not open gets no password at all. On record for
+ * it: the signal, temperature and traffic nodes, SMS listing and marking read; nothing about locks,
+ * reboot, or sending and deleting SMS, so those are refused in its session.
  */
 
 const FAMILY = "fiberhome" as const;
@@ -162,6 +173,286 @@ export function checkFiberhomeSmsText(content: string): void {
 /** A conversation's sender as the delete command may be handed it (the router puts it into a command line as well). */
 const SAFE_SENDER = /^[0-9A-Za-z+_.-]{1,32}$/;
 
+// --------------------------------------------------------------------------- the Pro series
+
+const PRO_NC = "/fh_api/tmp/FHNCAPIS";
+const PRO_WEB = "/fh_api/tmp/FHAPIS";
+const PRO_LOGIN = "/fh_api/sign/DO_WEB_LOGIN";
+const PRO_LOGOUT = "/fh_api/sign/DO_WEB_LOGOUT";
+/** The Pro page's IV: the bytes 111 to 126 (`opqrstuvwxyz{|}~`). */
+const PRO_IV = Buffer.from(Array.from({ length: 16 }, (_, i) => 111 + i));
+/** The token the Pro key is worked out with, as one Pro router's page holds it once `is_encrypt` is read. */
+export const FIBERHOME_PRO_TOKEN = "JJ8Hs";
+/** The key positions taken from the token; the others come from the session id. */
+const PRO_TOKEN_POSITIONS: ReadonlySet<number> = new Set([5, 7, 10, 11, 13]);
+
+/** A character of `text` by index, counting from the end for a negative one (as both sources do); refused past either end. */
+function codeAt(text: string, index: number): number {
+  const at = index < 0 ? text.length + index : index;
+  const code = text.charCodeAt(at);
+  if (at < 0 || at >= text.length || Number.isNaN(code)) throw new CpeAnswerFormatError("the session id is too short for this firmware's key");
+  return code;
+}
+
+/**
+ * The Pro page's AES-128 key: sixteen bytes, five of them the token's characters moved by the second
+ * character of the session id (its code mod 3, minus 1), the others the session id's characters
+ * taken backwards in steps of four, one down (or, past its start, forwards and one up).
+ */
+export function fiberhomeProKey(sessionid: string, token: string = FIBERHOME_PRO_TOKEN): Buffer {
+  if (token.length < PRO_TOKEN_POSITIONS.size) throw new CpeAnswerFormatError("the firmware's token is too short");
+  const offset = (codeAt(sessionid, 1) % 3) - 1;
+  const key = Buffer.alloc(16);
+  let next = 0;
+  for (let i = 0; i < 16; i++) {
+    let code: number;
+    if (PRO_TOKEN_POSITIONS.has(i)) code = token.charCodeAt(next++) + offset;
+    else if (sessionid.length > i * 4 + 2) code = codeAt(sessionid, sessionid.length - 2 - i * 4) - 1;
+    else code = codeAt(sessionid, i * 4 - 31) + 1;
+    key[i] = code & 0xff;
+  }
+  return key;
+}
+
+/** A Pro request body: six random characters, then the JSON as AES-128-CBC in hexadecimal. */
+export function fiberhomeProEncrypt(plain: string, key: Buffer): string {
+  const cipher = crypto.createCipheriv("aes-128-cbc", key, PRO_IV);
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  const prefix = Array.from({ length: 6 }, () => alphabet[crypto.randomInt(alphabet.length)]).join("");
+  return `${prefix}${Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]).toString("hex")}`;
+}
+
+/**
+ * A Pro answer: plain JSON as it is, else six characters, then hexadecimal AES-128-CBC under the
+ * key. `null`: neither (the key does not open it, or it is not such an answer).
+ */
+export function fiberhomeProDecrypt(text: string, key: Buffer | null): string | null {
+  const raw = text.trim().replace(/^"(.*)"$/s, "$1");
+  if (raw.startsWith("{") || raw.startsWith("[")) return raw;
+  const hex = raw.slice(6);
+  if (key === null || hex.length === 0 || hex.length % 32 !== 0 || !/^[0-9A-Fa-f]+$/.test(hex)) return null;
+  try {
+    const decipher = crypto.createDecipheriv("aes-128-cbc", key, PRO_IV);
+    return Buffer.concat([decipher.update(Buffer.from(hex, "hex")), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** A Pro router: its session id comes from `/fh_api/`. */
+async function proSessionId(http: LanHttp): Promise<string> {
+  const answer = await http.getJson(PRO_NC, { query: [["ajaxmethod", "get_refresh_sessionid"]], referer: GET_REFERER });
+  const sid = textOf(fieldOf(answer, "sessionid"));
+  if (sid === null || !/^[0-9A-Za-z]{8,128}$/.test(sid)) throw new CpeAnswerFormatError("get_refresh_sessionid: no session id");
+  return sid;
+}
+
+/** How a Pro router wants its calls: encrypted with the token (`token`), or plain (`null`). */
+type ProCipher = { token: string } | null;
+
+/** One Pro call with a fresh session id, encrypted the way the router said; the answer as JSON. */
+async function proCall(http: LanHttp, cipher: ProCipher, path: string, method: string, dataObj: Record<string, unknown> | null): Promise<unknown> {
+  const sessionid = await proSessionId(http);
+  const key = cipher ? fiberhomeProKey(sessionid, cipher.token) : null;
+  const plain = JSON.stringify({ dataObj, ajaxmethod: method, sessionid });
+  const res = await http.request({ method: "POST", path, query: [["_", String(Date.now())]], body: key ? fiberhomeProEncrypt(plain, key) : plain, contentType: "application/json; charset=utf-8", headers: { "X-Requested-With": "XMLHttpRequest" }, referer: "/main.html" });
+  if (res.status < 200 || res.status >= 300) throw new CpeAnswerFormatError(`${method}: HTTP ${res.status}`);
+  const text = fiberhomeProDecrypt(res.text, key);
+  if (text === null) throw new CpeAnswerFormatError(`${method}: an answer this session cannot read`);
+  return text.trim() === "" ? {} : parseJsonText(text, method);
+}
+
+/** The TR-069 nodes a Pro reading asks for, by the name its answer gives each. */
+const PRO_NODES: Readonly<Record<string, string>> = {
+  ModelName: "DeviceInfo.ModelName",
+  SoftwareVersion: "DeviceInfo.SoftwareVersion",
+  HardwareVersion: "DeviceInfo.HardwareVersion",
+  RSRP: "X_FH_MobileNetwork.RadioSignalParameter.RSRP",
+  RSSI: "X_FH_MobileNetwork.RadioSignalParameter.RSSI",
+  SINR: "X_FH_MobileNetwork.RadioSignalParameter.SINR",
+  RSRQ: "X_FH_MobileNetwork.RadioSignalParameter.RSRQ",
+  BAND: "X_FH_MobileNetwork.RadioSignalParameter.BAND",
+  PCI: "X_FH_MobileNetwork.RadioSignalParameter.PCI",
+  SSB_RSRP: "X_FH_MobileNetwork.RadioSignalParameter.SSB_RSRP",
+  CarrierName: "X_FH_MobileNetwork.SIM.1.CarrierName",
+  Modem5GTemperature: "X_FH_MobileNetwork.Temperature.Modem5GTemperature",
+  Modem4GTemperature: "X_FH_MobileNetwork.Temperature.Modem4GTemperature",
+  MonthTxBytes: "X_FH_MobileNetwork.TrafficStats.MonthTxBytes",
+  MonthRxBytes: "X_FH_MobileNetwork.TrafficStats.MonthRxBytes",
+};
+
+/** A temperature the Pro nodes give in thousandths of a degree. */
+function milliCelsius(value: unknown): number | null {
+  const raw = numberOf(value);
+  return raw === null ? null : temperatureOf(raw / 1000);
+}
+
+/**
+ * A Pro reading in FengSui's shape. The nodes name one serving cell: with an SSB RSRP (the 5G NR
+ * synchronisation block, TS 38.215) it is the NR one, else the LTE one. The mode, the channel and
+ * secondary carriers are not among the nodes on record, so they stay empty.
+ */
+export function parseFiberhomeProTelemetry(raw: Record<string, unknown>): DriverTelemetry {
+  const ssb = rsrpOf(raw["SSB_RSRP"]);
+  const cell: DriverCell = {
+    ...emptyCell(),
+    band: bandOf(raw["BAND"]),
+    pci: pciOf(raw["PCI"], ssb !== null ? "NR" : "LTE"),
+    rsrpDbm: ssb ?? rsrpOf(raw["RSRP"]),
+    rsrqDb: rsrqOf(raw["RSRQ"]),
+    sinrDb: fiberSinr(raw["SINR"]),
+    rssiDbm: rssiOf(raw["RSSI"]),
+  };
+  const has = cellHasData(cell);
+  const temps = [milliCelsius(raw["Modem5GTemperature"]), milliCelsius(raw["Modem4GTemperature"])].filter((t): t is number => t !== null);
+  const monthDown = counterOf(raw["MonthRxBytes"]);
+  const monthUp = counterOf(raw["MonthTxBytes"]);
+  return {
+    model: labelOf(raw["ModelName"]),
+    softwareVersion: labelOf(raw["SoftwareVersion"]),
+    hardwareVersion: labelOf(raw["HardwareVersion"]),
+    operatorName: labelOf(raw["CarrierName"]),
+    plmn: null,
+    mode: null,
+    lte: has && ssb === null ? cell : null,
+    nr: has && ssb !== null ? cell : null,
+    carriers: [],
+    wan: { connected: null, ipv4: null, ipv6: null, uptimeSec: null },
+    traffic:
+      monthDown === null && monthUp === null
+        ? null
+        : { downloadBytesPerSec: null, uploadBytesPerSec: null, totalDownloadBytes: null, totalUploadBytes: null, sessionDownloadBytes: null, sessionUploadBytes: null, sessionSeconds: null, monthDownloadBytes: monthDown, monthUploadBytes: monthUp, monthTotalBytes: null, monthSeconds: null },
+    temperatureC: temps.length > 0 ? Math.max(...temps) : null,
+    signalBars: null,
+  };
+}
+
+/** What the Pro series has no record of: refused in its session, before anything is sent. */
+function proNotOnRecord(what: string): CpeControlValidationError {
+  return new CpeControlValidationError(`This FiberHome Pro router's interface has no record of how to ${what}, so FengSui does not do it here; nothing was sent`);
+}
+
+class FiberhomeProSession implements DriverSessionHandle {
+  readonly family = FAMILY;
+  readonly #http: LanHttp;
+  readonly #cipher: ProCipher;
+  #reading: Record<string, unknown> | null = null;
+  #open = true;
+
+  constructor(http: LanHttp, cipher: ProCipher) {
+    this.#http = http;
+    this.#cipher = cipher;
+  }
+
+  get open(): boolean {
+    return this.#open;
+  }
+
+  #guard(): void {
+    if (!this.#open) throw new DriverSessionClosedError();
+  }
+
+  async #call(method: string, dataObj: Record<string, unknown> | null): Promise<unknown> {
+    this.#guard();
+    return await proCall(this.#http, this.#cipher, PRO_WEB, method, dataObj);
+  }
+
+  async #nodes(): Promise<Record<string, unknown>> {
+    const answer = await this.#call("get_value_by_xmlnode", { ...PRO_NODES });
+    if (!isPlainObject(answer)) throw new CpeAnswerFormatError("get_value_by_xmlnode: not an object");
+    this.#reading = answer;
+    return answer;
+  }
+
+  async identify(): Promise<DriverIdentity> {
+    const raw = this.#reading ?? (await this.#nodes());
+    return { model: labelOf(raw["ModelName"]), softwareVersion: labelOf(raw["SoftwareVersion"]), hardwareVersion: labelOf(raw["HardwareVersion"]) };
+  }
+
+  async telemetry(): Promise<DriverTelemetry> {
+    return parseFiberhomeProTelemetry(await this.#nodes());
+  }
+
+  async neighbours(): Promise<DriverNeighbour[]> {
+    this.#guard();
+    throw new SectionUnavailableError("The nearby-cell list", null);
+  }
+
+  async lockState(): Promise<DriverLockState> {
+    throw proNotOnRecord("read its locks");
+  }
+
+  async setBandLock(): Promise<void> {
+    throw proNotOnRecord("lock bands");
+  }
+
+  async setCellLock(): Promise<void> {
+    throw proNotOnRecord("lock a cell");
+  }
+
+  async unlockAll(): Promise<void> {
+    throw proNotOnRecord("take its locks off");
+  }
+
+  async reboot(): Promise<void> {
+    throw proNotOnRecord("reboot it");
+  }
+
+  /** SMS as the Pro page reads it: the listing and marking read are on record; sending and deleting are not. */
+  readonly sms: DriverSms = {
+    keepsSent: true,
+    list: async () => (await this.#smsConversations()).flatMap((c) => c.messages),
+    counters: async (listed) => countListed(listed ?? (await this.#smsConversations()).flatMap((c) => c.messages), 0, { unread: true }),
+    markRead: (indices, check) => this.#smsMarkRead(indices, check),
+  };
+
+  async #smsConversations(): Promise<FiberhomeConversation[]> {
+    const answer = await this.#call("get_sms_data", null);
+    if (!isPlainObject(answer)) throw new CpeAnswerFormatError("get_sms_data: not an object");
+    return parseFiberhomeSms(answer);
+  }
+
+  async #smsMarkRead(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const received = storedIndices(indices).filter((handle) => handle < SMS_SENT_HANDLE_BASE);
+    if (received.length === 0) return;
+    const url: Record<string, string> = {};
+    const value: Record<string, string> = {};
+    for (const handle of received) {
+      const key = `smsIsopend${handle - 1}`;
+      url[key] = `InternetGatewayDevice.X_FH_MobileNetwork.SMS_Recv.SMS_RecvMsg.${handle - 1}.isOpened`;
+      value[key] = "1";
+    }
+    this.#guard();
+    noteSent(check, FAMILY, "set_value_by_xmlnode");
+    await this.#call("set_value_by_xmlnode", { url, value });
+    settleSmsListing(check, await this.#smsConversations().then((list) => list.flatMap((c) => c.messages)).catch(() => null), received, "read");
+  }
+
+  async logout(): Promise<void> {
+    if (!this.#open) return;
+    this.#open = false;
+    await proCall(this.#http, this.#cipher, PRO_LOGOUT, "DO_WEB_LOGOUT", null);
+  }
+}
+
+/**
+ * Whether the Pro router encrypts, and if so whether the key on record opens its answers: asked of a
+ * login-free call (`get_device_info`) before any password goes out. Throws `DriverLoginMethodError`
+ * when it does not, so a firmware with another key gets no password at all.
+ */
+async function proCipher(http: LanHttp): Promise<ProCipher> {
+  const feature = await http.getJson(PRO_NC, { query: [["ajaxmethod", "is_encrypt"]], referer: GET_REFERER, headers: { "X-Requested-With": "XMLHttpRequest" } });
+  if (textOf(fieldOf(feature, "enable")) !== "1") return null;
+  const cipher = { token: FIBERHOME_PRO_TOKEN };
+  try {
+    await proCall(http, cipher, PRO_NC, "get_device_info", null);
+  } catch (err) {
+    if (err instanceof CpeAnswerFormatError) throw new DriverLoginMethodError("this FiberHome Pro firmware encrypts with a key FengSui has no record of");
+    throw err;
+  }
+  return cipher;
+}
+
 async function freshSession(http: LanHttp): Promise<string> {
   const answer = await http.getJson(NC, { query: [["ajaxmethod", "get_refresh_sessionid"]], referer: GET_REFERER });
   const sid = textOf(fieldOf(answer, "sessionid"));
@@ -170,8 +461,8 @@ async function freshSession(http: LanHttp): Promise<string> {
 }
 
 /** One call, with a fresh `sessionid` and the page the router expects for it. */
-async function tool(http: LanHttp, method: string, dataObj: Record<string, unknown> | null): Promise<Record<string, unknown>> {
-  const sessionid = await freshSession(http);
+async function tool(http: LanHttp, method: string, dataObj: Record<string, unknown> | null, sid?: string): Promise<Record<string, unknown>> {
+  const sessionid = sid ?? (await freshSession(http));
   const res = await http.request({
     method: "POST",
     path: TOOL,
@@ -548,17 +839,29 @@ export const fiberhomeProtocol: DriverProtocol = {
   family: FAMILY,
 
   async detect(http: LanHttp): Promise<boolean> {
-    await freshSession(http);
+    // The first series first (the request this driver always sent), then the Pro series' own path
+    await freshSession(http).catch(() => proSessionId(http));
     return true;
   },
 
   async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
-    const status = await tool(http, "app_get_login_status", null);
+    // The first series' session id, as always; a router without it is a Pro one, whose login answer
+    // says who is signed in (no login-free status is on record for it)
+    const sid = await freshSession(http).catch(() => null);
+    if (sid === null) {
+      await proSessionId(http);
+      SERIES.set(http, "pro");
+      return null;
+    }
+    SERIES.set(http, "first");
+    const status = await tool(http, "app_get_login_status", null, sid);
     const locked = textOf(status["lockstatus"]) === "1";
     return { occupied: textOf(status["login_status"]) === "1", locked: locked ? { waitSec: intOf(status["remaintime"]) } : null };
   },
 
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
+    const series = SERIES.get(http) ?? ((await isFirstSeries(http)) ? "first" : "pro");
+    if (series === "pro") return await proLogin(http, credentials);
     const answer = await tool(http, "app_do_login", { username: credentials.username || "admin", password: credentials.password });
     const result = textOf(answer["login_result"]);
     if (result === "0") return new FiberhomeSession(http);
@@ -573,3 +876,31 @@ export const fiberhomeProtocol: DriverProtocol = {
     throw loginUnplaced(`login answered ${result ?? "no result"}`);
   },
 };
+
+/** Which series the precheck of this session found (the login goes by it, without asking again). */
+const SERIES = new WeakMap<LanHttp, "first" | "pro">();
+
+/** The first series answers `/api/tmp/FHNCAPIS`; a router that does not is asked the Pro series' way. */
+async function isFirstSeries(http: LanHttp): Promise<boolean> {
+  try {
+    await freshSession(http);
+    return true;
+  } catch {
+    await proSessionId(http);
+    return false;
+  }
+}
+
+/** The Pro web login, once, with the key settled before the password goes out. */
+async function proLogin(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
+  const cipher = await proCipher(http);
+  const answer = await proCall(http, cipher, PRO_LOGIN, "DO_WEB_LOGIN", { username: credentials.username || "admin", password: credentials.password });
+  const result = textOf(fieldOf(answer, "result"));
+  if (result === "0") return new FiberhomeProSession(http, cipher);
+  if (result === "1") throw signedInElsewhere("another administrator is signed in");
+  // Three wrong passwords in a row lock it for a minute
+  if (result === "2") throw loginLocked("the router has locked its login", 60);
+  if (result === "4") throw wrongPassword("the router refused the user name or password");
+  // 3: this administrator is disabled; no other password would get in either
+  throw loginUnplaced(`login answered ${result ?? "no result"}`);
+}

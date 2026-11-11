@@ -305,12 +305,16 @@ Usually at `192.168.8.1`; sign in with the user name `admin` and the admin passw
 | LG6151M | Indoor CPE | ? | ? |  | △ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6151M) |
 | LG6121 | Indoor CPE | ? | ? |  | △ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121) |
 | LG522 | Indoor CPE | ? | ? |  | △ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG522) |
+| LG6851F | Indoor CPE | △ |  |  | ?/△ |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6851F) |
 
 Notes for this table:
 
-- △ SMS: SMS is on the encrypted interface of the router's own web page, which FengSui asks in the session it is signed in with; a router that wants a separate web sign-in for it leaves this empty (every model in this table).
-- △ SMS: sends plain English text only (letters, digits and common punctuation: the one encoding on record), and never text with a backquote, a dollar sign, a double quote or a backslash, because the router hands the text to a command line; deletes a whole conversation at a time (every model in this table).
-- △ Reboot & redial: reboot only; FengSui does not do redial here yet (every model in this table).
+- △ SMS: SMS is on the encrypted interface of the router's own web page, which FengSui asks in the session it is signed in with; a router that wants a separate web sign-in for it leaves this empty (every model but the LG6851F).
+- △ SMS: sends plain English text only (letters, digits and common punctuation: the one encoding on record), and never text with a backquote, a dollar sign, a double quote or a backslash, because the router hands the text to a command line; deletes a whole conversation at a time (every model but the LG6851F).
+- △ Reboot & redial: reboot only; FengSui does not do redial here yet (every model but the LG6851F).
+- △ Signal & traffic: FengSui opens the router's encrypted answers with the key on record; a firmware with another key gets no password from FengSui, and this stays empty (LG6851F).
+- △ SMS: marks messages read only: this firmware's interface notes have no way to send or delete one (LG6851F).
+- FiberHome's Pro series: the same web interface under another path (`/fh_api/`) with another encryption key, which FengSui recognises when it connects. FengSui reads its signal (one serving cell), this month's traffic and SMS there, and can mark messages read; nearby cells, band lock, cell lock and reboot are not in its interface notes, so FengSui does not do them here (LG6851F).
 
 <a id="brand-nradio"></a>
 

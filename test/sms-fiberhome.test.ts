@@ -4,8 +4,21 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 import { SectionUnavailableError, sectionUnavailableCode } from "../src/cpe-domain.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
-import { checkFiberhomeSmsText, fiberhomeDecrypt, fiberhomeEncrypt, fiberhomeProtocol, parseFiberhomeSms } from "../src/drivers/fiberhome.ts";
-import type { DriverSmsSendOptions } from "../src/drivers/types.ts";
+import {
+  FIBERHOME_PRO_TOKEN,
+  checkFiberhomeSmsText,
+  fiberhomeDecrypt,
+  fiberhomeEncrypt,
+  fiberhomeProDecrypt,
+  fiberhomeProEncrypt,
+  fiberhomeProKey,
+  fiberhomeProtocol,
+  parseFiberhomeProTelemetry,
+  parseFiberhomeSms,
+} from "../src/drivers/fiberhome.ts";
+import { CpeApiError } from "../src/cpe-client.ts";
+import { DriverLoginMethodError } from "../src/drivers/login.ts";
+import type { DriverSession, DriverSmsSendOptions } from "../src/drivers/types.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { createBrandSmsFixture, smsOf, smsWritesOf } from "./helpers/sms-brand-fixture.ts";
 
@@ -332,6 +345,221 @@ describe("fiberhome SMS: through the SMS service", () => {
       assert.equal(snap?.sms, null);
       assert.equal(fx.scheduler.getStatus().device.reads.sms.state, "unavailable");
       assert.equal(await fx.service.sync("full"), null);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+/** A FiberHome Pro router: `/fh_api/`, the web login, TR-069 nodes, encrypted or plain as `is_encrypt` says. */
+function fiberhomeProRouter(opts: { encrypt?: boolean; token?: string; login?: Record<string, unknown>; sms?: Conversations } = {}) {
+  let counter = 0;
+  let current = "";
+  let loggedIn = false;
+  const encrypting = opts.encrypt !== false;
+  const token = opts.token ?? FIBERHOME_PRO_TOKEN;
+  const state = { sms: opts.sms ?? seed(), calls: [] as Array<{ path: string; method: string; data: Record<string, unknown> | null }>, logouts: 0, bodies: [] as string[] };
+  const smsData = (): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    let session = 0;
+    for (const [phone, messages] of Object.entries(state.sms)) {
+      const conversation: Record<string, unknown> = { session_phone: phone };
+      messages.forEach((m, i) => {
+        conversation[`msg${i}`] = { msg_content: m.text, time: m.time, childnode: String(m.node), isOpened: m.opened ? "1" : "0", rcvorsend: m.sent ? "send" : "recv" };
+      });
+      out[`session${session++}`] = conversation;
+    }
+    return out;
+  };
+  const nodes: Record<string, string> = {
+    ModelName: "LG6851F",
+    SoftwareVersion: "RP0301",
+    HardwareVersion: "WKE2.094.476A01",
+    RSRP: "-90",
+    RSSI: "-60",
+    SINR: "21",
+    RSRQ: "-11",
+    BAND: "78",
+    PCI: "142",
+    SSB_RSRP: "-79",
+    CarrierName: "Three",
+    Modem5GTemperature: "46500",
+    Modem4GTemperature: "41000",
+    MonthTxBytes: "5368709120",
+    MonthRxBytes: "85899345920",
+  };
+  const mock = new LanRouterMock((req) => {
+    // The first series' path is not on this router
+    if (req.path.startsWith("/api/")) return { status: 404, text: "" };
+    if (req.method === "GET" && req.path === "/fh_api/tmp/FHNCAPIS") {
+      if (req.query.get("ajaxmethod") === "is_encrypt") return { json: encrypting ? { enable: "1", data: "c2VhbGVkLXRva2Vu" } : { enable: "0" } };
+      current = `sid${String(++counter).padStart(29, "0")}`;
+      return { json: { sessionid: current } };
+    }
+    state.bodies.push(req.body);
+    // The router's own key for this session (its page's token, which a mock is free to vary)
+    const key = encrypting ? fiberhomeProKey(current, token) : null;
+    const plain = encrypting ? fiberhomeProDecrypt(req.body, key) : req.body;
+    if (plain === null || (encrypting && req.body.startsWith("{"))) return { text: "error" };
+    const body = JSON.parse(plain) as { dataObj: Record<string, unknown> | null; ajaxmethod: string; sessionid: string };
+    if (body.sessionid !== current) return { text: "error" };
+    state.calls.push({ path: req.path, method: body.ajaxmethod, data: body.dataObj });
+    const reply = (payload: unknown) => ({ text: key ? `ab12cd${fiberhomeProEncrypt(JSON.stringify(payload), key).slice(6)}` : JSON.stringify(payload) });
+    if (req.path === "/fh_api/tmp/FHNCAPIS" && body.ajaxmethod === "get_device_info") return reply({ model_name: "LG6851F" });
+    if (req.path === "/fh_api/sign/DO_WEB_LOGIN") {
+      if (opts.login) return reply(opts.login);
+      if (body.dataObj?.["password"] !== PASSWORD) return reply({ result: 4 });
+      loggedIn = true;
+      return reply({ result: 0 });
+    }
+    if (req.path === "/fh_api/sign/DO_WEB_LOGOUT") {
+      loggedIn = false;
+      state.logouts += 1;
+      return reply({ result: 0 });
+    }
+    if (!loggedIn) return reply({ result: "timeout" });
+    if (body.ajaxmethod === "get_value_by_xmlnode") {
+      const asked = body.dataObj ?? {};
+      return reply(Object.fromEntries(Object.keys(asked).map((name) => [name, nodes[name] ?? ""])));
+    }
+    if (body.ajaxmethod === "get_sms_data") return reply(smsData());
+    if (body.ajaxmethod === "set_value_by_xmlnode") {
+      const urls = (body.dataObj?.["url"] ?? {}) as Record<string, string>;
+      for (const path of Object.values(urls)) {
+        const node = Number(/SMS_RecvMsg\.(\d+)\.isOpened$/.exec(path)?.[1]);
+        for (const messages of Object.values(state.sms)) for (const m of messages) if (!m.sent && m.node === node) m.opened = true;
+      }
+      return reply({ result: 0 });
+    }
+    return reply({});
+  });
+  const client = new DriverCpeClient({ protocol: fiberhomeProtocol, cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
+  return { mock, state, client };
+}
+
+describe("fiberhome Pro: the key and the wire", () => {
+  it("works the key out of the session id and the token, as the page does", () => {
+    const sid = "0123456789abcdefghijklmnopqrstuv";
+    const key = fiberhomeProKey(sid, "JJ8Hs");
+    assert.equal(key.length, 16);
+    // The second character's code mod 3, minus 1, moves the token's characters (here "1": 49 % 3 - 1 = 0)
+    assert.deepEqual([key[5], key[7], key[10], key[11], key[13]], [..."JJ8Hs"].map((c) => c.charCodeAt(0)));
+    // The others: the session id backwards in steps of four, one down; past its start, forwards and one up
+    assert.equal(key[0], "u".charCodeAt(0) - 1);
+    assert.equal(key[1], "q".charCodeAt(0) - 1);
+    assert.equal(key[8], sid.charCodeAt(1) + 1);
+    assert.equal(key[15], sid.charCodeAt(29) + 1);
+    // Another second character moves the token's characters too
+    assert.equal(fiberhomeProKey("0223456789abcdefghijklmnopqrstuv", "JJ8Hs")[5], "J".charCodeAt(0) + 1);
+    assert.throws(() => fiberhomeProKey(sid, "JJ"), /too short/);
+    assert.throws(() => fiberhomeProKey("x", "JJ8Hs"), /too short/);
+  });
+
+  it("sends six characters before the hexadecimal and reads an answer with six before it, or plain JSON", () => {
+    const key = fiberhomeProKey("0123456789abcdefghijklmnopqrstuv");
+    const body = fiberhomeProEncrypt('{"ajaxmethod":"get_sms_data"}', key);
+    assert.match(body, /^[0-9a-z]{6}[0-9a-f]+$/);
+    assert.equal(fiberhomeProDecrypt(body, key), '{"ajaxmethod":"get_sms_data"}');
+    assert.equal(fiberhomeProDecrypt(`"${body}"`, key), '{"ajaxmethod":"get_sms_data"}');
+    assert.equal(fiberhomeProDecrypt(' {"result":0} ', null), '{"result":0}');
+    for (const bad of ["", "ab12cd", "ab12cdzz", body.slice(0, -2)]) assert.equal(fiberhomeProDecrypt(bad, key), null, bad);
+    assert.equal(fiberhomeProDecrypt(body, fiberhomeProKey("0123456789abcdefghijklmnopqrstxv")), null, "another key opens nothing");
+    assert.equal(fiberhomeProDecrypt(body, null), null);
+  });
+
+  it("reads the nodes into one serving cell: NR where the SSB RSRP is given, else LTE", () => {
+    const nr = parseFiberhomeProTelemetry({ ModelName: "LG6851F", SoftwareVersion: "RP0301", BAND: "78", PCI: "142", SSB_RSRP: "-79", RSRP: "-90", SINR: "21", Modem5GTemperature: "46500", Modem4GTemperature: "41000", MonthRxBytes: "100", CarrierName: "Three" });
+    assert.deepEqual([nr.nr?.band, nr.nr?.pci, nr.nr?.rsrpDbm, nr.nr?.sinrDb, nr.lte, nr.temperatureC, nr.operatorName, nr.traffic?.monthDownloadBytes], [78, 142, -79, 21, null, 46.5, "Three", 100n]);
+    const lte = parseFiberhomeProTelemetry({ BAND: "1", PCI: "211", RSRP: "-95", SSB_RSRP: "" });
+    assert.deepEqual([lte.lte?.band, lte.lte?.pci, lte.lte?.rsrpDbm, lte.nr, lte.traffic, lte.temperatureC], [1, 211, -95, null, null, null]);
+    const none = parseFiberhomeProTelemetry({});
+    assert.deepEqual([none.lte, none.nr, none.mode], [null, null, null]);
+  });
+});
+
+describe("fiberhome Pro: the driver", () => {
+  it("is told apart by its own path, settles the key on a login-free call, then signs in once and reads", async () => {
+    const { client, state, mock } = fiberhomeProRouter();
+    const t = await client.withSession((s) => s.telemetry());
+    assert.deepEqual([t?.model, t?.softwareVersion, t?.nr?.band, t?.nr?.pci], ["LG6851F", "RP0301", 78, 142]);
+    assert.deepEqual(state.calls.map((c) => `${c.path} ${c.method}`), [
+      "/fh_api/tmp/FHNCAPIS get_device_info",
+      "/fh_api/sign/DO_WEB_LOGIN DO_WEB_LOGIN",
+      "/fh_api/tmp/FHAPIS get_value_by_xmlnode",
+      "/fh_api/sign/DO_WEB_LOGOUT DO_WEB_LOGOUT",
+    ]);
+    assert.equal(state.logouts, 1);
+    // The password never travels readable: every body is the encrypted form
+    assert.ok(state.bodies.every((body) => /^[0-9a-z]{6}[0-9a-f]+$/.test(body)));
+    assert.ok(!mock.requests.some((r) => r.body.includes(PASSWORD)));
+    const login = state.calls.find((c) => c.method === "DO_WEB_LOGIN");
+    assert.deepEqual(login?.data, { username: "admin", password: PASSWORD });
+  });
+
+  it("sends no password to a firmware whose key the token on record does not open", async () => {
+    const { client, state } = fiberhomeProRouter({ token: "Xy7Qz" });
+    await assert.rejects(client.withSession((s) => s.telemetry()), DriverLoginMethodError);
+    assert.ok(!state.calls.some((c) => c.method === "DO_WEB_LOGIN"));
+    assert.equal(client.getCircuitBreakerState().tripped, false);
+  });
+
+  it("speaks plain JSON to a Pro router that does not encrypt", async () => {
+    const { client, state } = fiberhomeProRouter({ encrypt: false });
+    assert.equal((await client.withSession((s) => s.identify()))?.model, "LG6851F");
+    assert.ok(state.bodies.every((body) => body.startsWith("{")));
+    assert.ok(!state.calls.some((c) => c.method === "get_device_info"), "no key to settle");
+  });
+
+  it("yields, latches and refuses as the web login answers", async () => {
+    const busy = fiberhomeProRouter({ login: { result: 1 } });
+    assert.equal((await busy.client.withSessionDetailed((s) => s.telemetry())).status, "yielded");
+    const wrong = fiberhomeProRouter();
+    const bad = new DriverCpeClient({ protocol: fiberhomeProtocol, cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: "not-the-password", fetchImpl: wrong.mock.fetchImpl, requestTimeoutMs: 2000 });
+    await assert.rejects(bad.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108006");
+    const locked = fiberhomeProRouter({ login: { result: 2 } });
+    await assert.rejects(locked.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108007" && err.waitTime === 60);
+    const disabled = fiberhomeProRouter({ login: { result: 3 } });
+    await assert.rejects(disabled.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker);
+  });
+
+  it("refuses in its session what its interface has no record of, sending nothing", async () => {
+    const { client, state } = fiberhomeProRouter();
+    const runs: Array<(s: DriverSession) => Promise<unknown>> = [(s: DriverSession) => s.lockState(), (s: DriverSession) => s.setBandLock({ lte: [1], nr: null, networkMode: null }, newCheck()), (s: DriverSession) => s.reboot(newCheck()), (s: DriverSession) => s.neighbours()];
+    for (const run of runs) {
+      await assert.rejects(client.withSession(run));
+    }
+    assert.ok(!state.calls.some((c) => !["DO_WEB_LOGIN", "DO_WEB_LOGOUT", "get_device_info"].includes(c.method)));
+  });
+
+  it("lists SMS and marks read, and has no send or delete", async () => {
+    const { client, state } = fiberhomeProRouter();
+    const listed = await client.withSession((s) => smsOf(s).list());
+    assert.equal(listed?.length, 4);
+    const check = newCheck();
+    await client.withSession((s) => {
+      const sms = smsOf(s);
+      assert.ok(sms.markRead);
+      return sms.markRead([3], check);
+    });
+    assert.deepEqual(check, { endpoints: ["fiberhome:set_value_by_xmlnode"], readback: "match", reason: null });
+    assert.ok(state.sms[FRIEND]?.find((m) => m.node === 2)?.opened);
+    assert.deepEqual(await client.withSession(async (s) => [smsOf(s).send, smsOf(s).delete]), [undefined, undefined]);
+  });
+});
+
+describe("fiberhome Pro: through the SMS service", () => {
+  it("syncs, tells the console it cannot send or delete there, and marks read on the router", async () => {
+    const router = fiberhomeProRouter();
+    const fx = createBrandSmsFixture({ family: "fiberhome", cpeUrl: "http://192.168.8.1", password: PASSWORD, fetchImpl: router.mock.fetchImpl, model: "LG6851F", service: { seedExistingOnStart: false } });
+    try {
+      const snap = await fx.core.monitor.refreshTelemetry();
+      assert.deepEqual([snap?.device.deviceName, snap?.sms?.localInbox], ["LG6851F", 3]);
+      const synced = await fx.service.sync("full");
+      assert.deepEqual([synced?.added, synced?.newIncoming], [4, 2]);
+      assert.deepEqual(fx.service.getStatus().abilities, { send: false, delete: "none", markRead: "router" });
+      await fx.service.markRead({ threadKey: fx.service.getThread(FRIEND).threadKey });
+      assert.ok(router.state.sms[FRIEND]?.every((m) => m.opened));
+      await assert.rejects(fx.service.send({ phones: [FRIEND], content: "hi", source: "web" }), /no way to send/);
     } finally {
       await fx.cleanup();
     }

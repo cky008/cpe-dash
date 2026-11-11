@@ -155,7 +155,7 @@ describe("the supported devices guide page", () => {
     const en = supportedDevicesSection("en");
     // Each fact names models the catalog has on its interface
     for (const fact of MODEL_FACTS) {
-      for (const name of fact.models ?? []) assert.ok(DEVICE_CATALOG.some((e) => e.families.includes(fact.family) && catalogMatches(e, name)), `${fact.family}: ${name}`);
+      for (const name of [...(fact.models ?? []), ...(fact.exceptModels ?? [])]) assert.ok(DEVICE_CATALOG.some((e) => e.families.includes(fact.family) && catalogMatches(e, name)), `${fact.family}: ${name}`);
       assert.ok(fact.zh && fact.en);
     }
     // ZTE: the goform models that open their developer options are the driver's branches 2 and 3
@@ -187,6 +187,24 @@ describe("the supported devices guide page", () => {
     assert.match(zh, /- △ 「短信」：发送短信要路由器装有 QModem；没有装的固件上，烽燧能读取和删除短信，不能发送（这一节的全部型号）。/);
     assert.ok(legend.includes("一格里有几个符号时，依次对应这一列包含的功能：「短信」是读取 / 发送与管理"), legend);
     assert.ok(legend.includes("「接口」一列有两套时，自动识别选第一套"), legend);
+  });
+
+  it("leaves empty what a model's interface has no record of, and keeps a fact of the rest of a brand off the models it excepts", () => {
+    const en = supportedDevicesSection("en");
+    // The Pro series: signal (△: the key on record), SMS read ? and marking read △, nothing else
+    assert.deepEqual(marksOf(en, "fiberhome", "LG6851F"), ["△", "", "", "?/△", "", "", "", "", "", ""]);
+    assert.deepEqual(marksOf(en, "fiberhome", "LG6121F"), ["?", "?", "", "△", "?", "?", "△", "", "", ""]);
+    assert.equal(supportMark("fiberhome", "LG6851F", "bandLock"), "");
+    assert.equal(supportMark("fiberhome", "LG6121F", "bandLock"), "?");
+    for (const fact of MODEL_FACTS.filter((f) => f.effect === "unbuilt")) {
+      for (const name of fact.models ?? []) for (const feature of fact.features) assert.equal(supportMark(fact.family, name, feature), "", `${name} ${feature}`);
+    }
+    // The first series' SMS conditions name every model but the Pro one; a model the list lacks still gets them
+    assert.match(en, /deletes a whole conversation at a time \(every model but the LG6851F\)/);
+    assert.equal(supportMark("fiberhome", "LG9999", "smsWrite"), "△");
+    const pro = deviceSupportRow("fiberhome", "LG6851F");
+    assert.ok(pro.notes.some((n) => n.en.startsWith("FiberHome's Pro series")));
+    assert.ok(!pro.notes.some((n) => n.en.includes("whole conversation")));
   });
 
   it("names both interfaces of a ZTE model that has two, connects through the one detection picks, and marks the other when it is chosen", () => {

@@ -122,6 +122,10 @@ docker compose logs cpe-dash | grep "setup code"
 
 感谢 [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA)：烽燧为烽火的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
+感谢 [kukume/fiberhome-cpe](https://github.com/kukume/fiberhome-cpe)：烽燧为烽火 Pro 系列的信号与短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [xxtg666/FiberHome-LG6851F-SMS-Forward](https://github.com/xxtg666/FiberHome-LG6851F-SMS-Forward)：烽燧为烽火 Pro 系列的信号与短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
 ---
 
 **本项目开放源码（PolyForm Noncommercial 1.0.0），仅供个人与非商业免费使用，严禁任何形式的商业售卖、付费代部署及商业捆绑。**

@@ -296,6 +296,8 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["LG6151M", "indoor"],
     ["LG6121", "indoor"],
     ["LG522", "indoor"],
+    // The Pro series: the same calls under `/fh_api/`, another key (FIBERHOME_PRO_MODELS)
+    ["LG6851F", "indoor"],
   ]),
   ...models("nradio", ["nradio"], [
     ["C8-668GL", "indoor"],
@@ -403,17 +405,25 @@ export interface ModelFact {
   family: RouterFamily;
   /** Only these models (their name, code or an alias); none: every model connecting through `family`. */
   models?: ReadonlyArray<string>;
+  /** Not these models (their name, code or an alias): a fact of every model of the interface but these. */
+  exceptModels?: ReadonlyArray<string>;
   /** Only models of these forms. */
   forms?: ReadonlyArray<DeviceForm>;
   features: ReadonlyArray<DeviceFeature>;
-  /** `condition` (the default) marks the features △, `absent` marks them —. */
-  effect?: "condition" | "absent";
+  /**
+   * `condition` (the default) marks the features △, `absent` marks them —, `unbuilt` leaves them
+   * empty (FengSui does not do them on these models: their interface has no record of them).
+   */
+  effect?: "condition" | "absent" | "unbuilt";
   zh: string;
   en: string;
 }
 
 /** The models on record with ZTE's interface in its `reqproc` spelling (the ZXIC 4G firmware). */
 export const ZTE_REQPROC_MODELS: ReadonlyArray<string> = ["ZLT T10D MAX", "ZLT M30S"];
+
+/** FiberHome's Pro series: `/fh_api/`, the web login, TR-069 nodes and another key (the driver's Pro branch). */
+export const FIBERHOME_PRO_MODELS: ReadonlyArray<string> = ["LG6851F"];
 
 /** The ZTE goform models that open their developer options before a lock (the driver's branches 2 and 3: `zteBranch`). */
 export const ZTE_DEVELOPER_OPTION_MODELS: ReadonlyArray<string> = ["MC8020", "MC888", "MC888 Pro", "MC888S", "MC888 Ultra", "MC888D", "MC8830", "F50", "F50 Pro", "MF79U"];
@@ -474,15 +484,39 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
   {
     family: "fiberhome",
+    exceptModels: FIBERHOME_PRO_MODELS,
     features: ["smsRead"],
     zh: "短信走的是路由器网页自己的加密接口，烽燧用它已经登录的会话去读；路由器要求另外登录网页才给读时，这一项是空的",
     en: "SMS is on the encrypted interface of the router's own web page, which FengSui asks in the session it is signed in with; a router that wants a separate web sign-in for it leaves this empty",
   },
   {
     family: "fiberhome",
+    exceptModels: FIBERHOME_PRO_MODELS,
     features: ["smsWrite"],
     zh: "发送只接受英文字母、数字和常用标点（接口资料里只有这一种编码），并且不发送含 ` $ \" \\ 的正文：路由器会把正文交给命令行；删除只能整段对话一起删",
     en: "sends plain English text only (letters, digits and common punctuation: the one encoding on record), and never text with a backquote, a dollar sign, a double quote or a backslash, because the router hands the text to a command line; deletes a whole conversation at a time",
+  },
+  {
+    family: "fiberhome",
+    models: FIBERHOME_PRO_MODELS,
+    features: [],
+    zh: "这是烽火的 Pro 系列：同一套网页接口换了路径（`/fh_api/`）和加密密钥，连接时烽燧会自己认出来。烽燧在它上面读信号（只有一个服务小区）、本月流量和短信，能把短信标为已读；附近的基站、锁频段、锁小区和重启在它的接口资料里没有，烽燧在这里不做",
+    en: "FiberHome's Pro series: the same web interface under another path (`/fh_api/`) with another encryption key, which FengSui recognises when it connects. FengSui reads its signal (one serving cell), this month's traffic and SMS there, and can mark messages read; nearby cells, band lock, cell lock and reboot are not in its interface notes, so FengSui does not do them here",
+  },
+  { family: "fiberhome", models: FIBERHOME_PRO_MODELS, features: ["neighbors", "bandLock", "cellLock", "reboot"], effect: "unbuilt", zh: "接口资料里没有", en: "not in its interface notes" },
+  {
+    family: "fiberhome",
+    models: FIBERHOME_PRO_MODELS,
+    features: ["smsWrite"],
+    zh: "只能标为已读：这类固件的接口资料里没有发送和删除短信的写法",
+    en: "marks messages read only: this firmware's interface notes have no way to send or delete one",
+  },
+  {
+    family: "fiberhome",
+    models: FIBERHOME_PRO_MODELS,
+    features: ["telemetry"],
+    zh: "烽燧用资料里记的密钥打开路由器的加密应答；固件换了密钥时，烽燧不发送密码，信号这一项是空的",
+    en: "FengSui opens the router's encrypted answers with the key on record; a firmware with another key gets no password from FengSui, and this stays empty",
   },
   {
     family: "tozed",
@@ -644,6 +678,7 @@ function factsFor(subject: Subject): ModelFact[] {
     (fact) =>
       fact.family === subject.family &&
       (!fact.models || fact.models.some((name) => named(subject, name))) &&
+      !fact.exceptModels?.some((name) => named(subject, name)) &&
       (!fact.forms || (subject.form !== null && fact.forms.includes(subject.form)))
   );
 }
@@ -664,6 +699,7 @@ function featureMark(subject: Subject, feature: DeviceFeature, records: Records)
   const facts = factsFor(subject).filter((fact) => fact.features.includes(feature));
   const absent = facts.filter((fact) => fact.effect === "absent");
   if (absent.length > 0) return { mark: "—", facts: absent };
+  if (facts.some((fact) => fact.effect === "unbuilt")) return { mark: "", facts: [] };
   if (!familyImplements(family, feature)) return { mark: "", facts: [] };
   return facts.length > 0 ? { mark: "△", facts } : { mark: "?", facts: [] };
 }

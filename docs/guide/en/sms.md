@@ -65,6 +65,7 @@ FengSui is currently verified on the Huawei H168-383 only. SMS on the brands bel
 | OpenWrt with a Quectel or Fibocom module | Read and delete; send as well on a router with QModem installed | The cellular module marks a message read as soon as it lists it, so FengSui keeps track of what you have not read. The module keeps no copy of what it sends, so the messages you send are kept by FengSui only. |
 | Tozed / ZLT (also China Unicom VN007) | Read and send | The interface has no command on record to delete a message or to mark one read: you cannot delete, and FengSui keeps track of what you have not read. |
 | FiberHome | Read, mark as read, send, delete a whole conversation | Sending takes plain English text only (letters, digits and common punctuation), and never text with `` ` ``, `$`, `"` or `\`: the router hands the text to a command line. To delete, select every message of the conversation. Where the router wants a separate web sign-in before it shows messages, the SMS page stays empty. |
+| FiberHome Pro series (such as the LG6851F) | Read, mark as read | Its interface notes have no way to send or delete a message, so the SMS page does not show those buttons. |
 
 The interface notes of Pinsu and NRadio have no SMS interface, so the SMS page stays empty on those two brands.
 

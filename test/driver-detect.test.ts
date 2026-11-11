@@ -50,8 +50,10 @@ describe("drivers: telling the brand before any login", () => {
   it("sends no password, no cookie and no write: only the families' first reads", async () => {
     const mock = new LanRouterMock(SIGNATURES.huawei);
     await detect(mock);
-    // One request per family, and one more for ZTE's other spelling of the same read where the first is not answered
-    assert.equal(mock.requests.length, DETECTION_ORDER.length + 1, "the families' first reads");
+    // One request per family, and one more each where a family has a second form the first did not find:
+    // ZTE's other spelling of the same read, FiberHome's Pro path
+    assert.equal(mock.requests.length, DETECTION_ORDER.length + 2, "the families' first reads");
+    assert.deepEqual(mock.requests.filter((r) => /FHNCAPIS$/.test(r.path)).map((r) => r.path).sort(), ["/api/tmp/FHNCAPIS", "/fh_api/tmp/FHNCAPIS"]);
     assert.deepEqual(mock.requests.filter((r) => /^\/(goform|reqproc)\//.test(r.path) && r.method === "GET").map((r) => r.path).sort(), ["/goform/goform_get_cmd_process", "/reqproc/proc_get"]);
     for (const req of mock.requests) {
       assert.equal(req.headers["cookie"], undefined, `${req.method} ${req.path}`);
