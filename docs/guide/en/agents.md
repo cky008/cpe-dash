@@ -140,4 +140,4 @@ curl -H "Authorization: Bearer <token>" http://<NAS IP>:18384/api/telemetry
 - State-changing requests must include `X-Requested-With: XMLHttpRequest` and `Content-Type: application/json`.
 - `GET /metrics` provides Prometheus metrics (enable under "Settings → Security").
 
-For full endpoints, events, and error codes, see the [backend contract](../../PHASE2_BACKEND_CONTRACT.md).
+For full endpoints, events, and error codes, see the [backend contract](../../dev/api.md).

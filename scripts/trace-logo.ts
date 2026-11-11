@@ -7,7 +7,7 @@ import { type MarkRole, readBrandMark } from "./brand.ts";
  * `npm run brand:trace -- <concept.png> [--out web/brand/logo.svg] [--tolerance 0.6]`
  *
  * Turns a flat logo concept (PNG, solid shapes on a plain background) into the master logo
- * (docs/BRAND.md). A concept that shows the logo twice side by side, light on the left and dark on
+ * (docs/dev/brand.md). A concept that shows the logo twice side by side, light on the left and dark on
  * the right, gives the geometry from the left half and the dark colours from the right half. The
  * outline of each shape is traced at sub-pixel precision (marching squares on the anti-aliased
  * edge), lightly smoothed, then fitted with cubic Béziers (Schneider, Graphics Gems 1990) to within
@@ -465,7 +465,7 @@ export function traceRegion(img: DecodedPng, x0: number, x1: number, opts: { tol
 
 const hex = (c: Rgb): string => `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 
-/** The master logo (docs/BRAND.md): shapes centred in a 0 0 100 100 box, roles by contrast. */
+/** The master logo (docs/dev/brand.md): shapes centred in a 0 0 100 100 box, roles by contrast. */
 export function masterSvg(light: TraceResult, dark: TraceResult | null, title = "烽燧 FengSui"): string {
   const xs = light.shapes.flatMap((s) => [s.bbox[0], s.bbox[2] + 1]);
   const ys = light.shapes.flatMap((s) => [s.bbox[1], s.bbox[3] + 1]);
@@ -534,7 +534,7 @@ function main(argv: ReadonlyArray<string>): void {
   for (const [i, s] of light.shapes.entries()) {
     console.log(`  shape ${i}: ${hex(s.color)}, ${s.curves.length} cubics, max deviation ${s.maxError.toFixed(2)} px`);
   }
-  console.log("Next: npm run build:web, look at it (npm run demo), npm run screenshots; see docs/BRAND.md");
+  console.log("Next: npm run build:web, look at it (npm run demo), npm run screenshots; see docs/dev/brand.md");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {

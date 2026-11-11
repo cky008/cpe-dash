@@ -98,7 +98,7 @@ export function createDemoRouter(): DemoRouter {
     "/api/device/nbrcellinfo":
       "<response><nbrcell_ltelist>1850,B3,142,-84dBm,-6dB,-69dBm,14dB;1850,B3,211,-87dBm,-10dB,-69dBm,--;300,B1,211,-88dBm,-8dB,-70dBm,12dB;300,B1,142,-96dBm,-12dB,-70dBm,--;6300,B20,133,-101dBm,-13dB,-75dBm,4dB;3050,B7,288,-108dBm,-16dB,-80dBm,-1dB;</nbrcell_ltelist><nbrcell_nrlist>650000,N78,211,-95dBm,-10dB,-72dBm,8dB;650000,N78,412,-99dBm,-12dB,-74dBm,5dB;636666,N78,88,-104dBm,-14dB,-79dBm,2dB;</nbrcell_nrlist></response>",
     "/api/monitoring/start_date": "<response><StartDay>1</StartDay><DataLimit>2000GB</DataLimit><MonthThreshold>90</MonthThreshold></response>",
-    // What the identification probe reads (docs/PHASE1_PROTOCOL_SPEC.md 3.4 and 4.1)
+    // What the identification probe reads (docs/dev/protocol.md 3.4 and 4.1)
     "/api/net/net-feature-switch":
       "<response><net_premode_switch>2</net_premode_switch><lteband_switch>0</lteband_switch><select_band_switch>1</select_band_switch><lock_freq_switch>3</lock_freq_switch><antenna_select_switch>0</antenna_select_switch><reconnect_switch>1</reconnect_switch><net_mode_enable>1</net_mode_enable></response>",
     "/api/net/net-mode-list":
@@ -196,7 +196,7 @@ export function createDemoRouter(): DemoRouter {
  * provides and writes what it implements for such a model, each write on until its owner turns it
  * off: the router takes the generic writes of appendix A.11 (band mask, mobile data, redial, reboot,
  * plaintext SMS), a redial or reboot starts the connection again and mobile data off takes the WAN down. Facts and
- * placeholders only (docs/PHASE1_PROTOCOL_SPEC.md A.10, A.11).
+ * placeholders only (docs/dev/protocol.md A.10, A.11).
  */
 export function createUnverifiedDemoRouter(): DemoRouter {
   let tick = 0;

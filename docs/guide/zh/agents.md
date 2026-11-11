@@ -140,4 +140,4 @@ curl -H "Authorization: Bearer <令牌>" http://<NAS 的 IP>:18384/api/telemetry
 - 改动状态的请求要带 `X-Requested-With: XMLHttpRequest` 和 `Content-Type: application/json`。
 - `GET /metrics` 提供 Prometheus 格式的指标（在「设置 → 安全」打开）。
 
-完整的接口、事件和错误码见[后端契约](../../PHASE2_BACKEND_CONTRACT.md)。
+完整的接口、事件和错误码见[后端契约](../../dev/api.md)。

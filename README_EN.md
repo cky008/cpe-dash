@@ -78,7 +78,7 @@ So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei
 - **Use FengSui**: [Dashboard](docs/guide/en/dashboard.md) · [Band and cell locks](docs/guide/en/locking.md) · [SMS](docs/guide/en/sms.md) · [Devices and internet access](docs/guide/en/devices.md) · [Alerts and notifications](docs/guide/en/notifications.md) · [AI agents (MCP)](docs/guide/en/agents.md)
 - **Manage**: [Docker Compose file](docs/guide/en/docker-compose.md) · [Configuration](docs/guide/en/configuration.md) · [Security and privacy](docs/guide/en/security.md) · [Backup and restore](docs/guide/en/backup.md) · [Other models and brands](docs/guide/en/other-routers.md)
 - **Help**: [Troubleshooting](docs/guide/en/troubleshooting.md) · [FAQ](docs/guide/en/faq.md) · [Acknowledgments](docs/guide/en/acknowledgments.md)
-- **Technical docs (Chinese)**: [Protocol spec](docs/PHASE1_PROTOCOL_SPEC.md) · [Architecture report](docs/PHASE2_ARCHITECTURE_REPORT.md) · [Backend contract (REST / SSE / MCP)](docs/PHASE2_BACKEND_CONTRACT.md) · [Changelog](CHANGELOG.md)
+- **Technical docs (Chinese)**: [Protocol spec](docs/dev/protocol.md) · [Architecture report](docs/dev/architecture.md) · [Backend contract (REST / SSE / MCP)](docs/dev/api.md) · [Changelog](CHANGELOG.md)
 
 The same pages, with search, are on the [documentation site](https://fengsui.iocky.com/en/).
 

@@ -351,7 +351,7 @@ describe("device identification on the strict H168-383", () => {
   });
 
   it("lists the probe's GETs in the protocol spec", () => {
-    const spec = fs.readFileSync("docs/PHASE1_PROTOCOL_SPEC.md", "utf8");
+    const spec = fs.readFileSync("docs/dev/protocol.md", "utf8");
     const section = spec.slice(spec.indexOf("### A.7"));
     assert.ok(section.length > 0 && spec.includes("### A.7"));
     for (const p of DEVICE_PROBE_PATHS) assert.ok(section.includes(`\`GET ${p}\``), p);

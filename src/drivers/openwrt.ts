@@ -75,7 +75,7 @@ import {
  * 3. Fibocom modules:
  *    - Telemetry: `ATI`, `AT+GMR` / `AT+CGMR`, `AT+GTCCINFO?` (serving & neighbours), `AT+MTSM=1`,
  *      `AT+GTCAINFO?` (secondary carriers: the notes name it; its answer layout is in
- *      docs/PHASE2_ARCHITECTURE_REPORT.md §18.4).
+ *      docs/dev/architecture.md §18.4).
  *    - Serving cell RSRP conversion: LTE `idx - 140` dBm; NR `idx - 156` dBm.
  *    - Controls: `AT+GTACT` band locking with `+100` for LTE and `+500` for NR,
  *      `AT+GTCELLLOCK` for 4G/5G cell locking, and `AT+CFUN=1,1` for reboot.

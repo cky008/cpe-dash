@@ -107,7 +107,7 @@ function buildMockCpeRouter(opts: {
       return makeRes(custom(method, body));
     }
 
-    // Default telemetry & settings fixtures strictly matching PHASE1_PROTOCOL_SPEC.md
+    // Default telemetry & settings fixtures strictly matching docs/dev/protocol.md
     switch (pathname) {
       case "/api/device/signal":
         return makeRes(

@@ -4,7 +4,7 @@
 
 ## 唯一来源
 
-标志只有一个源文件：[`web/brand/logo.svg`](../web/brand/logo.svg)。构建（`npm run build:web`，包括 Docker 镜像和在线演示）从它派生出：
+标志只有一个源文件：[`web/brand/logo.svg`](../../web/brand/logo.svg)。构建（`npm run build:web`，包括 Docker 镜像和在线演示）从它派生出：
 
 | 用在哪里 | 怎么来的 | 颜色 |
 |---|---|---|

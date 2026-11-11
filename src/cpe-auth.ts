@@ -4,7 +4,7 @@ import { getXmlTag } from "./xml.ts";
 
 /**
  * How FengSui logs in to a Huawei router, decided before any password goes out (CONTEXT §7.3,
- * docs/PHASE1_PROTOCOL_SPEC.md appendix A.8–A.9). SCRAM is the H168-383's method; legacy
+ * docs/dev/protocol.md appendix A.8–A.9). SCRAM is the H168-383's method; legacy
  * `user/login` with `password_type` 4 (SHA-256) or 0 / 3 (base64) comes from facts about other models
  * that no real device has confirmed yet. Each session submits the password once, with one method.
  */

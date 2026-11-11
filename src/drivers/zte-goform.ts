@@ -623,7 +623,7 @@ export function zteCellForm(branch: ZteBranch, target: DriverCellLockTarget): { 
     };
   }
   // The spacing in kHz, as the community's ZTE script writes it and notes library B records (library A
-  // coded it 0 / 1, which no other source shows); docs/PHASE2_ARCHITECTURE_REPORT.md §18.4
+  // coded it 0 / 1, which no other source shows); docs/dev/architecture.md §18.4
   if (scs === null) throw new CpeControlValidationError("This router locks an NR cell with its subcarrier spacing, and none was given");
   return { goformId: "NR5G_LOCK_CELL_SET", fields: [["nr5g_cell_lock", `${pci},${arfcn},${band},${scs}`]] };
 }

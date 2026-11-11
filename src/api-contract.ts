@@ -1,5 +1,5 @@
 /**
- * REST and SSE payload types of `docs/PHASE2_BACKEND_CONTRACT.md`, composed from the domain types the
+ * REST and SSE payload types of `docs/dev/api.md`, composed from the domain types the
  * daemon already produces. The HTTP routes check their response bodies against these types
  * (`satisfies`), and the web dashboard imports the same declarations, so a field renamed on one side
  * fails to compile on the other. Type-only module: it emits nothing at runtime.

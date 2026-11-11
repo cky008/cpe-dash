@@ -1,8 +1,8 @@
-# H168-383 私有协议、逆向算法与阶段交接规范字典 (`PHASE1_PROTOCOL_SPEC.md`)
+# 华为 HiLink 协议与逆向算法
 
 > **目标硬件**：华为 5G CPE Ultra 6 (`H168-383` / 硬件代号 `WL1H168M`)  
 > **实测固件**：`4.4.0.1 (H1006SP19C00)` | **WebUI 版本**：`WEBUI 4.4.0.1 (W2SP24C03)`  
-> **适用范围**：「烽燧」(FengSui / `cpe-dash`) Phase 1 侦察收官与 Phase 2 后端守护进程 / 前端可视化开发权威契约（Phase 2.2 起纳入短信接口，见 3.8 节；其他华为型号的未验证资料见附录 A）  
+> **适用范围**：烽燧读写华为 HiLink 路由器的权威资料：会话与登录、已验证的接口与报文、锁频与锁小区算法（短信接口见 3.8 节；其他华为型号的未验证资料见附录 A）。对外接口见 [`api.md`](api.md)，架构与每项实现的依据见 [`architecture.md`](architecture.md)  
 > **脱敏审计承诺**：本文档全部报文样本均严格遵循 RFC 5737 / RFC 3849 / RFC 7042 与合成占位符规范，零真实密码、零真实公网 IP、零真实 MAC/IMEI/IMSI/ICCID/TAC/CellID；PCI、频点（EARFCN / NR-ARFCN）与载频同样换成了合成值（这些参数组合起来能定位到具体基站）。
 
 ---
@@ -55,7 +55,7 @@ sequenceDiagram
     R-->>C: <response>OK</response>
 ```
 
-#### 核心密码学细节（已封装于 [`src/crypto.ts`](../src/crypto.ts)）
+#### 核心密码学细节（已封装于 [`src/crypto.ts`](../../src/crypto.ts)）
 1. **SCRAM-SHA256 派生顺序（注意 HMAC 参数顺序与标准 RFC 相反，系华为私有实现）**：
    - `saltedPwd = PBKDF2-HMAC-SHA256(latin1(password), hex(salt), iterations, 32)`
    - `clientKey = HMAC-SHA256(key = "Client Key", data = saltedPwd)`
@@ -76,13 +76,13 @@ sequenceDiagram
    - URL 追加查询串：`?ecc-client-pubkey=<64-hex>&enc-type=<1|2|3>`（`1`=请求明文/响应密文，`2`=请求密文/响应明文，`3`=双向密文）；
    - Key = `shareKeyHex` 前 64 个 hex 字符（32 字节），AAD = **16 个零字节**（`Buffer.alloc(16, 0)`）；
    - 密文十六进制串结构：`[4字节小端序明文长度 Header (8 hex)] + [12字节随机 IV (24 hex)] + [16字节 AuthTag (32 hex)] + [Ciphertext]`（AuthTag 位于密文**之前**）；
-   - 以上格式以 [`src/crypto.ts`](../src/crypto.ts) 的 `aesGcmEncrypt` / `aesGcmDecrypt` 为准。仓库内目前仅有自洽往返测试覆盖，Phase 2 路由均未使用加密通道；后续启用前应先用真机加密响应完成一次解密验证。
+   - 以上格式以 [`src/crypto.ts`](../../src/crypto.ts) 的 `aesGcmEncrypt` / `aesGcmDecrypt` 为准。仓库内目前仅有自洽往返测试覆盖，Phase 2 路由均未使用加密通道；后续启用前应先用真机加密响应完成一次解密验证。
 
 ---
 
 ### 2.2 真机实测会话占用耗时与双层真人避让机制
 
-在局域网直连实测（[`scripts/probe-session-avoidance.ts`](../scripts/probe-session-avoidance.ts)）中记录的真实耗时基准与固件行为：
+在局域网直连实测（[`scripts/probe-session-avoidance.ts`](../../scripts/probe-session-avoidance.ts)）中记录的真实耗时基准与固件行为：
 
 | 操作场景 | 实测会话占用窗口 (`lastSessionHoldMs`) | 实测结论 |
 | :--- | :--- | :--- |
@@ -95,7 +95,7 @@ sequenceDiagram
 2. **同源 IP 与跨 IP 差异**：
    - **同源 IP**（如本机同时打开浏览器与运行探针）：瞬时探针完成 `login -> GET -> logout` **不会踢掉**同 IP 浏览器的活跃 `SessionID`（实测浏览器会话全程保持认证态）。
    - **跨局域网 IP**（生产典型拓扑：群晖 NAS `192.168.8.10` 轮询 vs 用户电脑/手机 `192.168.8.44` 登录网页后台）：当用户电脑已登录时，NAS 发起 `challenge_login` / `authentication_login` 会收到硬件级排他错误码 **`108003`**（已有其他管理员登录）或 **`108009`**（会话被占用），且**不会踢掉真人浏览器**。
-3. **双层自动避让实现（[`HuaweiCpeClient.withSession()`](../src/cpe-client.ts)）**：
+3. **双层自动避让实现（[`HuaweiCpeClient.withSession()`](../../src/cpe-client.ts)）**：
    - **第 1 层（免握手预检）**：调用 `GET /api/user/state-login`，若 `State !== "-1"`，零 SCRAM 开销直接自增 `browserYieldCount` 并返回 `null`。
    - **第 2 层（跨 IP `108003`/`108009` 静默让位）**：当 `respectBrowserSession: true`（默认开启）且握手捕获 `isSessionOccupied` (`108003` / `108005` / `108009`) 时，禁止延迟重试，立即自增 `browserYieldCount`、执行 `finally` 清理并返回 `null`。
 
@@ -334,8 +334,8 @@ sequenceDiagram
 ```
 
 #### `POST /api/net/lock-freq`（5G NR 锁频段 & 4G/5G 锁频点/锁小区统一控制）
-- **重要边界**：H168-383 零售固件 `4.4.0.1` 上 `GET /api/net/lock-freq` 返回 `[CPE 100003]`（仅开放 `POST` 下发），因此 Phase 2 后端须在本地加密状态文件 [`data/state.json`](../src/encrypted-file.ts) 中持久化当前用户下发的锁小区/NR 锁频配置，并与 `/api/device/signal` 实测驻留频点/PCI 对账校验！
-  - **实现状态**：本地持久化已实现（`lockState`）；Phase 2.5 起由 [`verifyLockState()`](../src/cpe-domain.ts) 对账：LTE 频段掩码以 `GET /api/net/net-mode` 的 `<LTEBand>` 读回（真机解锁时为 `40000007a0880800d5`，即 14 个全频段）；NR 锁频段与锁小区对照 `/api/device/signal` 的主小区（`<bandInfo>`、`<earfcn>` 的 `DL:`、`<pci>`）、`<band>` 载波聚合横幅与 `/api/device/seccellinfo` 辅小区判断。结果以 `lockVerification` 暴露，持续不一致时触发 `LOCK_DRIFT` 告警（见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) §2.2）。
+- **重要边界**：H168-383 零售固件 `4.4.0.1` 上 `GET /api/net/lock-freq` 返回 `[CPE 100003]`（仅开放 `POST` 下发），因此 Phase 2 后端须在本地加密状态文件 [`data/state.json`](../../src/encrypted-file.ts) 中持久化当前用户下发的锁小区/NR 锁频配置，并与 `/api/device/signal` 实测驻留频点/PCI 对账校验！
+  - **实现状态**：本地持久化已实现（`lockState`）；Phase 2.5 起由 [`verifyLockState()`](../../src/cpe-domain.ts) 对账：LTE 频段掩码以 `GET /api/net/net-mode` 的 `<LTEBand>` 读回（真机解锁时为 `40000007a0880800d5`，即 14 个全频段）；NR 锁频段与锁小区对照 `/api/device/signal` 的主小区（`<bandInfo>`、`<earfcn>` 的 `DL:`、`<pci>`）、`<band>` 载波聚合横幅与 `/api/device/seccellinfo` 辅小区判断。结果以 `lockVerification` 暴露，持续不一致时触发 `LOCK_DRIFT` 告警（见 [`api.md`](api.md) §2.2）。
 - **载荷模板详见第 4.2 节**。
 
 ---
@@ -641,7 +641,7 @@ $$
 \text{BitOffset}(N) = N - 1, \qquad \text{BandMask}(\mathcal{B}) = \sum_{N \in \mathcal{B}} 2^{N - 1}
 $$
 
-编码为**不含 `0x` 前缀、去除前导零的小写十六进制字符串**（见 [`bandsToHexMask()`](../src/band-lock.ts) 与 [`hexMaskToBands()`](../src/band-lock.ts)）：
+编码为**不含 `0x` 前缀、去除前导零的小写十六进制字符串**（见 [`bandsToHexMask()`](../../src/band-lock.ts) 与 [`hexMaskToBands()`](../../src/band-lock.ts)）：
 
 | 常见频段 | 位偏移 ($N-1$) | 单频段掩码 (`hex`) | H168-383 实测说明 |
 | :--- | :--- | :--- | :--- |
@@ -664,7 +664,7 @@ $$
 | **LTE 自动全频段常量** | `0..62` | **`7fffffffffffffff`** | 恢复 4G 自动选频固定常量 |
 | **2G/3G `NetworkBand` 自动常量** | `0..29` | **`3fffffff`** | 写入 `/api/net/net-mode` 固定常量 |
 
-#### 锁定参数边界（Phase 2.5，[`src/band-lock.ts`](../src/band-lock.ts)）
+#### 锁定参数边界（Phase 2.5，[`src/band-lock.ts`](../../src/band-lock.ts)）
 
 - **LTE 频段白名单**：真机 `GET /api/net/net-mode-list` 的 `<LTEBandList>` 通告 `LTE BC1/BC3/BC5/BC7/BC8/BC20/BC28/BC32/BC38/BC40/BC41/BC42/BC43/BC71`（掩码 `40000007a0880800d5`，与 HAR 抓包一致）。锁 LTE 频段（`buildLteBandNetModeXml`）与 LTE 锁小区只接受这 14 个频段：锁到设备不支持的频段会让调制解调器失去 LTE 锚点，也就失去全部连接。
 - **NR 频段白名单**：路由器不通告 NR 频段（`net-mode-list` 只含 LTE）。白名单取自 Huawei H168-383 规格书：FDD `n1/3/5/7/8/20/28/71/75`、TDD `n38/40/41/77/78/79`（即 `N1/N3/N5/N7/N8/N20/N28/N38/N40/N41/N71/N75/N77/N78/N79`）。同一规格书的 LTE 列表与路由器通告的 14 个频段逐一吻合，`n78` 在真机上实际服务；SUL `n80–n84` 仅上行，不可锁定。
@@ -759,15 +759,15 @@ $$
 
 ### 4.3 基站标识位拆分与双周期流量换算公式
 
-1. **28-bit 4G LTE ECI 拆分（[`decomposeLteEci()`](../src/band-lock.ts)）**：
+1. **28-bit 4G LTE ECI 拆分（[`decomposeLteEci()`](../../src/band-lock.ts)）**：
    $$
    \text{eNodeB ID} = \text{ECI} \ggg 8 \quad (\text{高 20 位}), \qquad \text{Sector ID} = \text{ECI} \ \& \ \mathtt{0xFF} \quad (\text{低 8 位})
    $$
-2. **36-bit 5G NR NCI 拆分（[`decomposeNrNci()`](../src/band-lock.ts)，运营商可配高 $k \in [22, 32]$ 位为 `gNodeB ID`，默认 $k=24$）**：
+2. **36-bit 5G NR NCI 拆分（[`decomposeNrNci()`](../../src/band-lock.ts)，运营商可配高 $k \in [22, 32]$ 位为 `gNodeB ID`，默认 $k=24$）**：
    $$
    \text{gNodeB ID} = \text{NCI} \gg (36 - k), \qquad \text{Sector ID} = \text{NCI} \ \& \ \left(2^{36 - k} - 1\right)
    $$
-3. **分周期流量与速率换算（[`parseTrafficSnapshot()`](../src/parsers.ts)）**：
+3. **分周期流量与速率换算（[`parseTrafficSnapshot()`](../../src/parsers.ts)）**：
    - **瞬时下行 / 上行比特率 (`bps`)**：`8 * CurrentDownloadRate` / `8 * CurrentUploadRate`（WebUI 按 `1024` 二进制阶梯换算 `Kbps` / `Mbps` / `Gbps`）；
    - **当日累计总流量 (`当日流量`)**：直接读取 `/api/monitoring/month_statistics` 中的 `<CurrentDayUsed>`（单位：Bytes）；
    - **当月累计总流量 (`当月流量`)**：`BigInt(CurrentMonthDownload) + BigInt(CurrentMonthUpload)`（单位：Bytes）；
@@ -779,16 +779,16 @@ $$
 
 | 探针脚本 | 执行命令 | 核心职责 | 真机 (`192.168.8.1`) 验证结论 |
 | :--- | :--- | :--- | :--- |
-| [`scripts/probe-har-endpoints.ts`](../scripts/probe-har-endpoints.ts) | `npm run probe:har -- --har <path>` | 流式解构 HAR 抓包，提取去重 API 路由与自动脱敏样本 | 成功解构 `754` 条请求、`122` 个 `/api/*` 端点，零敏感数据残留 |
-| [`scripts/probe-locking-algo.ts`](../scripts/probe-locking-algo.ts) | `npm run probe:locking` | 验证 PC/APK 逆向 `BandMask` 与锁小区载荷，对账真机频段表 | `37 ms` 完成短连，真机 14 频段掩码 `0x40000007a0880800d5` 100% 吻合 |
-| [`scripts/probe-rf-ca.ts`](../scripts/probe-rf-ca.ts) | `npm run probe:rf` | 抓取 3CA 聚合链、256QAM MCS、MIMO 流数、发射功率与基站恒等校验 | 实测 `B1(20M)+B3(20M)+N78(100M)` 140MHz 3CA、UL/DL 256QAM、TM4 RI=2、PUSCH 12/23dBm |
-| [`scripts/probe-neighbor-cells.ts`](../scripts/probe-neighbor-cells.ts) | `npm run probe:neighbors` | 扫描周边 4G/5G 候选邻区并生成只读锁小区预览 XML | 成功抓取 B1/B3 多扇区候选邻区（样本中的 PCI 为合成值）及 RSRP/RSRQ/RSSI |
-| [`scripts/probe-traffic.ts`](../scripts/probe-traffic.ts) | `npm run probe:traffic` | 验证瞬时上下行速率、当日流量与当月流量双周期统计 | `30 ms` 短连读取当日流量、当月上下行明细、结算日及 `100002` 降级边界 |
-| [`scripts/probe-topology.ts`](../scripts/probe-topology.ts) | `npm run probe:topology` | 解析 `HostInfo` 与 `topology` JSON，分类千兆网口与双频 Wi-Fi 终端 | `47 ms` 识别 `32` 台历史设备、`12` 台在线（`LAN_1000M` / `2.4G` / `5G`）、双栈 IPv6 与租期 |
-| [`scripts/probe-session-avoidance.ts`](../scripts/probe-session-avoidance.ts) | `npm run probe:session` | 压测瞬时短连耗时，验证 Cookie 作用域与双层真人浏览器避让 | 3 轮均值 `26 ms` 即登出释放；验证同 IP 零抢占及 `State=0` / `108003` 双层静默让位 |
-| [`scripts/probe-extended-capabilities.ts`](../scripts/probe-extended-capabilities.ts) | `npm run probe:extended` | 探索 Wi-Fi 7 MLO、天线切换、静态 DHCP、双栈 APN 与网络诊断 | `130 ms` 并发拉取 18 接口，确认 `802.11be` MLO、5 条静态绑定、IPv4v6 双栈 APN 与定时重启 |
-| [`scripts/probe-sms.ts`](../scripts/probe-sms.ts) | `npm run probe:sms` | 只读验证短信计数、列表通道（明文 `sms-list` 或加密回退）与全量拉取会话耗时，仅输出聚合计数 | `259 ms` 单次会话完成 193 条全量拉取（与 `sms-count` 一致，容量 500 占用 39%），确认明文 `sms-list` 可用、无需加密回退；不发送、不标记已读、不删除 |
-| [`scripts/audit-secrets.ts`](../scripts/audit-secrets.ts) | `npm run audit:secrets` | 扫描工作区与全量 `git log -p --all` 历史，拦截密钥/PII 与纯 `.js` | 全仓源码、测试、文档与全量提交历史 100% 通过门禁 |
+| [`scripts/probe-har-endpoints.ts`](../../scripts/probe-har-endpoints.ts) | `npm run probe:har -- --har <path>` | 流式解构 HAR 抓包，提取去重 API 路由与自动脱敏样本 | 成功解构 `754` 条请求、`122` 个 `/api/*` 端点，零敏感数据残留 |
+| [`scripts/probe-locking-algo.ts`](../../scripts/probe-locking-algo.ts) | `npm run probe:locking` | 验证 PC/APK 逆向 `BandMask` 与锁小区载荷，对账真机频段表 | `37 ms` 完成短连，真机 14 频段掩码 `0x40000007a0880800d5` 100% 吻合 |
+| [`scripts/probe-rf-ca.ts`](../../scripts/probe-rf-ca.ts) | `npm run probe:rf` | 抓取 3CA 聚合链、256QAM MCS、MIMO 流数、发射功率与基站恒等校验 | 实测 `B1(20M)+B3(20M)+N78(100M)` 140MHz 3CA、UL/DL 256QAM、TM4 RI=2、PUSCH 12/23dBm |
+| [`scripts/probe-neighbor-cells.ts`](../../scripts/probe-neighbor-cells.ts) | `npm run probe:neighbors` | 扫描周边 4G/5G 候选邻区并生成只读锁小区预览 XML | 成功抓取 B1/B3 多扇区候选邻区（样本中的 PCI 为合成值）及 RSRP/RSRQ/RSSI |
+| [`scripts/probe-traffic.ts`](../../scripts/probe-traffic.ts) | `npm run probe:traffic` | 验证瞬时上下行速率、当日流量与当月流量双周期统计 | `30 ms` 短连读取当日流量、当月上下行明细、结算日及 `100002` 降级边界 |
+| [`scripts/probe-topology.ts`](../../scripts/probe-topology.ts) | `npm run probe:topology` | 解析 `HostInfo` 与 `topology` JSON，分类千兆网口与双频 Wi-Fi 终端 | `47 ms` 识别 `32` 台历史设备、`12` 台在线（`LAN_1000M` / `2.4G` / `5G`）、双栈 IPv6 与租期 |
+| [`scripts/probe-session-avoidance.ts`](../../scripts/probe-session-avoidance.ts) | `npm run probe:session` | 压测瞬时短连耗时，验证 Cookie 作用域与双层真人浏览器避让 | 3 轮均值 `26 ms` 即登出释放；验证同 IP 零抢占及 `State=0` / `108003` 双层静默让位 |
+| [`scripts/probe-extended-capabilities.ts`](../../scripts/probe-extended-capabilities.ts) | `npm run probe:extended` | 探索 Wi-Fi 7 MLO、天线切换、静态 DHCP、双栈 APN 与网络诊断 | `130 ms` 并发拉取 18 接口，确认 `802.11be` MLO、5 条静态绑定、IPv4v6 双栈 APN 与定时重启 |
+| [`scripts/probe-sms.ts`](../../scripts/probe-sms.ts) | `npm run probe:sms` | 只读验证短信计数、列表通道（明文 `sms-list` 或加密回退）与全量拉取会话耗时，仅输出聚合计数 | `259 ms` 单次会话完成 193 条全量拉取（与 `sms-count` 一致，容量 500 占用 39%），确认明文 `sms-list` 可用、无需加密回退；不发送、不标记已读、不删除 |
+| [`scripts/audit-secrets.ts`](../../scripts/audit-secrets.ts) | `npm run audit:secrets` | 扫描工作区与全量 `git log -p --all` 历史，拦截密钥/PII 与纯 `.js` | 全仓源码、测试、文档与全量提交历史 100% 通过门禁 |
 
 ---
 
@@ -866,9 +866,9 @@ $$
 
 ### A.7 烽燧的识别与能力探测（阶段 0：只记录）
 
-烽燧在两个时机识别路由器：**守护进程启动后一次**（低优先级读会话，排在首轮轮询之后），以及 **控制台「测试连接 / 保存连接」时**（测试会话登录成功后顺带执行）。识别 **不进入 5 秒轮询**，也不改变 H168-383 的登录方式、轮询请求与写操作（[`test/device-identify.test.ts`](../test/device-identify.test.ts) 逐条比对轮询会话的请求序列）。
+烽燧在两个时机识别路由器：**守护进程启动后一次**（低优先级读会话，排在首轮轮询之后），以及 **控制台「测试连接 / 保存连接」时**（测试会话登录成功后顺带执行）。识别 **不进入 5 秒轮询**，也不改变 H168-383 的登录方式、轮询请求与写操作（[`test/device-identify.test.ts`](../../test/device-identify.test.ts) 逐条比对轮询会话的请求序列）。
 
-- **只发这些 GET**（[`DEVICE_PROBE_PATHS`](../src/device-profile.ts)，按顺序、逐个发出，同一会话内）：
+- **只发这些 GET**（[`DEVICE_PROBE_PATHS`](../../src/device-profile.ts)，按顺序、逐个发出，同一会话内）：
   1. `GET /api/user/state-login`
   2. `GET /api/device/information`
   3. `GET /api/device/basic_information`
@@ -880,7 +880,7 @@ $$
   9. `GET /api/net/net-mode-list`
   10. `GET /api/global/module-switch`
 
-  识别出的型号 **不在验证清单上** 时（阶段 3 起），同一会话接着再发 3 个（[`EXPERIMENTAL_PROBE_PATHS`](../src/device-profile.ts)）：它们是实验性写入回读核对要读的接口（见 A.11），探测结果决定「设置 → 设备」能不能提供对应的实验性开关。H168-383 和认不出型号的路由器不发：
+  识别出的型号 **不在验证清单上** 时（阶段 3 起），同一会话接着再发 3 个（[`EXPERIMENTAL_PROBE_PATHS`](../../src/device-profile.ts)）：它们是实验性写入回读核对要读的接口（见 A.11），探测结果决定「设置 → 设备」能不能提供对应的实验性开关。H168-383 和认不出型号的路由器不发：
 
   11. `GET /api/net/net-mode`
   12. `GET /api/dialup/mobile-dataswitch`
@@ -890,7 +890,7 @@ $$
 - **补识别**：启动时的识别被跳过（有人登录官方后台、熔断、另一台守护进程在主导）或失败（连不上）时，识别记为「欠着」：等待期间不多发任何请求；之后第一个成功的读会话一结束，就以高优先级补做一次（排在其他已排队的读之前），成功为止。补识别连续失败 3 次就停下，直到下次启动或控制台测试连接；测试或保存当前路由器的连接也算识别过。
 - **保存**：结果加密存入 `state.json`（`deviceProbe`），重启后仍在。读入时校验结构（`isDeviceProbeResult`），读不懂的结果（例如其他版本写的）按「尚未识别」处理，启动后照常重新识别。测试连接只在测试的就是当前使用的路由器（地址相同）时更新它；保存新连接时采用该次测试的结果。
 - **只保留结构**：结构扫描与 XML 一致：引号内的 `>` 不结束标签，CDATA 按其中的字面文本处理。每个接口只记标签路径与值的「形状」（`int`、`hex(18)`、`text(12)`、`empty` 等）；取值只保留白名单：型号、固件与网页版本、`spreadname_en`、`state-login` 的 `password_type`、功能开关里的 0–99 小整数；型号、版本与 `spreadname_en` 合并空白后，只在全部字符属于字母、数字、空格和 `._()+-` 且不超过 64 个字符时保留，否则整个丢弃（阶段 1 复审 R0-04 起；以前是替换成 `?`、截断到 64 个字符，被截断的标识可能剩下第二道防线认不出的片段）；`net-mode-list` 的 LTE 掩码换算成频段号；代表「全部频段」的掩码 `7fffffffffffffff`（参考项目的 `LTEBandEnum.ALL`）不算通告了频段（阶段 3 起：只有它时频段为 `null`，烽燧不能用它核对锁频）。
-- **对外**：`GET /api/device/profile` 与控制台的设备报告，见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 2.9 节。
+- **对外**：`GET /api/device/profile` 与控制台的设备报告，见 [`api.md`](api.md) 2.9 节。
 
 ### A.8 旧式登录、令牌流程与回退条件（阶段 1 整理，未在真机验证）
 
@@ -951,7 +951,7 @@ $$
 
 ### A.9 烽燧的登录方式选择（阶段 1；只在 Mock 上验证）
 
-实现在 [`src/cpe-auth.ts`](../src/cpe-auth.ts) 与 [`src/cpe-client.ts`](../src/cpe-client.ts)。原则：**提交任何密码之前确定方式，一次会话只提交一次密码，绝不拿同一个密码换方式重试**（每次错误的提交都会消耗路由器 3 次机会之一）。
+实现在 [`src/cpe-auth.ts`](../../src/cpe-auth.ts) 与 [`src/cpe-client.ts`](../../src/cpe-client.ts)。原则：**提交任何密码之前确定方式，一次会话只提交一次密码，绝不拿同一个密码换方式重试**（每次错误的提交都会消耗路由器 3 次机会之一）。
 
 1. **依据**：会话开始时本来就要读的 `state-login`（铁律四的预检），不多发请求。
 2. **按 `password_type` 选择**：
@@ -968,11 +968,11 @@ $$
 6. **熔断与避让一视同仁**：`108001` / `108002` / `108006` / `108007` 与 `lockstatus=1` 对所有方式熔断（铁律五）；阶段 1 起 `115002`（需要修改密码）也熔断，不自动重试，控制台提示先在路由器网页改密码；旧式 `user/login` 一旦得到路由器的应答，除了 `OK` 和已知的「密码检查之前就拒绝」的错误码（`100002`–`100005`、`108003` / `108005` / `108009`、`108010`、`125001`–`125003`）以外一律熔断：未知的错误码，以及页面、空的、截断或过大的响应和重定向（熔断码 `unconfirmed`；请求一律 `redirect: "error"`，重定向表现为请求失败，但路由器已收到密码并作了应答）。未验证的型号，那次提交可能已经算作一次错误。没有得到应答（取不到这次请求的令牌、连接失败、超时）时与 SCRAM 一样，允许下次会话再试。阶段 2 起，对识别为未验证型号的路由器（本次运行看到的型号，或上次存下的识别结果），SCRAM 的证明（`authentication_login`）也套用这条规则：未知的错误码、没有 `serversignature` 的应答、被重定向都熔断（用户 2026-11-03 的决定，R1-04）；H168-383 和还没有识别结果的路由器保持已验证的处置（这类应答让这次会话失败，下次再试）；`108003` / `108005` / `108009` 对所有方式让位；`finally` 里的 `logout` 对所有方式执行。
 7. **加密通道**：只有 SCRAM 登录响应带的 ECC 公钥会启用（与改动前相同）；旧式登录没有可验证的密钥，不启用加密通道，需要它的请求直接失败，不去取未经验证的公钥。
 8. **测试连接**：控制台「测试连接」走同一条路径，结果附带识别到的型号、固件、登录方式、令牌流程和是否启用了加密通道；`115002` 报告为「需要先改密码」，不支持的登录方式报告为 `unsupported_login`（密码没有发出），已知用 SCRAM 的路由器拒绝挑战报告为 `scram_refused`（密码没有发出），无法判断的旧式应答报告为 `unconfirmed_login`（可能已用掉一次机会）。
-9. **验证**：[`test/helpers/cpe-family.ts`](../test/helpers/cpe-family.ts) 的 Mock 路由器家族（4 种登录方式 × 2 种令牌流程），按本附录的事实自己编写；H168-383 仍以 [`test/helpers/strict-cpe.ts`](../test/helpers/strict-cpe.ts) 为唯一的已验证基准，[`test/h168-wire.test.ts`](../test/h168-wire.test.ts) 逐条比对它的登录、轮询与写操作请求。
+9. **验证**：[`test/helpers/cpe-family.ts`](../../test/helpers/cpe-family.ts) 的 Mock 路由器家族（4 种登录方式 × 2 种令牌流程），按本附录的事实自己编写；H168-383 仍以 [`test/helpers/strict-cpe.ts`](../../test/helpers/strict-cpe.ts) 为唯一的已验证基准，[`test/h168-wire.test.ts`](../../test/h168-wire.test.ts) 逐条比对它的登录、轮询与写操作请求。
 
 ### A.10 其他型号的读取策略（阶段 2；只在 Mock 上验证）
 
-阶段 2 起，烽燧对识别为 **未验证型号** 的路由器换一种更宽容的读法（它能写什么由写闸门决定，见 [`PHASE2_BACKEND_CONTRACT.md`](PHASE2_BACKEND_CONTRACT.md) 2.10 节与本附录 A.11）：每个读取项各自成败，路由器对某一项回 `100002` / `100003`、或回了烽燧读不懂的内容，就把这一项记为「此型号不可用」，**绝不让它拖垮这一轮的其他项**。H168-383 与还没有识别结果的路由器继续走已验证的严格读法（一个核心接口出错就整轮失败，不拼凑数据），请求不变。以下事实取自参考项目 `master@d2eb2af`（2026-11-03 阅读），**均未在真机验证**；标「推断」的是我们自己的判断。
+阶段 2 起，烽燧对识别为 **未验证型号** 的路由器换一种更宽容的读法（它能写什么由写闸门决定，见 [`api.md`](api.md) 2.10 节与本附录 A.11）：每个读取项各自成败，路由器对某一项回 `100002` / `100003`、或回了烽燧读不懂的内容，就把这一项记为「此型号不可用」，**绝不让它拖垮这一轮的其他项**。H168-383 与还没有识别结果的路由器继续走已验证的严格读法（一个核心接口出错就整轮失败，不拼凑数据），请求不变。以下事实取自参考项目 `master@d2eb2af`（2026-11-03 阅读），**均未在真机验证**；标「推断」的是我们自己的判断。
 
 | 读取项 | 已知实现（按顺序尝试） | 来源 | 烽燧的处置 |
 | :--- | :--- | :--- | :--- |
@@ -984,13 +984,13 @@ $$
 | 邻区 | `GET /api/device/nbrcellinfo` | 参考项目没有这个接口（H168-383 实测，3.3 节） | 回错误码就是「此型号不可用」，后台扫描不再问它，用户手动刷新时才再试 |
 | 频段 | `GET /api/net/net-mode-list` 的 `LTEBandList`（识别时读，A.7） | 参考项目 `api/Net.py` | 设备页显示它通告的 LTE 频段；没有就显示「没有列出」。参考项目没有按型号整理的频段表，烽燧也不猜；H168-383 用已验证的频段表 |
 | 终端列表 | ① `GET /api/system/HostInfo`（JSON 数组，H168-383）② `GET /api/lan/HostInfo` ③ `GET /api/wlan/host-list`（只有 Wi-Fi 客户端） | 参考项目 `api/System.py`（`hostinfo`）、`api/Lan.py`（`host_info`）、`api/WLan.py`（`host_list`）：后两个返回 `<Hosts><Host>…</Host></Hosts>`，只有一台设备时可能只有一个 `Host`，也可能什么都没有 | 依次尝试，用第一个读得懂的（回 `100002` / `100003` 才换下一个；其他错误码让这次读取失败，下次再试）；快照的 `source` 记下来源（`wlan/host-list` 时界面注明只有 Wi-Fi 设备）。**推断**：参考项目没有列出 `Host` 里的字段名，烽燧按 `system/HostInfo` 的字段名（`MacAddress` / `MACAddress`、`IpAddress`、`HostName`、`ActualName`、`Active`、`InterfaceType`、`Frequency` 等，不分大小写）读取；没有 MAC 的条目丢弃；有条目却一个都读不懂时算「读不懂」，不显示成「没有设备」 |
-| 路由器设置（UPnP、DMZ、防火墙、NAT、桥接、Wi-Fi 7、天线、移动数据） | H168-383 的 9 个接口（[`fetchRouterSettings`](../src/cpe-domain.ts)，3.7 节） | — | 仍是全有或全无（开关值不能猜）；任何一个回错误码或读不懂，就整项「此型号不可用」（未验证型号本来也不能写） |
+| 路由器设置（UPnP、DMZ、防火墙、NAT、桥接、Wi-Fi 7、天线、移动数据） | H168-383 的 9 个接口（[`fetchRouterSettings`](../../src/cpe-domain.ts)，3.7 节） | — | 仍是全有或全无（开关值不能猜）；任何一个回错误码或读不懂，就整项「此型号不可用」（未验证型号本来也不能写） |
 | 访问控制（Wi-Fi MAC 过滤、上网时段） | `GET /api/wlan/multi-macfilter-settings-ex` 等（3.9 节） | — | 同上 |
 | 短信 | `GET /api/sms/sms-count`；明文 `POST /api/sms/sms-list`（字段顺序 `PageIndex`、`ReadCount`、`BoxType`、`SortType`、`Ascending`、`UnreadPreferred`，参考项目注明「至少 B525s-23a 对顺序敏感」；消息字段 `Index`、`Smstat`、`Phone`、`Content`、`Date`）；明文被拒时才用 H168-383 的加密列表 | 参考项目 `api/Sms.py`（`sms_count`、`get_sms_list`、`Message.from_dict`） | 烽燧的明文请求本来就是这个顺序。没有 `sms-count` 的型号「短信不可用」，后台不再同步；旧式登录没有加密通道，明文被拒时加密列表也不可用 |
 
 - **什么算「此型号不可用」**：路由器对该项回 `100002`（不支持）或 `100003`（无权限），或者回了烽燧的解析器拒绝的内容（缺必需的标签、JSON 形状不对、旧式登录要用加密通道）。其他错误码（例如忙、令牌错误）、传输失败、会话超时照旧让这次读取失败，下次再试，不记为不可用。
 - **记住多久**：结果跟着型号加密存进 `state.json`，重启后立即生效；看到另一个型号就清空重来。后台的定时扫描跳过「不可用」的项，用户或智能体主动刷新时仍会再试一次。
-- **验证**：[`test/read-strategies.test.ts`](../test/read-strategies.test.ts) 在阶段 1 的 Mock 家族（4 种登录方式 × 2 种令牌流程）上跑完整一轮只读采集，并覆盖缺失整段、陌生字段与终端列表的回退；H168-383 的请求序列由 [`test/h168-wire.test.ts`](../test/h168-wire.test.ts) 与复审工具逐条比对。
+- **验证**：[`test/read-strategies.test.ts`](../../test/read-strategies.test.ts) 在阶段 1 的 Mock 家族（4 种登录方式 × 2 种令牌流程）上跑完整一轮只读采集，并覆盖缺失整段、陌生字段与终端列表的回退；H168-383 的请求序列由 [`test/h168-wire.test.ts`](../../test/h168-wire.test.ts) 与复审工具逐条比对。
 
 ### A.11 实验性写入（阶段 3；只在 Mock 上验证）
 
@@ -1019,7 +1019,7 @@ $$
 | 天线（`antenna`） | 参考项目写 `device/antenna_settings` 的 `antenna_type`（`0` 内置、`1` 外置 1+2、`2` 外置 1、`3` 自动，`enums/device.py`），H168-383 写 `device/antenna_set_type` 的 `antennasettype`（`0` 自动、`1` 内置、`2` 外置，3.7 节）：同样的数字含义不同 |
 | 访问控制（`accessControl`） | 参考项目的 `wlan/multi-macfilter-settings`（`api/WLan.py`）字段与 H168-383 相同，但烽燧不让一次修改切断运行它的主机和发出请求的设备，这要靠 `system/HostInfo` 的 `IsLocalDevice`（H168-383 有，其他型号的终端列表没有，A.10）；上网时段（`timerule/timerule`）参考项目没有 |
 
-**能力判断**（[`experimentalEvidence`](../src/device-profile.ts)；只看标签名，不看取值）：识别时对未验证型号多读的 3 个 GET（A.7）连同固定清单，决定某项通用写入在这台路由器上可不可用（可用的默认开启，「设置 → 设备」里有它的开关）。写操作本身无法用 `GET` 探测，所以依据是它回读核对要读的接口，只写接口则看同一模块有没有应答：
+**能力判断**（[`experimentalEvidence`](../../src/device-profile.ts)；只看标签名，不看取值）：识别时对未验证型号多读的 3 个 GET（A.7）连同固定清单，决定某项通用写入在这台路由器上可不可用（可用的默认开启，「设置 → 设备」里有它的开关）。写操作本身无法用 `GET` 探测，所以依据是它回读核对要读的接口，只写接口则看同一模块有没有应答：
 
 | 功能 | 能力为 `supported` 的条件 |
 | :--- | :--- |
@@ -1039,4 +1039,4 @@ $$
 | 标记已读、删除 | 写之前、写之后各 `GET /api/sms/sms-count` | `LocalUnread`（删除看 `LocalInbox + LocalOutbox + LocalDraft`）正好少了条数为一致，没变为不一致，变化对不上为无法核对 |
 | 重拨、重启 | 之后的 5 秒轮询（不多发请求）：重拨看流量统计的 `CurrentConnectTime`（WAN 已连接时），重启看 `device/information` 的 `uptime`（没有就看连接时长） | 从写入之后重新计起为一致；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为无法核对。计数为 0 不算证据（流量统计没有 `CurrentConnectTime` 时也读成 0），等下一次轮询 |
 
-读回失败不会让已被路由器接受的写入算作失败；所有写入都不重试。验证：[`test/generic-writes.test.ts`](../test/generic-writes.test.ts)（每种请求在严格 Mock 上的确切格式、回读一致与不一致、拒绝时只发一次）、[`test/experimental-gate.test.ts`](../test/experimental-gate.test.ts)（经过闸门的完整写入、记录与告警）。
+读回失败不会让已被路由器接受的写入算作失败；所有写入都不重试。验证：[`test/generic-writes.test.ts`](../../test/generic-writes.test.ts)（每种请求在严格 Mock 上的确切格式、回读一致与不一致、拒绝时只发一次）、[`test/experimental-gate.test.ts`](../../test/experimental-gate.test.ts)（经过闸门的完整写入、记录与告警）。

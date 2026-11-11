@@ -29,7 +29,7 @@ import type { DemoSeed } from "./seed.ts";
 type Body = Readonly<Record<string, unknown>>;
 type Text = (key: string, params?: Readonly<Record<string, string | number>>) => { zh: string; en: string };
 
-/** Where each generic write posts (docs/PHASE1_PROTOCOL_SPEC.md A.11), as the daemon records it. */
+/** Where each generic write posts (docs/dev/protocol.md A.11), as the daemon records it. */
 const GENERIC_ENDPOINTS: Partial<Readonly<Record<ControlAction, string>>> = {
   lock_band: "/api/net/net-mode",
   unlock_rf_locks: "/api/net/net-mode",

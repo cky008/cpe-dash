@@ -120,7 +120,7 @@ export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
 
 /**
  * The writes FengSui has a generic implementation for (HiLink request formats from the reference
- * project's facts, docs/PHASE1_PROTOCOL_SPEC.md A.11): what a HiLink model nobody verified writes,
+ * project's facts, docs/dev/protocol.md A.11): what a HiLink model nobody verified writes,
  * as experimental writes, where the probe shows it can. Every other write stays the verified model's alone.
  */
 export const EXPERIMENTAL_FEATURES = ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const;

@@ -7,7 +7,7 @@ import { isResponseDocument } from "../src/device-profile.ts";
 /**
  * The login-method decisions and encodings on their own. Known-answer vectors: inputs from the
  * reference project's tests, outputs computed independently (Python's hashlib and `shasum`), see
- * docs/PHASE1_PROTOCOL_SPEC.md appendix A.8.
+ * docs/dev/protocol.md appendix A.8.
  */
 
 describe("login method plan", () => {

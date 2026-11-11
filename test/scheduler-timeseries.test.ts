@@ -434,7 +434,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
         return makeRes(`<response><token>${"0".repeat(32)}${nextToken()}</token></response>`, false);
       }
 
-      // Default telemetry fixtures matching PHASE1_PROTOCOL_SPEC.md & cpe-domain
+      // Default telemetry fixtures matching docs/dev/protocol.md & cpe-domain
       if (p === "/api/device/signal") {
         return makeRes(
           "<response><band>20MHz@300(B1) + 100MHz@650000(N78)</band><rsrp>-84dBm</rsrp><sinr>20dB</sinr><nrrsrp>-80dBm</nrrsrp><nrsinr>25dB</nrsinr></response>"

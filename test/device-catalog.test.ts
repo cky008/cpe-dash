@@ -68,12 +68,12 @@ function marksOf(text: string, section: string, model: string): string[] | undef
 const sameName = (name: string): string => name.toUpperCase().replace(/\s+/g, " ").trim();
 
 /**
- * The model names in SUPPORTED_DEVICES_DOCS.md's tables: the bold name of each row, brackets (descriptions,
+ * The model names in docs/dev/device-notes.md's tables: the bold name of each row, brackets (descriptions,
  * marketing names) and code spans aside, split at " / ", each model code with the word that names a variant.
  */
 function referenceModels(): string[] {
   const names: string[] = [];
-  for (const line of fs.readFileSync("SUPPORTED_DEVICES_DOCS.md", "utf8").split("\n")) {
+  for (const line of fs.readFileSync("docs/dev/device-notes.md", "utf8").split("\n")) {
     const bold = /^\| \*\*(.+?)\*\*/.exec(line)?.[1];
     if (!bold) continue;
     for (const piece of bold.replace(/`/g, "").replace(/\([^)]*\)/g, " ").split(" / ")) {
@@ -97,7 +97,7 @@ describe("the supported devices guide page", () => {
     }
   });
 
-  it("lists every model SUPPORTED_DEVICES_DOCS.md names, each once, under a known section and interface", () => {
+  it("lists every model docs/dev/device-notes.md names, each once, under a known section and interface", () => {
     const missing = referenceModels().filter((name) => !DEVICE_CATALOG.some((entry) => [entry.model, displayName(entry), entry.code ?? "", ...(entry.aliases ?? [])].some((known) => sameName(known) === sameName(name) || sameName(known).endsWith(` ${sameName(name)}`))));
     assert.deepEqual(missing, [], "add these to DEVICE_CATALOG");
     assert.ok(referenceModels().length > 150, "the reference's tables were read");

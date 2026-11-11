@@ -31,7 +31,7 @@ describe("verified firmware", () => {
       assert.ok(prompt.includes("H168-383") && prompt.includes("4.4.0.2(H1006SP2C00)") && prompt.includes("2026-11-02T08:00:00.000Z"));
       assert.ok(prompt.includes("4.4.0.1(H1006SP19C00)"), "names what was verified");
       assert.ok(prompt.includes("WebUI ?"), "an empty WebUI version reads as unknown");
-      for (const needle of ["AGENTS.md", "docs/PHASE1_PROTOCOL_SPEC.md", ".env", "108006", "npm run demo", "probe:session", "src/firmware.ts", "VERIFIED_FIRMWARE"]) {
+      for (const needle of ["AGENTS.md", "docs/dev/protocol.md", ".env", "108006", "npm run demo", "probe:session", "src/firmware.ts", "VERIFIED_FIRMWARE"]) {
         assert.ok(prompt.includes(needle), needle);
       }
       assert.ok(prompt.length < 3000, "fits one Telegram message with room to spare");

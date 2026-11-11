@@ -5,7 +5,7 @@ section: 帮助
 order: 21
 ---
 
-烽燧为各品牌的路由器做兼容时，参考了下面这些项目整理的接口资料，只取其中的事实：接口路径、参数名、取值和应答格式。每个项目参考时的提交和许可证记在[架构报告](https://github.com/cky008/cpe-dash/blob/main/docs/PHASE2_ARCHITECTURE_REPORT.md)里。
+烽燧为各品牌的路由器做兼容时，参考了下面这些项目整理的接口资料，只取其中的事实：接口路径、参数名、取值和应答格式。每个项目参考时的提交和许可证记在[架构报告](https://github.com/cky008/cpe-dash/blob/main/docs/dev/architecture.md)里。
 
 ## 华为
 

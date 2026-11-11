@@ -4,7 +4,7 @@ import { getXmlTag } from "../../src/xml.ts";
 
 /**
  * Strict mock routers for the Huawei models FengSui has NOT verified, built from the facts in
- * docs/PHASE1_PROTOCOL_SPEC.md appendix A (none of them checked on a real device). One factory, four
+ * docs/dev/protocol.md appendix A (none of them checked on a real device). One factory, four
  * login methods and two token flows; the H168-383 itself stays modelled by `strict-cpe.ts`, the only
  * verified behaviour.
  *

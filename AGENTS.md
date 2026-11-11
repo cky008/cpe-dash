@@ -82,24 +82,25 @@ cpe-dash/
 │   ├── capture-demo-seed.ts # npm run build:demo：从真守护进程录制在线演示的两份初始数据（H168-383，与 ?router=other 打开的未验证型号；只含占位值）
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图；screenshots 与浏览器测试共用
-│   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/BRAND.md）
+│   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
 │   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL），输出 dist/site
 │   ├── test-count-reporter.ts # node --test 报告器（test:coverage 与 test:ui 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
 ├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为 npm run test:ui 的浏览器测试：无头 Chrome 对着真实守护进程与演示路由器，不在 npm run check 里，CI 运行）
 ├── Dockerfile · docker-compose.yml · .dockerignore   # 非 root、只读根文件系统、HEALTHCHECK 的生产镜像与群晖编排
-├── SUPPORTED_DEVICES_DOCS.md                        # 各品牌型号的接口资料汇总（不是实测结果；实际实现以「支持的设备」页为准）
 ├── LICENSE · THIRD_PARTY_NOTICES.md                # PolyForm Noncommercial 1.0.0；构建产物所含 Tailwind CSS / daisyUI / Lucide 的许可声明（构建放到控制台旁，镜像放在 /app）
 ├── .github/workflows/      # ci-docker.yml（门禁 + amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）· docs-pages.yml（文档站发布到本仓库 Pages，仓库变量 DOCS_PAGES_ENABLED 打开后才运行）
 ├── .github/ISSUE_TEMPLATE/ # device-report.yml：其他型号的兼容性报告表单（型号、固件、能用 / 不能用、报告、隐私确认）；bug-report.yml、feature-request.yml；config.yml 把安全问题引到私密报告
 ├── .github/pull_request_template.md · SECURITY.md · CONTRIBUTING.md · CODE_OF_CONDUCT.md  # PR 隐私自检、漏洞私密报告与范围、贡献规则（TDD、占位值、零运行时依赖）、行为准则（Contributor Covenant 2.1）
 └── docs/
-    ├── PHASE1_PROTOCOL_SPEC.md       # H168-383 完整私有协议（含短信接口）、逆向算法与阶段交接规范字典
-    ├── PHASE2_ARCHITECTURE_REPORT.md # 架构选型、调度器、时序引擎与短信融合架构
-    ├── PHASE2_BACKEND_CONTRACT.md    # REST / SSE / MCP 权威契约（含短信、告警与 cpe-sms 视图映射）
-    ├── BRAND.md                      # 标志：唯一来源、颜色如何跟随主题、怎么换标志
-    ├── guide/{zh,en}/*.md            # 用户指南（支持的设备、快速开始、安装、功能、Docker Compose 配置、配置参考、安全、备份、其他型号、排障、FAQ、致谢）：文档站与 README 的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具
+    ├── guide/{zh,en}/*.md            # 用户指南（支持的设备、快速开始、安装、功能、Docker Compose 配置、配置参考、安全、备份、其他型号、排障、FAQ、致谢）：文档站的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具
+    ├── dev/                          # 开发者文档（只有中文，只在 GitHub 上看，不进文档站；README.md 是目录）
+    │   ├── protocol.md               # 华为 HiLink 协议：H168-383 的完整私有协议（含短信接口）与逆向算法；附录 A 为其他华为型号
+    │   ├── architecture.md           # 架构与设计记录：选型、调度器、时序引擎、短信融合、各轮审计，以及每项实现的依据（哪个接口、出自哪里）
+    │   ├── api.md                    # REST / SSE / MCP 接口契约（含短信、告警；contract-manifest 测试保证覆盖每个路由、SSE 事件与 MCP 工具）
+    │   ├── device-notes.md           # 各品牌型号的接口资料汇总（不是实测结果；实际实现以「支持的设备」页为准）
+    │   └── brand.md                  # 标志：唯一来源、颜色如何跟随主题、怎么换标志
     └── site/site.css                 # 文档站样式（Tailwind v4，浅色 / 深色）
 ```
 
@@ -174,7 +175,7 @@ cpe-dash/
 
 给任何品牌增加或搬动一项读取或写入，都照这七条做。
 
-1. **记录了就实现，实现了就可用。** 一个接口只要有记录（接口资料、厂商手册或开源实现），就实现它，实现后默认可用：不等真机实测，不因为「没验证过」留着不做，也不另加开关挡住。记录不完整时（常见的是只有接口名或指令名，缺应答格式），先查公开资料把细节补齐再实现；查遍公开资料也没有任何记录的才不做。不凭空编接口。每项实现的依据（哪个接口、出自哪里）写进 [`docs/PHASE2_ARCHITECTURE_REPORT.md`](docs/PHASE2_ARCHITECTURE_REPORT.md)。
+1. **记录了就实现，实现了就可用。** 一个接口只要有记录（接口资料、厂商手册或开源实现），就实现它，实现后默认可用：不等真机实测，不因为「没验证过」留着不做，也不另加开关挡住。记录不完整时（常见的是只有接口名或指令名，缺应答格式），先查公开资料把细节补齐再实现；查遍公开资料也没有任何记录的才不做。不凭空编接口。每项实现的依据（哪个接口、出自哪里）写进 [`docs/dev/architecture.md`](docs/dev/architecture.md)。
 2. **实现了的写入默认开启，用户可以逐项关闭；保护不变。** 每次写入只发一次，写后在同一会话回读，回读不一致告警；会意外断网的写入有断网 3 分钟的自动回退（未验证的路由器上，任何入口发起的锁频写回锁前的频段，锁小区解除锁定，独立于 `LOCK_ROLLBACK_AFTER_MIN`，守护进程重启后接着算）；控制台每个写操作有自己的确认框；MCP 写工具要 `confirm: true`、`MCP_ALLOW_MUTATIONS` 和令牌权限；自愈默认关闭；除了上面的回退，烽燧不会自己主动写任何东西。
 3. **每类能力是 `RouterBackend` 上的一个动词**（或快照里的一组字段）：哪个品牌的资料里有，就在哪个品牌的后端里实现；华为有对应能力的归到同一个动词。没有这项能力的品牌，读返回「此型号不提供」，写由闸门拒绝。服务层不判断品牌，不做品牌特例（`test/router-backend.test.ts` 守着这条线）。
 4. **已验证的 H168-383 发给路由器的请求一个字节都不变。** 搬动华为代码时，用严格模拟路由器的测试和请求序列比对证明这一点。

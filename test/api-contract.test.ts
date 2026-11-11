@@ -17,7 +17,7 @@ describe("REST / SSE contract module", () => {
   });
 
   it("documents every error code of the contract", () => {
-    const doc = fs.readFileSync("docs/PHASE2_BACKEND_CONTRACT.md", "utf8");
+    const doc = fs.readFileSync("docs/dev/api.md", "utf8");
     const documented = new Set([...doc.matchAll(/\| "([A-Z_]+)";?\s+\/\/ \d{3}/g)].map((m) => m[1]));
     const codes: Record<ApiErrorCode, true> = {
       MISDIRECTED_HOST: true,

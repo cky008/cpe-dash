@@ -1,5 +1,5 @@
 /**
- * The FengSui logo has one source: `web/brand/logo.svg` (see docs/BRAND.md). The web build derives
+ * The FengSui logo has one source: `web/brand/logo.svg` (see docs/dev/brand.md). The web build derives
  * the console's sprite symbol from it (coloured by the theme) and ships it unchanged as the favicon
  * (its own <style> follows the system's light / dark). Replacing the logo means replacing that file.
  */

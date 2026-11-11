@@ -10,7 +10,7 @@ import type { SupportedLocale } from "./types.ts";
  * Every router model FengSui's interface notes record, by brand, and what FengSui does on each: the one
  * list of models (the "Supported devices" guide page is written from it, between `<!-- devices:begin -->`
  * and `<!-- devices:end -->` in docs/guide/{zh,en}/supported-devices.md; test/device-catalog.test.ts keeps
- * the pages identical to `supportedDevicesSection`, and every model of SUPPORTED_DEVICES_DOCS.md in the list).
+ * the pages identical to `supportedDevicesSection`, and every model of docs/dev/device-notes.md in the list).
  *
  * A cell's mark comes from three layers, in this order: what FengSui implements for the interface the
  * model connects through (the brand's facts, `ROUTER_FAMILY_FACTS`); what is particular to the model
@@ -112,7 +112,7 @@ const ZTE_BOTH: ReadonlyArray<RouterFamily> = ["zte-zwrt", "zte-goform"];
 const FIBOCOM = { maker: "Fibocom" } as const;
 const QUECTEL = { maker: "Quectel" } as const;
 
-/** The models, by section, as the interface notes (cpe-specs, cpe-protocal) and SUPPORTED_DEVICES_DOCS.md list them. */
+/** The models, by section, as the interface notes (cpe-specs, cpe-protocal) and docs/dev/device-notes.md list them. */
 export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
   ...models("huawei", ["huawei"], [
     ["H168-383", "indoor"],

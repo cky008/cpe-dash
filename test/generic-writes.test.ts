@@ -17,7 +17,7 @@ import { type CpeFamilyOptions, type FamilySms, type FamilyWrites, blockNetwork,
 
 /**
  * Multi-model phase 3: the generic writes FengSui may do on a model nobody verified, once its owner
- * consents, in exactly the request formats of docs/PHASE1_PROTOCOL_SPEC.md appendix A.11. Each one
+ * consents, in exactly the request formats of docs/dev/protocol.md appendix A.11. Each one
  * is read back in its own session where it can be (the redial and the reboot are left pending for
  * the next polls), never retried, and records the endpoints it wrote without any value. The mock
  * routers answer only those forms. Placeholders only, no network.

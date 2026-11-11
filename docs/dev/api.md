@@ -1,8 +1,8 @@
-# PHASE 2 → PHASE 3 权威交接契约 (`PHASE2_BACKEND_CONTRACT.md`)
+# 烽燧 REST / SSE / MCP 接口契约
 
-> **文档状态**：Phase 2 后端架构、REST 路由、毫秒级 SSE 实时总线与 MCP Server 权威契约（Single Source of Truth for Phase 3 Frontend & AI Agents）；Phase 2.2 起涵盖短信、通讯录、告警与通知（第 2.5–2.6、3.2、4.4、7 节）  
+> **文档状态**：守护进程对外接口的权威契约：REST 路由、SSE 实时事件与 MCP 工具，控制台前端与 AI 智能体都以它为准；含短信、通讯录、告警与通知（第 2.5–2.6、3.2、4.4、7 节）  
 > **适用目标**：华为 5G CPE Ultra 6 (`H168-383`, 硬件 `WL1H168M`, 固件 `4.4.0.1`) · 群晖 Synology DS923+ (`WEB_PORT=18384`)  
-> **前置规范**：[`AGENTS.md`](../AGENTS.md) · [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) · [`docs/PHASE2_ARCHITECTURE_REPORT.md`](PHASE2_ARCHITECTURE_REPORT.md)  
+> **前置规范**：[`AGENTS.md`](../../AGENTS.md) · [`docs/dev/protocol.md`](protocol.md) · [`docs/dev/architecture.md`](architecture.md)  
 > **对齐基准**：本文所有类型、错误码与行为均已逐项对照 `src/` 实现核对；若二者出现冲突，以 `src/` 为准并回修本文。
 
 ---
@@ -32,7 +32,7 @@
    - **任何令牌都不能修改控制台设置**：`/api/console/*` 只接受控制台 Cookie 会话，令牌访问返回 `403 CONSOLE_ONLY`（令牌不能改动签发它的凭据）。
    - **从 `.env` 升级**：首次启动带 `settings.json` 的版本时，`.env` 中的值只导入一次：`CPE_URL` / `CPE_USERNAME` / `CPE_PASSWORD` 成为路由器连接；`API_TOKEN`（未设置时为 `CPE_PASSWORD`）成为控制台密码，同时与 `API_TOKEN_READONLY` 一起成为名为 `API_TOKEN (.env)` / `API_TOKEN_READONLY (.env)` 的令牌，现有客户端无需改动。此后以控制台为准，`.env` 中这些值被忽略。
    - **全新安装**：`.env` 只需 `DATA_ENCRYPTION_KEY`。守护进程启动时在日志中打印一次性**设置码**（`XXXX-XXXX`，24 小时内有效，重启后换新）；登录页凭设置码设定控制台密码，然后在引导中填写并测试路由器连接。保存之前守护进程不会登录路由器。
-4. **`REDACT_SENSITIVE_IN_API` 按调用方生效（v1.0.1 起）**：守护进程内部与加密落盘的快照始终保存原值，脱敏只发生在输出边界（[`src/redact.ts`](../src/redact.ts)）。
+4. **`REDACT_SENSITIVE_IN_API` 按调用方生效（v1.0.1 起）**：守护进程内部与加密落盘的快照始终保存原值，脱敏只发生在输出边界（[`src/redact.ts`](../../src/redact.ts)）。
    - **Cookie 会话（Web 控制台）始终拿到原值**：前端默认在屏幕上掩码，由用户点眼睛按钮显示（防截图）。
    - **Bearer 调用方（REST、`/api/events` SSE）与 MCP 工具 / 资源**：开关为 `true`（默认）时收到脱敏副本，`device.sensitiveRedacted` 为 `true`；为 `false` 时与 Web 控制台相同。
    - 脱敏副本只用一眼可辨的掩码，不再用以假乱真的占位值：IMEI 留前 6 位、IMSI 留 MCC+MNC、本机号码 `+353*******00`、MAC 留厂商 OUI、WAN / DNS 地址留前两段（`198.51.*.*`、`2001:db8:****`）、TAC / Cell ID / eNodeB 为 `<REDACTED>`；终端拓扑的设备名为 `<REDACTED>`、MAC 留 OUI、IPv6 留前两组，局域网 IPv4 原样保留（用于区分终端）。邻区、路由器配置（含 DMZ 地址）与时序数据不含此类标识，不做脱敏。
@@ -710,7 +710,7 @@ export interface SettingsRefreshResponse {
 >
 > **校验时机**：所有请求参数（类型、频段、PCI、IPv4、开关布尔值、天线模式、`confirm`）都在入队前同步校验，非法参数返回 `400 VALIDATION_ERROR`，且不产生任何 CPE 会话。
 >
-> **频段与频点边界（Phase 2.5）**：LTE 频段只接受 H168-383 在 `net-mode-list` 中通告的 14 个频段（`B1/B3/B5/B7/B8/B20/B28/B32/B38/B40/B41/B42/B43/B71`）；NR 频段只接受 H168-383 规格书中的 `N1/N3/N5/N7/N8/N20/N28/N38/N40/N41/N71/N75/N77/N78/N79`（路由器不通告 NR 频段；规格书的 LTE 列表与路由器通告的完全一致）；锁小区 / 锁频点的 `arfcn` 必须落在该频段的 3GPP 下行 EARFCN / NR-ARFCN 范围内（如 `B3` 为 `1200..1949`）。范围表见 [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 4.1 节。
+> **频段与频点边界（Phase 2.5）**：LTE 频段只接受 H168-383 在 `net-mode-list` 中通告的 14 个频段（`B1/B3/B5/B7/B8/B20/B28/B32/B38/B40/B41/B42/B43/B71`）；NR 频段只接受 H168-383 规格书中的 `N1/N3/N5/N7/N8/N20/N28/N38/N40/N41/N71/N75/N77/N78/N79`（路由器不通告 NR 频段；规格书的 LTE 列表与路由器通告的完全一致）；锁小区 / 锁频点的 `arfcn` 必须落在该频段的 3GPP 下行 EARFCN / NR-ARFCN 范围内（如 `B3` 为 `1200..1949`）。范围表见 [`docs/dev/protocol.md`](protocol.md) 4.1 节。
 >
 > **读-改-写不写猜测值**：防火墙与 Wi-Fi 7 开关需要先读取当前值再合并写入。读取失败或响应缺少字段时，请求在**任何写入之前**以 `502` 失败（防火墙读取发生在 UPnP / DMZ 写入之前），绝不按默认值回写未改动的开关。唯一依赖路由器状态的检查是「`dmz.enabled: true` 但未提供 `ipAddress`」：服务端需要在会话内读取路由器当前的 `DmzIPAddress`，若为空则在**任何写入之前**返回 `400`，不会留下 UPnP 等部分写入。
 >
@@ -934,7 +934,7 @@ export interface ChannelDeliveryStats {
 
 ### 2.7 设备访问控制路由（v1.1.0）
 
-封装路由器自带的 Wi-Fi MAC 过滤与家长控制"上网时段"（协议见 `PHASE1_PROTOCOL_SPEC.md` 3.9 节）。规划与校验在 [`src/access-plan.ts`](../src/access-plan.ts)（前端用同一份代码预览），读写在 [`src/access-control.ts`](../src/access-control.ts)。
+封装路由器自带的 Wi-Fi MAC 过滤与家长控制"上网时段"（协议见 `protocol.md` 3.9 节）。规划与校验在 [`src/access-plan.ts`](../../src/access-plan.ts)（前端用同一份代码预览），读写在 [`src/access-control.ts`](../../src/access-control.ts)。
 
 | 路由 | 请求体 | 成功响应 |
 | :--- | :--- | :--- |
@@ -1091,7 +1091,7 @@ export interface AuditEntry {
 守护进程识别它连接的是哪台路由器、路由器报告了哪些能力；其他华为型号上哪些通用写入可用，由识别结果决定（见 2.10、2.11）。**对 H168-383 没有任何行为变化**：登录方式、轮询请求与节奏、写操作都不变。
 
 - **何时识别**：守护进程启动后一次（低优先级读会话，排在首轮轮询之后），以及控制台 `POST /api/console/cpe/test` / `POST /api/console/cpe` 的测试会话登录成功后。**不进入 5 秒轮询。** 启动时的识别被跳过（有人登录官方后台、熔断）或失败（连不上）时，等待期间不多发任何请求，之后第一个成功的读会话一结束就以高优先级补做一次，成功为止；连续失败 3 次后停到下次启动或测试连接。
-- **发什么**：同一会话内按顺序发 10 个固定的 GET（清单与理由见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.7）；识别出的型号不在验证清单上时，再发实验性写入回读要读的 3 个 GET（`net/net-mode`、`dialup/mobile-dataswitch`、`sms/sms-count`，阶段 3），H168-383 不发。每个最多等 5 秒，不发其他请求；有人登录官方后台时让位跳过，熔断时不登录。
+- **发什么**：同一会话内按顺序发 10 个固定的 GET（清单与理由见 [`protocol.md`](protocol.md) 附录 A.7）；识别出的型号不在验证清单上时，再发实验性写入回读要读的 3 个 GET（`net/net-mode`、`dialup/mobile-dataswitch`、`sms/sms-count`，阶段 3），H168-383 不发。每个最多等 5 秒，不发其他请求；有人登录官方后台时让位跳过，熔断时不登录。
 - **保存**：加密存入 `state.json`。测试连接只在测试的就是当前使用的路由器（地址相同）时更新；保存新连接时采用该次测试的结果；测试其他地址或测试失败都不改动已存的结果。
 
 | 方法与路径 | 调用方 | 响应 |
@@ -1149,12 +1149,12 @@ export interface DeviceCapabilities {
   // mobileData、securitySwitches、wifi、antenna、accessControl 各一项：已验证型号为
   // { state: "supported", source: "verified" }；其他型号上，烽燧有通用实现的写操作（bandLock、reboot、
   // reconnect、mobileData、smsWrite，阶段 3）在探测找到它回读要读的接口（只写接口则为同一模块）时为
-  // { state: "supported", source: "probe" }（依据见 PHASE1_PROTOCOL_SPEC.md 附录 A.11），其余为 { state: "unknown", source: "none" }
+  // { state: "supported", source: "probe" }（依据见 protocol.md 附录 A.11），其余为 { state: "unknown", source: "none" }
   features: Record<DeviceFeature, { state: EndpointState; source: "verified" | "probe" | "none" }>;
 }
 ```
 
-- **派生值**：`verification` 与 `features` 在读取时按 [`src/firmware.ts`](../src/firmware.ts) 的验证清单计算，升级后新加入清单的固件对已存的识别结果立即生效。
+- **派生值**：`verification` 与 `features` 在读取时按 [`src/firmware.ts`](../../src/firmware.ts) 的验证清单计算，升级后新加入清单的固件对已存的识别结果立即生效。
 
 #### 设备报告 `GET /api/console/device-report`（只接受控制台 Cookie 会话；令牌访问返回 `403 CONSOLE_ONLY`）
 
@@ -1216,14 +1216,14 @@ export interface DeviceReport {
 }
 ```
 
-- **报告兼容性（阶段 2）**：控制台「设置 → 设备」先生成报告并完整显示，用户检查后复制或下载，再点「在 GitHub 报告」，在新标签页打开 `https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device%20report%3A%20<型号>%20·%20<固件>`（[`src/feedback.ts`](../src/feedback.ts)；表单在 `.github/ISSUE_TEMPLATE/device-report.yml`）。**地址里只有模板与标题**，报告由用户自己粘贴或作为文件附上；烽燧不上传任何东西，也没有对应的后端路由。
-- **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍（`GET /api/device/profile` 同样经 `sanitizeDeviceProfile`，因为令牌与智能体也读它）：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../test/device-report.test.ts)）。
+- **报告兼容性（阶段 2）**：控制台「设置 → 设备」先生成报告并完整显示，用户检查后复制或下载，再点「在 GitHub 报告」，在新标签页打开 `https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device%20report%3A%20<型号>%20·%20<固件>`（[`src/feedback.ts`](../../src/feedback.ts)；表单在 `.github/ISSUE_TEMPLATE/device-report.yml`）。**地址里只有模板与标题**，报告由用户自己粘贴或作为文件附上；烽燧不上传任何东西，也没有对应的后端路由。
+- **第二道防线**：报告生成后再经 [`src/sanitize.ts`](../../src/sanitize.ts) 的 `sanitizeDeviceReport` 过一遍（`GET /api/device/profile` 同样经 `sanitizeDeviceProfile`，因为令牌与智能体也读它）：任何字符串只要像 MAC、IPv6、连续 10 位以上数字（IMEI / IMSI / ICCID / 号码）或 `+` 开头的号码，就替换为 `<redacted>`；白名单以外的字符串连 IPv4 的样子都不能有（白名单里的版本号可以是 `4.4.0.1` 这样的点分形式）。测试用含全部 RFC 占位标识的响应生成报告，逐个断言它们不出现（[`test/device-report.test.ts`](../../test/device-report.test.ts)）。
 
 ### 2.10 写闸门：未验证的路由器只写烽燧实现了的
 
-**所有写操作只有一个入口**：调度器的 `executeControl`。REST、MCP、Telegram、短信、自愈都经它进入队列，闸门就在这里检查，不靠界面隐藏。实现见 [`src/device-access.ts`](../src/device-access.ts) 与 [`src/scheduler.ts`](../src/scheduler.ts)。
+**所有写操作只有一个入口**：调度器的 `executeControl`。REST、MCP、Telegram、短信、自愈都经它进入队列，闸门就在这里检查，不靠界面隐藏。实现见 [`src/device-access.ts`](../../src/device-access.ts) 与 [`src/scheduler.ts`](../../src/scheduler.ts)。
 
-- **按型号与功能判断**：验证清单（[`src/firmware.ts`](../src/firmware.ts) 的 `VERIFIED_FIRMWARE`）上的型号可以写；它的新固件照常写，只告警（ADR-007）。其他型号上，**烽燧为这台路由器实现了的写入默认开启**，作为实验性写入发出（只发一次、写后回读，见 2.11），用户可以逐项关闭；**没有实现的写入拒绝**，路由器收不到任何写请求。「实现了」按品牌各自的清单判断（[`src/router-family.ts`](../src/router-family.ts) 的 `ROUTER_FAMILY_FACTS[品牌].writes`）：其他品牌是它的驱动实现的写入；其他华为 HiLink 型号是通用写入（附录 A.11），并且识别时的探测要找到这项写入回读所读的接口（有人在真机上验证过的那项写入，`VERIFIED_FEATURES`，不需要这个依据）。两种拒绝的错误码不同：没有实现或路由器不具备条件是 `409 DEVICE_UNVERIFIED_READ_ONLY`，用户关闭的是 `409 DEVICE_WRITE_DISABLED`。
+- **按型号与功能判断**：验证清单（[`src/firmware.ts`](../../src/firmware.ts) 的 `VERIFIED_FIRMWARE`）上的型号可以写；它的新固件照常写，只告警（ADR-007）。其他型号上，**烽燧为这台路由器实现了的写入默认开启**，作为实验性写入发出（只发一次、写后回读，见 2.11），用户可以逐项关闭；**没有实现的写入拒绝**，路由器收不到任何写请求。「实现了」按品牌各自的清单判断（[`src/router-family.ts`](../../src/router-family.ts) 的 `ROUTER_FAMILY_FACTS[品牌].writes`）：其他品牌是它的驱动实现的写入；其他华为 HiLink 型号是通用写入（附录 A.11），并且识别时的探测要找到这项写入回读所读的接口（有人在真机上验证过的那项写入，`VERIFIED_FEATURES`，不需要这个依据）。两种拒绝的错误码不同：没有实现或路由器不具备条件是 `409 DEVICE_UNVERIFIED_READ_ONLY`，用户关闭的是 `409 DEVICE_WRITE_DISABLED`。
 - **只相信本次运行看到的型号**：识别（启动后、补做、控制台测试当前路由器）、每 5 秒的轮询（本来就读 `device/information`）和写操作自己的会话都算「看到」。上一次运行存下的识别结果可能已经过时（停机期间换了路由器）：
   - 按它说的型号，这项写入会被闸门拒绝（没有实现、路由器不具备条件，或用户关闭了）：直接拒绝，连会话都不建（会放行的，同下一条，先在写操作自己的会话里确认型号）；
   - 其余情况（它说是已验证型号、这项写入在它说的型号上开着，或者还没有任何识别结果）：这次写操作先在自己的会话里读 `GET /api/device/information`（读不到型号时再读 `device/basic_information`；其他品牌由驱动识别），再按读到的型号过一次闸门：换成了另一个未验证的型号时，上一台路由器的探测结果不算数，通用写入拒绝（`409 DEVICE_UNVERIFIED_READ_ONLY`），等识别之后才可用；一个型号都读不到也拒绝（`409 DEVICE_NOT_IDENTIFIED`），都不写入。这次读取只在本次运行还没看到型号时发生，H168-383 轮询之后的写操作请求不变。
@@ -1251,7 +1251,7 @@ export interface DeviceAccessSnapshot {
 }
 ```
 
-**未验证型号的读法**（详见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.10）：每个读取项各自成败。遥测的信号、状态、流量、月统计哪一部分回了错误码，就列进 `GlobalTelemetrySnapshot.unavailable`，其余照常；邻区、终端列表、路由器设置、访问控制、短信整项回 `100002` / `100003` 或读不懂时，刷新接口返回该项的缓存（通常为 `null`），`reads` 记为 `unavailable`，后台定时扫描不再问它，主动刷新时再试。终端列表依次尝试 `system/HostInfo`、`lan/HostInfo`、`wlan/host-list`（回 `100002` / `100003` 才换下一个，其他错误码让这次读取失败）。没有流量统计的型号不写吞吐时序。H168-383 与还没有识别结果的路由器照旧严格读取，`unavailable`、`source` 都不出现。
+**未验证型号的读法**（详见 [`protocol.md`](protocol.md) 附录 A.10）：每个读取项各自成败。遥测的信号、状态、流量、月统计哪一部分回了错误码，就列进 `GlobalTelemetrySnapshot.unavailable`，其余照常；邻区、终端列表、路由器设置、访问控制、短信整项回 `100002` / `100003` 或读不懂时，刷新接口返回该项的缓存（通常为 `null`），`reads` 记为 `unavailable`，后台定时扫描不再问它，主动刷新时再试。终端列表依次尝试 `system/HostInfo`、`lan/HostInfo`、`wlan/host-list`（回 `100002` / `100003` 才换下一个，其他错误码让这次读取失败）。没有流量统计的型号不写吞吐时序。H168-383 与还没有识别结果的路由器照旧严格读取，`unavailable`、`source` 都不出现。
 
 每个写操作所属的功能（`CONTROL_FEATURES`，用户按功能关闭）：
 
@@ -1270,7 +1270,7 @@ export interface DeviceAccessSnapshot {
 
 ### 2.11 实验性写入：默认开启，逐项关闭
 
-未验证的路由器上，烽燧实现了的写入不需要用户先同意：识别出型号之后就可用，用户可以在「设置 → 设备」里 **逐项** 关闭。这些写入统称实验性写入，因为没有人在真机上验证过。其他华为 HiLink 型号是请求格式在参考资料里写得确切的通用写入（`bandLock` 只锁 LTE、`reboot`、`reconnect`、`mobileData`、`smsWrite`；格式、来源与「暂不支持」的理由见 [`PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 附录 A.11）；其他品牌是各自驱动实现的写入（目前都是 `bandLock`、`cellLock`、`reboot`）。v1.8.4 之前这些写入默认拒绝、要逐项输入型号同意；旧版本存下的同意记录读入时忽略，不会让任何写入变成关闭。
+未验证的路由器上，烽燧实现了的写入不需要用户先同意：识别出型号之后就可用，用户可以在「设置 → 设备」里 **逐项** 关闭。这些写入统称实验性写入，因为没有人在真机上验证过。其他华为 HiLink 型号是请求格式在参考资料里写得确切的通用写入（`bandLock` 只锁 LTE、`reboot`、`reconnect`、`mobileData`、`smsWrite`；格式、来源与「暂不支持」的理由见 [`protocol.md`](protocol.md) 附录 A.11）；其他品牌是各自驱动实现的写入（目前都是 `bandLock`、`cellLock`、`reboot`）。v1.8.4 之前这些写入默认拒绝、要逐项输入型号同意；旧版本存下的同意记录读入时忽略，不会让任何写入变成关闭。
 
 每个写功能在 `schedulerStatus.device.features` 里有一个状态：
 
@@ -1303,7 +1303,7 @@ export interface ExperimentalWritesResponse {
 
 - 关闭与重新打开都不需要确认词：默认就是开的，开关只表达「我不要这一项」。控制台在开关旁写明「没有在真机上验证过」，每个写操作自己的确认框里也保留这句提醒。
 
-**放行之后怎么写**（HiLink 型号：[`src/generic-writes.ts`](../src/generic-writes.ts)、[`src/sms/protocol.ts`](../src/sms/protocol.ts)，请求格式见附录 A.11；其他品牌：各自的驱动，`src/drivers/`）：
+**放行之后怎么写**（HiLink 型号：[`src/generic-writes.ts`](../../src/generic-writes.ts)、[`src/sms/protocol.ts`](../../src/sms/protocol.ts)，请求格式见附录 A.11；其他品牌：各自的驱动，`src/drivers/`）：
 
 - 仍然只经 `executeControl` / `executeDriverControl`，**绝不重试**；REST、MCP、Telegram、WAN 自愈（锁频回滚、自动重拨）与短信服务都走同一个闸门。HiLink 型号的实验性锁频 **只锁 LTE**，频段只能取 `lteBands`（`net-mode-list` 通告的），NR 频段、锁小区和其他频段在入队前就以 `400 VALIDATION_ERROR` 拒绝；实验性短信不收表情等基本多文种平面以外的字符（同样 `400`）。
 - **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`（列出了每个收件人才算一致，一个都没列出为「无法核对」）；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致（计数为 0 不算，没有这个字段时也读成 0）；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。
@@ -1322,7 +1322,7 @@ export interface WriteCheck {
 
 ### 2.12 一键开始 AI 智能体测试与提醒（v1.8.1）
 
-未验证型号上，「设置 → 设备」的「复制提示词并开始测试」把测试要用的设置**一次**打开（[`src/agent-test.ts`](../src/agent-test.ts) 的规则，[`src/agent-test-service.ts`](../src/agent-test-service.ts) 执行）：控制台确认框列出要打开的全部内容，短信是框里一个默认勾选的选项，主人确认一次即打开并复制提示词。实验性写入本来就开着（2.11），测试只打开智能体还缺的：智能体的开关和令牌的权限。测试不打开、也不关闭任何一项写入：主人关掉的写入测试不会重新打开。
+未验证型号上，「设置 → 设备」的「复制提示词并开始测试」把测试要用的设置**一次**打开（[`src/agent-test.ts`](../../src/agent-test.ts) 的规则，[`src/agent-test-service.ts`](../../src/agent-test-service.ts) 执行）：控制台确认框列出要打开的全部内容，短信是框里一个默认勾选的选项，主人确认一次即打开并复制提示词。实验性写入本来就开着（2.11），测试只打开智能体还缺的：智能体的开关和令牌的权限。测试不打开、也不关闭任何一项写入：主人关掉的写入测试不会重新打开。
 
 - **打开什么**（`plan`）：控制台设置 `agentExperimental`（`MCP_ALLOW_EXPERIMENTAL`）与 `agentWrites`（`MCP_ALLOW_MUTATIONS`）还不是 `true` 的设成 `true`；以及主人选的一个令牌加上它缺的 `control`。只有已验证型号以外、测试覆盖的写入（`bandLock`、`reconnect`、`reboot`：智能体有工具能写的；没有移动数据工具，不在内；以及短信）里至少有一项是 `enabled` 时才能开始（`plan.available`），否则 `409 AGENT_TEST_UNAVAILABLE`。`model` 随请求送回，必须是控制台显示的那个型号：测试不会为另一台路由器开始。
 - **短信**（`plan.sms`，请求里 `sms: true` 才打开）：烽燧读短信（`SMS_ENABLED`）、路由器有短信、`smsWrite` 是 `enabled` 时可选（主人关闭了短信写入时不可选）。打开：`agentSms`（`MCP_SMS_ACCESS`）设成 `full`、`agentSmsSendPolicy`（`MCP_SMS_SEND_POLICY`）设成 `any`（「已知号码」只认主人存的联系人和路由器发过的号码，主人给智能体的测试号码多半不在其中；`agentSmsSendLimitPerHour` 不变，确认框写明它），令牌再加上缺的 `sms-read` / `sms-write`。提示词让智能体发一条测试短信给主人给的号码，主人回复后把回复标为已读，再删掉这两条。
@@ -1467,7 +1467,7 @@ export interface AvoidanceBroadcastPayload {
    }
    ```
    `--experimental-strip-types` 在 Node `22.6`–`22.17` 上必需，在 Node `22.18+` / `23.6+` 上可省略。执行过 `npm run build` 后也可改用 `/path/to/cpe-dash/dist/cli.js`。
-   - `cpe-dash mcp` 是**零状态桥接**（[`src/mcp-stdio-bridge.ts`](../src/mcp-stdio-bridge.ts)）：从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`，`WEB_HOST` 为具体地址时用该地址），把每一行原样 `POST` 给守护进程的 `/mcp`，并在 `initialize` 之后附带协商出的 `MCP-Protocol-Version` 头。它不创建 CPE 客户端、调度器或任何存储，也不运行告警、Telegram 与 Webhook；需要守护进程已在运行且 `MCP_HTTP_ENABLED=true`。
+   - `cpe-dash mcp` 是**零状态桥接**（[`src/mcp-stdio-bridge.ts`](../../src/mcp-stdio-bridge.ts)）：从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`，`WEB_HOST` 为具体地址时用该地址），把每一行原样 `POST` 给守护进程的 `/mcp`，并在 `initialize` 之后附带协商出的 `MCP-Protocol-Version` 头。它不创建 CPE 客户端、调度器或任何存储，也不运行告警、Telegram 与 Webhook；需要守护进程已在运行且 `MCP_HTTP_ENABLED=true`。
    - 桥接自身的 JSON-RPC 错误：守护进程不可达时返回 `-32010`（提示先启动 `cpe-dash serve`）；守护进程以非 JSON-RPC 信封拒绝（如 `401 UNAUTHORIZED`、`404 MCP_DISABLED`、`429 RATE_LIMITED`）时返回 `-32011`，消息中带 HTTP 状态与 `errorCode`。两者都在实现自定义区间 `-32000..-32019` 内，且避开了 SDK 的 `-32000` / `-32001` 与传统版资源未找到 `-32002`。Notification 失败只写入 stderr 日志。
    - 旧的 `--poll` 参数与 `MCP_STDIO_BACKGROUND_POLL` 已废弃：`--poll` 只打印警告，后台轮询始终由守护进程负责。
 2. **内网 / Tailscale Streamable HTTP 模式**（`POST http://<nas-ip>:18384/mcp`）：
@@ -1492,7 +1492,7 @@ export interface AvoidanceBroadcastPayload {
   - `set_wifi_and_antenna`：同时提供 Wi-Fi 7 参数与 `antennaMode` 时，两项写入在两个独立的瞬时会话中依次执行。若第二次写入失败（例如真人恰好在两次会话之间登录），第一项写入仍然生效而工具返回错误，请调用 `get_router_settings({ refresh: true })` 核对。
 - **兼容性测试类（3 项，v1.8.0）**：`get_device_report`（只读，任何令牌，始终列出）、`probe_router_endpoints`（只读）、`set_experimental_write`（改的是烽燧自己的开关，不写路由器；强制 `confirm: true`）。后两项只在主人允许智能体测试这台路由器时列出（「设置 → 设备」的开关，或 `MCP_ALLOW_EXPERIMENTAL=true`；控制台里改过的以控制台为准），按名字调用返回 `EXPERIMENTAL_NOT_ALLOWED`。
   - `get_device_report`：返回 `{ ok, report, agentsMayTestExperimental, agentsMayProbeEndpoints }`，`report` 与 `GET /api/console/device-report` 相同（脱敏，只含结构）。
-  - `probe_router_endpoints({ paths })`：`paths` 为 1–12 个 `/api/` 加 2–4 段（字母、数字、`-`、`_`）的路径，最长 96 个字符，重复的只读一次，其他返回 `VALIDATION_ERROR`。每次调用在一个低优先级读会话里逐个 `GET`（单个超时 5 s），经 `EphemeralCpeSession.peek()`：应答不能替换会话 Cookie（以免登出漏掉这个会话、占住管理员会话），错误码不计入设备报告的错误码统计。直接拒绝、不发出的路径（`refused`）：`user`、`webserver`、`stk`、`ussd`、`filemanager` 开头的（`session`），`/api/net/plmn-list`（搜网会断网几分钟）、`/api/online-update/check-new-version`、`/api/device/compressed-logs`，以及任一段（按 `-`、`_` 与驼峰拆词）含有动作词（`reboot`、`reset`、`send`、`delete`、`set`、`scan`、`control` 等，见 [`src/endpoint-discovery.ts`](../src/endpoint-discovery.ts)）的（`acts`）；全部被拒时不开会话。返回 `{ ok, endpoints: DiscoveredEndpoint[], note }`，每项为 `{ path, known, state, code, format, fields, truncated, refused? }`：`known` 表示烽燧的协议模块已在使用；`state` 与设备报告相同（`supported` / `unsupported` = `100002` / `restricted` = `100003` / `unknown`）或 `refused`；`fields` 只有标签路径、值的形状与出现次数，**不含任何值**。两次调用至少隔 10 s（`PROBE_TOO_SOON`，附 `retryAfterSec`），同一时间只跑一个；调度器跳过会话（真人在线、熔断）时返回 `PROBE_SKIPPED`（附 `sessionStatus`）。每次调用记一条审计 `router.probe`（`detail` 列出路径，被拒的标 `(refused)`）。
+  - `probe_router_endpoints({ paths })`：`paths` 为 1–12 个 `/api/` 加 2–4 段（字母、数字、`-`、`_`）的路径，最长 96 个字符，重复的只读一次，其他返回 `VALIDATION_ERROR`。每次调用在一个低优先级读会话里逐个 `GET`（单个超时 5 s），经 `EphemeralCpeSession.peek()`：应答不能替换会话 Cookie（以免登出漏掉这个会话、占住管理员会话），错误码不计入设备报告的错误码统计。直接拒绝、不发出的路径（`refused`）：`user`、`webserver`、`stk`、`ussd`、`filemanager` 开头的（`session`），`/api/net/plmn-list`（搜网会断网几分钟）、`/api/online-update/check-new-version`、`/api/device/compressed-logs`，以及任一段（按 `-`、`_` 与驼峰拆词）含有动作词（`reboot`、`reset`、`send`、`delete`、`set`、`scan`、`control` 等，见 [`src/endpoint-discovery.ts`](../../src/endpoint-discovery.ts)）的（`acts`）；全部被拒时不开会话。返回 `{ ok, endpoints: DiscoveredEndpoint[], note }`，每项为 `{ path, known, state, code, format, fields, truncated, refused? }`：`known` 表示烽燧的协议模块已在使用；`state` 与设备报告相同（`supported` / `unsupported` = `100002` / `restricted` = `100003` / `unknown`）或 `refused`；`fields` 只有标签路径、值的形状与出现次数，**不含任何值**。两次调用至少隔 10 s（`PROBE_TOO_SOON`，附 `retryAfterSec`），同一时间只跑一个；调度器跳过会话（真人在线、熔断）时返回 `PROBE_SKIPPED`（附 `sessionStatus`）。每次调用记一条审计 `router.probe`（`detail` 列出路径，被拒的标 `(refused)`）。
   - `set_experimental_write({ feature, enabled, confirm })`：只在未验证型号上列出。`enabled: false` 关闭一项实验性写入，之后任何入口都被 `DEVICE_WRITE_DISABLED` 拒绝；`enabled: true` 重新打开。`feature` 取 `bandLock`、`cellLock`、`reboot`、`reconnect`、`mobileData`、`smsWrite`；规则同 `POST /api/console/experimental`（只有烽燧在这台路由器上实现了的写入有开关），另需 `MCP_ALLOW_MUTATIONS`、令牌的 `control` 权限与 `confirm: true`；审计记为 `settings.experimental`。返回 `{ ok, change, features }`，`features` 是每个写功能现在的状态。错误：`EXPERIMENTAL_UNAVAILABLE`（已验证或尚未识别的型号；这项写入在这台路由器上没有开关，附 `state`）、`VALIDATION_ERROR`。工具名沿用 v1.8.0 的名字，含义从「打开」变成了「关闭或恢复」（默认是开的）。
   - 未验证的路由器上锁频段或锁小区之后断网 3 分钟的回退对所有入口都一样，见 2.11。
 - **只读资源 URI（3 项 + 短信 1 项，`mimeType: "application/json"`）**：`fengsui://telemetry/latest`（`GlobalTelemetrySnapshot | null`）、`fengsui://session/status`（`SchedulerStatusSnapshot`）、`fengsui://locks/state`（`PersistedLockState`），以及 `MCP_SMS_ACCESS` 不为 `none` 时的 `fengsui://sms/status`（`SmsStatusSnapshot`）。
@@ -1539,7 +1539,7 @@ export interface McpToolErrorPayload {
 }
 ```
 
-**未验证型号（见 2.10、2.11）**：`tools/list` 只列出闸门放行的写路由器的工具：这个工具需要的写功能在这台路由器上都开着（烽燧实现了、没被关闭，或 `VERIFIED_FEATURES` 里验证过的写入）。核心的锁频锁站、开关、重拨、重启，访问控制的三个写工具，短信的 `send_sms`、`mark_sms_read`、`delete_sms` 都按这条规则；`unlock_rf_locks` 在锁频段或锁小区任一项开着时列出。列出的工具以通用形式出现：说明以 `EXPERIMENTAL on this router (<型号>, …)`（用户验证过的为 `VERIFIED BY USERS …`）开头，`inputSchema` 一律要求 `confirm: true`；`lock_band` 只收 LTE 频段（去掉 `nrBands`，说明里列出路由器通告的频段）。`upsert_contact` 只改烽燧自己的通讯录，照常列出。按名字强行调用没列出的写工具，在确认与参数检查之前就返回 `DEVICE_UNVERIFIED_READ_ONLY`（没有实现）或 `DEVICE_WRITE_DISABLED`（被关闭），附 `model` 与对应的 `feature`，调度器也会再拒绝一次（例如型号是在这次写操作自己的会话里才读到的）。`initialize` / `server/discover` 的 `instructions` 末尾追加一句：这台路由器是未验证的型号，列出开着的实验性写入（每次只发一次、写后回读，主人可以逐项关闭），并提醒只在用户明确要求时传 `confirm: true`；一项都没开着时说明没有工具能改动它。读工具按路由器实际提供的读取项筛选：`list_neighbor_cells`（neighbors）、`list_terminal_topology`（topology）、`get_router_settings`（settings）、`get_access_control`（accessControl）与全部短信工具及 `fengsui://sms/status`（sms）在 `device.reads` 为 `unavailable` 时不列出，还没读过时照常列出；不列出的读工具按名字调用时照常执行（相当于主动刷新），确认与 `inputSchema` 检查同样适用。列表只在路由器型号、它提供的读取项或开着的实验性写入变化时改变（`tools/list` 的 `ttlMs` 不变），每次调用都会在服务端重新检查。**H168-383 上工具、资源与说明与改动前逐字相同**，只多了 v1.8.0 起始终列出的 `get_device_report`（[`test/mcp-gate.test.ts`](../test/mcp-gate.test.ts)）。
+**未验证型号（见 2.10、2.11）**：`tools/list` 只列出闸门放行的写路由器的工具：这个工具需要的写功能在这台路由器上都开着（烽燧实现了、没被关闭，或 `VERIFIED_FEATURES` 里验证过的写入）。核心的锁频锁站、开关、重拨、重启，访问控制的三个写工具，短信的 `send_sms`、`mark_sms_read`、`delete_sms` 都按这条规则；`unlock_rf_locks` 在锁频段或锁小区任一项开着时列出。列出的工具以通用形式出现：说明以 `EXPERIMENTAL on this router (<型号>, …)`（用户验证过的为 `VERIFIED BY USERS …`）开头，`inputSchema` 一律要求 `confirm: true`；`lock_band` 只收 LTE 频段（去掉 `nrBands`，说明里列出路由器通告的频段）。`upsert_contact` 只改烽燧自己的通讯录，照常列出。按名字强行调用没列出的写工具，在确认与参数检查之前就返回 `DEVICE_UNVERIFIED_READ_ONLY`（没有实现）或 `DEVICE_WRITE_DISABLED`（被关闭），附 `model` 与对应的 `feature`，调度器也会再拒绝一次（例如型号是在这次写操作自己的会话里才读到的）。`initialize` / `server/discover` 的 `instructions` 末尾追加一句：这台路由器是未验证的型号，列出开着的实验性写入（每次只发一次、写后回读，主人可以逐项关闭），并提醒只在用户明确要求时传 `confirm: true`；一项都没开着时说明没有工具能改动它。读工具按路由器实际提供的读取项筛选：`list_neighbor_cells`（neighbors）、`list_terminal_topology`（topology）、`get_router_settings`（settings）、`get_access_control`（accessControl）与全部短信工具及 `fengsui://sms/status`（sms）在 `device.reads` 为 `unavailable` 时不列出，还没读过时照常列出；不列出的读工具按名字调用时照常执行（相当于主动刷新），确认与 `inputSchema` 检查同样适用。列表只在路由器型号、它提供的读取项或开着的实验性写入变化时改变（`tools/list` 的 `ttlMs` 不变），每次调用都会在服务端重新检查。**H168-383 上工具、资源与说明与改动前逐字相同**，只多了 v1.8.0 起始终列出的 `get_device_report`（[`test/mcp-gate.test.ts`](../../test/mcp-gate.test.ts)）。
 
 
 ### 4.4 短信工具（`MCP_SMS_ACCESS` 分级 + 提示词注入防护）
@@ -1589,7 +1589,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 
 1. **托管目录优先级与绝对禁绝 `src/*.js` 铁律**：
    - `loadConfig()` 默认按安装包根目录优先解析 **`dist/web/public/`**（若未构建则回退至 `public/`；可用 `.env` 中 `STATIC_DIR` 覆盖），且静态服务自动屏蔽所有以 `.` 或 `@`（如群晖 `@eaDir`）开头的隐藏路径。
-   - **严禁在 `src/`、`scripts/` 或 `test/` 下生成任何 `.js` / `.mjs` / `.cjs` 文件**（[`scripts/audit-secrets.ts`](../scripts/audit-secrets.ts) 门禁会直接拦截报错退出码 `1`）。前端源码应采用 100% 严格 TypeScript 放置于独立的 `web/`（或 `frontend/`）目录，编译产物统一输出至 `dist/web/public/`（并在 `.gitignore` 中忽略构建产物）。
+   - **严禁在 `src/`、`scripts/` 或 `test/` 下生成任何 `.js` / `.mjs` / `.cjs` 文件**（[`scripts/audit-secrets.ts`](../../scripts/audit-secrets.ts) 门禁会直接拦截报错退出码 `1`）。前端源码应采用 100% 严格 TypeScript 放置于独立的 `web/`（或 `frontend/`）目录，编译产物统一输出至 `dist/web/public/`（并在 `.gitignore` 中忽略构建产物）。
 2. **100% 离线自包含与零 CDN 依赖**：
    - 严禁引用 Google Fonts、unpkg、jsdelivr 等任何公网外部资源，确保断网诊断蜂窝故障时首屏 `< 50ms` 秒开渲染；建议首屏 JS+CSS Gzip 总体积控制在 `< 80 KB` 以内（2026-11-02 起，原为 60 KB）。
 3. **严格 CSP 响应头兼容要求**：
@@ -1597,7 +1597,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
      `default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
    - **注意**：`script-src 'self'` **禁止 HTML 内联 `<script>` 与 `eval()`**！所有前端编译后的脚本必须作为外部同源静态文件（如 `<script type="module" src="/assets/app.js"></script>`）引入。
 4. **原生双语 (`zh-CN` / `en`) 对齐**：
-   - 可直接调用 `GET /api/i18n/zh-CN` 与 `GET /api/i18n/en`（或复用 [`locales/`](../locales/) 词条命名空间），确保前后端状态提示、避让横幅与告警文案 100% 同构。
+   - 可直接调用 `GET /api/i18n/zh-CN` 与 `GET /api/i18n/en`（或复用 [`locales/`](../../locales/) 词条命名空间），确保前后端状态提示、避让横幅与告警文案 100% 同构。
 5. **优雅空值呈现（温度与 NSA 5G 指标）**：
    - 当 `telemetry.thermal.temperatureSupported === false` 或 `temperatureAvgCelsius === null` 时，UI 必须优雅展示 `N/A / 固件未开放温度传感器` 或折叠温度曲线，严禁显示误导性的 `0°C`。
 
@@ -1608,7 +1608,7 @@ Phase 3 前端工程师在实现 Web 仪表盘时，**必须严格遵守以下�
 1. **锁定对账是推断而非读回**（Phase 2.5 起提供 `lockVerification`）：只有 LTE 频段掩码能从路由器读回；NR 锁频段与锁小区只能对照实际服务的载波判断，NR 空闲时为 `unknown`。`lockState` 本身仍只记录「烽燧」最近一次成功下发的配置，不会被官方后台的修改改写。
 2. **`108007` 重置无需修改 `.env`**：这是有意的设计（锁定可能由他人输错密码引起），比 `AGENTS.md` 铁律五「人工修正 `.env` 并显式重置」的字面表述宽松；`108006` 等密码错误熔断仍严格要求先修改密码。
 3. **跨会话写入非原子**：MCP `set_wifi_and_antenna` 的两项写入、REST `security` 的写入与回读分属不同的瞬时会话，详见 2.4 与 4.2 节。
-4. **AES-256-GCM 加密通道仅用于短信**：`send-sms`、`send-status`、`sms-count-contact` 以及 `sms-list` 不可用时的联系人/号码列表回退走加密通道（格式与旧 `cpe-sms` 在 H168-383 上长期运行的实现一致，见 [`docs/PHASE1_PROTOCOL_SPEC.md`](PHASE1_PROTOCOL_SPEC.md) 3.8 节）。「烽燧」侧目前由加密 Mock 路由器覆盖，请在真机上运行只读的 `npm run probe:sms` 确认实际列表通道。
+4. **AES-256-GCM 加密通道仅用于短信**：`send-sms`、`send-status`、`sms-count-contact` 以及 `sms-list` 不可用时的联系人/号码列表回退走加密通道（格式与旧 `cpe-sms` 在 H168-383 上长期运行的实现一致，见 [`docs/dev/protocol.md`](protocol.md) 3.8 节）。「烽燧」侧目前由加密 Mock 路由器覆盖，请在真机上运行只读的 `npm run probe:sms` 确认实际列表通道。
 5. **短信发送结果可能未确认**：CPE 已接受提交但 `send-status` 在 `SMS_SEND_STATUS_TIMEOUT_MS` 内未给出结论时，返回 `ok: true` 且 `timedOutWaitingStatus: true`。短信很可能已经发出，前端应提示「已提交，状态未确认」，而不是建议立即重发；下次同步会以 CPE 发件箱为准。
 6. **通知为至多一次投递**：Telegram 与 Webhook 推送失败只记录在 `/api/alerts` 的 `notifications` 统计中（Webhook 重试一次），不做持久化重投。服务离线期间到达且仍未读的来信会在重启后的首次同步中补推；只有本地镜像从未完成首次同步时（首次部署、镜像被隔离或删除），CPE 上已有的短信才会被视为历史而不推送（`SMS_SEED_EXISTING_ON_START=false` 可关闭此行为）。
 7. **MCP 发送额度保存在内存中**：`MCP_SMS_SEND_LIMIT_PER_HOUR` 的计数在进程重启后清零。

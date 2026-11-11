@@ -23,7 +23,7 @@ import { PreEscapedXmlText, getXmlBlocks, getXmlTag } from "./xml.ts";
 
 /**
  * Device access control on the H168-383, built on the router's own features (firmware 4.4.0.1,
- * verified against a WebInspector capture and a read-only session; see docs/PHASE1_PROTOCOL_SPEC.md):
+ * verified against a WebInspector capture and a read-only session; see docs/dev/protocol.md):
  *
  * - Wi-Fi MAC filter: `GET /api/wlan/multi-macfilter-settings-ex` / `POST .../multi-macfilter-settings`.
  *   Writes name SSID `Index` 0 like the router's "Device management" page does.

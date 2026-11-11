@@ -23,7 +23,7 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
  */
 
 const read = (file: string): string => fs.readFileSync(file, "utf8");
-const CONTRACT = read("docs/PHASE2_BACKEND_CONTRACT.md");
+const CONTRACT = read("docs/dev/api.md");
 /** The user guide is the reference for settings and agent tools (the READMEs link to it). */
 const GUIDE_CONFIG = { "docs/guide/zh/configuration.md": read("docs/guide/zh/configuration.md"), "docs/guide/en/configuration.md": read("docs/guide/en/configuration.md") };
 const GUIDE_AGENTS = { "docs/guide/zh/agents.md": read("docs/guide/zh/agents.md"), "docs/guide/en/agents.md": read("docs/guide/en/agents.md") };
@@ -81,7 +81,7 @@ describe("contract manifest: code ↔ docs", () => {
       // Plus the tools listed only on some routers (set_experimental_write: a model nobody verified)
       const tools = [...((reply.result as { tools: Array<{ name: string }> }).tools ?? []).map((t) => t.name), ...new CoreMcpTools(core).getToolDefinitions().map((t) => t.name)];
       assert.ok(new Set(tools).size >= 30, `found ${new Set(tools).size} tools`);
-      assert.deepEqual(missing(tools, { "docs/PHASE2_BACKEND_CONTRACT.md": CONTRACT, ...GUIDE_AGENTS }), []);
+      assert.deepEqual(missing(tools, { "docs/dev/api.md": CONTRACT, ...GUIDE_AGENTS }), []);
     } finally {
       await stopFengSuiCore(core);
       removeTempDir(dir);
@@ -104,13 +104,13 @@ describe("contract manifest: code ↔ docs", () => {
     const block = api.slice(api.indexOf("export interface SseEventPayloads {"));
     const events = matchesIn(block.slice(0, block.indexOf("\n}")), /^ {2}"?([a-z][a-z:-]*)"?:/gm);
     assert.ok(events.length >= 15, `found ${events.length} events`);
-    assert.deepEqual(missing(events, { "docs/PHASE2_BACKEND_CONTRACT.md": CONTRACT }), []);
+    assert.deepEqual(missing(events, { "docs/dev/api.md": CONTRACT }), []);
   });
 
   it("documents every REST route in the contract", () => {
     const routes = ["src/http-server.ts", "src/http-settings.ts", "src/sms/http-routes.ts"].flatMap((file) => matchesIn(read(file), /"(\/api\/[a-z0-9/_-]+?)\/?"/g));
     assert.ok(routes.length >= 40, `found ${routes.length} routes`);
-    assert.deepEqual(missing(routes, { "docs/PHASE2_BACKEND_CONTRACT.md": CONTRACT }, false), []);
+    assert.deepEqual(missing(routes, { "docs/dev/api.md": CONTRACT }, false), []);
   });
 
   it("documents every setting the loader reads in .env.example and the configuration guide in both languages", () => {
