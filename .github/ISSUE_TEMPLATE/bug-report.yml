@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         安全问题请不要在这里提交，按 [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md) 私下报告。其他型号或品牌的路由器能不能用，请用「设备兼容性报告」。
-        Do not report security problems here; follow [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md). For another Huawei model, use the device compatibility report.
+        Do not report security problems here; follow [SECURITY.md](https://github.com/cky008/cpe-dash/blob/main/SECURITY.md). For a router model or brand FengSui was not verified on, use the device compatibility report.
 
         **不要贴真实信息**：路由器密码、令牌、IMEI / IMSI / 手机号、短信内容、MAC、公网 IP、抓包。日志里出现这些请先替换掉。
         **Leave out real information**: router passwords, tokens, IMEI / IMSI / phone numbers, SMS text, MAC or public IP addresses, captures. Replace them in any log you paste.

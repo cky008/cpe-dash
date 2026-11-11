@@ -8,7 +8,7 @@ every change comes with tests, and nothing real (passwords, phone numbers, captu
 ## Before you start / 开始之前
 
 - **Bug or idea:** open an issue first for anything bigger than a small fix, so we can agree on the approach.
-- **Another Huawei model:** file a device report (Issues → New issue → Device compatibility report). It helps more than a pull request at first.
+- **Another router model or brand:** file a device report (Issues → New issue → Device compatibility report). It helps more than a pull request at first; how a report is registered is under [Registering a device report](#registering-a-device-report--登记设备报告).
 - **Security problem:** do not open an issue. Follow [SECURITY.md](SECURITY.md).
 - **Conduct:** everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
@@ -59,6 +59,43 @@ npm run build:docs  # the documentation site, into dist/site
 4. **同一时刻只有一个路由器会话**：所有访问路由器的代码都经过 `MutexSessionScheduler`，不要另建 `HuaweiCpeClient` 或自行登录。
 5. **只用占位值**：使用 [`AGENTS.md`](AGENTS.md) 列出的 RFC 文档地址、占位 IMEI / IMSI / 手机号和合成小区。绝不提交 `.env`、`data/`、HAR 或 pcap 文件，也不要提交从自己路由器复制的数值（包括 PCI 和频点：它们能定位到具体基站）。
 6. **提 PR 之前 `npm run check` 必须通过**，它也会扫描完整的 Git 历史。
+
+## Registering a device report / 登记设备报告
+
+When an issue's device report shows a feature working on a real router, record it so that its cell under
+[Supported devices](docs/guide/en/supported-devices.md) turns into ✓.
+
+1. **What counts.** Use the report's `checks`. A read counts when its `result` is `works` (the router answered its
+   section with data). A write counts when its `result` is `works`: the latest write of that feature in the report's
+   write record (`writes`) read back as written (`readback: "match"`). `failed` and `untested` do not count, and
+   neither does a sentence in the issue without a report behind it.
+2. **What to change.**
+   - Add one entry per feature to `VERIFIED_FEATURES` in [`src/firmware.ts`](src/firmware.ts): `family` from the
+     report's `access.family`, `model` and `softwareVersion` from `identity`, `feature` and `access` from the line in
+     `checks`, and the issue number. A write must be one FengSui implements for that brand
+     (`ROUTER_FAMILY_FACTS[family].writes`); `test/verified-features.test.ts` checks it.
+   - Add a test that names the entry: the model's cell in `supportedDevicesSection` is ✓, and
+     `DeviceAccess.writeState` answers `verified` for a write.
+   - Add a line to `CHANGELOG.md` under `[Unreleased]` with the issue number (`#41`), and no name.
+   - Regenerate the tables between `<!-- devices:begin -->` and `<!-- devices:end -->` in
+     `docs/guide/{zh,en}/supported-devices.md` from `supportedDevicesSection` (`test/device-catalog.test.ts` fails until
+     they match). A model the catalog does not have gets its row from the entry; add it to `DEVICE_CATALOG` in
+     [`src/device-catalog.ts`](src/device-catalog.ts) with its form and section if you know them.
+   - A report that shows a feature not working on a model goes into `UNSUPPORTED_FEATURES` the same way, and its cell
+     turns into —.
+3. **When it shows.** The table on the documentation site follows the push to `main`. The console shows the feature as
+   verified (and drops "never checked on a real router" from its confirmation) from the next release.
+
+当 issue 里的设备报告显示某项功能在真机上可用时，把它登记进代码，[支持的设备](docs/guide/zh/supported-devices.md)里那一格就会变成 ✓。
+
+1. **什么样的报告算数**：看报告里的 `checks`。读取项的 `result` 是 `works`（路由器回答了这个读取项，并且有数据）才算；写入项的 `result` 是 `works` 才算，也就是写入记录（`writes`）里这个功能最近一次写入回读一致（`readback: "match"`）。`failed`、`untested` 不算；issue 里只有文字、没有报告支撑的也不算。
+2. **登记要改哪里**：
+   - 在 [`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FEATURES` 里每个功能加一条：`family` 取报告的 `access.family`，`model` 和 `softwareVersion` 取 `identity`，`feature` 和 `access` 取 `checks` 里那一行，再写上 issue 编号。写入项必须是烽燧在这个品牌上实现了的（`ROUTER_FAMILY_FACTS[family].writes`），`test/verified-features.test.ts` 会检查。
+   - 补一个测试点名这一条：这个型号在 `supportedDevicesSection` 里那一格是 ✓；写入项的 `DeviceAccess.writeState` 返回 `verified`。
+   - 在 `CHANGELOG.md` 的 `[Unreleased]` 下加一行，写上 issue 编号（如 `#41`），不写人名。
+   - 用 `supportedDevicesSection` 重新生成 `docs/guide/{zh,en}/supported-devices.md` 里 `<!-- devices:begin -->` 与 `<!-- devices:end -->` 之间的表（不一致时 `test/device-catalog.test.ts` 会失败）。清单里没有的型号会按这条登记自动多出一行；知道它的形态和品牌的话，也把它加进 [`src/device-catalog.ts`](src/device-catalog.ts) 的 `DEVICE_CATALOG`。
+   - 报告显示某项功能在某个型号上不能用的，照同样的方式登记进 `UNSUPPORTED_FEATURES`，那一格变成 —。
+3. **什么时候生效**：文档站上的表在推到 `main` 后随文档站更新；控制台里显示「已验证」（确认框也不再提示「没有在真机上验证过」）要等下一个版本。
 
 ## Commits and pull requests / 提交与 PR
 
