@@ -9,6 +9,7 @@ import type { RouterFamily } from "../src/router-family.ts";
 import type { ControlAppliedEvent, ControlAuditEvent } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { LanRouterMock } from "./helpers/lan-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
@@ -175,6 +176,52 @@ describe("zte-zwrt: the data connection", () => {
       assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: true });
       assert.deepEqual(router.calls.filter((c) => c.method === "set_wwaniface").map((c) => c.args["enable"]), [0, 1, 0, 1]);
       assert.equal(router.state.wwan["connect_status"], "ipv4_ipv6_connected");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+/** An NRadio router: LuCI's login and pages, and the module's bridge with its data switch. */
+function nradioRouter() {
+  const state = { dataswitch: "1", up: true, posts: [] as Array<{ path: string; body: string; token: string | null }> };
+  const mock = new LanRouterMock((req) => {
+    if (req.method === "POST" && req.path === "/cgi-bin/luci") {
+      const form = LanRouterMock.form(req);
+      if (form.get("luci_password") !== "test-password") return { status: 200, text: "<p>密码错误</p>" };
+      return { status: 302, headers: { location: "/cgi-bin/luci" }, setCookie: ["sysauth=0123456789abcdef0123456789abcdef; path=/cgi-bin/luci"] };
+    }
+    if (!req.headers["cookie"]?.includes("sysauth=")) return { status: 403, text: "" };
+    if (req.path === "/cgi-bin/luci/nradio/system/overview") return { text: `<div>设备型号: C2000 MAX</div><div>系统版本:1.9.2.n6</div><script>a['token']='a8f5f167f44f4964e6c998dee827110c';</script>` };
+    if (req.path === "/cgi-bin/luci/nradio/status/runtime/wan,cpe_4") return { json: { wan: { up: false }, cpe_4: { up: state.up, mode: "NR", band: "78", earfcn: "650000", pci: "142", rsrp: "-79 dBm" } } };
+    if (req.path === "/api/dialup/mobile-dataswitch" && req.method === "GET") return { text: `<?xml version="1.0" encoding="UTF-8"?><response><dataswitch>${state.dataswitch}</dataswitch></response>` };
+    if (req.path === "/api/dialup/mobile-dataswitch" && req.method === "POST") {
+      const body = req.body;
+      state.posts.push({ path: req.path, body, token: req.query.get("token") });
+      state.dataswitch = body.includes("<dataswitch>1</dataswitch>") ? "1" : "0";
+      state.up = state.dataswitch === "1";
+      return { text: `<?xml version="1.0" encoding="UTF-8"?><response>OK</response>` };
+    }
+    if (req.path === "/cgi-bin/luci/nradio/logout") return { status: 302, headers: { location: "/" } };
+    return { status: 404, text: "" };
+  });
+  return { mock, state };
+}
+
+describe("nradio: the data connection", () => {
+  it("toggles the module's data switch with the page's token, reads it back, and redials as off then on", async () => {
+    const router = nradioRouter();
+    const fx = daemonOn("nradio", router.mock.fetchImpl, "http://192.168.66.1", "test-password", "root");
+    try {
+      await fx.core.controls.setMobileData(false);
+      assert.deepEqual(router.state.posts.map((p) => [p.body.includes("<dataswitch>0</dataswitch>"), p.token]), [[true, "a8f5f167f44f4964e6c998dee827110c"]]);
+      assert.equal(fx.core.scheduler.genericWrites.at(-1)?.readback, "match");
+      assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: false, skipped: "mobile_data_off" }, "switched off on purpose");
+      await fx.core.controls.setMobileData(true);
+      await fx.core.controls.reconnectCellular();
+      assert.deepEqual(router.state.posts.map((p) => /<dataswitch>(\d)<\/dataswitch>/.exec(p.body)?.[1]), ["0", "1", "0", "1"]);
+      assert.equal(router.state.dataswitch, "1");
+      assert.deepEqual(fx.core.scheduler.genericWrites.at(-1)?.endpoints, ["nradio:/api/dialup/mobile-dataswitch"]);
     } finally {
       await fx.cleanup();
     }

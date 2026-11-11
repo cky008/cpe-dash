@@ -111,7 +111,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // The Pro series (`/fh_api/`): its notes have the signal nodes, the SMS listing and marking a message read, nothing else
     variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
   },
-  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 

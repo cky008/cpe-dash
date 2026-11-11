@@ -6,13 +6,14 @@ import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.t
 import { bandOfChannel, neighbourOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, loginUnplaced, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
 import type {
   DriverBandLockTarget,
   DriverCell,
   DriverCellLockTarget,
+  DriverDataLink,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -42,6 +43,7 @@ const LOGOUT = "/cgi-bin/luci/nradio/logout";
 const REBOOT = "/cgi-bin/luci/admin/system/reboot/call";
 const NET_MODE = "/api/net/net-mode";
 const LOCK_FREQ = "/api/net/lock-freq";
+const DATA_SWITCH = "/api/dialup/mobile-dataswitch";
 const REFERER = "/html/content.html";
 const TOKEN = /^[0-9A-Za-z]{8,64}$/;
 
@@ -227,6 +229,31 @@ class NradioSession implements DriverSessionHandle {
     this.#guard();
     return parseNradioLockState(await this.#netMode());
   }
+
+  /** The module's mobile data switch (`<dataswitch>` `1` on, `0` off; `null`: it named neither). */
+  async #dataSwitch(): Promise<boolean | null> {
+    this.#guard();
+    const res = await this.#http.request({ method: "GET", path: DATA_SWITCH, referer: REFERER });
+    if (res.status !== 200) throw new CpeAnswerFormatError(`GET ${DATA_SWITCH}: HTTP ${res.status}`);
+    const error = parseXmlError(res.text);
+    if (error) throw new CpeApiError(error.code, `GET ${DATA_SWITCH}`);
+    const value = getXmlTag(res.text, "dataswitch")?.trim();
+    return value === "1" ? true : value === "0" ? false : null;
+  }
+
+  /**
+   * Mobile data through the module's bridge (notes library A, table 3.2 rows 13 and 14): the switch is
+   * read and written at `/api/dialup/mobile-dataswitch`, and toggling it is how the notes redial.
+   * Switching off waits for the cellular link (`cpe_4.up`) to go down before the read-back.
+   */
+  readonly data: DriverDataLink = {
+    enabled: () => this.#dataSwitch(),
+    set: async (enabled, check, wait) => {
+      await this.#postXml(check, DATA_SWITCH, { dataswitch: enabled ? 1 : 0 });
+      if (!enabled) await awaitConnection(async () => (await this.telemetry()).wan.connected, false, wait);
+      settleDataSwitch(check, enabled, await this.#dataSwitch().catch(() => null));
+    },
+  };
 
   /** A write through the module's bridge, with the session's request token; the router must answer `OK`. */
   async #postXml(check: WriteCheck, path: string, data: Record<string, unknown>): Promise<void> {

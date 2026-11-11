@@ -323,25 +323,24 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| C8-668GL | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-668GL) |
-| C8-660 | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-660) |
-| C8-620 | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-620) |
-| C8-520 | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-520) |
-| C8-500 | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-500) |
-| C5800-500 | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5800-500) |
-| C2000 Ultra | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Ultra) |
-| C2000 Max | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Max) |
-| C2000 Pro | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Pro) |
-| C2000 | 室内 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000) |
-| C3000 | 工业网关 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C3000) |
-| C5000 | 工业网关 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5000) |
-| C5200 | 工业网关 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5200) |
-| C9100 | 室外 CPE | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C9100) |
+| C8-668GL | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-668GL) |
+| C8-660 | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-660) |
+| C8-620 | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-620) |
+| C8-520 | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-520) |
+| C8-500 | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-500) |
+| C5800-500 | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5800-500) |
+| C2000 Ultra | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Ultra) |
+| C2000 Max | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Max) |
+| C2000 Pro | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Pro) |
+| C2000 | 室内 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000) |
+| C3000 | 工业网关 | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C3000) |
+| C5000 | 工业网关 | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5000) |
+| C5200 | 工业网关 | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5200) |
+| C9100 | 室外 CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C9100) |
 
 这一节的说明：
 
 - △ 「锁频段」：锁 5G 频段要路由器的蜂窝模组报告它的 5G 频段设置，不报告的型号只能锁 4G 频段（这一节的全部型号）。
-- △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。
 
 <a id="brand-openwrt"></a>
 
