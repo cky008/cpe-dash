@@ -5,7 +5,7 @@ section: Help
 order: 22
 ---
 
-When adding support for each brand of router, FengSui consulted the interface notes these projects collect and took facts only: endpoint paths, parameter names, values and answer formats. The commit each project was consulted at and its licence are in the [architecture report](https://github.com/cky008/cpe-dash/blob/main/docs/dev/architecture.md).
+When adding support for each brand of router, FengSui consulted the interface notes these projects collect and took facts only: endpoint paths, parameter names, values and answer formats. The commit each project was consulted at and its licence are in the developer notes' [implementation sources](https://github.com/cky008/cpe-dash/blob/main/docs/dev/sources.md).
 
 ## Huawei
 

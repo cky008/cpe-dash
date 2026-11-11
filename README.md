@@ -87,7 +87,7 @@ docker compose logs cpe-dash | grep "setup code"
 - **管理**：[Docker Compose 配置](https://fengsui.iocky.com/docs/docker-compose/) · [配置参考](https://fengsui.iocky.com/docs/configuration/) · [API 参考](https://fengsui.iocky.com/docs/api/) · [安全与隐私](https://fengsui.iocky.com/docs/security/) · [备份与恢复](https://fengsui.iocky.com/docs/backup/) · [其他型号与品牌](https://fengsui.iocky.com/docs/other-routers/)
 - **帮助**：[排障](https://fengsui.iocky.com/docs/troubleshooting/) · [常见问题](https://fengsui.iocky.com/docs/faq/) · [致谢](https://fengsui.iocky.com/docs/acknowledgments/)
 
-开发者文档在 [`docs/dev/`](docs/dev/README.md)：[华为 HiLink 协议](docs/dev/protocol.md) · [架构与设计记录](docs/dev/architecture.md) · [接口契约（REST / SSE / MCP）](docs/dev/api.md) · [设备资料表](docs/dev/device-notes.md) · [标志](docs/dev/brand.md)。改动记录见[更新日志](CHANGELOG.md)。
+开发者文档在 [`docs/dev/`](docs/dev/README.md)：[华为 HiLink 协议](docs/dev/protocol.md) · [架构与设计](docs/dev/architecture.md) · [实现依据](docs/dev/sources.md) · [审计记录](docs/dev/audits.md) · [接口契约（REST / SSE / MCP）](docs/dev/api.md) · [设备资料表](docs/dev/device-notes.md) · [标志](docs/dev/brand.md)。改动记录见[更新日志](CHANGELOG.md)。
 
 ## 参与
 

@@ -2,7 +2,7 @@
 
 > **目标硬件**：华为 5G CPE Ultra 6 (`H168-383` / 硬件代号 `WL1H168M`)  
 > **实测固件**：`4.4.0.1 (H1006SP19C00)` | **WebUI 版本**：`WEBUI 4.4.0.1 (W2SP24C03)`  
-> **适用范围**：烽燧读写华为 HiLink 路由器的权威资料：会话与登录、已验证的接口与报文、锁频与锁小区算法（短信接口见 3.8 节；其他华为型号的未验证资料见附录 A）。对外接口见 [`api.md`](api.md)，架构与每项实现的依据见 [`architecture.md`](architecture.md)  
+> **适用范围**：烽燧读写华为 HiLink 路由器的权威资料：会话与登录、已验证的接口与报文、锁频与锁小区算法（短信接口见 3.8 节；其他华为型号的未验证资料见附录 A）。对外接口见 [`api.md`](api.md)，架构见 [`architecture.md`](architecture.md)，每项实现的依据见 [`sources.md`](sources.md)  
 > **脱敏审计承诺**：本文档全部报文样本均严格遵循 RFC 5737 / RFC 3849 / RFC 7042 与合成占位符规范，零真实密码、零真实公网 IP、零真实 MAC/IMEI/IMSI/ICCID/TAC/CellID；PCI、频点（EARFCN / NR-ARFCN）与载频同样换成了合成值（这些参数组合起来能定位到具体基站）。
 
 ---

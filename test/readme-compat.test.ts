@@ -70,7 +70,7 @@ describe("compatibility claims in the READMEs and the guide", () => {
       const missing = slugs.filter((slug) => !front.includes(`(${site}docs/${slug}/)`));
       assert.deepEqual(missing, [], `${readme}: link these pages on the documentation site`);
       assert.doesNotMatch(front, /\]\(docs\/guide\//, `${readme}: the guide is read on the documentation site, not as Markdown sources`);
-      for (const note of ["docs/dev/README.md", "docs/dev/protocol.md", "docs/dev/architecture.md", "docs/dev/api.md", "docs/dev/device-notes.md", "docs/dev/brand.md"]) {
+      for (const note of ["docs/dev/README.md", "docs/dev/protocol.md", "docs/dev/architecture.md", "docs/dev/audits.md", "docs/dev/sources.md", "docs/dev/api.md", "docs/dev/device-notes.md", "docs/dev/brand.md"]) {
         assert.ok(front.includes(`](${note})`), `${readme}: ${note}`);
         assert.ok(fs.existsSync(note), note);
       }

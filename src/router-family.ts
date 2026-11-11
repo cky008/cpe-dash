@@ -92,7 +92,7 @@ export interface RouterFamilyVariant {
 
 /**
  * Connected devices (`topology`) and SMS are read where a family's interface for them is on record
- * (`docs/dev/architecture.md` §18.3 and §18.4 name each source).
+ * (`docs/dev/sources.md` §18.3 and §18.4 name each source).
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
   huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },

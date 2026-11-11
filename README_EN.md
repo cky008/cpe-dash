@@ -87,7 +87,7 @@ The full documentation, with search, is on the [documentation site](https://feng
 - **Manage**: [Docker Compose file](https://fengsui.iocky.com/en/docs/docker-compose/) · [Configuration](https://fengsui.iocky.com/en/docs/configuration/) · [API reference](https://fengsui.iocky.com/en/docs/api/) · [Security and privacy](https://fengsui.iocky.com/en/docs/security/) · [Backup and restore](https://fengsui.iocky.com/en/docs/backup/) · [Other models and brands](https://fengsui.iocky.com/en/docs/other-routers/)
 - **Help**: [Troubleshooting](https://fengsui.iocky.com/en/docs/troubleshooting/) · [FAQ](https://fengsui.iocky.com/en/docs/faq/) · [Acknowledgments](https://fengsui.iocky.com/en/docs/acknowledgments/)
 
-The developer notes (in Chinese) are in [`docs/dev/`](docs/dev/README.md): [Huawei HiLink protocol](docs/dev/protocol.md) · [Architecture and design record](docs/dev/architecture.md) · [API contract (REST / SSE / MCP)](docs/dev/api.md) · [Device reference](docs/dev/device-notes.md) · [Logo](docs/dev/brand.md). Changes are in the [changelog](CHANGELOG.md).
+The developer notes (in Chinese) are in [`docs/dev/`](docs/dev/README.md): [Huawei HiLink protocol](docs/dev/protocol.md) · [Architecture and design](docs/dev/architecture.md) · [Implementation sources](docs/dev/sources.md) · [Audit record](docs/dev/audits.md) · [API contract (REST / SSE / MCP)](docs/dev/api.md) · [Device reference](docs/dev/device-notes.md) · [Logo](docs/dev/brand.md). Changes are in the [changelog](CHANGELOG.md).
 
 ## Contributing
 
