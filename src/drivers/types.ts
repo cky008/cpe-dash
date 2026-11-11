@@ -63,6 +63,11 @@ export interface DriverTraffic {
   /** Some routers count one monthly total only. */
   monthTotalBytes: bigint | null;
   monthSeconds: number | null;
+  /**
+   * Which of the router's counters the running totals come from, where it keeps more than one (a
+   * module counts 4G and 5G apart): a rate is never taken across two of them.
+   */
+  counterSource?: string;
 }
 
 export interface DriverIdentity {

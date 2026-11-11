@@ -13,6 +13,7 @@ import {
   parseFibocomCcInfo,
   parseOperatorName,
   parseQuectelCaInfo,
+  parseQuectelDataCounter,
   parseQuectelNeighbours,
   parseQuectelRsrp,
   parseQuectelServingCell,
@@ -176,6 +177,34 @@ describe("openwrt: helpers and parsing", () => {
     assert.equal(parsed.neighbours[0]?.rat, "NR");
     assert.equal(parsed.neighbours[0]?.pci, 323); // 0x143 = 323
     assert.equal(parsed.neighbours[0]?.rsrpDbm, -88); // 68 - 156 = -88 dBm
+  });
+});
+
+describe("openwrt: Quectel's packet data counters", () => {
+  it("reads bytes sent, then received, as the module's AT manual orders them", () => {
+    assert.deepEqual(parseQuectelDataCounter("+QGDNRCNT: 3832,4618\r\n\r\nOK\r\n", "+QGDNRCNT:"), { sent: 3832n, received: 4618n });
+    assert.deepEqual(parseQuectelDataCounter("AT+QGDCNT?\n+QGDCNT: 0,18446744073709551615\nOK", "+QGDCNT:"), { sent: 0n, received: 18446744073709551615n });
+    assert.equal(parseQuectelDataCounter("+QGDCNT: 1,2\nOK", "+QGDNRCNT:"), null, "the other mode's counter is not this one");
+    assert.equal(parseQuectelDataCounter("+QGDNRCNT: -1,2\nOK", "+QGDNRCNT:"), null);
+    assert.equal(parseQuectelDataCounter("+QGDNRCNT: 1\nOK", "+QGDNRCNT:"), null);
+    assert.equal(parseQuectelDataCounter("ERROR", "+QGDNRCNT:"), null);
+  });
+
+  it("reads the counter of the mode the module is in, and none when it has no service", async () => {
+    const { client, state } = openwrtRouter({ brand: "quectel" });
+    const sa = await client.withSession((s) => s.telemetry());
+    assert.ok(sa);
+    assert.deepEqual([sa.traffic?.totalDownloadBytes, sa.traffic?.totalUploadBytes, sa.traffic?.counterSource], [15_849_203_712n, 2_194_810_368n, "AT+QGDNRCNT?"]);
+    assert.equal(sa.traffic?.downloadBytesPerSec, null, "a rate comes from two polls");
+    assert.ok(!state.executedCommands.includes("AT+QGDCNT?"), "5G standalone counts on QGDNRCNT alone");
+    state.serving = "none";
+    const searching = await client.withSession((s) => s.telemetry());
+    assert.equal(searching?.traffic, null);
+  });
+
+  it("leaves the traffic unread when the module answers the counter with an error", async () => {
+    const { client } = openwrtRouter({ brand: "quectel", atErrors: ["AT+QGDNRCNT"] });
+    assert.equal((await client.withSession((s) => s.telemetry()))?.traffic, null);
   });
 });
 

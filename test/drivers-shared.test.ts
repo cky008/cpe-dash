@@ -569,4 +569,13 @@ describe("drivers: snapshots", () => {
     rates.reset();
     assert.equal(rates.apply(withCounters(30n, 30n), 700002).traffic?.downloadBytesPerSec, null);
   });
+
+  it("takes no rate across two of a router's counters (a module that counts 4G and 5G apart)", () => {
+    const rates = new CounterRates();
+    const counted = (down: bigint, source: string): DriverTelemetry =>
+      base({ traffic: { ...(base({}).traffic as NonNullable<DriverTelemetry["traffic"]>), downloadBytesPerSec: null, uploadBytesPerSec: null, totalDownloadBytes: down, totalUploadBytes: 0n, counterSource: source } });
+    assert.equal(rates.apply(counted(1000n, "AT+QGDCNT?"), 0).traffic?.downloadBytesPerSec, null);
+    assert.equal(rates.apply(counted(9_000_000n, "AT+QGDNRCNT?"), 5000).traffic?.downloadBytesPerSec, null, "the 5G counter is not a delta of the 4G one");
+    assert.equal(rates.apply(counted(9_005_000n, "AT+QGDNRCNT?"), 10000).traffic?.downloadBytesPerSec, 1000);
+  });
 });

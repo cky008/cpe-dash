@@ -64,6 +64,8 @@ export interface OpenwrtRouterState {
   sms: StoredPdu[];
   /** The PDUs handed to QModem to send. */
   sentPdus: string[];
+  /** The packet data counters, bytes sent then received (4G `QGDCNT`, 5G `QGDNRCNT`). */
+  counters: { lte: [bigint, bigint]; nr: [bigint, bigint] };
 }
 
 export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
@@ -85,6 +87,7 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     serving: "sa",
     sms: opts.sms ? opts.sms.map((part) => ({ ...part })) : [],
     sentPdus: [],
+    counters: { lte: [1_000n, 4_000n], nr: [2_194_810_368n, 15_849_203_712n] },
   };
 
   /** The modem's answer to one AT command, whichever service carried it. */
@@ -206,6 +209,8 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
       if (cmd === "AT+QRSRP") {
         return reply("+QRSRP: -82,-84,-85,-86,NR5G\n\nOK\n");
       }
+      if (cmd === "AT+QGDCNT?") return reply(`+QGDCNT: ${state.counters.lte[0]},${state.counters.lte[1]}\n\nOK\n`);
+      if (cmd === "AT+QGDNRCNT?") return reply(`+QGDNRCNT: ${state.counters.nr[0]},${state.counters.nr[1]}\n\nOK\n`);
       if (cmd === "AT+QTEMP") {
         return reply('+QTEMP: "soc-thermal",42\n+QTEMP: "pa-thermal",46\n+QTEMP: "modem-thermal",44\n\nOK\n');
       }

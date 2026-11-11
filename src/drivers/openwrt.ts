@@ -29,6 +29,8 @@ import type {
   DriverSmsSendOptions,
   DriverSmsSendOutcome,
   DriverTelemetry,
+  DriverTraffic,
+  ServingMode,
   SubcarrierSpacingKhz,
 } from "./types.ts";
 import {
@@ -467,6 +469,46 @@ export function parseQuectelTemp(text: string): number | null {
   return Math.max(...temps);
 }
 
+/**
+ * A Quectel packet data counter (`+QGDCNT:` for 4G, `+QGDNRCNT:` for 5G): bytes sent, then bytes
+ * received, as the module's AT manual orders them; `null` when the answer names no such line.
+ */
+export function parseQuectelDataCounter(text: string, prefix: "+QGDCNT:" | "+QGDNRCNT:"): { sent: bigint; received: bigint } | null {
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.startsWith(prefix)) continue;
+    const [sent, received] = line.slice(prefix.length).split(",").map((part) => part.trim());
+    if (sent === undefined || received === undefined || !/^\d{1,20}$/.test(sent) || !/^\d{1,20}$/.test(received)) return null;
+    return { sent: BigInt(sent), received: BigInt(received) };
+  }
+  return null;
+}
+
+/** The counter a Quectel module keeps for the mode it is in: 4G alone counts on `QGDCNT`, anything with 5G on `QGDNRCNT`. */
+function quectelCounterOf(mode: ServingMode | null): { command: string; prefix: "+QGDCNT:" | "+QGDNRCNT:" } | null {
+  if (mode === "LTE") return { command: "AT+QGDCNT?", prefix: "+QGDCNT:" };
+  if (mode === "SA" || mode === "NSA") return { command: "AT+QGDNRCNT?", prefix: "+QGDNRCNT:" };
+  return null;
+}
+
+/** Running totals of one counter, as FengSui derives rates from them (the module reports no rate). */
+function counterTraffic(counter: { sent: bigint; received: bigint }, source: string): DriverTraffic {
+  return {
+    downloadBytesPerSec: null,
+    uploadBytesPerSec: null,
+    totalDownloadBytes: counter.received,
+    totalUploadBytes: counter.sent,
+    sessionDownloadBytes: null,
+    sessionUploadBytes: null,
+    sessionSeconds: null,
+    monthDownloadBytes: null,
+    monthUploadBytes: null,
+    monthTotalBytes: null,
+    monthSeconds: null,
+    counterSource: source,
+  };
+}
+
 // --------------------------------------------------------------------------
 // Fibocom AT Parsers
 // --------------------------------------------------------------------------
@@ -775,6 +817,9 @@ export class OpenwrtSession implements DriverSessionHandle {
 
     const tempRaw = await this.#ubus.execAt("AT+QTEMP").catch(() => "");
     const temp = parseQuectelTemp(tempRaw);
+    // The data counter of the mode the module is in (4G and 5G are counted apart)
+    const counterCmd = quectelCounterOf(serving.mode);
+    const counter = counterCmd ? parseQuectelDataCounter(await this.#ubus.execAt(counterCmd.command).catch(() => ""), counterCmd.prefix) : null;
 
     return {
       model: this.#identity!.model,
@@ -787,7 +832,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       nr: serving.nr,
       carriers,
       wan: { connected: serving.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
-      traffic: null,
+      traffic: counter && counterCmd ? counterTraffic(counter, counterCmd.command) : null,
       temperatureC: temp,
       signalBars: null,
     };

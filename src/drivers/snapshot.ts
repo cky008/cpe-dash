@@ -242,14 +242,15 @@ export function driverNeighbourSnapshot(list: ReadonlyArray<DriverNeighbour>, no
  * (a redial reset it) or a gap over ten minutes gives no rate rather than a wrong one.
  */
 export class CounterRates {
-  #last: { atMs: number; down: bigint; up: bigint } | null = null;
+  #last: { atMs: number; down: bigint; up: bigint; source: string | undefined } | null = null;
 
   apply(t: DriverTelemetry, nowMs: number): DriverTelemetry {
     const traffic = t.traffic;
     if (!traffic || traffic.totalDownloadBytes === null || traffic.totalUploadBytes === null) return t;
     const previous = this.#last;
-    this.#last = { atMs: nowMs, down: traffic.totalDownloadBytes, up: traffic.totalUploadBytes };
-    if (traffic.downloadBytesPerSec !== null || traffic.uploadBytesPerSec !== null || previous === null) return t;
+    this.#last = { atMs: nowMs, down: traffic.totalDownloadBytes, up: traffic.totalUploadBytes, source: traffic.counterSource };
+    // Another counter than last time (the module moved between 4G and 5G): its totals are not comparable
+    if (traffic.downloadBytesPerSec !== null || traffic.uploadBytesPerSec !== null || previous === null || previous.source !== traffic.counterSource) return t;
     const elapsedMs = nowMs - previous.atMs;
     const down = traffic.totalDownloadBytes - previous.down;
     const up = traffic.totalUploadBytes - previous.up;
