@@ -21,6 +21,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **A send to a FiberHome router is checked first.** Its firmware hands a message's text to a command line, so FengSui sends printable ASCII only and never text with a backquote, a dollar sign, a double quote or a backslash; nothing goes out otherwise.
 
 ### Changed
+- **The controls drawer's notes on the 5G-only mode and DDoS protection speak plainly**: they say what FengSui does not offer and why, instead of calling it missing from the "backend contract".
 - **Every write goes through the router interface** (`RouterBackend`): redial, self-healing's redial, mobile data, the security switches, Wi-Fi 7, the antenna and the access-control writes are verbs each brand answers, as SMS and the locks already were. On an H168-383 the requests are the same as before, byte for byte.
 - **ZTE goform cell locks follow the community's ZTE script.** An NR cell lock names its subcarrier spacing in kHz (any of 15, 30, 60, 120, 240) where the driver wrote a 0 / 1 code, and a cell lock is cleared with zeros (`0` / `0,0,0,0`) where it wrote ones. A 4G goform router whose network mode reads `NETWORK_auto` is written that name, and a 5G mode is refused there.
 - **A ZTE router's login result 2 no longer latches the breaker by itself.** ZTE's own page calls it another user signed in: while the router reports attempts left and no lock, FengSui yields as for anyone else signed in, and only a lock (or no count to go by) latches the breaker.
