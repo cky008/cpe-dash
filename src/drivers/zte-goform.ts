@@ -308,7 +308,11 @@ export const ZTE_LTE_ALL_MASK = "a3e2ab0908df";
 export const ZTE_NR_ALL_BANDS: ReadonlyArray<number> = [1, 2, 3, 5, 7, 8, 20, 28, 38, 41, 50, 51, 66, 70, 71, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84];
 
 const BEARER: Readonly<Record<DriverNetworkMode, string>> = { auto: "WL_AND_5G", lte: "Only_LTE", nr_sa: "Only_5G", nr_nsa: "LTE_AND_5G" };
-/** The `reqproc` firmware is 4G: its automatic mode has a name of its own, and it has no 5G mode. */
+/**
+ * 4G firmware names its automatic mode `NETWORK_auto` and has no 5G mode: the `reqproc` spelling, and a
+ * goform router whose mode reads back by that name (both names are on record: notes library A and
+ * ZTE's community script have `WL_AND_5G` on the 5G routers, library B and the 4G firmware `NETWORK_auto`).
+ */
 const BEARER_REQPROC: Readonly<Partial<Record<DriverNetworkMode, string>>> = { auto: "NETWORK_auto", lte: "Only_LTE" };
 
 function networkModeOf(value: unknown): DriverNetworkMode | null {
@@ -635,6 +639,8 @@ class ZteGoformSession implements DriverSessionHandle {
   readonly #password: string;
   readonly #configJs: string | null;
   #developerUnlocked = false;
+  /** The router's mode read back as `NETWORK_auto`: it writes the 4G firmware's names. */
+  #fourGModes = false;
   #open = true;
 
   constructor(http: LanHttp, version: ZteVersion, hash: "sha256" | "md5" | "csrf", password = "", configJs: string | null = null, at: ZteEndpoints = GOFORM) {
@@ -709,7 +715,11 @@ class ZteGoformSession implements DriverSessionHandle {
 
   async lockState(): Promise<DriverLockState> {
     this.#guard();
-    return parseZteLockState(await getCmd(this.#http, LOCK_KEYS, true, this.#at));
+    const raw = await getCmd(this.#http, LOCK_KEYS, true, this.#at);
+    // The name the mode reads back by tells which names this firmware writes (a band lock and an unlock read it first)
+    const current = (textOf(raw["net_select"]) ?? textOf(raw["BearerPreference"]))?.toUpperCase();
+    if (current !== undefined) this.#fourGModes = current === "NETWORK_AUTO";
+    return parseZteLockState(raw);
   }
 
   /**
@@ -734,7 +744,7 @@ class ZteGoformSession implements DriverSessionHandle {
 
   /** `BearerPreference` for a network mode, as this firmware names it (checked before a lock writes anything). */
   #bearer(mode: DriverNetworkMode): string {
-    if (this.#at.variant !== "reqproc") return BEARER[mode];
+    if (this.#at.variant !== "reqproc" && !this.#fourGModes) return BEARER[mode];
     const name = BEARER_REQPROC[mode];
     if (name === undefined) throw new CpeControlValidationError("This router runs a 4G firmware: its network mode can be automatic or 4G only");
     return name;

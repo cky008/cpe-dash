@@ -329,6 +329,37 @@ describe("zte-goform: locks", () => {
     assert.deepEqual(state.posts.at(-2)?.fields.get("lte_earfcn_lock"), "0");
   });
 
+  it("writes the 4G firmware's mode names on a goform router whose mode reads back as NETWORK_auto", async () => {
+    const { state, client } = zteRouter({ hw: "MF286A_HW1.0", model: "MF286A" });
+    state.values["net_select"] = "NETWORK_auto";
+    await client.withSession(async (s) => {
+      await s.lockState();
+      await s.setBandLock({ lte: [1, 3], nr: null, networkMode: "lte" }, newCheck());
+    });
+    assert.equal(state.posts.find((p) => p.goformId === "SET_BEARER_PREFERENCE")?.fields.get("BearerPreference"), "Only_LTE");
+    // Back to automatic by its own name, and no 5G mode on it
+    state.values["net_select"] = "NETWORK_auto";
+    await assert.rejects(
+      client.withSession(async (s) => {
+        await s.lockState();
+        await s.setBandLock({ lte: [1], nr: null, networkMode: "nr_sa" }, newCheck());
+      }),
+      CpeControlValidationError
+    );
+    state.values["net_select"] = "Only_LTE";
+    await client.withSession(async (s) => {
+      await s.lockState();
+      await s.unlockAll(newCheck());
+    });
+    // Only_LTE alone does not say 4G firmware: the 5G pages' name is written, as before
+    assert.equal(state.posts.filter((p) => p.goformId === "SET_BEARER_PREFERENCE").at(-1)?.fields.get("BearerPreference"), "WL_AND_5G");
+    const second = zteRouter({ hw: "MF286A_HW1.0", model: "MF286A" });
+    second.state.values["net_select"] = "NETWORK_auto";
+    second.state.values["lte_band_lock"] = "0x5";
+    await second.client.withSession(async (s) => s.unlockAll(newCheck()));
+    assert.ok(!second.state.posts.some((p) => p.goformId === "SET_BEARER_PREFERENCE"), "already automatic: the mode is left alone");
+  });
+
   it("checks a write before it is sent and refuses what a router answers with failure", async () => {
     const { mock, client } = zteRouter();
     await assert.rejects(client.withSession((s) => s.setCellLock({ rat: "NR", band: 78, arfcn: 100, pci: 1, scsKhz: 30 }, newCheck())), CpeControlValidationError);
