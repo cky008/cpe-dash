@@ -278,11 +278,12 @@ describe("zte-goform: locks", () => {
     assert.deepEqual(zteNrBandForm(3, [78]).fields[1], ["Z5g_lockband_type", "0"]);
     assert.equal(zteNrBandForm(4, [41, 78]).goformId, "NR_BAND_LOCK");
     const nrCell = { rat: "NR" as const, band: 78, arfcn: 650000, pci: 142, scsKhz: 30 as const };
-    assert.deepEqual(zteCellForm(1, nrCell).fields, [["nr5g_cell_lock", "142,650000,78,1"]]);
+    assert.deepEqual(zteCellForm(1, nrCell).fields, [["nr5g_cell_lock", "142,650000,78,30"]]);
+    assert.deepEqual(zteCellForm(1, { ...nrCell, scsKhz: 15 }).fields, [["nr5g_cell_lock", "142,650000,78,15"]]);
     assert.deepEqual(zteCellForm(2, nrCell).fields[3], ["Z5g_lockcell_scs", "30"]);
     assert.deepEqual(zteCellForm(3, nrCell).fields[2], ["rat", "16"]);
     assert.deepEqual(zteCellForm(4, { rat: "LTE", band: 1, arfcn: 300, pci: 211, scsKhz: null }).fields[2], ["rat", "12"]);
-    assert.throws(() => zteCellForm(1, { ...nrCell, scsKhz: 60 }), CpeControlValidationError);
+    assert.throws(() => zteCellForm(1, { ...nrCell, scsKhz: null }), CpeControlValidationError);
   });
 
   it("reads locks back, the firmware's 0 / 1 meaning no lock", () => {
@@ -318,7 +319,7 @@ describe("zte-goform: locks", () => {
     await client.withSession((s) => s.unlockAll(unlock));
     assert.deepEqual(unlock.endpoints, ["zte-goform:LTE_LOCK_CELL_SET"]);
     assert.equal(unlock.readback, "match");
-    assert.deepEqual(state.posts.at(-2)?.fields.get("lte_earfcn_lock"), "1");
+    assert.deepEqual(state.posts.at(-2)?.fields.get("lte_earfcn_lock"), "0");
   });
 
   it("checks a write before it is sent and refuses what a router answers with failure", async () => {

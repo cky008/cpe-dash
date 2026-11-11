@@ -618,9 +618,10 @@ export function zteCellForm(branch: ZteBranch, target: DriverCellLockTarget): { 
       ],
     };
   }
-  // The standard goform codes the spacing: 0 for 15 kHz, 1 for 30 kHz (no other is documented)
-  if (scs !== 15 && scs !== 30) throw new CpeControlValidationError(`This router locks NR cells with a 15 or 30 kHz subcarrier spacing only (asked: ${String(scs)} kHz)`);
-  return { goformId: "NR5G_LOCK_CELL_SET", fields: [["nr5g_cell_lock", `${pci},${arfcn},${band},${scs === 30 ? "1" : "0"}`]] };
+  // The spacing in kHz, as the community's ZTE script writes it and notes library B records (library A
+  // coded it 0 / 1, which no other source shows); docs/PHASE2_ARCHITECTURE_REPORT.md §18.4
+  if (scs === null) throw new CpeControlValidationError("This router locks an NR cell with its subcarrier spacing, and none was given");
+  return { goformId: "NR5G_LOCK_CELL_SET", fields: [["nr5g_cell_lock", `${pci},${arfcn},${band},${scs}`]] };
 }
 
 class ZteGoformSession implements DriverSessionHandle {
@@ -778,12 +779,14 @@ class ZteGoformSession implements DriverSessionHandle {
     if (this.#branch === 3 || this.#branch === 4) {
       if (lteLocked || nrLocked) await this.#post(check, "UNLOCK_ALL_CELL", []);
     } else {
+      // Zeros clear a cell lock, as the community's ZTE script and notes library B write it (library A
+      // wrote ones; the read-back takes either as no lock)
       if (lteLocked)
         await this.#post(check, "LTE_LOCK_CELL_SET", [
-          ["lte_pci_lock", "1"],
-          ["lte_earfcn_lock", "1"],
+          ["lte_pci_lock", "0"],
+          ["lte_earfcn_lock", "0"],
         ]);
-      if (nrLocked) await this.#post(check, "NR5G_LOCK_CELL_SET", [["nr5g_cell_lock", "1,1,1,1"]]);
+      if (nrLocked) await this.#post(check, "NR5G_LOCK_CELL_SET", [["nr5g_cell_lock", "0,0,0,0"]]);
     }
     // The mode goes back to automatic only when it is known to be something else
     const resetMode = before.networkMode !== null && before.networkMode !== "auto";
