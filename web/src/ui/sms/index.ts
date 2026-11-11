@@ -220,7 +220,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
       h(
         "div",
         { class: "rounded-xl border border-base-content/[0.07] bg-base-100/60 p-3 text-xs space-y-2" },
-        h("div", { class: "flex justify-between muted" }, h("span", null, ctx.t("sms.storage")), h("span", { class: "num" }, counters ? `${used} / ${counters.localMax}` : DASH)),
+        h("div", { class: "flex justify-between muted" }, h("span", null, ctx.t("sms.storage")), h("span", { class: "num" }, counters ? (counters.localMax > 0 ? `${used} / ${counters.localMax}` : String(used)) : DASH)),
         h("div", { class: `fs-meter ${pct >= 90 ? "text-error" : pct >= 75 ? "text-warning" : "text-primary"}` }, h("span", { style: `width:${pct.toFixed(1)}%` })),
         h("div", { class: "faint flex items-center gap-1.5" }, icon("lock"), ctx.t("sms.mirror", { count: status?.mirror.messagesTotal ?? 0 })),
         status?.syncPending ? h("div", { class: "text-warning flex items-center gap-1.5" }, icon("history"), ctx.t("sms.pending_sync")) : null,
