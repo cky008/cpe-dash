@@ -89,7 +89,7 @@ describe("the supported devices guide page", () => {
       const text = fs.readFileSync(file, "utf8");
       const block = /<!-- devices:begin -->\n([\s\S]*?)\n<!-- devices:end -->/.exec(text)?.[1];
       assert.equal(block, supportedDevicesSection(locale), `${file}: regenerate the tables from supportedDevicesSection("${locale}")`);
-      assert.equal(/huawei-lte-api|Salamek/i.test(text), false, `${file}: the guide credits other projects on "Other models and brands" only`);
+      assert.equal(/huawei-lte-api|Salamek/i.test(text), false, `${file}: the guide credits other projects on the acknowledgments page only`);
       assert.equal(text.includes("<!-- brands:begin -->"), false, `${file}: one table per brand section, not one row per brand`);
       assert.ok(text.includes('<a id="brands"></a>'), `${file}: the anchor other pages link to`);
       for (const section of CATALOG_SECTIONS) assert.ok(text.includes(`<a id="brand-${section.id}"></a>`), `${file}: the console links to brand-${section.id}`);

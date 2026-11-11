@@ -1334,7 +1334,7 @@ v1.8.4 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | [tcpqueue/quectel-rgmii-toolkit-Rust](https://github.com/tcpqueue/quectel-rgmii-toolkit-Rust) | `a357aea`（2026-10-16） | MIT | `QGDNRCNT` 字段顺序（引用移远手册的页码，印证「发送、接收」） |
 | [dr-dolomite/QManager-RM520N](https://github.com/dr-dolomite/QManager-RM520N) | `b1ed828`（2026-11-04） | 没有标注许可证 | 两个计数器在 SDX55 / SDX65 上的差别 |
 
-另外读过但没有取用事实的：dr-dolomite/QuecManager-JS（MIT，按制式选计数器的写法与手册一致）、16c-top/wifiadmin（MIT）、chami2000/band（没有许可证文件，`lua.cgi` 的登录与 4G 频段指令，见上面「没有做的」）、AlienWolfX/ZLT-S12-PRO、33333s/zwrt-datad、dklasens/MU5250-OpenUI。致谢按约定只写在 `other-routers.md` 的「致谢」与两份 README 的致谢行。
+另外读过但没有取用事实的：dr-dolomite/QuecManager-JS（MIT，按制式选计数器的写法与手册一致）、16c-top/wifiadmin（MIT）、chami2000/band（没有许可证文件，`lua.cgi` 的登录与 4G 频段指令，见上面「没有做的」）、AlienWolfX/ZLT-S12-PRO、33333s/zwrt-datad、dklasens/MU5250-OpenUI。致谢写在指南的致谢页（`docs/guide/{zh,en}/acknowledgments.md`，按品牌分节；主人 2026-11-11 要求把 README 与「其他型号与品牌」里越来越长的致谢搬到一页），README 与「其他型号与品牌」只留指向它的一句。
 
 **验证**
 

@@ -77,7 +77,7 @@ So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei
 - **Get started**: [What FengSui is](docs/guide/en/overview.md) · [Supported devices](docs/guide/en/supported-devices.md) · [Quick start](docs/guide/en/quick-start.md) · [Install and upgrade](docs/guide/en/install.md)
 - **Use FengSui**: [Dashboard](docs/guide/en/dashboard.md) · [Band and cell locks](docs/guide/en/locking.md) · [SMS](docs/guide/en/sms.md) · [Devices and internet access](docs/guide/en/devices.md) · [Alerts and notifications](docs/guide/en/notifications.md) · [AI agents (MCP)](docs/guide/en/agents.md)
 - **Manage**: [Docker Compose file](docs/guide/en/docker-compose.md) · [Configuration](docs/guide/en/configuration.md) · [Security and privacy](docs/guide/en/security.md) · [Backup and restore](docs/guide/en/backup.md) · [Other models and brands](docs/guide/en/other-routers.md)
-- **Help**: [Troubleshooting](docs/guide/en/troubleshooting.md) · [FAQ](docs/guide/en/faq.md)
+- **Help**: [Troubleshooting](docs/guide/en/troubleshooting.md) · [FAQ](docs/guide/en/faq.md) · [Acknowledgments](docs/guide/en/acknowledgments.md)
 - **Technical docs (Chinese)**: [Protocol spec](docs/PHASE1_PROTOCOL_SPEC.md) · [Architecture report](docs/PHASE2_ARCHITECTURE_REPORT.md) · [Backend contract (REST / SSE / MCP)](docs/PHASE2_BACKEND_CONTRACT.md) · [Changelog](CHANGELOG.md)
 
 The same pages, with search, are on the [documentation site](https://fengsui.iocky.com/en/).
@@ -98,50 +98,4 @@ The same pages, with search, are on the [documentation site](https://fengsui.ioc
 
 ## Acknowledgements
 
-Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api): FengSui consulted the endpoints and model notes it collects when adding support for other Huawei models. FengSui contains none of its code and does not depend on it.
-
-Thanks to [exbyte-dev/zltrouter](https://github.com/exbyte-dev/zltrouter): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [paulo-correia/ZTE_API_and_Hack](https://github.com/paulo-correia/ZTE_API_and_Hack): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [teixeluis/zte-lte-modem](https://github.com/teixeluis/zte-lte-modem): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [Stantastic/ZTE-SMS-Gateway](https://github.com/Stantastic/ZTE-SMS-Gateway): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro): FengSui consulted the interface notes it collects when adding SMS and mobile data for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [FUjr/QModem](https://github.com/FUjr/QModem): FengSui consulted the interface notes it collects when adding SMS sending for OpenWrt routers and carrier aggregation for Fibocom modules. FengSui contains none of its code and does not depend on it.
-
-Thanks to [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5g-traffic-monitoring-system): FengSui consulted the interface notes it collects when adding SMS for Tozed (China Unicom VN007+). FengSui contains none of its code and does not depend on it.
-
-Thanks to [Curtion/fiberhome-cpe-lg6121f-sms-notice](https://github.com/Curtion/fiberhome-cpe-lg6121f-sms-notice): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
-
-Thanks to [upchr/fiberhome-cpe](https://github.com/upchr/fiberhome-cpe): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
-
-Thanks to [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
-
-Thanks to [kukume/fiberhome-cpe](https://github.com/kukume/fiberhome-cpe): FengSui consulted the interface notes it collects when adding signal readings and SMS for FiberHome's Pro series. FengSui contains none of its code and does not depend on it.
-
-Thanks to [xxtg666/FiberHome-LG6851F-SMS-Forward](https://github.com/xxtg666/FiberHome-LG6851F-SMS-Forward): FengSui consulted the interface notes it collects when adding signal readings and SMS for FiberHome's Pro series. FengSui contains none of its code and does not depend on it.
-
-Thanks to [tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script): FengSui consulted the interface notes it collects when adding cell locks and unlocking for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS): FengSui consulted the interface notes it collects when adding the write signature of ZTE's goform interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [zhovner/mf823-pro](https://github.com/zhovner/mf823-pro): FengSui consulted the interface notes it collects when adding login results and connected devices for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [Damecek/zte-mce888-ultra-daemon](https://github.com/Damecek/zte-mce888-ultra-daemon): FengSui consulted the interface notes it collects when adding connected devices for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
-
-Thanks to [561410590/ssh-nradio-plugin-installer](https://github.com/561410590/ssh-nradio-plugin-installer): FengSui consulted the interface notes it collects when adding connected devices for NRadio. FengSui contains none of its code and does not depend on it.
-
-Thanks to [openwrt/luci](https://github.com/openwrt/luci): FengSui consulted the interface notes it collects when adding connected devices for OpenWrt routers. FengSui contains none of its code and does not depend on it.
-
-Thanks to [fildunsky/luci-app-5gmodem](https://github.com/fildunsky/luci-app-5gmodem): FengSui consulted the interface notes it collects when adding carrier aggregation for Fibocom modules. FengSui contains none of its code and does not depend on it.
-
-Thanks to [dr-dolomite/QManager-RM520N](https://github.com/dr-dolomite/QManager-RM520N): FengSui consulted the interface notes it collects when adding traffic counters for Quectel modules. FengSui contains none of its code and does not depend on it.
-
-Thanks to [tcpqueue/quectel-rgmii-toolkit-Rust](https://github.com/tcpqueue/quectel-rgmii-toolkit-Rust): FengSui consulted the interface notes it collects when adding traffic counters for Quectel modules. FengSui contains none of its code and does not depend on it.
-
-Thanks to [asterfusion/Helium_DPU](https://github.com/asterfusion/Helium_DPU): FengSui consulted the interface notes it collects when adding traffic counters for Quectel modules. FengSui contains none of its code and does not depend on it.
+The projects FengSui consulted when adding support for each brand of router are listed under [Acknowledgements](docs/guide/en/acknowledgments.md).

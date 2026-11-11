@@ -17,6 +17,7 @@ const DOCS = [
     writes: "它们默认开着，你可以",
     gone: /写操作默认锁定|只以只读方式工作|逐项打开实验性写入|输入路由器型号/,
     credit: "感谢 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)",
+    credits: "docs/guide/zh/acknowledgments.md",
   },
   {
     readme: "README_EN.md",
@@ -25,6 +26,7 @@ const DOCS = [
     writes: "they are on by default, and you can turn each one off",
     gone: /locked by default|run read-only|What read-only means|type the router model/i,
     credit: "Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)",
+    credits: "docs/guide/en/acknowledgments.md",
   },
 ] as const;
 
@@ -38,12 +40,16 @@ describe("compatibility claims in the READMEs and the guide", () => {
   });
 
   it("claims the H168-383 only, says the writes FengSui implements are on by default elsewhere, and keeps the credit", () => {
-    for (const { readme, guide, verified, writes, gone, credit } of DOCS) {
+    for (const { readme, guide, verified, writes, gone, credit, credits } of DOCS) {
       const front = fs.readFileSync(readme, "utf8");
-      for (const phrase of [verified, writes, credit]) assert.ok(front.includes(phrase), `${readme}: ${phrase}`);
+      for (const phrase of [verified, writes, `(${credits})`]) assert.ok(front.includes(phrase), `${readme}: ${phrase}`);
       assert.equal(gone.test(front), false, `${readme}: no longer says other routers are read-only`);
+      // Every credit is on the acknowledgments page, and nowhere else: the README and the other routers page link to it
+      assert.ok(fs.readFileSync(credits, "utf8").includes(credit), `${credits}: ${credit}`);
+      for (const file of [readme, guide]) assert.equal(/(感谢|Thanks to) \[[^\]]+\]\(https?:/.test(fs.readFileSync(file, "utf8")), false, `${file}: credits belong on the acknowledgments page`);
       const text = fs.readFileSync(guide, "utf8");
-      for (const phrase of [verified, writes, credit, "DEVICE_UNVERIFIED_READ_ONLY", "DEVICE_WRITE_DISABLED", "WRITE_READBACK_MISMATCH", "DEMO_SCENARIO=unverified", "VERIFIED_FEATURES"]) {
+      assert.ok(text.includes("(acknowledgments.md)"), `${guide}: links to the acknowledgments page`);
+      for (const phrase of [verified, writes, "DEVICE_UNVERIFIED_READ_ONLY", "DEVICE_WRITE_DISABLED", "WRITE_READBACK_MISMATCH", "DEMO_SCENARIO=unverified", "VERIFIED_FEATURES"]) {
         assert.ok(text.includes(phrase), `${guide}: ${phrase}`);
       }
       assert.equal(gone.test(text), false, `${guide}: no longer says other routers are read-only`);
