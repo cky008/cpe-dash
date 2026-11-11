@@ -44,9 +44,13 @@ order: 18
 - 锁频段（4G 和 5G 频段，在控制抽屉里直接填频段号）
 - 锁小区（频点 + PCI，在「附近的基站」里操作）
 - 重启
+- 重拨和移动数据开关：中兴（goform 与 zWRT）和鲲鹏无限。没有专门重拨指令的路由器，重拨是先断开再连上，烽燧最后一定会发「连上」
+- 天线（自动、内置、外置）：鲲鹏无限
 - 短信：中兴、OpenWrt、通则康威和烽火。每个品牌能做的不一样（有的不能删除，有的发送有条件），见[短信](sms.md#other-brands)
 
-已连接设备、重拨、移动数据、路由器开关和访问控制在其他品牌上还没有实现，品速和鲲鹏无限也没有短信，控制台里对应的部分是空的。每个品牌的细节见[支持的设备](supported-devices.md#brands)。
+已连接设备在中兴 goform、鲲鹏无限和 OpenWrt 上可以看到。OpenWrt 列出的是 DHCP 租约，路由器不说设备是有线还是 Wi-Fi，控制台显示「接入方式未知」。
+
+路由器开关（UPnP、DMZ、防火墙）和访问控制在其他品牌的接口资料里没有，烽燧在这些品牌上不做；品速和鲲鹏无限没有短信，控制台里对应的部分是空的。每个品牌的细节见[支持的设备](supported-devices.md#brands)。
 
 烽燧没有实现的写操作不会发给路由器：网页、API、MCP、Telegram 和自愈都绕不过服务端的这道闸门，接口返回 `409 DEVICE_UNVERIFIED_READ_ONLY`。
 
@@ -133,9 +137,9 @@ order: 18
 
 感谢 [Stantastic/ZTE-SMS-Gateway](https://github.com/Stantastic/ZTE-SMS-Gateway)：烽燧为中兴 zWRT 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
-感谢 [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro)：烽燧为中兴 zWRT 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro)：烽燧为中兴 zWRT 接口的短信与移动数据做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
-感谢 [FUjr/QModem](https://github.com/FUjr/QModem)：烽燧为OpenWrt 路由器的短信发送做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [FUjr/QModem](https://github.com/FUjr/QModem)：烽燧为 OpenWrt 路由器的短信发送与广和通模组的载波聚合做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 感谢 [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5g-traffic-monitoring-system)：烽燧为通则康威（联通 VN007+）的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
@@ -148,3 +152,23 @@ order: 18
 感谢 [kukume/fiberhome-cpe](https://github.com/kukume/fiberhome-cpe)：烽燧为烽火 Pro 系列的信号与短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 感谢 [xxtg666/FiberHome-LG6851F-SMS-Forward](https://github.com/xxtg666/FiberHome-LG6851F-SMS-Forward)：烽燧为烽火 Pro 系列的信号与短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script)：烽燧为中兴 goform 接口的锁小区与解除锁定做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS)：烽燧为中兴 goform 接口的写入签名做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [zhovner/mf823-pro](https://github.com/zhovner/mf823-pro)：烽燧为中兴 goform 接口的登录结果与已连接设备做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [Damecek/zte-mce888-ultra-daemon](https://github.com/Damecek/zte-mce888-ultra-daemon)：烽燧为中兴 goform 接口的已连接设备做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [561410590/ssh-nradio-plugin-installer](https://github.com/561410590/ssh-nradio-plugin-installer)：烽燧为鲲鹏无限的已连接设备做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [openwrt/luci](https://github.com/openwrt/luci)：烽燧为OpenWrt 路由器的已连接设备做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [fildunsky/luci-app-5gmodem](https://github.com/fildunsky/luci-app-5gmodem)：烽燧为广和通模组的载波聚合做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [dr-dolomite/QManager-RM520N](https://github.com/dr-dolomite/QManager-RM520N)：烽燧为移远模组的流量计数做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [tcpqueue/quectel-rgmii-toolkit-Rust](https://github.com/tcpqueue/quectel-rgmii-toolkit-Rust)：烽燧为移远模组的流量计数做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [asterfusion/Helium_DPU](https://github.com/asterfusion/Helium_DPU)：烽燧为移远模组的流量计数做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。

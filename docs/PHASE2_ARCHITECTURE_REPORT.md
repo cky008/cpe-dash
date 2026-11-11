@@ -1256,3 +1256,102 @@ v1.8.4 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 - 通则康威的写入（`cmd 160` / `161` / `218`）没有带 `cmd 233` 的写令牌，而网页是带的；这一步只在短信发送里带了。
 - 烽火 Pro 系列的接口变体。
 - 控制台没有按品牌隐藏做不了的按钮（通则康威的删除、没有 QModem 时的发送）：现在是点了之后给出明确的说明。
+
+### 18.4 第 4 步：补齐上一版留下的缺口
+
+**决定**：烽燧对路由器的每一项读写都是 `RouterBackend` 的动词。重拨、自愈重拨、移动数据、安全开关、Wi-Fi 7、天线、Wi-Fi MAC 过滤和上网时段此前由 `CpeControlService` 直接打开华为会话，这一步搬到后端后面；其他品牌按资料实现它们有记录的那几项。17.3、17.5 里因为「资料只有指令名」搁置的几项，这一步查公开资料补齐了应答格式后实现。
+
+**架构**
+
+- `RouterBackend` 新增八个写动词：`reconnect`、`autoReconnect`、`setMobileData`、`setSecuritySwitches`、`setWifi7`、`setAntennaMode`、`setWifiAccess`、`manageTimeRule`。`HilinkBackend` 里是原来的函数、原来的顺序；`DriverBackend` 对一个品牌（连同它的各种接口写法）都没有实现的写入调用 `MutexSessionScheduler.refuseDriverWrite`，拒绝和审计与以前 `executeControl` 在其他品牌上的拒绝完全相同（不排队、不建会话）。`test/router-backend.test.ts` 新增一条：写服务里不得出现 `executeRead(` / `executeControl(`，也不得引入 `generic-writes.ts`、`access-control.ts`。
+- 驱动会话多三组可选部件（[`src/drivers/types.ts`](../src/drivers/types.ts)）：`data`（`enabled`、`set`、可选的 `redial`）、`hosts()`、`setAntennaMode()`。没有某个部件的品牌，对应的读返回「此型号不提供」，写在会话里以明确的说明拒绝（闸门在前面已经按品牌事实拒绝过）。
+- **重拨**：路由器有自己的重拨指令就用它；没有的，`DriverBackend` 先 `set(false)` 再在 `finally` 里 `set(true)`，所以断开失败（被拒、会话出错）时也会发「连上」，两条指令各发一次，回读交给之后的轮询（`pending`，和华为通用写入的重拨同一套判断）。断开之后会在同一会话里等路由器报告断开（最多问 8 次、间隔 1 秒），免得「连上」落在断开的过程里。
+- **自愈重拨**：会话里先读遥测，WAN 已经连上就跳过（`wan_up`）；能读到数据开关且开关是关的就跳过（`mobile_data_off`，用户有意关掉的）；读不到 WAN 的会话直接失败，不盲目重拨。自愈仍然默认关闭。
+- **已连接设备**：`MutexSessionScheduler.executeDriverTopologyRead` 与 [`src/drivers/hosts.ts`](../src/drivers/hosts.ts) 把驱动列出的设备转成与华为相同的快照：MAC 校验后统一写法、同一台设备只留一次、名字与华为一样经 `sanitizeFreeText` 清理。接入方式新增 `UNKNOWN`（控制台显示「接入方式未知」）：DHCP 租约不说设备是有线还是 Wi-Fi，不猜。
+- **流量计数**：`DriverTraffic.counterSource` 记下累计值来自哪个计数器，`CounterRates` 在计数器换了的时候重新开始，模组在 4G 和 5G 之间切换不会被算成一阵流量；`DriverTraffic.todayBytes` 进入快照的「今日流量」（此前所有驱动都是 0）。
+
+**各项的实现与依据**
+
+| 品牌 | 能力 | 接口 | 依据 |
+| :--- | :--- | :--- | :--- |
+| 中兴 goform | 重拨、移动数据 | `DISCONNECT_NETWORK` / `CONNECT_NETWORK`（带 `notCallback=true`，照常签 `AD` 或 `CSRFToken`），应答 `result: success`；回读 `ppp_status`（路由器没有可读的开关，只有连接状态，所以连接没跟上记为「未知」而不是不一致） | 两份资料库（A 第 290–291 行，B 第 331 行） |
+| 中兴 goform | 已连接设备 | `cmd=lan_station_list`（`mac_addr`、`hostname`、`ip_addr`、`connect_time` 秒）与 `cmd=station_list`（`mac_addr`、`hostname`），各自单独问，和路由器网页一样 | 资料 B 只有名字；格式取自 zte-mce888-ultra-daemon 的接口样本与 ZTE MF823 固件网页的 `service.js` |
+| 中兴 zWRT | 重拨、移动数据 | `zwrt_data.get_wwaniface`（`enable`、`connect_mode`、`roam_enable`、`connect_status`）与 `set_wwaniface`：照路由器 App 的写法带回当前的 `connect_mode`（打开时为 1）和 `roam_enable`，读不到时退回资料 A 的最简写法（`source_module`、`cid`、`enable`）；回读 `enable` | 资料 A 第 226 行；open-u60-pro 的 `mobile.rs` |
+| 鲲鹏无限 | 重拨、移动数据 | 模组桥接的 `/api/dialup/mobile-dataswitch`（GET 读 `<dataswitch>`，POST 带 `?token=` 写 0 / 1）；资料说切换它就是重拨 | 资料 A 表 3.2 第 13、14 行 |
+| 鲲鹏无限 | 天线 | `/api/device/antenna_set_type`，`0` 自动、`1` 外置、`2` 内置（`3` 混合不提供）；H168-383 的 1 / 2 与它相反，各按各自的资料写；回读按 HiLink 的写法 `GET antenna_set_type`，读不到为「未知」 | 资料 A 表 3.2 第 16 行 |
+| 鲲鹏无限 | 已连接设备 | `/cgi-bin/luci/nradio/client/all_list` 的 `result.client[]`：`mac`、`hostname`、`type`（`wired` 或 Wi-Fi）、`frequency`（含 `2.4` / `5.` 分出频段）、`rssi`、`exsit`（`1` 为在线，页面只列这些） | 资料 A 表 3.1 第 5 行只有路径；格式取自 C2000 MAX 固件解出的 `nradio_status/terminal.htm`（ssh-nradio-plugin-installer） |
+| 鲲鹏无限 | 硬件版本、PLMN | 识别时读一次模组桥接的 `/api/device/information` 的 `<HardwareVersion>`；`cpe_4.isp` 是数字时作为 PLMN 并按表命名运营商 | 资料 A 表 3.2 第 8 行、4.2 节 |
+| OpenWrt | 流量 | 移远：4G 读 `AT+QGDCNT?`，5G（SA、NSA）读 `AT+QGDNRCNT?`，都是 `<bytes_sent>,<bytes_recv>` | 资料 B 第 117 行只有名字；格式取自移远 5G 模组 AT 手册（Helium_DPU 仓库里的转写，第 9.7 节）与 EC25 手册的 `AT+QGDCNT`；QManager 记录了 SDX55 固件把 `QGDNRCNT` 两个字段写反、SDX65 两个计数器互为镜像，烽燧按手册的顺序读 |
+| OpenWrt | 载波聚合（广和通） | `AT+GTCAINFO?`：`PCC:` 一行（服务小区，已由 `AT+GTCCINFO?` 读到）与每个辅载波一行 `SCC <n>:state,ul_cfg,band,pci,earfcn,dl_bw,ul_bw,dl_mimo,ul_mimo,dl_mod,ul_mod,rsrp`；频段码 LTE 为 100 + 频段，NR 为 500 + 频段或 5000 + 频段；`state` 为 2 才是激活的；LTE 带宽是资源块数（6/15/25/50/75/100），NR 带宽各固件编码不同，不填；RSRP 已是 dBm | 资料 B 第 16 行只有名字；格式取自 luci-app-5gmodem 的 `docs/modems/fibocom.md` 与 QModem 的 `vendor/fibocom.sh` |
+| OpenWrt | 已连接设备 | LuCI 的 `luci-rpc` `getDHCPLeases`：`dhcp_leases`（`macaddr`、`hostname`、`ipaddr`、`expires` 秒或 `false`）、`dhcp6_leases`（`ip6addr` / `ip6addrs`，按 MAC 合并）；没有 LuCI 的路由器读为「此型号不提供」 | LuCI 的 `libs/rpcd-mod-luci/src/luci.c` 与状态页 `40_dhcp.js` |
+| 通则康威、烽火 | 运营商 | 路由器只报 PLMN，按两份资料里的大陆运营商对照表命名（CMCC / CUCC / CTCC / CBN），其他号码留空 | 通则康威资料第 958–975 行、烽火资料第 199 行 |
+| 品速 | PLMN | `mnet_operator_name` 是数字时作为 PLMN 并按表命名运营商 | 品速资料第 259 行 |
+| 烽火 | 今日流量 | `todayRxBytes` + `todayTxBytes` | 烽火资料第 233–234 行 |
+
+**两份资料互相矛盾的中兴细节（17.3），查公开出处裁决**
+
+| 项目 | 资料 A | 资料 B | 公开出处 | 处理 |
+| :--- | :--- | :--- | :--- | :--- |
+| `AD` 签名的种子 | 只有 MC888 拼接 `cr_version` | 一律拼接 | ZTE-Web-Script 与 UFI-TOOLS 的接口文档都是 `hash(hash(wa_inner_version + cr_version) + RD)`，不分型号 | 维持一律拼接（驱动原本如此） |
+| 解除锁小区 | `1` / `1,1,1,1` | `0` / `0,0,0,0` | ZTE-Web-Script 写 `lte_pci_lock=0`、`lte_earfcn_lock=0`、`nr5g_cell_lock=0,0,0,0` | 改为写 0；读回仍把 0 和 1 都当作未锁 |
+| 5G 锁小区的子载波间隔 | 编码 0 / 1 | kHz 数值 | ZTE-Web-Script 写 `pci,arfcn,band,30`，并只接受 15 / 30 / 60 / 120 / 240 | 改为 kHz；第 2 支（`Z5g_lockcell_scs`）原本就是 kHz |
+| 自动制式的名字 | `WL_AND_5G` | `NETWORK_auto` | 两种都存在：ZTE-Web-Script 列的是 5G 路由器的 `WL_AND_5G` 一组；4G 固件（`reqproc` 写法与 MF286A 一类）用 `NETWORK_auto` | 两种都支持：路由器读回的制式是 `NETWORK_auto` 时按 4G 固件的名字写，并拒绝 5G 制式 |
+| 按 `cr_version` 判第 4 支 | 有 | 无 | 没有找到出处 | 维持按硬件版本与型号判断 |
+| 32 位 `LD` 的 MD5 登录 | 无 | 有 | ZTE-Web-Script 的登录是 `SHA256(SHA256(password) + LD)`；没有找到 MD5 写法的出处 | 维持不发密码 |
+| 登录结果 `2` | 锁定 | 锁定 | 中兴自己网页的 `service.js`：`2` 是 duplicateUser（另一个用户已登录），`4` 是本机已登录、按成功处理 | 结果 `2` 时读路由器的剩余次数：还有次数且没有锁定，视为别处已登录、让位；有锁定或读不到次数，仍按锁定熔断。`4` 仍按「别处已登录」让位（较保守：不在一个可能属于别人的会话里继续） |
+
+**中兴的「有人在线」检查（这一步的第 5 项）：查过，没有可用的标志**
+
+- `loginfo`：中兴自己网页的 `service.js` 用 `loginfo == "ok"` 判断「本机」是否已登录（会话按客户端区分），登录前它对烽燧总是空的，说明不了别人在不在线。
+- `check_web_conflict`：GitHub 代码搜索、两份资料库与相关项目（zte-lte-modem、ZTE-MF79U-api、zte-mf286-api、ZTE-MC-Home-assistant、zte-exporter、TBox 的样本等）里都只有键名，没有任何地方写明取值的含义；有项目在注释里写着「不知道能不能用它在登录前避让」。
+- 所以登录前检查仍是「没人在线」，避让靠登录应答：`4`、以及上面改过的 `2`。
+
+**这一步没有做的（只因为查不到记录，或属于不实现的几类）**
+
+- **品速、通则康威、烽火的重拨与移动数据**：两份资料库都没有；GitHub / Gitee 代码搜索与这几家的公开项目里也没有。烽火资料里有飞行模式（`app_get_airplane` / `app_set_airplane`），那是新的功能种类，归第 5、6 步。
+- **OpenWrt 的重拨与移动数据**：资料里没有；OpenWrt 的 netifd 有公开的 `network.interface.<名字>` `up` / `down`，但哪一个接口是蜂窝接口没有记录（各家拨号程序的 `proto` 不同），这一步没有做，列为建议。
+- **中兴 zWRT、品速、通则康威、烽火的已连接设备**：zWRT 只查到设备数量（`zwrt_router.api` `router_get_user_list_num`，open-u60-pro 与 MU5250-OpenUI 的 rpcd 权限表），没有设备列表；品速的公版写法（`http.cgi` 的 `cmd: 10` `dhcp_client_list`）只有字段名、且是烽燧没有实现的那种写法；通则康威、烽火查不到。
+- **路由器开关（UPnP、DMZ、防火墙）、Wi-Fi 设置、访问控制**：其他品牌的资料里都没有（中兴 goform 只有 `wifi_onoff_state` 等读取键名，没有写入）。有线设备拦截按主人的决定不做。
+- **品速的 `lua.cgi` 写法**：资料 B 只有识别请求（`{"cmd":"get_device_info"}`）和一套登录摘要与 AES 加密，没有登录请求本身和任何读取指令；公开项目里查到的 `/cgi-bin/lua.cgi` 是 ZLT 路由器上同一套 `cmd` 编号接口（`cmd 100` 登录、`cmd 165` / `166` 读写 4G 频段），没有信号读取的记录。烽燧的驱动以信号读取为基础，所以这一步不做，列为第 7 步的建议（作为通则康威接口的另一种写法）。
+- **OpenWrt 在没有 QModem 的路由器上发短信（第 3 步的尾巴）**：再查了一次，发送仍然只有 QModem 的 `send_raw_pdu` 有记录；其他 AT 通道一次只发一条指令，做不到 `AT+CMGS` 的两步交互。
+- 不实现的几类（改身份、解锁运营商、远程 shell、刷写、关闭登录保护）：这一步查到的资料里，ZLT 一类路由器有打开 telnet 的脚本、鲲鹏无限有安装 SSH 插件的项目，只从后者取了设备列表的页面字段，没有实现任何这类功能。
+
+**参考过的项目（只取事实，没有复制代码或测试数据，没有新增依赖）**
+
+| 项目 | 提交（日期） | 许可证 | 取了什么 |
+| :--- | :--- | :--- | :--- |
+| [tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script) | `3206010`（2025-12-13） | 仓库里没有许可证文件 | goform 的 `AD` 种子、锁 / 解锁小区的取值、5G 锁小区的子载波间隔写法、制式名 |
+| [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS) | `cf83b81`（2026-10-09） | MIT | `AD` 的计算（印证）、`loginfo` 的含义、`station_list` / `lan_station_list` 的键名 |
+| [zhovner/mf823-pro](https://github.com/zhovner/mf823-pro) | `15c64d9`（2016-10-25） | 仓库里没有许可证文件 | 中兴固件网页 `service.js`：登录结果码、`loginfo`、`station_list` 的字段 |
+| [Damecek/zte-mce888-ultra-daemon](https://github.com/Damecek/zte-mce888-ultra-daemon) | `3905793`（2025-10-28） | 仓库里没有许可证文件 | `lan_station_list` 的应答格式 |
+| [561410590/ssh-nradio-plugin-installer](https://github.com/561410590/ssh-nradio-plugin-installer) | `d4dbd3a`（2026-10-20） | MIT | 鲲鹏无限固件网页读 `client/all_list` 的字段 |
+| [openwrt/luci](https://github.com/openwrt/luci) | `fa567d5`（2026-11-11） | Apache-2.0 | `luci-rpc` `getDHCPLeases` 的应答字段 |
+| [fildunsky/luci-app-5gmodem](https://github.com/fildunsky/luci-app-5gmodem) | `eb054a5`（2026-11-11） | GPL-3.0 | `AT+GTCAINFO?` 的字段顺序、频段码、状态与带宽编码 |
+| [FUjr/QModem](https://github.com/FUjr/QModem) | `1eae689`（2026-11-08） | MPL-2.0 | `AT+GTCAINFO?` 的辅载波字段与频段、带宽换算（印证） |
+| [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro) | `5596b8d`（2026-11-04） | MIT | `get_wwaniface` / `set_wwaniface` 的字段与 App 的写法 |
+| [asterfusion/Helium_DPU](https://github.com/asterfusion/Helium_DPU) | `ee9d08d`（2026-11-09） | Apache-2.0 | 移远 5G 模组 AT 手册转写里的 `AT+QGDNRCNT`（第 9.7 节） |
+| [tcpqueue/quectel-rgmii-toolkit-Rust](https://github.com/tcpqueue/quectel-rgmii-toolkit-Rust) | `a357aea`（2026-10-16） | MIT | `QGDNRCNT` 字段顺序（引用移远手册的页码，印证「发送、接收」） |
+| [dr-dolomite/QManager-RM520N](https://github.com/dr-dolomite/QManager-RM520N) | `b1ed828`（2026-11-04） | 没有标注许可证 | 两个计数器在 SDX55 / SDX65 上的差别 |
+
+另外读过但没有取用事实的：dr-dolomite/QuecManager-JS（MIT，按制式选计数器的写法与手册一致）、16c-top/wifiadmin（MIT）、chami2000/band（没有许可证文件，`lua.cgi` 的登录与 4G 频段指令，见上面「没有做的」）、AlienWolfX/ZLT-S12-PRO、33333s/zwrt-datad、dklasens/MU5250-OpenUI。致谢按约定只写在 `other-routers.md` 的「致谢」与两份 README 的致谢行。
+
+**验证**
+
+- 重构前后 H168-383 的请求序列逐字节相同：用以前留下的比对工具在重构前（`1259856`）与重构后各跑一遍严格模拟路由器，26 个操作、233 个请求、22 次写入，输出一致；`test/h168-wire.test.ts` 原样通过。
+- 每个品牌的新能力都有模拟路由器测试：中兴 goform、zWRT、鲲鹏无限的数据连接（断开被拒时仍发「连上」、连接没跟上时回读为未知、自愈在 WAN 已连上或数据被有意关掉时不重拨），三个品牌的设备列表（含 IPv6 合并、不在线的不列、没有列表时读为「此型号不提供」），移远计数器按制式读、两个计数器之间不算速率，广和通辅载波，中兴的三处取值与结果码 `2`，鲲鹏无限的天线与硬件版本，运营商对照表。
+- 体积：控制台首屏 80.1 KiB（超过 80 KiB 的目标 0.1 KiB）+ 按需 80.3 KiB，共 160.4 / 176 KiB，没有调上限。新的天线小节在控制抽屉里（按需加载）。
+
+**替主人定的**
+
+1. 断开之后、连上之前在同一会话里等路由器报告断开，最多 8 秒。
+2. 中兴 goform 的数据写入回读的是连接状态，连接没跟上记为「未知」，不报不一致告警。
+3. zWRT 的数据开关照路由器 App 的写法带回漫游设置，而不是只发资料 A 的三个字段。
+4. 接入方式新增 `UNKNOWN`，而不是把 DHCP 租约标成有线。
+5. 鲲鹏无限的天线按它自己资料的编码写，和 H168-383 相反；控制台的天线按钮不显示当前模式（读不到）。
+6. 中兴结果码 `2` 按路由器的剩余次数区分；`4` 仍然让位而不是按中兴网页那样当作成功。
+
+**留给后面的步骤**
+
+- 第 5、6 步：烽火的飞行模式、zWRT 的电池与 SIM 卡槽等资料里有、烽燧还没有这类功能的项目；一个非华为的演示路由器（控制台里驱动品牌才有的天线小节、接入方式未知的设备，还没有浏览器测试）。
+- 第 7 步：ZLT 的 `lua.cgi` 写法（通则康威接口的另一种写法），先补到信号读取的记录。
+- 建议：OpenWrt 的重拨与移动数据（netifd 的 `network.interface` 接口，需要先确定蜂窝接口的判断方法）。
