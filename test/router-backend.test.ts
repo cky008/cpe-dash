@@ -5,9 +5,12 @@ import { describe, it } from "node:test";
 import { DriverBackend, HilinkBackend, routerBackendOf } from "../src/backends/index.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { selectRouterBackend } from "../src/router-backend.ts";
+import { prepareSmsSubmission } from "../src/sms/protocol.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { LanRouterMock } from "./helpers/lan-router.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
@@ -80,5 +83,42 @@ describe("router backend: one interface for every brand", () => {
       assert.ok(!source.includes('"./drivers/'), `${file} imports a driver`);
     }
     assert.ok(!/\bexecuteRead\(/.test(fs.readFileSync("src/cpe-monitor.ts", "utf8")), "the monitor reads through the backend only");
+    // SMS is a set of verbs like every other capability: its service opens no session and speaks no router's wire format
+    const sms = fs.readFileSync("src/sms/service.ts", "utf8");
+    assert.ok(!/\bexecute(Read|Control)\(/.test(sms), "the SMS service opens a session itself: go through RouterBackend");
+    assert.ok(!/\bprobePublic\(/.test(sms), "the SMS service asks a HiLink endpoint itself: go through RouterBackend");
+    const wire = [...sms.matchAll(/import \{([^}]+)\} from "\.\/protocol\.ts"/g)].flatMap((m) => (m[1] ?? "").split(",").map((name) => name.replace(/\btype\b/, "").trim())).filter(Boolean);
+    assert.deepEqual(wire.sort(), ["PreparedSmsSubmission", "prepareSmsSubmission", "unconfirmedSendResult"], "the SMS service takes only the brand-neutral checks from the HiLink protocol module");
+  });
+
+  it("answers the SMS verbs on a brand without SMS: nothing to list, every write refused by the gate, no request", async () => {
+    const router = new LanRouterMock(() => {
+      throw new Error("a brand without SMS was sent a request");
+    });
+    const dir = tempDir("fengsui-backend-sms-");
+    const core = createFengSuiCore({
+      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.66.1", cpeUsername: "root", cpePassword: "placeholder_password", fetchImpl: router.fetchImpl, requestTimeoutMs: 1000 }),
+      stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "backend_key" }),
+      timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
+      family: "nradio",
+      pollIntervalMs: 600_000,
+      neighborScanIntervalMs: 600_000,
+    });
+    try {
+      core.monitor.init();
+      // The gate knows the model, so it answers before any session
+      core.scheduler.device.see("C8-668", "NROS 2.1");
+      const backend = routerBackendOf(core.scheduler);
+      const summary = (): { zh: string; en: string } => ({ zh: "", en: "" });
+      assert.equal(await backend().listSms({ mode: "full", recentCount: 20, expandThread: () => true, priority: "low" }), null);
+      assert.equal(await backend().peekSmsUnread(), null);
+      await assert.rejects(backend().sendSms(prepareSmsSubmission(["+353830000001"], "hello"), {}, summary), DeviceReadOnlyError);
+      await assert.rejects(backend().markSmsRead([1], summary), DeviceReadOnlyError);
+      await assert.rejects(backend().deleteSms([1], summary), DeviceReadOnlyError);
+      assert.equal(router.requests.length, 0);
+    } finally {
+      await stopFengSuiCore(core);
+      removeTempDir(dir);
+    }
   });
 });

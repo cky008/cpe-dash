@@ -7,7 +7,7 @@ import type { MutexSessionScheduler } from "../scheduler.ts";
 import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../xml.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode, parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "./codec.ts";
 import { validateGenericSmsContent } from "./text-mode.ts";
-import type { SmsCounters, SmsSendResult, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
+import type { SmsCounters, SmsFetchResult, SmsSendResult, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
 
 export { parseSmsCounters } from "./codec.ts";
 
@@ -26,13 +26,7 @@ const CONTACT_PAGE_SIZE = 20;
 const INDEX_BATCH_SIZE = 20;
 const MAX_LIST_PAGES = 40;
 
-export type SmsListingPath = "sms-list" | "contact-list";
-
-export interface SmsFetchResult {
-  counters: SmsCounters;
-  messages: SmsWireMessage[];
-  via: SmsListingPath;
-}
+export type { SmsFetchResult, SmsListingPath } from "./types.ts";
 
 function readInt(xml: string, tag: string, fallback: number): number {
   const parsed = Number.parseInt(getXmlTag(xml, tag) ?? "", 10);

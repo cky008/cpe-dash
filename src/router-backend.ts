@@ -12,6 +12,8 @@ import type {
 import type { DeviceProbeResult } from "./device-profile.ts";
 import type { RouterFamily } from "./router-family.ts";
 import type { ControlSummary, SchedulerPriority } from "./scheduler.ts";
+import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/protocol.ts";
+import type { SmsFetchResult, SmsSendResult, SmsWireMessage } from "./sms/types.ts";
 
 /**
  * What FengSui asks of a router, whatever its brand: one verb per thing the daemon reads or writes,
@@ -41,6 +43,16 @@ export interface RouterBackend {
   readTopology(opts: ReadRequest): Promise<TerminalTopologySnapshot | null>;
   readSettings(opts: ReadRequest): Promise<RouterSettingsSnapshot | null>;
   readAccessControl(opts: ReadRequest): Promise<AccessControlSnapshot | null>;
+  /**
+   * The messages the router stores. The SMS counts ride on `readTelemetry`; this is the session a
+   * sync opens when they moved. `null`: skipped, yielded, or no SMS on this router.
+   */
+  listSms(request: SmsListRequest): Promise<SmsListing | null>;
+  /**
+   * The unread count without a session, for the badge while a person is signed in to the router's
+   * page. `null`: the family has no login-free count (nothing is sent).
+   */
+  peekSmsUnread(): Promise<SmsUnreadPeek | null>;
 
   // ------------------------------------------------------------------ writes (checked before queueing, gated, never replayed)
 
@@ -57,10 +69,57 @@ export interface RouterBackend {
    */
   rollBackLocks(request: RollbackRequest, summary: (outcome: WanRepairOutcome, restored: boolean) => ControlSummary | null): Promise<WanRepairOutcome>;
   reboot(params: { confirm: boolean }, summary: ControlSummary): Promise<{ rebooting: true; requestedAtIso: string }>;
+  /**
+   * Send one message to the recipients of `prepared` (checked before any session is queued). Sent
+   * once: after the router took it (`options.onAccepted`), nothing that goes wrong makes it a failed
+   * send, so no caller sends it again.
+   */
+  sendSms(prepared: PreparedSmsSubmission, options: SubmitSmsOptions, summary: (outcome: SmsSendOutcome) => ControlSummary): Promise<SmsSendOutcome>;
+  /** Mark the messages at these storage indices read on the router; resolves how many it wrote (`0`: the family keeps no read state to write). */
+  markSmsRead(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number>;
+  /** Delete the messages at these storage indices from the router. */
+  deleteSms(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number>;
 }
 
 export interface ReadRequest {
   ignoreCooldown?: boolean | undefined;
+}
+
+export interface SmsListRequest {
+  /** `full`: every stored message; `incremental`: the newest (a family that lists everything at once answers with all of them). */
+  mode: "incremental" | "full";
+  /** How many of the newest inbox messages an incremental listing asks for. */
+  recentCount: number;
+  /** Where the router lists per conversation: whether the conversation of `latest` is fetched as well. */
+  expandThread: (latest: SmsWireMessage) => boolean;
+  priority: SchedulerPriority;
+}
+
+export interface SmsListing extends SmsFetchResult {
+  /** Every message the router stores is in `messages`: what is missing from it is gone from the router. */
+  complete: boolean;
+  /**
+   * Who keeps a message's read state. `router`: the router does, and FengSui follows it. `fengsui`:
+   * the router's interface cannot mark a message read, or marks every one it lists, so the state
+   * FengSui holds is the one that counts.
+   */
+  readState: "router" | "fengsui";
+}
+
+export interface SmsUnreadPeek {
+  unreadMessages: number;
+  storageFull: boolean;
+}
+
+export interface SmsSendOutcome {
+  result: SmsSendResult;
+  /** Per recipient, the router's own copies read back in the session (empty: none read). */
+  readBack: ReadonlyMap<string, SmsWireMessage[]>;
+  /**
+   * The router keeps a copy of what it sends, so the next sync brings it. `false`: it keeps none, and
+   * the copy FengSui holds is the only one.
+   */
+  routerKeepsSent: boolean;
 }
 
 /** What a band lock may need of the daemon's own records (read inside the write's session, never before it queues). */

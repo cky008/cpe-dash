@@ -1,33 +1,17 @@
 import { EventEmitter } from "node:events";
+import { routerBackendOf } from "../backends/index.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../cpe-domain.ts";
 import type { CpeMonitor } from "../cpe-monitor.ts";
 import { t } from "../i18n.ts";
+import type { RouterBackend, SmsListing, SmsSendOutcome as RouterSendOutcome } from "../router-backend.ts";
 import { maskPhoneNumber } from "../sanitize.ts";
-import { gateRefuses } from "../device-access.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
 import { formatHuaweiDate } from "../xml.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "./codec.ts";
 import type { ContactBook, VcardImportSummary } from "./contacts.ts";
 import { type SmsMirrorStore, computeSmsUid } from "./mirror.ts";
 import { COUNTRY_DIAL_CODES, canonicalThreadKey, resolveRecipientPhone } from "./phone.ts";
-import {
-  type PreparedSmsSubmission,
-  type SmsFetchResult,
-  type SmsListingPath,
-  checkSmsNotifications,
-  deleteSmsByIndex,
-  genericDeleteSms,
-  genericMarkSmsRead,
-  genericSendSms,
-  fetchAllMessages,
-  fetchPhoneThread,
-  fetchRecentMessages,
-  markSmsRead,
-  prepareSmsSubmission,
-  submitSms,
-  unconfirmedSendResult,
-} from "./protocol.ts";
-import { validateGenericSmsContent } from "./text-mode.ts";
+import { type PreparedSmsSubmission, prepareSmsSubmission, unconfirmedSendResult } from "./protocol.ts";
 import type {
   ContactRecord,
   CountryDialInfo,
@@ -35,6 +19,7 @@ import type {
   EnrichedSmsMessage,
   ResolvedRecipient,
   SmsCounters,
+  SmsListingPath,
   SmsMessageRecord,
   SmsSendResult,
   SmsTextModeInfo,
@@ -143,8 +128,9 @@ function sameCounters(a: SmsCounters, b: SmsCounters): boolean {
 /**
  * SMS application service: the only entry point REST, MCP, Telegram and the CLI use for SMS.
  *
- * - Every CPE access goes through `MutexSessionScheduler` (reads via `executeRead`, writes via
- *   `executeControl`), so SMS shares the single admin session, browser avoidance and the breaker.
+ * - Every router access is a verb of `RouterBackend` (listing, the login-free unread count, sending,
+ *   marking read, deleting), whatever the brand: each is one session of `MutexSessionScheduler`, so
+ *   SMS shares the single admin session, browser avoidance, the breaker and the write gate.
  * - Change detection costs nothing: counters ride on the telemetry session; a sync is queued only
  *   when they differ from the last synced counters (incremental for new inbox messages, full
  *   reconcile otherwise), plus a low-priority safety-net full sync.
@@ -155,6 +141,8 @@ export class SmsService extends EventEmitter {
   readonly monitor: CpeMonitor;
   readonly mirror: SmsMirrorStore;
   readonly contacts: ContactBook;
+  /** The backend of the router's family: every SMS read and write goes through it, whatever the brand. */
+  readonly #backend: () => RouterBackend;
   #defaultCountryCode: string;
   readonly fullSyncIntervalMs: number;
   readonly seedExistingOnStart: boolean;
@@ -186,6 +174,7 @@ export class SmsService extends EventEmitter {
     this.monitor = opts.monitor;
     this.mirror = opts.mirror;
     this.contacts = opts.contacts;
+    this.#backend = routerBackendOf(opts.scheduler);
     this.#defaultCountryCode = opts.defaultCountryCode;
     this.fullSyncIntervalMs = Math.max(60_000, opts.fullSyncIntervalMs ?? 30 * 60_000);
     this.seedExistingOnStart = opts.seedExistingOnStart !== false;
@@ -344,7 +333,9 @@ export class SmsService extends EventEmitter {
   async pollWhileYielding(): Promise<void> {
     if (!this.scheduler.getAvoidanceState().active) return;
     try {
-      const probe = await checkSmsNotifications(this.scheduler);
+      const probe = await this.#backend().peekSmsUnread();
+      // A family without a login-free count: the next telemetry session brings the counts
+      if (!probe) return;
       const changed = probe.unreadMessages !== this.#probeUnread || probe.storageFull !== this.#probeStorageFull;
       this.#probeUnread = probe.unreadMessages;
       this.#probeStorageFull = probe.storageFull;
@@ -386,35 +377,19 @@ export class SmsService extends EventEmitter {
       return r.phone;
     });
     const prepared = prepareSmsSubmission(resolved, input.content);
-    // A model nobody verified sends the plaintext way, which takes no emoji: refused before queueing
-    // (a send the gate refuses anyway says so first)
-    const device = this.scheduler.device;
-    if (device.generic && !gateRefuses(device.writeAccess("smsWrite"))) validateGenericSmsContent(prepared.content);
     const to = prepared.phones.map(maskPhoneNumber).join(", ");
 
     let accepted = false;
-    let sendOutcome: { result: SmsSendResult; readBack: ReadonlyMap<string, SmsWireMessage[]> };
+    let sendOutcome: RouterSendOutcome;
     try {
-      sendOutcome = await this.scheduler.executeControl(
-        "sms_send",
-        async (session, write) => {
-          const options = {
-            statusTimeoutMs: this.sendStatusTimeoutMs,
-            sleep: this.#sleep,
-            onAccepted: () => {
-              accepted = true;
-            },
-          };
-          const back = new Map<string, SmsWireMessage[]>();
-          // A model nobody verified: plaintext send-sms and send-status; the encrypted thread read-back is the H168-383's
-          if (write.generic) return { result: await genericSendSms(session, write.check, prepared, options), readBack: back };
-          const sendResult = await submitSms(session, prepared, options);
-          if (sendResult.ok) {
-            for (const phone of prepared.phones) {
-              back.set(phone, await fetchPhoneThread(session, phone, 10).catch(() => []));
-            }
-          }
-          return { result: sendResult, readBack: back };
+      sendOutcome = await this.#backend().sendSms(
+        prepared,
+        {
+          statusTimeoutMs: this.sendStatusTimeoutMs,
+          sleep: this.#sleep,
+          onAccepted: () => {
+            accepted = true;
+          },
         },
         (value): ControlSummary =>
           value.result.ok
@@ -431,7 +406,7 @@ export class SmsService extends EventEmitter {
       // Once send-sms was accepted the message is on its way: a later failure (hold deadline,
       // shutdown, lost connection) must not read as a failed send, or the caller would resend it.
       if (!accepted) throw err;
-      sendOutcome = { result: unconfirmedSendResult(prepared), readBack: new Map() };
+      sendOutcome = { result: unconfirmedSendResult(prepared), readBack: new Map(), routerKeepsSent: true };
     }
 
     const { result, readBack } = sendOutcome;
@@ -455,9 +430,8 @@ export class SmsService extends EventEmitter {
 
     const indices = unread.filter(onRouter).map((m) => m.index);
     if (indices.length > 0) {
-      await this.scheduler.executeControl(
-        "sms_mark_read",
-        (session, write) => (write.generic ? genericMarkSmsRead(session, write.check, indices) : markSmsRead(session, indices)),
+      await this.#backend().markSmsRead(
+        indices,
         (count): ControlSummary => ({
           zh: t("zh-CN", "sms.marked_read_summary", { count }),
           en: t("en", "sms.marked_read_summary", { count }),
@@ -486,9 +460,8 @@ export class SmsService extends EventEmitter {
     }
     const indices = records.filter(onRouter).map((m) => m.index);
     if (indices.length > 0) {
-      await this.scheduler.executeControl(
-        "sms_delete",
-        (session, write) => (write.generic ? genericDeleteSms(session, write.check, indices) : deleteSmsByIndex(session, indices)),
+      await this.#backend().deleteSms(
+        indices,
         (count): ControlSummary => ({
           zh: t("zh-CN", "sms.deleted_summary", { count }),
           en: t("en", "sms.deleted_summary", { count }),
@@ -572,21 +545,15 @@ export class SmsService extends EventEmitter {
   }
 
   async #runSync(mode: SmsSyncMode, priority: SchedulerPriority): Promise<SmsSyncSummary | null> {
-    let fetched: SmsFetchResult | null;
+    let fetched: SmsListing | null;
     try {
-      // On a model nobody verified, a router without SMS (or without the listing FengSui reads) skips it
-      fetched = await this.scheduler.executeRead(
-        (session) =>
-          this.scheduler.readSection("sms", () =>
-            mode === "full"
-              ? fetchAllMessages(session)
-              : fetchRecentMessages(session, {
-                  count: this.recentFetchCount,
-                  expandThread: (latest) => this.mirror.get(computeSmsUid(latest)) === undefined,
-                })
-          ),
-        { priority }
-      );
+      // A router without SMS (or without a listing FengSui reads) has nothing to sync
+      fetched = await this.#backend().listSms({
+        mode,
+        recentCount: this.recentFetchCount,
+        expandThread: (latest) => this.mirror.get(computeSmsUid(latest)) === undefined,
+        priority,
+      });
     } catch (err) {
       this.#retryNotBeforeMs = Date.now() + SYNC_RETRY_BACKOFF_MS;
       throw err;

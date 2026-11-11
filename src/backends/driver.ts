@@ -13,9 +13,22 @@ import {
 import type { DeviceProbeResult } from "../device-profile.ts";
 import { bandsToHex, hexToBands } from "../drivers/bands.ts";
 import type { DriverLockState, DriverSession } from "../drivers/types.ts";
-import type { BandLockOutcome, LockContext, LockOutcome, LockSummary, ReadRequest, RollbackRequest, RouterBackend, WanRepairOutcome } from "../router-backend.ts";
+import type {
+  BandLockOutcome,
+  LockContext,
+  LockOutcome,
+  LockSummary,
+  ReadRequest,
+  RollbackRequest,
+  RouterBackend,
+  SmsListing,
+  SmsSendOutcome,
+  SmsUnreadPeek,
+  WanRepairOutcome,
+} from "../router-backend.ts";
 import { type DriverFamily, ROUTER_FAMILY_FACTS } from "../router-family.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
+import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/protocol.ts";
 import { genericLockState } from "./hilink.ts";
 
 /**
@@ -61,6 +74,29 @@ export class DriverBackend implements RouterBackend {
 
   readAccessControl(): Promise<AccessControlSnapshot | null> {
     return Promise.resolve(null);
+  }
+
+  /** No driver reads SMS yet: nothing to list, and no request. */
+  listSms(): Promise<SmsListing | null> {
+    return Promise.resolve(null);
+  }
+
+  /** No family answers an unread count without a login. */
+  peekSmsUnread(): Promise<SmsUnreadPeek | null> {
+    return Promise.resolve(null);
+  }
+
+  /** No driver writes SMS yet: the gate refuses these before any session (`not_implemented`). */
+  async sendSms(_prepared: PreparedSmsSubmission, _options: SubmitSmsOptions, summary: (outcome: SmsSendOutcome) => ControlSummary): Promise<SmsSendOutcome> {
+    return await this.#scheduler.executeDriverControl("sms_send", () => Promise.reject(noSmsWrite()), summary);
+  }
+
+  async markSmsRead(_indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    return await this.#scheduler.executeDriverControl("sms_mark_read", () => Promise.reject(noSmsWrite()), summary);
+  }
+
+  async deleteSms(_indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    return await this.#scheduler.executeDriverControl("sms_delete", () => Promise.reject(noSmsWrite()), summary);
   }
 
   /**
@@ -151,6 +187,10 @@ export class DriverBackend implements RouterBackend {
       summary
     );
   }
+}
+
+function noSmsWrite(): CpeControlValidationError {
+  return new CpeControlValidationError("This router's driver has no SMS write; nothing was sent");
 }
 
 /**

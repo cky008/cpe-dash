@@ -54,6 +54,19 @@ export interface SmsCounters {
   localMax: number;
 }
 
+/**
+ * How the messages of a sync were listed: HiLink's plain `sms-list`, its encrypted per-contact
+ * fallback, or (`driver`) another brand's own listing.
+ */
+export type SmsListingPath = "sms-list" | "contact-list" | "driver";
+
+/** One listing of the router's messages, with the counts read in the same session. */
+export interface SmsFetchResult {
+  counters: SmsCounters;
+  messages: SmsWireMessage[];
+  via: SmsListingPath;
+}
+
 export interface CountryDialInfo {
   code: string;
   iso: string;

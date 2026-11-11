@@ -3,12 +3,12 @@ import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encry
 import type { ContactBook } from "./contacts.ts";
 import { extractVerificationCode } from "./otp.ts";
 import { canonicalThreadKey } from "./phone.ts";
-import type { SmsListingPath } from "./protocol.ts";
 import { type ThreadViewContext, enrichSmsMessage, getSmsThread, listSmsThreads, newestFirst, smsThreadStats } from "./thread-view.ts";
 import type {
   ContactBrief,
   EnrichedSmsMessage,
   SmsCounters,
+  SmsListingPath,
   SmsMessageRecord,
   SmsThreadDetail,
   SmsThreadFilter,
@@ -113,7 +113,7 @@ export class SmsMirrorStore {
       seeded: parsed.seeded === true,
       lastSyncAt: typeof parsed.lastSyncAt === "string" ? parsed.lastSyncAt : null,
       lastFullSyncAt: typeof parsed.lastFullSyncAt === "string" ? parsed.lastFullSyncAt : null,
-      via: parsed.via === "sms-list" || parsed.via === "contact-list" ? parsed.via : null,
+      via: parsed.via === "sms-list" || parsed.via === "contact-list" || parsed.via === "driver" ? parsed.via : null,
       counters: parsed.counters && typeof parsed.counters === "object" ? parsed.counters : null,
     };
   }

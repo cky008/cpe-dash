@@ -25,8 +25,37 @@ import {
 import { gateRefuses } from "../device-access.ts";
 import { type DeviceProbeResult, probeDevice } from "../device-profile.ts";
 import { genericBandLock, genericReboot, readWanRepairBlockerTolerant } from "../generic-writes.ts";
-import type { BandLockOutcome, LockContext, LockOutcome, LockSummary, ReadRequest, RollbackRequest, RouterBackend, WanRepairOutcome } from "../router-backend.ts";
+import type {
+  BandLockOutcome,
+  LockContext,
+  LockOutcome,
+  LockSummary,
+  ReadRequest,
+  RollbackRequest,
+  RouterBackend,
+  SmsListRequest,
+  SmsListing,
+  SmsSendOutcome,
+  SmsUnreadPeek,
+  WanRepairOutcome,
+} from "../router-backend.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteContext } from "../scheduler.ts";
+import {
+  type PreparedSmsSubmission,
+  type SubmitSmsOptions,
+  checkSmsNotifications,
+  deleteSmsByIndex,
+  fetchAllMessages,
+  fetchPhoneThread,
+  fetchRecentMessages,
+  genericDeleteSms,
+  genericMarkSmsRead,
+  genericSendSms,
+  markSmsRead,
+  submitSms,
+} from "../sms/protocol.ts";
+import { validateGenericSmsContent } from "../sms/text-mode.ts";
+import type { SmsWireMessage } from "../sms/types.ts";
 
 /**
  * Huawei's HiLink stack as a `RouterBackend`: the H168-383's verified request sequences, and on
@@ -83,6 +112,54 @@ export class HilinkBackend implements RouterBackend {
   /** The Wi-Fi MAC filter and the internet time rules (3 GETs). */
   readAccessControl(opts: ReadRequest): Promise<AccessControlSnapshot | null> {
     return this.#scheduler.executeRead((session) => this.#scheduler.readSection("accessControl", () => fetchAccessControl(session)), { priority: "low", ignoreCooldown: opts.ignoreCooldown });
+  }
+
+  /**
+   * Plain `sms-list`, or the encrypted per-contact listing where the router refuses it; a model
+   * nobody verified that has neither reads as having no SMS.
+   */
+  async listSms(request: SmsListRequest): Promise<SmsListing | null> {
+    const scheduler = this.#scheduler;
+    const fetched = await scheduler.executeRead(
+      (session) =>
+        scheduler.readSection("sms", () => (request.mode === "full" ? fetchAllMessages(session) : fetchRecentMessages(session, { count: request.recentCount, expandThread: request.expandThread }))),
+      { priority: request.priority }
+    );
+    return fetched ? { ...fetched, complete: request.mode === "full", readState: "router" } : null;
+  }
+
+  /** `GET /api/monitoring/check-notifications`, which the router answers without a login. */
+  async peekSmsUnread(): Promise<SmsUnreadPeek | null> {
+    return await checkSmsNotifications(this.#scheduler);
+  }
+
+  async sendSms(prepared: PreparedSmsSubmission, options: SubmitSmsOptions, summary: (outcome: SmsSendOutcome) => ControlSummary): Promise<SmsSendOutcome> {
+    // A model nobody verified sends the plaintext way, which takes no emoji: refused before queueing
+    // (a send the gate refuses anyway says so first)
+    const device = this.#scheduler.device;
+    if (device.generic && !gateRefuses(device.writeAccess("smsWrite"))) validateGenericSmsContent(prepared.content);
+    return await this.#scheduler.executeControl(
+      "sms_send",
+      async (session, write): Promise<SmsSendOutcome> => {
+        const back = new Map<string, SmsWireMessage[]>();
+        // A model nobody verified: plaintext send-sms and send-status; the encrypted thread read-back is the H168-383's
+        if (write.generic) return { result: await genericSendSms(session, write.check, prepared, options), readBack: back, routerKeepsSent: true };
+        const result = await submitSms(session, prepared, options);
+        if (result.ok) {
+          for (const phone of prepared.phones) back.set(phone, await fetchPhoneThread(session, phone, 10).catch(() => []));
+        }
+        return { result, readBack: back, routerKeepsSent: true };
+      },
+      summary
+    );
+  }
+
+  async markSmsRead(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    return await this.#scheduler.executeControl("sms_mark_read", (session, write) => (write.generic ? genericMarkSmsRead(session, write.check, indices) : markSmsRead(session, indices)), summary);
+  }
+
+  async deleteSms(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    return await this.#scheduler.executeControl("sms_delete", (session, write) => (write.generic ? genericDeleteSms(session, write.check, indices) : deleteSmsByIndex(session, indices)), summary);
   }
 
   async lockBands(command: BandLockCommand, ctx: LockContext, summary: LockSummary): Promise<BandLockOutcome> {
