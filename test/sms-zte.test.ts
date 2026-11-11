@@ -368,6 +368,27 @@ describe("zte-goform: the reqproc spelling of the interface", () => {
     assert.ok(!noNonce.mock.requests.some((r) => r.method === "POST"));
   });
 
+  it("names the network mode the way this firmware does, and switches to no 5G mode on it", async () => {
+    const { client, state } = zteRouter({ reqproc: true });
+    await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: null, networkMode: "auto" }, newCheck()));
+    assert.equal(state.posts.find((p) => p.goformId === "SET_BEARER_PREFERENCE")?.fields.get("BearerPreference"), "NETWORK_auto");
+    await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: null, networkMode: "lte" }, newCheck()));
+    assert.equal(state.posts.filter((p) => p.goformId === "SET_BEARER_PREFERENCE").at(-1)?.fields.get("BearerPreference"), "Only_LTE");
+    // Asked for a 5G mode: refused before anything is written in that session
+    const before = state.posts.length;
+    await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: null, networkMode: "nr_sa" }, newCheck())), /4G firmware/);
+    assert.deepEqual(state.posts.slice(before).map((p) => p.goformId), ["LOGOUT"]);
+    // The mode it reports reads back as automatic, so an unlock leaves it alone
+    state.values["net_select"] = "NETWORK_auto";
+    const unlock = newCheck();
+    await client.withSession((s) => s.unlockAll(unlock));
+    assert.ok(!unlock.endpoints.includes("zte-goform:SET_BEARER_PREFERENCE"));
+    // A goform router keeps its own names
+    const goform = zteRouter();
+    await goform.client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: null, networkMode: "auto" }, newCheck()));
+    assert.equal(goform.state.posts.find((p) => p.goformId === "SET_BEARER_PREFERENCE")?.fields.get("BearerPreference"), "WL_AND_5G");
+  });
+
   it("is told apart before any password: either spelling that names a firmware is this brand", async () => {
     const http = (mock: LanRouterMock): LanHttp => new LanHttp({ baseUrl: "http://192.168.0.1", fetchImpl: mock.fetchImpl, timeoutMs: 1000, signal: new AbortController().signal });
     assert.equal(await zteGoformProtocol.detect(http(zteRouter({ reqproc: true }).mock)), true);

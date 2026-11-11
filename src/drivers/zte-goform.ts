@@ -306,6 +306,8 @@ export const ZTE_LTE_ALL_MASK = "a3e2ab0908df";
 export const ZTE_NR_ALL_BANDS: ReadonlyArray<number> = [1, 2, 3, 5, 7, 8, 20, 28, 38, 41, 50, 51, 66, 70, 71, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84];
 
 const BEARER: Readonly<Record<DriverNetworkMode, string>> = { auto: "WL_AND_5G", lte: "Only_LTE", nr_sa: "Only_5G", nr_nsa: "LTE_AND_5G" };
+/** The `reqproc` firmware is 4G: its automatic mode has a name of its own, and it has no 5G mode. */
+const BEARER_REQPROC: Readonly<Partial<Record<DriverNetworkMode, string>>> = { auto: "NETWORK_auto", lte: "Only_LTE" };
 
 function networkModeOf(value: unknown): DriverNetworkMode | null {
   const text = textOf(value)?.toUpperCase();
@@ -725,7 +727,16 @@ class ZteGoformSession implements DriverSessionHandle {
     if (result !== "success" && result !== "0") throw new CpeApiError(answerCode(answer["result"]), `${goformId} refused`);
   }
 
+  /** `BearerPreference` for a network mode, as this firmware names it (checked before a lock writes anything). */
+  #bearer(mode: DriverNetworkMode): string {
+    if (this.#at.variant !== "reqproc") return BEARER[mode];
+    const name = BEARER_REQPROC[mode];
+    if (name === undefined) throw new CpeControlValidationError("This router runs a 4G firmware: its network mode can be automatic or 4G only");
+    return name;
+  }
+
   async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
+    const bearer = target.networkMode === null ? null : this.#bearer(target.networkMode);
     await this.#ensureDeveloperMode(check);
     const lte = target.lte === "all" ? "all" : checkLockBands("LTE", target.lte, null);
     const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
@@ -735,7 +746,7 @@ class ZteGoformSession implements DriverSessionHandle {
       const nrForm = zteNrBandForm(this.#branch, nr);
       await this.#post(check, nrForm.goformId, nrForm.fields);
     }
-    if (target.networkMode !== null) await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", BEARER[target.networkMode]]]);
+    if (bearer !== null) await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", bearer]]);
     settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
   }
 
@@ -772,7 +783,7 @@ class ZteGoformSession implements DriverSessionHandle {
     }
     // The mode goes back to automatic only when it is known to be something else
     const resetMode = before.networkMode !== null && before.networkMode !== "auto";
-    if (resetMode) await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", BEARER.auto]]);
+    if (resetMode) await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", this.#bearer("auto")]]);
     settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: resetMode });
   }
 
