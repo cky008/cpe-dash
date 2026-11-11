@@ -15,6 +15,7 @@ import {
   reportJson,
   verificationNotice,
   SUPPORT_MARK_KEYS,
+  checksSummary,
   supportCells,
   supportDocsUrl,
   supportMarkText,
@@ -139,5 +140,37 @@ describe("console: the router's row of Supported devices", () => {
     // Every section the daemon may name has its anchor on the page the link opens
     const page = fs.readFileSync("docs/guide/en/supported-devices.md", "utf8");
     for (const section of CATALOG_SECTIONS) assert.ok(page.includes(`<a id="brand-${section.id}"></a>`), section.id);
+  });
+});
+
+describe("console: the device report's summary", () => {
+  const t = (key: keyof (typeof SETTINGS_TEXT)["en"], params?: Record<string, string | number>): string => SETTINGS_TEXT.en[key].replace(/\{(\w+)\}/g, (_, k: string) => String(params?.[k] ?? ""));
+
+  it("groups the report's lines into what works, what does not and what is not tried, named as the console names them", () => {
+    const report = buildDeviceReport({
+      probe: null,
+      apiErrors: { sinceIso: "2026-11-11T00:00:00.000Z", entries: [] },
+      fengsuiVersion: "1.8.4",
+      generatedAtIso: "2026-11-11T00:00:00.000Z",
+      access: {
+        family: "zte-zwrt",
+        writes: "experimental",
+        reads: {
+          telemetry: { state: "available", code: null },
+          neighbors: { state: "unavailable", code: null },
+          topology: { state: "unknown", code: null },
+          settings: { state: "unknown", code: null },
+          accessControl: { state: "unknown", code: null },
+          sms: { state: "unknown", code: null },
+        },
+      },
+      writes: [{ id: "a", atIso: "2026-11-11T00:00:00.000Z", action: "lock_cell", feature: "cellLock", model: "MU5250", endpoints: ["zte-zwrt:zwrt_bsp.lte.lock"], outcome: "applied", code: null, readback: "match", reason: null }],
+    });
+    const summary = checksSummary(report, t);
+    assert.deepEqual(summary.map((line) => [line.result, line.count]), [["works", 2], ["failed", 1], ["untested", 11]]);
+    assert.equal(summary[0]?.text, `2 work: ${t(FEATURE_KEYS.telemetry)}, ${t(FEATURE_KEYS.cellLock)}`);
+    assert.equal(summary[1]?.text, `1 do not work: ${t(FEATURE_KEYS.neighbors)}`);
+    assert.deepEqual(checksSummary({ checks: [] }, t).map((line) => line.text), ["0 work", "0 do not work", "0 not tried yet"]);
+    for (const locale of ["zh-CN", "en"] as const) for (const key of ["report_summary_title", "report_summary_works", "report_summary_failed", "report_summary_untested", "report_summary_hint"] as const) assert.ok(SETTINGS_TEXT[locale][key].trim());
   });
 });

@@ -84,7 +84,7 @@ It takes effect at once, and nobody can make that write afterwards, AI agents an
 Your feedback helps verify more router models:
 
 1. Use the features you want confirmed in the console first: open a read's page and see whether it has data; make a write once and wait for its read-back.
-2. Under "Settings → Device", click "Create device report", review the contents, and copy or download the JSON.
+2. Under "Settings → Device", click "Create device report", review the contents, and copy or download the JSON. Above the report, the features are listed by what works, what does not, and what you have not tried yet: the issue form can take these over.
 3. Click "Report on GitHub", open a new issue, paste the report, and note which features work and which do not.
 
 The report contains only API structures and safe metadata (model, firmware, web interface version, feature toggles, and band numbers). It excludes IMEI, IMSI, MAC addresses, IP addresses, phone numbers, cell identifiers, and Wi-Fi network names. FengSui never uploads anything automatically.

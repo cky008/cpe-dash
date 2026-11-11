@@ -558,6 +558,10 @@ describe("the console in a browser", () => {
       assert.equal(await page.evaluate<number>(`${support}.querySelectorAll('li[data-mark]').length`), 10, "a mark per console module");
       assert.equal(await page.evaluate<string>(`${support}.querySelector('li[data-mark="△"]').title`), "partly, or with a condition");
       assert.equal(await page.evaluate<string>(`${support}.querySelector('a[href*="supported-devices"]').getAttribute('href')`), "https://fengsui.iocky.com/en/docs/supported-devices/#brand-huawei");
+      // The device report, with what it found per feature summed up above it
+      await page.clickText("#settingsDialog button", "Create device report");
+      await page.waitUntil("document.querySelector('#settingsDialog [data-role=report-summary]') !== null", "the report's summary");
+      assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=report-summary] [data-result=works]').textContent"), /^\d+ work: Signal/);
 
       await page.click("#settingsDialog li[data-feature=bandLock] input");
       await until(() => other.stack.settings.disabledWrites.some((entry) => entry.feature === "bandLock"), "turned off");

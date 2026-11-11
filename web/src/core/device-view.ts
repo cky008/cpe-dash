@@ -200,6 +200,25 @@ export function reportFileName(report: DeviceReport): string {
 }
 
 /** The report as the file holds it (and the clipboard gets it): indented JSON. */
+/**
+ * The report's per-feature lines in three groups, each feature named as the console names it: what the
+ * issue form's "What works" and "What does not work" fields can take over.
+ */
+export function checksSummary(report: Pick<DeviceReport, "checks">, t: Text): Array<{ result: "works" | "failed" | "untested"; text: string; count: number }> {
+  const checks = report.checks ?? [];
+  const groups = (["works", "failed", "untested"] as const).map((result) => {
+    const names = checks.filter((check) => check.result === result).map((check) => t(FEATURE_KEYS[check.feature]));
+    return { result, count: names.length, text: names.length > 0 ? `${t(SUMMARY_KEYS[result], { count: names.length })}: ${names.join(", ")}` : t(SUMMARY_KEYS[result], { count: 0 }) };
+  });
+  return groups;
+}
+
+const SUMMARY_KEYS: Readonly<Record<"works" | "failed" | "untested", SettingsTextKey>> = {
+  works: "report_summary_works",
+  failed: "report_summary_failed",
+  untested: "report_summary_untested",
+};
+
 export function reportJson(report: DeviceReport): string {
   return `${JSON.stringify(report, null, 2)}\n`;
 }

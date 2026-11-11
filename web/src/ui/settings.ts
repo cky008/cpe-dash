@@ -51,6 +51,7 @@ import {
   STATE_KEYS,
   WRITE_STATE_KEYS,
   bandText,
+  checksSummary,
   detectedText,
   endpointText,
   loginText,
@@ -341,6 +342,19 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  /** What the report found per feature, in three lines: what the issue form's two fields can take over. */
+  const summaryOf = (generated: DeviceReport): HTMLElement => {
+    const TONE = { works: "text-success", failed: "text-warning", untested: "faint" } as const;
+    const ICON = { works: "check", failed: "x", untested: "info" } as const;
+    return h(
+      "div",
+      { class: "space-y-1 rounded-lg bg-base-200/40 p-2", data: { role: "report-summary" } },
+      h("div", { class: "fs-label" }, t("report_summary_title")),
+      ...checksSummary(generated, t).map(({ result, text }) => h("div", { class: `flex items-start gap-1.5 text-xs ${TONE[result]}`, data: { result } }, icon(ICON[result], "mt-0.5 shrink-0"), h("span", null, text))),
+      h("p", { class: "text-[0.6875rem] faint" }, t("report_summary_hint"))
+    );
+  };
+
   const reportBlock = (): HTMLElement => {
     const create = button(
       t("report_create"),
@@ -375,6 +389,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       ready = h(
         "div",
         { class: "space-y-2" },
+        summaryOf(report),
         h("div", { class: "text-xs muted" }, t("report_preview")),
         // Text only, never markup (the report is the router's data)
         h("pre", { class: "font-mono text-[0.6875rem] leading-snug max-h-64 overflow-auto rounded-lg bg-base-200/70 p-2 whitespace-pre-wrap break-all" }, json),
