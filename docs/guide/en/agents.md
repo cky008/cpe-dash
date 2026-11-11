@@ -129,15 +129,4 @@ On a model FengSui was not verified on, Settings → Device has a ready-made pro
 
 ## REST API and real-time events
 
-Scripts and dashboards can use the same tokens to call the REST API:
-
-```bash
-curl -H "Authorization: Bearer <token>" http://<NAS IP>:18384/api/telemetry
-```
-
-- Read endpoints return the latest data from memory directly without logging in to the router again.
-- `GET /api/events` is a Server-Sent Events stream for real-time updates (rates, signal, alerts, new messages, etc.).
-- State-changing requests must include `X-Requested-With: XMLHttpRequest` and `Content-Type: application/json`.
-- `GET /metrics` provides Prometheus metrics (enable under "Settings → Security").
-
-For full endpoints, events, and error codes, see the [backend contract](../../dev/api.md).
+Scripts and dashboards can use the same tokens to call the REST API, follow live events (`GET /api/events`) and read Prometheus metrics (`GET /metrics`). The REST API goes by the token's permissions alone; the agent switches above do not apply to it. How to authenticate, the endpoints and what they return are in the [API reference](api.md).

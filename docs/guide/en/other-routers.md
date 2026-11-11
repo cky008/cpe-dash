@@ -2,7 +2,7 @@
 title: Other models and brands
 description: How FengSui works on routers other than the H168-383: telling the brand, which writes are available by default, turning one off, and reporting compatibility.
 section: Manage
-order: 18
+order: 19
 ---
 
 **So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module, but no one has verified any of them with FengSui on a real device. On those routers, what FengSui implements works straight away, writes included: they are on by default, and you can turn each one off. This page covers how FengSui works on those routers; which brands and models may work, and where each feature stands, is under [Supported devices](supported-devices.md).

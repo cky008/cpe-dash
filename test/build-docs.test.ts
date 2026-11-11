@@ -58,6 +58,8 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       // The author's site and the sponsor pages of .github/FUNDING.yml
       "iocky.com", "buymeacoffee.com",
       "docs.docker.com", "docs.kernel.org",
+      // The API reference: the SSE standard and the Prometheus text format
+      "html.spec.whatwg.org", "prometheus.io",
       // Where one of the projects credited on "Other models and brands" is hosted
       "gitee.com",
     ]);

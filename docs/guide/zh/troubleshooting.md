@@ -2,7 +2,7 @@
 title: 排障
 description: 打不开控制台、连不上路由器、提示密码错误或有人在用管理页、收不到 Telegram 通知时怎么办。
 section: 帮助
-order: 19
+order: 20
 ---
 
 先看两样东西：控制台页头的**会话状态**，和容器日志 `docker compose logs --tail 100 cpe-dash`。大多数问题的原因都写在这两处。

@@ -3,6 +3,7 @@
 > **文档状态**：守护进程对外接口的权威契约：REST 路由、SSE 实时事件与 MCP 工具，控制台前端与 AI 智能体都以它为准；含短信、通讯录、告警与通知（第 2.5–2.6、3.2、4.4、7 节）  
 > **适用目标**：华为 5G CPE Ultra 6 (`H168-383`, 硬件 `WL1H168M`, 固件 `4.4.0.1`) · 群晖 Synology DS923+ (`WEB_PORT=18384`)  
 > **前置规范**：[`AGENTS.md`](../../AGENTS.md) · [`docs/dev/protocol.md`](protocol.md) · [`docs/dev/architecture.md`](architecture.md)  
+> **给用户的简要版**：指南的[「API 参考」](../guide/zh/api.md)（中英两份，发布在文档站；接口、事件和错误码表由 `npm run docs:sync` 从代码生成）。本文是完整字段与行为的权威记录。  
 > **对齐基准**：本文所有类型、错误码与行为均已逐项对照 `src/` 实现核对；若二者出现冲突，以 `src/` 为准并回修本文。
 
 ---

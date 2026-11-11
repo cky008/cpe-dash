@@ -84,6 +84,7 @@ cpe-dash/
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
 │   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL），输出 dist/site
+│   ├── api-reference.ts · sync-docs.ts  # 指南「API 参考」由代码生成的部分（路由与方法、令牌需要的权限取自 permissionForRoute、SSE 事件、错误码，每项一句中英说明写在旁边）；npm run docs:sync 重写指南里所有生成的块（「支持的设备」的表与「API 参考」的三张表），--check 只检查；test/api-reference.test.ts 保证清单与代码一致、每个路由按所写的方法和示例请求体真能调用、页面与生成结果一致
 │   ├── test-count-reporter.ts # node --test 报告器（test:coverage 与 test:ui 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
@@ -94,7 +95,7 @@ cpe-dash/
 ├── .github/ISSUE_TEMPLATE/ # device-report.yml：其他型号的兼容性报告表单（型号、固件、能用 / 不能用、报告、隐私确认）；bug-report.yml、feature-request.yml；config.yml 把安全问题引到私密报告
 ├── .github/pull_request_template.md · SECURITY.md · CONTRIBUTING.md · CODE_OF_CONDUCT.md  # PR 隐私自检、漏洞私密报告与范围、贡献规则（TDD、占位值、零运行时依赖）、行为准则（Contributor Covenant 2.1）
 └── docs/
-    ├── guide/{zh,en}/*.md            # 用户指南（支持的设备、快速开始、安装、功能、Docker Compose 配置、配置参考、安全、备份、其他型号、排障、FAQ、致谢）：文档站的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具
+    ├── guide/{zh,en}/*.md            # 用户指南（支持的设备、快速开始、安装、功能、Docker Compose 配置、配置参考、API 参考、安全、备份、其他型号、排障、FAQ、致谢）：文档站的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具；「支持的设备」的表与「API 参考」的接口、事件、错误码表由 npm run docs:sync 从代码生成，其余手写
     ├── dev/                          # 开发者文档（只有中文，只在 GitHub 上看，不进文档站；README.md 是目录）
     │   ├── protocol.md               # 华为 HiLink 协议：H168-383 的完整私有协议（含短信接口）与逆向算法；附录 A 为其他华为型号
     │   ├── architecture.md           # 架构与设计记录：选型、调度器、时序引擎、短信融合、各轮审计，以及每项实现的依据（哪个接口、出自哪里）
@@ -180,7 +181,7 @@ cpe-dash/
 3. **每类能力是 `RouterBackend` 上的一个动词**（或快照里的一组字段）：哪个品牌的资料里有，就在哪个品牌的后端里实现；华为有对应能力的归到同一个动词。没有这项能力的品牌，读返回「此型号不提供」，写由闸门拒绝。服务层不判断品牌，不做品牌特例（`test/router-backend.test.ts` 守着这条线）。
 4. **已验证的 H168-383 发给路由器的请求一个字节都不变。** 搬动华为代码时，用严格模拟路由器的测试和请求序列比对证明这一点。
 5. **对外只说验证过的型号。** 目前只有 H168-383；用户看得到的文字里不写成功率。别的型号（任何品牌）的功能只有登记进 [`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FEATURES`（来自真机报告的 issue，确认后登记；什么样的报告算数、登记要改哪里见 `CONTRIBUTING.md`）才标为已验证，表里标 `✓`。一个型号上烽燧实现的每项功能都登记过（或报告为路由器没有这项功能）时，它就算验证过的型号（`isReportVerifiedModel`，验证状态 `report-verified`），不需要另外核对：登记它的提交同时把它写进所有说明「在哪些路由器上验证过」的地方（`test/verified-features.test.ts` 列出这些文件并检查）。它的写入仍按它的品牌发送，绝不走 H168-383 的请求。
-6. **「支持的设备」表跟着代码走。** 表由 [`src/device-catalog.ts`](src/device-catalog.ts) 生成，测试保证页面与生成结果一致。增加或搬动一项能力后，在品牌的事实（`src/router-family.ts`）或型号清单里加事实，重新生成表；型号之间的差别（某个型号要先打开开发者选项、只能锁 5G 小区之类）写成清单里的事实，不写进生成器。烽燧还没有做的格子留空，`—` 只用于协议排除或实测失败。
+6. **「支持的设备」表跟着代码走。** 表由 [`src/device-catalog.ts`](src/device-catalog.ts) 生成，测试保证页面与生成结果一致。增加或搬动一项能力后，在品牌的事实（`src/router-family.ts`）或型号清单里加事实，重新生成表；型号之间的差别（某个型号要先打开开发者选项、只能锁 5G 小区之类）写成清单里的事实，不写进生成器。烽燧还没有做的格子留空，`—` 只用于协议排除或实测失败。重新生成用 `npm run docs:sync`；「API 参考」的接口、事件和错误码表同理：增加 REST 路由、SSE 事件或错误码时，在 `scripts/api-reference.ts` 写一句中英说明再运行它（`test/api-reference.test.ts` 守着），同时更新开发者文档的接口契约 `docs/dev/api.md`。
 7. **这几类即使资料里有记录也不实现**：改设备身份（IMEI、序列号、蜂窝侧的 MAC）；解除运营商锁或 SIM 锁；打开 telnet、ADB、SSH 之类的远程 shell 或调试后门；刷固件、写 NV 或校准分区；关闭路由器自身的登录保护。
 
 **参考其他项目**（厂商手册之外的开源实现）：只取事实（接口路径、参数名、取值、应答格式），不复制、不改写它的代码和测试数据，不加任何运行时依赖。每个参考过的项目把地址、提交号或日期、许可证记进架构报告；致谢一个项目一句，只写在指南的致谢页 `docs/guide/{zh,en}/acknowledgments.md`（按品牌分节）。两份 README 和「其他型号与品牌」页只留一句指向致谢页的链接，指南的其他页面都不点名别的项目。

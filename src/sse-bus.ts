@@ -24,7 +24,7 @@ export type SseEventName =
   | "sms:status"
   | "contacts:updated";
 
-const SMS_SSE_EVENTS = ["sms:new", "sms:sent", "sms:updated", "sms:sync", "sms:status", "contacts:updated"] as const;
+export const SMS_SSE_EVENTS = ["sms:new", "sms:sent", "sms:updated", "sms:sync", "sms:status", "contacts:updated"] as const;
 
 interface SseClientEntry {
   id: string;

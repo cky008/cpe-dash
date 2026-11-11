@@ -129,15 +129,4 @@ Claude Desktop 等客户端可以通过容器里的桥接程序连接，前提�
 
 ## REST API 和实时事件
 
-脚本和仪表盘可以用同样的令牌调用 REST API：
-
-```bash
-curl -H "Authorization: Bearer <令牌>" http://<NAS 的 IP>:18384/api/telemetry
-```
-
-- 读取接口直接返回内存里的最新数据，不会额外登录路由器。
-- `GET /api/events` 是 Server-Sent Events 实时流（速率、信号、告警、新短信等）。
-- 改动状态的请求要带 `X-Requested-With: XMLHttpRequest` 和 `Content-Type: application/json`。
-- `GET /metrics` 提供 Prometheus 格式的指标（在「设置 → 安全」打开）。
-
-完整的接口、事件和错误码见[后端契约](../../dev/api.md)。
+脚本和仪表盘可以用同样的令牌调用 REST API、订阅实时事件（`GET /api/events`）和读取 Prometheus 指标（`GET /metrics`）。REST API 只看令牌的权限，不受上面这些智能体开关影响。怎么认证、有哪些接口、返回什么，见 [API 参考](api.md)。
