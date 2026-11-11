@@ -22,7 +22,7 @@ import { DEVICE_FEATURES } from "../src/device-profile.ts";
 import { zteBranch } from "../src/drivers/zte-goform.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
 import { VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
-import { DETECTION_ORDER, DRIVER_FAMILIES, ROUTER_FAMILY_FACTS, isRouterFamily } from "../src/router-family.ts";
+import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily } from "../src/router-family.ts";
 
 /**
  * The "Supported devices" guide page: one row per model the interface notes record, by brand, each
@@ -34,6 +34,16 @@ import { DETECTION_ORDER, DRIVER_FAMILIES, ROUTER_FAMILY_FACTS, isRouterFamily }
 
 /** The driver families whose SMS interface is on record, and implemented. */
 const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed", "fiberhome"];
+/** What each brand's driver writes today (its own form of the interface). */
+const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
+  "zte-goform": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"],
+  "zte-zwrt": ["bandLock", "cellLock", "reboot", "smsWrite"],
+  pinsu: ["bandLock", "cellLock", "reboot"],
+  tozed: ["bandLock", "cellLock", "reboot", "smsWrite"],
+  fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite"],
+  nradio: ["bandLock", "cellLock", "reboot"],
+  openwrt: ["bandLock", "cellLock", "reboot", "smsWrite"],
+};
 
 const PAGES = [
   { file: "docs/guide/zh/supported-devices.md", locale: "zh-CN" },
@@ -136,7 +146,7 @@ describe("the supported devices guide page", () => {
       }
       // Each brand's writes are its own list: a write one driver gains later changes that brand's rows alone
       const sms = SMS_FAMILIES.includes(family);
-      assert.deepEqual([...ROUTER_FAMILY_FACTS[family].writes], sms ? ["bandLock", "cellLock", "reboot", "smsWrite"] : ["bandLock", "cellLock", "reboot"], `${family}: what its driver writes today`);
+      assert.deepEqual([...ROUTER_FAMILY_FACTS[family].writes], DRIVER_WRITES[family], `${family}: what its driver writes today`);
       assert.equal(familyImplements(family, "smsRead"), sms, `${family}: SMS where its interface is on record`);
     }
     assert.equal(familyImplements("huawei", "smsRead"), true);
@@ -252,7 +262,8 @@ describe("the supported devices guide page", () => {
       { family: "zte-goform", model: "MC999", feature: "cellLock", issue: 32 },
     ];
     assert.equal(supportMark("huawei", "B535-232", "mobileData", [], failed), "—");
-    assert.equal(supportMark("zte-goform", "B535-232", "mobileData", [], failed), "", "another brand's router of that name is another router");
+    assert.equal(supportMark("tozed", "B535-232", "mobileData", [], failed), "", "another brand's router of that name is another router");
+    assert.equal(supportMark("zte-goform", "B535-232", "mobileData", [], failed), "?", "and marked from its own brand's facts");
     const en = supportedDevicesSection("en", [], failed);
     assert.equal(marksOf(en, "huawei", "B535-232")?.[7], "—");
     assert.deepEqual(rows(en, "zte").find((cells) => cells[0] === "MC999")?.slice(0, 3), ["MC999", "", "goform"]);

@@ -1,6 +1,6 @@
 import type { WriteCheck } from "../device-access.ts";
 import type { DriverFamily } from "../router-family.ts";
-import type { CellLockState, DriverBandLockTarget, DriverCellLockTarget, DriverLockState } from "./types.ts";
+import type { CellLockState, DriverBandLockTarget, DriverCellLockTarget, DriverLockState, DriverWait } from "./types.ts";
 
 /**
  * What a driver write records (the command names it sent, never a value) and how it reads the write
@@ -71,4 +71,34 @@ export function settleUnlock(check: WriteCheck, after: DriverLockState | null, o
 export function settleRestart(check: WriteCheck): void {
   check.readback = "pending";
   check.reason = null;
+}
+
+/**
+ * A data switch read back: `true` / `false` what the router reports after the write (`null`: it said
+ * nothing). A connection that has not followed yet is not a mismatch: the polls show it.
+ */
+export function settleDataSwitch(check: WriteCheck, wanted: boolean, after: boolean | null): void {
+  if (after === null) {
+    check.readback = "unknown";
+    check.reason = "no_evidence";
+    return;
+  }
+  settle(check, [after === wanted]);
+}
+
+/** How often, and how many times, a data switch asks whether the connection followed. */
+export const CONNECTION_POLLS = 8;
+export const CONNECTION_POLL_MS = 1000;
+
+/**
+ * Ask the router for its connection until it reports `wanted`: `true` once it does, `null` when it had
+ * not by the last ask (a connection may take longer to come up; the polls show it). A read that
+ * fails counts as "not yet", never as an answer.
+ */
+export async function awaitConnection(read: () => Promise<boolean | null>, wanted: boolean, wait: DriverWait): Promise<true | null> {
+  for (let ask = 0; ask < CONNECTION_POLLS; ask += 1) {
+    if (ask > 0) await wait.sleep(CONNECTION_POLL_MS);
+    if ((await read().catch((): boolean | null => null)) === wanted) return true;
+  }
+  return null;
 }

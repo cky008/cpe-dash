@@ -466,14 +466,14 @@ describe("write gate on a driver family", () => {
     assert.equal(access.generic, true);
     assert.deepEqual(
       (["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "accessControl"] as const).map((f) => access.writeState(f)),
-      ["enabled", "enabled", "enabled", "not_implemented", "not_implemented", "enabled", "not_implemented"]
+      ["enabled", "enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented"]
     );
     assert.equal(access.writeAccess("cellLock"), "experimental", "open by default: the driver implements it");
     access.setDisabledWrites([{ model: "MC888", feature: "cellLock" }]);
     assert.equal(access.writeState("cellLock"), "disabled");
     assert.equal(access.writeAccess("cellLock"), "disabled");
     assert.equal(access.writeAccess("bandLock"), "experimental");
-    assert.equal(access.writeAccess("reconnect"), "unavailable");
+    assert.equal(access.writeAccess("accessControl"), "unavailable");
     access.setDisabledWrites([{ model: "OTHER", feature: "cellLock" }]);
     assert.equal(access.writeState("cellLock"), "enabled", "a switch-off names the model");
     assert.equal(access.snapshot().reads.settings.state, "unavailable");

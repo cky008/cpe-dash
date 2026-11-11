@@ -15,8 +15,10 @@ import {
 import { CpeApiError } from "../cpe-client.ts";
 import type { DeviceProbeResult } from "../device-profile.ts";
 import { bandsToHex, hexToBands } from "../drivers/bands.ts";
+import { settleRestart } from "../drivers/readback.ts";
 import { settleSmsSend, storedIndices } from "../drivers/sms.ts";
-import type { DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome } from "../drivers/types.ts";
+import type { DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome, DriverWait } from "../drivers/types.ts";
+import type { WriteCheck } from "../device-access.ts";
 import type {
   BandLockOutcome,
   LockContext,
@@ -31,7 +33,7 @@ import type {
   SmsUnreadPeek,
   WanRepairOutcome,
 } from "../router-backend.ts";
-import { type DriverFamily, ROUTER_FAMILY_FACTS } from "../router-family.ts";
+import { type DriverFamily, type FamilyWriteFeature, ROUTER_FAMILY_FACTS } from "../router-family.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/protocol.ts";
 import type { SmsSendResult } from "../sms/types.ts";
@@ -259,19 +261,61 @@ export class DriverBackend implements RouterBackend {
     );
   }
 
+  /** A redial: the router's own command, else off and on again (connected again at the end in any case). */
+  async reconnect(summary: ControlSummary): Promise<{ reconnecting: true; requestedAtIso: string }> {
+    if (!this.#writesAnywhere("reconnect")) return await this.#scheduler.refuseDriverWrite("reconnect_cellular");
+    return await this.#scheduler.executeDriverControl(
+      "reconnect_cellular",
+      async (session, write) => {
+        await redial(session, write.check);
+        return { reconnecting: true as const, requestedAtIso: new Date().toISOString() };
+      },
+      summary
+    );
+  }
+
+  /**
+   * Self-healing's redial: the WAN as the driver reads it in the session (up: nothing to do), then the
+   * data switch where the router has one to read (off: someone switched it off on purpose). A session
+   * that cannot read the WAN fails the repair rather than redial blind.
+   */
+  async autoReconnect(summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome> {
+    if (!this.#writesAnywhere("reconnect")) return await this.#scheduler.refuseDriverWrite("auto_reconnect_cellular");
+    return await this.#scheduler.executeDriverControl(
+      "auto_reconnect_cellular",
+      async (session, write): Promise<WanRepairOutcome> => {
+        if ((await session.telemetry()).wan.connected === true) return { applied: false, skipped: "wan_up" };
+        if ((await session.data?.enabled().catch((): boolean | null => null)) === false) return { applied: false, skipped: "mobile_data_off" };
+        await redial(session, write.check);
+        return { applied: true };
+      },
+      summary
+    );
+  }
+
+  async setMobileData(enabled: boolean, summary: ControlSummary): Promise<{ mobileDataEnabled: boolean }> {
+    if (!this.#writesAnywhere("mobileData")) return await this.#scheduler.refuseDriverWrite("set_mobile_data");
+    return await this.#scheduler.executeDriverControl(
+      "set_mobile_data",
+      async (session, write) => {
+        if (!session.data) throw noWrite("switch mobile data");
+        await session.data.set(enabled, write.check, SESSION_WAIT);
+        return { mobileDataEnabled: enabled };
+      },
+      summary
+    );
+  }
+
+  /**
+   * Some form of the family's interface has this write: the gate decides for the router in use. None
+   * has it: refused before anything is queued, as `executeControl` refuses it.
+   */
+  #writesAnywhere(feature: FamilyWriteFeature): boolean {
+    const facts = ROUTER_FAMILY_FACTS[this.family];
+    return facts.writes.includes(feature) || Object.values(facts.variants ?? {}).some((form) => form.writes.includes(feature));
+  }
+
   // ------------------------------------------------------------------ writes no driver implements yet (the gate's refusal, nothing queued)
-
-  reconnect(): Promise<{ reconnecting: true; requestedAtIso: string }> {
-    return this.#scheduler.refuseDriverWrite("reconnect_cellular");
-  }
-
-  autoReconnect(): Promise<WanRepairOutcome> {
-    return this.#scheduler.refuseDriverWrite("auto_reconnect_cellular");
-  }
-
-  setMobileData(): Promise<{ mobileDataEnabled: boolean }> {
-    return this.#scheduler.refuseDriverWrite("set_mobile_data");
-  }
 
   setSecuritySwitches(): Promise<void> {
     return this.#scheduler.refuseDriverWrite("set_security_switches");
@@ -307,7 +351,35 @@ export class DriverBackend implements RouterBackend {
 
 /** A write the family's interface has no way to do (the gate let SMS writes through for the ones it has). */
 function noSmsWrite(what: string): CpeControlValidationError {
+  return noWrite(what);
+}
+
+/** A write this router's form of the family's interface has no way to do (the gate's last line). */
+function noWrite(what: string): CpeControlValidationError {
   return new CpeControlValidationError(`This router's interface gives FengSui no way to ${what}; nothing was sent to it`);
+}
+
+/** How long a write may wait in its session for the router to follow (a disconnect before the connect). */
+const SESSION_WAIT: DriverWait = { sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)) };
+
+/**
+ * Redial with the router's own command, or switch data off and on again. The connect is sent in any
+ * case, also when the disconnect failed: a redial never leaves the router disconnected on purpose.
+ * Each command goes out once; the polls that follow tell whether a new connection came up.
+ */
+async function redial(session: DriverSession, check: WriteCheck): Promise<void> {
+  const data = session.data;
+  if (!data) throw noWrite("redial");
+  if (data.redial) {
+    await data.redial(check);
+  } else {
+    try {
+      await data.set(false, check, SESSION_WAIT);
+    } finally {
+      await data.set(true, check, SESSION_WAIT);
+    }
+  }
+  settleRestart(check);
 }
 
 /**

@@ -8,7 +8,7 @@ import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, lis
 import { carriersFromRows, neighbourOf, ratOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, md5Hex, sha256Hex, signedInElsewhere, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import { type LanHttp, parseJsonText } from "./transport.ts";
@@ -18,6 +18,7 @@ import type {
   DriverCarrier,
   DriverCell,
   DriverCellLockTarget,
+  DriverDataLink,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -790,6 +791,20 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   /** SMS in the router's own store, as its page reads and writes it. */
+  /**
+   * The data connection: `DISCONNECT_NETWORK` / `CONNECT_NETWORK` (both notes libraries; the page
+   * sends `notCallback`), signed like every other write. The router has no switch state to read, so
+   * the read-back is its connection (`ppp_status`) following within a few seconds.
+   */
+  readonly data: DriverDataLink = {
+    enabled: () => Promise.resolve(null),
+    set: async (enabled, check, wait) => {
+      await this.#post(check, enabled ? "CONNECT_NETWORK" : "DISCONNECT_NETWORK", [["notCallback", "true"]]);
+      const after = await awaitConnection(async () => connectedOf((await getCmd(this.#http, ["ppp_status"], true, this.#at))["ppp_status"]), enabled, wait);
+      settleDataSwitch(check, true, after);
+    },
+  };
+
   readonly sms: DriverSms = {
     keepsSent: true,
     list: () => this.#smsList(),

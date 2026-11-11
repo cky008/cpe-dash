@@ -97,7 +97,7 @@ export interface RouterFamilyVariant {
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
   huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
-  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },

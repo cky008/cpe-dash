@@ -59,6 +59,10 @@ export interface ZteRouterOptions {
   reqproc?: boolean;
   /** The unread count the firmware reports (some lag behind the rows). */
   unreadCount?: string;
+  /** Writes the router answers with `failure` (after checking the session and the signature). */
+  refuse?: ReadonlyArray<string>;
+  /** A connection that does not follow `CONNECT_NETWORK` / `DISCONNECT_NETWORK` (it stays as it is). */
+  pppSticks?: boolean;
 }
 
 /** A message row; `text` is stored as UTF-16 hexadecimal. */
@@ -100,6 +104,7 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       wan_active_channel: "300",
       lte_pci: "d3",
       lte_rsrp: "-81",
+      ppp_status: "ppp_connected",
     },
   };
   const reqproc = opts.reqproc === true;
@@ -177,7 +182,10 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       if (!signedIn(req)) return { json: { result: "failure" } };
       if (reqproc ? fields.get("CSRFToken") !== `tok${token}` || fields.has("AD") : fields.get("AD") !== zteActionDigest(hash, version, `RD${state.rd}`)) return { json: { result: "failure" } };
       state.posts.push({ goformId, fields });
+      if (opts.refuse?.includes(goformId)) return { json: { result: "failure" } };
       if (goformId === "LOGOUT") state.loggedIn = false;
+      if (goformId === "DISCONNECT_NETWORK" && !opts.pppSticks) state.values["ppp_status"] = "ppp_disconnected";
+      if (goformId === "CONNECT_NETWORK" && !opts.pppSticks) state.values["ppp_status"] = "ppp_connected";
       if (goformId === "BAND_SELECT") state.values["lte_band_lock"] = fields.get("lte_band_mask") ?? "";
       if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK_MERGE") state.values["nr5g_band_mask"] = fields.get("Z5g_lockband_no_format_mask") ?? "";
       if (goformId === "SET_BEARER_PREFERENCE") state.values["net_select"] = fields.get("BearerPreference") ?? "";

@@ -189,6 +189,27 @@ export interface DriverSms {
   readonly keepsSent: boolean;
 }
 
+/** Waiting inside a write's session (injected so tests need not wait). */
+export interface DriverWait {
+  sleep: (ms: number) => Promise<void>;
+}
+
+/**
+ * The router's cellular data connection, where its interface can switch it: each write is sent once,
+ * names what it sent in `check.endpoints` and reads the result back where the router can say.
+ */
+export interface DriverDataLink {
+  /** Whether mobile data is switched on; `null`: the router reports its connection only, no switch to read. */
+  enabled(): Promise<boolean | null>;
+  /**
+   * Switch mobile data on or off. Switching it off waits (bounded) until the router reports the
+   * connection down, so a connect sent right after it does not land in the middle of the disconnect.
+   */
+  set(enabled: boolean, check: WriteCheck, wait: DriverWait): Promise<void>;
+  /** The router's own redial command; left out, a redial is off, then on (`DriverBackend`). */
+  redial?(check: WriteCheck): Promise<void>;
+}
+
 /**
  * One logged-in session on a router of a driver family. Every request goes out inside it; the
  * client logs out in `finally`. A write names what it sent in `check.endpoints` (command names,
@@ -210,6 +231,8 @@ export interface DriverSession {
   reboot(check: WriteCheck): Promise<void>;
   /** SMS, on a family whose notes define an SMS interface. */
   readonly sms?: DriverSms;
+  /** The cellular data connection, on a family whose notes define a way to switch it. */
+  readonly data?: DriverDataLink;
 }
 
 /** A session as a family's protocol opens it: the client calls `logout` in `finally`. */
