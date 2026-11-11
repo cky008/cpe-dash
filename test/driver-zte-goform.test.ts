@@ -20,100 +20,15 @@ import {
   zteLteBandForm,
   zteNrBandForm,
 } from "../src/drivers/zte-goform.ts";
-import { LanRouterMock, type LanRequestRecord } from "./helpers/lan-router.ts";
+import { LanRouterMock } from "./helpers/lan-router.ts";
+import { ZTE_LD, ZTE_PASSWORD, ZTE_VERSION, zteRouter } from "./helpers/zte-goform-router.ts";
 
-const PASSWORD = "test-password";
-const LD = "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90";
-const VERSION = { modelName: "MC888", hardwareVersion: "MC888HW-1.0.0", waInnerVersion: "BD_ZTE_MC888V1.0.0B05", crVersion: "CR_ZTE_MC888V1.0.0B05" };
+const PASSWORD = ZTE_PASSWORD;
+const LD = ZTE_LD;
+const VERSION = ZTE_VERSION;
 
 function newCheck(): WriteCheck {
   return { endpoints: [], readback: "none", reason: null };
-}
-
-interface ZteState {
-  loggedIn: boolean;
-  rd: number;
-  values: Record<string, string>;
-  posts: Array<{ goformId: string; fields: URLSearchParams }>;
-}
-
-/** A goform router: versions, LD or config.js, a password, and lock values the writes change. */
-function zteRouter(opts: { ld?: string | null; configJs?: string; hw?: string; model?: string; loginResult?: string; lock?: { left: string; wait: string } } = {}) {
-  const ld = opts.ld === undefined ? LD : opts.ld;
-  const hash = ld ? "sha256" : "md5";
-  const version = { ...VERSION, hardwareVersion: opts.hw ?? VERSION.hardwareVersion, modelName: opts.model ?? VERSION.modelName };
-  const expectedPassword = ld ? zteLoginPassword({ kind: "sha256-ld", ld }, PASSWORD) : opts.configJs?.includes("SHA256:1") ? zteLoginPassword({ kind: "sha256" }, PASSWORD) : zteLoginPassword({ kind: "base64" }, PASSWORD);
-  const state: ZteState = {
-    loggedIn: false,
-    rd: 0,
-    posts: [],
-    values: {
-      model_name: version.modelName,
-      hardware_version: version.hardwareVersion,
-      wa_inner_version: version.waInnerVersion,
-      cr_version: version.crVersion,
-      psw_fail_num_str: opts.lock?.left ?? "5",
-      login_lock_time: opts.lock?.wait ?? "0",
-      lte_band_lock: `0x${ZTE_LTE_ALL_MASK}`,
-      nr5g_band_mask: ZTE_NR_ALL_BANDS.join(","),
-      lte_pci_lock: "0",
-      lte_earfcn_lock: "0",
-      nr5g_cell_lock: "0,0,0,0",
-      net_select: "WL_AND_5G",
-      network_type: "ENDC",
-      wan_active_band: "LTE BAND 1",
-      wan_active_channel: "300",
-      lte_pci: "d3",
-      lte_rsrp: "-81",
-    },
-  };
-  const mock = new LanRouterMock((req: LanRequestRecord) => {
-    if (req.method === "GET" && req.path === "/js/config/config.js") return opts.configJs === undefined ? { status: 404, text: "" } : { text: opts.configJs };
-    if (req.method === "GET" && req.path === "/goform/goform_get_cmd_process") {
-      const keys = (req.query.get("cmd") ?? "").split(",");
-      const out: Record<string, string> = {};
-      for (const key of keys) {
-        if (key === "LD") out["LD"] = ld ?? "";
-        else if (key === "RD") out["RD"] = `RD${++state.rd}`;
-        else if (state.values[key] !== undefined) out[key] = state.values[key] ?? "";
-        else out[key] = "";
-      }
-      return { json: out };
-    }
-    if (req.method === "POST" && req.path === "/goform/goform_set_cmd_process") {
-      const fields = LanRouterMock.form(req);
-      const goformId = fields.get("goformId") ?? "";
-      if (goformId === "LOGIN") {
-        if (opts.loginResult) return { json: { result: opts.loginResult } };
-        if (fields.get("password") !== expectedPassword) return { json: { result: "3" } };
-        state.loggedIn = true;
-        return { json: { result: "0" }, setCookie: ["stok=abc123; Path=/; HttpOnly"] };
-      }
-      if (goformId === "DEVELOPER_OPTION_LOGIN") {
-        state.posts.push({ goformId, fields });
-        return { json: { result: "0" } };
-      }
-      if (!state.loggedIn || !req.headers["cookie"]?.includes("stok=abc123")) return { json: { result: "failure" } };
-      if (fields.get("AD") !== zteActionDigest(hash, version, `RD${state.rd}`)) return { json: { result: "failure" } };
-      state.posts.push({ goformId, fields });
-      if (goformId === "LOGOUT") state.loggedIn = false;
-      if (goformId === "BAND_SELECT") state.values["lte_band_lock"] = fields.get("lte_band_mask") ?? "";
-      if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK_MERGE") state.values["nr5g_band_mask"] = fields.get("Z5g_lockband_no_format_mask") ?? "";
-      if (goformId === "SET_BEARER_PREFERENCE") state.values["net_select"] = fields.get("BearerPreference") ?? "";
-      if (goformId === "LTE_LOCK_CELL_SET") {
-        state.values["lte_pci_lock"] = fields.get("lte_pci_lock") ?? "";
-        state.values["lte_earfcn_lock"] = fields.get("lte_earfcn_lock") ?? "";
-      }
-      if (goformId === "NR5G_LOCK_CELL_SET") {
-        const packed = fields.get("nr5g_cell_lock");
-        state.values["nr5g_cell_lock"] = packed ?? `${fields.get("Z5g_lockcell_pci")},${fields.get("Z5g_lockcell_arfcn")},${fields.get("Z5g_lockcell_band")},${fields.get("Z5g_lockcell_scs")}`;
-      }
-      return { json: { result: "success" } };
-    }
-    return { status: 404, text: "" };
-  });
-  const client = new DriverCpeClient({ protocol: zteGoformProtocol, cpeUrl: "http://192.168.0.1", cpePassword: PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
-  return { mock, state, client };
 }
 
 describe("zte-goform: login and digests", () => {

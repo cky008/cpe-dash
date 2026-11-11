@@ -2,13 +2,16 @@ import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import { detectSmsTextMode } from "../sms/text-mode.ts";
+import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
 import { carriersFromRows, neighbourOf, ratOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, md5Hex, sha256Hex, signedInElsewhere, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
-import type { LanHttp } from "./transport.ts";
+import { type LanHttp, parseJsonText } from "./transport.ts";
 import type {
   CellLockState,
   DriverBandLockTarget,
@@ -20,6 +23,9 @@ import type {
   DriverNeighbour,
   DriverNetworkMode,
   DriverSessionHandle,
+  DriverSms,
+  DriverSmsSendOptions,
+  DriverSmsSendOutcome,
   DriverTelemetry,
 } from "./types.ts";
 import {
@@ -56,6 +62,10 @@ import {
  * a 64-digit `LD` nonce means the double SHA-256; no nonce means the single SHA-256 the page's
  * `config.js` announces, or Base64; anything else sends nothing. PCIs and cell identities come as
  * hexadecimal. Firmware generations differ in how they write band and cell locks (`zteBranch`).
+ *
+ * SMS is the store the router's own page shows (device memory): `cmd=sms_data_total` lists it, bodies
+ * as UTF-16 hexadecimal; `cmd=sms_capacity_info` counts it; `SEND_SMS` sends and `DELETE_SMS` deletes,
+ * each settling through `cmd=sms_cmd_status_info`; `SET_MSG_READ` marks read.
  */
 
 const FAMILY = "zte-goform" as const;
@@ -132,6 +142,29 @@ async function getCmd(http: LanHttp, keys: ReadonlyArray<string>, multi = true):
 async function setCmd(http: LanHttp, fields: ReadonlyArray<readonly [string, string]>): Promise<Record<string, unknown>> {
   const answer = await http.postForm(SET_PATH, fields, { referer: REFERER, headers: XHR });
   if (!isPlainObject(answer)) throw new CpeAnswerFormatError("POST goform_set_cmd_process: not an object");
+  return answer;
+}
+
+/** One listing page: the router's page asks for 500 at once; a firmware may hand back fewer. */
+const SMS_PAGE_SIZE = 500;
+const SMS_MAX_PAGES = 8;
+/** Ids per write, as the page batches a large selection (a long form resets some firmware's connection). */
+const SMS_ID_BATCH = 20;
+/** How long a delete may take to settle before its read-back is taken anyway, and how often its slot is asked. */
+const SMS_DELETE_SETTLE_MS = 10_000;
+const SMS_DELETE_POLL_MS = 300;
+
+/**
+ * A read that takes parameters of its own beside `cmd` (the SMS listing, a status slot). Some
+ * firmware writes raw control characters into a message body's JSON: they are dropped before parsing,
+ * as the router's own page cannot read such an answer either.
+ */
+async function getCmdWith(http: LanHttp, cmd: string, params: ReadonlyArray<readonly [string, string]>): Promise<Record<string, unknown>> {
+  const query: Array<readonly [string, string]> = [["isTest", "false"], ["cmd", cmd], ...params, ["_", String(Date.now())]];
+  const res = await http.request({ method: "GET", path: GET_PATH, query, referer: REFERER, headers: XHR });
+  if (res.status < 200 || res.status >= 300) throw new CpeAnswerFormatError(`GET goform_get_cmd_process: HTTP ${res.status}`);
+  const answer = parseJsonText(res.text.replace(/[\u0000-\u001f]/g, " "), "GET goform_get_cmd_process");
+  if (!isPlainObject(answer)) throw new CpeAnswerFormatError("GET goform_get_cmd_process: not an object");
   return answer;
 }
 
@@ -710,6 +743,94 @@ class ZteGoformSession implements DriverSessionHandle {
     const resetMode = before.networkMode !== null && before.networkMode !== "auto";
     if (resetMode) await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", BEARER.auto]]);
     settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: resetMode });
+  }
+
+  /** SMS in the router's own store, as its page reads and writes it. */
+  readonly sms: DriverSms = {
+    keepsSent: true,
+    list: () => this.#smsList(),
+    counters: () => this.#smsCounters(),
+    send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
+    markRead: (indices, check) => this.#smsMarkRead(indices, check),
+    delete: (indices, check) => this.#smsDelete(indices, check),
+  };
+
+  async #smsList(): Promise<SmsWireMessage[]> {
+    this.#guard();
+    const seen = new Map<number, SmsWireMessage>();
+    for (let page = 0; page < SMS_MAX_PAGES; page++) {
+      const answer = await getCmdWith(this.#http, "sms_data_total", [
+        ["page", String(page)],
+        ["data_per_page", String(SMS_PAGE_SIZE)],
+        ["mem_store", "1"],
+        ["tags", "10"],
+        ["order_by", "order by id desc"],
+      ]);
+      if (!Array.isArray(answer["messages"])) throw new SectionUnavailableError("SMS", null);
+      const rows = answer["messages"];
+      const before = seen.size;
+      for (const message of parseZteSmsRows(rows)) seen.set(message.index, message);
+      // A short page, or one that brought nothing new (a firmware that ignores `page`), is the last
+      if (rows.length < SMS_PAGE_SIZE || seen.size === before) break;
+    }
+    return [...seen.values()];
+  }
+
+  /**
+   * The store's own counts and the router's unread count. Always these two reads, also after a
+   * listing: counts taken two ways would differ on a firmware whose unread count lags, and every
+   * difference would start another sync.
+   */
+  async #smsCounters(): Promise<SmsCounters> {
+    this.#guard();
+    const capacity = await getCmd(this.#http, ["sms_capacity_info"], false);
+    const unread = await getCmd(this.#http, ["sms_unread_num"]).catch((): Record<string, unknown> => ({}));
+    const counters = zteSmsCounters(capacity, unread["sms_unread_num"]);
+    if (!counters) throw new SectionUnavailableError("SMS", null);
+    return counters;
+  }
+
+  async #smsStatus(slot: number): Promise<Record<string, unknown>> {
+    return await getCmdWith(this.#http, "sms_cmd_status_info", [["sms_cmd", String(slot)]]);
+  }
+
+  /** `SEND_SMS`, then the send slot until the router says the message went out or did not. */
+  async #smsSend(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome> {
+    await this.#post(check, "SEND_SMS", [
+      ["notCallback", "true"],
+      ["Number", phone],
+      ["sms_time", zteSmsTime(new Date())],
+      ["MessageBody", ucs2Hex(content)],
+      ["ID", "-1"],
+      ["encode_type", detectSmsTextMode(content).encoding === "7BIT" ? "GSM7_default" : "UNICODE"],
+    ]);
+    options.onAccepted();
+    const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_SEND), { timeoutMs: options.statusTimeoutMs, sleep: options.sleep });
+    return { state: status === "done" ? "sent" : status === "failed" ? "failed" : "unconfirmed", code: null };
+  }
+
+  async #smsMarkRead(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const ids = storedIndices(indices);
+    for (let i = 0; i < ids.length; i += SMS_ID_BATCH) {
+      await this.#post(check, "SET_MSG_READ", [
+        ["msg_id", zteIdList(ids.slice(i, i + SMS_ID_BATCH))],
+        ["tag", "0"],
+      ]);
+    }
+    settleSmsListing(check, await this.#smsList().catch(() => null), ids, "read");
+  }
+
+  async #smsDelete(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const ids = storedIndices(indices);
+    for (let i = 0; i < ids.length; i += SMS_ID_BATCH) {
+      await this.#post(check, "DELETE_SMS", [
+        ["msg_id", zteIdList(ids.slice(i, i + SMS_ID_BATCH))],
+        ["notCallback", "true"],
+      ]);
+      const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_DELETE), { timeoutMs: SMS_DELETE_SETTLE_MS, intervalMs: SMS_DELETE_POLL_MS });
+      if (status === "failed") throw new CpeApiError("failed", "DELETE_SMS did not delete");
+    }
+    settleSmsListing(check, await this.#smsList().catch(() => null), ids, "gone");
   }
 
   async reboot(check: WriteCheck): Promise<void> {

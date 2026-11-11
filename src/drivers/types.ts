@@ -1,5 +1,6 @@
 import type { WriteCheck } from "../device-access.ts";
 import type { DriverFamily } from "../router-family.ts";
+import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 
 /**
  * What every driver of a non-Huawei router family hands back, in one shape: FengSui turns it into
@@ -136,6 +137,45 @@ export interface DriverCellLockTarget {
   scsKhz: SubcarrierSpacingKhz | null;
 }
 
+/** How one send to one recipient ended. */
+export interface DriverSmsSendOutcome {
+  /**
+   * `sent`: the router says it went out; `failed`: the router refused it or says it did not go out;
+   * `unconfirmed`: the router took it and has not said (never sent again).
+   */
+  state: "sent" | "failed" | "unconfirmed";
+  /** The router's code for a failure, when it gives one that may be kept. */
+  code: string | null;
+}
+
+export interface DriverSmsSendOptions {
+  /** How long the router is asked whether the message went out. */
+  statusTimeoutMs: number;
+  sleep: (ms: number) => Promise<void>;
+  /** Called once the router took the message: from then on it is on its way. */
+  onAccepted: () => void;
+}
+
+/**
+ * SMS on a router of a driver family, inside the session that hands it out. A message is the same
+ * `SmsWireMessage` the HiLink stack produces: `index` is the handle the router's own interface names
+ * it by (always above zero), `date` is `yyyy-MM-dd HH:mm:ss`, `smstat` is `0` unread, `1` read, `3`
+ * sent. A write the family's interface has no way to do is left out; one that is there is sent once
+ * and names what it sent in `check.endpoints`.
+ */
+export interface DriverSms {
+  /** Every message the router stores, long ones already joined. */
+  list(): Promise<SmsWireMessage[]>;
+  /** The counts the 5 s poll carries; `listed` spares a family that counts by listing a second listing. */
+  counters(listed?: ReadonlyArray<SmsWireMessage>): Promise<SmsCounters>;
+  /** Send `content` to one recipient (already checked: a dialable number, text within the segment limit). */
+  send?(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome>;
+  markRead?(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void>;
+  delete?(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void>;
+  /** `false`: the router keeps no copy of what it sends. */
+  readonly keepsSent: boolean;
+}
+
 /**
  * One logged-in session on a router of a driver family. Every request goes out inside it; the
  * client logs out in `finally`. A write names what it sent in `check.endpoints` (command names,
@@ -155,6 +195,8 @@ export interface DriverSession {
   /** Clear band and cell locks (and go back to the automatic network mode). */
   unlockAll(check: WriteCheck): Promise<void>;
   reboot(check: WriteCheck): Promise<void>;
+  /** SMS, on a family whose notes define an SMS interface. */
+  readonly sms?: DriverSms;
 }
 
 /** A session as a family's protocol opens it: the client calls `logout` in `finally`. */

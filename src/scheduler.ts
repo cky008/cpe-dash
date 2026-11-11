@@ -11,7 +11,15 @@ import {
   isInsideCpeSession,
 } from "./cpe-client.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
-import { CpeControlValidationError, type GlobalTelemetrySnapshot, type NeighborScanSnapshot, type PersistedLockState, readRouterModel, sectionUnavailableCode } from "./cpe-domain.ts";
+import {
+  CpeControlValidationError,
+  type GlobalTelemetrySnapshot,
+  type NeighborScanSnapshot,
+  type PersistedLockState,
+  SectionUnavailableError,
+  readRouterModel,
+  sectionUnavailableCode,
+} from "./cpe-domain.ts";
 import {
   CONTROL_FEATURES,
   type ControlAction,
@@ -42,6 +50,7 @@ import { detectRouterFamily } from "./drivers/detect.ts";
 import { DriverLoginMethodError } from "./drivers/login.ts";
 import { CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./drivers/snapshot.ts";
 import type { DriverSession } from "./drivers/types.ts";
+import type { SmsCounters, SmsWireMessage } from "./sms/types.ts";
 import { getXmlTag } from "./xml.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
 import type { CircuitBreakerState, CpeLoginState, SessionExecutionOutcome } from "./types.ts";
@@ -1032,15 +1041,45 @@ export class MutexSessionScheduler extends EventEmitter {
    * shapes the HiLink stack produces, so the cache, the history, the alerts and the console need
    * nothing per family. `null` when the read was skipped or yielded.
    */
-  executeDriverTelemetryRead(opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}): Promise<GlobalTelemetrySnapshot | null> {
+  executeDriverTelemetryRead(opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean; smsCounters?: boolean } = {}): Promise<GlobalTelemetrySnapshot | null> {
     return this.#executeDriverRead(
       (session) =>
         this.readSection("telemetry", async () => {
           const raw = await session.telemetry();
           const nowMs = Date.now();
-          return driverTelemetrySnapshot(this.#counterRates.apply(raw, nowMs), nowMs);
+          // The SMS counts ride on this session (no login of their own), and never cost the poll its readings
+          const sms = opts.smsCounters === true && !this.device.skips("sms") ? await this.#driverSmsCounters(session) : null;
+          return driverTelemetrySnapshot(this.#counterRates.apply(raw, nowMs), nowMs, sms);
         }),
       { priority: opts.priority ?? "normal", ignoreCooldown: opts.ignoreCooldown }
+    );
+  }
+
+  /** The SMS counts of a driver session: `null` where the router has no SMS, or this read of them failed. */
+  async #driverSmsCounters(session: DriverSession): Promise<SmsCounters | null> {
+    const sms = session.sms;
+    if (!sms) return null;
+    try {
+      return await this.readSection("sms", () => sms.counters());
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Every message a router of a driver family stores, with the counts read in the same session.
+   * `null`: skipped, yielded, or no SMS on this router (noted, so the background sync leaves it alone).
+   */
+  executeDriverSmsList(opts: { priority?: SchedulerPriority } = {}): Promise<{ counters: SmsCounters; messages: SmsWireMessage[] } | null> {
+    return this.#executeDriverRead(
+      (session) =>
+        this.readSection("sms", async () => {
+          const sms = session.sms;
+          if (!sms) throw new SectionUnavailableError("SMS", null);
+          const messages = await sms.list();
+          return { counters: await sms.counters(messages), messages };
+        }),
+      { priority: opts.priority ?? "normal" }
     );
   }
 

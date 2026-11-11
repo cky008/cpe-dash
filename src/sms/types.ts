@@ -36,7 +36,10 @@ export interface SmsMessageRecord extends SmsWireMessage {
   verificationCode: string | null;
   /** Provisional outgoing record kept only until the router copy is read back. */
   pending?: true;
-  /** Restored from Recently deleted: its router copy was deleted, so only FengSui keeps it (a full sync leaves it). */
+  /**
+   * Only FengSui keeps it, so a full sync leaves it: restored from Recently deleted (its router copy
+   * was deleted), or sent through a router that keeps no copy of what it sends.
+   */
   localOnly?: true;
 }
 

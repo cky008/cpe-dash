@@ -60,6 +60,12 @@ export interface RouterFamilyFacts {
    * writes everything FengSui does.
    */
   writes: ReadonlyArray<FamilyWriteFeature>;
+  /**
+   * Who keeps a message's read state on this family (it reads SMS when `reads` names `sms`). Left
+   * out: the router does, and FengSui follows it. `fengsui`: the family's interface cannot mark a
+   * message read, or marks every message it lists, so FengSui keeps the state itself and writes none.
+   */
+  smsReadState?: "fengsui";
   /** Network modes the driver can switch to with a band lock. */
   networkModes: ReadonlyArray<"auto" | "lte" | "nr_sa" | "nr_nsa">;
   /** The driver can lock 5G NR bands (every driver locks LTE bands). */
@@ -68,11 +74,12 @@ export interface RouterFamilyFacts {
 
 /**
  * Connected devices (`topology`) stay the HiLink stack's: no other family documents its device list
- * in a format FengSui could read without guessing.
+ * in a format FengSui could read without guessing. SMS is read and written where a family's interface
+ * for it is on record (`docs/PHASE2_ARCHITECTURE_REPORT.md` §18.3 names each source).
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
   huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
-  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },

@@ -429,6 +429,12 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   { family: "zte-zwrt", features: ["cellLock"], zh: "只能锁 5G 小区，不能锁 4G 小区", en: "locks 5G cells only, not 4G cells" },
   {
     family: "zte-goform",
+    features: [],
+    zh: "短信读写的是路由器自己的存储，存在 SIM 卡上的短信不显示",
+    en: "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown",
+  },
+  {
+    family: "zte-goform",
     models: ZTE_DEVELOPER_OPTION_MODELS,
     features: ["bandLock", "cellLock"],
     zh: "锁定前，烽燧会先用同一个管理密码打开路由器的开发者选项，并在这次写入的记录里写明",

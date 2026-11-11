@@ -11,7 +11,7 @@ import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "./codec.ts";
 import type { ContactBook, VcardImportSummary } from "./contacts.ts";
 import { type SmsMirrorStore, computeSmsUid } from "./mirror.ts";
 import { COUNTRY_DIAL_CODES, canonicalThreadKey, resolveRecipientPhone } from "./phone.ts";
-import { type PreparedSmsSubmission, prepareSmsSubmission, unconfirmedSendResult } from "./protocol.ts";
+import { prepareSmsSubmission, unconfirmedSendResult } from "./protocol.ts";
 import type {
   ContactRecord,
   CountryDialInfo,
@@ -409,8 +409,11 @@ export class SmsService extends EventEmitter {
       sendOutcome = { result: unconfirmedSendResult(prepared), readBack: new Map(), routerKeepsSent: true };
     }
 
-    const { result, readBack } = sendOutcome;
-    const messages = result.ok ? this.#recordSent(prepared, readBack) : [];
+    const { result, readBack, routerKeepsSent } = sendOutcome;
+    // What went out is shown at once. A send that failed for some recipients is left to the next sync,
+    // unless the router keeps no copy of what it sends: then FengSui's copy is the only one there will be
+    const delivered = result.ok ? prepared.phones : routerKeepsSent ? [] : result.sentPhones;
+    const messages = this.#recordSent(delivered, prepared.content, readBack, routerKeepsSent);
     this.#safeEmit("sms:sent", { source: input.source, result, messages } satisfies SmsSentEvent);
     this.#emitStatus();
     return { result, resolvedPhones: prepared.phones, messages };
@@ -563,10 +566,12 @@ export class SmsService extends EventEmitter {
     this.#synced = fetched.counters;
     this.#observed = fetched.counters;
     this.#probeUnread = null;
-    const ingest = this.mirror.ingest(fetched.messages, mode, { counters: fetched.counters, via: fetched.via });
+    // A listing that holds everything is a full sync, whatever was asked for: what it lacks is gone from the router
+    const synced: SmsSyncMode = fetched.complete ? "full" : mode;
+    const ingest = this.mirror.ingest(fetched.messages, synced, { counters: fetched.counters, via: fetched.via, keepReadState: fetched.readState === "fengsui" });
     const fresh = this.#announceFreshIncoming(ingest.added);
     const summary: SmsSyncSummary = {
-      mode,
+      mode: synced,
       via: fetched.via,
       added: ingest.added.length,
       updated: ingest.updated.length,
@@ -606,11 +611,15 @@ export class SmsService extends EventEmitter {
     return fresh;
   }
 
-  #recordSent(prepared: PreparedSmsSubmission, readBack: ReadonlyMap<string, SmsWireMessage[]>): EnrichedSmsMessage[] {
+  /**
+   * Show what was sent: the router's own copy where one was read back; else a provisional record the
+   * next sync replaces with it, or (a router that keeps no copy) FengSui's own copy, which stays.
+   */
+  #recordSent(phones: ReadonlyArray<string>, content: string, readBack: ReadonlyMap<string, SmsWireMessage[]>, routerKeepsSent: boolean): EnrichedSmsMessage[] {
     const recorded: EnrichedSmsMessage[] = [];
-    for (const phone of prepared.phones) {
+    for (const phone of phones) {
       const back = readBack.get(phone) ?? [];
-      const copies = back.filter((m) => m.direction === "out" && m.content.trim() === prepared.content);
+      const copies = back.filter((m) => m.direction === "out" && m.content.trim() === content);
       if (copies.length > 0) {
         const ingest = this.mirror.ingest(back, "incremental");
         this.#announceFreshIncoming(ingest.added);
@@ -618,7 +627,8 @@ export class SmsService extends EventEmitter {
         const stored = this.mirror.get(computeSmsUid(newest));
         if (stored) recorded.push(this.mirror.enrich(stored));
       } else {
-        recorded.push(this.mirror.enrich(this.mirror.addPending(phone, prepared.content, formatHuaweiDate(new Date()))));
+        const date = formatHuaweiDate(new Date());
+        recorded.push(this.mirror.enrich(routerKeepsSent ? this.mirror.addPending(phone, content, date) : this.mirror.addSent(phone, content, date)));
       }
     }
     return recorded;

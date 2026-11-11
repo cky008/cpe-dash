@@ -10,9 +10,11 @@ import {
   type RouterSettingsSnapshot,
   type TerminalTopologySnapshot,
 } from "../cpe-domain.ts";
+import { CpeApiError } from "../cpe-client.ts";
 import type { DeviceProbeResult } from "../device-profile.ts";
 import { bandsToHex, hexToBands } from "../drivers/bands.ts";
-import type { DriverLockState, DriverSession } from "../drivers/types.ts";
+import { settleSmsSend, storedIndices } from "../drivers/sms.ts";
+import type { DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome } from "../drivers/types.ts";
 import type {
   BandLockOutcome,
   LockContext,
@@ -21,6 +23,7 @@ import type {
   ReadRequest,
   RollbackRequest,
   RouterBackend,
+  SmsListRequest,
   SmsListing,
   SmsSendOutcome,
   SmsUnreadPeek,
@@ -29,6 +32,7 @@ import type {
 import { type DriverFamily, ROUTER_FAMILY_FACTS } from "../router-family.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/protocol.ts";
+import type { SmsSendResult } from "../sms/types.ts";
 import { genericLockState } from "./hilink.ts";
 
 /**
@@ -36,7 +40,8 @@ import { genericLockState } from "./hilink.ts";
  * each verb is one session of the family's driver (`src/drivers/`) through the scheduler's queue,
  * avoidance, breaker and write gate. Its writes are experimental on every model (on by default, each
  * can be turned off, read back in the same session). What no driver implements yet (connected devices, router
- * settings, access control) has nothing to read here; the gate refuses the writes that go with it.
+ * settings, access control) has nothing to read here; the gate refuses the writes that go with it. SMS
+ * goes to the SMS methods of the family's session, where its interface has them.
  */
 export class DriverBackend implements RouterBackend {
   readonly #scheduler: MutexSessionScheduler;
@@ -56,8 +61,8 @@ export class DriverBackend implements RouterBackend {
     return this.#scheduler.executeDriverIdentify({ priority });
   }
 
-  readTelemetry(opts: ReadRequest): Promise<GlobalTelemetrySnapshot | null> {
-    return this.#scheduler.executeDriverTelemetryRead({ priority: "normal", ignoreCooldown: opts.ignoreCooldown });
+  readTelemetry(opts: ReadRequest & { smsCounters: boolean }): Promise<GlobalTelemetrySnapshot | null> {
+    return this.#scheduler.executeDriverTelemetryRead({ priority: "normal", ignoreCooldown: opts.ignoreCooldown, smsCounters: opts.smsCounters });
   }
 
   readNeighbors(opts: ReadRequest): Promise<NeighborScanSnapshot | null> {
@@ -76,9 +81,15 @@ export class DriverBackend implements RouterBackend {
     return Promise.resolve(null);
   }
 
-  /** No driver reads SMS yet: nothing to list, and no request. */
-  listSms(): Promise<SmsListing | null> {
-    return Promise.resolve(null);
+  /**
+   * The family's own listing: everything the router stores, in one session. A family whose notes
+   * define no SMS interface has nothing to list, and gets no request.
+   */
+  async listSms(request: SmsListRequest): Promise<SmsListing | null> {
+    const facts = ROUTER_FAMILY_FACTS[this.family];
+    if (!(facts.reads as ReadonlyArray<string>).includes("sms")) return null;
+    const listed = await this.#scheduler.executeDriverSmsList({ priority: request.priority });
+    return listed ? { ...listed, via: "driver", complete: true, readState: facts.smsReadState ?? "router" } : null;
   }
 
   /** No family answers an unread count without a login. */
@@ -86,17 +97,84 @@ export class DriverBackend implements RouterBackend {
     return Promise.resolve(null);
   }
 
-  /** No driver writes SMS yet: the gate refuses these before any session (`not_implemented`). */
-  async sendSms(_prepared: PreparedSmsSubmission, _options: SubmitSmsOptions, summary: (outcome: SmsSendOutcome) => ControlSummary): Promise<SmsSendOutcome> {
-    return await this.#scheduler.executeDriverControl("sms_send", () => Promise.reject(noSmsWrite()), summary);
+  /**
+   * One send per recipient, each once, in one session. A recipient the router refuses, or says the
+   * message did not reach, is a failed one; once a send was taken, an error ends the session's sends
+   * (the recipients not reached yet are failed, not tried again) instead of failing what went out.
+   */
+  async sendSms(prepared: PreparedSmsSubmission, options: SubmitSmsOptions, summary: (outcome: SmsSendOutcome) => ControlSummary): Promise<SmsSendOutcome> {
+    return await this.#scheduler.executeDriverControl(
+      "sms_send",
+      async (session, write): Promise<SmsSendOutcome> => {
+        const sms = session.sms;
+        if (!sms?.send) throw noSmsWrite("send a message");
+        let accepted = false;
+        const sendOptions: DriverSmsSendOptions = {
+          statusTimeoutMs: options.statusTimeoutMs ?? 45_000,
+          sleep: options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+          onAccepted: () => {
+            accepted = true;
+            options.onAccepted?.();
+          },
+        };
+        const outcomes: DriverSmsSendOutcome[] = [];
+        for (const phone of prepared.phones) {
+          try {
+            outcomes.push(await sms.send(phone, prepared.content, write.check, sendOptions));
+          } catch (err) {
+            // Nothing went out yet: the caller is told what the router said
+            if (!accepted) throw err;
+            // Something did: this recipient and the ones after it are not reached, and nothing is sent again
+            while (outcomes.length < prepared.phones.length) outcomes.push({ state: "failed", code: err instanceof CpeApiError ? err.code : null });
+            break;
+          }
+        }
+        settleSmsSend(write.check, outcomes);
+        const failedPhones = prepared.phones.filter((_, i) => outcomes[i]?.state === "failed");
+        const result: SmsSendResult = {
+          submitted: true,
+          encoding: prepared.mode.encoding,
+          segments: prepared.mode.segments,
+          ok: failedPhones.length === 0,
+          timedOutWaitingStatus: failedPhones.length === 0 && outcomes.some((o) => o.state === "unconfirmed"),
+          sentPhones: prepared.phones.filter((_, i) => outcomes[i]?.state !== "failed"),
+          failedPhones,
+          failCode: outcomes.find((o) => o.state === "failed")?.code ?? null,
+        };
+        return { result, readBack: new Map(), routerKeepsSent: sms.keepsSent };
+      },
+      summary
+    );
   }
 
-  async markSmsRead(_indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
-    return await this.#scheduler.executeDriverControl("sms_mark_read", () => Promise.reject(noSmsWrite()), summary);
+  /** Where FengSui keeps the read state itself there is nothing to write, and no session. */
+  async markSmsRead(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    if (ROUTER_FAMILY_FACTS[this.family].smsReadState === "fengsui") return 0;
+    const wanted = storedIndices(indices);
+    return await this.#scheduler.executeDriverControl(
+      "sms_mark_read",
+      async (session, write) => {
+        const sms = session.sms;
+        if (!sms?.markRead) throw noSmsWrite("mark a message read");
+        if (wanted.length > 0) await sms.markRead(wanted, write.check);
+        return wanted.length;
+      },
+      summary
+    );
   }
 
-  async deleteSms(_indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
-    return await this.#scheduler.executeDriverControl("sms_delete", () => Promise.reject(noSmsWrite()), summary);
+  async deleteSms(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    const wanted = storedIndices(indices);
+    return await this.#scheduler.executeDriverControl(
+      "sms_delete",
+      async (session, write) => {
+        const sms = session.sms;
+        if (!sms?.delete) throw noSmsWrite("delete a message");
+        if (wanted.length > 0) await sms.delete(wanted, write.check);
+        return wanted.length;
+      },
+      summary
+    );
   }
 
   /**
@@ -189,8 +267,9 @@ export class DriverBackend implements RouterBackend {
   }
 }
 
-function noSmsWrite(): CpeControlValidationError {
-  return new CpeControlValidationError("This router's driver has no SMS write; nothing was sent");
+/** A write the family's interface has no way to do (the gate let SMS writes through for the ones it has). */
+function noSmsWrite(what: string): CpeControlValidationError {
+  return new CpeControlValidationError(`This router's interface gives FengSui no way to ${what}; nothing was sent to it`);
 }
 
 /**

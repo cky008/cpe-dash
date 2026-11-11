@@ -455,7 +455,7 @@ describe("write gate on a driver family", () => {
     const access = new DeviceAccess({ family: "zte-goform" });
     assert.equal(access.driverFamily, true);
     assert.equal(access.writeState("bandLock"), "unknown");
-    assert.deepEqual(access.readState("sms"), { state: "unavailable", code: null });
+    assert.deepEqual(access.readState("sms"), { state: "unknown", code: null }, "this family's SMS interface is on record");
     assert.deepEqual(access.readState("settings"), { state: "unavailable", code: null });
     assert.deepEqual(access.readState("telemetry"), { state: "unknown", code: null });
 
@@ -464,7 +464,7 @@ describe("write gate on a driver family", () => {
     assert.equal(access.generic, true);
     assert.deepEqual(
       (["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "accessControl"] as const).map((f) => access.writeState(f)),
-      ["enabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
+      ["enabled", "enabled", "enabled", "not_implemented", "not_implemented", "enabled", "not_implemented"]
     );
     assert.equal(access.writeAccess("cellLock"), "experimental", "open by default: the driver implements it");
     access.setDisabledWrites([{ model: "MC888", feature: "cellLock" }]);
@@ -474,8 +474,9 @@ describe("write gate on a driver family", () => {
     assert.equal(access.writeAccess("reconnect"), "unavailable");
     access.setDisabledWrites([{ model: "OTHER", feature: "cellLock" }]);
     assert.equal(access.writeState("cellLock"), "enabled", "a switch-off names the model");
-    assert.equal(access.snapshot().reads.sms.state, "unavailable");
-    assert.equal(access.skips("sms"), true);
+    assert.equal(access.snapshot().reads.settings.state, "unavailable");
+    assert.equal(access.skips("settings"), true);
+    assert.equal(access.skips("sms"), false);
     assert.equal(access.skips("neighbors"), false);
 
     // Back on a Huawei connection the HiLink rules apply (no generic cell lock)
@@ -488,6 +489,10 @@ describe("write gate on a driver family", () => {
     const pinsu = new DeviceAccess({ family: "pinsu" });
     assert.deepEqual(pinsu.readState("neighbors"), { state: "unavailable", code: null });
     assert.equal(pinsu.skips("neighbors"), true);
+    // No SMS interface on record: nothing to read, and the write stays closed
+    assert.equal(pinsu.skips("sms"), true);
+    pinsu.see("R200", "1.0");
+    assert.equal(pinsu.writeState("smsWrite"), "not_implemented");
   });
 });
 

@@ -169,6 +169,38 @@ describe("SmsMirrorStore: CPE mirror, notification cursor and thread views", () 
     assert.equal(mirror.size, 1);
   });
 
+  it("keeps the read state FengSui holds where the router's own says nothing, and lets the router's win everywhere else", () => {
+    const { mirror } = makeStores();
+    const unread = wire({ index: 1, phone: "+353830000001", content: "one", date: "2026-11-10 12:00:00", smstat: "0" });
+    mirror.ingest([unread], "full", { keepReadState: true });
+    // The router lists it as read from now on (a modem marks what it lists): it stays unread until the owner reads it
+    const listedRead = { ...unread, smstat: "1", isUnread: false };
+    assert.deepEqual(mirror.ingest([listedRead], "full", { keepReadState: true }).updated, []);
+    assert.equal(mirror.get(computeSmsUid(unread))?.isUnread, true);
+    // Read in FengSui: a router that still calls it unread (it has no way to be told) does not undo that
+    mirror.markRead([computeSmsUid(unread)]);
+    assert.deepEqual(mirror.ingest([unread], "full", { keepReadState: true }).updated, []);
+    assert.equal(mirror.get(computeSmsUid(unread))?.isUnread, false);
+    // Text that changed (a long message completed) still updates, with the state kept
+    const longer = { ...unread, content: "one two" };
+    assert.equal(mirror.ingest([longer], "full", { keepReadState: true }).updated[0]?.isUnread, false);
+    // A router that keeps the read state itself is followed
+    assert.equal(mirror.ingest([longer], "full").updated[0]?.isUnread, true);
+  });
+
+  it("keeps its own copy of a message sent through a router that stores none", () => {
+    const { mirror } = makeStores();
+    const sent = mirror.addSent("+353830000001", "On my way", "2026-11-10 12:00:00");
+    assert.deepEqual([sent.direction, sent.localOnly, sent.pending, sent.index, sent.isUnread], ["out", true, undefined, 0, false]);
+    assert.match(sent.uid, /^sent-/);
+    // A full sync that lists nothing leaves it, where a provisional send goes
+    const pending = mirror.addPending("+353830000001", "soon", "2026-11-10 12:01:00");
+    const removed = mirror.ingest([], "full").removed.map((m) => m.uid);
+    assert.deepEqual(removed, [pending.uid]);
+    assert.equal(mirror.get(sent.uid)?.content, "On my way");
+    assert.equal(mirror.getThread("+353830000001").messages.length, 1);
+  });
+
   it("marks read, removes, resolves uids and keeps a bounded notification cursor", () => {
     const { mirror } = makeStores();
     mirror.ingest(

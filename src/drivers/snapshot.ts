@@ -1,6 +1,7 @@
 import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, TelemetryPart, TrafficTelemetryDto } from "../cpe-domain.ts";
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import type { CaBannerComponent, NeighborCellEntry, RfSignalSnapshot, SecondaryCellEntry } from "../parsers.ts";
+import type { SmsCounters } from "../sms/types.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../units.ts";
 import type { DriverCarrier, DriverCell, DriverIdentity, DriverNeighbour, DriverTelemetry } from "./types.ts";
 
@@ -191,7 +192,7 @@ function unavailableParts(t: DriverTelemetry): TelemetryPart[] {
   return out;
 }
 
-export function driverTelemetrySnapshot(t: DriverTelemetry, nowMs: number = Date.now()): GlobalTelemetrySnapshot {
+export function driverTelemetrySnapshot(t: DriverTelemetry, nowMs: number = Date.now(), sms: SmsCounters | null = null): GlobalTelemetrySnapshot {
   return {
     capturedAtIso: new Date(nowMs).toISOString(),
     capturedAtMs: nowMs,
@@ -221,7 +222,7 @@ export function driverTelemetrySnapshot(t: DriverTelemetry, nowMs: number = Date
     bandConfig: { networkMode: "", networkBandHex: "", lteBandHex: "", activeLteBands: [] },
     traffic: trafficDto(t),
     thermal: { temperatureCelsius: t.temperatureC, temperatureSupported: t.temperatureC !== null },
-    sms: null,
+    sms,
   };
 }
 

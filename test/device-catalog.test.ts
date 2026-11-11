@@ -32,6 +32,9 @@ import { DETECTION_ORDER, DRIVER_FAMILIES, ROUTER_FAMILY_FACTS, isRouterFamily }
  * project (the guide credits it once).
  */
 
+/** The driver families whose SMS interface is on record, and implemented. */
+const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform"];
+
 const PAGES = [
   { file: "docs/guide/zh/supported-devices.md", locale: "zh-CN" },
   { file: "docs/guide/en/supported-devices.md", locale: "en" },
@@ -131,8 +134,9 @@ describe("the supported devices guide page", () => {
         assert.equal(mark, expected, `${family} ${feature}`);
       }
       // Each brand's writes are its own list: a write one driver gains later changes that brand's rows alone
-      assert.deepEqual([...ROUTER_FAMILY_FACTS[family].writes], ["bandLock", "cellLock", "reboot"], `${family}: what its driver writes today`);
-      assert.equal(familyImplements(family, "smsRead"), false, `${family}: no SMS yet`);
+      const sms = SMS_FAMILIES.includes(family);
+      assert.deepEqual([...ROUTER_FAMILY_FACTS[family].writes], sms ? ["bandLock", "cellLock", "reboot", "smsWrite"] : ["bandLock", "cellLock", "reboot"], `${family}: what its driver writes today`);
+      assert.equal(familyImplements(family, "smsRead"), sms, `${family}: SMS where its interface is on record`);
     }
     assert.equal(familyImplements("huawei", "smsRead"), true);
     // Done in part: reboot without redial is △, and the note says which part

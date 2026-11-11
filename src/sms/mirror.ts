@@ -160,21 +160,25 @@ export class SmsMirrorStore {
 
   /**
    * Upsert CPE messages; a `full` sync also removes everything the router no longer stores
-   * (including provisional sends). A real outgoing copy replaces its provisional record.
+   * (including provisional sends). A real outgoing copy replaces its provisional record. With
+   * `keepReadState` a message FengSui already holds keeps the read state FengSui has for it: the
+   * router's own says nothing there (it cannot be told a message was read, or calls every message it
+   * lists read).
    */
   ingest(
     messages: ReadonlyArray<SmsWireMessage>,
     mode: "incremental" | "full",
-    info: { counters?: SmsCounters; via?: SmsListingPath } = {}
+    info: { counters?: SmsCounters; via?: SmsListingPath; keepReadState?: boolean } = {}
   ): SmsIngestResult {
     const result: SmsIngestResult = { added: [], updated: [], removed: [] };
     const seen = new Set<string>();
-    for (const wire of messages) {
-      const uid = computeSmsUid(wire);
+    for (const listed of messages) {
+      const uid = computeSmsUid(listed);
       seen.add(uid);
       // Deleted by the owner: a listing from before the delete (or a router that ignored it) does not bring it back
       if (this.#trash.has(uid)) continue;
       const existing = this.#messages.get(uid);
+      const wire: SmsWireMessage = info.keepReadState && existing && !existing.localOnly ? { ...listed, isUnread: existing.isUnread, smstat: existing.smstat } : listed;
       const record: SmsMessageRecord = {
         ...wire,
         uid,
@@ -228,6 +232,29 @@ export class SmsMirrorStore {
       pending: true,
     };
     this.#messages.set(record.uid, record);
+    this.#commit();
+    return { ...record };
+  }
+
+  /**
+   * A message that went out through a router which keeps no copy of what it sends: FengSui's own
+   * copy is the only one, so it stays through full syncs like a restored message does.
+   */
+  addSent(phone: string, content: string, date: string): SmsMessageRecord {
+    const record: SmsMessageRecord = {
+      uid: `sent-${crypto.randomUUID()}`,
+      index: 0,
+      phone,
+      content,
+      date,
+      smstat: "3",
+      isUnread: false,
+      direction: "out",
+      verificationCode: null,
+      localOnly: true,
+    };
+    this.#messages.set(record.uid, record);
+    this.#enforceCap();
     this.#commit();
     return { ...record };
   }

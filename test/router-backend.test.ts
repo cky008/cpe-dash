@@ -88,7 +88,7 @@ describe("router backend: one interface for every brand", () => {
     assert.ok(!/\bexecute(Read|Control)\(/.test(sms), "the SMS service opens a session itself: go through RouterBackend");
     assert.ok(!/\bprobePublic\(/.test(sms), "the SMS service asks a HiLink endpoint itself: go through RouterBackend");
     const wire = [...sms.matchAll(/import \{([^}]+)\} from "\.\/protocol\.ts"/g)].flatMap((m) => (m[1] ?? "").split(",").map((name) => name.replace(/\btype\b/, "").trim())).filter(Boolean);
-    assert.deepEqual(wire.sort(), ["PreparedSmsSubmission", "prepareSmsSubmission", "unconfirmedSendResult"], "the SMS service takes only the brand-neutral checks from the HiLink protocol module");
+    assert.deepEqual(wire.sort(), ["prepareSmsSubmission", "unconfirmedSendResult"], "the SMS service takes only the brand-neutral checks from the HiLink protocol module");
   });
 
   it("answers the SMS verbs on a brand without SMS: nothing to list, every write refused by the gate, no request", async () => {
