@@ -237,7 +237,7 @@ describe("pinsu: readings and locks", () => {
   });
 });
 
-function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | null; refuse?: number } = {}) {
+function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | null; refuse?: number; writeToken?: false } = {}) {
   const token = opts.token === undefined ? "a1b2c3d4e5f60718293a4b5c6d7e8f90" : opts.token;
   const sid = "7c9e1a00000000000000000000000000000000000000000000000000000000ff";
   const state: Record<string, Record<string, unknown>> = {
@@ -246,6 +246,7 @@ function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | n
     218: { networkMode: "131", mode5g: "1" },
   };
   const posts: Array<Record<string, unknown>> = [];
+  let writeTokens = 0;
   const mock = new LanRouterMock((req) => {
     const body = JSON.parse(req.body) as Record<string, unknown>;
     const cmd = body["cmd"];
@@ -259,9 +260,13 @@ function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | n
       if (cmd === 205) return { json: { success: true, cmd, network_type_str: "5G(SA)", currentband_5g: "78", RSRP_5G: "-79", PCI_5G: "142", FREQ_5G: "650000", CELL_ID_5G: "1000", bandwidth_5g: "100MHz", RSRP: "-", flow_dl: "1548.62", flow_ul: "312.45", mon_total_flow: "48920.18", signal_lvl: "5", network_operator: "27201" } };
       if (cmd === 207) return { json: { success: true, cmd, board_type: "VN007+", real_fwversion: "2.10.22", "apcpu0-thmzone": "54200" } };
       if (cmd === 282) return { json: { success: true, cmd, lte_info: "1850,142,-85,-9,-58;", nr_info: "650000,142,-79,-10,24;bad" } };
+      // The token every write carries: a fresh one each time it is asked for
+      if (cmd === 233) return opts.writeToken === false ? { json: { success: false, cmd } } : { json: { success: true, cmd, token: `w${++writeTokens}` } };
       return { json: { success: true, cmd, ...state[String(cmd)] } };
     }
     posts.push(body);
+    // A write without the token handed out last is not this page's
+    if (opts.writeToken !== false && cmd !== 101 && body["token"] !== `w${writeTokens}`) return { json: { success: false, cmd, message: "token" } };
     if (cmd === opts.refuse) return { json: { success: false, cmd } };
     if (cmd === 161) {
       state[161] = { ...state[161], band_4g_switch: body["band4gRadio"], band_5g_switch: body["band5gRadio"], band_4g_mask: body["lock4gBand"], band_5g_mask: body["lock5gBand"] };
@@ -352,8 +357,9 @@ describe("tozed: locks", () => {
     const { posts, client } = tozedRouter();
     const check = newCheck();
     await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: [41, 78], networkMode: "nr_nsa" }, check));
-    assert.deepEqual(posts[0], { cmd: 161, method: "POST", band5gRadio: "1", band4gRadio: "1", lock5gBand: "20000000010000000000", lock4gBand: "5", language: "CN", sessionId: posts[0]?.["sessionId"] });
-    assert.deepEqual(posts[1], { cmd: 218, method: "POST", networkMode: "131", mode5g: "0", language: "CN", sessionId: posts[1]?.["sessionId"] });
+    // Each write carries the token asked for right before it, as the router's page does
+    assert.deepEqual(posts[0], { cmd: 161, method: "POST", token: "w1", band5gRadio: "1", band4gRadio: "1", lock5gBand: "20000000010000000000", lock4gBand: "5", language: "CN", sessionId: posts[0]?.["sessionId"] });
+    assert.deepEqual(posts[1], { cmd: 218, method: "POST", token: "w2", networkMode: "131", mode5g: "0", language: "CN", sessionId: posts[1]?.["sessionId"] });
     assert.deepEqual(check, { endpoints: ["tozed:cmd161", "tozed:cmd218"], readback: "match", reason: null });
     await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [2], nr: null, networkMode: null }, newCheck())), /not one this router supports/);
     const keep = newCheck();
@@ -361,6 +367,17 @@ describe("tozed: locks", () => {
     const last = posts.filter((p) => p["cmd"] === 161).at(-1);
     assert.deepEqual([last?.["band4gRadio"], last?.["lock5gBand"]], ["0", "20000000010000000000"]);
     assert.equal(keep.readback, "match");
+  });
+
+  it("writes with an empty token on a firmware that hands none out, and logs out without asking for one", async () => {
+    const { posts, client, mock } = tozedRouter({ writeToken: false });
+    const check = newCheck();
+    await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: [41, 78], networkMode: null }, check));
+    assert.deepEqual([posts[0]?.["cmd"], posts[0]?.["token"], check.readback], [161, "", "match"]);
+    const bodies = mock.requests.map((r) => JSON.parse(r.body) as Record<string, unknown>);
+    // One token read per write; the logout (cmd 101) carries none
+    assert.equal(bodies.filter((b) => b["cmd"] === 233).length, 1);
+    assert.deepEqual([bodies.at(-1)?.["cmd"], "token" in (bodies.at(-1) ?? {})], [101, false]);
   });
 
   it("locks and unlocks cells by sub-command, reboots, and reports a refusal", async () => {

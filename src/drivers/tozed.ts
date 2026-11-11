@@ -53,7 +53,8 @@ import {
  * token (`cmd 232`) and sends SHA-256 of token + password (`cmd 100`), which returns the session id
  * later calls carry. Readings: `205` signal and traffic, `207` board and temperature, `282` nearby
  * cells; settings: `218` network mode, `161` band masks (bare lowercase hexadecimal), `160` cell
- * locks. The answers some operator builds wrap in AES are not supported (no documented key).
+ * locks. Every write carries the token `233` hands out right before it, as the router's page sends
+ * it. The answers some operator builds wrap in AES are not supported (no documented key).
  *
  * SMS: `12` lists a box page by page (`subcmd` 0 the inbox, 1 the sent box) as comma-separated
  * Base64 entries, each `index read-flag number date time text`; `13` sends, with the text as Base64
@@ -305,10 +306,19 @@ class TozedSession implements DriverSessionHandle {
     return parseTozedLockState(await this.#get(161), await this.#get(160), await this.#get(218));
   }
 
-  async #post(check: WriteCheck, cmd: number, params: Record<string, unknown>): Promise<void> {
+  /**
+   * The token a write carries: the router's page asks `cmd 233` for a fresh one before each write
+   * and sends it as `token`. A firmware that hands none out is sent an empty one, as its page would.
+   */
+  async #writeToken(): Promise<string> {
     this.#guard();
+    return textOf((await call(this.#http, this.#sid, 233, "GET").catch((): Record<string, unknown> => ({})))["token"]) ?? "";
+  }
+
+  async #post(check: WriteCheck, cmd: number, params: Record<string, unknown>): Promise<void> {
+    const token = await this.#writeToken();
     noteSent(check, FAMILY, params["subcmd"] === undefined ? `cmd${cmd}` : `cmd${cmd}.${String(params["subcmd"])}`);
-    requireSuccess(await call(this.#http, this.#sid, cmd, "POST", params), cmd);
+    requireSuccess(await call(this.#http, this.#sid, cmd, "POST", { token, ...params }), cmd);
   }
 
   async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
@@ -387,8 +397,7 @@ class TozedSession implements DriverSessionHandle {
 
   /** `cmd 13` with the write token of `cmd 233`: the router answers whether the message went out (`message` `0`). */
   async #smsSend(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome> {
-    this.#guard();
-    const token = textOf((await call(this.#http, this.#sid, 233, "GET").catch((): Record<string, unknown> => ({})))["token"]) ?? "";
+    const token = await this.#writeToken();
     noteSent(check, FAMILY, "cmd13");
     const answer = await call(this.#http, this.#sid, 13, "POST", { token, phoneNo: phone, content: Buffer.from(content, "utf8").toString("base64") });
     requireSuccess(answer, 13);
