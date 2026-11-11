@@ -1145,6 +1145,15 @@ export class MutexSessionScheduler extends EventEmitter {
     }
   }
 
+  /**
+   * A write the connection's driver family has no implementation of: refused and audited the way
+   * `executeControl` refuses a HiLink write on such a router, with nothing queued and no session.
+   */
+  async refuseDriverWrite(actionName: ControlAction): Promise<never> {
+    if (!this.isDriverMode()) throw new TypeError(`${actionName} was refused as a driver write on a HiLink connection`);
+    return await this.executeControl(actionName, () => Promise.reject(new TypeError(`${actionName} reached a session on a router of a driver family`)));
+  }
+
   #audit(actor: AuditActor, action: string, outcome: AuditOutcome, detail: string | null): void {
     this.#safeEmit("control:audit", { actor, action, outcome, detail } satisfies ControlAuditEvent);
   }

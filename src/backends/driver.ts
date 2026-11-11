@@ -1,6 +1,8 @@
-import type { AccessControlSnapshot } from "../access-control.ts";
+import type { AccessControlSnapshot, TimeRulesState } from "../access-control.ts";
+import type { WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
 import { type DriverBandLockRequest, readDriverBandLockTarget, readDriverCellLockTarget } from "../control-input.ts";
 import {
+  type AntennaModeName,
   type BandLockCommand,
   type CellLockCommand,
   CpeControlValidationError,
@@ -255,6 +257,40 @@ export class DriverBackend implements RouterBackend {
       },
       (outcome) => summary(outcome, restoring)
     );
+  }
+
+  // ------------------------------------------------------------------ writes no driver implements yet (the gate's refusal, nothing queued)
+
+  reconnect(): Promise<{ reconnecting: true; requestedAtIso: string }> {
+    return this.#scheduler.refuseDriverWrite("reconnect_cellular");
+  }
+
+  autoReconnect(): Promise<WanRepairOutcome> {
+    return this.#scheduler.refuseDriverWrite("auto_reconnect_cellular");
+  }
+
+  setMobileData(): Promise<{ mobileDataEnabled: boolean }> {
+    return this.#scheduler.refuseDriverWrite("set_mobile_data");
+  }
+
+  setSecuritySwitches(): Promise<void> {
+    return this.#scheduler.refuseDriverWrite("set_security_switches");
+  }
+
+  setWifi7(): Promise<{ mloEnable: boolean; dbhoEnable: boolean }> {
+    return this.#scheduler.refuseDriverWrite("set_wifi7_mlo");
+  }
+
+  setAntennaMode(): Promise<{ mode: AntennaModeName; rawCode: number }> {
+    return this.#scheduler.refuseDriverWrite("set_antenna_mode");
+  }
+
+  setWifiAccess(): Promise<{ wifiMacFilter: WifiMacFilterState; plan: WifiFilterPlan }> {
+    return this.#scheduler.refuseDriverWrite("set_wifi_access");
+  }
+
+  manageTimeRule(): Promise<TimeRulesState> {
+    return this.#scheduler.refuseDriverWrite("manage_time_rule");
   }
 
   async reboot(_params: { confirm: boolean }, summary: ControlSummary): Promise<{ rebooting: true; requestedAtIso: string }> {

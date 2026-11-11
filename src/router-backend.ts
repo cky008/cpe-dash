@@ -1,11 +1,14 @@
-import type { AccessControlSnapshot } from "./access-control.ts";
+import type { AccessControlSnapshot, AccessRequestContext, TimeRulesState } from "./access-control.ts";
+import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "./access-plan.ts";
 import type {
+  AntennaModeName,
   BandLockCommand,
   CellLockCommand,
   GlobalTelemetrySnapshot,
   NeighborScanSnapshot,
   PersistedLockState,
   RouterSettingsSnapshot,
+  SecurityUpdateCommand,
   TerminalTopologySnapshot,
   WanRepairSkipReason,
 } from "./cpe-domain.ts";
@@ -69,6 +72,26 @@ export interface RouterBackend {
    */
   rollBackLocks(request: RollbackRequest, summary: (outcome: WanRepairOutcome, restored: boolean) => ControlSummary | null): Promise<WanRepairOutcome>;
   reboot(params: { confirm: boolean }, summary: ControlSummary): Promise<{ rebooting: true; requestedAtIso: string }>;
+  /** Redial the cellular connection (someone asked for it). */
+  reconnect(summary: ControlSummary): Promise<{ reconnecting: true; requestedAtIso: string }>;
+  /**
+   * Self-healing's redial (`WAN_AUTO_RECONNECT_AFTER_MIN`): skipped when, inside the session, the WAN
+   * re-reads as up or mobile data as switched off. Never a reboot.
+   */
+  autoReconnect(summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome>;
+  setMobileData(enabled: boolean, summary: ControlSummary): Promise<{ mobileDataEnabled: boolean }>;
+  /** UPnP, DMZ and the firewall switches (checked before queueing). */
+  setSecuritySwitches(command: SecurityUpdateCommand, summary: ControlSummary): Promise<void>;
+  setWifi7(input: { mloEnable?: boolean; dbhoEnable?: boolean }, summary: ControlSummary): Promise<{ mloEnable: boolean; dbhoEnable: boolean }>;
+  setAntennaMode(mode: AntennaModeName, summary: ControlSummary): Promise<{ mode: AntennaModeName; rawCode: number }>;
+  /**
+   * Block or unblock a Wi-Fi device, or change the Wi-Fi MAC filter's mode and list: planned against
+   * the router's state inside the session (the daemon's host and the requesting device are never cut
+   * off) and read back.
+   */
+  setWifiAccess(change: WifiAccessChange, ctx: AccessRequestContext, summary: () => ControlSummary): Promise<{ wifiMacFilter: WifiMacFilterState; plan: WifiFilterPlan }>;
+  /** Create, update or delete an internet time rule for one device. */
+  manageTimeRule(change: TimeRuleChange, ctx: AccessRequestContext, summary: () => ControlSummary): Promise<TimeRulesState>;
   /**
    * Send one message to the recipients of `prepared` (checked before any session is queued). Sent
    * once: after the router took it (`options.onAccepted`), nothing that goes wrong makes it a failed

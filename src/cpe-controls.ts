@@ -1,9 +1,4 @@
-import {
-  type AccessControlSnapshot,
-  type AccessRequestContext,
-  applyTimeRuleChange,
-  applyWifiAccessChange,
-} from "./access-control.ts";
+import type { AccessControlSnapshot, AccessRequestContext } from "./access-control.ts";
 import type { TimeRuleChange, WifiAccessChange } from "./access-plan.ts";
 import {
   type AntennaModeName,
@@ -14,19 +9,11 @@ import {
   type PersistedLockState,
   type RouterSettingsSnapshot,
   type SecurityUpdateCommand,
-  readWanRepairBlocker,
-  triggerCellularReconnect,
-  updateAntennaMode,
-  updateMobileDataSwitch,
-  updateSecuritySettings,
-  updateWifi7Mlo,
   validateSecurityUpdateCommand,
   verifyLockState,
 } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { routerBackendOf } from "./backends/index.ts";
-import { verifiedOnly } from "./backends/hilink.ts";
-import { genericMobileData, genericReconnect, readWanRepairBlockerTolerant } from "./generic-writes.ts";
 import type { RouterBackend, WanRepairOutcome } from "./router-backend.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { maskMacTail } from "./privacy-mask.ts";
@@ -55,10 +42,9 @@ export interface CpeControlServiceOptions {
  * (Wi-Fi MAC filter, internet time rules). Every command is validated
  * before it is queued (no session for bad input), runs as one `executeControl` session (never
  * replayed, refused with `409` while a human is logged in), and updates the persisted lock state or
- * the cached settings snapshot afterwards. The locks, the unlock, the automatic lock rollback and the
- * reboot go through the backend of the router's family (`RouterBackend`), so nothing here names a
- * brand; the writes only the HiLink stack implements so far are sent as HiLink sessions, and the
- * gate refuses them on any other family.
+ * the cached settings snapshot afterwards. Every write goes through the backend of the router's
+ * family (`RouterBackend`), so nothing here names a brand or opens a session: a write a family has no
+ * implementation of is refused by the gate, with nothing sent.
  */
 /**
  * A band or cell lock on a router nobody verified, which can cut the WAN (see
@@ -162,17 +148,7 @@ export class CpeControlService {
 
   /** Automatic reconnect (`WAN_AUTO_RECONNECT_AFTER_MIN`), guarded like `rollBackLocks`. Never a reboot. */
   async reconnectWan(): Promise<WanRepairOutcome> {
-    return await this.scheduler.executeControl(
-      "auto_reconnect_cellular",
-      async (session, write): Promise<WanRepairOutcome> => {
-        const skipped = write.generic ? await readWanRepairBlockerTolerant(session) : await readWanRepairBlocker(session);
-        if (skipped) return { applied: false, skipped };
-        if (write.generic) await genericReconnect(session, write.check);
-        else await triggerCellularReconnect(session);
-        return { applied: true };
-      },
-      (outcome) => (outcome.applied ? summaryOf("controls.auto_reconnect_applied") : null)
-    );
+    return await this.#backend().autoReconnect((outcome) => (outcome.applied ? summaryOf("controls.auto_reconnect_applied") : null));
   }
 
   async rebootRouter(params: { confirm: boolean }): Promise<{ rebooting: true; requestedAtIso: string }> {
@@ -185,34 +161,13 @@ export class CpeControlService {
   }
 
   async reconnectCellular(): Promise<{ reconnecting: true; requestedAtIso: string }> {
-    return await this.scheduler.executeControl(
-      "reconnect_cellular",
-      async (session, write) => {
-        if (!write.generic) return await triggerCellularReconnect(session);
-        await genericReconnect(session, write.check);
-        return { reconnecting: true as const, requestedAtIso: new Date().toISOString() };
-      },
-      {
-        zh: t("zh-CN", "controls.reconnect_triggered"),
-        en: t("en", "controls.reconnect_triggered"),
-      }
-    );
+    return await this.#backend().reconnect(summaryOf("controls.reconnect_triggered"));
   }
 
   /** Apply the switches, then re-read the full settings in a second read session (`null` if skipped). */
   async setSecuritySwitches(command: SecurityUpdateCommand): Promise<RouterSettingsSnapshot | null> {
     validateSecurityUpdateCommand(command);
-    await this.scheduler.executeControl(
-      "set_security_switches",
-      (session, write) => {
-        verifiedOnly(write, "set_security_switches");
-        return updateSecuritySettings(session, command);
-      },
-      {
-        zh: t("zh-CN", "controls.security_updated"),
-        en: t("en", "controls.security_updated"),
-      }
-    );
+    await this.#backend().setSecuritySwitches(command, summaryOf("controls.security_updated"));
     return await this.monitor.refreshSettings({ ignoreCooldown: true });
   }
 
@@ -223,17 +178,7 @@ export class CpeControlService {
     if (input.mloEnable === undefined && input.dbhoEnable === undefined) {
       throw new CpeControlValidationError("Specify mloEnable and/or dbhoEnable");
     }
-    const wifi7 = await this.scheduler.executeControl(
-      "set_wifi7_mlo",
-      (session, write) => {
-        verifiedOnly(write, "set_wifi7_mlo");
-        return updateWifi7Mlo(session, input);
-      },
-      {
-        zh: t("zh-CN", "controls.wifi7_updated"),
-        en: t("en", "controls.wifi7_updated"),
-      }
-    );
+    const wifi7 = await this.#backend().setWifi7(input, summaryOf("controls.wifi7_updated"));
     this.monitor.patchCachedSettings(() => ({ wifi7: { ...wifi7 } }));
     return wifi7;
   }
@@ -242,17 +187,7 @@ export class CpeControlService {
     if (mode !== "auto" && mode !== "internal" && mode !== "external") {
       throw new CpeControlValidationError(`Invalid antenna mode "${String(mode)}"`);
     }
-    const antenna = await this.scheduler.executeControl(
-      "set_antenna_mode",
-      (session, write) => {
-        verifiedOnly(write, "set_antenna_mode");
-        return updateAntennaMode(session, mode);
-      },
-      {
-        zh: t("zh-CN", "controls.antenna_updated", { mode }),
-        en: t("en", "controls.antenna_updated", { mode }),
-      }
-    );
+    const antenna = await this.#backend().setAntennaMode(mode, summaryOf("controls.antenna_updated", { mode }));
     this.monitor.patchCachedSettings((current) => ({
       antenna: { ...current.antenna, mode: antenna.mode, rawCode: String(antenna.rawCode) },
     }));
@@ -260,14 +195,7 @@ export class CpeControlService {
   }
 
   async setMobileData(enabled: boolean): Promise<{ mobileDataEnabled: boolean }> {
-    const result = await this.scheduler.executeControl(
-      "set_mobile_data",
-      async (session, write) => (write.generic ? { mobileDataEnabled: await genericMobileData(session, write.check, enabled) } : await updateMobileDataSwitch(session, enabled)),
-      {
-        zh: t("zh-CN", "controls.mobile_data_updated"),
-        en: t("en", "controls.mobile_data_updated"),
-      }
-    );
+    const result = await this.#backend().setMobileData(enabled, summaryOf("controls.mobile_data_updated"));
     this.monitor.patchCachedSettings(() => ({ mobileDataEnabled: result.mobileDataEnabled }));
     return result;
   }
@@ -279,14 +207,7 @@ export class CpeControlService {
    */
   async setWifiAccess(change: WifiAccessChange, ctx: AccessRequestContext & { confirm: boolean }): Promise<AccessControlResult> {
     requireAccessConfirmation(ctx.confirm);
-    const result = await this.scheduler.executeControl(
-      "set_wifi_access",
-      (session, write) => {
-        verifiedOnly(write, "set_wifi_access");
-        return applyWifiAccessChange(session, change, ctx);
-      },
-      () => wifiAccessSummary(change)
-    );
+    const result = await this.#backend().setWifiAccess(change, ctx, () => wifiAccessSummary(change));
     return {
       accessControl: await this.#foldAccessControl({ wifiMacFilter: result.wifiMacFilter }),
       changed: result.plan.write !== null,
@@ -297,14 +218,7 @@ export class CpeControlService {
   /** Create, update or delete an internet time rule ("allowed online window") for one device. */
   async manageTimeRule(change: TimeRuleChange, ctx: AccessRequestContext & { confirm: boolean }): Promise<AccessControlResult> {
     requireAccessConfirmation(ctx.confirm);
-    const timeRules = await this.scheduler.executeControl(
-      "manage_time_rule",
-      (session, write) => {
-        verifiedOnly(write, "manage_time_rule");
-        return applyTimeRuleChange(session, change, ctx);
-      },
-      () => timeRuleSummary(change)
-    );
+    const timeRules = await this.#backend().manageTimeRule(change, ctx, () => timeRuleSummary(change));
     return { accessControl: await this.#foldAccessControl({ timeRules }), changed: true, alsoBlocked: [] };
   }
 

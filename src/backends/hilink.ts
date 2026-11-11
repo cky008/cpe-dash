@@ -1,6 +1,8 @@
-import { type AccessControlSnapshot, fetchAccessControl } from "../access-control.ts";
+import { type AccessControlSnapshot, type AccessRequestContext, type TimeRulesState, applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../access-control.ts";
+import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
 import { validateGenericBandLock } from "../control-input.ts";
 import {
+  type AntennaModeName,
   type BandLockCommand,
   type CellLockCommand,
   CpeControlValidationError,
@@ -8,6 +10,7 @@ import {
   type NeighborScanSnapshot,
   type PersistedLockState,
   type RouterSettingsSnapshot,
+  type SecurityUpdateCommand,
   type TerminalTopologySnapshot,
   applyBandLock,
   applyCellLock,
@@ -20,11 +23,16 @@ import {
   readWanRepairBlocker,
   rebootCpe,
   scanNeighborCells,
+  triggerCellularReconnect,
   unlockAllRfLocks,
+  updateAntennaMode,
+  updateMobileDataSwitch,
+  updateSecuritySettings,
+  updateWifi7Mlo,
 } from "../cpe-domain.ts";
 import { gateRefuses } from "../device-access.ts";
 import { type DeviceProbeResult, probeDevice } from "../device-profile.ts";
-import { genericBandLock, genericReboot, readWanRepairBlockerTolerant } from "../generic-writes.ts";
+import { genericBandLock, genericMobileData, genericReboot, genericReconnect, readWanRepairBlockerTolerant } from "../generic-writes.ts";
 import type {
   BandLockOutcome,
   LockContext,
@@ -242,6 +250,96 @@ export class HilinkBackend implements RouterBackend {
         if (!write.generic) return await rebootCpe(session, params);
         await genericReboot(session, write.check);
         return { rebooting: true as const, requestedAtIso: new Date().toISOString() };
+      },
+      summary
+    );
+  }
+
+  async reconnect(summary: ControlSummary): Promise<{ reconnecting: true; requestedAtIso: string }> {
+    return await this.#scheduler.executeControl(
+      "reconnect_cellular",
+      async (session, write) => {
+        if (!write.generic) return await triggerCellularReconnect(session);
+        await genericReconnect(session, write.check);
+        return { reconnecting: true as const, requestedAtIso: new Date().toISOString() };
+      },
+      summary
+    );
+  }
+
+  /** `monitoring/status` and the mobile data switch decide; a model nobody verified may lack the switch. */
+  async autoReconnect(summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome> {
+    return await this.#scheduler.executeControl(
+      "auto_reconnect_cellular",
+      async (session, write): Promise<WanRepairOutcome> => {
+        const skipped = write.generic ? await readWanRepairBlockerTolerant(session) : await readWanRepairBlocker(session);
+        if (skipped) return { applied: false, skipped };
+        if (write.generic) await genericReconnect(session, write.check);
+        else await triggerCellularReconnect(session);
+        return { applied: true };
+      },
+      summary
+    );
+  }
+
+  async setMobileData(enabled: boolean, summary: ControlSummary): Promise<{ mobileDataEnabled: boolean }> {
+    return await this.#scheduler.executeControl(
+      "set_mobile_data",
+      async (session, write) => (write.generic ? { mobileDataEnabled: await genericMobileData(session, write.check, enabled) } : await updateMobileDataSwitch(session, enabled)),
+      summary
+    );
+  }
+
+  async setSecuritySwitches(command: SecurityUpdateCommand, summary: ControlSummary): Promise<void> {
+    await this.#scheduler.executeControl(
+      "set_security_switches",
+      (session, write) => {
+        verifiedOnly(write, "set_security_switches");
+        return updateSecuritySettings(session, command);
+      },
+      summary
+    );
+  }
+
+  async setWifi7(input: { mloEnable?: boolean; dbhoEnable?: boolean }, summary: ControlSummary): Promise<{ mloEnable: boolean; dbhoEnable: boolean }> {
+    return await this.#scheduler.executeControl(
+      "set_wifi7_mlo",
+      (session, write) => {
+        verifiedOnly(write, "set_wifi7_mlo");
+        return updateWifi7Mlo(session, input);
+      },
+      summary
+    );
+  }
+
+  async setAntennaMode(mode: AntennaModeName, summary: ControlSummary): Promise<{ mode: AntennaModeName; rawCode: number }> {
+    return await this.#scheduler.executeControl(
+      "set_antenna_mode",
+      (session, write) => {
+        verifiedOnly(write, "set_antenna_mode");
+        return updateAntennaMode(session, mode);
+      },
+      summary
+    );
+  }
+
+  async setWifiAccess(change: WifiAccessChange, ctx: AccessRequestContext, summary: () => ControlSummary): Promise<{ wifiMacFilter: WifiMacFilterState; plan: WifiFilterPlan }> {
+    return await this.#scheduler.executeControl(
+      "set_wifi_access",
+      (session, write) => {
+        verifiedOnly(write, "set_wifi_access");
+        return applyWifiAccessChange(session, change, ctx);
+      },
+      summary
+    );
+  }
+
+  async manageTimeRule(change: TimeRuleChange, ctx: AccessRequestContext, summary: () => ControlSummary): Promise<TimeRulesState> {
+    return await this.#scheduler.executeControl(
+      "manage_time_rule",
+      (session, write) => {
+        verifiedOnly(write, "manage_time_rule");
+        return applyTimeRuleChange(session, change, ctx);
       },
       summary
     );
