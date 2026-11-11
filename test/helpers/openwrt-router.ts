@@ -286,6 +286,11 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
           '+GTCCINFO: 2,9,460,00,000A,01A2B3D,627264,143,-75,-12,68,14\n\nOK\n'
         );
       }
+      if (cmd === "AT+GTCAINFO?") {
+        if (state.serving === "none") return reply("+GTCAINFO:\n\nOK\n");
+        // The serving NR carrier, one activated and one configured-but-idle secondary
+        return reply("+GTCAINFO:\nPCC:578,142,650000,100,4,1,3,1,-70\nSCC 1:2,0,578,211,649980,12,255,2,255,3,255,-77\nSCC 2:1,0,101,211,300,100,100,2,1,2,0,-90\n\nOK\n");
+      }
       if (cmd === "AT+MTSM=1") {
         return reply("+MTSM: 45.5\n\nOK\n");
       }

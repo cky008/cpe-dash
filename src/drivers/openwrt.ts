@@ -71,8 +71,9 @@ import {
  *      `AT+QNWLOCK="common/4g"` / `AT+QNWLOCK="common/5g"` for cell locking, and `AT+CFUN=1,1` for reboot.
  *
  * 3. Fibocom modules:
- *    - Telemetry: `ATI`, `AT+GMR` / `AT+CGMR`, `AT+GTCCINFO?` (serving & neighbours), `AT+MTSM=1`.
- *      Secondary carriers are not read: the answer format of `AT+GTCAINFO?` is not documented.
+ *    - Telemetry: `ATI`, `AT+GMR` / `AT+CGMR`, `AT+GTCCINFO?` (serving & neighbours), `AT+MTSM=1`,
+ *      `AT+GTCAINFO?` (secondary carriers: the notes name it; its answer layout is in
+ *      docs/PHASE2_ARCHITECTURE_REPORT.md §18.4).
  *    - Serving cell RSRP conversion: LTE `idx - 140` dBm; NR `idx - 156` dBm.
  *    - Controls: `AT+GTACT` band locking with `+100` for LTE and `+500` for NR,
  *      `AT+GTCELLLOCK` for 4G/5G cell locking, and `AT+CFUN=1,1` for reboot.
@@ -513,6 +514,50 @@ function counterTraffic(counter: { sent: bigint; received: bigint }, source: str
 // Fibocom AT Parsers
 // --------------------------------------------------------------------------
 
+/** LTE channel bandwidths in resource blocks, as Fibocom's carrier list writes them, and their width in MHz. */
+const LTE_RB_MHZ: Readonly<Record<string, number>> = { "6": 1.4, "15": 3, "25": 5, "50": 10, "75": 15, "100": 20 };
+
+/** A Fibocom band code: `100 + band` for LTE, `500 + band` (or `5000 + band`) for NR. */
+function fibocomBandOf(code: string | undefined): { rat: DriverRat; band: number } | null {
+  if (code === undefined || !/^\d{3,4}$/.test(code)) return null;
+  const n = Number.parseInt(code, 10);
+  const found: { rat: DriverRat; band: number } | null = n > 100 && n < 200 ? { rat: "LTE", band: n - 100 } : n >= 5000 ? { rat: "NR", band: n - 5000 } : n > 500 && n < 1000 ? { rat: "NR", band: n - 500 } : null;
+  return found && bandOf(found.band) !== null ? found : null;
+}
+
+/**
+ * The secondary carriers of `AT+GTCAINFO?`: one `SCC <n>:` line each, `state, ul_cfg, band, pci,
+ * earfcn, dl_bw, ul_bw, dl_mimo, ul_mimo, dl_mod, ul_mod, rsrp`, and only those whose state is `2`
+ * (activated). The `PCC:` line is the serving cell `AT+GTCCINFO?` already gave. An LTE carrier's
+ * bandwidth is in resource blocks; an NR carrier's is coded differently from one firmware to the
+ * next, so it is left out. The RSRP is in dBm.
+ */
+export function parseFibocomCaInfo(text: string): DriverCarrier[] {
+  const carriers: DriverCarrier[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.toUpperCase().startsWith("SCC")) continue;
+    const colon = line.indexOf(":");
+    if (colon < 0 || !/^SCC\s?\d{1,2}$/i.test(line.slice(0, colon).trim())) continue;
+    const fields = line.slice(colon + 1).split(",").map((field) => field.trim());
+    if (fields.length < 7 || fields[0] !== "2") continue;
+    const band = fibocomBandOf(fields[2]);
+    if (!band) continue;
+    carriers.push({
+      rat: band.rat,
+      band: band.band,
+      arfcn: arfcnOf(fields[4], band.rat),
+      pci: pciOf(fields[3], band.rat),
+      bandwidthMhz: band.rat === "LTE" ? (LTE_RB_MHZ[fields[5] ?? ""] ?? null) : null,
+      rsrpDbm: fields.length >= 12 ? rsrpOf(fields.at(-1)) : null,
+      rsrqDb: null,
+      rssiDbm: null,
+      sinrDb: null,
+    });
+  }
+  return carriers;
+}
+
 export interface FibocomCcInfoParsed {
   mode: "SA" | "NSA" | "LTE" | "NONE";
   plmn: string | null;
@@ -846,6 +891,7 @@ export class OpenwrtSession implements DriverSessionHandle {
   async #fibocomTelemetry(): Promise<DriverTelemetry> {
     const ccInfoRaw = await this.#ubus.execAt("AT+GTCCINFO?").catch(() => "");
     const cc = parseFibocomCcInfo(ccInfoRaw);
+    const carriers = cc.mode === "NONE" ? [] : parseFibocomCaInfo(await this.#ubus.execAt("AT+GTCAINFO?").catch(() => ""));
     const tempRaw = await this.#ubus.execAt("AT+MTSM=1").catch(() => "");
     const tempMatch = tempRaw.match(/(-?\d+(?:\.\d+)?)/);
     const temp = tempMatch ? temperatureOf(tempMatch[1]) : null;
@@ -859,7 +905,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       mode: cc.mode,
       lte: cc.lte,
       nr: cc.nr,
-      carriers: [],
+      carriers,
       wan: { connected: cc.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
       traffic: null,
       temperatureC: temp,

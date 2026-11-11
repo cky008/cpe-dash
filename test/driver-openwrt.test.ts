@@ -10,6 +10,7 @@ import {
   modemBrandOf,
   openwrtProtocol,
   parseFibocomAct,
+  parseFibocomCaInfo,
   parseFibocomCcInfo,
   parseOperatorName,
   parseQuectelCaInfo,
@@ -304,6 +305,32 @@ describe("openwrt: session and Quectel integration", () => {
   });
 });
 
+describe("openwrt: Fibocom's carrier aggregation", () => {
+  it("lists the activated secondary carriers of AT+GTCAINFO? and leaves the primary to AT+GTCCINFO?", () => {
+    const answer = [
+      "+GTCAINFO:",
+      "PCC:101,211,300,100,100,2,1,3,1,-81",
+      "SCC 1:2,1,103,142,1850,75,75,2,1,3,1,-88",
+      "SCC2:2,0,578,142,650000,12,255,2,255,3,255,-90",
+      "SCC 3:1,0,107,211,3100,50,255,2,255,3,255,-95",
+      "SCC 4:2,0,999,1,1,1,1",
+      "",
+      "OK",
+    ].join("\r\n");
+    assert.deepEqual(parseFibocomCaInfo(answer), [
+      { rat: "LTE", band: 3, arfcn: 1850, pci: 142, bandwidthMhz: 15, rsrpDbm: -88, rsrqDb: null, rssiDbm: null, sinrDb: null },
+      // An NR carrier's bandwidth is coded per firmware: not guessed
+      { rat: "NR", band: 78, arfcn: 650000, pci: 142, bandwidthMhz: null, rsrpDbm: -90, rsrqDb: null, rssiDbm: null, sinrDb: null },
+    ]);
+    // NR band codes come as 500 + band on some firmware and 5000 + band on others
+    assert.equal(parseFibocomCaInfo("SCC 1:2,0,5078,142,650000,12,255,2,255,3,255,-90")[0]?.band, 78);
+    assert.deepEqual(parseFibocomCaInfo("+GTCAINFO:\r\nOK"), []);
+    assert.deepEqual(parseFibocomCaInfo("ERROR"), []);
+    assert.deepEqual(parseFibocomCaInfo("SCC 1:2,0,103"), [], "too few fields");
+    assert.equal(parseFibocomCaInfo("SCC 1:2,0,103,142,1850,75,75")[0]?.rsrpDbm, null, "no RSRP field");
+  });
+});
+
 describe("openwrt: session and Fibocom integration", () => {
   it("polls Fibocom telemetry, neighbours and lock state", async () => {
     const { client } = openwrtRouter({ brand: "fibocom" });
@@ -321,6 +348,7 @@ describe("openwrt: session and Fibocom integration", () => {
       assert.equal(telem.signalBars, null);
       assert.ok(telem.nr !== null);
       assert.equal(telem.nr.rsrpDbm, -82);
+      assert.deepEqual(telem.carriers.map((c) => [c.rat, c.band, c.arfcn, c.pci]), [["NR", 78, 649980, 211]], "the activated secondary only");
 
       const neigh = await s.neighbours();
       assert.equal(neigh.length, 1);
