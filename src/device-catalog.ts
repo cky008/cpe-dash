@@ -434,6 +434,12 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     en: "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown",
   },
   {
+    family: "zte-zwrt",
+    features: [],
+    zh: "短信读写的是路由器自己的存储，存在 SIM 卡上的短信不显示",
+    en: "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown",
+  },
+  {
     family: "zte-goform",
     models: ZTE_DEVELOPER_OPTION_MODELS,
     features: ["bandLock", "cellLock"],

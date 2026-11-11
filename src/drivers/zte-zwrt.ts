@@ -1,12 +1,16 @@
+import crypto from "node:crypto";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import type { WriteCheck } from "../device-access.ts";
+import { detectSmsTextMode } from "../sms/text-mode.ts";
+import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
 import { carriersFromRows, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
 import type {
@@ -19,6 +23,9 @@ import type {
   DriverNeighbour,
   DriverNetworkMode,
   DriverSessionHandle,
+  DriverSms,
+  DriverSmsSendOptions,
+  DriverSmsSendOutcome,
   DriverTelemetry,
 } from "./types.ts";
 import {
@@ -50,6 +57,11 @@ import {
  * login the session is 32 zeros; `zwrt_web.web_login` takes the double uppercase SHA-256 of the
  * password with the salt `web_login_info` hands out and returns the session. No LTE cell lock and no
  * nearby-cell list are documented for it.
+ *
+ * SMS is the `zwrt_wms` object: the same store, tags and status slots as the goform pages, with one
+ * layer more. The web side keeps message bodies and numbers encrypted: the session takes the router's
+ * RSA public key (`web_crt_get`), hands it an AES-256 key (`web_http_enstr_set`), and from then on
+ * those fields travel as AES-256-GCM. A firmware without that exchange takes and gives them plain.
  */
 
 const FAMILY = "zte-zwrt" as const;
@@ -85,6 +97,63 @@ class Rpc {
     return isPlainObject(payload) ? payload : {};
   }
 }
+
+/** ubus answers for an object or a method this firmware does not have. */
+const NOT_THERE: ReadonlySet<string> = new Set(["ubus-3", "ubus-4", "rpc-32000", "rpc-32601"]);
+
+function notThere(err: unknown): boolean {
+  return err instanceof CpeApiError && NOT_THERE.has(err.code);
+}
+
+const GCM_IV_BYTES = 12;
+const GCM_TAG_BYTES = 16;
+
+/**
+ * A sensitive field as the router's page sends it once a key is agreed: AES-256-GCM, written as
+ * Base64 of the 12-byte IV, the 16-byte tag and the ciphertext.
+ */
+export function zwrtEncryptField(key: Buffer, plain: string, iv: Buffer = crypto.randomBytes(GCM_IV_BYTES)): string {
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const body = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64");
+}
+
+/** The reverse; `null` for anything that is not such a field under this key. */
+export function zwrtDecryptField(key: Buffer, field: string): string | null {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(field)) return null;
+  const raw = Buffer.from(field, "base64");
+  if (raw.length < GCM_IV_BYTES + GCM_TAG_BYTES) return null;
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, raw.subarray(0, GCM_IV_BYTES));
+    decipher.setAuthTag(raw.subarray(GCM_IV_BYTES, GCM_IV_BYTES + GCM_TAG_BYTES));
+    return Buffer.concat([decipher.update(raw.subarray(GCM_IV_BYTES + GCM_TAG_BYTES)), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The AES key for the router: its 64 hexadecimal digits, encrypted with the router's RSA public key
+ * the way the router's page does it (PKCS #1 v1.5, which is what the router decrypts), as Base64. The
+ * router hands its key out as PEM on one line, so the body is read as DER. `null`: not such a key.
+ */
+export function zwrtKeyEnvelope(publicKeyPem: string, key: Buffer): string | null {
+  const body = /-----BEGIN PUBLIC KEY-----([A-Za-z0-9+/=\s]+)-----END PUBLIC KEY-----/.exec(publicKeyPem)?.[1];
+  if (!body) return null;
+  try {
+    const publicKey = crypto.createPublicKey({ key: Buffer.from(body.replace(/\s+/g, ""), "base64"), format: "der", type: "spki" });
+    return crypto.publicEncrypt({ key: publicKey, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(key.toString("hex"), "ascii")).toString("base64");
+  } catch {
+    return null;
+  }
+}
+
+const SMS_PAGE_SIZE = 500;
+const SMS_MAX_PAGES = 8;
+const SMS_ID_BATCH = 20;
+const SMS_DELETE_SETTLE_MS = 10_000;
+const SMS_DELETE_POLL_MS = 300;
+const WMS = "zwrt_wms";
 
 export function zwrtLoginPassword(password: string, salt: string): string {
   return sha256Hex(`${sha256Hex(password, true)}${salt}`, true);
@@ -305,6 +374,137 @@ class ZwrtSession implements DriverSessionHandle {
     settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: resetMode });
   }
 
+  /** `undefined`: not asked yet; `null`: this firmware has no field encryption. */
+  #fieldKey: Buffer | null | undefined = undefined;
+  /** Whether the firmware writes sender numbers as UTF-16 hexadecimal (its `zte_wms_number_encode` setting). */
+  #numbersAreHex: boolean | undefined = undefined;
+
+  /**
+   * Agree a key for the encrypted fields, once per session. A firmware without the exchange (or one
+   * that refuses it) leaves the fields plain, which is how its ubus object takes them.
+   */
+  async #agreeFieldKey(): Promise<Buffer | null> {
+    if (this.#fieldKey !== undefined) return this.#fieldKey;
+    this.#fieldKey = null;
+    try {
+      const pem = textLong((await this.#rpc.call("zwrt_web", "web_crt_get"))["result"]);
+      const key = crypto.randomBytes(32);
+      const envelope = pem === null ? null : zwrtKeyEnvelope(pem, key);
+      if (envelope !== null) {
+        await this.#rpc.call("zwrt_web", "web_http_enstr_set", { web_enstr: envelope });
+        this.#fieldKey = key;
+      }
+    } catch {
+      // No key: the fields stay plain
+    }
+    return this.#fieldKey;
+  }
+
+  async #hexNumbers(): Promise<boolean> {
+    if (this.#numbersAreHex === undefined) {
+      const answer = await this.#rpc.call("uci", "get", { config: "zwrt_wms", section: "config" }).catch(() => null);
+      const values = answer ? fieldOf(answer, "values") : null;
+      const flag = isPlainObject(values) ? textOf(values["zte_wms_number_encode"]) : null;
+      // Unreadable: numbers are taken as plain, which shows a hexadecimal one as it came rather than garbling a plain one
+      this.#numbersAreHex = flag !== null && flag !== "0";
+    }
+    return this.#numbersAreHex;
+  }
+
+  /** SMS in the router's own store (`zwrt_wms`). */
+  readonly sms: DriverSms = {
+    keepsSent: true,
+    list: () => this.#smsList(),
+    counters: () => this.#smsCounters(),
+    send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
+    markRead: (indices, check) => this.#smsMarkRead(indices, check),
+    delete: (indices, check) => this.#smsDelete(indices, check),
+  };
+
+  async #smsCounters(): Promise<SmsCounters> {
+    this.#guard();
+    let capacity: Record<string, unknown>;
+    try {
+      capacity = await this.#rpc.call(WMS, "zwrt_wms_get_wms_capacity");
+    } catch (err) {
+      if (notThere(err)) throw new SectionUnavailableError("SMS", null);
+      throw err;
+    }
+    const counters = zteSmsCounters(capacity, capacity["sms_dev_unread_num"]);
+    if (!counters) throw new SectionUnavailableError("SMS", null);
+    return counters;
+  }
+
+  async #smsList(): Promise<SmsWireMessage[]> {
+    this.#guard();
+    const key = await this.#agreeFieldKey();
+    const hexNumbers = await this.#hexNumbers();
+    const field = (raw: string, kind: "number" | "content"): string | null => {
+      // Under a key a field is ciphertext; one that is not (an older message, another firmware) is read as it came
+      const plain = key === null || raw === "" ? raw : (zwrtDecryptField(key, raw) ?? raw);
+      return kind === "number" && hexNumbers ? (textOfUcs2Hex(plain) ?? plain) : plain;
+    };
+    const seen = new Map<number, SmsWireMessage>();
+    for (let page = 0; page < SMS_MAX_PAGES; page++) {
+      let answer: Record<string, unknown>;
+      try {
+        answer = await this.#rpc.call(WMS, "zte_libwms_get_sms_data", { page, data_per_page: SMS_PAGE_SIZE, mem_store: 1, tags: 10, order_by: "order by id desc" });
+      } catch (err) {
+        if (notThere(err)) throw new SectionUnavailableError("SMS", null);
+        throw err;
+      }
+      const rows = answer["messages"];
+      if (!Array.isArray(rows)) break;
+      const before = seen.size;
+      for (const message of parseZteSmsRows(rows, field)) seen.set(message.index, message);
+      if (rows.length < SMS_PAGE_SIZE || seen.size === before) break;
+    }
+    return [...seen.values()];
+  }
+
+  /** An SMS write: the ubus status says whether the router took it (its `result` field is no verdict), the status slot what came of it. */
+  async #smsWrite(check: WriteCheck, method: string, args: Record<string, unknown>): Promise<void> {
+    this.#guard();
+    noteSent(check, FAMILY, `${WMS}.${method}`);
+    await this.#rpc.call(WMS, method, args);
+  }
+
+  async #smsStatus(slot: number): Promise<Record<string, unknown>> {
+    return await this.#rpc.call(WMS, "zwrt_wms_get_cmd_status", { sms_cmd: slot });
+  }
+
+  async #smsSend(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome> {
+    const key = await this.#agreeFieldKey();
+    const seal = (plain: string): string => (key === null ? plain : zwrtEncryptField(key, plain));
+    await this.#smsWrite(check, "zte_libwms_send_sms", {
+      number: seal(phone),
+      sms_time: zteSmsTime(new Date()),
+      message_body: seal(ucs2Hex(content)),
+      id: "-1",
+      encode_type: detectSmsTextMode(content).encoding === "7BIT" ? "GSM7_default" : "UNICODE",
+    });
+    options.onAccepted();
+    const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_SEND), { timeoutMs: options.statusTimeoutMs, sleep: options.sleep });
+    return { state: status === "done" ? "sent" : status === "failed" ? "failed" : "unconfirmed", code: null };
+  }
+
+  async #smsMarkRead(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const ids = storedIndices(indices);
+    for (let i = 0; i < ids.length; i += SMS_ID_BATCH) await this.#smsWrite(check, "zwrt_wms_modify_tag", { id: zteIdList(ids.slice(i, i + SMS_ID_BATCH)), tag: 0 });
+    settleSmsListing(check, await this.#smsList().catch(() => null), ids, "read");
+  }
+
+  /** The firmware answers a delete the same whether or not it deleted (rows on the SIM stay): the listing after it tells. */
+  async #smsDelete(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const ids = storedIndices(indices);
+    for (let i = 0; i < ids.length; i += SMS_ID_BATCH) {
+      await this.#smsWrite(check, "zwrt_wms_delete_sms", { id: zteIdList(ids.slice(i, i + SMS_ID_BATCH)) });
+      const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_DELETE), { timeoutMs: SMS_DELETE_SETTLE_MS, intervalMs: SMS_DELETE_POLL_MS });
+      if (status === "failed") throw new CpeApiError("failed", "zwrt_wms_delete_sms did not delete");
+    }
+    settleSmsListing(check, await this.#smsList().catch(() => null), ids, "gone");
+  }
+
   async reboot(check: WriteCheck): Promise<void> {
     await this.#write(check, "device_reboot", { moduleName: "web" }, "zwrt_mc.device.manager");
     settleRestart(check);
@@ -316,6 +516,11 @@ class ZwrtSession implements DriverSessionHandle {
     this.#open = false;
     await this.#rpc.call("zwrt_web", "web_logout");
   }
+}
+
+/** Text longer than a reading (a PEM key), bounded. */
+function textLong(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 4096 ? value : null;
 }
 
 function lockOf(payload: Record<string, unknown>): { waitSec: number | null } | null {

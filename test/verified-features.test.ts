@@ -104,25 +104,23 @@ describe("verified features of other models", () => {
 
   it("counts a model as verified once reports settle every feature FengSui does on it, with nothing more to check", () => {
     const base = { family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", issue: 41 } as const;
-    // What FengSui implements on zWRT today: the signal, band and cell locks, reboot
+    // What FengSui implements on zWRT today: the signal, SMS, band and cell locks, reboot
     assert.deepEqual(familyFeatures("zte-zwrt"), [
       { feature: "telemetry", access: "read" },
+      { feature: "smsRead", access: "read" },
       { feature: "bandLock", access: "write" },
       { feature: "cellLock", access: "write" },
       { feature: "reboot", access: "write" },
+      { feature: "smsWrite", access: "write" },
     ]);
-    const all: VerifiedFeature[] = [
-      { ...base, feature: "telemetry", access: "read" },
-      { ...base, feature: "bandLock", access: "write" },
-      { ...base, feature: "cellLock", access: "write" },
-      { ...base, feature: "reboot", access: "write" },
-    ];
+    const all: VerifiedFeature[] = familyFeatures("zte-zwrt").map(({ feature, access }) => ({ ...base, feature, access }));
+    const butReboot = all.filter((entry) => entry.feature !== "reboot");
     assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", all), true);
-    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", all.slice(0, 3)), false, "one feature short");
+    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", butReboot), false, "one feature short");
     assert.equal(isReportVerifiedModel("zte-goform", "MU5250", all), false, "on its brand only");
     assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", []), false);
     // A feature the router turned out not to have settles it too, but one confirmed feature is needed
-    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", all.slice(0, 3), [{ family: "zte-zwrt", model: "MU5250", feature: "reboot", issue: 42 }]), true);
+    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", butReboot, [{ family: "zte-zwrt", model: "MU5250", feature: "reboot", issue: 42 }]), true);
     assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", [], familyFeatures("zte-zwrt").map(({ feature }) => ({ family: "zte-zwrt" as const, model: "MU5250", feature, issue: 42 }))), false);
     assert.equal(isReportVerifiedModel("huawei", "H168-383", []), false, "the verified model is verified another way");
     assert.deepEqual(reportVerifiedModels(all), [{ family: "zte-zwrt", model: "MU5250" }]);
@@ -136,7 +134,7 @@ describe("verified features of other models", () => {
     assert.deepEqual([device.features.cellLock, device.features.mobileData], ["verified", "not_implemented"], "what it does not implement stays refused");
     const scheduler = { device } as unknown as SchedulerStatusSnapshot;
     assert.equal(reportVerified(scheduler), true);
-    assert.equal(writesText(device.writes, experimentalWrites(scheduler).length, (key, params) => SETTINGS_TEXT.en[key].replace("{count}", String(params?.["count"])), true), "Writes: 3 available (each confirmed on a real router)");
+    assert.equal(writesText(device.writes, experimentalWrites(scheduler).length, (key, params) => SETTINGS_TEXT.en[key].replace("{count}", String(params?.["count"])), true), "Writes: 4 available (each confirmed on a real router)");
     const profile = { identity: { model: "MU5250", softwareVersion: base.softwareVersion }, verification: device.verification } as unknown as DeviceProfile;
     assert.deepEqual(verificationNotice(profile, VERIFIED_FIRMWARE).key, "verification_report_verified");
     assert.equal(verificationNotice(profile, VERIFIED_FIRMWARE).tone, "success");

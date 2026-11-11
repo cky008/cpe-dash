@@ -5,9 +5,11 @@ import { SectionUnavailableError } from "../src/cpe-domain.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { awaitZteCommand, parseZteSmsRows, textOfUcs2Hex, ucs2Hex, zteCommandStatus, zteIdList, zteSmsCounters, zteSmsDate, zteSmsTime } from "../src/drivers/sms.ts";
 import type { DriverSmsSendOptions } from "../src/drivers/types.ts";
+import { zwrtDecryptField, zwrtEncryptField, zwrtKeyEnvelope } from "../src/drivers/zte-zwrt.ts";
 import { DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { createBrandSmsFixture, smsOf, smsWritesOf } from "./helpers/sms-brand-fixture.ts";
 import { ZTE_PASSWORD, zteRouter, zteSms } from "./helpers/zte-goform-router.ts";
+import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 
 /**
  * SMS on ZTE routers: the goform pages' store, through the driver and through the whole SMS stack.
@@ -493,6 +495,189 @@ describe("zte-goform SMS: through the SMS service", () => {
       const before = fx.router.mock.requests.length;
       await fx.service.pollWhileYielding();
       assert.equal(fx.router.mock.requests.length, before);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("zte-zwrt SMS: the encrypted fields", () => {
+  const key = Buffer.alloc(32, 7);
+
+  it("writes a field as Base64 of IV, tag and ciphertext, and reads it back", () => {
+    const sealed = zwrtEncryptField(key, "4F60597D", Buffer.alloc(12, 1));
+    const raw = Buffer.from(sealed, "base64");
+    assert.equal(raw.length, 12 + 16 + 8);
+    assert.deepEqual(raw.subarray(0, 12), Buffer.alloc(12, 1));
+    assert.equal(zwrtDecryptField(key, sealed), "4F60597D");
+    // A fresh IV each time
+    assert.notEqual(zwrtEncryptField(key, "a"), zwrtEncryptField(key, "a"));
+  });
+
+  it("reads nothing out of what is not such a field: plain text, a short one, another key, a changed tag", () => {
+    const sealed = zwrtEncryptField(key, "hello");
+    assert.equal(zwrtDecryptField(key, "+353830000001"), null);
+    assert.equal(zwrtDecryptField(key, "not base64 !"), null);
+    assert.equal(zwrtDecryptField(key, "AAAA"), null);
+    assert.equal(zwrtDecryptField(Buffer.alloc(32, 8), sealed), null);
+    const tampered = Buffer.from(sealed, "base64");
+    tampered[14] = (tampered[14] ?? 0) ^ 0xff;
+    assert.equal(zwrtDecryptField(key, tampered.toString("base64")), null);
+  });
+
+  it("wraps the key for the router's public key only when it is one", () => {
+    assert.equal(zwrtKeyEnvelope("not a key", key), null);
+    assert.equal(zwrtKeyEnvelope("-----BEGIN PUBLIC KEY-----AAAA-----END PUBLIC KEY-----", key), null);
+  });
+});
+
+describe("zte-zwrt SMS: the driver", () => {
+  it("agrees a key once, then lists the store with numbers and bodies decrypted", async () => {
+    const { client, calls, state } = zwrtRouter({ sms: inbox() });
+    const listed = await client.withSession((s) => smsOf(s).list());
+    assert.deepEqual(listed?.map((m) => [m.index, m.phone, m.direction, m.isUnread]), [
+      [4, FRIEND, "in", true],
+      [3, FRIEND, "out", false],
+      [2, FRIEND, "in", true],
+      [1, "DemoBank", "in", false],
+    ]);
+    assert.equal(listed?.find((m) => m.index === 2)?.content, "晚上七点吃饭？");
+    assert.equal(listed?.find((m) => m.index === 4)?.content, LONG);
+    assert.deepEqual(
+      calls.filter((c) => c.session !== "00000000000000000000000000000000").map((c) => `${c.object}.${c.method}`),
+      ["zwrt_web.web_crt_get", "zwrt_web.web_http_enstr_set", "uci.get", "zwrt_wms.zte_libwms_get_sms_data", "zwrt_web.web_logout"]
+    );
+    assert.deepEqual(calls.find((c) => c.method === "zte_libwms_get_sms_data")?.args, { page: 0, data_per_page: 500, mem_store: 1, tags: 10, order_by: "order by id desc" });
+    // The key ends with the session
+    assert.equal(state.key, null);
+  });
+
+  it("reads numbers the firmware writes as hexadecimal, and plain fields on a firmware without the key exchange", async () => {
+    const hex = zwrtRouter({ sms: inbox(), hexNumbers: true });
+    assert.deepEqual((await hex.client.withSession((s) => smsOf(s).list()))?.map((m) => m.phone), [FRIEND, FRIEND, FRIEND, "DemoBank"]);
+    const plain = zwrtRouter({ sms: inbox(), encryption: false });
+    const listed = await plain.client.withSession((s) => smsOf(s).list());
+    assert.equal(listed?.find((m) => m.index === 2)?.content, "晚上七点吃饭？");
+    assert.ok(!plain.calls.some((c) => c.method === "web_http_enstr_set"));
+  });
+
+  it("counts without the key exchange, and has no SMS on a firmware without the object", async () => {
+    const { client, calls } = zwrtRouter({ sms: inbox() });
+    assert.deepEqual(await client.withSession((s) => smsOf(s).counters()), { localUnread: 2, localInbox: 3, localOutbox: 2, localDraft: 1, localMax: 100 });
+    assert.ok(!calls.some((c) => c.method === "web_crt_get"));
+    const none = zwrtRouter({ sms: false });
+    await assert.rejects(none.client.withSession((s) => smsOf(s).counters()), SectionUnavailableError);
+    await assert.rejects(none.client.withSession((s) => smsOf(s).list()), SectionUnavailableError);
+    // Any other refusal is an error, not "no SMS here"
+    const denied = zwrtRouter({ sms: inbox(), fail: "zwrt_wms.zwrt_wms_get_wms_capacity" });
+    await assert.rejects(denied.client.withSession((s) => smsOf(s).counters()), (err: unknown) => err instanceof CpeApiError && err.code === "ubus-6");
+    const deniedList = zwrtRouter({ sms: inbox(), fail: "zwrt_wms.zte_libwms_get_sms_data" });
+    await assert.rejects(deniedList.client.withSession((s) => smsOf(s).list()), (err: unknown) => err instanceof CpeApiError && err.code === "ubus-6");
+  });
+
+  it("sends once with the number and the body encrypted, then asks the send slot", async () => {
+    const { client, calls, state } = zwrtRouter({ sms: [] });
+    const check = newCheck();
+    const options = sendOptions();
+    assert.deepEqual(await client.withSession((s) => smsWritesOf(s).send(FRIEND, "你好", check, options)), { state: "sent", code: null });
+    assert.equal(options.accepted, 1);
+    const sends = calls.filter((c) => c.method === "zte_libwms_send_sms");
+    assert.equal(sends.length, 1);
+    const args = sends[0]?.args ?? {};
+    assert.deepEqual([args["id"], args["encode_type"]], ["-1", "UNICODE"]);
+    assert.match(String(args["sms_time"]), /^\d\d;\d\d;\d\d;\d\d;\d\d;\d\d;[+-]?\d{1,2}$/);
+    // Neither field travels readable; the router reads them with the key it was handed
+    assert.ok(!JSON.stringify(args).includes("353830000001") && !JSON.stringify(args).includes("4F60597D"));
+    assert.deepEqual(state.lastSend, { number: FRIEND, body: "4F60597D" });
+    assert.deepEqual(check.endpoints, ["zte-zwrt:zwrt_wms.zte_libwms_send_sms"]);
+    assert.ok(calls.some((c) => c.method === "zwrt_wms_get_cmd_status" && c.args["sms_cmd"] === 4));
+  });
+
+  it("sends plain fields where the firmware has no key exchange, and reports failed and unsettled sends", async () => {
+    const plain = zwrtRouter({ sms: [], encryption: false });
+    await plain.client.withSession((s) => smsWritesOf(s).send("10010", "balance", newCheck(), sendOptions()));
+    const args = plain.calls.find((c) => c.method === "zte_libwms_send_sms")?.args ?? {};
+    assert.deepEqual([args["number"], args["message_body"], args["encode_type"]], ["10010", ucs2Hex("balance"), "GSM7_default"]);
+
+    const failed = zwrtRouter({ sms: [], sendStatus: "2" });
+    assert.deepEqual(await failed.client.withSession((s) => smsWritesOf(s).send(FRIEND, "hi", newCheck(), sendOptions())), { state: "failed", code: null });
+    const slow = zwrtRouter({ sms: [], sendStatus: "1" });
+    assert.deepEqual(await slow.client.withSession((s) => smsWritesOf(s).send(FRIEND, "hi", newCheck(), sendOptions())), { state: "unconfirmed", code: null });
+    assert.equal(slow.calls.filter((c) => c.method === "zte_libwms_send_sms").length, 1);
+
+    const refused = zwrtRouter({ sms: [], fail: "zwrt_wms.zte_libwms_send_sms", status: 2 });
+    const never = sendOptions();
+    await assert.rejects(refused.client.withSession((s) => smsWritesOf(s).send(FRIEND, "hi", newCheck(), never)), (err: unknown) => err instanceof CpeApiError && err.code === "ubus-2");
+    assert.equal(never.accepted, 0);
+  });
+
+  it("marks read and deletes by id list, and reads each back from the listing", async () => {
+    const { client, calls, state } = zwrtRouter({ sms: inbox() });
+    const read = newCheck();
+    await client.withSession((s) => smsWritesOf(s).markRead([2, 4], read));
+    assert.deepEqual(calls.find((c) => c.method === "zwrt_wms_modify_tag")?.args, { id: "2;4;", tag: 0 });
+    assert.deepEqual(read, { endpoints: ["zte-zwrt:zwrt_wms.zwrt_wms_modify_tag"], readback: "match", reason: null });
+
+    const gone = newCheck();
+    await client.withSession((s) => smsWritesOf(s).delete([1, 2], gone));
+    assert.deepEqual(calls.find((c) => c.method === "zwrt_wms_delete_sms")?.args, { id: "1;2;" });
+    assert.ok(calls.some((c) => c.method === "zwrt_wms_get_cmd_status" && c.args["sms_cmd"] === 6));
+    assert.deepEqual(state.sms.map((row) => row.id).sort(), [3, 4, 5, 6]);
+    assert.deepEqual(gone, { endpoints: ["zte-zwrt:zwrt_wms.zwrt_wms_delete_sms"], readback: "match", reason: null });
+  });
+
+  it("catches a delete the firmware answers as done without deleting, and stops one it says failed", async () => {
+    const { client, mock, state } = zwrtRouter({ sms: inbox() });
+    const original = mock.handler;
+    mock.handler = async (req) => {
+      const before = state.sms.map((row) => ({ ...row }));
+      const reply = await original(req);
+      if (req.body.includes("zwrt_wms_delete_sms")) state.sms = before;
+      return reply;
+    };
+    const check = newCheck();
+    await client.withSession((s) => smsWritesOf(s).delete([1], check));
+    assert.deepEqual([check.readback, check.reason], ["mismatch", "no_change"]);
+
+    mock.handler = async (req) => {
+      const reply = await original(req);
+      if (req.body.includes("zwrt_wms_delete_sms")) state.smsStatus["6"] = "2";
+      return reply;
+    };
+    await assert.rejects(client.withSession((s) => smsWritesOf(s).delete([1], newCheck())), /did not delete/);
+  });
+});
+
+describe("zte-zwrt SMS: through the SMS service", () => {
+  it("counts on the telemetry session, syncs, sends, marks read and deletes like every other brand", async () => {
+    const router = zwrtRouter({ sms: [zteSms(1, "DemoBank", "Your code is 482913", "1")] });
+    const fx = createBrandSmsFixture({ family: "zte-zwrt", cpeUrl: "http://192.168.0.1", password: ZWRT_PASSWORD, fetchImpl: router.mock.fetchImpl, model: "MC8512", service: { seedExistingOnStart: false } });
+    try {
+      const snap = await fx.core.monitor.refreshTelemetry();
+      assert.deepEqual(snap?.sms, { localUnread: 1, localInbox: 1, localOutbox: 0, localDraft: 0, localMax: 100 });
+      assert.equal(router.calls.filter((c) => c.method === "web_login").length, 1);
+
+      const synced = await fx.service.sync("full");
+      assert.deepEqual([synced?.via, synced?.added, synced?.newIncoming], ["driver", 1, 1]);
+      const thread = fx.service.listThreads()[0];
+      assert.deepEqual([thread?.phone, thread?.latestOtp, thread?.unreadCount], ["DemoBank", "482913", 1]);
+
+      const sent = await fx.service.send({ phones: [FRIEND], content: "On my way", source: "web" });
+      assert.deepEqual([sent.result.ok, sent.result.sentPhones], [true, [FRIEND]]);
+      assert.equal(router.calls.filter((c) => c.method === "zte_libwms_send_sms").length, 1);
+
+      await fx.service.markRead({ threadKey: thread?.threadKey ?? "" });
+      assert.equal(router.state.sms.find((row) => row.id === 1)?.tag, "0");
+      await fx.service.deleteMessages({ uids: [fx.service.getThread("DemoBank").messages[0]?.uid ?? ""] });
+      assert.ok(!router.state.sms.some((row) => row.id === 1));
+      assert.equal(fx.service.listTrash().length, 1);
+      assert.deepEqual(fx.scheduler.genericWrites.map((r) => [r.action, r.readback]), [
+        ["sms_send", "match"],
+        ["sms_mark_read", "match"],
+        ["sms_delete", "match"],
+      ]);
+      // Nothing of a message is kept in a write's record
+      assert.ok(!JSON.stringify(fx.scheduler.genericWrites).includes("0001"));
     } finally {
       await fx.cleanup();
     }

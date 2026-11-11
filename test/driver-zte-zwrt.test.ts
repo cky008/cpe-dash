@@ -8,66 +8,14 @@ import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError, sha256Hex } from "../src/drivers/login.ts";
 import { ZWRT_ANONYMOUS, parseZwrtLockState, parseZwrtTelemetry, zteZwrtProtocol, zwrtLoginPassword } from "../src/drivers/zte-zwrt.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
+import { ZWRT_PASSWORD, ZWRT_SALT, ZWRT_SESSION, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 
-const PASSWORD = "test-password";
-const SALT = "0F1E2D3C4B5A69788796A5B4C3D2E1F0";
-const SESSION = "8f3a00000000000000000000000000aa";
+const PASSWORD = ZWRT_PASSWORD;
+const SALT = ZWRT_SALT;
+const SESSION = ZWRT_SESSION;
 
 function newCheck(): WriteCheck {
   return { endpoints: [], readback: "none", reason: null };
-}
-
-interface Call {
-  session: string;
-  object: string;
-  method: string;
-  args: Record<string, unknown>;
-}
-
-function zwrtRouter(opts: { login?: Record<string, unknown>; status?: number; fail?: string } = {}) {
-  const calls: Call[] = [];
-  const netinfo: Record<string, string> = {
-    network_type: "SA",
-    rmcc: "272",
-    rmnc: "01",
-    nr5g_action_band: "78",
-    nr5g_action_channel: "650000",
-    nr5g_pci: "142",
-    nr5g_rsrp: "-80",
-    lte_band_lock: "",
-    nr5g_sa_band_lock: "",
-    lock_nr_cell: "0,0,0",
-    net_select: "WL_AND_5G",
-  };
-  const mock = new LanRouterMock((req) => {
-    const body = JSON.parse(req.body) as { id: number; params: [string, string, string, Record<string, unknown>] };
-    const [session, object, method, args] = body.params;
-    calls.push({ session, object, method, args });
-    const reply = (payload: Record<string, unknown> | null, status = 0) => ({ json: { jsonrpc: "2.0", id: body.id, result: payload === null ? [status] : [status, payload] } });
-    if (opts.fail === `${object}.${method}`) return reply(null, opts.status ?? 6);
-    if (method === "web_login_info") return reply({ zte_web_sault: SALT });
-    if (method === "web_login") {
-      if (opts.login) return reply(opts.login);
-      return args["password"] === zwrtLoginPassword(PASSWORD, SALT) ? reply({ result: 0, ubus_rpc_session: SESSION }) : reply({ result: 1, login_fail_num: 4, login_fail_lock_lefttime: 0 });
-    }
-    if (session !== SESSION) return reply(null, 6);
-    if (object === "uci") return reply({ values: { model_name: "MC8512", wa_inner_version: "BD_ZTEMC8512V1.0.0B05", hardware_version: "MC8512_HW1.0" } });
-    if (method === "nwinfo_get_netinfo") return reply(netinfo);
-    if (method === "get_wwandst") return reply({ real_time: 3600, real_rx_bytes: 10485760, real_tx_bytes: 2048000, real_rx_speed: 1250000, real_tx_speed: 150000, month_rx_bytes: 53687091200, month_tx_bytes: 4294967296, month_time: 86400, ppp_status: "ipv4_ipv6_connected" });
-    if (method === "get_device_info") return reply({ bat_temperature: 36 });
-    if (method === "nwinfo_set_lte_ext_band") netinfo["lte_band_lock"] = String(args["lte_band"]);
-    if (method === "nwinfo_set_nrbandlock") netinfo["nr5g_sa_band_lock"] = String(args["nr5g_band"]);
-    if (method === "nwinfo_set_netselect") netinfo["net_select"] = String(args["net_select"]);
-    if (method === "nwinfo_lock_nr_cell") netinfo["lock_nr_cell"] = `${String(args["lock_nr_pci"])},${String(args["lock_nr_earfcn"])},${String(args["lock_nr_cell_band"])}`;
-    if (method === "nwinfo_reset_band_cell_setting") {
-      netinfo["lte_band_lock"] = "";
-      netinfo["nr5g_sa_band_lock"] = "";
-      netinfo["lock_nr_cell"] = "0,0,0";
-    }
-    return reply({ result: 0 });
-  });
-  const client = new DriverCpeClient({ protocol: zteZwrtProtocol, cpeUrl: "http://192.168.0.1", cpePassword: PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
-  return { mock, calls, netinfo, client };
 }
 
 describe("zte-zwrt: session", () => {
