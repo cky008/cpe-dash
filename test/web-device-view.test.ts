@@ -150,7 +150,7 @@ describe("console: the device report's summary", () => {
     const report = buildDeviceReport({
       probe: null,
       apiErrors: { sinceIso: "2026-11-11T00:00:00.000Z", entries: [] },
-      fengsuiVersion: "1.8.4",
+      fengsuiVersion: "1.9.0",
       generatedAtIso: "2026-11-11T00:00:00.000Z",
       access: {
         family: "zte-zwrt",

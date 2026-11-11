@@ -264,7 +264,7 @@ export class ConsoleSettings {
     const tokens = Array.isArray(parsed.tokens) ? parsed.tokens.filter((t) => t && typeof t.hash === "string" && typeof t.id === "string").map(withPermissions) : [];
     const disabledWrites = Array.isArray(parsed.disabledWrites) ? parsed.disabledWrites.filter(isDisabledWrite).map((d) => ({ ...d })).slice(-MAX_DISABLED_WRITES) : [];
     const agentTest = isAgentTestRecord(parsed.agentTest) ? copyAgentTestRecord(parsed.agentTest) : null;
-    // Versions before 1.8.4 kept the writes an owner had consented to (`experimental`): those writes
+    // Versions before 1.9.0 kept the writes an owner had consented to (`experimental`): those writes
     // are on by default now, so the list has nothing left to say and is not carried over
     const { experimental: _consents, ...known } = parsed as Partial<PersistedConsoleSettings> & { experimental?: unknown };
     this.#state = { ...defaultState(), ...known, format: FORMAT, tokens, disabledWrites, agentTest, behaviour: sanitizeBehaviourOverrides(parsed.behaviour) };

@@ -75,7 +75,7 @@ export interface SelfHealLockWatchState {
   settled: boolean;
   /**
    * The lock went to a router nobody verified: watched for 3 minutes whatever the rollback setting
-   * says (absent in a record of a version before 1.8.4: no such watch).
+   * says (absent in a record of a version before 1.9.0: no such watch).
    */
   guard?: boolean;
   /** With `guard`: the LTE band mask from right before a band lock, written back instead of clearing every lock (`null`: none). */

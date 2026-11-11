@@ -190,7 +190,7 @@ export type ApiErrorCode =
   | "CONSOLE_ONLY"                // 403: /api/console/* with a Bearer token (credentials change only from a console session)
   | "CPE_NOT_CONFIGURED"          // 409: no router connection yet (finish the setup in the console)
   | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on, and FengSui has no implementation of this write for it (nothing was sent)
-  | "DEVICE_WRITE_DISABLED"       // 409: a write FengSui implements for this router, which its owner turned off for the model (nothing was sent; v1.8.4)
+  | "DEVICE_WRITE_DISABLED"       // 409: a write FengSui implements for this router, which its owner turned off for the model (nothing was sent; v1.9.0)
   | "DEVICE_NOT_IDENTIFIED"       // 409: the write's own session could not read the router's model; nothing was written
   | "EXPERIMENTAL_UNAVAILABLE"    // 409: a write that has no switch on this router: not implemented for it, or a verified model (see `state`)
   | "AGENT_TEST_UNAVAILABLE"      // 409: the router has no experimental write for an AI agent's test (a verified model, or none identified)

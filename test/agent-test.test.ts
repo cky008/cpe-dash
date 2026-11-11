@@ -196,7 +196,7 @@ describe("the agent test's rules", () => {
       ["a bad read time", { ...record(), acknowledgedAtIso: "soon" }],
     ];
     for (const [label, value] of broken) assert.equal(isAgentTestRecord(value), false, label);
-    // A test a version before 1.8.4 stored also lists the writes it had turned on: read, and not kept
+    // A test a version before 1.9.0 stored also lists the writes it had turned on: read, and not kept
     const old = { ...record(), features: [{ feature: "bandLock", grantedAtIso: "2026-11-10T08:00:00.000Z" }] };
     assert.equal(isAgentTestRecord(old), true);
     assert.deepEqual(copyAgentTestRecord(old), record());

@@ -310,7 +310,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 
 /**
  * A stored test this version can read; anything else is dropped, never half-honoured. One a version
- * before 1.8.4 stored also lists the writes it had turned on (`features`): they are on by default
+ * before 1.9.0 stored also lists the writes it had turned on (`features`): they are on by default
  * now, so that list is read past and not kept.
  */
 export function isAgentTestRecord(value: unknown): value is AgentTestRecord {

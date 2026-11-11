@@ -107,7 +107,7 @@ export interface ApiErrorEnvelope {
     | "CONSOLE_ONLY"             // 403: 用 Bearer 令牌访问 /api/console/*（控制台设置只接受 Cookie 会话），或 POST /api/sms/trash/purge（彻底删除短信，v1.8.0）
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号，烽燧在它上面没有这项写入的实现（或路由器不具备它需要的条件）：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
-    | "DEVICE_WRITE_DISABLED"    // 409: 烽燧在这台路由器上实现了这项写入，但用户已经在「设置 → 设备」把它关闭：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.11；v1.8.4）
+    | "DEVICE_WRITE_DISABLED"    // 409: 烽燧在这台路由器上实现了这项写入，但用户已经在「设置 → 设备」把它关闭：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.11；v1.9.0）
     | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（device/information），没有写入（见 2.10）
     | "EXPERIMENTAL_UNAVAILABLE" // 409: 这项写入在这台路由器上没有开关可关可开（已验证型号、烽燧没有实现、路由器不具备条件、还没识别型号；附 state，见 2.11）
     | "AGENT_TEST_UNAVAILABLE"   // 409: 这台路由器没有可供 AI 智能体测试的实验性写入（已验证型号、还没识别型号，或测试覆盖的写入它都没有、都被关闭了），一键测试不能开始（见 2.12）
@@ -757,7 +757,7 @@ export type AlertCode =
 
 ### 2.11 实验性写入：默认开启，逐项关闭
 
-未验证的路由器上，烽燧实现了的写入不需要用户先同意：识别出型号之后就可用，用户可以在「设置 → 设备」里 **逐项** 关闭。这些写入统称实验性写入，因为没有人在真机上验证过。其他华为 HiLink 型号是请求格式在参考资料里写得确切的通用写入（`bandLock` 只锁 LTE、`reboot`、`reconnect`、`mobileData`、`smsWrite`；格式、来源与「暂不支持」的理由见 [`protocol.md`](protocol.md) 附录 A.11）；其他品牌是各自驱动实现的写入（目前都是 `bandLock`、`cellLock`、`reboot`）。v1.8.4 之前这些写入默认拒绝、要逐项输入型号同意；旧版本存下的同意记录读入时忽略，不会让任何写入变成关闭。
+未验证的路由器上，烽燧实现了的写入不需要用户先同意：识别出型号之后就可用，用户可以在「设置 → 设备」里 **逐项** 关闭。这些写入统称实验性写入，因为没有人在真机上验证过。其他华为 HiLink 型号是请求格式在参考资料里写得确切的通用写入（`bandLock` 只锁 LTE、`reboot`、`reconnect`、`mobileData`、`smsWrite`；格式、来源与「暂不支持」的理由见 [`protocol.md`](protocol.md) 附录 A.11）；其他品牌是各自驱动实现的写入（目前都是 `bandLock`、`cellLock`、`reboot`）。v1.9.0 之前这些写入默认拒绝、要逐项输入型号同意；旧版本存下的同意记录读入时忽略，不会让任何写入变成关闭。
 
 每个写功能在 `schedulerStatus.device.features` 里有一个状态：
 

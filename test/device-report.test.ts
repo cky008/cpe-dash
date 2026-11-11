@@ -265,7 +265,7 @@ describe("device report: one line per feature to register from", () => {
     const report = buildDeviceReport({
       probe: null,
       apiErrors: new ApiErrorTally().snapshot(),
-      fengsuiVersion: "1.8.4",
+      fengsuiVersion: "1.9.0",
       generatedAtIso: NOW,
       access: { family: "zte-zwrt", writes: "experimental", reads },
       // The latest write of a feature counts: a band lock that read back otherwise, then as written
@@ -284,7 +284,7 @@ describe("device report: one line per feature to register from", () => {
     // The second pass leaves the lines as they are
     assert.deepEqual(sanitizeDeviceReport(report).checks, report.checks);
     // Without an identification nothing is known yet
-    const empty = buildDeviceReport({ probe: null, apiErrors: new ApiErrorTally().snapshot(), fengsuiVersion: "1.8.4", generatedAtIso: NOW });
+    const empty = buildDeviceReport({ probe: null, apiErrors: new ApiErrorTally().snapshot(), fengsuiVersion: "1.9.0", generatedAtIso: NOW });
     assert.ok(empty.checks.every((c) => c.result === "untested" && c.evidence === null));
   });
 });
