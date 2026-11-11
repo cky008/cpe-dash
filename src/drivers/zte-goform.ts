@@ -687,7 +687,9 @@ class ZteGoformSession implements DriverSessionHandle {
     const v = this.#version;
     // A firmware that names neither a model nor a hardware version: the platform its version string starts with
     const platform = /^[A-Za-z0-9]+_[A-Za-z0-9]+/.exec(v.crVersion)?.[0] ?? null;
-    return { model: labelOf(v.modelName) ?? labelOf(v.hardwareVersion) ?? labelOf(platform), softwareVersion: labelOf(v.waInnerVersion) ?? labelOf(v.crVersion), hardwareVersion: labelOf(v.hardwareVersion) };
+    // The reqproc spelling is said in the device report (no other facts are recorded for it, so the gate goes by ZTE's own)
+    const variant = this.#at.variant === "reqproc" ? { variant: "reqproc" } : {};
+    return { model: labelOf(v.modelName) ?? labelOf(v.hardwareVersion) ?? labelOf(platform), softwareVersion: labelOf(v.waInnerVersion) ?? labelOf(v.crVersion), hardwareVersion: labelOf(v.hardwareVersion), ...variant };
   }
 
   async telemetry(): Promise<DriverTelemetry> {

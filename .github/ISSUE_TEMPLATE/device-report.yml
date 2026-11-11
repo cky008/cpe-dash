@@ -56,6 +56,11 @@ body:
       label: 不能用或有问题的 / What does not work
       description: 哪里不对、看到了什么提示（写操作的「回读不一致」也写在这里）/ What looks wrong, and any message you saw (including a write whose read-back differed)
   - type: textarea
+    id: router-page
+    attributes:
+      label: 路由器网页里的选项 / Options on the router's page
+      description: 登录路由器自己的管理网页看一看：网络制式能选哪几种、能不能锁 4G / 5G 小区、能不能锁 4G / 5G 频段（看完记得退出登录）。特别写明网页里有、烽燧却拒绝了（附上烽燧给的原因）或没有提供的 / Sign in to the router's own web page and look at which network modes it lets you pick and whether it locks 4G / 5G cells and 4G / 5G bands (sign out when done). Say especially what the page has that FengSui refused (with the reason FengSui gave) or does not offer
+  - type: textarea
     id: report
     attributes:
       label: 设备报告 / Device report

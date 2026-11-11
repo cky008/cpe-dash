@@ -304,7 +304,7 @@ describe("zte-goform: the reqproc spelling of the interface", () => {
     const { client, mock, state } = zteRouter({ reqproc: true, sms: inbox() });
     const identity = await client.withSession((s) => s.identify());
     // The firmware names no model: the platform its version string starts with stands in
-    assert.deepEqual(identity, { model: "CPE_NV8645", softwareVersion: "CPE_NV8645_230A_E-P42U17", hardwareVersion: null });
+    assert.deepEqual(identity, { model: "CPE_NV8645", softwareVersion: "CPE_NV8645_230A_E-P42U17", hardwareVersion: null, variant: "reqproc" });
     assert.deepEqual(mock.trail, [
       // Before the password: the lock status, asked the goform way first, then this router's
       "GET /goform/goform_get_cmd_process",

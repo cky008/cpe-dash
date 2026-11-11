@@ -53,6 +53,7 @@ export const AGENT_TEST_TOOLS: ReadonlySet<string> = new Set([
   "probe_router_endpoints",
   "set_experimental_write",
   "lock_band",
+  "lock_cell",
   "unlock_rf_locks",
   "reconnect_cellular",
   "reboot_cpe",

@@ -70,8 +70,9 @@ export interface DriverIdentity {
   softwareVersion: string | null;
   hardwareVersion: string | null;
   /**
-   * The form of the family's interface the router speaks, where the family has more than one
-   * (`ROUTER_FAMILY_FACTS[family].variants`); left out: the family's own.
+   * The form of the family's interface the router speaks, where the family has more than one; left
+   * out: the family's own. The gate goes by it where `ROUTER_FAMILY_FACTS[family].variants` records
+   * its facts; another one is only said in the device report.
    */
   variant?: string;
 }

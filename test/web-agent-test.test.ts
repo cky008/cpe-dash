@@ -110,6 +110,23 @@ describe("the agent test in the Device tab", () => {
     assert.equal(reminderWaiting(view({ remindedAtIso: new Date(NOW).toISOString(), acknowledged: true })), false);
   });
 
+  it("hands the agent the same steps in both languages: every write the test may try, the router's own page, nothing identifying", () => {
+    for (const text of [zh("agent_test_prompt", { model: "M", issueUrl: "U" }), en("agent_test_prompt", { model: "M", issueUrl: "U" })]) {
+      const steps = text.split("\n").map((line) => /^(\d+)\. /.exec(line)?.[1]).filter((n) => n !== undefined);
+      assert.deepEqual(steps, Array.from({ length: 11 }, (_, i) => String(i + 1)));
+      for (const tool of ["lock_band", "lock_cell", "unlock_rf_locks", "reconnect_cellular", "reboot_cpe", "get_device_report", "probe_router_endpoints"]) assert.ok(text.includes(tool), tool);
+      // The cell lock and the 5G band lock touch only what is in use; the network mode is left alone
+      assert.match(text, /PCI/);
+      assert.ok(text.endsWith("U"));
+    }
+    assert.match(zh("agent_test_prompt", { model: "M", issueUrl: "U" }), /路由器自己的管理网页.*网络制式.*锁 4G 小区和 5G 小区.*锁 4G 频段和 5G 频段/s);
+    assert.match(zh("agent_test_prompt", { model: "M", issueUrl: "U" }), /不要改网络制式/);
+    assert.match(zh("agent_test_prompt", { model: "M", issueUrl: "U" }), /小区标识、频点、PCI 或短信内容/);
+    assert.match(en("agent_test_prompt", { model: "M", issueUrl: "U" }), /router's own web page.*network modes.*4G cells and 5G cells.*4G bands and 5G bands/s);
+    assert.match(en("agent_test_prompt", { model: "M", issueUrl: "U" }), /Do not change the network mode/);
+    assert.match(en("agent_test_prompt", { model: "M", issueUrl: "U" }), /cell ID, channel, PCI or SMS text/);
+  });
+
   it("finds the newest reminder among the alerts", () => {
     const alert = (id: string, code: string, tsIso: string): AlertEventRecord => ({ id, tsIso, code, severity: "warning", messageZh: "", messageEn: "" });
     assert.equal(latestAgentTestReminder([alert("w", "WAN_DOWN", "2026-11-10T09:00:00.000Z")]), null);

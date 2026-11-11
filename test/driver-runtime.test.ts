@@ -529,8 +529,9 @@ describe("write gate: another form of a family's interface", () => {
     // A form the family does not have, or a brand with no forms: the family's own
     other.noteVariant("LG9999", "elsewhere");
     assert.equal(other.variant, null);
+    // (ZTE's reqproc spelling is reported, but no facts of its own are recorded: ZTE's apply)
     const zte = new DeviceAccess({ family: "zte-goform" });
-    zte.noteVariant("MC888", "pro");
+    zte.noteVariant("MC888", "reqproc");
     zte.see("MC888", "1.0");
     assert.equal(zte.variant, null);
     assert.equal(zte.writeState("bandLock"), "enabled");
