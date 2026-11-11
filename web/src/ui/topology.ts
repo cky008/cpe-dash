@@ -7,7 +7,7 @@ import { sensitive } from "./sensitive.ts";
 import { canWrite, unavailableSection } from "../core/device-access-view.ts";
 import { cardHead, emptyState, runBusy, unavailableState } from "./widgets.ts";
 
-/** `short` is the phone label: the row's icon already says wired or Wi-Fi. */
+/** `short` is the phone label: the row's icon already says wired, Wi-Fi or not known. */
 const MEDIUM: Readonly<Record<TerminalAccessMedium, { key: MessageKey; short: string; kind: string; icon: string; wired: boolean }>> = {
   LAN_1000M: { key: "topo.lan_1000m", short: "1000M", kind: "lan", icon: "ethernet", wired: true },
   LAN_100M: { key: "topo.lan_100m", short: "100M", kind: "lan", icon: "ethernet", wired: true },
@@ -15,6 +15,8 @@ const MEDIUM: Readonly<Record<TerminalAccessMedium, { key: MessageKey; short: st
   WIFI_5G: { key: "topo.wifi_5", short: "5G", kind: "wifi5", icon: "wifi", wired: false },
   WIFI_2_4G: { key: "topo.wifi_24", short: "2.4G", kind: "wifi24", icon: "wifi", wired: false },
   WIFI_OTHER: { key: "topo.wifi_other", short: "WiFi", kind: "wifi5", icon: "wifi", wired: false },
+  // A DHCP lease: the router does not say how the device is connected
+  UNKNOWN: { key: "topo.link_unknown", short: DASH, kind: "lan", icon: "network", wired: true },
 };
 
 /**
@@ -62,7 +64,7 @@ export function mountTopology(ctx: AppContext): void {
         h(
           "div",
           { class: "flex items-center gap-2 min-w-0" },
-          icon(medium.wired ? "ethernet" : "wifi", "muted shrink-0"),
+          icon(medium.icon, "muted shrink-0"),
           h(
             "div",
             { class: "min-w-0" },

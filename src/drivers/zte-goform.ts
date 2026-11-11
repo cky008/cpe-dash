@@ -19,6 +19,7 @@ import type {
   DriverCell,
   DriverCellLockTarget,
   DriverDataLink,
+  DriverHost,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -804,6 +805,23 @@ class ZteGoformSession implements DriverSessionHandle {
       settleDataSwitch(check, true, after);
     },
   };
+
+  /**
+   * Connected devices: `station_list` (Wi-Fi) and `lan_station_list` (wired), each asked on its own the
+   * way the router's page asks; an entry names `mac_addr`, `hostname` and `ip_addr`, a wired one also
+   * `connect_time` in seconds. A firmware without either list answers it empty.
+   */
+  async hosts(): Promise<DriverHost[]> {
+    this.#guard();
+    const rows = (value: unknown, link: DriverHost["link"]): DriverHost[] | null =>
+      Array.isArray(value)
+        ? value.filter(isPlainObject).map((row) => ({ mac: textOf(row["mac_addr"]) ?? "", name: labelOf(row["hostname"]), ipv4: textOf(row["ip_addr"]), ipv6: [], link, connectedSec: nonNegativeOf(row["connect_time"]), leaseSec: null, rssiDbm: null }))
+        : null;
+    const lan = rows((await getCmd(this.#http, ["lan_station_list"], false, this.#at))["lan_station_list"], "lan");
+    const wifi = rows((await getCmd(this.#http, ["station_list"], false, this.#at))["station_list"], "wifi");
+    if (lan === null && wifi === null) throw new SectionUnavailableError("The device list", null);
+    return [...(lan ?? []), ...(wifi ?? [])];
+  }
 
   readonly sms: DriverSms = {
     keepsSent: true,

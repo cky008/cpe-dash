@@ -171,48 +171,48 @@ Usually at `192.168.0.1`; sign in with the admin password (there is no user name
 | G5F | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5F) |
 | MC888D | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888D) |
 | U50 Pro (MU5120) | Mobile router | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50+Pro+%28MU5120%29) |
-| MC8510 | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8510) |
-| G5C | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5C) |
-| G5B | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5B) |
-| MC888 Ultra | Indoor CPE | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888+Ultra) |
-| MC888 Pro | Indoor CPE | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888+Pro) |
-| MC888 | Indoor CPE | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888) |
-| MC888S | Indoor CPE | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888S) |
-| MC8020 | Indoor CPE | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8020) |
-| MC801A | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC801A) |
-| MC801A1 | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC801A1) |
-| MC801 | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC801) |
-| MC889 Pro | Outdoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC889+Pro) |
-| MC889A Pro | Outdoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC889A+Pro) |
-| MC889 | Outdoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC889) |
-| MC7010 | Outdoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC7010) |
-| MC7010D | Outdoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC7010D) |
-| MC8830 | Industrial gateway | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8830) |
-| MU5001 | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5001) |
-| MU5001A | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5001A) |
-| MU5001U | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5001U) |
-| MU5002 | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5002) |
-| MU510 | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU510) |
-| U50 | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50) |
-| U50S | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50S) |
-| U30 Air | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U30+Air) |
-| U10S Pro | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U10S+Pro) |
-| F50 Pro | Mobile router | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F50+Pro) |
-| F50 | Mobile router | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F50) |
-| MF971R | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF971R) |
-| MF935 | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF935) |
-| MF920U | Mobile router | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF920U) |
-| MF79U | USB modem | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF79U) |
-| MF297D | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF297D) |
-| MF289F | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF289F) |
-| MF286 | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286) |
-| MF286A | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286A) |
-| MF286C | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286C) |
-| MF286D | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286D) |
-| MF286R | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286R) |
-| MF283+ | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF283%2B) |
-| MF283U | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF283U) |
-| MF253S | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF253S) |
+| MC8510 | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8510) |
+| G5C | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5C) |
+| G5B | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5B) |
+| MC888 Ultra | Indoor CPE | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888+Ultra) |
+| MC888 Pro | Indoor CPE | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888+Pro) |
+| MC888 | Indoor CPE | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888) |
+| MC888S | Indoor CPE | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888S) |
+| MC8020 | Indoor CPE | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8020) |
+| MC801A | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC801A) |
+| MC801A1 | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC801A1) |
+| MC801 | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC801) |
+| MC889 Pro | Outdoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC889+Pro) |
+| MC889A Pro | Outdoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC889A+Pro) |
+| MC889 | Outdoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC889) |
+| MC7010 | Outdoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC7010) |
+| MC7010D | Outdoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC7010D) |
+| MC8830 | Industrial gateway | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8830) |
+| MU5001 | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5001) |
+| MU5001A | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5001A) |
+| MU5001U | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5001U) |
+| MU5002 | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU5002) |
+| MU510 | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MU510) |
+| U50 | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50) |
+| U50S | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50S) |
+| U30 Air | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U30+Air) |
+| U10S Pro | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U10S+Pro) |
+| F50 Pro | Mobile router | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F50+Pro) |
+| F50 | Mobile router | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F50) |
+| MF971R | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF971R) |
+| MF935 | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF935) |
+| MF920U | Mobile router | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF920U) |
+| MF79U | USB modem | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF79U) |
+| MF297D | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF297D) |
+| MF289F | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF289F) |
+| MF286 | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286) |
+| MF286A | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286A) |
+| MF286C | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286C) |
+| MF286D | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286D) |
+| MF286R | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF286R) |
+| MF283+ | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF283%2B) |
+| MF283U | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF283U) |
+| MF253S | Indoor CPE | goform | ? | ? | ? | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MF253S) |
 
 Notes for this table:
 
@@ -280,7 +280,7 @@ Usually at `192.168.0.1`; sign in with the user name and password of the router'
 | MP510 | Industrial gateway | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MP510) |
 | ZLT M30S | Mobile router | Tozed · goform | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M30S) |
 | ZLT M60 | Mobile router | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M60) |
-| ZLT T10D MAX | Indoor CPE | goform | ? | ? |  | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T10D+MAX) |
+| ZLT T10D MAX | Indoor CPE | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T10D+MAX) |
 
 Notes for this table:
 
@@ -323,20 +323,20 @@ Usually at `192.168.66.1`; sign in with the user name `root` and the admin passw
 
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| C8-668GL | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-668GL) |
-| C8-660 | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-660) |
-| C8-620 | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-620) |
-| C8-520 | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-520) |
-| C8-500 | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-500) |
-| C5800-500 | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5800-500) |
-| C2000 Ultra | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Ultra) |
-| C2000 Max | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Max) |
-| C2000 Pro | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Pro) |
-| C2000 | Indoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000) |
-| C3000 | Industrial gateway | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C3000) |
-| C5000 | Industrial gateway | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5000) |
-| C5200 | Industrial gateway | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5200) |
-| C9100 | Outdoor CPE | ? | ? |  |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C9100) |
+| C8-668GL | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-668GL) |
+| C8-660 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-660) |
+| C8-620 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-620) |
+| C8-520 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-520) |
+| C8-500 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-500) |
+| C5800-500 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5800-500) |
+| C2000 Ultra | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Ultra) |
+| C2000 Max | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Max) |
+| C2000 Pro | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Pro) |
+| C2000 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000) |
+| C3000 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C3000) |
+| C5000 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5000) |
+| C5200 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5200) |
+| C9100 | Outdoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C9100) |
 
 Notes for this table:
 
@@ -350,57 +350,57 @@ Usually at `192.168.1.1`; sign in with the user name `root` and the admin passwo
 
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| Quectel RM551E-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM551E-GL) |
-| Quectel RM530N-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM530N-GL) |
-| Quectel RM520N-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-GL) |
-| Quectel RM520N-CN | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-CN) |
-| Quectel RM521F-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM521F-GL) |
-| Quectel RM510Q-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM510Q-GL) |
-| Quectel RM505Q-AE | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM505Q-AE) |
-| Quectel RM502Q-AE | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-AE) |
-| Quectel RM502Q-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-GL) |
-| Quectel RM500Q-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-GL) |
-| Quectel RM500Q-AE | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-AE) |
-| Quectel RM500U-CN | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500U-CN) |
-| Quectel RG650E | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650E) |
-| Quectel RG650V | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650V) |
-| Quectel RG520N-EU | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EU) |
-| Quectel RG520N-EB | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EB) |
-| Quectel RG520N-CN | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-CN) |
-| Quectel RG502Q-EA | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG502Q-EA) |
-| Quectel RG501Q-EU | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG501Q-EU) |
-| Quectel RG500Q-EA | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-EA) |
-| Quectel RG500Q-CN | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-CN) |
-| Quectel RG500U-CN | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500U-CN) |
-| Quectel RG200U-CN | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG200U-CN) |
-| Quectel EM160R-GL | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM160R-GL) |
-| Quectel EM12-G | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM12-G) |
-| Quectel EC25 | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC25) |
-| Quectel EC200U | Module | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC200U) |
-| Fibocom FG370 | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370) |
-| Fibocom FG370-NA | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370-NA) |
-| Fibocom FM350-GL | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM350-GL) |
-| Fibocom FM160-CN | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-CN) |
-| Fibocom FM160-EAU | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-EAU) |
-| Fibocom FG160-EAU | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG160-EAU) |
-| Fibocom FM150-AE | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM150-AE) |
-| Fibocom FG150-AE | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG150-AE) |
-| Fibocom FM650-CN | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM650-CN) |
-| Fibocom L860-GL | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L860-GL) |
-| Fibocom L850-GL | Module | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L850-GL) |
-| GL.iNet GL-X3000 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X3000) |
-| GL.iNet GL-XE3000 | Mobile router | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE3000) |
-| GL.iNet GL-X750V2 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X750V2) |
-| GL.iNet GL-XE300 | Mobile router | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE300) |
-| Suncomm O1 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O1) |
-| Suncomm O2 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O2) |
-| Suncomm O8 Pro | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O8+Pro) |
-| Kunlun CP520 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+CP520) |
-| Kunlun OpenWrt 5G CPE | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+OpenWrt+5G+CPE) |
-| Zhilian OpenWrt 5G CPE | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Zhilian+OpenWrt+5G+CPE) |
-| Trend-Link OpenWrt 5G CPE | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Trend-Link+OpenWrt+5G+CPE) |
-| QWRT RM520N | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+QWRT+RM520N) |
-| ROOter 5G | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ROOter+5G) |
+| Quectel RM551E-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM551E-GL) |
+| Quectel RM530N-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM530N-GL) |
+| Quectel RM520N-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-GL) |
+| Quectel RM520N-CN | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-CN) |
+| Quectel RM521F-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM521F-GL) |
+| Quectel RM510Q-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM510Q-GL) |
+| Quectel RM505Q-AE | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM505Q-AE) |
+| Quectel RM502Q-AE | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-AE) |
+| Quectel RM502Q-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-GL) |
+| Quectel RM500Q-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-GL) |
+| Quectel RM500Q-AE | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-AE) |
+| Quectel RM500U-CN | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500U-CN) |
+| Quectel RG650E | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650E) |
+| Quectel RG650V | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650V) |
+| Quectel RG520N-EU | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EU) |
+| Quectel RG520N-EB | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EB) |
+| Quectel RG520N-CN | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-CN) |
+| Quectel RG502Q-EA | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG502Q-EA) |
+| Quectel RG501Q-EU | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG501Q-EU) |
+| Quectel RG500Q-EA | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-EA) |
+| Quectel RG500Q-CN | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-CN) |
+| Quectel RG500U-CN | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500U-CN) |
+| Quectel RG200U-CN | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG200U-CN) |
+| Quectel EM160R-GL | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM160R-GL) |
+| Quectel EM12-G | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM12-G) |
+| Quectel EC25 | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC25) |
+| Quectel EC200U | Module | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC200U) |
+| Fibocom FG370 | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370) |
+| Fibocom FG370-NA | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370-NA) |
+| Fibocom FM350-GL | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM350-GL) |
+| Fibocom FM160-CN | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-CN) |
+| Fibocom FM160-EAU | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-EAU) |
+| Fibocom FG160-EAU | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG160-EAU) |
+| Fibocom FM150-AE | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM150-AE) |
+| Fibocom FG150-AE | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG150-AE) |
+| Fibocom FM650-CN | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM650-CN) |
+| Fibocom L860-GL | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L860-GL) |
+| Fibocom L850-GL | Module | ? | ? | ? | ?/△ | △ | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L850-GL) |
+| GL.iNet GL-X3000 | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X3000) |
+| GL.iNet GL-XE3000 | Mobile router | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE3000) |
+| GL.iNet GL-X750V2 | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X750V2) |
+| GL.iNet GL-XE300 | Mobile router | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE300) |
+| Suncomm O1 | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O1) |
+| Suncomm O2 | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O2) |
+| Suncomm O8 Pro | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O8+Pro) |
+| Kunlun CP520 | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+CP520) |
+| Kunlun OpenWrt 5G CPE | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+OpenWrt+5G+CPE) |
+| Zhilian OpenWrt 5G CPE | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Zhilian+OpenWrt+5G+CPE) |
+| Trend-Link OpenWrt 5G CPE | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Trend-Link+OpenWrt+5G+CPE) |
+| QWRT RM520N | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+QWRT+RM520N) |
+| ROOter 5G | Indoor CPE | ? | ? | ? | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ROOter+5G) |
 
 Notes for this table:
 

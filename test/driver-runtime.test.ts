@@ -105,7 +105,9 @@ describe("driver runtime: reads", () => {
       assert.equal(status.totalSessionsCompleted, 1, "the driver's sessions are the live connection's");
       assert.equal(status.device.reads.telemetry.state, "available");
       assert.equal(status.device.reads.neighbors.state, "unknown");
-      for (const section of ["topology", "settings", "accessControl"] as const) {
+      // Connected devices are on record for this family (LuCI's lease list), router settings and access control are not
+      assert.deepEqual(status.device.reads.topology, { state: "unknown", code: null });
+      for (const section of ["settings", "accessControl"] as const) {
         assert.deepEqual(status.device.reads[section], { state: "unavailable", code: null }, section);
       }
       // SMS is on record for this family; this fixture's poll does not carry its counts
@@ -123,10 +125,13 @@ describe("driver runtime: reads", () => {
       // Sections the family does not document read nothing and open no session
       const before = fx.logins();
       assert.equal(await fx.core.monitor.refreshSettings(), null);
-      assert.equal(await fx.core.monitor.refreshTopology(), null);
       assert.equal(await fx.core.monitor.refreshAccessControl(), null);
       assert.equal(await fx.core.scheduler.executeRead(async () => "hilink"), null, "a HiLink read reads nothing");
       assert.equal(fx.logins(), before);
+      // The device list is on record (LuCI's leases); a router without LuCI says so once, and the sweep then leaves it out
+      assert.equal(await fx.core.monitor.refreshTopology(), null);
+      assert.equal(fx.logins(), before + 1);
+      assert.equal(fx.core.scheduler.getStatus().device.reads.topology.state, "unavailable");
       assert.equal(fx.logins(), fx.destroys(), "every session logged out");
       await assert.rejects(fx.core.scheduler.probeLoginState(), CpeControlValidationError);
       await assert.rejects(fx.core.scheduler.probePublic("/api/monitoring/check-notifications"), CpeControlValidationError);

@@ -1,5 +1,6 @@
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import { buildXmlRequest, getXmlTag, parseXmlError } from "../xml.ts";
 import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
@@ -14,6 +15,7 @@ import type {
   DriverCell,
   DriverCellLockTarget,
   DriverDataLink,
+  DriverHost,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -21,7 +23,7 @@ import type {
   DriverSessionHandle,
   DriverTelemetry,
 } from "./types.ts";
-import { arfcnOf, bandOf, counterOf, fieldOf, identityOf, ipv4Of, ipv6Of, isPlainObject, labelOf, nonNegativeOf, pciOf, rsrpOf, rsrqOf, sinrOf } from "./values.ts";
+import { arfcnOf, bandOf, counterOf, fieldOf, identityOf, intOf, ipv4Of, ipv6Of, isPlainObject, labelOf, nonNegativeOf, numberOf, pciOf, rsrpOf, rsrqOf, sinrOf, textOf } from "./values.ts";
 
 /**
  * NRadio routers (C2000 Max / Ultra / Pro, C8-668GL, C5800, C8-660, C3000…) on NROS, NRadio's
@@ -44,6 +46,7 @@ const REBOOT = "/cgi-bin/luci/admin/system/reboot/call";
 const NET_MODE = "/api/net/net-mode";
 const LOCK_FREQ = "/api/net/lock-freq";
 const DATA_SWITCH = "/api/dialup/mobile-dataswitch";
+const CLIENTS = "/cgi-bin/luci/nradio/client/all_list";
 const REFERER = "/html/content.html";
 const TOKEN = /^[0-9A-Za-z]{8,64}$/;
 
@@ -181,6 +184,13 @@ export function parseNradioLockState(netMode: string): DriverLockState {
   };
 }
 
+/** How a client of `client/all_list` is connected: wired, or the Wi-Fi band its `frequency` names (as the page tells them apart). */
+function nradioLinkOf(client: Record<string, unknown>): DriverHost["link"] {
+  if (textOf(client["type"]) === "wired") return "lan";
+  const frequency = textOf(client["frequency"]) ?? "";
+  return frequency.includes("2.4") ? "wifi_2_4" : frequency.includes("5.") ? "wifi_5" : "wifi";
+}
+
 class NradioSession implements DriverSessionHandle {
   readonly family = FAMILY;
   readonly #http: LanHttp;
@@ -228,6 +238,21 @@ class NradioSession implements DriverSessionHandle {
   async lockState(): Promise<DriverLockState> {
     this.#guard();
     return parseNradioLockState(await this.#netMode());
+  }
+
+  /**
+   * Connected devices, as the router's own client page reads them (`client/all_list`, notes library A
+   * table 3.1 row 5): `result.client`, each with `mac`, `hostname`, `type` (`wired`, or Wi-Fi with
+   * `frequency`, `ssid`, `rssi`) and `exsit` (`1`: connected now; the page lists no other).
+   */
+  async hosts(): Promise<DriverHost[]> {
+    this.#guard();
+    const list = fieldOf(fieldOf(await this.#http.getJson(CLIENTS, { referer: REFERER }), "result"), "client");
+    if (!Array.isArray(list)) throw new SectionUnavailableError("The device list", null);
+    return list
+      .filter(isPlainObject)
+      .filter((client) => intOf(client["exsit"]) === 1)
+      .map((client) => ({ mac: textOf(client["mac"]) ?? "", name: labelOf(client["hostname"]), ipv4: null, ipv6: [], link: nradioLinkOf(client), connectedSec: null, leaseSec: null, rssiDbm: numberOf(client["rssi"]) }));
   }
 
   /** The module's mobile data switch (`<dataswitch>` `1` on, `0` off; `null`: it named neither). */

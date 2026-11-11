@@ -132,7 +132,9 @@ export type TerminalAccessMedium =
   | "LAN_OTHER"
   | "WIFI_2_4G"
   | "WIFI_5G"
-  | "WIFI_OTHER";
+  | "WIFI_OTHER"
+  /** The router lists the device without saying whether it is wired or on Wi-Fi (a DHCP lease). */
+  | "UNKNOWN";
 
 export interface TerminalHostEntry {
   macAddress: string;

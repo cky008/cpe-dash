@@ -17,6 +17,7 @@ import {
   type NeighborScanSnapshot,
   type PersistedLockState,
   SectionUnavailableError,
+  type TerminalTopologySnapshot,
   readRouterModel,
   sectionUnavailableCode,
 } from "./cpe-domain.ts";
@@ -48,6 +49,7 @@ import { createDriverClient } from "./drivers/brands.ts";
 import { type DriverCpeClient, isInsideDriverSession } from "./drivers/client.ts";
 import { detectRouterFamily } from "./drivers/detect.ts";
 import { DriverLoginMethodError } from "./drivers/login.ts";
+import { driverTopologySnapshot } from "./drivers/hosts.ts";
 import { CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./drivers/snapshot.ts";
 import type { DriverSession } from "./drivers/types.ts";
 import type { SmsAbilities, SmsCounters, SmsWireMessage } from "./sms/types.ts";
@@ -1092,6 +1094,18 @@ export class MutexSessionScheduler extends EventEmitter {
   executeDriverNeighbourRead(opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}): Promise<NeighborScanSnapshot | null> {
     return this.#executeDriverRead(
       (session) => this.readSection("neighbors", async () => driverNeighbourSnapshot(await session.neighbours(), Date.now())),
+      { priority: opts.priority ?? "low", ignoreCooldown: opts.ignoreCooldown }
+    );
+  }
+
+  /** Connected devices of a driver family whose notes define a device list (`readSection("topology")`). */
+  executeDriverTopologyRead(opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}): Promise<TerminalTopologySnapshot | null> {
+    return this.#executeDriverRead(
+      (session) =>
+        this.readSection("topology", async () => {
+          if (!session.hosts) throw new SectionUnavailableError("The device list", null);
+          return driverTopologySnapshot(await session.hosts());
+        }),
       { priority: opts.priority ?? "low", ignoreCooldown: opts.ignoreCooldown }
     );
   }

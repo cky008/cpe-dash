@@ -581,7 +581,7 @@ async function fetchHostListTolerant(session: EphemeralCpeSession): Promise<Term
   throw new SectionUnavailableError("The device list", unreadable ? null : code);
 }
 
-function topologySnapshot(hosts: TerminalHostEntry[], summary: TopologySummary): TerminalTopologySnapshot {
+export function topologySnapshot(hosts: TerminalHostEntry[], summary: TopologySummary): TerminalTopologySnapshot {
   const countsByMedium: Record<TerminalAccessMedium, number> = {
     LAN_1000M: 0,
     LAN_100M: 0,
@@ -589,6 +589,7 @@ function topologySnapshot(hosts: TerminalHostEntry[], summary: TopologySummary):
     WIFI_2_4G: 0,
     WIFI_5G: 0,
     WIFI_OTHER: 0,
+    UNKNOWN: 0,
   };
   for (const h of hosts) {
     if (h.active) {

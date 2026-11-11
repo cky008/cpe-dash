@@ -73,8 +73,10 @@ export class DriverBackend implements RouterBackend {
     return this.#scheduler.executeDriverNeighbourRead({ priority: "low", ignoreCooldown: opts.ignoreCooldown });
   }
 
-  readTopology(): Promise<TerminalTopologySnapshot | null> {
-    return Promise.resolve(null);
+  /** The devices the router lists, where the family's notes define a device list (the others read none). */
+  readTopology(opts: ReadRequest): Promise<TerminalTopologySnapshot | null> {
+    if (!(ROUTER_FAMILY_FACTS[this.family].reads as ReadonlyArray<string>).includes("topology")) return Promise.resolve(null);
+    return this.#scheduler.executeDriverTopologyRead({ priority: "low", ignoreCooldown: opts.ignoreCooldown });
   }
 
   readSettings(): Promise<RouterSettingsSnapshot | null> {

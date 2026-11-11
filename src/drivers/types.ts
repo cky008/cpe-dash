@@ -194,6 +194,22 @@ export interface DriverSms {
   readonly keepsSent: boolean;
 }
 
+/** A device the router lists as connected to it, as its own interface names it. */
+export interface DriverHost {
+  /** As the router writes it; checked and normalised when the snapshot is made. */
+  mac: string;
+  name: string | null;
+  ipv4: string | null;
+  ipv6: string[];
+  /** `lan` wired, `wifi` (band not said), `wifi_2_4` / `wifi_5`; `null`: the router does not say. */
+  link: "lan" | "wifi" | "wifi_2_4" | "wifi_5" | null;
+  /** How long it has been connected, in seconds (`null`: not said). */
+  connectedSec: number | null;
+  /** How long its DHCP lease has left, in seconds (`null`: not said). */
+  leaseSec: number | null;
+  rssiDbm: number | null;
+}
+
 /** Waiting inside a write's session (injected so tests need not wait). */
 export interface DriverWait {
   sleep: (ms: number) => Promise<void>;
@@ -238,6 +254,8 @@ export interface DriverSession {
   readonly sms?: DriverSms;
   /** The cellular data connection, on a family whose notes define a way to switch it. */
   readonly data?: DriverDataLink;
+  /** The devices connected to the router, on a family whose notes define a device list. */
+  hosts?(): Promise<DriverHost[]>;
 }
 
 /** A session as a family's protocol opens it: the client calls `logout` in `finally`. */

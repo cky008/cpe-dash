@@ -963,7 +963,7 @@ export class DemoBackend {
       const rssi = h.rssi !== null && h.rssi > 0 && active ? Math.max(5, Math.round(h.rssi + (this.#random() - 0.5) * 4)) : h.rssi;
       return { ...h, active, leaseTimeRemainingSec: lease, rssi };
     });
-    const countsByMedium = { LAN_1000M: 0, LAN_100M: 0, LAN_OTHER: 0, WIFI_2_4G: 0, WIFI_5G: 0, WIFI_OTHER: 0 };
+    const countsByMedium = { LAN_1000M: 0, LAN_100M: 0, LAN_OTHER: 0, WIFI_2_4G: 0, WIFI_5G: 0, WIFI_OTHER: 0, UNKNOWN: 0 };
     for (const h of hosts) if (h.active) countsByMedium[h.medium] += 1;
     return { ...this.#topology, ...this.#stamp(), hosts, countsByMedium };
   }

@@ -54,8 +54,11 @@ describe("router backend: one interface for every brand", () => {
 
       // What no driver reads yet has nothing to show, and costs no request
       const before = router.mock.requests.length;
-      assert.deepEqual([await backend().readTopology({}), await backend().readSettings({}), await backend().readAccessControl({})], [null, null, null]);
+      assert.deepEqual([await backend().readSettings({}), await backend().readAccessControl({})], [null, null]);
       assert.equal(router.mock.requests.length, before);
+      // The device list is on record for this family; this router has no LuCI lease list to read
+      assert.equal(await backend().readTopology({}), null);
+      assert.ok(router.calls.some((c) => c.object === "luci-rpc" && c.method === "getDHCPLeases"));
 
       await core.scheduler.reloadCredentialsAndResetBreaker(OPENWRT_PASSWORD, "root", "huawei");
       assert.ok(backend() instanceof HilinkBackend);

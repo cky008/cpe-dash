@@ -282,6 +282,7 @@ export const zhCN = {
   "topo.wifi_24": "2.4G WiFi",
   "topo.wifi_5": "5G WiFi",
   "topo.wifi_other": "WiFi",
+  "topo.link_unknown": "接入方式未知",
   "topo.static": "静态",
   "topo.empty": "暂无在线设备",
   "topo.summary": "{active} 在线 · 有线 {eth} · 无线 {wifi}",

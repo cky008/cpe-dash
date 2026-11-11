@@ -609,7 +609,8 @@ export type TerminalAccessMedium =
   | "LAN_OTHER"
   | "WIFI_2_4G"
   | "WIFI_5G"
-  | "WIFI_OTHER";
+  | "WIFI_OTHER"
+  | "UNKNOWN"; // the router lists the device without its link (a DHCP lease, other brands)
 
 export interface TerminalHostEntry {
   macAddress: string;           // 原值；Bearer / MCP 脱敏副本只留厂商 OUI（"00:00:5E:**:**:**"）

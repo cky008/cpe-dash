@@ -284,6 +284,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "topo.wifi_24": "2.4G WiFi",
   "topo.wifi_5": "5G WiFi",
   "topo.wifi_other": "WiFi",
+  "topo.link_unknown": "Link not reported",
   "topo.static": "Static",
   "topo.empty": "No devices online",
   "topo.summary": "{active} online · {eth} wired · {wifi} wireless",

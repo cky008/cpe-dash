@@ -19,6 +19,7 @@ import type {
   DriverCarrier,
   DriverCell,
   DriverCellLockTarget,
+  DriverHost,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -911,6 +912,44 @@ export class OpenwrtSession implements DriverSessionHandle {
       temperatureC: temp,
       signalBars: null,
     };
+  }
+
+  /**
+   * Connected devices as LuCI's status page lists them: `luci-rpc` `getDHCPLeases` (LuCI's own rpcd
+   * plugin): `dhcp_leases` with `macaddr`, `hostname`, `ipaddr` and `expires` (seconds left, `false`
+   * for a lease that does not expire), and `dhcp6_leases` with `ip6addr` / `ip6addrs`, folded into the
+   * same device by MAC. A lease does not say whether the device is wired or on Wi-Fi.
+   */
+  async hosts(): Promise<DriverHost[]> {
+    this.#guard();
+    let answer: unknown;
+    try {
+      answer = await this.#ubus.call("luci-rpc", "getDHCPLeases", {});
+    } catch (err) {
+      // No LuCI (or no lease list) on this router: nothing to read, not a broken session
+      if (err instanceof CpeApiError) throw new SectionUnavailableError("The device list", null);
+      throw err;
+    }
+    const v4 = fieldOf(answer, "dhcp_leases");
+    const v6 = fieldOf(answer, "dhcp6_leases");
+    if (!Array.isArray(v4) && !Array.isArray(v6)) throw new SectionUnavailableError("The device list", null);
+    const hosts = new Map<string, DriverHost>();
+    for (const lease of (Array.isArray(v4) ? v4 : []).filter(isPlainObject)) {
+      const mac = textOf(lease["macaddr"]);
+      if (mac === null) continue;
+      const expires = lease["expires"];
+      hosts.set(mac.toLowerCase(), { mac, name: labelOf(lease["hostname"]), ipv4: textOf(lease["ipaddr"]), ipv6: [], link: null, connectedSec: null, leaseSec: typeof expires === "number" ? expires : null, rssiDbm: null });
+    }
+    for (const lease of (Array.isArray(v6) ? v6 : []).filter(isPlainObject)) {
+      const mac = textOf(lease["macaddr"]);
+      if (mac === null) continue;
+      const listed = lease["ip6addrs"];
+      const addresses = [...(Array.isArray(listed) ? listed : []), lease["ip6addr"]].map((a) => textOf(a)).filter((a): a is string => a !== null);
+      const host = hosts.get(mac.toLowerCase());
+      if (host) host.ipv6 = [...new Set([...host.ipv6, ...addresses])];
+      else hosts.set(mac.toLowerCase(), { mac, name: labelOf(lease["hostname"]), ipv4: null, ipv6: [...new Set(addresses)], link: null, connectedSec: null, leaseSec: null, rssiDbm: null });
+    }
+    return [...hosts.values()];
   }
 
   async neighbours(): Promise<DriverNeighbour[]> {

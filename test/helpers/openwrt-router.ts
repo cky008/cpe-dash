@@ -38,6 +38,8 @@ export interface OpenwrtRouterOptions {
   qmodem?: boolean;
   /** What the modem answers a sent PDU with (default: `+CMGS` and `OK`). */
   sendAnswer?: string;
+  /** What LuCI's `luci-rpc getDHCPLeases` answers (left out: a router without LuCI). */
+  leases?: Record<string, unknown>;
 }
 
 /** One stored part: its storage index, `<stat>` (0 unread, 1 read, 2 unsent, 3 sent) and its PDU. */
@@ -142,6 +144,8 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
       state.destroyed = true;
       return reply({});
     }
+
+    if (object === "luci-rpc" && method === "getDHCPLeases") return opts.leases ? reply(opts.leases) : reply(null, 4);
 
     // QModem: its UCI section, its own AT method and its PDU sender
     if (opts.qmodem && object === "uci" && method === "get" && args["config"] === "qmodem") {

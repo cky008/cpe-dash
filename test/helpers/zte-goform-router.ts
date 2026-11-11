@@ -63,6 +63,8 @@ export interface ZteRouterOptions {
   refuse?: ReadonlyArray<string>;
   /** A connection that does not follow `CONNECT_NETWORK` / `DISCONNECT_NETWORK` (it stays as it is). */
   pppSticks?: boolean;
+  /** The device lists `lan_station_list` and `station_list` answer (left out: an empty value, as a firmware without them). */
+  stations?: { lan?: unknown[]; wifi?: unknown[] };
 }
 
 /** A message row; `text` is stored as UTF-16 hexadecimal. */
@@ -159,6 +161,8 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
         if (key === "LD") out["LD"] = ld ?? "";
         else if (key === "RD") out["RD"] = `RD${++state.rd}`;
         else if (key === "sms_unread_num" && opts.sms !== false) out[key] = opts.unreadCount ?? String(state.sms.filter((row) => row.tag === "1").length);
+        else if (key === "lan_station_list" && opts.stations?.lan) (out as Record<string, unknown>)[key] = opts.stations.lan;
+        else if (key === "station_list" && opts.stations?.wifi) (out as Record<string, unknown>)[key] = opts.stations.wifi;
         else if (state.values[key] !== undefined) out[key] = state.values[key] ?? "";
         else out[key] = "";
       }
