@@ -169,7 +169,15 @@ describe("the supported devices guide page", () => {
     assert.deepEqual([marksOf(en, "openwrt", "Quectel RM520N-GL")?.[4], marksOf(en, "openwrt", "Fibocom FM350-GL")?.[4], marksOf(en, "openwrt", "Quectel RM520N-GL")?.[6]], ["?", "△", "△"]);
     assert.match(en, /- △ Reboot & redial: "Reboot" restarts the cellular module, not the whole router \(every model in this table\)\./);
     // A note that changes no mark: Tozed's encrypted builds
-    assert.match(zh, /- 有些运营商定制固件给接口加了一层加密，烽燧连不上这样的固件（这一节的全部型号）。/);
+    assert.match(zh, /- 有些运营商定制固件给接口加了一层加密，烽燧连不上这样的固件（除 ZLT T10D MAX 外的全部型号）。/);
+    // A ZLT router on ZTE's chip platform sits in its maker's section and connects through ZTE's interface
+    assert.equal(findCatalogModel("zte-goform", "ZLT T10D MAX")?.section, "tozed");
+    assert.equal(findCatalogModel("tozed", "ZLT T10D MAX"), null);
+    assert.deepEqual(marksOf(zh, "tozed", "ZLT T10D MAX")?.slice(3, 6), ["?", "△", "△"]);
+    assert.match(zh, /- △ 「锁频段」、「锁小区」：这类 4G 固件的接口资料里没有锁频段和锁小区的指令，[^\n]*（ZLT T10D MAX）。/);
+    // One the notes put on two interfaces names both, and connects through the one detection finds first
+    assert.deepEqual(findCatalogModel("tozed", "ZLT M30S")?.families, ["tozed", "zte-goform"]);
+    assert.equal(findCatalogModel("zte-goform", "ZLT M30S")?.model, "ZLT M30S");
     // The legend: four marks and the empty cell, nothing more than the table needs
     const legend = zh.split("\n<a id=")[0] ?? "";
     for (const mark of ["**✓ 已验证**", "**? 等待回报**", "**△ 部分支持或有条件**", "**— 不支持**", "空白：烽燧还没有做"]) assert.ok(legend.includes(mark), mark);

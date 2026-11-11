@@ -250,44 +250,48 @@ Notes for this table:
 
 ## Tozed / ZLT (also China Unicom VN007)
 
-Usually at `192.168.0.1`; sign in with the user name `admin` and the admin password. Leave the brand on "Detect automatically" under Settings → Router, or choose "Tozed / ZLT (also China Unicom VN007)".
+Usually at `192.168.0.1`; sign in with the user name and password of the router's page. Leave the brand on "Detect automatically" under Settings → Router, or choose "Tozed / ZLT (also China Unicom VN007)" or "ZTE (goform web interface)".
 
-| Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Your results |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| VN007 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007) |
-| VN007+ | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007%2B) |
-| VN009 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN009) |
-| ZLT X20 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X20) |
-| ZLT X21 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21) |
-| ZLT X21G | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21G) |
-| ZLT X25 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X25) |
-| ZLT X28 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28) |
-| ZLT X28 Pro | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28+Pro) |
-| ZLT X30 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X30) |
-| ZLT X100 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X100) |
-| ZLT X300M | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X300M) |
-| LT500 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LT500) |
-| ZLT S10 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10) |
-| ZLT S10G | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10G) |
-| ZLT S12 Pro | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S12+Pro) |
-| ZLT S20 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S20) |
-| ZLT S25 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S25) |
-| ZLT S50 | Indoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S50) |
-| ZLT X11 | Outdoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X11) |
-| ZLT P11 | Outdoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P11) |
-| ZLT P28 | Outdoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P28) |
-| ZLT T30 | Outdoor CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T30) |
-| ZLT T20 | Industrial gateway | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T20) |
-| MP510 | Industrial gateway | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MP510) |
-| ZLT M30S | Mobile router | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M30S) |
-| ZLT M60 | Mobile router | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M60) |
+| Model | Form | Interface | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Your results |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| VN007 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007) |
+| VN007+ | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007%2B) |
+| VN009 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN009) |
+| ZLT X20 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X20) |
+| ZLT X21 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21) |
+| ZLT X21G | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21G) |
+| ZLT X25 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X25) |
+| ZLT X28 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28) |
+| ZLT X28 Pro | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28+Pro) |
+| ZLT X30 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X30) |
+| ZLT X100 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X100) |
+| ZLT X300M | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X300M) |
+| LT500 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LT500) |
+| ZLT S10 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10) |
+| ZLT S10G | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10G) |
+| ZLT S12 Pro | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S12+Pro) |
+| ZLT S20 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S20) |
+| ZLT S25 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S25) |
+| ZLT S50 | Indoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S50) |
+| ZLT X11 | Outdoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X11) |
+| ZLT P11 | Outdoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P11) |
+| ZLT P28 | Outdoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P28) |
+| ZLT T30 | Outdoor CPE | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T30) |
+| ZLT T20 | Industrial gateway | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T20) |
+| MP510 | Industrial gateway | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MP510) |
+| ZLT M30S | Mobile router | Tozed · goform | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M30S) |
+| ZLT M60 | Mobile router | Tozed | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M60) |
+| ZLT T10D MAX | Indoor CPE | goform | ? | ? |  | ? | △ | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T10D+MAX) |
 
 Notes for this table:
 
-- △ SMS: sends messages; the router's interface has no command on record to delete a message or to mark one read, so FengSui can do neither here (every model in this table).
+- △ SMS: sends messages; the router's interface has no command on record to delete a message or to mark one read, so FengSui can do neither here (every model but the ZLT T10D MAX).
 - △ Reboot & redial: reboot only; FengSui does not do redial here yet (every model in this table).
-- FengSui keeps track of what you have not read (it cannot change the router's own unread mark) (every model in this table).
-- Some operator builds wrap the interface in a layer of encryption; FengSui cannot connect to those (every model in this table).
+- FengSui keeps track of what you have not read (it cannot change the router's own unread mark) (every model but the ZLT T10D MAX).
+- Some operator builds wrap the interface in a layer of encryption; FengSui cannot connect to those (every model but the ZLT T10D MAX).
+- △ Band lock, Cell lock: the notes on this 4G firmware name no band lock or cell lock, so FengSui sends the forms of ZTE's goform pages, which the router may not take; the network mode can be automatic or 4G only (ZLT T10D MAX).
+- SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown (ZLT T10D MAX).
+- A 4G router on ZTE's chip platform: it uses another spelling of ZTE's interface (`/reqproc/`), which FengSui recognises when it connects (ZLT T10D MAX).
 
 <a id="brand-fiberhome"></a>
 

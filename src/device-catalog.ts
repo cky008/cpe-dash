@@ -285,8 +285,11 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["ZLT T30", "outdoor"],
     ["ZLT T20", "gateway"],
     ["MP510", "gateway"],
-    ["ZLT M30S", "mobile"],
+    // One note has the M30S on the http.cgi interface, a field report on ZTE's (its reqproc spelling): both are named
+    ["ZLT M30S", "mobile", { families: ["tozed", "zte-goform"] }],
     ["ZLT M60", "mobile"],
+    // A ZXIC-platform 4G router: ZTE's interface in its reqproc spelling, not http.cgi
+    ["ZLT T10D MAX", "indoor", { families: ["zte-goform"] }],
   ]),
   ...models("fiberhome", ["fiberhome"], [
     ["LG6121F", "indoor"],
@@ -409,6 +412,9 @@ export interface ModelFact {
   en: string;
 }
 
+/** The models on record with ZTE's interface in its `reqproc` spelling (the ZXIC 4G firmware). */
+export const ZTE_REQPROC_MODELS: ReadonlyArray<string> = ["ZLT T10D MAX", "ZLT M30S"];
+
 /** The ZTE goform models that open their developer options before a lock (the driver's branches 2 and 3: `zteBranch`). */
 export const ZTE_DEVELOPER_OPTION_MODELS: ReadonlyArray<string> = ["MC8020", "MC888", "MC888 Pro", "MC888S", "MC888 Ultra", "MC888D", "MC8830", "F50", "F50 Pro", "MF79U"];
 
@@ -432,6 +438,20 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     features: [],
     zh: "短信读写的是路由器自己的存储，存在 SIM 卡上的短信不显示",
     en: "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown",
+  },
+  {
+    family: "zte-goform",
+    models: ZTE_REQPROC_MODELS,
+    features: ["bandLock", "cellLock"],
+    zh: "这类 4G 固件的接口资料里没有锁频段和锁小区的指令，烽燧发的是中兴 goform 页面的写法，路由器不一定接受；网络制式只能设成自动或仅 4G",
+    en: "the notes on this 4G firmware name no band lock or cell lock, so FengSui sends the forms of ZTE's goform pages, which the router may not take; the network mode can be automatic or 4G only",
+  },
+  {
+    family: "zte-goform",
+    models: ZTE_REQPROC_MODELS,
+    features: [],
+    zh: "这是中兴芯片平台的 4G 路由器，用的是中兴接口的另一种写法（`/reqproc/`），连接时烽燧会自己认出来",
+    en: "A 4G router on ZTE's chip platform: it uses another spelling of ZTE's interface (`/reqproc/`), which FengSui recognises when it connects",
   },
   {
     family: "zte-zwrt",
