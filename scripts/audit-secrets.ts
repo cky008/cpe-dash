@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig, parseDotEnv } from "../src/config.ts";
@@ -13,11 +14,45 @@ import { loadConfig, parseDotEnv } from "../src/config.ts";
  *      contact exports (`*.vcf`), `*.apk*`, `*.dll`, `*.pem`, `*.key`.
  *   3. Literal secrets loaded from `.env` (`CPE_PASSWORD`, `API_TOKEN`, `DATA_ENCRYPTION_KEY`, `TELEGRAM_API`,
  *      `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_IDS`, `WEBHOOK_URL`, `WEBHOOK_SECRET`).
- *   4. Private keys, real tokens, or unredacted 15-digit IMEI/IMSI numbers outside allowed RFC test placeholders.
+ *   4. Private keys (but a router vendor's published key, `PUBLIC_VENDOR_KEYS`), real tokens, or unredacted
+ *      15-digit IMEI/IMSI numbers outside allowed RFC test placeholders.
  *   5. In the working tree only: full international phone numbers outside the reserved test ranges.
  */
+/** The first line of a PEM private key: every one fails the audit but a published vendor key (`PUBLIC_VENDOR_KEYS`). */
+const PEM_PRIVATE_KEY = /-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/g;
+
+/**
+ * Private keys tracked on purpose, by the SHA-256 of their DER bytes: a router vendor's fixed key that
+ * every router of a series ships in its web page, so it protects nothing of anyone's. Each is named
+ * with where it lives; any other private key, anywhere in the tree or the history, fails the audit.
+ */
+export const PUBLIC_VENDOR_KEYS: ReadonlyMap<string, string> = new Map([
+  ["89604a75329063f31e1a8bd55175a098984b2a1dde2c1d33e240285133f00c61", "FiberHome LG6851F web page token key (src/drivers/fiberhome.ts)"],
+]);
+
+/**
+ * How many PEM private keys `content` holds that are not on `PUBLIC_VENDOR_KEYS`. A key's lines are
+ * read as they are and, for `git log -p`, past the diff's one-character line marker; a key whose end
+ * line is missing counts as not on the list.
+ */
+export function scanPrivateKeys(content: string): number {
+  let unlisted = 0;
+  for (const m of content.matchAll(PEM_PRIVATE_KEY)) {
+    const start = (m.index ?? 0) + m[0].length;
+    const end = content.indexOf(`-----END ${m[1] ?? ""}PRIVATE KEY-----`, start);
+    const lines = end < 0 || end - start > 16_384 ? null : content.slice(start, end).split("\n").slice(1, -1);
+    const listed =
+      lines !== null &&
+      [lines.map((line) => line.trim()), lines.map((line) => line.replace(/^[+\- ]/, "").trim())].some((body) => {
+        const text = body.join("");
+        return /^[A-Za-z0-9+/=]+$/.test(text) && PUBLIC_VENDOR_KEYS.has(crypto.createHash("sha256").update(Buffer.from(text, "base64")).digest("hex"));
+      });
+    if (!listed) unlisted += 1;
+  }
+  return unlisted;
+}
+
 const HIGH_RISK_PATTERNS: ReadonlyArray<{ name: string; regex: RegExp }> = [
-  { name: "PEM Private Key", regex: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/ },
   { name: "Real Telegram Bot Token", regex: /\b\d{8,11}:AA[A-Za-z0-9_-]{30,}\b/ },
   { name: "GitHub Personal Access Token", regex: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/ },
   { name: "AWS Access Key", regex: /\bAKIA[0-9A-Z]{16}\b/ },
@@ -151,6 +186,8 @@ function scanText(label: string, content: string, dynamicSecrets: ReadonlyArray<
       issues.push(`${label}: contains literal secret from local .env`);
     }
   }
+
+  for (let i = scanPrivateKeys(content); i > 0; i--) issues.push(`${label}: matched PEM Private Key`);
 
   for (const pat of HIGH_RISK_PATTERNS) {
     const matches = content.match(new RegExp(pat.regex.source, "g")) ?? [];

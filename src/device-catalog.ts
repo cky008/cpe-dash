@@ -511,8 +511,8 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     family: "fiberhome",
     variant: "pro",
     features: ["telemetry"],
-    zh: "烽燧用资料里记的密钥打开路由器的加密应答；固件换了密钥时，烽燧不发送密码，信号这一项是空的",
-    en: "FengSui opens the router's encrypted answers with the key on record; a firmware with another key gets no password from FengSui, and this stays empty",
+    zh: "烽燧用路由器下发的令牌（用这个系列固件里固定的私钥解开）或资料里记的令牌打开路由器的加密应答；两者都打不开时，烽燧不发送密码，信号这一项是空的",
+    en: "FengSui opens the router's encrypted answers with the token the router hands out (unsealed with the key fixed in this series' firmware) or the token on record; where neither opens them, FengSui sends no password and this stays empty",
   },
   {
     family: "tozed",

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { TYPE_ESCAPES, isForbiddenTrackedFile, isTypeScriptFile, scanPhoneLiterals, scanTypeEscapes } from "../scripts/audit-secrets.ts";
+import crypto from "node:crypto";
+import { PUBLIC_VENDOR_KEYS, TYPE_ESCAPES, isForbiddenTrackedFile, isTypeScriptFile, scanPhoneLiterals, scanPrivateKeys, scanTypeEscapes } from "../scripts/audit-secrets.ts";
+import { FIBERHOME_PRO_RSA_KEY } from "../src/drivers/fiberhome.ts";
 
 function escapesIn(line: string): string[] {
   return TYPE_ESCAPES.filter((escape) => escape.regex.test(line)).map((escape) => escape.name);
@@ -132,5 +134,38 @@ describe("audit:secrets gate", () => {
     ]) {
       assert.equal(isForbiddenTrackedFile(file), false, file);
     }
+  });
+});
+
+describe("audit gate: private keys", () => {
+  /** The key as `git log -p` shows a commit adding (`+`) or removing (`-`) it. */
+  const asDiff = (text: string, marker: string): string => text.split("\n").map((line) => `${marker}${line}`).join("\n");
+
+  it("lets the one published vendor key through, in the tree and in the history, and nothing else", () => {
+    assert.equal(PUBLIC_VENDOR_KEYS.size, 1);
+    const source = `export const KEY = \`${FIBERHOME_PRO_RSA_KEY}\`;\n`;
+    assert.equal(scanPrivateKeys(source), 0);
+    assert.equal(scanPrivateKeys(asDiff(source, "+")), 0);
+    assert.equal(scanPrivateKeys(asDiff(source, "-")), 0);
+    // One character of it changed is another key
+    const lines = FIBERHOME_PRO_RSA_KEY.split("\n");
+    const line = lines[5] ?? "";
+    lines[5] = `${line.slice(0, 10)}${line[10] === "A" ? "B" : "A"}${line.slice(11)}`;
+    assert.equal(scanPrivateKeys(lines.join("\n")), 1);
+  });
+
+  it("fails every other private key, however it is labelled, and a key cut short", () => {
+    const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 1024 });
+    const pkcs1 = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+    const pkcs8 = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    assert.equal(scanPrivateKeys(pkcs1), 1);
+    assert.equal(scanPrivateKeys(pkcs8), 1);
+    assert.equal(scanPrivateKeys(asDiff(pkcs8, "+")), 1);
+    assert.equal(scanPrivateKeys(`${pkcs1}\n${FIBERHOME_PRO_RSA_KEY}\n${pkcs8}`), 2);
+    const header = FIBERHOME_PRO_RSA_KEY.split("\n")[0] ?? "";
+    assert.equal(scanPrivateKeys(`${header}\nMIIE\n`), 1, "no end line");
+    // The vendor key's body under another label does not match the end line: not listed
+    assert.equal(scanPrivateKeys(FIBERHOME_PRO_RSA_KEY.replace("END PRIVATE", "END RSA PRIVATE")), 1);
+    assert.equal(scanPrivateKeys("nothing here"), 0);
   });
 });

@@ -70,8 +70,9 @@ import {
  * `is_encrypt` says whether requests and answers are encrypted: then AES-128-CBC under a key worked
  * out from the session id and a five-character token, an IV of the bytes 111 to 126, a body of six
  * random characters before the hexadecimal, an answer with six characters before it. The token is
- * the one on record (`FIBERHOME_PRO_TOKEN`); the key is tried on a login-free call before any
- * password goes out, and a firmware whose key it does not open gets no password at all. On record for
+ * the one `is_encrypt` hands out under the series' fixed RSA key (`FIBERHOME_PRO_RSA_KEY`), else the
+ * one on record (`FIBERHOME_PRO_TOKEN`); the key is tried on a login-free call before any password
+ * goes out, and a firmware whose key neither opens gets no password at all. On record for
  * it: the signal, temperature and traffic nodes, SMS listing and marking read; nothing about locks,
  * reboot, or sending and deleting SMS. Its identification says `variant: "pro"`, so the write gate
  * goes by the Pro series' facts (`ROUTER_FAMILY_FACTS.fiberhome.variants`) and offers none of those;
@@ -185,7 +186,10 @@ const PRO_LOGOUT = "/fh_api/sign/DO_WEB_LOGOUT";
 const PRO_IV = Buffer.from(Array.from({ length: 16 }, (_, i) => 111 + i));
 /** The name the Pro series has among FiberHome's forms of its interface (`ROUTER_FAMILY_FACTS.fiberhome.variants`). */
 export const FIBERHOME_PRO_VARIANT = "pro";
-/** The token the Pro key is worked out with, as one Pro router's page holds it once `is_encrypt` is read. */
+/**
+ * The token the Pro key is worked out with, as one Pro router's page holds it once `is_encrypt` is read:
+ * tried when the router's own token (`fiberhomeProToken`) does not open its answers.
+ */
 export const FIBERHOME_PRO_TOKEN = "JJ8Hs";
 /** The key positions taken from the token; the others come from the session id. */
 const PRO_TOKEN_POSITIONS: ReadonlySet<number> = new Set([5, 7, 10, 11, 13]);
@@ -241,6 +245,69 @@ export function fiberhomeProDecrypt(text: string, key: Buffer | null): string | 
   } catch {
     return null;
   }
+}
+
+/**
+ * The key the Pro series' web page opens the token of `is_encrypt` with: one fixed key in the LG6851F
+ * firmware, the same on every router of the series, so it protects nothing of the owner's (anyone who
+ * opens the router's page has it). As published with xxtg666/FiberHome-LG6851F-SMS-Forward, there
+ * under a PKCS #1 label; the body is PKCS #8, and labelled so here. `scripts/audit-secrets.ts` lets
+ * this one key through by its fingerprint (`PUBLIC_VENDOR_KEYS`); any other private key fails it.
+ */
+export const FIBERHOME_PRO_RSA_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQC3Ij9dkS9pmNeO
+RIuDOFavCpO92Ieh/jglB8vAqxe3pA2VakZNNHN7caHvNb4DTCAMlRcFrRVf1K2C
+GHKdrgiyJGe0kwAnCwUTihCe9jkMzl+ZNKHYtWufUv7ISh+FZXfHi/huyl/MqIPz
+agIB3glpAJ4T7T7gWGT1+fklekZ8URfMqbTXUa/3QBCmwfKrdv4YiIOuPqpifxYK
+9BWeNYKUOyWbF+dKVi9Wns9mU55Tvw23yF1/jYpXmzv9MTZnybgnIKnXdXmBSyGx
+xxj9hVqdvQuMyslForGxxHIIDaGS26vZTdqfJGeFoBCHHMXzGaNC/1uF0x87VA7a
+u4jxuBORAgMBAAECgf8CgPVc0h9T0kMgLs+5e4uz2PEsJ0mzbUZXO0QN3kj0ucl1
+wX40kAMELQmJu7JdWS0W/vLRoQwpwz6cCLmIbliwFs9UKK5X2k63davEgJlHE4s7
+DP0peVF/XCMfmePUbw60K7W5zgqBQcyMB2b/n4mBZgDDRPsXFh5LPp+pY4KTMIK2
+TcWCTOi+7SeoNkKaOXwfkprBCYSNdi6OociMVLUaVd16MHofseuaUKPXoTI8vaa7
+MbT4RGXEPiuXbwfN6G5j9Gi3zN8c+1Im9rLLcXUNnwxJCmt5cIsSdKY/BwL5Ybfz
+wWZSSfqnVIZmYZFfCFLy45EfNWf8tJNODy5QlQkCgYEA38XpPi2TPVkCRfOL4pje
+WRW4C6fa0ziBgtJtN4Elx7o401BgUNNuOW4/NhTMSlf1Z9qEGi2M2Eyj1xT8ZMlH
+2+fILAwV+G2sQIY4NY9XMHsPGGCsDOIvYvw76yYXnBOcaOX1+jY+g2ING1Zb+P0y
+mR8lXb/a3Y+gKhfeEYqbA+UCgYEA0YIKzX/pAYWyxJhgr+8ki5DkYCCZGb3H2v0A
+Pqb9CNbgFtkEEdgJTdcpRKuEgkmIp+iR7i9TiwCy3rwHUn5wodn5cSnGq/nIRRa+
+YtGJc4qmjEo0TZJNcmx4U4vjKfTDc6wZkaQ9nzGF5Fww3xMh5u+0Rh+IfH74dktM
+N3hxLj0CgYAwpU6SNMgocvwahtpnFUJo7V7IMeJRPpxw+xvBEDNNWv9VeMinaX8x
+vvTA5f6PPtXbkNZc9oAC2Y5YiHhh1Jvpg1axtKLmEbl7gXIgupuCr43Vh9Z/KoCQ
+rTK9aNeDF4RODYfOsBIg76TXx4tQ8oIYZXvzCG0k8z8nR28AMziFvQKBgQC3YkG8
+cQruZy38gXiYZxYxCAmuzrnUW1cVq0FMlfSEiTkrJpg2WkiClyQrVIqvVFhGyP77
+YveYg2sOJb2vCrfiJB8AW9Xn8MLJHshVTR4oQaPYxpcTk00xLBsC3j5gGjv/AxR6
+dC3wK3QMWFn62Q9iykyc2LsqZiVrvisfntBK7QKBgAJu8Z3zUHojUtOTsiziwiAp
+OdNfYhHpkp8fUYsskYaxb8DIdthYnZIV1hfh+0Qqly7zv8ykys3q+g0HFiBpd6L9
+VhE1BTgnvDf1dsag1nk6+/JFWYaOJVD0IGtDT0pRtiEPM9EYp6H2gMnN8/CRt6nd
+UJwqeV9xjw6Sl0ftaKuF
+-----END PRIVATE KEY-----
+`;
+
+let proRsaKey: crypto.KeyObject | null = null;
+
+/**
+ * The token `is_encrypt` hands out (`data`: base64 of the token under the series' RSA key, PKCS #1
+ * v1.5), or `null` when it is not one. Opened without padding and unpadded here (RFC 8017 §7.2.2):
+ * Node refuses PKCS #1 v1.5 decryption, a guard against padding oracles that has nothing to guard
+ * with a key every router publishes.
+ */
+export function fiberhomeProToken(data: string): string | null {
+  proRsaKey ??= crypto.createPrivateKey(FIBERHOME_PRO_RSA_KEY);
+  const sealed = Buffer.from(data.trim(), "base64");
+  if (sealed.length !== (proRsaKey.asymmetricKeyDetails?.modulusLength ?? 0) / 8) return null;
+  let block: Buffer;
+  try {
+    block = crypto.privateDecrypt({ key: proRsaKey, padding: crypto.constants.RSA_NO_PADDING }, sealed);
+  } catch {
+    return null;
+  }
+  // 00 02, at least eight non-zero bytes, 00, then the message
+  if (block[0] !== 0 || block[1] !== 2) return null;
+  const end = block.indexOf(0, 2);
+  if (end < 10) return null;
+  const token = block.subarray(end + 1).toString("latin1").replace(/[\r\n]/g, "");
+  return /^[!-~]{5,64}$/.test(token) ? token : null;
 }
 
 /** A Pro router: its session id comes from `/fh_api/`. */
@@ -440,21 +507,26 @@ class FiberhomeProSession implements DriverSessionHandle {
 }
 
 /**
- * Whether the Pro router encrypts, and if so whether the key on record opens its answers: asked of a
- * login-free call (`get_device_info`) before any password goes out. Throws `DriverLoginMethodError`
- * when it does not, so a firmware with another key gets no password at all.
+ * Whether the Pro router encrypts, and with which token: the one it hands out in `is_encrypt`, opened
+ * with the series' RSA key, else the one on record; each is tried on a login-free call
+ * (`get_device_info`) before any password goes out. Throws `DriverLoginMethodError` when neither
+ * opens its answers, so a firmware with another key gets no password at all.
  */
 async function proCipher(http: LanHttp): Promise<ProCipher> {
   const feature = await http.getJson(PRO_NC, { query: [["ajaxmethod", "is_encrypt"]], referer: GET_REFERER, headers: { "X-Requested-With": "XMLHttpRequest" } });
   if (textOf(fieldOf(feature, "enable")) !== "1") return null;
-  const cipher = { token: FIBERHOME_PRO_TOKEN };
-  try {
-    await proCall(http, cipher, PRO_NC, "get_device_info", null);
-  } catch (err) {
-    if (err instanceof CpeAnswerFormatError) throw new DriverLoginMethodError("this FiberHome Pro firmware encrypts with a key FengSui has no record of");
-    throw err;
+  const sealed = textOf(fieldOf(feature, "data"));
+  const offered = sealed ? fiberhomeProToken(sealed) : null;
+  for (const token of new Set([offered ?? FIBERHOME_PRO_TOKEN, FIBERHOME_PRO_TOKEN])) {
+    const cipher = { token };
+    try {
+      await proCall(http, cipher, PRO_NC, "get_device_info", null);
+      return cipher;
+    } catch (err) {
+      if (!(err instanceof CpeAnswerFormatError)) throw err;
+    }
   }
-  return cipher;
+  throw new DriverLoginMethodError("this FiberHome Pro firmware encrypts with a key FengSui has no record of");
 }
 
 async function freshSession(http: LanHttp): Promise<string> {

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { SectionUnavailableError, sectionUnavailableCode } from "../src/cpe-domain.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import {
+  FIBERHOME_PRO_RSA_KEY,
   FIBERHOME_PRO_TOKEN,
   FIBERHOME_PRO_VARIANT,
   checkFiberhomeSmsText,
@@ -13,6 +15,7 @@ import {
   fiberhomeProDecrypt,
   fiberhomeProEncrypt,
   fiberhomeProKey,
+  fiberhomeProToken,
   fiberhomeProtocol,
   parseFiberhomeProTelemetry,
   parseFiberhomeSms,
@@ -356,7 +359,7 @@ describe("fiberhome SMS: through the SMS service", () => {
 });
 
 /** A FiberHome Pro router: `/fh_api/`, the web login, TR-069 nodes, encrypted or plain as `is_encrypt` says. */
-function fiberhomeProRouter(opts: { encrypt?: boolean; token?: string; login?: Record<string, unknown>; sms?: Conversations } = {}) {
+function fiberhomeProRouter(opts: { encrypt?: boolean; token?: string; seal?: boolean | string; login?: Record<string, unknown>; sms?: Conversations } = {}) {
   let counter = 0;
   let current = "";
   let loggedIn = false;
@@ -396,7 +399,9 @@ function fiberhomeProRouter(opts: { encrypt?: boolean; token?: string; login?: R
     // The first series' path is not on this router
     if (req.path.startsWith("/api/")) return { status: 404, text: "" };
     if (req.method === "GET" && req.path === "/fh_api/tmp/FHNCAPIS") {
-      if (req.query.get("ajaxmethod") === "is_encrypt") return { json: encrypting ? { enable: "1", data: "c2VhbGVkLXRva2Vu" } : { enable: "0" } };
+      // `data`: the token under the series' RSA key, as the router hands it out (`seal`), or something that is not one
+      const data = opts.seal ? crypto.publicEncrypt({ key: crypto.createPublicKey(FIBERHOME_PRO_RSA_KEY), padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(opts.seal === true ? token : opts.seal)).toString("base64") : "c2VhbGVkLXRva2Vu";
+      if (req.query.get("ajaxmethod") === "is_encrypt") return { json: encrypting ? { enable: "1", data } : { enable: "0" } };
       current = `sid${String(++counter).padStart(29, "0")}`;
       return { json: { sessionid: current } };
     }
@@ -500,11 +505,42 @@ describe("fiberhome Pro: the driver", () => {
     assert.deepEqual(login?.data, { username: "admin", password: PASSWORD });
   });
 
-  it("sends no password to a firmware whose key the token on record does not open", async () => {
+  it("works the key out with the token the router hands out, opened with the series' RSA key", async () => {
+    const { client, state } = fiberhomeProRouter({ token: "Xy7Qz", seal: true });
+    assert.equal((await client.withSession((s) => s.telemetry()))?.nr?.band, 78);
+    // Its own token opened the login-free call at once: one try, then the login
+    assert.deepEqual(state.calls.slice(0, 2).map((c) => c.method), ["get_device_info", "DO_WEB_LOGIN"]);
+  });
+
+  it("falls back to the token on record when the router's does not open, and sends no password when neither does", async () => {
+    // A token that is not one: the one on record is tried, and opens it
+    const recorded = fiberhomeProRouter({ seal: false });
+    assert.equal((await recorded.client.withSession((s) => s.identify()))?.model, "LG6851F");
+    // A token that opens nothing (another firmware's, say): the one on record next, still before the password
+    const other = fiberhomeProRouter({ seal: "Zz9Yy" });
+    assert.equal((await other.client.withSession((s) => s.identify()))?.model, "LG6851F");
+    assert.deepEqual(other.state.calls.slice(0, 2).map((c) => c.method), ["get_device_info", "DO_WEB_LOGIN"], "the first try is refused by the router before it is logged");
+    assert.ok(other.state.bodies.length >= 3);
     const { client, state } = fiberhomeProRouter({ token: "Xy7Qz" });
     await assert.rejects(client.withSession((s) => s.telemetry()), DriverLoginMethodError);
     assert.ok(!state.calls.some((c) => c.method === "DO_WEB_LOGIN"));
     assert.equal(client.getCircuitBreakerState().tripped, false);
+  });
+
+  it("opens the router's token only where it is one: the key's size, PKCS #1 v1.5 padding, printable text", () => {
+    const pub = crypto.createPublicKey(FIBERHOME_PRO_RSA_KEY);
+    const seal = (text: string) => crypto.publicEncrypt({ key: pub, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(text)).toString("base64");
+    assert.equal(fiberhomeProToken(seal("Xy7Qz")), "Xy7Qz");
+    assert.equal(fiberhomeProToken(` ${seal("Xy7Qz\r\n")} `), "Xy7Qz", "line ends dropped, as the page does");
+    for (const bad of [seal("abc"), seal("has space"), "", "c2VhbGVkLXRva2Vu", Buffer.alloc(256, 1).toString("base64")]) assert.equal(fiberhomeProToken(bad), null);
+    // Not PKCS #1 v1.5 type 2 inside: a raw block that is not 00 02 …
+    const raw = Buffer.alloc(256, 7);
+    raw[0] = 0;
+    assert.equal(fiberhomeProToken(crypto.publicEncrypt({ key: pub, padding: crypto.constants.RSA_NO_PADDING }, raw).toString("base64")), null);
+    // … nor one whose padding is too short
+    raw[1] = 2;
+    raw[5] = 0;
+    assert.equal(fiberhomeProToken(crypto.publicEncrypt({ key: pub, padding: crypto.constants.RSA_NO_PADDING }, raw).toString("base64")), null);
   });
 
   it("speaks plain JSON to a Pro router that does not encrypt", async () => {
