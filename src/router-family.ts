@@ -81,6 +81,25 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 
+/** The read features and the read section each one is read in. */
+const READ_FEATURE_SECTIONS = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms" } as const;
+
+/**
+ * Every feature FengSui implements for a router of this family that nobody verified: the reads its
+ * interface provides (signal, nearby cells, connected devices, SMS) and its writes. A model is verified
+ * by reports once each of these is confirmed on a real one of it (`isReportVerifiedModel`, firmware.ts).
+ */
+export function familyFeatures(family: RouterFamily): Array<{ feature: keyof typeof READ_FEATURE_SECTIONS | FamilyWriteFeature; access: "read" | "write" }> {
+  const facts = ROUTER_FAMILY_FACTS[family];
+  const reads = (Object.keys(READ_FEATURE_SECTIONS) as Array<keyof typeof READ_FEATURE_SECTIONS>).filter((feature) => (facts.reads as ReadonlyArray<string>).includes(READ_FEATURE_SECTIONS[feature]));
+  return [...reads.map((feature) => ({ feature, access: "read" as const })), ...facts.writes.map((feature) => ({ feature, access: "write" as const }))];
+}
+
+/** FengSui implements the feature for routers of this family (nobody verified it on a real one). */
+export function familyImplements(family: RouterFamily, feature: string): boolean {
+  return familyFeatures(family).some((entry) => entry.feature === feature);
+}
+
 /** The family's name as the console and the docs show it. */
 export const ROUTER_FAMILY_LABELS: Readonly<Record<RouterFamily, { "zh-CN": string; en: string }>> = {
   huawei: { "zh-CN": "华为（HiLink，含博纬、鼎桥、源 Link）", en: "Huawei (HiLink, also Brovi, TD Tech, SoyeaLink)" },

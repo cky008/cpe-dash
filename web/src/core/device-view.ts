@@ -71,10 +71,11 @@ export const READ_STATE_KEYS: Readonly<Record<ReadState, SettingsTextKey>> = {
 };
 
 /** Whether FengSui writes to this router; on a model nobody verified, by how many writes are open there. */
-export function writesText(writes: WriteAccess, open: number, t: Text): string {
+export function writesText(writes: WriteAccess, open: number, t: Text, byReports = false): string {
   if (writes === "allowed") return t("access_writes_allowed");
   if (writes === "unknown") return t("access_writes_unknown");
-  return open > 0 ? t("access_writes_experimental", { count: open }) : t("access_writes_none");
+  if (open === 0) return t("access_writes_none");
+  return t(byReports ? "access_writes_report_verified" : "access_writes_experimental", { count: open });
 }
 
 /** What each write is on a model nobody verified, as the experimental writes list names it. */
@@ -160,6 +161,8 @@ export function verificationNotice(
       return { key: "verification_verified", params: { model, firmware }, tone: "success" };
     case "new-firmware":
       return { key: "verification_new_firmware", params: { model, firmware, verified: verifiedLabel }, tone: "pending" };
+    case "report-verified":
+      return { key: "verification_report_verified", params: { model }, tone: "success" };
     case "unverified-model":
       return { key: "verification_unverified_model", params: { model, verified: verifiedLabel }, tone: "pending" };
     default:

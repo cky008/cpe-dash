@@ -221,6 +221,11 @@ export class AlertEngine {
     const store = this.scheduler.stateStore;
     const notice = store.getState().firmwareNotice;
     if (!isVerifiedModel(deviceName)) {
+      // Reports verified every feature of this model: nothing left to warn about
+      if (this.scheduler.device.reportVerified) {
+        if (notice) store.update({ firmwareNotice: null });
+        return;
+      }
       const fingerprint = `model ${deviceName.trim()}`;
       if (notice?.fingerprint === fingerprint) return;
       store.update({ firmwareNotice: { fingerprint, notifiedAtIso: snap.capturedAtIso } });

@@ -53,6 +53,7 @@ export const zhCN = {
   "dev.part_unavailable": "此型号不提供",
   "dev.unverified_badge": "未验证型号",
   "dev.unverified_title": "这台路由器（{model}）没有在真机上验证过。烽燧在这个型号上实现了的写操作可以用（{count} 项），每次写入后回读核对；可以在设备页逐项关闭。点击查看设备页",
+  "dev.report_verified_controls": "这台路由器（{model}）上烽燧实现的写操作，都有人在真机上确认过。每次写入仍然只发一次，写后回读核对；不想用的可以在「设置 → 设备」逐项关闭。",
   "dev.experimental_controls": "这台路由器（{model}）没有在真机上验证过。这里是烽燧为这个型号实现的写操作：每次只发一次，写后回读核对，回读不一致会告警。不想用的可以在「设置 → 设备」逐项关闭；出了问题请到路由器自己的网页恢复，必要时恢复出厂设置。",
   "dev.experimental_lte_only": "只锁 LTE：频段来自这台路由器通告的列表；这个型号没有 NR 锁频与锁小区。",
   "dev.sms_experimental": "这个型号的短信写入没有在真机上验证过：发送、已读与删除走明文接口，不支持表情；每次写入后回读核对。",

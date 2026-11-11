@@ -986,7 +986,7 @@ export class FengSuiHttpServer {
             const device = this.core.scheduler.device.snapshot();
             this.#sendJson(res, 200, {
               ok: true,
-              profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe)) : null,
+              profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe, device.family)) : null,
               verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
               support: probe || device.model ? deviceSupportRow(device.family, device.model ?? probe?.identity.model ?? null) : null,
             } satisfies DeviceProfileResponse);

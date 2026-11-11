@@ -345,6 +345,15 @@ export class DeviceAccess {
     return this.writes === "experimental";
   }
 
+  /**
+   * Reports settled every feature FengSui implements for this model on its brand (`isReportVerifiedModel`):
+   * the console and the alerts call it verified; it is still written the way its brand is (`generic`).
+   */
+  get reportVerified(): boolean {
+    const current = this.current;
+    return current !== null && deviceVerification(current.model, current.softwareVersion, this.#family, this.#verifiedFeatures) === "report-verified";
+  }
+
   /** A known model nobody verified: whatever it may write goes through the generic (HiLink) implementation. */
   get generic(): boolean {
     return this.unverifiedModel;
@@ -474,7 +483,7 @@ export class DeviceAccess {
     return {
       family: this.#family,
       model: current ? modelLabel(current.model) : null,
-      verification: deviceVerification(current?.model ?? null, current?.softwareVersion ?? null),
+      verification: deviceVerification(current?.model ?? null, current?.softwareVersion ?? null, this.#family, this.#verifiedFeatures),
       confirmed: this.confirmed,
       writes: this.writes,
       reads: Object.fromEntries(READ_SECTIONS.map((section) => [section, this.readState(section)])) as Record<ReadSection, ReadCapability>,

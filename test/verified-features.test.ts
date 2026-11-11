@@ -1,20 +1,35 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { describe, it } from "node:test";
-import { DEVICE_FEATURES } from "../src/device-profile.ts";
+import { DEVICE_FEATURES, type DeviceProfile } from "../src/device-profile.ts";
 import { DeviceAccess } from "../src/device-access.ts";
 import { MODULES, deviceSupportRow, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
 import type { SchedulerStatusSnapshot } from "../src/scheduler.ts";
-import { experimentalOffer, unconfirmedWrite } from "../web/src/core/device-access-view.ts";
-import { WRITE_STATE_KEYS } from "../web/src/core/device-view.ts";
+import { experimentalOffer, experimentalWrites, reportVerified, unconfirmedWrite } from "../web/src/core/device-access-view.ts";
+import { WRITE_STATE_KEYS, verificationNotice, writesText } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
-import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isVerifiedFeature, isVerifiedModel } from "../src/firmware.ts";
-import { ROUTER_FAMILY_FACTS, isRouterFamily } from "../src/router-family.ts";
+import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedFeature, isVerifiedModel, reportVerifiedModels } from "../src/firmware.ts";
+import { ROUTER_FAMILY_FACTS, familyFeatures, isRouterFamily } from "../src/router-family.ts";
 
 /**
  * Multi-model phase 3: a feature of another model that a user checked on a real router joins the
  * verified list, per model and feature, reads and writes apart, naming the issue that reported it
  * (never the person). The Supported devices table marks it verified. Placeholders only.
  */
+
+/** The pages that say which routers FengSui is verified on: a model reports verify is named in each (CONTRIBUTING.md). */
+const VERIFIED_CLAIMS = [
+  "README.md",
+  "README_EN.md",
+  "docs/guide/zh/overview.md",
+  "docs/guide/en/overview.md",
+  "docs/guide/zh/other-routers.md",
+  "docs/guide/en/other-routers.md",
+  "docs/guide/zh/supported-devices.md",
+  "docs/guide/en/supported-devices.md",
+  "scripts/site-home.ts",
+  ".github/ISSUE_TEMPLATE/device-report.yml",
+];
 
 const SAMPLE: ReadonlyArray<VerifiedFeature> = [
   { family: "huawei", model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)", feature: "telemetry", access: "read", issue: 12 },
@@ -85,5 +100,53 @@ describe("verified features of other models", () => {
     assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", VERIFIED_FEATURES));
     assert.equal(VERIFIED_FEATURES.some((entry) => entry.issue === 41), false);
     assert.ok(VERIFIED_FIRMWARE.length > 0);
+  });
+
+  it("counts a model as verified once reports settle every feature FengSui does on it, with nothing more to check", () => {
+    const base = { family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", issue: 41 } as const;
+    // What FengSui implements on zWRT today: the signal, band and cell locks, reboot
+    assert.deepEqual(familyFeatures("zte-zwrt"), [
+      { feature: "telemetry", access: "read" },
+      { feature: "bandLock", access: "write" },
+      { feature: "cellLock", access: "write" },
+      { feature: "reboot", access: "write" },
+    ]);
+    const all: VerifiedFeature[] = [
+      { ...base, feature: "telemetry", access: "read" },
+      { ...base, feature: "bandLock", access: "write" },
+      { ...base, feature: "cellLock", access: "write" },
+      { ...base, feature: "reboot", access: "write" },
+    ];
+    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", all), true);
+    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", all.slice(0, 3)), false, "one feature short");
+    assert.equal(isReportVerifiedModel("zte-goform", "MU5250", all), false, "on its brand only");
+    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", []), false);
+    // A feature the router turned out not to have settles it too, but one confirmed feature is needed
+    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", all.slice(0, 3), [{ family: "zte-zwrt", model: "MU5250", feature: "reboot", issue: 42 }]), true);
+    assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", [], familyFeatures("zte-zwrt").map(({ feature }) => ({ family: "zte-zwrt" as const, model: "MU5250", feature, issue: 42 }))), false);
+    assert.equal(isReportVerifiedModel("huawei", "H168-383", []), false, "the verified model is verified another way");
+    assert.deepEqual(reportVerifiedModels(all), [{ family: "zte-zwrt", model: "MU5250" }]);
+    assert.deepEqual(reportVerifiedModels(), [], "none in the real list yet");
+
+    // The gate and the console call it verified, and it is still written the way its brand is
+    const access = new DeviceAccess({ family: "zte-zwrt", verifiedFeatures: all });
+    access.see("MU5250", base.softwareVersion);
+    const device = access.snapshot();
+    assert.deepEqual([device.verification, access.reportVerified, device.writes, access.generic], ["report-verified", true, "experimental", true]);
+    assert.deepEqual([device.features.cellLock, device.features.mobileData], ["verified", "not_implemented"], "what it does not implement stays refused");
+    const scheduler = { device } as unknown as SchedulerStatusSnapshot;
+    assert.equal(reportVerified(scheduler), true);
+    assert.equal(writesText(device.writes, experimentalWrites(scheduler).length, (key, params) => SETTINGS_TEXT.en[key].replace("{count}", String(params?.["count"])), true), "Writes: 3 available (each confirmed on a real router)");
+    const profile = { identity: { model: "MU5250", softwareVersion: base.softwareVersion }, verification: device.verification } as unknown as DeviceProfile;
+    assert.deepEqual(verificationNotice(profile, VERIFIED_FIRMWARE).key, "verification_report_verified");
+    assert.equal(verificationNotice(profile, VERIFIED_FIRMWARE).tone, "success");
+    // The table names it with the verified models and leaves its row nothing to report
+    const en = supportedDevicesSection("en", all);
+    assert.match(en, /Reports confirmed every feature FengSui does on the U60 Pro \(MU5250\), which therefore count as verified too\./);
+    assert.match(supportedDevicesSection("zh-CN", all), /U60 Pro \(MU5250\) 上烽燧做的每项功能都有真机报告确认过，也算验证过的型号。/);
+    assert.ok(en.split("\n").find((line) => line.startsWith("| U60 Pro (MU5250) |"))?.endsWith("|  |"), "no report link");
+    // Every page that says which routers FengSui is verified on names it (none to name yet)
+    for (const file of VERIFIED_CLAIMS) assert.ok(fs.readFileSync(file, "utf8").includes("H168-383"), `${file}: says which routers FengSui is verified on`);
+    for (const { model } of reportVerifiedModels()) for (const file of VERIFIED_CLAIMS) assert.ok(fs.readFileSync(file, "utf8").includes(model), `${file}: name ${model} with the verified models`);
   });
 });

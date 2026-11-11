@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { AlertEngine, parseDataLimitBytes } from "../src/alert-engine.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { DeviceAccess } from "../src/device-access.ts";
 import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import type { AlertEventRecord } from "../src/state-store.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
@@ -232,6 +233,32 @@ describe("AlertEngine firmware rule", () => {
       fx.engine.ingestTelemetry(sample({ t: 42_000, model: "" }));
       fx.engine.ingestTelemetry(sample({ t: 45_000, model: "H158-381" }));
       assert.equal(fx.codes().length, 4, "an empty version or model decides nothing; a returning model says so again");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("AlertEngine on a model reports verified", () => {
+  it("does not call a model unverified once reports settled every feature FengSui does on it", async () => {
+    const fx = createEngineFixture();
+    try {
+      const base = { family: "huawei", model: "H158-381", softwareVersion: "1.0.0.9" } as const;
+      const verified = [
+        ...(["telemetry", "neighbors", "topology", "smsRead"] as const).map((feature) => ({ ...base, feature, access: "read" as const, issue: 51 })),
+        ...(["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const).map((feature) => ({ ...base, feature, access: "write" as const, issue: 51 })),
+      ];
+      // The gate the alerts read, with the registered reports of this model
+      Object.defineProperty(fx.scheduler, "device", { value: new DeviceAccess({ verifiedFeatures: verified }) });
+      fx.scheduler.device.see("H158-381", "1.0.0.9");
+      assert.equal(fx.scheduler.device.reportVerified, true);
+      fx.engine.ingestTelemetry(sample({ t: 0, model: "H158-381", firmware: "1.0.0.9" }));
+      assert.deepEqual(fx.codes(), [], "nothing left to warn about");
+      // One feature short, it is still a model nobody verified
+      Object.defineProperty(fx.scheduler, "device", { value: new DeviceAccess({ verifiedFeatures: verified.slice(1) }) });
+      fx.scheduler.device.see("H158-381", "1.0.0.9");
+      fx.engine.ingestTelemetry(sample({ t: 5000, model: "H158-381", firmware: "1.0.0.9" }));
+      assert.deepEqual(fx.codes(), ["MODEL_UNVERIFIED"]);
     } finally {
       await fx.cleanup();
     }

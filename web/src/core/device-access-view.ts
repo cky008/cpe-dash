@@ -13,6 +13,11 @@ export function unverifiedModel(scheduler: SchedulerStatusSnapshot | null): stri
   return scheduler?.device.writes === "experimental" ? (scheduler.device.model ?? "?") : null;
 }
 
+/** Reports settled every feature FengSui does on this model: the console calls it verified, and it is still written as its brand is. */
+export function reportVerified(scheduler: SchedulerStatusSnapshot | null): boolean {
+  return scheduler?.device.verification === "report-verified";
+}
+
 /** A read section this model turned out not to provide, with the router's code when it gave one. */
 export function unavailableSection(scheduler: SchedulerStatusSnapshot | null, section: ReadSection): { code: string | null } | null {
   const read = scheduler?.device.reads[section];

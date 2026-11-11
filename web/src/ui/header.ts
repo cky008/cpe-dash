@@ -1,4 +1,4 @@
-import { experimentalWrites, unverifiedModel } from "../core/device-access-view.ts";
+import { experimentalWrites, reportVerified, unverifiedModel } from "../core/device-access-view.ts";
 import { loadAlertsSeen, saveAlertsSeen } from "../core/prefs.ts";
 import { liveStreamPill } from "../core/sse.ts";
 import { unreadBadgeCount, unseenAlertCount } from "../core/store.ts";
@@ -64,7 +64,8 @@ export function mountHeader(ctx: AppContext): void {
   const readOnlyBadge = byId("readOnlyBadge");
   const controlsBtn = byId("controlsBtn");
   const renderReadOnly = (): void => {
-    const model = unverifiedModel(ctx.store.state.scheduler);
+    // Reports verified every feature of this model: nothing to warn about in the header
+    const model = reportVerified(ctx.store.state.scheduler) ? null : unverifiedModel(ctx.store.state.scheduler);
     const open = experimentalWrites(ctx.store.state.scheduler);
     // On a phone the badge takes the controls button's place while there are no controls to offer
     // (nothing implemented for this model, or every write turned off); with writes open, the

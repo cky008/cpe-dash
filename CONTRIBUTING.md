@@ -81,8 +81,12 @@ When an issue's device report shows a feature working on a real router, record i
      `docs/guide/{zh,en}/supported-devices.md` from `supportedDevicesSection` (`test/device-catalog.test.ts` fails until
      they match). A model the catalog does not have gets its row from the entry; add it to `DEVICE_CATALOG` in
      [`src/device-catalog.ts`](src/device-catalog.ts) with its form and section if you know them.
-   - A report that shows a feature not working on a model goes into `UNSUPPORTED_FEATURES` the same way, and its cell
-     turns into —.
+   - A report that shows a feature not working on a model goes into `UNSUPPORTED_FEATURES` in the same file, the same
+     way, and its cell turns into —.
+   - **When every feature FengSui implements on the model is registered** (each verified, or reported missing on the
+     router), the model counts as verified (`isReportVerifiedModel`): the console and the table call it verified, with
+     no further check. In the same commit, name it wherever the docs say which routers FengSui is verified on;
+     `test/verified-features.test.ts` lists those files and fails until each names it.
 3. **When it shows.** The table on the documentation site follows the push to `main`. The console shows the feature as
    verified (and drops "never checked on a real router" from its confirmation) from the next release.
 
@@ -94,7 +98,8 @@ When an issue's device report shows a feature working on a real router, record i
    - 补一个测试点名这一条：这个型号在 `supportedDevicesSection` 里那一格是 ✓；写入项的 `DeviceAccess.writeState` 返回 `verified`。
    - 在 `CHANGELOG.md` 的 `[Unreleased]` 下加一行，写上 issue 编号（如 `#41`），不写人名。
    - 用 `supportedDevicesSection` 重新生成 `docs/guide/{zh,en}/supported-devices.md` 里 `<!-- devices:begin -->` 与 `<!-- devices:end -->` 之间的表（不一致时 `test/device-catalog.test.ts` 会失败）。清单里没有的型号会按这条登记自动多出一行；知道它的形态和品牌的话，也把它加进 [`src/device-catalog.ts`](src/device-catalog.ts) 的 `DEVICE_CATALOG`。
-   - 报告显示某项功能在某个型号上不能用的，照同样的方式登记进 `UNSUPPORTED_FEATURES`，那一格变成 —。
+   - 报告显示某项功能在某个型号上不能用的，照同样的方式登记进同一个文件里的 `UNSUPPORTED_FEATURES`，那一格变成 —。
+   - **一个型号上烽燧实现的每项功能都登记过**（都验证过，或报告为路由器没有这项功能）时，它就算验证过的型号（`isReportVerifiedModel`）：控制台和表里都称它为验证过的型号，不需要另外核对。同一个提交里，把它写进所有说明「烽燧在哪些路由器上验证过」的地方；`test/verified-features.test.ts` 列出了这些文件，没写全会失败。
 3. **什么时候生效**：文档站上的表在推到 `main` 后随文档站更新；控制台里显示「已验证」（确认框也不再提示「没有在真机上验证过」）要等下一个版本。
 
 ## Commits and pull requests / 提交与 PR

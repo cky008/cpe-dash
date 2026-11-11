@@ -89,7 +89,7 @@ Your feedback helps verify more router models:
 
 The report contains only API structures and safe metadata (model, firmware, web interface version, feature toggles, and band numbers). It excludes IMEI, IMSI, MAC addresses, IP addresses, phone numbers, cell identifiers, and Wi-Fi network names. FengSui never uploads anything automatically.
 
-The report ends with `checks`, one line per feature with its result on your router: `works`, `failed`, or `untested`. A read that had data, or a write that read back as written in the write record, is `works`. Maintainers record that line in `VERIFIED_FEATURES` in the codebase, and its mark under [Supported devices](supported-devices.md) turns into ✓: the table on the documentation site follows once the record is pushed, and the console shows it as verified from the next release.
+The report ends with `checks`, one line per feature with its result on your router: `works`, `failed`, or `untested`. A read that had data, or a write that read back as written in the write record, is `works`. Maintainers record that line in `VERIFIED_FEATURES` in the codebase, and its mark under [Supported devices](supported-devices.md) turns into ✓: the table on the documentation site follows once the record is pushed, and the console shows it as verified from the next release. Once every feature FengSui implements on your model is confirmed, the model counts as verified.
 
 <a id="ai"></a>
 

@@ -1,5 +1,5 @@
 import type { DeviceFeature } from "./device-profile.ts";
-import type { RouterFamily } from "./router-family.ts";
+import { type RouterFamily, familyFeatures } from "./router-family.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -50,6 +50,56 @@ export function isVerifiedFeature(
   return name !== "" && list.some((entry) => entry.family === family && entry.model === name && entry.feature === feature && entry.access === access);
 }
 
+/**
+ * A feature a report showed not working on a model, or one its protocol rules out: the Supported devices
+ * table marks it —. Added like a verified feature (the brand, the model as the router reports it, the
+ * issue). Empty until the first report.
+ */
+export interface UnsupportedFeature {
+  family: RouterFamily;
+  model: string;
+  feature: DeviceFeature;
+  /** The cky008/cpe-dash issue that reported it. */
+  issue: number;
+}
+
+export const UNSUPPORTED_FEATURES: ReadonlyArray<UnsupportedFeature> = [];
+
+/**
+ * Reports settled every feature FengSui implements for this model's brand: each one is verified, or reported
+ * not working on it (the router lacks it), and at least one is verified. Such a model counts as verified,
+ * by reports, without another check: the gate still writes it the way its brand is written (never the
+ * H168-383's way), only the console and the documentation call it verified.
+ */
+export function isReportVerifiedModel(
+  family: RouterFamily,
+  model: string,
+  verified: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES,
+  unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
+): boolean {
+  const name = model.trim();
+  if (name === "" || isVerifiedModel(name)) return false;
+  let confirmed = 0;
+  for (const { feature, access } of familyFeatures(family)) {
+    if (isVerifiedFeature(family, name, feature, access, verified)) confirmed += 1;
+    else if (!unsupported.some((entry) => entry.family === family && entry.model === name && entry.feature === feature)) return false;
+  }
+  return confirmed > 0;
+}
+
+/** Every model verified by reports, each once, in the order its first entry was added. */
+export function reportVerifiedModels(
+  verified: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES,
+  unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
+): Array<{ family: RouterFamily; model: string }> {
+  const seen: Array<{ family: RouterFamily; model: string }> = [];
+  for (const { family, model } of verified) {
+    if (seen.some((entry) => entry.family === family && entry.model === model)) continue;
+    if (isReportVerifiedModel(family, model, verified, unsupported)) seen.push({ family, model });
+  }
+  return seen;
+}
+
 /** `"4.4.0.1 (H1006SP19C00)"` and `"4.4.0.1(H1006SP19C00)"` are the same build. */
 function normalizeVersion(raw: string): string {
   return raw.replace(/\s+/g, "");
@@ -68,14 +118,16 @@ export function isVerifiedModel(model: string): boolean {
 
 /**
  * How far the verification covers a router: `verified` (model and build), `new-firmware` (a build of a
- * verified model nobody checked yet; ADR-007 still only warns), `unverified-model`, or `unknown` while
- * the model, or the build of a verified model, has not been read.
+ * verified model nobody checked yet; ADR-007 still only warns), `report-verified` (reports settled every
+ * feature FengSui implements for the model on its brand), `unverified-model`, or `unknown` while the
+ * model, or the build of a verified model, has not been read.
  */
-export type DeviceVerification = "verified" | "new-firmware" | "unverified-model" | "unknown";
+export type DeviceVerification = "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
 
-export function deviceVerification(model: string | null, softwareVersion: string | null): DeviceVerification {
+/** The verification of a router; `family` (the brand it connected as) lets reports verify a model. */
+export function deviceVerification(model: string | null, softwareVersion: string | null, family?: RouterFamily, verified?: ReadonlyArray<VerifiedFeature>): DeviceVerification {
   if (!model?.trim()) return "unknown";
-  if (!isVerifiedModel(model)) return "unverified-model";
+  if (!isVerifiedModel(model)) return family && isReportVerifiedModel(family, model, verified) ? "report-verified" : "unverified-model";
   if (!softwareVersion?.trim()) return "unknown";
   return isVerifiedFirmware(model, softwareVersion) ? "verified" : "new-firmware";
 }

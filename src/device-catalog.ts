@@ -1,7 +1,9 @@
 import type { DeviceFeature } from "./device-profile.ts";
 import { deviceIssueUrl } from "./feedback.ts";
-import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isVerifiedModel } from "./firmware.ts";
-import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily } from "./router-family.ts";
+import { UNSUPPORTED_FEATURES, type UnsupportedFeature, VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedModel, reportVerifiedModels } from "./firmware.ts";
+import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, familyImplements } from "./router-family.ts";
+
+export { UNSUPPORTED_FEATURES, type UnsupportedFeature, familyImplements };
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -462,20 +464,6 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
 ];
 
-/**
- * A feature a report showed not working on a model, or one its protocol rules out: marked —. Added like
- * a verified feature (the brand, the model as the router reports it, the issue). Empty until the first report.
- */
-export interface UnsupportedFeature {
-  family: RouterFamily;
-  model: string;
-  feature: DeviceFeature;
-  /** The cky008/cpe-dash issue that reported it. */
-  issue: number;
-}
-
-export const UNSUPPORTED_FEATURES: ReadonlyArray<UnsupportedFeature> = [];
-
 /** Features read rather than written: a verified read of one makes it ✓. */
 export const READ_FEATURES: ReadonlySet<DeviceFeature> = new Set<DeviceFeature>(["telemetry", "neighbors", "topology", "smsRead"]);
 
@@ -562,16 +550,6 @@ export function findCatalogModel(family: RouterFamily, model: string | null | un
 }
 
 // ── Marks ────────────────────────────────────────────────────────────────────
-
-/** FengSui implements the feature for routers of this interface (nobody verified it on a real one). */
-export function familyImplements(family: RouterFamily, feature: DeviceFeature): boolean {
-  const facts = ROUTER_FAMILY_FACTS[family];
-  if (READ_FEATURES.has(feature)) {
-    const section = feature === "smsRead" ? "sms" : feature;
-    return (facts.reads as ReadonlyArray<string>).includes(section);
-  }
-  return (facts.writes as ReadonlyArray<string>).includes(feature);
-}
 
 /** The model (or a router not in the list) a mark is worked out for. */
 interface Subject {
@@ -842,7 +820,8 @@ function sectionTable(section: CatalogSection, records: Records, lang: Lang): { 
     const iface = interfaces(row)
       .map((f) => INTERFACE_LABELS[f][lang])
       .join(" · ");
-    const verified = row.subject.names.some((name) => isVerifiedModel(name));
+    // Nothing left to report on a verified model, or on one reports verified
+    const verified = row.subject.names.some((name) => isVerifiedModel(name)) || (row.subject.family !== null && row.subject.names.some((name) => isReportVerifiedModel(row.subject.family as RouterFamily, name, records.verified, records.unsupported)));
     const report = verified ? "" : `[${lang === "zh" ? "提交报告" : "Report"}](${deviceIssueUrl({ model: row.display, softwareVersion: null })})`;
     lines.push(`| ${[row.display, form, ...(showInterface ? [iface] : []), ...row.cells.map((cell) => cell.mark), report].join(" | ")} |`);
   }
@@ -870,6 +849,11 @@ export function supportedDevicesSection(
   const mixed = tables.some((table) => table.mixed);
   const twoInterfaces = tables.some((table) => table.twoInterfaces);
   const verifiedModels = joinAll([...new Set(VERIFIED_FIRMWARE.map((entry) => entry.model))], en);
+  const byReports = reportVerifiedModels(verified, unsupported).map((entry) => {
+    const found = DEVICE_CATALOG.find((e) => e.families.includes(entry.family) && catalogMatches(e, entry.model));
+    return found ? displayName(found) : entry.model;
+  });
+  const reportSentence = byReports.length === 0 ? "" : en ? ` Reports confirmed every feature FengSui does on the ${joinAll(byReports, true)}, which therefore count as verified too.` : `${joinAll(byReports, false)} 上烽燧做的每项功能都有真机报告确认过，也算验证过的型号。`;
   const switches = MODULES.find((module) => module.features.includes("securitySwitches"))?.parts;
   const split = MODULES.filter((module) => module.features.length > 1);
   const anyUnsupported = tables.some((table) => table.unsupported);
@@ -877,7 +861,7 @@ export function supportedDevicesSection(
     ? [
         "What the marks mean:",
         "",
-        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels}, which also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.`,
+        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels}, which also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.${reportSentence}`,
         "- **? Waiting for a report**: FengSui implements it from the interface notes and it is on by default; nobody has confirmed it on a real router yet. Each write is sent once and read back, and you can turn each one off under Settings → Device.",
         "- **△ Partly, or with a condition**: the conditions are under each brand's table.",
         `- **— Not available**: the router or its interface does not have the feature, or someone tested it and it did not work${anyUnsupported ? "" : " (none in the table yet)"}.`,
@@ -889,7 +873,7 @@ export function supportedDevicesSection(
     : [
         "表里的符号：",
         "",
-        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 的全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。`,
+        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 的全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。${reportSentence}`,
         "- **? 等待回报**：烽燧按接口资料实现了，默认开启，还没有人在真机上确认。写入每次只发一次，写后回读核对，可以在「设置 → 设备」逐项关闭。",
         "- **△ 部分支持或有条件**：条件写在各品牌的表下面。",
         `- **— 不支持**：路由器或它的接口没有这项功能，或者有人实测过不能用${anyUnsupported ? "" : "（表里暂时还没有）"}。`,

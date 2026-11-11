@@ -572,7 +572,7 @@ export function experimentalEvidence(probe: DeviceProbeResult): Record<Experimen
  * The profile as served: verification and features come from the verified list at read time, so an
  * upgrade that verifies a new build applies to a profile stored before it.
  */
-export function deviceProfileOf(probe: DeviceProbeResult): DeviceProfile {
+export function deviceProfileOf(probe: DeviceProbeResult, family?: RouterFamily): DeviceProfile {
   const { identity } = probe;
   const verifiedModel = identity.model !== null && isVerifiedModel(identity.model);
   const evidence: Partial<Record<DeviceFeature, boolean>> = verifiedModel ? {} : experimentalEvidence(probe);
@@ -586,7 +586,7 @@ export function deviceProfileOf(probe: DeviceProbeResult): DeviceProfile {
   }
   return {
     identity: { ...identity },
-    verification: deviceVerification(identity.model, identity.softwareVersion),
+    verification: deviceVerification(identity.model, identity.softwareVersion, family),
     capabilities: {
       probedAtIso: probe.probedAtIso,
       endpoints: probe.endpoints.map((e) => ({ ...e })),
@@ -752,7 +752,7 @@ export function buildDeviceReport(input: {
   const writes: DeviceReportWrite[] = (input.writes ?? []).map(({ id: _id, ...result }) => ({ ...result, endpoints: [...result.endpoints] }));
   const checks = deviceReportChecks(access, writes);
   if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access, writes, checks };
-  const profile = deviceProfileOf(input.probe);
+  const profile = deviceProfileOf(input.probe, input.access?.family);
   const observed = new Map(input.probe.observations.map((o) => [o.path, o]));
   return {
     ...base,

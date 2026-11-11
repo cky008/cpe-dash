@@ -1114,8 +1114,9 @@ export interface DeviceProfileResponse {
 export interface DeviceProfile {
   identity: DeviceIdentity;
   // verified：已验证型号 + 已验证固件；new-firmware：已验证型号的新固件（ADR-007：只告警，不阻止写）；
+  // report-verified：烽燧在这个型号（按连接的品牌）上实现的每项功能都已由真机报告登记（VERIFIED_FEATURES，或报告为没有这项功能），算验证过的型号，写入仍按它的品牌发送；
   // unverified-model：未验证型号；unknown：型号未读到，或已验证型号的固件未读到
-  verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
+  verification: "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
   capabilities: DeviceCapabilities;
   origin: "startup" | "connection-test";   // startup：守护进程启动后的识别（含启动时连不上、之后补做的）；connection-test：控制台测试连接时
 }
@@ -1160,7 +1161,7 @@ export interface DeviceReport {
   reportVersion: 1;
   fengsuiVersion: string;
   generatedAtIso: string;
-  verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
+  verification: "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
   identity: DeviceIdentity | null;          // 同 2.9 节；尚未识别时为 null
   capabilities: { probedAtIso: string; lteBands: number[] | null; features: Record<DeviceFeature, FeatureCapability> } | null;
   endpoints: Array<{
@@ -1233,7 +1234,7 @@ export interface DeviceReport {
 export interface DeviceAccessSnapshot {
   family: RouterFamily;            // 连接保存的品牌（「设置 → 路由器」）：huawei 走 HiLink，其余走各自的驱动
   model: string | null;            // 闸门所依据的型号：本次运行看到的，否则是上次存下的；从未识别时为 null，不是纯文本时为 "?"
-  verification: "verified" | "new-firmware" | "unverified-model" | "unknown";
+  verification: "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
   confirmed: boolean;              // 本次运行已看到型号；之前写操作会先在自己的会话里读型号
   writes: "allowed" | "experimental" | "unknown"; // allowed：已验证型号；experimental：其他型号（写入都是实验性写入，哪些可用看 features）；unknown：还没有识别结果
   // telemetry、neighbors、topology、settings、accessControl、sms 各一项：已验证型号为 verified；

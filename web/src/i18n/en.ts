@@ -55,6 +55,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "dev.part_unavailable": "Not on this model",
   "dev.unverified_badge": "Unverified model",
   "dev.unverified_title": "This router ({model}) was never checked on a real one. The writes FengSui implements for this model are available ({count}), each read back after it is sent; turn any of them off on the Device page. Opens the Device page",
+  "dev.report_verified_controls": "On this router ({model}) every write FengSui implements was confirmed on a real one. Each is still sent once and read back; turn off what you do not want under Settings → Device.",
   "dev.experimental_controls": "This router ({model}) was never checked on a real one. These are the writes FengSui implements for this model: each is sent once and read back, and a read-back that differs raises an alert. Turn off what you do not want under Settings → Device; if something goes wrong, restore it on the router's own page, or reset the router to factory settings.",
   "dev.experimental_lte_only": "LTE only: the bands this router advertises; no NR band or cell lock on this model.",
   "dev.sms_experimental": "SMS writes on this model were never checked on a real router: sending, marking read and deleting use the plaintext endpoints, without emoji, and each is read back afterwards.",

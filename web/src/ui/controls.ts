@@ -4,7 +4,7 @@ import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
 import type { DriverFamily } from "../../../src/router-family.ts";
 import type { WriteFeature } from "../../../src/device-access.ts";
-import { experimentalWrites, unconfirmedWrite, unverifiedModel } from "../core/device-access-view.ts";
+import { experimentalWrites, reportVerified, unconfirmedWrite, unverifiedModel } from "../core/device-access-view.ts";
 import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
@@ -761,7 +761,9 @@ export function mountControls(ctx: AppContext): { open(): void } {
         h(
           "div",
           { class: "space-y-3" },
-          h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("alert", "text-warning mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.experimental_controls", { model: lockedModel }))),
+          reportVerified(scheduler)
+            ? h("div", { class: "fs-notice", data: { tone: "success" } }, icon("check", "text-success mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.report_verified_controls", { model: lockedModel })))
+            : h("div", { class: "fs-notice", data: { tone: "pending" } }, icon("alert", "text-warning mt-0.5"), h("span", { class: "text-sm" }, ctx.t("dev.experimental_controls", { model: lockedModel }))),
           h("div", { class: "flex justify-end" }, deviceBtn)
         ),
         // Another brand's driver locks what is typed; a HiLink model the LTE bands it advertises

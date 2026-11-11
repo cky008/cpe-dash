@@ -42,7 +42,7 @@ import {
   tokenFlowText,
   tokenState,
 } from "../core/console-view.ts";
-import { experimentalOffer, experimentalWrites, hasSwitch, readbackTone } from "../core/device-access-view.ts";
+import { experimentalOffer, experimentalWrites, hasSwitch, readbackTone, reportVerified } from "../core/device-access-view.ts";
 import {
   FEATURE_KEYS,
   READBACK_KEYS,
@@ -575,7 +575,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       "div",
       { class: "space-y-2" },
       h("div", { class: "fs-label" }, t("exp_title")),
-      notice(t("exp_intro", { model }), "pending"),
+      reportVerified(scheduler) ? notice(t("exp_intro_verified", { model }), "success") : notice(t("exp_intro", { model }), "pending"),
       h("ul", { class: "divide-y divide-base-content/[0.06]" }, ...rows),
       h("div", { class: "fs-label pt-2" }, t("exp_results_title")),
       resultRows.length > 0 ? h("ul", { class: "divide-y divide-base-content/[0.06]" }, ...resultRows) : h("p", { class: "text-xs faint" }, t("exp_results_empty")),
@@ -736,7 +736,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         "div",
         { class: `flex items-center gap-1.5 text-sm ${unverified ? "text-warning" : ""}`, data: { role: "writes" } },
         icon(!unverified ? "unlock" : open.length > 0 ? "alert" : "lock"),
-        writesText(access.writes, open.length, t)
+        writesText(access.writes, open.length, t, reportVerified(ctx.store.state.scheduler))
       ),
       h("ul", { class: "grid grid-cols-1 sm:grid-cols-2 gap-1.5" }, ...reads),
       unverified ? h("p", { class: "text-xs faint" }, t("access_note")) : null
