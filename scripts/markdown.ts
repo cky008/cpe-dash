@@ -20,6 +20,8 @@ export interface RenderedMarkdown {
   title: string | null;
   /** Plain text of the page for the search index (no code blocks). */
   text: string;
+  /** The plain text under each heading (level 2–4) up to the next one, by heading id: search finds a model in its brand's section. */
+  sections: Record<string, string>;
 }
 
 export interface RenderOptions {
@@ -187,6 +189,13 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
   const locale = opts.locale ?? "en";
   const headings: MarkdownHeading[] = [];
   const texts: string[] = [];
+  const sectionTexts = new Map<string, string[]>();
+  let current: string[] | null = null;
+  /** Text for the search index: the page's, and the section's it is under. */
+  const pushText = (text: string): void => {
+    texts.push(text);
+    current?.push(text);
+  };
   const usedIds = new Map<string, number>();
   let title: string | null = null;
 
@@ -229,8 +238,14 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
         const seen = usedIds.get(base) ?? 0;
         usedIds.set(base, seen + 1);
         const id = seen === 0 ? base : `${base}-${seen + 1}`;
-        if (level <= 4) headings.push({ level, text: inline.text, id });
-        texts.push(inline.text);
+        if (level <= 4) {
+          texts.push(inline.text);
+          headings.push({ level, text: inline.text, id });
+          current = [];
+          sectionTexts.set(id, current);
+        } else {
+          pushText(inline.text);
+        }
         out += `<h${level} id="${escapeHtml(id)}"><a class="anchor" href="#${escapeHtml(id)}" aria-hidden="true">#</a>${inline.html}</h${level}>`;
         continue;
       }
@@ -260,7 +275,7 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
         while (i < lines.length && (lines[i] ?? "").includes("|") && (lines[i] ?? "").trim()) rows.push(cells(lines[i++] ?? ""));
         const cell = (tag: "th" | "td", c: string, n: number): string => {
           const r = renderInline(c, opts);
-          texts.push(r.text);
+          pushText(r.text);
           return `<${tag}${style(n)}>${r.html}</${tag}>`;
         };
         out += `<div class="table-wrap"><table><thead><tr>${head.map((c, n) => cell("th", c, n)).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, n) => cell("td", c, n)).join("")}</tr>`).join("")}</tbody></table></div>`;
@@ -277,7 +292,7 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
       const joined = para.join("\n");
       const onlyImage = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(joined);
       const inline = renderInline(joined, opts);
-      texts.push(inline.text);
+      pushText(inline.text);
       out += onlyImage ? `<figure>${inline.html}<figcaption>${escapeHtml(onlyImage[1] ?? "")}</figcaption></figure>` : `<p>${inline.html}</p>`;
     }
     return out;
@@ -358,7 +373,7 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
     const html = items
       .map((item) => {
         const r = renderInline(item.text, opts);
-        texts.push(r.text);
+        pushText(r.text);
         return `<li>${r.html}${item.nested}</li>`;
       })
       .join("");
@@ -366,5 +381,8 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
   }
 
   const html = blocks(source.replace(/\r\n/g, "\n").split("\n"));
-  return { html, headings, title, text: texts.join(" ").replace(/\s+/g, " ").trim() };
+  const flat = (list: ReadonlyArray<string>): string => list.join(" ").replace(/\s+/g, " ").trim();
+  const sections: Record<string, string> = Object.create(null) as Record<string, string>;
+  for (const [id, list] of sectionTexts) sections[id] = flat(list);
+  return { html, headings, title, text: flat(texts), sections: { ...sections } };
 }

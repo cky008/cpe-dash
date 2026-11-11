@@ -8,7 +8,8 @@ interface SearchEntry {
   title: string;
   section: string;
   url: string;
-  headings: ReadonlyArray<{ text: string; id: string }>;
+  /** Each heading with the text under it (`body`), so a term deep in a long page finds its section. */
+  headings: ReadonlyArray<{ text: string; id: string; body?: string }>;
   text: string;
 }
 
@@ -145,18 +146,24 @@ function search(entries: ReadonlyArray<SearchEntry>, query: string): SearchHit[]
     const text = entry.text.toLowerCase();
     let score = 0;
     let missing = false;
+    const inBody = (term: string): { text: string; id: string; body?: string } | undefined => entry.headings.find((h) => (h.body ?? "").toLowerCase().includes(term));
     for (const term of terms) {
       const inTitle = title.includes(term);
       const heading = entry.headings.find((h) => h.text.toLowerCase().includes(term));
+      const body = heading ? undefined : inBody(term);
       const inText = text.includes(term);
-      if (!inTitle && !heading && !inText) missing = true;
-      score += (inTitle ? 10 : 0) + (heading ? 5 : 0) + (inText ? 1 : 0);
+      if (!inTitle && !heading && !body && !inText) missing = true;
+      score += (inTitle ? 10 : 0) + (heading ? 5 : 0) + (body ? 3 : 0) + (inText ? 1 : 0);
     }
     if (missing) continue;
     const first = terms[0] ?? "";
-    const heading = entry.headings.find((h) => h.text.toLowerCase().includes(first));
+    const named = entry.headings.find((h) => h.text.toLowerCase().includes(first));
+    const under = named ? undefined : inBody(first);
+    const heading = named ?? under;
     if (heading && !title.includes(first)) {
-      hits.push({ title: heading.text, where: `${entry.section} · ${entry.title}`, url: `${entry.url}#${heading.id}`, snippet: "", score: score + 1 });
+      const body = heading.body ?? "";
+      const at = under ? body.toLowerCase().indexOf(first) : -1;
+      hits.push({ title: heading.text, where: `${entry.section} · ${entry.title}`, url: `${entry.url}#${heading.id}`, snippet: at >= 0 ? snippetOf(body, at, first.length) : "", score: score + 1 });
     }
     const at = text.indexOf(first);
     hits.push({ title: entry.title, where: entry.section, url: entry.url, snippet: at >= 0 ? snippetOf(entry.text, at, first.length) : "", score });

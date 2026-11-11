@@ -30,6 +30,12 @@ describe("docs Markdown renderer (scripts/markdown.ts)", () => {
     assert.doesNotMatch(html, /<h1/, "the title is the page's, not the article's");
   });
 
+  it("keeps the text under each heading for search, a deeper heading's in its own section", () => {
+    const { sections, text } = renderMarkdown(["Intro text.", "", "## ZTE", "", "| Model | Form |", "| :--- | :--- |", "| MC888 | Indoor CPE |", "", "##### Small print", "", "More.", "", "## Pinsu", "", "- R200C"].join("\n"));
+    assert.deepEqual({ ...sections }, { zte: "Model Form MC888 Indoor CPE Small print More.", pinsu: "R200C" });
+    assert.match(text, /^Intro text\. ZTE Model Form MC888/);
+  });
+
   it("renders lists, nested lists, ordered lists, code fences, rules and tables", () => {
     const { html } = renderMarkdown(
       [

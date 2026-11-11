@@ -134,6 +134,8 @@ interface RenderedPage extends GuidePage {
   html: string;
   headings: MarkdownHeading[];
   text: string;
+  /** The text under each heading, by its id. */
+  sections: Record<string, string>;
 }
 
 export interface SiteReport {
@@ -308,11 +310,18 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
           return `${toRoot(pageRel)}assets/screenshots/${m[1]}`;
         },
       });
-      return { ...page, html: r.html, headings: r.headings, text: r.text };
+      return { ...page, html: r.html, headings: r.headings, text: r.text, sections: r.sections };
     });
 
     const searchIndex = JSON.stringify(
-      rendered.map((p) => ({ title: p.title, section: p.section, url: `${info.prefix}docs/${p.slug}/`, headings: p.headings.map((h) => ({ text: h.text, id: h.id })), text: `${p.description} ${p.text}`.slice(0, 6000) }))
+      rendered.map((p) => ({
+        title: p.title,
+        section: p.section,
+        url: `${info.prefix}docs/${p.slug}/`,
+        // Each heading carries the text under it, so a term deep in a long page (a model on Supported devices) finds its section
+        headings: p.headings.map((h) => ({ text: h.text, id: h.id, body: (p.sections[h.id] ?? "").slice(0, 4000) })),
+        text: `${p.description} ${p.text}`.slice(0, 6000),
+      }))
     );
     const searchFile = `assets/search.${info.locale}.${hash(searchIndex)}.json`;
     fs.writeFileSync(path.join(out, searchFile), searchIndex);

@@ -130,6 +130,11 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       const index = JSON.parse(fs.readFileSync(path.join(site, "assets", file), "utf8")) as Array<{ url: string; title: string; text: string }>;
       assert.deepEqual(index.map((e) => e.url).sort(), GUIDE("zh").map((slug) => `${prefix}docs/${slug}/`).sort());
       assert.ok(index.every((e) => e.title && e.text.length > 100));
+      // A model deep in Supported devices is found in its brand's section, not cut off with the page's text
+      const devices = (index as unknown as Array<{ url: string; headings: Array<{ text: string; id: string; body: string }> }>).find((e) => e.url === `${prefix}docs/supported-devices/`);
+      const zte = devices?.headings.find((h) => h.body.includes("MC888 Ultra"));
+      assert.equal(zte?.text, locale === "en" ? "ZTE" : "中兴");
+      assert.ok(devices?.headings.some((h) => h.body.includes("D-Link DWR-921")), "the last section too");
     }
     assert.ok(fs.readFileSync(path.join(site, "THIRD_PARTY_NOTICES.txt"), "utf8").includes("daisyUI"));
     for (const file of fs.readdirSync(site, { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && /\.(html|json|xml|txt|js|css)$/.test(e.name))) {
