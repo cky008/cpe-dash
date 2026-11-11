@@ -713,6 +713,8 @@ export class MutexSessionScheduler extends EventEmitter {
   async #confirmDriverModel(session: DriverSession, action: ControlAction): Promise<void> {
     const identity = await session.identify();
     if (!identity.model) throw new DeviceNotIdentifiedError();
+    // The form of its brand's interface it speaks comes with the model: what it may write goes by both
+    this.device.noteVariant(identity.model, identity.variant ?? null);
     this.#seeModel(identity.model, identity.softwareVersion);
     this.#assertWritable(action);
   }

@@ -69,6 +69,11 @@ export interface DriverIdentity {
   model: string | null;
   softwareVersion: string | null;
   hardwareVersion: string | null;
+  /**
+   * The form of the family's interface the router speaks, where the family has more than one
+   * (`ROUTER_FAMILY_FACTS[family].variants`); left out: the family's own.
+   */
+  variant?: string;
 }
 
 export interface DriverTelemetry extends DriverIdentity {

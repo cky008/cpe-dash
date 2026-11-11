@@ -1228,8 +1228,9 @@ v1.8.4 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 - 密钥：令牌用资料里记的 `JJ8Hs`，在发送密码之前先用它做一次免登录调用（`get_device_info`）核对；打不开应答就抛 `DriverLoginMethodError`：不发密码、不触发熔断。资料里令牌的另一种来源是用 RSA 私钥解开 `is_encrypt` 下发的密文，那需要把厂商网页里的私钥放进仓库，这一步没有做，留给项目所有者决定。
 - 登录结果：`0` 成功，`1` 别处已登录（让位），`2` 锁定（等 60 秒，熔断），`3` 账户停用（熔断），`4` 密码错误（熔断）。
 - 读取：`get_value_by_xmlnode` 的 15 个节点：型号、软硬件版本、RSRP / RSSI / SINR / RSRQ、频段、PCI、`SSB_RSRP`（有值就是 NR 服务小区，否则 LTE）、运营商名、5G / 4G 模组温度（千分之一度）、本月收发字节。制式、频点和辅载波不在节点里，留空。附近的基站在资料里没有，按「此型号不提供」处理。
-- 短信：列表与标为已读（`set_value_by_xmlnode` 写 `SMS_RecvMsg.N.isOpened`，写后读列表核对）。发送、删除、锁频、锁小区、重启在资料里没有：会话里在发送任何东西之前拒绝，短信能力报告 `{ send: false, delete: "none", markRead: "router" }`，控制台不显示发送和删除。
-- 「支持的设备」：加 LG6851F；`ModelFact` 多一种 `unbuilt`（格子留空，资料里没有的不做），第一代的两条短信说明限定到第一代型号。
+- 短信：列表与标为已读（`set_value_by_xmlnode` 写 `SMS_RecvMsg.N.isOpened`，写后读列表核对）。发送、删除、锁频、锁小区、重启在资料里没有，短信能力报告 `{ send: false, delete: "none", markRead: "router" }`，控制台不显示发送和删除。
+- 接口写法：品牌事实多一个 `variants`（[`src/router-family.ts`](../src/router-family.ts)），烽火记一种 `pro`：资料里用它的型号（LG6851F）、能读的（信号、短信）与能写的（`smsWrite`）。驱动识别时在身份里报告 `variant: "pro"`（第一代不报告），随识别结果存进 `state.json`；写操作在自己的会话里确认型号时也一并确认写法。闸门（`DeviceAccess.variant`）按「驱动报告的写法，没有报告时按型号在资料里的写法」取这一份事实：Pro 上锁频、锁小区、重启是 `not_implemented`，「设置 → 设备」不显示它们的开关，请求以 `409 DEVICE_UNVERIFIED_READ_ONLY` 拒绝、不建会话；附近的基站按「此型号不提供」，后台不再去读。驱动会话里的拒绝留作最后一道防线。
+- 「支持的设备」：加 LG6851F，格子由同一份写法事实算出（资料里没有的留空）；`ModelFact.variant` 让一条说明只适用于某种写法（`null`：品牌自己的写法），第一代的两条短信说明因此不落到 Pro 上。`GET /api/device/profile` 的 `support` 行同样按闸门取的写法算。
 
 **各入口与保护**
 

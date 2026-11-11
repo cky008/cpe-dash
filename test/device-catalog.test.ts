@@ -129,7 +129,8 @@ describe("the supported devices guide page", () => {
       assert.ok(entry, family);
       for (const feature of DEVICE_FEATURES) {
         const mark = supportMark(family, displayName(entry), feature);
-        const conditions = MODEL_FACTS.filter((fact) => fact.family === family && !fact.models && !fact.forms && fact.features.includes(feature));
+        // The family's own form of its interface: a fact of another form does not apply
+        const conditions = MODEL_FACTS.filter((fact) => fact.family === family && !fact.models && !fact.forms && (fact.variant ?? null) === null && fact.features.includes(feature));
         const expected = !familyImplements(family, feature) ? "" : conditions.length > 0 ? "△" : "?";
         assert.equal(mark, expected, `${family} ${feature}`);
       }
@@ -155,7 +156,9 @@ describe("the supported devices guide page", () => {
     const en = supportedDevicesSection("en");
     // Each fact names models the catalog has on its interface
     for (const fact of MODEL_FACTS) {
-      for (const name of [...(fact.models ?? []), ...(fact.exceptModels ?? [])]) assert.ok(DEVICE_CATALOG.some((e) => e.families.includes(fact.family) && catalogMatches(e, name)), `${fact.family}: ${name}`);
+      for (const name of fact.models ?? []) assert.ok(DEVICE_CATALOG.some((e) => e.families.includes(fact.family) && catalogMatches(e, name)), `${fact.family}: ${name}`);
+      // A form of the interface the family has
+      if (typeof fact.variant === "string") assert.ok(ROUTER_FAMILY_FACTS[fact.family].variants?.[fact.variant], `${fact.family}: ${fact.variant}`);
       assert.ok(fact.zh && fact.en);
     }
     // ZTE: the goform models that open their developer options are the driver's branches 2 and 3
@@ -189,22 +192,28 @@ describe("the supported devices guide page", () => {
     assert.ok(legend.includes("「接口」一列有两套时，自动识别选第一套"), legend);
   });
 
-  it("leaves empty what a model's interface has no record of, and keeps a fact of the rest of a brand off the models it excepts", () => {
+  it("marks a model speaking another form of its brand's interface by what that form has, and gives it that form's facts alone", () => {
     const en = supportedDevicesSection("en");
-    // The Pro series: signal (△: the key on record), SMS read ? and marking read △, nothing else
+    // The Pro series: signal (△: the key on record), SMS read ? and marking read △; what its notes lack stays empty
     assert.deepEqual(marksOf(en, "fiberhome", "LG6851F"), ["△", "", "", "?/△", "", "", "", "", "", ""]);
     assert.deepEqual(marksOf(en, "fiberhome", "LG6121F"), ["?", "?", "", "△", "?", "?", "△", "", "", ""]);
-    assert.equal(supportMark("fiberhome", "LG6851F", "bandLock"), "");
-    assert.equal(supportMark("fiberhome", "LG6121F", "bandLock"), "?");
-    for (const fact of MODEL_FACTS.filter((f) => f.effect === "unbuilt")) {
-      for (const name of fact.models ?? []) for (const feature of fact.features) assert.equal(supportMark(fact.family, name, feature), "", `${name} ${feature}`);
+    const pro = ROUTER_FAMILY_FACTS.fiberhome.variants?.["pro"];
+    assert.ok(pro);
+    for (const feature of DEVICE_FEATURES) {
+      const implemented: boolean = (pro.writes as ReadonlyArray<string>).includes(feature) || (feature === "telemetry" && pro.reads.includes("telemetry")) || (feature === "smsRead" && pro.reads.includes("sms"));
+      assert.equal(supportMark("fiberhome", "LG6851F", feature) !== "", implemented, feature);
     }
+    assert.equal(supportMark("fiberhome", "LG6121F", "bandLock"), "?");
     // The first series' SMS conditions name every model but the Pro one; a model the list lacks still gets them
     assert.match(en, /deletes a whole conversation at a time \(every model but the LG6851F\)/);
     assert.equal(supportMark("fiberhome", "LG9999", "smsWrite"), "△");
-    const pro = deviceSupportRow("fiberhome", "LG6851F");
-    assert.ok(pro.notes.some((n) => n.en.startsWith("FiberHome's Pro series")));
-    assert.ok(!pro.notes.some((n) => n.en.includes("whole conversation")));
+    const row = deviceSupportRow("fiberhome", "LG6851F");
+    assert.ok(row.notes.some((n) => n.en.startsWith("FiberHome's Pro series")));
+    assert.ok(!row.notes.some((n) => n.en.includes("whole conversation")));
+    // The row of the router in use follows the form its driver reported, listed or not
+    assert.deepEqual(deviceSupportRow("fiberhome", "LG9999", { variant: "pro" }).modules.map((m) => m.mark), ["△", "", "", "?/△", "", "", "", "", "", ""]);
+    assert.equal(deviceSupportRow("fiberhome", "LG6851F", { variant: null }).modules[4]?.mark, "?", "its driver found the family's own form");
+    assert.equal(deviceSupportRow("fiberhome", "LG6121F", { variant: "elsewhere" }).modules[4]?.mark, "?", "a form the family does not have");
   });
 
   it("names both interfaces of a ZTE model that has two, connects through the one detection picks, and marks the other when it is chosen", () => {
@@ -309,7 +318,7 @@ describe("the row of the router the console shows", () => {
 
   it("shows ✓ where a report was registered for this router", () => {
     const verified: VerifiedFeature[] = [{ family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", feature: "cellLock", access: "write", issue: 41 }];
-    const row = deviceSupportRow("zte-zwrt", "MU5250", verified);
+    const row = deviceSupportRow("zte-zwrt", "MU5250", { verified });
     assert.equal(row.modules[5]?.mark, "✓");
     assert.ok(!row.notes.some((n) => n.en.startsWith("Cell lock")), "a verified cell needs no condition");
   });

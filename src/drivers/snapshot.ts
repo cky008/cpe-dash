@@ -291,6 +291,7 @@ export function driverDeviceProbe(identity: DriverIdentity, opts: { nowIso: stri
       ecc: false,
       tokenFlow: "unknown",
       detectedAtIso: opts.nowIso,
+      ...(identity.variant !== undefined ? { variant: identity.variant } : {}),
     },
     endpoints: [],
     lteBands: null,

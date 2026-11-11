@@ -988,7 +988,8 @@ export class FengSuiHttpServer {
               ok: true,
               profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe, device.family)) : null,
               verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
-              support: probe || device.model ? deviceSupportRow(device.family, device.model ?? probe?.identity.model ?? null) : null,
+              // In the form of the brand's interface the gate goes by (the driver's report, else as the model is on record)
+              support: probe || device.model ? deviceSupportRow(device.family, device.model ?? probe?.identity.model ?? null, device.model ? { variant: this.core.scheduler.device.variant } : {}) : null,
             } satisfies DeviceProfileResponse);
             return;
           }

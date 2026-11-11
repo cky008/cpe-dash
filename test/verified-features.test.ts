@@ -95,7 +95,7 @@ describe("verified features of other models", () => {
     assert.equal(unconfirmedWrite(scheduler, ["cellLock"]), false, "its confirmation no longer says it was never checked");
     assert.equal(unconfirmedWrite(scheduler, ["bandLock"]), true);
     // And the row the console shows for this router
-    assert.equal(deviceSupportRow("zte-zwrt", "MU5250", list).modules.find((m) => m.en === "Cell lock")?.mark, "✓");
+    assert.equal(deviceSupportRow("zte-zwrt", "MU5250", { verified: list }).modules.find((m) => m.en === "Cell lock")?.mark, "✓");
     // Nothing of this stays in the real list
     assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", VERIFIED_FEATURES));
     assert.equal(VERIFIED_FEATURES.some((entry) => entry.issue === 41), false);

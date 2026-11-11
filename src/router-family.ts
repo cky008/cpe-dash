@@ -70,6 +70,24 @@ export interface RouterFamilyFacts {
   networkModes: ReadonlyArray<"auto" | "lte" | "nr_sa" | "nr_nsa">;
   /** The driver can lock 5G NR bands (every driver locks LTE bands). */
   nrBandLock: boolean;
+  /**
+   * Other forms of the family's interface, by the name the driver reports for a router that speaks
+   * one (its identification's `variant`): what such a router reads and writes instead of `reads` and
+   * `writes` above.
+   */
+  variants?: Readonly<Record<string, RouterFamilyVariant>>;
+}
+
+/**
+ * A form of a family's interface some of its routers speak, with fewer of the family's features on
+ * record (FiberHome's Pro series). The driver says which form a router speaks; until it has, a model on
+ * record with the form (`models`) counts as speaking it.
+ */
+export interface RouterFamilyVariant {
+  /** The models on record with this form (their name as the router reports it). */
+  models: ReadonlyArray<string>;
+  reads: RouterFamilyFacts["reads"];
+  writes: ReadonlyArray<FamilyWriteFeature>;
 }
 
 /**
@@ -83,7 +101,16 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  fiberhome: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  fiberhome: {
+    defaultUsername: "admin",
+    defaultAddress: "192.168.8.1",
+    reads: ["telemetry", "neighbors", "sms"],
+    writes: ["bandLock", "cellLock", "reboot", "smsWrite"],
+    networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
+    nrBandLock: true,
+    // The Pro series (`/fh_api/`): its notes have the signal nodes, the SMS listing and marking a message read, nothing else
+    variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
+  },
   nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
@@ -92,19 +119,39 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
 const READ_FEATURE_SECTIONS = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms" } as const;
 
 /**
- * Every feature FengSui implements for a router of this family that nobody verified: the reads its
- * interface provides (signal, nearby cells, connected devices, SMS) and its writes. A model is verified
- * by reports once each of these is confirmed on a real one of it (`isReportVerifiedModel`, firmware.ts).
+ * The form of the family's interface a router speaks (`null`: the family's own): the one its driver
+ * reported (`reported`; `null` for the family's own), else, nothing reported yet, the one its model is
+ * on record with. A name the family does not have counts as its own form.
  */
-export function familyFeatures(family: RouterFamily): Array<{ feature: keyof typeof READ_FEATURE_SECTIONS | FamilyWriteFeature; access: "read" | "write" }> {
+export function routerVariant(family: RouterFamily, reported: string | null | undefined, model?: string | null): string | null {
+  const variants = ROUTER_FAMILY_FACTS[family].variants ?? {};
+  if (reported !== undefined) return reported !== null && Object.keys(variants).includes(reported) ? reported : null;
+  const name = model?.trim().toLowerCase();
+  if (!name) return null;
+  return Object.entries(variants).find(([, form]) => form.models.some((known) => known.toLowerCase() === name))?.[0] ?? null;
+}
+
+/** What a router of the family reads and writes in the form it speaks (`null`: the family's own). */
+export function familyCapabilities(family: RouterFamily, variant: string | null = null): Pick<RouterFamilyFacts, "reads" | "writes"> {
   const facts = ROUTER_FAMILY_FACTS[family];
+  return (variant !== null ? facts.variants?.[variant] : undefined) ?? facts;
+}
+
+/**
+ * Every feature FengSui implements for a router of this family that nobody verified (in the form of
+ * its interface it speaks): the reads its interface provides (signal, nearby cells, connected devices,
+ * SMS) and its writes. A model is verified by reports once each of these is confirmed on a real one of
+ * it (`isReportVerifiedModel`, firmware.ts).
+ */
+export function familyFeatures(family: RouterFamily, variant: string | null = null): Array<{ feature: keyof typeof READ_FEATURE_SECTIONS | FamilyWriteFeature; access: "read" | "write" }> {
+  const facts = familyCapabilities(family, variant);
   const reads = (Object.keys(READ_FEATURE_SECTIONS) as Array<keyof typeof READ_FEATURE_SECTIONS>).filter((feature) => (facts.reads as ReadonlyArray<string>).includes(READ_FEATURE_SECTIONS[feature]));
   return [...reads.map((feature) => ({ feature, access: "read" as const })), ...facts.writes.map((feature) => ({ feature, access: "write" as const }))];
 }
 
-/** FengSui implements the feature for routers of this family (nobody verified it on a real one). */
-export function familyImplements(family: RouterFamily, feature: string): boolean {
-  return familyFeatures(family).some((entry) => entry.feature === feature);
+/** FengSui implements the feature for routers of this family (in that form of its interface; nobody verified it on a real one). */
+export function familyImplements(family: RouterFamily, feature: string, variant: string | null = null): boolean {
+  return familyFeatures(family, variant).some((entry) => entry.feature === feature);
 }
 
 /** The family's name as the console and the docs show it. */

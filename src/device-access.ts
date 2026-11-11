@@ -1,6 +1,6 @@
 import { type DeviceFeature, type DeviceProbeResult, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
 import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
-import { ROUTER_FAMILY_FACTS, type RouterFamily, isDriverFamily } from "./router-family.ts";
+import { type RouterFamily, familyCapabilities, isDriverFamily, routerVariant } from "./router-family.ts";
 
 /**
  * What FengSui may do with the router it talks to: whether it may write, and which read sections
@@ -260,6 +260,8 @@ export class DeviceAccess {
   #disabled: ReadonlyArray<DisabledWriteRef> = [];
   /** The family of the router connection (Settings → Router): what it reads and may write goes by it. */
   #family: RouterFamily = "huawei";
+  /** The form of its brand's interface the router's driver reported, for the model it reported it with (`name: null`: the brand's own). */
+  #variant: { model: string; name: string | null } | null = null;
 
   constructor(options: { verifiedFeatures?: ReadonlyArray<VerifiedFeature>; family?: RouterFamily } = {}) {
     this.#verifiedFeatures = options.verifiedFeatures ?? VERIFIED_FEATURES;
@@ -351,7 +353,7 @@ export class DeviceAccess {
    */
   get reportVerified(): boolean {
     const current = this.current;
-    return current !== null && deviceVerification(current.model, current.softwareVersion, this.#family, this.#verifiedFeatures) === "report-verified";
+    return current !== null && deviceVerification(current.model, current.softwareVersion, this.#family, this.#verifiedFeatures, this.variant) === "report-verified";
   }
 
   /** A known model nobody verified: whatever it may write goes through the generic (HiLink) implementation. */
@@ -361,7 +363,28 @@ export class DeviceAccess {
 
   /** What the identification probe found (start, catch-up, a console test of this router); a probe naming no model changes nothing. */
   noteProbe(probe: DeviceProbeResult | null | undefined): void {
-    if (probe) this.noteEvidence(probe.identity.model, experimentalEvidence(probe), probe.lteBands);
+    if (!probe) return;
+    this.noteEvidence(probe.identity.model, experimentalEvidence(probe), probe.lteBands);
+    this.noteVariant(probe.identity.model, probe.identity.variant ?? null);
+  }
+
+  /**
+   * The form of its brand's interface the router's driver found it speaking (`null`: the brand's own),
+   * for the model it reported with it: what it reads and may write goes by it. No model, no change.
+   */
+  noteVariant(model: string | null | undefined, variant: string | null): void {
+    const name = sighting(model, null)?.model;
+    if (name) this.#variant = { model: name, name: variant };
+  }
+
+  /**
+   * The form of its brand's interface the router speaks (`null`: the brand's own): the one its driver
+   * reported for the current model, else the one the model is on record with.
+   */
+  get variant(): string | null {
+    const current = this.current;
+    if (!current) return null;
+    return routerVariant(this.#family, this.#variant?.model === current.model ? this.#variant.name : undefined, current.model);
   }
 
   /**
@@ -386,9 +409,10 @@ export class DeviceAccess {
     const current = this.current;
     if (!current) return "unknown";
     if (isVerifiedModel(current.model)) return "verified";
-    // A model nobody verified writes only what FengSui implements for its family: a driver's writes,
-    // or on a HiLink model the generic ones (a write without one stays the verified model's alone)
-    if (!(ROUTER_FAMILY_FACTS[this.#family].writes as ReadonlyArray<string>).includes(feature)) return "not_implemented";
+    // A model nobody verified writes only what FengSui implements for its family (in the form of the
+    // interface it speaks): a driver's writes, or on a HiLink model the generic ones (a write without
+    // one stays the verified model's alone)
+    if (!(familyCapabilities(this.#family, this.variant).writes as ReadonlyArray<string>).includes(feature)) return "not_implemented";
     // A HiLink model shows in the identification probe what a generic write reads back; one users verified
     // (on a router of any brand: VERIFIED_FEATURES) needs no such sign
     const usersVerified = isVerifiedFeature(this.#family, current.model, feature, "write", this.#verifiedFeatures);
@@ -452,8 +476,8 @@ export class DeviceAccess {
   }
 
   readState(section: ReadSection): ReadCapability {
-    // A driver family reads the sections it documents; the others are not on any router of it
-    if (isDriverFamily(this.#family) && !(ROUTER_FAMILY_FACTS[this.#family].reads as ReadonlyArray<string>).includes(section)) {
+    // A driver family reads the sections it documents (in the form of the interface the router speaks); the others are not on it
+    if (isDriverFamily(this.#family) && !(familyCapabilities(this.#family, this.variant).reads as ReadonlyArray<string>).includes(section)) {
       return { state: "unavailable", code: null };
     }
     const current = this.current;
@@ -483,7 +507,7 @@ export class DeviceAccess {
     return {
       family: this.#family,
       model: current ? modelLabel(current.model) : null,
-      verification: deviceVerification(current?.model ?? null, current?.softwareVersion ?? null, this.#family, this.#verifiedFeatures),
+      verification: deviceVerification(current?.model ?? null, current?.softwareVersion ?? null, this.#family, this.#verifiedFeatures, this.variant),
       confirmed: this.confirmed,
       writes: this.writes,
       reads: Object.fromEntries(READ_SECTIONS.map((section) => [section, this.readState(section)])) as Record<ReadSection, ReadCapability>,

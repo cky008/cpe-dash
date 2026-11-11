@@ -1133,6 +1133,7 @@ export interface DeviceIdentity {
   ecc: boolean;                    // 登录响应带有签名且验证通过的 ECC 公钥（可用加密通道）
   tokenFlow: "webserver-token" | "sestokinfo" | "unknown"; // 首个 CSRF 令牌的来源
   detectedAtIso: string;
+  variant?: string;                // 品牌的另一种接口写法（如烽火 Pro 系列为 "pro"），由驱动识别时报告；没有这个字段即该品牌自己的写法。闸门、「设置 → 设备」与 support 行都按这种写法能做的功能算
 }
 // 型号、版本号与 spreadname_en 合并空白后，只在全部字符属于 [A-Za-z0-9 ._()+-] 且不超过 64 个字符时保留；
 // 否则整个丢弃为 null（没有就取下一个识别接口的值），不替换字符、不截断，以免标识的片段混进报告

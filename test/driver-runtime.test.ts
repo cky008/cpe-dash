@@ -498,6 +498,48 @@ describe("write gate on a driver family", () => {
   });
 });
 
+describe("write gate: another form of a family's interface", () => {
+  it("goes by what the form the driver reported has, else by the form the model is on record with", () => {
+    const pro = ROUTER_FAMILY_FACTS.fiberhome.variants?.["pro"];
+    assert.ok(pro);
+    const features = ["bandLock", "cellLock", "reboot", "smsWrite"] as const;
+    // Before the driver says: the model on record with the Pro series counts as speaking it
+    const access = new DeviceAccess({ family: "fiberhome" });
+    access.see("LG6851F", "RP0301");
+    assert.equal(access.variant, "pro");
+    assert.deepEqual(features.map((f) => access.writeState(f)), ["not_implemented", "not_implemented", "not_implemented", "enabled"]);
+    assert.deepEqual([access.readState("neighbors").state, access.readState("sms").state], ["unavailable", "unknown"]);
+    assert.equal(access.skips("neighbors"), true);
+    // Taking a lock off needs one of the locks: none here
+    assert.equal(access.actionAccess("unlock_rf_locks"), "unavailable");
+    // The driver found the family's own form on it after all: the family's writes
+    access.noteVariant("LG6851F", null);
+    assert.equal(access.variant, null);
+    assert.deepEqual(features.map((f) => access.writeState(f)), ["enabled", "enabled", "enabled", "enabled"]);
+    assert.equal(access.skips("neighbors"), false);
+    // A model the list lacks, reported as Pro by its driver; a report for another model says nothing of this one
+    const other = new DeviceAccess({ family: "fiberhome" });
+    other.noteVariant("LG9999", "pro");
+    other.see("LG6121F", "1.0");
+    assert.equal(other.variant, null);
+    other.see("LG9999", "1.0");
+    assert.equal(other.variant, "pro");
+    assert.equal(other.snapshot().features.reboot, "not_implemented");
+    assert.equal(other.snapshot().reads.neighbors.state, "unavailable");
+    // A form the family does not have, or a brand with no forms: the family's own
+    other.noteVariant("LG9999", "elsewhere");
+    assert.equal(other.variant, null);
+    const zte = new DeviceAccess({ family: "zte-goform" });
+    zte.noteVariant("MC888", "pro");
+    zte.see("MC888", "1.0");
+    assert.equal(zte.variant, null);
+    assert.equal(zte.writeState("bandLock"), "enabled");
+    // Without a model, nothing is noted
+    other.noteVariant(null, "pro");
+    assert.equal(other.variant, null);
+  });
+});
+
 describe("write gate: taking a lock off", () => {
   it("is open wherever a lock may be put on, so no lock is left that nobody may undo", async () => {
     const access = new DeviceAccess({ family: "zte-goform" });

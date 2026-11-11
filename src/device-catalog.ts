@@ -1,7 +1,7 @@
 import type { DeviceFeature } from "./device-profile.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { UNSUPPORTED_FEATURES, type UnsupportedFeature, VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedModel, reportVerifiedModels } from "./firmware.ts";
-import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, familyImplements } from "./router-family.ts";
+import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, familyImplements, routerVariant } from "./router-family.ts";
 
 export { UNSUPPORTED_FEATURES, type UnsupportedFeature, familyImplements };
 import type { SupportedLocale } from "./types.ts";
@@ -296,7 +296,7 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["LG6151M", "indoor"],
     ["LG6121", "indoor"],
     ["LG522", "indoor"],
-    // The Pro series: the same calls under `/fh_api/`, another key (FIBERHOME_PRO_MODELS)
+    // The Pro series: the same calls under `/fh_api/`, another key (ROUTER_FAMILY_FACTS.fiberhome.variants)
     ["LG6851F", "indoor"],
   ]),
   ...models("nradio", ["nradio"], [
@@ -405,25 +405,22 @@ export interface ModelFact {
   family: RouterFamily;
   /** Only these models (their name, code or an alias); none: every model connecting through `family`. */
   models?: ReadonlyArray<string>;
-  /** Not these models (their name, code or an alias): a fact of every model of the interface but these. */
-  exceptModels?: ReadonlyArray<string>;
+  /**
+   * Only routers speaking this form of the family's interface (`ROUTER_FAMILY_FACTS[family].variants`),
+   * or with `null` only those speaking the family's own form.
+   */
+  variant?: string | null;
   /** Only models of these forms. */
   forms?: ReadonlyArray<DeviceForm>;
   features: ReadonlyArray<DeviceFeature>;
-  /**
-   * `condition` (the default) marks the features △, `absent` marks them —, `unbuilt` leaves them
-   * empty (FengSui does not do them on these models: their interface has no record of them).
-   */
-  effect?: "condition" | "absent" | "unbuilt";
+  /** `condition` (the default) marks the features △, `absent` marks them —. */
+  effect?: "condition" | "absent";
   zh: string;
   en: string;
 }
 
 /** The models on record with ZTE's interface in its `reqproc` spelling (the ZXIC 4G firmware). */
 export const ZTE_REQPROC_MODELS: ReadonlyArray<string> = ["ZLT T10D MAX", "ZLT M30S"];
-
-/** FiberHome's Pro series: `/fh_api/`, the web login, TR-069 nodes and another key (the driver's Pro branch). */
-export const FIBERHOME_PRO_MODELS: ReadonlyArray<string> = ["LG6851F"];
 
 /** The ZTE goform models that open their developer options before a lock (the driver's branches 2 and 3: `zteBranch`). */
 export const ZTE_DEVELOPER_OPTION_MODELS: ReadonlyArray<string> = ["MC8020", "MC888", "MC888 Pro", "MC888S", "MC888 Ultra", "MC888D", "MC8830", "F50", "F50 Pro", "MF79U"];
@@ -484,36 +481,35 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
   {
     family: "fiberhome",
-    exceptModels: FIBERHOME_PRO_MODELS,
+    variant: null,
     features: ["smsRead"],
     zh: "短信走的是路由器网页自己的加密接口，烽燧用它已经登录的会话去读；路由器要求另外登录网页才给读时，这一项是空的",
     en: "SMS is on the encrypted interface of the router's own web page, which FengSui asks in the session it is signed in with; a router that wants a separate web sign-in for it leaves this empty",
   },
   {
     family: "fiberhome",
-    exceptModels: FIBERHOME_PRO_MODELS,
+    variant: null,
     features: ["smsWrite"],
     zh: "发送只接受英文字母、数字和常用标点（接口资料里只有这一种编码），并且不发送含 ` $ \" \\ 的正文：路由器会把正文交给命令行；删除只能整段对话一起删",
     en: "sends plain English text only (letters, digits and common punctuation: the one encoding on record), and never text with a backquote, a dollar sign, a double quote or a backslash, because the router hands the text to a command line; deletes a whole conversation at a time",
   },
   {
     family: "fiberhome",
-    models: FIBERHOME_PRO_MODELS,
+    variant: "pro",
     features: [],
     zh: "这是烽火的 Pro 系列：同一套网页接口换了路径（`/fh_api/`）和加密密钥，连接时烽燧会自己认出来。烽燧在它上面读信号（只有一个服务小区）、本月流量和短信，能把短信标为已读；附近的基站、锁频段、锁小区和重启在它的接口资料里没有，烽燧在这里不做",
     en: "FiberHome's Pro series: the same web interface under another path (`/fh_api/`) with another encryption key, which FengSui recognises when it connects. FengSui reads its signal (one serving cell), this month's traffic and SMS there, and can mark messages read; nearby cells, band lock, cell lock and reboot are not in its interface notes, so FengSui does not do them here",
   },
-  { family: "fiberhome", models: FIBERHOME_PRO_MODELS, features: ["neighbors", "bandLock", "cellLock", "reboot"], effect: "unbuilt", zh: "接口资料里没有", en: "not in its interface notes" },
   {
     family: "fiberhome",
-    models: FIBERHOME_PRO_MODELS,
+    variant: "pro",
     features: ["smsWrite"],
     zh: "只能标为已读：这类固件的接口资料里没有发送和删除短信的写法",
     en: "marks messages read only: this firmware's interface notes have no way to send or delete one",
   },
   {
     family: "fiberhome",
-    models: FIBERHOME_PRO_MODELS,
+    variant: "pro",
     features: ["telemetry"],
     zh: "烽燧用资料里记的密钥打开路由器的加密应答；固件换了密钥时，烽燧不发送密码，信号这一项是空的",
     en: "FengSui opens the router's encrypted answers with the key on record; a firmware with another key gets no password from FengSui, and this stays empty",
@@ -661,6 +657,17 @@ interface Subject {
   /** Names a report may give it (a router not in the list: what it reports). */
   names: ReadonlyArray<string>;
   form: DeviceForm | null;
+  /** The form of its family's interface it speaks (`null`: the family's own). */
+  variant: string | null;
+}
+
+/**
+ * A model as the marks see it through `family`: in the form of the interface its driver reported
+ * (`reported`), else the one any of its names is on record with.
+ */
+function subjectOf(family: RouterFamily | null, entry: CatalogModel | null, names: ReadonlyArray<string>, form: DeviceForm | null, reported?: string | null): Subject {
+  const variant = family === null ? null : reported !== undefined ? routerVariant(family, reported) : (names.map((name) => routerVariant(family, undefined, name)).find((v) => v !== null) ?? null);
+  return { family, entry, names, form, variant };
 }
 
 interface Records {
@@ -678,7 +685,7 @@ function factsFor(subject: Subject): ModelFact[] {
     (fact) =>
       fact.family === subject.family &&
       (!fact.models || fact.models.some((name) => named(subject, name))) &&
-      !fact.exceptModels?.some((name) => named(subject, name)) &&
+      (fact.variant === undefined || fact.variant === subject.variant) &&
       (!fact.forms || (subject.form !== null && fact.forms.includes(subject.form)))
   );
 }
@@ -699,8 +706,7 @@ function featureMark(subject: Subject, feature: DeviceFeature, records: Records)
   const facts = factsFor(subject).filter((fact) => fact.features.includes(feature));
   const absent = facts.filter((fact) => fact.effect === "absent");
   if (absent.length > 0) return { mark: "—", facts: absent };
-  if (facts.some((fact) => fact.effect === "unbuilt")) return { mark: "", facts: [] };
-  if (!familyImplements(family, feature)) return { mark: "", facts: [] };
+  if (!familyImplements(family, feature, subject.variant)) return { mark: "", facts: [] };
   return facts.length > 0 ? { mark: "△", facts } : { mark: "?", facts: [] };
 }
 
@@ -769,8 +775,9 @@ function rowOf(subject: Subject, display: string, records: Records): Row {
   return { subject, display, cells, general: general.map(({ zh, en }) => ({ zh, en })) };
 }
 
-function catalogSubject(entry: CatalogModel): Subject {
-  return { family: primaryFamily(entry), entry, names: namesOf(entry), form: entry.form };
+/** A catalog model through `family` (by default the interface brand detection picks for it). */
+function catalogSubject(entry: CatalogModel, family: RouterFamily | null = primaryFamily(entry), reported?: string | null): Subject {
+  return subjectOf(family, entry, namesOf(entry), entry.form, reported);
 }
 
 /**
@@ -785,7 +792,7 @@ export function supportMark(
   unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
 ): SupportMark {
   const entry = DEVICE_CATALOG.find((e) => e.families.includes(family) && (displayName(e) === model || catalogMatches(e, model))) ?? null;
-  const subject: Subject = entry ? { ...catalogSubject(entry), family } : { family, entry: null, names: [model], form: null };
+  const subject = entry ? catalogSubject(entry, family) : subjectOf(family, null, [model], null);
   return featureMark(subject, feature, { verified, unsupported }).mark;
 }
 
@@ -803,15 +810,20 @@ export interface DeviceSupportRow {
   notes: Note[];
 }
 
+/**
+ * The row of the router in use: by its brand and model, in the form of the brand's interface its driver
+ * reported (`variant`; left out: the one the model is on record with).
+ */
 export function deviceSupportRow(
   family: RouterFamily,
   model: string | null,
-  verified: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES,
-  unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
+  options: { variant?: string | null; verified?: ReadonlyArray<VerifiedFeature>; unsupported?: ReadonlyArray<UnsupportedFeature> } = {}
 ): DeviceSupportRow {
+  const verified = options.verified ?? VERIFIED_FEATURES;
+  const unsupported = options.unsupported ?? UNSUPPORTED_FEATURES;
   const entry = findCatalogModel(family, model);
   // Marks follow the interface the router connected through, which may be the model's second one
-  const subject: Subject = entry ? { ...catalogSubject(entry), family } : { family, entry: null, names: model?.trim() ? [model.trim()] : [], form: null };
+  const subject = entry ? catalogSubject(entry, family, options.variant) : subjectOf(family, null, model?.trim() ? [model.trim()] : [], null, options.variant);
   const row = rowOf(subject, entry ? displayName(entry) : (model ?? ""), { verified, unsupported });
   const notes: Note[] = [];
   row.cells.forEach((cell, i) => {
@@ -861,7 +873,7 @@ function rowsOfSection(section: CatalogSectionId, records: Records): Row[] {
     if (FAMILY_SECTION[record.family] !== section) continue;
     if (DEVICE_CATALOG.some((entry) => entry.families.includes(record.family) && catalogMatches(entry, record.model))) continue;
     if (rows.some((row) => row.subject.entry === null && row.subject.family === record.family && named(row.subject, record.model))) continue;
-    rows.push(rowOf({ family: record.family, entry: null, names: [record.model], form: null }, record.model, records));
+    rows.push(rowOf(subjectOf(record.family, null, [record.model], null), record.model, records));
   }
   return rows;
 }
@@ -925,7 +937,7 @@ function sectionTable(section: CatalogSection, records: Records, lang: Lang): { 
       .map((f) => INTERFACE_LABELS[f][lang])
       .join(" · ");
     // Nothing left to report on a verified model, or on one reports verified
-    const verified = row.subject.names.some((name) => isVerifiedModel(name)) || (row.subject.family !== null && row.subject.names.some((name) => isReportVerifiedModel(row.subject.family as RouterFamily, name, records.verified, records.unsupported)));
+    const verified = row.subject.names.some((name) => isVerifiedModel(name)) || (row.subject.family !== null && row.subject.names.some((name) => isReportVerifiedModel(row.subject.family as RouterFamily, name, records.verified, records.unsupported, row.subject.variant)));
     const report = verified ? "" : `[${lang === "zh" ? "提交报告" : "Report"}](${deviceIssueUrl({ model: row.display, softwareVersion: null })})`;
     lines.push(`| ${[row.display, form, ...(showInterface ? [iface] : []), ...row.cells.map((cell) => cell.mark), report].join(" | ")} |`);
   }

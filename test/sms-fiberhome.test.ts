@@ -6,6 +6,7 @@ import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import {
   FIBERHOME_PRO_TOKEN,
+  FIBERHOME_PRO_VARIANT,
   checkFiberhomeSmsText,
   fiberhomeDecrypt,
   fiberhomeEncrypt,
@@ -17,6 +18,9 @@ import {
   parseFiberhomeSms,
 } from "../src/drivers/fiberhome.ts";
 import { CpeApiError } from "../src/cpe-client.ts";
+import { deviceSupportRow } from "../src/device-catalog.ts";
+import { ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
+import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { DriverLoginMethodError } from "../src/drivers/login.ts";
 import type { DriverSession, DriverSmsSendOptions } from "../src/drivers/types.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
@@ -544,6 +548,50 @@ describe("fiberhome Pro: the driver", () => {
     assert.deepEqual(check, { endpoints: ["fiberhome:set_value_by_xmlnode"], readback: "match", reason: null });
     assert.ok(state.sms[FRIEND]?.find((m) => m.node === 2)?.opened);
     assert.deepEqual(await client.withSession(async (s) => [smsOf(s).send, smsOf(s).delete]), [undefined, undefined]);
+  });
+});
+
+describe("fiberhome Pro: the gate", () => {
+  it("identifies the Pro series through its driver and opens only what its notes have, before any session", async () => {
+    const router = fiberhomeProRouter();
+    const fx = createBrandSmsFixture({ family: "fiberhome", cpeUrl: "http://192.168.8.1", password: PASSWORD, fetchImpl: router.mock.fetchImpl, model: null });
+    try {
+      const probe = await fx.core.monitor.identifyDevice();
+      assert.deepEqual([probe?.identity.model, probe?.identity.variant], ["LG6851F", FIBERHOME_PRO_VARIANT]);
+      // The driver's name for the series is the family's, and the model it is on record with
+      assert.ok(ROUTER_FAMILY_FACTS.fiberhome.variants?.[FIBERHOME_PRO_VARIANT]?.models.includes("LG6851F"));
+      const device = fx.core.scheduler.getStatus().device;
+      assert.deepEqual([device.features.bandLock, device.features.cellLock, device.features.reboot, device.features.smsWrite], ["not_implemented", "not_implemented", "not_implemented", "enabled"]);
+      assert.equal(device.reads.neighbors.state, "unavailable");
+      // Refused as not implemented here, with no session: nothing reaches the router
+      const requests = router.mock.requests.length;
+      await assert.rejects(fx.core.controls.lockBands({ lteBands: [1, 3] }), (err: unknown) => err instanceof DeviceReadOnlyError && err.errorCode === "DEVICE_UNVERIFIED_READ_ONLY" && err.feature === "bandLock");
+      await assert.rejects(fx.core.controls.unlockAllLocks(), DeviceReadOnlyError);
+      await assert.rejects(fx.core.controls.rebootRouter({ confirm: true }), DeviceReadOnlyError);
+      assert.equal(router.mock.requests.length, requests);
+      // The row of Settings → Device follows the same form
+      assert.equal(deviceSupportRow("fiberhome", "LG6851F", { variant: fx.core.scheduler.device.variant }).modules[4]?.mark, "");
+      // The variant is kept with the stored identification: the next run starts from it
+      fx.core.scheduler.device.forget();
+      assert.equal(fx.core.scheduler.device.variant, "pro");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("checks the form in the write's own session when the router was not identified in this run", async () => {
+    const router = fiberhomeProRouter();
+    const fx = createBrandSmsFixture({ family: "fiberhome", cpeUrl: "http://192.168.8.1", password: PASSWORD, fetchImpl: router.mock.fetchImpl, model: null });
+    try {
+      // A first-series model name stored by mistake: the session's own identification says Pro
+      fx.core.scheduler.device.remember("LG6121F", "1.0");
+      fx.core.scheduler.device.noteVariant("LG6121F", null);
+      await assert.rejects(fx.core.controls.lockBands({ lteBands: [1, 3] }), DeviceReadOnlyError);
+      assert.equal(fx.core.scheduler.device.variant, "pro");
+      assert.ok(!router.state.calls.some((c) => c.method !== "DO_WEB_LOGIN" && c.method !== "DO_WEB_LOGOUT" && c.method !== "get_device_info" && c.method !== "get_value_by_xmlnode"), "nothing but the login and the identification");
+    } finally {
+      await fx.cleanup();
+    }
   });
 });
 

@@ -1,5 +1,5 @@
 import type { DeviceFeature } from "./device-profile.ts";
-import { type RouterFamily, familyFeatures } from "./router-family.ts";
+import { type RouterFamily, familyFeatures, routerVariant } from "./router-family.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -75,12 +75,14 @@ export function isReportVerifiedModel(
   family: RouterFamily,
   model: string,
   verified: ReadonlyArray<VerifiedFeature> = VERIFIED_FEATURES,
-  unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES
+  unsupported: ReadonlyArray<UnsupportedFeature> = UNSUPPORTED_FEATURES,
+  variant?: string | null
 ): boolean {
   const name = model.trim();
   if (name === "" || isVerifiedModel(name)) return false;
   let confirmed = 0;
-  for (const { feature, access } of familyFeatures(family)) {
+  // The features of the form of its brand's interface the model speaks (as reported, else as on record)
+  for (const { feature, access } of familyFeatures(family, routerVariant(family, variant, name))) {
     if (isVerifiedFeature(family, name, feature, access, verified)) confirmed += 1;
     else if (!unsupported.some((entry) => entry.family === family && entry.model === name && entry.feature === feature)) return false;
   }
@@ -124,10 +126,19 @@ export function isVerifiedModel(model: string): boolean {
  */
 export type DeviceVerification = "verified" | "new-firmware" | "report-verified" | "unverified-model" | "unknown";
 
-/** The verification of a router; `family` (the brand it connected as) lets reports verify a model. */
-export function deviceVerification(model: string | null, softwareVersion: string | null, family?: RouterFamily, verified?: ReadonlyArray<VerifiedFeature>): DeviceVerification {
+/**
+ * The verification of a router; `family` (the brand it connected as) lets reports verify a model, in
+ * the form of the brand's interface its driver reported (`variant`; left out: as the model is on record).
+ */
+export function deviceVerification(
+  model: string | null,
+  softwareVersion: string | null,
+  family?: RouterFamily,
+  verified?: ReadonlyArray<VerifiedFeature>,
+  variant?: string | null
+): DeviceVerification {
   if (!model?.trim()) return "unknown";
-  if (!isVerifiedModel(model)) return family && isReportVerifiedModel(family, model, verified) ? "report-verified" : "unverified-model";
+  if (!isVerifiedModel(model)) return family && isReportVerifiedModel(family, model, verified, undefined, variant) ? "report-verified" : "unverified-model";
   if (!softwareVersion?.trim()) return "unknown";
   return isVerifiedFirmware(model, softwareVersion) ? "verified" : "new-firmware";
 }

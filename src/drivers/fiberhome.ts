@@ -73,7 +73,9 @@ import {
  * the one on record (`FIBERHOME_PRO_TOKEN`); the key is tried on a login-free call before any
  * password goes out, and a firmware whose key it does not open gets no password at all. On record for
  * it: the signal, temperature and traffic nodes, SMS listing and marking read; nothing about locks,
- * reboot, or sending and deleting SMS, so those are refused in its session.
+ * reboot, or sending and deleting SMS. Its identification says `variant: "pro"`, so the write gate
+ * goes by the Pro series' facts (`ROUTER_FAMILY_FACTS.fiberhome.variants`) and offers none of those;
+ * its session refuses them as well, should one reach it.
  */
 
 const FAMILY = "fiberhome" as const;
@@ -181,6 +183,8 @@ const PRO_LOGIN = "/fh_api/sign/DO_WEB_LOGIN";
 const PRO_LOGOUT = "/fh_api/sign/DO_WEB_LOGOUT";
 /** The Pro page's IV: the bytes 111 to 126 (`opqrstuvwxyz{|}~`). */
 const PRO_IV = Buffer.from(Array.from({ length: 16 }, (_, i) => 111 + i));
+/** The name the Pro series has among FiberHome's forms of its interface (`ROUTER_FAMILY_FACTS.fiberhome.variants`). */
+export const FIBERHOME_PRO_VARIANT = "pro";
 /** The token the Pro key is worked out with, as one Pro router's page holds it once `is_encrypt` is read. */
 export const FIBERHOME_PRO_TOKEN = "JJ8Hs";
 /** The key positions taken from the token; the others come from the session id. */
@@ -366,7 +370,7 @@ class FiberhomeProSession implements DriverSessionHandle {
 
   async identify(): Promise<DriverIdentity> {
     const raw = this.#reading ?? (await this.#nodes());
-    return { model: labelOf(raw["ModelName"]), softwareVersion: labelOf(raw["SoftwareVersion"]), hardwareVersion: labelOf(raw["HardwareVersion"]) };
+    return { model: labelOf(raw["ModelName"]), softwareVersion: labelOf(raw["SoftwareVersion"]), hardwareVersion: labelOf(raw["HardwareVersion"]), variant: FIBERHOME_PRO_VARIANT };
   }
 
   async telemetry(): Promise<DriverTelemetry> {

@@ -91,6 +91,11 @@ export interface DeviceIdentity {
   /** Where the session's first CSRF token came from. */
   tokenFlow: TokenFlow;
   detectedAtIso: string;
+  /**
+   * The form of its brand's interface the router speaks, as its driver found it, where the brand has
+   * more than one (`ROUTER_FAMILY_FACTS[family].variants`); left out: the brand's own.
+   */
+  variant?: string;
 }
 
 /** The features of CONTEXT §7.1; each gets a capability state. */
@@ -517,7 +522,8 @@ export function isDeviceProbeResult(value: unknown): value is DeviceProbeResult 
     LOGIN_SCHEMES.has(String(id["loginScheme"])) &&
     typeof id["ecc"] === "boolean" &&
     TOKEN_FLOWS.has(String(id["tokenFlow"])) &&
-    isText(id["detectedAtIso"]);
+    isText(id["detectedAtIso"]) &&
+    (id["variant"] === undefined || (typeof id["variant"] === "string" && /^[a-z0-9-]{1,32}$/.test(id["variant"])));
   const endpoints = value["endpoints"];
   const endpointsOk =
     Array.isArray(endpoints) &&
