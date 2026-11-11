@@ -647,6 +647,8 @@ describe("the console in a browser", () => {
       assert.deepEqual(other.stack.settings.behaviourOverrides, { agentExperimental: true, agentWrites: true });
       assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control"]);
       assert.equal(other.stack.settings.agentTest?.sms, false);
+      // The daemon has the test before the page shows its answer: wait for the button, not just the daemon
+      await page.waitUntil("[...document.querySelectorAll('#settingsDialog [data-agent-test=prompt] button')].some((b) => b.textContent.includes('End test'))", "the test in progress again");
       await page.clickText("#settingsDialog [data-agent-test=prompt] button", "End test");
       await until(() => other.stack.settings.agentTest === null, "ended again");
       assert.deepEqual(page.exceptions, []);
