@@ -323,24 +323,25 @@ Usually at `192.168.66.1`; sign in with the user name `root` and the admin passw
 
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| C8-668GL | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-668GL) |
-| C8-660 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-660) |
-| C8-620 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-620) |
-| C8-520 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-520) |
-| C8-500 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-500) |
-| C5800-500 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5800-500) |
-| C2000 Ultra | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Ultra) |
-| C2000 Max | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Max) |
-| C2000 Pro | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Pro) |
-| C2000 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000) |
-| C3000 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C3000) |
-| C5000 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5000) |
-| C5200 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5200) |
-| C9100 | Outdoor CPE | ? | ? | ? |  | △ | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C9100) |
+| C8-668GL | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-668GL) |
+| C8-660 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-660) |
+| C8-620 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-620) |
+| C8-520 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-520) |
+| C8-500 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C8-500) |
+| C5800-500 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5800-500) |
+| C2000 Ultra | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Ultra) |
+| C2000 Max | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Max) |
+| C2000 Pro | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000+Pro) |
+| C2000 | Indoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C2000) |
+| C3000 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C3000) |
+| C5000 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5000) |
+| C5200 | Industrial gateway | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C5200) |
+| C9100 | Outdoor CPE | ? | ? | ? |  | △ | ? | ? | ? | △ |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+C9100) |
 
 Notes for this table:
 
 - △ Band lock: locking 5G bands needs the cellular module to report its 5G band setting; a model that does not locks 4G bands only (every model in this table).
+- △ Router switches: the antenna only; FengSui does not do the security switches and Wi-Fi 7 here yet (every model in this table).
 
 <a id="brand-openwrt"></a>
 

@@ -86,6 +86,16 @@ export function settleDataSwitch(check: WriteCheck, wanted: boolean, after: bool
   settle(check, [after === wanted]);
 }
 
+/** A setting read back as a code: `true` the one written, `false` another, `null` none read. */
+export function settleSetting(check: WriteCheck, same: boolean | null): void {
+  if (same === null) {
+    check.readback = "unknown";
+    check.reason = "unreadable";
+    return;
+  }
+  settle(check, [same]);
+}
+
 /** How often, and how many times, a data switch asks whether the connection followed. */
 export const CONNECTION_POLLS = 8;
 export const CONNECTION_POLL_MS = 1000;

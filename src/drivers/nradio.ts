@@ -1,13 +1,13 @@
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
-import { SectionUnavailableError } from "../cpe-domain.ts";
+import { type AntennaModeName, SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import { buildXmlRequest, getXmlTag, parseXmlError } from "../xml.ts";
 import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
 import { bandOfChannel, neighbourOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, loginUnplaced, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
 import type {
@@ -48,6 +48,14 @@ const LOCK_FREQ = "/api/net/lock-freq";
 const DATA_SWITCH = "/api/dialup/mobile-dataswitch";
 const CLIENTS = "/cgi-bin/luci/nradio/client/all_list";
 const DEVICE_INFO = "/api/device/information";
+const ANTENNA_SET = "/api/device/antenna_set_type";
+
+/**
+ * The module bridge's antenna codes as the NRadio notes give them (table 3.2 row 16): `0` automatic,
+ * `1` external, `2` internal (`3`, mixed, is not offered). The H168-383 numbers internal and external
+ * the other way round; each router is written its own notes' codes.
+ */
+const ANTENNA_CODES: Readonly<Record<AntennaModeName, number>> = { auto: 0, external: 1, internal: 2 };
 const REFERER = "/html/content.html";
 const TOKEN = /^[0-9A-Za-z]{8,64}$/;
 
@@ -291,6 +299,20 @@ class NradioSession implements DriverSessionHandle {
       settleDataSwitch(check, enabled, await this.#dataSwitch().catch(() => null));
     },
   };
+
+  /**
+   * Switch the antenna through the module's bridge, then read the setting back where the bridge
+   * answers it the HiLink way (`GET antenna_set_type`, `<antennasettype>`); a bridge that does not
+   * leaves the read-back unknown.
+   */
+  async setAntennaMode(mode: AntennaModeName, check: WriteCheck): Promise<number> {
+    const code = ANTENNA_CODES[mode];
+    await this.#postXml(check, ANTENNA_SET, { antennasettype: code });
+    const res = await this.#http.request({ method: "GET", path: ANTENNA_SET, referer: REFERER }).catch(() => null);
+    const read = res && res.status === 200 && !parseXmlError(res.text) ? (getXmlTag(res.text, "antennasettype")?.trim() ?? null) : null;
+    settleSetting(check, read === null || !/^\d$/.test(read) ? null : read === String(code));
+    return code;
+  }
 
   /** A write through the module's bridge, with the session's request token; the router must answer `OK`. */
   async #postXml(check: WriteCheck, path: string, data: Record<string, unknown>): Promise<void> {

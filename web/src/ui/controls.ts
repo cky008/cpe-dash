@@ -380,6 +380,29 @@ export function mountControls(ctx: AppContext): { open(): void } {
     );
   };
 
+  /**
+   * The antenna on a router of another brand, written with its own notes' codes. The mode is not read
+   * here, so no button shows as the current one.
+   */
+  const experimentalAntennaSection = (): HTMLElement =>
+    section(
+      withHelp(ctx, ctx.t("ctl.antenna"), "antenna"),
+      h(
+        "div",
+        { class: "join w-full" },
+        ...ANTENNA_MODES.map(([mode, label]) => {
+          const button = h("button", { class: "btn btn-sm join-item flex-1 btn-ghost", attrs: { type: "button" } }, ctx.t(label));
+          button.addEventListener("click", () => {
+            const conf = ANTENNA_CONFIRM[mode];
+            void confirmExperimental(["antenna"], { title: ctx.t(conf.title), body: [ctx.t(conf.body)], confirmLabel: ctx.t(label) }).then((ok) => {
+              if (ok) runBusy(button, () => ctx.api.antenna(mode).then(() => undefined, fail));
+            });
+          });
+          return button;
+        })
+      )
+    );
+
   /** Mobile data, redial and reboot on a model nobody verified: only those turned on. */
   const experimentalSystemSection = (open: ReadonlyArray<string>): HTMLElement => {
     const buttons: HTMLElement[] = [];
@@ -769,6 +792,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         // Another brand's driver locks what is typed; a HiLink model the LTE bands it advertises
         ...(otherBrand !== null && (open.includes("bandLock") || open.includes("cellLock")) ? [driverLockSection(otherBrand, open.includes("bandLock"))] : []),
         ...(otherBrand === null && open.includes("bandLock") ? [experimentalBandSection(scheduler?.device.lteBands ?? [])] : []),
+        ...(open.includes("antenna") ? [experimentalAntennaSection()] : []),
         ...(open.some((f) => f === "mobileData" || f === "reconnect" || f === "reboot") ? [experimentalSystemSection(open)] : []),
       ];
     }

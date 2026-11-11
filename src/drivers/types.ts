@@ -1,3 +1,4 @@
+import type { AntennaModeName } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import type { DriverFamily } from "../router-family.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
@@ -258,6 +259,8 @@ export interface DriverSession {
   readonly data?: DriverDataLink;
   /** The devices connected to the router, on a family whose notes define a device list. */
   hosts?(): Promise<DriverHost[]>;
+  /** Switch the antenna (automatic, internal, external), on a family whose notes define it; resolves the code it wrote. */
+  setAntennaMode?(mode: AntennaModeName, check: WriteCheck): Promise<number>;
 }
 
 /** A session as a family's protocol opens it: the client calls `logout` in `finally`. */

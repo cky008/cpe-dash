@@ -41,7 +41,7 @@ export function isDriverFamily(value: unknown): value is DriverFamily {
 }
 
 /** Every write some family implements for a router nobody verified (an experimental write: sent once, read back after). */
-export const FAMILY_WRITE_FEATURES = ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const;
+export const FAMILY_WRITE_FEATURES = ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite"] as const;
 
 export type FamilyWriteFeature = (typeof FAMILY_WRITE_FEATURES)[number];
 
@@ -110,7 +110,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // The Pro series (`/fh_api/`): its notes have the signal nodes, the SMS listing and marking a message read, nothing else
     variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
   },
-  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors", "topology"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors", "topology"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 

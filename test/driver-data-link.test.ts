@@ -184,7 +184,7 @@ describe("zte-zwrt: the data connection", () => {
 
 /** An NRadio router: LuCI's login and pages, and the module's bridge with its data switch. */
 function nradioRouter() {
-  const state = { dataswitch: "1", up: true, posts: [] as Array<{ path: string; body: string; token: string | null }> };
+  const state = { dataswitch: "1", up: true, antenna: "0", antennaReadable: true, posts: [] as Array<{ path: string; body: string; token: string | null }> };
   const mock = new LanRouterMock((req) => {
     if (req.method === "POST" && req.path === "/cgi-bin/luci") {
       const form = LanRouterMock.form(req);
@@ -200,6 +200,12 @@ function nradioRouter() {
       state.posts.push({ path: req.path, body, token: req.query.get("token") });
       state.dataswitch = body.includes("<dataswitch>1</dataswitch>") ? "1" : "0";
       state.up = state.dataswitch === "1";
+      return { text: `<?xml version="1.0" encoding="UTF-8"?><response>OK</response>` };
+    }
+    if (req.path === "/api/device/antenna_set_type" && req.method === "GET") return state.antennaReadable ? { text: `<response><antennasettype>${state.antenna}</antennasettype></response>` } : { status: 404, text: "" };
+    if (req.path === "/api/device/antenna_set_type" && req.method === "POST") {
+      state.posts.push({ path: req.path, body: req.body, token: req.query.get("token") });
+      state.antenna = /<antennasettype>(\d)<\/antennasettype>/.exec(req.body)?.[1] ?? "?";
       return { text: `<?xml version="1.0" encoding="UTF-8"?><response>OK</response>` };
     }
     if (req.path === "/cgi-bin/luci/nradio/logout") return { status: 302, headers: { location: "/" } };
@@ -222,6 +228,27 @@ describe("nradio: the data connection", () => {
       assert.deepEqual(router.state.posts.map((p) => /<dataswitch>(\d)<\/dataswitch>/.exec(p.body)?.[1]), ["0", "1", "0", "1"]);
       assert.equal(router.state.dataswitch, "1");
       assert.deepEqual(fx.core.scheduler.genericWrites.at(-1)?.endpoints, ["nradio:/api/dialup/mobile-dataswitch"]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("nradio: the antenna", () => {
+  it("switches the antenna with the codes of its own notes, reads the setting back, and says so when it cannot", async () => {
+    const router = nradioRouter();
+    const fx = daemonOn("nradio", router.mock.fetchImpl, "http://192.168.66.1", "test-password", "root");
+    try {
+      assert.equal(fx.core.scheduler.getStatus().device.features.antenna, "unknown", "no model seen yet");
+      assert.deepEqual(await fx.core.controls.setAntennaMode("external"), { mode: "external", rawCode: 1 });
+      assert.equal(router.state.antenna, "1", "external is 1 in the NRadio notes (the H168-383's 2)");
+      assert.deepEqual([fx.core.scheduler.genericWrites.at(-1)?.feature, fx.core.scheduler.genericWrites.at(-1)?.readback], ["antenna", "match"]);
+      assert.equal((await fx.core.controls.setAntennaMode("internal")).rawCode, 2);
+      router.state.antennaReadable = false;
+      await fx.core.controls.setAntennaMode("auto");
+      assert.deepEqual([router.state.antenna, fx.core.scheduler.genericWrites.at(-1)?.readback], ["0", "unknown"]);
+      assert.equal(fx.core.scheduler.getStatus().device.features.antenna, "enabled");
+      assert.ok(router.state.posts.every((p) => p.token === "a8f5f167f44f4964e6c998dee827110c"));
     } finally {
       await fx.cleanup();
     }

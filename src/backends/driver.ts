@@ -327,8 +327,16 @@ export class DriverBackend implements RouterBackend {
     return this.#scheduler.refuseDriverWrite("set_wifi7_mlo");
   }
 
-  setAntennaMode(): Promise<{ mode: AntennaModeName; rawCode: number }> {
-    return this.#scheduler.refuseDriverWrite("set_antenna_mode");
+  async setAntennaMode(mode: AntennaModeName, summary: ControlSummary): Promise<{ mode: AntennaModeName; rawCode: number }> {
+    if (!this.#writesAnywhere("antenna")) return await this.#scheduler.refuseDriverWrite("set_antenna_mode");
+    return await this.#scheduler.executeDriverControl(
+      "set_antenna_mode",
+      async (session, write) => {
+        if (!session.setAntennaMode) throw noWrite("switch the antenna");
+        return { mode, rawCode: await session.setAntennaMode(mode, write.check) };
+      },
+      summary
+    );
   }
 
   setWifiAccess(): Promise<{ wifiMacFilter: WifiMacFilterState; plan: WifiFilterPlan }> {

@@ -123,6 +123,7 @@ describe("console: experimental writes on a model nobody verified", () => {
       reconnect_cellular: { "zh-CN": /重拨/, en: /redial/i },
       auto_reconnect_cellular: { "zh-CN": /WAN 自动重拨[\s\S]*自己重拨/, en: /WAN auto-redial[\s\S]*on its own/i },
       set_mobile_data: { "zh-CN": /移动数据/, en: /mobile data/i },
+      set_antenna_mode: { "zh-CN": /天线/, en: /antenna/i },
       sms_send: { "zh-CN": /发送/, en: /sending/i },
       sms_mark_read: { "zh-CN": /标为已读[\s\S]*自动标为已读/, en: /marking read[\s\S]*auto mark-as-read/i },
       sms_delete: { "zh-CN": /删除/, en: /deleting/i },

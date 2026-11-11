@@ -113,7 +113,10 @@ describe("AI agents testing a model nobody verified", () => {
       assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, confirm: true }, ["sms-read"]))["errorCode"], "READ_ONLY_TOKEN");
       assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: false }))["errorCode"], "CONFIRMATION_REQUIRED");
       assert.equal((await fx.call("set_experimental_write", { feature: "bandLock", enabled: false, model: MODEL, confirm: true }))["errorCode"], "VALIDATION_ERROR", "there is no model to type any more");
-      assert.equal((await fx.call("set_experimental_write", { feature: "antenna", enabled: false, confirm: true }))["errorCode"], "VALIDATION_ERROR");
+      assert.equal((await fx.call("set_experimental_write", { feature: "wifi", enabled: false, confirm: true }))["errorCode"], "VALIDATION_ERROR", "no brand has a switch for it");
+      // A switch some brand has, which this router's brand does not implement
+      const antenna = await fx.call("set_experimental_write", { feature: "antenna", enabled: false, confirm: true });
+      assert.deepEqual([antenna["errorCode"], antenna["state"]], ["EXPERIMENTAL_UNAVAILABLE", "not_implemented"]);
       // A write FengSui has nothing for on this router has no switch
       const none = await fx.call("set_experimental_write", { feature: "cellLock", enabled: true, confirm: true });
       assert.deepEqual([none["errorCode"], none["state"]], ["EXPERIMENTAL_UNAVAILABLE", "not_implemented"]);
