@@ -295,6 +295,7 @@ describe("experimental switch: what each write is on a router", () => {
         ["bandLock", "enabled"],
         ["cellLock", "enabled"],
         ["reboot", "enabled"],
+        ["smsWrite", "enabled"],
       ]
     );
     assert.equal(openwrt.actionAccess("unlock_rf_locks"), "experimental");

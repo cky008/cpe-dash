@@ -19,6 +19,7 @@ order: 2
 - **△ 部分支持或有条件**：条件写在各品牌的表下面。
 - **— 不支持**：路由器或它的接口没有这项功能，或者有人实测过不能用（表里暂时还没有）。
 - 空白：烽燧还没有做。
+- 一格里有几个符号时，依次对应这一列包含的功能：「短信」是读取 / 发送与管理，「重启与重拨」是重启 / 重拨，「路由器开关」是安全开关 / Wi-Fi 7 / 天线。
 - 「路由器开关」指安全开关、Wi-Fi 7 和天线，路由器本身有这些功能才谈得上（比如 Wi-Fi 7 要路由器支持 Wi-Fi 7）。
 - 「接口」一列有两套时，自动识别选第一套；你也可以在「设置 → 路由器」手动选另一套。
 
@@ -339,62 +340,64 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| Quectel RM551E-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM551E-GL) |
-| Quectel RM530N-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM530N-GL) |
-| Quectel RM520N-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-GL) |
-| Quectel RM520N-CN | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-CN) |
-| Quectel RM521F-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM521F-GL) |
-| Quectel RM510Q-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM510Q-GL) |
-| Quectel RM505Q-AE | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM505Q-AE) |
-| Quectel RM502Q-AE | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-AE) |
-| Quectel RM502Q-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-GL) |
-| Quectel RM500Q-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-GL) |
-| Quectel RM500Q-AE | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-AE) |
-| Quectel RM500U-CN | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500U-CN) |
-| Quectel RG650E | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650E) |
-| Quectel RG650V | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650V) |
-| Quectel RG520N-EU | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EU) |
-| Quectel RG520N-EB | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EB) |
-| Quectel RG520N-CN | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-CN) |
-| Quectel RG502Q-EA | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG502Q-EA) |
-| Quectel RG501Q-EU | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG501Q-EU) |
-| Quectel RG500Q-EA | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-EA) |
-| Quectel RG500Q-CN | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-CN) |
-| Quectel RG500U-CN | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500U-CN) |
-| Quectel RG200U-CN | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG200U-CN) |
-| Quectel EM160R-GL | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM160R-GL) |
-| Quectel EM12-G | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM12-G) |
-| Quectel EC25 | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC25) |
-| Quectel EC200U | 模组 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC200U) |
-| Fibocom FG370 | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370) |
-| Fibocom FG370-NA | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370-NA) |
-| Fibocom FM350-GL | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM350-GL) |
-| Fibocom FM160-CN | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-CN) |
-| Fibocom FM160-EAU | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-EAU) |
-| Fibocom FG160-EAU | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG160-EAU) |
-| Fibocom FM150-AE | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM150-AE) |
-| Fibocom FG150-AE | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG150-AE) |
-| Fibocom FM650-CN | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM650-CN) |
-| Fibocom L860-GL | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L860-GL) |
-| Fibocom L850-GL | 模组 | ? | ? |  |  | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L850-GL) |
-| GL.iNet GL-X3000 | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X3000) |
-| GL.iNet GL-XE3000 | 随身路由器 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE3000) |
-| GL.iNet GL-X750V2 | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X750V2) |
-| GL.iNet GL-XE300 | 随身路由器 | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE300) |
-| Suncomm O1 | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O1) |
-| Suncomm O2 | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O2) |
-| Suncomm O8 Pro | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O8+Pro) |
-| Kunlun CP520 | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+CP520) |
-| Kunlun OpenWrt 5G CPE | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+OpenWrt+5G+CPE) |
-| Zhilian OpenWrt 5G CPE | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Zhilian+OpenWrt+5G+CPE) |
-| Trend-Link OpenWrt 5G CPE | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Trend-Link+OpenWrt+5G+CPE) |
-| QWRT RM520N | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+QWRT+RM520N) |
-| ROOter 5G | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ROOter+5G) |
+| Quectel RM551E-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM551E-GL) |
+| Quectel RM530N-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM530N-GL) |
+| Quectel RM520N-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-GL) |
+| Quectel RM520N-CN | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM520N-CN) |
+| Quectel RM521F-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM521F-GL) |
+| Quectel RM510Q-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM510Q-GL) |
+| Quectel RM505Q-AE | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM505Q-AE) |
+| Quectel RM502Q-AE | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-AE) |
+| Quectel RM502Q-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM502Q-GL) |
+| Quectel RM500Q-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-GL) |
+| Quectel RM500Q-AE | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500Q-AE) |
+| Quectel RM500U-CN | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RM500U-CN) |
+| Quectel RG650E | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650E) |
+| Quectel RG650V | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG650V) |
+| Quectel RG520N-EU | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EU) |
+| Quectel RG520N-EB | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-EB) |
+| Quectel RG520N-CN | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG520N-CN) |
+| Quectel RG502Q-EA | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG502Q-EA) |
+| Quectel RG501Q-EU | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG501Q-EU) |
+| Quectel RG500Q-EA | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-EA) |
+| Quectel RG500Q-CN | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500Q-CN) |
+| Quectel RG500U-CN | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG500U-CN) |
+| Quectel RG200U-CN | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+RG200U-CN) |
+| Quectel EM160R-GL | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM160R-GL) |
+| Quectel EM12-G | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EM12-G) |
+| Quectel EC25 | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC25) |
+| Quectel EC200U | 模组 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Quectel+EC200U) |
+| Fibocom FG370 | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370) |
+| Fibocom FG370-NA | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG370-NA) |
+| Fibocom FM350-GL | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM350-GL) |
+| Fibocom FM160-CN | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-CN) |
+| Fibocom FM160-EAU | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM160-EAU) |
+| Fibocom FG160-EAU | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG160-EAU) |
+| Fibocom FM150-AE | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM150-AE) |
+| Fibocom FG150-AE | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FG150-AE) |
+| Fibocom FM650-CN | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+FM650-CN) |
+| Fibocom L860-GL | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L860-GL) |
+| Fibocom L850-GL | 模组 | ? | ? |  | ?/△ | △ | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Fibocom+L850-GL) |
+| GL.iNet GL-X3000 | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X3000) |
+| GL.iNet GL-XE3000 | 随身路由器 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE3000) |
+| GL.iNet GL-X750V2 | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-X750V2) |
+| GL.iNet GL-XE300 | 随身路由器 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+GL.iNet+GL-XE300) |
+| Suncomm O1 | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O1) |
+| Suncomm O2 | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O2) |
+| Suncomm O8 Pro | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Suncomm+O8+Pro) |
+| Kunlun CP520 | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+CP520) |
+| Kunlun OpenWrt 5G CPE | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Kunlun+OpenWrt+5G+CPE) |
+| Zhilian OpenWrt 5G CPE | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Zhilian+OpenWrt+5G+CPE) |
+| Trend-Link OpenWrt 5G CPE | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Trend-Link+OpenWrt+5G+CPE) |
+| QWRT RM520N | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+QWRT+RM520N) |
+| ROOter 5G | 室内 CPE | ? | ? |  | ?/△ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ROOter+5G) |
 
 这一节的说明：
 
+- △ 「短信」：发送短信要路由器装有 QModem；没有装的固件上，烽燧能读取和删除短信，不能发送（这一节的全部型号）。
 - △ 「重启与重拨」：「重启」只重启蜂窝模组，不重启整台路由器（这一节的全部型号）。
 - △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。
+- 短信读的是蜂窝模组当前选用的存储（SIM 卡或模组自身）。模组一列出短信就把它记成已读，所以哪些短信没读过由烽燧自己记；模组不保存发出的短信，发件只留在烽燧里（这一节的全部型号）。
 - 烽燧通过路由器的 ubus 接口给模组发 AT 指令，自己分辨移远和广和通（这一节的全部型号）。
 - △ 「锁频段」：广和通模组的网络制式只能设成自动或仅 5G 独立组网（SA）（Fibocom FG370、Fibocom FG370-NA、Fibocom FM350-GL、Fibocom FM160-CN、Fibocom FM160-EAU、Fibocom FG160-EAU、Fibocom FM150-AE、Fibocom FG150-AE、Fibocom FM650-CN、Fibocom L860-GL 和 Fibocom L850-GL）。
 

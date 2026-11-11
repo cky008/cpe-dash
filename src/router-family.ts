@@ -85,7 +85,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   fiberhome: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 
 /** The read features and the read section each one is read in. */

@@ -455,6 +455,18 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   { family: "openwrt", features: ["reboot"], zh: "「重启」只重启蜂窝模组，不重启整台路由器", en: "\"Reboot\" restarts the cellular module, not the whole router" },
   {
     family: "openwrt",
+    features: ["smsWrite"],
+    zh: "发送短信要路由器装有 QModem；没有装的固件上，烽燧能读取和删除短信，不能发送",
+    en: "sending needs QModem on the router; on firmware without it FengSui reads and deletes messages but cannot send",
+  },
+  {
+    family: "openwrt",
+    features: [],
+    zh: "短信读的是蜂窝模组当前选用的存储（SIM 卡或模组自身）。模组一列出短信就把它记成已读，所以哪些短信没读过由烽燧自己记；模组不保存发出的短信，发件只留在烽燧里",
+    en: "SMS is read from the storage the cellular module is set to (the SIM card or the module's own). The module marks a message read as soon as it lists it, so FengSui keeps track of what you have not read; the module keeps no copy of what it sends, so sent messages are kept by FengSui only",
+  },
+  {
+    family: "openwrt",
     models: ["FG370", "FG370-NA", "FM350-GL", "FM160-CN", "FM160-EAU", "FG160-EAU", "FM150-AE", "FG150-AE", "FM650-CN", "L860-GL", "L850-GL"],
     features: ["bandLock"],
     zh: "广和通模组的网络制式只能设成自动或仅 5G 独立组网（SA）",

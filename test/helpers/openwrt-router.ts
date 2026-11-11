@@ -32,6 +32,19 @@ export interface OpenwrtRouterOptions {
   qengError?: boolean;
   /** Commands (by prefix) the module answers `ERROR` to. */
   atErrors?: ReadonlyArray<string>;
+  /** The parts the modem's message storage starts with (`false`: a module without SMS commands). */
+  sms?: StoredPdu[] | false;
+  /** QModem is installed: its UCI section, and `qmodem.send_at` / `qmodem.send_raw_pdu`. */
+  qmodem?: boolean;
+  /** What the modem answers a sent PDU with (default: `+CMGS` and `OK`). */
+  sendAnswer?: string;
+}
+
+/** One stored part: its storage index, `<stat>` (0 unread, 1 read, 2 unsent, 3 sent) and its PDU. */
+export interface StoredPdu {
+  index: number;
+  stat: number;
+  pdu: string;
 }
 
 export interface OpenwrtRouterState {
@@ -48,6 +61,9 @@ export interface OpenwrtRouterState {
   fibocomCellLock: string;
   /** `none`: the module is searching (no serving cell, so the WAN is down). */
   serving: "sa" | "none";
+  sms: StoredPdu[];
+  /** The PDUs handed to QModem to send. */
+  sentPdus: string[];
 }
 
 export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
@@ -67,6 +83,29 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     fibocomAct: "17,6,2,101,103,541,578",
     fibocomCellLock: "0",
     serving: "sa",
+    sms: opts.sms ? opts.sms.map((part) => ({ ...part })) : [],
+    sentPdus: [],
+  };
+
+  /** The modem's answer to one AT command, whichever service carried it. */
+  const smsAnswer = (cmd: string): string | null => {
+    if (!/^AT\+(CPMS|CMGF|CMGL|CMGD)/.test(cmd)) return null;
+    if (opts.sms === false) return "ERROR\n";
+    if (cmd === "AT+CPMS?") return `+CPMS: "ME",${state.sms.length},50,"ME",${state.sms.length},50,"ME",${state.sms.length},50\n\nOK\n`;
+    if (cmd === "AT+CMGF=0") return "OK\n";
+    if (cmd === "AT+CMGL=4") {
+      const listed = state.sms.map((part) => `+CMGL: ${part.index},${part.stat},,${part.pdu.length / 2 - 1}\n${part.pdu}`).join("\n");
+      // Listing a message marks it read, as the standard has it
+      for (const part of state.sms) if (part.stat === 0) part.stat = 1;
+      return `${listed}\n\nOK\n`;
+    }
+    const gone = /^AT\+CMGD=(\d+)$/.exec(cmd);
+    if (gone) {
+      const before = state.sms.length;
+      state.sms = state.sms.filter((part) => part.index !== Number(gone[1]));
+      return state.sms.length < before ? "OK\n" : "+CMS ERROR: 321\n";
+    }
+    return "ERROR\n";
   };
 
   const mock = new LanRouterMock((req) => {
@@ -101,11 +140,31 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
       return reply({});
     }
 
+    // QModem: its UCI section, its own AT method and its PDU sender
+    if (opts.qmodem && object === "uci" && method === "get" && args["config"] === "qmodem") {
+      return reply({ values: { main: { ".type": "main", enable: "1" }, modem1: { ".type": "modem-device", at_port: "/dev/ttyUSB2", manufacturer: "quectel" } } });
+    }
+    if (opts.qmodem && object === "qmodem" && method === "send_raw_pdu") {
+      state.sentPdus.push(String(args["cmd"] ?? ""));
+      return reply({ result: { status: "1", cmd: "tom_modem -d /dev/ttyUSB2 -o s -p", res: opts.sendAnswer ?? `+CMGS: ${state.sentPdus.length}\n\nOK` } });
+    }
+    if (opts.qmodem && rpcObj === "qmodem" && object === "qmodem" && method === "send_at") {
+      const params = args["params"] as { at?: string; port?: string } | undefined;
+      const cmd = String(params?.at ?? "");
+      state.executedCommands.push(cmd);
+      const sms = smsAnswer(cmd);
+      if (sms !== null) return reply({ at_cfg: { status: "1", cmd: `at ${String(params?.port)} ${cmd}`, res: sms } });
+      if (cmd === "ATI") return reply({ at_cfg: { status: "1", res: "Quectel\nRM520N-GL\nRevision: RM520NGLAAR01A07M4G\n\nOK\n" } });
+      return reply({ at_cfg: { status: "1", res: "OK\n" } });
+    }
+
     // AT dispatch object
     if (object === rpcObj && (method === "send_at" || method === "at_cmd" || method === "at" || method === "send")) {
       const cmd = String(args["cmd"] ?? "");
       state.executedCommands.push(cmd);
       if (opts.atErrors?.some((prefix) => cmd.startsWith(prefix))) return reply("ERROR\n");
+      const sms = smsAnswer(cmd);
+      if (sms !== null) return reply(sms);
 
       // Identify
       if (cmd === "ATI") {

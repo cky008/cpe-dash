@@ -1,10 +1,16 @@
+import crypto from "node:crypto";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import { encodeSmsSubmit } from "../sms/pdu.ts";
+import type { SmsCounters } from "../sms/types.ts";
+import { atErrorCode, parseCmglPdus, parseCpms } from "./at-sms.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
 import { emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
 import type {
@@ -19,6 +25,9 @@ import type {
   DriverNetworkMode,
   DriverRat,
   DriverSessionHandle,
+  DriverSms,
+  DriverSmsSendOptions,
+  DriverSmsSendOutcome,
   DriverTelemetry,
   SubcarrierSpacingKhz,
 } from "./types.ts";
@@ -65,6 +74,13 @@ import {
  *    - Serving cell RSRP conversion: LTE `idx - 140` dBm; NR `idx - 156` dBm.
  *    - Controls: `AT+GTACT` band locking with `+100` for LTE and `+500` for NR,
  *      `AT+GTCELLLOCK` for 4G/5G cell locking, and `AT+CFUN=1,1` for reboot.
+ *
+ * 4. SMS, either make (3GPP TS 27.005): `AT+CPMS?` counts the storage the modem is set to, `AT+CMGF=0`
+ *    then `AT+CMGL=4` lists it as PDUs (a long message as its parts, joined here), `AT+CMGD` deletes.
+ *    Listing a message marks it read on the modem, so the read state is FengSui's to keep. Sending
+ *    takes two steps on an AT port (`AT+CMGS`, then the PDU at the prompt), which an AT service that
+ *    takes one command at a time cannot do: FengSui sends through QModem's `qmodem.send_raw_pdu`,
+ *    where that is installed, and reads and deletes everywhere.
  */
 
 const FAMILY = "openwrt" as const;
@@ -564,6 +580,9 @@ class OpenwrtUbusClient {
   #id = 1;
   session = OPENWRT_ANONYMOUS_SESSION;
   #resolvedModemRpc: UbusRpcCallTarget | null = null;
+  /** QModem's modem section and AT port (`undefined`: not looked for yet; `null`: no QModem here). */
+  #qmodem: QmodemTarget | null | undefined = undefined;
+  #atViaQmodem = false;
 
   constructor(http: LanHttp) {
     this.#http = http;
@@ -594,8 +613,37 @@ class OpenwrtUbusClient {
     return result[1];
   }
 
+  /**
+   * QModem's first modem with an AT port, from its UCI configuration (`uci get qmodem`): the section
+   * its `qmodem` object is asked by, and the port its `send_at` wants named. `null` without QModem.
+   */
+  async qmodem(): Promise<QmodemTarget | null> {
+    if (this.#qmodem !== undefined) return this.#qmodem;
+    this.#qmodem = null;
+    try {
+      const values = fieldOf(await this.call("uci", "get", { config: "qmodem" }), "values");
+      if (isPlainObject(values)) {
+        for (const [section, options] of Object.entries(values)) {
+          const port = isPlainObject(options) ? textOf(options["at_port"]) : null;
+          if (port !== null && /^\/dev\/[A-Za-z0-9_./-]{1,48}$/.test(port) && /^[A-Za-z0-9_]{1,32}$/.test(section)) {
+            this.#qmodem = { section, port };
+            break;
+          }
+        }
+      }
+    } catch {
+      // No QModem (or its configuration is not ours to read): the other AT services remain
+    }
+    return this.#qmodem;
+  }
+
+  async #qmodemAt(target: QmodemTarget, cmd: string): Promise<string> {
+    return qmodemText(await this.call("qmodem", "send_at", { config_section: target.section, params: { at: cmd, port: target.port } }));
+  }
+
   /** Run an AT command through the resolved modem RPC target or probe candidates. */
   async execAt(cmd: string): Promise<string> {
+    if (this.#atViaQmodem && this.#qmodem) return await this.#qmodemAt(this.#qmodem, cmd);
     if (this.#resolvedModemRpc) {
       const res = await this.call(this.#resolvedModemRpc.object, this.#resolvedModemRpc.method, { [this.#resolvedModemRpc.cmdKey]: cmd });
       return extractAtResponse(res);
@@ -612,8 +660,29 @@ class OpenwrtUbusClient {
         // try next candidate
       }
     }
-    throw new CpeApiError("no-modem-rpc", "No known modem AT RPC service found on OpenWrt (tried gl-modem, modem_ctrl, QModem, at, modem)");
+    // QModem's own object, which wants the modem's section and port named
+    const qmodem = await this.qmodem();
+    if (qmodem) {
+      const text = await this.#qmodemAt(qmodem, cmd);
+      this.#atViaQmodem = true;
+      return text;
+    }
+    throw new CpeApiError("no-modem-rpc", "No known modem AT RPC service found on OpenWrt (tried gl-modem, modem_ctrl, QModem, at, modem, qmodem)");
   }
+}
+
+interface QmodemTarget {
+  section: string;
+  port: string;
+}
+
+/** What a QModem method answered from the modem: the `res` text of its `at_cfg` / `result` object (or of the answer itself). */
+export function qmodemText(answer: unknown): string {
+  for (const holder of [fieldOf(answer, "at_cfg"), fieldOf(answer, "result"), answer]) {
+    const res = isPlainObject(holder) ? holder["res"] : undefined;
+    if (typeof res === "string") return res.trim();
+  }
+  return "";
 }
 
 // --------------------------------------------------------------------------
@@ -966,6 +1035,71 @@ export class OpenwrtSession implements DriverSessionHandle {
     await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref",AUTO').catch(() => "");
 
     settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: true });
+  }
+
+  /** SMS through the modem's own commands; the read state is FengSui's (a listing marks every message read). */
+  readonly sms: DriverSms = {
+    keepsSent: false,
+    list: async () => (await this.#smsAssembled()).map((entry) => entry.message),
+    counters: () => this.#smsCounters(),
+    send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
+    delete: (indices, check) => this.#smsDelete(indices, check),
+  };
+
+  /** The storage's own count: parts, not messages, and always this one read, so two counts never differ by how they were taken. */
+  async #smsCounters(): Promise<SmsCounters> {
+    this.#guard();
+    const storage = parseCpms(await this.#ubus.execAt("AT+CPMS?"));
+    if (!storage) throw new SectionUnavailableError("SMS", null);
+    return { localUnread: 0, localInbox: storage.used, localOutbox: 0, localDraft: 0, localMax: storage.total > 0 ? storage.total : 50 };
+  }
+
+  async #smsAssembled(): Promise<AssembledSms[]> {
+    this.#guard();
+    // PDU mode for this port, then every stored message
+    const mode = await this.#ubus.execAt("AT+CMGF=0");
+    if (isAtError(mode)) throw new SectionUnavailableError("SMS", null);
+    const listed = await this.#ubus.execAt("AT+CMGL=4");
+    if (isAtError(listed)) throw new CpeApiError(atErrorCode(listed) ?? "at-error", "AT+CMGL refused");
+    return assembleSegments(parseCmglPdus(listed));
+  }
+
+  /** One PDU per part through QModem's `send_raw_pdu`: `+CMGS` in its answer is the modem's word that the part went out. */
+  async #smsSend(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome> {
+    this.#guard();
+    const qmodem = await this.#ubus.qmodem();
+    if (!qmodem) {
+      throw new CpeControlValidationError(
+        "This router's AT service takes one command at a time, and sending an SMS takes two steps on a modem's AT port. FengSui sends where QModem is installed (its send_raw_pdu); reading and deleting work here. Nothing was sent"
+      );
+    }
+    const { pdus } = encodeSmsSubmit(phone, content, crypto.randomInt(256));
+    noteSent(check, FAMILY, "qmodem.send_raw_pdu");
+    let confirmed = true;
+    for (const [i, pdu] of pdus.entries()) {
+      const answer = qmodemText(await this.#ubus.call("qmodem", "send_raw_pdu", { config_section: qmodem.section, cmd: pdu }));
+      if (isAtError(answer)) return { state: "failed", code: atErrorCode(answer) };
+      if (i === 0) options.onAccepted();
+      if (!/\+CMGS:/i.test(answer)) confirmed = false;
+    }
+    return { state: confirmed ? "sent" : "unconfirmed", code: null };
+  }
+
+  /** Every stored part of each message, by `AT+CMGD`; the storage's count before and after is the read-back. */
+  async #smsDelete(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const wanted = storedIndices(indices);
+    const stored = await this.#smsAssembled();
+    const parts = wanted.flatMap((index) => stored.find((entry) => entry.message.index === index)?.parts ?? []);
+    // Already gone from the modem: nothing to send
+    if (parts.length === 0) return;
+    const before = parseCpms(await this.#ubus.execAt("AT+CPMS?").catch(() => ""))?.used ?? null;
+    noteSent(check, FAMILY, "AT+CMGD");
+    for (const handle of parts) {
+      const answer = await this.#ubus.execAt(`AT+CMGD=${handle - 1}`);
+      if (isAtError(answer)) throw new CpeApiError(atErrorCode(answer) ?? "at-error", "AT+CMGD refused");
+    }
+    const after = parseCpms(await this.#ubus.execAt("AT+CPMS?").catch(() => ""))?.used ?? null;
+    settleSmsCount(check, before, after, parts.length);
   }
 
   async reboot(check: WriteCheck): Promise<void> {

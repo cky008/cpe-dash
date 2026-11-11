@@ -105,9 +105,11 @@ describe("driver runtime: reads", () => {
       assert.equal(status.totalSessionsCompleted, 1, "the driver's sessions are the live connection's");
       assert.equal(status.device.reads.telemetry.state, "available");
       assert.equal(status.device.reads.neighbors.state, "unknown");
-      for (const section of ["topology", "settings", "accessControl", "sms"] as const) {
+      for (const section of ["topology", "settings", "accessControl"] as const) {
         assert.deepEqual(status.device.reads[section], { state: "unavailable", code: null }, section);
       }
+      // SMS is on record for this family; this fixture's poll does not carry its counts
+      assert.deepEqual(status.device.reads.sms, { state: "unknown", code: null });
 
       const neighbours = await fx.core.monitor.refreshNeighbors();
       assert.ok(neighbours);
@@ -221,7 +223,7 @@ describe("driver runtime: writes", () => {
       const features = fx.core.scheduler.getStatus().device.features;
       assert.deepEqual(
         [features.bandLock, features.cellLock, features.reboot, features.reconnect, features.mobileData, features.smsWrite, features.accessControl],
-        ["disabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
+        ["disabled", "enabled", "enabled", "not_implemented", "not_implemented", "enabled", "not_implemented"]
       );
 
       // Turned back on (as the console keeps it): what the driver implements is open again, with no consent to give

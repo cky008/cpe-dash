@@ -33,7 +33,7 @@ import { DETECTION_ORDER, DRIVER_FAMILIES, ROUTER_FAMILY_FACTS, isRouterFamily }
  */
 
 /** The driver families whose SMS interface is on record, and implemented. */
-const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt"];
+const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt"];
 
 const PAGES = [
   { file: "docs/guide/zh/supported-devices.md", locale: "zh-CN" },
@@ -174,7 +174,10 @@ describe("the supported devices guide page", () => {
     const legend = zh.split("\n<a id=")[0] ?? "";
     for (const mark of ["**✓ 已验证**", "**? 等待回报**", "**△ 部分支持或有条件**", "**— 不支持**", "空白：烽燧还没有做"]) assert.ok(legend.includes(mark), mark);
     assert.ok(legend.includes("或者有人实测过不能用（表里暂时还没有）"), legend);
-    assert.equal(legend.includes("一格里有几个符号"), false, "no cell has two marks yet, so no word about them");
+    // A cell whose parts differ shows both marks, and the legend then says how to read them
+    assert.equal(marksOf(zh, "openwrt", "Quectel RM520N-GL")?.[3], "?/△");
+    assert.match(zh, /- △ 「短信」：发送短信要路由器装有 QModem；没有装的固件上，烽燧能读取和删除短信，不能发送（这一节的全部型号）。/);
+    assert.ok(legend.includes("一格里有几个符号时，依次对应这一列包含的功能：「短信」是读取 / 发送与管理"), legend);
     assert.ok(legend.includes("「接口」一列有两套时，自动识别选第一套"), legend);
   });
 
