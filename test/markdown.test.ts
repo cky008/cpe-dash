@@ -143,4 +143,15 @@ describe("docs Markdown renderer (scripts/markdown.ts)", () => {
     assert.equal(slugify("What's `DEFAULT_COUNTRY_CODE`?"), "whats-default_country_code");
     assert.equal(slugify("短信 / SMS 中心"), "短信-sms-中心");
   });
+
+  it("reads the GitHub forms the developer notes use: escaped pipes in tables, <br> and strikethrough", () => {
+    const table = renderMarkdown("| Body | Note |\n| :--- | :--- |\n| `{ mode?: \"full\" \\| \"incremental\" }` | one<br>two |").html;
+    assert.match(table, /<td class="align-left"><code>\{ mode\?: &quot;full&quot; \| &quot;incremental&quot; \}<\/code><\/td>/);
+    assert.match(table, /<td class="align-left">one<br>two<\/td>/);
+    assert.equal((table.match(/<td/g) ?? []).length, 2, "an escaped pipe does not start a cell");
+    assert.match(renderMarkdown("~~gone~~ and kept").html, /<p><del>gone<\/del> and kept<\/p>/);
+    // Any other tag stays text, and so does a lone ~~ or a <br> inside code
+    assert.match(renderMarkdown("<b>x</b> ~~ open `<br>`").html, /&lt;b&gt;x&lt;\/b&gt; ~~ open <code>&lt;br&gt;<\/code>/);
+    assert.equal(renderMarkdown("a ~~struck~~ b").text, "a struck b");
+  });
 });

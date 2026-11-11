@@ -1,9 +1,10 @@
 /**
- * Zero-dependency Markdown for FengSui's own documentation (docs/guide), rendered by scripts/build-docs.ts.
- * It covers what the guide uses and what GitHub renders the same way: ATX headings, paragraphs, `code`,
- * **bold**, *emphasis*, links, images, nested lists, fenced code, pipe tables, horizontal rules, quotes and
- * GitHub alerts (`> [!NOTE]`). Raw HTML is never passed through (it is escaped), only single-line comments are
- * dropped, and links accept http(s), mailto and relative targets only.
+ * Zero-dependency Markdown for FengSui's own documentation (docs/guide, and docs/dev on the Chinese site),
+ * rendered by scripts/build-docs.ts. It covers what those pages use and what GitHub renders the same way: ATX
+ * headings, paragraphs, `code`, **bold**, *emphasis*, ~~strikethrough~~, links, images, nested lists, fenced
+ * code, pipe tables (with `\|` for a pipe inside a cell), horizontal rules, quotes and GitHub alerts
+ * (`> [!NOTE]`). Raw HTML is never passed through (it is escaped) except a bare `<br>`, single-line comments
+ * are dropped, and links accept http(s), mailto and relative targets only.
  */
 
 export interface MarkdownHeading {
@@ -142,6 +143,24 @@ function renderInline(src: string, opts: RenderOptions): InlineResult {
       i += url.length + 2;
       continue;
     }
+    // A line break inside a paragraph or table cell, as GitHub takes it; every other tag stays text
+    const br = /^<br\s*\/?>/i.exec(src.slice(i));
+    if (br) {
+      html += "<br>";
+      text += " ";
+      i += br[0].length;
+      continue;
+    }
+    if (src.startsWith("~~", i)) {
+      const close = src.indexOf("~~", i + 2);
+      if (close > i + 2) {
+        const inner = renderInline(src.slice(i + 2, close), opts);
+        html += `<del>${inner.html}</del>`;
+        text += inner.text;
+        i = close + 2;
+        continue;
+      }
+    }
     if (src.startsWith("**", i)) {
       const close = src.indexOf("**", i + 2);
       if (close > i + 2) {
@@ -177,8 +196,14 @@ const COMMENT = /^\s*<!--.*-->\s*$/;
 /** A stable anchor for a term (`<a id="rsrp"></a>` on its own line): the console's help links point at it. */
 const TERM_ANCHOR = /^<a id="([a-z0-9-]+)"><\/a>$/;
 
+/** A table row's cells; `\\|` is a pipe inside a cell (GitHub's escape, also inside code spans). */
 function cells(row: string): string[] {
-  return row.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  return row
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/(?<!\\)\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((c) => c.trim().replace(/\\\|/g, "|"));
 }
 
 function startsBlock(line: string, next: string | undefined): boolean {
