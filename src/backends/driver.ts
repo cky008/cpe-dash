@@ -43,9 +43,11 @@ import { genericLockState } from "./hilink.ts";
  * A router of a driver family (ZTE, Pinsu, Tozed, FiberHome, NRadio, OpenWrt) as a `RouterBackend`:
  * each verb is one session of the family's driver (`src/drivers/`) through the scheduler's queue,
  * avoidance, breaker and write gate. Its writes are experimental on every model (on by default, each
- * can be turned off, read back in the same session). What no driver implements yet (connected devices, router
- * settings, access control) has nothing to read here; the gate refuses the writes that go with it. SMS
- * goes to the SMS methods of the family's session, where its interface has them.
+ * can be turned off, read back in the same session). SMS, the data connection, the device list and the
+ * antenna go to the optional parts of the family's session (`sms`, `data`, `hosts`, `setAntennaMode`),
+ * where its interface has them. What no driver implements (router settings, access control, the
+ * security switches, Wi-Fi 7) has nothing to read here, and the gate refuses its writes before any
+ * session.
  */
 export class DriverBackend implements RouterBackend {
   readonly #scheduler: MutexSessionScheduler;
