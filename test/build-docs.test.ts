@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { buildDocsSite, webpSize } from "../scripts/build-docs.ts";
+import { DEV_PAGES, DEV_SECTION, buildDocsSite, webpSize } from "../scripts/build-docs.ts";
 import { SHOWCASE_THEMES, showcaseImage } from "../scripts/site-home.ts";
 import { THEME_META } from "../web/src/core/prefs.ts";
 import { THEME_NAMES } from "../web/src/i18n/appearance.ts";
@@ -69,7 +69,8 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       for (const m of html.matchAll(/(?:href|src)="([^"]+)"/g)) {
         const url = (m[1] ?? "").replace(/&amp;/g, "&");
         if (/^https?:/.test(url)) {
-          assert.ok(allowedHosts.has(new URL(url).hostname), `${path.relative(site, file)}: ${url}`);
+          // The developer notes cite their many sources as they do on GitHub; the guide only known ones
+          if (!path.relative(site, file).startsWith(path.join("docs", "dev"))) assert.ok(allowedHosts.has(new URL(url).hostname), `${path.relative(site, file)}: ${url}`);
           continue;
         }
         if (url.startsWith("mailto:") || path.basename(file) === "404.html") continue;
@@ -80,6 +81,35 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       }
     }
     assert.ok(internal > 300, `checked ${internal} internal links`);
+  });
+
+  it("shows the developer notes as a section of the Chinese site only, linked inside it and left on GitHub from English pages", () => {
+    // Every note of docs/dev is a page, under its listed title, and none is on the English site
+    assert.deepEqual(DEV_PAGES.map((p) => p.file).sort(), fs.readdirSync(path.join("docs", "dev")).filter((f) => f.endsWith(".md")).sort());
+    for (const page of DEV_PAGES) {
+      const html = fs.readFileSync(path.join(site, "docs", page.slug, "index.html"), "utf8");
+      assert.match(html, new RegExp(`<h1 class="mt-2">${page.title.replace(/[()]/g, "\\$&")}</h1>`), page.slug);
+      assert.equal((html.match(/<h1/g) ?? []).length, 1, `${page.slug}: the note's own first heading is dropped`);
+      assert.doesNotMatch(html, /<link rel="alternate" hreflang/, `${page.slug}: no English twin`);
+      assert.ok(html.includes(`href="${"../".repeat(page.slug.split("/").length + 1)}en/"`), `${page.slug}: the language button leads to the English home`);
+      assert.equal(fs.existsSync(path.join(site, "en", "docs", page.slug)), false, `en ${page.slug}`);
+    }
+    const sitemap = fs.readFileSync(path.join(site, "sitemap.xml"), "utf8");
+    assert.ok(sitemap.includes("<url><loc>https://docs.example.com/docs/dev/architecture/</loc></url>"), "listed without an English alternate");
+    // The Chinese sidebar ends with the section; the English one never names it
+    const zhGuide = fs.readFileSync(path.join(site, "docs", "install", "index.html"), "utf8");
+    assert.ok(zhGuide.includes(`<h2>${DEV_SECTION}</h2>`) && zhGuide.includes('href="../../docs/dev/sources/"'));
+    const enGuide = fs.readFileSync(path.join(site, "en", "docs", "install", "index.html"), "utf8");
+    assert.equal(enGuide.includes(DEV_SECTION) || enGuide.includes("docs/dev/"), false);
+    // A link to a note is a page of the Chinese site, and the note on GitHub from an English page
+    assert.ok(fs.readFileSync(path.join(site, "docs", "api", "index.html"), "utf8").includes('href="../../docs/dev/api/"'));
+    assert.ok(fs.readFileSync(path.join(site, "en", "docs", "api", "index.html"), "utf8").includes("https://github.com/cky008/cpe-dash/blob/main/docs/dev/api.md"));
+    // Notes link to one another inside the site, and to the source on GitHub
+    const architecture = fs.readFileSync(path.join(site, "docs", "dev", "architecture", "index.html"), "utf8");
+    assert.ok(architecture.includes('href="../../../docs/dev/sources/"'));
+    assert.match(architecture, /href="https:\/\/github\.com\/cky008\/cpe-dash\/blob\/main\/src\//);
+    // The tables of the API contract keep their escaped pipes inside a cell
+    assert.doesNotMatch(fs.readFileSync(path.join(site, "docs", "dev", "api", "index.html"), "utf8"), /<td[^>]*>\\<\/td>/);
   });
 
   it("keeps to its CSP: no inline script or style, and no outside script, style or font", () => {
@@ -132,7 +162,9 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       const file = fs.readdirSync(path.join(site, "assets")).find((f) => f.startsWith(`search.${locale}.`));
       assert.ok(file, locale);
       const index = JSON.parse(fs.readFileSync(path.join(site, "assets", file), "utf8")) as Array<{ url: string; title: string; text: string }>;
-      assert.deepEqual(index.map((e) => e.url).sort(), GUIDE("zh").map((slug) => `${prefix}docs/${slug}/`).sort());
+      // The Chinese site also searches the developer notes
+      const dev = locale === "zh-CN" ? DEV_PAGES.map((p) => `docs/${p.slug}/`) : [];
+      assert.deepEqual(index.map((e) => e.url).sort(), [...GUIDE("zh").map((slug) => `${prefix}docs/${slug}/`), ...dev].sort());
       assert.ok(index.every((e) => e.title && e.text.length > 100));
       // A model deep in Supported devices is found in its brand's section, not cut off with the page's text
       const devices = (index as unknown as Array<{ url: string; headings: Array<{ text: string; id: string; body: string }> }>).find((e) => e.url === `${prefix}docs/supported-devices/`);
