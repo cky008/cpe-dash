@@ -1,13 +1,16 @@
+import crypto from "node:crypto";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import type { WriteCheck } from "../device-access.ts";
+import type { SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
 import { neighbourOf, ratOfChannel } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, loginLocked, loginUnplaced, signedInElsewhere, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { countListed, dateOfParts, settleSmsListing, storedIndices, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
-import { type LanHttp, jsonAnswer } from "./transport.ts";
+import { type LanHttp, jsonAnswer, parseJsonText } from "./transport.ts";
 import type {
   CellLockState,
   DriverBandLockTarget,
@@ -19,6 +22,9 @@ import type {
   DriverNetworkMode,
   DriverRat,
   DriverSessionHandle,
+  DriverSms,
+  DriverSmsSendOptions,
+  DriverSmsSendOutcome,
   DriverTelemetry,
 } from "./types.ts";
 import {
@@ -50,6 +56,13 @@ import {
  * `/html/content.html` for GETs). `app_get_base_info` reads everything at once: the serving cell is
  * element 0 of the `*_NBR` lists, nearby cells the rest. A band lock and a cell lock cannot both be
  * on: a write that would leave both is refused. The LG6151M locks cells through a list of its own.
+ *
+ * SMS is on the web page's own endpoint, `/api/tmp/FHAPIS`, whose requests and answers are AES-128-CBC
+ * (the key is the first 16 characters of the request's `sessionid`, the IV fixed, hexadecimal on the
+ * wire): `get_sms_data` lists conversations with their messages, `set_value_by_xmlnode` marks a
+ * received message opened, `send_msg` sends, `sms_del_session` deletes a whole conversation. It is
+ * asked in the session this driver's login opened; a router that wants its web login for it answers
+ * nothing FengSui can read, and SMS then counts as not on that router (no second password goes out).
  */
 
 const FAMILY = "fiberhome" as const;
@@ -63,6 +76,91 @@ const MODES: Readonly<Record<DriverNetworkMode, { networkMode: string; ENDC: str
   nr_nsa: { networkMode: "3", ENDC: "2" },
   lte: { networkMode: "0", ENDC: "1" },
 };
+
+const WEB = "/api/tmp/FHAPIS";
+/** The IV the router's page uses for every message: the bytes 112 to 127. */
+const WEB_IV = Buffer.from(Array.from({ length: 16 }, (_, i) => 112 + i));
+
+function webKey(sessionid: string): Buffer {
+  return Buffer.from(sessionid.slice(0, 16), "utf8");
+}
+
+/** A request body for `FHAPIS`: the JSON as AES-128-CBC under the session id's first 16 characters, in hexadecimal. */
+export function fiberhomeEncrypt(plain: string, sessionid: string): string {
+  const cipher = crypto.createCipheriv("aes-128-cbc", webKey(sessionid), WEB_IV);
+  return Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]).toString("hex");
+}
+
+/** An answer of `FHAPIS`; `null` when it is not such a message under this session id. */
+export function fiberhomeDecrypt(hex: string, sessionid: string): string | null {
+  const clean = hex.trim();
+  if (clean.length === 0 || clean.length % 32 !== 0 || !/^[0-9A-Fa-f]+$/.test(clean) || sessionid.length < 16) return null;
+  try {
+    const decipher = crypto.createDecipheriv("aes-128-cbc", webKey(sessionid), WEB_IV);
+    return Buffer.concat([decipher.update(Buffer.from(clean, "hex")), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** Sent messages get handles of their own range: received and sent messages are numbered apart. */
+const SMS_SENT_HANDLE_BASE = 1_000_000;
+
+/** A conversation of `get_sms_data` with its messages. */
+export interface FiberhomeConversation {
+  phone: string;
+  messages: SmsWireMessage[];
+}
+
+/**
+ * `get_sms_data`: an object of conversations, each with `session_phone` and one object per message
+ * (`msg_content`, `time`, `childnode` its number, `isOpened`, `rcvorsend`). A message's handle is its
+ * number plus one (plus a million when sent), so none is zero and the two kinds stay apart.
+ */
+export function parseFiberhomeSms(answer: unknown): FiberhomeConversation[] {
+  if (!isPlainObject(answer)) return [];
+  const out: FiberhomeConversation[] = [];
+  for (const conversation of Object.values(answer).slice(0, 500)) {
+    if (!isPlainObject(conversation)) continue;
+    const phone = typeof conversation["session_phone"] === "string" ? conversation["session_phone"] : "";
+    const messages: SmsWireMessage[] = [];
+    for (const message of Object.values(conversation).slice(0, 2000)) {
+      if (!isPlainObject(message) || typeof message["msg_content"] !== "string") continue;
+      const number = intOf(message["childnode"]);
+      if (number === null || number < 0) continue;
+      const outgoing = textOf(message["rcvorsend"]) === "send";
+      messages.push(
+        wireMessage({
+          index: number + 1 + (outgoing ? SMS_SENT_HANDLE_BASE : 0),
+          phone,
+          content: message["msg_content"],
+          date: dateOfParts((textOf(message["time"]) ?? "").split(/[-/.:\sT]+/)),
+          unread: textOf(message["isOpened"]) === "0",
+          outgoing,
+        })
+      );
+    }
+    if (messages.length > 0) out.push({ phone, messages });
+  }
+  return out;
+}
+
+/**
+ * What a send may carry on this router. Its firmware hands the text to a command line between double
+ * quotes, so the characters a shell acts on there are refused, and only printable ASCII is sent (the
+ * one encoding on record for the call is 8-bit). The check is FengSui's: the router makes none.
+ */
+export function checkFiberhomeSmsText(content: string): void {
+  if (!/^[\x20-\x7e]+$/.test(content)) {
+    throw new CpeControlValidationError("This router's SMS interface is on record for plain English text only (letters, digits and common punctuation): nothing was sent");
+  }
+  if (/[`$"\\]/.test(content)) {
+    throw new CpeControlValidationError("This router passes an SMS to a command line, so FengSui does not send text with a backquote, a dollar sign, a double quote or a backslash to it: nothing was sent");
+  }
+}
+
+/** A conversation's sender as the delete command may be handed it (the router puts it into a command line as well). */
+const SAFE_SENDER = /^[0-9A-Za-z+_.-]{1,32}$/;
 
 async function freshSession(http: LanHttp): Promise<string> {
   const answer = await http.getJson(NC, { query: [["ajaxmethod", "get_refresh_sessionid"]], referer: GET_REFERER });
@@ -85,6 +183,26 @@ async function tool(http: LanHttp, method: string, dataObj: Record<string, unkno
   const parsed = jsonAnswer(res, method);
   if (!isPlainObject(parsed)) throw new CpeAnswerFormatError(`${method}: not an object`);
   return parsed;
+}
+
+/**
+ * One call of the web page's endpoint: the request and its answer encrypted under a fresh
+ * `sessionid`. An answer that is not such a message (a router that wants another login for this
+ * endpoint, a firmware without it) is one FengSui cannot read.
+ */
+async function web(http: LanHttp, method: string, dataObj: Record<string, unknown> | null): Promise<unknown> {
+  const sessionid = await freshSession(http);
+  const res = await http.request({
+    method: "POST",
+    path: WEB,
+    body: fiberhomeEncrypt(JSON.stringify({ dataObj, ajaxmethod: method, sessionid }), sessionid),
+    contentType: "application/json",
+    referer: "/main.html",
+  });
+  if (res.status < 200 || res.status >= 300) throw new CpeAnswerFormatError(`${method}: HTTP ${res.status}`);
+  const plain = fiberhomeDecrypt(res.text, sessionid);
+  if (plain === null) throw new CpeAnswerFormatError(`${method}: not an answer of this session`);
+  return plain.trim() === "" ? {} : parseJsonText(plain, method);
 }
 
 function nbrList(raw: Record<string, unknown>, key: string): string[] {
@@ -337,6 +455,79 @@ class FiberhomeSession implements DriverSessionHandle {
     const resetMode = before.networkMode !== null && before.networkMode !== "auto";
     if (resetMode) await this.#write(check, "app_set_network_info", { ...MODES.auto });
     settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: resetMode });
+  }
+
+  /** SMS on the web page's endpoint, in this session. */
+  readonly sms: DriverSms = {
+    keepsSent: true,
+    list: async () => (await this.#smsConversations()).flatMap((c) => c.messages),
+    // Counted from the listing, which holds everything: the poll and a sync count the same way
+    counters: async (listed) => countListed(listed ?? (await this.#smsConversations()).flatMap((c) => c.messages), 0, { unread: true }),
+    send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
+    markRead: (indices, check) => this.#smsMarkRead(indices, check),
+    delete: (indices, check) => this.#smsDelete(indices, check),
+  };
+
+  async #smsConversations(): Promise<FiberhomeConversation[]> {
+    this.#guard();
+    const answer = await web(this.#http, "get_sms_data", null);
+    if (!isPlainObject(answer)) throw new CpeAnswerFormatError("get_sms_data: not an object");
+    return parseFiberhomeSms(answer);
+  }
+
+  /**
+   * `send_msg`, once. The router says nothing FengSui knows of the outcome, so the listing after it
+   * is asked: a sent message to this number with this text that was not there before means it went out.
+   */
+  async #smsSend(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome> {
+    checkFiberhomeSmsText(content);
+    const same = (m: SmsWireMessage): boolean => m.direction === "out" && m.phone === phone && m.content === content;
+    const before = new Set((await this.#smsConversations()).flatMap((c) => c.messages).filter(same).map((m) => m.index));
+    this.#guard();
+    noteSent(check, FAMILY, "send_msg");
+    await web(this.#http, "send_msg", { recv_number: phone, encode_schema: "GSM_8BIT", content });
+    options.onAccepted();
+    const after = await this.#smsConversations().catch(() => null);
+    const stored = after?.flatMap((c) => c.messages).some((m) => same(m) && !before.has(m.index)) === true;
+    return { state: stored ? "sent" : "unconfirmed", code: null };
+  }
+
+  /** A received message is opened by its node (`SMS_Recv.SMS_RecvMsg.<n>.isOpened`); sent ones have nothing to mark. */
+  async #smsMarkRead(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const received = storedIndices(indices).filter((handle) => handle < SMS_SENT_HANDLE_BASE);
+    if (received.length === 0) return;
+    this.#guard();
+    const url: Record<string, string> = {};
+    const value: Record<string, string> = {};
+    for (const handle of received) {
+      const key = `smsIsopend${handle - 1}`;
+      url[key] = `InternetGatewayDevice.X_FH_MobileNetwork.SMS_Recv.SMS_RecvMsg.${handle - 1}.isOpened`;
+      value[key] = "1";
+    }
+    noteSent(check, FAMILY, "set_value_by_xmlnode");
+    await web(this.#http, "set_value_by_xmlnode", { url, value });
+    settleSmsListing(check, await this.#smsConversations().then((list) => list.flatMap((c) => c.messages)).catch(() => null), received, "read");
+  }
+
+  /**
+   * The router deletes a conversation at a time (`sms_del_session`), so a delete goes out only when
+   * it names every message of each conversation it touches; anything less is refused before a write.
+   */
+  async #smsDelete(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    const wanted = new Set(storedIndices(indices));
+    const touched = (await this.#smsConversations()).filter((c) => c.messages.some((m) => wanted.has(m.index)));
+    // Already gone from the router: nothing to send
+    if (touched.length === 0) return;
+    if (touched.some((c) => c.messages.some((m) => !wanted.has(m.index)))) {
+      throw new CpeControlValidationError("This router deletes a whole conversation at a time: select every message of the conversation to delete it. Nothing was deleted");
+    }
+    if (touched.some((c) => !SAFE_SENDER.test(c.phone))) {
+      throw new CpeControlValidationError("This router's delete names the conversation by its sender on a command line, and this sender's name has characters FengSui does not pass to it. Nothing was deleted");
+    }
+    this.#guard();
+    noteSent(check, FAMILY, "sms_del_session");
+    for (const conversation of touched) await web(this.#http, "sms_del_session", { del_phone: conversation.phone });
+    settleSmsListing(check, await this.#smsConversations().then((list) => list.flatMap((c) => c.messages)).catch(() => null), [...wanted], "gone");
   }
 
   async reboot(check: WriteCheck): Promise<void> {

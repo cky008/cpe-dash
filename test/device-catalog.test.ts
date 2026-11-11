@@ -33,7 +33,7 @@ import { DETECTION_ORDER, DRIVER_FAMILIES, ROUTER_FAMILY_FACTS, isRouterFamily }
  */
 
 /** The driver families whose SMS interface is on record, and implemented. */
-const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed"];
+const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed", "fiberhome"];
 
 const PAGES = [
   { file: "docs/guide/zh/supported-devices.md", locale: "zh-CN" },

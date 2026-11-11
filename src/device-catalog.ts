@@ -453,6 +453,18 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     en: "locking 5G bands needs the cellular module to report its 5G band setting; a model that does not locks 4G bands only",
   },
   {
+    family: "fiberhome",
+    features: ["smsRead"],
+    zh: "短信走的是路由器网页自己的加密接口，烽燧用它已经登录的会话去读；路由器要求另外登录网页才给读时，这一项是空的",
+    en: "SMS is on the encrypted interface of the router's own web page, which FengSui asks in the session it is signed in with; a router that wants a separate web sign-in for it leaves this empty",
+  },
+  {
+    family: "fiberhome",
+    features: ["smsWrite"],
+    zh: "发送只接受英文字母、数字和常用标点（接口资料里只有这一种编码），并且不发送含 ` $ \" \\ 的正文：路由器会把正文交给命令行；删除只能整段对话一起删",
+    en: "sends plain English text only (letters, digits and common punctuation: the one encoding on record), and never text with a backquote, a dollar sign, a double quote or a backslash, because the router hands the text to a command line; deletes a whole conversation at a time",
+  },
+  {
     family: "tozed",
     features: ["smsWrite"],
     zh: "能发送短信；路由器的接口资料里没有删除短信和标为已读的指令，这两项烽燧在这里不能做",

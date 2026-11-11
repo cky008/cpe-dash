@@ -297,13 +297,15 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| LG6121F | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121F) |
-| LG6151M | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6151M) |
-| LG6121 | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121) |
-| LG522 | 室内 CPE | ? | ? |  |  | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG522) |
+| LG6121F | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121F) |
+| LG6151M | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6151M) |
+| LG6121 | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121) |
+| LG522 | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG522) |
 
 这一节的说明：
 
+- △ 「短信」：短信走的是路由器网页自己的加密接口，烽燧用它已经登录的会话去读；路由器要求另外登录网页才给读时，这一项是空的（这一节的全部型号）。
+- △ 「短信」：发送只接受英文字母、数字和常用标点（接口资料里只有这一种编码），并且不发送含 ` $ " \ 的正文：路由器会把正文交给命令行；删除只能整段对话一起删（这一节的全部型号）。
 - △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。
 
 <a id="brand-nradio"></a>
