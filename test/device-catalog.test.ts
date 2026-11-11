@@ -33,7 +33,7 @@ import { DETECTION_ORDER, DRIVER_FAMILIES, ROUTER_FAMILY_FACTS, isRouterFamily }
  */
 
 /** The driver families whose SMS interface is on record, and implemented. */
-const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt"];
+const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed"];
 
 const PAGES = [
   { file: "docs/guide/zh/supported-devices.md", locale: "zh-CN" },
@@ -273,9 +273,10 @@ describe("the row of the router the console shows", () => {
     assert.deepEqual([row.model, row.section], [null, "tozed"]);
     assert.deepEqual(
       row.modules.map((m) => m.mark),
-      ["?", "?", "", "", "?", "?", "△", "", "", ""]
+      ["?", "?", "", "?/△", "?", "?", "△", "", "", ""]
     );
     assert.ok(row.notes.some((n) => n.zh.startsWith("有些运营商定制固件")), "what the list says of every model of the brand");
+    assert.ok(row.notes.some((n) => n.zh.startsWith("短信：能发送短信；")), "and what its SMS interface cannot do");
     assert.equal(deviceSupportRow("openwrt", null).section, "openwrt");
     assert.equal(deviceSupportRow("openwrt", "Quectel 5G Module").model, null);
   });

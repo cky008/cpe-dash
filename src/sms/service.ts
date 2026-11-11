@@ -122,7 +122,7 @@ const DAY_MS = 24 * 60 * 60_000;
 export const MAX_DELETE_BATCH = 50;
 
 function sameCounters(a: SmsCounters, b: SmsCounters): boolean {
-  return a.localUnread === b.localUnread && a.localInbox === b.localInbox && a.localOutbox === b.localOutbox;
+  return a.localUnread === b.localUnread && a.localInbox === b.localInbox && a.localOutbox === b.localOutbox && (a.newest ?? 0) === (b.newest ?? 0);
 }
 
 /**

@@ -1,11 +1,14 @@
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
 import { neighbourOf, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { dateOfParts, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
 import type {
@@ -18,6 +21,9 @@ import type {
   DriverNeighbour,
   DriverNetworkMode,
   DriverSessionHandle,
+  DriverSms,
+  DriverSmsSendOptions,
+  DriverSmsSendOutcome,
   DriverTelemetry,
 } from "./types.ts";
 import {
@@ -48,6 +54,11 @@ import {
  * later calls carry. Readings: `205` signal and traffic, `207` board and temperature, `282` nearby
  * cells; settings: `218` network mode, `161` band masks (bare lowercase hexadecimal), `160` cell
  * locks. The answers some operator builds wrap in AES are not supported (no documented key).
+ *
+ * SMS: `12` lists a box page by page (`subcmd` 0 the inbox, 1 the sent box) as comma-separated
+ * Base64 entries, each `index read-flag number date time text`; `13` sends, with the text as Base64
+ * and the write token `233` hands out. No command to mark a message read or to delete one is on
+ * record, so FengSui keeps the read state itself and offers no delete here.
  */
 
 const FAMILY = "tozed" as const;
@@ -68,6 +79,41 @@ async function call(http: LanHttp, sessionId: string, cmd: number, method: "GET"
 
 function requireSuccess(answer: Record<string, unknown>, cmd: number): void {
   if (fieldOf(answer, "success") !== true) throw new CpeApiError(`cmd${cmd}`, `cmd ${cmd} refused`);
+}
+
+/** The boxes `cmd 12` lists by `subcmd`. */
+const SMS_INBOX = 0;
+const SMS_SENT = 1;
+/** Sent messages get handles of their own range: each box numbers its messages from the start. */
+const SMS_SENT_HANDLE_BASE = 1_000_000;
+const SMS_MAX_PAGES = 10;
+
+/**
+ * One box page of `cmd 12` (`sms_list`: comma-separated Base64, each `index read-flag number date
+ * time text`, the read flag `1` once read) as stored messages. An entry that is not that is left out.
+ */
+export function parseTozedSmsPage(smsList: unknown, box: typeof SMS_INBOX | typeof SMS_SENT): SmsWireMessage[] {
+  if (typeof smsList !== "string" || smsList === "") return [];
+  const out: SmsWireMessage[] = [];
+  for (const entry of smsList.split(",").slice(0, 500)) {
+    const encoded = entry.trim();
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) continue;
+    const parts = Buffer.from(encoded, "base64").toString("utf8").split(" ");
+    if (parts.length < 5 || !/^\d{1,6}$/.test(parts[0] ?? "")) continue;
+    const index = Number.parseInt(parts[0] ?? "", 10);
+    out.push(
+      wireMessage({
+        // Above zero, and apart from the other box's
+        index: index + 1 + (box === SMS_SENT ? SMS_SENT_HANDLE_BASE : 0),
+        phone: parts[2] ?? "",
+        date: dateOfParts(`${parts[3] ?? ""} ${parts[4] ?? ""}`.split(/[-/.:\s]+/)),
+        unread: parts[1] !== "1",
+        outgoing: box === SMS_SENT,
+        content: parts.slice(5).join(" "),
+      })
+    );
+  }
+  return out;
 }
 
 const MODES: Readonly<Record<DriverNetworkMode, { networkMode: string; mode5g: string }>> = {
@@ -295,6 +341,61 @@ class TozedSession implements DriverSessionHandle {
     const resetMode = before.networkMode !== null && before.networkMode !== "auto";
     if (resetMode) await this.#post(check, 218, { ...MODES.auto });
     settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: resetMode });
+  }
+
+  /**
+   * SMS as the router's own page reads and sends it. Its interface has no command on record to mark
+   * a message read or to delete one: FengSui keeps the read state, and offers no delete.
+   */
+  readonly sms: DriverSms = {
+    keepsSent: true,
+    list: () => this.#smsList(),
+    counters: () => this.#smsCounters(),
+    send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
+  };
+
+  async #smsPage(box: typeof SMS_INBOX | typeof SMS_SENT, page: number): Promise<SmsWireMessage[]> {
+    this.#guard();
+    const answer = await call(this.#http, this.#sid, 12, "GET", { page_num: page, subcmd: box });
+    // A firmware without the SMS page answers the command without a list
+    if (fieldOf(answer, "success") !== true || typeof answer["sms_list"] !== "string") throw new SectionUnavailableError("SMS", null);
+    return parseTozedSmsPage(answer["sms_list"], box);
+  }
+
+  async #smsList(): Promise<SmsWireMessage[]> {
+    const seen = new Map<number, SmsWireMessage>();
+    for (const box of [SMS_INBOX, SMS_SENT] as const) {
+      for (let page = 1; page <= SMS_MAX_PAGES; page++) {
+        const before = seen.size;
+        for (const message of await this.#smsPage(box, page)) seen.set(message.index, message);
+        // An empty page, or one that brought nothing new (a firmware that lists everything at once), is the last
+        if (seen.size === before) break;
+      }
+    }
+    return [...seen.values()];
+  }
+
+  /**
+   * The inbox's first page, the same one read on every poll and after every listing: how many
+   * messages it holds, and the newest handle on it, so that a new message shows even when the page
+   * is full. No unread count: the router's never goes down (nothing can tell it a message was read).
+   */
+  async #smsCounters(): Promise<SmsCounters> {
+    const page = await this.#smsPage(SMS_INBOX, 1);
+    return { localUnread: 0, localInbox: page.length, localOutbox: 0, localDraft: 0, localMax: 0, newest: page.reduce((max, m) => Math.max(max, m.index), 0) };
+  }
+
+  /** `cmd 13` with the write token of `cmd 233`: the router answers whether the message went out (`message` `0`). */
+  async #smsSend(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome> {
+    this.#guard();
+    const token = textOf((await call(this.#http, this.#sid, 233, "GET").catch((): Record<string, unknown> => ({})))["token"]) ?? "";
+    noteSent(check, FAMILY, "cmd13");
+    const answer = await call(this.#http, this.#sid, 13, "POST", { token, phoneNo: phone, content: Buffer.from(content, "utf8").toString("base64") });
+    requireSuccess(answer, 13);
+    options.onAccepted();
+    const verdict = textOf(answer["message"]);
+    if (verdict === "0") return { state: "sent", code: null };
+    return verdict === null ? { state: "unconfirmed", code: null } : { state: "failed", code: /^\d{1,6}$/.test(verdict) ? `sms-${verdict}` : null };
   }
 
   async reboot(check: WriteCheck): Promise<void> {

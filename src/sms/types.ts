@@ -54,7 +54,13 @@ export interface SmsCounters {
   localInbox: number;
   localOutbox: number;
   localDraft: number;
+  /** How many messages fit (`0`: the router does not say). */
   localMax: number;
+  /**
+   * The handle of the newest message, on a router whose counts alone would miss a new one (it can
+   * only count the page it lists): a sync starts when this moves, as when a count does.
+   */
+  newest?: number;
 }
 
 /**

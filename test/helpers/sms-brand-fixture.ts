@@ -18,6 +18,20 @@ export function smsOf(session: DriverSession): DriverSms {
   return session.sms;
 }
 
+/** The send of a session whose interface has one. */
+export function sendOf(session: DriverSession): NonNullable<DriverSms["send"]> {
+  const send = smsOf(session).send;
+  if (!send) throw new Error("this session cannot send");
+  return send;
+}
+
+/** The delete of a session whose interface has one. */
+export function deleteOf(session: DriverSession): NonNullable<DriverSms["delete"]> {
+  const remove = smsOf(session).delete;
+  if (!remove) throw new Error("this session cannot delete");
+  return remove;
+}
+
 /** The same, for a family whose interface sends, marks read and deletes. */
 export function smsWritesOf(session: DriverSession): Required<DriverSms> {
   const sms = smsOf(session);

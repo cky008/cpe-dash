@@ -452,6 +452,18 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     zh: "锁 5G 频段要路由器的蜂窝模组报告它的 5G 频段设置，不报告的型号只能锁 4G 频段",
     en: "locking 5G bands needs the cellular module to report its 5G band setting; a model that does not locks 4G bands only",
   },
+  {
+    family: "tozed",
+    features: ["smsWrite"],
+    zh: "能发送短信；路由器的接口资料里没有删除短信和标为已读的指令，这两项烽燧在这里不能做",
+    en: "sends messages; the router's interface has no command on record to delete a message or to mark one read, so FengSui can do neither here",
+  },
+  {
+    family: "tozed",
+    features: [],
+    zh: "哪些短信没读过由烽燧自己记（路由器上的未读标记烽燧改不了）",
+    en: "FengSui keeps track of what you have not read (it cannot change the router's own unread mark)",
+  },
   { family: "openwrt", features: ["reboot"], zh: "「重启」只重启蜂窝模组，不重启整台路由器", en: "\"Reboot\" restarts the cellular module, not the whole router" },
   {
     family: "openwrt",

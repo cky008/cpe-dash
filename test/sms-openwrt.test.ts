@@ -6,10 +6,10 @@ import { SectionUnavailableError } from "../src/cpe-domain.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { atErrorCode, parseCmglPdus, parseCpms } from "../src/drivers/at-sms.ts";
 import { qmodemText } from "../src/drivers/openwrt.ts";
-import type { DriverSession, DriverSms, DriverSmsSendOptions } from "../src/drivers/types.ts";
+import type { DriverSmsSendOptions } from "../src/drivers/types.ts";
 import { decodeSmsPdu, encodeSmsSubmit, gsm7Septets, packSeptets } from "../src/sms/pdu.ts";
 import { OPENWRT_PASSWORD, type StoredPdu, openwrtRouter } from "./helpers/openwrt-router.ts";
-import { createBrandSmsFixture, smsOf } from "./helpers/sms-brand-fixture.ts";
+import { createBrandSmsFixture, deleteOf, sendOf, smsOf } from "./helpers/sms-brand-fixture.ts";
 
 /**
  * SMS on an OpenWrt router with a Quectel or Fibocom module: the modem's own AT commands (PDU mode)
@@ -21,18 +21,6 @@ const FRIEND = "+353830000001";
 /** `+353830000001` as an originating address, and the service centre in front of a stored delivery. */
 const FROM = "0C91538303000010";
 const SMSC = "0791538303000010";
-
-function sendOf(session: DriverSession): NonNullable<DriverSms["send"]> {
-  const send = smsOf(session).send;
-  if (!send) throw new Error("this session cannot send");
-  return send;
-}
-
-function deleteOf(session: DriverSession): NonNullable<DriverSms["delete"]> {
-  const remove = smsOf(session).delete;
-  if (!remove) throw new Error("this session cannot delete");
-  return remove;
-}
 
 /** An alphanumeric sender as an originating address: 7-bit packed, its length in semi-octets. */
 function alphaSender(name: string): string {
