@@ -155,7 +155,7 @@ describe("audit gate: private keys", () => {
   });
 
   it("fails every other private key, however it is labelled, and a key cut short", () => {
-    const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 1024 });
+    const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
     const pkcs1 = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
     const pkcs8 = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
     assert.equal(scanPrivateKeys(pkcs1), 1);
