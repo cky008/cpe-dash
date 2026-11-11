@@ -1,3 +1,4 @@
+import { DOCS_SITE } from "../core/help.ts";
 import { startApp } from "../ui/app.ts";
 import { DemoBackend } from "./backend.ts";
 import { readDemoSeed, rebaseSeed } from "./seed.ts";
@@ -15,6 +16,7 @@ const NOTICE = {
     other: "演示模式：现在模拟的是一台烽燧没验证过的华为路由器，数据都是虚构的，刷新即复原。",
     toOther: "看看烽燧在其他华为型号上怎么工作 →",
     toVerified: "换回 H168-383",
+    devices: "每个型号能做什么",
     link: "关于演示",
     close: "关闭提示",
   },
@@ -23,6 +25,7 @@ const NOTICE = {
     other: "Demo mode: this is a Huawei router FengSui was not verified on. Every value is fictional, and changes stay in this page until you reload.",
     toOther: "See how FengSui works on other Huawei models →",
     toVerified: "Back to the H168-383",
+    devices: "What works on each model",
     link: "About the demo",
     close: "Dismiss",
   },
@@ -56,6 +59,11 @@ function mountNotice(): void {
   const switcher = document.createElement("a");
   switcher.href = switchUrl();
   switcher.className = linkClass;
+  // On the other router: the Supported devices page, every model and what FengSui does on it
+  const devices = document.createElement("a");
+  devices.target = "_blank";
+  devices.rel = "noopener noreferrer";
+  devices.className = linkClass;
   const link = document.createElement("a");
   link.href = ABOUT_URL;
   link.target = "_blank";
@@ -78,12 +86,14 @@ function mountNotice(): void {
     text.textContent = OTHER_ROUTER ? copy.other : copy.text;
     switcher.textContent = OTHER_ROUTER ? copy.toVerified : copy.toOther;
     link.textContent = copy.link;
+    devices.textContent = copy.devices;
+    devices.href = `${DOCS_SITE}${document.documentElement.lang === "en" ? "en/" : ""}docs/supported-devices/`;
     close.setAttribute("aria-label", copy.close);
   };
   render();
   // The console sets <html lang> when the language is switched
   new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
-  bar.append(text, switcher, link, close);
+  bar.append(text, switcher, ...(OTHER_ROUTER ? [devices] : []), link, close);
   document.body.prepend(bar);
 }
 
