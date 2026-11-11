@@ -68,7 +68,7 @@ FengSui is currently verified on the Huawei H168-383 only. SMS on the brands bel
 
 The interface notes of Pinsu and NRadio have no SMS interface, so the SMS page stays empty on those two brands.
 
-Sending, marking as read and deleting on these routers are [experimental writes](other-routers.md#safeguards): available by default, sent once, and read back afterwards; to stop them, turn off "Send and manage SMS" under Settings → Device. Conversations, verification codes, Recently deleted, contacts, Telegram, webhooks and the limits on what an AI agent may send are the same on every brand; the storage alerts come only where the router reports its capacity.
+Sending, marking as read and deleting on these routers are [experimental writes](other-routers.md#safeguards): available by default, sent once, and read back afterwards; to stop them, turn off "Send and manage SMS" under Settings → Device. The console and Telegram show only the buttons this router can act on: a router that cannot send has no New message or reply box, one that cannot delete has no delete button, and one that deletes whole conversations has a "Delete conversation" button at the top of each conversation. Conversations, verification codes, Recently deleted, contacts, Telegram, webhooks and the limits on what an AI agent may send are the same on every brand; the storage alerts come only where the router reports its capacity.
 
 ## Where SMS messages are stored
 

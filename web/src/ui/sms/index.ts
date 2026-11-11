@@ -4,7 +4,7 @@ import { ApiError } from "../../core/api.ts";
 import { canWrite, unavailableSection, writeState } from "../../core/device-access-view.ts";
 import type { ThreadFilter } from "../../core/endpoints.ts";
 import { DASH } from "../../core/format.ts";
-import { formatDayLabel, formatShortTime, parseMsgTime, threadGroup } from "../../core/sms.ts";
+import { SMS_DELETE_MAX, type SmsActions, formatDayLabel, formatShortTime, parseMsgTime, smsActions, smsActionsKey, threadDeleteUids, threadGroup } from "../../core/sms.ts";
 import type { MessageKey } from "../../i18n/zh-CN.ts";
 import type { AppContext } from "../context.ts";
 import { byId, debounce, h, icon, mount, replay, show } from "../dom.ts";
@@ -87,6 +87,9 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
   const threadList = h("div", { class: "flex-1 overflow-y-auto px-2.5 pb-28" });
   // A model nobody verified writes SMS where FengSui implements it for the model, unless its owner turned that off
   const locked = (): boolean => !canWrite(ctx.store.state.scheduler, "smsWrite");
+  // What the router's SMS interface can do: a button for a write it has no way to do is not offered
+  const actions = (): SmsActions => smsActions(ctx.store.state.sms?.abilities);
+  const canSend = (): boolean => !locked() && actions().send;
   const fab = h("button", { class: "fab-compose btn btn-primary btn-circle size-13 absolute right-5 bottom-6 z-10", attrs: { type: "button" } }, icon("plus", "text-2xl"));
   fab.addEventListener("click", () => shared.openCompose());
   const listHeader = h(
@@ -272,6 +275,8 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     mount(privacySlot, revealButton(ctx, SMS_SCOPE));
     fab.title = ctx.t("sms.new");
     fab.setAttribute("aria-label", ctx.t("sms.new"));
+    // Whatever the conversation pane shows: a router that cannot send, or SMS writes turned off, gets no button
+    show(fab, canSend());
   };
 
   const renderThreadList = (): void => {
@@ -369,15 +374,18 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
 
   // ── Conversation ───────────────────────────────────────────────────────────
   const renderEmptyChat = (): void => {
-    show(fab, !locked());
     const newBtn = h("button", { class: "btn btn-primary btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("plus"), ctx.t("sms.new"));
     newBtn.addEventListener("click", () => shared.openCompose());
     mount(
       chatEmpty,
       h("div", { class: "size-20 rounded-[1.75rem] bg-base-200 grid place-items-center faint" }, icon("message", "text-4xl")),
       h("div", { class: "space-y-1.5" }, h("h2", { class: "text-base font-semibold serif" }, ctx.t("chat.empty_title")), h("p", { class: "text-sm muted max-w-xs" }, ctx.t("chat.empty_desc"))),
-      locked() ? h("p", { class: "text-xs muted max-w-xs flex items-center gap-1.5" }, icon("lock"), ctx.t("dev.sms_read_only")) : newBtn,
-      locked() ? null : h("p", { class: "text-xs faint hidden md:block" }, h("kbd", { class: "kbd kbd-xs" }, "N"), ` ${ctx.t("sms.new")} · `, h("kbd", { class: "kbd kbd-xs" }, "/"), ` ${ctx.t("sms.search")}`),
+      locked()
+        ? h("p", { class: "text-xs muted max-w-xs flex items-center gap-1.5" }, icon("lock"), ctx.t("dev.sms_read_only"))
+        : actions().send
+          ? newBtn
+          : h("p", { class: "text-xs muted max-w-xs flex items-center gap-1.5", data: { smsNoSend: "empty" } }, icon("info"), ctx.t("chat.no_send")),
+      canSend() ? h("p", { class: "text-xs faint hidden md:block" }, h("kbd", { class: "kbd kbd-xs" }, "N"), ` ${ctx.t("sms.new")} · `, h("kbd", { class: "kbd kbd-xs" }, "/"), ` ${ctx.t("sms.search")}`) : null,
       // An experimental write on a model nobody verified: say how it differs
       writeState(ctx.store.state.scheduler, "smsWrite") === "enabled"
         ? h("p", { class: "text-xs text-warning max-w-xs flex items-start gap-1.5" }, icon("alert", "mt-0.5 shrink-0"), ctx.t("dev.sms_experimental"))
@@ -418,6 +426,27 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     }
   };
 
+  /** A router that deletes a whole conversation at a time: every message of it, in one request. */
+  const deleteThread = async (detail: SmsThreadDetail): Promise<void> => {
+    const uids = threadDeleteUids(detail.messages);
+    if (!uids) return;
+    const days = ctx.store.state.sms?.trashDays ?? 30;
+    const ok = await ctx.confirm({
+      title: ctx.t("chat.delete_thread_title"),
+      body: [days > 0 ? ctx.t("chat.delete_thread_body", { count: uids.length, days }) : ctx.t("chat.delete_thread_body_final", { count: uids.length })],
+      confirmLabel: ctx.t("chat.delete_thread"),
+      tone: "error",
+    });
+    if (!ok) return;
+    try {
+      const res = await ctx.api.smsDelete(uids);
+      ctx.toast(ctx.t(res.trashDays > 0 ? "toast.deleted_to_trash" : "toast.deleted"), "success");
+      await reload();
+    } catch (err) {
+      ctx.toast(ctx.describeError(err), "error");
+    }
+  };
+
   const renderConversation = (opts: { preserveScroll: boolean }): void => {
     if (!thread) {
       show(chatEmpty, true);
@@ -451,13 +480,24 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     const markBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5 text-primary", attrs: { type: "button" } }, icon("check-check"), `${ctx.t("chat.mark_read")} · ${unreadCount}`);
     markBtn.addEventListener("click", () => markRead(markBtn, detail.threadKey));
     const editBtn = h("button", { class: "btn btn-ghost btn-sm btn-square rounded-lg", title: ctx.t("chat.edit_contact"), attrs: { type: "button", "aria-label": ctx.t("chat.edit_contact") } }, icon("pencil", "text-base"));
+    // Only on a router that deletes a whole conversation at a time; one too long for a request says so instead
+    const tooLong = threadDeleteUids(detail.messages) === null;
+    const threadDeleteLabel = tooLong ? ctx.t("chat.delete_thread_too_long", { max: SMS_DELETE_MAX }) : ctx.t("chat.delete_thread");
+    const threadDeleteBtn =
+      actions().deleteThread && !locked()
+        ? h("button", { class: "btn btn-ghost btn-sm btn-square rounded-lg hover:text-error", title: threadDeleteLabel, attrs: { type: "button", "aria-label": threadDeleteLabel }, data: { smsDeleteThread: "" } }, icon("trash", "text-base"))
+        : null;
+    if (threadDeleteBtn) {
+      threadDeleteBtn.disabled = tooLong;
+      threadDeleteBtn.addEventListener("click", () => void deleteThread(detail));
+    }
     editBtn.addEventListener("click", () => shared.openContacts({ phone: s.e164 ?? detail.phone, name: detail.contact?.name ?? "", note: detail.contact?.note ?? "" }));
     mount(
       chatHeader,
       back,
       avatar(title, { brand: isBrandSender(s), known: Boolean(detail.contact), size: "size-10 text-sm", accent: true }),
       h("div", { class: "min-w-0 flex-1" }, h("h2", { class: "text-lg font-bold truncate leading-tight" }, title), h("p", { class: "text-xs muted truncate mt-0.5" }, sub.join(" · "))),
-      h("div", { class: "flex items-center gap-1 shrink-0" }, unreadCount > 0 && !locked() ? markBtn : null, s.type === "alphanumeric" ? null : editBtn)
+      h("div", { class: "flex items-center gap-1 shrink-0" }, unreadCount > 0 && !locked() ? markBtn : null, s.type === "alphanumeric" ? null : editBtn, threadDeleteBtn)
     );
 
     // Bubbles
@@ -492,7 +532,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
         icon("trash", "text-sm")
       );
       del.addEventListener("click", () => void deleteMessage(m));
-      if (locked()) del.classList.add("hidden");
+      if (locked() || !actions().deleteMessage) del.classList.add("hidden");
       nodes.push(
         h(
           "div",
@@ -524,9 +564,10 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     // Composer / notices
     renderNotice();
     const dialable = detail.dialable && detail.replyPhone !== null;
-    show(replyForm, dialable && !locked());
-    show(nonDialable, !dialable || locked());
+    show(replyForm, dialable && canSend());
+    show(nonDialable, !dialable || !canSend());
     if (locked()) mount(nonDialable, icon("lock"), ctx.t("dev.sms_read_only"));
+    else if (!actions().send) mount(nonDialable, icon("info"), ctx.t("chat.no_send"));
     else mount(nonDialable, icon("info"), ctx.t("chat.non_dialable"));
     replyHint.textContent = detail.replyPhone ? ctx.t("chat.reply_to", { phone: shownNumber(ctx, detail.replyPhone) }) : "";
     replyArea.placeholder = ctx.t("chat.reply_placeholder");
@@ -640,9 +681,14 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     if (visible) void reload();
     else dirty = true;
   });
+  // What the router's interface can do arrives with the first listing: redraw what offers a write then
+  let actionsKey = smsActionsKey(ctx.store.state.sms?.abilities);
   ctx.store.subscribe("sms", () => {
-    if (!ctx.store.state.smsEnabled) renderDisabled();
-    else renderSidebar();
+    if (!ctx.store.state.smsEnabled) return renderDisabled();
+    const next = smsActionsKey(ctx.store.state.sms?.abilities);
+    if (next === actionsKey) return renderSidebar();
+    actionsKey = next;
+    renderAll();
   });
   // Whether SMS writes are open on this router, and its SMS section, redrawn only when they change (the status polls every 10 s)
   let deviceKey = "";
@@ -672,7 +718,7 @@ export function mountSms(ctx: AppContext, initiallyVisible: boolean): void {
     if (!visible || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("input, textarea, select, [contenteditable='true']") || document.querySelector("dialog[open]")) return;
-    if ((event.key === "n" || event.key === "N") && !locked()) {
+    if ((event.key === "n" || event.key === "N") && canSend()) {
       event.preventDefault();
       shared.openCompose();
     } else if (event.key === "/") {

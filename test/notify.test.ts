@@ -744,6 +744,24 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("offers no reply or delete a router's SMS interface has no way to do", async () => {
+    const fx = createBotFixture();
+    const announced: EnrichedSmsMessage[] = [];
+    fx.service.on("sms:new", (m: EnrichedSmsMessage) => announced.push(m));
+    await fx.service.sync("full");
+    const personal = announced.find((m) => m.phone === "+353830000001")!;
+    // As a router that cannot send and deletes whole conversations only would have listed
+    Object.defineProperty(fx.service, "abilities", { get: () => ({ send: false, delete: "conversation" }) });
+    await fx.bot.notifySms(personal);
+    const card = fx.tg.sends("1001").at(-1)!;
+    assert.doesNotMatch(String(card.payload["text"]), /Reply to this message/);
+    assert.deepEqual(fx.tg.buttons(card), [`read:${personal.uid}`, "chat:+353830000001"]);
+    // The conversation view offers no reply either
+    await fx.message(1001, "/chat +353830000001");
+    assert.doesNotMatch(fx.tg.lastText("1001"), /Reply to this message/);
+    await fx.cleanup();
+  });
+
   it("runs the guided send wizard with country switch, contact pick, segment preview and confirmation", async () => {
     const fx = createBotFixture();
     await fx.service.sync("full");

@@ -1,4 +1,5 @@
 import type { SmsSendResult } from "../../../src/api-contract.ts";
+import type { SmsAbilities } from "../../../src/sms/types.ts";
 import type { ApiError } from "./api.ts";
 import type { Locale } from "./i18n.ts";
 
@@ -177,4 +178,36 @@ export function classifySendError(error: Pick<ApiError, "kind">): SendErrorKind 
     default:
       return "unknown";
   }
+}
+
+/** The most messages one delete request may name (the daemon's `MAX_DELETE_BATCH`). */
+export const SMS_DELETE_MAX = 50;
+
+/** What the SMS page offers on this router, besides reading and marking read. */
+export interface SmsActions {
+  send: boolean;
+  /** A delete button on each message. */
+  deleteMessage: boolean;
+  /** One delete for the whole conversation (a router that deletes no single message). */
+  deleteThread: boolean;
+}
+
+/**
+ * The actions of the router's SMS interface. Before the first listing of this run nothing is known
+ * yet, and the page offers what it always did (a write the router cannot do is refused with a reason).
+ */
+export function smsActions(abilities: SmsAbilities | null | undefined): SmsActions {
+  const known = abilities ?? { send: true, delete: "message" };
+  return { send: known.send, deleteMessage: known.delete === "message", deleteThread: known.delete === "conversation" };
+}
+
+/** A key that changes when what the page offers changes (a redraw is owed then, not on every status). */
+export function smsActionsKey(abilities: SmsAbilities | null | undefined): string {
+  const actions = smsActions(abilities);
+  return `${actions.send}|${actions.deleteMessage}|${actions.deleteThread}`;
+}
+
+/** The uids one conversation delete names: all of them, or `null` when there are more than one request may name. */
+export function threadDeleteUids(messages: ReadonlyArray<{ uid: string }>): string[] | null {
+  return messages.length > SMS_DELETE_MAX ? null : messages.map((m) => m.uid);
 }

@@ -463,6 +463,45 @@ describe("the console in a browser", () => {
     await closeDialogs(page);
   });
 
+  it("offers only what the router's SMS interface can do: no send, one delete per conversation", async () => {
+    const d = live();
+    const sms = d.stack.sms;
+    assert.ok(sms, "SMS is on");
+    await signIn(page, d);
+    await page.click('[data-view="sms"]');
+    await page.waitUntil(`document.querySelector('#smsListPane [data-thread-key^="+"]') !== null`, "the conversations");
+    await page.click('#smsListPane [data-thread-key^="+"]');
+    await page.waitUntil("document.querySelectorAll('#smsChatPane .bubble').length > 0", "the conversation");
+    // The demo router is a HiLink one: as a router that cannot send and deletes whole conversations would have listed
+    const original = sms.getStatus.bind(sms);
+    sms.getStatus = () => ({ ...original(), abilities: { send: false, delete: "conversation" } });
+    try {
+      sms.emit("sms:status", sms.getStatus());
+      await page.waitUntil("document.querySelector('#smsChatPane [data-sms-delete-thread]') !== null", "the conversation's delete");
+      assert.ok(await page.evaluate<boolean>(`[...document.querySelectorAll('#smsChatPane button[aria-label="Delete"]')].every((b) => b.classList.contains('hidden'))`), "no delete on single messages");
+      assert.ok(await page.evaluate<boolean>("document.querySelector('#smsChatPane form').classList.contains('hidden')"), "no reply box");
+      assert.match(await page.evaluate<string>("document.getElementById('smsChatPane').textContent"), /offers no way to send/);
+      assert.ok(await page.evaluate<boolean>("document.querySelector('.fab-compose').classList.contains('hidden')"), "no new message button");
+
+      const bubbles = await page.evaluate<number>("document.querySelectorAll('#smsChatPane .bubble').length");
+      const trashed = sms.listTrash().length;
+      await page.click("#smsChatPane [data-sms-delete-thread]");
+      await page.waitUntil(isOpen("confirmDialog"), "the confirmation");
+      assert.match(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), new RegExp(`deletes a whole conversation at a time: all ${bubbles} messages`));
+      await page.click("#confirmOk");
+      // One request named every message of the conversation
+      await until(() => sms.listTrash().length === trashed + bubbles, "the whole conversation in Recently deleted");
+      // Put the conversation back for the tests after this one (FengSui's own copies)
+      await sms.restoreMessages({ uids: sms.listTrash().slice(0, bubbles).map((m) => m.uid) });
+    } finally {
+      sms.getStatus = original;
+      sms.emit("sms:status", sms.getStatus());
+    }
+    await page.waitUntil("document.querySelector('#smsChatPane [data-sms-delete-thread]') === null && !document.querySelector('.fab-compose').classList.contains('hidden')", "the HiLink router's buttons back");
+    assert.deepEqual(page.exceptions, []);
+    await closeDialogs(page);
+  });
+
   it("puts a code chip's label back after two quick copies", async () => {
     const d = live();
     assert.ok(chrome, "Chrome is running");

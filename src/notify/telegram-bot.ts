@@ -827,7 +827,11 @@ export class TelegramBot implements NotificationChannel {
     lines.push("", `<blockquote>${escapeTelegramHtml(truncate(message.content, 3000))}</blockquote>`);
     // Where the gate refuses SMS writes (a model nobody verified without them, or with them turned off), a message can be read, not answered: no reply, read or delete
     const writable = this.#readOnlyModel() === null;
-    const replyPhone = writable && message.sender.dialable ? (message.sender.e164 ?? message.phone) : null;
+    // Nor is a button offered for what the router's interface has no way to do (send; delete one message)
+    const abilities = this.sms?.abilities ?? null;
+    const canSend = abilities?.send !== false;
+    const canDelete = (abilities?.delete ?? "message") === "message";
+    const replyPhone = writable && canSend && message.sender.dialable ? (message.sender.e164 ?? message.phone) : null;
     if (replyPhone) lines.push(this.#tx("reply_hint", { phone: replyPhone }));
 
     const row: InlineButton[] = [];
@@ -836,7 +840,7 @@ export class TelegramBot implements NotificationChannel {
     const delCb = callbackData("del", message.uid);
     if (writable && message.isUnread && readCb) row.push({ text: this.#tx("btn_read"), callback_data: readCb });
     if (chatCb) row.push({ text: this.#tx("btn_chat"), callback_data: chatCb });
-    if (writable && delCb) row.push({ text: this.#tx("btn_delete"), callback_data: delCb });
+    if (writable && canDelete && delCb) row.push({ text: this.#tx("btn_delete"), callback_data: delCb });
 
     for (const chatId of this.state.authorizedChats(this.allowedChatIds)) {
       await this.#deliver({ chatId, html: lines.join("\n"), keyboard: { inline_keyboard: [row] }, replyPhone: replyPhone ?? undefined });
@@ -1498,7 +1502,9 @@ export class TelegramBot implements NotificationChannel {
         `<blockquote>${escapeTelegramHtml(truncate(m.content, 400))}</blockquote>`
       );
     }
-    if (thread.replyPhone) lines.push(this.#tx("reply_hint", { phone: thread.replyPhone }));
+    // A reply only where this router can send
+    const replyPhone = sms.abilities?.send === false ? null : thread.replyPhone;
+    if (replyPhone) lines.push(this.#tx("reply_hint", { phone: replyPhone }));
     const unreadUid = thread.messages.find((m) => m.isUnread)?.uid;
     const readCb = unreadUid ? callbackData("read", unreadUid) : null;
     const sent = await this.#send(
@@ -1506,7 +1512,7 @@ export class TelegramBot implements NotificationChannel {
       lines.join("\n"),
       readCb ? { inline_keyboard: [[{ text: this.#tx("btn_read"), callback_data: readCb }]] } : undefined
     );
-    if (thread.replyPhone && sent.message_id) this.state.bindReply(to.chatId, sent.message_id, thread.replyPhone);
+    if (replyPhone && sent.message_id) this.state.bindReply(to.chatId, sent.message_id, replyPhone);
   }
 
   async #cmdSend(to: ReplyTo, rest: string): Promise<void> {

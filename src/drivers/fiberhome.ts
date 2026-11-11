@@ -466,6 +466,7 @@ class FiberhomeSession implements DriverSessionHandle {
     send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
     markRead: (indices, check) => this.#smsMarkRead(indices, check),
     delete: (indices, check) => this.#smsDelete(indices, check),
+    deleteScope: "conversation",
   };
 
   async #smsConversations(): Promise<FiberhomeConversation[]> {

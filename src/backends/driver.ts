@@ -89,6 +89,7 @@ export class DriverBackend implements RouterBackend {
     const facts = ROUTER_FAMILY_FACTS[this.family];
     if (!(facts.reads as ReadonlyArray<string>).includes("sms")) return null;
     const listed = await this.#scheduler.executeDriverSmsList({ priority: request.priority });
+    // `abilities` comes from the session: what the family's interface has, and what this router offers of it
     return listed ? { ...listed, via: "driver", complete: true, readState: facts.smsReadState ?? "router" } : null;
   }
 

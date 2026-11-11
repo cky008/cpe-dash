@@ -168,6 +168,13 @@ export interface DriverSms {
   list(): Promise<SmsWireMessage[]>;
   /** The counts the 5 s poll carries; `listed` spares a family that counts by listing a second listing. */
   counters(listed?: ReadonlyArray<SmsWireMessage>): Promise<SmsCounters>;
+  /**
+   * Whether this router offers the send the family's interface has (`send` needs a helper this
+   * router may lack). Left out: it does wherever `send` is there. Asked in a listing's session.
+   */
+  canSend?(): Promise<boolean>;
+  /** What one delete takes: a message (the default) or the whole conversation it is in. */
+  readonly deleteScope?: "message" | "conversation";
   /** Send `content` to one recipient (already checked: a dialable number, text within the segment limit). */
   send?(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome>;
   markRead?(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void>;

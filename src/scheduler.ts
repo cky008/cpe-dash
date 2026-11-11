@@ -50,7 +50,7 @@ import { detectRouterFamily } from "./drivers/detect.ts";
 import { DriverLoginMethodError } from "./drivers/login.ts";
 import { CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./drivers/snapshot.ts";
 import type { DriverSession } from "./drivers/types.ts";
-import type { SmsCounters, SmsWireMessage } from "./sms/types.ts";
+import type { SmsAbilities, SmsCounters, SmsWireMessage } from "./sms/types.ts";
 import { getXmlTag } from "./xml.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
 import type { CircuitBreakerState, CpeLoginState, SessionExecutionOutcome } from "./types.ts";
@@ -1070,14 +1070,17 @@ export class MutexSessionScheduler extends EventEmitter {
    * Every message a router of a driver family stores, with the counts read in the same session.
    * `null`: skipped, yielded, or no SMS on this router (noted, so the background sync leaves it alone).
    */
-  executeDriverSmsList(opts: { priority?: SchedulerPriority } = {}): Promise<{ counters: SmsCounters; messages: SmsWireMessage[] } | null> {
+  executeDriverSmsList(opts: { priority?: SchedulerPriority } = {}): Promise<{ counters: SmsCounters; messages: SmsWireMessage[]; abilities: SmsAbilities } | null> {
     return this.#executeDriverRead(
       (session) =>
         this.readSection("sms", async () => {
           const sms = session.sms;
           if (!sms) throw new SectionUnavailableError("SMS", null);
           const messages = await sms.list();
-          return { counters: await sms.counters(messages), messages };
+          const counters = await sms.counters(messages);
+          // What the interface has, and of that what this router offers (a send that needs a helper it may lack)
+          const send = sms.send !== undefined && (sms.canSend ? await sms.canSend().catch(() => true) : true);
+          return { counters, messages, abilities: { send, delete: sms.delete ? (sms.deleteScope ?? "message") : "none" } };
         }),
       { priority: opts.priority ?? "normal" }
     );

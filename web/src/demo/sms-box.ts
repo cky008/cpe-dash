@@ -123,6 +123,8 @@ export class DemoSmsBox {
       syncInProgress: false,
       syncPending: false,
       trashDays: this.#trashDays(),
+      // Both demo routers are Huawei HiLink models: they send and delete one message at a time
+      abilities: { send: true, delete: "message" },
     };
   }
 

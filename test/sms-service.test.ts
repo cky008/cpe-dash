@@ -102,6 +102,20 @@ describe("Telemetry piggyback of SMS counters", () => {
   });
 });
 
+describe("SmsService: what the router's SMS interface can do", () => {
+  it("knows nothing before the first listing, then that a HiLink router sends and deletes message by message", async () => {
+    const fx = createSmsFixture();
+    try {
+      assert.equal(fx.service.getStatus().abilities, null);
+      await fx.service.sync("full");
+      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message" });
+      assert.deepEqual(fx.service.abilities, { send: true, delete: "message" });
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
 describe("SmsService sync, change detection and notifications", () => {
   it("tells every listener about a sync even when one registered before them throws", async () => {
     const fx = createSmsFixture();

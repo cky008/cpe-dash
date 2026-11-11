@@ -18,6 +18,7 @@ import type {
   DeletedSmsMessage,
   EnrichedSmsMessage,
   ResolvedRecipient,
+  SmsAbilities,
   SmsCounters,
   SmsListingPath,
   SmsMessageRecord,
@@ -62,6 +63,11 @@ export interface SmsStatusSnapshot {
   defaultCountryCode: string;
   /** Days a deleted message stays in Recently deleted (`0`: deleted for good at once). */
   trashDays: number;
+  /**
+   * What the router's SMS interface can do besides reading (send; delete a message, a whole
+   * conversation, or nothing), as the latest listing found it. `null`: nothing listed in this run yet.
+   */
+  abilities: SmsAbilities | null;
 }
 
 export interface SmsSendPreview {
@@ -158,6 +164,7 @@ export class SmsService extends EventEmitter {
   #synced: SmsCounters | null = null;
   #probeUnread: number | null = null;
   #probeStorageFull = false;
+  #abilities: SmsAbilities | null = null;
   #retryNotBeforeMs = 0;
   #inflight: { mode: SmsSyncMode; promise: Promise<SmsSyncSummary | null> } | null = null;
   #fullTimer: ReturnType<typeof setInterval> | null = null;
@@ -268,7 +275,13 @@ export class SmsService extends EventEmitter {
       syncPending: this.#isSyncPending(meta.lastSyncAt),
       defaultCountryCode: this.defaultCountryCode,
       trashDays: this.#trashDays(),
+      abilities: this.#abilities ? { ...this.#abilities } : null,
     };
+  }
+
+  /** What the router's SMS interface can do besides reading, as the latest listing found it (`null`: none yet). */
+  get abilities(): SmsAbilities | null {
+    return this.#abilities ? { ...this.#abilities } : null;
   }
 
   countries(): readonly CountryDialInfo[] {
@@ -566,6 +579,7 @@ export class SmsService extends EventEmitter {
     this.#synced = fetched.counters;
     this.#observed = fetched.counters;
     this.#probeUnread = null;
+    this.#abilities = { ...fetched.abilities };
     // A listing that holds everything is a full sync, whatever was asked for: what it lacks is gone from the router
     const synced: SmsSyncMode = fetched.complete ? "full" : mode;
     const ingest = this.mirror.ingest(fetched.messages, synced, { counters: fetched.counters, via: fetched.via, keepReadState: fetched.readState === "fengsui" });

@@ -289,6 +289,8 @@ describe("fiberhome SMS: through the SMS service", () => {
 
       const synced = await fx.service.sync("full");
       assert.deepEqual([synced?.via, synced?.added, synced?.newIncoming], ["driver", 4, 2]);
+      // A whole conversation at a time: the console offers one delete per conversation
+      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "conversation" });
       const thread = fx.service.getThread(FRIEND);
       await fx.service.markRead({ threadKey: thread.threadKey });
       assert.ok(fx.router.state.sms[FRIEND]?.every((m) => m.opened));

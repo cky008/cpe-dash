@@ -69,6 +69,16 @@ export interface SmsCounters {
  */
 export type SmsListingPath = "sms-list" | "contact-list" | "driver";
 
+/**
+ * What the router's SMS interface can do, beside reading: send, and delete one message at a time,
+ * a whole conversation at a time, or not at all. Marking read is always possible (where the router
+ * cannot be told, FengSui keeps the state itself).
+ */
+export interface SmsAbilities {
+  send: boolean;
+  delete: "message" | "conversation" | "none";
+}
+
 /** One listing of the router's messages, with the counts read in the same session. */
 export interface SmsFetchResult {
   counters: SmsCounters;

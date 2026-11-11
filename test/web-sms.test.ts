@@ -1,7 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SmsSendResult } from "../src/api-contract.ts";
-import { classifySendError, classifySendResult, daysAgo, formatDayLabel, formatShortTime, initialsOf, isLikelyContactNameQuery, linkifySegments, parseMsgTime, threadGroup, trashDaysLeft } from "../web/src/core/sms.ts";
+import { MAX_DELETE_BATCH } from "../src/sms/service.ts";
+import {
+  SMS_DELETE_MAX,
+  classifySendError,
+  classifySendResult,
+  daysAgo,
+  formatDayLabel,
+  formatShortTime,
+  initialsOf,
+  isLikelyContactNameQuery,
+  linkifySegments,
+  parseMsgTime,
+  smsActions,
+  smsActionsKey,
+  threadDeleteUids,
+  threadGroup,
+  trashDaysLeft,
+} from "../web/src/core/sms.ts";
 
 const NOW = new Date(2026, 9, 31, 12, 0, 0); // local time, Saturday 2026-10-31 12:00
 
@@ -15,6 +32,30 @@ const BASE_RESULT: SmsSendResult = {
   encoding: "7BIT",
   segments: 1,
 };
+
+describe("web core: what the SMS page offers on this router", () => {
+  it("offers a write only where the router's interface has it, and everything before the first listing", () => {
+    assert.deepEqual(smsActions(null), { send: true, deleteMessage: true, deleteThread: false });
+    assert.deepEqual(smsActions(undefined), { send: true, deleteMessage: true, deleteThread: false });
+    assert.deepEqual(smsActions({ send: true, delete: "message" }), { send: true, deleteMessage: true, deleteThread: false });
+    assert.deepEqual(smsActions({ send: false, delete: "none" }), { send: false, deleteMessage: false, deleteThread: false });
+    assert.deepEqual(smsActions({ send: true, delete: "conversation" }), { send: true, deleteMessage: false, deleteThread: true });
+  });
+
+  it("changes its key only when what it offers changes", () => {
+    assert.equal(smsActionsKey(null), smsActionsKey({ send: true, delete: "message" }));
+    assert.notEqual(smsActionsKey(null), smsActionsKey({ send: false, delete: "message" }));
+    assert.notEqual(smsActionsKey({ send: true, delete: "none" }), smsActionsKey({ send: true, delete: "conversation" }));
+  });
+
+  it("names every message of a conversation in one delete, up to what one request may name", () => {
+    assert.equal(SMS_DELETE_MAX, MAX_DELETE_BATCH);
+    assert.deepEqual(threadDeleteUids([{ uid: "a" }, { uid: "b" }]), ["a", "b"]);
+    const many = Array.from({ length: SMS_DELETE_MAX }, (_, i) => ({ uid: `u${i}` }));
+    assert.equal(threadDeleteUids(many)?.length, SMS_DELETE_MAX);
+    assert.equal(threadDeleteUids([...many, { uid: "one more" }]), null);
+  });
+});
 
 describe("web core: SMS presentation and send outcomes", () => {
   it("formats router-local dates relative to now", () => {

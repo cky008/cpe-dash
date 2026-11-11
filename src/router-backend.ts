@@ -13,7 +13,7 @@ import type { DeviceProbeResult } from "./device-profile.ts";
 import type { RouterFamily } from "./router-family.ts";
 import type { ControlSummary, SchedulerPriority } from "./scheduler.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/protocol.ts";
-import type { SmsFetchResult, SmsSendResult, SmsWireMessage } from "./sms/types.ts";
+import type { SmsAbilities, SmsFetchResult, SmsSendResult, SmsWireMessage } from "./sms/types.ts";
 
 /**
  * What FengSui asks of a router, whatever its brand: one verb per thing the daemon reads or writes,
@@ -104,6 +104,8 @@ export interface SmsListing extends SmsFetchResult {
    * FengSui holds is the one that counts.
    */
   readState: "router" | "fengsui";
+  /** What this router's interface can do besides reading, learnt in the same session. */
+  abilities: SmsAbilities;
 }
 
 export interface SmsUnreadPeek {

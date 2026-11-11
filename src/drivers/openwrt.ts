@@ -1043,6 +1043,8 @@ export class OpenwrtSession implements DriverSessionHandle {
     list: async () => (await this.#smsAssembled()).map((entry) => entry.message),
     counters: () => this.#smsCounters(),
     send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
+    // A send needs QModem's PDU sender: a router without it reads and deletes only
+    canSend: async () => (await this.#ubus.qmodem()) !== null,
     delete: (indices, check) => this.#smsDelete(indices, check),
   };
 

@@ -235,6 +235,8 @@ describe("tozed SMS: through the SMS service", () => {
     const fx = fixture();
     try {
       await fx.service.sync("full");
+      // It sends and has no delete: the console offers no delete button
+      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "none" });
       const thread = fx.service.getThread(FRIEND);
       assert.equal(thread.messages[0]?.isUnread, true);
       const before = fx.router.mock.requests.length;
