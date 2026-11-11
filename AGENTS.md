@@ -37,10 +37,10 @@ cpe-dash/
 │   ├── access-state.ts · access-plan.ts  # 零依赖：Wi-Fi MAC 过滤状态与访问控制规划（受保护设备、名单、上网时段冲突；前后端同一实现）
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
-│   ├── router-family.ts    # 零依赖：路由器品牌（RouterFamily）、各品牌的常见地址 / 默认账号 / 能读什么、实现了哪些写入的事实（每个品牌一份）、控制台显示的名字、「自动识别」这个选项与识别的先后顺序（DETECTION_ORDER）
+│   ├── router-family.ts    # 零依赖：路由器品牌（RouterFamily）、各品牌的常见地址 / 默认账号 / 能读什么、实现了哪些写入、短信的已读状态由路由器还是烽燧保管的事实（每个品牌一份）、控制台显示的名字、「自动识别」这个选项与识别的先后顺序（DETECTION_ORDER）
 │   ├── router-backend.ts   # RouterBackend：烽燧对一台路由器的全部读写动词（识别、信号、附近的基站、已连接设备、设置、访问控制、短信列表与免登录未读数；锁频、锁小区、解锁、自动回滚、重启、发短信、标为已读、删除短信），以及按连接的品牌选后端的唯一一处
 │   ├── backends/           # hilink.ts（华为 HiLink：H168-383 的已验证序列与其他 HiLink 型号的通用写入，短信走 sms/protocol.ts）· driver.ts（其他品牌，经各自的驱动；短信逐个收件人发送，每次只发一次）· index.ts
-│   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· sms.ts（各驱动共用的短信部件：UCS-2 十六进制正文、路由器时间、把长短信的分段拼成一条、短信写入的回读）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts · zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
+│   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· sms.ts（各驱动共用的短信部件：UCS-2 十六进制正文、路由器时间、把长短信的分段拼成一条、短信写入的回读）· at-sms.ts（模组自己的短信指令的应答：`AT+CPMS?` 的条数、`AT+CMGL=4` 列出的 PDU）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts（goform 页面，以及同一套接口在 ZXIC 固件上的 `/reqproc/` 写法：另一套登录，写入带 `CSRFToken`）· zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
 │   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）；监视与重拨额度存于 state.json，重启后接着算；未验证的路由器上，任何入口发起的锁频或锁小区之后断网 3 分钟，写回锁前读到的频段设置或解除锁定（不受自愈开关影响，重启后同样接着算）
 │   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、真机报告登记的功能（VERIFIED_FEATURES：品牌、路由器报的型号、固件、功能、读或写、issue 编号，任何品牌都适用）与报告为不能用的功能（UNSUPPORTED_FEATURES）、全部功能都由报告确认过的型号（isReportVerifiedModel）、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
