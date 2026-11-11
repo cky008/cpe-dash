@@ -56,6 +56,9 @@ describe("feedback: the compatibility issue", () => {
     assert.match(TEMPLATE, /So far FengSui is verified on the \*\*H168-383[^\n]*writes are on by default[^\n]*never checked on a real device[^\n]*turned off one at a time/);
     assert.match(TEMPLATE, /required: true\n\s*$/, "the privacy check must be ticked");
     assert.doesNotMatch(TEMPLATE, /render:/, "a plain text area, so the downloaded file can be attached");
+    // What a maintainer registers from: the report's per-feature lines, and the mark they turn into
+    assert.match(TEMPLATE, /`checks`[^\n]*`works`[^\n]*✓/);
+    assert.match(TEMPLATE, /Another brand \(not in FengSui yet\)/, "a D-Link or TP-Link router can be reported too");
   });
 
   it("builds the report it asks for without an identifier, for a router of another model", async () => {

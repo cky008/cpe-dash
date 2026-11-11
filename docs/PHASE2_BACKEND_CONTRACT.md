@@ -1171,6 +1171,7 @@ export interface DeviceReport {
   apiErrors: { sinceIso: string; entries: Array<{ method: "GET" | "POST"; path: string; code: string; count: number; lastAtIso: string }> };
   // 烽燧对这台路由器做了什么（2.10）：写操作是否放行，以及每个读取项的状态与路由器的错误码；只有状态和错误码，没有取值
   access: {
+    family?: RouterFamily;                   // 连接时的品牌（「设置 → 路由器」）：与 identity.model 一起就是 VERIFIED_FEATURES 一条登记的品牌与型号
     writes: "allowed" | "experimental" | "unknown";
     reads: Record<ReadSection, { state: "verified" | "available" | "unavailable" | "unknown"; code: string | null }>;
     // 每个写功能在这台路由器上的状态（同 2.10 的 features：verified / enabled / disabled / unsupported / not_implemented / unknown）
@@ -1188,6 +1189,15 @@ export interface DeviceReport {
     code: string | null;                     // 路由器拒绝时的错误码（只保留 4–8 位数字，其他内容记为 null）
     readback: "match" | "mismatch" | "unknown" | "pending" | "none";
     reason: string | null;                   // WriteCheck.reason，见 2.11
+  }>;
+  // 每个功能一行（DEVICE_FEATURES 的顺序），功能名与读 / 写的划分和 VERIFIED_FEATURES 相同，照着就能写一条登记：
+  // 读取项看它所在读取项的状态（verified / available 为 works，unavailable 为 failed，其余 untested）；
+  // 写入项看写入记录里这个功能最近一次（被路由器拒绝为 failed / refused，回读 match 为 works，mismatch 为 failed，其余 untested）
+  checks: Array<{
+    feature: DeviceFeature;
+    access: "read" | "write";
+    result: "works" | "failed" | "untested";
+    evidence: "verified" | "available" | "unavailable" | "unknown" | "match" | "mismatch" | "pending" | "none" | "refused" | null;
   }>;
 }
 ```

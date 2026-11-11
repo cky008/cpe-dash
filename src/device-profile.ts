@@ -1,5 +1,6 @@
-import type { ReadCapability, ReadSection, WriteAccess, WriteFeature, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
+import type { ReadCapability, ReadSection, ReadState, ReadbackOutcome, WriteAccess, WriteFeature, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
+import type { RouterFamily } from "./router-family.ts";
 
 /**
  * Who the router is and what it says it can do. One read session (at daemon start and in the
@@ -673,12 +674,57 @@ export interface DeviceReport {
   access: DeviceReportAccess | null;
   /** Recent write results: each experimental write's endpoints, router code and read-back, never a value it wrote. */
   writes: DeviceReportWrite[];
+  /**
+   * Every feature, named and split into read or write as `VERIFIED_FEATURES` names them, with what this
+   * router showed: an entry can be written from it (CONTRIBUTING.md says which results count).
+   */
+  checks: DeviceReportCheck[];
+}
+
+/**
+ * `works`: a read that had data, or a write whose latest record read back as written; `failed`: the router
+ * answered the read without it, or refused the latest write or read it back otherwise; `untested`: nothing
+ * shows either yet.
+ */
+export type DeviceReportCheckResult = "works" | "failed" | "untested";
+
+export interface DeviceReportCheck {
+  feature: DeviceFeature;
+  access: "read" | "write";
+  result: DeviceReportCheckResult;
+  /**
+   * What the result rests on: a read's section state (`verified` / `available` / `unavailable` / `unknown`), a
+   * write's latest read-back, `refused` when the router refused it; `null` with nothing to go on.
+   */
+  evidence: ReadState | ReadbackOutcome | "refused" | null;
+}
+
+/** The read section each read feature is read in. */
+const READ_FEATURE_SECTIONS: Readonly<Partial<Record<DeviceFeature, ReadSection>>> = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms" };
+
+/** Each feature's result on this router, from what the reads answered and the write record (the latest write of a feature counts). */
+export function deviceReportChecks(access: Pick<DeviceReportAccess, "reads"> | null, writes: ReadonlyArray<Pick<WriteResultRecord, "feature" | "outcome" | "readback">>): DeviceReportCheck[] {
+  return DEVICE_FEATURES.map((feature): DeviceReportCheck => {
+    const section = READ_FEATURE_SECTIONS[feature];
+    if (section) {
+      const state = access?.reads[section]?.state ?? null;
+      const result = state === "verified" || state === "available" ? "works" : state === "unavailable" ? "failed" : "untested";
+      return { feature, access: "read", result, evidence: state };
+    }
+    const latest = writes.filter((write) => write.feature === feature).at(-1);
+    if (!latest) return { feature, access: "write", result: "untested", evidence: null };
+    if (latest.outcome === "failed") return { feature, access: "write", result: "failed", evidence: "refused" };
+    const result = latest.readback === "match" ? "works" : latest.readback === "mismatch" ? "failed" : "untested";
+    return { feature, access: "write", result, evidence: latest.readback };
+  });
 }
 
 /** One recent write result as the report carries it (`WriteResultRecord` without its internal id). */
 export type DeviceReportWrite = Omit<WriteResultRecord, "id">;
 
 export interface DeviceReportAccess {
+  /** The brand the router connected as (Settings → Router): with `identity.model`, what a `VERIFIED_FEATURES` entry names. */
+  family?: RouterFamily;
   writes: WriteAccess;
   reads: Record<ReadSection, ReadCapability>;
   /** Per write feature, what it is on this router (verified, enabled, disabled, unsupported, not implemented). */
@@ -697,13 +743,15 @@ export function buildDeviceReport(input: {
   const base = { reportVersion: DEVICE_REPORT_VERSION, fengsuiVersion: input.fengsuiVersion, generatedAtIso: input.generatedAtIso } as const;
   const access: DeviceReportAccess | null = input.access
     ? {
+        ...(input.access.family ? { family: input.access.family } : {}),
         writes: input.access.writes,
         reads: Object.fromEntries(Object.entries(input.access.reads).map(([section, read]) => [section, { state: read.state, code: read.code }])) as Record<ReadSection, ReadCapability>,
         ...(input.access.features ? { features: { ...input.access.features } } : {}),
       }
     : null;
   const writes: DeviceReportWrite[] = (input.writes ?? []).map(({ id: _id, ...result }) => ({ ...result, endpoints: [...result.endpoints] }));
-  if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access, writes };
+  const checks = deviceReportChecks(access, writes);
+  if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access, writes, checks };
   const profile = deviceProfileOf(input.probe);
   const observed = new Map(input.probe.observations.map((o) => [o.path, o]));
   return {
@@ -723,5 +771,6 @@ export function buildDeviceReport(input: {
     apiErrors,
     access,
     writes,
+    checks,
   };
 }

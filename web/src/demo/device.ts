@@ -20,7 +20,7 @@ import { TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-po
 import type { DisabledWrite } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, READ_SECTIONS, type WriteFeature, type WriteResultRecord, gateRefuses, modelLabel } from "../../../src/device-access.ts";
-import { EXPERIMENTAL_FEATURES, type ExperimentalFeature, buildDeviceReport } from "../../../src/device-profile.ts";
+import { EXPERIMENTAL_FEATURES, type ExperimentalFeature, buildDeviceReport, deviceReportChecks } from "../../../src/device-profile.ts";
 import { switchExperimentalWrite } from "../../../src/experimental-switch.ts";
 import { verifiedModelsLabel } from "../../../src/firmware.ts";
 import { type DemoConsole, DemoRefusal } from "./console.ts";
@@ -343,15 +343,12 @@ export class DemoDevice {
       const report = buildDeviceReport({ probe: null, apiErrors: { sinceIso: this.#startedAtIso, entries: [] }, fengsuiVersion, generatedAtIso });
       return { ok: true, report };
     }
-    const { writes, reads, features } = this.#access.snapshot();
+    const { family, writes, reads, features } = this.#access.snapshot();
+    const access = seeded.access ? { family, writes, reads, features } : null;
+    const records = this.#writes.map(({ id: _id, ...record }) => ({ ...record, endpoints: [...record.endpoints] }));
     return {
       ok: true,
-      report: {
-        ...seeded,
-        generatedAtIso,
-        access: seeded.access ? { writes, reads, features } : null,
-        writes: this.#writes.map(({ id: _id, ...record }) => ({ ...record, endpoints: [...record.endpoints] })),
-      },
+      report: { ...seeded, generatedAtIso, access, writes: records, checks: deviceReportChecks(access, records) },
     };
   }
 }

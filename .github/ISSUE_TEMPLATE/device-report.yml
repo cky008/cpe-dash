@@ -10,6 +10,8 @@ body:
         So far FengSui is verified on the **H168-383 (firmware 4.4.0.1)** only. On other Huawei models and routers of other brands, what FengSui implements is available (its writes are on by default, were never checked on a real device, and can be turned off one at a time under Settings → Device); this report tells us how it does on yours.
 
         **报告怎么来 / Where the report comes from**：控制台「设置 → 设备 → 生成设备报告」，检查后复制，或下载 JSON 文件。 / In the console: Settings → Device → Create device report; check it, then copy it or download the JSON file.
+
+        **之后会怎样 / What happens next**：报告里的 `checks` 逐项列出每个功能在你的路由器上的结果（`works` 能用、`failed` 不能用、`untested` 还没试）。读取项读到了数据、写入项在写入记录里回读一致（`works`），维护者就把它登记进代码，「支持的设备」表里那一格会变成 ✓。 / The report's `checks` list each feature's result on your router (`works`, `failed`, `untested`). A read that had data or a write that read back as written (`works`) is recorded in the code by a maintainer, and its cell on the Supported devices page turns into ✓.
   - type: input
     id: model
     attributes:
@@ -32,6 +34,7 @@ body:
         - 烽火 / FiberHome
         - 鲲鹏无限 / NRadio
         - OpenWrt + 移远或广和通模组 / OpenWrt with a Quectel or Fibocom module
+        - 其他品牌（烽燧里还选不到）/ Another brand (not in FengSui yet)
     validations:
       required: true
   - type: input
@@ -46,7 +49,7 @@ body:
     id: works
     attributes:
       label: 能用的功能 / What works
-      description: 例如信号、流量、附近的基站、终端列表、短信；用过写操作的，写上哪些在真机上生效了（锁频、锁小区、重启、重拨、移动数据、短信）/ For example signal, traffic, nearby cells, the device list, SMS; if you used any of the writes, which took effect on the real router (band lock, cell lock, reboot, redial, mobile data, SMS)
+      description: 可以照抄报告 `checks` 里结果为 `works` 的项；用过写操作的，也写上哪些在路由器上真的生效了（锁频、锁小区、重启、重拨、移动数据、短信）/ You can copy the items of the report's `checks` that say `works`; if you used any of the writes, also say which took effect on the router itself (band lock, cell lock, reboot, redial, mobile data, SMS)
   - type: textarea
     id: broken
     attributes:

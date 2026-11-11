@@ -228,3 +228,52 @@ describe("device report: the console route", () => {
     }
   });
 });
+
+describe("device report: one line per feature to register from", () => {
+  it("lists every feature as VERIFIED_FEATURES names it, with what the reads answered and the latest write's read-back", () => {
+    const reads = {
+      telemetry: { state: "available", code: null },
+      neighbors: { state: "unavailable", code: "100002" },
+      topology: { state: "unavailable", code: null },
+      settings: { state: "unknown", code: null },
+      accessControl: { state: "unknown", code: null },
+      sms: { state: "unknown", code: null },
+    } as const;
+    const write = (feature: "bandLock" | "cellLock" | "reboot", outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending" | "none") => ({
+      id: `${feature}-${readback}`,
+      atIso: NOW,
+      action: feature === "bandLock" ? ("lock_band" as const) : feature === "cellLock" ? ("lock_cell" as const) : ("reboot_cpe" as const),
+      feature,
+      model: "MU5250",
+      endpoints: ["zte-zwrt:zwrt_bsp.lte.lock"],
+      outcome,
+      code: outcome === "failed" ? "100002" : null,
+      readback,
+      reason: null,
+    });
+    const report = buildDeviceReport({
+      probe: null,
+      apiErrors: new ApiErrorTally().snapshot(),
+      fengsuiVersion: "1.8.4",
+      generatedAtIso: NOW,
+      access: { family: "zte-zwrt", writes: "experimental", reads },
+      // The latest write of a feature counts: a band lock that read back otherwise, then as written
+      writes: [write("bandLock", "applied", "mismatch"), write("bandLock", "applied", "match"), write("cellLock", "applied", "mismatch"), write("reboot", "failed", "none")],
+    });
+    assert.equal(report.access?.family, "zte-zwrt", "the brand an entry names");
+    const by = new Map(report.checks.map((c) => [c.feature, c]));
+    assert.equal(report.checks.length, 14);
+    assert.deepEqual(by.get("telemetry"), { feature: "telemetry", access: "read", result: "works", evidence: "available" });
+    assert.deepEqual(by.get("neighbors"), { feature: "neighbors", access: "read", result: "failed", evidence: "unavailable" });
+    assert.deepEqual(by.get("smsRead"), { feature: "smsRead", access: "read", result: "untested", evidence: "unknown" });
+    assert.deepEqual(by.get("bandLock"), { feature: "bandLock", access: "write", result: "works", evidence: "match" });
+    assert.deepEqual(by.get("cellLock"), { feature: "cellLock", access: "write", result: "failed", evidence: "mismatch" });
+    assert.deepEqual(by.get("reboot"), { feature: "reboot", access: "write", result: "failed", evidence: "refused" });
+    assert.deepEqual(by.get("mobileData"), { feature: "mobileData", access: "write", result: "untested", evidence: null });
+    // The second pass leaves the lines as they are
+    assert.deepEqual(sanitizeDeviceReport(report).checks, report.checks);
+    // Without an identification nothing is known yet
+    const empty = buildDeviceReport({ probe: null, apiErrors: new ApiErrorTally().snapshot(), fengsuiVersion: "1.8.4", generatedAtIso: NOW });
+    assert.ok(empty.checks.every((c) => c.result === "untested" && c.evidence === null));
+  });
+});
