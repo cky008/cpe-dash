@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/guide/zh/quick-start.md"><b>快速开始</b></a> ·
+  <a href="https://fengsui.iocky.com/docs/quick-start/"><b>快速开始</b></a> ·
   <a href="https://fengsui.iocky.com/">文档站</a> ·
   <a href="https://cky008.github.io/fengsui-demo/">在线演示</a> ·
   <a href="README_EN.md">English</a>
@@ -53,10 +53,10 @@ docker compose pull && docker compose up -d
 docker compose logs cpe-dash | grep "setup code"
 ```
 
-打开 `http://<这台机器的 IP>:18384`，输入日志里的设置码，按引导连上路由器。完整步骤（包括群晖图形界面）见[快速开始](docs/guide/zh/quick-start.md)。
+打开 `http://<这台机器的 IP>:18384`，输入日志里的设置码，按引导连上路由器。完整步骤（包括群晖图形界面）见[快速开始](https://fengsui.iocky.com/docs/quick-start/)。
 
 > [!CAUTION]
-> 不要把 `18384` 端口直接映射到公网。要在外面访问，请用 Tailscale 等 VPN 或 HTTPS 反向代理，见[安全与隐私](docs/guide/zh/security.md)。
+> 不要把 `18384` 端口直接映射到公网。要在外面访问，请用 Tailscale 等 VPN 或 HTTPS 反向代理，见[安全与隐私](https://fengsui.iocky.com/docs/security/)。
 
 ## 截图
 
@@ -70,17 +70,24 @@ docker compose logs cpe-dash | grep "setup code"
 
 ## 兼容性
 
-烽燧目前仅在 H168-383（固件 4.4.0.1）上验证过。其他华为 HiLink 路由器，以及中兴、品速、通则康威（ZLT）、烽火、鲲鹏无限和 OpenWrt（移远 / 广和通模组）的路由器也能连上，品牌由烽燧自动识别，但它们都没有在真机上验证过。烽燧在这些路由器上实现了的功能直接可用，写操作也是：它们默认开着，你可以在控制台里逐项关闭。每次写入只发一次，写后回读核对；锁频段或锁小区之后断网 3 分钟，烽燧会自动回退。欢迎用控制台生成设备报告并提交，帮助验证更多路由器；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。每个品牌和型号的支持情况见[支持的设备](docs/guide/zh/supported-devices.md)，各品牌型号的资料汇总见[设备资料表](SUPPORTED_DEVICES_DOCS.md)，烽燧在这些路由器上怎样工作见[其他型号与品牌](docs/guide/zh/other-routers.md)；想先看看效果，可以打开[在线演示的「其他华为型号」模式](https://cky008.github.io/fengsui-demo/?router=other)。
+烽燧目前仅在 H168-383（固件 4.4.0.1）上验证过。
+
+- **其他路由器**：其他华为 HiLink 路由器，以及中兴、品速、通则康威（ZLT）、烽火、鲲鹏无限和 OpenWrt（移远 / 广和通模组）的路由器也能连上，品牌由烽燧自动识别，但它们都没有在真机上验证过。
+- **写操作**：烽燧在这些路由器上实现了的功能直接可用，写操作也是：它们默认开着，你可以在控制台里逐项关闭。每次写入只发一次，写后回读核对；锁频段或锁小区之后断网 3 分钟，烽燧会自动回退。
+- **帮忙验证**：欢迎用控制台生成设备报告并提交，帮助验证更多路由器；也可以把控制台里现成的提示词交给 AI 智能体，让它帮你测试并起草报告。
+- **详细情况**：每个品牌和型号的支持情况见[支持的设备](https://fengsui.iocky.com/docs/supported-devices/)，烽燧在这些路由器上怎样工作见[其他型号与品牌](https://fengsui.iocky.com/docs/other-routers/)，各品牌型号的资料汇总见[设备资料表](docs/dev/device-notes.md)；想先看看效果，可以打开[在线演示的「其他华为型号」模式](https://cky008.github.io/fengsui-demo/?router=other)。
 
 ## 文档
 
-- **开始使用**：[烽燧是什么](docs/guide/zh/overview.md) · [支持的设备](docs/guide/zh/supported-devices.md) · [快速开始](docs/guide/zh/quick-start.md) · [安装与升级](docs/guide/zh/install.md)
-- **使用烽燧**：[控制台](docs/guide/zh/dashboard.md) · [锁频与锁小区](docs/guide/zh/locking.md) · [短信](docs/guide/zh/sms.md) · [设备与上网管理](docs/guide/zh/devices.md) · [告警与通知](docs/guide/zh/notifications.md) · [AI 智能体（MCP）](docs/guide/zh/agents.md)
-- **管理**：[Docker Compose 配置](docs/guide/zh/docker-compose.md) · [配置参考](docs/guide/zh/configuration.md) · [安全与隐私](docs/guide/zh/security.md) · [备份与恢复](docs/guide/zh/backup.md) · [其他型号与品牌](docs/guide/zh/other-routers.md)
-- **帮助**：[排障](docs/guide/zh/troubleshooting.md) · [常见问题](docs/guide/zh/faq.md) · [致谢](docs/guide/zh/acknowledgments.md)
-- **技术文档**：[协议规范](docs/dev/protocol.md) · [架构报告](docs/dev/architecture.md) · [后端契约（REST / SSE / MCP）](docs/dev/api.md) · [更新日志](CHANGELOG.md)
+完整文档在[文档站](https://fengsui.iocky.com/)上，支持搜索：
 
-这些页面也发布在[文档站](https://fengsui.iocky.com/)上，支持搜索。
+- **开始使用**：[烽燧是什么](https://fengsui.iocky.com/docs/overview/) · [支持的设备](https://fengsui.iocky.com/docs/supported-devices/) · [快速开始](https://fengsui.iocky.com/docs/quick-start/) · [安装与升级](https://fengsui.iocky.com/docs/install/)
+- **使用烽燧**：[控制台](https://fengsui.iocky.com/docs/dashboard/) · [锁频与锁小区](https://fengsui.iocky.com/docs/locking/) · [路由器开关](https://fengsui.iocky.com/docs/router-switches/) · [短信](https://fengsui.iocky.com/docs/sms/) · [设备与上网管理](https://fengsui.iocky.com/docs/devices/) · [告警与通知](https://fengsui.iocky.com/docs/notifications/) · [AI 智能体（MCP）](https://fengsui.iocky.com/docs/agents/)
+- **看懂数据**：[看懂信号](https://fengsui.iocky.com/docs/signal/) · [频段、载波与小区](https://fengsui.iocky.com/docs/bands-and-cells/)
+- **管理**：[Docker Compose 配置](https://fengsui.iocky.com/docs/docker-compose/) · [配置参考](https://fengsui.iocky.com/docs/configuration/) · [API 参考](https://fengsui.iocky.com/docs/api/) · [安全与隐私](https://fengsui.iocky.com/docs/security/) · [备份与恢复](https://fengsui.iocky.com/docs/backup/) · [其他型号与品牌](https://fengsui.iocky.com/docs/other-routers/)
+- **帮助**：[排障](https://fengsui.iocky.com/docs/troubleshooting/) · [常见问题](https://fengsui.iocky.com/docs/faq/) · [致谢](https://fengsui.iocky.com/docs/acknowledgments/)
+
+开发者文档在 [`docs/dev/`](docs/dev/README.md)：[华为 HiLink 协议](docs/dev/protocol.md) · [架构与设计记录](docs/dev/architecture.md) · [接口契约（REST / SSE / MCP）](docs/dev/api.md) · [设备资料表](docs/dev/device-notes.md) · [标志](docs/dev/brand.md)。改动记录见[更新日志](CHANGELOG.md)。
 
 ## 参与
 
@@ -98,7 +105,7 @@ docker compose logs cpe-dash | grep "setup code"
 
 ## 致谢
 
-烽燧为各品牌路由器做兼容时参考过的项目，列在[致谢](docs/guide/zh/acknowledgments.md)。
+烽燧为各品牌路由器做兼容时参考过的项目，列在[致谢](https://fengsui.iocky.com/docs/acknowledgments/)。
 
 ---
 

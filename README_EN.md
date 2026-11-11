@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/guide/en/quick-start.md"><b>Quick start</b></a> ·
+  <a href="https://fengsui.iocky.com/en/docs/quick-start/"><b>Quick start</b></a> ·
   <a href="https://fengsui.iocky.com/en/">Documentation</a> ·
   <a href="https://cky008.github.io/fengsui-demo/">Live demo</a> ·
   <a href="README.md">简体中文</a>
@@ -53,10 +53,10 @@ docker compose pull && docker compose up -d
 docker compose logs cpe-dash | grep "setup code"
 ```
 
-Open `http://<this machine's IP>:18384`, enter the setup code from the log and follow the steps to connect your router. The full walkthrough, including Synology's Container Manager, is in the [quick start](docs/guide/en/quick-start.md).
+Open `http://<this machine's IP>:18384`, enter the setup code from the log and follow the steps to connect your router. The full walkthrough, including Synology's Container Manager, is in the [quick start](https://fengsui.iocky.com/en/docs/quick-start/).
 
 > [!CAUTION]
-> Do not forward port `18384` to the internet. To reach the console from outside, use a VPN such as Tailscale or an HTTPS reverse proxy; see [Security and privacy](docs/guide/en/security.md).
+> Do not forward port `18384` to the internet. To reach the console from outside, use a VPN such as Tailscale or an HTTPS reverse proxy; see [Security and privacy](https://fengsui.iocky.com/en/docs/security/).
 
 ## Screenshots
 
@@ -70,17 +70,24 @@ You can try the rest in the [live demo](https://cky008.github.io/fengsui-demo/):
 
 ## Compatibility
 
-So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only. Other Huawei HiLink routers connect too, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself, but none of them has been verified on a real device. On those routers, what FengSui implements works straight away, writes included: they are on by default, and you can turn each one off in the console. Each write is sent once and read back, and a band or cell lock that leaves the internet down for 3 minutes is undone automatically. Device reports from the console help get more routers verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report. Where each brand and model stands is under [Supported devices](docs/guide/en/supported-devices.md), the notes on each brand's models are in the [device reference](SUPPORTED_DEVICES_DOCS.md), and how FengSui works on these routers is under [Other models and brands](docs/guide/en/other-routers.md); or see it first in the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).
+So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only.
+
+- **Other routers**: Other Huawei HiLink routers connect too, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself, but none of them has been verified on a real device.
+- **Writes**: On those routers, what FengSui implements works straight away, writes included: they are on by default, and you can turn each one off in the console. Each write is sent once and read back, and a band or cell lock that leaves the internet down for 3 minutes is undone automatically.
+- **Help verify more routers**: Device reports from the console help get more routers verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report.
+- **Details**: Where each brand and model stands is under [Supported devices](https://fengsui.iocky.com/en/docs/supported-devices/), how FengSui works on these routers is under [Other models and brands](https://fengsui.iocky.com/en/docs/other-routers/), and the notes on each brand's models are in the [device reference](docs/dev/device-notes.md); or see it first in the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).
 
 ## Documentation
 
-- **Get started**: [What FengSui is](docs/guide/en/overview.md) · [Supported devices](docs/guide/en/supported-devices.md) · [Quick start](docs/guide/en/quick-start.md) · [Install and upgrade](docs/guide/en/install.md)
-- **Use FengSui**: [Dashboard](docs/guide/en/dashboard.md) · [Band and cell locks](docs/guide/en/locking.md) · [SMS](docs/guide/en/sms.md) · [Devices and internet access](docs/guide/en/devices.md) · [Alerts and notifications](docs/guide/en/notifications.md) · [AI agents (MCP)](docs/guide/en/agents.md)
-- **Manage**: [Docker Compose file](docs/guide/en/docker-compose.md) · [Configuration](docs/guide/en/configuration.md) · [Security and privacy](docs/guide/en/security.md) · [Backup and restore](docs/guide/en/backup.md) · [Other models and brands](docs/guide/en/other-routers.md)
-- **Help**: [Troubleshooting](docs/guide/en/troubleshooting.md) · [FAQ](docs/guide/en/faq.md) · [Acknowledgments](docs/guide/en/acknowledgments.md)
-- **Technical docs (Chinese)**: [Protocol spec](docs/dev/protocol.md) · [Architecture report](docs/dev/architecture.md) · [Backend contract (REST / SSE / MCP)](docs/dev/api.md) · [Changelog](CHANGELOG.md)
+The full documentation, with search, is on the [documentation site](https://fengsui.iocky.com/en/):
 
-The same pages, with search, are on the [documentation site](https://fengsui.iocky.com/en/).
+- **Get started**: [What FengSui is](https://fengsui.iocky.com/en/docs/overview/) · [Supported devices](https://fengsui.iocky.com/en/docs/supported-devices/) · [Quick start](https://fengsui.iocky.com/en/docs/quick-start/) · [Install and upgrade](https://fengsui.iocky.com/en/docs/install/)
+- **Use FengSui**: [Dashboard](https://fengsui.iocky.com/en/docs/dashboard/) · [Band and cell locks](https://fengsui.iocky.com/en/docs/locking/) · [Router switches](https://fengsui.iocky.com/en/docs/router-switches/) · [SMS](https://fengsui.iocky.com/en/docs/sms/) · [Devices and internet access](https://fengsui.iocky.com/en/docs/devices/) · [Alerts and notifications](https://fengsui.iocky.com/en/docs/notifications/) · [AI agents (MCP)](https://fengsui.iocky.com/en/docs/agents/)
+- **Understand the readings**: [Signal readings](https://fengsui.iocky.com/en/docs/signal/) · [Bands, carriers and cells](https://fengsui.iocky.com/en/docs/bands-and-cells/)
+- **Manage**: [Docker Compose file](https://fengsui.iocky.com/en/docs/docker-compose/) · [Configuration](https://fengsui.iocky.com/en/docs/configuration/) · [API reference](https://fengsui.iocky.com/en/docs/api/) · [Security and privacy](https://fengsui.iocky.com/en/docs/security/) · [Backup and restore](https://fengsui.iocky.com/en/docs/backup/) · [Other models and brands](https://fengsui.iocky.com/en/docs/other-routers/)
+- **Help**: [Troubleshooting](https://fengsui.iocky.com/en/docs/troubleshooting/) · [FAQ](https://fengsui.iocky.com/en/docs/faq/) · [Acknowledgments](https://fengsui.iocky.com/en/docs/acknowledgments/)
+
+The developer notes (in Chinese) are in [`docs/dev/`](docs/dev/README.md): [Huawei HiLink protocol](docs/dev/protocol.md) · [Architecture and design record](docs/dev/architecture.md) · [API contract (REST / SSE / MCP)](docs/dev/api.md) · [Device reference](docs/dev/device-notes.md) · [Logo](docs/dev/brand.md). Changes are in the [changelog](CHANGELOG.md).
 
 ## Contributing
 
@@ -98,4 +105,4 @@ The same pages, with search, are on the [documentation site](https://fengsui.ioc
 
 ## Acknowledgements
 
-The projects FengSui consulted when adding support for each brand of router are listed under [Acknowledgements](docs/guide/en/acknowledgments.md).
+The projects FengSui consulted when adding support for each brand of router are listed under [Acknowledgements](https://fengsui.iocky.com/en/docs/acknowledgments/).
