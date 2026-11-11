@@ -14,7 +14,11 @@ export const SMS_TEXT_MODE_7BIT: SmsTextModeCode = 1;
 /** H168-383 concatenates at most 4 segments per `send-sms` submission. */
 export const MAX_SMS_SEGMENTS = 4;
 
-const GSM_7BIT_DEFAULT_TABLE = new Set<number>([
+/**
+ * The GSM 7-bit default alphabet (3GPP TS 23.038 §6.2.1) as UTF-16 code units, in septet order:
+ * entry `n` is the character septet `n` stands for. The PDU codec packs and unpacks with it.
+ */
+export const GSM_7BIT_ALPHABET: ReadonlyArray<number> = [
   64, 163, 36, 165, 232, 233, 249, 236, 242, 199, 10, 216, 248, 13, 197, 229,
   916, 95, 934, 915, 923, 937, 928, 936, 931, 920, 926, 27, 198, 230, 223, 201,
   32, 33, 34, 35, 164, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
@@ -23,7 +27,9 @@ const GSM_7BIT_DEFAULT_TABLE = new Set<number>([
   89, 90, 196, 214, 209, 220, 167, 191, 97, 98, 99, 100, 101, 102, 103, 104,
   105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119,
   120, 121, 122, 228, 246, 241, 252, 224,
-]);
+];
+
+const GSM_7BIT_DEFAULT_TABLE = new Set<number>(GSM_7BIT_ALPHABET);
 
 /** Characters that need the GSM-7 escape (`ESC + char`) and therefore cost two septets. */
 const GSM_7BIT_EXT_TABLE = new Set<number>([10, 94, 32, 123, 125, 92, 91, 126, 93, 124, 8364]);
