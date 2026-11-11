@@ -21,6 +21,7 @@ import {
   readWifiMacFilterChange,
 } from "./control-input.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
+import { deviceSupportRow } from "./device-catalog.ts";
 import { deviceProfileOf } from "./device-profile.ts";
 import { VERIFIED_FIRMWARE } from "./firmware.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
@@ -981,10 +982,13 @@ export class FengSuiHttpServer {
             // Identity and capabilities carry no identifier, so every caller gets the same answer; tokens and
             // agents read it too, so it takes the device report's second pass as well
             const probe = this.core.monitor.getDeviceProbe();
+            // The row goes by the brand and model the gate goes by (a probe that named no model: the brand's defaults)
+            const device = this.core.scheduler.device.snapshot();
             this.#sendJson(res, 200, {
               ok: true,
               profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe)) : null,
               verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
+              support: probe || device.model ? deviceSupportRow(device.family, device.model ?? probe?.identity.model ?? null) : null,
             } satisfies DeviceProfileResponse);
             return;
           }

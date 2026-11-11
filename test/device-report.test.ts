@@ -143,14 +143,20 @@ describe("device profile: the token route", () => {
     const stack = createFengSuiRuntime({ config: loadConfig({ envPath, ignoreProcessEnv: true }), envPath, fetchImpl: cpe.fetchImpl, log: () => undefined });
     try {
       const bound = await stack.httpServer.listen();
-      const profileOf = async () => {
+      const responseOf = async (): Promise<DeviceProfileResponse> => {
         const res = await fetch(`http://${bound.host}:${bound.port}/api/device/profile`, { headers: { Authorization: "Bearer profile_read_token" } });
         assert.equal(res.status, 200);
-        return ((await res.json()) as DeviceProfileResponse).profile;
+        return (await res.json()) as DeviceProfileResponse;
       };
+      const profileOf = async () => (await responseOf()).profile;
+      assert.equal((await responseOf()).support, null, "no row before the router is identified");
       const probe = await probeDevice(session, { nowIso: NOW, origin: "startup" });
       await stack.monitor.recordDeviceProbe(probe);
       assert.deepEqual([(await profileOf())?.identity.model, (await profileOf())?.identity.softwareVersion], ["H168-383", "4.4.0.1(H1006SP19C00)"], "a clean profile is served as it is");
+      // The router's row of Supported devices: the verified model, everything ✓
+      const row = (await responseOf()).support;
+      assert.deepEqual([row?.family, row?.model, row?.section, row?.notes], ["huawei", "H168-383", "huawei", []]);
+      assert.ok(row?.modules.every((m) => m.mark === "✓"));
 
       // A router whose allowlisted identity fields carry identifiers: the allowlist alone would let them through
       const odd = structuredClone(probe);
@@ -161,6 +167,11 @@ describe("device profile: the token route", () => {
       await stack.monitor.recordDeviceProbe(odd);
       const served = await profileOf();
       assert.deepEqual(leaks(JSON.stringify(served)), []);
+      // A model the table lacks: the brand's defaults, and the row never repeats what the router called itself
+      const unlisted = (await responseOf()).support;
+      assert.deepEqual([unlisted?.model, unlisted?.section], [null, "huawei"]);
+      assert.deepEqual(leaks(JSON.stringify(unlisted)), []);
+      assert.ok(!JSON.stringify(unlisted).includes("0000000000"));
       assert.ok(!JSON.stringify(served).includes("0000000000"), "no long digit run either");
       assert.deepEqual([served?.identity.model, served?.identity.marketingName, served?.identity.softwareVersion, served?.identity.webUiVersion], ["<redacted>", "<redacted>", "<redacted>", "<redacted>"]);
       assert.equal(served?.verification, "unverified-model");

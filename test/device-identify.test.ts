@@ -485,7 +485,7 @@ describe("device identification in the daemon", () => {
     const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "identify_full_token", API_TOKEN_READONLY: "identify_read_token" });
     try {
       const empty = (await (await fx.get("/api/device/profile", "identify_read_token")).json()) as DeviceProfileResponse;
-      assert.deepEqual(empty, { ok: true, profile: null, verifiedFirmware: [{ model: "H168-383", softwareVersion: "4.4.0.1(H1006SP19C00)" }] });
+      assert.deepEqual(empty, { ok: true, profile: null, verifiedFirmware: [{ model: "H168-383", softwareVersion: "4.4.0.1(H1006SP19C00)" }], support: null });
 
       await fx.stack.start();
       await fx.waitFor(() => fx.stack.monitor.getDeviceProbe() !== null, "identified after the start");

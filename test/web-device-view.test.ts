@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { describe, it } from "node:test";
+import { CATALOG_SECTIONS, deviceSupportRow } from "../src/device-catalog.ts";
 import { DEVICE_FEATURES, type DeviceProfile, type DeviceReport, buildDeviceReport } from "../src/device-profile.ts";
 import {
   FEATURE_KEYS,
@@ -12,6 +14,11 @@ import {
   reportIssueLink,
   reportJson,
   verificationNotice,
+  SUPPORT_MARK_KEYS,
+  supportCells,
+  supportDocsUrl,
+  supportMarkText,
+  supportNotes,
 } from "../web/src/core/device-view.ts";
 import { deviceIssueUrl } from "../src/feedback.ts";
 import { schemeText, tokenFlowText } from "../web/src/core/console-view.ts";
@@ -107,5 +114,30 @@ describe("web core: device view", () => {
     const report: DeviceReport = { ...buildDeviceReport({ probe: null, apiErrors: { sinceIso: "2026-11-02T08:00:00.000Z", entries: [] }, fengsuiVersion: "1.5.0", generatedAtIso: "2026-11-02T10:00:00.123Z" }), identity: profile({ model: "B535-232", softwareVersion: "11.0.1.2(H7SP2C00)" }).identity };
     assert.equal(reportIssueLink(report, false), deviceIssueUrl(report.identity));
     assert.equal(reportIssueLink(report, true), null);
+  });
+});
+
+describe("console: the router's row of Supported devices", () => {
+  const t = (key: keyof (typeof SETTINGS_TEXT)["en"], params?: Record<string, string | number>): string => SETTINGS_TEXT.en[key].replace(/\{(\w+)\}/g, (_, k: string) => String(params?.[k] ?? ""));
+
+  it("shows the daemon's row in the console's language, says what each mark means and links the brand's section", () => {
+    const row = deviceSupportRow("zte-zwrt", "MU5250");
+    assert.equal(supportDocsUrl(row, "zh-CN"), "https://fengsui.iocky.com/docs/supported-devices/#brand-zte");
+    assert.equal(supportDocsUrl(row, "en"), "https://fengsui.iocky.com/en/docs/supported-devices/#brand-zte");
+    assert.deepEqual(supportCells(row, "en")[5], { label: "Cell lock", mark: "△" });
+    assert.deepEqual(supportCells(row, "zh-CN")[0], { label: "信号与流量", mark: "?" });
+    assert.equal(supportNotes(row, "zh-CN")[0], "锁小区：只能锁 5G 小区，不能锁 4G 小区");
+    assert.deepEqual(["✓", "?", "△", "—", "", "✓/?"].map((mark) => supportMarkText(mark as "✓", t)), [
+      "verified on a real router",
+      "implemented, waiting for a report",
+      "partly, or with a condition",
+      "not available",
+      "FengSui does not do this yet",
+      "verified on a real router / implemented, waiting for a report",
+    ]);
+    for (const locale of ["zh-CN", "en"] as const) for (const key of Object.values(SUPPORT_MARK_KEYS)) assert.ok(SETTINGS_TEXT[locale][key].trim(), `${locale}: ${key}`);
+    // Every section the daemon may name has its anchor on the page the link opens
+    const page = fs.readFileSync("docs/guide/en/supported-devices.md", "utf8");
+    for (const section of CATALOG_SECTIONS) assert.ok(page.includes(`<a id="brand-${section.id}"></a>`), section.id);
   });
 });

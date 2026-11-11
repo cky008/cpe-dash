@@ -552,6 +552,12 @@ describe("the console in a browser", () => {
       assert.match(await page.evaluate<string>(`${row("bandLock")}.textContent`), /never checked on a real router/, "said at the switch");
       assert.equal(await page.evaluate<boolean>(`${row("cellLock", " input")} === null`), true, "no switch for a write FengSui has nothing for on this model");
       assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=writes]').textContent"), /^Writes: 5 available \(never checked on a real router\)$/);
+      // Its row of Supported devices, worked out by the daemon, with a link to the brand's section
+      const support = "document.querySelector('#settingsDialog [data-support=huawei]')";
+      assert.match(await page.evaluate<string>(`${support}.textContent`), /The row of “B535-232”/);
+      assert.equal(await page.evaluate<number>(`${support}.querySelectorAll('li[data-mark]').length`), 10, "a mark per console module");
+      assert.equal(await page.evaluate<string>(`${support}.querySelector('li[data-mark="△"]').title`), "partly, or with a condition");
+      assert.equal(await page.evaluate<string>(`${support}.querySelector('a[href*="supported-devices"]').getAttribute('href')`), "https://fengsui.iocky.com/en/docs/supported-devices/#brand-huawei");
 
       await page.click("#settingsDialog li[data-feature=bandLock] input");
       await until(() => other.stack.settings.disabledWrites.some((entry) => entry.feature === "bandLock"), "turned off");

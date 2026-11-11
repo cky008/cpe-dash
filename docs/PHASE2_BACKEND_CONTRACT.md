@@ -1100,6 +1100,15 @@ export interface DeviceProfileResponse {
   ok: true;
   profile: DeviceProfile | null;      // 第一次识别之前为 null
   verifiedFirmware: Array<{ model: string; softwareVersion: string }>; // 当前为 [{ model: "H168-383", softwareVersion: "4.4.0.1(H1006SP19C00)" }]
+  // 这台路由器在「支持的设备」表里的那一行（src/device-catalog.ts 的 deviceSupportRow，按闸门所用的品牌与型号算出）；
+  // 识别之前为 null。控制台「设置 → 设备」只显示这一行，整张表留在文档站
+  support: {
+    family: RouterFamily;
+    model: string | null;              // 表里的型号名；表里没有这个型号时为 null（按品牌的默认情况，从不回显路由器自报的型号）
+    section: string;                   // 品牌一节，文档站锚点为 brand-<section>
+    modules: Array<{ zh: string; en: string; mark: "✓" | "?" | "△" | "—" | "" | string }>; // 一格多个功能的标记不同时为 "✓/?" 这样的组合
+    notes: Array<{ zh: string; en: string }>; // △ 与 — 那几格的条件，以及表下关于这个型号的说明
+  } | null;
 }
 
 export interface DeviceProfile {

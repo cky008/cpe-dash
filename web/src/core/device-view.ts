@@ -14,10 +14,12 @@ import type {
   WriteFeatureState,
   WriteResultRecord,
 } from "../../../src/api-contract.ts";
+import type { DeviceSupportRow, SupportMark } from "../../../src/device-catalog.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 import { type NoticeTone, schemeText } from "./console-view.ts";
 import { formatAgo } from "./format.ts";
+import { DOCS_SITE } from "./help.ts";
 import type { Locale } from "./i18n.ts";
 
 /**
@@ -202,4 +204,38 @@ export function reportJson(report: DeviceReport): string {
 /** The new issue to file the report on, or `null` in the static demo: its report is the demo router's. */
 export function reportIssueLink(report: DeviceReport, demo: boolean): string | null {
   return demo ? null : deviceIssueUrl(report.identity);
+}
+
+// ── The router's row of the Supported devices table ───────────────────────────
+
+/** The brand's section of Supported devices on the documentation site. */
+export function supportDocsUrl(row: Pick<DeviceSupportRow, "section">, locale: Locale): string {
+  return `${DOCS_SITE}${locale === "en" ? "en/" : ""}docs/supported-devices/#brand-${row.section}`;
+}
+
+/** The row's modules in the console's language, each with its mark (`""`: FengSui does not do it there yet). */
+export function supportCells(row: DeviceSupportRow, locale: Locale): Array<{ label: string; mark: SupportMark }> {
+  return row.modules.map((module) => ({ label: locale === "en" ? module.en : module.zh, mark: module.mark }));
+}
+
+/** The conditions and notes under the row, in the console's language. */
+export function supportNotes(row: DeviceSupportRow, locale: Locale): string[] {
+  return row.notes.map((note) => (locale === "en" ? note.en : note.zh));
+}
+
+/** What a mark says, for its tooltip and screen readers. */
+export const SUPPORT_MARK_KEYS: Readonly<Record<"✓" | "?" | "△" | "—" | "", SettingsTextKey>> = {
+  "✓": "support_verified",
+  "?": "support_waiting",
+  "△": "support_partial",
+  "—": "support_none",
+  "": "support_not_yet",
+};
+
+/** A module's mark in words: one mark, or each feature's in order (`✓/?`). */
+export function supportMarkText(mark: SupportMark, t: Text): string {
+  return mark
+    .split("/")
+    .map((part) => t(SUPPORT_MARK_KEYS[part as keyof typeof SUPPORT_MARK_KEYS] ?? "support_not_yet"))
+    .join(" / ");
 }

@@ -58,6 +58,10 @@ import {
   reportFileName,
   reportIssueLink,
   reportJson,
+  supportCells,
+  supportDocsUrl,
+  supportMarkText,
+  supportNotes,
   switchScope,
   verificationNotice,
   writeResultDetail,
@@ -396,6 +400,43 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     );
   };
 
+  /**
+   * This router's row of the Supported devices table, as the daemon worked it out (the table itself stays
+   * on the documentation site): a mark per console module, what the △ and — cells hang on, and a link to
+   * the brand's section. A model the table lacks shows the brand's defaults and asks for a report.
+   */
+  const supportBlock = (): HTMLElement | null => {
+    const row = device?.support ?? null;
+    if (!row) return null;
+    const locale = ctx.tr.locale;
+    const cells = supportCells(row, locale).map(({ label, mark }) =>
+      h(
+        "li",
+        { class: "flex items-center gap-1.5 rounded-lg bg-base-200/40 px-2 py-1 text-xs", data: { mark: mark || "none" }, attrs: { title: supportMarkText(mark, t) } },
+        h("span", { class: "truncate" }, label),
+        h("span", { class: "ml-auto font-semibold", attrs: { "aria-hidden": "true" } }, mark),
+        h("span", { class: "sr-only" }, supportMarkText(mark, t))
+      )
+    );
+    const notes = supportNotes(row, locale);
+    const issueUrl = row.model === null && !ctx.demo ? deviceIssueUrl(device?.profile?.identity ?? null) : null;
+    return h(
+      "div",
+      { class: "space-y-2", data: { support: row.section } },
+      h("div", { class: "fs-label" }, t("support_title")),
+      h("p", { class: "text-xs muted" }, row.model === null ? t("support_unlisted") : t("support_row", { model: row.model })),
+      h("ul", { class: "grid grid-cols-2 sm:grid-cols-3 gap-1.5" }, ...cells),
+      notes.length > 0 ? h("ul", { class: "list-disc pl-4 text-xs faint space-y-0.5" }, ...notes.map((note) => h("li", null, note))) : null,
+      h("p", { class: "text-[0.6875rem] faint" }, t("support_legend")),
+      h(
+        "div",
+        { class: "flex flex-wrap gap-2 justify-end" },
+        issueUrl ? h("a", { class: "btn btn-sm btn-ghost rounded-lg gap-1.5", attrs: { href: issueUrl, target: "_blank", rel: "noopener noreferrer" } }, icon("github"), t("support_report")) : null,
+        h("a", { class: "btn btn-sm btn-ghost rounded-lg gap-1.5", attrs: { href: supportDocsUrl(row, locale), target: "_blank", rel: "noopener noreferrer" } }, icon("info"), t("support_docs"))
+      )
+    );
+  };
+
   const deviceTab = (): HTMLElement => {
     if (device === null) return loading.has("device") ? spinner() : h("div");
     const profile = device.profile;
@@ -446,7 +487,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         h("div", { class: "space-y-1" }, h("div", { class: "fs-label" }, t("endpoints_title")), h("ul", { class: "divide-y divide-base-content/[0.06]" }, ...endpoints), h("p", { class: "text-xs faint" }, t("endpoints_note")))
       );
     }
-    return h("div", { class: "space-y-4" }, notice(t(verdict.key, verdict.params), verdict.tone), accessBlock(), experimentalBlock(), agentBlock(), h("p", { class: "muted" }, t("device_intro")), details, reportBlock());
+    return h("div", { class: "space-y-4" }, notice(t(verdict.key, verdict.params), verdict.tone), supportBlock(), accessBlock(), experimentalBlock(), agentBlock(), h("p", { class: "muted" }, t("device_intro")), details, reportBlock());
   };
 
   const loadExperimental = (): void => {

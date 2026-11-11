@@ -23,6 +23,7 @@ import type {
 import type { SpeedTickPayload } from "./cpe-monitor.ts";
 import type { ChannelDeliveryStats } from "./notify/hub.ts";
 import type { AuditEntry } from "./audit-log.ts";
+import type { DeviceSupportRow } from "./device-catalog.ts";
 import type {
   ApiErrorSnapshot,
   ApiErrorStat,
@@ -372,12 +373,14 @@ export interface AuthLogoutResponse {
 /**
  * `GET /api/device/profile` (any signed-in caller): the router's identity, verification and
  * capabilities from the last probe (daemon start or a console test of the router in use), `null`
- * before the first one, and the builds FengSui was verified on.
+ * before the first one, the builds FengSui was verified on, and the router's row of the Supported
+ * devices table (`null` before a router is identified).
  */
 export interface DeviceProfileResponse {
   ok: true;
   profile: DeviceProfile | null;
   verifiedFirmware: Array<{ model: string; softwareVersion: string }>;
+  support: DeviceSupportRow | null;
 }
 
 /**

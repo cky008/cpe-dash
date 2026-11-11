@@ -487,7 +487,7 @@ export class DemoBackend {
     post("/api/console/switches", (body) => this.#console.switches(body));
     post("/api/console/behaviour", (body) => this.#console.behaviour(body));
     get("/api/audit", (_body, query) => this.#console.audit(query));
-    get("/api/device/profile", () => this.#profile?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })) } satisfies DeviceProfileResponse));
+    get("/api/device/profile", () => this.#profile?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })), support: null } satisfies DeviceProfileResponse));
     get("/api/console/experimental", () => this.#device.view());
     post("/api/console/experimental", (body) => this.#device.setExperimental(body));
     post("/api/console/agent-test", (body) => this.#device.agentTest(body));
