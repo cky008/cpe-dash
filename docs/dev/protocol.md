@@ -1,4 +1,4 @@
-# 华为 HiLink 协议与逆向算法
+# 华为 HiLink 协议与算法
 
 > **目标硬件**：华为 5G CPE Ultra 6 (`H168-383` / 硬件代号 `WL1H168M`)  
 > **实测固件**：`4.4.0.1 (H1006SP19C00)` | **WebUI 版本**：`WEBUI 4.4.0.1 (W2SP24C03)`  
@@ -7,20 +7,12 @@
 
 ---
 
-## 1. 侦察资产溯源与三方交叉印证综述
+## 1. 资料来源
 
-本规范所有路由、字段语义、编码进制与位运算公式均经过以下三路独立证据源 **100% 交叉闭环印证**：
+本规范所有路由、字段语义、编码进制与位运算公式均经过以下两路证据源交叉印证：
 
 1. **真机 WebInspector HAR 全量抓包审计**（`754` 条 HTTP 事务，提取去重 `122` 个 `/api/*` 接口、`17` 个 `/config/*.xml` 静态配置与 `44` 个 Vue 3 Webpack 组件包 `/js/*-vue.js`，覆盖 `150` 个 Vuex `commonGet`/`commonPost` 符号分发动作）。
-2. **双端成熟客户端二进制逆向（REA 静态取证 + 指令流还原）**：
-   - Windows PC 端 `CPEManager 3.8.2` 与 Android 端 `CPEManager 3.8.3_beta1` 均基于 **Qt 6.5.3 C++ 动态插件架构 (`QPluginLoader`)**；
-   - 核心华为 5G 驱动模块 `CpeVendorHUAWEI` (`v3.8.4`，原生适配 `H153 / H155 / H165 / H168 / E6888`) 与密码/位运算库 `CpeUtil` (`v3.8.0`，核心函数 `CpeUtil::bandListToHex` 位于虚拟偏移 `0x0000dd1c`)；
-   - REA 静态密码学取证摘要：
-     - `CpeNet.dll` (`sha256: a5e6f0bc7839de1615cacc0e043feadfa2cee7deb3475823417510fbba4b093e`)
-     - `CpeVendorManager.dll` (`sha256: 809f54961d9a034e0b6080400379b3276eba6709e9c9c18bfc08d2866613de06`)
-     - `CpeUtil.dll` (`sha256: 1f1f3fd60f3cab3a9dc78f14690c639504610abae674a4891792984956fc1cdb`)
-     - `CPEManager_3.8.3_beta1.apk` (`sha256: 2467aa14f540ef0e1003fb693e4c6cbf4ebd81d7e8ca187d5c5582a60c011262`)
-3. **局域网 `192.168.8.1` 真机非破坏性探针实测**（`scripts/probe-*.ts` 共 8 组探针全部实机跑通）。
+2. **局域网 `192.168.8.1` 真机非破坏性探针实测**（`scripts/probe-*.ts` 共 8 组探针全部实机跑通；锁频段掩码与锁小区载荷由 `probe:locking` 对账真机频段表，见第 4、5 节）。
 
 ---
 
@@ -631,9 +623,9 @@ sequenceDiagram
 
 **未实现**：固件的 321 个接口中没有按设备限速（QoS / 带宽上限）的接口，`appturbo`（游戏加速）与 `security/acl`（远程管理访问控制）都不是限速，因此"即时限速 / 定时限速"无法在这台 CPE 上实现。
 
-## 4. 核心逆向算法与数学计算公式（已封装于 `src/band-lock.ts` 与 `src/parsers.ts`）
+## 4. 核心算法与数学计算公式（已封装于 `src/band-lock.ts` 与 `src/parsers.ts`）
 
-### 4.1 4G LTE / 5G NR `BandMask` 位掩码算法 (`CpeUtil::bandListToHex`)
+### 4.1 4G LTE / 5G NR `BandMask` 位掩码算法
 
 华为巴龙基带将 3GPP 频段号 $N \in [1, 255]$ 映射为从第 0 位起算的精确位偏移：
 
@@ -780,7 +772,7 @@ $$
 | 探针脚本 | 执行命令 | 核心职责 | 真机 (`192.168.8.1`) 验证结论 |
 | :--- | :--- | :--- | :--- |
 | [`scripts/probe-har-endpoints.ts`](../../scripts/probe-har-endpoints.ts) | `npm run probe:har -- --har <path>` | 流式解构 HAR 抓包，提取去重 API 路由与自动脱敏样本 | 成功解构 `754` 条请求、`122` 个 `/api/*` 端点，零敏感数据残留 |
-| [`scripts/probe-locking-algo.ts`](../../scripts/probe-locking-algo.ts) | `npm run probe:locking` | 验证 PC/APK 逆向 `BandMask` 与锁小区载荷，对账真机频段表 | `37 ms` 完成短连，真机 14 频段掩码 `0x40000007a0880800d5` 100% 吻合 |
+| [`scripts/probe-locking-algo.ts`](../../scripts/probe-locking-algo.ts) | `npm run probe:locking` | 验证 `BandMask` 与锁小区载荷，对账真机频段表 | `37 ms` 完成短连，真机 14 频段掩码 `0x40000007a0880800d5` 100% 吻合 |
 | [`scripts/probe-rf-ca.ts`](../../scripts/probe-rf-ca.ts) | `npm run probe:rf` | 抓取 3CA 聚合链、256QAM MCS、MIMO 流数、发射功率与基站恒等校验 | 实测 `B1(20M)+B3(20M)+N78(100M)` 140MHz 3CA、UL/DL 256QAM、TM4 RI=2、PUSCH 12/23dBm |
 | [`scripts/probe-neighbor-cells.ts`](../../scripts/probe-neighbor-cells.ts) | `npm run probe:neighbors` | 扫描周边 4G/5G 候选邻区并生成只读锁小区预览 XML | 成功抓取 B1/B3 多扇区候选邻区（样本中的 PCI 为合成值）及 RSRP/RSRQ/RSSI |
 | [`scripts/probe-traffic.ts`](../../scripts/probe-traffic.ts) | `npm run probe:traffic` | 验证瞬时上下行速率、当日流量与当月流量双周期统计 | `30 ms` 短连读取当日流量、当月上下行明细、结算日及 `100002` 降级边界 |
@@ -836,7 +828,7 @@ $$
 ### A.4 登录方式（为阶段 1 整理，细节见 A.8）
 
 - **旧式 `POST /api/user/login`**（参考项目 `api/User.py` 的 `_login`、`_encode_password`）：请求体 `Username`、`Password`、`password_type`，成功返回 `OK`。`password_type=0`：`Password = base64(password)`；`password_type=4`：`Password = base64(hex(sha256(username + base64(hex(sha256(password))) + 当前令牌)))`。
-- **SCRAM**（`api/User.py` 的 `scram_client_proof` 与 `_login_scram`）：`user/challenge_login`（`username`、`firstnonce`、`mode=1`）→ `user/authentication_login`（`clientproof`、`finalnonce`）。HMAC 的密钥与消息位置与 RFC 5802 相反，按 RFC 正确实现会被设备以 `108006` 拒绝，与烽燧从 H168-383 逆向的结论一致（2.1 节）。参考项目要求 `serversignature` 必须存在且一致，缺失也算失败。
+- **SCRAM**（`api/User.py` 的 `scram_client_proof` 与 `_login_scram`）：`user/challenge_login`（`username`、`firstnonce`、`mode=1`）→ `user/authentication_login`（`clientproof`、`finalnonce`）。HMAC 的密钥与消息位置与 RFC 5802 相反，按 RFC 正确实现会被设备以 `108006` 拒绝，与烽燧在 H168-383 上分析得出的结论一致（2.1 节）。参考项目要求 `serversignature` 必须存在且一致，缺失也算失败。
 - **方式选择**（`api/User.py` 的 `login`）：`password_type=4` 时先做 SCRAM 挑战，挑战只发用户名和随机数、不发密码；只有挑战返回 `100002` / `100003` 或响应不是挑战（缺 `salt` / `iterations` / `servernonce`）时才回退旧式 `user/login`；提交 `clientproof` 之后的任何错误都不回退（参考项目 `tests/test_user_scram_session.py` 覆盖了 `100002`、`100003`、`108006` 三种）。报告 `password_type=4` 却拒绝旧式 SHA-256（`108006`）的型号有 5G CPE Pro H112-370、B610h-72a（`_login_scram` 的注释），所以 **`password_type=4` 本身区分不了 SCRAM 与旧式 SHA-256**。
 
 ### A.5 错误码
@@ -906,7 +898,7 @@ $$
 | `password_type=3` | 参考项目的枚举名是「改密码后的 base64」并自注名称不确定；编码走与 `0` 相同的 base64 分支 |
 | `password_type=4` | `Password = base64(hex(sha256(utf8(username) + base64(hex(sha256(utf8(password)))) + token)))`，`hex` 为小写 |
 | 用哪个令牌 | 这次请求头 `__RequestVerificationToken` 里发出的那个令牌（令牌池的第一个）。前一步 SCRAM 探测被拒时：探测的响应头带了新令牌就用它，没带就重新取一个（`tests/test_user_scram_session.py` 的 `test_legacy_fallback_uses_current_csrf_token`） |
-| 字符编码 | 参考项目对密码一律按 UTF-8 编码（包括 SCRAM 的 PBKDF2）。烽燧从 H168-383 网页逆向的 SCRAM 按 latin1 编码（2.1 节，2026-11-09 已对照路由器登录页的脚本核实）；ASCII 密码两者相同 |
+| 字符编码 | 参考项目对密码一律按 UTF-8 编码（包括 SCRAM 的 PBKDF2）。烽燧按 H168-383 网页脚本实现的 SCRAM 按 latin1 编码（2.1 节，2026-11-09 已对照路由器登录页的脚本核实）；ASCII 密码两者相同 |
 | 登录后 | 请求带 `refresh_csrf`：响应到达后清空令牌池，只用响应头带回的新令牌 |
 
 **令牌流程**（参考项目 `Session.py` 的 `_initialize_csrf_tokens_and_session`、`_get_token`、`_post`、`get`、`_try_or_reload_and_retry`；`api/WebServer.py`）：

@@ -128,7 +128,7 @@ export function validatePci(rat: RatName, pci: number): number {
 
 /**
  * Compute Huawei's lowercase hexadecimal BandMask from 1-indexed 3GPP band numbers:
- * `Mask = sum(1n << BigInt(band - 1))` (`CpeUtil::bandListToHex`).
+ * `Mask = sum(1n << BigInt(band - 1))`.
  */
 export function bandsToHexMask(bands: ReadonlyArray<BandInput>): string {
   if (bands.length === 0) return "0";

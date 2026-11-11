@@ -25,7 +25,7 @@ import {
 } from "../src/band-lock.ts";
 import { getXmlBlocks, getXmlTag } from "../src/xml.ts";
 
-describe("BandMask bitwise codec & Cell Lock payload builders (CpeVendorHUAWEI v3.8.4)", () => {
+describe("BandMask bitwise codec & Cell Lock payload builders", () => {
   it("parses LTE/NR band labels and validates bounds", () => {
     assert.equal(parseBandNumber(1), 1);
     assert.equal(parseBandNumber("B3"), 3);

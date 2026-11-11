@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   const offlineOnly = process.argv.includes("--offline");
   console.log("=== [FengSui Probe #2] BandMask & Cell Lock Algorithm Verification ===");
 
-  // 1. Offline vector verification against CpeVendorHUAWEI v3.8.4 & H168-383 reference vectors
+  // 1. Offline vector verification against the H168-383 reference vectors
   const refLteBands = [1, 3, 5, 7, 8, 20, 28, 32, 38, 40, 41, 42, 43, 71];
   const computedLteMask = bandsToHexMask(refLteBands);
   const computedN78Mask = bandsToHexMask(["N78"]);
