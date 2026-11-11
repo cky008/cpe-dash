@@ -53,6 +53,23 @@ Contacts let threads display names instead of phone numbers. You can add them ma
 
 While someone is logged in to the router's own web page, send, mark as read, and delete requests are rejected (with a notification that someone is using the router). Sync pauses and only checks for new messages via an unauthenticated endpoint; full synchronization catches up automatically after they log out.
 
+<a id="other-brands"></a>
+
+## Routers of other brands
+
+FengSui is currently verified on the Huawei H168-383 only. SMS on the brands below is implemented from each brand's interface notes and has not been checked on a real router; see [Supported devices](supported-devices.md) for each model.
+
+| Brand | What you can do | What to know |
+| :--- | :--- | :--- |
+| ZTE (both interfaces, goform and zWRT) | Read, send, mark as read, delete | FengSui reads and writes the router's own storage; messages kept on the SIM card are not shown. |
+| OpenWrt with a Quectel or Fibocom module | Read and delete; send as well on a router with QModem installed | The cellular module marks a message read as soon as it lists it, so FengSui keeps track of what you have not read. The module keeps no copy of what it sends, so the messages you send are kept by FengSui only. |
+| Tozed / ZLT (also China Unicom VN007) | Read and send | The interface has no command on record to delete a message or to mark one read: you cannot delete, and FengSui keeps track of what you have not read. |
+| FiberHome | Read, mark as read, send, delete a whole conversation | Sending takes plain English text only (letters, digits and common punctuation), and never text with `` ` ``, `$`, `"` or `\`: the router hands the text to a command line. To delete, select every message of the conversation. Where the router wants a separate web sign-in before it shows messages, the SMS page stays empty. |
+
+The interface notes of Pinsu and NRadio have no SMS interface, so the SMS page stays empty on those two brands.
+
+Sending, marking as read and deleting on these routers are [experimental writes](other-routers.md#safeguards): available by default, sent once, and read back afterwards; to stop them, turn off "Send and manage SMS" under Settings → Device. Conversations, verification codes, Recently deleted, contacts, Telegram, webhooks and the limits on what an AI agent may send are the same on every brand; the storage alerts come only where the router reports its capacity.
+
 ## Where SMS messages are stored
 
 SMS messages (those in Recently deleted too) and contacts are encrypted with your `DATA_ENCRYPTION_KEY` and saved in `data/sms.json` and `data/contacts.json`. Each message is identified by a random ID containing no phone numbers. When router SMS storage fills up, FengSui triggers `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL` alerts to remind you to clean up.

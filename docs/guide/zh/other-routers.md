@@ -44,8 +44,9 @@ order: 18
 - 锁频段（4G 和 5G 频段，在控制抽屉里直接填频段号）
 - 锁小区（频点 + PCI，在「附近的基站」里操作）
 - 重启
+- 短信：中兴、OpenWrt、通则康威和烽火。每个品牌能做的不一样（有的不能删除，有的发送有条件），见[短信](sms.md#other-brands)
 
-短信、已连接设备、重拨、移动数据、路由器开关和访问控制在其他品牌上还没有实现，控制台里对应的部分是空的。每个品牌的细节见[支持的设备](supported-devices.md#brands)。
+已连接设备、重拨、移动数据、路由器开关和访问控制在其他品牌上还没有实现，品速和鲲鹏无限也没有短信，控制台里对应的部分是空的。每个品牌的细节见[支持的设备](supported-devices.md#brands)。
 
 烽燧没有实现的写操作不会发给路由器：网页、API、MCP、Telegram 和自愈都绕不过服务端的这道闸门，接口返回 `409 DEVICE_UNVERIFIED_READ_ONLY`。
 
@@ -120,3 +121,25 @@ order: 18
 ## 致谢
 
 感谢 [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api)：烽燧为其他华为型号做兼容时，参考了它整理的接口与机型资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [exbyte-dev/zltrouter](https://github.com/exbyte-dev/zltrouter)：烽燧为中兴 goform 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [paulo-correia/ZTE_API_and_Hack](https://github.com/paulo-correia/ZTE_API_and_Hack)：烽燧为中兴 goform 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [teixeluis/zte-lte-modem](https://github.com/teixeluis/zte-lte-modem)：烽燧为中兴 goform 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs)：烽燧为中兴 zWRT 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [Stantastic/ZTE-SMS-Gateway](https://github.com/Stantastic/ZTE-SMS-Gateway)：烽燧为中兴 zWRT 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro)：烽燧为中兴 zWRT 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [FUjr/QModem](https://github.com/FUjr/QModem)：烽燧为OpenWrt 路由器的短信发送做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5g-traffic-monitoring-system)：烽燧为通则康威（联通 VN007+）的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [Curtion/fiberhome-cpe-lg6121f-sms-notice](https://github.com/Curtion/fiberhome-cpe-lg6121f-sms-notice)：烽燧为烽火的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [upchr/fiberhome-cpe](https://github.com/upchr/fiberhome-cpe)：烽燧为烽火的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA)：烽燧为烽火的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。

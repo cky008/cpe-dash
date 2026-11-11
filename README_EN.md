@@ -99,3 +99,25 @@ The same pages, with search, are on the [documentation site](https://fengsui.ioc
 ## Acknowledgements
 
 Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api): FengSui consulted the endpoints and model notes it collects when adding support for other Huawei models. FengSui contains none of its code and does not depend on it.
+
+Thanks to [exbyte-dev/zltrouter](https://github.com/exbyte-dev/zltrouter): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [paulo-correia/ZTE_API_and_Hack](https://github.com/paulo-correia/ZTE_API_and_Hack): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [teixeluis/zte-lte-modem](https://github.com/teixeluis/zte-lte-modem): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [Stantastic/ZTE-SMS-Gateway](https://github.com/Stantastic/ZTE-SMS-Gateway): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [FUjr/QModem](https://github.com/FUjr/QModem): FengSui consulted the interface notes it collects when adding SMS sending for OpenWrt routers. FengSui contains none of its code and does not depend on it.
+
+Thanks to [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5g-traffic-monitoring-system): FengSui consulted the interface notes it collects when adding SMS for Tozed (China Unicom VN007+). FengSui contains none of its code and does not depend on it.
+
+Thanks to [Curtion/fiberhome-cpe-lg6121f-sms-notice](https://github.com/Curtion/fiberhome-cpe-lg6121f-sms-notice): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
+
+Thanks to [upchr/fiberhome-cpe](https://github.com/upchr/fiberhome-cpe): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
+
+Thanks to [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.

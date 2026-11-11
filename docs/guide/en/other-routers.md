@@ -44,8 +44,9 @@ Each one also needs the router to have what it takes: when FengSui identifies th
 - Band lock (4G and 5G bands, typed as band numbers in the controls drawer)
 - Cell lock (channel + PCI, from Nearby cells)
 - Reboot
+- SMS: ZTE, OpenWrt, Tozed and FiberHome. What each brand can do differs (some cannot delete, some send with a condition); see [SMS](sms.md#other-brands)
 
-SMS, connected devices, redial, mobile data, router switches and access control are not implemented on other brands yet, and those parts of the console stay empty. What is particular to each brand is under [Supported devices](supported-devices.md#brands).
+Connected devices, redial, mobile data, router switches and access control are not implemented on other brands yet, Pinsu and NRadio have no SMS either, and those parts of the console stay empty. What is particular to each brand is under [Supported devices](supported-devices.md#brands).
 
 A write FengSui does not implement is never sent to the router: the web console, the API, MCP, Telegram and self-healing all go through the same gate on the server, and the endpoint answers `409 DEVICE_UNVERIFIED_READ_ONLY`.
 
@@ -120,3 +121,25 @@ On your own computer, `DEMO_SCENARIO=unverified npm run demo` runs the real daem
 ## Acknowledgments
 
 Thanks to [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api): when building compatibility for other Huawei models, FengSui referenced its API and model research. FengSui does not contain its code or depend on it.
+
+Thanks to [exbyte-dev/zltrouter](https://github.com/exbyte-dev/zltrouter): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [paulo-correia/ZTE_API_and_Hack](https://github.com/paulo-correia/ZTE_API_and_Hack): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [teixeluis/zte-lte-modem](https://github.com/teixeluis/zte-lte-modem): FengSui consulted the interface notes it collects when adding SMS for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [Stantastic/ZTE-SMS-Gateway](https://github.com/Stantastic/ZTE-SMS-Gateway): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [FUjr/QModem](https://github.com/FUjr/QModem): FengSui consulted the interface notes it collects when adding SMS sending for OpenWrt routers. FengSui contains none of its code and does not depend on it.
+
+Thanks to [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5g-traffic-monitoring-system): FengSui consulted the interface notes it collects when adding SMS for Tozed (China Unicom VN007+). FengSui contains none of its code and does not depend on it.
+
+Thanks to [Curtion/fiberhome-cpe-lg6121f-sms-notice](https://github.com/Curtion/fiberhome-cpe-lg6121f-sms-notice): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
+
+Thanks to [upchr/fiberhome-cpe](https://github.com/upchr/fiberhome-cpe): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
+
+Thanks to [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.

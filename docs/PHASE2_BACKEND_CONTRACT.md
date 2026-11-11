@@ -774,7 +774,8 @@ export interface SmsCounters {
   localInbox: number;
   localOutbox: number;
   localDraft: number;
-  localMax: number;                   // CPE 短信容量（H168-383 通常为 500）
+  localMax: number;                   // CPE 短信容量（H168-383 通常为 500；0 表示这台路由器不报告容量）
+  newest?: number;                    // 只在计数看不出新短信的路由器上有（它只能数自己列出的那一页）：最新一条的存储句柄，变了就同步
 }
 
 export interface SmsStatusSnapshot {
@@ -787,7 +788,7 @@ export interface SmsStatusSnapshot {
   seeded: boolean;                    // 首次全量同步已完成（此前已存在的短信视为历史，不推送通知）
   lastSyncAt: string | null;
   lastFullSyncAt: string | null;
-  via: "sms-list" | "contact-list" | null; // 实际使用的列表通道（明文 sms-list 或加密联系人列表回退）
+  via: "sms-list" | "contact-list" | "driver" | null; // 实际使用的列表通道（华为：明文 sms-list 或加密联系人列表回退；driver：其他品牌按各自的接口列出）
   syncInProgress: boolean;
   syncPending: boolean;               // CPE 计数与上次同步不一致（如让位期间收到新短信）
   defaultCountryCode: string;
@@ -890,8 +891,8 @@ export interface SmsSendResult {
 }
 
 export interface SmsSyncSummary {
-  mode: "incremental" | "full";
-  via: "sms-list" | "contact-list";
+  mode: "incremental" | "full";       // 这次同步实际做的：其他品牌一次列出全部短信，请求的是 incremental 时这里也是 full
+  via: "sms-list" | "contact-list" | "driver";
   added: number;
   updated: number;
   removed: number;                    // 仅全量对账：CPE 上已不存在的记录从镜像移除
