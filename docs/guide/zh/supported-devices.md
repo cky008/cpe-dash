@@ -163,14 +163,14 @@ order: 2
 
 | 型号 | 形态 | 接口 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 实测反馈 |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| U60 Pro (MU5250) | 随身路由器 | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U60+Pro+%28MU5250%29) |
-| G5 Ultra (MC8530) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8530%29) |
-| G5 Ultra (MC8531) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8531%29) |
-| G5 Pro (MC8512) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Pro+%28MC8512%29) |
-| G5TS (MC8520) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5TS+%28MC8520%29) |
-| G5F | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5F) |
-| MC888D | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888D) |
-| U50 Pro (MU5120) | 随身路由器 | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50+Pro+%28MU5120%29) |
+| U60 Pro (MU5250) | 随身路由器 | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U60+Pro+%28MU5250%29) |
+| G5 Ultra (MC8530) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8530%29) |
+| G5 Ultra (MC8531) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8531%29) |
+| G5 Pro (MC8512) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Pro+%28MC8512%29) |
+| G5TS (MC8520) | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5TS+%28MC8520%29) |
+| G5F | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5F) |
+| MC888D | 室内 CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888D) |
+| U50 Pro (MU5120) | 随身路由器 | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50+Pro+%28MU5120%29) |
 | MC8510 | 室内 CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8510) |
 | G5C | 室内 CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5C) |
 | G5B | 室内 CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5B) |
@@ -217,7 +217,6 @@ order: 2
 这一节的说明：
 
 - △ 「锁小区」：只能锁 5G 小区，不能锁 4G 小区（U60 Pro (MU5250)、G5 Ultra (MC8530)、G5 Ultra (MC8531)、G5 Pro (MC8512)、G5TS (MC8520)、G5F、MC888D 和 U50 Pro (MU5120)）。
-- △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（U60 Pro (MU5250)、G5 Ultra (MC8530)、G5 Ultra (MC8531)、G5 Pro (MC8512)、G5TS (MC8520)、G5F、MC888D 和 U50 Pro (MU5120)）。
 - 短信读写的是路由器自己的存储，存在 SIM 卡上的短信不显示（这一节的全部型号）。
 - △ 「锁频段」、「锁小区」：锁定前，烽燧会先用同一个管理密码打开路由器的开发者选项，并在这次写入的记录里写明（MC888 Ultra、MC888 Pro、MC888、MC888S、MC8020、MC8830、F50 Pro、F50 和 MF79U）。
 

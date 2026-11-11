@@ -280,9 +280,9 @@ describe("experimental switch: what each write is on a router", () => {
     other.see("MC8530", null);
     assert.equal(other.writeState("cellLock"), "enabled");
     // A write the brand does not implement stays refused whatever a report says
-    const unimplemented = new DeviceAccess({ family: "zte-zwrt", verifiedFeatures: [{ ...entry, feature: "mobileData" }] });
+    const unimplemented = new DeviceAccess({ family: "zte-zwrt", verifiedFeatures: [{ ...entry, feature: "accessControl" }] });
     unimplemented.see("MU5250", null);
-    assert.equal(unimplemented.writeState("mobileData"), "not_implemented");
+    assert.equal(unimplemented.writeState("accessControl"), "not_implemented");
   });
 
   it("opens what a driver family's driver implements without a probe, and keeps an unlock open while either lock is", () => {

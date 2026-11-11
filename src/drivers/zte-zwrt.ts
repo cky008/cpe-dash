@@ -9,7 +9,7 @@ import { bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } f
 import { carriersFromRows, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
@@ -18,6 +18,7 @@ import type {
   DriverBandLockTarget,
   DriverCell,
   DriverCellLockTarget,
+  DriverDataLink,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -172,6 +173,12 @@ function connectedOf(value: unknown): boolean | null {
   if (!text) return null;
   if (text.includes("disconnect") || text.includes("connecting")) return false;
   return text.endsWith("connected") ? true : null;
+}
+
+/** The data switch of a `get_wwaniface` answer (`null`: not named). */
+function dataSwitchOf(call: Record<string, unknown> | null): boolean | null {
+  const enable = call === null ? null : intOf(call["enable"]);
+  return enable === 1 ? true : enable === 0 ? false : null;
 }
 
 /** The netinfo, traffic and device readings of one poll in FengSui's shape. */
@@ -504,6 +511,31 @@ class ZwrtSession implements DriverSessionHandle {
     }
     settleSmsListing(check, await this.#smsList().catch(() => null), ids, "gone");
   }
+
+  /** The data call as the router's app reads it (`zwrt_data.get_wwaniface`). */
+  async #wwan(): Promise<Record<string, unknown>> {
+    this.#guard();
+    const answer = await this.#rpc.call("zwrt_data", "get_wwaniface", { source_module: "web", cid: 1 });
+    if (!isPlainObject(answer)) throw new CpeAnswerFormatError("zwrt_data.get_wwaniface: not an object");
+    return answer;
+  }
+
+  /**
+   * Mobile data: `zwrt_data.set_wwaniface` with `enable` (notes library A; the router's app sends back
+   * the call's current `connect_mode` and `roam_enable` with it, automatic when switching data on, so
+   * the roaming setting is never reset), read back from `get_wwaniface`. Switching off waits for the
+   * call to go down before the read-back, so a redial's connect does not meet a disconnect in progress.
+   */
+  readonly data: DriverDataLink = {
+    enabled: async () => dataSwitchOf(await this.#wwan()),
+    set: async (enabled, check, wait) => {
+      const current = await this.#wwan().catch(() => null);
+      const kept = current === null ? {} : { connect_mode: enabled ? 1 : (intOf(current["connect_mode"]) ?? 1), roam_enable: intOf(current["roam_enable"]) ?? 0 };
+      await this.#write(check, "set_wwaniface", { source_module: "web", cid: 1, ...kept, enable: enabled ? 1 : 0 }, "zwrt_data");
+      if (!enabled) await awaitConnection(async () => connectedOf((await this.#wwan())["connect_status"]), false, wait);
+      settleDataSwitch(check, enabled, dataSwitchOf(await this.#wwan().catch(() => null)));
+    },
+  };
 
   async reboot(check: WriteCheck): Promise<void> {
     await this.#write(check, "device_reboot", { moduleName: "web" }, "zwrt_mc.device.manager");

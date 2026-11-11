@@ -104,13 +104,15 @@ describe("verified features of other models", () => {
 
   it("counts a model as verified once reports settle every feature FengSui does on it, with nothing more to check", () => {
     const base = { family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", issue: 41 } as const;
-    // What FengSui implements on zWRT today: the signal, SMS, band and cell locks, reboot
+    // What FengSui implements on zWRT today: the signal, SMS, band and cell locks, reboot, redial, mobile data
     assert.deepEqual(familyFeatures("zte-zwrt"), [
       { feature: "telemetry", access: "read" },
       { feature: "smsRead", access: "read" },
       { feature: "bandLock", access: "write" },
       { feature: "cellLock", access: "write" },
       { feature: "reboot", access: "write" },
+      { feature: "reconnect", access: "write" },
+      { feature: "mobileData", access: "write" },
       { feature: "smsWrite", access: "write" },
     ]);
     const all: VerifiedFeature[] = familyFeatures("zte-zwrt").map(({ feature, access }) => ({ ...base, feature, access }));
@@ -131,10 +133,10 @@ describe("verified features of other models", () => {
     access.see("MU5250", base.softwareVersion);
     const device = access.snapshot();
     assert.deepEqual([device.verification, access.reportVerified, device.writes, access.generic], ["report-verified", true, "experimental", true]);
-    assert.deepEqual([device.features.cellLock, device.features.mobileData], ["verified", "not_implemented"], "what it does not implement stays refused");
+    assert.deepEqual([device.features.cellLock, device.features.accessControl], ["verified", "not_implemented"], "what it does not implement stays refused");
     const scheduler = { device } as unknown as SchedulerStatusSnapshot;
     assert.equal(reportVerified(scheduler), true);
-    assert.equal(writesText(device.writes, experimentalWrites(scheduler).length, (key, params) => SETTINGS_TEXT.en[key].replace("{count}", String(params?.["count"])), true), "Writes: 4 available (each confirmed on a real router)");
+    assert.equal(writesText(device.writes, experimentalWrites(scheduler).length, (key, params) => SETTINGS_TEXT.en[key].replace("{count}", String(params?.["count"])), true), "Writes: 6 available (each confirmed on a real router)");
     const profile = { identity: { model: "MU5250", softwareVersion: base.softwareVersion }, verification: device.verification } as unknown as DeviceProfile;
     assert.deepEqual(verificationNotice(profile, VERIFIED_FIRMWARE).key, "verification_report_verified");
     assert.equal(verificationNotice(profile, VERIFIED_FIRMWARE).tone, "success");

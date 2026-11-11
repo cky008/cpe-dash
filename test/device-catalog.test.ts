@@ -37,7 +37,7 @@ const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt"
 /** What each brand's driver writes today (its own form of the interface). */
 const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   "zte-goform": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"],
-  "zte-zwrt": ["bandLock", "cellLock", "reboot", "smsWrite"],
+  "zte-zwrt": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"],
   pinsu: ["bandLock", "cellLock", "reboot"],
   tozed: ["bandLock", "cellLock", "reboot", "smsWrite"],
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite"],
@@ -297,16 +297,12 @@ describe("the row of the router the console shows", () => {
     assert.deepEqual([row.model, row.section, row.family], ["U60 Pro (MU5250)", "zte", "zte-zwrt"]);
     assert.deepEqual(
       row.modules.map((m) => m.mark),
-      ["?", "", "", "?", "?", "△", "△", "", "", ""]
+      ["?", "", "", "?", "?", "△", "?", "?", "", ""]
     );
     assert.deepEqual(row.modules[5], { zh: "锁小区", en: "Cell lock", mark: "△" });
     assert.deepEqual(
       row.notes.map((n) => n.en),
-      [
-        "Cell lock: locks 5G cells only, not 4G cells",
-        "Reboot & redial: reboot only; FengSui does not do redial here yet",
-        "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown",
-      ]
+      ["Cell lock: locks 5G cells only, not 4G cells", "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown"]
     );
     assert.equal(findCatalogModel("zte-zwrt", " u60 pro ")?.code, "MU5250", "case and spaces aside");
     assert.equal(findCatalogModel("huawei", "MU5250"), null, "only on an interface the model has");

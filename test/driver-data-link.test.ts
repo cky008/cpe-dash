@@ -11,6 +11,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
+import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 
 /**
  * The data connection of a driver family (redial, self-healing's redial, mobile data): the session
@@ -132,6 +133,48 @@ describe("zte-goform: the data connection", () => {
         ["DISCONNECT_NETWORK", "CONNECT_NETWORK"]
       );
       assert.equal(fx.applied.at(-1)?.action, "auto_reconnect_cellular");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("zte-zwrt: the data connection", () => {
+  it("switches the data call the way the router's app does, keeping its roaming setting, and reads the switch back", async () => {
+    const { calls, state, client } = zwrtRouter();
+    assert.equal(await client.withSession((s) => s.data!.enabled()), true);
+    const off = newCheck();
+    await client.withSession((s) => s.data!.set(false, off, noWait));
+    const sent = calls.find((c) => c.method === "set_wwaniface");
+    assert.deepEqual(sent?.args, { source_module: "web", cid: 1, connect_mode: 1, roam_enable: 1, enable: 0 });
+    assert.deepEqual([off.endpoints, off.readback], [["zte-zwrt:zwrt_data.set_wwaniface"], "match"]);
+    assert.equal(state.wwan["roam_enable"], "1", "roaming kept");
+    const on = newCheck();
+    await client.withSession((s) => s.data!.set(true, on, noWait));
+    assert.deepEqual(calls.filter((c) => c.method === "set_wwaniface").at(-1)?.args, { source_module: "web", cid: 1, connect_mode: 1, roam_enable: 1, enable: 1 });
+    assert.equal(on.readback, "match");
+  });
+
+  it("falls back to the notes' plain write when the call cannot be read, and then cannot tell", async () => {
+    const { calls, client } = zwrtRouter({ fail: "get_wwaniface" });
+    const check = newCheck();
+    await client.withSession((s) => s.data!.set(true, check, noWait));
+    assert.deepEqual(calls.find((c) => c.method === "set_wwaniface")?.args, { source_module: "web", cid: 1, enable: 1 });
+    assert.deepEqual([check.readback, check.reason], ["unknown", "no_evidence"]);
+  });
+
+  it("leaves a router whose data was switched off on purpose alone when self-healing would redial", async () => {
+    const router = zwrtRouter();
+    const fx = daemonOn("zte-zwrt", router.mock.fetchImpl, "http://192.168.0.1", ZWRT_PASSWORD);
+    try {
+      await fx.core.controls.setMobileData(false);
+      assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: false, skipped: "mobile_data_off" });
+      assert.equal(router.calls.filter((c) => c.method === "set_wwaniface").length, 1, "only the switch-off went out");
+      await fx.core.controls.setMobileData(true);
+      router.state.wwan["connect_status"] = "disconnected";
+      assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: true });
+      assert.deepEqual(router.calls.filter((c) => c.method === "set_wwaniface").map((c) => c.args["enable"]), [0, 1, 0, 1]);
+      assert.equal(router.state.wwan["connect_status"], "ipv4_ipv6_connected");
     } finally {
       await fx.cleanup();
     }

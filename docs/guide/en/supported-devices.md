@@ -163,14 +163,14 @@ Usually at `192.168.0.1`; sign in with the admin password (there is no user name
 
 | Model | Form | Interface | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Your results |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| U60 Pro (MU5250) | Mobile router | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U60+Pro+%28MU5250%29) |
-| G5 Ultra (MC8530) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8530%29) |
-| G5 Ultra (MC8531) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8531%29) |
-| G5 Pro (MC8512) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Pro+%28MC8512%29) |
-| G5TS (MC8520) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5TS+%28MC8520%29) |
-| G5F | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5F) |
-| MC888D | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888D) |
-| U50 Pro (MU5120) | Mobile router | zWRT · goform | ? |  |  | ? | ? | △ | △ |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50+Pro+%28MU5120%29) |
+| U60 Pro (MU5250) | Mobile router | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U60+Pro+%28MU5250%29) |
+| G5 Ultra (MC8530) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8530%29) |
+| G5 Ultra (MC8531) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Ultra+%28MC8531%29) |
+| G5 Pro (MC8512) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5+Pro+%28MC8512%29) |
+| G5TS (MC8520) | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5TS+%28MC8520%29) |
+| G5F | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5F) |
+| MC888D | Indoor CPE | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC888D) |
+| U50 Pro (MU5120) | Mobile router | zWRT · goform | ? |  |  | ? | ? | △ | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U50+Pro+%28MU5120%29) |
 | MC8510 | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MC8510) |
 | G5C | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5C) |
 | G5B | Indoor CPE | goform | ? | ? |  | ? | ? | ? | ? | ? |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+G5B) |
@@ -217,7 +217,6 @@ Usually at `192.168.0.1`; sign in with the admin password (there is no user name
 Notes for this table:
 
 - △ Cell lock: locks 5G cells only, not 4G cells (U60 Pro (MU5250), G5 Ultra (MC8530), G5 Ultra (MC8531), G5 Pro (MC8512), G5TS (MC8520), G5F, MC888D and U50 Pro (MU5120)).
-- △ Reboot & redial: reboot only; FengSui does not do redial here yet (U60 Pro (MU5250), G5 Ultra (MC8530), G5 Ultra (MC8531), G5 Pro (MC8512), G5TS (MC8520), G5F, MC888D and U50 Pro (MU5120)).
 - SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown (every model in this table).
 - △ Band lock, Cell lock: before the lock FengSui opens the router's developer options with the same admin password, and names it in the write's record (MC888 Ultra, MC888 Pro, MC888, MC888S, MC8020, MC8830, F50 Pro, F50 and MF79U).
 

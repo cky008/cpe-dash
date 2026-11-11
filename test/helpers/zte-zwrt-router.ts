@@ -75,6 +75,8 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
     key: null as Buffer | null,
     /** What the router decrypted of the last send. */
     lastSend: null as { number: string; body: string } | null,
+    /** The data call as `get_wwaniface` reads it (a write that leaves a setting out resets it, as a router may). */
+    wwan: { enable: "1", connect_mode: "1", roam_enable: "1", connect_status: "ipv4_ipv6_connected" } as Record<string, string>,
   };
   const encrypting = opts.encryption !== false;
   const ids = (raw: unknown): number[] =>
@@ -158,7 +160,13 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
       return reply(null, 3);
     }
     if (method === "nwinfo_get_netinfo") return reply(netinfo);
-    if (method === "get_wwandst") return reply({ real_time: 3600, real_rx_bytes: 10485760, real_tx_bytes: 2048000, real_rx_speed: 1250000, real_tx_speed: 150000, month_rx_bytes: 53687091200, month_tx_bytes: 4294967296, month_time: 86400, ppp_status: "ipv4_ipv6_connected" });
+    if (method === "get_wwandst") return reply({ real_time: 3600, real_rx_bytes: 10485760, real_tx_bytes: 2048000, real_rx_speed: 1250000, real_tx_speed: 150000, month_rx_bytes: 53687091200, month_tx_bytes: 4294967296, month_time: 86400, ppp_status: state.wwan["connect_status"] });
+    if (method === "get_wwaniface") return opts.fail === "get_wwaniface" ? reply(null, 3) : reply({ ...state.wwan });
+    if (method === "set_wwaniface") {
+      const on = String(args["enable"]) === "1";
+      state.wwan = { enable: on ? "1" : "0", connect_mode: String(args["connect_mode"] ?? "0"), roam_enable: String(args["roam_enable"] ?? "0"), connect_status: on ? "ipv4_ipv6_connected" : "disconnected" };
+      return reply({ result: 0 });
+    }
     if (method === "get_device_info") return reply({ bat_temperature: 36 });
     if (method === "nwinfo_set_lte_ext_band") netinfo["lte_band_lock"] = String(args["lte_band"]);
     if (method === "nwinfo_set_nrbandlock") netinfo["nr5g_sa_band_lock"] = String(args["nr5g_band"]);
