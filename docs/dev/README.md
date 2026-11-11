@@ -1,6 +1,6 @@
 # 开发者文档
 
-这些资料写给参与开发的人，只有中文。中文文档站的「开发者」分区就是这些页面（英文站不显示）；在 `docs/dev/` 里新加一份文档，要同时在 `scripts/build-docs.ts` 的 `DEV_PAGES` 里登记它的标题和说明，否则文档站构建失败。使用烽燧请看[用户指南](../guide/zh/overview.md)。
+这些资料写给参与开发的人，只有中文，不发布到文档站。使用烽燧请看[用户指南](../guide/zh/overview.md)。
 
 *Developer notes, in Chinese only. To use FengSui, see the [user guide](../guide/en/overview.md).*
 

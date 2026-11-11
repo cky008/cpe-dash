@@ -144,7 +144,7 @@ describe("docs Markdown renderer (scripts/markdown.ts)", () => {
     assert.equal(slugify("短信 / SMS 中心"), "短信-sms-中心");
   });
 
-  it("reads the GitHub forms the developer notes use: escaped pipes in tables, <br> and strikethrough", () => {
+  it("reads GitHub's escaped pipes in tables, <br> and strikethrough the way GitHub does", () => {
     const table = renderMarkdown("| Body | Note |\n| :--- | :--- |\n| `{ mode?: \"full\" \\| \"incremental\" }` | one<br>two |").html;
     assert.match(table, /<td class="align-left"><code>\{ mode\?: &quot;full&quot; \| &quot;incremental&quot; \}<\/code><\/td>/);
     assert.match(table, /<td class="align-left">one<br>two<\/td>/);

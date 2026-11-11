@@ -1,6 +1,6 @@
 /**
- * Zero-dependency Markdown for FengSui's own documentation (docs/guide, and docs/dev on the Chinese site),
- * rendered by scripts/build-docs.ts. It covers what those pages use and what GitHub renders the same way: ATX
+ * Zero-dependency Markdown for FengSui's own documentation (docs/guide), rendered by scripts/build-docs.ts.
+ * It covers what the guide uses and what GitHub renders the same way: ATX
  * headings, paragraphs, `code`, **bold**, *emphasis*, ~~strikethrough~~, links, images, nested lists, fenced
  * code, pipe tables (with `\|` for a pipe inside a cell), horizontal rules, quotes and GitHub alerts
  * (`> [!NOTE]`). Raw HTML is never passed through (it is escaped) except a bare `<br>`, single-line comments

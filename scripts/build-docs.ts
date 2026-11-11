@@ -9,9 +9,8 @@ import { type SiteLocale, homeMeta, renderHome } from "./site-home.ts";
 
 /**
  * The documentation site (GitHub Pages, .github/workflows/docs-pages.yml): a home page and the user guide in
- * docs/guide/{zh,en}, plus the developer notes of docs/dev as a "开发者" section of the Chinese site only
- * (they are written in Chinese; the English site never shows them), rendered with the zero-dependency
- * scripts/markdown.ts and the console's own Tailwind toolchain. Every link is relative, so the same files work under a project path or a custom domain.
+ * docs/guide/{zh,en}, rendered with the zero-dependency scripts/markdown.ts and the console's own Tailwind
+ * toolchain. Every link is relative, so the same files work under a project path or a custom domain.
  * The pages never name the domain: `DOCS_SITE_URL` (an Actions variable) adds the canonical URLs, hreflang
  * pairs, Open Graph image and sitemap at deploy time; without it those are left out. (The READMEs, the release
  * notes and the console's "?" marks link to https://fengsui.iocky.com/ directly.)
@@ -121,24 +120,6 @@ const UI = {
 
 const POPULAR = ["quick-start", "install", "configuration", "locking", "sms", "troubleshooting"];
 
-/** The section of the Chinese site that holds the developer notes. */
-export const DEV_SECTION = "开发者";
-
-/**
- * The developer notes (docs/dev, in Chinese): every file there, in the order of the section, with the title and
- * description the page shows (a note's own first heading is dropped, the page heads it with this title).
- */
-export const DEV_PAGES: ReadonlyArray<{ file: string; slug: string; title: string; description: string }> = [
-  { file: "README.md", slug: "dev", title: "开发者文档", description: "写给参与开发的人：每份开发者文档写什么、原来叫什么、什么时候要改。" },
-  { file: "architecture.md", slug: "dev/architecture", title: "架构与设计", description: "选型、会话调度器、时序引擎、短信融合、控制台、访问控制、在线演示、主题，以及多品牌与统一后端。" },
-  { file: "sources.md", slug: "dev/sources", title: "实现依据", description: "每个品牌每项能力用的接口与出处、参考项目的提交与许可证，以及查过却没有找到记录的地方。" },
-  { file: "api.md", slug: "dev/api", title: "接口契约", description: "REST、SSE 与 MCP 的完整契约：鉴权、路由、字段说明、错误码、实时事件与工具。给用户的简要版是「API 参考」。" },
-  { file: "protocol.md", slug: "dev/protocol", title: "华为 HiLink 协议", description: "H168-383 的会话与登录、已验证的接口与报文、锁频与锁小区算法、短信接口，以及其他华为型号的资料。" },
-  { file: "device-notes.md", slug: "dev/device-notes", title: "设备资料表", description: "各品牌型号的接口资料汇总。这不是实测结果，烽燧实际实现了什么以「支持的设备」为准。" },
-  { file: "audits.md", slug: "dev/audits", title: "审计记录", description: "Phase 2.5 两轮与之后每一轮全面审计：范围、发现与修复、各维度结论、已知限制和误报。" },
-  { file: "brand.md", slug: "dev/brand", title: "标志", description: "烽燧标志的唯一来源、颜色怎样跟随主题，以及怎么换标志。" },
-];
-
 interface GuidePage {
   slug: string;
   title: string;
@@ -193,18 +174,6 @@ function loadPages(root: string, dir: string): GuidePage[] {
       return { slug, title: meta["title"] ?? slug, description: meta["description"] ?? "", section: meta["section"] ?? "", order: Number(meta["order"]), source: body, file: `docs/guide/${dir}/${f}` };
     })
     .sort((a, b) => a.order - b.order);
-}
-
-/** The developer notes as pages of the Chinese site; every Markdown file of docs/dev must be listed in DEV_PAGES. */
-function loadDevPages(root: string): GuidePage[] {
-  const folder = path.join(root, "docs", "dev");
-  const listed = new Set(DEV_PAGES.map((p) => p.file));
-  const unlisted = fs.readdirSync(folder).filter((f) => f.endsWith(".md") && !listed.has(f));
-  if (unlisted.length > 0) throw new Error(`docs/dev: add ${unlisted.join(", ")} to DEV_PAGES in scripts/build-docs.ts`);
-  return DEV_PAGES.map((page, n) => {
-    const source = fs.readFileSync(path.join(folder, page.file), "utf8").replace(/^# [^\n]*\n+/, "");
-    return { slug: page.slug, title: page.title, description: page.description, section: DEV_SECTION, order: 1000 + n, source, file: `docs/dev/${page.file}` };
-  });
 }
 
 function sectionsOf(pages: ReadonlyArray<GuidePage>): Array<{ name: string; pages: GuidePage[] }> {
@@ -297,11 +266,6 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
   const slugs = (pages: ReadonlyArray<GuidePage>): string => pages.map((p) => p.slug).sort().join(",");
   const [zh, en] = all;
   if (!zh || !en || slugs(zh.pages) !== slugs(en.pages)) throw new Error("docs/guide/zh and docs/guide/en must hold the same pages");
-  // The developer notes join the Chinese site only; links to them from English pages stay on GitHub
-  const devPages = loadDevPages(root);
-  zh.pages.push(...devPages);
-  const devBySource = new Map(devPages.map((p) => [p.file, p.slug]));
-  const zhOnly = new Set(devPages.map((p) => `docs/${p.slug}/index.html`));
 
   const written: string[] = [];
   const write = (rel: string, html: string): void => {
@@ -335,8 +299,6 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
             if (sameLocale && !bySlug.has(guide[2] ?? "")) throw new Error(`${page.file}: link to a missing page ${href}`);
             return `${toRoot(pageRel)}${locale.prefix}docs/${guide[2]}/${anchor ? `#${anchor}` : ""}`;
           }
-          const dev = info.locale === "zh-CN" ? devBySource.get(repoPath) : undefined;
-          if (dev !== undefined) return `${toRoot(pageRel)}docs/${dev}/${anchor ? `#${anchor}` : ""}`;
           if (repoPath.startsWith("..") || !fs.existsSync(path.join(root, repoPath))) throw new Error(`${page.file}: link to a missing file ${href}`);
           return `${REPO_URL}/blob/main/${repoPath}${anchor ? `#${anchor}` : ""}`;
         },
@@ -357,15 +319,14 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
         section: p.section,
         url: `${info.prefix}docs/${p.slug}/`,
         // Each heading carries the text under it, so a term deep in a long page (a model on Supported devices) finds its section
-        // (a developer note has many more sections, so it carries less of each: its headings still find it)
-        headings: p.headings.map((h) => ({ text: h.text, id: h.id, body: (p.sections[h.id] ?? "").slice(0, p.section === DEV_SECTION ? 1200 : 4000) })),
+        headings: p.headings.map((h) => ({ text: h.text, id: h.id, body: (p.sections[h.id] ?? "").slice(0, 4000) })),
         text: `${p.description} ${p.text}`.slice(0, 6000),
       }))
     );
     const searchFile = `assets/search.${info.locale}.${hash(searchIndex)}.json`;
     fs.writeFileSync(path.join(out, searchFile), searchIndex);
 
-    const shell = (rel: string, otherRel: string, meta: { title: string; description: string; type: "website" | "article"; noindex?: boolean; jsonLd?: string; zhOnly?: boolean }, main: string, menu: boolean): string => {
+    const shell = (rel: string, otherRel: string, meta: { title: string; description: string; type: "website" | "article"; noindex?: boolean; jsonLd?: string }, main: string, menu: boolean): string => {
       const r = toRoot(rel);
       const url = absolute(rel);
       const otherUrl = absolute(otherRel);
@@ -385,7 +346,7 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
         '<meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)">',
         meta.noindex ? '<meta name="robots" content="noindex">' : "",
         url ? `<link rel="canonical" href="${e(url)}">` : "",
-        url && !meta.noindex && !meta.zhOnly && zhUrl && enUrl ? `<link rel="alternate" hreflang="zh-CN" href="${e(zhUrl)}"><link rel="alternate" hreflang="en" href="${e(enUrl)}"><link rel="alternate" hreflang="x-default" href="${e(zhUrl)}">` : "",
+        url && !meta.noindex && zhUrl && enUrl ? `<link rel="alternate" hreflang="zh-CN" href="${e(zhUrl)}"><link rel="alternate" hreflang="en" href="${e(enUrl)}"><link rel="alternate" hreflang="x-default" href="${e(zhUrl)}">` : "",
         `<meta property="og:type" content="${meta.type}">`,
         `<meta property="og:site_name" content="${SITE_NAME}">`,
         `<meta property="og:title" content="${e(meta.title)}">`,
@@ -514,9 +475,7 @@ ${searchDialog}
     // Guide pages
     rendered.forEach((page, i) => {
       const rel = `${info.prefix}docs/${page.slug}/index.html`;
-      // A developer note has no English page: the language button leads to the English home
-      const devNote = zhOnly.has(rel);
-      const otherRel = devNote ? `${other.prefix}index.html` : `${other.prefix}docs/${page.slug}/index.html`;
+      const otherRel = `${other.prefix}docs/${page.slug}/index.html`;
       const r = toRoot(rel);
       const e = escapeHtml;
       const nav = sections
@@ -525,7 +484,7 @@ ${searchDialog}
       const toc = page.headings.filter((h) => h.level <= 3);
       const prev = rendered[i - 1];
       const next = rendered[i + 1];
-      const pager = `<nav class="pager mt-16 grid gap-4 sm:grid-cols-2" aria-label="${UI[info.locale].previous} / ${UI[info.locale].next}">${prev ? `<a href="${r}${info.prefix}docs/${prev.slug}/"><span class="faint text-sm">← ${ui.previous}</span><span class="block font-semibold mt-1">${e(prev.title)}</span></a>` : "<span></span>"}${next ? `<a class="sm:text-right" href="${r}${info.prefix}docs/${next.slug}/"><span class="faint text-sm">${ui.next} →</span><span class="block font-semibold mt-1">${e(next.title)}</span></a>` : ""}</nav>`;
+      const pager = `<nav class="pager mt-16 grid gap-4 sm:grid-cols-2" aria-label="${UI[info.locale].previous} / ${UI[info.locale].next}">${prev ? `<a href="../${prev.slug}/"><span class="faint text-sm">← ${ui.previous}</span><span class="block font-semibold mt-1">${e(prev.title)}</span></a>` : "<span></span>"}${next ? `<a class="sm:text-right" href="../${next.slug}/"><span class="faint text-sm">${ui.next} →</span><span class="block font-semibold mt-1">${e(next.title)}</span></a>` : ""}</nav>`;
       const main = `
 <div class="mx-auto max-w-7xl px-4 sm:px-6 py-8 lg:py-12 docs-grid">
   <nav class="sidebar" data-sidebar aria-label="${ui.menu}">${nav}</nav>
@@ -539,7 +498,7 @@ ${searchDialog}
   </article>
   ${toc.length > 1 ? `<aside class="toc" data-toc aria-label="${ui.onThisPage}"><p>${ui.onThisPage}</p>${toc.map((h) => `<a class="depth-${h.level}" href="#${e(h.id)}">${e(h.text)}</a>`).join("")}</aside>` : ""}
 </div>`;
-      write(rel, shell(rel, otherRel, { title: `${page.title} · ${SITE_NAME}`, description: page.description, type: "article", zhOnly: devNote }, main, true));
+      write(rel, shell(rel, otherRel, { title: `${page.title} · ${SITE_NAME}`, description: page.description, type: "article" }, main, true));
     });
   }
 
@@ -592,7 +551,6 @@ ${icons}
     const urls = written
       .map((rel) => {
         const loc = absolute(rel) ?? "";
-        if (zhOnly.has(rel)) return `<url><loc>${escapeHtml(loc)}</loc></url>`;
         const twin = rel.startsWith("en/") ? rel.slice(3) : `en/${rel}`;
         const zhUrl = rel.startsWith("en/") ? absolute(twin) : loc;
         const enUrl = rel.startsWith("en/") ? loc : absolute(twin);
