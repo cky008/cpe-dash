@@ -37,15 +37,15 @@ describe("web core: what the SMS page offers on this router", () => {
   it("offers a write only where the router's interface has it, and everything before the first listing", () => {
     assert.deepEqual(smsActions(null), { send: true, deleteMessage: true, deleteThread: false });
     assert.deepEqual(smsActions(undefined), { send: true, deleteMessage: true, deleteThread: false });
-    assert.deepEqual(smsActions({ send: true, delete: "message" }), { send: true, deleteMessage: true, deleteThread: false });
-    assert.deepEqual(smsActions({ send: false, delete: "none" }), { send: false, deleteMessage: false, deleteThread: false });
-    assert.deepEqual(smsActions({ send: true, delete: "conversation" }), { send: true, deleteMessage: false, deleteThread: true });
+    assert.deepEqual(smsActions({ send: true, delete: "message", markRead: "router" }), { send: true, deleteMessage: true, deleteThread: false });
+    assert.deepEqual(smsActions({ send: false, delete: "none", markRead: "router" }), { send: false, deleteMessage: false, deleteThread: false });
+    assert.deepEqual(smsActions({ send: true, delete: "conversation", markRead: "router" }), { send: true, deleteMessage: false, deleteThread: true });
   });
 
   it("changes its key only when what it offers changes", () => {
-    assert.equal(smsActionsKey(null), smsActionsKey({ send: true, delete: "message" }));
-    assert.notEqual(smsActionsKey(null), smsActionsKey({ send: false, delete: "message" }));
-    assert.notEqual(smsActionsKey({ send: true, delete: "none" }), smsActionsKey({ send: true, delete: "conversation" }));
+    assert.equal(smsActionsKey(null), smsActionsKey({ send: true, delete: "message", markRead: "router" }));
+    assert.notEqual(smsActionsKey(null), smsActionsKey({ send: false, delete: "message", markRead: "router" }));
+    assert.notEqual(smsActionsKey({ send: true, delete: "none", markRead: "router" }), smsActionsKey({ send: true, delete: "conversation", markRead: "router" }));
   });
 
   it("names every message of a conversation in one delete, up to what one request may name", () => {

@@ -73,7 +73,12 @@ export function agentStartBody(plan: AgentTestPlan, tokenId: string, t: Text): s
 
 /** The SMS option under the confirmation (`null`: SMS cannot be part of the test here). */
 export function smsOption(plan: AgentTestPlan, t: Text): string | null {
-  return plan.available && plan.sms.available ? t("agent_sms_check", { limit: plan.sms.sendLimitPerHour }) : null;
+  if (!plan.available || !plan.sms.available) return null;
+  // What the test does after its message and your reply, as this router's SMS interface allows
+  const read = t(plan.sms.markRead === "fengsui" ? "agent_sms_read_fengsui" : "agent_sms_read_router");
+  const remove = t(plan.sms.delete === "conversation" ? "agent_sms_delete_conversation" : plan.sms.delete === "none" ? "agent_sms_delete_none" : "agent_sms_delete_message");
+  const joiner = /[\u3400-\u9fff]/.test(read) ? "，" : " ";
+  return t("agent_sms_check", { limit: plan.sms.sendLimitPerHour, steps: `${read}${joiner}${remove}` });
 }
 
 /** How the test in progress reads: when it started and what ending it puts back, then the reminder. */

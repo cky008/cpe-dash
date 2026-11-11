@@ -751,7 +751,7 @@ describe("TelegramBot", () => {
     await fx.service.sync("full");
     const personal = announced.find((m) => m.phone === "+353830000001")!;
     // As a router that cannot send and deletes whole conversations only would have listed
-    Object.defineProperty(fx.service, "abilities", { get: () => ({ send: false, delete: "conversation" }) });
+    Object.defineProperty(fx.service, "abilities", { get: () => ({ send: false, delete: "conversation", markRead: "router" }) });
     await fx.bot.notifySms(personal);
     const card = fx.tg.sends("1001").at(-1)!;
     assert.doesNotMatch(String(card.payload["text"]), /Reply to this message/);

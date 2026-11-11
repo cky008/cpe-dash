@@ -77,6 +77,8 @@ export type SmsListingPath = "sms-list" | "contact-list" | "driver";
 export interface SmsAbilities {
   send: boolean;
   delete: "message" | "conversation" | "none";
+  /** Where marking read lands: on the router, or (a router that cannot be told) in FengSui alone, with nothing written. */
+  markRead: "router" | "fengsui";
 }
 
 /** One listing of the router's messages, with the counts read in the same session. */

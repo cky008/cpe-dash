@@ -125,7 +125,7 @@ export class HilinkBackend implements RouterBackend {
         scheduler.readSection("sms", () => (request.mode === "full" ? fetchAllMessages(session) : fetchRecentMessages(session, { count: request.recentCount, expandThread: request.expandThread }))),
       { priority: request.priority }
     );
-    return fetched ? { ...fetched, complete: request.mode === "full", readState: "router", abilities: { send: true, delete: "message" } } : null;
+    return fetched ? { ...fetched, complete: request.mode === "full", readState: "router", abilities: { send: true, delete: "message", markRead: "router" } } : null;
   }
 
   /** `GET /api/monitoring/check-notifications`, which the router answers without a login. */

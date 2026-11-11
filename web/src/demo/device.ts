@@ -320,6 +320,8 @@ export class DemoDevice {
       device: this.#access.snapshot(),
       values: this.#console.behaviourValues,
       smsReadable: !this.#access.skips("sms"),
+      // Both demo routers are HiLink models: they send, mark read and delete one message at a time
+      smsAbilities: { send: true, delete: "message", markRead: "router" },
       tokens: this.#console.agentTokens(),
       nowMs: this.#now(),
     });

@@ -257,7 +257,7 @@ describe("openwrt SMS: through the SMS service", () => {
       const synced = await fx.service.sync("full");
       assert.deepEqual([synced?.mode, synced?.via, synced?.added, synced?.newIncoming], ["full", "driver", 4, 2]);
       // QModem is there: it sends; and it deletes message by message
-      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message" });
+      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message", markRead: "fengsui" });
       assert.deepEqual((fx.named("sms:new") as Array<{ content: string }>).map((m) => m.content), ["晚上七点吃饭？", LONG]);
       // The counts of the listing are the same as the poll's: nothing more to sync
       assert.equal(fx.service.getStatus().syncPending, false);
@@ -310,7 +310,7 @@ describe("openwrt SMS: through the SMS service", () => {
       await assert.rejects(fx.service.send({ phones: [FRIEND], content: "hi", source: "mcp" }), (err: unknown) => err instanceof CpeControlValidationError && /QModem/.test(err.message));
       // The listing tells the console so, and it offers no send there
       await fx.service.sync("full");
-      assert.deepEqual(fx.service.getStatus().abilities, { send: false, delete: "message" });
+      assert.deepEqual(fx.service.getStatus().abilities, { send: false, delete: "message", markRead: "fengsui" });
       assert.equal(fx.named("sms:sent").length, 0);
       assert.equal(fx.scheduler.genericWrites.length, 0);
     } finally {

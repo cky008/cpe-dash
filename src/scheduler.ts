@@ -1070,7 +1070,7 @@ export class MutexSessionScheduler extends EventEmitter {
    * Every message a router of a driver family stores, with the counts read in the same session.
    * `null`: skipped, yielded, or no SMS on this router (noted, so the background sync leaves it alone).
    */
-  executeDriverSmsList(opts: { priority?: SchedulerPriority } = {}): Promise<{ counters: SmsCounters; messages: SmsWireMessage[]; abilities: SmsAbilities } | null> {
+  executeDriverSmsList(opts: { priority?: SchedulerPriority } = {}): Promise<{ counters: SmsCounters; messages: SmsWireMessage[]; abilities: Omit<SmsAbilities, "markRead"> } | null> {
     return this.#executeDriverRead(
       (session) =>
         this.readSection("sms", async () => {

@@ -793,7 +793,7 @@ export interface SmsStatusSnapshot {
   syncPending: boolean;               // CPE 计数与上次同步不一致（如让位期间收到新短信）
   defaultCountryCode: string;
   trashDays: number;                  // 删除的短信在「最近删除」里保留几天（SMS_TRASH_RETENTION_DAYS 或控制台设置，0..365；0 为删除即彻底删除；v1.8.0）
-  abilities: { send: boolean; delete: "message" | "conversation" | "none" } | null; // 路由器的短信接口除读取外能做什么（最近一次列表时得到）：能不能发送；逐条删、只能整段对话删、不能删。null：本次运行还没列过。标为已读总是可以（路由器做不到时由烽燧自己记）。控制台与 Telegram 只显示做得到的按钮
+  abilities: { send: boolean; delete: "message" | "conversation" | "none"; markRead: "router" | "fengsui" } | null; // 路由器的短信接口除读取外能做什么（最近一次列表时得到）：能不能发送；逐条删、只能整段对话删、不能删。null：本次运行还没列过。markRead 说标为已读落在路由器上还是只由烽燧记（这类路由器上标为已读不写路由器）。控制台与 Telegram 只显示做得到的按钮
 }
 
 export interface SmsMessageRecord {

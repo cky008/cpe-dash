@@ -626,7 +626,7 @@ const SMS_STATUS: SmsStatusSnapshot = {
   syncPending: true,
   defaultCountryCode: "+353",
   trashDays: 30,
-  abilities: { send: true, delete: "message" },
+  abilities: { send: true, delete: "message", markRead: "router" },
 };
 
 describe("web core: state store and SSE reducer", () => {

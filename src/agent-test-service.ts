@@ -25,6 +25,7 @@ import { CpeControlValidationError } from "./control-error.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
 import type { MutexSessionScheduler } from "./scheduler.ts";
+import type { SmsAbilities } from "./sms/types.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /** This router has nothing for an agent's test to write: a verified model, none identified yet, or no covered write on offer. */
@@ -43,6 +44,8 @@ export interface AgentTestServiceOptions {
   behaviourFromEnv: () => BehaviourValues;
   /** FengSui reads SMS (SMS_ENABLED): only then can SMS be part of the test. */
   smsEnabled?: boolean;
+  /** What the router's SMS interface can do besides reading, as the latest listing found it (`null`: none yet). */
+  smsAbilities?: () => SmsAbilities | null;
   /** The test changed console settings: hand the values in force to the running parts, as a change in Settings does. */
   onBehaviourChanged?: (values: BehaviourValues) => void;
   /** The test changed what a token may do: its event streams reconnect under the new permissions. */
@@ -247,6 +250,7 @@ export class AgentTestService {
       device: scheduler.device.snapshot(),
       values: this.#behaviour(),
       smsReadable: this.#opts.smsEnabled === true && !scheduler.device.skips("sms"),
+      smsAbilities: this.#opts.smsAbilities?.() ?? null,
       tokens: settings
         .listTokens()
         .map((token) => ({ id: token.id, name: token.name, permissions: token.permissions, createdAtIso: token.createdAtIso, expiresAtIso: token.expiresAtIso, agentUsedAtMs: this.#agentUse.get(token.id) ?? null })),

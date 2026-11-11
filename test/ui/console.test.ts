@@ -474,7 +474,7 @@ describe("the console in a browser", () => {
     await page.waitUntil("document.querySelectorAll('#smsChatPane .bubble').length > 0", "the conversation");
     // The demo router is a HiLink one: as a router that cannot send and deletes whole conversations would have listed
     const original = sms.getStatus.bind(sms);
-    sms.getStatus = () => ({ ...original(), abilities: { send: false, delete: "conversation" } });
+    sms.getStatus = () => ({ ...original(), abilities: { send: false, delete: "conversation", markRead: "router" } });
     try {
       sms.emit("sms:status", sms.getStatus());
       await page.waitUntil("document.querySelector('#smsChatPane [data-sms-delete-thread]') !== null", "the conversation's delete");

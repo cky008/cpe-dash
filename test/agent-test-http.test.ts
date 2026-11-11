@@ -37,7 +37,8 @@ describe("the AI agent test over the console's API", () => {
       const before = await view();
       assert.deepEqual([before.agentTest.current, before.agentTest.plan.available], [null, true]);
       assert.deepEqual(before.agentTest.plan.settings, ["agentExperimental", "agentWrites"]);
-      assert.deepEqual(before.agentTest.plan.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10 });
+      // The demo router is a HiLink one: it sends, marks read and deletes message by message
+      assert.deepEqual(before.agentTest.plan.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10, markRead: "router", delete: "message" });
       // The writes are on before any test: nothing for it to turn on
       assert.deepEqual([before.device.features.bandLock, before.device.features.smsWrite, before.disabled], ["enabled", "enabled", []]);
       assert.deepEqual([before.agentTest.plan.tokens, before.agentTest.plan.tokenNeeded], [[], false], "the imported API_TOKEN may do everything already");

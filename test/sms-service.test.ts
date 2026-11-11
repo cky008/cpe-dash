@@ -108,8 +108,8 @@ describe("SmsService: what the router's SMS interface can do", () => {
     try {
       assert.equal(fx.service.getStatus().abilities, null);
       await fx.service.sync("full");
-      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message" });
-      assert.deepEqual(fx.service.abilities, { send: true, delete: "message" });
+      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message", markRead: "router" });
+      assert.deepEqual(fx.service.abilities, { send: true, delete: "message", markRead: "router" });
     } finally {
       await fx.cleanup();
     }

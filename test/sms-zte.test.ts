@@ -448,7 +448,7 @@ describe("zte-goform SMS: through the SMS service", () => {
       // What is there at the first sync is history
       const first = await fx.service.sync("full");
       assert.deepEqual([first?.mode, first?.via, first?.added, first?.newIncoming], ["full", "driver", 1, 0]);
-      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message" });
+      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message", markRead: "router" });
       fx.router.state.sms.push(zteSms(2, FRIEND, "晚上七点吃饭？", "1", "26,11,10,18,00,00,+4"), zteSms(4, FRIEND, LONG, "1"));
       // Asked for the newest only: this family lists everything, so it is a full sync all the same
       const second = await fx.service.sync("incremental");

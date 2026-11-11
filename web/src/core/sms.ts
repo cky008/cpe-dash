@@ -197,7 +197,7 @@ export interface SmsActions {
  * yet, and the page offers what it always did (a write the router cannot do is refused with a reason).
  */
 export function smsActions(abilities: SmsAbilities | null | undefined): SmsActions {
-  const known = abilities ?? { send: true, delete: "message" };
+  const known = abilities ?? { send: true, delete: "message" as const };
   return { send: known.send, deleteMessage: known.delete === "message", deleteThread: known.delete === "conversation" };
 }
 

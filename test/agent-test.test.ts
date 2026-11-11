@@ -20,6 +20,7 @@ import { AuditLog, runAsActor } from "../src/audit-log.ts";
 import { type BehaviourValues, DEFAULT_BEHAVIOUR, resolveBehaviour } from "../src/behaviour-settings.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
+import type { SmsAbilities } from "../src/sms/types.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { WRITE_FEATURES, type WriteFeature, type WriteFeatureState } from "../src/device-access.ts";
@@ -78,11 +79,12 @@ function record(extra: Partial<AgentTestRecord> = {}): AgentTestRecord {
 
 describe("the agent test's rules", () => {
   const NOW = Date.parse("2026-11-10T09:00:00.000Z");
-  const plan = (input: { states: Partial<Record<WriteFeature, WriteFeatureState>>; writes?: "allowed" | "experimental" | "unknown"; values?: Partial<BehaviourValues>; smsReadable?: boolean; tokens?: AgentTestTokenInfo[] }) =>
+  const plan = (input: { states: Partial<Record<WriteFeature, WriteFeatureState>>; writes?: "allowed" | "experimental" | "unknown"; values?: Partial<BehaviourValues>; smsReadable?: boolean; smsAbilities?: SmsAbilities; tokens?: AgentTestTokenInfo[] }) =>
     agentTestPlan({
       device: { writes: input.writes ?? "experimental", features: features(input.states) },
       values: { ...VALUES, ...input.values },
       smsReadable: input.smsReadable ?? true,
+      smsAbilities: input.smsAbilities ?? null,
       tokens: input.tokens ?? [],
       nowMs: NOW,
     });
@@ -95,11 +97,16 @@ describe("the agent test's rules", () => {
     const all = plan({ states: writable, values: { agentExperimental: true } });
     assert.deepEqual([all.available, all.settings], [true, ["agentWrites"]], "the settings not set its way; the writes are on already");
     assert.equal(Object.hasOwn(all, "features"), false, "no write for the test to turn on");
-    assert.deepEqual(all.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10 });
+    assert.deepEqual(all.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10, markRead: "router", delete: "message" });
     assert.deepEqual(plan({ states: writable, values: { agentSms: "full", agentSmsSendPolicy: "any" } }).sms.settings, [], "SMS already set its way");
     assert.equal(plan({ states: { ...writable, smsWrite: "disabled" } }).sms.available, false, "SMS writes its owner turned off are not the test's to turn back on");
     assert.equal(plan({ states: writable, smsReadable: false }).sms.available, false, "no SMS here (SMS_ENABLED=false, or the router has none)");
     assert.equal(plan({ states: { ...writable, smsWrite: "unsupported" } }).sms.available, false);
+    // The test sends its own message first: a router that cannot send has no SMS test, and what it can do is passed on
+    assert.equal(plan({ states: writable, smsAbilities: { send: false, delete: "message", markRead: "router" } }).sms.available, false);
+    const tozedLike = plan({ states: writable, smsAbilities: { send: true, delete: "none", markRead: "fengsui" } }).sms;
+    assert.deepEqual([tozedLike.available, tozedLike.markRead, tozedLike.delete], [true, "fengsui", "none"]);
+    assert.deepEqual([all.sms.markRead, all.sms.delete], ["router", "message"], "nothing listed yet: taken as a router that does it all");
     const smsOnly = plan({ states: { smsWrite: "enabled" } });
     assert.deepEqual([smsOnly.available, smsOnly.sms.available], [true, true], "SMS alone is a test too");
     // Every covered write turned off by its owner: nothing for an agent to test, and the test does not undo that
@@ -284,7 +291,7 @@ describe("the agent test at one click", () => {
       fx.service.noteAgentCall(agent.id);
       const plan = fx.service.status().plan;
       assert.deepEqual([plan.available, plan.settings], [true, ["agentExperimental", "agentWrites"]]);
-      assert.deepEqual(plan.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10 });
+      assert.deepEqual(plan.sms, { available: true, settings: ["agentSms", "agentSmsSendPolicy"], sendLimitPerHour: 10, markRead: "router", delete: "message" });
       // The writes are on before the test starts, with nothing asked of the owner: the agent only lacks the leave to use them
       for (const feature of ["bandLock", "reconnect", "reboot", "smsWrite"] as const) assert.equal(fx.core.scheduler.device.writeState(feature), "enabled", feature);
       assert.deepEqual([plan.tokens.map((t) => [t.id, t.missing]), plan.suggestedTokenId, plan.tokenNeeded], [[[agent.id, ["control", "sms-write"]], [other.id, ["control", "sms-read", "sms-write"]]], agent.id, true]);

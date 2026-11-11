@@ -1,4 +1,5 @@
 import type { AgentSmsAccess, BehaviourValues } from "./behaviour-settings.ts";
+import type { SmsAbilities } from "./sms/types.ts";
 import type { TokenPermission } from "./console-policy.ts";
 import type { WriteAccess, WriteFeature, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import type { ExperimentalFeature } from "./device-profile.ts";
@@ -108,6 +109,12 @@ export interface AgentTestPlan {
     settings: AgentTestSetting[];
     /** The agents' hourly SMS budget (the confirmation names it). */
     sendLimitPerHour: number;
+    /**
+     * What the test does after its own message and the reply, on this router (the confirmation says
+     * it): where marking read lands, and how the two test messages are deleted, if at all.
+     */
+    markRead: SmsAbilities["markRead"];
+    delete: SmsAbilities["delete"];
   };
   /** Tokens lacking something the test needs, the one an agent used last first. */
   tokens: AgentTestTokenChoice[];
@@ -142,7 +149,7 @@ export interface AgentTestStatus {
 }
 
 export function noAgentTestPlan(): AgentTestPlan {
-  return { available: false, settings: [], sms: { available: false, settings: [], sendLimitPerHour: 0 }, tokens: [], suggestedTokenId: null, tokenNeeded: false };
+  return { available: false, settings: [], sms: { available: false, settings: [], sendLimitPerHour: 0, markRead: "router", delete: "message" }, tokens: [], suggestedTokenId: null, tokenNeeded: false };
 }
 
 /** The token permissions the test needs, with or without SMS. */
@@ -171,12 +178,16 @@ export function agentTestPlan(input: {
   values: Pick<BehaviourValues, AgentTestSetting | "agentSmsSendLimitPerHour">;
   /** FengSui reads SMS (SMS_ENABLED) and this router provides it. */
   smsReadable: boolean;
+  /** What the router's SMS interface can do besides reading (`null`: nothing listed yet, taken as a router that does it all). */
+  smsAbilities?: SmsAbilities | null;
   tokens: ReadonlyArray<AgentTestTokenInfo>;
   nowMs: number;
 }): AgentTestPlan {
   const { device, values } = input;
   const covered = BASE_FEATURES.filter((feature) => device.features[feature] === "enabled");
-  const smsOffered = input.smsReadable && device.features.smsWrite === "enabled";
+  // The test sends its own message first, so that what it marks read and deletes is only its own: a router that cannot send has no SMS test
+  const abilities: SmsAbilities = input.smsAbilities ?? { send: true, delete: "message", markRead: "router" };
+  const smsOffered = input.smsReadable && device.features.smsWrite === "enabled" && abilities.send;
   if (device.writes !== "experimental" || (covered.length === 0 && !smsOffered)) return noAgentTestPlan();
   const unset = (keys: ReadonlyArray<AgentTestSetting>): AgentTestSetting[] => keys.filter((key) => values[key] !== AGENT_TEST_SETTINGS[key]);
   const needed = agentTestPermissions(smsOffered);
@@ -197,6 +208,8 @@ export function agentTestPlan(input: {
       available: smsOffered,
       settings: smsOffered ? unset(SMS_SETTINGS) : [],
       sendLimitPerHour: values.agentSmsSendLimitPerHour,
+      markRead: abilities.markRead,
+      delete: abilities.delete,
     },
     tokens: candidates.map((token) => ({
       id: token.id,
