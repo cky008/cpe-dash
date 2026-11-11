@@ -44,7 +44,7 @@ Each one also needs the router to have what it takes: when FengSui identifies th
 - Band lock (4G and 5G bands, typed as band numbers in the controls drawer)
 - Cell lock (channel + PCI, from Nearby cells)
 - Reboot
-- Redial and the mobile data switch: ZTE (goform and zWRT) and NRadio. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
+- Redial and the mobile data switch: ZTE (goform and zWRT), NRadio, and OpenWrt routers with QModem. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
 - Antenna (automatic, internal, external): NRadio
 - SMS: ZTE, OpenWrt, Tozed and FiberHome. What each brand can do differs (some cannot delete, some send with a condition); see [SMS](sms.md#other-brands)
 

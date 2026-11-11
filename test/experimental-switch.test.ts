@@ -295,6 +295,8 @@ describe("experimental switch: what each write is on a router", () => {
         ["bandLock", "enabled"],
         ["cellLock", "enabled"],
         ["reboot", "enabled"],
+        ["reconnect", "enabled"],
+        ["mobileData", "enabled"],
         ["smsWrite", "enabled"],
       ]
     );
@@ -311,7 +313,7 @@ describe("experimental switch: what each write is on a router", () => {
     ]);
     assert.equal(openwrt.actionAccess("unlock_rf_locks"), "disabled");
     // What no driver implements is refused as not implemented, never as turned off
-    assert.equal(openwrt.actionAccess("reconnect_cellular"), "unavailable");
+    assert.equal(openwrt.actionAccess("set_wifi_access"), "unavailable");
   });
 });
 

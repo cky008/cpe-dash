@@ -42,7 +42,7 @@ const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   tozed: ["bandLock", "cellLock", "reboot", "smsWrite"],
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite"],
   nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna"],
-  openwrt: ["bandLock", "cellLock", "reboot", "smsWrite"],
+  openwrt: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"],
 };
 
 const PAGES = [

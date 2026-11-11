@@ -218,17 +218,19 @@ describe("driver runtime: writes", () => {
       // Writes no driver implements are refused before any session, HiLink ones included, and not as turned off
       const logins = fx.logins();
       await assert.rejects(
-        fx.core.controls.reconnectCellular(),
-        (err: unknown) => err instanceof DeviceReadOnlyError && !(err instanceof DeviceWriteDisabledError) && err.errorCode === "DEVICE_UNVERIFIED_READ_ONLY" && err.feature === "reconnect"
+        fx.core.controls.setAntennaMode("auto"),
+        (err: unknown) => err instanceof DeviceReadOnlyError && !(err instanceof DeviceWriteDisabledError) && err.errorCode === "DEVICE_UNVERIFIED_READ_ONLY" && err.feature === "antenna"
       );
-      await assert.rejects(fx.core.controls.reconnectWan(), DeviceReadOnlyError);
-      await assert.rejects(fx.core.controls.setMobileData(false), DeviceReadOnlyError);
+      await assert.rejects(fx.core.controls.setWifiAccess({ kind: "unblock", macAddress: "02:00:5E:10:00:01" }, { requesterIp: null, confirm: true }), DeviceReadOnlyError);
       await assert.rejects(fx.core.scheduler.executeControl("set_antenna_mode", async () => 1), DeviceReadOnlyError);
       assert.equal(fx.logins(), logins);
+      // A redial is on record (QModem's dial calls); this router has no QModem, so its session refuses it with nothing sent
+      await assert.rejects(fx.core.controls.reconnectCellular(), /no QModem/);
+      assert.ok(!fx.calls.some((c) => c.object === "qmodem"));
       const features = fx.core.scheduler.getStatus().device.features;
       assert.deepEqual(
         [features.bandLock, features.cellLock, features.reboot, features.reconnect, features.mobileData, features.smsWrite, features.accessControl],
-        ["disabled", "enabled", "enabled", "not_implemented", "not_implemented", "enabled", "not_implemented"]
+        ["disabled", "enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented"]
       );
 
       // Turned back on (as the console keeps it): what the driver implements is open again, with no consent to give

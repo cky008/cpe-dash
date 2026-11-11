@@ -68,6 +68,8 @@ export interface OpenwrtRouterState {
   sentPdus: string[];
   /** The packet data counters, bytes sent then received (4G `QGDCNT`, 5G `QGDNRCNT`). */
   counters: { lte: [bigint, bigint]; nr: [bigint, bigint] };
+  /** QModem's dial worker and the data connection it holds; the dial calls it was asked for. */
+  dial: { running: boolean; up: boolean; calls: string[]; refuse: string[] };
 }
 
 export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
@@ -90,6 +92,7 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     sms: opts.sms ? opts.sms.map((part) => ({ ...part })) : [],
     sentPdus: [],
     counters: { lte: [1_000n, 4_000n], nr: [2_194_810_368n, 15_849_203_712n] },
+    dial: { running: true, up: true, calls: [], refuse: [] },
   };
 
   /** The modem's answer to one AT command, whichever service carried it. */
@@ -151,6 +154,15 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     if (opts.qmodem && object === "uci" && method === "get" && args["config"] === "qmodem") {
       return reply({ values: { main: { ".type": "main", enable: "1" }, modem1: { ".type": "modem-device", at_port: "/dev/ttyUSB2", manufacturer: "quectel" } } });
     }
+    if (opts.qmodem && object === "qmodem" && ["modem_dial", "modem_hang", "modem_redial"].includes(method)) {
+      state.dial.calls.push(method);
+      if (args["config_section"] !== "modem1" || state.dial.refuse.includes(method)) return reply({ result: { status: "0", message: "Dial command failed" } });
+      state.dial.running = method !== "modem_hang";
+      state.dial.up = state.dial.running;
+      return reply({ result: { status: "1", message: "Dial command executed successfully" } });
+    }
+    if (opts.qmodem && object === "qmodem" && method === "dial_status") return reply({ running: String(state.dial.running) });
+    if (opts.qmodem && object === "qmodem" && method === "get_connect_status") return reply({ connection_status: state.dial.up ? "Yes" : "No" });
     if (opts.qmodem && object === "qmodem" && method === "send_raw_pdu") {
       state.sentPdus.push(String(args["cmd"] ?? ""));
       return reply({ result: { status: "1", cmd: "tom_modem -d /dev/ttyUSB2 -o s -p", res: opts.sendAnswer ?? `+CMGS: ${state.sentPdus.length}\n\nOK` } });

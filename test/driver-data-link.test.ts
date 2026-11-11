@@ -10,6 +10,7 @@ import type { ControlAppliedEvent, ControlAuditEvent } from "../src/scheduler.ts
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
+import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
@@ -251,6 +252,49 @@ describe("nradio: the antenna", () => {
       assert.ok(router.state.posts.every((p) => p.token === "a8f5f167f44f4964e6c998dee827110c"));
     } finally {
       await fx.cleanup();
+    }
+  });
+});
+
+describe("openwrt: the data connection through QModem", () => {
+  it("dials, hangs up and redials with QModem's own calls, and reads its dial worker back", async () => {
+    const router = openwrtRouter({ qmodem: true, modemRpcObject: "qmodem" });
+    const fx = daemonOn("openwrt", router.mock.fetchImpl, "http://192.168.1.1", OPENWRT_PASSWORD, "root");
+    try {
+      assert.deepEqual(await fx.core.controls.setMobileData(false), { mobileDataEnabled: false });
+      assert.deepEqual(router.state.dial.calls, ["modem_hang"]);
+      assert.deepEqual([fx.core.scheduler.genericWrites.at(-1)?.endpoints, fx.core.scheduler.genericWrites.at(-1)?.readback], [["openwrt:qmodem.modem_hang"], "match"]);
+      // QModem's own report of the connection is the WAN state now
+      assert.equal((await fx.core.monitor.refreshTelemetry())?.device.connectionStatus === "901", false);
+      assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: false, skipped: "mobile_data_off" }, "switched off on purpose");
+      await fx.core.controls.setMobileData(true);
+      await fx.core.controls.reconnectCellular();
+      // QModem redials with a call of its own: no hang-up and dial pair
+      assert.deepEqual(router.state.dial.calls, ["modem_hang", "modem_dial", "modem_redial"]);
+      assert.equal(fx.core.scheduler.genericWrites.at(-1)?.readback, "pending");
+      assert.deepEqual(await fx.core.controls.reconnectWan(), { applied: false, skipped: "wan_up" });
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("fails a dial QModem says did not run, and refuses on a router without QModem with nothing sent", async () => {
+    const router = openwrtRouter({ qmodem: true, modemRpcObject: "qmodem" });
+    router.state.dial.refuse.push("modem_hang");
+    const fx = daemonOn("openwrt", router.mock.fetchImpl, "http://192.168.1.1", OPENWRT_PASSWORD, "root");
+    try {
+      await assert.rejects(fx.core.controls.setMobileData(false), (err: unknown) => err instanceof CpeApiError && err.code === "dial-refused");
+      assert.equal(router.state.dial.running, true);
+    } finally {
+      await fx.cleanup();
+    }
+    const bare = openwrtRouter();
+    const plain = daemonOn("openwrt", bare.mock.fetchImpl, "http://192.168.1.1", OPENWRT_PASSWORD, "root");
+    try {
+      await assert.rejects(plain.core.controls.reconnectCellular(), /no QModem/);
+      assert.ok(!bare.calls.some((c) => c.object === "qmodem"), "nothing was sent");
+    } finally {
+      await plain.cleanup();
     }
   });
 });

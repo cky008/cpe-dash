@@ -529,6 +529,12 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   { family: "openwrt", features: ["reboot"], zh: "「重启」只重启蜂窝模组，不重启整台路由器", en: "\"Reboot\" restarts the cellular module, not the whole router" },
   {
     family: "openwrt",
+    features: ["reconnect", "mobileData"],
+    zh: "重拨和移动数据开关用的是 QModem 自己的拨号接口，要路由器装有 QModem；没有装的固件上烽燧不发任何拨号指令",
+    en: "redial and the mobile data switch use QModem's own dial calls, so they need QModem on the router; on firmware without it FengSui sends no dial command",
+  },
+  {
+    family: "openwrt",
     features: ["smsWrite"],
     zh: "发送短信要路由器装有 QModem；没有装的固件上，烽燧能读取和删除短信，不能发送",
     en: "sending needs QModem on the router; on firmware without it FengSui reads and deletes messages but cannot send",

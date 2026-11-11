@@ -111,7 +111,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
   },
   nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors", "topology"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 
 /** The read features and the read section each one is read in. */

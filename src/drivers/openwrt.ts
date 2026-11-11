@@ -9,7 +9,7 @@ import { atErrorCode, parseCmglPdus, parseCpms } from "./at-sms.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
 import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
 import { emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
@@ -19,6 +19,7 @@ import type {
   DriverCarrier,
   DriverCell,
   DriverCellLockTarget,
+  DriverDataLink,
   DriverHost,
   DriverIdentity,
   DriverLockState,
@@ -877,7 +878,8 @@ export class OpenwrtSession implements DriverSessionHandle {
       lte: serving.lte,
       nr: serving.nr,
       carriers,
-      wan: { connected: serving.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
+      // QModem knows whether the data connection is up; without it, a serving cell is the best there is
+      wan: { connected: (await this.#dataUp().catch((): boolean | null => null)) ?? serving.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
       traffic: counter && counterCmd ? counterTraffic(counter, counterCmd.command) : null,
       temperatureC: temp,
       signalBars: null,
@@ -907,7 +909,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       lte: cc.lte,
       nr: cc.nr,
       carriers,
-      wan: { connected: cc.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
+      wan: { connected: (await this.#dataUp().catch((): boolean | null => null)) ?? cc.mode !== "NONE", ipv4: null, ipv6: null, uptimeSec: null },
       traffic: null,
       temperatureC: temp,
       signalBars: null,
@@ -1168,6 +1170,50 @@ export class OpenwrtSession implements DriverSessionHandle {
   }
 
   /** SMS through the modem's own commands; the read state is FengSui's (a listing marks every message read). */
+  /**
+   * QModem's dial controls for its first modem (its rpcd object `qmodem`, each call naming the modem's
+   * `config_section`): `modem_dial`, `modem_hang` and `modem_redial` answer `result.status` `1` when
+   * done; `dial_status` says whether its dial worker runs (`running`, the data switch), and
+   * `get_connect_status` whether the data connection is up (`connection_status` `Yes` / `No`). QModem's
+   * dial worker owns the connection, so taking the network interface down would not end it; a router
+   * without QModem has no dial control on record and is refused in the session, nothing sent.
+   */
+  async #dial(method: "modem_dial" | "modem_hang" | "modem_redial", check: WriteCheck): Promise<void> {
+    this.#guard();
+    const section = (await this.#ubus.qmodem())?.section ?? null;
+    if (section === null) throw new CpeControlValidationError("This OpenWrt router has no QModem, the one dial control on record for these routers; nothing was sent to it");
+    noteSent(check, FAMILY, `qmodem.${method}`);
+    const answer = await this.#ubus.call("qmodem", method, { config_section: section });
+    if (textOf(fieldOf(fieldOf(answer, "result"), "status")) !== "1") throw new CpeApiError("dial-refused", `qmodem.${method} failed`);
+  }
+
+  /** Whether QModem's dial worker runs (`null`: no QModem, or it did not say). */
+  async #dialRunning(): Promise<boolean | null> {
+    this.#guard();
+    const section = (await this.#ubus.qmodem())?.section ?? null;
+    if (section === null) return null;
+    const running = textOf(fieldOf(await this.#ubus.call("qmodem", "dial_status", { config_section: section }), "running"));
+    return running === "true" ? true : running === "false" ? false : null;
+  }
+
+  /** Whether QModem reports the data connection up (`null`: no QModem, or it did not say). */
+  async #dataUp(): Promise<boolean | null> {
+    const section = (await this.#ubus.qmodem())?.section ?? null;
+    if (section === null) return null;
+    const status = textOf(fieldOf(await this.#ubus.call("qmodem", "get_connect_status", { config_section: section }), "connection_status"));
+    return status === "Yes" ? true : status === "No" ? false : null;
+  }
+
+  readonly data: DriverDataLink = {
+    enabled: () => this.#dialRunning(),
+    set: async (enabled, check, wait) => {
+      await this.#dial(enabled ? "modem_dial" : "modem_hang", check);
+      if (!enabled) await awaitConnection(() => this.#dataUp(), false, wait);
+      settleDataSwitch(check, enabled, await this.#dialRunning().catch((): boolean | null => null));
+    },
+    redial: (check) => this.#dial("modem_redial", check),
+  };
+
   readonly sms: DriverSms = {
     keepsSent: false,
     list: async () => (await this.#smsAssembled()).map((entry) => entry.message),
