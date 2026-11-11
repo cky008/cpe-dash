@@ -1,6 +1,6 @@
 import { DriverCpeClient } from "../../src/drivers/client.ts";
 import { ucs2Hex } from "../../src/drivers/sms.ts";
-import { ZTE_LTE_ALL_MASK, ZTE_NR_ALL_BANDS, zteActionDigest, zteGoformProtocol, zteLoginPassword } from "../../src/drivers/zte-goform.ts";
+import { ZTE_LTE_ALL_MASK, ZTE_NR_ALL_BANDS, zteActionDigest, zteGoformProtocol, zteLoginPassword, zteReqprocPassword } from "../../src/drivers/zte-goform.ts";
 import { LanRouterMock, type LanRequestRecord } from "./lan-router.ts";
 
 /**
@@ -11,6 +11,9 @@ import { LanRouterMock, type LanRequestRecord } from "./lan-router.ts";
 
 export const ZTE_PASSWORD = "test-password";
 export const ZTE_LD = "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90";
+/** The login nonce of a router that spells the interface `reqproc`. */
+export const ZTE_RANDOM_LOGIN = "5e8f1c2a";
+
 export const ZTE_VERSION = { modelName: "MC888", hardwareVersion: "MC888HW-1.0.0", waInnerVersion: "BD_ZTE_MC888V1.0.0B05", crVersion: "CR_ZTE_MC888V1.0.0B05" };
 
 /** A stored message as the router lists it (`tag`: `0` read, `1` unread, `2` sent, `3` not sent, `4` draft). */
@@ -49,6 +52,11 @@ export interface ZteRouterOptions {
   sendResult?: string;
   /** A firmware that hands back the first page whatever page is asked for. */
   smsIgnoresPage?: boolean;
+  /**
+   * The ZXIC firmware's spelling: `/reqproc/proc_get` and `/reqproc/proc_post`, a login by user name
+   * and nonce, a `random` cookie, and `CSRFToken` on writes. Its versions name only `cr_version`.
+   */
+  reqproc?: boolean;
   /** The unread count the firmware reports (some lag behind the rows). */
   unreadCount?: string;
 }
@@ -94,7 +102,19 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       lte_rsrp: "-81",
     },
   };
-  const signedIn = (req: LanRequestRecord): boolean => state.loggedIn && (req.headers["cookie"]?.includes("stok=abc123") ?? false);
+  const reqproc = opts.reqproc === true;
+  const cookie = reqproc ? "random=9d41c7" : "stok=abc123";
+  const getPath = reqproc ? "/reqproc/proc_get" : "/goform/goform_get_cmd_process";
+  const setPath = reqproc ? "/reqproc/proc_post" : "/goform/goform_set_cmd_process";
+  let token = 0;
+  if (reqproc) {
+    // This firmware names itself in cr_version alone
+    state.values["model_name"] = "";
+    state.values["hardware_version"] = "";
+    state.values["wa_inner_version"] = "";
+    state.values["cr_version"] = "CPE_NV8645_230A_E-P42U17";
+  }
+  const signedIn = (req: LanRequestRecord): boolean => state.loggedIn && (req.headers["cookie"]?.includes(cookie) ?? false);
   const ids = (raw: string | null): number[] =>
     (raw ?? "")
       .split(";")
@@ -122,8 +142,11 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
   };
   const mock = new LanRouterMock((req: LanRequestRecord) => {
     if (req.method === "GET" && req.path === "/js/config/config.js") return opts.configJs === undefined ? { status: 404, text: "" } : { text: opts.configJs };
-    if (req.method === "GET" && req.path === "/goform/goform_get_cmd_process") {
+    if (req.method === "GET" && req.path === getPath) {
       const cmd = req.query.get("cmd") ?? "";
+      if (reqproc && cmd === "get_random_login") return { json: { random_login: ZTE_RANDOM_LOGIN } };
+      // Empty until a session's cookie is presented, then a fresh one per read
+      if (reqproc && cmd === "get_token") return { json: { token: signedIn(req) ? `tok${++token}` : "" } };
       const sms = smsAnswer(req, cmd);
       if (sms) return { json: sms };
       const out: Record<string, string> = {};
@@ -136,21 +159,23 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       }
       return { json: out };
     }
-    if (req.method === "POST" && req.path === "/goform/goform_set_cmd_process") {
+    if (req.method === "POST" && req.path === setPath) {
       const fields = LanRouterMock.form(req);
       const goformId = fields.get("goformId") ?? "";
       if (goformId === "LOGIN") {
         if (opts.loginResult) return { json: { result: opts.loginResult } };
-        if (fields.get("password") !== expectedPassword) return { json: { result: "3" } };
+        const wanted = reqproc ? zteReqprocPassword(ZTE_RANDOM_LOGIN, ZTE_PASSWORD) : expectedPassword;
+        if (fields.get("password") !== wanted) return { json: { result: "3" } };
+        if (reqproc && (fields.get("username") !== Buffer.from("admin").toString("base64") || fields.get("CSRFToken") !== "")) return { json: { result: "3" } };
         state.loggedIn = true;
-        return { json: { result: "0" }, setCookie: ["stok=abc123; Path=/; HttpOnly"] };
+        return { json: { result: "0" }, setCookie: [`${cookie}; Path=/; HttpOnly`] };
       }
       if (goformId === "DEVELOPER_OPTION_LOGIN") {
         state.posts.push({ goformId, fields });
         return { json: { result: "0" } };
       }
       if (!signedIn(req)) return { json: { result: "failure" } };
-      if (fields.get("AD") !== zteActionDigest(hash, version, `RD${state.rd}`)) return { json: { result: "failure" } };
+      if (reqproc ? fields.get("CSRFToken") !== `tok${token}` || fields.has("AD") : fields.get("AD") !== zteActionDigest(hash, version, `RD${state.rd}`)) return { json: { result: "failure" } };
       state.posts.push({ goformId, fields });
       if (goformId === "LOGOUT") state.loggedIn = false;
       if (goformId === "BAND_SELECT") state.values["lte_band_lock"] = fields.get("lte_band_mask") ?? "";

@@ -63,14 +63,27 @@ import {
  * `config.js` announces, or Base64; anything else sends nothing. PCIs and cell identities come as
  * hexadecimal. Firmware generations differ in how they write band and cell locks (`zteBranch`).
  *
+ * The ZXIC firmware many rebadged 4G routers and MiFis run (ZTE's own and other makers' under their
+ * names) spells the same interface `GET /reqproc/proc_get` and `POST /reqproc/proc_post`: the same
+ * `cmd` keys and `goformId` actions, a login of its own (the user name and the SHA-256 of a nonce and
+ * the password, each as Base64) and a `CSRFToken` from `cmd=get_token` on every write where the
+ * goform pages carry `AD`. The driver speaks whichever of the two the router answers.
+ *
  * SMS is the store the router's own page shows (device memory): `cmd=sms_data_total` lists it, bodies
  * as UTF-16 hexadecimal; `cmd=sms_capacity_info` counts it; `SEND_SMS` sends and `DELETE_SMS` deletes,
  * each settling through `cmd=sms_cmd_status_info`; `SET_MSG_READ` marks read.
  */
 
 const FAMILY = "zte-goform" as const;
-const GET_PATH = "/goform/goform_get_cmd_process";
-const SET_PATH = "/goform/goform_set_cmd_process";
+/** Where a firmware answers reads and writes: the goform pages, or the `reqproc` handlers. */
+export interface ZteEndpoints {
+  variant: "goform" | "reqproc";
+  get: string;
+  set: string;
+}
+
+const GOFORM: ZteEndpoints = { variant: "goform", get: "/goform/goform_get_cmd_process", set: "/goform/goform_set_cmd_process" };
+const REQPROC: ZteEndpoints = { variant: "reqproc", get: "/reqproc/proc_get", set: "/reqproc/proc_post" };
 const REFERER = "/index.html";
 const XHR: Readonly<Record<string, string>> = { "X-Requested-With": "XMLHttpRequest" };
 
@@ -127,20 +140,20 @@ export function zteLoginMethodOf(ld: string | null, configJs: string | null): Zt
   return configJs.includes("WEB_ATTR_IF_SUPPORT_SHA256:1") ? { kind: "sha256" } : { kind: "base64" };
 }
 
-async function getCmd(http: LanHttp, keys: ReadonlyArray<string>, multi = true): Promise<Record<string, unknown>> {
+async function getCmd(http: LanHttp, keys: ReadonlyArray<string>, multi = true, at: ZteEndpoints = GOFORM): Promise<Record<string, unknown>> {
   const query: Array<[string, string]> = [
     ["isTest", "false"],
     ["cmd", keys.join(",")],
   ];
   if (multi) query.push(["multi_data", "1"]);
   query.push(["_", String(Date.now())]);
-  const answer = await http.getJson(GET_PATH, { query, referer: REFERER, headers: XHR });
+  const answer = await http.getJson(at.get, { query, referer: REFERER, headers: XHR });
   if (!isPlainObject(answer)) throw new CpeAnswerFormatError("GET goform_get_cmd_process: not an object");
   return answer;
 }
 
-async function setCmd(http: LanHttp, fields: ReadonlyArray<readonly [string, string]>): Promise<Record<string, unknown>> {
-  const answer = await http.postForm(SET_PATH, fields, { referer: REFERER, headers: XHR });
+async function setCmd(http: LanHttp, fields: ReadonlyArray<readonly [string, string]>, at: ZteEndpoints = GOFORM): Promise<Record<string, unknown>> {
+  const answer = await http.postForm(at.set, fields, { referer: REFERER, headers: XHR });
   if (!isPlainObject(answer)) throw new CpeAnswerFormatError("POST goform_set_cmd_process: not an object");
   return answer;
 }
@@ -159,9 +172,9 @@ const SMS_DELETE_POLL_MS = 300;
  * firmware writes raw control characters into a message body's JSON: they are dropped before parsing,
  * as the router's own page cannot read such an answer either.
  */
-async function getCmdWith(http: LanHttp, cmd: string, params: ReadonlyArray<readonly [string, string]>): Promise<Record<string, unknown>> {
+async function getCmdWith(http: LanHttp, cmd: string, params: ReadonlyArray<readonly [string, string]>, at: ZteEndpoints = GOFORM): Promise<Record<string, unknown>> {
   const query: Array<readonly [string, string]> = [["isTest", "false"], ["cmd", cmd], ...params, ["_", String(Date.now())]];
-  const res = await http.request({ method: "GET", path: GET_PATH, query, referer: REFERER, headers: XHR });
+  const res = await http.request({ method: "GET", path: at.get, query, referer: REFERER, headers: XHR });
   if (res.status < 200 || res.status >= 300) throw new CpeAnswerFormatError(`GET goform_get_cmd_process: HTTP ${res.status}`);
   const answer = parseJsonText(res.text.replace(/[\u0000-\u001f]/g, " "), "GET goform_get_cmd_process");
   if (!isPlainObject(answer)) throw new CpeAnswerFormatError("GET goform_get_cmd_process: not an object");
@@ -610,17 +623,20 @@ class ZteGoformSession implements DriverSessionHandle {
   readonly family = FAMILY;
   readonly #http: LanHttp;
   readonly #version: ZteVersion;
-  readonly #hash: "sha256" | "md5";
+  /** How a write is signed: `AD` in the goform pages' hash, or the `reqproc` firmware's `CSRFToken`. */
+  readonly #hash: "sha256" | "md5" | "csrf";
+  readonly #at: ZteEndpoints;
   readonly #branch: ZteBranch;
   readonly #password: string;
   readonly #configJs: string | null;
   #developerUnlocked = false;
   #open = true;
 
-  constructor(http: LanHttp, version: ZteVersion, hash: "sha256" | "md5", password = "", configJs: string | null = null) {
+  constructor(http: LanHttp, version: ZteVersion, hash: "sha256" | "md5" | "csrf", password = "", configJs: string | null = null, at: ZteEndpoints = GOFORM) {
     this.#http = http;
     this.#version = version;
     this.#hash = hash;
+    this.#at = at;
     this.#branch = zteBranch(version);
     this.#password = password;
     this.#configJs = configJs;
@@ -645,15 +661,19 @@ class ZteGoformSession implements DriverSessionHandle {
     if (this.#developerUnlocked || (this.#branch !== 2 && this.#branch !== 3) || !this.#password) return;
     this.#developerUnlocked = true;
     try {
-      const devLd = textOf((await getCmd(this.#http, ["LD"], false))["LD"]);
+      const devLd = textOf((await getCmd(this.#http, ["LD"], false, this.#at))["LD"]);
       const devMethod = zteLoginMethodOf(devLd, this.#configJs);
       if (devMethod !== null) {
         noteSent(check, FAMILY, "DEVELOPER_OPTION_LOGIN");
-        await setCmd(this.#http, [
-          ["isTest", "false"],
-          ["goformId", "DEVELOPER_OPTION_LOGIN"],
-          ["password", zteLoginPassword(devMethod, this.#password)],
-        ]);
+        await setCmd(
+          this.#http,
+          [
+            ["isTest", "false"],
+            ["goformId", "DEVELOPER_OPTION_LOGIN"],
+            ["password", zteLoginPassword(devMethod, this.#password)],
+          ],
+          this.#at
+        );
       }
     } catch {
       // The lock write that follows reports what the router makes of it
@@ -663,33 +683,44 @@ class ZteGoformSession implements DriverSessionHandle {
   async identify(): Promise<DriverIdentity> {
     this.#guard();
     const v = this.#version;
-    return { model: labelOf(v.modelName) ?? labelOf(v.hardwareVersion), softwareVersion: labelOf(v.waInnerVersion) ?? labelOf(v.crVersion), hardwareVersion: labelOf(v.hardwareVersion) };
+    // A firmware that names neither a model nor a hardware version: the platform its version string starts with
+    const platform = /^[A-Za-z0-9]+_[A-Za-z0-9]+/.exec(v.crVersion)?.[0] ?? null;
+    return { model: labelOf(v.modelName) ?? labelOf(v.hardwareVersion) ?? labelOf(platform), softwareVersion: labelOf(v.waInnerVersion) ?? labelOf(v.crVersion), hardwareVersion: labelOf(v.hardwareVersion) };
   }
 
   async telemetry(): Promise<DriverTelemetry> {
     this.#guard();
-    return parseZteGoformTelemetry(await getCmd(this.#http, ZTE_TELEMETRY_KEYS));
+    return parseZteGoformTelemetry(await getCmd(this.#http, ZTE_TELEMETRY_KEYS, true, this.#at));
   }
 
   async neighbours(): Promise<DriverNeighbour[]> {
     this.#guard();
-    const list = parseZteNeighbours(await getCmd(this.#http, NEIGHBOUR_KEYS));
+    const list = parseZteNeighbours(await getCmd(this.#http, NEIGHBOUR_KEYS, true, this.#at));
     if (list === null) throw new SectionUnavailableError("The nearby-cell list", null);
     return list;
   }
 
   async lockState(): Promise<DriverLockState> {
     this.#guard();
-    return parseZteLockState(await getCmd(this.#http, LOCK_KEYS));
+    return parseZteLockState(await getCmd(this.#http, LOCK_KEYS, true, this.#at));
   }
 
-  /** One write: a fresh `RD`, then the form with its `AD`; the router must answer `success`. */
+  /**
+   * One write: a fresh `RD`, then the form with its `AD` (on the `reqproc` firmware a fresh token,
+   * then the form with it as `CSRFToken`); the router must answer `success`.
+   */
   async #post(check: WriteCheck | null, goformId: string, fields: Form): Promise<void> {
     this.#guard();
-    const rd = textOf((await getCmd(this.#http, ["RD"], false))["RD"]);
-    if (rd === null) throw new CpeAnswerFormatError(`${goformId}: the router handed out no RD`);
+    let signature: [string, string];
+    if (this.#hash === "csrf") {
+      signature = ["CSRFToken", await zteCsrfToken(this.#http)];
+    } else {
+      const rd = textOf((await getCmd(this.#http, ["RD"], false, this.#at))["RD"]);
+      if (rd === null) throw new CpeAnswerFormatError(`${goformId}: the router handed out no RD`);
+      signature = ["AD", zteActionDigest(this.#hash, this.#version, rd)];
+    }
     if (check) noteSent(check, FAMILY, goformId);
-    const answer = await setCmd(this.#http, [["isTest", "false"], ["goformId", goformId], ...fields, ["AD", zteActionDigest(this.#hash, this.#version, rd)]]);
+    const answer = await setCmd(this.#http, [["isTest", "false"], ["goformId", goformId], ...fields, signature], this.#at);
     const result = textOf(answer["result"]);
     if (result !== "success" && result !== "0") throw new CpeApiError(answerCode(answer["result"]), `${goformId} refused`);
   }
@@ -759,13 +790,18 @@ class ZteGoformSession implements DriverSessionHandle {
     this.#guard();
     const seen = new Map<number, SmsWireMessage>();
     for (let page = 0; page < SMS_MAX_PAGES; page++) {
-      const answer = await getCmdWith(this.#http, "sms_data_total", [
-        ["page", String(page)],
-        ["data_per_page", String(SMS_PAGE_SIZE)],
-        ["mem_store", "1"],
-        ["tags", "10"],
-        ["order_by", "order by id desc"],
-      ]);
+      const answer = await getCmdWith(
+        this.#http,
+        "sms_data_total",
+        [
+          ["page", String(page)],
+          ["data_per_page", String(SMS_PAGE_SIZE)],
+          ["mem_store", "1"],
+          ["tags", "10"],
+          ["order_by", "order by id desc"],
+        ],
+        this.#at
+      );
       if (!Array.isArray(answer["messages"])) throw new SectionUnavailableError("SMS", null);
       const rows = answer["messages"];
       const before = seen.size;
@@ -783,15 +819,15 @@ class ZteGoformSession implements DriverSessionHandle {
    */
   async #smsCounters(): Promise<SmsCounters> {
     this.#guard();
-    const capacity = await getCmd(this.#http, ["sms_capacity_info"], false);
-    const unread = await getCmd(this.#http, ["sms_unread_num"]).catch((): Record<string, unknown> => ({}));
+    const capacity = await getCmd(this.#http, ["sms_capacity_info"], false, this.#at);
+    const unread = await getCmd(this.#http, ["sms_unread_num"], true, this.#at).catch((): Record<string, unknown> => ({}));
     const counters = zteSmsCounters(capacity, unread["sms_unread_num"]);
     if (!counters) throw new SectionUnavailableError("SMS", null);
     return counters;
   }
 
   async #smsStatus(slot: number): Promise<Record<string, unknown>> {
-    return await getCmdWith(this.#http, "sms_cmd_status_info", [["sms_cmd", String(slot)]]);
+    return await getCmdWith(this.#http, "sms_cmd_status_info", [["sms_cmd", String(slot)]], this.#at);
   }
 
   /** `SEND_SMS`, then the send slot until the router says the message went out or did not. */
@@ -857,28 +893,84 @@ function lockOf(status: Record<string, unknown>): { waitSec: number | null } | n
   return null;
 }
 
+function versionOf(versions: Record<string, unknown>): ZteVersion {
+  return {
+    modelName: textOf(versions["model_name"]) ?? "",
+    hardwareVersion: textOf(versions["hardware_version"]) ?? "",
+    waInnerVersion: textOf(versions["wa_inner_version"]) ?? "",
+    crVersion: textOf(versions["cr_version"]) ?? "",
+  };
+}
+
+/**
+ * Which spelling the router answers, with its versions: the goform pages first (their request is
+ * the one this driver always sent), then `reqproc`, which names its firmware in `cr_version` alone
+ * on some builds. `null`: neither names a firmware, so this is not such a router.
+ */
+async function zteEndpoints(http: LanHttp): Promise<{ at: ZteEndpoints; version: ZteVersion } | null> {
+  const goform = await getCmd(http, VERSION_KEYS).then(versionOf, () => null);
+  if (goform && (goform.waInnerVersion !== "" || goform.hardwareVersion !== "")) return { at: GOFORM, version: goform };
+  const reqproc = await getCmd(http, VERSION_KEYS, true, REQPROC).then(versionOf, () => null);
+  if (reqproc && (reqproc.waInnerVersion !== "" || reqproc.hardwareVersion !== "" || reqproc.crVersion !== "")) return { at: REQPROC, version: reqproc };
+  return null;
+}
+
+/** The `reqproc` firmware's write token (`cmd=get_token`), sent raw as `CSRFToken`; empty before a login. */
+async function zteCsrfToken(http: LanHttp): Promise<string> {
+  const answer = await getCmd(http, ["get_token"], false, REQPROC);
+  return textOf(answer["token"]) ?? textOf(answer["get_token"]) ?? "";
+}
+
+/** The `password` field of the `reqproc` login: the lowercase SHA-256 of nonce + password, that text as Base64. */
+export function zteReqprocPassword(randomLogin: string, password: string): string {
+  return Buffer.from(sha256Hex(`${randomLogin}${password}`), "utf8").toString("base64");
+}
+
+/** What a refused login was, from the router's own count of attempts left and of the lock (read without a password). */
+async function zteLoginRefusal(http: LanHttp, at: ZteEndpoints, result: string | null, raw: unknown): Promise<never> {
+  const status = await getCmd(http, LOCK_STATUS_KEYS, true, at).catch(() => ({}) as Record<string, unknown>);
+  const lock = lockOf(status);
+  if (result === "2" || lock) throw loginLocked("the router has locked its login", lock?.waitSec ?? null);
+  if (result === "1" || result === "3") throw wrongPassword("the router refused the password", intOf(status["psw_fail_num_str"]));
+  throw loginUnplaced(`login answered ${answerCode(raw)}`);
+}
+
 export const zteGoformProtocol: DriverProtocol = {
   family: FAMILY,
 
   async detect(http: LanHttp): Promise<boolean> {
-    const versions = await getCmd(http, VERSION_KEYS);
-    return textOf(versions["wa_inner_version"]) !== null || textOf(versions["hardware_version"]) !== null;
+    return (await zteEndpoints(http)) !== null;
   },
 
   async precheck(http: LanHttp): Promise<DriverPrecheck | null> {
-    const status = await getCmd(http, LOCK_STATUS_KEYS);
+    // The goform pages first, as always; a router without them is asked the `reqproc` way
+    const status = await getCmd(http, LOCK_STATUS_KEYS).catch(() => getCmd(http, LOCK_STATUS_KEYS, true, REQPROC));
     return { occupied: false, locked: lockOf(status) };
   },
 
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
-    const versions = await getCmd(http, VERSION_KEYS);
-    const version: ZteVersion = {
-      modelName: textOf(versions["model_name"]) ?? "",
-      hardwareVersion: textOf(versions["hardware_version"]) ?? "",
-      waInnerVersion: textOf(versions["wa_inner_version"]) ?? "",
-      crVersion: textOf(versions["cr_version"]) ?? "",
-    };
-    if (version.waInnerVersion === "" && version.hardwareVersion === "") throw new DriverLoginMethodError("not a ZTE goform router: no firmware version");
+    const found = await zteEndpoints(http);
+    if (!found) throw new DriverLoginMethodError("not a ZTE goform router: no firmware version");
+    const { at, version } = found;
+    if (at.variant === "reqproc") {
+      const nonce = textOf((await getCmd(http, ["get_random_login"], false, at))["random_login"]);
+      if (nonce === null) throw new DriverLoginMethodError("the router handed out no login nonce");
+      const answer = await setCmd(
+        http,
+        [
+          ["isTest", "false"],
+          ["goformId", "LOGIN"],
+          ["username", Buffer.from(credentials.username || "admin", "utf8").toString("base64")],
+          ["password", zteReqprocPassword(nonce, credentials.password)],
+          ["CSRFToken", await zteCsrfToken(http)],
+        ],
+        at
+      );
+      const result = textOf(answer["result"]);
+      if (result === "0") return new ZteGoformSession(http, version, "csrf", credentials.password, null, at);
+      if (result === "4") throw signedInElsewhere("another administrator is signed in");
+      return await zteLoginRefusal(http, at, result, answer["result"]);
+    }
     const ld = textOf((await getCmd(http, ["LD"], false))["LD"]);
     let configJs: string | null = null;
     if (ld === null) {
@@ -895,11 +987,6 @@ export const zteGoformProtocol: DriverProtocol = {
     const result = textOf(answer["result"]);
     if (result === "0") return new ZteGoformSession(http, version, method.kind === "sha256-ld" ? "sha256" : "md5", credentials.password, configJs);
     if (result === "4") throw signedInElsewhere("another administrator is signed in");
-    // The router's own count of attempts left and of the lock, read without a password
-    const status = await getCmd(http, LOCK_STATUS_KEYS).catch(() => ({}) as Record<string, unknown>);
-    const lock = lockOf(status);
-    if (result === "2" || lock) throw loginLocked("the router has locked its login", lock?.waitSec ?? null);
-    if (result === "1" || result === "3") throw wrongPassword("the router refused the password", intOf(status["psw_fail_num_str"]));
-    throw loginUnplaced(`login answered ${answerCode(answer["result"])}`);
+    return await zteLoginRefusal(http, at, result, answer["result"]);
   },
 };

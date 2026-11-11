@@ -8,7 +8,10 @@ import type { DriverSmsSendOptions } from "../src/drivers/types.ts";
 import { zwrtDecryptField, zwrtEncryptField, zwrtKeyEnvelope } from "../src/drivers/zte-zwrt.ts";
 import { DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { createBrandSmsFixture, smsOf, smsWritesOf } from "./helpers/sms-brand-fixture.ts";
-import { ZTE_PASSWORD, zteRouter, zteSms } from "./helpers/zte-goform-router.ts";
+import { LanHttp } from "../src/drivers/transport.ts";
+import { zteGoformProtocol, zteReqprocPassword } from "../src/drivers/zte-goform.ts";
+import { LanRouterMock } from "./helpers/lan-router.ts";
+import { ZTE_PASSWORD, ZTE_RANDOM_LOGIN, zteRouter, zteSms } from "./helpers/zte-goform-router.ts";
 import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 
 /**
@@ -293,6 +296,83 @@ describe("zte-goform SMS: the driver", () => {
       return reply;
     };
     await assert.rejects(client.withSession((s) => smsWritesOf(s).delete([1], newCheck())), /did not delete/);
+  });
+});
+
+describe("zte-goform: the reqproc spelling of the interface", () => {
+  it("finds the spelling the router answers, signs in with the nonce and the user name, and signs writes with a fresh token", async () => {
+    const { client, mock, state } = zteRouter({ reqproc: true, sms: inbox() });
+    const identity = await client.withSession((s) => s.identify());
+    // The firmware names no model: the platform its version string starts with stands in
+    assert.deepEqual(identity, { model: "CPE_NV8645", softwareVersion: "CPE_NV8645_230A_E-P42U17", hardwareVersion: null });
+    assert.deepEqual(mock.trail, [
+      // Before the password: the lock status, asked the goform way first, then this router's
+      "GET /goform/goform_get_cmd_process",
+      "GET /reqproc/proc_get",
+      // The versions, both ways again; the nonce; the token (empty before a login)
+      "GET /goform/goform_get_cmd_process",
+      "GET /reqproc/proc_get",
+      "GET /reqproc/proc_get",
+      "GET /reqproc/proc_get",
+      "POST /reqproc/proc_post",
+      // The logout, with its own token
+      "GET /reqproc/proc_get",
+      "POST /reqproc/proc_post",
+    ]);
+    const firstPost = mock.requests.find((r) => r.method === "POST");
+    assert.ok(firstPost);
+    const login = LanRouterMock.form(firstPost);
+    assert.deepEqual([login.get("goformId"), login.get("username"), login.get("CSRFToken"), login.has("AD")], ["LOGIN", "YWRtaW4=", "", false]);
+    assert.equal(login.get("password"), zteReqprocPassword(ZTE_RANDOM_LOGIN, ZTE_PASSWORD));
+    assert.deepEqual(state.posts.map((p) => [p.goformId, p.fields.get("CSRFToken"), p.fields.has("AD")]), [["LOGOUT", "tok1", false]]);
+    assert.equal(state.loggedIn, false);
+  });
+
+  it("reads, sends, marks read and deletes SMS over it with the same fields", async () => {
+    const { client, mock, state } = zteRouter({ reqproc: true, sms: inbox() });
+    const listed = await client.withSession((s) => smsOf(s).list());
+    assert.deepEqual(listed?.map((m) => m.index), [4, 3, 2, 1]);
+    assert.deepEqual(await client.withSession((s) => smsOf(s).counters()), { localUnread: 2, localInbox: 3, localOutbox: 2, localDraft: 1, localMax: 100 });
+    assert.deepEqual(await client.withSession((s) => smsWritesOf(s).send(FRIEND, "你好", newCheck(), sendOptions())), { state: "sent", code: null });
+    const check = newCheck();
+    await client.withSession(async (s) => {
+      await smsWritesOf(s).markRead([2], check);
+      await smsWritesOf(s).delete([1], check);
+    });
+    assert.deepEqual(check, { endpoints: ["zte-goform:SET_MSG_READ", "zte-goform:DELETE_SMS"], readback: "match", reason: null });
+    assert.deepEqual(state.posts.filter((p) => p.goformId !== "LOGOUT").map((p) => p.goformId), ["SEND_SMS", "SET_MSG_READ", "DELETE_SMS"]);
+    // Every write carried the token handed out right before it, and none an AD
+    assert.ok(state.posts.every((p) => /^tok\d+$/.test(p.fields.get("CSRFToken") ?? "") && !p.fields.has("AD")));
+    assert.ok(mock.requests.every((r) => !r.path.startsWith("/goform/") || r.method === "GET"), "nothing was written the goform way");
+    assert.ok(mock.requests.some((r) => r.path === "/reqproc/proc_get" && r.query.get("cmd") === "sms_cmd_status_info" && r.query.get("sms_cmd") === "6"));
+  });
+
+  it("latches the breaker on a refused password, yields to someone signed in, and sends nothing without a nonce", async () => {
+    const wrong = zteRouter({ reqproc: true, loginResult: "3" });
+    await assert.rejects(wrong.client.withSession((s) => s.identify()), (err: unknown) => err instanceof CpeApiError && err.code === "108006" && err.remainCount === 5);
+    const before = wrong.mock.requests.length;
+    await assert.rejects(wrong.client.withSession((s) => s.identify()), (err: unknown) => err instanceof CpeApiError && err.code === "108006");
+    assert.equal(wrong.mock.requests.length, before);
+
+    const busy = zteRouter({ reqproc: true, loginResult: "4" });
+    assert.equal((await busy.client.withSessionDetailed((s) => s.identify())).status, "yielded");
+
+    const locked = zteRouter({ reqproc: true, lock: { left: "0", wait: "300" } });
+    await assert.rejects(locked.client.withSession((s) => s.identify()), (err: unknown) => err instanceof CpeApiError && err.code === "108007");
+    assert.ok(!locked.mock.requests.some((r) => r.method === "POST"));
+
+    const noNonce = zteRouter({ reqproc: true });
+    const original = noNonce.mock.handler;
+    noNonce.mock.handler = (req) => (req.query.get("cmd") === "get_random_login" ? { json: { random_login: "" } } : original(req));
+    await assert.rejects(noNonce.client.withSession((s) => s.identify()), /no login nonce/);
+    assert.ok(!noNonce.mock.requests.some((r) => r.method === "POST"));
+  });
+
+  it("is told apart before any password: either spelling that names a firmware is this brand", async () => {
+    const http = (mock: LanRouterMock): LanHttp => new LanHttp({ baseUrl: "http://192.168.0.1", fetchImpl: mock.fetchImpl, timeoutMs: 1000, signal: new AbortController().signal });
+    assert.equal(await zteGoformProtocol.detect(http(zteRouter({ reqproc: true }).mock)), true);
+    assert.equal(await zteGoformProtocol.detect(http(zteRouter().mock)), true);
+    assert.equal(await zteGoformProtocol.detect(http(new LanRouterMock(() => ({ status: 404, text: "" })))), false);
   });
 });
 
