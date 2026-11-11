@@ -23,7 +23,7 @@ import type {
   DriverSessionHandle,
   DriverTelemetry,
 } from "./types.ts";
-import { arfcnOf, bandOf, counterOf, fieldOf, identityOf, intOf, ipv4Of, ipv6Of, isPlainObject, labelOf, nonNegativeOf, numberOf, pciOf, rsrpOf, rsrqOf, sinrOf, textOf } from "./values.ts";
+import { arfcnOf, bandOf, counterOf, fieldOf, identityOf, intOf, ipv4Of, ipv6Of, isPlainObject, labelOf, nonNegativeOf, numberOf, operatorOfPlmn, pciOf, plmnCodeOf, rsrpOf, rsrqOf, sinrOf, textOf } from "./values.ts";
 
 /**
  * NRadio routers (C2000 Max / Ultra / Pro, C8-668GL, C5800, C8-660, C3000…) on NROS, NRadio's
@@ -47,6 +47,7 @@ const NET_MODE = "/api/net/net-mode";
 const LOCK_FREQ = "/api/net/lock-freq";
 const DATA_SWITCH = "/api/dialup/mobile-dataswitch";
 const CLIENTS = "/cgi-bin/luci/nradio/client/all_list";
+const DEVICE_INFO = "/api/device/information";
 const REFERER = "/html/content.html";
 const TOKEN = /^[0-9A-Za-z]{8,64}$/;
 
@@ -125,8 +126,9 @@ export function parseNradioTelemetry(answer: unknown, overview: NradioOverview):
     model: overview.model,
     softwareVersion: overview.version,
     hardwareVersion: null,
-    operatorName: labelOf(c("isp")),
-    plmn: null,
+    // `isp` is the operator's name, or on some firmware its PLMN
+    operatorName: operatorOfPlmn(plmnCodeOf(c("isp"))) ?? labelOf(c("isp")),
+    plmn: plmnCodeOf(c("isp")),
     mode,
     lte: rat === "LTE" && cellHasData(cell) ? cell : null,
     nr: rat === "NR" && cellHasData(cell) ? cell : null,
@@ -212,7 +214,17 @@ class NradioSession implements DriverSessionHandle {
 
   async identify(): Promise<DriverIdentity> {
     this.#guard();
-    return { model: this.#overview.model, softwareVersion: this.#overview.version, hardwareVersion: null };
+    return { model: this.#overview.model, softwareVersion: this.#overview.version, hardwareVersion: await this.#hardwareVersion() };
+  }
+
+  /**
+   * The cellular module's hardware version through its bridge (`/api/device/information`,
+   * `<HardwareVersion>`, notes library A table 3.2 row 8); `null` on a router without the bridge.
+   */
+  async #hardwareVersion(): Promise<string | null> {
+    const res = await this.#http.request({ method: "GET", path: DEVICE_INFO, referer: REFERER }).catch(() => null);
+    if (!res || res.status !== 200 || parseXmlError(res.text)) return null;
+    return labelOf(getXmlTag(res.text, "HardwareVersion"));
   }
 
   async telemetry(): Promise<DriverTelemetry> {

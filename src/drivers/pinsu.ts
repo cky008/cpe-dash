@@ -20,7 +20,7 @@ import type {
   DriverSessionHandle,
   DriverTelemetry,
 } from "./types.ts";
-import { bandOf, counterOf, intOf, isPlainObject, labelOf, numberOf, pciOf, rsrpOf, rsrqOf, rssiOf, sinrOf, textOf } from "./values.ts";
+import { bandOf, counterOf, intOf, isPlainObject, labelOf, numberOf, operatorOfPlmn, pciOf, plmnCodeOf, rsrpOf, rsrqOf, rssiOf, sinrOf, textOf } from "./values.ts";
 
 /**
  * Pinsu routers (R200C, R200, R100, M1, U200) and other UNISOC V510 boards on the same firmware:
@@ -179,8 +179,9 @@ export function parsePinsuTelemetry(raw: Record<string, unknown>): DriverTelemet
     model: null,
     softwareVersion: null,
     hardwareVersion: null,
-    operatorName: labelOf(raw["mnet_operator_name"]),
-    plmn: null,
+    // The operator's name, or on some firmware its PLMN (notes: "46000" / "CMCC" / "CHINA MOBILE")
+    operatorName: operatorOfPlmn(plmnCodeOf(raw["mnet_operator_name"])) ?? labelOf(raw["mnet_operator_name"]),
+    plmn: plmnCodeOf(raw["mnet_operator_name"]),
     mode,
     lte: lte && cellHasData(lte) ? lte : null,
     nr: nr && cellHasData(nr) ? nr : null,

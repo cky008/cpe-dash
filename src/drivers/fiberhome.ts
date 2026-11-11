@@ -40,7 +40,9 @@ import {
   mhzOf,
   nonNegativeOf,
   numberOf,
+  operatorOfPlmn,
   pciOf,
+  plmnCodeOf,
   rsrpOf,
   rsrqOf,
   rssiOf,
@@ -576,6 +578,11 @@ function nbrList(raw: Record<string, unknown>, key: string): string[] {
   return (textOf(raw[key]) ?? "").split(",").slice(0, 64).map((s) => s.trim());
 }
 
+/** Today's traffic both ways (`todayRxBytes` + `todayTxBytes`), from whichever the router names. */
+function todayOf(down: bigint | null, up: bigint | null): bigint | null {
+  return down === null && up === null ? null : (down ?? 0n) + (up ?? 0n);
+}
+
 /** SINR with the router's "no value" readings (−30, −20 dB) left out. */
 function fiberSinr(value: unknown): number | null {
   const text = textOf(value);
@@ -652,8 +659,9 @@ export function parseFiberhomeTelemetry(raw: Record<string, unknown>): { telemet
     model: labelOf(raw["modelName"]),
     softwareVersion: labelOf(raw["Software_version"]),
     hardwareVersion: null,
-    operatorName: null,
-    plmn: plmn !== null && /^\d{5,6}$/.test(plmn) ? plmn : null,
+    // The router names the PLMN only; the notes' table names its operator
+    operatorName: operatorOfPlmn(plmnCodeOf(plmn)),
+    plmn: plmnCodeOf(plmn),
     mode,
     lte: lte && cellHasData(lte) ? lte : null,
     nr: nr && cellHasData(nr) ? nr : null,
@@ -671,6 +679,7 @@ export function parseFiberhomeTelemetry(raw: Record<string, unknown>): { telemet
       monthUploadBytes: counterOf(raw["monthTxBytes"]),
       monthTotalBytes: null,
       monthSeconds: null,
+      todayBytes: todayOf(counterOf(raw["todayRxBytes"]), counterOf(raw["todayTxBytes"])),
     },
     temperatureC: temperatureOf(raw["Temperature"]),
     signalBars: null,

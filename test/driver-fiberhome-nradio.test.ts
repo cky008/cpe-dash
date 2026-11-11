@@ -252,6 +252,7 @@ function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview
     }
     if (req.path === "/cgi-bin/luci/nradioadv/cellular/cpestatus/scaninfo") return { json: { code: 0, result: { neighbour: [[{ BAND: "78", EARFCN: "650000", PCI: "211", RSRP: "-88", RSRQ: "-13" }, { BAND: "1", EARFCN: "300", PCI: "0xd3", RSRP: "-95", RSRQ: "-12" }]] } } };
     if (req.path === "/api/net/net-mode" && req.method === "GET") return { text: netMode };
+    if (req.path === "/api/device/information" && req.method === "GET") return { text: "<response><DeviceName>module</DeviceName><HardwareVersion>HW1.0</HardwareVersion></response>" };
     if (req.path === "/cgi-bin/luci/nradio/logout") return { status: 302, headers: { location: "/" } };
     posts.push({ path: req.path, body: req.body, token: req.query.get("token") });
     if (req.path === "/api/net/net-mode") {
@@ -307,6 +308,11 @@ describe("nradio: session and readings", () => {
     const lte = parseNradioTelemetry({ cpe_4: { mode: "LTE", band: "1", earfcn: "300", pci: "211", rsrp: "-85 dBm", up: "yes" } }, { model: null, version: null, token: null });
     assert.deepEqual([lte.mode, lte.lte?.pci, lte.nr, lte.wan.connected], ["LTE", 211, null, null]);
     assert.equal(parseNradioTelemetry({}, { model: null, version: null, token: null }).traffic, null);
+    // Some firmware writes the PLMN where the operator's name goes
+    const numeric = parseNradioTelemetry({ cpe_4: { mode: "LTE", isp: "46000" } }, { model: null, version: null, token: null });
+    assert.deepEqual([numeric.operatorName, numeric.plmn], ["CMCC", "46000"]);
+    const named = parseNradioTelemetry({ cpe_4: { mode: "LTE", isp: "Three" } }, { model: null, version: null, token: null });
+    assert.deepEqual([named.operatorName, named.plmn], ["Three", null]);
   });
 
   it("scans nearby cells in a session", async () => {
@@ -401,7 +407,10 @@ describe("nradio: writes", () => {
     await client.withSession((s) => s.reboot(reboot));
     assert.equal(posts.at(-1)?.path, "/cgi-bin/luci/admin/system/reboot/call");
     assert.equal(reboot.readback, "pending");
-    assert.deepEqual(await client.withSession((s) => s.identify()), { model: "C2000 MAX", softwareVersion: "1.9.2.n6", hardwareVersion: null });
+    // The module's hardware version through its bridge; a router without the bridge names none
+    assert.deepEqual(await client.withSession((s) => s.identify()), { model: "C2000 MAX", softwareVersion: "1.9.2.n6", hardwareVersion: "HW1.0" });
+    mock.handler = ((inner) => (req) => (req.path === "/api/device/information" ? { status: 404, text: "" } : inner(req)))(mock.handler);
+    assert.equal((await client.withSession((s) => s.identify()))?.hardwareVersion, null);
     assert.deepEqual(parseNradioLockState("<response><NetworkMode>03</NetworkMode><LTEBand>5</LTEBand></response>").lteBands, [1, 3]);
   });
 

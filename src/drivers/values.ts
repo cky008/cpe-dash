@@ -240,3 +240,36 @@ export function plmnOf(mcc: unknown, mnc: unknown): string | null {
   if (a === null || b === null || !/^\d{3}$/.test(a) || !/^\d{2,3}$/.test(b)) return null;
   return `${a}${b}`;
 }
+
+/**
+ * The operator a Chinese mainland PLMN belongs to, for a router that names the PLMN but no operator:
+ * the tables of the Tozed and FiberHome notes (one list, the codes of both). `null` for any other code.
+ */
+const PLMN_OPERATORS: Readonly<Record<string, string>> = {
+  "46000": "CMCC",
+  "46002": "CMCC",
+  "46004": "CMCC",
+  "46007": "CMCC",
+  "46008": "CMCC",
+  "46013": "CMCC",
+  "46020": "CMCC",
+  "46001": "CUCC",
+  "46006": "CUCC",
+  "46009": "CUCC",
+  "46010": "CUCC",
+  "46003": "CTCC",
+  "46005": "CTCC",
+  "46011": "CTCC",
+  "46012": "CTCC",
+  "46015": "CBN",
+};
+
+export function operatorOfPlmn(plmn: string | null): string | null {
+  return plmn !== null && Object.hasOwn(PLMN_OPERATORS, plmn) ? (PLMN_OPERATORS[plmn] ?? null) : null;
+}
+
+/** A PLMN (MCC + MNC, five or six digits) where the router names one, `null` otherwise. */
+export function plmnCodeOf(value: unknown): string | null {
+  const text = textOf(value);
+  return text !== null && /^\d{5,6}$/.test(text) ? text : null;
+}

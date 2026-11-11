@@ -68,6 +68,8 @@ export interface DriverTraffic {
    * module counts 4G and 5G apart): a rate is never taken across two of them.
    */
   counterSource?: string;
+  /** Today's traffic, both ways, where the router counts it. */
+  todayBytes?: bigint | null;
 }
 
 export interface DriverIdentity {

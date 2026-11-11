@@ -37,7 +37,9 @@ import {
   megabytesToBytes,
   mhzOf,
   numberOf,
+  operatorOfPlmn,
   pciOf,
+  plmnCodeOf,
   rowsOf,
   rsrpOf,
   rsrqOf,
@@ -182,13 +184,14 @@ export function parseTozedTelemetry(signal: Record<string, unknown>, board: Reco
   };
   const sessionDown = megabytesToBytes(v("flow_dl"));
   const sessionUp = megabytesToBytes(v("flow_ul"));
-  const plmn = textOf(v("network_operator"));
+  const plmn = plmnCodeOf(v("network_operator"));
   return {
     model: board ? labelOf(board["board_type"]) : null,
     softwareVersion: board ? labelOf(board["real_fwversion"]) : null,
     hardwareVersion: null,
-    operatorName: null,
-    plmn: plmn !== null && /^\d{5,6}$/.test(plmn) ? plmn : null,
+    // The router names the PLMN only; the notes' table names its operator
+    operatorName: operatorOfPlmn(plmn),
+    plmn,
     mode,
     lte: cellHasData(lte) && mode !== "SA" ? lte : null,
     nr: cellHasData(nr) && (nrRsrp !== null || mode === "SA") ? nr : null,

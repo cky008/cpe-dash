@@ -151,6 +151,7 @@ function trafficDto(t: DriverTelemetry): TrafficTelemetryDto {
   const monthTotal = traffic?.monthTotalBytes ?? monthDown + monthUp;
   const sessionDown = traffic?.sessionDownloadBytes ?? 0n;
   const sessionUp = traffic?.sessionUploadBytes ?? 0n;
+  const today = traffic?.todayBytes ?? 0n;
   return {
     downloadBytesPerSec: down,
     uploadBytesPerSec: up,
@@ -158,9 +159,9 @@ function trafficDto(t: DriverTelemetry): TrafficTelemetryDto {
     uploadBps: up * 8,
     downloadRateFormatted: formatRateBitsPerSec(down * 8),
     uploadRateFormatted: formatRateBitsPerSec(up * 8),
-    todayUsedBytes: 0,
-    todayUsedBytesStr: "0",
-    todayUsedFormatted: formatBytesBinary(0),
+    todayUsedBytes: Number(today),
+    todayUsedBytesStr: today.toString(10),
+    todayUsedFormatted: formatBytesBinary(today),
     todayDurationSec: 0,
     monthDownloadBytes: Number(monthDown),
     monthDownloadBytesStr: monthDown.toString(10),

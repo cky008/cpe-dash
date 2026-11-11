@@ -30,7 +30,9 @@ import {
   mhzOf,
   nonNegativeOf,
   numberOf,
+  operatorOfPlmn,
   pciOf,
+  plmnCodeOf,
   plmnOf,
   rowsOf,
   rsrpOf,
@@ -41,6 +43,9 @@ import {
   temperatureOf,
   textOf,
 } from "../src/drivers/values.ts";
+import { parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
+import { parsePinsuTelemetry } from "../src/drivers/pinsu.ts";
+import { parseTozedTelemetry } from "../src/drivers/tozed.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
 function newCheck(): WriteCheck {
@@ -577,5 +582,32 @@ describe("drivers: snapshots", () => {
     assert.equal(rates.apply(counted(1000n, "AT+QGDCNT?"), 0).traffic?.downloadBytesPerSec, null);
     assert.equal(rates.apply(counted(9_000_000n, "AT+QGDNRCNT?"), 5000).traffic?.downloadBytesPerSec, null, "the 5G counter is not a delta of the 4G one");
     assert.equal(rates.apply(counted(9_005_000n, "AT+QGDNRCNT?"), 10000).traffic?.downloadBytesPerSec, 1000);
+  });
+});
+
+describe("drivers: fields the notes name that a router leaves out", () => {
+  it("names the operator of a mainland PLMN from the notes' table, and nothing for any other code", () => {
+    assert.deepEqual(["46000", "46020", "46001", "46010", "46003", "46012", "46015"].map(operatorOfPlmn), ["CMCC", "CMCC", "CUCC", "CUCC", "CTCC", "CTCC", "CBN"]);
+    assert.equal(operatorOfPlmn("27201"), null);
+    assert.equal(operatorOfPlmn("constructor"), null, "own keys only");
+    assert.equal(operatorOfPlmn(null), null);
+    assert.deepEqual([plmnCodeOf("46000"), plmnCodeOf("272010"), plmnCodeOf("CMCC"), plmnCodeOf("4600"), plmnCodeOf(46001)], ["46000", "272010", null, null, "46001"]);
+  });
+
+  it("fills the operator where the router names its PLMN only (Tozed, FiberHome)", () => {
+    assert.equal(parseTozedTelemetry({ network_operator: "46001" }, null).operatorName, "CUCC");
+    assert.equal(parseTozedTelemetry({ network_operator: "27201" }, null).operatorName, null);
+    const fiber = parseFiberhomeTelemetry({ WorkMode: "SA", PLMN: "46000", todayRxBytes: "1073741824", todayTxBytes: "52428800" }).telemetry;
+    assert.deepEqual([fiber.operatorName, fiber.plmn, fiber.traffic?.todayBytes], ["CMCC", "46000", 1_126_170_624n]);
+    assert.equal(parseFiberhomeTelemetry({ WorkMode: "SA" }).telemetry.traffic?.todayBytes, null);
+    // Today's traffic reaches the console's snapshot
+    assert.equal(driverTelemetrySnapshot(fiber, 0).traffic.todayUsedBytes, 1_126_170_624);
+  });
+
+  it("takes a PLMN where the router writes one in place of the operator's name (NRadio, Pinsu)", () => {
+    const pinsu = parsePinsuTelemetry({ mnet_operator_name: "46011" });
+    assert.deepEqual([pinsu.operatorName, pinsu.plmn], ["CTCC", "46011"]);
+    const named = parsePinsuTelemetry({ mnet_operator_name: "CHINA MOBILE" });
+    assert.deepEqual([named.operatorName, named.plmn], ["CHINA MOBILE", null]);
   });
 });
