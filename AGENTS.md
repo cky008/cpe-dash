@@ -8,7 +8,7 @@
 
 - **项目代号**：「烽燧」(FengSui / `cpe-dash`) —— 面向群晖 Synology DS923+ (AMD Ryzen R1600 / 32GB RAM) 局域网 (`192.168.8.1`) 与私有内网场景打造的 5G 高阶射频监控、3CA 载波聚合观测、4G/5G 邻区扫描、锁频段/锁小区控制、分周期流量审计、终端拓扑管理，以及短信收发（加密镜像、通讯录、Telegram 双向机器人、签名 Webhook 与告警推送）一体化平台。
 - **兼容范围**：**目前仅在 H168-383（固件 `4.4.0.1`）上验证过；其他华为型号与其他品牌按接口资料兼容，没有在真机上验证过。** 其他品牌（中兴 goform / zWRT、品速、通则康威 ZLT、烽火、鲲鹏无限、OpenWrt + 移远 / 广和通模组）各有一份按接口资料写的驱动（`src/drivers/`）。写闸门在服务端（`src/device-access.ts` + 调度器 `executeControl` / `executeDriverControl`），REST、MCP、Telegram 与自愈都绕不过去：在未验证的路由器上，**烽燧已经实现的写入默认开启，用户可以逐项关闭；烽燧没有实现的写入仍然拒绝**。「已经实现」指：其他品牌是该品牌驱动实现的写入（每个品牌一份事实，`src/router-family.ts`）；其他华为 HiLink 型号是通用写入（协议附录 A.11），并且识别探测显示这台路由器具备条件。用户在控制台「设置 → 设备」逐项关闭，关闭清单按型号 + 功能保存：被关闭的写入以 `409 DEVICE_WRITE_DISABLED` 拒绝，没有实现的以 `409 DEVICE_UNVERIFIED_READ_ONLY` 拒绝，两者都不建会话。这些写入统称实验性写入，保护见第 4 节第 2 条。读取按路由器实际提供的项目宽容进行（协议附录 A.10）。对外只说「目前仅在 H168-383 上验证过」。本守则的铁律对所有型号和品牌一视同仁，不因兼容其他路由器而放松。
-- **品牌与后端**：路由器的品牌（`RouterFamily`，`src/router-family.ts`）随连接保存（「设置 → 路由器」）；留在「自动识别」时，烽燧只用免登录请求认出品牌（`src/drivers/detect.ts`），认出之后才发送密码，守护进程从不在后台自行识别。读写服务（`CpeMonitor`、`CpeControlService`）只面向 `RouterBackend`（`src/router-backend.ts`）：华为 HiLink 是 `HilinkBackend`，其他品牌是 `DriverBackend`；**除调度器、`router-backend.ts` 与 `src/backends/` 外，任何代码都不得判断品牌或自行打开驱动会话**（`test/router-backend.test.ts` 守着这条线）。给某个品牌增加能力，就在它的后端里实现对应的动词。短信、重拨、移动数据、路由器开关与访问控制这些目前仍由服务直接打开华为会话的读写，会逐项搬到后端动词后面；**新代码不得在服务层直接打开某个品牌的会话**。
+- **品牌与后端**：路由器的品牌（`RouterFamily`，`src/router-family.ts`）随连接保存（「设置 → 路由器」）；留在「自动识别」时，烽燧只用免登录请求认出品牌（`src/drivers/detect.ts`），认出之后才发送密码，守护进程从不在后台自行识别。读写服务（`CpeMonitor`、`CpeControlService`、`SmsService`）只面向 `RouterBackend`（`src/router-backend.ts`）：华为 HiLink 是 `HilinkBackend`，其他品牌是 `DriverBackend`；**除调度器、`router-backend.ts` 与 `src/backends/` 外，任何代码都不得判断品牌或自行打开驱动会话**（`test/router-backend.test.ts` 守着这条线）。给某个品牌增加能力，就在它的后端里实现对应的动词。短信（未读数、列表、发送、标为已读、删除）已经是后端动词：华为用 `src/sms/protocol.ts`，其他品牌交给驱动会话上可选的短信方法，资料里没有短信接口的品牌读返回「此型号不提供」、写由闸门拒绝。重拨、移动数据、路由器开关与访问控制这些目前仍由服务直接打开华为会话的读写，会逐项搬到后端动词后面；**新代码不得在服务层直接打开某个品牌的会话**。
 - **短信与遥测同源调度**：短信不再由独立进程（如旧 `cpe-sms`）登录 CPE，而是与遥测共用唯一的 `MutexSessionScheduler`，从根本上消除单管理员会话争抢。
 - **100% 独立闭环原则**：`cpe-dash` 必须是完全独立闭环的开源仓库，**严禁对任何外部兄弟目录（如 `cpe-sms`）产生跨目录相对路径引用、`file:` 依赖或软链接**。
 - **零运行时外部依赖**：生产运行时仅依赖 Node.js (`>= 22.6.0`) 原生内置模块（`node:crypto`、`node:http`、`node:fs`、`node:net`、全局 `fetch`），彻底杜绝第三方供应链投毒面。
@@ -38,9 +38,9 @@ cpe-dash/
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
 │   ├── router-family.ts    # 零依赖：路由器品牌（RouterFamily）、各品牌的常见地址 / 默认账号 / 能读什么、实现了哪些写入的事实（每个品牌一份）、控制台显示的名字、「自动识别」这个选项与识别的先后顺序（DETECTION_ORDER）
-│   ├── router-backend.ts   # RouterBackend：烽燧对一台路由器的全部读写动词（识别、信号、附近的基站、已连接设备、设置、访问控制；锁频、锁小区、解锁、自动回滚、重启），以及按连接的品牌选后端的唯一一处
-│   ├── backends/           # hilink.ts（华为 HiLink：H168-383 的已验证序列与其他 HiLink 型号的通用写入）· driver.ts（其他品牌，经各自的驱动）· index.ts
-│   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts · zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
+│   ├── router-backend.ts   # RouterBackend：烽燧对一台路由器的全部读写动词（识别、信号、附近的基站、已连接设备、设置、访问控制、短信列表与免登录未读数；锁频、锁小区、解锁、自动回滚、重启、发短信、标为已读、删除短信），以及按连接的品牌选后端的唯一一处
+│   ├── backends/           # hilink.ts（华为 HiLink：H168-383 的已验证序列与其他 HiLink 型号的通用写入，短信走 sms/protocol.ts）· driver.ts（其他品牌，经各自的驱动；短信逐个收件人发送，每次只发一次）· index.ts
+│   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· sms.ts（各驱动共用的短信部件：UCS-2 十六进制正文、路由器时间、把长短信的分段拼成一条、短信写入的回读）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts · zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
 │   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）；监视与重拨额度存于 state.json，重启后接着算；未验证的路由器上，任何入口发起的锁频或锁小区之后断网 3 分钟，写回锁前读到的频段设置或解除锁定（不受自愈开关影响，重启后同样接着算）
 │   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、真机报告登记的功能（VERIFIED_FEATURES：品牌、路由器报的型号、固件、功能、读或写、issue 编号，任何品牌都适用）与报告为不能用的功能（UNSUPPORTED_FEATURES）、全部功能都由报告确认过的型号（isReportVerifiedModel）、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
@@ -56,7 +56,7 @@ cpe-dash/
 │   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
 │   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
-│   ├── sms/                # 短信：编解码、号码解析、协议、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具
+│   ├── sms/                # 短信：编解码（codec.ts 是华为的报文，text-mode.ts 是 GSM 7-bit 字母表与分段计数，pdu.ts 是 3GPP TS 23.040 的 PDU：7-bit 打包、UCS-2、长短信的 UDH、SMS-DELIVER / SMS-SUBMIT）、号码解析、华为协议、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具
 │   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
 │   ├── control-input.ts    # REST、MCP 与在线演示共用的入参校验（零依赖；control-error.ts 为其错误类）；mcp-schema.ts 工具 inputSchema 运行时校验
@@ -135,7 +135,7 @@ cpe-dash/
 - H168-383 固件严格限制**同一时刻仅允许 1 个管理员会话在线**。若后台守护进程持久霸占会话，用户在浏览器打开 `http://192.168.8.1` 登录时将被迫报错或发生会话抢占。
 - **其他品牌同样适用**：驱动品牌的会话走 `DriverCpeClient.withSession()`，与 HiLink 客户端共用同一个调度器队列，登录前先做各品牌自己的免登录检查（有人在线即让位、已锁定即不登录），`finally` 无条件注销，密码被拒即熔断、绝不重试。识别品牌（`detectRouterFamily`）只发免登录请求，不带密码、不建会话。
 - **强制瞬时短连 (`withSession`)**：任何需要鉴权的读写操作必须包裹在串行互斥的 `HuaweiCpeClient.withSession()` 中，并在 `finally` 块内无条件调用 `POST /api/user/logout`（真机实测单次会话占用窗口仅 `~26ms–260ms`）。
-- **短信同样受本铁律约束**：短信同步、发送、标记已读与删除只能经 `SmsService` 进入 `MutexSessionScheduler`（读走 `executeRead`、写走 `executeControl`），短信计数捎带在 5s 遥测会话内，严禁另起轮询或独立登录。只有 `serve` 守护进程连接 CPE：它独占数据目录（`state.json.lock`），第二个守护进程启动即失败；`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，严禁在其他进程中实例化 `HuaweiCpeClient` 或调度器。
+- **短信同样受本铁律约束**：短信同步、发送、标记已读与删除只能经 `SmsService` 调用 `RouterBackend` 的短信动词进入 `MutexSessionScheduler`（华为读走 `executeRead`、写走 `executeControl`；其他品牌走驱动的会话，同一个队列、同一个闸门），短信计数捎带在 5s 遥测会话内，严禁另起轮询或独立登录；所有品牌的短信写入都只发一次，发送被路由器接受之后的任何失败都记为「未确认」而不是失败，绝不重发。只有 `serve` 守护进程连接 CPE：它独占数据目录（`state.json.lock`），第二个守护进程启动即失败；`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，严禁在其他进程中实例化 `HuaweiCpeClient` 或调度器。
 - **双层真人在线主动避让（`state-login` 预检 + 跨 IP `108003` 让位）**：每次发起登录前先请求 `GET /api/user/state-login`；当 `respectBrowserSession: true`（后台轮询与探针默认开启）时，若 `<State>` 不为 `"-1"`（第 1 层）或跨局域网终端已有浏览器在线返回 `108003`/`108009`（第 2 层），客户端必须**立即静默挂起让位（返回 `null`）**，严禁强行抢占或循环重试干扰真人会话。
 
 ### 铁律五：`108006` / `108007` 防爆破熔断断路器 (Circuit Breaker)
