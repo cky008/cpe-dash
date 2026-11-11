@@ -118,9 +118,16 @@ describe("zte-goform: login and digests", () => {
     assert.ok(!mock.requests.some((r) => r.method === "POST"));
   });
 
-  it("treats result 2 as a lock and result 4 as someone signed in elsewhere", async () => {
-    const locked = zteRouter({ loginResult: "2" });
+  it("treats result 2 as someone signed in elsewhere while attempts are left and nothing is locked, else as a lock; 4 as signed in elsewhere", async () => {
+    // ZTE's own page calls 2 a duplicate user; both notes libraries call it a lock: the router's count decides
+    const elsewhere = zteRouter({ loginResult: "2" });
+    const yielded = await elsewhere.client.withSessionDetailed((s) => s.telemetry());
+    assert.equal(yielded.status, "yielded");
+    assert.equal(elsewhere.client.getCircuitBreakerState().tripped, false);
+    const locked = zteRouter({ loginResult: "2", lock: { left: "0", wait: "0" } });
     await assert.rejects(locked.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108007");
+    const unreadable = zteRouter({ loginResult: "2", lock: { left: "", wait: "" } });
+    await assert.rejects(unreadable.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108007", "no count to go by: the safe reading");
     const busy = zteRouter({ loginResult: "4" });
     const outcome = await busy.client.withSessionDetailed((s) => s.telemetry());
     assert.equal(outcome.status, "yielded");

@@ -975,10 +975,17 @@ export function zteReqprocPassword(randomLogin: string, password: string): strin
   return Buffer.from(sha256Hex(`${randomLogin}${password}`), "utf8").toString("base64");
 }
 
-/** What a refused login was, from the router's own count of attempts left and of the lock (read without a password). */
+/**
+ * What a refused login was, from the router's own count of attempts left and of the lock (read without
+ * a password). `2` is a duplicate user in ZTE's own page code and a locked login in both notes
+ * libraries: with attempts left and no lock on the router it is someone signed in elsewhere (FengSui
+ * yields), otherwise a lock (the breaker latches).
+ */
 async function zteLoginRefusal(http: LanHttp, at: ZteEndpoints, result: string | null, raw: unknown): Promise<never> {
   const status = await getCmd(http, LOCK_STATUS_KEYS, true, at).catch(() => ({}) as Record<string, unknown>);
   const lock = lockOf(status);
+  const left = intOf(status["psw_fail_num_str"]);
+  if (result === "2" && lock === null && left !== null && left > 0) throw signedInElsewhere("another administrator is signed in");
   if (result === "2" || lock) throw loginLocked("the router has locked its login", lock?.waitSec ?? null);
   if (result === "1" || result === "3") throw wrongPassword("the router refused the password", intOf(status["psw_fail_num_str"]));
   throw loginUnplaced(`login answered ${answerCode(raw)}`);
