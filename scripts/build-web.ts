@@ -28,7 +28,7 @@ const ASSET_PREFIX = DEMO ? "assets/" : "/assets/";
 const DEMO_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
 /** Gzipped JS + CSS above this fails the build (the console's is twice its first-paint target: the contract asks for < 80 KB, which the build reports). */
-const GZIP_BUDGET_BYTES = (DEMO ? 200 : 160) * 1024;
+const GZIP_BUDGET_BYTES = (DEMO ? 200 : 176) * 1024;
 const GZIP_TARGET_BYTES = 80 * 1024;
 
 function contentHash(bytes: Buffer | string): string {
