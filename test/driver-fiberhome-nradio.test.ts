@@ -7,6 +7,7 @@ import { DriverCpeClient } from "../src/drivers/client.ts";
 import { cellGlobalId, fiberhomeAirplaneOf, fiberhomeProtocol, parseFiberhomeLockState, parseFiberhomeProTelemetry, parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
 import { NRADIO_ALL_MASK, NRADIO_LTE_ALL_MASK, nradioNrMask, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter, withNradioOverview } from "../src/drivers/nradio.ts";
 import { getXmlTag } from "../src/xml.ts";
+import { cellularOf } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
 const PASSWORD = "test-password";
@@ -43,7 +44,7 @@ const BASE_SA: Record<string, string> = {
   monthTxBytes: "5368709120",
 };
 
-function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>; login?: Record<string, string>; airplane?: string } = {}) {
+function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>; login?: Record<string, string>; airplane?: string; airplaneSticks?: boolean } = {}) {
   const base = { ...BASE_SA, modelName: opts.model ?? "LG6121F" };
   let sid = 0;
   let current = "";
@@ -55,6 +56,7 @@ function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>
     app_get_network_info: { networkMode: "3", ENDC: "3" },
   };
   const writes: Array<{ method: string; data: Record<string, unknown> }> = [];
+  let airplane = opts.airplane ?? "0";
   const mock = new LanRouterMock((req) => {
     if (req.method === "GET" && req.path === "/api/tmp/FHNCAPIS") {
       current = `s${String(++sid).padStart(8, "0")}`;
@@ -62,7 +64,7 @@ function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>
     }
     if (req.method === "GET" && req.path === "/api/tmp/FHTOOLAPIS") {
       if (!loggedIn) return { text: "timeout" };
-      return req.query.get("ajaxmethod") === "app_get_airplane" ? { json: { airplaneOn: opts.airplane ?? "0" } } : { json: base };
+      return req.query.get("ajaxmethod") === "app_get_airplane" ? { json: { airplaneOn: airplane } } : { json: base };
     }
     const body = JSON.parse(req.body) as { dataObj: Record<string, unknown> | null; ajaxmethod: string; sessionid: string };
     if (body.sessionid !== current) return { text: "timeout" };
@@ -86,6 +88,7 @@ function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>
     if (body.ajaxmethod === "app_set_network_info") store["app_get_network_info"] = { ...body.dataObj };
     if (body.ajaxmethod === "app_set_lockcell") store["app_get_lockcell"] = { ...body.dataObj };
     if (body.ajaxmethod === "app_set_cell_list") store["app_get_cell_list"] = { ...body.dataObj };
+    if (body.ajaxmethod === "app_set_airplane" && !opts.airplaneSticks) airplane = String(body.dataObj?.["airplaneOn"]);
     return { json: { result: "0" } };
   });
   const client = new DriverCpeClient({ protocol: fiberhomeProtocol, cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
@@ -232,6 +235,49 @@ describe("fiberhome: writes", () => {
     assert.ok(!mock.requests.slice(-2).some((r) => r.body.includes("app_do_logout")));
     assert.deepEqual(await client.withSession((s) => s.identify()), { model: "LG6121F", softwareVersion: "RP0113", hardwareVersion: null });
     assert.equal((await client.withSession((s) => s.neighbours()))?.length, 2);
+  });
+});
+
+describe("fiberhome: the cellular settings", () => {
+  it("switches airplane mode with the app's own call and reads it back", async () => {
+    const { client, writes } = fiberhomeRouter();
+    const on = newCheck();
+    await client.withSession((s) => cellularOf(s).setAirplaneMode(true, on));
+    assert.deepEqual(writes.at(-1), { method: "app_set_airplane", data: { airplaneOn: "1" } });
+    assert.deepEqual(on, { endpoints: ["fiberhome:app_set_airplane"], readback: "match", reason: null });
+    assert.equal((await client.withSession((s) => s.telemetry()))?.status?.airplaneMode, true, "the next poll shows it");
+    const off = newCheck();
+    await client.withSession((s) => cellularOf(s).setAirplaneMode(false, off));
+    assert.deepEqual([writes.at(-1)?.data, off.readback], [{ airplaneOn: "0" }, "match"]);
+    // A router that answers the write and keeps its radio as it was: said, not hidden
+    const stuck = fiberhomeRouter({ airplaneSticks: true });
+    const kept = newCheck();
+    await stuck.client.withSession((s) => cellularOf(s).setAirplaneMode(true, kept));
+    assert.deepEqual([kept.readback, kept.reason], ["mismatch", "differs"]);
+  });
+
+  it("sets the network mode with the pair of the notes' table, and has no pair for a 3G mode", async () => {
+    const { client, writes, store } = fiberhomeRouter();
+    assert.deepEqual(await client.withSession((s) => cellularOf(s).read()), { networkMode: "auto" });
+    for (const [mode, pair] of [
+      ["lte", { networkMode: "0", ENDC: "1" }],
+      ["nr_sa", { networkMode: "2", ENDC: "1" }],
+      ["nr_nsa", { networkMode: "3", ENDC: "2" }],
+      ["auto", { networkMode: "3", ENDC: "3" }],
+    ] as const) {
+      const check = newCheck();
+      await client.withSession((s) => cellularOf(s).setNetworkMode(mode, check));
+      assert.deepEqual(writes.at(-1), { method: "app_set_network_info", data: pair }, mode);
+      assert.deepEqual(check, { endpoints: ["fiberhome:app_set_network_info"], readback: "match", reason: null }, mode);
+    }
+    const sent = writes.length;
+    await assert.rejects(client.withSession((s) => cellularOf(s).setNetworkMode("wcdma", newCheck())), CpeControlValidationError);
+    assert.equal(writes.length, sent);
+    // A pair the table does not list reads as no known mode
+    store["app_get_network_info"] = { networkMode: "9", ENDC: "0" };
+    assert.deepEqual(await client.withSession((s) => cellularOf(s).read()), { networkMode: null });
+    // The Pro series' notes define neither: its session offers no cellular settings
+    assert.deepEqual(Object.keys((await client.withSession(async (s) => s.cellular)) ?? {}).sort(), ["read", "setAirplaneMode", "setNetworkMode"]);
   });
 });
 

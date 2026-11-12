@@ -9,7 +9,7 @@ import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands
 import { neighbourOf, ratOfChannel } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, signedInElsewhere, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { noteSent, settleBandLock, settleCellLock, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { countListed, dateOfParts, settleSmsListing, storedIndices, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import { type LanHttp, jsonAnswer, parseJsonText } from "./transport.ts";
@@ -18,6 +18,7 @@ import type {
   DriverBandLockTarget,
   DriverCell,
   DriverCellLockTarget,
+  DriverCellular,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -710,6 +711,13 @@ function qciOf(value: unknown): number | null {
   return n === null || n === 0 ? null : n;
 }
 
+/** The mode `app_get_network_info` reports: `networkMode` with `ENDC` (notes library A, table 3.1); `null` for a pair it does not list. */
+export function fiberhomeModeOf(network: Record<string, unknown>): DriverNetworkMode | null {
+  const nm = textOf(network["networkMode"]);
+  const endc = textOf(network["ENDC"]);
+  return nm === "0" ? "lte" : nm === "2" ? "nr_sa" : nm === "3" && endc === "2" ? "nr_nsa" : nm === "3" && endc === "3" ? "auto" : null;
+}
+
 /** `app_get_airplane`: `airplaneOn` `1` the radio is off (airplane mode), `0` on (notes library A, table 3). */
 export function fiberhomeAirplaneOf(answer: unknown): boolean | null {
   const on = isPlainObject(answer) ? textOf(answer["airplaneOn"]) : null;
@@ -748,9 +756,7 @@ export function parseFiberhomeLockState(bandLock: Record<string, unknown>, cellL
       nrCell = rat === "NR" ? locked : { locked: false };
     }
   }
-  const nm = textOf(network["networkMode"]);
-  const endc = textOf(network["ENDC"]);
-  const networkMode: DriverNetworkMode | null = nm === "0" ? "lte" : nm === "2" ? "nr_sa" : nm === "3" && endc === "2" ? "nr_nsa" : nm === "3" && endc === "3" ? "auto" : null;
+  const networkMode = fiberhomeModeOf(network);
   return {
     lteBands: enabled === "0" ? "all" : enabled === "1" ? bandListOf(bandLock["LTELockBAND"]) : null,
     nrBands: enabled === "0" ? "all" : enabled === "1" ? bandListOf(bandLock["NRLockBAND"]) : null,
@@ -865,6 +871,30 @@ class FiberhomeSession implements DriverSessionHandle {
     if (resetMode) await this.#write(check, "app_set_network_info", { ...MODES.auto });
     settleUnlock(check, await this.lockState().catch(() => null), { nr: true, mode: resetMode });
   }
+
+  /**
+   * The cellular settings its notes define: the network mode (`app_set_network_info`, the four pairs
+   * of table 3.1) and airplane mode (`app_set_airplane` with `airplaneOn`), each read back with its
+   * own query.
+   */
+  readonly cellular: DriverCellular = {
+    read: async () => {
+      this.#guard();
+      return { networkMode: fiberhomeModeOf(await tool(this.#http, "app_get_network_info", null)) };
+    },
+    setNetworkMode: async (mode, check) => {
+      const pair = Object.hasOwn(MODES, mode) ? MODES[mode as DriverNetworkMode] : undefined;
+      if (pair === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
+      await this.#write(check, "app_set_network_info", { ...pair });
+      const after = await tool(this.#http, "app_get_network_info", null).catch(() => null);
+      settleSetting(check, after === null ? null : fiberhomeModeOf(after) === mode);
+    },
+    setAirplaneMode: async (enabled, check) => {
+      await this.#write(check, "app_set_airplane", { airplaneOn: enabled ? "1" : "0" });
+      const after = fiberhomeAirplaneOf(await this.#http.getJson(TOOL, { query: [["ajaxmethod", "app_get_airplane"]], referer: GET_REFERER }).catch(() => null));
+      settleSetting(check, after === null ? null : after === enabled);
+    },
+  };
 
   /** SMS on the web page's endpoint, in this session. */
   readonly sms: DriverSms = {

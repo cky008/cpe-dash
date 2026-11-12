@@ -143,9 +143,10 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     defaultUsername: "admin",
     defaultAddress: "192.168.8.1",
     reads: ["telemetry", "neighbors", "sms", "airplaneMode"],
-    writes: ["bandLock", "cellLock", "reboot", "smsWrite"],
+    writes: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
+    selectableModes: ["auto", "nr_sa", "nr_nsa", "lte"],
     // The Pro series (`/fh_api/`): its notes have the signal nodes, the SMS listing and marking a message read, nothing else
     variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
   },

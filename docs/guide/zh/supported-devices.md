@@ -310,10 +310,10 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| LG6121F | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121F) |
-| LG6151M | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6151M) |
-| LG6121 | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121) |
-| LG522 | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | △ |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG522) |
+| LG6121F | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | ? | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121F) |
+| LG6151M | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | ? | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6151M) |
+| LG6121 | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | ? | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6121) |
+| LG522 | 室内 CPE | ? | ? |  | △ | ? | ? | △ |  |  |  |  |  | ? | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG522) |
 | LG6851F | 室内 CPE | △ |  |  | ?/△ |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LG6851F) |
 
 这一节的说明：
@@ -321,7 +321,7 @@ order: 2
 - △ 「短信」：短信走的是路由器网页自己的加密接口，烽燧用它已经登录的会话去读；路由器要求另外登录网页才给读时，这一项是空的（除 LG6851F 外的全部型号）。
 - △ 「短信」：发送只接受英文字母、数字和常用标点（接口资料里只有这一种编码），并且不发送含 ` $ " \ 的正文：路由器会把正文交给命令行；删除只能整段对话一起删（除 LG6851F 外的全部型号）。
 - △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（除 LG6851F 外的全部型号）。
-- △ 「飞行模式」：只有状态，开关烽燧在这里还没有做（除 LG6851F 外的全部型号）。
+- △ 「网络制式与选网」：只有网络制式，手动选网烽燧在这里还没有做（除 LG6851F 外的全部型号）。
 - △ 「信号与流量」：烽燧用路由器下发的令牌（用这个系列固件里固定的私钥解开）或资料里记的令牌打开路由器的加密应答；两者都打不开时，烽燧不发送密码，信号这一项是空的（LG6851F）。
 - △ 「短信」：只能标为已读：这类固件的接口资料里没有发送和删除短信的写法（LG6851F）。
 - 这是烽火的 Pro 系列：同一套网页接口换了路径（`/fh_api/`）和加密密钥，连接时烽燧会自己认出来。烽燧在它上面读信号（只有一个服务小区）、本月流量和短信，能把短信标为已读；附近的基站、锁频段、锁小区和重启在它的接口资料里没有，烽燧在这里不做（LG6851F）。
