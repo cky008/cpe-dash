@@ -42,6 +42,14 @@ export interface ZwrtRouterOptions {
   simPin?: string;
   /** What `get_wwandst_monthlimit` answers at the start (left out: the firmware has no such call). */
   monthLimit?: Record<string, unknown>;
+  /**
+   * A router that searches for networks: `rows` is the list a search leaves, `busy` how many asks the
+   * status says it is still searching (default 1), `status` what it says at the end (default `done`),
+   * `register` what `nwinfo_m_netselect_result` says after a registration (left out: nothing).
+   */
+  operators?: { rows: unknown[]; busy?: number; status?: string; register?: string };
+  /** A router with access point profiles (`zwrt_apn_object`): `mode` 0 automatic, 1 manual. */
+  apn?: { mode: 0 | 1; profiles: Array<Record<string, unknown>> };
 }
 
 // One key pair for every mock router of a test run: generating one takes a while
@@ -88,7 +96,12 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
     /** The SIM card as `get_sim_info` reads it; the PIN writes and the slot switch change it. */
     sim: { ...(opts.sim === false || opts.sim === undefined ? { current_sim_slot: "1", sim_states: "sim ready" } : opts.sim) } as Record<string, unknown>,
     monthLimit: opts.monthLimit ? { ...opts.monthLimit } : null,
+    /** The access point mode and the manual profiles (`null`: a firmware without `zwrt_apn_object`). */
+    apn: opts.apn ? { mode: opts.apn.mode as number, profiles: opts.apn.profiles.map((profile) => ({ ...profile })) } : null,
   };
+  if (opts.operators) netinfo["net_select_mode"] = "auto_select";
+  let scanBusy = 0;
+  let scanned = false;
   const simPin = opts.simPin ?? "1234";
   /** A PIN write: the right PIN applies `then`, a wrong one costs an attempt. */
   const pinWrite = (pin: unknown, then: () => void): Record<string, unknown> => {
@@ -208,7 +221,39 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
     }
     if (method === "nwinfo_set_lte_ext_band") netinfo["lte_band_lock"] = String(args["lte_band"]);
     if (method === "nwinfo_set_nrbandlock") netinfo["nr5g_sa_band_lock"] = String(args["nr5g_band"]);
-    if (method === "nwinfo_set_netselect") netinfo["net_select"] = String(args["net_select"]);
+    if (method === "nwinfo_set_netselect") {
+      if (args["net_select"] !== undefined) netinfo["net_select"] = String(args["net_select"]);
+      if (args["net_select_mode"] !== undefined && opts.operators) netinfo["net_select_mode"] = String(args["net_select_mode"]);
+    }
+    if (method.startsWith("nwinfo_m") && !opts.operators) return reply(null, 3);
+    if (method === "nwinfo_manual_scan") {
+      scanBusy = opts.operators?.busy ?? 1;
+      scanned = true;
+    }
+    if (method === "nwinfo_m_netselect_status") {
+      if (scanBusy > 0) {
+        scanBusy -= 1;
+        return reply({ m_netselect_status: "scanning" });
+      }
+      return reply({ m_netselect_status: scanned ? (opts.operators?.status ?? "done") : "" });
+    }
+    if (method === "nwinfo_m_netselect_contents") return reply({ m_netselect_contents: scanned ? (opts.operators?.rows ?? []) : [] });
+    if (method === "nwinfo_manual_register" && opts.operators?.register === "success") netinfo["net_select_mode"] = "manual_select";
+    if (method === "nwinfo_m_netselect_result") return reply({ m_netselect_result: opts.operators?.register ?? "" });
+    if (object === "zwrt_apn_object") {
+      const apn = state.apn;
+      if (!apn) return reply(null, 3);
+      if (method === "get_apn_mode") return reply({ apn_mode: apn.mode });
+      if (method === "get_manu_apn_list") return reply({ apnListArray: apn.profiles.map((profile) => ({ ...profile })) });
+      if (method === "set_apn_mode") apn.mode = Number(args["apn_mode"]);
+      if (method === "add_manu_apn") apn.profiles.push({ ...args, profileId: apn.profiles.length + 1, isEnable: 0 });
+      if (method === "modify_manu_apn") apn.profiles = apn.profiles.map((profile) => (profile["profileId"] === args["profileId"] ? { ...profile, ...args } : profile));
+      if (method === "enable_manu_apn_id") {
+        if (!apn.profiles.some((profile) => profile["profileId"] === args["profileId"])) return reply({ result: 1 });
+        apn.profiles = apn.profiles.map((profile) => ({ ...profile, isEnable: profile["profileId"] === args["profileId"] ? 1 : 0 }));
+      }
+      return reply({ result: 0 });
+    }
     if (method === "nwinfo_lock_nr_cell") netinfo["lock_nr_cell"] = `${String(args["lock_nr_pci"])},${String(args["lock_nr_earfcn"])},${String(args["lock_nr_cell_band"])}`;
     if (method === "nwinfo_reset_band_cell_setting") {
       netinfo["lte_band_lock"] = "";

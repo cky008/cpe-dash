@@ -142,7 +142,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     defaultUsername: "",
     defaultAddress: "192.168.0.1",
     reads: ["telemetry", "sms", "battery", "simCard"],
-    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "simSlot", "simPin", "roaming", "dataLimit"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit"],
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte", "lte_wcdma", "wcdma"],

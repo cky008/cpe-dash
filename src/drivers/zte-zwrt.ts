@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { DataLimitSetting, NetworkMode, SimPinOutcome, SimSlotRef } from "../cellular.ts";
+import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef } from "../cellular.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import { CpeControlValidationError } from "../control-error.ts";
@@ -8,7 +8,7 @@ import { type BatteryStatus, type SimState, type TemperatureSensor, countValue, 
 import { detectSmsTextMode } from "../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
-import { ZTE_MODE_NAMES, sameDataLimit, settleNothingToRead, zteModeOf } from "./cellular.ts";
+import { FENGSUI_APN_PROFILE, ZTE_MODE_NAMES, type ZwrtApnProfile, awaitOperatorStep, sameDataLimit, settleNothingToRead, zteModeOf, zteRegisterDone, zteScanDone, zwrtApnBody, zwrtApnProfiles, zwrtScanRows } from "./cellular.ts";
 import { carriersFromRows, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
@@ -33,6 +33,7 @@ import type {
   DriverSmsSendOptions,
   DriverSmsSendOutcome,
   DriverTelemetry,
+  DriverWait,
 } from "./types.ts";
 import {
   arfcnOf,
@@ -666,14 +667,19 @@ class ZwrtSession implements DriverSessionHandle {
    * The cellular settings: `nwinfo_set_netselect` (the six modes of notes library A), the SIM slot (two
    * `zwrt_mdm_change_provision_session` calls in one batch), the data call's roaming switch
    * (`set_wwaniface`, sent with the call's other settings as they are), the PIN (`sim_verify_pin_puk`,
-   * `sim_change_pin_mode`) and the monthly limit (`set_wwandst_monthlimit`). `docs/dev/sources.md`
-   * §18.6 names the source of each.
+   * `sim_change_pin_mode`), the monthly limit (`set_wwandst_monthlimit`), the operator
+   * (`nwinfo_manual_scan`, `nwinfo_manual_register`, and `nwinfo_set_netselect` back to automatic) and
+   * the access point (`zwrt_apn_object`). `docs/dev/sources.md` §18.6 names the source of each.
    */
   readonly cellular: DriverCellular = {
     read: () => this.#cellularRead(),
     setNetworkMode: (mode, check) => this.#setNetworkMode(mode, check),
     setSimSlot: (slot, check) => this.#setSimSlot(slot, check),
     setRoaming: (enabled, check) => this.#setRoaming(enabled, check),
+    setApn: (choice, check) => this.#setApn(choice, check),
+    restoreApn: (restore, check) => this.#restoreApn(restore, check),
+    scanOperators: (check, wait) => this.#scanOperators(check, wait),
+    selectOperator: (selection, check, wait) => this.#selectOperator(selection, check, wait),
     enterPin: (pin, check) => this.#pinWrite(check, "sim_verify_pin_puk", { pin_num: pin, puk_num: "", pin_encode_flag: "0" }, (sim) => (zwrtSimState(sim) === "pin_required" ? false : zwrtSimState(sim) === null ? null : true)),
     setPinLock: (enabled, pin, check) =>
       this.#pinWrite(check, "sim_change_pin_mode", { pin_num_m: pin, pin_mode: enabled ? 1 : 0, pin_encode_flag: "0" }, (sim) => {
@@ -689,8 +695,21 @@ class ZwrtSession implements DriverSessionHandle {
     const sim = await this.#simInfo();
     const limit = await this.#rpc.call("zwrt_data", "get_wwandst_monthlimit", WEB_CALL).catch(() => null);
     const slot = sim ? intOf(sim["current_sim_slot"]) : null;
+    const selection = textOf(netinfo["net_select_mode"]);
+    const apn = await this.#apnState().catch(() => null);
+    const inUse = apn?.profiles.find((profile) => profile.enabled) ?? null;
     return {
       networkMode: zteModeOf(netinfo["net_select"]),
+      // The router says how it chooses, not which operator it was told to stay on
+      ...(selection === null ? {} : { operator: { selection: selection === "manual_select" ? ("manual" as const) : ("auto" as const), plmn: null } }),
+      ...(apn === null
+        ? {}
+        : {
+            // Chosen by the router: which access point that is, it does not say here
+            apn: apn.manual && inUse ? { mode: "manual" as const, apn: inUse.apn, ipType: inUse.ipType, auth: inUse.auth, hasUsername: inUse.hasUsername } : { mode: apn.manual ? ("manual" as const) : ("auto" as const), apn: null, ipType: null, auth: null, hasUsername: null },
+            // FengSui's own profile is overwritten by the next change, so it is nothing to go back to
+            apnRestore: !apn.manual ? { mode: "auto" as const } : inUse && inUse.name !== FENGSUI_APN_PROFILE ? { mode: "profile" as const, id: String(inUse.id) } : null,
+          }),
       // A router that names no slot has none to switch
       simSlots: slot === null ? [] : [...ZWRT_SLOTS],
       simSlot: slot === null ? null : (ZWRT_SLOTS[slot - 1] ?? null),
@@ -705,6 +724,103 @@ class ZwrtSession implements DriverSessionHandle {
     await this.#write(check, "nwinfo_set_netselect", { net_select: name });
     const after = await this.#rpc.call("zte_nwinfo_api", "nwinfo_get_netinfo").catch(() => null);
     settleSetting(check, after === null || textOf(after["net_select"]) === null ? null : zteModeOf(after["net_select"]) === mode);
+  }
+
+  /** `nwinfo_manual_scan`, then `nwinfo_m_netselect_status` until the search is over, then the list. Nothing is disconnected first: the modem drops the data call by itself while it searches. */
+  async #scanOperators(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]> {
+    settleNothingToRead(check);
+    await this.#write(check, "nwinfo_manual_scan", {});
+    // The status still shows the end of an earlier search for a moment: an end is believed once the router was seen searching, or after six asks
+    let asks = 0;
+    let busy = false;
+    const done = await awaitOperatorStep(
+      async () => (await this.#rpc.call("zte_nwinfo_api", "nwinfo_m_netselect_status"))["m_netselect_status"],
+      (status) => {
+        asks += 1;
+        const over = zteScanDone(status);
+        if (over === null) {
+          busy = busy || status !== null;
+          return null;
+        }
+        return busy || asks > 6 ? over : null;
+      },
+      wait
+    );
+    if (done === null) throw new CpeApiError("timeout", "The router was still searching for networks after two minutes");
+    if (!done) throw new CpeApiError("failed", "The router could not search for networks");
+    return zwrtScanRows((await this.#rpc.call("zte_nwinfo_api", "nwinfo_m_netselect_contents"))["m_netselect_contents"]).map((row) => row.choice);
+  }
+
+  /**
+   * Back to automatic is `nwinfo_set_netselect` with `net_select_mode`. One operator is
+   * `nwinfo_manual_register` with a row of the router's last search (its code, and its technology as
+   * the router wrote it), then `nwinfo_m_netselect_result` until the router says how it went.
+   */
+  async #selectOperator(selection: OperatorSelection, check: WriteCheck, wait: DriverWait): Promise<void> {
+    if (selection.mode === "auto") {
+      await this.#write(check, "nwinfo_set_netselect", { net_select_mode: "auto_select" });
+      const after = await this.#rpc.call("zte_nwinfo_api", "nwinfo_get_netinfo").catch(() => null);
+      const mode = after === null ? null : textOf(after["net_select_mode"]);
+      settleSetting(check, mode === null ? null : mode === "auto_select");
+      return;
+    }
+    this.#guard();
+    const rows = zwrtScanRows((await this.#rpc.call("zte_nwinfo_api", "nwinfo_m_netselect_contents"))["m_netselect_contents"]).filter((row) => row.choice.plmn === selection.plmn && row.choice.state !== "forbidden");
+    const row = rows.find((found) => selection.rat === null || found.choice.rat === selection.rat);
+    if (!row || row.rat === "") throw new CpeControlValidationError("This router registers on an operator from its last search, and that search does not list this one as allowed: search for networks first");
+    await this.#write(check, "nwinfo_manual_register", { m_mcc_mnc: row.choice.plmn, m_rat: row.rat });
+    const took = await awaitOperatorStep(async () => (await this.#rpc.call("zte_nwinfo_api", "nwinfo_m_netselect_result"))["m_netselect_result"], zteRegisterDone, wait);
+    // A registration the router gave up on is a write that did not take: recorded as such, and watched like one
+    settleSetting(check, took);
+  }
+
+  async #apnState(): Promise<{ manual: boolean; profiles: ZwrtApnProfile[] }> {
+    this.#guard();
+    const mode = intOf((await this.#rpc.call(APN, "get_apn_mode"))["apn_mode"]);
+    if (mode !== 0 && mode !== 1) throw new CpeAnswerFormatError("zwrt_apn_object.get_apn_mode");
+    return { manual: mode === 1, profiles: zwrtApnProfiles((await this.#rpc.call(APN, "get_manu_apn_list"))["apnListArray"]) };
+  }
+
+  /**
+   * `zwrt_apn_object`. Automatic is `set_apn_mode` 0. An access point set by hand goes into FengSui's
+   * own profile (`add_manu_apn` the first time, `modify_manu_apn` from then on), which is then made the
+   * one in use (`enable_manu_apn_id`) with the mode set to manual. No other profile is changed.
+   */
+  async #setApn(choice: ApnChoice, check: WriteCheck): Promise<void> {
+    if (choice.mode === "auto") {
+      await this.#write(check, "set_apn_mode", { apn_mode: 0 }, APN);
+      const after = await this.#apnState().catch(() => null);
+      settleSetting(check, after === null ? null : !after.manual);
+      return;
+    }
+    const before = await this.#apnState();
+    const own = before.profiles.find((profile) => profile.name === FENGSUI_APN_PROFILE);
+    if (own) await this.#write(check, "modify_manu_apn", { profileId: own.id, ...zwrtApnBody(choice) }, APN);
+    else await this.#write(check, "add_manu_apn", zwrtApnBody(choice), APN);
+    // A new profile gets its id from the router
+    const saved = own ?? (await this.#apnState()).profiles.find((profile) => profile.name === FENGSUI_APN_PROFILE);
+    if (!saved) throw new CpeApiError("unsaved", "The router did not keep the access point profile");
+    await this.#useApnProfile(check, saved.id, before.manual);
+    const after = await this.#apnState().catch(() => null);
+    const inUse = after?.profiles.find((profile) => profile.enabled) ?? null;
+    settleSetting(check, after === null ? null : after.manual && inUse !== null && inUse.name === FENGSUI_APN_PROFILE && inUse.apn === choice.apn);
+  }
+
+  async #useApnProfile(check: WriteCheck, id: string | number, manual: boolean): Promise<void> {
+    await this.#write(check, "enable_manu_apn_id", { profileId: id }, APN);
+    if (!manual) await this.#write(check, "set_apn_mode", { apn_mode: 1 }, APN);
+  }
+
+  /** Back to automatic, or to the profile that was in use before (made the one in use again; its contents were never touched). */
+  async #restoreApn(restore: ApnRestore, check: WriteCheck): Promise<void> {
+    if (restore.mode === "auto") return await this.#setApn({ mode: "auto" }, check);
+    if (restore.mode !== "profile") throw new CpeControlValidationError("This router keeps its access points as profiles: there is no such one to go back to");
+    const before = await this.#apnState();
+    const profile = before.profiles.find((found) => String(found.id) === restore.id);
+    if (!profile || profile.name === FENGSUI_APN_PROFILE) throw new CpeControlValidationError("The access point profile that was in use is no longer on the router: nothing was sent");
+    await this.#useApnProfile(check, profile.id, before.manual);
+    const after = await this.#apnState().catch(() => null);
+    settleSetting(check, after === null ? null : after.manual && after.profiles.some((found) => found.enabled && String(found.id) === restore.id));
   }
 
   /** The slot that goes active and the one that goes inactive, in one request, as the router's page sends them. */
@@ -785,6 +901,7 @@ class ZwrtSession implements DriverSessionHandle {
 }
 
 const MDM = "zwrt_zte_mdm.api";
+const APN = "zwrt_apn_object";
 /** What `zwrt_data` calls of the web side carry. */
 const WEB_CALL = { source_module: "web", cid: 1 } as const;
 /** `current_sim_slot` 1 is the card slot, 2 the built-in eSIM (notes library A). */

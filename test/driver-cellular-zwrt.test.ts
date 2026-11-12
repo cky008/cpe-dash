@@ -110,21 +110,21 @@ describe("zte-zwrt: the cellular settings", () => {
     assert.deepEqual(callsOf(empty.calls, "set_wwandst_monthlimit"), []);
   });
 
-  it("has no operator selection, APN, airplane switch or USSD, and the daemon says so before any session", async () => {
+  it("has no airplane switch, USSD or traffic reset, and the daemon says so before any session", async () => {
     const { mock, client } = zwrtRouter();
     const session = await client.withSession(async (s) => Object.keys(s.cellular ?? {}).sort());
-    assert.deepEqual(session, ["enterPin", "read", "setDataLimit", "setNetworkMode", "setPinLock", "setRoaming", "setSimSlot"]);
+    assert.deepEqual(session, ["enterPin", "read", "restoreApn", "scanOperators", "selectOperator", "setApn", "setDataLimit", "setNetworkMode", "setPinLock", "setRoaming", "setSimSlot"]);
     const fx = daemonOn("zte-zwrt", mock.fetchImpl, "http://192.168.0.1", ZWRT_PASSWORD);
     try {
       assert.ok(await fx.core.monitor.identifyDevice());
       const { features } = fx.core.scheduler.getStatus().device;
       assert.deepEqual(
         [features.networkMode, features.simSlot, features.simPin, features.roaming, features.dataLimit, features.operatorSelect, features.apn, features.airplaneSwitch, features.ussd, features.trafficReset],
-        ["enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
+        ["enabled", "enabled", "enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented"]
       );
       const sent = mock.requests.length;
       await assert.rejects(fx.core.controls.sendUssd({ kind: "send", code: "*100#" }, { confirm: true }), DeviceReadOnlyError);
-      await assert.rejects(fx.core.controls.selectOperator({ mode: "auto" }, { confirm: true }), DeviceReadOnlyError);
+      await assert.rejects(fx.core.controls.setAirplaneMode(true, { confirm: true }), DeviceReadOnlyError);
       assert.equal(mock.requests.length, sent);
       // And a slot switch through the daemon hands self-healing the slot it had
       await fx.core.controls.setSimSlot({ kind: "embedded", index: 1 }, { confirm: true });

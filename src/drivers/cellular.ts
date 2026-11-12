@@ -188,6 +188,61 @@ export async function awaitOperatorStep(read: () => Promise<unknown>, done: (val
   return null;
 }
 
+/** What a technology is called in a scan row that spells it out (zWRT's rows; goform's are `AT+COPS` numbers). */
+export function operatorRatNamed(value: unknown): OperatorRat | null {
+  const numbered = operatorRatOf(value);
+  if (numbered !== null) return numbered;
+  const text = textOf(value)?.toUpperCase() ?? "";
+  if (/NR|5G/.test(text)) return "5G";
+  if (/LTE|4G/.test(text)) return "4G";
+  if (/WCDMA|UMTS|HSPA|3G|TD-?SCDMA/.test(text)) return "3G";
+  if (/GSM|EDGE|GPRS|2G/.test(text)) return "2G";
+  return null;
+}
+
+/** A row of zWRT's scan list, with the technology as the router wrote it (the register call takes it back as it is). */
+export interface ZwrtScanRow {
+  choice: OperatorChoice;
+  rat: string;
+}
+
+const ZWRT_SCAN_STATES: Readonly<Record<string, OperatorChoice["state"]>> = { current: "current", available: "available", forbidden: "forbidden", "0": "unknown", "1": "available", "2": "current", "3": "forbidden" };
+
+/**
+ * zWRT's scan list (`nwinfo_m_netselect_contents`): an array of rows naming `name` (or
+ * `operator_name`), `mcc_mnc` (or `plmn`), `rat` and `status`. One row per operator and technology.
+ */
+export function zwrtScanRows(value: unknown): ZwrtScanRow[] {
+  const out: ZwrtScanRow[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(value) ? value.slice(0, MAX_SCAN_ROWS) : []) {
+    if (typeof item !== "object" || item === null) continue;
+    const row = item as Record<string, unknown>;
+    const plmn = textOf(row["mcc_mnc"]) ?? textOf(row["plmn"]) ?? "";
+    const rat = textOf(row["rat"]) ?? "";
+    if (!/^\d{5,6}$/.test(plmn) || !/^[A-Za-z0-9_+-]{0,16}$/.test(rat) || seen.has(`${plmn}/${rat}`)) continue;
+    seen.add(`${plmn}/${rat}`);
+    out.push({ choice: { plmn, name: operatorName(row["name"]) ?? operatorName(row["operator_name"]), rat: operatorRatNamed(rat), state: ZWRT_SCAN_STATES[textOf(row["status"])?.toLowerCase() ?? ""] ?? "unknown" }, rat });
+  }
+  return out;
+}
+
+/** How a search stands (`m_netselect_status`), in the words either of ZTE's interfaces uses. `null`: still going, or not said. */
+export function zteScanDone(status: string | null): boolean | null {
+  const text = status?.toLowerCase() ?? "";
+  if (["done", "complete", "completed", "2", "manual_selected"].includes(text)) return true;
+  if (["error", "fail", "failed"].includes(text)) return false;
+  return null;
+}
+
+/** How a registration went (`m_netselect_result`). `null`: still going, or not said. */
+export function zteRegisterDone(result: string | null): boolean | null {
+  const text = result?.toLowerCase() ?? "";
+  if (["success", "1", "manual_success"].includes(text)) return true;
+  if (["fail", "failed", "0", "manual_fail"].includes(text)) return false;
+  return null;
+}
+
 // ── Access points ────────────────────────────────────────────────────────────
 
 /**
@@ -291,4 +346,45 @@ export function sameDataLimit(wanted: DataLimitSetting, got: { enabled: boolean 
   if (got.bytes === null) return null;
   // The router keeps whole megabytes
   return Math.abs(got.bytes - wanted.bytes) < 1024 * 1024;
+}
+
+/** One manual profile of zWRT's list (`get_manu_apn_list`), without its credentials. */
+export interface ZwrtApnProfile {
+  /** The router's own id for it, sent back as it came. */
+  id: string | number;
+  name: string | null;
+  apn: string | null;
+  ipType: ApnIpType | null;
+  auth: ApnAuthMode | null;
+  hasUsername: boolean;
+  enabled: boolean;
+}
+
+const ZWRT_PDP: ReadonlyArray<ApnIpType | null> = [null, "ipv4", "ipv6", "ipv4v6"];
+const ZWRT_AUTH: ReadonlyArray<ApnAuthMode> = ["none", "pap", "chap"];
+
+export function zwrtApnProfiles(value: unknown): ZwrtApnProfile[] {
+  const out: ZwrtApnProfile[] = [];
+  for (const item of Array.isArray(value) ? value.slice(0, 32) : []) {
+    if (typeof item !== "object" || item === null) continue;
+    const row = item as Record<string, unknown>;
+    const id = row["profileId"];
+    if (!(typeof id === "number" && Number.isSafeInteger(id)) && !(typeof id === "string" && /^[A-Za-z0-9_-]{1,32}$/.test(id))) continue;
+    const enabled = row["isEnable"];
+    out.push({
+      id,
+      name: textOf(row["profilename"]),
+      apn: textOf(row["wanapn"]),
+      ipType: ZWRT_PDP[Number(textOf(row["pdpType"]) ?? row["pdpType"])] ?? null,
+      auth: ZWRT_AUTH[Number(textOf(row["pppAuthMode"]) ?? row["pppAuthMode"])] ?? null,
+      hasUsername: textOf(row["username"]) !== null,
+      enabled: enabled === true || enabled === 1 || enabled === "1",
+    });
+  }
+  return out;
+}
+
+/** The body zWRT's `add_manu_apn` and `modify_manu_apn` take: the address type and the authentication as its numbers. */
+export function zwrtApnBody(setting: ApnSetting): Record<string, unknown> {
+  return { profilename: FENGSUI_APN_PROFILE, wanapn: setting.apn, pdpType: ZWRT_PDP.indexOf(setting.ipType), pppAuthMode: ZWRT_AUTH.indexOf(setting.auth), username: setting.username, password: setting.password };
 }
