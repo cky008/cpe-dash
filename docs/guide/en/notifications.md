@@ -21,6 +21,9 @@ Alerts appear under the bell icon in the console and can also be pushed to you. 
 | `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL` | The router's SMS storage is nearly full or full |
 | `DATA_THRESHOLD` | Monthly data usage exceeds your configured cap |
 | `LOCK_ROLLED_BACK` and others | Self-healing released a lock or reconnected (see [Band and cell locking](locking.md)) |
+| `SETTING_ROLLED_BACK` | The internet stayed down for 3 minutes after a change of the network mode, the operator, the SIM slot or the access point, and FengSui put that setting back to what it was (see [Cellular settings](router-switches.md#cellular-settings)) |
+| `SETTING_ROLLBACK_FAILED` | Putting that setting back did not work: change it back yourself in the Controls drawer or on the router's own page |
+| `SETTING_NOT_ROLLED_BACK` | The internet stayed down for 3 minutes after the change, but the earlier value was not read at the time, so FengSui changed nothing |
 | `FIRMWARE_UNVERIFIED` / `MODEL_UNVERIFIED` | Router firmware was updated, or the model is unverified |
 | `AGENT_TEST_STILL_ON` | What the AI agent test turned on is still on: 3 hours after the test, then once a day, until its writes all pass, you have read a reminder or you end the test; also a system notification while the console is in a background tab (see [Test with an AI agent](other-routers.md#ai)) |
 | `STORAGE_WRITE_FAILED` | Saving data failed (disk full, read-only, or incorrect permissions) |

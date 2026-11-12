@@ -21,6 +21,9 @@ order: 10
 | `SMS_STORAGE_HIGH` / `SMS_STORAGE_FULL` | 路由器的短信存储快满或已满 |
 | `DATA_THRESHOLD` | 本月流量超过你设的阈值 |
 | `LOCK_ROLLED_BACK` 等 | 自愈解锁或重拨了（见[锁频与锁小区](locking.md)） |
+| `SETTING_ROLLED_BACK` | 改了网络制式、手动选网、SIM 卡槽或接入点之后断网 3 分钟，烽燧已把这一项改回原来的值（见[蜂窝设置](router-switches.md#蜂窝设置)） |
+| `SETTING_ROLLBACK_FAILED` | 上面这次改回没有成功，需要你自己到控制抽屉或路由器的管理页改回去 |
+| `SETTING_NOT_ROLLED_BACK` | 改完之后断网 3 分钟，但原来的值当时没读到，烽燧什么都没改 |
 | `FIRMWARE_UNVERIFIED` / `MODEL_UNVERIFIED` | 路由器固件更新了，或者不是已验证的型号 |
 | `AGENT_TEST_STILL_ON` | AI 智能体测试打开的设置还开着：测完 3 小时后提醒，之后每天一次，直到写入全部通过、你看过提醒或测试结束；控制台开在后台标签页时也弹系统通知（见[用 AI 智能体测试](other-routers.md#ai)） |
 | `STORAGE_WRITE_FAILED` | 数据保存失败（硬盘满、只读或权限不对） |

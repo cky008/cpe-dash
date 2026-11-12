@@ -38,6 +38,7 @@ FengSui implements some writes from each brand's interface notes. Where it imple
 - Redial
 - Mobile data switch
 - SMS (send, mark as read, delete)
+- Five of the cellular settings: network mode, operator selection, data roaming, clearing the traffic counters, USSD (see [Cellular settings](router-switches.md#cellular-settings))
 
 Each one also needs the router to have what it takes: when FengSui identifies the router, it reads the endpoint that the write is read back from, and a write whose endpoint does not answer is marked "not on this router" and is never sent. Cell lock, security switches, Wi-Fi 7, antenna selection and access control are not implemented on these models yet.
 
@@ -47,7 +48,8 @@ Each one also needs the router to have what it takes: when FengSui identifies th
 - Cell lock (channel + PCI, from Nearby cells)
 - Reboot
 - Redial and the mobile data switch: ZTE (goform and zWRT), NRadio, and OpenWrt routers with QModem. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
-- Antenna (automatic, internal, external): NRadio
+- Antenna (automatic, internal, external, both at once): NRadio
+- Cellular settings: the network mode (ZTE, Pinsu, Tozed, FiberHome, NRadio, OpenWrt), operator selection and the access point (ZTE, OpenWrt), the SIM slot, data roaming and the data limit (ZTE), the SIM PIN (ZTE, and Quectel modules on OpenWrt), airplane mode (FiberHome, OpenWrt), USSD (ZTE goform). What each one does and what to watch for is under [Cellular settings](router-switches.md#cellular-settings)
 - SMS: ZTE, OpenWrt, Tozed and FiberHome. What each brand can do differs (some cannot delete, some send with a condition); see [SMS](sms.md#other-brands)
 
 Connected devices show on ZTE goform, NRadio and OpenWrt routers. OpenWrt lists its DHCP leases, which do not say whether a device is wired or on Wi-Fi, so the console shows "Link not reported".
@@ -64,6 +66,8 @@ A write FengSui does not implement is never sent to the router: the web console,
 
 - **Sent once, then read back.** Each write is sent once, never retried, and read back right away, with the result shown as "read back: matches" or "differs"; a mismatch raises a `WRITE_READBACK_MISMATCH` alert. The results are listed under Recent write results in Settings → Device.
 - **A lock that cuts the internet is undone after 3 minutes.** Whether the lock came from the console, the API, an AI agent or Telegram: if the WAN stays down 3 minutes after a band lock, FengSui writes back the bands from before it; after a cell lock, it takes the lock off. A lock is kept once the WAN is back and stays up 2 minutes. This protection does not need the lock rollback under [self-healing](locking.md#self-heal), and it carries on after the daemon restarts.
+- **A change of the network mode, the operator, the SIM slot or the access point is put back the same way.** FengSui reads the earlier value in the same connection that writes the new one, and puts the setting back if the internet stays down for 3 minutes. Where the earlier value could not be read, it changes nothing and says so in the alert. Turning mobile data off or airplane mode on is a disconnect you asked for, so FengSui does not undo it.
+- **A SIM PIN is sent only when it is safe to.** Only while the router reports more than one attempt left, and once per request. FengSui does not enter a PUK or change the PIN.
 - **You confirm every write.** Each write in the console has a confirmation of its own, which says the write was not verified on a real device. An AI agent's write tools need `confirm: true`, "Let agents change the router" and a token with the permission; see [AI agents](agents.md).
 - **FengSui writes nothing on its own.** Apart from the fallback above, FengSui writes only when you (or an agent you allowed) ask for it; self-healing is off by default.
 

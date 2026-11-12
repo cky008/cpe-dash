@@ -329,12 +329,12 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | SIM 卡状态、PIN、卡槽（实体卡 / eSIM） | 中兴 zWRT | 读 | 资料 A zte-zwrt 第 220 行（`get_sim_info_before`）；`get_sim_info` 的字段取自 open-u60-pro，网页账号可调用取自 MU5250-OpenUI 的 rpcd 权限表 | `get_sim_info` 资料里没有；读不到时退回 `get_sim_info_before` | 第 5 步 | 已实现（`10fc7c5`） |
 | SIM 卡状态、PIN 剩余次数 | OpenWrt（AT） | 读 | 3GPP TS 27.007 `AT+CPIN?`；移远 AT 手册 `AT+QPINC?` | 资料里没有；剩余次数只在移远模组上读 | 第 5 步 | 已实现（`818ab69`，每台路由器 60 秒读一次） |
 | ICCID | 中兴 goform、华为、鲲鹏无限、OpenWrt | 读 | 资料 B zte-web 第 182 行；资料 A huawei-hilink-scram 第 346 行；资料 A nradio 第 961–995 行；资料 B quectel-fibocom 第 105 行 | 鲲鹏无限的 `overview_status` 只出现在资料的示例代码里，不在接口表 | 第 5 步 | 已实现（各品牌提交） |
-| 切换 SIM 卡槽 | 中兴 goform（`SET_SIM_SLOT`）、zWRT（`zwrt_mdm_change_provision_session`）、鲲鹏无限（SIM 选择页） | 写 | 资料 A zte-goform 第 292 行；资料 A zte-zwrt 第 178、183、227 行；鲲鹏无限的页面取自 ssh-nradio-plugin-installer 解出的网页 | 鲲鹏无限的请求要从页面内嵌的数据补齐 | 第 6 步 | 未做 |
-| 输入 SIM PIN、开关 PIN | 中兴 zWRT、华为 | 写 | 资料里没有；zWRT 的方法名见 MU5250-OpenUI 的 rpcd 权限表，华为的 `pin/operate` 见 huawei-lte-api | 参数与应答格式 | 第 6 步 | 未做 |
+| 切换 SIM 卡槽 | 中兴 goform（`SET_SIM_SLOT`）、zWRT（`zwrt_mdm_change_provision_session`）、鲲鹏无限（SIM 选择页） | 写 | 资料 A zte-goform 第 292 行；资料 A zte-zwrt 第 178、183、227 行；鲲鹏无限的页面取自 ssh-nradio-plugin-installer 解出的网页 | 鲲鹏无限的请求要从页面内嵌的数据补齐 | 第 6 步 | 已实现：中兴 goform（`188a7be`）、zWRT（`305045e`）；鲲鹏无限不做（切卡页发什么请求查不到，见 18.6） |
+| 输入 SIM PIN、开关 PIN | 中兴 zWRT、华为 | 写 | 资料里没有；zWRT 的方法名见 MU5250-OpenUI 的 rpcd 权限表，华为的 `pin/operate` 见 huawei-lte-api | 参数与应答格式 | 第 6 步 | 已实现：goform（`188a7be`）、zWRT（`305045e`）、OpenWrt 移远（`7939ea2`）；华为不做（参考实现里 PIN 是加密后提交的，见 18.6） |
 | 华为 SIM PIN 状态（`pin/status`） | 华为 | 读 | huawei-lte-api 只有接口名 | 字段含义查不到；而且会给 H168-383 新增请求 | — | 不做 |
 | 飞行模式 | 烽火 | 读 | 资料 A fiberhome 第 56、122 行（`app_get_airplane` 的 `airplaneOn`） | — | 第 5 步 | 已实现（`c056963`） |
 | 飞行模式 | OpenWrt（AT） | 读 | 3GPP TS 27.007 §8.2 `AT+CFUN?`（`1` 正常，`0` / `4` 记为飞行模式） | 资料里没有 | 第 5 步 | 已实现（`818ab69`） |
-| 飞行模式开关 | 烽火 | 写 | 资料 A fiberhome 第 54、123 行（`app_set_airplane`） | 应答格式只有一部分 | 第 6 步 | 未做 |
+| 飞行模式开关 | 烽火 | 写 | 资料 A fiberhome 第 54、123 行（`app_set_airplane`） | 应答格式只有一部分 | 第 6 步 | 已实现（`d276d79`）；OpenWrt 用 `AT+CFUN`（`7939ea2`） |
 | `RadioOff` | 中兴 goform | — | 资料 A zte-goform 第 270 行只有键名 | 中兴网页里它是 Wi-Fi 的开关，不是飞行模式（交叉核对时纠正了这一条） | — | 不做（不是飞行模式） |
 | 第二码字 CQI、5G 上行带宽、上行发射功率 | 中兴 goform | 读 | 资料 B zte-web 第 183–184 行 | 取值格式按同组字段推断，越界的丢掉 | 第 5 步 | 已实现（`be6de2e`） |
 | 3G 服务小区（RSCP、Ec/Io、扰码） | 中兴 goform | 读 | 资料 A zte-goform 第 322–324 行 | — | 第 5 步 | 已实现（`be6de2e`） |
@@ -347,25 +347,25 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | 各接收通道的 RSRQ / SINR | OpenWrt 移远 | 读 | 资料 B quectel-fibocom 第 112 行（`AT+QRSRQ`、`AT+QSINR`） | 只有指令名与应答片段 | — | 未做（建议，见报告） |
 | 其他华为型号的 RRC 状态、5G PRACH 功率 | 华为 | 读 | 资料 A huawei-hilink-scram 第 332、376 行 | 解析 H168-383 已验证的应答要另开分支 | — | 未做（建议） |
 | 辅载波详情（`ca-scell-info`）、漫游自动连接（`dialup/connection`）、APN 列表（`dialup/profiles`） | 华为 | 读 | 资料 B huawei-hilink 第 323、349、350、430–433 行 | 会给 H168-383 新增请求 | — | 未做（建议放在未验证型号的宽容读取里） |
-| 混合天线（`3`）、5G 外置天线开关（`antenna_ext_td_switch`）、天线状态（`antenna_type`） | 鲲鹏无限 | 读 / 写 | 资料 A nradio 第 166–168 行 | 应答格式只有一部分 | 第 6 步 | 未做 |
-| 同上 | 华为 | 读 / 写 | 资料 A huawei-hilink-scram 第 277、753 行 | 会给 H168-383 新增请求 | 第 6 步 | 未做 |
-| 3G、4G / 3G 等制式 | 中兴 goform、zWRT | 写 | 资料 A zte-goform 第 289 行；资料 A zte-zwrt 第 221、240 行 | — | 第 6 步 | 未做 |
-| 只用 3G（`WCDMA_ONLY` / `11`） | 通则康威 | 写 | 资料 A tozed 第 329 行 | — | 第 6 步 | 未做 |
-| 2G、3G、4G + 5G 优先、`networkOption` | 鲲鹏无限 | 写 | 资料 A nradio 第 162、289–299 行 | — | 第 6 步 | 未做 |
-| 2G、3G 制式与 `networkOption` | 其他华为型号 | 写 | 资料 A huawei-hilink-scram 第 609–629 行 | — | 第 6 步 | 未做 |
-| `mode_pref` 的 WCDMA | OpenWrt 移远 | 写 | 资料 B quectel-fibocom 第 119、223–227 行 | — | 第 6 步 | 未做 |
-| `AT+GTACT` 制式与优先频段 | OpenWrt 广和通 | 写 | 资料 B quectel-fibocom 第 266–278 行 | — | 第 6 步 | 未做 |
-| 5G SA / NSA 分开锁频段 | 中兴 goform | 写 | 资料 B zte-web 第 64、291–301 行 | 只在较新的固件上 | 第 6 步 | 未做 |
-| 多个候选小区一起锁 | 烽火（LG6151M）、OpenWrt 移远（`QNWLOCK="common/4g"`） | 写 | 资料 A fiberhome 第 130–131、341–366 行；资料 B quectel-fibocom 第 125–126、242–251 行 | 列表长度上限 | 第 6 步 | 未做 |
-| 只锁频点（不带 PCI） | 鲲鹏无限 | 写 | 资料 A nradio 第 163、443–490 行 | — | 第 6 步 | 未做 |
+| 混合天线（`3`）、5G 外置天线开关（`antenna_ext_td_switch`）、天线状态（`antenna_type`） | 鲲鹏无限 | 读 / 写 | 资料 A nradio 第 166–168 行 | 应答格式只有一部分 | 第 6 步 | 已实现混合天线（`bb67f7c`）；`antenna_ext_td_switch` 不做（两份资料对请求体的说法不一致）；天线状态没有读 |
+| 同上 | 华为 | 读 / 写 | 资料 A huawei-hilink-scram 第 277、753 行 | 会给 H168-383 新增请求 | — | 不做（资料 A 的天线代码和 H168-383 验证过的对应关系相反，见 18.6） |
+| 3G、4G / 3G 等制式 | 中兴 goform、zWRT | 写 | 资料 A zte-goform 第 289 行；资料 A zte-zwrt 第 221、240 行 | — | 第 6 步 | 已实现（goform `188a7be`、zWRT `305045e`） |
+| 只用 3G（`WCDMA_ONLY` / `11`） | 通则康威 | 写 | 资料 A tozed 第 329 行 | — | 第 6 步 | 已实现（`c32bb0f`，品速的 `mnet_set_prefer_net_mode` 同一提交） |
+| 2G、3G、4G + 5G 优先、`networkOption` | 鲲鹏无限 | 写 | 资料 A nradio 第 162、289–299 行 | — | 第 6 步 | 已实现制式（`bb67f7c`，只列路由器 `<AccessList>` 里有的）；`<networkOption>` 不发（资料写明可选，取值只有一张示例表） |
+| 2G、3G 制式与 `networkOption` | 其他华为型号 | 写 | 资料 A huawei-hilink-scram 第 609–629 行 | — | 第 6 步 | 已实现制式（`60914bb`）；`<networkOption>` 同上不发 |
+| `mode_pref` 的 WCDMA | OpenWrt 移远 | 写 | 资料 B quectel-fibocom 第 119、223–227 行 | — | 第 6 步 | 已实现（`7939ea2`） |
+| `AT+GTACT` 制式与优先频段 | OpenWrt 广和通 | 写 | 资料 B quectel-fibocom 第 266–278 行 | — | 第 6 步 | 已实现制式（`7939ea2`：自动与仅 5G SA，优先频段照模组报告的原样写回） |
+| 5G SA / NSA 分开锁频段 | 中兴 goform | 写 | 资料 B zte-web 第 64、291–301 行 | 只在较新的固件上 | — | 不做（查无记录：只有资料 B 的一句注记；公开的中兴脚本都用 `WAN_PERFORM_NR5G_BAND_LOCK`，查不到这两个请求怎么回读、哪些固件支持） |
+| 多个候选小区一起锁 | 烽火（LG6151M）、OpenWrt 移远（`QNWLOCK="common/4g"`） | 写 | 资料 A fiberhome 第 130–131、341–366 行；资料 B quectel-fibocom 第 125–126、242–251 行 | 列表长度上限 | — | 未做（锁小区这个动词的入参是一个小区，见 18.6「没做的」） |
+| 只锁频点（不带 PCI） | 鲲鹏无限 | 写 | 资料 A nradio 第 163、443–490 行 | — | 第 6 步 | 已实现（`bb67f7c`） |
 | 漫游状态 | 中兴 goform | 读 | 资料 A zte-goform 第 270 行（`simcard_roam`）；取值取自中兴网页 | 取值资料没写，按中兴网页补齐 | 第 5 步 | 已实现（`be6de2e`） |
 | 漫游时的数据开关 | 中兴 zWRT | 读 | `get_wwaniface` 的 `roam_enable`（open-u60-pro） | 资料只有 `enable` | 第 5 步 | 已实现（`10fc7c5`） |
-| 漫游开关 | 中兴 zWRT、goform | 写 | zWRT 见 open-u60-pro；goform 的 `roam_setting_option` 资料 A 第 270 行只有键名 | goform 的写法查不到 | 第 6 步（zWRT） | 未做 |
+| 漫游开关 | 中兴 zWRT、goform | 写 | zWRT 见 open-u60-pro；goform 的 `roam_setting_option` 资料 A 第 270 行只有键名 | goform 的写法查不到 | 第 6 步 | 已实现：zWRT（`305045e`）、goform（`188a7be`，写法取自中兴网页的 `SET_CONNECTION_MODE`）、其他华为型号（`60914bb`） |
 | 套餐上限与提醒比例 | 中兴 goform | 读 | 资料 A zte-goform 第 270 行；含义取自中兴网页 | 只按流量（`data`）的套餐读，按时长的不读 | 第 5 步 | 已实现（`be6de2e`） |
-| 设置月流量上限 | 中兴 zWRT | 写 | MU5250-OpenUI 的 rpcd 权限表（`set_wwandst_monthlimit`） | 参数与应答 | 第 6 步 | 未做 |
-| 清零流量统计 | 华为 | 写 | 资料 B huawei-hilink 第 346 行（`monitoring/clear-traffic`） | — | 第 6 步 | 未做 |
-| APN | 中兴 goform（`APN_PROC_EX`）、zWRT、OpenWrt（`AT+CGDCONT`）、华为 | 读 / 写 | UFI-TOOLS 的接口文档；MU5250-OpenUI 的 rpcd 权限表；资料 B quectel-fibocom 第 127 行；资料 B huawei-hilink 第 350 行 | 华为的应答格式没有；读取只为改 APN 服务，和写入一起做 | 第 6 步 | 未做 |
-| USSD | — | 读 / 写 | 两份资料库都没有 | 公开项目里有华为的接口名，第 6 步查清参数与应答再定 | 第 6 步（待查） | 未做 |
+| 设置月流量上限 | 中兴 zWRT | 写 | MU5250-OpenUI 的 rpcd 权限表（`set_wwandst_monthlimit`） | 参数与应答 | 第 6 步 | 已实现：zWRT（`305045e`）、goform 的 `DATA_LIMIT_SETTING`（`188a7be`） |
+| 清零流量统计 | 华为 | 写 | 资料 B huawei-hilink 第 346 行（`monitoring/clear-traffic`） | — | 第 6 步 | 已实现（`60914bb`，未验证的华为型号） |
+| APN | 中兴 goform（`APN_PROC_EX`）、zWRT、OpenWrt（`AT+CGDCONT`）、华为 | 读 / 写 | UFI-TOOLS 的接口文档；MU5250-OpenUI 的 rpcd 权限表；资料 B quectel-fibocom 第 127 行；资料 B huawei-hilink 第 350 行 | 华为的应答格式没有；读取只为改 APN 服务，和写入一起做 | 第 6 步 | 已实现：goform（`982f65d`）、zWRT（`1fe7075`）、OpenWrt（`7939ea2`，只有名称和地址类型）；华为不做（参考实现里是加密后提交的，见 18.6） |
+| USSD | — | 读 / 写 | 两份资料库都没有 | 公开项目里有华为的接口名，第 6 步查清参数与应答再定 | 第 6 步 | 已实现：中兴 goform（`188a7be`）、其他华为型号（`60914bb`）；zWRT 查无记录，OpenWrt 不做（见 18.6） |
 | 分开的温度传感器 | 中兴 goform、烽火 Pro、OpenWrt 移远 | 读 | 资料 A zte-goform 第 275、342–345 行；烽火 Pro 的 4G / 5G 温度；资料 B quectel-fibocom 第 118 行（`AT+QTEMP`） | — | 第 5 步 | 已实现 |
 | CPU 与内存占用 | 中兴 goform | 读 | 资料 B zte-web 第 186 行 | 格式按百分比解析（UFI-TOOLS 印证键名） | 第 5 步 | 已实现（`be6de2e`） |
 | 运行时间、CPU、内存 | 鲲鹏无限 | 读 | 资料 A nradio 第 961–995 行（示例代码） | 只在示例代码里，按记录实现 | 第 5 步 | 已实现（`943d8de`） |
@@ -375,8 +375,8 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | Wi-Fi 设置写入 | 华为以外的品牌 | 写 | 两份资料库都只有读取的键名 | 没有写入记录 | — | 不做 |
 | 夜间模式 / 指示灯 | 中兴 goform | 读 | 资料 A zte-goform 第 270 行（`is_night_mode`）只有键名 | 取值查不到 | — | 不做 |
 | 品速公版接口（`http.cgi` 的 `cmd` 1–6、10、160、162、164、302：设备信息、SIM 卡、信号、载波聚合、邻区、流量、多个温度与负载、终端、制式、5G NSA 频段、桥接 / NAT / MTU） | 品速 | 读 / 写 | 资料 B pinsu-unisoc-qualcomm 第 152–292 行 | 另一种接口写法，烽燧的品速驱动用的是 `get_mgdb_params` | 第 7 步 | 未做 |
-| 手动选网（运营商列表、注册） | 华为 | 读 / 写 | 资料 B huawei-hilink 第 334–336 行 | 扫描要 30–60 秒、会断网 | 第 6 步（待主人决定） | 未做 |
-| 恢复出厂 | 华为 | 写 | 资料 B huawei-hilink（`device/control` 的 `4`） | 恢复后路由器密码回到默认，烽燧会连不上 | 第 6 步（待主人决定） | 未做 |
+| 手动选网（运营商列表、注册） | 华为 | 读 / 写 | 资料 B huawei-hilink 第 334–336 行 | 扫描要 30–60 秒、会断网 | 第 6 步 | 已实现（主人决定做）：其他华为型号（`60914bb`）、goform（`982f65d`）、zWRT（`1fe7075`）、OpenWrt（`c27e409`） |
+| 恢复出厂 | 华为 | 写 | 资料 B huawei-hilink（`device/control` 的 `4`） | 恢复后路由器密码回到默认，烽燧会连不上 | — | 不实现（主人的决定，已写进 AGENTS.md 第 4 节第 7 条） |
 | GNSS、BLER、时间提前量、定时重启、eSIM 配置下载 | — | — | 两份资料库都没有接口记录 | — | — | 不做（查不到记录） |
 | 型号表里写到的硬件能力（PoE、看门狗、NFC 等） | 各品牌 | — | 资料只在型号表里提到，没有接口 | — | — | 不做（查不到接口） |
 | 改设备身份（IMEI、序列号、蜂窝侧 MAC） | 各品牌 | 写 | — | — | — | 不实现 |
@@ -431,5 +431,118 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 
 **留给后面的步骤**
 
-- 第 6 步：上表归第 6 步的写入（SIM 卡槽、PIN、飞行模式开关、天线、制式、多小区与只锁频点、漫游开关、流量上限与清零、APN、USSD 待查）；手动选网和恢复出厂先问主人。
+- 第 6 步：上表归第 6 步的写入，结果见 18.6（主人定了手动选网做、恢复出厂不做）。
 - 第 7 步：品速公版接口（`http.cgi`）与 ZLT 的 `lua.cgi` 写法。
+
+### 18.6 第 6 步：盘点出来的写入（蜂窝设置）
+
+**决定**：第 5 步盘点表里归第 6 步的写入，这一步做成一组「蜂窝设置」：网络制式、手动选网、SIM 卡槽、SIM PIN、飞行模式、数据漫游、接入点（APN）、路由器自己的流量上限、清零流量统计、USSD，另有鲲鹏无限的混合天线与只锁频点。主人中途定了两件事：手动选网做，恢复出厂不做（已写进 AGENTS.md 第 4 节第 7 条）。已验证的 H168-383 这些写入都不提供：它的验证早于这些写入，闸门对它报 `not_implemented`，表里留空，发给它的请求一个字节都不变。
+
+**架构**
+
+- [`src/cellular.ts`](../../src/cellular.ts)（零依赖，守护进程、控制台与在线演示共用）：各项设置的类型与入参校验，`CellularSettingsSnapshot`（一次读到的全部设置），`LinkChange`（会意外断网的四种更改与它原来的值），PIN 的发送条件（`pinAttemptAllowed`、`PIN_REFUSALS`）。
+- 每项设置是 `RouterBackend` 的一个动词（`setNetworkMode`、`scanOperators`、`selectOperator`、`setSimSlot`、`enterSimPin`、`setSimPinLock`、`setAirplaneMode`、`setRoaming`、`setApn`、`setDataLimit`、`resetTraffic`、`sendUssd`，读是 `readCellular`，回退是 `revertLinkChange`）。其他品牌交给驱动会话的 `cellular` 部分（`DriverCellular`），华为走通用写入（[`protocol.md`](protocol.md) 附录 A.12）。十个功能名（`CELLULAR_WRITE_FEATURES`）进了写闸门、每个品牌的事实和「支持的设备」表。
+- **断网 3 分钟的回退**：网络制式、手动选网、SIM 卡槽、接入点四项，写入的会话里先读原值，写入后交给 `WanSelfHeal.guardLinkChange` 看守（记在 `state.json` 的 `selfHealLinkWatches`，守护进程重启后接着算）。3 分钟后 WAN 仍断开就把这一项改回原值；WAN 已恢复、移动数据关着、飞行模式开着时什么都不写。告警 `SETTING_ROLLED_BACK`、`SETTING_ROLLBACK_FAILED`、`SETTING_NOT_ROLLED_BACK`（原值读不到）。把运营商交还给路由器自己选（自动）不看守；飞行模式和关闭移动数据是有意断网，不回退。
+- **PIN**：会话里先读剩余次数，没有报告或只剩一次就不发；发一次，路由器说不对就停。不做 PUK 和修改 PIN。
+- **不留痕**：PIN、接入点的名称与凭据、USSD 的指令与应答不进摘要、审计、写入记录和事件；写入记录只留指令名，没有可回读的写入（搜索、USSD、被拒的 PIN）记 `readback: "none"`。
+- **入口**：REST `GET /api/cellular`、`POST /api/cellular/refresh` 与 `/api/control/` 下十一条写路由（[`api.md`](api.md) 2.13）；MCP `get_cellular_settings` 与每项一个写工具（4.6）；控制抽屉的「蜂窝设置」小节（按需加载）；Telegram 没有新指令。
+
+**每项用的接口与出处**
+
+| 设置 | 品牌 | 接口 | 出处 |
+| :--- | :--- | :--- | :--- |
+| 网络制式 | 中兴 goform | `SET_BEARER_PREFERENCE`，取值 `WL_AND_5G`、`Only_5G`、`LTE_AND_5G`、`Only_LTE`、`WCDMA_AND_LTE`、`Only_WCDMA`；4G 固件只有 `NETWORK_auto` 与 `Only_LTE` | 资料 A zte-goform 第 289 行；4G 固件的取值取自中兴网页 |
+| 网络制式 | 中兴 zWRT | `zte_nwinfo_api.nwinfo_set_netselect {net_select}`，取值同上 | 资料 A zte-zwrt 第 221、240 行 |
+| 网络制式 | 品速、通则康威 | 品速 `mnet_set_prefer_net_mode`；通则康威的 `networkMode` / `mode5g`，只用 3G 是 `11` | 资料 A pinsu 第 147、288 行；资料 A tozed 第 329 行 |
+| 网络制式 | 烽火 | `app_set_network_info`（`networkMode` 与 `ENDC` 两个字段） | 资料 A fiberhome 第 125、136 行 |
+| 网络制式 | 鲲鹏无限、其他华为型号 | `POST /api/net/net-mode` 的 `<NetworkMode>`（`00`、`01`、`02`、`03`、`08`、`0803`、`0302`），`NetworkBand` / `LTEBand` 照路由器报告的原样写回；只列 `net-mode-list` 的 `<AccessList>` 里有的 | 资料 A nradio 第 289–299 行；资料 A huawei-hilink-scram 第 609–629 行 |
+| 网络制式 | OpenWrt | 移远 `AT+QNWPREFCFG="mode_pref"`（含 WCDMA）与 `"nr5g_disable_mode"`；广和通 `AT+GTACT`（自动、仅 5G SA，优先频段原样写回） | 资料 B quectel-fibocom 第 119、223–227、266–278 行 |
+| 手动选网 | 中兴 goform | 搜索 `SCAN_NETWORK`，`m_netselect_status` 为 `manual_selecting` 时继续等，结果在 `m_netselect_contents`（`状态,"名称",代码,制式[,子制式]` 以 `;` 分隔）；注册 `SET_NETWORK {NetworkNumber, Rat, nSubrat}`（`Rat` 只收 0、2、7），`m_netselect_result` 为 `manual_success` / `manual_fail`，最多等 120 秒；改回自动是用当前制式再发一次 `SET_BEARER_PREFERENCE`；状态读 `net_select_mode` / `m_netselect_save`。网页只在数据连接断开时允许搜索和注册 | 中兴网页（PortableWiFi-Web 的 `com.js`、`net.js`） |
+| 手动选网 | 中兴 zWRT | `nwinfo_manual_scan`、`nwinfo_m_netselect_status`（`manual_selecting`、`manual_search_fail` 或结束）、`nwinfo_m_netselect_contents`（数组，每行 `name` / `mcc_mnc` / `rat` / `status`）、`nwinfo_manual_register {m_mcc_mnc, m_rat}`（`m_rat` 是搜索结果里的原文）、`nwinfo_m_netselect_result`；改回自动 `nwinfo_set_netselect {net_select_mode: "auto_select"}` | open-u60-pro（`modem_ext.rs`、`operators.js`、`advanced.js`）；zte-cpe-rs（状态与结果的取值） |
+| 手动选网 | OpenWrt | `AT+COPS=?`、`AT+COPS=1,2,"<代码>"[,<制式>]`、`AT+COPS=0`、`AT+COPS?` | 3GPP TS 27.007 §7.3；移远 AT 手册给 `AT+COPS` 的最长应答时间是 180 秒 |
+| 手动选网 | 其他华为型号 | `GET /api/net/plmn-list`（最长等 120 秒）、`POST /api/net/register {Mode, Plmn, Rat}`、`GET /api/net/register` | 资料 B huawei-hilink 第 334–336 行；`Rat` 的取值取自 huawei-lte-api |
+| SIM 卡槽 | 中兴 goform | `SET_SIM_SLOT {sim_slot}`（`0` 卡托，`1`、`2` 内置卡），读 `sim_slot` | 资料 A zte-goform 第 292 行；UFI-TOOLS |
+| SIM 卡槽 | 中兴 zWRT | 一次请求里两条 `zwrt_mdm_change_provision_session`（要启用的卡槽 `active_flag: 1`，另一个 `0`） | 资料 A zte-zwrt 第 178、183、227 行 |
+| SIM PIN | 中兴 goform | `ENTER_PIN {PinNumber}`、`ENABLE_PIN` / `DISABLE_PIN {OldPinNumber}`；剩余次数 `pinnumber` | 中兴网页 |
+| SIM PIN | 中兴 zWRT | `sim_verify_pin_puk {pin_num, puk_num: "", pin_encode_flag: "0"}`、`sim_change_pin_mode {pin_num_m, pin_mode, pin_encode_flag: "0"}` | MU5250-OpenUI 的 rpcd 权限表（方法名）；open-u60-pro（参数） |
+| SIM PIN | OpenWrt | `AT+CPIN="<PIN>"`、`AT+CLCK="SC",<0\|1>,"<PIN>"`；剩余次数只有移远的 `AT+QPINC="SC"` 报告，所以广和通模组上不发 PIN | 3GPP TS 27.007 §8.3、§7.4；移远 AT 手册 |
+| 飞行模式 | 烽火 | `app_set_airplane`，读 `app_get_airplane` | 资料 A fiberhome 第 54、123 行 |
+| 飞行模式 | OpenWrt | `AT+CFUN=4` 打开、`AT+CFUN=1` 关闭 | 3GPP TS 27.007 §8.2 |
+| 数据漫游 | 中兴 goform | `SET_CONNECTION_MODE {ConnectionMode, roam_setting_option}`，拨号方式照路由器当前的写回 | 中兴网页 |
+| 数据漫游 | 中兴 zWRT | `set_wwaniface` 的 `roam_enable`，数据连接的其他设置原样写回 | open-u60-pro |
+| 数据漫游 | 其他华为型号 | `POST /api/dialup/connection` 的 `RoamAutoConnectEnable`，其余几项照路由器报告的写回（少于四项就不写） | 资料 B huawei-hilink 第 349 行；huawei-lte-api |
+| 接入点 | 中兴 goform | `APN_PROC_EX`：自动 `apn_mode=auto`；手动先 `apn_action=save`（`profile_name`、`wan_dial=*99#`、`pdp_type`、`pdp_select=auto`、`index` 与各地址类型的字段），再 `apn_action=set_default`；配置档读 `APN_configtmp0…19`（`名称($)APN($)…($)认证($)用户名($)密码($)地址类型…`）；网页在数据连接断开时才改 | 中兴网页；UFI-TOOLS 与 LinkUI-ZXIC（印证） |
+| 接入点 | 中兴 zWRT | `zwrt_apn_object`：`get_apn_mode` / `set_apn_mode {apn_mode: 0\|1}`、`get_manu_apn_list`（`apnListArray`）、`add_manu_apn` / `modify_manu_apn {profilename, wanapn, pdpType 1\|2\|3, pppAuthMode 0\|1\|2, username, password}`、`enable_manu_apn_id {profileId}` | open-u60-pro（`router.rs`、`controls.js`） |
+| 接入点 | OpenWrt | `AT+CGDCONT=1,"<类型>","<名称>"`，读 `AT+CGDCONT?`；没有用户名和密码的指令记录，所以不收 | 3GPP TS 27.007 §10.1.1；资料 B quectel-fibocom 第 127 行 |
+| 流量上限 | 中兴 goform | `DATA_LIMIT_SETTING`（`data_volume_limit_switch`、`_unit=data`、`_size=<数量>_<每单位 MB>`、`data_volume_alert_percent`） | 中兴网页 |
+| 流量上限 | 中兴 zWRT | `zwrt_data.set_wwandst_monthlimit {enable, type: 2, value, ratio, overflow_auto_disconn}` | MU5250-OpenUI（方法名）；open-u60-pro（参数） |
+| 清零流量统计 | 其他华为型号 | `POST /api/monitoring/clear-traffic {ClearTraffic: 1}` | 资料 B huawei-hilink 第 346 行 |
+| USSD | 中兴 goform | `USSD_PROCESS`（`ussd_send` / `ussd_reply` / `ussd_cancel`），`ussd_write_flag` 为 15 时继续等、16 有应答、13 已取消，应答在 `ussd_data_info`（UTF-16 十六进制，`ussd_action` 为 1 表示等回复） | 中兴网页 |
+| USSD | 其他华为型号 | `module-switch` 的 `ussd_enabled` 为 1 才发；`POST /api/ussd/send`，`GET /api/ussd/status`、`GET /api/ussd/get` | huawei-lte-api |
+| 天线 | 鲲鹏无限 | `antenna_set_type` 的 `3`（内置加外置） | 资料 A nradio 第 166 行 |
+| 只锁频点 | 鲲鹏无限 | 锁小区的请求不带 PCI | 资料 A nradio 第 163、443–490 行 |
+
+**中兴的两点做法**
+
+- **接入点只写烽燧自己的那一份配置。** 路由器的配置档一个都不改：第一次在列表末尾加一份名为 `FengSui` 的配置，以后只覆盖这一份；改回去是把原来那份重新设为默认。当前用的就是 `FengSui` 这份时，没有原值可回，回退会在告警里说明。配置列表读不出来或已满就不写。
+- **goform 照网页的做法先断开再改。** 网页只在数据连接断开时允许搜索、注册和改接入点。驱动在连接开着时先发 `DISCONNECT_NETWORK`，结束时无论成败都再发一次 `CONNECT_NETWORK`；本来就断着的不替用户连上。注册失败（`manual_fail`）记为「回读不一致」而不是报错，这样断网 3 分钟的回退照常接手。
+
+**没做的，和为什么**
+
+| 项目 | 状态 | 原因 |
+| :--- | :--- | :--- |
+| 恢复出厂 | 不实现 | 主人的决定：恢复后路由器的密码和设置回到默认，烽燧会连不上（AGENTS.md 第 4 节第 7 条） |
+| 输入 PUK、修改 PIN | 不实现 | PUK 输错十次 SIM 卡永久作废（AGENTS.md 第 4 节第 8 条） |
+| 华为的 SIM PIN 与 APN | 不做 | huawei-lte-api 里这两项是用路由器的 RSA 公钥加密后提交的；通用写入只有明文格式，没有哪份资料写明未验证型号收明文 |
+| 华为的天线 | 不做 | 资料 A 给的天线代码和 H168-383 验证过的对应关系相反，分不清其他型号用哪一种 |
+| 鲲鹏无限的 `antenna_ext_td_switch` | 不做 | 资料 A 第 168 行与同一份资料的示例对请求体的说法不一致 |
+| 鲲鹏无限切换 SIM 卡 | 查无记录 | 资料 A 没有这个接口；官方说明书（C8、C2000、TT 系列）只写了网页上点哪里；公开检索没有找到这个页面发的请求 |
+| 中兴 goform 的 5G SA / NSA 分开锁频段 | 查无记录 | 只有资料 B 第 291–301 行的一句注记；公开的中兴脚本都用 `WAN_PERFORM_NR5G_BAND_LOCK`，查不到这两个请求怎么回读、哪些固件支持 |
+| 中兴 zWRT 的 USSD | 查无记录 | 资料 A、open-u60-pro、MU5250-OpenUI 的 rpcd 权限表和 zte-cpe-rs 里都没有 USSD 的方法 |
+| OpenWrt 的 USSD | 不做 | `AT+CUSD` 的应答是模组主动上报的一行，各个 ubus AT 接口只回指令自己的应答，没有资料写明哪个接口能带回它 |
+| 华为 USSD 的「结束会话」 | 不做 | huawei-lte-api 没有这个请求 |
+| `<networkOption>` | 不发 | 资料写明可选，取值只有一张示例表；制式本身已经用 `<NetworkMode>` 实现 |
+| 多个候选小区一起锁（烽火 LG6151M、移远 `QNWLOCK="common/4g"`） | 未做 | 锁小区这个动词的入参是一个小区；多个小区要改 REST、MCP、控制台和断网回退的入参，这一步没有做，留作建议 |
+
+**参考过的项目（只取事实，没有复制代码或测试数据，没有新增依赖）**
+
+| 项目 | 提交（日期） | 许可证 | 取了什么 |
+| :--- | :--- | :--- | :--- |
+| [Zisbusy/PortableWiFi-Web](https://github.com/Zisbusy/PortableWiFi-Web) | `68347b1`（2025-06-29） | 仓库里没有许可证文件 | 中兴固件网页的 `com.js`、`net.js`：`SCAN_NETWORK` / `SET_NETWORK` 的流程与取值、`APN_PROC_EX` 的三种表单与配置档格式、`ENTER_PIN` / `ENABLE_PIN` / `DISABLE_PIN`、`SET_CONNECTION_MODE`、`DATA_LIMIT_SETTING`、`USSD_PROCESS` 与 `ussd_write_flag` 的取值、网页在连接断开时才允许选网和改接入点 |
+| [xcfstudio/LinkUI-ZXIC](https://github.com/xcfstudio/LinkUI-ZXIC) | `3e7522b`（2026-07-08） | MIT | `APN_PROC_EX` 的 `set_default` 表单（印证） |
+| [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS) | `cf83b81`（2026-10-09） | MIT | `SET_SIM_SLOT`、`APN_PROC_EX` 的字段名（印证；它记的是另一种字段写法，没有采用） |
+| [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro) | `5596b8d`（2026-11-04） | MIT | zWRT 的选网方法与结果取值、`zwrt_apn_object` 的方法与字段、PIN 与流量上限的参数、`roam_enable` |
+| [dklasens/MU5250-OpenUI](https://github.com/dklasens/MU5250-OpenUI) | `33fdb98`（2026-10-24） | 没有标注许可证 | rpcd 权限表：网页账号可调用的 PIN、流量上限方法名 |
+| [1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs) | 2.1.0（2026-11-04，docs.rs 上的源码） | GPL-3.0 | `m_netselect_status` 的 `manual_selecting` / `manual_search_fail`、`m_netselect_result` 的 `manual_success` / `manual_fail`、`m_rat` 是搜索结果里的制式原文 |
+| [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api) | `d2eb2af`（2026-10-26） | LGPL-3.0 | `net/register` 的 `Rat` 取值、`dialup/connection` 的字段、`ussd/send` / `status` / `get`、`monitoring/clear-traffic`；PIN 与 APN 是加密后提交的（因此不做） |
+
+另外依据的标准与手册：3GPP TS 27.007（`AT+COPS` §7.3、`AT+CLCK` §7.4、`AT+CFUN` §8.2、`AT+CPIN` §8.3、`AT+CGDCONT` §10.1.1）、3GPP TS 23.122（选网）、移远 AT 手册（`AT+QNWPREFCFG`、`AT+QPINC`，`AT+COPS` 的最长应答时间）、鲲鹏无限官方说明书（只确认切卡没有公开的接口）。
+
+**验证**
+
+- 每个品牌的每项写入都有模拟路由器测试：发了什么、怎么回读、哪些在发送之前就拒绝；经守护进程的测试覆盖闸门、PIN 的条件、回退要用的原值，以及摘要、审计与写入记录里没有 PIN、接入点和 USSD 文字。回退（`test/self-heal-links.test.ts`）覆盖到期改回、WAN 恢复后不动、有意断网时不动、原值读不到、守护进程重启后接着算。
+- REST 与 MCP（`test/cellular-http-mcp.test.ts`）：每条路由的校验、`confirm: true`、令牌权限，H168-383 上全部拒绝且不发任何请求，USSD 应答带不可信声明。
+- 在线演示：页面内后端的每条蜂窝路由与真守护进程在同一台模拟路由器上逐条比对（应答与写入记录），中兴与未验证华为两个世界各一组。
+- 浏览器测试：中兴场景（小节里有哪些行、制式的确认框与写入、PIN 确认框里的剩余次数、USSD 的应答与不留痕、手机宽度），OpenWrt 场景（飞行模式的确认文字、接入点没有凭据栏）。单元测试 1404 条，浏览器测试 28 条。
+- H168-383 的请求不变：用以前留下的比对工具在第 6 步之前（`8657c67`）与之后各跑一遍严格模拟路由器，请求序列（15384 字节）与报文记录（请求头、Cookie 名、请求体，4712 字节）逐字节相同。
+- 体积：控制台首屏 84.2 KiB + 按需 91.5 KiB，共 175.7 KiB，上限由 176 调到 192 KiB；演示 217.2 KiB，上限由 210 调到 226 KiB。
+
+**替主人定的**
+
+1. H168-383 不提供这些蜂窝设置写入（它的验证不覆盖），直到有人在真机上验证。
+2. PIN 只在路由器报告还剩不止一次时才发；读不到次数的（广和通模组、没有 `pinnumber` 的固件）不发。
+3. 同一项在看守期内再改一次，回退用的是第一次之前的值。
+4. 把运营商交还给路由器（自动）不看守；手动选定才看守。
+5. 中兴的接入点只写烽燧自己的配置档，名字固定为 `FengSui`。
+6. goform 的搜索、注册、改接入点在连接开着时由烽燧先断开、结束时连上（网页要求用户自己先断开）。
+7. 注册失败记为「回读不一致」并交给回退，而不是当作请求失败。
+8. OpenWrt 的接入点只改第一个 PDP 上下文的名称和地址类型，不收凭据。
+9. OpenWrt 选网带制式时用 `AT+COPS` 的 0、2、7、12；不带制式时让模组自己定。
+10. 改完数据漫游，烽燧把新值并进上次读到的蜂窝设置，不另开会话。
+11. 蜂窝设置的写入和其他写入一样计入「全部功能都由报告确认过的型号」。
+12. 控制台上限调到 192 KiB，演示调到 226 KiB。
+
+**留给后面的步骤**
+
+- 第 7 步：品速公版接口（`http.cgi`）与 ZLT 的 `lua.cgi` 写法。
+- 建议（不在这一步里）：多个候选小区一起锁；H168-383 上验证蜂窝设置写入；Telegram 的蜂窝设置指令。

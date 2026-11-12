@@ -34,7 +34,7 @@ cpe-dash/
 │   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断、写闸门）；按连接的品牌持有 HiLink 客户端或驱动客户端，两者共用同一个队列
 │   ├── cpe-monitor.ts      # 读侧（只面向 RouterBackend）：后台轮询、单飞刷新、快照缓存与时序写入；启动后识别路由器一次（当时连不上则在第一次读成功后补上；不进入轮询）
 │   ├── cpe-controls.ts     # 写侧：锁频锁站、解锁、自动回滚、重启、重拨、移动数据、路由器开关、Wi-Fi、天线、访问控制与蜂窝设置，全部经 RouterBackend（不分品牌，入队前校验）
-│   ├── cellular.ts         # 零依赖：蜂窝设置的类型与入参校验（网络制式、SIM 卡槽、APN、运营商选择、流量上限、PIN 与 USSD 的格式；守护进程、控制台与在线演示同一实现）
+│   ├── cellular.ts         # 零依赖：蜂窝设置的类型与入参校验（网络制式、SIM 卡槽、APN、运营商选择、流量上限、PIN 与 USSD 的格式）、PIN 什么时候不发及其说明文字、卡槽在摘要里的叫法（守护进程、控制台与在线演示同一实现）
 │   ├── generic-writes.ts   # 未验证型号的实验性写入（附录 A.11 的 HiLink 格式）：LTE 锁频、重启、重拨、移动数据，以及蜂窝设置里华为有记录的几项（网络制式、手动选网、数据漫游、清零流量统计、USSD、天线），同一会话回读核对，绝不重试（明文短信写入在 sms/protocol.ts）
 │   ├── access-state.ts · access-plan.ts  # 零依赖：Wi-Fi MAC 过滤状态与访问控制规划（受保护设备、名单、上网时段冲突；前后端同一实现）
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
@@ -42,7 +42,7 @@ cpe-dash/
 │   ├── router-family.ts    # 零依赖：路由器品牌（RouterFamily）、各品牌的常见地址 / 默认账号 / 能读什么（读取分区，以及 5 秒轮询顺带读的状态：电池、SIM 卡、飞行模式，`STATUS_READ_FEATURES`）、实现了哪些写入、短信的已读状态由路由器还是烽燧保管的事实（每个品牌一份；品牌下另一种接口写法能读写的另记一份，`variants`）、控制台显示的名字、「自动识别」这个选项与识别的先后顺序（DETECTION_ORDER）
 │   ├── router-backend.ts   # RouterBackend：烽燧对一台路由器的全部读写动词（识别、信号、附近的基站、已连接设备、设置、访问控制、短信列表与免登录未读数、蜂窝设置；锁频、锁小区、解锁、自动回滚、重启、重拨与自愈重拨、移动数据、路由器开关、Wi-Fi、天线、Wi-Fi MAC 过滤、上网时段、发短信、标为已读、删除短信；网络制式、搜索与选择运营商、SIM 卡槽、输入 PIN 与开关 PIN、飞行模式、数据漫游、APN、流量上限、清零流量统计、USSD，以及断网后把这些设置改回去的回退），以及按连接的品牌选后端的唯一一处
 │   ├── backends/           # hilink.ts（华为 HiLink：H168-383 的已验证序列与其他 HiLink 型号的通用写入，短信走 sms/protocol.ts）· driver.ts（其他品牌，经各自的驱动；短信逐个收件人发送，每次只发一次；没有专门重拨指令的品牌先断开再连上，结束时总会再连上）· index.ts
-│   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· sms.ts（各驱动共用的短信部件：UCS-2 十六进制正文、路由器时间、把长短信的分段拼成一条、短信写入的回读）· at-sms.ts（模组自己的短信指令的应答：`AT+CPMS?` 的条数、`AT+CMGL=4` 列出的 PDU）· hosts.ts（已连接设备：各驱动读到的设备列表转成与华为相同的快照）· cellular.ts（各驱动共用的蜂窝设置部件：USSD 的应答、模组自己的 `AT+COPS` / `AT+CGDCONT` / `AT+CUSD` 应答、设置的回读）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts（goform 页面，以及同一套接口在 ZXIC 固件上的 `/reqproc/` 写法：另一套登录，写入带 `CSRFToken`）· zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
+│   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· sms.ts（各驱动共用的短信部件：UCS-2 十六进制正文、路由器时间、把长短信的分段拼成一条、短信写入的回读）· at-sms.ts（模组自己的短信指令的应答：`AT+CPMS?` 的条数、`AT+CMGL=4` 列出的 PDU）· hosts.ts（已连接设备：各驱动读到的设备列表转成与华为相同的快照）· cellular.ts（各驱动共用的蜂窝设置部件：USSD 的应答、中兴两种接口的搜网结果与接入点配置档、模组的 `AT+COPS` 应答、没有可回读内容的写入怎么记）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts（goform 页面，以及同一套接口在 ZXIC 固件上的 `/reqproc/` 写法：另一套登录，写入带 `CSRFToken`）· zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
 │   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值、电量低、SIM 卡锁住）
 │   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）；监视与重拨额度存于 state.json，重启后接着算；未验证的路由器上，任何入口发起的锁频或锁小区之后断网 3 分钟，写回锁前读到的频段设置或解除锁定（不受自愈开关影响，重启后同样接着算）；切 SIM 卡槽、改网络制式、手动选网、改 APN 之后断网 3 分钟，把这一项改回写入前读到的值（任何型号都一样，同样记在 state.json 里）
 │   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、真机报告登记的功能（VERIFIED_FEATURES：品牌、路由器报的型号、固件、功能、读或写、issue 编号，任何品牌都适用）与报告为不能用的功能（UNSUPPORTED_FEATURES）、全部功能都由报告确认过的型号（isReportVerifiedModel；状态读数不计在内，逐项只凭自己的报告）、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
@@ -75,7 +75,7 @@ cpe-dash/
 ├── web/                    # 「烽燧」Web 控制台：100% 严格 TS（tsconfig.web.json）+ Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
 │   ├── index.html · styles.css · brand/logo.svg（标志唯一来源：构建生成页面图标与 favicon.svg）
 │   ├── site/main.ts        # 文档站唯一的脚本（主题、复制、搜索、目录高亮），无导入、无外部请求
-│   └── src/                # core/（无 DOM、node:test 覆盖率门禁；router-brand.ts 为品牌字段与连接表单的规则，lock-form.ts 为各品牌的锁频 / 锁小区表单规则；core/help.ts 为术语帮助：每个专业名词的一句话解释与文档站锚点，ui/help.ts 画「?」，「设置 → 外观」可关）· ui/（视图）· i18n/（类型化中英词典）· demo/（在线演示的页面内后端，纳入覆盖率门禁）· boot.ts · main.ts
+│   └── src/                # core/（无 DOM、node:test 覆盖率门禁；router-brand.ts 为品牌字段与连接表单的规则，lock-form.ts 为各品牌的锁频 / 锁小区表单规则；cellular-view.ts 为控制抽屉「蜂窝设置」小节的规则（显示哪几项、PIN 能不能发、填写内容的检查），小节本身在 ui/cellular.ts、文字在 i18n/cellular.ts，按需加载；core/help.ts 为术语帮助：每个专业名词的一句话解释与文档站锚点，ui/help.ts 画「?」，「设置 → 外观」可关）· ui/（视图）· i18n/（类型化中英词典）· demo/（在线演示的页面内后端，纳入覆盖率门禁）· boot.ts · main.ts
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器（覆盖 src/ scripts/ test/ web/；私钥只放行路由器厂商写在网页里、每台都一样的那把，按指纹列在 PUBLIC_VENDOR_KEYS）
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示）
