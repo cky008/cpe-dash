@@ -365,6 +365,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     enabled: () => behaviour.alertsEnabled,
     rsrpThresholdDbm: () => behaviour.alertRsrpThresholdDbm,
     sinrThresholdDb: () => behaviour.alertSinrThresholdDb,
+    batteryLowPercent: config.alertBatteryLowPercent,
   });
 
   // Opt-in automatic router writes (lock rollback, WAN redial); off unless turned on

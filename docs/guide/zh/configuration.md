@@ -99,6 +99,7 @@ AI 智能体、自愈、告警和部分短信设置也可以直接在控制台�
 | `ALERTS_ENABLED` | `true` | 是否启用告警 |
 | `ALERT_NOTIFY_MIN_SEVERITY` | `warning` | 推送的最低级别：`info`、`warning` 或 `critical` |
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | 信号变差告警的阈值 |
+| `ALERT_BATTERY_LOW_PERCENT` | `20` | 随身路由器没在充电、电量降到这个百分比（含）时告警；`0` 关闭。没有电池的路由器不会触发 |
 
 ## 自愈（默认关闭）
 

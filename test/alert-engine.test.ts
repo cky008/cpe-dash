@@ -27,6 +27,8 @@ interface SampleInput {
   thresholdPercent?: number | null;
   model?: string;
   firmware?: string;
+  battery?: { percent: number | null; charging: boolean | null } | null;
+  sim?: "ready" | "pin_required" | "puk_required" | null;
 }
 
 function sample(s: SampleInput): GlobalTelemetrySnapshot {
@@ -56,6 +58,18 @@ function sample(s: SampleInput): GlobalTelemetrySnapshot {
     sms: s.sms
       ? { localUnread: 0, localInbox: s.sms.inbox, localOutbox: s.sms.outbox ?? 0, localDraft: 0, localMax: s.sms.max }
       : null,
+    status:
+      s.battery || s.sim
+        ? {
+            battery: s.battery ? { ...s.battery, temperatureC: null, minutesToFull: null, minutesToEmpty: null } : null,
+            sim: s.sim ? { state: s.sim, pinLockEnabled: true, pinAttemptsLeft: 3, pukAttemptsLeft: 10, slot: null } : null,
+            airplaneMode: null,
+            roaming: null,
+            system: null,
+            firmwareUpdate: null,
+            wifi: null,
+          }
+        : null,
   } as unknown as GlobalTelemetrySnapshot;
 }
 
@@ -182,6 +196,53 @@ describe("AlertEngine telemetry rules", () => {
     const data = fx.alerts.filter((a) => a.code === "DATA_THRESHOLD");
     assert.equal(data.length, 2);
     assert.match(data[0]?.messageEn ?? "", /Monthly data 91\.0 GiB reached 90% of the 100GB plan/);
+    await fx.cleanup();
+  });
+
+  it("raises BATTERY_LOW once a minute on battery at the threshold, re-arms on charging, and never on a router without a battery", async () => {
+    const fx = createEngineFixture();
+    const at = (t: number, percent: number | null, charging: boolean | null) => fx.engine.ingestTelemetry(sample({ t, battery: { percent, charging } }));
+    at(10_000, 19, false);
+    at(40_000, 18, false);
+    assert.deepEqual(fx.codes().filter((c) => c === "BATTERY_LOW"), [], "not before a minute");
+    at(71_000, 17, false);
+    assert.deepEqual(fx.codes().filter((c) => c === "BATTERY_LOW"), ["BATTERY_LOW"]);
+    assert.match(fx.alerts.find((a) => a.code === "BATTERY_LOW")?.messageEn ?? "", /17% left, not charging/);
+    assert.equal(fx.alerts.find((a) => a.code === "BATTERY_LOW")?.severity, "warning");
+    at(80_000, 16, false);
+    at(150_000, 22, false);
+    at(160_000, 20, false);
+    at(230_000, 20, false);
+    assert.equal(fx.codes().filter((c) => c === "BATTERY_LOW").length, 1, "22 % is not 5 points above: still the same episode");
+    at(240_000, 19, true);
+    at(250_000, 18, false);
+    at(320_000, 18, false);
+    assert.equal(fx.codes().filter((c) => c === "BATTERY_LOW").length, 2, "charging re-armed it");
+    // A CPE (no battery), an unknown charge, or the alert turned off
+    fx.engine.ingestTelemetry(sample({ t: 400_000 }));
+    at(410_000, null, false);
+    at(500_000, null, false);
+    assert.equal(fx.codes().filter((c) => c === "BATTERY_LOW").length, 2);
+    await fx.cleanup();
+    const off = new AlertEngine({ scheduler: fx.scheduler, monitor: fx.core.monitor, batteryLowPercent: 0 });
+    assert.equal(off.batteryLowPercent, 0);
+  });
+
+  it("raises SIM_LOCKED once while the card waits for its PIN or PUK, with no code in the message", async () => {
+    const fx = createEngineFixture();
+    fx.engine.ingestTelemetry(sample({ t: 10_000, sim: "pin_required" }));
+    fx.engine.ingestTelemetry(sample({ t: 80_000, sim: "pin_required" }));
+    fx.engine.ingestTelemetry(sample({ t: 90_000, sim: "pin_required" }));
+    assert.deepEqual(fx.codes().filter((c) => c === "SIM_LOCKED"), ["SIM_LOCKED"]);
+    assert.match(fx.alerts.find((a) => a.code === "SIM_LOCKED")?.messageEn ?? "", /waiting for its PIN/);
+    fx.engine.ingestTelemetry(sample({ t: 100_000, sim: "ready" }));
+    fx.engine.ingestTelemetry(sample({ t: 110_000, sim: "puk_required" }));
+    fx.engine.ingestTelemetry(sample({ t: 180_000, sim: "puk_required" }));
+    assert.equal(fx.codes().filter((c) => c === "SIM_LOCKED").length, 2);
+    assert.match(fx.alerts.filter((a) => a.code === "SIM_LOCKED")[1]?.messageZh ?? "", /PUK/);
+    // A router that reports no SIM state never raises it
+    fx.engine.ingestTelemetry(sample({ t: 300_000 }));
+    assert.equal(fx.codes().filter((c) => c === "SIM_LOCKED").length, 2);
     await fx.cleanup();
   });
 

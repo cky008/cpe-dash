@@ -84,6 +84,8 @@ export interface AppConfig {
   alertNotifyMinSeverity: "info" | "warning" | "critical";
   alertRsrpThresholdDbm: number;
   alertSinrThresholdDb: number;
+  /** `ALERT_BATTERY_LOW_PERCENT` (0–100, default 20; `0` = off): a router on battery at or below this charge raises `BATTERY_LOW`. */
+  alertBatteryLowPercent: number;
   /**
    * `LOCK_ROLLBACK_AFTER_MIN` in ms (`0` = off, the default): clear every lock when the WAN is still
    * down this long after a band or cell lock (an automatic router write, so opt-in).

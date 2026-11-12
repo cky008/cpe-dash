@@ -3,6 +3,7 @@ import { type GlobalTelemetrySnapshot, verifyLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { firmwareFingerprint, inertRouterText, isVerifiedFirmware, isVerifiedModel, verifiedFirmwareLabel, verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
+import { DEFAULT_BATTERY_LOW_PERCENT, batteryIsLow, simIsLocked } from "./router-status.ts";
 import { sanitizeFreeText } from "./sanitize.ts";
 import type { MutexSessionScheduler } from "./scheduler.ts";
 import type { AlertEventRecord } from "./state-store.ts";
@@ -31,6 +32,10 @@ export interface AlertEngineOptions {
   /** Component-carrier count must stay below the stable count this long before `CA_DROPPED` (default 5 min). */
   caDropAfterMs?: number;
   smsStorageWarnPercent?: number;
+  /** A router on battery at or below this charge raises `BATTERY_LOW` (`ALERT_BATTERY_LOW_PERCENT`; `0` = off; default 20). */
+  batteryLowPercent?: number;
+  /** A low battery, or a SIM card waiting for a code, must persist this long (default 60 s). */
+  statusAfterMs?: number;
   evalIntervalMs?: number;
   now?: () => number;
 }
@@ -38,6 +43,8 @@ export interface AlertEngineOptions {
 const RSRP_RECOVERY_MARGIN_DB = 3;
 const SINR_RECOVERY_MARGIN_DB = 2;
 const STORAGE_REARM_MARGIN_PERCENT = 5;
+/** The battery alert re-arms once the charge is this far above the threshold, or the router charges. */
+const BATTERY_REARM_MARGIN_PERCENT = 5;
 const UPTIME_JITTER_SEC = 30;
 
 const UNIT_BYTES: Readonly<Record<string, number>> = {
@@ -102,6 +109,8 @@ export class AlertEngine {
   readonly #enabled: () => boolean;
   readonly caDropAfterMs: number;
   readonly smsStorageWarnPercent: number;
+  readonly batteryLowPercent: number;
+  readonly statusAfterMs: number;
   readonly evalIntervalMs: number;
   readonly #now: () => number;
 
@@ -116,6 +125,9 @@ export class AlertEngine {
   #storageHighFired = false;
   #storageFullFired = false;
   #dataFired = false;
+  #batteryLowSinceMs: number | null = null;
+  #batteryLowFired = false;
+  #simLocked = new SustainedCondition();
   #timer: ReturnType<typeof setInterval> | null = null;
 
   readonly #onTelemetry = (snap: GlobalTelemetrySnapshot): void => {
@@ -139,6 +151,8 @@ export class AlertEngine {
     this.#enabled = opts.enabled ?? (() => true);
     this.caDropAfterMs = opts.caDropAfterMs ?? 5 * 60_000;
     this.smsStorageWarnPercent = opts.smsStorageWarnPercent ?? 90;
+    this.batteryLowPercent = Math.min(100, Math.max(0, opts.batteryLowPercent ?? DEFAULT_BATTERY_LOW_PERCENT));
+    this.statusAfterMs = opts.statusAfterMs ?? 60_000;
     this.evalIntervalMs = Math.max(1000, opts.evalIntervalMs ?? 5000);
     this.#now = opts.now ?? Date.now;
   }
@@ -206,6 +220,8 @@ export class AlertEngine {
     this.#evaluateDataUsage(snap);
     this.#evaluateLockDrift(snap, nowMs);
     this.#evaluateFirmware(snap);
+    this.#evaluateBattery(snap, nowMs);
+    this.#evaluateSim(snap, nowMs);
   }
 
   /**
@@ -369,6 +385,34 @@ export class AlertEngine {
       // Usage fell far below the threshold: a new billing month started
       this.#dataFired = false;
     }
+  }
+
+  /**
+   * `BATTERY_LOW` once per episode: on battery at or below `ALERT_BATTERY_LOW_PERCENT` for a minute;
+   * charging, or a charge 5 points above the threshold, re-arms it. A router that reports no battery
+   * (a CPE) never raises it.
+   */
+  #evaluateBattery(snap: GlobalTelemetrySnapshot, nowMs: number): void {
+    const battery = snap.status?.battery ?? null;
+    const low = batteryIsLow(battery, this.batteryLowPercent);
+    if (low === null) return;
+    if (low) {
+      this.#batteryLowSinceMs ??= nowMs;
+      if (!this.#batteryLowFired && nowMs - this.#batteryLowSinceMs >= this.statusAfterMs) {
+        this.#raise("warning", "BATTERY_LOW", "alerts.battery_low", { percent: battery?.percent ?? 0 });
+        this.#batteryLowFired = true;
+      }
+      return;
+    }
+    this.#batteryLowSinceMs = null;
+    if (battery?.charging === true || (battery?.percent ?? 0) > this.batteryLowPercent + BATTERY_REARM_MARGIN_PERCENT) this.#batteryLowFired = false;
+  }
+
+  /** `SIM_LOCKED` once per episode: the SIM card waits for its PIN (or PUK) for a minute, so the router cannot connect. */
+  #evaluateSim(snap: GlobalTelemetrySnapshot, nowMs: number): void {
+    const sim = snap.status?.sim ?? null;
+    if (this.#simLocked.update(simIsLocked(sim), nowMs, this.statusAfterMs) !== "fire") return;
+    this.#raise("warning", "SIM_LOCKED", sim?.state === "puk_required" ? "alerts.sim_puk_required" : "alerts.sim_pin_required");
   }
 
   #raise(severity: AlertEventRecord["severity"], code: string, key: I18nKey, params?: Params): void {

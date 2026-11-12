@@ -99,6 +99,7 @@ Except for `MCP_HTTP_ENABLED` and `MCP_DAEMON_URL`, the settings in this section
 | `ALERTS_ENABLED` | `true` | Whether to enable alerts |
 | `ALERT_NOTIFY_MIN_SEVERITY` | `warning` | Minimum severity level to push: `info`, `warning`, or `critical` |
 | `ALERT_RSRP_THRESHOLD_DBM` / `ALERT_SINR_THRESHOLD_DB` | `-110` / `0` | Thresholds for degraded signal alerts |
+| `ALERT_BATTERY_LOW_PERCENT` | `20` | Alert when a mobile router that is not charging drops to this charge (or below); `0` turns it off. A router without a battery never raises it |
 
 ## Self-healing (disabled by default)
 

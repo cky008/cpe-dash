@@ -1,3 +1,4 @@
+import { DEFAULT_BATTERY_LOW_PERCENT } from "./router-status.ts";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -587,6 +588,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     alertNotifyMinSeverity: pickEnum(get("ALERT_NOTIFY_MIN_SEVERITY"), ["info", "warning", "critical"] as const, "warning"),
     alertRsrpThresholdDbm: parseIntSafe(get("ALERT_RSRP_THRESHOLD_DBM"), -110),
     alertSinrThresholdDb: parseIntSafe(get("ALERT_SINR_THRESHOLD_DB"), 0),
+    alertBatteryLowPercent: Math.min(100, Math.max(0, parseIntSafe(get("ALERT_BATTERY_LOW_PERCENT"), DEFAULT_BATTERY_LOW_PERCENT))),
     // A lock needs a few minutes to re-attach and prove itself; anything shorter would undo good locks
     lockRollbackAfterMs: parseMinutesOrOff(get("LOCK_ROLLBACK_AFTER_MIN"), 3, 1440),
     wanReconnectAfterMs: parseMinutesOrOff(get("WAN_AUTO_RECONNECT_AFTER_MIN"), 1, 1440),

@@ -303,6 +303,8 @@ export type AlertCode =
   | "SMS_STORAGE_HIGH"   // warning：短信存储 ≥ 90%（低于 85% 重新布防）
   | "SMS_STORAGE_FULL"   // critical：CPE 报告短信存储已满
   | "DATA_THRESHOLD"     // warning：当月流量越过路由器设置的告警阈值（回落到一半以下重新布防）
+  | "BATTERY_LOW"        // warning：路由器没在充电、电量 ≤ ALERT_BATTERY_LOW_PERCENT（默认 20，0 关闭）持续 1 分钟；充电或电量回到阈值 +5 以上重新布防；没有电池的路由器从不触发
+  | "SIM_LOCKED"         // warning：SIM 卡在等 PIN（或 PUK）码持续 1 分钟，路由器连不上移动网络；消息不含任何码，卡解锁后重新布防
   | "LOCK_DRIFT"         // warning：LockVerification 为 drift 持续 2min（settling / unknown 不计）
   | "LOCK_REALIGNED"     // info：路由器重新与已下发的锁定一致
   | "DUPLICATE_DAEMON"   // critical：检测到另一台主机上管理同一台 CPE 的守护进程（待机方与领先方各报一次）
