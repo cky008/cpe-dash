@@ -235,22 +235,23 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| R200C | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R200C) |
-| R200 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R200) |
-| R200P | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R200P) |
-| R100 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R100) |
-| PS-R500 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-R500) |
-| PS-R600 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-R600) |
-| U200 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U200) |
-| M1 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M1) |
-| M200 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M200) |
-| M200 Pro | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M200+Pro) |
-| PS-M50 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-M50) |
-| F10 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F10) |
+| R200C | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R200C) |
+| R200 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R200) |
+| R200P | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R200P) |
+| R100 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+R100) |
+| PS-R500 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-R500) |
+| PS-R600 | 室内 CPE | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-R600) |
+| U200 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+U200) |
+| M1 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M1) |
+| M200 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M200) |
+| M200 Pro | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M200+Pro) |
+| PS-M50 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-M50) |
+| F10 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F10) |
 
 这一节的说明：
 
 - △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。
+- △ 「网络制式与选网」：只有网络制式，手动选网烽燧在这里还没有做（这一节的全部型号）。
 
 <a id="brand-tozed"></a>
 
@@ -260,44 +261,44 @@ order: 2
 
 | 型号 | 形态 | 接口 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| VN007 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007) |
-| VN007+ | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007%2B) |
-| VN009 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN009) |
-| ZLT X20 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X20) |
-| ZLT X21 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21) |
-| ZLT X21G | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21G) |
-| ZLT X25 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X25) |
-| ZLT X28 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28) |
-| ZLT X28 Pro | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28+Pro) |
-| ZLT X30 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X30) |
-| ZLT X100 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X100) |
-| ZLT X300M | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X300M) |
-| LT500 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LT500) |
-| ZLT S10 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10) |
-| ZLT S10G | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10G) |
-| ZLT S12 Pro | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S12+Pro) |
-| ZLT S20 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S20) |
-| ZLT S25 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S25) |
-| ZLT S50 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S50) |
-| ZLT X11 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X11) |
-| ZLT P11 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P11) |
-| ZLT P28 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P28) |
-| ZLT T30 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T30) |
-| ZLT T20 | 工业网关 | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T20) |
-| MP510 | 工业网关 | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MP510) |
-| ZLT M30S | 随身路由器 | 通则康威 · goform | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M30S) |
-| ZLT M60 | 随身路由器 | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M60) |
+| VN007 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007) |
+| VN007+ | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN007%2B) |
+| VN009 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+VN009) |
+| ZLT X20 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X20) |
+| ZLT X21 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21) |
+| ZLT X21G | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X21G) |
+| ZLT X25 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X25) |
+| ZLT X28 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28) |
+| ZLT X28 Pro | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X28+Pro) |
+| ZLT X30 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X30) |
+| ZLT X100 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X100) |
+| ZLT X300M | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X300M) |
+| LT500 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+LT500) |
+| ZLT S10 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10) |
+| ZLT S10G | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S10G) |
+| ZLT S12 Pro | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S12+Pro) |
+| ZLT S20 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S20) |
+| ZLT S25 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S25) |
+| ZLT S50 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+S50) |
+| ZLT X11 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+X11) |
+| ZLT P11 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P11) |
+| ZLT P28 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+P28) |
+| ZLT T30 | 室外 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T30) |
+| ZLT T20 | 工业网关 | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T20) |
+| MP510 | 工业网关 | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MP510) |
+| ZLT M30S | 随身路由器 | 通则康威 · goform | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M30S) |
+| ZLT M60 | 随身路由器 | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+M60) |
 | ZLT T10D MAX | 室内 CPE | goform | ? | ? | ? | ? | △ | △ | ? | ? |  |  | — | ? |  | △ | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+ZLT+T10D+MAX) |
 
 这一节的说明：
 
 - △ 「短信」：能发送短信；路由器的接口资料里没有删除短信和标为已读的指令，这两项烽燧在这里不能做（除 ZLT T10D MAX 外的全部型号）。
 - △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（除 ZLT T10D MAX 外的全部型号）。
+- △ 「网络制式与选网」：只有网络制式，手动选网烽燧在这里还没有做（这一节的全部型号）。
 - 哪些短信没读过由烽燧自己记（路由器上的未读标记烽燧改不了）（除 ZLT T10D MAX 外的全部型号）。
 - 有些运营商定制固件给接口加了一层加密，烽燧连不上这样的固件（除 ZLT T10D MAX 外的全部型号）。
 - △ 「锁频段」、「锁小区」：这类 4G 固件的接口资料里没有锁频段和锁小区的指令，烽燧发的是中兴 goform 页面的写法，路由器不一定接受；网络制式只能设成自动或仅 4G（ZLT T10D MAX）。
 - — 「电池」：只有随身路由器有电池（ZLT T10D MAX）。
-- △ 「网络制式与选网」：只有网络制式，手动选网烽燧在这里还没有做（ZLT T10D MAX）。
 - △ 「数据设置」：只有数据漫游和流量上限，接入点（APN）和清零流量统计烽燧在这里还没有做（ZLT T10D MAX）。
 - 短信读写的是路由器自己的存储，存在 SIM 卡上的短信不显示（ZLT T10D MAX）。
 - 这是中兴芯片平台的 4G 路由器，用的是中兴接口的另一种写法（`/reqproc/`），连接时烽燧会自己认出来（ZLT T10D MAX）。
@@ -434,18 +435,19 @@ order: 2
 
 | 型号 | 形态 | 接口 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| UNISOC V510 mgdb | 室内 CPE | 品速 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+UNISOC+V510+mgdb) |
-| SRT838 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT838) |
-| SRT853 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT853) |
-| CPE905 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+CPE905) |
-| FNR310 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+FNR310) |
-| A50 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+A50) |
-| H80 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H80) |
-| T1 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+T1) |
+| UNISOC V510 mgdb | 室内 CPE | 品速 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+UNISOC+V510+mgdb) |
+| SRT838 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT838) |
+| SRT853 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT853) |
+| CPE905 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+CPE905) |
+| FNR310 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+FNR310) |
+| A50 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+A50) |
+| H80 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H80) |
+| T1 | 室内 CPE | 通则康威 | ? | ? |  | ?/△ | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+T1) |
 
 这一节的说明：
 
 - △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。
+- △ 「网络制式与选网」：只有网络制式，手动选网烽燧在这里还没有做（这一节的全部型号）。
 - △ 「短信」：能发送短信；路由器的接口资料里没有删除短信和标为已读的指令，这两项烽燧在这里不能做（除 UNISOC V510 mgdb 外的全部型号）。
 - 哪些短信没读过由烽燧自己记（路由器上的未读标记烽燧改不了）（除 UNISOC V510 mgdb 外的全部型号）。
 - 有些运营商定制固件给接口加了一层加密，烽燧连不上这样的固件（除 UNISOC V510 mgdb 外的全部型号）。

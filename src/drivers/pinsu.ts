@@ -6,7 +6,7 @@ import type { WcdmaSignal } from "../parsers.ts";
 import { checkCellLock, checkLockBands } from "./bands.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, hmacMd5Hex, loginLocked, loginUnplaced, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { noteSent, settleBandLock, settleCellLock, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import { type LanHttp, jsonAnswer } from "./transport.ts";
 import type {
@@ -14,6 +14,7 @@ import type {
   DriverBandLockTarget,
   DriverCell,
   DriverCellLockTarget,
+  DriverCellular,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -335,6 +336,21 @@ class PinsuSession implements DriverSessionHandle {
     if (target.networkMode !== null) await this.#write(check, "mnet_set_prefer_net_mode", { mnet_acqorder: ACQ_ORDER[target.networkMode], mnet_band: "auto", mnet_scan_mode: "auto" });
     settleBandLock(check, { lte, nr: target.nr === null ? null : nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
   }
+
+  /** The network mode as a setting of its own: `mnet_set_prefer_net_mode` with one of the three orders the notes list, read back from `mnet_acqorder`. */
+  readonly cellular: DriverCellular = {
+    read: async () => {
+      this.#guard();
+      return { networkMode: parsePinsuLockState(await mgdb(this.#http, ["mnet_acqorder"])).networkMode };
+    },
+    setNetworkMode: async (mode, check) => {
+      const order = Object.hasOwn(ACQ_ORDER, mode) ? ACQ_ORDER[mode as keyof typeof ACQ_ORDER] : undefined;
+      if (order === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
+      await this.#write(check, "mnet_set_prefer_net_mode", { mnet_acqorder: order, mnet_band: "auto", mnet_scan_mode: "auto" });
+      const after = await mgdb(this.#http, ["mnet_acqorder"]).catch(() => null);
+      settleSetting(check, after === null ? null : parsePinsuLockState(after).networkMode === mode);
+    },
+  };
 
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
     const t = checkCellLock(target);

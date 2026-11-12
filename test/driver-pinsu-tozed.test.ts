@@ -8,7 +8,8 @@ import { bandsToHex } from "../src/drivers/bands.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError, sha256Hex } from "../src/drivers/login.ts";
 import { lteRsrpOfIndex, lteRsrqOfIndex, lteSinrOfIndex, nrRsrpOfIndex, nrRsrqOfIndex, nrSinrOfIndex, parseBandClauses, parsePinsuLockState, parsePinsuTelemetry, pinsuBandClauses, pinsuLoginFields, pinsuProtocol, pinsuWcdma, rssiOfIndex } from "../src/drivers/pinsu.ts";
-import { TOZED_LOGIN_SESSION, parseTozedLockState, parseTozedNeighbours, parseTozedTelemetry, tozedLoginPassword, tozedProtocol } from "../src/drivers/tozed.ts";
+import { TOZED_LOGIN_SESSION, parseTozedLockState, parseTozedNeighbours, parseTozedTelemetry, tozedLoginPassword, tozedModeOf, tozedProtocol } from "../src/drivers/tozed.ts";
+import { cellularOf } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
 const PASSWORD = "test-password";
@@ -392,6 +393,59 @@ describe("tozed: locks", () => {
     await client.withSession((s) => s.reboot(check));
     assert.equal((JSON.parse(mock.requests.at(-1)?.body ?? "{}") as { cmd: number }).cmd, 6);
     assert.equal(check.readback, "pending");
+  });
+});
+
+describe("tozed and pinsu: the network mode as a setting", () => {
+  it("tozed: sets each mode of the notes' table, 3G only among them, with the write token", async () => {
+    const { client, posts, state } = tozedRouter();
+    assert.deepEqual(await client.withSession((s) => cellularOf(s).read()), { networkMode: "auto" });
+    for (const [mode, pair] of [
+      ["wcdma", { networkMode: "11", mode5g: "0" }],
+      ["lte", { networkMode: "3", mode5g: "0" }],
+      ["nr_nsa", { networkMode: "131", mode5g: "0" }],
+      ["nr_sa", { networkMode: "128", mode5g: "1" }],
+      ["auto", { networkMode: "131", mode5g: "1" }],
+    ] as const) {
+      const check = newCheck();
+      await client.withSession((s) => cellularOf(s).setNetworkMode(mode, check));
+      const sent = posts.at(-2) ?? {};
+      assert.deepEqual([sent["cmd"], sent["networkMode"], sent["mode5g"], typeof sent["token"]], [218, pair.networkMode, pair.mode5g, "string"], mode);
+      assert.deepEqual(check, { endpoints: ["tozed:cmd218"], readback: "match", reason: null }, mode);
+      assert.deepEqual(state[218], pair);
+    }
+    assert.deepEqual(tozedModeOf({ networkMode: "11", mode5g: "0" }), "wcdma");
+    assert.equal(tozedModeOf({ networkMode: "11", mode5g: "1" }), null, "a pair the notes do not list");
+    const count = posts.length;
+    await assert.rejects(client.withSession((s) => cellularOf(s).setNetworkMode("gsm", newCheck())), CpeControlValidationError);
+    await assert.rejects(client.withSession((s) => cellularOf(s).setNetworkMode("lte_wcdma", newCheck())), /no "lte_wcdma" network mode/);
+    // Only the logouts of the two refused sessions went out
+    assert.deepEqual(posts.slice(count).map((p) => p["cmd"]), [101, 101]);
+    // A router that refuses the write fails it
+    const refusing = tozedRouter({ refuse: 218 });
+    await assert.rejects(refusing.client.withSession((s) => cellularOf(s).setNetworkMode("lte", newCheck())), CpeApiError);
+  });
+
+  it("pinsu: sets one of the three orders its notes list and reads it back", async () => {
+    const { client, actions, values } = pinsuRouter();
+    assert.deepEqual(await client.withSession((s) => cellularOf(s).read()), { networkMode: "auto" });
+    for (const [mode, order] of [
+      ["lte", "4g only"],
+      ["nr_sa", "5g only"],
+      ["auto", "auto"],
+    ] as const) {
+      const check = newCheck();
+      await client.withSession((s) => cellularOf(s).setNetworkMode(mode, check));
+      const sent = actions.filter((a) => a.path === "/action/mnet_set_prefer_net_mode").at(-1);
+      assert.deepEqual(sent?.body, { mnet_acqorder: order, mnet_band: "auto", mnet_scan_mode: "auto" }, mode);
+      assert.deepEqual(check, { endpoints: ["pinsu:mnet_set_prefer_net_mode"], readback: "match", reason: null }, mode);
+      assert.equal(values["mnet_acqorder"], order);
+    }
+    const sent = actions.filter((a) => a.path === "/action/mnet_set_prefer_net_mode").length;
+    for (const mode of ["nr_nsa", "wcdma"] as const) await assert.rejects(client.withSession((s) => cellularOf(s).setNetworkMode(mode, newCheck())), CpeControlValidationError, mode);
+    assert.equal(actions.filter((a) => a.path === "/action/mnet_set_prefer_net_mode").length, sent);
+    const refusing = pinsuRouter({ refuse: "mnet_set_prefer_net_mode" });
+    await assert.rejects(refusing.client.withSession((s) => cellularOf(s).setNetworkMode("lte", newCheck())), CpeApiError);
   });
 });
 

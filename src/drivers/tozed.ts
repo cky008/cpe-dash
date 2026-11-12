@@ -1,3 +1,4 @@
+import type { NetworkMode } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
@@ -7,7 +8,7 @@ import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.t
 import { neighbourOf, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
+import { noteSent, settleBandLock, settleCellLock, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { dateOfParts, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
@@ -16,6 +17,7 @@ import type {
   DriverBandLockTarget,
   DriverCell,
   DriverCellLockTarget,
+  DriverCellular,
   DriverIdentity,
   DriverLockState,
   DriverNeighbour,
@@ -125,6 +127,16 @@ const MODES: Readonly<Record<DriverNetworkMode, { networkMode: string; mode5g: s
   nr_nsa: { networkMode: "131", mode5g: "0" },
   lte: { networkMode: "3", mode5g: "0" },
 };
+
+/** Every pair of the notes' mode table (library A §4.1): the four above, and 3G only. */
+const CELLULAR_MODES: Readonly<Partial<Record<NetworkMode, { networkMode: string; mode5g: string }>>> = { ...MODES, wcdma: { networkMode: "11", mode5g: "0" } };
+
+/** The mode `cmd 218` reports, as the network mode setting names it (`null`: a pair the notes do not list). */
+export function tozedModeOf(answer: Record<string, unknown>): NetworkMode | null {
+  const nm = textOf(answer["networkMode"]);
+  const m5 = textOf(answer["mode5g"]);
+  return (Object.entries(CELLULAR_MODES) as Array<[NetworkMode, { networkMode: string; mode5g: string }]>).find(([, v]) => v.networkMode === nm && v.mode5g === m5)?.[0] ?? null;
+}
 
 function modeOf(answer: Record<string, unknown>): DriverNetworkMode | null {
   const nm = textOf(answer["networkMode"]);
@@ -338,6 +350,18 @@ class TozedSession implements DriverSessionHandle {
     if (target.networkMode !== null) await this.#post(check, 218, { ...MODES[target.networkMode] });
     settleBandLock(check, { lte, nr: target.nr === null ? null : nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
   }
+
+  /** The network mode as a setting of its own: `cmd 218` with the pair of the notes' table, read back with the same command. */
+  readonly cellular: DriverCellular = {
+    read: async () => ({ networkMode: tozedModeOf(await this.#get(218)) }),
+    setNetworkMode: async (mode, check) => {
+      const pair = CELLULAR_MODES[mode];
+      if (pair === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
+      await this.#post(check, 218, { ...pair });
+      const after = await this.#get(218).catch(() => null);
+      settleSetting(check, after === null ? null : tozedModeOf(after) === mode);
+    },
+  };
 
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
     const t = checkCellLock(target);

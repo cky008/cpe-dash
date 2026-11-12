@@ -24,7 +24,7 @@ import type { TestEvent } from "node:test/reporters";
  * The fewest tests each folder (relative to the repository) may run. Raise a floor when you add tests (the
  * summary says when the count has passed it); lower one only when you remove tests on purpose.
  */
-export const TEST_FLOORS: Readonly<Record<string, number>> = { test: 1334, "test/ui": 26 };
+export const TEST_FLOORS: Readonly<Record<string, number>> = { test: 1336, "test/ui": 26 };
 
 export interface TestCountVerdict {
   ok: boolean;
