@@ -3,6 +3,7 @@ import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import type { WriteCheck } from "../device-access.ts";
+import { type BatteryStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../router-status.ts";
 import { detectSmsTextMode } from "../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
@@ -34,12 +35,15 @@ import {
   bandOf,
   counterOf,
   fieldOf,
+  iccidOf,
   identityOf,
+  imsiOf,
   intOf,
   ipv4Of,
   ipv6Of,
   isPlainObject,
   labelOf,
+  msisdnOf,
   nonNegativeOf,
   pciOf,
   plmnOf,
@@ -271,6 +275,93 @@ function bandsOf(value: unknown): number[] | "all" | null {
   return bands === null ? null : bands.length === 0 ? "all" : bands;
 }
 
+/** The device-manager fields the poll asks for: the battery (notes library A, table 3.1) and its temperature. */
+export const ZWRT_DEVICE_INFO = "bat_online,bat_percent,bat_charger_connect,bat_time_to_full,bat_time_to_empty,bat_temperature";
+
+/** `sim_states` as the router's app reads it, else `modem_main_state` (open-u60-pro, the app's SIM page). */
+function zwrtSimState(sim: Record<string, unknown>): SimState | null {
+  switch (textOf(sim["sim_states"])?.toLowerCase()) {
+    case "sim ready":
+      return "ready";
+    case "sim undetected":
+      return "absent";
+    case "wait pin":
+      return "pin_required";
+    case "wait puk":
+      return "puk_required";
+    case "sim destroy":
+    case "error":
+    case "sim_error":
+      return "error";
+  }
+  switch (textOf(sim["modem_main_state"])?.toLowerCase()) {
+    case "modem_init_complete":
+      return "ready";
+    case "modem_waitpin":
+      return "pin_required";
+    case "modem_waitpuk":
+      return "puk_required";
+    case "modem_sim_undetected":
+      return "absent";
+    default:
+      return null;
+  }
+}
+
+/** A minutes estimate (`-1`: none). */
+function minutesOf(value: unknown): number | null {
+  const n = intOf(value);
+  return n === null || n < 0 || n > 100_000 ? null : n;
+}
+
+/**
+ * The battery, SIM card and roaming switch on top of a telemetry read. `bat_online` `0` is a router
+ * without a battery; `bat_charger_connect` `1` a charger plugged in; `current_sim_slot` `1` the card
+ * slot, `2` the built-in eSIM (notes library A); `pin_status` `1` the PIN asked at start, `pinnumber` /
+ * `puknumber` the tries left (open-u60-pro); `roam_enable` the data call's roaming switch.
+ */
+export function withZwrtStatus(
+  t: DriverTelemetry,
+  parts: { device: Record<string, unknown> | null; sim: Record<string, unknown> | null; wwan: Record<string, unknown> | null }
+): DriverTelemetry {
+  const d = parts.device ?? {};
+  const percent = intOf(d["bat_online"]) === 0 ? null : percentValue(d["bat_percent"]);
+  const connected = intOf(d["bat_charger_connect"]);
+  const battery: BatteryStatus | null =
+    percent === null
+      ? null
+      : {
+          percent,
+          charging: connected === 1 ? true : connected === 0 ? false : null,
+          temperatureC: temperatureOf(d["bat_temperature"]),
+          minutesToFull: minutesOf(d["bat_time_to_full"]),
+          minutesToEmpty: minutesOf(d["bat_time_to_empty"]),
+        };
+  const sim = parts.sim;
+  const slot = sim ? intOf(sim["current_sim_slot"]) : null;
+  const pin = sim ? textOf(sim["pin_status"]) : null;
+  const roam = parts.wwan ? intOf(parts.wwan["roam_enable"]) : null;
+  const temperatures: TemperatureSensor[] = battery?.temperatureC != null ? [{ kind: "battery", name: null, celsius: battery.temperatureC }] : [];
+  return {
+    ...t,
+    ...(temperatures.length > 0 ? { temperatures } : {}),
+    ids: sim ? { imsi: imsiOf(sim["sim_imsi"]), msisdn: msisdnOf(sim["msisdn"]), iccid: iccidOf(sim["sim_iccid"]) } : {},
+    status: {
+      battery,
+      sim: sim
+        ? {
+            state: zwrtSimState(sim),
+            pinLockEnabled: pin === "1" ? true : pin === "0" ? false : null,
+            pinAttemptsLeft: countValue(sim["pinnumber"], 10),
+            pukAttemptsLeft: countValue(sim["puknumber"], 10),
+            slot: slot === 1 ? { kind: "physical", index: 1 } : slot === 2 ? { kind: "embedded", index: 1 } : null,
+          }
+        : null,
+      roaming: { active: null, dataAllowed: roam === 1 ? true : roam === 0 ? false : null },
+    },
+  };
+}
+
 export function parseZwrtLockState(netinfo: Record<string, unknown>): DriverLockState {
   const lte = bandsOf(netinfo["lte_band_lock"] ?? netinfo["lte_band"]);
   const nr = bandsOf(netinfo["nr5g_sa_band_lock"]);
@@ -329,8 +420,14 @@ class ZwrtSession implements DriverSessionHandle {
     const netinfo = await this.#rpc.call("zte_nwinfo_api", "nwinfo_get_netinfo");
     // Traffic and the device sensors are their own calls; a firmware without them still has a signal
     const traffic = await this.#rpc.call("zwrt_data", "get_wwandst", { source_module: "web", cid: 1, type: 4 }).catch(() => null);
-    const device = await this.#rpc.call("zwrt_mc.device.manager", "get_device_info", { deviceInfoList: "bat_temperature" }).catch(() => null);
-    return parseZwrtTelemetry({ info, netinfo, traffic, device });
+    const device = await this.#rpc.call("zwrt_mc.device.manager", "get_device_info", { deviceInfoList: ZWRT_DEVICE_INFO }).catch(() => null);
+    const t = parseZwrtTelemetry({ info, netinfo, traffic, device });
+    // The SIM card (the web role may call `get_sim_info`; notes library A has `get_sim_info_before`) and the
+    // data call's roaming switch ride on the same session; a firmware without them keeps its readings
+    const sim =
+      (await this.#rpc.call("zwrt_zte_mdm.api", "get_sim_info").catch(() => null)) ?? (await this.#rpc.call("zwrt_zte_mdm.api", "get_sim_info_before").catch(() => null));
+    const wwan = await this.#rpc.call("zwrt_data", "get_wwaniface", { source_module: "web", cid: 1 }).catch(() => null);
+    return withZwrtStatus(t, { device, sim, wwan });
   }
 
   async neighbours(): Promise<DriverNeighbour[]> {

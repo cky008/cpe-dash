@@ -34,6 +34,10 @@ export interface ZwrtRouterOptions {
   /** The firmware writes sender numbers as UTF-16 hexadecimal. */
   hexNumbers?: boolean;
   sendStatus?: string;
+  /** What `get_device_info` answers (default: a CPE's, the battery temperature only). */
+  device?: Record<string, unknown>;
+  /** What `get_sim_info` answers (`false`: the web role may not call it, so the router refuses it). */
+  sim?: Record<string, unknown> | false;
 }
 
 // One key pair for every mock router of a test run: generating one takes a while
@@ -167,7 +171,9 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
       state.wwan = { enable: on ? "1" : "0", connect_mode: String(args["connect_mode"] ?? "0"), roam_enable: String(args["roam_enable"] ?? "0"), connect_status: on ? "ipv4_ipv6_connected" : "disconnected" };
       return reply({ result: 0 });
     }
-    if (method === "get_device_info") return reply({ bat_temperature: 36 });
+    if (method === "get_device_info") return reply(opts.device ?? { bat_temperature: 36 });
+    if (method === "get_sim_info") return opts.sim === false ? reply(null, 6) : reply(opts.sim ?? { current_sim_slot: "1", sim_states: "sim ready" });
+    if (method === "get_sim_info_before") return reply({ current_sim_slot: "1" });
     if (method === "nwinfo_set_lte_ext_band") netinfo["lte_band_lock"] = String(args["lte_band"]);
     if (method === "nwinfo_set_nrbandlock") netinfo["nr5g_sa_band_lock"] = String(args["nr5g_band"]);
     if (method === "nwinfo_set_netselect") netinfo["net_select"] = String(args["net_select"]);

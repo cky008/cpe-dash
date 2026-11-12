@@ -6,7 +6,7 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError, sha256Hex } from "../src/drivers/login.ts";
-import { ZWRT_ANONYMOUS, parseZwrtLockState, parseZwrtTelemetry, zteZwrtProtocol, zwrtLoginPassword } from "../src/drivers/zte-zwrt.ts";
+import { ZWRT_ANONYMOUS, ZWRT_DEVICE_INFO, parseZwrtLockState, parseZwrtTelemetry, withZwrtStatus, zteZwrtProtocol, zwrtLoginPassword } from "../src/drivers/zte-zwrt.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { ZWRT_PASSWORD, ZWRT_SALT, ZWRT_SESSION, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 
@@ -169,5 +169,53 @@ describe("zte-zwrt: writes", () => {
       return body.params[2] === "nwinfo_set_lte_ext_band" ? { json: { jsonrpc: "2.0", id: body.id, result: [0, { result: 3 }] } } : inner(req);
     })(mock.handler);
     await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [1], nr: null, networkMode: null }, newCheck())), (err: unknown) => err instanceof CpeApiError && err.code === "result3");
+  });
+});
+
+describe("zte-zwrt: the router's status", () => {
+  it("reads the battery, the SIM card and the roaming switch in the poll's session", async () => {
+    const { calls, client } = zwrtRouter({
+      device: { bat_online: 1, bat_percent: 64, bat_charger_connect: 1, bat_time_to_full: 92, bat_time_to_empty: -1, bat_temperature: 38 },
+      sim: { sim_states: "sim ready", current_sim_slot: "2", pin_status: "0", pinnumber: "3", puknumber: 10, sim_iccid: "8935301000000000000", sim_imsi: "272010000000000", msisdn: "" },
+    });
+    const t = await client.withSession((s) => s.telemetry());
+    assert.ok(t);
+    assert.deepEqual(t.status?.battery, { percent: 64, charging: true, temperatureC: 38, minutesToFull: 92, minutesToEmpty: null });
+    assert.deepEqual(t.status?.sim, { state: "ready", pinLockEnabled: false, pinAttemptsLeft: 3, pukAttemptsLeft: 10, slot: { kind: "embedded", index: 1 } });
+    assert.deepEqual(t.status?.roaming, { active: null, dataAllowed: true });
+    assert.deepEqual(t.ids, { imsi: "272010000000000", msisdn: null, iccid: "8935301000000000000" });
+    assert.deepEqual(t.temperatures, [{ kind: "battery", name: null, celsius: 38 }]);
+    // The battery fields the notes name, in one call; then the card and the data call, same session
+    const device = calls.find((c) => c.method === "get_device_info");
+    assert.equal(device?.args["deviceInfoList"], ZWRT_DEVICE_INFO);
+    assert.deepEqual(
+      calls.filter((c) => ["get_device_info", "get_sim_info", "get_wwaniface"].includes(c.method)).map((c) => c.method),
+      ["get_device_info", "get_sim_info", "get_wwaniface"]
+    );
+  });
+
+  it("makes up no battery on a router without one, and falls back to the slot the notes name when the card's details are refused", async () => {
+    const cpe = zwrtRouter({ device: { bat_online: 0, bat_percent: 0, bat_temperature: 36 }, sim: false });
+    const t = await cpe.client.withSession((s) => s.telemetry());
+    assert.equal(t?.status?.battery, null);
+    assert.deepEqual(t?.status?.sim?.slot, { kind: "physical", index: 1 });
+    assert.equal(t?.status?.sim?.state, null);
+    assert.ok(cpe.calls.some((c) => c.method === "get_sim_info_before"));
+    assert.equal(t?.temperatureC, 36, "the temperature the poll always read stays");
+  });
+
+  it("reads each SIM state as the router's app does", () => {
+    const base = parseZwrtTelemetry({ info: {}, netinfo: { network_type: "LTE" }, traffic: null, device: null });
+    const state = (sim: Record<string, unknown>) => withZwrtStatus(base, { device: null, sim, wwan: null }).status?.sim?.state;
+    assert.deepEqual(
+      ["sim undetected", "wait pin", "wait puk", "sim destroy", "error"].map((s) => state({ sim_states: s })),
+      ["absent", "pin_required", "puk_required", "error", "error"]
+    );
+    assert.deepEqual(
+      ["modem_init_complete", "modem_waitpin", "modem_waitpuk", "modem_sim_undetected", "other"].map((s) => state({ modem_main_state: s })),
+      ["ready", "pin_required", "puk_required", "absent", null]
+    );
+    assert.equal(withZwrtStatus(base, { device: null, sim: null, wwan: { roam_enable: "0" } }).status?.roaming?.dataAllowed, false);
+    assert.equal(withZwrtStatus(base, { device: null, sim: null, wwan: null }).status?.sim, null);
   });
 });
