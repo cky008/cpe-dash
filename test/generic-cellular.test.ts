@@ -160,7 +160,13 @@ describe("generic HiLink: the cellular settings of a model nobody verified", () 
     const fx = router();
     try {
       assert.ok(await fx.core.monitor.identifyDevice());
+      // With nothing read yet there is no copy to bring up to date; with one, the switch shows in it at once
+      assert.equal(fx.core.monitor.getCachedCellular(), null);
+      assert.equal((await fx.core.monitor.refreshCellular({ ignoreCooldown: true }))?.dataRoaming, false);
+      const sessions = fx.core.scheduler.getStatus().totalSessionsCompleted;
       assert.deepEqual(await fx.core.controls.setRoaming(true, { confirm: true }), { dataRoaming: true });
+      assert.equal(fx.core.monitor.getCachedCellular()?.dataRoaming, true, "the settings last read show the switch the router took");
+      assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, sessions + 1, "without a session of its own");
       assert.deepEqual(fx.bodies("/api/dialup/connection"), [
         "<request><RoamAutoConnectEnable>1</RoamAutoConnectEnable><MaxIdelTime>600</MaxIdelTime><ConnectMode>0</ConnectMode><MTU>1500</MTU><auto_dial_switch>1</auto_dial_switch><pdp_always_on>0</pdp_always_on></request>",
       ]);

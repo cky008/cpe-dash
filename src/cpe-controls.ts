@@ -14,6 +14,7 @@ import type {
   UssdAnswer,
   UssdRequest,
 } from "./cellular.ts";
+import { simSlotLabel } from "./cellular.ts";
 import {
   type AntennaModeName,
   type BandLockCommand,
@@ -293,7 +294,7 @@ export class CpeControlService {
 
   async setSimSlot(slot: SimSlotRef, opts: { confirm: boolean }): Promise<{ simSlot: SimSlotRef; cellular: CellularSettingsSnapshot | null }> {
     requireCellularConfirmation(opts.confirm);
-    const { previous } = await this.#backend().setSimSlot(slot, { zh: t("zh-CN", "controls.sim_slot_updated", { slot: slotLabel("zh-CN", slot) }), en: t("en", "controls.sim_slot_updated", { slot: slotLabel("en", slot) }) });
+    const { previous } = await this.#backend().setSimSlot(slot, { zh: t("zh-CN", "controls.sim_slot_updated", { slot: simSlotLabel("zh-CN", slot) }), en: t("en", "controls.sim_slot_updated", { slot: simSlotLabel("en", slot) }) });
     this.#noteLinkChange(previous === null ? null : { kind: "sim_slot", previous }, "sim_slot");
     return { simSlot: slot, cellular: await this.#cellularAfter() };
   }
@@ -334,7 +335,9 @@ export class CpeControlService {
 
   async setRoaming(enabled: boolean, opts: { confirm: boolean }): Promise<{ dataRoaming: boolean }> {
     requireCellularConfirmation(opts.confirm);
-    return await this.#backend().setRoaming(enabled, summaryOf(enabled ? "controls.roaming_on" : "controls.roaming_off"));
+    const done = await this.#backend().setRoaming(enabled, summaryOf(enabled ? "controls.roaming_on" : "controls.roaming_off"));
+    this.monitor.patchCachedCellularRoaming(done.dataRoaming);
+    return done;
   }
 
   async setDataLimit(limit: DataLimitSetting, opts: { confirm: boolean }): Promise<{ dataLimit: DataLimitSetting; cellular: CellularSettingsSnapshot | null }> {
@@ -394,11 +397,6 @@ export function linkSettingName(locale: "zh-CN" | "en", kind: LinkChangeKind): s
 }
 
 /** A SIM slot as a summary names it. */
-function slotLabel(locale: "zh-CN" | "en", slot: SimSlotRef): string {
-  if (slot.kind === "physical") return locale === "en" ? (slot.index > 1 ? `card ${slot.index}` : "the card in the tray") : slot.index > 1 ? `实体卡 ${slot.index}` : "实体卡";
-  return locale === "en" ? `built-in card ${slot.index}` : `内置卡 ${slot.index}`;
-}
-
 function summaryOf(key: I18nKey, params: Record<string, string | number> = {}): ControlSummary {
   return { zh: t("zh-CN", key, params), en: t("en", key, params) };
 }

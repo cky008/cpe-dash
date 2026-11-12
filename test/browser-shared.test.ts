@@ -42,6 +42,7 @@ const BROWSER_SHARED_MODULES = [
   "src/access-plan.ts",
   "src/access-state.ts",
   "src/behaviour-settings.ts",
+  "src/cellular.ts",
   "src/console-policy.ts",
   "src/control-error.ts",
   "src/control-input.ts",

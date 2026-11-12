@@ -379,6 +379,17 @@ export class CpeMonitor extends EventEmitter {
    * Fold a verified access-control write (its read-back) into the cached snapshot and push it over
    * SSE. Returns `false` when nothing is cached yet, so the caller can run a full read instead.
    */
+  /**
+   * Fold a roaming switch the router took into the cellular settings last read, where that read
+   * reports the switch at all: the next `GET /api/cellular` then shows it without another session.
+   */
+  patchCachedCellularRoaming(dataRoaming: boolean): void {
+    const cached = this.getCachedCellular();
+    if (!cached || cached.dataRoaming === null || !this.#cellular) return;
+    const nowMs = Date.now();
+    this.#cellular = { ...this.#cellular, snapshot: { ...cached, dataRoaming, capturedAtMs: nowMs, capturedAtIso: new Date(nowMs).toISOString() } };
+  }
+
   patchCachedAccessControl(patch: Partial<Pick<AccessControlSnapshot, "wifiMacFilter" | "timeRules">>): boolean {
     const current = this.stateStore.getState().latestAccessControl;
     if (!current) return false;

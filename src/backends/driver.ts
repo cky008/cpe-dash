@@ -15,8 +15,7 @@ import {
   type UssdRequest,
   pinAttemptAllowed,
   sameOperatorSelection,
-  sameSimSlot,
-} from "../cellular.ts";
+  sameSimSlot, PIN_REFUSALS } from "../cellular.ts";
 import { type DriverBandLockRequest, readDriverBandLockTarget, readDriverCellLockTarget } from "../control-input.ts";
 import {
   type AntennaModeName,
@@ -668,12 +667,7 @@ const LINK_REVERTS: Readonly<Record<LinkChange["kind"], { feature: FamilyWriteFe
   apn: { feature: "apn", action: "auto_restore_apn" },
 };
 
-/** Why a PIN is not sent, in words that tell its owner what to do instead. */
-export const PIN_REFUSALS: Readonly<Record<"unknown" | "last_attempt" | "none_left", string>> = {
-  unknown: "The router does not report how many PIN attempts the SIM card has left, so FengSui sends no PIN: enter it on the router's own page",
-  last_attempt: "The SIM card has one PIN attempt left, and a wrong PIN would lock it until its PUK is entered: FengSui sends no PIN now, enter it on the router's own page",
-  none_left: "The SIM card takes no more PINs and wants its PUK, which FengSui does not enter: use the router's own page",
-};
+export { PIN_REFUSALS };
 
 /** A write the family's interface has no way to do (the gate let SMS writes through for the ones it has). */
 function noSmsWrite(what: string): CpeControlValidationError {

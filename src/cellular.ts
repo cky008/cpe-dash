@@ -168,6 +168,12 @@ export function readApnChoice(args: Args): ApnChoice {
  */
 export type ApnRestore = { mode: "auto" } | { mode: "profile"; id: string } | { mode: "context"; apn: string; ipType: ApnIpType };
 
+/** A slot as a control summary names it (the daemon and the live demo say the same). */
+export function simSlotLabel(locale: "zh-CN" | "en", slot: SimSlotRef): string {
+  if (slot.kind === "physical") return locale === "en" ? (slot.index > 1 ? `card ${slot.index}` : "the card in the tray") : slot.index > 1 ? `实体卡 ${slot.index}` : "实体卡";
+  return locale === "en" ? `built-in card ${slot.index}` : `内置卡 ${slot.index}`;
+}
+
 // ── Data limit ───────────────────────────────────────────────────────────────
 
 /** The monthly data limit the router itself keeps: at `alertPercent` of `bytes` it warns. */
@@ -219,6 +225,13 @@ export function pinAttemptAllowed(attemptsLeft: number | null | undefined): { al
   if (attemptsLeft === 1) return { allowed: false, reason: "last_attempt" };
   return { allowed: true, attemptsLeft };
 }
+
+/** Why a PIN is not sent, in words that tell its owner what to do instead (the daemon and the live demo say the same). */
+export const PIN_REFUSALS: Readonly<Record<"unknown" | "last_attempt" | "none_left", string>> = {
+  unknown: "The router does not report how many PIN attempts the SIM card has left, so FengSui sends no PIN: enter it on the router's own page",
+  last_attempt: "The SIM card has one PIN attempt left, and a wrong PIN would lock it until its PUK is entered: FengSui sends no PIN now, enter it on the router's own page",
+  none_left: "The SIM card takes no more PINs and wants its PUK, which FengSui does not enter: use the router's own page",
+};
 
 /** How one PIN write ended: the router took it, or said it was wrong (nothing is sent again). */
 export interface SimPinOutcome {
