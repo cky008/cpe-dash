@@ -21,7 +21,7 @@ order: 22
 
 感谢 [tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script)：烽燧为中兴 goform 接口的锁小区与解除锁定做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
-感谢 [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS)：烽燧为中兴 goform 接口的写入签名做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS)：烽燧为中兴 goform 接口的写入签名、电池与 SIM 卡槽做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 感谢 [zhovner/mf823-pro](https://github.com/zhovner/mf823-pro)：烽燧为中兴 goform 接口的登录结果与已连接设备做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
@@ -31,7 +31,19 @@ order: 22
 
 感谢 [Stantastic/ZTE-SMS-Gateway](https://github.com/Stantastic/ZTE-SMS-Gateway)：烽燧为中兴 zWRT 接口的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
-感谢 [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro)：烽燧为中兴 zWRT 接口的短信与移动数据做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro)：烽燧为中兴 zWRT 接口的短信、移动数据与 SIM 卡做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [Zisbusy/PortableWiFi-Web](https://github.com/Zisbusy/PortableWiFi-Web)：烽燧为中兴 goform 接口的电池、SIM 卡、漫游、套餐与固件更新做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [xcfstudio/LinkUI-ZXIC](https://github.com/xcfstudio/LinkUI-ZXIC)：烽燧为中兴 goform 接口的电池做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [dklasens/MU5250-OpenUI](https://github.com/dklasens/MU5250-OpenUI)：烽燧为中兴 zWRT 接口的 SIM 卡做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [MavisTok/ZTE_Desktop_Status](https://github.com/MavisTok/ZTE_Desktop_Status)：烽燧为中兴 zWRT 接口的电池做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [Primovist/Scripting](https://github.com/Primovist/Scripting)：烽燧为中兴 zWRT 接口的电池做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [amenekowo/mu5250_tweaking](https://github.com/amenekowo/mu5250_tweaking)：烽燧为中兴 zWRT 接口的电池与 SIM 卡做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 ## 通则康威（ZLT）
 

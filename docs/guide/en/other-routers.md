@@ -21,6 +21,8 @@ FengSui settles the login method before sending the password (on Huawei, SCRAM f
 
 Signal, data usage, connected devices, SMS and whatever else the router provides show as usual. An item the router does not provide, or that FengSui cannot read, is labeled "Not on this model" and leaves the others unaffected; a model without 5G shows no 5G values.
 
+What the router reports about itself shows on the matching card too: a mobile router's battery, the SIM card's state, slot and PIN tries left, airplane mode, roaming, and the router's own load and temperatures (which brands report which: the Battery, SIM card and Airplane mode columns of [Supported devices](supported-devices.md), and [the dashboard](dashboard.md#sim)). What the router does not report is not shown; on a router that reports no uptime of its own, Uptime shows "—".
+
 The header shows "Unverified model"; choose it to open Settings → Device.
 
 <a id="writes"></a>

@@ -21,7 +21,7 @@ Thanks to [teixeluis/zte-lte-modem](https://github.com/teixeluis/zte-lte-modem):
 
 Thanks to [tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script): FengSui consulted the interface notes it collects when adding cell locks and unlocking for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
 
-Thanks to [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS): FengSui consulted the interface notes it collects when adding the write signature of ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+Thanks to [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS): FengSui consulted the interface notes it collects when adding the write signature, battery and SIM slot of ZTE's goform interface. FengSui contains none of its code and does not depend on it.
 
 Thanks to [zhovner/mf823-pro](https://github.com/zhovner/mf823-pro): FengSui consulted the interface notes it collects when adding login results and connected devices for ZTE's goform interface. FengSui contains none of its code and does not depend on it.
 
@@ -31,7 +31,19 @@ Thanks to [1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs): FengSui consu
 
 Thanks to [Stantastic/ZTE-SMS-Gateway](https://github.com/Stantastic/ZTE-SMS-Gateway): FengSui consulted the interface notes it collects when adding SMS for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
 
-Thanks to [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro): FengSui consulted the interface notes it collects when adding SMS and mobile data for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+Thanks to [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro): FengSui consulted the interface notes it collects when adding SMS, mobile data and the SIM card for ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [Zisbusy/PortableWiFi-Web](https://github.com/Zisbusy/PortableWiFi-Web): FengSui consulted the interface notes it collects when adding the battery, SIM card, roaming, data plan and firmware updates of ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [xcfstudio/LinkUI-ZXIC](https://github.com/xcfstudio/LinkUI-ZXIC): FengSui consulted the interface notes it collects when adding the battery of ZTE's goform interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [dklasens/MU5250-OpenUI](https://github.com/dklasens/MU5250-OpenUI): FengSui consulted the interface notes it collects when adding the SIM card of ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [MavisTok/ZTE_Desktop_Status](https://github.com/MavisTok/ZTE_Desktop_Status): FengSui consulted the interface notes it collects when adding the battery of ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [Primovist/Scripting](https://github.com/Primovist/Scripting): FengSui consulted the interface notes it collects when adding the battery of ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
+
+Thanks to [amenekowo/mu5250_tweaking](https://github.com/amenekowo/mu5250_tweaking): FengSui consulted the interface notes it collects when adding the battery and SIM card of ZTE's zWRT interface. FengSui contains none of its code and does not depend on it.
 
 ## Tozed (ZLT)
 
