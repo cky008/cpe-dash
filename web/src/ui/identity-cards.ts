@@ -26,7 +26,9 @@ export function mountIdentityCards(ctx: AppContext): void {
         kv(ctx.t("id.firmware"), device?.softwareVersion || DASH),
         kv(ctx.t("id.imei"), sensitive(ctx, "imei", device?.imei ?? "", "identity")),
         kv(ctx.t("id.imsi"), sensitive(ctx, "imsi", device?.imsi ?? "", "identity")),
-        kv(ctx.t("id.msisdn"), device && !device.msisdn ? h("span", { class: "faint" }, ctx.t("id.msisdn_empty")) : sensitive(ctx, "phone", device?.msisdn ?? "", "identity"))
+        kv(ctx.t("id.msisdn"), device && !device.msisdn ? h("span", { class: "faint" }, ctx.t("id.msisdn_empty")) : sensitive(ctx, "phone", device?.msisdn ?? "", "identity")),
+        // The SIM card's ICCID, where the router names it
+        device?.iccid ? kv(ctx.t("id.iccid"), sensitive(ctx, "iccid", device.iccid, "identity")) : null
       )
     );
 

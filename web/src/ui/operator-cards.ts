@@ -1,9 +1,10 @@
 import { DASH } from "../core/format.ts";
 import { accessMode, caSummary, carrierChips, signalBars } from "../core/rf.ts";
+import { airplaneLine, roamingLine, simPinLine, simSlotText, simStateLine } from "../core/status-view.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount } from "./dom.ts";
-import { cardHead, kv } from "./widgets.ts";
+import { cardHead, kv, toneSpan } from "./widgets.ts";
 import { withHelp } from "./help.ts";
 
 const SIM_KEYS: Readonly<Record<string, MessageKey>> = { "1": "op.sim_ready", "0": "op.sim_invalid", "255": "op.sim_absent" };
@@ -28,6 +29,12 @@ export function mountOperatorCards(ctx: AppContext): void {
     const device = telemetry?.device;
     const mode = rf ? accessMode(rf) : "NONE";
     const chips = rf ? carrierChips(rf) : [];
+    const status = telemetry?.status ?? null;
+    const sim = simStateLine(status?.sim ?? null, ctx.t);
+    const slot = simSlotText(status?.sim ?? null, ctx.t);
+    const pin = simPinLine(status?.sim ?? null, ctx.t);
+    const roaming = roamingLine(status?.roaming ?? null, ctx.t);
+    const airplane = airplaneLine(status?.airplaneMode ?? null, ctx.t);
     mount(
       operatorRoot,
       cardHead(ctx.t("op.title"), rf ? signalBarsEl(signalBars(rf)) : null),
@@ -41,7 +48,12 @@ export function mountOperatorCards(ctx: AppContext): void {
           h("span", { class: "num text-xs faint" }, rf?.plmnNumeric ?? "")
         ),
         kv(withHelp(ctx, ctx.t("op.mode"), "nsa-sa"), h("span", { class: `fs-badge ${mode === "SA" || mode === "NSA" ? "text-primary" : ""}` }, ctx.t(`ca.mode_${mode}`)), "text-right"),
-        kv(ctx.t("op.sim"), device ? ctx.t(SIM_KEYS[device.simStatus] ?? "common.unknown") : DASH, "text-right"),
+        // The SIM card's own state where the router names it, else HiLink's status code
+        kv(ctx.t("op.sim"), sim ? toneSpan(sim) : device ? ctx.t(SIM_KEYS[device.simStatus] ?? "common.unknown") : DASH, "text-right"),
+        slot ? kv(withHelp(ctx, ctx.t("op.sim_slot"), "esim"), slot, "text-right") : null,
+        pin ? kv(withHelp(ctx, ctx.t("op.sim_pin"), "sim-pin"), toneSpan(pin), "text-right") : null,
+        roaming ? kv(withHelp(ctx, ctx.t("op.roaming"), "roaming"), toneSpan(roaming), "text-right") : null,
+        airplane ? kv(withHelp(ctx, ctx.t("op.airplane"), "airplane-mode"), toneSpan(airplane), "text-right") : null,
         kv(
           ctx.t("op.connection"),
           device

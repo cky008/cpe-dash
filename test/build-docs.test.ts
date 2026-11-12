@@ -54,7 +54,7 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     const allowedHosts = new Set([
       "github.com", "cky008.github.io", "docs.example.com", "polyformproject.org", "schema.org", "www.sitemaps.org", "www.w3.org",
       "modelcontextprotocol.io", "www.3gpp.org", "standards.ieee.org", "www.wi-fi.org", "www.rfc-editor.org", "consumer.huawei.com",
-      "www.rohde-schwarz.com", "www.ericsson.com", "www.fortinet.com", "www.cellmapper.net",
+      "www.rohde-schwarz.com", "www.ericsson.com", "www.fortinet.com", "www.cellmapper.net", "www.etsi.org",
       // The author's site and the sponsor pages of .github/FUNDING.yml
       "iocky.com", "buymeacoffee.com",
       "docs.docker.com", "docs.kernel.org",

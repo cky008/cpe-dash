@@ -1,3 +1,4 @@
+import type { StatusLine } from "../core/status-view.ts";
 import { type Child, h, icon } from "./dom.ts";
 
 /** Shared building blocks: card heads, key/value rows, busy buttons and empty states. */
@@ -13,6 +14,13 @@ export function cardHead(title: Child, ...trailing: Child[]): HTMLElement {
     h("h2", { class: "fs-card-title" }, title),
     h("div", { class: "ml-auto flex flex-wrap items-center justify-end gap-1.5 *:shrink-0 *:whitespace-nowrap" }, ...trailing)
   );
+}
+
+const TONE_CLASS: Readonly<Record<StatusLine["tone"], string>> = { ok: "text-success", warn: "text-warning", bad: "text-error", plain: "" };
+
+/** A status value in the colour of its tone. */
+export function toneSpan(line: StatusLine): HTMLElement {
+  return h("span", { class: TONE_CLASS[line.tone] }, line.text);
 }
 
 export function kv(label: Child, value: Child, valueClass = "num text-right"): HTMLElement {

@@ -45,6 +45,13 @@ function txRows(power: TxPower): HTMLElement {
   return h("div", { class: "space-y-1.5 pt-2" }, row("PUSCH", power.puschDbm), row("PUCCH", power.pucchDbm));
 }
 
+/** Downlink layers, and the uplink's where the router reports them (`DL 4 layers · UL 2 layers`). */
+function mimoText(ctx: AppContext, dl: number | null, ul: number | null): string {
+  const parts = [dl === null ? DASH : ctx.t("rf.mimo_value", { rank: dl })];
+  if (ul !== null) parts.push(ctx.t("rf.mimo_value_ul", { rank: ul }));
+  return parts.join(" · ");
+}
+
 function bandwidth(dl: number | null, ul: number | null): string {
   if (dl === null && ul === null) return DASH;
   return `${dl ?? DASH} / ${ul ?? DASH} MHz`;
@@ -113,7 +120,7 @@ export function mountRfCard(ctx: AppContext): void {
             ),
             kv(withHelp(ctx, ctx.t("rf.pci"), "pci"), nrPci === null ? DASH : String(nrPci)),
             kv(withHelp(ctx, ctx.t("rf.arfcn"), "arfcn"), rf.nrArfcnRaw || DASH),
-            kv(withHelp(ctx, ctx.t("rf.mimo"), "mimo"), rf.nrMimoRank === null ? DASH : ctx.t("rf.mimo_value", { rank: rf.nrMimoRank })),
+            kv(withHelp(ctx, ctx.t("rf.mimo"), "mimo"), mimoText(ctx, rf.nrMimoRank, mode === "SA" ? rf.ulMimoLayers : null)),
             kv(withHelp(ctx, ctx.t("rf.cqi"), "cqi"), [rf.nrCqi0, rf.nrCqi1].filter((v) => v !== null).join(" / ") || DASH),
             modulationRow(withHelp(ctx, ctx.t("rf.mod_ul"), "mcs"), rf.nrUlMcs),
             modulationRow(withHelp(ctx, ctx.t("rf.mod_dl"), "mcs"), rf.nrDlMcs),
@@ -149,7 +156,7 @@ export function mountRfCard(ctx: AppContext): void {
             kv(withHelp(ctx, ctx.t("rf.pci"), "pci"), rf.pci === null ? DASH : String(rf.pci)),
             kv(withHelp(ctx, ctx.t("rf.arfcn"), "arfcn"), rf.earfcnRaw ? rf.earfcnRaw.replace(":", " ").replace(" UL:", " · UL ") : DASH),
             kv(withHelp(ctx, ctx.t("rf.rssi"), "rssi"), formatSigned(rf.lteRssiDbm, "dBm")),
-            kv(withHelp(ctx, ctx.t("rf.mimo"), "mimo"), `${rf.lteMimoRank === null ? DASH : ctx.t("rf.mimo_value", { rank: rf.lteMimoRank })} · ${rf.transmissionMode || DASH}`),
+            kv(withHelp(ctx, ctx.t("rf.mimo"), "mimo"), `${mimoText(ctx, rf.lteMimoRank, rf.ulMimoLayers)} · ${rf.transmissionMode || DASH}`),
             kv(withHelp(ctx, ctx.t("rf.cqi"), "cqi"), [rf.lteCqi0, rf.lteCqi1].filter((v) => v !== null).join(" / ") || DASH),
             modulationRow(withHelp(ctx, ctx.t("rf.mod_ul"), "mcs"), rf.lteUlMcs),
             modulationRow(withHelp(ctx, ctx.t("rf.mod_dl"), "mcs"), rf.lteDlMcs),
@@ -157,6 +164,31 @@ export function mountRfCard(ctx: AppContext): void {
             txRows(rf.lteTxPower)
           )
     );
+
+    // The link as a whole (RRC, QoS class) and a 3G serving cell, where the router reports them
+    const link =
+      rf.rrcConnected !== null || rf.qci !== null
+        ? h(
+            "div",
+            { class: "grid grid-cols-1 sm:grid-cols-2 gap-x-4" },
+            rf.rrcConnected !== null ? kv(withHelp(ctx, ctx.t("rf.rrc"), "rrc"), ctx.t(rf.rrcConnected ? "rf.rrc_connected" : "rf.rrc_idle"), "text-right") : null,
+            rf.qci !== null ? kv(withHelp(ctx, ctx.t("rf.qci"), "qci"), String(rf.qci)) : null
+          )
+        : null;
+    const wcdma = rf.wcdma
+      ? h(
+          "section",
+          { class: "rounded-xl border border-base-content/[0.06] p-3", data: { rat: "wcdma" } },
+          h("header", { class: "flex items-center gap-2 mb-1" }, h("span", { class: "fs-badge" }, ctx.t("rf.wcdma")), helpMark(ctx, "wcdma")),
+          h(
+            "div",
+            { class: "grid grid-cols-1 sm:grid-cols-3 gap-x-4" },
+            kv(ctx.t("rf.rscp"), formatSigned(rf.wcdma.rscpDbm, "dBm")),
+            kv(ctx.t("rf.ecio"), formatSigned(rf.wcdma.ecioDb, "dB")),
+            kv(ctx.t("rf.psc"), rf.wcdma.psc === null ? DASH : String(rf.wcdma.psc))
+          )
+        )
+      : null;
 
     const scc = [...rf.lteScc, ...rf.nrScc];
     const sccRow =
@@ -203,7 +235,7 @@ export function mountRfCard(ctx: AppContext): void {
         agoLabel,
         refreshBtn
       ),
-      h("div", { class: "fs-card-body space-y-3" }, h("div", { class: "grid grid-cols-1 md:grid-cols-2 gap-3" }, nrPanel, ltePanel), identity, sccRow)
+      h("div", { class: "fs-card-body space-y-3" }, h("div", { class: "grid grid-cols-1 md:grid-cols-2 gap-3" }, nrPanel, ltePanel), wcdma, link, identity, sccRow)
     );
     updateAgo();
   };

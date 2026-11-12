@@ -105,6 +105,34 @@ PUSCH is the transmit power for data, and PUCCH is the transmit power for contro
 
 - Example: Remaining above 20 dBm for long periods indicates the uplink is struggling, leading to slow upload speeds; staying below 10 dBm indicates you are close to the cell tower.
 
+<a id="rrc"></a>
+
+### Radio connection (RRC): Connected or idle
+
+RRC (Radio Resource Control) is the control link between the router and the cell [[3GPP TS 36.331](https://www.3gpp.org/DynaReport/36331.htm)] [[3GPP TS 38.331](https://www.3gpp.org/DynaReport/38331.htm)]. While there is data to send it is "connected"; after a quiet spell the cell puts it back to "idle", which saves power and the cell's resources, and reconnects quickly the next time data comes. Only some routers report it.
+
+- Example: "connected" during a speed test and "idle" at night when nobody uses the internet are both normal.
+
+<a id="qci"></a>
+
+### QoS class (QCI): The priority your operator gives the connection
+
+QCI (4G) and 5QI (5G) are the service class your operator assigns to each data connection; it decides who goes first when the network is busy [[3GPP TS 23.203](https://www.3gpp.org/DynaReport/23203.htm)] [[3GPP TS 23.501](https://www.3gpp.org/DynaReport/23501.htm)]. Only some routers report it.
+
+- Example: plain internet access is usually `9`; a lower number means a higher priority, as on some operators' priority plans or business lines.
+
+<a id="wcdma"></a>
+
+### 3G signal: RSCP and Ec/Io
+
+When neither 4G nor 5G is available, the router may fall back to 3G (WCDMA). FengSui then shows 3G's own readings [[3GPP TS 25.215](https://www.3gpp.org/DynaReport/25215.htm)]:
+
+- **RSCP**: 3G signal strength in dBm. Closer to 0 is stronger; the reported range is roughly −120 to −25 dBm [[3GPP TS 25.133](https://www.3gpp.org/DynaReport/25133.htm)].
+- **Ec/Io**: 3G signal quality in dB. Closer to 0 is better.
+- **Scrambling code**: the 3G cell's number, which plays the part of the PCI in 4G and 5G.
+
+Many operators have switched their 3G networks off, so most of the time this part does not appear.
+
 ## Try these steps when your signal is poor
 
 1. **Move the router**: Place it near a window or in an elevated spot, away from metal cabinets and thick walls. Each time you move it, wait one minute and check the change in RSRP and SINR.

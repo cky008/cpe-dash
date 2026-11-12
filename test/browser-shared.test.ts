@@ -37,6 +37,7 @@ const BROWSER_SHARED_MODULES = [
   "src/text-sanitize.ts",
   "src/privacy-mask.ts",
   "src/router-family.ts",
+  "src/router-status.ts",
   "src/self-heal-status.ts",
   "src/access-plan.ts",
   "src/access-state.ts",

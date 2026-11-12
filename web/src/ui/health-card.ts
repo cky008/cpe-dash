@@ -1,10 +1,11 @@
 import type { LockVerification, PersistedLockState } from "../../../src/api-contract.ts";
 import { DASH, formatDuration } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
+import { batteryLine, loadText, routerUptimeSec, sensorsText, wifiText } from "../core/status-view.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { byId, h, icon, mount, perFrame, setText } from "./dom.ts";
-import { cardHead, kv } from "./widgets.ts";
+import { cardHead, kv, toneSpan } from "./widgets.ts";
 
 const VERIFY_KEYS: Readonly<Record<LockVerification["status"], MessageKey>> = {
   consistent: "health.verify_consistent",
@@ -31,11 +32,8 @@ export function mountHealthCard(ctx: AppContext): void {
   const root = byId("healthCard");
   let uptimeEl: HTMLElement | null = null;
 
-  const uptimeNow = (): number | null => {
-    const telemetry = ctx.store.state.telemetry;
-    if (!telemetry) return null;
-    return telemetry.device.uptimeSec + Math.max(0, Math.floor((ctx.now() - telemetry.capturedAtMs) / 1000));
-  };
+  // A router that reports no uptime of its own shows none (never one that just started)
+  const uptimeNow = (): number | null => routerUptimeSec(ctx.store.state.telemetry, ctx.now());
 
   const render = (): void => {
     const { telemetry, scheduler, topology, lockState, lockVerification } = ctx.store.state;
@@ -50,6 +48,11 @@ export function mountHealthCard(ctx: AppContext): void {
     const active = topology ? Object.values(topology.countsByMedium).reduce((n, c) => n + c, 0) : undefined;
     const verify = lockVerification ? ctx.t(VERIFY_KEYS[lockVerification.status]) : "";
     const verifyTone = lockVerification?.status === "drift" ? "text-warning" : lockVerification?.status === "consistent" ? "text-success" : "faint";
+    const status = telemetry?.status ?? null;
+    const battery = batteryLine(status?.battery ?? null, ctx.t, ctx.tr.locale);
+    const sensors = sensorsText(thermal?.sensors ?? [], ctx.t);
+    const load = loadText(status?.system ?? null, ctx.t);
+    const wifi = wifiText(status?.wifi ?? null, ctx.t);
 
     mount(
       root,
@@ -57,8 +60,13 @@ export function mountHealthCard(ctx: AppContext): void {
       h(
         "div",
         { class: "fs-card-body" },
+        battery ? kv(ctx.t("health.battery"), toneSpan(battery), "num text-right") : null,
         kv(ctx.t("health.temperature"), temperature, "text-right"),
+        sensors ? h("div", { class: "text-[0.6875rem] faint text-right -mt-1 truncate", title: sensors }, sensors) : null,
         kv(ctx.t("health.uptime"), uptimeEl),
+        load ? kv(ctx.t("health.load"), load) : null,
+        wifi ? kv(ctx.t("health.wifi"), wifi, "text-right") : null,
+        status?.firmwareUpdate === "available" ? kv(ctx.t("health.firmware"), h("span", { class: "text-info" }, ctx.t("health.firmware_available")), "text-right") : null,
         kv(ctx.t("health.clients"), active === undefined ? DASH : ctx.t("health.clients_value", { active })),
         kv(ctx.t("health.conntrack"), h("span", { class: "text-xs faint" }, ctx.t("health.conntrack_na")), "text-right"),
         kv(ctx.t("health.hold"), scheduler?.lastSessionHoldMs != null ? `${scheduler.lastSessionHoldMs} ms` : DASH),
