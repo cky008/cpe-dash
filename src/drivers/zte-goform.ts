@@ -1,4 +1,4 @@
-import type { DataLimitSetting, NetworkMode, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
+import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
@@ -7,7 +7,26 @@ import { type BatteryStatus, type SimCardStatus, type SimState, type Temperature
 import { detectSmsTextMode } from "../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
-import { ZTE_GOFORM_SLOTS, ZTE_MODE_NAMES, awaitZteUssd, emptyUssd, sameDataLimit, settleNothingToRead, zteLimitSize, zteModeOf, zteUssdText } from "./cellular.ts";
+import {
+  FENGSUI_APN_PROFILE,
+  ZTE_APN_PROFILE_KEYS,
+  ZTE_GOFORM_SLOTS,
+  ZTE_MODE_NAMES,
+  awaitOperatorStep,
+  awaitZteUssd,
+  emptyUssd,
+  sameDataLimit,
+  settleNothingToRead,
+  zteApnFields,
+  zteApnProfiles,
+  zteAuthOf,
+  zteLimitSize,
+  zteModeOf,
+  ztePdpName,
+  ztePdpOf,
+  zteScanRows,
+  zteUssdText,
+} from "./cellular.ts";
 import { carriersFromRows, neighbourOf, ratOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, md5Hex, sha256Hex, signedInElsewhere, wrongPassword } from "./login.ts";
@@ -552,7 +571,29 @@ function onOffOf(value: unknown): boolean | null {
  * What the cellular settings read asks for besides the connection mode: the network mode, the SIM
  * slot and the card's PIN attempts, and the data limit (`docs/dev/sources.md` §18.6).
  */
-const CELLULAR_KEYS: ReadonlyArray<string> = ["net_select", "sim_slot", "pinnumber", "pin_status", "modem_main_state", "data_volume_limit_switch", "data_volume_limit_unit", "data_volume_limit_size", "data_volume_alert_percent"];
+const CELLULAR_KEYS: ReadonlyArray<string> = [
+  "net_select",
+  "sim_slot",
+  "pinnumber",
+  "pin_status",
+  "modem_main_state",
+  "data_volume_limit_switch",
+  "data_volume_limit_unit",
+  "data_volume_limit_size",
+  "data_volume_alert_percent",
+  "net_select_mode",
+  "m_netselect_save",
+  "apn_mode",
+  "wan_apn",
+  "ipv6_wan_apn",
+  "pdp_type",
+  "ipv6_pdp_type",
+  "ppp_auth_mode",
+  "ppp_username",
+  "Current_index",
+  "m_profile_name",
+  "profile_name",
+];
 
 /** The slot number `SET_SIM_SLOT` takes (`null`: a slot ZTE's interface does not have). */
 function zteSlotNumber(slot: SimSlotRef): string | null {
@@ -1045,13 +1086,18 @@ class ZteGoformSession implements DriverSessionHandle {
   /**
    * The cellular settings as ZTE's own pages read and write them: `SET_BEARER_PREFERENCE` (network
    * mode), `SET_SIM_SLOT`, `SET_CONNECTION_MODE` (data roaming, sent with the dial mode the router
-   * has), `ENTER_PIN` and `ENABLE_PIN` / `DISABLE_PIN`, `DATA_LIMIT_SETTING` and `USSD_PROCESS`.
+   * has), `ENTER_PIN` and `ENABLE_PIN` / `DISABLE_PIN`, `DATA_LIMIT_SETTING`, `USSD_PROCESS`,
+   * `SCAN_NETWORK` / `SET_NETWORK` (the operator) and `APN_PROC_EX` (the access point).
    */
   readonly cellular: DriverCellular = {
     read: () => this.#cellularRead(),
     setNetworkMode: (mode, check) => this.#setNetworkMode(mode, check),
     setSimSlot: (slot, check) => this.#setSimSlot(slot, check),
     setRoaming: (enabled, check) => this.#setRoaming(enabled, check),
+    setApn: (choice, check, wait) => this.#setApn(choice, check, wait),
+    restoreApn: (restore, check, wait) => this.#restoreApn(restore, check, wait),
+    scanOperators: (check, wait) => this.#scanOperators(check, wait),
+    selectOperator: (selection, check, wait) => this.#selectOperator(selection, check, wait),
     enterPin: (pin, check) => this.#pinWrite(check, "ENTER_PIN", [["PinNumber", pin]], (after) => (after === "pin_required" ? false : after === null ? null : true)),
     setPinLock: (enabled, pin, check) => this.#setPinLock(enabled, pin, check),
     setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
@@ -1067,8 +1113,29 @@ class ZteGoformSession implements DriverSessionHandle {
     const slot = smallIntOf(raw["sim_slot"], 2);
     const limitOn = textOf(raw["data_volume_limit_switch"]);
     const plan = zteDataPlan((key) => raw[key]);
+    const selection = textOf(raw["net_select_mode"]) ?? textOf(raw["m_netselect_save"]);
+    const apnMode = textOf(raw["apn_mode"])?.toLowerCase() ?? null;
+    const manualApn = apnMode === "manual";
+    const v6 = ztePdpOf(raw["pdp_type"]) !== "ipv4" && ztePdpOf(raw["ipv6_pdp_type"]) === "ipv6";
+    const profile = textOf(raw["m_profile_name"]) ?? textOf(raw["profile_name"]);
+    const index = textOf(raw["Current_index"]);
     return {
       networkMode: zteModeOf(raw["net_select"]),
+      // The router says how it chooses, not which operator it was told to stay on
+      ...(selection === null ? {} : { operator: { selection: textOf(raw["net_select_mode"]) === "manual_select" || textOf(raw["m_netselect_save"]) === "manual_select" ? ("manual" as const) : ("auto" as const), plmn: null } }),
+      ...(apnMode === "auto" || manualApn
+        ? {
+            apn: {
+              mode: manualApn ? ("manual" as const) : ("auto" as const),
+              apn: textOf(raw[v6 ? "ipv6_wan_apn" : "wan_apn"]),
+              ipType: ztePdpOf(raw["pdp_type"]) === "ipv4" ? ("ipv4" as const) : ztePdpOf(raw["ipv6_pdp_type"]),
+              auth: zteAuthOf(raw["ppp_auth_mode"]),
+              hasUsername: textOf(raw["ppp_username"]) !== null,
+            },
+            // FengSui's own profile is overwritten by the next change, so it is nothing to go back to
+            apnRestore: !manualApn ? { mode: "auto" as const } : index !== null && /^\d{1,2}$/.test(index) && profile !== null && profile !== FENGSUI_APN_PROFILE ? { mode: "profile" as const, id: index } : null,
+          }
+        : {}),
       // The 4G firmware has two modes on record; the 5G one the family's list
       ...(fourG ? { networkModes: ["auto", "lte"] as NetworkMode[] } : {}),
       // A router that names no slot has none to switch
@@ -1113,6 +1180,150 @@ class ZteGoformSession implements DriverSessionHandle {
     const after = await getCmd(this.#http, ["ConnectionMode"], false, this.#at).catch(() => null);
     const read = after === null ? null : onOffOf(after["autoConnectWhenRoaming"]);
     settleSetting(check, read === null ? null : read === enabled);
+  }
+
+  /**
+   * ZTE's page changes the operator and the access point only with the data connection down: it
+   * disconnects first and connects again afterwards. The same here: a connection that is up is taken
+   * down with `DISCONNECT_NETWORK`, and `CONNECT_NETWORK` is sent once at the end whatever happened in
+   * between. A connection that was down stays down.
+   */
+  async #whileDisconnected<T>(check: WriteCheck, wait: DriverWait, run: () => Promise<T>): Promise<T> {
+    this.#guard();
+    const status = textOf((await getCmd(this.#http, ["ppp_status"], true, this.#at))["ppp_status"])?.toLowerCase() ?? "";
+    if (status !== "ppp_connected" && status !== "ppp_connecting") return await run();
+    const pppStatus = async (): Promise<boolean | null> => connectedOf((await getCmd(this.#http, ["ppp_status"], true, this.#at))["ppp_status"]);
+    const connect = async (): Promise<void> => {
+      await this.#post(check, "CONNECT_NETWORK", [["notCallback", "true"]]);
+    };
+    await this.#post(check, "DISCONNECT_NETWORK", [["notCallback", "true"]]);
+    let result: T;
+    try {
+      await awaitConnection(pppStatus, false, wait);
+      result = await run();
+    } catch (err: unknown) {
+      await connect().catch(() => undefined);
+      throw err;
+    }
+    await connect();
+    return result;
+  }
+
+  /** `SCAN_NETWORK`, then `m_netselect_status` until it is no longer `manual_selecting`, then the list (`m_netselect_contents`). */
+  async #scanOperators(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]> {
+    settleNothingToRead(check);
+    return await this.#whileDisconnected(check, wait, async () => {
+      await this.#post(check, "SCAN_NETWORK", []);
+      const done = await awaitOperatorStep(
+        async () => (await getCmd(this.#http, ["m_netselect_status"], false, this.#at))["m_netselect_status"],
+        (status) => (status === "manual_selecting" ? null : true),
+        wait
+      );
+      if (done === null) throw new CpeApiError("timeout", "The router was still searching for networks after two minutes");
+      return zteScanRows((await getCmd(this.#http, ["m_netselect_contents"], false, this.#at))["m_netselect_contents"]).map((row) => row.choice);
+    });
+  }
+
+  /**
+   * Back to automatic is the page's own way: `SET_BEARER_PREFERENCE` with the mode the router has. One
+   * operator is `SET_NETWORK` with the row of the router's last search (the form sends that row's two
+   * technology numbers back), then `m_netselect_result` until the router says how it went.
+   */
+  async #selectOperator(selection: OperatorSelection, check: WriteCheck, wait: DriverWait): Promise<void> {
+    this.#guard();
+    const state = await getCmd(this.#http, ["net_select", "m_netselect_contents"], true, this.#at);
+    if (selection.mode === "auto") {
+      const mode = textOf(state["net_select"]);
+      if (mode === null || !/^[A-Za-z0-9_]{1,32}$/.test(mode)) throw new CpeControlValidationError("The router's network mode could not be read, and automatic selection is written together with it: nothing was sent");
+      await this.#whileDisconnected(check, wait, async () => {
+        await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", mode]]);
+      });
+      const after = await getCmd(this.#http, ["net_select_mode", "m_netselect_save"], true, this.#at).catch(() => null);
+      const kept = after === null ? null : (textOf(after["net_select_mode"]) ?? textOf(after["m_netselect_save"]));
+      settleSetting(check, after === null || kept === null ? null : textOf(after["net_select_mode"]) !== "manual_select" && textOf(after["m_netselect_save"]) !== "manual_select");
+      return;
+    }
+    const rows = zteScanRows(state["m_netselect_contents"]).filter((row) => row.choice.plmn === selection.plmn);
+    const row = rows.find((found) => selection.rat === null || found.choice.rat === selection.rat);
+    if (!row) throw new CpeControlValidationError("This router registers on an operator from its last search, and that search does not list this one: search for networks first");
+    // The page's form takes these three technologies and no other
+    if (row.act !== "0" && row.act !== "2" && row.act !== "7") throw new CpeControlValidationError("This router's page registers by hand on 2G, 3G and 4G networks only");
+    const took = await this.#whileDisconnected(check, wait, async () => {
+      await this.#post(check, "SET_NETWORK", [
+        ["NetworkNumber", row.choice.plmn],
+        ["Rat", row.act],
+        ["nSubrat", row.subrat],
+      ]);
+      return await awaitOperatorStep(
+        async () => (await getCmd(this.#http, ["m_netselect_result"], false, this.#at))["m_netselect_result"],
+        (result) => (result === "manual_success" ? true : result === "manual_fail" ? false : null),
+        wait
+      );
+    });
+    // A registration the router gave up on is a write that did not take: recorded as such, and watched like one
+    settleSetting(check, took);
+  }
+
+  /**
+   * `APN_PROC_EX`. Automatic is one form. An access point set by hand is the page's two: `save` (into
+   * FengSui's own profile, added after the router's profiles the first time and overwritten from then
+   * on), then `set_default`. No other profile is changed.
+   */
+  async #setApn(choice: ApnChoice, check: WriteCheck, wait: DriverWait): Promise<void> {
+    this.#guard();
+    if (choice.mode === "auto") {
+      await this.#whileDisconnected(check, wait, async () => {
+        await this.#post(check, "APN_PROC_EX", [["apn_mode", "auto"]]);
+      });
+      const after = await getCmd(this.#http, ["apn_mode"], true, this.#at).catch(() => null);
+      const mode = after === null ? null : textOf(after["apn_mode"]);
+      settleSetting(check, mode === null ? null : mode.toLowerCase() === "auto");
+      return;
+    }
+    const listed = await getCmd(this.#http, [...ZTE_APN_PROFILE_KEYS, "apn_num_preset"], true, this.#at);
+    const profiles = zteApnProfiles(listed);
+    // A list that reads empty is not known to be empty: its first place is the profile the router came with
+    if (profiles.length === 0) throw new CpeControlValidationError("The router's list of access points could not be read: nothing was sent");
+    const own = profiles.find((profile) => profile.name === FENGSUI_APN_PROFILE);
+    const room = countValue(listed["apn_num_preset"], 20) || 10;
+    if (!own && profiles.length >= room) throw new CpeControlValidationError("The router's list of access points is full: delete one on the router's own page first");
+    const index = String(own ? own.index : profiles.length);
+    const pdp = ztePdpName(choice.ipType);
+    await this.#whileDisconnected(check, wait, async () => {
+      await this.#post(check, "APN_PROC_EX", [["apn_action", "save"], ["apn_mode", "manual"], ["profile_name", FENGSUI_APN_PROFILE], ["wan_dial", "*99#"], ["pdp_type", pdp], ["pdp_select", "auto"], ["index", index], ...zteApnFields(choice)]);
+      await this.#defaultApn(check, pdp, index);
+    });
+    const after = await getCmd(this.#http, ["apn_mode", "wan_apn", "ipv6_wan_apn", "Current_index"], true, this.#at).catch(() => null);
+    const mode = after === null ? null : textOf(after["apn_mode"]);
+    const name = after === null ? null : textOf(after[choice.ipType === "ipv6" ? "ipv6_wan_apn" : "wan_apn"]);
+    const current = after === null ? null : textOf(after["Current_index"]);
+    settleSetting(check, mode === null || name === null ? null : mode.toLowerCase() === "manual" && name === choice.apn && (current === null || current === index));
+  }
+
+  async #defaultApn(check: WriteCheck, pdp: string, index: string): Promise<void> {
+    await this.#post(check, "APN_PROC_EX", [
+      ["apn_mode", "manual"],
+      ["apn_action", "set_default"],
+      ["set_default_flag", "1"],
+      ["pdp_type", pdp],
+      ["index", index],
+    ]);
+  }
+
+  /** Back to automatic, or to the profile that was the default before (made the default again; its contents were never touched). */
+  async #restoreApn(restore: ApnRestore, check: WriteCheck, wait: DriverWait): Promise<void> {
+    if (restore.mode === "auto") return await this.#setApn({ mode: "auto" }, check, wait);
+    if (restore.mode !== "profile") throw new CpeControlValidationError("This router keeps its access points as profiles: there is no such one to go back to");
+    this.#guard();
+    const profile = zteApnProfiles(await getCmd(this.#http, ZTE_APN_PROFILE_KEYS, true, this.#at)).find((found) => String(found.index) === restore.id);
+    if (!profile || profile.pdpType === null || profile.name === FENGSUI_APN_PROFILE) throw new CpeControlValidationError("The access point profile that was in use is no longer on the router: nothing was sent");
+    const pdp = profile.pdpType;
+    await this.#whileDisconnected(check, wait, async () => {
+      await this.#defaultApn(check, pdp, restore.id);
+    });
+    const after = await getCmd(this.#http, ["apn_mode", "Current_index"], true, this.#at).catch(() => null);
+    const current = after === null ? null : textOf(after["Current_index"]);
+    settleSetting(check, current === null ? null : current === restore.id && textOf(after?.["apn_mode"])?.toLowerCase() === "manual");
   }
 
   /**

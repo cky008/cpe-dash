@@ -4,7 +4,7 @@ import { PIN_REFUSALS } from "../src/backends/driver.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/cpe-client.ts";
 import { parseCgdcont, quectelModeOf } from "../src/drivers/openwrt.ts";
-import { cellularOf, daemonOn, newCheck } from "./helpers/driver-daemon.ts";
+import { cellularOf, daemonOn, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 
 /**
@@ -119,18 +119,18 @@ describe("openwrt: the cellular settings", () => {
   it("writes the first PDP context's access point and type, and no credentials", async () => {
     const { client, state } = openwrtRouter({ brand: "quectel" });
     const check = newCheck();
-    await client.withSession((s) => cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, check));
+    await client.withSession((s) => cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, check, noWait));
     assert.deepEqual(wrote(state.executedCommands, "AT+CGDCONT="), ['AT+CGDCONT=1,"IP","example.apn"']);
     assert.deepEqual(check, { endpoints: ["openwrt:AT+CGDCONT"], readback: "match", reason: null });
     // Automatic: an empty name, the type the module has
-    await client.withSession((s) => cellularOf(s).setApn({ mode: "auto" }, newCheck()));
+    await client.withSession((s) => cellularOf(s).setApn({ mode: "auto" }, newCheck(), noWait));
     assert.equal(state.cgdcont, '"IP",""');
     // What a change replaced is written back as it was
-    await client.withSession((s) => cellularOf(s).restoreApn({ mode: "context", apn: "internet", ipType: "ipv4v6" }, newCheck()));
+    await client.withSession((s) => cellularOf(s).restoreApn({ mode: "context", apn: "internet", ipType: "ipv4v6" }, newCheck(), noWait));
     assert.equal(state.cgdcont, '"IPV4V6","internet"');
     const count = wrote(state.executedCommands, "AT+CGDCONT=").length;
-    await assert.rejects(client.withSession((s) => cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "pap", username: "user", password: "pass" }, newCheck())), /no command on record for its user name and password/);
-    await assert.rejects(client.withSession((s) => cellularOf(s).restoreApn({ mode: "profile", id: "2" }, newCheck())), CpeControlValidationError);
+    await assert.rejects(client.withSession((s) => cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "pap", username: "user", password: "pass" }, newCheck(), noWait)), /no command on record for its user name and password/);
+    await assert.rejects(client.withSession((s) => cellularOf(s).restoreApn({ mode: "profile", id: "2" }, newCheck(), noWait)), CpeControlValidationError);
     assert.equal(wrote(state.executedCommands, "AT+CGDCONT=").length, count);
   });
 });

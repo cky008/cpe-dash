@@ -75,8 +75,21 @@ export interface ZteRouterOptions {
   simSlot?: string;
   /** What the network answers a USSD code with (left out: nothing, the flag stays busy). */
   ussd?: { text: string; awaitsReply?: boolean } | { flag: string };
+  /**
+   * A router that searches for networks: `scan` is the list a search leaves in `m_netselect_contents`,
+   * `busy` how many times `m_netselect_status` still says it is searching, `register` what
+   * `m_netselect_result` says after `SET_NETWORK` (left out: it never says).
+   */
+  operators?: { scan: string; busy?: number; register?: "manual_success" | "manual_fail" };
+  /** A router with access point profiles: one `name($)apn($)…` string each, the first in use; `mode` is `apn_mode` at the start (default `auto`). */
+  apn?: { profiles: string[]; mode?: "auto" | "manual"; room?: string };
   /** The router's address (default `http://192.168.0.1`). */
   url?: string;
+}
+
+/** An access point profile the way the goform pages store one. */
+export function zteApnProfile(name: string, apn: string, pdp = "IP", auth = "none", user = "", pass = ""): string {
+  return [name, apn, "manual", "*99#", auth, user, pass, pdp, "auto", "", "auto", "", ""].join("($)");
 }
 
 /** A message row; `text` is stored as UTF-16 hexadecimal. */
@@ -123,8 +136,26 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       // A router with a SIM card to manage: its PIN state, roaming switch and data limit (left out: the keys read empty)
       ...(opts.sim ? { pinnumber: "3", puknumber: "10", pin_status: "0", modem_main_state: "modem_init_complete", roam_setting_option: "off", data_volume_limit_switch: "0" } : {}),
       ...(opts.simSlot === undefined ? {} : { sim_slot: opts.simSlot }),
+      ...(opts.operators ? { net_select_mode: "auto_select", m_netselect_save: "auto_select" } : {}),
+      ...(opts.apn
+        ? {
+            ...Object.fromEntries(opts.apn.profiles.map((profile, slot) => [`APN_configtmp${slot}`, profile])),
+            apn_mode: opts.apn.mode ?? "auto",
+            Current_index: "0",
+            ...(opts.apn.room === undefined ? {} : { apn_num_preset: opts.apn.room }),
+          }
+        : {}),
     },
   };
+  /** The profile in use shows through the keys the page reads the access point from. */
+  const showApn = (): void => {
+    const fields = (state.values[`APN_configtmp${state.values["Current_index"] ?? "0"}`] ?? "").split("($)");
+    const pdp = fields[7] ?? "IP";
+    Object.assign(state.values, { m_profile_name: fields[0] ?? "", pdp_type: pdp === "IP" ? "IP" : "", ipv6_pdp_type: pdp === "IP" ? "" : pdp, ppp_auth_mode: fields[4] ?? "", ppp_username: fields[5] ?? "" });
+    state.values[pdp === "IPv6" ? "ipv6_wan_apn" : "wan_apn"] = fields[1] ?? "";
+  };
+  if (opts.apn) showApn();
+  let scanBusy = 0;
   const simPin = opts.simPin ?? "1234";
   /** A PIN write: the right PIN applies `then`, a wrong one costs an attempt (and at none left the card wants its PUK). */
   const pinWrite = (pin: string | null, then: () => void): { json: Record<string, string> } => {
@@ -200,7 +231,10 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
         else if (key === "sms_unread_num" && opts.sms !== false) out[key] = opts.unreadCount ?? String(state.sms.filter((row) => row.tag === "1").length);
         else if (key === "lan_station_list" && opts.stations?.lan) (out as Record<string, unknown>)[key] = opts.stations.lan;
         else if (key === "station_list" && opts.stations?.wifi) (out as Record<string, unknown>)[key] = opts.stations.wifi;
-        else if (state.values[key] !== undefined) out[key] = state.values[key] ?? "";
+        else if (key === "m_netselect_status" && scanBusy > 0) {
+          scanBusy -= 1;
+          out[key] = "manual_selecting";
+        } else if (state.values[key] !== undefined) out[key] = state.values[key] ?? "";
         else out[key] = "";
       }
       return { json: out };
@@ -230,7 +264,37 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       if (goformId === "BAND_SELECT") state.values["lte_band_lock"] = fields.get("lte_band_mask") ?? "";
       if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK_MERGE") state.values["nr5g_band_mask"] = fields.get("Z5g_lockband_no_format_mask") ?? "";
       if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK") state.values["nr5g_band_mask"] = fields.get("nr5g_band_mask") ?? "";
-      if (goformId === "SET_BEARER_PREFERENCE") state.values["net_select"] = fields.get("BearerPreference") ?? "";
+      // The page changes the operator and the access point with the connection down, and the router holds it to that
+      if (["SCAN_NETWORK", "SET_NETWORK", "APN_PROC_EX"].includes(goformId) && state.values["ppp_status"] !== "ppp_disconnected") return { json: { result: "failure" } };
+      if (goformId === "SET_BEARER_PREFERENCE") {
+        state.values["net_select"] = fields.get("BearerPreference") ?? "";
+        if (opts.operators) Object.assign(state.values, { net_select_mode: "auto_select", m_netselect_save: "auto_select" });
+      }
+      if (goformId === "SCAN_NETWORK") {
+        if (!opts.operators) return { json: { result: "failure" } };
+        scanBusy = opts.operators.busy ?? 0;
+        Object.assign(state.values, { m_netselect_status: "manual_selected", m_netselect_contents: opts.operators.scan });
+      }
+      if (goformId === "SET_NETWORK") {
+        if (!opts.operators) return { json: { result: "failure" } };
+        state.values["m_netselect_result"] = opts.operators.register ?? "";
+        if (opts.operators.register === "manual_success") Object.assign(state.values, { net_select_mode: "manual_select", m_netselect_save: "manual_select" });
+      }
+      if (goformId === "APN_PROC_EX") {
+        if (!opts.apn) return { json: { result: "failure" } };
+        const action = fields.get("apn_action");
+        const index = fields.get("index") ?? "";
+        if (fields.get("apn_mode") === "auto") state.values["apn_mode"] = "auto";
+        else if (action === "save") {
+          const pdp = fields.get("pdp_type") ?? "IP";
+          const v6 = pdp === "IPv6" ? "ipv6_" : "";
+          state.values[`APN_configtmp${index}`] = zteApnProfile(fields.get("profile_name") ?? "", fields.get(`${v6}wan_apn`) ?? "", pdp, fields.get(`${v6}ppp_auth_mode`) ?? "", fields.get(`${v6}ppp_username`) ?? "", fields.get(`${v6}ppp_passtmp`) ?? "");
+        } else if (action === "set_default") {
+          if (state.values[`APN_configtmp${index}`] === undefined) return { json: { result: "failure" } };
+          Object.assign(state.values, { apn_mode: "manual", Current_index: index });
+          showApn();
+        }
+      }
       if (goformId === "LTE_LOCK_CELL_SET") {
         state.values["lte_pci_lock"] = fields.get("lte_pci_lock") ?? "";
         state.values["lte_earfcn_lock"] = fields.get("lte_earfcn_lock") ?? "";

@@ -165,12 +165,9 @@ describe("REST: the cellular settings", () => {
       ] as const) {
         assert.deepEqual([(await fx.call("POST", route, body)).json["errorCode"], route], ["VALIDATION_ERROR", route]);
       }
-      // ZTE's goform driver has no airplane switch, operator selection, APN or traffic reset (yet)
+      // ZTE's goform pages have no airplane switch and no way to clear the traffic counters
       for (const [route, body, feature] of [
         ["/api/control/airplane-mode", { enabled: true, confirm: true }, "airplaneSwitch"],
-        ["/api/control/operator-scan", { confirm: true }, "operatorSelect"],
-        ["/api/control/operator", { mode: "auto", confirm: true }, "operatorSelect"],
-        ["/api/control/apn", { mode: "auto", confirm: true }, "apn"],
         ["/api/control/traffic-reset", { confirm: true }, "trafficReset"],
       ] as const) {
         const refused = await fx.call("POST", route, body);
@@ -215,7 +212,7 @@ describe("MCP: the cellular settings", () => {
       const listed = await fx.tools();
       assert.deepEqual(
         listed.map((tool) => tool.name),
-        ["get_cellular_settings", "set_network_mode", "set_sim_slot", "sim_pin", "set_data_roaming", "set_data_limit", "send_ussd"]
+        ["get_cellular_settings", "set_network_mode", "scan_operators", "select_operator", "set_sim_slot", "sim_pin", "set_data_roaming", "set_apn", "set_data_limit", "send_ussd"]
       );
       for (const tool of listed.slice(1)) {
         assert.ok(tool.inputSchema.required?.includes("confirm"), tool.name);

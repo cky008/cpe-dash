@@ -71,12 +71,12 @@ describe("Static demo backend vs the real daemon on a ZTE mobile router", () => 
     assert.ok(seed.sms.messages.length >= 3);
     assert.deepEqual(seed.sms.status.abilities, { send: true, delete: "message", markRead: "router" });
     // The supported-devices row of a mobile router: a battery and a SIM card (its slot and PIN too), no airplane mode
-    // on this interface; the network mode without operator selection, roaming and the data limit, and USSD
+    // on this interface; the network mode and the operator, roaming, the access point and the data limit, and USSD
     assert.deepEqual(seed.device?.profile.support?.modules.slice(-6).map((m) => [m.en, m.mark]), [
       ["Battery", "?"],
       ["SIM card", "?"],
       ["Airplane mode", ""],
-      ["Network mode & operator", "△"],
+      ["Network mode & operator", "?"],
       ["Data settings", "△"],
       ["USSD", "?"],
     ]);

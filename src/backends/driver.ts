@@ -327,7 +327,7 @@ export class DriverBackend implements RouterBackend {
       async (cellular, write) => {
         if (!cellular.setApn) throw noWrite("change the access point");
         const before = await cellular.read().catch((): DriverCellularState => ({}));
-        await cellular.setApn(choice, write.check);
+        await cellular.setApn(choice, write.check, SESSION_WAIT);
         // Only an access point the router can be switched back to is worth watching the WAN for
         return { previous: cellular.restoreApn ? (before.apnRestore ?? null) : null };
       },
@@ -361,7 +361,7 @@ export class DriverBackend implements RouterBackend {
           await cellular.selectOperator(change.previous, write.check, SESSION_WAIT);
         } else {
           if (!cellular.restoreApn) throw noWrite("switch the access point back");
-          await cellular.restoreApn(change.previous, write.check);
+          await cellular.restoreApn(change.previous, write.check, SESSION_WAIT);
         }
         return { applied: true };
       },

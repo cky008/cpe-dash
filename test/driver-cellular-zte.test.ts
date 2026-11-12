@@ -243,8 +243,6 @@ describe("cellular settings through the daemon (zte-goform)", () => {
       assert.match(fx.applied.at(-1)?.summaryEn ?? "", /^The WAN did not come back: put the SIM slot back to what it was/);
       assert.deepEqual(await fx.core.controls.revertLinkChange({ kind: "network_mode", previous: "lte" }), { applied: true });
       assert.equal(state.values["net_select"], "Only_LTE");
-      // What the driver has no way back for is refused, not guessed
-      await assert.rejects(fx.core.controls.revertLinkChange({ kind: "operator", previous: { mode: "auto" } }), DeviceReadOnlyError);
       assert.equal(fx.linkChanges.length, 0, "a way back is not itself watched");
     } finally {
       await fx.cleanup();
@@ -308,7 +306,7 @@ describe("cellular settings through the daemon (zte-goform)", () => {
       const { features } = fx.core.scheduler.getStatus().device;
       assert.deepEqual(
         [features.networkMode, features.simSlot, features.simPin, features.roaming, features.dataLimit, features.ussd, features.airplaneSwitch, features.apn, features.operatorSelect, features.trafficReset],
-        ["enabled", "enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]
+        ["enabled", "enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented", "enabled", "enabled", "not_implemented"]
       );
       fx.core.scheduler.device.setDisabledWrites([{ model: "MC888", feature: "simSlot" }]);
       const requests = mock.requests.length;

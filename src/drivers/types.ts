@@ -297,9 +297,9 @@ export interface DriverCellular {
   setAirplaneMode?(enabled: boolean, check: WriteCheck): Promise<void>;
   /** Whether data may be used while roaming. */
   setRoaming?(enabled: boolean, check: WriteCheck): Promise<void>;
-  setApn?(choice: ApnChoice, check: WriteCheck): Promise<void>;
+  setApn?(choice: ApnChoice, check: WriteCheck, wait: DriverWait): Promise<void>;
   /** Switch back to the access point a change replaced. */
-  restoreApn?(restore: ApnRestore, check: WriteCheck): Promise<void>;
+  restoreApn?(restore: ApnRestore, check: WriteCheck, wait: DriverWait): Promise<void>;
   /** Search for networks (up to a minute; many routers drop the connection meanwhile). */
   scanOperators?(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]>;
   selectOperator?(selection: OperatorSelection, check: WriteCheck, wait: DriverWait): Promise<void>;

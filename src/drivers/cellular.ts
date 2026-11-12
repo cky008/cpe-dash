@@ -1,4 +1,4 @@
-import { USSD_MAX_TEXT, type DataLimitSetting, type NetworkMode, type OperatorChoice, type OperatorRat, type SimSlotRef, type UssdAnswer } from "../cellular.ts";
+import { USSD_MAX_TEXT, type ApnAuthMode, type ApnIpType, type ApnSetting, type DataLimitSetting, type NetworkMode, type OperatorChoice, type OperatorRat, type SimSlotRef, type UssdAnswer } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeApiError } from "../cpe-client.ts";
 import type { WriteCheck } from "../device-access.ts";
@@ -142,19 +142,128 @@ export function operatorChoice(state: unknown, name: unknown, numeric: unknown, 
 /** At most this many networks are kept of a scan (a border area lists a few dozen). */
 export const MAX_SCAN_ROWS = 64;
 
+/** A row of ZTE's scan list, with the two numbers its register form sends back as they came (`Rat`, `nSubrat`). */
+export interface ZteScanRow {
+  choice: OperatorChoice;
+  act: string;
+  subrat: string;
+}
+
 /**
  * ZTE's scan list (`m_netselect_contents`): rows `state,"name",numeric,rat[,subrat]` joined by `;`
  * (the page's own parser reads it this way).
  */
-export function parseZteOperators(value: unknown): OperatorChoice[] {
-  const out: OperatorChoice[] = [];
+export function zteScanRows(value: unknown): ZteScanRow[] {
+  const out: ZteScanRow[] = [];
   for (const row of (longTextOf(value, MAX_SCAN_CHARS) ?? "").split(";").slice(0, MAX_SCAN_ROWS)) {
     const fields = row.split(",");
     if (fields.length < 4) continue;
-    const choice = operatorChoice(fields[0]?.trim(), fields[1], fields[2], fields[3]?.trim());
-    if (choice) out.push(choice);
+    const act = fields[3]?.trim() ?? "";
+    const choice = operatorChoice(fields[0]?.trim(), fields[1], fields[2], act);
+    if (!choice) continue;
+    const subrat = fields[4]?.trim() ?? "";
+    out.push({ choice, act, subrat: /^\d{1,2}$/.test(subrat) ? subrat : "" });
   }
   return out;
+}
+
+export function parseZteOperators(value: unknown): OperatorChoice[] {
+  return zteScanRows(value).map((row) => row.choice);
+}
+
+/** How long a search for networks and a registration are waited for (ZTE's page asks once a second, up to two minutes). */
+export const OPERATOR_POLLS = 120;
+export const OPERATOR_POLL_MS = 1000;
+
+/**
+ * Ask until `done` says the router has finished (`true` or `false`: its verdict), `OPERATOR_POLLS`
+ * times at most. `null`: it never said.
+ */
+export async function awaitOperatorStep(read: () => Promise<unknown>, done: (value: string | null) => boolean | null, wait: DriverWait): Promise<boolean | null> {
+  for (let ask = 0; ask < OPERATOR_POLLS; ask += 1) {
+    if (ask > 0) await wait.sleep(OPERATOR_POLL_MS);
+    const verdict = done(textOf(await read().catch(() => null)));
+    if (verdict !== null) return verdict;
+  }
+  return null;
+}
+
+// ── Access points ────────────────────────────────────────────────────────────
+
+/**
+ * The one access point profile FengSui adds to a router that keeps a list of them, and the only one
+ * it ever overwrites: the profiles the router came with and the ones its owner made stay as they are.
+ */
+export const FENGSUI_APN_PROFILE = "FengSui";
+
+const ZTE_PDP_NAMES: Readonly<Record<ApnIpType, string>> = { ipv4: "IP", ipv6: "IPv6", ipv4v6: "IPv4v6" };
+
+/** ZTE's name for an address type (`pdp_type`). */
+export function ztePdpName(ipType: ApnIpType): string {
+  return ZTE_PDP_NAMES[ipType];
+}
+
+export function ztePdpOf(value: unknown): ApnIpType | null {
+  const text = textOf(value)?.toLowerCase();
+  if (text === "ip" || text === "ipv4") return "ipv4";
+  if (text === "ipv6") return "ipv6";
+  if (text === "ipv4v6") return "ipv4v6";
+  return null;
+}
+
+/** An authentication mode as ZTE's pages name it (`none`, `pap`, `chap`; `pap_chap` is not one FengSui sets). */
+export function zteAuthOf(value: unknown): ApnAuthMode | null {
+  const text = textOf(value)?.toLowerCase();
+  return text === "none" || text === "pap" || text === "chap" ? text : null;
+}
+
+/** One profile of the goform pages' list, at the place the page counts it. */
+export interface ZteApnProfile {
+  index: number;
+  name: string;
+  /** The page's own name for the address type, sent back as it is when the profile is made the default. */
+  pdpType: string | null;
+}
+
+/** The keys the goform pages keep their access point profiles under, one profile each. */
+export const ZTE_APN_PROFILE_KEYS: ReadonlyArray<string> = Array.from({ length: 20 }, (_unused, slot) => `APN_configtmp${slot}`);
+
+/**
+ * The goform pages' profile list: `name($)apn($)…($)…($)auth($)user($)password($)pdpType($)…`, one
+ * profile per key; the page counts the ones that are there, in order, and so does this. Only the name
+ * and the address type leave here: the credentials stay on the router.
+ */
+export function zteApnProfiles(raw: Readonly<Record<string, unknown>>): ZteApnProfile[] {
+  const out: ZteApnProfile[] = [];
+  for (const key of ZTE_APN_PROFILE_KEYS) {
+    const text = longTextOf(raw[key], 1024);
+    if (text === null) continue;
+    const fields = text.split("($)");
+    const name = (fields[0] ?? "").trim();
+    if (name === "") continue;
+    const pdp = (fields[7] ?? "").trim();
+    out.push({ index: out.length, name, pdpType: /^(?:IP|IPv6|IPv4v6)$/.test(pdp) ? pdp : null });
+  }
+  return out;
+}
+
+/** The fields the goform pages' save form takes for a profile of each address type (the page's own three shapes). */
+export function zteApnFields(setting: ApnSetting): Array<[string, string]> {
+  const v4: Array<[string, string]> = [
+    ["wan_apn", setting.apn],
+    ["ppp_auth_mode", setting.auth],
+    ["ppp_username", setting.username],
+    ["ppp_passtmp", setting.password],
+  ];
+  const v6: Array<[string, string]> = [
+    ["ipv6_wan_apn", setting.apn],
+    ["ipv6_ppp_auth_mode", setting.auth],
+    ["ipv6_ppp_username", setting.username],
+    ["ipv6_ppp_passtmp", setting.password],
+  ];
+  if (setting.ipType === "ipv4") return v4;
+  if (setting.ipType === "ipv6") return v6;
+  return [...v4, ["dns_mode", "auto"], ["prefer_dns_manual", ""], ["standby_dns_manual", ""], ...v6];
 }
 
 /** ZTE's slot numbers: `0` the card in the tray, `1` and `2` the built-in ones (notes library A). */
