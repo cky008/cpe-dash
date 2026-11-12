@@ -1,6 +1,6 @@
 import { CpeControlService } from "./cpe-controls.ts";
 import type { HuaweiCpeClient } from "./cpe-client.ts";
-import { type DeviceReport, buildDeviceReport } from "./device-profile.ts";
+import { type DeviceReport, buildDeviceReport, statusReadsOf } from "./device-profile.ts";
 import { sanitizeDeviceReport } from "./sanitize.ts";
 import { FENGSUI_VERSION } from "./version.ts";
 import type { GlobalTelemetrySnapshot } from "./cpe-domain.ts";
@@ -77,6 +77,7 @@ export function deviceReportOf(core: FengSuiCore): DeviceReport {
       generatedAtIso: new Date().toISOString(),
       access: core.scheduler.device.snapshot(),
       writes: core.scheduler.genericWrites,
+      statusReads: statusReadsOf(core.monitor.getCachedTelemetry()?.status),
     })
   );
 }

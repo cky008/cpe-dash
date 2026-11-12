@@ -1,7 +1,7 @@
 import type { DeviceFeature } from "./device-profile.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { UNSUPPORTED_FEATURES, type UnsupportedFeature, VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedModel, reportVerifiedModels } from "./firmware.ts";
-import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, familyImplements, routerVariant } from "./router-family.ts";
+import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, STATUS_READ_FEATURES, familyImplements, isStatusReadFeature, routerVariant } from "./router-family.ts";
 
 export { UNSUPPORTED_FEATURES, type UnsupportedFeature, familyImplements };
 import type { SupportedLocale } from "./types.ts";
@@ -425,7 +425,27 @@ export const ZTE_REQPROC_MODELS: ReadonlyArray<string> = ["ZLT T10D MAX", "ZLT M
 /** The ZTE goform models that open their developer options before a lock (the driver's branches 2 and 3: `zteBranch`). */
 export const ZTE_DEVELOPER_OPTION_MODELS: ReadonlyArray<string> = ["MC8020", "MC888", "MC888 Pro", "MC888S", "MC888 Ultra", "MC888D", "MC8830", "F50", "F50 Pro", "MF79U"];
 
+/** The forms that have no battery (only a mobile router carries one). */
+const NO_BATTERY_FORMS: ReadonlyArray<DeviceForm> = ["indoor", "outdoor", "usb", "module", "gateway"];
+
+/** One fact per brand that reads a battery: the forms without one show — there. */
+const NO_BATTERY_FACTS: ReadonlyArray<ModelFact> = (["huawei", "zte-goform", "zte-zwrt"] as const).map((family) => ({
+  family,
+  forms: NO_BATTERY_FORMS,
+  features: ["battery"],
+  effect: "absent",
+  zh: "只有随身路由器有电池",
+  en: "only a mobile router has a battery",
+}));
+
 export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
+  ...NO_BATTERY_FACTS,
+  {
+    family: "openwrt",
+    features: ["simCard"],
+    zh: "PIN 和 PUK 的剩余次数只有移远模组报告（`AT+QPINC`）；广和通模组只报告卡是否可用",
+    en: "only a Quectel module reports the PIN and PUK tries left (`AT+QPINC`); a Fibocom one reports whether the card is usable",
+  },
   {
     family: "huawei",
     features: ["bandLock"],
@@ -569,7 +589,7 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
 ];
 
 /** Features read rather than written: a verified read of one makes it ✓. */
-export const READ_FEATURES: ReadonlySet<DeviceFeature> = new Set<DeviceFeature>(["telemetry", "neighbors", "topology", "smsRead"]);
+export const READ_FEATURES: ReadonlySet<DeviceFeature> = new Set<DeviceFeature>(["telemetry", "neighbors", "topology", "smsRead", ...STATUS_READ_FEATURES]);
 
 interface Module {
   zh: string;
@@ -596,6 +616,9 @@ export const MODULES: ReadonlyArray<Module> = [
     parts: { zh: ["安全开关", "Wi-Fi 7", "天线"], en: ["the security switches", "Wi-Fi 7", "the antenna"] },
   },
   { zh: "访问控制", en: "Access control", features: ["accessControl"] },
+  { zh: "电池", en: "Battery", features: ["battery"] },
+  { zh: "SIM 卡", en: "SIM card", features: ["simCard"] },
+  { zh: "飞行模式", en: "Airplane mode", features: ["airplaneMode"] },
 ];
 
 const FORM_LABELS: Readonly<Record<DeviceForm, { zh: string; en: string }>> = {
@@ -703,7 +726,8 @@ interface FeatureMark {
 }
 
 function featureMark(subject: Subject, feature: DeviceFeature, records: Records): FeatureMark {
-  if (subject.names.some((name) => isVerifiedModel(name))) return { mark: "✓", facts: [] };
+  // The verified model's verification covers what FengSui read and wrote then; the status reads came later
+  if (!isStatusReadFeature(feature) && subject.names.some((name) => isVerifiedModel(name))) return { mark: "✓", facts: [] };
   const family = subject.family;
   if (family === null) return { mark: "", facts: [] };
   const access = READ_FEATURES.has(feature) ? "read" : "write";
@@ -979,14 +1003,18 @@ export function supportedDevicesSection(
   const switches = MODULES.find((module) => module.features.includes("securitySwitches"))?.parts;
   const split = MODULES.filter((module) => module.features.length > 1);
   const anyUnsupported = tables.some((table) => table.unsupported);
+  // The columns of the status reads, which the verified model's verification does not cover
+  const later = MODULES.filter((module) => module.features.every((feature) => isStatusReadFeature(feature)));
+  const laterZh = later.map((module) => `「${module.zh}」`).join("、");
+  const laterEn = joinAll(later.map((module) => module.en), true);
   const legend = en
     ? [
         "What the marks mean:",
         "",
-        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels}, which also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.${reportSentence}`,
+        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels} but the ${laterEn} columns (added later, marked from the facts like any other model); it also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.${reportSentence}`,
         "- **? Waiting for a report**: FengSui implements it from the interface notes and it is on by default; nobody has confirmed it on a real router yet. Each write is sent once and read back, and you can turn each one off under Settings → Device.",
         "- **△ Partly, or with a condition**: the conditions are under each brand's table.",
-        `- **— Not available**: the router or its interface does not have the feature, or someone tested it and it did not work${anyUnsupported ? "" : " (none in the table yet)"}.`,
+        `- **— Not available**: the router or its interface does not have the feature (a CPE has no battery), or someone tested it and it did not work${anyUnsupported ? "" : " (no such report in the table yet)"}.`,
         "- An empty cell: FengSui does not do this there yet.",
         ...(mixed ? [`- Where a cell has more than one mark, they follow the column's parts in order: ${split.map((module) => `${module.en} is ${(module.parts?.en ?? []).join(" / ")}`).join("; ")}.`] : []),
         `- "Router switches" are ${joinAll(switches?.en ?? [], true)}, where the router has them (Wi-Fi 7, for one, takes a Wi-Fi 7 router).`,
@@ -995,10 +1023,10 @@ export function supportedDevicesSection(
     : [
         "表里的符号：",
         "",
-        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 的全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。${reportSentence}`,
+        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 上除了${laterZh}这几列（后来加的，和其他型号一样按事实标），全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。${reportSentence}`,
         "- **? 等待回报**：烽燧按接口资料实现了，默认开启，还没有人在真机上确认。写入每次只发一次，写后回读核对，可以在「设置 → 设备」逐项关闭。",
         "- **△ 部分支持或有条件**：条件写在各品牌的表下面。",
-        `- **— 不支持**：路由器或它的接口没有这项功能，或者有人实测过不能用${anyUnsupported ? "" : "（表里暂时还没有）"}。`,
+        `- **— 不支持**：路由器或它的接口没有这项功能（比如室内 CPE 没有电池），或者有人实测过不能用${anyUnsupported ? "" : "（实测不能用的，表里暂时还没有）"}。`,
         "- 空白：烽燧还没有做。",
         ...(mixed ? [`- 一格里有几个符号时，依次对应这一列包含的功能：${split.map((module) => `「${module.zh}」是${(module.parts?.zh ?? []).join(" / ")}`).join("，")}。`] : []),
         `- 「路由器开关」指${joinAll(switches?.zh ?? [], false)}，路由器本身有这些功能才谈得上（比如 Wi-Fi 7 要路由器支持 Wi-Fi 7）。`,

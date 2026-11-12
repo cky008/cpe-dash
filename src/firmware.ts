@@ -1,5 +1,5 @@
 import type { DeviceFeature } from "./device-profile.ts";
-import { type RouterFamily, familyFeatures, routerVariant } from "./router-family.ts";
+import { type RouterFamily, familyFeatures, isStatusReadFeature, routerVariant } from "./router-family.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -83,6 +83,8 @@ export function isReportVerifiedModel(
   let confirmed = 0;
   // The features of the form of its brand's interface the model speaks (as reported, else as on record)
   for (const { feature, access } of familyFeatures(family, routerVariant(family, variant, name))) {
+    // The status reads are confirmed one by one (a CPE has no battery to report on)
+    if (isStatusReadFeature(feature)) continue;
     if (isVerifiedFeature(family, name, feature, access, verified)) confirmed += 1;
     else if (!unsupported.some((entry) => entry.family === family && entry.model === name && entry.feature === feature)) return false;
   }

@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import type { DeviceProfileResponse, DeviceReportResponse } from "../src/api-contract.ts";
 import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { ApiErrorTally, DEVICE_PROBE_PATHS, type ProbeSession, buildDeviceReport, probeDevice } from "../src/device-profile.ts";
+import { ApiErrorTally, DEVICE_FEATURES, DEVICE_PROBE_PATHS, type ProbeSession, buildDeviceReport, probeDevice } from "../src/device-profile.ts";
 import { sanitizeDeviceReport } from "../src/sanitize.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
@@ -153,10 +153,13 @@ describe("device profile: the token route", () => {
       const probe = await probeDevice(session, { nowIso: NOW, origin: "startup" });
       await stack.monitor.recordDeviceProbe(probe);
       assert.deepEqual([(await profileOf())?.identity.model, (await profileOf())?.identity.softwareVersion], ["H168-383", "4.4.0.1(H1006SP19C00)"], "a clean profile is served as it is");
-      // The router's row of Supported devices: the verified model, everything ✓
+      // The router's row of Supported devices: the verified model
       const row = (await responseOf()).support;
-      assert.deepEqual([row?.family, row?.model, row?.section, row?.notes], ["huawei", "H168-383", "huawei", []]);
-      assert.ok(row?.modules.every((m) => m.mark === "✓"));
+      // The verified model's one note: it has no battery
+      assert.deepEqual([row?.family, row?.model, row?.section, row?.notes?.map((n) => n.en)], ["huawei", "H168-383", "huawei", ["Battery: only a mobile router has a battery"]]);
+      // Everything ✓ but the status reads that came later: no battery (—), SIM card and airplane mode not done (empty)
+      assert.deepEqual(row?.modules.map((m) => m.mark).slice(-3), ["—", "", ""]);
+      assert.ok(row?.modules.slice(0, -3).every((m) => m.mark === "✓"));
 
       // A router whose allowlisted identity fields carry identifiers: the allowlist alone would let them through
       const odd = structuredClone(probe);
@@ -270,10 +273,16 @@ describe("device report: one line per feature to register from", () => {
       access: { family: "zte-zwrt", writes: "experimental", reads },
       // The latest write of a feature counts: a band lock that read back otherwise, then as written
       writes: [write("bandLock", "applied", "mismatch"), write("bandLock", "applied", "match"), write("cellLock", "applied", "mismatch"), write("reboot", "failed", "none")],
+      // The latest poll carried a battery and no SIM card status
+      statusReads: { battery: true, simCard: false },
     });
     assert.equal(report.access?.family, "zte-zwrt", "the brand an entry names");
     const by = new Map(report.checks.map((c) => [c.feature, c]));
-    assert.equal(report.checks.length, 14);
+    assert.equal(report.checks.length, DEVICE_FEATURES.length);
+    assert.deepEqual(by.get("battery"), { feature: "battery", access: "read", result: "works", evidence: "available" });
+    // A poll without it says nothing (a router without the hardware is no failed read)
+    assert.deepEqual(by.get("simCard"), { feature: "simCard", access: "read", result: "untested", evidence: null });
+    assert.deepEqual(by.get("airplaneMode"), { feature: "airplaneMode", access: "read", result: "untested", evidence: null });
     assert.deepEqual(by.get("telemetry"), { feature: "telemetry", access: "read", result: "works", evidence: "available" });
     assert.deepEqual(by.get("neighbors"), { feature: "neighbors", access: "read", result: "failed", evidence: "unavailable" });
     assert.deepEqual(by.get("smsRead"), { feature: "smsRead", access: "read", result: "untested", evidence: "unknown" });

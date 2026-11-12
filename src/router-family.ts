@@ -51,8 +51,11 @@ export interface RouterFamilyFacts {
   defaultUsername: string;
   /** The router's usual address, a hint for the connection form. */
   defaultAddress: string;
-  /** Read sections the family implements (the others are not available on it). */
-  reads: ReadonlyArray<"telemetry" | "neighbors" | "topology" | "sms">;
+  /**
+   * What the family reads: the read sections it implements (the others are not available on it) and
+   * the status the 5 s poll reads besides the signal (`battery`, the `simCard`, `airplaneMode`).
+   */
+  reads: ReadonlyArray<"telemetry" | "neighbors" | "topology" | "sms" | "battery" | "simCard" | "airplaneMode">;
   /**
    * The writes FengSui implements for a router of this family that nobody verified: a driver family's
    * are what its driver sends, Huawei's are the generic HiLink writes (appendix A.11 of the protocol
@@ -95,15 +98,15 @@ export interface RouterFamilyVariant {
  * (`docs/dev/sources.md` §18.3 and §18.4 name each source).
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
-  huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
-  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "sms"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms", "battery"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
+  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "topology", "sms", "battery", "simCard"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "sms", "battery", "simCard"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   fiberhome: {
     defaultUsername: "admin",
     defaultAddress: "192.168.8.1",
-    reads: ["telemetry", "neighbors", "sms"],
+    reads: ["telemetry", "neighbors", "sms", "airplaneMode"],
     writes: ["bandLock", "cellLock", "reboot", "smsWrite"],
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
@@ -111,11 +114,25 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
   },
   nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors", "topology"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
-  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "topology", "sms"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "topology", "sms", "simCard", "airplaneMode"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 
-/** The read features and the read section each one is read in. */
-const READ_FEATURE_SECTIONS = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms" } as const;
+/**
+ * The status the 5 s poll reads besides the signal (`GlobalTelemetrySnapshot.status`). They came after
+ * the H168-383 was verified, and some routers lack the hardware (a CPE has no battery), so neither the
+ * verified model's verification nor a model's verification by reports covers them: each is ✓ only
+ * from a report of its own (`VERIFIED_FEATURES`).
+ */
+export const STATUS_READ_FEATURES = ["battery", "simCard", "airplaneMode"] as const;
+
+export type StatusReadFeature = (typeof STATUS_READ_FEATURES)[number];
+
+export function isStatusReadFeature(feature: string): feature is StatusReadFeature {
+  return (STATUS_READ_FEATURES as ReadonlyArray<string>).includes(feature);
+}
+
+/** The read features and what each one is read as (a read section, or a status of the 5 s poll). */
+const READ_FEATURE_SECTIONS = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms", battery: "battery", simCard: "simCard", airplaneMode: "airplaneMode" } as const;
 
 /**
  * The form of the family's interface a router speaks (`null`: the family's own): the one its driver

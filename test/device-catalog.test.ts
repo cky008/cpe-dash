@@ -22,7 +22,7 @@ import { DEVICE_FEATURES } from "../src/device-profile.ts";
 import { zteBranch } from "../src/drivers/zte-goform.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
 import { VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
-import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily } from "../src/router-family.ts";
+import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, STATUS_READ_FEATURES, type StatusReadFeature, isRouterFamily } from "../src/router-family.ts";
 
 /**
  * The "Supported devices" guide page: one row per model the interface notes record, by brand, each
@@ -123,10 +123,13 @@ describe("the supported devices guide page", () => {
 
   it("marks the verified model ✓ throughout, and another HiLink model from what FengSui does on it", () => {
     const en = supportedDevicesSection("en");
-    assert.deepEqual(rows(en, "huawei")[0], ["H168-383", "Indoor CPE", ...MODULES.map(() => "✓"), ""], "the verified model: everything verified, nothing to report");
+    // The status reads came later: they follow the facts (an indoor CPE has no battery), the rest is verified
+    const later = MODULES.map((module) => module.features.every((feature) => STATUS_READ_FEATURES.includes(feature as StatusReadFeature)));
+    assert.deepEqual(later.filter(Boolean).length, 3);
+    assert.deepEqual(rows(en, "huawei")[0], ["H168-383", "Indoor CPE", ...MODULES.map((module, i) => (!later[i] ? "✓" : module.features.includes("battery") ? "—" : "")), ""], "the verified model: everything verified, nothing to report");
     // Generic reads and writes ?, band lock and nearby cells △ (their conditions under the table), what
     // FengSui writes on the verified model only stays empty
-    assert.deepEqual(marksOf(en, "huawei", "B535-232"), ["?", "△", "?", "?", "△", "", "?", "?", "", ""]);
+    assert.deepEqual(marksOf(en, "huawei", "B535-232"), ["?", "△", "?", "?", "△", "", "?", "?", "", "", "—", "", ""]);
     assert.deepEqual(marksOf(en, "soyealink", "B535-333"), marksOf(en, "huawei", "B535-232"), "another maker on the same interface marks the same");
     const notes = en.split('<a id="brand-huawei"></a>')[1]?.split('<a id="brand-brovi"></a>')[0] ?? "";
     assert.match(notes, /- △ Band lock: locks 4G \(LTE\) bands only; FengSui locks 5G bands on a verified model only \(every model but the H168-383\)\./);
@@ -141,7 +144,9 @@ describe("the supported devices guide page", () => {
         const mark = supportMark(family, displayName(entry), feature);
         // The family's own form of its interface: a fact of another form does not apply
         const conditions = MODEL_FACTS.filter((fact) => fact.family === family && !fact.models && !fact.forms && (fact.variant ?? null) === null && fact.features.includes(feature));
-        const expected = !familyImplements(family, feature) ? "" : conditions.length > 0 ? "△" : "?";
+        // A form without the hardware (a CPE's battery) is —
+        const absent = MODEL_FACTS.some((fact) => fact.family === family && fact.effect === "absent" && fact.forms?.includes(entry.form) === true && fact.features.includes(feature));
+        const expected = absent ? "—" : !familyImplements(family, feature) ? "" : conditions.length > 0 ? "△" : "?";
         assert.equal(mark, expected, `${family} ${feature}`);
       }
       // Each brand's writes are its own list: a write one driver gains later changes that brand's rows alone
@@ -154,8 +159,12 @@ describe("the supported devices guide page", () => {
     const zh = supportedDevicesSection("zh-CN");
     assert.equal(marksOf(zh, "pinsu", "R200C")?.[6], "△");
     assert.match(zh, /- △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。/);
-    // Never — for "not done yet"; nothing is reported as not working
-    assert.doesNotMatch(supportedDevicesSection("en").split("\n").filter((line) => line.startsWith("| ")).join("\n"), /\| — \|/);
+    // Never — for "not done yet": only where the hardware is missing (a battery), and nothing is reported as not working
+    const battery = 2 + MODULES.findIndex((module) => module.features.includes("battery"));
+    for (const cells of rows(supportedDevicesSection("en"))) {
+      const offset = cells.length - MODULES.length - 3;
+      cells.forEach((cell, i) => assert.ok(cell !== "—" || i === battery + offset, `${cells[0]}: — outside the Battery column`));
+    }
     assert.deepEqual(UNSUPPORTED_FEATURES, []);
     // Nothing implemented: the whole row stays empty
     assert.deepEqual(marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-2000M"), MODULES.map(() => ""));
@@ -194,7 +203,7 @@ describe("the supported devices guide page", () => {
     // The legend: four marks and the empty cell, nothing more than the table needs
     const legend = zh.split("\n<a id=")[0] ?? "";
     for (const mark of ["**✓ 已验证**", "**? 等待回报**", "**△ 部分支持或有条件**", "**— 不支持**", "空白：烽燧还没有做"]) assert.ok(legend.includes(mark), mark);
-    assert.ok(legend.includes("或者有人实测过不能用（表里暂时还没有）"), legend);
+    assert.ok(legend.includes("路由器或它的接口没有这项功能（比如室内 CPE 没有电池），或者有人实测过不能用"), legend);
     // A cell whose parts differ shows both marks, and the legend then says how to read them
     assert.equal(marksOf(zh, "openwrt", "Quectel RM520N-GL")?.[3], "?/△");
     assert.match(zh, /- △ 「短信」：发送短信要路由器装有 QModem；没有装的固件上，烽燧能读取和删除短信，不能发送（这一节的全部型号）。/);
@@ -205,12 +214,16 @@ describe("the supported devices guide page", () => {
   it("marks a model speaking another form of its brand's interface by what that form has, and gives it that form's facts alone", () => {
     const en = supportedDevicesSection("en");
     // The Pro series: signal (△: the key on record), SMS read ? and marking read △; what its notes lack stays empty
-    assert.deepEqual(marksOf(en, "fiberhome", "LG6851F"), ["△", "", "", "?/△", "", "", "", "", "", ""]);
-    assert.deepEqual(marksOf(en, "fiberhome", "LG6121F"), ["?", "?", "", "△", "?", "?", "△", "", "", ""]);
+    assert.deepEqual(marksOf(en, "fiberhome", "LG6851F"), ["△", "", "", "?/△", "", "", "", "", "", "", "", "", ""]);
+    assert.deepEqual(marksOf(en, "fiberhome", "LG6121F"), ["?", "?", "", "△", "?", "?", "△", "", "", "", "", "", "?"]);
     const pro = ROUTER_FAMILY_FACTS.fiberhome.variants?.["pro"];
     assert.ok(pro);
     for (const feature of DEVICE_FEATURES) {
-      const implemented: boolean = (pro.writes as ReadonlyArray<string>).includes(feature) || (feature === "telemetry" && pro.reads.includes("telemetry")) || (feature === "smsRead" && pro.reads.includes("sms"));
+      const implemented: boolean =
+        (pro.writes as ReadonlyArray<string>).includes(feature) ||
+        (feature === "telemetry" && pro.reads.includes("telemetry")) ||
+        (feature === "smsRead" && pro.reads.includes("sms")) ||
+        (pro.reads as ReadonlyArray<string>).includes(feature);
       assert.equal(supportMark("fiberhome", "LG6851F", feature) !== "", implemented, feature);
     }
     assert.equal(supportMark("fiberhome", "LG6121F", "bandLock"), "?");
@@ -221,7 +234,7 @@ describe("the supported devices guide page", () => {
     assert.ok(row.notes.some((n) => n.en.startsWith("FiberHome's Pro series")));
     assert.ok(!row.notes.some((n) => n.en.includes("whole conversation")));
     // The row of the router in use follows the form its driver reported, listed or not
-    assert.deepEqual(deviceSupportRow("fiberhome", "LG9999", { variant: "pro" }).modules.map((m) => m.mark), ["△", "", "", "?/△", "", "", "", "", "", ""]);
+    assert.deepEqual(deviceSupportRow("fiberhome", "LG9999", { variant: "pro" }).modules.map((m) => m.mark), ["△", "", "", "?/△", "", "", "", "", "", "", "", "", ""]);
     assert.equal(deviceSupportRow("fiberhome", "LG6851F", { variant: null }).modules[4]?.mark, "?", "its driver found the family's own form");
     assert.equal(deviceSupportRow("fiberhome", "LG6121F", { variant: "elsewhere" }).modules[4]?.mark, "?", "a form the family does not have");
   });
@@ -282,11 +295,11 @@ describe("the supported devices guide page", () => {
       { family: "huawei", model: "B999-001", softwareVersion: "1.0", feature: "reboot", access: "write", issue: 21 },
     ];
     const zh = supportedDevicesSection("zh-CN", verified);
-    assert.deepEqual(marksOf(zh, "huawei", "B535-232"), ["?", "△", "?", "?/✓", "✓", "", "?", "?", "", ""]);
+    assert.deepEqual(marksOf(zh, "huawei", "B535-232"), ["?", "△", "?", "?/✓", "✓", "", "?", "?", "", "", "—", "", ""]);
     assert.ok(zh.includes("- 一格里有几个符号时，依次对应这一列包含的功能：「短信」是读取 / 发送与管理，「重启与重拨」是重启 / 重拨，「路由器开关」是安全开关 / Wi-Fi 7 / 天线。"), zh);
     assert.equal(marksOf(zh, "zte", "U60 Pro (MU5250)")?.[5], "✓");
     assert.equal(marksOf(zh, "zte", "G5 Ultra (MC8530)")?.[5], "△", "only the model reported");
-    assert.deepEqual(rows(supportedDevicesSection("en", verified), "huawei").find((cells) => cells[0] === "B999-001")?.slice(0, 2 + MODULES.length), ["B999-001", "", "?", "△", "?", "?", "△", "", "✓/?", "?", "", ""]);
+    assert.deepEqual(rows(supportedDevicesSection("en", verified), "huawei").find((cells) => cells[0] === "B999-001")?.slice(0, 2 + MODULES.length), ["B999-001", "", "?", "△", "?", "?", "△", "", "✓/?", "?", "", "", "?", "", ""]);
     assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", []));
   });
 });
@@ -297,7 +310,7 @@ describe("the row of the router the console shows", () => {
     assert.deepEqual([row.model, row.section, row.family], ["U60 Pro (MU5250)", "zte", "zte-zwrt"]);
     assert.deepEqual(
       row.modules.map((m) => m.mark),
-      ["?", "", "", "?", "?", "△", "?", "?", "", ""]
+      ["?", "", "", "?", "?", "△", "?", "?", "", "", "?", "?", ""]
     );
     assert.deepEqual(row.modules[5], { zh: "锁小区", en: "Cell lock", mark: "△" });
     assert.deepEqual(
@@ -306,8 +319,9 @@ describe("the row of the router the console shows", () => {
     );
     assert.equal(findCatalogModel("zte-zwrt", " u60 pro ")?.code, "MU5250", "case and spaces aside");
     assert.equal(findCatalogModel("huawei", "MU5250"), null, "only on an interface the model has");
-    assert.deepEqual(deviceSupportRow("huawei", "H168-383").modules.map((m) => m.mark), MODULES.map(() => "✓"));
-    assert.deepEqual(deviceSupportRow("huawei", "H168-383").notes, []);
+    assert.deepEqual(deviceSupportRow("huawei", "H168-383").modules.map((m) => m.mark), MODULES.map((module) => (module.features.includes("battery") ? "—" : module.features.some((f) => STATUS_READ_FEATURES.includes(f as StatusReadFeature)) ? "" : "✓")));
+    // Its one note: the battery it does not have
+    assert.deepEqual(deviceSupportRow("huawei", "H168-383").notes, [{ zh: "电池：只有随身路由器有电池", en: "Battery: only a mobile router has a battery" }]);
   });
 
   it("gives a model the list lacks its brand's defaults and its brand's section", () => {
@@ -315,7 +329,7 @@ describe("the row of the router the console shows", () => {
     assert.deepEqual([row.model, row.section], [null, "tozed"]);
     assert.deepEqual(
       row.modules.map((m) => m.mark),
-      ["?", "?", "", "?/△", "?", "?", "△", "", "", ""]
+      ["?", "?", "", "?/△", "?", "?", "△", "", "", "", "", "", ""]
     );
     assert.ok(row.notes.some((n) => n.zh.startsWith("有些运营商定制固件")), "what the list says of every model of the brand");
     assert.ok(row.notes.some((n) => n.zh.startsWith("短信：能发送短信；")), "and what its SMS interface cannot do");

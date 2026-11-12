@@ -64,7 +64,7 @@ import type {
 import { DEFAULT_BEHAVIOUR } from "../../../src/behaviour-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import { type ControlAction, gateRefuses } from "../../../src/device-access.ts";
-import { LTE_ALL_BANDS_MASK, maskToBands } from "../../../src/device-profile.ts";
+import { LTE_ALL_BANDS_MASK, maskToBands, statusReadsOf } from "../../../src/device-profile.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import {
   readAntennaMode,
@@ -491,7 +491,7 @@ export class DemoBackend {
     get("/api/console/experimental", () => this.#device.view());
     post("/api/console/experimental", (body) => this.#device.setExperimental(body));
     post("/api/console/agent-test", (body) => this.#device.agentTest(body));
-    get("/api/console/device-report", () => this.#device.report(this.#health.version));
+    get("/api/console/device-report", () => this.#device.report(this.#health.version, statusReadsOf(this.#telemetry.status)));
 
     post("/api/control/band-lock", async (body) => {
       const lteBands = readBandSelection(body, "lteBands");

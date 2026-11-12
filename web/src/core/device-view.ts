@@ -44,6 +44,9 @@ export const FEATURE_KEYS: Readonly<Record<DeviceFeature, SettingsTextKey>> = {
   wifi: "feature_wifi",
   antenna: "feature_antenna",
   accessControl: "feature_access",
+  battery: "feature_battery",
+  simCard: "feature_sim_card",
+  airplaneMode: "feature_airplane_mode",
 };
 
 export const STATE_KEYS: Readonly<Record<EndpointState, SettingsTextKey>> = {

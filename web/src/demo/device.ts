@@ -21,6 +21,7 @@ import type { DisabledWrite } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, READ_SECTIONS, type WriteFeature, type WriteResultRecord, gateRefuses, modelLabel } from "../../../src/device-access.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature, buildDeviceReport, deviceReportChecks } from "../../../src/device-profile.ts";
+import type { StatusReadFeature } from "../../../src/router-family.ts";
 import { switchExperimentalWrite } from "../../../src/experimental-switch.ts";
 import { verifiedModelsLabel } from "../../../src/firmware.ts";
 import { type DemoConsole, DemoRefusal } from "./console.ts";
@@ -338,11 +339,11 @@ export class DemoDevice {
   // ── The device report ─────────────────────────────────────────────────────
 
   /** `GET /api/console/device-report`: the seed's report with the write gate and the write results as they are now. */
-  report(fengsuiVersion: string): DeviceReportResponse {
+  report(fengsuiVersion: string, statusReads: Partial<Record<StatusReadFeature, boolean>> = {}): DeviceReportResponse {
     const generatedAtIso = new Date(this.#now()).toISOString();
     const seeded = this.#seed.device?.report.report;
     if (!seeded) {
-      const report = buildDeviceReport({ probe: null, apiErrors: { sinceIso: this.#startedAtIso, entries: [] }, fengsuiVersion, generatedAtIso });
+      const report = buildDeviceReport({ probe: null, apiErrors: { sinceIso: this.#startedAtIso, entries: [] }, fengsuiVersion, generatedAtIso, statusReads });
       return { ok: true, report };
     }
     const { family, writes, reads, features } = this.#access.snapshot();
@@ -350,7 +351,7 @@ export class DemoDevice {
     const records = this.#writes.map(({ id: _id, ...record }) => ({ ...record, endpoints: [...record.endpoints] }));
     return {
       ok: true,
-      report: { ...seeded, generatedAtIso, access, writes: records, checks: deviceReportChecks(access, records) },
+      report: { ...seeded, generatedAtIso, access, writes: records, checks: deviceReportChecks(access, records, statusReads) },
     };
   }
 }

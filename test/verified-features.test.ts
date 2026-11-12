@@ -9,7 +9,7 @@ import { experimentalOffer, experimentalWrites, reportVerified, unconfirmedWrite
 import { WRITE_STATE_KEYS, verificationNotice, writesText } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedFeature, isVerifiedModel, reportVerifiedModels } from "../src/firmware.ts";
-import { ROUTER_FAMILY_FACTS, familyFeatures, isRouterFamily } from "../src/router-family.ts";
+import { ROUTER_FAMILY_FACTS, familyFeatures, isRouterFamily, isStatusReadFeature } from "../src/router-family.ts";
 
 /**
  * Multi-model phase 3: a feature of another model that a user checked on a real router joins the
@@ -104,10 +104,12 @@ describe("verified features of other models", () => {
 
   it("counts a model as verified once reports settle every feature FengSui does on it, with nothing more to check", () => {
     const base = { family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", issue: 41 } as const;
-    // What FengSui implements on zWRT today: the signal, SMS, band and cell locks, reboot, redial, mobile data
+    // What FengSui implements on zWRT today: the signal, SMS, battery, SIM card, band and cell locks, reboot, redial, mobile data
     assert.deepEqual(familyFeatures("zte-zwrt"), [
       { feature: "telemetry", access: "read" },
       { feature: "smsRead", access: "read" },
+      { feature: "battery", access: "read" },
+      { feature: "simCard", access: "read" },
       { feature: "bandLock", access: "write" },
       { feature: "cellLock", access: "write" },
       { feature: "reboot", access: "write" },
@@ -115,7 +117,10 @@ describe("verified features of other models", () => {
       { feature: "mobileData", access: "write" },
       { feature: "smsWrite", access: "write" },
     ]);
-    const all: VerifiedFeature[] = familyFeatures("zte-zwrt").map(({ feature, access }) => ({ ...base, feature, access }));
+    // The status reads (battery, SIM card) are confirmed one by one: a model is verified without them
+    const all: VerifiedFeature[] = familyFeatures("zte-zwrt")
+      .filter(({ feature }) => !isStatusReadFeature(feature))
+      .map(({ feature, access }) => ({ ...base, feature, access }));
     const butReboot = all.filter((entry) => entry.feature !== "reboot");
     assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", all), true);
     assert.equal(isReportVerifiedModel("zte-zwrt", "MU5250", butReboot), false, "one feature short");

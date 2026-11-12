@@ -12,7 +12,7 @@ import {
   probeDevice,
 } from "../src/device-profile.ts";
 import { WRITE_FEATURES } from "../src/device-access.ts";
-import { FAMILY_WRITE_FEATURES, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
+import { FAMILY_WRITE_FEATURES, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, isStatusReadFeature } from "../src/router-family.ts";
 
 /**
  * Multi-model phase 3: what a model nobody verified shows of the writes FengSui could do there once
@@ -151,6 +151,6 @@ describe("experimental capability: evidence per write", () => {
 
   it("leaves the verified model's features as they were", async () => {
     const probe = await probeDevice(fakeSession(H168), { nowIso: NOW, origin: "startup" });
-    for (const feature of DEVICE_FEATURES) assert.deepEqual(deviceProfileOf(probe).capabilities.features[feature], { state: "supported", source: "verified" });
+    for (const feature of DEVICE_FEATURES) assert.deepEqual(deviceProfileOf(probe).capabilities.features[feature], isStatusReadFeature(feature) ? { state: "unknown", source: "none" } : { state: "supported", source: "verified" }, feature);
   });
 });

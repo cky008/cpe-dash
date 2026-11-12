@@ -1,6 +1,6 @@
 import type { ReadCapability, ReadSection, ReadState, ReadbackOutcome, WriteAccess, WriteFeature, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
-import type { RouterFamily } from "./router-family.ts";
+import { type RouterFamily, STATUS_READ_FEATURES, type StatusReadFeature, isStatusReadFeature } from "./router-family.ts";
 
 /**
  * Who the router is and what it says it can do. One read session (at daemon start and in the
@@ -114,9 +114,15 @@ export const DEVICE_FEATURES = [
   "wifi",
   "antenna",
   "accessControl",
+  "battery",
+  "simCard",
+  "airplaneMode",
 ] as const;
 
 export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
+
+// The status reads of the 5 s poll (battery, SIM card, airplane mode): `src/router-family.ts`
+STATUS_READ_FEATURES satisfies ReadonlyArray<DeviceFeature>;
 
 /**
  * The writes FengSui has a generic implementation for (HiLink request formats from the reference
@@ -584,7 +590,8 @@ export function deviceProfileOf(probe: DeviceProbeResult, family?: RouterFamily)
   const evidence: Partial<Record<DeviceFeature, boolean>> = verifiedModel ? {} : experimentalEvidence(probe);
   const features = {} as Record<DeviceFeature, FeatureCapability>;
   for (const feature of DEVICE_FEATURES) {
-    features[feature] = verifiedModel
+    // The status reads came after the verified model was verified: nothing about them is verified yet
+    features[feature] = verifiedModel && !isStatusReadFeature(feature)
       ? { state: "supported", source: "verified" }
       : evidence[feature] === true
         ? { state: "supported", source: "probe" }
@@ -708,9 +715,21 @@ export interface DeviceReportCheck {
 /** The read section each read feature is read in. */
 const READ_FEATURE_SECTIONS: Readonly<Partial<Record<DeviceFeature, ReadSection>>> = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms" };
 
-/** Each feature's result on this router, from what the reads answered and the write record (the latest write of a feature counts). */
-export function deviceReportChecks(access: Pick<DeviceReportAccess, "reads"> | null, writes: ReadonlyArray<Pick<WriteResultRecord, "feature" | "outcome" | "readback">>): DeviceReportCheck[] {
+/**
+ * Each feature's result on this router, from what the reads answered, the write record (the latest
+ * write of a feature counts) and, for the status reads, whether the latest poll carried them (`statusReads`).
+ */
+export function deviceReportChecks(
+  access: Pick<DeviceReportAccess, "reads"> | null,
+  writes: ReadonlyArray<Pick<WriteResultRecord, "feature" | "outcome" | "readback">>,
+  statusReads: Partial<Record<StatusReadFeature, boolean>> = {}
+): DeviceReportCheck[] {
   return DEVICE_FEATURES.map((feature): DeviceReportCheck => {
+    if (isStatusReadFeature(feature)) {
+      // A poll without it says nothing either way (a router without a battery is not a failed read)
+      const read = statusReads[feature] === true;
+      return { feature, access: "read", result: read ? "works" : "untested", evidence: read ? "available" : null };
+    }
     const section = READ_FEATURE_SECTIONS[feature];
     if (section) {
       const state = access?.reads[section]?.state ?? null;
@@ -744,6 +763,8 @@ export function buildDeviceReport(input: {
   generatedAtIso: string;
   access?: DeviceReportAccess | null;
   writes?: ReadonlyArray<WriteResultRecord>;
+  /** Which status reads the latest poll carried (`statusReadsOf`). */
+  statusReads?: Partial<Record<StatusReadFeature, boolean>>;
 }): DeviceReport {
   const apiErrors = { sinceIso: input.apiErrors.sinceIso, entries: input.apiErrors.entries.map((e) => ({ ...e })) };
   const base = { reportVersion: DEVICE_REPORT_VERSION, fengsuiVersion: input.fengsuiVersion, generatedAtIso: input.generatedAtIso } as const;
@@ -756,7 +777,7 @@ export function buildDeviceReport(input: {
       }
     : null;
   const writes: DeviceReportWrite[] = (input.writes ?? []).map(({ id: _id, ...result }) => ({ ...result, endpoints: [...result.endpoints] }));
-  const checks = deviceReportChecks(access, writes);
+  const checks = deviceReportChecks(access, writes, input.statusReads);
   if (!input.probe) return { ...base, verification: "unknown", identity: null, capabilities: null, endpoints: [], apiErrors, access, writes, checks };
   const profile = deviceProfileOf(input.probe, input.access?.family);
   const observed = new Map(input.probe.observations.map((o) => [o.path, o]));
@@ -779,4 +800,10 @@ export function buildDeviceReport(input: {
     writes,
     checks,
   };
+}
+
+/** The status reads a telemetry snapshot carries (its `status` parts), for the report's `checks`. */
+export function statusReadsOf(status: { battery: unknown; sim: unknown; airplaneMode: unknown } | null | undefined): Partial<Record<StatusReadFeature, boolean>> {
+  if (!status) return {};
+  return { battery: status.battery !== null, simCard: status.sim !== null, airplaneMode: status.airplaneMode !== null };
 }

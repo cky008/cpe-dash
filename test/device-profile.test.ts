@@ -15,6 +15,7 @@ import {
   readStructure,
   valueShape,
 } from "../src/device-profile.ts";
+import { isStatusReadFeature } from "../src/router-family.ts";
 
 /**
  * The device profile's pure core: what the probe asks the router (a fixed list of GETs), how answers
@@ -176,7 +177,8 @@ describe("device profile: the probe", () => {
     assert.equal(profile.capabilities.probedAtIso, NOW);
     assert.deepEqual(profile.capabilities.lteBands, [1, 3, 20]);
     assert.equal(profile.verification, "verified");
-    for (const feature of DEVICE_FEATURES) assert.deepEqual(profile.capabilities.features[feature], { state: "supported", source: "verified" }, feature);
+    // What the verified model's verification covers; the status reads came later and are not part of it
+    for (const feature of DEVICE_FEATURES) assert.deepEqual(profile.capabilities.features[feature], isStatusReadFeature(feature) ? { state: "unknown", source: "none" } : { state: "supported", source: "verified" }, feature);
   });
 
   it("falls back to basic_information, and leaves what nobody answered null", async () => {
