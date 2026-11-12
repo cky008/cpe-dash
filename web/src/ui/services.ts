@@ -65,7 +65,11 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
     };
     const onOk = (): void => finish(true);
     const onCancel = (): void => finish(false);
-    const onClose = (): void => finish(false);
+    // A dialog's `close` event arrives a task after it closed. One from the confirmation before this one must
+    // not answer this one: with the dialog open again, it is not this dialog closing
+    const onClose = (): void => {
+      if (!dialog.open) finish(false);
+    };
     const onType = (): void => {
       ok.disabled = typeInput.value.trim().toLowerCase() !== (word ?? "").toLowerCase();
     };
