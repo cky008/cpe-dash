@@ -7,21 +7,7 @@ import type { WriteCheck } from "../src/device-access.ts";
 import { bandsToHex } from "../src/drivers/bands.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError, sha256Hex } from "../src/drivers/login.ts";
-import {
-  lteRsrpOfIndex,
-  lteRsrqOfIndex,
-  lteSinrOfIndex,
-  nrRsrpOfIndex,
-  nrRsrqOfIndex,
-  nrSinrOfIndex,
-  parseBandClauses,
-  parsePinsuLockState,
-  parsePinsuTelemetry,
-  pinsuBandClauses,
-  pinsuLoginFields,
-  pinsuProtocol,
-  rssiOfIndex,
-} from "../src/drivers/pinsu.ts";
+import { lteRsrpOfIndex, lteRsrqOfIndex, lteSinrOfIndex, nrRsrpOfIndex, nrRsrqOfIndex, nrSinrOfIndex, parseBandClauses, parsePinsuLockState, parsePinsuTelemetry, pinsuBandClauses, pinsuLoginFields, pinsuProtocol, pinsuWcdma, rssiOfIndex } from "../src/drivers/pinsu.ts";
 import { TOZED_LOGIN_SESSION, parseTozedLockState, parseTozedNeighbours, parseTozedTelemetry, tozedLoginPassword, tozedProtocol } from "../src/drivers/tozed.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
@@ -406,5 +392,15 @@ describe("tozed: locks", () => {
     await client.withSession((s) => s.reboot(check));
     assert.equal((JSON.parse(mock.requests.at(-1)?.body ?? "{}") as { cmd: number }).cmd, 6);
     assert.equal(check.readback, "pending");
+  });
+});
+
+describe("pinsu: 3G from the module's CESQ indices", () => {
+  it("turns the RSCP and Ec/Io indices into dBm and dB, and 255 into nothing", () => {
+    assert.deepEqual(pinsuWcdma("40", "36"), { rscpDbm: -80, ecioDb: -6, psc: null });
+    assert.deepEqual(pinsuWcdma("0", "49"), { rscpDbm: -120, ecioDb: 0.5, psc: null });
+    assert.deepEqual(pinsuWcdma("96", "0"), { rscpDbm: -24, ecioDb: -24, psc: null });
+    assert.equal(pinsuWcdma("255", "255"), null, "not on 3G");
+    assert.equal(pinsuWcdma(undefined, ""), null);
   });
 });

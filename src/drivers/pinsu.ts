@@ -2,6 +2,7 @@ import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import type { WcdmaSignal } from "../parsers.ts";
 import { checkCellLock, checkLockBands } from "./bands.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, hmacMd5Hex, loginLocked, loginUnplaced, wrongPassword } from "./login.ts";
@@ -20,7 +21,7 @@ import type {
   DriverSessionHandle,
   DriverTelemetry,
 } from "./types.ts";
-import { bandOf, counterOf, intOf, isPlainObject, labelOf, numberOf, operatorOfPlmn, pciOf, plmnCodeOf, rsrpOf, rsrqOf, rssiOf, sinrOf, textOf } from "./values.ts";
+import { bandOf, counterOf, intOf, isPlainObject, labelOf, numberOf, operatorOfPlmn, pciOf, plmnCodeOf, rsrpOf, rsrqOf, rssiOf, sinrOf, smallIntOf, textOf } from "./values.ts";
 
 /**
  * Pinsu routers (R200C, R200, R100, M1, U200) and other UNISOC V510 boards on the same firmware:
@@ -202,7 +203,20 @@ export function parsePinsuTelemetry(raw: Record<string, unknown>): DriverTelemet
     },
     temperatureC: null,
     signalBars: null,
+    wcdma: pinsuWcdma(raw["mnet_rscp"], raw["mnet_ecio"]),
   };
+}
+
+/**
+ * The 3G serving cell from the module's CESQ indices (3GPP TS 27.007 `+CESQ`, notes library A §4.1):
+ * RSCP `0`–`96` is −120 to −24 dBm, Ec/Io `0`–`49` is −24 to +0.5 dB in half-dB steps; `255` is "not
+ * on 3G". `null` when neither is reported.
+ */
+export function pinsuWcdma(rscpIndex: unknown, ecioIndex: unknown): WcdmaSignal | null {
+  const r = smallIntOf(rscpIndex, 96);
+  const e = smallIntOf(ecioIndex, 49);
+  if (r === null && e === null) return null;
+  return { rscpDbm: r === null ? null : r - 120, ecioDb: e === null ? null : e * 0.5 - 24, psc: null };
 }
 
 /** `lte:B1,B3;nr5g:N41,N78` (either clause optional) as band lists; `null` for a clause that is absent or unreadable. */
