@@ -5,6 +5,7 @@ import { after, before, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type ChromeHandle, type Page, type Viewport, closeChrome, launchChrome, openPage } from "../../scripts/cdp.ts";
 import { type DemoDaemon, startDemoDaemon } from "../../scripts/demo-router.ts";
+import { MODULES } from "../../src/device-catalog.ts";
 
 /**
  * The console in a real browser: a headless Chrome (scripts/cdp.ts) against the real daemon and the
@@ -594,7 +595,7 @@ describe("the console in a browser", () => {
       // Its row of Supported devices, worked out by the daemon, with a link to the brand's section
       const support = "document.querySelector('#settingsDialog [data-support=huawei]')";
       assert.match(await page.evaluate<string>(`${support}.textContent`), /The row of “B535-232”/);
-      assert.equal(await page.evaluate<number>(`${support}.querySelectorAll('li[data-mark]').length`), 10, "a mark per console module");
+      assert.equal(await page.evaluate<number>(`${support}.querySelectorAll('li[data-mark]').length`), MODULES.length, "a mark per console module");
       assert.equal(await page.evaluate<string>(`${support}.querySelector('li[data-mark="△"]').title`), "partly, or with a condition");
       assert.equal(await page.evaluate<string>(`${support}.querySelector('a[href*="supported-devices"]').getAttribute('href')`), "https://fengsui.iocky.com/en/docs/supported-devices/#brand-huawei");
       // The device report, with what it found per feature summed up above it
