@@ -29,7 +29,8 @@ cpe-dash/
 │   ├── parsers.ts          # 3CA 射频、邻区、双周期流量与终端拓扑纯函数解析器
 │   ├── cpe-client.ts       # H168-383 瞬时会话客户端、双层真人避让与 108006 防爆破断路器
 │   ├── cpe-auth.ts         # 登录方式选择（提交密码前定：password_type → SCRAM 挑战探测 → 旧式 SHA-256 / base64）与 SesTokInfo 令牌解析
-│   ├── cpe-domain.ts       # 遥测/邻区/拓扑/设置采集与控制写操作（含 sms-count 捎带）
+│   ├── cpe-domain.ts       # 遥测/邻区/拓扑/设置采集与控制写操作（含 sms-count 捎带；遥测快照的 `status` 是路由器状态，华为只从已经在读的应答里取，例如 `monitoring/status` 的电量）
+│   ├── router-status.ts    # 零依赖：路由器状态（电池、SIM 卡、飞行模式、漫游、路由器自己的负载与运行时间、固件更新、Wi-Fi 开关、按名字分开的温度传感器）的类型与共用规则（电量低、SIM 卡锁住）；各品牌的后端填同一个形状，路由器没报告的留 `null`；守护进程、控制台与在线演示共用
 │   ├── scheduler.ts        # MutexSessionScheduler：唯一 CPE 会话调度器（优先级队列、避让、熔断、写闸门）；按连接的品牌持有 HiLink 客户端或驱动客户端，两者共用同一个队列
 │   ├── cpe-monitor.ts      # 读侧（只面向 RouterBackend）：后台轮询、单飞刷新、快照缓存与时序写入；启动后识别路由器一次（当时连不上则在第一次读成功后补上；不进入轮询）
 │   ├── cpe-controls.ts     # 写侧：锁频锁站、解锁、自动回滚、重启、重拨、移动数据、路由器开关、Wi-Fi、天线与访问控制，全部经 RouterBackend（不分品牌，入队前校验）
@@ -37,14 +38,14 @@ cpe-dash/
 │   ├── access-state.ts · access-plan.ts  # 零依赖：Wi-Fi MAC 过滤状态与访问控制规划（受保护设备、名单、上网时段冲突；前后端同一实现）
 │   ├── access-control.ts   # Wi-Fi MAC 过滤与上网时段的报文解析、读写与回读核对（一个控制会话内完成）
 │   ├── core.ts             # FengSuiCore 装配（scheduler + monitor + controls）
-│   ├── router-family.ts    # 零依赖：路由器品牌（RouterFamily）、各品牌的常见地址 / 默认账号 / 能读什么、实现了哪些写入、短信的已读状态由路由器还是烽燧保管的事实（每个品牌一份；品牌下另一种接口写法能读写的另记一份，`variants`）、控制台显示的名字、「自动识别」这个选项与识别的先后顺序（DETECTION_ORDER）
+│   ├── router-family.ts    # 零依赖：路由器品牌（RouterFamily）、各品牌的常见地址 / 默认账号 / 能读什么（读取分区，以及 5 秒轮询顺带读的状态：电池、SIM 卡、飞行模式，`STATUS_READ_FEATURES`）、实现了哪些写入、短信的已读状态由路由器还是烽燧保管的事实（每个品牌一份；品牌下另一种接口写法能读写的另记一份，`variants`）、控制台显示的名字、「自动识别」这个选项与识别的先后顺序（DETECTION_ORDER）
 │   ├── router-backend.ts   # RouterBackend：烽燧对一台路由器的全部读写动词（识别、信号、附近的基站、已连接设备、设置、访问控制、短信列表与免登录未读数；锁频、锁小区、解锁、自动回滚、重启、重拨与自愈重拨、移动数据、路由器开关、Wi-Fi、天线、Wi-Fi MAC 过滤、上网时段、发短信、标为已读、删除短信），以及按连接的品牌选后端的唯一一处
 │   ├── backends/           # hilink.ts（华为 HiLink：H168-383 的已验证序列与其他 HiLink 型号的通用写入，短信走 sms/protocol.ts）· driver.ts（其他品牌，经各自的驱动；短信逐个收件人发送，每次只发一次；没有专门重拨指令的品牌先断开再连上，结束时总会再连上）· index.ts
 │   ├── drivers/            # 其他品牌的驱动：client.ts（瞬时会话、登录前检查、熔断、finally 注销）· transport.ts（只到路由器本机地址的 HTTP、响应上限、Cookie）· login.ts · types.ts · values.ts / cells.ts / bands.ts（取值清洗、小区与频段表）· snapshot.ts（转成与华为相同的快照）· readback.ts（写后回读）· sms.ts（各驱动共用的短信部件：UCS-2 十六进制正文、路由器时间、把长短信的分段拼成一条、短信写入的回读）· at-sms.ts（模组自己的短信指令的应答：`AT+CPMS?` 的条数、`AT+CMGL=4` 列出的 PDU）· hosts.ts（已连接设备：各驱动读到的设备列表转成与华为相同的快照）· detect.ts（免登录识别品牌）· brands.ts（驱动注册表）· zte-goform.ts（goform 页面，以及同一套接口在 ZXIC 固件上的 `/reqproc/` 写法：另一套登录，写入带 `CSRFToken`）· zte-zwrt.ts · pinsu.ts · tozed.ts · fiberhome.ts · nradio.ts · openwrt.ts
-│   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值）
+│   ├── alert-engine.ts     # 持续窗口 + 迟滞告警引擎（离线、WAN、信号、CA、重启、短信容量、流量阈值、电量低、SIM 卡锁住）
 │   ├── self-heal.ts        # 可选 WAN 自愈（默认关闭）：锁定后 WAN 不恢复则自动解锁、WAN 掉线限次重拨（从不重启）；监视与重拨额度存于 state.json，重启后接着算；未验证的路由器上，任何入口发起的锁频或锁小区之后断网 3 分钟，写回锁前读到的频段设置或解除锁定（不受自愈开关影响，重启后同样接着算）
-│   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、真机报告登记的功能（VERIFIED_FEATURES：品牌、路由器报的型号、固件、功能、读或写、issue 编号，任何品牌都适用）与报告为不能用的功能（UNSUPPORTED_FEATURES）、全部功能都由报告确认过的型号（isReportVerifiedModel）、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
-│   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单，未验证型号另加实验性写入回读要读的 3 个；四种接口状态；实验性写入的能力依据）、路由器错误码计数与只含结构的脱敏设备报告（逐项列出每个功能：与 VERIFIED_FEATURES 同名、读到了没有、写入记录里回读是否一致；守护进程、控制台与在线演示同一实现）
+│   ├── firmware.ts         # 零依赖：已验证的型号 / 固件版本清单、真机报告登记的功能（VERIFIED_FEATURES：品牌、路由器报的型号、固件、功能、读或写、issue 编号，任何品牌都适用）与报告为不能用的功能（UNSUPPORTED_FEATURES）、全部功能都由报告确认过的型号（isReportVerifiedModel；状态读数不计在内，逐项只凭自己的报告）、验证状态（已验证 / 已验证型号的新固件 / 未验证型号）与固件核对提示词（未验证版本只告警，不阻止写操作；控制台与在线演示共用）
+│   ├── device-profile.ts   # 零依赖：型号识别与能力探测（固定的只读 GET 清单，未验证型号另加实验性写入回读要读的 3 个；四种接口状态；实验性写入的能力依据）、路由器错误码计数与只含结构的脱敏设备报告（逐项列出每个功能：与 VERIFIED_FEATURES 同名、读到了没有（状态读数看最近一次轮询有没有带上）、写入记录里回读是否一致；守护进程、控制台与在线演示同一实现）
 │   ├── device-access.ts    # 零依赖：写闸门（未验证的路由器上，烽燧实现了的写入默认开启、用户可以逐项关闭，没有实现的拒绝；其他品牌实现了哪些写入取自 router-family.ts；VERIFIED_FEATURES 登记过的功能在任何品牌上都是「已验证」；解除锁定只要求两种锁定中任一项开着；只相信本次运行看到的型号，否则写操作先在自己的会话里确认）、每个写操作所属的功能与它在这台路由器上的状态、写入记录与回读结果的类型，以及未验证型号各读取项可用与否
 │   ├── feedback.ts         # 零依赖：兼容性反馈入口（cky008/cpe-dash 新 issue 的地址，只带模板与标题，绝不带报告内容）
 │   ├── device-catalog.ts   # 零依赖：我们记录过的每个型号（按品牌分节；每个型号记品牌、走哪套接口与自动识别选哪套、形态、别名）与型号之间的差别（写成清单里的事实，不写进生成器）；「支持的设备」页的表由它生成（每个功能一格：✓ 已在真机上验证、? 按接口资料实现了等真机确认、△ 部分支持或有条件（条件由事实生成在表下）、— 没有这项功能或实测不能用；烽燧还没有做的留空；每个型号的实测报告链接），守护进程也用它算出「设置 → 设备」里这台路由器的那一行；指南里唯一的型号表
@@ -55,7 +56,7 @@ cpe-dash/
 │   ├── console-settings.ts # 控制台管理的加密设置：路由器连接、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码、被关闭的实验性写入（按型号 + 功能）；首次启动从 .env 导入一次
 │   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
-│   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
+│   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照（含电量、充电、飞行模式、漫游、路由器的负载与运行时间、各温度传感器）与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
 │   ├── sms/                # 短信：编解码（codec.ts 是华为的报文，text-mode.ts 是 GSM 7-bit 字母表与分段计数，pdu.ts 是 3GPP TS 23.040 的 PDU：7-bit 打包、UCS-2、长短信的 UDH、SMS-DELIVER / SMS-SUBMIT）、号码解析、华为协议、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具
 │   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
@@ -77,9 +78,9 @@ cpe-dash/
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器（覆盖 src/ scripts/ test/ web/；私钥只放行路由器厂商写在网页里、每台都一样的那把，按指纹列在 PUBLIC_VENDOR_KEYS）
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示）
-│   ├── demo-router.ts      # 演示世界：严格 Mock 路由器 + 家庭场景 + 真实守护进程启动（demo-server、种子采集与契约测试共用）
+│   ├── demo-router.ts      # 演示世界：严格 Mock 路由器 + 家庭场景 + 真实守护进程启动（demo-server、种子采集与契约测试共用）；三个世界：H168-383、未验证的华为型号、一台中兴随身路由器（电池、SIM 卡、其他品牌的短信）
 │   ├── demo-server.ts      # npm run demo：真实守护进程栈 + 进程内严格 Mock 路由器（不读 .env、不联网）
-│   ├── capture-demo-seed.ts # npm run build:demo：从真守护进程录制在线演示的两份初始数据（H168-383，与 ?router=other 打开的未验证型号；只含占位值）
+│   ├── capture-demo-seed.ts # npm run build:demo：从真守护进程录制在线演示的三份初始数据（H168-383、?router=other 打开的未验证华为型号、?router=zte 打开的中兴随身路由器；只含占位值）
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
@@ -180,10 +181,10 @@ cpe-dash/
 
 1. **记录了就实现，实现了就可用。** 一个接口只要有记录（接口资料、厂商手册或开源实现），就实现它，实现后默认可用：不等真机实测，不因为「没验证过」留着不做，也不另加开关挡住。记录不完整时（常见的是只有接口名或指令名，缺应答格式），先查公开资料把细节补齐再实现；查遍公开资料也没有任何记录的才不做。不凭空编接口。每项实现的依据（哪个接口、出自哪里）写进 [`docs/dev/sources.md`](docs/dev/sources.md)。
 2. **实现了的写入默认开启，用户可以逐项关闭；保护不变。** 每次写入只发一次，写后在同一会话回读，回读不一致告警；会意外断网的写入有断网 3 分钟的自动回退（未验证的路由器上，任何入口发起的锁频写回锁前的频段，锁小区解除锁定，独立于 `LOCK_ROLLBACK_AFTER_MIN`，守护进程重启后接着算）；控制台每个写操作有自己的确认框；MCP 写工具要 `confirm: true`、`MCP_ALLOW_MUTATIONS` 和令牌权限；自愈默认关闭；除了上面的回退，烽燧不会自己主动写任何东西。
-3. **每类能力是 `RouterBackend` 上的一个动词**（或快照里的一组字段）：哪个品牌的资料里有，就在哪个品牌的后端里实现；华为有对应能力的归到同一个动词。没有这项能力的品牌，读返回「此型号不提供」，写由闸门拒绝。服务层不判断品牌，不做品牌特例（`test/router-backend.test.ts` 守着这条线）。
+3. **每类能力是 `RouterBackend` 上的一个动词**（或快照里的一组字段）：哪个品牌的资料里有，就在哪个品牌的后端里实现；华为有对应能力的归到同一个动词。没有这项能力的品牌，读返回「此型号不提供」，写由闸门拒绝。服务层不判断品牌，不做品牌特例（`test/router-backend.test.ts` 守着这条线）。路由器状态这类读数（电池、SIM 卡、飞行模式等，`src/router-status.ts`）捎带在 5 秒轮询的同一个会话里读，不另开登录；同一类读数在不同品牌上的单位和取值在后端里统一，路由器没报告的留空，不编零值；新读的请求读不到时只丢这些新读数，不影响原有的遥测。
 4. **已验证的 H168-383 发给路由器的请求一个字节都不变。** 搬动华为代码时，用严格模拟路由器的测试和请求序列比对证明这一点。
-5. **对外只说验证过的型号。** 目前只有 H168-383；用户看得到的文字里不写成功率。别的型号（任何品牌）的功能只有登记进 [`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FEATURES`（来自真机报告的 issue，确认后登记；什么样的报告算数、登记要改哪里见 `CONTRIBUTING.md`）才标为已验证，表里标 `✓`。一个型号上烽燧实现的每项功能都登记过（或报告为路由器没有这项功能）时，它就算验证过的型号（`isReportVerifiedModel`，验证状态 `report-verified`），不需要另外核对：登记它的提交同时把它写进所有说明「在哪些路由器上验证过」的地方（`test/verified-features.test.ts` 列出这些文件并检查）。它的写入仍按它的品牌发送，绝不走 H168-383 的请求。
-6. **「支持的设备」表跟着代码走。** 表由 [`src/device-catalog.ts`](src/device-catalog.ts) 生成，测试保证页面与生成结果一致。增加或搬动一项能力后，在品牌的事实（`src/router-family.ts`）或型号清单里加事实，重新生成表；型号之间的差别（某个型号要先打开开发者选项、只能锁 5G 小区之类）写成清单里的事实，不写进生成器。烽燧还没有做的格子留空，`—` 只用于协议排除或实测失败。重新生成用 `npm run docs:sync`；「API 参考」的接口、事件和错误码表同理：增加 REST 路由、SSE 事件或错误码时，在 `scripts/api-reference.ts` 写一句中英说明再运行它（`test/api-reference.test.ts` 守着），同时更新开发者文档的接口契约 `docs/dev/api.md`。
+5. **对外只说验证过的型号。** 目前只有 H168-383；用户看得到的文字里不写成功率。别的型号（任何品牌）的功能、以及 H168-383 验证之后才加的状态读数（电池、SIM 卡、飞行模式），只有登记进 [`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FEATURES`（来自真机报告的 issue，确认后登记；什么样的报告算数、登记要改哪里见 `CONTRIBUTING.md`）才标为已验证，表里标 `✓`。一个型号上烽燧实现的每项功能（状态读数除外：有的设备没有这样的硬件）都登记过（或报告为路由器没有这项功能）时，它就算验证过的型号（`isReportVerifiedModel`，验证状态 `report-verified`），不需要另外核对：登记它的提交同时把它写进所有说明「在哪些路由器上验证过」的地方（`test/verified-features.test.ts` 列出这些文件并检查）。它的写入仍按它的品牌发送，绝不走 H168-383 的请求。
+6. **「支持的设备」表跟着代码走。** 表由 [`src/device-catalog.ts`](src/device-catalog.ts) 生成，测试保证页面与生成结果一致。增加或搬动一项能力后，在品牌的事实（`src/router-family.ts`）或型号清单里加事实，重新生成表；型号之间的差别（某个型号要先打开开发者选项、只能锁 5G 小区之类）写成清单里的事实，不写进生成器。烽燧还没有做的格子留空，`—` 只用于路由器没有这项功能（接口资料排除，或这类设备没有这样的硬件，比如室内 CPE 没有电池）或实测失败。重新生成用 `npm run docs:sync`；「API 参考」的接口、事件和错误码表同理：增加 REST 路由、SSE 事件或错误码时，在 `scripts/api-reference.ts` 写一句中英说明再运行它（`test/api-reference.test.ts` 守着），同时更新开发者文档的接口契约 `docs/dev/api.md`。
 7. **这几类即使资料里有记录也不实现**：改设备身份（IMEI、序列号、蜂窝侧的 MAC）；解除运营商锁或 SIM 锁；打开 telnet、ADB、SSH 之类的远程 shell 或调试后门；刷固件、写 NV 或校准分区；关闭路由器自身的登录保护。
 
 **参考其他项目**（厂商手册之外的开源实现）：只取事实（接口路径、参数名、取值、应答格式），不复制、不改写它的代码和测试数据，不加任何运行时依赖。每个参考过的项目把地址、提交号或日期、许可证记进实现依据 `docs/dev/sources.md`；致谢一个项目一句，只写在指南的致谢页 `docs/guide/{zh,en}/acknowledgments.md`（按品牌分节）。两份 README 和「其他型号与品牌」页只留一句指向致谢页的链接，指南的其他页面都不点名别的项目。
