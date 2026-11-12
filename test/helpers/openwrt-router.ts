@@ -40,6 +40,12 @@ export interface OpenwrtRouterOptions {
   sendAnswer?: string;
   /** What LuCI's `luci-rpc getDHCPLeases` answers (left out: a router without LuCI). */
   leases?: Record<string, unknown>;
+  /** What `AT+CFUN?` answers (`<fun>`; default 1, full functionality). */
+  cfun?: number;
+  /** What `AT+CPIN?` names (default `READY`). */
+  cpin?: string;
+  /** What `ubus call system info` answers (left out: an older procd without it). */
+  systemInfo?: Record<string, unknown>;
 }
 
 /** One stored part: its storage index, `<stat>` (0 unread, 1 read, 2 unsent, 3 sent) and its PDU. */
@@ -130,6 +136,7 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     if (object === "system" && method === "board") {
       return reply({ release: { distribution: "OpenWrt", version: "23.05.3" } });
     }
+    if (object === "system" && method === "info") return opts.systemInfo ? reply(opts.systemInfo) : reply(null, 3);
 
     if (object === "session" && method === "login") {
       if (opts.loginStatus !== undefined && opts.loginStatus !== 0) {
@@ -227,6 +234,15 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
       }
       if (cmd === "AT+QGDCNT?") return reply(`+QGDCNT: ${state.counters.lte[0]},${state.counters.lte[1]}\n\nOK\n`);
       if (cmd === "AT+QGDNRCNT?") return reply(`+QGDNRCNT: ${state.counters.nr[0]},${state.counters.nr[1]}\n\nOK\n`);
+      // The radio switch, the SIM card and the identifiers (placeholders only)
+      if (cmd === "AT+CFUN?") return reply(`+CFUN: ${opts.cfun ?? 1}\n\nOK\n`);
+      if (cmd === "AT+CPIN?") return reply(`+CPIN: ${opts.cpin ?? "READY"}\n\nOK\n`);
+      if (cmd === 'AT+QPINC="SC"') return brand === "quectel" ? reply('+QPINC: "SC",3,10\n\nOK\n') : reply("ERROR\n");
+      if (cmd === "AT+CGSN") return reply("860000000000000\n\nOK\n");
+      if (cmd === "AT+CIMI") return reply("272010000000000\n\nOK\n");
+      if (cmd === "AT+QCCID") return reply("+QCCID: 8935301000000000000F\n\nOK\n");
+      if (cmd === 'AT+QNWCFG="nr5g_csi"') return reply('+QNWCFG: "nr5g_csi",27,4,15,2\n\nOK\n');
+      if (cmd === 'AT+QNWCFG="lte_csi"') return reply('+QNWCFG: "lte_csi",20,2,11,1\n\nOK\n');
       if (cmd === "AT+QTEMP") {
         return reply('+QTEMP: "soc-thermal",42\n+QTEMP: "pa-thermal",46\n+QTEMP: "modem-thermal",44\n\nOK\n');
       }

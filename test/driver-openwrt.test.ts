@@ -4,21 +4,28 @@ import { CpeApiError } from "../src/cpe-client.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import {
   OPENWRT_ANONYMOUS_SESSION,
+  atValueLine,
   detectModemBrand,
+  forgetOpenwrtSimReads,
   extractAtResponse,
   isAtError,
   modemBrandOf,
   openwrtProtocol,
+  parseCfun,
   parseFibocomAct,
   parseFibocomCaInfo,
   parseFibocomCcInfo,
   parseOperatorName,
   parseQuectelCaInfo,
+  parseQuectelCsi,
   parseQuectelDataCounter,
   parseQuectelNeighbours,
   parseQuectelRsrp,
   parseQuectelServingCell,
   parseQuectelTemp,
+  parseQuectelTempSensors,
+  parseSimPin,
+  parseSystemInfo,
   quectelLteSinr,
   splitAtCsv,
 } from "../src/drivers/openwrt.ts";
@@ -547,5 +554,60 @@ describe("openwrt: telling the module's make apart", () => {
       // One command carries every band: the NR bands the lock did not name go back as the module reports them
       assert.equal(state.fibocomAct, "17,6,2,101,541,578");
     });
+  });
+});
+
+describe("openwrt: the router's and the module's status", () => {
+  it("reads the channel state, the radio switch, the SIM card, the identifiers and the router's own load", async () => {
+    forgetOpenwrtSimReads();
+    const { client, calls } = openwrtRouter({ brand: "quectel", cfun: 4, systemInfo: { uptime: 7200, memory: { total: 1000, free: 300, buffered: 100, available: 600 } } });
+    const t = await client.withSession((s) => s.telemetry());
+    assert.ok(t);
+    // NR SA: the CSI fills in the MCS and the layers the serving-cell line leaves empty (its CQI stays)
+    assert.deepEqual([t.nr?.dlMcs, t.nr?.mimoLayers, t.nr?.cqi], [27, 4, 15]);
+    assert.equal(t.status?.airplaneMode, true, "AT+CFUN 4: the radio is off");
+    assert.deepEqual(t.status?.system, { uptimeSec: 7200, cpuPercent: null, memoryPercent: 40 });
+    assert.deepEqual(t.status?.sim, { state: "ready", pinAttemptsLeft: 3, pukAttemptsLeft: 10, pinLockEnabled: null, slot: null });
+    assert.deepEqual(t.ids, { imei: "860000000000000", imsi: "272010000000000", iccid: "8935301000000000000" });
+    assert.ok(t.temperatures?.some((s) => s.kind === "pa" && s.celsius === 46));
+    // The card and the identifiers are kept a minute: the next poll does not ask again
+    const before = calls.filter((c) => JSON.stringify(c.args).includes("AT+CIMI")).length;
+    await client.withSession((s) => s.telemetry());
+    assert.equal(calls.filter((c) => JSON.stringify(c.args).includes("AT+CIMI")).length, before);
+    forgetOpenwrtSimReads();
+  });
+
+  it("a Fibocom module: the radio switch and the card, no PIN counts", async () => {
+    forgetOpenwrtSimReads();
+    const { client } = openwrtRouter({ brand: "fibocom", cpin: "SIM PIN" });
+    const t = await client.withSession((s) => s.telemetry());
+    assert.equal(t?.status?.airplaneMode, false);
+    assert.deepEqual(t?.status?.sim, { state: "pin_required", pinAttemptsLeft: null, pukAttemptsLeft: null, pinLockEnabled: null, slot: null });
+    assert.equal(t?.ids?.iccid, null, "QCCID is Quectel's");
+    assert.equal(t?.status?.system, null, "no system info");
+    forgetOpenwrtSimReads();
+  });
+
+  it("parses the answers as the standard and the module's manual write them", () => {
+    assert.deepEqual(parseQuectelCsi('+QNWCFG: "lte_csi",20,2,11,1\r\nOK', "lte_csi"), { mcs: 20, layers: 2, cqi: 11 });
+    assert.equal(parseQuectelCsi('+QNWCFG: "nr5g_csi",27,4,15,2', "lte_csi"), null, "another carrier's line");
+    assert.equal(parseQuectelCsi("ERROR", "nr5g_csi"), null);
+    assert.deepEqual([parseCfun("+CFUN: 1"), parseCfun("+CFUN: 4"), parseCfun("+CFUN: 0"), parseCfun("+CFUN: 7"), parseCfun("ERROR")], [false, true, true, null, null]);
+    assert.deepEqual(parseSimPin("+CPIN: SIM PUK", ""), { state: "puk_required", pinAttemptsLeft: null, pukAttemptsLeft: null });
+    assert.deepEqual(parseSimPin("+CME ERROR: 10", "").state, "absent");
+    assert.deepEqual(parseSimPin("+CME ERROR: 13", "").state, "error");
+    assert.deepEqual(parseSimPin("", "").state, null);
+    assert.deepEqual([atValueLine("860000000000000\nOK", "+CGSN:"), atValueLine('+CGSN: "860000000000000"', "+CGSN:"), atValueLine("ERROR", null)], ["860000000000000", "860000000000000", null]);
+    assert.deepEqual(parseSystemInfo({ uptime: 10, memory: { total: 1000, free: 200, buffered: 100, cached: 100 } }), { uptimeSec: 10, cpuPercent: null, memoryPercent: 60 });
+    assert.deepEqual([parseSystemInfo(null), parseSystemInfo({ load: [1, 2, 3] })], [null, null]);
+    assert.deepEqual(parseQuectelTempSensors('+QTEMP: "modem-lte-sub6-pa1","32"\n+QTEMP: "aoss-0-usr","38"\n+QTEMP: "cpu0-thermal",41\n+QTEMP: 32,33,34'), [
+      { kind: "pa", name: null, celsius: 32 },
+      { kind: "other", name: "aoss-0-usr", celsius: 38 },
+      { kind: "cpu", name: null, celsius: 41 },
+    ]);
+    // The LTE line's uplink: its bandwidth code and its power, tenths of a dBm above ±40
+    const lte = parseQuectelServingCell('+QENG: "LTE","FDD",272,01,0800001E,211,300,1,3,5,2711,-82,-8,-56,19,14,85,-');
+    assert.deepEqual([lte.lte?.ulBandwidthMhz, lte.lte?.bandwidthMhz, lte.lte?.puschTxDbm], [10, 20, 8.5]);
+    assert.equal(parseQuectelServingCell('+QENG: "LTE","FDD",272,01,0800001E,211,300,1,3,5,2711,-82,-8,-56,19,14,8,-').lte?.puschTxDbm, 8);
   });
 });

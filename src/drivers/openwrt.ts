@@ -3,6 +3,7 @@ import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import { type SimCardStatus, type SimState, type SystemStatus, type TemperatureSensor, countValue } from "../router-status.ts";
 import { encodeSmsSubmit } from "../sms/pdu.ts";
 import type { SmsCounters } from "../sms/types.ts";
 import { atErrorCode, parseCmglPdus, parseCpms } from "./at-sms.ts";
@@ -40,10 +41,15 @@ import {
   bandOf,
   fieldOf,
   hexIntOf,
+  iccidOf,
   identityOf,
+  imeiOf,
+  imsiOf,
   intOf,
   isPlainObject,
   labelOf,
+  nonNegativeOf,
+  numberOf,
   pciOf,
   plmnOf,
   rsrpOf,
@@ -53,6 +59,7 @@ import {
   smallIntOf,
   temperatureOf,
   textOf,
+  txPowerOf,
 } from "./values.ts";
 
 /**
@@ -290,6 +297,7 @@ export function parseQuectelServingCell(text: string): QuectelServingCellParsed 
       rssiDbm: rssiOf(lteLine[lteOffset + 12]),
       sinrDb: quectelLteSinr(lteLine[lteOffset + 13]),
       cqi: smallIntOf(lteLine[lteOffset + 14], 15),
+      ...quectelLteUplink(lteLine, lteOffset),
     };
 
     // nsaNrLine: ["NR5G-NSA", mcc, mnc, pcid, rsrp, sinr, rsrq, arfcn, band, dlBwCode, scs]
@@ -329,11 +337,125 @@ export function parseQuectelServingCell(text: string): QuectelServingCellParsed 
       rssiDbm: rssiOf(lteLine[lteOffset + 12]),
       sinrDb: quectelLteSinr(lteLine[lteOffset + 13]),
       cqi: smallIntOf(lteLine[lteOffset + 14], 15),
+      ...quectelLteUplink(lteLine, lteOffset),
     };
     return { mode: "LTE", plmn, lte, nr: null };
   }
 
   return { mode: "NONE", plmn: null, lte: null, nr: null };
+}
+
+/**
+ * The LTE line's uplink fields (notes library B §3.2, `+QENG: "LTE"`): `UL_bandwidth` (idx 8, the same
+ * code as the downlink's) and `tx_power` (idx 16: tenths of a dBm when its magnitude is above 40).
+ */
+function quectelLteUplink(line: ReadonlyArray<string>, offset: number): Pick<DriverCell, "ulBandwidthMhz" | "puschTxDbm"> {
+  const code = intOf(line[offset + 7]);
+  const raw = numberOf(line[offset + 15]);
+  return {
+    ulBandwidthMhz: code !== null ? (QUECTEL_LTE_BANDWIDTH_MHZ[code] ?? null) : null,
+    puschTxDbm: raw === null ? null : txPowerOf(Math.abs(raw) > 40 ? raw / 10 : raw),
+  };
+}
+
+/**
+ * `AT+QNWCFG="lte_csi"` / `"nr5g_csi"`: the channel state the module reports, `<mcs>,<ri>,<cqi>,<pmi>`
+ * (notes library B §3.2, items 14–15): the MCS, the MIMO rank (layers) and the CQI of the downlink.
+ */
+export function parseQuectelCsi(text: string, kind: "lte_csi" | "nr5g_csi"): { mcs: number | null; layers: number | null; cqi: number | null } | null {
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.startsWith("+QNWCFG:")) continue;
+    const fields = splitAtCsv(line.slice(8).trim());
+    if (fields[0]?.toLowerCase() !== kind) continue;
+    const csi = { mcs: smallIntOf(fields[1], 31), layers: smallIntOf(fields[2], 8), cqi: smallIntOf(fields[3], 15) };
+    return csi.mcs === null && csi.layers === null && csi.cqi === null ? null : csi;
+  }
+  return null;
+}
+
+/** A cell with the CSI readings filled in where the serving-cell line left them empty. */
+function withCsi(cell: DriverCell | null, csi: ReturnType<typeof parseQuectelCsi>): DriverCell | null {
+  if (!cell || !csi) return cell;
+  return { ...cell, dlMcs: cell.dlMcs ?? csi.mcs, mimoLayers: cell.mimoLayers ?? csi.layers, cqi: cell.cqi ?? csi.cqi };
+}
+
+/**
+ * `AT+CFUN?` (3GPP TS 27.007 §8.2): `1` full functionality; `4` (transmit and receive off, the
+ * "airplane mode") and `0` (minimum functionality) leave the radio off. `null` for anything else.
+ */
+export function parseCfun(text: string): boolean | null {
+  const match = /\+CFUN:\s*(\d+)/.exec(text);
+  if (!match?.[1]) return null;
+  const fun = Number(match[1]);
+  return fun === 1 ? false : fun === 0 || fun === 4 ? true : null;
+}
+
+/**
+ * The SIM card through the module: `AT+CPIN?` (3GPP TS 27.007 §8.3: `READY`, `SIM PIN`, `SIM PUK`),
+ * `AT+QPINC="SC"` on Quectel (its AT manual: `+QPINC: "SC",<PIN tries left>,<PUK tries left>`).
+ */
+export function parseSimPin(cpin: string, qpinc: string): Pick<SimCardStatus, "state" | "pinAttemptsLeft" | "pukAttemptsLeft"> {
+  const code = /\+CPIN:\s*([A-Z0-9 -]+)/i.exec(cpin)?.[1]?.trim().toUpperCase() ?? null;
+  const state: SimState | null =
+    code === "READY" ? "ready" : code === "SIM PIN" ? "pin_required" : code === "SIM PUK" ? "puk_required" : /\+CME ERROR:\s*(10|13)\b/.test(cpin) ? (/\b10\b/.test(cpin) ? "absent" : "error") : null;
+  const counts = /\+QPINC:\s*"SC"\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(qpinc);
+  return { state, pinAttemptsLeft: countValue(counts?.[1], 10), pukAttemptsLeft: countValue(counts?.[2], 10) };
+}
+
+/** The first line of an AT answer that is only digits (`AT+CGSN`, `AT+CIMI`), else what follows its `+CGSN:` / `+QCCID:` prefix. */
+export function atValueLine(text: string, prefix: string | null): string | null {
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (prefix && line.toUpperCase().startsWith(prefix)) return line.slice(prefix.length).trim().replace(/^"|"$/g, "");
+    if (/^\d{6,22}F?$/i.test(line)) return line;
+  }
+  return null;
+}
+
+/**
+ * `ubus call system info` (OpenWrt's procd, documented in OpenWrt's ubus `system` reference): `uptime`
+ * in seconds and `memory` in bytes (`total`, `free`, `buffered`; newer releases also `available`).
+ */
+export function parseSystemInfo(answer: unknown): SystemStatus | null {
+  if (!isPlainObject(answer)) return null;
+  const uptime = nonNegativeOf(answer["uptime"]);
+  const memory = isPlainObject(answer["memory"]) ? answer["memory"] : null;
+  const total = memory ? nonNegativeOf(memory["total"]) : null;
+  const available = memory ? (nonNegativeOf(memory["available"]) ?? sumOf(nonNegativeOf(memory["free"]), nonNegativeOf(memory["buffered"]), nonNegativeOf(memory["cached"]))) : null;
+  const memoryPercent = total !== null && total > 0 && available !== null && available <= total ? Math.round(((total - available) * 100) / total) : null;
+  return uptime === null && memoryPercent === null ? null : { uptimeSec: uptime, cpuPercent: null, memoryPercent };
+}
+
+function sumOf(...values: Array<number | null>): number | null {
+  return values[0] === null ? null : values.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+}
+
+/** A QTEMP sensor name as the console may show it (a short token), and what it measures where the name says. */
+function qtempSensor(name: string, celsius: number): TemperatureSensor {
+  const token = name.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 32);
+  const kind: TemperatureSensor["kind"] = /(^|[-_])pa\d*([-_]|$)|pa-thermal/.test(token)
+    ? "pa"
+    : /modem|mdm|q6/.test(token)
+      ? "modem"
+      : /cpu|soc|apc/.test(token)
+        ? "cpu"
+        : /pmic|xo|board|sdr/.test(token)
+          ? "board"
+          : "other";
+  return { kind, name: kind === "other" ? token || null : null, celsius };
+}
+
+/** Each named `+QTEMP:` sensor (`"<name>",<°C>`); a module that names none reports only the hottest. */
+export function parseQuectelTempSensors(text: string): TemperatureSensor[] {
+  const out: TemperatureSensor[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = /\+QTEMP:\s*"([^"]{1,64})"\s*,\s*"?(-?\d+(?:\.\d+)?)/.exec(line);
+    if (!match?.[1] || !match[2]) continue;
+    const celsius = temperatureOf(match[2]);
+    if (celsius !== null) out.push(qtempSensor(match[1], celsius));
+  }
+  return out.slice(0, 16);
 }
 
 export function parseQuectelCaInfo(text: string): DriverCarrier[] {
@@ -664,6 +786,21 @@ const MODEM_RPC_CANDIDATES: ReadonlyArray<UbusRpcCallTarget> = [
   { object: "modem", method: "at", cmdKey: "cmd" },
 ];
 
+/** The SIM card and the identifiers, read once a minute per router (`SIM_READ_MAX_AGE_MS`). */
+interface SimRead {
+  sim: SimCardStatus | null;
+  ids: NonNullable<DriverTelemetry["ids"]>;
+}
+
+const SIM_READ_MAX_AGE_MS = 60_000;
+/** By the router's address (each session has a connection of its own); a few routers at most. */
+const SIM_READS = new Map<string, { atMs: number; read: SimRead }>();
+
+/** Forget the SIM reads kept (tests, and a router connection that changed). */
+export function forgetOpenwrtSimReads(): void {
+  SIM_READS.clear();
+}
+
 class OpenwrtUbusClient {
   readonly #http: LanHttp;
   #id = 1;
@@ -675,6 +812,11 @@ class OpenwrtUbusClient {
 
   constructor(http: LanHttp) {
     this.#http = http;
+  }
+
+  /** The router's connection (what per-router reads are kept by). */
+  get http(): LanHttp {
+    return this.#http;
   }
 
   async call(object: string, method: string, args: Record<string, unknown> = {}): Promise<unknown> {
@@ -864,6 +1006,9 @@ export class OpenwrtSession implements DriverSessionHandle {
 
     const tempRaw = await this.#ubus.execAt("AT+QTEMP").catch(() => "");
     const temp = parseQuectelTemp(tempRaw);
+    // The downlink's channel state, per serving cell the module has
+    if (serving.lte) serving.lte = withCsi(serving.lte, parseQuectelCsi(await this.#ubus.execAt('AT+QNWCFG="lte_csi"').catch(() => ""), "lte_csi"));
+    if (serving.nr) serving.nr = withCsi(serving.nr, parseQuectelCsi(await this.#ubus.execAt('AT+QNWCFG="nr5g_csi"').catch(() => ""), "nr5g_csi"));
     // The data counter of the mode the module is in (4G and 5G are counted apart)
     const counterCmd = quectelCounterOf(serving.mode);
     const counter = counterCmd ? parseQuectelDataCounter(await this.#ubus.execAt(counterCmd.command).catch(() => ""), counterCmd.prefix) : null;
@@ -883,7 +1028,43 @@ export class OpenwrtSession implements DriverSessionHandle {
       traffic: counter && counterCmd ? counterTraffic(counter, counterCmd.command) : null,
       temperatureC: temp,
       signalBars: null,
+      temperatures: parseQuectelTempSensors(tempRaw),
+      ...(await this.#routerStatus()),
     };
+  }
+
+  /**
+   * What the router and the module say of themselves: the radio switch (`AT+CFUN?`) and the router's
+   * uptime and memory (`system info`) on every poll; the SIM card and the identifiers once a minute
+   * (they rarely change, and each is one more AT command).
+   */
+  async #routerStatus(): Promise<Pick<DriverTelemetry, "status" | "ids">> {
+    const airplaneMode = parseCfun(await this.#ubus.execAt("AT+CFUN?").catch(() => ""));
+    const system = parseSystemInfo(await this.#ubus.call("system", "info", {}).catch(() => null));
+    const card = await this.#simRead();
+    return { status: { airplaneMode, system, sim: card.sim }, ids: card.ids };
+  }
+
+  async #simRead(): Promise<SimRead> {
+    const key = this.#ubus.http.baseUrl;
+    const cached = SIM_READS.get(key);
+    if (cached && Date.now() - cached.atMs < SIM_READ_MAX_AGE_MS) return cached.read;
+    const quectel = this.#brand === "quectel";
+    const cpin = await this.#ubus.execAt("AT+CPIN?").catch(() => "");
+    const qpinc = quectel ? await this.#ubus.execAt('AT+QPINC="SC"').catch(() => "") : "";
+    const pin = parseSimPin(cpin, qpinc);
+    const read: SimRead = {
+      sim: pin.state === null && pin.pinAttemptsLeft === null ? null : { ...pin, pinLockEnabled: null, slot: null },
+      ids: {
+        imei: imeiOf(atValueLine(await this.#ubus.execAt("AT+CGSN").catch(() => ""), "+CGSN:")),
+        imsi: imsiOf(atValueLine(await this.#ubus.execAt("AT+CIMI").catch(() => ""), null)),
+        iccid: quectel ? iccidOf(atValueLine(await this.#ubus.execAt("AT+QCCID").catch(() => ""), "+QCCID:")) : null,
+      },
+    };
+    SIM_READS.delete(key);
+    SIM_READS.set(key, { atMs: Date.now(), read });
+    while (SIM_READS.size > 8) SIM_READS.delete(SIM_READS.keys().next().value ?? key);
+    return read;
   }
 
   /** The registered operator's name (`AT+COPS?`, 3GPP TS 27.007); `null` when the module names none. */
@@ -913,6 +1094,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       traffic: null,
       temperatureC: temp,
       signalBars: null,
+      ...(await this.#routerStatus()),
     };
   }
 
