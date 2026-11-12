@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { type ApnIpType, type NetworkMode, type SimPinOutcome, isApnName } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
@@ -8,9 +9,10 @@ import { encodeSmsSubmit } from "../sms/pdu.ts";
 import type { SmsCounters } from "../sms/types.ts";
 import { atErrorCode, parseCmglPdus, parseCpms } from "./at-sms.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
+import { settleNothingToRead } from "./cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
 import { emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
@@ -20,6 +22,8 @@ import type {
   DriverCarrier,
   DriverCell,
   DriverCellLockTarget,
+  DriverCellular,
+  DriverCellularState,
   DriverDataLink,
   DriverHost,
   DriverIdentity,
@@ -550,6 +554,51 @@ const QUECTEL_MODES: Readonly<Record<DriverNetworkMode, { pref: string; disable:
   nr_nsa: { pref: "LTE:NR5G", disable: 1 },
   lte: { pref: "LTE", disable: null },
 };
+
+/** `mode_pref` and `nr5g_disable_mode` of each mode the network mode setting writes: the four above, and 3G only (`WCDMA`, notes library B). */
+const QUECTEL_SELECTABLE: Readonly<Partial<Record<NetworkMode, { pref: string; disable: number | null }>>> = { ...QUECTEL_MODES, wcdma: { pref: "WCDMA", disable: null } };
+const QUECTEL_MODE_LIST: ReadonlyArray<NetworkMode> = ["auto", "nr_sa", "nr_nsa", "lte", "wcdma"];
+const FIBOCOM_MODE_LIST: ReadonlyArray<NetworkMode> = ["auto", "nr_sa"];
+
+/**
+ * The mode a Quectel module is set to: the exact `mode_pref` value, with `nr5g_disable_mode` telling
+ * 5G standalone from 5G with a 4G anchor (`null`: a value the notes do not list).
+ */
+export function quectelModeOf(prefMode: string, prefDisable: string): NetworkMode | null {
+  const pref = /\+QNWPREFCFG:\s*"mode_pref"\s*,\s*([A-Z0-9:]{1,32})/i.exec(prefMode)?.[1]?.toUpperCase();
+  const disable = /\+QNWPREFCFG:\s*"nr5g_disable_mode"\s*,\s*(\d)/i.exec(prefDisable)?.[1];
+  if (pref === "AUTO") return "auto";
+  if (pref === "WCDMA") return "wcdma";
+  if (pref === "LTE") return "lte";
+  if (pref === "NR5G") return disable === "2" ? "nr_sa" : null;
+  if (pref === "LTE:NR5G") return disable === "1" ? "nr_nsa" : null;
+  return null;
+}
+
+const PDP_TYPES: Readonly<Record<ApnIpType, string>> = { ipv4: "IP", ipv6: "IPV6", ipv4v6: "IPV4V6" };
+
+/**
+ * `AT+CGDCONT?` (3GPP TS 27.007 §10.1.1): `+CGDCONT: <cid>,"<PDP_type>","<APN>",…`. The context `cid`
+ * as the access point in use (an empty APN is the one the network assigns); `null` when it is not listed.
+ */
+export function parseCgdcont(text: string, cid = 1): { apn: string; ipType: ApnIpType } | null {
+  for (const raw of text.slice(0, 4096).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.toUpperCase().startsWith("+CGDCONT:")) continue;
+    const fields = splitAtCsv(line.slice("+CGDCONT:".length));
+    if (fields[0] !== String(cid)) continue;
+    const type = (fields[1] ?? "").toUpperCase();
+    const ipType = (Object.entries(PDP_TYPES) as Array<[ApnIpType, string]>).find(([, name]) => name === type)?.[0];
+    const apn = fields[2] ?? "";
+    return ipType === undefined || (apn !== "" && !isApnName(apn)) ? null : { apn, ipType };
+  }
+  return null;
+}
+
+/** `+CME ERROR: 16` / `12`: the card says the PIN is wrong (3GPP TS 27.007 §9.2), or wants its PUK. */
+function pinRefused(answer: string): boolean {
+  return isAtError(answer);
+}
 
 /**
  * `+GTACT: <rat>,<prefer_rat>,<prefer_band>[,<band>…]`: LTE bands as 100 + band, NR bands as 500 +
@@ -1460,6 +1509,119 @@ export class OpenwrtSession implements DriverSessionHandle {
     }
     const after = parseCpms(await this.#ubus.execAt("AT+CPMS?").catch(() => ""))?.used ?? null;
     settleSmsCount(check, before, after, parts.length);
+  }
+
+  /**
+   * The cellular settings the module's own commands define: the network mode (Quectel's `mode_pref`,
+   * Fibocom's `AT+GTACT`), the radio switch (`AT+CFUN`, 3GPP TS 27.007 §8.2), the card's PIN
+   * (`AT+CPIN`, `AT+CLCK="SC"`, §8.3 and §7.4) and the access point of the first PDP context
+   * (`AT+CGDCONT`, §10.1.1; no user name or password: the notes name no command for them).
+   */
+  readonly cellular: DriverCellular = {
+    read: () => this.#cellularRead(),
+    setNetworkMode: (mode, check) => this.#setNetworkMode(mode, check),
+    setAirplaneMode: async (enabled, check) => {
+      this.#guard();
+      await this.#atWrite(check, "AT+CFUN", `AT+CFUN=${enabled ? 4 : 1}`);
+      const after = parseCfun(await this.#ubus.execAt("AT+CFUN?").catch(() => ""));
+      settleSetting(check, after === null ? null : after === enabled);
+    },
+    enterPin: (pin, check) => this.#pinWrite(check, "AT+CPIN", `AT+CPIN="${pin}"`, async () => parseSimPin(await this.#ubus.execAt("AT+CPIN?").catch(() => ""), "").state === "ready"),
+    setPinLock: (enabled, pin, check) =>
+      this.#pinWrite(check, "AT+CLCK", `AT+CLCK="SC",${enabled ? 1 : 0},"${pin}"`, async () => {
+        const status = /\+CLCK:\s*([01])/.exec(await this.#ubus.execAt('AT+CLCK="SC",2').catch(() => ""))?.[1];
+        return status === undefined ? null : (status === "1") === enabled;
+      }),
+    setApn: (choice, check) => this.#setApn(choice.mode === "auto" ? { apn: "", ipType: null } : choice, check),
+    restoreApn: async (restore, check) => {
+      if (restore.mode !== "context") throw new CpeControlValidationError("This router keeps one access point in its module: there is no profile to switch back to");
+      await this.#setApn({ apn: restore.apn, ipType: restore.ipType }, check);
+    },
+  };
+
+  /** One AT command of a write: named in the record before it is sent, and an `ERROR` is the module refusing it. */
+  async #atWrite(check: WriteCheck, label: string, command: string): Promise<void> {
+    noteSent(check, FAMILY, label);
+    const answer = await this.#ubus.execAt(command);
+    if (isAtError(answer)) throw new CpeApiError(atErrorCode(answer) ?? "at-error", `${label} refused`);
+  }
+
+  async #cellularRead(): Promise<DriverCellularState> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+    const quectel = this.#brand === "quectel";
+    let networkMode: NetworkMode | null;
+    if (quectel) {
+      networkMode = quectelModeOf(await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref"').catch(() => ""), await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode"').catch(() => ""));
+    } else {
+      const act = parseFibocomAct(await this.#ubus.execAt("AT+GTACT?").catch(() => ""));
+      networkMode = act ? (FIBOCOM_MODE_OF_RAT[act.rat] ?? null) : null;
+    }
+    // The attempts left are read now, not from the minute-old copy the poll keeps: a PIN is sent by them
+    const attempts = quectel ? parseSimPin("", await this.#ubus.execAt('AT+QPINC="SC"').catch(() => "")).pinAttemptsLeft : null;
+    const context = parseCgdcont(await this.#ubus.execAt("AT+CGDCONT?").catch(() => ""));
+    return {
+      networkMode,
+      networkModes: [...(quectel ? QUECTEL_MODE_LIST : FIBOCOM_MODE_LIST)],
+      pinAttemptsLeft: attempts,
+      apn: context ? { mode: context.apn === "" ? "auto" : "manual", apn: context.apn === "" ? null : context.apn, ipType: context.ipType, auth: null, hasUsername: null } : null,
+      apnRestore: context ? { mode: "context", apn: context.apn, ipType: context.ipType } : null,
+    };
+  }
+
+  async #setNetworkMode(mode: NetworkMode, check: WriteCheck): Promise<void> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+    if (this.#brand === "fibocom") {
+      const rat = FIBOCOM_RAT_OF_MODE[mode as DriverNetworkMode];
+      if (rat === undefined) throw new CpeControlValidationError("This module's AT+GTACT is documented for automatic (4G + 5G) and 5G standalone only");
+      // One command carries the mode and every locked band: the bands go back as the module reports them
+      const current = parseFibocomAct(await this.#ubus.execAt("AT+GTACT?").catch(() => ""));
+      if (!current) throw new CpeAnswerFormatError("The module did not report its AT+GTACT setting, which the mode is written together with: nothing was sent");
+      const bands = [...(current.lte === "all" ? [] : current.lte.map((b) => 100 + b)), ...(current.nr === "all" ? [] : current.nr.map((b) => 500 + b))];
+      await this.#atWrite(check, "AT+GTACT", `AT+GTACT=${[rat, current.preferRat, current.preferBand, ...bands].join(",")}`);
+      const after = parseFibocomAct(await this.#ubus.execAt("AT+GTACT?").catch(() => ""));
+      settleSetting(check, after === null ? null : after.rat === rat);
+      return;
+    }
+    const target = QUECTEL_SELECTABLE[mode];
+    if (target === undefined) throw new CpeControlValidationError(`This module has no "${mode}" network mode`);
+    if (target.disable !== null) await this.#atWrite(check, "AT+QNWPREFCFG/nr5g_disable_mode", `AT+QNWPREFCFG="nr5g_disable_mode",${target.disable}`);
+    await this.#atWrite(check, "AT+QNWPREFCFG/mode_pref", `AT+QNWPREFCFG="mode_pref",${target.pref}`);
+    const after = quectelModeOf(await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref"').catch(() => ""), await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode"').catch(() => ""));
+    // `LTE` leaves the 5G switch as it was, so only the mode's own word is compared there
+    settleSetting(check, after === null && mode !== "lte" ? null : after === mode);
+  }
+
+  /**
+   * One PIN command, sent once. `OK` is the card taking the PIN; an error is the card refusing it:
+   * an outcome, not a failure, and nothing follows it. The attempts left are read where the module
+   * reports them (Quectel).
+   */
+  async #pinWrite(check: WriteCheck, label: string, command: string, settled: () => Promise<boolean | null>): Promise<SimPinOutcome> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+    noteSent(check, FAMILY, label);
+    const took = !pinRefused(await this.#ubus.execAt(command));
+    if (took) settleSetting(check, await settled().catch(() => null));
+    else settleNothingToRead(check);
+    // What the poll remembers of the card is a minute old at most: forget it, the PIN changed it
+    SIM_READS.delete(this.#ubus.http.baseUrl);
+    const attemptsLeft = this.#brand === "quectel" ? parseSimPin("", await this.#ubus.execAt('AT+QPINC="SC"').catch(() => "")).pinAttemptsLeft : null;
+    return { accepted: took, attemptsLeft };
+  }
+
+  /** The first PDP context's access point and type; a type left out keeps the one the module has. */
+  async #setApn(target: { apn: string; ipType: ApnIpType | null; auth?: string; username?: string; password?: string }, check: WriteCheck): Promise<void> {
+    this.#guard();
+    if (target.auth !== undefined && (target.auth !== "none" || target.username !== "" || target.password !== "")) {
+      throw new CpeControlValidationError("This router's module takes an access point name and type only: FengSui has no command on record for its user name and password");
+    }
+    const current = parseCgdcont(await this.#ubus.execAt("AT+CGDCONT?").catch(() => ""));
+    const ipType = target.ipType ?? current?.ipType ?? "ipv4v6";
+    await this.#atWrite(check, "AT+CGDCONT", `AT+CGDCONT=1,"${PDP_TYPES[ipType]}","${target.apn}"`);
+    const after = parseCgdcont(await this.#ubus.execAt("AT+CGDCONT?").catch(() => ""));
+    settleSetting(check, after === null ? null : after.apn === target.apn && after.ipType === ipType);
   }
 
   async reboot(check: WriteCheck): Promise<void> {

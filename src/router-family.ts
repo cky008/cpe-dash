@@ -180,7 +180,17 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte"],
     frequencyLock: true,
   },
-  openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "topology", "sms", "simCard", "airplaneMode"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  openwrt: {
+    defaultUsername: "root",
+    defaultAddress: "192.168.1.1",
+    reads: ["telemetry", "neighbors", "topology", "sms", "simCard", "airplaneMode"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "airplaneSwitch", "simPin", "apn"],
+    smsReadState: "fengsui",
+    networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
+    nrBandLock: true,
+    // The module's own list is read in the session (a Quectel module also has 3G only, a Fibocom one two modes)
+    selectableModes: ["auto", "nr_sa", "nr_nsa", "lte"],
+  },
 };
 
 /**

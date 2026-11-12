@@ -303,6 +303,10 @@ describe("experimental switch: what each write is on a router", () => {
         ["reconnect", "enabled"],
         ["mobileData", "enabled"],
         ["smsWrite", "enabled"],
+        ["networkMode", "enabled"],
+        ["simPin", "enabled"],
+        ["airplaneSwitch", "enabled"],
+        ["apn", "enabled"],
       ]
     );
     assert.equal(openwrt.actionAccess("unlock_rf_locks"), "experimental");

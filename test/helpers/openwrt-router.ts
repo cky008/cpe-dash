@@ -46,6 +46,10 @@ export interface OpenwrtRouterOptions {
   cpin?: string;
   /** What `ubus call system info` answers (left out: an older procd without it). */
   systemInfo?: Record<string, unknown>;
+  /** The SIM card's PIN (default `1234`); a wrong one costs an attempt. */
+  simPin?: string;
+  /** The first PDP context as `AT+CGDCONT?` lists it at the start (default `"IPV4V6","internet"`). */
+  cgdcont?: string;
 }
 
 /** One stored part: its storage index, `<stat>` (0 unread, 1 read, 2 unsent, 3 sent) and its PDU. */
@@ -76,6 +80,13 @@ export interface OpenwrtRouterState {
   counters: { lte: [bigint, bigint]; nr: [bigint, bigint] };
   /** QModem's dial worker and the data connection it holds; the dial calls it was asked for. */
   dial: { running: boolean; up: boolean; calls: string[]; refuse: string[] };
+  /** `<fun>` of `AT+CFUN?`, what `AT+CPIN?` names, the PIN lock (`AT+CLCK="SC",2`) and the PIN attempts left. */
+  cfun: number;
+  cpin: string;
+  pinLock: boolean;
+  pinAttempts: number;
+  /** The first PDP context: `"<type>","<apn>"`. */
+  cgdcont: string;
 }
 
 export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
@@ -99,6 +110,23 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     sentPdus: [],
     counters: { lte: [1_000n, 4_000n], nr: [2_194_810_368n, 15_849_203_712n] },
     dial: { running: true, up: true, calls: [], refuse: [] },
+    cfun: opts.cfun ?? 1,
+    cpin: opts.cpin ?? "READY",
+    pinLock: false,
+    pinAttempts: 3,
+    cgdcont: opts.cgdcont ?? '"IPV4V6","internet"',
+  };
+  const simPin = opts.simPin ?? "1234";
+  /** A PIN command: the right PIN applies `then`, a wrong one costs an attempt and answers the card's error. */
+  const pinCommand = (pin: string | undefined, then: () => void): string => {
+    if (pin === simPin && state.pinAttempts > 0) {
+      state.pinAttempts = 3;
+      then();
+      return "OK\n";
+    }
+    state.pinAttempts = Math.max(0, state.pinAttempts - 1);
+    if (state.pinAttempts === 0) state.cpin = "SIM PUK";
+    return "+CME ERROR: 16\n";
   };
 
   /** The modem's answer to one AT command, whichever service carried it. */
@@ -235,9 +263,24 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
       if (cmd === "AT+QGDCNT?") return reply(`+QGDCNT: ${state.counters.lte[0]},${state.counters.lte[1]}\n\nOK\n`);
       if (cmd === "AT+QGDNRCNT?") return reply(`+QGDNRCNT: ${state.counters.nr[0]},${state.counters.nr[1]}\n\nOK\n`);
       // The radio switch, the SIM card and the identifiers (placeholders only)
-      if (cmd === "AT+CFUN?") return reply(`+CFUN: ${opts.cfun ?? 1}\n\nOK\n`);
-      if (cmd === "AT+CPIN?") return reply(`+CPIN: ${opts.cpin ?? "READY"}\n\nOK\n`);
-      if (cmd === 'AT+QPINC="SC"') return brand === "quectel" ? reply('+QPINC: "SC",3,10\n\nOK\n') : reply("ERROR\n");
+      if (cmd === "AT+CFUN?") return reply(`+CFUN: ${state.cfun}\n\nOK\n`);
+      if (cmd === "AT+CFUN=4" || cmd === "AT+CFUN=1") {
+        state.cfun = Number(cmd.slice("AT+CFUN=".length));
+        return reply("OK\n");
+      }
+      if (cmd === "AT+CPIN?") return reply(`+CPIN: ${state.cpin}\n\nOK\n`);
+      if (cmd.startsWith("AT+CPIN=")) return reply(pinCommand(/^AT\+CPIN="(\d+)"$/.exec(cmd)?.[1], () => (state.cpin = "READY")));
+      if (cmd === 'AT+CLCK="SC",2') return reply(`+CLCK: ${state.pinLock ? 1 : 0}\n\nOK\n`);
+      if (cmd.startsWith('AT+CLCK="SC",')) {
+        const match = /^AT\+CLCK="SC",([01]),"(\d+)"$/.exec(cmd);
+        return reply(pinCommand(match?.[2], () => (state.pinLock = match?.[1] === "1")));
+      }
+      if (cmd === 'AT+QPINC="SC"') return brand === "quectel" ? reply(`+QPINC: "SC",${state.pinAttempts},10\n\nOK\n`) : reply("ERROR\n");
+      if (cmd === "AT+CGDCONT?") return reply(`+CGDCONT: 1,${state.cgdcont},"0.0.0.0",0,0\n+CGDCONT: 2,"IPV4V6","ims","0.0.0.0",0,0\n\nOK\n`);
+      if (cmd.startsWith("AT+CGDCONT=1,")) {
+        state.cgdcont = cmd.slice("AT+CGDCONT=1,".length);
+        return reply("OK\n");
+      }
       if (cmd === "AT+CGSN") return reply("860000000000000\n\nOK\n");
       if (cmd === "AT+CIMI") return reply("272010000000000\n\nOK\n");
       if (cmd === "AT+QCCID") return reply("+QCCID: 8935301000000000000F\n\nOK\n");
