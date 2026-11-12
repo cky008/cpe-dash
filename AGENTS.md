@@ -56,7 +56,7 @@ cpe-dash/
 │   ├── console-settings.ts # 控制台管理的加密设置：路由器连接、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码、被关闭的实验性写入（按型号 + 功能）；首次启动从 .env 导入一次
 │   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
-│   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照（含电量、充电、飞行模式、漫游、路由器的负载与运行时间、各温度传感器）与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
+│   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照（含电量、充电、SIM 卡锁住、飞行模式、漫游、路由器的负载与运行时间、各类温度传感器）与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
 │   ├── sms/                # 短信：编解码（codec.ts 是华为的报文，text-mode.ts 是 GSM 7-bit 字母表与分段计数，pdu.ts 是 3GPP TS 23.040 的 PDU：7-bit 打包、UCS-2、长短信的 UDH、SMS-DELIVER / SMS-SUBMIT）、号码解析、华为协议、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具
 │   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
@@ -78,7 +78,7 @@ cpe-dash/
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器（覆盖 src/ scripts/ test/ web/；私钥只放行路由器厂商写在网页里、每台都一样的那把，按指纹列在 PUBLIC_VENDOR_KEYS）
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示）
-│   ├── demo-router.ts      # 演示世界：严格 Mock 路由器 + 家庭场景 + 真实守护进程启动（demo-server、种子采集与契约测试共用）；三个世界：H168-383、未验证的华为型号、一台中兴随身路由器（电池、SIM 卡、其他品牌的短信）
+│   ├── demo-router.ts      # 演示世界：严格 Mock 路由器 + 家庭场景 + 真实守护进程启动（demo-server、种子采集与契约测试共用）；三个世界：H168-383、未验证的华为型号、一台中兴随身路由器（电池、SIM 卡、其他品牌的短信）；另有只给浏览器测试用的鲲鹏无限、OpenWrt 场景（没有种子）
 │   ├── demo-server.ts      # npm run demo：真实守护进程栈 + 进程内严格 Mock 路由器（不读 .env、不联网）
 │   ├── capture-demo-seed.ts # npm run build:demo：从真守护进程录制在线演示的三份初始数据（H168-383、?router=other 打开的未验证华为型号、?router=zte 打开的中兴随身路由器；只含占位值）
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
@@ -89,7 +89,7 @@ cpe-dash/
 │   ├── test-count-reporter.ts # node --test 报告器（test:coverage 与 test:ui 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
-├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为 npm run test:ui 的浏览器测试：无头 Chrome 对着真实守护进程与演示路由器，不在 npm run check 里，CI 运行）
+├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为 npm run test:ui 的浏览器测试：无头 Chrome 对着真实守护进程与演示路由器（含其他品牌的模拟路由器），不在 npm run check 里，CI 运行）
 ├── Dockerfile · docker-compose.yml · .dockerignore   # 非 root、只读根文件系统、HEALTHCHECK 的生产镜像与群晖编排
 ├── LICENSE · THIRD_PARTY_NOTICES.md                # PolyForm Noncommercial 1.0.0；构建产物所含 Tailwind CSS / daisyUI / Lucide 的许可声明（构建放到控制台旁，镜像放在 /app）
 ├── .github/workflows/      # ci-docker.yml（门禁 + amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）· docs-pages.yml（文档站发布到本仓库 Pages，仓库变量 DOCS_PAGES_ENABLED 打开后才运行）
