@@ -19,7 +19,10 @@ import {
   zteLoginPassword,
   zteLteBandForm,
   zteNrBandForm,
+  ZTE_STATUS_KEYS,
+  withZteGoformStatus,
 } from "../src/drivers/zte-goform.ts";
+import { driverTelemetrySnapshot } from "../src/drivers/snapshot.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { ZTE_LD, ZTE_PASSWORD, ZTE_VERSION, zteRouter } from "./helpers/zte-goform-router.ts";
 
@@ -71,6 +74,8 @@ describe("zte-goform: login and digests", () => {
       "GET /goform/goform_get_cmd_process",
       "GET /goform/goform_get_cmd_process",
       "POST /goform/goform_set_cmd_process",
+      // The telemetry read, then the router's status (battery, SIM card…) in the same session
+      "GET /goform/goform_get_cmd_process",
       "GET /goform/goform_get_cmd_process",
       "GET /goform/goform_get_cmd_process",
       "POST /goform/goform_set_cmd_process",
@@ -380,5 +385,100 @@ describe("zte-goform: locks", () => {
     assert.deepEqual(await client.withSession((s) => s.neighbours()), []);
     const identity = await client.withSession((s) => s.identify());
     assert.deepEqual(identity, { model: "MC888", softwareVersion: VERSION.waInnerVersion, hardwareVersion: VERSION.hardwareVersion });
+  });
+});
+
+describe("zte-goform: the router's status", () => {
+  /** A mobile router's status keys as ZTE's page reads them (placeholders only). */
+  const STATUS = {
+    battery_vol_percent: "64",
+    battery_charging: "1",
+    battery_temp: "36",
+    modem_main_state: "modem_init_complete",
+    pin_status: "1",
+    pinnumber: "3",
+    puknumber: "10",
+    sim_slot: "1",
+    simcard_roam: "Home",
+    data_volume_limit_switch: "1",
+    data_volume_limit_unit: "data",
+    data_volume_limit_size: "20_1024",
+    data_volume_alert_percent: "90",
+    fota_new_version_state: "has_optional",
+    wifi_cur_state: "1",
+    m_ssid_enable: "0",
+    imei: "860000000000000",
+    imsi: "272010000000000",
+    msisdn: "+353830000000",
+    sim_iccid: "8935301000000000000",
+    lte_cqi1: "11",
+    lte_tx_power: "12",
+    wifi_chip_temp: "52",
+    cpu_usage: "23",
+    mem_usage: "41%",
+  };
+
+  it("reads the battery, the SIM card, roaming, the data plan, a firmware update, Wi-Fi and the identifiers in the poll's session", async () => {
+    const { mock, state, client } = zteRouter();
+    Object.assign(state.values, STATUS);
+    const t = await client.withSession((s) => s.telemetry());
+    assert.ok(t);
+    // The status is its own request, after the telemetry one, so the telemetry read is unchanged
+    const cmds = mock.requests.filter((r) => r.method === "GET" && r.query.get("multi_data") === "1").map((r) => r.query.get("cmd") ?? "");
+    assert.equal(cmds.at(-1), ZTE_STATUS_KEYS.join(","));
+    assert.deepEqual(t.status?.battery, { percent: 64, charging: true, temperatureC: 36, minutesToFull: null, minutesToEmpty: null });
+    assert.deepEqual(t.status?.sim, { state: "ready", pinLockEnabled: true, pinAttemptsLeft: 3, pukAttemptsLeft: 10, slot: { kind: "embedded", index: 1 } });
+    assert.deepEqual(t.status?.roaming, { active: false, dataAllowed: null });
+    assert.equal(t.status?.firmwareUpdate, "available");
+    assert.deepEqual(t.status?.wifi, { enabled: true, guestEnabled: false });
+    assert.deepEqual(t.status?.system, { uptimeSec: null, cpuPercent: 23, memoryPercent: 41 });
+    assert.deepEqual(t.ids, { imei: "860000000000000", imsi: "272010000000000", msisdn: "+353830000000", iccid: "8935301000000000000" });
+    assert.deepEqual([t.lte?.cqi1, t.lte?.puschTxDbm], [11, 12]);
+    assert.ok(t.temperatures?.some((s) => s.kind === "wifi" && s.celsius === 52));
+    assert.ok(t.temperatures?.some((s) => s.kind === "battery" && s.celsius === 36));
+    // The plan reads as HiLink's does: 20 × 1024 MB
+    const snap = driverTelemetrySnapshot(t, 1_000);
+    assert.deepEqual([snap.traffic.dataLimitRaw, snap.traffic.monthThresholdPercent], ["20GB", 90]);
+    assert.equal(snap.status?.battery?.percent, 64);
+  });
+
+  it("makes up no battery on a CPE, and keeps the readings when the router refuses the status request", async () => {
+    const { client } = zteRouter();
+    const t = await client.withSession((s) => s.telemetry());
+    assert.equal(t?.status?.battery, null, "no battery keys: no battery");
+    assert.equal(t?.status?.sim?.state, null);
+    assert.equal(t?.lte?.pci, 211);
+    // A firmware whose answer to the status keys is not an object: the telemetry read stands on its own
+    const telemetryOnly = parseZteGoformTelemetry({ network_type: "LTE", lte_pci: "d3", wan_active_band: "LTE B1", wan_active_channel: "300", lte_rsrp: "-90" });
+    assert.equal(withZteGoformStatus(telemetryOnly, {}).status?.battery, null);
+    assert.equal(withZteGoformStatus(telemetryOnly, {}).wcdma, null);
+  });
+
+  it("reads each state as ZTE's own page does", () => {
+    const t = parseZteGoformTelemetry({ network_type: "LTE", lte_pci: "d3", wan_active_band: "LTE B1", wan_active_channel: "300", lte_rsrp: "-90", pm_sensor_mdm: "46", pm_modem_5g: "49", pm_sensor_pa1: "44" });
+    assert.deepEqual(t.temperatures, [
+      { kind: "modem_4g", name: null, celsius: 46 },
+      { kind: "modem_5g", name: null, celsius: 49 },
+      { kind: "pa", name: null, celsius: 44 },
+    ]);
+    const states = ["modem_waitpin", "modem_waitpuk", "modem_sim_undetected", "modem_sim_destroy", "modem_imsi_waitnck", "something else"].map(
+      (state) => withZteGoformStatus(t, { modem_main_state: state }).status?.sim?.state
+    );
+    assert.deepEqual(states, ["pin_required", "puk_required", "absent", "error", "error", null]);
+    // battery_pers: a 0–4 icon on ZTE's page (25 % a step), a percentage in library A
+    assert.equal(withZteGoformStatus(t, { battery_pers: "3" }).status?.battery?.percent, 75);
+    assert.equal(withZteGoformStatus(t, { battery_pers: "58" }).status?.battery?.percent, 58);
+    assert.equal(withZteGoformStatus(t, { battery_pers: "0" }).status?.battery, null);
+    assert.equal(withZteGoformStatus(t, { battery_value: "80", battery_vol_percent: "" }).status?.battery?.percent, 80);
+    // Roaming as the page counts it; the card slot and the two built-in cards; no update; a plan in hours is no plan
+    assert.equal(withZteGoformStatus(t, { simcard_roam: "International" }).status?.roaming?.active, true);
+    assert.equal(withZteGoformStatus(t, { simcard_roam: "Internal" }).status?.roaming?.active, true);
+    assert.deepEqual(withZteGoformStatus(t, { sim_slot: "0" }).status?.sim?.slot, { kind: "physical", index: 1 });
+    assert.deepEqual(withZteGoformStatus(t, { sim_slot: "2" }).status?.sim?.slot, { kind: "embedded", index: 2 });
+    assert.equal(withZteGoformStatus(t, { fota_new_version_state: "none" }).status?.firmwareUpdate, "none");
+    assert.equal(withZteGoformStatus(t, {}).status?.firmwareUpdate, null);
+    assert.equal(driverTelemetrySnapshot(withZteGoformStatus({ ...t, traffic: { downloadBytesPerSec: 0, uploadBytesPerSec: 0, totalDownloadBytes: null, totalUploadBytes: null, sessionDownloadBytes: null, sessionUploadBytes: null, sessionSeconds: null, monthDownloadBytes: null, monthUploadBytes: null, monthTotalBytes: null, monthSeconds: null } }, { data_volume_limit_switch: "1", data_volume_limit_unit: "time", data_volume_limit_size: "100" }), 1).traffic.dataLimitRaw, "");
+    // 3G: RSCP, Ec/Io and the scrambling code
+    assert.deepEqual(withZteGoformStatus(t, { rscp: "-80", ecio: "-7", sc: "128" }).wcdma, { rscpDbm: -80, ecioDb: -7, psc: 128 });
   });
 });

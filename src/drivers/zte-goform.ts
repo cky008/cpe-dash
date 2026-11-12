@@ -2,6 +2,7 @@ import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import { type BatteryStatus, type SimCardStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../router-status.ts";
 import { detectSmsTextMode } from "../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
@@ -34,19 +35,25 @@ import {
   arfcnOf,
   bandOf,
   counterOf,
+  ecioOf,
   fieldOf,
   firstOf,
+  iccidOf,
   identityOf,
+  imeiOf,
+  imsiOf,
   intOf,
   ipv4Of,
   ipv6Of,
   isPlainObject,
   labelOf,
   mhzOf,
+  msisdnOf,
   nonNegativeOf,
   pciOf,
   plmnOf,
   rowsOf,
+  rscpOf,
   rsrpOf,
   rsrqOf,
   rssiOf,
@@ -54,6 +61,7 @@ import {
   smallIntOf,
   temperatureOf,
   textOf,
+  txPowerOf,
 } from "./values.ts";
 
 /**
@@ -282,6 +290,55 @@ export const ZTE_TELEMETRY_KEYS: ReadonlyArray<string> = [
   "network_information",
 ];
 
+/**
+ * The router's own status, read in the poll's session with a second request so the telemetry read
+ * above stays as it was: battery, SIM card, roaming, data plan, firmware update, Wi-Fi, the device's
+ * and the card's identifiers, more temperature sensors, 3G and the second codeword's readings.
+ * Docs/dev/sources.md §18.5 names the source of each key.
+ */
+export const ZTE_STATUS_KEYS: ReadonlyArray<string> = [
+  "battery_vol_percent",
+  "battery_value",
+  "battery_pers",
+  "battery_charging",
+  "battery_temp",
+  "modem_main_state",
+  "pin_status",
+  "pinnumber",
+  "puknumber",
+  "sim_slot",
+  "simcard_roam",
+  "data_volume_limit_switch",
+  "data_volume_limit_unit",
+  "data_volume_limit_size",
+  "data_volume_alert_percent",
+  "fota_new_version_state",
+  "wifi_cur_state",
+  "m_ssid_enable",
+  "imei",
+  "imsi",
+  "sim_imsi",
+  "msisdn",
+  "sim_msisdn",
+  "sim_iccid",
+  "iccid",
+  "rscp",
+  "ecio",
+  "sc",
+  "lte_cqi1",
+  "nr_cqi1",
+  "nr5g_ul_bandwidth",
+  "lte_tx_power",
+  "tx_power",
+  "nr_tx_power",
+  "pm_sensor_pa2",
+  "wifi_chip_temp",
+  "pm_sensor_wifi24g",
+  "pm_sensor_wifi5g",
+  "cpu_usage",
+  "mem_usage",
+];
+
 const NEIGHBOUR_KEYS = ["neighbor_cell_info", "neighbour_cell_list", "ngbr_cell_info"] as const;
 
 const LOCK_KEYS = [
@@ -414,6 +471,11 @@ export function parseZteGoformTelemetry(raw: Record<string, unknown>): DriverTel
   const monthDown = counterOf(v("monthly_rx_bytes")) ?? counterOf(v("flux_monthly_rx_bytes"));
   const monthUp = counterOf(v("monthly_tx_bytes")) ?? counterOf(v("flux_monthly_tx_bytes"));
   const temps = [v("pm_sensor_mdm"), v("pm_modem_5g"), v("pm_sensor_5g")].map(temperatureOf).filter((t): t is number => t !== null);
+  const named = sensors([
+    ["modem_4g", v("pm_sensor_mdm")],
+    ["modem_5g", v("pm_modem_5g") ?? v("pm_sensor_5g")],
+    ["pa", v("pm_sensor_pa1")],
+  ]);
   return {
     model: labelOf(v("model_name")) ?? labelOf(v("hardware_version")),
     softwareVersion: labelOf(v("wa_inner_version")) ?? labelOf(v("cr_version")),
@@ -445,7 +507,120 @@ export function parseZteGoformTelemetry(raw: Record<string, unknown>): DriverTel
     },
     temperatureC: temps.length > 0 ? Math.max(...temps) : temperatureOf(v("pm_sensor_pa1")),
     signalBars: smallIntOf(v("signalbar"), 5),
+    temperatures: named,
   };
+}
+
+/** `modem_main_state` as ZTE's own page reads it (its SIM page and status bar). */
+function simStateOf(value: unknown): SimState | null {
+  switch (textOf(value)?.toLowerCase()) {
+    case "modem_init_complete":
+      return "ready";
+    case "modem_waitpin":
+      return "pin_required";
+    case "modem_waitpuk":
+      return "puk_required";
+    case "modem_sim_undetected":
+    case "modem_undetected":
+      return "absent";
+    case "modem_sim_destroy":
+    case "modem_imsi_waitnck":
+      return "error";
+    default:
+      return null;
+  }
+}
+
+function switchOf(value: unknown): boolean | null {
+  const text = textOf(value);
+  return text === "1" ? true : text === "0" ? false : null;
+}
+
+/**
+ * The data plan as ZTE's page reads it: `data_volume_limit_switch` `1` on; `data_volume_limit_unit`
+ * `data` makes `data_volume_limit_size` `<amount>_<MB per unit>` (`20_1024` is 20 GB), any other unit
+ * counts hours, which FengSui does not show as a plan.
+ */
+function zteDataPlan(v: (key: string) => unknown): { limitBytes: bigint; alertPercent: number | null } | null {
+  if (textOf(v("data_volume_limit_switch")) !== "1" || textOf(v("data_volume_limit_unit")) !== "data") return null;
+  const [amount, unit] = (textOf(v("data_volume_limit_size")) ?? "").split("_");
+  if (!amount || !unit || !/^\d{1,6}$/.test(amount) || !/^\d{1,7}$/.test(unit)) return null;
+  const bytes = BigInt(amount) * BigInt(unit) * 1024n * 1024n;
+  return bytes > 0n ? { limitBytes: bytes, alertPercent: percentValue(v("data_volume_alert_percent")) } : null;
+}
+
+/**
+ * The status read (`ZTE_STATUS_KEYS`) on top of a telemetry read: what the router reports of it, the
+ * rest left as the telemetry read had it. A router without a battery leaves the battery keys empty, so
+ * no battery is made up; `battery_pers` counts only when the router names no other charge.
+ */
+export function withZteGoformStatus(t: DriverTelemetry, raw: Record<string, unknown>): DriverTelemetry {
+  const v = (key: string): unknown => raw[key];
+  // `battery_pers`: library A has it as a percentage, ZTE's page as its 0–4 battery icon; a value up to 4 is read as the icon
+  const pers = percentValue(v("battery_pers"));
+  const percent = percentValue(v("battery_vol_percent")) ?? percentValue(v("battery_value")) ?? (pers === null || pers === 0 ? null : pers <= 4 ? pers * 25 : pers);
+  const battery: BatteryStatus | null =
+    percent === null ? null : { percent, charging: switchOf(v("battery_charging")), temperatureC: temperatureOf(v("battery_temp")), minutesToFull: null, minutesToEmpty: null };
+  const slot = smallIntOf(v("sim_slot"), 2);
+  const sim: SimCardStatus = {
+    state: simStateOf(v("modem_main_state")),
+    pinLockEnabled: switchOf(v("pin_status")),
+    pinAttemptsLeft: countValue(v("pinnumber"), 10),
+    pukAttemptsLeft: countValue(v("puknumber"), 10),
+    // `0` the card slot, `1` / `2` the built-in cards (notes library A)
+    slot: slot === null ? null : slot === 0 ? { kind: "physical", index: 1 } : { kind: "embedded", index: slot },
+  };
+  const roam = textOf(v("simcard_roam"));
+  const fota = textOf(v("fota_new_version_state"))?.toLowerCase();
+  const plan = zteDataPlan(v);
+  const lteTx = txPowerOf(v("lte_tx_power")) ?? txPowerOf(v("tx_power"));
+  const nrTx = txPowerOf(v("nr_tx_power"));
+  const extraTemps: TemperatureSensor[] = [
+    ...(t.temperatures ?? []),
+    ...sensors([
+      ["pa", v("pm_sensor_pa2")],
+      ["wifi", v("wifi_chip_temp")],
+      ["wifi", v("pm_sensor_wifi24g")],
+      ["wifi", v("pm_sensor_wifi5g")],
+      ["battery", v("battery_temp")],
+    ]),
+  ];
+  const rscp = rscpOf(v("rscp"));
+  const ecio = ecioOf(v("ecio"));
+  return {
+    ...t,
+    lte: t.lte ? { ...t.lte, cqi1: smallIntOf(v("lte_cqi1"), 15), puschTxDbm: lteTx } : null,
+    nr: t.nr ? { ...t.nr, cqi1: smallIntOf(v("nr_cqi1"), 15), ulBandwidthMhz: mhzOf(v("nr5g_ul_bandwidth")), puschTxDbm: nrTx } : null,
+    wcdma: rscp !== null || ecio !== null ? { rscpDbm: rscp, ecioDb: ecio, psc: smallIntOf(v("sc"), 511) } : null,
+    temperatures: extraTemps,
+    temperatureC: extraTemps.length > 0 ? Math.max(t.temperatureC ?? -Infinity, ...extraTemps.filter((s) => s.kind !== "battery").map((s) => s.celsius)) : t.temperatureC,
+    ids: {
+      imei: imeiOf(v("imei")),
+      imsi: imsiOf(v("imsi")) ?? imsiOf(v("sim_imsi")),
+      msisdn: msisdnOf(v("msisdn")) ?? msisdnOf(v("sim_msisdn")),
+      iccid: iccidOf(v("sim_iccid")) ?? iccidOf(v("iccid")),
+    },
+    ...(plan && t.traffic ? { traffic: { ...t.traffic, dataLimitBytes: plan.limitBytes, dataAlertPercent: plan.alertPercent } } : {}),
+    status: {
+      battery,
+      sim,
+      // ZTE's page counts both of these as roaming (`Home` otherwise)
+      roaming: { active: roam === null ? null : roam === "Internal" || roam === "International", dataAllowed: null },
+      firmwareUpdate: fota === undefined ? null : fota === "has_critical" || fota === "has_optional" || fota === "already_has_pkg" ? "available" : "none",
+      wifi: { enabled: switchOf(v("wifi_cur_state")), guestEnabled: switchOf(v("m_ssid_enable")) },
+      system: { uptimeSec: null, cpuPercent: percentValue(v("cpu_usage")), memoryPercent: percentValue(v("mem_usage")) },
+    },
+  };
+}
+
+/** Named sensors that report a temperature (absent ones and the sentinels left out). */
+function sensors(list: ReadonlyArray<readonly [TemperatureSensor["kind"], unknown]>): TemperatureSensor[] {
+  const out: TemperatureSensor[] = [];
+  for (const [kind, value] of list) {
+    const celsius = temperatureOf(value);
+    if (celsius !== null) out.push({ kind, name: null, celsius });
+  }
+  return out;
 }
 
 function neighbourRow(row: string[]): DriverNeighbour | null {
@@ -703,7 +878,10 @@ class ZteGoformSession implements DriverSessionHandle {
 
   async telemetry(): Promise<DriverTelemetry> {
     this.#guard();
-    return parseZteGoformTelemetry(await getCmd(this.#http, ZTE_TELEMETRY_KEYS, true, this.#at));
+    const t = parseZteGoformTelemetry(await getCmd(this.#http, ZTE_TELEMETRY_KEYS, true, this.#at));
+    // The status rides on the same session; a firmware that refuses the request keeps its readings
+    const status = await getCmd(this.#http, ZTE_STATUS_KEYS, true, this.#at).catch(() => null);
+    return status ? withZteGoformStatus(t, status) : t;
   }
 
   async neighbours(): Promise<DriverNeighbour[]> {
