@@ -47,6 +47,17 @@ describe("web core: lock forms per router brand", () => {
     assert.equal(form.check({ rat: "LTE", band: 3, arfcn: Number.NaN, pci: 1 }).ok, false);
   });
 
+  it("lets the PCI be left out on a brand that also locks a channel alone, and still checks one that is given", () => {
+    const form = cellLockForm(status("nradio"));
+    assert.deepEqual([form.driver, form.pciRequired], [true, false]);
+    assert.deepEqual(form.check({ rat: "NR", band: 78, arfcn: 650000, pci: null }), { ok: true, value: { rat: "NR", band: 78, arfcn: 650000, pci: null } });
+    assert.deepEqual(form.check({ rat: "NR", band: 78, arfcn: 650000, pci: 142 }), { ok: true, value: { rat: "NR", band: 78, arfcn: 650000, pci: 142 } });
+    const wide = form.check({ rat: "LTE", band: 1, arfcn: 300, pci: 504 });
+    assert.deepEqual([!wide.ok && wide.field], ["pci"]);
+    const off = form.check({ rat: "LTE", band: 1, arfcn: 9999, pci: null });
+    assert.equal(!off.ok && off.field, "arfcn", "the channel is checked with or without a PCI");
+  });
+
   it("reads bands typed as text, and says when something is not a band", () => {
     assert.deepEqual(parseBandText("LTE", "1, 3，41"), [1, 3, 41]);
     assert.deepEqual(parseBandText("LTE", "B3 b1 B3"), [1, 3], "sorted, each once");

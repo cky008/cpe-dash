@@ -17,7 +17,7 @@ import { TimeSeriesValidationError, type TimeSeriesPreset } from "./timeseries.t
 type Args = Readonly<Record<string, unknown>>;
 
 const TIME_SERIES_PRESETS: ReadonlyArray<TimeSeriesPreset> = ["1h", "6h", "12h", "24h", "custom"];
-const ANTENNA_MODES: ReadonlyArray<AntennaModeName> = ["auto", "internal", "external"];
+const ANTENNA_MODES: ReadonlyArray<AntennaModeName> = ["auto", "internal", "external", "hybrid"];
 /** Dotted-quad IPv4 without leading zeros (what `net.isIP(...) === 4` accepts). */
 const IPV4 = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
 const FIREWALL_KEYS: ReadonlySet<string> = new Set<keyof FirewallSwitchState>([
@@ -135,7 +135,7 @@ export function isAntennaMode(value: unknown): value is AntennaModeName {
 
 export function readAntennaMode(value: unknown, key = "mode"): AntennaModeName {
   if (!isAntennaMode(value)) {
-    throw new CpeControlValidationError(`"${key}" must be "auto", "internal", or "external"`);
+    throw new CpeControlValidationError(`"${key}" must be "auto", "internal", "external", or "hybrid"`);
   }
   return value;
 }
@@ -341,10 +341,11 @@ export function readDriverBandLockTarget(
 }
 
 /**
- * The cell lock a router of a driver family gets: band, channel and PCI as numbers (a driver cell
- * lock always names the PCI; the driver checks the channel against the band's range).
+ * The cell lock a router of a driver family gets: band, channel and PCI as numbers (the driver checks
+ * the channel against the band's range). Without a PCI it is a lock on the channel alone (`pci: null`),
+ * which only a family whose notes define one takes (`frequencyLock`).
  */
-export function readDriverCellLockTarget(command: CellLockCommand): DriverCellLockTarget {
+export function readDriverCellLockTarget(command: CellLockCommand, facts: Pick<RouterFamilyFacts, "frequencyLock"> = {}): Omit<DriverCellLockTarget, "pci"> & { pci: number | null } {
   if (command.rat !== "LTE" && command.rat !== "NR") throw new CpeControlValidationError('rat must be "LTE" or "NR"');
   let band: number;
   try {
@@ -353,7 +354,10 @@ export function readDriverCellLockTarget(command: CellLockCommand): DriverCellLo
     throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
   }
   if (!Number.isInteger(command.arfcn) || command.arfcn < 0) throw new CpeControlValidationError("arfcn must be a non-negative integer");
-  if (command.pci === undefined || command.pci === null) throw new CpeControlValidationError("pci is required for a cell lock on this router (it locks one cell, not a frequency)");
+  if (command.pci === undefined || command.pci === null) {
+    if (facts.frequencyLock !== true) throw new CpeControlValidationError("pci is required for a cell lock on this router (it locks one cell, not a frequency)");
+    return { rat: command.rat, band, arfcn: command.arfcn, pci: null, scsKhz: null };
+  }
   if (!Number.isInteger(command.pci) || command.pci < 0) throw new CpeControlValidationError("pci must be a non-negative integer");
   return { rat: command.rat, band, arfcn: command.arfcn, pci: command.pci, scsKhz: null };
 }

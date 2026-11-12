@@ -93,6 +93,8 @@ export interface RouterFamilyFacts {
    * the order the console lists them; a router that reports its own list is offered that instead.
    */
   selectableModes?: ReadonlyArray<NetworkMode>;
+  /** The driver can lock a channel without naming a cell on it (a cell lock otherwise always names its PCI). */
+  frequencyLock?: true;
   /**
    * Other forms of the family's interface, by the name the driver reports for a router that speaks
    * one (its identification's `variant`): what such a router reads and writes instead of `reads` and
@@ -167,7 +169,17 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // The Pro series (`/fh_api/`): its notes have the signal nodes, the SMS listing and marking a message read, nothing else
     variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
   },
-  nradio: { defaultUsername: "root", defaultAddress: "192.168.66.1", reads: ["telemetry", "neighbors", "topology"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  nradio: {
+    defaultUsername: "root",
+    defaultAddress: "192.168.66.1",
+    reads: ["telemetry", "neighbors", "topology"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "networkMode"],
+    networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
+    nrBandLock: true,
+    // 3G only and 2G only as well, on a module whose own list names them (read in the session)
+    selectableModes: ["auto", "nr_sa", "nr_nsa", "lte"],
+    frequencyLock: true,
+  },
   openwrt: { defaultUsername: "root", defaultAddress: "192.168.1.1", reads: ["telemetry", "neighbors", "topology", "sms", "simCard", "airplaneMode"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
 };
 

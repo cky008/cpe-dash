@@ -27,8 +27,11 @@ function channelRange(rat: RatName, band: number): readonly [number, number] | u
   return rat === "LTE" ? lteBandInfo(band)?.dlEarfcn : nrBandInfo(band)?.dlArfcn;
 }
 
-/** The daemon's cell-lock check for a router of a driver family: a 3GPP band, a channel in it, and a PCI. */
-function checkDriverCellLock(input: CellLockInput): CellLockCheck {
+/**
+ * The daemon's cell-lock check for a router of a driver family: a 3GPP band, a channel in it, and a
+ * PCI (`frequency`: the brand also locks a channel alone, so the PCI may be left out).
+ */
+function checkDriverCellLock(input: CellLockInput, frequency = false): CellLockCheck {
   const band = typeof input.band === "number" ? input.band : Number.NaN;
   const range = Number.isInteger(band) ? channelRange(input.rat, band) : undefined;
   if (!range) return { ok: false, field: "band", message: `${input.rat} band ${String(input.band)} is not a 3GPP band`, range: null };
@@ -36,6 +39,7 @@ function checkDriverCellLock(input: CellLockInput): CellLockCheck {
     return { ok: false, field: "arfcn", message: `Channel ${input.arfcn} is outside the band (${range[0]}–${range[1]})`, range };
   }
   const max = MAX_PCI[input.rat];
+  if (input.pci === null && frequency) return { ok: true, value: { rat: input.rat, band, arfcn: input.arfcn, pci: null } };
   if (input.pci === null || !Number.isInteger(input.pci) || input.pci < 0 || input.pci > max) {
     return { ok: false, field: "pci", message: `PCI must be 0–${max}`, range: [0, max] };
   }
@@ -54,8 +58,11 @@ export interface CellLockForm {
 }
 
 export function cellLockForm(scheduler: SchedulerStatusSnapshot | null): CellLockForm {
-  if (driverFamilyOf(scheduler) !== null) {
-    return { driver: true, pciRequired: true, bands: (rat) => ALL_BANDS[rat], range: channelRange, check: checkDriverCellLock };
+  const family = driverFamilyOf(scheduler);
+  if (family !== null) {
+    // A brand whose notes define a lock on the channel alone may leave the PCI out
+    const frequency = ROUTER_FAMILY_FACTS[family].frequencyLock === true;
+    return { driver: true, pciRequired: !frequency, bands: (rat) => ALL_BANDS[rat], range: channelRange, check: (input) => checkDriverCellLock(input, frequency) };
   }
   return { driver: false, pciRequired: false, bands: (rat) => (rat === "LTE" ? H168_383_LTE_BANDS : H168_383_NR_BANDS), range: arfcnRangeOf, check: checkCellLockInput };
 }

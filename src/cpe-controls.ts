@@ -215,7 +215,7 @@ export class CpeControlService {
   }
 
   async setAntennaMode(mode: AntennaModeName): Promise<{ mode: AntennaModeName; rawCode: number }> {
-    if (mode !== "auto" && mode !== "internal" && mode !== "external") {
+    if (mode !== "auto" && mode !== "internal" && mode !== "external" && mode !== "hybrid") {
       throw new CpeControlValidationError(`Invalid antenna mode "${String(mode)}"`);
     }
     const antenna = await this.#backend().setAntennaMode(mode, summaryOf("controls.antenna_updated", { mode }));

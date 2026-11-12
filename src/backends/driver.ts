@@ -504,13 +504,16 @@ export class DriverBackend implements RouterBackend {
     return { state, experimental: true, savedLteMask };
   }
 
-  /** Band, channel and PCI, read back in the session. */
+  /** Band, channel and PCI, read back in the session; without a PCI, the channel alone where the family's notes define that lock. */
   async lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome> {
-    const target = readDriverCellLockTarget(command);
+    const target = readDriverCellLockTarget(command, ROUTER_FAMILY_FACTS[this.family]);
     const state = await this.#scheduler.executeDriverControl(
       "lock_cell",
       async (session, write): Promise<PersistedLockState> => {
-        await session.setCellLock(target, write.check);
+        const { pci, ...channel } = target;
+        if (pci !== null) await session.setCellLock({ ...channel, pci }, write.check);
+        else if (session.setFrequencyLock) await session.setFrequencyLock(channel, write.check);
+        else throw noWrite("lock a channel without a PCI");
         return {
           mode: "cell_lock",
           updatedAtIso: new Date().toISOString(),

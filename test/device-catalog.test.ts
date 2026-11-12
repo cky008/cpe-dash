@@ -47,7 +47,7 @@ const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   pinsu: ["bandLock", "cellLock", "reboot", "networkMode"],
   tozed: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode"],
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
-  nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna"],
+  nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "networkMode"],
   openwrt: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"],
 };
 

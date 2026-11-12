@@ -86,7 +86,14 @@ const ANTENNA_CONFIRM: Readonly<Record<AntennaModeName, { title: MessageKey; bod
     title: "ctl.antenna_external_title",
     body: "ctl.antenna_external_body",
   },
+  hybrid: {
+    title: "ctl.antenna_hybrid_title",
+    body: "ctl.antenna_hybrid_body",
+  },
 };
+
+/** A router of another brand may also use both at once (the H168-383 has the three above). */
+const DRIVER_ANTENNA_MODES: ReadonlyArray<[AntennaModeName, MessageKey]> = [...ANTENNA_MODES, ["hybrid", "ctl.antenna_hybrid"]];
 
 const IPV4_RE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 
@@ -390,8 +397,8 @@ export function mountControls(ctx: AppContext): { open(): void } {
       h(
         "div",
         { class: "join w-full" },
-        ...ANTENNA_MODES.map(([mode, label]) => {
-          const button = h("button", { class: "btn btn-sm join-item flex-1 btn-ghost", attrs: { type: "button" } }, ctx.t(label));
+        ...DRIVER_ANTENNA_MODES.map(([mode, label]) => {
+          const button = h("button", { class: "btn btn-sm join-item flex-1 btn-ghost", attrs: { type: "button" }, data: { antenna: mode } }, ctx.t(label));
           button.addEventListener("click", () => {
             const conf = ANTENNA_CONFIRM[mode];
             void confirmExperimental(["antenna"], { title: ctx.t(conf.title), body: [ctx.t(conf.body)], confirmLabel: ctx.t(label) }).then((ok) => {

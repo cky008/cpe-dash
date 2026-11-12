@@ -166,7 +166,8 @@ export interface TerminalTopologySnapshot {
   countsByMedium: Record<TerminalAccessMedium, number>;
 }
 
-export type AntennaModeName = "auto" | "internal" | "external";
+/** `hybrid` (internal and external together) is a mode of some other brands' routers; the H168-383 has the first three. */
+export type AntennaModeName = "auto" | "internal" | "external" | "hybrid";
 
 export interface FirewallSwitchState {
   mainSwitch: boolean;

@@ -21,7 +21,7 @@ export interface NradioRouterState {
   posts: Array<{ path: string; body: string; token: string | null }>;
 }
 
-export function nradioRouter(opts: { password?: string } = {}) {
+export function nradioRouter(opts: { password?: string; accessList?: ReadonlyArray<string> } = {}) {
   const password = opts.password ?? NRADIO_PASSWORD;
   const state: NradioRouterState = {
     dataswitch: "1",
@@ -57,6 +57,10 @@ export function nradioRouter(opts: { password?: string } = {}) {
       };
     }
     if (req.path === "/api/net/net-mode" && req.method === "GET") return { text: state.netMode };
+    // The modes the module offers (left out: a bridge without the list)
+    if (req.path === "/api/net/net-mode-list" && req.method === "GET") {
+      return opts.accessList ? { text: `<response><AccessList>${opts.accessList.map((code) => `<Access>${code}</Access>`).join("")}</AccessList><BandList></BandList><LTEBandList></LTEBandList></response>` } : { status: 404, text: "" };
+    }
     if (req.path === "/api/device/information" && req.method === "GET") return { text: "<response><DeviceName>module</DeviceName><HardwareVersion>HW1.0</HardwareVersion></response>" };
     if (req.path === "/api/dialup/mobile-dataswitch" && req.method === "GET") return { text: `<response><dataswitch>${state.dataswitch}</dataswitch></response>` };
     if (req.path === "/api/device/antenna_set_type" && req.method === "GET") return { text: `<response><antennasettype>${state.antenna}</antennasettype></response>` };

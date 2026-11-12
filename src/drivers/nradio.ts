@@ -1,3 +1,4 @@
+import type { NetworkMode } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../cpe-domain.ts";
@@ -15,7 +16,9 @@ import type {
   DriverBandLockTarget,
   DriverCell,
   DriverCellLockTarget,
+  DriverCellular,
   DriverDataLink,
+  DriverFrequencyLockTarget,
   DriverHost,
   DriverIdentity,
   DriverLockState,
@@ -79,10 +82,29 @@ const ANTENNA_SET = "/api/device/antenna_set_type";
 
 /**
  * The module bridge's antenna codes as the NRadio notes give them (table 3.2 row 16): `0` automatic,
- * `1` external, `2` internal (`3`, mixed, is not offered). The H168-383 numbers internal and external
- * the other way round; each router is written its own notes' codes.
+ * `1` external, `2` internal, `3` both together. The H168-383 numbers internal and external the other
+ * way round; each router is written its own notes' codes.
  */
-const ANTENNA_CODES: Readonly<Record<AntennaModeName, number>> = { auto: 0, external: 1, internal: 2 };
+const ANTENNA_CODES: Readonly<Record<AntennaModeName, number>> = { auto: 0, external: 1, internal: 2, hybrid: 3 };
+const NET_MODE_LIST = "/api/net/net-mode-list";
+
+/**
+ * `NetworkMode` codes the network mode setting writes (notes table 5.1): the four a band lock may
+ * carry, and 3G only / 2G only, which the module takes only when its `AccessList` names them.
+ */
+const SELECTABLE_MODES: Readonly<Partial<Record<NetworkMode, string>>> = { auto: "00", nr_sa: "0801", nr_nsa: "0802", lte: "03", wcdma: "02", gsm: "01" };
+
+/** The mode a `NetworkMode` code stands for (`null`: a code the notes do not list). */
+export function nradioModeOf(code: string | null | undefined): NetworkMode | null {
+  const text = code?.trim();
+  return (Object.entries(SELECTABLE_MODES) as Array<[NetworkMode, string]>).find(([, value]) => value === text)?.[0] ?? null;
+}
+
+/** The modes a module offers: the four every bridge takes, and 3G / 2G where its `<AccessList>` names `02` / `01`. */
+export function nradioModesOffered(netModeList: string | null): NetworkMode[] {
+  const access = netModeList === null ? [] : [...netModeList.matchAll(/<Access>\s*(\d{2,4})\s*<\/Access>/g)].map((m) => m[1]);
+  return ["auto", "nr_sa", "nr_nsa", "lte", ...(access.includes("02") ? (["wcdma"] as const) : []), ...(access.includes("01") ? (["gsm"] as const) : [])];
+}
 const REFERER = "/html/content.html";
 const TOKEN = /^[0-9A-Za-z]{8,64}$/;
 
@@ -382,6 +404,47 @@ class NradioSession implements DriverSessionHandle {
     const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
     await this.#writeNetMode(check, { lte, nr, mode: target.networkMode });
     settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
+  }
+
+  /**
+   * The network mode as a setting of its own: `net-mode` with the mode changed and everything else
+   * the module reports sent back as it is. 3G only and 2G only are offered where `net-mode-list`
+   * names them.
+   */
+  readonly cellular: DriverCellular = {
+    read: async () => {
+      this.#guard();
+      const list = await this.#http.request({ method: "GET", path: NET_MODE_LIST, referer: REFERER }).catch(() => null);
+      return {
+        networkMode: nradioModeOf(getXmlTag(await this.#netMode(), "NetworkMode")),
+        networkModes: nradioModesOffered(list && list.status === 200 && !parseXmlError(list.text) ? list.text : null),
+      };
+    },
+    setNetworkMode: async (mode, check) => {
+      const code = SELECTABLE_MODES[mode];
+      if (code === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
+      const current = await this.#netMode();
+      const networkBand = getXmlTag(current, "NetworkBand");
+      const lteBand = getXmlTag(current, "LTEBand");
+      if (!networkBand || !lteBand) throw new CpeAnswerFormatError(`${NET_MODE} named no NetworkBand and LTEBand to send back; refusing to write guessed values`);
+      const nr = nradioNrMask(current);
+      await this.#postXml(check, NET_MODE, { NetworkMode: code, NetworkBand: networkBand, LTEBand: lteBand, ...(nr === null ? {} : { [nr.tag]: nr.hex }) });
+      const after = await this.#netMode().catch(() => null);
+      settleSetting(check, after === null ? null : getXmlTag(after, "NetworkMode")?.trim() === code);
+    },
+  };
+
+  /**
+   * A channel without a PCI (`lock-freq` with `enable` 1, notes table 5.5): the router stays on that
+   * channel and picks the cell itself. 5G names its band as well.
+   */
+  async setFrequencyLock(target: DriverFrequencyLockTarget, check: WriteCheck): Promise<void> {
+    const t = checkCellLock({ ...target, pci: 0 });
+    const scs = t.scsKhz === null ? null : [15, 30, 60, 120, 240].indexOf(t.scsKhz);
+    await this.#postXml(check, LOCK_FREQ, { mode: t.rat === "LTE" ? 0 : 1, enable: 1, ...(scs !== null && scs >= 0 ? { scstype: scs } : {}), freq: t.arfcn, band: t.band, cellid: 0 });
+    // The bridge has no documented way to read a lock back
+    check.readback = "unknown";
+    check.reason = "unreadable";
   }
 
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {

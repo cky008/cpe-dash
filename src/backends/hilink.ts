@@ -315,6 +315,8 @@ export class HilinkBackend implements RouterBackend {
   }
 
   async setAntennaMode(mode: AntennaModeName, summary: ControlSummary): Promise<{ mode: AntennaModeName; rawCode: number }> {
+    // The H168-383 was verified with three antenna modes; a fourth is never sent to it
+    if (mode === "hybrid") throw new CpeControlValidationError('This router\'s antenna has no "hybrid" mode: choose auto, internal or external');
     return await this.#scheduler.executeControl(
       "set_antenna_mode",
       (session, write) => {

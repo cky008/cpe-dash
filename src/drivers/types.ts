@@ -178,6 +178,9 @@ export interface DriverCellLockTarget {
   scsKhz: SubcarrierSpacingKhz | null;
 }
 
+/** A lock on a channel alone: the router picks the cell on it. */
+export type DriverFrequencyLockTarget = Omit<DriverCellLockTarget, "pci">;
+
 /** How one send to one recipient ended. */
 export interface DriverSmsSendOutcome {
   /**
@@ -326,6 +329,8 @@ export interface DriverSession {
   lockState(): Promise<DriverLockState>;
   setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void>;
   setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void>;
+  /** Lock a channel without naming a cell, on a family whose notes define it. */
+  setFrequencyLock?(target: DriverFrequencyLockTarget, check: WriteCheck): Promise<void>;
   /** Clear band and cell locks (and go back to the automatic network mode). */
   unlockAll(check: WriteCheck): Promise<void>;
   reboot(check: WriteCheck): Promise<void>;

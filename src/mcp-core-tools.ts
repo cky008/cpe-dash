@@ -247,14 +247,14 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
     name: "set_wifi_and_antenna",
     title: "Configure Wi-Fi 7 MLO & Antenna Mode",
     description:
-      "Toggle Wi-Fi 7 (802.11be) Multi-Link Operation (mloEnable), Dual-Band Handover (dbhoEnable), and/or cellular antenna mode ('auto' | 'internal' | 'external'). Requires confirm: true.",
+      "Toggle Wi-Fi 7 (802.11be) Multi-Link Operation (mloEnable), Dual-Band Handover (dbhoEnable), and/or cellular antenna mode ('auto' | 'internal' | 'external'; 'hybrid', internal and external together, only on a router that has it). Requires confirm: true.",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
         mloEnable: { type: "boolean" },
         dbhoEnable: { type: "boolean" },
-        antennaMode: { type: "string", enum: ["auto", "internal", "external"] },
+        antennaMode: { type: "string", enum: ["auto", "internal", "external", "hybrid"] },
         confirm: CONFIRM,
       },
       required: ["confirm"],
