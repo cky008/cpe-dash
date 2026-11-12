@@ -84,7 +84,7 @@ describe("REST: the cellular settings", () => {
       assert.deepEqual([cellular.networkMode.current, cellular.networkMode.options.includes("wcdma"), cellular.simSlots.length], ["auto", true, 3]);
       assert.deepEqual((await fx.call("GET", "/api/cellular")).json["cellular"], fresh.json["cellular"]);
       assert.equal(permissionForRoute("GET", "/api/cellular"), null);
-      assert.equal(permissionForRoute("POST", "/api/cellular/refresh"), null, "a read session: any token");
+      assert.equal(permissionForRoute("POST", "/api/cellular/refresh"), null, "a read session, open to every token");
       for (const route of CELLULAR_CONTROL_ROUTES) assert.equal(permissionForRoute("POST", route), "control", route);
     } finally {
       await fx.cleanup();
