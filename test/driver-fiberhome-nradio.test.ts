@@ -5,7 +5,7 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { cellGlobalId, fiberhomeAirplaneOf, fiberhomeProtocol, parseFiberhomeLockState, parseFiberhomeProTelemetry, parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
-import { NRADIO_ALL_MASK, NRADIO_LTE_ALL_MASK, nradioNrMask, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter } from "../src/drivers/nradio.ts";
+import { NRADIO_ALL_MASK, NRADIO_LTE_ALL_MASK, nradioNrMask, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter, withNradioOverview } from "../src/drivers/nradio.ts";
 import { getXmlTag } from "../src/xml.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
@@ -237,7 +237,7 @@ describe("fiberhome: writes", () => {
 
 const OVERVIEW_HTML = `<html><body><div>设备型号: C2000 MAX</div><div>系统版本:1.9.2.n6</div><script>var a={};a['token']='a8f5f167f44f4964e6c998dee827110c';</script></body></html>`;
 
-function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview?: string; nrTag?: "NR5GBand" | "NRBand" } = {}) {
+function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview?: string; nrTag?: "NR5GBand" | "NRBand"; overviewStatus?: unknown } = {}) {
   // A module that names its NR mask does so under one of two tags; one that names none locks LTE bands only
   const nrTag = opts.nrTag ?? null;
   const nrPart = (mask: string): string => (nrTag ? `<${nrTag}>${mask}</${nrTag}>` : "");
@@ -252,6 +252,7 @@ function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview
     }
     if (!req.headers["cookie"]?.includes("sysauth=")) return { status: 403, text: "" };
     if (req.path === "/cgi-bin/luci/nradio/system/overview") return { text: opts.overview ?? OVERVIEW_HTML };
+    if (req.path === "/cgi-bin/luci/nradio/system/overview_status") return opts.overviewStatus === undefined ? { status: 404, text: "" } : { json: opts.overviewStatus };
     if (req.path === "/cgi-bin/luci/nradio/status/runtime/wan,cpe_4") {
       return { json: { wan: { up: false, download: "0", upload: "0" }, cpe_4: { up: true, uptime: 86425, isp: "Three", mode: "NR", ipaddr: "198.51.100.42", ipv6addr: "2001:db8::42/64", rsrp: "-79 dBm", rsrq: "-10 dB", sinr: "26 dB", pci: "0x8e", tac: "0x2711", cell: "134217758", earfcn: "650000", band: "78", download: "15849203712", upload: "2194810368" } } };
     }
@@ -276,7 +277,14 @@ describe("nradio: session and readings", () => {
   it("logs in with the LuCI form, reads the overview, and logs out", async () => {
     const { mock, client } = nradioRouter();
     const t = await client.withSession((s) => s.telemetry());
-    assert.deepEqual(mock.trail, ["POST /cgi-bin/luci", "GET /cgi-bin/luci/nradio/system/overview", "GET /cgi-bin/luci/nradio/status/runtime/wan,cpe_4", "GET /cgi-bin/luci/nradio/logout"]);
+    assert.deepEqual(mock.trail, [
+      "POST /cgi-bin/luci",
+      "GET /cgi-bin/luci/nradio/system/overview",
+      "GET /cgi-bin/luci/nradio/status/runtime/wan,cpe_4",
+      // The system overview (uptime, load, identifiers) in the same session
+      "GET /cgi-bin/luci/nradio/system/overview_status",
+      "GET /cgi-bin/luci/nradio/logout",
+    ]);
     // The password goes in the form body, never in the URL
     assert.ok(!mock.requests[0]?.query.has("luci_password"));
     assert.equal(t?.model, "C2000 MAX");
@@ -430,7 +438,7 @@ describe("nradio: writes", () => {
   });
 });
 
-describe("fiberhome: the router's status", () => {
+describe("fiberhome and nradio: the router's status", () => {
   it("fiberhome: reads airplane mode in the poll's session, and the link details of the base info", async () => {
     const { client } = fiberhomeRouter({ airplane: "1" });
     const t = await client.withSession((s) => s.telemetry());
@@ -452,5 +460,17 @@ describe("fiberhome: the router's status", () => {
       { kind: "modem_5g", name: null, celsius: 48 },
     ]);
     assert.equal(t.temperatureC, 48);
+  });
+
+  it("nradio: reads the overview of the notes (uptime, load, identifiers) in the poll's session, and nothing where there is none", async () => {
+    const { client } = nradioRouter({ overviewStatus: { system: { uptime: 7200, cpu_usage: "12%", mem_usage: 40 }, modem: { imei: "860000000000000", imsi: "272010000000000", iccid: "8935301000000000000", msisdn: "" } } });
+    const t = await client.withSession((s) => s.telemetry());
+    assert.deepEqual(t?.status?.system, { uptimeSec: 7200, cpuPercent: 12, memoryPercent: 40 });
+    assert.deepEqual(t?.ids, { imei: "860000000000000", imsi: "272010000000000", iccid: "8935301000000000000", msisdn: null });
+    // The flat form the notes' reader also accepts
+    assert.equal(withNradioOverview(t!, { uptime: 60, cpu: "5", memory: "9", imei: "860000000000000" }).status?.system?.uptimeSec, 60);
+    const none = await nradioRouter().client.withSession((s) => s.telemetry());
+    assert.equal(none?.status, undefined, "no overview: no status");
+    assert.equal(withNradioOverview(t!, "<html>"), t);
   });
 });

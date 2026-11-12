@@ -2,6 +2,7 @@ import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import { type SystemStatus, percentValue } from "../router-status.ts";
 import { buildXmlRequest, getXmlTag, parseXmlError } from "../xml.ts";
 import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
 import { bandOfChannel, neighbourOf, ratOfChannel, servingModeOf } from "./cells.ts";
@@ -23,7 +24,31 @@ import type {
   DriverSessionHandle,
   DriverTelemetry,
 } from "./types.ts";
-import { arfcnOf, bandOf, counterOf, fieldOf, identityOf, intOf, ipv4Of, ipv6Of, isPlainObject, labelOf, nonNegativeOf, numberOf, operatorOfPlmn, pciOf, plmnCodeOf, rsrpOf, rsrqOf, sinrOf, textOf } from "./values.ts";
+import {
+  arfcnOf,
+  bandOf,
+  counterOf,
+  fieldOf,
+  iccidOf,
+  identityOf,
+  imeiOf,
+  imsiOf,
+  intOf,
+  ipv4Of,
+  ipv6Of,
+  isPlainObject,
+  labelOf,
+  msisdnOf,
+  nonNegativeOf,
+  numberOf,
+  operatorOfPlmn,
+  pciOf,
+  plmnCodeOf,
+  rsrpOf,
+  rsrqOf,
+  sinrOf,
+  textOf,
+} from "./values.ts";
 
 /**
  * NRadio routers (C2000 Max / Ultra / Pro, C8-668GL, C5800, C8-660, C3000…) on NROS, NRadio's
@@ -47,6 +72,8 @@ const NET_MODE = "/api/net/net-mode";
 const LOCK_FREQ = "/api/net/lock-freq";
 const DATA_SWITCH = "/api/dialup/mobile-dataswitch";
 const CLIENTS = "/cgi-bin/luci/nradio/client/all_list";
+/** The system, SIM and WAN overview of notes library A (its `getDeviceOverview`, §5). */
+const OVERVIEW_STATUS = "/cgi-bin/luci/nradio/system/overview_status";
 const DEVICE_INFO = "/api/device/information";
 const ANTENNA_SET = "/api/device/antenna_set_type";
 
@@ -237,7 +264,10 @@ class NradioSession implements DriverSessionHandle {
 
   async telemetry(): Promise<DriverTelemetry> {
     this.#guard();
-    return parseNradioTelemetry(await this.#http.getJson(RUNTIME, { referer: REFERER }), this.#overview);
+    const t = parseNradioTelemetry(await this.#http.getJson(RUNTIME, { referer: REFERER }), this.#overview);
+    // The overview rides on the same session; a firmware without it keeps its readings
+    const overview = await this.#http.getJson(OVERVIEW_STATUS, { referer: REFERER }).catch(() => null);
+    return overview === null ? t : withNradioOverview(t, overview);
   }
 
   async neighbours(): Promise<DriverNeighbour[]> {
@@ -437,3 +467,24 @@ export const nradioProtocol: DriverProtocol = {
   },
 };
 
+/**
+ * The overview of notes library A (`/cgi-bin/luci/nradio/system/overview_status`): `system.uptime`
+ * seconds, `system.cpu_usage` (or `cpu`) and `system.mem_usage` (or `memory`) percentages, and the
+ * module's `imei`, `imsi`, `iccid`, `msisdn` (each under `modem`, or at the top). The notes give these
+ * keys in their reader's code only, so anything else in the answer is left alone.
+ */
+export function withNradioOverview(t: DriverTelemetry, answer: unknown): DriverTelemetry {
+  if (!isPlainObject(answer)) return t;
+  const sys = isPlainObject(answer["system"]) ? answer["system"] : answer;
+  const modem = isPlainObject(answer["modem"]) ? answer["modem"] : answer;
+  const system: SystemStatus = {
+    uptimeSec: nonNegativeOf(sys["uptime"]),
+    cpuPercent: percentValue(sys["cpu_usage"] ?? sys["cpu"]),
+    memoryPercent: percentValue(sys["mem_usage"] ?? sys["memory"]),
+  };
+  return {
+    ...t,
+    ids: { imei: imeiOf(modem["imei"] ?? answer["imei"]), imsi: imsiOf(modem["imsi"] ?? answer["imsi"]), iccid: iccidOf(modem["iccid"] ?? answer["iccid"]), msisdn: msisdnOf(modem["msisdn"] ?? modem["phone_number"]) },
+    status: { system },
+  };
+}
