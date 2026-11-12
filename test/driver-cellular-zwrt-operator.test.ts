@@ -81,8 +81,13 @@ describe("zte-zwrt: choosing the operator", () => {
   });
 
   it("gives up on a search that fails or never ends", async () => {
-    const failed = zwrtRouter({ operators: { rows: ROWS, status: "failed" } });
-    await assert.rejects(failed.client.withSession((s) => cellularOf(s).scanOperators(newCheck(), noWait)), (err: unknown) => err instanceof CpeApiError && err.code === "failed");
+    for (const status of ["failed", "manual_search_fail"]) {
+      const failed = zwrtRouter({ operators: { rows: ROWS, status } });
+      await assert.rejects(failed.client.withSession((s) => cellularOf(s).scanOperators(newCheck(), noWait)), (err: unknown) => err instanceof CpeApiError && err.code === "failed", status);
+    }
+    // The words the router's own page waits on: still searching, then done
+    const paged = zwrtRouter({ operators: { rows: ROWS, status: "manual_selected" } });
+    assert.equal((await paged.client.withSession((s) => cellularOf(s).scanOperators(newCheck(), noWait)))?.length, 3);
     const endless = zwrtRouter({ operators: { rows: ROWS, busy: OPERATOR_POLLS + 5 } });
     await assert.rejects(endless.client.withSession((s) => cellularOf(s).scanOperators(newCheck(), noWait)), (err: unknown) => err instanceof CpeApiError && err.code === "timeout");
     assert.equal(callsOf(endless.calls, "nwinfo_manual_scan").length, 1, "asked once");

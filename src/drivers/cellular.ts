@@ -231,7 +231,7 @@ export function zwrtScanRows(value: unknown): ZwrtScanRow[] {
 export function zteScanDone(status: string | null): boolean | null {
   const text = status?.toLowerCase() ?? "";
   if (["done", "complete", "completed", "2", "manual_selected"].includes(text)) return true;
-  if (["error", "fail", "failed"].includes(text)) return false;
+  if (["error", "fail", "failed", "manual_search_fail"].includes(text)) return false;
   return null;
 }
 
