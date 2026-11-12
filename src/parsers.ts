@@ -57,6 +57,13 @@ export interface CellIdentityVerification {
   sectorIdBitWidthOk: boolean | null;
 }
 
+/** A 3G (WCDMA) serving cell's readings (3GPP TS 25.215): RSCP, Ec/Io and the primary scrambling code. */
+export interface WcdmaSignal {
+  rscpDbm: number | null;
+  ecioDb: number | null;
+  psc: number | null;
+}
+
 export interface RfSignalSnapshot {
   operatorName: string;
   plmnNumeric: string;
@@ -100,6 +107,14 @@ export interface RfSignalSnapshot {
   eNodeBDisplay: string;
   tacDisplay: string;
   identityVerification: CellIdentityVerification;
+  /** The 3G serving cell, when the router is on 3G and reports it (`null` otherwise). */
+  wcdma: WcdmaSignal | null;
+  /** The radio connection is active (RRC connected) rather than idle; `null`: not reported. */
+  rrcConnected: boolean | null;
+  /** The QoS class (QCI / 5QI) of the default bearer, where the router reports it. */
+  qci: number | null;
+  /** Uplink MIMO layers of the primary carrier, where the router reports them. */
+  ulMimoLayers: number | null;
 }
 
 export interface TrafficSnapshot {
@@ -453,7 +468,25 @@ export function parseRfSignalSnapshot(params: {
       eNodeBDerivationMatchesTag,
       sectorIdBitWidthOk,
     },
+    wcdma: wcdmaSignal(signalXml),
+    rrcConnected: null,
+    qci: null,
+    ulMimoLayers: null,
   };
+}
+
+/**
+ * The 3G serving cell of `device/signal` (`<rscp>` dBm, `<ecio>` dB, `<sc>` the scrambling code): only
+ * when the router reports an RSCP or Ec/Io in range, so a 4G or 5G answer with empty tags gives `null`.
+ */
+export function wcdmaSignal(signalXml: string): WcdmaSignal | null {
+  const rscp = parseNumberWithUnit(getXmlTag(signalXml, "rscp"));
+  const ecio = parseNumberWithUnit(getXmlTag(signalXml, "ecio"));
+  const rscpDbm = rscp !== null && rscp < 0 && rscp >= -140 ? rscp : null;
+  const ecioDb = ecio !== null && ecio <= 0 && ecio >= -30 ? ecio : null;
+  if (rscpDbm === null && ecioDb === null) return null;
+  const sc = parseIntOrNull(getXmlTag(signalXml, "sc"));
+  return { rscpDbm, ecioDb, psc: sc !== null && sc >= 0 && sc <= 511 ? sc : null };
 }
 
 /**

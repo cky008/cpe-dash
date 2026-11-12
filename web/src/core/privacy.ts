@@ -1,4 +1,5 @@
 import {
+  ICCID_VISIBLE_DIGITS,
   IMEI_VISIBLE_DIGITS,
   IMSI_VISIBLE_DIGITS,
   maskIdentityDigits,
@@ -13,7 +14,7 @@ import {
  * API and MCP clients receive; the web console itself always gets the plain values to reveal.
  */
 
-export type SensitiveKind = "imei" | "imsi" | "phone" | "mac" | "ip" | "cell" | "otp";
+export type SensitiveKind = "imei" | "imsi" | "iccid" | "phone" | "mac" | "ip" | "cell" | "otp";
 
 export function maskValue(kind: SensitiveKind, value: string): string {
   const clean = value.trim();
@@ -23,6 +24,8 @@ export function maskValue(kind: SensitiveKind, value: string): string {
       return maskIdentityDigits(clean, IMEI_VISIBLE_DIGITS);
     case "imsi":
       return maskIdentityDigits(clean, IMSI_VISIBLE_DIGITS);
+    case "iccid":
+      return maskIdentityDigits(clean, ICCID_VISIBLE_DIGITS);
     case "phone":
       return maskPhoneNumber(clean);
     case "mac":

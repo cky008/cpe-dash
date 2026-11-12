@@ -2,13 +2,15 @@
  * Partial masks for personal identifiers. Dependency-free: the daemon applies them when
  * REDACT_SENSITIVE_IN_API is on, and the web dashboard applies the same rules in its privacy mode,
  * so a value looks identical whichever side masked it. Each mask keeps only a non-personal prefix
- * (IMEI reporting body, IMSI MCC+MNC, MAC vendor OUI, phone country prefix).
+ * (IMEI reporting body, IMSI MCC+MNC, ICCID issuer, MAC vendor OUI, phone country prefix).
  */
 
 /** IMEI digits kept visible (`866709*********`): type-allocation prefix only, never the serial. */
 export const IMEI_VISIBLE_DIGITS = 6;
 /** IMSI digits kept visible: MCC + 2-digit MNC (the operator), never the subscriber number. */
 export const IMSI_VISIBLE_DIGITS = 5;
+/** ICCID digits kept visible: the `89` industry code, country and issuer (ITU-T E.118), never the card's serial. */
+export const ICCID_VISIBLE_DIGITS = 6;
 
 /**
  * Mask a personal phone number for logs and status summaries (`+353*******01`). Alphanumeric

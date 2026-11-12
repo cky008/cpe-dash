@@ -132,6 +132,9 @@ const KNOWN_LOGIN_SCHEMES: ReadonlySet<unknown> = new Set<LoginScheme>(["scram",
 function upgradeTelemetry(snapshot: GlobalTelemetrySnapshot | null): GlobalTelemetrySnapshot | null {
   if (!snapshot?.device) return snapshot;
   const device: Partial<GlobalTelemetrySnapshot["device"]> = snapshot.device;
+  const rf: Partial<GlobalTelemetrySnapshot["rf"]> = snapshot.rf;
+  const thermal: Partial<GlobalTelemetrySnapshot["thermal"]> = snapshot.thermal;
+  const stored: Partial<GlobalTelemetrySnapshot> = snapshot;
   return {
     ...snapshot,
     device: {
@@ -140,8 +143,13 @@ function upgradeTelemetry(snapshot: GlobalTelemetrySnapshot | null): GlobalTelem
       imsi: device.imsi ?? "",
       msisdn: device.msisdn ?? "",
       macAddress: device.macAddress ?? "",
+      iccid: device.iccid ?? "",
       sensitiveRedacted: device.sensitiveRedacted ?? false,
     },
+    // Readings added in v1.9.0 (the router status, temperature sensors, 3G, RRC and QCI)
+    rf: { ...snapshot.rf, wcdma: rf.wcdma ?? null, rrcConnected: rf.rrcConnected ?? null, qci: rf.qci ?? null, ulMimoLayers: rf.ulMimoLayers ?? null },
+    thermal: { ...snapshot.thermal, sensors: thermal.sensors ?? [] },
+    status: stored.status ?? null,
   };
 }
 

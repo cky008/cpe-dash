@@ -4,6 +4,7 @@ import type { MacFilterEntry } from "./access-plan.ts";
 import type { AuditEntry } from "./audit-log.ts";
 import type { GlobalTelemetrySnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
 import {
+  ICCID_VISIBLE_DIGITS,
   IMEI_VISIBLE_DIGITS,
   IMSI_VISIBLE_DIGITS,
   maskIdentityDigits,
@@ -43,6 +44,7 @@ export function redactTelemetry(snap: GlobalTelemetrySnapshot): GlobalTelemetryS
       imsi: maskIdentityDigits(device.imsi, IMSI_VISIBLE_DIGITS),
       msisdn: maskPhoneNumber(device.msisdn),
       macAddress: maskMacTail(device.macAddress),
+      iccid: maskIdentityDigits(device.iccid, ICCID_VISIBLE_DIGITS),
       sensitiveRedacted: true,
     },
     rf: {

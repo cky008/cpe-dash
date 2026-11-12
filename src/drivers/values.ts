@@ -273,3 +273,42 @@ export function plmnCodeOf(value: unknown): string | null {
   const text = textOf(value);
   return text !== null && /^\d{5,6}$/.test(text) ? text : null;
 }
+
+/** An IMEI (14–16 digits, an IMEISV included), `null` for anything else. */
+export function imeiOf(value: unknown): string | null {
+  const text = usable(value);
+  return text !== null && /^\d{14,16}$/.test(text) && !/^0+$/.test(text) ? text : null;
+}
+
+/** An IMSI (6–15 digits: MCC, MNC, subscriber), `null` for anything else. */
+export function imsiOf(value: unknown): string | null {
+  const text = usable(value);
+  return text !== null && /^\d{6,15}$/.test(text) && !/^0+$/.test(text) ? text : null;
+}
+
+/** An ICCID (ITU-T E.118: `89`, 18–22 digits; some routers append the filler `F`), digits only; `null` otherwise. */
+export function iccidOf(value: unknown): string | null {
+  const text = usable(value)?.replace(/[fF]$/, "");
+  return text !== undefined && text !== null && /^89\d{16,20}$/.test(text) ? text : null;
+}
+
+/** The SIM card's own number as the router stores it (`+` and 3–15 digits), `null` otherwise. */
+export function msisdnOf(value: unknown): string | null {
+  const text = usable(value)?.replace(/[\s-]/g, "");
+  return text !== undefined && text !== null && /^\+?\d{3,15}$/.test(text) ? text : null;
+}
+
+/** An uplink transmit power in dBm (3GPP's UE range, −50..33 dBm). */
+export function txPowerOf(value: unknown): number | null {
+  return within(numberOf(value), -50, 33);
+}
+
+/** A 3G RSCP in dBm (3GPP TS 25.133: −120..−25). */
+export function rscpOf(value: unknown): number | null {
+  return within(numberOf(value), -120, -24);
+}
+
+/** A 3G Ec/Io in dB (3GPP TS 25.133: −24..0). */
+export function ecioOf(value: unknown): number | null {
+  return within(numberOf(value), -24.5, 0);
+}

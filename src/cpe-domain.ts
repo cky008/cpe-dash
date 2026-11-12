@@ -31,6 +31,7 @@ import {
   parseTrafficSnapshot,
   summarizeTopologyJson,
 } from "./parsers.ts";
+import { type BatteryStatus, type RouterStatusSnapshot, type TemperatureSensor, emptyRouterStatus, percentValue } from "./router-status.ts";
 import { parseSmsCountersOrNull } from "./sms/codec.ts";
 import type { SmsCounters } from "./sms/types.ts";
 import { getXmlTag } from "./xml.ts";
@@ -61,6 +62,8 @@ export interface DeviceIdentitySnapshot {
   msisdn: string;
   /** `<WanMacAddress>`, else `<MacAddress1>`; `""` when absent. */
   macAddress: string;
+  /** The SIM card's ICCID (`<Iccid>`); `""` when the router names none. */
+  iccid: string;
   /**
    * `true` only on the copies REDACT_SENSITIVE_IN_API hands to Bearer API / SSE clients and MCP
    * (src/redact.ts), where the identifiers above, the WAN addresses and DNS servers are masked.
@@ -107,12 +110,19 @@ export interface TrafficTelemetryDto {
 }
 
 export interface ThermalSnapshot {
+  /** The hottest sensor the router reports. */
   temperatureCelsius: number | null;
   temperatureSupported: boolean;
+  /** Each sensor the router names apart (empty: it reports one value, or none). */
+  sensors: TemperatureSensor[];
 }
 
-/** Parts of a telemetry poll that a model nobody verified may lack (`unavailable`). */
-export type TelemetryPart = "signal" | "status" | "traffic" | "month";
+/**
+ * Parts of a telemetry poll that a model nobody verified may lack (`unavailable`). `uptime`: the router
+ * reports no uptime of its own (some other brands), so `device.uptimeSec` holds no reading.
+ */
+export type TelemetryPart = "signal" | "status" | "traffic" | "month" | "uptime";
+/** The HiLink poll's core parts (a poll that has none of them failed). */
 const TELEMETRY_PARTS: ReadonlyArray<TelemetryPart> = ["signal", "status", "traffic", "month"];
 
 export interface GlobalTelemetrySnapshot {
@@ -131,6 +141,8 @@ export interface GlobalTelemetrySnapshot {
   thermal: ThermalSnapshot;
   /** `GET /api/sms/sms-count` piggybacked on the telemetry session; `null` when SMS is disabled or unavailable. */
   sms: SmsCounters | null;
+  /** Battery, SIM card, airplane mode, roaming, the router's own load (`src/router-status.ts`); `null`: it reports none of it. */
+  status: RouterStatusSnapshot | null;
 }
 
 export interface NeighborScanSnapshot {
@@ -479,6 +491,7 @@ export async function fetchGlobalTelemetry(
       imsi: rawImsi,
       msisdn: rawMsisdn,
       macAddress: rawMac,
+      iccid: deviceTag("Iccid"),
       sensitiveRedacted: false,
     },
     rf,
@@ -492,10 +505,28 @@ export async function fetchGlobalTelemetry(
     thermal: {
       temperatureCelsius: parsedTemp,
       temperatureSupported: parsedTemp !== null,
+      sensors: [],
     },
     sms: parseSmsCountersOrNull(smsCountXml),
+    status: hilinkRouterStatus(statusXml),
     ...(options.tolerant ? { unavailable } : {}),
   };
+}
+
+/**
+ * The battery of a HiLink mobile router, in the `monitoring/status` answer the poll reads anyway
+ * (protocol notes A 3.3: `<BatteryStatus>` `1` charging, `0` not; `<BatteryLevel>` a percentage, or
+ * `1`–`4` bars on older firmware, worth 25 % each). A router without a battery leaves them empty; a
+ * level of `0` says nothing either way and is left out, so a CPE that answers zeros shows no battery.
+ */
+export function hilinkRouterStatus(statusXml: string): RouterStatusSnapshot | null {
+  const tag = (name: string): string => (getXmlTag(statusXml, name) ?? "").trim();
+  const level = percentValue(tag("BatteryLevel"));
+  const charge = level === null || level === 0 ? null : level <= 4 ? level * 25 : level;
+  if (charge === null) return null;
+  const status = tag("BatteryStatus");
+  const battery: BatteryStatus = { percent: charge, charging: status === "1" ? true : status === "0" ? false : null, temperatureC: null, minutesToFull: null, minutesToEmpty: null };
+  return { ...emptyRouterStatus(), battery };
 }
 
 /**

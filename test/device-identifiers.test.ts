@@ -16,7 +16,7 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 /** RFC / reserved placeholders only (AGENTS.md 铁律二). */
 const DEVICE_INFO_WITH_IDENTIFIERS =
   "<response><DeviceName>H168-383</DeviceName><Imei>860000000000000</Imei><Imsi>272010000000000</Imsi>" +
-  "<Msisdn>+353830000000</Msisdn><MacAddress1>02:00:5E:10:00:01</MacAddress1><WanIPAddress>198.51.100.42</WanIPAddress>" +
+  "<Msisdn>+353830000000</Msisdn><Iccid>8935301000000000000</Iccid><MacAddress1>02:00:5E:10:00:01</MacAddress1><WanIPAddress>198.51.100.42</WanIPAddress>" +
   "<WanIPv6Address>2001:db8::42</WanIPv6Address><wan_dns_address>203.0.113.53</wan_dns_address>" +
   "<wan_ipv6_dns_address>2001:db8::53</wan_ipv6_dns_address><uptime>86400</uptime></response>";
 
@@ -61,6 +61,7 @@ describe("Device identifiers in the telemetry snapshot (IMEI / IMSI / own number
     assert.equal(device.imei, "860000000000000");
     assert.equal(device.imsi, "272010000000000");
     assert.equal(device.msisdn, "+353830000000");
+    assert.equal(device.iccid, "8935301000000000000");
     assert.equal(device.macAddress, "02:00:5E:10:00:01");
     assert.equal(device.wanIpv4, "198.51.100.42");
     assert.deepEqual(device.wanDnsV4, ["203.0.113.53"]);
@@ -78,8 +79,8 @@ describe("Device identifiers in the telemetry snapshot (IMEI / IMSI / own number
 
     const bare = redactTelemetry(await collect("<response><DeviceName>H168-383</DeviceName></response>"));
     assert.deepEqual(
-      [bare.device.imei, bare.device.imsi, bare.device.msisdn, bare.device.macAddress, bare.device.wanIpv4],
-      ["", "", "", "", ""]
+      [bare.device.imei, bare.device.imsi, bare.device.msisdn, bare.device.iccid, bare.device.macAddress, bare.device.wanIpv4],
+      ["", "", "", "", "", ""]
     );
   });
 
@@ -105,6 +106,29 @@ describe("Device identifiers in the telemetry snapshot (IMEI / IMSI / own number
       removeTempDir(dir);
     }
   });
+
+  it("upgrades a snapshot persisted before the router status, the ICCID and the new radio readings existed", async () => {
+    const current = await collect(DEVICE_INFO_WITH_IDENTIFIERS);
+    const { iccid, ...olderDevice } = current.device;
+    const { wcdma, rrcConnected, qci, ulMimoLayers, ...olderRf } = current.rf;
+    const { sensors, ...olderThermal } = current.thermal;
+    const { status, ...older } = current;
+    assert.ok(iccid !== undefined && wcdma === null && rrcConnected === null && qci === null && ulMimoLayers === null && sensors.length === 0 && status === null);
+    const dir = tempDir("fengsui-upgrade-");
+    try {
+      const filePath = path.join(dir, "state.json");
+      const writer = new EncryptedStateStore({ filePath, encryptionKey: "upgrade-test-key" });
+      writer.update({ latestTelemetry: { ...older, device: olderDevice, rf: olderRf, thermal: olderThermal } as unknown as GlobalTelemetrySnapshot });
+      await writer.flushAsync();
+      const loaded = new EncryptedStateStore({ filePath, encryptionKey: "upgrade-test-key" }).load().latestTelemetry;
+      assert.equal(loaded?.device.iccid, "");
+      assert.deepEqual([loaded?.rf.wcdma, loaded?.rf.rrcConnected, loaded?.rf.qci, loaded?.rf.ulMimoLayers], [null, null, null, null]);
+      assert.deepEqual(loaded?.thermal.sensors, []);
+      assert.equal(loaded?.status, null);
+    } finally {
+      removeTempDir(dir);
+    }
+  });
 });
 
 describe("REDACT_SENSITIVE_IN_API copies for Bearer API, SSE and MCP clients (src/redact.ts)", () => {
@@ -117,6 +141,8 @@ describe("REDACT_SENSITIVE_IN_API copies for Bearer API, SSE and MCP clients (sr
     assert.equal(device.imei, "860000*********");
     assert.equal(device.imsi, "27201**********");
     assert.equal(device.msisdn, "+353*******00");
+    // The ICCID keeps its industry code, country and issuer only (ITU-T E.118)
+    assert.equal(device.iccid, "893530*************");
     assert.equal(device.macAddress, "02:00:5E:**:**:**");
     assert.equal(device.wanIpv4, "198.51.*.*");
     assert.equal(device.wanIpv6, "2001:db8:****");
@@ -126,7 +152,7 @@ describe("REDACT_SENSITIVE_IN_API copies for Bearer API, SSE and MCP clients (sr
     assert.deepEqual([rf.cellIdDisplay, rf.eNodeBDisplay, rf.tacDisplay], [REDACTED, REDACTED, REDACTED]);
     assert.doesNotMatch(
       JSON.stringify({ device, rf }),
-      /860000000000000|272010000000000|\+353830000000|198\.51\.100\.42|203\.0\.113\.53|134217758|0524288/
+      /860000000000000|272010000000000|8935301000000000000|\+353830000000|198\.51\.100\.42|203\.0\.113\.53|134217758|0524288/
     );
   });
 

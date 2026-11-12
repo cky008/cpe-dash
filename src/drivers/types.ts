@@ -1,6 +1,8 @@
 import type { AntennaModeName } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import type { WcdmaSignal } from "../parsers.ts";
 import type { DriverFamily } from "../router-family.ts";
+import type { RouterStatusSnapshot, TemperatureSensor } from "../router-status.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 
 /**
@@ -34,6 +36,14 @@ export interface DriverCell {
   ulMcs: number | null;
   /** RSRP per receive antenna (up to four), when the router reports them. */
   rxRsrpDbm: Array<number | null> | null;
+  /** The second codeword's CQI, where the router reports it. */
+  cqi1?: number | null;
+  ulBandwidthMhz?: number | null;
+  /** Uplink transmit power on PUSCH / PUCCH, dBm. */
+  puschTxDbm?: number | null;
+  pucchTxDbm?: number | null;
+  /** The LTE downlink transmission mode as the console shows it (`TM4`). */
+  transmissionMode?: string | null;
 }
 
 /** A secondary carrier (carrier aggregation, or the NR leg's own aggregation). */
@@ -71,6 +81,9 @@ export interface DriverTraffic {
   counterSource?: string;
   /** Today's traffic, both ways, where the router counts it. */
   todayBytes?: bigint | null;
+  /** The monthly data plan set on the router, and the share of it at which the router warns. */
+  dataLimitBytes?: bigint | null;
+  dataAlertPercent?: number | null;
 }
 
 export interface DriverIdentity {
@@ -98,8 +111,21 @@ export interface DriverTelemetry extends DriverIdentity {
   wan: { connected: boolean | null; ipv4: string | null; ipv6: string | null; uptimeSec: number | null };
   /** `null`: the router has no traffic counters FengSui reads. */
   traffic: DriverTraffic | null;
+  /** The hottest temperature the router reports. */
   temperatureC: number | null;
   signalBars: number | null;
+  /** Each temperature sensor the router names apart (`temperatureC` stays the hottest). */
+  temperatures?: TemperatureSensor[];
+  /** What the router reports of its battery, SIM card, radio, roaming and own load (the rest stays `null`). */
+  status?: Partial<RouterStatusSnapshot>;
+  /** The device's and the SIM card's identifiers, where the router names them (masked for API clients). */
+  ids?: Partial<Record<"imei" | "imsi" | "msisdn" | "iccid", string | null>>;
+  /** The 3G serving cell, when the router is on 3G. */
+  wcdma?: WcdmaSignal | null;
+  rrcConnected?: boolean | null;
+  qci?: number | null;
+  /** Uplink MIMO layers of the primary carrier. */
+  ulMimoLayers?: number | null;
 }
 
 export interface DriverNeighbour {

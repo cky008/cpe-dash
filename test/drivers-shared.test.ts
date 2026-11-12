@@ -542,12 +542,14 @@ describe("drivers: snapshots", () => {
 
   it("lists what the router did not report as unavailable instead of zero", () => {
     const full = driverTelemetrySnapshot(base({}), 1_000);
-    assert.deepEqual(full.unavailable, []);
+    // No uptime of the router's own: shown as not available, never as a router that just started
+    assert.deepEqual(full.unavailable, ["uptime"]);
+    assert.deepEqual(driverTelemetrySnapshot(base({ status: { system: { uptimeSec: 7200, cpuPercent: null, memoryPercent: null } } }), 1_000).unavailable, []);
     assert.equal(full.device.connectionStatus, "901");
     assert.equal(full.traffic.monthTotalBytes, 1500);
     assert.equal(full.thermal.temperatureSupported, true);
     const bare = driverTelemetrySnapshot(base({ mode: null, lte: null, nr: null, wan: { connected: null, ipv4: null, ipv6: null, uptimeSec: null }, traffic: null, temperatureC: null, signalBars: null }), 2_000);
-    assert.deepEqual(bare.unavailable, ["signal", "status", "traffic", "month"]);
+    assert.deepEqual(bare.unavailable, ["signal", "status", "traffic", "month", "uptime"]);
     assert.equal(bare.device.connectionStatus, "");
     assert.equal(bare.traffic.sessionConnectTimeSec, 0);
     const down = driverTelemetrySnapshot(base({ wan: { connected: false, ipv4: null, ipv6: null, uptimeSec: null } }));

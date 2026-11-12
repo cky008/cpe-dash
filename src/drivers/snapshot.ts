@@ -1,6 +1,7 @@
 import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, TelemetryPart, TrafficTelemetryDto } from "../cpe-domain.ts";
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import type { CaBannerComponent, NeighborCellEntry, RfSignalSnapshot, SecondaryCellEntry } from "../parsers.ts";
+import { type RouterStatusSnapshot, emptyRouterStatus, hasRouterStatus, partOrNull } from "../router-status.ts";
 import type { SmsCounters } from "../sms/types.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../units.ts";
 import type { DriverCarrier, DriverCell, DriverIdentity, DriverNeighbour, DriverTelemetry } from "./types.ts";
@@ -102,9 +103,9 @@ export function driverRfSnapshot(t: DriverTelemetry): RfSignalSnapshot {
     pci: primary?.pci ?? null,
     earfcnRaw: lte?.arfcn !== null && lte?.arfcn !== undefined ? `DL:${lte.arfcn}` : "",
     nrArfcnRaw: nr?.arfcn !== null && nr?.arfcn !== undefined ? String(nr.arfcn) : "",
-    lteUlBandwidthMhz: null,
+    lteUlBandwidthMhz: lte?.ulBandwidthMhz ?? null,
     lteDlBandwidthMhz: lte?.bandwidthMhz ?? null,
-    nrUlBandwidthMhz: null,
+    nrUlBandwidthMhz: nr?.ulBandwidthMhz ?? null,
     nrDlBandwidthMhz: nr?.bandwidthMhz ?? null,
     lteRsrpDbm: lte?.rsrpDbm ?? null,
     lteRsrqDb: lte?.rsrqDb ?? null,
@@ -113,19 +114,19 @@ export function driverRfSnapshot(t: DriverTelemetry): RfSignalSnapshot {
     nrRsrpDbm: nr?.rsrpDbm ?? null,
     nrRsrqDb: nr?.rsrqDb ?? null,
     nrSinrDb: nr?.sinrDb ?? null,
-    transmissionMode: "",
+    transmissionMode: lte?.transmissionMode ?? "",
     lteMimoRank: lte?.mimoLayers ?? null,
     nrMimoRank: nr?.mimoLayers ?? null,
     lteCqi0: lte?.cqi ?? null,
-    lteCqi1: null,
+    lteCqi1: lte?.cqi1 ?? null,
     nrCqi0: nr?.cqi ?? null,
-    nrCqi1: null,
+    nrCqi1: nr?.cqi1 ?? null,
     lteUlMcs: mcs("mcsUpCarrier1", lte?.ulMcs ?? null),
     lteDlMcs: mcs("mcsDownCarrier1Code0", lte?.dlMcs ?? null),
     nrUlMcs: mcs("NRmcsUpCarrier1", nr?.ulMcs ?? null),
     nrDlMcs: mcs("NRmcsDownCarrier1Code0", nr?.dlMcs ?? null),
-    lteTxPower: { ...NO_TX_POWER },
-    nrTxPower: { ...NO_TX_POWER },
+    lteTxPower: txPower(lte),
+    nrTxPower: txPower(nr),
     lteScc,
     nrScc,
     cellIdDisplay: servingId ?? "",
@@ -139,7 +140,30 @@ export function driverRfSnapshot(t: DriverTelemetry): RfSignalSnapshot {
       eNodeBDerivationMatchesTag: null,
       sectorIdBitWidthOk: servingId !== null && primaryRat === "LTE" ? BigInt(servingId) <= 0x0fffffffn : null,
     },
+    wcdma: t.wcdma ?? null,
+    rrcConnected: t.rrcConnected ?? null,
+    qci: t.qci ?? null,
+    ulMimoLayers: t.ulMimoLayers ?? null,
   };
+}
+
+function txPower(cell: DriverCell | null): RfSignalSnapshot["lteTxPower"] {
+  return { ...NO_TX_POWER, puschDbm: cell?.puschTxDbm ?? null, pucchDbm: cell?.pucchTxDbm ?? null };
+}
+
+/** The router status a driver read, every part it said nothing of `null` (and `null` for none at all). */
+export function driverRouterStatus(t: DriverTelemetry): RouterStatusSnapshot | null {
+  const read = t.status;
+  if (!read) return null;
+  const status = emptyRouterStatus();
+  status.battery = read.battery ? partOrNull(read.battery) : null;
+  status.sim = read.sim ? partOrNull(read.sim) : null;
+  status.airplaneMode = read.airplaneMode ?? null;
+  status.roaming = read.roaming ? partOrNull(read.roaming) : null;
+  status.system = read.system ? partOrNull(read.system) : null;
+  status.firmwareUpdate = read.firmwareUpdate ?? null;
+  status.wifi = read.wifi ? partOrNull(read.wifi) : null;
+  return hasRouterStatus(status) ? status : null;
 }
 
 function trafficDto(t: DriverTelemetry): TrafficTelemetryDto {
@@ -178,9 +202,17 @@ function trafficDto(t: DriverTelemetry): TrafficTelemetryDto {
     totalUsedBytesStr: (sessionDown + sessionUp).toString(10),
     totalConnectTimeSec: 0,
     billingStartDay: null,
-    dataLimitRaw: "",
-    monthThresholdPercent: null,
+    dataLimitRaw: dataLimitText(traffic?.dataLimitBytes ?? null),
+    monthThresholdPercent: traffic?.dataAlertPercent ?? null,
   };
+}
+
+/** A data plan in the `<amount><unit>` form HiLink's `DataLimit` uses (`20GB`, `500MB`); `""` for none. */
+function dataLimitText(bytes: bigint | null): string {
+  if (bytes === null || bytes <= 0n) return "";
+  const mib = 1024n * 1024n;
+  if (bytes % (mib * 1024n) === 0n) return `${bytes / (mib * 1024n)}GB`;
+  return `${bytes / mib}MB`;
 }
 
 /** What this poll's router did not report, so the console shows it as not available rather than zero. */
@@ -190,6 +222,7 @@ function unavailableParts(t: DriverTelemetry): TelemetryPart[] {
   if (t.wan.connected === null) out.push("status");
   if (t.traffic === null || (t.traffic.downloadBytesPerSec === null && t.traffic.uploadBytesPerSec === null)) out.push("traffic");
   if (t.traffic === null || (t.traffic.monthDownloadBytes === null && t.traffic.monthUploadBytes === null && t.traffic.monthTotalBytes === null)) out.push("month");
+  if ((t.status?.system?.uptimeSec ?? null) === null) out.push("uptime");
   return out;
 }
 
@@ -204,7 +237,7 @@ export function driverTelemetrySnapshot(t: DriverTelemetry, nowMs: number = Date
       hardwareVersion: t.hardwareVersion ?? "",
       softwareVersion: t.softwareVersion ?? "",
       webUiVersion: "",
-      uptimeSec: 0,
+      uptimeSec: t.status?.system?.uptimeSec ?? 0,
       workMode: "",
       wanIpv4: t.wan.ipv4 ?? "",
       wanDnsV4: [],
@@ -213,17 +246,19 @@ export function driverTelemetrySnapshot(t: DriverTelemetry, nowMs: number = Date
       connectionStatus: t.wan.connected === null ? "" : t.wan.connected ? CONNECTED : DISCONNECTED,
       signalIconBars: t.signalBars ?? 0,
       simStatus: "",
-      imei: "",
-      imsi: "",
-      msisdn: "",
+      imei: t.ids?.imei ?? "",
+      imsi: t.ids?.imsi ?? "",
+      msisdn: t.ids?.msisdn ?? "",
       macAddress: "",
+      iccid: t.ids?.iccid ?? "",
       sensitiveRedacted: false,
     },
     rf: driverRfSnapshot(t),
     bandConfig: { networkMode: "", networkBandHex: "", lteBandHex: "", activeLteBands: [] },
     traffic: trafficDto(t),
-    thermal: { temperatureCelsius: t.temperatureC, temperatureSupported: t.temperatureC !== null },
+    thermal: { temperatureCelsius: t.temperatureC, temperatureSupported: t.temperatureC !== null, sensors: t.temperatures ?? [] },
     sms,
+    status: driverRouterStatus(t),
   };
 }
 
