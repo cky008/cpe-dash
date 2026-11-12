@@ -1,6 +1,6 @@
 import { type DeviceFeature, type DeviceProbeResult, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
 import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
-import { type RouterFamily, familyCapabilities, isDriverFamily, routerVariant } from "./router-family.ts";
+import { CELLULAR_WRITE_FEATURES, type RouterFamily, familyCapabilities, isCellularWriteFeature, isDriverFamily, routerVariant } from "./router-family.ts";
 
 /**
  * What FengSui may do with the router it talks to: whether it may write, and which read sections
@@ -42,6 +42,23 @@ export const CONTROL_FEATURES = {
   sms_send: "smsWrite",
   sms_mark_read: "smsWrite",
   sms_delete: "smsWrite",
+  set_network_mode: "networkMode",
+  scan_operators: "operatorSelect",
+  select_operator: "operatorSelect",
+  set_sim_slot: "simSlot",
+  enter_sim_pin: "simPin",
+  set_sim_pin_lock: "simPin",
+  set_airplane_mode: "airplaneSwitch",
+  set_roaming: "roaming",
+  set_apn: "apn",
+  set_data_limit: "dataLimit",
+  reset_traffic: "trafficReset",
+  send_ussd: "ussd",
+  // The way back from a change that cut the WAN: filed under the setting it puts back
+  auto_restore_network_mode: "networkMode",
+  auto_restore_operator: "operatorSelect",
+  auto_restore_sim_slot: "simSlot",
+  auto_restore_apn: "apn",
 } as const satisfies Readonly<Record<string, DeviceFeature>>;
 
 export type ControlAction = keyof typeof CONTROL_FEATURES;
@@ -61,6 +78,7 @@ export const WRITE_FEATURES = [
   "antenna",
   "accessControl",
   "smsWrite",
+  ...CELLULAR_WRITE_FEATURES,
 ] as const satisfies ReadonlyArray<(typeof CONTROL_FEATURES)[ControlAction]>;
 
 export type WriteFeature = (typeof WRITE_FEATURES)[number];
@@ -408,7 +426,9 @@ export class DeviceAccess {
   writeState(feature: WriteFeature): WriteFeatureState {
     const current = this.current;
     if (!current) return "unknown";
-    if (isVerifiedModel(current.model)) return "verified";
+    // The verified model's verification covers the writes FengSui had then; the cellular settings came
+    // later and have no implementation checked on it, so it gets none of them
+    if (isVerifiedModel(current.model)) return isCellularWriteFeature(feature) ? "not_implemented" : "verified";
     // A model nobody verified writes only what FengSui implements for its family (in the form of the
     // interface it speaks): a driver's writes, or on a HiLink model the generic ones (a write without
     // one stays the verified model's alone)

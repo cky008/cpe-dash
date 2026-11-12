@@ -1,6 +1,20 @@
 import type { AccessControlSnapshot, AccessRequestContext, TimeRulesState } from "./access-control.ts";
 import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "./access-plan.ts";
 import type {
+  ApnChoice,
+  ApnRestore,
+  CellularSettingsSnapshot,
+  DataLimitSetting,
+  LinkChange,
+  NetworkMode,
+  OperatorChoice,
+  OperatorSelection,
+  SimPinOutcome,
+  SimSlotRef,
+  UssdAnswer,
+  UssdRequest,
+} from "./cellular.ts";
+import type {
   AntennaModeName,
   BandLockCommand,
   CellLockCommand,
@@ -56,6 +70,12 @@ export interface RouterBackend {
    * page. `null`: the family has no login-free count (nothing is sent).
    */
   peekSmsUnread(): Promise<SmsUnreadPeek | null>;
+  /**
+   * The cellular settings the console shows beside the poll's status: the network mode and the ones
+   * on offer, the SIM slots, how the operator is chosen, the access point, the data limit. `null`:
+   * skipped, yielded, or the router's interface has no read for any of them.
+   */
+  readCellular(opts: ReadRequest): Promise<CellularSettingsSnapshot | null>;
 
   // ------------------------------------------------------------------ writes (checked before queueing, gated, never replayed)
 
@@ -102,6 +122,49 @@ export interface RouterBackend {
   markSmsRead(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number>;
   /** Delete the messages at these storage indices from the router. */
   deleteSms(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number>;
+
+  // ------------------------------------------------------------------ cellular settings (`src/cellular.ts`; each sent once, read back)
+
+  /**
+   * Switch the network mode. Like the three below it can take the router off the network by accident:
+   * `previous` is the value read right before the write in its session (`null`: none read), what
+   * `revertLinkChange` puts back if the WAN stays down.
+   */
+  setNetworkMode(mode: NetworkMode, summary: ControlSummary): Promise<LinkChangeOutcome<NetworkMode>>;
+  /** Search for the networks in range (up to a minute; the connection may drop meanwhile). Their names are the operators' own text. */
+  scanOperators(summary: (found: OperatorChoice[]) => ControlSummary): Promise<OperatorChoice[]>;
+  /** Register with one operator's network, or hand the choice back to the router. */
+  selectOperator(selection: OperatorSelection, summary: ControlSummary): Promise<LinkChangeOutcome<OperatorSelection>>;
+  setSimSlot(slot: SimSlotRef, summary: ControlSummary): Promise<LinkChangeOutcome<SimSlotRef>>;
+  setApn(choice: ApnChoice, summary: ControlSummary): Promise<LinkChangeOutcome<ApnRestore>>;
+  /**
+   * The way back from one of the four changes above when the WAN stayed down: skipped when the WAN
+   * re-reads as up, or mobile data or the radio as switched off on purpose, inside the session.
+   */
+  revertLinkChange(change: LinkChange, summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome>;
+  /**
+   * Enter the SIM card's PIN, once: refused before anything is sent unless the router reports, in this
+   * session, more than one attempt left. A PIN the card refuses resolves `accepted: false`.
+   */
+  enterSimPin(pin: string, summary: (outcome: SimPinOutcome) => ControlSummary): Promise<SimPinOutcome>;
+  /** Turn the card's "ask for the PIN at every start" on or off, under the same rule. */
+  setSimPinLock(enabled: boolean, pin: string, summary: (outcome: SimPinOutcome) => ControlSummary): Promise<SimPinOutcome>;
+  /** `true` switches the cellular radio off. A deliberate disconnect, like mobile data off: never undone on its own. */
+  setAirplaneMode(enabled: boolean, summary: ControlSummary): Promise<{ airplaneMode: boolean }>;
+  /** Whether data may be used while roaming. */
+  setRoaming(enabled: boolean, summary: ControlSummary): Promise<{ dataRoaming: boolean }>;
+  /** The monthly data limit the router itself keeps. */
+  setDataLimit(limit: DataLimitSetting, summary: ControlSummary): Promise<DataLimitSetting>;
+  /** Clear the router's own traffic counters. */
+  resetTraffic(summary: ControlSummary): Promise<void>;
+  /** Send a USSD code, answer the network's question, or end the session. The answer is the operator's text. */
+  sendUssd(request: UssdRequest, summary: ControlSummary): Promise<UssdAnswer>;
+}
+
+/** A change that may cut the WAN, with the value the setting had right before it. */
+export interface LinkChangeOutcome<T> {
+  /** Read in the write's own session before it wrote (`null`: the router did not say, so nothing can be put back). */
+  previous: T | null;
 }
 
 export interface ReadRequest {
@@ -183,9 +246,10 @@ export interface RollbackRequest {
 
 /**
  * Result of an automatic WAN repair: written, or skipped for the reason read inside the session
- * (`lock_changed`: the lock to roll back was replaced while the rollback waited in the queue).
+ * (`lock_changed`: the lock to roll back was replaced while the rollback waited in the queue;
+ * `airplane_mode`: the radio was switched off on purpose).
  */
-export type WanRepairOutcome = { applied: true; lockState?: PersistedLockState } | { applied: false; skipped: WanRepairSkipReason | "lock_changed" };
+export type WanRepairOutcome = { applied: true; lockState?: PersistedLockState } | { applied: false; skipped: WanRepairSkipReason | "lock_changed" | "airplane_mode" };
 
 /** The scheduler facts a backend is chosen by. */
 interface FamilySource {

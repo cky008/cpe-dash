@@ -380,6 +380,8 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
 
   // A band or cell lock on a router nobody verified is watched whoever asked for it, and undone if the WAN stays down
   controls.onExperimentalLock = (change) => selfHeal.guardExperimentalLock(change);
+  // A changed SIM slot, network mode, operator or access point is watched the same way, on any router
+  controls.onLinkChange = (notice) => selfHeal.guardLinkChange(notice);
 
   /** Settings changed in the console (or `.env` reloaded): what reads them per use needs nothing; these act now. */
   const applyBehaviour = (next: BehaviourValues): void => {

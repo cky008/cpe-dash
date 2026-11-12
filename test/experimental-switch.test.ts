@@ -7,6 +7,7 @@ import { type FengSuiRuntimeStack, createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { ConsoleSettings, MAX_DISABLED_WRITES } from "../src/console-settings.ts";
 import { CONTROL_FEATURES, DeviceAccess, WRITE_FEATURES, gateRefuses } from "../src/device-access.ts";
+import { CELLULAR_WRITE_FEATURES, isCellularWriteFeature } from "../src/router-family.ts";
 import { type DeviceProbeResult, type ProbeSession, probeDevice } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { type FamilySms, createCpeFamily } from "./helpers/cpe-family.ts";
@@ -181,7 +182,10 @@ describe("experimental switch: what each write is on a router", () => {
     h168.noteProbe(await probeOf("H168-383"));
     // Nothing is switched off on a verified model, whatever a list says
     h168.setDisabledWrites([{ model: "H168-383", feature: "reboot" }]);
-    assert.deepEqual(new Set(WRITE_FEATURES.map((f) => h168.writeState(f))), new Set(["verified"]));
+    assert.deepEqual(new Set(WRITE_FEATURES.filter((f) => !isCellularWriteFeature(f)).map((f) => h168.writeState(f))), new Set(["verified"]));
+    // The cellular settings came after its verification: it has none of them, and their requests never go to it
+    assert.deepEqual(new Set(CELLULAR_WRITE_FEATURES.map((f) => h168.writeState(f))), new Set(["not_implemented"]));
+    assert.equal(h168.writeAccess("networkMode"), "unavailable");
     assert.equal(h168.writeAccess("smsWrite"), "allowed");
     assert.equal(h168.generic, false);
     assert.equal(h168.snapshot().lteBands, null, "the verified model keeps its own band list");
@@ -203,6 +207,7 @@ describe("experimental switch: what each write is on a router", () => {
       antenna: "not_implemented",
       accessControl: "not_implemented",
       smsWrite: "enabled",
+      ...Object.fromEntries(CELLULAR_WRITE_FEATURES.map((feature) => [feature, "not_implemented"])),
     });
     assert.deepEqual(b535.snapshot().lteBands, [1, 3, 7, 8, 20, 32]);
     assert.deepEqual(

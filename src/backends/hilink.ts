@@ -1,5 +1,6 @@
 import { type AccessControlSnapshot, type AccessRequestContext, type TimeRulesState, applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../access-control.ts";
 import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
+import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer } from "../cellular.ts";
 import { validateGenericBandLock } from "../control-input.ts";
 import {
   type AntennaModeName,
@@ -30,11 +31,12 @@ import {
   updateSecuritySettings,
   updateWifi7Mlo,
 } from "../cpe-domain.ts";
-import { gateRefuses } from "../device-access.ts";
+import { type ControlAction, gateRefuses } from "../device-access.ts";
 import { type DeviceProbeResult, probeDevice } from "../device-profile.ts";
 import { genericBandLock, genericMobileData, genericReboot, genericReconnect, readWanRepairBlockerTolerant } from "../generic-writes.ts";
 import type {
   BandLockOutcome,
+  LinkChangeOutcome,
   LockContext,
   LockOutcome,
   LockSummary,
@@ -343,6 +345,74 @@ export class HilinkBackend implements RouterBackend {
       },
       summary
     );
+  }
+
+  // ------------------------------------------------------------------ cellular settings
+  //
+  // They came after the H168-383 was verified: the gate keeps every one of them `not_implemented` on
+  // it, so none of its requests changed. The ones below with no HiLink implementation are refused by
+  // the gate on every model.
+
+  readCellular(): Promise<CellularSettingsSnapshot | null> {
+    return Promise.resolve(null);
+  }
+
+  /** A cellular write FengSui has no HiLink implementation of: the gate's refusal, nothing queued; in a session, nothing sent. */
+  #unbuilt<T>(action: ControlAction): Promise<T> {
+    return this.#scheduler.executeControl<T>(action, () => Promise.reject(new CpeControlValidationError(`${action} has no implementation for this router; nothing was written`)));
+  }
+
+  setNetworkMode(): Promise<LinkChangeOutcome<NetworkMode>> {
+    return this.#unbuilt("set_network_mode");
+  }
+
+  scanOperators(): Promise<OperatorChoice[]> {
+    return this.#unbuilt("scan_operators");
+  }
+
+  selectOperator(): Promise<LinkChangeOutcome<OperatorSelection>> {
+    return this.#unbuilt("select_operator");
+  }
+
+  setSimSlot(): Promise<LinkChangeOutcome<SimSlotRef>> {
+    return this.#unbuilt("set_sim_slot");
+  }
+
+  setApn(): Promise<LinkChangeOutcome<ApnRestore>> {
+    return this.#unbuilt("set_apn");
+  }
+
+  revertLinkChange(change: { kind: "sim_slot" | "network_mode" | "operator" | "apn" }): Promise<WanRepairOutcome> {
+    const actions = { sim_slot: "auto_restore_sim_slot", network_mode: "auto_restore_network_mode", operator: "auto_restore_operator", apn: "auto_restore_apn" } as const;
+    return this.#unbuilt(actions[change.kind]);
+  }
+
+  enterSimPin(): Promise<SimPinOutcome> {
+    return this.#unbuilt("enter_sim_pin");
+  }
+
+  setSimPinLock(): Promise<SimPinOutcome> {
+    return this.#unbuilt("set_sim_pin_lock");
+  }
+
+  setAirplaneMode(): Promise<{ airplaneMode: boolean }> {
+    return this.#unbuilt("set_airplane_mode");
+  }
+
+  setRoaming(): Promise<{ dataRoaming: boolean }> {
+    return this.#unbuilt("set_roaming");
+  }
+
+  setDataLimit(): Promise<DataLimitSetting> {
+    return this.#unbuilt("set_data_limit");
+  }
+
+  resetTraffic(): Promise<void> {
+    return this.#unbuilt("reset_traffic");
+  }
+
+  sendUssd(): Promise<UssdAnswer> {
+    return this.#unbuilt("send_ussd");
   }
 }
 

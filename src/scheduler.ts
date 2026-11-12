@@ -51,7 +51,7 @@ import { detectRouterFamily } from "./drivers/detect.ts";
 import { DriverLoginMethodError } from "./drivers/login.ts";
 import { driverTopologySnapshot } from "./drivers/hosts.ts";
 import { CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./drivers/snapshot.ts";
-import type { DriverSession } from "./drivers/types.ts";
+import type { DriverCellularState, DriverSession } from "./drivers/types.ts";
 import type { SmsAbilities, SmsCounters, SmsWireMessage } from "./sms/types.ts";
 import { getXmlTag } from "./xml.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
@@ -1110,6 +1110,11 @@ export class MutexSessionScheduler extends EventEmitter {
     );
   }
 
+  /** The cellular settings a router of a driver family reports (`null`: skipped, yielded, or its interface reads none of them). */
+  executeDriverCellularRead(opts: { priority?: SchedulerPriority; ignoreCooldown?: boolean } = {}): Promise<DriverCellularState | null> {
+    return this.#executeDriverRead(async (session) => (session.cellular ? await session.cellular.read() : null), { priority: opts.priority ?? "normal", ignoreCooldown: opts.ignoreCooldown });
+  }
+
   /** The driver family's identification, in the probe's shape (`CpeMonitor.identifyDevice` on such a router). */
   executeDriverIdentify(opts: { priority?: SchedulerPriority } = {}): Promise<DeviceProbeResult | null> {
     return this.#executeDriverRead(async (session) => driverDeviceProbe(await session.identify(), { nowIso: new Date().toISOString(), origin: "startup" }), {
@@ -1568,6 +1573,8 @@ function readbackSuffix(record: WriteResultRecord): { zh: string; en: string } {
     if (record.readback === "match") return t(locale, "controls.experimental_match");
     if (record.readback === "mismatch") return t(locale, "controls.experimental_mismatch", { reason });
     if (record.readback === "pending") return t(locale, "controls.experimental_pending");
+    // A write that leaves nothing to read back (a USSD code, a PIN the card refused)
+    if (record.readback === "none") return t(locale, "controls.experimental_none");
     return t(locale, "controls.experimental_unknown", { reason });
   };
   return { zh: say("zh-CN"), en: say("en") };

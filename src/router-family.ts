@@ -8,6 +8,8 @@
  * Zero dependencies: the daemon, the web console and the docs build share these facts.
  */
 
+import type { NetworkMode } from "./cellular.ts";
+
 export const ROUTER_FAMILIES = ["huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "openwrt"] as const;
 
 export type RouterFamily = (typeof ROUTER_FAMILIES)[number];
@@ -40,8 +42,21 @@ export function isDriverFamily(value: unknown): value is DriverFamily {
   return isRouterFamily(value) && value !== "huawei";
 }
 
+/**
+ * The cellular settings FengSui writes besides the locks, each its own feature (`src/cellular.ts`).
+ * They came after the H168-383 was verified, so that model's verification does not cover them: a
+ * router gets one only where its family's list below names it.
+ */
+export const CELLULAR_WRITE_FEATURES = ["networkMode", "operatorSelect", "simSlot", "simPin", "airplaneSwitch", "roaming", "apn", "dataLimit", "trafficReset", "ussd"] as const;
+
+export type CellularWriteFeature = (typeof CELLULAR_WRITE_FEATURES)[number];
+
+export function isCellularWriteFeature(feature: string): feature is CellularWriteFeature {
+  return (CELLULAR_WRITE_FEATURES as ReadonlyArray<string>).includes(feature);
+}
+
 /** Every write some family implements for a router nobody verified (an experimental write: sent once, read back after). */
-export const FAMILY_WRITE_FEATURES = ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite"] as const;
+export const FAMILY_WRITE_FEATURES = ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", ...CELLULAR_WRITE_FEATURES] as const;
 
 export type FamilyWriteFeature = (typeof FAMILY_WRITE_FEATURES)[number];
 
@@ -74,6 +89,11 @@ export interface RouterFamilyFacts {
   /** The driver can lock 5G NR bands (every driver locks LTE bands). */
   nrBandLock: boolean;
   /**
+   * The network modes the family's `networkMode` write can switch a router to (`src/cellular.ts`), in
+   * the order the console lists them; a router that reports its own list is offered that instead.
+   */
+  selectableModes?: ReadonlyArray<NetworkMode>;
+  /**
    * Other forms of the family's interface, by the name the driver reports for a router that speaks
    * one (its identification's `variant`): what such a router reads and writes instead of `reads` and
    * `writes` above.
@@ -99,7 +119,15 @@ export interface RouterFamilyVariant {
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
   huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms", "battery"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
-  "zte-goform": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "topology", "sms", "battery", "simCard"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  "zte-goform": {
+    defaultUsername: "",
+    defaultAddress: "192.168.0.1",
+    reads: ["telemetry", "neighbors", "topology", "sms", "battery", "simCard"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "simSlot", "simPin", "roaming", "dataLimit", "ussd"],
+    networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
+    nrBandLock: true,
+    selectableModes: ["auto", "nr_sa", "nr_nsa", "lte", "lte_wcdma", "wcdma"],
+  },
   "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "sms", "battery", "simCard"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },

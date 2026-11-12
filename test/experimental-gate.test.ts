@@ -5,6 +5,7 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { CpeApiError, HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { CONTROL_FEATURES, type ControlAction, WRITE_FEATURES, type WriteFeature, type WriteResultRecord, isWriteResultRecord } from "../src/device-access.ts";
+import { CELLULAR_WRITE_FEATURES, isCellularWriteFeature } from "../src/router-family.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
@@ -532,7 +533,10 @@ describe("experimental gate: the H168-383", () => {
       assert.ok(await fx.core.monitor.identifyDevice());
       // A list naming the verified model (there is no way to make one in the console) changes nothing
       fx.core.scheduler.device.setDisabledWrites(WRITE_FEATURES.map((feature) => ({ model: "H168-383", feature })));
-      assert.deepEqual(new Set(Object.values(fx.core.scheduler.getStatus().device.features)), new Set(["verified"]));
+      // Verified: every write it had when it was verified. The cellular settings came later: none on this model
+      const { features } = fx.core.scheduler.getStatus().device;
+      assert.deepEqual(new Set(WRITE_FEATURES.filter((feature) => !isCellularWriteFeature(feature)).map((feature) => features[feature])), new Set(["verified"]));
+      assert.deepEqual(new Set(CELLULAR_WRITE_FEATURES.map((feature) => features[feature])), new Set(["not_implemented"]));
       await fx.core.controls.lockBands({ lteBands: [1, 3], nrBands: ["N78"] });
       await fx.core.controls.setMobileData(true);
       await fx.core.controls.reconnectCellular();

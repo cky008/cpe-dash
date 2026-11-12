@@ -117,6 +117,16 @@ export const DEVICE_FEATURES = [
   "battery",
   "simCard",
   "airplaneMode",
+  "networkMode",
+  "operatorSelect",
+  "simSlot",
+  "simPin",
+  "airplaneSwitch",
+  "roaming",
+  "apn",
+  "dataLimit",
+  "trafficReset",
+  "ussd",
 ] as const;
 
 export type DeviceFeature = (typeof DEVICE_FEATURES)[number];

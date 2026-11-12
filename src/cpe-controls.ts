@@ -1,5 +1,19 @@
 import type { AccessControlSnapshot, AccessRequestContext } from "./access-control.ts";
 import type { TimeRuleChange, WifiAccessChange } from "./access-plan.ts";
+import type {
+  ApnChoice,
+  CellularSettingsSnapshot,
+  DataLimitSetting,
+  LinkChange,
+  LinkChangeKind,
+  NetworkMode,
+  OperatorChoice,
+  OperatorSelection,
+  SimPinOutcome,
+  SimSlotRef,
+  UssdAnswer,
+  UssdRequest,
+} from "./cellular.ts";
 import {
   type AntennaModeName,
   type BandLockCommand,
@@ -38,8 +52,8 @@ export interface CpeControlServiceOptions {
 }
 
 /**
- * Write side of FengSui: RF locks, reboot/reconnect, router switches and device access control
- * (Wi-Fi MAC filter, internet time rules). Every command is validated
+ * Write side of FengSui: RF locks, reboot/reconnect, router switches, device access control
+ * (Wi-Fi MAC filter, internet time rules) and the cellular settings. Every command is validated
  * before it is queued (no session for bad input), runs as one `executeControl` session (never
  * replayed, refused with `409` while a human is logged in), and updates the persisted lock state or
  * the cached settings snapshot afterwards. Every write goes through the backend of the router's
@@ -56,7 +70,24 @@ export interface ExperimentalLockChange {
   savedLteMask: string | null;
 }
 
+/**
+ * A change that can take the router off the network by accident (SIM slot, network mode, operator
+ * selection, access point), after it applied: what it is put back to (`change: null`: the router did
+ * not say what it had before, so nothing can be put back) and when it was made.
+ */
+export interface LinkChangeNotice {
+  kind: LinkChangeKind;
+  change: LinkChange | null;
+  appliedAtMs: number;
+}
+
 export class CpeControlService {
+  /**
+   * A cellular setting whose change can cut the WAN was changed, by whoever asked: self-healing
+   * watches the WAN and puts the setting back if it stays down.
+   */
+  onLinkChange: ((notice: LinkChangeNotice) => void) | null = null;
+
   /**
    * A band or cell lock on a router nobody verified, after it applied, whoever asked for it (the
    * console, a token, an AI agent, Telegram): self-healing watches it, and if the WAN stays down
@@ -222,6 +253,108 @@ export class CpeControlService {
     return { accessControl: await this.#foldAccessControl({ timeRules }), changed: true, alsoBlocked: [] };
   }
 
+  // ------------------------------------------------------------------ cellular settings (`src/cellular.ts`)
+
+  /** The cellular settings as the router reports them now (one read session; `null`: skipped, or none on this router). */
+  async readCellular(): Promise<CellularSettingsSnapshot | null> {
+    return await this.monitor.refreshCellular({ ignoreCooldown: true });
+  }
+
+  /** The settings after a write, read in a session of their own; a read that fails says nothing about the write. */
+  async #cellularAfter(): Promise<CellularSettingsSnapshot | null> {
+    return await this.monitor.refreshCellular({ ignoreCooldown: true }).catch(() => null);
+  }
+
+  #noteLinkChange(change: LinkChange | null, kind: LinkChangeKind): void {
+    this.onLinkChange?.({ kind, change, appliedAtMs: Date.now() });
+  }
+
+  async setNetworkMode(mode: NetworkMode, opts: { confirm: boolean }): Promise<{ networkMode: NetworkMode; cellular: CellularSettingsSnapshot | null }> {
+    requireCellularConfirmation(opts.confirm);
+    const { previous } = await this.#backend().setNetworkMode(mode, summaryOf("controls.network_mode_updated", { mode }));
+    this.#noteLinkChange(previous === null ? null : { kind: "network_mode", previous }, "network_mode");
+    return { networkMode: mode, cellular: await this.#cellularAfter() };
+  }
+
+  /** Search for networks in range: up to a minute, and many routers drop the connection meanwhile. */
+  async scanOperators(opts: { confirm: boolean }): Promise<OperatorChoice[]> {
+    requireCellularConfirmation(opts.confirm);
+    return await this.#backend().scanOperators((found) => summaryOf("controls.operators_scanned", { count: found.length }));
+  }
+
+  async selectOperator(selection: OperatorSelection, opts: { confirm: boolean }): Promise<{ operator: OperatorSelection; cellular: CellularSettingsSnapshot | null }> {
+    requireCellularConfirmation(opts.confirm);
+    const summary = selection.mode === "auto" ? summaryOf("controls.operator_auto") : summaryOf("controls.operator_selected", { plmn: selection.plmn });
+    const { previous } = await this.#backend().selectOperator(selection, summary);
+    // Handing the choice back to the router is the safe state: nothing to put back from there
+    if (selection.mode === "manual") this.#noteLinkChange(previous === null ? null : { kind: "operator", previous }, "operator");
+    return { operator: selection, cellular: await this.#cellularAfter() };
+  }
+
+  async setSimSlot(slot: SimSlotRef, opts: { confirm: boolean }): Promise<{ simSlot: SimSlotRef; cellular: CellularSettingsSnapshot | null }> {
+    requireCellularConfirmation(opts.confirm);
+    const { previous } = await this.#backend().setSimSlot(slot, { zh: t("zh-CN", "controls.sim_slot_updated", { slot: slotLabel("zh-CN", slot) }), en: t("en", "controls.sim_slot_updated", { slot: slotLabel("en", slot) }) });
+    this.#noteLinkChange(previous === null ? null : { kind: "sim_slot", previous }, "sim_slot");
+    return { simSlot: slot, cellular: await this.#cellularAfter() };
+  }
+
+  /** The summary names no access point: an APN can name a company's private network. */
+  async setApn(choice: ApnChoice, opts: { confirm: boolean }): Promise<{ apnMode: ApnChoice["mode"]; cellular: CellularSettingsSnapshot | null }> {
+    requireCellularConfirmation(opts.confirm);
+    const { previous } = await this.#backend().setApn(choice, summaryOf(choice.mode === "auto" ? "controls.apn_auto" : "controls.apn_updated"));
+    this.#noteLinkChange(previous === null ? null : { kind: "apn", previous }, "apn");
+    return { apnMode: choice.mode, cellular: await this.#cellularAfter() };
+  }
+
+  /** Self-healing's way back from one of the changes above (`WanSelfHeal.guardLinkChange`). Broadcasts only when it wrote. */
+  async revertLinkChange(change: LinkChange): Promise<WanRepairOutcome> {
+    return await this.#backend().revertLinkChange(change, (outcome) =>
+      outcome.applied
+        ? { zh: t("zh-CN", "controls.link_restored", { setting: t("zh-CN", LINK_SETTING_KEYS[change.kind]) }), en: t("en", "controls.link_restored", { setting: t("en", LINK_SETTING_KEYS[change.kind]) }) }
+        : null
+    );
+  }
+
+  /** Enter the SIM card's PIN, once. The PIN goes to the router and nowhere else. */
+  async enterSimPin(pin: string, opts: { confirm: boolean }): Promise<SimPinOutcome> {
+    requireCellularConfirmation(opts.confirm);
+    return await this.#backend().enterSimPin(pin, (outcome) => summaryOf(outcome.accepted ? "controls.sim_pin_accepted" : "controls.sim_pin_refused"));
+  }
+
+  async setSimPinLock(enabled: boolean, pin: string, opts: { confirm: boolean }): Promise<SimPinOutcome> {
+    requireCellularConfirmation(opts.confirm);
+    return await this.#backend().setSimPinLock(enabled, pin, (outcome) => summaryOf(!outcome.accepted ? "controls.sim_pin_refused" : enabled ? "controls.sim_pin_lock_on" : "controls.sim_pin_lock_off"));
+  }
+
+  /** Airplane mode is a deliberate disconnect, like mobile data off: nothing undoes it but its owner. */
+  async setAirplaneMode(enabled: boolean, opts: { confirm: boolean }): Promise<{ airplaneMode: boolean }> {
+    requireCellularConfirmation(opts.confirm);
+    return await this.#backend().setAirplaneMode(enabled, summaryOf(enabled ? "controls.airplane_on" : "controls.airplane_off"));
+  }
+
+  async setRoaming(enabled: boolean, opts: { confirm: boolean }): Promise<{ dataRoaming: boolean }> {
+    requireCellularConfirmation(opts.confirm);
+    return await this.#backend().setRoaming(enabled, summaryOf(enabled ? "controls.roaming_on" : "controls.roaming_off"));
+  }
+
+  async setDataLimit(limit: DataLimitSetting, opts: { confirm: boolean }): Promise<{ dataLimit: DataLimitSetting; cellular: CellularSettingsSnapshot | null }> {
+    requireCellularConfirmation(opts.confirm);
+    const dataLimit = await this.#backend().setDataLimit(limit, summaryOf(limit.enabled ? "controls.data_limit_on" : "controls.data_limit_off"));
+    return { dataLimit, cellular: await this.#cellularAfter() };
+  }
+
+  async resetTraffic(opts: { confirm: boolean }): Promise<{ reset: true }> {
+    requireCellularConfirmation(opts.confirm);
+    await this.#backend().resetTraffic(summaryOf("controls.traffic_reset"));
+    return { reset: true };
+  }
+
+  /** The code and the answer stay out of the summary: one is typed by a person, the other written by an operator. */
+  async sendUssd(request: UssdRequest, opts: { confirm: boolean }): Promise<UssdAnswer> {
+    requireCellularConfirmation(opts.confirm);
+    return await this.#backend().sendUssd(request, summaryOf(request.kind === "cancel" ? "controls.ussd_cancelled" : "controls.ussd_sent"));
+  }
+
   async #foldAccessControl(patch: Partial<Pick<AccessControlSnapshot, "wifiMacFilter" | "timeRules">>): Promise<AccessControlSnapshot | null> {
     if (this.monitor.patchCachedAccessControl(patch)) return this.monitor.getCachedAccessControl();
     return await this.monitor.refreshAccessControl({ ignoreCooldown: true });
@@ -239,6 +372,31 @@ function requireAccessConfirmation(confirm: boolean): void {
   if (confirm !== true) {
     throw new CpeControlValidationError("Access control changes require explicit { confirm: true }");
   }
+}
+
+function requireCellularConfirmation(confirm: boolean): void {
+  if (confirm !== true) {
+    throw new CpeControlValidationError("Cellular setting changes require explicit { confirm: true }");
+  }
+}
+
+/** How a summary names the setting a change is put back to. */
+const LINK_SETTING_KEYS: Readonly<Record<LinkChangeKind, I18nKey>> = {
+  sim_slot: "controls.link_sim_slot",
+  network_mode: "controls.link_network_mode",
+  operator: "controls.link_operator",
+  apn: "controls.link_apn",
+};
+
+/** A link change's setting as a sentence names it. */
+export function linkSettingName(locale: "zh-CN" | "en", kind: LinkChangeKind): string {
+  return t(locale, LINK_SETTING_KEYS[kind]);
+}
+
+/** A SIM slot as a summary names it. */
+function slotLabel(locale: "zh-CN" | "en", slot: SimSlotRef): string {
+  if (slot.kind === "physical") return locale === "en" ? (slot.index > 1 ? `card ${slot.index}` : "the card in the tray") : slot.index > 1 ? `实体卡 ${slot.index}` : "实体卡";
+  return locale === "en" ? `built-in card ${slot.index}` : `内置卡 ${slot.index}`;
 }
 
 function summaryOf(key: I18nKey, params: Record<string, string | number> = {}): ControlSummary {

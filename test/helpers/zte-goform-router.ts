@@ -67,6 +67,14 @@ export interface ZteRouterOptions {
   stations?: { lan?: unknown[]; wifi?: unknown[] };
   /** The admin password the router takes (default `ZTE_PASSWORD`). */
   password?: string;
+  /** The router reports its SIM card's PIN state, its roaming switch and its data limit. */
+  sim?: boolean;
+  /** The SIM card's PIN (default `1234`); a wrong one costs an attempt. */
+  simPin?: string;
+  /** A router with built-in cards: `sim_slot` reads this at the start (left out: no slot to switch). */
+  simSlot?: string;
+  /** What the network answers a USSD code with (left out: nothing, the flag stays busy). */
+  ussd?: { text: string; awaitsReply?: boolean } | { flag: string };
   /** The router's address (default `http://192.168.0.1`). */
   url?: string;
 }
@@ -112,8 +120,26 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       lte_pci: "d3",
       lte_rsrp: "-81",
       ppp_status: "ppp_connected",
+      // A router with a SIM card to manage: its PIN state, roaming switch and data limit (left out: the keys read empty)
+      ...(opts.sim ? { pinnumber: "3", puknumber: "10", pin_status: "0", modem_main_state: "modem_init_complete", roam_setting_option: "off", data_volume_limit_switch: "0" } : {}),
+      ...(opts.simSlot === undefined ? {} : { sim_slot: opts.simSlot }),
     },
   };
+  const simPin = opts.simPin ?? "1234";
+  /** A PIN write: the right PIN applies `then`, a wrong one costs an attempt (and at none left the card wants its PUK). */
+  const pinWrite = (pin: string | null, then: () => void): { json: Record<string, string> } => {
+    if (pin === simPin && Number(state.values["pinnumber"]) > 0) {
+      state.values["pinnumber"] = "3";
+      then();
+      return { json: { result: "success" } };
+    }
+    const left = Math.max(0, Number(state.values["pinnumber"]) - 1);
+    state.values["pinnumber"] = String(left);
+    if (left === 0) state.values["modem_main_state"] = "modem_waitpuk";
+    return { json: { result: "failure" } };
+  };
+  let ussdFlag = "";
+  let ussdDial = "auto_dial";
   const reqproc = opts.reqproc === true;
   const cookie = reqproc ? "random=9d41c7" : "stok=abc123";
   const getPath = reqproc ? "/reqproc/proc_get" : "/goform/goform_get_cmd_process";
@@ -161,6 +187,12 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       if (reqproc && cmd === "get_token") return { json: { token: signedIn(req) ? `tok${++token}` : "" } };
       const sms = smsAnswer(req, cmd);
       if (sms) return { json: sms };
+      if (cmd === "ConnectionMode") return { json: signedIn(req) ? { connectionMode: ussdDial, autoConnectWhenRoaming: state.values["roam_setting_option"] ?? "" } : {} };
+      if (cmd === "ussd_write_flag") return { json: { ussd_write_flag: ussdFlag } };
+      if (cmd === "ussd_data_info") {
+        const answer = opts.ussd && "text" in opts.ussd ? opts.ussd : null;
+        return { json: answer ? { ussd_data: ucs2Hex(answer.text), ussd_action: answer.awaitsReply ? "1" : "0", ussd_dcs: "72" } : {} };
+      }
       const out: Record<string, string> = {};
       for (const key of cmd.split(",")) {
         if (key === "LD") out["LD"] = ld ?? "";
@@ -206,6 +238,25 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       if (goformId === "NR5G_LOCK_CELL_SET") {
         const packed = fields.get("nr5g_cell_lock");
         state.values["nr5g_cell_lock"] = packed ?? `${fields.get("Z5g_lockcell_pci")},${fields.get("Z5g_lockcell_arfcn")},${fields.get("Z5g_lockcell_band")},${fields.get("Z5g_lockcell_scs")}`;
+      }
+      if (goformId === "SET_SIM_SLOT") state.values["sim_slot"] = fields.get("sim_slot") ?? "";
+      if (goformId === "SET_CONNECTION_MODE") {
+        ussdDial = fields.get("ConnectionMode") ?? ussdDial;
+        state.values["roam_setting_option"] = fields.get("roam_setting_option") ?? "";
+      }
+      if (goformId === "ENTER_PIN") return pinWrite(fields.get("PinNumber"), () => (state.values["modem_main_state"] = "modem_init_complete"));
+      if (goformId === "ENABLE_PIN") return pinWrite(fields.get("OldPinNumber"), () => (state.values["pin_status"] = "1"));
+      if (goformId === "DISABLE_PIN") return pinWrite(fields.get("OldPinNumber"), () => (state.values["pin_status"] = "0"));
+      if (goformId === "DATA_LIMIT_SETTING") {
+        for (const key of ["data_volume_limit_switch", "data_volume_limit_unit", "data_volume_limit_size", "data_volume_alert_percent"]) {
+          const value = fields.get(key);
+          if (value !== null) state.values[key] = value;
+        }
+      }
+      if (goformId === "USSD_PROCESS") {
+        const operator = fields.get("USSD_operator");
+        if (operator === "ussd_cancel") ussdFlag = "13";
+        else ussdFlag = opts.ussd === undefined ? "15" : "flag" in opts.ussd ? opts.ussd.flag : "16";
       }
       if (goformId === "SEND_SMS") {
         if (opts.sendResult) return { json: { result: opts.sendResult } };

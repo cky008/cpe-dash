@@ -1,4 +1,5 @@
-import type { CpeControlService, ExperimentalLockChange, WanRepairOutcome } from "./cpe-controls.ts";
+import type { LinkChange, LinkChangeKind } from "./cellular.ts";
+import { type CpeControlService, type ExperimentalLockChange, type LinkChangeNotice, type WanRepairOutcome, linkSettingName } from "./cpe-controls.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { runAsActor } from "./audit-log.ts";
@@ -24,7 +25,7 @@ export interface WanSelfHealOptions {
   scheduler: MutexSessionScheduler;
   /** Source of `telemetry` events. */
   monitor: CpeMonitor;
-  controls: Pick<CpeControlService, "getPersistedLockState" | "rollBackLocks" | "reconnectWan">;
+  controls: Pick<CpeControlService, "getPersistedLockState" | "rollBackLocks" | "reconnectWan"> & Partial<Pick<CpeControlService, "revertLinkChange">>;
   /** Lock rollback window in ms (`0` keeps every lock: off); a function is read each time (the console's setting, else `LOCK_ROLLBACK_AFTER_MIN`). */
   lockRollbackAfterMs: number | (() => number);
   /** Redial after this long down, in ms (`0` never redials: off); a function as above (else `WAN_AUTO_RECONNECT_AFTER_MIN`). */
@@ -62,6 +63,18 @@ interface LockWatch {
   failures: number;
 }
 
+/** A cellular setting watched after a change that can cut the WAN, and what it is put back to. */
+interface LinkWatch {
+  kind: LinkChangeKind;
+  /** `null`: no value was read before the change, so the watch can only say so. */
+  change: LinkChange | null;
+  armedAtMs: number;
+  deadlineMs: number;
+  upSinceMs: number | null;
+  retryAtMs: number;
+  failures: number;
+}
+
 /**
  * WAN self-healing. Two opt-in parts (both default off, because they write to the router without a
  * human request):
@@ -79,6 +92,13 @@ interface LockWatch {
  *   `EXPERIMENT_GUARD_MS` whatever the rollback setting says. Still down then, a band lock is put
  *   back to the bands read right before it, and a cell lock (or a band lock with nothing read) is
  *   taken off.
+ *
+ * - **Setting fallback** (`guardLinkChange`): a change of the SIM slot, the network mode, the operator
+ *   selection or the access point, on any router and whoever asked for it, is watched the same
+ *   `EXPERIMENT_GUARD_MS`. Still down then, the setting is put back to the value read right before
+ *   the change, once; with no such value read, an alert says so and nothing is written. Airplane mode
+ *   and mobile data off are deliberate disconnects: never undone, and a setting is not put back while
+ *   either is on.
  *
  * The lock watch is kept in state.json too, the fallback's saved bands with it: a restart picks up a
  * watch still open (until the rollback, or giving up an hour after the deadline) and never re-arms a
@@ -102,6 +122,8 @@ export class WanSelfHeal {
   #started = false;
   #busy: Promise<void> | null = null;
   #lockWatch: LockWatch | null = null;
+  /** The settings watched after a change that can cut the WAN, one per kind. */
+  readonly #linkWatches = new Map<LinkChangeKind, LinkWatch>();
   #downSinceMs: number | null = null;
   #reconnects: number[] = [];
   #backoffIndex = 0;
@@ -187,6 +209,7 @@ export class WanSelfHeal {
     // The redials of the last 24 h count whenever redialing is on, so the budget is read even while it is off
     this.#restoreReconnects(this.scheduler.stateStore.getState().selfHealReconnect);
     this.#pickUpLockInPlace();
+    this.#pickUpLinkWatches();
   }
 
   /**
@@ -245,6 +268,135 @@ export class WanSelfHeal {
     this.#arm(change.lock, Number.isFinite(appliedMs) ? appliedMs : this.#now(), EXPERIMENT_GUARD_MS, change.savedLteMask);
   }
 
+  /**
+   * A change of the SIM slot, the network mode, the operator selection or the access point, whoever
+   * asked for it: if the WAN is down and not back within `EXPERIMENT_GUARD_MS`, the setting is put back
+   * to the value it had right before the change. A second change of the same setting inside the watch
+   * keeps the value from before the first one: the last the WAN was seen up with.
+   */
+  guardLinkChange(notice: LinkChangeNotice): void {
+    const open = this.#linkWatches.get(notice.kind);
+    const armedAtMs = Number.isFinite(notice.appliedAtMs) ? notice.appliedAtMs : this.#now();
+    this.#linkWatches.set(notice.kind, {
+      kind: notice.kind,
+      change: open?.change ?? notice.change,
+      armedAtMs,
+      deadlineMs: armedAtMs + EXPERIMENT_GUARD_MS,
+      upSinceMs: null,
+      retryAtMs: 0,
+      failures: 0,
+    });
+    this.#saveLinkWatches();
+  }
+
+  /** The settings still watched (the console says so next to each). */
+  get linkWatches(): Array<{ kind: LinkChangeKind; deadlineMs: number; restorable: boolean }> {
+    return [...this.#linkWatches.values()].map((watch) => ({ kind: watch.kind, deadlineMs: watch.deadlineMs, restorable: watch.change !== null }));
+  }
+
+  /** At a start: carry on with the watches an earlier run left open (until an hour past their deadline). */
+  #pickUpLinkWatches(): void {
+    const now = this.#now();
+    for (const saved of this.scheduler.stateStore.getState().selfHealLinkWatches) {
+      const deadlineMs = saved.armedAtMs + EXPERIMENT_GUARD_MS;
+      if (now - deadlineMs > ROLLBACK_GIVE_UP_MS || saved.armedAtMs - now > EXPERIMENT_GUARD_MS) continue;
+      this.#linkWatches.set(saved.kind, { kind: saved.kind, change: saved.change, armedAtMs: saved.armedAtMs, deadlineMs, upSinceMs: null, retryAtMs: 0, failures: 0 });
+    }
+    this.#saveLinkWatches();
+  }
+
+  #endLinkWatch(watch: LinkWatch): void {
+    if (this.#linkWatches.get(watch.kind) === watch) this.#linkWatches.delete(watch.kind);
+    this.#saveLinkWatches();
+  }
+
+  /** The open watches go to state.json whenever one opens or ends (a few times per change). */
+  #saveLinkWatches(): void {
+    const next = [...this.#linkWatches.values()].map((watch) => ({ kind: watch.kind, change: watch.change, armedAtMs: watch.armedAtMs }));
+    const stored = this.scheduler.stateStore.getState().selfHealLinkWatches;
+    if (JSON.stringify(stored) === JSON.stringify(next)) return;
+    this.scheduler.stateStore.update({ selfHealLinkWatches: next });
+    void this.scheduler.stateStore.flushAsync().catch(() => undefined);
+  }
+
+  /** The watch that has something to do at this snapshot (the WAN proving a change, or its deadline). */
+  #watchLinks(up: boolean, at: number): Promise<void> | null {
+    for (const watch of [...this.#linkWatches.values()]) {
+      if (at < watch.armedAtMs) continue;
+      if (up) {
+        watch.upSinceMs ??= at;
+        if (at - watch.upSinceMs >= LOCK_CONFIRM_MS) {
+          this.#endLinkWatch(watch);
+          this.#log(`[self-heal] WAN stayed up after the ${watch.kind} change; keeping it`);
+        }
+        continue;
+      }
+      watch.upSinceMs = null;
+      if (at < watch.deadlineMs || at < watch.retryAtMs) continue;
+      const minutes = Math.round((at - watch.armedAtMs) / 60_000);
+      if (watch.change === null) {
+        this.#endLinkWatch(watch);
+        this.#raiseLink("warning", "SETTING_NOT_ROLLED_BACK", "alerts.link_change_not_rolled_back", watch.kind, { minutes });
+        continue;
+      }
+      if (at - watch.deadlineMs > ROLLBACK_GIVE_UP_MS) {
+        this.#endLinkWatch(watch);
+        this.#raiseLink("critical", "SETTING_ROLLBACK_FAILED", "alerts.link_change_rollback_failed", watch.kind, { reason: this.#lastFailure ?? "timeout" });
+        continue;
+      }
+      return this.#revertLink(watch, watch.change, at);
+    }
+    return null;
+  }
+
+  async #revertLink(watch: LinkWatch, change: LinkChange, at: number): Promise<void> {
+    const failed = (reason: string): void => {
+      this.#endLinkWatch(watch);
+      this.#raiseLink("critical", "SETTING_ROLLBACK_FAILED", "alerts.link_change_rollback_failed", watch.kind, { reason });
+    };
+    let outcome: WanRepairOutcome;
+    try {
+      const revert = this.controls.revertLinkChange;
+      if (!revert) throw new Error("no way back is wired");
+      outcome = await runAsActor({ channel: "self-heal" }, () => revert.call(this.controls, change));
+    } catch (err) {
+      const reason = describe(err);
+      this.#noteFailure(`${watch.kind} fallback`, reason);
+      // The gate refuses the write now (turned off meanwhile), the breaker is latched, or another daemon leads: no retry reaches the router
+      if (err instanceof DeviceReadOnlyError || err instanceof CircuitBreakerOpenError || err instanceof PeerDaemonStandbyError) return failed(reason);
+      watch.retryAtMs = at + SELF_HEAL_RETRY_MS;
+      // A human on the router's page is not a failure: wait for them
+      if (!(err instanceof BrowserSessionYieldedError) && !isQueueRefusal(err)) watch.failures += 1;
+      if (watch.failures >= MAX_ROLLBACK_FAILURES) failed(reason);
+      return;
+    }
+    this.#lastFailure = null;
+    if (!outcome.applied) {
+      if (outcome.skipped === "wan_up") {
+        watch.upSinceMs = at;
+        watch.retryAtMs = at + SELF_HEAL_RETRY_MS;
+      } else {
+        // Mobile data or the radio is switched off on purpose: the outage is not this change's doing
+        this.#endLinkWatch(watch);
+        this.#log(`[self-heal] ${outcome.skipped === "airplane_mode" ? "airplane mode is on" : "mobile data is switched off"}; not putting the ${watch.kind} change back`);
+      }
+      return;
+    }
+    this.#endLinkWatch(watch);
+    // The modem needs time to attach again before a redial could help
+    this.#downSinceMs = at;
+    this.#raiseLink("warning", "SETTING_ROLLED_BACK", "alerts.link_change_rolled_back", watch.kind, { minutes: Math.round((at - watch.armedAtMs) / 60_000) });
+  }
+
+  #raiseLink(severity: AlertEventRecord["severity"], code: string, key: I18nKey, kind: LinkChangeKind, params: Readonly<Record<string, string | number>>): void {
+    this.scheduler.raiseAlert({
+      severity,
+      code,
+      messageZh: t("zh-CN", key, { ...params, setting: linkSettingName("zh-CN", kind) }),
+      messageEn: t("en", key, { ...params, setting: linkSettingName("en", kind) }),
+    });
+  }
+
   /** Arm the rollback for a new lock; any unlock (by anyone, through FengSui) disarms it. */
   noteControl(event: ControlAppliedEvent): void {
     const lock = event.lockState;
@@ -275,7 +427,9 @@ export class WanSelfHeal {
     }
     // One write at a time; snapshots that arrive meanwhile only update the bookkeeping above
     if (this.#busy) return;
-    const work = this.#lockWatch ? this.#watchLock(this.#lockWatch, up, at) : this.#watchOutage(up, at);
+    // A lock's watch first, then a changed setting's; redialling waits until neither is open
+    const watching = this.#lockWatch !== null || this.#linkWatches.size > 0;
+    const work = (this.#lockWatch ? this.#watchLock(this.#lockWatch, up, at) : null) ?? this.#watchLinks(up, at) ?? (watching ? null : this.#watchOutage(up, at));
     if (!work) return;
     const running = work.finally(() => {
       this.#busy = null;

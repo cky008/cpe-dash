@@ -1,5 +1,22 @@
 import type { AccessControlSnapshot, TimeRulesState } from "../access-control.ts";
 import type { WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
+import {
+  type ApnChoice,
+  type ApnRestore,
+  type CellularSettingsSnapshot,
+  type DataLimitSetting,
+  type LinkChange,
+  type NetworkMode,
+  type OperatorChoice,
+  type OperatorSelection,
+  type SimPinOutcome,
+  type SimSlotRef,
+  type UssdAnswer,
+  type UssdRequest,
+  pinAttemptAllowed,
+  sameOperatorSelection,
+  sameSimSlot,
+} from "../cellular.ts";
 import { type DriverBandLockRequest, readDriverBandLockTarget, readDriverCellLockTarget } from "../control-input.ts";
 import {
   type AntennaModeName,
@@ -17,10 +34,11 @@ import type { DeviceProbeResult } from "../device-profile.ts";
 import { bandsToHex, hexToBands } from "../drivers/bands.ts";
 import { settleRestart } from "../drivers/readback.ts";
 import { settleSmsSend, storedIndices } from "../drivers/sms.ts";
-import type { DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome, DriverWait } from "../drivers/types.ts";
-import type { WriteCheck } from "../device-access.ts";
+import type { DriverCellular, DriverCellularState, DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome, DriverWait } from "../drivers/types.ts";
+import type { ControlAction, WriteCheck } from "../device-access.ts";
 import type {
   BandLockOutcome,
+  LinkChangeOutcome,
   LockContext,
   LockOutcome,
   LockSummary,
@@ -34,7 +52,7 @@ import type {
   WanRepairOutcome,
 } from "../router-backend.ts";
 import { type DriverFamily, type FamilyWriteFeature, ROUTER_FAMILY_FACTS } from "../router-family.ts";
-import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
+import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteContext } from "../scheduler.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/protocol.ts";
 import type { SmsSendResult } from "../sms/types.ts";
 import { genericLockState } from "./hilink.ts";
@@ -44,8 +62,8 @@ import { genericLockState } from "./hilink.ts";
  * each verb is one session of the family's driver (`src/drivers/`) through the scheduler's queue,
  * avoidance, breaker and write gate. Its writes are experimental on every model (on by default, each
  * can be turned off, read back in the same session). SMS, the data connection, the device list and the
- * antenna go to the optional parts of the family's session (`sms`, `data`, `hosts`, `setAntennaMode`),
- * where its interface has them. What no driver implements (router settings, access control, the
+ * antenna and the cellular settings go to the optional parts of the family's session (`sms`, `data`,
+ * `hosts`, `setAntennaMode`, `cellular`), where its interface has them. What no driver implements (router settings, access control, the
  * security switches, Wi-Fi 7) has nothing to read here, and the gate refuses its writes before any
  * session.
  */
@@ -182,6 +200,279 @@ export class DriverBackend implements RouterBackend {
         if (!sms?.delete) throw noSmsWrite("delete a message");
         if (wanted.length > 0) await sms.delete(wanted, write.check);
         return wanted.length;
+      },
+      summary
+    );
+  }
+
+  // ------------------------------------------------------------------ cellular settings (the session's `cellular` part)
+
+  /**
+   * What the router reports of its cellular settings, in one session. The modes on offer are the
+   * router's own list where it names one, else the family's. `null`: the family writes none of them
+   * and reads none (no session).
+   */
+  async readCellular(opts: ReadRequest): Promise<CellularSettingsSnapshot | null> {
+    if (!CELLULAR_FEATURES.some((feature) => this.#writesAnywhere(feature))) return null;
+    const state = await this.#scheduler.executeDriverCellularRead({ priority: "normal", ignoreCooldown: opts.ignoreCooldown });
+    if (!state) return null;
+    const nowMs = Date.now();
+    const modes = state.networkModes ?? [...(ROUTER_FAMILY_FACTS[this.family].selectableModes ?? [])];
+    return {
+      capturedAtIso: new Date(nowMs).toISOString(),
+      capturedAtMs: nowMs,
+      networkMode: state.networkMode !== undefined || modes.length > 0 ? { current: state.networkMode ?? null, options: modes } : null,
+      simSlots: state.simSlots ?? null,
+      operator: state.operator ?? null,
+      apn: state.apn ?? null,
+      dataLimit: state.dataLimit ?? null,
+    };
+  }
+
+  /**
+   * One cellular write: refused before anything is queued where no form of the family's interface has
+   * it, and in the session (nothing sent) where this router's form lacks it.
+   */
+  async #cellular<T>(
+    feature: FamilyWriteFeature,
+    action: ControlAction,
+    what: string,
+    run: (cellular: DriverCellular, write: WriteContext, session: DriverSession) => Promise<T>,
+    summary: ControlSummary | ((value: T) => ControlSummary | null)
+  ): Promise<T> {
+    if (!this.#writesAnywhere(feature)) return await this.#scheduler.refuseDriverWrite(action);
+    return await this.#scheduler.executeDriverControl(
+      action,
+      async (session, write) => {
+        if (!session.cellular) throw noWrite(what);
+        return await run(session.cellular, write, session);
+      },
+      summary
+    );
+  }
+
+  async setNetworkMode(mode: NetworkMode, summary: ControlSummary): Promise<LinkChangeOutcome<NetworkMode>> {
+    return await this.#cellular(
+      "networkMode",
+      "set_network_mode",
+      "switch the network mode",
+      async (cellular, write) => {
+        if (!cellular.setNetworkMode) throw noWrite("switch the network mode");
+        const before = await cellular.read().catch((): DriverCellularState => ({}));
+        // The modes this router names, else the family's: a mode outside them is not sent
+        const offered = before.networkModes ?? ROUTER_FAMILY_FACTS[this.family].selectableModes ?? [];
+        if (!offered.includes(mode)) throw new CpeControlValidationError(`This router offers no "${mode}" network mode (it offers ${offered.join(", ") || "none"})`);
+        await cellular.setNetworkMode(mode, write.check);
+        const previous = before.networkMode ?? null;
+        return { previous: previous === mode ? null : previous };
+      },
+      summary
+    );
+  }
+
+  async scanOperators(summary: (found: OperatorChoice[]) => ControlSummary): Promise<OperatorChoice[]> {
+    return await this.#cellular(
+      "operatorSelect",
+      "scan_operators",
+      "search for networks",
+      async (cellular, write) => {
+        if (!cellular.scanOperators) throw noWrite("search for networks");
+        return await cellular.scanOperators(write.check, SESSION_WAIT);
+      },
+      summary
+    );
+  }
+
+  async selectOperator(selection: OperatorSelection, summary: ControlSummary): Promise<LinkChangeOutcome<OperatorSelection>> {
+    return await this.#cellular(
+      "operatorSelect",
+      "select_operator",
+      "choose the operator",
+      async (cellular, write) => {
+        if (!cellular.selectOperator) throw noWrite("choose the operator");
+        const before = (await cellular.read().catch((): DriverCellularState => ({}))).operator ?? null;
+        await cellular.selectOperator(selection, write.check, SESSION_WAIT);
+        // What it is put back to is how the router chose before: by itself, or the operator it was kept on
+        const previous: OperatorSelection | null = before?.selection === "auto" ? { mode: "auto" } : before?.selection === "manual" && before.plmn !== null ? { mode: "manual", plmn: before.plmn, rat: null } : null;
+        return { previous: previous !== null && sameOperatorSelection(previous, selection) ? null : previous };
+      },
+      summary
+    );
+  }
+
+  async setSimSlot(slot: SimSlotRef, summary: ControlSummary): Promise<LinkChangeOutcome<SimSlotRef>> {
+    return await this.#cellular(
+      "simSlot",
+      "set_sim_slot",
+      "switch the SIM slot",
+      async (cellular, write) => {
+        if (!cellular.setSimSlot) throw noWrite("switch the SIM slot");
+        const before = await cellular.read().catch((): DriverCellularState => ({}));
+        if (before.simSlots && !before.simSlots.some((offered) => sameSimSlot(offered, slot))) throw new CpeControlValidationError("This router has no such SIM slot");
+        await cellular.setSimSlot(slot, write.check);
+        const previous = before.simSlot ?? null;
+        return { previous: sameSimSlot(previous, slot) ? null : previous };
+      },
+      summary
+    );
+  }
+
+  async setApn(choice: ApnChoice, summary: ControlSummary): Promise<LinkChangeOutcome<ApnRestore>> {
+    return await this.#cellular(
+      "apn",
+      "set_apn",
+      "change the access point",
+      async (cellular, write) => {
+        if (!cellular.setApn) throw noWrite("change the access point");
+        const before = await cellular.read().catch((): DriverCellularState => ({}));
+        await cellular.setApn(choice, write.check);
+        // Only an access point the router can be switched back to is worth watching the WAN for
+        return { previous: cellular.restoreApn ? (before.apnRestore ?? null) : null };
+      },
+      summary
+    );
+  }
+
+  /**
+   * Put a setting back after a change the WAN did not survive. The session reads first: a WAN that is
+   * up, a radio switched off or mobile data switched off on purpose leaves everything as it is.
+   */
+  async revertLinkChange(change: LinkChange, summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome> {
+    const { feature, action } = LINK_REVERTS[change.kind];
+    return await this.#cellular(
+      feature,
+      action,
+      "put the setting back",
+      async (cellular, write, session): Promise<WanRepairOutcome> => {
+        const telemetry = await session.telemetry().catch(() => null);
+        if (telemetry?.wan.connected === true) return { applied: false, skipped: "wan_up" };
+        if (telemetry?.status?.airplaneMode === true) return { applied: false, skipped: "airplane_mode" };
+        if ((await session.data?.enabled().catch((): boolean | null => null)) === false) return { applied: false, skipped: "mobile_data_off" };
+        if (change.kind === "sim_slot") {
+          if (!cellular.setSimSlot) throw noWrite("switch the SIM slot");
+          await cellular.setSimSlot(change.previous, write.check);
+        } else if (change.kind === "network_mode") {
+          if (!cellular.setNetworkMode) throw noWrite("switch the network mode");
+          await cellular.setNetworkMode(change.previous, write.check);
+        } else if (change.kind === "operator") {
+          if (!cellular.selectOperator) throw noWrite("choose the operator");
+          await cellular.selectOperator(change.previous, write.check, SESSION_WAIT);
+        } else {
+          if (!cellular.restoreApn) throw noWrite("switch the access point back");
+          await cellular.restoreApn(change.previous, write.check);
+        }
+        return { applied: true };
+      },
+      summary
+    );
+  }
+
+  /**
+   * A PIN write. The attempts the card has left are read in this session, right before: none
+   * reported, or one left, and nothing is sent. Whatever the router answers, nothing is sent twice.
+   */
+  async #pin(action: ControlAction, what: string, run: (cellular: DriverCellular, write: WriteContext) => Promise<SimPinOutcome>, summary: (outcome: SimPinOutcome) => ControlSummary): Promise<SimPinOutcome> {
+    return await this.#cellular(
+      "simPin",
+      action,
+      what,
+      async (cellular, write) => {
+        const before = await cellular.read();
+        const attempts = pinAttemptAllowed(before.pinAttemptsLeft);
+        if (!attempts.allowed) throw new CpeControlValidationError(PIN_REFUSALS[attempts.reason]);
+        return await run(cellular, write);
+      },
+      summary
+    );
+  }
+
+  async enterSimPin(pin: string, summary: (outcome: SimPinOutcome) => ControlSummary): Promise<SimPinOutcome> {
+    return await this.#pin(
+      "enter_sim_pin",
+      "enter the SIM PIN",
+      async (cellular, write) => {
+        if (!cellular.enterPin) throw noWrite("enter the SIM PIN");
+        return await cellular.enterPin(pin, write.check);
+      },
+      summary
+    );
+  }
+
+  async setSimPinLock(enabled: boolean, pin: string, summary: (outcome: SimPinOutcome) => ControlSummary): Promise<SimPinOutcome> {
+    return await this.#pin(
+      "set_sim_pin_lock",
+      "change the SIM PIN lock",
+      async (cellular, write) => {
+        if (!cellular.setPinLock) throw noWrite("change the SIM PIN lock");
+        return await cellular.setPinLock(enabled, pin, write.check);
+      },
+      summary
+    );
+  }
+
+  async setAirplaneMode(enabled: boolean, summary: ControlSummary): Promise<{ airplaneMode: boolean }> {
+    return await this.#cellular(
+      "airplaneSwitch",
+      "set_airplane_mode",
+      "switch airplane mode",
+      async (cellular, write) => {
+        if (!cellular.setAirplaneMode) throw noWrite("switch airplane mode");
+        await cellular.setAirplaneMode(enabled, write.check);
+        return { airplaneMode: enabled };
+      },
+      summary
+    );
+  }
+
+  async setRoaming(enabled: boolean, summary: ControlSummary): Promise<{ dataRoaming: boolean }> {
+    return await this.#cellular(
+      "roaming",
+      "set_roaming",
+      "switch data roaming",
+      async (cellular, write) => {
+        if (!cellular.setRoaming) throw noWrite("switch data roaming");
+        await cellular.setRoaming(enabled, write.check);
+        return { dataRoaming: enabled };
+      },
+      summary
+    );
+  }
+
+  async setDataLimit(limit: DataLimitSetting, summary: ControlSummary): Promise<DataLimitSetting> {
+    return await this.#cellular(
+      "dataLimit",
+      "set_data_limit",
+      "set the data limit",
+      async (cellular, write) => {
+        if (!cellular.setDataLimit) throw noWrite("set the data limit");
+        await cellular.setDataLimit(limit, write.check);
+        return limit;
+      },
+      summary
+    );
+  }
+
+  async resetTraffic(summary: ControlSummary): Promise<void> {
+    await this.#cellular(
+      "trafficReset",
+      "reset_traffic",
+      "clear the traffic counters",
+      async (cellular, write) => {
+        if (!cellular.resetTraffic) throw noWrite("clear the traffic counters");
+        await cellular.resetTraffic(write.check);
+      },
+      summary
+    );
+  }
+
+  async sendUssd(request: UssdRequest, summary: ControlSummary): Promise<UssdAnswer> {
+    return await this.#cellular(
+      "ussd",
+      "send_ussd",
+      "send a USSD code",
+      async (cellular, write) => {
+        if (!cellular.ussd) throw noWrite("send a USSD code");
+        return await cellular.ussd(request, write.check, SESSION_WAIT);
       },
       summary
     );
@@ -360,6 +651,24 @@ export class DriverBackend implements RouterBackend {
     );
   }
 }
+
+/** The cellular settings a driver family may write (`ROUTER_FAMILY_FACTS[family].writes` names the ones it does). */
+const CELLULAR_FEATURES: ReadonlyArray<FamilyWriteFeature> = ["networkMode", "operatorSelect", "simSlot", "simPin", "airplaneSwitch", "roaming", "apn", "dataLimit", "trafficReset", "ussd"];
+
+/** The write that puts each kind of change back, filed under the setting's own feature. */
+const LINK_REVERTS: Readonly<Record<LinkChange["kind"], { feature: FamilyWriteFeature; action: ControlAction }>> = {
+  sim_slot: { feature: "simSlot", action: "auto_restore_sim_slot" },
+  network_mode: { feature: "networkMode", action: "auto_restore_network_mode" },
+  operator: { feature: "operatorSelect", action: "auto_restore_operator" },
+  apn: { feature: "apn", action: "auto_restore_apn" },
+};
+
+/** Why a PIN is not sent, in words that tell its owner what to do instead. */
+export const PIN_REFUSALS: Readonly<Record<"unknown" | "last_attempt" | "none_left", string>> = {
+  unknown: "The router does not report how many PIN attempts the SIM card has left, so FengSui sends no PIN: enter it on the router's own page",
+  last_attempt: "The SIM card has one PIN attempt left, and a wrong PIN would lock it until its PUK is entered: FengSui sends no PIN now, enter it on the router's own page",
+  none_left: "The SIM card takes no more PINs and wants its PUK, which FengSui does not enter: use the router's own page",
+};
 
 /** A write the family's interface has no way to do (the gate let SMS writes through for the ones it has). */
 function noSmsWrite(what: string): CpeControlValidationError {

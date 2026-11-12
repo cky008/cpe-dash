@@ -167,7 +167,7 @@ describe("console: the device report's summary", () => {
       writes: [{ id: "a", atIso: "2026-11-11T00:00:00.000Z", action: "lock_cell", feature: "cellLock", model: "MU5250", endpoints: ["zte-zwrt:zwrt_bsp.lte.lock"], outcome: "applied", code: null, readback: "match", reason: null }],
     });
     const summary = checksSummary(report, t);
-    assert.deepEqual(summary.map((line) => [line.result, line.count]), [["works", 2], ["failed", 1], ["untested", 14]]);
+    assert.deepEqual(summary.map((line) => [line.result, line.count]), [["works", 2], ["failed", 1], ["untested", 24]]);
     assert.equal(summary[0]?.text, `2 work: ${t(FEATURE_KEYS.telemetry)}, ${t(FEATURE_KEYS.cellLock)}`);
     assert.equal(summary[1]?.text, `1 do not work: ${t(FEATURE_KEYS.neighbors)}`);
     assert.deepEqual(checksSummary({ checks: [] }, t).map((line) => line.text), ["0 work", "0 do not work", "0 not tried yet"]);

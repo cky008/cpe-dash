@@ -1,10 +1,12 @@
 import { EventEmitter } from "node:events";
 import type { AccessControlSnapshot } from "./access-control.ts";
 import { routerBackendOf } from "./backends/index.ts";
+import type { CellularSettingsSnapshot } from "./cellular.ts";
 import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, RouterSettingsSnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
 import type { DeviceProbeResult } from "./device-profile.ts";
 import type { ReadSection } from "./device-access.ts";
 import type { RouterBackend } from "./router-backend.ts";
+import type { RouterFamily } from "./router-family.ts";
 import type { MutexSessionScheduler, SchedulerPriority } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
 import type {
@@ -69,6 +71,9 @@ export class CpeMonitor extends EventEmitter {
   #inflightTopology: Promise<TerminalTopologySnapshot | null> | null = null;
   #inflightSettings: Promise<RouterSettingsSnapshot | null> | null = null;
   #inflightAccessControl: Promise<AccessControlSnapshot | null> | null = null;
+  #inflightCellular: Promise<CellularSettingsSnapshot | null> | null = null;
+  /** The cellular settings last read, for the brand they were read on (kept in memory: read when the console asks). */
+  #cellular: { family: RouterFamily; snapshot: CellularSettingsSnapshot } | null = null;
   #inflightIdentify: Promise<DeviceProbeResult | null> | null = null;
   /** The identification asked for at start has not got in yet: it runs right after the next read that does. */
   #identifyPending = false;
@@ -181,6 +186,11 @@ export class CpeMonitor extends EventEmitter {
 
   getCachedAccessControl(): AccessControlSnapshot | null {
     return this.stateStore.getState().latestAccessControl;
+  }
+
+  /** The cellular settings last read from the router in use (`null`: none read, or read on another brand's router). */
+  getCachedCellular(): CellularSettingsSnapshot | null {
+    return this.#cellular !== null && this.#cellular.family === this.scheduler.getFamily() ? this.#cellular.snapshot : null;
   }
 
   /** The last identification and capability probe, `null` before the first one. */
@@ -342,6 +352,25 @@ export class CpeMonitor extends EventEmitter {
       (snap) => {
         this.stateStore.update({ latestAccessControl: snap });
         this.#safeEmit("access-control", snap);
+      }
+    );
+  }
+
+  /**
+   * Coalesced read of the cellular settings (network mode, SIM slots, operator selection, access
+   * point, data limit): one session when the console or a tool asks, never from the polls.
+   */
+  refreshCellular(opts: RefreshOptions = {}): Promise<CellularSettingsSnapshot | null> {
+    const family = this.scheduler.getFamily();
+    return this.#coalesce(
+      opts,
+      () => this.#inflightCellular,
+      (p) => {
+        this.#inflightCellular = p;
+      },
+      () => this.#backend().readCellular({ ignoreCooldown: opts.ignoreCooldown }),
+      (snap) => {
+        this.#cellular = { family, snapshot: snap };
       }
     );
   }

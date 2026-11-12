@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import type { AccessControlSnapshot } from "./access-control.ts";
+import { LINK_CHANGE_KINDS, type LinkChange, type LinkChangeKind, isLinkChange } from "./cellular.ts";
 import type {
   GlobalTelemetrySnapshot,
   NeighborScanSnapshot,
@@ -62,6 +63,30 @@ export interface PersistedRuntimeState {
    * open watch past its deadline nor re-arms a lock the WAN already proved.
    */
   selfHealLockWatch: SelfHealLockWatchState | null;
+  /**
+   * The cellular settings self-heal watches after a change that can cut the WAN (SIM slot, network
+   * mode, operator selection, access point), with the value each is put back to: only the open ones,
+   * so a restart carries on with them. An access point is kept as the router's own id for it, never
+   * its credentials.
+   */
+  selfHealLinkWatches: SelfHealLinkWatchState[];
+}
+
+export interface SelfHealLinkWatchState {
+  kind: LinkChangeKind;
+  /** What the setting is put back to (`null`: no value was read before the change). */
+  change: LinkChange | null;
+  armedAtMs: number;
+}
+
+function isLinkWatchState(value: unknown): value is SelfHealLinkWatchState {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  const kind = record["kind"];
+  if (typeof kind !== "string" || !(LINK_CHANGE_KINDS as ReadonlyArray<string>).includes(kind)) return false;
+  if (typeof record["armedAtMs"] !== "number" || !Number.isFinite(record["armedAtMs"])) return false;
+  const change = record["change"];
+  return change === null || (isLinkChange(change) && change.kind === kind);
 }
 
 export interface SelfHealReconnectState {
@@ -120,6 +145,7 @@ function createDefaultState(): PersistedRuntimeState {
     genericWrites: [],
     selfHealReconnect: null,
     selfHealLockWatch: null,
+    selfHealLinkWatches: [],
   };
 }
 
@@ -204,6 +230,7 @@ export class EncryptedStateStore {
         deviceReads: isReadRecord(loaded.deviceReads) ? loaded.deviceReads : null,
         genericWrites: Array.isArray(loaded.genericWrites) ? loaded.genericWrites.filter(isWriteResultRecord).slice(-MAX_GENERIC_WRITES) : [],
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
+        selfHealLinkWatches: Array.isArray(loaded.selfHealLinkWatches) ? loaded.selfHealLinkWatches.filter(isLinkWatchState).slice(-LINK_CHANGE_KINDS.length) : [],
       };
     }
     return this.#state;

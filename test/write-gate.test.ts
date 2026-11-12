@@ -105,6 +105,22 @@ const WRITES: ReadonlyArray<[ControlAction, (fx: Fixture) => Promise<unknown>]> 
   ["sms_send", (fx) => fx.sms.send({ phones: ["+353830000001"], content: "gate check", source: "web" })],
   ["sms_mark_read", (fx) => fx.sms.markRead({ uids: fx.sms.mirror.list().filter((m) => m.isUnread).map((m) => m.uid) })],
   ["sms_delete", (fx) => fx.sms.deleteMessages({ uids: fx.sms.mirror.list().slice(0, 1).map((m) => m.uid) })],
+  ["set_network_mode", (fx) => fx.core.controls.setNetworkMode("lte", { confirm: true })],
+  ["scan_operators", (fx) => fx.core.controls.scanOperators({ confirm: true })],
+  ["select_operator", (fx) => fx.core.controls.selectOperator({ mode: "manual", plmn: "27201", rat: null }, { confirm: true })],
+  ["set_sim_slot", (fx) => fx.core.controls.setSimSlot({ kind: "embedded", index: 1 }, { confirm: true })],
+  ["enter_sim_pin", (fx) => fx.core.controls.enterSimPin("1234", { confirm: true })],
+  ["set_sim_pin_lock", (fx) => fx.core.controls.setSimPinLock(true, "1234", { confirm: true })],
+  ["set_airplane_mode", (fx) => fx.core.controls.setAirplaneMode(true, { confirm: true })],
+  ["set_roaming", (fx) => fx.core.controls.setRoaming(true, { confirm: true })],
+  ["set_apn", (fx) => fx.core.controls.setApn({ mode: "auto" }, { confirm: true })],
+  ["set_data_limit", (fx) => fx.core.controls.setDataLimit({ enabled: false, bytes: null, alertPercent: null }, { confirm: true })],
+  ["reset_traffic", (fx) => fx.core.controls.resetTraffic({ confirm: true })],
+  ["send_ussd", (fx) => fx.core.controls.sendUssd({ kind: "send", code: "*100#" }, { confirm: true })],
+  ["auto_restore_network_mode", (fx) => fx.core.controls.revertLinkChange({ kind: "network_mode", previous: "auto" })],
+  ["auto_restore_operator", (fx) => fx.core.controls.revertLinkChange({ kind: "operator", previous: { mode: "auto" } })],
+  ["auto_restore_sim_slot", (fx) => fx.core.controls.revertLinkChange({ kind: "sim_slot", previous: { kind: "physical", index: 1 } })],
+  ["auto_restore_apn", (fx) => fx.core.controls.revertLinkChange({ kind: "apn", previous: { mode: "auto" } })],
 ];
 
 /** The gate's part of the status (the read sections have tests of their own). */

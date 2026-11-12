@@ -47,6 +47,16 @@ export const FEATURE_KEYS: Readonly<Record<DeviceFeature, SettingsTextKey>> = {
   battery: "feature_battery",
   simCard: "feature_sim_card",
   airplaneMode: "feature_airplane_mode",
+  networkMode: "feature_network_mode",
+  operatorSelect: "feature_operator_select",
+  simSlot: "feature_sim_slot",
+  simPin: "feature_sim_pin",
+  airplaneSwitch: "feature_airplane_switch",
+  roaming: "feature_roaming",
+  apn: "feature_apn",
+  dataLimit: "feature_data_limit",
+  trafficReset: "feature_traffic_reset",
+  ussd: "feature_ussd",
 };
 
 export const STATE_KEYS: Readonly<Record<EndpointState, SettingsTextKey>> = {
@@ -121,6 +131,16 @@ const SWITCH_SCOPE_KEYS: Readonly<Partial<Record<DeviceFeature, SettingsTextKey>
   reboot: "exp_scope_reboot",
   reconnect: "exp_scope_reconnect",
   smsWrite: "exp_scope_smsWrite",
+  networkMode: "exp_scope_networkMode",
+  operatorSelect: "exp_scope_operatorSelect",
+  simSlot: "exp_scope_simSlot",
+  simPin: "exp_scope_simPin",
+  airplaneSwitch: "exp_scope_airplaneSwitch",
+  roaming: "exp_scope_roaming",
+  apn: "exp_scope_apn",
+  dataLimit: "exp_scope_dataLimit",
+  trafficReset: "exp_scope_trafficReset",
+  ussd: "exp_scope_ussd",
 };
 
 export function switchScope(feature: DeviceFeature, t: Text): string | null {

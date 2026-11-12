@@ -157,9 +157,10 @@ describe("device profile: the token route", () => {
       const row = (await responseOf()).support;
       // The verified model's one note: it has no battery
       assert.deepEqual([row?.family, row?.model, row?.section, row?.notes?.map((n) => n.en)], ["huawei", "H168-383", "huawei", ["Battery: only a mobile router has a battery"]]);
-      // Everything ✓ but the status reads that came later: no battery (—), SIM card and airplane mode not done (empty)
-      assert.deepEqual(row?.modules.map((m) => m.mark).slice(-3), ["—", "", ""]);
-      assert.ok(row?.modules.slice(0, -3).every((m) => m.mark === "✓"));
+      // Everything ✓ but what came later: no battery on a CPE (—); the SIM card and airplane mode readings and the
+      // cellular settings are not done on this model (empty)
+      assert.deepEqual(row?.modules.map((m) => m.mark).slice(-6), ["—", "", "", "", "", ""]);
+      assert.ok(row?.modules.slice(0, -6).every((m) => m.mark === "✓"));
 
       // A router whose allowlisted identity fields carry identifiers: the allowlist alone would let them through
       const odd = structuredClone(probe);

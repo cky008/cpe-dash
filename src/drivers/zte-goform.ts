@@ -1,3 +1,4 @@
+import type { DataLimitSetting, NetworkMode, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
@@ -6,10 +7,11 @@ import { type BatteryStatus, type SimCardStatus, type SimState, type Temperature
 import { detectSmsTextMode } from "../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
+import { ZTE_GOFORM_SLOTS, ZTE_MODE_NAMES, awaitZteUssd, emptyUssd, sameDataLimit, settleNothingToRead, zteLimitSize, zteModeOf, zteUssdText } from "./cellular.ts";
 import { carriersFromRows, neighbourOf, ratOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, md5Hex, sha256Hex, signedInElsewhere, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import { type LanHttp, parseJsonText } from "./transport.ts";
@@ -18,6 +20,8 @@ import type {
   DriverBandLockTarget,
   DriverCarrier,
   DriverCell,
+  DriverCellular,
+  DriverCellularState,
   DriverCellLockTarget,
   DriverDataLink,
   DriverHost,
@@ -30,6 +34,7 @@ import type {
   DriverSmsSendOptions,
   DriverSmsSendOutcome,
   DriverTelemetry,
+  DriverWait,
 } from "./types.ts";
 import {
   arfcnOf,
@@ -308,6 +313,7 @@ export const ZTE_STATUS_KEYS: ReadonlyArray<string> = [
   "puknumber",
   "sim_slot",
   "simcard_roam",
+  "roam_setting_option",
   "data_volume_limit_switch",
   "data_volume_limit_unit",
   "data_volume_limit_size",
@@ -536,6 +542,24 @@ function switchOf(value: unknown): boolean | null {
   return text === "1" ? true : text === "0" ? false : null;
 }
 
+/** ZTE's `on` / `off` switches (`roam_setting_option`, `autoConnectWhenRoaming`). */
+function onOffOf(value: unknown): boolean | null {
+  const text = textOf(value)?.toLowerCase();
+  return text === "on" ? true : text === "off" ? false : null;
+}
+
+/**
+ * What the cellular settings read asks for besides the connection mode: the network mode, the SIM
+ * slot and the card's PIN attempts, and the data limit (`docs/dev/sources.md` §18.6).
+ */
+const CELLULAR_KEYS: ReadonlyArray<string> = ["net_select", "sim_slot", "pinnumber", "pin_status", "modem_main_state", "data_volume_limit_switch", "data_volume_limit_unit", "data_volume_limit_size", "data_volume_alert_percent"];
+
+/** The slot number `SET_SIM_SLOT` takes (`null`: a slot ZTE's interface does not have). */
+function zteSlotNumber(slot: SimSlotRef): string | null {
+  const index = ZTE_GOFORM_SLOTS.findIndex((known) => known.kind === slot.kind && known.index === slot.index);
+  return index < 0 ? null : String(index);
+}
+
 /**
  * The data plan as ZTE's page reads it: `data_volume_limit_switch` `1` on; `data_volume_limit_unit`
  * `data` makes `data_volume_limit_size` `<amount>_<MB per unit>` (`20_1024` is 20 GB), any other unit
@@ -605,7 +629,7 @@ export function withZteGoformStatus(t: DriverTelemetry, raw: Record<string, unkn
       battery,
       sim,
       // ZTE's page counts both of these as roaming (`Home` otherwise)
-      roaming: { active: roam === null ? null : roam === "Internal" || roam === "International", dataAllowed: null },
+      roaming: { active: roam === null ? null : roam === "Internal" || roam === "International", dataAllowed: onOffOf(v("roam_setting_option")) },
       firmwareUpdate: fota === undefined ? null : fota === "has_critical" || fota === "has_optional" || fota === "already_has_pkg" ? "available" : "none",
       wifi: { enabled: switchOf(v("wifi_cur_state")), guestEnabled: switchOf(v("m_ssid_enable")) },
       system: { uptimeSec: null, cpuPercent: percentValue(v("cpu_usage")), memoryPercent: percentValue(v("mem_usage")) },
@@ -905,6 +929,12 @@ class ZteGoformSession implements DriverSessionHandle {
    * then the form with it as `CSRFToken`); the router must answer `success`.
    */
   async #post(check: WriteCheck | null, goformId: string, fields: Form): Promise<void> {
+    const answer = await this.#send(check, goformId, fields);
+    if (!accepted(answer)) throw new CpeApiError(answerCode(answer), `${goformId} refused`);
+  }
+
+  /** The same write, handing back what the router answered (a PIN the card refuses is an answer, not an error). */
+  async #send(check: WriteCheck | null, goformId: string, fields: Form): Promise<unknown> {
     this.#guard();
     let signature: [string, string];
     if (this.#hash === "csrf") {
@@ -915,9 +945,7 @@ class ZteGoformSession implements DriverSessionHandle {
       signature = ["AD", zteActionDigest(this.#hash, this.#version, rd)];
     }
     if (check) noteSent(check, FAMILY, goformId);
-    const answer = await setCmd(this.#http, [["isTest", "false"], ["goformId", goformId], ...fields, signature], this.#at);
-    const result = textOf(answer["result"]);
-    if (result !== "success" && result !== "0") throw new CpeApiError(answerCode(answer["result"]), `${goformId} refused`);
+    return (await setCmd(this.#http, [["isTest", "false"], ["goformId", goformId], ...fields, signature], this.#at))["result"];
   }
 
   /** `BearerPreference` for a network mode, as this firmware names it (checked before a lock writes anything). */
@@ -1012,6 +1040,149 @@ class ZteGoformSession implements DriverSessionHandle {
     const wifi = rows((await getCmd(this.#http, ["station_list"], false, this.#at))["station_list"], "wifi");
     if (lan === null && wifi === null) throw new SectionUnavailableError("The device list", null);
     return [...(lan ?? []), ...(wifi ?? [])];
+  }
+
+  /**
+   * The cellular settings as ZTE's own pages read and write them: `SET_BEARER_PREFERENCE` (network
+   * mode), `SET_SIM_SLOT`, `SET_CONNECTION_MODE` (data roaming, sent with the dial mode the router
+   * has), `ENTER_PIN` and `ENABLE_PIN` / `DISABLE_PIN`, `DATA_LIMIT_SETTING` and `USSD_PROCESS`.
+   */
+  readonly cellular: DriverCellular = {
+    read: () => this.#cellularRead(),
+    setNetworkMode: (mode, check) => this.#setNetworkMode(mode, check),
+    setSimSlot: (slot, check) => this.#setSimSlot(slot, check),
+    setRoaming: (enabled, check) => this.#setRoaming(enabled, check),
+    enterPin: (pin, check) => this.#pinWrite(check, "ENTER_PIN", [["PinNumber", pin]], (after) => (after === "pin_required" ? false : after === null ? null : true)),
+    setPinLock: (enabled, pin, check) => this.#setPinLock(enabled, pin, check),
+    setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
+    ussd: (request, check, wait) => this.#ussd(request, check, wait),
+  };
+
+  async #cellularRead(): Promise<DriverCellularState> {
+    this.#guard();
+    const raw = await getCmd(this.#http, CELLULAR_KEYS, true, this.#at);
+    const current = textOf(raw["net_select"])?.toUpperCase();
+    if (current !== undefined) this.#fourGModes = current === "NETWORK_AUTO";
+    const fourG = this.#at.variant === "reqproc" || this.#fourGModes;
+    const slot = smallIntOf(raw["sim_slot"], 2);
+    const limitOn = textOf(raw["data_volume_limit_switch"]);
+    const plan = zteDataPlan((key) => raw[key]);
+    return {
+      networkMode: zteModeOf(raw["net_select"]),
+      // The 4G firmware has two modes on record; the 5G one the family's list
+      ...(fourG ? { networkModes: ["auto", "lte"] as NetworkMode[] } : {}),
+      // A router that names no slot has none to switch
+      simSlots: slot === null ? [] : [...ZTE_GOFORM_SLOTS],
+      simSlot: slot === null ? null : (ZTE_GOFORM_SLOTS[slot] ?? null),
+      dataLimit: limitOn === null ? null : { enabled: limitOn === "1", bytes: plan ? Number(plan.limitBytes) : null, alertPercent: plan?.alertPercent ?? percentValue(raw["data_volume_alert_percent"]) },
+      pinAttemptsLeft: countValue(raw["pinnumber"], 10),
+    };
+  }
+
+  async #setNetworkMode(mode: NetworkMode, check: WriteCheck): Promise<void> {
+    const fourG = this.#at.variant === "reqproc" || this.#fourGModes;
+    const name = fourG ? BEARER_REQPROC[mode as DriverNetworkMode] : ZTE_MODE_NAMES[mode];
+    if (name === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
+    await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", name]]);
+    const after = await getCmd(this.#http, ["net_select"], true, this.#at).catch(() => null);
+    const read = after === null || textOf(after["net_select"]) === null ? null : zteModeOf(after["net_select"]);
+    settleSetting(check, after === null || textOf(after["net_select"]) === null ? null : read === mode);
+  }
+
+  async #setSimSlot(slot: SimSlotRef, check: WriteCheck): Promise<void> {
+    const number = zteSlotNumber(slot);
+    if (number === null) throw new CpeControlValidationError("This router has a card slot and two built-in cards: no such SIM slot");
+    await this.#post(check, "SET_SIM_SLOT", [
+      ["sim_slot", number],
+      ["notCallback", "true"],
+    ]);
+    const after = await getCmd(this.#http, ["sim_slot"], true, this.#at).catch(() => null);
+    const read = after === null ? null : textOf(after["sim_slot"]);
+    settleSetting(check, read === null ? null : read === number);
+  }
+
+  /** The dial mode travels with the roaming switch in one form, so it is read first and sent back as it is. */
+  async #setRoaming(enabled: boolean, check: WriteCheck): Promise<void> {
+    this.#guard();
+    const dial = textOf((await getCmd(this.#http, ["ConnectionMode"], false, this.#at))["connectionMode"]);
+    if (dial === null || !/^[a-z_]{1,24}$/.test(dial)) throw new CpeControlValidationError("The router's dial mode could not be read, and the roaming switch is written together with it: nothing was sent");
+    await this.#post(check, "SET_CONNECTION_MODE", [
+      ["ConnectionMode", dial],
+      ["roam_setting_option", enabled ? "on" : "off"],
+    ]);
+    const after = await getCmd(this.#http, ["ConnectionMode"], false, this.#at).catch(() => null);
+    const read = after === null ? null : onOffOf(after["autoConnectWhenRoaming"]);
+    settleSetting(check, read === null ? null : read === enabled);
+  }
+
+  /**
+   * One PIN write, sent once. `success` is the card taking it; anything else is the card refusing it:
+   * an outcome, not an error, and nothing follows it. `settled` judges the SIM's state read afterwards.
+   */
+  async #pinWrite(check: WriteCheck, goformId: string, fields: Form, settled: (state: SimState | null, status: Record<string, unknown>) => boolean | null): Promise<SimPinOutcome> {
+    const took = accepted(await this.#send(check, goformId, fields));
+    const after = await getCmd(this.#http, ["modem_main_state", "pin_status", "pinnumber"], true, this.#at).catch(() => null);
+    const attemptsLeft = after === null ? null : countValue(after["pinnumber"], 10);
+    if (took) settleSetting(check, after === null ? null : settled(simStateOf(after["modem_main_state"]), after));
+    else settleNothingToRead(check);
+    return { accepted: took, attemptsLeft };
+  }
+
+  async #setPinLock(enabled: boolean, pin: string, check: WriteCheck): Promise<SimPinOutcome> {
+    return await this.#pinWrite(check, enabled ? "ENABLE_PIN" : "DISABLE_PIN", [["OldPinNumber", pin]], (_state, status) => {
+      const on = switchOf(status["pin_status"]);
+      return on === null ? null : on === enabled;
+    });
+  }
+
+  /** The limit by traffic (`data_volume_limit_unit=data`): the size in megabytes, and the share at which the router warns. */
+  async #setDataLimit(limit: DataLimitSetting, check: WriteCheck): Promise<void> {
+    const fields: Form = [["data_volume_limit_switch", limit.enabled ? "1" : "0"]];
+    if (limit.enabled) {
+      if (limit.bytes === null) throw new CpeControlValidationError("Turning the data limit on needs its size");
+      let percent = limit.alertPercent;
+      if (percent === null) {
+        // The form takes the warning share with the size: the one the router has is kept
+        const before = await getCmd(this.#http, ["data_volume_alert_percent"], true, this.#at).catch(() => null);
+        percent = before === null ? null : percentValue(before["data_volume_alert_percent"]);
+      }
+      if (percent === null || percent < 1) throw new CpeControlValidationError("The router has no warning share set for its data limit: give alertPercent as well");
+      fields.push(["data_volume_limit_unit", "data"], ["data_volume_limit_size", zteLimitSize(limit.bytes)], ["data_volume_alert_percent", String(percent)]);
+    }
+    await this.#post(check, "DATA_LIMIT_SETTING", fields);
+    const after = (await this.#cellularRead().catch(() => null))?.dataLimit ?? null;
+    settleSetting(check, sameDataLimit(limit, after));
+  }
+
+  /**
+   * USSD as the router's page does it: `USSD_PROCESS` with `ussd_send` (or `ussd_reply` inside a
+   * session), then `ussd_write_flag` until the answer is there, then `ussd_data_info`. A code the
+   * network leaves unanswered is cancelled, so no session stays open on the router.
+   */
+  async #ussd(request: UssdRequest, check: WriteCheck, wait: DriverWait): Promise<UssdAnswer> {
+    const flag = async (): Promise<unknown> => (await getCmd(this.#http, ["ussd_write_flag"], false, this.#at))["ussd_write_flag"];
+    const cancel = async (): Promise<void> => {
+      await this.#post(check, "USSD_PROCESS", [["USSD_operator", "ussd_cancel"]]);
+    };
+    settleNothingToRead(check);
+    if (request.kind === "cancel") {
+      await cancel();
+      await awaitZteUssd(flag, wait).catch(() => null);
+      return emptyUssd("cancelled");
+    }
+    await this.#post(check, "USSD_PROCESS", [
+      ["USSD_operator", request.kind === "send" ? "ussd_send" : "ussd_reply"],
+      [request.kind === "send" ? "USSD_send_number" : "USSD_reply_number", request.code],
+      ["notCallback", "true"],
+    ]);
+    const state = await awaitZteUssd(flag, wait);
+    if (state !== "answered") {
+      if (state === "no_answer") await cancel().catch(() => undefined);
+      return emptyUssd(state);
+    }
+    const info = await getCmd(this.#http, ["ussd_data_info"], false, this.#at);
+    // `ussd_action` 1: the network asks for a reply and keeps the session open
+    return { state: "answered", text: zteUssdText(info["ussd_data"]), awaitsReply: textOf(info["ussd_action"]) === "1" };
   }
 
   readonly sms: DriverSms = {
@@ -1121,6 +1292,12 @@ class ZteGoformSession implements DriverSessionHandle {
       this.#open = false;
     }
   }
+}
+
+/** A write the router took: `success`, or `0` on the forms that answer a number. */
+function accepted(result: unknown): boolean {
+  const text = textOf(result);
+  return text === "success" || text === "0";
 }
 
 function lockOf(status: Record<string, unknown>): { waitSec: number | null } | null {

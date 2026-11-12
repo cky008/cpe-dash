@@ -1,7 +1,7 @@
 import type { DeviceFeature } from "./device-profile.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { UNSUPPORTED_FEATURES, type UnsupportedFeature, VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedModel, reportVerifiedModels } from "./firmware.ts";
-import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, STATUS_READ_FEATURES, familyImplements, isStatusReadFeature, routerVariant } from "./router-family.ts";
+import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, STATUS_READ_FEATURES, familyImplements, isCellularWriteFeature, isStatusReadFeature, routerVariant } from "./router-family.ts";
 
 export { UNSUPPORTED_FEATURES, type UnsupportedFeature, familyImplements };
 import type { SupportedLocale } from "./types.ts";
@@ -617,8 +617,16 @@ export const MODULES: ReadonlyArray<Module> = [
   },
   { zh: "访问控制", en: "Access control", features: ["accessControl"] },
   { zh: "电池", en: "Battery", features: ["battery"] },
-  { zh: "SIM 卡", en: "SIM card", features: ["simCard"] },
-  { zh: "飞行模式", en: "Airplane mode", features: ["airplaneMode"] },
+  { zh: "SIM 卡", en: "SIM card", features: ["simCard", "simSlot", "simPin"], parts: { zh: ["状态", "切换卡槽", "PIN"], en: ["its status", "switching slots", "the PIN"] } },
+  { zh: "飞行模式", en: "Airplane mode", features: ["airplaneMode", "airplaneSwitch"], parts: { zh: ["状态", "开关"], en: ["its state", "the switch"] } },
+  { zh: "网络制式与选网", en: "Network mode & operator", features: ["networkMode", "operatorSelect"], parts: { zh: ["网络制式", "手动选网"], en: ["the network mode", "choosing the operator"] } },
+  {
+    zh: "数据设置",
+    en: "Data settings",
+    features: ["roaming", "apn", "dataLimit", "trafficReset"],
+    parts: { zh: ["数据漫游", "接入点（APN）", "流量上限", "清零流量统计"], en: ["data roaming", "the access point (APN)", "the data limit", "clearing the traffic counters"] },
+  },
+  { zh: "USSD", en: "USSD", features: ["ussd"] },
 ];
 
 const FORM_LABELS: Readonly<Record<DeviceForm, { zh: string; en: string }>> = {
@@ -726,8 +734,12 @@ interface FeatureMark {
 }
 
 function featureMark(subject: Subject, feature: DeviceFeature, records: Records): FeatureMark {
-  // The verified model's verification covers what FengSui read and wrote then; the status reads came later
-  if (!isStatusReadFeature(feature) && subject.names.some((name) => isVerifiedModel(name))) return { mark: "✓", facts: [] };
+  // The verified model's verification covers what FengSui read and wrote then; the status reads came
+  // later (marked from the facts), and so did the cellular settings, which it has no write for
+  if (subject.names.some((name) => isVerifiedModel(name))) {
+    if (isCellularWriteFeature(feature)) return { mark: "", facts: [] };
+    if (!isStatusReadFeature(feature)) return { mark: "✓", facts: [] };
+  }
   const family = subject.family;
   if (family === null) return { mark: "", facts: [] };
   const access = READ_FEATURES.has(feature) ? "read" : "write";
@@ -1003,15 +1015,15 @@ export function supportedDevicesSection(
   const switches = MODULES.find((module) => module.features.includes("securitySwitches"))?.parts;
   const split = MODULES.filter((module) => module.features.length > 1);
   const anyUnsupported = tables.some((table) => table.unsupported);
-  // The columns of the status reads, which the verified model's verification does not cover
-  const later = MODULES.filter((module) => module.features.every((feature) => isStatusReadFeature(feature)));
+  // The columns of the status reads and the cellular settings, which the verified model's verification does not cover
+  const later = MODULES.filter((module) => module.features.every((feature) => isStatusReadFeature(feature) || isCellularWriteFeature(feature)));
   const laterZh = later.map((module) => `「${module.zh}」`).join("、");
   const laterEn = joinAll(later.map((module) => module.en), true);
   const legend = en
     ? [
         "What the marks mean:",
         "",
-        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels} but the ${laterEn} columns (added later, marked from the facts like any other model); it also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.${reportSentence}`,
+        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels} but the ${laterEn} columns (added later: readings are marked from the facts like any other model, and FengSui does not do the new writes there yet); it also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.${reportSentence}`,
         "- **? Waiting for a report**: FengSui implements it from the interface notes and it is on by default; nobody has confirmed it on a real router yet. Each write is sent once and read back, and you can turn each one off under Settings → Device.",
         "- **△ Partly, or with a condition**: the conditions are under each brand's table.",
         `- **— Not available**: the router or its interface does not have the feature (a CPE has no battery), or someone tested it and it did not work${anyUnsupported ? "" : " (no such report in the table yet)"}.`,
@@ -1023,7 +1035,7 @@ export function supportedDevicesSection(
     : [
         "表里的符号：",
         "",
-        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 上除了${laterZh}这几列（后来加的，和其他型号一样按事实标），全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。${reportSentence}`,
+        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 上除了${laterZh}这几列（后来加的：读数和其他型号一样按事实标，新的写入烽燧在它上面还没有做），全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。${reportSentence}`,
         "- **? 等待回报**：烽燧按接口资料实现了，默认开启，还没有人在真机上确认。写入每次只发一次，写后回读核对，可以在「设置 → 设备」逐项关闭。",
         "- **△ 部分支持或有条件**：条件写在各品牌的表下面。",
         `- **— 不支持**：路由器或它的接口没有这项功能（比如室内 CPE 没有电池），或者有人实测过不能用${anyUnsupported ? "" : "（实测不能用的，表里暂时还没有）"}。`,

@@ -70,8 +70,16 @@ describe("Static demo backend vs the real daemon on a ZTE mobile router", () => 
     assert.ok((seed.neighbors.neighbors?.totalCount ?? 0) >= 2, "its neighbour cells");
     assert.ok(seed.sms.messages.length >= 3);
     assert.deepEqual(seed.sms.status.abilities, { send: true, delete: "message", markRead: "router" });
-    // The supported-devices row of a mobile router: a battery and a SIM card, no airplane mode on this interface
-    assert.deepEqual(seed.device?.profile.support?.modules.slice(-3).map((m) => m.mark), ["?", "?", ""]);
+    // The supported-devices row of a mobile router: a battery and a SIM card (its slot and PIN too), no airplane mode
+    // on this interface; the network mode without operator selection, roaming and the data limit, and USSD
+    assert.deepEqual(seed.device?.profile.support?.modules.slice(-6).map((m) => [m.en, m.mark]), [
+      ["Battery", "?"],
+      ["SIM card", "?"],
+      ["Airplane mode", ""],
+      ["Network mode & operator", "△"],
+      ["Data settings", "△"],
+      ["USSD", "?"],
+    ]);
     const raw = JSON.stringify(seed);
     for (const mac of raw.match(/\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b/gi) ?? []) assert.match(mac, /^02:00:5E:10:00:/i);
   });

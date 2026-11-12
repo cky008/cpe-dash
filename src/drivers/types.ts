@@ -1,3 +1,4 @@
+import type { ApnChoice, ApnRestore, ApnView, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
 import type { AntennaModeName } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import type { WcdmaSignal } from "../parsers.ts";
@@ -260,6 +261,55 @@ export interface DriverDataLink {
   redial?(check: WriteCheck): Promise<void>;
 }
 
+/** What a router reports of its cellular settings; a part its interface has no read for is left out. */
+export interface DriverCellularState {
+  /** The network mode in use (`null`: read, but not one FengSui names). */
+  networkMode?: NetworkMode | null;
+  /** The modes this router can be set to, where it differs from the family's own list. */
+  networkModes?: NetworkMode[];
+  /** The SIM slots the router can switch between. */
+  simSlots?: SimSlotRef[];
+  /** The slot in use, as this read saw it (the poll reports it as well). */
+  simSlot?: SimSlotRef | null;
+  operator?: { selection: "auto" | "manual" | null; plmn: string | null } | null;
+  apn?: ApnView | null;
+  /** How the access point in use is switched back to (`null`: nothing FengSui could put back). */
+  apnRestore?: ApnRestore | null;
+  dataLimit?: { enabled: boolean | null; bytes: number | null; alertPercent: number | null } | null;
+  /** Attempts the SIM card has left for its PIN, read right now (`null`: the router does not say). */
+  pinAttemptsLeft?: number | null;
+}
+
+/**
+ * The cellular settings of a router of a driver family, inside the session that hands it out. A write
+ * the family's interface has no way to do is left out; one that is there is sent once, names what it
+ * sent in `check.endpoints` (command names, never a value) and reads the result back where the
+ * router can say.
+ */
+export interface DriverCellular {
+  read(): Promise<DriverCellularState>;
+  setNetworkMode?(mode: NetworkMode, check: WriteCheck): Promise<void>;
+  setSimSlot?(slot: SimSlotRef, check: WriteCheck): Promise<void>;
+  /** `true`: the cellular radio goes off (the router stays reachable on the LAN). */
+  setAirplaneMode?(enabled: boolean, check: WriteCheck): Promise<void>;
+  /** Whether data may be used while roaming. */
+  setRoaming?(enabled: boolean, check: WriteCheck): Promise<void>;
+  setApn?(choice: ApnChoice, check: WriteCheck): Promise<void>;
+  /** Switch back to the access point a change replaced. */
+  restoreApn?(restore: ApnRestore, check: WriteCheck): Promise<void>;
+  /** Search for networks (up to a minute; many routers drop the connection meanwhile). */
+  scanOperators?(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]>;
+  selectOperator?(selection: OperatorSelection, check: WriteCheck, wait: DriverWait): Promise<void>;
+  /** Enter the card's PIN, once. A wrong PIN resolves `accepted: false`: nothing is sent again. */
+  enterPin?(pin: string, check: WriteCheck): Promise<SimPinOutcome>;
+  /** Turn "ask for the PIN at every start" on or off with the card's PIN, once. */
+  setPinLock?(enabled: boolean, pin: string, check: WriteCheck): Promise<SimPinOutcome>;
+  setDataLimit?(limit: DataLimitSetting, check: WriteCheck): Promise<void>;
+  /** Clear the router's own traffic counters. */
+  resetTraffic?(check: WriteCheck): Promise<void>;
+  ussd?(request: UssdRequest, check: WriteCheck, wait: DriverWait): Promise<UssdAnswer>;
+}
+
 /**
  * One logged-in session on a router of a driver family. Every request goes out inside it; the
  * client logs out in `finally`. A write names what it sent in `check.endpoints` (command names,
@@ -285,8 +335,10 @@ export interface DriverSession {
   readonly data?: DriverDataLink;
   /** The devices connected to the router, on a family whose notes define a device list. */
   hosts?(): Promise<DriverHost[]>;
-  /** Switch the antenna (automatic, internal, external), on a family whose notes define it; resolves the code it wrote. */
+  /** Switch the antenna (automatic, internal, external, both), on a family whose notes define it; resolves the code it wrote. */
   setAntennaMode?(mode: AntennaModeName, check: WriteCheck): Promise<number>;
+  /** The cellular settings (network mode, SIM slot, PIN, airplane mode, roaming, APN, operator, data limit, USSD) the family's notes define. */
+  readonly cellular?: DriverCellular;
 }
 
 /** A session as a family's protocol opens it: the client calls `logout` in `finally`. */

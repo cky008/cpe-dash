@@ -127,6 +127,22 @@ describe("console: experimental writes on a model nobody verified", () => {
       sms_send: { "zh-CN": /发送/, en: /sending/i },
       sms_mark_read: { "zh-CN": /标为已读[\s\S]*自动标为已读/, en: /marking read[\s\S]*auto mark-as-read/i },
       sms_delete: { "zh-CN": /删除/, en: /deleting/i },
+      set_network_mode: { "zh-CN": /网络制式/, en: /network mode/i },
+      auto_restore_network_mode: { "zh-CN": /断网 3 分钟[\s\S]*改回原来的制式/, en: /WAN stays down 3 minutes[\s\S]*earlier mode back/i },
+      scan_operators: { "zh-CN": /搜索附近的运营商网络/, en: /searching for networks/i },
+      select_operator: { "zh-CN": /选定其中一个/, en: /choosing one/i },
+      auto_restore_operator: { "zh-CN": /断网 3 分钟[\s\S]*改回原来的选择/, en: /WAN stays down 3 minutes[\s\S]*earlier selection back/i },
+      set_sim_slot: { "zh-CN": /切换 SIM 卡槽/, en: /SIM slot switch/i },
+      auto_restore_sim_slot: { "zh-CN": /断网 3 分钟[\s\S]*切回原来的卡槽/, en: /WAN stays down 3 minutes[\s\S]*switch back/i },
+      enter_sim_pin: { "zh-CN": /输入 PIN[\s\S]*只发一次/, en: /entering the PIN[\s\S]*sent once/i },
+      set_sim_pin_lock: { "zh-CN": /开关「开机要 PIN」/, en: /ask for the PIN at every start/i },
+      set_airplane_mode: { "zh-CN": /飞行模式[\s\S]*不会自己关掉/, en: /airplane mode[\s\S]*never turns it off on its own/i },
+      set_roaming: { "zh-CN": /数据漫游/, en: /data roaming/i },
+      set_apn: { "zh-CN": /接入点（APN）/, en: /access point \(APN\)/i },
+      auto_restore_apn: { "zh-CN": /断网 3 分钟[\s\S]*换回原来的接入点/, en: /WAN stays down 3 minutes[\s\S]*earlier access point/i },
+      set_data_limit: { "zh-CN": /流量上限/, en: /data limit/i },
+      reset_traffic: { "zh-CN": /清零流量统计/, en: /clear traffic counters/i },
+      send_ussd: { "zh-CN": /USSD[\s\S]*发送指令/, en: /USSD[\s\S]*sending a code/i },
     };
     const switchable: ReadonlySet<string> = new Set(FAMILY_WRITE_FEATURES);
     for (const [action, feature] of Object.entries(CONTROL_FEATURES) as Array<[ControlAction, (typeof FAMILY_WRITE_FEATURES)[number]]>) {
