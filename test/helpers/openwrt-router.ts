@@ -50,6 +50,12 @@ export interface OpenwrtRouterOptions {
   simPin?: string;
   /** The first PDP context as `AT+CGDCONT?` lists it at the start (default `"IPV4V6","internet"`). */
   cgdcont?: string;
+  /**
+   * What `AT+COPS=?` answers (left out: an error, as a module that cannot search right now), and
+   * whether the module registers on an operator it is told to (`false`: it gives up with an error and
+   * stays in manual mode).
+   */
+  cops?: { scan?: string; registers?: boolean };
 }
 
 /** One stored part: its storage index, `<stat>` (0 unread, 1 read, 2 unsent, 3 sent) and its PDU. */
@@ -87,6 +93,9 @@ export interface OpenwrtRouterState {
   pinAttempts: number;
   /** The first PDP context: `"<type>","<apn>"`. */
   cgdcont: string;
+  /** `<mode>` of `AT+COPS?` (0 automatic, 1 manual) and the operator the module was told to stay on. */
+  copsMode: number;
+  copsPlmn: string | null;
 }
 
 export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
@@ -115,6 +124,8 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
     pinLock: false,
     pinAttempts: 3,
     cgdcont: opts.cgdcont ?? '"IPV4V6","internet"',
+    copsMode: 0,
+    copsPlmn: null,
   };
   const simPin = opts.simPin ?? "1234";
   /** A PIN command: the right PIN applies `then`, a wrong one costs an attempt and answers the card's error. */
@@ -350,7 +361,23 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
 
       // 3GPP TS 27.007: mode, format (0: long name), operator, access technology
       if (cmd === "AT+COPS?") {
-        return reply(state.serving === "none" ? "+COPS: 0\n\nOK\n" : '+COPS: 0,0,"Three",11\n\nOK\n');
+        return reply(state.serving === "none" ? `+COPS: ${state.copsMode}\n\nOK\n` : `+COPS: ${state.copsMode},0,"Three",11\n\nOK\n`);
+      }
+      if (cmd === "AT+COPS=?") return reply(opts.cops?.scan === undefined ? "+CME ERROR: 3\n" : `${opts.cops.scan}\n\nOK\n`);
+      if (cmd === "AT+COPS=0") {
+        state.copsMode = 0;
+        state.copsPlmn = null;
+        return reply("OK\n");
+      }
+      const register = /^AT\+COPS=1,2,"(\d{5,6})"(?:,\d{1,2})?$/.exec(cmd);
+      if (register) {
+        state.copsMode = 1;
+        state.copsPlmn = register[1] ?? null;
+        if (opts.cops?.registers === false) {
+          state.serving = "none";
+          return reply("+CME ERROR: 30\n");
+        }
+        return reply("OK\n");
       }
 
       // Fibocom Telemetry & Locks

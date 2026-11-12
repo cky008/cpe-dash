@@ -192,7 +192,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     defaultUsername: "root",
     defaultAddress: "192.168.1.1",
     reads: ["telemetry", "neighbors", "topology", "sms", "simCard", "airplaneMode"],
-    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "airplaneSwitch", "simPin", "apn"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "airplaneSwitch", "simPin", "apn"],
     smsReadState: "fengsui",
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,

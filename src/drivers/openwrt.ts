@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { type ApnIpType, type NetworkMode, type SimPinOutcome, isApnName } from "../cellular.ts";
+import { type ApnIpType, type NetworkMode, type OperatorChoice, type OperatorSelection, type SimPinOutcome, isApnName, isPlmn } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
@@ -9,7 +9,7 @@ import { encodeSmsSubmit } from "../sms/pdu.ts";
 import type { SmsCounters } from "../sms/types.ts";
 import { atErrorCode, parseCmglPdus, parseCpms } from "./at-sms.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
-import { settleNothingToRead } from "./cellular.ts";
+import { operatorActOf, parseCops, parseCopsScan, settleNothingToRead } from "./cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
@@ -615,6 +615,9 @@ export function parseFibocomAct(raw: string): { rat: number; preferRat: number; 
   return { rat, preferRat, preferBand, lte: lte.length > 0 ? lte : "all", nr: nr.length > 0 ? nr : "all" };
 }
 
+/** How long a search for networks or a registration may take the module (the modules' manuals give `AT+COPS` three minutes). */
+const COPS_TIMEOUT_MS = 180_000;
+
 const COPS_LINE = /\+COPS:\s*\d\s*,\s*([012])\s*,\s*"([^"\r\n]{1,64})"/;
 
 /**
@@ -868,14 +871,18 @@ class OpenwrtUbusClient {
     return this.#http;
   }
 
-  async call(object: string, method: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  async call(object: string, method: string, args: Record<string, unknown> = {}, timeoutMs?: number): Promise<unknown> {
     const id = this.#id++;
-    const answer = await this.#http.postJson(UBUS_PATH, {
-      jsonrpc: "2.0",
-      id,
-      method: "call",
-      params: [this.session, object, method, args],
-    });
+    const answer = await this.#http.postJson(
+      UBUS_PATH,
+      {
+        jsonrpc: "2.0",
+        id,
+        method: "call",
+        params: [this.session, object, method, args],
+      },
+      timeoutMs === undefined ? {} : { timeoutMs }
+    );
     if (!isPlainObject(answer)) throw new CpeAnswerFormatError(`${object}.${method}: invalid JSON-RPC response`);
     const error = fieldOf(answer, "error");
     if (isPlainObject(error)) {
@@ -917,20 +924,20 @@ class OpenwrtUbusClient {
     return this.#qmodem;
   }
 
-  async #qmodemAt(target: QmodemTarget, cmd: string): Promise<string> {
-    return qmodemText(await this.call("qmodem", "send_at", { config_section: target.section, params: { at: cmd, port: target.port } }));
+  async #qmodemAt(target: QmodemTarget, cmd: string, timeoutMs?: number): Promise<string> {
+    return qmodemText(await this.call("qmodem", "send_at", { config_section: target.section, params: { at: cmd, port: target.port } }, timeoutMs));
   }
 
-  /** Run an AT command through the resolved modem RPC target or probe candidates. */
-  async execAt(cmd: string): Promise<string> {
-    if (this.#atViaQmodem && this.#qmodem) return await this.#qmodemAt(this.#qmodem, cmd);
+  /** Run an AT command through the resolved modem RPC target or probe candidates. `timeoutMs`: how long this one request may take (a search for networks takes minutes). */
+  async execAt(cmd: string, timeoutMs?: number): Promise<string> {
+    if (this.#atViaQmodem && this.#qmodem) return await this.#qmodemAt(this.#qmodem, cmd, timeoutMs);
     if (this.#resolvedModemRpc) {
-      const res = await this.call(this.#resolvedModemRpc.object, this.#resolvedModemRpc.method, { [this.#resolvedModemRpc.cmdKey]: cmd });
+      const res = await this.call(this.#resolvedModemRpc.object, this.#resolvedModemRpc.method, { [this.#resolvedModemRpc.cmdKey]: cmd }, timeoutMs);
       return extractAtResponse(res);
     }
     for (const target of MODEM_RPC_CANDIDATES) {
       try {
-        const res = await this.call(target.object, target.method, { [target.cmdKey]: cmd });
+        const res = await this.call(target.object, target.method, { [target.cmdKey]: cmd }, timeoutMs);
         const text = extractAtResponse(res);
         if (text !== "" || cmd.startsWith("AT")) {
           this.#resolvedModemRpc = target;
@@ -943,7 +950,7 @@ class OpenwrtUbusClient {
     // QModem's own object, which wants the modem's section and port named
     const qmodem = await this.qmodem();
     if (qmodem) {
-      const text = await this.#qmodemAt(qmodem, cmd);
+      const text = await this.#qmodemAt(qmodem, cmd, timeoutMs);
       this.#atViaQmodem = true;
       return text;
     }
@@ -1514,8 +1521,9 @@ export class OpenwrtSession implements DriverSessionHandle {
   /**
    * The cellular settings the module's own commands define: the network mode (Quectel's `mode_pref`,
    * Fibocom's `AT+GTACT`), the radio switch (`AT+CFUN`, 3GPP TS 27.007 §8.2), the card's PIN
-   * (`AT+CPIN`, `AT+CLCK="SC"`, §8.3 and §7.4) and the access point of the first PDP context
-   * (`AT+CGDCONT`, §10.1.1; no user name or password: the notes name no command for them).
+   * (`AT+CPIN`, `AT+CLCK="SC"`, §8.3 and §7.4), the access point of the first PDP context
+   * (`AT+CGDCONT`, §10.1.1; no user name or password: the notes name no command for them) and the
+   * operator (`AT+COPS`, §7.3).
    */
   readonly cellular: DriverCellular = {
     read: () => this.#cellularRead(),
@@ -1537,12 +1545,46 @@ export class OpenwrtSession implements DriverSessionHandle {
       if (restore.mode !== "context") throw new CpeControlValidationError("This router keeps one access point in its module: there is no profile to switch back to");
       await this.#setApn({ apn: restore.apn, ipType: restore.ipType }, check);
     },
+    scanOperators: (check) => this.#scanOperators(check),
+    selectOperator: (selection, check) => this.#selectOperator(selection, check),
   };
 
+  /** `AT+COPS=?`: the module answers when it has searched every band it may use, which takes it minutes. */
+  async #scanOperators(check: WriteCheck): Promise<OperatorChoice[]> {
+    this.#guard();
+    settleNothingToRead(check);
+    noteSent(check, FAMILY, "AT+COPS/search");
+    const answer = await this.#ubus.execAt("AT+COPS=?", COPS_TIMEOUT_MS);
+    if (isAtError(answer)) throw new CpeApiError(atErrorCode(answer) ?? "at-error", "AT+COPS=? refused");
+    // An interface to the module that stops waiting before the module is done hands back nothing
+    if (!answer.includes("+COPS:")) throw new CpeApiError("timeout", "The module did not answer the search for networks in the time the router waits for it");
+    return parseCopsScan(answer);
+  }
+
+  /**
+   * `AT+COPS=0` hands the choice back to the module. `AT+COPS=1,2,"<code>"[,<technology>]` keeps it on
+   * one operator; the module answers once it is registered, or with an error once it gave up, and it
+   * stays in the mode it was told either way.
+   */
+  async #selectOperator(selection: OperatorSelection, check: WriteCheck): Promise<void> {
+    this.#guard();
+    if (selection.mode === "auto") {
+      await this.#atWrite(check, "AT+COPS", "AT+COPS=0", COPS_TIMEOUT_MS);
+    } else {
+      const act = operatorActOf(selection.rat);
+      noteSent(check, FAMILY, "AT+COPS");
+      const answer = await this.#ubus.execAt(`AT+COPS=1,2,"${selection.plmn}"${act === null ? "" : `,${act}`}`, COPS_TIMEOUT_MS);
+      // A registration the module gave up on is a write that did not take: recorded as such, and watched like one
+      if (isAtError(answer)) return settleSetting(check, false);
+    }
+    const after = parseCops(await this.#ubus.execAt("AT+COPS?").catch(() => ""));
+    settleSetting(check, after === null ? null : selection.mode === "auto" ? after.mode === 0 : after.mode === 1 || after.mode === 4);
+  }
+
   /** One AT command of a write: named in the record before it is sent, and an `ERROR` is the module refusing it. */
-  async #atWrite(check: WriteCheck, label: string, command: string): Promise<void> {
+  async #atWrite(check: WriteCheck, label: string, command: string, timeoutMs?: number): Promise<void> {
     noteSent(check, FAMILY, label);
-    const answer = await this.#ubus.execAt(command);
+    const answer = await this.#ubus.execAt(command, timeoutMs);
     if (isAtError(answer)) throw new CpeApiError(atErrorCode(answer) ?? "at-error", `${label} refused`);
   }
 
@@ -1560,8 +1602,11 @@ export class OpenwrtSession implements DriverSessionHandle {
     // The attempts left are read now, not from the minute-old copy the poll keeps: a PIN is sent by them
     const attempts = quectel ? parseSimPin("", await this.#ubus.execAt('AT+QPINC="SC"').catch(() => "")).pinAttemptsLeft : null;
     const context = parseCgdcont(await this.#ubus.execAt("AT+CGDCONT?").catch(() => ""));
+    const cops = parseCops(await this.#ubus.execAt("AT+COPS?").catch(() => ""));
     return {
       networkMode,
+      // Modes 2 (deregistered) and 3 (a format change) say nothing of how the module chooses
+      ...(cops && (cops.mode === 0 || cops.mode === 1 || cops.mode === 4) ? { operator: { selection: cops.mode === 0 ? ("auto" as const) : ("manual" as const), plmn: cops.mode !== 0 && cops.format === 2 && isPlmn(cops.operator) ? cops.operator : null } } : {}),
       networkModes: [...(quectel ? QUECTEL_MODE_LIST : FIBOCOM_MODE_LIST)],
       pinAttemptsLeft: attempts,
       apn: context ? { mode: context.apn === "" ? "auto" : "manual", apn: context.apn === "" ? null : context.apn, ipType: context.ipType, auth: null, hasUsername: null } : null,

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { PIN_REFUSALS } from "../src/backends/driver.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/cpe-client.ts";
+import { parseCops, parseCopsScan } from "../src/drivers/cellular.ts";
 import { parseCgdcont, quectelModeOf } from "../src/drivers/openwrt.ts";
 import { cellularOf, daemonOn, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
@@ -47,6 +48,7 @@ describe("openwrt: the cellular settings", () => {
     const quectel = openwrtRouter({ brand: "quectel" });
     assert.deepEqual(await quectel.client.withSession((s) => cellularOf(s).read()), {
       networkMode: "auto",
+      operator: { selection: "auto", plmn: null },
       networkModes: ["auto", "nr_sa", "nr_nsa", "lte", "wcdma"],
       pinAttemptsLeft: 3,
       apn: { mode: "manual", apn: "internet", ipType: "ipv4v6", auth: null, hasUsername: null },
@@ -171,6 +173,85 @@ describe("cellular settings through the daemon (openwrt)", () => {
       assert.deepEqual(await fx.core.controls.setAirplaneMode(true, { confirm: true }), { airplaneMode: true });
       assert.equal(fx.applied.at(-1)?.summaryZh, "飞行模式已打开，路由器已断开移动网络（实验性写入，回读一致）");
       assert.equal(fx.linkChanges.length, 0, "a deliberate disconnect is never put back");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+/** Two networks found, then the lists of modes and formats the module supports (3GPP TS 27.007 §7.3). */
+const COPS_SCAN = '+COPS: (2,"DemoNet","Demo","27201",7),(1,"Three","3","27202",12),(3,"","OtherNet","27203",2),,(0-4),(0-2)';
+
+const searches = (commands: ReadonlyArray<string>): string[] => commands.filter((cmd) => cmd === "AT+COPS=?");
+
+describe("openwrt: choosing the operator with AT+COPS", () => {
+  it("reads the answers of AT+COPS? and AT+COPS=?", () => {
+    assert.deepEqual(parseCops('+COPS: 0,0,"Three",11\n\nOK\n'), { mode: 0, format: 0, operator: "Three" });
+    assert.deepEqual(parseCops('+COPS: 1,2,"27202",7\nOK\n'), { mode: 1, format: 2, operator: "27202" });
+    assert.deepEqual(parseCops("+COPS: 2\nOK\n"), { mode: 2, format: null, operator: null });
+    assert.equal(parseCops("ERROR\n"), null);
+    assert.deepEqual(parseCopsScan(COPS_SCAN), [
+      { plmn: "27201", name: "DemoNet", rat: "4G", state: "current" },
+      { plmn: "27202", name: "Three", rat: "5G", state: "available" },
+      { plmn: "27203", name: "OtherNet", rat: "3G", state: "forbidden" },
+    ]);
+    assert.deepEqual(parseCopsScan("+COPS: ,,(0-4),(0-2)\nOK\n"), [], "no network found");
+    assert.equal(parseCopsScan(`+COPS: ${'(1,"x","x","27201",7),'.repeat(200)}`).length, 64, "a bounded list");
+  });
+
+  it("searches once, and says so when the module cannot or the router stops waiting", async () => {
+    const { client, state } = openwrtRouter({ brand: "quectel", cops: { scan: COPS_SCAN } });
+    const check = newCheck();
+    const found = await client.withSession((s) => cellularOf(s).scanOperators(check, noWait));
+    assert.deepEqual(found?.map((row) => row.plmn), ["27201", "27202", "27203"]);
+    assert.deepEqual(searches(state.executedCommands), ["AT+COPS=?"]);
+    assert.deepEqual(check, { endpoints: ["openwrt:AT+COPS/search"], readback: "none", reason: null });
+    const refused = openwrtRouter({ brand: "quectel" });
+    await assert.rejects(refused.client.withSession((s) => cellularOf(s).scanOperators(newCheck(), noWait)), (err: unknown) => err instanceof CpeApiError && err.code === "cms-3");
+    const silent = openwrtRouter({ brand: "quectel", cops: { scan: "" } });
+    await assert.rejects(silent.client.withSession((s) => cellularOf(s).scanOperators(newCheck(), noWait)), (err: unknown) => err instanceof CpeApiError && err.code === "timeout");
+    assert.equal(searches(silent.state.executedCommands).length, 1, "asked once");
+  });
+
+  it("keeps the module on one operator by its code, with the technology only when one is named", async () => {
+    const { client, state } = openwrtRouter({ brand: "quectel", cops: { scan: COPS_SCAN } });
+    const check = newCheck();
+    await client.withSession((s) => cellularOf(s).selectOperator({ mode: "manual", plmn: "27202", rat: null }, check, noWait));
+    assert.deepEqual(wrote(state.executedCommands, "AT+COPS="), ['AT+COPS=1,2,"27202"']);
+    assert.deepEqual(check, { endpoints: ["openwrt:AT+COPS"], readback: "match", reason: null });
+    assert.deepEqual((await client.withSession((s) => cellularOf(s).read()))?.operator, { selection: "manual", plmn: null });
+    state.executedCommands.length = 0;
+    await client.withSession((s) => cellularOf(s).selectOperator({ mode: "manual", plmn: "27201", rat: "4G" }, newCheck(), noWait));
+    await client.withSession((s) => cellularOf(s).selectOperator({ mode: "manual", plmn: "27202", rat: "5G" }, newCheck(), noWait));
+    assert.deepEqual(wrote(state.executedCommands, "AT+COPS="), ['AT+COPS=1,2,"27201",7', 'AT+COPS=1,2,"27202",12']);
+    // Back to the module's own choice
+    state.executedCommands.length = 0;
+    const back = newCheck();
+    await client.withSession((s) => cellularOf(s).selectOperator({ mode: "auto" }, back, noWait));
+    assert.deepEqual([wrote(state.executedCommands, "AT+COPS="), back.readback, state.copsMode], [["AT+COPS=0"], "match", 0]);
+    assert.deepEqual((await client.withSession((s) => cellularOf(s).read()))?.operator, { selection: "auto", plmn: null });
+  });
+
+  it("records a registration the module gave up on as a write that did not take, and sends nothing more", async () => {
+    const { client, state } = openwrtRouter({ brand: "fibocom", cops: { registers: false } });
+    const check = newCheck();
+    await client.withSession((s) => cellularOf(s).selectOperator({ mode: "manual", plmn: "27202", rat: null }, check, noWait));
+    assert.deepEqual([check.readback, check.reason], ["mismatch", "differs"]);
+    assert.deepEqual(wrote(state.executedCommands, "AT+COPS="), ['AT+COPS=1,2,"27202"']);
+    assert.equal(state.copsMode, 1, "the module stays in the mode it was told");
+  });
+
+  it("watches a hand-picked operator through the daemon, and hands the choice back when the WAN stays down", async () => {
+    const { mock, state } = openwrtRouter({ brand: "quectel", cops: { scan: COPS_SCAN, registers: false } });
+    const fx = daemonOn("openwrt", mock.fetchImpl, "http://192.168.1.1", OPENWRT_PASSWORD, "root");
+    try {
+      assert.equal((await fx.core.controls.scanOperators({ confirm: true })).length, 3);
+      await fx.core.controls.selectOperator({ mode: "manual", plmn: "27202", rat: null }, { confirm: true });
+      assert.deepEqual(fx.linkChanges.at(-1)?.change, { kind: "operator", previous: { mode: "auto" } });
+      assert.match(fx.applied.at(-1)?.summaryEn ?? "", /read back: differs/);
+      // The module found no service on that operator: the way back is automatic selection
+      assert.deepEqual(await fx.core.controls.revertLinkChange({ kind: "operator", previous: { mode: "auto" } }), { applied: true });
+      assert.deepEqual([state.copsMode, fx.applied.at(-1)?.action], [0, "auto_restore_operator"]);
     } finally {
       await fx.cleanup();
     }

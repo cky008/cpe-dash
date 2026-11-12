@@ -243,6 +243,33 @@ export function zteRegisterDone(result: string | null): boolean | null {
   return null;
 }
 
+// ── The module's own operator commands (3GPP TS 27.007 §7.3) ─────────────────
+
+/** `AT+COPS?`: how the module chooses (0 by itself, 1 kept on one operator, 4 one operator first), and the operator in the format it is set to. */
+export interface CopsState {
+  mode: number;
+  /** 0 and 1 a name, 2 the code; `null` when the module names no operator. */
+  format: number | null;
+  operator: string | null;
+}
+
+export function parseCops(raw: string): CopsState | null {
+  const match = /\+COPS:\s*([0-4])(?:\s*,\s*([012])\s*,\s*"([^"\r\n]{0,64})")?/.exec(raw.slice(0, 512));
+  if (!match) return null;
+  return { mode: Number(match[1]), format: match[2] === undefined ? null : Number(match[2]), operator: match[3] === undefined ? null : match[3] };
+}
+
+/** `AT+COPS=?`: one `(state,"long name","short name","code"[,technology])` per network found; the lists of modes and formats after them are not networks. */
+export function parseCopsScan(raw: string): OperatorChoice[] {
+  const out: OperatorChoice[] = [];
+  for (const match of raw.slice(0, MAX_SCAN_CHARS).matchAll(/\((\d)\s*,\s*"([^"\r\n]{0,64})"\s*,\s*"([^"\r\n]{0,64})"\s*,\s*"(\d{5,6})"(?:\s*,\s*(\d{1,2}))?\s*\)/g)) {
+    if (out.length >= MAX_SCAN_ROWS) break;
+    const choice = operatorChoice(match[1], match[2] || match[3], match[4], match[5]);
+    if (choice) out.push(choice);
+  }
+  return out;
+}
+
 // ── Access points ────────────────────────────────────────────────────────────
 
 /**

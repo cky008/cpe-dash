@@ -311,6 +311,7 @@ describe("experimental switch: what each write is on a router", () => {
         ["mobileData", "enabled"],
         ["smsWrite", "enabled"],
         ["networkMode", "enabled"],
+        ["operatorSelect", "enabled"],
         ["simPin", "enabled"],
         ["airplaneSwitch", "enabled"],
         ["apn", "enabled"],
