@@ -7,6 +7,8 @@ import { loadConfig } from "../src/config.ts";
 import { type FamilySms, createCpeFamily } from "../test/helpers/cpe-family.ts";
 import { type StrictCpe, createStrictCpe } from "../test/helpers/strict-cpe.ts";
 import { zteRouter, zteSms } from "../test/helpers/zte-goform-router.ts";
+import { NRADIO_URL, nradioRouter } from "../test/helpers/nradio-router.ts";
+import { OPENWRT_PASSWORD, openwrtRouter } from "../test/helpers/openwrt-router.ts";
 import type { RouterFamily } from "../src/router-family.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
@@ -422,15 +424,32 @@ export function createZteDemoRouter(): DemoRouter {
 /** Where the ZTE world's router answers (ZTE's usual address). */
 export const ZTE_DEMO_URL = "http://192.168.0.1";
 
+/** A router the browser tests use only: no household, the driver's mock as it is. */
+function bareRouter(fetchImpl: typeof fetch): DemoRouter {
+  return { cpe: null, human: { loginSameIp: () => undefined, logout: () => undefined }, fetchImpl, advance: () => undefined, pushOtp: () => undefined };
+}
+
 /** A world of another brand: its router, and the connection the console would have saved for it. */
 interface BrandWorld {
   router: DemoRouter;
   connection: { url: string; username: string; password: string; family: RouterFamily };
 }
 
-/** The worlds of other brands: `zte`, the live demo's (`?router=zte`). */
+/**
+ * The worlds of other brands. `zte` is the live demo's (`?router=zte`); `nradio` (its antenna and
+ * module bridge) and `openwrt` (a DHCP lease list, which does not say how a device is linked) are for
+ * the browser tests of what only those brands show.
+ */
 function brandWorld(scenario: DemoDaemonOptions["scenario"]): BrandWorld | null {
   if (scenario === "zte") return { router: createZteDemoRouter(), connection: { url: ZTE_DEMO_URL, username: "", password: DEMO_CPE_PASSWORD, family: "zte-goform" } };
+  if (scenario === "nradio") {
+    const nradio = nradioRouter({ password: DEMO_CPE_PASSWORD });
+    return { router: bareRouter(nradio.mock.fetchImpl), connection: { url: NRADIO_URL, username: "root", password: DEMO_CPE_PASSWORD, family: "nradio" } };
+  }
+  if (scenario === "openwrt") {
+    const openwrt = openwrtRouter({ brand: "quectel", leases: { dhcp_leases: [{ macaddr: "02:00:5E:10:00:07", hostname: "printer", ipaddr: "192.168.1.70", expires: 43000 }] } });
+    return { router: bareRouter(openwrt.mock.fetchImpl), connection: { url: "http://192.168.1.1", username: "root", password: OPENWRT_PASSWORD, family: "openwrt" } };
+  }
   return null;
 }
 
@@ -440,9 +459,10 @@ export interface DemoDaemonOptions {
   token: string;
   /**
    * `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another Huawei
-   * model, with experimental writes; `zte`: a ZTE mobile router, through FengSui's ZTE driver.
+   * model, with experimental writes; `zte`: a ZTE mobile router, through FengSui's ZTE driver;
+   * `nradio`, `openwrt`: routers of those brands for the browser tests (`brandWorld`).
    */
-  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte";
+  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte" | "nradio" | "openwrt";
   /**
    * Run the Telegram bot against an in-process stand-in for the Bot API (nothing leaves the process),
    * with `TELEGRAM_CHAT_IDS=1003`: Settings → Telegram can then link, list and unlink chats.

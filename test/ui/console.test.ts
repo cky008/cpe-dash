@@ -800,3 +800,87 @@ describe("the console in a browser", () => {
     }
   });
 });
+
+describe("the console on routers of other brands", () => {
+  let chrome: ChromeHandle | null = null;
+  let page: Page;
+
+  before(async () => {
+    assert.ok(fs.existsSync(path.join(ROOT, "dist", "web", "public", "index.html")), "build the console first: npm run build:web");
+    chrome = await launchChrome();
+    page = await openPage(chrome);
+  });
+
+  after(async () => {
+    if (chrome) await closeChrome(chrome);
+  });
+
+  /** A daemon on another brand's router, identified and with its slow reads done. */
+  async function brand(scenario: "zte" | "nradio" | "openwrt"): Promise<DemoDaemon> {
+    const demo = await startDemoDaemon({ port: 0, token: TOKEN, scenario });
+    await demo.stack.monitor.identifyDevice();
+    await Promise.allSettled([demo.stack.monitor.refreshTopology({ ignoreCooldown: true }), demo.stack.monitor.refreshNeighbors({ ignoreCooldown: true })]);
+    return demo;
+  }
+
+  it("shows a ZTE mobile router's battery, SIM card, ICCID and sensors, and fits a phone screen", async () => {
+    const demo = await brand("zte");
+    try {
+      await signIn(page, demo);
+      await page.waitUntil("document.getElementById('healthCard').textContent.includes('Battery')", "the battery row");
+      const health = await page.evaluate<string>("document.getElementById('healthCard').textContent");
+      assert.match(health, /Battery\s*\d+% · on battery/);
+      assert.match(health, /4G modem 41 · 5G modem 44 · PA 39 · Wi-Fi 47 · Battery 34 °C/, "each sensor apart");
+      assert.match(health, /Router load\s*CPU 18% · memory 46%/);
+      assert.match(health, /Firmware update\s*Available/);
+      assert.match(health, /Uptime\s*—/, "no uptime of the router's own");
+      const operator = await page.evaluate<string>("document.getElementById('operatorCard').textContent");
+      assert.match(operator, /SIM\s*Ready/);
+      assert.match(operator, /SIM slot\s*\??\s*Physical card/);
+      assert.match(operator, /PIN\s*\??\s*Off · PIN 3 · PUK 10 tries left/);
+      assert.match(operator, /Roaming\s*\??\s*Not roaming/);
+      // The ICCID is masked until the identity card is revealed
+      const identity = await page.evaluate<string>("document.getElementById('identityCard').textContent");
+      assert.match(identity, /ICCID\s*893530\*{13}/);
+      assert.doesNotMatch(identity, /8935301000000000000/);
+      await signIn(page, demo, PHONE);
+      assert.equal(await sidewaysOverflow(page), 0, "the new rows fit a phone screen");
+      assert.deepEqual(page.exceptions, []);
+    } finally {
+      await demo.close();
+    }
+  });
+
+  it("offers a driver brand's antenna in the controls drawer, asks first, and writes the router's own code", async () => {
+    const demo = await brand("nradio");
+    try {
+      await signIn(page, demo);
+      await page.click('[data-action="open-controls"]');
+      await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+      await page.waitUntil(`[...document.querySelectorAll('#controlsDialog button')].some((b) => b.textContent.trim() === 'External')`, "the antenna section");
+      await page.evaluate(`[...document.querySelectorAll('#controlsDialog button')].find((b) => b.textContent.trim() === 'External').click(); true`);
+      await page.waitUntil(isOpen("confirmDialog"), "the antenna's confirmation");
+      assert.match(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), /never checked on a real router/);
+      await page.click("#confirmOk");
+      await until(() => demo.stack.scheduler.genericWrites.some((w) => w.feature === "antenna"), "the antenna write");
+      const write = demo.stack.scheduler.genericWrites.find((w) => w.feature === "antenna");
+      assert.deepEqual([write?.endpoints, write?.readback], [["nradio:/api/device/antenna_set_type"], "match"]);
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await demo.close();
+    }
+  });
+
+  it("marks a device whose link the router does not say (a DHCP lease) as such, not as wired", async () => {
+    const demo = await brand("openwrt");
+    try {
+      await signIn(page, demo);
+      await page.waitUntil("document.getElementById('topologyCard').textContent.includes('printer')", "the device list");
+      assert.match(await page.evaluate<string>("document.getElementById('topologyCard').textContent"), /Link not reported/);
+      assert.deepEqual(page.exceptions, []);
+    } finally {
+      await demo.close();
+    }
+  });
+});
