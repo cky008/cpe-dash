@@ -5,6 +5,7 @@ import type {
   AccessControlChangeResponse,
   AccessControlEndpointResponse,
   AccessControlSnapshot,
+  CellularEndpointResponse,
   AccessGuardInfo,
   AlertEventRecord,
   AlertsResponse,
@@ -65,6 +66,7 @@ import { DEFAULT_BEHAVIOUR } from "../../../src/behaviour-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import { type ControlAction, gateRefuses } from "../../../src/device-access.ts";
 import { LTE_ALL_BANDS_MASK, maskToBands, statusReadsOf } from "../../../src/device-profile.ts";
+import { CELLULAR_CONTROL_PATHS, DemoCellular } from "./cellular.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import {
   readAntennaMode,
@@ -202,6 +204,7 @@ export class DemoBackend {
   readonly #countries: SmsCountriesResponse;
   readonly #sources = new Set<DemoEventSource>();
   readonly #timers = new Set<ReturnType<typeof setTimeout>>();
+  readonly #cellular: DemoCellular;
   readonly #routes: ReadonlyMap<string, Handler>;
   readonly #console: DemoConsole;
   /** The demo router as the daemon identified it when the seed was taken, and its write gate. */
@@ -287,6 +290,22 @@ export class DemoBackend {
       behaviourEnv: { ...DEFAULT_BEHAVIOUR, lockRollbackAfterMin: DEMO_LOCK_ROLLBACK_MIN, wanReconnectAfterMin: DEMO_RECONNECT_MIN },
     });
     this.#device = new DemoDevice({ seed, now: this.#now, console: this.#console, text: (key, params) => this.#text(key, params) });
+    this.#cellular = new DemoCellular(
+      {
+        now: this.#now,
+        text: (key, params) => this.#text(key, params),
+        gate: (action) => this.#device.gate(action),
+        control: (action, summary, hint) => this.#controlWith(action, summary, undefined, hint),
+        session: () => this.#session(LATENCY.session),
+        status: () => this.#telemetry.status,
+        patchStatus: (patch) => {
+          const status = this.#telemetry.status;
+          if (status) this.#telemetry = { ...this.#telemetry, status: patch(status) };
+        },
+        driver: this.#device.driver,
+      },
+      seed.cellular?.cellular ?? null
+    );
     this.#routes = this.#buildRoutes();
   }
 
@@ -614,6 +633,13 @@ export class DemoBackend {
       }
       return { ok: true, mobileDataEnabled: enabled } satisfies MobileDataControlResponse;
     });
+    // The cellular settings: the same paths, checks and answers as `src/http-cellular.ts`
+    get("/api/cellular", () => ({ ok: true, schedulerStatus: this.#status(), cellular: this.#cellular.view() }) satisfies CellularEndpointResponse);
+    post("/api/cellular/refresh", async () => {
+      const cellular = await this.#cellular.refresh();
+      return { ok: true, schedulerStatus: this.#status(), cellular } satisfies CellularEndpointResponse;
+    });
+    for (const path of CELLULAR_CONTROL_PATHS) post(path, (body) => this.#cellular.write(path, body));
     post("/api/session/reset-breaker", async () => {
       await this.#wait(LATENCY.read);
       return { ok: true, circuitBreaker: this.#scheduler.circuitBreaker, status: this.#status() } satisfies ResetBreakerResponse;

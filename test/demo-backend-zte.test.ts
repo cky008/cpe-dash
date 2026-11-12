@@ -153,4 +153,43 @@ describe("Static demo backend vs the real daemon on a ZTE mobile router", () => 
     const verification = (r: { json: Json }) => check((r.json as unknown as TelemetryEndpointResponse).lockVerification as LockVerification);
     assert.deepEqual(verification(t2), verification(t1));
   });
+
+  it("reads and writes the cellular settings like the daemon, and refuses the same ones with the same words", async () => {
+    /** An answer without the two times a read is stamped with. */
+    const plain = (r: { json: Json }): unknown => JSON.parse(JSON.stringify(r.json, (key, value: unknown) => (key === "capturedAtIso" || key === "capturedAtMs" || key === "schedulerStatus" ? undefined : value)));
+    const [read, shown] = await both("POST", "/api/cellular/refresh", {});
+    assert.deepEqual(plain(shown), plain(read));
+    assert.ok((read.json["cellular"] as Json | null)?.["networkMode"], "the daemon read the router's cellular settings");
+    for (const [route, body] of [
+      ["/api/control/network-mode", { mode: "lte", confirm: true }],
+      ["/api/control/network-mode", { mode: "gsm", confirm: true }],
+      ["/api/control/network-mode", { mode: "auto" }],
+      ["/api/control/operator", { mode: "manual", plmn: "27202", confirm: true }],
+      ["/api/control/operator-scan", { confirm: true }],
+      ["/api/control/operator", { mode: "manual", plmn: "27202", rat: "4G", confirm: true }],
+      ["/api/control/operator", { mode: "auto", confirm: true }],
+      ["/api/control/sim-slot", { kind: "embedded", index: 1, confirm: true }],
+      ["/api/control/sim-slot", { kind: "embedded", index: 9, confirm: true }],
+      ["/api/control/sim-pin", { action: "lock", pin: "1234", confirm: true }],
+      ["/api/control/sim-pin", { action: "unlock", pin: "0000", confirm: true }],
+      ["/api/control/roaming", { enabled: true, confirm: true }],
+      ["/api/control/apn", { mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", confirm: true }],
+      ["/api/control/apn", { mode: "auto", confirm: true }],
+      ["/api/control/data-limit", { enabled: true, bytes: 50 * 1024 ** 3, alertPercent: 80, confirm: true }],
+      ["/api/control/data-limit", { enabled: false, confirm: true }],
+      ["/api/control/ussd", { code: "*100#", confirm: true }],
+      ["/api/control/ussd", { action: "cancel", confirm: true }],
+      // ZTE's goform pages have no airplane switch and no way to clear the counters
+      ["/api/control/airplane-mode", { enabled: true, confirm: true }],
+      ["/api/control/traffic-reset", { confirm: true }],
+    ] as const) {
+      const [real, demo] = await both("POST", route, body);
+      assert.deepEqual(verdict(demo), verdict(real), `${route} ${JSON.stringify(body)}`);
+      assert.deepEqual(plain(demo), plain(real), `${route} ${JSON.stringify(body)}`);
+    }
+    const [real, demo] = await both("GET", "/api/console/experimental");
+    assert.deepEqual(brief((demo.json as unknown as ExperimentalWritesResponse).writes), brief((real.json as unknown as ExperimentalWritesResponse).writes));
+    const [after, later] = await both("GET", "/api/cellular");
+    assert.deepEqual(plain(later), plain(after));
+  });
 });

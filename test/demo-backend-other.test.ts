@@ -307,6 +307,40 @@ describe("Static demo backend vs the real daemon on another Huawei model", () =>
     assert.deepEqual(writes(demoReport.json), writes(realReport.json));
     assert.deepEqual(((demoReport.json["report"] as Json)["access"] as Json)["features"], ((realReport.json["report"] as Json)["access"] as Json)["features"]);
   });
+
+  it("reads and writes the cellular settings the generic way like the daemon, and refuses the rest alike", async () => {
+    /** An answer without the two times a read is stamped with. */
+    const plain = (r: { json: Json }): unknown => JSON.parse(JSON.stringify(r.json, (key, value: unknown) => (key === "capturedAtIso" || key === "capturedAtMs" || key === "schedulerStatus" ? undefined : value)));
+    const [read, shown] = await both("POST", "/api/cellular/refresh", {});
+    assert.deepEqual(plain(shown), plain(read));
+    const offered = (((read.json["cellular"] as Json | null)?.["networkMode"] as Json | null)?.["options"] ?? []) as string[];
+    assert.ok(offered.length > 0, "the router lists its network modes");
+    for (const [route, body] of [
+      ["/api/control/network-mode", { mode: offered.at(-1), confirm: true }],
+      ["/api/control/network-mode", { mode: "nr_sa", confirm: true }],
+      ["/api/control/operator-scan", { confirm: true }],
+      ["/api/control/operator", { mode: "manual", plmn: "27202", rat: "4G", confirm: true }],
+      ["/api/control/operator", { mode: "auto", confirm: true }],
+      ["/api/control/roaming", { enabled: true, confirm: true }],
+      ["/api/control/roaming", { enabled: true }],
+      // What the generic writes have no form for, or this router shows no sign of
+      ["/api/control/sim-slot", { kind: "embedded", index: 1, confirm: true }],
+      ["/api/control/sim-pin", { pin: "1234", confirm: true }],
+      ["/api/control/airplane-mode", { enabled: true, confirm: true }],
+      ["/api/control/apn", { mode: "auto", confirm: true }],
+      ["/api/control/data-limit", { enabled: false, confirm: true }],
+      ["/api/control/traffic-reset", { confirm: true }],
+      ["/api/control/ussd", { code: "*100#", confirm: true }],
+    ] as const) {
+      const [real, demo] = await both("POST", route, body);
+      assert.deepEqual(verdict(demo), verdict(real), `${route} ${JSON.stringify(body)}`);
+      assert.deepEqual(plain(demo), plain(real), `${route} ${JSON.stringify(body)}`);
+    }
+    const [real, demo] = await both("GET", "/api/console/experimental");
+    assert.deepEqual(brief((demo.json as unknown as ExperimentalWritesResponse).writes), brief((real.json as unknown as ExperimentalWritesResponse).writes));
+    const [after, later] = await both("GET", "/api/cellular");
+    assert.deepEqual(plain(later), plain(after));
+  });
 });
 
 describe("Static demo backend vs the real daemon: the one-click AI agent test on another model", () => {

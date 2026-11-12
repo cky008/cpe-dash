@@ -591,7 +591,7 @@ describe("the console in a browser", () => {
       assert.equal(await page.evaluate<boolean>(`${row("bandLock", " input")}.checked`), true, "on by default");
       assert.match(await page.evaluate<string>(`${row("bandLock")}.textContent`), /never checked on a real router/, "said at the switch");
       assert.equal(await page.evaluate<boolean>(`${row("cellLock", " input")} === null`), true, "no switch for a write FengSui has nothing for on this model");
-      assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=writes]').textContent"), /^Writes: 5 available \(never checked on a real router\)$/);
+      assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=writes]').textContent"), /^Writes: 8 available \(never checked on a real router\)$/);
       // Its row of Supported devices, worked out by the daemon, with a link to the brand's section
       const support = "document.querySelector('#settingsDialog [data-support=huawei]')";
       assert.match(await page.evaluate<string>(`${support}.textContent`), /The row of “B535-232”/);
@@ -608,7 +608,7 @@ describe("the console in a browser", () => {
       await page.waitUntil(`${row("bandLock", "[data-state=disabled] input")}?.checked === false && !${row("bandLock", " input")}.disabled`, "shown as off");
       assert.equal(await page.evaluate<boolean>(isOpen("confirmDialog")), false, "no dialog: nothing to type, nothing to consent to");
       assert.equal(other.stack.scheduler.device.writeAccess("bandLock"), "disabled", "the gate refuses it from now on");
-      assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=writes]').textContent"), /^Writes: 4 available/);
+      assert.match(await page.evaluate<string>("document.querySelector('#settingsDialog [data-role=writes]').textContent"), /^Writes: 7 available/);
 
       await page.click("#settingsDialog li[data-feature=bandLock] input");
       await until(() => other.stack.settings.disabledWrites.length === 0, "turned back on");
@@ -865,6 +865,92 @@ describe("the console on routers of other brands", () => {
       await until(() => demo.stack.scheduler.genericWrites.some((w) => w.feature === "antenna"), "the antenna write");
       const write = demo.stack.scheduler.genericWrites.find((w) => w.feature === "antenna");
       assert.deepEqual([write?.endpoints, write?.readback], [["nradio:/api/device/antenna_set_type"], "match"]);
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await demo.close();
+    }
+  });
+
+  /** Open the controls drawer and wait for the cellular settings to be read and drawn. */
+  async function openCellular(row: string): Promise<void> {
+    await page.click('[data-action="open-controls"]');
+    await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+    await page.waitUntil(`document.querySelector('#controlsDialog [data-section="cellular"][data-loaded="1"] [data-cellular="${row}"]') !== null`, `the ${row} row of the cellular settings, once they are read`);
+  }
+  const cellularRows = `[...document.querySelectorAll('#controlsDialog [data-section="cellular"] [data-cellular]')].map((el) => el.dataset.cellular)`;
+  const confirmText = "document.getElementById('confirmDialog').textContent";
+
+  it("shows a ZTE router's cellular settings, asks before each write with what it risks, and sends it once", async () => {
+    const demo = await brand("zte");
+    try {
+      await signIn(page, demo);
+      await openCellular("ussd");
+      // What ZTE's goform pages have: no airplane switch, no counters to clear
+      assert.deepEqual(await page.evaluate<string[]>(cellularRows), ["networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit", "ussd"]);
+
+      // The network mode: the confirmation says the setting is put back if the internet stays down
+      await page.evaluate(`(() => { const select = document.querySelector('[data-cellular="networkMode"] select'); select.value = 'lte'; select.dispatchEvent(new Event('change')); return true; })()`);
+      await page.click('[data-cellular="networkMode"] button');
+      await page.waitUntil(isOpen("confirmDialog"), "the mode's confirmation");
+      const modeText = await page.evaluate<string>(confirmText);
+      assert.match(modeText, /Switch to "4G only"/);
+      assert.match(modeText, /more than 3 minutes after the change, FengSui puts this setting back/);
+      assert.match(modeText, /never checked on a real router/);
+      await page.click("#confirmOk");
+      await until(() => demo.stack.scheduler.genericWrites.some((w) => w.feature === "networkMode"), "the mode write");
+      const mode = demo.stack.scheduler.genericWrites.find((w) => w.feature === "networkMode");
+      assert.deepEqual([mode?.endpoints, mode?.readback], [["zte-goform:SET_BEARER_PREFERENCE"], "match"]);
+      await page.waitUntil(`document.querySelector('[data-section="cellular"]').textContent.includes('Now: 4G only')`, "the mode the router reads back");
+
+      // The PIN: the attempts the router reports are in the confirmation, and a cancel sends nothing
+      await page.evaluate(`(() => { const pin = document.querySelector('[data-cellular="simPin"] input'); pin.value = '1234'; return true; })()`);
+      await page.click('[data-cellular="simPin"] button');
+      await page.waitUntil(isOpen("confirmDialog"), "the PIN's confirmation");
+      assert.match(await page.evaluate<string>(confirmText), /The router reports 3 attempts left\. FengSui sends this once and does not try again/);
+      await page.evaluate(`document.getElementById('confirmDialog').close(); true`);
+      assert.equal(demo.stack.scheduler.genericWrites.filter((w) => w.feature === "simPin").length, 0, "nothing sent on a cancel");
+
+      // USSD: the operator's answer is shown as text, and neither it nor the code is kept anywhere
+      await page.evaluate(`(() => { const code = document.querySelector('[data-cellular="ussd"] input'); code.value = '*100#'; return true; })()`);
+      await page.click('[data-cellular="ussd"] button');
+      await page.waitUntil(isOpen("confirmDialog"), "the USSD confirmation");
+      assert.match(await page.evaluate<string>(confirmText), /Some codes order a service or cost money/);
+      await page.click("#confirmOk");
+      await page.waitUntil(`document.querySelector('[data-ussd-answer="answered"]') !== null`, "the operator's answer");
+      assert.match(await page.evaluate<string>(`document.querySelector('[data-ussd-answer]').textContent`), /^Carrier-Lab: your balance is/);
+      const kept = JSON.stringify([demo.stack.scheduler.genericWrites, demo.stack.scheduler.getStatus()]);
+      assert.ok(!kept.includes("*100#") && !kept.includes("your balance"), "neither the code nor the answer is in a record");
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+      await signIn(page, demo, PHONE);
+      await openCellular("ussd");
+      assert.equal(await sidewaysOverflow(page), 0, "the cellular settings fit a phone screen");
+      await closeDialogs(page);
+    } finally {
+      await demo.close();
+    }
+  });
+
+  it("says before airplane mode goes on that only FengSui turns it off again, and offers no PIN without an attempts count", async () => {
+    const demo = await brand("openwrt");
+    try {
+      await signIn(page, demo);
+      await openCellular("airplaneSwitch");
+      const rows = await page.evaluate<string[]>(cellularRows);
+      assert.ok(rows.includes("networkMode") && rows.includes("operatorSelect") && rows.includes("apn") && !rows.includes("ussd"), rows.join(","));
+      await page.click('[data-cellular="airplaneSwitch"] input[type="checkbox"]');
+      await page.waitUntil(isOpen("confirmDialog"), "the airplane mode confirmation");
+      const text = await page.evaluate<string>(confirmText);
+      assert.match(text, /disconnects from the mobile network until you come back to FengSui and turn it off/);
+      assert.match(text, /only turn airplane mode off from the local network/);
+      await page.click("#confirmOk");
+      await until(() => demo.stack.scheduler.genericWrites.some((w) => w.feature === "airplaneSwitch"), "the airplane mode write");
+      assert.deepEqual(demo.stack.scheduler.genericWrites.find((w) => w.feature === "airplaneSwitch")?.endpoints, ["openwrt:AT+CFUN"]);
+      // An access point on OpenWrt takes a name and a type: no user name or password field
+      await page.click('[data-cellular="apn"] [data-apn-mode="manual"]');
+      await page.waitUntil(`document.querySelector('[data-cellular="apn"] input[type="text"]') !== null`, "the access point form");
+      assert.equal(await page.evaluate<number>(`document.querySelectorAll('[data-cellular="apn"] input[type="password"]').length`), 0);
       assert.deepEqual(page.exceptions, []);
       await closeDialogs(page);
     } finally {

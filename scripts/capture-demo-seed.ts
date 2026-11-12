@@ -3,6 +3,7 @@ import path from "node:path";
 import type {
   AccessControlEndpointResponse,
   AlertsResponse,
+  CellularEndpointResponse,
   DeviceProfileResponse,
   DeviceReportResponse,
   HealthResponse,
@@ -159,6 +160,8 @@ export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
     sms: { status: smsStatus.status, countries, messages, contacts: contacts.contacts },
     catalog: { "zh-CN": catalogSubset("zh-CN"), en: catalogSubset("en") },
     device: { profile: deviceProfile, report: await session.get<DeviceReportResponse>("/api/console/device-report") },
+    // Read now: the daemon reads the cellular settings when the control drawer asks, not on a timer
+    cellular: await session.post<CellularEndpointResponse>("/api/cellular/refresh", {}),
   };
 }
 

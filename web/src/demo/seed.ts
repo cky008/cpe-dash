@@ -1,6 +1,7 @@
 import type {
   AccessControlEndpointResponse,
   AlertsResponse,
+  CellularEndpointResponse,
   ContactRecord,
   DeviceProfileResponse,
   DeviceReportResponse,
@@ -42,6 +43,8 @@ export interface DemoSeed {
   };
   /** The daemon's own `controls.*`, `sms.*` and `alerts.*` messages, for toasts and alerts. */
   catalog: Record<"zh-CN" | "en", Record<string, string>>;
+  /** The router's cellular settings as the daemon read them (seeds from before v1.9 lack them). */
+  cellular?: CellularEndpointResponse;
   /** The demo router as the daemon identified it, and its device report (seeds from before v1.6 lack it). */
   device?: { profile: DeviceProfileResponse; report: DeviceReportResponse };
 }

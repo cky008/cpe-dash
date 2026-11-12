@@ -40,6 +40,13 @@ const GENERIC_ENDPOINTS: Partial<Readonly<Record<ControlAction, string>>> = {
   sms_send: "/api/sms/send-sms",
   sms_mark_read: "/api/sms/set-read",
   sms_delete: "/api/sms/delete-sms",
+  // The cellular settings (protocol.md A.12)
+  set_network_mode: "/api/net/net-mode",
+  scan_operators: "/api/net/plmn-list",
+  select_operator: "/api/net/register",
+  set_roaming: "/api/dialup/connection",
+  reset_traffic: "/api/monitoring/clear-traffic",
+  send_ussd: "/api/ussd/send",
 };
 /** What a write the demo's ZTE router took sent, as the daemon's driver names it (`zte-goform:<goformId>`). */
 export interface WriteHint {
@@ -52,6 +59,10 @@ export interface WriteHint {
   enabled?: boolean;
   /** What an unlock had to take off: NR bands, an LTE cell, an NR cell. */
   locked?: { nr: boolean; lteCell: boolean; nrCell: boolean };
+  /** A cellular setting names the goform requests it sent itself. */
+  sent?: ReadonlyArray<string>;
+  /** A write with nothing to read back (a search, a USSD code, a PIN the card refused). */
+  readback?: "none";
 }
 
 /** The goform writes of the ZTE world's router (the driver's first branch, as `noteSent` names them). */
@@ -76,7 +87,7 @@ function goformEndpoints(action: ControlAction, hint: WriteHint): string[] | nul
     case "sms_delete":
       return ["DELETE_SMS"];
     default:
-      return null;
+      return hint.sent ? [...hint.sent] : null;
   }
 }
 
@@ -205,7 +216,7 @@ export class DemoDevice {
       endpoints,
       outcome: "applied",
       code: null,
-      readback: feature === "reboot" || feature === "reconnect" ? "pending" : "match",
+      readback: hint.readback ?? (feature === "reboot" || feature === "reconnect" ? "pending" : "match"),
       reason: null,
     };
     this.#writes = [...this.#writes, record].slice(-MAX_WRITES);

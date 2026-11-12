@@ -6,7 +6,8 @@ import { type FengSuiRuntimeStack, createFengSuiRuntime, startServeDaemon } from
 import { loadConfig } from "../src/config.ts";
 import { type FamilySms, createCpeFamily } from "../test/helpers/cpe-family.ts";
 import { type StrictCpe, createStrictCpe } from "../test/helpers/strict-cpe.ts";
-import { zteRouter, zteSms } from "../test/helpers/zte-goform-router.ts";
+import { zteApnProfile, zteRouter, zteSms } from "../test/helpers/zte-goform-router.ts";
+import { DEMO_OPERATORS, DEMO_USSD_ANSWER } from "../web/src/demo/cellular.ts";
 import { NRADIO_URL, nradioRouter } from "../test/helpers/nradio-router.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "../test/helpers/openwrt-router.ts";
 import type { RouterFamily } from "../src/router-family.ts";
@@ -21,6 +22,13 @@ import { StorageCipher } from "../src/encrypted-file.ts";
  * leaves the process, the project's .env is never read, and every identifier is an RFC / reserved
  * placeholder (AGENTS.md 铁律二).
  */
+
+/** The demo's search result (`DEMO_OPERATORS`) as each demo router lists it: ZTE's scan rows, HiLink's `<Network>` blocks. */
+const SCAN_STATE = { unknown: 0, available: 1, current: 2, forbidden: 3 } as const;
+const SCAN_ACT = { "2G": "0", "3G": "2", "4G": "7", "5G": "12" } as const;
+const zteScan = (): string => DEMO_OPERATORS.map((row) => `${SCAN_STATE[row.state]},"${row.name ?? ""}","${row.plmn}",${SCAN_ACT[row.rat ?? "4G"]}${row.rat === "4G" ? ",1" : ""}`).join(";");
+const hilinkNetworks = (): string =>
+  DEMO_OPERATORS.map((row) => `<Network><State>${SCAN_STATE[row.state]}</State><FullName>${row.name ?? ""}</FullName><ShortName>${row.name ?? ""}</ShortName><Numeric>${row.plmn}</Numeric><Rat>${SCAN_ACT[row.rat ?? "4G"]}</Rat></Network>`).join("");
 
 export const DEMO_CPE_PASSWORD = "demo-router-password";
 
@@ -220,7 +228,7 @@ export function createUnverifiedDemoRouter(): DemoRouter {
   const endpoints: Record<string, string> = {
     "/api/net/current-plmn": "<response><State>0</State><FullName>Carrier-Lab</FullName><ShortName>CARRIER</ShortName><Numeric>27201</Numeric><Rat>7</Rat></response>",
     "/api/net/net-mode": "<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>800800C5</LTEBand></response>",
-    "/api/net/net-mode-list": "<response><LTEBandList><LTEBand><Name>LTE BC1/BC3/BC7/BC8/BC20/BC32</Name><Value>800800C5</Value></LTEBand></LTEBandList></response>",
+    "/api/net/net-mode-list": "<response><AccessList><Access>00</Access><Access>03</Access><Access>02</Access></AccessList><LTEBandList><LTEBand><Name>LTE BC1/BC3/BC7/BC8/BC20/BC32</Name><Value>800800C5</Value></LTEBand></LTEBandList></response>",
     "/api/monitoring/start_date": "<response><StartDay>1</StartDay><DataLimit>500GB</DataLimit><MonthThreshold>90</MonthThreshold></response>",
     "/api/lan/HostInfo": `<response><Hosts>${hosts
       .map((host, i) => `<Host><ID>${i + 1}</ID><MacAddress>${host.mac}</MacAddress><IpAddress>${host.ip}</IpAddress><HostName>${host.name}</HostName><Active>1</Active><InterfaceType>${host.type}</InterfaceType>${host.frequency ? `<Frequency>${host.frequency}</Frequency>` : ""}</Host>`)
@@ -246,7 +254,7 @@ export function createUnverifiedDemoRouter(): DemoRouter {
     { index: 39010, phone: "+353830000001", content: "Great, dinner is on me", date: routerDate(85), smstat: "3", box: 2 },
   ];
   // No marketing name: a 4G router should not show the family's "5G CPE" one, and the model says enough
-  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", password: DEMO_CPE_PASSWORD, model: "B535-232", firmware: "11.0.1.2(H7SP2C00)", marketingName: null, endpoints, sms: mailbox, writes: {} });
+  const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", password: DEMO_CPE_PASSWORD, model: "B535-232", firmware: "11.0.1.2(H7SP2C00)", marketingName: null, endpoints, sms: mailbox, writes: { cellular: { networks: hilinkNetworks(), connection: { RoamAutoConnectEnable: "0", MaxIdelTime: "0", ConnectMode: "0", MTU: "1500", auto_dial_switch: "1", pdp_always_on: "0" } } } });
   let nextIndex = 40_012;
   // What a generic write does to the household: a new connection, or no WAN without mobile data
   const demoFetch: typeof fetch = async (input, init) => {
@@ -301,6 +309,10 @@ export function createZteDemoRouter(): DemoRouter {
     url: ZTE_DEMO_URL,
     model: "MU5001",
     hw: "MU5001_HW1.0",
+    // The cellular settings: a search, a registration that takes, one profile of the router's own, and an operator that answers USSD
+    operators: { scan: zteScan(), register: "manual_success" },
+    apn: { profiles: [zteApnProfile("Default", "internet", "IPv4v6")] },
+    ussd: { text: DEMO_USSD_ANSWER },
     sms: [
       zteSms(12, "DemoBank", "Your DemoBank verification code is 315902. It expires in 10 minutes.", "1", routerDate(6)),
       zteSms(11, "+353830000001", "Back home by 8, see you then", "0", routerDate(90)),
