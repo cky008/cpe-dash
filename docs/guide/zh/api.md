@@ -115,6 +115,7 @@ curl -X POST \
 | `GET` | `/api/topology` | 任何令牌 | 已连接设备 |
 | `GET` | `/api/settings` | 任何令牌 | 路由器设置：UPnP、DMZ、防火墙、Wi-Fi 7、天线、移动数据 |
 | `GET` | `/api/access-control` | 任何令牌 | Wi-Fi 黑白名单和上网时段 |
+| `GET` | `/api/cellular` | 任何令牌 | 蜂窝设置（上一次读到的）：网络制式和路由器提供的选项、可切换的 SIM 卡槽、运营商怎么选、接入点（APN）、路由器自己的流量上限 |
 | `GET` | `/api/session/status` | 任何令牌 | 烽燧和路由器之间的状态：是否在让位、是否熔断、自愈在做什么 |
 | `GET` | `/api/device/profile` | 任何令牌 | 识别到的型号、固件和能力，以及它在「支持的设备」表里的那一行（不含设备标识） |
 | `GET` | `/api/alerts` | 任何令牌 | 最近 100 条告警，以及每个通知渠道的发送统计 |
@@ -129,6 +130,7 @@ curl -X POST \
 | `POST` | `/api/topology/refresh` | 任何令牌 | 马上读一次已连接设备 |
 | `POST` | `/api/settings/refresh` | 任何令牌 | 马上读一次路由器设置 |
 | `POST` | `/api/access-control/refresh` | 任何令牌 | 马上读一次黑白名单和上网时段 |
+| `POST` | `/api/cellular/refresh` | 任何令牌 | 马上读一次蜂窝设置 |
 
 ### 路由器控制
 
@@ -143,6 +145,17 @@ curl -X POST \
 | `POST` | `/api/control/wifi7` | 改动路由器 | Wi-Fi 7 多链路（`mloEnable`）和双频优选（`dbhoEnable`） | `{"mloEnable":true}` |
 | `POST` | `/api/control/antenna` | 改动路由器 | 天线：`auto`、`internal`、`external` | `{"mode":"auto"}` |
 | `POST` | `/api/control/mobile-data` | 改动路由器 | 打开或关闭移动数据 | `{"enabled":true}` |
+| `POST` | `/api/control/network-mode` | 改动路由器 | 网络制式：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_wcdma`、`wcdma`、`gsm` 中路由器提供的（见 `GET /api/cellular`）。断网 3 分钟没恢复，烽燧自动改回 | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/operator-scan` | 改动路由器 | 搜索附近的运营商网络：最长一分钟，期间可能断网 | `{"confirm":true}` |
+| `POST` | `/api/control/operator` | 改动路由器 | 选运营商：`auto` 交回路由器自己选，`manual` 加 `plmn`（和可选的 `rat`）固定到一个网络。断网 3 分钟没恢复，烽燧自动改回 | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/sim-slot` | 改动路由器 | 切换 SIM 卡槽：`physical`（实体卡）或 `embedded`（内置卡，`index` 是第几张）。断网 3 分钟没恢复，烽燧自动切回 | `{"kind":"physical","confirm":true}` |
+| `POST` | `/api/control/sim-pin` | 改动路由器 | SIM 卡 PIN：`enter` 输入 PIN，`lock` / `unlock` 开关「开机要 PIN」。只发一次；路由器没有报告剩余次数、或只剩一次时不发。`accepted: false` 表示卡没有接受 | `{"action":"enter","pin":"1234","confirm":true}` |
+| `POST` | `/api/control/airplane-mode` | 改动路由器 | 飞行模式：打开后路由器断开移动网络，烽燧不会自己关掉它 | `{"enabled":false,"confirm":true}` |
+| `POST` | `/api/control/roaming` | 改动路由器 | 数据漫游：漫游时用不用流量 | `{"enabled":false,"confirm":true}` |
+| `POST` | `/api/control/apn` | 改动路由器 | 接入点（APN）：`auto` 由路由器按 SIM 卡选，`manual` 加 `apn`（和可选的 `ipType`、`auth`、`username`、`password`）。断网 3 分钟没恢复，烽燧自动换回 | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/data-limit` | 改动路由器 | 路由器自己的流量上限：`enabled`、`bytes`、`alertPercent`（到多少比例时提醒） | `{"enabled":false,"confirm":true}` |
+| `POST` | `/api/control/traffic-reset` | 改动路由器 | 清零路由器自己记的流量统计 | `{"confirm":true}` |
+| `POST` | `/api/control/ussd` | 改动路由器 | USSD：发送一条指令（`code`），`action` 为 `reply` 时回复运营商的提问，为 `cancel` 时结束会话。应答是运营商写的文字 | `{"code":"*100#","confirm":true}` |
 | `POST` | `/api/session/reset-breaker` | 改动路由器 | 解除路由器账户被锁（错误码 108007）引起的熔断，并重新读取 `.env`；密码错误引起的熔断请在「设置 → 路由器」改正密码 |  |
 
 ### 设备上网管理

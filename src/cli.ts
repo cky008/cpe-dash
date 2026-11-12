@@ -17,6 +17,7 @@ import { type FileLockHandle, StorageCipher, onStorageWriteFailure, quarantinedS
 import { FengSuiHttpServer } from "./http-server.ts";
 import { backupDataDir, formatDoctorReport, rekeyDataDir, restoreDataDir, runDoctor } from "./maintenance.ts";
 import { AccessControlMcpTools } from "./mcp-access-tools.ts";
+import { CellularMcpTools } from "./mcp-cellular-tools.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
 import { RuntimeSampler } from "./metrics.ts";
 import { McpStdioBridge } from "./mcp-stdio-bridge.ts";
@@ -456,6 +457,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     allowWrites: () => behaviour.agentAccessControl,
     redactSensitive: () => behaviour.redactApi,
   });
+  const cellularTools = new CellularMcpTools({ core });
   const mcpServer = new FengSuiMcpServer({
     core,
     allowMutations: () => behaviour.agentWrites,
@@ -475,6 +477,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     toolProviders: sms
       ? [
           accessTools,
+          cellularTools,
           new SmsMcpTools({
             sms,
             access: () => behaviour.agentSms,
@@ -482,7 +485,7 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
             sendLimitPerHour: () => behaviour.agentSmsSendLimitPerHour,
           }),
         ]
-      : [accessTools],
+      : [accessTools, cellularTools],
   });
 
   // The writes the owner turned off on a router nobody verified. Each entry names its model and the

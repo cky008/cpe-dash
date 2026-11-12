@@ -7,6 +7,20 @@
 import type { AccessControlSnapshot, TimeRulesState } from "./access-control.ts";
 import type { MacFilterEntry, TimeRule, TimeRuleInput, WifiFilterMode, WifiFilterPolicy, WifiMacFilterState } from "./access-plan.ts";
 import type { AlertEventRecord } from "./state-store.ts";
+import type {
+  ApnAuthMode,
+  ApnIpType,
+  ApnView,
+  CellularSettingsSnapshot,
+  DataLimitSetting,
+  NetworkMode,
+  OperatorChoice,
+  OperatorRat,
+  OperatorSelection,
+  SimPinOutcome,
+  SimSlotRef,
+  UssdAnswer,
+} from "./cellular.ts";
 import type { BehaviourReport } from "./behaviour-settings.ts";
 import type { TokenPermission } from "./console-policy.ts";
 import type { RouterFamily } from "./router-family.ts";
@@ -527,6 +541,78 @@ export interface MobileDataControlResponse {
   mobileDataEnabled: boolean;
 }
 
+// ── Cellular settings (`src/cellular.ts`): one read, and the writes under `/api/control/` ──
+
+/** `GET /api/cellular` (the settings last read) and `POST /api/cellular/refresh` (read them now). */
+export interface CellularEndpointResponse {
+  ok: true;
+  schedulerStatus: SchedulerStatusSnapshot;
+  /** `null`: not read yet, or this router's interface has no read for any of them. */
+  cellular: CellularSettingsSnapshot | null;
+}
+
+/** The settings after a write, read in a session of their own (`null`: that read did not get in). */
+interface WithCellular {
+  cellular: CellularSettingsSnapshot | null;
+}
+
+export interface NetworkModeControlResponse extends WithCellular {
+  ok: true;
+  networkMode: NetworkMode;
+}
+
+/** What a scan found. The names are the operators' own text. */
+export interface OperatorScanResponse {
+  ok: true;
+  operators: OperatorChoice[];
+}
+
+export interface OperatorControlResponse extends WithCellular {
+  ok: true;
+  operator: OperatorSelection;
+}
+
+export interface SimSlotControlResponse extends WithCellular {
+  ok: true;
+  simSlot: SimSlotRef;
+}
+
+/** `accepted: false`: the card refused the PIN (sent once, not tried again). */
+export interface SimPinControlResponse extends SimPinOutcome {
+  ok: true;
+}
+
+export interface AirplaneModeControlResponse {
+  ok: true;
+  airplaneMode: boolean;
+}
+
+export interface RoamingControlResponse {
+  ok: true;
+  dataRoaming: boolean;
+}
+
+export interface ApnControlResponse extends WithCellular {
+  ok: true;
+  apnMode: "auto" | "manual";
+}
+
+export interface DataLimitControlResponse extends WithCellular {
+  ok: true;
+  dataLimit: DataLimitSetting;
+}
+
+export interface TrafficResetResponse {
+  ok: true;
+  reset: true;
+}
+
+/** `ussd.text` is the operator's own words: third-party content. */
+export interface UssdResponse {
+  ok: true;
+  ussd: UssdAnswer;
+}
+
 /** Devices the access-control writes refuse to cut off, as seen for this caller. */
 export interface AccessGuardInfo {
   /** The machine running FengSui (`IsLocalDevice` in HostInfo); `null` before the first topology read. */
@@ -668,6 +754,47 @@ export interface CellLockRequest {
   /** Omitted or `null`: lock the frequency (`lock_mode=1`). */
   pci?: number | null;
 }
+
+// Cellular settings: every one of these also needs `confirm: true`
+
+export interface NetworkModeRequest {
+  mode: NetworkMode;
+  confirm: true;
+}
+
+export type OperatorRequest = { mode: "auto"; confirm: true } | { mode: "manual"; plmn: string; rat?: OperatorRat | null; confirm: true };
+
+export interface SimSlotRequest {
+  kind: SimSlotRef["kind"];
+  /** The first of its kind when left out. */
+  index?: number;
+  confirm: true;
+}
+
+/** `enter`: unlock a card that waits for its PIN; `lock` / `unlock`: ask for the PIN at every start, or not. */
+export interface SimPinRequest {
+  action?: "enter" | "lock" | "unlock";
+  pin: string;
+  confirm: true;
+}
+
+export interface CellularSwitchRequest {
+  enabled: boolean;
+  confirm: true;
+}
+
+export type ApnRequest = { mode: "auto"; confirm: true } | { mode: "manual"; apn: string; ipType?: ApnIpType; auth?: ApnAuthMode; username?: string; password?: string; confirm: true };
+
+export interface DataLimitRequest {
+  enabled: boolean;
+  bytes?: number | null;
+  alertPercent?: number | null;
+  confirm: true;
+}
+
+export type UssdSendRequest = { action?: "send" | "reply"; code: string; confirm: true } | { action: "cancel"; confirm: true };
+
+export type { ApnView, CellularSettingsSnapshot, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer };
 
 export interface SecurityControlRequest {
   upnpEnabled?: boolean;

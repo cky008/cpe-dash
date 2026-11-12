@@ -60,7 +60,7 @@ cpe-dash/
 │   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照（含电量、充电、SIM 卡锁住、飞行模式、漫游、路由器的负载与运行时间、各类温度传感器）与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
 │   ├── sms/                # 短信：编解码（codec.ts 是华为的报文，text-mode.ts 是 GSM 7-bit 字母表与分段计数，pdu.ts 是 3GPP TS 23.040 的 PDU：7-bit 打包、UCS-2、长短信的 UDH、SMS-DELIVER / SMS-SUBMIT）、号码解析、华为协议、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具
 │   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
-│   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源
+│   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源、http-cellular.ts 蜂窝设置的写路由
 │   ├── control-input.ts    # REST、MCP 与在线演示共用的入参校验（零依赖；control-error.ts 为其错误类）；mcp-schema.ts 工具 inputSchema 运行时校验
 │   ├── sse-bus.ts          # /api/events SSE 总线
 │   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（可插拔工具提供者，挂载于 /mcp；mcp-core-tools.ts 核心 16 项工具、mcp-access-tools.ts 访问控制工具、mcp-cellular-tools.ts 蜂窝设置工具、mcp-tool-provider.ts 提供者契约、mcp-headers.ts 2026-07-28 路由头）

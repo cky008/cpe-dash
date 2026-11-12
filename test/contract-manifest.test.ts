@@ -6,6 +6,7 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
+import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
 import { CoreMcpTools } from "../src/mcp-core-tools.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
@@ -74,13 +75,19 @@ describe("contract manifest: code ↔ docs", () => {
         experimental: { allowed: () => true, change: () => ({ ok: true, detail: "" }) },
         toolProviders: [
           new AccessControlMcpTools({ core, allowWrites: true, redactSensitive: () => false }),
+          new CellularMcpTools({ core }),
           new SmsMcpTools({ sms, access: "full", sendPolicy: "known", sendLimitPerHour: 10 }),
         ],
       });
       const reply = (await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }))) as JsonRpcSuccessResponse;
-      // Plus the tools listed only on some routers (set_experimental_write: a model nobody verified)
-      const tools = [...((reply.result as { tools: Array<{ name: string }> }).tools ?? []).map((t) => t.name), ...new CoreMcpTools(core).getToolDefinitions().map((t) => t.name)];
-      assert.ok(new Set(tools).size >= 30, `found ${new Set(tools).size} tools`);
+      // Plus the tools listed only on some routers (set_experimental_write: a model nobody verified; the
+      // cellular settings: where FengSui implements them, which is not the verified model)
+      const tools = [
+        ...((reply.result as { tools: Array<{ name: string }> }).tools ?? []).map((t) => t.name),
+        ...new CoreMcpTools(core).getToolDefinitions().map((t) => t.name),
+        ...new CellularMcpTools({ core }).getToolDefinitions().map((t) => t.name),
+      ];
+      assert.ok(new Set(tools).size >= 42, `found ${new Set(tools).size} tools`);
       assert.deepEqual(missing(tools, { "docs/dev/api.md": CONTRACT, ...GUIDE_AGENTS }), []);
     } finally {
       await stopFengSuiCore(core);
@@ -90,7 +97,7 @@ describe("contract manifest: code ↔ docs", () => {
 
   it("lists every alert code the daemon raises in the contract's AlertCode union", () => {
     const codes = SOURCES.flatMap(([, text]) => [
-      ...matchesIn(text, /#raise\(\s*"(?:info|warning|critical)",\s*"([A-Z][A-Z_]+)"/g),
+      ...matchesIn(text, /#raise(?:Link)?\(\s*"(?:info|warning|critical)",\s*"([A-Z][A-Z_]+)"/g),
       ...matchesIn(text, /raiseAlert\(\{\s*severity:\s*"(?:info|warning|critical)",\s*code:\s*"([A-Z][A-Z_]+)"/g),
     ]);
     assert.ok(codes.length >= 20, `found ${codes.length} codes`);
@@ -108,7 +115,7 @@ describe("contract manifest: code ↔ docs", () => {
   });
 
   it("documents every REST route in the contract", () => {
-    const routes = ["src/http-server.ts", "src/http-settings.ts", "src/sms/http-routes.ts"].flatMap((file) => matchesIn(read(file), /"(\/api\/[a-z0-9/_-]+?)\/?"/g));
+    const routes = ["src/http-server.ts", "src/http-settings.ts", "src/http-cellular.ts", "src/sms/http-routes.ts"].flatMap((file) => matchesIn(read(file), /"(\/api\/[a-z0-9/_-]+?)\/?"/g));
     assert.ok(routes.length >= 40, `found ${routes.length} routes`);
     assert.deepEqual(missing(routes, { "docs/dev/api.md": CONTRACT }, false), []);
   });

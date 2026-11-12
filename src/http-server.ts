@@ -57,6 +57,7 @@ import type {
   SettingsEndpointResponse,
   SettingsRefreshResponse,
   SseInitialSnapshot,
+  CellularEndpointResponse,
   TelegramChatRecord,
   TelemetryEndpointResponse,
   TelemetryRefreshResponse,
@@ -64,6 +65,7 @@ import type {
   TopologyEndpointResponse,
   Wifi7ControlResponse,
 } from "./api-contract.ts";
+import { cellularControl } from "./http-cellular.ts";
 import { serveStaticAsset } from "./http-static.ts";
 import {
   getLocaleCatalog,
@@ -105,6 +107,7 @@ const READ_ONLY_POSTS: ReadonlySet<string> = new Set([
   "/api/neighbors/scan",
   "/api/topology/refresh",
   "/api/settings/refresh",
+  "/api/cellular/refresh",
   "/api/access-control/refresh",
   "/api/sms/preview",
   "/api/sms/sync",
@@ -970,6 +973,10 @@ export class FengSuiHttpServer {
             this.#sendJson(res, 200, this.#accessControlView(this.core.monitor.getCachedAccessControl(), caller) satisfies AccessControlEndpointResponse);
             return;
 
+          case "/api/cellular":
+            this.#sendJson(res, 200, { ok: true, schedulerStatus: this.core.scheduler.getStatus(), cellular: this.core.monitor.getCachedCellular() } satisfies CellularEndpointResponse);
+            return;
+
           case "/api/session/status":
             this.#sendJson(res, 200, {
               ok: true,
@@ -1073,6 +1080,12 @@ export class FengSuiHttpServer {
             changed: result.changed,
             alsoBlocked: redact ? result.alsoBlocked.map(maskMacTail) : result.alsoBlocked,
           } satisfies AccessControlChangeResponse);
+          return;
+        }
+
+        case "/api/cellular/refresh": {
+          const cellular = await this.core.monitor.refreshCellular();
+          this.#sendJson(res, 200, { ok: true, schedulerStatus: this.core.scheduler.getStatus(), cellular: cellular ?? this.core.monitor.getCachedCellular() } satisfies CellularEndpointResponse);
           return;
         }
 
@@ -1183,12 +1196,19 @@ export class FengSuiHttpServer {
           return;
         }
 
-        default:
+        default: {
+          // The cellular settings (network mode, operator, SIM slot and PIN, airplane mode, roaming, APN, data limit, USSD)
+          const cellular = await cellularControl(this.core.controls, pathname, body);
+          if (cellular) {
+            this.#sendJson(res, 200, cellular);
+            return;
+          }
           this.#sendJson(res, 404, {
             ok: false,
             errorCode: "NOT_FOUND",
             message: `Unknown POST endpoint ${pathname}`,
           });
+        }
       }
     } catch (err) {
       if (err instanceof HttpPayloadError) {

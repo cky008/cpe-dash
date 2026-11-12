@@ -115,6 +115,7 @@ The Permission column names what a token needs beyond reading. The request and a
 | `GET` | `/api/topology` | Any token | Connected devices |
 | `GET` | `/api/settings` | Any token | Router settings: UPnP, DMZ, firewall, Wi-Fi 7, antenna, mobile data |
 | `GET` | `/api/access-control` | Any token | The Wi-Fi MAC filter and internet schedules |
+| `GET` | `/api/cellular` | Any token | The cellular settings as last read: the network mode and the ones the router offers, the SIM slots it can switch between, how the operator is chosen, the access point (APN), the router's own data limit |
 | `GET` | `/api/session/status` | Any token | How FengSui stands with the router: yielding, breaker, what self-healing is doing |
 | `GET` | `/api/device/profile` | Any token | The identified model, firmware and capabilities, and its row of Supported devices (no identifiers) |
 | `GET` | `/api/alerts` | Any token | The last 100 alerts, and delivery counts per notification channel |
@@ -129,6 +130,7 @@ The Permission column names what a token needs beyond reading. The request and a
 | `POST` | `/api/topology/refresh` | Any token | Read the connected devices now |
 | `POST` | `/api/settings/refresh` | Any token | Read the router settings now |
 | `POST` | `/api/access-control/refresh` | Any token | Read the MAC filter and schedules now |
+| `POST` | `/api/cellular/refresh` | Any token | Read the cellular settings now |
 
 ### Router controls
 
@@ -143,6 +145,17 @@ The Permission column names what a token needs beyond reading. The request and a
 | `POST` | `/api/control/wifi7` | Change the router | Wi-Fi 7 multi-link (`mloEnable`) and dual-band steering (`dbhoEnable`) | `{"mloEnable":true}` |
 | `POST` | `/api/control/antenna` | Change the router | Antenna: `auto`, `internal`, `external` | `{"mode":"auto"}` |
 | `POST` | `/api/control/mobile-data` | Change the router | Turn mobile data on or off | `{"enabled":true}` |
+| `POST` | `/api/control/network-mode` | Change the router | Network mode: one of `auto`, `nr_sa`, `nr_nsa`, `nr_lte`, `lte`, `lte_wcdma`, `wcdma`, `gsm` that the router offers (see `GET /api/cellular`). If the WAN stays down 3 minutes, FengSui puts the earlier mode back | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/operator-scan` | Change the router | Search for the networks in range: up to a minute, and the connection may drop meanwhile | `{"confirm":true}` |
+| `POST` | `/api/control/operator` | Change the router | Choose the operator: `auto` hands the choice back to the router, `manual` with `plmn` (and an optional `rat`) keeps it on one network. If the WAN stays down 3 minutes, FengSui puts the earlier choice back | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/sim-slot` | Change the router | Switch the SIM slot: `physical` (the card in the tray) or `embedded` (a built-in card, `index` says which). If the WAN stays down 3 minutes, FengSui switches back | `{"kind":"physical","confirm":true}` |
+| `POST` | `/api/control/sim-pin` | Change the router | The SIM PIN: `enter` it, or `lock` / `unlock` to turn "ask for the PIN at every start" on or off. Sent once, and not at all when the router reports no attempts count or one attempt left. `accepted: false` means the card refused it | `{"action":"enter","pin":"1234","confirm":true}` |
+| `POST` | `/api/control/airplane-mode` | Change the router | Airplane mode: turning it on takes the router off the mobile network, and FengSui never turns it off on its own | `{"enabled":false,"confirm":true}` |
+| `POST` | `/api/control/roaming` | Change the router | Data roaming: whether data is used while roaming | `{"enabled":false,"confirm":true}` |
+| `POST` | `/api/control/apn` | Change the router | The access point (APN): `auto` lets the router pick for the SIM card, `manual` takes `apn` (and optional `ipType`, `auth`, `username`, `password`). If the WAN stays down 3 minutes, FengSui switches back | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/data-limit` | Change the router | The router's own data limit: `enabled`, `bytes`, `alertPercent` (the share at which it warns) | `{"enabled":false,"confirm":true}` |
+| `POST` | `/api/control/traffic-reset` | Change the router | Clear the traffic counters the router itself keeps | `{"confirm":true}` |
+| `POST` | `/api/control/ussd` | Change the router | USSD: send a code (`code`); `action` `reply` answers the operator's question, `cancel` ends the session. The answer is text the operator wrote | `{"code":"*100#","confirm":true}` |
 | `POST` | `/api/session/reset-breaker` | Change the router | Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router |  |
 
 ### Devices' internet access

@@ -322,6 +322,9 @@ export type AlertCode =
   | "DUPLICATE_DAEMON_CLEARED" // info：领先方停止，待机方恢复
   | "LOCK_ROLLED_BACK"         // warning：锁定后 LOCK_ROLLBACK_AFTER_MIN 到期时 WAN 仍断开，已自动解除全部锁定（控制事件 action = "auto_unlock_rf_locks"）
   | "LOCK_ROLLBACK_FAILED"     // critical：自动解锁没有完成（熔断、另一守护进程领先、连续 3 次失败，或到期后 1 小时仍被真人登录挡住）
+  | "SETTING_ROLLED_BACK"      // warning：更改 SIM 卡槽、网络制式、运营商选择或接入点（APN）后 3 分钟 WAN 仍断开，已自动改回写入前读到的值（action = "auto_restore_sim_slot" 等，见 2.13）；任何型号、任何入口都一样，不受自愈开关影响
+  | "SETTING_ROLLBACK_FAILED"  // critical：上面的自动改回没有完成（闸门拒绝、熔断、另一守护进程领先、连续 3 次失败，或到期后 1 小时仍没改成）
+  | "SETTING_NOT_ROLLED_BACK"  // warning：更改后 3 分钟 WAN 仍断开，但烽燧在写入前没有读到原来的值，不能自动改回，什么都没写
   | "WAN_AUTO_RECONNECT"       // warning：WAN 断开达 WAN_AUTO_RECONNECT_AFTER_MIN 后的自动重拨（action = "auto_reconnect_cellular"；间隔 10/30/60 分钟）
   | "WAN_RECONNECT_EXHAUSTED"  // critical：24 小时内 4 次自动重拨已用完，WAN 仍断开（从不自动重启）
   | "SELF_HEAL_READ_ONLY"      // warning：路由器是未验证的型号，闸门拒绝了自愈要做的写入（烽燧在这个型号上没有它的实现，或用户把它关闭了，见 2.10 / 2.11）：自愈本会解除锁定或重拨但没有写入；每次锁定、每次断网各一次，不计入重拨次数
@@ -767,6 +770,18 @@ export type AlertCode =
 | `set_mobile_data` | `mobileData` |
 | `set_wifi_access`、`manage_time_rule` | `accessControl` |
 | `sms_send`、`sms_mark_read`、`sms_delete` | `smsWrite` |
+| `set_network_mode`、`auto_restore_network_mode` | `networkMode` |
+| `scan_operators`、`select_operator`、`auto_restore_operator` | `operatorSelect` |
+| `set_sim_slot`、`auto_restore_sim_slot` | `simSlot` |
+| `enter_sim_pin`、`set_sim_pin_lock` | `simPin` |
+| `set_airplane_mode` | `airplaneSwitch` |
+| `set_roaming` | `roaming` |
+| `set_apn`、`auto_restore_apn` | `apn` |
+| `set_data_limit` | `dataLimit` |
+| `reset_traffic` | `trafficReset` |
+| `send_ussd` | `ussd` |
+
+后十行是蜂窝设置（2.13），在 H168-383 验证之后才加：H168-383 上它们一律是 `not_implemented`（表里留空），在华为上只走未验证型号的通用写入。
 
 ### 2.11 实验性写入：默认开启，逐项关闭
 
@@ -846,6 +861,43 @@ export type AlertCode =
   - `plan.settings`：不含短信的那部分
   - `plan.tokens`：缺权限的令牌，智能体的排第一
 
+### 2.13 蜂窝设置路由（v1.9.0）
+
+类型见 [`src/cellular.ts`](../../src/cellular.ts)（零依赖，守护进程、控制台与在线演示共用同一份入参校验）与 [`src/api-contract.ts`](../../src/api-contract.ts)。
+
+**读取**
+
+- `GET /api/cellular`：上一次读到的蜂窝设置；`POST /api/cellular/refresh`：马上读一次（一个读会话，只读令牌可用）。应答 `CellularEndpointResponse`：
+  - `cellular.networkMode`：`{ current, options }`，当前制式与这台路由器能设成的制式（`NetworkMode`：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_wcdma`、`wcdma`、`gsm`）
+  - `cellular.simSlots`：能切换的卡槽（`{ kind: "physical" | "embedded", index }`）；当前卡槽、PIN 状态与剩余次数、飞行模式、漫游开关随 5 秒轮询在 `telemetry.status` 里
+  - `cellular.operator`：`{ selection: "auto" | "manual" | null, plmn }`
+  - `cellular.apn`：`{ mode, apn, ipType, auth, hasUsername }`，从不含密码，用户名只说有没有
+  - `cellular.dataLimit`：`{ enabled, bytes, alertPercent }`，路由器自己的流量上限
+  - 路由器的接口读不到的部分是 `null`；整个 `cellular` 为 `null` 表示还没读过，或这台路由器一项都没有
+
+**写入**（全部 `POST`，令牌要 `control` 权限，请求体都要 `confirm: true`，否则 `400 VALIDATION_ERROR`；闸门拒绝时 `409`，见 2.10）
+
+| 路由 | 请求体 | 应答 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `/api/control/network-mode` | `{ mode }` | `{ networkMode, cellular }` | 只接受 `cellular.networkMode.options` 里的制式 |
+| `/api/control/operator-scan` | `{}` | `{ operators: OperatorChoice[] }` | 搜索附近的运营商网络，最长一分钟，期间可能断网；`name` 是运营商广播的文字 |
+| `/api/control/operator` | `{ mode: "auto" }` 或 `{ mode: "manual", plmn, rat? }` | `{ operator, cellular }` | `plmn` 为 5–6 位数字，`rat` 为 `2G` / `3G` / `4G` / `5G` |
+| `/api/control/sim-slot` | `{ kind, index? }` | `{ simSlot, cellular }` | 只接受 `cellular.simSlots` 里的卡槽 |
+| `/api/control/sim-pin` | `{ action?: "enter" \| "lock" \| "unlock", pin }` | `{ accepted, attemptsLeft }` | 见下文「PIN」 |
+| `/api/control/airplane-mode` | `{ enabled }` | `{ airplaneMode }` | 打开后路由器断开移动网络；烽燧不会自己关掉 |
+| `/api/control/roaming` | `{ enabled }` | `{ dataRoaming }` | 漫游时用不用数据 |
+| `/api/control/apn` | `{ mode: "auto" }` 或 `{ mode: "manual", apn, ipType?, auth?, username?, password? }` | `{ apnMode, cellular }` | `apn` 只能是字母、数字、点和连字符；账号密码只发给路由器 |
+| `/api/control/data-limit` | `{ enabled, bytes?, alertPercent? }` | `{ dataLimit, cellular }` | 路由器自己的月流量上限 |
+| `/api/control/traffic-reset` | `{}` | `{ reset: true }` | 清零路由器自己记的流量统计 |
+| `/api/control/ussd` | `{ action?: "send" \| "reply" \| "cancel", code? }` | `{ ussd: { state, text, awaitsReply } }` | `code` 为 1–40 个 `0-9`、`*`、`#`；`text` 是运营商写的文字 |
+
+带 `cellular` 的应答是写入之后另开一个读会话读到的设置（那次读没进去时为 `null`，不代表写入失败）。
+
+- **断网 3 分钟的回退**：`network-mode`、`operator`（手动）、`sim-slot`、`apn` 这四项会意外断网。写入的会话里先读原值，写入后 `WanSelfHeal` 看守 3 分钟（不管从哪个入口发起、自愈开没开、路由器验没验证过）：WAN 一直没恢复，就在一个控制会话里把这一项改回原值（`control:applied` 的 `action` 是 `auto_restore_network_mode` / `auto_restore_operator` / `auto_restore_sim_slot` / `auto_restore_apn`），告警 `SETTING_ROLLED_BACK`；WAN 连续在线 2 分钟则保留更改。会话里读到 WAN 已恢复、移动数据被关掉或飞行模式开着时不写。没读到原值时不回退，告警 `SETTING_NOT_ROLLED_BACK`。同一项在看守期内再改一次，改回的仍是第一次更改之前的值。看守记录在 `state.json`，守护进程重启后接着算。接入点改回的是路由器里原来那条配置的编号（或模组原来的 PDP 上下文），从不保存账号密码。
+- **飞行模式和关闭移动数据一样，是有意断网**：不回退，也不触发上面的回退。
+- **PIN**：`enter` 输入 PIN，`lock` / `unlock` 开关「开机要 PIN」。每次只发一次；写入的会话里先读剩余次数，路由器没有报告、只剩一次或已经没有时，烽燧不发，`400 VALIDATION_ERROR`，消息说明原因。卡不接受时应答是 `200`、`accepted: false` 和新的 `attemptsLeft`，烽燧不重试。烽燧不输入 PUK，不修改 PIN。
+- **不留痕**：PIN、USSD 的指令与应答、APN 的名字与账号密码都不进 `control:applied` 的摘要、审计记录和写入记录（记录里只有指令名，如 `zte-goform:USSD_PROCESS`）。USSD 这类没有可回读状态的写入，记录的 `readback` 是 `none`，摘要后缀是「（实验性写入）」。
+
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 
 ### 3.1 连接方式与首包秒开保证
@@ -904,7 +956,7 @@ export type AlertCode =
 
 ---
 
-## 4. MCP Server 双模传输与工具契约（核心 16 项 + 访问控制 4 项 + 短信 10 项）
+## 4. MCP Server 双模传输与工具契约（核心 16 项 + 访问控制 4 项 + 短信 10 项 + 蜂窝设置 12 项）
 
 「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，同时支持两代协议（dual-era）：
 
@@ -1045,6 +1097,25 @@ export interface McpToolErrorPayload {
 | `manage_internet_time_rule` | `action`、`id?`、`macAddress` 或 `ipv4Address`、`weekMask`、`startTime`、`endTime`、`enabled?`、`confirm: true` | 规则语义为"允许上网时段" |
 
 三个写工具的结果为 `{ ok, untrustedDataNotice, changed, alsoBlocked, accessControl }`：回读的快照同样带设备名，所以同样附上不可信数据声明。MCP 调用没有"请求方设备"（`requesterIp` 为空），但运行烽燧的主机同样受保护；其余校验与 REST 相同。
+
+### 4.6 蜂窝设置工具（v1.9.0，[`src/mcp-cellular-tools.ts`](../../src/mcp-cellular-tools.ts)）
+
+一个读工具加十一个写工具，参数、校验与结果同 2.13 的 REST 路由（同一个 `CpeControlService`）。写工具都强制 `confirm: true`，受 `MCP_ALLOW_MUTATIONS` 与令牌的 `control` 权限约束；每个工具只在烽燧给这台路由器实现了它的那项功能时列出（H168-383 上一个都不列，按名字调用被闸门拒绝），未验证型号上还要这项功能没被关闭。
+
+| 工具 | 参数 | 功能（2.10） |
+| :--- | :--- | :--- |
+| `get_cellular_settings` | `refresh?: boolean` | 只读：`{ cellular, sim, airplaneMode, roaming }`，后三项取自最近一次轮询的 `status` |
+| `set_network_mode` | `mode`、`confirm: true` | `networkMode` |
+| `scan_operators` | `confirm: true` | `operatorSelect`；结果带 `untrustedDataNotice`（网络名称是运营商广播的文字） |
+| `select_operator` | `mode`、`plmn?`、`rat?`、`confirm: true` | `operatorSelect` |
+| `set_sim_slot` | `kind`、`index?`、`confirm: true` | `simSlot` |
+| `sim_pin` | `action: "enter" \| "lock" \| "unlock"`、`pin`、`confirm: true` | `simPin`；描述里写明只用用户给的 PIN、被拒后不换一个再试 |
+| `set_airplane_mode` | `enabled`、`confirm: true` | `airplaneSwitch` |
+| `set_data_roaming` | `enabled`、`confirm: true` | `roaming` |
+| `set_apn` | `mode`、`apn?`、`ipType?`、`auth?`、`username?`、`password?`、`confirm: true` | `apn` |
+| `set_data_limit` | `enabled`、`bytes?`、`alertPercent?`、`confirm: true` | `dataLimit` |
+| `reset_traffic_counters` | `confirm: true` | `trafficReset` |
+| `send_ussd` | `action?: "send" \| "reply" \| "cancel"`、`code?`、`confirm: true` | `ussd`；结果带 `untrustedDataNotice`（应答是运营商写的文字，和短信正文一样对待） |
 
 ---
 
