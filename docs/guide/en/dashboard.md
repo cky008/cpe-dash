@@ -50,7 +50,7 @@ Roaming means the router is connected through another operator's network, usuall
 
 ### Airplane mode
 
-Airplane mode turns the router's cellular radio off, so it cannot connect to the mobile network; the local network and Wi-Fi keep working, so FengSui still reaches the router [[3GPP TS 27.007](https://www.3gpp.org/DynaReport/27007.htm)]. If it shows "On" and nobody turned it on on purpose, turn it off on the router's own web page.
+Airplane mode turns the router's cellular radio off, so it cannot connect to the mobile network; the local network and Wi-Fi keep working, so FengSui still reaches the router [[3GPP TS 27.007](https://www.3gpp.org/DynaReport/27007.htm)]. If it shows "On" and nobody turned it on on purpose, turn it off: in the [Controls drawer](router-switches.md#cellular-settings) on routers where FengSui can switch airplane mode, on the router's own web page otherwise.
 
 ## Carrier aggregation
 

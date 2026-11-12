@@ -162,7 +162,7 @@ cpe-dash/
 2. **Green（最小干净实现）**：编写严格类型的 TypeScript 实现使测试通过。
 3. **Refactor & Gate（全量门禁校验）**：每次 Git Commit 前必须跑通 `npm run check` 且退出码为 `0`：
    - `npm run typecheck`：全仓 `src/` + `scripts/` + `test/` 零类型错误；
-   - `npm run build:web`：构建 Web 控制台，首屏与按需加载合计超过 176 KiB gzip 即失败（与 CI、发版和 Docker 构建同一上限）；
+   - `npm run build:web`：构建 Web 控制台，首屏与按需加载合计超过 192 KiB gzip 即失败（与 CI、发版和 Docker 构建同一上限）；
    - `npm run test:coverage`：`c8` 语句覆盖率 `>= 90%`、行覆盖率 `>= 90%`、函数覆盖率 `>= 90%`；失败的测试一条都没有被运行器漏报，测试总数不低于 `scripts/test-count-reporter.ts` 的下限；
    - `npm run audit:secrets`：工作区与全量 Git 历史零密钥、零敏感指纹、零 `.js` 混入。
 

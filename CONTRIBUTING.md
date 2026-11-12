@@ -34,7 +34,7 @@ npm run build:docs  # the documentation site, into dist/site
 `npm run check` runs, and stops at the first failure:
 
 1. `npm run typecheck` → strict TypeScript for the daemon, scripts, tests and the console
-2. `npm run build:web` → builds the console; more than 176 KiB gzip fails, as in CI, releases and the Docker build
+2. `npm run build:web` → builds the console; more than 192 KiB gzip fails, as in CI, releases and the Docker build
 3. `npm run test:coverage` → every test offline, with statements, lines and functions at 90 % or more; a failure the
    test runner leaves out of its report still fails the gate, and the count must stay at or above the floor in
    `scripts/test-count-reporter.ts` (raise it when you add tests)

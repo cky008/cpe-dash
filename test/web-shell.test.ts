@@ -230,6 +230,19 @@ describe("web core: endpoint table", () => {
       antenna: ["POST", "/api/control/antenna", { mode: "auto" }],
       mobileData: ["POST", "/api/control/mobile-data", { enabled: false }],
       resetBreaker: ["POST", "/api/session/reset-breaker", {}],
+      cellular: ["GET", "/api/cellular"],
+      refreshCellular: ["POST", "/api/cellular/refresh", {}],
+      networkMode: ["POST", "/api/control/network-mode", { mode: "lte", confirm: true }],
+      operatorScan: ["POST", "/api/control/operator-scan", { confirm: true }],
+      operator: ["POST", "/api/control/operator", { mode: "manual", plmn: "27202", rat: "4G", confirm: true }],
+      simSlot: ["POST", "/api/control/sim-slot", { kind: "embedded", index: 1, confirm: true }],
+      simPin: ["POST", "/api/control/sim-pin", { action: "enter", pin: "0000", confirm: true }],
+      airplaneMode: ["POST", "/api/control/airplane-mode", { enabled: true, confirm: true }],
+      roaming: ["POST", "/api/control/roaming", { enabled: false, confirm: true }],
+      apn: ["POST", "/api/control/apn", { mode: "manual", apn: "example.apn", ipType: "ipv4v6", auth: "none", confirm: true }],
+      dataLimit: ["POST", "/api/control/data-limit", { enabled: true, bytes: 1073741824, alertPercent: 80, confirm: true }],
+      trafficReset: ["POST", "/api/control/traffic-reset", { confirm: true }],
+      ussd: ["POST", "/api/control/ussd", { action: "send", code: "*100#", confirm: true }],
       accessControl: ["GET", "/api/access-control"],
       refreshAccessControl: ["POST", "/api/access-control/refresh", {}],
       wifiAccess: ["POST", "/api/control/wifi-access", { action: "block", macAddress: "00:00:5E:00:53:03", confirm: true }],
@@ -300,6 +313,19 @@ describe("web core: endpoint table", () => {
     await ep.antenna("auto");
     await ep.mobileData(false);
     await ep.resetBreaker();
+    await ep.cellular();
+    await ep.refreshCellular();
+    await ep.networkMode("lte");
+    await ep.operatorScan();
+    await ep.operator({ mode: "manual", plmn: "27202", rat: "4G" });
+    await ep.simSlot({ kind: "embedded", index: 1 });
+    await ep.simPin("enter", "0000");
+    await ep.airplaneMode(true);
+    await ep.roaming(false);
+    await ep.apn({ mode: "manual", apn: "example.apn", ipType: "ipv4v6", auth: "none" });
+    await ep.dataLimit({ enabled: true, bytes: 1073741824, alertPercent: 80 });
+    await ep.trafficReset();
+    await ep.ussd({ action: "send", code: "*100#" });
     await ep.accessControl();
     await ep.refreshAccessControl();
     await ep.wifiAccess({ action: "block", macAddress: "00:00:5E:00:53:03", confirm: true });

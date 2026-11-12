@@ -1,4 +1,23 @@
 import type {
+  AirplaneModeControlResponse,
+  ApnControlResponse,
+  ApnRequest,
+  CellularEndpointResponse,
+  DataLimitControlResponse,
+  DataLimitRequest,
+  NetworkMode,
+  NetworkModeControlResponse,
+  OperatorControlResponse,
+  OperatorRequest,
+  OperatorScanResponse,
+  RoamingControlResponse,
+  SimPinControlResponse,
+  SimPinRequest,
+  SimSlotControlResponse,
+  SimSlotRef,
+  TrafficResetResponse,
+  UssdResponse,
+  UssdSendRequest,
   AgentTestRequest,
   AgentTestResponse,
   AccessControlChangeResponse,
@@ -78,6 +97,8 @@ import type { ApiClient } from "./api.ts";
  */
 
 const CONTROL_TIMEOUT_MS = 120_000;
+/** A search for networks, or registering on one: the router itself may take three minutes, and the session waits its turn first. */
+const SLOW_CONTROL_TIMEOUT_MS = 240_000;
 const SMS_SEND_TIMEOUT_MS = 180_000;
 
 export type ThreadFilter = "all" | "unread" | "otp";
@@ -95,6 +116,7 @@ export interface ConnectionInput {
 
 export function createEndpoints(api: ApiClient) {
   const control = { timeoutMs: CONTROL_TIMEOUT_MS };
+  const slow = { timeoutMs: SLOW_CONTROL_TIMEOUT_MS };
   return {
     health: () => api.get<HealthResponse>("/api/health"),
     authStatus: () => api.get<AuthStatusResponse>("/api/auth/status"),
@@ -146,6 +168,21 @@ export function createEndpoints(api: ApiClient) {
     antenna: (mode: AntennaModeName) => api.post<AntennaControlResponse>("/api/control/antenna", { mode }, control),
     mobileData: (enabled: boolean) => api.post<MobileDataControlResponse>("/api/control/mobile-data", { enabled }, control),
     resetBreaker: () => api.post<ResetBreakerResponse>("/api/session/reset-breaker", {}, control),
+
+    // Cellular settings. A search for networks and a registration take the router minutes
+    cellular: () => api.get<CellularEndpointResponse>("/api/cellular"),
+    refreshCellular: () => api.post<CellularEndpointResponse>("/api/cellular/refresh", {}, control),
+    networkMode: (mode: NetworkMode) => api.post<NetworkModeControlResponse>("/api/control/network-mode", { mode, confirm: true }, control),
+    operatorScan: () => api.post<OperatorScanResponse>("/api/control/operator-scan", { confirm: true }, slow),
+    operator: (body: Omit<Extract<OperatorRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<OperatorRequest, { mode: "manual" }>, "confirm">) => api.post<OperatorControlResponse>("/api/control/operator", { ...body, confirm: true }, slow),
+    simSlot: (slot: SimSlotRef) => api.post<SimSlotControlResponse>("/api/control/sim-slot", { kind: slot.kind, index: slot.index, confirm: true }, control),
+    simPin: (action: NonNullable<SimPinRequest["action"]>, pin: string) => api.post<SimPinControlResponse>("/api/control/sim-pin", { action, pin, confirm: true }, control),
+    airplaneMode: (enabled: boolean) => api.post<AirplaneModeControlResponse>("/api/control/airplane-mode", { enabled, confirm: true }, control),
+    roaming: (enabled: boolean) => api.post<RoamingControlResponse>("/api/control/roaming", { enabled, confirm: true }, control),
+    apn: (body: Omit<Extract<ApnRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<ApnRequest, { mode: "manual" }>, "confirm">) => api.post<ApnControlResponse>("/api/control/apn", { ...body, confirm: true }, control),
+    dataLimit: (body: Omit<DataLimitRequest, "confirm">) => api.post<DataLimitControlResponse>("/api/control/data-limit", { ...body, confirm: true }, control),
+    trafficReset: () => api.post<TrafficResetResponse>("/api/control/traffic-reset", { confirm: true }, control),
+    ussd: (body: Omit<Extract<UssdSendRequest, { code: string }>, "confirm"> | { action: "cancel" }) => api.post<UssdResponse>("/api/control/ussd", { ...body, confirm: true }, control),
 
     accessControl: () => api.get<AccessControlEndpointResponse>("/api/access-control"),
     refreshAccessControl: () => api.post<AccessControlEndpointResponse>("/api/access-control/refresh", {}, control),

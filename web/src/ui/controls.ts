@@ -4,6 +4,7 @@ import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
 import type { DriverFamily } from "../../../src/router-family.ts";
 import type { WriteFeature } from "../../../src/device-access.ts";
+import { cellularOpen } from "../core/cellular-view.ts";
 import { experimentalWrites, reportVerified, unconfirmedWrite, unverifiedModel } from "../core/device-access-view.ts";
 import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
@@ -455,6 +456,21 @@ export function mountControls(ctx: AppContext): { open(): void } {
     return section(ctx.t("ctl.system"), h("div", { class: "flex flex-wrap gap-2 justify-end" }, ...buttons));
   };
 
+  // The cellular settings are a section of their own, loaded when a router has one of them open
+  const cellularHost = h("section", { class: "space-y-1", data: { section: "cellular" } });
+  let cellularView: ReturnType<(typeof import("./cellular.ts"))["mountCellular"]> | null = null;
+  const cellularSection = (open: ReadonlyArray<WriteFeature>): HTMLElement[] => {
+    const settings = cellularOpen(open);
+    if (settings.length === 0) return [];
+    if (cellularView) cellularView.render(settings);
+    else
+      void import("./cellular.ts").then((m) => {
+        cellularView ??= m.mountCellular(ctx, cellularHost, confirmExperimental);
+        cellularView.render(settings);
+      });
+    return [cellularHost];
+  };
+
   const render = (): void => {
     const { settings, lockState, lockVerification, avoidance, scheduler } = ctx.store.state;
     const noSettings = settings === null;
@@ -800,6 +816,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         ...(otherBrand !== null && (open.includes("bandLock") || open.includes("cellLock")) ? [driverLockSection(otherBrand, open.includes("bandLock"))] : []),
         ...(otherBrand === null && open.includes("bandLock") ? [experimentalBandSection(scheduler?.device.lteBands ?? [])] : []),
         ...(open.includes("antenna") ? [experimentalAntennaSection()] : []),
+        ...cellularSection(open),
         ...(open.some((f) => f === "mobileData" || f === "reconnect" || f === "reboot") ? [experimentalSystemSection(open)] : []),
       ];
     }

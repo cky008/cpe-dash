@@ -1,6 +1,6 @@
 ---
 title: Router switches
-description: What each switch in the Controls drawer does: UPnP, DMZ, firewall, WAN ping, MLO, 5 GHz priority, antennas, mobile data, reconnecting, and rebooting.
+description: What each switch in the Controls drawer does: UPnP, DMZ, firewall, WAN ping, MLO, 5 GHz priority, antennas, mobile data, reconnecting, and rebooting, plus the cellular settings (network mode, operator selection, SIM slot and PIN, airplane mode, roaming, APN, data limit, USSD).
 section: Use FengSui
 order: 7
 ---
@@ -88,3 +88,75 @@ Some models include external antenna ports. You can select "Auto," "Built-in," o
 - **Reboot router**: Reboots the entire router, interrupting your home internet connection for one to two minutes. Requires entering a confirmation phrase.
 
 FengSui self-healing only reconnects automatically and never reboots the router; see [Band and cell locking](locking.md#self-heal).
+
+## Cellular settings
+
+The "Cellular settings" section of the Controls drawer covers how the router connects to the operator: which network generation, which operator, which SIM card and which access point. Each router shows only the settings it has; [Supported devices](supported-devices.md) lists them per model. None of these settings has been verified on a real router yet, so they are [experimental writes](other-routers.md): each is sent once, read back in the same connection to check it, and can be turned off one by one under Settings → Device.
+
+> [!NOTE]
+> After you change the network mode, pick an operator by hand, switch the SIM slot or change the access point, FengSui puts that setting back to what it was if the internet stays down for more than 3 minutes, and sends an alert. Where the earlier value could not be read, FengSui changes nothing and says so in the alert. Turning mobile data off or airplane mode on is a disconnect you asked for, so FengSui does not undo it.
+
+<a id="network-mode"></a>
+
+### Network mode
+
+Sets which network generations the router may use: automatic, 5G only, 4G only, 3G only and so on. The modes on offer depend on the router [[3GPP TS 23.122](https://www.3gpp.org/DynaReport/23122.htm)]. 5G only (SA) has no signal where there is no standalone 5G coverage. If you are unsure, use "Automatic".
+
+<a id="operator-select"></a>
+
+### Manual operator selection
+
+Normally the router picks the operator itself. With manual selection, the router first searches for the networks in range, then registers only on the one you pick [[3GPP TS 23.122](https://www.3gpp.org/DynaReport/23122.htm)].
+
+- A search takes one to three minutes, and the mobile connection is down meanwhile.
+- The names in the list are the operators' own text. Networks marked "Not allowed" cannot be used with this SIM card.
+- Once you pick an operator, the router no longer changes operator by itself. If that network does not work, the internet goes down, and after 3 minutes FengSui switches back to automatic selection.
+- ZTE routers can only register on a network from their latest search, so search first, then pick.
+
+### SIM slot
+
+On a router with a built-in SIM (eSIM) or more than one slot, you can switch to the other card here. The router then connects again, which takes about a minute. See [Dashboard](dashboard.md#esim) for what the slots mean.
+
+### SIM PIN
+
+You can do two things: enter the PIN when the SIM card is waiting for it, and turn "ask for the PIN at start" on or off. See [Dashboard](dashboard.md#sim-pin) for what the PIN is.
+
+- FengSui sends a PIN once. If the router says it is wrong, FengSui stops and does not try another.
+- A PIN can only be sent while the router reports more than one attempt left; the confirmation shows how many are left. If the count cannot be read, or one attempt is left, use the router's own page.
+- Ten wrong PUKs block a SIM card for good, so FengSui does not enter a PUK and does not change the PIN.
+- The PIN goes to the router only. FengSui does not store it or write it to any record.
+
+### Airplane mode
+
+When on, the router switches its cellular radio off and disconnects from the mobile network; the local network and Wi-Fi keep working. You have to come back to FengSui to turn it off. If you reach FengSui remotely through this mobile connection, you lose it once airplane mode is on. See [Dashboard](dashboard.md#airplane-mode).
+
+### Data roaming
+
+Sets whether the router uses data while connected through another operator's network. Roaming data may cost extra. If you turn it off while the router is roaming, the internet goes down at once. See [Dashboard](dashboard.md#roaming).
+
+<a id="apn"></a>
+
+### Access point (APN)
+
+The APN (access point name) tells the operator which service this SIM card connects through [[3GPP TS 23.003](https://www.3gpp.org/DynaReport/23003.htm)]. Most SIM cards work with "Automatic". IoT and private-network cards need the name the operator gave you.
+
+- A wrong APN takes the internet down; after 3 minutes FengSui switches back to the earlier one.
+- On ZTE routers FengSui writes only its own profile (named `FengSui`) and leaves the router's profiles as they are. Going back makes the earlier profile the default again.
+- On OpenWrt you can set the name and the address type only, not a user name or password.
+- The access point's name, user name and password never appear in any FengSui record.
+
+<a id="data-limit"></a>
+
+### Data limit and traffic counters
+
+This is the monthly limit the router itself keeps. It is separate from FengSui's own [traffic alerts](notifications.md): at the warning share you set, the router warns in its own way. "Clear traffic counters" sets the router's own counters back to zero and cannot be undone; FengSui's traffic charts are not affected.
+
+<a id="ussd"></a>
+
+### USSD
+
+USSD codes are short commands sent to the operator, such as `*100#`, to check a balance or a plan, or to order a service [[3GPP TS 22.090](https://www.3gpp.org/DynaReport/22090.htm)].
+
+- Some codes order a service or cost money, so check a code before you send it.
+- The operator sometimes answers with a menu and waits for a reply. You can reply, or end the session.
+- The answer is the operator's own text. The code and the answer are shown to you only: FengSui does not store them or write them to any record.
