@@ -45,6 +45,12 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
   const typed = { apnMode: null as "auto" | "manual" | null, apn: "", ipType: "ipv4v6", auth: "none", limitOn: null as boolean | null, amount: "", unit: "GB" as LimitUnit, percent: "" };
 
   const fail = (err: unknown): void => ctx.toast(ctx.describeError(err), "error");
+  /** The fields whose text is held nowhere but in the field itself. */
+  const keptFields = (): NodeListOf<HTMLInputElement> => host.querySelectorAll<HTMLInputElement>("input[data-keep]");
+  /** Empty one of them once what it held was sent. */
+  const forget = (key: string): void => {
+    for (const input of keptFields()) if (input.dataset["keep"] === key) input.value = "";
+  };
   const took = (next: CellularSettingsSnapshot | null | undefined): void => {
     if (next) cellular = next;
     ctx.toast(t("done"), "success");
@@ -184,7 +190,7 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
   const pinRow = (): HTMLElement => {
     const offer = pinOffer(ctx.store.state.telemetry?.status ?? null);
     if (offer.kind === "none") return row(withHelp(ctx, t("pin"), "sim-pin"), note(t(`pin_none_${offer.reason}`)));
-    const pin = field({ type: "password", inputmode: "numeric", maxlength: "8", placeholder: t("pin_placeholder"), "aria-label": t("pin") });
+    const pin = field({ type: "password", inputmode: "numeric", maxlength: "8", placeholder: t("pin_placeholder"), "aria-label": t("pin"), "data-keep": "pin" });
     const send = (action: "enter" | "lock" | "unlock", label: string): HTMLButtonElement => {
       const trigger = button(label, "btn-warning");
       trigger.addEventListener("click", () => {
@@ -194,7 +200,7 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
           if (!ok) return;
           runBusy(trigger, () =>
             ctx.api.simPin(action, value).then((res) => {
-              pin.value = "";
+              forget("pin");
               if (res.accepted) ctx.toast(t("pin_accepted"), "success");
               else ctx.toast(res.attemptsLeft === null ? t("pin_refused_unknown") : t("pin_refused", { left: res.attemptsLeft }), "error");
             }, fail)
@@ -245,8 +251,8 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
       t("apn_auth")
     );
     auth.addEventListener("change", () => (typed.auth = auth.value));
-    const user = field({ type: "text", placeholder: t("apn_user"), "aria-label": t("apn_user") });
-    const password = field({ type: "password", placeholder: t("apn_password"), "aria-label": t("apn_password") });
+    const user = field({ type: "text", placeholder: t("apn_user"), "aria-label": t("apn_user"), "data-keep": "apn-user" });
+    const password = field({ type: "password", placeholder: t("apn_password"), "aria-label": t("apn_password"), "data-keep": "apn-password" });
     const credentials = apnTakesCredentials(family);
     const apply = button(t("apn_apply"), "btn-warning");
     apply.addEventListener("click", () => {
@@ -256,7 +262,7 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
       if (verdict !== "ok") return ctx.toast(t(verdict === "apn" ? "apn_invalid" : "apn_credentials_invalid"), "warning");
       write("apn", apply, { title: t("apn_title"), body: [t("apn_body_manual"), ...(apnUsesProfile(family) ? [t("apn_profile")] : []), t("rollback")], confirmLabel: t("apn_apply"), tone: "warning" }, () =>
         ctx.api.apn({ mode: "manual", ...fields, ipType: ipType.value as "ipv4" | "ipv6" | "ipv4v6" }).then((res) => {
-          password.value = "";
+          forget("apn-password");
           return res;
         })
       );
@@ -303,13 +309,14 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
   };
 
   const ussdRow = (): HTMLElement => {
-    const code = field({ type: "text", inputmode: "tel", maxlength: "40", placeholder: t("ussd_placeholder"), "aria-label": t("ussd") });
+    const code = field({ type: "text", inputmode: "tel", maxlength: "40", placeholder: t("ussd_placeholder"), "aria-label": t("ussd"), "data-keep": "ussd" });
     const waiting = answer?.awaitsReply === true;
     const send = button(t(waiting ? "ussd_reply" : "ussd_send"), "btn-warning");
     const ask = (body: Parameters<AppContext["api"]["ussd"]>[0], trigger: HTMLButtonElement): void =>
       runBusy(trigger, () =>
         ctx.api.ussd(body).then((res) => {
           answer = res.ussd;
+          forget("ussd");
           draw();
         }, fail)
       );
@@ -371,14 +378,29 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
     ];
     // Whether the settings were read: a row that depends on them is drawn once they are
     host.dataset["loaded"] = asked ? "1" : "0";
+    // What is being typed (a PIN, a USSD code, an access point's credentials) moves to the fields drawn in its place
+    const typing = new Map([...keptFields()].map((input) => [input.dataset["keep"], input.value]));
     host.replaceChildren(...rows.filter((node): node is HTMLElement => node !== null));
+    for (const input of keptFields()) input.value = typing.get(input.dataset["keep"]) ?? "";
   };
 
+  /** What the section was last drawn for: the settings shown, in which language. */
+  let drawnFor = "";
+  let reading = false;
   return {
     render: (open) => {
+      // The drawer redraws on every poll that touches the locks. Drawing this section again then would
+      // empty a PIN or a USSD code being typed, so it is drawn again only for other settings or another language
+      const key = `${ctx.tr.locale}|${open.join(",")}`;
       shown = open;
-      draw();
-      if (!asked) read();
+      if (key !== drawnFor) {
+        drawnFor = key;
+        draw();
+      }
+      if (!asked && !reading) {
+        reading = true;
+        read();
+      }
     },
   };
 }

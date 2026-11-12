@@ -820,6 +820,8 @@ export function mountControls(ctx: AppContext): { open(): void } {
         ...(open.some((f) => f === "mobileData" || f === "reconnect" || f === "reboot") ? [experimentalSystemSection(open)] : []),
       ];
     }
+    // A redraw (a poll, a write elsewhere) builds the drawer anew: keep the place its reader had scrolled to
+    const scrolledTo = dialog.querySelector<HTMLElement>("[data-scroll]")?.scrollTop ?? 0;
     mount(
       dialog,
       h(
@@ -834,7 +836,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         ),
         h(
           "div",
-          { class: "flex-1 overflow-y-auto px-5 py-4 space-y-6" },
+          { class: "flex-1 overflow-y-auto px-5 py-4 space-y-6", data: { scroll: "controls" } },
           blocked
             ? h("div", { class: "fs-notice", data: { tone: "danger" } }, icon("alert", "text-error mt-0.5"), h("span", { class: "text-xs" }, ctx.t(scheduler?.circuitBreaker.tripped ? "err.breaker" : scheduler?.peerStandby.active ? "err.peer_standby" : "err.yielded")))
             : null,
@@ -843,6 +845,8 @@ export function mountControls(ctx: AppContext): { open(): void } {
       ),
       modalBackdrop(ctx.t("common.close"))
     );
+    const scroller = dialog.querySelector<HTMLElement>("[data-scroll]");
+    if (scroller && scrolledTo > 0) scroller.scrollTop = scrolledTo;
   };
 
   // Not on "scheduler": its 10 s poll would reset a half-typed DMZ address

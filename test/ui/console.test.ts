@@ -908,8 +908,11 @@ describe("the console on routers of other brands", () => {
       await page.click('[data-cellular="simPin"] button');
       await page.waitUntil(isOpen("confirmDialog"), "the PIN's confirmation");
       assert.match(await page.evaluate<string>(confirmText), /The router reports 3 attempts left\. FengSui sends this once and does not try again/);
-      await page.evaluate(`document.getElementById('confirmDialog').close(); true`);
+      await page.click("#confirmCancel");
+      await page.waitUntil(`!${isOpen("confirmDialog")}`, "the PIN's confirmation to close");
       assert.equal(demo.stack.scheduler.genericWrites.filter((w) => w.feature === "simPin").length, 0, "nothing sent on a cancel");
+      // What was typed is still there after the polls that came in meanwhile: the section is not redrawn under the typist
+      assert.equal(await page.evaluate<string>(`document.querySelector('[data-cellular="simPin"] input').value`), "1234");
 
       // USSD: the operator's answer is shown as text, and neither it nor the code is kept anywhere
       await page.evaluate(`(() => { const code = document.querySelector('[data-cellular="ussd"] input'); code.value = '*100#'; return true; })()`);
