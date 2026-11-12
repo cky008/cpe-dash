@@ -14,7 +14,7 @@ import type { TestEvent } from "node:test/reporters";
  *
  * A passed result the runner left out does not fail the run (the test passed); the summary names it.
  *
- * `npm run test:coverage` (the gate) and `npm run test:ui` use it next to the spec reporter:
+ * `npm run test:coverage` and `npm run test:browser` (both in the gate) use it next to the spec reporter:
  *
  *   node --test --test-reporter=spec --test-reporter-destination=stdout \
  *     --test-reporter=./scripts/test-count-reporter.ts --test-reporter-destination=stdout test/*.test.ts

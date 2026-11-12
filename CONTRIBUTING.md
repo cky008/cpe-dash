@@ -26,8 +26,8 @@ You need Node.js 22.6 or later. You do not need a router: the demo runs the real
 ```bash
 npm ci
 npm run demo        # console at http://127.0.0.1:18484, no .env, no network
-npm run check       # the gate, below
-npm run test:ui     # browser tests (headless Chrome), for console changes
+npm run check       # the gate, below (needs Chrome or Chromium for the browser tests; set CHROME_PATH if it is elsewhere)
+npm run test:ui     # the browser tests on their own (builds the console first)
 npm run build:docs  # the documentation site, into dist/site
 ```
 
@@ -38,7 +38,9 @@ npm run build:docs  # the documentation site, into dist/site
 3. `npm run test:coverage` → every test offline, with statements, lines and functions at 90 % or more; a failure the
    test runner leaves out of its report still fails the gate, and the count must stay at or above the floor in
    `scripts/test-count-reporter.ts` (raise it when you add tests)
-4. `npm run audit:secrets` → scans the working tree and the whole git history for secrets, device identifiers, phone numbers and `.js` files
+4. `npm run test:browser` → the browser tests in `test/ui/`: headless Chrome against the console just built, the real
+   daemon and mock routers (count checked against the same floor)
+5. `npm run audit:secrets` → scans the working tree and the whole git history for secrets, device identifiers, phone numbers and `.js` files
 
 ## Rules / 规则
 
@@ -51,14 +53,14 @@ npm run build:docs  # the documentation site, into dist/site
 5. **Placeholders only.** Use the RFC documentation addresses, the placeholder IMEI / IMSI / phone numbers and the
    synthetic cell listed in [`AGENTS.md`](AGENTS.md). Never commit `.env`, `data/`, HAR or pcap files, or values copied
    from your own router (that includes PCI and frequency numbers: they can locate a cell site).
-6. **`npm run check` must pass** before you open a pull request; it also runs the secret scan over the full history.
+6. **`npm run check` must pass** before you open a pull request; it also runs the browser tests and the secret scan over the full history.
 
 1. **先写测试**：先写一个失败的测试，再写让它通过的改动。测试使用 `node:test` 和 `test/helpers/` 里的 Mock 路由器，绝不连接真实路由器。覆盖率保持 90% 以上。
 2. **只用严格 TypeScript**：不要 `.js` 文件，不要 `any`，不要 `@ts-ignore`。
 3. **零运行时依赖**：守护进程只用 Node.js 内置模块，构建和测试工具放进 `devDependencies`。
 4. **同一时刻只有一个路由器会话**：所有访问路由器的代码都经过 `MutexSessionScheduler`，不要另建 `HuaweiCpeClient` 或自行登录。
 5. **只用占位值**：使用 [`AGENTS.md`](AGENTS.md) 列出的 RFC 文档地址、占位 IMEI / IMSI / 手机号和合成小区。绝不提交 `.env`、`data/`、HAR 或 pcap 文件，也不要提交从自己路由器复制的数值（包括 PCI 和频点：它们能定位到具体基站）。
-6. **提 PR 之前 `npm run check` 必须通过**，它也会扫描完整的 Git 历史。
+6. **提 PR 之前 `npm run check` 必须通过**，它也会跑浏览器测试、扫描完整的 Git 历史。
 
 ## Registering a device report / 登记设备报告
 

@@ -130,11 +130,11 @@ describe("The test-count reporter (scripts/test-count-reporter.ts)", () => {
     assert.deepEqual(tally.verdict({ test: 2 }, cwd), { ok: true, lines: ["test count: 2 tests in test/ (at least 2)"] });
   });
 
-  it("holds a floor for the unit tests and the browser tests, as they run in npm run check and npm run test:ui", () => {
+  it("holds a floor for the unit tests and the browser tests, as both run in npm run check", () => {
     assert.ok((TEST_FLOORS["test"] ?? 0) >= 1000);
     assert.ok((TEST_FLOORS["test/ui"] ?? 0) >= 1);
     const { scripts } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
-    for (const name of ["test:coverage", "test:ui"]) {
+    for (const name of ["test:coverage", "test:browser"]) {
       assert.match(scripts[name] ?? "", /--test-reporter=spec --test-reporter-destination=stdout --test-reporter=\.\/scripts\/test-count-reporter\.ts --test-reporter-destination=stdout /, name);
     }
   });

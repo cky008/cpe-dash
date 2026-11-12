@@ -78,19 +78,23 @@ describe("The local gate (npm run check)", () => {
   it("builds the web console too, so its size limit fails the gate as it fails CI, a release and the Docker build (R1-03)", () => {
     const { scripts } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     // The build takes well under a second and fails fast, before the tests
-    assert.deepEqual(scripts["check"]?.split("&&").map((step) => step.trim()), ["npm run typecheck", "npm run build:web", "npm run test:coverage", "npm run audit:secrets"]);
+    assert.deepEqual(scripts["check"]?.split("&&").map((step) => step.trim()), ["npm run typecheck", "npm run build:web", "npm run test:coverage", "npm run test:browser", "npm run audit:secrets"]);
     for (const doc of ["AGENTS.md", "CONTRIBUTING.md"]) {
       assert.ok(/`?npm run build:web`?\s*(?:→|：)/.test(fs.readFileSync(path.join(ROOT, doc), "utf8")), `${doc} lists the build among the gate's steps`);
     }
   });
 
-  it("keeps the browser tests out of the gate and runs them in CI against a fresh build (ADR-R2-04)", () => {
+  it("runs the browser tests inside the gate, against the build the gate just made, once per CI job", () => {
     const { scripts } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
-    // test/*.test.ts does not reach test/ui/: the gate and its coverage never need a browser
+    // test/*.test.ts does not reach test/ui/: coverage never needs a browser, and the browser tests are their own step
     for (const name of ["test", "test:coverage"]) assert.match(scripts[name] ?? "", /--test(?: --test-reporter(?:-destination)?=\S+)* test\/\*\.test\.ts$/, name);
-    assert.match(scripts["test:ui"] ?? "", /^npm run build:web && node --experimental-strip-types --test(?: --test-reporter(?:-destination)?=\S+)* test\/ui\/\*\.test\.ts$/);
+    assert.match(scripts["test:browser"] ?? "", /^node --experimental-strip-types --test(?: --test-reporter(?:-destination)?=\S+)* test\/ui\/\*\.test\.ts$/);
+    // On its own, test:ui builds the console first; inside the gate, build:web already ran
+    assert.equal(scripts["test:ui"], "npm run build:web && npm run test:browser");
     const ci = fs.readFileSync(path.join(ROOT, ".github", "workflows", "ci-docker.yml"), "utf8");
-    assert.match(ci, /run: npm run check\n(?:\s+#[^\n]*\n)?\s+- name: Console in a headless browser[^\n]*\n\s+if: matrix\.node == '26\.x'\n\s+run: npm run test:ui\n/);
+    assert.match(ci, /\n\s+run: npm run check\n/);
+    // No second browser run beside the gate (it was skipped once before a push, and CI went red)
+    assert.doesNotMatch(ci, /npm run test:(?:ui|browser)/);
   });
 });
 

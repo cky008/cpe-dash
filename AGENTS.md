@@ -87,10 +87,10 @@ cpe-dash/
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
 │   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL），输出 dist/site
 │   ├── api-reference.ts · sync-docs.ts  # 指南「API 参考」由代码生成的部分（路由与方法、令牌需要的权限取自 permissionForRoute、SSE 事件、错误码，每项一句中英说明写在旁边）；npm run docs:sync 重写指南里所有生成的块（「支持的设备」的表与「API 参考」的三张表），--check 只检查；test/api-reference.test.ts 保证清单与代码一致、每个路由按所写的方法和示例请求体真能调用、页面与生成结果一致
-│   ├── test-count-reporter.ts # node --test 报告器（test:coverage 与 test:ui 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
+│   ├── test-count-reporter.ts # node --test 报告器（门禁里的 test:coverage 与 test:browser 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
-├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为 npm run test:ui 的浏览器测试：无头 Chrome 对着真实守护进程与演示路由器（含其他品牌的模拟路由器），不在 npm run check 里，CI 运行）
+├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为浏览器测试：无头 Chrome 对着真实守护进程与演示路由器（含其他品牌的模拟路由器），在 npm run check 里由 test:browser 运行，单独跑用 npm run test:ui）
 ├── Dockerfile · docker-compose.yml · .dockerignore   # 非 root、只读根文件系统、HEALTHCHECK 的生产镜像与群晖编排
 ├── LICENSE · THIRD_PARTY_NOTICES.md                # PolyForm Noncommercial 1.0.0；构建产物所含 Tailwind CSS / daisyUI / Lucide 的许可声明（构建放到控制台旁，镜像放在 /app）
 ├── .github/workflows/      # ci-docker.yml（门禁 + amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）· docs-pages.yml（文档站发布到本仓库 Pages，仓库变量 DOCS_PAGES_ENABLED 打开后才运行）
@@ -164,6 +164,7 @@ cpe-dash/
    - `npm run typecheck`：全仓 `src/` + `scripts/` + `test/` 零类型错误；
    - `npm run build:web`：构建 Web 控制台，首屏与按需加载合计超过 192 KiB gzip 即失败（与 CI、发版和 Docker 构建同一上限）；
    - `npm run test:coverage`：`c8` 语句覆盖率 `>= 90%`、行覆盖率 `>= 90%`、函数覆盖率 `>= 90%`；失败的测试一条都没有被运行器漏报，测试总数不低于 `scripts/test-count-reporter.ts` 的下限；
+   - `npm run test:browser`：浏览器测试（`test/ui/`，无头 Chrome，对着刚构建的控制台、真实守护进程与模拟路由器），同样核对测试数下限；本机没有 Chrome 时设 `CHROME_PATH`，不得跳过；
    - `npm run audit:secrets`：工作区与全量 Git 历史零密钥、零敏感指纹、零 `.js` 混入。
 
 ---

@@ -8,7 +8,7 @@
 
 ## Checklist / 自查
 
-- [ ] `npm run check` passes (and `npm run test:ui` for console changes) / `npm run check` 通过（改了控制台还要跑 `npm run test:ui`）
+- [ ] `npm run check` passes (it includes the browser tests) / `npm run check` 通过（含浏览器测试）
 - [ ] Tests cover the change; nothing talks to a real router / 有测试覆盖改动，且不连接真实路由器
 - [ ] No real identifiers anywhere: passwords, tokens, IMEI / IMSI / phone numbers, SMS text, MAC or public IP addresses, PCI or frequency values from a real router, captures / 任何地方都没有真实标识：密码、令牌、IMEI / IMSI / 手机号、短信内容、MAC 或公网 IP、真机的 PCI 或频点、抓包
 - [ ] `CHANGELOG.md` (`[Unreleased]`) and the user guide in both languages (`docs/guide`) updated if behaviour changed / 行为有变化时已更新 `CHANGELOG.md`（`[Unreleased]`）和中英文用户指南（`docs/guide`）
