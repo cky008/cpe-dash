@@ -42,7 +42,7 @@
 4. **`REDACT_SENSITIVE_IN_API` 按调用方生效（v1.0.1 起）**：守护进程内部与加密落盘的快照始终保存原值，脱敏只发生在输出边界（[`src/redact.ts`](../../src/redact.ts)）。
    - **Cookie 会话（Web 控制台）始终拿到原值**：前端默认在屏幕上掩码，由用户点眼睛按钮显示（防截图）。
    - **Bearer 调用方（REST、`/api/events` SSE）与 MCP 工具 / 资源**：开关为 `true`（默认）时收到脱敏副本，`device.sensitiveRedacted` 为 `true`；为 `false` 时与 Web 控制台相同。
-   - 脱敏副本只用一眼可辨的掩码，不再用以假乱真的占位值：IMEI 留前 6 位、IMSI 留 MCC+MNC、本机号码 `+353*******00`、MAC 留厂商 OUI、WAN / DNS 地址留前两段（`198.51.*.*`、`2001:db8:****`）、TAC / Cell ID / eNodeB 为 `<REDACTED>`；终端拓扑的设备名为 `<REDACTED>`、MAC 留 OUI、IPv6 留前两组，局域网 IPv4 原样保留（用于区分终端）。邻区、路由器配置（含 DMZ 地址）与时序数据不含此类标识，不做脱敏。
+   - 脱敏副本只用一眼可辨的掩码，不再用以假乱真的占位值：IMEI 留前 6 位、IMSI 留 MCC+MNC、ICCID 留前 6 位、本机号码 `+353*******00`、MAC 留厂商 OUI、WAN / DNS 地址留前两段（`198.51.*.*`、`2001:db8:****`）、TAC / Cell ID / eNodeB 为 `<REDACTED>`；终端拓扑的设备名为 `<REDACTED>`、MAC 留 OUI、IPv6 留前两组，局域网 IPv4 原样保留（用于区分终端）。邻区、路由器配置（含 DMZ 地址）与时序数据不含此类标识，不做脱敏。
    - 修改该值后可重启，或调用 `POST /api/session/reset-breaker` 立即对 REST、SSE 与 MCP 生效。v1.0.0 在采集时就已脱敏的缓存快照，升级后首次启动时直接丢弃，等待下一次采集。
 3. **鉴权失败限流（`429 RATE_LIMITED`）**：按客户端 IP 桶统计滑动窗口内的鉴权失败次数（`RATE_LIMIT_WINDOW_MS` 默认 `60000`；`RATE_LIMIT_MAX_AUTH_FAILURES` 默认 `8`、最小 `3`），另设全局失败上限（单桶上限 × `8`）。超限时响应附带 `retryAfterSec` 字段与 `Retry-After` 头；已被限流的桶在窗口滑出前即使提交正确凭据也会被拒绝。
 
@@ -233,12 +233,17 @@ export interface AuthLoginRequest {
   - `device.imsi`：e.g. "272010000000000"，脱敏副本 "27201**********"
   - `device.msisdn`：SIM 写入的本机号码，多数 SIM 为空
   - `device.macAddress`：<WanMacAddress>，缺失时取 <MacAddress1>；脱敏副本 "02:00:5E:**:**:**"
+  - `device.iccid`：SIM 卡的 ICCID（华为取已经在读的 `/api/device/information` 的 `<Iccid>`，其他品牌按各自的资料；89 开头、18–22 位数字，末尾的 F 去掉）；没有报告时为 ""；脱敏副本只留前 6 位（"893530*************"）
   - `device.sensitiveRedacted`：true = 这是 Bearer / MCP 的脱敏副本（上述标识、WAN 地址与 DNS 已掩码）；Web 控制台恒为 false
   - `rf.caBannerRaw`：e.g. "20MHz@300(B1) + 20MHz@1850(B3) + 100MHz@650000(N78)"
   - `rf.caComponentCount`：e.g. 3
   - `rf.totalAggregatedBandwidthMhz`：e.g. 140
   - `rf.transmissionMode`：e.g. "TM[4]"
   - `rf.lteMimoRank`：e.g. 2
+  - `rf.ulMimoLayers`：上行 MIMO 层数（烽火 `UlMimo`）；没有报告时为 null
+  - `rf.rrcConnected`：RRC 连接态（true 连接、false 空闲；烽火 `RRCStatus`）；没有报告时为 null
+  - `rf.qci`：承载的 QoS 等级（QCI，烽火 `QCI`）；没有报告时为 null
+  - `rf.wcdma`：3G 服务小区 `{ rscpDbm, ecioDb, psc }`（华为取已经在读的 `/api/device/signal` 的 `<rscp>` / `<ecio>` / `<sc>`，中兴 goform `rscp` / `ecio` / `sc`，品速按 CESQ 索引换算）；不在 3G 上或没有报告时为 null
   - `rf.cellIdDisplay`：十进制原值；Bearer / MCP 脱敏副本为 "<REDACTED>"
   - `rf.eNodeBDisplay`：同上
   - `rf.tacDisplay`：同上
@@ -248,6 +253,12 @@ export interface AuthLoginRequest {
   - `traffic.todayUsedBytesStr`：BigInt 无损十进制字符串
   - `traffic.monthTotalBytes`：当月累计总流量（字节）
   - `thermal.temperatureCelsius`：H168-383 4.4.0.1 默认 null（优雅降级为 N/A，绝不伪造 0°C）
+  - `thermal.sensors`：路由器分开报告的各个温度 `[{ kind, name, celsius }]`，`kind` 为 `modem` / `modem_4g` / `modem_5g` / `pa` / `wifi` / `battery` / `cpu` / `board` / `other`（`other` 带路由器给的名字）；只报一个值或没有的为 []（`temperatureCelsius` 仍是最热的那个）
+  - `status`：路由器自己的状态（`RouterStatusSnapshot`，[`src/router-status.ts`](../../src/router-status.ts)），捎带在 5 秒轮询的同一个会话里读；整份没有时为 null，路由器没报告的部分为 null，从不补零：
+    - `battery`：`{ percent 0–100, charging, temperatureC, minutesToFull, minutesToEmpty }`（只按档报告的换成 25 的倍数，`-1` 一类无效值为 null）
+    - `sim`：`{ state: "ready" | "absent" | "pin_required" | "puk_required" | "error", pinLockEnabled, pinAttemptsLeft, pukAttemptsLeft, slot: { kind: "physical" | "embedded", index } }`
+    - `airplaneMode`：true / false；`roaming`：`{ active, dataAllowed }`；`system`：`{ uptimeSec, cpuPercent, memoryPercent }`（路由器自己的运行时间与负载）；`firmwareUpdate`：`"available"` / `"none"`；`wifi`：`{ enabled, guestEnabled }`
+    - 其他品牌的路由器没有自己的运行时间时，`unavailable` 含 `"uptime"`，`device.uptimeSec` 只是连接时长，控制台显示「—」
   - `sms`：短信计数：本进程持有短信存储时捎带在遥测会话内（GET /api/sms/sms-count）；否则为 null
   - `sms`：SmsCounters 见 2.5 节
 - **`AlertEventRecord`**

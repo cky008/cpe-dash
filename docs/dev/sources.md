@@ -300,3 +300,136 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 
 - 第 5、6 步：烽火的飞行模式、zWRT 的电池与 SIM 卡槽等资料里有、烽燧还没有这类功能的项目；一个非华为的演示路由器（控制台里驱动品牌才有的天线小节、接入方式未知的设备，还没有浏览器测试）。
 - 第 7 步：ZLT 的 `lua.cgi` 写法（通则康威接口的另一种写法），先补到信号读取的记录。
+
+### 18.5 第 5 步：资料里有、烽燧还没有的能力（盘点），以及其中的读取
+
+**决定**：先按品牌盘点两份资料库（下文「资料 A」是 `cpe-specs/protocols/`，「资料 B」是 `cpe-protocal/protocols/`）里有、烽燧还没有的每一项能力，再实现其中的读取；写入归第 6 步，另一种接口写法归第 7 步，不实现的几类照 AGENTS.md 第 4 节第 7 条列出。每项读取都捎带在 5 秒轮询的同一个会话里，不另开登录；同一类读数在各品牌上统一单位，路由器没报告的留 `null`。
+
+**架构**
+
+- [`src/router-status.ts`](../../src/router-status.ts)（零依赖，守护进程、控制台与在线演示共用）：`RouterStatusSnapshot` 是电池、SIM 卡、飞行模式、漫游、路由器自己的运行时间与负载、固件更新、Wi-Fi 开关；`TemperatureSensor` 把各个温度分开记（`thermal.sensors`），`thermal.temperatureCelsius` 仍是最热的那个。共用规则：`batteryIsLow`（默认 20 %，`DEFAULT_BATTERY_LOW_PERCENT`）、`simIsLocked`。遥测快照新增 `status`、`device.iccid`、`rf.wcdma`、`rf.rrcConnected`、`rf.qci`、`rf.ulMimoLayers`（字段说明见 [`api.md`](api.md)）；旧的加密状态文件读回时补上这些字段（`status` 为 `null`）。
+- **华为只从已经在读的应答里取**：电池取 `monitoring/status` 的 `<BatteryLevel>`（1–4 档乘 25，0 记为 `null`）与 `<BatteryStatus>`；ICCID 取 `device/information` 的 `<Iccid>`；3G 取 `device/signal` 的 `<rscp>`、`<ecio>`、`<sc>`。H168-383 发出的请求一个字节都没变（见下面「验证」）。
+- **驱动**：`DriverTelemetry` 多了可选的 `status`、`temperatures`、`ids`、`wcdma`、`rrcConnected`、`qci`、`ulMimoLayers` 与小区的 `cqi1`、`ulBandwidthMhz`、`puschTxDbm`、`pucchTxDbm`、`transmissionMode`；新读的请求失败时只丢这些新读数（`.catch(() => null)`），原有遥测照常。路由器没有自己的运行时间时，快照的 `unavailable` 含 `uptime`，控制台显示「—」，不再把连接时长当作运行时间。
+- **功能与表**：`STATUS_READ_FEATURES`（`battery`、`simCard`、`airplaneMode`，[`src/router-family.ts`](../../src/router-family.ts)）是三个新的读取功能，「支持的设备」多三列；它们不随 H168-383 的「已验证型号」一并标 ✓，也不计入 `isReportVerifiedModel`（有的设备没有这样的硬件），只凭自己的报告登记；设备报告按最近一次轮询有没有带上判断「读到了没有」。室内 CPE 没有电池，电池格是 `—`（型号清单的 `forms` 事实）。
+- **告警**：`BATTERY_LOW`（`ALERT_BATTERY_LOW_PERCENT`，默认 20，`0` 关闭；没在充电、持续 1 分钟；充电或回到阈值 + 5 以上重新布防）与 `SIM_LOCKED`（SIM 卡等 PIN 或 PUK）。
+- **`/metrics`**：温度（最热的一个，以及每类传感器中最热的一个，标签只有 `sensor` 类别）、电量、充电、电池温度、SIM 卡锁住、飞行模式、漫游、路由器的 CPU 与内存；ICCID 一类标识不导出。
+- **控制台**：读数只在路由器报告了的地方出现（运营商卡片的 SIM 卡状态、卡槽、PIN 与剩余次数、漫游、飞行模式；身份卡片的 ICCID，和 IMEI 一样默认遮住；健康卡片的电池、各传感器、负载、Wi-Fi、固件更新；信号卡片的上行 MIMO、RRC / QCI、3G）；术语帮助新增 SIM PIN、eSIM、漫游、飞行模式、RRC、QCI、WCDMA。
+- **在线演示**：第三个世界 `?router=zte`，一台中兴 MU5001（goform）随身路由器，有电池与 SIM 卡槽；种子 `demo-seed-zte.json` 由真守护进程录制，`test/demo-backend-zte.test.ts` 对照守护进程。浏览器测试另有只给测试用的鲲鹏无限、OpenWrt 场景（驱动品牌才有的天线小节、「接入方式未知」的设备）。
+
+**盘点表**
+
+状态一栏：「已实现」后面是提交；「第 6 步」「第 7 步」是留给的步骤；「不做」写明原因（查不到记录或取值、会改变 H168-383 的请求等）；「不实现」是 AGENTS.md 第 4 节第 7 条的几类；「暂缓」是主人的决定。出处里的「中兴网页」指中兴固件自带网页的脚本（公开副本见下面的参考表）。
+
+| 能力 | 品牌 | 读 / 写 | 出处 | 缺什么细节 | 归属 | 状态 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 电池：电量、充电、电池温度 | 中兴 goform | 读 | 资料 A zte-goform 第 270、346–348 行；`battery_pers` 是 0–4 档（中兴网页的电量图标） | 资料没写 `battery_pers` 是档位，按中兴网页补齐 | 第 5 步 | 已实现（`be6de2e`） |
+| 电池：电量、充电、充满 / 用完的剩余分钟、电池温度 | 中兴 zWRT | 读 | 资料 A zte-zwrt 第 219、272–275 行（`get_device_info` 的 `deviceInfoList`） | `bat_charger_connect` 只有样本，含义取自 Primovist/Scripting 与 ZTE_Desktop_Status | 第 5 步 | 已实现（`10fc7c5`） |
+| 电池：电量、充电 | 华为 | 读 | 资料 A huawei-hilink-scram 第 351–352 行 | `<BatteryPercent>` 两份资料都没有，不读 | 第 5 步 | 已实现（`b52d821`，只从已读的应答取） |
+| SIM 卡状态、PIN 是否开启、PIN / PUK 剩余次数、卡槽（实体卡 / 内置卡 1、2） | 中兴 goform | 读 | 资料 A zte-goform 第 269–270、278、292 行；取值取自中兴网页 | `pin_status`、`modem_main_state` 的取值资料没写，按中兴网页补齐 | 第 5 步 | 已实现（`be6de2e`） |
+| SIM 卡状态、PIN、卡槽（实体卡 / eSIM） | 中兴 zWRT | 读 | 资料 A zte-zwrt 第 220 行（`get_sim_info_before`）；`get_sim_info` 的字段取自 open-u60-pro，网页账号可调用取自 MU5250-OpenUI 的 rpcd 权限表 | `get_sim_info` 资料里没有；读不到时退回 `get_sim_info_before` | 第 5 步 | 已实现（`10fc7c5`） |
+| SIM 卡状态、PIN 剩余次数 | OpenWrt（AT） | 读 | 3GPP TS 27.007 `AT+CPIN?`；移远 AT 手册 `AT+QPINC?` | 资料里没有；剩余次数只在移远模组上读 | 第 5 步 | 已实现（`818ab69`，每台路由器 60 秒读一次） |
+| ICCID | 中兴 goform、华为、鲲鹏无限、OpenWrt | 读 | 资料 B zte-web 第 182 行；资料 A huawei-hilink-scram 第 346 行；资料 A nradio 第 961–995 行；资料 B quectel-fibocom 第 105 行 | 鲲鹏无限的 `overview_status` 只出现在资料的示例代码里，不在接口表 | 第 5 步 | 已实现（各品牌提交） |
+| 切换 SIM 卡槽 | 中兴 goform（`SET_SIM_SLOT`）、zWRT（`zwrt_mdm_change_provision_session`）、鲲鹏无限（SIM 选择页） | 写 | 资料 A zte-goform 第 292 行；资料 A zte-zwrt 第 178、183、227 行；鲲鹏无限的页面取自 ssh-nradio-plugin-installer 解出的网页 | 鲲鹏无限的请求要从页面内嵌的数据补齐 | 第 6 步 | 未做 |
+| 输入 SIM PIN、开关 PIN | 中兴 zWRT、华为 | 写 | 资料里没有；zWRT 的方法名见 MU5250-OpenUI 的 rpcd 权限表，华为的 `pin/operate` 见 huawei-lte-api | 参数与应答格式 | 第 6 步 | 未做 |
+| 华为 SIM PIN 状态（`pin/status`） | 华为 | 读 | huawei-lte-api 只有接口名 | 字段含义查不到；而且会给 H168-383 新增请求 | — | 不做 |
+| 飞行模式 | 烽火 | 读 | 资料 A fiberhome 第 56、122 行（`app_get_airplane` 的 `airplaneOn`） | — | 第 5 步 | 已实现（`c056963`） |
+| 飞行模式 | OpenWrt（AT） | 读 | 3GPP TS 27.007 §8.2 `AT+CFUN?`（`1` 正常，`0` / `4` 记为飞行模式） | 资料里没有 | 第 5 步 | 已实现（`818ab69`） |
+| 飞行模式开关 | 烽火 | 写 | 资料 A fiberhome 第 54、123 行（`app_set_airplane`） | 应答格式只有一部分 | 第 6 步 | 未做 |
+| `RadioOff` | 中兴 goform | — | 资料 A zte-goform 第 270 行只有键名 | 中兴网页里它是 Wi-Fi 的开关，不是飞行模式（交叉核对时纠正了这一条） | — | 不做（不是飞行模式） |
+| 第二码字 CQI、5G 上行带宽、上行发射功率 | 中兴 goform | 读 | 资料 B zte-web 第 183–184 行 | 取值格式按同组字段推断，越界的丢掉 | 第 5 步 | 已实现（`be6de2e`） |
+| 3G 服务小区（RSCP、Ec/Io、扰码） | 中兴 goform | 读 | 资料 A zte-goform 第 322–324 行 | — | 第 5 步 | 已实现（`be6de2e`） |
+| 3G 服务小区 | 华为 | 读 | 资料 A huawei-hilink-scram 第 292–293、357–361 行 | — | 第 5 步 | 已实现（`b52d821`，只从已读的应答取） |
+| 3G 服务小区（CESQ 索引） | 品速 | 读 | 资料 A pinsu 第 173–174、265–266 行 | — | 第 5 步 | 已实现（`7abf990`） |
+| PUSCH / PUCCH 发射功率、上行带宽、传输模式、上行 MIMO、QCI、RRC 状态 | 烽火 | 读 | 资料 A fiberhome 第 198–223 行 | — | 第 5 步 | 已实现（`c056963`） |
+| DL / UL AMBR | 烽火 | 读 | 资料 A fiberhome 第 221–222 行 | 单位（kbps 还是 bps）查不到 | — | 不做 |
+| CSI（MCS、秩、CQI） | OpenWrt 移远 | 读 | 资料 B quectel-fibocom 第 114–115、208–213 行（`AT+QNWCFG="lte_csi"` / `"nr5g_csi"`） | — | 第 5 步 | 已实现（`818ab69`） |
+| 上行带宽、发射功率 | OpenWrt 移远 | 读 | 资料 B quectel-fibocom `AT+QENG="servingcell"` 的字段表 | 发射功率绝对值大于 40 时按 0.1 dBm 换算 | 第 5 步 | 已实现（`818ab69`） |
+| 各接收通道的 RSRQ / SINR | OpenWrt 移远 | 读 | 资料 B quectel-fibocom 第 112 行（`AT+QRSRQ`、`AT+QSINR`） | 只有指令名与应答片段 | — | 未做（建议，见报告） |
+| 其他华为型号的 RRC 状态、5G PRACH 功率 | 华为 | 读 | 资料 A huawei-hilink-scram 第 332、376 行 | 解析 H168-383 已验证的应答要另开分支 | — | 未做（建议） |
+| 辅载波详情（`ca-scell-info`）、漫游自动连接（`dialup/connection`）、APN 列表（`dialup/profiles`） | 华为 | 读 | 资料 B huawei-hilink 第 323、349、350、430–433 行 | 会给 H168-383 新增请求 | — | 未做（建议放在未验证型号的宽容读取里） |
+| 混合天线（`3`）、5G 外置天线开关（`antenna_ext_td_switch`）、天线状态（`antenna_type`） | 鲲鹏无限 | 读 / 写 | 资料 A nradio 第 166–168 行 | 应答格式只有一部分 | 第 6 步 | 未做 |
+| 同上 | 华为 | 读 / 写 | 资料 A huawei-hilink-scram 第 277、753 行 | 会给 H168-383 新增请求 | 第 6 步 | 未做 |
+| 3G、4G / 3G 等制式 | 中兴 goform、zWRT | 写 | 资料 A zte-goform 第 289 行；资料 A zte-zwrt 第 221、240 行 | — | 第 6 步 | 未做 |
+| 只用 3G（`WCDMA_ONLY` / `11`） | 通则康威 | 写 | 资料 A tozed 第 329 行 | — | 第 6 步 | 未做 |
+| 2G、3G、4G + 5G 优先、`networkOption` | 鲲鹏无限 | 写 | 资料 A nradio 第 162、289–299 行 | — | 第 6 步 | 未做 |
+| 2G、3G 制式与 `networkOption` | 其他华为型号 | 写 | 资料 A huawei-hilink-scram 第 609–629 行 | — | 第 6 步 | 未做 |
+| `mode_pref` 的 WCDMA | OpenWrt 移远 | 写 | 资料 B quectel-fibocom 第 119、223–227 行 | — | 第 6 步 | 未做 |
+| `AT+GTACT` 制式与优先频段 | OpenWrt 广和通 | 写 | 资料 B quectel-fibocom 第 266–278 行 | — | 第 6 步 | 未做 |
+| 5G SA / NSA 分开锁频段 | 中兴 goform | 写 | 资料 B zte-web 第 64、291–301 行 | 只在较新的固件上 | 第 6 步 | 未做 |
+| 多个候选小区一起锁 | 烽火（LG6151M）、OpenWrt 移远（`QNWLOCK="common/4g"`） | 写 | 资料 A fiberhome 第 130–131、341–366 行；资料 B quectel-fibocom 第 125–126、242–251 行 | 列表长度上限 | 第 6 步 | 未做 |
+| 只锁频点（不带 PCI） | 鲲鹏无限 | 写 | 资料 A nradio 第 163、443–490 行 | — | 第 6 步 | 未做 |
+| 漫游状态 | 中兴 goform | 读 | 资料 A zte-goform 第 270 行（`simcard_roam`）；取值取自中兴网页 | 取值资料没写，按中兴网页补齐 | 第 5 步 | 已实现（`be6de2e`） |
+| 漫游时的数据开关 | 中兴 zWRT | 读 | `get_wwaniface` 的 `roam_enable`（open-u60-pro） | 资料只有 `enable` | 第 5 步 | 已实现（`10fc7c5`） |
+| 漫游开关 | 中兴 zWRT、goform | 写 | zWRT 见 open-u60-pro；goform 的 `roam_setting_option` 资料 A 第 270 行只有键名 | goform 的写法查不到 | 第 6 步（zWRT） | 未做 |
+| 套餐上限与提醒比例 | 中兴 goform | 读 | 资料 A zte-goform 第 270 行；含义取自中兴网页 | 只按流量（`data`）的套餐读，按时长的不读 | 第 5 步 | 已实现（`be6de2e`） |
+| 设置月流量上限 | 中兴 zWRT | 写 | MU5250-OpenUI 的 rpcd 权限表（`set_wwandst_monthlimit`） | 参数与应答 | 第 6 步 | 未做 |
+| 清零流量统计 | 华为 | 写 | 资料 B huawei-hilink 第 346 行（`monitoring/clear-traffic`） | — | 第 6 步 | 未做 |
+| APN | 中兴 goform（`APN_PROC_EX`）、zWRT、OpenWrt（`AT+CGDCONT`）、华为 | 读 / 写 | UFI-TOOLS 的接口文档；MU5250-OpenUI 的 rpcd 权限表；资料 B quectel-fibocom 第 127 行；资料 B huawei-hilink 第 350 行 | 华为的应答格式没有；读取只为改 APN 服务，和写入一起做 | 第 6 步 | 未做 |
+| USSD | — | 读 / 写 | 两份资料库都没有 | 公开项目里有华为的接口名，第 6 步查清参数与应答再定 | 第 6 步（待查） | 未做 |
+| 分开的温度传感器 | 中兴 goform、烽火 Pro、OpenWrt 移远 | 读 | 资料 A zte-goform 第 275、342–345 行；烽火 Pro 的 4G / 5G 温度；资料 B quectel-fibocom 第 118 行（`AT+QTEMP`） | — | 第 5 步 | 已实现 |
+| CPU 与内存占用 | 中兴 goform | 读 | 资料 B zte-web 第 186 行 | 格式按百分比解析（UFI-TOOLS 印证键名） | 第 5 步 | 已实现（`be6de2e`） |
+| 运行时间、CPU、内存 | 鲲鹏无限 | 读 | 资料 A nradio 第 961–995 行（示例代码） | 只在示例代码里，按记录实现 | 第 5 步 | 已实现（`943d8de`） |
+| 运行时间、内存 | OpenWrt | 读 | OpenWrt 的 ubus `system info`（procd） | 资料只有 `system.board` | 第 5 步 | 已实现（`818ab69`） |
+| 固件更新提示 | 中兴 goform | 读 | 资料 A zte-goform 第 270 行；`fota_new_version_state` 的取值取自中兴网页 | `new_version_state` 的取值查不到，只读前者 | 第 5 步 | 已实现（`be6de2e`） |
+| Wi-Fi 开关、访客网络（读） | 中兴 goform | 读 | 资料 A zte-goform 第 270 行；含义取自中兴网页 | — | 第 5 步 | 已实现（`be6de2e`） |
+| Wi-Fi 设置写入 | 华为以外的品牌 | 写 | 两份资料库都只有读取的键名 | 没有写入记录 | — | 不做 |
+| 夜间模式 / 指示灯 | 中兴 goform | 读 | 资料 A zte-goform 第 270 行（`is_night_mode`）只有键名 | 取值查不到 | — | 不做 |
+| 品速公版接口（`http.cgi` 的 `cmd` 1–6、10、160、162、164、302：设备信息、SIM 卡、信号、载波聚合、邻区、流量、多个温度与负载、终端、制式、5G NSA 频段、桥接 / NAT / MTU） | 品速 | 读 / 写 | 资料 B pinsu-unisoc-qualcomm 第 152–292 行 | 另一种接口写法，烽燧的品速驱动用的是 `get_mgdb_params` | 第 7 步 | 未做 |
+| 手动选网（运营商列表、注册） | 华为 | 读 / 写 | 资料 B huawei-hilink 第 334–336 行 | 扫描要 30–60 秒、会断网 | 第 6 步（待主人决定） | 未做 |
+| 恢复出厂 | 华为 | 写 | 资料 B huawei-hilink（`device/control` 的 `4`） | 恢复后路由器密码回到默认，烽燧会连不上 | 第 6 步（待主人决定） | 未做 |
+| GNSS、BLER、时间提前量、定时重启、eSIM 配置下载 | — | — | 两份资料库都没有接口记录 | — | — | 不做（查不到记录） |
+| 型号表里写到的硬件能力（PoE、看门狗、NFC 等） | 各品牌 | — | 资料只在型号表里提到，没有接口 | — | — | 不做（查不到接口） |
+| 改设备身份（IMEI、序列号、蜂窝侧 MAC） | 各品牌 | 写 | — | — | — | 不实现 |
+| 解除运营商锁或 SIM 锁（如 zWRT 的 `set_simlock_nck`） | 中兴 zWRT 等 | 写 | rpcd 权限表 | — | — | 不实现 |
+| 打开 telnet / ADB / SSH（鲲鹏无限的 SSH 插件等） | 各品牌 | 写 | 公开项目 | — | — | 不实现 |
+| 刷固件、写 NV / 校准分区 | 各品牌 | 写 | — | — | — | 不实现 |
+| 关闭登录保护（HiLink 的免密登录、调试模式） | 华为 | 写 | — | — | — | 不实现 |
+| 有线设备拦截（防火墙 MAC 过滤） | 华为 | 写 | — | — | — | 暂缓（主人的决定） |
+
+**单位与取值的统一**
+
+- 电量一律是 0–100 的百分比：只按档报告的（华为 1–4、中兴 `battery_pers` 0–4）乘 25；`-1` 一类无效值为 `null`。
+- 剩余时间一律是分钟，温度是 °C，发射功率是 dBm（-50 到 33 之外丢掉），上行带宽是 MHz。
+- SIM 卡状态归成五种：`ready`、`absent`、`pin_required`、`puk_required`、`error`；各品牌的原始取值在驱动里换算（中兴 `modem_main_state`，zWRT `sim_states`，AT `+CPIN`）。
+- 卡槽：`physical` 是实体卡，`embedded` 是内置卡（eSIM，按路由器的编号）。
+- 漫游：`active` 是正在漫游，`dataAllowed` 是漫游时用不用数据。
+
+**参考过的项目（只取事实，没有复制代码或测试数据，没有新增依赖）**
+
+| 项目 | 提交（日期） | 许可证 | 取了什么 |
+| :--- | :--- | :--- | :--- |
+| [Zisbusy/PortableWiFi-Web](https://github.com/Zisbusy/PortableWiFi-Web) | `68347b1`（2025-06-29） | 仓库里没有许可证文件 | 中兴固件网页的 `com.js`：`battery_pers` 的档位、`pin_status`、`modem_main_state`、`simcard_roam`、套餐字段、`fota_new_version_state`、`wifi_cur_state`、`m_ssid_enable` 的取值，`RadioOff` 是 Wi-Fi 开关 |
+| [xcfstudio/LinkUI-ZXIC](https://github.com/xcfstudio/LinkUI-ZXIC) | `3e7522b`（2026-07-08） | MIT | 设备信息页读 `battery_vol_percent`、`battery_charging`、`battery_pers` 的写法（印证） |
+| [kanoqwq/UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS) | `cf83b81`（2026-10-09） | MIT | `cpu_usage`、`mem_usage`、`sim_slot`、电量键名（印证）；`APN_PROC_EX`（第 6 步） |
+| [jesther-ai/open-u60-pro](https://github.com/jesther-ai/open-u60-pro) | `5596b8d`（2026-11-04） | MIT | zWRT `get_sim_info` 的字段与 `sim_states` 的取值；`get_wwaniface` 的 `roam_enable` |
+| [dklasens/MU5250-OpenUI](https://github.com/dklasens/MU5250-OpenUI) | `33fdb98`（2026-10-24） | 没有标注许可证 | rpcd 权限表：网页账号可调用 `get_sim_info`、`get_device_info`；第 6 步的方法名 |
+| [MavisTok/ZTE_Desktop_Status](https://github.com/MavisTok/ZTE_Desktop_Status) | `18a0e0a`（2026-01-08） | 仓库里没有许可证文件 | zWRT `get_device_info` 的电池字段（印证） |
+| [Primovist/Scripting](https://github.com/Primovist/Scripting) | `8654be7`（2026-10-26） | 仓库里没有许可证文件 | `bat_charger_connect` 为 1 是接了充电器 |
+| [amenekowo/mu5250_tweaking](https://github.com/amenekowo/mu5250_tweaking) | `bd38bbb`（2026-08-18） | GPL-3.0 | zWRT 电池与 SIM 卡字段名（印证） |
+| [Salamek/huawei-lte-api](https://github.com/Salamek/huawei-lte-api) | `d2eb2af`（2026-10-26） | LGPL-3.0 | 只用来确认 `pin/status` 与 `<BatteryPercent>` 没有字段说明（因此不做） |
+
+另外依据的标准与手册：3GPP TS 27.007（`AT+CFUN`、`AT+CPIN`、`AT+CESQ`）、移远 AT 手册（`AT+QPINC`、`AT+QTEMP`、`AT+QNWCFG`）、OpenWrt 的 ubus 文档（`system info`）。读过但没有取用事实的：DarkNikGr/mifi-mu5001-lib-gui、Invalid8/mf935-telemetry、teixeluis/zte-lte-modem 的字段表、fildunsky/luci-app-5gmodem 的中兴与联发科随身路由器说明。
+
+**交叉核对**：盘点由 10 份按品牌的简报（资料全文附行号）做出，再用 5 次核对把每条结论对回资料原文。纠正的：中兴 `RadioOff` 被当成飞行模式（实为 Wi-Fi 开关）；zWRT 的一份盘点混进了 goform 的项目；华为 `<BatteryPercent>`、`<RoamingStatus>` 在资料里不存在；鲲鹏无限的 `overview_status` 只在示例代码里。关键取值（SIM 卡状态、漫游、电池档位、卡槽编号）另外用中兴网页与开源项目逐一核对。
+
+**验证**
+
+- H168-383 的请求不变：用以前留下的比对工具在第 5 步之前（`07b068c`）与之后各跑一遍严格模拟路由器，请求序列（15384 字节）与报文记录（请求头、Cookie 名、请求体，4712 字节）逐字节相同。
+- 每个品牌的新读数都有模拟路由器测试（单位换算、无效值为 `null`、新请求失败时只丢新读数）；告警、`/metrics`、控制台文字（`test/web-status-view.test.ts`）、设备报告与「支持的设备」都有测试；演示的中兴世界与守护进程逐项对照；浏览器测试覆盖中兴的电池与 SIM 卡行、鲲鹏无限的天线、OpenWrt 的「接入方式未知」。单元测试 1280 条，浏览器测试 26 条。
+- 体积：控制台首屏 83.1 KiB + 按需 80.5 KiB，共 163.6 / 176 KiB；演示 201.3 KiB，上限由 200 调到 210 KiB。
+
+**替主人定的**
+
+1. 状态读数（电池、SIM 卡、飞行模式）不计入「全部功能都由报告确认过的型号」，也不随 H168-383 的已验证一并标 ✓：有的设备没有这样的硬件，只凭自己的报告登记。
+2. 低电量告警默认开启，阈值 20 %，持续 1 分钟才告警，回到阈值 + 5 % 或开始充电才重新布防。
+3. 其他品牌的路由器没有自己的运行时间时显示「—」，不再把连接时长当作运行时间。
+4. ICCID 和 IMEI 一样，在 API 的脱敏副本与控制台里默认遮住（留前 6 位）。
+5. 中兴 goform 只按流量的套餐读上限（按时长的不读）；`new_version_state` 不读。
+6. OpenWrt 的 SIM 卡读数每台路由器 60 秒读一次（PIN 状态不会每 5 秒变）。
+7. 烽火的 AMBR 不读（单位查不到）。
+8. 在线演示的上限由 200 调到 210 KiB。
+
+**留给后面的步骤**
+
+- 第 6 步：上表归第 6 步的写入（SIM 卡槽、PIN、飞行模式开关、天线、制式、多小区与只锁频点、漫游开关、流量上限与清零、APN、USSD 待查）；手动选网和恢复出厂先问主人。
+- 第 7 步：品速公版接口（`http.cgi`）与 ZLT 的 `lua.cgi` 写法。
