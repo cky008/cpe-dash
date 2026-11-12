@@ -278,6 +278,8 @@ export interface CellularSettingsSnapshot {
   operator: { selection: "auto" | "manual" | null; plmn: string | null } | null;
   apn: ApnView | null;
   dataLimit: { enabled: boolean | null; bytes: number | null; alertPercent: number | null } | null;
+  /** The data roaming switch as this read saw it, where the 5 s poll does not carry it (`null`: not read here). */
+  dataRoaming: boolean | null;
 }
 
 // ── A change that can cut the WAN ────────────────────────────────────────────

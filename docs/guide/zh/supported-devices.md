@@ -34,71 +34,72 @@ order: 2
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | H168-383 | 室内 CPE | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |  |  |  |  |  |  |
-| H165-383 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H165-383) |
-| H158-381 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H158-381) |
-| H155-381 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-381) |
-| H155-382 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-382) |
-| H155-383 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-383) |
-| H153-381 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H153-381) |
-| H138-380 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H138-380) |
-| H122-373 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H122-373) |
-| H112-373 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-373) |
-| H112-372 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-372) |
-| H112-370 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-370) |
-| H352-381 | 室外 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H352-381) |
-| H312-371 | 室外 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H312-371) |
-| N5368X | 室外 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+N5368X) |
-| B818-263 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-263) |
-| B818-260 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-260) |
-| B715s-23c | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B715s-23c) |
-| B628-265 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-265) |
-| B628-350 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-350) |
-| B618s-22d | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-22d) |
-| B618s-65d | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-65d) |
-| B612-233 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612-233) |
-| B612s-25d | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612s-25d) |
-| B535-836 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-836) |
-| B535-232 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-232) |
-| B528s-23a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B528s-23a) |
-| B525s-23a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-23a) |
-| B525s-65a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-65a) |
-| B316-855 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B316-855) |
-| B315s-22 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-22) |
-| B315s-936 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-936) |
-| B311-221 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-221) |
-| B311-521 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-521) |
-| B311As-853 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311As-853) |
-| B311B-853 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311B-853) |
-| B310s-22 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-22) |
-| B310s-927 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-927) |
-| B310As-852 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310As-852) |
-| E5180s-22 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5180s-22) |
-| E5186s-22a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5186s-22a) |
-| E6888-982 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6888-982) |
-| E6878-370 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-370) |
-| E6878-870 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-870) |
-| E5885Ls-93a | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5885Ls-93a) |
-| E5785-320 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785-320) |
-| E5785Lh-22c | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785Lh-22c) |
-| E5577Cs-321 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5577Cs-321) |
-| E5576-320 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-320) |
-| E5576-855 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-855) |
-| E5573s-320 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5573s-320) |
-| E8231 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8231) |
-| E8372h-153 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-153) |
-| E8372h-320 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-320) |
-| E8372h-608 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-608) |
-| E3372 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372) |
-| E3372h-153 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372h-153) |
-| E3131 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3131) |
-| E3531 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3531) |
-| E5530As-2 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5530As-2) |
+| H165-383 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H165-383) |
+| H158-381 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H158-381) |
+| H155-381 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-381) |
+| H155-382 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-382) |
+| H155-383 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-383) |
+| H153-381 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H153-381) |
+| H138-380 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H138-380) |
+| H122-373 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H122-373) |
+| H112-373 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-373) |
+| H112-372 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-372) |
+| H112-370 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-370) |
+| H352-381 | 室外 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H352-381) |
+| H312-371 | 室外 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H312-371) |
+| N5368X | 室外 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+N5368X) |
+| B818-263 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-263) |
+| B818-260 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-260) |
+| B715s-23c | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B715s-23c) |
+| B628-265 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-265) |
+| B628-350 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-350) |
+| B618s-22d | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-22d) |
+| B618s-65d | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-65d) |
+| B612-233 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612-233) |
+| B612s-25d | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612s-25d) |
+| B535-836 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-836) |
+| B535-232 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-232) |
+| B528s-23a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B528s-23a) |
+| B525s-23a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-23a) |
+| B525s-65a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-65a) |
+| B316-855 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B316-855) |
+| B315s-22 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-22) |
+| B315s-936 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-936) |
+| B311-221 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-221) |
+| B311-521 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-521) |
+| B311As-853 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311As-853) |
+| B311B-853 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311B-853) |
+| B310s-22 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-22) |
+| B310s-927 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-927) |
+| B310As-852 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310As-852) |
+| E5180s-22 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5180s-22) |
+| E5186s-22a | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5186s-22a) |
+| E6888-982 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6888-982) |
+| E6878-370 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-370) |
+| E6878-870 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-870) |
+| E5885Ls-93a | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5885Ls-93a) |
+| E5785-320 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785-320) |
+| E5785Lh-22c | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785Lh-22c) |
+| E5577Cs-321 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5577Cs-321) |
+| E5576-320 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-320) |
+| E5576-855 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-855) |
+| E5573s-320 | 随身路由器 | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5573s-320) |
+| E8231 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8231) |
+| E8372h-153 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-153) |
+| E8372h-320 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-320) |
+| E8372h-608 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-608) |
+| E3372 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372) |
+| E3372h-153 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372h-153) |
+| E3131 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3131) |
+| E3531 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3531) |
+| E5530As-2 | USB 上网卡 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5530As-2) |
 
 这一节的说明：
 
 - — 「电池」：只有随身路由器有电池（H168-383、H165-383、H158-381、H155-381、H155-382、H155-383、H153-381、H138-380、H122-373、H112-373、H112-372、H112-370、H352-381、H312-371、N5368X、B818-263、B818-260、B715s-23c、B628-265、B628-350、B618s-22d、B618s-65d、B612-233、B612s-25d、B535-836、B535-232、B528s-23a、B525s-23a、B525s-65a、B316-855、B315s-22、B315s-936、B311-221、B311-521、B311As-853、B311B-853、B310s-22、B310s-927、B310As-852、E5180s-22、E5186s-22a、E8231、E8372h-153、E8372h-320、E8372h-608、E3372、E3372h-153、E3131、E3531 和 E5530As-2）。
 - △ 「附近的基站」：烽燧读的是 H168-383 的附近基站接口，路由器没有这个接口时这一项是空的（除 H168-383 外的全部型号）。
 - △ 「锁频段」：只锁 4G 频段，5G 频段烽燧只在验证过的型号上锁（除 H168-383 外的全部型号）。
+- △ 「数据设置」：只有数据漫游和清零流量统计，接入点（APN）和流量上限烽燧在这里还没有做（除 H168-383 外的全部型号）。
 - USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连（E8231、E8372h-153、E8372h-320、E8372h-608、E3372、E3372h-153、E3131、E3531 和 E5530As-2）。
 
 <a id="brand-brovi"></a>
@@ -109,14 +110,15 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| H155-380 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-380) |
-| H151-370 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H151-370) |
+| H155-380 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-380) |
+| H151-370 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H151-370) |
 
 这一节的说明：
 
 - △ 「附近的基站」：烽燧读的是 H168-383 的附近基站接口，路由器没有这个接口时这一项是空的（这一节的全部型号）。
 - △ 「锁频段」：只锁 4G 频段，5G 频段烽燧只在验证过的型号上锁（这一节的全部型号）。
 - — 「电池」：只有随身路由器有电池（这一节的全部型号）。
+- △ 「数据设置」：只有数据漫游和清零流量统计，接入点（APN）和流量上限烽燧在这里还没有做（这一节的全部型号）。
 
 <a id="brand-td-tech"></a>
 
@@ -126,16 +128,17 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| MT5710-CN | 工业网关 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5710-CN) |
-| MH5000-31 | 工业网关 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-31) |
-| MH5000-82M | 工业网关 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-82M) |
-| MT5700M-CN | 模组 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5700M-CN) |
+| MT5710-CN | 工业网关 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5710-CN) |
+| MH5000-31 | 工业网关 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-31) |
+| MH5000-82M | 工业网关 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-82M) |
+| MT5700M-CN | 模组 | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5700M-CN) |
 
 这一节的说明：
 
 - △ 「附近的基站」：烽燧读的是 H168-383 的附近基站接口，路由器没有这个接口时这一项是空的（这一节的全部型号）。
 - △ 「锁频段」：只锁 4G 频段，5G 频段烽燧只在验证过的型号上锁（这一节的全部型号）。
 - — 「电池」：只有随身路由器有电池（这一节的全部型号）。
+- △ 「数据设置」：只有数据漫游和清零流量统计，接入点（APN）和流量上限烽燧在这里还没有做（这一节的全部型号）。
 
 <a id="brand-soyealink"></a>
 
@@ -145,17 +148,18 @@ order: 2
 
 | 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| B535-333 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-333) |
-| B535-932 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-932) |
-| B628-540 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-540) |
-| SLT869-A51 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SLT869-A51) |
-| SRT873 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT873) |
+| B535-333 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-333) |
+| B535-932 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-932) |
+| B628-540 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-540) |
+| SLT869-A51 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SLT869-A51) |
+| SRT873 | 室内 CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT873) |
 
 这一节的说明：
 
 - △ 「附近的基站」：烽燧读的是 H168-383 的附近基站接口，路由器没有这个接口时这一项是空的（这一节的全部型号）。
 - △ 「锁频段」：只锁 4G 频段，5G 频段烽燧只在验证过的型号上锁（这一节的全部型号）。
 - — 「电池」：只有随身路由器有电池（这一节的全部型号）。
+- △ 「数据设置」：只有数据漫游和清零流量统计，接入点（APN）和流量上限烽燧在这里还没有做（这一节的全部型号）。
 
 <a id="brands"></a>
 

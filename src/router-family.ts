@@ -120,7 +120,15 @@ export interface RouterFamilyVariant {
  * (`docs/dev/sources.md` §18.3 and §18.4 name each source).
  */
 export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFacts>> = {
-  huawei: { defaultUsername: "admin", defaultAddress: "192.168.8.1", reads: ["telemetry", "neighbors", "topology", "sms", "battery"], writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
+  huawei: {
+    defaultUsername: "admin",
+    defaultAddress: "192.168.8.1",
+    reads: ["telemetry", "neighbors", "topology", "sms", "battery"],
+    // The generic writes of a HiLink model nobody verified; the H168-383 has its own verified set, and none of the cellular settings
+    writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"],
+    networkModes: ["auto", "lte", "nr_sa"],
+    nrBandLock: true,
+  },
   "zte-goform": {
     defaultUsername: "",
     defaultAddress: "192.168.0.1",

@@ -199,7 +199,7 @@ describe("AI agents testing a model nobody verified", () => {
         endpoints.map((e) => [e.path, e.state, e.known]),
         [
           ["/api/device/autorun-version", "supported", false],
-          ["/api/net/plmn-list", "refused", false],
+          ["/api/net/plmn-list", "refused", true],
           ["/api/net/net-mode", "supported", true],
         ]
       );

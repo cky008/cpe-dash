@@ -100,7 +100,7 @@ describe("endpoint discovery: one session, structure only", () => {
         ["/api/wlan/multi-basic-settings", "supported", null, false],
         ["/api/pin/status", "restricted", "100003", false],
         ["/api/device/vendorname", "unsupported", "100002", false],
-        ["/api/net/plmn-list", "refused", null, false],
+        ["/api/net/plmn-list", "refused", null, true],
         ["/api/net/net-mode-list", "supported", null, true],
       ]
     );

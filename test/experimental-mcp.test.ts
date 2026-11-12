@@ -113,7 +113,7 @@ describe("MCP and experimental writes", () => {
       }
       assert.ok(listed.some((t) => t.name === "upsert_contact"));
       const instructions = (await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"] as string;
-      assert.match(instructions, /open as experimental writes \(bandLock, reboot, reconnect, mobileData, smsWrite\)[\s\S]*its owner can turn each off[\s\S]*confirm: true/);
+      assert.match(instructions, /open as experimental writes \(bandLock, reboot, reconnect, mobileData, smsWrite, networkMode, operatorSelect, roaming\)[\s\S]*its owner can turn each off[\s\S]*confirm: true/);
       // A write FengSui has no implementation of for this model: hidden, and refused by name as such
       const refusal = await fx.call("lock_cell", { rat: "LTE", band: "B1", arfcn: 300, pci: 211, confirm: true });
       assert.deepEqual([refusal["errorCode"], refusal["model"], refusal["feature"]], ["DEVICE_UNVERIFIED_READ_ONLY", MODEL, "cellLock"]);

@@ -60,6 +60,7 @@ const B535: Readonly<Record<string, string>> = {
   "/api/net/net-mode": "<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>800800C5</LTEBand></response>",
   "/api/dialup/mobile-dataswitch": "<response><dataswitch>1</dataswitch></response>",
   "/api/sms/sms-count": "<response><LocalUnread>1</LocalUnread><LocalInbox>2</LocalInbox><LocalOutbox>1</LocalOutbox><LocalDraft>0</LocalDraft><LocalMax>500</LocalMax></response>",
+  "/api/global/module-switch": "<response><ussd_enabled>1</ussd_enabled><sms_enabled>1</sms_enabled><statistic_enabled>1</statistic_enabled></response>",
 };
 
 const H168: Readonly<Record<string, string>> = {
@@ -115,12 +116,12 @@ describe("experimental capability: the probe", () => {
 
 describe("experimental capability: evidence per write", () => {
   it("finds every generic write on a router that shows them all", async () => {
-    assert.deepEqual([...EXPERIMENTAL_FEATURES], ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"]);
+    assert.deepEqual([...EXPERIMENTAL_FEATURES], ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"]);
     // The gate goes by the family's list; on a HiLink model it is these generic writes, and every family's are known write features
     assert.deepEqual([...ROUTER_FAMILY_FACTS.huawei.writes], [...EXPERIMENTAL_FEATURES]);
     for (const family of ROUTER_FAMILIES) for (const feature of ROUTER_FAMILY_FACTS[family].writes) assert.ok((FAMILY_WRITE_FEATURES as ReadonlyArray<string>).includes(feature) && (WRITE_FEATURES as ReadonlyArray<string>).includes(feature), `${family} ${feature}`);
     const probe = await probeDevice(fakeSession(B535), { nowIso: NOW, origin: "startup" });
-    assert.deepEqual(experimentalEvidence(probe), { bandLock: true, reboot: true, reconnect: true, mobileData: true, smsWrite: true });
+    assert.deepEqual(experimentalEvidence(probe), { bandLock: true, reboot: true, reconnect: true, mobileData: true, smsWrite: true, networkMode: true, operatorSelect: true, roaming: true, trafficReset: true, ussd: true });
     const { features } = deviceProfileOf(probe).capabilities;
     for (const feature of DEVICE_FEATURES) {
       const expected = (EXPERIMENTAL_FEATURES as ReadonlyArray<string>).includes(feature) ? { state: "supported", source: "probe" } : { state: "unknown", source: "none" };
@@ -147,6 +148,17 @@ describe("experimental capability: evidence per write", () => {
     assert.equal((await evidence({ ...B535, "/api/dialup/mobile-dataswitch": "<response><other>1</other></response>" })).mobileData, false);
     assert.equal((await evidence(without(B535, "/api/sms/sms-count"))).smsWrite, false);
     assert.equal((await evidence({ ...B535, "/api/sms/sms-count": "<response><LocalMax>500</LocalMax></response>" })).smsWrite, false);
+    // The cellular settings: the mode needs what it sends back and the list it chooses from; the operator and
+    // roaming writes go by their module; the traffic counters and USSD by the module switch that names them
+    assert.equal((await evidence(without(B535, "/api/net/net-mode-list"))).networkMode, false);
+    assert.equal((await evidence({ ...B535, "/api/net/net-mode": "<response><NetworkMode>00</NetworkMode></response>" })).networkMode, false);
+    assert.equal((await evidence(without(B535, "/api/net/net-mode-list"))).operatorSelect, true);
+    assert.equal((await evidence(without(B535, "/api/net/net-mode-list", "/api/net/net-mode"))).operatorSelect, false);
+    assert.equal((await evidence(without(B535, "/api/dialup/mobile-dataswitch"))).roaming, false);
+    const noSwitch = await evidence(without(B535, "/api/global/module-switch"));
+    assert.deepEqual([noSwitch.trafficReset, noSwitch.ussd], [false, false]);
+    const smsOnly = await evidence({ ...B535, "/api/global/module-switch": "<response><sms_enabled>1</sms_enabled></response>" });
+    assert.deepEqual([smsOnly.trafficReset, smsOnly.ussd], [false, false], "a switch list that names neither");
   });
 
   it("leaves the verified model's features as they were", async () => {

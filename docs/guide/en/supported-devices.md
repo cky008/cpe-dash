@@ -34,71 +34,72 @@ Usually at `192.168.8.1`; sign in with the user name `admin` and the admin passw
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | H168-383 | Indoor CPE | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |  |  |  |  |  |  |
-| H165-383 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H165-383) |
-| H158-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H158-381) |
-| H155-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-381) |
-| H155-382 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-382) |
-| H155-383 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-383) |
-| H153-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H153-381) |
-| H138-380 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H138-380) |
-| H122-373 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H122-373) |
-| H112-373 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-373) |
-| H112-372 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-372) |
-| H112-370 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-370) |
-| H352-381 | Outdoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H352-381) |
-| H312-371 | Outdoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H312-371) |
-| N5368X | Outdoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+N5368X) |
-| B818-263 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-263) |
-| B818-260 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-260) |
-| B715s-23c | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B715s-23c) |
-| B628-265 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-265) |
-| B628-350 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-350) |
-| B618s-22d | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-22d) |
-| B618s-65d | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-65d) |
-| B612-233 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612-233) |
-| B612s-25d | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612s-25d) |
-| B535-836 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-836) |
-| B535-232 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-232) |
-| B528s-23a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B528s-23a) |
-| B525s-23a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-23a) |
-| B525s-65a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-65a) |
-| B316-855 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B316-855) |
-| B315s-22 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-22) |
-| B315s-936 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-936) |
-| B311-221 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-221) |
-| B311-521 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-521) |
-| B311As-853 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311As-853) |
-| B311B-853 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311B-853) |
-| B310s-22 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-22) |
-| B310s-927 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-927) |
-| B310As-852 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310As-852) |
-| E5180s-22 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5180s-22) |
-| E5186s-22a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5186s-22a) |
-| E6888-982 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6888-982) |
-| E6878-370 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-370) |
-| E6878-870 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-870) |
-| E5885Ls-93a | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5885Ls-93a) |
-| E5785-320 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785-320) |
-| E5785Lh-22c | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785Lh-22c) |
-| E5577Cs-321 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5577Cs-321) |
-| E5576-320 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-320) |
-| E5576-855 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-855) |
-| E5573s-320 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5573s-320) |
-| E8231 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8231) |
-| E8372h-153 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-153) |
-| E8372h-320 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-320) |
-| E8372h-608 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-608) |
-| E3372 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372) |
-| E3372h-153 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372h-153) |
-| E3131 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3131) |
-| E3531 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3531) |
-| E5530As-2 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5530As-2) |
+| H165-383 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H165-383) |
+| H158-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H158-381) |
+| H155-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-381) |
+| H155-382 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-382) |
+| H155-383 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-383) |
+| H153-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H153-381) |
+| H138-380 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H138-380) |
+| H122-373 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H122-373) |
+| H112-373 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-373) |
+| H112-372 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-372) |
+| H112-370 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H112-370) |
+| H352-381 | Outdoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H352-381) |
+| H312-371 | Outdoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H312-371) |
+| N5368X | Outdoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+N5368X) |
+| B818-263 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-263) |
+| B818-260 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B818-260) |
+| B715s-23c | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B715s-23c) |
+| B628-265 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-265) |
+| B628-350 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-350) |
+| B618s-22d | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-22d) |
+| B618s-65d | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B618s-65d) |
+| B612-233 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612-233) |
+| B612s-25d | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B612s-25d) |
+| B535-836 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-836) |
+| B535-232 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-232) |
+| B528s-23a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B528s-23a) |
+| B525s-23a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-23a) |
+| B525s-65a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B525s-65a) |
+| B316-855 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B316-855) |
+| B315s-22 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-22) |
+| B315s-936 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B315s-936) |
+| B311-221 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-221) |
+| B311-521 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311-521) |
+| B311As-853 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311As-853) |
+| B311B-853 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B311B-853) |
+| B310s-22 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-22) |
+| B310s-927 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310s-927) |
+| B310As-852 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B310As-852) |
+| E5180s-22 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5180s-22) |
+| E5186s-22a | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5186s-22a) |
+| E6888-982 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6888-982) |
+| E6878-370 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-370) |
+| E6878-870 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E6878-870) |
+| E5885Ls-93a | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5885Ls-93a) |
+| E5785-320 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785-320) |
+| E5785Lh-22c | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5785Lh-22c) |
+| E5577Cs-321 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5577Cs-321) |
+| E5576-320 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-320) |
+| E5576-855 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5576-855) |
+| E5573s-320 | Mobile router | ? | △ | ? | ? | △ |  | ? | ? |  |  | ? |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5573s-320) |
+| E8231 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8231) |
+| E8372h-153 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-153) |
+| E8372h-320 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-320) |
+| E8372h-608 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E8372h-608) |
+| E3372 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372) |
+| E3372h-153 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3372h-153) |
+| E3131 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3131) |
+| E3531 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E3531) |
+| E5530As-2 | USB modem | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+E5530As-2) |
 
 Notes for this table:
 
 - — Battery: only a mobile router has a battery (H168-383, H165-383, H158-381, H155-381, H155-382, H155-383, H153-381, H138-380, H122-373, H112-373, H112-372, H112-370, H352-381, H312-371, N5368X, B818-263, B818-260, B715s-23c, B628-265, B628-350, B618s-22d, B618s-65d, B612-233, B612s-25d, B535-836, B535-232, B528s-23a, B525s-23a, B525s-65a, B316-855, B315s-22, B315s-936, B311-221, B311-521, B311As-853, B311B-853, B310s-22, B310s-927, B310As-852, E5180s-22, E5186s-22a, E8231, E8372h-153, E8372h-320, E8372h-608, E3372, E3372h-153, E3131, E3531 and E5530As-2).
 - △ Nearby cells: FengSui reads the H168-383's nearby-cells endpoint; a router without it leaves this empty (every model but the H168-383).
 - △ Band lock: locks 4G (LTE) bands only; FengSui locks 5G bands on a verified model only (every model but the H168-383).
+- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet (every model but the H168-383).
 - A USB modem connects only in HiLink mode, with its web interface (E8231, E8372h-153, E8372h-320, E8372h-608, E3372, E3372h-153, E3131, E3531 and E5530As-2).
 
 <a id="brand-brovi"></a>
@@ -109,14 +110,15 @@ Usually at `192.168.8.1`; sign in with the user name `admin` and the admin passw
 
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| H155-380 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-380) |
-| H151-370 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H151-370) |
+| H155-380 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-380) |
+| H151-370 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H151-370) |
 
 Notes for this table:
 
 - △ Nearby cells: FengSui reads the H168-383's nearby-cells endpoint; a router without it leaves this empty (every model in this table).
 - △ Band lock: locks 4G (LTE) bands only; FengSui locks 5G bands on a verified model only (every model in this table).
 - — Battery: only a mobile router has a battery (every model in this table).
+- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet (every model in this table).
 
 <a id="brand-td-tech"></a>
 
@@ -126,16 +128,17 @@ Usually at `192.168.8.1`; sign in with the user name `admin` and the admin passw
 
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| MT5710-CN | Industrial gateway | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5710-CN) |
-| MH5000-31 | Industrial gateway | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-31) |
-| MH5000-82M | Industrial gateway | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-82M) |
-| MT5700M-CN | Module | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5700M-CN) |
+| MT5710-CN | Industrial gateway | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5710-CN) |
+| MH5000-31 | Industrial gateway | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-31) |
+| MH5000-82M | Industrial gateway | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MH5000-82M) |
+| MT5700M-CN | Module | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MT5700M-CN) |
 
 Notes for this table:
 
 - △ Nearby cells: FengSui reads the H168-383's nearby-cells endpoint; a router without it leaves this empty (every model in this table).
 - △ Band lock: locks 4G (LTE) bands only; FengSui locks 5G bands on a verified model only (every model in this table).
 - — Battery: only a mobile router has a battery (every model in this table).
+- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet (every model in this table).
 
 <a id="brand-soyealink"></a>
 
@@ -145,17 +148,18 @@ Usually at `192.168.8.1`; sign in with the user name `admin` and the admin passw
 
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| B535-333 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-333) |
-| B535-932 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-932) |
-| B628-540 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-540) |
-| SLT869-A51 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SLT869-A51) |
-| SRT873 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT873) |
+| B535-333 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-333) |
+| B535-932 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B535-932) |
+| B628-540 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+B628-540) |
+| SLT869-A51 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SLT869-A51) |
+| SRT873 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+SRT873) |
 
 Notes for this table:
 
 - △ Nearby cells: FengSui reads the H168-383's nearby-cells endpoint; a router without it leaves this empty (every model in this table).
 - △ Band lock: locks 4G (LTE) bands only; FengSui locks 5G bands on a verified model only (every model in this table).
 - — Battery: only a mobile router has a battery (every model in this table).
+- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet (every model in this table).
 
 <a id="brands"></a>
 

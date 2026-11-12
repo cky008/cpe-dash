@@ -137,7 +137,9 @@ describe("the supported devices guide page", () => {
     // Generic reads and writes ?, band lock and nearby cells △ (their conditions under the table), what
     // FengSui writes on the verified model only stays empty
     assert.deepEqual(marksOf(en, "huawei", "B535-232")?.slice(0, LEGACY), ["?", "△", "?", "?", "△", "", "?", "?", "", "", "—"]);
-    assert.deepEqual(marksOf(en, "huawei", "B535-232")?.slice(LEGACY), ["", "", "", "", ""], "the cellular settings: nothing on a HiLink model yet");
+    // The cellular settings on a HiLink model: the mode and the operator, roaming and the traffic counters (no APN or limit), USSD
+    assert.deepEqual(marksOf(en, "huawei", "B535-232")?.slice(LEGACY), ["", "", "?", "△", "?"]);
+    assert.match(en, /- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point \(APN\) and the data limit here yet/);
     assert.deepEqual(marksOf(en, "soyealink", "B535-333"), marksOf(en, "huawei", "B535-232"), "another maker on the same interface marks the same");
     const notes = en.split('<a id="brand-huawei"></a>')[1]?.split('<a id="brand-brovi"></a>')[0] ?? "";
     assert.match(notes, /- △ Band lock: locks 4G \(LTE\) bands only; FengSui locks 5G bands on a verified model only \(every model but the H168-383\)\./);

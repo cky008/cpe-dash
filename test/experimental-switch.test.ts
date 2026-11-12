@@ -208,11 +208,18 @@ describe("experimental switch: what each write is on a router", () => {
       accessControl: "not_implemented",
       smsWrite: "enabled",
       ...Object.fromEntries(CELLULAR_WRITE_FEATURES.map((feature) => [feature, "not_implemented"])),
+      // The cellular settings with a generic HiLink write: open where the probe found their module; this
+      // router's module switches name neither the statistics nor USSD
+      networkMode: "enabled",
+      operatorSelect: "enabled",
+      roaming: "enabled",
+      trafficReset: "unsupported",
+      ussd: "unsupported",
     });
     assert.deepEqual(b535.snapshot().lteBands, [1, 3, 7, 8, 20, 32]);
     assert.deepEqual(
       WRITE_FEATURES.filter((f) => b535.writeAccess(f) === "experimental"),
-      ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"]
+      ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming"]
     );
     assert.ok(WRITE_FEATURES.filter((f) => b535.writeState(f) === "not_implemented").every((f) => b535.writeAccess(f) === "unavailable"));
 

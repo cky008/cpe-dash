@@ -1032,3 +1032,40 @@ $$
 | 重拨、重启 | 之后的 5 秒轮询（不多发请求）：重拨看流量统计的 `CurrentConnectTime`（WAN 已连接时），重启看 `device/information` 的 `uptime`（没有就看连接时长） | 从写入之后重新计起为一致；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为无法核对。计数为 0 不算证据（流量统计没有 `CurrentConnectTime` 时也读成 0），等下一次轮询 |
 
 读回失败不会让已被路由器接受的写入算作失败；所有写入都不重试。验证：[`test/generic-writes.test.ts`](../../test/generic-writes.test.ts)（每种请求在严格 Mock 上的确切格式、回读一致与不一致、拒绝时只发一次）、[`test/experimental-gate.test.ts`](../../test/experimental-gate.test.ts)（经过闸门的完整写入、记录与告警）。
+
+### A.12 蜂窝设置的通用写入（v1.9.0；只在 Mock 上验证）
+
+v1.9.0 给烽燧加了一组「蜂窝设置」（[`src/cellular.ts`](../../src/cellular.ts)，契约见 [`api.md`](api.md) 2.13）。它们是在 H168-383 验证之后才有的，所以 **H168-383 上一项都不提供**：闸门在它上面把这些功能记为「没有实现」，烽燧不向它发送本节的任何请求。未验证的华为 HiLink 型号上，请求格式有记录的五项走通用实现（[`src/generic-writes.ts`](../../src/generic-writes.ts)），规则同 A.11：每次只发一次，同一会话回读，不重试。事实取自参考项目 `master@d2eb2af` 与接口资料库（见 [`sources.md`](sources.md) 18.6），**均未在真机验证**。
+
+| 功能 | 请求（字段按顺序） | 烽燧的做法 |
+| :--- | :--- | :--- |
+| 网络制式（`networkMode`） | `POST /api/net/net-mode`：`<NetworkMode>`、`<NetworkBand>`、`<LTEBand>`。`NetworkMode` 是一到两个两位接入代码，靠前的优先：`00` 自动、`08` 仅 5G、`0803` 5G + 4G、`03` 仅 4G、`0302` 4G + 3G、`02` 仅 3G、`01` 仅 2G | 先 `GET net/net-mode-list` 读 `<AccessList><Access>`：只接受它列出的代码（两段的组合要两段都列出），没有列表就一个都不提供。`NetworkBand` 与 `LTEBand` 按本次会话读到的原样回传，只改制式。回读 `NetworkMode` |
+| 搜索运营商（`operatorSelect`） | `GET /api/net/plmn-list`：路由器搜完才应答（一分钟上下，期间可能断网） | 这一个请求的超时放宽到 120 秒。应答里每个 `<Network>` 读 `State`（0 未知、1 可用、2 当前、3 禁止）、`FullName`（没有则 `ShortName`）、`Numeric`、`Rat`，与 `net/current-plmn` 的字段同名；外层容器叫什么没有记录，所以不管它在哪一层都读。最多留 64 个。没有可回读的状态 |
+| 选运营商（`operatorSelect`） | `POST /api/net/register`：`<Mode>`、`<Plmn>`、`<Rat>`。`Mode` 为 `1` 手动、`0` 自动（自动时 `Plmn`、`Rat` 为空）；`Rat` 为 `0` 2G、`2` 3G、`7` 4G | 先 `GET net/register` 读原来的选择（断网回退时改回它）。参考项目没有给 5G 的 `Rat`，选 5G 或不指定时 `Rat` 留空，由路由器决定。回读 `Mode`（手动时还有 `Plmn`） |
+| 数据漫游（`roaming`） | `POST /api/dialup/connection`：`<RoamAutoConnectEnable>`、`<MaxIdelTime>`、`<ConnectMode>`、`<MTU>`、`<auto_dial_switch>`、`<pdp_always_on>` | 这个接口一次写全部连接设置，所以先 `GET dialup/connection`，把路由器报告的那几个标签原样回传（老固件只有五个，就回传五个），只改 `RoamAutoConnectEnable`。前四个缺任何一个就不写。回读 `RoamAutoConnectEnable` |
+| 清零流量统计（`trafficReset`） | `POST /api/monitoring/clear-traffic`：`<ClearTraffic>1</ClearTraffic>` | 没有可回读的状态 |
+| USSD（`ussd`） | `POST /api/ussd/send`：`<content>`（指令）、`<codeType>codeType</codeType>`、`<timeout>`（空）；之后 `GET /api/ussd/status`（`result` ≥ 1 表示还在等）与 `GET /api/ussd/get`（`content` 是应答） | 发送前先 `GET global/module-switch`，`ussd_enabled` 不是 `1` 就不发。`ussd/status` 每秒问一次，最多 30 次，等不到就返回「没有应答」。会话里回复运营商的提问就是再发一次；参考项目没有结束会话的调用，所以「取消」在这里拒绝。指令和应答都不进任何记录 |
+
+**能力判断**（`experimentalEvidence`，同 A.11 只看标签名）：
+
+| 功能 | 能力为 `supported` 的条件 |
+| :--- | :--- |
+| `networkMode` | `net/net-mode` 应答带 `NetworkMode`、`NetworkBand`、`LTEBand`，且 `net/net-mode-list` 有应答 |
+| `operatorSelect` | `net/net-mode` 或 `net/net-mode-list` 有应答（`net/register`、`net/plmn-list` 属于这个模块；**推断**） |
+| `roaming` | `dialup/mobile-dataswitch` 有应答（`dialup/connection` 属于这个模块；**推断**；写入时缺字段照样不写） |
+| `trafficReset` | `global/module-switch` 里有 `statistic_enabled` |
+| `ussd` | `global/module-switch` 里有 `ussd_enabled`（取值在写入的会话里再读） |
+
+识别时不为这些功能多发请求：依据全部来自 A.7 已有的探测。
+
+**没有通用实现的**（闸门拒绝，表里留空）：
+
+| 功能 | 原因 |
+| :--- | :--- |
+| SIM PIN（`simPin`） | 参考项目的 `pin/operate` 走加密提交（RSA），烽燧的通用写入只有明文；`pin/status` 的字段含义也没有记录 |
+| 接入点（`apn`） | `dialup/profiles` 的写入同样走加密提交，读取的应答格式没有记录 |
+| SIM 卡槽、飞行模式开关、流量上限 | 两份资料库和参考项目都没有对应的接口 |
+| 天线（`antenna`） | 见 A.11：同样的数字在不同来源里含义相反（资料库 A 写 `1` 外置、`2` 内置，H168-383 实测 `1` 内置、`2` 外置），不猜 |
+| 5G 独立外置天线开关（`antenna_ext_td_switch`） | 两份资料库给的请求体互相矛盾（`antennasettype` 与 `extantennaswitch`） |
+
+验证：[`test/generic-cellular.test.ts`](../../test/generic-cellular.test.ts)（严格 Mock：请求体不是上表的形式就回 `100005`）。

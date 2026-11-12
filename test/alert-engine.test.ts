@@ -1,3 +1,4 @@
+import { ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import path from "node:path";
@@ -307,7 +308,7 @@ describe("AlertEngine on a model reports verified", () => {
       const base = { family: "huawei", model: "H158-381", softwareVersion: "1.0.0.9" } as const;
       const verified = [
         ...(["telemetry", "neighbors", "topology", "smsRead"] as const).map((feature) => ({ ...base, feature, access: "read" as const, issue: 51 })),
-        ...(["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const).map((feature) => ({ ...base, feature, access: "write" as const, issue: 51 })),
+        ...ROUTER_FAMILY_FACTS.huawei.writes.map((feature) => ({ ...base, feature, access: "write" as const, issue: 51 })),
       ];
       // The gate the alerts read, with the registered reports of this model
       Object.defineProperty(fx.scheduler, "device", { value: new DeviceAccess({ verifiedFeatures: verified }) });

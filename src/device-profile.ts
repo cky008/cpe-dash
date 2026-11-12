@@ -139,7 +139,7 @@ STATUS_READ_FEATURES satisfies ReadonlyArray<DeviceFeature>;
  * project's facts, docs/dev/protocol.md A.11): what a HiLink model nobody verified writes,
  * as experimental writes, where the probe shows it can. Every other write stays the verified model's alone.
  */
-export const EXPERIMENTAL_FEATURES = ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite"] as const;
+export const EXPERIMENTAL_FEATURES = ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"] as const;
 
 export type ExperimentalFeature = (typeof EXPERIMENTAL_FEATURES)[number];
 
@@ -571,7 +571,15 @@ export function isDeviceProbeResult(value: unknown): value is DeviceProbeResult 
  * - `reboot`: `device/information` answers (`device/control` is in that module);
  * - `reconnect`: `net/net-mode` or `net/net-mode-list` answers (`net/reconnect` is in that module);
  * - `mobileData`: `dialup/mobile-dataswitch` answers with `dataswitch`;
- * - `smsWrite`: `sms/sms-count` answers with `LocalUnread` and `LocalInbox`.
+ * - `smsWrite`: `sms/sms-count` answers with `LocalUnread` and `LocalInbox`;
+ * - `networkMode`: `net/net-mode` answers with the `NetworkMode`, `NetworkBand` and `LTEBand` the write
+ *   sends back, and `net/net-mode-list` answers (the write takes only a mode that list names);
+ * - `operatorSelect`: `net/net-mode` or `net/net-mode-list` answers (`net/register` and `net/plmn-list`
+ *   are in that module);
+ * - `roaming`: `dialup/mobile-dataswitch` answers (`dialup/connection` is in that module; the write
+ *   reads it first and writes nothing when it lacks the settings it must send back);
+ * - `trafficReset`: `global/module-switch` names `statistic_enabled` (the statistics module);
+ * - `ussd`: `global/module-switch` names `ussd_enabled` (the write reads its value first).
  */
 export function experimentalEvidence(probe: DeviceProbeResult): Record<ExperimentalFeature, boolean> {
   const answered = (path: DeviceProbePath): boolean => probe.endpoints.some((e) => e.path === path && e.state === "supported");
@@ -587,6 +595,11 @@ export function experimentalEvidence(probe: DeviceProbeResult): Record<Experimen
     reconnect: answered("/api/net/net-mode") || answered("/api/net/net-mode-list"),
     mobileData: has("/api/dialup/mobile-dataswitch", "dataswitch"),
     smsWrite: has("/api/sms/sms-count", "LocalUnread", "LocalInbox"),
+    networkMode: has("/api/net/net-mode", "NetworkMode", "NetworkBand", "LTEBand") && answered("/api/net/net-mode-list"),
+    operatorSelect: answered("/api/net/net-mode") || answered("/api/net/net-mode-list"),
+    roaming: answered("/api/dialup/mobile-dataswitch"),
+    trafficReset: has("/api/global/module-switch", "statistic_enabled"),
+    ussd: has("/api/global/module-switch", "ussd_enabled"),
   };
 }
 

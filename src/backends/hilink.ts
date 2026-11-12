@@ -1,6 +1,6 @@
 import { type AccessControlSnapshot, type AccessRequestContext, type TimeRulesState, applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../access-control.ts";
 import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
-import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer } from "../cellular.ts";
+import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, LinkChange, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
 import { validateGenericBandLock } from "../control-input.ts";
 import {
   type AntennaModeName,
@@ -31,9 +31,23 @@ import {
   updateSecuritySettings,
   updateWifi7Mlo,
 } from "../cpe-domain.ts";
+import type { EphemeralCpeSession } from "../cpe-client.ts";
 import { type ControlAction, gateRefuses } from "../device-access.ts";
 import { type DeviceProbeResult, probeDevice } from "../device-profile.ts";
-import { genericBandLock, genericMobileData, genericReboot, genericReconnect, readWanRepairBlockerTolerant } from "../generic-writes.ts";
+import {
+  genericBandLock,
+  genericCellularRead,
+  genericMobileData,
+  genericNetworkMode,
+  genericReboot,
+  genericReconnect,
+  genericRoaming,
+  genericScanOperators,
+  genericSelectOperator,
+  genericTrafficReset,
+  genericUssd,
+  readWanRepairBlockerTolerant,
+} from "../generic-writes.ts";
 import type {
   BandLockOutcome,
   LinkChangeOutcome,
@@ -49,6 +63,7 @@ import type {
   SmsUnreadPeek,
   WanRepairOutcome,
 } from "../router-backend.ts";
+import { CELLULAR_WRITE_FEATURES } from "../router-family.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteContext } from "../scheduler.ts";
 import {
   type PreparedSmsSubmission,
@@ -352,11 +367,30 @@ export class HilinkBackend implements RouterBackend {
   // ------------------------------------------------------------------ cellular settings
   //
   // They came after the H168-383 was verified: the gate keeps every one of them `not_implemented` on
-  // it, so none of its requests changed. The ones below with no HiLink implementation are refused by
-  // the gate on every model.
+  // it, so none of its requests changed. A HiLink model nobody verified gets the ones whose requests
+  // the notes give (appendix A.12 of the protocol spec: the network mode, the operator, data roaming,
+  // the traffic counters and USSD); the rest are refused by the gate on every model.
 
-  readCellular(): Promise<CellularSettingsSnapshot | null> {
-    return Promise.resolve(null);
+  /** Read on a model nobody verified only, and only where one of these settings is open there: the H168-383 is asked nothing. */
+  async readCellular(opts: ReadRequest): Promise<CellularSettingsSnapshot | null> {
+    const device = this.#scheduler.device;
+    if (!device.generic || CELLULAR_WRITE_FEATURES.every((feature) => gateRefuses(device.writeAccess(feature)))) return null;
+    const read = await this.#scheduler.executeRead((session) => genericCellularRead(session), { priority: "normal", ignoreCooldown: opts.ignoreCooldown });
+    if (!read) return null;
+    const nowMs = Date.now();
+    return { capturedAtIso: new Date(nowMs).toISOString(), capturedAtMs: nowMs, ...read };
+  }
+
+  /** One of the generic cellular writes: never on a verified model (the gate refuses it there before any session). */
+  #genericCellular<T>(action: ControlAction, run: (session: EphemeralCpeSession, write: WriteContext) => Promise<T>, summary: ControlSummary | ((value: T) => ControlSummary | null)): Promise<T> {
+    return this.#scheduler.executeControl(
+      action,
+      (session, write) => {
+        if (!write.generic) throw new CpeControlValidationError(`${action} has no implementation for this router; nothing was written`);
+        return run(session, write);
+      },
+      summary
+    );
   }
 
   /** A cellular write FengSui has no HiLink implementation of: the gate's refusal, nothing queued; in a session, nothing sent. */
@@ -364,16 +398,23 @@ export class HilinkBackend implements RouterBackend {
     return this.#scheduler.executeControl<T>(action, () => Promise.reject(new CpeControlValidationError(`${action} has no implementation for this router; nothing was written`)));
   }
 
-  setNetworkMode(): Promise<LinkChangeOutcome<NetworkMode>> {
-    return this.#unbuilt("set_network_mode");
+  async setNetworkMode(mode: NetworkMode, summary: ControlSummary): Promise<LinkChangeOutcome<NetworkMode>> {
+    return await this.#genericCellular(
+      "set_network_mode",
+      async (session, write) => {
+        const previous = await genericNetworkMode(session, write.check, mode);
+        return { previous: previous === mode ? null : previous };
+      },
+      summary
+    );
   }
 
-  scanOperators(): Promise<OperatorChoice[]> {
-    return this.#unbuilt("scan_operators");
+  async scanOperators(summary: (found: OperatorChoice[]) => ControlSummary): Promise<OperatorChoice[]> {
+    return await this.#genericCellular("scan_operators", (session, write) => genericScanOperators(session, write.check), summary);
   }
 
-  selectOperator(): Promise<LinkChangeOutcome<OperatorSelection>> {
-    return this.#unbuilt("select_operator");
+  async selectOperator(selection: OperatorSelection, summary: ControlSummary): Promise<LinkChangeOutcome<OperatorSelection>> {
+    return await this.#genericCellular("select_operator", async (session, write) => ({ previous: await genericSelectOperator(session, write.check, selection) }), summary);
   }
 
   setSimSlot(): Promise<LinkChangeOutcome<SimSlotRef>> {
@@ -384,9 +425,21 @@ export class HilinkBackend implements RouterBackend {
     return this.#unbuilt("set_apn");
   }
 
-  revertLinkChange(change: { kind: "sim_slot" | "network_mode" | "operator" | "apn" }): Promise<WanRepairOutcome> {
-    const actions = { sim_slot: "auto_restore_sim_slot", network_mode: "auto_restore_network_mode", operator: "auto_restore_operator", apn: "auto_restore_apn" } as const;
-    return this.#unbuilt(actions[change.kind]);
+  /** The way back from a mode or operator change the WAN did not survive; the SIM slot and the access point have no HiLink write. */
+  async revertLinkChange(change: LinkChange, summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome> {
+    if (change.kind === "sim_slot") return await this.#unbuilt("auto_restore_sim_slot");
+    if (change.kind === "apn") return await this.#unbuilt("auto_restore_apn");
+    return await this.#genericCellular(
+      change.kind === "network_mode" ? "auto_restore_network_mode" : "auto_restore_operator",
+      async (session, write): Promise<WanRepairOutcome> => {
+        const skipped = await readWanRepairBlockerTolerant(session);
+        if (skipped) return { applied: false, skipped };
+        if (change.kind === "network_mode") await genericNetworkMode(session, write.check, change.previous);
+        else await genericSelectOperator(session, write.check, change.previous);
+        return { applied: true };
+      },
+      summary
+    );
   }
 
   enterSimPin(): Promise<SimPinOutcome> {
@@ -401,20 +454,27 @@ export class HilinkBackend implements RouterBackend {
     return this.#unbuilt("set_airplane_mode");
   }
 
-  setRoaming(): Promise<{ dataRoaming: boolean }> {
-    return this.#unbuilt("set_roaming");
+  async setRoaming(enabled: boolean, summary: ControlSummary): Promise<{ dataRoaming: boolean }> {
+    return await this.#genericCellular(
+      "set_roaming",
+      async (session, write) => {
+        await genericRoaming(session, write.check, enabled);
+        return { dataRoaming: enabled };
+      },
+      summary
+    );
   }
 
   setDataLimit(): Promise<DataLimitSetting> {
     return this.#unbuilt("set_data_limit");
   }
 
-  resetTraffic(): Promise<void> {
-    return this.#unbuilt("reset_traffic");
+  async resetTraffic(summary: ControlSummary): Promise<void> {
+    await this.#genericCellular("reset_traffic", (session, write) => genericTrafficReset(session, write.check), summary);
   }
 
-  sendUssd(): Promise<UssdAnswer> {
-    return this.#unbuilt("send_ussd");
+  async sendUssd(request: UssdRequest, summary: ControlSummary): Promise<UssdAnswer> {
+    return await this.#genericCellular("send_ussd", (session, write) => genericUssd(session, write.check, request, (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms))), summary);
   }
 }
 

@@ -226,6 +226,8 @@ export class DriverBackend implements RouterBackend {
       operator: state.operator ?? null,
       apn: state.apn ?? null,
       dataLimit: state.dataLimit ?? null,
+      // The drivers read the roaming switch in the poll (`status.roaming`)
+      dataRoaming: null,
     };
   }
 

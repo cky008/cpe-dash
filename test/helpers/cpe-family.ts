@@ -65,12 +65,27 @@ export interface CpeFamilyOptions {
   writes?: FamilyWrites;
 }
 
+/** What the router's cellular settings start as (see `FamilyWrites.cellular`). */
+export interface FamilyCellular {
+  /** The `<Network>` entries `net/plmn-list` answers with (left out: `100002`). */
+  networks?: string;
+  /** The tags of `dialup/connection` (left out: `100002`). */
+  connection?: Record<string, string>;
+  /** What the operator answers a USSD code with, after `busyPolls` polls of `ussd/status` that report the router busy (`never`: always busy). */
+  ussd?: { content: string; busyPolls?: number | "never" };
+}
+
 /** How the family models the generic writes (see `CpeFamilyOptions.writes`). */
 export interface FamilyWrites {
   /** The router answers OK but changes nothing (a firmware that ignores the request). */
   ignore?: boolean;
   /** POST paths the router refuses with this error code. */
   errors?: Readonly<Record<string, string>>;
+  /**
+   * The cellular settings of appendix A.12 (`net/register`, `net/plmn-list`, `dialup/connection`,
+   * `monitoring/clear-traffic`, `ussd/*`); left out, each of them answers `100002`.
+   */
+  cellular?: FamilyCellular;
   /**
    * What `sms/send-status` reports once a send settles; `never` keeps reporting it pending, `silent`
    * names no recipient at all (a firmware whose status has other fields), `partial` lists only the
@@ -145,6 +160,10 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     LTEBand: getXmlTag(seeded, "LTEBand") ?? "800800C5",
   };
   let dataSwitch = "1";
+  // The cellular settings (`writes.cellular`)
+  const register = { Mode: "0", Plmn: "", Rat: "" };
+  const connection: Record<string, string> = { ...opts.writes?.cellular?.connection };
+  const ussd = { sent: [] as string[], polls: 0 };
   let connectionStatus = opts.connectionStatus ?? "901";
   let sending: { phones: string[]; polls: number } | null = null;
   let nextSmsIndex = 50_000;
@@ -153,6 +172,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     /** Generic writes the router acted on (`writes`): `reconnect` and `reboot` count, the rest change state. */
     reconnects: 0,
     reboots: 0,
+    trafficClears: 0,
     requests: [] as Array<{ path: string; method: string }>,
     /** `challenge_login` calls: username and a nonce, never a password. */
     scramProbes: 0,
@@ -360,6 +380,18 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     if (opts.writes && method === "GET" && p === "/api/dialup/mobile-dataswitch") {
       return reply(`<response><dataswitch>${dataSwitch}</dataswitch></response>`);
     }
+    const cellular = opts.writes?.cellular;
+    if (cellular && method === "GET") {
+      const tagsOf = (record: Record<string, string>): string => Object.entries(record).map(([tag, value]) => `<${tag}>${value}</${tag}>`).join("");
+      if (p === "/api/net/register") return reply(`<response>${tagsOf(register)}</response>`);
+      if (p === "/api/net/plmn-list" && cellular.networks !== undefined) return reply(`<response><Networks>${cellular.networks}</Networks></response>`);
+      if (p === "/api/dialup/connection" && cellular.connection) return reply(`<response>${tagsOf(connection)}</response>`);
+      if (p === "/api/ussd/status" && cellular.ussd) {
+        const busy = cellular.ussd.busyPolls === "never" || ussd.polls++ < (cellular.ussd.busyPolls ?? 0);
+        return reply(`<response><result>${busy ? 1 : 0}</result></response>`);
+      }
+      if (p === "/api/ussd/get" && cellular.ussd) return reply(`<response><content>${cellular.ussd.content}</content></response>`);
+    }
     if (opts.writes && method === "GET" && p === "/api/sms/send-status") {
       const outcome = opts.writes.smsOutcome ?? "sent";
       // A status with none of the fields FengSui reads: nothing pending, nothing delivered, nothing failed
@@ -400,9 +432,34 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
       return ok();
     };
     if (p === "/api/net/net-mode") {
-      const m = /^<request><NetworkMode>(\d{2,8})<\/NetworkMode><NetworkBand>([0-9A-Fa-f]{1,16})<\/NetworkBand><LTEBand>([0-9a-f]{1,32})<\/LTEBand><\/request>$/.exec(body);
+      const m = /^<request><NetworkMode>(\d{2,8})<\/NetworkMode><NetworkBand>([0-9A-Fa-f]{1,16})<\/NetworkBand><LTEBand>([0-9A-Fa-f]{1,32})<\/LTEBand><\/request>$/.exec(body);
       if (!m) return xmlError("100005");
       return act(() => Object.assign(netMode, { NetworkMode: m[1], NetworkBand: m[2], LTEBand: m[3] }));
+    }
+    if (writes.cellular && p === "/api/net/register") {
+      const m = /^<request><Mode>([01])<\/Mode><Plmn>(\d{0,6})<\/Plmn><Rat>(\d{0,2})<\/Rat><\/request>$/.exec(body);
+      // Automatic names no operator; manual names one
+      if (!m || (m[1] === "0") !== (m[2] === "")) return xmlError("100005");
+      return act(() => Object.assign(register, { Mode: m[1], Plmn: m[2], Rat: m[3] }));
+    }
+    if (writes.cellular?.connection && p === "/api/dialup/connection") {
+      // Exactly the tags the router reports, in the reference project's order
+      const order = ["RoamAutoConnectEnable", "MaxIdelTime", "ConnectMode", "MTU", "auto_dial_switch", "pdp_always_on"].filter((tag) => connection[tag] !== undefined);
+      const sent = [...body.matchAll(/<([A-Za-z_]+)>(\d+)<\/\1>/g)].map((x) => [x[1] ?? "", x[2] ?? ""] as const);
+      if (!body.startsWith("<request>") || sent.map(([tag]) => tag).join() !== order.join()) return xmlError("100005");
+      return act(() => Object.assign(connection, Object.fromEntries(sent)));
+    }
+    if (writes.cellular && p === "/api/monitoring/clear-traffic") {
+      if (body !== "<request><ClearTraffic>1</ClearTraffic></request>") return xmlError("100005");
+      return act(() => (stats.trafficClears += 1));
+    }
+    if (writes.cellular?.ussd && p === "/api/ussd/send") {
+      const m = /^<request><content>([0-9*#]{1,40})<\/content><codeType>codeType<\/codeType><timeout><\/timeout><\/request>$/.exec(body);
+      if (!m) return xmlError("100005");
+      return act(() => {
+        ussd.sent.push(m[1] ?? "");
+        ussd.polls = 0;
+      });
     }
     if (p === "/api/dialup/mobile-dataswitch") {
       const m = /^<request><dataswitch>([01])<\/dataswitch><\/request>$/.exec(body);
@@ -451,7 +508,7 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     /** The live plaintext SMS store (`null` without `sms`): push to it to deliver a message. */
     smsStore: sms,
     /** The settings the modelled generic writes change (`writes`). */
-    settings: { netMode, mobileData: (): string => dataSwitch },
+    settings: { netMode, mobileData: (): string => dataSwitch, register, connection, ussdSent: ussd.sent },
     setConnectionStatus: (code: string): void => {
       connectionStatus = code;
     },

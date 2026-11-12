@@ -33,7 +33,7 @@ export const noWait = { sleep: (): Promise<void> => Promise.resolve() };
  * A daemon core on a mock router of any brand: its writes audited and broadcast, and the changes it
  * hands to self-healing collected. Nothing here talks to a real router.
  */
-export function daemonOn(family: RouterFamily, fetchImpl: typeof fetch, url: string, password: string, username = "") {
+export function daemonOn(family: RouterFamily, fetchImpl: typeof fetch, url: string, password: string, username = family === "huawei" ? "admin" : "") {
   const dir = tempDir("fengsui-driver-daemon-");
   const core = createFengSuiCore({
     client: new HuaweiCpeClient({ cpeUrl: url, cpeUsername: username, cpePassword: password, fetchImpl, requestTimeoutMs: 2000 }),
