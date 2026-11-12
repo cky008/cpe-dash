@@ -43,7 +43,7 @@ const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt"
 /** What each brand's driver writes today (its own form of the interface). */
 const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   "zte-goform": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "simSlot", "simPin", "roaming", "dataLimit", "ussd"],
-  "zte-zwrt": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"],
+  "zte-zwrt": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "simSlot", "simPin", "roaming", "dataLimit"],
   pinsu: ["bandLock", "cellLock", "reboot"],
   tozed: ["bandLock", "cellLock", "reboot", "smsWrite"],
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite"],

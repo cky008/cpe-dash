@@ -3,11 +3,23 @@ import { createFengSuiCore, stopFengSuiCore } from "../../src/core.ts";
 import { HuaweiCpeClient } from "../../src/cpe-client.ts";
 import type { LinkChangeNotice } from "../../src/cpe-controls.ts";
 import type { WriteCheck } from "../../src/device-access.ts";
+import type { DriverCellular, DriverSession } from "../../src/drivers/types.ts";
 import type { RouterFamily } from "../../src/router-family.ts";
 import type { ControlAppliedEvent, ControlAuditEvent } from "../../src/scheduler.ts";
 import { EncryptedStateStore } from "../../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../../src/timeseries.ts";
 import { removeTempDir, tempDir } from "./temp-dir.ts";
+
+/** The session's cellular settings with every write there to call (a test of a brand that lacks one fails on calling it). */
+export function cellularOf(session: DriverSession): Required<DriverCellular> {
+  if (!session.cellular) throw new Error("this brand's session has no cellular settings");
+  return session.cellular as Required<DriverCellular>;
+}
+
+/** The session with its optional parts there to call. */
+export function fullSession(session: DriverSession): Required<DriverSession> {
+  return session as Required<DriverSession>;
+}
 
 /** A write's record as a session starts it. */
 export function newCheck(): WriteCheck {

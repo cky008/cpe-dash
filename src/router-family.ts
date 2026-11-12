@@ -128,7 +128,15 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     nrBandLock: true,
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte", "lte_wcdma", "wcdma"],
   },
-  "zte-zwrt": { defaultUsername: "", defaultAddress: "192.168.0.1", reads: ["telemetry", "sms", "battery", "simCard"], writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite"], networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
+  "zte-zwrt": {
+    defaultUsername: "",
+    defaultAddress: "192.168.0.1",
+    reads: ["telemetry", "sms", "battery", "simCard"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "simSlot", "simPin", "roaming", "dataLimit"],
+    networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
+    nrBandLock: true,
+    selectableModes: ["auto", "nr_sa", "nr_nsa", "lte", "lte_wcdma", "wcdma"],
+  },
   pinsu: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot"], networkModes: ["auto", "lte", "nr_sa"], nrBandLock: true },
   tozed: { defaultUsername: "admin", defaultAddress: "192.168.0.1", reads: ["telemetry", "neighbors", "sms"], writes: ["bandLock", "cellLock", "reboot", "smsWrite"], smsReadState: "fengsui", networkModes: ["auto", "lte", "nr_sa", "nr_nsa"], nrBandLock: true },
   fiberhome: {

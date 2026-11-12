@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { DataLimitSetting, NetworkMode, SimPinOutcome, SimSlotRef } from "../cellular.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import { CpeControlValidationError } from "../control-error.ts";
@@ -7,10 +8,11 @@ import { type BatteryStatus, type SimState, type TemperatureSensor, countValue, 
 import { detectSmsTextMode } from "../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
+import { ZTE_MODE_NAMES, sameDataLimit, settleNothingToRead, zteModeOf } from "./cellular.ts";
 import { carriersFromRows, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
@@ -19,6 +21,8 @@ import type {
   DriverBandLockTarget,
   DriverCell,
   DriverCellLockTarget,
+  DriverCellular,
+  DriverCellularState,
   DriverDataLink,
   DriverIdentity,
   DriverLockState,
@@ -100,6 +104,25 @@ class Rpc {
     if (result[0] !== 0) throw new CpeApiError(ubusCode(result[0]), `${object}.${method} refused`);
     const payload: unknown = result[1];
     return isPlainObject(payload) ? payload : {};
+  }
+
+  /**
+   * Several calls in one request, as the router's page sends the two halves of a SIM slot switch
+   * (notes library A): a JSON-RPC batch, each answered `[0, payload]`. Resolves the payloads in order.
+   */
+  async batch(calls: ReadonlyArray<readonly [object: string, method: string, args: Record<string, unknown>]>): Promise<Array<Record<string, unknown>>> {
+    const requests = calls.map(([object, method, args]) => ({ jsonrpc: "2.0", id: this.#id++, method: "call", params: [this.session, object, method, args] }));
+    const answer = await this.#http.postJson(PATH, requests, { query: [["t", String(Date.now())]], referer: "/" });
+    if (!Array.isArray(answer) || answer.length !== requests.length) throw new CpeAnswerFormatError("ubus batch: not one answer per call");
+    return requests.map((request, i) => {
+      const [object, method] = calls[i] ?? ["", ""];
+      const one = answer.find((item) => isPlainObject(item) && item["id"] === request.id) ?? answer[i];
+      const result = isPlainObject(one) ? fieldOf(one, "result") : undefined;
+      if (!Array.isArray(result) || typeof result[0] !== "number") throw new CpeApiError("rpc", `${object}.${method} refused`);
+      if (result[0] !== 0) throw new CpeApiError(ubusCode(result[0]), `${object}.${method} refused`);
+      const payload: unknown = result[1];
+      return isPlainObject(payload) ? payload : {};
+    });
   }
 }
 
@@ -634,6 +657,120 @@ class ZwrtSession implements DriverSessionHandle {
     },
   };
 
+  /** The SIM card as the web role reads it (`get_sim_info`; notes library A has `get_sim_info_before`, with the slot alone). */
+  async #simInfo(): Promise<Record<string, unknown> | null> {
+    return (await this.#rpc.call(MDM, "get_sim_info").catch(() => null)) ?? (await this.#rpc.call(MDM, "get_sim_info_before").catch(() => null));
+  }
+
+  /**
+   * The cellular settings: `nwinfo_set_netselect` (the six modes of notes library A), the SIM slot (two
+   * `zwrt_mdm_change_provision_session` calls in one batch), the data call's roaming switch
+   * (`set_wwaniface`, sent with the call's other settings as they are), the PIN (`sim_verify_pin_puk`,
+   * `sim_change_pin_mode`) and the monthly limit (`set_wwandst_monthlimit`). `docs/dev/sources.md`
+   * §18.6 names the source of each.
+   */
+  readonly cellular: DriverCellular = {
+    read: () => this.#cellularRead(),
+    setNetworkMode: (mode, check) => this.#setNetworkMode(mode, check),
+    setSimSlot: (slot, check) => this.#setSimSlot(slot, check),
+    setRoaming: (enabled, check) => this.#setRoaming(enabled, check),
+    enterPin: (pin, check) => this.#pinWrite(check, "sim_verify_pin_puk", { pin_num: pin, puk_num: "", pin_encode_flag: "0" }, (sim) => (zwrtSimState(sim) === "pin_required" ? false : zwrtSimState(sim) === null ? null : true)),
+    setPinLock: (enabled, pin, check) =>
+      this.#pinWrite(check, "sim_change_pin_mode", { pin_num_m: pin, pin_mode: enabled ? 1 : 0, pin_encode_flag: "0" }, (sim) => {
+        const on = textOf(sim["pin_status"]);
+        return on === "1" ? enabled : on === "0" ? !enabled : null;
+      }),
+    setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
+  };
+
+  async #cellularRead(): Promise<DriverCellularState> {
+    this.#guard();
+    const netinfo = await this.#rpc.call("zte_nwinfo_api", "nwinfo_get_netinfo");
+    const sim = await this.#simInfo();
+    const limit = await this.#rpc.call("zwrt_data", "get_wwandst_monthlimit", WEB_CALL).catch(() => null);
+    const slot = sim ? intOf(sim["current_sim_slot"]) : null;
+    return {
+      networkMode: zteModeOf(netinfo["net_select"]),
+      // A router that names no slot has none to switch
+      simSlots: slot === null ? [] : [...ZWRT_SLOTS],
+      simSlot: slot === null ? null : (ZWRT_SLOTS[slot - 1] ?? null),
+      dataLimit: limit ? zwrtLimit(limit) : null,
+      pinAttemptsLeft: sim ? countValue(sim["pinnumber"], 10) : null,
+    };
+  }
+
+  async #setNetworkMode(mode: NetworkMode, check: WriteCheck): Promise<void> {
+    const name = ZTE_MODE_NAMES[mode];
+    if (name === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
+    await this.#write(check, "nwinfo_set_netselect", { net_select: name });
+    const after = await this.#rpc.call("zte_nwinfo_api", "nwinfo_get_netinfo").catch(() => null);
+    settleSetting(check, after === null || textOf(after["net_select"]) === null ? null : zteModeOf(after["net_select"]) === mode);
+  }
+
+  /** The slot that goes active and the one that goes inactive, in one request, as the router's page sends them. */
+  async #setSimSlot(slot: SimSlotRef, check: WriteCheck): Promise<void> {
+    this.#guard();
+    const target = ZWRT_SLOTS.findIndex((known) => known.kind === slot.kind && known.index === slot.index) + 1;
+    if (target < 1) throw new CpeControlValidationError("This router has a card slot and one built-in card: no such SIM slot");
+    const other = target === 1 ? 2 : 1;
+    noteSent(check, FAMILY, `${MDM}.zwrt_mdm_change_provision_session`);
+    const answers = await this.#rpc.batch([
+      [MDM, "zwrt_mdm_change_provision_session", { active_slot: target, active_flag: 1 }],
+      [MDM, "zwrt_mdm_change_provision_session", { active_slot: other, active_flag: 0 }],
+    ]);
+    for (const answer of answers) {
+      const result = fieldOf(answer, "result");
+      if (result !== undefined && intOf(result) !== 0) throw new CpeApiError(`result${intOf(result) ?? ""}`, "zwrt_mdm_change_provision_session refused");
+    }
+    const after = await this.#simInfo();
+    const read = after ? intOf(after["current_sim_slot"]) : null;
+    settleSetting(check, read === null ? null : read === target);
+  }
+
+  /** The roaming switch travels with the data call's switch and dial mode: both are read first and sent back as they are. */
+  async #setRoaming(enabled: boolean, check: WriteCheck): Promise<void> {
+    const current = await this.#wwan();
+    const on = intOf(current["enable"]);
+    const mode = intOf(current["connect_mode"]);
+    if (on === null || mode === null) throw new CpeControlValidationError("The data call's own settings could not be read, and the roaming switch is written together with them: nothing was sent");
+    await this.#write(check, "set_wwaniface", { source_module: "web", cid: 1, enable: on, connect_mode: mode, roam_enable: enabled ? 1 : 0 }, "zwrt_data");
+    const after = await this.#wwan().catch(() => null);
+    const read = after === null ? null : intOf(after["roam_enable"]);
+    settleSetting(check, read === null ? null : (read === 1) === enabled);
+  }
+
+  /**
+   * One PIN write, sent once. `success` (or `0`) is the card taking it; anything else is the card
+   * refusing it: an outcome, not an error, and nothing follows it.
+   */
+  async #pinWrite(check: WriteCheck, method: string, args: Record<string, unknown>, settled: (sim: Record<string, unknown>) => boolean | null): Promise<SimPinOutcome> {
+    this.#guard();
+    noteSent(check, FAMILY, `${MDM}.${method}`);
+    const result = fieldOf(await this.#rpc.call(MDM, method, args), "result");
+    const took = textOf(result) === "success" || intOf(result) === 0;
+    const after = await this.#rpc.call(MDM, "get_sim_info").catch(() => null);
+    if (took) settleSetting(check, after === null ? null : settled(after));
+    else settleNothingToRead(check);
+    return { accepted: took, attemptsLeft: after === null ? null : countValue(after["pinnumber"], 10) };
+  }
+
+  /** The limit by traffic (`type` 2): bytes as text, the share at which the router warns, and its own "disconnect at the limit" left as it is. */
+  async #setDataLimit(limit: DataLimitSetting, check: WriteCheck): Promise<void> {
+    this.#guard();
+    const before = zwrtLimitRaw(await this.#rpc.call("zwrt_data", "get_wwandst_monthlimit", WEB_CALL).catch(() => null));
+    const bytes = limit.bytes ?? before.bytes;
+    const percent = limit.alertPercent ?? before.alertPercent;
+    if (limit.enabled && (bytes === null || percent === null || percent < 1)) throw new CpeControlValidationError("The router has no size or warning share set for its data limit: give bytes and alertPercent");
+    await this.#write(
+      check,
+      "set_wwandst_monthlimit",
+      { source_module: "web", cid: 1, enable: limit.enabled ? 1 : 0, type: 2, value: String(bytes ?? 0), ratio: percent ?? 0, overflow_auto_disconn: before.autoDisconnect ? 1 : 0 },
+      "zwrt_data"
+    );
+    const after = await this.#rpc.call("zwrt_data", "get_wwandst_monthlimit", WEB_CALL).catch(() => null);
+    settleSetting(check, sameDataLimit({ ...limit, bytes: limit.enabled ? bytes : null }, after ? zwrtLimit(after) : null));
+  }
+
   async reboot(check: WriteCheck): Promise<void> {
     await this.#write(check, "device_reboot", { moduleName: "web" }, "zwrt_mc.device.manager");
     settleRestart(check);
@@ -645,6 +782,35 @@ class ZwrtSession implements DriverSessionHandle {
     this.#open = false;
     await this.#rpc.call("zwrt_web", "web_logout");
   }
+}
+
+const MDM = "zwrt_zte_mdm.api";
+/** What `zwrt_data` calls of the web side carry. */
+const WEB_CALL = { source_module: "web", cid: 1 } as const;
+/** `current_sim_slot` 1 is the card slot, 2 the built-in eSIM (notes library A). */
+const ZWRT_SLOTS: ReadonlyArray<SimSlotRef> = [
+  { kind: "physical", index: 1 },
+  { kind: "embedded", index: 1 },
+];
+
+/** A `0` / `1` flag the firmware writes as a number or as text. */
+function flagOf(value: unknown): boolean | null {
+  const n = intOf(value);
+  return n === 1 ? true : n === 0 ? false : null;
+}
+
+/** The monthly limit as `get_wwandst_monthlimit` answers it: `enable`, `value` in bytes when `type` is 2 (by traffic), `ratio` the warning share. */
+function zwrtLimitRaw(answer: Record<string, unknown> | null): { enabled: boolean | null; bytes: number | null; alertPercent: number | null; autoDisconnect: boolean } {
+  if (!answer) return { enabled: null, bytes: null, alertPercent: null, autoDisconnect: false };
+  // A size in bytes runs past what a reading's digits hold: read as a counter
+  const size = intOf(answer["type"]) === 2 ? counterOf(answer["value"]) : null;
+  const bytes = size !== null && size > 0n && size <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(size) : null;
+  return { enabled: flagOf(answer["enable"]), bytes, alertPercent: percentValue(answer["ratio"]), autoDisconnect: flagOf(answer["overflow_auto_disconn"]) === true };
+}
+
+function zwrtLimit(answer: Record<string, unknown>): { enabled: boolean | null; bytes: number | null; alertPercent: number | null } {
+  const { enabled, bytes, alertPercent } = zwrtLimitRaw(answer);
+  return { enabled, bytes, alertPercent };
 }
 
 /** Text longer than a reading (a PEM key), bounded. */

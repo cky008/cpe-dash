@@ -38,6 +38,10 @@ export interface ZwrtRouterOptions {
   device?: Record<string, unknown>;
   /** What `get_sim_info` answers (`false`: the web role may not call it, so the router refuses it). */
   sim?: Record<string, unknown> | false;
+  /** The SIM card's PIN (default `1234`); a wrong one costs an attempt. */
+  simPin?: string;
+  /** What `get_wwandst_monthlimit` answers at the start (left out: the firmware has no such call). */
+  monthLimit?: Record<string, unknown>;
 }
 
 // One key pair for every mock router of a test run: generating one takes a while
@@ -81,6 +85,22 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
     lastSend: null as { number: string; body: string } | null,
     /** The data call as `get_wwaniface` reads it (a write that leaves a setting out resets it, as a router may). */
     wwan: { enable: "1", connect_mode: "1", roam_enable: "1", connect_status: "ipv4_ipv6_connected" } as Record<string, string>,
+    /** The SIM card as `get_sim_info` reads it; the PIN writes and the slot switch change it. */
+    sim: { ...(opts.sim === false || opts.sim === undefined ? { current_sim_slot: "1", sim_states: "sim ready" } : opts.sim) } as Record<string, unknown>,
+    monthLimit: opts.monthLimit ? { ...opts.monthLimit } : null,
+  };
+  const simPin = opts.simPin ?? "1234";
+  /** A PIN write: the right PIN applies `then`, a wrong one costs an attempt. */
+  const pinWrite = (pin: unknown, then: () => void): Record<string, unknown> => {
+    const left = Number(state.sim["pinnumber"] ?? 3);
+    if (pin === simPin && left > 0) {
+      state.sim["pinnumber"] = "3";
+      then();
+      return { result: "success" };
+    }
+    state.sim["pinnumber"] = String(Math.max(0, left - 1));
+    if (left - 1 <= 0) state.sim["sim_states"] = "wait puk";
+    return { result: "failure" };
   };
   const encrypting = opts.encryption !== false;
   const ids = (raw: unknown): number[] =>
@@ -93,8 +113,8 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
     const text = String(field ?? "");
     return state.key ? (zwrtDecryptField(state.key, text) ?? "") : text;
   };
-  const mock = new LanRouterMock((req) => {
-    const body = JSON.parse(req.body) as { id: number; params: [string, string, string, Record<string, unknown>] };
+  type RpcBody = { id: number; params: [string, string, string, Record<string, unknown>] };
+  const answer = (body: RpcBody): { json: unknown } => {
     const [session, object, method, args] = body.params;
     calls.push({ session, object, method, args });
     const reply = (payload: Record<string, unknown> | null, status = 0) => ({ json: { jsonrpc: "2.0", id: body.id, result: payload === null ? [status] : [status, payload] } });
@@ -172,8 +192,20 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
       return reply({ result: 0 });
     }
     if (method === "get_device_info") return reply(opts.device ?? { bat_temperature: 36 });
-    if (method === "get_sim_info") return opts.sim === false ? reply(null, 6) : reply(opts.sim ?? { current_sim_slot: "1", sim_states: "sim ready" });
-    if (method === "get_sim_info_before") return reply({ current_sim_slot: "1" });
+    if (method === "get_sim_info") return opts.sim === false ? reply(null, 6) : reply({ ...state.sim });
+    if (method === "get_sim_info_before") return reply({ current_sim_slot: state.sim["current_sim_slot"] ?? "1" });
+    if (method === "zwrt_mdm_change_provision_session") {
+      if (Number(args["active_flag"]) === 1) state.sim["current_sim_slot"] = String(args["active_slot"]);
+      return reply({ result: 0 });
+    }
+    if (method === "sim_verify_pin_puk") return reply(pinWrite(args["pin_num"], () => (state.sim["sim_states"] = "sim ready")));
+    if (method === "sim_change_pin_mode") return reply(pinWrite(args["pin_num_m"], () => (state.sim["pin_status"] = String(args["pin_mode"]))));
+    if (method === "get_wwandst_monthlimit") return state.monthLimit ? reply({ ...state.monthLimit }) : reply(null, 3);
+    if (method === "set_wwandst_monthlimit") {
+      if (!state.monthLimit) return reply(null, 3);
+      state.monthLimit = { enable: args["enable"], type: args["type"], value: args["value"], ratio: args["ratio"], overflow_auto_disconn: args["overflow_auto_disconn"], overflow: 0 };
+      return reply({ result: 0 });
+    }
     if (method === "nwinfo_set_lte_ext_band") netinfo["lte_band_lock"] = String(args["lte_band"]);
     if (method === "nwinfo_set_nrbandlock") netinfo["nr5g_sa_band_lock"] = String(args["nr5g_band"]);
     if (method === "nwinfo_set_netselect") netinfo["net_select"] = String(args["net_select"]);
@@ -184,6 +216,11 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
       netinfo["lock_nr_cell"] = "0,0,0";
     }
     return reply({ result: 0 });
+  };
+  const mock = new LanRouterMock((req) => {
+    const body = JSON.parse(req.body) as RpcBody | RpcBody[];
+    // A batch: one answer per call, in one array
+    return Array.isArray(body) ? { json: body.map((one) => answer(one).json) } : answer(body);
   });
   const client = new DriverCpeClient({ protocol: zteZwrtProtocol, cpeUrl: "http://192.168.0.1", cpePassword: ZWRT_PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
   return { mock, calls, netinfo, client, state };

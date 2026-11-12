@@ -4,9 +4,8 @@ import { PIN_REFUSALS } from "../src/backends/driver.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/cpe-client.ts";
 import { USSD_POLLS } from "../src/drivers/cellular.ts";
-import type { DriverCellular, DriverSession } from "../src/drivers/types.ts";
 import { DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
-import { daemonOn, newCheck, noWait } from "./helpers/driver-daemon.ts";
+import { cellularOf, daemonOn, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 
@@ -16,11 +15,6 @@ import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
  * the way back, and that no PIN or USSD text is left anywhere). Mock routers only: placeholder PINs,
  * `*100#`, a made-up operator answer.
  */
-
-function cellularOf(session: DriverSession): Required<DriverCellular> {
-  assert.ok(session.cellular, "the family has cellular settings");
-  return session.cellular as Required<DriverCellular>;
-}
 
 const posted = (state: { posts: Array<{ goformId: string; fields: URLSearchParams }> }, goformId: string): Array<Record<string, string>> =>
   state.posts.filter((post) => post.goformId === goformId).map((post) => Object.fromEntries([...post.fields].filter(([key]) => key !== "AD" && key !== "isTest" && key !== "goformId")));
