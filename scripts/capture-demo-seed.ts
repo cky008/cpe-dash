@@ -27,8 +27,8 @@ import { startDemoDaemon } from "./demo-router.ts";
  * Record the static demo's starting points: run the real daemon against each demo router, sign in as
  * the web console does, wait until every poll has landed, and save each snapshot the console reads
  * at start-up. `npm run build:demo` writes them to dist/demo: `demo-seed.json` (the verified
- * H168-383) and `demo-seed-other.json` (an LTE-only model FengSui was not verified on, which the demo
- * opens with `?router=other`). The contract tests use `captureDemoSeed` to compare the browser backend
+ * H168-383), `demo-seed-other.json` (an LTE-only model FengSui was not verified on, which the demo
+ * opens with `?router=other`) and `demo-seed-zte.json` (a ZTE mobile router, `?router=zte`). The contract tests use `captureDemoSeed` to compare the browser backend
  * with the daemon it imitates.
  */
 
@@ -166,6 +166,7 @@ export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
 export const DEMO_SEEDS = [
   { file: "demo-seed.json", scenario: "normal" },
   { file: "demo-seed-other.json", scenario: "unverified" },
+  { file: "demo-seed-zte.json", scenario: "zte" },
 ] as const;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {

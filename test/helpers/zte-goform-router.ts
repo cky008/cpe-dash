@@ -65,6 +65,10 @@ export interface ZteRouterOptions {
   pppSticks?: boolean;
   /** The device lists `lan_station_list` and `station_list` answer (left out: an empty value, as a firmware without them). */
   stations?: { lan?: unknown[]; wifi?: unknown[] };
+  /** The admin password the router takes (default `ZTE_PASSWORD`). */
+  password?: string;
+  /** The router's address (default `http://192.168.0.1`). */
+  url?: string;
 }
 
 /** A message row; `text` is stored as UTF-16 hexadecimal. */
@@ -76,11 +80,12 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
   const ld = opts.ld === undefined ? ZTE_LD : opts.ld;
   const hash = ld ? "sha256" : "md5";
   const version = { ...ZTE_VERSION, hardwareVersion: opts.hw ?? ZTE_VERSION.hardwareVersion, modelName: opts.model ?? ZTE_VERSION.modelName };
+  const password = opts.password ?? ZTE_PASSWORD;
   const expectedPassword = ld
-    ? zteLoginPassword({ kind: "sha256-ld", ld }, ZTE_PASSWORD)
+    ? zteLoginPassword({ kind: "sha256-ld", ld }, password)
     : opts.configJs?.includes("SHA256:1")
-      ? zteLoginPassword({ kind: "sha256" }, ZTE_PASSWORD)
-      : zteLoginPassword({ kind: "base64" }, ZTE_PASSWORD);
+      ? zteLoginPassword({ kind: "sha256" }, password)
+      : zteLoginPassword({ kind: "base64" }, password);
   const state: ZteState = {
     loggedIn: false,
     rd: 0,
@@ -173,7 +178,7 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       const goformId = fields.get("goformId") ?? "";
       if (goformId === "LOGIN") {
         if (opts.loginResult) return { json: { result: opts.loginResult } };
-        const wanted = reqproc ? zteReqprocPassword(ZTE_RANDOM_LOGIN, ZTE_PASSWORD) : expectedPassword;
+        const wanted = reqproc ? zteReqprocPassword(ZTE_RANDOM_LOGIN, password) : expectedPassword;
         if (fields.get("password") !== wanted) return { json: { result: "3" } };
         if (reqproc && (fields.get("username") !== Buffer.from("admin").toString("base64") || fields.get("CSRFToken") !== "")) return { json: { result: "3" } };
         state.loggedIn = true;
@@ -192,6 +197,7 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       if (goformId === "CONNECT_NETWORK" && !opts.pppSticks) state.values["ppp_status"] = "ppp_connected";
       if (goformId === "BAND_SELECT") state.values["lte_band_lock"] = fields.get("lte_band_mask") ?? "";
       if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK_MERGE") state.values["nr5g_band_mask"] = fields.get("Z5g_lockband_no_format_mask") ?? "";
+      if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK") state.values["nr5g_band_mask"] = fields.get("nr5g_band_mask") ?? "";
       if (goformId === "SET_BEARER_PREFERENCE") state.values["net_select"] = fields.get("BearerPreference") ?? "";
       if (goformId === "LTE_LOCK_CELL_SET") {
         state.values["lte_pci_lock"] = fields.get("lte_pci_lock") ?? "";
@@ -219,6 +225,6 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
     }
     return { status: 404, text: "" };
   });
-  const client = new DriverCpeClient({ protocol: zteGoformProtocol, cpeUrl: "http://192.168.0.1", cpePassword: ZTE_PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
+  const client = new DriverCpeClient({ protocol: zteGoformProtocol, cpeUrl: opts.url ?? "http://192.168.0.1", cpePassword: password, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
   return { mock, state, client };
 }

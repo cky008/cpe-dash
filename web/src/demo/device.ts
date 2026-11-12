@@ -21,7 +21,7 @@ import type { DisabledWrite } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, READ_SECTIONS, type WriteFeature, type WriteResultRecord, gateRefuses, modelLabel } from "../../../src/device-access.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature, buildDeviceReport, deviceReportChecks } from "../../../src/device-profile.ts";
-import type { StatusReadFeature } from "../../../src/router-family.ts";
+import type { RouterFamily, StatusReadFeature } from "../../../src/router-family.ts";
 import { switchExperimentalWrite } from "../../../src/experimental-switch.ts";
 import { verifiedModelsLabel } from "../../../src/firmware.ts";
 import { type DemoConsole, DemoRefusal } from "./console.ts";
@@ -41,6 +41,45 @@ const GENERIC_ENDPOINTS: Partial<Readonly<Record<ControlAction, string>>> = {
   sms_mark_read: "/api/sms/set-read",
   sms_delete: "/api/sms/delete-sms",
 };
+/** What a write the demo's ZTE router took sent, as the daemon's driver names it (`zte-goform:<goformId>`). */
+export interface WriteHint {
+  /** A band lock names NR bands, or a network mode. */
+  nr?: boolean;
+  mode?: boolean;
+  /** A cell lock's RAT. */
+  rat?: "LTE" | "NR";
+  /** Mobile data switched on or off. */
+  enabled?: boolean;
+  /** What an unlock had to take off: NR bands, an LTE cell, an NR cell. */
+  locked?: { nr: boolean; lteCell: boolean; nrCell: boolean };
+}
+
+/** The goform writes of the ZTE world's router (the driver's first branch, as `noteSent` names them). */
+function goformEndpoints(action: ControlAction, hint: WriteHint): string[] | null {
+  switch (action) {
+    case "lock_band":
+      return ["BAND_SELECT", ...(hint.nr ? ["WAN_PERFORM_NR5G_BAND_LOCK"] : []), ...(hint.mode ? ["SET_BEARER_PREFERENCE"] : [])];
+    case "lock_cell":
+      return [hint.rat === "NR" ? "NR5G_LOCK_CELL_SET" : "LTE_LOCK_CELL_SET"];
+    case "unlock_rf_locks":
+      return ["BAND_SELECT", ...(hint.locked?.nr ? ["WAN_PERFORM_NR5G_BAND_LOCK"] : []), ...(hint.locked?.lteCell ? ["LTE_LOCK_CELL_SET"] : []), ...(hint.locked?.nrCell ? ["NR5G_LOCK_CELL_SET"] : [])];
+    case "reboot_cpe":
+      return ["REBOOT_DEVICE"];
+    case "reconnect_cellular":
+      return ["DISCONNECT_NETWORK", "CONNECT_NETWORK"];
+    case "set_mobile_data":
+      return [hint.enabled ? "CONNECT_NETWORK" : "DISCONNECT_NETWORK"];
+    case "sms_send":
+      return ["SEND_SMS"];
+    case "sms_mark_read":
+      return ["SET_MSG_READ"];
+    case "sms_delete":
+      return ["DELETE_SMS"];
+    default:
+      return null;
+  }
+}
+
 /** The write results a device report keeps (the daemon's `MAX_GENERIC_WRITES`). */
 const MAX_WRITES = 20;
 
@@ -87,6 +126,8 @@ export class DemoDevice {
       const evidence = Object.fromEntries(EXPERIMENTAL_FEATURES.map((feature) => [feature, profile.capabilities.features[feature]?.source === "probe"]));
       this.#access.noteEvidence(profile.identity.model, evidence as Record<ExperimentalFeature, boolean>, profile.capabilities.lteBands);
     }
+    // The brand the daemon spoke to it as: another brand's router writes through its driver
+    this.#access.setFamily(opts.seed.telemetry.schedulerStatus.device.family ?? "huawei");
     const reads = opts.seed.telemetry.schedulerStatus.device.reads;
     for (const section of READ_SECTIONS) {
       const read = reads[section];
@@ -99,9 +140,23 @@ export class DemoDevice {
     return this.#access.snapshot();
   }
 
-  /** A model nobody verified: what it may write goes the generic (experimental) way. */
+  /** A model nobody verified: what it may write goes the experimental way (each write read back and kept). */
   get generic(): boolean {
     return this.#access.generic;
+  }
+
+  /** A Huawei model nobody verified: its writes take the generic HiLink form (LTE band mask and the like). */
+  get hilinkGeneric(): boolean {
+    return this.#access.generic && !this.#access.driverFamily;
+  }
+
+  /** A router of another brand, written through its driver. */
+  get driver(): boolean {
+    return this.#access.driverFamily;
+  }
+
+  get family(): RouterFamily {
+    return this.#access.family;
   }
 
   /** LTE bands an experimental band lock may use (what the router advertised). */
@@ -134,9 +189,12 @@ export class DemoDevice {
    * as a match, a redial or reboot pending until the router is back. `null` for a write with no
    * generic form (the gate never lets one through).
    */
-  noteWrite(action: ControlAction): WriteResultRecord | null {
-    const endpoint = GENERIC_ENDPOINTS[action];
-    if (!endpoint) return null;
+  noteWrite(action: ControlAction, hint: WriteHint = {}): WriteResultRecord | null {
+    const family = this.#access.family;
+    const driver = this.#access.driverFamily ? (family === "zte-goform" ? goformEndpoints(action, hint) : [action]) : null;
+    const generic = GENERIC_ENDPOINTS[action];
+    const endpoints = driver ? driver.map((name) => `${family}:${name}`) : generic ? [generic] : null;
+    if (!endpoints) return null;
     const feature = CONTROL_FEATURES[action];
     const record: WriteResultRecord = {
       id: globalThis.crypto.randomUUID(),
@@ -144,7 +202,7 @@ export class DemoDevice {
       action,
       feature,
       model: modelLabel(this.#access.current?.model ?? "?"),
-      endpoints: [endpoint],
+      endpoints,
       outcome: "applied",
       code: null,
       readback: feature === "reboot" || feature === "reconnect" ? "pending" : "match",

@@ -70,6 +70,8 @@ import {
   readAntennaMode,
   readBandSelection,
   readCellLockCommand,
+  readDriverBandLockTarget,
+  readDriverCellLockTarget,
   readOptionalBoolean,
   readSecurityControl,
   readTimeRuleChange,
@@ -86,7 +88,8 @@ import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../../../src/ti
 import { previewGuard } from "../core/access-view.ts";
 import type { EventSourceLike } from "../core/sse.ts";
 import { DemoConsole, DemoRefusal } from "./console.ts";
-import { DemoDevice } from "./device.ts";
+import { DemoDevice, type WriteHint } from "./device.ts";
+import { ROUTER_FAMILY_FACTS } from "../../../src/router-family.ts";
 import type { DemoSeed } from "./seed.ts";
 import { DemoSmsBox, DemoValidationError } from "./sms-box.ts";
 import { type SignalBase, TICK_MS, advanceTelemetry, backfillHistory, seriesInput, signalBase, speedTick, worldSample } from "./world.ts";
@@ -209,6 +212,8 @@ export class DemoBackend {
 
   #scheduler: SchedulerStatusSnapshot;
   #telemetry: GlobalTelemetrySnapshot;
+  /** On a router of another brand: what its own lock settings hold (an unlock takes off what is there). */
+  #driverLocks = { nr: false, lteCell: false, nrCell: false };
   #lockState: PersistedLockState;
   #lockVerification: LockVerification;
   readonly #unlockedVerification: LockVerification;
@@ -376,7 +381,10 @@ export class DemoBackend {
       totalSessionsCompleted: this.#scheduler.totalSessionsCompleted + 1,
       lastSessionHoldMs: Math.round(30 + this.#random() * 190),
     };
-    if (this.#device.generic) {
+    if (this.#device.driver) {
+      // Another brand's driver reads no band mask to check a lock against: it stays undetermined, as on the daemon
+      this.#lockVerification = { ...this.#lockVerification, checkedAtIso: this.#telemetry.capturedAtIso };
+    } else if (this.#device.hilinkGeneric) {
       this.#lockVerification = this.#maskVerification();
     } else if (this.#lockVerification.status === "settling" && now - Date.parse(this.#lockState.updatedAtIso) >= LOCK_SETTLE_MS) {
       this.#lockVerification = { ...this.#lockVerification, status: "consistent", checkedAtIso: this.#telemetry.capturedAtIso, issues: [] };
@@ -496,7 +504,19 @@ export class DemoBackend {
     post("/api/control/band-lock", async (body) => {
       const lteBands = readBandSelection(body, "lteBands");
       const nrBands = readBandSelection(body, "nrBands");
-      if (this.#device.generic) {
+      if (this.#device.driver) {
+        // The driver's rules: NR where the brand locks NR, a mode it offers, checked before the gate like the daemon
+        const networkMode = optionalString(body, "networkMode");
+        const target = readDriverBandLockTarget({ ...(lteBands !== undefined ? { lteBands } : {}), ...(nrBands !== undefined ? { nrBands } : {}), ...(networkMode !== undefined ? { networkMode } : {}) }, ROUTER_FAMILY_FACTS[this.#device.family]);
+        const lte = target.lte ?? this.#lockState.lteBands;
+        const nr = target.nr === null ? this.#lockState.nrBands : target.nr === "all" ? [] : target.nr;
+        const state: PersistedLockState = { mode: lte === "all" && nr.length === 0 ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: lte, nrBands: nr, cellLock: null };
+        const summary = `LTE=${JSON.stringify(lte)}, NR=${JSON.stringify(nr)}`;
+        const lockState = await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }, { nr: target.nr !== null, mode: target.networkMode !== null });
+        if (target.nr !== null) this.#driverLocks = { ...this.#driverLocks, nr: nr.length > 0 };
+        return { ok: true, lockState } satisfies LockStateResponse;
+      }
+      if (this.#device.hilinkGeneric) {
         // LTE only, among the bands the router advertises; checked once the gate lets it through, like the daemon
         this.#device.gate("lock_band");
         const locked = validateGenericBandLock({ lteBands, nrBands }, this.#device.lteBands);
@@ -515,6 +535,8 @@ export class DemoBackend {
       const command = readCellLockCommand(body, { allowNullPci: true });
       const check = checkCellLockInput({ rat: command.rat, band: command.band, arfcn: command.arfcn, pci: command.pci ?? null });
       if (!check.ok) throw new CpeControlValidationError(check.message);
+      // A driver locks one cell: a frequency alone is refused, as on the daemon
+      if (this.#device.driver) readDriverCellLockTarget(command);
       const state: PersistedLockState = {
         mode: "cell_lock",
         ...this.#stampIso(),
@@ -523,11 +545,16 @@ export class DemoBackend {
         cellLock: { rat: command.rat, band: check.value.band, arfcn: command.arfcn, pci: command.pci ?? null },
       };
       const params = { rat: command.rat, band: String(command.band), arfcn: command.arfcn };
-      return { ok: true, lockState: await this.#lock("lock_cell", state, "controls.cell_lock_applied", params) } satisfies LockStateResponse;
+      const lockState = await this.#lock("lock_cell", state, "controls.cell_lock_applied", params, { rat: command.rat });
+      this.#driverLocks = { ...this.#driverLocks, ...(command.rat === "LTE" ? { lteCell: true } : { nrCell: true }) };
+      return { ok: true, lockState } satisfies LockStateResponse;
     });
     post("/api/control/unlock", async () => {
       const state: PersistedLockState = { mode: "unlocked", ...this.#stampIso(), lteBands: "all", nrBands: [], cellLock: null };
-      return { ok: true, lockState: await this.#lock("unlock_rf_locks", state, "controls.unlock_all_applied") } satisfies LockStateResponse;
+      // What the router itself still has locked (a cell lock leaves its NR bands as they were)
+      const lockState = await this.#lock("unlock_rf_locks", state, "controls.unlock_all_applied", undefined, { locked: this.#driverLocks });
+      this.#driverLocks = { nr: false, lteCell: false, nrCell: false };
+      return { ok: true, lockState } satisfies LockStateResponse;
     });
     post("/api/control/reboot", async (body) => {
       if (body["confirm"] !== true) throw new CpeControlValidationError("Remote reboot rejected: explicit { confirm: true } is mandatory");
@@ -579,7 +606,7 @@ export class DemoBackend {
     post("/api/control/mobile-data", async (body) => {
       const enabled = readOptionalBoolean(body, "enabled");
       if (enabled === undefined) throw new CpeControlValidationError('"enabled" must be a boolean');
-      await this.#control("set_mobile_data", "controls.mobile_data_updated");
+      await this.#control("set_mobile_data", "controls.mobile_data_updated", undefined, undefined, { enabled });
       this.#mobileData = enabled;
       if (this.#settings) {
         this.#settings = { ...this.#settings, ...this.#stamp(), mobileDataEnabled: enabled };
@@ -711,10 +738,11 @@ export class DemoBackend {
     };
   }
 
-  async #lock(action: ControlAction, state: PersistedLockState, key: string, params?: Readonly<Record<string, string | number>>): Promise<PersistedLockState> {
-    await this.#control(action, key, params, state);
+  async #lock(action: ControlAction, state: PersistedLockState, key: string, params?: Readonly<Record<string, string | number>>, hint: WriteHint = {}): Promise<PersistedLockState> {
+    await this.#control(action, key, params, state, hint);
     this.#lockState = state;
-    if (this.#device.generic) {
+    if (this.#device.driver) return state;
+    if (this.#device.hilinkGeneric) {
       // net-mode takes the new LTE mask; the next poll reads it, and until then the router still shows the old one
       this.#routerMask = state.lteBands === "all" ? LTE_ALL_BANDS_MASK : bandsToHexMask(state.lteBands);
       this.#lockVerification = this.#maskVerification();
@@ -792,7 +820,7 @@ export class DemoBackend {
     const phones = stringList(body, "phones") ?? [requiredString(body, "phone")];
     const outcome = this.#sms.send({ phones, content: requiredString(body, "content"), countryCode: optionalString(body, "countryCode") }, (content) => {
       // A model nobody verified sends the plaintext way: refused before queueing (a send the gate refuses says so first)
-      if (this.#device.generic && !gateRefuses(this.#device.writeAccess("smsWrite"))) validateGenericSmsContent(content);
+      if (this.#device.hilinkGeneric && !gateRefuses(this.#device.writeAccess("smsWrite"))) validateGenericSmsContent(content);
       this.#device.gate("sms_send");
     });
     const to = outcome.resolvedPhones.map(maskPhoneNumber).join(", ");
@@ -811,8 +839,8 @@ export class DemoBackend {
   }
 
   /** A queued control session: busy for a moment, then `control:applied` with the daemon's wording. */
-  async #control(action: ControlAction, key: string, params?: Readonly<Record<string, string | number>>, lockState?: PersistedLockState): Promise<void> {
-    await this.#controlWith(action, this.#text(key, params), lockState);
+  async #control(action: ControlAction, key: string, params?: Readonly<Record<string, string | number>>, lockState?: PersistedLockState, hint: WriteHint = {}): Promise<void> {
+    await this.#controlWith(action, this.#text(key, params), lockState, hint);
   }
 
   /**
@@ -820,7 +848,7 @@ export class DemoBackend {
    * then on a model nobody verified the experimental write's read-back, kept for the device report and
    * added to the summary.
    */
-  async #controlWith(action: ControlAction, summary: { zh: string; en: string }, lockState?: PersistedLockState): Promise<void> {
+  async #controlWith(action: ControlAction, summary: { zh: string; en: string }, lockState?: PersistedLockState, hint: WriteHint = {}): Promise<void> {
     this.#device.gate(action);
     if (this.#now() < this.#offlineUntilMs) {
       const message = "The router is restarting; try again in a minute";
@@ -828,7 +856,7 @@ export class DemoBackend {
       throw new DemoHttpError(502, "CPE_UPSTREAM_ERROR", message);
     }
     await this.#session(LATENCY.control);
-    const record = this.#device.generic ? this.#device.noteWrite(action) : null;
+    const record = this.#device.generic ? this.#device.noteWrite(action, hint) : null;
     const suffix = record ? this.#device.readbackSuffix(record) : { zh: "", en: "" };
     const event: ControlAppliedEvent = {
       action,

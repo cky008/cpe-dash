@@ -6,6 +6,10 @@ import { type FengSuiRuntimeStack, createFengSuiRuntime, startServeDaemon } from
 import { loadConfig } from "../src/config.ts";
 import { type FamilySms, createCpeFamily } from "../test/helpers/cpe-family.ts";
 import { type StrictCpe, createStrictCpe } from "../test/helpers/strict-cpe.ts";
+import { zteRouter, zteSms } from "../test/helpers/zte-goform-router.ts";
+import type { RouterFamily } from "../src/router-family.ts";
+import { ConsoleSettings } from "../src/console-settings.ts";
+import { StorageCipher } from "../src/encrypted-file.ts";
 
 /**
  * The offline demo world shared by `npm run demo`, the static GitHub Pages demo's seed capture
@@ -271,12 +275,174 @@ export function createUnverifiedDemoRouter(): DemoRouter {
   };
 }
 
+/**
+ * The ZTE world (`?router=zte`): a 5G mobile router with ZTE's goform pages (MU5001), from the
+ * test/helpers mock of that interface, with a battery that runs down and charges, a SIM card in its
+ * tray, neighbour cells, connected devices and a mailbox. FengSui reads it and writes it through its
+ * ZTE driver, every write on until its owner turns it off. Facts and placeholders only.
+ */
+export function createZteDemoRouter(): DemoRouter {
+  let tick = 0;
+  let charge = 64;
+  let charging = false;
+  const walk = (base: number, spread: number, period: number): number => Math.round((base + Math.sin(tick / period) * spread) * 10) / 10;
+  let monthDown = 86_000_000_000;
+  let monthUp = 5_400_000_000;
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  // ZTE's own date fields: yy,MM,dd,HH,mm,ss,+zone
+  const routerDate = (offsetMin: number): string => {
+    const d = new Date(Date.now() - offsetMin * 60_000);
+    return `${pad(d.getFullYear() % 100)},${pad(d.getMonth() + 1)},${pad(d.getDate())},${pad(d.getHours())},${pad(d.getMinutes())},${pad(d.getSeconds())},+0`;
+  };
+  const zte = zteRouter({
+    password: DEMO_CPE_PASSWORD,
+    url: ZTE_DEMO_URL,
+    model: "MU5001",
+    hw: "MU5001_HW1.0",
+    sms: [
+      zteSms(12, "DemoBank", "Your DemoBank verification code is 315902. It expires in 10 minutes.", "1", routerDate(6)),
+      zteSms(11, "+353830000001", "Back home by 8, see you then", "0", routerDate(90)),
+      zteSms(10, "+353830000001", "Great, dinner is on me", "2", routerDate(85)),
+    ],
+    stations: {
+      lan: [{ mac_addr: "02:00:5E:10:00:01", hostname: "nas-ds923", ip_addr: "192.168.0.10", connect_time: "86400" }],
+      wifi: [
+        { mac_addr: "02:00:5E:10:00:03", hostname: "living-room-tv", ip_addr: "192.168.0.33" },
+        { mac_addr: "02:00:5E:10:00:05", hostname: "demo-phone", ip_addr: "192.168.0.51" },
+      ],
+    },
+  });
+  const values = zte.state.values;
+  Object.assign(values, {
+    network_type: "ENDC",
+    network_provider: "Carrier-Lab",
+    rmcc: "272",
+    rmnc: "01",
+    wan_ipaddr: "198.51.100.42",
+    ipv6_wan_ipaddr: "2001:db8::42",
+    signalbar: "4",
+    lac_code: "2711",
+    cell_id: "0800001e",
+    wan_active_band: "LTE BAND 1",
+    wan_active_channel: "300",
+    lte_ca_pcell_bandwidth: "20.0",
+    wan_lte_ca: "ca_activated",
+    lte_multi_ca_scell_info: "1,142,1,3,1850,20.0;",
+    nr5g_action_band: "n78",
+    nr5g_action_channel: "650000",
+    nr5g_pci: "8e",
+    nr5g_dl_bandwidth: "100",
+    nr_rank: "4",
+    lte_rank: "2",
+    neighbour_cell_list: "LTE,1,300,211,-88,-9,12;LTE,3,1850,142,-95,-12,6;NR,78,650000,142,-97,-11,8;",
+    battery_charging: "0",
+    battery_temp: "34",
+    modem_main_state: "modem_init_complete",
+    pin_status: "0",
+    pinnumber: "3",
+    puknumber: "10",
+    sim_slot: "0",
+    simcard_roam: "Home",
+    data_volume_limit_switch: "1",
+    data_volume_limit_unit: "data",
+    data_volume_limit_size: "200_1024",
+    data_volume_alert_percent: "90",
+    fota_new_version_state: "has_optional",
+    wifi_cur_state: "1",
+    m_ssid_enable: "0",
+    imei: "860000000000000",
+    imsi: "272010000000000",
+    sim_iccid: "8935301000000000000",
+    pm_sensor_mdm: "41",
+    pm_modem_5g: "44",
+    pm_sensor_pa1: "39",
+    wifi_chip_temp: "47",
+    cpu_usage: "18",
+    mem_usage: "46",
+  });
+  let nextId = 13;
+  const step = (): void => {
+    // The battery runs down to 18 %, then the charger goes in until 95 %
+    if (charging) charge = Math.min(95, charge + 1);
+    else charge = Math.max(18, charge - 0.25);
+    if (charge <= 18) charging = true;
+    if (charge >= 95) charging = false;
+    const dl = Math.round(Math.max(0, Math.sin(tick / 9)) * 6_000_000 + 150_000);
+    const ul = Math.round(dl / 10 + 40_000);
+    monthDown += dl * 5;
+    monthUp += ul * 5;
+    Object.assign(values, {
+      battery_vol_percent: String(Math.round(charge)),
+      battery_charging: charging ? "1" : "0",
+      battery_temp: String(charging ? 37 : 34),
+      lte_rsrp: String(walk(-88, 3, 8)),
+      lte_rsrq: String(walk(-9, 1.5, 6)),
+      lte_snr: String(walk(13, 3, 5)),
+      lte_rssi: String(walk(-62, 2, 7)),
+      Z5g_rsrp: String(walk(-97, 4, 7)),
+      Z5g_rsrq: String(walk(-11, 1.5, 6)),
+      Z5g_SINR: String(walk(9, 3, 5)),
+      lte_cqi0: String(11 + (tick % 3)),
+      nr_cqi0: String(10 + (tick % 4)),
+      lte_dl_mcs: String(18 + (tick % 6)),
+      nr_dl_mcs: String(16 + (tick % 7)),
+      lte_tx_power: String(Math.round(walk(9, 4, 6))),
+      realtime_rx_thrpt: String(dl),
+      realtime_tx_thrpt: String(ul),
+      realtime_time: String(35_000 + tick * 5),
+      monthly_rx_bytes: String(monthDown),
+      monthly_tx_bytes: String(monthUp),
+    });
+  };
+  step();
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const res = await zte.mock.fetchImpl(input, init);
+    if ((init?.method ?? "GET").toUpperCase() !== "POST") return res;
+    const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
+    // What a write does to the household: a new connection after a redial or a reboot
+    if (form.get("goformId") === "REBOOT_DEVICE") values["realtime_time"] = "0";
+    return res;
+  };
+  return {
+    cpe: null,
+    // The goform pages have no "someone is signed in" flag FengSui reads: nothing to yield to
+    human: { loginSameIp: () => undefined, logout: () => undefined },
+    fetchImpl,
+    advance: () => {
+      tick += 1;
+      step();
+    },
+    pushOtp: () => {
+      const code = String(100_000 + Math.floor(Math.random() * 899_999));
+      zte.state.sms.push(zteSms(nextId++, "DemoBank", `Your DemoBank verification code is ${code}. It expires in 10 minutes.`, "1", routerDate(0)));
+    },
+  };
+}
+
+/** Where the ZTE world's router answers (ZTE's usual address). */
+export const ZTE_DEMO_URL = "http://192.168.0.1";
+
+/** A world of another brand: its router, and the connection the console would have saved for it. */
+interface BrandWorld {
+  router: DemoRouter;
+  connection: { url: string; username: string; password: string; family: RouterFamily };
+}
+
+/** The worlds of other brands: `zte`, the live demo's (`?router=zte`). */
+function brandWorld(scenario: DemoDaemonOptions["scenario"]): BrandWorld | null {
+  if (scenario === "zte") return { router: createZteDemoRouter(), connection: { url: ZTE_DEMO_URL, username: "", password: DEMO_CPE_PASSWORD, family: "zte-goform" } };
+  return null;
+}
+
 export interface DemoDaemonOptions {
   /** `0` picks a free port. */
   port: number;
   token: string;
-  /** `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another model, with experimental writes. */
-  scenario?: "normal" | "yield" | "breaker" | "unverified";
+  /**
+   * `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another Huawei
+   * model, with experimental writes; `zte`: a ZTE mobile router, through FengSui's ZTE driver.
+   */
+  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte";
   /**
    * Run the Telegram bot against an in-process stand-in for the Bot API (nothing leaves the process),
    * with `TELEGRAM_CHAT_IDS=1003`: Settings → Telegram can then link, list and unlink chats.
@@ -324,7 +490,8 @@ function offlineTelegram(): typeof fetch {
 
 /** The real daemon (scheduler, monitor, SMS, SSE, REST, MCP, web UI) against the demo router. */
 export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaemon> {
-  const router = opts.scenario === "unverified" ? createUnverifiedDemoRouter() : createDemoRouter();
+  const brand = brandWorld(opts.scenario);
+  const router = brand?.router ?? (opts.scenario === "unverified" ? createUnverifiedDemoRouter() : createDemoRouter());
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "fengsui-demo-"));
   const envFile = path.join(dataDir, "demo.env");
   fs.writeFileSync(envFile, "# generated by scripts/demo-router.ts\n", { mode: 0o600 });
@@ -332,7 +499,7 @@ export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaem
     envPath: envFile,
     ignoreProcessEnv: true,
     overrides: {
-      CPE_URL: "http://192.168.8.1",
+      CPE_URL: brand?.connection.url ?? "http://192.168.8.1",
       CPE_PASSWORD: opts.scenario === "breaker" ? "not-the-router-password" : DEMO_CPE_PASSWORD,
       DATA_ENCRYPTION_KEY: crypto.randomBytes(24).toString("hex"),
       API_TOKEN: opts.token,
@@ -357,6 +524,14 @@ export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaem
     webhookSecret: "",
     peerDiscoveryEnabled: false,
   };
+
+  // A router of another brand: the connection saved with its family, as the console saves one (no .env names a brand)
+  if (brand) {
+    const settings = new ConsoleSettings({ filePath: demoConfig.settingsFile, cipher: new StorageCipher(demoConfig.dataEncryptionKey) });
+    settings.importFromEnv(demoConfig);
+    settings.setCpe({ ...brand.connection });
+    await settings.flush();
+  }
 
   const stack = createFengSuiRuntime({
     config: demoConfig,
