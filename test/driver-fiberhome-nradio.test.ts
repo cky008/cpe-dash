@@ -4,7 +4,7 @@ import { CpeAnswerFormatError, CpeApiError } from "../src/cpe-client.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
-import { cellGlobalId, fiberhomeProtocol, parseFiberhomeLockState, parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
+import { cellGlobalId, fiberhomeAirplaneOf, fiberhomeProtocol, parseFiberhomeLockState, parseFiberhomeProTelemetry, parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
 import { NRADIO_ALL_MASK, NRADIO_LTE_ALL_MASK, nradioNrMask, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter } from "../src/drivers/nradio.ts";
 import { getXmlTag } from "../src/xml.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
@@ -43,7 +43,7 @@ const BASE_SA: Record<string, string> = {
   monthTxBytes: "5368709120",
 };
 
-function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>; login?: Record<string, string> } = {}) {
+function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>; login?: Record<string, string>; airplane?: string } = {}) {
   const base = { ...BASE_SA, modelName: opts.model ?? "LG6121F" };
   let sid = 0;
   let current = "";
@@ -60,7 +60,10 @@ function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>
       current = `s${String(++sid).padStart(8, "0")}`;
       return { json: { sessionid: current }, setCookie: ["fh=1; Path=/"] };
     }
-    if (req.method === "GET" && req.path === "/api/tmp/FHTOOLAPIS") return loggedIn ? { json: base } : { text: "timeout" };
+    if (req.method === "GET" && req.path === "/api/tmp/FHTOOLAPIS") {
+      if (!loggedIn) return { text: "timeout" };
+      return req.query.get("ajaxmethod") === "app_get_airplane" ? { json: { airplaneOn: opts.airplane ?? "0" } } : { json: base };
+    }
     const body = JSON.parse(req.body) as { dataObj: Record<string, unknown> | null; ajaxmethod: string; sessionid: string };
     if (body.sessionid !== current) return { text: "timeout" };
     const wantRef = body.ajaxmethod.includes("login") ? "/login.html" : "/main.html";
@@ -94,7 +97,9 @@ describe("fiberhome: session", () => {
     const { mock, client } = fiberhomeRouter();
     const t = await client.withSession((s) => s.telemetry());
     assert.equal(t?.model, "LG6121F");
-    assert.deepEqual(mock.trail, ["GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS"]);
+    // Login, the base info, airplane mode (same session), logout
+    assert.deepEqual(mock.trail, ["GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS"]);
+    assert.equal(mock.requests[5]?.query.get("ajaxmethod"), "app_get_airplane");
     assert.equal(mock.requests[4]?.headers["referer"], "http://192.168.8.1/html/content.html");
   });
 
@@ -422,5 +427,30 @@ describe("nradio: writes", () => {
     await assert.rejects(client.withSession((s) => s.setCellLock({ rat: "LTE", band: 1, arfcn: 300, pci: 211, scsKhz: null }, newCheck())), CpeAnswerFormatError);
     mock.handler = ((inner) => (req) => (req.method === "POST" && req.path === "/api/net/lock-freq" ? { status: 500, text: "" } : inner(req)))(mock.handler);
     await assert.rejects(client.withSession((s) => s.setCellLock({ rat: "LTE", band: 1, arfcn: 300, pci: 211, scsKhz: null }, newCheck())), (err: unknown) => err instanceof CpeApiError && err.code === "http500");
+  });
+});
+
+describe("fiberhome: the router's status", () => {
+  it("fiberhome: reads airplane mode in the poll's session, and the link details of the base info", async () => {
+    const { client } = fiberhomeRouter({ airplane: "1" });
+    const t = await client.withSession((s) => s.telemetry());
+    assert.equal(t?.status?.airplaneMode, true);
+    assert.equal((await fiberhomeRouter({ airplane: "0" }).client.withSession((s) => s.telemetry()))?.status?.airplaneMode, false);
+    assert.equal(fiberhomeAirplaneOf({ airplaneOn: "2" }), null);
+    assert.equal(fiberhomeAirplaneOf("timeout"), null);
+    // Under SA the transmit powers are the NR cell's; under LTE the LTE cell's, with its transmission mode
+    const sa = parseFiberhomeTelemetry({ ...BASE_SA, PUSCH_TX_Power: "5", PUCCH_TX_Power: "-12", UlBandWidth: "100MHz", UlMimo: "2", QCI: "9", RRCStatus: "1" }).telemetry;
+    assert.deepEqual([sa.nr?.puschTxDbm, sa.nr?.pucchTxDbm, sa.nr?.ulBandwidthMhz, sa.ulMimoLayers, sa.qci, sa.rrcConnected], [5, -12, 100, 2, 9, true]);
+    const lte = parseFiberhomeTelemetry({ ...BASE_SA, WorkMode: "LTE", BAND: "1", EARFCN_NBR: "300", PCI_NBR: "211", RSRP: "-90", LTEDlTM: "4", PUSCH_TX_Power: "7", RRCStatus: "0", QCI: "0" }).telemetry;
+    assert.deepEqual([lte.lte?.transmissionMode, lte.lte?.puschTxDbm, lte.rrcConnected, lte.qci], ["TM4", 7, false, null]);
+  });
+
+  it("fiberhome Pro: names its 4G and 5G modem temperatures apart", () => {
+    const t = parseFiberhomeProTelemetry({ Modem5GTemperature: "48000", Modem4GTemperature: "45500", RSRP: "-90", BAND: "1" });
+    assert.deepEqual(t.temperatures, [
+      { kind: "modem_4g", name: null, celsius: 45.5 },
+      { kind: "modem_5g", name: null, celsius: 48 },
+    ]);
+    assert.equal(t.temperatureC, 48);
   });
 });

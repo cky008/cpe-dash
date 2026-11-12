@@ -3,6 +3,7 @@ import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import type { TemperatureSensor } from "../router-status.ts";
 import type { SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
 import { neighbourOf, ratOfChannel } from "./cells.ts";
@@ -50,6 +51,7 @@ import {
   smallIntOf,
   temperatureOf,
   textOf,
+  txPowerOf,
 } from "./values.ts";
 
 /**
@@ -378,6 +380,11 @@ export function parseFiberhomeProTelemetry(raw: Record<string, unknown>): Driver
   };
   const has = cellHasData(cell);
   const temps = [milliCelsius(raw["Modem5GTemperature"]), milliCelsius(raw["Modem4GTemperature"])].filter((t): t is number => t !== null);
+  const sensors: TemperatureSensor[] = [];
+  const t5 = milliCelsius(raw["Modem5GTemperature"]);
+  const t4 = milliCelsius(raw["Modem4GTemperature"]);
+  if (t4 !== null) sensors.push({ kind: "modem_4g", name: null, celsius: t4 });
+  if (t5 !== null) sensors.push({ kind: "modem_5g", name: null, celsius: t5 });
   const monthDown = counterOf(raw["MonthRxBytes"]);
   const monthUp = counterOf(raw["MonthTxBytes"]);
   return {
@@ -397,6 +404,7 @@ export function parseFiberhomeProTelemetry(raw: Record<string, unknown>): Driver
         : { downloadBytesPerSec: null, uploadBytesPerSec: null, totalDownloadBytes: null, totalUploadBytes: null, sessionDownloadBytes: null, sessionUploadBytes: null, sessionSeconds: null, monthDownloadBytes: monthDown, monthUploadBytes: monthUp, monthTotalBytes: null, monthSeconds: null },
     temperatureC: temps.length > 0 ? Math.max(...temps) : null,
     signalBars: null,
+    temperatures: sensors,
   };
 }
 
@@ -609,13 +617,18 @@ export function parseFiberhomeTelemetry(raw: Record<string, unknown>): { telemet
   const nrBand = bandOf(raw["NR_Band"]);
   // Element 0 is the serving cell; under EN-DC the NR leg is the first later element on the NR band
   const nrLeg = mode === "NSA" ? bands.findIndex((b, i) => i > 0 && bandOf(b) === nrBand && ratOfChannel(arfcnOf(freqs[i], "NR")) === "NR") : -1;
-  const primary: Pick<DriverCell, "bandwidthMhz" | "dlMcs" | "ulMcs" | "cqi" | "mimoLayers"> = {
+  // The serving cell's link readings (notes library A §4); the transmit powers belong to the NR cell under SA, else to the LTE one
+  const primary: Pick<DriverCell, "bandwidthMhz" | "ulBandwidthMhz" | "dlMcs" | "ulMcs" | "cqi" | "mimoLayers" | "puschTxDbm" | "pucchTxDbm"> = {
     bandwidthMhz: mhzOf(raw["DlBandWidth"]),
+    ulBandwidthMhz: mhzOf(raw["UlBandWidth"]),
     dlMcs: smallIntOf(raw["DlMCS"], 31),
     ulMcs: smallIntOf(raw["UlMCS"], 31),
     cqi: smallIntOf(raw["CQI"], 15),
     mimoLayers: smallIntOf(raw["DlMimo"], 8),
+    puschTxDbm: txPowerOf(raw["PUSCH_TX_Power"]),
+    pucchTxDbm: txPowerOf(raw["PUCCH_TX_Power"]),
   };
+  const tm = smallIntOf(raw["LTEDlTM"], 10);
   let lte: DriverCell | null = null;
   let nr: DriverCell | null = null;
   if (mode === "LTE" || mode === "NSA") {
@@ -631,6 +644,7 @@ export function parseFiberhomeTelemetry(raw: Record<string, unknown>): { telemet
       rsrqDb: rsrqOf(raw["RSRQ"]),
       sinrDb: fiberSinr(raw["SINR"]),
       rssiDbm: rssiOf(raw["RSSI"]),
+      transmissionMode: tm !== null && tm > 0 ? `TM${tm}` : null,
     };
   }
   if (mode === "SA" || nrLeg > 0) {
@@ -683,8 +697,23 @@ export function parseFiberhomeTelemetry(raw: Record<string, unknown>): { telemet
     },
     temperatureC: temperatureOf(raw["Temperature"]),
     signalBars: null,
+    rrcConnected: textOf(raw["RRCStatus"]) === "1" ? true : textOf(raw["RRCStatus"]) === "0" ? false : null,
+    qci: qciOf(raw["QCI"]),
+    ulMimoLayers: smallIntOf(raw["UlMimo"], 8),
   };
   return { telemetry, neighbours };
+}
+
+/** A QoS class: QCI 1–9 and 65–86 (TS 23.203), or a 5QI up to 255 (TS 23.501); `0` is the notes' "none". */
+function qciOf(value: unknown): number | null {
+  const n = smallIntOf(value, 255);
+  return n === null || n === 0 ? null : n;
+}
+
+/** `app_get_airplane`: `airplaneOn` `1` the radio is off (airplane mode), `0` on (notes library A, table 3). */
+export function fiberhomeAirplaneOf(answer: unknown): boolean | null {
+  const on = isPlainObject(answer) ? textOf(answer["airplaneOn"]) : null;
+  return on === "1" ? true : on === "0" ? false : null;
 }
 
 function bandListOf(value: unknown): number[] | "all" | null {
@@ -771,7 +800,11 @@ class FiberhomeSession implements DriverSessionHandle {
   }
 
   async telemetry(): Promise<DriverTelemetry> {
-    return parseFiberhomeTelemetry(await this.#baseInfo()).telemetry;
+    const t = parseFiberhomeTelemetry(await this.#baseInfo()).telemetry;
+    // Airplane mode rides on the same session; a firmware without the call keeps its readings
+    const airplane = await this.#http.getJson(TOOL, { query: [["ajaxmethod", "app_get_airplane"]], referer: GET_REFERER }).catch(() => null);
+    const airplaneMode = fiberhomeAirplaneOf(airplane);
+    return airplaneMode === null ? t : { ...t, status: { airplaneMode } };
   }
 
   async neighbours(): Promise<DriverNeighbour[]> {
