@@ -225,7 +225,7 @@ curl -N -H "Authorization: Bearer <令牌>" http://<NAS 的 IP>:18384/api/events
 
 ## Prometheus 指标
 
-在控制台「设置 → 安全」打开（或在 `.env` 里设 `METRICS_ENABLED=true`）后，`GET /metrics` 返回 [Prometheus](https://prometheus.io/docs/instrumenting/exposition_formats/) 文本格式的指标：信号（RSRP、RSRQ、SINR）、载波和带宽、速率、流量、WAN 状态、短信数量、会话和排队情况，以及烽燧自己的内存、CPU 和事件循环延迟。指标里没有任何设备标识。没打开时返回 `404`。
+在控制台「设置 → 安全」打开（或在 `.env` 里设 `METRICS_ENABLED=true`）后，`GET /metrics` 返回 [Prometheus](https://prometheus.io/docs/instrumenting/exposition_formats/) 文本格式的指标：信号（RSRP、RSRQ、SINR）、载波和带宽、速率、流量、WAN 状态、短信数量、路由器自己报告的状态（电量与是否在充电、SIM 卡是否在等 PIN、飞行模式、漫游、CPU 与内存、各类温度传感器），会话和排队情况，以及烽燧自己的内存、CPU 和事件循环延迟。指标里没有任何设备标识。没打开时返回 `404`。
 
 任何令牌都能读取指标，不需要勾选权限。Prometheus 的抓取配置：
 

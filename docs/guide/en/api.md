@@ -225,7 +225,7 @@ Each message has an `event:` (the name) and a `data:` line of JSON. Every 15 sec
 
 ## Prometheus metrics
 
-Turn them on in the console under Settings → Security (or set `METRICS_ENABLED=true` in `.env`), and `GET /metrics` answers in the [Prometheus](https://prometheus.io/docs/instrumenting/exposition_formats/) text format: the signal (RSRP, RSRQ, SINR), carriers and bandwidth, rates, traffic, the WAN state, SMS counts, sessions and the queue, and FengSui's own memory, CPU and event-loop delay. The metrics carry no device identifiers. While they are off, `/metrics` answers `404`.
+Turn them on in the console under Settings → Security (or set `METRICS_ENABLED=true` in `.env`), and `GET /metrics` answers in the [Prometheus](https://prometheus.io/docs/instrumenting/exposition_formats/) text format: the signal (RSRP, RSRQ, SINR), carriers and bandwidth, rates, traffic, the WAN state, SMS counts, what the router reports of itself (battery charge and charging, whether the SIM card waits for its PIN, airplane mode, roaming, its CPU and memory, each kind of temperature sensor), sessions and the queue, and FengSui's own memory, CPU and event-loop delay. The metrics carry no device identifiers. While they are off, `/metrics` answers `404`.
 
 Any token can read the metrics; no permission is needed. A Prometheus scrape configuration:
 

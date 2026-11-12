@@ -228,6 +228,45 @@ describe("console routes", () => {
       assert.ok(full.split("\n").includes(line), line);
     }
     assert.equal(full.includes("860000000000000") || full.includes("134217758"), false);
+    assert.doesNotMatch(full, /^fengsui_battery_percent /m, "a CPE reports no battery");
+    // The router's own status, its sensors by kind (never the router's own sensor names), no ICCID
+    const mobile = renderMetrics({
+      version: "1.9.0",
+      daemonUptimeSec: 5,
+      scheduler,
+      telemetry: {
+        ...telemetry,
+        device: { ...telemetry.device, iccid: "8935301000000000000" },
+        unavailable: ["uptime"],
+        thermal: { temperatureCelsius: 46, temperatureSupported: true, sensors: [{ kind: "modem", name: null, celsius: 44 }, { kind: "modem", name: null, celsius: 46 }, { kind: "other", name: "aoss-0-usr", celsius: 38 }] },
+        status: {
+          battery: { percent: 64, charging: true, temperatureC: 36, minutesToFull: 92, minutesToEmpty: null },
+          sim: { state: "pin_required", pinLockEnabled: true, pinAttemptsLeft: 3, pukAttemptsLeft: 10, slot: null },
+          airplaneMode: false,
+          roaming: { active: true, dataAllowed: null },
+          system: { uptimeSec: null, cpuPercent: 12, memoryPercent: 40 },
+          firmwareUpdate: null,
+          wifi: null,
+        },
+      } as unknown as GlobalTelemetrySnapshot,
+    });
+    for (const line of [
+      "fengsui_router_temperature_celsius 46",
+      'fengsui_router_temperature_celsius{sensor="modem"} 46',
+      'fengsui_router_temperature_celsius{sensor="other"} 38',
+      "fengsui_battery_percent 64",
+      "fengsui_battery_charging 1",
+      "fengsui_battery_temperature_celsius 36",
+      "fengsui_sim_locked 1",
+      "fengsui_airplane_mode 0",
+      "fengsui_roaming 1",
+      "fengsui_router_cpu_percent 12",
+      "fengsui_router_memory_percent 40",
+    ]) {
+      assert.ok(mobile.split("\n").includes(line), line);
+    }
+    assert.doesNotMatch(mobile, /aoss|8935301000000000000/);
+    assert.doesNotMatch(mobile, /^fengsui_router_uptime_seconds /m, "no uptime of the router's own: none here");
     assert.match(renderMetrics({ version: 'x"y', daemonUptimeSec: 1, scheduler, telemetry: null }), /fengsui_info\{version="x_y"\} 1/, "label values cannot break the format");
   });
 

@@ -1,11 +1,13 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { GlobalTelemetrySnapshot } from "./cpe-domain.ts";
+import { simIsLocked } from "./router-status.ts";
 import type { SchedulerMode, SchedulerStatusSnapshot } from "./scheduler.ts";
 
 /**
  * `GET /metrics` in the Prometheus text exposition format, for Prometheus / Grafana on the NAS. Read
  * from the cached snapshots only (scraping never opens a router session) and carrying no identifier:
- * no IMEI, IMSI, cell, PCI, address or number appears as a value or a label.
+ * no IMEI, IMSI, ICCID, cell, PCI, address or number appears as a value or a label (a sensor label is
+ * its kind, never the router's own sensor name).
  */
 
 const MODES: ReadonlyArray<SchedulerMode> = ["idle", "polling", "yielding_browser", "circuit_tripped", "cpe_unreachable", "standby_peer"];
@@ -107,6 +109,33 @@ function runtimeFamilies(runtime: RuntimeSample): string[] {
   ];
 }
 
+/** 1 / 0 for a reading that is there, nothing for one the router does not report. */
+function flag(value: boolean | null | undefined): number | null {
+  return value === null || value === undefined ? null : value ? 1 : 0;
+}
+
+/** What the router says of itself (battery, SIM card, radio, roaming, load) and its temperatures, by sensor kind. */
+function statusFamilies(telemetry: GlobalTelemetrySnapshot | null): string[] {
+  const status = telemetry?.status ?? null;
+  const battery = status?.battery ?? null;
+  const hottest = new Map<string, number>();
+  for (const sensor of telemetry?.thermal?.sensors ?? []) hottest.set(sensor.kind, Math.max(hottest.get(sensor.kind) ?? -Infinity, sensor.celsius));
+  return [
+    ...family("fengsui_router_temperature_celsius", "gauge", "The hottest temperature the router reports, and the hottest of each kind of sensor it names.", [
+      { value: telemetry?.thermal?.temperatureCelsius ?? null },
+      ...[...hottest].map(([sensor, celsius]) => ({ labels: { sensor }, value: celsius })),
+    ]),
+    ...family("fengsui_battery_percent", "gauge", "Battery charge of a mobile router.", [{ value: battery?.percent ?? null }]),
+    ...family("fengsui_battery_charging", "gauge", "1 while the router charges.", [{ value: flag(battery?.charging) }]),
+    ...family("fengsui_battery_temperature_celsius", "gauge", "Battery temperature.", [{ value: battery?.temperatureC ?? null }]),
+    ...family("fengsui_sim_locked", "gauge", "1 while the SIM card waits for its PIN or PUK.", [{ value: flag(simIsLocked(status?.sim ?? null)) }]),
+    ...family("fengsui_airplane_mode", "gauge", "1 while the router's cellular radio is off.", [{ value: flag(status?.airplaneMode) }]),
+    ...family("fengsui_roaming", "gauge", "1 while the router is registered on a network abroad.", [{ value: flag(status?.roaming?.active) }]),
+    ...family("fengsui_router_cpu_percent", "gauge", "The router's own CPU use.", [{ value: status?.system?.cpuPercent ?? null }]),
+    ...family("fengsui_router_memory_percent", "gauge", "The router's own memory use.", [{ value: status?.system?.memoryPercent ?? null }]),
+  ];
+}
+
 export function renderMetrics(input: MetricsInput): string {
   const { scheduler, telemetry } = input;
   const rf = telemetry?.rf;
@@ -123,7 +152,9 @@ export function renderMetrics(input: MetricsInput): string {
     ...family("fengsui_cpe_session_hold_milliseconds", "gauge", "How long the last router session held the admin slot.", [{ value: scheduler.lastSessionHoldMs }]),
     ...family("fengsui_telemetry_timestamp_seconds", "gauge", "When the cached telemetry was captured (Unix time).", [{ value: telemetry ? telemetry.capturedAtMs / 1000 : null }]),
     ...family("fengsui_wan_connected", "gauge", "1 while the cellular data connection is up.", [{ value: telemetry ? (telemetry.device.connectionStatus === "901" ? 1 : 0) : null }]),
-    ...family("fengsui_router_uptime_seconds", "gauge", "Router uptime.", [{ value: telemetry?.device.uptimeSec ?? null }]),
+    // A router that reports no uptime of its own has none here (never one that just started)
+    ...family("fengsui_router_uptime_seconds", "gauge", "Router uptime.", [{ value: telemetry && !telemetry.unavailable?.includes("uptime") ? telemetry.device.uptimeSec : null }]),
+    ...statusFamilies(telemetry),
     ...family("fengsui_signal_rsrp_dbm", "gauge", "Primary cell RSRP.", [
       { labels: { rat: "lte" }, value: rf?.lteRsrpDbm ?? null },
       { labels: { rat: "nr" }, value: rf?.nrRsrpDbm ?? null },
