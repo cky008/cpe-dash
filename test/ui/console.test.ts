@@ -971,10 +971,10 @@ describe("the console on routers of other brands", () => {
       await page.waitUntil(`[...document.querySelectorAll('#neighborsCard button')].some((b) => b.textContent.includes('Manual lock'))`, "the manual lock button");
       await page.evaluate(`[...document.querySelectorAll('#neighborsCard button')].find((b) => b.textContent.includes('Manual lock')).click(); true`);
       await page.waitUntil(isOpen("cellLockDialog"), "the cell lock dialog");
-      const set = (selector: string, value: string): Promise<unknown> =>
-        page.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
-      await set("#cellLockDialog form > div.grid label:first-child select", "LTE");
-      await set("#cellLockDialog form > div.grid label:last-child select", "3");
+      // 4G on band 3 (literal page code: nothing is spliced into it)
+      await page.evaluate(
+        `(() => { const [rat, band] = document.querySelectorAll('#cellLockDialog form > div.grid select'); rat.value = 'LTE'; rat.dispatchEvent(new Event('change', { bubbles: true })); band.value = '3'; band.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`
+      );
       await page.evaluate(`(() => { const inputs = document.querySelectorAll('#cellLockDialog form > label input[type=number]'); inputs[0].value = '1850'; inputs[1].value = '211'; inputs[1].dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
       await page.evaluate(`[...document.querySelectorAll('#cellLockDialog button')].find((b) => b.textContent.includes('Add a candidate cell')).click(); true`);
       await page.waitUntil(`document.querySelectorAll('#cellLockDialog [aria-label="Remove this cell"]').length === 1`, "a candidate row");
