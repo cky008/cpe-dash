@@ -1,4 +1,5 @@
-import { huaweiXssDecode, huaweiXssEncode, stripInvalidControlChars } from "./crypto.ts";
+import { huaweiXssDecode, huaweiXssEncode } from "./crypto.ts";
+import { stripInvalidControlChars } from "./text-sanitize.ts";
 import type { ParsedXmlError } from "./types.ts";
 
 /**

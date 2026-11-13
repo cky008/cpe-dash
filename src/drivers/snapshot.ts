@@ -1,6 +1,5 @@
-import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, TelemetryPart, TrafficTelemetryDto } from "../cpe-domain.ts";
+import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, TelemetryPart, TrafficTelemetryDto, CaBannerComponent, NeighborCellEntry, RfSignalSnapshot, SecondaryCellEntry } from "../cpe-domain.ts";
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
-import type { CaBannerComponent, NeighborCellEntry, RfSignalSnapshot, SecondaryCellEntry } from "../parsers.ts";
 import { type RouterStatusSnapshot, emptyRouterStatus, hasRouterStatus, partOrNull } from "../router-status.ts";
 import type { SmsCounters } from "../sms/types.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../units.ts";

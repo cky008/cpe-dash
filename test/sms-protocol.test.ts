@@ -2,19 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient, type EphemeralCpeSession } from "../src/cpe-client.ts";
 import { CpeControlValidationError } from "../src/cpe-domain.ts";
-import {
-  MAX_SMS_RECIPIENTS,
-  checkSmsNotifications,
-  deleteSmsByIndex,
-  fetchAllMessages,
-  fetchPhoneThread,
-  fetchRecentMessages,
-  markSmsRead,
-  parseSmsCounters,
-  prepareSmsSubmission,
-  readSmsCounters,
-  submitSms,
-} from "../src/sms/protocol.ts";
+import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, markSmsRead, readSmsCounters, submitSms } from "../src/sms/protocol.ts";
+import { parseSmsCounters } from "../src/sms/codec.ts";
+import { MAX_SMS_RECIPIENTS, prepareSmsSubmission } from "../src/sms/submission.ts";
 import { getXmlTag } from "../src/xml.ts";
 import { createMockSmsCpe, type MockSms } from "./helpers/mock-sms-cpe.ts";
 

@@ -42,19 +42,6 @@ export type HuaweiLockMode =
   | typeof LOCK_MODE_CELL
   | typeof LOCK_MODE_BAND;
 
-export {
-  type BandInput,
-  H168_383_LTE_BANDS,
-  H168_383_NR_BANDS,
-  LTE_DL_EARFCN_RANGES,
-  NR_DL_ARFCN_RANGES,
-  bandsToHexMask,
-  hexMaskToBands,
-  parseBandNumber,
-  parseSupportedLteBand,
-  parseSupportedNrBand,
-} from "./rf-bounds.ts";
-
 export interface LteCellLockParams {
   band: BandInput;
   earfcn: number;
@@ -184,56 +171,4 @@ export function buildUnlockAllLocksXml(): string {
       all_bands: "",
     },
   });
-}
-
-/**
- * Decompose a 28-bit 3GPP E-UTRAN Cell Identifier (decimal or `0x` hex) into 20-bit eNodeB ID + 8-bit Sector ID.
- */
-export function decomposeLteEci(eciRaw: string | number): {
-  eci: number;
-  eNodeBId: number;
-  sectorId: number;
-} {
-  const text = String(eciRaw).trim();
-  const isHex = /^0x[0-9a-fA-F]+$/.test(text);
-  const isDec = /^\d+$/.test(text);
-  if (!isHex && !isDec) {
-    throw new Error(`Invalid 28-bit LTE ECI "${eciRaw}"`);
-  }
-  const eci = Number.parseInt(isHex ? text.slice(2) : text, isHex ? 16 : 10);
-  if (!Number.isInteger(eci) || eci < 0 || eci > 0x0fffffff) {
-    throw new Error(`Invalid 28-bit LTE ECI range "${eciRaw}"`);
-  }
-  return {
-    eci,
-    eNodeBId: eci >>> 8,
-    sectorId: eci & 0xff,
-  };
-}
-
-/**
- * Decompose a 36-bit 3GPP 5G NR Cell Identity (NCI) into gNodeB ID (22..32 bits) + Sector ID.
- */
-export function decomposeNrNci(
-  nciRaw: string | bigint,
-  gNodeBBitLength = 24
-): {
-  nci: bigint;
-  gNodeBId: bigint;
-  sectorId: number;
-} {
-  if (!Number.isInteger(gNodeBBitLength) || gNodeBBitLength < 22 || gNodeBBitLength > 32) {
-    throw new Error(`Invalid gNodeB bit length ${gNodeBBitLength} (3GPP TS 38.300 specifies 22..32)`);
-  }
-  const nci = typeof nciRaw === "bigint" ? nciRaw : BigInt(nciRaw.trim());
-  if (nci < 0n || nci > (1n << 36n) - 1n) {
-    throw new Error(`Invalid 36-bit NR NCI "${String(nciRaw)}"`);
-  }
-  const sectorBits = BigInt(36 - gNodeBBitLength);
-  const sectorMask = (1n << sectorBits) - 1n;
-  return {
-    nci,
-    gNodeBId: nci >> sectorBits,
-    sectorId: Number(nci & sectorMask),
-  };
 }

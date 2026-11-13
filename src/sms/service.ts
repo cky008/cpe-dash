@@ -5,12 +5,11 @@ import { t } from "../i18n.ts";
 import { type RouterBackend, SessionBackend, type SmsListing, type SmsSendOutcome as RouterSendOutcome } from "../router-backend.ts";
 import { maskPhoneNumber } from "../sanitize.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
-import { formatHuaweiDate } from "../xml.ts";
-import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "./codec.ts";
+import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "./text-mode.ts";
 import type { ContactBook, VcardImportSummary } from "./contacts.ts";
-import { type SmsMirrorStore, computeSmsUid } from "./mirror.ts";
+import { type SmsMirrorStore, computeSmsUid, mirrorDate } from "./mirror.ts";
 import { COUNTRY_DIAL_CODES, canonicalThreadKey, resolveRecipientPhone } from "./phone.ts";
-import { prepareSmsSubmission, unconfirmedSendResult } from "./protocol.ts";
+import { prepareSmsSubmission, unconfirmedSendResult } from "./submission.ts";
 import type {
   ContactRecord,
   CountryDialInfo,
@@ -640,7 +639,7 @@ export class SmsService extends EventEmitter {
         const stored = this.mirror.get(computeSmsUid(newest));
         if (stored) recorded.push(this.mirror.enrich(stored));
       } else {
-        const date = formatHuaweiDate(new Date());
+        const date = mirrorDate(new Date());
         recorded.push(this.mirror.enrich(routerKeepsSent ? this.mirror.addPending(phone, content, date) : this.mirror.addSent(phone, content, date)));
       }
     }

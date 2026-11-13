@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  H168_383_LTE_BANDS,
-  H168_383_NR_BANDS,
   DEFAULT_NET_MODE_KEEP,
   HUAWEI_LTE_ALL_BANDS_MASK,
   HUAWEI_NETWORK_ALL_BANDS_MASK,
@@ -11,19 +9,14 @@ import {
   LOCK_MODE_FREQ,
   LOCK_MODE_UNLOCK,
   NETWORK_MODE_AUTO,
-  bandsToHexMask,
   buildLteBandNetModeXml,
   buildLteCellLockXml,
   buildNrBandLockXml,
   buildNrCellLockXml,
   buildUnlockAllLocksXml,
-  decomposeLteEci,
-  decomposeNrNci,
-  LTE_DL_EARFCN_RANGES,
-  NR_DL_ARFCN_RANGES,
-  hexMaskToBands,
-  parseBandNumber,
 } from "../src/band-lock.ts";
+import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask, LTE_DL_EARFCN_RANGES, NR_DL_ARFCN_RANGES, hexMaskToBands, parseBandNumber } from "../src/rf-bounds.ts";
+import { decomposeLteEci, decomposeNrNci } from "../src/rf-math.ts";
 import { getXmlBlocks, getXmlTag } from "../src/xml.ts";
 
 describe("BandMask bitwise codec & Cell Lock payload builders", () => {

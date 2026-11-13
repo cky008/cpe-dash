@@ -3,7 +3,7 @@ import type { EphemeralCpeSession } from "./cpe-client.ts";
 import { CpeAnswerFormatError, CpeApiError } from "./session-errors.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import type { WanRepairSkipReason } from "./cpe-domain.ts";
-import type { ReadbackReason, WriteCheck } from "./device-access.ts";
+import { type WriteCheck, settleCheck } from "./device-access.ts";
 import { LTE_ALL_BANDS_MASK, isAllBandsMask, maskToBands } from "./device-profile.ts";
 import { MAX_SCAN_ROWS, USSD_POLLS, USSD_POLL_MS, emptyUssd, operatorChoice, ussdText } from "./drivers/cellular.ts";
 import { bandsToHexMask } from "./rf-bounds.ts";
@@ -23,16 +23,6 @@ const NET_MODE = "/api/net/net-mode";
 const DATA_SWITCH = "/api/dialup/mobile-dataswitch";
 const RECONNECT = "/api/net/reconnect";
 const DEVICE_CONTROL = "/api/device/control";
-
-export function newWriteCheck(): WriteCheck {
-  return { endpoints: [], readback: "none", reason: null };
-}
-
-/** Record a read-back: `true` a match, `false` a mismatch (`reason`), `null` unknown (`unreadable`). */
-export function settleCheck(check: WriteCheck, verdict: boolean | null, reason: ReadbackReason = "differs", unknownReason: ReadbackReason = "unreadable"): void {
-  check.readback = verdict === null ? "unknown" : verdict ? "match" : "mismatch";
-  check.reason = verdict === true ? null : verdict === false ? reason : unknownReason;
-}
 
 /** A tag read back after the write; `null` when the read-back failed or named nothing (never an error: the write is done). */
 async function readBack(session: EphemeralCpeSession, apiPath: string, tag: string): Promise<string | null> {

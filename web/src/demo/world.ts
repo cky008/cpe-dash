@@ -1,5 +1,5 @@
 import type { GlobalTelemetrySnapshot, SpeedTickPayload } from "../../../src/api-contract.ts";
-import type { SecondaryCellEntry } from "../../../src/parsers.ts";
+import type { SecondaryCellEntry } from "../../../src/cpe-domain.ts";
 import type { TimeSeriesRingBuffer, TimeSeriesSampleInput } from "../../../src/timeseries.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../../../src/units.ts";
 

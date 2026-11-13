@@ -1,16 +1,12 @@
-import { stripInvalidControlChars } from "../crypto.ts";
 import type { EphemeralCpeSession } from "../cpe-client.ts";
 import { CpeApiError } from "../session-errors.ts";
-import { CpeControlValidationError } from "../cpe-domain.ts";
-import type { WriteCheck } from "../device-access.ts";
-import { settleCheck } from "../generic-writes.ts";
+import { type WriteCheck, settleCheck } from "../device-access.ts";
 import type { MutexSessionScheduler } from "../scheduler.ts";
 import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../xml.ts";
-import { MAX_SMS_SEGMENTS, detectSmsTextMode, parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "./codec.ts";
+import { parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "./codec.ts";
+import { type PreparedSmsSubmission, type SubmitSmsOptions, unconfirmedSendResult } from "./submission.ts";
 import { validateGenericSmsContent } from "./text-mode.ts";
-import type { SmsCounters, SmsFetchResult, SmsSendResult, SmsTextModeInfo, SmsWireMessage } from "./types.ts";
-
-export { parseSmsCounters } from "./codec.ts";
+import type { SmsCounters, SmsFetchResult, SmsSendResult, SmsWireMessage } from "./types.ts";
 
 /**
  * H168-383 SMS wire operations. Every function runs inside an `EphemeralCpeSession` handed out by
@@ -21,7 +17,6 @@ export { parseSmsCounters } from "./codec.ts";
  * it falls back to the AES-256-GCM contact (`enc-type=1`) and per-phone (`enc-type=3`) listings.
  */
 
-export const MAX_SMS_RECIPIENTS = 5;
 const SMS_LIST_PAGE_SIZE = 50;
 const CONTACT_PAGE_SIZE = 20;
 const INDEX_BATCH_SIZE = 20;
@@ -179,66 +174,6 @@ export async function fetchAllMessages(session: EphemeralCpeSession): Promise<Sm
     }
   }
   return { counters, messages: dedupeByIndex(messages), via: "contact-list" };
-}
-
-export interface PreparedSmsSubmission {
-  phones: string[];
-  content: string;
-  mode: SmsTextModeInfo;
-}
-
-/**
- * Validate recipients and body before any CPE session is queued (throws `CpeControlValidationError`).
- */
-export function prepareSmsSubmission(phones: ReadonlyArray<string>, content: string): PreparedSmsSubmission {
-  const normalized = [...new Set(phones.map((p) => p.trim().replace(/[\s-]/g, "")).filter(Boolean))];
-  if (normalized.length === 0) {
-    throw new CpeControlValidationError("Provide at least one recipient number");
-  }
-  if (normalized.length > MAX_SMS_RECIPIENTS) {
-    throw new CpeControlValidationError(`Send to at most ${MAX_SMS_RECIPIENTS} recipients at once`);
-  }
-  for (const phone of normalized) {
-    if (!/^\+?[0-9]{3,20}$/.test(phone)) {
-      throw new CpeControlValidationError(`Recipient "${phone}" is not a dialable number`);
-    }
-  }
-  const clean = stripInvalidControlChars(content).trim();
-  if (!clean) {
-    throw new CpeControlValidationError("Message content is empty");
-  }
-  const mode = detectSmsTextMode(clean);
-  if (mode.segments > MAX_SMS_SEGMENTS) {
-    throw new CpeControlValidationError(
-      `Message needs ${mode.segments} segments; the CPE accepts at most ${MAX_SMS_SEGMENTS} segments per send`
-    );
-  }
-  return { phones: normalized, content: clean, mode };
-}
-
-export interface SubmitSmsOptions {
-  /** Upper bound for polling `send-status` inside the session (default 45 s, as verified on H168-383). */
-  statusTimeoutMs?: number;
-  statusIntervalMs?: number;
-  sleep?: (ms: number) => Promise<void>;
-  /** Monotonic clock in ms for the polling bound (default `performance.now`). */
-  now?: () => number;
-  /** Called once the router accepted `send-sms`: from then on the message is on its way. */
-  onAccepted?: () => void;
-}
-
-/** The outcome of an accepted submission whose delivery the router has not confirmed (yet). */
-export function unconfirmedSendResult(prepared: PreparedSmsSubmission): SmsSendResult {
-  return {
-    submitted: true,
-    encoding: prepared.mode.encoding,
-    segments: prepared.mode.segments,
-    ok: true,
-    timedOutWaitingStatus: true,
-    sentPhones: [...prepared.phones],
-    failedPhones: [],
-    failCode: null,
-  };
 }
 
 function splitPhoneList(raw: string | null): string[] {

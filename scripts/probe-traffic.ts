@@ -1,10 +1,7 @@
 import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import {
-  formatBytesBinary,
-  formatRateBitsPerSec,
-  parseTrafficSnapshot,
-} from "../src/parsers.ts";
+import { parseTrafficSnapshot } from "../src/parsers.ts";
+import { formatBytesBinary, formatRateBitsPerSec } from "../src/units.ts";
 
 function formatDurationHms(totalSeconds: number): string {
   const sec = Math.max(0, Math.trunc(totalSeconds));

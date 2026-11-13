@@ -1,5 +1,5 @@
 import type { MacFilterEntry, TimeRuleChange, TimeRuleInput, WifiAccessChange } from "./access-plan.ts";
-import type { BandInput } from "./band-lock.ts";
+import type { BandInput } from "./rf-bounds.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import type { AntennaModeName, CellLockCandidate, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
 import { MAX_LOCK_CELLS, parseBandNumber } from "./rf-bounds.ts";

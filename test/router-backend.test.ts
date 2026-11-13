@@ -6,7 +6,7 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { SessionBackend } from "../src/router-backend.ts";
 import { ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
-import { prepareSmsSubmission } from "../src/sms/protocol.ts";
+import { prepareSmsSubmission } from "../src/sms/submission.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
@@ -94,8 +94,7 @@ describe("router backend: one interface for every brand", () => {
     const sms = fs.readFileSync("src/sms/service.ts", "utf8");
     assert.ok(!/\bexecute(Read|Control)\(/.test(sms), "the SMS service opens a session itself: go through RouterBackend");
     assert.ok(!/\bprobePublic\(/.test(sms), "the SMS service asks a HiLink endpoint itself: go through RouterBackend");
-    const wire = [...sms.matchAll(/import \{([^}]+)\} from "\.\/protocol\.ts"/g)].flatMap((m) => (m[1] ?? "").split(",").map((name) => name.replace(/\btype\b/, "").trim())).filter(Boolean);
-    assert.deepEqual(wire.sort(), ["prepareSmsSubmission", "unconfirmedSendResult"], "the SMS service takes only the brand-neutral checks from the HiLink protocol module");
+    assert.ok(!/from "\.\.\/(protocols|drivers)\//.test(sms.replace(/import type [^;]+;/g, "")), "the SMS service takes something from a router's protocol or driver: the checks every brand shares are in sms/submission.ts");
   });
 
   it("answers the SMS verbs on a brand without SMS: nothing to list, every write refused by the gate, no request", async () => {

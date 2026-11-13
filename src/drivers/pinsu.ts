@@ -2,7 +2,7 @@ import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
-import type { WcdmaSignal } from "../parsers.ts";
+import type { WcdmaSignal } from "../cpe-domain.ts";
 import { checkCellLock, checkLockBands } from "./bands.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, hmacMd5Hex, loginLocked, loginUnplaced, wrongPassword } from "./login.ts";

@@ -1,11 +1,17 @@
 import crypto from "node:crypto";
-import { LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
 
 /**
  * The errors every router session can end with, whatever the brand: the router's own error codes
  * (`CpeApiError`, in the HiLink numbering the rest of FengSui reads), a request that got no answer,
  * an answer FengSui cannot read, and the session client's own limits (deadline, reentrancy).
  */
+
+/**
+ * The breaker's code when an answer to the password carried no error code and no sign of success (a
+ * page, an empty, cut-off or oversized body, a redirect; for SCRAM, no server signature): the router
+ * has the password and FengSui cannot tell what it made of it.
+ */
+export const LOGIN_UNCONFIRMED_CODE = "unconfirmed";
 
 export const CPE_ERROR_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "100002": "系统不支持该接口 (No support)",
@@ -94,6 +100,14 @@ export class CpeTransportError extends Error {
     this.apiPath = apiPath.split("?")[0] ?? apiPath;
     this.causeCode = code;
     this.redirected = detail === "unexpected redirect";
+  }
+}
+
+/** The session has no encrypted channel (a legacy login, or no server key), so an encrypted endpoint is out of reach. */
+export class CpeEncryptionUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CpeEncryptionUnavailableError";
   }
 }
 

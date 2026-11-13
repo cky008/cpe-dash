@@ -1,6 +1,6 @@
 import { normalizeMac } from "../access-state.ts";
 import { type TerminalTopologySnapshot, topologySnapshot } from "../cpe-domain.ts";
-import type { TerminalAccessMedium, TerminalHostEntry } from "../parsers.ts";
+import type { TerminalAccessMedium, TerminalHostEntry } from "../cpe-domain.ts";
 import { sanitizeFreeText } from "../sanitize.ts";
 import { stripInvalidControlChars } from "../text-sanitize.ts";
 import type { DriverHost } from "./types.ts";

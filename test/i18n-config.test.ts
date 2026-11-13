@@ -12,6 +12,7 @@ import {
   resolveRequestSecureScheme,
   resolveTimeZone,
 } from "../src/config.ts";
+import { mirrorDate } from "../src/sms/mirror.ts";
 import { formatHuaweiDate } from "../src/xml.ts";
 import {
   SUPPORTED_LOCALES,
@@ -142,6 +143,8 @@ describe("TZ from .env (process time zone for router-local SMS timestamps)", () 
       assert.equal(formatHuaweiDate(instant), "2026-10-30 08:00:00");
       applyProcessTimeZone({ timeZone: "UTC" });
       assert.equal(formatHuaweiDate(instant), "2026-10-30 00:00:00");
+      // The mirror dates its own entries the way the router dates the ones it lists
+      assert.equal(mirrorDate(instant), formatHuaweiDate(instant));
     } finally {
       if (original === undefined) delete process.env["TZ"];
       else process.env["TZ"] = original;

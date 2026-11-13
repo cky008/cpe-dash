@@ -18,7 +18,7 @@ import type {
   VcardImportResponse,
 } from "../api-contract.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
-import { MAX_SMS_RECIPIENTS } from "./protocol.ts";
+import { MAX_SMS_RECIPIENTS } from "./submission.ts";
 import type { SmsService, SmsSyncMode } from "./service.ts";
 import type { SmsThreadFilter } from "./types.ts";
 

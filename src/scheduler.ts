@@ -1,9 +1,8 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
-import { CpeEncryptionUnavailableError } from "./cpe-client.ts";
-import { CpeAnswerFormatError, CpeApiError, ReentrantCpeSessionError, hashCredentialsFingerprint } from "./session-errors.ts";
-import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
+import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError, LOGIN_UNCONFIRMED_CODE, ReentrantCpeSessionError, hashCredentialsFingerprint } from "./session-errors.ts";
+import { CpeLoginMethodError } from "./cpe-auth.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot, type PersistedLockState, sectionUnavailableCode } from "./cpe-domain.ts";
 import {
   CONTROL_FEATURES,
@@ -15,8 +14,8 @@ import {
   type WriteFeature,
   type WriteResultRecord,
   modelLabel,
+  newWriteCheck,
 } from "./device-access.ts";
-import { newWriteCheck } from "./generic-writes.ts";
 import { type ApiErrorSnapshot, type DeviceFeature, type DeviceProbeResult, type LoginScheme, type TokenFlow, isDeviceProbeResult } from "./device-profile.ts";
 import { verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";

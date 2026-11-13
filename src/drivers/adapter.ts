@@ -38,7 +38,7 @@ import { type DriverFamily, FAMILY_WRITE_FEATURES, type FamilyWriteFeature, ROUT
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { WriteContext } from "../scheduler.ts";
 import { CpeApiError } from "../session-errors.ts";
-import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/protocol.ts";
+import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/submission.ts";
 import type { SmsCounters, SmsSendResult } from "../sms/types.ts";
 import { bandsToHex, hexToBands } from "./bands.ts";
 import { driverTopologySnapshot } from "./hosts.ts";

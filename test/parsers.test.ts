@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  formatBytesBinary,
-  formatRateBitsPerSec,
   parseCaBandBanner,
   parseHostInfoJson,
   parseMcsEntries,
@@ -14,6 +12,7 @@ import {
   parseTxPowerMetrics,
   summarizeTopologyJson,
 } from "../src/parsers.ts";
+import { formatBytesBinary, formatRateBitsPerSec } from "../src/units.ts";
 
 describe("RF, 3CA, MCS & Transmit Power Parsers", () => {
   it("parses numeric values with RF/frequency units and handles placeholders", () => {

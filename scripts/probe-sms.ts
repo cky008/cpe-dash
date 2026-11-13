@@ -1,6 +1,6 @@
 import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { extractVerificationCode } from "../src/sms/codec.ts";
+import { extractVerificationCode } from "../src/sms/otp.ts";
 import { parseSenderInfo } from "../src/sms/phone.ts";
 import { checkSmsNotifications, fetchAllMessages } from "../src/sms/protocol.ts";
 import type { SenderCategory } from "../src/sms/types.ts";

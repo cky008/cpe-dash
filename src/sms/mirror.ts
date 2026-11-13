@@ -25,6 +25,16 @@ const MAX_TRASH = 5000;
  * Opaque, stable message id derived from `(index, date, phone)`. A reused CPE index carrying a
  * different message gets a different uid, so stale UI/agent references can never hit it.
  */
+/**
+ * The time the mirror keeps a message under when FengSui itself dates it (a send the router has not
+ * listed yet): `yyyy-MM-dd HH:mm:ss` in local time, the form the routers' own message times are
+ * turned into.
+ */
+export function mirrorDate(date: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 export function computeSmsUid(m: Pick<SmsWireMessage, "index" | "date" | "phone">): string {
   return crypto.createHash("sha256").update(`${m.index}\u0000${m.date}\u0000${m.phone}`, "utf8").digest("hex").slice(0, 20);
 }

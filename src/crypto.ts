@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { timingSafeEqualString } from "./constant-time.ts";
 import type { EccSessionKeys, ScramProof } from "./types.ts";
 
 /**
@@ -184,15 +185,6 @@ export function verifyPubkeySignature(
 }
 
 /**
- * Constant-time string comparison via SHA-256 digest equality (immune to length side-channels).
- */
-export function timingSafeEqualString(a: string, b: string): boolean {
-  const hashA = crypto.createHash("sha256").update(a, "utf8").digest();
-  const hashB = crypto.createHash("sha256").update(b, "utf8").digest();
-  return crypto.timingSafeEqual(hashA, hashB) && a.length === b.length;
-}
-
-/**
  * Encrypt UTF-8 XML payload using H168-383 AES-256-GCM wire format:
  * `[8-hex uint32_le(utf8_byte_len)] + [24-hex 12B IV] + [32-hex 16B GCM Tag] + [Ciphertext Hex]`
  * with `AAD = 16 zero bytes`.
@@ -305,5 +297,3 @@ export function huaweiXssDecode(input: string): string {
     }
   );
 }
-
-export { stripInvalidControlChars } from "./text-sanitize.ts";

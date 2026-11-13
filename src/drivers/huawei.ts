@@ -55,20 +55,8 @@ import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, Roll
 import { CELLULAR_WRITE_FEATURES } from "../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { MutexSessionScheduler, WriteContext } from "../scheduler.ts";
-import {
-  type PreparedSmsSubmission,
-  type SubmitSmsOptions,
-  checkSmsNotifications,
-  deleteSmsByIndex,
-  fetchAllMessages,
-  fetchPhoneThread,
-  fetchRecentMessages,
-  genericDeleteSms,
-  genericMarkSmsRead,
-  genericSendSms,
-  markSmsRead,
-  submitSms,
-} from "../sms/protocol.ts";
+import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, genericDeleteSms, genericMarkSmsRead, genericSendSms, markSmsRead, submitSms } from "../sms/protocol.ts";
+import { type PreparedSmsSubmission, type SubmitSmsOptions } from "../sms/submission.ts";
 import { validateGenericSmsContent } from "../sms/text-mode.ts";
 import { getXmlTag } from "../xml.ts";
 import type { SmsWireMessage } from "../sms/types.ts";

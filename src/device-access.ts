@@ -136,6 +136,17 @@ export interface WriteCheck {
   reason: ReadbackReason | null;
 }
 
+/** The check a write starts with: nothing posted yet, nothing read back. */
+export function newWriteCheck(): WriteCheck {
+  return { endpoints: [], readback: "none", reason: null };
+}
+
+/** Record a read-back: `true` a match, `false` a mismatch (`reason`), `null` unknown (`unreadable`). */
+export function settleCheck(check: WriteCheck, verdict: boolean | null, reason: ReadbackReason = "differs", unknownReason: ReadbackReason = "unreadable"): void {
+  check.readback = verdict === null ? "unknown" : verdict ? "match" : "mismatch";
+  check.reason = verdict === true ? null : verdict === false ? reason : unknownReason;
+}
+
 /**
  * One generic write on a model nobody verified, as FengSui keeps it for the device report (the last
  * 20, `state.json`): the endpoints, the router's code and the read-back, never a value it wrote.

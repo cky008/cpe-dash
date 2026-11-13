@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { maskPhoneNumber } from "../src/sanitize.ts";
-import {
-  MAX_SMS_SEGMENTS,
-  SMS_TEXT_MODE_7BIT,
-  SMS_TEXT_MODE_UCS2,
-  detectSmsTextMode,
-  extractVerificationCode,
-  parseSmsMessageBlock,
-} from "../src/sms/codec.ts";
+import { parseSmsMessageBlock } from "../src/sms/codec.ts";
+import { extractVerificationCode } from "../src/sms/otp.ts";
+import { MAX_SMS_SEGMENTS, SMS_TEXT_MODE_7BIT, SMS_TEXT_MODE_UCS2, detectSmsTextMode } from "../src/sms/text-mode.ts";
 import {
   COUNTRY_DIAL_CODES,
   buildPhoneLookupKeys,

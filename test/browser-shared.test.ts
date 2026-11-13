@@ -11,6 +11,7 @@ import * as contacts from "../src/sms/contacts.ts";
 import * as otp from "../src/sms/otp.ts";
 import * as vcard from "../src/sms/vcard.ts";
 import * as units from "../src/units.ts";
+import * as rfBounds from "../src/rf-bounds.ts";
 import {
   H168_383_LTE_BANDS,
   H168_383_NR_BANDS,
@@ -105,10 +106,7 @@ describe("Browser-shared modules (single source of truth for the web UI)", () =>
   });
 
   it("keeps the daemon's modules re-exporting the shared implementations", () => {
-    assert.equal(codec.extractVerificationCode, otp.extractVerificationCode);
     assert.equal(contacts.parseVcardContacts, vcard.parseVcardContacts);
-    assert.equal(parsers.formatBytesBinary, units.formatBytesBinary);
-    assert.equal(parsers.formatRateBitsPerSec, units.formatRateBitsPerSec);
     assert.equal(cpeDomain.CpeControlValidationError, controlError.CpeControlValidationError);
   });
 
@@ -117,13 +115,18 @@ describe("Browser-shared modules (single source of truth for the web UI)", () =>
     assert.deepEqual(vcard.parseVcardContacts(vcf), [{ name: "演示", phones: ["+447700900123"] }]);
   });
 
-  it("keeps band-lock and the SMS codec exporting the very same bounds and text-mode functions", () => {
-    assert.equal(bandLock.H168_383_LTE_BANDS, H168_383_LTE_BANDS);
-    assert.equal(bandLock.H168_383_NR_BANDS, H168_383_NR_BANDS);
-    assert.equal(bandLock.LTE_DL_EARFCN_RANGES, LTE_DL_EARFCN_RANGES);
-    assert.equal(bandLock.NR_DL_ARFCN_RANGES, NR_DL_ARFCN_RANGES);
-    assert.equal(codec.detectSmsTextMode, detectSmsTextMode);
-    assert.equal(codec.MAX_SMS_SEGMENTS, MAX_SMS_SEGMENTS);
+  it("gives each shared implementation one home: the Huawei modules hand on no copy of the bounds, the units or the text modes", () => {
+    for (const name of ["H168_383_LTE_BANDS", "H168_383_NR_BANDS", "LTE_DL_EARFCN_RANGES", "NR_DL_ARFCN_RANGES", "parseBandNumber", "bandsToHexMask"]) {
+      assert.ok(!(name in bandLock), `band-lock exports ${name}, which lives in rf-bounds.ts`);
+      assert.ok(name in rfBounds, name);
+    }
+    for (const name of ["formatBytesBinary", "formatRateBitsPerSec"]) {
+      assert.ok(!(name in parsers), `the HiLink parsers export ${name}, which lives in units.ts`);
+      assert.ok(name in units, name);
+    }
+    for (const name of ["detectSmsTextMode", "MAX_SMS_SEGMENTS", "extractVerificationCode"]) assert.ok(!(name in codec), `the HiLink SMS formats export ${name}`);
+    assert.equal(typeof detectSmsTextMode("x").segments, "number");
+    assert.ok(MAX_SMS_SEGMENTS > 0 && H168_383_LTE_BANDS.length > 0 && H168_383_NR_BANDS.length > 0 && LTE_DL_EARFCN_RANGES && NR_DL_ARFCN_RANGES && typeof otp.extractVerificationCode === "function");
   });
 
   it("bounds PCIs per RAT (LTE 0..503, NR 0..1007) with the backend's error messages", () => {

@@ -1,14 +1,6 @@
 import { getXmlTag, getXmlTextPreserve } from "../xml.ts";
 import type { SmsCounters, SmsWireMessage } from "./types.ts";
 
-export {
-  MAX_SMS_SEGMENTS,
-  SMS_TEXT_MODE_7BIT,
-  SMS_TEXT_MODE_UCS2,
-  detectSmsTextMode,
-} from "./text-mode.ts";
-export { extractVerificationCode } from "./otp.ts";
-
 function readCount(xml: string, tag: string, fallback: number): number {
   const parsed = Number.parseInt(getXmlTag(xml, tag) ?? "", 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;

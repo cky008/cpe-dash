@@ -1,12 +1,5 @@
-import {
-  bandsToHexMask,
-  buildLteBandNetModeXml,
-  buildLteCellLockXml,
-  buildNrBandLockXml,
-  buildNrCellLockXml,
-  buildUnlockAllLocksXml,
-  hexMaskToBands,
-} from "../src/band-lock.ts";
+import { buildLteBandNetModeXml, buildLteCellLockXml, buildNrBandLockXml, buildNrCellLockXml, buildUnlockAllLocksXml } from "../src/band-lock.ts";
+import { bandsToHexMask, hexMaskToBands } from "../src/rf-bounds.ts";
 import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { sanitizeXml } from "../src/sanitize.ts";

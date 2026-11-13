@@ -33,7 +33,7 @@ import { type DiscoveredEndpoint, discoverEndpoints } from "./endpoint-discovery
 import type { RouterFamily } from "./router-family.ts";
 import type { RouterDriver, RouterSession, SessionlessRead } from "./router-session.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteContext } from "./scheduler.ts";
-import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/protocol.ts";
+import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/submission.ts";
 import type { SmsAbilities, SmsFetchResult, SmsSendResult, SmsWireMessage } from "./sms/types.ts";
 
 /**

@@ -1,121 +1,19 @@
-import { decomposeLteEci } from "./band-lock.ts";
+import { decomposeLteEci } from "./rf-math.ts";
 import { maskMacAddress, sanitizeFreeText, sanitizeIpToken } from "./sanitize.ts";
 import { isResponseDocument } from "./device-profile.ts";
+import type {
+  CaBannerComponent,
+  McsCodewordMetric,
+  TxPowerMetrics,
+  SecondaryCellEntry,
+  NeighborCellEntry,
+  WcdmaSignal,
+  RfSignalSnapshot,
+  TerminalAccessMedium,
+  TerminalHostEntry,
+  TopologySummary,
+} from "./cpe-domain.ts";
 import { getXmlBlocks, getXmlTag } from "./xml.ts";
-
-export { formatBytesBinary, formatRateBitsPerSec } from "./units.ts";
-
-export interface CaBannerComponent {
-  bandwidthMhz: number;
-  arfcn: number;
-  band: string;
-  rat: "LTE" | "NR";
-}
-
-export interface McsCodewordMetric {
-  label: string;
-  index: number;
-  modulation: string | null;
-}
-
-export interface TxPowerMetrics {
-  puschDbm: number | null;
-  pucchDbm: number | null;
-  srsDbm: number | null;
-  prachDbm: number | null;
-}
-
-export interface SecondaryCellEntry {
-  rat: "LTE" | "NR";
-  arfcn: number | null;
-  band: string;
-  bandwidthMhz: number | null;
-  pci: number | null;
-  rsrpDbm: number | null;
-  rsrqDb: number | null;
-  rssiDbm: number | null;
-  sinrDb: number | null;
-}
-
-export interface NeighborCellEntry {
-  rat: "LTE" | "NR";
-  arfcn: number | null;
-  band: string;
-  pci: number | null;
-  rsrpDbm: number | null;
-  rsrqDb: number | null;
-  rssiDbm: number | null;
-  sinrDb: number | null;
-}
-
-export interface CellIdentityVerification {
-  hasCellIdDecimal: boolean;
-  hasCellInfoHex: boolean;
-  eciDecimalMatchesHex: boolean | null;
-  tacDecimalMatchesHex: boolean | null;
-  eNodeBDerivationMatchesTag: boolean | null;
-  sectorIdBitWidthOk: boolean | null;
-}
-
-/** A 3G (WCDMA) serving cell's readings (3GPP TS 25.215): RSCP, Ec/Io and the primary scrambling code. */
-export interface WcdmaSignal {
-  rscpDbm: number | null;
-  ecioDb: number | null;
-  psc: number | null;
-}
-
-export interface RfSignalSnapshot {
-  operatorName: string;
-  plmnNumeric: string;
-  ratCode: string;
-  caBannerRaw: string;
-  caCarriers: CaBannerComponent[];
-  caActive: boolean;
-  caComponentCount: number;
-  totalAggregatedBandwidthMhz: number;
-  pccBand: string;
-  pci: number | null;
-  earfcnRaw: string;
-  nrArfcnRaw: string;
-  lteUlBandwidthMhz: number | null;
-  lteDlBandwidthMhz: number | null;
-  nrUlBandwidthMhz: number | null;
-  nrDlBandwidthMhz: number | null;
-  lteRsrpDbm: number | null;
-  lteRsrqDb: number | null;
-  lteRssiDbm: number | null;
-  lteSinrDb: number | null;
-  nrRsrpDbm: number | null;
-  nrRsrqDb: number | null;
-  nrSinrDb: number | null;
-  transmissionMode: string;
-  lteMimoRank: number | null;
-  nrMimoRank: number | null;
-  lteCqi0: number | null;
-  lteCqi1: number | null;
-  nrCqi0: number | null;
-  nrCqi1: number | null;
-  lteUlMcs: McsCodewordMetric[];
-  lteDlMcs: McsCodewordMetric[];
-  nrUlMcs: McsCodewordMetric[];
-  nrDlMcs: McsCodewordMetric[];
-  lteTxPower: TxPowerMetrics;
-  nrTxPower: TxPowerMetrics;
-  lteScc: SecondaryCellEntry[];
-  nrScc: SecondaryCellEntry[];
-  cellIdDisplay: string;
-  eNodeBDisplay: string;
-  tacDisplay: string;
-  identityVerification: CellIdentityVerification;
-  /** The 3G serving cell, when the router is on 3G and reports it (`null` otherwise). */
-  wcdma: WcdmaSignal | null;
-  /** The radio connection is active (RRC connected) rather than idle; `null`: not reported. */
-  rrcConnected: boolean | null;
-  /** The QoS class (QCI / 5QI) of the default bearer, where the router reports it. */
-  qci: number | null;
-  /** Uplink MIMO layers of the primary carrier, where the router reports them. */
-  ulMimoLayers: number | null;
-}
 
 export interface TrafficSnapshot {
   downloadBytesPerSec: number;
@@ -139,44 +37,6 @@ export interface TrafficSnapshot {
   billingStartDay: number | null;
   dataLimitRaw: string;
   monthThresholdPercent: number | null;
-}
-
-export type TerminalAccessMedium =
-  | "LAN_1000M"
-  | "LAN_100M"
-  | "LAN_OTHER"
-  | "WIFI_2_4G"
-  | "WIFI_5G"
-  | "WIFI_OTHER"
-  /** The router lists the device without saying whether it is wired or on Wi-Fi (a DHCP lease). */
-  | "UNKNOWN";
-
-export interface TerminalHostEntry {
-  macAddress: string;
-  displayName: string;
-  active: boolean;
-  interfaceType: string;
-  layer2Interface: string;
-  frequency: string;
-  medium: TerminalAccessMedium;
-  negotiatedRateMbps: number | null;
-  rssi: number | null;
-  ipv4Address: string;
-  ipv6Addresses: string[];
-  ipv6Active: boolean;
-  addressSource: string;
-  leaseTimeRemainingSec: number | null;
-  associatedTimeSec: number | null;
-  /** `IsLocalDevice`: the router's mark for the client that requested HostInfo (FengSui's host). */
-  isLocalDevice: boolean;
-}
-
-export interface TopologySummary {
-  topLevelNodes: number;
-  totalActiveNodes: number;
-  meshChildNodes: number;
-  ethernetNodes: number;
-  wirelessNodes: number;
 }
 
 const MAX_FIELD_LEN = 4096;

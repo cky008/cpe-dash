@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
-import { LOGIN_UNCONFIRMED_CODE } from "../cpe-auth.ts";
-import { CpeApiError } from "../session-errors.ts";
+import { CpeApiError, LOGIN_UNCONFIRMED_CODE } from "../session-errors.ts";
 
 /**
  * Login outcomes of the driver families in the HiLink codes the session client and the scheduler

@@ -1,7 +1,6 @@
 import type { ApnChoice, ApnRestore, ApnView, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
-import type { AntennaModeName } from "../cpe-domain.ts";
+import type { AntennaModeName, WcdmaSignal } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
-import type { WcdmaSignal } from "../parsers.ts";
 import type { DriverFamily } from "../router-family.ts";
 import type { RouterStatusSnapshot, TemperatureSensor } from "../router-status.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";

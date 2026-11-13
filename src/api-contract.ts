@@ -173,7 +173,7 @@ export type {
   StructureKind,
   TokenFlow,
 };
-export type { NeighborCellEntry, TerminalAccessMedium, TerminalHostEntry } from "./parsers.ts";
+export type { NeighborCellEntry, TerminalAccessMedium, TerminalHostEntry } from "./cpe-domain.ts";
 export type { SchedulerMode } from "./scheduler.ts";
 export type { TimeSeriesBucketPoint, TimeSeriesPreset } from "./timeseries.ts";
 

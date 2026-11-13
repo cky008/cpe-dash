@@ -12,18 +12,9 @@ import {
   parseDotEnv,
   resolveClientIp,
 } from "../src/config.ts";
-import {
-  aesGcmDecrypt,
-  aesGcmEncrypt,
-  computeScram,
-  curve25519Mul,
-  generateEccSession,
-  huaweiXssDecode,
-  huaweiXssEncode,
-  stripInvalidControlChars,
-  timingSafeEqualString,
-  verifyPubkeySignature,
-} from "../src/crypto.ts";
+import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, generateEccSession, huaweiXssDecode, huaweiXssEncode, verifyPubkeySignature } from "../src/crypto.ts";
+import { stripInvalidControlChars } from "../src/text-sanitize.ts";
+import { timingSafeEqualString } from "../src/constant-time.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import {
   inspectFieldFormat,

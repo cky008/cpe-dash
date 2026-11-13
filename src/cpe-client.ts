@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import {
   CpeLoginMethodError,
   LOGIN_RETRY_SAFE_CODES,
-  LOGIN_UNCONFIRMED_CODE,
   type LegacyScheme,
   type LoginPlan,
   SCRAM_PROBE_FALLBACK_CODES,
@@ -13,32 +12,18 @@ import {
   readScramChallenge,
   readSesTokInfo,
 } from "./cpe-auth.ts";
-import {
-  aesGcmDecrypt,
-  aesGcmEncrypt,
-  computeScram,
-  generateEccSession,
-  timingSafeEqualString,
-  verifyPubkeySignature,
-} from "./crypto.ts";
+import { aesGcmDecrypt, aesGcmEncrypt, computeScram, generateEccSession, verifyPubkeySignature } from "./crypto.ts";
+import { timingSafeEqualString } from "./constant-time.ts";
 import { ApiErrorTally, type LoginScheme, type TokenFlow } from "./device-profile.ts";
 import { readBoundedResponseText } from "./http-body.ts";
 import type { CpeLoginState, EncryptionType } from "./types.ts";
 import { type SessionAttempt, type SessionAttemptContext, SessionClient, type SessionPrecheck, type SessionProtocol } from "./session-client.ts";
-import { CpeApiError, CpeSessionClosedError, CpeTransportError } from "./session-errors.ts";
+import { CpeApiError, CpeEncryptionUnavailableError, CpeSessionClosedError, CpeTransportError, LOGIN_UNCONFIRMED_CODE } from "./session-errors.ts";
 import { MAX_XML_BYTES, buildXmlRequest, getXmlTag, parseXmlError } from "./xml.ts";
 
 
 function readCpeResponseText(res: Response): Promise<string> {
   return readBoundedResponseText(res, MAX_XML_BYTES);
-}
-
-/** The session has no encrypted channel (a legacy login, or no server key), so an encrypted endpoint is out of reach. */
-export class CpeEncryptionUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CpeEncryptionUnavailableError";
-  }
 }
 
 /**

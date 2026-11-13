@@ -31,7 +31,7 @@ import type { DiscoverySession } from "./endpoint-discovery.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "./router-backend.ts";
 import type { RouterFamily } from "./router-family.ts";
 import type { MutexSessionScheduler, WriteContext } from "./scheduler.ts";
-import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/protocol.ts";
+import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/submission.ts";
 
 /**
  * One logged-in session on the router, whatever its brand: what FengSui reads and writes inside it.

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { runAsActor } from "../audit-log.ts";
-import { timingSafeEqualString } from "../crypto.ts";
+import { timingSafeEqualString } from "../constant-time.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encrypted-file.ts";
 import { firmwareReviewPrompt } from "../firmware.ts";
@@ -9,7 +9,7 @@ import type { FengSuiCore } from "../core.ts";
 import { type WriteFeature, gateRefuses } from "../device-access.ts";
 import { type NetworkMode, type UssdRequest, isNetworkMode, readUssdRequest } from "../cellular.ts";
 import { BrowserSessionYieldedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../scheduler.ts";
-import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
+import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/text-mode.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
 import type { EnrichedSmsMessage } from "../sms/types.ts";

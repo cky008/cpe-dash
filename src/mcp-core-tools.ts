@@ -1,4 +1,4 @@
-import { H168_383_LTE_BANDS, H168_383_NR_BANDS } from "./band-lock.ts";
+import { H168_383_LTE_BANDS, H168_383_NR_BANDS } from "./rf-bounds.ts";
 import {
   readAntennaMode,
   readBandSelection,
