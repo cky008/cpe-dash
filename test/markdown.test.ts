@@ -115,6 +115,18 @@ describe("docs Markdown renderer (scripts/markdown.ts)", () => {
     assert.ok(html.includes('<figure><img src="assets/dashboard.webp" alt="The dashboard" loading="lazy"><figcaption>The dashboard</figcaption></figure>'));
   });
 
+  it("shows a standalone image as inline markup where the page gives some (a diagram), with its caption", () => {
+    const svg = '<svg role="img"><title>Layers</title></svg>';
+    const { html, text } = renderMarkdown("![The layers](../diagrams/zh/layers.svg)\n\n![The console](../screenshots/dashboard.webp)", {
+      figure: (src) => (src.endsWith(".svg") ? svg : null),
+      image: (src) => `assets/${src.split("/").pop() ?? ""}`,
+    });
+    assert.ok(html.includes(`<figure class="diagram">${svg}<figcaption>The layers</figcaption></figure>`));
+    // Not a diagram: the image as before
+    assert.ok(html.includes('<figure><img src="assets/dashboard.webp" alt="The console" loading="lazy"><figcaption>The console</figcaption></figure>'));
+    assert.ok(text.includes("The layers"), "the caption is searchable");
+  });
+
   it("keeps stable term anchors and renders [[source](url)] citations", () => {
     const { html, text } = renderMarkdown('<a id="rsrp"></a>\n\n### RSRP 是什么\n\nSignal power [[3GPP TS 36.214](https://www.3gpp.org/DynaReport/36214.htm)].\n\n<a id="Bad Id"></a>');
     assert.ok(html.includes('<a id="rsrp" class="term-anchor"></a>'));

@@ -599,6 +599,55 @@ kbd {
   text-align: center;
   margin-top: 0.5rem;
 }
+/* Inline diagrams (docs/diagrams/): their classes take the page's colours, so they follow the toggle */
+.article figure.diagram svg {
+  display: block;
+  width: 100%;
+  max-width: 680px;
+  height: auto;
+  margin: 0 auto;
+}
+.diagram .d-box {
+  fill: var(--surface);
+  stroke: var(--line-strong);
+}
+.diagram .d-soft {
+  fill: var(--bg-soft);
+  stroke: var(--line-strong);
+}
+.diagram .d-brand {
+  fill: var(--bg-soft);
+  stroke: var(--brand-2);
+}
+.diagram .d-router {
+  fill: var(--brand);
+  stroke: var(--brand);
+}
+.diagram .d-text {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+.diagram .d-small {
+  font-size: 12.5px;
+}
+.diagram .d-label {
+  fill: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.diagram .d-on-brand {
+  fill: var(--brand-ink);
+}
+.diagram .d-arrow {
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  fill: none;
+}
+.diagram .d-head {
+  fill: var(--faint);
+}
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);

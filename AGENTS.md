@@ -89,7 +89,7 @@ cpe-dash/
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
-│   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL），输出 dist/site
+│   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL；docs/diagrams/ 的图内联进页面，跟着站点的主题切换，只放行图形与文字），输出 dist/site
 │   ├── api-reference.ts · sync-docs.ts  # 指南「API 参考」由代码生成的部分（路由与方法、令牌需要的权限取自 permissionForRoute、SSE 事件、错误码，每项一句中英说明写在旁边）；npm run docs:sync 重写指南里所有生成的块（「支持的设备」的表与「API 参考」的三张表），--check 只检查；test/api-reference.test.ts 保证清单与代码一致、每个路由按所写的方法和示例请求体真能调用、页面与生成结果一致
 │   ├── test-count-reporter.ts # node --test 报告器（门禁里的 test:coverage 与 test:browser 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
@@ -101,7 +101,7 @@ cpe-dash/
 ├── .github/ISSUE_TEMPLATE/ # device-report.yml：其他型号的兼容性报告表单（型号、固件、能用 / 不能用、报告、隐私确认）；bug-report.yml、feature-request.yml；config.yml 把安全问题引到私密报告
 ├── .github/pull_request_template.md · SECURITY.md · CONTRIBUTING.md · CODE_OF_CONDUCT.md  # PR 隐私自检、漏洞私密报告与范围、贡献规则（TDD、占位值、零运行时依赖）、行为准则（Contributor Covenant 2.1）
 └── docs/
-    ├── guide/{zh,en}/*.md            # 用户指南（支持的设备、快速开始、安装、功能、Docker Compose 配置、配置参考、API 参考、安全、备份、其他型号、排障、FAQ、致谢）：文档站的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具；「支持的设备」的表与「API 参考」的接口、事件、错误码表由 npm run docs:sync 从代码生成，其余手写
+    ├── guide/{zh,en}/*.md            # 用户指南（支持的设备、快速开始、安装、功能、Docker Compose 配置、配置参考、API 参考、安全、备份、其他型号、架构与协议、排障、FAQ、致谢）：文档站的来源，中英文逐页对应；配置参考与智能体页由 contract-manifest 测试保证覆盖每个设置与工具；「支持的设备」的表与「API 参考」的接口、事件、错误码表由 npm run docs:sync 从代码生成，其余手写
     ├── dev/                          # 开发者文档（只有中文，只在 GitHub 上看，不进文档站；README.md 是目录）
     │   ├── protocol.md               # 华为 HiLink 协议：H168-383 的完整私有协议（含短信接口）与频段掩码、锁小区载荷算法；附录 A 为其他华为型号
     │   ├── architecture.md           # 架构与设计：选型、调度器、时序引擎、短信融合、控制台、访问控制、在线演示、主题、多品牌与统一后端（第 1–5、7–10、17 节），现在的分层（第 19 节）
@@ -110,7 +110,8 @@ cpe-dash/
     │   ├── api.md                    # REST / SSE / MCP 接口契约（含短信、告警；contract-manifest 测试保证覆盖每个路由、SSE 事件与 MCP 工具）
     │   ├── device-notes.md           # 各品牌型号的接口资料汇总（不是实测结果；实际实现以「支持的设备」页为准）
     │   └── brand.md                  # 标志：唯一来源、颜色如何跟随主题、怎么换标志
-    └── site/site.css                 # 文档站样式（Tailwind v4，浅色 / 深色）
+    ├── diagrams/{zh,en}/*.svg        # 指南里的图（「架构与协议」页的分层与一次会话）：两种语言同名同构，颜色用 site.css 的类，构建时内联
+    └── site/site.css                 # 文档站样式（Tailwind v4，浅色 / 深色，含图的配色）
 ```
 
 ---

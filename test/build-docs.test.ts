@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { buildDocsSite, webpSize } from "../scripts/build-docs.ts";
+import { buildDocsSite, inlineDiagram, webpSize } from "../scripts/build-docs.ts";
 import { SHOWCASE_THEMES, showcaseImage } from "../scripts/site-home.ts";
 import { THEME_META } from "../web/src/core/prefs.ts";
 import { THEME_NAMES } from "../web/src/i18n/appearance.ts";
@@ -38,6 +38,31 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     plain = (await buildDocsSite({ out: path.join(dir, "plain") })).out;
   });
   after(() => removeTempDir(dir));
+
+  it("inlines the diagrams, so they follow the site's theme toggle, and lets nothing but drawing through", () => {
+    for (const lang of ["zh", "en"] as const) {
+      const page = fs.readFileSync(path.join(site, ...(lang === "en" ? ["en"] : []), "docs", "architecture", "index.html"), "utf8");
+      assert.equal((page.match(/<figure class="diagram"><svg /g) ?? []).length, 2, `${lang}: both diagrams inline`);
+      assert.doesNotMatch(page, /<img[^>]+\.svg/, `${lang}: no diagram as an image`);
+    }
+    // Same drawings in both languages: the two folders hold the same files
+    assert.deepEqual(fs.readdirSync("docs/diagrams/zh").sort(), fs.readdirSync("docs/diagrams/en").sort());
+    const ok = '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="t"><title id="t">x</title><path marker-end="url(#a)"/></svg>';
+    assert.equal(inlineDiagram(`<?xml version="1.0"?>\n${ok}`, "ok.svg"), ok);
+    for (const bad of [
+      ok.replace("<path", "<script>alert(1)</script><path"),
+      ok.replace("<path", '<path onload="x()"'),
+      ok.replace("<path", '<a href="https://example.com/"><path') + "</a>",
+      ok.replace("<path", '<path style="fill:red"'),
+      ok.replace("<path", "<foreignObject></foreignObject><path"),
+      ok.replace('url(#a)', "url(https://example.com/x)"),
+      ok.replace(' role="img"', ""),
+      ok.replace('<title id="t">x</title>', ""),
+      `${ok}${ok}`,
+    ]) {
+      assert.throws(() => inlineDiagram(bad, "bad.svg"), /bad\.svg/, bad);
+    }
+  });
 
   it("has the same guide pages in both languages, each built with the home pages", () => {
     assert.deepEqual(GUIDE("zh"), GUIDE("en"));

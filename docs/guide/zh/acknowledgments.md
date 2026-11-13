@@ -2,7 +2,7 @@
 title: 致谢
 description: 烽燧为各品牌路由器做兼容时参考过的项目。
 section: 帮助
-order: 22
+order: 23
 ---
 
 烽燧为各品牌的路由器做兼容时，参考了下面这些项目整理的接口资料，只取其中的事实：接口路径、参数名、取值和应答格式。每个项目参考时的提交和许可证记在开发者文档的[实现依据](https://github.com/cky008/cpe-dash/blob/main/docs/dev/sources.md)里。

@@ -31,6 +31,11 @@ export interface RenderOptions {
   link?: (href: string) => string;
   /** Rewrite an image source to the published asset path. */
   image?: (src: string) => string;
+  /**
+   * Markup to show in place of an image that stands alone in its paragraph (an inline diagram, which
+   * follows the page's colours); `null`: the image as usual.
+   */
+  figure?: (src: string) => string | null;
 }
 
 const ALERT_TITLES: Readonly<Record<"zh-CN" | "en", Readonly<Record<string, string>>>> = {
@@ -316,6 +321,12 @@ export function renderMarkdown(source: string, opts: RenderOptions = {}): Render
       while (i < lines.length && (lines[i] ?? "").trim() && (para.length === 0 || !startsBlock(lines[i] ?? "", lines[i + 1]))) para.push((lines[i++] ?? "").trim());
       const joined = para.join("\n");
       const onlyImage = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(joined);
+      const figure = onlyImage && opts.figure ? opts.figure(onlyImage[2] ?? "") : null;
+      if (onlyImage && figure !== null) {
+        pushText(onlyImage[1] ?? "");
+        out += `<figure class="diagram">${figure}<figcaption>${escapeHtml(onlyImage[1] ?? "")}</figcaption></figure>`;
+        continue;
+      }
       const inline = renderInline(joined, opts);
       pushText(inline.text);
       out += onlyImage ? `<figure>${inline.html}<figcaption>${escapeHtml(onlyImage[1] ?? "")}</figcaption></figure>` : `<p>${inline.html}</p>`;

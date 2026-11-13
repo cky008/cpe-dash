@@ -147,6 +147,24 @@ function hash(bytes: Buffer | string): string {
   return crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 10);
 }
 
+/**
+ * A diagram from `docs/diagrams/`, inlined so its classes take the page's colours in both themes (an
+ * `<img>` would follow the system's scheme, not the site's toggle). Only drawing goes in: no script, no
+ * event attribute, no style (the CSP allows none), no link or embedded document, one `<svg>` with a
+ * title. Throws on anything else.
+ */
+export function inlineDiagram(source: string, name: string): string {
+  const svg = source.replace(/^<\?xml[^>]*\?>\s*/, "").trim();
+  const refuse = (why: string): never => {
+    throw new Error(`${name}: ${why}`);
+  };
+  if (!/^<svg\s[^>]*>[\s\S]*<\/svg>$/.test(svg) || (svg.match(/<svg[\s>]/g) ?? []).length !== 1) refuse("one <svg> element, nothing around it");
+  if (/<script|<style|<foreignObject|<iframe|<image|<use\b/i.test(svg)) refuse("only shapes and text");
+  if (/\son\w+\s*=|\sstyle\s*=|href\s*=|url\(\s*(?!#)/i.test(svg)) refuse("no event attributes, styles or links");
+  if (!/<svg[^>]*\srole="img"/.test(svg) || !/<title[^>]*>[^<]+<\/title>/.test(svg)) refuse('role="img" and a <title>');
+  return svg;
+}
+
 /** Width and height of a WebP from its VP8X / VP8 / VP8L header, so images reserve their space. */
 export function webpSize(bytes: Buffer): { width: number; height: number } {
   const chunk = bytes.subarray(12, 16).toString("latin1");
@@ -301,6 +319,14 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
           }
           if (repoPath.startsWith("..") || !fs.existsSync(path.join(root, repoPath))) throw new Error(`${page.file}: link to a missing file ${href}`);
           return `${REPO_URL}/blob/main/${repoPath}${anchor ? `#${anchor}` : ""}`;
+        },
+        figure: (src) => {
+          const repoPath = path.posix.normalize(path.posix.join(path.posix.dirname(page.file), src));
+          const m = /^docs\/diagrams\/(zh|en)\/([\w-]+\.svg)$/.exec(repoPath);
+          if (!m) return null;
+          const file = path.join(root, repoPath);
+          if (!fs.existsSync(file)) throw new Error(`${page.file}: no diagram ${repoPath}`);
+          return inlineDiagram(fs.readFileSync(file, "utf8"), repoPath);
         },
         image: (src) => {
           const repoPath = path.posix.normalize(path.posix.join(path.posix.dirname(page.file), src));

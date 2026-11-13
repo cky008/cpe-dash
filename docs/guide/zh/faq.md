@@ -2,7 +2,7 @@
 title: 常见问题
 description: 关于费用、隐私、兼容性和使用方式的简短回答。
 section: 帮助
-order: 21
+order: 22
 ---
 
 ## 烽燧收费吗？
