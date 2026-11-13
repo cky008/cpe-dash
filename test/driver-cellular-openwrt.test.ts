@@ -4,7 +4,8 @@ import { PIN_REFUSALS } from "../src/cellular.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/session-errors.ts";
 import { parseCops, parseCopsScan } from "../src/drivers/cellular.ts";
-import { parseCgdcont, quectelModeOf } from "../src/drivers/openwrt.ts";
+import { parseCgdcont } from "../src/protocols/at/common.ts";
+import { quectelModeOf } from "../src/protocols/at/quectel.ts";
 import { cellularOf, daemonOn, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 

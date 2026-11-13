@@ -2,33 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CpeApiError } from "../src/session-errors.ts";
 import type { WriteCheck } from "../src/device-access.ts";
-import {
-  OPENWRT_ANONYMOUS_SESSION,
-  atValueLine,
-  detectModemBrand,
-  forgetOpenwrtSimReads,
-  extractAtResponse,
-  isAtError,
-  modemBrandOf,
-  openwrtProtocol,
-  parseCfun,
-  parseFibocomAct,
-  parseFibocomCaInfo,
-  parseFibocomCcInfo,
-  parseOperatorName,
-  parseQuectelCaInfo,
-  parseQuectelCsi,
-  parseQuectelDataCounter,
-  parseQuectelNeighbours,
-  parseQuectelRsrp,
-  parseQuectelServingCell,
-  parseQuectelTemp,
-  parseQuectelTempSensors,
-  parseSimPin,
-  parseSystemInfo,
-  quectelLteSinr,
-  splitAtCsv,
-} from "../src/drivers/openwrt.ts";
+import { OPENWRT_ANONYMOUS_SESSION, forgetOpenwrtSimReads, extractAtResponse, openwrtProtocol, parseSystemInfo } from "../src/drivers/openwrt.ts";
+import { atValueLine, detectModemBrand, isAtError, modemBrandOf, parseCfun, parseOperatorName, parseSimPin, splitAtCsv } from "../src/protocols/at/common.ts";
+import { parseQuectelCaInfo, parseQuectelCsi, parseQuectelDataCounter, parseQuectelNeighbours, parseQuectelRsrp, parseQuectelServingCell, parseQuectelTemp, parseQuectelTempSensors, quectelLteSinr } from "../src/protocols/at/quectel.ts";
+import { parseFibocomAct, parseFibocomCaInfo, parseFibocomCcInfo } from "../src/protocols/at/fibocom.ts";
 import { LanHttp } from "../src/drivers/transport.ts";
 import { OPENWRT_SESSION_TOKEN as SESSION_TOKEN, openwrtRouter } from "./helpers/openwrt-router.ts";
 

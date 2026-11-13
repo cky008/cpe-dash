@@ -1,5 +1,5 @@
-import { SmsPduError, decodeSmsPdu } from "../sms/pdu.ts";
-import type { SmsSegment } from "./sms.ts";
+import { SmsPduError, decodeSmsPdu } from "../../sms/pdu.ts";
+import type { SmsSegment } from "../../drivers/sms.ts";
 
 /**
  * SMS through a modem's own AT commands (3GPP TS 27.005), for a router that offers nothing above

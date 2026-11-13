@@ -1,26 +1,61 @@
 import crypto from "node:crypto";
-import { type ApnIpType, type NetworkMode, type OperatorChoice, type OperatorSelection, type SimPinOutcome, isApnName, isPlmn } from "../cellular.ts";
+import { type ApnIpType, type NetworkMode, type OperatorChoice, type OperatorSelection, type SimPinOutcome, isPlmn } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
-import { type SimCardStatus, type SimState, type SystemStatus, type TemperatureSensor, countValue } from "../router-status.ts";
+import type { SimCardStatus, SystemStatus } from "../router-status.ts";
 import { encodeSmsSubmit } from "../sms/pdu.ts";
 import type { SmsCounters } from "../sms/types.ts";
-import { atErrorCode, parseCmglPdus, parseCpms } from "./at-sms.ts";
+import { atErrorCode, parseCmglPdus, parseCpms } from "../protocols/at/sms.ts";
+import {
+  type ModemBrand,
+  modemBrandOf,
+  isAtError,
+  parseCfun,
+  parseSimPin,
+  atValueLine,
+  PDP_TYPES,
+  parseCgdcont,
+  pinRefused,
+  parseOperatorName,
+  modelLineOf,
+} from "../protocols/at/common.ts";
+import {
+  parseQuectelServingCell,
+  parseQuectelCsi,
+  withCsi,
+  parseQuectelTempSensors,
+  parseQuectelCaInfo,
+  parseQuectelNeighbours,
+  parseQuectelRsrp,
+  QUECTEL_MODES,
+  QUECTEL_SELECTABLE,
+  QUECTEL_MODE_LIST,
+  quectelModeOf,
+  parseQuectelTemp,
+  parseQuectelDataCounter,
+  quectelCounterOf,
+  counterTraffic,
+} from "../protocols/at/quectel.ts";
+import {
+  FIBOCOM_RAT_OF_MODE,
+  FIBOCOM_MODE_OF_RAT,
+  FIBOCOM_MODE_LIST,
+  parseFibocomAct,
+  parseFibocomCaInfo,
+  parseFibocomCcInfo,
+} from "../protocols/at/fibocom.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
 import { operatorActOf, parseCops, parseCopsScan, settleNothingToRead } from "./cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
-import { emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
 import type {
   CellLockState,
   DriverBandLockTarget,
-  DriverCarrier,
-  DriverCell,
   DriverCellLockTarget,
   DriverCellular,
   DriverCellularState,
@@ -30,41 +65,13 @@ import type {
   DriverLockState,
   DriverNeighbour,
   DriverNetworkMode,
-  DriverRat,
   DriverSessionHandle,
   DriverSms,
   DriverSmsSendOptions,
   DriverSmsSendOutcome,
   DriverTelemetry,
-  DriverTraffic,
-  ServingMode,
-  SubcarrierSpacingKhz,
 } from "./types.ts";
-import {
-  arfcnOf,
-  bandOf,
-  fieldOf,
-  hexIntOf,
-  iccidOf,
-  identityOf,
-  imeiOf,
-  imsiOf,
-  intOf,
-  isPlainObject,
-  labelOf,
-  nonNegativeOf,
-  numberOf,
-  pciOf,
-  plmnOf,
-  rsrpOf,
-  rsrqOf,
-  rssiOf,
-  sinrOf,
-  smallIntOf,
-  temperatureOf,
-  textOf,
-  txPowerOf,
-} from "./values.ts";
+import { bandOf, fieldOf, iccidOf, imeiOf, imsiOf, intOf, isPlainObject, labelOf, nonNegativeOf, pciOf, temperatureOf, textOf } from "./values.ts";
 
 /**
  * OpenWrt routers with Quectel (RM500, RM520, RG500, RG520, RM551...) or Fibocom (FM650, FM350,
@@ -103,55 +110,6 @@ const FAMILY = "openwrt" as const;
 const UBUS_PATH = "/ubus";
 export const OPENWRT_ANONYMOUS_SESSION = "00000000000000000000000000000000";
 
-export type ModemBrand = "quectel" | "fibocom";
-
-/** Quectel LTE DL/UL bandwidth code table (code -> MHz). */
-export const QUECTEL_LTE_BANDWIDTH_MHZ: Readonly<Record<number, number>> = {
-  0: 1.4,
-  1: 3,
-  2: 5,
-  3: 10,
-  4: 15,
-  5: 20,
-};
-
-/** Quectel 5G NR DL bandwidth code table (code -> MHz). */
-export const QUECTEL_NR_BANDWIDTH_MHZ: Readonly<Record<number, number>> = {
-  0: 5,
-  1: 10,
-  2: 15,
-  3: 20,
-  4: 25,
-  5: 30,
-  6: 40,
-  7: 50,
-  8: 60,
-  9: 80,
-  10: 90,
-  11: 100,
-  12: 200,
-  13: 400,
-};
-
-/** Quectel Subcarrier Spacing (SCS) code table (code -> kHz). */
-export const QUECTEL_SCS_KHZ: Readonly<Record<number, SubcarrierSpacingKhz>> = {
-  0: 15,
-  1: 30,
-  2: 60,
-  3: 120,
-  4: 240,
-};
-
-/** Quectel QCAINFO LTE Resource Block count table (RB -> MHz). */
-export const QUECTEL_RB_TO_MHZ: Readonly<Record<number, number>> = {
-  6: 1.4,
-  15: 3,
-  25: 5,
-  50: 10,
-  75: 15,
-  100: 20,
-};
-
 /** Extract string response from varied OpenWrt AT RPC wrapper responses. */
 export function extractAtResponse(raw: unknown): string {
   if (typeof raw === "string") return raw.trim();
@@ -164,257 +122,6 @@ export function extractAtResponse(raw: unknown): string {
     }
   }
   return "";
-}
-
-/**
- * The module's make from what `ATI` / `AT+CGMM` say, when they say: the maker's name, or a model
- * name of its series (Fibocom FM150 / FM160 / FM350 / FM650 / FG370...; Quectel RM5xx / RG5xx and
- * the EM / EG / EC / EP 4G series). `null` when neither names one (the session then probes).
- */
-export function modemBrandOf(text: string): ModemBrand | null {
-  // A series letter pair and three digits, whatever follows (`FM160-NA`, `RM520N-GL`, `EM120R-GL`)
-  const upper = text.toUpperCase();
-  if (upper.includes("FIBOCOM") || /\bF[MG]\d{3}/.test(upper)) return "fibocom";
-  if (upper.includes("QUECTEL") || /\b(?:R[MG]|E[MGCP])\d{3}/.test(upper)) return "quectel";
-  return null;
-}
-
-/** Identify whether the modem is Quectel or Fibocom from `ATI` or version query (Quectel when it says neither). */
-export function detectModemBrand(atiText: string): ModemBrand {
-  return modemBrandOf(atiText) ?? "quectel";
-}
-
-/** The answer to an AT command was an error (`ERROR`, `+CME ERROR: ...`, `+CMS ERROR: ...`): the command is not one of this module's. */
-export function isAtError(text: string): boolean {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim().toUpperCase())
-    .some((line) => line === "ERROR" || line.startsWith("+CME ERROR") || line.startsWith("+CMS ERROR"));
-}
-
-/** Split a raw comma-separated AT line, stripping quotes and whitespace. */
-export function splitAtCsv(line: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-    } else if (ch === "," && !inQuotes) {
-      parts.push(current.trim());
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  parts.push(current.trim());
-  return parts;
-}
-
-/**
- * Convert Quectel LTE SINR raw index $X \in [0, 30]$ to true dB:
- * $\text{SINR}_{\text{dB}} = 2 \times X - 20$. Direct values outside 0..30 (or negative) stay untouched.
- */
-export function quectelLteSinr(rawVal: unknown): number | null {
-  const n = intOf(rawVal);
-  if (n === null) return null;
-  if (n >= 0 && n <= 30) return 2 * n - 20;
-  return sinrOf(n);
-}
-
-// --------------------------------------------------------------------------
-// Quectel AT Parsers
-// --------------------------------------------------------------------------
-
-export interface QuectelServingCellParsed {
-  mode: "SA" | "NSA" | "LTE" | "NONE";
-  plmn: string | null;
-  lte: DriverCell | null;
-  nr: DriverCell | null;
-}
-
-export function parseQuectelServingCell(text: string): QuectelServingCellParsed {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+QENG:"));
-  if (lines.length === 0) return { mode: "NONE", plmn: null, lte: null, nr: null };
-
-  let saLine: string[] | null = null;
-  let lteLine: string[] | null = null;
-  let nsaNrLine: string[] | null = null;
-
-  for (const rawLine of lines) {
-    const content = rawLine.slice(7).trim(); // after "+QENG: "
-    const fields = splitAtCsv(content);
-    const tag = fields[0]?.toUpperCase();
-    if (tag === "SERVINGCELL") {
-      const subTag = fields[2]?.toUpperCase();
-      if (subTag === "NR5G-SA") saLine = fields;
-      else if (subTag === "LTE") lteLine = fields;
-    } else if (tag === "LTE") {
-      lteLine = fields;
-    } else if (tag === "NR5G-NSA") {
-      nsaNrLine = fields;
-    }
-  }
-
-  // 1. 5G SA Mode
-  if (saLine && saLine.length >= 15) {
-    // fields: ["servingcell", state, "NR5G-SA", duplex, mcc, mnc, cellIdHex, pcid, tacHex, arfcn, band, bwCode, rsrp, rsrq, sinr, scs, srxlev]
-    const mcc = saLine[4] ?? "";
-    const mnc = saLine[5] ?? "";
-    const plmn = plmnOf(mcc, mnc);
-    const bwCode = intOf(saLine[11]);
-    const bwMhz = bwCode !== null ? (QUECTEL_NR_BANDWIDTH_MHZ[bwCode] ?? null) : null;
-    const nr: DriverCell = {
-      ...emptyCell(),
-      cellId: identityOf(saLine[6], 16),
-      pci: pciOf(saLine[7], "NR"),
-      tac: identityOf(saLine[8], 16),
-      arfcn: arfcnOf(saLine[9], "NR"),
-      band: bandOf(saLine[10]),
-      bandwidthMhz: bwMhz,
-      rsrpDbm: rsrpOf(saLine[12]),
-      rsrqDb: rsrqOf(saLine[13]),
-      sinrDb: sinrOf(saLine[14]),
-    };
-    return { mode: "SA", plmn, lte: null, nr };
-  }
-
-  // 2. 5G NSA Mode (EN-DC)
-  if (lteLine && nsaNrLine) {
-    const lteOffset = lteLine[0]?.toUpperCase() === "SERVINGCELL" ? 3 : 1;
-    const mcc = lteLine[lteOffset + 1] ?? "";
-    const mnc = lteLine[lteOffset + 2] ?? "";
-    const plmn = plmnOf(mcc, mnc);
-    const dlBwCode = intOf(lteLine[lteOffset + 8]);
-    const lteBwMhz = dlBwCode !== null ? (QUECTEL_LTE_BANDWIDTH_MHZ[dlBwCode] ?? null) : null;
-    const lte: DriverCell = {
-      ...emptyCell(),
-      cellId: identityOf(lteLine[lteOffset + 3], 16),
-      pci: pciOf(lteLine[lteOffset + 4], "LTE"),
-      arfcn: arfcnOf(lteLine[lteOffset + 5], "LTE"),
-      band: bandOf(lteLine[lteOffset + 6]),
-      bandwidthMhz: lteBwMhz,
-      tac: identityOf(lteLine[lteOffset + 9], 16),
-      rsrpDbm: rsrpOf(lteLine[lteOffset + 10]),
-      rsrqDb: rsrqOf(lteLine[lteOffset + 11]),
-      rssiDbm: rssiOf(lteLine[lteOffset + 12]),
-      sinrDb: quectelLteSinr(lteLine[lteOffset + 13]),
-      cqi: smallIntOf(lteLine[lteOffset + 14], 15),
-      ...quectelLteUplink(lteLine, lteOffset),
-    };
-
-    // nsaNrLine: ["NR5G-NSA", mcc, mnc, pcid, rsrp, sinr, rsrq, arfcn, band, dlBwCode, scs]
-    const nrDlBwCode = intOf(nsaNrLine[9]);
-    const nrBwMhz = nrDlBwCode !== null ? (QUECTEL_NR_BANDWIDTH_MHZ[nrDlBwCode] ?? null) : null;
-    const nr: DriverCell = {
-      ...emptyCell(),
-      pci: pciOf(nsaNrLine[3], "NR"),
-      rsrpDbm: rsrpOf(nsaNrLine[4]),
-      sinrDb: sinrOf(nsaNrLine[5]),
-      rsrqDb: rsrqOf(nsaNrLine[6]),
-      arfcn: arfcnOf(nsaNrLine[7], "NR"),
-      band: bandOf(nsaNrLine[8]),
-      bandwidthMhz: nrBwMhz,
-    };
-    return { mode: "NSA", plmn, lte, nr };
-  }
-
-  // 3. LTE Only Mode
-  if (lteLine) {
-    const lteOffset = lteLine[0]?.toUpperCase() === "SERVINGCELL" ? 3 : 1;
-    const mcc = lteLine[lteOffset + 1] ?? "";
-    const mnc = lteLine[lteOffset + 2] ?? "";
-    const plmn = plmnOf(mcc, mnc);
-    const dlBwCode = intOf(lteLine[lteOffset + 8]);
-    const lteBwMhz = dlBwCode !== null ? (QUECTEL_LTE_BANDWIDTH_MHZ[dlBwCode] ?? null) : null;
-    const lte: DriverCell = {
-      ...emptyCell(),
-      cellId: identityOf(lteLine[lteOffset + 3], 16),
-      pci: pciOf(lteLine[lteOffset + 4], "LTE"),
-      arfcn: arfcnOf(lteLine[lteOffset + 5], "LTE"),
-      band: bandOf(lteLine[lteOffset + 6]),
-      bandwidthMhz: lteBwMhz,
-      tac: identityOf(lteLine[lteOffset + 9], 16),
-      rsrpDbm: rsrpOf(lteLine[lteOffset + 10]),
-      rsrqDb: rsrqOf(lteLine[lteOffset + 11]),
-      rssiDbm: rssiOf(lteLine[lteOffset + 12]),
-      sinrDb: quectelLteSinr(lteLine[lteOffset + 13]),
-      cqi: smallIntOf(lteLine[lteOffset + 14], 15),
-      ...quectelLteUplink(lteLine, lteOffset),
-    };
-    return { mode: "LTE", plmn, lte, nr: null };
-  }
-
-  return { mode: "NONE", plmn: null, lte: null, nr: null };
-}
-
-/**
- * The LTE line's uplink fields (notes library B §3.2, `+QENG: "LTE"`): `UL_bandwidth` (idx 8, the same
- * code as the downlink's) and `tx_power` (idx 16: tenths of a dBm when its magnitude is above 40).
- */
-function quectelLteUplink(line: ReadonlyArray<string>, offset: number): Pick<DriverCell, "ulBandwidthMhz" | "puschTxDbm"> {
-  const code = intOf(line[offset + 7]);
-  const raw = numberOf(line[offset + 15]);
-  return {
-    ulBandwidthMhz: code !== null ? (QUECTEL_LTE_BANDWIDTH_MHZ[code] ?? null) : null,
-    puschTxDbm: raw === null ? null : txPowerOf(Math.abs(raw) > 40 ? raw / 10 : raw),
-  };
-}
-
-/**
- * `AT+QNWCFG="lte_csi"` / `"nr5g_csi"`: the channel state the module reports, `<mcs>,<ri>,<cqi>,<pmi>`
- * (notes library B §3.2, items 14–15): the MCS, the MIMO rank (layers) and the CQI of the downlink.
- */
-export function parseQuectelCsi(text: string, kind: "lte_csi" | "nr5g_csi"): { mcs: number | null; layers: number | null; cqi: number | null } | null {
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line.startsWith("+QNWCFG:")) continue;
-    const fields = splitAtCsv(line.slice(8).trim());
-    if (fields[0]?.toLowerCase() !== kind) continue;
-    const csi = { mcs: smallIntOf(fields[1], 31), layers: smallIntOf(fields[2], 8), cqi: smallIntOf(fields[3], 15) };
-    return csi.mcs === null && csi.layers === null && csi.cqi === null ? null : csi;
-  }
-  return null;
-}
-
-/** A cell with the CSI readings filled in where the serving-cell line left them empty. */
-function withCsi(cell: DriverCell | null, csi: ReturnType<typeof parseQuectelCsi>): DriverCell | null {
-  if (!cell || !csi) return cell;
-  return { ...cell, dlMcs: cell.dlMcs ?? csi.mcs, mimoLayers: cell.mimoLayers ?? csi.layers, cqi: cell.cqi ?? csi.cqi };
-}
-
-/**
- * `AT+CFUN?` (3GPP TS 27.007 §8.2): `1` full functionality; `4` (transmit and receive off, the
- * "airplane mode") and `0` (minimum functionality) leave the radio off. `null` for anything else.
- */
-export function parseCfun(text: string): boolean | null {
-  const match = /\+CFUN:\s*(\d+)/.exec(text);
-  if (!match?.[1]) return null;
-  const fun = Number(match[1]);
-  return fun === 1 ? false : fun === 0 || fun === 4 ? true : null;
-}
-
-/**
- * The SIM card through the module: `AT+CPIN?` (3GPP TS 27.007 §8.3: `READY`, `SIM PIN`, `SIM PUK`),
- * `AT+QPINC="SC"` on Quectel (its AT manual: `+QPINC: "SC",<PIN tries left>,<PUK tries left>`).
- */
-export function parseSimPin(cpin: string, qpinc: string): Pick<SimCardStatus, "state" | "pinAttemptsLeft" | "pukAttemptsLeft"> {
-  const code = /\+CPIN:\s*([A-Z0-9 -]+)/i.exec(cpin)?.[1]?.trim().toUpperCase() ?? null;
-  const state: SimState | null =
-    code === "READY" ? "ready" : code === "SIM PIN" ? "pin_required" : code === "SIM PUK" ? "puk_required" : /\+CME ERROR:\s*(10|13)\b/.test(cpin) ? (/\b10\b/.test(cpin) ? "absent" : "error") : null;
-  const counts = /\+QPINC:\s*"SC"\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(qpinc);
-  return { state, pinAttemptsLeft: countValue(counts?.[1], 10), pukAttemptsLeft: countValue(counts?.[2], 10) };
-}
-
-/** The first line of an AT answer that is only digits (`AT+CGSN`, `AT+CIMI`), else what follows its `+CGSN:` / `+QCCID:` prefix. */
-export function atValueLine(text: string, prefix: string | null): string | null {
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (prefix && line.toUpperCase().startsWith(prefix)) return line.slice(prefix.length).trim().replace(/^"|"$/g, "");
-    if (/^\d{6,22}F?$/i.test(line)) return line;
-  }
-  return null;
 }
 
 /**
@@ -435,394 +142,8 @@ function sumOf(...values: Array<number | null>): number | null {
   return values[0] === null ? null : values.reduce<number>((sum, v) => sum + (v ?? 0), 0);
 }
 
-/** A QTEMP sensor name as the console may show it (a short token), and what it measures where the name says. */
-function qtempSensor(name: string, celsius: number): TemperatureSensor {
-  const token = name.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 32);
-  const kind: TemperatureSensor["kind"] = /(^|[-_])pa\d*([-_]|$)|pa-thermal/.test(token)
-    ? "pa"
-    : /modem|mdm|q6/.test(token)
-      ? "modem"
-      : /cpu|soc|apc/.test(token)
-        ? "cpu"
-        : /pmic|xo|board|sdr/.test(token)
-          ? "board"
-          : "other";
-  return { kind, name: kind === "other" ? token || null : null, celsius };
-}
-
-/** Each named `+QTEMP:` sensor (`"<name>",<°C>`); a module that names none reports only the hottest. */
-export function parseQuectelTempSensors(text: string): TemperatureSensor[] {
-  const out: TemperatureSensor[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const match = /\+QTEMP:\s*"([^"]{1,64})"\s*,\s*"?(-?\d+(?:\.\d+)?)/.exec(line);
-    if (!match?.[1] || !match[2]) continue;
-    const celsius = temperatureOf(match[2]);
-    if (celsius !== null) out.push(qtempSensor(match[1], celsius));
-  }
-  return out.slice(0, 16);
-}
-
-export function parseQuectelCaInfo(text: string): DriverCarrier[] {
-  const carriers: DriverCarrier[] = [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+QCAINFO:"));
-  for (const rawLine of lines) {
-    const content = rawLine.slice(9).trim(); // after "+QCAINFO: "
-    const fields = splitAtCsv(content);
-    if (fields.length < 5) continue;
-    const type = fields[0]?.toUpperCase(); // "PCC" or "SCC"
-    if (type !== "SCC") continue; // secondary carriers only
-    const arfcnRaw = fields[1];
-    const bwRaw = intOf(fields[2]);
-    const bandRaw = fields[3] ?? "";
-    const pciRaw = fields[5];
-    const rsrpRaw = fields[6];
-    const rsrqRaw = fields[7];
-    const rssiRaw = fields[8];
-    const sinrRaw = fields[9];
-
-    const isNr = bandRaw.toUpperCase().includes("NR5G");
-    const rat: DriverRat = isNr ? "NR" : "LTE";
-    let bwMhz: number | null = null;
-    if (bwRaw !== null) {
-      if (isNr) bwMhz = QUECTEL_NR_BANDWIDTH_MHZ[bwRaw] ?? bwRaw;
-      else bwMhz = QUECTEL_RB_TO_MHZ[bwRaw] ?? bwRaw;
-    }
-
-    carriers.push({
-      rat,
-      arfcn: arfcnOf(arfcnRaw, rat),
-      band: bandOf(bandRaw),
-      bandwidthMhz: bwMhz,
-      pci: pciOf(pciRaw, rat),
-      rsrpDbm: rsrpOf(rsrpRaw),
-      rsrqDb: rsrqOf(rsrqRaw),
-      rssiDbm: rssiOf(rssiRaw),
-      sinrDb: isNr ? sinrOf(sinrRaw) : quectelLteSinr(sinrRaw),
-    });
-  }
-  return carriers;
-}
-
-export function parseQuectelNeighbours(text: string): DriverNeighbour[] {
-  const neighbours: DriverNeighbour[] = [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+QENG:"));
-  for (const rawLine of lines) {
-    const content = rawLine.slice(7).trim();
-    const fields = splitAtCsv(content);
-    const tag = fields[0]?.toLowerCase();
-    if (!tag || !tag.includes("neighbourcell")) continue;
-    const ratStr = (fields[1] ?? "").toUpperCase();
-    const isNr = ratStr.includes("NR") || ratStr.includes("5G");
-    const rat: DriverRat = isNr ? "NR" : "LTE";
-    if (isNr) {
-      // "+QENG: neighbourcell,NR5G,arfcn,pci,rsrp,rsrq,sinr"
-      const arfcn = arfcnOf(fields[2], "NR");
-      const pci = pciOf(fields[3], "NR");
-      const rsrpDbm = rsrpOf(fields[4]);
-      const rsrqDb = rsrqOf(fields[5]);
-      const sinrDb = sinrOf(fields[6]);
-      if (arfcn !== null || pci !== null) neighbours.push({ rat, arfcn, pci, band: null, rsrpDbm, rsrqDb, rssiDbm: null, sinrDb });
-    } else {
-      // "+QENG: neighbourcell intra,LTE,earfcn,pci,rsrp,rsrq,rssi,sinr"
-      const arfcn = arfcnOf(fields[2], "LTE");
-      const pci = pciOf(fields[3], "LTE");
-      const rsrpDbm = rsrpOf(fields[4]);
-      const rsrqDb = rsrqOf(fields[5]);
-      const rssiDbm = rssiOf(fields[6]);
-      const sinrDb = quectelLteSinr(fields[7]);
-      if (arfcn !== null || pci !== null) neighbours.push({ rat, arfcn, pci, band: null, rsrpDbm, rsrqDb, rssiDbm, sinrDb });
-    }
-  }
-  return neighbours;
-}
-
-export function parseQuectelRsrp(text: string): Array<number | null> | null {
-  const match = text.match(/\+QRSRP:\s*(-?\d+),(-?\d+),(-?\d+),(-?\d+)/);
-  if (!match) return null;
-  const chains = [rsrpOf(match[1]), rsrpOf(match[2]), rsrpOf(match[3]), rsrpOf(match[4])];
-  return chains.some((v) => v !== null) ? chains : null;
-}
-
-/** `AT+GTACT`'s RAT selection as the modes FengSui names (the two the command is documented for). */
-const FIBOCOM_RAT_OF_MODE: Readonly<Partial<Record<DriverNetworkMode, number>>> = { auto: 17, nr_sa: 14 };
-const FIBOCOM_MODE_OF_RAT: Readonly<Record<number, DriverNetworkMode>> = { 17: "auto", 14: "nr_sa" };
-
-/** `mode_pref` and `nr5g_disable_mode` of each network mode (`disable: null`: left as it is). */
-const QUECTEL_MODES: Readonly<Record<DriverNetworkMode, { pref: string; disable: number | null }>> = {
-  auto: { pref: "AUTO", disable: 0 },
-  nr_sa: { pref: "NR5G", disable: 2 },
-  nr_nsa: { pref: "LTE:NR5G", disable: 1 },
-  lte: { pref: "LTE", disable: null },
-};
-
-/** `mode_pref` and `nr5g_disable_mode` of each mode the network mode setting writes: the four above, and 3G only (`WCDMA`, notes library B). */
-const QUECTEL_SELECTABLE: Readonly<Partial<Record<NetworkMode, { pref: string; disable: number | null }>>> = { ...QUECTEL_MODES, wcdma: { pref: "WCDMA", disable: null } };
-const QUECTEL_MODE_LIST: ReadonlyArray<NetworkMode> = ["auto", "nr_sa", "nr_nsa", "lte", "wcdma"];
-const FIBOCOM_MODE_LIST: ReadonlyArray<NetworkMode> = ["auto", "nr_sa"];
-
-/**
- * The mode a Quectel module is set to: the exact `mode_pref` value, with `nr5g_disable_mode` telling
- * 5G standalone from 5G with a 4G anchor (`null`: a value the notes do not list).
- */
-export function quectelModeOf(prefMode: string, prefDisable: string): NetworkMode | null {
-  const pref = /\+QNWPREFCFG:\s*"mode_pref"\s*,\s*([A-Z0-9:]{1,32})/i.exec(prefMode)?.[1]?.toUpperCase();
-  const disable = /\+QNWPREFCFG:\s*"nr5g_disable_mode"\s*,\s*(\d)/i.exec(prefDisable)?.[1];
-  if (pref === "AUTO") return "auto";
-  if (pref === "WCDMA") return "wcdma";
-  if (pref === "LTE") return "lte";
-  if (pref === "NR5G") return disable === "2" ? "nr_sa" : null;
-  if (pref === "LTE:NR5G") return disable === "1" ? "nr_nsa" : null;
-  return null;
-}
-
-const PDP_TYPES: Readonly<Record<ApnIpType, string>> = { ipv4: "IP", ipv6: "IPV6", ipv4v6: "IPV4V6" };
-
-/**
- * `AT+CGDCONT?` (3GPP TS 27.007 §10.1.1): `+CGDCONT: <cid>,"<PDP_type>","<APN>",…`. The context `cid`
- * as the access point in use (an empty APN is the one the network assigns); `null` when it is not listed.
- */
-export function parseCgdcont(text: string, cid = 1): { apn: string; ipType: ApnIpType } | null {
-  for (const raw of text.slice(0, 4096).split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line.toUpperCase().startsWith("+CGDCONT:")) continue;
-    const fields = splitAtCsv(line.slice("+CGDCONT:".length));
-    if (fields[0] !== String(cid)) continue;
-    const type = (fields[1] ?? "").toUpperCase();
-    const ipType = (Object.entries(PDP_TYPES) as Array<[ApnIpType, string]>).find(([, name]) => name === type)?.[0];
-    const apn = fields[2] ?? "";
-    return ipType === undefined || (apn !== "" && !isApnName(apn)) ? null : { apn, ipType };
-  }
-  return null;
-}
-
-/** `+CME ERROR: 16` / `12`: the card says the PIN is wrong (3GPP TS 27.007 §9.2), or wants its PUK. */
-function pinRefused(answer: string): boolean {
-  return isAtError(answer);
-}
-
-/**
- * `+GTACT: <rat>,<prefer_rat>,<prefer_band>[,<band>…]`: LTE bands as 100 + band, NR bands as 500 +
- * band; a RAT with no band listed has every band. `null` when the answer is not one.
- */
-export function parseFibocomAct(raw: string): { rat: number; preferRat: number; preferBand: number; lte: number[] | "all"; nr: number[] | "all" } | null {
-  const match = /\+GTACT:\s*([0-9]{1,3}(?:\s*,\s*[0-9]{1,4}){2,80})/.exec(raw.slice(0, 1024));
-  if (!match?.[1]) return null;
-  const nums = match[1].split(",").map((n) => Number.parseInt(n.trim(), 10));
-  const [rat, preferRat, preferBand, ...bands] = nums;
-  if (rat === undefined || preferRat === undefined || preferBand === undefined) return null;
-  const lte = bands.filter((n) => n > 100 && n < 200).map((n) => n - 100);
-  const nr = bands.filter((n) => n > 500 && n < 1000).map((n) => n - 500);
-  return { rat, preferRat, preferBand, lte: lte.length > 0 ? lte : "all", nr: nr.length > 0 ? nr : "all" };
-}
-
 /** How long a search for networks or a registration may take the module (the modules' manuals give `AT+COPS` three minutes). */
 const COPS_TIMEOUT_MS = 180_000;
-
-const COPS_LINE = /\+COPS:\s*\d\s*,\s*([012])\s*,\s*"([^"\r\n]{1,64})"/;
-
-/**
- * The operator of `AT+COPS?` (`+COPS: <mode>,<format>,"<oper>"[,<AcT>]`, 3GPP TS 27.007): the name in
- * the long or short alphanumeric format; `null` for the numeric format (a PLMN, not a name) or no
- * registration.
- */
-export function parseOperatorName(raw: string): string | null {
-  const match = COPS_LINE.exec(raw.slice(0, 512));
-  if (!match || match[1] === "2") return null;
-  return labelOf(match[2]);
-}
-
-export function parseQuectelTemp(text: string): number | null {
-  const lines = text.split(/\r?\n/);
-  const temps: number[] = [];
-  for (const line of lines) {
-    const match = line.match(/\+QTEMP:\s*(?:"[^"]+",)?(-?\d+(?:\.\d+)?)/);
-    if (match && match[1]) {
-      const t = temperatureOf(match[1]);
-      if (t !== null) temps.push(t);
-    }
-  }
-  if (temps.length === 0) return null;
-  // Pick highest reasonable temperature reported among sensors
-  return Math.max(...temps);
-}
-
-/**
- * A Quectel packet data counter (`+QGDCNT:` for 4G, `+QGDNRCNT:` for 5G): bytes sent, then bytes
- * received, as the module's AT manual orders them; `null` when the answer names no such line.
- */
-export function parseQuectelDataCounter(text: string, prefix: "+QGDCNT:" | "+QGDNRCNT:"): { sent: bigint; received: bigint } | null {
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line.startsWith(prefix)) continue;
-    const [sent, received] = line.slice(prefix.length).split(",").map((part) => part.trim());
-    if (sent === undefined || received === undefined || !/^\d{1,20}$/.test(sent) || !/^\d{1,20}$/.test(received)) return null;
-    return { sent: BigInt(sent), received: BigInt(received) };
-  }
-  return null;
-}
-
-/** The counter a Quectel module keeps for the mode it is in: 4G alone counts on `QGDCNT`, anything with 5G on `QGDNRCNT`. */
-function quectelCounterOf(mode: ServingMode | null): { command: string; prefix: "+QGDCNT:" | "+QGDNRCNT:" } | null {
-  if (mode === "LTE") return { command: "AT+QGDCNT?", prefix: "+QGDCNT:" };
-  if (mode === "SA" || mode === "NSA") return { command: "AT+QGDNRCNT?", prefix: "+QGDNRCNT:" };
-  return null;
-}
-
-/** Running totals of one counter, as FengSui derives rates from them (the module reports no rate). */
-function counterTraffic(counter: { sent: bigint; received: bigint }, source: string): DriverTraffic {
-  return {
-    downloadBytesPerSec: null,
-    uploadBytesPerSec: null,
-    totalDownloadBytes: counter.received,
-    totalUploadBytes: counter.sent,
-    sessionDownloadBytes: null,
-    sessionUploadBytes: null,
-    sessionSeconds: null,
-    monthDownloadBytes: null,
-    monthUploadBytes: null,
-    monthTotalBytes: null,
-    monthSeconds: null,
-    counterSource: source,
-  };
-}
-
-// --------------------------------------------------------------------------
-// Fibocom AT Parsers
-// --------------------------------------------------------------------------
-
-/** LTE channel bandwidths in resource blocks, as Fibocom's carrier list writes them, and their width in MHz. */
-const LTE_RB_MHZ: Readonly<Record<string, number>> = { "6": 1.4, "15": 3, "25": 5, "50": 10, "75": 15, "100": 20 };
-
-/** A Fibocom band code: `100 + band` for LTE, `500 + band` (or `5000 + band`) for NR. */
-function fibocomBandOf(code: string | undefined): { rat: DriverRat; band: number } | null {
-  if (code === undefined || !/^\d{3,4}$/.test(code)) return null;
-  const n = Number.parseInt(code, 10);
-  const found: { rat: DriverRat; band: number } | null = n > 100 && n < 200 ? { rat: "LTE", band: n - 100 } : n >= 5000 ? { rat: "NR", band: n - 5000 } : n > 500 && n < 1000 ? { rat: "NR", band: n - 500 } : null;
-  return found && bandOf(found.band) !== null ? found : null;
-}
-
-/**
- * The secondary carriers of `AT+GTCAINFO?`: one `SCC <n>:` line each, `state, ul_cfg, band, pci,
- * earfcn, dl_bw, ul_bw, dl_mimo, ul_mimo, dl_mod, ul_mod, rsrp`, and only those whose state is `2`
- * (activated). The `PCC:` line is the serving cell `AT+GTCCINFO?` already gave. An LTE carrier's
- * bandwidth is in resource blocks; an NR carrier's is coded differently from one firmware to the
- * next, so it is left out. The RSRP is in dBm.
- */
-export function parseFibocomCaInfo(text: string): DriverCarrier[] {
-  const carriers: DriverCarrier[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line.toUpperCase().startsWith("SCC")) continue;
-    const colon = line.indexOf(":");
-    if (colon < 0 || !/^SCC\s?\d{1,2}$/i.test(line.slice(0, colon).trim())) continue;
-    const fields = line.slice(colon + 1).split(",").map((field) => field.trim());
-    if (fields.length < 7 || fields[0] !== "2") continue;
-    const band = fibocomBandOf(fields[2]);
-    if (!band) continue;
-    carriers.push({
-      rat: band.rat,
-      band: band.band,
-      arfcn: arfcnOf(fields[4], band.rat),
-      pci: pciOf(fields[3], band.rat),
-      bandwidthMhz: band.rat === "LTE" ? (LTE_RB_MHZ[fields[5] ?? ""] ?? null) : null,
-      rsrpDbm: fields.length >= 12 ? rsrpOf(fields.at(-1)) : null,
-      rsrqDb: null,
-      rssiDbm: null,
-      sinrDb: null,
-    });
-  }
-  return carriers;
-}
-
-export interface FibocomCcInfoParsed {
-  mode: "SA" | "NSA" | "LTE" | "NONE";
-  plmn: string | null;
-  lte: DriverCell | null;
-  nr: DriverCell | null;
-  neighbours: DriverNeighbour[];
-}
-
-export function parseFibocomCcInfo(text: string): FibocomCcInfoParsed {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("+GTCCINFO:") || /^[12],\d+,/.test(l));
-  let lte: DriverCell | null = null;
-  let nr: DriverCell | null = null;
-  const neighbours: DriverNeighbour[] = [];
-  let plmn: string | null = null;
-
-  for (const rawLine of lines) {
-    const cleaned = rawLine.startsWith("+GTCCINFO:") ? rawLine.slice(10).trim() : rawLine;
-    const fields = splitAtCsv(cleaned);
-    if (fields.length < 8) continue;
-    const isServing = fields[0] === "1";
-    const ratType = fields[1]; // "4" = LTE, "9" = NR
-    const isNr = ratType === "9";
-    const rat: DriverRat = isNr ? "NR" : "LTE";
-
-    const mcc = fields[2] ?? "";
-    const mnc = fields[3] ?? "";
-    if (isServing && plmn === null) plmn = plmnOf(mcc, mnc);
-
-    const tac = identityOf(fields[4], 16);
-    const cellId = identityOf(fields[5], 16);
-    const arfcn = arfcnOf(hexIntOf(fields[6]) ?? fields[6], rat);
-    const pci = pciOf(hexIntOf(fields[7]) ?? fields[7], rat);
-
-    const rssi = rssiOf(fields[8]);
-    const rsrq = rsrqOf(fields[9]);
-    const rawRsrp = intOf(fields[10]);
-    // LTE RSRP: idx - 140 dBm; NR RSRP: idx - 156 dBm
-    const rsrpDbm = rawRsrp !== null ? rsrpOf(isNr ? rawRsrp - 156 : rawRsrp - 140) : null;
-    const sinrDb = sinrOf(fields[11]);
-
-    if (isServing) {
-      const cell: DriverCell = {
-        ...emptyCell(),
-        cellId,
-        tac,
-        arfcn,
-        pci,
-        rssiDbm: rssi,
-        rsrqDb: rsrq,
-        rsrpDbm,
-        sinrDb,
-      };
-      if (isNr) nr = cell;
-      else lte = cell;
-    } else {
-      neighbours.push({
-        rat,
-        arfcn,
-        pci,
-        band: null,
-        rsrpDbm,
-        rsrqDb: rsrq,
-        rssiDbm: rssi,
-        sinrDb,
-      });
-    }
-  }
-
-  let mode: "SA" | "NSA" | "LTE" | "NONE" = "NONE";
-  if (lte && nr) mode = "NSA";
-  else if (nr) mode = "SA";
-  else if (lte) mode = "LTE";
-
-  return { mode, plmn, lte, nr, neighbours };
-}
-
-/** The first line of an `ATI` / `AT+CGMM` answer that names the module rather than its maker (or `OK`). */
-function modelLineOf(text: string): string | null {
-  return labelOf(
-    text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line !== "" && line.toUpperCase() !== "OK" && !line.toUpperCase().includes("QUECTEL") && !line.toUpperCase().includes("FIBOCOM"))
-  );
-}
-
-// --------------------------------------------------------------------------
-// OpenWrt ubus JSON-RPC Helper
-// --------------------------------------------------------------------------
 
 interface UbusRpcCallTarget {
   object: string;

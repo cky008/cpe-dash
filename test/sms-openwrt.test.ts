@@ -4,7 +4,7 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/session-errors.ts";
 import { SectionUnavailableError } from "../src/cpe-domain.ts";
 import type { WriteCheck } from "../src/device-access.ts";
-import { atErrorCode, parseCmglPdus, parseCpms } from "../src/drivers/at-sms.ts";
+import { atErrorCode, parseCmglPdus, parseCpms } from "../src/protocols/at/sms.ts";
 import { qmodemText } from "../src/drivers/openwrt.ts";
 import type { DriverSmsSendOptions } from "../src/drivers/types.ts";
 import { decodeSmsPdu, encodeSmsSubmit, gsm7Septets, packSeptets } from "../src/sms/pdu.ts";
