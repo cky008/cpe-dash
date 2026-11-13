@@ -3,7 +3,7 @@ import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, huaweiXssDec
 import { getXmlBlocks, getXmlTag } from "../../src/protocols/hilink/xml.ts";
 
 /**
- * In-memory Huawei H168-383 SMS store with the real wire behaviour exercised by `src/sms/protocol.ts`:
+ * In-memory Huawei H168-383 SMS store with the real wire behaviour exercised by `src/drivers/huawei/sms.ts`:
  * SCRAM login, ECC public key + HMAC signature, AES-256-GCM `enc-type=1|2|3` endpoints, plain
  * `sms-list` paging (optionally "unsupported" with `100002`), `send-status` progression,
  * `set-read` / `delete-sms` batches and the unauthenticated `check-notifications` probe.

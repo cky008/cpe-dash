@@ -37,7 +37,7 @@ import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/submission.t
  * One logged-in session on the router, whatever its brand: what FengSui reads and writes inside it.
  * The backend (`src/router-backend.ts`) queues, gates, audits and records; a brand's session only
  * says what goes to the router. Each brand has one implementation: Huawei HiLink in
- * `src/drivers/huawei.ts`, every other brand through its driver in `src/drivers/adapter.ts`.
+ * `src/drivers/huawei/driver.ts`, every other brand through its driver in `src/drivers/adapter.ts`.
  *
  * A read the router has no answer for throws (`SectionUnavailableError`, or the router's own code),
  * and the backend records it as not on this model. A write is sent once and names what it sent in

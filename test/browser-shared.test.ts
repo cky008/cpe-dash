@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import * as bandLock from "../src/band-lock.ts";
+import * as bandLock from "../src/drivers/huawei/band-lock.ts";
 import * as controlError from "../src/control-error.ts";
 import * as cpeDomain from "../src/cpe-domain.ts";
 import * as parsers from "../src/protocols/hilink/parsers.ts";

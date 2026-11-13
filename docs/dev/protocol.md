@@ -324,7 +324,7 @@ sequenceDiagram
   <networkOption>2</networkOption>
 </request>
 ```
-- **网络制式与锁频的关系（2026-11-13 真机核对，[#3](https://github.com/cky008/cpe-dash/issues/3)）**：这个接口只接受「当前制式的那一个字段」：`00` 配 `networkOption`，`03` 配 `LTEBandOption`；不带、或者配错（`03` 配 `networkOption`）都以 `-1` 拒绝。上面的锁频请求在默认制式（`00` + `networkOption 2`）下逐字节不变；用户改过制式时，烽燧带上 5 秒轮询读到的那个字段（`03` 时换成 `<LTEBandOption>`），锁频之后制式不变（`NetModeKeep`，[`src/band-lock.ts`](../../src/band-lock.ts)）。仅 4G 时烽燧拒绝锁 5G 频段（路由器自己的锁频页这时也去掉 `nr_info`）。切换制式本身见附录 A.12.1。
+- **网络制式与锁频的关系（2026-11-13 真机核对，[#3](https://github.com/cky008/cpe-dash/issues/3)）**：这个接口只接受「当前制式的那一个字段」：`00` 配 `networkOption`，`03` 配 `LTEBandOption`；不带、或者配错（`03` 配 `networkOption`）都以 `-1` 拒绝。上面的锁频请求在默认制式（`00` + `networkOption 2`）下逐字节不变；用户改过制式时，烽燧带上 5 秒轮询读到的那个字段（`03` 时换成 `<LTEBandOption>`），锁频之后制式不变（`NetModeKeep`，[`src/drivers/huawei/band-lock.ts`](../../src/drivers/huawei/band-lock.ts)）。仅 4G 时烽燧拒绝锁 5G 频段（路由器自己的锁频页这时也去掉 `nr_info`）。切换制式本身见附录 A.12.1。
 
 #### `POST /api/net/lock-freq`（5G NR 锁频段 & 4G/5G 锁频点/锁小区统一控制）
 - **重要边界**：H168-383 零售固件 `4.4.0.1` 上 `GET /api/net/lock-freq` 返回 `[CPE 100003]`（仅开放 `POST` 下发），因此 Phase 2 后端须在本地加密状态文件 [`data/state.json`](../../src/encrypted-file.ts) 中持久化当前用户下发的锁小区/NR 锁频配置，并与 `/api/device/signal` 实测驻留频点/PCI 对账校验！
@@ -496,7 +496,7 @@ sequenceDiagram
 | **Ping / Traceroute 诊断** | `POST` 触发 -> `GET` 轮询 `/api/diagnosis/ping_result` & `traceroute_result` | XML | 重要边界：未先发送 `POST` 触发任务前直接 `GET` 返回 `100003`；触发后轮询 `<DiagnosticsState>` 直至 `Complete` |
 
 
-### 3.8 短信接口（Phase 2.2 纳入，封装于 `src/sms/protocol.ts`）
+### 3.8 短信接口（Phase 2.2 纳入，封装于 `src/drivers/huawei/sms.ts`）
 
 > **来源与验证状态**：路由、载荷与加密格式和 `cpe-sms` 在同一台 H168-383（固件 `4.4.0.1`）上实际运行的实现一致。「烽燧」侧由加密 Mock 路由器（`test/helpers/mock-sms-cpe.ts`）覆盖。2026-10-30 已用只读探针 `npm run probe:sms` 在真机确认：明文 `POST /api/sms/sms-list` 可用（未触发加密回退），单次会话 `259 ms` 内完成 193 条全量拉取，列表条数与 `sms-count` 收件箱 + 发件箱计数一致，免登录 `check-notifications` 正常；同日 `serve` 守护进程完成首轮同步（33 个会话）。加密列表回退（`sms-list-contact` / `sms-list-phone`）在该固件上未被触发，仅由 Mock 测试覆盖；发送、标记已读与删除按铁律只在 Mock 路由器上验证。
 >
@@ -574,7 +574,7 @@ sequenceDiagram
 
 ---
 
-### 3.9 设备访问控制接口（v1.1.0 纳入，封装于 `src/access-control.ts`）
+### 3.9 设备访问控制接口（v1.1.0 纳入，报文在 `src/protocols/hilink/access-control.ts`，读写序列在 `src/drivers/huawei/access-control.ts`）
 
 > **来源与验证状态**：2026-10-31 的 WebInspector 抓包（路由器自带的"设备管理"页拉黑 / 恢复一台 5 GHz 设备，"MAC 地址过滤"页添加 / 删除一条记录）、需登录才能下载的页面代码（`devicemanagement` / `macfilter` / `wifimacfilter` / `childrenprotect` 页面块）和一次只读会话（287 ms，未改任何设置）交叉印证。同日用一台 5 GHz 手机做了真机写验证：经 `applyWifiAccessChange` 写入黑名单后约 **16 s** 该设备在 HostInfo 中变为 `Active=false`，解除后约 **5 s** 重新连上，结束时路由器配置与测试前逐字段一致。下文样本只用 RFC 7042 文档保留 MAC。
 
@@ -624,7 +624,7 @@ sequenceDiagram
 
 **未实现**：固件的 321 个接口中没有按设备限速（QoS / 带宽上限）的接口，`appturbo`（游戏加速）与 `security/acl`（远程管理访问控制）都不是限速，因此"即时限速 / 定时限速"无法在这台 CPE 上实现。
 
-## 4. 核心算法与数学计算公式（已封装于 `src/band-lock.ts` 与 `src/protocols/hilink/parsers.ts`）
+## 4. 核心算法与数学计算公式（已封装于 `src/drivers/huawei/band-lock.ts` 与 `src/protocols/hilink/parsers.ts`）
 
 ### 4.1 4G LTE / 5G NR `BandMask` 位掩码算法
 
@@ -634,7 +634,7 @@ $$
 \text{BitOffset}(N) = N - 1, \qquad \text{BandMask}(\mathcal{B}) = \sum_{N \in \mathcal{B}} 2^{N - 1}
 $$
 
-编码为**不含 `0x` 前缀、去除前导零的小写十六进制字符串**（见 [`bandsToHexMask()`](../../src/band-lock.ts) 与 [`hexMaskToBands()`](../../src/band-lock.ts)）：
+编码为**不含 `0x` 前缀、去除前导零的小写十六进制字符串**（见 [`bandsToHexMask()`](../../src/rf-bounds.ts) 与 [`hexMaskToBands()`](../../src/rf-bounds.ts)）：
 
 | 常见频段 | 位偏移 ($N-1$) | 单频段掩码 (`hex`) | H168-383 实测说明 |
 | :--- | :--- | :--- | :--- |
@@ -657,7 +657,7 @@ $$
 | **LTE 自动全频段常量** | `0..62` | **`7fffffffffffffff`** | 恢复 4G 自动选频固定常量 |
 | **2G/3G `NetworkBand` 自动常量** | `0..29` | **`3fffffff`** | 写入 `/api/net/net-mode` 固定常量 |
 
-#### 锁定参数边界（Phase 2.5，[`src/band-lock.ts`](../../src/band-lock.ts)）
+#### 锁定参数边界（Phase 2.5，[`src/rf-bounds.ts`](../../src/rf-bounds.ts)）
 
 - **LTE 频段白名单**：真机 `GET /api/net/net-mode-list` 的 `<LTEBandList>` 通告 `LTE BC1/BC3/BC5/BC7/BC8/BC20/BC28/BC32/BC38/BC40/BC41/BC42/BC43/BC71`（掩码 `40000007a0880800d5`，与 HAR 抓包一致）。锁 LTE 频段（`buildLteBandNetModeXml`）与 LTE 锁小区只接受这 14 个频段：锁到设备不支持的频段会让调制解调器失去 LTE 锚点，也就失去全部连接。
 - **NR 频段白名单**：路由器不通告 NR 频段（`net-mode-list` 只含 LTE）。白名单取自 Huawei H168-383 规格书：FDD `n1/3/5/7/8/20/28/71/75`、TDD `n38/40/41/77/78/79`（即 `N1/N3/N5/N7/N8/N20/N28/N38/N40/N41/N71/N75/N77/N78/N79`）。同一规格书的 LTE 列表与路由器通告的 14 个频段逐一吻合，`n78` 在真机上实际服务；SUL `n80–n84` 仅上行，不可锁定。
@@ -752,11 +752,11 @@ $$
 
 ### 4.3 基站标识位拆分与双周期流量换算公式
 
-1. **28-bit 4G LTE ECI 拆分（[`decomposeLteEci()`](../../src/band-lock.ts)）**：
+1. **28-bit 4G LTE ECI 拆分（[`decomposeLteEci()`](../../src/rf-math.ts)）**：
    $$
    \text{eNodeB ID} = \text{ECI} \ggg 8 \quad (\text{高 20 位}), \qquad \text{Sector ID} = \text{ECI} \ \& \ \mathtt{0xFF} \quad (\text{低 8 位})
    $$
-2. **36-bit 5G NR NCI 拆分（[`decomposeNrNci()`](../../src/band-lock.ts)，运营商可配高 $k \in [22, 32]$ 位为 `gNodeB ID`，默认 $k=24$）**：
+2. **36-bit 5G NR NCI 拆分（[`decomposeNrNci()`](../../src/rf-math.ts)，运营商可配高 $k \in [22, 32]$ 位为 `gNodeB ID`，默认 $k=24$）**：
    $$
    \text{gNodeB ID} = \text{NCI} \gg (36 - k), \qquad \text{Sector ID} = \text{NCI} \ \& \ \left(2^{36 - k} - 1\right)
    $$
@@ -977,7 +977,7 @@ $$
 | 邻区 | `GET /api/device/nbrcellinfo` | 参考项目没有这个接口（H168-383 实测，3.3 节） | 回错误码就是「此型号不可用」，后台扫描不再问它，用户手动刷新时才再试 |
 | 频段 | `GET /api/net/net-mode-list` 的 `LTEBandList`（识别时读，A.7） | 参考项目 `api/Net.py` | 设备页显示它通告的 LTE 频段；没有就显示「没有列出」。参考项目没有按型号整理的频段表，烽燧也不猜；H168-383 用已验证的频段表 |
 | 终端列表 | ① `GET /api/system/HostInfo`（JSON 数组，H168-383）② `GET /api/lan/HostInfo` ③ `GET /api/wlan/host-list`（只有 Wi-Fi 客户端） | 参考项目 `api/System.py`（`hostinfo`）、`api/Lan.py`（`host_info`）、`api/WLan.py`（`host_list`）：后两个返回 `<Hosts><Host>…</Host></Hosts>`，只有一台设备时可能只有一个 `Host`，也可能什么都没有 | 依次尝试，用第一个读得懂的（回 `100002` / `100003` 才换下一个；其他错误码让这次读取失败，下次再试）；快照的 `source` 记下来源（`wlan/host-list` 时界面注明只有 Wi-Fi 设备）。**推断**：参考项目没有列出 `Host` 里的字段名，烽燧按 `system/HostInfo` 的字段名（`MacAddress` / `MACAddress`、`IpAddress`、`HostName`、`ActualName`、`Active`、`InterfaceType`、`Frequency` 等，不分大小写）读取；没有 MAC 的条目丢弃；有条目却一个都读不懂时算「读不懂」，不显示成「没有设备」 |
-| 路由器设置（UPnP、DMZ、防火墙、NAT、桥接、Wi-Fi 7、天线、移动数据） | H168-383 的 9 个接口（[`fetchRouterSettings`](../../src/cpe-domain.ts)，3.7 节） | — | 仍是全有或全无（开关值不能猜）；任何一个回错误码或读不懂，就整项「此型号不可用」（未验证型号本来也不能写） |
+| 路由器设置（UPnP、DMZ、防火墙、NAT、桥接、Wi-Fi 7、天线、移动数据） | H168-383 的 9 个接口（[`fetchRouterSettings`](../../src/drivers/huawei/requests.ts)，3.7 节） | — | 仍是全有或全无（开关值不能猜）；任何一个回错误码或读不懂，就整项「此型号不可用」（未验证型号本来也不能写） |
 | 访问控制（Wi-Fi MAC 过滤、上网时段） | `GET /api/wlan/multi-macfilter-settings-ex` 等（3.9 节） | — | 同上 |
 | 短信 | `GET /api/sms/sms-count`；明文 `POST /api/sms/sms-list`（字段顺序 `PageIndex`、`ReadCount`、`BoxType`、`SortType`、`Ascending`、`UnreadPreferred`，参考项目注明「至少 B525s-23a 对顺序敏感」；消息字段 `Index`、`Smstat`、`Phone`、`Content`、`Date`）；明文被拒时才用 H168-383 的加密列表 | 参考项目 `api/Sms.py`（`sms_count`、`get_sms_list`、`Message.from_dict`） | 烽燧的明文请求本来就是这个顺序。没有 `sms-count` 的型号「短信不可用」，后台不再同步；旧式登录没有加密通道，明文被拒时加密列表也不可用 |
 

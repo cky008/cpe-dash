@@ -14,7 +14,7 @@ import {
   buildNrBandLockXml,
   buildNrCellLockXml,
   buildUnlockAllLocksXml,
-} from "../src/band-lock.ts";
+} from "../src/drivers/huawei/band-lock.ts";
 import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask, LTE_DL_EARFCN_RANGES, NR_DL_ARFCN_RANGES, hexMaskToBands, parseBandNumber } from "../src/rf-bounds.ts";
 import { decomposeLteEci, decomposeNrNci } from "../src/rf-math.ts";
 import { getXmlBlocks, getXmlTag } from "../src/protocols/hilink/xml.ts";

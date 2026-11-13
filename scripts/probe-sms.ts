@@ -2,7 +2,7 @@ import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { extractVerificationCode } from "../src/sms/otp.ts";
 import { parseSenderInfo } from "../src/sms/phone.ts";
-import { checkSmsNotifications, fetchAllMessages } from "../src/sms/protocol.ts";
+import { checkSmsNotifications, fetchAllMessages } from "../src/drivers/huawei/sms.ts";
 import type { SenderCategory } from "../src/sms/types.ts";
 
 /**

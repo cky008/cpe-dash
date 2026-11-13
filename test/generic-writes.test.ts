@@ -6,7 +6,7 @@ import { CpeControlValidationError } from "../src/cpe-domain.ts";
 import { genericBandLock, genericMobileData, genericReboot, genericReconnect, readWanRepairBlockerTolerant } from "../src/protocols/hilink/generic-writes.ts";
 import { newWriteCheck } from "../src/device-access.ts";
 import { validateGenericBandLock } from "../src/control-input.ts";
-import { genericDeleteSms, genericMarkSmsRead, genericSendSms } from "../src/sms/protocol.ts";
+import { genericDeleteSms, genericMarkSmsRead, genericSendSms } from "../src/drivers/huawei/sms.ts";
 import { prepareSmsSubmission } from "../src/sms/submission.ts";
 import { validateGenericSmsContent } from "../src/sms/text-mode.ts";
 import { type CpeFamilyOptions, type FamilySms, type FamilyWrites, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";

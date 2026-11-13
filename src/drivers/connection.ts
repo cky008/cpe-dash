@@ -6,7 +6,7 @@ import { DEFAULT_REQUEST_TIMEOUT_MS, type SessionClient, type WithSessionOptions
 import type { CpeLoginState, SessionExecutionOutcome } from "../types.ts";
 import { DriverRouterSession, driverFamilyDriver } from "./adapter.ts";
 import { createDriverClient } from "./brands.ts";
-import { HilinkRouterSession, huaweiDriver } from "./huawei.ts";
+import { HilinkRouterSession, huaweiDriver } from "./huawei/driver.ts";
 import { CounterRates } from "./snapshot.ts";
 
 /**

@@ -8,7 +8,7 @@ export * from "./redact.ts";
 export * from "./access-plan.ts";
 export * from "./access-control.ts";
 export * from "./encrypted-file.ts";
-export * from "./band-lock.ts";
+export * from "./drivers/huawei/band-lock.ts";
 export * from "./protocols/hilink/parsers.ts";
 export * from "./protocols/hilink/client.ts";
 export * from "./cpe-domain.ts";

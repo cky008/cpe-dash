@@ -3,8 +3,8 @@ import crypto from "node:crypto";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { ReentrantCpeSessionError } from "../src/session-errors.ts";
+import { CpeControlValidationError } from "../src/cpe-domain.ts";
 import {
-  CpeControlValidationError,
   applyBandLock,
   applyCellLock,
   fetchGlobalTelemetry,
@@ -18,7 +18,7 @@ import {
   updateMobileDataSwitch,
   updateSecuritySettings,
   updateWifi7Mlo,
-} from "../src/cpe-domain.ts";
+} from "../src/drivers/huawei/requests.ts";
 import { computeScram } from "../src/protocols/hilink/crypto.ts";
 import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 

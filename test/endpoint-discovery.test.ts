@@ -79,8 +79,8 @@ describe("endpoint discovery: what may be read", () => {
   it("knows exactly the router endpoints the protocol modules use", () => {
     const used = new Set<string>();
     // Everything that speaks HiLink: the protocol parts, the Huawei request sequences, the identification probe and the login-free read
-    const hilink = readdirSync("src/protocols/hilink").map((name) => `src/protocols/hilink/${name}`);
-    for (const file of [...hilink, "src/cpe-domain.ts", "src/access-control.ts", "src/sms/protocol.ts", "src/device-profile.ts", "src/scheduler.ts"]) {
+    const hilink = ["src/protocols/hilink", "src/drivers/huawei"].flatMap((dir) => readdirSync(dir).map((name) => `${dir}/${name}`));
+    for (const file of [...hilink, "src/device-profile.ts", "src/scheduler.ts"]) {
       for (const match of readFileSync(file, "utf8").matchAll(/"(\/api\/[A-Za-z0-9_/-]+)"/g)) used.add(match[1] ?? "");
     }
     assert.ok(used.size >= 50, `found ${used.size}`);

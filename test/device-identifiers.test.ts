@@ -2,12 +2,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
-import {
-  type GlobalTelemetrySnapshot,
-  type TerminalTopologySnapshot,
-  fetchGlobalTelemetry,
-  fetchTerminalTopology,
-} from "../src/cpe-domain.ts";
+import { type GlobalTelemetrySnapshot, type TerminalTopologySnapshot } from "../src/cpe-domain.ts";
+import { fetchGlobalTelemetry, fetchTerminalTopology } from "../src/drivers/huawei/requests.ts";
 import { REDACTED, auditForOutput, redactTelemetry, redactTopology } from "../src/redact.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";

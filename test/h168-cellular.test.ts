@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_NET_MODE_KEEP } from "../src/band-lock.ts";
+import { DEFAULT_NET_MODE_KEEP } from "../src/drivers/huawei/band-lock.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
-import { type GlobalTelemetrySnapshot, type PersistedLockState, netModeKeepOf } from "../src/cpe-domain.ts";
+import { type GlobalTelemetrySnapshot, type PersistedLockState } from "../src/cpe-domain.ts";
+import { netModeKeepOf } from "../src/drivers/huawei/requests.ts";
 import { DeviceAccess, newWriteCheck } from "../src/device-access.ts";
-import { HilinkRouterSession, huaweiDriver } from "../src/drivers/huawei.ts";
+import { HilinkRouterSession, huaweiDriver } from "../src/drivers/huawei/driver.ts";
 import type { VerifiedFeature } from "../src/firmware.ts";
 import type { RouterSessionContext } from "../src/router-session.ts";
 import type { WriteContext } from "../src/scheduler.ts";

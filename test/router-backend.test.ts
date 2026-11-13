@@ -89,7 +89,7 @@ describe("router backend: one interface for every brand", () => {
     // Every write is a verb too: the write service opens no session of either stack
     const controls = fs.readFileSync("src/cpe-controls.ts", "utf8");
     assert.ok(!/\bexecute(Read|Control)\(/.test(controls), "the write service opens a session itself: go through RouterBackend");
-    assert.ok(!/from "\.\/(generic-writes|access-control)\.ts"/.test(controls.replace(/import type [^;]+;/g, "")), "the write service speaks a router's wire format: go through RouterBackend");
+    assert.ok(!/from "\.\/(protocols|drivers)\//.test(controls.replace(/import type [^;]+;/g, "")), "the write service speaks a router's wire format: go through RouterBackend");
     // SMS is a set of verbs like every other capability: its service opens no session and speaks no router's wire format
     const sms = fs.readFileSync("src/sms/service.ts", "utf8");
     assert.ok(!/\bexecute(Read|Control)\(/.test(sms), "the SMS service opens a session itself: go through RouterBackend");

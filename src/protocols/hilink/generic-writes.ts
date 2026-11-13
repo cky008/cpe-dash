@@ -10,13 +10,15 @@ import { bandsToHexMask } from "../../rf-bounds.ts";
 import { getXmlBlocks, getXmlTag, getXmlTextPreserve } from "./xml.ts";
 
 /**
- * The writes FengSui does on a HiLink router of a model nobody verified (on by default, each can be
- * turned off): the HiLink request formats of docs/dev/protocol.md appendix A.11, nothing
- * guessed. Each one runs inside the write's own session (the scheduler's `control`), is never
- * retried, and fills a `WriteCheck`: the endpoints it posted to and what reading them back in the
- * same session showed (a redial and a reboot are left `pending` for the polls that follow). A
- * read-back that fails after the router took the write never fails the write. The H168-383 never
- * comes here: its verified writes live in `cpe-domain.ts`.
+ * The writes FengSui does on a HiLink router with the requests the interface notes give
+ * (docs/dev/protocol.md appendix A.11 and A.12), nothing guessed: every write of a model nobody
+ * verified (on by default, each can be turned off), and the cellular settings, which the H168-383
+ * is written with too where they were checked on it. Each one runs inside the write's own session
+ * (the scheduler's `control`), is never retried, and fills a `WriteCheck`: the endpoints it posted to
+ * and what reading them back in the same session showed (a redial and a reboot are left `pending`
+ * for the polls that follow). A read-back that fails after the router took the write never fails
+ * the write. The H168-383's own verified writes (locks, switches, reboot, redial) never come here:
+ * they are the Huawei driver's (`src/drivers/huawei/requests.ts`).
  */
 
 const NET_MODE = "/api/net/net-mode";

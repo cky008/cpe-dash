@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { accessGuardFromHosts, applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../src/access-control.ts";
+import { accessGuardFromHosts } from "../src/access-control.ts";
+import { applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../src/drivers/huawei/access-control.ts";
 import { parseTimeRules, parseWifiMacFilter } from "../src/protocols/hilink/access-control.ts";
 import { HuaweiCpeClient, type EphemeralCpeSession } from "../src/protocols/hilink/client.ts";
-import { CpeControlValidationError, fetchTerminalTopology } from "../src/cpe-domain.ts";
+import { CpeControlValidationError } from "../src/cpe-domain.ts";
+import { fetchTerminalTopology } from "../src/drivers/huawei/requests.ts";
 import { trailingNumber } from "../src/cpe-controls.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 

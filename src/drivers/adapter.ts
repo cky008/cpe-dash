@@ -42,7 +42,7 @@ import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/submission.
 import type { SmsCounters, SmsSendResult } from "../sms/types.ts";
 import { bandsToHex, hexToBands } from "./bands.ts";
 import { driverTopologySnapshot } from "./hosts.ts";
-import { genericLockState } from "./huawei.ts";
+import { genericLockState } from "./huawei/driver.ts";
 import { settleRestart } from "./readback.ts";
 import { type CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./snapshot.ts";
 import { settleSmsSend, storedIndices } from "./sms.ts";

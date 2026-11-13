@@ -1,9 +1,7 @@
-import { type AccessControlSnapshot, type AccessRequestContext, type TimeRulesState, applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../access-control.ts";
-import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
-import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, LinkChange, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
-import type { NetModeKeep } from "../band-lock.ts";
-import { assertOneCell, validateGenericBandLock } from "../control-input.ts";
-import type { EphemeralCpeSession } from "../protocols/hilink/client.ts";
+import type { AccessControlSnapshot, AccessRequestContext, TimeRulesState } from "../../access-control.ts";
+import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "../../access-plan.ts";
+import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, LinkChange, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../../cellular.ts";
+import { assertOneCell, validateGenericBandLock } from "../../control-input.ts";
 import {
   type AntennaModeName,
   type BandLockCommand,
@@ -15,6 +13,35 @@ import {
   type RouterSettingsSnapshot,
   type SecurityUpdateCommand,
   type TerminalTopologySnapshot,
+} from "../../cpe-domain.ts";
+import { type DeviceAccess, type WriteFeature, gateRefuses } from "../../device-access.ts";
+import { type DeviceProbeResult, type ProbeOrigin, probeDevice } from "../../device-profile.ts";
+import type { EphemeralCpeSession } from "../../protocols/hilink/client.ts";
+import {
+  genericBandLock,
+  genericCellularRead,
+  genericMobileData,
+  genericNetworkMode,
+  genericReboot,
+  genericReconnect,
+  genericRoaming,
+  genericScanOperators,
+  genericSelectOperator,
+  genericTrafficReset,
+  genericUssd,
+  readWanRepairBlockerTolerant,
+} from "../../protocols/hilink/generic-writes.ts";
+import { getXmlTag } from "../../protocols/hilink/xml.ts";
+import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "../../router-backend.ts";
+import { CELLULAR_WRITE_FEATURES } from "../../router-family.ts";
+import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../../router-session.ts";
+import type { MutexSessionScheduler, WriteContext } from "../../scheduler.ts";
+import type { PreparedSmsSubmission, SubmitSmsOptions } from "../../sms/submission.ts";
+import { validateGenericSmsContent } from "../../sms/text-mode.ts";
+import type { SmsWireMessage } from "../../sms/types.ts";
+import { applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "./access-control.ts";
+import type { NetModeKeep } from "./band-lock.ts";
+import {
   applyBandLock,
   applyCellLock,
   fetchGlobalTelemetry,
@@ -34,40 +61,16 @@ import {
   updateMobileDataSwitch,
   updateSecuritySettings,
   updateWifi7Mlo,
-} from "../cpe-domain.ts";
-import { type DeviceAccess, type WriteFeature, gateRefuses } from "../device-access.ts";
-import { type DeviceProbeResult, type ProbeOrigin, probeDevice } from "../device-profile.ts";
-import {
-  genericBandLock,
-  genericCellularRead,
-  genericMobileData,
-  genericNetworkMode,
-  genericReboot,
-  genericReconnect,
-  genericRoaming,
-  genericScanOperators,
-  genericSelectOperator,
-  genericTrafficReset,
-  genericUssd,
-  readWanRepairBlockerTolerant,
-} from "../protocols/hilink/generic-writes.ts";
-import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "../router-backend.ts";
-import { CELLULAR_WRITE_FEATURES } from "../router-family.ts";
-import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
-import type { MutexSessionScheduler, WriteContext } from "../scheduler.ts";
-import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, genericDeleteSms, genericMarkSmsRead, genericSendSms, markSmsRead, submitSms } from "../sms/protocol.ts";
-import { type PreparedSmsSubmission, type SubmitSmsOptions } from "../sms/submission.ts";
-import { validateGenericSmsContent } from "../sms/text-mode.ts";
-import { getXmlTag } from "../protocols/hilink/xml.ts";
-import type { SmsWireMessage } from "../sms/types.ts";
+} from "./requests.ts";
+import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, genericDeleteSms, genericMarkSmsRead, genericSendSms, markSmsRead, submitSms } from "./sms.ts";
 
 /**
  * Huawei HiLink as a brand driver: the H168-383's verified request sequences, and on another HiLink
  * model the tolerant reads and the generic writes the gate has open (`write.generic`, appendix A.11
  * and A.12 of the protocol notes). The session is `EphemeralCpeSession`
- * (`src/protocols/hilink/client.ts`); the requests themselves are in `cpe-domain.ts`,
- * `access-control.ts` and `sms/protocol.ts`, and the generic ones in
- * `src/protocols/hilink/generic-writes.ts`.
+ * (`src/protocols/hilink/client.ts`). The requests themselves are beside this file: the H168-383's
+ * verified sequences in `requests.ts`, `access-control.ts` and `sms.ts` (its lock payloads in
+ * `band-lock.ts`); the generic ones are the protocol's, `src/protocols/hilink/generic-writes.ts`.
  *
  * The cellular settings came after the H168-383 was verified: a model nobody verified gets the ones
  * whose requests the notes give (network mode, operator, data roaming, traffic counters, USSD), and the

@@ -1,4 +1,4 @@
-import { buildLteBandNetModeXml, buildLteCellLockXml, buildNrBandLockXml, buildNrCellLockXml, buildUnlockAllLocksXml } from "../src/band-lock.ts";
+import { buildLteBandNetModeXml, buildLteCellLockXml, buildNrBandLockXml, buildNrCellLockXml, buildUnlockAllLocksXml } from "../src/drivers/huawei/band-lock.ts";
 import { bandsToHexMask, hexMaskToBands } from "../src/rf-bounds.ts";
 import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";

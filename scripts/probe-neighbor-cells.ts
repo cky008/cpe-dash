@@ -1,4 +1,4 @@
-import { buildLteCellLockXml, buildNrCellLockXml } from "../src/band-lock.ts";
+import { buildLteCellLockXml, buildNrCellLockXml } from "../src/drivers/huawei/band-lock.ts";
 import { loadConfig } from "../src/config.ts";
 import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { parseNeighborCellsXml } from "../src/protocols/hilink/parsers.ts";

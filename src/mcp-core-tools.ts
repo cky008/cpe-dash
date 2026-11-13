@@ -12,7 +12,8 @@ import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS, type DiscoveredEndpoint, disco
 import type { ExperimentalSwitchResult } from "./experimental-switch.ts";
 import type { ControlAction, ReadSection, WriteFeature } from "./device-access.ts";
 import { FAMILY_WRITE_FEATURES } from "./router-family.ts";
-import { type CellLockCommand, CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
+import { type CellLockCommand, CpeControlValidationError, isObservedCellTarget } from "./cpe-domain.ts";
+import { prepareCellLockPayload } from "./drivers/huawei/requests.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
 import { telemetryForOutput, topologyForOutput } from "./redact.ts";
 import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
@@ -602,6 +603,7 @@ export class CoreMcpTools implements McpToolProvider {
 
       case "lock_cell": {
         const command = readCellLockCommand(args, { allowNullPci: false });
+        // The H168-383's own bounds, whatever the brand (as before the Huawei requests moved to their driver)
         prepareCellLockPayload(command);
         // An agent may only lock onto cells the modem has reported, never an invented PCI/ARFCN pair
         const observed = (cell: CellLockCommand): boolean => isObservedCellTarget(cell, this.core.monitor.getCachedTelemetry(), this.core.monitor.getCachedNeighbors());

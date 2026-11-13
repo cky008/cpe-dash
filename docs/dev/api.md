@@ -540,7 +540,7 @@ export type AlertCode =
 
 ### 2.7 设备访问控制路由（v1.1.0）
 
-封装路由器自带的 Wi-Fi MAC 过滤与家长控制"上网时段"（协议见 `protocol.md` 3.9 节）。规划与校验在 [`src/access-plan.ts`](../../src/access-plan.ts)（前端用同一份代码预览），读写在 [`src/access-control.ts`](../../src/access-control.ts)。
+封装路由器自带的 Wi-Fi MAC 过滤与家长控制"上网时段"（协议见 `protocol.md` 3.9 节）。规划与校验在 [`src/access-plan.ts`](../../src/access-plan.ts)（前端用同一份代码预览），读写在 [`src/drivers/huawei/access-control.ts`](../../src/drivers/huawei/access-control.ts)（报文的解析与拼法在 [`src/protocols/hilink/access-control.ts`](../../src/protocols/hilink/access-control.ts)）。
 
 | 路由 | 请求体 | 成功响应 |
 | :--- | :--- | :--- |
@@ -816,7 +816,7 @@ export type AlertCode =
 
 - 关闭与重新打开都不需要确认词：默认就是开的，开关只表达「我不要这一项」。控制台在开关旁写明「没有在真机上验证过」，每个写操作自己的确认框里也保留这句提醒。
 
-**放行之后怎么写**（HiLink 型号：[`src/protocols/hilink/generic-writes.ts`](../../src/protocols/hilink/generic-writes.ts)、[`src/sms/protocol.ts`](../../src/sms/protocol.ts)，请求格式见附录 A.11；其他品牌：各自的驱动，`src/drivers/`）：
+**放行之后怎么写**（HiLink 型号：[`src/protocols/hilink/generic-writes.ts`](../../src/protocols/hilink/generic-writes.ts)、[`src/drivers/huawei/sms.ts`](../../src/drivers/huawei/sms.ts)，请求格式见附录 A.11；其他品牌：各自的驱动，`src/drivers/`）：
 
 - 仍然只经调度器的 `control`，**绝不重试**；REST、MCP、Telegram、WAN 自愈（锁频回滚、自动重拨）与短信服务都走同一个闸门。HiLink 型号的实验性锁频 **只锁 LTE**，频段只能取 `lteBands`（`net-mode-list` 通告的），NR 频段、锁小区和其他频段在入队前就以 `400 VALIDATION_ERROR` 拒绝；实验性短信不收表情等基本多文种平面以外的字符（同样 `400`）。
 - **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`（列出了每个收件人才算一致，一个都没列出为「无法核对」）；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致（计数为 0 不算，没有这个字段时也读成 0）；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。

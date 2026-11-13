@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { hilinkSessionOf } from "../src/drivers/huawei.ts";
+import { hilinkSessionOf } from "../src/drivers/huawei/driver.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import path from "node:path";

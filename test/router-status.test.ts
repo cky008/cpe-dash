@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { hilinkRouterStatus } from "../src/cpe-domain.ts";
+import { hilinkRouterStatus } from "../src/drivers/huawei/requests.ts";
 import { driverRouterStatus, driverTelemetrySnapshot, emptyCell } from "../src/drivers/snapshot.ts";
 import type { DriverTelemetry } from "../src/drivers/types.ts";
 import { ecioOf, iccidOf, imeiOf, imsiOf, msisdnOf, rscpOf, txPowerOf } from "../src/drivers/values.ts";

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { HuaweiCpeClient, type EphemeralCpeSession } from "../src/protocols/hilink/client.ts";
 import { CpeControlValidationError } from "../src/cpe-domain.ts";
-import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, markSmsRead, readSmsCounters, submitSms } from "../src/sms/protocol.ts";
+import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, markSmsRead, readSmsCounters, submitSms } from "../src/drivers/huawei/sms.ts";
 import { parseSmsCounters } from "../src/protocols/hilink/sms.ts";
 import { MAX_SMS_RECIPIENTS, prepareSmsSubmission } from "../src/sms/submission.ts";
 import { getXmlTag } from "../src/protocols/hilink/xml.ts";

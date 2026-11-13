@@ -1,12 +1,12 @@
-import type { EphemeralCpeSession } from "../protocols/hilink/client.ts";
-import { CpeApiError } from "../session-errors.ts";
-import { type WriteCheck, settleCheck } from "../device-access.ts";
-import type { MutexSessionScheduler } from "../scheduler.ts";
-import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../protocols/hilink/xml.ts";
-import { parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "../protocols/hilink/sms.ts";
-import { type PreparedSmsSubmission, type SubmitSmsOptions, unconfirmedSendResult } from "./submission.ts";
-import { validateGenericSmsContent } from "./text-mode.ts";
-import type { SmsCounters, SmsFetchResult, SmsSendResult, SmsWireMessage } from "./types.ts";
+import type { EphemeralCpeSession } from "../../protocols/hilink/client.ts";
+import { CpeApiError } from "../../session-errors.ts";
+import { type WriteCheck, settleCheck } from "../../device-access.ts";
+import type { MutexSessionScheduler } from "../../scheduler.ts";
+import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../../protocols/hilink/xml.ts";
+import { parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "../../protocols/hilink/sms.ts";
+import { type PreparedSmsSubmission, type SubmitSmsOptions, unconfirmedSendResult } from "../../sms/submission.ts";
+import { validateGenericSmsContent } from "../../sms/text-mode.ts";
+import type { SmsCounters, SmsFetchResult, SmsSendResult, SmsWireMessage } from "../../sms/types.ts";
 
 /**
  * H168-383 SMS wire operations. Every function runs inside an `EphemeralCpeSession` handed out by
@@ -22,7 +22,7 @@ const CONTACT_PAGE_SIZE = 20;
 const INDEX_BATCH_SIZE = 20;
 const MAX_LIST_PAGES = 40;
 
-export type { SmsFetchResult, SmsListingPath } from "./types.ts";
+export type { SmsFetchResult, SmsListingPath } from "../../sms/types.ts";
 
 function readInt(xml: string, tag: string, fallback: number): number {
   const parsed = Number.parseInt(getXmlTag(xml, tag) ?? "", 10);
