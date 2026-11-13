@@ -63,7 +63,7 @@ cpe-dash/
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
 │   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照（含电量、充电、SIM 卡锁住、飞行模式、漫游、路由器的负载与运行时间、各类温度传感器）与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
 │   ├── sms/                # 短信：编解码（codec.ts 是华为的报文，text-mode.ts 是 GSM 7-bit 字母表与分段计数，pdu.ts 是 3GPP TS 23.040 的 PDU：7-bit 打包、UCS-2、长短信的 UDH、SMS-DELIVER / SMS-SUBMIT）、号码解析、华为协议、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具
-│   ├── notify/             # Telegram Bot API 客户端与双向机器人、签名 Webhook、通知中心
+│   ├── notify/             # Telegram Bot API 客户端与双向机器人（短信，以及 /netmode、/airplane、/ussd 三条蜂窝设置指令：每次写入都要点卡片上的确认，卡片带一次性令牌、两分钟失效）、签名 Webhook、通知中心
 │   ├── http-server.ts      # REST / SSE / Streamable HTTP MCP 路由（Host 白名单）；http-auth.ts 会话与限流、http-static.ts 静态资源、http-cellular.ts 蜂窝设置的写路由
 │   ├── control-input.ts    # REST、MCP 与在线演示共用的入参校验（零依赖；control-error.ts 为其错误类）；mcp-schema.ts 工具 inputSchema 运行时校验
 │   ├── sse-bus.ts          # /api/events SSE 总线
@@ -159,7 +159,7 @@ cpe-dash/
 2. **防伪造反代头绕过限流**：速率限制器与审计日志默认提取底层 Socket 直连地址 `req.socket.remoteAddress`；仅当直连对端精确命中 `.env` 中 `TRUSTED_PROXIES` 白名单时，才允许解析 `X-Forwarded-For` / `X-Forwarded-Proto`。
 3. **防原型链污染 (Prototype Pollution)**：解析外部 JSON、URL Query 或 XML 键值映射时统一使用无原型字典（`Object.create(null)`）或 `Map`，并显式拦截过滤 `__proto__`、`constructor`、`prototype` 危险键名。
 4. **防正则回溯拒绝服务 (ReDoS)**：对 HTTP 请求体、XML 报文及正则输入施加上限截断（如单报文上限校验），采用确定性边界扫描提取标签，严禁在未受信输入上运行含嵌套量词的回溯正则。
-5. **MCP 提示词注入防御**：短信正文与发件人名称来自第三方，USSD 的应答和搜到的运营商名称来自运营商，MCP 工具结果必须附带不可信数据声明；所有 MCP 写工具（锁频锁站、开关、重拨重启、访问控制、蜂窝设置、短信发送 / 已读 / 删除、通讯录）都强制 `confirm: true`，服务端在 Schema 校验与任何会话之前检查；`send_sms` 单收件人、默认仅限已知号码 (`MCP_SMS_SEND_POLICY=known`) 且按小时限额，`delete_sms` 默认拒绝删除未读短信。Telegram `/auth` 采用常量时间比对并按聊天与全局双重限流。
+5. **MCP 提示词注入防御**：短信正文与发件人名称来自第三方，USSD 的应答和搜到的运营商名称来自运营商，MCP 工具结果必须附带不可信数据声明；所有 MCP 写工具（锁频锁站、开关、重拨重启、访问控制、蜂窝设置、短信发送 / 已读 / 删除、通讯录）都强制 `confirm: true`，服务端在 Schema 校验与任何会话之前检查；`send_sms` 单收件人、默认仅限已知号码 (`MCP_SMS_SEND_POLICY=known`) 且按小时限额，`delete_sms` 默认拒绝删除未读短信。Telegram `/auth` 采用常量时间比对并按聊天与全局双重限流；Telegram 里每个会改动路由器的指令（短信发送与删除、`/netmode`、`/airplane`、`/ussd`）都要点卡片上的确认按钮，确认按钮绑定一次性令牌与聊天、两分钟失效，写闸门拒绝的写入不给出卡片；USSD 的指令与应答只出现在聊天里，不进机器人的日志。
 6. **防服务端请求伪造 (SSRF)**：[`normalizeCpeUrl()`](src/config.ts) 严格校验协议仅限 `http:` / `https:`、禁止内嵌 `username:password@`、禁止查询串与片段注入，并强制校验目标主机属于合法局域网/私网地址空间（RFC 1918 / RFC 6598 / Loopback / 本地单节点），请求全程启用 `redirect: "error"` 阻断跨源重定向逃逸。
 
 ### 铁律七：强制 TDD（红-绿-重构）与 >= 90% 覆盖率质量门禁
