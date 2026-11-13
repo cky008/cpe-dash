@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient, type EphemeralCpeSession } from "../src/cpe-client.ts";
+import { HuaweiCpeClient, type EphemeralCpeSession } from "../src/protocols/hilink/client.ts";
 import { CpeControlValidationError } from "../src/cpe-domain.ts";
 import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, markSmsRead, readSmsCounters, submitSms } from "../src/sms/protocol.ts";
-import { parseSmsCounters } from "../src/sms/codec.ts";
+import { parseSmsCounters } from "../src/protocols/hilink/sms.ts";
 import { MAX_SMS_RECIPIENTS, prepareSmsSubmission } from "../src/sms/submission.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { createMockSmsCpe, type MockSms } from "./helpers/mock-sms-cpe.ts";
 
 const noSleep = async (): Promise<void> => undefined;

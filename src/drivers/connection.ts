@@ -1,4 +1,4 @@
-import { HuaweiCpeClient } from "../cpe-client.ts";
+import { HuaweiCpeClient } from "../protocols/hilink/client.ts";
 import { ApiErrorTally, type LoginScheme } from "../device-profile.ts";
 import { type RouterFamily, isDriverFamily } from "../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext } from "../router-session.ts";

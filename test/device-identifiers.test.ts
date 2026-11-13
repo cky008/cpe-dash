@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import {
   type GlobalTelemetrySnapshot,
   type TerminalTopologySnapshot,

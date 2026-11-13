@@ -1,6 +1,6 @@
 import { huaweiXssDecode, huaweiXssEncode } from "./crypto.ts";
-import { stripInvalidControlChars } from "./text-sanitize.ts";
-import type { ParsedXmlError } from "./types.ts";
+import { stripInvalidControlChars } from "../../text-sanitize.ts";
+import type { ParsedXmlError } from "../../types.ts";
 
 /**
  * Maximum XML payload size accepted by the parser (2 MiB) to defend against memory/ReDoS abuse.

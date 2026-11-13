@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { maskPhoneNumber } from "../src/sanitize.ts";
-import { parseSmsMessageBlock } from "../src/sms/codec.ts";
+import { parseSmsMessageBlock } from "../src/protocols/hilink/sms.ts";
 import { extractVerificationCode } from "../src/sms/otp.ts";
 import { MAX_SMS_SEGMENTS, SMS_TEXT_MODE_7BIT, SMS_TEXT_MODE_UCS2, detectSmsTextMode } from "../src/sms/text-mode.ts";
 import {
@@ -16,7 +16,7 @@ import {
   parseSenderInfo,
   resolveRecipientPhone,
 } from "../src/sms/phone.ts";
-import { PreEscapedXmlText, buildXmlRequest, getXmlTextPreserve } from "../src/xml.ts";
+import { PreEscapedXmlText, buildXmlRequest, getXmlTextPreserve } from "../src/protocols/hilink/xml.ts";
 
 describe("Pre-escaped XML wire text & whitespace-preserving extraction", () => {
   it("emits Huawei xss()-encoded text verbatim so send-sms bytes match the verified WebUI encoder", () => {

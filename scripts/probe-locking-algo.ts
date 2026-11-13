@@ -1,9 +1,9 @@
 import { buildLteBandNetModeXml, buildLteCellLockXml, buildNrBandLockXml, buildNrCellLockXml, buildUnlockAllLocksXml } from "../src/band-lock.ts";
 import { bandsToHexMask, hexMaskToBands } from "../src/rf-bounds.ts";
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { sanitizeXml } from "../src/sanitize.ts";
-import { getXmlBlocks, getXmlTag } from "../src/xml.ts";
+import { getXmlBlocks, getXmlTag } from "../src/protocols/hilink/xml.ts";
 
 async function main(): Promise<void> {
   const offlineOnly = process.argv.includes("--offline");

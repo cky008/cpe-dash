@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { after, before, describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import {
   DISCOVERY_MAX_PATHS,
   type DiscoverySession,
@@ -78,7 +78,9 @@ describe("endpoint discovery: what may be read", () => {
 
   it("knows exactly the router endpoints the protocol modules use", () => {
     const used = new Set<string>();
-    for (const file of ["src/cpe-domain.ts", "src/cpe-client.ts", "src/access-control.ts", "src/generic-writes.ts", "src/sms/protocol.ts", "src/device-profile.ts", "src/scheduler.ts"]) {
+    // Everything that speaks HiLink: the protocol parts, the Huawei request sequences, the identification probe and the login-free read
+    const hilink = readdirSync("src/protocols/hilink").map((name) => `src/protocols/hilink/${name}`);
+    for (const file of [...hilink, "src/cpe-domain.ts", "src/access-control.ts", "src/sms/protocol.ts", "src/device-profile.ts", "src/scheduler.ts"]) {
       for (const match of readFileSync(file, "utf8").matchAll(/"(\/api\/[A-Za-z0-9_/-]+)"/g)) used.add(match[1] ?? "");
     }
     assert.ok(used.size >= 50, `found ${used.size}`);

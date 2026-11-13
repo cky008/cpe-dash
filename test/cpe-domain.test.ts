@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { ReentrantCpeSessionError } from "../src/session-errors.ts";
 import {
   CpeControlValidationError,
@@ -19,8 +19,8 @@ import {
   updateSecuritySettings,
   updateWifi7Mlo,
 } from "../src/cpe-domain.ts";
-import { computeScram } from "../src/crypto.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { computeScram } from "../src/protocols/hilink/crypto.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 
 function buildMockCpeRouter(opts: {
   password?: string;

@@ -4,7 +4,7 @@ import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import { type SystemStatus, percentValue } from "../router-status.ts";
-import { buildXmlRequest, getXmlTag, parseXmlError } from "../xml.ts";
+import { buildXmlRequest, getXmlTag, parseXmlError } from "../protocols/hilink/xml.ts";
 import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
 import { bandOfChannel, neighbourOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";

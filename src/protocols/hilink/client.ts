@@ -11,14 +11,14 @@ import {
   planLogin,
   readScramChallenge,
   readSesTokInfo,
-} from "./cpe-auth.ts";
+} from "./auth.ts";
 import { aesGcmDecrypt, aesGcmEncrypt, computeScram, generateEccSession, verifyPubkeySignature } from "./crypto.ts";
-import { timingSafeEqualString } from "./constant-time.ts";
-import { ApiErrorTally, type LoginScheme, type TokenFlow } from "./device-profile.ts";
-import { readBoundedResponseText } from "./http-body.ts";
-import type { CpeLoginState, EncryptionType } from "./types.ts";
-import { type SessionAttempt, type SessionAttemptContext, SessionClient, type SessionPrecheck, type SessionProtocol } from "./session-client.ts";
-import { CpeApiError, CpeEncryptionUnavailableError, CpeSessionClosedError, CpeTransportError, LOGIN_UNCONFIRMED_CODE } from "./session-errors.ts";
+import { timingSafeEqualString } from "../../constant-time.ts";
+import { ApiErrorTally, type LoginScheme, type TokenFlow } from "../../device-profile.ts";
+import { readBoundedResponseText } from "../../http-body.ts";
+import type { CpeLoginState, EncryptionType } from "../../types.ts";
+import { type SessionAttempt, type SessionAttemptContext, SessionClient, type SessionPrecheck, type SessionProtocol } from "../../session-client.ts";
+import { CpeApiError, CpeEncryptionUnavailableError, CpeSessionClosedError, CpeTransportError, LOGIN_UNCONFIRMED_CODE } from "../../session-errors.ts";
 import { MAX_XML_BYTES, buildXmlRequest, getXmlTag, parseXmlError } from "./xml.ts";
 
 

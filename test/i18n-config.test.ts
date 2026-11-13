@@ -13,7 +13,7 @@ import {
   resolveTimeZone,
 } from "../src/config.ts";
 import { mirrorDate } from "../src/sms/mirror.ts";
-import { formatHuaweiDate } from "../src/xml.ts";
+import { formatHuaweiDate } from "../src/protocols/hilink/xml.ts";
 import {
   SUPPORTED_LOCALES,
   getFlatCatalog,

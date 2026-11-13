@@ -5,7 +5,7 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { CpeApiError } from "../src/session-errors.ts";
 import { DeviceAccess, isReadRecord } from "../src/device-access.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { parseHostInfoJsonList, parseHostListXml } from "../src/parsers.ts";
+import { parseHostInfoJsonList, parseHostListXml } from "../src/protocols/hilink/parsers.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { SmsService } from "../src/sms/service.ts";

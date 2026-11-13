@@ -369,7 +369,7 @@ export type AlertCode =
 #### `GET /api/neighbors` & `POST /api/neighbors/scan`
 后台每 `NEIGHBOR_SCAN_INTERVAL_MS`（默认 `60s`）扫描一次，首次后台扫描发生在服务启动约 `60s` 后；在此之前 `neighbors` 为 `null` 或上次运行的持久化快照，可调用 `POST /api/neighbors/scan` 立即扫描。
 
-类型定义以源码为准：[`NeighborCellEntry`](../../src/parsers.ts) · [`NeighborScanSnapshot`](../../src/cpe-domain.ts) · [`NeighborsEndpointResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+类型定义以源码为准：[`NeighborCellEntry`](../../src/cpe-domain.ts) · [`NeighborScanSnapshot`](../../src/cpe-domain.ts) · [`NeighborsEndpointResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
 - **`NeighborCellEntry`**
   - `band`：e.g. "B1", "B3", "N78"
@@ -381,7 +381,7 @@ export type AlertCode =
 
 > **XSS 安全提醒**：终端 `displayName` 源自局域网客户端不可信 DHCP/mDNS 广播，Phase 3 前端渲染时**必须**使用纯文本节点（`textContent` 或自动转义绑定），严禁使用 `innerHTML`！
 
-类型定义以源码为准：[`TerminalAccessMedium`](../../src/parsers.ts) · [`TerminalHostEntry`](../../src/parsers.ts) · [`TerminalTopologySnapshot`](../../src/cpe-domain.ts) · [`TopologyEndpointResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
+类型定义以源码为准：[`TerminalAccessMedium`](../../src/cpe-domain.ts) · [`TerminalHostEntry`](../../src/cpe-domain.ts) · [`TerminalTopologySnapshot`](../../src/cpe-domain.ts) · [`TopologyEndpointResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
 - **`TerminalAccessMedium`**
   - `TerminalAccessMedium` 取 `"UNKNOWN"`：the router lists the device without its link (a DHCP lease, other brands)
@@ -816,7 +816,7 @@ export type AlertCode =
 
 - 关闭与重新打开都不需要确认词：默认就是开的，开关只表达「我不要这一项」。控制台在开关旁写明「没有在真机上验证过」，每个写操作自己的确认框里也保留这句提醒。
 
-**放行之后怎么写**（HiLink 型号：[`src/generic-writes.ts`](../../src/generic-writes.ts)、[`src/sms/protocol.ts`](../../src/sms/protocol.ts)，请求格式见附录 A.11；其他品牌：各自的驱动，`src/drivers/`）：
+**放行之后怎么写**（HiLink 型号：[`src/protocols/hilink/generic-writes.ts`](../../src/protocols/hilink/generic-writes.ts)、[`src/sms/protocol.ts`](../../src/sms/protocol.ts)，请求格式见附录 A.11；其他品牌：各自的驱动，`src/drivers/`）：
 
 - 仍然只经调度器的 `control`，**绝不重试**；REST、MCP、Telegram、WAN 自愈（锁频回滚、自动重拨）与短信服务都走同一个闸门。HiLink 型号的实验性锁频 **只锁 LTE**，频段只能取 `lteBands`（`net-mode-list` 通告的），NR 频段、锁小区和其他频段在入队前就以 `400 VALIDATION_ERROR` 拒绝；实验性短信不收表情等基本多文种平面以外的字符（同样 `400`）。
 - **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`（列出了每个收件人才算一致，一个都没列出为「无法核对」）；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致（计数为 0 不算，没有这个字段时也读成 0）；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。

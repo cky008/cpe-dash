@@ -6,7 +6,7 @@ import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { cellGlobalId, fiberhomeAirplaneOf, fiberhomeProtocol, parseFiberhomeLockState, parseFiberhomeProTelemetry, parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
 import { NRADIO_ALL_MASK, NRADIO_LTE_ALL_MASK, nradioNrMask, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter, withNradioOverview } from "../src/drivers/nradio.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { cellularOf, fullSession } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 

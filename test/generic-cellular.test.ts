@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { CpeAnswerFormatError } from "../src/session-errors.ts";
-import { NETWORK_MODE_TIMEOUT_MS, OPERATOR_SCAN_TIMEOUT_MS, OPERATOR_SELECT_TIMEOUT_MS, genericUssd, hilinkApnOf, hilinkModeOf, hilinkModesOffered, modeOptionOf, optionModeOf, optionModesOffered, usesModeOption } from "../src/generic-writes.ts";
+import { NETWORK_MODE_TIMEOUT_MS, OPERATOR_SCAN_TIMEOUT_MS, OPERATOR_SELECT_TIMEOUT_MS, genericUssd, hilinkApnOf, hilinkModeOf, hilinkModesOffered, modeOptionOf, optionModeOf, optionModesOffered, usesModeOption } from "../src/protocols/hilink/generic-writes.ts";
 import { CONTROL_HOLD_MS, DeviceReadOnlyError } from "../src/scheduler.ts";
 import { type CpeFamilyOptions, type FamilyCellular, createCpeFamily } from "./helpers/cpe-family.ts";
 import { daemonOn, newCheck } from "./helpers/driver-daemon.ts";

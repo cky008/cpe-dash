@@ -16,7 +16,7 @@ import {
   runCli,
 } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { computeScram } from "../src/crypto.ts";
+import { computeScram } from "../src/protocols/hilink/crypto.ts";
 import {
   constantTimeSecretMatch,
   FengSuiHttpServer,
@@ -33,7 +33,7 @@ import {
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import type { AppConfig } from "../src/types.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { mockConnection } from "./helpers/connection.ts";
 import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";

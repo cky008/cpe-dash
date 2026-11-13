@@ -1,6 +1,6 @@
 import { DriverCpeClient } from "../../src/drivers/client.ts";
 import { nradioProtocol } from "../../src/drivers/nradio.ts";
-import { getXmlTag } from "../../src/xml.ts";
+import { getXmlTag } from "../../src/protocols/hilink/xml.ts";
 import { LanRouterMock } from "./lan-router.ts";
 
 /**

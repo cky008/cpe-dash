@@ -1,9 +1,9 @@
-import type { EphemeralCpeSession } from "../cpe-client.ts";
+import type { EphemeralCpeSession } from "../protocols/hilink/client.ts";
 import { CpeApiError } from "../session-errors.ts";
 import { type WriteCheck, settleCheck } from "../device-access.ts";
 import type { MutexSessionScheduler } from "../scheduler.ts";
-import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../xml.ts";
-import { parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "./codec.ts";
+import { PreEscapedXmlText, formatHuaweiDate, getXmlBlocks, getXmlTag } from "../protocols/hilink/xml.ts";
+import { parseSmsCounters, parseSmsCountersOrNull, parseSmsMessageBlock } from "../protocols/hilink/sms.ts";
 import { type PreparedSmsSubmission, type SubmitSmsOptions, unconfirmedSendResult } from "./submission.ts";
 import { validateGenericSmsContent } from "./text-mode.ts";
 import type { SmsCounters, SmsFetchResult, SmsSendResult, SmsWireMessage } from "./types.ts";

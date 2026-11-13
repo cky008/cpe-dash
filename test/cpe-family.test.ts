@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { after, before, describe, it } from "node:test";
-import { computeScram } from "../src/crypto.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { computeScram } from "../src/protocols/hilink/crypto.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { type CpeFamilyOptions, FAMILY_LOGINS, FAMILY_TOKEN_FLOWS, blockNetwork, createCpeFamily, familyLegacyPassword } from "./helpers/cpe-family.ts";
 
 /**

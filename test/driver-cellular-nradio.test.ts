@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { nradioModeOf, nradioModesOffered } from "../src/drivers/nradio.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { cellularOf, daemonOn, fullSession, newCheck } from "./helpers/driver-daemon.ts";
 import { NRADIO_PASSWORD, NRADIO_URL, nradioRouter } from "./helpers/nradio-router.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";

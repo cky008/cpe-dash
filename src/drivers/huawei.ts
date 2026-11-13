@@ -3,7 +3,7 @@ import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterSta
 import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, LinkChange, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
 import type { NetModeKeep } from "../band-lock.ts";
 import { assertOneCell, validateGenericBandLock } from "../control-input.ts";
-import type { EphemeralCpeSession } from "../cpe-client.ts";
+import type { EphemeralCpeSession } from "../protocols/hilink/client.ts";
 import {
   type AntennaModeName,
   type BandLockCommand,
@@ -50,7 +50,7 @@ import {
   genericTrafficReset,
   genericUssd,
   readWanRepairBlockerTolerant,
-} from "../generic-writes.ts";
+} from "../protocols/hilink/generic-writes.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "../router-backend.ts";
 import { CELLULAR_WRITE_FEATURES } from "../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
@@ -58,15 +58,16 @@ import type { MutexSessionScheduler, WriteContext } from "../scheduler.ts";
 import { checkSmsNotifications, deleteSmsByIndex, fetchAllMessages, fetchPhoneThread, fetchRecentMessages, genericDeleteSms, genericMarkSmsRead, genericSendSms, markSmsRead, submitSms } from "../sms/protocol.ts";
 import { type PreparedSmsSubmission, type SubmitSmsOptions } from "../sms/submission.ts";
 import { validateGenericSmsContent } from "../sms/text-mode.ts";
-import { getXmlTag } from "../xml.ts";
+import { getXmlTag } from "../protocols/hilink/xml.ts";
 import type { SmsWireMessage } from "../sms/types.ts";
 
 /**
  * Huawei HiLink as a brand driver: the H168-383's verified request sequences, and on another HiLink
  * model the tolerant reads and the generic writes the gate has open (`write.generic`, appendix A.11
- * and A.12 of the protocol notes). The session is `EphemeralCpeSession` (`src/cpe-client.ts`); the
- * requests themselves are in `cpe-domain.ts`, `generic-writes.ts`, `access-control.ts` and
- * `sms/protocol.ts`.
+ * and A.12 of the protocol notes). The session is `EphemeralCpeSession`
+ * (`src/protocols/hilink/client.ts`); the requests themselves are in `cpe-domain.ts`,
+ * `access-control.ts` and `sms/protocol.ts`, and the generic ones in
+ * `src/protocols/hilink/generic-writes.ts`.
  *
  * The cellular settings came after the H168-383 was verified: a model nobody verified gets the ones
  * whose requests the notes give (network mode, operator, data roaming, traffic counters, USSD), and the

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, huaweiXssDecode } from "../../src/crypto.ts";
-import { getXmlBlocks, getXmlTag } from "../../src/xml.ts";
+import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, huaweiXssDecode } from "../../src/protocols/hilink/crypto.ts";
+import { getXmlBlocks, getXmlTag } from "../../src/protocols/hilink/xml.ts";
 
 /**
  * Strict H168-383 router model for contract tests. Unlike the feature mocks it enforces the rules

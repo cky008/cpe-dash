@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul } from "../../src/crypto.ts";
-import { getXmlTag } from "../../src/xml.ts";
+import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul } from "../../src/protocols/hilink/crypto.ts";
+import { getXmlTag } from "../../src/protocols/hilink/xml.ts";
 
 /**
  * Strict mock routers for the Huawei models FengSui has NOT verified, built from the facts in

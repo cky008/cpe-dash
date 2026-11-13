@@ -1,6 +1,6 @@
 import { normalizeCpeUrl } from "../config.ts";
 import { DETECTION_ORDER, type RouterFamily } from "../router-family.ts";
-import { getXmlTag } from "../xml.ts";
+import { getXmlTag } from "../protocols/hilink/xml.ts";
 import { DRIVER_PROTOCOLS } from "./brands.ts";
 import { LanHttp, deadlineSignal } from "./transport.ts";
 

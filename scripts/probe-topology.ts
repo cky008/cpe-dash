@@ -1,6 +1,6 @@
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { parseHostInfoJson, summarizeTopologyJson } from "../src/parsers.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
+import { parseHostInfoJson, summarizeTopologyJson } from "../src/protocols/hilink/parsers.ts";
 
 function formatLease(sec: number | null, source: string): string {
   if (source.toUpperCase() === "STATIC") return "STATIC";

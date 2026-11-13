@@ -13,7 +13,7 @@ import {
   type RouterSettingsSnapshot,
   type SecurityUpdateCommand,
 } from "../src/cpe-domain.ts";
-import { computeScram } from "../src/crypto.ts";
+import { computeScram } from "../src/protocols/hilink/crypto.ts";
 import {
   BrowserSessionYieldedError,
   type ControlAppliedEvent,
@@ -26,7 +26,7 @@ import {
   TimeSeriesRingBuffer,
   TimeSeriesValidationError,
 } from "../src/timeseries.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { mockConnection } from "./helpers/connection.ts";
 import { tempDir } from "./helpers/temp-dir.ts";
 

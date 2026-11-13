@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { type EphemeralCpeSession, HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../src/session-errors.ts";
 import { CpeControlValidationError } from "../src/cpe-domain.ts";
-import { genericBandLock, genericMobileData, genericReboot, genericReconnect, readWanRepairBlockerTolerant } from "../src/generic-writes.ts";
+import { genericBandLock, genericMobileData, genericReboot, genericReconnect, readWanRepairBlockerTolerant } from "../src/protocols/hilink/generic-writes.ts";
 import { newWriteCheck } from "../src/device-access.ts";
 import { validateGenericBandLock } from "../src/control-input.ts";
 import { genericDeleteSms, genericMarkSmsRead, genericSendSms } from "../src/sms/protocol.ts";

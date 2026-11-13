@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, huaweiXssDecode, huaweiXssEncode } from "../../src/crypto.ts";
-import { getXmlBlocks, getXmlTag } from "../../src/xml.ts";
+import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, huaweiXssDecode, huaweiXssEncode } from "../../src/protocols/hilink/crypto.ts";
+import { getXmlBlocks, getXmlTag } from "../../src/protocols/hilink/xml.ts";
 
 /**
  * In-memory Huawei H168-383 SMS store with the real wire behaviour exercised by `src/sms/protocol.ts`:

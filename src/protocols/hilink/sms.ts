@@ -1,5 +1,11 @@
-import { getXmlTag, getXmlTextPreserve } from "../xml.ts";
-import type { SmsCounters, SmsWireMessage } from "./types.ts";
+import { getXmlTag, getXmlTextPreserve } from "./xml.ts";
+import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
+
+/**
+ * HiLink's SMS messages: the counts of `GET /api/sms/sms-count` and one stored message as the plain
+ * and the encrypted listings carry it. Parsing only; which listing is asked for is the Huawei
+ * driver's (`src/drivers/huawei/sms.ts`).
+ */
 
 function readCount(xml: string, tag: string, fallback: number): number {
   const parsed = Number.parseInt(getXmlTag(xml, tag) ?? "", 10);

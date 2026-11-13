@@ -1,6 +1,6 @@
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { parseTrafficSnapshot } from "../src/parsers.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
+import { parseTrafficSnapshot } from "../src/protocols/hilink/parsers.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../src/units.ts";
 
 function formatDurationHms(totalSeconds: number): string {

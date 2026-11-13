@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
 import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError, LOGIN_UNCONFIRMED_CODE, ReentrantCpeSessionError, hashCredentialsFingerprint } from "./session-errors.ts";
-import { CpeLoginMethodError } from "./cpe-auth.ts";
+import { CpeLoginMethodError } from "./protocols/hilink/auth.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot, type PersistedLockState, sectionUnavailableCode } from "./cpe-domain.ts";
 import {
   CONTROL_FEATURES,

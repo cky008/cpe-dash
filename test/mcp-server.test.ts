@@ -4,7 +4,7 @@ import { parseJsonSafeNullProto } from "../src/json-safe.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { computeScram } from "../src/crypto.ts";
+import { computeScram } from "../src/protocols/hilink/crypto.ts";
 import {
   FengSuiMcpServer,
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
@@ -13,7 +13,7 @@ import {
 } from "../src/mcp-server.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { mockConnection } from "./helpers/connection.ts";
 import { tempDir } from "./helpers/temp-dir.ts";
 

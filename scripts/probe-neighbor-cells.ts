@@ -1,8 +1,8 @@
 import { buildLteCellLockXml, buildNrCellLockXml } from "../src/band-lock.ts";
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { parseNeighborCellsXml } from "../src/parsers.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
+import { parseNeighborCellsXml } from "../src/protocols/hilink/parsers.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 
 async function main(): Promise<void> {
   console.log("=== [FengSui Probe #4] 4G LTE / 5G NR Neighbor Cell Scanner ===");

@@ -12,7 +12,7 @@ import {
   parseDotEnv,
   resolveClientIp,
 } from "../src/config.ts";
-import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, generateEccSession, huaweiXssDecode, huaweiXssEncode, verifyPubkeySignature } from "../src/crypto.ts";
+import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, generateEccSession, huaweiXssDecode, huaweiXssEncode, verifyPubkeySignature } from "../src/protocols/hilink/crypto.ts";
 import { stripInvalidControlChars } from "../src/text-sanitize.ts";
 import { timingSafeEqualString } from "../src/constant-time.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
@@ -34,7 +34,7 @@ import {
   jsonToXml,
   parseXmlError,
   xmlToFlatRecord,
-} from "../src/xml.ts";
+} from "../src/protocols/hilink/xml.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 describe("config & SSRF / XFF security guards", () => {

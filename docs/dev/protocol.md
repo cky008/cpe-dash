@@ -47,7 +47,7 @@ sequenceDiagram
     R-->>C: <response>OK</response>
 ```
 
-#### 核心密码学细节（已封装于 [`src/crypto.ts`](../../src/crypto.ts)）
+#### 核心密码学细节（已封装于 [`src/protocols/hilink/crypto.ts`](../../src/protocols/hilink/crypto.ts)）
 1. **SCRAM-SHA256 派生顺序（注意 HMAC 参数顺序与标准 RFC 相反，系华为私有实现）**：
    - `saltedPwd = PBKDF2-HMAC-SHA256(latin1(password), hex(salt), iterations, 32)`
    - `clientKey = HMAC-SHA256(key = "Client Key", data = saltedPwd)`
@@ -68,7 +68,7 @@ sequenceDiagram
    - URL 追加查询串：`?ecc-client-pubkey=<64-hex>&enc-type=<1|2|3>`（`1`=请求明文/响应密文，`2`=请求密文/响应明文，`3`=双向密文）；
    - Key = `shareKeyHex` 前 64 个 hex 字符（32 字节），AAD = **16 个零字节**（`Buffer.alloc(16, 0)`）；
    - 密文十六进制串结构：`[4字节小端序明文长度 Header (8 hex)] + [12字节随机 IV (24 hex)] + [16字节 AuthTag (32 hex)] + [Ciphertext]`（AuthTag 位于密文**之前**）；
-   - 以上格式以 [`src/crypto.ts`](../../src/crypto.ts) 的 `aesGcmEncrypt` / `aesGcmDecrypt` 为准。仓库内目前仅有自洽往返测试覆盖，Phase 2 路由均未使用加密通道；后续启用前应先用真机加密响应完成一次解密验证。
+   - 以上格式以 [`src/protocols/hilink/crypto.ts`](../../src/protocols/hilink/crypto.ts) 的 `aesGcmEncrypt` / `aesGcmDecrypt` 为准。仓库内目前仅有自洽往返测试覆盖，Phase 2 路由均未使用加密通道；后续启用前应先用真机加密响应完成一次解密验证。
 
 ---
 
@@ -87,7 +87,7 @@ sequenceDiagram
 2. **同源 IP 与跨 IP 差异**：
    - **同源 IP**（如本机同时打开浏览器与运行探针）：瞬时探针完成 `login -> GET -> logout` **不会踢掉**同 IP 浏览器的活跃 `SessionID`（实测浏览器会话全程保持认证态）。
    - **跨局域网 IP**（生产典型拓扑：群晖 NAS `192.168.8.10` 轮询 vs 用户电脑/手机 `192.168.8.44` 登录网页后台）：当用户电脑已登录时，NAS 发起 `challenge_login` / `authentication_login` 会收到硬件级排他错误码 **`108003`**（已有其他管理员登录）或 **`108009`**（会话被占用），且**不会踢掉真人浏览器**。
-3. **双层自动避让实现（[`HuaweiCpeClient.withSession()`](../../src/cpe-client.ts)）**：
+3. **双层自动避让实现（[`HuaweiCpeClient.withSession()`](../../src/protocols/hilink/client.ts)）**：
    - **第 1 层（免握手预检）**：调用 `GET /api/user/state-login`，若 `State !== "-1"`，零 SCRAM 开销直接自增 `browserYieldCount` 并返回 `null`。
    - **第 2 层（跨 IP `108003`/`108009` 静默让位）**：当 `respectBrowserSession: true`（默认开启）且握手捕获 `isSessionOccupied` (`108003` / `108005` / `108009`) 时，禁止延迟重试，立即自增 `browserYieldCount`、执行 `finally` 清理并返回 `null`。
 
@@ -624,7 +624,7 @@ sequenceDiagram
 
 **未实现**：固件的 321 个接口中没有按设备限速（QoS / 带宽上限）的接口，`appturbo`（游戏加速）与 `security/acl`（远程管理访问控制）都不是限速，因此"即时限速 / 定时限速"无法在这台 CPE 上实现。
 
-## 4. 核心算法与数学计算公式（已封装于 `src/band-lock.ts` 与 `src/parsers.ts`）
+## 4. 核心算法与数学计算公式（已封装于 `src/band-lock.ts` 与 `src/protocols/hilink/parsers.ts`）
 
 ### 4.1 4G LTE / 5G NR `BandMask` 位掩码算法
 
@@ -760,7 +760,7 @@ $$
    $$
    \text{gNodeB ID} = \text{NCI} \gg (36 - k), \qquad \text{Sector ID} = \text{NCI} \ \& \ \left(2^{36 - k} - 1\right)
    $$
-3. **分周期流量与速率换算（[`parseTrafficSnapshot()`](../../src/parsers.ts)）**：
+3. **分周期流量与速率换算（[`parseTrafficSnapshot()`](../../src/protocols/hilink/parsers.ts)）**：
    - **瞬时下行 / 上行比特率 (`bps`)**：`8 * CurrentDownloadRate` / `8 * CurrentUploadRate`（WebUI 按 `1024` 二进制阶梯换算 `Kbps` / `Mbps` / `Gbps`）；
    - **当日累计总流量 (`当日流量`)**：直接读取 `/api/monitoring/month_statistics` 中的 `<CurrentDayUsed>`（单位：Bytes）；
    - **当月累计总流量 (`当月流量`)**：`BigInt(CurrentMonthDownload) + BigInt(CurrentMonthUpload)`（单位：Bytes）；
@@ -927,7 +927,7 @@ $$
 - 参考项目把重定向转成 `100002`（A.5），挑战被重定向因此同样回退（我们对它代码的解读，测试里没有这种情形）。
 - 挑战只发 `username`、`firstnonce`（32 字节随机数的十六进制）和 `mode=1`，不含密码。
 
-**SCRAM 已知答案向量**（输入取自参考项目 `tests/test_user_scram.py`；它的测试在运行时计算期望值、没有写出输出，下表输出是我们用 Python 标准库按 2.1 节公式另行计算，并与 `src/crypto.ts` 的 `computeScram` 一致）：
+**SCRAM 已知答案向量**（输入取自参考项目 `tests/test_user_scram.py`；它的测试在运行时计算期望值、没有写出输出，下表输出是我们用 Python 标准库按 2.1 节公式另行计算，并与 `src/protocols/hilink/crypto.ts` 的 `computeScram` 一致）：
 
 | 输入 | 值 |
 | :--- | :--- |
@@ -944,7 +944,7 @@ $$
 
 ### A.9 烽燧的登录方式选择（阶段 1；只在 Mock 上验证）
 
-实现在 [`src/cpe-auth.ts`](../../src/cpe-auth.ts) 与 [`src/cpe-client.ts`](../../src/cpe-client.ts)。原则：**提交任何密码之前确定方式，一次会话只提交一次密码，绝不拿同一个密码换方式重试**（每次错误的提交都会消耗路由器 3 次机会之一）。
+实现在 [`src/protocols/hilink/auth.ts`](../../src/protocols/hilink/auth.ts) 与 [`src/protocols/hilink/client.ts`](../../src/protocols/hilink/client.ts)。原则：**提交任何密码之前确定方式，一次会话只提交一次密码，绝不拿同一个密码换方式重试**（每次错误的提交都会消耗路由器 3 次机会之一）。
 
 1. **依据**：会话开始时本来就要读的 `state-login`（铁律四的预检），不多发请求。
 2. **按 `password_type` 选择**：
@@ -1036,7 +1036,7 @@ $$
 
 ### A.12 蜂窝设置的通用写入（v1.9.0；H168-383 上四项在真机上核对过）
 
-v1.9.0 给烽燧加了一组「蜂窝设置」（[`src/cellular.ts`](../../src/cellular.ts)，契约见 [`api.md`](api.md) 2.13）。它们是在 H168-383 验证之后才有的。H168-383 上只开放 2026-11-13 主人在场核对过的四项（数据漫游、网络制式、选网与搜网、清零流量统计；登记在 `VERIFIED_FEATURES`，[#3](https://github.com/cky008/cpe-dash/issues/3)），请求和下表相同（网络制式与选网按 A.12.1 的写法）；USSD 它自己报告关着（`ussd_enabled` 为 0，登记在 `UNSUPPORTED_FEATURES`），其余闸门记为「没有实现」，烽燧不向它发送。未验证的华为 HiLink 型号上，请求格式有记录的五项走通用实现（[`src/generic-writes.ts`](../../src/generic-writes.ts)），规则同 A.11：每次只发一次，同一会话回读，不重试。事实取自参考项目 `master@d2eb2af`、接口资料库（见 [`sources.md`](sources.md) 18.6）与 H168-383 自带的管理页脚本（18.9）；除 H168-383 上的四项外，**均未在真机验证**。
+v1.9.0 给烽燧加了一组「蜂窝设置」（[`src/cellular.ts`](../../src/cellular.ts)，契约见 [`api.md`](api.md) 2.13）。它们是在 H168-383 验证之后才有的。H168-383 上只开放 2026-11-13 主人在场核对过的四项（数据漫游、网络制式、选网与搜网、清零流量统计；登记在 `VERIFIED_FEATURES`，[#3](https://github.com/cky008/cpe-dash/issues/3)），请求和下表相同（网络制式与选网按 A.12.1 的写法）；USSD 它自己报告关着（`ussd_enabled` 为 0，登记在 `UNSUPPORTED_FEATURES`），其余闸门记为「没有实现」，烽燧不向它发送。未验证的华为 HiLink 型号上，请求格式有记录的五项走通用实现（[`src/protocols/hilink/generic-writes.ts`](../../src/protocols/hilink/generic-writes.ts)），规则同 A.11：每次只发一次，同一会话回读，不重试。事实取自参考项目 `master@d2eb2af`、接口资料库（见 [`sources.md`](sources.md) 18.6）与 H168-383 自带的管理页脚本（18.9）；除 H168-383 上的四项外，**均未在真机验证**。
 
 | 功能 | 请求（字段按顺序） | 烽燧的做法 |
 | :--- | :--- | :--- |

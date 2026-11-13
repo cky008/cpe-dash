@@ -11,7 +11,7 @@ import {
   buildUnlockAllLocksXml,
 } from "./band-lock.ts";
 import { type BandInput, H168_383_LTE_BANDS, hexMaskToBands, parseBandNumber } from "./rf-bounds.ts";
-import type { EphemeralCpeSession } from "./cpe-client.ts";
+import type { EphemeralCpeSession } from "./protocols/hilink/client.ts";
 import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError } from "./session-errors.ts";
 import {
   parseHostInfoJson,
@@ -23,12 +23,12 @@ import {
   parseSecondaryCellsXml,
   parseTrafficSnapshot,
   summarizeTopologyJson,
-} from "./parsers.ts";
+} from "./protocols/hilink/parsers.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "./units.ts";
 import { type BatteryStatus, type RouterStatusSnapshot, type TemperatureSensor, emptyRouterStatus, percentValue } from "./router-status.ts";
-import { parseSmsCountersOrNull } from "./sms/codec.ts";
+import { parseSmsCountersOrNull } from "./protocols/hilink/sms.ts";
 import type { SmsCounters } from "./sms/types.ts";
-import { getXmlTag } from "./xml.ts";
+import { getXmlTag } from "./protocols/hilink/xml.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 
 export { CpeControlValidationError } from "./control-error.ts";

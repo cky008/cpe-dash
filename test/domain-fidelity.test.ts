@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictCpe, type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";

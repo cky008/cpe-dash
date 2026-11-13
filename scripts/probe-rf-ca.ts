@@ -1,8 +1,8 @@
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { parseRfSignalSnapshot } from "../src/parsers.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
+import { parseRfSignalSnapshot } from "../src/protocols/hilink/parsers.ts";
 import { inspectFieldFormat } from "../src/sanitize.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 
 async function main(): Promise<void> {
   console.log("=== [FengSui Probe #3] 3CA Carrier Aggregation & High-Order RF Telemetry ===");

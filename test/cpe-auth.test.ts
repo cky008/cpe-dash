@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CpeLoginMethodError, encodeLegacyPassword, planLogin, readScramChallenge, readSesTokInfo } from "../src/cpe-auth.ts";
-import { computeScram } from "../src/crypto.ts";
+import { CpeLoginMethodError, encodeLegacyPassword, planLogin, readScramChallenge, readSesTokInfo } from "../src/protocols/hilink/auth.ts";
+import { computeScram } from "../src/protocols/hilink/crypto.ts";
 import { isResponseDocument } from "../src/device-profile.ts";
 
 /**

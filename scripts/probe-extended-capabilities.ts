@@ -1,8 +1,8 @@
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { maskMacAddress, sanitizeIpToken } from "../src/sanitize.ts";
-import { huaweiXssDecode } from "../src/crypto.ts";
-import { getXmlBlocks, getXmlTag } from "../src/xml.ts";
+import { huaweiXssDecode } from "../src/protocols/hilink/crypto.ts";
+import { getXmlBlocks, getXmlTag } from "../src/protocols/hilink/xml.ts";
 
 function decodeAntennaMode(code: string | null): string {
   if (code === "0") return "0 (Auto)";

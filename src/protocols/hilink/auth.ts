@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { isResponseDocument } from "./device-profile.ts";
+import { isResponseDocument } from "../../device-profile.ts";
 import { getXmlTag } from "./xml.ts";
 
 /**

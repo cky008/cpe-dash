@@ -6,7 +6,7 @@ import {
   validateArfcnInBand,
   validatePci,
 } from "./rf-bounds.ts";
-import { buildXmlRequest } from "./xml.ts";
+import { buildXmlRequest } from "./protocols/hilink/xml.ts";
 
 export const HUAWEI_LTE_ALL_BANDS_MASK = "7fffffffffffffff";
 export const HUAWEI_NETWORK_ALL_BANDS_MASK = "3fffffff";

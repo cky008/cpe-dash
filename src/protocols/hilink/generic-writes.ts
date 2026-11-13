@@ -1,12 +1,12 @@
-import { type ApnAuthMode, type ApnIpType, type ApnView, type CellularSettingsSnapshot, type NetworkMode, type OperatorChoice, type OperatorRat, type OperatorSelection, type UssdAnswer, type UssdRequest, isApnName, isPlmn } from "./cellular.ts";
-import type { EphemeralCpeSession } from "./cpe-client.ts";
-import { CpeAnswerFormatError, CpeApiError } from "./session-errors.ts";
-import { CpeControlValidationError } from "./control-error.ts";
-import type { WanRepairSkipReason } from "./cpe-domain.ts";
-import { type WriteCheck, settleCheck } from "./device-access.ts";
-import { LTE_ALL_BANDS_MASK, isAllBandsMask, maskToBands } from "./device-profile.ts";
-import { MAX_SCAN_ROWS, USSD_POLLS, USSD_POLL_MS, emptyUssd, operatorChoice, ussdText } from "./drivers/cellular.ts";
-import { bandsToHexMask } from "./rf-bounds.ts";
+import { type ApnAuthMode, type ApnIpType, type ApnView, type CellularSettingsSnapshot, type NetworkMode, type OperatorChoice, type OperatorRat, type OperatorSelection, type UssdAnswer, type UssdRequest, isApnName, isPlmn } from "../../cellular.ts";
+import type { EphemeralCpeSession } from "./client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
+import { CpeControlValidationError } from "../../control-error.ts";
+import type { WanRepairSkipReason } from "../../cpe-domain.ts";
+import { type WriteCheck, settleCheck } from "../../device-access.ts";
+import { LTE_ALL_BANDS_MASK, isAllBandsMask, maskToBands } from "../../device-profile.ts";
+import { MAX_SCAN_ROWS, USSD_POLLS, USSD_POLL_MS, emptyUssd, operatorChoice, ussdText } from "../../drivers/cellular.ts";
+import { bandsToHexMask } from "../../rf-bounds.ts";
 import { getXmlBlocks, getXmlTag, getXmlTextPreserve } from "./xml.ts";
 
 /**

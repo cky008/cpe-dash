@@ -11,7 +11,7 @@ import {
   parseTrafficSnapshot,
   parseTxPowerMetrics,
   summarizeTopologyJson,
-} from "../src/parsers.ts";
+} from "../src/protocols/hilink/parsers.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../src/units.ts";
 
 describe("RF, 3CA, MCS & Transmit Power Parsers", () => {

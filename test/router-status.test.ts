@@ -4,7 +4,7 @@ import { hilinkRouterStatus } from "../src/cpe-domain.ts";
 import { driverRouterStatus, driverTelemetrySnapshot, emptyCell } from "../src/drivers/snapshot.ts";
 import type { DriverTelemetry } from "../src/drivers/types.ts";
 import { ecioOf, iccidOf, imeiOf, imsiOf, msisdnOf, rscpOf, txPowerOf } from "../src/drivers/values.ts";
-import { wcdmaSignal } from "../src/parsers.ts";
+import { wcdmaSignal } from "../src/protocols/hilink/parsers.ts";
 import {
   DEFAULT_BATTERY_LOW_PERCENT,
   batteryIsLow,

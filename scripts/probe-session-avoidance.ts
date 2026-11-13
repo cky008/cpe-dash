@@ -1,7 +1,7 @@
 import { loadConfig, normalizeCpeUrl } from "../src/config.ts";
-import { EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { EphemeralCpeSession, HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { sanitizeIpToken } from "../src/sanitize.ts";
-import { getXmlTag } from "../src/xml.ts";
+import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 
 async function main(): Promise<void> {
   console.log("=== [FengSui Probe #7] Ephemeral Session Benchmark & Dual-Layer Browser Avoidance ===");

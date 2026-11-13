@@ -78,7 +78,7 @@ describe("router backend: one interface for every brand", () => {
       if (file === "src/scheduler.ts" || file === "src/router-backend.ts") continue;
       const source = fs.readFileSync(file, "utf8");
       assert.ok(!/\bscheduler\.(read|control|refuse)\(/.test(source), `${file} opens a router session itself: add the verb to RouterBackend instead`);
-      assert.ok(!/\.withSession(Detailed)?\(/.test(source) || file === "src/session-client.ts" || file.startsWith("src/drivers/") || file === "src/cpe-client.ts", `${file} opens a session around the scheduler`);
+      assert.ok(!/\.withSession(Detailed)?\(/.test(source) || file === "src/session-client.ts" || file.startsWith("src/drivers/") || file === "src/protocols/hilink/client.ts", `${file} opens a session around the scheduler`);
     }
     // The read and write services name no driver and no HiLink read of their own
     for (const file of ["src/cpe-monitor.ts", "src/cpe-controls.ts"]) {

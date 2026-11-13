@@ -1,6 +1,6 @@
-import { decomposeLteEci } from "./rf-math.ts";
-import { maskMacAddress, sanitizeFreeText, sanitizeIpToken } from "./sanitize.ts";
-import { isResponseDocument } from "./device-profile.ts";
+import { decomposeLteEci } from "../../rf-math.ts";
+import { maskMacAddress, sanitizeFreeText, sanitizeIpToken } from "../../sanitize.ts";
+import { isResponseDocument } from "../../device-profile.ts";
 import type {
   CaBannerComponent,
   McsCodewordMetric,
@@ -12,7 +12,7 @@ import type {
   TerminalAccessMedium,
   TerminalHostEntry,
   TopologySummary,
-} from "./cpe-domain.ts";
+} from "../../cpe-domain.ts";
 import { getXmlBlocks, getXmlTag } from "./xml.ts";
 
 export interface TrafficSnapshot {

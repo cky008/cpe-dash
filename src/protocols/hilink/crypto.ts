@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { timingSafeEqualString } from "./constant-time.ts";
-import type { EccSessionKeys, ScramProof } from "./types.ts";
+import { timingSafeEqualString } from "../../constant-time.ts";
+import type { EccSessionKeys, ScramProof } from "../../types.ts";
 
 /**
  * Curve25519 prime 2^255 - 19 and Montgomery constant (486662 - 2) / 4 = 121665.

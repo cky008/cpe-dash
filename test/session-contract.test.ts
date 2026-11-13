@@ -3,7 +3,7 @@ import { hilinkSessionOf } from "../src/drivers/huawei.ts";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { type AvoidanceBroadcastPayload, BrowserSessionYieldedError, SchedulerStoppedError } from "../src/scheduler.ts";
