@@ -33,7 +33,13 @@ export interface VerifiedFeature {
   issue: number;
 }
 
-export const VERIFIED_FEATURES: ReadonlyArray<VerifiedFeature> = [];
+export const VERIFIED_FEATURES: ReadonlyArray<VerifiedFeature> = [
+  // The cellular settings added after the H168-383 was verified, checked by the owner in person on a real one (2026-11-13)
+  { family: "huawei", model: "H168-383", softwareVersion: "4.4.0.1", feature: "roaming", access: "write", issue: 3 },
+  { family: "huawei", model: "H168-383", softwareVersion: "4.4.0.1", feature: "networkMode", access: "write", issue: 3 },
+  { family: "huawei", model: "H168-383", softwareVersion: "4.4.0.1", feature: "operatorSelect", access: "write", issue: 3 },
+  { family: "huawei", model: "H168-383", softwareVersion: "4.4.0.1", feature: "trafficReset", access: "write", issue: 3 },
+];
 
 /**
  * Someone verified this feature of this model on a router of this brand (the model as the router reports
@@ -63,7 +69,10 @@ export interface UnsupportedFeature {
   issue: number;
 }
 
-export const UNSUPPORTED_FEATURES: ReadonlyArray<UnsupportedFeature> = [];
+export const UNSUPPORTED_FEATURES: ReadonlyArray<UnsupportedFeature> = [
+  // The H168-383 reports USSD switched off (`global/module-switch` `ussd_enabled` 0), and FengSui sends nothing then (2026-11-13)
+  { family: "huawei", model: "H168-383", feature: "ussd", issue: 3 },
+];
 
 /**
  * Reports settled every feature FengSui implements for this model's brand: each one is verified, or reported

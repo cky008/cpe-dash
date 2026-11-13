@@ -534,10 +534,13 @@ describe("experimental gate: the H168-383", () => {
       assert.ok(await fx.core.monitor.identifyDevice());
       // A list naming the verified model (there is no way to make one in the console) changes nothing
       fx.core.scheduler.device.setDisabledWrites(WRITE_FEATURES.map((feature) => ({ model: "H168-383", feature })));
-      // Verified: every write it had when it was verified. The cellular settings came later: none on this model
+      // Verified: every write it had when it was verified. The cellular settings came later: the ones checked on it (issue #3) only
       const { features } = fx.core.scheduler.getStatus().device;
       assert.deepEqual(new Set(WRITE_FEATURES.filter((feature) => !isCellularWriteFeature(feature)).map((feature) => features[feature])), new Set(["verified"]));
-      assert.deepEqual(new Set(CELLULAR_WRITE_FEATURES.map((feature) => features[feature])), new Set(["not_implemented"]));
+      assert.deepEqual(
+        Object.fromEntries(CELLULAR_WRITE_FEATURES.map((feature) => [feature, features[feature]])),
+        Object.fromEntries(CELLULAR_WRITE_FEATURES.map((feature) => [feature, ["networkMode", "operatorSelect", "roaming", "trafficReset"].includes(feature) ? "verified" : "not_implemented"]))
+      );
       await fx.core.controls.lockBands({ lteBands: [1, 3], nrBands: ["N78"] });
       await fx.core.controls.setMobileData(true);
       await fx.core.controls.reconnectCellular();

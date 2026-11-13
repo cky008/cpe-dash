@@ -183,9 +183,12 @@ describe("experimental switch: what each write is on a router", () => {
     // Nothing is switched off on a verified model, whatever a list says
     h168.setDisabledWrites([{ model: "H168-383", feature: "reboot" }]);
     assert.deepEqual(new Set(WRITE_FEATURES.filter((f) => !isCellularWriteFeature(f)).map((f) => h168.writeState(f))), new Set(["verified"]));
-    // The cellular settings came after its verification: it has none of them, and their requests never go to it
-    assert.deepEqual(new Set(CELLULAR_WRITE_FEATURES.map((f) => h168.writeState(f))), new Set(["not_implemented"]));
-    assert.equal(h168.writeAccess("networkMode"), "unavailable");
+    // The cellular settings came after its verification: the ones checked on it (issue #3) only, the rest never go to it
+    const checked: ReadonlySet<string> = new Set(["networkMode", "operatorSelect", "roaming", "trafficReset"]);
+    assert.deepEqual(new Set(CELLULAR_WRITE_FEATURES.filter((f) => !checked.has(f)).map((f) => h168.writeState(f))), new Set(["not_implemented"]));
+    assert.deepEqual(new Set(CELLULAR_WRITE_FEATURES.filter((f) => checked.has(f)).map((f) => h168.writeState(f))), new Set(["verified"]));
+    assert.equal(h168.writeAccess("networkMode"), "allowed");
+    assert.equal(h168.writeAccess("ussd"), "unavailable");
     assert.equal(h168.writeAccess("smsWrite"), "allowed");
     assert.equal(h168.generic, false);
     assert.equal(h168.snapshot().lteBands, null, "the verified model keeps its own band list");

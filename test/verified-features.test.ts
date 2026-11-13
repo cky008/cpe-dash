@@ -9,7 +9,7 @@ import { experimentalOffer, experimentalWrites, reportVerified, unconfirmedWrite
 import { WRITE_STATE_KEYS, verificationNotice, writesText } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedFeature, isVerifiedModel, reportVerifiedModels } from "../src/firmware.ts";
-import { ROUTER_FAMILY_FACTS, familyFeatures, isRouterFamily, isStatusReadFeature } from "../src/router-family.ts";
+import { ROUTER_FAMILY_FACTS, familyFeatures, isCellularWriteFeature, isRouterFamily, isStatusReadFeature } from "../src/router-family.ts";
 
 /**
  * Multi-model phase 3: a feature of another model that a user checked on a real router joins the
@@ -45,7 +45,8 @@ describe("verified features of other models", () => {
       assert.ok(isRouterFamily(entry.family), entry.family);
       assert.match(entry.model, /^[A-Za-z0-9 ._()+-]{1,64}$/);
       assert.match(entry.softwareVersion, /^[A-Za-z0-9 ._()+-]{1,64}$/);
-      assert.ok(!isVerifiedModel(entry.model), `${entry.model}: a verified model needs no per-feature entry`);
+      // The verified model's verification covers what FengSui had then: an entry of its own is a cellular write added later (AGENTS.md section 4, rule 5)
+      assert.ok(!isVerifiedModel(entry.model) || (entry.access === "write" && isCellularWriteFeature(entry.feature)), `${entry.model}: a verified model needs no per-feature entry but for a cellular write added after it`);
       assert.ok(features.has(entry.feature), entry.feature);
       assert.ok(entry.access === "read" || entry.access === "write");
       // A verified write runs what FengSui implements for the brand: one without it would be listed but stay locked

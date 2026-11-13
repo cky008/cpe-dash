@@ -21,7 +21,7 @@ import {
 import { DEVICE_FEATURES } from "../src/device-profile.ts";
 import { zteBranch } from "../src/drivers/zte-goform.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
-import { VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
+import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
 import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, STATUS_READ_FEATURES, type StatusReadFeature, isCellularWriteFeature, isRouterFamily } from "../src/router-family.ts";
 
 /**
@@ -130,10 +130,14 @@ describe("the supported devices guide page", () => {
   it("marks the verified model ✓ throughout, and another HiLink model from what FengSui does on it", () => {
     const en = supportedDevicesSection("en");
     // The status reads and the cellular settings came later: the reads follow the facts (an indoor CPE
-    // has no battery), the writes are not done on it, the rest is verified
+    // has no battery); of the writes, the ones checked on it in person are filed (issue #3: the mode and
+    // the operator ✓, roaming and the counters but no APN or limit △, USSD switched off —), the rest is
+    // not done on it; everything else is verified
     const later = MODULES.map((module) => module.features.every((feature) => STATUS_READ_FEATURES.includes(feature as StatusReadFeature) || isCellularWriteFeature(feature)));
     assert.deepEqual(later.filter(Boolean).length, 6);
-    assert.deepEqual(rows(en, "huawei")[0], ["H168-383", "Indoor CPE", ...MODULES.map((module, i) => (!later[i] ? "✓" : module.features.includes("battery") ? "—" : "")), ""], "the verified model: everything verified, nothing to report");
+    const filed: Readonly<Record<string, string>> = { battery: "—", networkMode: "✓", roaming: "△", ussd: "—" };
+    assert.deepEqual(rows(en, "huawei")[0], ["H168-383", "Indoor CPE", ...MODULES.map((module, i) => (!later[i] ? "✓" : (filed[module.features[0] ?? ""] ?? ""))), ""], "the verified model: verified, and the cellular settings checked on it");
+    assert.match(en, /- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point \(APN\) and the data limit here yet \(every model in this table\)/);
     // Generic reads and writes ?, band lock and nearby cells △ (their conditions under the table), what
     // FengSui writes on the verified model only stays empty
     assert.deepEqual(marksOf(en, "huawei", "B535-232")?.slice(0, LEGACY), ["?", "△", "?", "?", "△", "", "?", "?", "", "", "—"]);
@@ -169,13 +173,17 @@ describe("the supported devices guide page", () => {
     const zh = supportedDevicesSection("zh-CN");
     assert.equal(marksOf(zh, "pinsu", "R200C")?.[6], "△");
     assert.match(zh, /- △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。/);
-    // Never — for "not done yet": only where the hardware is missing (a battery), and nothing is reported as not working
+    // Never — for "not done yet": only where the hardware is missing (a battery) or a report says the router lacks it
     const battery = 2 + MODULES.findIndex((module) => module.features.includes("battery"));
+    const reported = (model: string | undefined): number[] =>
+      UNSUPPORTED_FEATURES.filter((e) => e.model === model).map((e) => 2 + MODULES.findIndex((module) => module.features.includes(e.feature)));
     for (const cells of rows(supportedDevicesSection("en"))) {
       const offset = cells.length - MODULES.length - 3;
-      cells.forEach((cell, i) => assert.ok(cell !== "—" || i === battery + offset, `${cells[0]}: — outside the Battery column`));
+      const allowed = [battery, ...reported(cells[0])].map((column) => column + offset);
+      cells.forEach((cell, i) => assert.ok(cell !== "—" || allowed.includes(i), `${cells[0]}: — outside the Battery column and what a report says it lacks`));
     }
-    assert.deepEqual(UNSUPPORTED_FEATURES, []);
+    // The one feature reported missing: USSD, which the H168-383 reports switched off (issue #3)
+    assert.deepEqual(UNSUPPORTED_FEATURES, [{ family: "huawei", model: "H168-383", feature: "ussd", issue: 3 }]);
     // Nothing implemented: the whole row stays empty
     assert.deepEqual(marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-2000M"), MODULES.map(() => ""));
   });
@@ -310,7 +318,7 @@ describe("the supported devices guide page", () => {
     assert.equal(marksOf(zh, "zte", "U60 Pro (MU5250)")?.[5], "✓");
     assert.equal(marksOf(zh, "zte", "G5 Ultra (MC8530)")?.[5], "△", "only the model reported");
     assert.deepEqual(rows(supportedDevicesSection("en", verified), "huawei").find((cells) => cells[0] === "B999-001")?.slice(0, 2 + LEGACY), ["B999-001", "", "?", "△", "?", "?", "△", "", "✓/?", "?", "", "", "?"]);
-    assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", []));
+    assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", VERIFIED_FEATURES), "the table goes by the entries on record");
   });
 });
 
@@ -329,9 +337,10 @@ describe("the row of the router the console shows", () => {
     );
     assert.equal(findCatalogModel("zte-zwrt", " u60 pro ")?.code, "MU5250", "case and spaces aside");
     assert.equal(findCatalogModel("huawei", "MU5250"), null, "only on an interface the model has");
-    assert.deepEqual(deviceSupportRow("huawei", "H168-383").modules.map((m) => m.mark), MODULES.map((module) => (module.features.includes("battery") ? "—" : module.features.some((f) => STATUS_READ_FEATURES.includes(f as StatusReadFeature) || isCellularWriteFeature(f)) ? "" : "✓")));
-    // Its one note: the battery it does not have
-    assert.deepEqual(deviceSupportRow("huawei", "H168-383").notes, [{ zh: "电池：只有随身路由器有电池", en: "Battery: only a mobile router has a battery" }]);
+    const h168 = deviceSupportRow("huawei", "H168-383");
+    assert.deepEqual(h168.modules.map((m) => m.mark), rows(supportedDevicesSection("en"), "huawei")[0]?.slice(2, -1), "the console's row is the table's");
+    // Its notes: the battery it does not have, and the data settings it has in part
+    assert.deepEqual(h168.notes.map((n) => n.en), ["Battery: only a mobile router has a battery", "Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet"]);
   });
 
   it("gives a model the list lacks its brand's defaults and its brand's section", () => {

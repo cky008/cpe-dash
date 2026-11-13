@@ -20,6 +20,17 @@ export type HuaweiNetworkModeCode =
   | typeof NETWORK_MODE_4G_ONLY
   | typeof NETWORK_MODE_5G_ONLY;
 
+/**
+ * The network mode a band lock writes along with the LTE mask on the H168-383: its `net-mode` takes a
+ * write only with the mode's own field, `networkOption` with `00` (1 SA only, 0 NSA only, 2 SA and NSA)
+ * or `LTEBandOption` with `03` (0 4G only, 2 TDD only, 1 FDD only); with it the lock keeps the mode
+ * (both checked on the router, 2026-11-13). `DEFAULT_NET_MODE_KEEP`, 00 with networkOption 2, is the
+ * request the H168-383 was verified with, byte for byte.
+ */
+export type NetModeKeep = { networkMode: "00"; networkOption: "0" | "1" | "2" } | { networkMode: "03"; lteBandOption: "0" | "1" | "2" };
+
+export const DEFAULT_NET_MODE_KEEP: NetModeKeep = { networkMode: "00", networkOption: "2" };
+
 export const LOCK_MODE_UNLOCK = 0;
 export const LOCK_MODE_FREQ = 1;
 export const LOCK_MODE_CELL = 2;
@@ -61,7 +72,7 @@ export interface NrCellLockParams {
  */
 export function buildLteBandNetModeXml(
   lteBands: ReadonlyArray<BandInput> | "all",
-  networkMode: HuaweiNetworkModeCode = NETWORK_MODE_AUTO
+  keep: NetModeKeep = DEFAULT_NET_MODE_KEEP
 ): string {
   let lteMask: string;
   if (lteBands === "all") {
@@ -73,10 +84,10 @@ export function buildLteBandNetModeXml(
     lteMask = bandsToHexMask(lteBands.map(parseSupportedLteBand));
   }
   return buildXmlRequest({
-    NetworkMode: networkMode,
+    NetworkMode: keep.networkMode,
     NetworkBand: HUAWEI_NETWORK_ALL_BANDS_MASK,
     LTEBand: lteMask,
-    networkOption: 2,
+    ...(keep.networkMode === "00" ? { networkOption: Number(keep.networkOption) } : { LTEBandOption: Number(keep.lteBandOption) }),
   });
 }
 

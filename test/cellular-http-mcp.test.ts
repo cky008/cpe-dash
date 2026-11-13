@@ -19,7 +19,7 @@ import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 
 /**
  * The cellular settings over REST and MCP, on a mock ZTE router (the first brand with them) and on
- * the verified H168-383 (which has none): what each route and tool takes and answers, the
+ * the verified H168-383 (the four checked on it): what each route and tool takes and answers, the
  * confirmation and permission each write needs, and that a result holding an operator's words says
  * they are untrusted. Placeholder PINs, `*100#` and a made-up operator answer only.
  */
@@ -180,23 +180,38 @@ describe("REST: the cellular settings", () => {
     }
   });
 
-  it("serves none of it on the verified H168-383, and sends that router nothing", async () => {
-    const cpe = createStrictCpe();
+  it("serves the four checked on the verified H168-383 (issue #3) and refuses the rest without a request", async () => {
+    const cpe = createStrictCpe({ cellular: true });
     const daemon = daemonOn("huawei", cpe.fetchImpl, "http://192.168.8.1", cpe.password);
     const api = await serve(daemon.core);
     try {
       assert.ok(await daemon.core.monitor.identifyDevice());
+      const OPEN: Readonly<Record<string, Record<string, unknown>>> = {
+        "/api/control/network-mode": { confirm: true, mode: "lte" },
+        "/api/control/operator-scan": { confirm: true },
+        "/api/control/operator": { confirm: true, mode: "auto" },
+        "/api/control/roaming": { confirm: true, enabled: true },
+        "/api/control/traffic-reset": { confirm: true },
+      };
+      for (const [route, body] of Object.entries(OPEN)) {
+        const done = await api.call("POST", route, body);
+        assert.deepEqual([done.status, done.json["ok"]], [200, true], route);
+      }
+      assert.deepEqual(
+        cpe.stats.writes.map((w) => w.path),
+        ["/api/net/net-mode", "/api/net/register", "/api/dialup/connection", "/api/monitoring/clear-traffic"],
+        "the scan is a GET; each write sent once"
+      );
       const sent = cpe.stats.requests.length;
-      for (const route of CELLULAR_CONTROL_ROUTES) {
+      for (const route of CELLULAR_CONTROL_ROUTES.filter((r) => OPEN[r] === undefined)) {
         const body = { confirm: true, mode: "auto", kind: "physical", pin: "1234", enabled: false, code: "*100#" };
         const refused = await api.call("POST", route, body);
         assert.deepEqual([refused.status, refused.json["errorCode"], refused.json["model"]], [409, "DEVICE_UNVERIFIED_READ_ONLY", "H168-383"], route);
       }
-      assert.deepEqual((await api.call("POST", "/api/cellular/refresh")).json["cellular"], null);
-      assert.equal(cpe.stats.requests.length, sent, "not one request more");
-      assert.deepEqual(cpe.stats.writes, []);
-      // No cellular tool is listed there either: not even the read
-      assert.deepEqual((await api.tools()).map((tool) => tool.name), []);
+      assert.equal(cpe.stats.requests.length, sent, "nothing nobody checked on it reached the router");
+      assert.equal(((await api.call("POST", "/api/cellular/refresh")).json["cellular"] as { networkMode?: { current?: string } } | null)?.networkMode?.current, "lte");
+      // The tools of the four, and the read
+      assert.deepEqual((await api.tools()).map((tool) => tool.name), ["get_cellular_settings", "set_network_mode", "scan_operators", "select_operator", "set_data_roaming", "reset_traffic_counters"]);
     } finally {
       await api.close();
       await daemon.cleanup();

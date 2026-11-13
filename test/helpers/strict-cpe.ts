@@ -29,6 +29,14 @@ export interface StrictCpeOptions {
   latencyMs?: number | (() => number);
   /** Return a fault for a request (path without query, method); `undefined` serves it normally. */
   fault?: (path: string, method: string, headers: Headers) => StrictFault | undefined;
+  /**
+   * Model the cellular settings as the real H168-383 (4.4.0.1) answered them on 2026-11-13: `net-mode`
+   * takes its own page's two fields (`00` with `networkOption`, `03` with `LTEBandOption`) or the three
+   * fields followed by that mode's field, and refuses anything else with `-1`; `dialup/connection`,
+   * `net/register`, `net/plmn-list`, `monitoring/clear-traffic`, the page's `net-mode.xml`. Off, every
+   * POST is accepted and changes nothing, as before.
+   */
+  cellular?: boolean;
 }
 
 interface AdminSession {
@@ -143,6 +151,16 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
       )
       .join("")}</TimeControlRules></response>`;
 
+  // The cellular settings (`cellular`), as the real H168-383 reported them (placeholders where it named an operator)
+  const cellular = opts.cellular
+    ? {
+        netMode: { NetworkMode: "00", NetworkBand: "2000004680380", LTEBand: "40000007A0880800D5", networkOption: "2", LTEBandOption: "0" } as Record<string, string>,
+        connection: { RoamAutoConnectEnable: "0", MaxIdelTime: "600", ConnectMode: "0", MTU: "1500", auto_dial_switch: "1", pdp_always_on: "0" } as Record<string, string>,
+        // Manual selection reads back Mode 1 with no Plmn (what the router answered is not on record; FengSui takes an empty one as no contradiction)
+        register: { Mode: "0", Plmn: "", Rat: "" } as Record<string, string>,
+        connectedSeconds: 86_400,
+      }
+    : null;
   const stats = {
     requests: [] as Array<{ path: string; method: string }>,
     stateLoginChecks: 0,
@@ -319,6 +337,20 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
     const plainBody = encType === "2" || encType === "3" ? aesGcmDecrypt(body, shareKeyHex) : body;
     const respond = (xml: string): Response => reply(encType === "1" || encType === "3" ? aesGcmEncrypt(xml, shareKeyHex) : xml);
 
+    if (method === "GET" && cellular) {
+      const tags = (record: Record<string, string>): string => Object.entries(record).map(([tag, value]) => `<${tag}>${value}</${tag}>`).join("");
+      if (p === "/api/net/net-mode") return reply(`<response>${tags(cellular.netMode)}</response>`);
+      if (p === "/api/dialup/connection") return reply(`<response>${tags(cellular.connection)}</response>`);
+      if (p === "/api/net/register") return reply(`<response>${tags(cellular.register)}</response>`);
+      if (p === "/config/network/net-mode.xml") return reply("<config><net_mode_list>0;1;2;3;4;5</net_mode_list></config>");
+      if (p === "/api/net/net-feature-switch") return reply("<response><net_premode_switch>2</net_premode_switch><net_mode_enable>1</net_mode_enable><plmn_list_combine_enable>1</plmn_list_combine_enable></response>");
+      if (p === "/api/net/plmn-list") {
+        return reply(
+          "<response><Networks><Network><Index>0</Index><State>1</State><FullName>Demo Mobile</FullName><ShortName>Demo</ShortName><Numeric>27201</Numeric><Rat>7</Rat></Network><Network><Index>1</Index><State>1</State><FullName>Other Net</FullName><ShortName>Other</ShortName><Numeric>27202</Numeric><Rat>7</Rat></Network></Networks></response>"
+        );
+      }
+      if (p === "/api/monitoring/traffic-statistics") return reply(`<response><CurrentConnectTime>${cellular.connectedSeconds}</CurrentConnectTime><TotalConnectTime>${cellular.connectedSeconds}</TotalConnectTime><TotalUpload>1000</TotalUpload><TotalDownload>9000</TotalDownload></response>`);
+    }
     if (method === "GET") {
       if (p === "/api/webserver/publickey") return reply(`<response><ecc_server_pubkey>${SERVER_ECC_PUB}</ecc_server_pubkey></response>`);
       if (p === "/api/monitoring/status") {
@@ -353,6 +385,35 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
 
     // POST
     stats.writes.push({ path: p, body: plainBody });
+    if (cellular) {
+      const body = plainBody.replace(/^<\?xml[^>]*\?>/, "");
+      if (p === "/api/net/net-mode") {
+        const pair = /^<request><NetworkMode>(00|03)<\/NetworkMode><(networkOption|LTEBandOption)>([0-2])<\/\2><\/request>$/.exec(body);
+        const lock = /^<request><NetworkMode>(00|03)<\/NetworkMode><NetworkBand>([0-9A-Fa-f]{1,16})<\/NetworkBand><LTEBand>([0-9A-Fa-f]{1,32})<\/LTEBand><(networkOption|LTEBandOption)>([0-2])<\/\4><\/request>$/.exec(body);
+        const fits = (mode: string | undefined, tag: string | undefined): boolean => (mode === "00") === (tag === "networkOption");
+        if (pair && fits(pair[1], pair[2])) Object.assign(cellular.netMode, { NetworkMode: pair[1], [pair[2] ?? ""]: pair[3] });
+        else if (lock && fits(lock[1], lock[4])) Object.assign(cellular.netMode, { NetworkMode: lock[1], [lock[4] ?? ""]: lock[5] });
+        else return xmlError("-1");
+        return reply("<response>OK</response>");
+      }
+      if (p === "/api/dialup/connection") {
+        const sent = [...body.matchAll(/<([A-Za-z_]+)>(\d+)<\/\1>/g)].map((x) => [x[1] ?? "", x[2] ?? ""] as const);
+        if (sent.map(([tag]) => tag).join() !== Object.keys(cellular.connection).join()) return xmlError("100005");
+        Object.assign(cellular.connection, Object.fromEntries(sent));
+        return reply("<response>OK</response>");
+      }
+      if (p === "/api/net/register") {
+        const m = /^<request><Mode>([01])<\/Mode><Plmn>(\d{0,6})<\/Plmn><Rat>(\d{0,3})<\/Rat><\/request>$/.exec(body);
+        if (!m || (m[1] === "0") !== (m[2] === "")) return xmlError("100005");
+        Object.assign(cellular.register, { Mode: m[1], Plmn: "", Rat: "" });
+        return reply("<response>OK</response>");
+      }
+      if (p === "/api/monitoring/clear-traffic") {
+        if (body !== "<request><ClearTraffic>1</ClearTraffic></request>") return xmlError("100005");
+        cellular.connectedSeconds = 3;
+        return reply("<response>OK</response>");
+      }
+    }
     if (p === "/api/sms/sms-list") {
       const box = getXmlTag(plainBody, "BoxType") === "2" ? outbox : inbox;
       const page = Number(getXmlTag(plainBody, "PageIndex") ?? "1");
@@ -473,6 +534,8 @@ export function createStrictCpe(opts: StrictCpeOptions = {}) {
     fetchImpl,
     password,
     stats,
+    /** The cellular settings as the router holds them now (`cellular`; `null` without it). */
+    cellular,
     router,
     inbox,
     outbox,

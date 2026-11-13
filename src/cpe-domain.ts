@@ -1,9 +1,11 @@
 import net from "node:net";
 import {
   type BandInput,
+  DEFAULT_NET_MODE_KEEP,
   H168_383_LTE_BANDS,
   type HuaweiNetworkModeCode,
   NETWORK_MODE_AUTO,
+  type NetModeKeep,
   bandsToHexMask,
   buildLteBandNetModeXml,
   buildLteCellLockXml,
@@ -79,6 +81,13 @@ export interface BandConfigSnapshot {
   networkBandHex: string;
   lteBandHex: string;
   activeLteBands: number[];
+  /**
+   * The field a 5G HiLink router's `net-mode` names its mode by, as it reported them (the H168-383:
+   * `networkOption` with `00`, `LTEBandOption` with `03`); left out where it reports none. The band
+   * lock writes the mode along with them (`NetModeKeep`).
+   */
+  networkOption?: string;
+  lteBandOption?: string;
 }
 
 export interface TrafficTelemetryDto {
@@ -219,6 +228,10 @@ export interface PersistedLockState {
 export interface BandLockCommand {
   lteBands?: ReadonlyArray<BandInput> | "all";
   nrBands?: ReadonlyArray<BandInput> | "all";
+  /**
+   * The mode a driver brand switches to along with the lock (REST and MCP never send it). A Huawei
+   * band lock keeps the mode the router is in instead (`NetModeKeep`).
+   */
   networkMode?: HuaweiNetworkModeCode;
 }
 
@@ -524,6 +537,7 @@ export async function fetchGlobalTelemetry(
       networkBandHex: getXmlTag(netModeXml, "NetworkBand") ?? "",
       lteBandHex,
       activeLteBands,
+      ...modeFieldsOf(netModeXml),
     },
     traffic,
     thermal: {
@@ -535,6 +549,27 @@ export async function fetchGlobalTelemetry(
     status: hilinkRouterStatus(statusXml),
     ...(options.tolerant ? { unavailable } : {}),
   };
+}
+
+/** `networkOption` and `LTEBandOption` of a `net-mode` answer, where it reports them (`BandConfigSnapshot`). */
+function modeFieldsOf(netModeXml: string | null): { networkOption?: string; lteBandOption?: string } {
+  const option = netModeXml === null ? "" : (getXmlTag(netModeXml, "networkOption")?.trim() ?? "");
+  const bandOption = netModeXml === null ? "" : (getXmlTag(netModeXml, "LTEBandOption")?.trim() ?? "");
+  return { ...(/^\d{1,2}$/.test(option) ? { networkOption: option } : {}), ...(/^\d{1,2}$/.test(bandOption) ? { lteBandOption: bandOption } : {}) };
+}
+
+/**
+ * The mode the latest poll saw, for a band lock to write along (`NetModeKeep`): `00` with its
+ * `networkOption`, `03` with its `LTEBandOption`; `DEFAULT_NET_MODE_KEEP` when it saw no mode it can
+ * name (no poll yet, another code, a field missing), the verified request.
+ */
+export function netModeKeepOf(bandConfig: BandConfigSnapshot | null | undefined): NetModeKeep {
+  const field = (value: string | undefined): "0" | "1" | "2" | null => (value === "0" || value === "1" || value === "2" ? value : null);
+  const option = field(bandConfig?.networkOption);
+  const bandOption = field(bandConfig?.lteBandOption);
+  if (bandConfig?.networkMode === "00" && option !== null) return { networkMode: "00", networkOption: option };
+  if (bandConfig?.networkMode === "03" && bandOption !== null) return { networkMode: "03", lteBandOption: bandOption };
+  return DEFAULT_NET_MODE_KEEP;
 }
 
 /**
@@ -715,7 +750,7 @@ export async function fetchRouterSettings(session: EphemeralCpeSession): Promise
   };
 }
 
-export function prepareBandLockPayloads(command: BandLockCommand): {
+export function prepareBandLockPayloads(command: BandLockCommand, keep: NetModeKeep = DEFAULT_NET_MODE_KEEP): {
   netModeXml: string | null;
   nrXml: string | null;
   appliedLte: number[] | "all";
@@ -729,10 +764,7 @@ export function prepareBandLockPayloads(command: BandLockCommand): {
   let appliedLte: number[] | "all" = "all";
   if (command.lteBands !== undefined) {
     try {
-      netModeXml = buildLteBandNetModeXml(
-        command.lteBands,
-        command.networkMode ?? NETWORK_MODE_AUTO
-      );
+      netModeXml = buildLteBandNetModeXml(command.lteBands, keep);
       appliedLte =
         command.lteBands === "all"
           ? "all"
@@ -965,9 +997,10 @@ export function verifyLockState(
  */
 export async function applyBandLock(
   session: EphemeralCpeSession,
-  command: BandLockCommand
+  command: BandLockCommand,
+  keep: NetModeKeep = DEFAULT_NET_MODE_KEEP
 ): Promise<PersistedLockState> {
-  const { netModeXml, nrXml, appliedLte, appliedNr } = prepareBandLockPayloads(command);
+  const { netModeXml, nrXml, appliedLte, appliedNr } = prepareBandLockPayloads(command, keep);
 
   if (netModeXml !== null) {
     await session.postRaw("/api/net/net-mode", netModeXml);
@@ -1050,10 +1083,11 @@ export async function applyCellLock(
  * Clear all 4G/5G cell, frequency, and band locks (`lock_mode=0` + `LTEBand=7fffffffffffffff`).
  */
 export async function unlockAllRfLocks(
-  session: EphemeralCpeSession
+  session: EphemeralCpeSession,
+  keep: NetModeKeep = DEFAULT_NET_MODE_KEEP
 ): Promise<PersistedLockState> {
   await session.postRaw("/api/net/lock-freq", buildUnlockAllLocksXml());
-  await session.postRaw("/api/net/net-mode", buildLteBandNetModeXml("all", NETWORK_MODE_AUTO));
+  await session.postRaw("/api/net/net-mode", buildLteBandNetModeXml("all", keep));
   return {
     mode: "unlocked",
     updatedAtIso: new Date().toISOString(),

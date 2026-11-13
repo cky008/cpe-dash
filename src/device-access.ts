@@ -427,8 +427,12 @@ export class DeviceAccess {
     const current = this.current;
     if (!current) return "unknown";
     // The verified model's verification covers the writes FengSui had then; the cellular settings came
-    // later and have no implementation checked on it, so it gets none of them
-    if (isVerifiedModel(current.model)) return isCellularWriteFeature(feature) ? "not_implemented" : "verified";
+    // later: it gets the ones checked on it in person and filed in VERIFIED_FEATURES, no other. Like its
+    // other writes they are verified ones, which no switch turns off (the switches are experimental writes')
+    if (isVerifiedModel(current.model)) {
+      if (!isCellularWriteFeature(feature)) return "verified";
+      return isVerifiedFeature(this.#family, current.model, feature, "write", this.#verifiedFeatures) ? "verified" : "not_implemented";
+    }
     // A model nobody verified writes only what FengSui implements for its family (in the form of the
     // interface it speaks): a driver's writes, or on a HiLink model the generic ones (a write without
     // one stays the verified model's alone)

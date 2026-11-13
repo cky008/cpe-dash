@@ -122,6 +122,8 @@ export function createDemoRouter(): DemoRouter {
   const cpe = createStrictCpe({
     password: DEMO_CPE_PASSWORD,
     latencyMs: () => 6 + Math.random() * 20,
+    // The cellular settings checked on the real H168-383 (issue #3), answered as it did
+    cellular: true,
     fault: (p, method) => {
       if (method !== "GET") return undefined;
       if (p === "/api/device/signal") return { body: signalXml() };

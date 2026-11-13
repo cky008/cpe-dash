@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   H168_383_LTE_BANDS,
   H168_383_NR_BANDS,
+  DEFAULT_NET_MODE_KEEP,
   HUAWEI_LTE_ALL_BANDS_MASK,
   HUAWEI_NETWORK_ALL_BANDS_MASK,
   LOCK_MODE_BAND,
@@ -58,9 +59,11 @@ describe("BandMask bitwise codec & Cell Lock payload builders", () => {
     assert.equal(getXmlTag(lockB1B3, "LTEBand"), "5");
     assert.equal(getXmlTag(lockB1B3, "networkOption"), "2");
 
-    const resetAll = buildLteBandNetModeXml("all", "03");
-    assert.equal(getXmlTag(resetAll, "NetworkMode"), "03");
-    assert.equal(getXmlTag(resetAll, "LTEBand"), HUAWEI_LTE_ALL_BANDS_MASK);
+    // Writing the mode along: 03 goes with LTEBandOption, as the H168-383 takes it (2026-11-13)
+    const resetAll = buildLteBandNetModeXml("all", { networkMode: "03", lteBandOption: "1" });
+    assert.equal(resetAll, `<?xml version="1.0" encoding="UTF-8"?><request><NetworkMode>03</NetworkMode><NetworkBand>3fffffff</NetworkBand><LTEBand>${HUAWEI_LTE_ALL_BANDS_MASK}</LTEBand><LTEBandOption>1</LTEBandOption></request>`);
+    assert.equal(buildLteBandNetModeXml(["B1", "B3"], { networkMode: "00", networkOption: "1" }), lockB1B3.replace("<networkOption>2</networkOption>", "<networkOption>1</networkOption>"));
+    assert.equal(buildLteBandNetModeXml(["B1", "B3"], DEFAULT_NET_MODE_KEEP), lockB1B3, "the default is the verified request, byte for byte");
     assert.throws(() => buildLteBandNetModeXml([]), /At least one LTE band/);
   });
 

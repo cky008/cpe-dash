@@ -263,8 +263,9 @@ describe("Static demo backend vs the real daemon", () => {
     assert.equal(demoView.status, 200);
     assertSameShape("/api/console/experimental", realView.json, demoView.json);
     assert.deepEqual((demoView.json as unknown as ExperimentalWritesResponse).device.features, (realView.json as unknown as ExperimentalWritesResponse).device.features);
-    // Verified but for the cellular settings, which came after the model's verification and are not on it
-    assert.ok(Object.entries((demoView.json as unknown as ExperimentalWritesResponse).device.features).every(([feature, state]) => state === (isCellularWriteFeature(feature) ? "not_implemented" : "verified")));
+    // Verified but for the cellular settings, which came after the model's verification: the ones checked on it (issue #3) only
+    const checked: ReadonlySet<string> = new Set(["networkMode", "operatorSelect", "roaming", "trafficReset"]);
+    assert.ok(Object.entries((demoView.json as unknown as ExperimentalWritesResponse).device.features).every(([feature, state]) => state === (isCellularWriteFeature(feature) && !checked.has(feature) ? "not_implemented" : "verified")));
     for (const body of [
       { feature: "reboot", enabled: true },
       { feature: "reboot", enabled: false },

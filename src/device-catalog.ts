@@ -735,16 +735,16 @@ interface FeatureMark {
 
 function featureMark(subject: Subject, feature: DeviceFeature, records: Records): FeatureMark {
   // The verified model's verification covers what FengSui read and wrote then; the status reads came
-  // later (marked from the facts), and so did the cellular settings, which it has no write for
-  if (subject.names.some((name) => isVerifiedModel(name))) {
-    if (isCellularWriteFeature(feature)) return { mark: "", facts: [] };
-    if (!isStatusReadFeature(feature)) return { mark: "✓", facts: [] };
-  }
+  // later (marked from the facts), and so did the cellular settings: the ones checked on it are filed
+  // (✓, or — where it lacks one), the rest it has no write for
+  const verifiedModel = subject.names.some((name) => isVerifiedModel(name));
+  if (verifiedModel && !isCellularWriteFeature(feature) && !isStatusReadFeature(feature)) return { mark: "✓", facts: [] };
   const family = subject.family;
   if (family === null) return { mark: "", facts: [] };
   const access = READ_FEATURES.has(feature) ? "read" : "write";
   if (records.unsupported.some((e) => e.family === family && e.feature === feature && named(subject, e.model))) return { mark: "—", facts: [] };
   if (records.verified.some((e) => e.family === family && e.feature === feature && e.access === access && named(subject, e.model))) return { mark: "✓", facts: [] };
+  if (verifiedModel && isCellularWriteFeature(feature)) return { mark: "", facts: [] };
   const facts = factsFor(subject).filter((fact) => fact.features.includes(feature));
   const absent = facts.filter((fact) => fact.effect === "absent");
   if (absent.length > 0) return { mark: "—", facts: absent };
@@ -1023,7 +1023,7 @@ export function supportedDevicesSection(
     ? [
         "What the marks mean:",
         "",
-        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels} but the ${laterEn} columns (added later: readings are marked from the facts like any other model, and FengSui does not do the new writes there yet); it also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.${reportSentence}`,
+        `- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (\`VERIFIED_FEATURES\`). Everything is verified on the ${verifiedModels} but the ${laterEn} columns (added later: readings are marked from the facts like any other model, and a write only once it was checked on a real one and recorded; FengSui does not do the others there yet); it also works as usual on another firmware build and warns once with \`FIRMWARE_UNVERIFIED\`.${reportSentence}`,
         "- **? Waiting for a report**: FengSui implements it from the interface notes and it is on by default; nobody has confirmed it on a real router yet. Each write is sent once and read back, and you can turn each one off under Settings → Device.",
         "- **△ Partly, or with a condition**: the conditions are under each brand's table.",
         `- **— Not available**: the router or its interface does not have the feature (a CPE has no battery), or someone tested it and it did not work${anyUnsupported ? "" : " (no such report in the table yet)"}.`,
@@ -1035,7 +1035,7 @@ export function supportedDevicesSection(
     : [
         "表里的符号：",
         "",
-        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 上除了${laterZh}这几列（后来加的：读数和其他型号一样按事实标，新的写入烽燧在它上面还没有做），全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。${reportSentence}`,
+        `- **✓ 已验证**：有人在真机上确认过，并已登记进代码（\`VERIFIED_FEATURES\`）。${verifiedModels} 上除了${laterZh}这几列（后来加的：读数和其他型号一样按事实标；写入只标在它上面真机核对过、登记过的，其余烽燧在它上面还没有做），全部功能都验证过；它换了别的固件也照常工作，只发一次 \`FIRMWARE_UNVERIFIED\` 提醒。${reportSentence}`,
         "- **? 等待回报**：烽燧按接口资料实现了，默认开启，还没有人在真机上确认。写入每次只发一次，写后回读核对，可以在「设置 → 设备」逐项关闭。",
         "- **△ 部分支持或有条件**：条件写在各品牌的表下面。",
         `- **— 不支持**：路由器或它的接口没有这项功能（比如室内 CPE 没有电池），或者有人实测过不能用${anyUnsupported ? "" : "（实测不能用的，表里暂时还没有）"}。`,

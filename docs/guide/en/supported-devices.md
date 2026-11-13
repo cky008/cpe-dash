@@ -14,7 +14,7 @@ To see what FengSui looks like on a router nobody verified, open the [live demo'
 <!-- devices:begin -->
 What the marks mean:
 
-- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (`VERIFIED_FEATURES`). Everything is verified on the H168-383 but the Battery, SIM card, Airplane mode, Network mode & operator, Data settings and USSD columns (added later: readings are marked from the facts like any other model, and FengSui does not do the new writes there yet); it also works as usual on another firmware build and warns once with `FIRMWARE_UNVERIFIED`.
+- **✓ Verified**: someone confirmed it on a real router, and it is recorded in the code (`VERIFIED_FEATURES`). Everything is verified on the H168-383 but the Battery, SIM card, Airplane mode, Network mode & operator, Data settings and USSD columns (added later: readings are marked from the facts like any other model, and a write only once it was checked on a real one and recorded; FengSui does not do the others there yet); it also works as usual on another firmware build and warns once with `FIRMWARE_UNVERIFIED`.
 - **? Waiting for a report**: FengSui implements it from the interface notes and it is on by default; nobody has confirmed it on a real router yet. Each write is sent once and read back, and you can turn each one off under Settings → Device.
 - **△ Partly, or with a condition**: the conditions are under each brand's table.
 - **— Not available**: the router or its interface does not have the feature (a CPE has no battery), or someone tested it and it did not work.
@@ -33,7 +33,7 @@ Usually at `192.168.8.1`; sign in with the user name `admin` and the admin passw
 
 | Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| H168-383 | Indoor CPE | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |  |  |  |  |  |  |
+| H168-383 | Indoor CPE | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |  |  | ✓ | △ | — |  |
 | H165-383 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H165-383) |
 | H158-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H158-381) |
 | H155-381 | Indoor CPE | ? | △ | ? | ? | △ |  | ? | ? |  |  | — |  |  | ? | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+H155-381) |
@@ -97,9 +97,9 @@ Usually at `192.168.8.1`; sign in with the user name `admin` and the admin passw
 Notes for this table:
 
 - — Battery: only a mobile router has a battery (H168-383, H165-383, H158-381, H155-381, H155-382, H155-383, H153-381, H138-380, H122-373, H112-373, H112-372, H112-370, H352-381, H312-371, N5368X, B818-263, B818-260, B715s-23c, B628-265, B628-350, B618s-22d, B618s-65d, B612-233, B612s-25d, B535-836, B535-232, B528s-23a, B525s-23a, B525s-65a, B316-855, B315s-22, B315s-936, B311-221, B311-521, B311As-853, B311B-853, B310s-22, B310s-927, B310As-852, E5180s-22, E5186s-22a, E8231, E8372h-153, E8372h-320, E8372h-608, E3372, E3372h-153, E3131, E3531 and E5530As-2).
+- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet (every model in this table).
 - △ Nearby cells: FengSui reads the H168-383's nearby-cells endpoint; a router without it leaves this empty (every model but the H168-383).
 - △ Band lock: locks 4G (LTE) bands only; FengSui locks 5G bands on a verified model only (every model but the H168-383).
-- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet (every model but the H168-383).
 - A USB modem connects only in HiLink mode, with its web interface (E8231, E8372h-153, E8372h-320, E8372h-608, E3372, E3372h-153, E3131, E3531 and E5530As-2).
 
 <a id="brand-brovi"></a>

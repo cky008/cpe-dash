@@ -156,10 +156,14 @@ describe("device profile: the token route", () => {
       // The router's row of Supported devices: the verified model
       const row = (await responseOf()).support;
       // The verified model's one note: it has no battery
-      assert.deepEqual([row?.family, row?.model, row?.section, row?.notes?.map((n) => n.en)], ["huawei", "H168-383", "huawei", ["Battery: only a mobile router has a battery"]]);
-      // Everything ✓ but what came later: no battery on a CPE (—); the SIM card and airplane mode readings and the
-      // cellular settings are not done on this model (empty)
-      assert.deepEqual(row?.modules.map((m) => m.mark).slice(-6), ["—", "", "", "", "", ""]);
+      assert.deepEqual(
+        [row?.family, row?.model, row?.section, row?.notes?.map((n) => n.en)],
+        ["huawei", "H168-383", "huawei", ["Battery: only a mobile router has a battery", "Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point (APN) and the data limit here yet"]]
+      );
+      // Everything ✓ but what came later: no battery on a CPE (—); the SIM card and airplane mode readings not
+      // checked on it yet; of the cellular settings the ones checked in person (issue #3): the mode and the
+      // operator ✓, roaming and the counters △ (no APN or limit), USSD switched off —
+      assert.deepEqual(row?.modules.map((m) => m.mark).slice(-6), ["—", "", "", "✓", "△", "—"]);
       assert.ok(row?.modules.slice(0, -6).every((m) => m.mark === "✓"));
 
       // A router whose allowlisted identity fields carry identifiers: the allowlist alone would let them through

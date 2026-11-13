@@ -1,6 +1,7 @@
 import { type AccessControlSnapshot, type AccessRequestContext, type TimeRulesState, applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../access-control.ts";
 import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
 import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, LinkChange, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
+import type { NetModeKeep } from "../band-lock.ts";
 import { assertOneCell, validateGenericBandLock } from "../control-input.ts";
 import type { EphemeralCpeSession } from "../cpe-client.ts";
 import {
@@ -20,6 +21,7 @@ import {
   fetchRouterSettings,
   fetchTerminalTopology,
   mergeBandLockState,
+  netModeKeepOf,
   prepareBandLockPayloads,
   prepareCellLockPayload,
   readRouterModel,
@@ -78,9 +80,13 @@ import type { SmsWireMessage } from "../sms/types.ts";
  * requests themselves are in `cpe-domain.ts`, `generic-writes.ts`, `access-control.ts` and
  * `sms/protocol.ts`.
  *
- * The cellular settings came after the H168-383 was verified: the gate keeps each of them
- * `not_implemented` on it, so none of its requests changed. A model nobody verified gets the ones
- * whose requests the notes give (network mode, operator, data roaming, traffic counters, USSD).
+ * The cellular settings came after the H168-383 was verified: a model nobody verified gets the ones
+ * whose requests the notes give (network mode, operator, data roaming, traffic counters, USSD), and the
+ * H168-383 the ones checked on it in person and filed in `VERIFIED_FEATURES` (the gate keeps the rest
+ * `not_implemented` there). Both send the same requests (`generic-writes.ts`), which go by what the
+ * router reports (a 5G router's two-field network mode). None of the H168-383's own requests changed;
+ * its band lock writes the mode the latest poll saw along, byte for byte the verified request in the
+ * default one (`NetModeKeep`).
  */
 export class HilinkRouterSession implements RouterSession {
   readonly family = "huawei" as const;
@@ -195,7 +201,12 @@ export class HilinkRouterSession implements RouterSession {
     const previous = ctx.previousLock();
     const telemetry = ctx.cachedTelemetry();
     const routerLteBands = telemetry?.bandConfig.lteBandHex ? telemetry.bandConfig.activeLteBands : null;
-    return { state: mergeBandLockState(previous, command, await applyBandLock(this.#session, command), routerLteBands), experimental: false, savedLteMask: null };
+    const keep = netModeKeepOf(telemetry?.bandConfig);
+    // 4G only: a 5G band lock would do nothing (the router's own page leaves the 5G part out then)
+    if (keep.networkMode === "03" && Array.isArray(command.nrBands)) {
+      throw new CpeControlValidationError("The router is set to a 4G-only network mode: a 5G band lock would do nothing. Switch the network mode back first; nothing was written");
+    }
+    return { state: mergeBandLockState(previous, command, await applyBandLock(this.#session, command, keep), routerLteBands), experimental: false, savedLteMask: null };
   }
 
   /** The verified model's alone: no generic cell lock exists, so this one is never an experimental write. */
@@ -206,7 +217,7 @@ export class HilinkRouterSession implements RouterSession {
   }
 
   async unlockAll(write: WriteContext): Promise<PersistedLockState> {
-    return write.generic ? genericLockState((await genericBandLock(this.#session, write.check, "all", write.lteBands ?? [])).bands) : await unlockAllRfLocks(this.#session);
+    return write.generic ? genericLockState((await genericBandLock(this.#session, write.check, "all", write.lteBands ?? [])).bands) : await unlockAllRfLocks(this.#session, this.#modeKeep());
   }
 
   async rollBackLocks(request: RollbackRequest, write: WriteContext): Promise<{ outcome: WanRepairOutcome; restored: boolean }> {
@@ -220,7 +231,12 @@ export class HilinkRouterSession implements RouterSession {
       return { outcome: { applied: true, lockState: genericLockState(locked.bands) }, restored: restore !== undefined };
     }
     const skipped = await readWanRepairBlocker(this.#session);
-    return { outcome: skipped ? { applied: false, skipped } : { applied: true, lockState: await unlockAllRfLocks(this.#session) }, restored: false };
+    return { outcome: skipped ? { applied: false, skipped } : { applied: true, lockState: await unlockAllRfLocks(this.#session, this.#modeKeep()) }, restored: false };
+  }
+
+  /** The network mode the latest poll saw, for the H168-383's band lock to write along. */
+  #modeKeep(): NetModeKeep {
+    return netModeKeepOf(this.#ctx.latestTelemetry()?.bandConfig);
   }
 
   async reboot(params: { confirm: boolean }, write: WriteContext): Promise<{ rebooting: true; requestedAtIso: string }> {
@@ -273,27 +289,25 @@ export class HilinkRouterSession implements RouterSession {
     return applyTimeRuleChange(this.#session, change, ctx);
   }
 
+  // The cellular settings: on a model nobody verified, and on the H168-383 where VERIFIED_FEATURES opened them (the gate decides)
+
   async setNetworkMode(mode: NetworkMode, write: WriteContext): Promise<LinkChangeOutcome<NetworkMode>> {
-    genericOnly(write, "set_network_mode");
     const previous = await genericNetworkMode(this.#session, write.check, mode);
     return { previous: previous === mode ? null : previous };
   }
 
   scanOperators(write: WriteContext): Promise<OperatorChoice[]> {
-    genericOnly(write, "scan_operators");
     return genericScanOperators(this.#session, write.check);
   }
 
   async selectOperator(selection: OperatorSelection, write: WriteContext): Promise<LinkChangeOutcome<OperatorSelection>> {
-    genericOnly(write, "select_operator");
     return { previous: await genericSelectOperator(this.#session, write.check, selection) };
   }
 
   /** The way back from a mode or operator change the WAN did not survive (the only two HiLink has of the four). */
   async revertLinkChange(change: LinkChange, write: WriteContext): Promise<WanRepairOutcome> {
     if (change.kind === "sim_slot" || change.kind === "apn") throw unbuilt(change.kind === "sim_slot" ? "auto_restore_sim_slot" : "auto_restore_apn");
-    genericOnly(write, change.kind === "network_mode" ? "auto_restore_network_mode" : "auto_restore_operator");
-    const skipped = await readWanRepairBlockerTolerant(this.#session);
+    const skipped = write.generic ? await readWanRepairBlockerTolerant(this.#session) : await readWanRepairBlocker(this.#session);
     if (skipped) return { applied: false, skipped };
     if (change.kind === "network_mode") await genericNetworkMode(this.#session, write.check, change.previous);
     else await genericSelectOperator(this.#session, write.check, change.previous);
@@ -301,13 +315,11 @@ export class HilinkRouterSession implements RouterSession {
   }
 
   async setRoaming(enabled: boolean, write: WriteContext): Promise<{ dataRoaming: boolean }> {
-    genericOnly(write, "set_roaming");
     await genericRoaming(this.#session, write.check, enabled);
     return { dataRoaming: enabled };
   }
 
   async resetTraffic(write: WriteContext): Promise<void> {
-    genericOnly(write, "reset_traffic");
     await genericTrafficReset(this.#session, write.check);
   }
 
@@ -358,8 +370,8 @@ export const huaweiDriver: RouterDriver = {
   hasVerifiedModel: true,
   writes: (feature) => !HILINK_UNBUILT.has(feature),
   reads(section: SessionlessRead, device: DeviceAccess): boolean {
-    // The cellular settings are read on a model nobody verified only, and only where one of them is open there
-    if (section === "cellular") return device.generic && CELLULAR_WRITE_FEATURES.some((feature) => !gateRefuses(device.writeAccess(feature)));
+    // The cellular settings are read only where one of them is open (on the H168-383: one filed in VERIFIED_FEATURES)
+    if (section === "cellular") return CELLULAR_WRITE_FEATURES.some((feature) => !gateRefuses(device.writeAccess(feature)));
     return true;
   },
   keepsSmsReadState: false,
@@ -394,7 +406,7 @@ export function verifiedOnly(write: WriteContext, action: string): void {
   if (write.generic) throw new CpeControlValidationError(`${action} has no implementation for a model FengSui was not verified on; nothing was written`);
 }
 
-/** A generic cellular write: never on a verified model (the gate refuses it there before any session). */
+/** A generic write nobody checked on the verified model (USSD): never there (the gate refuses it before any session). */
 function genericOnly(write: WriteContext, action: string): void {
   if (!write.generic) throw unbuilt(action);
 }
