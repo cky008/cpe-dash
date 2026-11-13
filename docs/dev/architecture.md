@@ -544,3 +544,54 @@ v1.8.3 之前，烽燧只会说华为 HiLink。这一版加入七个品牌的驱
 3. OpenWrt 的「重启」重启的是蜂窝模组，不是整台路由器；流量计数、广和通的载波聚合没有读。
 4. 品牌识别依赖每个品牌的特征请求；固件改了登录页的品牌认不出，需要手动选择。
 5. `docs/dev/device-notes.md` 是接口资料里的型号汇总，不是实测结果；其中 D-Link / TP-Link 一节没有对应的实现。
+
+## 19. 统一的会话层与后端（2026-11-12，v1.9.0）
+
+### 19.1 为什么改
+
+到第 6 步为止，烽燧对华为和其他品牌各有一套路径：两个会话客户端（`HuaweiCpeClient`、`DriverCpeClient`）各自实现了互斥、限时、让位、熔断和 `finally` 注销；调度器里有一组 HiLink 的读写（`executeRead`、`executeControl`），旁边又有一组驱动的读写（`executeDriverTelemetryRead` 等七个）；`RouterBackend` 有两个实现（`HilinkBackend`、`DriverBackend`），每个动词的排队、闸门、审计各写一遍。新能力要写两遍，新品牌要懂两套。主人的要求是把架构做到最好，不为「不碰已验证的代码」保留平行的路径；H168-383 的约束只是发给路由器的请求逐字节不变，这由请求序列比对证明，和代码怎样组织无关。
+
+### 19.2 现在的分层
+
+```mermaid
+flowchart TD
+    E["入口：控制台 · REST · SSE · MCP · Telegram · 自愈"] --> R["共用的规则：入参校验（control-input）· 写闸门（device-access）· 审计（audit-log）"]
+    R --> S["不分品牌的服务：CpeMonitor · CpeControlService · SmsService · 告警 · 自愈 · 时序"]
+    S --> B["RouterBackend 动词，唯一实现 SessionBackend<br/>只管排队、闸门、审计、读取记录；不知道品牌"]
+    B --> Q["MutexSessionScheduler：一条读路径 read · 一条写路径 control / refuse<br/>持有当前连接 RouterConnection"]
+    Q --> C["SessionClient（session-client.ts）：互斥 · 限时 · 让位 · 只交一次密码 · 熔断 · finally 注销"]
+    C --> D1["华为驱动 drivers/huawei.ts<br/>HilinkRouterSession · huaweiDriver"]
+    C --> D2["其他品牌 drivers/adapter.ts<br/>DriverRouterSession 套在各自驱动的 DriverSession 上"]
+    D1 --> P1["HiLink：cpe-client · cpe-auth · cpe-domain · generic-writes · access-control · sms/protocol"]
+    D2 --> P2["各品牌驱动：zte-goform · zte-zwrt · pinsu · tozed · fiberhome · nradio · openwrt"]
+    P2 --> K["协议部件 protocols/：ubus · at/（common · quectel · fibocom · sms）"]
+```
+
+| 层 | 文件 | 只做什么 |
+| :--- | :--- | :--- |
+| 后端 | `src/router-backend.ts` | `RouterBackend` 的每个动词：入队前的检查交给品牌的 `RouterDriver`，读取包在 `readSection` 里记录可用与否，写入经 `control` 排队过闸门。文件里不出现任何品牌名（`test/router-backend.test.ts` 检查） |
+| 会话层 | `src/router-session.ts` | `RouterSession`：一次会话里对路由器的全部读写；`RouterDriver`：品牌在会话之外的事实（实现了哪些写入、哪些读取值得开会话、入队前的检查、免登录的未读数） |
+| 连接 | `src/drivers/connection.ts` | 唯一一处按品牌挑选会话客户端和会话对象：调度器持有的当前连接、控制台的测试连接都由它构建 |
+| 调度器 | `src/scheduler.ts` | 队列、避让、熔断、写闸门、读取与写入记录；所有品牌同一条读路径和写路径 |
+| 会话客户端 | `src/session-client.ts` | 铁律四、五只实现一次；品牌只提供 `SessionProtocol`（登录前检查、一次登录、注销，以及「有人在线」的登录应答能否再试） |
+| 品牌 | `src/drivers/huawei.ts`、`src/drivers/adapter.ts` 与各驱动 | 发什么：华为是 H168-383 的已验证序列与其他 HiLink 型号的通用写入；其他品牌由适配层把各自驱动的精简会话变成同样的快照与锁定状态 |
+| 协议部件 | `src/protocols/` | 不含任何品牌事实、可被多个驱动组合的部分：ubus 的 JSON-RPC，移远 / 广和通 / 通用 AT 指令与模组短信应答的解析 |
+
+### 19.3 不变的东西与证明
+
+- **H168-383 的请求**：每一块搬动后都在严格模拟路由器上跑请求序列比对（`~/.cpe-dash-multimodel/reviews/phase-0-tools/seq-harness.ts` 与 `phase-1-tools/wire-record.ts`，导出改动前的提交逐一对照）：请求序列 15384 字节、报文记录 4712 字节，五次比对全部相同。测试连接（含输错密码的那次）在比对范围内。
+- **其他品牌的请求**：没有变化，由各驱动的模拟路由器测试守着（它们逐条检查发出的请求）。
+- **全部测试**：每个提交都通过 `npm run check`（单元测试、覆盖率、浏览器测试、密钥扫描）。
+
+### 19.4 顺带修掉的问题
+
+1. 其他品牌的「测试连接」用的临时客户端没有登记，守护进程停止时不会中断它、等它注销（华为的一直登记着）。合并成一条路径后两者一样。
+2. OpenWrt 的登录在拿到会话令牌后还会读模组信息；这时会话超时或被停止，客户端丢掉了登录正要返回的会话，`finally` 无从注销，令牌留在路由器上直到过期。现在注销前先限时等登录收尾，拿到会话就注销（`test/driver-runtime.test.ts`）。
+3. OpenWrt 的 JSON-RPC 错误码写成了 `rpc--32601`（多一个负号），与 zWRT 的 `rpc-32601` 不一致；共用 ubus 部件后统一，路由器自己的错误文字也不再进错误信息。
+4. 一个品牌所有接口写法都没有的写入，在本次运行还没看到型号时也直接拒绝，不再先开一个会话确认型号再拒绝。
+
+### 19.5 以后怎么加
+
+- **新品牌**：在 `src/drivers/` 写它的 `DriverProtocol`（免登录识别、登录前检查、一次登录、注销）与 `DriverSession`，用得上的协议部件直接组合；在 `src/router-family.ts` 加它的事实，在 `src/drivers/brands.ts` 注册。不需要碰后端、调度器或服务。
+- **新能力**：在 `RouterBackend` 与 `RouterSession` 各加一个动词，在 `SessionBackend` 里写一行排队与闸门；在有记录的品牌的会话里实现（其他品牌的驱动加一个可选方法，由适配层调用）。
+- **新协议部件**：两个以上驱动用到、又不含品牌事实的部分，放进 `src/protocols/`。

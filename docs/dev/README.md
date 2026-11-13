@@ -7,7 +7,7 @@
 | 文件 | 原文件名 | 内容 | 什么时候改 |
 | :--- | :--- | :--- | :--- |
 | [protocol.md](protocol.md) | `docs/PHASE1_PROTOCOL_SPEC.md` | 华为 HiLink 协议：H168-383 的会话与登录、已验证的接口与脱敏报文、锁频与锁小区算法、短信接口；附录 A 是其他华为型号（未验证） | 改动发给华为路由器的请求或对应答的解析时 |
-| [architecture.md](architecture.md) | `docs/PHASE2_ARCHITECTURE_REPORT.md`（第 1–5、7–10、17 节） | 架构与设计：选型、调度器、时序引擎、短信融合、控制台、访问控制、在线演示、主题、多品牌与统一后端 | 架构有变化时 |
+| [architecture.md](architecture.md) | `docs/PHASE2_ARCHITECTURE_REPORT.md`（第 1–5、7–10、17 节；第 19 节是之后加的） | 架构与设计：选型、调度器、时序引擎、短信融合、控制台、访问控制、在线演示、主题、多品牌与统一后端，以及现在的分层（会话客户端、一个后端、每个品牌一个会话对象、协议部件，第 19 节） | 架构有变化时 |
 | [sources.md](sources.md) | `docs/PHASE2_ARCHITECTURE_REPORT.md`（第 18 节） | 实现依据：每个品牌每项能力用的接口与出处（资料库的文件与行号、厂商手册、参考项目的地址、提交与许可证），以及查过却没找到记录的地方；一个里程碑一节 | 每实现一项能力，记下它的依据（[`AGENTS.md`](../../AGENTS.md) 第 4 节第 1 条） |
 | [audits.md](audits.md) | `docs/PHASE2_ARCHITECTURE_REPORT.md`（第 6、11–16 节） | 审计记录：Phase 2.5 两轮与之后每一轮全面审计的范围、发现与修复、结论、已知限制和误报 | 每轮审计 |
 | [api.md](api.md) | `docs/PHASE2_BACKEND_CONTRACT.md` | REST / SSE / MCP 接口契约：路由、请求与返回字段、错误码、SSE 事件、MCP 工具 | 增加或改动路由、事件、工具或错误码时；[`test/contract-manifest.test.ts`](../../test/contract-manifest.test.ts) 检查每一项都写到了。给用户看的简要版是指南的[「API 参考」](../guide/zh/api.md)，它的接口、事件和错误码表由 `npm run docs:sync` 生成（说明写在 [`scripts/api-reference.ts`](../../scripts/api-reference.ts)） |
