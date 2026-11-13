@@ -595,3 +595,44 @@ flowchart TD
 - **新品牌**：在 `src/drivers/` 写它的 `DriverProtocol`（免登录识别、登录前检查、一次登录、注销）与 `DriverSession`，用得上的协议部件直接组合；在 `src/router-family.ts` 加它的事实，在 `src/drivers/brands.ts` 注册。不需要碰后端、调度器或服务。
 - **新能力**：在 `RouterBackend` 与 `RouterSession` 各加一个动词，在 `SessionBackend` 里写一行排队与闸门；在有记录的品牌的会话里实现（其他品牌的驱动加一个可选方法，由适配层调用）。
 - **新协议部件**：两个以上驱动用到、又不含品牌事实的部分，放进 `src/protocols/`。
+
+### 19.6 连接设置、HiLink 与中兴各归其位（2026-11-13）
+
+第 19.2 节的分层定下以后，还有三处没有照它摆好。这一轮只搬不改：行为不变，H168-383 的请求序列与报文记录每搬一块比对一次（方法见 19.3）。
+
+**调度器拿到的是连接设置。** 此前调度器的构造参数是一个 `HuaweiCpeClient`，当作「连接设置」来读：其他品牌的客户端用它身上的地址、账号、密码建出来，华为自己的登录记忆（上次的登录方式、路由器是否给加密密钥签名、是不是未验证型号）也挂在它身上，连的是别的品牌时也一样。现在：
+
+- 调度器接收 `ConnectionOptions`（地址、账号、密码、请求怎样发出）加品牌，由 [`src/drivers/connection.ts`](../../src/drivers/connection.ts) 的 `routerConnection` 建出这个品牌的连接。华为的客户端只在华为的连接里，和其他品牌的客户端对等。
+- 连接自己说它对路由器的登录知道什么（`knownLogin`，照旧存进 `state.json`），启动时接上存下的（`rememberLogin`）；登录不需要记忆的品牌什么都不记。「是不是未验证型号」不再抄给客户端，登录时直接问写闸门（`RouterSessionContext.device`）。
+- 同品牌改凭据或地址，在原连接上更新（新凭据清掉旧的熔断，会话计数接着算）；换品牌换一个连接，并且只在两次会话之间换：`reset-breaker` 那条路径以前是当场换，现在和保存连接一样排进队列，正在进行的会话先结束并注销。
+- 换了品牌就是换了路由器：华为的登录记忆不再留到别的品牌之后。
+- 测试的初始化统一用 `test/helpers/connection.ts` 的 `mockConnection`。
+
+**华为的文件：先定去处，再搬。** 判断的办法是问这段代码「对任何一台 HiLink 路由器都成立，还是只因为在 H168-383 上验证过才成立」。前者是协议，进 `src/protocols/hilink/`；后者是品牌的事实，进 `src/drivers/huawei/`；每个品牌都要用的类型与规则留在 `src/` 顶层。不留转发用的旧文件。
+
+| 现在的文件 | 去处 | 理由 |
+| :--- | :--- | :--- |
+| `src/cpe-client.ts` | `src/protocols/hilink/client.ts`；`CpeEncryptionUnavailableError` 到 `src/session-errors.ts` | 会话、Cookie 与令牌轮换、加密通道、登录与注销、免登录读取，任何 HiLink 路由器都这样对话；「没有加密通道」这个错误，调度器和「此型号不提供」的判断都要认 |
+| `src/cpe-auth.ts` | `src/protocols/hilink/auth.ts`；`LOGIN_UNCONFIRMED_CODE` 到 `src/session-errors.ts` | 登录方式的选择是协议的一部分；「应答无法判断」这个代码各品牌的登录都在用 |
+| `src/crypto.ts` | `src/protocols/hilink/crypto.ts`；`timingSafeEqualString` 到 `src/constant-time.ts` | Curve25519、SCRAM、AES-GCM 与网页的转义都是 HiLink 的；常量时间比对 Telegram 机器人也用 |
+| `src/xml.ts` | `src/protocols/hilink/xml.ts` | HiLink 的请求与应答外壳（`<request>`、`<error><code>`、转义、日期）；鲲鹏无限有几个接口用同一种外壳，它的驱动引用这个部件 |
+| `src/parsers.ts` | 解析函数到 `src/protocols/hilink/parsers.ts`；射频、载波、邻区、终端条目的类型到 `src/cpe-domain.ts` | 应答的格式属于协议；这些类型是每个品牌的读数都要转成的形状 |
+| `src/generic-writes.ts` | `src/protocols/hilink/generic-writes.ts`；`newWriteCheck`、`settleCheck` 到 `src/device-access.ts` | 按接口资料写的通用请求，按路由器自己报告的字段走，没有只在 H168-383 上成立的事实；写入核对怎么记各品牌共用 |
+| `src/sms/codec.ts` | `src/protocols/hilink/sms.ts` | 短信条数与单条短信的报文解析；它转出的文本模式与验证码函数不再转出，引用方直接引用 `sms/text-mode.ts`、`sms/otp.ts` |
+| `src/access-control.ts` | 报文的解析与拼法到 `src/protocols/hilink/access-control.ts`；读写序列到 `src/drivers/huawei/access-control.ts`；类型与「这次改动不能拦哪些设备」留在原处 | 格式属于协议；「读设备、读现状、规划、写、回读」这套序列只在 H168-383 上验证过；类型与受保护设备的算法不分品牌 |
+| `src/sms/protocol.ts` | 请求序列到 `src/drivers/huawei/sms.ts`；发送前的检查（收件人、正文、分段上限）到 `src/sms/submission.ts` | 文件里有 H168-383 的加密列表与发送，也有未验证型号的明文写入，两者共用状态轮询与编号清洗，拆开要互相引用，按含有 H168-383 的事实整体归驱动；发送前的检查各品牌共用 |
+| `src/band-lock.ts` | `src/drivers/huawei/band-lock.ts`；ECI / NCI 的拆分到 `src/rf-math.ts` | `net-mode` 与 `lock-freq` 的载荷是在 H168-383 上验证的写法；小区标识的拆分是 3GPP 的算术 |
+| `src/cpe-domain.ts` | 请求序列到 `src/drivers/huawei/requests.ts`；快照与指令的类型、锁定核对、「此型号不提供」的判断留在原处 | 读哪些接口、按什么顺序、写什么，是 H168-383 验证下来的（未验证型号的宽容读法是同一批请求）；类型与核对每个品牌都用 |
+| `src/drivers/huawei.ts` | `src/drivers/huawei/driver.ts` | 华为的会话对象与 `RouterDriver` |
+
+留在原处的：`src/device-profile.ts`（识别探测要读的接口清单；零依赖，控制台与在线演示同一实现）、`src/endpoint-discovery.ts`（智能体的只读探查；零依赖）、`src/rf-bounds.ts`（锁定边界，前后端共用）。调度器仍然认一个 HiLink 的错误类型（`CpeLoginMethodError`：登录方式定不下来，密码没有发出），和其他品牌的 `DriverLoginMethodError` 并排判断；两者合成一个是以后的事，不属于这次搬移。
+
+**中兴与 `+COPS`。** `src/drivers/cellular.ts` 里混着三样东西，按它们各自是什么分开：
+
+| `src/drivers/` 里现在的 | 去处 | 理由 |
+| :--- | :--- | :--- |
+| `cellular.ts` 的 `parseCops`、`parseCopsScan`、`CopsState`、`operatorRatOf`、`operatorActOf`、`operatorName`、`operatorChoice`、`MAX_SCAN_ROWS` | `src/protocols/at/common.ts` | 3GPP TS 27.007 第 7.3 节：`+COPS` 的当前选择、搜网结果的一行、接入技术的编号。模组、中兴两套接口和华为的搜网结果都按它读 |
+| `cellular.ts` 的中兴部分：网络制式的名字、搜网结果与注册进度、接入点配置档、地址类型与鉴权的名字、卡槽编号、流量上限的写法、USSD 的应答 | `src/drivers/zte/cellular.ts` | 只有中兴的两套接口用 |
+| `sms.ts` 的中兴部分：短信列表、条数、时间、编号列表、指令状态 | `src/drivers/zte/sms.ts` | 同上 |
+| `zte-goform.ts`、`zte-zwrt.ts` | `src/drivers/zte/goform.ts`、`src/drivers/zte/zwrt.ts` | 一个品牌的两套接口和它们共用的部件放在一起 |
+| `cellular.ts` 余下的：较长的应答字段、USSD 的应答文字与等待次数、烽燧自己那份接入点配置档的名字、流量上限的回读、没有可回读内容的写入怎么记 | 留在 `src/drivers/cellular.ts` | 两个以上品牌的驱动在用 |
