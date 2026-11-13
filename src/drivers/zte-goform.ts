@@ -1,6 +1,6 @@
 import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
-import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import { type BatteryStatus, type SimCardStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../router-status.ts";

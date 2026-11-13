@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { CpeAnswerFormatError, CpeApiError, type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../src/session-errors.ts";
 import { CpeControlValidationError } from "../src/cpe-domain.ts";
 import {
   genericBandLock,

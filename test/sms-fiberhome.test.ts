@@ -20,7 +20,7 @@ import {
   parseFiberhomeProTelemetry,
   parseFiberhomeSms,
 } from "../src/drivers/fiberhome.ts";
-import { CpeApiError } from "../src/cpe-client.ts";
+import { CpeApiError } from "../src/session-errors.ts";
 import { deviceSupportRow } from "../src/device-catalog.ts";
 import { ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";

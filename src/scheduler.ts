@@ -1,15 +1,8 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
-import {
-  CpeAnswerFormatError,
-  CpeApiError,
-  CpeEncryptionUnavailableError,
-  type EphemeralCpeSession,
-  HuaweiCpeClient,
-  ReentrantCpeSessionError,
-  isInsideCpeSession,
-} from "./cpe-client.ts";
+import { CpeEncryptionUnavailableError, type EphemeralCpeSession, HuaweiCpeClient, isInsideCpeSession } from "./cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError, ReentrantCpeSessionError } from "./session-errors.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
 import {
   CpeControlValidationError,

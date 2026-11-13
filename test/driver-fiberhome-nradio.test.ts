@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CpeAnswerFormatError, CpeApiError } from "../src/cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../src/session-errors.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";

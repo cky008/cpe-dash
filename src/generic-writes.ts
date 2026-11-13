@@ -1,5 +1,6 @@
 import { type CellularSettingsSnapshot, type NetworkMode, type OperatorChoice, type OperatorRat, type OperatorSelection, type UssdAnswer, type UssdRequest, isPlmn } from "./cellular.ts";
-import { CpeAnswerFormatError, CpeApiError, type EphemeralCpeSession } from "./cpe-client.ts";
+import type { EphemeralCpeSession } from "./cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "./session-errors.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import type { WanRepairSkipReason } from "./cpe-domain.ts";
 import type { ReadbackReason, WriteCheck } from "./device-access.ts";

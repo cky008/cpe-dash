@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CpeApiError } from "../src/cpe-client.ts";
+import { CpeApiError } from "../src/session-errors.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import {
   OPENWRT_ANONYMOUS_SESSION,

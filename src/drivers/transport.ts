@@ -1,4 +1,4 @@
-import { CpeAnswerFormatError, CpeTransportError } from "../cpe-client.ts";
+import { CpeAnswerFormatError, CpeTransportError } from "../session-errors.ts";
 import { readBoundedResponseText } from "../http-body.ts";
 import { parseJsonSafeNullProto } from "../json-safe.ts";
 

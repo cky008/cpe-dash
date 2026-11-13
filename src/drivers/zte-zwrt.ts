@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef } from "../cellular.ts";
-import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import type { WriteCheck } from "../device-access.ts";

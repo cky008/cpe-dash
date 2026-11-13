@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { describe, it } from "node:test";
-import {
-  HuaweiCpeClient,
-  ReentrantCpeSessionError,
-} from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { ReentrantCpeSessionError } from "../src/session-errors.ts";
 import {
   CpeControlValidationError,
   applyBandLock,

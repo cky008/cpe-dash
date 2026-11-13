@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { CpeControlValidationError } from "../control-error.ts";
-import { CpeAnswerFormatError, CpeApiError } from "../cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import type { TemperatureSensor } from "../router-status.ts";

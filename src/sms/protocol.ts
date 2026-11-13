@@ -1,5 +1,6 @@
 import { stripInvalidControlChars } from "../crypto.ts";
-import { CpeApiError, type EphemeralCpeSession } from "../cpe-client.ts";
+import type { EphemeralCpeSession } from "../cpe-client.ts";
+import { CpeApiError } from "../session-errors.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
 import { settleCheck } from "../generic-writes.ts";

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { describe, it } from "node:test";
-import { CpeApiError, CpeEccSignatureMissingError, CpeSessionClosedError, type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeEccSignatureMissingError, type EphemeralCpeSession, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeApiError, CpeSessionClosedError } from "../src/session-errors.ts";
 import { aesGcmDecrypt, aesGcmEncrypt, curve25519Mul } from "../src/crypto.ts";
 import { sanitizeFreeText } from "../src/sanitize.ts";
 import { getXmlTag } from "../src/xml.ts";

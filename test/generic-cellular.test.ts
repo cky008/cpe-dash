@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
-import { CpeAnswerFormatError, HuaweiCpeClient } from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeAnswerFormatError } from "../src/session-errors.ts";
 import { genericUssd, hilinkModeOf, hilinkModesOffered } from "../src/generic-writes.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { type CpeFamilyOptions, type FamilyCellular, createCpeFamily } from "./helpers/cpe-family.ts";

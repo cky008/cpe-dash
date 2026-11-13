@@ -1,6 +1,6 @@
 import { USSD_MAX_TEXT, type ApnAuthMode, type ApnIpType, type ApnSetting, type DataLimitSetting, type NetworkMode, type OperatorChoice, type OperatorRat, type SimSlotRef, type UssdAnswer } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
-import { CpeApiError } from "../cpe-client.ts";
+import { CpeApiError } from "../session-errors.ts";
 import type { WriteCheck } from "../device-access.ts";
 import { textOfUcs2Hex } from "./sms.ts";
 import type { DriverWait } from "./types.ts";

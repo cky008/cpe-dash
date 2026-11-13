@@ -15,7 +15,8 @@ import {
   planTimeRuleChange,
   planWifiAccessChange,
 } from "./access-plan.ts";
-import { CpeApiError, type EphemeralCpeSession } from "./cpe-client.ts";
+import type { EphemeralCpeSession } from "./cpe-client.ts";
+import { CpeApiError } from "./session-errors.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import { huaweiXssDecode } from "./crypto.ts";
 import { type TerminalHostEntry, parseHostInfoJson } from "./parsers.ts";

@@ -28,7 +28,9 @@ cpe-dash/
 │   ├── state-store.ts · timeseries.ts  # 加密运行时状态（熔断锁存、锁定状态、缓存快照、告警）与双层环形时序（5s / 60s）
 │   ├── band-lock.ts        # 4G LTE / 5G NR BandMask 精确位运算与锁小区载荷构建器
 │   ├── parsers.ts          # 3CA 射频、邻区、双周期流量与终端拓扑纯函数解析器
-│   ├── cpe-client.ts       # H168-383 瞬时会话客户端、双层真人避让与 108006 防爆破断路器
+│   ├── session-client.ts   # 所有品牌共用的会话客户端：互斥、限时、免登录检查后让位（第 1 层）与登录应答让位（第 2 层）、只交一次密码、108006 / 108007 熔断（重启后接着锁）、finally 注销；各品牌只提供自己的检查、登录与注销（SessionProtocol）
+│   ├── session-errors.ts   # 所有品牌的会话都可能遇到的错误：路由器错误码（CpeApiError，用 HiLink 的编号）、请求没有应答、应答读不懂、会话超时与重入
+│   ├── cpe-client.ts       # 华为 HiLink 的会话（EphemeralCpeSession：Cookie、令牌轮换、加密通道）与登录协议，HuaweiCpeClient 是共用会话客户端加上免登录读取
 │   ├── cpe-auth.ts         # 登录方式选择（提交密码前定：password_type → SCRAM 挑战探测 → 旧式 SHA-256 / base64）与 SesTokInfo 令牌解析
 │   ├── cpe-domain.ts       # 遥测/邻区/拓扑/设置采集与控制写操作（含 sms-count 捎带；遥测快照的 `status` 是路由器状态，华为只从已经在读的应答里取，例如 `monitoring/status` 的电量）
 │   ├── router-status.ts    # 零依赖：路由器状态（电池、SIM 卡、飞行模式、漫游、路由器自己的负载与运行时间、固件更新、Wi-Fi 开关、按名字分开的温度传感器）的类型与共用规则（电量低、SIM 卡锁住）；各品牌的后端填同一个形状，路由器没报告的留 `null`；守护进程、控制台与在线演示共用

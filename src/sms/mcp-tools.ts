@@ -7,7 +7,7 @@ import {
   type McpToolDefinition,
   type McpToolProvider,
 } from "../mcp-tool-provider.ts";
-import { CpeApiError } from "../cpe-client.ts";
+import { CpeApiError } from "../session-errors.ts";
 import {
   BrowserSessionYieldedError,
   CpeNotConfiguredError,

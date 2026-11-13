@@ -13,7 +13,8 @@ import {
   hexMaskToBands,
   parseBandNumber,
 } from "./band-lock.ts";
-import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError, type EphemeralCpeSession } from "./cpe-client.ts";
+import { CpeEncryptionUnavailableError, type EphemeralCpeSession } from "./cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError } from "./session-errors.ts";
 import {
   type NeighborCellEntry,
   type RfSignalSnapshot,

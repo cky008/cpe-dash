@@ -28,7 +28,7 @@ import {
   type RouterSettingsSnapshot,
   type TerminalTopologySnapshot,
 } from "../cpe-domain.ts";
-import { CpeApiError } from "../cpe-client.ts";
+import { CpeApiError } from "../session-errors.ts";
 import type { DeviceProbeResult } from "../device-profile.ts";
 import { bandsToHex, hexToBands } from "../drivers/bands.ts";
 import { settleRestart } from "../drivers/readback.ts";

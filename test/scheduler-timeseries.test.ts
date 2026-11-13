@@ -3,11 +3,8 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import {
-  CpeApiError,
-  HuaweiCpeClient,
-  ReentrantCpeSessionError,
-} from "../src/cpe-client.ts";
+import { HuaweiCpeClient } from "../src/cpe-client.ts";
+import { CpeApiError, ReentrantCpeSessionError } from "../src/session-errors.ts";
 import {
   type AntennaModeName,
   type BandLockCommand,
