@@ -26,7 +26,7 @@ import type {
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
 import type { DeviceAccess, ReadSection, WriteFeature } from "./device-access.ts";
-import type { DeviceProbeResult, ProbeOrigin } from "./device-profile.ts";
+import type { DeviceProbeResult, LoginScheme, ProbeOrigin, TokenFlow } from "./device-profile.ts";
 import type { DiscoverySession } from "./endpoint-discovery.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "./router-backend.ts";
 import type { RouterFamily } from "./router-family.ts";
@@ -50,6 +50,8 @@ export interface RouterSession {
   /** Who the router says it is (`null`: it did not say): a write confirms the model in its own session. */
   readModel(): Promise<{ model: string; softwareVersion: string | null; variant: string | null } | null>;
   identify(origin: ProbeOrigin): Promise<DeviceProbeResult>;
+  /** The console's connection test: what logged in (model, firmware, how the login went) and the start-up identification. */
+  testIdentity(): Promise<{ identified: TestedIdentity; probe: DeviceProbeResult }>;
   readTelemetry(opts: { smsCounters: boolean }): Promise<GlobalTelemetrySnapshot>;
   readNeighbors(): Promise<NeighborScanSnapshot>;
   readTopology(): Promise<TerminalTopologySnapshot>;
@@ -90,6 +92,16 @@ export interface RouterSession {
   setDataLimit(limit: DataLimitSetting, write: WriteContext): Promise<DataLimitSetting>;
   resetTraffic(write: WriteContext): Promise<void>;
   sendUssd(request: UssdRequest, write: WriteContext): Promise<UssdAnswer>;
+}
+
+/** What a connection test tells of the router it logged in to. */
+export interface TestedIdentity {
+  model: string | null;
+  firmware: string | null;
+  loginScheme: LoginScheme;
+  tokenFlow: TokenFlow;
+  /** The router's encryption key came signed, and the signature verified. */
+  ecc: boolean;
 }
 
 /** What a session of any brand is given by the daemon: what it knows of the router, and where it tells what it saw. */

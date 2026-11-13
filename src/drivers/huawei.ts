@@ -51,7 +51,7 @@ import {
 } from "../generic-writes.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "../router-backend.ts";
 import { CELLULAR_WRITE_FEATURES } from "../router-family.ts";
-import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead } from "../router-session.ts";
+import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { MutexSessionScheduler, WriteContext } from "../scheduler.ts";
 import {
   type PreparedSmsSubmission,
@@ -68,6 +68,7 @@ import {
   submitSms,
 } from "../sms/protocol.ts";
 import { validateGenericSmsContent } from "../sms/text-mode.ts";
+import { getXmlTag } from "../xml.ts";
 import type { SmsWireMessage } from "../sms/types.ts";
 
 /**
@@ -107,6 +108,18 @@ export class HilinkRouterSession implements RouterSession {
 
   identify(origin: ProbeOrigin): Promise<DeviceProbeResult> {
     return probeDevice(this.#session, { nowIso: new Date().toISOString(), origin });
+  }
+
+  async testIdentity(): Promise<{ identified: TestedIdentity; probe: DeviceProbeResult }> {
+    const xml = await this.#session.get("/api/device/information");
+    const identified: TestedIdentity = {
+      model: getXmlTag(xml, "DeviceName") ?? null,
+      firmware: getXmlTag(xml, "SoftwareVersion") ?? null,
+      loginScheme: this.#session.loginScheme ?? "unknown",
+      tokenFlow: this.#session.tokenFlow ?? "unknown",
+      ecc: this.#session.eccVerified,
+    };
+    return { identified, probe: await this.identify("connection-test") };
   }
 
   readTelemetry(opts: { smsCounters: boolean }): Promise<GlobalTelemetrySnapshot> {

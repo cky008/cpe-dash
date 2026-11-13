@@ -35,7 +35,7 @@ import type { DeviceAccess, WriteCheck, WriteFeature } from "../device-access.ts
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListing, SmsSendOutcome, WanRepairOutcome } from "../router-backend.ts";
 import { type DriverFamily, FAMILY_WRITE_FEATURES, type FamilyWriteFeature, ROUTER_FAMILY_FACTS } from "../router-family.ts";
-import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead } from "../router-session.ts";
+import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { WriteContext } from "../scheduler.ts";
 import { CpeApiError } from "../session-errors.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/protocol.ts";
@@ -81,6 +81,15 @@ export class DriverRouterSession implements RouterSession {
 
   async identify(origin: ProbeOrigin): Promise<DeviceProbeResult> {
     return driverDeviceProbe(await this.#session.identify(), { nowIso: new Date().toISOString(), origin });
+  }
+
+  /** One identification serves both: no HiLink endpoints to probe, no HiLink login to describe. */
+  async testIdentity(): Promise<{ identified: TestedIdentity; probe: DeviceProbeResult }> {
+    const identity = await this.#session.identify();
+    return {
+      identified: { model: identity.model, firmware: identity.softwareVersion, loginScheme: "unknown", tokenFlow: "unknown", ecc: false },
+      probe: driverDeviceProbe(identity, { nowIso: new Date().toISOString(), origin: "connection-test" }),
+    };
   }
 
   /**

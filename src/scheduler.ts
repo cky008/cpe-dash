@@ -17,28 +17,15 @@ import {
   modelLabel,
 } from "./device-access.ts";
 import { newWriteCheck } from "./generic-writes.ts";
-import {
-  type ApiErrorSnapshot,
-  type DeviceFeature,
-  type DeviceProbeResult,
-  type LoginScheme,
-  type TokenFlow,
-  isDeviceProbeResult,
-  probeDevice,
-} from "./device-profile.ts";
+import { type ApiErrorSnapshot, type DeviceFeature, type DeviceProbeResult, type LoginScheme, type TokenFlow, isDeviceProbeResult } from "./device-profile.ts";
 import { verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
-import { ROUTER_FAMILY_LABELS, isDriverFamily, routerFamilyOf, type RouterFamily } from "./router-family.ts";
-import { createDriverClient } from "./drivers/brands.ts";
-import type { DriverCpeClient } from "./drivers/client.ts";
-import { DriverRouterSession, driverFamilyDriver } from "./drivers/adapter.ts";
-import { HilinkRouterSession, huaweiDriver } from "./drivers/huawei.ts";
+import { ROUTER_FAMILY_LABELS, routerFamilyOf, type RouterFamily } from "./router-family.ts";
+import { type ConnectionSettings, type RouterConnection, routerConnection } from "./drivers/connection.ts";
 import { detectRouterFamily } from "./drivers/detect.ts";
 import { DriverLoginMethodError } from "./drivers/login.ts";
-import { CounterRates, driverDeviceProbe } from "./drivers/snapshot.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext } from "./router-session.ts";
-import type { WithSessionOptions } from "./session-client.ts";
-import { getXmlTag } from "./xml.ts";
+import type { SessionClient } from "./session-client.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
 import type { CircuitBreakerState, CpeLoginState, SessionExecutionOutcome } from "./types.ts";
 
@@ -377,12 +364,6 @@ export interface MutexSessionSchedulerOptions {
 /** What the scheduler asks of whichever client holds the live connection (the HiLink client, or a driver family's). */
 type LiveClient = Pick<HuaweiCpeClient, "configured" | "getCircuitBreakerState" | "getTelemetry" | "hydrateCircuitBreaker" | "resetCircuitBreaker" | "waitForIdle" | "abortActiveSession">;
 
-/** The connection in use: its brand, its client, and one session of it with the brand's `RouterSession`. */
-interface LiveConnection {
-  readonly driver: RouterDriver;
-  readonly client: LiveClient;
-  open<T>(fn: (session: RouterSession) => Promise<T>, opts?: WithSessionOptions): Promise<SessionExecutionOutcome<T>>;
-}
 
 
 /**
@@ -418,17 +399,18 @@ export class MutexSessionScheduler extends EventEmitter {
   /** The router's family; the driver client exists for every family but Huawei's. */
   #family: RouterFamily;
   /** The driver family's session client, on the HiLink client's connection (`null` on Huawei). */
-  #driverClient: DriverCpeClient | null = null;
+  /** The client of the connection when it is not the HiLink one (a driver family's). */
+  #driverClient: SessionClient<unknown> | null = null;
   /** Rates from the running byte counters of a driver family that reports no rate (reset with the connection). */
   /** The connection in use: its brand's driver, the client that holds its sessions, and how a session of it is opened. */
-  #connection!: LiveConnection;
+  #connection!: RouterConnection;
   #initialized = false;
   #stopping = false;
   #mode: SchedulerMode = "idle";
   /** Login attempts the router said were left after the console's last failed connection test. */
   #remainingLogins: number | null = null;
   /** The throwaway client of a console connection test while its session runs (stop() cancels it as well). */
-  #testClient: HuaweiCpeClient | null = null;
+  #testClient: Pick<LiveClient, "waitForIdle" | "abortActiveSession"> | null = null;
   #lastError: string | null = null;
   #running = false;
 
@@ -489,15 +471,7 @@ export class MutexSessionScheduler extends EventEmitter {
    * breaker, as new credentials clear the HiLink one. Rates derived from counters start over with it.
    */
   #syncDriverClient(): void {
-    const ctx = this.#sessionContext;
-    if (!isDriverFamily(this.#family)) {
-      this.#driverClient = null;
-      const client = this.#client;
-      this.#connection = { driver: huaweiDriver, client, open: (fn, opts) => client.withSessionDetailed((session) => fn(new HilinkRouterSession(session, ctx)), opts) };
-      return;
-    }
-    const rates = new CounterRates();
-    const driverClient = createDriverClient(this.#family, {
+    const settings: ConnectionSettings = {
       cpeUrl: this.#client.baseUrl,
       cpeUsername: this.#client.username,
       cpePassword: this.#client.password,
@@ -506,13 +480,10 @@ export class MutexSessionScheduler extends EventEmitter {
       respectBrowserSession: this.#client.defaultRespectBrowserSession,
       sessionMaxHoldMs: this.#client.sessionMaxHoldMs,
       apiErrors: this.#client.apiErrors,
-    });
-    this.#driverClient = driverClient;
-    this.#connection = {
-      driver: driverFamilyDriver(this.#family),
-      client: driverClient,
-      open: (fn, opts) => driverClient.withSessionDetailed((session) => fn(new DriverRouterSession(session, ctx, rates)), opts),
     };
+    const connection = routerConnection(this.#family, settings, this.#sessionContext, this.#client);
+    this.#connection = connection;
+    this.#driverClient = connection.hilink === null ? connection.client : null;
   }
 
   /**
@@ -800,94 +771,33 @@ export class MutexSessionScheduler extends EventEmitter {
       probe: null,
     });
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
-    const family = routerFamilyOf(candidate.family);
-    if (isDriverFamily(family)) {
-      let driverClient: DriverCpeClient;
-      try {
-        driverClient = createDriverClient(family, {
-          cpeUrl: candidate.url,
-          cpeUsername: candidate.username,
-          cpePassword: candidate.password,
-          fetchImpl: this.#client.fetchImpl,
-          requestTimeoutMs: this.#client.timeoutMs,
-          respectBrowserSession: true,
-          apiErrors: this.#client.apiErrors,
-        });
-      } catch (err) {
-        return failure("invalid_url", err instanceof Error ? err.message : String(err));
-      }
-      return await this.#enqueue("high", async (): Promise<ConnectionTestOutcome> => {
-        try {
-          const outcome = await driverClient.withSessionDetailed(async (session) => {
-            const identity = await session.identify();
-            return {
-              identified: {
-                model: identity.model,
-                firmware: identity.softwareVersion,
-                loginScheme: "unknown" as const,
-                tokenFlow: "unknown" as const,
-                ecc: false,
-              },
-              // The identification the console keeps of the router it saves (no HiLink endpoints to probe)
-              probe: driverDeviceProbe(identity, { nowIso: new Date().toISOString(), origin: "connection-test" }),
-            };
-          });
-          if (outcome.status === "yielded") return failure("human_logged_in", "someone is logged into the router's web page", { code: outcome.stateCode });
-          return { result: { ok: true, holdMs: outcome.holdMs, ...outcome.value.identified }, probe: outcome.value.probe };
-        } catch (err) {
-          const breaker = driverClient.getCircuitBreakerState();
-          const message = err instanceof Error ? err.message : String(err);
-          if (breaker.tripped && breaker.code === "108007") return failure("locked", message, { code: "108007", waitTimeSec: breaker.waitTime ?? null });
-          if (err instanceof CpeApiError && err.latchesBreaker) return failure("unconfirmed_login", message, { code: err.code === LOGIN_UNCONFIRMED_CODE ? null : err.code });
-          if (breaker.tripped) {
-            return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });
-          }
-          if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
-          return failure("unreachable", message);
-        }
-      });
-    }
-    let client: HuaweiCpeClient;
+    let test: RouterConnection & { readonly hilink: HuaweiCpeClient | null };
     try {
-      client = new HuaweiCpeClient({
-        cpeUrl: candidate.url,
-        cpeUsername: candidate.username,
-        cpePassword: candidate.password,
-        fetchImpl: this.#client.fetchImpl,
-        requestTimeoutMs: this.#client.timeoutMs,
-        respectBrowserSession: true,
-        apiErrors: this.#client.apiErrors,
-      });
+      test = routerConnection(
+        routerFamilyOf(candidate.family),
+        { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, fetchImpl: this.#client.fetchImpl, requestTimeoutMs: this.#client.timeoutMs, respectBrowserSession: true, apiErrors: this.#client.apiErrors },
+        this.#sessionContext
+      );
     } catch (err) {
       return failure("invalid_url", err instanceof Error ? err.message : String(err));
     }
     // One wrong password more would lock the router's logins: only a deliberate, confirmed attempt
-    const remain = this.#remainingLogins ?? this.#client.getCircuitBreakerState().remainCount ?? null;
+    const remain = this.#remainingLogins ?? this.#active().getCircuitBreakerState().remainCount ?? null;
     if (remain !== null && remain <= 1 && opts.lastAttempt !== true) {
       return failure("last_attempt", "the router allows one more login attempt before it locks; confirm the password and try again deliberately", { remainCount: remain });
     }
     return await this.#enqueue("high", async (): Promise<ConnectionTestOutcome> => {
-      // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
-      // decision): a refused challenge then sends no legacy password, unless re-detection is allowed
-      if (!this.#allowLegacyLoginAfterScram) client.rememberLoginScheme(this.#client.knownLoginScheme);
-      // And a router identified as another model latches an answer to the password it cannot place
-      client.rememberUnverifiedModel(this.#client.unverifiedModel);
+      if (test.hilink) {
+        // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
+        // decision): a refused challenge then sends no legacy password, unless re-detection is allowed
+        if (!this.#allowLegacyLoginAfterScram) test.hilink.rememberLoginScheme(this.#client.knownLoginScheme);
+        // And a router identified as another model latches an answer to the password it cannot place
+        test.hilink.rememberUnverifiedModel(this.#client.unverifiedModel);
+      }
+      const client = test.client;
       this.#testClient = client;
       try {
-        const outcome = await client.withSessionDetailed(
-          async (session) => {
-            const xml = await session.get("/api/device/information");
-            const identified = {
-              model: getXmlTag(xml, "DeviceName") ?? null,
-              firmware: getXmlTag(xml, "SoftwareVersion") ?? null,
-              loginScheme: session.loginScheme ?? "unknown",
-              tokenFlow: session.tokenFlow ?? "unknown",
-              ecc: session.eccVerified,
-            };
-            return { identified, probe: await probeDevice(session, { nowIso: new Date().toISOString(), origin: "connection-test" }) };
-          },
-          { retriesOnOccupied: 0 }
-        );
+        const outcome = await test.open((session) => session.testIdentity(), { retriesOnOccupied: 0 });
         if (outcome.status === "yielded") return failure("human_logged_in", "someone is logged into the router's web page", { code: outcome.stateCode });
         this.#remainingLogins = null;
         return { result: { ok: true, holdMs: outcome.holdMs, ...outcome.value.identified }, probe: outcome.value.probe };
