@@ -560,3 +560,14 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 - 移远的 5G 锁小区（`common/5g`）、广和通的 `AT+GTCELLLOCK`、烽火第一代的 `app_set_lockcell` 都只收一个小区：会话里在发送前拒绝。其他品牌和华为在排队前拒绝（品牌事实 `multiCellLock` 没有这种网络；华为是 `assertOneCell`）。
 - 断网回退照旧：未验证的路由器上锁小区后断网 3 分钟，解除锁定。
 
+### 18.8 第 6b 步：华为与模组的新读数
+
+| 读数 | 型号 | 接口 | 出处 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| LTE 辅载波详情（频段、频点、带宽、PCI、RSRP、RSRQ、SINR、RSSI） | 其他华为型号（`device/seccellinfo` 列不出辅载波时） | `GET /api/net/ca-scell-info`：`<scells><scell>` 的 `scell_band`、`scell_earfcn`、`scell_dl_bw`、`scell_pci`、`scell_rsrp`、`scell_rsrq`、`scell_sinr`、`scell_rssi` | 资料 B huawei-hilink 第 323、430–453 行 | 已实现（`parseCaScellInfoXml`）。只在宽容读取（未验证型号）且 `seccellinfo` 为空时多发这一个 GET；H168-383 不变 |
+| 当前接入点（方式、名称、地址类型、认证方式、是否设了用户名） | 其他华为型号 | `GET /api/dialup/profiles`：`CurrentProfile` 与各 `<Profile>` 的 `Index`、`IsValid`、`ApnIsStatic`、`ApnName`、`iptype`、`AuthMode`、`Username` | 资料 B huawei-hilink 第 350 行；标签与取值（`AuthMode` 0 自动 / 1 PAP / 2 CHAP，`iptype` 0 / 1 / 2）取自 Salamek/huawei-lte-api（`d2eb2af`，LGPL-3.0，`enums/dialup.py` 与 `api/DialUp.py`） | 已实现（`hilinkApnOf`），随蜂窝设置的读取；用户名只看有没有，用户名和密码本身不保留。写入仍不做（参考实现是加密提交的，见 18.6） |
+| 漫游自动连接（`RoamAutoConnectEnable`） | 其他华为型号 | `GET /api/dialup/connection` | 资料 B 第 349 行 | 第 6 步已读（蜂窝设置的 `dataRoaming`） |
+| SRS、PRACH 发射功率 | 所有华为型号 | `device/signal` 的 `<txpower>`、`<nrtxpower>`（`PSrs`、`PPrach`） | 资料 A huawei-hilink-scram 第 376 行 | 早已解析（`parseTxPowerMetrics`），这一步只是在控制台显示出来；不增加请求，H168-383 也一样 |
+| RRC 状态（`<rrc_status>`） | 华为 | `device/signal` | 资料 A 第 332 行只有一个值为 `1` 的示例 | 不做：取值说明查无记录（资料库、huawei-lte-api、公开检索都没有说明 0 / 1 各指什么），不猜 |
+| 各接收通道的 RSRQ / SINR | OpenWrt 移远 | `AT+QRSRQ`、`AT+QSINR`：`+QRSRQ: <PRX>,<DRX>,<RX2>,<RX3>,<sysmode>`，`-32768` 无效 | 移远 RM5xx AT 手册 5.11、5.12 节 | 暂不做：各通道的 RSRP（中兴、移远）早已读到，但转成快照时没有带上，控制台也没有显示；只加读取不会让任何人看到，反而让每 5 秒的轮询多两条指令。建议整体做「各接收通道读数」的显示（见汇报） |
+

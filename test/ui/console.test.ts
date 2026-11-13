@@ -126,6 +126,9 @@ describe("the console in a browser", () => {
   it("signs in and shows the router's live telemetry without a script error", async () => {
     await signIn(page, live());
     assert.match(await page.evaluate<string>("document.getElementById('operatorCard').textContent"), /Carrier-Lab/);
+    // The transmit powers the router's <txpower> reports: SRS and PRACH as well as PUSCH and PUCCH
+    const rf = await page.evaluate<string>("document.getElementById('rfCard').textContent");
+    assert.match(rf, /PUSCH[\s\S]*PUCCH[\s\S]*SRS[\s\S]*PRACH/);
     assert.deepEqual(page.exceptions, []);
   });
 

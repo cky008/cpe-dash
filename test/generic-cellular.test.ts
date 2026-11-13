@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeAnswerFormatError } from "../src/session-errors.ts";
-import { genericUssd, hilinkModeOf, hilinkModesOffered } from "../src/generic-writes.ts";
+import { genericUssd, hilinkApnOf, hilinkModeOf, hilinkModesOffered } from "../src/generic-writes.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { type CpeFamilyOptions, type FamilyCellular, createCpeFamily } from "./helpers/cpe-family.ts";
 import { daemonOn, newCheck } from "./helpers/driver-daemon.ts";
@@ -232,5 +232,48 @@ describe("generic HiLink: the cellular settings of a model nobody verified", () 
     const slow = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: { "/api/global/module-switch": MODULE_SWITCH }, writes: { cellular: { ussd: { content: "1. Top up\n2. Exit", busyPolls: 2 } } } });
     const patient = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: slow.password, fetchImpl: slow.fetchImpl, requestTimeoutMs: 2000 });
     assert.deepEqual(await patient.withSession((session) => genericUssd(session, newCheck(), { kind: "send", code: "*100#" }, async () => undefined)), { state: "answered", text: "1. Top up\n2. Exit", awaitsReply: false });
+  });
+});
+
+describe("generic HiLink: the access point and the secondary carriers a model nobody verified reports", () => {
+  const PROFILES =
+    "<response><CurrentProfile>2</CurrentProfile><Profiles>" +
+    "<Profile><Index>1</Index><IsValid>1</IsValid><Name>Default</Name><ApnIsStatic>0</ApnIsStatic><ApnName></ApnName><Username></Username><Password></Password><AuthMode>0</AuthMode><iptype>0</iptype><ReadOnly>1</ReadOnly></Profile>" +
+    "<Profile><Index>2</Index><IsValid>1</IsValid><Name>Mine</Name><ApnIsStatic>1</ApnIsStatic><ApnName>example.apn</ApnName><Username>demo-user</Username><Password>demo-secret</Password><AuthMode>2</AuthMode><iptype>2</iptype><ReadOnly>0</ReadOnly></Profile>" +
+    "</Profiles></response>";
+
+  it("reads the profile in use, keeping only whether a user name is set", () => {
+    assert.deepEqual(hilinkApnOf(PROFILES), { mode: "manual", apn: "example.apn", ipType: "ipv4v6", auth: "chap", hasUsername: true });
+    // No current one named: the first valid profile; AuthMode 0 is the router's choice, not a mode
+    assert.deepEqual(hilinkApnOf(PROFILES.replace("<CurrentProfile>2</CurrentProfile>", "")), { mode: "auto", apn: null, ipType: "ipv4", auth: null, hasUsername: false });
+    assert.equal(hilinkApnOf("<response><Profiles></Profiles></response>"), null);
+    assert.equal(hilinkApnOf(null), null);
+    assert.doesNotMatch(JSON.stringify(hilinkApnOf(PROFILES)), /demo-user|demo-secret/);
+  });
+
+  it("serves it with the other cellular settings, and reads LTE carriers from ca-scell-info when seccellinfo lists none", async () => {
+    const scells = "<response><scells><scell><scell_index>1</scell_index><scell_band>3</scell_band><scell_dl_bw>20MHz</scell_dl_bw><scell_pci>142</scell_pci><scell_earfcn>1850</scell_earfcn><scell_rsrp>-85dBm</scell_rsrp><scell_rsrq>-9dB</scell_rsrq><scell_sinr>15dB</scell_sinr><scell_rssi>-60dBm</scell_rssi></scell></scells></response>";
+    const fx = router(undefined, {
+      endpoints: {
+        "/api/net/net-mode-list": NET_MODE_LIST,
+        "/api/net/net-mode": "<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>800800C5</LTEBand></response>",
+        "/api/global/module-switch": MODULE_SWITCH,
+        "/api/dialup/profiles": PROFILES,
+        "/api/net/ca-scell-info": scells,
+      },
+    });
+    try {
+      assert.ok(await fx.core.monitor.identifyDevice());
+      const snapshot = await fx.core.controls.readCellular();
+      assert.deepEqual(snapshot?.apn, { mode: "manual", apn: "example.apn", ipType: "ipv4v6", auth: "chap", hasUsername: true });
+      assert.doesNotMatch(fx.trail() + JSON.stringify(snapshot), /demo-user|demo-secret/);
+      const telemetry = await fx.core.monitor.refreshTelemetry();
+      assert.deepEqual(
+        telemetry?.rf.lteScc.map(({ band, arfcn, pci, bandwidthMhz, rsrpDbm }) => ({ band, arfcn, pci, bandwidthMhz, rsrpDbm })),
+        [{ band: "B3", arfcn: 1850, pci: 142, bandwidthMhz: 20, rsrpDbm: -85 }]
+      );
+    } finally {
+      await fx.cleanup();
+    }
   });
 });

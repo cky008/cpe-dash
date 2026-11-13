@@ -1,4 +1,4 @@
-import { type CellularSettingsSnapshot, type NetworkMode, type OperatorChoice, type OperatorRat, type OperatorSelection, type UssdAnswer, type UssdRequest, isPlmn } from "./cellular.ts";
+import { type ApnAuthMode, type ApnIpType, type ApnView, type CellularSettingsSnapshot, type NetworkMode, type OperatorChoice, type OperatorRat, type OperatorSelection, type UssdAnswer, type UssdRequest, isApnName, isPlmn } from "./cellular.ts";
 import type { EphemeralCpeSession } from "./cpe-client.ts";
 import { CpeAnswerFormatError, CpeApiError } from "./session-errors.ts";
 import { CpeControlValidationError } from "./control-error.ts";
@@ -160,6 +160,7 @@ export async function readWanRepairBlockerTolerant(session: EphemeralCpeSession)
 
 const NET_MODE_LIST = "/api/net/net-mode-list";
 const REGISTER = "/api/net/register";
+const PROFILES = "/api/dialup/profiles";
 const PLMN_LIST = "/api/net/plmn-list";
 const CONNECTION = "/api/dialup/connection";
 const CLEAR_TRAFFIC = "/api/monitoring/clear-traffic";
@@ -209,6 +210,34 @@ function registrationOf(xml: string | null): { selection: "auto" | "manual" | nu
   return { selection: mode === "0" ? "auto" : mode === "1" ? "manual" : null, plmn: isPlmn(plmn) ? plmn : null };
 }
 
+/** `iptype` of a HiLink dial-up profile (0 IPv4, 1 IPv6, 2 both). */
+const HILINK_IP_TYPES: Readonly<Record<string, ApnIpType>> = { "0": "ipv4", "1": "ipv6", "2": "ipv4v6" };
+/** `AuthMode` (0 the router chooses, 1 PAP, 2 CHAP): only the two it names are a mode. */
+const HILINK_AUTH: Readonly<Record<string, ApnAuthMode>> = { "1": "pap", "2": "chap" };
+
+/**
+ * The access point in use, from `GET /api/dialup/profiles`: the profile `CurrentProfile` names (else
+ * the first valid one). `ApnIsStatic` 1 is an access point set by hand. Only whether a user name is
+ * set is kept; the name and the password never leave this function. `null`: no answer, or no profile.
+ */
+export function hilinkApnOf(xml: string | null): ApnView | null {
+  if (xml === null) return null;
+  const current = getXmlTag(xml, "CurrentProfile")?.trim() ?? null;
+  const profiles = getXmlBlocks(xml, "Profile").slice(0, 32);
+  const profile = profiles.find((p) => getXmlTag(p, "Index")?.trim() === current) ?? profiles.find((p) => getXmlTag(p, "IsValid")?.trim() === "1");
+  if (!profile) return null;
+  const apn = getXmlTag(profile, "ApnName")?.trim() ?? "";
+  const statik = getXmlTag(profile, "ApnIsStatic")?.trim();
+  const username = getXmlTag(profile, "Username");
+  return {
+    mode: statik === "1" ? "manual" : statik === "0" ? "auto" : null,
+    apn: isApnName(apn) ? apn : null,
+    ipType: HILINK_IP_TYPES[getXmlTag(profile, "iptype")?.trim() ?? ""] ?? null,
+    auth: HILINK_AUTH[getXmlTag(profile, "AuthMode")?.trim() ?? ""] ?? null,
+    hasUsername: username === null ? null : username.trim() !== "",
+  };
+}
+
 /** The cellular settings a HiLink model nobody verified reports; a part it answers with an error code is `null`. */
 export async function genericCellularRead(session: EphemeralCpeSession): Promise<Omit<CellularSettingsSnapshot, "capturedAtIso" | "capturedAtMs">> {
   const netMode = await getOrNull(session, NET_MODE);
@@ -219,7 +248,7 @@ export async function genericCellularRead(session: EphemeralCpeSession): Promise
     networkMode: netMode === null && options.length === 0 ? null : { current: netMode === null ? null : hilinkModeOf(getXmlTag(netMode, "NetworkMode")), options },
     simSlots: null,
     operator: registrationOf(await getOrNull(session, REGISTER)),
-    apn: null,
+    apn: hilinkApnOf(await getOrNull(session, PROFILES)),
     dataLimit: null,
     dataRoaming: roaming === "1" ? true : roaming === "0" ? false : null,
   };

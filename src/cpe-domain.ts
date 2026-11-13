@@ -29,6 +29,7 @@ import {
   parseNeighborCellsXml,
   parseNumberWithUnit,
   parseRfSignalSnapshot,
+  parseSecondaryCellsXml,
   parseTrafficSnapshot,
   summarizeTopologyJson,
 } from "./parsers.ts";
@@ -419,9 +420,15 @@ export async function fetchGlobalTelemetry(
   const unavailable = TELEMETRY_PARTS.filter((name) => missing.has(name));
   if (unavailable.length === TELEMETRY_PARTS.length) throw new SectionUnavailableError("Telemetry", null);
 
+  // A model nobody verified whose `seccellinfo` lists no secondary carrier may list them in
+  // `net/ca-scell-info` (one more GET, on such a model only: the H168-383 is asked nothing new)
+  const sccListed = parseSecondaryCellsXml(secCellXml);
+  const caScellXml = options.tolerant && sccListed.lteScc.length === 0 && sccListed.nrScc.length === 0 ? await optionalGet(session, "/api/net/ca-scell-info") : "";
+
   const rf = parseRfSignalSnapshot({
     signalXml,
     secCellXml,
+    caScellXml,
     riXml,
     cellInfoXml,
     plmnXml,

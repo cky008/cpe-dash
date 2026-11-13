@@ -310,6 +310,30 @@ function parseSccCsvRows(csv: string | null | undefined, rat: "LTE" | "NR"): Sec
 }
 
 /**
+ * `GET /api/net/ca-scell-info` (some HiLink models instead of `device/seccellinfo`): one `<scell>` per
+ * LTE secondary carrier, with its band number, channel, bandwidth, PCI and readings (protocol notes,
+ * library B). Read only on a model nobody verified whose `seccellinfo` lists none.
+ */
+export function parseCaScellInfoXml(xml: string): SecondaryCellEntry[] {
+  return getXmlBlocks(xml.slice(0, MAX_FIELD_LEN), "scell")
+    .slice(0, 8)
+    .map((block): SecondaryCellEntry => {
+      const band = parseIntOrNull(getXmlTag(block, "scell_band"));
+      return {
+        rat: "LTE",
+        arfcn: parseIntOrNull(getXmlTag(block, "scell_earfcn")),
+        band: band === null ? "--" : `B${band}`,
+        bandwidthMhz: parseNumberWithUnit(getXmlTag(block, "scell_dl_bw")),
+        pci: parseIntOrNull(getXmlTag(block, "scell_pci")),
+        rsrpDbm: parseNumberWithUnit(getXmlTag(block, "scell_rsrp")),
+        rsrqDb: parseNumberWithUnit(getXmlTag(block, "scell_rsrq")),
+        rssiDbm: parseNumberWithUnit(getXmlTag(block, "scell_rssi")),
+        sinrDb: parseNumberWithUnit(getXmlTag(block, "scell_sinr")),
+      };
+    });
+}
+
+/**
  * Parse `GET /api/device/seccellinfo` 8-column CSV lists (`earfcn,band,bandwidth,pci,rsrp,rsrq,rssi,sinr;`).
  */
 export function parseSecondaryCellsXml(xml: string): {
@@ -366,6 +390,8 @@ export function parseNeighborCellsXml(xml: string): {
 export function parseRfSignalSnapshot(params: {
   signalXml: string;
   secCellXml?: string;
+  /** `net/ca-scell-info`, used when `secCellXml` lists no secondary carrier. */
+  caScellXml?: string;
   riXml?: string;
   cellInfoXml?: string;
   plmnXml?: string;
@@ -376,7 +402,10 @@ export function parseRfSignalSnapshot(params: {
 
   const caBannerRaw = getXmlTag(signalXml, "band") ?? "";
   const caCarriers = parseCaBandBanner(caBannerRaw);
-  const { lteScc, nrScc } = parseSecondaryCellsXml(secCellXml);
+  const listed = parseSecondaryCellsXml(secCellXml);
+  const fromCaScell = listed.lteScc.length === 0 && listed.nrScc.length === 0 && params.caScellXml ? parseCaScellInfoXml(params.caScellXml) : [];
+  const lteScc = fromCaScell.length > 0 ? fromCaScell : listed.lteScc;
+  const { nrScc } = listed;
 
   const pccDlBw = parseNumberWithUnit(getXmlTag(signalXml, "dlbandwidth"));
   const fallbackCount = 1 + lteScc.length + nrScc.length;

@@ -42,7 +42,15 @@ function txRows(power: TxPower): HTMLElement {
       meter(txPowerFraction(dbm), dbm !== null && dbm >= 20 ? "q-1" : "q-3"),
       h("span", { class: "num text-right" }, formatSigned(dbm, "dBm"))
     );
-  return h("div", { class: "space-y-1.5 pt-2" }, row("PUSCH", power.puschDbm), row("PUCCH", power.pucchDbm));
+  // SRS and PRACH where the router reports them (a HiLink router's `<txpower>` / `<nrtxpower>` does)
+  return h(
+    "div",
+    { class: "space-y-1.5 pt-2" },
+    row("PUSCH", power.puschDbm),
+    row("PUCCH", power.pucchDbm),
+    power.srsDbm !== null ? row("SRS", power.srsDbm) : null,
+    power.prachDbm !== null ? row("PRACH", power.prachDbm) : null
+  );
 }
 
 /** Downlink layers, and the uplink's where the router reports them (`DL 4 layers · UL 2 layers`). */
