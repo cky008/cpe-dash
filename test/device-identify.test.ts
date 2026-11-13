@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { hilinkSessionOf } from "../src/drivers/huawei.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -382,7 +383,10 @@ describe("router error counts and login facts", () => {
     const facts = async (fetchWrap?: (inner: typeof fetch) => typeof fetch) => {
       const fx = coreFixture({ fetchWrap });
       try {
-        return await fx.core.scheduler.executeRead(async (session) => [session.loginScheme, session.tokenFlow, session.eccVerified, session.ecc !== null]);
+        return await fx.core.scheduler.read(async (routerSession) => {
+          const session = hilinkSessionOf(routerSession);
+          return [session.loginScheme, session.tokenFlow, session.eccVerified, session.ecc !== null];
+        });
       } finally {
         await fx.cleanup();
       }

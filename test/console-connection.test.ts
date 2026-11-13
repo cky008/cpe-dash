@@ -101,7 +101,7 @@ describe("router connection test and switch", () => {
   it("logs nothing in before setup and audits every write with the caller captured where it was asked for", async () => {
     const fx = fixture({ password: "" });
     try {
-      assert.equal(await fx.core.scheduler.executeRead(async () => "never"), null);
+      assert.equal(await fx.core.scheduler.read(async () => "never"), null);
       assert.deepEqual(fx.cpe.stats.requests, [], "not even a state-login probe");
       const events: ControlAuditEvent[] = [];
       fx.core.scheduler.on("control:audit", (e: ControlAuditEvent) => events.push(e));

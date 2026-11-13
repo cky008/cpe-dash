@@ -8,7 +8,7 @@ import {
   readTimeSeriesPreset,
 } from "./control-input.ts";
 import { type FengSuiCore, deviceReportOf } from "./core.ts";
-import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS, type DiscoveredEndpoint, discoverEndpoints, discoveryRefusal, readDiscoveryPaths } from "./endpoint-discovery.ts";
+import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS, type DiscoveredEndpoint, discoveryRefusal, readDiscoveryPaths } from "./endpoint-discovery.ts";
 import type { ExperimentalSwitchResult } from "./experimental-switch.ts";
 import type { ControlAction, ReadSection, WriteFeature } from "./device-access.ts";
 import { FAMILY_WRITE_FEATURES } from "./router-family.ts";
@@ -708,7 +708,7 @@ export class CoreMcpTools implements McpToolProvider {
     this.#probing = true;
     let endpoints: DiscoveredEndpoint[] | null;
     try {
-      endpoints = await discoverEndpoints(paths, (probe) => this.core.scheduler.executeRead(probe, { priority: "low" }));
+      endpoints = await this.core.monitor.probeEndpoints(paths);
     } finally {
       this.#probing = false;
       this.#probeFreeAtMs = now() + DISCOVERY_PAUSE_MS;

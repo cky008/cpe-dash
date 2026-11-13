@@ -20,7 +20,7 @@ import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 /**
- * The write gate, enforced in the scheduler (`executeControl`), the one door every write goes
+ * The write gate, enforced in the scheduler (`control`), the one door every write goes
  * through: on a router that is not a verified model, a write FengSui has no implementation of for
  * it, one the router lacks what it needs for, and one its owner turned off are refused before any
  * session. Each write path is tried and the mock must receive no write. The gate trusts only a model

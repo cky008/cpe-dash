@@ -1,9 +1,8 @@
 import { EventEmitter } from "node:events";
-import { routerBackendOf } from "../backends/index.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../cpe-domain.ts";
 import type { CpeMonitor } from "../cpe-monitor.ts";
 import { t } from "../i18n.ts";
-import type { RouterBackend, SmsListing, SmsSendOutcome as RouterSendOutcome } from "../router-backend.ts";
+import { type RouterBackend, SessionBackend, type SmsListing, type SmsSendOutcome as RouterSendOutcome } from "../router-backend.ts";
 import { maskPhoneNumber } from "../sanitize.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority } from "../scheduler.ts";
 import { formatHuaweiDate } from "../xml.ts";
@@ -148,7 +147,7 @@ export class SmsService extends EventEmitter {
   readonly mirror: SmsMirrorStore;
   readonly contacts: ContactBook;
   /** The backend of the router's family: every SMS read and write goes through it, whatever the brand. */
-  readonly #backend: () => RouterBackend;
+  readonly #backend: RouterBackend;
   #defaultCountryCode: string;
   readonly fullSyncIntervalMs: number;
   readonly seedExistingOnStart: boolean;
@@ -181,7 +180,7 @@ export class SmsService extends EventEmitter {
     this.monitor = opts.monitor;
     this.mirror = opts.mirror;
     this.contacts = opts.contacts;
-    this.#backend = routerBackendOf(opts.scheduler);
+    this.#backend = new SessionBackend(opts.scheduler);
     this.#defaultCountryCode = opts.defaultCountryCode;
     this.fullSyncIntervalMs = Math.max(60_000, opts.fullSyncIntervalMs ?? 30 * 60_000);
     this.seedExistingOnStart = opts.seedExistingOnStart !== false;
@@ -346,7 +345,7 @@ export class SmsService extends EventEmitter {
   async pollWhileYielding(): Promise<void> {
     if (!this.scheduler.getAvoidanceState().active) return;
     try {
-      const probe = await this.#backend().peekSmsUnread();
+      const probe = await this.#backend.peekSmsUnread();
       // A family without a login-free count: the next telemetry session brings the counts
       if (!probe) return;
       const changed = probe.unreadMessages !== this.#probeUnread || probe.storageFull !== this.#probeStorageFull;
@@ -395,7 +394,7 @@ export class SmsService extends EventEmitter {
     let accepted = false;
     let sendOutcome: RouterSendOutcome;
     try {
-      sendOutcome = await this.#backend().sendSms(
+      sendOutcome = await this.#backend.sendSms(
         prepared,
         {
           statusTimeoutMs: this.sendStatusTimeoutMs,
@@ -446,7 +445,7 @@ export class SmsService extends EventEmitter {
 
     const indices = unread.filter(onRouter).map((m) => m.index);
     if (indices.length > 0) {
-      await this.#backend().markSmsRead(
+      await this.#backend.markSmsRead(
         indices,
         (count): ControlSummary => ({
           zh: t("zh-CN", "sms.marked_read_summary", { count }),
@@ -476,7 +475,7 @@ export class SmsService extends EventEmitter {
     }
     const indices = records.filter(onRouter).map((m) => m.index);
     if (indices.length > 0) {
-      await this.#backend().deleteSms(
+      await this.#backend.deleteSms(
         indices,
         (count): ControlSummary => ({
           zh: t("zh-CN", "sms.deleted_summary", { count }),
@@ -564,7 +563,7 @@ export class SmsService extends EventEmitter {
     let fetched: SmsListing | null;
     try {
       // A router without SMS (or without a listing FengSui reads) has nothing to sync
-      fetched = await this.#backend().listSms({
+      fetched = await this.#backend.listSms({
         mode,
         recentCount: this.recentFetchCount,
         expandThread: (latest) => this.mirror.get(computeSmsUid(latest)) === undefined,

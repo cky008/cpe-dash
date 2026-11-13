@@ -9,7 +9,7 @@ import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { DeviceAccess, type DeviceAccessSnapshot } from "../src/device-access.ts";
 import { bandsToHex } from "../src/drivers/bands.ts";
 import { ROUTER_FAMILY_FACTS, type RouterFamily } from "../src/router-family.ts";
-import { CircuitBreakerOpenError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError, NotDriverFamilyError } from "../src/scheduler.ts";
+import { CircuitBreakerOpenError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
@@ -84,7 +84,8 @@ describe("driver runtime: reads", () => {
   it("polls telemetry and neighbours through the driver, in the HiLink snapshot shapes, and skips what the family does not read", async () => {
     const fx = runtimeFixture();
     try {
-      assert.equal(fx.core.scheduler.isDriverMode(), true);
+      assert.equal(fx.core.scheduler.driver.family, "openwrt");
+      assert.equal(fx.core.scheduler.driver.hasVerifiedModel, false);
       assert.equal(fx.core.scheduler.getFamily(), "openwrt");
       const snap = await fx.core.monitor.refreshTelemetry();
       assert.ok(snap);
@@ -126,7 +127,6 @@ describe("driver runtime: reads", () => {
       const before = fx.logins();
       assert.equal(await fx.core.monitor.refreshSettings(), null);
       assert.equal(await fx.core.monitor.refreshAccessControl(), null);
-      assert.equal(await fx.core.scheduler.executeRead(async () => "hilink"), null, "a HiLink read reads nothing");
       assert.equal(fx.logins(), before);
       // The device list is on record (LuCI's leases); a router without LuCI says so once, and the sweep then leaves it out
       assert.equal(await fx.core.monitor.refreshTopology(), null);
@@ -222,7 +222,7 @@ describe("driver runtime: writes", () => {
         (err: unknown) => err instanceof DeviceReadOnlyError && !(err instanceof DeviceWriteDisabledError) && err.errorCode === "DEVICE_UNVERIFIED_READ_ONLY" && err.feature === "antenna"
       );
       await assert.rejects(fx.core.controls.setWifiAccess({ kind: "unblock", macAddress: "02:00:5E:10:00:01" }, { requesterIp: null, confirm: true }), DeviceReadOnlyError);
-      await assert.rejects(fx.core.scheduler.executeControl("set_antenna_mode", async () => 1), DeviceReadOnlyError);
+      await assert.rejects(fx.core.scheduler.control("set_antenna_mode", async () => 1), DeviceReadOnlyError);
       assert.equal(fx.logins(), logins);
       // A redial is on record (QModem's dial calls); this router has no QModem, so its session refuses it with nothing sent
       await assert.rejects(fx.core.controls.reconnectCellular(), /no QModem/);
@@ -425,17 +425,14 @@ describe("driver runtime: the connection's family", () => {
       // The console saves a Huawei connection at the same address: the HiLink client takes over (no session here)
       const toHuawei = await fx.core.scheduler.applyConnection({ url: "http://192.168.66.1", username: "root", password: "test-password", family: "huawei" });
       assert.equal(toHuawei.tripped, false);
-      assert.equal(fx.core.scheduler.isDriverMode(), false);
+      assert.equal(fx.core.scheduler.driver.family, "huawei", "HiLink's driver speaks to it from the next verb on");
       assert.equal(fx.core.scheduler.getFamily(), "huawei");
       assert.equal(fx.core.scheduler.device.family, "huawei");
-      await assert.rejects(fx.core.scheduler.executeDriverTelemetryRead(), NotDriverFamilyError);
-      await assert.rejects(fx.core.scheduler.executeDriverControl("reboot_cpe", async () => 1), NotDriverFamilyError);
-      assert.deepEqual(fx.audits.at(-1) ? [fx.audits.at(-1)?.action, fx.audits.at(-1)?.outcome] : null, ["reboot_cpe", "refused"]);
 
       // And back: the driver is rebuilt on the saved connection, the rate starts over with it
       const requests = nradio.mock.requests.length;
       await fx.core.scheduler.applyConnection({ url: "http://192.168.66.1", username: "root", password: "test-password", family: "nradio" });
-      assert.equal(fx.core.scheduler.isDriverMode(), true);
+      assert.equal(fx.core.scheduler.driver.family, "nradio");
       assert.equal(fx.core.scheduler.getStatus().device.confirmed, false, "another connection: the model is confirmed again");
       nradio.advance(5_000_000n);
       const third = await fx.core.monitor.refreshTelemetry();
@@ -451,7 +448,7 @@ describe("driver runtime: the connection's family", () => {
       assert.equal(reloaded.tripped, false);
       assert.equal(fx.core.scheduler.getFamily(), "nradio");
       await fx.core.scheduler.reloadCredentialsAndResetBreaker("test-password", "root", "huawei");
-      assert.equal(fx.core.scheduler.isDriverMode(), false);
+      assert.equal(fx.core.scheduler.driver.family, "huawei");
       assert.ok(nradio.mock.requests.every((r) => r.path.startsWith("/cgi-bin/luci")), "no HiLink request reached the router");
     } finally {
       await fx.cleanup();

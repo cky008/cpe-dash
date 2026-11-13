@@ -729,7 +729,7 @@ export type AlertCode =
 
 ### 2.10 写闸门：未验证的路由器只写烽燧实现了的
 
-**所有写操作只有一个入口**：调度器的 `executeControl`。REST、MCP、Telegram、短信、自愈都经它进入队列，闸门就在这里检查，不靠界面隐藏。实现见 [`src/device-access.ts`](../../src/device-access.ts) 与 [`src/scheduler.ts`](../../src/scheduler.ts)。
+**所有写操作只有一个入口**：调度器的 `control`（所有品牌同一条路径）。REST、MCP、Telegram、短信、自愈都经它进入队列，闸门就在这里检查，不靠界面隐藏。实现见 [`src/device-access.ts`](../../src/device-access.ts) 与 [`src/scheduler.ts`](../../src/scheduler.ts)。
 
 - **按型号与功能判断**：验证清单（[`src/firmware.ts`](../../src/firmware.ts) 的 `VERIFIED_FIRMWARE`）上的型号可以写；它的新固件照常写，只告警（ADR-007）。其他型号上，**烽燧为这台路由器实现了的写入默认开启**，作为实验性写入发出（只发一次、写后回读，见 2.11），用户可以逐项关闭；**没有实现的写入拒绝**，路由器收不到任何写请求。「实现了」按品牌各自的清单判断（[`src/router-family.ts`](../../src/router-family.ts) 的 `ROUTER_FAMILY_FACTS[品牌].writes`）：其他品牌是它的驱动实现的写入；其他华为 HiLink 型号是通用写入（附录 A.11），并且识别时的探测要找到这项写入回读所读的接口（有人在真机上验证过的那项写入，`VERIFIED_FEATURES`，不需要这个依据）。两种拒绝的错误码不同：没有实现或路由器不具备条件是 `409 DEVICE_UNVERIFIED_READ_ONLY`，用户关闭的是 `409 DEVICE_WRITE_DISABLED`。
 - **只相信本次运行看到的型号**：识别（启动后、补做、控制台测试当前路由器）、每 5 秒的轮询（本来就读 `device/information`）和写操作自己的会话都算「看到」。上一次运行存下的识别结果可能已经过时（停机期间换了路由器）：
@@ -818,7 +818,7 @@ export type AlertCode =
 
 **放行之后怎么写**（HiLink 型号：[`src/generic-writes.ts`](../../src/generic-writes.ts)、[`src/sms/protocol.ts`](../../src/sms/protocol.ts)，请求格式见附录 A.11；其他品牌：各自的驱动，`src/drivers/`）：
 
-- 仍然只经 `executeControl` / `executeDriverControl`，**绝不重试**；REST、MCP、Telegram、WAN 自愈（锁频回滚、自动重拨）与短信服务都走同一个闸门。HiLink 型号的实验性锁频 **只锁 LTE**，频段只能取 `lteBands`（`net-mode-list` 通告的），NR 频段、锁小区和其他频段在入队前就以 `400 VALIDATION_ERROR` 拒绝；实验性短信不收表情等基本多文种平面以外的字符（同样 `400`）。
+- 仍然只经调度器的 `control`，**绝不重试**；REST、MCP、Telegram、WAN 自愈（锁频回滚、自动重拨）与短信服务都走同一个闸门。HiLink 型号的实验性锁频 **只锁 LTE**，频段只能取 `lteBands`（`net-mode-list` 通告的），NR 频段、锁小区和其他频段在入队前就以 `400 VALIDATION_ERROR` 拒绝；实验性短信不收表情等基本多文种平面以外的字符（同样 `400`）。
 - **写后回读核对**：锁频、移动数据在同一会话里读回 `net/net-mode` 的 `LTEBand`、`dialup/mobile-dataswitch` 的 `dataswitch`；发短信看 `send-status`（列出了每个收件人才算一致，一个都没列出为「无法核对」）；标记已读、删除看前后的短信计数。重拨与重启在之后的轮询里核对：本次连接时长（`CurrentConnectTime`，需 WAN 已连接）或运行时长（`uptime`）从写入之后重新计起即为一致（计数为 0 不算，没有这个字段时也读成 0）；2 分钟后仍在继续累加为不一致；15 分钟内没有轮询能判断为「无法核对」。读回失败不会让已被路由器接受的写入算作失败。
 - **记录**：每次实验性写入（以及将来在 `VERIFIED_FEATURES` 里验证过的通用写入）记进加密的 `state.json`（最近 20 条；守护进程重启时，上一次运行留下的「等待轮询核对」改为「无法核对」）：操作名、功能、型号、写过的端点、路由器的错误码、回读结果与原因，**不含写入的取值**（频段、开关、号码、正文都不记）。它们出现在 `GET /api/console/experimental` 的 `writes` 与设备报告的「最近写入结果」（2.9 的 `writes`，去掉内部 id，同样经过第二道防线）里，方便用户反馈。`control:applied` 附 `check`，摘要末尾注明「实验性写入」与回读结果；审计记录同一摘要。
 - **不一致就告警**：`WRITE_READBACK_MISMATCH`（warning），消息只有操作名、型号与原因。

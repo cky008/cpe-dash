@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { DriverBackend, HilinkBackend, routerBackendOf } from "../src/backends/index.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";
-import { selectRouterBackend } from "../src/router-backend.ts";
+import { SessionBackend } from "../src/router-backend.ts";
+import { ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 import { prepareSmsSubmission } from "../src/sms/protocol.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
@@ -27,10 +27,11 @@ function sources(dir: string): string[] {
 }
 
 describe("router backend: one interface for every brand", () => {
-  it("chooses the stack in one place, by the connection's family", () => {
-    const backends = { hilink: { family: "huawei" }, driver: { family: "openwrt" } } as unknown as Parameters<typeof selectRouterBackend>[1];
-    assert.equal(selectRouterBackend({ isDriverMode: () => false }, backends), backends.hilink);
-    assert.equal(selectRouterBackend({ isDriverMode: () => true }, backends), backends.driver);
+  it("has one backend, which names no brand: what a session sends is the brand's driver's", () => {
+    const source = fs.readFileSync("src/router-backend.ts", "utf8");
+    assert.ok(!source.includes('"./drivers/'), "the backend imports a brand's driver");
+    for (const family of Object.keys(ROUTER_FAMILY_FACTS)) assert.ok(!source.includes(`"${family}"`), `the backend names the brand ${family}`);
+    assert.ok(!/\bisDriverFamily\(/.test(source), "the backend asks which brand it speaks to");
   });
 
   it("follows the connection: another brand saved is spoken to by the other backend from the next call on", async () => {
@@ -46,8 +47,9 @@ describe("router backend: one interface for every brand", () => {
     });
     try {
       core.monitor.init();
-      const backend = routerBackendOf(core.scheduler);
-      assert.ok(backend() instanceof DriverBackend);
+      const one = new SessionBackend(core.scheduler);
+      const backend = (): SessionBackend => one;
+      assert.equal(core.scheduler.driver.family, "openwrt");
       assert.equal(backend().family, "openwrt");
       const snap = await backend().readTelemetry({ smsCounters: false });
       assert.equal(snap?.device.deviceName, "RM520N-GL");
@@ -61,10 +63,9 @@ describe("router backend: one interface for every brand", () => {
       assert.ok(router.calls.some((c) => c.object === "luci-rpc" && c.method === "getDHCPLeases"));
 
       await core.scheduler.reloadCredentialsAndResetBreaker(OPENWRT_PASSWORD, "root", "huawei");
-      assert.ok(backend() instanceof HilinkBackend);
+      // The same backend: the connection's driver is HiLink's from the next verb on
+      assert.equal(core.scheduler.driver.family, "huawei");
       assert.equal(backend().family, "huawei");
-      // Asked for on a HiLink connection, the driver backend names no family
-      assert.throws(() => new DriverBackend(core.scheduler).family, /HiLink connection/);
     } finally {
       await stopFengSuiCore(core);
       removeTempDir(dir);
@@ -72,20 +73,19 @@ describe("router backend: one interface for every brand", () => {
   });
 
   it("keeps the brand out of everything above it", () => {
-    // The stack is chosen in router-backend.ts; the scheduler owns the two clients; the backends speak to them
-    const allowed = (file: string): boolean => file === "src/scheduler.ts" || file === "src/router-backend.ts" || file.startsWith("src/backends/");
+    // The scheduler owns the connection and opens its sessions; only the backend asks it for one
     for (const file of sources("src")) {
-      if (allowed(file)) continue;
+      if (file === "src/scheduler.ts" || file === "src/router-backend.ts") continue;
       const source = fs.readFileSync(file, "utf8");
-      assert.ok(!/\bisDriverMode\(/.test(source), `${file} asks which stack speaks to the router: add the verb to RouterBackend instead`);
-      assert.ok(!/\bexecuteDriver[A-Z]\w*\(/.test(source), `${file} opens a driver session itself: go through RouterBackend`);
+      assert.ok(!/\bscheduler\.(read|control|refuse)\(/.test(source), `${file} opens a router session itself: add the verb to RouterBackend instead`);
+      assert.ok(!/\.withSession(Detailed)?\(/.test(source) || file === "src/session-client.ts" || file.startsWith("src/drivers/") || file === "src/cpe-client.ts", `${file} opens a session around the scheduler`);
     }
     // The read and write services name no driver and no HiLink read of their own
     for (const file of ["src/cpe-monitor.ts", "src/cpe-controls.ts"]) {
       const source = fs.readFileSync(file, "utf8");
       assert.ok(!source.includes('"./drivers/'), `${file} imports a driver`);
     }
-    assert.ok(!/\bexecuteRead\(/.test(fs.readFileSync("src/cpe-monitor.ts", "utf8")), "the monitor reads through the backend only");
+    assert.ok(!/\.read\(\s*async \(session/.test(fs.readFileSync("src/cpe-monitor.ts", "utf8")), "the monitor reads through the backend only");
     // Every write is a verb too: the write service opens no session of either stack
     const controls = fs.readFileSync("src/cpe-controls.ts", "utf8");
     assert.ok(!/\bexecute(Read|Control)\(/.test(controls), "the write service opens a session itself: go through RouterBackend");
@@ -115,7 +115,8 @@ describe("router backend: one interface for every brand", () => {
       core.monitor.init();
       // The gate knows the model, so it answers before any session
       core.scheduler.device.see("C8-668", "NROS 2.1");
-      const backend = routerBackendOf(core.scheduler);
+      const one = new SessionBackend(core.scheduler);
+      const backend = (): SessionBackend => one;
       const summary = (): { zh: string; en: string } => ({ zh: "", en: "" });
       assert.equal(await backend().listSms({ mode: "full", recentCount: 20, expandThread: () => true, priority: "low" }), null);
       assert.equal(await backend().peekSmsUnread(), null);

@@ -1,11 +1,11 @@
 import { EventEmitter } from "node:events";
 import type { AccessControlSnapshot } from "./access-control.ts";
-import { routerBackendOf } from "./backends/index.ts";
 import type { CellularSettingsSnapshot } from "./cellular.ts";
 import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, RouterSettingsSnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
 import type { DeviceProbeResult } from "./device-profile.ts";
 import type { ReadSection } from "./device-access.ts";
-import type { RouterBackend } from "./router-backend.ts";
+import type { DiscoveredEndpoint } from "./endpoint-discovery.ts";
+import { type RouterBackend, SessionBackend } from "./router-backend.ts";
 import type { RouterFamily } from "./router-family.ts";
 import type { MutexSessionScheduler, SchedulerPriority } from "./scheduler.ts";
 import type { EncryptedStateStore } from "./state-store.ts";
@@ -46,9 +46,9 @@ const MAX_IDENTIFY_FAILURES = 3;
 /**
  * Read side of FengSui: background polling, single-flight refreshes and cached snapshots.
  *
- * - Every refresh is one `MutexSessionScheduler.executeRead` session (on a router of a driver family,
- *   the driver's telemetry / neighbour read, in the same snapshot shapes; the sections such a family
- *   does not document are skipped); concurrent callers of the same refresh join the in-flight
+ * - Every refresh is one read session through the backend (`RouterBackend`), in the same snapshot
+ *   shapes on every brand; a section the router's brand does not document is skipped without a
+ *   session); concurrent callers of the same refresh join the in-flight
  *   promise (Single-Flight Request Coalescing).
  * - Telemetry feeds the time-series ring buffer and emits `speed` + `telemetry`; sweeps emit
  *   `neighbors` / `topology` / `access-control`; settings reads emit `settings`.
@@ -83,7 +83,7 @@ export class CpeMonitor extends EventEmitter {
   #flushTimer: ReturnType<typeof setInterval> | null = null;
 
   /** The backend of the router's family: every read goes through it, whatever the brand. */
-  readonly #backend: () => RouterBackend;
+  readonly #backend: RouterBackend;
 
   constructor(options: CpeMonitorOptions) {
     super();
@@ -94,7 +94,7 @@ export class CpeMonitor extends EventEmitter {
     this.neighborScanIntervalMs = options.neighborScanIntervalMs ?? 60000;
     this.stateFlushIntervalMs = options.stateFlushIntervalMs ?? 30 * 60 * 1000;
     this.smsCountersEnabled = options.smsCountersEnabled === true;
-    this.#backend = routerBackendOf(options.scheduler);
+    this.#backend = new SessionBackend(options.scheduler);
     // A poll or a write saw another model than the stored identification: the router was replaced
     this.scheduler.on("device:changed", () => {
       this.#identifyPending = true;
@@ -213,7 +213,7 @@ export class CpeMonitor extends EventEmitter {
 
   #identify(priority: SchedulerPriority): Promise<DeviceProbeResult | null> {
     // Each family's backend knows how its routers say who they are
-    this.#inflightIdentify ??= this.#backend()
+    this.#inflightIdentify ??= this.#backend
       .identify(priority)
       .then(
         async (probe) => {
@@ -258,7 +258,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightTelemetry = p;
       },
-      () => this.#backend().readTelemetry({ ignoreCooldown: opts.ignoreCooldown, smsCounters: this.smsCountersEnabled }),
+      () => this.#backend.readTelemetry({ ignoreCooldown: opts.ignoreCooldown, smsCounters: this.smsCountersEnabled }),
       (snap) => {
         // Before anyone hears of the snapshot: a write it prompts (self-heal) goes by this model
         this.scheduler.noteRouterModel(snap.device.deviceName, snap.device.softwareVersion);
@@ -300,7 +300,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightNeighbors = p;
       },
-      () => this.#backend().readNeighbors({ ignoreCooldown: opts.ignoreCooldown }),
+      () => this.#backend.readNeighbors({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestNeighbors: snap });
         this.#safeEmit("neighbors", snap);
@@ -316,7 +316,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightTopology = p;
       },
-      () => this.#backend().readTopology({ ignoreCooldown: opts.ignoreCooldown }),
+      () => this.#backend.readTopology({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestTopology: snap });
         this.#safeEmit("topology", snap);
@@ -332,7 +332,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightSettings = p;
       },
-      () => this.#backend().readSettings({ ignoreCooldown: opts.ignoreCooldown }),
+      () => this.#backend.readSettings({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestSettings: snap });
         this.#safeEmit("settings", snap);
@@ -348,7 +348,7 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightAccessControl = p;
       },
-      () => this.#backend().readAccessControl({ ignoreCooldown: opts.ignoreCooldown }),
+      () => this.#backend.readAccessControl({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.stateStore.update({ latestAccessControl: snap });
         this.#safeEmit("access-control", snap);
@@ -368,11 +368,20 @@ export class CpeMonitor extends EventEmitter {
       (p) => {
         this.#inflightCellular = p;
       },
-      () => this.#backend().readCellular({ ignoreCooldown: opts.ignoreCooldown }),
+      () => this.#backend.readCellular({ ignoreCooldown: opts.ignoreCooldown }),
       (snap) => {
         this.#cellular = { family, snapshot: snap };
       }
     );
+  }
+
+  /**
+   * An agent's read-only look at endpoints FengSui does not read yet (`probe_router_endpoints`): one
+   * low-priority session, GETs only. `null`: no session (someone on the router's page, the breaker, or
+   * a router whose interface this discovery does not speak).
+   */
+  probeEndpoints(paths: ReadonlyArray<string>): Promise<DiscoveredEndpoint[] | null> {
+    return this.#backend.probeEndpoints(paths);
   }
 
   /**

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { PIN_REFUSALS } from "../src/backends/driver.ts";
+import { PIN_REFUSALS } from "../src/cellular.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/session-errors.ts";
 import { USSD_POLLS } from "../src/drivers/cellular.ts";

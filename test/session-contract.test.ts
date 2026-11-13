@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { hilinkSessionOf } from "../src/drivers/huawei.ts";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -243,7 +244,7 @@ describe("session contract on a strict single-admin router model", () => {
     try {
       const startedAt = performance.now();
       await assert.rejects(
-        () => fx.core.scheduler.executeRead(() => new Promise<never>(() => undefined)),
+        () => fx.core.scheduler.read(() => new Promise<never>(() => undefined)),
         (err: unknown) => err instanceof Error && err.name === "CpeSessionDeadlineError"
       );
       assert.ok(performance.now() - startedAt < 2000, "a hung domain function cannot hold the slot");
@@ -384,10 +385,10 @@ describe("session contract on a strict single-admin router model", () => {
       });
       await assert.rejects(
         () =>
-          fx.core.scheduler.executeRead(async (session) => {
+          fx.core.scheduler.read(async (session) => {
             // Ignores its deadline: wakes up after the hold budget and keeps using the session
             await new Promise((resolve) => setTimeout(resolve, 150));
-            for (const late of [() => session.get("/api/device/signal"), () => session.postXml("/api/sms/set-read", { Index: [40001] })]) {
+            for (const late of [() => hilinkSessionOf(session).get("/api/device/signal"), () => hilinkSessionOf(session).postXml("/api/sms/set-read", { Index: [40001] })]) {
               await late().catch((err: unknown) => lateErrors.push(err));
             }
             orphanDone();

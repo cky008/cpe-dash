@@ -14,38 +14,40 @@ import type {
   UssdAnswer,
   UssdRequest,
 } from "./cellular.ts";
-import type {
-  AntennaModeName,
-  BandLockCommand,
-  CellLockCommand,
-  GlobalTelemetrySnapshot,
-  NeighborScanSnapshot,
-  PersistedLockState,
-  RouterSettingsSnapshot,
-  SecurityUpdateCommand,
-  TerminalTopologySnapshot,
-  WanRepairSkipReason,
+import {
+  type AntennaModeName,
+  type BandLockCommand,
+  type CellLockCommand,
+  CpeControlValidationError,
+  type GlobalTelemetrySnapshot,
+  type NeighborScanSnapshot,
+  type PersistedLockState,
+  type RouterSettingsSnapshot,
+  type SecurityUpdateCommand,
+  type TerminalTopologySnapshot,
+  type WanRepairSkipReason,
 } from "./cpe-domain.ts";
+import { type ControlAction, CONTROL_FEATURES } from "./device-access.ts";
 import type { DeviceProbeResult } from "./device-profile.ts";
+import { type DiscoveredEndpoint, discoverEndpoints } from "./endpoint-discovery.ts";
 import type { RouterFamily } from "./router-family.ts";
-import type { ControlSummary, SchedulerPriority } from "./scheduler.ts";
+import type { RouterDriver, RouterSession, SessionlessRead } from "./router-session.ts";
+import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteContext } from "./scheduler.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "./sms/protocol.ts";
 import type { SmsAbilities, SmsFetchResult, SmsSendResult, SmsWireMessage } from "./sms/types.ts";
 
 /**
  * What FengSui asks of a router, whatever its brand: one verb per thing the daemon reads or writes,
- * each a single scheduled session. The services above it (`CpeMonitor`, `CpeControlService`) speak
- * only this interface; which stack answers is decided here, once, by the connection's family:
+ * each a single scheduled session. The services above it (`CpeMonitor`, `CpeControlService`,
+ * `SmsService`) speak only this interface, and it has one implementation, `SessionBackend` below,
+ * which knows no brand: it queues, gates, audits and records, and leaves what goes to the router to
+ * the brand's `RouterSession` (`src/router-session.ts`) and what is checked before queueing to the
+ * brand's `RouterDriver`.
  *
- * - `HilinkBackend` (`src/backends/hilink.ts`): Huawei's HiLink stack, the H168-383's verified
- *   request sequences and the generic writes of other HiLink models;
- * - `DriverBackend` (`src/backends/driver.ts`): every other family, through its driver in `src/drivers/`.
- *
- * Both hand back the same snapshot and lock-state shapes, so nothing above this file branches on
- * the brand. A verb a family has no implementation of resolves `null` (a read: nothing to show) or
- * is refused by the write gate (a write: nothing is sent). To give a family a capability another one
- * already has, implement the verb in that family's backend; to add a capability to all of them, add
- * the verb here and implement it where a family can do it.
+ * A verb a router has no implementation of resolves `null` (a read: nothing to show) or is refused by
+ * the write gate (a write: nothing is sent). To give a brand a capability another one already has,
+ * implement it in that brand's session; to add a capability, add the verb here and to
+ * `RouterSession`, and implement it where a brand's interface can do it.
  */
 export interface RouterBackend {
   readonly family: RouterFamily;
@@ -76,6 +78,12 @@ export interface RouterBackend {
    * skipped, yielded, or the router's interface has no read for any of them.
    */
   readCellular(opts: ReadRequest): Promise<CellularSettingsSnapshot | null>;
+  /**
+   * An agent's read-only look at endpoints FengSui does not read yet (`probe_router_endpoints`), one
+   * GET each in one session. `null`: no session (someone on the router's page, the breaker, or a
+   * router whose interface this discovery does not speak).
+   */
+  probeEndpoints(paths: ReadonlyArray<string>): Promise<DiscoveredEndpoint[] | null>;
 
   // ------------------------------------------------------------------ writes (checked before queueing, gated, never replayed)
 
@@ -251,16 +259,224 @@ export interface RollbackRequest {
  */
 export type WanRepairOutcome = { applied: true; lockState?: PersistedLockState } | { applied: false; skipped: WanRepairSkipReason | "lock_changed" | "airplane_mode" };
 
-/** The scheduler facts a backend is chosen by. */
-interface FamilySource {
-  isDriverMode(): boolean;
-}
+/** The write that puts each kind of link change back, filed under the setting's own feature. */
+const LINK_REVERTS: Readonly<Record<LinkChange["kind"], ControlAction>> = {
+  sim_slot: "auto_restore_sim_slot",
+  network_mode: "auto_restore_network_mode",
+  operator: "auto_restore_operator",
+  apn: "auto_restore_apn",
+};
 
 /**
- * The backend of the connection in use. The two are stateless views on the scheduler, so the
- * choice is made at each call: a connection saved with another brand is spoken to by the other one
- * from the next verb on.
+ * The one `RouterBackend`: each verb is one session through the scheduler's queue, avoidance, breaker
+ * and write gate, on the connection in use (`scheduler.driver`, `scheduler.read`, `scheduler.control`).
+ * Stateless: a connection saved with another brand is spoken to by that brand's session from the next
+ * verb on.
  */
-export function selectRouterBackend(scheduler: FamilySource, backends: { hilink: RouterBackend; driver: RouterBackend }): RouterBackend {
-  return scheduler.isDriverMode() ? backends.driver : backends.hilink;
+export class SessionBackend implements RouterBackend {
+  readonly #scheduler: MutexSessionScheduler;
+
+  constructor(scheduler: MutexSessionScheduler) {
+    this.#scheduler = scheduler;
+  }
+
+  get family(): RouterFamily {
+    return this.#scheduler.getFamily();
+  }
+
+  get #driver(): RouterDriver {
+    return this.#scheduler.driver;
+  }
+
+  /** Whether a read is worth a session on this router. */
+  #reads(section: SessionlessRead): boolean {
+    return this.#driver.reads(section, this.#scheduler.device);
+  }
+
+  /** A write: refused before anything is queued where no form of the brand's interface has it. */
+  #write<T>(action: ControlAction, run: (session: RouterSession, write: WriteContext) => Promise<T>, summary?: ControlSummary | ((value: T) => ControlSummary | null)): Promise<T> {
+    if (!this.#driver.writes(CONTROL_FEATURES[action])) return this.#scheduler.refuse(action);
+    return this.#scheduler.control(action, run, summary);
+  }
+
+  identify(priority: SchedulerPriority): Promise<DeviceProbeResult | null> {
+    return this.#scheduler.read((session) => session.identify("startup"), { priority });
+  }
+
+  readTelemetry(opts: ReadRequest & { smsCounters: boolean }): Promise<GlobalTelemetrySnapshot | null> {
+    const scheduler = this.#scheduler;
+    return scheduler.read((session) => scheduler.readSection("telemetry", () => session.readTelemetry({ smsCounters: opts.smsCounters })), { priority: "normal", ignoreCooldown: opts.ignoreCooldown });
+  }
+
+  readNeighbors(opts: ReadRequest): Promise<NeighborScanSnapshot | null> {
+    const scheduler = this.#scheduler;
+    return scheduler.read((session) => scheduler.readSection("neighbors", () => session.readNeighbors()), { priority: "low", ignoreCooldown: opts.ignoreCooldown });
+  }
+
+  async readTopology(opts: ReadRequest): Promise<TerminalTopologySnapshot | null> {
+    if (!this.#reads("topology")) return null;
+    const scheduler = this.#scheduler;
+    return await scheduler.read((session) => scheduler.readSection("topology", () => session.readTopology()), { priority: "low", ignoreCooldown: opts.ignoreCooldown });
+  }
+
+  async readSettings(opts: ReadRequest): Promise<RouterSettingsSnapshot | null> {
+    if (!this.#reads("settings")) return null;
+    const scheduler = this.#scheduler;
+    return await scheduler.read((session) => scheduler.readSection("settings", () => session.readSettings()), { priority: "normal", ignoreCooldown: opts.ignoreCooldown });
+  }
+
+  async readAccessControl(opts: ReadRequest): Promise<AccessControlSnapshot | null> {
+    if (!this.#reads("accessControl")) return null;
+    const scheduler = this.#scheduler;
+    return await scheduler.read((session) => scheduler.readSection("accessControl", () => session.readAccessControl()), { priority: "low", ignoreCooldown: opts.ignoreCooldown });
+  }
+
+  async listSms(request: SmsListRequest): Promise<SmsListing | null> {
+    if (!this.#reads("sms")) return null;
+    const scheduler = this.#scheduler;
+    return await scheduler.read((session) => scheduler.readSection("sms", () => session.listSms(request)), { priority: request.priority });
+  }
+
+  async peekSmsUnread(): Promise<SmsUnreadPeek | null> {
+    return this.#driver.peekSmsUnread ? await this.#driver.peekSmsUnread(this.#scheduler) : null;
+  }
+
+  async readCellular(opts: ReadRequest): Promise<CellularSettingsSnapshot | null> {
+    if (!this.#reads("cellular")) return null;
+    return (await this.#scheduler.read((session) => session.readCellular(), { priority: "normal", ignoreCooldown: opts.ignoreCooldown })) ?? null;
+  }
+
+  async probeEndpoints(paths: ReadonlyArray<string>): Promise<DiscoveredEndpoint[] | null> {
+    if (!this.#reads("endpoints")) return null;
+    return await discoverEndpoints(paths, (probe) =>
+      this.#scheduler.read((session) => {
+        if (!session.discovery) throw new CpeControlValidationError("This router's interface has no endpoint discovery");
+        return probe(session.discovery);
+      }, { priority: "low" })
+    );
+  }
+
+  lockBands(command: BandLockCommand, ctx: LockContext, summary: LockSummary): Promise<BandLockOutcome> {
+    // Checked before queueing against the router the gate goes by (a write it refuses says so first), and again in the session
+    this.#driver.checkBandLock?.(command, this.#scheduler.device);
+    return this.#write("lock_band", (session, write) => session.lockBands(command, ctx, write), (outcome) => summary(outcome.state));
+  }
+
+  lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome> {
+    this.#driver.checkCellLock?.(command, this.#scheduler.device);
+    return this.#write("lock_cell", (session, write) => session.lockCell(command, write), (outcome) => summary(outcome.state));
+  }
+
+  unlockAll(summary: LockSummary): Promise<PersistedLockState> {
+    return this.#write("unlock_rf_locks", (session, write) => session.unlockAll(write), summary);
+  }
+
+  async rollBackLocks(request: RollbackRequest, summary: (outcome: WanRepairOutcome, restored: boolean) => ControlSummary | null): Promise<WanRepairOutcome> {
+    const done = await this.#write("auto_unlock_rf_locks", (session, write) => session.rollBackLocks(request, write), (result) => summary(result.outcome, result.restored));
+    return done.outcome;
+  }
+
+  reboot(params: { confirm: boolean }, summary: ControlSummary): Promise<{ rebooting: true; requestedAtIso: string }> {
+    return this.#write("reboot_cpe", (session, write) => session.reboot(params, write), summary);
+  }
+
+  reconnect(summary: ControlSummary): Promise<{ reconnecting: true; requestedAtIso: string }> {
+    return this.#write("reconnect_cellular", (session, write) => session.reconnect(write), summary);
+  }
+
+  autoReconnect(summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome> {
+    return this.#write("auto_reconnect_cellular", (session, write) => session.autoReconnect(write), summary);
+  }
+
+  setMobileData(enabled: boolean, summary: ControlSummary): Promise<{ mobileDataEnabled: boolean }> {
+    return this.#write("set_mobile_data", (session, write) => session.setMobileData(enabled, write), summary);
+  }
+
+  setSecuritySwitches(command: SecurityUpdateCommand, summary: ControlSummary): Promise<void> {
+    return this.#write("set_security_switches", (session, write) => session.setSecuritySwitches(command, write), summary);
+  }
+
+  setWifi7(input: { mloEnable?: boolean; dbhoEnable?: boolean }, summary: ControlSummary): Promise<{ mloEnable: boolean; dbhoEnable: boolean }> {
+    return this.#write("set_wifi7_mlo", (session, write) => session.setWifi7(input, write), summary);
+  }
+
+  setAntennaMode(mode: AntennaModeName, summary: ControlSummary): Promise<{ mode: AntennaModeName; rawCode: number }> {
+    this.#driver.checkAntennaMode?.(mode);
+    return this.#write("set_antenna_mode", (session, write) => session.setAntennaMode(mode, write), summary);
+  }
+
+  setWifiAccess(change: WifiAccessChange, ctx: AccessRequestContext, summary: () => ControlSummary): Promise<{ wifiMacFilter: WifiMacFilterState; plan: WifiFilterPlan }> {
+    return this.#write("set_wifi_access", (session, write) => session.setWifiAccess(change, ctx, write), summary);
+  }
+
+  manageTimeRule(change: TimeRuleChange, ctx: AccessRequestContext, summary: () => ControlSummary): Promise<TimeRulesState> {
+    return this.#write("manage_time_rule", (session, write) => session.manageTimeRule(change, ctx, write), summary);
+  }
+
+  sendSms(prepared: PreparedSmsSubmission, options: SubmitSmsOptions, summary: (outcome: SmsSendOutcome) => ControlSummary): Promise<SmsSendOutcome> {
+    this.#driver.checkSms?.(prepared, this.#scheduler.device);
+    return this.#write("sms_send", (session, write) => session.sendSms(prepared, options, write), summary);
+  }
+
+  /** Where FengSui keeps the read state itself there is nothing to write, and no session. */
+  async markSmsRead(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    if (this.#driver.keepsSmsReadState) return 0;
+    return await this.#write("sms_mark_read", (session, write) => session.markSmsRead(indices, write), summary);
+  }
+
+  deleteSms(indices: ReadonlyArray<number>, summary: (count: number) => ControlSummary): Promise<number> {
+    return this.#write("sms_delete", (session, write) => session.deleteSms(indices, write), summary);
+  }
+
+  setNetworkMode(mode: NetworkMode, summary: ControlSummary): Promise<LinkChangeOutcome<NetworkMode>> {
+    return this.#write("set_network_mode", (session, write) => session.setNetworkMode(mode, write), summary);
+  }
+
+  scanOperators(summary: (found: OperatorChoice[]) => ControlSummary): Promise<OperatorChoice[]> {
+    return this.#write("scan_operators", (session, write) => session.scanOperators(write), summary);
+  }
+
+  selectOperator(selection: OperatorSelection, summary: ControlSummary): Promise<LinkChangeOutcome<OperatorSelection>> {
+    return this.#write("select_operator", (session, write) => session.selectOperator(selection, write), summary);
+  }
+
+  setSimSlot(slot: SimSlotRef, summary: ControlSummary): Promise<LinkChangeOutcome<SimSlotRef>> {
+    return this.#write("set_sim_slot", (session, write) => session.setSimSlot(slot, write), summary);
+  }
+
+  setApn(choice: ApnChoice, summary: ControlSummary): Promise<LinkChangeOutcome<ApnRestore>> {
+    return this.#write("set_apn", (session, write) => session.setApn(choice, write), summary);
+  }
+
+  revertLinkChange(change: LinkChange, summary: (outcome: WanRepairOutcome) => ControlSummary | null): Promise<WanRepairOutcome> {
+    return this.#write(LINK_REVERTS[change.kind], (session, write) => session.revertLinkChange(change, write), summary);
+  }
+
+  enterSimPin(pin: string, summary: (outcome: SimPinOutcome) => ControlSummary): Promise<SimPinOutcome> {
+    return this.#write("enter_sim_pin", (session, write) => session.enterSimPin(pin, write), summary);
+  }
+
+  setSimPinLock(enabled: boolean, pin: string, summary: (outcome: SimPinOutcome) => ControlSummary): Promise<SimPinOutcome> {
+    return this.#write("set_sim_pin_lock", (session, write) => session.setSimPinLock(enabled, pin, write), summary);
+  }
+
+  setAirplaneMode(enabled: boolean, summary: ControlSummary): Promise<{ airplaneMode: boolean }> {
+    return this.#write("set_airplane_mode", (session, write) => session.setAirplaneMode(enabled, write), summary);
+  }
+
+  setRoaming(enabled: boolean, summary: ControlSummary): Promise<{ dataRoaming: boolean }> {
+    return this.#write("set_roaming", (session, write) => session.setRoaming(enabled, write), summary);
+  }
+
+  setDataLimit(limit: DataLimitSetting, summary: ControlSummary): Promise<DataLimitSetting> {
+    return this.#write("set_data_limit", (session, write) => session.setDataLimit(limit, write), summary);
+  }
+
+  resetTraffic(summary: ControlSummary): Promise<void> {
+    return this.#write("reset_traffic", (session, write) => session.resetTraffic(write), summary);
+  }
+
+  sendUssd(request: UssdRequest, summary: ControlSummary): Promise<UssdAnswer> {
+    return this.#write("send_ussd", (session, write) => session.sendUssd(request, write), summary);
+  }
 }

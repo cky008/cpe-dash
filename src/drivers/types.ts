@@ -260,7 +260,7 @@ export interface DriverDataLink {
    * connection down, so a connect sent right after it does not land in the middle of the disconnect.
    */
   set(enabled: boolean, check: WriteCheck, wait: DriverWait): Promise<void>;
-  /** The router's own redial command; left out, a redial is off, then on (`DriverBackend`). */
+  /** The router's own redial command; left out, a redial is off, then on (`DriverRouterSession`). */
   redial?(check: WriteCheck): Promise<void>;
 }
 
