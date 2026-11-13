@@ -16,6 +16,7 @@ import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSw
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
+import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../protocols/ubus.ts";
 import type {
   CellLockState,
   DriverBandLockTarget,
@@ -76,54 +77,25 @@ import {
 
 const FAMILY = "zte-zwrt" as const;
 const PATH = "/ubus/";
-export const ZWRT_ANONYMOUS = "00000000000000000000000000000000";
+export const ZWRT_ANONYMOUS = UBUS_ANONYMOUS_SESSION;
 const SESSION_ID = /^[0-9A-Za-z]{16,64}$/;
 
-/** `UBUS_STATUS_*` codes, as a router error code. */
-function ubusCode(status: number): string {
-  return `ubus-${status}`;
-}
-
-class Rpc {
-  readonly #http: LanHttp;
-  #id = 1;
-  session = ZWRT_ANONYMOUS;
-
+/**
+ * zWRT's ubus (`POST /ubus/`, with the time stamp and referer its page sends), whose methods all
+ * answer an object: a payload that is not one reads as empty.
+ */
+class Rpc extends UbusRpc {
   constructor(http: LanHttp) {
-    this.#http = http;
+    super(http, { path: PATH, stamp: true, referer: "/" });
   }
 
-  /** One call; resolves the payload of `[0, payload]` (an empty object for `[0]`). */
-  async call(object: string, method: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-    const id = this.#id++;
-    const answer = await this.#http.postJson(PATH, { jsonrpc: "2.0", id, method: "call", params: [this.session, object, method, args] }, { query: [["t", String(Date.now())]], referer: "/" });
-    if (!isPlainObject(answer)) throw new CpeAnswerFormatError(`${object}.${method}: not an object`);
-    const error = fieldOf(answer, "error");
-    if (isPlainObject(error)) throw new CpeApiError(`rpc${intOf(fieldOf(error, "code")) ?? ""}`, `${object}.${method} refused`);
-    const result = fieldOf(answer, "result");
-    if (!Array.isArray(result) || typeof result[0] !== "number") throw new CpeAnswerFormatError(`${object}.${method}: no result`);
-    if (result[0] !== 0) throw new CpeApiError(ubusCode(result[0]), `${object}.${method} refused`);
-    const payload: unknown = result[1];
+  override async call(object: string, method: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    const payload = await super.call(object, method, args);
     return isPlainObject(payload) ? payload : {};
   }
 
-  /**
-   * Several calls in one request, as the router's page sends the two halves of a SIM slot switch
-   * (notes library A): a JSON-RPC batch, each answered `[0, payload]`. Resolves the payloads in order.
-   */
-  async batch(calls: ReadonlyArray<readonly [object: string, method: string, args: Record<string, unknown>]>): Promise<Array<Record<string, unknown>>> {
-    const requests = calls.map(([object, method, args]) => ({ jsonrpc: "2.0", id: this.#id++, method: "call", params: [this.session, object, method, args] }));
-    const answer = await this.#http.postJson(PATH, requests, { query: [["t", String(Date.now())]], referer: "/" });
-    if (!Array.isArray(answer) || answer.length !== requests.length) throw new CpeAnswerFormatError("ubus batch: not one answer per call");
-    return requests.map((request, i) => {
-      const [object, method] = calls[i] ?? ["", ""];
-      const one = answer.find((item) => isPlainObject(item) && item["id"] === request.id) ?? answer[i];
-      const result = isPlainObject(one) ? fieldOf(one, "result") : undefined;
-      if (!Array.isArray(result) || typeof result[0] !== "number") throw new CpeApiError("rpc", `${object}.${method} refused`);
-      if (result[0] !== 0) throw new CpeApiError(ubusCode(result[0]), `${object}.${method} refused`);
-      const payload: unknown = result[1];
-      return isPlainObject(payload) ? payload : {};
-    });
+  override async batch(calls: ReadonlyArray<readonly [object: string, method: string, args: Record<string, unknown>]>): Promise<Array<Record<string, unknown>>> {
+    return (await super.batch(calls)).map((payload) => (isPlainObject(payload) ? payload : {}));
   }
 }
 

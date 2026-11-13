@@ -53,6 +53,7 @@ import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from 
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
 import type { LanHttp } from "./transport.ts";
+import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../protocols/ubus.ts";
 import type {
   CellLockState,
   DriverBandLockTarget,
@@ -108,7 +109,7 @@ import { bandOf, fieldOf, iccidOf, imeiOf, imsiOf, intOf, isPlainObject, labelOf
 
 const FAMILY = "openwrt" as const;
 const UBUS_PATH = "/ubus";
-export const OPENWRT_ANONYMOUS_SESSION = "00000000000000000000000000000000";
+export const OPENWRT_ANONYMOUS_SESSION = UBUS_ANONYMOUS_SESSION;
 
 /** Extract string response from varied OpenWrt AT RPC wrapper responses. */
 export function extractAtResponse(raw: unknown): string {
@@ -174,51 +175,19 @@ export function forgetOpenwrtSimReads(): void {
   SIM_READS.clear();
 }
 
-class OpenwrtUbusClient {
-  readonly #http: LanHttp;
-  #id = 1;
-  session = OPENWRT_ANONYMOUS_SESSION;
+/**
+ * OpenWrt's ubus (`POST /ubus`), plus the way an AT command reaches the module: the first of the
+ * modem services that answers (`MODEM_RPC_CANDIDATES`), else QModem's own object. A ubus status 6 is
+ * a refused password (the session token is not, or no longer, one).
+ */
+class OpenwrtUbusClient extends UbusRpc {
   #resolvedModemRpc: UbusRpcCallTarget | null = null;
   /** QModem's modem section and AT port (`undefined`: not looked for yet; `null`: no QModem here). */
   #qmodem: QmodemTarget | null | undefined = undefined;
   #atViaQmodem = false;
 
   constructor(http: LanHttp) {
-    this.#http = http;
-  }
-
-  /** The router's connection (what per-router reads are kept by). */
-  get http(): LanHttp {
-    return this.#http;
-  }
-
-  async call(object: string, method: string, args: Record<string, unknown> = {}, timeoutMs?: number): Promise<unknown> {
-    const id = this.#id++;
-    const answer = await this.#http.postJson(
-      UBUS_PATH,
-      {
-        jsonrpc: "2.0",
-        id,
-        method: "call",
-        params: [this.session, object, method, args],
-      },
-      timeoutMs === undefined ? {} : { timeoutMs }
-    );
-    if (!isPlainObject(answer)) throw new CpeAnswerFormatError(`${object}.${method}: invalid JSON-RPC response`);
-    const error = fieldOf(answer, "error");
-    if (isPlainObject(error)) {
-      throw new CpeApiError(`rpc-${intOf(fieldOf(error, "code")) ?? "error"}`, `${object}.${method} failed: ${textOf(fieldOf(error, "message")) ?? "RPC error"}`);
-    }
-    const result = fieldOf(answer, "result");
-    if (!Array.isArray(result) || typeof result[0] !== "number") {
-      throw new CpeAnswerFormatError(`${object}.${method}: missing result array`);
-    }
-    const status = result[0];
-    if (status !== 0) {
-      if (status === 6) throw wrongPassword("permission denied (ubus status 6)");
-      throw new CpeApiError(`ubus-${status}`, `${object}.${method} error status ${status}`);
-    }
-    return result[1];
+    super(http, { path: UBUS_PATH, statusError: (status) => (status === 6 ? wrongPassword("permission denied (ubus status 6)") : null) });
   }
 
   /**
