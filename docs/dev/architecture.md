@@ -560,22 +560,22 @@ flowchart TD
     S --> B["RouterBackend 动词，唯一实现 SessionBackend<br/>只管排队、闸门、审计、读取记录；不知道品牌"]
     B --> Q["MutexSessionScheduler：一条读路径 read · 一条写路径 control / refuse<br/>持有当前连接 RouterConnection"]
     Q --> C["SessionClient（session-client.ts）：互斥 · 限时 · 让位 · 只交一次密码 · 熔断 · finally 注销"]
-    C --> D1["华为驱动 drivers/huawei.ts<br/>HilinkRouterSession · huaweiDriver"]
+    C --> D1["华为驱动 drivers/huawei/<br/>driver：HilinkRouterSession · huaweiDriver<br/>requests · band-lock · access-control · sms：H168-383 的已验证序列"]
     C --> D2["其他品牌 drivers/adapter.ts<br/>DriverRouterSession 套在各自驱动的 DriverSession 上"]
-    D1 --> P1["HiLink：cpe-client · cpe-auth · cpe-domain · generic-writes · access-control · sms/protocol"]
-    D2 --> P2["各品牌驱动：zte-goform · zte-zwrt · pinsu · tozed · fiberhome · nradio · openwrt"]
-    P2 --> K["协议部件 protocols/：ubus · at/（common · quectel · fibocom · sms）"]
+    D2 --> P2["各品牌驱动：zte/（goform · zwrt）· pinsu · tozed · fiberhome · nradio · openwrt"]
+    D1 --> K["协议部件 protocols/：hilink/（client · auth · crypto · xml · parsers · generic-writes · access-control · sms）<br/>ubus · at/（common · quectel · fibocom · sms）"]
+    P2 --> K
 ```
 
 | 层 | 文件 | 只做什么 |
 | :--- | :--- | :--- |
 | 后端 | `src/router-backend.ts` | `RouterBackend` 的每个动词：入队前的检查交给品牌的 `RouterDriver`，读取包在 `readSection` 里记录可用与否，写入经 `control` 排队过闸门。文件里不出现任何品牌名（`test/router-backend.test.ts` 检查） |
 | 会话层 | `src/router-session.ts` | `RouterSession`：一次会话里对路由器的全部读写；`RouterDriver`：品牌在会话之外的事实（实现了哪些写入、哪些读取值得开会话、入队前的检查、免登录的未读数） |
-| 连接 | `src/drivers/connection.ts` | 唯一一处按品牌挑选会话客户端和会话对象：调度器持有的当前连接、控制台的测试连接都由它构建 |
+| 连接 | `src/drivers/connection.ts` | 唯一一处按品牌挑选会话客户端和会话对象：调度器持有的当前连接、控制台的测试连接都由它用连接设置建出；华为的客户端和它的登录记忆只在华为的连接里（19.6） |
 | 调度器 | `src/scheduler.ts` | 队列、避让、熔断、写闸门、读取与写入记录；所有品牌同一条读路径和写路径 |
 | 会话客户端 | `src/session-client.ts` | 铁律四、五只实现一次；品牌只提供 `SessionProtocol`（登录前检查、一次登录、注销，以及「有人在线」的登录应答能否再试） |
-| 品牌 | `src/drivers/huawei.ts`、`src/drivers/adapter.ts` 与各驱动 | 发什么：华为是 H168-383 的已验证序列与其他 HiLink 型号的通用写入；其他品牌由适配层把各自驱动的精简会话变成同样的快照与锁定状态 |
-| 协议部件 | `src/protocols/` | 不含任何品牌事实、可被多个驱动组合的部分：ubus 的 JSON-RPC，移远 / 广和通 / 通用 AT 指令与模组短信应答的解析 |
+| 品牌 | `src/drivers/huawei/`、`src/drivers/adapter.ts` 与各驱动（中兴的两套接口在 `src/drivers/zte/`） | 发什么：华为是 H168-383 的已验证序列与其他 HiLink 型号的通用写入；其他品牌由适配层把各自驱动的精简会话变成同样的快照与锁定状态 |
+| 协议部件 | `src/protocols/` | 怎样和一种接口对话，不含只对某个品牌或型号成立的事实：HiLink 的会话、登录、报文与按接口资料写的通用请求（`hilink/`），ubus 的 JSON-RPC，移远 / 广和通 / 通用 AT 指令（含 `+COPS`）与模组短信应答的解析 |
 
 ### 19.3 不变的东西与证明
 
@@ -592,7 +592,7 @@ flowchart TD
 
 ### 19.5 以后怎么加
 
-- **新品牌**：在 `src/drivers/` 写它的 `DriverProtocol`（免登录识别、登录前检查、一次登录、注销）与 `DriverSession`，用得上的协议部件直接组合；在 `src/router-family.ts` 加它的事实，在 `src/drivers/brands.ts` 注册。不需要碰后端、调度器或服务。
+- **新品牌**：在 `src/drivers/` 写它的 `DriverProtocol`（免登录识别、登录前检查、一次登录、注销）与 `DriverSession`（一个文件；有两套接口的品牌像中兴那样建自己的目录，两套接口共用的部件放在里面），用得上的协议部件从 `src/protocols/` 直接组合，它的接口是别的品牌也会用的一种（像 ubus、AT 指令）就先把这种接口写成协议部件；在 `src/router-family.ts` 加它的事实，在 `src/drivers/brands.ts` 注册。不需要碰后端、调度器、连接工厂或服务。
 - **新能力**：在 `RouterBackend` 与 `RouterSession` 各加一个动词，在 `SessionBackend` 里写一行排队与闸门；在有记录的品牌的会话里实现（其他品牌的驱动加一个可选方法，由适配层调用）。
 - **新协议部件**：两个以上驱动用到、又不含品牌事实的部分，放进 `src/protocols/`。
 
@@ -631,8 +631,18 @@ flowchart TD
 
 | `src/drivers/` 里现在的 | 去处 | 理由 |
 | :--- | :--- | :--- |
-| `cellular.ts` 的 `parseCops`、`parseCopsScan`、`CopsState`、`operatorRatOf`、`operatorActOf`、`operatorName`、`operatorChoice`、`MAX_SCAN_ROWS` | `src/protocols/at/common.ts` | 3GPP TS 27.007 第 7.3 节：`+COPS` 的当前选择、搜网结果的一行、接入技术的编号。模组、中兴两套接口和华为的搜网结果都按它读 |
+| `cellular.ts` 的 `parseCops`、`parseCopsScan`、`CopsState`、`operatorRatOf`、`operatorActOf`、`operatorName`、`operatorChoice`、`MAX_SCAN_ROWS`、`MAX_SCAN_CHARS` | `src/protocols/at/common.ts` | 3GPP TS 27.007 第 7.3 节：`+COPS` 的当前选择、搜网结果的一行、接入技术的编号。模组、中兴两套接口和华为的搜网结果都按它读 |
 | `cellular.ts` 的中兴部分：网络制式的名字、搜网结果与注册进度、接入点配置档、地址类型与鉴权的名字、卡槽编号、流量上限的写法、USSD 的应答 | `src/drivers/zte/cellular.ts` | 只有中兴的两套接口用 |
 | `sms.ts` 的中兴部分：短信列表、条数、时间、编号列表、指令状态 | `src/drivers/zte/sms.ts` | 同上 |
 | `zte-goform.ts`、`zte-zwrt.ts` | `src/drivers/zte/goform.ts`、`src/drivers/zte/zwrt.ts` | 一个品牌的两套接口和它们共用的部件放在一起 |
 | `cellular.ts` 余下的：较长的应答字段、USSD 的应答文字与等待次数、烽燧自己那份接入点配置档的名字、流量上限的回读、没有可回读内容的写入怎么记 | 留在 `src/drivers/cellular.ts` | 两个以上品牌的驱动在用 |
+
+**搬的时候顺带定下的几件事。**
+
+- `band-lock.ts`、`parsers.ts`、`cpe-domain.ts`、`sms/codec.ts` 原先顺手把 `rf-bounds.ts`、`units.ts`、`sms/text-mode.ts`、`sms/otp.ts` 的东西再转出一遍，引用方从哪边拿的都有。现在每样东西只有一个出处，`test/browser-shared.test.ts` 守着。
+- 短信镜像给自己记的条目写时间用 `sms/mirror.ts` 的 `mirrorDate`，不再借 HiLink 请求里的日期格式；两者的写法相同，有测试对照。
+- `cpe-domain.ts` 不再引用 HiLink：锁频指令里的网络制式写成三个代码本身（`"00"`、`"03"`、`"08"`）。
+- 守线的测试跟着改了：写服务与短信服务不得引用任何协议部件或驱动（`test/router-backend.test.ts`）；烽燧已用的接口清单对照的是 `src/protocols/hilink/` 与 `src/drivers/huawei/` 两个目录（`test/endpoint-discovery.test.ts`）。
+- 搬出来才看清的一处：MCP 的 `lock_cell` 在任何品牌上都先用 H168-383 的锁小区载荷检查一遍入参（`src/mcp-core-tools.ts` 引用 `drivers/huawei/requests.ts` 的 `prepareCellLockPayload`），REST 没有这一步。这是原有行为，这次没有动，留给「每个读写操作只登记一次」那一步。
+
+**证明。** 五个改动代码的提交（调度器、先把共用的部分拿出来、协议、华为驱动、中兴与 `+COPS`）之后各比对一次，请求序列 15384 字节、报文记录 4712 字节，全部与 `863249d` 逐字节相同。比对工具的导入路径跟着改过，改完先在基准上重跑，输出不变。

@@ -25,7 +25,7 @@ cpe-dash/
 │   ├── encrypted-file.ts   # StorageCipher: scrypt + HKDF-SHA256 + AES-256-GCM (0600) 落盘加密、原子写入与单进程文件锁
 │   ├── state-store.ts · timeseries.ts  # 加密运行时状态（熔断锁存、锁定状态、缓存快照、告警）与双层环形时序（5s / 60s）
 │   ├── session-client.ts   # 所有品牌共用的会话客户端：互斥、限时、免登录检查后让位（第 1 层）与登录应答让位（第 2 层）、只交一次密码、108006 / 108007 熔断（重启后接着锁）、finally 注销；各品牌只提供自己的检查、登录与注销（SessionProtocol）
-│   ├── session-errors.ts   # 所有品牌的会话都可能遇到的错误：路由器错误码（CpeApiError，用 HiLink 的编号）、登录应答无法判断时记的代码（LOGIN_UNCONFIRMED_CODE）、请求没有应答、应答读不懂、会话超时与重入
+│   ├── session-errors.ts   # 所有品牌的会话都可能遇到的错误：路由器错误码（CpeApiError，用 HiLink 的编号）、登录应答无法判断时记的代码（LOGIN_UNCONFIRMED_CODE）、请求没有应答、应答读不懂、会话没有加密通道、会话超时与重入
 │   ├── cpe-domain.ts       # 各品牌共用的快照与指令：遥测、射频与载波、附近的基站、已连接设备、路由器设置、锁定状态与锁定指令的类型，锁定核对（verifyLockState）、目标小区是否见过、「此型号不提供」怎样判断；不发任何请求（遥测快照的 `status` 是路由器状态，见 router-status.ts）
 │   ├── router-status.ts    # 零依赖：路由器状态（电池、SIM 卡、飞行模式、漫游、路由器自己的负载与运行时间、固件更新、Wi-Fi 开关、按名字分开的温度传感器）的类型与共用规则（电量低、SIM 卡锁住）；各品牌的后端填同一个形状，路由器没报告的留 `null`；守护进程、控制台与在线演示共用
 │   ├── scheduler.ts        # MutexSessionScheduler：唯一的会话调度器（优先级队列、避让、熔断、写闸门）；拿到的是连接设置（地址、账号、密码、请求怎样发出）加品牌，当前连接（品牌的 RouterDriver、会话客户端、打开 RouterSession 的方式）由 drivers/connection.ts 按品牌建出；同品牌改凭据或地址在原连接上更新，换品牌在队列里换一个连接；所有品牌只有一条读路径（read）与一条写路径（control、refuse）
