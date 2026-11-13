@@ -223,13 +223,24 @@ export async function openPage(chrome: ChromeHandle): Promise<Page> {
   return page;
 }
 
-/** Quit Chrome and remove its profile once it has exited (it writes there until the end). */
+/**
+ * Quit Chrome and remove its profile once it has exited (it writes there until the end). Chrome that
+ * ignores the polite signal for 5 s is killed; a profile its helper processes still hold is left in
+ * the temporary directory rather than failing the caller (a test's teardown must go on to stop the
+ * daemon it started, or the process never exits).
+ */
 export async function closeChrome(chrome: ChromeHandle): Promise<void> {
   chrome.cdp.close();
   if (chrome.process.exitCode === null && chrome.process.signalCode === null) {
     const exited = new Promise((resolve) => chrome.process.once("exit", resolve));
     chrome.process.kill();
+    const late = setTimeout(() => chrome.process.kill("SIGKILL"), 5000);
     await exited;
+    clearTimeout(late);
   }
-  fs.rmSync(chrome.profile, { recursive: true, force: true, maxRetries: 3 });
+  try {
+    fs.rmSync(chrome.profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (err) {
+    console.warn(`Chrome's profile was left in ${chrome.profile}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }

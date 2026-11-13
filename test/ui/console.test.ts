@@ -114,8 +114,12 @@ describe("the console in a browser", () => {
   });
 
   after(async () => {
-    if (chrome) await closeChrome(chrome);
-    await demo?.close();
+    // The daemon is stopped whatever Chrome does: one left running keeps the test process alive
+    try {
+      if (chrome) await closeChrome(chrome);
+    } finally {
+      await demo?.close();
+    }
   });
 
   const live = (): DemoDaemon => {
