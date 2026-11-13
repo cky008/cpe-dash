@@ -96,6 +96,11 @@ export interface RouterFamilyFacts {
   /** The driver can lock a channel without naming a cell on it (a cell lock otherwise always names its PCI). */
   frequencyLock?: true;
   /**
+   * The RATs on which some router of the family locks several candidate cells at once (the session
+   * refuses on a model or module that cannot).
+   */
+  multiCellLock?: ReadonlyArray<"LTE" | "NR">;
+  /**
    * Other forms of the family's interface, by the name the driver reports for a router that speaks
    * one (its identification's `variant`): what such a router reads and writes instead of `reads` and
    * `writes` above.
@@ -174,6 +179,8 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte"],
+    // LG6151M's cell list (`app_set_cell_list`): one or more cells, 4G or 5G
+    multiCellLock: ["LTE", "NR"],
     // The Pro series (`/fh_api/`): its notes have the signal nodes, the SMS listing and marking a message read, nothing else
     variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
   },
@@ -198,6 +205,8 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     nrBandLock: true,
     // The module's own list is read in the session (a Quectel module also has 3G only, a Fibocom one two modes)
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte"],
+    // A Quectel module's `AT+QNWLOCK="common/4g"` takes several LTE cells; its 5G lock and Fibocom's take one
+    multiCellLock: ["LTE"],
   },
 };
 

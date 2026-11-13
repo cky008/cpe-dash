@@ -128,6 +128,10 @@ describe("Static demo backend vs the real daemon on a ZTE mobile router", () => 
     // A frequency without a PCI: the driver locks cells only
     const [real, demo] = await both("POST", "/api/control/cell-lock", { rat: "LTE", band: 1, arfcn: 300, pci: null, confirm: true });
     assert.deepEqual([demo.status, demo.json["errorCode"]], [real.status, real.json["errorCode"]]);
+    // Several candidate cells: a ZTE router locks one at a time
+    const [several, demoSeveral] = await both("POST", "/api/control/cell-lock", { rat: "LTE", band: 1, arfcn: 300, pci: 211, more: [{ band: 3, arfcn: 1850, pci: 142 }], confirm: true });
+    assert.deepEqual([demoSeveral.status, demoSeveral.json["errorCode"]], [several.status, several.json["errorCode"]]);
+    assert.equal(several.status, 400);
   });
 
   it("writes through the driver like the daemon: 5G bands, a cell, an unlock and mobile data, each recorded alike", async () => {

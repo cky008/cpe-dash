@@ -547,3 +547,16 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 
 - 第 7 步：品速公版接口（`http.cgi`）与 ZLT 的 `lua.cgi` 写法。
 - 建议（不在这一步里）：多个候选小区一起锁；H168-383 上验证蜂窝设置写入；Telegram 的蜂窝设置指令。
+
+### 18.7 第 6b 步：多个候选小区一起锁
+
+一次锁小区可以给出一组候选小区（同一种网络），路由器在其中挑一个连接。入参是第一个小区加上 `more`（最多 9 个，各带 PCI）；上限 10 是烽燧自己定的：移远记录的是 20，烽火没有记录。
+
+| 品牌 | 写法 | 出处 | 回读 |
+| :--- | :--- | :--- | :--- |
+| OpenWrt + 移远模组（只限 4G） | `AT+QNWLOCK="common/4g",<num of cells>,<freq>,<pci>[,<freq>,<pci>]...` | 资料 B quectel-fibocom 第 125、247 行（单个小区的写法，`1` 就是小区数）；多个小区的写法与 `<num of cells>` 的范围 0–20 来自 Quectel 官方论坛上技术支持的回答（forums.quectel.com，「Force 4G for Quectel EM12-G」与「EP06-A Cell lock」两帖，2026-11-13 查阅）；RM5xx 系列公开的 AT 手册里没有这条指令，技术支持说它只用于测试 | 读 `AT+QNWLOCK="common/4g"`，应答同样是小区数加频点 / PCI 列表；逐个比对（`settleCellLocks`） |
+| 烽火 LG6151M | `app_set_cell_list`：`{ enable: "1", lock_cell: [{ arfcn, pci }, ...] }` | 资料 A fiberhome 第 130–131、341–366 行（「单个或多个」）；列表长度没有记录，公开检索（产品说明书、评测）也没有 | `app_get_cell_list` 的 `lock_cell` 列表，逐个比对 |
+
+- 移远的 5G 锁小区（`common/5g`）、广和通的 `AT+GTCELLLOCK`、烽火第一代的 `app_set_lockcell` 都只收一个小区：会话里在发送前拒绝。其他品牌和华为在排队前拒绝（品牌事实 `multiCellLock` 没有这种网络；华为是 `assertOneCell`）。
+- 断网回退照旧：未验证的路由器上锁小区后断网 3 分钟，解除锁定。
+

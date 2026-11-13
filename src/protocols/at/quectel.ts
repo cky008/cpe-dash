@@ -3,6 +3,7 @@ import type { NetworkMode } from "../../cellular.ts";
 import type { TemperatureSensor } from "../../router-status.ts";
 import { emptyCell } from "../../drivers/snapshot.ts";
 import type {
+  CellLockState,
   DriverCarrier,
   DriverCell,
   DriverNeighbour,
@@ -449,3 +450,21 @@ export function counterTraffic(counter: { sent: bigint; received: bigint }, sour
 // --------------------------------------------------------------------------
 // Fibocom AT Parsers
 // --------------------------------------------------------------------------
+
+/**
+ * `AT+QNWLOCK="common/4g"`: `+QNWLOCK: "common/4g",<num of cells>[,<freq>,<pci>]...` (Quectel's
+ * forum answer gives the write as the same list, up to 20 cells). `null`: the module answered no
+ * such line; `{ locked: false }`: no cell locked.
+ */
+export function parseQuectelLteCellLock(text: string): CellLockState | null {
+  const line = /\+QNWLOCK:\s*"common\/4g"\s*,\s*([^\r\n]{0,400})/.exec(text.slice(0, 2048));
+  if (!line) return text.includes("+QNWLOCK:") ? { locked: false } : null;
+  const fields = (line[1] ?? "").split(",").map((field) => field.trim());
+  const count = intOf(fields[0]);
+  if (count === null || count <= 0) return { locked: false };
+  const cells: Array<{ arfcn: number | null; pci: number | null }> = [];
+  for (let i = 0; i < count && i < 20; i++) cells.push({ arfcn: intOf(fields[1 + i * 2]), pci: pciOf(fields[2 + i * 2], "LTE") });
+  const [first, ...others] = cells;
+  if (!first) return { locked: false };
+  return { locked: true, arfcn: first.arfcn, pci: first.pci, band: null, ...(others.length > 0 ? { others } : {}) };
+}

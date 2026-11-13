@@ -210,6 +210,8 @@ export interface PersistedLockState {
     band: number;
     arfcn: number;
     pci: number | null;
+    /** Further candidate cells locked with it (same RAT), on a router that locks several at once. */
+    more?: Array<{ band: number; arfcn: number; pci: number }>;
   } | null;
 }
 
@@ -224,6 +226,19 @@ export interface CellLockCommand {
   band: BandInput;
   arfcn: number;
   pci?: number;
+  /**
+   * Further candidate cells of the same RAT, each with its PCI: the router picks among them. Only a
+   * router whose interface locks several cells at once takes them; every other one refuses them before
+   * anything is queued.
+   */
+  more?: ReadonlyArray<CellLockCandidate>;
+}
+
+/** One more cell a lock may name. */
+export interface CellLockCandidate {
+  band: BandInput;
+  arfcn: number;
+  pci: number;
 }
 
 export interface SecurityUpdateCommand {

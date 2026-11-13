@@ -1,8 +1,8 @@
 import type { MacFilterEntry, TimeRuleChange, TimeRuleInput, WifiAccessChange } from "./access-plan.ts";
 import type { BandInput } from "./band-lock.ts";
 import { CpeControlValidationError } from "./control-error.ts";
-import type { AntennaModeName, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
-import { parseBandNumber } from "./rf-bounds.ts";
+import type { AntennaModeName, CellLockCandidate, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
+import { MAX_LOCK_CELLS, parseBandNumber } from "./rf-bounds.ts";
 import type { DriverCellLockTarget, DriverNetworkMode } from "./drivers/types.ts";
 import type { RouterFamilyFacts } from "./router-family.ts";
 import { TimeSeriesValidationError, type TimeSeriesPreset } from "./timeseries.ts";
@@ -117,8 +117,10 @@ export function readCellLockCommand(args: Args, opts: { allowNullPci: boolean })
   if (typeof arfcn !== "number" || !Number.isFinite(arfcn)) {
     throw new CpeControlValidationError('"arfcn" must be a finite integer');
   }
+  const more = readMoreCells(args["more"]);
   const rawPci = args["pci"];
   if (rawPci === undefined || (rawPci === null && opts.allowNullPci)) {
+    if (more) throw new CpeControlValidationError('"pci" is required when "more" names further cells: a lock on several cells names each one');
     return { rat, band, arfcn };
   }
   if (typeof rawPci !== "number" || !Number.isFinite(rawPci)) {
@@ -126,7 +128,28 @@ export function readCellLockCommand(args: Args, opts: { allowNullPci: boolean })
       opts.allowNullPci ? '"pci" must be a finite integer, null, or omitted' : '"pci" must be a finite integer or omitted'
     );
   }
-  return { rat, band, arfcn, pci: rawPci };
+  return more ? { rat, band, arfcn, pci: rawPci, more } : { rat, band, arfcn, pci: rawPci };
+}
+
+/** `more`: further candidate cells, `{ band, arfcn, pci }` each (`undefined`: none, also for an empty list). */
+function readMoreCells(raw: unknown): CellLockCandidate[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) throw new CpeControlValidationError('"more" must be a list of { band, arfcn, pci }');
+  if (raw.length === 0) return undefined;
+  if (raw.length > MAX_LOCK_CELLS - 1) throw new CpeControlValidationError(`A lock names at most ${MAX_LOCK_CELLS} cells: "more" takes at most ${MAX_LOCK_CELLS - 1}`);
+  return raw.map((cell: unknown, i): CellLockCandidate => {
+    if (typeof cell !== "object" || cell === null || Array.isArray(cell)) throw new CpeControlValidationError(`"more[${i}]" must be { band, arfcn, pci }`);
+    const { band, arfcn, pci } = cell as Record<string, unknown>;
+    if (typeof band !== "string" && typeof band !== "number") throw new CpeControlValidationError(`"more[${i}].band" is required (e.g. "B3" or "N78")`);
+    if (typeof arfcn !== "number" || !Number.isFinite(arfcn)) throw new CpeControlValidationError(`"more[${i}].arfcn" must be a finite integer`);
+    if (typeof pci !== "number" || !Number.isFinite(pci)) throw new CpeControlValidationError(`"more[${i}].pci" must be a finite integer`);
+    return { band, arfcn, pci };
+  });
+}
+
+/** A router that locks one cell at a time: further cells are refused before anything is queued. */
+export function assertOneCell(command: CellLockCommand): void {
+  if (command.more && command.more.length > 0) throw new CpeControlValidationError('This router locks one cell at a time: leave out "more"');
 }
 
 export function isAntennaMode(value: unknown): value is AntennaModeName {
@@ -345,6 +368,23 @@ export function readDriverBandLockTarget(
  * the channel against the band's range). Without a PCI it is a lock on the channel alone (`pci: null`),
  * which only a family whose notes define one takes (`frequencyLock`).
  */
+/**
+ * Every cell a lock on several names (the first one and `more`), each checked like one: on a family
+ * none of whose routers locks several cells of this RAT at once, refused before anything is queued.
+ */
+export function readDriverCellLockTargets(command: CellLockCommand, facts: Pick<RouterFamilyFacts, "frequencyLock" | "multiCellLock"> = {}): DriverCellLockTarget[] {
+  if (!facts.multiCellLock?.includes(command.rat)) throw new CpeControlValidationError(`This router locks one ${command.rat === "NR" ? "5G" : "4G"} cell at a time: leave out "more"`);
+  const cells = [command, ...(command.more ?? [])].map((cell) => readDriverCellLockTarget({ rat: command.rat, band: cell.band, arfcn: cell.arfcn, ...(cell.pci !== undefined ? { pci: cell.pci } : {}) }));
+  const seen = new Set<string>();
+  return cells.map((cell) => {
+    if (cell.pci === null) throw new CpeControlValidationError("Each cell of a lock on several names its PCI");
+    const key = `${cell.arfcn}/${cell.pci}`;
+    if (seen.has(key)) throw new CpeControlValidationError(`The cell ${key} is named twice`);
+    seen.add(key);
+    return { ...cell, pci: cell.pci };
+  });
+}
+
 export function readDriverCellLockTarget(command: CellLockCommand, facts: Pick<RouterFamilyFacts, "frequencyLock"> = {}): Omit<DriverCellLockTarget, "pci"> & { pci: number | null } {
   if (command.rat !== "LTE" && command.rat !== "NR") throw new CpeControlValidationError('rat must be "LTE" or "NR"');
   let band: number;

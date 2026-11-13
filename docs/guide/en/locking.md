@@ -43,6 +43,7 @@ Cell locking fixes the router to a specific base station sector. A cell is ident
 1. In the **Nearby cells** table on the Dashboard, find a cell with good signal and click "Lock to this cell", or fill in the details manually in the Controls drawer.
 2. FengSui only allows locking to cells that have **already been observed**: the current serving cell, carrier aggregation cells, or cells seen in the latest scan of "Nearby cells". This prevents connection drops caused by mistyped numbers.
 3. You can also select "Frequency only (no PCI)" to lock only the frequency.
+4. Some routers lock several **candidate cells** at once and pick one of them to connect to: OpenWrt routers with a Quectel module (4G only) and the FiberHome LG6151M (4G or 5G). On those, the cell lock dialog has "Add a candidate cell": same network, a PCI for each, at most 10 with the first. Every other router locks one cell at a time, and the API refuses further cells there too.
 
 ![Confirmation dialog for locking a cell](../../screenshots/cell-lock.webp)
 

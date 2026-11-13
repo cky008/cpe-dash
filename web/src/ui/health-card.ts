@@ -20,7 +20,8 @@ export function describeLock(ctx: AppContext, lock: PersistedLockState | null): 
   if (lock.mode === "cell_lock" && lock.cellLock) {
     const c = lock.cellLock;
     const kind = ctx.t(c.pci === null ? "health.lock_freq" : "health.lock_cell");
-    return `${kind} · ${bandLabel(c.rat, c.band)} / ${c.arfcn}${c.pci === null ? "" : ` / PCI ${c.pci}`}`;
+    const more = c.more && c.more.length > 0 ? ` +${c.more.length}` : "";
+    return `${kind} · ${bandLabel(c.rat, c.band)} / ${c.arfcn}${c.pci === null ? "" : ` / PCI ${c.pci}`}${more}`;
   }
   const lte = lock.lteBands === "all" ? "LTE all" : lock.lteBands.map((b) => bandLabel("LTE", b)).join("+");
   const nr = lock.nrBands.length > 0 ? lock.nrBands.map((b) => bandLabel("NR", b)).join("+") : "";

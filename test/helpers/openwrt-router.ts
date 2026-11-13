@@ -333,11 +333,12 @@ export function openwrtRouter(opts: OpenwrtRouterOptions = {}) {
         state.nrDisableMode = cmd.slice('AT+QNWPREFCFG="nr5g_disable_mode",'.length);
         return reply("OK\n");
       }
+      // `lock4g`: "0", or "<num of cells>,<freq>,<pci>[,<freq>,<pci>]..." as the module lists it
       if (cmd === 'AT+QNWLOCK="common/4g"') {
-        return reply(state.lock4g === "0" ? '+QNWLOCK: "common/4g",0\n\nOK\n' : `+QNWLOCK: "common/4g",1,${state.lock4g}\n\nOK\n`);
+        return reply(state.lock4g === "0" ? '+QNWLOCK: "common/4g",0\n\nOK\n' : `+QNWLOCK: "common/4g",${state.lock4g}\n\nOK\n`);
       }
-      if (cmd.startsWith('AT+QNWLOCK="common/4g",1,')) {
-        state.lock4g = cmd.slice('AT+QNWLOCK="common/4g",1,'.length);
+      if (/^AT\+QNWLOCK="common\/4g",[1-9]\d?,/.test(cmd)) {
+        state.lock4g = cmd.slice('AT+QNWLOCK="common/4g",'.length);
         return reply("OK\n");
       }
       if (cmd === 'AT+QNWLOCK="common/4g",0') {

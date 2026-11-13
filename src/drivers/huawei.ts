@@ -1,7 +1,7 @@
 import { type AccessControlSnapshot, type AccessRequestContext, type TimeRulesState, applyTimeRuleChange, applyWifiAccessChange, fetchAccessControl } from "../access-control.ts";
 import type { TimeRuleChange, WifiAccessChange, WifiFilterPlan, WifiMacFilterState } from "../access-plan.ts";
 import type { ApnRestore, CellularSettingsSnapshot, DataLimitSetting, LinkChange, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
-import { validateGenericBandLock } from "../control-input.ts";
+import { assertOneCell, validateGenericBandLock } from "../control-input.ts";
 import type { EphemeralCpeSession } from "../cpe-client.ts";
 import {
   type AntennaModeName,
@@ -200,6 +200,7 @@ export class HilinkRouterSession implements RouterSession {
 
   /** The verified model's alone: no generic cell lock exists, so this one is never an experimental write. */
   async lockCell(command: CellLockCommand, write: WriteContext): Promise<LockOutcome> {
+    assertOneCell(command);
     verifiedOnly(write, "lock_cell");
     return { state: await applyCellLock(this.#session, command), experimental: false };
   }
@@ -368,6 +369,7 @@ export const huaweiDriver: RouterDriver = {
     else if (!gateRefuses(device.writeAccess("bandLock"))) validateGenericBandLock(command, device.experimentalLteBands);
   },
   checkCellLock(command) {
+    assertOneCell(command);
     prepareCellLockPayload(command);
   },
   checkSms(prepared, device) {

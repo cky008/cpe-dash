@@ -424,7 +424,7 @@ export type AlertCode =
 | 路由 | 请求 JSON Body 类型 | 成功响应字段 |
 | :--- | :--- | :--- |
 | `POST /api/control/band-lock` | `{ lteBands?: Array<string \| number> \| "all"; nrBands?: Array<string \| number> \| "all" }` *(至少提供其一)* | `{ ok: true, lockState: PersistedLockState }` |
-| `POST /api/control/cell-lock` | `{ rat: "LTE" \| "NR"; band: string \| number; arfcn: number; pci?: number \| null }` *(`pci` 省略或为 `null` 时锁频点 `lock_mode=1`；否则须为整数（LTE `0..503`，NR `0..1007`），锁小区 `lock_mode=2`；非数字或越界的 `pci` 返回 `400`)* | `{ ok: true, lockState: PersistedLockState }` |
+| `POST /api/control/cell-lock` | `{ rat: "LTE" \| "NR"; band: string \| number; arfcn: number; pci?: number \| null; more?: Array<{ band; arfcn; pci }> }` *(`pci` 省略或为 `null` 时锁频点 `lock_mode=1`；否则须为整数（LTE `0..503`，NR `0..1007`），锁小区 `lock_mode=2`；非数字或越界的 `pci` 返回 `400`。`more`：同一种网络的其他候选小区（最多 9 个，各带 PCI，第一个也必须带），只有能一次锁多个小区的路由器（品牌事实 `multiCellLock`：OpenWrt 移远 4G、烽火 LG6151M）接受，其他路由器在排队前返回 `400`；锁定状态的 `cellLock.more` 记下这些小区)* | `{ ok: true, lockState: PersistedLockState }` |
 | `POST /api/control/unlock` | `{}` | `{ ok: true, lockState: PersistedLockState }` |
 | `POST /api/control/reboot` | `{ confirm: true }` *(缺失或为 `false` 立即返回 `400 VALIDATION_ERROR`)* | `{ ok: true, rebooting: true, requestedAtIso: string }` |
 | `POST /api/control/reconnect` | `{ confirm: true }` *(快速重拨蜂窝 PDN，无需重启路由器；缺失或为 `false` 返回 `400`)* | `{ ok: true, reconnecting: true, requestedAtIso: string }` |

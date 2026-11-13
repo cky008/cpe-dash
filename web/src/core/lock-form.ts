@@ -1,5 +1,5 @@
 import type { SchedulerStatusSnapshot } from "../../../src/api-contract.ts";
-import { MAX_PCI, type CellLockCheck, type CellLockInput, H168_383_LTE_BANDS, H168_383_NR_BANDS, type RatName, arfcnRangeOf, checkCellLockInput } from "../../../src/rf-bounds.ts";
+import { MAX_LOCK_CELLS, MAX_PCI, type CellLockCheck, type CellLockInput, H168_383_LTE_BANDS, H168_383_NR_BANDS, type RatName, arfcnRangeOf, checkCellLockInput } from "../../../src/rf-bounds.ts";
 import { LTE_BANDS, NR_BANDS, lteBandInfo, nrBandInfo } from "../../../src/rf-math.ts";
 import { type DriverFamily, ROUTER_FAMILY_FACTS, isDriverFamily } from "../../../src/router-family.ts";
 
@@ -52,6 +52,8 @@ export interface CellLockForm {
   driver: boolean;
   /** A lock always names one cell: no "frequency only" choice. */
   pciRequired: boolean;
+  /** How many cells one lock may name on this RAT (1: one cell at a time). */
+  maxCells(rat: RatName): number;
   bands(rat: RatName): ReadonlyArray<number>;
   range(rat: RatName, band: number): readonly [number, number] | undefined;
   check(input: CellLockInput): CellLockCheck;
@@ -62,9 +64,18 @@ export function cellLockForm(scheduler: SchedulerStatusSnapshot | null): CellLoc
   if (family !== null) {
     // A brand whose notes define a lock on the channel alone may leave the PCI out
     const frequency = ROUTER_FAMILY_FACTS[family].frequencyLock === true;
-    return { driver: true, pciRequired: !frequency, bands: (rat) => ALL_BANDS[rat], range: channelRange, check: (input) => checkDriverCellLock(input, frequency) };
+    // A brand some of whose routers lock several candidate cells of this RAT at once (the daemon refuses on one that cannot)
+    const several = ROUTER_FAMILY_FACTS[family].multiCellLock ?? [];
+    return {
+      driver: true,
+      pciRequired: !frequency,
+      maxCells: (rat) => (several.includes(rat) ? MAX_LOCK_CELLS : 1),
+      bands: (rat) => ALL_BANDS[rat],
+      range: channelRange,
+      check: (input) => checkDriverCellLock(input, frequency),
+    };
   }
-  return { driver: false, pciRequired: false, bands: (rat) => (rat === "LTE" ? H168_383_LTE_BANDS : H168_383_NR_BANDS), range: arfcnRangeOf, check: checkCellLockInput };
+  return { driver: false, pciRequired: false, maxCells: () => 1, bands: (rat) => (rat === "LTE" ? H168_383_LTE_BANDS : H168_383_NR_BANDS), range: arfcnRangeOf, check: checkCellLockInput };
 }
 
 /**

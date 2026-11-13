@@ -753,6 +753,11 @@ export interface CellLockRequest {
   arfcn: number;
   /** Omitted or `null`: lock the frequency (`lock_mode=1`). */
   pci?: number | null;
+  /**
+   * Further candidate cells of the same RAT (at most 9), each with its PCI, on a router that locks
+   * several cells at once; any other router refuses them before anything is sent.
+   */
+  more?: Array<{ band: string | number; arfcn: number; pci: number }>;
 }
 
 // Cellular settings: every one of these also needs `confirm: true`

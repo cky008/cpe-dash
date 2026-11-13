@@ -37,6 +37,7 @@ import {
   parseQuectelDataCounter,
   quectelCounterOf,
   counterTraffic,
+  parseQuectelLteCellLock,
 } from "../protocols/at/quectel.ts";
 import {
   FIBOCOM_RAT_OF_MODE,
@@ -50,7 +51,7 @@ import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands
 import { operatorActOf, parseCops, parseCopsScan, settleNothingToRead } from "./cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleCellLocks, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
 import type { LanHttp } from "./transport.ts";
 import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../protocols/ubus.ts";
@@ -552,11 +553,7 @@ export class OpenwrtSession implements DriverSessionHandle {
     else if (modeUpper.includes("NR5G")) networkMode = disableVal === 2 ? "nr_sa" : "auto";
     else if (modeUpper.includes("LTE")) networkMode = "lte";
 
-    let lteCell: CellLockState | null = lock4g.includes("+QNWLOCK:") ? { locked: false } : null;
-    const lteLockMatch = lock4g.match(/\+QNWLOCK:\s*"common\/4g",\s*1,\s*(\d+),\s*(\d+)/);
-    if (lteLockMatch) {
-      lteCell = { locked: true, arfcn: intOf(lteLockMatch[1]), pci: pciOf(lteLockMatch[2], "LTE"), band: null };
-    }
+    const lteCell: CellLockState | null = parseQuectelLteCellLock(lock4g);
 
     let nrCell: CellLockState | null = lock5g.includes("+QNWLOCK:") ? { locked: false } : null;
     const nrLockMatch = lock5g.match(/\+QNWLOCK:\s*"common\/5g",\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
@@ -661,6 +658,23 @@ export class OpenwrtSession implements DriverSessionHandle {
       if (answer.includes("ERROR")) throw new CpeApiError("at-error", `QNWLOCK 5G failed: ${answer}`);
     }
     settleCellLock(check, checked, await this.lockState().catch(() => null));
+  }
+
+  /**
+   * Several LTE cells at once: a Quectel module's `AT+QNWLOCK="common/4g",<n>,<freq>,<pci>,...` (the
+   * module then picks among them). Its 5G lock and Fibocom's cell lock take one cell: refused here,
+   * before anything is sent.
+   */
+  async setCellLocks(targets: ReadonlyArray<DriverCellLockTarget>, check: WriteCheck): Promise<void> {
+    this.#guard();
+    if (!this.#identity) await this.initModem();
+    const checked = targets.map((target) => checkCellLock(target));
+    if (this.#brand !== "quectel") throw new CpeControlValidationError("This module locks one cell at a time");
+    if (checked.some((cell) => cell.rat !== "LTE")) throw new CpeControlValidationError("This module locks one 5G cell at a time; several cells are 4G only");
+    noteSent(check, FAMILY, "AT+QNWLOCK/4g");
+    const answer = await this.#ubus.execAt(`AT+QNWLOCK="common/4g",${checked.length},${checked.map((cell) => `${cell.arfcn},${cell.pci}`).join(",")}`);
+    if (answer.includes("ERROR")) throw new CpeApiError("at-error", "QNWLOCK 4G refused the cells");
+    settleCellLocks(check, checked, await this.lockState().catch(() => null));
   }
 
   async unlockAll(check: WriteCheck): Promise<void> {

@@ -5,7 +5,7 @@
  */
 
 export interface JsonSchemaProperty {
-  type?: "string" | "number" | "integer" | "boolean" | "array";
+  type?: "string" | "number" | "integer" | "boolean" | "array" | "object";
   enum?: ReadonlyArray<string | number | boolean>;
   oneOf?: ReadonlyArray<JsonSchemaProperty>;
   items?: JsonSchemaProperty;
@@ -14,6 +14,10 @@ export interface JsonSchemaProperty {
   maxItems?: number;
   maxLength?: number;
   description?: string;
+  /** An object's own keys (`type: "object"`), the ones it must have, and whether others are refused. */
+  properties?: Readonly<Record<string, JsonSchemaProperty>>;
+  required?: ReadonlyArray<string>;
+  additionalProperties?: boolean;
 }
 
 export interface McpInputSchema {
@@ -64,6 +68,21 @@ function checkValue(schema: JsonSchemaProperty, value: unknown, at: string): str
           const failure = checkValue(schema.items, item, `${at}[${index}]`);
           if (failure) return failure;
         }
+      }
+      break;
+    }
+    case "object": {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return `${at} must be an object`;
+      const fields = value as Record<string, unknown>;
+      for (const key of schema.required ?? []) if (fields[key] === undefined) return `${at}.${key} is required`;
+      for (const [key, field] of Object.entries(fields)) {
+        const property = schema.properties && Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined;
+        if (property === undefined) {
+          if (schema.additionalProperties === false) return `${at}.${key} is not a known field`;
+          continue;
+        }
+        const failure = checkValue(property, field, `${at}.${key}`);
+        if (failure) return failure;
       }
       break;
     }

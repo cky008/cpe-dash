@@ -141,7 +141,16 @@ export interface DriverNeighbour {
 }
 
 /** A cell lock as the router reads it back. */
-export type CellLockState = { locked: false } | { locked: true; arfcn: number | null; pci: number | null; band: number | null };
+export type CellLockState =
+  | { locked: false }
+  | {
+      locked: true;
+      arfcn: number | null;
+      pci: number | null;
+      band: number | null;
+      /** Further cells the router reports locked with this one (a lock on several candidates). */
+      others?: ReadonlyArray<{ arfcn: number | null; pci: number | null }>;
+    };
 
 /** The network modes a band lock may switch to (each family offers some, `ROUTER_FAMILY_FACTS`). */
 export type DriverNetworkMode = "auto" | "lte" | "nr_sa" | "nr_nsa";
@@ -329,6 +338,11 @@ export interface DriverSession {
   lockState(): Promise<DriverLockState>;
   setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void>;
   setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void>;
+  /**
+   * Lock several candidate cells of one RAT at once (the router picks among them), on a family whose
+   * notes define it; a model or module of the family that cannot throws before sending anything.
+   */
+  setCellLocks?(targets: ReadonlyArray<DriverCellLockTarget>, check: WriteCheck): Promise<void>;
   /** Lock a channel without naming a cell, on a family whose notes define it. */
   setFrequencyLock?(target: DriverFrequencyLockTarget, check: WriteCheck): Promise<void>;
   /** Clear band and cell locks (and go back to the automatic network mode). */

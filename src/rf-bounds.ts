@@ -59,6 +59,9 @@ export const NR_DL_ARFCN_RANGES: Readonly<Record<number, readonly [number, numbe
 };
 
 /** Highest physical cell identity: 504 per LTE (TS 36.211 6.11), 1008 per NR (TS 38.211 7.4.2.1). */
+/** The most cells one lock names (FengSui's own limit; Quectel modules document up to 20 LTE cells). */
+export const MAX_LOCK_CELLS = 10;
+
 export const MAX_PCI: Readonly<Record<RatName, number>> = { LTE: 503, NR: 1007 };
 
 /**

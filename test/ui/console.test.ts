@@ -961,6 +961,39 @@ describe("the console on routers of other brands", () => {
     }
   });
 
+  it("locks several candidate cells where the brand can: a row per extra cell, each checked, one write", async () => {
+    const demo = await brand("openwrt");
+    try {
+      await signIn(page, demo);
+      await page.waitUntil(`[...document.querySelectorAll('#neighborsCard button')].some((b) => b.textContent.includes('Manual lock'))`, "the manual lock button");
+      await page.evaluate(`[...document.querySelectorAll('#neighborsCard button')].find((b) => b.textContent.includes('Manual lock')).click(); true`);
+      await page.waitUntil(isOpen("cellLockDialog"), "the cell lock dialog");
+      const set = (selector: string, value: string): Promise<unknown> =>
+        page.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+      await set("#cellLockDialog form > div.grid label:first-child select", "LTE");
+      await set("#cellLockDialog form > div.grid label:last-child select", "3");
+      await page.evaluate(`(() => { const inputs = document.querySelectorAll('#cellLockDialog form > label input[type=number]'); inputs[0].value = '1850'; inputs[1].value = '211'; inputs[1].dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+      await page.evaluate(`[...document.querySelectorAll('#cellLockDialog button')].find((b) => b.textContent.includes('Add a candidate cell')).click(); true`);
+      await page.waitUntil(`document.querySelectorAll('#cellLockDialog [aria-label="Remove this cell"]').length === 1`, "a candidate row");
+      // The same cell twice is caught before anything is sent
+      await page.evaluate(`(() => { const row = document.querySelector('#cellLockDialog [aria-label="Remove this cell"]').parentElement; const [band, arfcn, pci] = row.querySelectorAll('select, input'); band.value = '3'; arfcn.value = '1850'; pci.value = '211'; pci.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+      assert.match(await page.evaluate<string>(`document.querySelector('#cellLockDialog [role="alert"]').textContent`), /Candidate cell 2: The same cell is named twice/);
+      assert.equal(await page.evaluate<boolean>(`document.querySelector('#cellLockDialog button[type="submit"]').disabled`), true);
+      await page.evaluate(`(() => { const row = document.querySelector('#cellLockDialog [aria-label="Remove this cell"]').parentElement; const [band, arfcn, pci] = row.querySelectorAll('select, input'); band.value = '1'; arfcn.value = '300'; pci.value = '142'; pci.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+      await page.waitUntil(`document.querySelector('#cellLockDialog button[type="submit"]').disabled === false`, "the lock allowed");
+      await page.click('#cellLockDialog button[type="submit"]');
+      await until(() => demo.stack.scheduler.genericWrites.some((w) => w.feature === "cellLock"), "the cell lock write");
+      const write = demo.stack.scheduler.genericWrites.find((w) => w.feature === "cellLock");
+      assert.deepEqual([write?.endpoints, write?.readback], [["openwrt:AT+QNWLOCK/4g"], "match"]);
+      assert.deepEqual(demo.stack.stateStore.getState().lockState.cellLock?.more, [{ band: 1, arfcn: 300, pci: 142 }]);
+      await page.waitUntil("document.getElementById('healthCard').textContent.includes('PCI 211 +1')", "the lock shown with its extra cell");
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await demo.close();
+    }
+  });
+
   it("marks a device whose link the router does not say (a DHCP lease) as such, not as wired", async () => {
     const demo = await brand("openwrt");
     try {

@@ -9,7 +9,7 @@ import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands
 import { neighbourOf, ratOfChannel } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, signedInElsewhere, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
+import { noteSent, settleBandLock, settleCellLock, settleCellLocks, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
 import { countListed, dateOfParts, settleSmsListing, storedIndices, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import { type LanHttp, jsonAnswer, parseJsonText } from "./transport.ts";
@@ -736,12 +736,15 @@ export function parseFiberhomeLockState(bandLock: Record<string, unknown>, cellL
   let nrCell: CellLockState | null = null;
   if (listModel) {
     const on = textOf(cellLock["enable"]);
-    const first = Array.isArray(cellLock["lock_cell"]) ? cellLock["lock_cell"].find(isPlainObject) : undefined;
+    const listed = Array.isArray(cellLock["lock_cell"]) ? cellLock["lock_cell"].filter(isPlainObject).slice(0, 32) : [];
+    const first = listed[0];
     if (on === "0") lteCell = nrCell = { locked: false };
     else if (on === "1" && first) {
       const arfcn = intOf(first["arfcn"]);
       const rat = ratOfChannel(arfcnOf(arfcn, "NR"));
-      const locked: CellLockState = { locked: true, arfcn, pci: pciOf(first["pci"], rat ?? "NR"), band: null };
+      // The further cells of a lock on several (the list names channel and PCI, the RAT goes by the first)
+      const others = listed.slice(1).map((cell) => ({ arfcn: intOf(cell["arfcn"]), pci: pciOf(cell["pci"], rat ?? "NR") }));
+      const locked: CellLockState = { locked: true, arfcn, pci: pciOf(first["pci"], rat ?? "NR"), band: null, ...(others.length > 0 ? { others } : {}) };
       lteCell = rat === "LTE" ? locked : { locked: false };
       nrCell = rat === "NR" ? locked : { locked: false };
     }
@@ -856,6 +859,16 @@ class FiberhomeSession implements DriverSessionHandle {
     if (await this.#listModel()) await this.#write(check, "app_set_cell_list", { enable: "1", lock_cell: [{ arfcn: String(t.arfcn), pci: String(t.pci) }] });
     else await this.#write(check, "app_set_lockcell", { LockCellEnable: "1", LockAct: t.rat === "LTE" ? "1" : "2", LockArfcn: String(t.arfcn), LockPci: String(t.pci) });
     settleCellLock(check, t, await this.lockState().catch(() => null));
+  }
+
+  /** Several cells at once: the LG6151M's cell list (`app_set_cell_list`); a model with the single lock refuses before sending. */
+  async setCellLocks(targets: ReadonlyArray<DriverCellLockTarget>, check: WriteCheck): Promise<void> {
+    const checked = targets.map((target) => checkCellLock(target));
+    if (!(await this.#listModel())) throw new CpeControlValidationError("This model locks one cell at a time");
+    const before = await this.lockState();
+    if (before.lteBands !== "all" || before.nrBands !== "all") throw new CpeControlValidationError("This router cannot lock a cell while bands are locked: unlock the bands first");
+    await this.#write(check, "app_set_cell_list", { enable: "1", lock_cell: checked.map((cell) => ({ arfcn: String(cell.arfcn), pci: String(cell.pci) })) });
+    settleCellLocks(check, checked, await this.lockState().catch(() => null));
   }
 
   async unlockAll(check: WriteCheck): Promise<void> {

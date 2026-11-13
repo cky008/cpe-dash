@@ -18,7 +18,7 @@ import {
   sameOperatorSelection,
   sameSimSlot,
 } from "../cellular.ts";
-import { type DriverBandLockRequest, readDriverBandLockTarget, readDriverCellLockTarget } from "../control-input.ts";
+import { type DriverBandLockRequest, readDriverBandLockTarget, readDriverCellLockTarget, readDriverCellLockTargets } from "../control-input.ts";
 import {
   type AntennaModeName,
   type BandLockCommand,
@@ -377,8 +377,26 @@ export class DriverRouterSession implements RouterSession {
     return { state: driverBandLockState({ ...target, lte }, before), experimental: true, savedLteMask };
   }
 
-  /** Band, channel and PCI, read back in the session; without a PCI, the channel alone where the family's notes define that lock. */
+  /**
+   * Band, channel and PCI, read back in the session; without a PCI, the channel alone where the
+   * family's notes define that lock; with `more`, several candidate cells at once where they define that.
+   */
   async lockCell(command: CellLockCommand, write: WriteContext): Promise<LockOutcome> {
+    if (command.more && command.more.length > 0) {
+      const targets = readDriverCellLockTargets(command, ROUTER_FAMILY_FACTS[this.family]);
+      if (!this.#session.setCellLocks) throw noWrite("lock several cells at once");
+      await this.#session.setCellLocks(targets, write.check);
+      const [first, ...rest] = targets;
+      if (!first) throw noWrite("lock no cell");
+      const state: PersistedLockState = {
+        mode: "cell_lock",
+        updatedAtIso: new Date().toISOString(),
+        lteBands: first.rat === "LTE" ? [...new Set(targets.map((t) => t.band))] : "all",
+        nrBands: first.rat === "NR" ? [...new Set(targets.map((t) => t.band))] : [],
+        cellLock: { rat: first.rat, band: first.band, arfcn: first.arfcn, pci: first.pci, more: rest.map(({ band, arfcn, pci }) => ({ band, arfcn, pci })) },
+      };
+      return { state, experimental: true };
+    }
     const target = readDriverCellLockTarget(command, ROUTER_FAMILY_FACTS[this.family]);
     const { pci, ...channel } = target;
     if (pci !== null) await this.#session.setCellLock({ ...channel, pci }, write.check);
@@ -489,7 +507,8 @@ export function driverFamilyDriver(family: DriverFamily): RouterDriver {
       readDriverBandLockTarget(command, facts);
     },
     checkCellLock(command: CellLockCommand) {
-      readDriverCellLockTarget(command, facts);
+      if (command.more && command.more.length > 0) readDriverCellLockTargets(command, facts);
+      else readDriverCellLockTarget(command, facts);
     },
   };
 }

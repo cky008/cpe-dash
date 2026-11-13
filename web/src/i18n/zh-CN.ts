@@ -323,6 +323,12 @@ export const zhCN = {
   "cl.err_arfcn": "频点需在 {min}–{max} 之间",
   "cl.err_pci": "PCI 需在 0–{max} 之间",
   "cl.applied": "已锁定",
+  "cl.more_title": "其他候选小区",
+  "cl.more_hint": "路由器会在这些小区里挑一个连接。同一种网络，每个小区都要填 PCI，最多 {max} 个。",
+  "cl.more_add": "加一个候选小区",
+  "cl.more_remove": "移除这个小区",
+  "cl.err_more": "第 {n} 个候选小区：{reason}",
+  "cl.err_dup": "同一个小区填了两次",
 
   "topo.title": "已连接设备",
   "topo.refresh": "刷新",

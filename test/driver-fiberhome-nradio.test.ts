@@ -7,7 +7,7 @@ import { DriverCpeClient } from "../src/drivers/client.ts";
 import { cellGlobalId, fiberhomeAirplaneOf, fiberhomeProtocol, parseFiberhomeLockState, parseFiberhomeProTelemetry, parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
 import { NRADIO_ALL_MASK, NRADIO_LTE_ALL_MASK, nradioNrMask, nradioProtocol, parseNradioLockState, parseNradioNeighbours, parseNradioOverview, parseNradioTelemetry, textAfter, withNradioOverview } from "../src/drivers/nradio.ts";
 import { getXmlTag } from "../src/xml.ts";
-import { cellularOf } from "./helpers/driver-daemon.ts";
+import { cellularOf, fullSession } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
 const PASSWORD = "test-password";
@@ -222,6 +222,25 @@ describe("fiberhome: writes", () => {
       await client.withSession((s) => s.unlockAll(unlock));
       assert.equal(unlock.readback, "match", model);
     }
+  });
+
+  it("locks several candidate cells as one list on the LG6151M, and refuses them on a model with the single lock", async () => {
+    const list = fiberhomeRouter({ model: "LG6151M" });
+    const write = newCheck();
+    await list.client.withSession((s) =>
+      fullSession(s).setCellLocks(
+        [
+          { rat: "NR", band: 78, arfcn: 650000, pci: 211, scsKhz: 30 },
+          { rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 },
+        ],
+        write
+      )
+    );
+    assert.deepEqual(list.writes, [{ method: "app_set_cell_list", data: { enable: "1", lock_cell: [{ arfcn: "650000", pci: "211" }, { arfcn: "650000", pci: "142" }] } }]);
+    assert.equal(write.readback, "match", "both cells read back");
+    const single = fiberhomeRouter({ model: "LG6121F" });
+    await assert.rejects(single.client.withSession((s) => fullSession(s).setCellLocks([{ rat: "LTE", band: 3, arfcn: 1850, pci: 211, scsKhz: null }], newCheck())), /one cell at a time/);
+    assert.deepEqual(single.writes, []);
   });
 
   it("refuses to guess NR bands and reboots without a logout", async () => {

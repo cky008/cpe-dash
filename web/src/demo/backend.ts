@@ -71,6 +71,7 @@ import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import {
   readAntennaMode,
   readBandSelection,
+  assertOneCell,
   readCellLockCommand,
   readDriverBandLockTarget,
   readDriverCellLockTarget,
@@ -552,6 +553,8 @@ export class DemoBackend {
     });
     post("/api/control/cell-lock", async (body) => {
       const command = readCellLockCommand(body, { allowNullPci: true });
+      // No router of the demo locks several cells at once: refused before anything, as on the daemon
+      assertOneCell(command);
       const check = checkCellLockInput({ rat: command.rat, band: command.band, arfcn: command.arfcn, pci: command.pci ?? null });
       if (!check.ok) throw new CpeControlValidationError(check.message);
       // A driver locks one cell: a frequency alone is refused, as on the daemon

@@ -57,6 +57,19 @@ export function settleCellLock(check: WriteCheck, target: DriverCellLockTarget, 
   settle(check, results);
 }
 
+/** Several cells locked at once: the router reports exactly these channel / PCI pairs locked on their RAT. */
+export function settleCellLocks(check: WriteCheck, targets: ReadonlyArray<DriverCellLockTarget>, after: DriverLockState | null): void {
+  const rat = targets[0]?.rat ?? "LTE";
+  const cell: CellLockState | null = after ? (rat === "LTE" ? after.lteCell : after.nrCell) : null;
+  if (!cell) return settle(check, []);
+  if (!cell.locked) return settle(check, [false]);
+  const reported = [{ arfcn: cell.arfcn, pci: cell.pci }, ...(cell.others ?? [])];
+  if (reported.some((r) => r.arfcn === null || r.pci === null)) return settle(check, [null]);
+  const key = (c: { arfcn: number | null; pci: number | null }): string => `${c.arfcn}/${c.pci}`;
+  const wanted = new Set(targets.map(key));
+  settle(check, [reported.length === targets.length && reported.every((r) => wanted.has(key(r)))]);
+}
+
 /** Every lock cleared: all bands on both RATs (where the router names them) and no cell lock. */
 export function settleUnlock(check: WriteCheck, after: DriverLockState | null, opts: { nr: boolean; mode: boolean }): void {
   if (!after) return settle(check, []);

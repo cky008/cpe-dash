@@ -114,6 +114,9 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/cell-lock", { rat: "LTE", band: "B3", arfcn: 99_999, pci: 142 }],
       ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 647_424, pci: 5000 }],
       ["/api/control/cell-lock", { rat: "5G", band: "N78", arfcn: 647_424 }],
+      // Several candidate cells: this router locks one at a time
+      ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 650000, pci: 211, more: [{ band: "N78", arfcn: 650000, pci: 142 }] }],
+      ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 650000, more: [{ band: "N78", arfcn: 650000, pci: 142 }] }],
       ["/api/control/reboot", { confirm: false }],
       ["/api/control/reconnect", {}],
       ["/api/control/antenna", { mode: "sideways" }],

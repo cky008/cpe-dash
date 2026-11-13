@@ -12,7 +12,7 @@ import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS, type DiscoveredEndpoint, disco
 import type { ExperimentalSwitchResult } from "./experimental-switch.ts";
 import type { ControlAction, ReadSection, WriteFeature } from "./device-access.ts";
 import { FAMILY_WRITE_FEATURES } from "./router-family.ts";
-import { CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
+import { type CellLockCommand, CpeControlValidationError, isObservedCellTarget, prepareCellLockPayload } from "./cpe-domain.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
 import { telemetryForOutput, topologyForOutput } from "./redact.ts";
 import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
@@ -28,7 +28,7 @@ const NR_BAND_LIST = H168_383_NR_BANDS.map((b) => `N${b}`).join(", ");
 /** Every write takes it: the server refuses a call without `confirm: true` before the schema and before any session. */
 const CONFIRM = { type: "boolean", description: "Must be true: the user explicitly asked for this change." } as const;
 
-const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
+export const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
   {
     name: "get_cpe_telemetry",
     title: "Get 5G CPE Global Telemetry",
@@ -200,6 +200,22 @@ const CORE_TOOLS: ReadonlyArray<McpToolDefinition> = [
           minimum: 0,
           maximum: 1007,
           description: "Optional Physical Cell ID (LTE 0..503, NR 0..1007). Omit to lock frequency only.",
+        },
+        more: {
+          type: "array",
+          maxItems: 9,
+          description:
+            "Optional further candidate cells of the same RAT, each observed like the first: the router picks among them. Only routers that lock several cells at once take them (an OpenWrt router with a Quectel module, 4G; a FiberHome LG6151M); any other refuses them before anything is sent. The first cell then needs its pci.",
+          items: {
+            type: "object",
+            properties: {
+              band: { oneOf: [{ type: "string" }, { type: "number" }], description: "Band label or number." },
+              arfcn: { type: "integer", minimum: 0, description: "Downlink EARFCN or NR-ARFCN of an observed cell." },
+              pci: { type: "integer", minimum: 0, maximum: 1007, description: "Its Physical Cell ID." },
+            },
+            required: ["band", "arfcn", "pci"],
+            additionalProperties: false,
+          },
         },
         confirm: CONFIRM,
       },
@@ -587,8 +603,9 @@ export class CoreMcpTools implements McpToolProvider {
       case "lock_cell": {
         const command = readCellLockCommand(args, { allowNullPci: false });
         prepareCellLockPayload(command);
-        // An agent may only lock onto a cell the modem has reported, never an invented PCI/ARFCN pair
-        if (!isObservedCellTarget(command, this.core.monitor.getCachedTelemetry(), this.core.monitor.getCachedNeighbors())) {
+        // An agent may only lock onto cells the modem has reported, never an invented PCI/ARFCN pair
+        const observed = (cell: CellLockCommand): boolean => isObservedCellTarget(cell, this.core.monitor.getCachedTelemetry(), this.core.monitor.getCachedNeighbors());
+        if (!observed(command) || (command.more ?? []).some((cell) => !observed({ rat: command.rat, band: cell.band, arfcn: cell.arfcn, pci: cell.pci }))) {
           throw new McpToolError(
             "CELL_NOT_OBSERVED",
             "lock_cell only targets the serving cell, an aggregated carrier or a cell from the latest neighbour scan; call list_neighbor_cells with scanNow: true and copy rat/band/arfcn/pci from its result"
