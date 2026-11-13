@@ -401,6 +401,51 @@ function nradioRouter() {
 }
 
 describe("driver runtime: the connection's family", () => {
+  it("cancels a connection test of another brand when the scheduler stops, and logs out the session its login opened", async () => {
+    const router = openwrtRouter();
+    let hold = false;
+    // After the router hands out the session, every call but the session's own hangs until its signal
+    // aborts: OpenWrt's login reads the modem next, so the stop cuts the login itself short
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const body = typeof init?.body === "string" ? init.body : "";
+      if (hold && !body.includes('"session"')) {
+        // As fetch does: an aborted signal rejects at once, a later abort ends the wait
+        if (init?.signal?.aborted) throw init.signal.reason;
+        return await new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true }));
+      }
+      if (body.includes('"login"')) hold = true;
+      return await router.mock.fetchImpl(input, init);
+    };
+    const dir = tempDir("fengsui-driver-stop-");
+    const core = createFengSuiCore({
+      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.1.1", cpeUsername: "root", cpePassword: OPENWRT_PASSWORD, fetchImpl, requestTimeoutMs: 60_000 }),
+      stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "driver_key" }),
+      timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
+      family: "openwrt",
+      pollIntervalMs: 600_000,
+      neighborScanIntervalMs: 600_000,
+      stopGraceMs: 50,
+    });
+    try {
+      core.monitor.init();
+      const test = core.scheduler.testConnectionDetailed({ url: "http://192.168.1.1", username: "root", password: OPENWRT_PASSWORD, family: "openwrt" }).then(
+        (outcome) => outcome,
+        (err: unknown) => err
+      );
+      const logins = (): number => router.calls.filter((c) => c.object === "session" && c.method === "login").length;
+      for (let i = 0; i < 200 && logins() === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(logins(), 1, "the router handed out a session and the login's next request hangs");
+      const startedAt = performance.now();
+      await core.scheduler.stop();
+      assert.ok(performance.now() - startedAt < 1500, "stop() does not wait out a hung test");
+      assert.equal(router.calls.filter((c) => c.object === "session" && c.method === "destroy").length, 1, "the test's session logged out before stop() returned");
+      await test;
+    } finally {
+      await stopFengSuiCore(core);
+      removeTempDir(dir);
+    }
+  });
+
   it("derives rates from a family's counters over two polls, and switches the family with the connection", async () => {
     const nradio = nradioRouter();
     const fx = runtimeFixture({ family: "nradio", url: "http://192.168.66.1", password: "test-password", fetchImpl: nradio.mock.fetchImpl });

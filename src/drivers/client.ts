@@ -82,6 +82,8 @@ function driverSessionProtocol(protocol: DriverProtocol, logoutTimeoutMs: number
       const http = new LanHttp({ baseUrl: ctx.baseUrl, fetchImpl: ctx.fetchImpl, timeoutMs: ctx.timeoutMs, signal: ctx.deadline });
       const startedMs = performance.now();
       let handle: DriverSessionHandle | null = null;
+      /** The login, while it runs: a family's login may do more after the router handed it a session. */
+      let loggingIn: Promise<DriverSessionHandle> | null = null;
       return {
         get session(): DriverSession {
           if (!handle) throw new TypeError("the driver session was used before its login");
@@ -96,9 +98,25 @@ function driverSessionProtocol(protocol: DriverProtocol, logoutTimeoutMs: number
           return { occupied: pre.occupied, stateCode: "occupied", locked };
         },
         async login(): Promise<void> {
-          handle = await protocol.login(http, { username: ctx.username, password: ctx.password });
+          loggingIn = protocol.login(http, { username: ctx.username, password: ctx.password });
+          handle = await loggingIn;
         },
         async logout(): Promise<number | null> {
+          // The deadline or a stop cut the login short: wait (bounded) for it to end on the session's own
+          // signal, which fails its last requests at once; a session the router handed out is still logged out
+          if (!handle && loggingIn) {
+            const settle = deadlineSignal(logoutTimeoutMs);
+            try {
+              handle = await raceSignal(
+                loggingIn.catch((): null => null),
+                settle.signal
+              );
+            } catch {
+              // The login never ended: nothing to log out of that FengSui knows
+            } finally {
+              settle.clear();
+            }
+          }
           const opened = handle;
           if (!opened) return null;
           // Free the admin slot on a fresh bounded signal (the session's own may have fired); never throws
