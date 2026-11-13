@@ -23,7 +23,7 @@ export interface ApiRouteDoc {
   readonly summary: Text;
   /** A request body for a POST that takes parameters; the test sends it to a mock router. */
   readonly body?: string;
-  /** The body names something that must exist first (a message, a contact): the test accepts a validation error. */
+  /** The body names something that must exist first (a message, a contact, a mode the router offers): the test accepts a validation error. */
   readonly needsState?: true;
   /** No token needed. */
   readonly open?: true;
@@ -64,7 +64,7 @@ export const API_ROUTES: ReadonlyArray<ApiRouteDoc> = [
   { method: "POST", path: "/api/control/wifi7", group: "control", body: '{"mloEnable":true}', summary: { "zh-CN": "Wi-Fi 7 多链路（`mloEnable`）和双频优选（`dbhoEnable`）", en: "Wi-Fi 7 multi-link (`mloEnable`) and dual-band steering (`dbhoEnable`)" } },
   { method: "POST", path: "/api/control/antenna", group: "control", body: '{"mode":"auto"}', summary: { "zh-CN": "天线：`auto`、`internal`、`external`", en: "Antenna: `auto`, `internal`, `external`" } },
   { method: "POST", path: "/api/control/mobile-data", group: "control", body: '{"enabled":true}', summary: { "zh-CN": "打开或关闭移动数据", en: "Turn mobile data on or off" } },
-  { method: "POST", path: "/api/control/network-mode", group: "control", body: '{"mode":"auto","confirm":true}', summary: { "zh-CN": "网络制式：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_wcdma`、`wcdma`、`gsm` 中路由器提供的（见 `GET /api/cellular`）。断网 3 分钟没恢复，烽燧自动改回", en: "Network mode: one of `auto`, `nr_sa`, `nr_nsa`, `nr_lte`, `lte`, `lte_wcdma`, `wcdma`, `gsm` that the router offers (see `GET /api/cellular`). If the WAN stays down 3 minutes, FengSui puts the earlier mode back" } },
+  { method: "POST", path: "/api/control/network-mode", group: "control", body: '{"mode":"auto","confirm":true}', needsState: true, summary: { "zh-CN": "网络制式：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_tdd`、`lte_fdd`、`lte_wcdma`、`wcdma`、`gsm` 中路由器提供的（见 `GET /api/cellular`）。断网 3 分钟没恢复，烽燧自动改回", en: "Network mode: one of `auto`, `nr_sa`, `nr_nsa`, `nr_lte`, `lte`, `lte_tdd`, `lte_fdd`, `lte_wcdma`, `wcdma`, `gsm` that the router offers (see `GET /api/cellular`). If the WAN stays down 3 minutes, FengSui puts the earlier mode back" } },
   { method: "POST", path: "/api/control/operator-scan", group: "control", body: '{"confirm":true}', summary: { "zh-CN": "搜索附近的运营商网络：最长一分钟，期间可能断网", en: "Search for the networks in range: up to a minute, and the connection may drop meanwhile" } },
   { method: "POST", path: "/api/control/operator", group: "control", body: '{"mode":"auto","confirm":true}', summary: { "zh-CN": "选运营商：`auto` 交回路由器自己选，`manual` 加 `plmn`（和可选的 `rat`）固定到一个网络。断网 3 分钟没恢复，烽燧自动改回", en: "Choose the operator: `auto` hands the choice back to the router, `manual` with `plmn` (and an optional `rat`) keeps it on one network. If the WAN stays down 3 minutes, FengSui puts the earlier choice back" } },
   { method: "POST", path: "/api/control/sim-slot", group: "control", body: '{"kind":"physical","confirm":true}', summary: { "zh-CN": "切换 SIM 卡槽：`physical`（实体卡）或 `embedded`（内置卡，`index` 是第几张）。断网 3 分钟没恢复，烽燧自动切回", en: "Switch the SIM slot: `physical` (the card in the tray) or `embedded` (a built-in card, `index` says which). If the WAN stays down 3 minutes, FengSui switches back" } },

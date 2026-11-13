@@ -408,8 +408,9 @@ export class EphemeralCpeSession {
     return await next;
   }
 
-  async postXml(apiPath: string, requestObj: Record<string, unknown>): Promise<string> {
-    return await this.postRaw(apiPath, buildXmlRequest(requestObj));
+  /** `timeoutMs`: this request's wait instead of the client's (a router that answers once it has searched or registered). */
+  async postXml(apiPath: string, requestObj: Record<string, unknown>, timeoutMs?: number): Promise<string> {
+    return await this.postRaw(apiPath, buildXmlRequest(requestObj), timeoutMs === undefined ? {} : { overrideTimeoutMs: timeoutMs });
   }
 
   /**

@@ -145,7 +145,7 @@ curl -X POST \
 | `POST` | `/api/control/wifi7` | 改动路由器 | Wi-Fi 7 多链路（`mloEnable`）和双频优选（`dbhoEnable`） | `{"mloEnable":true}` |
 | `POST` | `/api/control/antenna` | 改动路由器 | 天线：`auto`、`internal`、`external` | `{"mode":"auto"}` |
 | `POST` | `/api/control/mobile-data` | 改动路由器 | 打开或关闭移动数据 | `{"enabled":true}` |
-| `POST` | `/api/control/network-mode` | 改动路由器 | 网络制式：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_wcdma`、`wcdma`、`gsm` 中路由器提供的（见 `GET /api/cellular`）。断网 3 分钟没恢复，烽燧自动改回 | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/network-mode` | 改动路由器 | 网络制式：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_tdd`、`lte_fdd`、`lte_wcdma`、`wcdma`、`gsm` 中路由器提供的（见 `GET /api/cellular`）。断网 3 分钟没恢复，烽燧自动改回 | `{"mode":"auto","confirm":true}` |
 | `POST` | `/api/control/operator-scan` | 改动路由器 | 搜索附近的运营商网络：最长一分钟，期间可能断网 | `{"confirm":true}` |
 | `POST` | `/api/control/operator` | 改动路由器 | 选运营商：`auto` 交回路由器自己选，`manual` 加 `plmn`（和可选的 `rat`）固定到一个网络。断网 3 分钟没恢复，烽燧自动改回 | `{"mode":"auto","confirm":true}` |
 | `POST` | `/api/control/sim-slot` | 改动路由器 | 切换 SIM 卡槽：`physical`（实体卡）或 `embedded`（内置卡，`index` 是第几张）。断网 3 分钟没恢复，烽燧自动切回 | `{"kind":"physical","confirm":true}` |

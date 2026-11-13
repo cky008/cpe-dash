@@ -154,11 +154,16 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
 
   // The settings the generic writes change (`writes`), seeded from the router's own answers
   const seeded = typeof opts.endpoints?.["/api/net/net-mode"] === "string" ? (opts.endpoints["/api/net/net-mode"] as string) : "";
-  const netMode = {
+  const netMode: Record<string, string> = {
     NetworkMode: getXmlTag(seeded, "NetworkMode") ?? "00",
     NetworkBand: getXmlTag(seeded, "NetworkBand") ?? "3FFFFFFF",
     LTEBand: getXmlTag(seeded, "LTEBand") ?? "800800C5",
   };
+  // A 5G router of the two-field kind (its seeded answer reports networkOption): as the H168-383 did on 2026-11-13
+  const twoField = getXmlTag(seeded, "networkOption") !== null;
+  if (twoField) Object.assign(netMode, { networkOption: getXmlTag(seeded, "networkOption") ?? "2", LTEBandOption: getXmlTag(seeded, "LTEBandOption") ?? "0" });
+  /** The total connected time `monitoring/traffic-statistics` reports (a clear starts it over). */
+  let connectedSeconds = 86_400;
   let dataSwitch = "1";
   // The cellular settings (`writes.cellular`)
   const register = { Mode: "0", Plmn: "", Rat: "" };
@@ -375,7 +380,10 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
       return respond(`<response><Count>${items.length}</Count><Messages>${xml}</Messages></response>`);
     }
     if (opts.writes && method === "GET" && p === "/api/net/net-mode") {
-      return reply(`<response><NetworkMode>${netMode.NetworkMode}</NetworkMode><NetworkBand>${netMode.NetworkBand}</NetworkBand><LTEBand>${netMode.LTEBand}</LTEBand></response>`);
+      return reply(`<response>${Object.entries(netMode).map(([tag, value]) => `<${tag}>${value}</${tag}>`).join("")}</response>`);
+    }
+    if (opts.writes?.cellular && method === "GET" && p === "/api/monitoring/traffic-statistics" && opts.endpoints?.[p] === undefined) {
+      return reply(`<response><CurrentConnectTime>${connectedSeconds}</CurrentConnectTime><TotalConnectTime>${connectedSeconds}</TotalConnectTime><TotalUpload>1000</TotalUpload><TotalDownload>9000</TotalDownload></response>`);
     }
     if (opts.writes && method === "GET" && p === "/api/dialup/mobile-dataswitch") {
       return reply(`<response><dataswitch>${dataSwitch}</dataswitch></response>`);
@@ -431,13 +439,23 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
       if (!writes.ignore) change();
       return ok();
     };
+    if (p === "/api/net/net-mode" && twoField) {
+      // What the H168-383 took: its page's two fields (00 with networkOption, 03 with LTEBandOption), or
+      // the three fields followed by that same mode's field; anything else it refused with -1
+      const pair = /^<request><NetworkMode>(00|03)<\/NetworkMode><(networkOption|LTEBandOption)>([0-2])<\/\2><\/request>$/.exec(body);
+      const lock = /^<request><NetworkMode>(00|03)<\/NetworkMode><NetworkBand>([0-9A-Fa-f]{1,16})<\/NetworkBand><LTEBand>([0-9A-Fa-f]{1,32})<\/LTEBand><(networkOption|LTEBandOption)>([0-2])<\/\4><\/request>$/.exec(body);
+      const fits = (mode: string | undefined, tag: string | undefined): boolean => (mode === "00") === (tag === "networkOption");
+      if (pair && fits(pair[1], pair[2])) return act(() => Object.assign(netMode, { NetworkMode: pair[1], [pair[2] ?? ""]: pair[3] }));
+      if (lock && fits(lock[1], lock[4])) return act(() => Object.assign(netMode, { NetworkMode: lock[1], NetworkBand: lock[2], LTEBand: lock[3], [lock[4] ?? ""]: lock[5] }));
+      return xmlError("-1");
+    }
     if (p === "/api/net/net-mode") {
       const m = /^<request><NetworkMode>(\d{2,8})<\/NetworkMode><NetworkBand>([0-9A-Fa-f]{1,16})<\/NetworkBand><LTEBand>([0-9A-Fa-f]{1,32})<\/LTEBand><\/request>$/.exec(body);
       if (!m) return xmlError("100005");
       return act(() => Object.assign(netMode, { NetworkMode: m[1], NetworkBand: m[2], LTEBand: m[3] }));
     }
     if (writes.cellular && p === "/api/net/register") {
-      const m = /^<request><Mode>([01])<\/Mode><Plmn>(\d{0,6})<\/Plmn><Rat>(\d{0,2})<\/Rat><\/request>$/.exec(body);
+      const m = /^<request><Mode>([01])<\/Mode><Plmn>(\d{0,6})<\/Plmn><Rat>(\d{0,2}|255)<\/Rat><\/request>$/.exec(body);
       // Automatic names no operator; manual names one
       if (!m || (m[1] === "0") !== (m[2] === "")) return xmlError("100005");
       return act(() => Object.assign(register, { Mode: m[1], Plmn: m[2], Rat: m[3] }));
@@ -451,7 +469,10 @@ export function createCpeFamily(opts: CpeFamilyOptions) {
     }
     if (writes.cellular && p === "/api/monitoring/clear-traffic") {
       if (body !== "<request><ClearTraffic>1</ClearTraffic></request>") return xmlError("100005");
-      return act(() => (stats.trafficClears += 1));
+      return act(() => {
+        stats.trafficClears += 1;
+        connectedSeconds = 3;
+      });
     }
     if (writes.cellular?.ussd && p === "/api/ussd/send") {
       const m = /^<request><content>([0-9*#]{1,40})<\/content><codeType>codeType<\/codeType><timeout><\/timeout><\/request>$/.exec(body);

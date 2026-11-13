@@ -111,6 +111,8 @@ export interface RouterSessionContext {
   noteRouterModel(model: string | null, softwareVersion: string | null): void;
   /** A part read inside another read (the SMS counts of a poll): recorded the way the backend records a read. */
   readSection<T>(section: ReadSection, read: () => Promise<T>): Promise<T | null>;
+  /** The latest poll (`null` before the first): what a write may go by without asking the router again. */
+  latestTelemetry(): GlobalTelemetrySnapshot | null;
 }
 
 /** The reads that may need no session at all on a brand (nothing to ask its router). */

@@ -262,6 +262,20 @@ describe("session contract on a strict single-admin router model", () => {
     }
   });
 
+  it("lets one session hold the slot longer when its write needs it, never shorter than the client's bound", async () => {
+    const fx = createContractFixture({ sessionMaxHoldMs: 80, requestTimeoutMs: 10_000 });
+    try {
+      const slow = (ms: number) => () => new Promise<string>((resolve) => setTimeout(() => resolve("done"), ms));
+      const longer = await fx.client.withSessionDetailed(slow(200), { maxHoldMs: 2000 });
+      assert.equal(longer.status === "ok" ? longer.value : null, "done", "an operator scan may take longer than the client's bound");
+      await assert.rejects(fx.client.withSessionDetailed(slow(200), { maxHoldMs: 10 }), (err: unknown) => err instanceof Error && err.name === "CpeSessionDeadlineError");
+      assert.equal(fx.cpe.isSlotTaken(), false);
+      assertSingleSlotInvariants(fx.cpe);
+    } finally {
+      await fx.close();
+    }
+  });
+
   it("reports an SMS the router accepted as submitted, never as failed, when the hold deadline cuts its status poll", async () => {
     // send-status never answers, so the session runs into its hold budget after send-sms was accepted
     const fx = createContractFixture({

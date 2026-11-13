@@ -71,7 +71,8 @@ function bandsOfMask(mask: string, advertised: ReadonlyArray<number>): number[] 
 /**
  * Lock the LTE bands (or unlock all with the all-bands mask, or write a saved mask back) with
  * `POST /api/net/net-mode`: `NetworkMode`, `NetworkBand` and `LTEBand` in that order, the first two
- * sent back exactly as the router reported them in this session, so only the LTE mask changes. Reads
+ * sent back exactly as the router reported them in this session, so only the LTE mask changes (a 5G
+ * router that reports `networkOption` gets its mode's option field after them, `modeOptionOf`). Reads
  * the mask back: an unlock matches when the router reports the all-bands mask or every band it
  * advertises (with no advertised band to compare, any other mask says nothing).
  */
@@ -99,7 +100,7 @@ export async function genericBandLock(
   }
   const before = lteMask(getXmlTag(current, "LTEBand"));
   check.endpoints.push(NET_MODE);
-  await session.postXml(NET_MODE, { NetworkMode: networkMode, NetworkBand: networkBand, LTEBand: mask });
+  await session.postXml(NET_MODE, { NetworkMode: networkMode, NetworkBand: networkBand, LTEBand: mask, ...modeOptionOf(current) });
 
   const read = await readBack(session, NET_MODE, "LTEBand");
   if (read === null || !/^[0-9A-Fa-f]{1,32}$/.test(read)) {
@@ -168,9 +169,18 @@ const MODULE_SWITCH = "/api/global/module-switch";
 const USSD_SEND = "/api/ussd/send";
 const USSD_STATUS = "/api/ussd/status";
 const USSD_GET = "/api/ussd/get";
+const NET_MODE_CONFIG = "/config/network/net-mode.xml";
+const FEATURE_SWITCH = "/api/net/net-feature-switch";
+const TRAFFIC = "/api/monitoring/traffic-statistics";
 
-/** How long the operator scan may take (the router answers once it has searched: up to a minute and more). */
-export const OPERATOR_SCAN_TIMEOUT_MS = 120_000;
+/**
+ * How long the router may take to answer (it answers once it has done the work). The H168-383's own
+ * page waits 240 s for an operator scan and for a selection, 90 s for a network mode; on 2026-11-13 it
+ * took 76 s, 27 s and about one. The scheduler holds these sessions as long (`CONTROL_HOLD_MS`).
+ */
+export const OPERATOR_SCAN_TIMEOUT_MS = 240_000;
+export const OPERATOR_SELECT_TIMEOUT_MS = 240_000;
+export const NETWORK_MODE_TIMEOUT_MS = 90_000;
 
 /** `NetworkMode` codes of the HiLink notes (library A §4.4): one or two two-digit access codes, most preferred first. */
 const HILINK_MODE_CODES: Readonly<Partial<Record<NetworkMode, string>>> = { auto: "00", nr_sa: "08", nr_lte: "0803", lte: "03", lte_wcdma: "0302", wcdma: "02", gsm: "01" };
@@ -179,6 +189,55 @@ const HILINK_MODE_CODES: Readonly<Partial<Record<NetworkMode, string>>> = { auto
 export function hilinkModeOf(code: string | null | undefined): NetworkMode | null {
   const text = code?.trim();
   return (Object.entries(HILINK_MODE_CODES) as Array<[NetworkMode, string]>).find(([, value]) => value === text)?.[0] ?? null;
+}
+
+/**
+ * The network modes of a 5G HiLink router whose `net-mode` answer reports `networkOption`, as its own
+ * page writes them (the H168-383, firmware 4.4.0.1: developer mode → network mode, `js/networkmode.js`):
+ * two fields only, `00` with `networkOption` (1 SA only, 0 NSA only, 2 SA and NSA) or `03` with
+ * `LTEBandOption` (0 4G only, 2 TDD only, 1 FDD only). The page offers the ones `net-mode.xml` lists in
+ * `net_mode_list`, by these numbers (`page`). On the H168-383 every other form was refused with -1,
+ * the three fields of `HILINK_MODE_CODES` included (2026-11-13).
+ */
+const OPTION_MODES: ReadonlyArray<{ mode: NetworkMode; page: string; networkMode: "00" | "03"; tag: "networkOption" | "LTEBandOption"; value: string }> = [
+  { mode: "nr_sa", page: "0", networkMode: "00", tag: "networkOption", value: "1" },
+  { mode: "nr_nsa", page: "1", networkMode: "00", tag: "networkOption", value: "0" },
+  { mode: "auto", page: "2", networkMode: "00", tag: "networkOption", value: "2" },
+  { mode: "lte", page: "3", networkMode: "03", tag: "LTEBandOption", value: "0" },
+  { mode: "lte_tdd", page: "4", networkMode: "03", tag: "LTEBandOption", value: "2" },
+  { mode: "lte_fdd", page: "5", networkMode: "03", tag: "LTEBandOption", value: "1" },
+];
+
+/** A `net-mode` answer of the two-field kind: it reports `networkOption`. */
+export function usesModeOption(netMode: string | null): netMode is string {
+  return netMode !== null && getXmlTag(netMode, "networkOption") !== null;
+}
+
+/** The mode a two-field router is in: `00` by its `networkOption`, `03` by its `LTEBandOption` (`null`: a combination its page has no option for). */
+export function optionModeOf(netMode: string): NetworkMode | null {
+  const code = getXmlTag(netMode, "NetworkMode")?.trim();
+  return OPTION_MODES.find((o) => o.networkMode === code && getXmlTag(netMode, o.tag)?.trim() === o.value)?.mode ?? null;
+}
+
+/** The modes a two-field router's page offers: the `net_mode_list` of its `net-mode.xml` (none without the list). */
+export function optionModesOffered(config: string | null): NetworkMode[] {
+  const list = config === null ? null : getXmlTag(config, "net_mode_list");
+  if (!list) return [];
+  const pages = new Set(list.split(";").map((page) => page.trim()));
+  return OPTION_MODES.filter((o) => pages.has(o.page)).map((o) => o.mode);
+}
+
+/**
+ * What a write of a two-field router's `net-mode` carries of its mode after `NetworkMode`,
+ * `NetworkBand` and `LTEBand`: `networkOption` in `00`, `LTEBandOption` in `03`, as it reported them
+ * (without it the H168-383 refuses the write with -1; with it a band lock keeps the mode, 2026-11-13).
+ * Nothing on a router that does not report `networkOption`.
+ */
+export function modeOptionOf(netMode: string): Record<string, string> {
+  if (!usesModeOption(netMode)) return {};
+  const tag = getXmlTag(netMode, "NetworkMode")?.trim() === "03" ? "LTEBandOption" : "networkOption";
+  const value = getXmlTag(netMode, tag)?.trim() ?? "";
+  return /^\d{1,2}$/.test(value) ? { [tag]: value } : {};
 }
 
 /**
@@ -241,11 +300,13 @@ export function hilinkApnOf(xml: string | null): ApnView | null {
 /** The cellular settings a HiLink model nobody verified reports; a part it answers with an error code is `null`. */
 export async function genericCellularRead(session: EphemeralCpeSession): Promise<Omit<CellularSettingsSnapshot, "capturedAtIso" | "capturedAtMs">> {
   const netMode = await getOrNull(session, NET_MODE);
-  const options = hilinkModesOffered(await getOrNull(session, NET_MODE_LIST));
+  // A router of the two-field kind names its modes in its page's own list, by its own codes
+  const twoField = usesModeOption(netMode);
+  const options = twoField ? optionModesOffered(await getOrNull(session, NET_MODE_CONFIG)) : hilinkModesOffered(await getOrNull(session, NET_MODE_LIST));
   const connection = await getOrNull(session, CONNECTION);
   const roaming = connection === null ? null : getXmlTag(connection, "RoamAutoConnectEnable")?.trim();
   return {
-    networkMode: netMode === null && options.length === 0 ? null : { current: netMode === null ? null : hilinkModeOf(getXmlTag(netMode, "NetworkMode")), options },
+    networkMode: netMode === null && options.length === 0 ? null : { current: netMode === null ? null : twoField ? optionModeOf(netMode) : hilinkModeOf(getXmlTag(netMode, "NetworkMode")), options },
     simSlots: null,
     operator: registrationOf(await getOrNull(session, REGISTER)),
     apn: hilinkApnOf(await getOrNull(session, PROFILES)),
@@ -257,15 +318,18 @@ export async function genericCellularRead(session: EphemeralCpeSession): Promise
 /**
  * Switch the network mode with `POST /api/net/net-mode`: the mode's code, with `NetworkBand` and
  * `LTEBand` sent back exactly as the router reported them in this session, so only the mode changes.
- * Only a mode the router's own list names is sent. Resolves the mode it had (`null`: none read).
+ * A router of the two-field kind (`usesModeOption`) gets the two fields its own page sends instead
+ * (`OPTION_MODES`). Only a mode the router's own list names is sent. Resolves the mode it had (`null`:
+ * none read).
  */
 export async function genericNetworkMode(session: EphemeralCpeSession, check: WriteCheck, mode: NetworkMode): Promise<NetworkMode | null> {
   const offered = hilinkModesOffered(await getOrNull(session, NET_MODE_LIST));
+  const current = await session.get(NET_MODE);
+  if (usesModeOption(current)) return await optionNetworkMode(session, check, mode, current);
   const code = HILINK_MODE_CODES[mode];
   if (code === undefined || !offered.includes(mode)) {
     throw new CpeControlValidationError(`This router offers no "${mode}" network mode (it offers ${offered.join(", ") || "none FengSui can read"})`);
   }
-  const current = await session.get(NET_MODE);
   const networkBand = (getXmlTag(current, "NetworkBand") ?? "").trim();
   const lteBand = (getXmlTag(current, "LTEBand") ?? "").trim();
   if (!/^[0-9A-Fa-f]{1,16}$/.test(networkBand) || !/^[0-9A-Fa-f]{1,32}$/.test(lteBand)) {
@@ -276,6 +340,20 @@ export async function genericNetworkMode(session: EphemeralCpeSession, check: Wr
   const read = await readBack(session, NET_MODE, "NetworkMode");
   settleCheck(check, read === null ? null : read === code);
   return hilinkModeOf(getXmlTag(current, "NetworkMode"));
+}
+
+/** `genericNetworkMode` on a router of the two-field kind: only a mode its page lists, read back by both fields. */
+async function optionNetworkMode(session: EphemeralCpeSession, check: WriteCheck, mode: NetworkMode, current: string): Promise<NetworkMode | null> {
+  const offered = optionModesOffered(await getOrNull(session, NET_MODE_CONFIG));
+  const option = OPTION_MODES.find((o) => o.mode === mode);
+  if (option === undefined || !offered.includes(mode)) {
+    throw new CpeControlValidationError(`This router offers no "${mode}" network mode (it offers ${offered.join(", ") || "none FengSui can read"})`);
+  }
+  check.endpoints.push(NET_MODE);
+  await session.postXml(NET_MODE, { NetworkMode: option.networkMode, [option.tag]: option.value }, NETWORK_MODE_TIMEOUT_MS);
+  const read = await getOrNull(session, NET_MODE).catch(() => null);
+  settleCheck(check, read === null ? null : optionModeOf(read) === mode);
+  return optionModeOf(current);
 }
 
 /**
@@ -300,13 +378,18 @@ const REGISTER_RATS: Readonly<Partial<Record<OperatorRat, string>>> = { "2G": "0
 
 /**
  * Keep the router on one operator's network, or hand the choice back (`POST /api/net/register`:
- * `Mode` 1 with `Plmn` and `Rat`, or `Mode` 0 with both empty). Resolves how it chose before.
+ * `Mode` 1 with `Plmn` and `Rat`, or `Mode` 0 with both empty). The router answers once it has
+ * registered (27 s on the H168-383): it is given `OPERATOR_SELECT_TIMEOUT_MS`. Resolves how it chose before.
  */
 export async function genericSelectOperator(session: EphemeralCpeSession, check: WriteCheck, selection: OperatorSelection): Promise<OperatorSelection | null> {
   const before = registrationOf(await getOrNull(session, REGISTER));
+  // A router that lists each operator once, whatever it can reach it over (`plmn_list_combine_enable`
+  // 1), takes Rat 255 for any of them: what the H168-383's own page sends (js/mobilesearch)
+  const combined = selection.mode === "manual" && getXmlTag((await getOrNull(session, FEATURE_SWITCH)) ?? "", "plmn_list_combine_enable")?.trim() === "1";
   check.endpoints.push(REGISTER);
-  const request = selection.mode === "auto" ? { Mode: 0, Plmn: "", Rat: "" } : { Mode: 1, Plmn: selection.plmn, Rat: selection.rat === null ? "" : (REGISTER_RATS[selection.rat] ?? "") };
-  await session.postXml(REGISTER, request);
+  const request =
+    selection.mode === "auto" ? { Mode: 0, Plmn: "", Rat: "" } : { Mode: 1, Plmn: selection.plmn, Rat: combined ? "255" : selection.rat === null ? "" : (REGISTER_RATS[selection.rat] ?? "") };
+  await session.postXml(REGISTER, request, OPERATOR_SELECT_TIMEOUT_MS);
   const after = registrationOf(await getOrNull(session, REGISTER).catch(() => null));
   settleCheck(check, after === null || after.selection === null ? null : after.selection === selection.mode && (selection.mode === "auto" || after.plmn === null || after.plmn === selection.plmn));
   if (before?.selection === "auto") return { mode: "auto" };
@@ -338,11 +421,25 @@ export async function genericRoaming(session: EphemeralCpeSession, check: WriteC
   settleCheck(check, read === null ? null : read === (enabled ? "1" : "0"));
 }
 
-/** Clear the router's traffic counters (`POST /api/monitoring/clear-traffic`, `<ClearTraffic>1</ClearTraffic>`); nothing to read back. */
+/**
+ * Clear the router's traffic counters (`POST /api/monitoring/clear-traffic`, `<ClearTraffic>1</ClearTraffic>`,
+ * as the H168-383's own page sends it). Read back by the total connected time of
+ * `monitoring/traffic-statistics`, which the clear starts over (2026-11-13): smaller than before is a
+ * match; anything else says nothing (traffic keeps counting), never a mismatch.
+ */
 export async function genericTrafficReset(session: EphemeralCpeSession, check: WriteCheck): Promise<void> {
+  const before = connectedSeconds(await getOrNull(session, TRAFFIC));
   check.endpoints.push(CLEAR_TRAFFIC);
   await session.postXml(CLEAR_TRAFFIC, { ClearTraffic: 1 });
-  check.readback = "none";
+  const after = connectedSeconds(await getOrNull(session, TRAFFIC).catch(() => null));
+  const known = before !== null && after !== null;
+  settleCheck(check, known && after < before ? true : null, "differs", known ? "no_change" : "unreadable");
+}
+
+/** `<TotalConnectTime>` of a traffic answer, in seconds (`null`: none). */
+function connectedSeconds(xml: string | null): number | null {
+  const text = xml === null ? "" : (getXmlTag(xml, "TotalConnectTime")?.trim() ?? "");
+  return /^\d{1,12}$/.test(text) ? Number(text) : null;
 }
 
 /**

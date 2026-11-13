@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeAnswerFormatError } from "../src/session-errors.ts";
-import { genericUssd, hilinkApnOf, hilinkModeOf, hilinkModesOffered } from "../src/generic-writes.ts";
-import { DeviceReadOnlyError } from "../src/scheduler.ts";
+import { NETWORK_MODE_TIMEOUT_MS, OPERATOR_SCAN_TIMEOUT_MS, OPERATOR_SELECT_TIMEOUT_MS, genericUssd, hilinkApnOf, hilinkModeOf, hilinkModesOffered, modeOptionOf, optionModeOf, optionModesOffered, usesModeOption } from "../src/generic-writes.ts";
+import { CONTROL_HOLD_MS, DeviceReadOnlyError } from "../src/scheduler.ts";
 import { type CpeFamilyOptions, type FamilyCellular, createCpeFamily } from "./helpers/cpe-family.ts";
 import { daemonOn, newCheck } from "./helpers/driver-daemon.ts";
 
@@ -202,7 +202,7 @@ describe("generic HiLink: the cellular settings of a model nobody verified", () 
       assert.ok(await fx.core.monitor.identifyDevice());
       assert.deepEqual(await fx.core.controls.resetTraffic({ confirm: true }), { reset: true });
       assert.deepEqual([fx.cpe.stats.trafficClears, fx.bodies("/api/monitoring/clear-traffic")], [1, ["<request><ClearTraffic>1</ClearTraffic></request>"]]);
-      assert.equal(fx.applied.at(-1)?.summaryEn, "The router's traffic counters were cleared (experimental write)");
+      assert.equal(fx.applied.at(-1)?.summaryEn, "The router's traffic counters were cleared (experimental write, read back: matches)", "the total connected time started over");
       assert.deepEqual(await fx.core.controls.sendUssd({ kind: "send", code: "*100#" }, { confirm: true }), { state: "answered", text: "Balance: 5.00 EUR", awaitsReply: false });
       assert.deepEqual(fx.cpe.settings.ussdSent, ["*100#"]);
       // A reply inside a session is another send; there is no call on record that ends one
@@ -272,6 +272,106 @@ describe("generic HiLink: the access point and the secondary carriers a model no
         telemetry?.rf.lteScc.map(({ band, arfcn, pci, bandwidthMhz, rsrpDbm }) => ({ band, arfcn, pci, bandwidthMhz, rsrpDbm })),
         [{ band: "B3", arfcn: 1850, pci: 142, bandwidthMhz: 20, rsrpDbm: -85 }]
       );
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("generic HiLink: a 5G router whose net-mode reports networkOption (what the H168-383 did on 2026-11-13)", () => {
+  const FIVE_G_MODE = "<response><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>800800C5</LTEBand><networkOption>2</networkOption><LTEBandOption>0</LTEBandOption></response>";
+  const FIVE_G_LIST =
+    "<response><AccessList><Access>00</Access><Access>08</Access><Access>03</Access></AccessList><BandList></BandList><LTEBandList><LTEBand><Name>LTE</Name><Value>800800C5</Value></LTEBand></LTEBandList></response>";
+  const PAGE_LIST = "<config><net_mode_list>0;1;2;3;4;5</net_mode_list></config>";
+  const fiveG = (extra: Readonly<Record<string, string>> = {}) =>
+    router(undefined, {
+      endpoints: {
+        "/api/net/net-mode-list": FIVE_G_LIST,
+        "/api/net/net-mode": FIVE_G_MODE,
+        "/api/global/module-switch": MODULE_SWITCH,
+        "/config/network/net-mode.xml": PAGE_LIST,
+        "/api/net/net-feature-switch": "<response><net_mode_enable>1</net_mode_enable><plmn_list_combine_enable>1</plmn_list_combine_enable></response>",
+        ...extra,
+      },
+    });
+
+  it("names the mode by the field its code goes with, and offers what the router's page lists", () => {
+    const answer = (mode: string, option: string, bandOption: string) => `<response><NetworkMode>${mode}</NetworkMode><networkOption>${option}</networkOption><LTEBandOption>${bandOption}</LTEBandOption></response>`;
+    assert.deepEqual(
+      [answer("00", "1", "0"), answer("00", "0", "0"), answer("00", "2", "1"), answer("03", "2", "0"), answer("03", "2", "2"), answer("03", "2", "1"), answer("08", "2", "0")].map(optionModeOf),
+      ["nr_sa", "nr_nsa", "auto", "lte", "lte_tdd", "lte_fdd", null]
+    );
+    assert.deepEqual(optionModesOffered(PAGE_LIST), ["nr_sa", "nr_nsa", "auto", "lte", "lte_tdd", "lte_fdd"]);
+    assert.deepEqual(optionModesOffered("<config><net_mode_list>2;3</net_mode_list></config>"), ["auto", "lte"]);
+    assert.deepEqual(optionModesOffered("<config></config>"), [], "no list, no mode");
+    assert.deepEqual(optionModesOffered(null), []);
+    assert.deepEqual([usesModeOption(FIVE_G_MODE), usesModeOption(FIVE_G_MODE.replace(/<networkOption>.*<\/LTEBandOption>/, "")), usesModeOption(null)], [true, false, false]);
+    assert.deepEqual([modeOptionOf(FIVE_G_MODE), modeOptionOf(answer("03", "2", "1")), modeOptionOf("<response><NetworkMode>00</NetworkMode></response>")], [{ networkOption: "2" }, { LTEBandOption: "1" }, {}]);
+  });
+
+  it("reads and switches the mode with the two fields its page sends, and puts it back the same way", async () => {
+    const fx = fiveG();
+    try {
+      assert.ok(await fx.core.monitor.identifyDevice());
+      assert.deepEqual((await fx.core.controls.readCellular())?.networkMode, { current: "auto", options: ["nr_sa", "nr_nsa", "auto", "lte", "lte_tdd", "lte_fdd"] });
+      const result = await fx.core.controls.setNetworkMode("lte", { confirm: true });
+      assert.deepEqual(fx.bodies("/api/net/net-mode"), ["<request><NetworkMode>03</NetworkMode><LTEBandOption>0</LTEBandOption></request>"]);
+      assert.deepEqual([result.networkMode, result.cellular?.networkMode?.current, fx.core.scheduler.genericWrites.at(-1)?.readback], ["lte", "lte", "match"]);
+      assert.deepEqual(fx.linkChanges.at(-1)?.change, { kind: "network_mode", previous: "auto" });
+      await fx.core.controls.setNetworkMode("nr_sa", { confirm: true });
+      assert.equal(fx.bodies("/api/net/net-mode").at(-1), "<request><NetworkMode>00</NetworkMode><networkOption>1</networkOption></request>");
+      await assert.rejects(fx.core.controls.setNetworkMode("gsm", { confirm: true }), /offers no "gsm" network mode \(it offers nr_sa, nr_nsa, auto, lte, lte_tdd, lte_fdd\)/);
+      fx.cpe.setConnectionStatus("902");
+      assert.deepEqual(await fx.core.controls.revertLinkChange({ kind: "network_mode", previous: "auto" }), { applied: true });
+      assert.equal(fx.bodies("/api/net/net-mode").at(-1), "<request><NetworkMode>00</NetworkMode><networkOption>2</networkOption></request>");
+      assert.deepEqual([fx.cpe.settings.netMode.NetworkMode, fx.cpe.settings.netMode.networkOption], ["00", "2"]);
+    } finally {
+      await fx.cleanup();
+    }
+    // A page without its list offers no mode: nothing is written
+    const bare = fiveG({ "/config/network/net-mode.xml": "<config></config>" });
+    try {
+      assert.ok(await bare.core.monitor.identifyDevice());
+      await assert.rejects(bare.core.controls.setNetworkMode("lte", { confirm: true }), /offers no "lte" network mode \(it offers none FengSui can read\)/);
+      assert.deepEqual(bare.bodies("/api/net/net-mode"), []);
+    } finally {
+      await bare.cleanup();
+    }
+  });
+
+  it("locks LTE bands with the mode's own field after the bands, so the mode stays", async () => {
+    const fx = fiveG();
+    try {
+      assert.ok(await fx.core.monitor.identifyDevice());
+      await fx.core.controls.lockBands({ lteBands: [1, 3] });
+      assert.deepEqual(fx.bodies("/api/net/net-mode"), ["<request><NetworkMode>00</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>5</LTEBand><networkOption>2</networkOption></request>"]);
+      await fx.core.controls.setNetworkMode("lte_fdd", { confirm: true });
+      await fx.core.controls.lockBands({ lteBands: [3] });
+      assert.equal(fx.bodies("/api/net/net-mode").at(-1), "<request><NetworkMode>03</NetworkMode><NetworkBand>3FFFFFFF</NetworkBand><LTEBand>4</LTEBand><LTEBandOption>1</LTEBandOption></request>");
+      assert.deepEqual([fx.cpe.settings.netMode.NetworkMode, fx.cpe.settings.netMode.LTEBandOption, fx.cpe.settings.netMode.LTEBand], ["03", "1", "4"], "the mode stayed 4G FDD only");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("holds the session of a write the router answers once done for longer than the router may take", () => {
+    // The H168-383's own page waits 240 s for a scan and a selection, 90 s for a mode; it took 76 s, 27 s and about one
+    assert.deepEqual([OPERATOR_SCAN_TIMEOUT_MS, OPERATOR_SELECT_TIMEOUT_MS, NETWORK_MODE_TIMEOUT_MS], [240_000, 240_000, 90_000]);
+    for (const action of ["scan_operators", "select_operator", "auto_restore_operator"] as const) assert.ok((CONTROL_HOLD_MS[action] ?? 0) > OPERATOR_SCAN_TIMEOUT_MS, action);
+    for (const action of ["set_network_mode", "auto_restore_network_mode"] as const) assert.ok((CONTROL_HOLD_MS[action] ?? 0) > NETWORK_MODE_TIMEOUT_MS, action);
+    assert.equal(CONTROL_HOLD_MS.reboot_cpe, undefined, "every other write keeps the client's bound");
+  });
+
+  it("selects an operator with Rat 255 where the router lists each operator once, and reads the clear back", async () => {
+    const fx = fiveG();
+    try {
+      assert.ok(await fx.core.monitor.identifyDevice());
+      await fx.core.controls.selectOperator({ mode: "manual", plmn: "27202", rat: "3G" }, { confirm: true });
+      assert.deepEqual(fx.bodies("/api/net/register"), ["<request><Mode>1</Mode><Plmn>27202</Plmn><Rat>255</Rat></request>"]);
+      await fx.core.controls.selectOperator({ mode: "auto" }, { confirm: true });
+      assert.equal(fx.bodies("/api/net/register").at(-1), "<request><Mode>0</Mode><Plmn></Plmn><Rat></Rat></request>");
+      await fx.core.controls.resetTraffic({ confirm: true });
+      assert.deepEqual([fx.cpe.stats.trafficClears, fx.core.scheduler.genericWrites.at(-1)?.readback], [1, "match"]);
     } finally {
       await fx.cleanup();
     }

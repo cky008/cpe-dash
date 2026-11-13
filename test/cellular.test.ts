@@ -33,7 +33,7 @@ const invalid = (fn: () => unknown, pattern: RegExp): void => {
 
 describe("cellular settings: what may be asked for", () => {
   it("takes the network modes FengSui names and nothing else", () => {
-    assert.deepEqual([...NETWORK_MODES], ["auto", "nr_sa", "nr_nsa", "nr_lte", "lte", "lte_wcdma", "wcdma", "gsm"]);
+    assert.deepEqual([...NETWORK_MODES], ["auto", "nr_sa", "nr_nsa", "nr_lte", "lte", "lte_tdd", "lte_fdd", "lte_wcdma", "wcdma", "gsm"]);
     for (const mode of NETWORK_MODES) assert.equal(readNetworkMode(mode), mode);
     assert.equal(isNetworkMode("5g"), false);
     invalid(() => readNetworkMode("08"), /"mode" must be one of auto, nr_sa/);

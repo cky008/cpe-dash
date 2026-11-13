@@ -114,6 +114,20 @@ export class BrowserSessionYieldedError extends Error {
   }
 }
 
+/**
+ * Writes the router answers only once it has done them, which may take minutes: an operator scan or
+ * selection (the H168-383's own page waits 240 s for each; the router took 76 s and 27 s on
+ * 2026-11-13) and a network mode change (its page waits 90 s). Their session may be held this long
+ * instead of the client's bound; every other write keeps it.
+ */
+export const CONTROL_HOLD_MS: Readonly<Partial<Record<ControlAction, number>>> = {
+  scan_operators: 250_000,
+  select_operator: 250_000,
+  auto_restore_operator: 250_000,
+  set_network_mode: 120_000,
+  auto_restore_network_mode: 120_000,
+};
+
 /** A control was refused because another FengSui daemon drives this CPE (`409 PEER_DAEMON_ACTIVE`). */
 export class PeerDaemonStandbyError extends Error {
   readonly statusCode = 409;
@@ -463,6 +477,7 @@ export class MutexSessionScheduler extends EventEmitter {
     device: this.device,
     noteRouterModel: (model, softwareVersion) => this.noteRouterModel(model, softwareVersion),
     readSection: (section, read) => this.readSection(section, read),
+    latestTelemetry: () => this.stateStore.getState().latestTelemetry,
   };
 
   /**
@@ -977,7 +992,7 @@ export class MutexSessionScheduler extends EventEmitter {
           gate.write = write;
           return await fn(session, write);
         },
-        { retriesOnOccupied: 0 }
+        { retriesOnOccupied: 0, ...(CONTROL_HOLD_MS[actionName] === undefined ? {} : { maxHoldMs: CONTROL_HOLD_MS[actionName] }) }
       )
     );
   }

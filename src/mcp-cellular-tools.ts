@@ -42,7 +42,7 @@ const WRITE_TOOLS: ReadonlyArray<WriteTool> = [
     definition: {
       name: "set_network_mode",
       title: "Switch the Network Mode",
-      description: `Set what the router may attach to: auto, nr_sa (5G standalone only), nr_nsa (5G with a 4G anchor), nr_lte (5G or 4G), lte (4G only), lte_wcdma (4G or 3G), wcdma (3G only) or gsm (2G only). Only a mode get_cellular_settings lists under networkMode.options is taken. A mode the area has no coverage for takes the router offline. ${FALLBACK}`,
+      description: `Set what the router may attach to: auto, nr_sa (5G standalone only), nr_nsa (5G with a 4G anchor), nr_lte (5G or 4G), lte (4G only), lte_tdd (4G TDD only), lte_fdd (4G FDD only), lte_wcdma (4G or 3G), wcdma (3G only) or gsm (2G only). Only a mode get_cellular_settings lists under networkMode.options is taken. A mode the area has no coverage for takes the router offline. ${FALLBACK}`,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       inputSchema: { type: "object", properties: { mode: { type: "string", enum: [...NETWORK_MODES] }, confirm: CONFIRM }, required: ["mode", "confirm"], additionalProperties: false },
     },

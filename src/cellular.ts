@@ -17,10 +17,11 @@ type Args = Readonly<Record<string, unknown>>;
 
 /**
  * What the router may attach to: `auto` (whatever it finds), 5G standalone only (`nr_sa`), 5G next to
- * a 4G anchor (`nr_nsa`), 5G or 4G but no 3G (`nr_lte`), 4G only (`lte`), 4G or 3G (`lte_wcdma`), 3G
- * only (`wcdma`), 2G only (`gsm`). A router offers some of them.
+ * a 4G anchor (`nr_nsa`), 5G or 4G but no 3G (`nr_lte`), 4G only (`lte`), 4G TDD only (`lte_tdd`), 4G
+ * FDD only (`lte_fdd`), 4G or 3G (`lte_wcdma`), 3G only (`wcdma`), 2G only (`gsm`). A router offers
+ * some of them.
  */
-export const NETWORK_MODES = ["auto", "nr_sa", "nr_nsa", "nr_lte", "lte", "lte_wcdma", "wcdma", "gsm"] as const;
+export const NETWORK_MODES = ["auto", "nr_sa", "nr_nsa", "nr_lte", "lte", "lte_tdd", "lte_fdd", "lte_wcdma", "wcdma", "gsm"] as const;
 
 export type NetworkMode = (typeof NETWORK_MODES)[number];
 

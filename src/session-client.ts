@@ -84,6 +84,12 @@ export interface WithSessionOptions {
   /** Logins tried again when the admin slot is occupied (default 2); always 0 while respecting the browser. */
   retriesOnOccupied?: number;
   occupiedRetryDelayMs?: number;
+  /**
+   * This session's upper bound instead of `sessionMaxHoldMs`: a write the router answers only once it
+   * has searched or registered (an operator scan or selection) takes minutes, as the router's own
+   * page lets it. Never shorter than the client's own bound.
+   */
+  maxHoldMs?: number;
 }
 
 const activeSession = new AsyncLocalStorage<SessionClient<unknown>>();
@@ -308,7 +314,7 @@ export class SessionClient<S> {
       const cancel = new AbortController();
       this.#activeCancel = cancel;
       try {
-        return await this.#runSession(fn, cancel.signal, { respectBrowser, retriesOnOccupied, retryBaseDelayMs });
+        return await this.#runSession(fn, cancel.signal, { respectBrowser, retriesOnOccupied, retryBaseDelayMs, maxHoldMs: Math.max(this.sessionMaxHoldMs, options.maxHoldMs ?? 0) });
       } finally {
         if (this.#activeCancel === cancel) this.#activeCancel = null;
       }
@@ -330,7 +336,7 @@ export class SessionClient<S> {
   async #runSession<T>(
     fn: (session: S) => Promise<T>,
     cancel: AbortSignal,
-    opts: { respectBrowser: boolean; retriesOnOccupied: number; retryBaseDelayMs: number }
+    opts: { respectBrowser: boolean; retriesOnOccupied: number; retryBaseDelayMs: number; maxHoldMs: number }
   ): Promise<SessionExecutionOutcome<T>> {
     const username = this.#username;
     const password = this.#password;
@@ -341,7 +347,7 @@ export class SessionClient<S> {
       const deadline = new AbortController();
       // Deliberately not unref()'d: a session waiting only on its deadline (a hung request or piece of
       // work) must keep the event loop alive until the deadline frees the slot; `finally` clears it
-      const timer = setTimeout(() => deadline.abort(new CpeSessionDeadlineError(this.sessionMaxHoldMs)), this.sessionMaxHoldMs);
+      const timer = setTimeout(() => deadline.abort(new CpeSessionDeadlineError(opts.maxHoldMs)), opts.maxHoldMs);
       const forwardCancel = (): void => deadline.abort(cancel.reason);
       cancel.addEventListener("abort", forwardCancel, { once: true });
       const attempt = this.protocol.attempt({

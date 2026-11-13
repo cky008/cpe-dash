@@ -868,7 +868,7 @@ export type AlertCode =
 **读取**
 
 - `GET /api/cellular`：上一次读到的蜂窝设置；`POST /api/cellular/refresh`：马上读一次（一个读会话，只读令牌可用）。应答 `CellularEndpointResponse`：
-  - `cellular.networkMode`：`{ current, options }`，当前制式与这台路由器能设成的制式（`NetworkMode`：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_wcdma`、`wcdma`、`gsm`）
+  - `cellular.networkMode`：`{ current, options }`，当前制式与这台路由器能设成的制式（`NetworkMode`：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_tdd`、`lte_fdd`、`lte_wcdma`、`wcdma`、`gsm`；报告 `networkOption` 的华为 5G 机型提供 `nr_sa`、`nr_nsa`、`auto`、`lte`、`lte_tdd`、`lte_fdd` 中它管理页列出的）
   - `cellular.simSlots`：能切换的卡槽（`{ kind: "physical" | "embedded", index }`）；当前卡槽、PIN 状态与剩余次数、飞行模式、漫游开关随 5 秒轮询在 `telemetry.status` 里
   - `cellular.operator`：`{ selection: "auto" | "manual" | null, plmn }`
   - `cellular.apn`：`{ mode, apn, ipType, auth, hasUsername }`，从不含密码，用户名只说有没有

@@ -20,6 +20,8 @@ export const MODE_KEYS = {
   nr_nsa: "mode_nr_nsa",
   nr_lte: "mode_nr_lte",
   lte: "mode_lte",
+  lte_tdd: "mode_lte_tdd",
+  lte_fdd: "mode_lte_fdd",
   lte_wcdma: "mode_lte_wcdma",
   wcdma: "mode_wcdma",
   gsm: "mode_gsm",
