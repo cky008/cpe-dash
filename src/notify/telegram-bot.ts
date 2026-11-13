@@ -6,8 +6,9 @@ import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encry
 import { firmwareReviewPrompt } from "../firmware.ts";
 import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
-import { gateRefuses } from "../device-access.ts";
-import { BrowserSessionYieldedError, DeviceReadOnlyError } from "../scheduler.ts";
+import { type WriteFeature, gateRefuses } from "../device-access.ts";
+import { type NetworkMode, type UssdRequest, isNetworkMode, readUssdRequest } from "../cellular.ts";
+import { BrowserSessionYieldedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/codec.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
@@ -163,7 +164,7 @@ const TEXT = {
     reset_limited: "<b>请稍后再试</b>：每小时最多申请 3 次重置码。",
     auth_limited: "<b>验证暂时停用</b>\n\n失败次数过多，请 10 分钟后再试。",
     help:
-      "<b>烽燧 · 5G CPE 助手</b>\n\n<b>短信</b>\n/new 引导式发短信\n/inbox 最近会话\n/unread 未读短信\n/chat <code>号码</code> 查看对话\n/send <code>号码 内容</code> 快速发送（需确认）\n/contacts <code>[关键词]</code> 通讯录\n/contact <code>号码 姓名</code> 添加联系人\n/sync 立即同步\n\n<b>设备</b>\n/status 信号、流量与短信概况\n/alerts 最近告警\n/mute <code>30m|2h|1d|off</code> 告警静音\n\n直接<b>回复</b>任意短信通知即可回信；发送 <code>.vcf</code> 文件可导入通讯录。",
+      "<b>烽燧 · 5G CPE 助手</b>\n\n<b>短信</b>\n/new 引导式发短信\n/inbox 最近会话\n/unread 未读短信\n/chat <code>号码</code> 查看对话\n/send <code>号码 内容</code> 快速发送（需确认）\n/contacts <code>[关键词]</code> 通讯录\n/contact <code>号码 姓名</code> 添加联系人\n/sync 立即同步\n\n<b>设备</b>\n/status 信号、流量与短信概况\n/alerts 最近告警\n/mute <code>30m|2h|1d|off</code> 告警静音\n\n<b>蜂窝</b>\n/netmode 网络制式\n/airplane 飞行模式\n/ussd <code>代码</code> 发送 USSD 代码（比如查余额）\n\n直接<b>回复</b>任意短信通知即可回信；发送 <code>.vcf</code> 文件可导入通讯录。",
     new_sms: "📩 <b>新短信</b>",
     firmware_prompt: "🤖 把下面这段提示词原样交给 Claude Code（在 cpe-dash 仓库里运行），让它核对新固件的兼容性：",
     otp: "🔑 验证码 <code>{code}</code>",
@@ -251,6 +252,50 @@ const TEXT = {
     cmd_sync: "立即同步短信",
     cmd_mute: "告警静音",
     cmd_help: "使用说明",
+    cmd_netmode: "网络制式",
+    cmd_airplane: "飞行模式",
+    cmd_ussd: "发送 USSD 代码",
+    cell_refused: "🔒 {what}：{reason}",
+    reason_unavailable: "烽燧在这台路由器（{model}）上做不了这项。",
+    reason_disabled: "你在控制台「设置 → 设备」里关掉了这项。",
+    cell_working: "⏳ 正在发给路由器…",
+    cell_expired: "这张卡片已经过期，请重新发送指令。",
+    cell_failed: "⚠️ {what}没有完成：{reason}",
+    netmode_title: "网络制式",
+    netmode_unknown: "读不到这台路由器的网络制式，请稍后再试。",
+    netmode_pick: "<b>网络制式</b>\n\n现在：{current}\n选一个新的：",
+    netmode_confirm: "<b>改成「{mode}」？</b>\n\n路由器会重新搜网，可能断网一小会儿。改完 3 分钟网络还没恢复，烽燧会把它改回原来的制式。",
+    netmode_done: "✅ 网络制式已改成「{mode}」。",
+    airplane_title: "飞行模式",
+    airplane_state: "<b>飞行模式</b>\n\n现在：{state}",
+    airplane_on: "开",
+    airplane_off: "关",
+    airplane_unknown: "路由器没有报告",
+    airplane_confirm_on: "<b>打开飞行模式？</b>\n\n路由器会断开移动网络，烽燧不会自动关掉它。如果运行烽燧的设备也经这台路由器上网，Telegram 也会跟着断开，那时只能回到烽燧控制台里关掉。",
+    airplane_confirm_off: "<b>关闭飞行模式？</b>\n\n路由器会重新连上移动网络。",
+    airplane_done_on: "✈️ 飞行模式已打开。要关掉，发送 /airplane，或者在控制台的控制抽屉里关。",
+    airplane_done_off: "✅ 飞行模式已关闭。",
+    ussd_title: "USSD",
+    ussd_usage: "用法：/ussd <code>代码</code>，例如 <code>*100#</code>（只能有数字、* 和 #，最多 40 个）。",
+    ussd_confirm: "<b>发送 USSD 代码 <code>{code}</code>？</b>\n\n运营商会照这个代码办事，有的代码会扣费或改套餐。只发一次。",
+    ussd_answer: "📨 <b>运营商的回复</b>\n\n<blockquote>{text}</blockquote>",
+    ussd_awaits: "\n\n运营商在等你回复：直接回复这条消息（只能有数字、* 和 #），或者点「结束」。",
+    ussd_no_answer: "运营商没有回复。",
+    ussd_ended: "USSD 会话已结束。",
+    btn_confirm: "✅ 确认",
+    btn_airplane_on: "✈️ 打开飞行模式",
+    btn_airplane_off: "📶 关闭飞行模式",
+    btn_ussd_send: "📤 发送",
+    btn_ussd_end: "✖ 结束",
+    mode_auto: "自动",
+    mode_nr_sa: "仅 5G（SA）",
+    mode_nr_nsa: "5G（NSA）+ 4G",
+    mode_nr_lte: "5G + 4G",
+    mode_lte: "仅 4G",
+    mode_lte_wcdma: "4G + 3G",
+    mode_wcdma: "仅 3G",
+    mode_gsm: "仅 2G",
+    mode_unknown: "路由器没有报告",
   },
   en: {
     topic_gone:
@@ -273,7 +318,7 @@ const TEXT = {
     reset_limited: "<b>Try again later</b>: at most 3 reset codes an hour.",
     auth_limited: "<b>Verification paused</b>\n\nToo many failures, try again in 10 minutes.",
     help:
-      "<b>FengSui · 5G CPE assistant</b>\n\n<b>SMS</b>\n/new guided send\n/inbox recent conversations\n/unread unread messages\n/chat <code>number</code> show a conversation\n/send <code>number text</code> quick send (with confirmation)\n/contacts <code>[query]</code> contact book\n/contact <code>number name</code> add a contact\n/sync sync now\n\n<b>Device</b>\n/status signal, traffic and SMS overview\n/alerts recent alerts\n/mute <code>30m|2h|1d|off</code> mute alerts\n\n<b>Reply</b> to any SMS notification to answer it; send a <code>.vcf</code> file to import contacts.",
+      "<b>FengSui · 5G CPE assistant</b>\n\n<b>SMS</b>\n/new guided send\n/inbox recent conversations\n/unread unread messages\n/chat <code>number</code> show a conversation\n/send <code>number text</code> quick send (with confirmation)\n/contacts <code>[query]</code> contact book\n/contact <code>number name</code> add a contact\n/sync sync now\n\n<b>Device</b>\n/status signal, traffic and SMS overview\n/alerts recent alerts\n/mute <code>30m|2h|1d|off</code> mute alerts\n\n<b>Cellular</b>\n/netmode network mode\n/airplane airplane mode\n/ussd <code>code</code> send a USSD code (a balance check, say)\n\n<b>Reply</b> to any SMS notification to answer it; send a <code>.vcf</code> file to import contacts.",
     new_sms: "📩 <b>New SMS</b>",
     firmware_prompt: "🤖 Hand this prompt to Claude Code (run it in the cpe-dash repository) to check the new firmware:",
     otp: "🔑 Code <code>{code}</code>",
@@ -361,6 +406,50 @@ const TEXT = {
     cmd_sync: "Sync SMS now",
     cmd_mute: "Mute alerts",
     cmd_help: "Help",
+    cmd_netmode: "Network mode",
+    cmd_airplane: "Airplane mode",
+    cmd_ussd: "Send a USSD code",
+    cell_refused: "🔒 {what}: {reason}",
+    reason_unavailable: "FengSui cannot do this on this router ({model}).",
+    reason_disabled: "You turned this off under Settings → Device in the console.",
+    cell_working: "⏳ Sending it to the router…",
+    cell_expired: "This card has expired; send the command again.",
+    cell_failed: "⚠️ {what} did not go through: {reason}",
+    netmode_title: "Network mode",
+    netmode_unknown: "Could not read this router's network mode; try again in a moment.",
+    netmode_pick: "<b>Network mode</b>\n\nNow: {current}\nPick a new one:",
+    netmode_confirm: "<b>Switch to \"{mode}\"?</b>\n\nThe router searches for the network again, so the internet may drop for a moment. If it is still down 3 minutes later, FengSui switches back to the mode it had.",
+    netmode_done: "✅ The network mode is now \"{mode}\".",
+    airplane_title: "Airplane mode",
+    airplane_state: "<b>Airplane mode</b>\n\nNow: {state}",
+    airplane_on: "on",
+    airplane_off: "off",
+    airplane_unknown: "not reported by the router",
+    airplane_confirm_on: "<b>Turn airplane mode on?</b>\n\nThe router drops the mobile network, and FengSui never turns it back off by itself. If the machine FengSui runs on reaches the internet through this router, Telegram goes too, and only FengSui's console can turn it off then.",
+    airplane_confirm_off: "<b>Turn airplane mode off?</b>\n\nThe router connects to the mobile network again.",
+    airplane_done_on: "✈️ Airplane mode is on. To turn it off, send /airplane or use the controls drawer in the console.",
+    airplane_done_off: "✅ Airplane mode is off.",
+    ussd_title: "USSD",
+    ussd_usage: "Usage: /ussd <code>code</code>, for example <code>*100#</code> (digits, * and # only, at most 40).",
+    ussd_confirm: "<b>Send the USSD code <code>{code}</code>?</b>\n\nThe operator acts on it, and some codes cost money or change your plan. It is sent once.",
+    ussd_answer: "📨 <b>The operator's answer</b>\n\n<blockquote>{text}</blockquote>",
+    ussd_awaits: "\n\nThe operator awaits an answer: reply to this message (digits, * and # only), or tap End.",
+    ussd_no_answer: "The operator did not answer.",
+    ussd_ended: "The USSD session is over.",
+    btn_confirm: "✅ Confirm",
+    btn_airplane_on: "✈️ Turn airplane mode on",
+    btn_airplane_off: "📶 Turn airplane mode off",
+    btn_ussd_send: "📤 Send",
+    btn_ussd_end: "✖ End",
+    mode_auto: "Automatic",
+    mode_nr_sa: "5G only (SA)",
+    mode_nr_nsa: "5G (NSA) + 4G",
+    mode_nr_lte: "5G + 4G",
+    mode_lte: "4G only",
+    mode_lte_wcdma: "4G + 3G",
+    mode_wcdma: "3G only",
+    mode_gsm: "2G only",
+    mode_unknown: "not reported by the router",
   },
 } as const satisfies Record<SupportedLocale, Record<string, string>>;
 
@@ -607,7 +696,7 @@ interface WizardSession {
 
 export interface TelegramBotOptions {
   api: TelegramApi;
-  core: Pick<FengSuiCore, "scheduler" | "monitor">;
+  core: Pick<FengSuiCore, "scheduler" | "monitor" | "controls">;
   state: TelegramStateStore;
   /** SMS features are hidden when `null` (SMS_ENABLED=false). */
   sms: SmsService | null;
@@ -639,10 +728,22 @@ export interface TelegramBotOptions {
 /** Buttons that would write to the router (send, mark read, delete). */
 const WRITE_CALLBACKS: ReadonlySet<string> = new Set(["wizstart", "wizsend", "read", "readall", "del", "delok"]);
 
+/** The cellular cards' buttons: pick, confirm, cancel, and end a USSD session. */
+const CELLULAR_CALLBACKS: ReadonlySet<string> = new Set(["nm", "nmok", "ap", "apok", "ussdok", "ussdend", "opno"]);
+
+/** How long a cellular write waits for its confirm button. */
+const PENDING_OP_TTL_MS = 2 * 60_000;
+
+/** How long an operator's USSD answer takes a reply (the network ends a session left waiting long before). */
+const USSD_REPLY_TTL_MS = 5 * 60_000;
+
+type PendingCellularOpBody = { kind: "netmode"; mode: NetworkMode } | { kind: "airplane"; enabled: boolean } | { kind: "ussd"; request: Exclude<UssdRequest, { kind: "cancel" }> };
+type PendingCellularOp = PendingCellularOpBody & { chatId: string; expiresAt: number };
+
 export class TelegramBot implements NotificationChannel {
   readonly name = "telegram";
   readonly api: TelegramApi;
-  readonly core: Pick<FengSuiCore, "scheduler" | "monitor">;
+  readonly core: Pick<FengSuiCore, "scheduler" | "monitor" | "controls">;
   readonly state: TelegramStateStore;
   readonly sms: SmsService | null;
   readonly locale: SupportedLocale;
@@ -670,6 +771,10 @@ export class TelegramBot implements NotificationChannel {
   #lifecycle: AbortController | null = null;
   #handlers = new Set<Promise<void>>();
   #wizards = new Map<string, WizardSession>();
+  /** Cellular writes waiting for their confirm button, by one-time token (in memory only: a restart forgets them). */
+  #pendingOps = new Map<string, PendingCellularOp>();
+  /** The operator's USSD answers that await a reply, by `chat:message` (in memory only), until they expire. */
+  #ussdThreads = new Map<string, number>();
   #authFailures = new Map<string, number[]>();
   /** Notifications that failed on a network error, oldest first (delivered once Telegram answers again). */
   #outbox: PendingNotification[] = [];
@@ -706,7 +811,7 @@ export class TelegramBot implements NotificationChannel {
     this.#lifecycle = new AbortController();
     await this.api
       .call("setMyCommands", {
-        commands: (["new", "inbox", "unread", "status", "alerts", "contacts", "sync", "mute", "help"] as const).map(
+        commands: (["new", "inbox", "unread", "status", "alerts", "contacts", "sync", "mute", "netmode", "airplane", "ussd", "help"] as const).map(
           (command) => ({ command, description: this.#tx(`cmd_${command}`) })
         ),
       })
@@ -1092,6 +1197,10 @@ export class TelegramBot implements NotificationChannel {
     }
     if (!text) return;
 
+    if (!text.startsWith("/") && msg.reply_to_message?.message_id !== undefined && this.#ussdThreadOpen(chatId, msg.reply_to_message.message_id)) {
+      await this.#cmdUssd(to, text, "reply");
+      return;
+    }
     if (!text.startsWith("/") && msg.reply_to_message?.message_id !== undefined) {
       const target = this.state.replyTarget(chatId, msg.reply_to_message.message_id);
       if (target) {
@@ -1138,6 +1247,12 @@ export class TelegramBot implements NotificationChannel {
         return await this.#cmdAlerts(to);
       case "mute":
         return await this.#cmdMute(to, rest);
+      case "netmode":
+        return await this.#cmdNetmode(to);
+      case "airplane":
+        return await this.#cmdAirplane(to);
+      case "ussd":
+        return await this.#cmdUssd(to, rest, "send");
       case "cancel":
         this.#wizards.delete(to.chatId);
         return await this.#reply(to, "wiz_cancelled");
@@ -1203,6 +1318,7 @@ export class TelegramBot implements NotificationChannel {
         if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
         return;
       }
+      if (CELLULAR_CALLBACKS.has(action)) return await this.#cellularCallback(to, action, arg, messageId, answer);
       if (!sms) {
         await answer(this.#plain("sms_disabled"), true);
         return;
@@ -1431,6 +1547,178 @@ export class TelegramBot implements NotificationChannel {
     const until = this.#now() + Math.min(MAX_MUTE_MS, Number(match[1]) * unitMs);
     this.state.setAlertsMutedUntil(until);
     await this.#send(to, this.#tx("mute_set", { until: new Date(until).toISOString() }));
+  }
+
+  // ----------------------------------------------------------------- cellular settings (each write behind a confirm card)
+
+  /**
+   * Say why the gate will not let this write through on this router (turned off in the console, or
+   * nothing FengSui can do there), and resolve `true`; `false` when it may go ahead. A router whose
+   * model is not known yet goes ahead: the write confirms the model in its own session.
+   */
+  async #refuseCellular(to: ReplyTo, feature: WriteFeature, what: TextKey): Promise<boolean> {
+    const device = this.core.scheduler.device;
+    const access = device.writeAccess(feature);
+    if (!gateRefuses(access)) return false;
+    const reason = access === "disabled" ? this.#plain("reason_disabled") : this.#plain("reason_unavailable", { model: device.snapshot().model ?? "?" });
+    await this.#reply(to, "cell_refused", { what: this.#plain(what), reason });
+    return true;
+  }
+
+  /** A write waiting for its confirm button: a one-time token, bound to the chat, valid for two minutes. */
+  #holdOp(chatId: string, op: PendingCellularOpBody): string {
+    const nowMs = this.#now();
+    for (const [token, pending] of this.#pendingOps) if (pending.expiresAt <= nowMs) this.#pendingOps.delete(token);
+    const token = crypto.randomBytes(8).toString("hex");
+    this.#pendingOps.set(token, { ...op, chatId, expiresAt: nowMs + PENDING_OP_TTL_MS } as PendingCellularOp);
+    return token;
+  }
+
+  /** Take a write's token (once): `null` when it expired, was used, or belongs to another chat. */
+  #takeOp(chatId: string, token: string): PendingCellularOp | null {
+    const pending = this.#pendingOps.get(token);
+    this.#pendingOps.delete(token);
+    return pending && pending.chatId === chatId && pending.expiresAt > this.#now() ? pending : null;
+  }
+
+  #modeName(mode: NetworkMode | null | undefined): string {
+    return this.#plain(mode ? (`mode_${mode}` as TextKey) : "mode_unknown");
+  }
+
+  /** `/netmode`: the mode now and the router's other modes as buttons; the one picked asks for a confirmation. */
+  async #cmdNetmode(to: ReplyTo): Promise<void> {
+    if (await this.#refuseCellular(to, "networkMode", "netmode_title")) return;
+    const cellular = await this.core.monitor.refreshCellular().catch(() => null);
+    const modes = cellular?.networkMode;
+    const options = (modes?.options ?? []).filter((mode) => mode !== modes?.current);
+    if (!modes || options.length === 0) return await this.#reply(to, "netmode_unknown");
+    const buttons = options.flatMap((mode) => {
+      const data = callbackData("nm", mode);
+      return data ? [{ text: this.#modeName(mode), callback_data: data }] : [];
+    });
+    const rows: InlineKeyboard["inline_keyboard"] = [];
+    for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+    await this.#send(to, this.#tx("netmode_pick", { current: this.#modeName(modes.current) }), { inline_keyboard: rows });
+  }
+
+  /** `/airplane`: whether it is on now (from the last poll) and the switch the other way; both when the router does not say. */
+  async #cmdAirplane(to: ReplyTo): Promise<void> {
+    if (await this.#refuseCellular(to, "airplaneSwitch", "airplane_title")) return;
+    const now = this.core.monitor.getCachedTelemetry()?.status?.airplaneMode;
+    const state = now === true ? "airplane_on" : now === false ? "airplane_off" : "airplane_unknown";
+    const row = [
+      ...(now !== true ? [{ text: this.#tx("btn_airplane_on"), callback_data: "ap:1" }] : []),
+      ...(now !== false ? [{ text: this.#tx("btn_airplane_off"), callback_data: "ap:0" }] : []),
+    ];
+    await this.#send(to, this.#tx("airplane_state", { state: this.#plain(state) }), { inline_keyboard: [row] });
+  }
+
+  /**
+   * `/ussd <code>`, or a reply to an answer that awaits one: the code is checked (digits, `*` and `#`)
+   * and asked to be confirmed. Neither it nor the operator's answer is logged anywhere.
+   */
+  async #cmdUssd(to: ReplyTo, code: string, kind: "send" | "reply"): Promise<void> {
+    if (await this.#refuseCellular(to, "ussd", "ussd_title")) return;
+    let request: UssdRequest;
+    try {
+      request = readUssdRequest({ action: kind, code: code.trim() });
+    } catch {
+      return await this.#reply(to, "ussd_usage");
+    }
+    if (request.kind === "cancel") return;
+    const token = this.#holdOp(to.chatId, { kind: "ussd", request });
+    await this.#send(to, this.#tx("ussd_confirm", { code: request.code }), {
+      inline_keyboard: [[{ text: this.#tx("btn_ussd_send"), callback_data: `ussdok:${token}` }, { text: this.#tx("btn_cancel"), callback_data: `opno:${token}` }]],
+    });
+  }
+
+  #ussdThreadOpen(chatId: string, messageId: number): boolean {
+    const key = `${chatId}:${messageId}`;
+    const until = this.#ussdThreads.get(key);
+    if (until === undefined) return false;
+    if (until > this.#now()) return true;
+    this.#ussdThreads.delete(key);
+    return false;
+  }
+
+  /** The buttons of the cellular cards: a pick asks for a confirmation, a confirmation writes once. */
+  async #cellularCallback(to: ReplyTo, action: string, arg: string, messageId: number | undefined, answer: (text?: string, alert?: boolean) => Promise<unknown>): Promise<void> {
+    const chatId = to.chatId;
+    const card = async (html: string, keyboard?: InlineKeyboard): Promise<void> => {
+      if (messageId !== undefined) await this.#edit(chatId, messageId, html, keyboard);
+      else await this.#send(to, html, keyboard);
+    };
+    if (action === "opno") {
+      this.#pendingOps.delete(arg);
+      await answer(this.#plain("btn_cancel"));
+      return await card(this.#tx("wiz_cancelled"));
+    }
+    if (action === "nm" || action === "ap") {
+      const op: PendingCellularOpBody | null = action === "nm" ? (isNetworkMode(arg) ? { kind: "netmode", mode: arg } : null) : arg === "1" || arg === "0" ? { kind: "airplane", enabled: arg === "1" } : null;
+      if (!op) return void (await answer());
+      await answer();
+      const token = this.#holdOp(chatId, op);
+      const keyboard: InlineKeyboard = { inline_keyboard: [[{ text: this.#tx("btn_confirm"), callback_data: `${action}ok:${token}` }, { text: this.#tx("btn_cancel"), callback_data: `opno:${token}` }]] };
+      if (op.kind === "netmode") return await card(this.#tx("netmode_confirm", { mode: this.#modeName(op.mode) }), keyboard);
+      if (op.kind === "airplane") return await card(this.#tx(op.enabled ? "airplane_confirm_on" : "airplane_confirm_off"), keyboard);
+      return;
+    }
+    if (action === "ussdend") {
+      await answer();
+      if (messageId !== undefined) this.#ussdThreads.delete(`${chatId}:${messageId}`);
+      if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
+      return await this.#runCellular(to, "ussd_title", async () => {
+        await this.core.controls.sendUssd({ kind: "cancel" }, { confirm: true });
+        await this.#reply(to, "ussd_ended");
+      });
+    }
+    // A confirmation: its token, once
+    const op = this.#takeOp(chatId, arg);
+    const expected = action === "nmok" ? "netmode" : action === "apok" ? "airplane" : "ussd";
+    if (!op || op.kind !== expected) {
+      await answer(this.#plain("cell_expired"), true);
+      if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
+      return;
+    }
+    await answer();
+    await card(this.#tx("cell_working"));
+    if (op.kind === "netmode") {
+      return await this.#runCellular(to, "netmode_title", async () => {
+        await this.core.controls.setNetworkMode(op.mode, { confirm: true });
+        await card(this.#tx("netmode_done", { mode: this.#modeName(op.mode) }));
+      }, card);
+    }
+    if (op.kind === "airplane") {
+      return await this.#runCellular(to, "airplane_title", async () => {
+        await this.core.controls.setAirplaneMode(op.enabled, { confirm: true });
+        await card(this.#tx(op.enabled ? "airplane_done_on" : "airplane_done_off"));
+      }, card);
+    }
+    return await this.#runCellular(to, "ussd_title", async () => {
+      const reply = await this.core.controls.sendUssd(op.request, { confirm: true });
+      if (reply.state === "cancelled") return await card(this.#tx("ussd_ended"));
+      if (reply.state === "no_answer" || reply.text === null) return await card(this.#tx("ussd_no_answer"));
+      const html = this.#tx("ussd_answer", { text: reply.text }) + (reply.awaitsReply ? this.#tx("ussd_awaits") : "");
+      await card(html, reply.awaitsReply ? { inline_keyboard: [[{ text: this.#tx("btn_ussd_end"), callback_data: "ussdend:0" }]] } : undefined);
+      if (reply.awaitsReply && messageId !== undefined) this.#ussdThreads.set(`${chatId}:${messageId}`, this.#now() + USSD_REPLY_TTL_MS);
+    }, card);
+  }
+
+  /** Run one cellular write; what went wrong is said on the card (or in a message), never logged with its text. */
+  async #runCellular(to: ReplyTo, what: TextKey, run: () => Promise<void>, card?: (html: string) => Promise<void>): Promise<void> {
+    try {
+      await run();
+    } catch (err) {
+      const html = this.#tx("cell_failed", { what: this.#plain(what), reason: this.#describeCellularError(err) });
+      if (card) await card(html);
+      else await this.#send(to, html);
+    }
+  }
+
+  #describeCellularError(err: unknown): string {
+    if (err instanceof DeviceWriteDisabledError) return this.#plain("reason_disabled");
+    if (err instanceof DeviceReadOnlyError) return this.#plain("reason_unavailable", { model: err.model });
+    return this.#describeError(err);
   }
 
   async #cmdInbox(to: ReplyTo, sms: SmsService, page: number): Promise<void> {

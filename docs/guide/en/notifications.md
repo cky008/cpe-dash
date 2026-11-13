@@ -57,6 +57,15 @@ If you want to receive notifications in a group (for example, a group with only 
 | `/contacts`, `/contact <number> <name>` | Search and add contacts; send a `.vcf` file to batch import |
 | `/status`, `/alerts`, `/sync` | Router status, recent alerts, and sync SMS immediately |
 | `/mute 30m`, `/mute off` | Pause or resume alert notifications |
+| `/netmode` | Show the network mode in use and pick another one this router offers |
+| `/airplane` | Show whether airplane mode is on, and turn it on or off |
+| `/ussd *100#` | Send a USSD code to the operator (a balance check, say) and show its answer; when the operator awaits a reply, reply to that message |
+
+`/netmode`, `/airplane` and `/ussd` change the router, so each is sent only after you tap Confirm (or Send) on its card, and once. A card expires after two minutes, and its button works once. When this router cannot do it, or you turned it off under "Settings → Device", the bot says so instead of offering a card.
+
+- Switching the network mode makes the router search for the network again, so the internet may drop for a moment; if it is still down 3 minutes later, FengSui switches back to the mode it had.
+- FengSui never turns airplane mode off by itself. If the machine FengSui runs on reaches the internet through this router, Telegram goes too, and only the console, opened on your local network, can turn it off then.
+- USSD codes and the operator's answers appear only in your chat with the bot: FengSui writes them to no log, audit record or device report. Some codes cost money or change your plan, so check before sending.
 
 ### Manage paired chats
 

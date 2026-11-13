@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
+import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import crypto from "node:crypto";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -16,8 +16,11 @@ import { SmsService } from "../src/sms/service.ts";
 import type { EnrichedSmsMessage } from "../src/sms/types.ts";
 import { type AlertEventRecord, EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { daemonOn } from "./helpers/driver-daemon.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
+import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 
 const TOKEN = "123456:TEST_TOKEN_abcdefghijklmnopqrstuv";
 const HUMAN_LOGGED_IN = "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>";
@@ -1460,6 +1463,155 @@ describe("TelegramBot notification outbox", () => {
       assert.match(fx.tg.lastText("1001"), /WAN_DOWN/);
     } finally {
       await fx.cleanup();
+    }
+  });
+});
+
+/** A bot on a daemon core of any brand, in private chat 1001, English. */
+function cellularBot(core: FengSuiCore) {
+  const dir = tempDir("fengsui-tg-cell-");
+  const tg = createFakeTelegram();
+  const api = new TelegramApi({ token: TOKEN, fetchImpl: tg.fetchImpl });
+  const state = new TelegramStateStore({ filePath: path.join(dir, "telegram.json"), cipher: StorageCipher.fromSecret("bot_key") });
+  const logs: string[] = [];
+  const bot = new TelegramBot({ api, core, state, sms: null, authToken: "dashboard_api_token", allowedChatIds: ["1001"], defaultCountryCode: "+353", locale: "en", log: (line) => logs.push(line) });
+  let updateId = 0;
+  const message = (text: string, extra: Partial<NonNullable<TelegramUpdate["message"]>> = {}) =>
+    bot.handleUpdate({ update_id: ++updateId, message: { message_id: 500 + updateId, chat: { id: 1001, type: "private" }, text, ...extra } });
+  const callback = (data: string, messageId = 777) =>
+    bot.handleUpdate({ update_id: ++updateId, callback_query: { id: `cb${updateId}`, data, message: { message_id: messageId, chat: { id: 1001 } } } });
+  /** The text and buttons of the card last sent or edited. */
+  const card = (): { text: string; buttons: string[] } => {
+    const last = tg.calls.filter((c) => c.method === "sendMessage" || c.method === "editMessageText").at(-1);
+    return { text: String(last?.payload["text"] ?? ""), buttons: tg.buttons(last) };
+  };
+  const alerts = (): string[] => tg.of("answerCallbackQuery").filter((c) => c.payload["show_alert"] === true).map((c) => String(c.payload["text"] ?? ""));
+  return {
+    tg,
+    logs,
+    message,
+    callback,
+    card,
+    alerts,
+    close: async () => {
+      await bot.stop();
+      await state.flush();
+      removeTempDir(dir);
+    },
+  };
+}
+
+describe("Telegram: cellular settings behind a confirm card", () => {
+  it("switches the network mode on a ZTE router: the router's modes as buttons, a confirmation, one write, the token used once", async () => {
+    const router = zteRouter({ sim: true, simSlot: "0" });
+    const daemon = daemonOn("zte-goform", router.mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
+    const tg = cellularBot(daemon.core);
+    try {
+      await daemon.core.monitor.refreshTelemetry();
+      await tg.message("/netmode");
+      assert.match(tg.card().text, /Now: Automatic/);
+      assert.ok(tg.card().buttons.includes("nm:lte"), "the router's own modes, not the one in use");
+      assert.ok(!tg.card().buttons.includes("nm:auto"));
+      const before = router.state.posts.length;
+      await tg.callback("nm:lte");
+      assert.match(tg.card().text, /Switch to "4G only"\?/);
+      assert.equal(router.state.posts.length, before, "a pick writes nothing");
+      const confirm = tg.card().buttons.find((data) => data.startsWith("nmok:")) ?? "nmok:missing";
+      await tg.callback(confirm);
+      assert.match(tg.card().text, /now "4G only"/);
+      assert.deepEqual(daemon.audits.filter((a) => a.action === "set_network_mode").map((a) => [a.outcome, a.actor.channel]), [["applied", "telegram"]]);
+      // The same button again: the token is spent, nothing is sent
+      const writes = (): number => daemon.audits.filter((a) => a.action === "set_network_mode").length;
+      const sent = router.state.posts.length;
+      await tg.callback(confirm);
+      assert.deepEqual(tg.alerts(), ["This card has expired; send the command again."]);
+      assert.equal(router.state.posts.length, sent);
+      // Cancelled: nothing written either (the /netmode read opens a session of its own)
+      await tg.message("/netmode");
+      await tg.callback("nm:wcdma");
+      const token = (tg.card().buttons.find((data) => data.startsWith("opno:")) ?? "").slice("opno:".length);
+      await tg.callback(`opno:${token}`);
+      await tg.callback(`nmok:${token}`);
+      assert.equal(writes(), 1, "a cancelled card's token is gone too");
+    } finally {
+      await tg.close();
+      await daemon.cleanup();
+    }
+  });
+
+  it("sends a USSD code once after its confirmation and shows the operator's answer, never logging the code or the answer", async () => {
+    const router = zteRouter({ sim: true, simSlot: "0", ussd: { text: "Balance: 5.00 EUR. 1 Top up", awaitsReply: true } });
+    const daemon = daemonOn("zte-goform", router.mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
+    const tg = cellularBot(daemon.core);
+    try {
+      await daemon.core.monitor.refreshTelemetry();
+      await tg.message("/ussd hello");
+      assert.match(tg.card().text, /Usage: \/ussd/);
+      await tg.message("/ussd *100#");
+      assert.match(tg.card().text, /Send the USSD code <code>\*100#<\/code>\?/);
+      const before = router.state.posts.length;
+      const send = tg.card().buttons.find((data) => data.startsWith("ussdok:")) ?? "ussdok:missing";
+      await tg.callback(send, 900);
+      assert.match(tg.card().text, /The operator's answer[\s\S]*Balance: 5\.00 EUR\. 1 Top up/);
+      assert.ok(tg.card().buttons.includes("ussdend:0"), "the operator awaits a reply: an End button");
+      assert.equal(router.state.posts.filter((p) => p.goformId === "USSD_PROCESS").length - router.state.posts.slice(0, before).filter((p) => p.goformId === "USSD_PROCESS").length, 1, "sent once");
+      // A reply to the answer is a code of its own, confirmed the same way
+      await tg.message("1", { reply_to_message: { message_id: 900, chat: { id: 1001 } } } as Partial<NonNullable<TelegramUpdate["message"]>>);
+      assert.match(tg.card().text, /Send the USSD code <code>1<\/code>\?/);
+      for (const secret of ["*100#", "Balance"]) {
+        assert.ok(!tg.logs.join("\n").includes(secret), `the bot's log has no ${secret}`);
+        assert.ok(!daemon.trail().includes(secret), `no record of the daemon has ${secret}`);
+      }
+    } finally {
+      await tg.close();
+      await daemon.cleanup();
+    }
+  });
+
+  it("switches airplane mode on an OpenWrt router, and says before it goes on that only the console can turn it off", async () => {
+    const router = openwrtRouter();
+    const daemon = daemonOn("openwrt", router.mock.fetchImpl, "http://192.168.1.1", OPENWRT_PASSWORD, "root");
+    const tg = cellularBot(daemon.core);
+    try {
+      await daemon.core.monitor.refreshTelemetry();
+      await tg.message("/airplane");
+      assert.match(tg.card().text, /Now: off/);
+      assert.deepEqual(tg.card().buttons, ["ap:1"]);
+      await tg.callback("ap:1");
+      assert.match(tg.card().text, /only FengSui's console can turn it off/);
+      await tg.callback(tg.card().buttons.find((data) => data.startsWith("apok:")) ?? "apok:missing");
+      assert.match(tg.card().text, /Airplane mode is on/);
+      assert.ok(router.calls.some((c) => JSON.stringify(c.args).includes("AT+CFUN=4")), "the radio went off");
+    } finally {
+      await tg.close();
+      await daemon.cleanup();
+    }
+  });
+
+  it("says why on a router that cannot, and when its owner turned the write off, before any card", async () => {
+    const fx = createBotFixture();
+    try {
+      await fx.core.monitor.refreshTelemetry();
+      await fx.message(1001, "/airplane");
+      assert.match(fx.tg.lastText("1001"), /Airplane mode: FengSui cannot do this on this router \(H168-383\)/);
+      await fx.message(1001, "/ussd *100#");
+      assert.match(fx.tg.lastText("1001"), /USSD: FengSui cannot do this on this router/);
+      assert.equal(fx.tg.buttons(fx.tg.sends("1001").at(-1)).length, 0, "no card to confirm");
+    } finally {
+      await fx.cleanup();
+    }
+    const router = zteRouter({ sim: true, simSlot: "0" });
+    const daemon = daemonOn("zte-goform", router.mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
+    const tg = cellularBot(daemon.core);
+    try {
+      await daemon.core.monitor.refreshTelemetry();
+      const model = daemon.core.scheduler.device.snapshot().model ?? "";
+      daemon.core.scheduler.device.setDisabledWrites([{ model, feature: "networkMode" }]);
+      await tg.message("/netmode");
+      assert.match(tg.card().text, /Network mode: You turned this off under Settings → Device/);
+    } finally {
+      await tg.close();
+      await daemon.cleanup();
     }
   });
 });
