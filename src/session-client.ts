@@ -92,6 +92,9 @@ export interface WithSessionOptions {
   maxHoldMs?: number;
 }
 
+/** How long one request to the router may take, where the connection names no other bound. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+
 const activeSession = new AsyncLocalStorage<SessionClient<unknown>>();
 
 /** Resolve after `ms`, or reject with `signal.reason` as soon as it aborts. */
@@ -160,7 +163,7 @@ export class SessionClient<S> {
     this.#baseUrl = normalizeCpeUrl(options.cpeUrl, { allowPublicHost: this.#allowPublicHost });
     this.#username = options.cpeUsername;
     this.#password = options.cpePassword;
-    this.timeoutMs = options.requestTimeoutMs ?? 15000;
+    this.timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.defaultRespectBrowserSession = options.respectBrowserSession ?? true;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.sessionMaxHoldMs = Math.max(50, options.sessionMaxHoldMs ?? DEFAULT_SESSION_MAX_HOLD_MS);

@@ -7,13 +7,13 @@ import net from "node:net";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { TelegramChatsResponse } from "../src/api-contract.ts";
-import { DaemonAlreadyRunningError, createFengSuiRuntime, startServeDaemon, startupNotices } from "../src/cli.ts";
+import { DaemonAlreadyRunningError, createFengSuiRuntime, sessionHoldBudgetMs, startServeDaemon, startupNotices } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher, tryAcquireFileLock } from "../src/encrypted-file.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { PeerTransport } from "../src/peer-guard.ts";
 import { redactTelemetry } from "../src/redact.ts";
+import { hashCredentialsFingerprint } from "../src/session-errors.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
@@ -171,7 +171,8 @@ describe("createFengSuiRuntime", () => {
     const notify = createNotifyFetch();
     const stack = createFengSuiRuntime({ config, envPath, fetchImpl: mock.fetchImpl, notifyFetchImpl: notify.fetchImpl, log: () => undefined });
     try {
-      assert.equal(stack.cpeClient.sessionMaxHoldMs, 90_000, "hold budget outlasts the 45 s send-status poll");
+      assert.equal(sessionHoldBudgetMs(config), 90_000, "hold budget outlasts the 45 s send-status poll");
+      assert.equal(sessionHoldBudgetMs({ smsSendStatusTimeoutMs: 120_000 }), 150_000, "and a longer poll the owner set");
       assert.ok(stack.sms && stack.alertEngine && stack.telegramBot && stack.webhook && stack.notificationHub);
       assert.ok((await toolNames(stack)).includes("list_sms_threads"));
       assert.equal(fs.readFileSync(`${config.stateFile}.lock`, "utf8"), `${process.pid}\n`, "the daemon owns its data dir");
@@ -529,7 +530,7 @@ describe("createFengSuiRuntime", () => {
     const envPath = writeEnv(dir, baseEnv(dir, cpe.password));
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const seed = new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey });
-    const fingerprint = new HuaweiCpeClient({ cpeUrl: config.cpeUrl, cpePassword: cpe.password }).getPasswordFingerprint();
+    const fingerprint = hashCredentialsFingerprint("admin", cpe.password);
     seed.update({
       circuitBreaker: {
         tripped: true,

@@ -3,7 +3,6 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import type { ControlAppliedEvent } from "../src/scheduler.ts";
@@ -15,6 +14,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type MockSms, type MockSmsCpeOptions, createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 const HUMAN_LOGGED_IN = "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>";
 
@@ -36,9 +36,9 @@ function createSmsFixture(
   const mock = createMockSmsCpe({ messages: seed(), ...opts.mock });
   const tmpDir = tempDir("fengsui-sms-svc-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "svc_key" });
-  const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
+  const connection = mockConnection(mock);
   const core = createFengSuiCore({
-    client,
+    connection,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,

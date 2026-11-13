@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
@@ -11,6 +10,7 @@ import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { SmsService } from "../src/sms/service.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { mockConnection } from "./helpers/connection.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
@@ -40,9 +40,8 @@ function createMcpSmsFixture(
     ],
   });
   const tmpDir = tempDir("fengsui-sms-mcp-");
-  const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
   const core = createFengSuiCore({
-    client,
+    connection: mockConnection(mock),
     stateStore: new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "mcp_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,
@@ -71,7 +70,6 @@ function createMcpSmsFixture(
   const toolNames = async () => ((await rpc("tools/list")) as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
   return {
     mock,
-    client,
     sms,
     tools,
     rpc,
@@ -270,9 +268,9 @@ describe("MCP SMS tools: write guardrails", () => {
     fx.sms.scheduler.noteRouterModel("E5576-320", null);
     assert.equal((await send("on another model")).structuredContent["errorCode"], "DEVICE_UNVERIFIED_READ_ONLY");
     fx.sms.scheduler.noteRouterModel("H168-383", "4.4.0.1");
-    fx.client.reconfigure({ cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: "" });
+    await fx.sms.scheduler.reloadCredentialsAndResetBreaker("");
     assert.equal((await send("without a router connection")).isError, true);
-    fx.client.reconfigure({ cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: fx.mock.password });
+    await fx.sms.scheduler.reloadCredentialsAndResetBreaker(fx.mock.password);
     await fx.sms.scheduler.stop();
     assert.equal((await send("while stopping")).structuredContent["errorCode"], "QUEUE_FULL");
     fx.sms.scheduler.markRunning(true);

@@ -4,8 +4,7 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
-import { CpeApiError, ReentrantCpeSessionError } from "../src/session-errors.ts";
+import { CpeApiError, ReentrantCpeSessionError, hashCredentialsFingerprint } from "../src/session-errors.ts";
 import {
   type AntennaModeName,
   type BandLockCommand,
@@ -28,6 +27,7 @@ import {
   TimeSeriesValidationError,
 } from "../src/timeseries.ts";
 import { getXmlTag } from "../src/xml.ts";
+import { mockConnection } from "./helpers/connection.ts";
 import { tempDir } from "./helpers/temp-dir.ts";
 
 describe("TimeSeriesRingBuffer multi-scale circular buffer & tier seam joining", () => {
@@ -557,16 +557,11 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
       filePath: path.join(tmpDir, "state.json"),
       encryptionKey: password,
     });
-    const client = new HuaweiCpeClient({
-      cpeUrl: "http://192.168.8.1",
-      cpePassword: password,
-      respectBrowserSession: opts.respectBrowserSession,
-      fetchImpl,
-    });
+    const connection = mockConnection({ password, fetchImpl }, { respectBrowserSession: opts.respectBrowserSession });
     const ring = new TimeSeriesRingBuffer({ retentionHours: 24 });
 
     return {
-      client,
+      connection,
       stateStore,
       ring,
       tmpDir,
@@ -578,7 +573,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("coalesces concurrent telemetry reads into a single ephemeral CPE login", async () => {
     const fx = createSchedulerFixture({});
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       pollIntervalMs: 60_000,
@@ -611,7 +606,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       pollIntervalMs: 60_000,
@@ -659,7 +654,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       pollIntervalMs: 60_000,
@@ -692,7 +687,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("manages start() and stop() lifecycle with periodic polling, sweep and flush intervals, and handles idempotent start/stop", async () => {
     const fx = createSchedulerFixture({ delayMs: 1 });
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       pollIntervalMs: 15,
@@ -732,12 +727,12 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
         trippedAtIso: new Date().toISOString(),
         remainCount: 1,
         waitTime: 60,
-        passwordFingerprintHex: fx.client.getPasswordFingerprint(),
+        passwordFingerprintHex: hashCredentialsFingerprint("admin", fx.password),
       },
     });
 
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -761,7 +756,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("coalesces concurrent refreshNeighbors, refreshTopology, and refreshSettings into single-flight sessions and emits events", async () => {
     const fx = createSchedulerFixture({ delayMs: 10 });
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -819,7 +814,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("provides getCachedTelemetry, getCachedNeighbors, getCachedTopology, getCachedSettings, getPersistedLockState, getRecentAlerts, and queryTimeSeries", async () => {
     const fx = createSchedulerFixture({});
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -857,7 +852,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("executes all domain control actions (lockBands, lockCell, unlockAllLocks, rebootRouter, reconnectCellular, setSecuritySwitches, setWifi7Settings, setAntennaMode, setMobileData) and emits control:applied", async () => {
     const fx = createSchedulerFixture({});
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -966,7 +961,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -1026,7 +1021,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       maxQueueDepth: 1,
@@ -1067,7 +1062,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     const core2 = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
       maxQueueDepth: 10,
@@ -1117,7 +1112,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
 
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -1176,7 +1171,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
         "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>",
     });
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -1198,7 +1193,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("folds confirmed Wi-Fi 7, antenna and mobile-data writes into cached settings and pushes a settings event without extra sessions", async () => {
     const fx = createSchedulerFixture({});
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -1242,7 +1237,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("pre-validates security, Wi-Fi 7 and antenna commands before queueing any CPE session", async () => {
     const fx = createSchedulerFixture({});
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -1265,7 +1260,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
 
   it("delivers an event to every listener even when one registered before them throws", async () => {
     const fx = createSchedulerFixture();
-    const core = createFengSuiCore({ client: fx.client, stateStore: fx.stateStore, timeseries: fx.ring });
+    const core = createFengSuiCore({ connection: fx.connection, stateStore: fx.stateStore, timeseries: fx.ring });
     try {
       // The event stream attaches before self-healing and the notification hub: its failure must not hide an event from them
       core.scheduler.on("alert", () => {
@@ -1284,7 +1279,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
   it("hardens concurrency & clock edge cases (Opus audit #1-#12): stop() drains queue safely, deduplicates control:applied & breaker alerts, isolates listener throws, blocks scheduler reentrancy, and rebases NTP clock steps", async () => {
     const fx = createSchedulerFixture();
     const core = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: fx.stateStore,
       timeseries: fx.ring,
     });
@@ -1302,7 +1297,7 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     });
     await fx.stateStore.flushAsync();
     const uninitializedCore = createFengSuiCore({
-      client: fx.client,
+      connection: fx.connection,
       stateStore: new EncryptedStateStore({
         filePath: fx.stateStore.filePath,
         encryptionKey: "sched_test_password",

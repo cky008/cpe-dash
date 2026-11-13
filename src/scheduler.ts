@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
-import { CpeEncryptionUnavailableError, HuaweiCpeClient } from "./cpe-client.ts";
-import { CpeAnswerFormatError, CpeApiError, ReentrantCpeSessionError } from "./session-errors.ts";
+import { CpeEncryptionUnavailableError } from "./cpe-client.ts";
+import { CpeAnswerFormatError, CpeApiError, ReentrantCpeSessionError, hashCredentialsFingerprint } from "./session-errors.ts";
 import { CpeLoginMethodError, LOGIN_UNCONFIRMED_CODE } from "./cpe-auth.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot, type PersistedLockState, sectionUnavailableCode } from "./cpe-domain.ts";
 import {
@@ -21,7 +21,7 @@ import { type ApiErrorSnapshot, type DeviceFeature, type DeviceProbeResult, type
 import { verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { ROUTER_FAMILY_LABELS, routerFamilyOf, type RouterFamily } from "./router-family.ts";
-import { type ConnectionSettings, type RouterConnection, routerConnection } from "./drivers/connection.ts";
+import { type ConnectionOptions, type ConnectionSettings, type KnownLogin, type RouterConnection, connectionSettings, routerConnection } from "./drivers/connection.ts";
 import { detectRouterFamily } from "./drivers/detect.ts";
 import { DriverLoginMethodError } from "./drivers/login.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext } from "./router-session.ts";
@@ -354,12 +354,13 @@ const PRIORITY_WEIGHT: Readonly<Record<SchedulerPriority, number>> = {
 };
 
 export interface MutexSessionSchedulerOptions {
-  client: HuaweiCpeClient;
+  /** Where and how to reach the router (Settings → Router); an empty password: not set up yet. */
+  connection: ConnectionOptions;
   stateStore: EncryptedStateStore;
   /**
-   * The router's family (Settings → Router; default `huawei`). Any other family is read and written by
-   * its driver (`src/drivers/`) on the HiLink client's connection: the HiLink client then never opens
-   * a session, so no HiLink request reaches a router that does not speak it.
+   * The router's family (Settings → Router; default `huawei`): which brand's session client and
+   * session object the connection is built with (`src/drivers/connection.ts`), so no request of one
+   * brand's interface reaches a router of another.
    */
   family?: RouterFamily;
   maxQueueDepth?: number;
@@ -375,19 +376,17 @@ export interface MutexSessionSchedulerOptions {
   allowLegacyLoginAfterScram?: boolean;
 }
 
-/** What the scheduler asks of whichever client holds the live connection (the HiLink client, or a driver family's). */
-type LiveClient = Pick<HuaweiCpeClient, "configured" | "getCircuitBreakerState" | "getTelemetry" | "hydrateCircuitBreaker" | "resetCircuitBreaker" | "waitForIdle" | "abortActiveSession">;
-
-
-
 /**
  * Single-instance Mutex Ephemeral Session Scheduler & Polite Browser Avoidance Engine: the only
  * path from FengSui to an authenticated router session, whatever the brand.
  *
- * - Holds the connection in use: its brand's driver (`driver`), the session client, and how a
- *   session of it opens as that brand's `RouterSession`. One read path (`read`) and one write path
- *   (`control`, `refuse`), the same for every brand; only the backend (`src/router-backend.ts`)
- *   calls them, so no service touches a client or a session.
+ * - Is given where the router is and which brand it is, and holds the connection built from the
+ *   two (`src/drivers/connection.ts`): the brand's driver (`driver`), its session client, and how a
+ *   session of it opens as that brand's `RouterSession`. New credentials or another address for the
+ *   same brand go to that connection; another brand gets a connection of its own, between two
+ *   sessions. One read path (`read`) and one write path (`control`, `refuse`), the same for every
+ *   brand; only the backend (`src/router-backend.ts`) calls them, so no service touches a client or
+ *   a session.
  * - Serializes all sessions (background polling, SMS, Web REST, MCP, Telegram) through one
  *   priority queue (`high` controls > `normal` reads > `low` sweeps).
  * - Enforces dual-layer human browser avoidance (`state-login != -1` + cross-IP `108003` with an
@@ -409,22 +408,19 @@ export class MutexSessionScheduler extends EventEmitter {
   readonly stopGraceMs: number;
   readonly #allowLegacyLoginAfterScram: boolean;
 
-  readonly #client: HuaweiCpeClient;
-  /** The router's family; the driver client exists for every family but Huawei's. */
+  /** Where and how the router is reached: what the connection in use was built from, and what the next one is. */
+  #settings: ConnectionSettings;
+  /** The router's family. */
   #family: RouterFamily;
-  /** The driver family's session client, on the HiLink client's connection (`null` on Huawei). */
-  /** The client of the connection when it is not the HiLink one (a driver family's). */
-  #driverClient: SessionClient<unknown> | null = null;
-  /** Rates from the running byte counters of a driver family that reports no rate (reset with the connection). */
   /** The connection in use: its brand's driver, the client that holds its sessions, and how a session of it is opened. */
-  #connection!: RouterConnection;
+  #connection: RouterConnection;
   #initialized = false;
   #stopping = false;
   #mode: SchedulerMode = "idle";
   /** Login attempts the router said were left after the console's last failed connection test. */
   #remainingLogins: number | null = null;
   /** The throwaway client of a console connection test while its session runs (stop() cancels it as well). */
-  #testClient: Pick<LiveClient, "waitForIdle" | "abortActiveSession"> | null = null;
+  #testClient: SessionClient<unknown> | null = null;
   #lastError: string | null = null;
   #running = false;
 
@@ -444,7 +440,6 @@ export class MutexSessionScheduler extends EventEmitter {
 
   constructor(options: MutexSessionSchedulerOptions) {
     super();
-    this.#client = options.client;
     this.stateStore = options.stateStore;
     this.maxQueueDepth = options.maxQueueDepth ?? 32;
     this.layer2InitialBackoffMs = options.layer2InitialBackoffMs ?? 45_000;
@@ -453,7 +448,8 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#allowLegacyLoginAfterScram = options.allowLegacyLoginAfterScram === true;
     this.#family = routerFamilyOf(options.family);
     this.device.setFamily(this.#family);
-    this.#syncDriverClient();
+    this.#settings = connectionSettings(options.connection);
+    this.#connection = routerConnection(this.#family, this.#settings, this.#sessionContext);
   }
 
   /** The family of the router connection in use. */
@@ -468,8 +464,16 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   /** The client whose sessions, breaker and telemetry are the live connection's. */
-  #active(): LiveClient {
+  #active(): SessionClient<unknown> {
     return this.#connection.client;
+  }
+
+  /**
+   * What the connection in use knows of how its router logs in (kept in state.json after every
+   * session that changed it); a brand whose login learns nothing knows nothing.
+   */
+  get knownLogin(): KnownLogin {
+    return this.#connection.knownLogin;
   }
 
   /** What every brand's session is given: what the daemon knows of the router, and where it tells what it saw. */
@@ -481,35 +485,13 @@ export class MutexSessionScheduler extends EventEmitter {
   };
 
   /**
-   * The connection follows the family: Huawei's HiLink client (which keeps the credentials), or a
-   * driver client built from the same connection whenever it or the family changes, with a fresh
-   * breaker, as new credentials clear the HiLink one. Rates derived from counters start over with it.
-   */
-  #syncDriverClient(): void {
-    const settings: ConnectionSettings = {
-      cpeUrl: this.#client.baseUrl,
-      cpeUsername: this.#client.username,
-      cpePassword: this.#client.password,
-      fetchImpl: this.#client.fetchImpl,
-      requestTimeoutMs: this.#client.timeoutMs,
-      respectBrowserSession: this.#client.defaultRespectBrowserSession,
-      sessionMaxHoldMs: this.#client.sessionMaxHoldMs,
-      apiErrors: this.#client.apiErrors,
-    };
-    const connection = routerConnection(this.#family, settings, this.#sessionContext, this.#client);
-    this.#connection = connection;
-    this.#driverClient = connection.hilink === null ? connection.client : null;
-  }
-
-  /**
    * Hydrate encrypted runtime state and the persisted circuit-breaker latch (idempotent).
    */
   init(): void {
     if (this.#initialized) return;
     const loaded = this.stateStore.load();
     // Its own field since phase 2; state written before that keeps the stored identification's
-    this.#client.rememberLoginScheme(loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe));
-    this.#client.rememberEccSigned(loaded.eccSigned === true);
+    this.#connection.rememberLogin({ loginScheme: loaded.knownLoginScheme ?? storedLoginScheme(loaded.deviceProbe), eccSigned: loaded.eccSigned === true });
     // Only a likely model until this run sees the router report it (see `DeviceAccess`)
     this.device.remember(loaded.deviceProbe?.identity.model, loaded.deviceProbe?.identity.softwareVersion);
     this.device.noteProbe(loaded.deviceProbe);
@@ -520,7 +502,6 @@ export class MutexSessionScheduler extends EventEmitter {
         genericWrites: loaded.genericWrites.map((r) => (r.readback === "pending" ? { ...r, readback: "unknown" as const, reason: "no_evidence" as const } : r)),
       });
     }
-    this.#syncLoginPolicy();
     const latched = this.#active().hydrateCircuitBreaker(loaded.circuitBreaker);
     if (latched) {
       this.#mode = "circuit_tripped";
@@ -548,7 +529,7 @@ export class MutexSessionScheduler extends EventEmitter {
       queued.reject(stopped);
     }
     // A connection test runs its session on a throwaway client: it is cancelled and logged out the same way
-    for (const client of [this.#client, this.#driverClient, this.#testClient]) {
+    for (const client of [this.#connection.client, this.#testClient]) {
       if (client && !(await client.waitForIdle(this.stopGraceMs))) {
         client.abortActiveSession(stopped);
         await client.waitForIdle(4000);
@@ -621,7 +602,6 @@ export class MutexSessionScheduler extends EventEmitter {
     this.device.remember(probe.identity.model, probe.identity.softwareVersion);
     this.device.noteProbe(probe);
     this.#seeModel(probe.identity.model, probe.identity.softwareVersion);
-    this.#syncLoginPolicy();
     // What the start-up reads found counts for the model just identified (stored with it by the caller's flush)
     const reads = this.device.readRecord;
     if (reads) this.stateStore.update({ deviceReads: reads });
@@ -635,7 +615,6 @@ export class MutexSessionScheduler extends EventEmitter {
   /** `device:changed` when the model contradicts the stored identification: the router was replaced. */
   #seeModel(model: string | null, softwareVersion: string | null): void {
     const changed = this.device.see(model, softwareVersion);
-    this.#syncLoginPolicy();
     if (changed) this.#safeEmit("device:changed", this.device.snapshot());
   }
 
@@ -667,11 +646,6 @@ export class MutexSessionScheduler extends EventEmitter {
     if (!this.device.noteRead(section, outcome)) return;
     this.stateStore.update({ deviceReads: this.device.readRecord });
     void this.stateStore.flushAsync().catch(() => undefined);
-  }
-
-  /** On a router identified as another model, SCRAM answers FengSui cannot place latch the breaker (R1-04). */
-  #syncLoginPolicy(): void {
-    this.#client.rememberUnverifiedModel(this.device.unverifiedModel);
   }
 
   /**
@@ -711,21 +685,25 @@ export class MutexSessionScheduler extends EventEmitter {
    */
   async probeLoginState(): Promise<CpeLoginState> {
     // A HiLink endpoint: a router of another family gets no HiLink request, not even a login-free one
-    if (this.#driverClient !== null) throw new CpeControlValidationError(`state-login is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
-    return await this.#client.getLoginState();
+    const reads = this.#connection.loginFree;
+    if (reads === null) throw new CpeControlValidationError(`state-login is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
+    return await reads.loginState();
   }
 
   /** Unauthenticated GET of an allowlisted login-free endpoint (see `PublicProbePath`). */
   async probePublic(apiPath: PublicProbePath): Promise<string> {
-    if (this.#driverClient !== null) throw new CpeControlValidationError(`${apiPath} is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
-    return await this.#client.getPublic(apiPath);
+    const reads = this.#connection.loginFree;
+    if (reads === null) throw new CpeControlValidationError(`${apiPath} is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
+    return await reads.get(apiPath);
   }
 
   /**
    * Reload credentials & reset the anti-brute-force circuit breaker after a human updates `.env`.
    * Enforces 铁律五: refuses to clear a wrong-password latch (`108006`/`108002`/`108001`) if the
    * configured password has not changed, preventing accidental exhaustion of remaining strikes to `108007`.
-   * `family` (when given) switches the router's family as well: another family is another router.
+   * The same brand keeps its connection: new credentials clear its breaker, and what it learnt of the
+   * router's login stays. `family` (when given) switches the router's family as well: another family
+   * is another router, whose connection takes over between two sessions.
    */
   async reloadCredentialsAndResetBreaker(
     newPassword: string,
@@ -734,21 +712,28 @@ export class MutexSessionScheduler extends EventEmitter {
   ): Promise<CircuitBreakerState> {
     const nextFamily = family === undefined ? this.#family : routerFamilyOf(family);
     const familyChanged = nextFamily !== this.#family;
-    const latched = this.#active().getCircuitBreakerState();
-    const changed = this.#client.reloadCredentials(newPassword, newUsername);
+    const live = this.#connection.client;
+    const latched = live.getCircuitBreakerState();
+    const username = newUsername ?? this.#settings.cpeUsername;
+    const changed = hashCredentialsFingerprint(username, newPassword) !== live.getPasswordFingerprint();
     if (!changed && !familyChanged && latched.tripped && latched.code !== "108007") {
       throw new CpeControlValidationError(
         "Circuit breaker latched on a wrong password: save the correct router password in the console (Settings → Router) instead, which clears it"
       );
     }
+    const settings: ConnectionSettings = { ...this.#settings, cpeUsername: username, cpePassword: newPassword };
     if (familyChanged) {
-      this.#family = nextFamily;
-      this.device.setFamily(nextFamily);
-      this.device.forget();
+      // Queued: a session still running is the earlier brand's, and ends (logged out) before the switch
+      await this.#enqueue("high", async () => {
+        this.#replaceConnection(nextFamily, settings);
+        this.device.forget();
+      });
+    } else {
+      this.#settings = settings;
+      // New credentials clear the breaker themselves; the same ones clear only a latch that is not a wrong password
+      if (changed) live.reloadCredentials(newPassword, newUsername);
+      else live.resetCircuitBreaker();
     }
-    // The driver client follows the connection; on Huawei the HiLink client's own reload cleared its breaker
-    if (changed || familyChanged) this.#syncDriverClient();
-    else this.#active().resetCircuitBreaker();
     // Nothing went to the router while the breaker was open: it may have been replaced meanwhile
     if (latched.tripped) this.device.forget();
     const cb = this.#active().getCircuitBreakerState();
@@ -786,11 +771,11 @@ export class MutexSessionScheduler extends EventEmitter {
       probe: null,
     });
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
-    let test: RouterConnection & { readonly hilink: HuaweiCpeClient | null };
+    let test: RouterConnection;
     try {
       test = routerConnection(
         routerFamilyOf(candidate.family),
-        { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, fetchImpl: this.#client.fetchImpl, requestTimeoutMs: this.#client.timeoutMs, respectBrowserSession: true, apiErrors: this.#client.apiErrors },
+        { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, fetchImpl: this.#settings.fetchImpl, requestTimeoutMs: this.#settings.requestTimeoutMs, respectBrowserSession: true, apiErrors: this.#settings.apiErrors },
         this.#sessionContext
       );
     } catch (err) {
@@ -802,13 +787,11 @@ export class MutexSessionScheduler extends EventEmitter {
       return failure("last_attempt", "the router allows one more login attempt before it locks; confirm the password and try again deliberately", { remainCount: remain });
     }
     return await this.#enqueue("high", async (): Promise<ConnectionTestOutcome> => {
-      if (test.hilink) {
-        // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
-        // decision): a refused challenge then sends no legacy password, unless re-detection is allowed
-        if (!this.#allowLegacyLoginAfterScram) test.hilink.rememberLoginScheme(this.#client.knownLoginScheme);
-        // And a router identified as another model latches an answer to the password it cannot place
-        test.hilink.rememberUnverifiedModel(this.#client.unverifiedModel);
-      }
+      // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
+      // decision): a refused challenge then sends no legacy password, unless re-detection is allowed.
+      // (A router identified as another model latches an answer to the password it cannot place: the
+      // test's logins are planned with the same view of the model as the live ones.)
+      if (!this.#allowLegacyLoginAfterScram) test.rememberLogin({ loginScheme: this.#connection.knownLogin.loginScheme, eccSigned: false });
       const client = test.client;
       this.#testClient = client;
       try {
@@ -847,7 +830,7 @@ export class MutexSessionScheduler extends EventEmitter {
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
     return await this.#enqueue("high", async () => {
       try {
-        const family = await detectRouterFamily({ cpeUrl: url, fetchImpl: this.#client.fetchImpl, requestTimeoutMs: this.#client.timeoutMs });
+        const family = await detectRouterFamily({ cpeUrl: url, fetchImpl: this.#settings.fetchImpl, requestTimeoutMs: this.#settings.requestTimeoutMs });
         return family ?? failure("unknown_brand", "the router answered none of the brands FengSui knows; nothing was sent to it but login-free requests");
       } catch (err) {
         return failure("invalid_url", err instanceof Error ? err.message : String(err));
@@ -857,20 +840,26 @@ export class MutexSessionScheduler extends EventEmitter {
 
   /** Router error codes per endpoint since start, connection tests included (the device report). */
   apiErrorSnapshot(): ApiErrorSnapshot {
-    return this.#client.apiErrors.snapshot();
+    return this.#settings.apiErrors.snapshot();
   }
 
   /**
-   * Switch the live client to a connection `testConnection` just proved, and clear its breaker.
-   * `loginScheme` is how that test logged in: a SCRAM router then never gets a legacy password.
+   * Switch to a connection `testConnection` just proved, with a clear breaker. `loginScheme` is how
+   * that test logged in: a SCRAM router then never gets a legacy password. The same brand keeps its
+   * connection, pointed at the proved router; another brand gets a connection of its own.
    */
   async applyConnection(candidate: ConnectionCandidate, opts: { loginScheme?: LoginScheme | null } = {}): Promise<CircuitBreakerState> {
     return await this.#enqueue("high", async () => {
-      this.#client.reconfigure({ cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, loginScheme: opts.loginScheme ?? null });
-      // The family the console chose with the connection: its driver (or none) takes over from here
-      this.#family = routerFamilyOf(candidate.family);
-      this.device.setFamily(this.#family);
-      this.#syncDriverClient();
+      const family = routerFamilyOf(candidate.family);
+      const target = { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password };
+      const loginScheme = opts.loginScheme ?? null;
+      if (family === this.#family) {
+        this.#connection.reconfigure(target, loginScheme);
+        this.#settings = { ...this.#settings, ...target };
+      } else {
+        // The family the console chose with the connection: its driver takes over from here
+        this.#replaceConnection(family, { ...this.#settings, ...target }, { loginScheme, eccSigned: false });
+      }
       // Possibly another router: its model is confirmed again before the next write
       this.device.forget();
       this.#remainingLogins = null;
@@ -881,6 +870,21 @@ export class MutexSessionScheduler extends EventEmitter {
       await this.stateStore.flushAsync().catch(() => undefined);
       return publicBreakerState(cb);
     });
+  }
+
+  /**
+   * Another brand's connection takes over (only between two sessions: the queue runs this). Built
+   * before anything changes, so an address it refuses leaves the connection in use as it was; its
+   * breaker is clear, its counters and what it knows of the router's login start from nothing, or
+   * from `known`.
+   */
+  #replaceConnection(family: RouterFamily, settings: ConnectionSettings, known?: KnownLogin): void {
+    const connection = routerConnection(family, settings, this.#sessionContext);
+    if (known) connection.rememberLogin(known);
+    this.#settings = settings;
+    this.#family = family;
+    this.device.setFamily(family);
+    this.#connection = connection;
   }
 
   /**
@@ -1169,7 +1173,7 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   #enqueue<T>(priority: SchedulerPriority, execute: () => Promise<T>): Promise<T> {
-    if (this.#client.insideSession || this.#driverClient?.insideSession === true) {
+    if (this.#connection.client.insideSession) {
       return Promise.reject(new ReentrantCpeSessionError());
     }
     if (this.#stopping) {
@@ -1207,17 +1211,16 @@ export class MutexSessionScheduler extends EventEmitter {
   }
 
   /**
-   * Persist how the live client logs in, and whether its router signs its encryption key, once a session
-   * or a saved connection changed either. Connection tests use a throwaway client, so one that is not
+   * Persist how the live connection logs in, and whether its router signs its encryption key, once a session
+   * or a saved connection changed either. Connection tests use a throwaway connection, so one that is not
    * saved never moves them (R1-13).
    */
   #recordLoginScheme(): void {
     if (!this.#initialized) return;
-    const scheme = this.#client.knownLoginScheme;
-    const eccSigned = this.#client.eccSignedKnown;
+    const { loginScheme, eccSigned } = this.#connection.knownLogin;
     const stored = this.stateStore.getState();
-    if (scheme === stored.knownLoginScheme && eccSigned === stored.eccSigned) return;
-    this.stateStore.update({ knownLoginScheme: scheme, eccSigned });
+    if (loginScheme === stored.knownLoginScheme && eccSigned === stored.eccSigned) return;
+    this.stateStore.update({ knownLoginScheme: loginScheme, eccSigned });
     void this.stateStore.flushAsync().catch(() => undefined);
   }
 

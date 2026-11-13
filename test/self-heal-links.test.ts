@@ -3,7 +3,6 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import type { LinkChange } from "../src/cellular.ts";
 import type { WanRepairOutcome } from "../src/cpe-controls.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "../src/cpe-domain.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { BrowserSessionYieldedError, CircuitBreakerOpenError, DeviceReadOnlyError } from "../src/scheduler.ts";
@@ -13,6 +12,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * The 3-minute way back from a change that can cut the WAN by accident (SIM slot, network mode,
@@ -34,7 +34,7 @@ function fixture(opts: { stateFile?: string; reconnectMin?: number } = {}) {
   const dir = opts.stateFile ? null : tempDir("fengsui-selfheal-links-");
   const stateFile = opts.stateFile ?? path.join(dir ?? "", "state.json");
   const core: FengSuiCore = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+    connection: mockConnection(cpe),
     stateStore: new EncryptedStateStore({ filePath: stateFile, encryptionKey: "selfheal_links_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
   });

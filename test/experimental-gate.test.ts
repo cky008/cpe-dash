@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeApiError } from "../src/session-errors.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { CONTROL_FEATURES, type ControlAction, WRITE_FEATURES, type WriteFeature, type WriteResultRecord, isWriteResultRecord } from "../src/device-access.ts";
@@ -17,6 +16,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type FamilySms, type FamilyWrites, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * On a model nobody verified, the write gate has the writes FengSui implements for the router open
@@ -44,7 +44,7 @@ function fixture(router: { fetchImpl: typeof fetch; password: string }) {
   const dir = tempDir("fengsui-xgate-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "xgate_key" });
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: router.password, fetchImpl: router.fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection(router, { requestTimeoutMs: 2000 }),
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,
@@ -510,7 +510,7 @@ describe("experimental gate: a check left pending by a restart", () => {
       before.update({ genericWrites: [pending, done] });
       await before.flushAsync();
       const stateStore = new EncryptedStateStore({ filePath: file, encryptionKey: "pending_key" });
-      const core = createFengSuiCore({ client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: "x", fetchImpl: blockedFetch }), stateStore, timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }) });
+      const core = createFengSuiCore({ connection: mockConnection({ password: "x", fetchImpl: blockedFetch }), stateStore, timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }) });
       core.monitor.init();
       assert.deepEqual(
         core.scheduler.genericWrites.map((r) => [r.id, r.readback, r.reason]),

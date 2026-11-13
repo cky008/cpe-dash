@@ -16,7 +16,6 @@ import {
   runCli,
 } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { computeScram } from "../src/crypto.ts";
 import {
   constantTimeSecretMatch,
@@ -35,6 +34,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import type { AppConfig } from "../src/types.ts";
 import { getXmlTag } from "../src/xml.ts";
+import { mockConnection } from "./helpers/connection.ts";
 import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
@@ -252,7 +252,8 @@ function createMockCpeFetch(opts: {
 interface TestServerContext {
   server: FengSuiHttpServer;
   core: FengSuiCore;
-  cpeClient: HuaweiCpeClient;
+  /** While `refuseLogins` is set, the mock router answers every password as wrong (the way to a latched breaker). */
+  router: { refuseLogins: boolean };
   scheduler: MutexSessionScheduler;
   sseBus: SseEventBus;
   mcpServer: FengSuiMcpServer;
@@ -314,7 +315,7 @@ async function createTestHttpServer(opts: {
   fs.writeFileSync(envPath, dummyEnv, "utf8");
 
   const config = loadConfig({ envPath, ignoreProcessEnv: true });
-  const fetchImpl = createMockCpeFetch({
+  const mockFetch = createMockCpeFetch({
     password: config.cpePassword,
     loginStateXml: opts.loginStateXml,
     onPost: opts.onPost,
@@ -325,13 +326,13 @@ async function createTestHttpServer(opts: {
     encryptionKey: config.dataEncryptionKey,
   });
   const ring = new TimeSeriesRingBuffer({ retentionHours: 24 });
-  const cpeClient = new HuaweiCpeClient({
-    cpeUrl: config.cpeUrl,
-    cpePassword: config.cpePassword,
-    fetchImpl,
-  });
+  const router = { refuseLogins: false };
+  const fetchImpl: typeof fetch = async (input, init) =>
+    router.refuseLogins && new URL(String(input)).pathname === "/api/user/authentication_login"
+      ? new Response("<error><code>108006</code><remaincount>2</remaincount></error>")
+      : await mockFetch(input, init);
   const core = createFengSuiCore({
-    client: cpeClient,
+    connection: mockConnection({ password: config.cpePassword, fetchImpl }, { cpeUrl: config.cpeUrl }),
     stateStore,
     timeseries: ring,
     pollIntervalMs: 60_000,
@@ -380,7 +381,7 @@ async function createTestHttpServer(opts: {
   return {
     server,
     core,
-    cpeClient,
+    router,
     scheduler,
     sseBus,
     mcpServer,
@@ -1873,16 +1874,12 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       }
       assert.equal(fx.scheduler.getStatus().totalSessionsCompleted, sessionsBeforeTyped);
 
-      // 7. Circuit breaker 108006 latch refuses reset-breaker when CPE_PASSWORD is unchanged in .env
-      fx.cpeClient.hydrateCircuitBreaker({
-        tripped: true,
-        code: "108006",
-        reason: "Wrong password",
-        trippedAtIso: new Date().toISOString(),
-        remainCount: 2,
-        waitTime: null,
-        passwordFingerprintHex: fx.cpeClient.getPasswordFingerprint(),
-      });
+      // 7. Circuit breaker 108006 latch (the router refused the password once) refuses reset-breaker
+      //    while the router password saved in the console is unchanged
+      fx.router.refuseLogins = true;
+      const tripping = await fetch(`${fx.baseUrl}/api/telemetry/refresh`, { method: "POST", headers: authHeaders, body: "{}" });
+      assert.equal(tripping.status, 423);
+      fx.router.refuseLogins = false;
       const resetUnchanged = await fetch(`${fx.baseUrl}/api/session/reset-breaker`, {
         method: "POST",
         headers: authHeaders,
@@ -1997,7 +1994,6 @@ describe("src/cli.ts command parsing, help formatter & runtime factory", () => {
       assert.ok(stack.config);
       assert.ok(stack.stateStore);
       assert.ok(stack.timeseries);
-      assert.ok(stack.cpeClient);
       assert.ok(stack.scheduler);
       assert.ok(stack.sseBus);
       assert.ok(stack.mcpServer);

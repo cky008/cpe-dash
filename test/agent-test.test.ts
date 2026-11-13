@@ -22,7 +22,6 @@ import { ConsoleSettings } from "../src/console-settings.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import type { SmsAbilities } from "../src/sms/types.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { WRITE_FEATURES, type WriteFeature, type WriteFeatureState } from "../src/device-access.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { switchExperimentalWrite } from "../src/experimental-switch.ts";
@@ -33,6 +32,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * The AI agent test at one click (Settings → Device): what starting it sets (the agent switches and
@@ -208,7 +208,7 @@ async function fixture(env: BehaviourValues = DEFAULT_BEHAVIOUR) {
   const cpe = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: ENDPOINTS, writes: {}, sms: [] });
   const dir = tempDir("fengsui-agent-test-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection(cpe, { requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "agent_test_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,
@@ -420,7 +420,7 @@ describe("the agent test at one click", () => {
     const cpe = createStrictCpe();
     const dir = tempDir("fengsui-agent-test-verified-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "agent_test_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     });

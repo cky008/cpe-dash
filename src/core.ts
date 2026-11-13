@@ -1,5 +1,4 @@
 import { CpeControlService } from "./cpe-controls.ts";
-import type { HuaweiCpeClient } from "./cpe-client.ts";
 import { type DeviceReport, buildDeviceReport, statusReadsOf } from "./device-profile.ts";
 import { sanitizeDeviceReport } from "./sanitize.ts";
 import { FENGSUI_VERSION } from "./version.ts";
@@ -13,8 +12,8 @@ import type { TimeSeriesRingBuffer } from "./timeseries.ts";
  * The CPE-facing core shared by every adapter (REST, SSE, MCP, Telegram, SMS, alerts):
  * one scheduler (the only path to an admin session), the read side and the write side.
  *
- * Dependency direction: adapters → `monitor` / `controls` → `scheduler` → `HuaweiCpeClient` (or,
- * for a router of another family, the driver client the scheduler builds on its connection).
+ * Dependency direction: adapters → `monitor` / `controls` → `scheduler` → the connection it builds
+ * for the router's brand from `connection` and `family` (`src/drivers/connection.ts`).
  */
 export interface FengSuiCore {
   readonly stateStore: EncryptedStateStore;
@@ -24,17 +23,16 @@ export interface FengSuiCore {
 }
 
 export interface FengSuiCoreOptions
-  extends Omit<MutexSessionSchedulerOptions, "client" | "stateStore">,
+  extends Omit<MutexSessionSchedulerOptions, "stateStore">,
     Omit<CpeMonitorOptions, "scheduler" | "stateStore" | "timeseries"> {
-  client: HuaweiCpeClient;
   stateStore: EncryptedStateStore;
   timeseries: TimeSeriesRingBuffer;
 }
 
 export function createFengSuiCore(options: FengSuiCoreOptions): FengSuiCore {
-  const { client, stateStore, timeseries } = options;
+  const { stateStore, timeseries } = options;
   const scheduler = new MutexSessionScheduler({
-    client,
+    connection: options.connection,
     stateStore,
     family: options.family,
     maxQueueDepth: options.maxQueueDepth,

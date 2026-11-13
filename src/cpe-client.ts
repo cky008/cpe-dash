@@ -634,6 +634,12 @@ export interface HuaweiCpeClientOptions {
   sessionMaxHoldMs?: number;
   /** Where router error codes are counted (a connection test's throwaway client shares the live one's). */
   apiErrors?: ApiErrorTally;
+  /**
+   * Whether the router is identified as a model nobody verified, asked at each login (the write gate
+   * knows): a SCRAM answer FengSui cannot place then latches the breaker like a legacy one (R1-04).
+   * Left out: never, as on the H168-383.
+   */
+  unverifiedModel?: () => boolean;
 }
 
 /**
@@ -685,9 +691,10 @@ async function getHilinkPublic(
 /** What the HiLink client remembers about its router between sessions (the login is planned with it). */
 interface HilinkMemory {
   loginScheme: LoginScheme | null;
-  unverifiedModel: boolean;
   eccSigned: boolean;
   readonly requireEccSignature: boolean;
+  /** Asked at each login, not remembered: the daemon's view of the model moves between sessions. */
+  readonly unverifiedModel: () => boolean;
 }
 
 /**
@@ -725,7 +732,7 @@ function hilinkProtocol(memory: HilinkMemory): SessionProtocol<EphemeralCpeSessi
           await session.login({
             passwordType,
             scramKnown: memory.loginScheme === "scram",
-            unverifiedModel: memory.unverifiedModel,
+            unverifiedModel: memory.unverifiedModel(),
             eccSignatureRequired: memory.requireEccSignature && memory.eccSigned,
           });
           if (session.loginScheme) memory.loginScheme = session.loginScheme;
@@ -747,7 +754,7 @@ export class HuaweiCpeClient extends SessionClient<EphemeralCpeSession> {
   readonly #memory: HilinkMemory;
 
   constructor(config: HuaweiCpeClientOptions) {
-    const memory: HilinkMemory = { loginScheme: null, unverifiedModel: false, eccSigned: false, requireEccSignature: config.requireEccSignature !== false };
+    const memory: HilinkMemory = { loginScheme: null, eccSigned: false, requireEccSignature: config.requireEccSignature !== false, unverifiedModel: config.unverifiedModel ?? (() => false) };
     super(hilinkProtocol(memory), {
       cpeUrl: config.cpeUrl,
       cpeUsername: config.cpeUsername ?? "admin",
@@ -783,18 +790,6 @@ export class HuaweiCpeClient extends SessionClient<EphemeralCpeSession> {
   /** Remember how the router logs in (from a stored identification); `unknown` or `null` forgets it. */
   rememberLoginScheme(scheme: LoginScheme | null): void {
     this.#memory.loginScheme = scheme === "unknown" ? null : scheme;
-  }
-
-  /**
-   * The router is identified as a model nobody verified (the scheduler's write gate tells): a SCRAM
-   * answer FengSui cannot place then latches the breaker like a legacy one (R1-04).
-   */
-  get unverifiedModel(): boolean {
-    return this.#memory.unverifiedModel;
-  }
-
-  rememberUnverifiedModel(unverified: boolean): void {
-    this.#memory.unverifiedModel = unverified;
   }
 
   /**

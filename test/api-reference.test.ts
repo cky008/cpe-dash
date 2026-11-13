@@ -4,7 +4,6 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiHttpServer } from "../src/http-server.ts";
 import { FengSuiMcpServer } from "../src/mcp-server.ts";
@@ -19,6 +18,7 @@ import { syncDocs } from "../scripts/sync-docs.ts";
 import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * The guide's API reference (docs/guide/{zh,en}/api.md) writes its routes, SSE events and error codes
@@ -126,7 +126,7 @@ describe("the API reference in the guide", () => {
     );
     const config = loadConfig({ envPath, ignoreProcessEnv: true });
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: config.cpeUrl, cpePassword: config.cpePassword, fetchImpl: mock.fetchImpl }),
+      connection: mockConnection({ password: config.cpePassword, fetchImpl: mock.fetchImpl }, { cpeUrl: config.cpeUrl }),
       stateStore: new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
       pollIntervalMs: 60_000,

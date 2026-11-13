@@ -18,6 +18,7 @@ import { MAX_XML_BYTES, getXmlTag } from "../src/xml.ts";
 import { type CpeFamily, FAMILY_LOGINS, FAMILY_TOKEN_FLOWS, type FamilyLogin, type FamilyTokenFlow, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * Phase 1 of multi-model support: the client logs in with SCRAM (with or without the ECC channel),
@@ -68,9 +69,8 @@ function coreFixture(
   const dir = tempDir("fengsui-login-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "login_key" });
   if (opts.deviceProbe) stateStore.update({ deviceProbe: opts.deviceProbe });
-  const client = clientFor(cpe, opts.password ?? cpe.password);
   const core = createFengSuiCore({
-    client,
+    connection: mockConnection({ password: opts.password ?? cpe.password, fetchImpl: cpe.fetchImpl }, { requestTimeoutMs: 2000 }),
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,
@@ -79,7 +79,6 @@ function coreFixture(
   });
   core.monitor.init();
   return {
-    client,
     core,
     good: { url: "http://192.168.8.1", username: "admin", password: cpe.password },
     cleanup: async () => {
@@ -250,7 +249,7 @@ describe("login methods and token flows (mock family)", () => {
     assert.ok(probe);
     const restarted = coreFixture(cpe, { deviceProbe: probe });
     try {
-      assert.equal(restarted.client.knownLoginScheme, "scram", "read back from the stored identification");
+      assert.equal(restarted.core.scheduler.knownLogin.loginScheme, "scram", "read back from the stored identification");
       fault = { cpeError: "100003" };
       await assert.rejects(restarted.core.monitor.refreshTelemetry(), pinned("100003"));
       assert.equal(cpe.count("/api/user/login"), 0);
@@ -258,12 +257,12 @@ describe("login methods and token flows (mock family)", () => {
       assert.deepEqual([restarted.core.scheduler.getStatus().mode, /CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM/.test(restarted.core.scheduler.getStatus().lastError ?? "")], ["cpe_unreachable", true]);
       fault = undefined;
       await restarted.core.scheduler.applyConnection({ url: "http://192.168.8.1", username: "admin", password: cpe.password }, { loginScheme: "sha256" });
-      assert.equal(restarted.client.knownLoginScheme, "sha256", "a saved connection takes the scheme its test found");
+      assert.equal(restarted.core.scheduler.knownLogin.loginScheme, "sha256", "a saved connection takes the scheme its test found");
     } finally {
       await restarted.cleanup();
     }
     const odd = coreFixture(cpe, { deviceProbe: { ...probe, identity: { ...probe.identity, loginScheme: "teleport" as never } } });
-    assert.equal(odd.client.knownLoginScheme, null, "an unreadable stored scheme pins nothing");
+    assert.equal(odd.core.scheduler.knownLogin.loginScheme, null, "an unreadable stored scheme pins nothing");
     await odd.cleanup();
   });
 
@@ -272,9 +271,8 @@ describe("login methods and token flows (mock family)", () => {
     const cpe = createStrictCpe();
     const start = (opts: { allowLegacyLoginAfterScram?: boolean } = {}) => {
       const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "scheme_key" });
-      const client = clientFor(cpe);
       const core = createFengSuiCore({
-        client,
+        connection: mockConnection(cpe, { requestTimeoutMs: 2000 }),
         stateStore,
         timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
         pollIntervalMs: 600_000,
@@ -282,7 +280,7 @@ describe("login methods and token flows (mock family)", () => {
         allowLegacyLoginAfterScram: opts.allowLegacyLoginAfterScram,
       });
       core.monitor.init();
-      return { client, core, stateStore };
+      return { core, stateStore };
     };
     try {
       const first = start({ allowLegacyLoginAfterScram: true });
@@ -296,8 +294,8 @@ describe("login methods and token flows (mock family)", () => {
       await stopFengSuiCore(first.core);
 
       const second = start();
-      assert.equal(second.client.knownLoginScheme, "scram", "the unsaved test's method does not reach the live client after a restart");
-      assert.equal(second.client.eccSignedKnown, true, "a restart keeps requiring the signature");
+      assert.equal(second.core.scheduler.knownLogin.loginScheme, "scram", "the unsaved test's method does not reach the live client after a restart");
+      assert.equal(second.core.scheduler.knownLogin.eccSigned, true, "a restart keeps requiring the signature");
       await second.core.scheduler.applyConnection({ url: "http://192.168.8.1", username: "admin", password: cpe.password }, { loginScheme: "sha256" });
       assert.equal(second.stateStore.getState().knownLoginScheme, "sha256", "a saved connection takes the method its test found");
       assert.equal(second.stateStore.getState().eccSigned, false, "a saved connection starts over: the router may be another one");
@@ -309,10 +307,32 @@ describe("login methods and token flows (mock family)", () => {
       legacy.update({ knownLoginScheme: undefined as never, deviceProbe: probe });
       await legacy.flushAsync();
       const third = start();
-      assert.equal(third.client.knownLoginScheme, "scram");
+      assert.equal(third.core.scheduler.knownLogin.loginScheme, "scram");
       await stopFengSuiCore(third.core);
     } finally {
       removeTempDir(dir);
+    }
+  });
+
+  it("keeps what it learnt of the router's login with a new password, and forgets it with another brand", async () => {
+    const cpe = createStrictCpe();
+    const fx = coreFixture(cpe);
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      assert.deepEqual(fx.core.scheduler.knownLogin, { loginScheme: "scram", eccSigned: true });
+      const sessions = fx.core.scheduler.getStatus().totalSessionsCompleted;
+      await fx.core.scheduler.reloadCredentialsAndResetBreaker("another_password");
+      assert.deepEqual(fx.core.scheduler.knownLogin, { loginScheme: "scram", eccSigned: true }, "the same router, another password: still never a legacy login");
+      assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, sessions, "and the same connection: its counters carry on");
+      // Another brand is another router: its connection knows nothing of this one's login, and neither does the next HiLink one
+      await fx.core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, "admin", "zte-goform");
+      assert.deepEqual(fx.core.scheduler.knownLogin, { loginScheme: null, eccSigned: false });
+      await fx.core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, "admin", "huawei");
+      assert.deepEqual(fx.core.scheduler.knownLogin, { loginScheme: null, eccSigned: false }, "learnt again at its first login");
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      assert.deepEqual(fx.core.scheduler.knownLogin, { loginScheme: "scram", eccSigned: true });
+    } finally {
+      await fx.cleanup();
     }
   });
 
@@ -353,7 +373,7 @@ describe("login methods and token flows (mock family)", () => {
       try {
         fault = undefined;
         assert.ok(await fx.core.monitor.refreshTelemetry());
-        assert.equal(fx.client.knownLoginScheme, "scram");
+        assert.equal(fx.core.scheduler.knownLogin.loginScheme, "scram");
         for (const [refusal, code] of refusals) {
           fault = refusal;
           const sent = cpe.count("/api/user/login");
@@ -370,7 +390,7 @@ describe("login methods and token flows (mock family)", () => {
         fault = undefined;
         const ok = await fx.core.scheduler.testConnection(fx.good);
         assert.deepEqual(ok.ok ? ok.loginScheme : ok.reason, "scram");
-        assert.equal(fx.client.knownLoginScheme, "scram");
+        assert.equal(fx.core.scheduler.knownLogin.loginScheme, "scram");
       } finally {
         await fx.cleanup();
       }
@@ -610,8 +630,7 @@ describe("login methods and token flows (mock family)", () => {
       assert.equal(plainClient.getCircuitBreakerState().tripped, false, `${label}: not identified`);
 
       const cpe = createCpeFamily({ login: "scram", tokenFlow: "token" });
-      const client = clientFor({ fetchImpl: swap(cpe), password: cpe.password });
-      client.rememberUnverifiedModel(true);
+      const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: swap(cpe), requestTimeoutMs: 2000, unverifiedModel: () => true });
       await assert.rejects(client.withSession(async () => "never"), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker, label);
       const breaker = client.getCircuitBreakerState();
       assert.deepEqual([breaker.tripped, breaker.code], [true, label === "unknown code" ? "100006" : LOGIN_UNCONFIRMED_CODE], label);
@@ -621,16 +640,15 @@ describe("login methods and token flows (mock family)", () => {
     }
     // Codes that refuse before the password is checked still let the next session try
     const token = createCpeFamily({ login: "scram", tokenFlow: "token" });
-    const tokenClient = clientFor({ fetchImpl: answerWith(token, "/api/user/authentication_login", () => "<error><code>125002</code></error>"), password: token.password });
-    tokenClient.rememberUnverifiedModel(true);
+    const tokenClient = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: token.password, fetchImpl: answerWith(token, "/api/user/authentication_login", () => "<error><code>125002</code></error>"), requestTimeoutMs: 2000, unverifiedModel: () => true });
     await assert.rejects(tokenClient.withSession(async () => "never"), CpeApiError);
     assert.equal(tokenClient.getCircuitBreakerState().tripped, false);
 
-    // The scheduler tells the client: a stored identification naming another model applies from the first session
+    // The connection asks the write gate at each login: a stored identification naming another model applies from the first session
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token" });
     const fx = coreFixture({ fetchImpl: odd[0]?.[1](cpe) ?? cpe.fetchImpl, password: cpe.password }, { deviceProbe: { ...unverifiedProbe, identity: { ...unverifiedProbe.identity, model: "H122-373" } } });
     try {
-      assert.equal(fx.client.unverifiedModel, true);
+      assert.equal(fx.core.scheduler.device.unverifiedModel, true);
       await assert.rejects(fx.core.monitor.refreshTelemetry(), CircuitBreakerOpenError);
       assert.equal(cpe.count("/api/user/authentication_login"), 1);
       // A connection test of it reports that an attempt may be gone, instead of a plain router error
@@ -642,7 +660,7 @@ describe("login methods and token flows (mock family)", () => {
     const h168 = createStrictCpe({ fault: (p) => (p === "/api/user/authentication_login" ? { body: "<response></response>" } : undefined) });
     const fy = coreFixture(h168, { deviceProbe: { ...unverifiedProbe, identity: { ...unverifiedProbe.identity, model: "H168-383" } } });
     try {
-      assert.equal(fy.client.unverifiedModel, false);
+      assert.equal(fy.core.scheduler.device.unverifiedModel, false);
       await assert.rejects(fy.core.monitor.refreshTelemetry(), /server signature missing/);
       assert.equal(fy.core.scheduler.isCircuitTripped(), false, "the H168-383 keeps its verified handling");
     } finally {

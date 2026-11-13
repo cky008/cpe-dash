@@ -13,12 +13,12 @@ import { SmsMirrorStore } from "../src/sms/mirror.ts";
 import { SmsService } from "../src/sms/service.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { mockConnection } from "./helpers/connection.ts";
 import { type StrictCpe, type StrictCpeOptions, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 interface ContractFixture {
   cpe: StrictCpe;
-  client: HuaweiCpeClient;
   core: FengSuiCore;
   sms: SmsService;
   mcp: FengSuiMcpServer;
@@ -41,15 +41,8 @@ function createContractFixture(
 ): ContractFixture {
   const cpe = createStrictCpe(opts);
   const dir = opts.dir ?? tempDir("fengsui-contract-");
-  const client = new HuaweiCpeClient({
-    cpeUrl: "http://192.168.8.1",
-    cpePassword: opts.clientPassword ?? cpe.password,
-    fetchImpl: cpe.fetchImpl,
-    requestTimeoutMs: opts.requestTimeoutMs ?? 3000,
-    sessionMaxHoldMs: opts.sessionMaxHoldMs,
-  });
   const core = createFengSuiCore({
-    client,
+    connection: mockConnection({ password: opts.clientPassword ?? cpe.password, fetchImpl: cpe.fetchImpl }, { requestTimeoutMs: opts.requestTimeoutMs ?? 3000, sessionMaxHoldMs: opts.sessionMaxHoldMs }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "contract_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: opts.pollIntervalMs ?? 60_000,
@@ -86,7 +79,6 @@ function createContractFixture(
   };
   return {
     cpe,
-    client,
     core,
     sms,
     mcp,
@@ -263,12 +255,14 @@ describe("session contract on a strict single-admin router model", () => {
   });
 
   it("lets one session hold the slot longer when its write needs it, never shorter than the client's bound", async () => {
-    const fx = createContractFixture({ sessionMaxHoldMs: 80, requestTimeoutMs: 10_000 });
+    const fx = createContractFixture();
     try {
+      // The bound is the session client's: asked of one directly, on the fixture's router
+      const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: fx.cpe.password, fetchImpl: fx.cpe.fetchImpl, requestTimeoutMs: 10_000, sessionMaxHoldMs: 80 });
       const slow = (ms: number) => () => new Promise<string>((resolve) => setTimeout(() => resolve("done"), ms));
-      const longer = await fx.client.withSessionDetailed(slow(200), { maxHoldMs: 2000 });
+      const longer = await client.withSessionDetailed(slow(200), { maxHoldMs: 2000 });
       assert.equal(longer.status === "ok" ? longer.value : null, "done", "an operator scan may take longer than the client's bound");
-      await assert.rejects(fx.client.withSessionDetailed(slow(200), { maxHoldMs: 10 }), (err: unknown) => err instanceof Error && err.name === "CpeSessionDeadlineError");
+      await assert.rejects(client.withSessionDetailed(slow(200), { maxHoldMs: 10 }), (err: unknown) => err instanceof Error && err.name === "CpeSessionDeadlineError");
       assert.equal(fx.cpe.isSlotTaken(), false);
       assertSingleSlotInvariants(fx.cpe);
     } finally {

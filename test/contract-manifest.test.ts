@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
 import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
@@ -17,6 +16,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * Contract manifest (ADR-008): what the code exposes, read from the code itself, must be documented.
@@ -60,7 +60,7 @@ describe("contract manifest: code ↔ docs", () => {
     const cpe = createStrictCpe();
     const dir = tempDir("fengsui-manifest-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "manifest_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     });

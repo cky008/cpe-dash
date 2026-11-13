@@ -49,7 +49,7 @@ npm run build:docs  # the documentation site, into dist/site
 2. **Strict TypeScript only.** No `.js` files, no `any`, no `@ts-ignore`.
 3. **No runtime dependencies.** The daemon uses Node.js built-ins only. Build and test tools go in `devDependencies`.
 4. **One router session at a time.** Everything that talks to the router goes through `MutexSessionScheduler`; never
-   create another `HuaweiCpeClient` or log in on your own.
+   create a session client of your own or log in on your own.
 5. **Placeholders only.** Use the RFC documentation addresses, the placeholder IMEI / IMSI / phone numbers and the
    synthetic cell listed in [`AGENTS.md`](AGENTS.md). Never commit `.env`, `data/`, HAR or pcap files, or values copied
    from your own router (that includes PCI and frequency numbers: they can locate a cell site).
@@ -58,7 +58,7 @@ npm run build:docs  # the documentation site, into dist/site
 1. **先写测试**：先写一个失败的测试，再写让它通过的改动。测试使用 `node:test` 和 `test/helpers/` 里的 Mock 路由器，绝不连接真实路由器。覆盖率保持 90% 以上。
 2. **只用严格 TypeScript**：不要 `.js` 文件，不要 `any`，不要 `@ts-ignore`。
 3. **零运行时依赖**：守护进程只用 Node.js 内置模块，构建和测试工具放进 `devDependencies`。
-4. **同一时刻只有一个路由器会话**：所有访问路由器的代码都经过 `MutexSessionScheduler`，不要另建 `HuaweiCpeClient` 或自行登录。
+4. **同一时刻只有一个路由器会话**：所有访问路由器的代码都经过 `MutexSessionScheduler`，不要另建会话客户端，也不要自行登录。
 5. **只用占位值**：使用 [`AGENTS.md`](AGENTS.md) 列出的 RFC 文档地址、占位 IMEI / IMSI / 手机号和合成小区。绝不提交 `.env`、`data/`、HAR 或 pcap 文件，也不要提交从自己路由器复制的数值（包括 PCI 和频点：它们能定位到具体基站）。
 6. **提 PR 之前 `npm run check` 必须通过**，它也会跑浏览器测试、扫描完整的 Git 历史。
 

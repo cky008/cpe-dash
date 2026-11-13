@@ -5,7 +5,6 @@ import { runAsActor } from "../src/audit-log.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { readDriverBandLockTarget, readDriverCellLockTarget } from "../src/control-input.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { DeviceAccess, type DeviceAccessSnapshot } from "../src/device-access.ts";
 import { bandsToHex } from "../src/drivers/bands.ts";
 import { ROUTER_FAMILY_FACTS, type RouterFamily } from "../src/router-family.ts";
@@ -15,6 +14,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { OPENWRT_PASSWORD, type OpenwrtRouterOptions, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * A router of a driver family in the running daemon: the scheduler's queue, gate, breaker and
@@ -37,14 +37,8 @@ function runtimeFixture(opts: RuntimeOptions = {}) {
   const dir = opts.dir ?? tempDir("fengsui-driver-rt-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "driver_key" });
   const core = createFengSuiCore({
-    // The HiLink client holds the connection; on a driver family it never opens a session
-    client: new HuaweiCpeClient({
-      cpeUrl: opts.url ?? "http://192.168.1.1",
-      cpeUsername: opts.username ?? "root",
-      cpePassword: opts.password ?? OPENWRT_PASSWORD,
-      fetchImpl: opts.fetchImpl ?? router.mock.fetchImpl,
-      requestTimeoutMs: 2000,
-    }),
+    // The scheduler builds the family's own client from this: no HiLink client exists on a driver family
+    connection: mockConnection({ password: opts.password ?? OPENWRT_PASSWORD, fetchImpl: opts.fetchImpl ?? router.mock.fetchImpl }, { cpeUrl: opts.url ?? "http://192.168.1.1", cpeUsername: opts.username ?? "root", requestTimeoutMs: 2000 }),
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     family: opts.family ?? "openwrt",
@@ -196,6 +190,57 @@ describe("driver runtime: reads", () => {
       assert.ok(again.onlyUbus());
     } finally {
       await again.cleanup();
+    }
+  });
+});
+
+describe("driver runtime: the connection in use", () => {
+  it("keeps its connection for the same brand: new credentials clear the breaker, its counters carry on", async () => {
+    const fx = runtimeFixture();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, 1);
+      // A password the router will refuse, then the right one again: the same connection throughout
+      await fx.core.scheduler.reloadCredentialsAndResetBreaker("the_wrong_password", "root");
+      await assert.rejects(fx.core.monitor.refreshTelemetry(), CircuitBreakerOpenError);
+      const cleared = await fx.core.scheduler.reloadCredentialsAndResetBreaker(OPENWRT_PASSWORD, "root");
+      assert.equal(cleared.tripped, false, "new credentials clear the latch of the old ones");
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, 2, "the sessions before the reload still count");
+      // A connection saved for the same brand points the same connection at it
+      await fx.core.scheduler.applyConnection({ ...OPENWRT, family: "openwrt" });
+      assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, 2);
+      assert.equal(fx.core.scheduler.getStatus().device.confirmed, false, "possibly another router: its model is confirmed again");
+      assert.deepEqual(fx.core.scheduler.knownLogin, { loginScheme: null, eccSigned: false }, "a brand whose login learns nothing");
+      assert.ok(fx.onlyUbus());
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("switches to another brand's connection only between two sessions", async () => {
+    const fx = runtimeFixture();
+    try {
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const reading = fx.core.scheduler.read(async () => {
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && fx.logins() === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(fx.logins(), 1, "a session of the OpenWrt connection is running");
+      const switching = fx.core.scheduler.reloadCredentialsAndResetBreaker(OPENWRT_PASSWORD, "root", "huawei");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(fx.core.scheduler.driver.family, "openwrt", "the brand of the session that is running, until it ends");
+      assert.equal(fx.destroys(), 0);
+      release();
+      assert.equal(await reading, "read");
+      await switching;
+      assert.equal(fx.destroys(), 1, "logged out before the other brand took over");
+      assert.equal(fx.core.scheduler.driver.family, "huawei");
+      assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, 0, "another connection, with counters of its own");
+    } finally {
+      await fx.cleanup();
     }
   });
 });
@@ -418,7 +463,7 @@ describe("driver runtime: the connection's family", () => {
     };
     const dir = tempDir("fengsui-driver-stop-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.1.1", cpeUsername: "root", cpePassword: OPENWRT_PASSWORD, fetchImpl, requestTimeoutMs: 60_000 }),
+      connection: mockConnection({ password: OPENWRT_PASSWORD, fetchImpl }, { cpeUrl: "http://192.168.1.1", cpeUsername: "root", requestTimeoutMs: 60_000 }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "driver_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
       family: "openwrt",

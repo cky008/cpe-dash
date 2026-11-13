@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { buildDeviceReport } from "../src/device-profile.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL, deviceIssueTitle, deviceIssueUrl } from "../src/feedback.ts";
 import { sanitizeDeviceReport } from "../src/sanitize.ts";
@@ -11,6 +10,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * Multi-model phase 2.4: the console's "report compatibility" entry. The owner creates the
@@ -66,7 +66,7 @@ describe("feedback: the compatibility issue", () => {
     const cpe = createCpeFamily({ login: "sha256", tokenFlow: "sestokinfo", model: "B535-232" });
     const dir = tempDir("fengsui-feedback-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "feedback_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
       pollIntervalMs: 600_000,

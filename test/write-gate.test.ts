@@ -5,7 +5,6 @@ import { describe, it } from "node:test";
 import { createFengSuiRuntime, startServeDaemon } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CONTROL_FEATURES, type ControlAction, type DeviceAccessSnapshot } from "../src/device-access.ts";
 import type { DeviceProbeResult } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
@@ -18,6 +17,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type FamilySms, createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * The write gate, enforced in the scheduler (`control`), the one door every write goes
@@ -53,7 +53,7 @@ function gateFixture(cpe: { fetchImpl: typeof fetch; password: string }, opts: {
   // What an earlier run stored (no file yet, so init() keeps it, as after a restart)
   if (opts.stored) stateStore.update({ deviceProbe: storedProbe(opts.stored) });
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection(cpe, { requestTimeoutMs: 2000 }),
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,

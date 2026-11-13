@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import type { TelegramChatRecord } from "../src/api-contract.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { SettingsHttpRoutes } from "../src/http-settings.ts";
@@ -13,6 +12,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 function routesFixture(telegramConfigured: boolean) {
   const cpe = createStrictCpe();
@@ -30,7 +30,7 @@ function routesFixture(telegramConfigured: boolean) {
   });
   const chats = [chat("2002", false, "code"), chat("-1003", true, "group-code"), chat("1001", true, null)];
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+    connection: mockConnection(cpe),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "routes_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
   });

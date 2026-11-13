@@ -8,7 +8,6 @@ import { type FengSuiRuntimeStack, createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { DEVICE_PROBE_PATHS, type DeviceProbeResult, deviceProfileOf, isDeviceProbeResult } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { SettingsHttpRoutes } from "../src/http-settings.ts";
@@ -16,6 +15,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * Phase 0 of multi-model support only records: the router is identified once at start and when the
@@ -59,11 +59,7 @@ function coreFixture(opts: { password?: string; smsCounters?: boolean; fault?: (
   const dir = tempDir("fengsui-identify-");
   const stateFile = path.join(dir, "state.json");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({
-      cpeUrl: "http://192.168.8.1",
-      cpePassword: opts.password ?? cpe.password,
-      fetchImpl: opts.fetchWrap ? opts.fetchWrap(cpe.fetchImpl) : cpe.fetchImpl,
-    }),
+    connection: mockConnection({ password: opts.password ?? cpe.password, fetchImpl: opts.fetchWrap ? opts.fetchWrap(cpe.fetchImpl) : cpe.fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: stateFile, encryptionKey: "identify_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     smsCountersEnabled: opts.smsCounters === true,

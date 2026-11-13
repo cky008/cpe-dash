@@ -3,7 +3,6 @@ import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/cor
 import crypto from "node:crypto";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { NotificationHub, type NotificationChannel, isAlertSeverity } from "../src/notify/hub.ts";
@@ -21,6 +20,7 @@ import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 const TOKEN = "123456:TEST_TOKEN_abcdefghijklmnopqrstuv";
 const HUMAN_LOGGED_IN = "<response><State>0</State><lockstatus>0</lockstatus><remainwaittime>0</remainwaittime></response>";
@@ -127,9 +127,9 @@ function createBotFixture(
   });
   const tmpDir = tempDir("fengsui-notify-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "bot_key" });
-  const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
+  const connection = mockConnection(mock);
   const core = createFengSuiCore({
-    client,
+    connection,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,

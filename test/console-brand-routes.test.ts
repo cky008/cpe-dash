@@ -3,7 +3,6 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { SettingsHttpRoutes } from "../src/http-settings.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
@@ -11,6 +10,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * The router's brand through `/api/console/cpe` and `/api/console/cpe/test`: left to FengSui
@@ -20,7 +20,7 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 function brandFixture(fetchImpl: typeof fetch, stored?: { url: string; username: string; password: string }) {
   const dir = tempDir("fengsui-brand-routes-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: stored?.url ?? "http://192.168.8.1", cpePassword: stored?.password ?? "", fetchImpl, requestTimeoutMs: 1000 }),
+    connection: mockConnection({ password: stored?.password ?? "", fetchImpl }, { cpeUrl: stored?.url ?? "http://192.168.8.1", requestTimeoutMs: 1000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "brand_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,

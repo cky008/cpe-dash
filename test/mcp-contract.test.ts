@@ -3,7 +3,6 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { readAntennaMode, readBandSelection, readCellLockCommand, readTimeSeriesPreset } from "../src/control-input.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeControlValidationError } from "../src/cpe-domain.ts";
 import { validateToolArguments } from "../src/mcp-schema.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse, LATEST_MCP_PROTOCOL_VERSION } from "../src/mcp-server.ts";
@@ -11,12 +10,13 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 function createServer() {
   const cpe = createStrictCpe();
   const dir = tempDir("fengsui-mcp-contract-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+    connection: mockConnection(cpe),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "mcp_contract_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
   });

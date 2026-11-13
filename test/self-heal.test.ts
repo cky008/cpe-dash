@@ -5,7 +5,6 @@ import { describe, it } from "node:test";
 import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import type { WanRepairOutcome } from "../src/cpe-controls.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "../src/cpe-domain.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -17,6 +16,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createCpeFamily } from "./helpers/cpe-family.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-11-02T08:00:00.000Z");
@@ -38,7 +38,7 @@ function createCore(fault?: (p: string, method: string, headers: Headers) => Str
   const cpe = createStrictCpe({ fault });
   const dir = stateFile ? null : tempDir("fengsui-selfheal-");
   const core: FengSuiCore = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+    connection: mockConnection(cpe),
     stateStore: new EncryptedStateStore({ filePath: stateFile ?? path.join(dir ?? "", "state.json"), encryptionKey: "selfheal_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
   });
@@ -810,7 +810,7 @@ describe("WanSelfHeal on a router of an unverified model (read-only)", () => {
     const cpe = createCpeFamily({ login: "scram", tokenFlow: "token", model: "B535-232" });
     const dir = tempDir("fengsui-selfheal-gate-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "selfheal_gate_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
       pollIntervalMs: 600_000,

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeApiError } from "../src/session-errors.ts";
 import { DeviceAccess, isReadRecord } from "../src/device-access.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
@@ -15,6 +14,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { FAMILY_LOGINS, FAMILY_TOKEN_FLOWS, type FamilySms, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * Multi-model phase 2: a model nobody verified is read the tolerant way. A part or a section the
@@ -45,7 +45,7 @@ const MAILBOX: ReadonlyArray<FamilySms> = [
 function readFixture(cpe: { fetchImpl: typeof fetch; password: string }, opts: { neighborScanIntervalMs?: number; dir?: string } = {}) {
   const dir = opts.dir ?? tempDir("fengsui-reads-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection(cpe, { requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "reads_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,

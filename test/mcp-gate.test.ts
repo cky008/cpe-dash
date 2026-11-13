@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
@@ -15,6 +14,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type FamilySms, blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * Multi-model phase 2 on MCP: an agent never sees, and cannot call, a tool that writes to a router
@@ -71,7 +71,7 @@ const MAILBOX: ReadonlyArray<FamilySms> = [{ index: 40001, phone: "+353830000001
 function mcpFixture(cpe: { fetchImpl: typeof fetch; password: string }) {
   const dir = tempDir("fengsui-mcp-gate-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection(cpe, { requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "mcp_gate_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,

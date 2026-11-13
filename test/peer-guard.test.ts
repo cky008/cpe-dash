@@ -7,7 +7,6 @@ import { beaconKeyMaterial, createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "../src/peer-guard.ts";
 import { PeerDaemonStandbyError } from "../src/scheduler.ts";
@@ -15,6 +14,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /** In-memory broadcast LAN: every datagram reaches every other attached transport. */
 function createLan() {
@@ -144,7 +144,7 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
     const cpe = createStrictCpe();
     const dir = tempDir("fengsui-standby-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "standby_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     });

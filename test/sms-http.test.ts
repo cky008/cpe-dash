@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiHttpServer } from "../src/http-server.ts";
 import { FengSuiMcpServer } from "../src/mcp-server.ts";
@@ -18,6 +17,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type MockSmsCpeOptions, createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSmsCpeOptions } = {}) {
   const mock = createMockSmsCpe({
@@ -44,9 +44,9 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
   );
   const config = loadConfig({ envPath, ignoreProcessEnv: true });
   const stateStore = new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey });
-  const client = new HuaweiCpeClient({ cpeUrl: config.cpeUrl, cpePassword: config.cpePassword, fetchImpl: mock.fetchImpl });
+  const connection = mockConnection({ password: config.cpePassword, fetchImpl: mock.fetchImpl }, { cpeUrl: config.cpeUrl });
   const core = createFengSuiCore({
-    client,
+    connection,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,

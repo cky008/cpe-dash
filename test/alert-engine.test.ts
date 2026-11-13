@@ -4,7 +4,6 @@ import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { AlertEngine, parseDataLimitBytes } from "../src/alert-engine.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { DeviceAccess } from "../src/device-access.ts";
 import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import type { AlertEventRecord } from "../src/state-store.ts";
@@ -12,6 +11,7 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 interface SampleInput {
   t: number;
@@ -83,9 +83,9 @@ function createEngineFixture(opts: { failing?: () => boolean } = {}) {
   });
   const tmpDir = tempDir("fengsui-alerts-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "alert_key" });
-  const client = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: mock.password, fetchImpl: mock.fetchImpl });
+  const connection = mockConnection(mock);
   const core = createFengSuiCore({
-    client,
+    connection,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,

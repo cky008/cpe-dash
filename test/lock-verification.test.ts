@@ -3,13 +3,13 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { AlertEngine } from "../src/alert-engine.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { type GlobalTelemetrySnapshot, type PersistedLockState, mergeBandLockState, verifyLockState } from "../src/cpe-domain.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /** Parse a real telemetry snapshot from the strict router (PCC B1/300/PCI 211, SCC B3/1850/PCI 142, NR N78/650000/PCI 211). */
 async function snapshot(opts: { lteBandHex?: string; noNr?: boolean } = {}): Promise<GlobalTelemetrySnapshot> {
@@ -28,7 +28,7 @@ async function snapshot(opts: { lteBandHex?: string; noNr?: boolean } = {}): Pro
   const cpe = createStrictCpe({ fault });
   const dir = tempDir("fengsui-lockver-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+    connection: mockConnection(cpe),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockver_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
   });
@@ -111,7 +111,7 @@ describe("lockState reconciliation against what the router reports", () => {
     const cpe = createStrictCpe();
     const dir = tempDir("fengsui-lockmcp-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockmcp_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     });
@@ -163,7 +163,7 @@ describe("lockState reconciliation against what the router reports", () => {
     const cpe = createStrictCpe();
     const dir = tempDir("fengsui-lockmerge-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockmerge_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     });
@@ -187,7 +187,7 @@ describe("lockState reconciliation against what the router reports", () => {
     const dir = tempDir("fengsui-lockalert-");
     const cpe = createStrictCpe();
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl }),
+      connection: mockConnection(cpe),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "lockalert_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     });

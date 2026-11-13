@@ -10,7 +10,6 @@ import { AuditLog } from "./audit-log.ts";
 import { ConsoleSettings, type CpeConnection, type RouterPasswordReuse, resetLoginProof } from "./console-settings.ts";
 import { loadConfig } from "./config.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "./core.ts";
-import { HuaweiCpeClient } from "./cpe-client.ts";
 import { DEFAULT_SESSION_MAX_HOLD_MS } from "./session-errors.ts";
 import type { CpeControlService } from "./cpe-controls.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
@@ -132,11 +131,15 @@ export class DaemonAlreadyRunningError extends Error {
   }
 }
 
+/** How long one router session may hold the admin slot: an SMS send polls send-status inside its session, so the budget must outlast that poll. */
+export function sessionHoldBudgetMs(config: Pick<AppConfig, "smsSendStatusTimeoutMs">): number {
+  return Math.max(DEFAULT_SESSION_MAX_HOLD_MS, config.smsSendStatusTimeoutMs + 30_000);
+}
+
 export interface FengSuiRuntimeStack {
   config: AppConfig;
   stateStore: EncryptedStateStore;
   timeseries: TimeSeriesRingBuffer;
-  cpeClient: HuaweiCpeClient;
   core: FengSuiCore;
   scheduler: MutexSessionScheduler;
   monitor: CpeMonitor;
@@ -236,18 +239,6 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
   audit.load();
   const connection = settings.cpe;
 
-  const cpeClient = new HuaweiCpeClient({
-    cpeUrl: connection?.url ?? config.cpeUrl,
-    cpeUsername: connection?.username ?? config.cpeUsername,
-    cpePassword: connection?.password ?? "",
-    requestTimeoutMs: config.requestTimeoutMs,
-    respectBrowserSession: config.respectBrowserSession,
-    requireEccSignature: config.cpeRequireEccSignature,
-    fetchImpl,
-    // An SMS send polls send-status inside its session, so the hold budget must outlast that poll
-    sessionMaxHoldMs: Math.max(DEFAULT_SESSION_MAX_HOLD_MS, config.smsSendStatusTimeoutMs + 30_000),
-  });
-
   // Two processes long-polling one Telegram bot token fight over getUpdates (HTTP 409); the daemon
   // lock above guarantees this is the only poller on this data directory.
   const telegramApi =
@@ -268,10 +259,20 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
       : null;
 
   const core = createFengSuiCore({
-    client: cpeClient,
+    // No connection saved yet: the address of .env and no password, so nothing logs in until the console's setup
+    connection: {
+      cpeUrl: connection?.url ?? config.cpeUrl,
+      cpeUsername: connection?.username ?? config.cpeUsername,
+      cpePassword: connection?.password ?? "",
+      requestTimeoutMs: config.requestTimeoutMs,
+      respectBrowserSession: config.respectBrowserSession,
+      requireEccSignature: config.cpeRequireEccSignature,
+      ...(fetchImpl !== undefined ? { fetchImpl } : {}),
+      sessionMaxHoldMs: sessionHoldBudgetMs(config),
+    },
     stateStore,
     timeseries,
-    // The router's family as the console saved it (absent: Huawei); the driver of every other family reads and writes it
+    // The router's family as the console saved it (absent: Huawei): the brand whose driver reads and writes it
     family: connection?.family,
     pollIntervalMs: config.pollIntervalMs,
     neighborScanIntervalMs: config.neighborScanIntervalMs,
@@ -612,7 +613,6 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
     config,
     stateStore,
     timeseries,
-    cpeClient,
     core,
     scheduler,
     monitor,

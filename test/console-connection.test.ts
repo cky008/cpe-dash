@@ -3,18 +3,18 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { runAsActor } from "../src/audit-log.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { type ControlAuditEvent, CpeNotConfiguredError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 function fixture(opts: { password?: string; fault?: (p: string) => StrictFault | undefined } = {}) {
   const cpe = createStrictCpe({ fault: opts.fault });
   const dir = tempDir("fengsui-conn-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: opts.password ?? cpe.password, fetchImpl: cpe.fetchImpl }),
+    connection: mockConnection({ password: opts.password ?? cpe.password, fetchImpl: cpe.fetchImpl }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "conn_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
   });

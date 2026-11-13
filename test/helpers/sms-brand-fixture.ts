@@ -1,6 +1,5 @@
 import path from "node:path";
 import { createFengSuiCore, stopFengSuiCore } from "../../src/core.ts";
-import { HuaweiCpeClient } from "../../src/cpe-client.ts";
 import { StorageCipher } from "../../src/encrypted-file.ts";
 import type { RouterFamily } from "../../src/router-family.ts";
 import type { ControlAppliedEvent } from "../../src/scheduler.ts";
@@ -11,6 +10,7 @@ import { EncryptedStateStore } from "../../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../../src/timeseries.ts";
 import type { DriverSession, DriverSms } from "../../src/drivers/types.ts";
 import { removeTempDir, tempDir } from "./temp-dir.ts";
+import { mockConnection } from "./connection.ts";
 
 /** The SMS methods of a driver session that must have them. */
 export function smsOf(session: DriverSession): DriverSms {
@@ -56,9 +56,9 @@ export function createBrandSmsFixture(opts: {
 }) {
   const tmpDir = tempDir("fengsui-sms-brand-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "brand_key" });
-  const client = new HuaweiCpeClient({ cpeUrl: opts.cpeUrl, cpeUsername: opts.username ?? "admin", cpePassword: opts.password, fetchImpl: opts.fetchImpl, requestTimeoutMs: 2000 });
+  const connection = mockConnection(opts, { cpeUrl: opts.cpeUrl, cpeUsername: opts.username ?? "admin", requestTimeoutMs: 2000 });
   const core = createFengSuiCore({
-    client,
+    connection,
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     family: opts.family,

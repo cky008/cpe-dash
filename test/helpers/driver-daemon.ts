@@ -1,6 +1,5 @@
 import path from "node:path";
 import { createFengSuiCore, stopFengSuiCore } from "../../src/core.ts";
-import { HuaweiCpeClient } from "../../src/cpe-client.ts";
 import type { LinkChangeNotice } from "../../src/cpe-controls.ts";
 import type { WriteCheck } from "../../src/device-access.ts";
 import type { DriverCellular, DriverSession } from "../../src/drivers/types.ts";
@@ -9,6 +8,7 @@ import type { ControlAppliedEvent, ControlAuditEvent } from "../../src/scheduler
 import { EncryptedStateStore } from "../../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../../src/timeseries.ts";
 import { removeTempDir, tempDir } from "./temp-dir.ts";
+import { mockConnection } from "./connection.ts";
 
 /** The session's cellular settings with every write there to call (a test of a brand that lacks one fails on calling it). */
 export function cellularOf(session: DriverSession): Required<DriverCellular> {
@@ -36,7 +36,7 @@ export const noWait = { sleep: (): Promise<void> => Promise.resolve() };
 export function daemonOn(family: RouterFamily, fetchImpl: typeof fetch, url: string, password: string, username = family === "huawei" ? "admin" : "") {
   const dir = tempDir("fengsui-driver-daemon-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: url, cpeUsername: username, cpePassword: password, fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection({ password: password, fetchImpl }, { cpeUrl: url, cpeUsername: username, requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "driver_daemon_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     family,

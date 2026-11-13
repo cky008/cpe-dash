@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { SectionUnavailableError } from "../src/cpe-domain.ts";
 import { driverTopologySnapshot } from "../src/drivers/hosts.ts";
 import type { DriverHost } from "../src/drivers/types.ts";
@@ -12,6 +11,7 @@ import { LanRouterMock } from "./helpers/lan-router.ts";
 import { openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * Connected devices on routers of driver families: the device lists their interfaces document, in the
@@ -78,7 +78,7 @@ describe("zte-goform: connected devices", () => {
     const { mock } = zteRouter({ stations: { lan: [{ hostname: "nas", ip_addr: "192.168.0.10", mac_addr: MAC_B }] } });
     const dir = tempDir("fengsui-hosts-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.0.1", cpeUsername: "", cpePassword: ZTE_PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 }),
+      connection: mockConnection({ password: ZTE_PASSWORD, fetchImpl: mock.fetchImpl }, { cpeUrl: "http://192.168.0.1", cpeUsername: "", requestTimeoutMs: 2000 }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "hosts_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
       family: "zte-goform",

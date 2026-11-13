@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { SessionBackend } from "../src/router-backend.ts";
 import { ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
@@ -13,6 +12,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * One interface for every brand: the services above `RouterBackend` never ask which stack speaks
@@ -38,7 +38,7 @@ describe("router backend: one interface for every brand", () => {
     const router = openwrtRouter();
     const dir = tempDir("fengsui-backend-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.1.1", cpeUsername: "root", cpePassword: OPENWRT_PASSWORD, fetchImpl: router.mock.fetchImpl, requestTimeoutMs: 1000 }),
+      connection: mockConnection({ password: OPENWRT_PASSWORD, fetchImpl: router.mock.fetchImpl }, { cpeUrl: "http://192.168.1.1", cpeUsername: "root", requestTimeoutMs: 1000 }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "backend_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
       family: "openwrt",
@@ -104,7 +104,7 @@ describe("router backend: one interface for every brand", () => {
     });
     const dir = tempDir("fengsui-backend-sms-");
     const core = createFengSuiCore({
-      client: new HuaweiCpeClient({ cpeUrl: "http://192.168.66.1", cpeUsername: "root", cpePassword: "placeholder_password", fetchImpl: router.fetchImpl, requestTimeoutMs: 1000 }),
+      connection: mockConnection({ password: "placeholder_password", fetchImpl: router.fetchImpl }, { cpeUrl: "http://192.168.66.1", cpeUsername: "root", requestTimeoutMs: 1000 }),
       stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "backend_key" }),
       timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
       family: "nradio",

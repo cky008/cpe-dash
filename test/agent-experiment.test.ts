@@ -4,7 +4,6 @@ import { after, before, describe, it } from "node:test";
 import { runAsActor } from "../src/audit-log.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import type { ExperimentalLockChange } from "../src/cpe-controls.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { switchExperimentalWrite } from "../src/experimental-switch.ts";
@@ -15,6 +14,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { blockNetwork, createCpeFamily } from "./helpers/cpe-family.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * AI agents testing a model nobody verified: `get_device_report` for everyone, and
@@ -32,7 +32,7 @@ const ENDPOINTS: Readonly<Record<string, string>> = {
 function fixture(cpe: { fetchImpl: typeof fetch; password: string }) {
   const dir = tempDir("fengsui-agent-exp-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection(cpe, { requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "agent_exp_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,

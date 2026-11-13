@@ -4,7 +4,6 @@ import { parseJsonSafeNullProto } from "../src/json-safe.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { computeScram } from "../src/crypto.ts";
 import {
   FengSuiMcpServer,
@@ -15,6 +14,7 @@ import {
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { getXmlTag } from "../src/xml.ts";
+import { mockConnection } from "./helpers/connection.ts";
 import { tempDir } from "./helpers/temp-dir.ts";
 
 function createMockSchedulerFixture(opts: {
@@ -194,15 +194,10 @@ function createMockSchedulerFixture(opts: {
     filePath: path.join(tmpDir, "state.json"),
     encryptionKey: password,
   });
-  const client = new HuaweiCpeClient({
-    cpeUrl: "http://192.168.8.1",
-    cpePassword: password,
-    fetchImpl,
-  });
   const ring = new TimeSeriesRingBuffer({ retentionHours: 24 });
 
   const core = createFengSuiCore({
-    client,
+    connection: mockConnection({ password, fetchImpl }),
     stateStore,
     timeseries: ring,
     pollIntervalMs: 60_000,
@@ -225,7 +220,7 @@ function createMockSchedulerFixture(opts: {
     }
   };
 
-  return { core, scheduler, cleanup, client };
+  return { core, scheduler, cleanup };
 }
 
 describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch", () => {

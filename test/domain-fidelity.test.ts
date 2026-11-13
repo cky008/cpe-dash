@@ -7,12 +7,13 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type StrictCpe, type StrictFault, createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 function setup(fault?: (p: string, method: string) => StrictFault | undefined): { cpe: StrictCpe; core: FengSuiCore; close: () => Promise<void> } {
   const cpe = createStrictCpe({ fault });
   const dir = tempDir("fengsui-fidelity-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: cpe.password, fetchImpl: cpe.fetchImpl, requestTimeoutMs: 3000 }),
+    connection: mockConnection(cpe, { requestTimeoutMs: 3000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "fidelity_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 24 }),
     pollIntervalMs: 60_000,

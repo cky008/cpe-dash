@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { HuaweiCpeClient } from "../src/cpe-client.ts";
 import { CpeApiError } from "../src/session-errors.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { CONNECTION_POLLS } from "../src/drivers/readback.ts";
@@ -15,6 +14,7 @@ import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
+import { mockConnection } from "./helpers/connection.ts";
 
 /**
  * The data connection of a driver family (redial, self-healing's redial, mobile data): the session
@@ -31,7 +31,7 @@ const noWait = { sleep: () => Promise.resolve() };
 function daemonOn(family: RouterFamily, fetchImpl: typeof fetch, url: string, password: string, username = "") {
   const dir = tempDir("fengsui-data-link-");
   const core = createFengSuiCore({
-    client: new HuaweiCpeClient({ cpeUrl: url, cpeUsername: username, cpePassword: password, fetchImpl, requestTimeoutMs: 2000 }),
+    connection: mockConnection({ password: password, fetchImpl }, { cpeUrl: url, cpeUsername: username, requestTimeoutMs: 2000 }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "data_link_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     family,
