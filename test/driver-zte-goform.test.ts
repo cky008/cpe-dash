@@ -21,7 +21,7 @@ import {
   zteNrBandForm,
   ZTE_STATUS_KEYS,
   withZteGoformStatus,
-} from "../src/drivers/zte-goform.ts";
+} from "../src/drivers/zte/goform.ts";
 import { driverTelemetrySnapshot } from "../src/drivers/snapshot.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { ZTE_LD, ZTE_PASSWORD, ZTE_VERSION, zteRouter } from "./helpers/zte-goform-router.ts";

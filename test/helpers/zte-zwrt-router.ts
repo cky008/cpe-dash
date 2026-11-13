@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { DriverCpeClient } from "../../src/drivers/client.ts";
 import { ucs2Hex } from "../../src/drivers/sms.ts";
-import { zteZwrtProtocol, zwrtDecryptField, zwrtEncryptField, zwrtLoginPassword } from "../../src/drivers/zte-zwrt.ts";
+import { zteZwrtProtocol, zwrtDecryptField, zwrtEncryptField, zwrtLoginPassword } from "../../src/drivers/zte/zwrt.ts";
 import { LanRouterMock } from "./lan-router.ts";
 import type { ZteSmsRow } from "./zte-goform-router.ts";
 

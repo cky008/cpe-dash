@@ -20,6 +20,9 @@ import {
   pinRefused,
   parseOperatorName,
   modelLineOf,
+  operatorActOf,
+  parseCops,
+  parseCopsScan,
 } from "../protocols/at/common.ts";
 import {
   parseQuectelServingCell,
@@ -48,7 +51,7 @@ import {
   parseFibocomCcInfo,
 } from "../protocols/at/fibocom.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
-import { operatorActOf, parseCops, parseCopsScan, settleNothingToRead } from "./cellular.ts";
+import { settleNothingToRead } from "./cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleCellLocks, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";

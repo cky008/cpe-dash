@@ -6,7 +6,7 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError, sha256Hex } from "../src/drivers/login.ts";
-import { ZWRT_ANONYMOUS, ZWRT_DEVICE_INFO, parseZwrtLockState, parseZwrtTelemetry, withZwrtStatus, zteZwrtProtocol, zwrtLoginPassword } from "../src/drivers/zte-zwrt.ts";
+import { ZWRT_ANONYMOUS, ZWRT_DEVICE_INFO, parseZwrtLockState, parseZwrtTelemetry, withZwrtStatus, zteZwrtProtocol, zwrtLoginPassword } from "../src/drivers/zte/zwrt.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { ZWRT_PASSWORD, ZWRT_SALT, ZWRT_SESSION, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 

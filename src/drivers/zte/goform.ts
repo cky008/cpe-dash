@@ -1,22 +1,19 @@
-import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
-import { CpeControlValidationError } from "../control-error.ts";
-import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
-import { SectionUnavailableError } from "../cpe-domain.ts";
-import type { WriteCheck } from "../device-access.ts";
-import { type BatteryStatus, type SimCardStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../router-status.ts";
-import { detectSmsTextMode } from "../sms/text-mode.ts";
-import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
-import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
+import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../../cellular.ts";
+import { CpeControlValidationError } from "../../control-error.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
+import { SectionUnavailableError } from "../../cpe-domain.ts";
+import type { WriteCheck } from "../../device-access.ts";
+import { type BatteryStatus, type SimCardStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../../router-status.ts";
+import { detectSmsTextMode } from "../../sms/text-mode.ts";
+import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
+import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "../bands.ts";
+import { FENGSUI_APN_PROFILE, emptyUssd, sameDataLimit, settleNothingToRead } from "../cellular.ts";
 import {
-  FENGSUI_APN_PROFILE,
   ZTE_APN_PROFILE_KEYS,
   ZTE_GOFORM_SLOTS,
   ZTE_MODE_NAMES,
   awaitOperatorStep,
   awaitZteUssd,
-  emptyUssd,
-  sameDataLimit,
-  settleNothingToRead,
   zteApnFields,
   zteApnProfiles,
   zteAuthOf,
@@ -27,13 +24,14 @@ import {
   zteScanRows,
   zteUssdText,
 } from "./cellular.ts";
-import { carriersFromRows, neighbourOf, ratOf, ratOfChannel, servingModeOf } from "./cells.ts";
-import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
-import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, md5Hex, sha256Hex, signedInElsewhere, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
-import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
-import { cellHasData, emptyCell } from "./snapshot.ts";
-import { type LanHttp, parseJsonText } from "./transport.ts";
+import { carriersFromRows, neighbourOf, ratOf, ratOfChannel, servingModeOf } from "../cells.ts";
+import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "../client.ts";
+import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, md5Hex, sha256Hex, signedInElsewhere, wrongPassword } from "../login.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "../readback.ts";
+import { settleSmsListing, storedIndices, ucs2Hex } from "../sms.ts";
+import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
+import { cellHasData, emptyCell } from "../snapshot.ts";
+import { type LanHttp, parseJsonText } from "../transport.ts";
 import type {
   CellLockState,
   DriverBandLockTarget,
@@ -54,7 +52,7 @@ import type {
   DriverSmsSendOutcome,
   DriverTelemetry,
   DriverWait,
-} from "./types.ts";
+} from "../types.ts";
 import {
   arfcnOf,
   bandOf,
@@ -86,7 +84,7 @@ import {
   temperatureOf,
   textOf,
   txPowerOf,
-} from "./values.ts";
+} from "../values.ts";
 
 /**
  * ZTE routers with the goform web interface (MC801A, MC888, MC889, MC7010, MU5001, F50, MF28x…):

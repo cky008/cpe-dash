@@ -1,7 +1,6 @@
-import { type ApnIpType, isApnName } from "../../cellular.ts";
+import { type ApnIpType, type OperatorChoice, type OperatorRat, isApnName } from "../../cellular.ts";
 import { type SimCardStatus, type SimState, countValue } from "../../router-status.ts";
-import { labelOf } from "../../drivers/values.ts";
-
+import { labelOf, textOf } from "../../drivers/values.ts";
 
 /**
  * AT commands every cellular module answers the same way (3GPP TS 27.007 / 27.005), and how a
@@ -137,6 +136,73 @@ export function modelLineOf(text: string): string | null {
   );
 }
 
-// --------------------------------------------------------------------------
-// OpenWrt ubus JSON-RPC Helper
-// --------------------------------------------------------------------------
+// The operator commands (3GPP TS 27.007 §7.3). A router's own page may hand its search result on in
+// the same fields (ZTE's interfaces, HiLink's `plmn-list`), so their drivers read a row with these too.
+
+/** The longest scan list read (64 rows of a quoted name, a code and two numbers fit several times over). */
+export const MAX_SCAN_CHARS = 8192;
+
+/** The access technology of a scan row, as `AT+COPS` numbers it (3GPP TS 27.007 §7.3). */
+export function operatorRatOf(value: unknown): OperatorRat | null {
+  const act = textOf(value);
+  if (act === null || !/^\d{1,2}$/.test(act)) return null;
+  const n = Number(act);
+  if (n === 0 || n === 1 || n === 3 || n === 8) return "2G";
+  if (n === 2 || (n >= 4 && n <= 6)) return "3G";
+  if (n === 7 || n === 9 || n === 10) return "4G";
+  if (n >= 11 && n <= 13) return "5G";
+  return null;
+}
+
+/** The `AT+COPS` number a technology is registered with (`null` for a choice that names none). */
+export function operatorActOf(rat: OperatorRat | null): string | null {
+  if (rat === null) return null;
+  return { "2G": "0", "3G": "2", "4G": "7", "5G": "12" }[rat];
+}
+
+/** An operator's name as it may be shown: printable, short; `null` when there is none. */
+export function operatorName(value: unknown): string | null {
+  const text = textOf(value)
+    ?.replace(/["\u0000-\u001f\u007f-\u009f]/g, "")
+    .trim()
+    .slice(0, 48);
+  return text ? text : null;
+}
+
+const SCAN_STATES: ReadonlyArray<OperatorChoice["state"]> = ["unknown", "available", "current", "forbidden"];
+
+/** One scan row from its `AT+COPS=?` fields: state, name, numeric code, technology. `null`: not an operator. */
+export function operatorChoice(state: unknown, name: unknown, numeric: unknown, act: unknown): OperatorChoice | null {
+  const plmn = textOf(numeric)?.replace(/\D/g, "") ?? "";
+  if (!/^\d{5,6}$/.test(plmn)) return null;
+  const index = Number(textOf(state) ?? "");
+  return { plmn, name: operatorName(name), rat: operatorRatOf(act), state: SCAN_STATES[index] ?? "unknown" };
+}
+
+/** At most this many networks are kept of a scan (a border area lists a few dozen). */
+export const MAX_SCAN_ROWS = 64;
+
+/** `AT+COPS?`: how the module chooses (0 by itself, 1 kept on one operator, 4 one operator first), and the operator in the format it is set to. */
+export interface CopsState {
+  mode: number;
+  /** 0 and 1 a name, 2 the code; `null` when the module names no operator. */
+  format: number | null;
+  operator: string | null;
+}
+
+export function parseCops(raw: string): CopsState | null {
+  const match = /\+COPS:\s*([0-4])(?:\s*,\s*([012])\s*,\s*"([^"\r\n]{0,64})")?/.exec(raw.slice(0, 512));
+  if (!match) return null;
+  return { mode: Number(match[1]), format: match[2] === undefined ? null : Number(match[2]), operator: match[3] === undefined ? null : match[3] };
+}
+
+/** `AT+COPS=?`: one `(state,"long name","short name","code"[,technology])` per network found; the lists of modes and formats after them are not networks. */
+export function parseCopsScan(raw: string): OperatorChoice[] {
+  const out: OperatorChoice[] = [];
+  for (const match of raw.slice(0, MAX_SCAN_CHARS).matchAll(/\((\d)\s*,\s*"([^"\r\n]{0,64})"\s*,\s*"([^"\r\n]{0,64})"\s*,\s*"(\d{5,6})"(?:\s*,\s*(\d{1,2}))?\s*\)/g)) {
+    if (out.length >= MAX_SCAN_ROWS) break;
+    const choice = operatorChoice(match[1], match[2] || match[3], match[4], match[5]);
+    if (choice) out.push(choice);
+  }
+  return out;
+}

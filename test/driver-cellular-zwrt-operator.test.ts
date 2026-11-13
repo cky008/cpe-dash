@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/session-errors.ts";
-import { FENGSUI_APN_PROFILE, OPERATOR_POLLS, zwrtApnProfiles, zwrtScanRows } from "../src/drivers/cellular.ts";
+import { FENGSUI_APN_PROFILE } from "../src/drivers/cellular.ts";
+import { OPERATOR_POLLS, zwrtApnProfiles, zwrtScanRows } from "../src/drivers/zte/cellular.ts";
 import { cellularOf, daemonOn, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 

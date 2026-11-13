@@ -5,8 +5,8 @@ import { nradioProtocol } from "./nradio.ts";
 import { openwrtProtocol } from "./openwrt.ts";
 import { pinsuProtocol } from "./pinsu.ts";
 import { tozedProtocol } from "./tozed.ts";
-import { zteGoformProtocol } from "./zte-goform.ts";
-import { zteZwrtProtocol } from "./zte-zwrt.ts";
+import { zteGoformProtocol } from "./zte/goform.ts";
+import { zteZwrtProtocol } from "./zte/zwrt.ts";
 
 /**
  * Registry of all non-Huawei router protocol drivers supported by FengSui.

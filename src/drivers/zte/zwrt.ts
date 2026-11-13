@@ -1,22 +1,24 @@
 import crypto from "node:crypto";
-import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef } from "../cellular.ts";
-import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
-import { SectionUnavailableError } from "../cpe-domain.ts";
-import { CpeControlValidationError } from "../control-error.ts";
-import type { WriteCheck } from "../device-access.ts";
-import { type BatteryStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../router-status.ts";
-import { detectSmsTextMode } from "../sms/text-mode.ts";
-import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
-import { bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "./bands.ts";
-import { FENGSUI_APN_PROFILE, ZTE_MODE_NAMES, type ZwrtApnProfile, awaitOperatorStep, sameDataLimit, settleNothingToRead, zteModeOf, zteRegisterDone, zteScanDone, zwrtApnBody, zwrtApnProfiles, zwrtScanRows } from "./cellular.ts";
-import { carriersFromRows, servingModeOf } from "./cells.ts";
-import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
-import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
-import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
-import { cellHasData, emptyCell } from "./snapshot.ts";
-import type { LanHttp } from "./transport.ts";
-import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../protocols/ubus.ts";
+import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef } from "../../cellular.ts";
+import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
+import { SectionUnavailableError } from "../../cpe-domain.ts";
+import { CpeControlValidationError } from "../../control-error.ts";
+import type { WriteCheck } from "../../device-access.ts";
+import { type BatteryStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../../router-status.ts";
+import { detectSmsTextMode } from "../../sms/text-mode.ts";
+import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
+import { bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "../bands.ts";
+import { FENGSUI_APN_PROFILE, sameDataLimit, settleNothingToRead } from "../cellular.ts";
+import { ZTE_MODE_NAMES, type ZwrtApnProfile, awaitOperatorStep, zteModeOf, zteRegisterDone, zteScanDone, zwrtApnBody, zwrtApnProfiles, zwrtScanRows } from "./cellular.ts";
+import { carriersFromRows, servingModeOf } from "../cells.ts";
+import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "../client.ts";
+import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "../login.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "../readback.ts";
+import { settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex } from "../sms.ts";
+import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
+import { cellHasData, emptyCell } from "../snapshot.ts";
+import type { LanHttp } from "../transport.ts";
+import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../../protocols/ubus.ts";
 import type {
   CellLockState,
   DriverBandLockTarget,
@@ -35,7 +37,7 @@ import type {
   DriverSmsSendOutcome,
   DriverTelemetry,
   DriverWait,
-} from "./types.ts";
+} from "../types.ts";
 import {
   arfcnOf,
   bandOf,
@@ -60,7 +62,7 @@ import {
   smallIntOf,
   temperatureOf,
   textOf,
-} from "./values.ts";
+} from "../values.ts";
 
 /**
  * ZTE routers on zWRT, ZTE's OpenWrt (G5 Pro / Ultra / TS, U60 Pro, U50 Pro, MC888D): JSON-RPC 2.0

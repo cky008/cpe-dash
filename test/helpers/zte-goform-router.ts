@@ -1,6 +1,6 @@
 import { DriverCpeClient } from "../../src/drivers/client.ts";
 import { ucs2Hex } from "../../src/drivers/sms.ts";
-import { ZTE_LTE_ALL_MASK, ZTE_NR_ALL_BANDS, zteActionDigest, zteGoformProtocol, zteLoginPassword, zteReqprocPassword } from "../../src/drivers/zte-goform.ts";
+import { ZTE_LTE_ALL_MASK, ZTE_NR_ALL_BANDS, zteActionDigest, zteGoformProtocol, zteLoginPassword, zteReqprocPassword } from "../../src/drivers/zte/goform.ts";
 import { LanRouterMock, type LanRequestRecord } from "./lan-router.ts";
 
 /**
