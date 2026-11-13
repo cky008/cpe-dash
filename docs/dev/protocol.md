@@ -324,6 +324,7 @@ sequenceDiagram
   <networkOption>2</networkOption>
 </request>
 ```
+- **网络制式与锁频的关系（2026-11-13 真机核对，[#3](https://github.com/cky008/cpe-dash/issues/3)）**：这个接口只接受「当前制式的那一个字段」：`00` 配 `networkOption`，`03` 配 `LTEBandOption`；不带、或者配错（`03` 配 `networkOption`）都以 `-1` 拒绝。上面的锁频请求在默认制式（`00` + `networkOption 2`）下逐字节不变；用户改过制式时，烽燧带上 5 秒轮询读到的那个字段（`03` 时换成 `<LTEBandOption>`），锁频之后制式不变（`NetModeKeep`，[`src/band-lock.ts`](../../src/band-lock.ts)）。仅 4G 时烽燧拒绝锁 5G 频段（路由器自己的锁频页这时也去掉 `nr_info`）。切换制式本身见附录 A.12.1。
 
 #### `POST /api/net/lock-freq`（5G NR 锁频段 & 4G/5G 锁频点/锁小区统一控制）
 - **重要边界**：H168-383 零售固件 `4.4.0.1` 上 `GET /api/net/lock-freq` 返回 `[CPE 100003]`（仅开放 `POST` 下发），因此 Phase 2 后端须在本地加密状态文件 [`data/state.json`](../../src/encrypted-file.ts) 中持久化当前用户下发的锁小区/NR 锁频配置，并与 `/api/device/signal` 实测驻留频点/PCI 对账校验！
@@ -814,7 +815,7 @@ $$
 **与写操作相关的型号差异**（供阶段 3 参考）：
 
 - 重拨 `POST /api/net/reconnect`：参考项目的请求体是 `<ReconnectAction>1</ReconnectAction>`（`api/Net.py`），H168-383 实测是 `<reconnect_action>1</reconnect_action>`（3.7 节）。同名接口的字段名会因型号而异。
-- 锁 LTE 频段 `POST /api/net/net-mode`：参考项目发 `NetworkMode`、`NetworkBand`、`LTEBand`（`api/Net.py`），H168-383 另带 `networkOption`（3.4 节）。
+- 锁 LTE 频段 `POST /api/net/net-mode`：参考项目发 `NetworkMode`、`NetworkBand`、`LTEBand`（`api/Net.py`），H168-383 另带 `networkOption`（3.4 节）。H168-383 实测（2026-11-13）：不带 `networkOption` 的写入一律以 `-1` 拒绝，所以通用实现在 `net-mode` 应答带 `networkOption` 时也带上当前制式的那一个字段（A.12.1）。
 - 信号格数：部分型号在 `/api/monitoring/status` 的 `SignalIcon`，部分在 `SignalIconNr`（参考项目 `api/Monitoring.py`）。
 - `GET /api/net/plmn-list`（参考项目 `api/Net.py`）：推断它对应官方网页的手动搜网，可能打断数据连接，**绝不列入任何探测清单**。
 
@@ -992,7 +993,7 @@ $$
 
 | 功能 | 请求（字段按顺序） | 来源 | 烽燧的做法 |
 | :--- | :--- | :--- | :--- |
-| 锁 LTE 频段 / 解锁（`bandLock`） | `POST /api/net/net-mode`：`<NetworkMode>`、`<NetworkBand>`、`<LTEBand>`。`LTEBand` 是频段掩码（第 `n − 1` 位为频段 `n`），小写十六进制、不带 `0x`；「全部频段」为 `7fffffffffffffff`；`NetworkBand` 是 2G/3G 频段掩码，「全部」为 `3fffffff`；`NetworkMode` 取 `00` 自动、`03` 仅 4G 等 | 参考项目 `api/Net.py`（`set_net_mode`）、`enums/net.py`（`NetworkModeEnum`、`NetworkBandEnum`、`LTEBandEnum`） | 只锁 LTE；频段只能取 `net/net-mode-list` 通告的；同一会话先 `GET /api/net/net-mode`，`NetworkMode` 与 `NetworkBand` 按路由器回报的原样写回，只改 `LTEBand`。H168-383 另带 `networkOption`（3.4 节），通用实现不带 |
+| 锁 LTE 频段 / 解锁（`bandLock`） | `POST /api/net/net-mode`：`<NetworkMode>`、`<NetworkBand>`、`<LTEBand>`。`LTEBand` 是频段掩码（第 `n − 1` 位为频段 `n`），小写十六进制、不带 `0x`；「全部频段」为 `7fffffffffffffff`；`NetworkBand` 是 2G/3G 频段掩码，「全部」为 `3fffffff`；`NetworkMode` 取 `00` 自动、`03` 仅 4G 等 | 参考项目 `api/Net.py`（`set_net_mode`）、`enums/net.py`（`NetworkModeEnum`、`NetworkBandEnum`、`LTEBandEnum`） | 只锁 LTE；频段只能取 `net/net-mode-list` 通告的；同一会话先 `GET /api/net/net-mode`，`NetworkMode` 与 `NetworkBand` 按路由器回报的原样写回，只改 `LTEBand`。H168-383 另带 `networkOption`（3.4 节）；应答带 `networkOption` 的 5G 机型，通用实现在三个字段之后带上当前制式的那一个字段（A.12.1） |
 | 重启（`reboot`） | `POST /api/device/control`：`<Control>1</Control>`。同一接口 `2` 为 **恢复出厂设置**、`3` 为备份配置、`4` 为关机 | 参考项目 `api/Device.py`（`set_control`）、`enums/device.py`（`ControlModeEnum`） | 只发 `1`；`2`–`4` 绝不发送。与 H168-383 的请求相同 |
 | 重拨（`reconnect`） | `POST /api/net/reconnect`：`<ReconnectAction>1</ReconnectAction>` | 参考项目 `api/Net.py`（`reconnect`） | H168-383 用 `<reconnect_action>`（3.7 节），同名接口的字段名因型号而异 |
 | 移动数据开关（`mobileData`） | `GET` / `POST /api/dialup/mobile-dataswitch`：`<dataswitch>0\|1</dataswitch>` | 参考项目 `api/DialUp.py`（`mobile_dataswitch`、`set_mobile_dataswitch`） | 与 H168-383 的请求相同 |
@@ -1033,18 +1034,41 @@ $$
 
 读回失败不会让已被路由器接受的写入算作失败；所有写入都不重试。验证：[`test/generic-writes.test.ts`](../../test/generic-writes.test.ts)（每种请求在严格 Mock 上的确切格式、回读一致与不一致、拒绝时只发一次）、[`test/experimental-gate.test.ts`](../../test/experimental-gate.test.ts)（经过闸门的完整写入、记录与告警）。
 
-### A.12 蜂窝设置的通用写入（v1.9.0；只在 Mock 上验证）
+### A.12 蜂窝设置的通用写入（v1.9.0；H168-383 上四项在真机上核对过）
 
-v1.9.0 给烽燧加了一组「蜂窝设置」（[`src/cellular.ts`](../../src/cellular.ts)，契约见 [`api.md`](api.md) 2.13）。它们是在 H168-383 验证之后才有的，所以 **H168-383 上一项都不提供**：闸门在它上面把这些功能记为「没有实现」，烽燧不向它发送本节的任何请求。未验证的华为 HiLink 型号上，请求格式有记录的五项走通用实现（[`src/generic-writes.ts`](../../src/generic-writes.ts)），规则同 A.11：每次只发一次，同一会话回读，不重试。事实取自参考项目 `master@d2eb2af` 与接口资料库（见 [`sources.md`](sources.md) 18.6），**均未在真机验证**。
+v1.9.0 给烽燧加了一组「蜂窝设置」（[`src/cellular.ts`](../../src/cellular.ts)，契约见 [`api.md`](api.md) 2.13）。它们是在 H168-383 验证之后才有的。H168-383 上只开放 2026-11-13 主人在场核对过的四项（数据漫游、网络制式、选网与搜网、清零流量统计；登记在 `VERIFIED_FEATURES`，[#3](https://github.com/cky008/cpe-dash/issues/3)），请求和下表相同（网络制式与选网按 A.12.1 的写法）；USSD 它自己报告关着（`ussd_enabled` 为 0，登记在 `UNSUPPORTED_FEATURES`），其余闸门记为「没有实现」，烽燧不向它发送。未验证的华为 HiLink 型号上，请求格式有记录的五项走通用实现（[`src/generic-writes.ts`](../../src/generic-writes.ts)），规则同 A.11：每次只发一次，同一会话回读，不重试。事实取自参考项目 `master@d2eb2af`、接口资料库（见 [`sources.md`](sources.md) 18.6）与 H168-383 自带的管理页脚本（18.9）；除 H168-383 上的四项外，**均未在真机验证**。
 
 | 功能 | 请求（字段按顺序） | 烽燧的做法 |
 | :--- | :--- | :--- |
-| 网络制式（`networkMode`） | `POST /api/net/net-mode`：`<NetworkMode>`、`<NetworkBand>`、`<LTEBand>`。`NetworkMode` 是一到两个两位接入代码，靠前的优先：`00` 自动、`08` 仅 5G、`0803` 5G + 4G、`03` 仅 4G、`0302` 4G + 3G、`02` 仅 3G、`01` 仅 2G | 先 `GET net/net-mode-list` 读 `<AccessList><Access>`：只接受它列出的代码（两段的组合要两段都列出），没有列表就一个都不提供。`NetworkBand` 与 `LTEBand` 按本次会话读到的原样回传，只改制式。回读 `NetworkMode` |
-| 搜索运营商（`operatorSelect`） | `GET /api/net/plmn-list`：路由器搜完才应答（一分钟上下，期间可能断网） | 这一个请求的超时放宽到 120 秒。应答里每个 `<Network>` 读 `State`（0 未知、1 可用、2 当前、3 禁止）、`FullName`（没有则 `ShortName`）、`Numeric`、`Rat`，与 `net/current-plmn` 的字段同名；外层容器叫什么没有记录，所以不管它在哪一层都读。最多留 64 个。没有可回读的状态 |
-| 选运营商（`operatorSelect`） | `POST /api/net/register`：`<Mode>`、`<Plmn>`、`<Rat>`。`Mode` 为 `1` 手动、`0` 自动（自动时 `Plmn`、`Rat` 为空）；`Rat` 为 `0` 2G、`2` 3G、`7` 4G | 先 `GET net/register` 读原来的选择（断网回退时改回它）。参考项目没有给 5G 的 `Rat`，选 5G 或不指定时 `Rat` 留空，由路由器决定。回读 `Mode`（手动时还有 `Plmn`） |
+| 网络制式（`networkMode`） | `POST /api/net/net-mode`：`<NetworkMode>`、`<NetworkBand>`、`<LTEBand>`。`NetworkMode` 是一到两个两位接入代码，靠前的优先：`00` 自动、`08` 仅 5G、`0803` 5G + 4G、`03` 仅 4G、`0302` 4G + 3G、`02` 仅 3G、`01` 仅 2G | 先 `GET net/net-mode-list` 读 `<AccessList><Access>`：只接受它列出的代码（两段的组合要两段都列出），没有列表就一个都不提供。`NetworkBand` 与 `LTEBand` 按本次会话读到的原样回传，只改制式。回读 `NetworkMode`。`net-mode` 应答带 `networkOption` 的 5G 机型改用 A.12.1 的两字段写法 |
+| 搜索运营商（`operatorSelect`） | `GET /api/net/plmn-list`：路由器搜完才应答（一分钟上下，期间可能断网） | 这一个请求等到 240 秒（H168-383 自己的管理页也等 240 秒；实测 56–76 秒），会话最多占 250 秒（调度器的 `CONTROL_HOLD_MS`）。应答里每个 `<Network>` 读 `State`（0 未知、1 可用、2 当前、3 禁止）、`FullName`（没有则 `ShortName`）、`Numeric`、`Rat`，与 `net/current-plmn` 的字段同名；外层容器叫什么没有记录，所以不管它在哪一层都读。最多留 64 个。没有可回读的状态 |
+| 选运营商（`operatorSelect`） | `POST /api/net/register`：`<Mode>`、`<Plmn>`、`<Rat>`。`Mode` 为 `1` 手动、`0` 自动（自动时 `Plmn`、`Rat` 为空）；`Rat` 为 `0` 2G、`2` 3G、`7` 4G | 先 `GET net/register` 读原来的选择（断网回退时改回它）。参考项目没有给 5G 的 `Rat`，选 5G 或不指定时 `Rat` 留空，由路由器决定。`net/net-feature-switch` 的 `plmn_list_combine_enable` 为 1（同一个运营商只列一次）时 `Rat` 发 `255`，和 H168-383 的管理页一样。路由器注册完才应答（H168-383 实测 3–27 秒），等到 240 秒，会话最多占 250 秒。回读 `Mode`（手动时还有 `Plmn`；H168-383 手动时 `Plmn` 读回来是空的，不算不一致） |
 | 数据漫游（`roaming`） | `POST /api/dialup/connection`：`<RoamAutoConnectEnable>`、`<MaxIdelTime>`、`<ConnectMode>`、`<MTU>`、`<auto_dial_switch>`、`<pdp_always_on>` | 这个接口一次写全部连接设置，所以先 `GET dialup/connection`，把路由器报告的那几个标签原样回传（老固件只有五个，就回传五个），只改 `RoamAutoConnectEnable`。前四个缺任何一个就不写。回读 `RoamAutoConnectEnable` |
-| 清零流量统计（`trafficReset`） | `POST /api/monitoring/clear-traffic`：`<ClearTraffic>1</ClearTraffic>` | 没有可回读的状态 |
+| 清零流量统计（`trafficReset`） | `POST /api/monitoring/clear-traffic`：`<ClearTraffic>1</ClearTraffic>` | 前后各读一次 `monitoring/traffic-statistics` 的 `TotalConnectTime`：变小算一致；没变小只说「看不出」（流量一直在走），不算不一致。H168-383 实测清零后所有流量和时长计数都变小，`month_statistics` 的 `MonthLastClearTime` 不变 |
 | USSD（`ussd`） | `POST /api/ussd/send`：`<content>`（指令）、`<codeType>codeType</codeType>`、`<timeout>`（空）；之后 `GET /api/ussd/status`（`result` ≥ 1 表示还在等）与 `GET /api/ussd/get`（`content` 是应答） | 发送前先 `GET global/module-switch`，`ussd_enabled` 不是 `1` 就不发。`ussd/status` 每秒问一次，最多 30 次，等不到就返回「没有应答」。会话里回复运营商的提问就是再发一次；参考项目没有结束会话的调用，所以「取消」在这里拒绝。指令和应答都不进任何记录 |
+
+#### A.12.1 5G 机型的两字段写法（H168-383 真机核对，2026-11-13）
+
+出处是 H168-383（固件 4.4.0.1）自带的管理页脚本（登录后才给；只读取事实，见 [`sources.md`](sources.md) 18.9），每一条都在真机上核对过：
+
+- **怎么认**：`GET /api/net/net-mode` 的应答带 `<networkOption>`（H168-383 还带 `<LTEBandOption>`）。烽燧对这类路由器改用下面的写法（`usesModeOption`），其他路由器照旧。
+- **制式的写法**：`POST /api/net/net-mode` 只发两个字段（`js/networkmode.js` 的 `postConversionValue`），超时 90 秒：
+
+  | 管理页选项（`net_mode_list` 里的编号） | 烽燧的制式 | 请求 |
+  | :---: | :--- | :--- |
+  | 0 仅 SA | `nr_sa` | `<NetworkMode>00</NetworkMode><networkOption>1</networkOption>` |
+  | 1 仅 NSA | `nr_nsa` | `00` + `networkOption 0` |
+  | 2 SA + NSA | `auto` | `00` + `networkOption 2` |
+  | 3 仅 4G | `lte` | `<NetworkMode>03</NetworkMode><LTEBandOption>0</LTEBandOption>` |
+  | 4 仅 4G TDD | `lte_tdd` | `03` + `LTEBandOption 2` |
+  | 5 仅 4G FDD | `lte_fdd` | `03` + `LTEBandOption 1` |
+
+  读的时候 `00` 看 `networkOption`，`03` 看 `LTEBandOption`（另一个字段的值不管）。有哪几种看 `GET /config/network/net-mode.xml` 的 `<net_mode_list>`（H168-383 是 `0;1;2;3;4;5`）；读不到这个清单就一种都不提供，`net-mode-list` 的 `AccessList`（H168-383 是 `00`、`08`、`03`）在这类路由器上不用来定选项。回读两个字段都对才算一致。
+- **被拒的写法**：三个字段（`NetworkMode`、`NetworkBand`、`LTEBand`）不带 `networkOption` 的，任何制式都拒（连写回当前值也拒）；`03` 或 `0803` 配 `networkOption` 的，不论取值都拒。错误码都是 `-1`。大小写、`NetworkBand` 取值都不影响结果（7 种格式逐一试过）。
+- **锁频**：三个字段之后带上当前制式的那一个字段（`modeOptionOf`；`00` 带 `networkOption`，`03` 带 `LTEBandOption`），锁频之后制式不变。H168-383 自己的锁频走 3.4 节（`NetModeKeep`）。
+- **实际制式**：仅 4G 生效后 10 秒内 `device/signal` 的 5G 读数（`nrrsrp` 等）消失，改回 SA + NSA 后 10–30 秒回来；`monitoring/status` 的 `CurrentNetworkTypeEx` 一直是 `1011`，不能用来判断。
+- **选网**（`js/mobilesearch-mobilesearch-vue.js`）：搜网 `GET net/plmn-list` 与选网 `POST net/register` 都等 240 秒（另有 243 秒的计时器，到点提示改回自动）；手动时 `Mode "1"`、`Plmn` = 选中那一项的 `Numeric`、`Rat` = `plmn_list_combine_enable` 为 1 时 `"255"`，否则那一项的 `Rat`；自动时 `Mode "0"`、`Plmn ""`、`Rat ""`。`plmn_list_combine_enable` 为 1 时页面把同一 `Numeric` 的几条合并；系统忙的错误码是 `100004`。
+- **清零**（`js/statistic-statistic-vue.js`）：`POST monitoring/clear-traffic`，`ClearTraffic 1`，和 A.12 表里一样。
 
 **能力判断**（`experimentalEvidence`，同 A.11 只看标签名）：
 

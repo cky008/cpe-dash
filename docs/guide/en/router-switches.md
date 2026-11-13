@@ -91,7 +91,7 @@ FengSui self-healing only reconnects automatically and never reboots the router;
 
 ## Cellular settings
 
-The "Cellular settings" section of the Controls drawer covers how the router connects to the operator: which network generation, which operator, which SIM card and which access point. Each router shows only the settings it has; [Supported devices](supported-devices.md) lists them per model. None of these settings has been verified on a real router yet, so they are [experimental writes](other-routers.md): each is sent once, read back in the same connection to check it, and can be turned off one by one under Settings → Device.
+The "Cellular settings" section of the Controls drawer covers how the router connects to the operator: which network generation, which operator, which SIM card and which access point. Each router shows only the settings it has; [Supported devices](supported-devices.md) lists them per model. On the H168-383, data roaming, the network mode, operator search and selection, and clearing the traffic counters were verified on a real router ([#3](https://github.com/cky008/cpe-dash/issues/3)). On every other model these settings have not been verified on a real router yet, so they are [experimental writes](other-routers.md): each is sent once, read back in the same connection to check it, and can be turned off one by one under Settings → Device. On the H168-383 too, each is sent once and read back in the same connection.
 
 > [!NOTE]
 > After you change the network mode, pick an operator by hand, switch the SIM slot or change the access point, FengSui puts that setting back to what it was if the internet stays down for more than 3 minutes, and sends an alert. Where the earlier value could not be read, FengSui changes nothing and says so in the alert. Turning mobile data off or airplane mode on is a disconnect you asked for, so FengSui does not undo it.
@@ -101,6 +101,8 @@ The "Cellular settings" section of the Controls drawer covers how the router con
 ### Network mode
 
 Sets which network generations the router may use: automatic, 5G only, 4G only, 3G only and so on. The modes on offer depend on the router [[3GPP TS 23.122](https://www.3gpp.org/DynaReport/23122.htm)]. 5G only (SA) has no signal where there is no standalone 5G coverage. If you are unsure, use "Automatic".
+
+A Huawei 5G router such as the H168-383 offers the modes of its own web page (developer mode → network mode): SA + NSA ("Automatic"), SA only, NSA only, 4G only, 4G TDD only and 4G FDD only. In 4G only a 5G band lock does nothing, so FengSui refuses it; a 4G band lock keeps the mode you chose.
 
 <a id="operator-select"></a>
 

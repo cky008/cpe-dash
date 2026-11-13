@@ -571,3 +571,24 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | RRC 状态（`<rrc_status>`） | 华为 | `device/signal` | 资料 A 第 332 行只有一个值为 `1` 的示例 | 不做：取值说明查无记录（资料库、huawei-lte-api、公开检索都没有说明 0 / 1 各指什么），不猜 |
 | 各接收通道的 RSRQ / SINR | OpenWrt 移远 | `AT+QRSRQ`、`AT+QSINR`：`+QRSRQ: <PRX>,<DRX>,<RX2>,<RX3>,<sysmode>`，`-32768` 无效 | 移远 RM5xx AT 手册 5.11、5.12 节 | 暂不做：各通道的 RSRP（中兴、移远）早已读到，但转成快照时没有带上，控制台也没有显示；只加读取不会让任何人看到，反而让每 5 秒的轮询多两条指令。建议整体做「各接收通道读数」的显示（见汇报） |
 
+
+### 18.9 H168-383 真机核对：蜂窝设置在验证过的型号上开放（2026-11-13，主人在场）
+
+**决定**：H168-383 验证之后才加的蜂窝设置，主人在场时逐项在真机上核对（先只读探测结构，再写入、同会话回读、改回原样、改前改后逐项比对，最后用烽燧的真代码再跑一遍），通过的登记进 `VERIFIED_FEATURES`（[#3](https://github.com/cky008/cpe-dash/issues/3)），在 H168-383 上开放；没有通过、或者核对不了的不开放（AGENTS.md 第 4 节第 4、5 条）。H168-383 原有的请求序列逐字节不变（请求序列 15384 字节、报文记录 4712 字节，和改动前相同）；唯一的例外是锁频在用户改过制式时带上当前制式的字段（默认制式下逐字节不变）。
+
+**出处**：真机的应答，以及 H168-383（固件 4.4.0.1）自带的管理页脚本（路由器在登录后才给的 `js/networkmode.js`、`js/mobilesearch-mobilesearch-vue.js`、`js/lockband.js`、`js/statistic-statistic-vue.js`；`js/main.js` 免登录可读）。只取事实（接口路径、字段名、取值、超时），没有复制代码，也不进仓库。
+
+| 能力 | 接口与写法 | 出处 | 真机结果 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| 数据漫游（`roaming`） | `POST dialup/connection`：六个标签原样回传，只改 `RoamAutoConnectEnable` | 第 6 步的通用写法（18.6） | 写入、改回回读一致，6 个标签和改之前相同 | 已登记（#3），H168-383 上开放 |
+| 网络制式（`networkMode`） | `POST net/net-mode` 两个字段：`00` + `networkOption`（1 仅 SA、0 仅 NSA、2 SA + NSA），`03` + `LTEBandOption`（0 仅 4G、2 仅 TDD、1 仅 FDD）；选项来自 `/config/network/net-mode.xml` 的 `net_mode_list` | `js/networkmode.js`（`postConversionValue`、`postData`、`initPage`），超时 90 秒 | 通用的三字段写法以 `-1` 拒绝（7 种格式：只要不带 `networkOption` 就拒）；`03` 配 `networkOption` 也拒；两字段写法通过：仅 4G 后 5G 读数 10 秒内消失、90 秒没有，仅 NSA 保持 5G，改回 SA + NSA 后 5 个标签相同 | 已登记（#3）；同一写法用在所有报告 `networkOption` 的华为机型（`usesModeOption`），新增 `lte_tdd`、`lte_fdd` 两种制式 |
+| 仅 4G 下锁 4G 频段（`bandLock`） | `POST net/net-mode` `03`、`3fffffff`、频段掩码、`LTEBandOption` | 真机核对（管理页自己的锁频走 `net/lte-band-info`，`js/lockband.js`） | 被接受，制式保持仅 4G、频段不变 | H168-383 的锁频带上当前制式（`NetModeKeep`）；通用锁频带上 `networkOption` / `LTEBandOption`（`modeOptionOf`）；仅 4G 时拒绝锁 5G 频段 |
+| 选网与搜网（`operatorSelect`） | 搜网 `GET net/plmn-list`；手动 `POST net/register` `Mode 1`、`Plmn`、`Rat 255`（`plmn_list_combine_enable` 为 1 时）；自动 `Mode 0` | `js/mobilesearch-mobilesearch-vue.js`（`dialogSubmit`、`registerNetwork`），两者都等 240 秒 | 搜网 56–76 秒、3 个网络；手动选网 3–27 秒后应答，回读 `Mode 1`、`Plmn` 为空，仍在同一运营商；改回自动 3 个标签相同 | 已登记（#3）；等待上限 240 秒、会话最多占 250 秒（`CONTROL_HOLD_MS`；之前 15 秒 / 120 秒、会话 90 秒，H168-383 上会超时） |
+| 清零流量统计（`trafficReset`） | `POST monitoring/clear-traffic` `ClearTraffic 1` | `js/statistic-statistic-vue.js`（和第 6 步的写法相同） | 清零后流量与时长计数全部变小；`MonthLastClearTime` 不变 | 已登记（#3）；加了同会话回读（`TotalConnectTime` 变小即一致） |
+| USSD（`ussd`） | `POST ussd/send` | 第 6 步 | 没有发：路由器报告 `global/module-switch` 的 `ussd_enabled` 为 0 | 登记进 `UNSUPPORTED_FEATURES`（#3），表里为 — |
+| 蜂窝设置的读取（制式、漫游、选网方式、接入点） | `net/net-mode`、`net-mode.xml`、`dialup/connection`、`net/register`、`dialup/profiles` | 只读探测（结构）与真代码读取 | 都有；接入点读到方式、地址类型、是否设了用户名（名称和密码不保留） | H168-383 上有一项蜂窝设置开着时就读（只在打开蜂窝设置时，不进 5 秒轮询） |
+| SRS、PRACH 发射功率 | `device/signal` 的 `txpower`、`nrtxpower` | 18.8 | 4G、5G 都有 `PSrs`、`PPrach` | 早已显示（18.8），不增加请求 |
+| `net/ca-scell-info` | — | 18.8 | `100003` | H168-383 不提供，不加 |
+| 实际制式的判断 | `monitoring/status` 的 `CurrentNetworkTypeEx` | — | 仅 4G 时一直是 `1011` | 不用它判断；看 `device/signal` 的 5G 读数在不在 |
+
+核对用的脚本在仓库外（`~/.cpe-dash-multimodel/v1.9.0/h168-real-device/`），只输出结构、开关、制式代码和是否一致；结论在协议笔记附录 A.12.1 和 #3。
