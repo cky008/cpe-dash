@@ -271,3 +271,5 @@ export const CELLULAR_OPERATIONS = {
     },
   },
 } satisfies OperationTable;
+
+export type CellularOperation = keyof typeof CELLULAR_OPERATIONS;

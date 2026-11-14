@@ -63,31 +63,17 @@ import type {
   WifiMacFilterState,
 } from "../../../src/api-contract.ts";
 import { DEFAULT_BEHAVIOUR } from "../../../src/behaviour-settings.ts";
-import { CpeControlValidationError } from "../../../src/control-error.ts";
+import { CpeControlValidationError, HttpPayloadError } from "../../../src/control-error.ts";
+import { type OperationHandlers, REST_OPERATIONS, type RestOperation, restBinding, runOperation } from "../../../src/operations/registry.ts";
 import { gateRefuses } from "../../../src/device-access.ts";
 import { type ControlAction } from "../../../src/features.ts";
 import { LTE_ALL_BANDS_MASK, maskToBands, statusReadsOf } from "../../../src/device-profile.ts";
-import { CELLULAR_CONTROL_PATHS, DemoCellular } from "./cellular.ts";
+import { DemoCellular } from "./cellular.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
-import {
-  readAntennaMode,
-  readBandSelection,
-  assertOneCell,
-  readCellLockCommand,
-  readDriverBandLockTarget,
-  readDriverCellLockTarget,
-  readOptionalBoolean,
-  readSecurityControl,
-  readTimeRuleChange,
-  readTimeSeriesPreset,
-  readWifiDeviceAccess,
-  readWifiMacFilterChange,
-  validateGenericBandLock,
-} from "../../../src/control-input.ts";
+import { assertOneCell, readDriverBandLockTarget, readDriverCellLockTarget, validateGenericBandLock } from "../../../src/control-input.ts";
 import { maskMacTail, maskPhoneNumber } from "../../../src/privacy-mask.ts";
 import { bandsToHexMask, checkCellLockInput, parseSupportedLteBand, parseSupportedNrBand } from "../../../src/rf-bounds.ts";
 import { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, type SelfHealStatus } from "../../../src/self-heal-status.ts";
-import { readContact, readContactId, readContactsQuery, readMarkRead, readPreview, readPurge, readSend, readSyncMode, readThreadKeyQuery, readThreadsQuery, readUids, readVcard } from "../../../src/sms/input.ts";
 import { validateGenericSmsContent } from "../../../src/sms/text-mode.ts";
 import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../../../src/timeseries.ts";
 import { previewGuard } from "../core/access-view.ts";
@@ -122,6 +108,12 @@ export interface DemoBackendOptions {
 type Body = Readonly<Record<string, unknown>>;
 type Locale = "zh-CN" | "en";
 type Handler = (body: Body, query: URLSearchParams) => unknown;
+/** What a registered route's handler gets besides its checked input: the request as sent, and whether it said `confirm: true`. */
+interface DemoCall {
+  body: Body;
+  query: URLSearchParams;
+  confirm: boolean;
+}
 
 class DemoHttpError extends Error {
   readonly status: number;
@@ -435,7 +427,7 @@ export class DemoBackend {
     const get = (path: string, h: Handler): void => void routes.set(`GET ${path}`, h);
     const post = (path: string, h: Handler): void => void routes.set(`POST ${path}`, h);
 
-    get("/api/health", () => ({ ...this.#health, uptimeSec: this.#health.uptimeSec + Math.round((this.#now() - this.#startedAtMs) / 1000) }) satisfies HealthResponse);
+    // The console's own routes (sign-in and its settings): no token or agent reaches them, so the registry holds none
     get("/api/auth/status", () => ({ ok: true, authenticated: this.#authenticated, locale: "zh-CN", setupRequired: false }) satisfies AuthStatusResponse);
     post("/api/auth/login", async (body) => {
       await this.#wait(LATENCY.read);
@@ -450,51 +442,6 @@ export class DemoBackend {
       this.#authenticated = false;
       return { ok: true, authenticated: false } satisfies AuthLogoutResponse;
     });
-
-    get("/api/telemetry", () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#status(), telemetry: this.#telemetry, recentAlerts: this.#alerts.slice(-20) }) satisfies TelemetryEndpointResponse);
-    post("/api/telemetry/refresh", async () => {
-      await this.#session(LATENCY.session);
-      this.tick();
-      return { ok: true, schedulerStatus: this.#status(), telemetry: this.#telemetry } satisfies TelemetryRefreshResponse;
-    });
-    get("/api/session/status", () => ({ ok: true, status: this.#status(), selfHeal: this.#selfHeal() }) satisfies SessionStatusResponse);
-    get("/api/timeseries", (_body, query) => {
-      const result = this.#series.query({
-        preset: readTimeSeriesPreset(query.get("preset") ?? undefined),
-        fromMs: strictInt(query.get("fromMs")),
-        toMs: strictInt(query.get("toMs")),
-        bucketMs: strictInt(query.get("bucketMs")),
-        maxPoints: strictInt(query.get("maxPoints")),
-        nowMs: this.#now(),
-      });
-      return { ok: true, ...result } satisfies TimeSeriesEndpointResponse;
-    });
-    get("/api/neighbors", () => ({ ok: true, schedulerStatus: this.#status(), neighbors: this.#neighbors }) satisfies NeighborsEndpointResponse);
-    post("/api/neighbors/scan", async () => {
-      await this.#session(LATENCY.scan);
-      this.#neighbors = this.#nextNeighbors();
-      if (this.#neighbors) this.#emit("neighbors", this.#neighbors);
-      return { ok: true, schedulerStatus: this.#status(), neighbors: this.#neighbors } satisfies NeighborsEndpointResponse;
-    });
-    get("/api/topology", () => ({ ok: true, schedulerStatus: this.#status(), topology: this.#topology }) satisfies TopologyEndpointResponse);
-    post("/api/topology/refresh", async () => {
-      await this.#session(LATENCY.session);
-      this.#topology = this.#nextTopology();
-      this.#emit("topology", this.#topology);
-      return { ok: true, schedulerStatus: this.#status(), topology: this.#topology } satisfies TopologyEndpointResponse;
-    });
-    get("/api/settings", () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#status(), settings: this.#settings }) satisfies SettingsEndpointResponse);
-    post("/api/settings/refresh", async () => {
-      await this.#session(LATENCY.session);
-      // A model without router settings answers the sweep with nothing to show
-      if (this.#settings) {
-        this.#settings = { ...this.#settings, ...this.#stamp() };
-        this.#emit("settings", this.#settings);
-      }
-      return { ok: true, schedulerStatus: this.#status(), settings: this.#settings } satisfies SettingsRefreshResponse;
-    });
-    get("/api/alerts", () => ({ ok: true, alerts: this.#alerts, notifications: this.#notifications }) satisfies AlertsResponse);
-
     get("/api/console", () => this.#console.summary());
     post("/api/console/cpe/test", async (body) => {
       await this.#session(LATENCY.session);
@@ -516,234 +463,268 @@ export class DemoBackend {
     post("/api/console/telegram/unlink", (body) => this.#console.unlinkTelegramChat(body));
     post("/api/console/switches", (body) => this.#console.switches(body));
     post("/api/console/behaviour", (body) => this.#console.behaviour(body));
-    get("/api/audit", (_body, query) => this.#console.audit(query));
-    get("/api/device/profile", () => this.#profile?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })), support: null } satisfies DeviceProfileResponse));
     get("/api/console/experimental", () => this.#device.view());
     post("/api/console/experimental", (body) => this.#device.setExperimental(body));
     post("/api/console/agent-test", (body) => this.#device.agentTest(body));
     get("/api/console/device-report", () => this.#device.report(this.#health.version, statusReadsOf(this.#telemetry.status)));
 
-    post("/api/control/band-lock", async (body) => {
-      const lteBands = readBandSelection(body, "lteBands");
-      const nrBands = readBandSelection(body, "nrBands");
-      if (this.#device.driver) {
-        // The driver's rules: NR where the brand locks NR, checked before the gate like the daemon (which takes no network mode with a lock either)
-        const target = readDriverBandLockTarget({ ...(lteBands !== undefined ? { lteBands } : {}), ...(nrBands !== undefined ? { nrBands } : {}) }, ROUTER_FAMILY_FACTS[this.#device.family]);
-        const lte = target.lte ?? this.#lockState.lteBands;
-        const nr = target.nr === null ? this.#lockState.nrBands : target.nr === "all" ? [] : target.nr;
+    // Every registered route but the event stream and the metrics, with the registry's input checks
+    const handlers = this.#operationHandlers();
+    for (const op of REST_OPERATIONS) {
+      if (op === "events" || op === "metrics") continue;
+      const rest = restBinding(op);
+      routes.set(`${rest.method} ${rest.path}`, (body, query) => runOperation(handlers, op, rest.method === "GET" ? queryFields(query) : body, { body, query, confirm: body["confirm"] === true }));
+    }
+    return routes;
+  }
+
+  /** What each registered route answers in the demo, from the input the registry's first check returned. */
+  #operationHandlers(): OperationHandlers<Exclude<RestOperation, "events" | "metrics">, DemoCall> {
+    return {
+      health: () => ({ ...this.#health, uptimeSec: this.#health.uptimeSec + Math.round((this.#now() - this.#startedAtMs) / 1000) }) satisfies HealthResponse,
+      telemetry: () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#status(), telemetry: this.#telemetry, recentAlerts: this.#alerts.slice(-20) }) satisfies TelemetryEndpointResponse,
+      telemetryRefresh: async () => {
+        await this.#session(LATENCY.session);
+        this.tick();
+        return { ok: true, schedulerStatus: this.#status(), telemetry: this.#telemetry } satisfies TelemetryRefreshResponse;
+      },
+      sessionStatus: () => ({ ok: true, status: this.#status(), selfHeal: this.#selfHeal() }) satisfies SessionStatusResponse,
+      timeseries: (window) => {
+        const result = this.#series.query({ ...window, nowMs: this.#now() });
+        return { ok: true, ...result } satisfies TimeSeriesEndpointResponse;
+      },
+      neighbors: () => ({ ok: true, schedulerStatus: this.#status(), neighbors: this.#neighbors }) satisfies NeighborsEndpointResponse,
+      neighborsScan: async () => {
+        await this.#session(LATENCY.scan);
+        this.#neighbors = this.#nextNeighbors();
+        if (this.#neighbors) this.#emit("neighbors", this.#neighbors);
+        return { ok: true, schedulerStatus: this.#status(), neighbors: this.#neighbors } satisfies NeighborsEndpointResponse;
+      },
+      topology: () => ({ ok: true, schedulerStatus: this.#status(), topology: this.#topology }) satisfies TopologyEndpointResponse,
+      topologyRefresh: async () => {
+        await this.#session(LATENCY.session);
+        this.#topology = this.#nextTopology();
+        this.#emit("topology", this.#topology);
+        return { ok: true, schedulerStatus: this.#status(), topology: this.#topology } satisfies TopologyEndpointResponse;
+      },
+      settings: () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#status(), settings: this.#settings }) satisfies SettingsEndpointResponse,
+      settingsRefresh: async () => {
+        await this.#session(LATENCY.session);
+      // A model without router settings answers the sweep with nothing to show
+        if (this.#settings) {
+          this.#settings = { ...this.#settings, ...this.#stamp() };
+          this.#emit("settings", this.#settings);
+        }
+        return { ok: true, schedulerStatus: this.#status(), settings: this.#settings } satisfies SettingsRefreshResponse;
+      },
+      alerts: () => ({ ok: true, alerts: this.#alerts, notifications: this.#notifications }) satisfies AlertsResponse,
+      audit: (_input, call) => this.#console.audit(call.query),
+      deviceProfile: () => this.#profile?.profile ?? ({ ok: true, profile: null, verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })), support: null } satisfies DeviceProfileResponse),
+      bandLock: async ({ lteBands, nrBands }) => {
+        if (this.#device.driver) {
+          // The driver's rules: NR where the brand locks NR, checked before the gate like the daemon (which takes no network mode with a lock either)
+          const target = readDriverBandLockTarget({ ...(lteBands !== undefined ? { lteBands } : {}), ...(nrBands !== undefined ? { nrBands } : {}) }, ROUTER_FAMILY_FACTS[this.#device.family]);
+          const lte = target.lte ?? this.#lockState.lteBands;
+          const nr = target.nr === null ? this.#lockState.nrBands : target.nr === "all" ? [] : target.nr;
+          const state: PersistedLockState = { mode: lte === "all" && nr.length === 0 ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: lte, nrBands: nr, cellLock: null };
+          const summary = `LTE=${JSON.stringify(lte)}, NR=${JSON.stringify(nr)}`;
+          const lockState = await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }, { nr: target.nr !== null });
+          if (target.nr !== null) this.#driverLocks = { ...this.#driverLocks, nr: nr.length > 0 };
+          return { ok: true, lockState } satisfies LockStateResponse;
+        }
+        if (this.#device.hilinkGeneric) {
+          // LTE only, among the bands the router advertises; checked once the gate lets it through, like the daemon
+          this.#device.gate("lock_band");
+          const locked = validateGenericBandLock({ lteBands, nrBands }, this.#device.lteBands);
+          const state: PersistedLockState = { mode: locked === "all" ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: locked, nrBands: [], cellLock: null };
+          const summary = `LTE=${JSON.stringify(locked)}, NR=[]`;
+          return { ok: true, lockState: await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }) } satisfies LockStateResponse;
+        }
+        if (lteBands === undefined && nrBands === undefined) throw new CpeControlValidationError("At least one of lteBands or nrBands must be provided");
+        const lte = lteBands === undefined || lteBands === "all" ? "all" : sortedUnique(lteBands.map(guard(parseSupportedLteBand)));
+        const nr = nrBands === undefined || nrBands === "all" ? [] : sortedUnique(nrBands.map(guard(parseSupportedNrBand)));
         const state: PersistedLockState = { mode: lte === "all" && nr.length === 0 ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: lte, nrBands: nr, cellLock: null };
         const summary = `LTE=${JSON.stringify(lte)}, NR=${JSON.stringify(nr)}`;
-        const lockState = await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }, { nr: target.nr !== null });
-        if (target.nr !== null) this.#driverLocks = { ...this.#driverLocks, nr: nr.length > 0 };
-        return { ok: true, lockState } satisfies LockStateResponse;
-      }
-      if (this.#device.hilinkGeneric) {
-        // LTE only, among the bands the router advertises; checked once the gate lets it through, like the daemon
-        this.#device.gate("lock_band");
-        const locked = validateGenericBandLock({ lteBands, nrBands }, this.#device.lteBands);
-        const state: PersistedLockState = { mode: locked === "all" ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: locked, nrBands: [], cellLock: null };
-        const summary = `LTE=${JSON.stringify(locked)}, NR=[]`;
         return { ok: true, lockState: await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }) } satisfies LockStateResponse;
-      }
-      if (lteBands === undefined && nrBands === undefined) throw new CpeControlValidationError("At least one of lteBands or nrBands must be provided");
-      const lte = lteBands === undefined || lteBands === "all" ? "all" : sortedUnique(lteBands.map(guard(parseSupportedLteBand)));
-      const nr = nrBands === undefined || nrBands === "all" ? [] : sortedUnique(nrBands.map(guard(parseSupportedNrBand)));
-      const state: PersistedLockState = { mode: lte === "all" && nr.length === 0 ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: lte, nrBands: nr, cellLock: null };
-      const summary = `LTE=${JSON.stringify(lte)}, NR=${JSON.stringify(nr)}`;
-      return { ok: true, lockState: await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }) } satisfies LockStateResponse;
-    });
-    post("/api/control/cell-lock", async (body) => {
-      const command = readCellLockCommand(body, { allowNullPci: true });
+      },
+      cellLock: async (command) => {
       // No router of the demo locks several cells at once: refused before anything, as on the daemon
-      assertOneCell(command);
-      const check = checkCellLockInput({ rat: command.rat, band: command.band, arfcn: command.arfcn, pci: command.pci ?? null });
-      if (!check.ok) throw new CpeControlValidationError(check.message);
+        assertOneCell(command);
+        const check = checkCellLockInput({ rat: command.rat, band: command.band, arfcn: command.arfcn, pci: command.pci ?? null });
+        if (!check.ok) throw new CpeControlValidationError(check.message);
       // A driver locks one cell: a frequency alone is refused, as on the daemon
-      if (this.#device.driver) readDriverCellLockTarget(command);
-      const state: PersistedLockState = {
-        mode: "cell_lock",
-        ...this.#stampIso(),
-        lteBands: command.rat === "LTE" ? [check.value.band] : "all",
-        nrBands: command.rat === "NR" ? [check.value.band] : [],
-        cellLock: { rat: command.rat, band: check.value.band, arfcn: command.arfcn, pci: command.pci ?? null },
-      };
-      const params = { rat: command.rat, band: String(command.band), arfcn: command.arfcn };
-      const lockState = await this.#lock("lock_cell", state, "controls.cell_lock_applied", params, { rat: command.rat });
-      this.#driverLocks = { ...this.#driverLocks, ...(command.rat === "LTE" ? { lteCell: true } : { nrCell: true }) };
-      return { ok: true, lockState } satisfies LockStateResponse;
-    });
-    post("/api/control/unlock", async () => {
-      const state: PersistedLockState = { mode: "unlocked", ...this.#stampIso(), lteBands: "all", nrBands: [], cellLock: null };
+        if (this.#device.driver) readDriverCellLockTarget(command);
+        const state: PersistedLockState = {
+          mode: "cell_lock",
+          ...this.#stampIso(),
+          lteBands: command.rat === "LTE" ? [check.value.band] : "all",
+          nrBands: command.rat === "NR" ? [check.value.band] : [],
+          cellLock: { rat: command.rat, band: check.value.band, arfcn: command.arfcn, pci: command.pci ?? null },
+        };
+        const params = { rat: command.rat, band: String(command.band), arfcn: command.arfcn };
+        const lockState = await this.#lock("lock_cell", state, "controls.cell_lock_applied", params, { rat: command.rat });
+        this.#driverLocks = { ...this.#driverLocks, ...(command.rat === "LTE" ? { lteCell: true } : { nrCell: true }) };
+        return { ok: true, lockState } satisfies LockStateResponse;
+      },
+      unlock: async () => {
+        const state: PersistedLockState = { mode: "unlocked", ...this.#stampIso(), lteBands: "all", nrBands: [], cellLock: null };
       // What the router itself still has locked (a cell lock leaves its NR bands as they were)
-      const lockState = await this.#lock("unlock_rf_locks", state, "controls.unlock_all_applied", undefined, { locked: this.#driverLocks });
-      this.#driverLocks = { nr: false, lteCell: false, nrCell: false };
-      return { ok: true, lockState } satisfies LockStateResponse;
-    });
-    post("/api/control/reboot", async (body) => {
-      if (body["confirm"] !== true) throw new CpeControlValidationError("Remote reboot rejected: explicit { confirm: true } is mandatory");
-      await this.#control("reboot_cpe", "controls.reboot_triggered");
-      this.#goOffline("reboot", REBOOT_OFFLINE_MS);
-      return { ok: true, rebooting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies RebootResponse;
-    });
-    post("/api/control/reconnect", async (body) => {
-      if (body["confirm"] !== true) throw new CpeControlValidationError("Cellular reconnect requires explicit { confirm: true }");
-      await this.#control("reconnect_cellular", "controls.reconnect_triggered");
-      this.#goOffline("reconnect", RECONNECT_OFFLINE_MS);
-      return { ok: true, reconnecting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies ReconnectResponse;
-    });
-    post("/api/control/security", async (body) => {
-      const input = readSecurityControl(body);
-      await this.#control("set_security_switches", "controls.security_updated");
-      const settings = this.#routerSettings();
-      this.#settings = {
-        ...settings,
-        ...this.#stamp(),
-        upnpEnabled: input.upnpEnabled ?? settings.upnpEnabled,
-        dmzEnabled: input.dmz?.enabled ?? settings.dmzEnabled,
-        dmzIpAddress: input.dmz?.ipAddress ?? settings.dmzIpAddress,
-        firewall: { ...settings.firewall, ...input.firewall },
-      };
-      this.#emit("settings", this.#settings);
-      return { ok: true, settings: this.#settings } satisfies SecurityControlResponse;
-    });
-    post("/api/control/wifi7", async (body) => {
-      const mloEnable = readOptionalBoolean(body, "mloEnable");
-      const dbhoEnable = readOptionalBoolean(body, "dbhoEnable");
-      if (mloEnable === undefined && dbhoEnable === undefined) throw new CpeControlValidationError("Specify mloEnable and/or dbhoEnable");
-      await this.#control("set_wifi7_mlo", "controls.wifi7_updated");
-      const settings = this.#routerSettings();
-      const wifi7 = { mloEnable: mloEnable ?? settings.wifi7.mloEnable, dbhoEnable: dbhoEnable ?? settings.wifi7.dbhoEnable };
-      this.#settings = { ...settings, ...this.#stamp(), wifi7 };
-      this.#emit("settings", this.#settings);
-      return { ok: true, wifi7 } satisfies Wifi7ControlResponse;
-    });
-    post("/api/control/antenna", async (body) => {
-      const mode = readAntennaMode(body["mode"]);
-      await this.#control("set_antenna_mode", "controls.antenna_updated", { mode });
-      const rawCode = mode === "internal" ? 1 : mode === "external" ? 2 : 0;
-      const settings = this.#routerSettings();
-      this.#settings = { ...settings, ...this.#stamp(), antenna: { ...settings.antenna, mode, rawCode: String(rawCode) } };
-      this.#emit("settings", this.#settings);
-      return { ok: true, antenna: { mode, rawCode } } satisfies AntennaControlResponse;
-    });
-    post("/api/control/mobile-data", async (body) => {
-      const enabled = readOptionalBoolean(body, "enabled");
-      if (enabled === undefined) throw new CpeControlValidationError('"enabled" must be a boolean');
-      await this.#control("set_mobile_data", "controls.mobile_data_updated", undefined, undefined, { enabled });
-      this.#mobileData = enabled;
-      if (this.#settings) {
-        this.#settings = { ...this.#settings, ...this.#stamp(), mobileDataEnabled: enabled };
+        const lockState = await this.#lock("unlock_rf_locks", state, "controls.unlock_all_applied", undefined, { locked: this.#driverLocks });
+        this.#driverLocks = { nr: false, lteCell: false, nrCell: false };
+        return { ok: true, lockState } satisfies LockStateResponse;
+      },
+      reboot: async (_input, call) => {
+        if (!call.confirm) throw new CpeControlValidationError("Remote reboot rejected: explicit { confirm: true } is mandatory");
+        await this.#control("reboot_cpe", "controls.reboot_triggered");
+        this.#goOffline("reboot", REBOOT_OFFLINE_MS);
+        return { ok: true, rebooting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies RebootResponse;
+      },
+      reconnect: async () => {
+      // The registry's check refuses it without confirm: true
+        await this.#control("reconnect_cellular", "controls.reconnect_triggered");
+        this.#goOffline("reconnect", RECONNECT_OFFLINE_MS);
+        return { ok: true, reconnecting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies ReconnectResponse;
+      },
+      securitySwitches: async (input) => {
+        await this.#control("set_security_switches", "controls.security_updated");
+        const settings = this.#routerSettings();
+        this.#settings = {
+          ...settings,
+          ...this.#stamp(),
+          upnpEnabled: input.upnpEnabled ?? settings.upnpEnabled,
+          dmzEnabled: input.dmz?.enabled ?? settings.dmzEnabled,
+          dmzIpAddress: input.dmz?.ipAddress ?? settings.dmzIpAddress,
+          firewall: { ...settings.firewall, ...input.firewall },
+        };
         this.#emit("settings", this.#settings);
-      }
-      return { ok: true, mobileDataEnabled: enabled } satisfies MobileDataControlResponse;
-    });
-    // The cellular settings: the same paths, checks and answers as `src/http-cellular.ts`
-    get("/api/cellular", () => ({ ok: true, schedulerStatus: this.#status(), cellular: this.#cellular.view() }) satisfies CellularEndpointResponse);
-    post("/api/cellular/refresh", async () => {
-      const cellular = await this.#cellular.refresh();
-      return { ok: true, schedulerStatus: this.#status(), cellular } satisfies CellularEndpointResponse;
-    });
-    for (const path of CELLULAR_CONTROL_PATHS) post(path, (body) => this.#cellular.write(path, body));
-    post("/api/session/reset-breaker", async () => {
-      await this.#wait(LATENCY.read);
-      return { ok: true, circuitBreaker: this.#scheduler.circuitBreaker, status: this.#status() } satisfies ResetBreakerResponse;
-    });
-
-    get("/api/access-control", () => this.#accessView());
-    post("/api/access-control/refresh", async () => {
-      await this.#session(LATENCY.session);
+        return { ok: true, settings: this.#settings } satisfies SecurityControlResponse;
+      },
+        wifi7: async ({ mloEnable, dbhoEnable }) => {
+        if (mloEnable === undefined && dbhoEnable === undefined) throw new CpeControlValidationError("Specify mloEnable and/or dbhoEnable");
+        await this.#control("set_wifi7_mlo", "controls.wifi7_updated");
+        const settings = this.#routerSettings();
+        const wifi7 = { mloEnable: mloEnable ?? settings.wifi7.mloEnable, dbhoEnable: dbhoEnable ?? settings.wifi7.dbhoEnable };
+        this.#settings = { ...settings, ...this.#stamp(), wifi7 };
+        this.#emit("settings", this.#settings);
+        return { ok: true, wifi7 } satisfies Wifi7ControlResponse;
+      },
+      antenna: async (mode) => {
+        await this.#control("set_antenna_mode", "controls.antenna_updated", { mode });
+        const rawCode = mode === "internal" ? 1 : mode === "external" ? 2 : 0;
+        const settings = this.#routerSettings();
+        this.#settings = { ...settings, ...this.#stamp(), antenna: { ...settings.antenna, mode, rawCode: String(rawCode) } };
+        this.#emit("settings", this.#settings);
+        return { ok: true, antenna: { mode, rawCode } } satisfies AntennaControlResponse;
+      },
+      mobileData: async (enabled) => {
+        await this.#control("set_mobile_data", "controls.mobile_data_updated", undefined, undefined, { enabled });
+        this.#mobileData = enabled;
+        if (this.#settings) {
+          this.#settings = { ...this.#settings, ...this.#stamp(), mobileDataEnabled: enabled };
+          this.#emit("settings", this.#settings);
+        }
+        return { ok: true, mobileDataEnabled: enabled } satisfies MobileDataControlResponse;
+      },
+      // The cellular settings: the same paths, checks and answers as `src/http-cellular.ts`
+      cellular: () => ({ ok: true, schedulerStatus: this.#status(), cellular: this.#cellular.view() }) satisfies CellularEndpointResponse,
+      cellularRefresh: async () => {
+        const cellular = await this.#cellular.refresh();
+        return { ok: true, schedulerStatus: this.#status(), cellular } satisfies CellularEndpointResponse;
+      },
+      ...this.#cellular.writes,
+      resetBreaker: async () => {
+        await this.#wait(LATENCY.read);
+        return { ok: true, circuitBreaker: this.#scheduler.circuitBreaker, status: this.#status() } satisfies ResetBreakerResponse;
+      },
+      accessControlView: () => this.#accessView(),
+      accessControlRefresh: async () => {
+        await this.#session(LATENCY.session);
       // A model without access control answers the sweep with nothing to show
-      if (this.#access) {
-        this.#access = { ...this.#access, ...this.#stamp() };
-        this.#emit("access-control", this.#access);
-      }
-      return this.#accessView();
-    });
-    post("/api/control/wifi-access", (body) => this.#wifiAccess(readWifiDeviceAccess(body), body));
-    post("/api/control/wifi-mac-filter", (body) => this.#wifiAccess(readWifiMacFilterChange(body), body));
-    post("/api/control/time-rule", (body) => this.#timeRule(readTimeRuleChange(body), body));
-
-    get("/api/sms/status", () => ({ ok: true, status: this.#sms.status() }) satisfies SmsStatusResponse);
-    get("/api/sms/countries", () => this.#countries);
-    get("/api/sms/threads", (_body, query) => {
-      const { filter, search, limit } = readThreadsQuery(queryFields(query));
-      const threads = this.#sms.threads(filter, search, limit);
-      return { ok: true, threads, status: this.#sms.status() } satisfies SmsThreadsResponse;
-    });
-    get("/api/sms/thread", (_body, query) => {
-      return { ok: true, thread: this.#sms.thread(readThreadKeyQuery(queryFields(query))) } satisfies SmsThreadResponse;
-    });
-    get("/api/sms/contacts", (_body, query) => {
-      const { search, limit } = readContactsQuery(queryFields(query));
-      return { ok: true, ...this.#sms.contacts(search, limit) } satisfies SmsContactsResponse;
-    });
-    post("/api/sms/preview", (body) => {
-      const preview = this.#sms.preview(readPreview(body));
-      return { ok: true, preview } satisfies SmsPreviewResponse;
-    });
-    post("/api/sms/send", async (body) => this.#sendSms(body));
-    post("/api/sms/read", async (body) => {
-      let onRouter = 0;
-      const uids = this.#sms.markRead(readMarkRead(body), (count) => {
-        this.#device.gate("sms_mark_read");
-        onRouter = count;
-      });
-      if (uids.length > 0) {
-        if (onRouter > 0) await this.#control("sms_mark_read", "sms.marked_read_summary", { count: onRouter });
-        this.#emit("sms:updated", { action: "read", uids });
+        if (this.#access) {
+          this.#access = { ...this.#access, ...this.#stamp() };
+          this.#emit("access-control", this.#access);
+        }
+        return this.#accessView();
+      },
+      wifiAccess: (change, call) => this.#wifiAccess(change, call.body),
+      wifiMacFilter: (change, call) => this.#wifiAccess(change, call.body),
+      timeRule: (change, call) => this.#timeRule(change, call.body),
+      smsStatus: () => ({ ok: true, status: this.#sms.status() }) satisfies SmsStatusResponse,
+      smsCountries: () => this.#countries,
+      smsThreads: ({ filter, search, limit }) => {
+        const threads = this.#sms.threads(filter, search, limit);
+        return { ok: true, threads, status: this.#sms.status() } satisfies SmsThreadsResponse;
+      },
+      smsThread: (key) => ({ ok: true, thread: this.#sms.thread(key) }) satisfies SmsThreadResponse,
+      contacts: ({ search, limit }) => {
+        return { ok: true, ...this.#sms.contacts(search, limit) } satisfies SmsContactsResponse;
+      },
+      smsPreview: (request) => {
+        const preview = this.#sms.preview(request);
+        return { ok: true, preview } satisfies SmsPreviewResponse;
+      },
+      smsSend: async (request) => this.#sendSms(request),
+      smsMarkRead: async (request) => {
+        let onRouter = 0;
+        const uids = this.#sms.markRead(request, (count) => {
+          this.#device.gate("sms_mark_read");
+          onRouter = count;
+        });
+        if (uids.length > 0) {
+          if (onRouter > 0) await this.#control("sms_mark_read", "sms.marked_read_summary", { count: onRouter });
+          this.#emit("sms:updated", { action: "read", uids });
+          this.#emit("sms:status", this.#sms.status());
+        }
+        return { ok: true, count: uids.length, uids } satisfies SmsReadResponse;
+      },
+      smsDelete: async (request) => {
+        let onRouter = 0;
+        const uids = this.#sms.delete(request.uids, (count) => {
+          this.#device.gate("sms_delete");
+          onRouter = count;
+        });
+        if (onRouter > 0) await this.#control("sms_delete", "sms.deleted_summary", { count: onRouter });
+        this.#emit("sms:updated", { action: "deleted", uids });
         this.#emit("sms:status", this.#sms.status());
-      }
-      return { ok: true, count: uids.length, uids } satisfies SmsReadResponse;
-    });
-    post("/api/sms/delete", async (body) => {
-      let onRouter = 0;
-      const uids = this.#sms.delete(readUids(body).uids, (count) => {
-        this.#device.gate("sms_delete");
-        onRouter = count;
-      });
-      if (onRouter > 0) await this.#control("sms_delete", "sms.deleted_summary", { count: onRouter });
-      this.#emit("sms:updated", { action: "deleted", uids });
-      this.#emit("sms:status", this.#sms.status());
-      return { ok: true, deleted: uids.length, uids, trashDays: this.#sms.trashDays } satisfies SmsDeleteResponse;
-    });
-    get("/api/sms/trash", () => ({ ok: true, messages: this.#sms.trash(), trashDays: this.#sms.trashDays }) satisfies SmsTrashResponse);
-    post("/api/sms/trash/restore", async (body) => {
-      const uids = this.#sms.restore(readUids(body).uids);
-      this.#emit("sms:updated", { action: "restored", uids });
-      this.#emit("sms:status", this.#sms.status());
-      return { ok: true, restored: uids.length, uids } satisfies SmsRestoreResponse;
-    });
-    post("/api/sms/trash/purge", async (body) => {
-      const uids = this.#sms.purge(readPurge(body));
-      if (uids.length > 0) {
-        this.#emit("sms:updated", { action: "purged", uids });
+        return { ok: true, deleted: uids.length, uids, trashDays: this.#sms.trashDays } satisfies SmsDeleteResponse;
+      },
+      smsTrash: () => ({ ok: true, messages: this.#sms.trash(), trashDays: this.#sms.trashDays }) satisfies SmsTrashResponse,
+      smsRestore: async (request) => {
+        const uids = this.#sms.restore(request.uids);
+        this.#emit("sms:updated", { action: "restored", uids });
         this.#emit("sms:status", this.#sms.status());
-      }
-      return { ok: true, purged: uids.length, uids } satisfies SmsPurgeResponse;
-    });
-    post("/api/sms/sync", async (body) => {
-      const mode = readSyncMode(body);
-      await this.#session(LATENCY.session);
-      const summary = this.#sms.sync(mode);
-      this.#emit("sms:sync", summary);
-      return { ok: true, summary, status: this.#sms.status() } satisfies SmsSyncResponse;
-    });
-    post("/api/sms/contacts/upsert", (body) => {
-      const contact = this.#sms.upsertContact(readContact(body));
-      this.#emit("contacts:updated", { total: this.#sms.contacts("", 1).total });
-      return { ok: true, contact } satisfies ContactUpsertResponse;
-    });
-    post("/api/sms/contacts/delete", (body) => {
-      const deleted = this.#sms.removeContact(readContactId(body));
-      this.#emit("contacts:updated", { total: this.#sms.contacts("", 1).total });
-      return { ok: true, deleted } satisfies ContactDeleteResponse;
-    });
-    post("/api/sms/contacts/import-vcf", (body) => {
-      const summary = this.#sms.importVcard(readVcard(body));
-      this.#emit("contacts:updated", { total: summary.total });
-      return { ok: true, summary } satisfies VcardImportResponse;
-    });
-    return routes;
+        return { ok: true, restored: uids.length, uids } satisfies SmsRestoreResponse;
+      },
+      smsPurge: async (request) => {
+        const uids = this.#sms.purge(request);
+        if (uids.length > 0) {
+          this.#emit("sms:updated", { action: "purged", uids });
+          this.#emit("sms:status", this.#sms.status());
+        }
+        return { ok: true, purged: uids.length, uids } satisfies SmsPurgeResponse;
+      },
+      smsSync: async (mode) => {
+        await this.#session(LATENCY.session);
+        const summary = this.#sms.sync(mode);
+        this.#emit("sms:sync", summary);
+        return { ok: true, summary, status: this.#sms.status() } satisfies SmsSyncResponse;
+      },
+      contactUpsert: (request) => {
+        const contact = this.#sms.upsertContact(request);
+        this.#emit("contacts:updated", { total: this.#sms.contacts("", 1).total });
+        return { ok: true, contact } satisfies ContactUpsertResponse;
+      },
+      contactDelete: (id) => {
+        const deleted = this.#sms.removeContact(id);
+        this.#emit("contacts:updated", { total: this.#sms.contacts("", 1).total });
+        return { ok: true, deleted } satisfies ContactDeleteResponse;
+      },
+      contactImport: (vcf) => {
+        const summary = this.#sms.importVcard(vcf);
+        this.#emit("contacts:updated", { total: summary.total });
+        return { ok: true, summary } satisfies VcardImportResponse;
+      },
+    };
   }
 
   // ── Controls ───────────────────────────────────────────────────────────────
@@ -844,8 +825,7 @@ export class DemoBackend {
     return write.action === "update" ? rules.map((r) => (r.id === write.id ? rule : r)) : [...rules, rule];
   }
 
-  async #sendSms(body: Body): Promise<SmsSendResponse> {
-    const request = readSend(body);
+  async #sendSms(request: { phones: string[]; content: string; countryCode: string | undefined }): Promise<SmsSendResponse> {
     const outcome = this.#sms.send(request, (content) => {
       // A model nobody verified sends the plaintext way: refused before queueing (a send the gate refuses says so first)
       if (this.#device.hilinkGeneric && !gateRefuses(this.#device.writeAccess("smsWrite"))) validateGenericSmsContent(content);
@@ -1089,6 +1069,7 @@ export class DemoBackend {
 
   #errorResponse(err: unknown): [number, ApiErrorEnvelope] {
     if (err instanceof DemoHttpError) return [err.status, { ok: false, errorCode: err.code, message: err.message }];
+    if (err instanceof HttpPayloadError) return [err.statusCode, { ok: false, errorCode: "BAD_PAYLOAD", message: err.message }];
     if (err instanceof DemoRefusal) return [err.status, err.envelope];
     if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError || err instanceof DemoValidationError || err instanceof AccessPlanError) {
       return [400, { ok: false, errorCode: "VALIDATION_ERROR", message: err.message }];
@@ -1126,11 +1107,4 @@ function sortedUnique(values: ReadonlyArray<number>): number[] {
   return [...new Set(values)].sort((a, b) => a - b);
 }
 
-function strictInt(raw: string | null): number | undefined {
-  if (raw === null || raw === "") return undefined;
-  if (!/^-?\d+$/.test(raw.trim())) throw new DemoHttpError(400, "BAD_PAYLOAD", `Invalid integer query parameter "${raw}"`);
-  const n = Number.parseInt(raw.trim(), 10);
-  if (!Number.isSafeInteger(n)) throw new DemoHttpError(400, "BAD_PAYLOAD", `Out-of-range integer query parameter "${raw}"`);
-  return n;
-}
 

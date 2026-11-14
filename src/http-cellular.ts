@@ -12,7 +12,7 @@ import type {
   UssdResponse,
 } from "./api-contract.ts";
 import type { CpeControlService } from "./cpe-controls.ts";
-import type { CELLULAR_OPERATIONS } from "./operations/cellular-settings.ts";
+import type { CellularOperation } from "./operations/cellular-settings.ts";
 import type { OperationHandlers } from "./operations/registry.ts";
 
 /**
@@ -33,8 +33,6 @@ export type CellularControlResponse =
   | DataLimitControlResponse
   | TrafficResetResponse
   | UssdResponse;
-
-export type CellularOperation = keyof typeof CELLULAR_OPERATIONS;
 
 export function cellularRestHandlers(controls: CpeControlService): OperationHandlers<CellularOperation, { confirm: boolean }, CellularControlResponse> {
   return {
