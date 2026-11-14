@@ -781,3 +781,51 @@ flowchart TD
 4. **Telegram 的指令菜单取自登记。** 记录的 `telegram` 写明哪些指令跑这个操作：`menu` 的进菜单，`more` 的要带参数、不进菜单（`/send`、`/contact`、`/chat`）。机器人按 `/help` 的分组排菜单：短信、设备（加上它自己的 `/mute`）、蜂窝设置、`/help`。
 
 这几条以后，**加一个读写操作**仍是三处：登记一条记录（REST、MCP、Telegram 的问法都在里面），在它出现的入口写处理函数，`docs/dev/api.md`。控制台用到它时在 `endpoints.ts` 加一个按操作名调用的包装（路径和方法不用写）。
+
+### 19.10 在线演示跑真正的服务（2026-11-14）
+
+#### 评估（动代码之前写）
+
+**现状。** 在线演示（第 9 节）的后端是把守护进程在浏览器里重写了一份：`web/src/demo/` 的 `backend.ts`（REST 与 SSE，1102 行）、`device.ts`（写闸门、实验性写入、设备报告、一键测试，426 行）、`cellular.ts`（蜂窝设置，178 行）、`console.ts`（控制台设置与审计日志，408 行）、`sms-box.ts`（短信与通讯录，412 行），起点是构建时从真守护进程录下的种子（`seed.ts`、`scripts/capture-demo-seed.ts`）。两边靠对照测试（`test/demo-backend*.test.ts` 与 `test/helpers/demo-contract.ts`，约 1450 行）保持一致。每加一项能力都要在演示里再写一遍；6f 搬登记时又查出三处已经走样（19.9）。
+
+**守护进程能不能在浏览器里跑。** 守护进程本来就有一个切口：会话客户端发给路由器的每个请求都经注入的 `fetchImpl`，所有测试、`npm run demo` 和截图都在这里接上模拟路由器（`test/helpers/strict-cpe.ts`、`cpe-family.ts`、`zte-goform-router.ts`，以及 `scripts/demo-router.ts` 布置好的三台演示路由器）。在这个切口以上，服务、后端、调度器、会话客户端、各品牌驱动和协议部件都是普通的 TypeScript，用到的 Node 内置模块逐个看：
+
+| Node 内置 | 谁在用（演示要跑的部分） | 浏览器里用什么 | 对守护进程的代码 |
+| :--- | :--- | :--- | :--- |
+| `node:crypto` | 调度器、短信镜像、通讯录、状态存储的 `randomUUID`；HiLink 的 SCRAM（PBKDF2、HMAC-SHA256、SHA-256）与加密通道（AES-256-GCM）；中兴的 SHA-256 / MD5；控制台密码的 scrypt、令牌的 SHA-256、`timingSafeEqual`；模拟路由器同样用这些 | **同步**的实现。WebCrypto 只有异步接口，换成它要把协议代码改成异步，H168-383 的请求序列也会跟着动，不值得；而且 MD5 和 scrypt 它都没有。所以演示自带一份只含用到的算法的实现（SHA-256、MD5、HMAC、PBKDF2、AES-256-GCM、scrypt；随机数取自 `crypto.getRandomValues`），与 Node 的结果逐字节对照测试。RSA（只有中兴 zWRT 与烽火的登录用，不在演示里）直接报「演示里没有」 | 不变 |
+| `Buffer`（全局） | HiLink 的加解密与 XML 上限、中兴的 base64、短信 PDU、脱敏 | 演示自带一个 `Uint8Array` 上的 `Buffer`，只含用到的方法与编码（utf8、hex、base64、base64url、latin1），同样与 Node 对照测试 | 不变 |
+| `node:events` | 调度器、监控、短信服务的 `EventEmitter` | 演示自带一个（`on`、`once`、`off`、`emit` 等） | 不变 |
+| `node:async_hooks` | `AsyncLocalStorage`：审计记下的调用方（`runAsActor`）、会话重入检查（`insideSession`） | 浏览器没有能跨 `await` 传下去的上下文（TC39 的 AsyncContext 还没有浏览器实现）。演示的替身只在同步范围内有效：会话重入检查只是防编程错误的保险，对正确的代码没有影响；审计的调用方要在 `await` 之前读到 | 审计的调用方在请求开始时读，不在 `await` 之后读（几处小改，Node 里结果相同） |
+| `node:net` | `isIP`（脱敏、访问控制、HiLink 的读法）；`BlockList`（`normalizeCpeUrl` 判断路由器地址是不是局域网地址） | 演示自带 `isIP` 与只含用到的方法的 `BlockList`，与 Node 对照测试 | 不变 |
+| `node:fs`、`node:fs/promises`、`node:path`、`node:url` | 加密存储（`state.json`、短信镜像、通讯录、审计日志、控制台设置）、`i18n.ts` 读 `locales/`、`config.ts` 读 `.env` | 演示自带一个内存里的文件系统，开机时放进两份词典；存储用不带密钥的 `StorageCipher`（守护进程的测试和工具本来就这样用，明文 JSON），所以浏览器里不跑落盘加密 | 不变 |
+| `process`（全局） | `process.pid`（临时文件名）、`process.cwd()`（找 `locales/`） | 演示给一个只有这两样的 `process` | 不变 |
+| `node:http`、`node:tls` | HTTP 服务器：监听、Host 白名单、Cookie 会话、CSRF、限流、静态文件、`/mcp`、`/metrics` | 不进演示。演示没有网络传输：控制台的 `fetch` 与 `EventSource` 直接交给页面里的传输层。所以守护进程这边要把**登录之后**的分派从 HTTP 服务器里拆出来（见下） | 拆分，行为不变 |
+| `node:dgram`、`node:stream`、`node:perf_hooks`、`node:child_process` | 跨主机的重复守护进程保护、MCP 的 stdio 桥、`/metrics` 的进程读数、维护命令 | 不进演示：都是进程外壳的事 | 服务的装配要从进程外壳里拆出来（见下） |
+| `Response`、`Headers`（全局） | 模拟路由器造应答，会话客户端读 `Set-Cookie` | 浏览器按规范把 `new Response()` 里的 `Set-Cookie` 丢掉，HiLink 的会话 Cookie 就丢了。演示自带一个不过滤的 `Response`，只用在页面内部的路由器与守护进程之间 | 不变 |
+| `AbortSignal.any` | 传输层与 HiLink 客户端的限时 | Safari 17.4 之前没有；演示在缺的时候补上 | 不变 |
+
+这些替身只在 `build-web.ts --demo` 时由 esbuild 换进去（`node:*` 换成 `web/src/demo/node/` 的模块，`Buffer`、`process`、`Response` 用 `inject`）；控制台和守护进程都不引用它们，测试守着。
+
+**守护进程这边要改的两处（只拆不改，行为不变）。**
+
+1. **登录之后的分派。** `src/http-server.ts` 的 `#buildApiHandlers`、`#dispatchProtectedApi`、`#dispatchSmsApi`、控制台路由（`SettingsHttpRoutes`）的分派、错误到状态码与信封的映射、SSE 的 `hello` 快照、`/api/health` 的应答，都和 `node:http` 绑在同一个类里。拆进一个不引用 `node:http` 的模块：输入是方法、路径、查询串、请求体和调用方（是否脱敏、客户端地址、会话），输出是状态码和应答体。HTTP 服务器在认证之后调用它；演示的传输层直接调用它。`reset-breaker` 里重读 `.env`、换密钥的那一步留给进程（守护进程注入，演示里没有 `.env`）。
+2. **服务的装配。** `src/cli.ts` 的 `assembleRuntime` 里，设置、审计、核心、短信、告警、自愈、一键测试、Telegram、通知中心、SSE 总线，以及它们之间的接线（写入的审计、短信恢复与清空的审计、国家代码、行为设置的应用、自愈的锁定看护）是服务；数据目录锁、跨主机保护、MCP、HTTP 监听、进程读数、启动提示是进程外壳。把前者拆成一个模块，两边都用它装配：接线只有一份。SSE 总线只用到应答对象的几个方法，类型收窄到这几个，演示给一个把帧交给 `EventSource` 替身的对象。
+
+**演示自己留下的。** 这些不是守护进程的行为，是演示这个场合要的：
+
+- **登录。** `/api/auth/*`：演示一打开就是登录状态，退出后任何密码都能进（公开的演示没有秘密可守）。HTTP 服务器的认证、CSRF、限流不进演示。
+- **演示世界。** `scripts/demo-router.ts` 里的三台路由器（H168-383、未验证的 B535-232、中兴 MU5001）挪到一个不引用 Node 的模块，`npm run demo`、截图、浏览器测试和在线演示共用；家里的节奏（按时刻起伏的用量、突发、随负载下沉的信号，`web/src/demo/world.ts`）喂给这三台路由器，24 小时的历史在开机时写进真正的时序缓冲；每 5 秒走一步，隔一阵来一条验证码短信；重启后路由器离线一会儿（真正的告警引擎会看到）。这些写进路由器一侧，`npm run demo` 也一样有。
+- **路由器的密码。** 控制台「设置 → 路由器」测试连接时，访客不知道演示路由器的密码；传输层把请求里的密码换成演示路由器的。改控制台密码时同理换掉「当前密码」。
+- **开机。** 种子原来记的是真守护进程开机后读到的东西；现在页面里跑的就是守护进程，开机时自己读到：布置好通讯录、令牌、Telegram 的聊天，启动服务，等第一轮轮询、型号识别、设备、设置、访问控制、短信同步和邻区扫描都落地（就是 `capture-demo-seed.ts` 等的那些），再启动控制台。开机这段时间路由器不模拟延迟，之后照常。种子与录种子的脚本不再需要。
+
+**体积。** 用 esbuild 量过（压缩后 gzip）：现在的演示后端约 58 KiB；真服务加控制台设置、SSE 总线和三台模拟路由器约 192 KiB，再加 Telegram 机器人约 214 KiB；其中和控制台共用的模块（操作登记、入参检查、能力登记等）约 40 KiB 已经在演示包里。估计演示合计由 235 KiB 到 330–360 KiB。演示的代码按需加载（控制台先画出来，后端的块并行下载），控制台本身（192 KiB 的上限）不受影响。
+
+**做不到或不值得的。**
+
+- **`AsyncLocalStorage` 跨 `await`**：做不到（上表）。代价是审计的调用方要在请求开始时读，守护进程这边改几处；会话重入检查在浏览器里只管同步的嵌套。
+- **HTTP 服务器本身**（认证、Cookie、CSRF、Host 白名单、限流、静态文件、MCP、指标）：可以把 `node:http` 也换成替身，让演示连这些一起跑，但要模拟请求与应答流、要在开机时算两次默认强度的 scrypt（浏览器里纯 JS 要一两秒），演示包还要多带 MCP 与进程外壳的代码。这些是传输的事，演示没有网络，不值得。
+- **落盘加密**：演示里用不带密钥的存储，不跑 scrypt、HKDF 与 AES-GCM 落盘；加密存储由守护进程的测试守着。
+- **RSA**：中兴 zWRT 与烽火的登录用到，它们不在演示里，替身直接报错。
+- **只给浏览器测试用的场景**（鲲鹏无限、OpenWrt、让位、熔断、Telegram）：照旧由 `scripts/demo-router.ts` 在 Node 里跑真守护进程，不进在线演示。
+
+**决定。** 照上面做：先拆守护进程的两处（各一个提交，行为不变，请求序列比对证明 H168-383 的请求不变），再加演示的 Node 替身（与 Node 对照测试），再把演示世界挪出来，最后把演示的后端换成真服务、删掉重写的那一份与种子，对照测试换成「演示在 Node 里跑真服务」的测试和一个在无头 Chrome 里打开构建好的演示的浏览器测试（替身只在浏览器里用得上，只有在浏览器里才测得到）。演示的体积上限按量出来的调。
