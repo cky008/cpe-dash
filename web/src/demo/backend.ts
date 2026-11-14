@@ -526,14 +526,13 @@ export class DemoBackend {
       const lteBands = readBandSelection(body, "lteBands");
       const nrBands = readBandSelection(body, "nrBands");
       if (this.#device.driver) {
-        // The driver's rules: NR where the brand locks NR, a mode it offers, checked before the gate like the daemon
-        const networkMode = optionalString(body, "networkMode");
-        const target = readDriverBandLockTarget({ ...(lteBands !== undefined ? { lteBands } : {}), ...(nrBands !== undefined ? { nrBands } : {}), ...(networkMode !== undefined ? { networkMode } : {}) }, ROUTER_FAMILY_FACTS[this.#device.family]);
+        // The driver's rules: NR where the brand locks NR, checked before the gate like the daemon (which takes no network mode with a lock either)
+        const target = readDriverBandLockTarget({ ...(lteBands !== undefined ? { lteBands } : {}), ...(nrBands !== undefined ? { nrBands } : {}) }, ROUTER_FAMILY_FACTS[this.#device.family]);
         const lte = target.lte ?? this.#lockState.lteBands;
         const nr = target.nr === null ? this.#lockState.nrBands : target.nr === "all" ? [] : target.nr;
         const state: PersistedLockState = { mode: lte === "all" && nr.length === 0 ? "unlocked" : "band_lock", ...this.#stampIso(), lteBands: lte, nrBands: nr, cellLock: null };
         const summary = `LTE=${JSON.stringify(lte)}, NR=${JSON.stringify(nr)}`;
-        const lockState = await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }, { nr: target.nr !== null, mode: target.networkMode !== null });
+        const lockState = await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }, { nr: target.nr !== null });
         if (target.nr !== null) this.#driverLocks = { ...this.#driverLocks, nr: nr.length > 0 };
         return { ok: true, lockState } satisfies LockStateResponse;
       }

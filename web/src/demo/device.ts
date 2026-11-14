@@ -51,9 +51,8 @@ const GENERIC_ENDPOINTS: Partial<Readonly<Record<ControlAction, string>>> = {
 };
 /** What a write the demo's ZTE router took sent, as the daemon's driver names it (`zte-goform:<goformId>`). */
 export interface WriteHint {
-  /** A band lock names NR bands, or a network mode. */
+  /** A band lock names NR bands. */
   nr?: boolean;
-  mode?: boolean;
   /** A cell lock's RAT. */
   rat?: "LTE" | "NR";
   /** Mobile data switched on or off. */
@@ -70,7 +69,7 @@ export interface WriteHint {
 function goformEndpoints(action: ControlAction, hint: WriteHint): string[] | null {
   switch (action) {
     case "lock_band":
-      return ["BAND_SELECT", ...(hint.nr ? ["WAN_PERFORM_NR5G_BAND_LOCK"] : []), ...(hint.mode ? ["SET_BEARER_PREFERENCE"] : [])];
+      return ["BAND_SELECT", ...(hint.nr ? ["WAN_PERFORM_NR5G_BAND_LOCK"] : [])];
     case "lock_cell":
       return [hint.rat === "NR" ? "NR5G_LOCK_CELL_SET" : "LTE_LOCK_CELL_SET"];
     case "unlock_rf_locks":

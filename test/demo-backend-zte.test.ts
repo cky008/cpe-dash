@@ -158,6 +158,15 @@ describe("Static demo backend vs the real daemon on a ZTE mobile router", () => 
     assert.deepEqual(verification(t2), verification(t1));
   });
 
+  it("takes no network mode along with a band lock, as the daemon takes none", async () => {
+    const [real, demo] = await both("POST", "/api/control/band-lock", { lteBands: [1, 3], networkMode: "03", confirm: true });
+    assert.equal(demo.status, real.status);
+    const [w1, w2] = await both("GET", "/api/console/experimental");
+    const last = (r: { json: Json }) => brief((r.json as unknown as ExperimentalWritesResponse).writes).at(-1);
+    assert.deepEqual(last(w2), last(w1));
+    assert.ok(!JSON.stringify(last(w2)).includes("SET_BEARER_PREFERENCE"), "no network mode was written");
+  });
+
   it("reads and writes the cellular settings like the daemon, and refuses the same ones with the same words", async () => {
     /** An answer without the two times a read is stamped with. */
     const plain = (r: { json: Json }): unknown => JSON.parse(JSON.stringify(r.json, (key, value: unknown) => (key === "capturedAtIso" || key === "capturedAtMs" || key === "schedulerStatus" ? undefined : value)));
