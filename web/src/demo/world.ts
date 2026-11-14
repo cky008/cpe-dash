@@ -1,12 +1,10 @@
-import type { GlobalTelemetrySnapshot, SpeedTickPayload } from "../../../src/api-contract.ts";
-import type { SecondaryCellEntry } from "../../../src/cpe-domain.ts";
 import type { TimeSeriesRingBuffer, TimeSeriesSampleInput } from "../../../src/timeseries.ts";
-import { formatBytesBinary, formatRateBitsPerSec } from "../../../src/units.ts";
 
 /**
  * The demo household's rhythm: a daily usage curve (quiet nights, a lunch bump, a busy evening),
- * download bursts, and radio values that drift around the captured snapshot and sag a little under
- * load. The same function fills the 24 h history and drives the live 5 s ticks, so they join up.
+ * download bursts, and radio values that drift around each router's own and sag a little under load.
+ * The demo routers (./worlds.ts) answer the daemon with it every 5 s, and the same function fills the
+ * 24 h history the page starts with, so the two join up.
  */
 
 export const TICK_MS = 5_000;
@@ -25,9 +23,8 @@ export interface SignalBase {
   lteSinrDb: number;
   lteRssiDbm: number;
   nr: NrSignal | null;
-  temperatureCelsius: number;
-  /** The router reports its uptime; one that does not (an LTE-only model may not) keeps 0, so none is invented. */
-  uptime: boolean;
+  /** `null` on a router that reports no temperature, so none is ever invented. */
+  temperatureCelsius: number | null;
 }
 
 export interface WorldSample {
@@ -41,21 +38,7 @@ export interface WorldSample {
   nrRsrpDbm: number | null;
   nrRsrqDb: number | null;
   nrSinrDb: number | null;
-  temperatureCelsius: number;
-}
-
-export function signalBase(t: GlobalTelemetrySnapshot): SignalBase {
-  const rf = t.rf;
-  const hasNr = rf.nrRsrpDbm !== null || rf.nrSinrDb !== null || rf.nrScc.length > 0;
-  return {
-    lteRsrpDbm: rf.lteRsrpDbm ?? -88,
-    lteRsrqDb: rf.lteRsrqDb ?? -8,
-    lteSinrDb: rf.lteSinrDb ?? 13,
-    lteRssiDbm: rf.lteRssiDbm ?? -70,
-    nr: hasNr ? { rsrpDbm: rf.nrRsrpDbm ?? -95, rsrqDb: rf.nrRsrqDb ?? -10.5, sinrDb: rf.nrSinrDb ?? 9 } : null,
-    temperatureCelsius: t.thermal.temperatureCelsius ?? 46,
-    uptime: t.device.uptimeSec > 0,
-  };
+  temperatureCelsius: number | null;
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
@@ -109,7 +92,7 @@ export function worldSample(tsMs: number, base: SignalBase, random: () => number
     nrRsrpDbm: base.nr ? round1(base.nr.rsrpDbm + drift * 1.3 + noise(2.2)) : null,
     nrRsrqDb: base.nr ? round1(base.nr.rsrqDb - load * 1.5 + noise(0.8)) : null,
     nrSinrDb: base.nr ? round1(base.nr.sinrDb + drift * 0.8 - load * 4 + noise(2.6)) : null,
-    temperatureCelsius: round1(base.temperatureCelsius - 2 + activity * 5 + noise(0.4)),
+    temperatureCelsius: base.temperatureCelsius === null ? null : round1(base.temperatureCelsius - 2 + activity * 5 + noise(0.4)),
   };
 }
 
@@ -132,90 +115,4 @@ export function backfillHistory(series: TimeSeriesRingBuffer, base: SignalBase, 
   for (let ts = start; ts < nowMs - TICK_MS; ts += TICK_MS) {
     series.push(seriesInput(worldSample(ts, base, random)), ts);
   }
-}
-
-function shiftScc(cells: ReadonlyArray<SecondaryCellEntry>, rsrpDelta: number, sinrDelta: number): SecondaryCellEntry[] {
-  return cells.map((c) => ({
-    ...c,
-    rsrpDbm: c.rsrpDbm === null ? null : round1(c.rsrpDbm + rsrpDelta),
-    sinrDb: c.sinrDb === null ? null : round1(c.sinrDb + sinrDelta),
-  }));
-}
-
-/**
- * The next telemetry snapshot: radio values from `sample` (secondary cells keep their offset to the
- * primary), traffic counters advanced by `elapsedSec` of the sampled rates, clocks moved on.
- */
-export function advanceTelemetry(
-  prev: GlobalTelemetrySnapshot,
-  sample: WorldSample,
-  base: SignalBase,
-  elapsedSec: number
-): GlobalTelemetrySnapshot {
-  const tr = prev.traffic;
-  const down = sample.downloadBytesPerSec;
-  const up = sample.uploadBytesPerSec;
-  const todayUsed = tr.todayUsedBytes + Math.round((down + up) * elapsedSec);
-  const monthDown = tr.monthDownloadBytes + Math.round(down * elapsedSec);
-  const monthUp = tr.monthUploadBytes + Math.round(up * elapsedSec);
-  const grow = (raw: string, by: number): string => String(Math.round(Number(raw) + by));
-  return {
-    ...prev,
-    capturedAtIso: new Date(sample.tsMs).toISOString(),
-    capturedAtMs: sample.tsMs,
-    device: { ...prev.device, uptimeSec: base.uptime ? prev.device.uptimeSec + elapsedSec : prev.device.uptimeSec },
-    rf: {
-      ...prev.rf,
-      lteRsrpDbm: sample.lteRsrpDbm,
-      lteRsrqDb: sample.lteRsrqDb,
-      lteSinrDb: sample.lteSinrDb,
-      lteRssiDbm: sample.lteRssiDbm,
-      nrRsrpDbm: sample.nrRsrpDbm,
-      nrRsrqDb: sample.nrRsrqDb,
-      nrSinrDb: sample.nrSinrDb,
-      lteScc: shiftScc(prev.rf.lteScc, sample.lteRsrpDbm - (prev.rf.lteRsrpDbm ?? base.lteRsrpDbm), sample.lteSinrDb - (prev.rf.lteSinrDb ?? base.lteSinrDb)),
-      nrScc:
-        sample.nrRsrpDbm === null || sample.nrSinrDb === null || !base.nr
-          ? prev.rf.nrScc
-          : shiftScc(prev.rf.nrScc, sample.nrRsrpDbm - (prev.rf.nrRsrpDbm ?? base.nr.rsrpDbm), sample.nrSinrDb - (prev.rf.nrSinrDb ?? base.nr.sinrDb)),
-    },
-    traffic: {
-      ...tr,
-      downloadBytesPerSec: down,
-      uploadBytesPerSec: up,
-      downloadBps: down * 8,
-      uploadBps: up * 8,
-      downloadRateFormatted: formatRateBitsPerSec(down * 8),
-      uploadRateFormatted: formatRateBitsPerSec(up * 8),
-      todayUsedBytes: todayUsed,
-      todayUsedBytesStr: String(todayUsed),
-      todayUsedFormatted: formatBytesBinary(todayUsed),
-      todayDurationSec: tr.todayDurationSec + elapsedSec,
-      monthDownloadBytes: monthDown,
-      monthDownloadBytesStr: String(monthDown),
-      monthUploadBytes: monthUp,
-      monthUploadBytesStr: String(monthUp),
-      monthTotalBytes: monthDown + monthUp,
-      monthTotalBytesStr: String(monthDown + monthUp),
-      monthTotalFormatted: formatBytesBinary(monthDown + monthUp),
-      monthDurationSec: tr.monthDurationSec + elapsedSec,
-      sessionConnectTimeSec: tr.sessionConnectTimeSec + elapsedSec,
-      sessionDownloadBytesStr: grow(tr.sessionDownloadBytesStr, down * elapsedSec),
-      sessionUploadBytesStr: grow(tr.sessionUploadBytesStr, up * elapsedSec),
-      totalUsedBytesStr: grow(tr.totalUsedBytesStr, (down + up) * elapsedSec),
-      totalConnectTimeSec: tr.totalConnectTimeSec + elapsedSec,
-    },
-    thermal: prev.thermal.temperatureSupported ? { ...prev.thermal, temperatureCelsius: sample.temperatureCelsius } : prev.thermal,
-  };
-}
-
-export function speedTick(t: GlobalTelemetrySnapshot): SpeedTickPayload {
-  return {
-    tsMs: t.capturedAtMs,
-    tsIso: t.capturedAtIso,
-    downloadBps: t.traffic.downloadBps,
-    uploadBps: t.traffic.uploadBps,
-    downloadRateFormatted: t.traffic.downloadRateFormatted,
-    uploadRateFormatted: t.traffic.uploadRateFormatted,
-  };
 }

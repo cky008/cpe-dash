@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { type BuildOptions, build } from "esbuild";
+import { type BuildOptions, type Plugin, build } from "esbuild";
 import { OPERATION_ROUTES_PLUGIN } from "./operation-routes.ts";
 import { injectBrand, readBrandMark } from "./brand.ts";
 
@@ -14,8 +14,10 @@ import { injectBrand, readBrandMark } from "./brand.ts";
  * points at matching files. No CDN, no runtime dependency. `--watch` rebuilds on change.
  *
  * `--demo` builds the static GitHub Pages demo into `dist/demo/` instead: the same console from
- * web/src/demo/main.ts (an in-page backend, no daemon), relative asset URLs so it works under any
- * path, and a CSP meta tag since Pages sends no headers. `npm run build:demo` then records its seed.
+ * web/src/demo/main.ts, with FengSui's own services running in the page in front of a demo router
+ * (web/src/demo/runtime.ts), relative asset URLs so it works under any path, and a CSP meta tag since
+ * Pages sends no headers. Only that bundle gets the stand-ins of web/src/demo/node/ for the Node
+ * built-ins the services use; the console's build refuses any `node:` import as before.
  */
 
 const ROOT = process.cwd();
@@ -28,8 +30,12 @@ const ENTRY = DEMO ? path.join(WEB, "src", "demo", "main.ts") : path.join(WEB, "
 const ASSET_PREFIX = DEMO ? "assets/" : "/assets/";
 const DEMO_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
-/** Gzipped JS + CSS above this fails the build (the console's is twice its first-paint target: the contract asks for < 80 KB, which the build reports). */
-const GZIP_BUDGET_BYTES = (DEMO ? 240 : 192) * 1024;
+/**
+ * Gzipped JS + CSS above this fails the build. The console's is twice its first-paint target (the contract asks for
+ * < 80 KB, which the build reports); the demo's also carries FengSui's own services and the demo routers, which load
+ * after the console's first paint (426.7 KiB in all when it was set).
+ */
+const GZIP_BUDGET_BYTES = (DEMO ? 440 : 192) * 1024;
 const GZIP_TARGET_BYTES = 80 * 1024;
 
 function contentHash(bytes: Buffer | string): string {
@@ -42,6 +48,30 @@ function emit(name: string, ext: string, bytes: Buffer | string): string {
   return `${ASSET_PREFIX}${file}`;
 }
 
+const DEMO_NODE = path.join(WEB, "src", "demo", "node");
+/** The Node built-ins the daemon's services import, and the demo's stand-in for each. */
+const DEMO_NODE_MODULES: Readonly<Record<string, string>> = {
+  "node:async_hooks": "async-hooks.ts",
+  "node:crypto": "crypto.ts",
+  "node:events": "events.ts",
+  "node:fs": "fs.ts",
+  "node:fs/promises": "fs-promises.ts",
+  "node:net": "net.ts",
+  "node:path": "path.ts",
+  "node:url": "url.ts",
+};
+/** In the demo bundle a Node built-in is its stand-in; one without a stand-in fails the build, naming who imports it. */
+const DEMO_NODE_PLUGIN: Plugin = {
+  name: "demo-node-stand-ins",
+  setup(b) {
+    b.onResolve({ filter: /^node:/ }, (args) => {
+      const file = DEMO_NODE_MODULES[args.path];
+      if (file === undefined) return { errors: [{ text: `${args.path} has no stand-in in the demo (web/src/demo/node/); imported by ${path.relative(ROOT, args.importer)}` }] };
+      return { path: path.join(DEMO_NODE, file) };
+    });
+  },
+};
+
 const ESBUILD_COMMON: BuildOptions = {
   bundle: true,
   platform: "browser",
@@ -51,7 +81,9 @@ const ESBUILD_COMMON: BuildOptions = {
   charset: "utf8",
   logLevel: "warning",
   // The REST client's routes as a constant: the operation registry's words stay out of the console
-  plugins: [OPERATION_ROUTES_PLUGIN],
+  plugins: DEMO ? [OPERATION_ROUTES_PLUGIN, DEMO_NODE_PLUGIN] : [OPERATION_ROUTES_PLUGIN],
+  // The globals the services find in Node (Buffer, process, a Response that keeps Set-Cookie)
+  ...(DEMO ? { inject: [path.join(DEMO_NODE, "globals.ts")] } : {}),
 };
 
 /** The pre-paint boot script: one classic (non-module) file. */

@@ -4,6 +4,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { THEME_META } from "../web/src/core/prefs.ts";
 import { type ChromeHandle, type Page, type Viewport, closeChrome, launchChrome, openPage } from "./cdp.ts";
 import { type DemoDaemon, startDemoDaemon } from "./demo-router.ts";
+import { backfillHistory } from "../web/src/demo/world.ts";
+import { DEMO_CONTACTS } from "../web/src/demo/worlds.ts";
 import { SHOWCASE_THEMES, showcaseImage } from "./site-home.ts";
 
 /**
@@ -168,33 +170,10 @@ const SHOTS: ReadonlyArray<Shot> = [
 
 // ---------------------------------------------------------------- demo world
 
-/** Two hours of 5 s samples behind "now", so the charts and their summaries have a history to show. */
-function backfillHistory(demo: DemoDaemon): void {
-  const now = Date.now();
-  for (let t = now - 2 * 60 * 60_000, i = 0; t < now - 5000; t += 5000, i++) {
-    const wave = Math.max(0, Math.sin(i / 120)) * 9_000_000 + Math.max(0, Math.sin(i / 33)) * 2_500_000 + 180_000;
-    demo.stack.timeseries.push({
-      tsMs: t,
-      downloadBps: Math.round(wave * 8),
-      uploadBps: Math.round(wave * 0.9),
-      lteRsrpDbm: -87 + Math.sin(i / 90) * 3,
-      lteSinrDb: 13 + Math.sin(i / 50) * 3,
-      nrRsrpDbm: -95 + Math.sin(i / 70) * 5,
-      nrSinrDb: 9 + Math.sin(i / 40) * 4,
-      temperatureCelsius: null,
-    });
-  }
-}
-
-const DEMO_CONTACTS = [
-  { phone: "+353830000001", name: "Sam Demo", note: "Dinner club" },
-  { phone: "+447700900123", name: "Parcel Depot" },
-  { phone: "+353830000002", name: "Robin Demo" },
-];
-
 async function startWorld(scenario: Scenario): Promise<DemoDaemon> {
   const demo = await startDemoDaemon({ port: 0, token: TOKEN, scenario });
-  backfillHistory(demo);
+  // A day of the household's rhythm behind "now", as the live demo starts with, so the charts have a history
+  backfillHistory(demo.stack.timeseries, demo.router.base, Date.now(), Math.random);
   for (const contact of DEMO_CONTACTS) demo.stack.sms?.upsertContact(contact);
   // A dashboard (router data only) and an agent (SMS too) use their own tokens next to the one imported from .env
   const grafana = demo.stack.settings.createToken({ name: "Grafana", permissions: [], lifetimeDays: null });

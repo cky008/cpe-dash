@@ -61,7 +61,7 @@ const DICTIONARIES: Readonly<Record<Locale, () => Promise<Readonly<Record<Messag
 /** Alerts after which what self-healing will do next has changed. */
 const SELF_HEAL_ALERTS: ReadonlySet<string> = new Set(["LOCK_ROLLED_BACK", "LOCK_ROLLBACK_FAILED", "WAN_AUTO_RECONNECT", "WAN_RECONNECT_EXHAUSTED", "SELF_HEAL_READ_ONLY"]);
 
-/** How the console reaches its daemon: the page's own origin, or the static demo's in-page backend. */
+/** How the console reaches its daemon: the page's own origin, or the static demo's services in the same page. */
 export interface AppTransport {
   fetchImpl: typeof fetch;
   createEventSource: (url: string) => EventSourceLike;

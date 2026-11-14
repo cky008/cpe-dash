@@ -107,10 +107,13 @@ describe("Browser-shared modules (single source of truth for the web UI)", () =>
     assert.ok(seen.size >= BROWSER_SHARED_MODULES.length);
   });
 
-  it("are the only daemon modules the web sources import at runtime", () => {
-    for (const file of webSources("web/src")) {
+  it("are the only daemon modules the console's sources import at runtime, and the console reaches nothing of the demo's", () => {
+    // The live demo (web/src/demo/) runs the daemon's own services in the page, on the stand-ins of
+    // web/src/demo/node/ that only its build gets (scripts/build-web.ts --demo): it is the exception
+    for (const file of webSources("web/src").filter((source) => !source.startsWith(path.join("web", "src", "demo")))) {
       for (const spec of runtimeImports(file)) {
         const target = path.relative(process.cwd(), path.join(path.dirname(file), spec));
+        assert.ok(!target.startsWith(path.join("web", "src", "demo")), `${file} imports ${target}, which is the demo's`);
         if (!target.startsWith("src/")) continue;
         assert.ok(BROWSER_SHARED_MODULES.includes(target), `${file} imports ${target}, which is not a browser-shared module`);
       }

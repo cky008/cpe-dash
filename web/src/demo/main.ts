@@ -1,11 +1,12 @@
 import { DOCS_SITE } from "../core/help.ts";
+import type { EventSourceLike } from "../core/sse.ts";
 import { startApp } from "../ui/app.ts";
-import { DemoBackend } from "./backend.ts";
-import { readDemoSeed, rebaseSeed } from "./seed.ts";
+import type { DemoRuntime, DemoWorld } from "./runtime.ts";
 
 /**
  * Entry of the static GitHub Pages demo (`npm run build:demo`): the unchanged web console, wired to
- * an in-page backend instead of a daemon. Only the seed file is fetched; nothing else leaves the page.
+ * FengSui's own services running in the page (./runtime.ts) in front of a demo router. They load
+ * while the console draws itself, and nothing leaves the page.
  * `?router=other` opens it on an LTE-only Huawei model FengSui was not verified on instead of the
  * H168-383, so visitors can see what FengSui does there: the experimental writes with their switches, and the device report.
  * `?router=zte` opens it on a ZTE mobile router, read and written through FengSui's ZTE driver: its
@@ -37,13 +38,10 @@ const NOTICE = {
   },
 } as const;
 const ABOUT_URL = "https://github.com/cky008/fengsui-demo#readme";
-/** The router the demo opened on: the H168-383, another Huawei model (`?router=other`) or a ZTE one (`?router=zte`). */
-type DemoWorld = "verified" | "other" | "zte";
 const WORLD: DemoWorld = ((): DemoWorld => {
   const router = new URLSearchParams(window.location.search).get("router");
   return router === "other" || router === "zte" ? router : "verified";
 })();
-const SEED_FILES: Readonly<Record<DemoWorld, string>> = { verified: "demo-seed.json", other: "demo-seed-other.json", zte: "demo-seed-zte.json" };
 /** Dismissed per router: each other router's notice is also the way back. */
 const DISMISS_KEY = WORLD === "verified" ? "fengsui.demo.notice-dismissed" : `fengsui.demo.notice-dismissed.${WORLD}`;
 
@@ -116,19 +114,72 @@ function mountNotice(): void {
   document.body.prepend(bar);
 }
 
-async function boot(): Promise<void> {
-  const res = await window.fetch(new URL(SEED_FILES[WORLD], document.baseURI), { cache: "no-cache" });
-  if (!res.ok) throw new Error(`demo seed: HTTP ${res.status}`);
-  const seed = rebaseSeed(readDemoSeed(await res.json()), Date.now());
-  const backend = new DemoBackend({ seed });
-  backend.start();
-  mountNotice();
-  await startApp({ fetchImpl: backend.fetch, createEventSource: backend.createEventSource, demo: true });
+/**
+ * An `EventSource` the console can hold before the services are up: listeners wait, then go to the
+ * stream the page's event bus opens.
+ */
+class LateEventSource implements EventSourceLike {
+  readonly #listeners: Array<[string, (event: { data?: unknown }) => void]> = [];
+  #inner: EventSourceLike | null = null;
+  #closed = false;
+
+  constructor(opening: Promise<(url: string) => EventSourceLike>, url: string) {
+    void opening.then((open) => {
+      if (this.#closed) return;
+      this.#inner = open(url);
+      for (const [type, listener] of this.#listeners) this.#inner.addEventListener(type, listener);
+    });
+  }
+
+  addEventListener(type: string, listener: (event: { data?: unknown }) => void): void {
+    this.#listeners.push([type, listener]);
+    this.#inner?.addEventListener(type, listener);
+  }
+
+  close(): void {
+    this.#closed = true;
+    this.#inner?.close();
+  }
 }
 
-boot().catch((err: unknown) => {
+/** The daemon's services in the page: the backend dictionaries first, then the router of this world. */
+async function startRuntime(): Promise<DemoRuntime> {
+  const [{ seedFile }, { startDemoRuntime }, zh, en] = await Promise.all([
+    import("./node/fs.ts"),
+    import("./runtime.ts"),
+    import("../../../locales/zh-CN.json", { with: { type: "json" } }),
+    import("../../../locales/en.json", { with: { type: "json" } }),
+  ]);
+  // Where src/i18n.ts looks for them in a page (its working directory is the file system's root)
+  seedFile("/locales/zh-CN.json", JSON.stringify(zh.default));
+  seedFile("/locales/en.json", JSON.stringify(en.default));
+  return startDemoRuntime({ world: WORLD, dataDir: "/data", autoReply: true });
+}
+
+function showFailure(err: unknown): void {
   const message = document.createElement("p");
   message.className = "p-6 text-center text-sm";
   message.textContent = `The demo could not start: ${err instanceof Error ? err.message : String(err)}`;
   document.body.prepend(message);
-});
+}
+
+declare global {
+  interface Window {
+    /** The page's own back end, for the browser tests (test/ui/demo.test.ts): what the console's `fetch` reaches. */
+    __fengsuiDemo?: { fetch: typeof fetch };
+  }
+}
+
+async function boot(): Promise<void> {
+  const runtime = startRuntime();
+  runtime.catch(showFailure);
+  window.__fengsuiDemo = { fetch: async (input, init) => (await runtime).transport.fetch(input, init) };
+  mountNotice();
+  await startApp({
+    fetchImpl: async (input, init) => (await runtime).transport.fetch(input, init),
+    createEventSource: (url) => new LateEventSource(runtime.then((r) => r.transport.createEventSource), url),
+    demo: true,
+  });
+}
+
+boot().catch(showFailure);
