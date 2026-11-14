@@ -760,3 +760,15 @@ flowchart TD
 **加一个操作**，之前要改：REST 的路由与入参（`http-server.ts` 或 `http-cellular.ts`、`sms/http-routes.ts`，权限不在 `/api/control/` 下的还有 `permissionForRoute`）、MCP 工具的定义与功能对应（四个提供者之一）、`scripts/api-reference.ts`、演示的路由、Telegram（有指令的）、`docs/dev/api.md`。之后：登记一条记录；在它出现的每个入口写处理函数（类型检查会指出缺哪个）；`docs/dev/api.md`。
 
 **对外行为一个字节都不变。** REST 的路径、方法、状态码、错误码、响应体，MCP 的工具名、说明、`inputSchema` 与工具顺序，指南生成的块（`npm run docs:sync -- --check`）都逐字一致：先写一个「改之前的快照」测试（每个路径与方法要的权限、守护进程对每个路径与方法的应答、三种路由器上的 MCP 工具清单、API 参考的三个块），改完仍然通过，再换成从登记生成的检查。H168-383 的请求逐字节不变，由请求序列比对证明（方法见 19.3）。
+
+**文件。** [`src/operations/record.ts`](../../src/operations/record.ts) 是记录的形状；六个部分各一个文件：`reads.ts`（读取与刷新，含访问控制和蜂窝设置的读取：它们在「API 参考」的读取表里）、`router.ts`（路由器控制）、`cellular-settings.ts`、`access.ts`、`sms.ts`、`daemon.ts`（熔断、存活检查、事件流、指标，以及只给智能体的测试工具）；[`src/operations/registry.ts`](../../src/operations/registry.ts) 把它们合在一起，给出 `MCP_TOOLS`、各种查找（`restOperation`、`apiOperation`、`smsOperation`、`toolOperation`）、`permissionForRoute`、生成的工具定义，以及入口处理函数表的类型（`OperationHandlers`、`ToolHandlers`）和执行它们的 `runOperation`、`runTool`。处理函数仍在各入口：`src/http-server.ts`、`src/http-cellular.ts`、`src/sms/http-routes.ts`、四个 MCP 提供者、`web/src/demo/backend.ts` 与 `web/src/demo/cellular.ts`。登记零依赖，在线演示也加载它，所以每个操作的 MCP 说明和「API 参考」的中英说明进了演示：演示合计由 220.0 KiB 到 234.4 KiB，上限由 226 调到 240 KiB；控制台不加载登记，体积不变。
+
+**搬的时候发现的不一致。** 按 bug 修的，各自一个提交、写进了 CHANGELOG：
+
+1. 在线演示的锁频读请求体里的 `networkMode`，在其他品牌的演示路由器上顺带改网络制式；守护进程的 REST 路由和 MCP 工具都不收这个字段（`aff66a3`）。
+2. 演示的短信路由有自己的一份字段检查，和守护进程的已经走样：`null` 被拒绝（守护进程当作没给），名单里超过 128 个字符的条目被接受（守护进程拒绝）；现在用守护进程的 `src/sms/input.ts`（`5187614`）。
+3. 演示读历史窗口的查询串时，同一个键给了两次取第一个，守护进程取最后一个；改用登记的检查后和守护进程一样（`23566e5`）。
+
+另外几处写法不同、但对外没有区别，合成一份时没有改行为：MCP 的 `lock_cell` 原先不接受 `pci: null`、REST 接受，现在用同一个检查，MCP 的 `inputSchema` 本来就先拒绝 `null`；Telegram 的 `/netmode` 原先用 `isNetworkMode` 判断按钮，现在用登记的检查，结果相同。对外有区别、按要求没有改的，留给主人决定：REST 的锁频、锁小区、解锁、安全开关、Wi-Fi 7、天线、移动数据不要 `confirm: true`，蜂窝设置、重启、重拨要；控制台和 REST 能开关移动数据，MCP 没有这个工具。
+
+**证明。** 「改之前的快照」测试（`test/operations-snapshot.test.ts`，`44971de`）在每个改动代码的提交之后都通过：每个路径与方法要的权限、守护进程对每个路径与方法（空对象、不是 JSON 的请求体）的应答、三种路由器（H168-383、未验证的 HiLink 型号、中兴）上的 MCP 工具清单、说明、按名字调用的应答，以及「API 参考」的三个块，逐字节相同；之后换成从登记生成的检查（`test/operations.test.ts`：每个提供者列出的正是登记里它那张表的定义、「API 参考」的路由正是登记的路由；`contract-manifest`、`api-reference` 两个测试从登记取清单）。改动代码的每个提交之后都跑了请求序列比对（方法见 19.3），请求序列 15384 字节、报文记录 4712 字节，另外十份复审脚本（测试连接、待机、让位、重定向、MCP 工具清单等）的输出，都与 `0afc470` 相同。

@@ -29,7 +29,7 @@
 2. **自动化脚本与 Streamable HTTP MCP 客户端（Bearer Token）**：
    - 请求头：`Authorization: Bearer <令牌>`。令牌在控制台「设置 → 令牌」生成（`fsk_` 前缀 + 256 位随机数，**只显示一次**），服务端只保存其 SHA-256，按哈希查找；可设有效期（1 / 7 / 30 / 90 / 365 天或永不过期）、随时撤销，并记录最近使用时间。
    - **排他鉴权规则**：一旦请求携带了 `Authorization` 头，服务端**仅**验证 Bearer Token，绝不回退读取 Cookie。`/mcp` 端点只接受 Bearer。
-   - **四项权限**（v1.8.0 起；`src/console-policy.ts` 的 `TOKEN_PERMISSIONS`，每个请求要哪一项由 `src/http-server.ts` 的 `permissionForRoute` 决定）：每个令牌都能调用 `/api/sms/*` 以外的全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`。其余请求要令牌带有对应的权限：
+   - **四项权限**（v1.8.0 起；`src/console-policy.ts` 的 `TOKEN_PERMISSIONS`，每个请求要哪一项由操作登记决定：[`src/operations/registry.ts`](../../src/operations/registry.ts) 的 `permissionForRoute` 给登记了的路由用它记录里的权限，其他路径按所在的前缀，下面的规则就是这样来的）：每个令牌都能调用 `/api/sms/*` 以外的全部 `GET`、`/api/events` SSE，以及只触发读取会话的 `POST /api/telemetry/refresh`、`/api/neighbors/scan`、`/api/topology/refresh`、`/api/settings/refresh`、`/api/access-control/refresh`。其余请求要令牌带有对应的权限：
      - `sms-read`（读短信和验证码）：`/api/sms/*` 的 `GET`，以及 `POST /api/sms/preview`、`/api/sms/sync`。没有它的令牌在 SSE 上也收不到短信事件（`sms:*`、`contacts:updated`）；
      - `control`（改动路由器）：`/api/control/*`（下一项的三个除外）与 `POST /api/session/reset-breaker`；
      - `access`（管理设备上网）：`POST /api/control/wifi-access`、`/api/control/wifi-mac-filter`、`/api/control/time-rule`；
@@ -147,6 +147,8 @@ export interface ApiErrorEnvelope {
 ---
 
 ## 2. REST API 完整 TypeScript 接口契约（与 `src/` 导出类型 1:1 严格对齐）
+
+> **路由从哪里来**：除控制台自己的路由（`/api/auth/*`、`/api/setup/*`、`/api/console/*`、`/api/i18n/*`，见 [`src/http-settings.ts`](../../src/http-settings.ts)）外，每个路由是操作登记（[`src/operations/`](../../src/operations/registry.ts)，架构 19.9）里一个操作的 REST 问法：路径、方法、令牌权限、第一层入参检查和「API 参考」的中英说明都写在记录里。`src/http-server.ts` 与 `src/sms/http-routes.ts` 按 `方法 路径` 查到操作，先跑它的入参检查（POST 读请求体，GET 读查询串），再调这个操作的处理函数；没有登记的路径：GET 是 `404 NOT_FOUND`，其他方法 `405 METHOD_NOT_ALLOWED`，POST 先读请求体再 `404`，`/api/sms/` 下的未知路径不读请求体就 `404`。
 
 > **核心设计原则**：所有 `GET /api/*` 接口均为 **100% 零副作用内存/环形缓冲区直读**（延迟 `< 1ms`，绝不触发 CPE 会话）；需要立即触发一次 `~26ms–260ms` 瞬时 CPE 采样的操作统一通过显式 `POST /api/*/refresh` 或 `POST /api/neighbors/scan` 发起（并发请求在调度器内单飞合并 Single-Flight Coalescing）。缓存快照会加密持久化，服务重启后首次采集前返回的可能是上次运行的快照，请以 `capturedAtIso` 判断新鲜度。
 
@@ -863,7 +865,7 @@ export type AlertCode =
 
 ### 2.13 蜂窝设置路由（v1.9.0）
 
-类型见 [`src/cellular.ts`](../../src/cellular.ts)（零依赖，守护进程、控制台与在线演示共用同一份入参校验）与 [`src/api-contract.ts`](../../src/api-contract.ts)。
+类型见 [`src/cellular.ts`](../../src/cellular.ts)（零依赖，守护进程、控制台与在线演示共用同一份入参校验）与 [`src/api-contract.ts`](../../src/api-contract.ts)。路由与入参检查是操作登记里的记录（[`src/operations/cellular-settings.ts`](../../src/operations/cellular-settings.ts)），处理函数在 [`src/http-cellular.ts`](../../src/http-cellular.ts)。
 
 **读取**
 
@@ -964,6 +966,8 @@ export type AlertCode =
 - **传统版 `2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05`**：沿用 `initialize` 握手；`initialize` 最高协商到 `2025-11-25`（请求的版本未知或为 `2026-07-28` 时也回退到它），结果不带 `resultType`。
 
 不支持 JSON-RPC 批量请求（数组，返回 `-32600`），请求 `id` 必须为 `string | number`。
+
+每个工具是操作登记（[`src/operations/`](../../src/operations/registry.ts)，架构 19.9）里一个操作的 MCP 问法：名字、标题、说明、提示与参数写在记录里，写工具的 `inputSchema` 由登记加上必填的 `confirm`（布尔）；是否改动（`MCP_ALLOW_MUTATIONS`、只读令牌）、要什么令牌权限、未验证型号上写闸门按哪些写操作判断（及那时的写法，如只锁 LTE 的锁频）、要路由器的哪个读取分区（这台路由器没有时不列出），服务器都照记录执行。工具提供者（[`src/mcp-tool-provider.ts`](../../src/mcp-tool-provider.ts)）只决定运行时的事：现在提供哪些工具（访问控制写入的开关、短信分级、智能体测试）、这台路由器有没有烽燧实现的某项设置、处理函数、资源与说明。工具在 `tools/list` 里的顺序是 `MCP_TOOLS` 每个提供者的那张表。
 
 除下述 `probeLive` 例外，所有需要访问 CPE 的工具调用都与后台轮询共享同一个 `MutexSessionScheduler` 互斥队列与双层真人避让保护：
 - **`probeLive` 例外**：`get_cpe_session_status({ probeLive: true })` 直接发起一次免登录的 `GET /api/user/state-login`，不经过调度队列、不占用管理员会话（零会话），可能与正在进行的瞬时会话并发执行。
