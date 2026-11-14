@@ -593,7 +593,7 @@ flowchart TD
 ### 19.5 以后怎么加
 
 - **新品牌**：在 `src/drivers/` 写它的 `DriverProtocol`（免登录识别、登录前检查、一次登录、注销）与 `DriverSession`（一个文件；有两套接口的品牌像中兴那样建自己的目录，两套接口共用的部件放在里面），用得上的协议部件从 `src/protocols/` 直接组合，它的接口是别的品牌也会用的一种（像 ubus、AT 指令）就先把这种接口写成协议部件；在 `src/router-family.ts` 加它的事实，在 `src/drivers/brands.ts` 注册。不需要碰后端、调度器、连接工厂或服务。
-- **新能力**：在 `RouterBackend` 与 `RouterSession` 各加一个动词，在 `SessionBackend` 里写一行排队与闸门；在有记录的品牌的会话里实现（其他品牌的驱动加一个可选方法，由适配层调用）。
+- **新能力**：先在能力登记表 `src/features.ts` 登记这项功能（19.8），再在 `RouterBackend` 与 `RouterSession` 各加一个动词，在 `SessionBackend` 里写一行排队与闸门；在有记录的品牌的会话里实现（其他品牌的驱动加一个可选方法，由适配层调用）。
 - **新协议部件**：两个以上驱动用到、又不含品牌事实的部分，放进 `src/protocols/`。部件要用的东西只从 `src/protocols/` 和 `src/` 顶层拿，不从 `src/drivers/` 拿（`test/router-backend.test.ts` 检查）。
 
 ### 19.6 连接设置、HiLink 与中兴各归其位（2026-11-13）
@@ -667,3 +667,47 @@ flowchart TD
 守线的测试加了两条（`test/router-backend.test.ts`）：`src/protocols/` 下没有文件引用 `src/drivers/`；驱动以上的代码（入口、服务、后端、调度器）不引用任何驱动或协议部件，只有调度器引用连接工厂 `drivers/connection.ts` 和品牌识别 `drivers/detect.ts`（只引用类型的不算，`src/index.ts` 是对外的导出）。
 
 **证明。** 五个改动代码的提交之后各比对一次，请求序列 15384 字节、报文记录 4712 字节，与 `863249d` 逐字节相同。
+
+### 19.8 一份能力登记表（2026-11-14）
+
+「一项功能是什么」原先散在六个文件里，名单各写一遍，再靠测试对齐：
+
+| 名单 | 在哪 | 说的是什么 |
+| :--- | :--- | :--- |
+| `DEVICE_FEATURES` | `device-profile.ts` | 功能名单 |
+| `CONTROL_FEATURES`、`WRITE_FEATURES`、`READ_SECTIONS` | `device-access.ts` | 每个写操作归哪项功能、控制台列写入的顺序、读取分区 |
+| `STATUS_READ_FEATURES`、`CELLULAR_WRITE_FEATURES`、`FAMILY_WRITE_FEATURES`、`READ_FEATURE_SECTIONS` | `router-family.ts` | 状态读数、蜂窝设置、某个品牌实现了的写入、读取功能在哪个分区读（设备报告里还有一份） |
+| `MODULES`、`READ_FEATURES` | `device-catalog.ts` | 「支持的设备」表的列、列里的功能和叫法、哪些是读取 |
+| `EXPERIMENTAL_FEATURES`、`experimentalEvidence` | `device-profile.ts` | 华为的通用写入（与 `ROUTER_FAMILY_FACTS.huawei.writes` 是同一份名单）和它们在未验证型号上的能力依据（写在函数里） |
+| `AGENT_TEST_FEATURES` | `agent-test.ts` | 一键 AI 智能体测试覆盖的写入 |
+
+驱动的适配层里还有一份蜂窝设置名单。加一项功能要改五六处，漏一处要等测试才发现。
+
+**登记表。** [`src/features.ts`](../../src/features.ts)，零依赖，守护进程、控制台和在线演示共用。一项功能一条记录，键就是功能名（与 `VERIFIED_FEATURES`、设备报告的 `checks`、控制台的开关同名）：
+
+| 字段 | 哪类功能有 | 写什么 | 取代 |
+| :--- | :--- | :--- | :--- |
+| `access` | 全部 | `read` 或 `write` | `READ_FEATURES`、`WRITE_FEATURES` |
+| `column` | 全部 | 在「支持的设备」表的哪一列；列的中英文名在同一个文件的列清单里 | `MODULES` 的列与 `features` |
+| `part` | 一列有几项功能时 | 表下的说明里怎样称呼这一项（中英） | `MODULES` 的 `parts` |
+| `read` | 读取 | 在哪个读取分区的会话里读（`READ_SECTIONS` 之一，分区清单也在这个文件里），或 `status`：5 秒轮询顺带读的路由器状态 | `READ_FEATURE_SECTIONS`、`STATUS_READ_FEATURES` |
+| `actions` | 写入 | 归到它名下的写操作，也包括烽燧自己发起的那些（自动解锁、自动重拨、断网后改回原样）；关掉这项功能就关掉它们 | `CONTROL_FEATURES`（由这里反推出来） |
+| `cellular` | 写入 | 蜂窝设置：H168-383 验证之后才加的，它上面只开放真机核对过、登记进 `VERIFIED_FEATURES` 的几项 | `CELLULAR_WRITE_FEATURES` |
+| `agentTest` | 写入 | 一键 AI 智能体测试覆盖它 | `AGENT_TEST_FEATURES` |
+
+功能名单、写入、状态读数、蜂窝设置、写操作到功能的对应、表的列，都由这张表算出来。记录的先后就是表的列序：同一列的功能挨在一起，列按表里的顺序排，设备报告的 `checks`、控制台「设置 → 设备」的功能和实验开关、MCP `set_experimental_write` 的取值都按它列。原先功能名单和写入清单各有一个顺序（短信写入、SIM 卡和飞行模式的位置两边不同），现在只有一个。
+
+**能力依据分在三处，各说各的事。**
+
+1. 功能是什么：登记表。
+2. 品牌实现了什么：[`src/router-family.ts`](../../src/router-family.ts) 每个品牌（和品牌下的接口写法 `variants`）一份 `reads`、`writes`，只能写登记表里的名字；`reads` 写的是读取功能的名字（`smsRead`），不再写分区名（`sms`），分区由登记表的 `read` 查出。品牌实现了的写入总表 `FAMILY_WRITE_FEATURES` 由各品牌的 `writes` 算出。
+   未验证的 HiLink 型号上，通用写入还要识别探测先看到写后回读要读的接口：这是华为这个品牌的事实，写在 `ROUTER_FAMILY_FACTS.huawei.probe`，每项通用写入一条（哪些接口要有应答、应答要带哪些标签，或者几个接口有一个应答就行，要不要读到 LTE 频段），[`src/device-profile.ts`](../../src/device-profile.ts) 的 `experimentalEvidence` 照着判断。写闸门问的是「这个品牌的事实给这项写入写了探测依据没有」，不再问「是不是驱动品牌」。原先的 `EXPERIMENTAL_FEATURES` 去掉了：它和华为的 `writes` 是同一份名单。
+3. 谁在真机上验证了什么、哪个型号有什么差别：`VERIFIED_FIRMWARE`、`VERIFIED_FEATURES`、`UNSUPPORTED_FEATURES`（`firmware.ts`），型号清单 `DEVICE_CATALOG` 与型号事实 `MODEL_FACTS`（`device-catalog.ts`）留在原处，只引用登记表里的名字。
+
+设备报告里每项 `checks` 的依据也由记录定：`read` 是分区的看分区的读取状态，是 `status` 的看最近一次轮询有没有带上，写入看写入记录里这项功能最近一次的回读。
+
+**谁从登记表取。** 写闸门（`device-access.ts`：写操作所属的功能、每项写入的状态、读取分区）、「支持的设备」表的生成器与控制台里这台路由器的那一行（`device-catalog.ts`：列、列里的功能和叫法、读还是写）、设备报告的 `checks`、控制台「设置 → 设备」（功能列表与实验开关）、实验开关本身（`experimental-switch.ts`，MCP 的取值）、智能体测试（`agent-test.ts`）、驱动的适配层（蜂窝设置名单）。控制台给每项功能显示的名字仍在控制台的中英词典里（`FEATURE_KEYS`）：界面文字只有那一个出处，漏了类型检查不过。
+
+**加一项功能**，现在改这几处：登记表一条；实现它的品牌（事实里列上名字，驱动或会话对象里实现；华为的通用写入再加一条 `probe`）；控制台的两句名字。其余名单都跟着变。守线的测试在 `test/features.test.ts`：每项功能恰好在一列里，同一列的挨着、列按表序；一列有几项功能时每项都有叫法，只有一项的没有；每项写入至少有一个写操作，一个写操作只归一项功能；读取功能写明在哪里读，一个分区最多归一项读取功能；各品牌与接口写法的 `reads` 只列读取功能、`writes` 只列写入功能；`VERIFIED_FEATURES`、`UNSUPPORTED_FEATURES`、`MODEL_FACTS` 只用登记表里的名字；华为的 `probe` 恰好覆盖它的 `writes`，规则里的接口都在识别探测的清单里。
+
+**不变的东西。** 生成的文档（`npm run docs:sync --check`）逐字不变；H168-383 发给路由器的请求逐字节不变（请求序列与报文记录比对，方法见 19.3）。变的只有上面说的列序。
