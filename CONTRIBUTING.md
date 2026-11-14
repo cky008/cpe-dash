@@ -54,6 +54,7 @@ npm run build:docs  # the documentation site, into dist/site
    synthetic cell listed in [`AGENTS.md`](AGENTS.md). Never commit `.env`, `data/`, HAR or pcap files, or values copied
    from your own router (that includes PCI and frequency numbers: they can locate a cell site).
 6. **`npm run check` must pass** before you open a pull request; it also runs the browser tests and the secret scan over the full history.
+7. **A new feature is registered once.** Add its record to the capability registry, [`src/features.ts`](src/features.ts) (read or write, its column in Supported devices and its name there, where it is read or which writes are filed under it); then name it in the facts of the brand that implements it (`src/router-family.ts`) and give it its two console labels. The write gate, the table, the device report, Settings → Device and the agent test take it from there.
 
 1. **先写测试**：先写一个失败的测试，再写让它通过的改动。测试使用 `node:test` 和 `test/helpers/` 里的 Mock 路由器，绝不连接真实路由器。覆盖率保持 90% 以上。
 2. **只用严格 TypeScript**：不要 `.js` 文件，不要 `any`，不要 `@ts-ignore`。
@@ -61,6 +62,7 @@ npm run build:docs  # the documentation site, into dist/site
 4. **同一时刻只有一个路由器会话**：所有访问路由器的代码都经过 `MutexSessionScheduler`，不要另建会话客户端，也不要自行登录。
 5. **只用占位值**：使用 [`AGENTS.md`](AGENTS.md) 列出的 RFC 文档地址、占位 IMEI / IMSI / 手机号和合成小区。绝不提交 `.env`、`data/`、HAR 或 pcap 文件，也不要提交从自己路由器复制的数值（包括 PCI 和频点：它们能定位到具体基站）。
 6. **提 PR 之前 `npm run check` 必须通过**，它也会跑浏览器测试、扫描完整的 Git 历史。
+7. **新功能只登记一次**：在能力登记表 [`src/features.ts`](src/features.ts) 里加它的一条记录（读或写、在「支持的设备」表的哪一列和列里的叫法、在哪里读或哪些写操作归到它名下），再在实现它的品牌的事实里（`src/router-family.ts`）列上它的名字，给控制台加它的中英文名字。写闸门、表、设备报告、「设置 → 设备」和智能体测试都从登记表取。
 
 ## Registering a device report / 登记设备报告
 
@@ -74,8 +76,9 @@ When an issue's device report shows a feature working on a real router, record i
 2. **What to change.**
    - Add one entry per feature to `VERIFIED_FEATURES` in [`src/firmware.ts`](src/firmware.ts): `family` from the
      report's `access.family`, `model` and `softwareVersion` from `identity`, `feature` and `access` from the line in
-     `checks`, and the issue number. A write must be one FengSui implements for that brand
-     (`ROUTER_FAMILY_FACTS[family].writes`); `test/verified-features.test.ts` checks it.
+     `checks`, and the issue number. The feature is named as the capability registry
+     ([`src/features.ts`](src/features.ts)) names it, and a write must be one FengSui implements for that brand
+     (`ROUTER_FAMILY_FACTS[family].writes`); `test/features.test.ts` and `test/verified-features.test.ts` check it.
    - Add a test that names the entry: the model's cell in `supportedDevicesSection` is ✓, and
      `DeviceAccess.writeState` answers `verified` for a write.
    - Add a line to `CHANGELOG.md` under `[Unreleased]` with the issue number (`#41`), and no name.
@@ -96,7 +99,7 @@ When an issue's device report shows a feature working on a real router, record i
 
 1. **什么样的报告算数**：看报告里的 `checks`。读取项的 `result` 是 `works`（路由器回答了这个读取项，并且有数据）才算；写入项的 `result` 是 `works` 才算，也就是写入记录（`writes`）里这个功能最近一次写入回读一致（`readback: "match"`）。`failed`、`untested` 不算；issue 里只有文字、没有报告支撑的也不算。
 2. **登记要改哪里**：
-   - 在 [`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FEATURES` 里每个功能加一条：`family` 取报告的 `access.family`，`model` 和 `softwareVersion` 取 `identity`，`feature` 和 `access` 取 `checks` 里那一行，再写上 issue 编号。写入项必须是烽燧在这个品牌上实现了的（`ROUTER_FAMILY_FACTS[family].writes`），`test/verified-features.test.ts` 会检查。
+   - 在 [`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FEATURES` 里每个功能加一条：`family` 取报告的 `access.family`，`model` 和 `softwareVersion` 取 `identity`，`feature` 和 `access` 取 `checks` 里那一行，再写上 issue 编号。功能名就是能力登记表（[`src/features.ts`](src/features.ts)）里的名字；写入项必须是烽燧在这个品牌上实现了的（`ROUTER_FAMILY_FACTS[family].writes`），`test/features.test.ts` 和 `test/verified-features.test.ts` 会检查。
    - 补一个测试点名这一条：这个型号在 `supportedDevicesSection` 里那一格是 ✓；写入项的 `DeviceAccess.writeState` 返回 `verified`。
    - 在 `CHANGELOG.md` 的 `[Unreleased]` 下加一行，写上 issue 编号（如 `#41`），不写人名。
    - 运行 `npm run docs:sync`，用 `supportedDevicesSection` 重新生成 `docs/guide/{zh,en}/supported-devices.md` 里 `<!-- devices:begin -->` 与 `<!-- devices:end -->` 之间的表（不一致时 `test/device-catalog.test.ts` 会失败）。清单里没有的型号会按这条登记自动多出一行；知道它的形态和品牌的话，也把它加进 [`src/device-catalog.ts`](src/device-catalog.ts) 的 `DEVICE_CATALOG`。

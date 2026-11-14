@@ -720,7 +720,7 @@ export type AlertCode =
   - `writes.feature`：以及 2.10 表中的其他写功能
   - `writes.code`：路由器拒绝时的错误码（只保留 4–8 位数字，其他内容记为 null）
   - `writes.reason`：WriteCheck.reason，见 2.11
-  - `checks`：每个功能一行（DEVICE_FEATURES 的顺序），功能名与读 / 写的划分和 VERIFIED_FEATURES 相同，照着就能写一条登记：
+  - `checks`：每个功能一行（能力登记表 [`src/features.ts`](../../src/features.ts) 的顺序，也就是「支持的设备」表的列序），功能名与读 / 写的划分和 VERIFIED_FEATURES 相同，照着就能写一条登记：
   - `checks`：读取项看它所在读取项的状态（verified / available 为 works，unavailable 为 failed，其余 untested）；
   - `checks`：写入项看写入记录里这个功能最近一次（被路由器拒绝为 failed / refused，回读 match 为 works，mismatch 为 failed，其余 untested）
 
@@ -750,13 +750,13 @@ export type AlertCode =
   - `writes`：allowed：已验证型号；experimental：其他型号（写入都是实验性写入，哪些可用看 features）；unknown：还没有识别结果
   - `reads`：telemetry、neighbors、topology、settings、accessControl、sms 各一项：已验证型号为 verified；
   - `reads`：其他型号为它实际的应答：available、unavailable（回了 100002 / 100003 或读不懂的内容；code 为错误码，读不懂时为 null）或 unknown（还没读过）
-  - `features`：每个写功能（WRITE_FEATURES：bandLock、cellLock、reboot、reconnect、mobileData、securitySwitches、
-  - `features`：wifi、antenna、accessControl、smsWrite）在这台路由器上的状态，见 2.11
+  - `features`：每个写功能（登记表里的写入功能，按表的列序：smsWrite、bandLock、cellLock、reboot、reconnect、mobileData、
+  - `features`：securitySwitches、wifi、antenna、accessControl 与十项蜂窝设置）在这台路由器上的状态，见 2.11
   - `lteBands`：实验性锁频可用的 LTE 频段（net-mode-list 通告的）；已验证型号或没有通告时为 null
 
 **未验证型号的读法**（详见 [`protocol.md`](protocol.md) 附录 A.10）：每个读取项各自成败。遥测的信号、状态、流量、月统计哪一部分回了错误码，就列进 `GlobalTelemetrySnapshot.unavailable`，其余照常；邻区、终端列表、路由器设置、访问控制、短信整项回 `100002` / `100003` 或读不懂时，刷新接口返回该项的缓存（通常为 `null`），`reads` 记为 `unavailable`，后台定时扫描不再问它，主动刷新时再试。终端列表依次尝试 `system/HostInfo`、`lan/HostInfo`、`wlan/host-list`（回 `100002` / `100003` 才换下一个，其他错误码让这次读取失败）。没有流量统计的型号不写吞吐时序。H168-383 与还没有识别结果的路由器照旧严格读取，`unavailable`、`source` 都不出现。
 
-每个写操作所属的功能（`CONTROL_FEATURES`，用户按功能关闭）：
+每个写操作所属的功能（登记表 [`src/features.ts`](../../src/features.ts) 里每项写入功能的 `actions`，`CONTROL_FEATURES` 由它算出；用户按功能关闭）：
 
 | 写操作（审计与 `control:applied` 的 `action`） | 功能 |
 | :--- | :--- |
