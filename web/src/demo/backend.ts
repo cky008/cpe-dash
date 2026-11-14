@@ -510,7 +510,7 @@ export class DemoBackend {
       settings: () => ({ ok: true, ...this.#lockView(), schedulerStatus: this.#status(), settings: this.#settings }) satisfies SettingsEndpointResponse,
       settingsRefresh: async () => {
         await this.#session(LATENCY.session);
-      // A model without router settings answers the sweep with nothing to show
+        // A model without router settings answers the sweep with nothing to show
         if (this.#settings) {
           this.#settings = { ...this.#settings, ...this.#stamp() };
           this.#emit("settings", this.#settings);
@@ -548,11 +548,11 @@ export class DemoBackend {
         return { ok: true, lockState: await this.#lock("lock_band", state, "controls.band_lock_applied", { summary }) } satisfies LockStateResponse;
       },
       cellLock: async (command) => {
-      // No router of the demo locks several cells at once: refused before anything, as on the daemon
+        // No router of the demo locks several cells at once: refused before anything, as on the daemon
         assertOneCell(command);
         const check = checkCellLockInput({ rat: command.rat, band: command.band, arfcn: command.arfcn, pci: command.pci ?? null });
         if (!check.ok) throw new CpeControlValidationError(check.message);
-      // A driver locks one cell: a frequency alone is refused, as on the daemon
+        // A driver locks one cell: a frequency alone is refused, as on the daemon
         if (this.#device.driver) readDriverCellLockTarget(command);
         const state: PersistedLockState = {
           mode: "cell_lock",
@@ -568,7 +568,7 @@ export class DemoBackend {
       },
       unlock: async () => {
         const state: PersistedLockState = { mode: "unlocked", ...this.#stampIso(), lteBands: "all", nrBands: [], cellLock: null };
-      // What the router itself still has locked (a cell lock leaves its NR bands as they were)
+        // What the router itself still has locked (a cell lock leaves its NR bands as they were)
         const lockState = await this.#lock("unlock_rf_locks", state, "controls.unlock_all_applied", undefined, { locked: this.#driverLocks });
         this.#driverLocks = { nr: false, lteCell: false, nrCell: false };
         return { ok: true, lockState } satisfies LockStateResponse;
@@ -580,7 +580,7 @@ export class DemoBackend {
         return { ok: true, rebooting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies RebootResponse;
       },
       reconnect: async () => {
-      // The registry's check refuses it without confirm: true
+        // The registry's check refuses it without confirm: true
         await this.#control("reconnect_cellular", "controls.reconnect_triggered");
         this.#goOffline("reconnect", RECONNECT_OFFLINE_MS);
         return { ok: true, reconnecting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies ReconnectResponse;
@@ -639,7 +639,7 @@ export class DemoBackend {
       accessControlView: () => this.#accessView(),
       accessControlRefresh: async () => {
         await this.#session(LATENCY.session);
-      // A model without access control answers the sweep with nothing to show
+        // A model without access control answers the sweep with nothing to show
         if (this.#access) {
           this.#access = { ...this.#access, ...this.#stamp() };
           this.#emit("access-control", this.#access);
