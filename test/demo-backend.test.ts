@@ -384,11 +384,21 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/sms/delete", { uids: ["missing-uid"] }],
       ["/api/sms/contacts/upsert", { phone: "+353830000009", name: "  " }],
       ["/api/sms/sync", { mode: "sideways" }],
+      ["/api/sms/delete", { uids: ["x".repeat(129)] }],
     ] as const) {
       const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
       assert.equal(real.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.status, 400, `${route} ${JSON.stringify(body)}`);
       assert.equal(demo.json["message"], real.json["message"], `${route} ${JSON.stringify(body)}`);
+    }
+    // A field sent as null is one left out, on both
+    for (const [route, body] of [
+      ["/api/sms/read", { uids: null, threadKey: "+353830000001" }],
+      ["/api/sms/preview", { phone: null, content: "hi", countryCode: null }],
+    ] as const) {
+      const [real, demo] = await Promise.all([daemonCall(session, "POST", route, body), demoCall(backend, "POST", route, body)]);
+      assert.equal(real.status, 200, `${route} ${JSON.stringify(real.json)}`);
+      assert.equal(demo.status, real.status, `${route} ${JSON.stringify(demo.json)}`);
     }
   });
 });

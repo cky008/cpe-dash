@@ -55,6 +55,7 @@ const BROWSER_SHARED_MODULES = [
   "src/firmware.ts",
   "src/timeseries.ts",
   "src/units.ts",
+  "src/sms/input.ts",
   "src/sms/otp.ts",
   "src/sms/phone.ts",
   "src/sms/thread-view.ts",

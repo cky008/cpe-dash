@@ -87,6 +87,7 @@ import {
 import { maskMacTail, maskPhoneNumber } from "../../../src/privacy-mask.ts";
 import { bandsToHexMask, checkCellLockInput, parseSupportedLteBand, parseSupportedNrBand } from "../../../src/rf-bounds.ts";
 import { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, type SelfHealStatus } from "../../../src/self-heal-status.ts";
+import { readContact, readContactId, readContactsQuery, readMarkRead, readPreview, readPurge, readSend, readSyncMode, readThreadKeyQuery, readThreadsQuery, readUids, readVcard } from "../../../src/sms/input.ts";
 import { validateGenericSmsContent } from "../../../src/sms/text-mode.ts";
 import { TimeSeriesRingBuffer, TimeSeriesValidationError } from "../../../src/timeseries.ts";
 import { previewGuard } from "../core/access-view.ts";
@@ -665,25 +666,25 @@ export class DemoBackend {
     get("/api/sms/status", () => ({ ok: true, status: this.#sms.status() }) satisfies SmsStatusResponse);
     get("/api/sms/countries", () => this.#countries);
     get("/api/sms/threads", (_body, query) => {
-      const filter = query.get("filter") ?? "all";
-      if (filter !== "all" && filter !== "unread" && filter !== "otp") throw new CpeControlValidationError(`Unsupported filter "${filter}" (all | unread | otp)`);
-      const threads = this.#sms.threads(filter, (query.get("search") ?? "").slice(0, 100), limit(query.get("limit"), 500, 500));
+      const { filter, search, limit } = readThreadsQuery(queryFields(query));
+      const threads = this.#sms.threads(filter, search, limit);
       return { ok: true, threads, status: this.#sms.status() } satisfies SmsThreadsResponse;
     });
     get("/api/sms/thread", (_body, query) => {
-      const key = (query.get("key") ?? query.get("phone") ?? "").trim();
-      if (!key || key.length > 64) throw new CpeControlValidationError('Query "key" (thread key or phone number) is required');
-      return { ok: true, thread: this.#sms.thread(key) } satisfies SmsThreadResponse;
+      return { ok: true, thread: this.#sms.thread(readThreadKeyQuery(queryFields(query))) } satisfies SmsThreadResponse;
     });
-    get("/api/sms/contacts", (_body, query) => ({ ok: true, ...this.#sms.contacts((query.get("search") ?? "").slice(0, 100), limit(query.get("limit"), 500, 5000)) }) satisfies SmsContactsResponse);
+    get("/api/sms/contacts", (_body, query) => {
+      const { search, limit } = readContactsQuery(queryFields(query));
+      return { ok: true, ...this.#sms.contacts(search, limit) } satisfies SmsContactsResponse;
+    });
     post("/api/sms/preview", (body) => {
-      const preview = this.#sms.preview({ phone: optionalString(body, "phone"), content: optionalString(body, "content") ?? "", countryCode: optionalString(body, "countryCode") });
+      const preview = this.#sms.preview(readPreview(body));
       return { ok: true, preview } satisfies SmsPreviewResponse;
     });
     post("/api/sms/send", async (body) => this.#sendSms(body));
     post("/api/sms/read", async (body) => {
       let onRouter = 0;
-      const uids = this.#sms.markRead({ uids: stringList(body, "uids"), threadKey: optionalString(body, "threadKey") }, (count) => {
+      const uids = this.#sms.markRead(readMarkRead(body), (count) => {
         this.#device.gate("sms_mark_read");
         onRouter = count;
       });
@@ -696,7 +697,7 @@ export class DemoBackend {
     });
     post("/api/sms/delete", async (body) => {
       let onRouter = 0;
-      const uids = this.#sms.delete(stringList(body, "uids") ?? [], (count) => {
+      const uids = this.#sms.delete(readUids(body).uids, (count) => {
         this.#device.gate("sms_delete");
         onRouter = count;
       });
@@ -707,14 +708,13 @@ export class DemoBackend {
     });
     get("/api/sms/trash", () => ({ ok: true, messages: this.#sms.trash(), trashDays: this.#sms.trashDays }) satisfies SmsTrashResponse);
     post("/api/sms/trash/restore", async (body) => {
-      const uids = this.#sms.restore(stringList(body, "uids") ?? []);
+      const uids = this.#sms.restore(readUids(body).uids);
       this.#emit("sms:updated", { action: "restored", uids });
       this.#emit("sms:status", this.#sms.status());
       return { ok: true, restored: uids.length, uids } satisfies SmsRestoreResponse;
     });
     post("/api/sms/trash/purge", async (body) => {
-      if (body["all"] !== undefined && body["all"] !== true) throw new CpeControlValidationError('Field "all" must be true when given');
-      const uids = this.#sms.purge(body["all"] === true ? { all: true } : { uids: stringList(body, "uids") ?? [] });
+      const uids = this.#sms.purge(readPurge(body));
       if (uids.length > 0) {
         this.#emit("sms:updated", { action: "purged", uids });
         this.#emit("sms:status", this.#sms.status());
@@ -722,25 +722,24 @@ export class DemoBackend {
       return { ok: true, purged: uids.length, uids } satisfies SmsPurgeResponse;
     });
     post("/api/sms/sync", async (body) => {
-      const mode = optionalString(body, "mode") ?? "full";
-      if (mode !== "full" && mode !== "incremental") throw new CpeControlValidationError('Field "mode" must be "full" or "incremental"');
+      const mode = readSyncMode(body);
       await this.#session(LATENCY.session);
       const summary = this.#sms.sync(mode);
       this.#emit("sms:sync", summary);
       return { ok: true, summary, status: this.#sms.status() } satisfies SmsSyncResponse;
     });
     post("/api/sms/contacts/upsert", (body) => {
-      const contact = this.#sms.upsertContact({ phone: requiredString(body, "phone"), name: requiredString(body, "name"), note: optionalString(body, "note") });
+      const contact = this.#sms.upsertContact(readContact(body));
       this.#emit("contacts:updated", { total: this.#sms.contacts("", 1).total });
       return { ok: true, contact } satisfies ContactUpsertResponse;
     });
     post("/api/sms/contacts/delete", (body) => {
-      const deleted = this.#sms.removeContact(requiredString(body, "id"));
+      const deleted = this.#sms.removeContact(readContactId(body));
       this.#emit("contacts:updated", { total: this.#sms.contacts("", 1).total });
       return { ok: true, deleted } satisfies ContactDeleteResponse;
     });
     post("/api/sms/contacts/import-vcf", (body) => {
-      const summary = this.#sms.importVcard(requiredString(body, "vcf"));
+      const summary = this.#sms.importVcard(readVcard(body));
       this.#emit("contacts:updated", { total: summary.total });
       return { ok: true, summary } satisfies VcardImportResponse;
     });
@@ -846,8 +845,8 @@ export class DemoBackend {
   }
 
   async #sendSms(body: Body): Promise<SmsSendResponse> {
-    const phones = stringList(body, "phones") ?? [requiredString(body, "phone")];
-    const outcome = this.#sms.send({ phones, content: requiredString(body, "content"), countryCode: optionalString(body, "countryCode") }, (content) => {
+    const request = readSend(body);
+    const outcome = this.#sms.send(request, (content) => {
       // A model nobody verified sends the plaintext way: refused before queueing (a send the gate refuses says so first)
       if (this.#device.hilinkGeneric && !gateRefuses(this.#device.writeAccess("smsWrite"))) validateGenericSmsContent(content);
       this.#device.gate("sms_send");
@@ -858,7 +857,7 @@ export class DemoBackend {
     this.#emit("sms:status", this.#sms.status());
     // The demo's recipients answer, so the console's incoming-message flow can be seen too
     const [first] = outcome.resolvedPhones;
-    const content = requiredString(body, "content");
+    const content = request.content;
     if (first) {
       this.#later(AUTO_REPLY_MS * Math.max(this.#latencyScale, 0.001), () =>
         this.receiveSms(first, CJK.test(content) ? "收到 👍（演示页自动回复，号码与内容均为虚构）" : "Got it 👍 (automatic demo reply; every number here is fictional)")
@@ -1116,6 +1115,13 @@ function guard<T>(parse: (input: string | number) => T): (input: string | number
   };
 }
 
+/** A query string as the daemon's routes read it: a null-prototype record, the last value of a repeated key, no prototype keys. */
+function queryFields(query: URLSearchParams): Readonly<Record<string, string>> {
+  const out = Object.create(null) as Record<string, string>;
+  for (const [key, value] of query) if (key && key !== "__proto__" && key !== "constructor" && key !== "prototype") out[key] = value;
+  return out;
+}
+
 function sortedUnique(values: ReadonlyArray<number>): number[] {
   return [...new Set(values)].sort((a, b) => a - b);
 }
@@ -1128,36 +1134,3 @@ function strictInt(raw: string | null): number | undefined {
   return n;
 }
 
-function limit(raw: string | null, fallback: number, max: number): number {
-  if (raw === null || raw === "") return fallback;
-  if (!/^\d{1,4}$/.test(raw)) throw new CpeControlValidationError(`Invalid limit "${raw}"`);
-  return Math.max(1, Math.min(max, Number(raw)));
-}
-
-/** Request field limits of src/sms/http-routes.ts. */
-const MAX_LENGTH: Readonly<Record<string, number>> = { phone: 64, content: 2000, countryCode: 5, threadKey: 64, mode: 16, name: 256, note: 1024, id: 64, vcf: 4 * 1024 * 1024 };
-const MAX_ITEMS: Readonly<Record<string, number>> = { phones: 5, uids: 200 };
-
-function optionalString(body: Body, key: string): string | undefined {
-  const value = body[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new CpeControlValidationError(`Field "${key}" must be a string`);
-  const max = MAX_LENGTH[key] ?? 1024;
-  if (value.length > max) throw new CpeControlValidationError(`Field "${key}" exceeds ${max} characters`);
-  return value;
-}
-
-function requiredString(body: Body, key: string): string {
-  const value = optionalString(body, key);
-  if (value === undefined || !value.trim()) throw new CpeControlValidationError(`Field "${key}" is required`);
-  return value;
-}
-
-function stringList(body: Body, key: string): string[] | undefined {
-  const value = body[key];
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) throw new CpeControlValidationError(`Field "${key}" must be an array of strings`);
-  const max = MAX_ITEMS[key] ?? 200;
-  if (value.length > max) throw new CpeControlValidationError(`Field "${key}" accepts at most ${max} items`);
-  return value.filter((v): v is string => typeof v === "string");
-}
