@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { asSent } from "./helpers/confirm.ts";
 import { CELLULAR_OPERATIONS } from "../src/operations/cellular-settings.ts";
 import { REST_OPERATIONS, restBinding } from "../src/operations/registry.ts";
 import fs from "node:fs";
@@ -474,7 +475,7 @@ describe("write gate over REST: every control and SMS write route answers 409 wh
       const turnedOff: ReadonlySet<string> = new Set(["/api/control/reboot", "/api/sms/send", "/api/sms/read", "/api/sms/delete"]);
       const sent = cpe.stats.requests.length;
       for (const [route, body] of routes) {
-        const res = await fetch(`${base}${route}`, { method: "POST", headers, body: JSON.stringify(body) });
+        const res = await fetch(`${base}${route}`, { method: "POST", headers, body: JSON.stringify(asSent("POST", route, body)) });
         const json = (await res.json()) as Record<string, unknown>;
         const off = turnedOff.has(route);
         assert.deepEqual([res.status, json["errorCode"], json["model"]], [409, off ? "DEVICE_WRITE_DISABLED" : "DEVICE_UNVERIFIED_READ_ONLY", "H122-373"], route);

@@ -284,7 +284,7 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
       const res = await fetch(`http://${bound.host}:${bound.port}/api/control/unlock`, {
         method: "POST",
         headers: { Authorization: "Bearer two_hosts_token", "Content-Type": "application/json" },
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.equal(res.status, 409);
       const body = (await res.json()) as { errorCode: string; peerAddress: string };

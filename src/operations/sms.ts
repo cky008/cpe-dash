@@ -161,7 +161,7 @@ export const SMS_OPERATIONS = {
       method: "POST",
       path: "/api/sms/send",
       group: "sms",
-      example: '{"phone":"+353830000001","content":"Hello"}',
+      example: '{"phone":"+353830000001","content":"Hello","confirm":true}',
       summary: { "zh-CN": "发短信（`phone`，或 `phones` 最多 5 个）；只发一次，失败不重发", en: "Send a message (`phone`, or up to 5 `phones`); sent once, never retried" },
     },
     mcp: {
@@ -186,7 +186,7 @@ export const SMS_OPERATIONS = {
     section: "sms",
     permission: "sms-write",
     input: readMarkRead,
-    rest: { method: "POST", path: "/api/sms/read", group: "sms", example: '{"threadKey":"+353830000001"}', summary: { "zh-CN": "标为已读（`uids` 或 `threadKey`）", en: "Mark read (`uids` or `threadKey`)" } },
+    rest: { method: "POST", path: "/api/sms/read", group: "sms", example: '{"threadKey":"+353830000001","confirm":true}', summary: { "zh-CN": "标为已读（`uids` 或 `threadKey`）", en: "Mark read (`uids` or `threadKey`)" } },
     mcp: {
       tool: "mark_sms_read",
       title: "Mark SMS as Read",
@@ -206,7 +206,7 @@ export const SMS_OPERATIONS = {
     section: "sms",
     permission: "sms-write",
     input: readUids,
-    rest: { method: "POST", path: "/api/sms/delete", group: "sms", example: '{"uids":["<uid>"]}', needsState: true, summary: { "zh-CN": "删除短信，放进「最近删除」", en: "Delete messages into Recently deleted" } },
+    rest: { method: "POST", path: "/api/sms/delete", group: "sms", example: '{"uids":["<uid>"],"confirm":true}', needsState: true, summary: { "zh-CN": "删除短信，放进「最近删除」", en: "Delete messages into Recently deleted" } },
     mcp: {
       tool: "delete_sms",
       title: "Delete SMS From the Router",
@@ -226,14 +226,14 @@ export const SMS_OPERATIONS = {
     section: "sms",
     permission: "sms-write",
     input: readUids,
-    rest: { method: "POST", path: "/api/sms/trash/restore", group: "sms", example: '{"uids":["<uid>"]}', needsState: true, summary: { "zh-CN": "从「最近删除」放回原来的会话", en: "Put messages back from Recently deleted" } },
+    rest: { method: "POST", path: "/api/sms/trash/restore", group: "sms", example: '{"uids":["<uid>"],"confirm":true}', needsState: true, summary: { "zh-CN": "从「最近删除」放回原来的会话", en: "Put messages back from Recently deleted" } },
   },
   smsPurge: {
     access: "write",
     section: "sms",
     permission: "sms-write",
     input: readPurge,
-    rest: { method: "POST", path: "/api/sms/trash/purge", group: "sms", consoleOnly: true, summary: { "zh-CN": "彻底删除「最近删除」里的短信", en: "Delete messages in Recently deleted for good" } },
+    rest: { method: "POST", path: "/api/sms/trash/purge", group: "sms", example: '{"all":true,"confirm":true}', consoleOnly: true, summary: { "zh-CN": "彻底删除「最近删除」里的短信", en: "Delete messages in Recently deleted for good" } },
   },
   contactUpsert: {
     access: "write",
@@ -241,7 +241,7 @@ export const SMS_OPERATIONS = {
     permission: "sms-write",
     input: readContact,
     telegram: ["contact"],
-    rest: { method: "POST", path: "/api/sms/contacts/upsert", group: "sms", example: '{"phone":"+353830000001","name":"Example"}', summary: { "zh-CN": "新建或修改联系人", en: "Add or edit a contact" } },
+    rest: { method: "POST", path: "/api/sms/contacts/upsert", group: "sms", example: '{"phone":"+353830000001","name":"Example","confirm":true}', summary: { "zh-CN": "新建或修改联系人", en: "Add or edit a contact" } },
     mcp: {
       tool: "upsert_contact",
       title: "Add or Rename a Contact",
@@ -263,7 +263,7 @@ export const SMS_OPERATIONS = {
     section: "sms",
     permission: "sms-write",
     input: readContactId,
-    rest: { method: "POST", path: "/api/sms/contacts/delete", group: "sms", example: '{"id":"<id>"}', summary: { "zh-CN": "删除联系人", en: "Delete a contact" } },
+    rest: { method: "POST", path: "/api/sms/contacts/delete", group: "sms", example: '{"id":"<id>","confirm":true}', summary: { "zh-CN": "删除联系人", en: "Delete a contact" } },
   },
   contactImport: {
     access: "write",
@@ -274,7 +274,7 @@ export const SMS_OPERATIONS = {
       method: "POST",
       path: "/api/sms/contacts/import-vcf",
       group: "sms",
-      example: '{"vcf":"BEGIN:VCARD…"}',
+      example: '{"vcf":"BEGIN:VCARD…","confirm":true}',
       maxBodyBytes: MAX_VCF_BODY_BYTES,
       summary: { "zh-CN": "导入 vCard（`.vcf` 文件的内容）", en: "Import vCards (the text of a `.vcf` file)" },
     },

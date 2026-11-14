@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { asSent } from "./confirm.ts";
 import type { DemoSession } from "../../scripts/capture-demo-seed.ts";
 import type { DemoBackend, DemoEventSource } from "../../web/src/demo/backend.ts";
 
@@ -46,13 +47,13 @@ export function assertSameShape(label: string, daemon: unknown, demo: unknown): 
 }
 
 export async function demoCall(backend: DemoBackend, method: string, route: string, body?: unknown): Promise<{ status: number; json: Json }> {
-  const res = await backend.fetch(route, body === undefined ? { method } : { method, body: JSON.stringify(body) });
+  const res = await backend.fetch(route, body === undefined ? { method } : { method, body: JSON.stringify(asSent(method, route, body)) });
   return { status: res.status, json: (await res.json()) as Json };
 }
 
 export async function daemonCall(session: DemoSession, method: string, route: string, body?: unknown): Promise<{ status: number; json: Json }> {
   try {
-    const json = method === "GET" ? await session.get<Json>(route) : await session.post<Json>(route, body ?? {});
+    const json = method === "GET" ? await session.get<Json>(route) : await session.post<Json>(route, asSent(method, route, body ?? {}) as object);
     return { status: 200, json };
   } catch (err: unknown) {
     // openDemoSession throws "<METHOD> <route>: HTTP <status> <body>" on non-2xx

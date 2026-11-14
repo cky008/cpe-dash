@@ -1,4 +1,5 @@
 import type { TokenPermission } from "../console-policy.ts";
+import { CpeControlValidationError } from "../control-error.ts";
 import { CONTROL_FEATURES, type ControlAction, type WriteFeature } from "../features.ts";
 import type { JsonSchemaProperty } from "../mcp-schema.ts";
 import type { McpToolDefinition } from "../mcp-tool-provider.ts";
@@ -229,8 +230,15 @@ export function operationFeatures(op: OperationName): ReadonlyArray<WriteFeature
  */
 export type OperationHandlers<Ops extends OperationName, Call, Result = unknown> = { readonly [O in Ops]: (input: InputOf<O>, call: Call) => Result | Promise<Result> };
 
-/** Check a request's fields with the operation's first check, then run its handler. */
+/**
+ * Run a REST request of an operation: a write needs `confirm: true` (as on MCP), refused before
+ * anything else; then the operation's first check on the request's fields, then its handler.
+ */
 export async function runOperation<Ops extends OperationName, Call, Result>(handlers: OperationHandlers<Ops, Call, Result>, op: Ops, fields: Fields, call: Call): Promise<Result> {
+  const record = RECORDS[op];
+  if (record.access === "write" && fields["confirm"] !== true) {
+    throw new CpeControlValidationError(`${record.rest ? `${record.rest.method} ${record.rest.path}` : op} requires explicit { confirm: true }`);
+  }
   const input = operationInput(op, fields);
   const handler = handlers[op] as (input: unknown, call: Call) => Result | Promise<Result>;
   return await handler(input, call);

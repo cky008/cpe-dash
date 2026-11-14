@@ -118,7 +118,8 @@ describe("Static demo backend vs the real daemon", () => {
       ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 650000, pci: 211, more: [{ band: "N78", arfcn: 650000, pci: 142 }] }],
       ["/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 650000, more: [{ band: "N78", arfcn: 650000, pci: 142 }] }],
       ["/api/control/reboot", { confirm: false }],
-      ["/api/control/reconnect", {}],
+      ["/api/control/reconnect", { confirm: false }],
+      ["/api/control/band-lock", { lteBands: ["B1"], confirm: false }],
       ["/api/control/antenna", { mode: "sideways" }],
       ["/api/control/wifi7", {}],
       ["/api/control/mobile-data", {}],
@@ -344,7 +345,7 @@ describe("Static demo backend vs the real daemon", () => {
     for (const [route, body] of [
       ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5E:10:00:01", name: "nas-ds923", confirm: true }],
       ["/api/control/wifi-access", { action: "block", macAddress: "not-a-mac", confirm: true }],
-      ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5E:10:00:04" }],
+      ["/api/control/wifi-access", { action: "block", macAddress: "02:00:5E:10:00:04", confirm: false }],
       ["/api/control/wifi-mac-filter", { mode: "allow", entries: [], confirm: true }],
       ["/api/control/time-rule", { action: "create", rule: { macAddress: "02:00:5E:10:00:04", name: "phone-wifi7", weekMask: "1111111", startTime: "07:07", endTime: "08:00" }, confirm: true }],
       ["/api/control/time-rule", { action: "delete", id: "InternetGatewayDevice.X_FireWall.TimeRule.9.", confirm: true }],

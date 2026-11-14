@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { asSent } from "./helpers/confirm.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -34,7 +35,7 @@ async function startRuntime(extraEnv: Record<string, string>) {
   const bound = await stack.httpServer.listen();
   const base = `http://${bound.host}:${bound.port}`;
   const headers = (cookie = ""): Record<string, string> => ({ "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: base, ...(cookie ? { Cookie: cookie } : {}) });
-  const post = (p: string, body: unknown, cookie = "") => fetch(`${base}${p}`, { method: "POST", headers: headers(cookie), body: JSON.stringify(body) });
+  const post = (p: string, body: unknown, cookie = "") => fetch(`${base}${p}`, { method: "POST", headers: headers(cookie), body: JSON.stringify(asSent("POST", p, body)) });
   const get = (p: string, auth: { cookie?: string; token?: string } = {}) =>
     fetch(`${base}${p}`, { headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : auth.cookie ? { Cookie: auth.cookie } : {} });
   const cookieOf = (res: Response): string => `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
@@ -133,12 +134,12 @@ describe("console settings after an upgrade (.env imported)", () => {
       const list = (await (await fx.get("/api/console/tokens", { cookie })).json()) as TokensResponse;
       assert.deepEqual(list.tokens.map((t) => t.name), ["API_TOKEN (.env)", "Grafana"]);
       assert.equal((await fx.get("/api/telemetry", { token: minted.token })).status, 200);
-      const denied = await fetch(`${new URL((await fx.get("/api/health")).url).origin}/api/control/unlock`, { method: "POST", headers: { Authorization: `Bearer ${minted.token}`, "Content-Type": "application/json" }, body: "{}" });
+      const denied = await fetch(`${new URL((await fx.get("/api/health")).url).origin}/api/control/unlock`, { method: "POST", headers: { Authorization: `Bearer ${minted.token}`, "Content-Type": "application/json" }, body: '{"confirm":true}' });
       assert.equal(denied.status, 403);
       assert.equal((await fx.get("/api/console", { token: "legacy_full_token" })).status, 403, "tokens never reach the console settings");
 
       // A write through the imported full token is audited under its name
-      const unlock = await fetch(denied.url, { method: "POST", headers: { Authorization: "Bearer legacy_full_token", "Content-Type": "application/json" }, body: "{}" });
+      const unlock = await fetch(denied.url, { method: "POST", headers: { Authorization: "Bearer legacy_full_token", "Content-Type": "application/json" }, body: '{"confirm":true}' });
       assert.equal(unlock.status, 200);
 
       // Metrics: off by default, on from the console, any token, no identifiers

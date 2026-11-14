@@ -105,7 +105,7 @@ const unavailable = (status: SchedulerStatusSnapshot, section: ReadSection): boo
 
 /** Capture a seed from a running daemon (contacts are added through the API first). */
 export async function captureDemoSeed(session: DemoSession): Promise<DemoSeed> {
-  for (const contact of DEMO_CONTACTS) await session.post("/api/sms/contacts/upsert", contact);
+  for (const contact of DEMO_CONTACTS) await session.post("/api/sms/contacts/upsert", { ...contact, confirm: true });
   await settle(
     "telemetry",
     () => session.get<TelemetryEndpointResponse>("/api/telemetry"),

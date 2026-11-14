@@ -1,5 +1,6 @@
 import { TOKEN_PERMISSIONS } from "../src/console-policy.ts";
 import assert from "node:assert/strict";
+import { asSent } from "./helpers/confirm.ts";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
@@ -231,7 +232,7 @@ describe("createFengSuiRuntime", () => {
       const res = await fetch(`http://${bound.host}:${bound.port}/api/session/reset-breaker`, {
         method: "POST",
         headers: { Authorization: "Bearer runtime_api_token_v1", "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.equal(res.status, 200);
       assert.equal(process.env["TZ"], "Asia/Tokyo", "reloading .env re-applies TZ to the process");
@@ -549,7 +550,7 @@ describe("createFengSuiRuntime", () => {
       const res = await fetch(`http://${bound.host}:${bound.port}/api/control/unlock`, {
         method: "POST",
         headers: { Authorization: "Bearer runtime_api_token_v1", "Content-Type": "application/json" },
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.notEqual(res.status, 200);
       assert.equal(cpe.stats.challengeCalls + cpe.stats.authCalls, 0, "no password attempt against a latched breaker");
@@ -756,7 +757,7 @@ describe("REDACT_SENSITIVE_IN_API at the output boundary", () => {
       const reload = await fetch(`${base}/api/session/reset-breaker`, {
         method: "POST",
         headers: { ...bearer, "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.equal(reload.status, 200);
       assertPlain(await get("/api/telemetry", bearer), "Bearer telemetry after reload");
@@ -841,7 +842,7 @@ describe("Device access control through the daemon (REST, MCP)", () => {
         "X-Requested-With": "XMLHttpRequest",
         Origin: base,
       };
-      const post = (route: string, body: Record<string, unknown>) => fetch(`${base}${route}`, { method: "POST", headers: web, body: JSON.stringify(body) });
+      const post = (route: string, body: Record<string, unknown>) => fetch(`${base}${route}`, { method: "POST", headers: web, body: JSON.stringify(asSent("POST", route, body)) });
 
       const view = (await (await fetch(`${base}/api/access-control`, { headers: web })).json()) as {
         guard: { daemonHostMac: string | null; requesterMac: string | null };
@@ -851,7 +852,7 @@ describe("Device access control through the daemon (REST, MCP)", () => {
       assert.equal(view.accessControl.wifiMacFilter.enabled, false);
       assert.equal(view.accessControl.timeRules.maxRules, 16);
 
-      const unconfirmed = await post("/api/control/wifi-access", { action: "block", macAddress: "00:00:5E:00:53:03", name: "phone" });
+      const unconfirmed = await post("/api/control/wifi-access", { action: "block", macAddress: "00:00:5E:00:53:03", name: "phone", confirm: false });
       assert.equal(unconfirmed.status, 400);
       for (const mac of ["00:00:5E:00:53:01", "00:00:5E:00:53:02"]) {
         const refused = await post("/api/control/wifi-access", { action: "block", macAddress: mac, name: "x", confirm: true });
@@ -962,7 +963,7 @@ describe("Read-only Bearer token (API_TOKEN_READONLY)", () => {
         fetch(`${base}${route}`, {
           method,
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          ...(body === undefined ? {} : { body: JSON.stringify(asSent(method, route, body)) }),
         });
       const ro = "readonly_api_token_v1";
       assert.equal((await call(ro, "GET", "/api/telemetry")).status, 200);

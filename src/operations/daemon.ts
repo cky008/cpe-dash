@@ -16,6 +16,7 @@ export const DAEMON_OPERATIONS = {
       method: "POST",
       path: "/api/session/reset-breaker",
       group: "control",
+      example: '{"confirm":true}',
       summary: {
         "zh-CN": "解除路由器账户被锁（错误码 108007）引起的熔断，并重新读取 `.env`；密码错误引起的熔断请在「设置 → 路由器」改正密码",
         en: "Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router",

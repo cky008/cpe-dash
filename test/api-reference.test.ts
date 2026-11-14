@@ -156,6 +156,17 @@ describe("the API reference in the guide", () => {
         else if (!route.example && code === "BAD_PAYLOAD") problems.push(`${where} (an empty object refused)`);
       }
       assert.deepEqual(problems, []);
+
+      // Every write without confirm: true is refused before anything reaches the router
+      const sent = mock.requests.length;
+      for (const route of API_ROUTES.filter((r) => r.example?.includes('"confirm":true') && !r.consoleOnly)) {
+        const body = (JSON.parse(route.example?.replace("…", "") ?? "{}") as Record<string, unknown>);
+        delete body["confirm"];
+        const res = await fetch(`${base}${route.path}`, { method: "POST", headers: { Authorization: "Bearer api_reference_token", "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const json = (await res.json()) as { errorCode?: string; message?: string };
+        assert.deepEqual([res.status, json.errorCode, json.message], [400, "VALIDATION_ERROR", `POST ${route.path} requires explicit { confirm: true }`], route.path);
+      }
+      assert.equal(mock.requests.length, sent, "nothing reached the router");
     } finally {
       sseBus.stop();
       await server.close();

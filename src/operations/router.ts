@@ -1,4 +1,4 @@
-import { readAntennaMode, readBandLock, readCellLockCommand, readConfirmed, readSecurityControl, readSecuritySwitchArgs, readSwitch, readWifi7, readWifiAndAntennaArgs } from "../control-input.ts";
+import { readAntennaMode, readBandLock, readCellLockCommand, readSecurityControl, readSecuritySwitchArgs, readSwitch, readWifi7, readWifiAndAntennaArgs } from "../control-input.ts";
 import { H168_383_LTE_BANDS, H168_383_NR_BANDS } from "../rf-bounds.ts";
 import type { OperationTable } from "./record.ts";
 
@@ -25,7 +25,7 @@ export const ROUTER_OPERATIONS = {
       method: "POST",
       path: "/api/control/band-lock",
       group: "control",
-      example: '{"lteBands":["B1","B3"]}',
+      example: '{"lteBands":["B1","B3"],"confirm":true}',
       summary: { "zh-CN": "锁频段（`lteBands`、`nrBands`，`\"all\"` 为全部频段；只给一种制式时另一种不变）", en: "Lock bands (`lteBands`, `nrBands`, `\"all\"` for every band; the type you leave out stays as it is)" },
     },
     mcp: {
@@ -59,7 +59,7 @@ export const ROUTER_OPERATIONS = {
       method: "POST",
       path: "/api/control/cell-lock",
       group: "control",
-      example: '{"rat":"NR","band":"N78","arfcn":650000,"pci":211}',
+      example: '{"rat":"NR","band":"N78","arfcn":650000,"pci":211,"confirm":true}',
       summary: { "zh-CN": "锁小区；不给 `pci` 时只锁频点", en: "Lock a cell; without `pci`, lock the channel only" },
     },
     mcp: {
@@ -98,7 +98,7 @@ export const ROUTER_OPERATIONS = {
     // Filed under the band lock; the gate opens it wherever the band lock or the cell lock is open
     actions: ["unlock_rf_locks"],
     permission: "control",
-    rest: { method: "POST", path: "/api/control/unlock", group: "control", summary: { "zh-CN": "解除锁频段和锁小区", en: "Clear band and cell locks" } },
+    rest: { method: "POST", path: "/api/control/unlock", group: "control", example: '{"confirm":true}', summary: { "zh-CN": "解除锁频段和锁小区", en: "Clear band and cell locks" } },
     mcp: {
       tool: "unlock_rf_locks",
       title: "Clear All Band & Cell Locks",
@@ -125,7 +125,6 @@ export const ROUTER_OPERATIONS = {
     access: "write",
     actions: ["reconnect_cellular"],
     permission: "control",
-    input: readConfirmed("Cellular reconnect requires explicit { confirm: true }"),
     rest: { method: "POST", path: "/api/control/reconnect", group: "control", example: '{"confirm":true}', summary: { "zh-CN": "重拨移动网络（不重启路由器）", en: "Redial the mobile connection (no restart)" } },
     mcp: {
       tool: "reconnect_cellular",
@@ -144,7 +143,7 @@ export const ROUTER_OPERATIONS = {
       method: "POST",
       path: "/api/control/security",
       group: "control",
-      example: '{"upnpEnabled":false}',
+      example: '{"upnpEnabled":false,"confirm":true}',
       summary: { "zh-CN": "UPnP、DMZ、防火墙（`upnpEnabled`、`dmz`、`firewall`，只给要改的）", en: "UPnP, DMZ and firewall (`upnpEnabled`, `dmz`, `firewall`; send only what changes)" },
     },
     mcp: {
@@ -175,7 +174,7 @@ export const ROUTER_OPERATIONS = {
       method: "POST",
       path: "/api/control/wifi7",
       group: "control",
-      example: '{"mloEnable":true}',
+      example: '{"mloEnable":true,"confirm":true}',
       summary: { "zh-CN": "Wi-Fi 7 多链路（`mloEnable`）和双频优选（`dbhoEnable`）", en: "Wi-Fi 7 multi-link (`mloEnable`) and dual-band steering (`dbhoEnable`)" },
     },
   },
@@ -184,14 +183,14 @@ export const ROUTER_OPERATIONS = {
     actions: ["set_antenna_mode"],
     permission: "control",
     input: (fields) => readAntennaMode(fields["mode"]),
-    rest: { method: "POST", path: "/api/control/antenna", group: "control", example: '{"mode":"auto"}', summary: { "zh-CN": "天线：`auto`、`internal`、`external`", en: "Antenna: `auto`, `internal`, `external`" } },
+    rest: { method: "POST", path: "/api/control/antenna", group: "control", example: '{"mode":"auto","confirm":true}', summary: { "zh-CN": "天线：`auto`、`internal`、`external`", en: "Antenna: `auto`, `internal`, `external`" } },
   },
   mobileData: {
     access: "write",
     actions: ["set_mobile_data"],
     permission: "control",
     input: readSwitch,
-    rest: { method: "POST", path: "/api/control/mobile-data", group: "control", example: '{"enabled":true}', summary: { "zh-CN": "打开或关闭移动数据", en: "Turn mobile data on or off" } },
+    rest: { method: "POST", path: "/api/control/mobile-data", group: "control", example: '{"enabled":true,"confirm":true}', summary: { "zh-CN": "打开或关闭移动数据", en: "Turn mobile data on or off" } },
   },
   wifiAndAntenna: {
     access: "write",

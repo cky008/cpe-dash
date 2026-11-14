@@ -102,7 +102,7 @@ curl -X POST \
 
 ## 接口
 
-「需要的权限」一栏是令牌除了读取之外还要勾选的权限。每个接口的请求和返回字段见开发者文档的[接口契约](../../dev/api.md)。
+「需要的权限」一栏是令牌除了读取之外还要勾选的权限。会改动东西的请求（路由器的设置、短信、通讯录）请求体里都要带 `"confirm": true`，没有它就返回 `400 VALIDATION_ERROR`，什么都不做；示例里都带着。每个接口的请求和返回字段见开发者文档的[接口契约](../../dev/api.md)。
 
 <!-- api-routes:begin -->
 ### 读取
@@ -136,15 +136,15 @@ curl -X POST \
 
 | 方法 | 路径 | 需要的权限 | 说明 | 请求体示例 |
 | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/api/control/band-lock` | 改动路由器 | 锁频段（`lteBands`、`nrBands`，`"all"` 为全部频段；只给一种制式时另一种不变） | `{"lteBands":["B1","B3"]}` |
-| `POST` | `/api/control/cell-lock` | 改动路由器 | 锁小区；不给 `pci` 时只锁频点 | `{"rat":"NR","band":"N78","arfcn":650000,"pci":211}` |
-| `POST` | `/api/control/unlock` | 改动路由器 | 解除锁频段和锁小区 |  |
+| `POST` | `/api/control/band-lock` | 改动路由器 | 锁频段（`lteBands`、`nrBands`，`"all"` 为全部频段；只给一种制式时另一种不变） | `{"lteBands":["B1","B3"],"confirm":true}` |
+| `POST` | `/api/control/cell-lock` | 改动路由器 | 锁小区；不给 `pci` 时只锁频点 | `{"rat":"NR","band":"N78","arfcn":650000,"pci":211,"confirm":true}` |
+| `POST` | `/api/control/unlock` | 改动路由器 | 解除锁频段和锁小区 | `{"confirm":true}` |
 | `POST` | `/api/control/reboot` | 改动路由器 | 重启路由器 | `{"confirm":true}` |
 | `POST` | `/api/control/reconnect` | 改动路由器 | 重拨移动网络（不重启路由器） | `{"confirm":true}` |
-| `POST` | `/api/control/security` | 改动路由器 | UPnP、DMZ、防火墙（`upnpEnabled`、`dmz`、`firewall`，只给要改的） | `{"upnpEnabled":false}` |
-| `POST` | `/api/control/wifi7` | 改动路由器 | Wi-Fi 7 多链路（`mloEnable`）和双频优选（`dbhoEnable`） | `{"mloEnable":true}` |
-| `POST` | `/api/control/antenna` | 改动路由器 | 天线：`auto`、`internal`、`external` | `{"mode":"auto"}` |
-| `POST` | `/api/control/mobile-data` | 改动路由器 | 打开或关闭移动数据 | `{"enabled":true}` |
+| `POST` | `/api/control/security` | 改动路由器 | UPnP、DMZ、防火墙（`upnpEnabled`、`dmz`、`firewall`，只给要改的） | `{"upnpEnabled":false,"confirm":true}` |
+| `POST` | `/api/control/wifi7` | 改动路由器 | Wi-Fi 7 多链路（`mloEnable`）和双频优选（`dbhoEnable`） | `{"mloEnable":true,"confirm":true}` |
+| `POST` | `/api/control/antenna` | 改动路由器 | 天线：`auto`、`internal`、`external` | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/mobile-data` | 改动路由器 | 打开或关闭移动数据 | `{"enabled":true,"confirm":true}` |
 | `POST` | `/api/control/network-mode` | 改动路由器 | 网络制式：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_tdd`、`lte_fdd`、`lte_wcdma`、`wcdma`、`gsm` 中路由器提供的（见 `GET /api/cellular`）。断网 3 分钟没恢复，烽燧自动改回 | `{"mode":"auto","confirm":true}` |
 | `POST` | `/api/control/operator-scan` | 改动路由器 | 搜索附近的运营商网络：最长一分钟，期间可能断网 | `{"confirm":true}` |
 | `POST` | `/api/control/operator` | 改动路由器 | 选运营商：`auto` 交回路由器自己选，`manual` 加 `plmn`（和可选的 `rat`）固定到一个网络。断网 3 分钟没恢复，烽燧自动改回 | `{"mode":"auto","confirm":true}` |
@@ -156,7 +156,7 @@ curl -X POST \
 | `POST` | `/api/control/data-limit` | 改动路由器 | 路由器自己的流量上限：`enabled`、`bytes`、`alertPercent`（到多少比例时提醒） | `{"enabled":false,"confirm":true}` |
 | `POST` | `/api/control/traffic-reset` | 改动路由器 | 清零路由器自己记的流量统计 | `{"confirm":true}` |
 | `POST` | `/api/control/ussd` | 改动路由器 | USSD：发送一条指令（`code`），`action` 为 `reply` 时回复运营商的提问，为 `cancel` 时结束会话。应答是运营商写的文字 | `{"code":"*100#","confirm":true}` |
-| `POST` | `/api/session/reset-breaker` | 改动路由器 | 解除路由器账户被锁（错误码 108007）引起的熔断，并重新读取 `.env`；密码错误引起的熔断请在「设置 → 路由器」改正密码 |  |
+| `POST` | `/api/session/reset-breaker` | 改动路由器 | 解除路由器账户被锁（错误码 108007）引起的熔断，并重新读取 `.env`；密码错误引起的熔断请在「设置 → 路由器」改正密码 | `{"confirm":true}` |
 
 ### 设备上网管理
 
@@ -178,14 +178,14 @@ curl -X POST \
 | `GET` | `/api/sms/trash` | 读短信和验证码 | 「最近删除」里的短信 |  |
 | `POST` | `/api/sms/preview` | 读短信和验证码 | 预览一条短信：分几段、用什么编码，不发送 | `{"phone":"+353830000001","content":"Hello"}` |
 | `POST` | `/api/sms/sync` | 读短信和验证码 | 马上同步短信（`full` 或 `incremental`） | `{"mode":"incremental"}` |
-| `POST` | `/api/sms/send` | 发短信、删短信、改通讯录 | 发短信（`phone`，或 `phones` 最多 5 个）；只发一次，失败不重发 | `{"phone":"+353830000001","content":"Hello"}` |
-| `POST` | `/api/sms/read` | 发短信、删短信、改通讯录 | 标为已读（`uids` 或 `threadKey`） | `{"threadKey":"+353830000001"}` |
-| `POST` | `/api/sms/delete` | 发短信、删短信、改通讯录 | 删除短信，放进「最近删除」 | `{"uids":["<uid>"]}` |
-| `POST` | `/api/sms/trash/restore` | 发短信、删短信、改通讯录 | 从「最近删除」放回原来的会话 | `{"uids":["<uid>"]}` |
-| `POST` | `/api/sms/trash/purge` | 只能在控制台 | 彻底删除「最近删除」里的短信 |  |
-| `POST` | `/api/sms/contacts/upsert` | 发短信、删短信、改通讯录 | 新建或修改联系人 | `{"phone":"+353830000001","name":"Example"}` |
-| `POST` | `/api/sms/contacts/delete` | 发短信、删短信、改通讯录 | 删除联系人 | `{"id":"<id>"}` |
-| `POST` | `/api/sms/contacts/import-vcf` | 发短信、删短信、改通讯录 | 导入 vCard（`.vcf` 文件的内容） | `{"vcf":"BEGIN:VCARD…"}` |
+| `POST` | `/api/sms/send` | 发短信、删短信、改通讯录 | 发短信（`phone`，或 `phones` 最多 5 个）；只发一次，失败不重发 | `{"phone":"+353830000001","content":"Hello","confirm":true}` |
+| `POST` | `/api/sms/read` | 发短信、删短信、改通讯录 | 标为已读（`uids` 或 `threadKey`） | `{"threadKey":"+353830000001","confirm":true}` |
+| `POST` | `/api/sms/delete` | 发短信、删短信、改通讯录 | 删除短信，放进「最近删除」 | `{"uids":["<uid>"],"confirm":true}` |
+| `POST` | `/api/sms/trash/restore` | 发短信、删短信、改通讯录 | 从「最近删除」放回原来的会话 | `{"uids":["<uid>"],"confirm":true}` |
+| `POST` | `/api/sms/trash/purge` | 只能在控制台 | 彻底删除「最近删除」里的短信 | `{"all":true,"confirm":true}` |
+| `POST` | `/api/sms/contacts/upsert` | 发短信、删短信、改通讯录 | 新建或修改联系人 | `{"phone":"+353830000001","name":"Example","confirm":true}` |
+| `POST` | `/api/sms/contacts/delete` | 发短信、删短信、改通讯录 | 删除联系人 | `{"id":"<id>","confirm":true}` |
+| `POST` | `/api/sms/contacts/import-vcf` | 发短信、删短信、改通讯录 | 导入 vCard（`.vcf` 文件的内容） | `{"vcf":"BEGIN:VCARD…","confirm":true}` |
 
 ### 其他
 

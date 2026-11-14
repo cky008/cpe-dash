@@ -190,9 +190,9 @@ describe("the console in a browser", () => {
     // A lock opens the window, shown at once; the unlock closes it
     const post = (route: string, body: string): string =>
       `fetch(${JSON.stringify(route)}, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' }, body: ${JSON.stringify(body)} }).then((res) => res.status)`;
-    assert.equal(await page.evaluate<number>(post("/api/control/band-lock", '{"lteBands":[3]}')), 200);
+    assert.equal(await page.evaluate<number>(post("/api/control/band-lock", '{"lteBands":[3],"confirm":true}')), 200);
     await page.waitUntil(`/Watching the last lock|the lock is kept once/.test(${drawer})`, "the lock window in the drawer");
-    assert.equal(await page.evaluate<number>(post("/api/control/unlock", "{}")), 200);
+    assert.equal(await page.evaluate<number>(post("/api/control/unlock", '{"confirm":true}')), 200);
     await page.waitUntil(`${drawer}.includes('within 10 min')`, "the window closed again");
     await closeDialogs(page);
   });

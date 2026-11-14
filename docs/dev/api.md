@@ -93,7 +93,7 @@ export interface ApiErrorEnvelope {
     | "INTERNAL_ERROR"           // 500: 未预期的服务端异常
     // ── 请求体与参数 ──
     | "BAD_PAYLOAD"              // 400: JSON 语法错误、请求体不是对象、/api/timeseries 整数参数非法；413: 超过 64 KiB（vCard 导入为 4 MiB）；415: 非 application/json
-    | "VALIDATION_ERROR"         // 400: 参数类型或取值非法（频段不在 H168-383 支持列表 / ARFCN 不在该频段范围 / PCI / IPv4 / 开关布尔值 / 天线模式 / 时序区间）、reboot/reconnect 未传 confirm:true、密码未改时重置 108006 熔断器、重载后的 .env 密钥为空
+    | "VALIDATION_ERROR"         // 400: 参数类型或取值非法（频段不在 H168-383 支持列表 / ARFCN 不在该频段范围 / PCI / IPv4 / 开关布尔值 / 天线模式 / 时序区间）、写操作的请求体没有 `confirm: true`（REST 与 MCP 的写操作一律要，由操作登记在入参检查之前统一检查，消息为 `<方法> <路径> requires explicit { confirm: true }`）、密码未改时重置 108006 熔断器、重载后的 .env 密钥为空
     // ── CPE 会话调度 ──
     | "BROWSER_SESSION_YIELDED"  // 409: 真人管理员正在使用 http://192.168.8.1，写操作礼貌让位中止（仅 RESPECT_BROWSER_SESSION=true）
     | "PEER_DAEMON_ACTIVE"       // 409: 另一台主机上的「烽燧」守护进程正在管理这台 CPE，本进程待机（附 peerAddress）
@@ -415,6 +415,8 @@ export type AlertCode =
 
 > **真人在线礼貌避让行为**：在默认 `RESPECT_BROWSER_SESSION=true` 下，若检测到真人管理员正在使用 `http://192.168.8.1`，下列控制写路由**拒绝排队盲写**，立即返回 HTTP `409 Conflict`（`errorCode: "BROWSER_SESSION_YIELDED"`），前端应弹出友好的避让提示条。若设置 `RESPECT_BROWSER_SESSION=false`，服务端不再预检让位：CPE 以 `108003` 拒绝跨 IP 登录时返回 `502 CPE_UPSTREAM_ERROR`。
 >
+> **`confirm: true`**：每个会改动东西的 `POST`（路由器的设置、短信的发送 / 已读 / 删除 / 恢复 / 彻底删除、通讯录、熔断重置）请求体都要带 `"confirm": true`，缺失或不为 `true` 时在入参检查与任何会话之前返回 `400 VALIDATION_ERROR`（`POST <路径> requires explicit { confirm: true }`）。控制台的客户端（`web/src/core/endpoints.ts`）给每个写操作自动带上：控制台的每次写入都跟在它自己的确认框或你的明确操作之后。只触发读取的 `POST`（刷新、扫描、短信预览与同步）不需要。
+>
 > **校验时机**：所有请求参数（类型、频段、PCI、IPv4、开关布尔值、天线模式、`confirm`）都在入队前同步校验，非法参数返回 `400 VALIDATION_ERROR`，且不产生任何 CPE 会话。
 >
 > **频段与频点边界（Phase 2.5）**：LTE 频段只接受 H168-383 在 `net-mode-list` 中通告的 14 个频段（`B1/B3/B5/B7/B8/B20/B28/B32/B38/B40/B41/B42/B43/B71`）；NR 频段只接受 H168-383 规格书中的 `N1/N3/N5/N7/N8/N20/N28/N38/N40/N41/N71/N75/N77/N78/N79`（路由器不通告 NR 频段；规格书的 LTE 列表与路由器通告的完全一致）；锁小区 / 锁频点的 `arfcn` 必须落在该频段的 3GPP 下行 EARFCN / NR-ARFCN 范围内（如 `B3` 为 `1200..1949`）。范围表见 [`docs/dev/protocol.md`](protocol.md) 4.1 节。
@@ -425,16 +427,16 @@ export type AlertCode =
 
 | 路由 | 请求 JSON Body 类型 | 成功响应字段 |
 | :--- | :--- | :--- |
-| `POST /api/control/band-lock` | `{ lteBands?: Array<string \| number> \| "all"; nrBands?: Array<string \| number> \| "all" }` *(至少提供其一)* | `{ ok: true, lockState: PersistedLockState }` |
+| `POST /api/control/band-lock` | `{ lteBands?: Array<string \| number> \| "all"; nrBands?: Array<string \| number> \| "all"; confirm: true }` *(至少提供其一)* | `{ ok: true, lockState: PersistedLockState }` |
 | `POST /api/control/cell-lock` | `{ rat: "LTE" \| "NR"; band: string \| number; arfcn: number; pci?: number \| null; more?: Array<{ band; arfcn; pci }> }` *(`pci` 省略或为 `null` 时锁频点 `lock_mode=1`；否则须为整数（LTE `0..503`，NR `0..1007`），锁小区 `lock_mode=2`；非数字或越界的 `pci` 返回 `400`。`more`：同一种网络的其他候选小区（最多 9 个，各带 PCI，第一个也必须带），只有能一次锁多个小区的路由器（品牌事实 `multiCellLock`：OpenWrt 移远 4G、烽火 LG6151M）接受，其他路由器在排队前返回 `400`；锁定状态的 `cellLock.more` 记下这些小区)* | `{ ok: true, lockState: PersistedLockState }` |
-| `POST /api/control/unlock` | `{}` | `{ ok: true, lockState: PersistedLockState }` |
+| `POST /api/control/unlock` | `{ confirm: true }` | `{ ok: true, lockState: PersistedLockState }` |
 | `POST /api/control/reboot` | `{ confirm: true }` *(缺失或为 `false` 立即返回 `400 VALIDATION_ERROR`)* | `{ ok: true, rebooting: true, requestedAtIso: string }` |
 | `POST /api/control/reconnect` | `{ confirm: true }` *(快速重拨蜂窝 PDN，无需重启路由器；缺失或为 `false` 返回 `400`)* | `{ ok: true, reconnecting: true, requestedAtIso: string }` |
 | `POST /api/control/security` | `{ upnpEnabled?: boolean; dmz?: { enabled: boolean; ipAddress?: string }; firewall?: Partial<RouterSettingsSnapshot["firewall"]> }` *(至少提供其一；所有开关严格布尔校验；`dmz.ipAddress` 若提供须为合法 IPv4；`firewall` 仅接受上述 5 个键)* | `{ ok: true, settings: RouterSettingsSnapshot \| null }` |
-| `POST /api/control/wifi7` | `{ mloEnable?: boolean; dbhoEnable?: boolean }` *(至少提供其一；非布尔值返回 `400`)* | `{ ok: true, wifi7: { mloEnable: boolean; dbhoEnable: boolean } }` |
-| `POST /api/control/antenna` | `{ mode: "auto" \| "internal" \| "external" }` | `{ ok: true, antenna: { mode: "auto" \| "internal" \| "external"; rawCode: number } }` |
-| `POST /api/control/mobile-data` | `{ enabled: boolean }` | `{ ok: true, mobileDataEnabled: boolean }` |
-| `POST /api/session/reset-breaker` | `{}` *(重新读取 `.env` 并重置熔断器，详见下方说明)* | `{ ok: true, circuitBreaker: PublicCircuitBreakerState, status: SchedulerStatusSnapshot }` |
+| `POST /api/control/wifi7` | `{ mloEnable?: boolean; dbhoEnable?: boolean; confirm: true }` *(至少提供其一；非布尔值返回 `400`)* | `{ ok: true, wifi7: { mloEnable: boolean; dbhoEnable: boolean } }` |
+| `POST /api/control/antenna` | `{ mode: "auto" \| "internal" \| "external"; confirm: true }` | `{ ok: true, antenna: { mode: "auto" \| "internal" \| "external"; rawCode: number } }` |
+| `POST /api/control/mobile-data` | `{ enabled: boolean; confirm: true }` | `{ ok: true, mobileDataEnabled: boolean }` |
+| `POST /api/session/reset-breaker` | `{ confirm: true }` *(重新读取 `.env` 并重置熔断器，详见下方说明)* | `{ ok: true, circuitBreaker: PublicCircuitBreakerState, status: SchedulerStatusSnapshot }` |
 
 - **写入后的 `settings` 同步**：
   - `security`：写入成功后服务端再开一次只读会话回读路由器配置，并推送 SSE `settings`。若回读被让位或跳过，响应中 `settings` 为 `null`；若回读本身失败，接口返回 `502`，但写入已经生效，可调用 `POST /api/settings/refresh` 核对。
@@ -452,6 +454,8 @@ export type AlertCode =
 ### 2.5 短信与通讯录路由（`/api/sms/*`）
 
 > **调度原则**：所有 `GET` 路由只读加密本地镜像与通讯录（零 CPE 会话）；新短信由 5s 遥测会话捎带的 `sms-count` 计数变化触发增量同步（另有 `SMS_FULL_SYNC_INTERVAL_MS` 兜底全量对账），无需前端轮询。`POST` 路由沿用 1.3 节的 CSRF 与 Bearer 规则；发送、标记已读、删除走控制写队列，真人在线时返回 `409 BROWSER_SESSION_YIELDED`；参数在入队前校验，非法时返回 `400 VALIDATION_ERROR` 且不产生会话。
+>
+> **`confirm: true`**：`send`、`read`、`delete`、`trash/restore`、`trash/purge` 与通讯录的三个写路由的请求体都要带 `"confirm": true`（见 2.4 节）；下表省略了它。
 >
 > **可用性**：`SMS_ENABLED=false` 时本组路由全部返回 `404 SMS_DISABLED`。同一数据目录只能运行一个守护进程（`state.json.lock`），第二个守护进程会在启动时直接退出，不存在「无短信模式」的第二进程。
 >

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { asSent } from "./helpers/confirm.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -82,7 +83,7 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
   const post = async (p: string, body: unknown, extraHeaders: Record<string, string> = {}) => {
-    const res = await fetch(`${baseUrl}${p}`, { method: "POST", headers: { ...headers, ...extraHeaders }, body: JSON.stringify(body) });
+    const res = await fetch(`${baseUrl}${p}`, { method: "POST", headers: { ...headers, ...extraHeaders }, body: JSON.stringify(asSent("POST", p, body)) });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
   return {
@@ -294,7 +295,7 @@ describe("/api/sms REST routes, /api/alerts and SMS SSE events", () => {
       assert.equal(login.status, 200);
       const cookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(login.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
       const purge = async (body: unknown) => {
-        const res = await fetch(`${fx.baseUrl}/api/sms/trash/purge`, { method: "POST", headers: console(cookie), body: JSON.stringify(body) });
+        const res = await fetch(`${fx.baseUrl}/api/sms/trash/purge`, { method: "POST", headers: console(cookie), body: JSON.stringify(asSent("POST", "/api/sms/trash/purge", body)) });
         return { status: res.status, body: (await res.json()) as Record<string, unknown> };
       };
       assert.equal((await purge({ uids: ["unknown"] })).status, 400);

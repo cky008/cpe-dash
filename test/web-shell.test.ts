@@ -173,7 +173,8 @@ describe("web core: API client", () => {
       ]
     );
     assert.equal(calls[1]?.init?.body, '{"confirm":true}');
-    assert.equal(calls[5]?.init?.body, '{"mode":"external"}');
+    // A write carries confirm: true, as every write on REST must
+    assert.equal(calls[5]?.init?.body, '{"mode":"external","confirm":true}');
   });
 });
 
@@ -220,16 +221,16 @@ describe("web core: endpoint table", () => {
       settings: ["GET", "/api/settings"],
       refreshSettings: ["POST", "/api/settings/refresh", {}],
       alerts: ["GET", "/api/alerts"],
-      bandLock: ["POST", "/api/control/band-lock", { lteBands: ["B3"] }],
-      cellLock: ["POST", "/api/control/cell-lock", { rat: "LTE", band: 3, arfcn: 1850, pci: null }],
-      unlock: ["POST", "/api/control/unlock", {}],
+      bandLock: ["POST", "/api/control/band-lock", { lteBands: ["B3"], confirm: true }],
+      cellLock: ["POST", "/api/control/cell-lock", { rat: "LTE", band: 3, arfcn: 1850, pci: null, confirm: true }],
+      unlock: ["POST", "/api/control/unlock", { confirm: true }],
       reboot: ["POST", "/api/control/reboot", { confirm: true }],
       reconnect: ["POST", "/api/control/reconnect", { confirm: true }],
-      security: ["POST", "/api/control/security", { upnpEnabled: false }],
-      wifi7: ["POST", "/api/control/wifi7", { mloEnable: true }],
-      antenna: ["POST", "/api/control/antenna", { mode: "auto" }],
-      mobileData: ["POST", "/api/control/mobile-data", { enabled: false }],
-      resetBreaker: ["POST", "/api/session/reset-breaker", {}],
+      security: ["POST", "/api/control/security", { upnpEnabled: false, confirm: true }],
+      wifi7: ["POST", "/api/control/wifi7", { mloEnable: true, confirm: true }],
+      antenna: ["POST", "/api/control/antenna", { mode: "auto", confirm: true }],
+      mobileData: ["POST", "/api/control/mobile-data", { enabled: false, confirm: true }],
+      resetBreaker: ["POST", "/api/session/reset-breaker", { confirm: true }],
       cellular: ["GET", "/api/cellular"],
       refreshCellular: ["POST", "/api/cellular/refresh", {}],
       networkMode: ["POST", "/api/control/network-mode", { mode: "lte", confirm: true }],
@@ -254,16 +255,16 @@ describe("web core: endpoint table", () => {
       smsThread: ["GET", "/api/sms/thread?key=alpha%3Ademobank"],
       smsContacts: ["GET", "/api/sms/contacts?search=&limit=5000"],
       smsPreview: ["POST", "/api/sms/preview", { content: "hi" }],
-      smsSend: ["POST", "/api/sms/send", { phone: "+353830000001", content: "hi" }],
-      smsRead: ["POST", "/api/sms/read", { threadKey: "alpha:demobank" }],
-      smsDelete: ["POST", "/api/sms/delete", { uids: ["u1"] }],
+      smsSend: ["POST", "/api/sms/send", { phone: "+353830000001", content: "hi", confirm: true }],
+      smsRead: ["POST", "/api/sms/read", { threadKey: "alpha:demobank", confirm: true }],
+      smsDelete: ["POST", "/api/sms/delete", { uids: ["u1"], confirm: true }],
       smsTrash: ["GET", "/api/sms/trash"],
-      smsRestore: ["POST", "/api/sms/trash/restore", { uids: ["u1"] }],
-      smsPurge: ["POST", "/api/sms/trash/purge", { all: true }],
+      smsRestore: ["POST", "/api/sms/trash/restore", { uids: ["u1"], confirm: true }],
+      smsPurge: ["POST", "/api/sms/trash/purge", { all: true, confirm: true }],
       smsSync: ["POST", "/api/sms/sync", { mode: "full" }],
-      contactUpsert: ["POST", "/api/sms/contacts/upsert", { phone: "+353830000001", name: "Demo" }],
-      contactDelete: ["POST", "/api/sms/contacts/delete", { id: "c1" }],
-      importVcf: ["POST", "/api/sms/contacts/import-vcf", { vcf: "BEGIN:VCARD" }],
+      contactUpsert: ["POST", "/api/sms/contacts/upsert", { phone: "+353830000001", name: "Demo", confirm: true }],
+      contactDelete: ["POST", "/api/sms/contacts/delete", { id: "c1", confirm: true }],
+      importVcf: ["POST", "/api/sms/contacts/import-vcf", { vcf: "BEGIN:VCARD", confirm: true }],
     };
     await ep.health();
     await ep.authStatus();

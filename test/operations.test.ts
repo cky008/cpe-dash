@@ -53,6 +53,8 @@ describe("the operation registry", () => {
       assert.equal(restOperation(rest.method, rest.path), op);
       assert.equal(rest.group === "sms", rest.path.startsWith("/api/sms/"), `${op}: the SMS table is the routes under /api/sms/`);
       if (rest.served) assert.equal(rest.method, "GET", op);
+      // A write is sent with confirm: true, and so is its example
+      if (operationRecord(op).access === "write") assert.ok(rest.example?.includes('"confirm":true'), `${op}: its example asks for confirm`);
       if (rest.example !== undefined) {
         assert.equal(rest.method, "POST", `${op}: only a POST has a body`);
         if (!rest.example.includes("…") && !rest.example.includes("<")) assert.equal(typeof JSON.parse(rest.example), "object", op);

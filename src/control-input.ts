@@ -58,14 +58,6 @@ export function readSwitch(args: Args): boolean {
   return enabled;
 }
 
-/** A write that runs only with `confirm: true`, refused with `message` before anything else. */
-export function readConfirmed(message: string): (args: Args) => true {
-  return (args) => {
-    if (args["confirm"] !== true) throw new CpeControlValidationError(message);
-    return true;
-  };
-}
-
 /** A band lock: `lteBands` and `nrBands` (`undefined`: that RAT stays as it is). */
 export function readBandLock(args: Args): { lteBands: ReadonlyArray<BandInput> | "all" | undefined; nrBands: ReadonlyArray<BandInput> | "all" | undefined } {
   return { lteBands: readBandSelection(args, "lteBands"), nrBands: readBandSelection(args, "nrBands") };

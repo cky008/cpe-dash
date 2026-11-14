@@ -108,11 +108,9 @@ export interface DemoBackendOptions {
 type Body = Readonly<Record<string, unknown>>;
 type Locale = "zh-CN" | "en";
 type Handler = (body: Body, query: URLSearchParams) => unknown;
-/** What a registered route's handler gets besides its checked input: the request as sent, and whether it said `confirm: true`. */
+/** What a registered route's handler gets besides its checked input: the query string as sent (the audit log reads its limit). */
 interface DemoCall {
-  body: Body;
   query: URLSearchParams;
-  confirm: boolean;
 }
 
 class DemoHttpError extends Error {
@@ -473,7 +471,7 @@ export class DemoBackend {
     for (const op of REST_OPERATIONS) {
       if (op === "events" || op === "metrics") continue;
       const rest = restBinding(op);
-      routes.set(`${rest.method} ${rest.path}`, (body, query) => runOperation(handlers, op, rest.method === "GET" ? queryFields(query) : body, { body, query, confirm: body["confirm"] === true }));
+      routes.set(`${rest.method} ${rest.path}`, (body, query) => runOperation(handlers, op, rest.method === "GET" ? queryFields(query) : body, { query }));
     }
     return routes;
   }
@@ -573,8 +571,7 @@ export class DemoBackend {
         this.#driverLocks = { nr: false, lteCell: false, nrCell: false };
         return { ok: true, lockState } satisfies LockStateResponse;
       },
-      reboot: async (_input, call) => {
-        if (!call.confirm) throw new CpeControlValidationError("Remote reboot rejected: explicit { confirm: true } is mandatory");
+      reboot: async () => {
         await this.#control("reboot_cpe", "controls.reboot_triggered");
         this.#goOffline("reboot", REBOOT_OFFLINE_MS);
         return { ok: true, rebooting: true, requestedAtIso: new Date(this.#now()).toISOString() } satisfies RebootResponse;
@@ -646,9 +643,9 @@ export class DemoBackend {
         }
         return this.#accessView();
       },
-      wifiAccess: (change, call) => this.#wifiAccess(change, call.body),
-      wifiMacFilter: (change, call) => this.#wifiAccess(change, call.body),
-      timeRule: (change, call) => this.#timeRule(change, call.body),
+      wifiAccess: (change) => this.#wifiAccess(change),
+      wifiMacFilter: (change) => this.#wifiAccess(change),
+      timeRule: (change) => this.#timeRule(change),
       smsStatus: () => ({ ok: true, status: this.#sms.status() }) satisfies SmsStatusResponse,
       smsCountries: () => this.#countries,
       smsThreads: ({ filter, search, limit }) => {
@@ -769,8 +766,7 @@ export class DemoBackend {
     return state;
   }
 
-  async #wifiAccess(change: WifiAccessChange, body: Body): Promise<AccessControlChangeResponse> {
-    requireConfirm(body);
+  async #wifiAccess(change: WifiAccessChange): Promise<AccessControlChangeResponse> {
     this.#device.gate("set_wifi_access");
     const access = this.#accessControl();
     const plan = planWifiAccessChange(access.wifiMacFilter, change, previewGuard(this.#guard, this.#topology.hosts));
@@ -795,8 +791,7 @@ export class DemoBackend {
     return { ok: true, accessControl: this.#access, changed: plan.write !== null, alsoBlocked: plan.alsoBlocked };
   }
 
-  async #timeRule(change: TimeRuleChange, body: Body): Promise<AccessControlChangeResponse> {
-    requireConfirm(body);
+  async #timeRule(change: TimeRuleChange): Promise<AccessControlChangeResponse> {
     this.#device.gate("manage_time_rule");
     const access = this.#accessControl();
     const rules = access.timeRules;
@@ -1082,9 +1077,6 @@ export class DemoBackend {
   }
 }
 
-function requireConfirm(body: Body): void {
-  if (body["confirm"] !== true) throw new CpeControlValidationError("Access control changes require explicit { confirm: true }");
-}
 
 function guard<T>(parse: (input: string | number) => T): (input: string | number) => T {
   return (input) => {

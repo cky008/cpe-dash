@@ -102,7 +102,7 @@ Have scripts go by `errorCode`, never by `message`: the message may be in Chines
 
 ## Endpoints
 
-The Permission column names what a token needs beyond reading. The request and answer fields of each endpoint are in the developer notes' [API contract](../../dev/api.md) (in Chinese).
+The Permission column names what a token needs beyond reading. A request that changes something (a router setting, a message, a contact) needs `"confirm": true` in its body; without it the answer is `400 VALIDATION_ERROR` and nothing is done. The examples carry it. The request and answer fields of each endpoint are in the developer notes' [API contract](../../dev/api.md) (in Chinese).
 
 <!-- api-routes:begin -->
 ### Reading
@@ -136,15 +136,15 @@ The Permission column names what a token needs beyond reading. The request and a
 
 | Method | Path | Permission | What it does | Example body |
 | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/api/control/band-lock` | Change the router | Lock bands (`lteBands`, `nrBands`, `"all"` for every band; the type you leave out stays as it is) | `{"lteBands":["B1","B3"]}` |
-| `POST` | `/api/control/cell-lock` | Change the router | Lock a cell; without `pci`, lock the channel only | `{"rat":"NR","band":"N78","arfcn":650000,"pci":211}` |
-| `POST` | `/api/control/unlock` | Change the router | Clear band and cell locks |  |
+| `POST` | `/api/control/band-lock` | Change the router | Lock bands (`lteBands`, `nrBands`, `"all"` for every band; the type you leave out stays as it is) | `{"lteBands":["B1","B3"],"confirm":true}` |
+| `POST` | `/api/control/cell-lock` | Change the router | Lock a cell; without `pci`, lock the channel only | `{"rat":"NR","band":"N78","arfcn":650000,"pci":211,"confirm":true}` |
+| `POST` | `/api/control/unlock` | Change the router | Clear band and cell locks | `{"confirm":true}` |
 | `POST` | `/api/control/reboot` | Change the router | Restart the router | `{"confirm":true}` |
 | `POST` | `/api/control/reconnect` | Change the router | Redial the mobile connection (no restart) | `{"confirm":true}` |
-| `POST` | `/api/control/security` | Change the router | UPnP, DMZ and firewall (`upnpEnabled`, `dmz`, `firewall`; send only what changes) | `{"upnpEnabled":false}` |
-| `POST` | `/api/control/wifi7` | Change the router | Wi-Fi 7 multi-link (`mloEnable`) and dual-band steering (`dbhoEnable`) | `{"mloEnable":true}` |
-| `POST` | `/api/control/antenna` | Change the router | Antenna: `auto`, `internal`, `external` | `{"mode":"auto"}` |
-| `POST` | `/api/control/mobile-data` | Change the router | Turn mobile data on or off | `{"enabled":true}` |
+| `POST` | `/api/control/security` | Change the router | UPnP, DMZ and firewall (`upnpEnabled`, `dmz`, `firewall`; send only what changes) | `{"upnpEnabled":false,"confirm":true}` |
+| `POST` | `/api/control/wifi7` | Change the router | Wi-Fi 7 multi-link (`mloEnable`) and dual-band steering (`dbhoEnable`) | `{"mloEnable":true,"confirm":true}` |
+| `POST` | `/api/control/antenna` | Change the router | Antenna: `auto`, `internal`, `external` | `{"mode":"auto","confirm":true}` |
+| `POST` | `/api/control/mobile-data` | Change the router | Turn mobile data on or off | `{"enabled":true,"confirm":true}` |
 | `POST` | `/api/control/network-mode` | Change the router | Network mode: one of `auto`, `nr_sa`, `nr_nsa`, `nr_lte`, `lte`, `lte_tdd`, `lte_fdd`, `lte_wcdma`, `wcdma`, `gsm` that the router offers (see `GET /api/cellular`). If the WAN stays down 3 minutes, FengSui puts the earlier mode back | `{"mode":"auto","confirm":true}` |
 | `POST` | `/api/control/operator-scan` | Change the router | Search for the networks in range: up to a minute, and the connection may drop meanwhile | `{"confirm":true}` |
 | `POST` | `/api/control/operator` | Change the router | Choose the operator: `auto` hands the choice back to the router, `manual` with `plmn` (and an optional `rat`) keeps it on one network. If the WAN stays down 3 minutes, FengSui puts the earlier choice back | `{"mode":"auto","confirm":true}` |
@@ -156,7 +156,7 @@ The Permission column names what a token needs beyond reading. The request and a
 | `POST` | `/api/control/data-limit` | Change the router | The router's own data limit: `enabled`, `bytes`, `alertPercent` (the share at which it warns) | `{"enabled":false,"confirm":true}` |
 | `POST` | `/api/control/traffic-reset` | Change the router | Clear the traffic counters the router itself keeps | `{"confirm":true}` |
 | `POST` | `/api/control/ussd` | Change the router | USSD: send a code (`code`); `action` `reply` answers the operator's question, `cancel` ends the session. The answer is text the operator wrote | `{"code":"*100#","confirm":true}` |
-| `POST` | `/api/session/reset-breaker` | Change the router | Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router |  |
+| `POST` | `/api/session/reset-breaker` | Change the router | Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router | `{"confirm":true}` |
 
 ### Devices' internet access
 
@@ -178,14 +178,14 @@ The Permission column names what a token needs beyond reading. The request and a
 | `GET` | `/api/sms/trash` | Read SMS and codes | Messages in Recently deleted |  |
 | `POST` | `/api/sms/preview` | Read SMS and codes | Preview a message: segments and encoding; nothing is sent | `{"phone":"+353830000001","content":"Hello"}` |
 | `POST` | `/api/sms/sync` | Read SMS and codes | Sync messages now (`full` or `incremental`) | `{"mode":"incremental"}` |
-| `POST` | `/api/sms/send` | Send and delete SMS, edit contacts | Send a message (`phone`, or up to 5 `phones`); sent once, never retried | `{"phone":"+353830000001","content":"Hello"}` |
-| `POST` | `/api/sms/read` | Send and delete SMS, edit contacts | Mark read (`uids` or `threadKey`) | `{"threadKey":"+353830000001"}` |
-| `POST` | `/api/sms/delete` | Send and delete SMS, edit contacts | Delete messages into Recently deleted | `{"uids":["<uid>"]}` |
-| `POST` | `/api/sms/trash/restore` | Send and delete SMS, edit contacts | Put messages back from Recently deleted | `{"uids":["<uid>"]}` |
-| `POST` | `/api/sms/trash/purge` | Console only | Delete messages in Recently deleted for good |  |
-| `POST` | `/api/sms/contacts/upsert` | Send and delete SMS, edit contacts | Add or edit a contact | `{"phone":"+353830000001","name":"Example"}` |
-| `POST` | `/api/sms/contacts/delete` | Send and delete SMS, edit contacts | Delete a contact | `{"id":"<id>"}` |
-| `POST` | `/api/sms/contacts/import-vcf` | Send and delete SMS, edit contacts | Import vCards (the text of a `.vcf` file) | `{"vcf":"BEGIN:VCARD…"}` |
+| `POST` | `/api/sms/send` | Send and delete SMS, edit contacts | Send a message (`phone`, or up to 5 `phones`); sent once, never retried | `{"phone":"+353830000001","content":"Hello","confirm":true}` |
+| `POST` | `/api/sms/read` | Send and delete SMS, edit contacts | Mark read (`uids` or `threadKey`) | `{"threadKey":"+353830000001","confirm":true}` |
+| `POST` | `/api/sms/delete` | Send and delete SMS, edit contacts | Delete messages into Recently deleted | `{"uids":["<uid>"],"confirm":true}` |
+| `POST` | `/api/sms/trash/restore` | Send and delete SMS, edit contacts | Put messages back from Recently deleted | `{"uids":["<uid>"],"confirm":true}` |
+| `POST` | `/api/sms/trash/purge` | Console only | Delete messages in Recently deleted for good | `{"all":true,"confirm":true}` |
+| `POST` | `/api/sms/contacts/upsert` | Send and delete SMS, edit contacts | Add or edit a contact | `{"phone":"+353830000001","name":"Example","confirm":true}` |
+| `POST` | `/api/sms/contacts/delete` | Send and delete SMS, edit contacts | Delete a contact | `{"id":"<id>","confirm":true}` |
+| `POST` | `/api/sms/contacts/import-vcf` | Send and delete SMS, edit contacts | Import vCards (the text of a `.vcf` file) | `{"vcf":"BEGIN:VCARD…","confirm":true}` |
 
 ### Other
 

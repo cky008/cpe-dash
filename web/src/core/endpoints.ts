@@ -120,11 +120,16 @@ export interface ConnectionInput {
 export function createEndpoints(api: ApiClient) {
   const control = { timeoutMs: CONTROL_TIMEOUT_MS };
   const slow = { timeoutMs: SLOW_CONTROL_TIMEOUT_MS };
-  /** A route of the operation registry: its method and path are the registry's; the console's own routes are written below. */
+  /**
+   * A route of the operation registry: its method and path are the registry's, and a write carries
+   * `confirm: true` (every write of the console follows its own confirmation or an explicit action of
+   * yours). The console's own routes are written below.
+   */
   const call = <T>(op: RestOperation, request: { body?: object; query?: string; options?: RequestOptions } = {}): Promise<T> => {
-    const { method, path } = REST_ROUTES[op];
+    const { method, path, write } = REST_ROUTES[op];
     const url = request.query === undefined ? path : `${path}?${request.query}`;
-    return method === "GET" ? api.get<T>(url, request.options) : api.post<T>(url, request.body ?? {}, request.options);
+    if (method === "GET") return api.get<T>(url, request.options);
+    return api.post<T>(url, write ? { ...request.body, confirm: true } : (request.body ?? {}), request.options);
   };
   return {
     health: () => call<HealthResponse>("health"),
@@ -167,37 +172,37 @@ export function createEndpoints(api: ApiClient) {
     refreshSettings: () => call<SettingsRefreshResponse>("settingsRefresh", { body: {}, options: control }),
     alerts: () => call<AlertsResponse>("alerts"),
 
-    bandLock: (body: BandLockRequest) => call<LockStateResponse>("bandLock", { body: body, options: control }),
-    cellLock: (body: CellLockRequest) => call<LockStateResponse>("cellLock", { body: body, options: control }),
-    unlock: () => call<LockStateResponse>("unlock", { body: {}, options: control }),
-    reboot: () => call<RebootResponse>("reboot", { body: { confirm: true }, options: control }),
-    reconnect: () => call<ReconnectResponse>("reconnect", { body: { confirm: true }, options: control }),
-    security: (body: SecurityControlRequest) => call<SecurityControlResponse>("securitySwitches", { body: body, options: control }),
-    wifi7: (body: Wifi7ControlRequest) => call<Wifi7ControlResponse>("wifi7", { body: body, options: control }),
+    bandLock: (body: BandLockRequest) => call<LockStateResponse>("bandLock", { body, options: control }),
+    cellLock: (body: CellLockRequest) => call<LockStateResponse>("cellLock", { body, options: control }),
+    unlock: () => call<LockStateResponse>("unlock", { options: control }),
+    reboot: () => call<RebootResponse>("reboot", { options: control }),
+    reconnect: () => call<ReconnectResponse>("reconnect", { options: control }),
+    security: (body: SecurityControlRequest) => call<SecurityControlResponse>("securitySwitches", { body, options: control }),
+    wifi7: (body: Wifi7ControlRequest) => call<Wifi7ControlResponse>("wifi7", { body, options: control }),
     antenna: (mode: AntennaModeName) => call<AntennaControlResponse>("antenna", { body: { mode }, options: control }),
     mobileData: (enabled: boolean) => call<MobileDataControlResponse>("mobileData", { body: { enabled }, options: control }),
-    resetBreaker: () => call<ResetBreakerResponse>("resetBreaker", { body: {}, options: control }),
+    resetBreaker: () => call<ResetBreakerResponse>("resetBreaker", { options: control }),
 
     // Cellular settings. A search for networks and a registration take the router minutes
     cellular: () => call<CellularEndpointResponse>("cellular"),
     refreshCellular: () => call<CellularEndpointResponse>("cellularRefresh", { body: {}, options: control }),
-    networkMode: (mode: NetworkMode) => call<NetworkModeControlResponse>("networkMode", { body: { mode, confirm: true }, options: control }),
-    operatorScan: () => call<OperatorScanResponse>("operatorScan", { body: { confirm: true }, options: slow }),
-    operator: (body: Omit<Extract<OperatorRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<OperatorRequest, { mode: "manual" }>, "confirm">) => call<OperatorControlResponse>("operatorSelect", { body: { ...body, confirm: true }, options: slow }),
-    simSlot: (slot: SimSlotRef) => call<SimSlotControlResponse>("simSlot", { body: { kind: slot.kind, index: slot.index, confirm: true }, options: control }),
-    simPin: (action: NonNullable<SimPinRequest["action"]>, pin: string) => call<SimPinControlResponse>("simPin", { body: { action, pin, confirm: true }, options: control }),
-    airplaneMode: (enabled: boolean) => call<AirplaneModeControlResponse>("airplaneSwitch", { body: { enabled, confirm: true }, options: control }),
-    roaming: (enabled: boolean) => call<RoamingControlResponse>("roaming", { body: { enabled, confirm: true }, options: control }),
-    apn: (body: Omit<Extract<ApnRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<ApnRequest, { mode: "manual" }>, "confirm">) => call<ApnControlResponse>("apn", { body: { ...body, confirm: true }, options: control }),
-    dataLimit: (body: Omit<DataLimitRequest, "confirm">) => call<DataLimitControlResponse>("dataLimit", { body: { ...body, confirm: true }, options: control }),
-    trafficReset: () => call<TrafficResetResponse>("trafficReset", { body: { confirm: true }, options: control }),
-    ussd: (body: Omit<Extract<UssdSendRequest, { code: string }>, "confirm"> | { action: "cancel" }) => call<UssdResponse>("ussd", { body: { ...body, confirm: true }, options: control }),
+    networkMode: (mode: NetworkMode) => call<NetworkModeControlResponse>("networkMode", { body: { mode }, options: control }),
+    operatorScan: () => call<OperatorScanResponse>("operatorScan", { options: slow }),
+    operator: (body: Omit<Extract<OperatorRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<OperatorRequest, { mode: "manual" }>, "confirm">) => call<OperatorControlResponse>("operatorSelect", { body, options: slow }),
+    simSlot: (slot: SimSlotRef) => call<SimSlotControlResponse>("simSlot", { body: { kind: slot.kind, index: slot.index }, options: control }),
+    simPin: (action: NonNullable<SimPinRequest["action"]>, pin: string) => call<SimPinControlResponse>("simPin", { body: { action, pin }, options: control }),
+    airplaneMode: (enabled: boolean) => call<AirplaneModeControlResponse>("airplaneSwitch", { body: { enabled }, options: control }),
+    roaming: (enabled: boolean) => call<RoamingControlResponse>("roaming", { body: { enabled }, options: control }),
+    apn: (body: Omit<Extract<ApnRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<ApnRequest, { mode: "manual" }>, "confirm">) => call<ApnControlResponse>("apn", { body, options: control }),
+    dataLimit: (body: Omit<DataLimitRequest, "confirm">) => call<DataLimitControlResponse>("dataLimit", { body, options: control }),
+    trafficReset: () => call<TrafficResetResponse>("trafficReset", { options: control }),
+    ussd: (body: Omit<Extract<UssdSendRequest, { code: string }>, "confirm"> | { action: "cancel" }) => call<UssdResponse>("ussd", { body, options: control }),
 
     accessControl: () => call<AccessControlEndpointResponse>("accessControlView"),
     refreshAccessControl: () => call<AccessControlEndpointResponse>("accessControlRefresh", { body: {}, options: control }),
-    wifiAccess: (body: WifiDeviceAccessRequest) => call<AccessControlChangeResponse>("wifiAccess", { body: body, options: control }),
-    wifiMacFilter: (body: WifiMacFilterRequest) => call<AccessControlChangeResponse>("wifiMacFilter", { body: body, options: control }),
-    timeRule: (body: TimeRuleRequest) => call<AccessControlChangeResponse>("timeRule", { body: body, options: control }),
+    wifiAccess: (body: WifiDeviceAccessRequest) => call<AccessControlChangeResponse>("wifiAccess", { body, options: control }),
+    wifiMacFilter: (body: WifiMacFilterRequest) => call<AccessControlChangeResponse>("wifiMacFilter", { body, options: control }),
+    timeRule: (body: TimeRuleRequest) => call<AccessControlChangeResponse>("timeRule", { body, options: control }),
 
     smsStatus: () => call<SmsStatusResponse>("smsStatus"),
     smsCountries: () => call<SmsCountriesResponse>("smsCountries"),
@@ -206,15 +211,15 @@ export function createEndpoints(api: ApiClient) {
     smsThread: (key: string) => call<SmsThreadResponse>("smsThread", { query: new URLSearchParams({ key }).toString() }),
     smsContacts: (search = "", limit = 5000) =>
       call<SmsContactsResponse>("contacts", { query: new URLSearchParams({ search: search.slice(0, 100), limit: String(limit) }).toString() }),
-    smsPreview: (body: SmsPreviewRequest) => call<SmsPreviewResponse>("smsPreview", { body: body }),
-    smsSend: (body: SmsSendRequest) => call<SmsSendResponse>("smsSend", { body: body, options: { timeoutMs: SMS_SEND_TIMEOUT_MS } }),
-    smsRead: (body: SmsReadRequest) => call<SmsReadResponse>("smsMarkRead", { body: body, options: control }),
+    smsPreview: (body: SmsPreviewRequest) => call<SmsPreviewResponse>("smsPreview", { body }),
+    smsSend: (body: SmsSendRequest) => call<SmsSendResponse>("smsSend", { body, options: { timeoutMs: SMS_SEND_TIMEOUT_MS } }),
+    smsRead: (body: SmsReadRequest) => call<SmsReadResponse>("smsMarkRead", { body, options: control }),
     smsDelete: (uids: string[]) => call<SmsDeleteResponse>("smsDelete", { body: { uids }, options: control }),
     smsTrash: () => call<SmsTrashResponse>("smsTrash"),
     smsRestore: (uids: string[]) => call<SmsRestoreResponse>("smsRestore", { body: { uids } }),
-    smsPurge: (body: { uids: string[] } | { all: true }) => call<SmsPurgeResponse>("smsPurge", { body: body }),
+    smsPurge: (body: { uids: string[] } | { all: true }) => call<SmsPurgeResponse>("smsPurge", { body }),
     smsSync: (mode: "full" | "incremental" = "full") => call<SmsSyncResponse>("smsSync", { body: { mode }, options: control }),
-    contactUpsert: (body: ContactUpsertRequest) => call<ContactUpsertResponse>("contactUpsert", { body: body }),
+    contactUpsert: (body: ContactUpsertRequest) => call<ContactUpsertResponse>("contactUpsert", { body }),
     contactDelete: (id: string) => call<ContactDeleteResponse>("contactDelete", { body: { id } }),
     importVcf: (vcf: string) => call<VcardImportResponse>("contactImport", { body: { vcf }, options: { timeoutMs: 60_000 } }),
   };

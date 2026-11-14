@@ -37,7 +37,7 @@ describe("demo world: an unverified model", () => {
       assert.equal(demo.stack.sms?.mirror.list().length, before + 1, "a new code arrives in the mailbox");
 
       // A write FengSui has no implementation of for this model stays refused
-      const refused = await fetch(`${demo.baseUrl}/api/control/antenna`, { method: "POST", headers, body: JSON.stringify({ mode: "external" }) });
+      const refused = await fetch(`${demo.baseUrl}/api/control/antenna`, { method: "POST", headers, body: JSON.stringify({ mode: "external", confirm: true }) });
       assert.deepEqual([refused.status, ((await refused.json()) as { errorCode: string }).errorCode], [409, "DEVICE_UNVERIFIED_READ_ONLY"]);
 
       // The writes it implements are on with nothing asked of the owner, who can turn each off and back on
@@ -52,9 +52,9 @@ describe("demo world: an unverified model", () => {
       assert.deepEqual([off.status, ((await off.json()) as { errorCode: string }).errorCode], [409, "DEVICE_WRITE_DISABLED"]);
       assert.equal((await setWrite("reconnect", true)).status, 200);
       // The band lock and the redial go the generic way and are read back
-      const locked = (await (await fetch(`${demo.baseUrl}/api/control/band-lock`, { method: "POST", headers, body: JSON.stringify({ lteBands: ["B3"] }) })).json()) as LockStateResponse;
+      const locked = (await (await fetch(`${demo.baseUrl}/api/control/band-lock`, { method: "POST", headers, body: JSON.stringify({ lteBands: ["B3"], confirm: true }) })).json()) as LockStateResponse;
       assert.deepEqual([locked.lockState.mode, locked.lockState.lteBands], ["band_lock", [3]]);
-      assert.equal((await fetch(`${demo.baseUrl}/api/control/band-lock`, { method: "POST", headers, body: JSON.stringify({ lteBands: ["B28"] }) })).status, 400, "not a band this router advertises");
+      assert.equal((await fetch(`${demo.baseUrl}/api/control/band-lock`, { method: "POST", headers, body: JSON.stringify({ lteBands: ["B28"], confirm: true }) })).status, 400, "not a band this router advertises");
       assert.equal((await fetch(`${demo.baseUrl}/api/control/reconnect`, { method: "POST", headers, body: JSON.stringify({ confirm: true }) })).status, 200);
       demo.router.advance();
       await fetch(`${demo.baseUrl}/api/telemetry/refresh`, { method: "POST", headers, body: "{}" });

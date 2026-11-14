@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { asSent } from "./helpers/confirm.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
@@ -745,7 +746,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           "Content-Type": "application/json",
           Origin: `http://${validHost}`,
         },
-        body: JSON.stringify({ token: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fx.apiToken })),
       });
       assert.equal(resCsrf1.status, 403);
 
@@ -757,7 +758,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           "X-Requested-With": "XMLHttpRequest",
           Origin: "null",
         },
-        body: JSON.stringify({ token: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fx.apiToken })),
       });
       assert.equal(resCsrf2.status, 403);
 
@@ -769,7 +770,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           "X-Requested-With": "XMLHttpRequest",
           Origin: "http://evil.com",
         },
-        body: JSON.stringify({ token: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fx.apiToken })),
       });
       assert.equal(resCsrf3.status, 403);
 
@@ -781,7 +782,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           "X-Requested-With": "XMLHttpRequest",
           Origin: "not_a_valid_url",
         },
-        body: JSON.stringify({ token: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fx.apiToken })),
       });
       assert.equal(resCsrf4.status, 403);
 
@@ -830,7 +831,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
             "X-Requested-With": "XMLHttpRequest",
             Origin: `http://${validHost}`,
           },
-          body: JSON.stringify({ token: "wrong_password_candidate" }),
+          body: JSON.stringify(asSent("POST", "/api/auth/login", { token: "wrong_password_candidate" })),
         });
         assert.equal(failRes.status, 401);
       }
@@ -883,7 +884,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           "X-Requested-With": "XMLHttpRequest",
           Origin: `http://${validHost}`,
         },
-        body: JSON.stringify({ token: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fx.apiToken })),
       });
       assert.equal(resLogin.status, 200);
       const setCookie = resLogin.headers.get("set-cookie") ?? "";
@@ -912,7 +913,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Cookie: sessionCookie,
           Origin: `http://${validHost}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify(asSent("POST", "/api/control/unlock", {})),
       });
       assert.equal(resNoCsrf.status, 403);
 
@@ -925,7 +926,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Origin: `http://${validHost}`,
           Cookie: sessionCookie,
         },
-        body: JSON.stringify({ password: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { password: fx.apiToken })),
       });
       assert.equal(resLoginRotate.status, 200);
 
@@ -952,7 +953,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Origin: `http://${validHost}`,
           Cookie: newSessionCookie,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify(asSent("POST", "/api/auth/logout", {})),
       });
       assert.equal(resLogout.status, 200);
       assert.match(resLogout.headers.get("set-cookie") ?? "", /fengsui_sid=logged_out/);
@@ -975,7 +976,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Origin: `https://${validHost}`,
           "X-Forwarded-Proto": "https",
         },
-        body: JSON.stringify({ token: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fx.apiToken })),
       });
       assert.equal(resHttpsLogin.status, 200);
       const secureCookie = resHttpsLogin.headers.get("set-cookie") ?? "";
@@ -999,7 +1000,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           "X-Requested-With": "XMLHttpRequest",
           Origin: `http://${validHost}`,
         },
-        body: JSON.stringify({ token: fxTtl.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fxTtl.apiToken })),
       });
       const cookieHeader = resLogin.headers.get("set-cookie") ?? "";
       const sid = cookieHeader.match(/fengsui_sid=([0-9a-f]{64})/)?.[1] ?? "";
@@ -1035,7 +1036,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
             "X-Requested-With": "XMLHttpRequest",
             Origin: `http://${validHost}`,
           },
-          body: JSON.stringify({ token: fxCap.apiToken }),
+          body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fxCap.apiToken })),
         });
       }
     } finally {
@@ -1147,35 +1148,35 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rBlOk = await fetch(`${fx.baseUrl}/api/control/band-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ lteBands: ["B1", "B3"], nrBands: "all" }),
+        body: JSON.stringify(asSent("POST", "/api/control/band-lock", { lteBands: ["B1", "B3"], nrBands: "all" })),
       });
       assert.equal(rBlOk.status, 200);
 
       const rBlBad1 = await fetch(`${fx.baseUrl}/api/control/band-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ lteBands: "invalid" }),
+        body: JSON.stringify(asSent("POST", "/api/control/band-lock", { lteBands: "invalid" })),
       });
       assert.equal(rBlBad1.status, 400);
 
       const rBlBad2 = await fetch(`${fx.baseUrl}/api/control/band-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ lteBands: [false] }),
+        body: JSON.stringify(asSent("POST", "/api/control/band-lock", { lteBands: [false] })),
       });
       assert.equal(rBlBad2.status, 400);
 
       const rBlBad3 = await fetch(`${fx.baseUrl}/api/control/band-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ nrBands: 12345 }),
+        body: JSON.stringify(asSent("POST", "/api/control/band-lock", { nrBands: 12345 })),
       });
       assert.equal(rBlBad3.status, 400);
 
       const rBlBad4 = await fetch(`${fx.baseUrl}/api/control/band-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ nrBands: [null] }),
+        body: JSON.stringify(asSent("POST", "/api/control/band-lock", { nrBands: [null] })),
       });
       assert.equal(rBlBad4.status, 400);
 
@@ -1183,7 +1184,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rClOk = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: 300, pci: 321 }),
+        body: JSON.stringify(asSent("POST", "/api/control/cell-lock", { rat: "LTE", band: "B1", arfcn: 300, pci: 321 })),
       });
       assert.equal(rClOk.status, 200);
 
@@ -1191,7 +1192,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rClFreqOnly = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: 300, pci: null }),
+        body: JSON.stringify(asSent("POST", "/api/control/cell-lock", { rat: "LTE", band: "B1", arfcn: 300, pci: null })),
       });
       assert.equal(rClFreqOnly.status, 200);
       const rClFreqOnlyBody = (await rClFreqOnly.json()) as {
@@ -1202,21 +1203,21 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rClBadRat = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "GSM", band: "B1", arfcn: 300 }),
+        body: JSON.stringify(asSent("POST", "/api/control/cell-lock", { rat: "GSM", band: "B1", arfcn: 300 })),
       });
       assert.equal(rClBadRat.status, 400);
 
       const rClBadBand = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "LTE", arfcn: 300 }),
+        body: JSON.stringify(asSent("POST", "/api/control/cell-lock", { rat: "LTE", arfcn: 300 })),
       });
       assert.equal(rClBadBand.status, 400);
 
       const rClBadArfcn = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "LTE", band: "B1", arfcn: "invalid_num" }),
+        body: JSON.stringify(asSent("POST", "/api/control/cell-lock", { rat: "LTE", band: "B1", arfcn: "invalid_num" })),
       });
       assert.equal(rClBadArfcn.status, 400);
 
@@ -1224,7 +1225,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rUnlock = await fetch(`${fx.baseUrl}/api/control/unlock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({}),
+        body: JSON.stringify(asSent("POST", "/api/control/unlock", {})),
       });
       assert.equal(rUnlock.status, 200);
 
@@ -1232,14 +1233,14 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rRebNo = await fetch(`${fx.baseUrl}/api/control/reboot`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ confirm: false }),
+        body: JSON.stringify(asSent("POST", "/api/control/reboot", { confirm: false })),
       });
       assert.equal(rRebNo.status, 400);
 
       const rRebYes = await fetch(`${fx.baseUrl}/api/control/reboot`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ confirm: true }),
+        body: JSON.stringify(asSent("POST", "/api/control/reboot", { confirm: true })),
       });
       assert.equal(rRebYes.status, 200);
 
@@ -1247,14 +1248,14 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rRecNo = await fetch(`${fx.baseUrl}/api/control/reconnect`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ confirm: false }),
+        body: JSON.stringify(asSent("POST", "/api/control/reconnect", { confirm: false })),
       });
       assert.equal(rRecNo.status, 400);
 
       const rRecYes = await fetch(`${fx.baseUrl}/api/control/reconnect`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ confirm: true }),
+        body: JSON.stringify(asSent("POST", "/api/control/reconnect", { confirm: true })),
       });
       assert.equal(rRecYes.status, 200);
 
@@ -1262,11 +1263,11 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rSec = await fetch(`${fx.baseUrl}/api/control/security`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({
+        body: JSON.stringify(asSent("POST", "/api/control/security", {
           upnpEnabled: true,
           dmz: { enabled: true, ipAddress: "192.168.8.50" },
           firewall: { mainSwitch: true, ipFilterSwitch: true },
-        }),
+        })),
       });
       assert.equal(rSec.status, 200);
 
@@ -1274,7 +1275,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rWifi = await fetch(`${fx.baseUrl}/api/control/wifi7`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ mloEnable: true, dbhoEnable: false }),
+        body: JSON.stringify(asSent("POST", "/api/control/wifi7", { mloEnable: true, dbhoEnable: false })),
       });
       assert.equal(rWifi.status, 200);
 
@@ -1282,7 +1283,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rAnt = await fetch(`${fx.baseUrl}/api/control/antenna`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ mode: "auto" }),
+        body: JSON.stringify(asSent("POST", "/api/control/antenna", { mode: "auto" })),
       });
       assert.equal(rAnt.status, 200);
 
@@ -1290,14 +1291,14 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rMobOk = await fetch(`${fx.baseUrl}/api/control/mobile-data`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ enabled: true }),
+        body: JSON.stringify(asSent("POST", "/api/control/mobile-data", { enabled: true })),
       });
       assert.equal(rMobOk.status, 200);
 
       const rMobBad = await fetch(`${fx.baseUrl}/api/control/mobile-data`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ enabled: "not_a_bool" }),
+        body: JSON.stringify(asSent("POST", "/api/control/mobile-data", { enabled: "not_a_bool" })),
       });
       assert.equal(rMobBad.status, 400);
 
@@ -1305,7 +1306,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const rBreaker = await fetch(`${fx.baseUrl}/api/session/reset-breaker`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({}),
+        body: JSON.stringify(asSent("POST", "/api/session/reset-breaker", {})),
       });
       assert.equal(rBreaker.status, 200);
       const breakerData = (await rBreaker.json()) as { ok: boolean; circuitBreaker: unknown };
@@ -1373,7 +1374,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Authorization: `Bearer ${fxYield.apiToken}`,
           "Content-Type": "application/json",
         },
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.equal(res409.status, 409);
       const data409 = (await res409.json()) as { errorCode: string };
@@ -1394,7 +1395,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Authorization: `Bearer ${fxErr.apiToken}`,
           "Content-Type": "application/json",
         },
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.equal(res503.status, 503);
       assert.equal(((await res503.json()) as { errorCode: string }).errorCode, "QUEUE_FULL");
@@ -1408,7 +1409,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Authorization: `Bearer ${fxErr.apiToken}`,
           "Content-Type": "application/json",
         },
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.equal(res502.status, 502);
       assert.equal(((await res502.json()) as { errorCode: string }).errorCode, "CPE_UPSTREAM_ERROR");
@@ -1728,10 +1729,10 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
     try {
       const validHost = new URL(fx.baseUrl).host;
       const consoleHeaders = (cookie: string) => ({ "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: `http://${validHost}`, Cookie: cookie });
-      const login = await fetch(`${fx.baseUrl}/api/auth/login`, { method: "POST", headers: consoleHeaders(""), body: JSON.stringify({ password: fx.apiToken }) });
+      const login = await fetch(`${fx.baseUrl}/api/auth/login`, { method: "POST", headers: consoleHeaders(""), body: JSON.stringify(asSent("POST", "/api/auth/login", { password: fx.apiToken })) });
       assert.equal(login.status, 200);
       const cookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(login.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
-      const mint = await fetch(`${fx.baseUrl}/api/console/tokens`, { method: "POST", headers: consoleHeaders(cookie), body: JSON.stringify({ name: "wall", scope: "read", lifetimeDays: 7 }) });
+      const mint = await fetch(`${fx.baseUrl}/api/console/tokens`, { method: "POST", headers: consoleHeaders(cookie), body: JSON.stringify(asSent("POST", "/api/console/tokens", { name: "wall", scope: "read", lifetimeDays: 7 })) });
       const minted = (await mint.json()) as { token: string; record: { expiresAtIso: string } };
       // What the bus is told: it closes a stream once its expiry passes (bus-level test above)
       const seen: Array<number | null | undefined> = [];
@@ -1812,7 +1813,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
           Origin: `http://${validHost}`,
           "X-Forwarded-For": "192.168.8.50",
         },
-        body: JSON.stringify({ token: fx.apiToken }),
+        body: JSON.stringify(asSent("POST", "/api/auth/login", { token: fx.apiToken })),
       });
       assert.equal(loginRes.status, 200);
       const sid = (loginRes.headers.get("set-cookie") ?? "").match(/fengsui_sid=([0-9a-f]{64})/)?.[1];
@@ -1838,7 +1839,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
         const secBad = await fetch(`${fx.baseUrl}/api/control/security`, {
           method: "POST",
           headers: authHeaders,
-          body: JSON.stringify(badBody),
+          body: JSON.stringify(asSent("POST", "/api/control/security", badBody)),
         });
         assert.equal(secBad.status, 400);
       }
@@ -1849,7 +1850,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const badCellPci = await fetch(`${fx.baseUrl}/api/control/cell-lock`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ rat: "NR", band: "N78", arfcn: 650000, pci: "not_a_number" }),
+        body: JSON.stringify(asSent("POST", "/api/control/cell-lock", { rat: "NR", band: "N78", arfcn: 650000, pci: "not_a_number" })),
       });
       assert.equal(badCellPci.status, 400);
       const badCellPciBody = (await badCellPci.json()) as { errorCode: string; message: string };
@@ -1864,7 +1865,7 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
         const wRes = await fetch(`${fx.baseUrl}/api/control/wifi7`, {
           method: "POST",
           headers: authHeaders,
-          body: JSON.stringify(badWifi),
+          body: JSON.stringify(asSent("POST", "/api/control/wifi7", badWifi)),
         });
         assert.equal(wRes.status, 400);
         const wBody = (await wRes.json()) as { errorCode: string; message: string };
@@ -1883,12 +1884,12 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
       const resetUnchanged = await fetch(`${fx.baseUrl}/api/session/reset-breaker`, {
         method: "POST",
         headers: authHeaders,
-        body: "{}",
+        body: '{"confirm":true}',
       });
       assert.equal(resetUnchanged.status, 400);
       assert.equal(fx.scheduler.getStatus().circuitBreaker.tripped, true);
       // While latched, writes get their own error (no login attempt) and reads keep serving the cache
-      const latchedWrite = await fetch(`${fx.baseUrl}/api/control/unlock`, { method: "POST", headers: authHeaders, body: "{}" });
+      const latchedWrite = await fetch(`${fx.baseUrl}/api/control/unlock`, { method: "POST", headers: authHeaders, body: '{"confirm":true}' });
       assert.equal(latchedWrite.status, 423);
       const latchedBody = (await latchedWrite.json()) as { errorCode: string; circuitBreaker: { tripped: boolean; code: string } };
       assert.equal(latchedBody.errorCode, "CIRCUIT_BREAKER_OPEN");
@@ -1898,33 +1899,33 @@ describe("FengSuiHttpServer security guards, auth flows, REST API, SSE & static 
 
       // 8. The router password is fixed in the console, not in .env. A Bearer token may not touch it; a
       //    console session proves the new password with one test login, which also clears the latch.
-      const viaToken = await fetch(`${fx.baseUrl}/api/console/cpe`, { method: "POST", headers: authHeaders, body: JSON.stringify({ url: "http://192.168.8.1", password: "x" }) });
+      const viaToken = await fetch(`${fx.baseUrl}/api/console/cpe`, { method: "POST", headers: authHeaders, body: JSON.stringify(asSent("POST", "/api/console/cpe", { url: "http://192.168.8.1", password: "x" })) });
       assert.equal(viaToken.status, 403);
       assert.equal(((await viaToken.json()) as { errorCode: string }).errorCode, "CONSOLE_ONLY");
       const consoleHeaders = (cookie: string) => ({ "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", Origin: `http://${validHost}`, Cookie: cookie });
-      const consoleLogin = await fetch(`${fx.baseUrl}/api/auth/login`, { method: "POST", headers: consoleHeaders(""), body: JSON.stringify({ password: fx.apiToken }) });
+      const consoleLogin = await fetch(`${fx.baseUrl}/api/auth/login`, { method: "POST", headers: consoleHeaders(""), body: JSON.stringify(asSent("POST", "/api/auth/login", { password: fx.apiToken })) });
       assert.equal(consoleLogin.status, 200);
       const consoleCookie = `fengsui_sid=${/fengsui_sid=([0-9a-f]{64})/.exec(consoleLogin.headers.get("set-cookie") ?? "")?.[1] ?? ""}`;
       const fixed = await fetch(`${fx.baseUrl}/api/console/cpe`, {
         method: "POST",
         headers: consoleHeaders(consoleCookie),
-        body: JSON.stringify({ url: "http://192.168.8.1", username: "admin", password: "sched_test_password" }),
+        body: JSON.stringify(asSent("POST", "/api/console/cpe", { url: "http://192.168.8.1", username: "admin", password: "sched_test_password" })),
       });
       assert.equal(fixed.status, 200);
       assert.equal(fx.scheduler.getStatus().circuitBreaker.tripped, false);
 
       // A revoked token loses its SSE stream at once; a password change signs the other sessions out
-      const minted = (await (await fetch(`${fx.baseUrl}/api/console/tokens`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify({ name: "dash", scope: "read", lifetimeDays: 7 }) })).json()) as { token: string; record: { id: string } };
+      const minted = (await (await fetch(`${fx.baseUrl}/api/console/tokens`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify(asSent("POST", "/api/console/tokens", { name: "dash", scope: "read", lifetimeDays: 7 })) })).json()) as { token: string; record: { id: string } };
       const sseRes = await fetch(`${fx.baseUrl}/api/events`, { headers: { Authorization: `Bearer ${minted.token}` } });
       assert.equal(sseRes.status, 200);
       assert.equal(fx.sseBus.getClientCount(), 1);
-      const revoked = await fetch(`${fx.baseUrl}/api/console/tokens/revoke`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify({ id: minted.record.id }) });
+      const revoked = await fetch(`${fx.baseUrl}/api/console/tokens/revoke`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify(asSent("POST", "/api/console/tokens/revoke", { id: minted.record.id })) });
       assert.equal(revoked.status, 200);
       assert.equal(fx.sseBus.getClientCount(), 0);
       await sseRes.body?.cancel().catch(() => undefined);
       assert.equal((await fetch(`${fx.baseUrl}/api/telemetry`, { headers: { Authorization: `Bearer ${minted.token}` } })).status, 401);
 
-      const changed = await fetch(`${fx.baseUrl}/api/console/password`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify({ current: fx.apiToken, next: "a new console passphrase" }) });
+      const changed = await fetch(`${fx.baseUrl}/api/console/password`, { method: "POST", headers: consoleHeaders(consoleCookie), body: JSON.stringify(asSent("POST", "/api/console/password", { current: fx.apiToken, next: "a new console passphrase" })) });
       assert.equal(changed.status, 200);
       // The old cookie session from 192.168.8.50 is signed out; the one that changed the password stays
       const oldCookieAfterChange = await fetch(`${fx.baseUrl}/api/telemetry`, { headers: { Cookie: `fengsui_sid=${sid}`, "X-Forwarded-For": "192.168.8.50" } });
