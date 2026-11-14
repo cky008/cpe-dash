@@ -810,6 +810,8 @@ export class MutexSessionScheduler extends EventEmitter {
           return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });
         }
         if (err instanceof CpeLoginMethodError) return failure(err.scramKnown ? "scram_refused" : "unsupported_login", message, { code: err.probeCode });
+        // Another brand's login that could not be settled: the router answered, and no password went out
+        if (err instanceof DriverLoginMethodError) return failure("unsupported_login", message);
         if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
         return failure("unreachable", message);
       } finally {

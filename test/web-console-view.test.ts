@@ -50,6 +50,14 @@ describe("web core: console settings view", () => {
       assert.equal(notice.tone, reason === "human_logged_in" || reason === "standby" ? "pending" : "danger", reason);
       for (const locale of ["zh-CN", "en"] as const) assert.ok(SETTINGS_TEXT[locale][notice.key].length > 20, `${locale} ${reason}`);
     }
+    // Another brand's login that could not be settled is explained without HiLink's login details
+    const otherBrand = connectionNotice(failure("unsupported_login"), tEn, { family: "zte-goform", address: "192.168.0.1" });
+    assert.equal(otherBrand.key, "fail_unsupported_login_brand");
+    for (const locale of ["zh-CN", "en"] as const) {
+      assert.ok(!/password_type|SCRAM/.test(SETTINGS_TEXT[locale].fail_unsupported_login_brand), locale);
+      assert.ok(SETTINGS_TEXT[locale].fail_unsupported_login_brand.length > 40, locale);
+    }
+    assert.equal(connectionNotice(failure("unsupported_login"), tEn).key, "fail_unsupported_login", "HiLink's own text on a Huawei router");
     const ok: ConnectionTestResult = { ok: true, holdMs: 120, model: null, firmware: "4.4.0.1", loginScheme: "scram", tokenFlow: "webserver-token", ecc: true };
     assert.deepEqual(connectionNotice(ok, tEn), {
       key: "ok_result",

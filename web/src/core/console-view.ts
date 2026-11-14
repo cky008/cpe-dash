@@ -82,9 +82,10 @@ export function connectionNotice(
   }
   // Every failure reason has its own guidance text (checked by the type)
   let key: SettingsTextKey = `fail_${result.reason}` satisfies `fail_${ConnectionFailure["reason"]}`;
-  // No count of attempts left: none is made up; an answer that does not fit another brand's interface points at the brand
+  // No count of attempts left: none is made up; an answer or a login that does not fit another brand's interface points at the brand
   if (result.reason === "wrong_password" && result.remainCount === null) key = "fail_wrong_password_nocount";
   else if (result.reason === "router_error" && otherBrand) key = "fail_router_error_brand";
+  else if (result.reason === "unsupported_login" && otherBrand) key = "fail_unsupported_login_brand";
   const params = { ...guidanceParams(result), address: tested.address.trim() || usualAddress(tested.family), usual: usualAddress(tested.family) };
   return { key, params, tone: result.reason === "human_logged_in" || result.reason === "standby" ? "pending" : "danger" };
 }

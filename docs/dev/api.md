@@ -616,7 +616,7 @@ export type AlertCode =
   - `reason`：invalid_url：不是私网地址（SSRF 防护）；wrong_password：附 remainCount（路由器剩余尝试次数）；
   - `reason`：last_attempt：路由器只剩 1 次机会，未带 lastAttempt: true 时不尝试（防止 108007 硬件锁定）；
   - `reason`：locked：108007，附 waitTimeSec；password_change_required：115002，路由器要求先在它自己的网页改密码（已熔断，不自动重试）；
-  - `reason`：unsupported_login：password_type 缺失或未知且 SCRAM 挑战被拒，code 为拒绝挑战的错误码（不是挑战的响应时为 null），密码没有发出；
+  - `reason`：unsupported_login：password_type 缺失或未知且 SCRAM 挑战被拒，code 为拒绝挑战的错误码（不是挑战的响应时为 null），密码没有发出；其他品牌的登录方式定不下来时也是它（例如路由器给出的登录参数烽燧没有记录），code 为 null；
   - `reason`：scram_refused：这台路由器用 SCRAM 登录成功过，这次挑战被拒（code 同上），按 CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM=false（默认）
   - `reason`：不改用旧式登录，密码没有发出；同一地址换了型号时重新部署全新的容器，或临时把它设为 true 再测试、保存；
   - `reason`：unconfirmed_login：旧式 user/login 的应答无法判断（未知错误码，或页面、空的、截断或过大的响应、重定向），那次提交可能已算作一次错误，

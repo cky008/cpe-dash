@@ -493,6 +493,23 @@ function nradioRouter() {
 }
 
 describe("driver runtime: the connection's family", () => {
+  it("reports a login it cannot settle as that, in a connection test and in a poll: no password went out, the router is there", async () => {
+    // A login nonce FengSui has no record of: nothing carrying the password may be sent
+    const zte = zteRouter({ ld: "0123456789abcdef0123456789abcdef" });
+    const daemon = daemonOn("zte-goform", zte.mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
+    try {
+      const result = await daemon.core.scheduler.testConnection({ url: "http://192.168.0.1", username: "", password: ZTE_PASSWORD, family: "zte-goform" });
+      assert.deepEqual(result.ok ? null : [result.reason, result.code], ["unsupported_login", null], "not \"unreachable\": the router answered");
+      assert.match(result.ok ? "" : result.message, /no password was sent/);
+      await assert.rejects(daemon.core.monitor.refreshTelemetry(), /no password was sent/);
+      const status = daemon.core.scheduler.getStatus();
+      assert.deepEqual([status.mode, status.circuitBreaker.tripped], ["idle", false]);
+      assert.ok(!zte.mock.requests.some((r) => r.method === "POST"), "nothing was posted");
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it("cancels a connection test of another brand when the scheduler stops, and logs out the session its login opened", async () => {
     const router = openwrtRouter();
     let hold = false;
