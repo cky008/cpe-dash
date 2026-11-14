@@ -17,10 +17,22 @@ import type {
   SmsTrashResponse,
   VcardImportResponse,
 } from "../api-contract.ts";
-import { CpeControlValidationError } from "../cpe-domain.ts";
-import { MAX_SMS_RECIPIENTS } from "./submission.ts";
-import type { SmsService, SmsSyncMode } from "./service.ts";
-import type { SmsThreadFilter } from "./types.ts";
+import {
+  MAX_VCF_BODY_BYTES,
+  readContact,
+  readContactId,
+  readContactsQuery,
+  readMarkRead,
+  readPreview,
+  readPurge,
+  readSend,
+  readSyncMode,
+  readThreadKeyQuery,
+  readThreadsQuery,
+  readUids,
+  readVcard,
+} from "./input.ts";
+import type { SmsService } from "./service.ts";
 
 /** Minimal request surface the HTTP server hands to domain route modules. */
 export interface ApiRouteContext {
@@ -29,39 +41,6 @@ export interface ApiRouteContext {
   query: Readonly<Record<string, string>>;
   readJsonBody(maxBytes?: number): Promise<Record<string, unknown>>;
   sendJson(statusCode: number, body: unknown, headers?: Record<string, string>): void;
-}
-
-export const MAX_VCF_BODY_BYTES = 4 * 1024 * 1024;
-const MAX_CONTENT_CHARS = 2000;
-
-function optionalString(body: Record<string, unknown>, key: string, maxLength: number): string | undefined {
-  const value = body[key];
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") throw new CpeControlValidationError(`Field "${key}" must be a string`);
-  if (value.length > maxLength) throw new CpeControlValidationError(`Field "${key}" exceeds ${maxLength} characters`);
-  return value;
-}
-
-function requiredString(body: Record<string, unknown>, key: string, maxLength: number): string {
-  const value = optionalString(body, key, maxLength);
-  if (value === undefined || !value.trim()) throw new CpeControlValidationError(`Field "${key}" is required`);
-  return value;
-}
-
-function stringArray(body: Record<string, unknown>, key: string, maxItems: number): string[] | undefined {
-  const value = body[key];
-  if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || v.length > 128)) {
-    throw new CpeControlValidationError(`Field "${key}" must be an array of strings`);
-  }
-  if (value.length > maxItems) throw new CpeControlValidationError(`Field "${key}" accepts at most ${maxItems} items`);
-  return value as string[];
-}
-
-function parseLimit(raw: string | undefined, fallback: number, max: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  if (!/^\d{1,4}$/.test(raw)) throw new CpeControlValidationError(`Invalid limit "${raw}"`);
-  return Math.min(max, Math.max(1, Number(raw)));
 }
 
 /**
@@ -92,26 +71,17 @@ export class SmsHttpRoutes {
         ctx.sendJson(200, { ok: true, defaultCountryCode: this.sms.defaultCountryCode, countries: this.sms.countries() } satisfies SmsCountriesResponse);
         return true;
       case "/api/sms/threads": {
-        const filter = query["filter"] ?? "all";
-        if (filter !== "all" && filter !== "unread" && filter !== "otp") {
-          throw new CpeControlValidationError(`Unsupported filter "${filter}" (all | unread | otp)`);
-        }
-        const threads = this.sms.listThreads({
-          filter: filter satisfies SmsThreadFilter,
-          search: (query["search"] ?? "").slice(0, 100),
-          limit: parseLimit(query["limit"], 500, 500),
-        });
+        const threads = this.sms.listThreads(readThreadsQuery(query));
         ctx.sendJson(200, { ok: true, threads, status: this.sms.getStatus() } satisfies SmsThreadsResponse);
         return true;
       }
       case "/api/sms/thread": {
-        const key = (query["key"] ?? query["phone"] ?? "").trim();
-        if (!key || key.length > 64) throw new CpeControlValidationError('Query "key" (thread key or phone number) is required');
-        ctx.sendJson(200, { ok: true, thread: this.sms.getThread(key) } satisfies SmsThreadResponse);
+        ctx.sendJson(200, { ok: true, thread: this.sms.getThread(readThreadKeyQuery(query)) } satisfies SmsThreadResponse);
         return true;
       }
       case "/api/sms/contacts": {
-        const contacts = this.sms.listContacts((query["search"] ?? "").slice(0, 100), parseLimit(query["limit"], 500, 5000));
+        const { search, limit } = readContactsQuery(query);
+        const contacts = this.sms.listContacts(search, limit);
         ctx.sendJson(200, { ok: true, total: this.sms.contacts.size, contacts } satisfies SmsContactsResponse);
         return true;
       }
@@ -127,23 +97,13 @@ export class SmsHttpRoutes {
     switch (ctx.pathname) {
       case "/api/sms/preview": {
         const body = await ctx.readJsonBody();
-        const preview = this.sms.previewSend({
-          phone: optionalString(body, "phone", 64),
-          content: optionalString(body, "content", MAX_CONTENT_CHARS) ?? "",
-          countryCode: optionalString(body, "countryCode", 5),
-        });
+        const preview = this.sms.previewSend(readPreview(body));
         ctx.sendJson(200, { ok: true, preview } satisfies SmsPreviewResponse);
         return true;
       }
       case "/api/sms/send": {
         const body = await ctx.readJsonBody();
-        const phones = stringArray(body, "phones", MAX_SMS_RECIPIENTS) ?? [requiredString(body, "phone", 64)];
-        const outcome = await this.sms.send({
-          phones,
-          content: requiredString(body, "content", MAX_CONTENT_CHARS),
-          countryCode: optionalString(body, "countryCode", 5),
-          source: "web",
-        });
+        const outcome = await this.sms.send({ ...readSend(body), source: "web" });
         if (!outcome.result.ok) {
           ctx.sendJson(502, {
             ok: false,
@@ -159,61 +119,49 @@ export class SmsHttpRoutes {
       }
       case "/api/sms/read": {
         const body = await ctx.readJsonBody();
-        const result = await this.sms.markRead({
-          uids: stringArray(body, "uids", 200),
-          threadKey: optionalString(body, "threadKey", 64),
-        });
+        const result = await this.sms.markRead(readMarkRead(body));
         ctx.sendJson(200, { ok: true, ...result } satisfies SmsReadResponse);
         return true;
       }
       case "/api/sms/delete": {
         const body = await ctx.readJsonBody();
-        const result = await this.sms.deleteMessages({ uids: stringArray(body, "uids", 200) ?? [] });
+        const result = await this.sms.deleteMessages(readUids(body));
         ctx.sendJson(200, { ok: true, ...result } satisfies SmsDeleteResponse);
         return true;
       }
       case "/api/sms/trash/restore": {
         const body = await ctx.readJsonBody();
-        const result = await this.sms.restoreMessages({ uids: stringArray(body, "uids", 200) ?? [] });
+        const result = await this.sms.restoreMessages(readUids(body));
         ctx.sendJson(200, { ok: true, ...result } satisfies SmsRestoreResponse);
         return true;
       }
       case "/api/sms/trash/purge": {
         // A console session only (the server refuses tokens before this)
         const body = await ctx.readJsonBody();
-        if (body["all"] !== undefined && body["all"] !== true) throw new CpeControlValidationError('Field "all" must be true when given');
-        const result = this.sms.purgeTrash(body["all"] === true ? { all: true } : { uids: stringArray(body, "uids", 200) ?? [] });
+        const result = this.sms.purgeTrash(readPurge(body));
         ctx.sendJson(200, { ok: true, ...result } satisfies SmsPurgeResponse);
         return true;
       }
       case "/api/sms/sync": {
         const body = await ctx.readJsonBody();
-        const mode = optionalString(body, "mode", 16) ?? "full";
-        if (mode !== "full" && mode !== "incremental") {
-          throw new CpeControlValidationError('Field "mode" must be "full" or "incremental"');
-        }
-        const summary = await this.sms.sync(mode satisfies SmsSyncMode, { priority: "normal" });
+        const summary = await this.sms.sync(readSyncMode(body), { priority: "normal" });
         ctx.sendJson(200, { ok: true, summary, status: this.sms.getStatus() } satisfies SmsSyncResponse);
         return true;
       }
       case "/api/sms/contacts/upsert": {
         const body = await ctx.readJsonBody();
-        const contact = this.sms.upsertContact({
-          phone: requiredString(body, "phone", 64),
-          name: requiredString(body, "name", 256),
-          note: optionalString(body, "note", 1024),
-        });
+        const contact = this.sms.upsertContact(readContact(body));
         ctx.sendJson(200, { ok: true, contact } satisfies ContactUpsertResponse);
         return true;
       }
       case "/api/sms/contacts/delete": {
         const body = await ctx.readJsonBody();
-        ctx.sendJson(200, { ok: true, deleted: this.sms.removeContact(requiredString(body, "id", 64)) } satisfies ContactDeleteResponse);
+        ctx.sendJson(200, { ok: true, deleted: this.sms.removeContact(readContactId(body)) } satisfies ContactDeleteResponse);
         return true;
       }
       case "/api/sms/contacts/import-vcf": {
         const body = await ctx.readJsonBody(MAX_VCF_BODY_BYTES);
-        const summary = this.sms.importVcard(requiredString(body, "vcf", MAX_VCF_BODY_BYTES));
+        const summary = this.sms.importVcard(readVcard(body));
         ctx.sendJson(200, { ok: true, summary } satisfies VcardImportResponse);
         return true;
       }
