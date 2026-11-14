@@ -4,7 +4,7 @@ import type { DeviceAccessSnapshot, SchedulerStatusSnapshot, WriteResultRecord }
 import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, WRITE_FEATURES } from "../src/features.ts";
 import { FAMILY_WRITE_FEATURES } from "../src/router-family.ts";
 import { canWrite, experimentalOffer, experimentalWrites, hasSwitch, readbackTone, unavailableSection, unconfirmedWrite, unverifiedModel, versionLabel, writeState } from "../web/src/core/device-access-view.ts";
-import { FEATURE_KEYS, READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITE_STATE_KEYS, readText, switchScope, writeResultDetail, writesText } from "../web/src/core/device-view.ts";
+import { featureKey, READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITE_STATE_KEYS, readText, switchScope, writeResultDetail, writesText } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 
 /** What the console offers for the router it watches (multi-model phase 2), decided without the DOM. */
@@ -150,7 +150,7 @@ describe("console: experimental writes on a model nobody verified", () => {
       assert.ok(named, `${action} goes with the ${feature} switch: name it there`);
       for (const locale of ["zh-CN", "en"] as const) {
         const t = (key: keyof (typeof SETTINGS_TEXT)["en"], params?: Record<string, string | number>): string => SETTINGS_TEXT[locale][key].replace(/\{(\w+)\}/g, (_, k: string) => String(params?.[k] ?? ""));
-        assert.match(`${t(FEATURE_KEYS[feature])} ${switchScope(feature, t) ?? ""}`, named[locale], `${locale}: ${action}`);
+        assert.match(`${t(featureKey(feature))} ${switchScope(feature, t) ?? ""}`, named[locale], `${locale}: ${action}`);
       }
     }
     const en = (key: keyof (typeof SETTINGS_TEXT)["en"]): string => SETTINGS_TEXT.en[key];
@@ -158,7 +158,7 @@ describe("console: experimental writes on a model nobody verified", () => {
     assert.equal(switchScope("accessControl", en), null);
     assert.match(SETTINGS_TEXT.en.exp_scope_reboot, /never a factory reset/, "a reboot never sends Control 2");
     // The switch and the results name the SMS feature as more than sending
-    assert.deepEqual([SETTINGS_TEXT["zh-CN"].feature_sms_write, SETTINGS_TEXT.en.feature_sms_write], ["发送与管理短信", "Send and manage SMS"]);
+    assert.deepEqual([SETTINGS_TEXT["zh-CN"].feature_smsWrite, SETTINGS_TEXT.en.feature_smsWrite], ["发送与管理短信", "Send and manage SMS"]);
     // The list says the writes were never checked on a real router, in place of the consent dialog that is gone
     assert.match(SETTINGS_TEXT["zh-CN"].exp_intro, /没有在真机上验证过[\s\S]*默认可用[\s\S]*逐项关闭/);
     assert.match(SETTINGS_TEXT.en.exp_intro, /never checked on a real one[\s\S]*available by default[\s\S]*Turn off/);

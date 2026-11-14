@@ -54,7 +54,7 @@ npm run build:docs  # the documentation site, into dist/site
    synthetic cell listed in [`AGENTS.md`](AGENTS.md). Never commit `.env`, `data/`, HAR or pcap files, or values copied
    from your own router (that includes PCI and frequency numbers: they can locate a cell site).
 6. **`npm run check` must pass** before you open a pull request; it also runs the browser tests and the secret scan over the full history.
-7. **A new feature is registered once.** Add its record to the capability registry, [`src/features.ts`](src/features.ts) (read or write, its column in Supported devices and its name there, where it is read or which writes are filed under it); then name it in the facts of the brand that implements it (`src/router-family.ts`) and give it its two console labels. The write gate, the table, the device report, Settings → Device and the agent test take it from there.
+7. **A new feature is registered once.** Add its record to the capability registry, [`src/features.ts`](src/features.ts) (read or write, its column in Supported devices and its name there, where it is read or which writes are filed under it); then name it in the facts of the brand that implements it (`src/router-family.ts`) and give it its two console labels (`feature_<name>` in `web/src/i18n/settings.ts`, Chinese and English; a missing one fails the typecheck). The write gate, the table, the device report, Settings → Device and the agent test take it from there.
 
 1. **先写测试**：先写一个失败的测试，再写让它通过的改动。测试使用 `node:test` 和 `test/helpers/` 里的 Mock 路由器，绝不连接真实路由器。覆盖率保持 90% 以上。
 2. **只用严格 TypeScript**：不要 `.js` 文件，不要 `any`，不要 `@ts-ignore`。

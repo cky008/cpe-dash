@@ -5,7 +5,7 @@ import { CATALOG_SECTIONS, deviceSupportRow } from "../src/device-catalog.ts";
 import { type DeviceProfile, type DeviceReport, buildDeviceReport } from "../src/device-profile.ts";
 import { DEVICE_FEATURES } from "../src/features.ts";
 import {
-  FEATURE_KEYS,
+  featureKey,
   STATE_KEYS,
   bandText,
   detectedText,
@@ -92,7 +92,11 @@ describe("web core: device view", () => {
   });
 
   it("labels every feature and endpoint state in both languages", () => {
-    for (const feature of DEVICE_FEATURES) assert.ok(FEATURE_KEYS[feature], feature);
+    // Each feature's name is the dictionary's feature_<name>, filled in both languages
+    for (const feature of DEVICE_FEATURES) {
+      assert.equal(featureKey(feature), `feature_${feature}`);
+      for (const locale of ["zh-CN", "en"] as const) assert.ok(SETTINGS_TEXT[locale][featureKey(feature)].trim(), `${locale}: ${feature}`);
+    }
     for (const state of ["supported", "unsupported", "restricted", "unknown"] as const) assert.ok(STATE_KEYS[state], state);
     const en = text("en");
     assert.equal(endpointText({ path: "/api/net/net-mode-list", state: "supported", code: null }, en), SETTINGS_TEXT.en.state_supported);
@@ -169,8 +173,8 @@ describe("console: the device report's summary", () => {
     });
     const summary = checksSummary(report, t);
     assert.deepEqual(summary.map((line) => [line.result, line.count]), [["works", 2], ["failed", 1], ["untested", 24]]);
-    assert.equal(summary[0]?.text, `2 work: ${t(FEATURE_KEYS.telemetry)}, ${t(FEATURE_KEYS.cellLock)}`);
-    assert.equal(summary[1]?.text, `1 do not work: ${t(FEATURE_KEYS.neighbors)}`);
+    assert.equal(summary[0]?.text, `2 work: ${t(featureKey("telemetry"))}, ${t(featureKey("cellLock"))}`);
+    assert.equal(summary[1]?.text, `1 do not work: ${t(featureKey("neighbors"))}`);
     assert.deepEqual(checksSummary({ checks: [] }, t).map((line) => line.text), ["0 work", "0 do not work", "0 not tried yet"]);
     for (const locale of ["zh-CN", "en"] as const) for (const key of ["report_summary_title", "report_summary_works", "report_summary_failed", "report_summary_untested", "report_summary_hint"] as const) assert.ok(SETTINGS_TEXT[locale][key].trim());
   });

@@ -44,7 +44,7 @@ import {
 } from "../core/console-view.ts";
 import { experimentalOffer, experimentalWrites, hasSwitch, readbackTone, reportVerified } from "../core/device-access-view.ts";
 import {
-  FEATURE_KEYS,
+  featureKey,
   READBACK_KEYS,
   READ_STATE_KEYS,
   SECTION_KEYS,
@@ -468,7 +468,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
           "li",
           { class: "flex items-center gap-1.5 rounded-lg bg-base-200/40 px-2 py-1 text-xs" },
           icon(supported ? "check" : "info", supported ? "text-success" : "text-base-content/40"),
-          h("span", { class: "truncate" }, t(FEATURE_KEYS[feature])),
+          h("span", { class: "truncate" }, t(featureKey(feature))),
           h("span", { class: "ml-auto faint" }, capability.source === "verified" ? t("source_verified") : t(STATE_KEYS[capability.state]))
         );
       });
@@ -522,7 +522,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
    */
   const switchExperimental = async (feature: WriteFeature, input: HTMLInputElement): Promise<void> => {
     const on = input.checked;
-    const label = t(FEATURE_KEYS[feature]);
+    const label = t(featureKey(feature));
     switching.add(feature);
     render();
     try {
@@ -546,7 +546,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     if (offer.length === 0) return null;
     const model = scheduler?.device.model ?? "?";
     const rows = offer.map(({ feature, state }) => {
-      const label = t(FEATURE_KEYS[feature]);
+      const label = t(featureKey(feature));
       let control: HTMLElement | null = null;
       let scope: string | null = null;
       if (hasSwitch(scheduler, feature)) {
@@ -579,7 +579,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
         h(
           "div",
           { class: "flex flex-wrap items-baseline gap-x-2" },
-          h("span", { class: "text-sm" }, t(FEATURE_KEYS[result.feature])),
+          h("span", { class: "text-sm" }, t(featureKey(result.feature))),
           h("code", { class: "font-mono text-[0.6875rem] faint" }, result.action),
           h("span", { class: `ml-auto text-xs ${TONE[readbackTone(result)]}` }, t(READBACK_KEYS[result.readback]))
         ),

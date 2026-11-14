@@ -29,35 +29,13 @@ import type { Locale } from "./i18n.ts";
 
 type Text = (key: SettingsTextKey, params?: Record<string, string | number>) => string;
 
-export const FEATURE_KEYS: Readonly<Record<DeviceFeature, SettingsTextKey>> = {
-  telemetry: "feature_telemetry",
-  neighbors: "feature_neighbors",
-  topology: "feature_topology",
-  smsRead: "feature_sms_read",
-  smsWrite: "feature_sms_write",
-  bandLock: "feature_band_lock",
-  cellLock: "feature_cell_lock",
-  reboot: "feature_reboot",
-  reconnect: "feature_reconnect",
-  mobileData: "feature_mobile_data",
-  securitySwitches: "feature_security",
-  wifi: "feature_wifi",
-  antenna: "feature_antenna",
-  accessControl: "feature_access",
-  battery: "feature_battery",
-  simCard: "feature_sim_card",
-  airplaneMode: "feature_airplane_mode",
-  networkMode: "feature_network_mode",
-  operatorSelect: "feature_operator_select",
-  simSlot: "feature_sim_slot",
-  simPin: "feature_sim_pin",
-  airplaneSwitch: "feature_airplane_switch",
-  roaming: "feature_roaming",
-  apn: "feature_apn",
-  dataLimit: "feature_data_limit",
-  trafficReset: "feature_traffic_reset",
-  ussd: "feature_ussd",
-};
+/**
+ * The console's name of a feature: the settings dictionary's `feature_<name>` line, in each language.
+ * There is no table to keep: a feature registered without its two lines fails the typecheck here.
+ */
+export function featureKey(feature: DeviceFeature): SettingsTextKey {
+  return `feature_${feature}`;
+}
 
 export const STATE_KEYS: Readonly<Record<EndpointState, SettingsTextKey>> = {
   supported: "state_supported",
@@ -230,7 +208,7 @@ export function reportFileName(report: DeviceReport): string {
 export function checksSummary(report: Pick<DeviceReport, "checks">, t: Text): Array<{ result: "works" | "failed" | "untested"; text: string; count: number }> {
   const checks = report.checks ?? [];
   const groups = (["works", "failed", "untested"] as const).map((result) => {
-    const names = checks.filter((check) => check.result === result).map((check) => t(FEATURE_KEYS[check.feature]));
+    const names = checks.filter((check) => check.result === result).map((check) => t(featureKey(check.feature)));
     return { result, count: names.length, text: names.length > 0 ? `${t(SUMMARY_KEYS[result], { count: names.length })}: ${names.join(", ")}` : t(SUMMARY_KEYS[result], { count: 0 }) };
   });
   return groups;
