@@ -6,9 +6,9 @@ import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encry
 import { firmwareReviewPrompt } from "../firmware.ts";
 import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
-import { gateRefuses } from "../device-access.ts";
-import { type WriteFeature } from "../features.ts";
-import { type NetworkMode, type UssdRequest, isNetworkMode, readUssdRequest } from "../cellular.ts";
+import { type FeatureWriteAccess, gateRefuses } from "../device-access.ts";
+import type { NetworkMode, UssdRequest } from "../cellular.ts";
+import { type InputOf, type OperationName, operationActions, operationInput } from "../operations/registry.ts";
 import { BrowserSessionYieldedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/text-mode.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
@@ -1561,10 +1561,10 @@ export class TelegramBot implements NotificationChannel {
    * nothing FengSui can do there), and resolve `true`; `false` when it may go ahead. A router whose
    * model is not known yet goes ahead: the write confirms the model in its own session.
    */
-  async #refuseCellular(to: ReplyTo, feature: WriteFeature, what: TextKey): Promise<boolean> {
+  async #refuseCellular(to: ReplyTo, op: OperationName, what: TextKey): Promise<boolean> {
     const device = this.core.scheduler.device;
-    const access = device.writeAccess(feature);
-    if (!gateRefuses(access)) return false;
+    const access = this.#gateRefusal(op);
+    if (access === null) return false;
     const reason = access === "disabled" ? this.#plain("reason_disabled") : this.#plain("reason_unavailable", { model: device.snapshot().model ?? "?" });
     await this.#reply(to, "cell_refused", { what: this.#plain(what), reason });
     return true;
@@ -1624,12 +1624,8 @@ export class TelegramBot implements NotificationChannel {
    */
   async #cmdUssd(to: ReplyTo, code: string, kind: "send" | "reply"): Promise<void> {
     if (await this.#refuseCellular(to, "ussd", "ussd_title")) return;
-    let request: UssdRequest;
-    try {
-      request = readUssdRequest({ action: kind, code: code.trim() });
-    } catch {
-      return await this.#reply(to, "ussd_usage");
-    }
+    const request = this.#checked("ussd", { action: kind, code: code.trim() });
+    if (request === null) return await this.#reply(to, "ussd_usage");
     if (request.kind === "cancel") return;
     const token = this.#holdOp(to.chatId, { kind: "ussd", request });
     await this.#send(to, this.#tx("ussd_confirm", { code: request.code }), {
@@ -1659,7 +1655,9 @@ export class TelegramBot implements NotificationChannel {
       return await card(this.#tx("wiz_cancelled"));
     }
     if (action === "nm" || action === "ap") {
-      const op: PendingCellularOpBody | null = action === "nm" ? (isNetworkMode(arg) ? { kind: "netmode", mode: arg } : null) : arg === "1" || arg === "0" ? { kind: "airplane", enabled: arg === "1" } : null;
+      const mode = action === "nm" ? this.#checked("networkMode", { mode: arg }) : null;
+      const enabled = action === "ap" && (arg === "1" || arg === "0") ? this.#checked("airplaneSwitch", { enabled: arg === "1" }) : null;
+      const op: PendingCellularOpBody | null = mode !== null ? { kind: "netmode", mode } : enabled !== null ? { kind: "airplane", enabled } : null;
       if (!op) return void (await answer());
       await answer();
       const token = this.#holdOp(chatId, op);
@@ -2066,8 +2064,27 @@ export class TelegramBot implements NotificationChannel {
    * SMS write for, or whose owner turned SMS writes off), else `null`.
    */
   #readOnlyModel(): string | null {
+    return this.#gateRefusal("smsSend") !== null ? (this.core.scheduler.device.snapshot().model ?? "?") : null;
+  }
+
+  /** How the write gate refuses an operation on this router: at the first of its writes it closes (`null`: every one is open). */
+  #gateRefusal(op: OperationName): Extract<FeatureWriteAccess, "disabled" | "unavailable"> | null {
     const device = this.core.scheduler.device;
-    return gateRefuses(device.writeAccess("smsWrite")) ? (device.snapshot().model ?? "?") : null;
+    for (const action of operationActions(op)) {
+      const access = device.actionAccess(action);
+      if (gateRefuses(access)) return access;
+    }
+    return null;
+  }
+
+  /** An operation's first input check on what a command or a button carries; `null` when it refuses it. */
+  #checked<O extends OperationName>(op: O, fields: Readonly<Record<string, unknown>>): InputOf<O> | null {
+    try {
+      return operationInput(op, fields);
+    } catch (err) {
+      if (err instanceof CpeControlValidationError) return null;
+      throw err;
+    }
   }
 
   /** Explain instead of writing when the gate refuses SMS writes on this router; `true` when it does. */

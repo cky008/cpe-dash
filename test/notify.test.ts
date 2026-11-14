@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { OPERATION_NAMES, operationRecord } from "../src/operations/registry.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -911,6 +912,11 @@ describe("TelegramBot", () => {
     assert.match(fx.tg.lastText("1001"), /Synced/);
     await fx.message(1001, "/frobnicate");
     assert.match(fx.tg.lastText("1001"), /Unknown command <code>\/frobnicate<\/code>/);
+    // Every command an operation's record names is one the bot answers
+    for (const command of OPERATION_NAMES.flatMap((op) => operationRecord(op).telegram ?? [])) {
+      await fx.message(1001, `/${command}`);
+      assert.doesNotMatch(fx.tg.lastText("1001"), /Unknown command/, command);
+    }
     await fx.message(1001, "/help");
     assert.deepEqual(fx.tg.buttons(fx.tg.sends("1001").at(-1)), ["wizstart:1", "inbox:1", "unread:1", "status:1"]);
     await fx.cleanup();
