@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import type { FengSuiCore } from "./core.ts";
 import type { AccessControlSnapshot } from "./access-control.ts";
 import type { GlobalTelemetrySnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
@@ -26,6 +25,26 @@ export type SseEventName =
 
 export const SMS_SSE_EVENTS = ["sms:new", "sms:sent", "sms:updated", "sms:sync", "sms:status", "contacts:updated"] as const;
 
+/** What the bus needs of the request a stream was opened with (the daemon's `IncomingMessage`). */
+export interface SseRequest {
+  on(event: "close" | "error", listener: () => void): unknown;
+}
+
+/**
+ * What the bus needs of the response it streams into: the daemon's `ServerResponse`, or the live
+ * demo's stand-in that hands each frame to the console in the same page (web/src/demo/transport.ts).
+ */
+export interface SseResponse {
+  writeHead(statusCode: number, headers: Record<string, string>): unknown;
+  flushHeaders?(): void;
+  write(chunk: string): boolean;
+  end(): unknown;
+  destroy?(): unknown;
+  readonly writableEnded: boolean;
+  readonly destroyed: boolean;
+  on(event: "close" | "error", listener: () => void): unknown;
+}
+
 interface SseClientEntry {
   id: string;
   clientIp: string;
@@ -37,7 +56,7 @@ interface SseClientEntry {
   redact: boolean;
   /** Receives SMS and contact events (a token without the sms-read permission does not). */
   sms: boolean;
-  res: ServerResponse;
+  res: SseResponse;
   connectedAtMs: number;
   consecutiveBackpressureCount: number;
 }
@@ -169,8 +188,8 @@ export class SseEventBus {
    * Subscribe an authenticated HTTP response stream to `/api/events`.
    */
   subscribe(params: {
-    req: IncomingMessage;
-    res: ServerResponse;
+    req: SseRequest;
+    res: SseResponse;
     clientIp: string;
     sessionId?: string | null;
     tokenId?: string | null;
