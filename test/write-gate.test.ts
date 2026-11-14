@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { CELLULAR_OPERATIONS } from "../src/operations/cellular-settings.ts";
+import { REST_OPERATIONS, restBinding } from "../src/operations/registry.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -460,8 +462,10 @@ describe("write gate over REST: every control and SMS write route answers 409 wh
         ["/api/sms/read", { uids: unread }],
         ["/api/sms/delete", { uids: messages.slice(0, 1).map((m) => m.uid) }],
       ];
-      // A new control route has to be added here
-      const served = [...fs.readFileSync("src/http-server.ts", "utf8").matchAll(/case "(\/api\/control\/[a-z0-9-]+)"/g)].map((m) => m[1]);
+      // A new control route has to be added here (the cellular settings' gate is checked in cellular-http-mcp.test.ts)
+      const served = REST_OPERATIONS.filter((op) => !Object.hasOwn(CELLULAR_OPERATIONS, op))
+        .map((op) => restBinding(op).path)
+        .filter((p) => p.startsWith("/api/control/"));
       assert.deepEqual(served.sort(), routes.map(([p]) => p).filter((p) => p.startsWith("/api/control/")).sort());
 
       // The owner turned off the two writes FengSui implements that this router can take (Settings → Device)

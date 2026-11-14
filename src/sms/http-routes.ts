@@ -17,21 +17,7 @@ import type {
   SmsTrashResponse,
   VcardImportResponse,
 } from "../api-contract.ts";
-import {
-  MAX_VCF_BODY_BYTES,
-  readContact,
-  readContactId,
-  readContactsQuery,
-  readMarkRead,
-  readPreview,
-  readPurge,
-  readSend,
-  readSyncMode,
-  readThreadKeyQuery,
-  readThreadsQuery,
-  readUids,
-  readVcard,
-} from "./input.ts";
+import { type OperationHandlers, type SmsRestOperation, restBinding, runOperation, smsOperation } from "../operations/registry.ts";
 import type { SmsService } from "./service.ts";
 
 /** Minimal request surface the HTTP server hands to domain route modules. */
@@ -45,65 +31,50 @@ export interface ApiRouteContext {
 
 /**
  * `/api/sms/*` REST routes. GET routes read the encrypted mirror and contact book (no CPE session);
- * POST routes are mutations or explicit syncs and inherit the server's CSRF / Bearer guards.
+ * POST routes are mutations or explicit syncs and inherit the server's CSRF / Bearer guards. The
+ * routes and their input checks are the operation registry's; this module writes their handlers.
  */
 export class SmsHttpRoutes {
   readonly sms: SmsService;
+  readonly #handlers: OperationHandlers<SmsRestOperation, ApiRouteContext, void>;
 
   constructor(sms: SmsService) {
     this.sms = sms;
+    this.#handlers = this.#buildHandlers();
   }
 
-  /** Returns `false` for unknown routes so the server can answer `404 NOT_FOUND`. */
+  /** Returns `false` for unknown routes so the server can answer `404 NOT_FOUND` (an unknown POST's body is never read). */
   async handle(ctx: ApiRouteContext): Promise<boolean> {
-    if (ctx.method === "GET") return this.#handleGet(ctx);
-    if (ctx.method === "POST") return await this.#handlePost(ctx);
-    return false;
+    const op = smsOperation(ctx.method, ctx.pathname);
+    if (op === null) return false;
+    const rest = restBinding(op);
+    const fields = rest.method === "GET" ? ctx.query : await ctx.readJsonBody(rest.maxBodyBytes);
+    await runOperation(this.#handlers, op, fields, ctx);
+    return true;
   }
 
-  #handleGet(ctx: ApiRouteContext): boolean {
-    const { query } = ctx;
-    switch (ctx.pathname) {
-      case "/api/sms/status":
-        ctx.sendJson(200, { ok: true, status: this.sms.getStatus() } satisfies SmsStatusResponse);
-        return true;
-      case "/api/sms/countries":
-        ctx.sendJson(200, { ok: true, defaultCountryCode: this.sms.defaultCountryCode, countries: this.sms.countries() } satisfies SmsCountriesResponse);
-        return true;
-      case "/api/sms/threads": {
-        const threads = this.sms.listThreads(readThreadsQuery(query));
-        ctx.sendJson(200, { ok: true, threads, status: this.sms.getStatus() } satisfies SmsThreadsResponse);
-        return true;
-      }
-      case "/api/sms/thread": {
-        ctx.sendJson(200, { ok: true, thread: this.sms.getThread(readThreadKeyQuery(query)) } satisfies SmsThreadResponse);
-        return true;
-      }
-      case "/api/sms/contacts": {
-        const { search, limit } = readContactsQuery(query);
-        const contacts = this.sms.listContacts(search, limit);
-        ctx.sendJson(200, { ok: true, total: this.sms.contacts.size, contacts } satisfies SmsContactsResponse);
-        return true;
-      }
-      case "/api/sms/trash":
-        ctx.sendJson(200, { ok: true, messages: this.sms.listTrash(), trashDays: this.sms.trashDays } satisfies SmsTrashResponse);
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  async #handlePost(ctx: ApiRouteContext): Promise<boolean> {
-    switch (ctx.pathname) {
-      case "/api/sms/preview": {
-        const body = await ctx.readJsonBody();
-        const preview = this.sms.previewSend(readPreview(body));
-        ctx.sendJson(200, { ok: true, preview } satisfies SmsPreviewResponse);
-        return true;
-      }
-      case "/api/sms/send": {
-        const body = await ctx.readJsonBody();
-        const outcome = await this.sms.send({ ...readSend(body), source: "web" });
+  #buildHandlers(): OperationHandlers<SmsRestOperation, ApiRouteContext, void> {
+    const { sms } = this;
+    return {
+      smsStatus: (_input, ctx) => ctx.sendJson(200, { ok: true, status: sms.getStatus() } satisfies SmsStatusResponse),
+      smsCountries: (_input, ctx) => ctx.sendJson(200, { ok: true, defaultCountryCode: sms.defaultCountryCode, countries: sms.countries() } satisfies SmsCountriesResponse),
+      smsThreads: (query, ctx) => {
+        const threads = sms.listThreads(query);
+        ctx.sendJson(200, { ok: true, threads, status: sms.getStatus() } satisfies SmsThreadsResponse);
+      },
+      smsThread: (key, ctx) => ctx.sendJson(200, { ok: true, thread: sms.getThread(key) } satisfies SmsThreadResponse),
+      contacts: ({ search, limit }, ctx) => {
+        const contacts = sms.listContacts(search, limit);
+        ctx.sendJson(200, { ok: true, total: sms.contacts.size, contacts } satisfies SmsContactsResponse);
+      },
+      smsTrash: (_input, ctx) => ctx.sendJson(200, { ok: true, messages: sms.listTrash(), trashDays: sms.trashDays } satisfies SmsTrashResponse),
+      smsPreview: (request, ctx) => ctx.sendJson(200, { ok: true, preview: sms.previewSend(request) } satisfies SmsPreviewResponse),
+      smsSync: async (mode, ctx) => {
+        const summary = await sms.sync(mode, { priority: "normal" });
+        ctx.sendJson(200, { ok: true, summary, status: sms.getStatus() } satisfies SmsSyncResponse);
+      },
+      smsSend: async (request, ctx) => {
+        const outcome = await sms.send({ ...request, source: "web" });
         if (!outcome.result.ok) {
           ctx.sendJson(502, {
             ok: false,
@@ -112,61 +83,18 @@ export class SmsHttpRoutes {
             result: outcome.result,
             resolvedPhones: outcome.resolvedPhones,
           } satisfies ApiErrorEnvelope);
-          return true;
+          return;
         }
         ctx.sendJson(200, { ok: true, ...outcome } satisfies SmsSendResponse);
-        return true;
-      }
-      case "/api/sms/read": {
-        const body = await ctx.readJsonBody();
-        const result = await this.sms.markRead(readMarkRead(body));
-        ctx.sendJson(200, { ok: true, ...result } satisfies SmsReadResponse);
-        return true;
-      }
-      case "/api/sms/delete": {
-        const body = await ctx.readJsonBody();
-        const result = await this.sms.deleteMessages(readUids(body));
-        ctx.sendJson(200, { ok: true, ...result } satisfies SmsDeleteResponse);
-        return true;
-      }
-      case "/api/sms/trash/restore": {
-        const body = await ctx.readJsonBody();
-        const result = await this.sms.restoreMessages(readUids(body));
-        ctx.sendJson(200, { ok: true, ...result } satisfies SmsRestoreResponse);
-        return true;
-      }
-      case "/api/sms/trash/purge": {
-        // A console session only (the server refuses tokens before this)
-        const body = await ctx.readJsonBody();
-        const result = this.sms.purgeTrash(readPurge(body));
-        ctx.sendJson(200, { ok: true, ...result } satisfies SmsPurgeResponse);
-        return true;
-      }
-      case "/api/sms/sync": {
-        const body = await ctx.readJsonBody();
-        const summary = await this.sms.sync(readSyncMode(body), { priority: "normal" });
-        ctx.sendJson(200, { ok: true, summary, status: this.sms.getStatus() } satisfies SmsSyncResponse);
-        return true;
-      }
-      case "/api/sms/contacts/upsert": {
-        const body = await ctx.readJsonBody();
-        const contact = this.sms.upsertContact(readContact(body));
-        ctx.sendJson(200, { ok: true, contact } satisfies ContactUpsertResponse);
-        return true;
-      }
-      case "/api/sms/contacts/delete": {
-        const body = await ctx.readJsonBody();
-        ctx.sendJson(200, { ok: true, deleted: this.sms.removeContact(readContactId(body)) } satisfies ContactDeleteResponse);
-        return true;
-      }
-      case "/api/sms/contacts/import-vcf": {
-        const body = await ctx.readJsonBody(MAX_VCF_BODY_BYTES);
-        const summary = this.sms.importVcard(readVcard(body));
-        ctx.sendJson(200, { ok: true, summary } satisfies VcardImportResponse);
-        return true;
-      }
-      default:
-        return false;
-    }
+      },
+      smsMarkRead: async (request, ctx) => ctx.sendJson(200, { ok: true, ...(await sms.markRead(request)) } satisfies SmsReadResponse),
+      smsDelete: async (request, ctx) => ctx.sendJson(200, { ok: true, ...(await sms.deleteMessages(request)) } satisfies SmsDeleteResponse),
+      smsRestore: async (request, ctx) => ctx.sendJson(200, { ok: true, ...(await sms.restoreMessages(request)) } satisfies SmsRestoreResponse),
+      // A console session only (the server refuses tokens before this)
+      smsPurge: (request, ctx) => ctx.sendJson(200, { ok: true, ...sms.purgeTrash(request) } satisfies SmsPurgeResponse),
+      contactUpsert: (contact, ctx) => ctx.sendJson(200, { ok: true, contact: sms.upsertContact(contact) } satisfies ContactUpsertResponse),
+      contactDelete: (id, ctx) => ctx.sendJson(200, { ok: true, deleted: sms.removeContact(id) } satisfies ContactDeleteResponse),
+      contactImport: (vcf, ctx) => ctx.sendJson(200, { ok: true, summary: sms.importVcard(vcf) } satisfies VcardImportResponse),
+    };
   }
 }

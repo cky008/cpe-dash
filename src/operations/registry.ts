@@ -220,3 +220,18 @@ export function operationActions(op: OperationName): ReadonlyArray<ControlAction
 export function operationFeatures(op: OperationName): ReadonlyArray<WriteFeature> {
   return [...new Set(operationActions(op).map((action) => CONTROL_FEATURES[action]))];
 }
+
+// ---------------------------------------------------------------------------- the entries' handlers
+
+/**
+ * An entry's handlers: one for each operation it serves, taking the input its first check returned.
+ * Typed this way, an operation registered for an entry and without a handler there fails the typecheck.
+ */
+export type OperationHandlers<Ops extends OperationName, Call, Result = unknown> = { readonly [O in Ops]: (input: InputOf<O>, call: Call) => Result | Promise<Result> };
+
+/** Check a request's fields with the operation's first check, then run its handler. */
+export async function runOperation<Ops extends OperationName, Call, Result>(handlers: OperationHandlers<Ops, Call, Result>, op: Ops, fields: Fields, call: Call): Promise<Result> {
+  const input = operationInput(op, fields);
+  const handler = handlers[op] as (input: unknown, call: Call) => Result | Promise<Result>;
+  return await handler(input, call);
+}

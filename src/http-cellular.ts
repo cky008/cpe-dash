@@ -11,17 +11,15 @@ import type {
   TrafficResetResponse,
   UssdResponse,
 } from "./api-contract.ts";
-import { readApnChoice, readDataLimit, readNetworkMode, readOperatorSelection, readSimPin, readSimSlot, readUssdRequest } from "./cellular.ts";
-import { CpeControlValidationError } from "./control-error.ts";
 import type { CpeControlService } from "./cpe-controls.ts";
+import type { CELLULAR_OPERATIONS } from "./operations/cellular-settings.ts";
+import type { OperationHandlers } from "./operations/registry.ts";
 
 /**
- * The REST routes of the cellular settings (`POST /api/control/…`, the `control` permission): each
- * reads its body with the shared checks of `src/cellular.ts`, needs `confirm: true`, and is one call
+ * The REST handlers of the cellular settings (`POST /api/control/…`, the `control` permission). The
+ * routes, their input checks and `confirm` come from the operation registry; each handler is one call
  * of the control service. A PIN and a USSD code pass through here and are kept nowhere.
  */
-
-type Body = Readonly<Record<string, unknown>>;
 
 export type CellularControlResponse =
   | NetworkModeControlResponse
@@ -36,38 +34,21 @@ export type CellularControlResponse =
   | TrafficResetResponse
   | UssdResponse;
 
-function readSwitch(body: Body): boolean {
-  const enabled = body["enabled"];
-  if (typeof enabled !== "boolean") throw new CpeControlValidationError('"enabled" must be a boolean');
-  return enabled;
-}
+export type CellularOperation = keyof typeof CELLULAR_OPERATIONS;
 
-const ROUTES: Readonly<Record<string, (controls: CpeControlService, body: Body, opts: { confirm: boolean }) => Promise<CellularControlResponse>>> = {
-  "/api/control/network-mode": async (controls, body, opts) => ({ ok: true, ...(await controls.setNetworkMode(readNetworkMode(body["mode"]), opts)) }) satisfies NetworkModeControlResponse,
-  "/api/control/operator-scan": async (controls, _body, opts) => ({ ok: true, operators: await controls.scanOperators(opts) }) satisfies OperatorScanResponse,
-  "/api/control/operator": async (controls, body, opts) => ({ ok: true, ...(await controls.selectOperator(readOperatorSelection(body), opts)) }) satisfies OperatorControlResponse,
-  "/api/control/sim-slot": async (controls, body, opts) => ({ ok: true, ...(await controls.setSimSlot(readSimSlot(body), opts)) }) satisfies SimSlotControlResponse,
-  "/api/control/sim-pin": async (controls, body, opts) => {
-    const action = body["action"] ?? "enter";
-    if (action !== "enter" && action !== "lock" && action !== "unlock") throw new CpeControlValidationError('"action" must be "enter", "lock" or "unlock"');
-    const pin = readSimPin(body["pin"]);
-    const outcome = action === "enter" ? await controls.enterSimPin(pin, opts) : await controls.setSimPinLock(action === "lock", pin, opts);
-    return { ok: true, ...outcome } satisfies SimPinControlResponse;
-  },
-  "/api/control/airplane-mode": async (controls, body, opts) => ({ ok: true, ...(await controls.setAirplaneMode(readSwitch(body), opts)) }) satisfies AirplaneModeControlResponse,
-  "/api/control/roaming": async (controls, body, opts) => ({ ok: true, ...(await controls.setRoaming(readSwitch(body), opts)) }) satisfies RoamingControlResponse,
-  "/api/control/apn": async (controls, body, opts) => ({ ok: true, ...(await controls.setApn(readApnChoice(body), opts)) }) satisfies ApnControlResponse,
-  "/api/control/data-limit": async (controls, body, opts) => ({ ok: true, ...(await controls.setDataLimit(readDataLimit(body), opts)) }) satisfies DataLimitControlResponse,
-  "/api/control/traffic-reset": async (controls, _body, opts) => ({ ok: true, ...(await controls.resetTraffic(opts)) }) satisfies TrafficResetResponse,
-  "/api/control/ussd": async (controls, body, opts) => ({ ok: true, ussd: await controls.sendUssd(readUssdRequest(body), opts) }) satisfies UssdResponse,
-};
-
-/** The paths of the cellular setting writes, in the order the reference lists them. */
-export const CELLULAR_CONTROL_ROUTES: ReadonlyArray<string> = Object.keys(ROUTES);
-
-/** Run a cellular setting write (`null`: not one of these routes). */
-export async function cellularControl(controls: CpeControlService, pathname: string, body: Body): Promise<CellularControlResponse | null> {
-  const route = Object.hasOwn(ROUTES, pathname) ? ROUTES[pathname] : undefined;
-  if (!route) return null;
-  return await route(controls, body, { confirm: body["confirm"] === true });
+export function cellularRestHandlers(controls: CpeControlService): OperationHandlers<CellularOperation, { confirm: boolean }, CellularControlResponse> {
+  return {
+    networkMode: async (mode, { confirm }) => ({ ok: true, ...(await controls.setNetworkMode(mode, { confirm })) }) satisfies NetworkModeControlResponse,
+    operatorScan: async (_input, { confirm }) => ({ ok: true, operators: await controls.scanOperators({ confirm }) }) satisfies OperatorScanResponse,
+    operatorSelect: async (choice, { confirm }) => ({ ok: true, ...(await controls.selectOperator(choice, { confirm })) }) satisfies OperatorControlResponse,
+    simSlot: async (slot, { confirm }) => ({ ok: true, ...(await controls.setSimSlot(slot, { confirm })) }) satisfies SimSlotControlResponse,
+    simPin: async ({ action, pin }, { confirm }) =>
+      ({ ok: true, ...(action === "enter" ? await controls.enterSimPin(pin, { confirm }) : await controls.setSimPinLock(action === "lock", pin, { confirm })) }) satisfies SimPinControlResponse,
+    airplaneSwitch: async (enabled, { confirm }) => ({ ok: true, ...(await controls.setAirplaneMode(enabled, { confirm })) }) satisfies AirplaneModeControlResponse,
+    roaming: async (enabled, { confirm }) => ({ ok: true, ...(await controls.setRoaming(enabled, { confirm })) }) satisfies RoamingControlResponse,
+    apn: async (choice, { confirm }) => ({ ok: true, ...(await controls.setApn(choice, { confirm })) }) satisfies ApnControlResponse,
+    dataLimit: async (limit, { confirm }) => ({ ok: true, ...(await controls.setDataLimit(limit, { confirm })) }) satisfies DataLimitControlResponse,
+    trafficReset: async (_input, { confirm }) => ({ ok: true, ...(await controls.resetTraffic({ confirm })) }) satisfies TrafficResetResponse,
+    ussd: async (request, { confirm }) => ({ ok: true, ussd: await controls.sendUssd(request, { confirm }) }) satisfies UssdResponse,
+  };
 }

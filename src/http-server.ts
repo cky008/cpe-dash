@@ -9,17 +9,6 @@ import {
   resolveClientIp,
   resolveRequestSecureScheme,
 } from "./config.ts";
-import {
-  readAntennaMode,
-  readBandSelection,
-  readCellLockCommand,
-  readOptionalBoolean,
-  readSecurityControl,
-  readTimeRuleChange,
-  readTimeSeriesPreset,
-  readWifiDeviceAccess,
-  readWifiMacFilterChange,
-} from "./control-input.ts";
 import { HttpPayloadError } from "./control-error.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import { deviceSupportRow } from "./device-catalog.ts";
@@ -66,8 +55,9 @@ import type {
   TopologyEndpointResponse,
   Wifi7ControlResponse,
 } from "./api-contract.ts";
-import { cellularControl } from "./http-cellular.ts";
-import { CONSOLE_ONLY_PATHS, permissionForRoute } from "./operations/registry.ts";
+import { cellularRestHandlers } from "./http-cellular.ts";
+import type { AccessControlResult } from "./cpe-controls.ts";
+import { type ApiOperation, CONSOLE_ONLY_PATHS, type OperationHandlers, apiOperation, permissionForRoute, runOperation } from "./operations/registry.ts";
 import { serveStaticAsset } from "./http-static.ts";
 import {
   getLocaleCatalog,
@@ -117,16 +107,17 @@ function parseQueryNullProto(searchParams: URLSearchParams): Record<string, stri
   return out;
 }
 
-function parseStrictFiniteInt(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw === "") return undefined;
-  if (!/^-?\d+$/.test(raw.trim())) {
-    throw new HttpPayloadError(400, `Invalid integer query parameter "${raw}"`);
-  }
-  const n = Number.parseInt(raw.trim(), 10);
-  if (!Number.isSafeInteger(n)) {
-    throw new HttpPayloadError(400, `Out-of-range integer query parameter "${raw}"`);
-  }
-  return n;
+
+/** What a protected route's handler gets besides its checked input. */
+interface ApiCall {
+  /** Bearer callers get the REDACT_SENSITIVE_IN_API copies (the console reveals on screen instead). */
+  redact: boolean;
+  clientIp: string;
+  bucketKey: string;
+  sessionId: string | null;
+  searchParams: URLSearchParams;
+  /** The body said `confirm: true`. */
+  confirm: boolean;
 }
 
 export interface FengSuiHttpServerOptions {
@@ -195,6 +186,8 @@ export class FengSuiHttpServer {
   readonly #runtimeSample: (() => RuntimeSample) | null;
   readonly #selfHealStatus: () => SelfHealStatus;
   readonly #agentTest: AgentTestService | null;
+  /** The protected API's handlers, one per registered route (the routes and their input checks are the operation registry's). */
+  readonly #apiHandlers: OperationHandlers<ApiOperation, ApiCall>;
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
@@ -239,6 +232,132 @@ export class FengSuiHttpServer {
       agentTest: options.agentTest ?? null,
     });
     this.#agentTest = options.agentTest ?? null;
+    this.#apiHandlers = this.#buildApiHandlers();
+  }
+
+  /** What each route of the protected API answers (200); a refusal is thrown and mapped in `#dispatchProtectedApi`. */
+  #buildApiHandlers(): OperationHandlers<ApiOperation, ApiCall> {
+    const { core } = this;
+    return {
+      // Strictly side-effect-free reads (from the cache / the ring buffer)
+      telemetry: (_input, call) =>
+        ({
+          ok: true,
+          schedulerStatus: core.scheduler.getStatus(),
+          lockState: core.controls.getPersistedLockState(),
+          lockVerification: core.controls.getLockVerification(),
+          telemetry: telemetryForOutput(core.monitor.getCachedTelemetry(), call.redact),
+          recentAlerts: core.scheduler.getRecentAlerts(),
+        }) satisfies TelemetryEndpointResponse,
+      timeseries: (window) => ({ ok: true, ...core.monitor.queryTimeSeries(window) }) satisfies TimeSeriesEndpointResponse,
+      neighbors: () => ({ ok: true, schedulerStatus: core.scheduler.getStatus(), neighbors: core.monitor.getCachedNeighbors() }) satisfies NeighborsEndpointResponse,
+      topology: (_input, call) => ({ ok: true, schedulerStatus: core.scheduler.getStatus(), topology: topologyForOutput(core.monitor.getCachedTopology(), call.redact) }) satisfies TopologyEndpointResponse,
+      settings: () =>
+        ({
+          ok: true,
+          schedulerStatus: core.scheduler.getStatus(),
+          lockState: core.controls.getPersistedLockState(),
+          lockVerification: core.controls.getLockVerification(),
+          settings: core.monitor.getCachedSettings(),
+        }) satisfies SettingsEndpointResponse,
+      accessControlView: (_input, call) => this.#accessControlView(core.monitor.getCachedAccessControl(), call) satisfies AccessControlEndpointResponse,
+      cellular: () => ({ ok: true, schedulerStatus: core.scheduler.getStatus(), cellular: core.monitor.getCachedCellular() }) satisfies CellularEndpointResponse,
+      sessionStatus: () => ({ ok: true, status: core.scheduler.getStatus(), selfHeal: this.#selfHealStatus() }) satisfies SessionStatusResponse,
+      deviceProfile: () => {
+        // Identity and capabilities carry no identifier, so every caller gets the same answer; tokens and
+        // agents read it too, so it takes the device report's second pass as well
+        const probe = core.monitor.getDeviceProbe();
+        // The row goes by the brand and model the gate goes by (a probe that named no model: the brand's defaults)
+        const device = core.scheduler.device.snapshot();
+        return {
+          ok: true,
+          profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe, device.family)) : null,
+          verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
+          // In the form of the brand's interface the gate goes by (the driver's report, else as the model is on record)
+          support: probe || device.model ? deviceSupportRow(device.family, device.model ?? probe?.identity.model ?? null, device.model ? { variant: core.scheduler.device.variant } : {}) : null,
+        } satisfies DeviceProfileResponse;
+      },
+      alerts: () => ({ ok: true, alerts: core.scheduler.getRecentAlerts(), notifications: this.notificationHub?.getStats() ?? null }) satisfies AlertsResponse,
+      audit: (_input, call) => {
+        const limit = Number.parseInt(call.searchParams.get("limit") ?? "200", 10);
+        const entries = this.#audit?.list(Number.isFinite(limit) ? limit : 200) ?? [];
+        return { ok: true, entries: auditForOutput(entries, call.redact) } satisfies AuditResponse;
+      },
+
+      // Read sessions now
+      telemetryRefresh: async (_input, call) => {
+        const telemetry = await core.monitor.refreshTelemetry();
+        return { ok: true, schedulerStatus: core.scheduler.getStatus(), telemetry: telemetryForOutput(telemetry ?? core.monitor.getCachedTelemetry(), call.redact) } satisfies TelemetryRefreshResponse;
+      },
+      neighborsScan: async () => {
+        const neighbors = await core.monitor.refreshNeighbors();
+        return { ok: true, schedulerStatus: core.scheduler.getStatus(), neighbors: neighbors ?? core.monitor.getCachedNeighbors() } satisfies NeighborsEndpointResponse;
+      },
+      topologyRefresh: async (_input, call) => {
+        const topology = await core.monitor.refreshTopology();
+        return { ok: true, schedulerStatus: core.scheduler.getStatus(), topology: topologyForOutput(topology ?? core.monitor.getCachedTopology(), call.redact) } satisfies TopologyEndpointResponse;
+      },
+      settingsRefresh: async () => {
+        const settings = await core.monitor.refreshSettings();
+        return { ok: true, schedulerStatus: core.scheduler.getStatus(), settings: settings ?? core.monitor.getCachedSettings() } satisfies SettingsRefreshResponse;
+      },
+      accessControlRefresh: async (_input, call) => {
+        const fresh = await core.monitor.refreshAccessControl();
+        return this.#accessControlView(fresh ?? core.monitor.getCachedAccessControl(), call) satisfies AccessControlEndpointResponse;
+      },
+      cellularRefresh: async () => {
+        const cellular = await core.monitor.refreshCellular();
+        return { ok: true, schedulerStatus: core.scheduler.getStatus(), cellular: cellular ?? core.monitor.getCachedCellular() } satisfies CellularEndpointResponse;
+      },
+
+      // The router's controls
+      bandLock: async (bands) => ({ ok: true, lockState: await core.controls.lockBands(bands) }) satisfies LockStateResponse,
+      cellLock: async (command) => ({ ok: true, lockState: await core.controls.lockCell(command) }) satisfies LockStateResponse,
+      unlock: async () => ({ ok: true, lockState: await core.controls.unlockAllLocks() }) satisfies LockStateResponse,
+      reboot: async (_input, call) => ({ ok: true, ...(await core.controls.rebootRouter({ confirm: call.confirm })) }) satisfies RebootResponse,
+      reconnect: async () => ({ ok: true, ...(await core.controls.reconnectCellular()) }) satisfies ReconnectResponse,
+      securitySwitches: async (change) => ({ ok: true, settings: await core.controls.setSecuritySwitches(change) }) satisfies SecurityControlResponse,
+      wifi7: async (switches) => ({ ok: true, wifi7: await core.controls.setWifi7Settings(switches) }) satisfies Wifi7ControlResponse,
+      antenna: async (mode) => ({ ok: true, antenna: await core.controls.setAntennaMode(mode) }) satisfies AntennaControlResponse,
+      mobileData: async (enabled) => ({ ok: true, ...(await core.controls.setMobileData(enabled)) }) satisfies MobileDataControlResponse,
+      // The cellular settings (network mode, operator, SIM slot and PIN, airplane mode, roaming, APN, data limit, USSD)
+      ...cellularRestHandlers(core.controls),
+      resetBreaker: async () => {
+        const reloadedCfg = loadConfig({
+          envPath: this.envPath,
+        });
+        if (!reloadedCfg.dataEncryptionKey.trim()) {
+          throw new CpeControlValidationError(
+            "CPE_PASSWORD / DATA_ENCRYPTION_KEY is empty in .env; refusing to re-encrypt stored data under an empty key"
+          );
+        }
+        this.#config = reloadedCfg;
+        core.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
+        // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
+        // between cannot leave state.json under a key the reloaded .env no longer provides.
+        await core.stateStore.flushAsync().catch(() => undefined);
+        await this.#onConfigReloaded?.(reloadedCfg);
+        // The router connection and the tokens live in the console store now, not in .env
+        const cpe = this.settings.cpe;
+        if (!cpe) throw new CpeNotConfiguredError();
+        const breaker = await core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, cpe.username, cpe.family);
+        return { ok: true, circuitBreaker: breaker, status: core.scheduler.getStatus() } satisfies ResetBreakerResponse;
+      },
+
+      // Devices' internet access
+      wifiAccess: async (change, call) => this.#accessChange(await core.controls.setWifiAccess(change, { requesterIp: call.clientIp, confirm: call.confirm }), call.redact),
+      wifiMacFilter: async (change, call) => this.#accessChange(await core.controls.setWifiAccess(change, { requesterIp: call.clientIp, confirm: call.confirm }), call.redact),
+      timeRule: async (change, call) => this.#accessChange(await core.controls.manageTimeRule(change, { requesterIp: call.clientIp, confirm: call.confirm }), call.redact),
+    };
+  }
+
+  #accessChange(result: AccessControlResult, redact: boolean): AccessControlChangeResponse {
+    return {
+      ok: true,
+      accessControl: accessControlForOutput(result.accessControl, redact),
+      changed: result.changed,
+      alsoBlocked: redact ? result.alsoBlocked.map(maskMacTail) : result.alsoBlocked,
+    };
   }
 
   /** Metrics follow the console's switch when set, else METRICS_ENABLED from `.env`. */
@@ -839,7 +958,6 @@ export class FengSuiHttpServer {
     searchParams: URLSearchParams,
     caller: { redact: boolean; clientIp: string; bucketKey: string; sessionId: string | null }
   ): Promise<void> {
-    const { redact, clientIp } = caller;
     try {
       if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
         await this.#dispatchSmsApi(req, res, method, pathname, searchParams);
@@ -861,114 +979,20 @@ export class FengSuiHttpServer {
         if (!handled) this.#sendJson(res, 404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown ${method} endpoint ${pathname}` });
         return;
       }
-      if (pathname === "/api/audit" && method === "GET") {
-        const limit = Number.parseInt(searchParams.get("limit") ?? "200", 10);
-        const entries = this.#audit?.list(Number.isFinite(limit) ? limit : 200) ?? [];
-        this.#sendJson(res, 200, { ok: true, entries: auditForOutput(entries, redact) } satisfies AuditResponse);
-        return;
-      }
-
-      // Strictly side-effect-free GET endpoints (read from cache / ring buffer)
+      const call: ApiCall = { ...caller, searchParams, confirm: false };
+      // The daemon's data (no router session): a GET's input is its query string
       if (method === "GET") {
-        switch (pathname) {
-          case "/api/alerts":
-            this.#sendJson(res, 200, {
-              ok: true,
-              alerts: this.core.scheduler.getRecentAlerts(),
-              notifications: this.notificationHub?.getStats() ?? null,
-            } satisfies AlertsResponse);
-            return;
-
-          case "/api/telemetry":
-            this.#sendJson(res, 200, {
-              ok: true,
-              schedulerStatus: this.core.scheduler.getStatus(),
-              lockState: this.core.controls.getPersistedLockState(),
-              lockVerification: this.core.controls.getLockVerification(),
-              telemetry: telemetryForOutput(this.core.monitor.getCachedTelemetry(), redact),
-              recentAlerts: this.core.scheduler.getRecentAlerts(),
-            } satisfies TelemetryEndpointResponse);
-            return;
-
-          case "/api/timeseries": {
-            const q = parseQueryNullProto(searchParams);
-            const result = this.core.monitor.queryTimeSeries({
-              preset: readTimeSeriesPreset(q["preset"]),
-              fromMs: parseStrictFiniteInt(q["fromMs"]),
-              toMs: parseStrictFiniteInt(q["toMs"]),
-              bucketMs: parseStrictFiniteInt(q["bucketMs"]),
-              maxPoints: parseStrictFiniteInt(q["maxPoints"]),
-            });
-            this.#sendJson(res, 200, { ok: true, ...result } satisfies TimeSeriesEndpointResponse);
-            return;
-          }
-
-          case "/api/neighbors":
-            this.#sendJson(res, 200, {
-              ok: true,
-              schedulerStatus: this.core.scheduler.getStatus(),
-              neighbors: this.core.monitor.getCachedNeighbors(),
-            } satisfies NeighborsEndpointResponse);
-            return;
-
-          case "/api/topology":
-            this.#sendJson(res, 200, {
-              ok: true,
-              schedulerStatus: this.core.scheduler.getStatus(),
-              topology: topologyForOutput(this.core.monitor.getCachedTopology(), redact),
-            } satisfies TopologyEndpointResponse);
-            return;
-
-          case "/api/settings":
-            this.#sendJson(res, 200, {
-              ok: true,
-              schedulerStatus: this.core.scheduler.getStatus(),
-              lockState: this.core.controls.getPersistedLockState(),
-              lockVerification: this.core.controls.getLockVerification(),
-              settings: this.core.monitor.getCachedSettings(),
-            } satisfies SettingsEndpointResponse);
-            return;
-
-          case "/api/access-control":
-            this.#sendJson(res, 200, this.#accessControlView(this.core.monitor.getCachedAccessControl(), caller) satisfies AccessControlEndpointResponse);
-            return;
-
-          case "/api/cellular":
-            this.#sendJson(res, 200, { ok: true, schedulerStatus: this.core.scheduler.getStatus(), cellular: this.core.monitor.getCachedCellular() } satisfies CellularEndpointResponse);
-            return;
-
-          case "/api/session/status":
-            this.#sendJson(res, 200, {
-              ok: true,
-              status: this.core.scheduler.getStatus(),
-              selfHeal: this.#selfHealStatus(),
-            } satisfies SessionStatusResponse);
-            return;
-
-          case "/api/device/profile": {
-            // Identity and capabilities carry no identifier, so every caller gets the same answer; tokens and
-            // agents read it too, so it takes the device report's second pass as well
-            const probe = this.core.monitor.getDeviceProbe();
-            // The row goes by the brand and model the gate goes by (a probe that named no model: the brand's defaults)
-            const device = this.core.scheduler.device.snapshot();
-            this.#sendJson(res, 200, {
-              ok: true,
-              profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe, device.family)) : null,
-              verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
-              // In the form of the brand's interface the gate goes by (the driver's report, else as the model is on record)
-              support: probe || device.model ? deviceSupportRow(device.family, device.model ?? probe?.identity.model ?? null, device.model ? { variant: this.core.scheduler.device.variant } : {}) : null,
-            } satisfies DeviceProfileResponse);
-            return;
-          }
-
-          default:
-            this.#sendJson(res, 404, {
-              ok: false,
-              errorCode: "NOT_FOUND",
-              message: `Unknown GET endpoint ${pathname}`,
-            });
-            return;
+        const op = apiOperation("GET", pathname);
+        if (op === null) {
+          this.#sendJson(res, 404, {
+            ok: false,
+            errorCode: "NOT_FOUND",
+            message: `Unknown GET endpoint ${pathname}`,
+          });
+          return;
         }
+        this.#sendJson(res, 200, await runOperation(this.#apiHandlers, op, parseQueryNullProto(searchParams), call));
+        return;
       }
 
       if (method !== "POST") {
@@ -980,196 +1004,18 @@ export class FengSuiHttpServer {
         return;
       }
 
+      // A POST's body is read before its route is looked up: an unknown route still refuses a malformed body
       const body = await this.#readBoundedJsonBody(req);
-
-      switch (pathname) {
-        case "/api/telemetry/refresh": {
-          const telemetry = await this.core.monitor.refreshTelemetry();
-          this.#sendJson(res, 200, {
-            ok: true,
-            schedulerStatus: this.core.scheduler.getStatus(),
-            telemetry: telemetryForOutput(telemetry ?? this.core.monitor.getCachedTelemetry(), redact),
-          } satisfies TelemetryRefreshResponse);
-          return;
-        }
-
-        case "/api/neighbors/scan": {
-          const neighbors = await this.core.monitor.refreshNeighbors();
-          this.#sendJson(res, 200, {
-            ok: true,
-            schedulerStatus: this.core.scheduler.getStatus(),
-            neighbors: neighbors ?? this.core.monitor.getCachedNeighbors(),
-          } satisfies NeighborsEndpointResponse);
-          return;
-        }
-
-        case "/api/topology/refresh": {
-          const topology = await this.core.monitor.refreshTopology();
-          this.#sendJson(res, 200, {
-            ok: true,
-            schedulerStatus: this.core.scheduler.getStatus(),
-            topology: topologyForOutput(topology ?? this.core.monitor.getCachedTopology(), redact),
-          } satisfies TopologyEndpointResponse);
-          return;
-        }
-
-        case "/api/access-control/refresh": {
-          const fresh = await this.core.monitor.refreshAccessControl();
-          this.#sendJson(
-            res,
-            200,
-            this.#accessControlView(fresh ?? this.core.monitor.getCachedAccessControl(), caller) satisfies AccessControlEndpointResponse
-          );
-          return;
-        }
-
-        case "/api/control/wifi-access":
-        case "/api/control/wifi-mac-filter":
-        case "/api/control/time-rule": {
-          const ctx = { requesterIp: clientIp, confirm: body["confirm"] === true };
-          const result =
-            pathname === "/api/control/time-rule"
-              ? await this.core.controls.manageTimeRule(readTimeRuleChange(body), ctx)
-              : await this.core.controls.setWifiAccess(
-                  pathname === "/api/control/wifi-access" ? readWifiDeviceAccess(body) : readWifiMacFilterChange(body),
-                  ctx
-                );
-          this.#sendJson(res, 200, {
-            ok: true,
-            accessControl: accessControlForOutput(result.accessControl, redact),
-            changed: result.changed,
-            alsoBlocked: redact ? result.alsoBlocked.map(maskMacTail) : result.alsoBlocked,
-          } satisfies AccessControlChangeResponse);
-          return;
-        }
-
-        case "/api/cellular/refresh": {
-          const cellular = await this.core.monitor.refreshCellular();
-          this.#sendJson(res, 200, { ok: true, schedulerStatus: this.core.scheduler.getStatus(), cellular: cellular ?? this.core.monitor.getCachedCellular() } satisfies CellularEndpointResponse);
-          return;
-        }
-
-        case "/api/settings/refresh": {
-          const settings = await this.core.monitor.refreshSettings();
-          this.#sendJson(res, 200, {
-            ok: true,
-            schedulerStatus: this.core.scheduler.getStatus(),
-            settings: settings ?? this.core.monitor.getCachedSettings(),
-          } satisfies SettingsRefreshResponse);
-          return;
-        }
-
-        case "/api/session/reset-breaker": {
-          const reloadedCfg = loadConfig({
-            envPath: this.envPath,
-          });
-          if (!reloadedCfg.dataEncryptionKey.trim()) {
-            throw new CpeControlValidationError(
-              "CPE_PASSWORD / DATA_ENCRYPTION_KEY is empty in .env; refusing to re-encrypt stored data under an empty key"
-            );
-          }
-          this.#config = reloadedCfg;
-          this.core.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
-          // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
-          // between cannot leave state.json under a key the reloaded .env no longer provides.
-          await this.core.stateStore.flushAsync().catch(() => undefined);
-          await this.#onConfigReloaded?.(reloadedCfg);
-          // The router connection and the tokens live in the console store now, not in .env
-          const cpe = this.settings.cpe;
-          if (!cpe) throw new CpeNotConfiguredError();
-          const breaker = await this.core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, cpe.username, cpe.family);
-          this.#sendJson(res, 200, {
-            ok: true,
-            circuitBreaker: breaker,
-            status: this.core.scheduler.getStatus(),
-          } satisfies ResetBreakerResponse);
-          return;
-        }
-
-        case "/api/control/band-lock": {
-          const lteBands = readBandSelection(body, "lteBands");
-          const nrBands = readBandSelection(body, "nrBands");
-          const lockState = await this.core.controls.lockBands({ lteBands, nrBands });
-          this.#sendJson(res, 200, { ok: true, lockState } satisfies LockStateResponse);
-          return;
-        }
-
-        case "/api/control/cell-lock": {
-          // Omitted or null pci means a frequency lock; anything else must be a number, never silently dropped
-          const lockState = await this.core.controls.lockCell(readCellLockCommand(body, { allowNullPci: true }));
-          this.#sendJson(res, 200, { ok: true, lockState } satisfies LockStateResponse);
-          return;
-        }
-
-        case "/api/control/unlock": {
-          const lockState = await this.core.controls.unlockAllLocks();
-          this.#sendJson(res, 200, { ok: true, lockState } satisfies LockStateResponse);
-          return;
-        }
-
-        case "/api/control/reboot": {
-          const result = await this.core.controls.rebootRouter({
-            confirm: body["confirm"] === true,
-          });
-          this.#sendJson(res, 200, { ok: true, ...result } satisfies RebootResponse);
-          return;
-        }
-
-        case "/api/control/reconnect": {
-          if (body["confirm"] !== true) {
-            throw new CpeControlValidationError(
-              "Cellular reconnect requires explicit { confirm: true }"
-            );
-          }
-          const result = await this.core.controls.reconnectCellular();
-          this.#sendJson(res, 200, { ok: true, ...result } satisfies ReconnectResponse);
-          return;
-        }
-
-        case "/api/control/security": {
-          const settings = await this.core.controls.setSecuritySwitches(readSecurityControl(body));
-          this.#sendJson(res, 200, { ok: true, settings } satisfies SecurityControlResponse);
-          return;
-        }
-
-        case "/api/control/wifi7": {
-          const mloEnable = readOptionalBoolean(body, "mloEnable");
-          const dbhoEnable = readOptionalBoolean(body, "dbhoEnable");
-          const wifi7 = await this.core.controls.setWifi7Settings({ mloEnable, dbhoEnable });
-          this.#sendJson(res, 200, { ok: true, wifi7 } satisfies Wifi7ControlResponse);
-          return;
-        }
-
-        case "/api/control/antenna": {
-          const antenna = await this.core.controls.setAntennaMode(readAntennaMode(body["mode"]));
-          this.#sendJson(res, 200, { ok: true, antenna } satisfies AntennaControlResponse);
-          return;
-        }
-
-        case "/api/control/mobile-data": {
-          const enabled = readOptionalBoolean(body, "enabled");
-          if (enabled === undefined) {
-            throw new CpeControlValidationError('"enabled" must be a boolean');
-          }
-          const result = await this.core.controls.setMobileData(enabled);
-          this.#sendJson(res, 200, { ok: true, ...result } satisfies MobileDataControlResponse);
-          return;
-        }
-
-        default: {
-          // The cellular settings (network mode, operator, SIM slot and PIN, airplane mode, roaming, APN, data limit, USSD)
-          const cellular = await cellularControl(this.core.controls, pathname, body);
-          if (cellular) {
-            this.#sendJson(res, 200, cellular);
-            return;
-          }
-          this.#sendJson(res, 404, {
-            ok: false,
-            errorCode: "NOT_FOUND",
-            message: `Unknown POST endpoint ${pathname}`,
-          });
-        }
+      const op = apiOperation("POST", pathname);
+      if (op === null) {
+        this.#sendJson(res, 404, {
+          ok: false,
+          errorCode: "NOT_FOUND",
+          message: `Unknown POST endpoint ${pathname}`,
+        });
+        return;
       }
+      this.#sendJson(res, 200, await runOperation(this.#apiHandlers, op, body, { ...call, confirm: body["confirm"] === true }));
     } catch (err) {
       if (err instanceof HttpPayloadError) {
         this.#sendJson(res, err.statusCode, {

@@ -115,7 +115,7 @@ describe("contract manifest: code ↔ docs", () => {
   });
 
   it("documents every REST route in the contract", () => {
-    const routes = ["src/http-server.ts", "src/http-settings.ts", "src/http-cellular.ts", "src/sms/http-routes.ts"].flatMap((file) => matchesIn(read(file), /"(\/api\/[a-z0-9/_-]+?)\/?"/g));
+    const routes = ["src/http-server.ts", "src/http-settings.ts", ...fs.readdirSync("src/operations").map((file) => `src/operations/${file}`)].flatMap((file) => matchesIn(read(file), /"(\/api\/[a-z0-9/_-]+?)\/?"/g));
     assert.ok(routes.length >= 40, `found ${routes.length} routes`);
     assert.deepEqual(missing(routes, { "docs/dev/api.md": CONTRACT }, false), []);
   });

@@ -6,7 +6,7 @@ import { loadConfig } from "../src/config.ts";
 import type { FengSuiCore } from "../src/core.ts";
 import { FengSuiHttpServer } from "../src/http-server.ts";
 import { permissionForRoute } from "../src/operations/registry.ts";
-import { CELLULAR_CONTROL_ROUTES } from "../src/http-cellular.ts";
+import { CELLULAR_OPERATIONS } from "../src/operations/cellular-settings.ts";
 import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { McpToolDefinition } from "../src/mcp-tool-provider.ts";
@@ -26,6 +26,8 @@ import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
  */
 
 const TOKEN = "cellular_api_token";
+/** The paths of the cellular setting writes, in the reference's order. */
+const CELLULAR_CONTROL_ROUTES: ReadonlyArray<string> = Object.values(CELLULAR_OPERATIONS).map((op) => op.rest.path);
 
 /** The REST server and an MCP server (router writes allowed) over one daemon core. */
 async function serve(core: FengSuiCore) {

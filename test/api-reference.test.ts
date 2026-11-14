@@ -29,7 +29,7 @@ import { mockConnection } from "./helpers/connection.ts";
 
 const read = (file: string): string => fs.readFileSync(file, "utf8");
 /** The route strings of the three route modules, as test/contract-manifest.test.ts reads them. */
-const CODE_ROUTES = new Set(["src/http-server.ts", "src/http-settings.ts", "src/http-cellular.ts", "src/sms/http-routes.ts"].flatMap((file) => [...read(file).matchAll(/"(\/api\/[a-z0-9/_-]+?)\/?"/g)].map((m) => m[1] ?? "")));
+const CODE_ROUTES = new Set(["src/http-server.ts", "src/http-settings.ts", ...fs.readdirSync("src/operations").map((file) => `src/operations/${file}`)].flatMap((file) => [...read(file).matchAll(/"(\/api\/[a-z0-9/_-]+?)\/?"/g)].map((m) => m[1] ?? "")));
 
 function unionMembers(source: string, start: string): string[] {
   // Comments may hold a ";" of their own: the union ends at the first one outside them
