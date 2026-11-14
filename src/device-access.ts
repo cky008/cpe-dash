@@ -1,5 +1,5 @@
 import { type DeviceProbeResult, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
-import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, type ReadSection, WRITE_FEATURES, type WriteFeature, isCellularWriteFeature } from "./features.ts";
+import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, type ReadSection, WRITE_FEATURES, type WriteFeature, isCellularWriteFeature, sectionFeature } from "./features.ts";
 import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
 import { type RouterFamily, familyCapabilities, isDriverFamily, routerVariant } from "./router-family.ts";
 
@@ -453,7 +453,8 @@ export class DeviceAccess {
 
   readState(section: ReadSection): ReadCapability {
     // A driver family reads the sections it documents (in the form of the interface the router speaks); the others are not on it
-    if (isDriverFamily(this.#family) && !(familyCapabilities(this.#family, this.variant).reads as ReadonlyArray<string>).includes(section)) {
+    const feature = sectionFeature(section);
+    if (isDriverFamily(this.#family) && (feature === null || !familyCapabilities(this.#family, this.variant).reads.includes(feature))) {
       return { state: "unavailable", code: null };
     }
     const current = this.current;

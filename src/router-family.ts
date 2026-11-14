@@ -9,7 +9,7 @@
  */
 
 import type { NetworkMode } from "./cellular.ts";
-import { CELLULAR_WRITE_FEATURES } from "./features.ts";
+import { DEVICE_FEATURES, type DeviceFeature, type ReadFeature, WRITE_FEATURES, type WriteFeature, featureAccess } from "./features.ts";
 
 export const ROUTER_FAMILIES = ["huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "openwrt"] as const;
 
@@ -43,11 +43,6 @@ export function isDriverFamily(value: unknown): value is DriverFamily {
   return isRouterFamily(value) && value !== "huawei";
 }
 
-/** Every write some family implements for a router nobody verified (an experimental write: sent once, read back after). */
-export const FAMILY_WRITE_FEATURES = ["smsWrite", "bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", ...CELLULAR_WRITE_FEATURES] as const;
-
-export type FamilyWriteFeature = (typeof FAMILY_WRITE_FEATURES)[number];
-
 /** What a family reads and writes, and how its owner signs in. */
 export interface RouterFamilyFacts {
   /** The user name the router's own login page uses (`""`: the page asks for a password only). */
@@ -55,19 +50,20 @@ export interface RouterFamilyFacts {
   /** The router's usual address, a hint for the connection form. */
   defaultAddress: string;
   /**
-   * What the family reads: the read sections it implements (the others are not available on it) and
-   * the status the 5 s poll reads besides the signal (`battery`, the `simCard`, `airplaneMode`).
+   * The read features the family implements (`src/features.ts`): the sections it reads (the others are
+   * not available on it) and the status the 5 s poll reads besides the signal (`battery`, the
+   * `simCard`, `airplaneMode`).
    */
-  reads: ReadonlyArray<"telemetry" | "neighbors" | "topology" | "sms" | "battery" | "simCard" | "airplaneMode">;
+  reads: ReadonlyArray<ReadFeature>;
   /**
    * The writes FengSui implements for a router of this family that nobody verified: a driver family's
    * are what its driver sends, Huawei's are the generic HiLink writes (appendix A.11 of the protocol
    * spec, each only where the identification probe found what it reads back). A verified model
    * writes everything FengSui does.
    */
-  writes: ReadonlyArray<FamilyWriteFeature>;
+  writes: ReadonlyArray<WriteFeature>;
   /**
-   * Who keeps a message's read state on this family (it reads SMS when `reads` names `sms`). Left
+   * Who keeps a message's read state on this family (it reads SMS when `reads` names `smsRead`). Left
    * out: the router does, and FengSui follows it. `fengsui`: the family's interface cannot mark a
    * message read, or marks every message it lists, so FengSui keeps the state itself and writes none.
    */
@@ -105,7 +101,7 @@ export interface RouterFamilyVariant {
   /** The models on record with this form (their name as the router reports it). */
   models: ReadonlyArray<string>;
   reads: RouterFamilyFacts["reads"];
-  writes: ReadonlyArray<FamilyWriteFeature>;
+  writes: ReadonlyArray<WriteFeature>;
 }
 
 /**
@@ -116,7 +112,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   huawei: {
     defaultUsername: "admin",
     defaultAddress: "192.168.8.1",
-    reads: ["telemetry", "neighbors", "topology", "sms", "battery"],
+    reads: ["telemetry", "neighbors", "topology", "smsRead", "battery"],
     // The generic writes of a HiLink model nobody verified; the H168-383 has its own verified set, and none of the cellular settings
     writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"],
     networkModes: ["auto", "lte", "nr_sa"],
@@ -125,7 +121,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   "zte-goform": {
     defaultUsername: "",
     defaultAddress: "192.168.0.1",
-    reads: ["telemetry", "neighbors", "topology", "sms", "battery", "simCard"],
+    reads: ["telemetry", "neighbors", "topology", "smsRead", "battery", "simCard"],
     writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit", "ussd"],
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
@@ -134,7 +130,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   "zte-zwrt": {
     defaultUsername: "",
     defaultAddress: "192.168.0.1",
-    reads: ["telemetry", "sms", "battery", "simCard"],
+    reads: ["telemetry", "smsRead", "battery", "simCard"],
     writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit"],
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
@@ -152,7 +148,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   tozed: {
     defaultUsername: "admin",
     defaultAddress: "192.168.0.1",
-    reads: ["telemetry", "neighbors", "sms"],
+    reads: ["telemetry", "neighbors", "smsRead"],
     writes: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode"],
     smsReadState: "fengsui",
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
@@ -162,7 +158,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   fiberhome: {
     defaultUsername: "admin",
     defaultAddress: "192.168.8.1",
-    reads: ["telemetry", "neighbors", "sms", "airplaneMode"],
+    reads: ["telemetry", "neighbors", "smsRead", "airplaneMode"],
     writes: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
@@ -170,7 +166,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // LG6151M's cell list (`app_set_cell_list`): one or more cells, 4G or 5G
     multiCellLock: ["LTE", "NR"],
     // The Pro series (`/fh_api/`): its notes have the signal nodes, the SMS listing and marking a message read, nothing else
-    variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "sms"], writes: ["smsWrite"] } },
+    variants: { pro: { models: ["LG6851F"], reads: ["telemetry", "smsRead"], writes: ["smsWrite"] } },
   },
   nradio: {
     defaultUsername: "root",
@@ -186,7 +182,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
   openwrt: {
     defaultUsername: "root",
     defaultAddress: "192.168.1.1",
-    reads: ["telemetry", "neighbors", "topology", "sms", "simCard", "airplaneMode"],
+    reads: ["telemetry", "neighbors", "topology", "smsRead", "simCard", "airplaneMode"],
     writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "airplaneSwitch", "simPin", "apn"],
     smsReadState: "fengsui",
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
@@ -197,9 +193,6 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     multiCellLock: ["LTE"],
   },
 };
-
-/** The read features and what each one is read as (a read section, or a status of the 5 s poll). */
-const READ_FEATURE_SECTIONS = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms", battery: "battery", simCard: "simCard", airplaneMode: "airplaneMode" } as const;
 
 /**
  * The form of the family's interface a router speaks (`null`: the family's own): the one its driver
@@ -223,14 +216,24 @@ export function familyCapabilities(family: RouterFamily, variant: string | null 
 /**
  * Every feature FengSui implements for a router of this family that nobody verified (in the form of
  * its interface it speaks): the reads its interface provides (signal, nearby cells, connected devices,
- * SMS) and its writes. A model is verified by reports once each of these is confirmed on a real one of
- * it (`isReportVerifiedModel`, firmware.ts).
+ * SMS, the status) and its writes, in the registry's order. A model is verified by reports once each of
+ * these is confirmed on a real one of it (`isReportVerifiedModel`, firmware.ts).
  */
-export function familyFeatures(family: RouterFamily, variant: string | null = null): Array<{ feature: keyof typeof READ_FEATURE_SECTIONS | FamilyWriteFeature; access: "read" | "write" }> {
+export function familyFeatures(family: RouterFamily, variant: string | null = null): Array<{ feature: DeviceFeature; access: "read" | "write" }> {
   const facts = familyCapabilities(family, variant);
-  const reads = (Object.keys(READ_FEATURE_SECTIONS) as Array<keyof typeof READ_FEATURE_SECTIONS>).filter((feature) => (facts.reads as ReadonlyArray<string>).includes(READ_FEATURE_SECTIONS[feature]));
-  return [...reads.map((feature) => ({ feature, access: "read" as const })), ...facts.writes.map((feature) => ({ feature, access: "write" as const }))];
+  const reads: ReadonlyArray<string> = facts.reads;
+  const writes: ReadonlyArray<string> = facts.writes;
+  return DEVICE_FEATURES.filter((feature) => (featureAccess(feature) === "read" ? reads : writes).includes(feature)).map((feature) => ({ feature, access: featureAccess(feature) }));
 }
+
+/** Some form of the family's interface has this write (the gate decides for the router in use, by the form it speaks). */
+export function familyWritesAnywhere(family: RouterFamily, feature: string): boolean {
+  const facts = ROUTER_FAMILY_FACTS[family];
+  return [facts, ...Object.values(facts.variants ?? {})].some((form) => (form.writes as ReadonlyArray<string>).includes(feature));
+}
+
+/** Every write some family implements for a router nobody verified (an experimental write: sent once, read back after), in the registry's order. */
+export const FAMILY_WRITE_FEATURES: ReadonlyArray<WriteFeature> = WRITE_FEATURES.filter((feature) => ROUTER_FAMILIES.some((family) => familyWritesAnywhere(family, feature)));
 
 /** FengSui implements the feature for routers of this family (in that form of its interface; nobody verified it on a real one). */
 export function familyImplements(family: RouterFamily, feature: string, variant: string | null = null): boolean {

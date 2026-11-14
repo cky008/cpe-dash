@@ -106,24 +106,24 @@ describe("verified features of other models", () => {
 
   it("counts a model as verified once reports settle every feature FengSui does on it, with nothing more to check", () => {
     const base = { family: "zte-zwrt", model: "MU5250", softwareVersion: "BD_ZTE_MU5250V1.0.0B05", issue: 41 } as const;
-    // What FengSui implements on zWRT today: the signal, SMS, battery, SIM card, band and cell locks, reboot, redial, mobile
-    // data, and of the cellular settings the network mode, the operator, the SIM slot, the PIN, data roaming, the
-    // access point and the data limit
+    // What FengSui implements on zWRT today, in the registry's order: the signal, SMS, band and cell locks, reboot,
+    // redial, mobile data, battery, SIM card, and of the cellular settings the SIM slot, the PIN, the network mode, the
+    // operator, data roaming, the access point and the data limit
     assert.deepEqual(familyFeatures("zte-zwrt"), [
       { feature: "telemetry", access: "read" },
       { feature: "smsRead", access: "read" },
-      { feature: "battery", access: "read" },
-      { feature: "simCard", access: "read" },
+      { feature: "smsWrite", access: "write" },
       { feature: "bandLock", access: "write" },
       { feature: "cellLock", access: "write" },
       { feature: "reboot", access: "write" },
       { feature: "reconnect", access: "write" },
       { feature: "mobileData", access: "write" },
-      { feature: "smsWrite", access: "write" },
-      { feature: "networkMode", access: "write" },
-      { feature: "operatorSelect", access: "write" },
+      { feature: "battery", access: "read" },
+      { feature: "simCard", access: "read" },
       { feature: "simSlot", access: "write" },
       { feature: "simPin", access: "write" },
+      { feature: "networkMode", access: "write" },
+      { feature: "operatorSelect", access: "write" },
       { feature: "roaming", access: "write" },
       { feature: "apn", access: "write" },
       { feature: "dataLimit", access: "write" },

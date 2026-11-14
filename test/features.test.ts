@@ -23,7 +23,7 @@ import {
   sectionFeature,
 } from "../src/features.ts";
 import { UNSUPPORTED_FEATURES, VERIFIED_FEATURES } from "../src/firmware.ts";
-import { ROUTER_FAMILIES, ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
+import { FAMILY_WRITE_FEATURES, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 
 /**
  * The capability registry (src/features.ts): one record per feature, and every other list of features
@@ -103,9 +103,13 @@ describe("capability registry", () => {
     for (const family of ROUTER_FAMILIES) {
       const facts = ROUTER_FAMILY_FACTS[family];
       for (const form of [facts, ...Object.values(facts.variants ?? {})]) {
+        for (const feature of form.reads) assert.equal(featureAccess(feature), "read", `${family} reads ${feature}`);
         for (const feature of form.writes) assert.equal(isWriteFeature(feature), true, `${family} writes ${feature}`);
       }
     }
+    // The writes some brand implements: worked out from the brands' facts, in the registry's order
+    const written = new Set(ROUTER_FAMILIES.flatMap((family) => [ROUTER_FAMILY_FACTS[family], ...Object.values(ROUTER_FAMILY_FACTS[family].variants ?? {})].flatMap((form) => [...form.writes])));
+    assert.deepEqual([...FAMILY_WRITE_FEATURES], WRITE_FEATURES.filter((feature) => written.has(feature)));
     for (const entry of VERIFIED_FEATURES) assert.equal(featureAccess(entry.feature), entry.access, `${entry.model} ${entry.feature}`);
     for (const entry of UNSUPPORTED_FEATURES) assert.equal(isDeviceFeature(entry.feature), true, `${entry.model} ${entry.feature}`);
     for (const fact of MODEL_FACTS) for (const feature of fact.features) assert.equal(isDeviceFeature(feature), true, `${fact.family} ${feature}`);

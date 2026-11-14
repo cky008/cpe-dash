@@ -233,11 +233,7 @@ describe("the supported devices guide page", () => {
     const pro = ROUTER_FAMILY_FACTS.fiberhome.variants?.["pro"];
     assert.ok(pro);
     for (const feature of DEVICE_FEATURES) {
-      const implemented: boolean =
-        (pro.writes as ReadonlyArray<string>).includes(feature) ||
-        (feature === "telemetry" && pro.reads.includes("telemetry")) ||
-        (feature === "smsRead" && pro.reads.includes("sms")) ||
-        (pro.reads as ReadonlyArray<string>).includes(feature);
+      const implemented: boolean = (pro.writes as ReadonlyArray<string>).includes(feature) || (pro.reads as ReadonlyArray<string>).includes(feature);
       assert.equal(supportMark("fiberhome", "LG6851F", feature) !== "", implemented, feature);
     }
     assert.equal(supportMark("fiberhome", "LG6121F", "bandLock"), "?");

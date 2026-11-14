@@ -32,10 +32,10 @@ import {
   type TerminalTopologySnapshot,
 } from "../cpe-domain.ts";
 import type { DeviceAccess, WriteCheck } from "../device-access.ts";
-import type { WriteFeature } from "../features.ts";
+import { CELLULAR_WRITE_FEATURES, type WriteFeature } from "../features.ts";
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListing, SmsSendOutcome, WanRepairOutcome } from "../router-backend.ts";
-import { type DriverFamily, FAMILY_WRITE_FEATURES, type FamilyWriteFeature, ROUTER_FAMILY_FACTS } from "../router-family.ts";
+import { type DriverFamily, ROUTER_FAMILY_FACTS, familyWritesAnywhere } from "../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { WriteContext } from "../scheduler.ts";
 import { CpeApiError } from "../session-errors.ts";
@@ -489,18 +489,16 @@ export class DriverRouterSession implements RouterSession {
 /** A driver family, before any session: its facts in `ROUTER_FAMILY_FACTS` say what it reads and writes. */
 export function driverFamilyDriver(family: DriverFamily): RouterDriver {
   const facts = ROUTER_FAMILY_FACTS[family];
-  /** Some form of the family's interface has this write: the gate decides for the router in use. */
-  const writesAnywhere = (feature: FamilyWriteFeature): boolean => facts.writes.includes(feature) || Object.values(facts.variants ?? {}).some((form) => form.writes.includes(feature));
   return {
     family,
     hasVerifiedModel: false,
-    writes: (feature: WriteFeature) => isFamilyWrite(feature) && writesAnywhere(feature),
+    writes: (feature: WriteFeature) => familyWritesAnywhere(family, feature),
     reads(section: SessionlessRead, _device: DeviceAccess): boolean {
       if (section === "settings" || section === "accessControl" || section === "endpoints") return false;
       // A family whose notes define no device list, SMS interface or cellular setting gets no request for it
-      if (section === "topology") return (facts.reads as ReadonlyArray<string>).includes("topology");
-      if (section === "sms") return (facts.reads as ReadonlyArray<string>).includes("sms");
-      return CELLULAR_FEATURES.some(writesAnywhere);
+      if (section === "topology") return facts.reads.includes("topology");
+      if (section === "sms") return facts.reads.includes("smsRead");
+      return CELLULAR_WRITE_FEATURES.some((feature) => familyWritesAnywhere(family, feature));
     },
     keepsSmsReadState: facts.smsReadState === "fengsui",
     // Numbers, NR only where the family locks NR, a mode the family offers; checked again in the session
@@ -513,14 +511,6 @@ export function driverFamilyDriver(family: DriverFamily): RouterDriver {
     },
   };
 }
-
-/** A write a driver family may have (router switches, Wi-Fi and access control are no family's). */
-function isFamilyWrite(feature: WriteFeature): feature is FamilyWriteFeature {
-  return (FAMILY_WRITE_FEATURES as ReadonlyArray<string>).includes(feature);
-}
-
-/** The cellular settings a driver family may write (`ROUTER_FAMILY_FACTS[family].writes` names the ones it does). */
-const CELLULAR_FEATURES: ReadonlyArray<FamilyWriteFeature> = ["networkMode", "operatorSelect", "simSlot", "simPin", "airplaneSwitch", "roaming", "apn", "dataLimit", "trafficReset", "ussd"];
 
 /** A write this router's form of the family's interface has no way to do (the gate's last line). */
 function noWrite(what: string): CpeControlValidationError {
