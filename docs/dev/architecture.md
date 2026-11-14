@@ -563,7 +563,7 @@ flowchart TD
     C --> D1["华为驱动 drivers/huawei/<br/>driver：HilinkRouterSession · huaweiDriver<br/>requests · band-lock · access-control · sms：H168-383 的已验证序列"]
     C --> D2["其他品牌 drivers/adapter.ts<br/>DriverRouterSession 套在各自驱动的 DriverSession 上"]
     D2 --> P2["各品牌驱动：zte/（goform · zwrt）· pinsu · tozed · fiberhome · nradio · openwrt"]
-    D1 --> K["协议部件 protocols/：hilink/（client · auth · crypto · xml · parsers · generic-writes · access-control · sms）<br/>ubus · at/（common · quectel · fibocom · sms）"]
+    D1 --> K["协议部件 protocols/：hilink/（client · auth · crypto · xml · parsers · generic-writes · access-control · sms）<br/>ubus · at/（common · quectel · fibocom · sms）<br/>共用：transport · values · readings · ussd"]
     P2 --> K
 ```
 
@@ -575,7 +575,7 @@ flowchart TD
 | 调度器 | `src/scheduler.ts` | 队列、避让、熔断、写闸门、读取与写入记录；所有品牌同一条读路径和写路径 |
 | 会话客户端 | `src/session-client.ts` | 铁律四、五只实现一次；品牌只提供 `SessionProtocol`（登录前检查、一次登录、注销，以及「有人在线」的登录应答能否再试） |
 | 品牌 | `src/drivers/huawei/`、`src/drivers/adapter.ts` 与各驱动（中兴的两套接口在 `src/drivers/zte/`） | 发什么：华为是 H168-383 的已验证序列与其他 HiLink 型号的通用写入；其他品牌由适配层把各自驱动的精简会话变成同样的快照与锁定状态 |
-| 协议部件 | `src/protocols/` | 怎样和一种接口对话，不含只对某个品牌或型号成立的事实：HiLink 的会话、登录、报文与按接口资料写的通用请求（`hilink/`），ubus 的 JSON-RPC，移远 / 广和通 / 通用 AT 指令（含 `+COPS`）与模组短信应答的解析 |
+| 协议部件 | `src/protocols/` | 怎样和一种接口对话，不含只对某个品牌或型号成立的事实：HiLink 的会话、登录、报文与按接口资料写的通用请求（`hilink/`），ubus 的 JSON-RPC，移远 / 广和通 / 通用 AT 指令（含 `+COPS`）与模组短信应答的解析；驱动与部件都要用的传输（`transport.ts`）、取值清洗（`values.ts`）、读数的形状（`readings.ts`）和 USSD 的应答（`ussd.ts`）也在这里。部件不引用 `src/drivers/`（19.7） |
 
 ### 19.3 不变的东西与证明
 
@@ -594,7 +594,7 @@ flowchart TD
 
 - **新品牌**：在 `src/drivers/` 写它的 `DriverProtocol`（免登录识别、登录前检查、一次登录、注销）与 `DriverSession`（一个文件；有两套接口的品牌像中兴那样建自己的目录，两套接口共用的部件放在里面），用得上的协议部件从 `src/protocols/` 直接组合，它的接口是别的品牌也会用的一种（像 ubus、AT 指令）就先把这种接口写成协议部件；在 `src/router-family.ts` 加它的事实，在 `src/drivers/brands.ts` 注册。不需要碰后端、调度器、连接工厂或服务。
 - **新能力**：在 `RouterBackend` 与 `RouterSession` 各加一个动词，在 `SessionBackend` 里写一行排队与闸门；在有记录的品牌的会话里实现（其他品牌的驱动加一个可选方法，由适配层调用）。
-- **新协议部件**：两个以上驱动用到、又不含品牌事实的部分，放进 `src/protocols/`。
+- **新协议部件**：两个以上驱动用到、又不含品牌事实的部分，放进 `src/protocols/`。部件要用的东西只从 `src/protocols/` 和 `src/` 顶层拿，不从 `src/drivers/` 拿（`test/router-backend.test.ts` 检查）。
 
 ### 19.6 连接设置、HiLink 与中兴各归其位（2026-11-13）
 
@@ -625,7 +625,7 @@ flowchart TD
 | `src/cpe-domain.ts` | 请求序列到 `src/drivers/huawei/requests.ts`；快照与指令的类型、锁定核对、「此型号不提供」的判断留在原处 | 读哪些接口、按什么顺序、写什么，是 H168-383 验证下来的（未验证型号的宽容读法是同一批请求）；类型与核对每个品牌都用 |
 | `src/drivers/huawei.ts` | `src/drivers/huawei/driver.ts` | 华为的会话对象与 `RouterDriver` |
 
-留在原处的：`src/device-profile.ts`（识别探测要读的接口清单；零依赖，控制台与在线演示同一实现）、`src/endpoint-discovery.ts`（智能体的只读探查；零依赖）、`src/rf-bounds.ts`（锁定边界，前后端共用）。调度器仍然认一个 HiLink 的错误类型（`CpeLoginMethodError`：登录方式定不下来，密码没有发出），和其他品牌的 `DriverLoginMethodError` 并排判断；两者合成一个是以后的事，不属于这次搬移。
+留在原处的：`src/device-profile.ts`（识别探测要读的接口清单；零依赖，控制台与在线演示同一实现）、`src/endpoint-discovery.ts`（智能体的只读探查；零依赖）、`src/rf-bounds.ts`（锁定边界，前后端共用）。调度器仍然认一个 HiLink 的错误类型（`CpeLoginMethodError`：登录方式定不下来，密码没有发出），和其他品牌的 `DriverLoginMethodError` 并排判断；搬移时没有动，随后合成了一个（19.7）。
 
 **中兴与 `+COPS`。** `src/drivers/cellular.ts` 里混着三样东西，按它们各自是什么分开：
 
@@ -643,6 +643,27 @@ flowchart TD
 - 短信镜像给自己记的条目写时间用 `sms/mirror.ts` 的 `mirrorDate`，不再借 HiLink 请求里的日期格式；两者的写法相同，有测试对照。
 - `cpe-domain.ts` 不再引用 HiLink：锁频指令里的网络制式写成三个代码本身（`"00"`、`"03"`、`"08"`）。
 - 守线的测试跟着改了：写服务与短信服务不得引用任何协议部件或驱动（`test/router-backend.test.ts`）；烽燧已用的接口清单对照的是 `src/protocols/hilink/` 与 `src/drivers/huawei/` 两个目录（`test/endpoint-discovery.test.ts`）。
-- 搬出来才看清的一处：MCP 的 `lock_cell` 在任何品牌上都先用 H168-383 的锁小区载荷检查一遍入参（`src/mcp-core-tools.ts` 引用 `drivers/huawei/requests.ts` 的 `prepareCellLockPayload`），REST 没有这一步。这是原有行为，这次没有动，留给「每个读写操作只登记一次」那一步。
+- 搬出来才看清的一处：MCP 的 `lock_cell` 在任何品牌上都先用 H168-383 的锁小区载荷检查一遍入参（`src/mcp-core-tools.ts` 引用 `drivers/huawei/requests.ts` 的 `prepareCellLockPayload`），REST 没有这一步。这是原有行为，搬移时没有动，随后改掉了（19.7）。
 
 **证明。** 五个改动代码的提交（调度器、先把共用的部分拿出来、协议、华为驱动、中兴与 `+COPS`）之后各比对一次，请求序列 15384 字节、报文记录 4712 字节，全部与 `863249d` 逐字节相同。比对工具的导入路径跟着改过，改完先在基准上重跑，输出不变。
+
+### 19.7 搬完以后收的四处（2026-11-14）
+
+19.6 搬的时候看见四处没有照分层摆好的地方，当时只记下来。主人看过以后一并改掉；前两处改了行为，各有单独的提交和 CHANGELOG 条目，后两处只搬不改。
+
+1. **入口问的是路由器自己品牌的检查。** MCP 的 `lock_cell` 先拿 H168-383 的锁小区载荷检查入参，不管连的是哪个品牌：H168-383 没有的频段（LTE B2、B34、B39 等）在其他品牌上被这个工具拒绝，控制台却能锁。现在 `RouterBackend` 多一个 `checkCellLock`（就是 `lockCell` 入队前做的那一步，单独拿出来，不发任何请求），MCP 先问它，再做自己那条「只能锁已经观测到的小区」的规则。H168-383 上顺序和结果都不变：先是它自己的边界，再是有没有观测到。
+2. **登录方式定不下来，只有一个错误类型。** [`src/session-errors.ts`](../../src/session-errors.ts) 的 `LoginMethodError`：密码没有发出，带上路由器拒绝时给的代码（没有就是 `null`）和「这是不是它以前登录成功过的方式」。HiLink 的 `CpeLoginMethodError` 与各驱动的 `DriverLoginMethodError` 都继承它，调度器只认这一个，不再引用任何协议部件。合并之前先修了一处不一致：其他品牌的登录方式定不下来时，「测试连接」报的是「连不上路由器」，后台轮询却把它当作「路由器有应答」；现在测试连接同样报 `unsupported_login`，控制台对其他品牌有自己的说明（请核对品牌或改成自动识别），不再出现 HiLink 的 `password_type` 与 SCRAM。
+3. **写后回读只有一个记法。** 驱动里的 `settleSetting` 与 `src/device-access.ts` 的 `settleCheck` 做的是同一件事（一致、不一致、读不到），留下 `settleCheck`。
+4. **驱动引用协议部件，协议部件不引用驱动。** AT、ubus 和 HiLink 的部件原先从 `src/drivers/` 拿传输、取值清洗、读数的类型和 USSD 的几个函数，两个目录互相引用。这些是两边都要用的底层部件，搬到协议部件这一侧：
+
+| 原来在 `src/drivers/` | 现在 | 是什么 |
+| :--- | :--- | :--- |
+| `transport.ts` | `src/protocols/transport.ts` | 只到路由器本机地址的 HTTP、响应上限、Cookie |
+| `values.ts` | `src/protocols/values.ts` | 取值清洗：路由器报的文字、数字、频段、PCI、信号读数，各自有界，读不出就是 `null` |
+| `types.ts` 里的 `DriverCell`、`DriverCarrier`、`DriverNeighbour`、`DriverTraffic`、`CellLockState`、`DriverNetworkMode`、`DriverRat`、`ServingMode`、`SubcarrierSpacingKhz`，`snapshot.ts` 的 `emptyCell` | `src/protocols/readings.ts` | 读数的形状：小区、载波、邻区、流量计数、读回来的小区锁定、网络制式的名字。`types.ts` 留下驱动会话的契约（`DriverSession` 与它的可选部件、遥测、锁定状态、锁定目标） |
+| `cellular.ts` 的 `ussdText`、`USSD_POLLS`、`USSD_POLL_MS`、`emptyUssd` | `src/protocols/ussd.ts` | USSD 的应答文字、等待次数、空应答；HiLink 的通用请求和中兴的驱动都用 |
+| `sms.ts` 的 `SmsSegment` | `src/protocols/at/sms.ts` | `AT+CMGL=4` 列出的一段短信；拼成整条仍在 `drivers/sms.ts` |
+
+守线的测试加了两条（`test/router-backend.test.ts`）：`src/protocols/` 下没有文件引用 `src/drivers/`；驱动以上的代码（入口、服务、后端、调度器）不引用任何驱动或协议部件，只有调度器引用连接工厂 `drivers/connection.ts` 和品牌识别 `drivers/detect.ts`（只引用类型的不算，`src/index.ts` 是对外的导出）。
+
+**证明。** 五个改动代码的提交之后各比对一次，请求序列 15384 字节、报文记录 4712 字节，与 `863249d` 逐字节相同。
