@@ -1,7 +1,7 @@
 import type { ReadCapability, ReadState, ReadbackOutcome, WriteAccess, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
-import type { RouterFamily } from "./router-family.ts";
-import { DEVICE_FEATURES, type DeviceFeature, type ReadSection, type StatusReadFeature, type WriteFeature, featureRecord, isStatusReadFeature } from "./features.ts";
+import { type ProbeAnswer, type ProbeSign, ROUTER_FAMILY_FACTS, type RouterFamily } from "./router-family.ts";
+import { DEVICE_FEATURES, type DeviceFeature, type ReadSection, type StatusReadFeature, WRITE_FEATURES, type WriteFeature, featureRecord, isStatusReadFeature } from "./features.ts";
 
 /**
  * Who the router is and what it says it can do. One read session (at daemon start and in the
@@ -98,15 +98,6 @@ export interface DeviceIdentity {
    */
   variant?: string;
 }
-
-/**
- * The writes FengSui has a generic implementation for (HiLink request formats from the reference
- * project's facts, docs/dev/protocol.md A.11): what a HiLink model nobody verified writes,
- * as experimental writes, where the probe shows it can. Every other write stays the verified model's alone.
- */
-export const EXPERIMENTAL_FEATURES = ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"] as const;
-
-export type ExperimentalFeature = (typeof EXPERIMENTAL_FEATURES)[number];
 
 /**
  * `verified`: the model is on the verified list; `probe`: on another model, the probe found what the
@@ -527,45 +518,23 @@ export function isDeviceProbeResult(value: unknown): value is DeviceProbeResult 
 }
 
 /**
- * Whether the probe found what each generic write needs on this router (a model nobody verified):
- * the endpoint the write reads back, with the tags it reads, or for a write-only endpoint
- * (`device/control`, `net/reconnect`) the module it belongs to. Tag names only, never values.
- *
- * - `bandLock`: `net/net-mode-list` advertises LTE bands, and `net/net-mode` answers with the
- *   `NetworkMode`, `NetworkBand` and `LTEBand` the write sends back and checks;
- * - `reboot`: `device/information` answers (`device/control` is in that module);
- * - `reconnect`: `net/net-mode` or `net/net-mode-list` answers (`net/reconnect` is in that module);
- * - `mobileData`: `dialup/mobile-dataswitch` answers with `dataswitch`;
- * - `smsWrite`: `sms/sms-count` answers with `LocalUnread` and `LocalInbox`;
- * - `networkMode`: `net/net-mode` answers with the `NetworkMode`, `NetworkBand` and `LTEBand` the write
- *   sends back, and `net/net-mode-list` answers (the write takes only a mode that list names);
- * - `operatorSelect`: `net/net-mode` or `net/net-mode-list` answers (`net/register` and `net/plmn-list`
- *   are in that module);
- * - `roaming`: `dialup/mobile-dataswitch` answers (`dialup/connection` is in that module; the write
- *   reads it first and writes nothing when it lacks the settings it must send back);
- * - `trafficReset`: `global/module-switch` names `statistic_enabled` (the statistics module);
- * - `ussd`: `global/module-switch` names `ussd_enabled` (the write reads its value first).
+ * Whether the probe found what each write of the brand needs on a model nobody verified, by the brand's
+ * signs (`ROUTER_FAMILY_FACTS[family].probe`: HiLink's generic writes; a brand without signs gets none):
+ * the endpoints that must have answered, with the tags they must name. Tag names only, never values.
  */
-export function experimentalEvidence(probe: DeviceProbeResult): Record<ExperimentalFeature, boolean> {
-  const answered = (path: DeviceProbePath): boolean => probe.endpoints.some((e) => e.path === path && e.state === "supported");
-  const tags = (path: DeviceProbePath): Set<string> =>
-    new Set((probe.observations.find((o) => o.path === path)?.fields ?? []).map((f) => f.tag.toLowerCase()));
-  const has = (path: DeviceProbePath, ...wanted: string[]): boolean => {
-    const seen = tags(path);
-    return answered(path) && wanted.every((tag) => seen.has(tag.toLowerCase()));
+export function experimentalEvidence(probe: DeviceProbeResult, family: RouterFamily = "huawei"): Partial<Record<WriteFeature, boolean>> {
+  const answered = (path: string): boolean => probe.endpoints.some((e) => e.path === path && e.state === "supported");
+  const has = ({ path, tags = [] }: ProbeAnswer): boolean => {
+    const seen = new Set((probe.observations.find((o) => o.path === path)?.fields ?? []).map((f) => f.tag.toLowerCase()));
+    return answered(path) && tags.every((tag) => seen.has(tag.toLowerCase()));
   };
-  return {
-    bandLock: (probe.lteBands?.length ?? 0) > 0 && has("/api/net/net-mode", "NetworkMode", "NetworkBand", "LTEBand"),
-    reboot: answered("/api/device/information"),
-    reconnect: answered("/api/net/net-mode") || answered("/api/net/net-mode-list"),
-    mobileData: has("/api/dialup/mobile-dataswitch", "dataswitch"),
-    smsWrite: has("/api/sms/sms-count", "LocalUnread", "LocalInbox"),
-    networkMode: has("/api/net/net-mode", "NetworkMode", "NetworkBand", "LTEBand") && answered("/api/net/net-mode-list"),
-    operatorSelect: answered("/api/net/net-mode") || answered("/api/net/net-mode-list"),
-    roaming: answered("/api/dialup/mobile-dataswitch"),
-    trafficReset: has("/api/global/module-switch", "statistic_enabled"),
-    ussd: has("/api/global/module-switch", "ussd_enabled"),
-  };
+  const holds = (sign: ProbeSign): boolean => (sign.all ?? []).every(has) && (sign.any === undefined || sign.any.some(has)) && (sign.lteBands !== true || (probe.lteBands?.length ?? 0) > 0);
+  const evidence: Partial<Record<WriteFeature, boolean>> = {};
+  for (const feature of WRITE_FEATURES) {
+    const sign = ROUTER_FAMILY_FACTS[family].probe?.[feature];
+    if (sign) evidence[feature] = holds(sign);
+  }
+  return evidence;
 }
 
 /**
@@ -575,7 +544,7 @@ export function experimentalEvidence(probe: DeviceProbeResult): Record<Experimen
 export function deviceProfileOf(probe: DeviceProbeResult, family?: RouterFamily): DeviceProfile {
   const { identity } = probe;
   const verifiedModel = identity.model !== null && isVerifiedModel(identity.model);
-  const evidence: Partial<Record<DeviceFeature, boolean>> = verifiedModel ? {} : experimentalEvidence(probe);
+  const evidence: Partial<Record<DeviceFeature, boolean>> = verifiedModel ? {} : experimentalEvidence(probe, family);
   const features = {} as Record<DeviceFeature, FeatureCapability>;
   for (const feature of DEVICE_FEATURES) {
     // The status reads came after the verified model was verified: nothing about them is verified yet

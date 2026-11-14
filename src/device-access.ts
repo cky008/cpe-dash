@@ -1,7 +1,7 @@
-import { type DeviceProbeResult, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
+import { type DeviceProbeResult, experimentalEvidence } from "./device-profile.ts";
 import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, type ReadSection, WRITE_FEATURES, type WriteFeature, isCellularWriteFeature, sectionFeature } from "./features.ts";
 import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
-import { type RouterFamily, familyCapabilities, isDriverFamily, routerVariant } from "./router-family.ts";
+import { ROUTER_FAMILY_FACTS, type RouterFamily, familyCapabilities, isDriverFamily, routerVariant } from "./router-family.ts";
 
 /**
  * What FengSui may do with the router it talks to: whether it may write, and which read sections
@@ -182,7 +182,7 @@ export interface DeviceAccessSnapshot {
 /** What the identification probe of a model nobody verified showed of the generic writes. */
 interface ProbeCapability {
   model: string;
-  evidence: Record<ExperimentalFeature, boolean>;
+  evidence: Partial<Record<WriteFeature, boolean>>;
   lteBands: number[] | null;
 }
 
@@ -334,7 +334,7 @@ export class DeviceAccess {
   /** What the identification probe found (start, catch-up, a console test of this router); a probe naming no model changes nothing. */
   noteProbe(probe: DeviceProbeResult | null | undefined): void {
     if (!probe) return;
-    this.noteEvidence(probe.identity.model, experimentalEvidence(probe), probe.lteBands);
+    this.noteEvidence(probe.identity.model, experimentalEvidence(probe, this.#family), probe.lteBands);
     this.noteVariant(probe.identity.model, probe.identity.variant ?? null);
   }
 
@@ -361,7 +361,7 @@ export class DeviceAccess {
    * What a probe of `model` showed of the generic writes, and the LTE bands it advertised (the online
    * demo hands over the identification its seed carries this way); no model, no change.
    */
-  noteEvidence(model: string | null | undefined, evidence: Readonly<Record<ExperimentalFeature, boolean>>, lteBands: ReadonlyArray<number> | null): void {
+  noteEvidence(model: string | null | undefined, evidence: Readonly<Partial<Record<WriteFeature, boolean>>>, lteBands: ReadonlyArray<number> | null): void {
     const name = sighting(model, null)?.model;
     if (!name) return;
     this.#capability = { model: name, evidence: { ...evidence }, lteBands: lteBands ? [...lteBands] : null };
@@ -388,13 +388,13 @@ export class DeviceAccess {
     // A model nobody verified writes only what FengSui implements for its family (in the form of the
     // interface it speaks): a driver's writes, or on a HiLink model the generic ones (a write without
     // one stays the verified model's alone)
-    if (!(familyCapabilities(this.#family, this.variant).writes as ReadonlyArray<string>).includes(feature)) return "not_implemented";
-    // A HiLink model shows in the identification probe what a generic write reads back; one users verified
-    // (on a router of any brand: VERIFIED_FEATURES) needs no such sign
+    if (!familyCapabilities(this.#family, this.variant).writes.includes(feature)) return "not_implemented";
+    // A write whose brand names a sign for it (HiLink's generic writes) opens once the identification
+    // probe showed that sign; one users verified (on a router of any brand: VERIFIED_FEATURES) needs none
     const usersVerified = isVerifiedFeature(this.#family, current.model, feature, "write", this.#verifiedFeatures);
-    if (!isDriverFamily(this.#family) && !usersVerified) {
+    if (ROUTER_FAMILY_FACTS[this.#family].probe?.[feature] !== undefined && !usersVerified) {
       const capability = this.#capability?.model === current.model ? this.#capability : null;
-      if (capability?.evidence[feature as ExperimentalFeature] !== true) return "unsupported";
+      if (capability?.evidence[feature] !== true) return "unsupported";
     }
     // Open by default; its owner's "off" for this model wins, over a write users verified too
     if (this.#disabled.some((d) => d.model === current.model && d.feature === feature)) return "disabled";

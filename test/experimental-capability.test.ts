@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEVICE_PROBE_PATHS, EXPERIMENTAL_FEATURES, EXPERIMENTAL_PROBE_PATHS, type ProbeSession, deviceProfileOf, experimentalEvidence, isDeviceProbeResult, probeDevice } from "../src/device-profile.ts";
+import { DEVICE_PROBE_PATHS, EXPERIMENTAL_PROBE_PATHS, type ProbeSession, deviceProfileOf, experimentalEvidence, isDeviceProbeResult, probeDevice } from "../src/device-profile.ts";
 import { DEVICE_FEATURES, WRITE_FEATURES, isStatusReadFeature } from "../src/features.ts";
 import { FAMILY_WRITE_FEATURES, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 
@@ -106,15 +106,21 @@ describe("experimental capability: the probe", () => {
 
 describe("experimental capability: evidence per write", () => {
   it("finds every generic write on a router that shows them all", async () => {
-    assert.deepEqual([...EXPERIMENTAL_FEATURES], ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"]);
-    // The gate goes by the family's list; on a HiLink model it is these generic writes, and every family's are known write features
-    assert.deepEqual([...ROUTER_FAMILY_FACTS.huawei.writes], [...EXPERIMENTAL_FEATURES]);
+    // Huawei's facts give each of its generic writes a sign, and no other write one
+    const signed = Object.keys(ROUTER_FAMILY_FACTS.huawei.probe ?? {});
+    assert.deepEqual(signed, ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"]);
+    assert.deepEqual([...ROUTER_FAMILY_FACTS.huawei.writes], signed);
+    // A sign names only endpoints the probe reads; no driver family needs one (their writes open by the facts)
+    const probed: ReadonlySet<string> = new Set([...DEVICE_PROBE_PATHS, ...EXPERIMENTAL_PROBE_PATHS]);
+    for (const sign of Object.values(ROUTER_FAMILY_FACTS.huawei.probe ?? {})) for (const answer of [...(sign.all ?? []), ...(sign.any ?? [])]) assert.ok(probed.has(answer.path), answer.path);
+    for (const family of ROUTER_FAMILIES.filter((f) => f !== "huawei")) assert.equal(ROUTER_FAMILY_FACTS[family].probe, undefined, family);
     for (const family of ROUTER_FAMILIES) for (const feature of ROUTER_FAMILY_FACTS[family].writes) assert.ok((FAMILY_WRITE_FEATURES as ReadonlyArray<string>).includes(feature) && (WRITE_FEATURES as ReadonlyArray<string>).includes(feature), `${family} ${feature}`);
     const probe = await probeDevice(fakeSession(B535), { nowIso: NOW, origin: "startup" });
     assert.deepEqual(experimentalEvidence(probe), { bandLock: true, reboot: true, reconnect: true, mobileData: true, smsWrite: true, networkMode: true, operatorSelect: true, roaming: true, trafficReset: true, ussd: true });
+    assert.deepEqual(experimentalEvidence(probe, "openwrt"), {}, "a brand without signs gets no evidence");
     const { features } = deviceProfileOf(probe).capabilities;
     for (const feature of DEVICE_FEATURES) {
-      const expected = (EXPERIMENTAL_FEATURES as ReadonlyArray<string>).includes(feature) ? { state: "supported", source: "probe" } : { state: "unknown", source: "none" };
+      const expected = signed.includes(feature) ? { state: "supported", source: "probe" } : { state: "unknown", source: "none" };
       assert.deepEqual(features[feature], expected, feature);
     }
   });

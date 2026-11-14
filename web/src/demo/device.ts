@@ -20,10 +20,9 @@ import { TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-po
 import type { DisabledWrite } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
 import { DeviceAccess, type DeviceAccessSnapshot, type WriteResultRecord, gateRefuses, modelLabel } from "../../../src/device-access.ts";
-import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, type WriteFeature } from "../../../src/features.ts";
-import { EXPERIMENTAL_FEATURES, type ExperimentalFeature, buildDeviceReport, deviceReportChecks } from "../../../src/device-profile.ts";
+import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, type StatusReadFeature, WRITE_FEATURES, type WriteFeature } from "../../../src/features.ts";
+import { buildDeviceReport, deviceReportChecks } from "../../../src/device-profile.ts";
 import type { RouterFamily } from "../../../src/router-family.ts";
-import type { StatusReadFeature } from "../../../src/features.ts";
 import { switchExperimentalWrite } from "../../../src/experimental-switch.ts";
 import { verifiedModelsLabel } from "../../../src/firmware.ts";
 import { type DemoConsole, DemoRefusal } from "./console.ts";
@@ -136,8 +135,8 @@ export class DemoDevice {
     this.#access.see(profile?.identity.model ?? telemetry?.device.deviceName, profile?.identity.softwareVersion ?? telemetry?.device.softwareVersion);
     if (profile) {
       // A served profile marks each write the probe found evidence for as supported by the probe
-      const evidence = Object.fromEntries(EXPERIMENTAL_FEATURES.map((feature) => [feature, profile.capabilities.features[feature]?.source === "probe"]));
-      this.#access.noteEvidence(profile.identity.model, evidence as Record<ExperimentalFeature, boolean>, profile.capabilities.lteBands);
+      const evidence = Object.fromEntries(WRITE_FEATURES.map((feature) => [feature, profile.capabilities.features[feature]?.source === "probe"]));
+      this.#access.noteEvidence(profile.identity.model, evidence, profile.capabilities.lteBands);
     }
     // The brand the daemon spoke to it as: another brand's router writes through its driver
     this.#access.setFamily(opts.seed.telemetry.schedulerStatus.device.family ?? "huawei");

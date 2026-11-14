@@ -90,7 +90,35 @@ export interface RouterFamilyFacts {
    * `writes` above.
    */
   variants?: Readonly<Record<string, RouterFamilyVariant>>;
+  /**
+   * The writes that open on a model of the family nobody verified only once the identification probe
+   * (`src/device-profile.ts`) found what each needs, and what that is: HiLink's generic writes, which
+   * read back from endpoints a model may lack. A write listed in `writes` without one opens by the
+   * facts alone (every driver family's). A write users verified on the model needs no such sign.
+   */
+  probe?: Readonly<Partial<Record<WriteFeature, ProbeSign>>>;
 }
+
+/** An endpoint of the identification probe that answered, with these tags in its answer (names only, never values). */
+export interface ProbeAnswer {
+  path: string;
+  tags?: ReadonlyArray<string>;
+}
+
+/**
+ * What the identification probe must have found for a write: every answer of `all`, at least one of
+ * `any`, and with `lteBands` the LTE bands of the router's band list.
+ */
+export interface ProbeSign {
+  all?: ReadonlyArray<ProbeAnswer>;
+  any?: ReadonlyArray<ProbeAnswer>;
+  lteBands?: true;
+}
+
+/** `net/net-mode` with the settings a generic band lock or mode change sends back and checks. */
+const NET_MODE_SETTINGS: ProbeAnswer = { path: "/api/net/net-mode", tags: ["NetworkMode", "NetworkBand", "LTEBand"] };
+/** `net/net-mode` or `net/net-mode-list`: the router has the `net` module (`net/reconnect`, `net/register` and `net/plmn-list` are in it). */
+const NET_MODULE: ReadonlyArray<ProbeAnswer> = [{ path: "/api/net/net-mode" }, { path: "/api/net/net-mode-list" }];
 
 /**
  * A form of a family's interface some of its routers speak, with fewer of the family's features on
@@ -117,6 +145,24 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     writes: ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming", "trafficReset", "ussd"],
     networkModes: ["auto", "lte", "nr_sa"],
     nrBandLock: true,
+    // What each generic write reads back, or for a write-only endpoint the module it belongs to (protocol spec A.11, A.12)
+    probe: {
+      // `net/net-mode-list` advertises LTE bands, and `net/net-mode` has what the write sends back
+      bandLock: { lteBands: true, all: [NET_MODE_SETTINGS] },
+      // `device/control` is in the module of `device/information`
+      reboot: { all: [{ path: "/api/device/information" }] },
+      reconnect: { any: NET_MODULE },
+      mobileData: { all: [{ path: "/api/dialup/mobile-dataswitch", tags: ["dataswitch"] }] },
+      smsWrite: { all: [{ path: "/api/sms/sms-count", tags: ["LocalUnread", "LocalInbox"] }] },
+      // The write takes only a mode `net/net-mode-list` names
+      networkMode: { all: [NET_MODE_SETTINGS, { path: "/api/net/net-mode-list" }] },
+      operatorSelect: { any: NET_MODULE },
+      // `dialup/connection` is in that module; the write reads it first and writes nothing when it lacks the settings it must send back
+      roaming: { all: [{ path: "/api/dialup/mobile-dataswitch" }] },
+      // The statistics module; the USSD write reads its switch first
+      trafficReset: { all: [{ path: "/api/global/module-switch", tags: ["statistic_enabled"] }] },
+      ussd: { all: [{ path: "/api/global/module-switch", tags: ["ussd_enabled"] }] },
+    },
   },
   "zte-goform": {
     defaultUsername: "",
