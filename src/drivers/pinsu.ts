@@ -1,12 +1,12 @@
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
-import type { WriteCheck } from "../device-access.ts";
+import { type WriteCheck, settleCheck } from "../device-access.ts";
 import type { WcdmaSignal } from "../cpe-domain.ts";
 import { checkCellLock, checkLockBands } from "./bands.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, hmacMd5Hex, loginLocked, loginUnplaced, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
+import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import { type LanHttp, jsonAnswer } from "./transport.ts";
 import type {
@@ -348,7 +348,7 @@ class PinsuSession implements DriverSessionHandle {
       if (order === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
       await this.#write(check, "mnet_set_prefer_net_mode", { mnet_acqorder: order, mnet_band: "auto", mnet_scan_mode: "auto" });
       const after = await mgdb(this.#http, ["mnet_acqorder"]).catch(() => null);
-      settleSetting(check, after === null ? null : parsePinsuLockState(after).networkMode === mode);
+      settleCheck(check, after === null ? null : parsePinsuLockState(after).networkMode === mode);
     },
   };
 

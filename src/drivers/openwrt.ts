@@ -3,7 +3,7 @@ import { type ApnIpType, type NetworkMode, type OperatorChoice, type OperatorSel
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
-import type { WriteCheck } from "../device-access.ts";
+import { type WriteCheck, settleCheck } from "../device-access.ts";
 import type { SimCardStatus, SystemStatus } from "../router-status.ts";
 import { encodeSmsSubmit } from "../sms/pdu.ts";
 import type { SmsCounters } from "../sms/types.ts";
@@ -54,7 +54,7 @@ import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands
 import { settleNothingToRead } from "./cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleCellLocks, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleCellLocks, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
 import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
 import type { LanHttp } from "./transport.ts";
 import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../protocols/ubus.ts";
@@ -839,7 +839,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       this.#guard();
       await this.#atWrite(check, "AT+CFUN", `AT+CFUN=${enabled ? 4 : 1}`);
       const after = parseCfun(await this.#ubus.execAt("AT+CFUN?").catch(() => ""));
-      settleSetting(check, after === null ? null : after === enabled);
+      settleCheck(check, after === null ? null : after === enabled);
     },
     enterPin: (pin, check) => this.#pinWrite(check, "AT+CPIN", `AT+CPIN="${pin}"`, async () => parseSimPin(await this.#ubus.execAt("AT+CPIN?").catch(() => ""), "").state === "ready"),
     setPinLock: (enabled, pin, check) =>
@@ -882,10 +882,10 @@ export class OpenwrtSession implements DriverSessionHandle {
       noteSent(check, FAMILY, "AT+COPS");
       const answer = await this.#ubus.execAt(`AT+COPS=1,2,"${selection.plmn}"${act === null ? "" : `,${act}`}`, COPS_TIMEOUT_MS);
       // A registration the module gave up on is a write that did not take: recorded as such, and watched like one
-      if (isAtError(answer)) return settleSetting(check, false);
+      if (isAtError(answer)) return settleCheck(check, false);
     }
     const after = parseCops(await this.#ubus.execAt("AT+COPS?").catch(() => ""));
-    settleSetting(check, after === null ? null : selection.mode === "auto" ? after.mode === 0 : after.mode === 1 || after.mode === 4);
+    settleCheck(check, after === null ? null : selection.mode === "auto" ? after.mode === 0 : after.mode === 1 || after.mode === 4);
   }
 
   /** One AT command of a write: named in the record before it is sent, and an `ERROR` is the module refusing it. */
@@ -933,7 +933,7 @@ export class OpenwrtSession implements DriverSessionHandle {
       const bands = [...(current.lte === "all" ? [] : current.lte.map((b) => 100 + b)), ...(current.nr === "all" ? [] : current.nr.map((b) => 500 + b))];
       await this.#atWrite(check, "AT+GTACT", `AT+GTACT=${[rat, current.preferRat, current.preferBand, ...bands].join(",")}`);
       const after = parseFibocomAct(await this.#ubus.execAt("AT+GTACT?").catch(() => ""));
-      settleSetting(check, after === null ? null : after.rat === rat);
+      settleCheck(check, after === null ? null : after.rat === rat);
       return;
     }
     const target = QUECTEL_SELECTABLE[mode];
@@ -942,7 +942,7 @@ export class OpenwrtSession implements DriverSessionHandle {
     await this.#atWrite(check, "AT+QNWPREFCFG/mode_pref", `AT+QNWPREFCFG="mode_pref",${target.pref}`);
     const after = quectelModeOf(await this.#ubus.execAt('AT+QNWPREFCFG="mode_pref"').catch(() => ""), await this.#ubus.execAt('AT+QNWPREFCFG="nr5g_disable_mode"').catch(() => ""));
     // `LTE` leaves the 5G switch as it was, so only the mode's own word is compared there
-    settleSetting(check, after === null && mode !== "lte" ? null : after === mode);
+    settleCheck(check, after === null && mode !== "lte" ? null : after === mode);
   }
 
   /**
@@ -955,7 +955,7 @@ export class OpenwrtSession implements DriverSessionHandle {
     if (!this.#identity) await this.initModem();
     noteSent(check, FAMILY, label);
     const took = !pinRefused(await this.#ubus.execAt(command));
-    if (took) settleSetting(check, await settled().catch(() => null));
+    if (took) settleCheck(check, await settled().catch(() => null));
     else settleNothingToRead(check);
     // What the poll remembers of the card is a minute old at most: forget it, the PIN changed it
     SIM_READS.delete(this.#ubus.http.baseUrl);
@@ -973,7 +973,7 @@ export class OpenwrtSession implements DriverSessionHandle {
     const ipType = target.ipType ?? current?.ipType ?? "ipv4v6";
     await this.#atWrite(check, "AT+CGDCONT", `AT+CGDCONT=1,"${PDP_TYPES[ipType]}","${target.apn}"`);
     const after = parseCgdcont(await this.#ubus.execAt("AT+CGDCONT?").catch(() => ""));
-    settleSetting(check, after === null ? null : after.apn === target.apn && after.ipType === ipType);
+    settleCheck(check, after === null ? null : after.apn === target.apn && after.ipType === ipType);
   }
 
   async reboot(check: WriteCheck): Promise<void> {

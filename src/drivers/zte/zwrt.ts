@@ -3,7 +3,7 @@ import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoi
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import { SectionUnavailableError } from "../../cpe-domain.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
-import type { WriteCheck } from "../../device-access.ts";
+import { type WriteCheck, settleCheck } from "../../device-access.ts";
 import { type BatteryStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../../router-status.ts";
 import { detectSmsTextMode } from "../../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
@@ -13,7 +13,7 @@ import { ZTE_MODE_NAMES, type ZwrtApnProfile, awaitOperatorStep, zteModeOf, zteR
 import { carriersFromRows, servingModeOf } from "../cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "../client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "../login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "../readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "../readback.ts";
 import { settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex } from "../sms.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "../snapshot.ts";
@@ -697,7 +697,7 @@ class ZwrtSession implements DriverSessionHandle {
     if (name === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
     await this.#write(check, "nwinfo_set_netselect", { net_select: name });
     const after = await this.#rpc.call("zte_nwinfo_api", "nwinfo_get_netinfo").catch(() => null);
-    settleSetting(check, after === null || textOf(after["net_select"]) === null ? null : zteModeOf(after["net_select"]) === mode);
+    settleCheck(check, after === null || textOf(after["net_select"]) === null ? null : zteModeOf(after["net_select"]) === mode);
   }
 
   /** `nwinfo_manual_scan`, then `nwinfo_m_netselect_status` until the search is over, then the list. Nothing is disconnected first: the modem drops the data call by itself while it searches. */
@@ -735,7 +735,7 @@ class ZwrtSession implements DriverSessionHandle {
       await this.#write(check, "nwinfo_set_netselect", { net_select_mode: "auto_select" });
       const after = await this.#rpc.call("zte_nwinfo_api", "nwinfo_get_netinfo").catch(() => null);
       const mode = after === null ? null : textOf(after["net_select_mode"]);
-      settleSetting(check, mode === null ? null : mode === "auto_select");
+      settleCheck(check, mode === null ? null : mode === "auto_select");
       return;
     }
     this.#guard();
@@ -745,7 +745,7 @@ class ZwrtSession implements DriverSessionHandle {
     await this.#write(check, "nwinfo_manual_register", { m_mcc_mnc: row.choice.plmn, m_rat: row.rat });
     const took = await awaitOperatorStep(async () => (await this.#rpc.call("zte_nwinfo_api", "nwinfo_m_netselect_result"))["m_netselect_result"], zteRegisterDone, wait);
     // A registration the router gave up on is a write that did not take: recorded as such, and watched like one
-    settleSetting(check, took);
+    settleCheck(check, took);
   }
 
   async #apnState(): Promise<{ manual: boolean; profiles: ZwrtApnProfile[] }> {
@@ -764,7 +764,7 @@ class ZwrtSession implements DriverSessionHandle {
     if (choice.mode === "auto") {
       await this.#write(check, "set_apn_mode", { apn_mode: 0 }, APN);
       const after = await this.#apnState().catch(() => null);
-      settleSetting(check, after === null ? null : !after.manual);
+      settleCheck(check, after === null ? null : !after.manual);
       return;
     }
     const before = await this.#apnState();
@@ -777,7 +777,7 @@ class ZwrtSession implements DriverSessionHandle {
     await this.#useApnProfile(check, saved.id, before.manual);
     const after = await this.#apnState().catch(() => null);
     const inUse = after?.profiles.find((profile) => profile.enabled) ?? null;
-    settleSetting(check, after === null ? null : after.manual && inUse !== null && inUse.name === FENGSUI_APN_PROFILE && inUse.apn === choice.apn);
+    settleCheck(check, after === null ? null : after.manual && inUse !== null && inUse.name === FENGSUI_APN_PROFILE && inUse.apn === choice.apn);
   }
 
   async #useApnProfile(check: WriteCheck, id: string | number, manual: boolean): Promise<void> {
@@ -794,7 +794,7 @@ class ZwrtSession implements DriverSessionHandle {
     if (!profile || profile.name === FENGSUI_APN_PROFILE) throw new CpeControlValidationError("The access point profile that was in use is no longer on the router: nothing was sent");
     await this.#useApnProfile(check, profile.id, before.manual);
     const after = await this.#apnState().catch(() => null);
-    settleSetting(check, after === null ? null : after.manual && after.profiles.some((found) => found.enabled && String(found.id) === restore.id));
+    settleCheck(check, after === null ? null : after.manual && after.profiles.some((found) => found.enabled && String(found.id) === restore.id));
   }
 
   /** The slot that goes active and the one that goes inactive, in one request, as the router's page sends them. */
@@ -814,7 +814,7 @@ class ZwrtSession implements DriverSessionHandle {
     }
     const after = await this.#simInfo();
     const read = after ? intOf(after["current_sim_slot"]) : null;
-    settleSetting(check, read === null ? null : read === target);
+    settleCheck(check, read === null ? null : read === target);
   }
 
   /** The roaming switch travels with the data call's switch and dial mode: both are read first and sent back as they are. */
@@ -826,7 +826,7 @@ class ZwrtSession implements DriverSessionHandle {
     await this.#write(check, "set_wwaniface", { source_module: "web", cid: 1, enable: on, connect_mode: mode, roam_enable: enabled ? 1 : 0 }, "zwrt_data");
     const after = await this.#wwan().catch(() => null);
     const read = after === null ? null : intOf(after["roam_enable"]);
-    settleSetting(check, read === null ? null : (read === 1) === enabled);
+    settleCheck(check, read === null ? null : (read === 1) === enabled);
   }
 
   /**
@@ -839,7 +839,7 @@ class ZwrtSession implements DriverSessionHandle {
     const result = fieldOf(await this.#rpc.call(MDM, method, args), "result");
     const took = textOf(result) === "success" || intOf(result) === 0;
     const after = await this.#rpc.call(MDM, "get_sim_info").catch(() => null);
-    if (took) settleSetting(check, after === null ? null : settled(after));
+    if (took) settleCheck(check, after === null ? null : settled(after));
     else settleNothingToRead(check);
     return { accepted: took, attemptsLeft: after === null ? null : countValue(after["pinnumber"], 10) };
   }
@@ -858,7 +858,7 @@ class ZwrtSession implements DriverSessionHandle {
       "zwrt_data"
     );
     const after = await this.#rpc.call("zwrt_data", "get_wwandst_monthlimit", WEB_CALL).catch(() => null);
-    settleSetting(check, sameDataLimit({ ...limit, bytes: limit.enabled ? bytes : null }, after ? zwrtLimit(after) : null));
+    settleCheck(check, sameDataLimit({ ...limit, bytes: limit.enabled ? bytes : null }, after ? zwrtLimit(after) : null));
   }
 
   async reboot(check: WriteCheck): Promise<void> {

@@ -2,13 +2,13 @@ import type { NetworkMode } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
-import type { WriteCheck } from "../device-access.ts";
+import { type WriteCheck, settleCheck } from "../device-access.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
 import { neighbourOf, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
+import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
 import { dateOfParts, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
@@ -359,7 +359,7 @@ class TozedSession implements DriverSessionHandle {
       if (pair === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
       await this.#post(check, 218, { ...pair });
       const after = await this.#get(218).catch(() => null);
-      settleSetting(check, after === null ? null : tozedModeOf(after) === mode);
+      settleCheck(check, after === null ? null : tozedModeOf(after) === mode);
     },
   };
 

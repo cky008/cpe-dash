@@ -2,14 +2,14 @@ import type { NetworkMode } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../cpe-domain.ts";
-import type { WriteCheck } from "../device-access.ts";
+import { type WriteCheck, settleCheck } from "../device-access.ts";
 import { type SystemStatus, percentValue } from "../router-status.ts";
 import { buildXmlRequest, getXmlTag, parseXmlError } from "../protocols/hilink/xml.ts";
 import { bandsToHex, checkCellLock, checkLockBands, hexToBands } from "./bands.ts";
 import { bandOfChannel, neighbourOf, ratOfChannel, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, loginUnplaced, wrongPassword } from "./login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import type { LanHttp } from "./transport.ts";
 import type {
@@ -362,7 +362,7 @@ class NradioSession implements DriverSessionHandle {
     await this.#postXml(check, ANTENNA_SET, { antennasettype: code });
     const res = await this.#http.request({ method: "GET", path: ANTENNA_SET, referer: REFERER }).catch(() => null);
     const read = res && res.status === 200 && !parseXmlError(res.text) ? (getXmlTag(res.text, "antennasettype")?.trim() ?? null) : null;
-    settleSetting(check, read === null || !/^\d$/.test(read) ? null : read === String(code));
+    settleCheck(check, read === null || !/^\d$/.test(read) ? null : read === String(code));
     return code;
   }
 
@@ -430,7 +430,7 @@ class NradioSession implements DriverSessionHandle {
       const nr = nradioNrMask(current);
       await this.#postXml(check, NET_MODE, { NetworkMode: code, NetworkBand: networkBand, LTEBand: lteBand, ...(nr === null ? {} : { [nr.tag]: nr.hex }) });
       const after = await this.#netMode().catch(() => null);
-      settleSetting(check, after === null ? null : getXmlTag(after, "NetworkMode")?.trim() === code);
+      settleCheck(check, after === null ? null : getXmlTag(after, "NetworkMode")?.trim() === code);
     },
   };
 

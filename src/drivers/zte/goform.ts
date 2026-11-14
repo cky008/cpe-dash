@@ -2,7 +2,7 @@ import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoi
 import { CpeControlValidationError } from "../../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import { SectionUnavailableError } from "../../cpe-domain.ts";
-import type { WriteCheck } from "../../device-access.ts";
+import { type WriteCheck, settleCheck } from "../../device-access.ts";
 import { type BatteryStatus, type SimCardStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../../router-status.ts";
 import { detectSmsTextMode } from "../../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
@@ -27,7 +27,7 @@ import {
 import { carriersFromRows, neighbourOf, ratOf, ratOfChannel, servingModeOf } from "../cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "../client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, md5Hex, sha256Hex, signedInElsewhere, wrongPassword } from "../login.ts";
-import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleSetting, settleUnlock } from "../readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "../readback.ts";
 import { settleSmsListing, storedIndices, ucs2Hex } from "../sms.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
 import { cellHasData, emptyCell } from "../snapshot.ts";
@@ -1151,7 +1151,7 @@ class ZteGoformSession implements DriverSessionHandle {
     await this.#post(check, "SET_BEARER_PREFERENCE", [["BearerPreference", name]]);
     const after = await getCmd(this.#http, ["net_select"], true, this.#at).catch(() => null);
     const read = after === null || textOf(after["net_select"]) === null ? null : zteModeOf(after["net_select"]);
-    settleSetting(check, after === null || textOf(after["net_select"]) === null ? null : read === mode);
+    settleCheck(check, after === null || textOf(after["net_select"]) === null ? null : read === mode);
   }
 
   async #setSimSlot(slot: SimSlotRef, check: WriteCheck): Promise<void> {
@@ -1163,7 +1163,7 @@ class ZteGoformSession implements DriverSessionHandle {
     ]);
     const after = await getCmd(this.#http, ["sim_slot"], true, this.#at).catch(() => null);
     const read = after === null ? null : textOf(after["sim_slot"]);
-    settleSetting(check, read === null ? null : read === number);
+    settleCheck(check, read === null ? null : read === number);
   }
 
   /** The dial mode travels with the roaming switch in one form, so it is read first and sent back as it is. */
@@ -1177,7 +1177,7 @@ class ZteGoformSession implements DriverSessionHandle {
     ]);
     const after = await getCmd(this.#http, ["ConnectionMode"], false, this.#at).catch(() => null);
     const read = after === null ? null : onOffOf(after["autoConnectWhenRoaming"]);
-    settleSetting(check, read === null ? null : read === enabled);
+    settleCheck(check, read === null ? null : read === enabled);
   }
 
   /**
@@ -1238,7 +1238,7 @@ class ZteGoformSession implements DriverSessionHandle {
       });
       const after = await getCmd(this.#http, ["net_select_mode", "m_netselect_save"], true, this.#at).catch(() => null);
       const kept = after === null ? null : (textOf(after["net_select_mode"]) ?? textOf(after["m_netselect_save"]));
-      settleSetting(check, after === null || kept === null ? null : textOf(after["net_select_mode"]) !== "manual_select" && textOf(after["m_netselect_save"]) !== "manual_select");
+      settleCheck(check, after === null || kept === null ? null : textOf(after["net_select_mode"]) !== "manual_select" && textOf(after["m_netselect_save"]) !== "manual_select");
       return;
     }
     const rows = zteScanRows(state["m_netselect_contents"]).filter((row) => row.choice.plmn === selection.plmn);
@@ -1259,7 +1259,7 @@ class ZteGoformSession implements DriverSessionHandle {
       );
     });
     // A registration the router gave up on is a write that did not take: recorded as such, and watched like one
-    settleSetting(check, took);
+    settleCheck(check, took);
   }
 
   /**
@@ -1275,7 +1275,7 @@ class ZteGoformSession implements DriverSessionHandle {
       });
       const after = await getCmd(this.#http, ["apn_mode"], true, this.#at).catch(() => null);
       const mode = after === null ? null : textOf(after["apn_mode"]);
-      settleSetting(check, mode === null ? null : mode.toLowerCase() === "auto");
+      settleCheck(check, mode === null ? null : mode.toLowerCase() === "auto");
       return;
     }
     const listed = await getCmd(this.#http, [...ZTE_APN_PROFILE_KEYS, "apn_num_preset"], true, this.#at);
@@ -1295,7 +1295,7 @@ class ZteGoformSession implements DriverSessionHandle {
     const mode = after === null ? null : textOf(after["apn_mode"]);
     const name = after === null ? null : textOf(after[choice.ipType === "ipv6" ? "ipv6_wan_apn" : "wan_apn"]);
     const current = after === null ? null : textOf(after["Current_index"]);
-    settleSetting(check, mode === null || name === null ? null : mode.toLowerCase() === "manual" && name === choice.apn && (current === null || current === index));
+    settleCheck(check, mode === null || name === null ? null : mode.toLowerCase() === "manual" && name === choice.apn && (current === null || current === index));
   }
 
   async #defaultApn(check: WriteCheck, pdp: string, index: string): Promise<void> {
@@ -1321,7 +1321,7 @@ class ZteGoformSession implements DriverSessionHandle {
     });
     const after = await getCmd(this.#http, ["apn_mode", "Current_index"], true, this.#at).catch(() => null);
     const current = after === null ? null : textOf(after["Current_index"]);
-    settleSetting(check, current === null ? null : current === restore.id && textOf(after?.["apn_mode"])?.toLowerCase() === "manual");
+    settleCheck(check, current === null ? null : current === restore.id && textOf(after?.["apn_mode"])?.toLowerCase() === "manual");
   }
 
   /**
@@ -1332,7 +1332,7 @@ class ZteGoformSession implements DriverSessionHandle {
     const took = accepted(await this.#send(check, goformId, fields));
     const after = await getCmd(this.#http, ["modem_main_state", "pin_status", "pinnumber"], true, this.#at).catch(() => null);
     const attemptsLeft = after === null ? null : countValue(after["pinnumber"], 10);
-    if (took) settleSetting(check, after === null ? null : settled(simStateOf(after["modem_main_state"]), after));
+    if (took) settleCheck(check, after === null ? null : settled(simStateOf(after["modem_main_state"]), after));
     else settleNothingToRead(check);
     return { accepted: took, attemptsLeft };
   }
@@ -1360,7 +1360,7 @@ class ZteGoformSession implements DriverSessionHandle {
     }
     await this.#post(check, "DATA_LIMIT_SETTING", fields);
     const after = (await this.#cellularRead().catch(() => null))?.dataLimit ?? null;
-    settleSetting(check, sameDataLimit(limit, after));
+    settleCheck(check, sameDataLimit(limit, after));
   }
 
   /**

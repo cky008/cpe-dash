@@ -2,14 +2,14 @@ import crypto from "node:crypto";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
-import type { WriteCheck } from "../device-access.ts";
+import { type WriteCheck, settleCheck } from "../device-access.ts";
 import type { TemperatureSensor } from "../router-status.ts";
 import type { SmsWireMessage } from "../sms/types.ts";
 import { bandsToList, checkCellLock, checkLockBands, listToBands } from "./bands.ts";
 import { neighbourOf, ratOfChannel } from "./cells.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, signedInElsewhere, wrongPassword } from "./login.ts";
-import { noteSent, settleBandLock, settleCellLock, settleCellLocks, settleRestart, settleSetting, settleUnlock } from "./readback.ts";
+import { noteSent, settleBandLock, settleCellLock, settleCellLocks, settleRestart, settleUnlock } from "./readback.ts";
 import { countListed, dateOfParts, settleSmsListing, storedIndices, wireMessage } from "./sms.ts";
 import { cellHasData, emptyCell } from "./snapshot.ts";
 import { type LanHttp, jsonAnswer, parseJsonText } from "./transport.ts";
@@ -900,12 +900,12 @@ class FiberhomeSession implements DriverSessionHandle {
       if (pair === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
       await this.#write(check, "app_set_network_info", { ...pair });
       const after = await tool(this.#http, "app_get_network_info", null).catch(() => null);
-      settleSetting(check, after === null ? null : fiberhomeModeOf(after) === mode);
+      settleCheck(check, after === null ? null : fiberhomeModeOf(after) === mode);
     },
     setAirplaneMode: async (enabled, check) => {
       await this.#write(check, "app_set_airplane", { airplaneOn: enabled ? "1" : "0" });
       const after = fiberhomeAirplaneOf(await this.#http.getJson(TOOL, { query: [["ajaxmethod", "app_get_airplane"]], referer: GET_REFERER }).catch(() => null));
-      settleSetting(check, after === null ? null : after === enabled);
+      settleCheck(check, after === null ? null : after === enabled);
     },
   };
 
