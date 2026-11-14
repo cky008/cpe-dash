@@ -162,7 +162,7 @@ describe("the agent test's rules", () => {
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", after, "failed", "match")]), false, "refused by the router");
 
     const on = (feature: string): boolean => feature === "bandLock" || feature === "smsWrite";
-    assert.deepEqual(agentTestCovered({ sms: true }, on), ["bandLock", "smsWrite"]);
+    assert.deepEqual(agentTestCovered({ sms: true }, on), ["smsWrite", "bandLock"]);
     assert.deepEqual(agentTestCovered({ sms: false }, on), ["bandLock"], "SMS left out of the test does not count, even if it is on");
   });
 

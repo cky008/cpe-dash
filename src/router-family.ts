@@ -47,7 +47,7 @@ export function isDriverFamily(value: unknown): value is DriverFamily {
  * They came after the H168-383 was verified, so that model's verification does not cover them: a
  * router gets one only where its family's list below names it.
  */
-export const CELLULAR_WRITE_FEATURES = ["networkMode", "operatorSelect", "simSlot", "simPin", "airplaneSwitch", "roaming", "apn", "dataLimit", "trafficReset", "ussd"] as const;
+export const CELLULAR_WRITE_FEATURES = ["simSlot", "simPin", "airplaneSwitch", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"] as const;
 
 export type CellularWriteFeature = (typeof CELLULAR_WRITE_FEATURES)[number];
 
@@ -56,7 +56,7 @@ export function isCellularWriteFeature(feature: string): feature is CellularWrit
 }
 
 /** Every write some family implements for a router nobody verified (an experimental write: sent once, read back after). */
-export const FAMILY_WRITE_FEATURES = ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", ...CELLULAR_WRITE_FEATURES] as const;
+export const FAMILY_WRITE_FEATURES = ["smsWrite", "bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", ...CELLULAR_WRITE_FEATURES] as const;
 
 export type FamilyWriteFeature = (typeof FAMILY_WRITE_FEATURES)[number];
 

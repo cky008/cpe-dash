@@ -84,17 +84,17 @@ describe("console: experimental writes on a model nobody verified", () => {
     assert.deepEqual(
       experimentalOffer(other).filter(({ state }) => state !== "not_implemented"),
       [
+        { feature: "smsWrite", state: "disabled" },
         { feature: "bandLock", state: "enabled" },
         { feature: "reboot", state: "enabled" },
         { feature: "reconnect", state: "verified" },
         { feature: "mobileData", state: "unsupported" },
-        { feature: "smsWrite", state: "disabled" },
       ]
     );
     // A switch where FengSui implements the write for this router (to turn it off, or back on), nowhere else
     assert.deepEqual(
       WRITE_FEATURES.filter((feature) => hasSwitch(other, feature)),
-      ["bandLock", "reboot", "reconnect", "smsWrite"]
+      ["smsWrite", "bandLock", "reboot", "reconnect"]
     );
   });
 

@@ -152,7 +152,7 @@ describe("write gate: what an unverified model may not write", () => {
       assert.deepEqual(gateOf(fx.core.scheduler.getStatus().device), { model: "H122-373", verification: "unverified-model", confirmed: true, writes: "experimental" });
       // On by default: what FengSui implements and this router shows it can take. Nothing else is open
       const { features } = fx.core.scheduler.getStatus().device;
-      assert.deepEqual(Object.entries(features).filter(([, state]) => state === "enabled").map(([feature]) => feature), ["reboot", "smsWrite"]);
+      assert.deepEqual(Object.entries(features).filter(([, state]) => state === "enabled").map(([feature]) => feature), ["smsWrite", "reboot"]);
       assert.ok(Object.values(features).every((state) => state === "enabled" || state === "unsupported" || state === "not_implemented"));
       fx.core.scheduler.device.setDisabledWrites(IMPLEMENTED_HERE.map((feature) => ({ model: "H122-373", feature })));
       const sent = cpe.stats.requests.length;

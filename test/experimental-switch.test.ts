@@ -222,7 +222,7 @@ describe("experimental switch: what each write is on a router", () => {
     assert.deepEqual(b535.snapshot().lteBands, [1, 3, 7, 8, 20, 32]);
     assert.deepEqual(
       WRITE_FEATURES.filter((f) => b535.writeAccess(f) === "experimental"),
-      ["bandLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "roaming"]
+      ["smsWrite", "bandLock", "reboot", "reconnect", "mobileData", "networkMode", "operatorSelect", "roaming"]
     );
     assert.ok(WRITE_FEATURES.filter((f) => b535.writeState(f) === "not_implemented").every((f) => b535.writeAccess(f) === "unavailable"));
 
@@ -307,16 +307,16 @@ describe("experimental switch: what each write is on a router", () => {
     assert.deepEqual(
       WRITE_FEATURES.map((f) => [f, openwrt.writeState(f)]).filter(([, state]) => state !== "not_implemented"),
       [
+        ["smsWrite", "enabled"],
         ["bandLock", "enabled"],
         ["cellLock", "enabled"],
         ["reboot", "enabled"],
         ["reconnect", "enabled"],
         ["mobileData", "enabled"],
-        ["smsWrite", "enabled"],
-        ["networkMode", "enabled"],
-        ["operatorSelect", "enabled"],
         ["simPin", "enabled"],
         ["airplaneSwitch", "enabled"],
+        ["networkMode", "enabled"],
+        ["operatorSelect", "enabled"],
         ["apn", "enabled"],
       ]
     );

@@ -98,7 +98,7 @@ export interface DeviceIdentity {
   variant?: string;
 }
 
-/** The features of CONTEXT §7.1; each gets a capability state. */
+/** The features of CONTEXT §7.1, in the order of the Supported devices table's columns; each gets a capability state. */
 export const DEVICE_FEATURES = [
   "telemetry",
   "neighbors",
@@ -116,12 +116,12 @@ export const DEVICE_FEATURES = [
   "accessControl",
   "battery",
   "simCard",
-  "airplaneMode",
-  "networkMode",
-  "operatorSelect",
   "simSlot",
   "simPin",
+  "airplaneMode",
   "airplaneSwitch",
+  "networkMode",
+  "operatorSelect",
   "roaming",
   "apn",
   "dataLimit",

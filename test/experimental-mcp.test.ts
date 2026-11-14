@@ -113,7 +113,7 @@ describe("MCP and experimental writes", () => {
       }
       assert.ok(listed.some((t) => t.name === "upsert_contact"));
       const instructions = (await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"] as string;
-      assert.match(instructions, /open as experimental writes \(bandLock, reboot, reconnect, mobileData, smsWrite, networkMode, operatorSelect, roaming\)[\s\S]*its owner can turn each off[\s\S]*confirm: true/);
+      assert.match(instructions, /open as experimental writes \(smsWrite, bandLock, reboot, reconnect, mobileData, networkMode, operatorSelect, roaming\)[\s\S]*its owner can turn each off[\s\S]*confirm: true/);
       // A write FengSui has no implementation of for this model: hidden, and refused by name as such
       const refusal = await fx.call("lock_cell", { rat: "LTE", band: "B1", arfcn: 300, pci: 211, confirm: true });
       assert.deepEqual([refusal["errorCode"], refusal["model"], refusal["feature"]], ["DEVICE_UNVERIFIED_READ_ONLY", MODEL, "cellLock"]);
@@ -161,7 +161,7 @@ describe("MCP and experimental writes", () => {
       const lockBand = listed.find((t) => t.name === "lock_band");
       assert.equal(lockBand?.inputSchema.properties["nrBands"], undefined, "LTE only");
       assert.match(lockBand?.description ?? "", /B1, B3, B7, B8, B20, B32/);
-      assert.match((await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"] as string, /experimental[\s\S]*bandLock, reboot, smsWrite[\s\S]*confirm: true/);
+      assert.match((await fx.rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"] as string, /experimental[\s\S]*smsWrite, bandLock, reboot[\s\S]*confirm: true/);
 
       assert.equal((await fx.call("lock_band", { lteBands: ["B1", "B3"] }))["errorCode"], "CONFIRMATION_REQUIRED");
       assert.equal((await fx.call("lock_band", { lteBands: ["B1"], nrBands: ["N78"], confirm: true }))["errorCode"], "VALIDATION_ERROR");

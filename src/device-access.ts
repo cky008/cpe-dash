@@ -66,8 +66,9 @@ export type ControlAction = keyof typeof CONTROL_FEATURES;
 /** The writes that take locks off (filed under the band lock; see `DeviceAccess.actionAccess`). */
 const UNLOCK_ACTIONS: ReadonlySet<ControlAction> = new Set<ControlAction>(["unlock_rf_locks", "auto_unlock_rf_locks"]);
 
-/** The features a router write belongs to, in the order the console lists them. */
+/** The features a router write belongs to, in the order the console lists them (the Supported devices table's). */
 export const WRITE_FEATURES = [
+  "smsWrite",
   "bandLock",
   "cellLock",
   "reboot",
@@ -77,7 +78,6 @@ export const WRITE_FEATURES = [
   "wifi",
   "antenna",
   "accessControl",
-  "smsWrite",
   ...CELLULAR_WRITE_FEATURES,
 ] as const satisfies ReadonlyArray<(typeof CONTROL_FEATURES)[ControlAction]>;
 

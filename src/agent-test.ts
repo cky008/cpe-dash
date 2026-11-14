@@ -16,7 +16,7 @@ import type { ExperimentalFeature } from "./device-profile.ts";
  */
 
 /** The experimental writes the test covers: what an agent's tools can write (there is no mobile-data tool); SMS only while the owner keeps it in. */
-export const AGENT_TEST_FEATURES = ["bandLock", "reconnect", "reboot", "smsWrite"] as const satisfies ReadonlyArray<ExperimentalFeature>;
+export const AGENT_TEST_FEATURES = ["smsWrite", "bandLock", "reboot", "reconnect"] as const satisfies ReadonlyArray<ExperimentalFeature>;
 export type AgentTestFeature = (typeof AGENT_TEST_FEATURES)[number];
 
 /**
