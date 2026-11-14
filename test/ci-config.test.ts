@@ -117,6 +117,13 @@ describe("Third-party notices", () => {
     assert.match(read("web/styles.css"), /@plugin "daisyui"/);
   });
 
+  it("copies into the image's build stage every script the web build imports", () => {
+    const copied = /^COPY ((?:scripts\/[a-z-]+\.ts )+)\.\/scripts\/$/m.exec(read("Dockerfile"))?.[1]?.trim().split(" ") ?? [];
+    const imported = [...read("scripts/build-web.ts").matchAll(/from "\.\/([a-z-]+\.ts)"/g)].map((m) => `scripts/${m[1] ?? ""}`);
+    assert.ok(imported.length >= 2, `found ${imported.length}`);
+    assert.deepEqual(imported.filter((file) => !copied.includes(file)), [], "COPY these into the build stage");
+  });
+
   it("ships the notices with the console, the demo and the container image", () => {
     assert.match(read("scripts/build-web.ts"), /THIRD_PARTY_NOTICES\.md[\s\S]{0,200}THIRD_PARTY_NOTICES\.txt/);
     assert.match(read(".dockerignore"), /^!THIRD_PARTY_NOTICES\.md$/m);

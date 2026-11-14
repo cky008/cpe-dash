@@ -14,7 +14,7 @@ COPY tsconfig.json tsconfig.web.json ./
 COPY src ./src
 COPY web ./web
 COPY locales ./locales
-COPY scripts/build-web.ts scripts/brand.ts ./scripts/
+COPY scripts/build-web.ts scripts/brand.ts scripts/operation-routes.ts ./scripts/
 COPY LICENSE THIRD_PARTY_NOTICES.md ./
 RUN npm run build
 
