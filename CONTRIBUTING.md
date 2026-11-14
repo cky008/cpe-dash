@@ -114,9 +114,10 @@ When an issue's device report shows a feature working on a real router, record i
 - Keep a pull request to one change. Update `CHANGELOG.md` under `[Unreleased]`, and the user guide in both languages
   (`docs/guide/en`, `docs/guide/zh`) when behaviour changes.
 - Some parts of the guide are generated from the code: the tables of Supported devices and the routes, live events
-  and error codes of the API reference. A new REST route, SSE event or error code needs a one-line description in
-  each language in [`scripts/api-reference.ts`](scripts/api-reference.ts); then run `npm run docs:sync`
-  (`test/api-reference.test.ts` fails until the pages match the code). Everything around those blocks is written by
+  and error codes of the API reference. A new REST route, MCP tool or Telegram command is one record in the operation
+  registry ([`src/operations/`](src/operations/registry.ts)), with its one-line description in each language and its
+  example body; a new SSE event or error code needs its line in [`scripts/api-reference.ts`](scripts/api-reference.ts).
+  Then run `npm run docs:sync` (`test/api-reference.test.ts` fails until the pages match the code). Everything around those blocks is written by
   hand. The developer notes are in [`docs/dev/`](docs/dev/README.md).
 - Signed commits are welcome
   ([how to sign commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits))
@@ -126,6 +127,6 @@ When an issue's device report shows a feature working on a real router, record i
 
 - 提交信息遵循 Conventional Commits，例如 `fix(sms): keep the draft when sending fails`。类型：`feat`、`fix`、`refactor`、`security`、`test`、`docs`、`chore`、`ci`。
 - 一个 PR 只做一件事。在 `CHANGELOG.md` 的 `[Unreleased]` 下记录改动；行为有变化时同步更新中英文用户指南（`docs/guide/zh`、`docs/guide/en`）。
-- 指南里有几部分由代码生成：「支持的设备」的表，以及「API 参考」的接口、实时事件和错误码三张表。增加 REST 路由、SSE 事件或错误码时，在 [`scripts/api-reference.ts`](scripts/api-reference.ts) 里写一句中英说明，再运行 `npm run docs:sync`（页面和代码不一致时 `test/api-reference.test.ts` 会失败）。这些块以外的内容都是手写的。开发者文档在 [`docs/dev/`](docs/dev/README.md)。
+- 指南里有几部分由代码生成：「支持的设备」的表，以及「API 参考」的接口、实时事件和错误码三张表。新的 REST 路由、MCP 工具或 Telegram 指令是操作登记（[`src/operations/`](src/operations/registry.ts)）里的一条记录，中英说明和示例请求体都写在记录里；新的 SSE 事件或错误码在 [`scripts/api-reference.ts`](scripts/api-reference.ts) 里写一句中英说明。然后运行 `npm run docs:sync`（页面和代码不一致时 `test/api-reference.test.ts` 会失败）。这些块以外的内容都是手写的。开发者文档在 [`docs/dev/`](docs/dev/README.md)。
 - 欢迎签名提交（[如何签名提交](https://docs.github.com/zh/authentication/managing-commit-signature-verification/signing-commits)），但不强制：PR 在 GitHub 上压缩合并。
 - 提交贡献即表示你同意以本项目的许可证（[PolyForm Noncommercial 1.0.0](LICENSE)）授权你的贡献。

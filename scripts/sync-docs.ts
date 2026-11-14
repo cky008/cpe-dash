@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { supportedDevicesSection } from "../src/device-catalog.ts";
-import { type DocLocale, apiReferenceBlocks, readBlock, replaceBlock } from "./api-reference.ts";
+import type { DocLocale } from "../src/operations/record.ts";
+import { apiReferenceBlocks, readBlock, replaceBlock } from "./api-reference.ts";
 
 /**
  * Rewrites the guide's generated blocks from the code, in both languages: the tables of Supported devices

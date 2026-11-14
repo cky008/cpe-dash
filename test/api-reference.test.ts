@@ -149,7 +149,7 @@ describe("the API reference in the guide", () => {
         const res = await fetch(`${base}${route.path}`, {
           method: route.method,
           headers: { Authorization: "Bearer api_reference_token", "Content-Type": "application/json" },
-          ...(route.method === "POST" ? { body: route.body ?? "{}" } : {}),
+          ...(route.method === "POST" ? { body: route.example ?? "{}" } : {}),
           signal: controller.signal,
         });
         const text = route.path === "/api/events" || route.path === "/metrics" ? "" : await res.text();
@@ -159,8 +159,8 @@ describe("the API reference in the guide", () => {
         const where = `${route.method} ${route.path}: ${res.status} ${String(code)}`;
         if (res.status === 404 || res.status === 405) problems.push(`${where} (not served)`);
         else if (route.consoleOnly && code !== "CONSOLE_ONLY") problems.push(`${where} (should be console only)`);
-        else if (route.body && !route.needsState && (code === "VALIDATION_ERROR" || code === "BAD_PAYLOAD")) problems.push(`${where} (example body refused)`);
-        else if (!route.body && code === "BAD_PAYLOAD") problems.push(`${where} (an empty object refused)`);
+        else if (route.example && !route.needsState && (code === "VALIDATION_ERROR" || code === "BAD_PAYLOAD")) problems.push(`${where} (example body refused)`);
+        else if (!route.example && code === "BAD_PAYLOAD") problems.push(`${where} (an empty object refused)`);
       }
       assert.deepEqual(problems, []);
     } finally {

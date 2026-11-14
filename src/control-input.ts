@@ -1,6 +1,6 @@
 import type { MacFilterEntry, TimeRuleChange, TimeRuleInput, WifiAccessChange } from "./access-plan.ts";
 import type { BandInput } from "./rf-bounds.ts";
-import { CpeControlValidationError } from "./control-error.ts";
+import { CpeControlValidationError, HttpPayloadError } from "./control-error.ts";
 import type { AntennaModeName, CellLockCandidate, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
 import { MAX_LOCK_CELLS, parseBandNumber } from "./rf-bounds.ts";
 import type { DriverCellLockTarget } from "./drivers/types.ts";
@@ -49,6 +49,31 @@ export function readOptionalIpv4(args: Args, key: string): string | undefined {
     throw new CpeControlValidationError(`"${key}" must be a valid IPv4 address`);
   }
   return value.trim();
+}
+
+/** `enabled`: a switch's new state (mobile data, airplane mode, data roaming). */
+export function readSwitch(args: Args): boolean {
+  const enabled = args["enabled"];
+  if (typeof enabled !== "boolean") throw new CpeControlValidationError('"enabled" must be a boolean');
+  return enabled;
+}
+
+/** A write that runs only with `confirm: true`, refused with `message` before anything else. */
+export function readConfirmed(message: string): (args: Args) => true {
+  return (args) => {
+    if (args["confirm"] !== true) throw new CpeControlValidationError(message);
+    return true;
+  };
+}
+
+/** A band lock: `lteBands` and `nrBands` (`undefined`: that RAT stays as it is). */
+export function readBandLock(args: Args): { lteBands: ReadonlyArray<BandInput> | "all" | undefined; nrBands: ReadonlyArray<BandInput> | "all" | undefined } {
+  return { lteBands: readBandSelection(args, "lteBands"), nrBands: readBandSelection(args, "nrBands") };
+}
+
+/** Wi-Fi 7's multi-link and dual-band switches (`undefined`: left as they are). */
+export function readWifi7(args: Args): { mloEnable: boolean | undefined; dbhoEnable: boolean | undefined } {
+  return { mloEnable: readOptionalBoolean(args, "mloEnable"), dbhoEnable: readOptionalBoolean(args, "dbhoEnable") };
 }
 
 /** `"all"` or a list of band labels / numbers (`["B1", 3]`); band support is checked downstream. */
@@ -162,6 +187,48 @@ export function readAntennaMode(value: unknown, key = "mode"): AntennaModeName {
     throw new CpeControlValidationError(`"${key}" must be "auto", "internal", "external", or "hybrid"`);
   }
   return value;
+}
+
+/** The window of history a caller asks for (`undefined`: the preset's default). */
+export interface TimeSeriesWindow {
+  preset: TimeSeriesPreset;
+  fromMs: number | undefined;
+  toMs: number | undefined;
+  bucketMs: number | undefined;
+  maxPoints: number | undefined;
+}
+
+/** A query string's integer (`undefined` when absent); anything else is a request the server cannot take. */
+function readQueryInt(raw: unknown): number | undefined {
+  if (typeof raw !== "string" || raw === "") return undefined;
+  if (!/^-?\d+$/.test(raw.trim())) {
+    throw new HttpPayloadError(400, `Invalid integer query parameter "${raw}"`);
+  }
+  const n = Number.parseInt(raw.trim(), 10);
+  if (!Number.isSafeInteger(n)) {
+    throw new HttpPayloadError(400, `Out-of-range integer query parameter "${raw}"`);
+  }
+  return n;
+}
+
+/** `GET /api/timeseries?preset=&fromMs=&toMs=&bucketMs=&maxPoints=`. */
+export function readTimeSeriesQuery(query: Args): TimeSeriesWindow {
+  return {
+    preset: readTimeSeriesPreset(query["preset"]),
+    fromMs: readQueryInt(query["fromMs"]),
+    toMs: readQueryInt(query["toMs"]),
+    bucketMs: readQueryInt(query["bucketMs"]),
+    maxPoints: readQueryInt(query["maxPoints"]),
+  };
+}
+
+/** The same window as an agent's tool arguments (numbers; the schema refuses anything else). */
+export function readTimeSeriesArgs(args: Args): TimeSeriesWindow {
+  const number = (key: string): number | undefined => {
+    const value = args[key];
+    return typeof value === "number" ? value : undefined;
+  };
+  return { preset: readTimeSeriesPreset(args["preset"]), fromMs: number("fromMs"), toMs: number("toMs"), bucketMs: number("bucketMs"), maxPoints: number("maxPoints") };
 }
 
 /** Omitted -> `"1h"`; anything else must be one of the supported presets. */
@@ -308,6 +375,46 @@ export function readSecurityControl(args: Args): SecurityControlInput {
     firewall = cleanFw;
   }
   return { upnpEnabled, dmz, firewall };
+}
+
+/**
+ * An agent's security switches, one flat argument each (`dmzEnabled`, `dmzIpAddress`,
+ * `firewallMainSwitch`…): the same change as the REST body's `dmz` and `firewall` objects.
+ */
+export function readSecuritySwitchArgs(args: Args): SecurityControlInput {
+  const upnpEnabled = readOptionalBoolean(args, "upnpEnabled");
+  const dmzEnabled = readOptionalBoolean(args, "dmzEnabled");
+  const dmzIpAddress = readOptionalIpv4(args, "dmzIpAddress");
+  if (dmzIpAddress !== undefined && dmzEnabled === undefined) {
+    throw new CpeControlValidationError('Parameter "dmzIpAddress" requires "dmzEnabled"');
+  }
+  const firewallPatch = {
+    mainSwitch: readOptionalBoolean(args, "firewallMainSwitch"),
+    ipFilterSwitch: readOptionalBoolean(args, "firewallIpFilterSwitch"),
+    wanPortPingSwitch: readOptionalBoolean(args, "firewallWanPortPingSwitch"),
+    macFilterSwitch: readOptionalBoolean(args, "firewallMacFilterSwitch"),
+    urlFilterSwitch: readOptionalBoolean(args, "firewallUrlFilterSwitch"),
+  };
+  const hasFw = Object.values(firewallPatch).some((v) => v !== undefined);
+  return {
+    upnpEnabled,
+    dmz: dmzEnabled !== undefined ? { enabled: dmzEnabled, ipAddress: dmzIpAddress } : undefined,
+    firewall: hasFw ? firewallPatch : undefined,
+  };
+}
+
+/**
+ * An agent's Wi-Fi 7 switches and antenna mode in one call, every argument checked before the first
+ * write so a bad `antennaMode` never leaves Wi-Fi 7 half-applied.
+ */
+export function readWifiAndAntennaArgs(args: Args): { mloEnable: boolean | undefined; dbhoEnable: boolean | undefined; antennaMode: AntennaModeName | undefined } {
+  const mloEnable = readOptionalBoolean(args, "mloEnable");
+  const dbhoEnable = readOptionalBoolean(args, "dbhoEnable");
+  const antennaMode = args["antennaMode"] === undefined ? undefined : readAntennaMode(args["antennaMode"], "antennaMode");
+  if (mloEnable === undefined && dbhoEnable === undefined && antennaMode === undefined) {
+    throw new CpeControlValidationError("Provide at least one of mloEnable, dbhoEnable, or antennaMode");
+  }
+  return { mloEnable, dbhoEnable, antennaMode };
 }
 
 /** A band lock as a driver family's session takes it; `null` for a RAT the command leaves as it is. */

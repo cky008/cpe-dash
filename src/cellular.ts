@@ -215,6 +215,13 @@ export function readSimPin(value: unknown, key = "pin"): string {
   return value;
 }
 
+/** `{ action, pin }`: enter the PIN (the default), or turn the PIN lock on or off with it. */
+export function readSimPinRequest(fields: Readonly<Record<string, unknown>>): { action: "enter" | "lock" | "unlock"; pin: string } {
+  const action = fields["action"] ?? "enter";
+  if (action !== "enter" && action !== "lock" && action !== "unlock") throw new CpeControlValidationError('"action" must be "enter", "lock" or "unlock"');
+  return { action, pin: readSimPin(fields["pin"]) };
+}
+
 /**
  * Whether FengSui may send a PIN: only while the router says how many attempts the card has left, and
  * more than one is (the last attempt is the owner's to spend on the router's own page). The reason it

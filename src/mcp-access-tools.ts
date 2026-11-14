@@ -7,88 +7,10 @@ import type { WriteFeature } from "./features.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import type { McpToolDefinition, McpToolProvider } from "./mcp-tool-provider.ts";
 import { maskMacTail } from "./privacy-mask.ts";
+import { MCP_TOOLS, toolDefinition } from "./operations/registry.ts";
 import { accessControlForOutput } from "./redact.ts";
 
-const DEVICE_PROPS = {
-  macAddress: { type: "string", maxLength: 17, description: "Device MAC address (AA:BB:CC:DD:EE:FF)." },
-  ipv4Address: { type: "string", maxLength: 15, description: "Alternative to macAddress: the device's LAN IPv4 from list_terminal_topology." },
-} as const;
-
-const CONFIRM = { type: "boolean", description: "Must be true: the user explicitly asked for this change." } as const;
-
-const READ_TOOL: McpToolDefinition = {
-  name: "get_access_control",
-  title: "Get Wi-Fi Access Control and Internet Time Rules",
-  description:
-    "Read the router's Wi-Fi MAC filter (off / blacklist / whitelist, both lists, capacity) and its parental-control internet time rules (allowed online windows per device; outside them the device is cut off).",
-  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  inputSchema: {
-    type: "object",
-    properties: { refresh: { type: "boolean", description: "Read the router now instead of the cached snapshot." } },
-    additionalProperties: false,
-  },
-};
-
-const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = [
-  {
-    name: "set_device_internet_access",
-    title: "Block or Restore a Wi-Fi Device",
-    description:
-      "Cut a Wi-Fi device off (Wi-Fi MAC blacklist, like the router's own Device management page) or restore it. Never applies to the machine running FengSui. Only for a device the user named.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-    inputSchema: {
-      type: "object",
-      properties: { action: { type: "string", enum: ["block", "unblock"] }, ...DEVICE_PROPS, confirm: CONFIRM },
-      required: ["action", "confirm"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "set_wifi_mac_filter",
-    title: "Change the Wi-Fi MAC Filter",
-    description:
-      "Switch the Wi-Fi MAC filter off / to blacklist (deny) / to whitelist (allow), optionally with the complete list for that mode, or add / remove MACs on the active list. A whitelist cuts off every Wi-Fi device not on it.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-    inputSchema: {
-      type: "object",
-      properties: {
-        mode: { type: "string", enum: ["off", "allow", "deny"] },
-        macAddresses: { type: "array", items: { type: "string", maxLength: 17 }, maxItems: 64, description: "Complete list for `mode`." },
-        add: { type: "array", items: { type: "string", maxLength: 17 }, maxItems: 64 },
-        remove: { type: "array", items: { type: "string", maxLength: 17 }, maxItems: 64 },
-        confirm: CONFIRM,
-      },
-      required: ["confirm"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "manage_internet_time_rule",
-    title: "Create, Update or Delete an Internet Time Rule",
-    description:
-      "Parental control: a rule is an ALLOWED online window (weekMask Monday-first like 1111100, HH:mm in 15-minute steps; an end before the start runs past midnight). A device with rules is cut off outside all of its windows.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-    inputSchema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["create", "update", "delete"] },
-        id: {
-          type: "string",
-          maxLength: 128,
-          description: "Rule ID from get_access_control (update / delete), e.g. InternetGatewayDevice.X_FireWall.TimeRule.1.",
-        },
-        ...DEVICE_PROPS,
-        weekMask: { type: "string", maxLength: 7 },
-        startTime: { type: "string", maxLength: 5 },
-        endTime: { type: "string", maxLength: 5 },
-        enabled: { type: "boolean" },
-        confirm: CONFIRM,
-      },
-      required: ["action", "confirm"],
-      additionalProperties: false,
-    },
-  },
-];
+const [READ_TOOL, ...WRITE_TOOLS] = MCP_TOOLS.access.map(toolDefinition) as [McpToolDefinition, ...McpToolDefinition[]];
 
 const WRITE_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
 

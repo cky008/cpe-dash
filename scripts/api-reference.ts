@@ -1,107 +1,22 @@
-import { permissionForRoute } from "../src/http-server.ts";
 import type { ApiErrorCode, SseEventPayloads } from "../src/api-contract.ts";
+import type { DocLocale, ReferenceGroup, RestBinding, Text } from "../src/operations/record.ts";
+import { REST_OPERATIONS, permissionForRoute, restBinding } from "../src/operations/registry.ts";
 
 /**
  * The generated parts of the guide's API reference (docs/guide/{zh,en}/api.md): the routes, the SSE
- * events and the error codes. What each one is comes from the code (paths, methods, the permission a
- * token needs: `permissionForRoute`); the one-line descriptions are written here, next to the facts
- * they describe. test/api-reference.test.ts keeps the three lists equal to the code (a route, event or
- * error code the code has and this file lacks fails it, and so does one this file names and the code
- * no longer has), asks the daemon each route with its method and example body, and checks that the
- * pages hold exactly what these functions write. `npm run docs:sync` rewrites the pages.
+ * events and the error codes. The routes come from the operation registry (`src/operations/`: path,
+ * method, the permission a token needs, the one-line descriptions and the example bodies are each
+ * operation's record); the events' and error codes' descriptions are written here, next to the facts
+ * they describe. test/api-reference.test.ts keeps the events and codes equal to the code, asks the
+ * daemon each route with its method and example body, and checks that the pages hold exactly what
+ * these functions write. `npm run docs:sync` rewrites the pages.
  */
 
-export type DocLocale = "zh-CN" | "en";
-type Text = Readonly<Record<DocLocale, string>>;
-
-export type RouteGroup = "read" | "refresh" | "control" | "access" | "sms" | "other";
-
-export interface ApiRouteDoc {
-  readonly method: "GET" | "POST";
-  readonly path: string;
-  readonly group: RouteGroup;
-  readonly summary: Text;
-  /** A request body for a POST that takes parameters; the test sends it to a mock router. */
-  readonly body?: string;
-  /** The body names something that must exist first (a message, a contact, a mode the router offers): the test accepts a validation error. */
-  readonly needsState?: true;
-  /** No token needed. */
-  readonly open?: true;
-  /** A console session only: tokens get `403 CONSOLE_ONLY`. */
-  readonly consoleOnly?: true;
-}
-
-/** Routes the web console uses for itself; tokens cannot call them, so the reference leaves them out. */
+/** Routes the web console uses for itself; tokens cannot call them, so the reference leaves them out (and the registry holds none). */
 export const CONSOLE_ROUTE_PREFIXES = ["/api/auth", "/api/setup", "/api/console", "/api/i18n"] as const;
 
-export const API_ROUTES: ReadonlyArray<ApiRouteDoc> = [
-  // Reading: the daemon's latest data, no router session
-  { method: "GET", path: "/api/telemetry", group: "read", summary: { "zh-CN": "最新的信号、载波、速率、流量和 WAN 状态，以及锁定状态和最近的告警", en: "The latest signal, carriers, rates, traffic and WAN state, with the lock state and recent alerts" } },
-  { method: "GET", path: "/api/timeseries", group: "read", summary: { "zh-CN": "历史：速率、RSRP、SINR。`?preset=1h`（或 `6h`、`12h`、`24h`），或 `?preset=custom&fromMs=…&toMs=…`", en: "History: rates, RSRP and SINR. `?preset=1h` (or `6h`, `12h`, `24h`), or `?preset=custom&fromMs=…&toMs=…`" } },
-  { method: "GET", path: "/api/neighbors", group: "read", summary: { "zh-CN": "附近的基站（上一次扫描的结果）", en: "Nearby cells, from the last scan" } },
-  { method: "GET", path: "/api/topology", group: "read", summary: { "zh-CN": "已连接设备", en: "Connected devices" } },
-  { method: "GET", path: "/api/settings", group: "read", summary: { "zh-CN": "路由器设置：UPnP、DMZ、防火墙、Wi-Fi 7、天线、移动数据", en: "Router settings: UPnP, DMZ, firewall, Wi-Fi 7, antenna, mobile data" } },
-  { method: "GET", path: "/api/access-control", group: "read", summary: { "zh-CN": "Wi-Fi 黑白名单和上网时段", en: "The Wi-Fi MAC filter and internet schedules" } },
-  { method: "GET", path: "/api/cellular", group: "read", summary: { "zh-CN": "蜂窝设置（上一次读到的）：网络制式和路由器提供的选项、可切换的 SIM 卡槽、运营商怎么选、接入点（APN）、路由器自己的流量上限", en: "The cellular settings as last read: the network mode and the ones the router offers, the SIM slots it can switch between, how the operator is chosen, the access point (APN), the router's own data limit" } },
-  { method: "GET", path: "/api/session/status", group: "read", summary: { "zh-CN": "烽燧和路由器之间的状态：是否在让位、是否熔断、自愈在做什么", en: "How FengSui stands with the router: yielding, breaker, what self-healing is doing" } },
-  { method: "GET", path: "/api/device/profile", group: "read", summary: { "zh-CN": "识别到的型号、固件和能力，以及它在「支持的设备」表里的那一行（不含设备标识）", en: "The identified model, firmware and capabilities, and its row of Supported devices (no identifiers)" } },
-  { method: "GET", path: "/api/alerts", group: "read", summary: { "zh-CN": "最近 100 条告警，以及每个通知渠道的发送统计", en: "The last 100 alerts, and delivery counts per notification channel" } },
-  { method: "GET", path: "/api/audit", group: "read", summary: { "zh-CN": "审计日志：谁在什么时候改了什么（`?limit=`，最多 500 条）", en: "The audit log: who changed what, and when (`?limit=`, up to 500)" } },
-  // Refreshing: one read session now
-  { method: "POST", path: "/api/telemetry/refresh", group: "refresh", summary: { "zh-CN": "马上读一次信号", en: "Read the signal now" } },
-  { method: "POST", path: "/api/neighbors/scan", group: "refresh", summary: { "zh-CN": "马上扫描附近的基站", en: "Scan for nearby cells now" } },
-  { method: "POST", path: "/api/topology/refresh", group: "refresh", summary: { "zh-CN": "马上读一次已连接设备", en: "Read the connected devices now" } },
-  { method: "POST", path: "/api/settings/refresh", group: "refresh", summary: { "zh-CN": "马上读一次路由器设置", en: "Read the router settings now" } },
-  { method: "POST", path: "/api/access-control/refresh", group: "refresh", summary: { "zh-CN": "马上读一次黑白名单和上网时段", en: "Read the MAC filter and schedules now" } },
-  { method: "POST", path: "/api/cellular/refresh", group: "refresh", summary: { "zh-CN": "马上读一次蜂窝设置", en: "Read the cellular settings now" } },
-  // The router's controls
-  { method: "POST", path: "/api/control/band-lock", group: "control", body: '{"lteBands":["B1","B3"]}', summary: { "zh-CN": "锁频段（`lteBands`、`nrBands`，`\"all\"` 为全部频段；只给一种制式时另一种不变）", en: "Lock bands (`lteBands`, `nrBands`, `\"all\"` for every band; the type you leave out stays as it is)" } },
-  { method: "POST", path: "/api/control/cell-lock", group: "control", body: '{"rat":"NR","band":"N78","arfcn":650000,"pci":211}', summary: { "zh-CN": "锁小区；不给 `pci` 时只锁频点", en: "Lock a cell; without `pci`, lock the channel only" } },
-  { method: "POST", path: "/api/control/unlock", group: "control", summary: { "zh-CN": "解除锁频段和锁小区", en: "Clear band and cell locks" } },
-  { method: "POST", path: "/api/control/reboot", group: "control", body: '{"confirm":true}', summary: { "zh-CN": "重启路由器", en: "Restart the router" } },
-  { method: "POST", path: "/api/control/reconnect", group: "control", body: '{"confirm":true}', summary: { "zh-CN": "重拨移动网络（不重启路由器）", en: "Redial the mobile connection (no restart)" } },
-  { method: "POST", path: "/api/control/security", group: "control", body: '{"upnpEnabled":false}', summary: { "zh-CN": "UPnP、DMZ、防火墙（`upnpEnabled`、`dmz`、`firewall`，只给要改的）", en: "UPnP, DMZ and firewall (`upnpEnabled`, `dmz`, `firewall`; send only what changes)" } },
-  { method: "POST", path: "/api/control/wifi7", group: "control", body: '{"mloEnable":true}', summary: { "zh-CN": "Wi-Fi 7 多链路（`mloEnable`）和双频优选（`dbhoEnable`）", en: "Wi-Fi 7 multi-link (`mloEnable`) and dual-band steering (`dbhoEnable`)" } },
-  { method: "POST", path: "/api/control/antenna", group: "control", body: '{"mode":"auto"}', summary: { "zh-CN": "天线：`auto`、`internal`、`external`", en: "Antenna: `auto`, `internal`, `external`" } },
-  { method: "POST", path: "/api/control/mobile-data", group: "control", body: '{"enabled":true}', summary: { "zh-CN": "打开或关闭移动数据", en: "Turn mobile data on or off" } },
-  { method: "POST", path: "/api/control/network-mode", group: "control", body: '{"mode":"auto","confirm":true}', needsState: true, summary: { "zh-CN": "网络制式：`auto`、`nr_sa`、`nr_nsa`、`nr_lte`、`lte`、`lte_tdd`、`lte_fdd`、`lte_wcdma`、`wcdma`、`gsm` 中路由器提供的（见 `GET /api/cellular`）。断网 3 分钟没恢复，烽燧自动改回", en: "Network mode: one of `auto`, `nr_sa`, `nr_nsa`, `nr_lte`, `lte`, `lte_tdd`, `lte_fdd`, `lte_wcdma`, `wcdma`, `gsm` that the router offers (see `GET /api/cellular`). If the WAN stays down 3 minutes, FengSui puts the earlier mode back" } },
-  { method: "POST", path: "/api/control/operator-scan", group: "control", body: '{"confirm":true}', summary: { "zh-CN": "搜索附近的运营商网络：最长一分钟，期间可能断网", en: "Search for the networks in range: up to a minute, and the connection may drop meanwhile" } },
-  { method: "POST", path: "/api/control/operator", group: "control", body: '{"mode":"auto","confirm":true}', summary: { "zh-CN": "选运营商：`auto` 交回路由器自己选，`manual` 加 `plmn`（和可选的 `rat`）固定到一个网络。断网 3 分钟没恢复，烽燧自动改回", en: "Choose the operator: `auto` hands the choice back to the router, `manual` with `plmn` (and an optional `rat`) keeps it on one network. If the WAN stays down 3 minutes, FengSui puts the earlier choice back" } },
-  { method: "POST", path: "/api/control/sim-slot", group: "control", body: '{"kind":"physical","confirm":true}', summary: { "zh-CN": "切换 SIM 卡槽：`physical`（实体卡）或 `embedded`（内置卡，`index` 是第几张）。断网 3 分钟没恢复，烽燧自动切回", en: "Switch the SIM slot: `physical` (the card in the tray) or `embedded` (a built-in card, `index` says which). If the WAN stays down 3 minutes, FengSui switches back" } },
-  { method: "POST", path: "/api/control/sim-pin", group: "control", body: '{"action":"enter","pin":"1234","confirm":true}', summary: { "zh-CN": "SIM 卡 PIN：`enter` 输入 PIN，`lock` / `unlock` 开关「开机要 PIN」。只发一次；路由器没有报告剩余次数、或只剩一次时不发。`accepted: false` 表示卡没有接受", en: "The SIM PIN: `enter` it, or `lock` / `unlock` to turn \"ask for the PIN at every start\" on or off. Sent once, and not at all when the router reports no attempts count or one attempt left. `accepted: false` means the card refused it" } },
-  { method: "POST", path: "/api/control/airplane-mode", group: "control", body: '{"enabled":false,"confirm":true}', summary: { "zh-CN": "飞行模式：打开后路由器断开移动网络，烽燧不会自己关掉它", en: "Airplane mode: turning it on takes the router off the mobile network, and FengSui never turns it off on its own" } },
-  { method: "POST", path: "/api/control/roaming", group: "control", body: '{"enabled":false,"confirm":true}', summary: { "zh-CN": "数据漫游：漫游时用不用流量", en: "Data roaming: whether data is used while roaming" } },
-  { method: "POST", path: "/api/control/apn", group: "control", body: '{"mode":"auto","confirm":true}', summary: { "zh-CN": "接入点（APN）：`auto` 由路由器按 SIM 卡选，`manual` 加 `apn`（和可选的 `ipType`、`auth`、`username`、`password`）。断网 3 分钟没恢复，烽燧自动换回", en: "The access point (APN): `auto` lets the router pick for the SIM card, `manual` takes `apn` (and optional `ipType`, `auth`, `username`, `password`). If the WAN stays down 3 minutes, FengSui switches back" } },
-  { method: "POST", path: "/api/control/data-limit", group: "control", body: '{"enabled":false,"confirm":true}', summary: { "zh-CN": "路由器自己的流量上限：`enabled`、`bytes`、`alertPercent`（到多少比例时提醒）", en: "The router's own data limit: `enabled`, `bytes`, `alertPercent` (the share at which it warns)" } },
-  { method: "POST", path: "/api/control/traffic-reset", group: "control", body: '{"confirm":true}', summary: { "zh-CN": "清零路由器自己记的流量统计", en: "Clear the traffic counters the router itself keeps" } },
-  { method: "POST", path: "/api/control/ussd", group: "control", body: '{"code":"*100#","confirm":true}', summary: { "zh-CN": "USSD：发送一条指令（`code`），`action` 为 `reply` 时回复运营商的提问，为 `cancel` 时结束会话。应答是运营商写的文字", en: "USSD: send a code (`code`); `action` `reply` answers the operator's question, `cancel` ends the session. The answer is text the operator wrote" } },
-  { method: "POST", path: "/api/session/reset-breaker", group: "control", summary: { "zh-CN": "解除路由器账户被锁（错误码 108007）引起的熔断，并重新读取 `.env`；密码错误引起的熔断请在「设置 → 路由器」改正密码", en: "Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router" } },
-  // Devices' internet access
-  { method: "POST", path: "/api/control/wifi-access", group: "access", body: '{"action":"unblock","macAddress":"02:00:5E:10:00:01","confirm":true}', summary: { "zh-CN": "断开或恢复一台设备的 Wi-Fi（`block`、`unblock`）", en: "Block or unblock one device's Wi-Fi (`block`, `unblock`)" } },
-  { method: "POST", path: "/api/control/wifi-mac-filter", group: "access", body: '{"mode":"off","confirm":true}', summary: { "zh-CN": "Wi-Fi 黑白名单：`off`、`deny`、`allow`，或增删名单里的设备", en: "The Wi-Fi MAC filter: `off`, `deny`, `allow`, or add and remove entries" } },
-  { method: "POST", path: "/api/control/time-rule", group: "access", body: '{"action":"delete","id":"1","confirm":true}', needsState: true, summary: { "zh-CN": "上网时段：新建、修改、删除（`create`、`update`、`delete`）", en: "Internet schedules: create, update, delete" } },
-  // SMS
-  { method: "GET", path: "/api/sms/status", group: "sms", summary: { "zh-CN": "短信数量和同步状态", en: "Message counts and sync state" } },
-  { method: "GET", path: "/api/sms/countries", group: "sms", summary: { "zh-CN": "国家和地区的电话区号", en: "Country and region calling codes" } },
-  { method: "GET", path: "/api/sms/threads", group: "sms", summary: { "zh-CN": "会话列表（`?filter=all`、`unread`、`otp`，`&search=`）", en: "Threads (`?filter=all`, `unread`, `otp`, and `&search=`)" } },
-  { method: "GET", path: "/api/sms/thread", group: "sms", summary: { "zh-CN": "一个会话的全部短信（`?key=` 号码或会话标识）", en: "Every message of a thread (`?key=` a number or thread key)" } },
-  { method: "GET", path: "/api/sms/contacts", group: "sms", summary: { "zh-CN": "通讯录（`?search=`）", en: "Contacts (`?search=`)" } },
-  { method: "GET", path: "/api/sms/trash", group: "sms", summary: { "zh-CN": "「最近删除」里的短信", en: "Messages in Recently deleted" } },
-  { method: "POST", path: "/api/sms/preview", group: "sms", body: '{"phone":"+353830000001","content":"Hello"}', summary: { "zh-CN": "预览一条短信：分几段、用什么编码，不发送", en: "Preview a message: segments and encoding; nothing is sent" } },
-  { method: "POST", path: "/api/sms/sync", group: "sms", body: '{"mode":"incremental"}', summary: { "zh-CN": "马上同步短信（`full` 或 `incremental`）", en: "Sync messages now (`full` or `incremental`)" } },
-  { method: "POST", path: "/api/sms/send", group: "sms", body: '{"phone":"+353830000001","content":"Hello"}', summary: { "zh-CN": "发短信（`phone`，或 `phones` 最多 5 个）；只发一次，失败不重发", en: "Send a message (`phone`, or up to 5 `phones`); sent once, never retried" } },
-  { method: "POST", path: "/api/sms/read", group: "sms", body: '{"threadKey":"+353830000001"}', summary: { "zh-CN": "标为已读（`uids` 或 `threadKey`）", en: "Mark read (`uids` or `threadKey`)" } },
-  { method: "POST", path: "/api/sms/delete", group: "sms", body: '{"uids":["<uid>"]}', needsState: true, summary: { "zh-CN": "删除短信，放进「最近删除」", en: "Delete messages into Recently deleted" } },
-  { method: "POST", path: "/api/sms/trash/restore", group: "sms", body: '{"uids":["<uid>"]}', needsState: true, summary: { "zh-CN": "从「最近删除」放回原来的会话", en: "Put messages back from Recently deleted" } },
-  { method: "POST", path: "/api/sms/trash/purge", group: "sms", consoleOnly: true, summary: { "zh-CN": "彻底删除「最近删除」里的短信", en: "Delete messages in Recently deleted for good" } },
-  { method: "POST", path: "/api/sms/contacts/upsert", group: "sms", body: '{"phone":"+353830000001","name":"Example"}', summary: { "zh-CN": "新建或修改联系人", en: "Add or edit a contact" } },
-  { method: "POST", path: "/api/sms/contacts/delete", group: "sms", body: '{"id":"<id>"}', summary: { "zh-CN": "删除联系人", en: "Delete a contact" } },
-  { method: "POST", path: "/api/sms/contacts/import-vcf", group: "sms", body: '{"vcf":"BEGIN:VCARD…"}', summary: { "zh-CN": "导入 vCard（`.vcf` 文件的内容）", en: "Import vCards (the text of a `.vcf` file)" } },
-  // Other
-  { method: "GET", path: "/api/health", group: "other", open: true, summary: { "zh-CN": "存活检查：版本和运行时长", en: "Liveness check: version and uptime" } },
-  { method: "GET", path: "/api/events", group: "other", summary: { "zh-CN": "实时事件流（见[实时事件](#events)）", en: "The live event stream (see [Live events](#events))" } },
-  { method: "GET", path: "/metrics", group: "other", summary: { "zh-CN": "Prometheus 指标（打开后才有，见 [Prometheus 指标](#metrics)）", en: "Prometheus metrics (when turned on, see [Prometheus metrics](#metrics))" } },
-];
+/** Every route of the registry, in the reference's order. */
+export const API_ROUTES: ReadonlyArray<RestBinding> = REST_OPERATIONS.map(restBinding);
 
 export type SseEventName = keyof SseEventPayloads;
 
@@ -176,7 +91,7 @@ export const ERRORS_NOT_LISTED: ReadonlyArray<ApiErrorCode> = [
   "SYMLINK_ESCAPE_BLOCKED",
 ];
 
-const GROUPS: ReadonlyArray<{ readonly id: RouteGroup; readonly title: Text }> = [
+const GROUPS: ReadonlyArray<{ readonly id: ReferenceGroup; readonly title: Text }> = [
   { id: "read", title: { "zh-CN": "读取", en: "Reading" } },
   { id: "refresh", title: { "zh-CN": "刷新", en: "Refreshing" } },
   { id: "control", title: { "zh-CN": "路由器控制", en: "Router controls" } },
@@ -197,8 +112,8 @@ const PERMISSION_LABEL: Readonly<Record<string, Text>> = {
 };
 
 /** What a token needs for a route, as the daemon decides it (`permissionForRoute`). */
-export function routePermission(route: ApiRouteDoc): string {
-  if (route.open) return "open";
+export function routePermission(route: RestBinding): string {
+  if (route.served === "open") return "open";
   if (route.consoleOnly) return "console";
   return permissionForRoute(route.method, route.path) ?? "any";
 }
@@ -214,10 +129,10 @@ export function apiRoutesSection(locale: DocLocale): string {
   return GROUPS.map((group) => {
     const routes = API_ROUTES.filter((route) => route.group === group.id);
     // A group whose routes take no parameters gets no column for them
-    const withBody = routes.some((route) => route.body !== undefined);
+    const withBody = routes.some((route) => route.example !== undefined);
     const rows = routes.map((route) => {
       const permission = PERMISSION_LABEL[routePermission(route)]?.[locale] ?? routePermission(route);
-      const cells = [`\`${route.method}\``, `\`${route.path}\``, permission, route.summary[locale], ...(withBody ? [route.body ? `\`${route.body}\`` : ""] : [])];
+      const cells = [`\`${route.method}\``, `\`${route.path}\``, permission, route.summary[locale], ...(withBody ? [route.example ? `\`${route.example}\`` : ""] : [])];
       return `| ${cells.join(" | ")} |`;
     });
     const head = [h.method, h.path, h.permission, h.summary, ...(withBody ? [h.body] : [])];

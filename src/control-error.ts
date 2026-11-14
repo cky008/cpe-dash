@@ -8,3 +8,18 @@ export class CpeControlValidationError extends Error {
     this.name = "CpeControlValidationError";
   }
 }
+
+/**
+ * A request the server cannot take as it is (`BAD_PAYLOAD` with its status): a body that is no JSON
+ * object, too large or of another type, or a query value that is no integer. Here, beside the
+ * validation error, so the readers of the operation registry can throw it in the browser demo too.
+ */
+export class HttpPayloadError extends Error {
+  readonly statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.name = "HttpPayloadError";
+    this.statusCode = statusCode;
+  }
+}

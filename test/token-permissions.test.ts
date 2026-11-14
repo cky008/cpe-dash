@@ -7,7 +7,7 @@ import { describe, it } from "node:test";
 import { TOKEN_PERMISSIONS, describePermissions, tokenMay } from "../src/console-policy.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { permissionForRoute } from "../src/http-server.ts";
+import { permissionForRoute } from "../src/operations/registry.ts";
 import { SseEventBus } from "../src/sse-bus.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 

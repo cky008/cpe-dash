@@ -20,12 +20,13 @@ import {
   readWifiDeviceAccess,
   readWifiMacFilterChange,
 } from "./control-input.ts";
+import { HttpPayloadError } from "./control-error.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import { deviceSupportRow } from "./device-catalog.ts";
 import { deviceProfileOf } from "./device-profile.ts";
 import { VERIFIED_FIRMWARE } from "./firmware.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
-import { type TokenPermission, tokenMay, validateNewPassword } from "./console-policy.ts";
+import { tokenMay, validateNewPassword } from "./console-policy.ts";
 import { type BearerIdentity, type ConsoleSettings, verifyResetLoginProof } from "./console-settings.ts";
 import {
   type CredentialVerdict,
@@ -66,6 +67,7 @@ import type {
   Wifi7ControlResponse,
 } from "./api-contract.ts";
 import { cellularControl } from "./http-cellular.ts";
+import { CONSOLE_ONLY_PATHS, permissionForRoute } from "./operations/registry.ts";
 import { serveStaticAsset } from "./http-static.ts";
 import {
   getLocaleCatalog,
@@ -101,50 +103,8 @@ import type { AppConfig, SupportedLocale } from "./types.ts";
 import { FENGSUI_VERSION } from "./version.ts";
 
 const MAX_JSON_BODY_BYTES = 64 * 1024;
-/** POSTs a read-only Bearer token may make: they run read sessions and change nothing. */
-const READ_ONLY_POSTS: ReadonlySet<string> = new Set([
-  "/api/telemetry/refresh",
-  "/api/neighbors/scan",
-  "/api/topology/refresh",
-  "/api/settings/refresh",
-  "/api/cellular/refresh",
-  "/api/access-control/refresh",
-  "/api/sms/preview",
-  "/api/sms/sync",
-]);
-
-/** Changing who reaches the internet: the `access` permission (REST and MCP alike). */
-const ACCESS_CONTROL_ROUTES = ["/api/control/wifi-access", "/api/control/wifi-mac-filter", "/api/control/time-rule"];
-
-/**
- * The permission a token needs for a request: none to read the router's data (or run the read
- * sessions above), `sms-read` / `sms-write` under `/api/sms`, `access` for device access, `control` for
- * the router's other controls, and every permission for any other change.
- */
-/** Deleting SMS for good from Recently deleted: a console session only. */
-const SMS_PURGE_ROUTE = "/api/sms/trash/purge";
-
-export function permissionForRoute(method: string, pathname: string): TokenPermission | "all" | null {
-  const reading = method === "GET" || method === "HEAD";
-  if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
-    return reading || pathname === "/api/sms/preview" || pathname === "/api/sms/sync" ? "sms-read" : "sms-write";
-  }
-  if (reading || READ_ONLY_POSTS.has(pathname)) return null;
-  if (ACCESS_CONTROL_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))) return "access";
-  if (pathname.startsWith("/api/control/") || pathname === "/api/session/reset-breaker") return "control";
-  return "all";
-}
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-class HttpPayloadError extends Error {
-  readonly statusCode: number;
-
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.name = "HttpPayloadError";
-    this.statusCode = statusCode;
-  }
-}
 
 export { constantTimeSecretMatch } from "./http-auth.ts";
 
@@ -741,7 +701,7 @@ export class FengSuiHttpServer {
     }
 
     // Recently deleted is the owner's safety net: tokens (scripts, agents) may fill it and restore from it, never empty it
-    if (identity && pathname === SMS_PURGE_ROUTE) {
+    if (identity && CONSOLE_ONLY_PATHS.has(pathname)) {
       this.#sendJson(res, 403, {
         ok: false,
         errorCode: "CONSOLE_ONLY",

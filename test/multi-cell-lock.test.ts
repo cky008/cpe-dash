@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { assertOneCell, readCellLockCommand, readDriverCellLockTargets } from "../src/control-input.ts";
 import type { WriteCheck } from "../src/device-access.ts";
-import { CORE_TOOLS } from "../src/mcp-core-tools.ts";
+import { toolDefinition } from "../src/operations/registry.ts";
 import { validateToolArguments } from "../src/mcp-schema.ts";
 import { parseQuectelLteCellLock } from "../src/protocols/at/quectel.ts";
 import { ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
@@ -55,8 +55,8 @@ describe("several candidate cells: input", () => {
   });
 
   it("lets the MCP tool take `more` as objects, each field checked, and nothing else", () => {
-    const tool = CORE_TOOLS.find((t) => t.name === "lock_cell");
-    assert.ok(tool);
+    const tool = toolDefinition("cellLock");
+    assert.equal(tool.name, "lock_cell");
     assert.equal(validateToolArguments(tool.inputSchema, { ...TWO, confirm: true }), null);
     assert.match(validateToolArguments(tool.inputSchema, { ...TWO, confirm: true, more: [{ band: "B1", arfcn: 300 }] }) ?? "", /"more"\[0\]\.pci is required/);
     assert.match(validateToolArguments(tool.inputSchema, { ...TWO, confirm: true, more: [{ band: "B1", arfcn: 300, pci: 142, earfcn: 1 }] }) ?? "", /"more"\[0\]\.earfcn is not a known field/);
