@@ -2,8 +2,7 @@ import type { AgentSmsAccess, BehaviourValues } from "./behaviour-settings.ts";
 import type { SmsAbilities } from "./sms/types.ts";
 import type { TokenPermission } from "./console-policy.ts";
 import type { WriteAccess, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
-import type { WriteFeature } from "./features.ts";
-import type { ExperimentalFeature } from "./device-profile.ts";
+import { AGENT_TEST_FEATURES, type AgentTestFeature, type WriteFeature } from "./features.ts";
 
 /**
  * Testing the router with an AI agent at one click (Settings → Device, on a model FengSui was not
@@ -15,10 +14,6 @@ import type { ExperimentalFeature } from "./device-profile.ts";
  * every write the test covers has read back as a match. No dependencies: the daemon, the console and
  * the online demo share these rules.
  */
-
-/** The experimental writes the test covers: what an agent's tools can write (there is no mobile-data tool); SMS only while the owner keeps it in. */
-export const AGENT_TEST_FEATURES = ["smsWrite", "bandLock", "reboot", "reconnect"] as const satisfies ReadonlyArray<ExperimentalFeature>;
-export type AgentTestFeature = (typeof AGENT_TEST_FEATURES)[number];
 
 /**
  * The console settings the test sets, and to what: agents may test this router and change it; for
@@ -35,7 +30,11 @@ export type AgentTestSetting = keyof typeof AGENT_TEST_SETTINGS;
 
 const BASE_SETTINGS = ["agentExperimental", "agentWrites"] as const satisfies ReadonlyArray<AgentTestSetting>;
 const SMS_SETTINGS = ["agentSms", "agentSmsSendPolicy"] as const satisfies ReadonlyArray<AgentTestSetting>;
-const BASE_FEATURES = ["bandLock", "reconnect", "reboot"] as const satisfies ReadonlyArray<AgentTestFeature>;
+/**
+ * The writes the test covers (`agentTest` in the registry: what an agent's tools can write; there is no
+ * mobile-data tool) besides SMS, which counts only while the owner keeps it in.
+ */
+const BASE_FEATURES = AGENT_TEST_FEATURES.filter((feature) => feature !== "smsWrite");
 /** What the agent's token needs: changing the router; with SMS also reading and writing SMS. */
 const BASE_PERMISSIONS: ReadonlyArray<TokenPermission> = ["control"];
 const SMS_PERMISSIONS: ReadonlyArray<TokenPermission> = ["sms-read", "sms-write"];
