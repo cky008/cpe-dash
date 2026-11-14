@@ -1,8 +1,7 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
-import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError, LOGIN_UNCONFIRMED_CODE, ReentrantCpeSessionError, hashCredentialsFingerprint } from "./session-errors.ts";
-import { CpeLoginMethodError } from "./protocols/hilink/auth.ts";
+import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError, LOGIN_UNCONFIRMED_CODE, LoginMethodError, ReentrantCpeSessionError, hashCredentialsFingerprint } from "./session-errors.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot, type PersistedLockState, sectionUnavailableCode } from "./cpe-domain.ts";
 import {
   CONTROL_FEATURES,
@@ -22,7 +21,6 @@ import { type I18nKey, t } from "./i18n.ts";
 import { ROUTER_FAMILY_LABELS, routerFamilyOf, type RouterFamily } from "./router-family.ts";
 import { type ConnectionOptions, type ConnectionSettings, type KnownLogin, type RouterConnection, connectionSettings, routerConnection } from "./drivers/connection.ts";
 import { detectRouterFamily } from "./drivers/detect.ts";
-import { DriverLoginMethodError } from "./drivers/login.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext } from "./router-session.ts";
 import type { SessionClient } from "./session-client.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
@@ -809,9 +807,8 @@ export class MutexSessionScheduler extends EventEmitter {
           this.#remainingLogins = breaker.remainCount ?? this.#remainingLogins;
           return failure("wrong_password", message, { code: breaker.code, remainCount: breaker.remainCount ?? null });
         }
-        if (err instanceof CpeLoginMethodError) return failure(err.scramKnown ? "scram_refused" : "unsupported_login", message, { code: err.probeCode });
-        // Another brand's login that could not be settled: the router answered, and no password went out
-        if (err instanceof DriverLoginMethodError) return failure("unsupported_login", message);
+        // A login that could not be settled, whatever the brand: the router answered, and no password went out
+        if (err instanceof LoginMethodError) return failure(err.refusesKnownMethod ? "scram_refused" : "unsupported_login", message, { code: err.refusalCode });
         if (err instanceof CpeApiError) return failure("router_error", message, { code: err.code });
         return failure("unreachable", message);
       } finally {
@@ -1303,14 +1300,10 @@ export class MutexSessionScheduler extends EventEmitter {
       throw new CircuitBreakerOpenError(publicBreakerState(cb));
     }
 
-    // A CPE error code or rejected input means the router answered; only transport failures mean unreachable,
-    // and a router that logged in with SCRAM before but now refuses it: nothing gets in until the owner acts, so it alerts
-    // (a driver family whose login method could not be settled answered as well: no password went out)
-    const answered =
-      err instanceof CpeApiError ||
-      err instanceof CpeControlValidationError ||
-      (err instanceof CpeLoginMethodError && !err.scramKnown) ||
-      err instanceof DriverLoginMethodError;
+    // A CPE error code or rejected input means the router answered, and so does a login whose method could not
+    // be settled (no password went out); only transport failures mean unreachable, and a router that refuses the
+    // method it logged in by before: nothing gets in until the owner acts, so it alerts
+    const answered = err instanceof CpeApiError || err instanceof CpeControlValidationError || (err instanceof LoginMethodError && !err.refusesKnownMethod);
     this.#mode = answered ? "idle" : "cpe_unreachable";
     // Out of sight, the router may be replaced: its model is confirmed again before the next write
     // (an answer FengSui could not read still came from the router that is there)

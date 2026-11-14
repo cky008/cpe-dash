@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { isResponseDocument } from "../../device-profile.ts";
+import { LoginMethodError } from "../../session-errors.ts";
 import { getXmlTag } from "./xml.ts";
 
 /**
@@ -107,12 +108,8 @@ export function readSesTokInfo(xml: string): { token: string; sessionCookie: { n
  * before and now refuses the challenge the way an older model does. Nothing carrying the password
  * was sent: a SCRAM router counts a legacy hash as a wrong attempt.
  */
-export class CpeLoginMethodError extends Error {
+export class CpeLoginMethodError extends LoginMethodError {
   readonly passwordType: string | null;
-  /** The code that refused the SCRAM challenge; `null` when it answered with something else. */
-  readonly probeCode: string | null;
-  /** This router logged in with SCRAM before, so no legacy login was tried (`CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM`). */
-  readonly scramKnown: boolean;
 
   constructor(passwordType: string | null, probeCode: string | null, opts: { scramKnown?: boolean } = {}) {
     const refused = `SCRAM challenge refused${probeCode ? ` with ${probeCode}` : ""}`;
@@ -120,11 +117,20 @@ export class CpeLoginMethodError extends Error {
     super(
       opts.scramKnown === true
         ? `Router logged in with SCRAM before (${refused}); no password was sent. Another model? See CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM`
-        : `Unsupported router login method (${type}, ${refused}): no password was sent`
+        : `Unsupported router login method (${type}, ${refused}): no password was sent`,
+      { refusalCode: probeCode, refusesKnownMethod: opts.scramKnown === true }
     );
     this.name = "CpeLoginMethodError";
     this.passwordType = passwordType;
-    this.probeCode = probeCode;
-    this.scramKnown = opts.scramKnown === true;
+  }
+
+  /** The code that refused the SCRAM challenge; `null` when it answered with something else. */
+  get probeCode(): string | null {
+    return this.refusalCode;
+  }
+
+  /** This router logged in with SCRAM before, so no legacy login was tried (`CPE_ALLOW_LEGACY_LOGIN_AFTER_SCRAM`). */
+  get scramKnown(): boolean {
+    return this.refusesKnownMethod;
   }
 }

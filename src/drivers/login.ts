@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { CpeApiError, LOGIN_UNCONFIRMED_CODE } from "../session-errors.ts";
+import { CpeApiError, LOGIN_UNCONFIRMED_CODE, LoginMethodError } from "../session-errors.ts";
 
 /**
  * Login outcomes of the driver families in the HiLink codes the session client and the scheduler
@@ -29,7 +29,7 @@ export function loginUnplaced(detail: string): CpeApiError {
 }
 
 /** A login whose method FengSui could not settle before the password went out: nothing was sent. */
-export class DriverLoginMethodError extends Error {
+export class DriverLoginMethodError extends LoginMethodError {
   constructor(detail: string) {
     super(`Unsupported router login (${detail}): no password was sent`);
     this.name = "DriverLoginMethodError";

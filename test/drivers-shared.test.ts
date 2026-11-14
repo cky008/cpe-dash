@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CpeAnswerFormatError, CpeApiError, CpeSessionDeadlineError, CpeTransportError, ReentrantCpeSessionError } from "../src/session-errors.ts";
+import { CpeAnswerFormatError, CpeApiError, CpeSessionDeadlineError, CpeTransportError, LoginMethodError, ReentrantCpeSessionError } from "../src/session-errors.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import type { WriteCheck } from "../src/device-access.ts";
 import { bandsToHex, bandsToList, bandsToMask, checkCellLock, checkLockBands, defaultSpacing, hexToBands, isSubcarrierSpacing, listToBands, maskToBands } from "../src/drivers/bands.ts";
@@ -221,6 +221,9 @@ describe("drivers: login outcomes and read-backs", () => {
     assert.equal(signedInElsewhere("x").isSessionOccupied, true);
     assert.equal(loginUnplaced("x").isCircuitBreakerFatal, true);
     assert.match(new DriverLoginMethodError("why").message, /no password was sent/);
+    // The one error the scheduler knows for it: no code of the router's, and not a method it logged in by before
+    const unsettled: unknown = new DriverLoginMethodError("why");
+    assert.ok(unsettled instanceof LoginMethodError && unsettled.refusalCode === null && !unsettled.refusesKnownMethod);
     assert.equal(new DriverSessionClosedError().name, "DriverSessionClosedError");
     assert.equal(md5Hex("a"), "0cc175b9c0f1b6a831c399e269772661");
     assert.equal(hmacMd5Hex("key", "The quick brown fox jumps over the lazy dog"), "80070713463e7749b90c2dc24911e275");

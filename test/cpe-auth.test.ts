@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { CpeLoginMethodError, encodeLegacyPassword, planLogin, readScramChallenge, readSesTokInfo } from "../src/protocols/hilink/auth.ts";
 import { computeScram } from "../src/protocols/hilink/crypto.ts";
 import { isResponseDocument } from "../src/device-profile.ts";
+import type { LoginMethodError } from "../src/session-errors.ts";
 
 /**
  * The login-method decisions and encodings on their own. Known-answer vectors: inputs from the
@@ -80,5 +81,8 @@ describe("router answers", () => {
     assert.match(err.message, /password_type=7/);
     assert.match(err.message, /no password was sent/);
     assert.match(new CpeLoginMethodError(null, null).message, /password_type missing/);
+    // What the scheduler reads of it, as of every brand's: the refusing code, and whether SCRAM was known before
+    const known: LoginMethodError = new CpeLoginMethodError("4", "100003", { scramKnown: true });
+    assert.deepEqual([err.refusalCode, err.refusesKnownMethod, known.refusalCode, known.refusesKnownMethod], ["100002", false, "100003", true]);
   });
 });

@@ -97,6 +97,20 @@ describe("router backend: one interface for every brand", () => {
     assert.ok(!/from "\.\.\/(protocols|drivers)\//.test(sms.replace(/import type [^;]+;/g, "")), "the SMS service takes something from a router's protocol or driver: the checks every brand shares are in sms/submission.ts");
   });
 
+  it("lets nothing above the drivers name a driver or a protocol part, but the scheduler its connection", () => {
+    // Entries, services, the backend and the scheduler ask the connection's brand; what a brand or an
+    // interface says (its errors, its bounds, its requests) reaches them through RouterDriver, RouterSession and
+    // the shared session errors. Types aside, and the package's own index.
+    for (const file of sources("src")) {
+      if (file.startsWith("src/drivers/") || file.startsWith("src/protocols/") || file === "src/index.ts") continue;
+      const runtime = fs.readFileSync(file, "utf8").replace(/import type [^;]+;/g, "");
+      const named = [...runtime.matchAll(/from "(?:\.\.?\/)+((?:drivers|protocols)\/[^"]+)"/g)].map((match) => match[1]);
+      // The scheduler holds the live connection and detects a brand: both are built for it, brand by brand, in these two
+      const allowed = file === "src/scheduler.ts" ? ["drivers/connection.ts", "drivers/detect.ts"] : [];
+      assert.deepEqual(named.filter((spec) => !allowed.includes(spec ?? "")), [], `${file} names a brand's driver or a protocol part`);
+    }
+  });
+
   it("answers the SMS verbs on a brand without SMS: nothing to list, every write refused by the gate, no request", async () => {
     const router = new LanRouterMock(() => {
       throw new Error("a brand without SMS was sent a request");

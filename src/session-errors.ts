@@ -111,6 +111,28 @@ export class CpeEncryptionUnavailableError extends Error {
   }
 }
 
+/**
+ * A login whose method could not be settled before the password went out: nothing carrying the
+ * password was sent, so no attempt was used and the breaker stays as it was. Every brand's login
+ * throws it, each saying what it saw. The router answered, so it is there.
+ */
+export class LoginMethodError extends Error {
+  /** The router's own code for refusing the method it was asked for (`null`: it gave none). */
+  readonly refusalCode: string | null;
+  /**
+   * The router logged in before by the method it now refuses: nothing gets in until its owner acts,
+   * so the daemon alerts as it does for a router out of reach.
+   */
+  readonly refusesKnownMethod: boolean;
+
+  constructor(message: string, opts: { refusalCode?: string | null; refusesKnownMethod?: boolean } = {}) {
+    super(message);
+    this.name = "LoginMethodError";
+    this.refusalCode = opts.refusalCode ?? null;
+    this.refusesKnownMethod = opts.refusesKnownMethod === true;
+  }
+}
+
 /** Default upper bound for one admin session (covers SMS send-status polling plus read-back). */
 export const DEFAULT_SESSION_MAX_HOLD_MS = 90_000;
 
