@@ -1,12 +1,13 @@
-import { USSD_MAX_TEXT, type DataLimitSetting, type UssdAnswer } from "../cellular.ts";
+import type { DataLimitSetting } from "../cellular.ts";
 import type { WriteCheck } from "../device-access.ts";
 
 /**
  * Parts more than one brand's driver uses for the cellular settings (`DriverCellular`): a longer text
- * field of an answer, the text of a USSD answer and how long one is waited for, the name of the one
- * access point profile FengSui keeps on a router, how a data limit is read back, and how a write
- * that has no state to compare is recorded. What only one brand's interfaces use is with that brand
- * (`zte/cellular.ts`); the `+COPS` answers are an AT part (`src/protocols/at/common.ts`).
+ * field of an answer, the name of the one access point profile FengSui keeps on a router, how a data
+ * limit is read back, and how a write that has no state to compare is recorded. What only one
+ * brand's interfaces use is with that brand (`zte/cellular.ts`); the `+COPS` answers are an AT part
+ * (`src/protocols/at/common.ts`), and a USSD answer's text and waits are a part of their own
+ * (`src/protocols/ussd.ts`).
  */
 
 /**
@@ -24,30 +25,6 @@ export function longTextOf(value: unknown, maxChars: number): string | null {
 export function settleNothingToRead(check: WriteCheck): void {
   check.readback = "none";
   check.reason = null;
-}
-
-/**
- * An operator's USSD text as it may be shown: control characters out (a menu's line breaks stay),
- * cut at `USSD_MAX_TEXT`. `null`: nothing readable.
- */
-export function ussdText(raw: string | null): string | null {
-  if (raw === null) return null;
-  // Line breaks survive as "\n"; every other control character goes
-  const text = raw
-    .replace(/\r\n?/g, "\n")
-    .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, "")
-    .trim()
-    .slice(0, USSD_MAX_TEXT);
-  return text === "" ? null : text;
-}
-
-/** How long a USSD answer is waited for, and how often the router is asked. */
-export const USSD_POLLS = 30;
-export const USSD_POLL_MS = 1000;
-
-/** An answer with nothing in it (the network said nothing in time, or the session was ended). */
-export function emptyUssd(state: UssdAnswer["state"]): UssdAnswer {
-  return { state, text: null, awaitsReply: false };
 }
 
 /**

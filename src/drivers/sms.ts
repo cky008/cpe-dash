@@ -1,5 +1,5 @@
 import type { WriteCheck } from "../device-access.ts";
-import type { SmsConcatenation } from "../sms/pdu.ts";
+import type { SmsSegment } from "../protocols/at/sms.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
 import { stripInvalidControlChars } from "../text-sanitize.ts";
 import type { DriverSmsSendOutcome } from "./types.ts";
@@ -71,18 +71,6 @@ export function dateOfParts(parts: ReadonlyArray<string>): string {
 /** Storage handles as they may be written: whole, above zero, each once. */
 export function storedIndices(indices: ReadonlyArray<number>): number[] {
   return [...new Set(indices.filter((n) => Number.isSafeInteger(n) && n > 0))];
-}
-
-/** One stored part of a message, as a listing of raw segments gives it. */
-export interface SmsSegment {
-  /** The handle of this part (above zero). */
-  index: number;
-  phone: string;
-  date: string;
-  unread: boolean;
-  outgoing: boolean;
-  text: string;
-  concat: SmsConcatenation | null;
 }
 
 export interface AssembledSms {

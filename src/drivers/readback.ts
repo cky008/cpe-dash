@@ -1,6 +1,7 @@
 import type { WriteCheck } from "../device-access.ts";
 import type { DriverFamily } from "../router-family.ts";
-import type { CellLockState, DriverBandLockTarget, DriverCellLockTarget, DriverLockState, DriverWait } from "./types.ts";
+import type { DriverBandLockTarget, DriverCellLockTarget, DriverLockState, DriverWait } from "./types.ts";
+import type { CellLockState } from "../protocols/readings.ts";
 
 /**
  * What a driver write records (the command names it sent, never a value) and how it reads the write

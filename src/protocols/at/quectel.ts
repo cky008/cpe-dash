@@ -1,18 +1,7 @@
 import { splitAtCsv } from "./common.ts";
 import type { NetworkMode } from "../../cellular.ts";
 import type { TemperatureSensor } from "../../router-status.ts";
-import { emptyCell } from "../../drivers/snapshot.ts";
-import type {
-  CellLockState,
-  DriverCarrier,
-  DriverCell,
-  DriverNeighbour,
-  DriverNetworkMode,
-  DriverRat,
-  DriverTraffic,
-  ServingMode,
-  SubcarrierSpacingKhz,
-} from "../../drivers/types.ts";
+import { type CellLockState, type DriverCarrier, type DriverCell, type DriverNeighbour, type DriverNetworkMode, type DriverRat, type DriverTraffic, type ServingMode, type SubcarrierSpacingKhz, emptyCell } from "../readings.ts";
 import {
   arfcnOf,
   bandOf,
@@ -28,7 +17,7 @@ import {
   smallIntOf,
   temperatureOf,
   txPowerOf,
-} from "../../drivers/values.ts";
+} from "../values.ts";
 
 
 /**

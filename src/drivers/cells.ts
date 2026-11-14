@@ -1,6 +1,6 @@
 import { earfcnToLteBand, lteBandInfo, nrArfcnToBand, nrBandInfo } from "../rf-math.ts";
-import type { DriverCarrier, DriverNeighbour, DriverRat, ServingMode } from "./types.ts";
-import { arfcnOf, bandOf, channelBandwidthOf, pciOf, rowsOf, rsrpOf, rsrqOf, rssiOf, sinrOf, textOf } from "./values.ts";
+import type { DriverCarrier, DriverNeighbour, DriverRat, ServingMode } from "../protocols/readings.ts";
+import { arfcnOf, bandOf, channelBandwidthOf, pciOf, rowsOf, rsrpOf, rsrqOf, rssiOf, sinrOf, textOf } from "../protocols/values.ts";
 
 /**
  * Cell readings the router families share: how they name the serving mode, and carrier and

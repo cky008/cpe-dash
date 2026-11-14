@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { hilinkRouterStatus } from "../src/drivers/huawei/requests.ts";
-import { driverRouterStatus, driverTelemetrySnapshot, emptyCell } from "../src/drivers/snapshot.ts";
+import { driverRouterStatus, driverTelemetrySnapshot } from "../src/drivers/snapshot.ts";
+import { emptyCell } from "../src/protocols/readings.ts";
 import type { DriverTelemetry } from "../src/drivers/types.ts";
-import { ecioOf, iccidOf, imeiOf, imsiOf, msisdnOf, rscpOf, txPowerOf } from "../src/drivers/values.ts";
+import { ecioOf, iccidOf, imeiOf, imsiOf, msisdnOf, rscpOf, txPowerOf } from "../src/protocols/values.ts";
 import { wcdmaSignal } from "../src/protocols/hilink/parsers.ts";
 import {
   DEFAULT_BATTERY_LOW_PERCENT,
@@ -94,7 +95,7 @@ describe("router status: HiLink (from answers the poll reads anyway)", () => {
   });
 });
 
-describe("router status: values the drivers read (src/drivers/values.ts)", () => {
+describe("router status: values the drivers read (src/protocols/values.ts)", () => {
   it("reads identifiers only in their own shapes", () => {
     assert.deepEqual([imeiOf("860000000000000"), imeiOf("0000000000000000"), imeiOf("86000"), imeiOf("-")], ["860000000000000", null, null, null]);
     assert.deepEqual([imsiOf("272010000000000"), imsiOf("27201"), imsiOf("not a number")], ["272010000000000", null, null]);

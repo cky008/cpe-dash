@@ -7,22 +7,11 @@ import { checkCellLock, checkLockBands } from "./bands.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, hmacMd5Hex, loginLocked, loginUnplaced, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
-import { cellHasData, emptyCell } from "./snapshot.ts";
-import { type LanHttp, jsonAnswer } from "./transport.ts";
-import type {
-  CellLockState,
-  DriverBandLockTarget,
-  DriverCell,
-  DriverCellLockTarget,
-  DriverCellular,
-  DriverIdentity,
-  DriverLockState,
-  DriverNeighbour,
-  DriverNetworkMode,
-  DriverSessionHandle,
-  DriverTelemetry,
-} from "./types.ts";
-import { bandOf, counterOf, intOf, isPlainObject, labelOf, numberOf, operatorOfPlmn, pciOf, plmnCodeOf, rsrpOf, rsrqOf, rssiOf, sinrOf, smallIntOf, textOf } from "./values.ts";
+import { cellHasData } from "./snapshot.ts";
+import { type CellLockState, type DriverCell, type DriverNeighbour, type DriverNetworkMode, emptyCell } from "../protocols/readings.ts";
+import { type LanHttp, jsonAnswer } from "../protocols/transport.ts";
+import type { DriverBandLockTarget, DriverCellLockTarget, DriverCellular, DriverIdentity, DriverLockState, DriverSessionHandle, DriverTelemetry } from "./types.ts";
+import { bandOf, counterOf, intOf, isPlainObject, labelOf, numberOf, operatorOfPlmn, pciOf, plmnCodeOf, rsrpOf, rsrqOf, rssiOf, sinrOf, smallIntOf, textOf } from "../protocols/values.ts";
 
 /**
  * Pinsu routers (R200C, R200, R100, M1, U200) and other UNISOC V510 boards on the same firmware:

@@ -2,7 +2,7 @@ import { normalizeCpeUrl } from "../config.ts";
 import { DETECTION_ORDER, type RouterFamily } from "../router-family.ts";
 import { getXmlTag } from "../protocols/hilink/xml.ts";
 import { DRIVER_PROTOCOLS } from "./brands.ts";
-import { LanHttp, deadlineSignal } from "./transport.ts";
+import { LanHttp, deadlineSignal } from "../protocols/transport.ts";
 
 /**
  * Which family the router at an address is, told from what it answers without a login: each family

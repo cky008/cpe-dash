@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { WriteCheck } from "../src/device-access.ts";
-import { type SmsSegment, assembleSegments, countListed, dateOfParts, settleSmsCount, settleSmsListing, settleSmsSend, storedIndices, wireMessage } from "../src/drivers/sms.ts";
+import { assembleSegments, countListed, dateOfParts, settleSmsCount, settleSmsListing, settleSmsSend, storedIndices, wireMessage } from "../src/drivers/sms.ts";
+import { type SmsSegment } from "../src/protocols/at/sms.ts";
 
 /** What the drivers share for SMS, whichever router they speak to. Reserved test numbers only. */
 

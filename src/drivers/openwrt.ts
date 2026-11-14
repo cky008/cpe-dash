@@ -56,10 +56,9 @@ import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client
 import { DriverLoginMethodError, DriverSessionClosedError, wrongPassword } from "./login.ts";
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleCellLocks, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
 import { type AssembledSms, assembleSegments, settleSmsCount, storedIndices } from "./sms.ts";
-import type { LanHttp } from "./transport.ts";
+import type { LanHttp } from "../protocols/transport.ts";
 import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../protocols/ubus.ts";
 import type {
-  CellLockState,
   DriverBandLockTarget,
   DriverCellLockTarget,
   DriverCellular,
@@ -68,15 +67,14 @@ import type {
   DriverHost,
   DriverIdentity,
   DriverLockState,
-  DriverNeighbour,
-  DriverNetworkMode,
   DriverSessionHandle,
   DriverSms,
   DriverSmsSendOptions,
   DriverSmsSendOutcome,
   DriverTelemetry,
 } from "./types.ts";
-import { bandOf, fieldOf, iccidOf, imeiOf, imsiOf, intOf, isPlainObject, labelOf, nonNegativeOf, pciOf, temperatureOf, textOf } from "./values.ts";
+import type { CellLockState, DriverNeighbour, DriverNetworkMode } from "../protocols/readings.ts";
+import { bandOf, fieldOf, iccidOf, imeiOf, imsiOf, intOf, isPlainObject, labelOf, nonNegativeOf, pciOf, temperatureOf, textOf } from "../protocols/values.ts";
 
 /**
  * OpenWrt routers with Quectel (RM500, RM520, RG500, RG520, RM551...) or Fibocom (FM650, FM350,

@@ -2,10 +2,11 @@ import { USSD_MAX_TEXT, type ApnAuthMode, type ApnIpType, type ApnSetting, type 
 import { CpeControlValidationError } from "../../control-error.ts";
 import { MAX_SCAN_CHARS, MAX_SCAN_ROWS, operatorChoice, operatorName, operatorRatOf } from "../../protocols/at/common.ts";
 import { CpeApiError } from "../../session-errors.ts";
-import { FENGSUI_APN_PROFILE, USSD_POLLS, USSD_POLL_MS, longTextOf, ussdText } from "../cellular.ts";
+import { FENGSUI_APN_PROFILE, longTextOf } from "../cellular.ts";
+import { USSD_POLLS, USSD_POLL_MS, ussdText } from "../../protocols/ussd.ts";
 import { textOfUcs2Hex } from "../sms.ts";
 import type { DriverWait } from "../types.ts";
-import { textOf } from "../values.ts";
+import { textOf } from "../../protocols/values.ts";
 
 /**
  * What ZTE's two interfaces (the goform pages and zWRT) share for the cellular settings, and nobody

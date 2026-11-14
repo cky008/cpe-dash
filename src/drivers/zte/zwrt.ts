@@ -16,21 +16,18 @@ import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnp
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "../readback.ts";
 import { settleSmsListing, storedIndices, textOfUcs2Hex, ucs2Hex } from "../sms.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
-import { cellHasData, emptyCell } from "../snapshot.ts";
-import type { LanHttp } from "../transport.ts";
+import { cellHasData } from "../snapshot.ts";
+import { type CellLockState, type DriverCell, type DriverNeighbour, type DriverNetworkMode, emptyCell } from "../../protocols/readings.ts";
+import type { LanHttp } from "../../protocols/transport.ts";
 import { UBUS_ANONYMOUS_SESSION, UbusRpc } from "../../protocols/ubus.ts";
 import type {
-  CellLockState,
   DriverBandLockTarget,
-  DriverCell,
   DriverCellLockTarget,
   DriverCellular,
   DriverCellularState,
   DriverDataLink,
   DriverIdentity,
   DriverLockState,
-  DriverNeighbour,
-  DriverNetworkMode,
   DriverSessionHandle,
   DriverSms,
   DriverSmsSendOptions,
@@ -62,7 +59,7 @@ import {
   smallIntOf,
   temperatureOf,
   textOf,
-} from "../values.ts";
+} from "../../protocols/values.ts";
 
 /**
  * ZTE routers on zWRT, ZTE's OpenWrt (G5 Pro / Ultra / TS, U60 Pro, U50 Pro, MC888D): JSON-RPC 2.0

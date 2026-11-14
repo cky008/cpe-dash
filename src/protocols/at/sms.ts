@@ -1,11 +1,22 @@
-import { SmsPduError, decodeSmsPdu } from "../../sms/pdu.ts";
-import type { SmsSegment } from "../../drivers/sms.ts";
+import { type SmsConcatenation, SmsPduError, decodeSmsPdu } from "../../sms/pdu.ts";
 
 /**
  * SMS through a modem's own AT commands (3GPP TS 27.005), for a router that offers nothing above
  * them: what `AT+CPMS?` and `AT+CMGL=4` answer, as counts and stored message parts. Pure parsing; the
  * driver sends the commands.
  */
+
+/** One stored part of a message, as a listing of raw segments gives it. */
+export interface SmsSegment {
+  /** The handle of this part (above zero). */
+  index: number;
+  phone: string;
+  date: string;
+  unread: boolean;
+  outgoing: boolean;
+  text: string;
+  concat: SmsConcatenation | null;
+}
 
 /** `<stat>` of a stored message in PDU mode (TS 27.005 §3.1): received unread, received read, stored unsent, stored sent. */
 const STAT_UNREAD = 0;

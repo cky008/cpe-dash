@@ -9,7 +9,7 @@ import type { DriverSmsSendOptions } from "../src/drivers/types.ts";
 import { zwrtDecryptField, zwrtEncryptField, zwrtKeyEnvelope } from "../src/drivers/zte/zwrt.ts";
 import { DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { createBrandSmsFixture, smsOf, smsWritesOf } from "./helpers/sms-brand-fixture.ts";
-import { LanHttp } from "../src/drivers/transport.ts";
+import { LanHttp } from "../src/protocols/transport.ts";
 import { zteGoformProtocol, zteReqprocPassword } from "../src/drivers/zte/goform.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { ZTE_PASSWORD, ZTE_RANDOM_LOGIN, zteRouter, zteSms } from "./helpers/zte-goform-router.ts";

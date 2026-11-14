@@ -7,7 +7,8 @@ import { type BatteryStatus, type SimCardStatus, type SimState, type Temperature
 import { detectSmsTextMode } from "../../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
 import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "../bands.ts";
-import { FENGSUI_APN_PROFILE, emptyUssd, sameDataLimit, settleNothingToRead } from "../cellular.ts";
+import { FENGSUI_APN_PROFILE, sameDataLimit, settleNothingToRead } from "../cellular.ts";
+import { emptyUssd } from "../../protocols/ussd.ts";
 import {
   ZTE_APN_PROFILE_KEYS,
   ZTE_GOFORM_SLOTS,
@@ -30,13 +31,11 @@ import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnp
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "../readback.ts";
 import { settleSmsListing, storedIndices, ucs2Hex } from "../sms.ts";
 import { ZTE_SMS_CMD_DELETE, ZTE_SMS_CMD_SEND, awaitZteCommand, parseZteSmsRows, zteIdList, zteSmsCounters, zteSmsTime } from "./sms.ts";
-import { cellHasData, emptyCell } from "../snapshot.ts";
-import { type LanHttp, parseJsonText } from "../transport.ts";
+import { cellHasData } from "../snapshot.ts";
+import { type CellLockState, type DriverCarrier, type DriverCell, type DriverNeighbour, type DriverNetworkMode, emptyCell } from "../../protocols/readings.ts";
+import { type LanHttp, parseJsonText } from "../../protocols/transport.ts";
 import type {
-  CellLockState,
   DriverBandLockTarget,
-  DriverCarrier,
-  DriverCell,
   DriverCellular,
   DriverCellularState,
   DriverCellLockTarget,
@@ -44,8 +43,6 @@ import type {
   DriverHost,
   DriverIdentity,
   DriverLockState,
-  DriverNeighbour,
-  DriverNetworkMode,
   DriverSessionHandle,
   DriverSms,
   DriverSmsSendOptions,
@@ -84,7 +81,7 @@ import {
   temperatureOf,
   textOf,
   txPowerOf,
-} from "../values.ts";
+} from "../../protocols/values.ts";
 
 /**
  * ZTE routers with the goform web interface (MC801A, MC888, MC889, MC7010, MU5001, F50, MF28x…):

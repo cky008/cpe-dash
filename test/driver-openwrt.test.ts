@@ -6,7 +6,7 @@ import { OPENWRT_ANONYMOUS_SESSION, forgetOpenwrtSimReads, extractAtResponse, op
 import { atValueLine, detectModemBrand, isAtError, modemBrandOf, parseCfun, parseOperatorName, parseSimPin, splitAtCsv } from "../src/protocols/at/common.ts";
 import { parseQuectelCaInfo, parseQuectelCsi, parseQuectelDataCounter, parseQuectelNeighbours, parseQuectelRsrp, parseQuectelServingCell, parseQuectelTemp, parseQuectelTempSensors, quectelLteSinr } from "../src/protocols/at/quectel.ts";
 import { parseFibocomAct, parseFibocomCaInfo, parseFibocomCcInfo } from "../src/protocols/at/fibocom.ts";
-import { LanHttp } from "../src/drivers/transport.ts";
+import { LanHttp } from "../src/protocols/transport.ts";
 import { OPENWRT_SESSION_TOKEN as SESSION_TOKEN, openwrtRouter } from "./helpers/openwrt-router.ts";
 
 function newCheck(): WriteCheck {

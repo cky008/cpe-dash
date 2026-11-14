@@ -10,24 +10,10 @@ import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
 import { dateOfParts, wireMessage } from "./sms.ts";
-import { cellHasData, emptyCell } from "./snapshot.ts";
-import type { LanHttp } from "./transport.ts";
-import type {
-  CellLockState,
-  DriverBandLockTarget,
-  DriverCell,
-  DriverCellLockTarget,
-  DriverCellular,
-  DriverIdentity,
-  DriverLockState,
-  DriverNeighbour,
-  DriverNetworkMode,
-  DriverSessionHandle,
-  DriverSms,
-  DriverSmsSendOptions,
-  DriverSmsSendOutcome,
-  DriverTelemetry,
-} from "./types.ts";
+import { cellHasData } from "./snapshot.ts";
+import { type CellLockState, type DriverCell, type DriverNeighbour, type DriverNetworkMode, emptyCell } from "../protocols/readings.ts";
+import type { LanHttp } from "../protocols/transport.ts";
+import type { DriverBandLockTarget, DriverCellLockTarget, DriverCellular, DriverIdentity, DriverLockState, DriverSessionHandle, DriverSms, DriverSmsSendOptions, DriverSmsSendOutcome, DriverTelemetry } from "./types.ts";
 import {
   arfcnOf,
   bandOf,
@@ -49,7 +35,7 @@ import {
   smallIntOf,
   temperatureOf,
   textOf,
-} from "./values.ts";
+} from "../protocols/values.ts";
 
 /**
  * Tozed / ZLT routers (China Unicom VN007, ZLT X21, X28, S10G…): every call is a `POST` of JSON

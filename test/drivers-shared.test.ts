@@ -8,8 +8,9 @@ import { bandOfChannel, carrierOf, carriersFromRows, channelInBand, neighbourOf,
 import { DriverCpeClient, type DriverProtocol, isInsideDriverSession } from "../src/drivers/client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, hmacMd5Hex, loginLocked, loginUnplaced, md5Hex, signedInElsewhere, wrongPassword } from "../src/drivers/login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "../src/drivers/readback.ts";
-import { CounterRates, cellHasData, driverNeighbourSnapshot, driverRfSnapshot, driverTelemetrySnapshot, emptyCell } from "../src/drivers/snapshot.ts";
-import { LanHttp, jsonAnswer, parseJsonText } from "../src/drivers/transport.ts";
+import { CounterRates, cellHasData, driverNeighbourSnapshot, driverRfSnapshot, driverTelemetrySnapshot } from "../src/drivers/snapshot.ts";
+import { emptyCell } from "../src/protocols/readings.ts";
+import { LanHttp, jsonAnswer, parseJsonText } from "../src/protocols/transport.ts";
 import type { DriverLockState, DriverSessionHandle, DriverTelemetry } from "../src/drivers/types.ts";
 import {
   arfcnOf,
@@ -42,7 +43,7 @@ import {
   smallIntOf,
   temperatureOf,
   textOf,
-} from "../src/drivers/values.ts";
+} from "../src/protocols/values.ts";
 import { parseFiberhomeTelemetry } from "../src/drivers/fiberhome.ts";
 import { parsePinsuTelemetry } from "../src/drivers/pinsu.ts";
 import { parseTozedTelemetry } from "../src/drivers/tozed.ts";

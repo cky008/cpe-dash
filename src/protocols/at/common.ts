@@ -1,6 +1,6 @@
 import { type ApnIpType, type OperatorChoice, type OperatorRat, isApnName } from "../../cellular.ts";
 import { type SimCardStatus, type SimState, countValue } from "../../router-status.ts";
-import { labelOf, textOf } from "../../drivers/values.ts";
+import { labelOf, textOf } from "../values.ts";
 
 /**
  * AT commands every cellular module answers the same way (3GPP TS 27.007 / 27.005), and how a

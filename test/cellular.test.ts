@@ -19,7 +19,8 @@ import {
   sameSimSlot,
 } from "../src/cellular.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
-import { sameDataLimit, ussdText } from "../src/drivers/cellular.ts";
+import { sameDataLimit } from "../src/drivers/cellular.ts";
+import { ussdText } from "../src/protocols/ussd.ts";
 import { parseZteOperators, zteLimitSize, zteModeOf, zteUssdText } from "../src/drivers/zte/cellular.ts";
 import { MAX_SCAN_ROWS, operatorActOf, operatorChoice, operatorName, operatorRatOf } from "../src/protocols/at/common.ts";
 import { ucs2Hex } from "../src/drivers/sms.ts";

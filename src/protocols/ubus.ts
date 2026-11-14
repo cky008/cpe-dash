@@ -1,5 +1,5 @@
-import type { LanHttp } from "../drivers/transport.ts";
-import { fieldOf, intOf, isPlainObject } from "../drivers/values.ts";
+import type { LanHttp } from "./transport.ts";
+import { fieldOf, intOf, isPlainObject } from "./values.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 
 /**

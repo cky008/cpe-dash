@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { PIN_REFUSALS } from "../src/cellular.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { CpeApiError } from "../src/session-errors.ts";
-import { USSD_POLLS } from "../src/drivers/cellular.ts";
+import { USSD_POLLS } from "../src/protocols/ussd.ts";
 import { DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { cellularOf, daemonOn, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";

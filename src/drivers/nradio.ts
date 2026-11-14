@@ -10,23 +10,10 @@ import { bandOfChannel, neighbourOf, ratOfChannel, servingModeOf } from "./cells
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverSessionClosedError, loginUnplaced, wrongPassword } from "./login.ts";
 import { awaitConnection, noteSent, settleBandLock, settleDataSwitch, settleRestart, settleUnlock } from "./readback.ts";
-import { cellHasData, emptyCell } from "./snapshot.ts";
-import type { LanHttp } from "./transport.ts";
-import type {
-  DriverBandLockTarget,
-  DriverCell,
-  DriverCellLockTarget,
-  DriverCellular,
-  DriverDataLink,
-  DriverFrequencyLockTarget,
-  DriverHost,
-  DriverIdentity,
-  DriverLockState,
-  DriverNeighbour,
-  DriverNetworkMode,
-  DriverSessionHandle,
-  DriverTelemetry,
-} from "./types.ts";
+import { cellHasData } from "./snapshot.ts";
+import { type DriverCell, type DriverNeighbour, type DriverNetworkMode, emptyCell } from "../protocols/readings.ts";
+import type { LanHttp } from "../protocols/transport.ts";
+import type { DriverBandLockTarget, DriverCellLockTarget, DriverCellular, DriverDataLink, DriverFrequencyLockTarget, DriverHost, DriverIdentity, DriverLockState, DriverSessionHandle, DriverTelemetry } from "./types.ts";
 import {
   arfcnOf,
   bandOf,
@@ -51,7 +38,7 @@ import {
   rsrqOf,
   sinrOf,
   textOf,
-} from "./values.ts";
+} from "../protocols/values.ts";
 
 /**
  * NRadio routers (C2000 Max / Ultra / Pro, C8-668GL, C5800, C8-660, C3000…) on NROS, NRadio's

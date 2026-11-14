@@ -4,7 +4,7 @@ import type { TerminalAccessMedium, TerminalHostEntry } from "../cpe-domain.ts";
 import { sanitizeFreeText } from "../sanitize.ts";
 import { stripInvalidControlChars } from "../text-sanitize.ts";
 import type { DriverHost } from "./types.ts";
-import { ipv4Of, ipv6Of } from "./values.ts";
+import { ipv4Of, ipv6Of } from "../protocols/values.ts";
 
 /**
  * Connected devices of a router of a driver family in the shape the HiLink stack hands the console:

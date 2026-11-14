@@ -1,6 +1,7 @@
 import { CpeControlValidationError } from "../control-error.ts";
 import { LTE_BANDS, NR_BANDS, lteBandInfo, nrBandInfo } from "../rf-math.ts";
-import type { DriverCellLockTarget, DriverRat, SubcarrierSpacingKhz } from "./types.ts";
+import type { DriverCellLockTarget } from "./types.ts";
+import type { DriverRat, SubcarrierSpacingKhz } from "../protocols/readings.ts";
 
 /**
  * Band lists in the formats the router families use: a 1-indexed bit mask (band `b` is bit `b − 1`,

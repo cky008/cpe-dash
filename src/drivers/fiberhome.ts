@@ -11,25 +11,10 @@ import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "./client
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, signedInElsewhere, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleCellLocks, settleRestart, settleUnlock } from "./readback.ts";
 import { countListed, dateOfParts, settleSmsListing, storedIndices, wireMessage } from "./sms.ts";
-import { cellHasData, emptyCell } from "./snapshot.ts";
-import { type LanHttp, jsonAnswer, parseJsonText } from "./transport.ts";
-import type {
-  CellLockState,
-  DriverBandLockTarget,
-  DriverCell,
-  DriverCellLockTarget,
-  DriverCellular,
-  DriverIdentity,
-  DriverLockState,
-  DriverNeighbour,
-  DriverNetworkMode,
-  DriverRat,
-  DriverSessionHandle,
-  DriverSms,
-  DriverSmsSendOptions,
-  DriverSmsSendOutcome,
-  DriverTelemetry,
-} from "./types.ts";
+import { cellHasData } from "./snapshot.ts";
+import { type CellLockState, type DriverCell, type DriverNeighbour, type DriverNetworkMode, type DriverRat, emptyCell } from "../protocols/readings.ts";
+import { type LanHttp, jsonAnswer, parseJsonText } from "../protocols/transport.ts";
+import type { DriverBandLockTarget, DriverCellLockTarget, DriverCellular, DriverIdentity, DriverLockState, DriverSessionHandle, DriverSms, DriverSmsSendOptions, DriverSmsSendOutcome, DriverTelemetry } from "./types.ts";
 import {
   arfcnOf,
   bandOf,
@@ -53,7 +38,7 @@ import {
   temperatureOf,
   textOf,
   txPowerOf,
-} from "./values.ts";
+} from "../protocols/values.ts";
 
 /**
  * FiberHome routers (LG6121F, LG6151M and the FH5G family): JSON calls `{dataObj, ajaxmethod,

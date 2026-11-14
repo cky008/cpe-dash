@@ -1,6 +1,7 @@
 import type { ApnChoice, ApnRestore, ApnView, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, SimSlotRef, UssdAnswer, UssdRequest } from "../cellular.ts";
 import type { AntennaModeName, WcdmaSignal } from "../cpe-domain.ts";
 import type { WriteCheck } from "../device-access.ts";
+import type { CellLockState, DriverCarrier, DriverCell, DriverNeighbour, DriverNetworkMode, DriverRat, DriverTraffic, ServingMode, SubcarrierSpacingKhz } from "../protocols/readings.ts";
 import type { DriverFamily } from "../router-family.ts";
 import type { RouterStatusSnapshot, TemperatureSensor } from "../router-status.ts";
 import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
@@ -9,82 +10,9 @@ import type { SmsCounters, SmsWireMessage } from "../sms/types.ts";
  * What every driver of a non-Huawei router family hands back, in one shape: FengSui turns it into
  * the same snapshots the HiLink stack produces (`src/drivers/snapshot.ts`), so the console, the
  * alerts, the history and the MCP tools need nothing per family. A field the router does not report
- * is `null`, never a made-up zero.
+ * is `null`, never a made-up zero. The shapes of single readings (a cell, a carrier, a neighbour, the
+ * traffic counters) are in `src/protocols/readings.ts`, where the protocol parts read into them too.
  */
-
-export type DriverRat = "LTE" | "NR";
-
-/** How the router is attached: 4G, 5G next to a 4G anchor (EN-DC), 5G standalone, 3G, or nothing. */
-export type ServingMode = "LTE" | "NSA" | "SA" | "WCDMA" | "NONE";
-
-export interface DriverCell {
-  band: number | null;
-  arfcn: number | null;
-  pci: number | null;
-  rsrpDbm: number | null;
-  rsrqDb: number | null;
-  sinrDb: number | null;
-  rssiDbm: number | null;
-  bandwidthMhz: number | null;
-  /** The cell identity as decimal digits (ECI / NCI), `null` when the router names none. */
-  cellId: string | null;
-  /** The tracking area code as decimal digits. */
-  tac: string | null;
-  cqi: number | null;
-  mimoLayers: number | null;
-  dlMcs: number | null;
-  ulMcs: number | null;
-  /** RSRP per receive antenna (up to four), when the router reports them. */
-  rxRsrpDbm: Array<number | null> | null;
-  /** The second codeword's CQI, where the router reports it. */
-  cqi1?: number | null;
-  ulBandwidthMhz?: number | null;
-  /** Uplink transmit power on PUSCH / PUCCH, dBm. */
-  puschTxDbm?: number | null;
-  pucchTxDbm?: number | null;
-  /** The LTE downlink transmission mode as the console shows it (`TM4`). */
-  transmissionMode?: string | null;
-}
-
-/** A secondary carrier (carrier aggregation, or the NR leg's own aggregation). */
-export interface DriverCarrier {
-  rat: DriverRat;
-  band: number | null;
-  arfcn: number | null;
-  pci: number | null;
-  bandwidthMhz: number | null;
-  rsrpDbm: number | null;
-  rsrqDb: number | null;
-  rssiDbm: number | null;
-  sinrDb: number | null;
-}
-
-/** Traffic counters; a router without one leaves it `null`. */
-export interface DriverTraffic {
-  downloadBytesPerSec: number | null;
-  uploadBytesPerSec: number | null;
-  /** Running byte counters a rate is derived from when the router reports no rate (`CounterRates`). */
-  totalDownloadBytes: bigint | null;
-  totalUploadBytes: bigint | null;
-  sessionDownloadBytes: bigint | null;
-  sessionUploadBytes: bigint | null;
-  sessionSeconds: number | null;
-  monthDownloadBytes: bigint | null;
-  monthUploadBytes: bigint | null;
-  /** Some routers count one monthly total only. */
-  monthTotalBytes: bigint | null;
-  monthSeconds: number | null;
-  /**
-   * Which of the router's counters the running totals come from, where it keeps more than one (a
-   * module counts 4G and 5G apart): a rate is never taken across two of them.
-   */
-  counterSource?: string;
-  /** Today's traffic, both ways, where the router counts it. */
-  todayBytes?: bigint | null;
-  /** The monthly data plan set on the router, and the share of it at which the router warns. */
-  dataLimitBytes?: bigint | null;
-  dataAlertPercent?: number | null;
-}
 
 export interface DriverIdentity {
   model: string | null;
@@ -128,32 +56,6 @@ export interface DriverTelemetry extends DriverIdentity {
   ulMimoLayers?: number | null;
 }
 
-export interface DriverNeighbour {
-  rat: DriverRat;
-  band: number | null;
-  arfcn: number | null;
-  pci: number | null;
-  rsrpDbm: number | null;
-  rsrqDb: number | null;
-  rssiDbm: number | null;
-  sinrDb: number | null;
-}
-
-/** A cell lock as the router reads it back. */
-export type CellLockState =
-  | { locked: false }
-  | {
-      locked: true;
-      arfcn: number | null;
-      pci: number | null;
-      band: number | null;
-      /** Further cells the router reports locked with this one (a lock on several candidates). */
-      others?: ReadonlyArray<{ arfcn: number | null; pci: number | null }>;
-    };
-
-/** The network modes a band lock may switch to (each family offers some, `ROUTER_FAMILY_FACTS`). */
-export type DriverNetworkMode = "auto" | "lte" | "nr_sa" | "nr_nsa";
-
 /** Locks and mode as the router reads them back; `null` where it did not say. */
 export interface DriverLockState {
   /** `all`: no band lock (every band the router supports). */
@@ -174,8 +76,6 @@ export interface DriverBandLockTarget {
   /** `null`: leave the network mode as it is. */
   networkMode: DriverNetworkMode | null;
 }
-
-export type SubcarrierSpacingKhz = 15 | 30 | 60 | 120 | 240;
 
 export interface DriverCellLockTarget {
   rat: DriverRat;

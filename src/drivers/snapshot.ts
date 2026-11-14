@@ -3,7 +3,8 @@ import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import { type RouterStatusSnapshot, emptyRouterStatus, hasRouterStatus, partOrNull } from "../router-status.ts";
 import type { SmsCounters } from "../sms/types.ts";
 import { formatBytesBinary, formatRateBitsPerSec } from "../units.ts";
-import type { DriverCarrier, DriverCell, DriverIdentity, DriverNeighbour, DriverTelemetry } from "./types.ts";
+import type { DriverIdentity, DriverTelemetry } from "./types.ts";
+import type { DriverCarrier, DriverCell, DriverNeighbour } from "../protocols/readings.ts";
 
 /**
  * A driver family's readings in the snapshot shapes the HiLink stack produces, laid out the way
@@ -297,11 +298,6 @@ export class CounterRates {
   reset(): void {
     this.#last = null;
   }
-}
-
-/** An empty cell, for drivers to fill in. */
-export function emptyCell(): DriverCell {
-  return { band: null, arfcn: null, pci: null, rsrpDbm: null, rsrqDb: null, sinrDb: null, rssiDbm: null, bandwidthMhz: null, cellId: null, tac: null, cqi: null, mimoLayers: null, dlMcs: null, ulMcs: null, rxRsrpDbm: null };
 }
 
 /** Whether a cell carries anything (a band, a channel or a reading). */

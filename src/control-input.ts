@@ -3,7 +3,8 @@ import type { BandInput } from "./rf-bounds.ts";
 import { CpeControlValidationError } from "./control-error.ts";
 import type { AntennaModeName, CellLockCandidate, CellLockCommand, FirewallSwitchState } from "./cpe-domain.ts";
 import { MAX_LOCK_CELLS, parseBandNumber } from "./rf-bounds.ts";
-import type { DriverCellLockTarget, DriverNetworkMode } from "./drivers/types.ts";
+import type { DriverCellLockTarget } from "./drivers/types.ts";
+import type { DriverNetworkMode } from "./protocols/readings.ts";
 import type { RouterFamilyFacts } from "./router-family.ts";
 import { TimeSeriesValidationError, type TimeSeriesPreset } from "./timeseries.ts";
 

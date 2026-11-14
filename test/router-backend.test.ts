@@ -111,6 +111,16 @@ describe("router backend: one interface for every brand", () => {
     }
   });
 
+  it("keeps the dependency one way: a driver puts protocol parts together, no protocol part takes anything from a driver", () => {
+    // What both need (the transport, value cleaning, the shapes of readings) lives with the protocol parts
+    const parts = sources("src/protocols");
+    assert.ok(parts.length >= 15, `found ${parts.length}`);
+    for (const file of parts) {
+      const named = [...fs.readFileSync(file, "utf8").matchAll(/(?:from|import\()\s*"((?:\.\.?\/)+[^"]+)"/g)].map((match) => path.normalize(path.join(path.dirname(file), match[1] ?? "")));
+      assert.deepEqual(named.filter((target) => target.startsWith(path.join("src", "drivers") + path.sep)), [], `${file} takes something from a driver`);
+    }
+  });
+
   it("answers the SMS verbs on a brand without SMS: nothing to list, every write refused by the gate, no request", async () => {
     const router = new LanRouterMock(() => {
       throw new Error("a brand without SMS was sent a request");

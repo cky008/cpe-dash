@@ -1,8 +1,7 @@
 import { splitAtCsv } from "./common.ts";
 import type { NetworkMode } from "../../cellular.ts";
-import { emptyCell } from "../../drivers/snapshot.ts";
-import type { DriverCarrier, DriverCell, DriverNeighbour, DriverNetworkMode, DriverRat } from "../../drivers/types.ts";
-import { arfcnOf, bandOf, hexIntOf, identityOf, intOf, pciOf, plmnOf, rsrpOf, rsrqOf, rssiOf, sinrOf } from "../../drivers/values.ts";
+import { type DriverCarrier, type DriverCell, type DriverNeighbour, type DriverNetworkMode, type DriverRat, emptyCell } from "../readings.ts";
+import { arfcnOf, bandOf, hexIntOf, identityOf, intOf, pciOf, plmnOf, rsrpOf, rsrqOf, rssiOf, sinrOf } from "../values.ts";
 
 
 /**

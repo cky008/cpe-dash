@@ -2,7 +2,7 @@ import type { ApiErrorTally } from "../device-profile.ts";
 import type { DriverFamily } from "../router-family.ts";
 import { type SessionAttempt, type SessionAttemptContext, SessionClient, type SessionPrecheck, type SessionProtocol, raceSignal } from "../session-client.ts";
 import { CpeApiError } from "../session-errors.ts";
-import { LanHttp, deadlineSignal } from "./transport.ts";
+import { LanHttp, deadlineSignal } from "../protocols/transport.ts";
 import type { DriverSession, DriverSessionHandle } from "./types.ts";
 
 /**
