@@ -711,3 +711,52 @@ flowchart TD
 **加一项功能**，现在改这几处：登记表一条；实现它的品牌（事实里列上名字，驱动或会话对象里实现；华为的通用写入再加一条 `probe`）；控制台的两句名字。其余名单都跟着变。守线的测试在 `test/features.test.ts`：每项功能恰好在一列里，同一列的挨着、列按表序；一列有几项功能时每项都有叫法，只有一项的没有；每项写入至少有一个写操作，一个写操作只归一项功能；读取功能写明在哪里读，一个分区最多归一项读取功能；各品牌与接口写法的 `reads` 只列读取功能、`writes` 只列写入功能；`VERIFIED_FEATURES`、`UNSUPPORTED_FEATURES`、`MODEL_FACTS` 只用登记表里的名字；华为的 `probe` 恰好覆盖它的 `writes`，规则里的接口都在识别探测的清单里。
 
 **不变的东西。** 生成的文档（`npm run docs:sync -- --check`）逐字不变；H168-383 发给路由器的请求逐字节不变：改动代码的每个提交之后都比对了请求序列与报文记录（方法见 19.3），15384 与 4712 字节，与 `0afc470` 相同，另外十份复审脚本（测试连接、待机、让位、重定向、MCP 工具清单等）的输出也都相同。变的只有上面说的列序，单独一个提交，写进了 CHANGELOG。
+
+### 19.9 每个读写操作只登记一次（2026-11-14）
+
+一个读写操作（例如「改网络制式」）原先在好几处各写一遍，靠 `contract-manifest`、`api-reference` 这些测试对齐：
+
+| 写在哪 | 写了什么 |
+| :--- | :--- |
+| `src/http-server.ts` | 路由的两个 `switch`（GET、POST）、读请求的 POST 清单 `READ_ONLY_POSTS`、访问控制的路径 `ACCESS_CONTROL_ROUTES`、只能在控制台做的 `SMS_PURGE_ROUTE`、令牌权限 `permissionForRoute` |
+| `src/http-cellular.ts` | 蜂窝设置的路径和处理（又一份路径清单 `CELLULAR_CONTROL_ROUTES`） |
+| `src/sms/http-routes.ts` | 短信路由的两个 `switch` 和各自的入参检查 |
+| `src/mcp-core-tools.ts`、`mcp-access-tools.ts`、`mcp-cellular-tools.ts`、`sms/mcp-tools.ts` | 工具定义（名字、说明、`inputSchema`），哪些会改动，要什么权限，归哪项功能（`CORE_WRITE_FEATURES`、`CORE_WRITE_ACTIONS`、各自的 `feature`），要哪个读取分区（`TOOL_SECTIONS`） |
+| `src/mcp-server.ts` | 未验证型号上给写工具补 `confirm` 的兜底（每个写工具其实都自己带着） |
+| `scripts/api-reference.ts` | 「API 参考」的路由：路径、方法、分组、中英说明、示例请求体 |
+| `src/notify/telegram-bot.ts` | 三条蜂窝设置指令各自写的功能名和入参检查 |
+| `web/src/demo/backend.ts`、`web/src/demo/cellular.ts` | 演示的路由表、入参检查、蜂窝设置路径的又一份清单 |
+
+加一个操作要改七八处；给网络制式加两种取值，MCP 说明、API 参考、Telegram 和控制台的文字各改一遍。
+
+**操作登记。** [`src/operations/`](../../src/operations/registry.ts)，零依赖，守护进程、脚本和在线演示共用。一个操作一条记录，键是操作名（`networkMode`）；同一件事的几种问法（REST 路由、MCP 工具、Telegram 指令）放在同一条记录里：
+
+| 字段 | 写什么 | 谁用 |
+| :--- | :--- | :--- |
+| `access` | `read` 或 `write`：会不会改动什么（路由器，或烽燧自己的数据） | MCP 的「改动」开关（`MCP_ALLOW_MUTATIONS`、只读令牌）；REST 的读请求 |
+| `actions` | 改动路由器时调度器跑的写操作（`set_network_mode`）。所属功能由能力登记表查出（`CONTROL_FEATURES`），写闸门按每个写操作判断；没有 `actions` 的写操作只改烽燧自己的东西（通讯录、实验开关、熔断） | MCP：未验证型号上工具是否列出、拒绝时报哪项功能；Telegram 的闸门 |
+| `section` | 要路由器的哪个读取分区 | MCP：这台路由器没有这一部分时不列出工具 |
+| `permission` | 令牌要的权限，`null` 是任何令牌 | `permissionForRoute`、MCP |
+| `input` | 入参的第一层检查（见下） | REST（POST 读请求体，GET 读查询串）、MCP（记录没有另写智能体的写法时）、Telegram、演示 |
+| `rest` | `method`、`path`；「API 参考」的 `group`、中英 `summary`、`example`（示例请求体）、`needsState`；`consoleOnly`（令牌得到 `403 CONSOLE_ONLY`）、`served`（服务器在分派之前自己处理的：存活检查、事件流、指标）、`maxBodyBytes` | REST 路由表、「API 参考」 |
+| `mcp` | `tool`、`title`、`description`、`annotations`、`properties`、`required`；`input`（智能体的参数写法与 REST 不同时，如平铺的安全开关）、`onUnverified`（未验证型号上的写法，如只锁 LTE 的锁频） | MCP 工具定义 |
+| `telegram` | 跑这个操作的机器人指令 | 机器人的指令与记录对上 |
+
+记录按「API 参考」的顺序排（按 `rest.group` 分表）。MCP 的工具顺序另有一张表 `MCP_TOOLS`：每个提供者（核心、访问控制、蜂窝设置、短信）列出它的操作，顺序就是 `tools/list` 的顺序。两个顺序不能合成一个：比如 REST 是重启、重拨、安全开关，MCP 是安全开关、重拨、重启，都不能改（对外行为不变）。
+
+同一件事在 REST 和 MCP 上的写法不同的，仍是一条记录，记录里另写智能体的那一种：MCP 的读工具一次调用里读缓存、按要求再读路由器（REST 分成 GET 和刷新两个路由），平铺的安全开关、按 IPv4 找设备的访问控制、单收件人的发短信。一个工具同时做两件事的（`set_wifi_and_antenna`：Wi-Fi 7 和天线）是它自己的一条记录，只有 MCP 这一种问法。控制台自己的路由（`/api/console/*`、`/api/auth/*`、`/api/setup/*`、`/api/i18n/*`）不进登记：它们是控制台的设置，令牌和智能体都不能用，仍在 `src/http-settings.ts`。
+
+**入参的两层检查。** 登记的是第一层：不分品牌的形状与取值范围（`src/control-input.ts`、`src/cellular.ts`、`src/sms/input.ts`），抛 `CpeControlValidationError`，各入口在任何会话之前把它映射成 `VALIDATION_ERROR`。第二层是路由器自己品牌的边界（频段、信道、一次能锁几个小区），由后端在入队前问品牌的 `RouterDriver`；入口要单独用它时经 `RouterBackend` 问（`checkCellLock`，MCP 的 `lock_cell` 在用），不在入口引用品牌的模块（`test/router-backend.test.ts` 守着）。锁频、发短信、天线的同类检查目前只跟着各自的写动词走，登记需要时照 `checkCellLock` 的样子加。MCP 在第一层之前还按 `inputSchema` 校验一次（未知参数、类型），信息与 REST 不同，这是原有行为。
+
+**由登记生成的。**
+
+1. REST 路由表：`方法 路径` 对到操作，`src/http-server.ts` 和 `src/sms/http-routes.ts` 查到操作后先跑它的第一层检查，再调这个操作的处理函数。处理函数按操作名写成一张表，类型要求每个登记了 REST 路由的操作都有一个（`served` 的除外）。没有登记的路径照旧：GET 是 `404`，其他方法 `405`，POST 先读请求体再 `404`，短信下的未知路径不读请求体就 `404`。
+2. `permissionForRoute`：登记了的路由用记录的权限；没有登记的（拼错的、子路径、控制台的路由）照原来按前缀判断。
+3. MCP 工具定义：名字、标题、说明、提示来自记录；`inputSchema` 是 `{ type: "object", properties, required, additionalProperties: false }`，写操作的工具加上必填的 `confirm`（布尔，放在最后；记录自己写了 `confirm` 的，按它的说明和位置），所以没有一个写工具缺它，`mcp-server.ts` 里那段兜底删掉。服务器从记录拿「是否改动」、权限、写闸门（`actions`）和读取分区；提供者只管它现在提供哪些工具（访问控制写入、短信分级、智能体测试这些运行时开关）、额外的可用条件（蜂窝设置写入只在烽燧实现了的路由器上列出）、处理函数、资源和说明。
+4. 「API 参考」的接口表（`scripts/api-reference.ts`：事件和错误码的说明仍写在那里）。
+5. 在线演示的路由：演示的处理函数也是一张按操作名的表，类型要求每个登记了的 REST 路由都有（事件流与指标除外）；入参用同一份第一层检查。
+6. Telegram：`/netmode`、`/airplane`、`/ussd` 与短信的回复、标为已读、删除用记录的第一层检查和 `actions` 判断闸门；文案仍是人写的。
+
+**加一个操作**，之前要改：REST 的路由与入参（`http-server.ts` 或 `http-cellular.ts`、`sms/http-routes.ts`，权限不在 `/api/control/` 下的还有 `permissionForRoute`）、MCP 工具的定义与功能对应（四个提供者之一）、`scripts/api-reference.ts`、演示的路由、Telegram（有指令的）、`docs/dev/api.md`。之后：登记一条记录；在它出现的每个入口写处理函数（类型检查会指出缺哪个）；`docs/dev/api.md`。
+
+**对外行为一个字节都不变。** REST 的路径、方法、状态码、错误码、响应体，MCP 的工具名、说明、`inputSchema` 与工具顺序，指南生成的块（`npm run docs:sync -- --check`）都逐字一致：先写一个「改之前的快照」测试（每个路径与方法要的权限、守护进程对每个路径与方法的应答、三种路由器上的 MCP 工具清单、API 参考的三个块），改完仍然通过，再换成从登记生成的检查。H168-383 的请求逐字节不变，由请求序列比对证明（方法见 19.3）。
