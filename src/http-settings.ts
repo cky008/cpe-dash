@@ -11,7 +11,7 @@ import type {
   TelegramChatRecord,
   TelegramChatsResponse,
 } from "./api-contract.ts";
-import type { AuditLog } from "./audit-log.ts";
+import type { AuditActor, AuditLog } from "./audit-log.ts";
 import { BEHAVIOUR_ENV, type BehaviourValues, DEFAULT_BEHAVIOUR, describeBehaviour, readBehaviourPatch, resolveBehaviour } from "./behaviour-settings.ts";
 import type { CredentialVerdict } from "./http-auth.ts";
 import { normalizeCpeUrl } from "./config.ts";
@@ -23,6 +23,9 @@ import type { DeviceProbeResult, DeviceReport } from "./device-profile.ts";
 import { FAMILY_AUTO, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, type RouterFamily, isRouterFamily, routerFamilyOf } from "./router-family.ts";
 import type { ConnectionCandidate, ConnectionTestResult, MutexSessionScheduler } from "./scheduler.ts";
 import type { ApiRouteContext } from "./sms/http-routes.ts";
+
+/** Only a console session reaches these routes: every change they make is the web console's. */
+const CONSOLE: AuditActor = { channel: "web" };
 
 export interface SettingsRoutesOptions {
   settings: ConsoleSettings;
@@ -152,13 +155,13 @@ export class SettingsHttpRoutes {
         const body = await ctx.readJsonBody();
         const candidate = await this.#candidate(body);
         if ("ok" in candidate) {
-          audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${candidate.reason}` });
+          audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${candidate.reason}`, actor: CONSOLE });
           ctx.sendJson(400, { ok: false, errorCode: "CPE_TEST_FAILED", message: candidate.message, connectionTest: candidate } satisfies ApiErrorEnvelope);
           return true;
         }
         const { result, probe } = await this.#opts.scheduler.testConnectionDetailed(candidate, { lastAttempt: body["lastAttempt"] === true });
         if (!result.ok) {
-          audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${result.reason}` });
+          audit?.record({ action: "settings.cpe", outcome: "refused", detail: `test failed: ${result.reason}`, actor: CONSOLE });
           ctx.sendJson(400, { ok: false, errorCode: "CPE_TEST_FAILED", message: result.message, connectionTest: result } satisfies ApiErrorEnvelope);
           return true;
         }
@@ -171,14 +174,14 @@ export class SettingsHttpRoutes {
         await this.#opts.scheduler.applyConnection(saved, { loginScheme: probe?.identity.loginScheme ?? null });
         if (probe) this.#opts.onDeviceProbe?.(probe);
         // The brand is part of the record: a change of it is a change of everything FengSui sends
-        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host}${saved.username ? ` as ${saved.username}` : ""} (${saved.family})` });
+        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host}${saved.username ? ` as ${saved.username}` : ""} (${saved.family})`, actor: CONSOLE });
         if (first) this.#opts.onConnectionReady();
         ctx.sendJson(200, { ok: true, result, settings: this.summary() });
         return true;
       }
       case "/api/console/review": {
         settings.markReviewed();
-        audit?.record({ action: "settings.review", outcome: "applied" });
+        audit?.record({ action: "settings.review", outcome: "applied", actor: CONSOLE });
         ctx.sendJson(200, this.summary());
         return true;
       }
@@ -189,18 +192,18 @@ export class SettingsHttpRoutes {
         const verdict = await checkPassword(typeof body["current"] === "string" ? body["current"] : "");
         if (!verdict.ok && verdict.statusCode === 429) {
           const retryAfterSec = verdict.retrySec ?? 60;
-          audit?.record({ action: "settings.password", outcome: "refused", detail: "too many wrong passwords" });
+          audit?.record({ action: "settings.password", outcome: "refused", detail: "too many wrong passwords", actor: CONSOLE });
           ctx.sendJson(429, { ok: false, errorCode: "RATE_LIMITED", retryAfterSec, message: `Too many wrong passwords: try again in ${retryAfterSec} s` } satisfies ApiErrorEnvelope, { "Retry-After": String(retryAfterSec) });
           return true;
         }
         if (!verdict.ok) {
-          audit?.record({ action: "settings.password", outcome: "refused", detail: "wrong current password" });
+          audit?.record({ action: "settings.password", outcome: "refused", detail: "wrong current password", actor: CONSOLE });
           ctx.sendJson(403, { ok: false, errorCode: "WRONG_PASSWORD", message: "The current console password is wrong" });
           return true;
         }
         await settings.setLogin(next);
         this.#opts.revokeSessions(sessionId);
-        audit?.record({ action: "settings.password", outcome: "applied", detail: "other console sessions signed out" });
+        audit?.record({ action: "settings.password", outcome: "applied", detail: "other console sessions signed out", actor: CONSOLE });
         ctx.sendJson(200, this.summary());
         return true;
       }
@@ -213,7 +216,7 @@ export class SettingsHttpRoutes {
         } catch (err) {
           throw new CpeControlValidationError(err instanceof Error ? err.message : String(err));
         }
-        audit?.record({ action: "token.create", outcome: "applied", detail: `${name} (${describePermissions(permissions)}, ${lifetimeDays === null ? "never expires" : `${lifetimeDays} d`})` });
+        audit?.record({ action: "token.create", outcome: "applied", detail: `${name} (${describePermissions(permissions)}, ${lifetimeDays === null ? "never expires" : `${lifetimeDays} d`})`, actor: CONSOLE });
         ctx.sendJson(200, { ok: true, token: minted.token, record: minted.record });
         return true;
       }
@@ -228,7 +231,7 @@ export class SettingsHttpRoutes {
         }
         // Its event streams reconnect under the new permissions (SMS events follow sms-read)
         this.#opts.disconnectToken(updated.id);
-        audit?.record({ action: "token.permissions", outcome: "applied", detail: `${updated.name}: ${describePermissions(permissions)}` });
+        audit?.record({ action: "token.permissions", outcome: "applied", detail: `${updated.name}: ${describePermissions(permissions)}`, actor: CONSOLE });
         ctx.sendJson(200, { ok: true, record: updated });
         return true;
       }
@@ -242,7 +245,7 @@ export class SettingsHttpRoutes {
         this.#opts.disconnectToken(revoked.id);
         // A chat it linked with /auth would otherwise keep the SMS and the router's controls
         const unlinked = this.#opts.unlinkTelegramToken?.(revoked.id) ?? 0;
-        audit?.record({ action: "token.revoke", outcome: "applied", detail: unlinked > 0 ? `${revoked.name}; ${unlinked} Telegram chat(s) it linked unlinked` : revoked.name });
+        audit?.record({ action: "token.revoke", outcome: "applied", detail: unlinked > 0 ? `${revoked.name}; ${unlinked} Telegram chat(s) it linked unlinked` : revoked.name, actor: CONSOLE });
         ctx.sendJson(200, { ok: true, record: revoked });
         return true;
       }
@@ -255,7 +258,7 @@ export class SettingsHttpRoutes {
         const group = body["group"] ?? false;
         if (typeof group !== "boolean") throw new CpeControlValidationError('"group" must be true or false');
         const code = settings.issueCode(group ? "pair-group" : "pair");
-        audit?.record({ action: "telegram.pairing-code", outcome: "applied", detail: group ? "group" : null });
+        audit?.record({ action: "telegram.pairing-code", outcome: "applied", detail: group ? "group" : null, actor: CONSOLE });
         ctx.sendJson(200, { ok: true, code, expiresInSec: PAIRING_CODE_TTL_MS / 1000, group, command: pairingCommand(code, group ? (this.#opts.telegramUsername?.() ?? null) : null) } satisfies PairingCodeResponse);
         return true;
       }
@@ -272,13 +275,13 @@ export class SettingsHttpRoutes {
           } satisfies ApiErrorEnvelope);
           return true;
         }
-        audit?.record({ action: "telegram.unlink", outcome: "applied", detail: `${chatId.startsWith("-") ? "group" : "private"} chat …${chatId.slice(-3)}` });
+        audit?.record({ action: "telegram.unlink", outcome: "applied", detail: `${chatId.startsWith("-") ? "group" : "private"} chat …${chatId.slice(-3)}`, actor: CONSOLE });
         ctx.sendJson(200, { ok: true, chats: this.#opts.telegramChats?.() ?? [] } satisfies TelegramChatsResponse);
         return true;
       }
       case "/api/console/telegram/unlink-all": {
         const unlinked = this.#opts.unlinkTelegram();
-        audit?.record({ action: "telegram.unlink-all", outcome: "applied", detail: `${unlinked} chat(s)` });
+        audit?.record({ action: "telegram.unlink-all", outcome: "applied", detail: `${unlinked} chat(s)`, actor: CONSOLE });
         ctx.sendJson(200, { ok: true, unlinked });
         return true;
       }
@@ -297,7 +300,7 @@ export class SettingsHttpRoutes {
         const detail = Object.entries(patch)
           .map(([key, value]) => `${BEHAVIOUR_ENV[key as keyof typeof BEHAVIOUR_ENV]} ${value === null ? "from .env" : String(value)}`)
           .join(", ");
-        audit?.record({ action: "settings.behaviour", outcome: "applied", detail });
+        audit?.record({ action: "settings.behaviour", outcome: "applied", detail, actor: CONSOLE });
         ctx.sendJson(200, this.summary());
         return true;
       }
@@ -316,7 +319,7 @@ export class SettingsHttpRoutes {
           changes.push(`metrics ${value === null ? "from .env" : value ? "on" : "off"}`);
         }
         if (changes.length === 0) throw new CpeControlValidationError("Nothing to change");
-        audit?.record({ action: "settings.switches", outcome: "applied", detail: changes.join(", ") });
+        audit?.record({ action: "settings.switches", outcome: "applied", detail: changes.join(", "), actor: CONSOLE });
         ctx.sendJson(200, this.summary());
         return true;
       }
@@ -348,18 +351,18 @@ export class SettingsHttpRoutes {
     }
     if (action === "start") {
       try {
-        service.begin({ model: body["model"], tokenId: body["tokenId"], sms: body["sms"] });
+        service.begin({ model: body["model"], tokenId: body["tokenId"], sms: body["sms"] }, CONSOLE);
       } catch (err) {
         if (!(err instanceof AgentTestUnavailableError)) throw err;
         ctx.sendJson(409, { ok: false, errorCode: "AGENT_TEST_UNAVAILABLE", message: err.message } satisfies ApiErrorEnvelope);
         return;
       }
     } else if (action === "end") {
-      service.end();
+      service.end(CONSOLE);
     } else {
       const alertId = body["alertId"];
       if (alertId !== undefined && (typeof alertId !== "string" || alertId.length > 64)) throw new CpeControlValidationError('"alertId" must be the reminder\'s alert ID');
-      service.acknowledge(alertId ?? null);
+      service.acknowledge(alertId ?? null, CONSOLE);
     }
     ctx.sendJson(200, { ...this.#experimental(), settings: this.summary() } satisfies AgentTestResponse);
   }
@@ -374,11 +377,11 @@ export class SettingsHttpRoutes {
     const { settings, audit, scheduler } = this.#opts;
     const result = switchExperimentalWrite(settings, scheduler.device, { feature: body["feature"], enabled: body["enabled"] });
     if (result.ok) {
-      audit?.record({ action: "settings.experimental", outcome: "applied", detail: result.detail });
+      audit?.record({ action: "settings.experimental", outcome: "applied", detail: result.detail, actor: CONSOLE });
       ctx.sendJson(200, this.#experimental());
       return;
     }
-    if (result.detail) audit?.record({ action: "settings.experimental", outcome: "refused", detail: result.detail });
+    if (result.detail) audit?.record({ action: "settings.experimental", outcome: "refused", detail: result.detail, actor: CONSOLE });
     if (result.errorCode === "EXPERIMENTAL_UNAVAILABLE") {
       ctx.sendJson(409, { ok: false, errorCode: "EXPERIMENTAL_UNAVAILABLE", message: result.message, state: result.state } satisfies ApiErrorEnvelope);
       return;

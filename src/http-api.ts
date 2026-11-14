@@ -28,7 +28,7 @@ import type {
   TopologyEndpointResponse,
   Wifi7ControlResponse,
 } from "./api-contract.ts";
-import type { AuditLog } from "./audit-log.ts";
+import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
 import type { BehaviourValues } from "./behaviour-settings.ts";
 import type { ConsoleSettings } from "./console-settings.ts";
 import { CpeControlValidationError, HttpPayloadError } from "./control-error.ts";
@@ -104,6 +104,11 @@ export interface ApiCaller {
   sessionId: string | null;
   /** Check a console password through the caller's sign-in limiter (a password change asks for the current one). */
   checkPassword(candidate: string): Promise<CredentialVerdict>;
+  /**
+   * Who the audit log names: set as each handler starts, once the body is read (a page's stand-in for
+   * `AsyncLocalStorage` keeps a caller only until the first `await`; the daemon's keeps it throughout).
+   */
+  actor: AuditActor;
 }
 
 /** What a protected route's handler gets besides its checked input. */
@@ -242,7 +247,7 @@ export class FengSuiApi {
     const { method, pathname, searchParams } = exchange;
     try {
       if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
-        await this.#dispatchSms(exchange);
+        await this.#dispatchSms(exchange, caller.actor);
         return;
       }
       if ((pathname === "/api/console" || pathname.startsWith("/api/console/")) && caller.sessionId !== null) {
@@ -262,7 +267,7 @@ export class FengSuiApi {
           exchange.sendJson(404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown GET endpoint ${pathname}` });
           return;
         }
-        exchange.sendJson(200, await runOperation(this.#handlers, op, parseQueryNullProto(searchParams), call));
+        exchange.sendJson(200, await runAsActor(caller.actor, () => runOperation(this.#handlers, op, parseQueryNullProto(searchParams), call)));
         return;
       }
       if (method !== "POST") {
@@ -276,7 +281,7 @@ export class FengSuiApi {
         exchange.sendJson(404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown POST endpoint ${pathname}` });
         return;
       }
-      exchange.sendJson(200, await runOperation(this.#handlers, op, body, { ...call, confirm: body["confirm"] === true }));
+      exchange.sendJson(200, await runAsActor(caller.actor, () => runOperation(this.#handlers, op, body, { ...call, confirm: body["confirm"] === true })));
     } catch (err) {
       const [status, envelope] = this.#refusal(err);
       exchange.sendJson(status, envelope);
@@ -284,7 +289,7 @@ export class FengSuiApi {
   }
 
   /** Delegate `/api/sms/*` to the SMS route module (errors bubble to the shared mapping). */
-  async #dispatchSms(exchange: ApiExchange): Promise<void> {
+  async #dispatchSms(exchange: ApiExchange, actor: AuditActor): Promise<void> {
     const { method, pathname } = exchange;
     if (!this.#smsRoutes) {
       exchange.sendJson(404, { ok: false, errorCode: "SMS_DISABLED", message: "SMS features are disabled (SMS_ENABLED=false)" });
@@ -300,7 +305,7 @@ export class FengSuiApi {
       query: parseQueryNullProto(exchange.searchParams),
       readJsonBody: exchange.readJsonBody,
       sendJson: (statusCode, body) => exchange.sendJson(statusCode, body),
-    });
+    }, actor);
     if (!handled) exchange.sendJson(404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown ${method} endpoint ${pathname}` });
   }
 

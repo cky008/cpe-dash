@@ -17,6 +17,7 @@ import type {
   SmsTrashResponse,
   VcardImportResponse,
 } from "../api-contract.ts";
+import { type AuditActor, runAsActor } from "../audit-log.ts";
 import { type OperationHandlers, type SmsRestOperation, restBinding, runOperation, smsOperation } from "../operations/registry.ts";
 import type { SmsService } from "./service.ts";
 
@@ -43,13 +44,16 @@ export class SmsHttpRoutes {
     this.#handlers = this.#buildHandlers();
   }
 
-  /** Returns `false` for unknown routes so the server can answer `404 NOT_FOUND` (an unknown POST's body is never read). */
-  async handle(ctx: ApiRouteContext): Promise<boolean> {
+  /**
+   * Returns `false` for unknown routes so the server can answer `404 NOT_FOUND` (an unknown POST's body
+   * is never read). `actor` is who the audit log names, set as the handler starts.
+   */
+  async handle(ctx: ApiRouteContext, actor: AuditActor = { channel: "system" }): Promise<boolean> {
     const op = smsOperation(ctx.method, ctx.pathname);
     if (op === null) return false;
     const rest = restBinding(op);
     const fields = rest.method === "GET" ? ctx.query : await ctx.readJsonBody(rest.maxBodyBytes);
-    await runOperation(this.#handlers, op, fields, ctx);
+    await runAsActor(actor, () => runOperation(this.#handlers, op, fields, ctx));
     return true;
   }
 

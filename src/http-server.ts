@@ -614,8 +614,7 @@ export class FengSuiHttpServer {
     }
 
     const actor: AuditActor = session ? { channel: "web" } : { channel: "token", label: identity?.name ?? "?" };
-    await runAsActor(actor, () =>
-      this.api.dispatch(
+    await this.api.dispatch(
         {
           method,
           pathname,
@@ -630,9 +629,9 @@ export class FengSuiHttpServer {
           sessionId: session?.id ?? null,
           // The sign-in bucket (an IPv6 /64, as the session is bound to), so rotating addresses does not reset it
           checkPassword: (candidate) => this.#auth.guardLogin(bucketKey, candidate),
+          actor,
         }
-      )
-    );
+      );
   }
 
   /** `POST /api/setup/login` (no password yet) and `POST /api/auth/reset`: a one-time code sets the password and signs in. */

@@ -45,7 +45,7 @@ describe("the REST API without an HTTP server", () => {
     const core = createFengSuiCore({ connection: mockConnection(router), stateStore: new EncryptedStateStore({ filePath: config.stateFile, encryptionKey: config.dataEncryptionKey }), timeseries: new TimeSeriesRingBuffer() });
     const sseBus = new SseEventBus();
     const api = new FengSuiApi({ core, settings: consoleSettingsFor(config), sseBus });
-    const caller = { redact: false, clientIp: "192.168.8.20", bucketKey: "192.168.8.20", sessionId: null, checkPassword: async () => ({ ok: false as const, statusCode: 401 as const }) };
+    const caller = { redact: false, clientIp: "192.168.8.20", bucketKey: "192.168.8.20", sessionId: null, checkPassword: async () => ({ ok: false as const, statusCode: 401 as const }), actor: { channel: "web" as const } };
     try {
       const read = exchange("GET", "/api/telemetry");
       await api.dispatch(read, caller);

@@ -17,7 +17,7 @@ import {
   agentTestView,
   anyStillOn,
 } from "./agent-test.ts";
-import type { AuditLog } from "./audit-log.ts";
+import type { AuditActor, AuditLog } from "./audit-log.ts";
 import { BEHAVIOUR_ENV, type BehaviourOverrides, type BehaviourValues, resolveBehaviour } from "./behaviour-settings.ts";
 import { TOKEN_PERMISSIONS, type TokenPermission } from "./console-policy.ts";
 import type { ConsoleSettings } from "./console-settings.ts";
@@ -114,7 +114,7 @@ export class AgentTestService {
    * tokens) what the test needs. Starting again while a test is on adds what is missing and starts the
    * reminder clock again; with nothing to turn on, nothing changes.
    */
-  begin(request: { model: unknown; tokenId?: unknown; sms?: unknown }): AgentTestStatus {
+  begin(request: { model: unknown; tokenId?: unknown; sms?: unknown }, actor?: AuditActor): AgentTestStatus {
     const { settings, scheduler } = this.#opts;
     const plan = this.#plan();
     if (!plan.available) throw new AgentTestUnavailableError();
@@ -178,12 +178,12 @@ export class AgentTestService {
       ...changes.map(({ key }) => `${BEHAVIOUR_ENV[key]} ${String(AGENT_TEST_SETTINGS[key])}`),
       ...tokens.map(({ name, added }) => `token "${name}" + ${added.join(" + ")}`),
     ];
-    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `${before ? "more" : "start"} for ${shown}${sms ? " with SMS" : ""}: ${turnedOn.join(", ")}` });
+    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `${before ? "more" : "start"} for ${shown}${sms ? " with SMS" : ""}: ${turnedOn.join(", ")}`, ...(actor ? { actor } : {}) });
     return this.status();
   }
 
   /** Put back what the test set that is still as it left it, and forget the test. The writes stay as they are: on by default, off where the owner turned one off. */
-  end(): AgentTestStatus {
+  end(actor?: AuditActor): AgentTestStatus {
     const { settings } = this.#opts;
     const record = settings.agentTest;
     if (!record) return this.status();
@@ -204,7 +204,7 @@ export class AgentTestService {
       ...restored.map(({ key, before }) => `${BEHAVIOUR_ENV[key]} ${before === null ? "from .env" : String(before)}`),
       ...on.tokens.map(({ name, permissions }) => `token "${name}" - ${permissions.join(" - ")}`),
     ];
-    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `end: ${putBack.length > 0 ? putBack.join(", ") : "nothing left to put back"}` });
+    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: `end: ${putBack.length > 0 ? putBack.join(", ") : "nothing left to put back"}`, ...(actor ? { actor } : {}) });
     return this.status();
   }
 
@@ -212,13 +212,13 @@ export class AgentTestService {
    * The owner read a reminder (the console's alerts showed `alertId`, or a Telegram chat chose "Got
    * it"): no more for this test. `false` when no reminder of this test is waiting to be read.
    */
-  acknowledge(alertId: string | null = null): boolean {
+  acknowledge(alertId: string | null = null, actor?: AuditActor): boolean {
     const { settings } = this.#opts;
     const record = settings.agentTest;
     if (!record || record.remindedAtIso === null || record.acknowledgedAtIso !== null) return false;
     if (alertId !== null && alertId !== record.reminderAlertId) return false;
     settings.setAgentTest({ ...record, acknowledgedAtIso: new Date(this.#now()).toISOString() });
-    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: "reminder read" });
+    this.#opts.audit?.record({ action: "agents.test", outcome: "applied", detail: "reminder read", ...(actor ? { actor } : {}) });
     return true;
   }
 
