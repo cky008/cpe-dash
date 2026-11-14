@@ -53,6 +53,7 @@ export const SMS_OPERATIONS = {
     access: "read",
     section: "sms",
     permission: "sms-read",
+    telegram: { menu: ["inbox", "unread"] },
     input: readThreadsQuery,
     rest: { method: "GET", path: "/api/sms/threads", group: "sms", summary: { "zh-CN": "会话列表（`?filter=all`、`unread`、`otp`，`&search=`）", en: "Threads (`?filter=all`, `unread`, `otp`, and `&search=`)" } },
     mcp: {
@@ -72,6 +73,7 @@ export const SMS_OPERATIONS = {
     access: "read",
     section: "sms",
     permission: "sms-read",
+    telegram: { more: ["chat"] },
     input: readThreadKeyQuery,
     rest: { method: "GET", path: "/api/sms/thread", group: "sms", summary: { "zh-CN": "一个会话的全部短信（`?key=` 号码或会话标识）", en: "Every message of a thread (`?key=` a number or thread key)" } },
     mcp: {
@@ -91,6 +93,7 @@ export const SMS_OPERATIONS = {
     access: "read",
     section: "sms",
     permission: "sms-read",
+    telegram: { menu: ["contacts"] },
     input: readContactsQuery,
     rest: { method: "GET", path: "/api/sms/contacts", group: "sms", summary: { "zh-CN": "通讯录（`?search=`）", en: "Contacts (`?search=`)" } },
     mcp: {
@@ -139,7 +142,7 @@ export const SMS_OPERATIONS = {
     section: "sms",
     permission: "sms-read",
     input: readSyncMode,
-    telegram: ["sync"],
+    telegram: { menu: ["sync"] },
     rest: { method: "POST", path: "/api/sms/sync", group: "sms", example: '{"mode":"incremental"}', summary: { "zh-CN": "马上同步短信（`full` 或 `incremental`）", en: "Sync messages now (`full` or `incremental`)" } },
     mcp: {
       tool: "sync_sms",
@@ -156,7 +159,7 @@ export const SMS_OPERATIONS = {
     section: "sms",
     permission: "sms-write",
     input: readSend,
-    telegram: ["new", "send"],
+    telegram: { menu: ["new"], more: ["send"] },
     rest: {
       method: "POST",
       path: "/api/sms/send",
@@ -240,7 +243,7 @@ export const SMS_OPERATIONS = {
     section: "sms",
     permission: "sms-write",
     input: readContact,
-    telegram: ["contact"],
+    telegram: { more: ["contact"] },
     rest: { method: "POST", path: "/api/sms/contacts/upsert", group: "sms", example: '{"phone":"+353830000001","name":"Example","confirm":true}', summary: { "zh-CN": "新建或修改联系人", en: "Add or edit a contact" } },
     mcp: {
       tool: "upsert_contact",

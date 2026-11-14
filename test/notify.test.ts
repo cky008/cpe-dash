@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { OPERATION_NAMES, operationRecord } from "../src/operations/registry.ts";
+import { TELEGRAM_COMMANDS } from "../src/operations/registry.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -8,7 +8,7 @@ import type { GlobalTelemetrySnapshot } from "../src/cpe-domain.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { NotificationHub, type NotificationChannel, isAlertSeverity } from "../src/notify/hub.ts";
 import { TelegramApi, TelegramApiError, normalizeTelegramApiBase } from "../src/notify/telegram-api.ts";
-import { TelegramBot, type TelegramBotOptions, TelegramStateStore, type TelegramUpdate, escapeTelegramHtml, truncateTelegramHtml } from "../src/notify/telegram-bot.ts";
+import { BOT_MENU, TelegramBot, type TelegramBotOptions, TelegramStateStore, type TelegramUpdate, escapeTelegramHtml, truncateTelegramHtml } from "../src/notify/telegram-bot.ts";
 import { WebhookNotifier, normalizeWebhookUrl, signWebhookPayload } from "../src/notify/webhook.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
@@ -913,7 +913,7 @@ describe("TelegramBot", () => {
     await fx.message(1001, "/frobnicate");
     assert.match(fx.tg.lastText("1001"), /Unknown command <code>\/frobnicate<\/code>/);
     // Every command an operation's record names is one the bot answers
-    for (const command of OPERATION_NAMES.flatMap((op) => operationRecord(op).telegram ?? [])) {
+    for (const { command } of TELEGRAM_COMMANDS) {
       await fx.message(1001, `/${command}`);
       assert.doesNotMatch(fx.tg.lastText("1001"), /Unknown command/, command);
     }
@@ -1095,8 +1095,11 @@ describe("TelegramBot", () => {
     while (!fx.tg.sends("1001").length && Date.now() - started < 2000) await new Promise((r) => setTimeout(r, 5));
     assert.match(fx.tg.lastText("1001"), /assistant/);
     assert.equal(fx.tg.of("setMyCommands").length, 1);
-    const commands = fx.tg.of("setMyCommands")[0]?.payload["commands"] as Array<{ command: string }>;
-    assert.ok(commands.some((c) => c.command === "new"));
+    const commands = fx.tg.of("setMyCommands")[0]?.payload["commands"] as Array<{ command: string; description: string }>;
+    // The menu comes from the operations' records, grouped as /help groups them, with the bot's /mute and /help
+    assert.deepEqual(commands.map((c) => c.command), ["inbox", "unread", "contacts", "sync", "new", "status", "alerts", "mute", "netmode", "airplane", "ussd", "help"]);
+    assert.deepEqual(commands.map((c) => c.command), [...BOT_MENU]);
+    for (const c of commands) assert.ok(c.description && !c.description.startsWith("cmd_"), c.command);
     await fx.bot.stop();
     const polls = fx.tg.of("getUpdates");
     assert.equal(polls.at(-1)?.payload["offset"], 42);

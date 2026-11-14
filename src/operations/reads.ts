@@ -13,6 +13,7 @@ export const READ_OPERATIONS = {
   telemetry: {
     access: "read",
     permission: null,
+    telegram: { menu: ["status"] },
     rest: {
       method: "GET",
       path: "/api/telemetry",
@@ -168,6 +169,7 @@ export const READ_OPERATIONS = {
   alerts: {
     access: "read",
     permission: null,
+    telegram: { menu: ["alerts"] },
     rest: { method: "GET", path: "/api/alerts", group: "read", summary: { "zh-CN": "最近 100 条告警，以及每个通知渠道的发送统计", en: "The last 100 alerts, and delivery counts per notification channel" } },
   },
   audit: {

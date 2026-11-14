@@ -80,8 +80,12 @@ export interface OperationRecord {
   readonly input?: InputReader;
   readonly rest?: RestBinding;
   readonly mcp?: McpBinding;
-  /** The Telegram commands that run it (the bot's words are its own; the input check and the gate are this record's). */
-  readonly telegram?: ReadonlyArray<string>;
+  /**
+   * The Telegram commands that run it: `menu` ones are in the bot's command menu, `more` ones are not
+   * (they need an argument to mean anything, like `/send <number> <text>`). The bot's words are its own;
+   * the input check and the gate are this record's.
+   */
+  readonly telegram?: { readonly menu?: ReadonlyArray<string>; readonly more?: ReadonlyArray<string> };
 }
 
 export type OperationTable = Readonly<Record<string, OperationRecord>>;

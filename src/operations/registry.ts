@@ -262,3 +262,11 @@ export async function runTool<P extends McpProvider>(handlers: ToolHandlers<P>, 
   const handler = handlers[op] as (input: unknown, args: Fields) => Record<string, unknown> | Promise<Record<string, unknown>>;
   return await handler(input, args);
 }
+
+// ---------------------------------------------------------------------------- Telegram
+
+/** Every Telegram command an operation's record names, in the registry's order; `menu`: it is in the bot's command menu. */
+export const TELEGRAM_COMMANDS: ReadonlyArray<{ readonly command: string; readonly op: OperationName; readonly menu: boolean }> = OPERATION_NAMES.flatMap((op) => {
+  const telegram = RECORDS[op].telegram;
+  return [...(telegram?.menu ?? []).map((command) => ({ command, op, menu: true })), ...(telegram?.more ?? []).map((command) => ({ command, op, menu: false }))];
+});

@@ -8,7 +8,7 @@ import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
 import { type FeatureWriteAccess, gateRefuses } from "../device-access.ts";
 import type { NetworkMode, UssdRequest } from "../cellular.ts";
-import { type InputOf, type OperationName, operationActions, operationInput } from "../operations/registry.ts";
+import { type InputOf, type OperationName, TELEGRAM_COMMANDS, operationActions, operationInput, operationRecord } from "../operations/registry.ts";
 import { BrowserSessionYieldedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/text-mode.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
@@ -734,6 +734,13 @@ export interface TelegramBotOptions {
 const WRITE_CALLBACKS: ReadonlySet<string> = new Set(["wizstart", "wizsend", "read", "readall", "del", "delok"]);
 
 /** The cellular cards' buttons: pick, confirm, cancel, and end a USSD session. */
+/**
+ * The bot's command menu, from the operations' records (`telegram.menu`), grouped as /help groups them:
+ * SMS, then the device with the bot's own /mute, then the cellular settings, and /help last.
+ */
+const menuOf = (group: string): string[] => TELEGRAM_COMMANDS.filter(({ op, menu }) => menu && operationRecord(op).rest?.group === group).map(({ command }) => command);
+export const BOT_MENU: ReadonlyArray<string> = [...menuOf("sms"), ...menuOf("read"), "mute", ...menuOf("control"), "help"];
+
 const CELLULAR_CALLBACKS: ReadonlySet<string> = new Set(["nm", "nmok", "ap", "apok", "ussdok", "ussdend", "opno"]);
 
 /** How long a cellular write waits for its confirm button. */
@@ -816,9 +823,7 @@ export class TelegramBot implements NotificationChannel {
     this.#lifecycle = new AbortController();
     await this.api
       .call("setMyCommands", {
-        commands: (["new", "inbox", "unread", "status", "alerts", "contacts", "sync", "mute", "netmode", "airplane", "ussd", "help"] as const).map(
-          (command) => ({ command, description: this.#tx(`cmd_${command}`) })
-        ),
+        commands: BOT_MENU.map((command) => ({ command, description: this.#tx(`cmd_${command}` as TextKey) })),
       })
       .catch(() => undefined);
     await this.#identify();

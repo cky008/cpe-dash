@@ -18,7 +18,7 @@ export const CELLULAR_OPERATIONS = {
     actions: ["set_network_mode"],
     permission: "control",
     input: (fields) => readNetworkMode(fields["mode"]),
-    telegram: ["netmode"],
+    telegram: { menu: ["netmode"] },
     rest: {
       method: "POST",
       path: "/api/control/network-mode",
@@ -141,7 +141,7 @@ export const CELLULAR_OPERATIONS = {
     actions: ["set_airplane_mode"],
     permission: "control",
     input: readSwitch,
-    telegram: ["airplane"],
+    telegram: { menu: ["airplane"] },
     rest: {
       method: "POST",
       path: "/api/control/airplane-mode",
@@ -250,7 +250,7 @@ export const CELLULAR_OPERATIONS = {
     actions: ["send_ussd"],
     permission: "control",
     input: readUssdRequest,
-    telegram: ["ussd"],
+    telegram: { menu: ["ussd"] },
     rest: {
       method: "POST",
       path: "/api/control/ussd",
