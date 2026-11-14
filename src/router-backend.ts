@@ -90,6 +90,12 @@ export interface RouterBackend {
   /** Lock LTE / NR bands. `summary` commits the new lock state before the write is broadcast. */
   lockBands(command: BandLockCommand, ctx: LockContext, summary: LockSummary): Promise<BandLockOutcome>;
   lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome>;
+  /**
+   * What `lockCell` checks before it queues anything, on its own: the bounds of the router's own
+   * brand (bands, channels, how many cells one lock takes). Throws `CpeControlValidationError`;
+   * nothing is sent. For an entry with a rule of its own to apply after it (an agent's tool).
+   */
+  checkCellLock(command: CellLockCommand): void;
   /** Take every band and cell lock off. */
   unlockAll(summary: LockSummary): Promise<PersistedLockState>;
   /**
@@ -362,8 +368,12 @@ export class SessionBackend implements RouterBackend {
     return this.#write("lock_band", (session, write) => session.lockBands(command, ctx, write), (outcome) => summary(outcome.state));
   }
 
-  lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome> {
+  checkCellLock(command: CellLockCommand): void {
     this.#driver.checkCellLock?.(command, this.#scheduler.device);
+  }
+
+  lockCell(command: CellLockCommand, summary: LockSummary): Promise<LockOutcome> {
+    this.checkCellLock(command);
     return this.#write("lock_cell", (session, write) => session.lockCell(command, write), (outcome) => summary(outcome.state));
   }
 

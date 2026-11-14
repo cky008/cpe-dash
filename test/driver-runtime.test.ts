@@ -7,14 +7,18 @@ import { readDriverBandLockTarget, readDriverCellLockTarget } from "../src/contr
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { DeviceAccess, type DeviceAccessSnapshot } from "../src/device-access.ts";
 import { bandsToHex } from "../src/drivers/bands.ts";
+import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { ROUTER_FAMILY_FACTS, type RouterFamily } from "../src/router-family.ts";
 import { CircuitBreakerOpenError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { daemonOn } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 import { OPENWRT_PASSWORD, type OpenwrtRouterOptions, openwrtRouter } from "./helpers/openwrt-router.ts";
+import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { mockConnection } from "./helpers/connection.ts";
+import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 
 /**
  * A router of a driver family in the running daemon: the scheduler's queue, gate, breaker and
@@ -407,6 +411,49 @@ describe("driver runtime: writes", () => {
       assert.equal(seen.length, 3, "an unlock is nothing to watch");
     } finally {
       await fx.cleanup();
+    }
+  });
+
+  it("checks a cell lock against the router's own brand on every entry: an agent's tool takes a cell the H168-383 has no band for", async () => {
+    // A made-up cell on LTE band 2, which the H168-383 does not have and a ZTE router does
+    const B2 = { rat: "LTE", band: "B2", arfcn: 700, pci: 211 } as const;
+    const lockCell = async (server: FengSuiMcpServer, args: Record<string, unknown>) =>
+      ((await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "lock_cell", arguments: { ...args, confirm: true } } }))) as JsonRpcSuccessResponse).result as {
+        isError: boolean;
+        structuredContent: { errorCode?: string; message?: string; lockState?: { cellLock: unknown } };
+      };
+    const zte = zteRouter();
+    Object.assign(zte.state.values, { network_type: "LTE", wan_active_band: "LTE BAND 2", wan_active_channel: "700" });
+    const daemon = daemonOn("zte-goform", zte.mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
+    try {
+      await daemon.core.monitor.refreshTelemetry();
+      const server = new FengSuiMcpServer({ allowMutations: true, core: daemon.core });
+      const locked = await lockCell(server, B2);
+      assert.equal(locked.isError, false, locked.structuredContent.message ?? "lock_cell was refused");
+      assert.deepEqual(locked.structuredContent.lockState?.cellLock, { rat: "LTE", band: 2, arfcn: 700, pci: 211 });
+      assert.deepEqual([zte.state.values["lte_pci_lock"], zte.state.values["lte_earfcn_lock"]], ["211", "700"]);
+      // The brand's own bounds still come first, before the question whether the cell was seen: ZTE's page locks one 4G cell
+      const sent = zte.mock.requests.length;
+      const several = await lockCell(server, { ...B2, more: [{ band: "B1", arfcn: 300, pci: 142 }] });
+      assert.deepEqual([several.structuredContent.errorCode, /one 4G cell at a time/.test(several.structuredContent.message ?? "")], ["VALIDATION_ERROR", true]);
+      // ... and a cell nobody reported is still not an agent's to lock
+      assert.equal((await lockCell(server, { ...B2, pci: 142 })).structuredContent.errorCode, "CELL_NOT_OBSERVED");
+      assert.equal(zte.mock.requests.length, sent, "neither opened a session");
+    } finally {
+      await daemon.cleanup();
+    }
+    // The verified router keeps its own bounds: the same cell is refused there, by its band list, with nothing sent
+    const cpe = createStrictCpe();
+    const huawei = daemonOn("huawei", cpe.fetchImpl, "http://192.168.8.1", cpe.password);
+    try {
+      assert.ok(await huawei.core.monitor.identifyDevice());
+      const sent = cpe.stats.requests.length;
+      const refused = await lockCell(new FengSuiMcpServer({ allowMutations: true, core: huawei.core }), B2);
+      assert.deepEqual([refused.structuredContent.errorCode, /B2 is not supported by the H168-383/.test(refused.structuredContent.message ?? "")], ["VALIDATION_ERROR", true]);
+      await assert.rejects(huawei.core.controls.lockCell(B2), (err: unknown) => err instanceof CpeControlValidationError && /B2 is not supported by the H168-383/.test(err.message));
+      assert.equal(cpe.stats.requests.length, sent, "nothing sent to the verified router");
+    } finally {
+      await huawei.cleanup();
     }
   });
 });

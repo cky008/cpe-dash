@@ -142,6 +142,11 @@ export class CpeControlService {
     return state;
   }
 
+  /** The bounds the router's own brand puts on a cell lock, checked without queueing anything (`lockCell` checks them too). */
+  checkCellLock(command: CellLockCommand): void {
+    this.#backend.checkCellLock(command);
+  }
+
   async lockCell(command: CellLockCommand): Promise<PersistedLockState> {
     const { state, experimental } = await this.#backend.lockCell(command, (state) => {
       const params = { rat: state.cellLock?.rat ?? command.rat, band: String(state.cellLock?.band ?? command.band), arfcn: state.cellLock?.arfcn ?? command.arfcn };
