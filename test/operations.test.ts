@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { build } from "esbuild";
 import { API_ROUTES, CONSOLE_ROUTE_PREFIXES } from "../scripts/api-reference.ts";
+import { OPERATION_ROUTES_PLUGIN, routesModuleSource } from "../scripts/operation-routes.ts";
+import { REST_ROUTES } from "../src/operations/routes.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
@@ -163,5 +166,27 @@ describe("the entries take what they offer from the registry", () => {
   it("gives the API reference exactly the registry's routes, none of the console's own", () => {
     assert.deepEqual(API_ROUTES, REST_OPERATIONS.map(restBinding));
     for (const route of API_ROUTES) assert.ok(!CONSOLE_ROUTE_PREFIXES.some((prefix) => route.path === prefix || route.path.startsWith(`${prefix}/`)), route.path);
+  });
+});
+
+describe("the console's REST client", () => {
+  it("gets the registry's routes as a constant: each route's method, path and whether it writes", () => {
+    const source = routesModuleSource();
+    const prefix = "export const REST_ROUTES = ";
+    assert.ok(source.startsWith(prefix));
+    assert.deepEqual(JSON.parse(source.slice(prefix.length, source.lastIndexOf(";"))), REST_ROUTES);
+    for (const op of REST_OPERATIONS) {
+      const rest = restBinding(op);
+      assert.deepEqual(REST_ROUTES[op], { method: rest.method, path: rest.path, write: operationRecord(op).access === "write" }, op);
+    }
+  });
+
+  it("is built with the routes and none of the registry's words", async () => {
+    const result = await build({ entryPoints: ["web/src/core/endpoints.ts"], bundle: true, write: false, format: "esm", platform: "browser", logLevel: "silent", plugins: [OPERATION_ROUTES_PLUGIN] });
+    const bundle = result.outputFiles.map((file) => file.text).join("");
+    for (const op of REST_OPERATIONS) assert.ok(bundle.includes(JSON.stringify(restBinding(op).path)), op);
+    // An MCP description and an API reference line of the registry stay on the server
+    assert.ok(!bundle.includes(toolDefinition("telemetry").description));
+    assert.ok(!bundle.includes(restBinding("telemetry").summary.en));
   });
 });

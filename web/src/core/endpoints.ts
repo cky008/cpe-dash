@@ -89,10 +89,13 @@ import type {
 import type { RouterFamilyChoice } from "../../../src/router-family.ts";
 import type { BehaviourOverrides } from "../../../src/behaviour-settings.ts";
 import type { TokenPermission } from "../../../src/console-policy.ts";
-import type { ApiClient } from "./api.ts";
+import type { RestOperation } from "../../../src/operations/registry.ts";
+import { REST_ROUTES } from "../../../src/operations/routes.ts";
+import type { ApiClient, RequestOptions } from "./api.ts";
 
 /**
- * Typed wrappers for every REST route of the contract. Writes wait out the daemon's queue and the
+ * Typed wrappers for every REST route of the contract: the operation registry's routes by operation
+ * name (their paths and methods come from `src/operations/routes.ts`), the console's own by path. Writes wait out the daemon's queue and the
  * 90 s session hold budget; an SMS send also polls `send-status` (45 s by default) inside its session.
  */
 
@@ -117,8 +120,14 @@ export interface ConnectionInput {
 export function createEndpoints(api: ApiClient) {
   const control = { timeoutMs: CONTROL_TIMEOUT_MS };
   const slow = { timeoutMs: SLOW_CONTROL_TIMEOUT_MS };
+  /** A route of the operation registry: its method and path are the registry's; the console's own routes are written below. */
+  const call = <T>(op: RestOperation, request: { body?: object; query?: string; options?: RequestOptions } = {}): Promise<T> => {
+    const { method, path } = REST_ROUTES[op];
+    const url = request.query === undefined ? path : `${path}?${request.query}`;
+    return method === "GET" ? api.get<T>(url, request.options) : api.post<T>(url, request.body ?? {}, request.options);
+  };
   return {
-    health: () => api.get<HealthResponse>("/api/health"),
+    health: () => call<HealthResponse>("health"),
     authStatus: () => api.get<AuthStatusResponse>("/api/auth/status"),
     login: (password: string) => api.post<AuthLoginResponse>("/api/auth/login", { password }),
     setupLogin: (code: string, password: string) => api.post<AuthLoginResponse>("/api/setup/login", { code, password }),
@@ -138,78 +147,76 @@ export function createEndpoints(api: ApiClient) {
     unlinkTelegramChat: (chatId: string) => api.post<TelegramChatsResponse>("/api/console/telegram/unlink", { chatId }),
     consoleSwitches: (body: { telegramReset?: boolean; metricsEnabled?: boolean | null }) => api.post<ConsoleSettingsResponse>("/api/console/switches", body),
     consoleBehaviour: (body: BehaviourOverrides) => api.post<ConsoleSettingsResponse>("/api/console/behaviour", body),
-    audit: (limit = 200) => api.get<AuditResponse>(`/api/audit?limit=${limit}`),
-    deviceProfile: () => api.get<DeviceProfileResponse>("/api/device/profile"),
+    audit: (limit = 200) => call<AuditResponse>("audit", { query: `limit=${limit}` }),
+    deviceProfile: () => call<DeviceProfileResponse>("deviceProfile"),
     deviceReport: () => api.get<DeviceReportResponse>("/api/console/device-report"),
     experimental: () => api.get<ExperimentalWritesResponse>("/api/console/experimental"),
     setExperimental: (body: ExperimentalWriteRequest) => api.post<ExperimentalWritesResponse>("/api/console/experimental", body),
     agentTest: (body: AgentTestRequest) => api.post<AgentTestResponse>("/api/console/agent-test", body),
     logout: () => api.post<AuthLogoutResponse>("/api/auth/logout"),
 
-    telemetry: () => api.get<TelemetryEndpointResponse>("/api/telemetry"),
-    refreshTelemetry: () => api.post<TelemetryRefreshResponse>("/api/telemetry/refresh", {}, control),
-    sessionStatus: () => api.get<SessionStatusResponse>("/api/session/status"),
-    timeseries: (query: string) => api.get<TimeSeriesEndpointResponse>(`/api/timeseries?${query}`),
-    neighbors: () => api.get<NeighborsEndpointResponse>("/api/neighbors"),
-    scanNeighbors: () => api.post<NeighborsEndpointResponse>("/api/neighbors/scan", {}, control),
-    topology: () => api.get<TopologyEndpointResponse>("/api/topology"),
-    refreshTopology: () => api.post<TopologyEndpointResponse>("/api/topology/refresh", {}, control),
-    settings: () => api.get<SettingsEndpointResponse>("/api/settings"),
-    refreshSettings: () => api.post<SettingsRefreshResponse>("/api/settings/refresh", {}, control),
-    alerts: () => api.get<AlertsResponse>("/api/alerts"),
+    telemetry: () => call<TelemetryEndpointResponse>("telemetry"),
+    refreshTelemetry: () => call<TelemetryRefreshResponse>("telemetryRefresh", { body: {}, options: control }),
+    sessionStatus: () => call<SessionStatusResponse>("sessionStatus"),
+    timeseries: (query: string) => call<TimeSeriesEndpointResponse>("timeseries", { query }),
+    neighbors: () => call<NeighborsEndpointResponse>("neighbors"),
+    scanNeighbors: () => call<NeighborsEndpointResponse>("neighborsScan", { body: {}, options: control }),
+    topology: () => call<TopologyEndpointResponse>("topology"),
+    refreshTopology: () => call<TopologyEndpointResponse>("topologyRefresh", { body: {}, options: control }),
+    settings: () => call<SettingsEndpointResponse>("settings"),
+    refreshSettings: () => call<SettingsRefreshResponse>("settingsRefresh", { body: {}, options: control }),
+    alerts: () => call<AlertsResponse>("alerts"),
 
-    bandLock: (body: BandLockRequest) => api.post<LockStateResponse>("/api/control/band-lock", body, control),
-    cellLock: (body: CellLockRequest) => api.post<LockStateResponse>("/api/control/cell-lock", body, control),
-    unlock: () => api.post<LockStateResponse>("/api/control/unlock", {}, control),
-    reboot: () => api.post<RebootResponse>("/api/control/reboot", { confirm: true }, control),
-    reconnect: () => api.post<ReconnectResponse>("/api/control/reconnect", { confirm: true }, control),
-    security: (body: SecurityControlRequest) => api.post<SecurityControlResponse>("/api/control/security", body, control),
-    wifi7: (body: Wifi7ControlRequest) => api.post<Wifi7ControlResponse>("/api/control/wifi7", body, control),
-    antenna: (mode: AntennaModeName) => api.post<AntennaControlResponse>("/api/control/antenna", { mode }, control),
-    mobileData: (enabled: boolean) => api.post<MobileDataControlResponse>("/api/control/mobile-data", { enabled }, control),
-    resetBreaker: () => api.post<ResetBreakerResponse>("/api/session/reset-breaker", {}, control),
+    bandLock: (body: BandLockRequest) => call<LockStateResponse>("bandLock", { body: body, options: control }),
+    cellLock: (body: CellLockRequest) => call<LockStateResponse>("cellLock", { body: body, options: control }),
+    unlock: () => call<LockStateResponse>("unlock", { body: {}, options: control }),
+    reboot: () => call<RebootResponse>("reboot", { body: { confirm: true }, options: control }),
+    reconnect: () => call<ReconnectResponse>("reconnect", { body: { confirm: true }, options: control }),
+    security: (body: SecurityControlRequest) => call<SecurityControlResponse>("securitySwitches", { body: body, options: control }),
+    wifi7: (body: Wifi7ControlRequest) => call<Wifi7ControlResponse>("wifi7", { body: body, options: control }),
+    antenna: (mode: AntennaModeName) => call<AntennaControlResponse>("antenna", { body: { mode }, options: control }),
+    mobileData: (enabled: boolean) => call<MobileDataControlResponse>("mobileData", { body: { enabled }, options: control }),
+    resetBreaker: () => call<ResetBreakerResponse>("resetBreaker", { body: {}, options: control }),
 
     // Cellular settings. A search for networks and a registration take the router minutes
-    cellular: () => api.get<CellularEndpointResponse>("/api/cellular"),
-    refreshCellular: () => api.post<CellularEndpointResponse>("/api/cellular/refresh", {}, control),
-    networkMode: (mode: NetworkMode) => api.post<NetworkModeControlResponse>("/api/control/network-mode", { mode, confirm: true }, control),
-    operatorScan: () => api.post<OperatorScanResponse>("/api/control/operator-scan", { confirm: true }, slow),
-    operator: (body: Omit<Extract<OperatorRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<OperatorRequest, { mode: "manual" }>, "confirm">) => api.post<OperatorControlResponse>("/api/control/operator", { ...body, confirm: true }, slow),
-    simSlot: (slot: SimSlotRef) => api.post<SimSlotControlResponse>("/api/control/sim-slot", { kind: slot.kind, index: slot.index, confirm: true }, control),
-    simPin: (action: NonNullable<SimPinRequest["action"]>, pin: string) => api.post<SimPinControlResponse>("/api/control/sim-pin", { action, pin, confirm: true }, control),
-    airplaneMode: (enabled: boolean) => api.post<AirplaneModeControlResponse>("/api/control/airplane-mode", { enabled, confirm: true }, control),
-    roaming: (enabled: boolean) => api.post<RoamingControlResponse>("/api/control/roaming", { enabled, confirm: true }, control),
-    apn: (body: Omit<Extract<ApnRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<ApnRequest, { mode: "manual" }>, "confirm">) => api.post<ApnControlResponse>("/api/control/apn", { ...body, confirm: true }, control),
-    dataLimit: (body: Omit<DataLimitRequest, "confirm">) => api.post<DataLimitControlResponse>("/api/control/data-limit", { ...body, confirm: true }, control),
-    trafficReset: () => api.post<TrafficResetResponse>("/api/control/traffic-reset", { confirm: true }, control),
-    ussd: (body: Omit<Extract<UssdSendRequest, { code: string }>, "confirm"> | { action: "cancel" }) => api.post<UssdResponse>("/api/control/ussd", { ...body, confirm: true }, control),
+    cellular: () => call<CellularEndpointResponse>("cellular"),
+    refreshCellular: () => call<CellularEndpointResponse>("cellularRefresh", { body: {}, options: control }),
+    networkMode: (mode: NetworkMode) => call<NetworkModeControlResponse>("networkMode", { body: { mode, confirm: true }, options: control }),
+    operatorScan: () => call<OperatorScanResponse>("operatorScan", { body: { confirm: true }, options: slow }),
+    operator: (body: Omit<Extract<OperatorRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<OperatorRequest, { mode: "manual" }>, "confirm">) => call<OperatorControlResponse>("operatorSelect", { body: { ...body, confirm: true }, options: slow }),
+    simSlot: (slot: SimSlotRef) => call<SimSlotControlResponse>("simSlot", { body: { kind: slot.kind, index: slot.index, confirm: true }, options: control }),
+    simPin: (action: NonNullable<SimPinRequest["action"]>, pin: string) => call<SimPinControlResponse>("simPin", { body: { action, pin, confirm: true }, options: control }),
+    airplaneMode: (enabled: boolean) => call<AirplaneModeControlResponse>("airplaneSwitch", { body: { enabled, confirm: true }, options: control }),
+    roaming: (enabled: boolean) => call<RoamingControlResponse>("roaming", { body: { enabled, confirm: true }, options: control }),
+    apn: (body: Omit<Extract<ApnRequest, { mode: "auto" }>, "confirm"> | Omit<Extract<ApnRequest, { mode: "manual" }>, "confirm">) => call<ApnControlResponse>("apn", { body: { ...body, confirm: true }, options: control }),
+    dataLimit: (body: Omit<DataLimitRequest, "confirm">) => call<DataLimitControlResponse>("dataLimit", { body: { ...body, confirm: true }, options: control }),
+    trafficReset: () => call<TrafficResetResponse>("trafficReset", { body: { confirm: true }, options: control }),
+    ussd: (body: Omit<Extract<UssdSendRequest, { code: string }>, "confirm"> | { action: "cancel" }) => call<UssdResponse>("ussd", { body: { ...body, confirm: true }, options: control }),
 
-    accessControl: () => api.get<AccessControlEndpointResponse>("/api/access-control"),
-    refreshAccessControl: () => api.post<AccessControlEndpointResponse>("/api/access-control/refresh", {}, control),
-    wifiAccess: (body: WifiDeviceAccessRequest) => api.post<AccessControlChangeResponse>("/api/control/wifi-access", body, control),
-    wifiMacFilter: (body: WifiMacFilterRequest) => api.post<AccessControlChangeResponse>("/api/control/wifi-mac-filter", body, control),
-    timeRule: (body: TimeRuleRequest) => api.post<AccessControlChangeResponse>("/api/control/time-rule", body, control),
+    accessControl: () => call<AccessControlEndpointResponse>("accessControlView"),
+    refreshAccessControl: () => call<AccessControlEndpointResponse>("accessControlRefresh", { body: {}, options: control }),
+    wifiAccess: (body: WifiDeviceAccessRequest) => call<AccessControlChangeResponse>("wifiAccess", { body: body, options: control }),
+    wifiMacFilter: (body: WifiMacFilterRequest) => call<AccessControlChangeResponse>("wifiMacFilter", { body: body, options: control }),
+    timeRule: (body: TimeRuleRequest) => call<AccessControlChangeResponse>("timeRule", { body: body, options: control }),
 
-    smsStatus: () => api.get<SmsStatusResponse>("/api/sms/status"),
-    smsCountries: () => api.get<SmsCountriesResponse>("/api/sms/countries"),
+    smsStatus: () => call<SmsStatusResponse>("smsStatus"),
+    smsCountries: () => call<SmsCountriesResponse>("smsCountries"),
     smsThreads: (filter: ThreadFilter, search: string, limit = 500) =>
-      api.get<SmsThreadsResponse>(
-        `/api/sms/threads?${new URLSearchParams({ filter, search: search.slice(0, 100), limit: String(limit) }).toString()}`
-      ),
-    smsThread: (key: string) => api.get<SmsThreadResponse>(`/api/sms/thread?${new URLSearchParams({ key }).toString()}`),
+      call<SmsThreadsResponse>("smsThreads", { query: new URLSearchParams({ filter, search: search.slice(0, 100), limit: String(limit) }).toString() }),
+    smsThread: (key: string) => call<SmsThreadResponse>("smsThread", { query: new URLSearchParams({ key }).toString() }),
     smsContacts: (search = "", limit = 5000) =>
-      api.get<SmsContactsResponse>(`/api/sms/contacts?${new URLSearchParams({ search: search.slice(0, 100), limit: String(limit) }).toString()}`),
-    smsPreview: (body: SmsPreviewRequest) => api.post<SmsPreviewResponse>("/api/sms/preview", body),
-    smsSend: (body: SmsSendRequest) => api.post<SmsSendResponse>("/api/sms/send", body, { timeoutMs: SMS_SEND_TIMEOUT_MS }),
-    smsRead: (body: SmsReadRequest) => api.post<SmsReadResponse>("/api/sms/read", body, control),
-    smsDelete: (uids: string[]) => api.post<SmsDeleteResponse>("/api/sms/delete", { uids }, control),
-    smsTrash: () => api.get<SmsTrashResponse>("/api/sms/trash"),
-    smsRestore: (uids: string[]) => api.post<SmsRestoreResponse>("/api/sms/trash/restore", { uids }),
-    smsPurge: (body: { uids: string[] } | { all: true }) => api.post<SmsPurgeResponse>("/api/sms/trash/purge", body),
-    smsSync: (mode: "full" | "incremental" = "full") => api.post<SmsSyncResponse>("/api/sms/sync", { mode }, control),
-    contactUpsert: (body: ContactUpsertRequest) => api.post<ContactUpsertResponse>("/api/sms/contacts/upsert", body),
-    contactDelete: (id: string) => api.post<ContactDeleteResponse>("/api/sms/contacts/delete", { id }),
-    importVcf: (vcf: string) => api.post<VcardImportResponse>("/api/sms/contacts/import-vcf", { vcf }, { timeoutMs: 60_000 }),
+      call<SmsContactsResponse>("contacts", { query: new URLSearchParams({ search: search.slice(0, 100), limit: String(limit) }).toString() }),
+    smsPreview: (body: SmsPreviewRequest) => call<SmsPreviewResponse>("smsPreview", { body: body }),
+    smsSend: (body: SmsSendRequest) => call<SmsSendResponse>("smsSend", { body: body, options: { timeoutMs: SMS_SEND_TIMEOUT_MS } }),
+    smsRead: (body: SmsReadRequest) => call<SmsReadResponse>("smsMarkRead", { body: body, options: control }),
+    smsDelete: (uids: string[]) => call<SmsDeleteResponse>("smsDelete", { body: { uids }, options: control }),
+    smsTrash: () => call<SmsTrashResponse>("smsTrash"),
+    smsRestore: (uids: string[]) => call<SmsRestoreResponse>("smsRestore", { body: { uids } }),
+    smsPurge: (body: { uids: string[] } | { all: true }) => call<SmsPurgeResponse>("smsPurge", { body: body }),
+    smsSync: (mode: "full" | "incremental" = "full") => call<SmsSyncResponse>("smsSync", { body: { mode }, options: control }),
+    contactUpsert: (body: ContactUpsertRequest) => call<ContactUpsertResponse>("contactUpsert", { body: body }),
+    contactDelete: (id: string) => call<ContactDeleteResponse>("contactDelete", { body: { id } }),
+    importVcf: (vcf: string) => call<VcardImportResponse>("contactImport", { body: { vcf }, options: { timeoutMs: 60_000 } }),
   };
 }
 

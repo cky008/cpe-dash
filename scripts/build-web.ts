@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { type BuildOptions, build } from "esbuild";
+import { OPERATION_ROUTES_PLUGIN } from "./operation-routes.ts";
 import { injectBrand, readBrandMark } from "./brand.ts";
 
 /**
@@ -49,6 +50,8 @@ const ESBUILD_COMMON: BuildOptions = {
   legalComments: "none",
   charset: "utf8",
   logLevel: "warning",
+  // The REST client's routes as a constant: the operation registry's words stay out of the console
+  plugins: [OPERATION_ROUTES_PLUGIN],
 };
 
 /** The pre-paint boot script: one classic (non-module) file. */

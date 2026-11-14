@@ -61,6 +61,7 @@ const BROWSER_SHARED_MODULES = [
   "src/operations/record.ts",
   "src/operations/registry.ts",
   "src/operations/router.ts",
+  "src/operations/routes.ts",
   "src/operations/sms.ts",
   "src/timeseries.ts",
   "src/units.ts",
