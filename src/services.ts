@@ -48,7 +48,7 @@ export function storeFiles(config: AppConfig): string[] {
 }
 
 export interface ServicesOptions {
-  /** The stores are encrypted under its DATA_ENCRYPTION_KEY; without one they are plain JSON (tests, the live demo). */
+  /** Every store is encrypted under its DATA_ENCRYPTION_KEY (which must not be empty). */
   config: AppConfig;
   /** CPE transport (tests and the demo inject their mock router here). */
   fetchImpl?: typeof fetch;
@@ -123,7 +123,7 @@ export function assembleServices(options: ServicesOptions): FengSuiServices {
     retentionHours: config.historyRetentionHours,
   });
 
-  const cipher = StorageCipher.fromSecret(config.dataEncryptionKey);
+  const cipher = new StorageCipher(config.dataEncryptionKey);
   // First start with this store: carry the .env setup over once; the console is authoritative after
   const settings = new ConsoleSettings({ filePath: config.settingsFile, cipher, ...(options.scryptCost ? { scryptCost: options.scryptCost } : {}) });
   if (!settings.load()) {
