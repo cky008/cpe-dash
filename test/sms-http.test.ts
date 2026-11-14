@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { FengSuiHttpServer } from "../src/http-server.ts";
+import { testHttpServer } from "./helpers/http-server.ts";
 import { FengSuiMcpServer } from "../src/mcp-server.ts";
 import { NotificationHub } from "../src/notify/hub.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
@@ -16,7 +16,6 @@ import { SseEventBus } from "../src/sse-bus.ts";
 import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { type MockSmsCpeOptions, createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
-import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { mockConnection } from "./helpers/connection.ts";
 
@@ -65,15 +64,13 @@ async function createSmsHttpFixture(opts: { smsEnabled?: boolean; mock?: MockSms
   const hub = new NotificationHub({ scheduler, sms, channels: [{ name: "test", notifyAlert: async () => undefined }] });
   hub.start();
   const smsEnabled = opts.smsEnabled !== false;
-  const server = new FengSuiHttpServer({
+  const server = testHttpServer({
     config,
     core,
     sseBus,
     mcpServer: new FengSuiMcpServer({ allowMutations: true, core }),
-    envPath,
     sms: smsEnabled ? sms : null,
     notificationHub: hub,
-    settings: consoleSettingsFor(config),
   });
   const bound = await server.listen();
   const baseUrl = `http://${bound.host}:${bound.port}`;

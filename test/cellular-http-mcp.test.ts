@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import type { FengSuiCore } from "../src/core.ts";
-import { FengSuiHttpServer } from "../src/http-server.ts";
+import { testHttpServer } from "./helpers/http-server.ts";
 import { CELLULAR_OPERATIONS } from "../src/operations/cellular-settings.ts";
 import { operationFeatures, operationRecord, permissionForRoute, toolOperation } from "../src/operations/registry.ts";
 import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
@@ -12,7 +12,6 @@ import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server
 import type { McpToolDefinition } from "../src/mcp-tool-provider.ts";
 import { CELLULAR_WRITE_FEATURES } from "../src/features.ts";
 import { SseEventBus } from "../src/sse-bus.ts";
-import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { daemonOn } from "./helpers/driver-daemon.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
@@ -37,7 +36,7 @@ async function serve(core: FengSuiCore) {
   const config = loadConfig({ envPath, ignoreProcessEnv: true });
   const sseBus = new SseEventBus({ heartbeatMs: 2000 });
   const mcp = new FengSuiMcpServer({ core, allowMutations: true, toolProviders: [new CellularMcpTools({ core })] });
-  const server = new FengSuiHttpServer({ config, core, sseBus, mcpServer: mcp, envPath, settings: consoleSettingsFor(config) });
+  const server = testHttpServer({ config, core, sseBus, mcpServer: mcp });
   const bound = await server.listen();
   const base = `http://${bound.host}:${bound.port}`;
   const call = async (method: "GET" | "POST", route: string, body?: unknown): Promise<{ status: number; json: Record<string, unknown> }> => {

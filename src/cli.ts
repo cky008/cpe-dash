@@ -14,7 +14,9 @@ import { DEFAULT_SESSION_MAX_HOLD_MS } from "./session-errors.ts";
 import type { CpeControlService } from "./cpe-controls.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { type FileLockHandle, StorageCipher, onStorageWriteFailure, quarantinedSince, tryAcquireFileLock } from "./encrypted-file.ts";
+import { FengSuiApi } from "./http-api.ts";
 import { FengSuiHttpServer } from "./http-server.ts";
+import { CpeControlValidationError } from "./control-error.ts";
 import { backupDataDir, formatDoctorReport, rekeyDataDir, restoreDataDir, runDoctor } from "./maintenance.ts";
 import { AccessControlMcpTools } from "./mcp-access-tools.ts";
 import { CellularMcpTools } from "./mcp-cellular-tools.ts";
@@ -518,54 +520,74 @@ function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHan
 
   // The process's own memory, CPU and event-loop delay, for /metrics (watching it over weeks on a NAS)
   const runtime = new RuntimeSampler();
-  const httpServer = new FengSuiHttpServer({
-    log,
-    config,
+  // The REST API behind the sign-in; the HTTP server authenticates and hands it each request
+  const api = new FengSuiApi({
     core,
-    sseBus,
-    mcpServer,
-    envPath,
-    sms,
-    notificationHub,
     settings,
+    sseBus,
+    sms,
     audit,
-    unlinkTelegram: telegramBot ? () => telegramBot?.unlinkAllChats() ?? 0 : null,
-    unlinkTelegramToken: telegramBot ? (tokenId: string) => telegramBot?.unlinkChatsLinkedBy(tokenId) ?? 0 : null,
-    telegramChats: telegramBot ? () => telegramBot?.chatRecords((tokenId) => settings.listTokens().find((token) => token.id === tokenId)?.name ?? null) ?? [] : null,
-    unlinkTelegramChat: telegramBot ? (chatId: string) => telegramBot?.unlinkChat(chatId) ?? false : null,
-    telegramUsername: () => telegramBot?.username ?? null,
-    runtimeSample: () => runtime.sample({ sseClients: sseBus.getClientCount(), telegramPending: telegramBot?.pendingNotifications ?? null }),
+    notificationHub,
     selfHealStatus: () => (selfHeal.enabled ? selfHeal.status() : SELF_HEAL_OFF),
-    onBehaviourChanged: applyBehaviour,
     agentTest,
+    metricsFromEnv: config.metricsEnabled,
+    behaviourFromEnv: () => envBehaviour,
+    onBehaviourChanged: applyBehaviour,
     onConnectionReady: () => {
       if (!awaitingSetup) return;
       awaitingSetup = false;
       log("[fengsui] Router connection saved in the console: starting telemetry, SMS and Telegram");
       if (started && !closed) void startBackground(false);
     },
-    onConfigReloaded: async (reloaded) => {
-      if (options.applyTimeZone) applyProcessTimeZone(reloaded);
-      envBehaviour = behaviourFromConfig(reloaded);
-      applyBehaviour(resolveBehaviour(envBehaviour, settings.behaviourOverrides));
-      // Re-encrypt immediately: DATA_ENCRYPTION_KEY defaults to CPE_PASSWORD, so fixing the password
-      // changes the key, and files left under the old key would be unreadable after a restart.
-      const rekeyed: Array<Promise<void>> = [];
-      if (sms) {
-        sms.rotateEncryptionKey(reloaded.dataEncryptionKey);
-        rekeyed.push(sms.mirror.flush(), sms.contacts.flush());
-      }
-      if (telegramState) {
-        telegramState.rotateEncryptionKey(reloaded.dataEncryptionKey);
-        rekeyed.push(telegramState.flush());
-      }
-      const nextCipher = new StorageCipher(reloaded.dataEncryptionKey);
-      settings.rotateEncryptionKey(nextCipher);
-      audit.rotateEncryptionKey(nextCipher);
-      rekeyed.push(settings.flush(), audit.flush());
-      await Promise.allSettled(rekeyed);
-    },
+    unlinkTelegram: telegramBot ? () => telegramBot?.unlinkAllChats() ?? 0 : null,
+    unlinkTelegramToken: telegramBot ? (tokenId: string) => telegramBot?.unlinkChatsLinkedBy(tokenId) ?? 0 : null,
+    telegramChats: telegramBot ? () => telegramBot?.chatRecords((tokenId) => settings.listTokens().find((token) => token.id === tokenId)?.name ?? null) ?? [] : null,
+    unlinkTelegramChat: telegramBot ? (chatId: string) => telegramBot?.unlinkChat(chatId) ?? false : null,
+    telegramUsername: () => telegramBot?.username ?? null,
+    reloadConfig: () => reloadConfig(),
   });
+  const httpServer = new FengSuiHttpServer({
+    log,
+    config,
+    api,
+    sseBus,
+    mcpServer,
+    settings,
+    audit,
+    runtimeSample: () => runtime.sample({ sseClients: sseBus.getClientCount(), telegramPending: telegramBot?.pendingNotifications ?? null }),
+    agentTest,
+  });
+  /** `/api/session/reset-breaker`: `.env` again, and every store re-encrypted under the key it names now. */
+  const reloadConfig = async (): Promise<void> => {
+    const reloaded = loadConfig({ envPath });
+    if (!reloaded.dataEncryptionKey.trim()) {
+      throw new CpeControlValidationError("CPE_PASSWORD / DATA_ENCRYPTION_KEY is empty in .env; refusing to re-encrypt stored data under an empty key");
+    }
+    httpServer.setConfig(reloaded);
+    stateStore.rotateEncryptionKey(reloaded.dataEncryptionKey);
+    // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
+    // between cannot leave state.json under a key the reloaded .env no longer provides.
+    await stateStore.flushAsync().catch(() => undefined);
+    if (options.applyTimeZone) applyProcessTimeZone(reloaded);
+    envBehaviour = behaviourFromConfig(reloaded);
+    applyBehaviour(resolveBehaviour(envBehaviour, settings.behaviourOverrides));
+    // Re-encrypt immediately: DATA_ENCRYPTION_KEY defaults to CPE_PASSWORD, so fixing the password
+    // changes the key, and files left under the old key would be unreadable after a restart.
+    const rekeyed: Array<Promise<void>> = [];
+    if (sms) {
+      sms.rotateEncryptionKey(reloaded.dataEncryptionKey);
+      rekeyed.push(sms.mirror.flush(), sms.contacts.flush());
+    }
+    if (telegramState) {
+      telegramState.rotateEncryptionKey(reloaded.dataEncryptionKey);
+      rekeyed.push(telegramState.flush());
+    }
+    const nextCipher = new StorageCipher(reloaded.dataEncryptionKey);
+    settings.rotateEncryptionKey(nextCipher);
+    audit.rotateEncryptionKey(nextCipher);
+    rekeyed.push(settings.flush(), audit.flush());
+    await Promise.allSettled(rekeyed);
+  };
 
   // Keyed on the router connection saved in the console, as the client is (.env only seeds it on the first start)
   const peerGuard = options.peerTransport

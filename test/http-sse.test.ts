@@ -36,7 +36,7 @@ import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import type { AppConfig } from "../src/types.ts";
 import { getXmlTag } from "../src/protocols/hilink/xml.ts";
 import { mockConnection } from "./helpers/connection.ts";
-import { consoleSettingsFor } from "./helpers/console-settings.ts";
+import { testHttpServer } from "./helpers/http-server.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 function rawHttpRequest(opts: {
@@ -355,13 +355,11 @@ async function createTestHttpServer(opts: {
     allowMutations: config.mcpAllowMutations,
   });
 
-  const server = new FengSuiHttpServer({
+  const server = testHttpServer({
     config,
     core,
     sseBus,
     mcpServer,
-    envPath,
-    settings: consoleSettingsFor(config),
     ...(opts.log ? { log: opts.log } : {}),
   });
 

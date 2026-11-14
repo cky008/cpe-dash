@@ -1,19 +1,14 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { TLSSocket } from "node:tls";
-import { type AccessControlSnapshot, accessGuardFromHosts } from "./access-control.ts";
 import type { AgentTestService } from "./agent-test-service.ts";
 import {
   canonicalizeRateLimitBucketKey,
   isAllowedHttpHostHeader,
-  loadConfig,
   resolveClientIp,
   resolveRequestSecureScheme,
 } from "./config.ts";
 import { HttpPayloadError } from "./control-error.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
-import { deviceSupportRow } from "./device-catalog.ts";
-import { deviceProfileOf } from "./device-profile.ts";
-import { VERIFIED_FIRMWARE } from "./firmware.ts";
 import { type AuditActor, type AuditLog, runAsActor } from "./audit-log.ts";
 import { tokenMay, validateNewPassword } from "./console-policy.ts";
 import { type BearerIdentity, type ConsoleSettings, verifyResetLoginProof } from "./console-settings.ts";
@@ -22,42 +17,16 @@ import {
   HttpAuthGuard,
   type WebSessionRecord,
 } from "./http-auth.ts";
-import { SettingsHttpRoutes } from "./http-settings.ts";
 import type {
-  AccessControlChangeResponse,
-  AccessControlEndpointResponse,
-  AlertsResponse,
-  AntennaControlResponse,
   ApiErrorEnvelope,
   AuthLoginResponse,
   AuthLogoutResponse,
-  AuditResponse,
   AuthStatusResponse,
-  DeviceProfileResponse,
   HealthResponse,
   LocaleCatalogResponse,
-  LockStateResponse,
-  MobileDataControlResponse,
-  NeighborsEndpointResponse,
-  RebootResponse,
-  ReconnectResponse,
-  ResetBreakerResponse,
-  SecurityControlResponse,
-  SessionStatusResponse,
-  SettingsEndpointResponse,
-  SettingsRefreshResponse,
-  SseInitialSnapshot,
-  CellularEndpointResponse,
-  TelegramChatRecord,
-  TelemetryEndpointResponse,
-  TelemetryRefreshResponse,
-  TimeSeriesEndpointResponse,
-  TopologyEndpointResponse,
-  Wifi7ControlResponse,
 } from "./api-contract.ts";
-import { cellularRestHandlers } from "./http-cellular.ts";
-import type { AccessControlResult } from "./cpe-controls.ts";
-import { type ApiOperation, CONSOLE_ONLY_PATHS, type OperationHandlers, apiOperation, permissionForRoute, runOperation } from "./operations/registry.ts";
+import type { FengSuiApi } from "./http-api.ts";
+import { CONSOLE_ONLY_PATHS, permissionForRoute } from "./operations/registry.ts";
 import { serveStaticAsset } from "./http-static.ts";
 import {
   getLocaleCatalog,
@@ -68,296 +37,74 @@ import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { type RuntimeSample, renderMetrics } from "./metrics.ts";
 import type { FengSuiMcpServer } from "./mcp-server.ts";
 import type { FengSuiCore } from "./core.ts";
-import { deviceReportOf } from "./core.ts";
-import {
-  BrowserSessionYieldedError,
-  DeviceNotIdentifiedError,
-  DeviceReadOnlyError,
-  CircuitBreakerOpenError,
-  CpeNotConfiguredError,
-  PeerDaemonStandbyError,
-  SchedulerQueueFullError,
-  SchedulerStoppedError,
-} from "./scheduler.ts";
-import type { NotificationHub } from "./notify/hub.ts";
-import { maskMacTail } from "./privacy-mask.ts";
-import { accessControlForOutput, auditForOutput, telemetryForOutput, topologyForOutput } from "./redact.ts";
-import { type BehaviourValues, behaviourFromConfig } from "./behaviour-settings.ts";
-import { sanitizeDeviceProfile, sanitizeFreeText } from "./sanitize.ts";
-import { SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
-import { SmsHttpRoutes } from "./sms/http-routes.ts";
-import type { SmsService } from "./sms/service.ts";
+import { sanitizeFreeText } from "./sanitize.ts";
 import type { SseEventBus } from "./sse-bus.ts";
-import { TimeSeriesValidationError } from "./timeseries.ts";
 import type { AppConfig, SupportedLocale } from "./types.ts";
 import { FENGSUI_VERSION } from "./version.ts";
 
 const MAX_JSON_BODY_BYTES = 64 * 1024;
-const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-
-
 export { constantTimeSecretMatch } from "./http-auth.ts";
-
-function parseQueryNullProto(searchParams: URLSearchParams): Record<string, string> {
-  const out = Object.create(null) as Record<string, string>;
-  for (const [k, v] of searchParams.entries()) {
-    if (!k || FORBIDDEN_KEYS.has(k)) continue;
-    out[k] = v;
-  }
-  return out;
-}
-
-
-/** What a protected route's handler gets besides its checked input. */
-interface ApiCall {
-  /** Bearer callers get the REDACT_SENSITIVE_IN_API copies (the console reveals on screen instead). */
-  redact: boolean;
-  clientIp: string;
-  bucketKey: string;
-  sessionId: string | null;
-  searchParams: URLSearchParams;
-  /** The body said `confirm: true`. */
-  confirm: boolean;
-}
 
 export interface FengSuiHttpServerOptions {
   config: AppConfig;
-  core: FengSuiCore;
+  /** The REST API behind the sign-in (src/http-api.ts): this server authenticates, then hands each request to it. */
+  api: FengSuiApi;
   sseBus: SseEventBus;
   mcpServer: FengSuiMcpServer;
-  envPath?: string;
-  /** Enables `/api/sms/*`; when absent those routes answer `404 SMS_DISABLED`. */
-  sms?: SmsService | null;
-  notificationHub?: NotificationHub | null;
-  /** Called by `/api/session/reset-breaker` after `.env` is reloaded (key rotation for domain stores). */
-  onConfigReloaded?: (config: AppConfig) => Promise<void> | void;
-  /** The console login, Bearer tokens and router connection (`/api/console/*`). */
+  /** The console login and Bearer tokens: who may sign in. */
   settings: ConsoleSettings;
   audit?: AuditLog | null;
   /** Where an unexpected error's detail goes (the daemon's log); the client only gets a generic message. */
   log?: (line: string) => void;
-  /** The first router connection was saved during setup: start the background work. */
-  onConnectionReady?: () => void;
-  /** Unlink every Telegram chat linked with /auth (`null` without a bot). */
-  unlinkTelegram?: (() => number) | null;
-  /** Unlink the Telegram chats a revoked token linked with /auth (`null` without a bot). */
-  unlinkTelegramToken?: ((tokenId: string) => number) | null;
-  /** Every Telegram chat the bot reaches, for Settings → Telegram (`null` without a bot). */
-  telegramChats?: (() => TelegramChatRecord[]) | null;
-  /** Unlink one Telegram chat linked with /auth (`null` without a bot). */
-  unlinkTelegramChat?: ((chatId: string) => boolean) | null;
-  /** The bot's @username once known, for the `/auth@bot CODE` a group needs. */
-  telegramUsername?: () => string | null;
   /** The daemon process's own figures for `/metrics` (memory, CPU, event-loop delay). */
   runtimeSample?: (() => RuntimeSample) | null;
-  /** What WAN self-healing will do next, for `GET /api/session/status` (default: off). */
-  selfHealStatus?: (() => SelfHealStatus) | null;
-  /** The behaviour settings in force changed in the console (AI switches, self-heal, alerts, SMS behaviour). */
-  onBehaviourChanged?: ((values: BehaviourValues) => void) | null;
-  /** The AI agent test at one click (Settings → Device); it learns which token calls MCP (the agent's). */
+  /** The AI agent test at one click: it learns which token calls MCP (the agent's). */
   agentTest?: AgentTestService | null;
 }
 
 /**
  * Hardened zero-dependency HTTP Server hosting:
- * - Authenticated REST API (`/api/*`);
+ * - Authenticated REST API (`/api/*`), answered by `FengSuiApi` once a request is signed in;
  * - Sub-millisecond SSE stream (`GET /api/events`);
  * - Streamable HTTP MCP JSON-RPC 2.0 endpoint (`POST /mcp`);
  * - Offline prebuilt static frontend assets (`dist/web/public` -> `public`) with strict CSP.
  */
 export class FengSuiHttpServer {
   #config: AppConfig;
-  readonly core: FengSuiCore;
+  readonly api: FengSuiApi;
   readonly sseBus: SseEventBus;
   readonly mcpServer: FengSuiMcpServer;
-  readonly envPath: string | undefined;
-  readonly startedAtMs: number;
-  readonly sms: SmsService | null;
-  readonly notificationHub: NotificationHub | null;
 
-  #smsRoutes: SmsHttpRoutes | null;
-  #onConfigReloaded: ((config: AppConfig) => Promise<void> | void) | undefined;
   #server: http.Server | null = null;
   readonly #auth: HttpAuthGuard;
   readonly settings: ConsoleSettings;
   readonly #audit: AuditLog | null;
   readonly #log: (line: string) => void;
-  readonly #consoleRoutes: SettingsHttpRoutes;
   readonly #runtimeSample: (() => RuntimeSample) | null;
-  readonly #selfHealStatus: () => SelfHealStatus;
   readonly #agentTest: AgentTestService | null;
-  /** The protected API's handlers, one per registered route (the routes and their input checks are the operation registry's). */
-  readonly #apiHandlers: OperationHandlers<ApiOperation, ApiCall>;
 
   constructor(options: FengSuiHttpServerOptions) {
     this.#config = options.config;
-    this.core = options.core;
+    this.api = options.api;
     this.sseBus = options.sseBus;
     this.mcpServer = options.mcpServer;
     this.#runtimeSample = options.runtimeSample ?? null;
-    this.#selfHealStatus = options.selfHealStatus ?? (() => SELF_HEAL_OFF);
-    this.envPath = options.envPath;
-    this.startedAtMs = Date.now();
-    this.sms = options.sms ?? null;
-    this.notificationHub = options.notificationHub ?? null;
-    this.#smsRoutes = this.sms ? new SmsHttpRoutes(this.sms) : null;
-    this.#onConfigReloaded = options.onConfigReloaded;
     this.settings = options.settings;
     this.#audit = options.audit ?? null;
     this.#log = options.log ?? (() => undefined);
     this.#auth = new HttpAuthGuard(() => this.#config, options.settings);
-    const unlinkTelegram = options.unlinkTelegram ?? null;
-    this.#consoleRoutes = new SettingsHttpRoutes({
-      settings: options.settings,
-      scheduler: options.core.scheduler,
-      audit: this.#audit,
-      metricsFromEnv: options.config.metricsEnabled,
-      behaviourFromEnv: () => behaviourFromConfig(this.#config),
-      onBehaviourChanged: (values) => options.onBehaviourChanged?.(values),
-      telegramConfigured: unlinkTelegram !== null,
-      onConnectionReady: options.onConnectionReady ?? (() => undefined),
-      revokeSessions: (keep: string | null) => {
-        for (const id of this.#auth.revokeAllSessionsExcept(keep)) this.sseBus.disconnectBySessionId(id);
-      },
-      disconnectToken: (tokenId: string) => {
-        this.sseBus.disconnectByTokenId(tokenId);
-      },
-      unlinkTelegram: () => unlinkTelegram?.() ?? 0,
-      unlinkTelegramToken: (tokenId: string) => options.unlinkTelegramToken?.(tokenId) ?? 0,
-      telegramChats: () => options.telegramChats?.() ?? [],
-      unlinkTelegramChat: (chatId: string) => options.unlinkTelegramChat?.(chatId) ?? false,
-      telegramUsername: options.telegramUsername ?? (() => null),
-      onDeviceProbe: (probe) => void options.core.monitor.recordDeviceProbe(probe),
-      deviceReport: () => deviceReportOf(options.core),
-      agentTest: options.agentTest ?? null,
-    });
+    // A password change in the console ends the other console sessions this server keeps
+    options.api.attachSessions({ revokeAllSessionsExcept: (keep) => [...this.#auth.revokeAllSessionsExcept(keep)] });
     this.#agentTest = options.agentTest ?? null;
-    this.#apiHandlers = this.#buildApiHandlers();
   }
 
-  /** What each route of the protected API answers (200); a refusal is thrown and mapped in `#dispatchProtectedApi`. */
-  #buildApiHandlers(): OperationHandlers<ApiOperation, ApiCall> {
-    const { core } = this;
-    return {
-      // Strictly side-effect-free reads (from the cache / the ring buffer)
-      telemetry: (_input, call) =>
-        ({
-          ok: true,
-          schedulerStatus: core.scheduler.getStatus(),
-          lockState: core.controls.getPersistedLockState(),
-          lockVerification: core.controls.getLockVerification(),
-          telemetry: telemetryForOutput(core.monitor.getCachedTelemetry(), call.redact),
-          recentAlerts: core.scheduler.getRecentAlerts(),
-        }) satisfies TelemetryEndpointResponse,
-      timeseries: (window) => ({ ok: true, ...core.monitor.queryTimeSeries(window) }) satisfies TimeSeriesEndpointResponse,
-      neighbors: () => ({ ok: true, schedulerStatus: core.scheduler.getStatus(), neighbors: core.monitor.getCachedNeighbors() }) satisfies NeighborsEndpointResponse,
-      topology: (_input, call) => ({ ok: true, schedulerStatus: core.scheduler.getStatus(), topology: topologyForOutput(core.monitor.getCachedTopology(), call.redact) }) satisfies TopologyEndpointResponse,
-      settings: () =>
-        ({
-          ok: true,
-          schedulerStatus: core.scheduler.getStatus(),
-          lockState: core.controls.getPersistedLockState(),
-          lockVerification: core.controls.getLockVerification(),
-          settings: core.monitor.getCachedSettings(),
-        }) satisfies SettingsEndpointResponse,
-      accessControlView: (_input, call) => this.#accessControlView(core.monitor.getCachedAccessControl(), call) satisfies AccessControlEndpointResponse,
-      cellular: () => ({ ok: true, schedulerStatus: core.scheduler.getStatus(), cellular: core.monitor.getCachedCellular() }) satisfies CellularEndpointResponse,
-      sessionStatus: () => ({ ok: true, status: core.scheduler.getStatus(), selfHeal: this.#selfHealStatus() }) satisfies SessionStatusResponse,
-      deviceProfile: () => {
-        // Identity and capabilities carry no identifier, so every caller gets the same answer; tokens and
-        // agents read it too, so it takes the device report's second pass as well
-        const probe = core.monitor.getDeviceProbe();
-        // The row goes by the brand and model the gate goes by (a probe that named no model: the brand's defaults)
-        const device = core.scheduler.device.snapshot();
-        return {
-          ok: true,
-          profile: probe ? sanitizeDeviceProfile(deviceProfileOf(probe, device.family)) : null,
-          verifiedFirmware: VERIFIED_FIRMWARE.map((entry) => ({ ...entry })),
-          // In the form of the brand's interface the gate goes by (the driver's report, else as the model is on record)
-          support: probe || device.model ? deviceSupportRow(device.family, device.model ?? probe?.identity.model ?? null, device.model ? { variant: core.scheduler.device.variant } : {}) : null,
-        } satisfies DeviceProfileResponse;
-      },
-      alerts: () => ({ ok: true, alerts: core.scheduler.getRecentAlerts(), notifications: this.notificationHub?.getStats() ?? null }) satisfies AlertsResponse,
-      audit: (_input, call) => {
-        const limit = Number.parseInt(call.searchParams.get("limit") ?? "200", 10);
-        const entries = this.#audit?.list(Number.isFinite(limit) ? limit : 200) ?? [];
-        return { ok: true, entries: auditForOutput(entries, call.redact) } satisfies AuditResponse;
-      },
-
-      // Read sessions now
-      telemetryRefresh: async (_input, call) => {
-        const telemetry = await core.monitor.refreshTelemetry();
-        return { ok: true, schedulerStatus: core.scheduler.getStatus(), telemetry: telemetryForOutput(telemetry ?? core.monitor.getCachedTelemetry(), call.redact) } satisfies TelemetryRefreshResponse;
-      },
-      neighborsScan: async () => {
-        const neighbors = await core.monitor.refreshNeighbors();
-        return { ok: true, schedulerStatus: core.scheduler.getStatus(), neighbors: neighbors ?? core.monitor.getCachedNeighbors() } satisfies NeighborsEndpointResponse;
-      },
-      topologyRefresh: async (_input, call) => {
-        const topology = await core.monitor.refreshTopology();
-        return { ok: true, schedulerStatus: core.scheduler.getStatus(), topology: topologyForOutput(topology ?? core.monitor.getCachedTopology(), call.redact) } satisfies TopologyEndpointResponse;
-      },
-      settingsRefresh: async () => {
-        const settings = await core.monitor.refreshSettings();
-        return { ok: true, schedulerStatus: core.scheduler.getStatus(), settings: settings ?? core.monitor.getCachedSettings() } satisfies SettingsRefreshResponse;
-      },
-      accessControlRefresh: async (_input, call) => {
-        const fresh = await core.monitor.refreshAccessControl();
-        return this.#accessControlView(fresh ?? core.monitor.getCachedAccessControl(), call) satisfies AccessControlEndpointResponse;
-      },
-      cellularRefresh: async () => {
-        const cellular = await core.monitor.refreshCellular();
-        return { ok: true, schedulerStatus: core.scheduler.getStatus(), cellular: cellular ?? core.monitor.getCachedCellular() } satisfies CellularEndpointResponse;
-      },
-
-      // The router's controls
-      bandLock: async (bands) => ({ ok: true, lockState: await core.controls.lockBands(bands) }) satisfies LockStateResponse,
-      cellLock: async (command) => ({ ok: true, lockState: await core.controls.lockCell(command) }) satisfies LockStateResponse,
-      unlock: async () => ({ ok: true, lockState: await core.controls.unlockAllLocks() }) satisfies LockStateResponse,
-      reboot: async (_input, call) => ({ ok: true, ...(await core.controls.rebootRouter({ confirm: call.confirm })) }) satisfies RebootResponse,
-      reconnect: async () => ({ ok: true, ...(await core.controls.reconnectCellular()) }) satisfies ReconnectResponse,
-      securitySwitches: async (change) => ({ ok: true, settings: await core.controls.setSecuritySwitches(change) }) satisfies SecurityControlResponse,
-      wifi7: async (switches) => ({ ok: true, wifi7: await core.controls.setWifi7Settings(switches) }) satisfies Wifi7ControlResponse,
-      antenna: async (mode) => ({ ok: true, antenna: await core.controls.setAntennaMode(mode) }) satisfies AntennaControlResponse,
-      mobileData: async (enabled) => ({ ok: true, ...(await core.controls.setMobileData(enabled)) }) satisfies MobileDataControlResponse,
-      // The cellular settings (network mode, operator, SIM slot and PIN, airplane mode, roaming, APN, data limit, USSD)
-      ...cellularRestHandlers(core.controls),
-      resetBreaker: async () => {
-        const reloadedCfg = loadConfig({
-          envPath: this.envPath,
-        });
-        if (!reloadedCfg.dataEncryptionKey.trim()) {
-          throw new CpeControlValidationError(
-            "CPE_PASSWORD / DATA_ENCRYPTION_KEY is empty in .env; refusing to re-encrypt stored data under an empty key"
-          );
-        }
-        this.#config = reloadedCfg;
-        core.stateStore.rotateEncryptionKey(reloadedCfg.dataEncryptionKey);
-        // Re-encrypt now rather than at the next periodic flush (up to 30 min away), so a crash in
-        // between cannot leave state.json under a key the reloaded .env no longer provides.
-        await core.stateStore.flushAsync().catch(() => undefined);
-        await this.#onConfigReloaded?.(reloadedCfg);
-        // The router connection and the tokens live in the console store now, not in .env
-        const cpe = this.settings.cpe;
-        if (!cpe) throw new CpeNotConfiguredError();
-        const breaker = await core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, cpe.username, cpe.family);
-        return { ok: true, circuitBreaker: breaker, status: core.scheduler.getStatus() } satisfies ResetBreakerResponse;
-      },
-
-      // Devices' internet access
-      wifiAccess: async (change, call) => this.#accessChange(await core.controls.setWifiAccess(change, { requesterIp: call.clientIp, confirm: call.confirm }), call.redact),
-      wifiMacFilter: async (change, call) => this.#accessChange(await core.controls.setWifiAccess(change, { requesterIp: call.clientIp, confirm: call.confirm }), call.redact),
-      timeRule: async (change, call) => this.#accessChange(await core.controls.manageTimeRule(change, { requesterIp: call.clientIp, confirm: call.confirm }), call.redact),
-    };
+  get core(): FengSuiCore {
+    return this.api.core;
   }
 
-  #accessChange(result: AccessControlResult, redact: boolean): AccessControlChangeResponse {
-    return {
-      ok: true,
-      accessControl: accessControlForOutput(result.accessControl, redact),
-      changed: result.changed,
-      alsoBlocked: redact ? result.alsoBlocked.map(maskMacTail) : result.alsoBlocked,
-    };
+  /** The configuration `/api/session/reset-breaker` reloaded from `.env` (src/cli.ts): hosts, proxies, sessions follow it. */
+  setConfig(config: AppConfig): void {
+    this.#config = config;
   }
 
   /** Metrics follow the console's switch when set, else METRICS_ENABLED from `.env`. */
@@ -438,22 +185,6 @@ export class FengSuiHttpServer {
       clearInterval(sweep);
       clearTimeout(force);
     }
-  }
-
-  /** Access-control snapshot plus the devices this caller's writes may not cut off. */
-  #accessControlView(snapshot: AccessControlSnapshot | null, caller: { redact: boolean; clientIp: string }): AccessControlEndpointResponse {
-    const hosts = this.core.monitor.getCachedTopology()?.hosts ?? [];
-    const guard = accessGuardFromHosts(hosts, caller.clientIp);
-    const macOf = (reason: "daemon-host" | "requester"): string | null => {
-      const mac = guard.protectedDevices.find((d) => d.reason === reason)?.macAddress ?? null;
-      return mac && caller.redact ? maskMacTail(mac) : mac;
-    };
-    return {
-      ok: true,
-      schedulerStatus: this.core.scheduler.getStatus(),
-      accessControl: accessControlForOutput(snapshot, caller.redact),
-      guard: { daemonHostMac: macOf("daemon-host"), requesterMac: macOf("requester") },
-    };
   }
 
   #sendJson(
@@ -638,7 +369,7 @@ export class FengSuiHttpServer {
       }
       const body = renderMetrics({
         version: FENGSUI_VERSION,
-        daemonUptimeSec: Math.floor((Date.now() - this.startedAtMs) / 1000),
+        daemonUptimeSec: Math.floor((Date.now() - this.api.startedAtMs) / 1000),
         scheduler: this.core.scheduler.getStatus(),
         telemetry: this.core.monitor.getCachedTelemetry(),
         ...(this.#runtimeSample ? { runtime: this.#runtimeSample() } : {}),
@@ -650,13 +381,7 @@ export class FengSuiHttpServer {
 
     // 2. Public Liveness & Localization Endpoints
     if (pathname === "/api/health" && method === "GET") {
-      this.#sendJson(res, 200, {
-        ok: true,
-        service: "cpe-dash",
-        codename: "FengSui",
-        version: FENGSUI_VERSION,
-        uptimeSec: Math.floor((Date.now() - this.startedAtMs) / 1000),
-      } satisfies HealthResponse);
+      this.#sendJson(res, 200, this.api.health() satisfies HealthResponse);
       return;
     }
 
@@ -876,14 +601,7 @@ export class FengSuiHttpServer {
         expiresAtMs: session?.expiresAtMs ?? identity?.expiresAtMs ?? null,
         redact,
         sms: smsAllowed,
-        initialSnapshot: {
-          schedulerStatus: this.core.scheduler.getStatus(),
-          avoidance: this.core.scheduler.getAvoidanceState(),
-          telemetry: telemetryForOutput(this.core.monitor.getCachedTelemetry(), redact),
-          lockState: this.core.controls.getPersistedLockState(),
-          lockVerification: this.core.controls.getLockVerification(),
-          sms: smsAllowed ? (this.sms?.getStatus() ?? null) : null,
-        } satisfies SseInitialSnapshot,
+        initialSnapshot: this.api.hello(redact, smsAllowed),
       });
       if (!sub.accepted) {
         this.#sendJson(res, 429, {
@@ -896,7 +614,25 @@ export class FengSuiHttpServer {
     }
 
     const actor: AuditActor = session ? { channel: "web" } : { channel: "token", label: identity?.name ?? "?" };
-    await runAsActor(actor, () => this.#dispatchProtectedApi(req, res, method, pathname, parsedUrl.searchParams, { redact, clientIp, bucketKey, sessionId: session?.id ?? null }));
+    await runAsActor(actor, () =>
+      this.api.dispatch(
+        {
+          method,
+          pathname,
+          searchParams: parsedUrl.searchParams,
+          readJsonBody: (maxBytes?: number) => this.#readBoundedJsonBody(req, maxBytes),
+          sendJson: (statusCode: number, body: unknown, headers?: Record<string, string>) => this.#sendJson(res, statusCode, body, headers),
+        },
+        {
+          redact,
+          clientIp,
+          bucketKey,
+          sessionId: session?.id ?? null,
+          // The sign-in bucket (an IPv6 /64, as the session is bound to), so rotating addresses does not reset it
+          checkPassword: (candidate) => this.#auth.guardLogin(bucketKey, candidate),
+        }
+      )
+    );
   }
 
   /** `POST /api/setup/login` (no password yet) and `POST /api/auth/reset`: a one-time code sets the password and signs in. */
@@ -948,193 +684,6 @@ export class FengSuiHttpServer {
       { ok: true, authenticated: true, expiresAtIso: new Date(newSession.expiresAtMs).toISOString() } satisfies AuthLoginResponse,
       { "Set-Cookie": this.#auth.sessionCookie(newSession.id, Math.floor(this.#config.sessionTtlMs / 1000), isHttps) }
     );
-  }
-
-  async #dispatchProtectedApi(
-    req: IncomingMessage,
-    res: ServerResponse,
-    method: string,
-    pathname: string,
-    searchParams: URLSearchParams,
-    caller: { redact: boolean; clientIp: string; bucketKey: string; sessionId: string | null }
-  ): Promise<void> {
-    try {
-      if (pathname === "/api/sms" || pathname.startsWith("/api/sms/")) {
-        await this.#dispatchSmsApi(req, res, method, pathname, searchParams);
-        return;
-      }
-      if ((pathname === "/api/console" || pathname.startsWith("/api/console/")) && caller.sessionId !== null) {
-        const handled = await this.#consoleRoutes.handle(
-          {
-            method,
-            pathname,
-            query: parseQueryNullProto(searchParams),
-            readJsonBody: (maxBytes?: number) => this.#readBoundedJsonBody(req, maxBytes),
-            sendJson: (statusCode: number, body: unknown, headers?: Record<string, string>) => this.#sendJson(res, statusCode, body, headers),
-          },
-          caller.sessionId,
-          // The sign-in bucket (an IPv6 /64, as the session is bound to), so rotating addresses does not reset it
-          (candidate) => this.#auth.guardLogin(caller.bucketKey, candidate)
-        );
-        if (!handled) this.#sendJson(res, 404, { ok: false, errorCode: "NOT_FOUND", message: `Unknown ${method} endpoint ${pathname}` });
-        return;
-      }
-      const call: ApiCall = { ...caller, searchParams, confirm: false };
-      // The daemon's data (no router session): a GET's input is its query string
-      if (method === "GET") {
-        const op = apiOperation("GET", pathname);
-        if (op === null) {
-          this.#sendJson(res, 404, {
-            ok: false,
-            errorCode: "NOT_FOUND",
-            message: `Unknown GET endpoint ${pathname}`,
-          });
-          return;
-        }
-        this.#sendJson(res, 200, await runOperation(this.#apiHandlers, op, parseQueryNullProto(searchParams), call));
-        return;
-      }
-
-      if (method !== "POST") {
-        this.#sendJson(res, 405, {
-          ok: false,
-          errorCode: "METHOD_NOT_ALLOWED",
-          message: `Method ${method} not allowed on ${pathname}`,
-        });
-        return;
-      }
-
-      // A POST's body is read before its route is looked up: an unknown route still refuses a malformed body
-      const body = await this.#readBoundedJsonBody(req);
-      const op = apiOperation("POST", pathname);
-      if (op === null) {
-        this.#sendJson(res, 404, {
-          ok: false,
-          errorCode: "NOT_FOUND",
-          message: `Unknown POST endpoint ${pathname}`,
-        });
-        return;
-      }
-      this.#sendJson(res, 200, await runOperation(this.#apiHandlers, op, body, { ...call, confirm: body["confirm"] === true }));
-    } catch (err) {
-      if (err instanceof HttpPayloadError) {
-        this.#sendJson(res, err.statusCode, {
-          ok: false,
-          errorCode: "BAD_PAYLOAD",
-          message: err.message,
-        } satisfies ApiErrorEnvelope);
-        return;
-      }
-      if (err instanceof CpeControlValidationError || err instanceof TimeSeriesValidationError) {
-        this.#sendJson(res, 400, {
-          ok: false,
-          errorCode: "VALIDATION_ERROR",
-          message: err.message,
-        } satisfies ApiErrorEnvelope);
-        return;
-      }
-      if (err instanceof BrowserSessionYieldedError) {
-        this.#sendJson(res, 409, {
-          ok: false,
-          errorCode: "BROWSER_SESSION_YIELDED",
-          message: err.messageZh,
-          messageEn: err.messageEn,
-          avoidance: this.core.scheduler.getAvoidanceState(),
-        } satisfies ApiErrorEnvelope);
-        return;
-      }
-      if (err instanceof CpeNotConfiguredError) {
-        this.#sendJson(res, 409, { ok: false, errorCode: "CPE_NOT_CONFIGURED", message: err.message } satisfies ApiErrorEnvelope);
-        return;
-      }
-      // The write gate: no implementation for this unverified model, or turned off by its owner; and a write never goes to a router whose model is unknown
-      if (err instanceof DeviceReadOnlyError) {
-        this.#sendJson(res, 409, {
-          ok: false,
-          errorCode: err.errorCode,
-          message: err.messageEn,
-          messageZh: err.messageZh,
-          model: err.model,
-          ...(err.feature ? { feature: err.feature } : {}),
-        } satisfies ApiErrorEnvelope);
-        return;
-      }
-      if (err instanceof DeviceNotIdentifiedError) {
-        this.#sendJson(res, 409, { ok: false, errorCode: "DEVICE_NOT_IDENTIFIED", message: err.messageEn, messageZh: err.messageZh } satisfies ApiErrorEnvelope);
-        return;
-      }
-      if (err instanceof PeerDaemonStandbyError) {
-        this.#sendJson(res, 409, {
-          ok: false,
-          errorCode: "PEER_DAEMON_ACTIVE",
-          message: err.message,
-          peerAddress: err.peerAddress,
-        } satisfies ApiErrorEnvelope);
-        return;
-      }
-      if (err instanceof CircuitBreakerOpenError) {
-        this.#sendJson(res, 423, {
-          ok: false,
-          errorCode: "CIRCUIT_BREAKER_OPEN",
-          message: err.message,
-          circuitBreaker: err.circuitBreaker,
-        } satisfies ApiErrorEnvelope);
-        return;
-      }
-      if (err instanceof SchedulerQueueFullError || err instanceof SchedulerStoppedError) {
-        this.#sendJson(res, 503, {
-          ok: false,
-          errorCode: "QUEUE_FULL",
-          message: err.message,
-        } satisfies ApiErrorEnvelope);
-        return;
-      }
-      this.#sendJson(res, 502, {
-        ok: false,
-        errorCode: "CPE_UPSTREAM_ERROR",
-        message: err instanceof Error ? err.message : String(err),
-      } satisfies ApiErrorEnvelope);
-    }
-  }
-
-  /** Delegate `/api/sms/*` to the SMS route module (errors bubble to the shared error mapping). */
-  async #dispatchSmsApi(
-    req: IncomingMessage,
-    res: ServerResponse,
-    method: string,
-    pathname: string,
-    searchParams: URLSearchParams
-  ): Promise<void> {
-    if (!this.#smsRoutes) {
-      this.#sendJson(res, 404, {
-        ok: false,
-        errorCode: "SMS_DISABLED",
-        message: "SMS features are disabled (SMS_ENABLED=false)",
-      });
-      return;
-    }
-    if (method !== "GET" && method !== "POST") {
-      this.#sendJson(res, 405, {
-        ok: false,
-        errorCode: "METHOD_NOT_ALLOWED",
-        message: `Method ${method} not allowed on ${pathname}`,
-      });
-      return;
-    }
-    const handled = await this.#smsRoutes.handle({
-      method,
-      pathname,
-      query: parseQueryNullProto(searchParams),
-      readJsonBody: (maxBytes) => this.#readBoundedJsonBody(req, maxBytes),
-      sendJson: (statusCode, body) => this.#sendJson(res, statusCode, body),
-    });
-    if (!handled) {
-      this.#sendJson(res, 404, {
-        ok: false,
-        errorCode: "NOT_FOUND",
-        message: `Unknown ${method} endpoint ${pathname}`,
-      });
-    }
   }
 
   async #handleMcpHttp(

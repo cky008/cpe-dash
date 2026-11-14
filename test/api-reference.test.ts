@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { FengSuiHttpServer } from "../src/http-server.ts";
+import { testHttpServer } from "./helpers/http-server.ts";
 import { FengSuiMcpServer } from "../src/mcp-server.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
@@ -15,7 +15,6 @@ import { EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { API_ERRORS, API_EVENTS, API_ROUTES, CONSOLE_ROUTE_PREFIXES, ERRORS_NOT_LISTED, apiRoutesSection, readBlock, replaceBlock, routePermission } from "../scripts/api-reference.ts";
 import { syncDocs } from "../scripts/sync-docs.ts";
-import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { createMockSmsCpe } from "./helpers/mock-sms-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { mockConnection } from "./helpers/connection.ts";
@@ -132,7 +131,7 @@ describe("the API reference in the guide", () => {
     const sseBus = new SseEventBus({ heartbeatMs: 2000 });
     sseBus.attachCore(core);
     sseBus.attachSms(sms);
-    const server = new FengSuiHttpServer({ config, core, sseBus, mcpServer: new FengSuiMcpServer({ allowMutations: false, core }), envPath, sms, settings: consoleSettingsFor(config) });
+    const server = testHttpServer({ config, core, sseBus, mcpServer: new FengSuiMcpServer({ allowMutations: false, core }), sms });
     const bound = await server.listen();
     const base = `http://${bound.host}:${bound.port}`;
     try {
