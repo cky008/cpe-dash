@@ -5,8 +5,8 @@ import { describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import type { FengSuiCore } from "../src/core.ts";
 import { FengSuiHttpServer } from "../src/http-server.ts";
-import { permissionForRoute } from "../src/operations/registry.ts";
 import { CELLULAR_OPERATIONS } from "../src/operations/cellular-settings.ts";
+import { operationFeatures, operationRecord, permissionForRoute, toolOperation } from "../src/operations/registry.ts";
 import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { McpToolDefinition } from "../src/mcp-tool-provider.ts";
@@ -239,10 +239,10 @@ describe("MCP: the cellular settings", () => {
       assert.equal(listed[0]?.annotations?.readOnlyHint, true);
       // Every write tool maps to one feature of the gate, and every feature has a tool
       const provider = new CellularMcpTools({ core: fx.core });
-      const features = provider.getToolDefinitions().flatMap((tool) => provider.routerWriteFeatures(tool.name));
+      const features = provider.getToolDefinitions().flatMap((tool) => operationFeatures(toolOperation(tool.name) ?? "cellular"));
       assert.deepEqual([...new Set(features)].sort(), [...CELLULAR_WRITE_FEATURES].sort());
-      assert.deepEqual(provider.routerWriteFeatures("get_cellular_settings"), []);
-      assert.equal(provider.isMutating("get_cellular_settings"), false);
+      assert.deepEqual(operationFeatures("cellular"), []);
+      assert.equal(operationRecord("cellular").access, "read");
       // A write its owner turned off leaves the list
       fx.core.scheduler.device.setDisabledWrites([{ model: "MC888", feature: "ussd" }]);
       assert.ok(!(await fx.tools()).some((tool) => tool.name === "send_ussd"));

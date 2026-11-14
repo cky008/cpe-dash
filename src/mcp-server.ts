@@ -8,6 +8,8 @@ import { type AgentExperimentalOptions, CoreMcpTools } from "./mcp-core-tools.ts
 import { MCP_META_PROTOCOL_VERSION, MCP_META_SERVER_INFO, decodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
 import { validateToolArguments } from "./mcp-schema.ts";
 import { McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";
+import type { OperationRecord } from "./operations/record.ts";
+import { mcpBinding, operationActions, operationRecord, toolOperation } from "./operations/registry.ts";
 import {
   type AvoidanceBroadcastPayload,
   BrowserSessionYieldedError,
@@ -126,13 +128,24 @@ function grantOf(access: boolean | ReadonlyArray<TokenPermission>): Grant {
   return access === true ? new Set(permissionsForScope("read")) : FULL_GRANT;
 }
 
-/** The permission a tool needs: the provider's word, else `control` for a write and none for a read. */
-function permissionFor(provider: McpToolProvider, toolName: string): TokenPermission | null {
-  return provider.requiredPermission ? provider.requiredPermission(toolName) : provider.isMutating(toolName) ? "control" : null;
+/** A tool's operation in the registry (`null`: no such tool). */
+function recordOf(toolName: string): OperationRecord | null {
+  const op = toolOperation(toolName);
+  return op === null ? null : operationRecord(op);
 }
 
-function mayUse(grant: Grant, provider: McpToolProvider, toolName: string): boolean {
-  const needed = permissionFor(provider, toolName);
+/** The permission a tool needs: its operation's. */
+function permissionFor(toolName: string): TokenPermission | null {
+  return recordOf(toolName)?.permission ?? null;
+}
+
+/** Whether a tool changes anything (the mutation switch and read-only tokens go by it). */
+function isMutating(toolName: string): boolean {
+  return recordOf(toolName)?.access === "write";
+}
+
+function mayUse(grant: Grant, toolName: string): boolean {
+  const needed = permissionFor(toolName);
   return needed === null || grant.has(needed);
 }
 
@@ -209,9 +222,9 @@ export class FengSuiMcpServer {
     return this.toolProviders.flatMap((p) =>
       p
         .getToolDefinitions()
-        .filter((tool) => mayUse(grant, p, tool.name) && (this.allowMutations || !p.isMutating(tool.name)) && (p.isAvailable?.(tool.name) ?? true))
+        .filter((tool) => mayUse(grant, tool.name) && (this.allowMutations || !isMutating(tool.name)) && this.#hasWhatItNeeds(tool.name) && (p.isAvailable?.(tool.name) ?? true))
         .flatMap((tool) => {
-          const shown = this.#onThisRouter(p, tool);
+          const shown = this.#onThisRouter(tool);
           return shown.definition ? [shown.definition] : [];
         })
     );
@@ -224,35 +237,31 @@ export class FengSuiMcpServer {
    * generic form, marked experimental (or verified by users) and asking for `confirm: true`;
    * `refused` names the first feature that is not open, and `disabled` whether its owner turned it off.
    */
-  #onThisRouter(provider: McpToolProvider, tool: McpToolDefinition): { definition: McpToolDefinition | null; refused: WriteFeature | null; disabled: boolean } {
+  #onThisRouter(tool: McpToolDefinition): { definition: McpToolDefinition | null; refused: WriteFeature | null; disabled: boolean } {
     const device = this.#scheduler.device;
-    if (!isRouterWrite(provider, tool.name) || device.writes !== "experimental") return { definition: tool, refused: null, disabled: false };
-    const needs = [
-      ...(provider.routerWriteFeatures?.(tool.name) ?? []).map((feature) => ({ feature, access: device.writeAccess(feature) })),
-      ...(provider.routerWriteActions?.(tool.name) ?? []).map((action) => ({ feature: CONTROL_FEATURES[action] as WriteFeature, access: device.actionAccess(action) })),
-    ];
+    const op = toolOperation(tool.name);
+    const actions = op === null ? [] : operationActions(op);
+    if (actions.length === 0 || device.writes !== "experimental") return { definition: tool, refused: null, disabled: false };
+    const needs = actions.map((action) => ({ feature: CONTROL_FEATURES[action] as WriteFeature, access: device.actionAccess(action) }));
     const closed = needs.find((need) => gateRefuses(need.access)) ?? null;
-    if (needs.length === 0 || closed) return { definition: null, refused: closed?.feature ?? null, disabled: closed?.access === "disabled" };
+    if (closed) return { definition: null, refused: closed.feature, disabled: closed.access === "disabled" };
     const experimental = needs.some((need) => need.access === "experimental");
     const model = device.snapshot().model ?? "?";
-    const generic = provider.adaptForGenericWrite?.(tool, { lteBands: device.experimentalLteBands }) ?? tool;
-    const required = generic.inputSchema.required ?? [];
+    const generic = (op === null ? undefined : mcpBinding(op).onUnverified?.(tool, { lteBands: device.experimentalLteBands })) ?? tool;
     return {
       refused: null,
       disabled: false,
       definition: {
         ...generic,
         description: `${experimental ? "EXPERIMENTAL" : "VERIFIED BY USERS"} on this router (${model}, a model FengSui was not verified on${experimental ? "; FengSui sends this write once, in the form its interface notes give, and reads every result back" : ""}): ${generic.description} Pass confirm: true only when the user explicitly asked for this exact change.`,
-        inputSchema: {
-          ...generic.inputSchema,
-          properties: {
-            ...generic.inputSchema.properties,
-            confirm: generic.inputSchema.properties["confirm"] ?? { type: "boolean", description: "Must be true: a write on a model FengSui was not verified on." },
-          },
-          required: required.includes("confirm") ? required : [...required, "confirm"],
-        },
       },
     };
+  }
+
+  /** The part of the router a tool's operation needs: where the router turned out not to have it, the tool is not listed. */
+  #hasWhatItNeeds(toolName: string): boolean {
+    const section = recordOf(toolName)?.section;
+    return section === undefined || !this.#scheduler.device.skips(section);
   }
 
   isSupportedProtocolVersion(version: string | undefined): boolean {
@@ -491,15 +500,15 @@ export class FengSuiMcpServer {
 
     const provider = this.toolProviders.find((p) => p.handles(toolName));
     if (provider) this.#onToolCall?.(toolName);
-    const needed = provider ? permissionFor(provider, toolName) : null;
+    const needed = provider ? permissionFor(toolName) : null;
     if (provider && needed !== null && !grant.has(needed)) {
       // A token that may change nothing keeps the old answer; another one is told what it lacks
       const changesNothing = [...grant].every((permission) => permission === "sms-read");
-      return provider.isMutating(toolName) && changesNothing
+      return isMutating(toolName) && changesNothing
         ? wrapErr("READ_ONLY_TOKEN", "This Bearer token is read-only; mutating tools need a token allowed to make the change (set in the console under Settings → Tokens)")
         : wrapErr("TOKEN_NOT_PERMITTED", `This token may not use ${toolName}: it needs the "${needed}" permission (set in the console under Settings → Tokens)`, { permission: needed });
     }
-    if (provider?.isMutating(toolName) && !this.allowMutations) {
+    if (provider && isMutating(toolName) && !this.allowMutations) {
       return wrapErr(
         "MUTATIONS_DISABLED",
         "Mutating MCP tools are disabled by server configuration (MCP_ALLOW_MUTATIONS=false)"
@@ -508,7 +517,7 @@ export class FengSuiMcpServer {
     // The write gate, before anything else touches the call (the scheduler refuses it as well); the
     // tool's contract is the one this router shows (an experimental write asks for confirm)
     const listed = provider?.getToolDefinitions().find((tool) => tool.name === toolName);
-    const shown = provider && listed ? this.#onThisRouter(provider, listed) : null;
+    const shown = provider && listed ? this.#onThisRouter(listed) : null;
     if (provider && listed && shown?.definition === null) {
       const refused = new DeviceReadOnlyError(this.#scheduler.device.snapshot().model ?? "?", shown.refused, shown.disabled);
       return wrapErr(refused.errorCode, refused.messageEn, { messageZh: refused.messageZh, model: refused.model, feature: refused.feature });
@@ -570,9 +579,6 @@ export class FengSuiMcpServer {
   }
 }
 
-function isRouterWrite(provider: McpToolProvider, toolName: string): boolean {
-  return provider.isRouterWrite?.(toolName) ?? provider.isMutating(toolName);
-}
 
 class McpProtocolRpcError extends Error {
   readonly code: number;

@@ -235,3 +235,21 @@ export async function runOperation<Ops extends OperationName, Call, Result>(hand
   const handler = handlers[op] as (input: unknown, call: Call) => Result | Promise<Result>;
   return await handler(input, call);
 }
+
+/** A provider's MCP handlers: one for each tool in its list, taking the tool's checked input (and its arguments as sent). */
+export type ToolHandlers<P extends McpProvider> = {
+  readonly [O in ProviderOperation<P>]: (input: ToolInputOf<O>, args: Fields) => Record<string, unknown> | Promise<Record<string, unknown>>;
+};
+
+/** The operation of this provider a tool name names (`null`: none of its tools). */
+export function providerOperation<P extends McpProvider>(provider: P, tool: string): ProviderOperation<P> | null {
+  const op = toolOperation(tool);
+  return op !== null && (MCP_TOOLS[provider] as ReadonlyArray<McpOperation>).includes(op) ? (op as ProviderOperation<P>) : null;
+}
+
+/** Check a tool's arguments with its input check, then run its handler. */
+export async function runTool<P extends McpProvider>(handlers: ToolHandlers<P>, op: ProviderOperation<P>, args: Fields): Promise<Record<string, unknown>> {
+  const input = toolInput(op, args);
+  const handler = handlers[op] as (input: unknown, args: Fields) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  return await handler(input, args);
+}
