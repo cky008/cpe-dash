@@ -106,7 +106,7 @@ describe("brand: the master logo and how the console uses it", () => {
     const build = fs.readFileSync("scripts/build-web.ts", "utf8");
     assert.match(build, /injectBrand\(fs\.readFileSync\(path\.join\(WEB, "index\.html"\), "utf8"\), brand\)/);
     assert.match(build, /writeFileSync\(path\.join\(OUT, "favicon\.svg"\), brand\.svg\)/);
-    assert.match(fs.readFileSync("Dockerfile", "utf8"), /COPY scripts\/build-web\.ts scripts\/brand\.ts \.\/scripts\//);
+    assert.match(fs.readFileSync("Dockerfile", "utf8"), /^COPY scripts\/build-web\.ts (?:scripts\/[a-z-]+\.ts )*scripts\/brand\.ts (?:scripts\/[a-z-]+\.ts )*\.\/scripts\/$/m);
   });
 
   it("colours the arcs from the theme, with shares for light and dark schemes", () => {
