@@ -28,8 +28,6 @@ import { mockConnection } from "./helpers/connection.ts";
  */
 
 const read = (file: string): string => fs.readFileSync(file, "utf8");
-/** The route strings of the three route modules, as test/contract-manifest.test.ts reads them. */
-const CODE_ROUTES = new Set(["src/http-server.ts", "src/http-settings.ts", ...fs.readdirSync("src/operations").map((file) => `src/operations/${file}`)].flatMap((file) => [...read(file).matchAll(/"(\/api\/[a-z0-9/_-]+?)\/?"/g)].map((m) => m[1] ?? "")));
 
 function unionMembers(source: string, start: string): string[] {
   // Comments may hold a ";" of their own: the union ends at the first one outside them
@@ -42,16 +40,11 @@ describe("the API reference in the guide", () => {
     assert.deepEqual(syncDocs(process.cwd(), true), [], "run npm run docs:sync");
   });
 
-  it("lists every route the daemon serves to tokens, and only those", () => {
+  it("lists each route of the operation registry once, none of the console's own", () => {
     const listed = new Set(API_ROUTES.map((route) => route.path));
     assert.equal(listed.size + API_ROUTES.filter((r) => r.path === "/api/sms/contacts").length - 1, API_ROUTES.length, "each path once (GET and POST of one path aside)");
     const isConsole = (p: string): boolean => CONSOLE_ROUTE_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
-    // A string that is only the start of listed routes (`/api/sms`, `/api/control`) is a prefix check in the router, not a route
-    const isPrefix = (p: string): boolean => [...listed].some((route) => route.startsWith(`${p}/`));
-    const unlisted = [...CODE_ROUTES].filter((p) => !listed.has(p) && !isConsole(p) && !isPrefix(p));
-    assert.deepEqual(unlisted, [], "describe these in scripts/api-reference.ts");
-    const gone = [...listed].filter((p) => p !== "/metrics" && !CODE_ROUTES.has(p));
-    assert.deepEqual(gone, [], "these are no longer in the code");
+    assert.deepEqual([...listed].filter(isConsole), []);
     assert.ok(read("src/http-server.ts").includes('pathname === "/metrics"'));
   });
 

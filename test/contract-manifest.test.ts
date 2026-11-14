@@ -2,21 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { StorageCipher } from "../src/encrypted-file.ts";
-import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
-import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
-import { CoreMcpTools } from "../src/mcp-core-tools.ts";
-import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
-import { ContactBook } from "../src/sms/contacts.ts";
-import { SmsMcpTools } from "../src/sms/mcp-tools.ts";
-import { SmsMirrorStore } from "../src/sms/mirror.ts";
-import { SmsService } from "../src/sms/service.ts";
-import { EncryptedStateStore } from "../src/state-store.ts";
-import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
-import { createStrictCpe } from "./helpers/strict-cpe.ts";
-import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
-import { mockConnection } from "./helpers/connection.ts";
+import { type McpOperation, OPERATION_NAMES, REST_OPERATIONS, operationRecord, restBinding, toolDefinition } from "../src/operations/registry.ts";
 
 /**
  * Contract manifest (ADR-008): what the code exposes, read from the code itself, must be documented.
@@ -56,43 +42,10 @@ function missing(names: Iterable<string>, docs: Record<string, string>, quote = 
 }
 
 describe("contract manifest: code ↔ docs", () => {
-  it("documents every MCP tool, with every provider at its widest exposure", async () => {
-    const cpe = createStrictCpe();
-    const dir = tempDir("fengsui-manifest-");
-    const core = createFengSuiCore({
-      connection: mockConnection(cpe),
-      stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "manifest_key" }),
-      timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
-    });
-    try {
-      const cipher = StorageCipher.fromSecret("manifest_key");
-      const contacts = new ContactBook({ filePath: path.join(dir, "contacts.json"), cipher, defaultCountryCode: "+353" });
-      const mirror = new SmsMirrorStore({ filePath: path.join(dir, "sms.json"), cipher, defaultCountryCode: "+353", contacts });
-      const sms = new SmsService({ scheduler: core.scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353" });
-      const server = new FengSuiMcpServer({
-        core,
-        allowMutations: true,
-        experimental: { allowed: () => true, change: () => ({ ok: true, detail: "" }) },
-        toolProviders: [
-          new AccessControlMcpTools({ core, allowWrites: true, redactSensitive: () => false }),
-          new CellularMcpTools({ core }),
-          new SmsMcpTools({ sms, access: "full", sendPolicy: "known", sendLimitPerHour: 10 }),
-        ],
-      });
-      const reply = (await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }))) as JsonRpcSuccessResponse;
-      // Plus the tools listed only on some routers (set_experimental_write: a model nobody verified; the
-      // cellular settings: where FengSui implements them, which is not the verified model)
-      const tools = [
-        ...((reply.result as { tools: Array<{ name: string }> }).tools ?? []).map((t) => t.name),
-        ...new CoreMcpTools(core).getToolDefinitions().map((t) => t.name),
-        ...new CellularMcpTools({ core }).getToolDefinitions().map((t) => t.name),
-      ];
-      assert.ok(new Set(tools).size >= 42, `found ${new Set(tools).size} tools`);
-      assert.deepEqual(missing(tools, { "docs/dev/api.md": CONTRACT, ...GUIDE_AGENTS }), []);
-    } finally {
-      await stopFengSuiCore(core);
-      removeTempDir(dir);
-    }
+  it("documents every MCP tool of the operation registry", () => {
+    const tools = OPERATION_NAMES.flatMap((op) => (operationRecord(op).mcp ? [toolDefinition(op as McpOperation).name] : []));
+    assert.ok(tools.length >= 42, `found ${tools.length} tools`);
+    assert.deepEqual(missing(tools, { "docs/dev/api.md": CONTRACT, ...GUIDE_AGENTS }), []);
   });
 
   it("lists every alert code the daemon raises in the contract's AlertCode union", () => {
@@ -114,8 +67,8 @@ describe("contract manifest: code ↔ docs", () => {
     assert.deepEqual(missing(events, { "docs/dev/api.md": CONTRACT }), []);
   });
 
-  it("documents every REST route in the contract", () => {
-    const routes = ["src/http-server.ts", "src/http-settings.ts", ...fs.readdirSync("src/operations").map((file) => `src/operations/${file}`)].flatMap((file) => matchesIn(read(file), /"(\/api\/[a-z0-9/_-]+?)\/?"/g));
+  it("documents every REST route in the contract: the registry's, and the console's own", () => {
+    const routes = [...REST_OPERATIONS.map((op) => restBinding(op).path), ...["src/http-server.ts", "src/http-settings.ts"].flatMap((file) => matchesIn(read(file), /"(\/api\/[a-z0-9/_-]+?)\/?"/g))];
     assert.ok(routes.length >= 40, `found ${routes.length} routes`);
     assert.deepEqual(missing(routes, { "docs/dev/api.md": CONTRACT }, false), []);
   });

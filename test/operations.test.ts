@@ -1,5 +1,22 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, it } from "node:test";
+import { API_ROUTES, CONSOLE_ROUTE_PREFIXES } from "../scripts/api-reference.ts";
+import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
+import { StorageCipher } from "../src/encrypted-file.ts";
+import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
+import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
+import { CoreMcpTools } from "../src/mcp-core-tools.ts";
+import type { McpToolProvider } from "../src/mcp-tool-provider.ts";
+import { ContactBook } from "../src/sms/contacts.ts";
+import { SmsMcpTools } from "../src/sms/mcp-tools.ts";
+import { SmsMirrorStore } from "../src/sms/mirror.ts";
+import { SmsService } from "../src/sms/service.ts";
+import { EncryptedStateStore } from "../src/state-store.ts";
+import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
+import { mockConnection } from "./helpers/connection.ts";
+import { createStrictCpe } from "./helpers/strict-cpe.ts";
+import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { CONTROL_FEATURES, type ControlAction } from "../src/features.ts";
 import {
   MCP_TOOLS,
@@ -101,5 +118,50 @@ describe("the operation registry", () => {
       ["POST", "/api/console/cpe", "all"],
     ];
     for (const [method, pathname, needed] of cases) assert.equal(permissionForRoute(method, pathname), needed, `${method} ${pathname}`);
+  });
+});
+
+describe("the entries take what they offer from the registry", () => {
+  it("lists each provider's tools exactly as the registry defines them, in its order", async () => {
+    const dir = tempDir("fengsui-operations-");
+    const core = createFengSuiCore({
+      connection: mockConnection(createStrictCpe()),
+      stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "operations_key" }),
+      timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
+    });
+    const cipher = StorageCipher.fromSecret("operations_key");
+    const contacts = new ContactBook({ filePath: path.join(dir, "contacts.json"), cipher, defaultCountryCode: "+353" });
+    const mirror = new SmsMirrorStore({ filePath: path.join(dir, "sms.json"), cipher, defaultCountryCode: "+353", contacts });
+    const sms = new SmsService({ scheduler: core.scheduler, monitor: core.monitor, mirror, contacts, defaultCountryCode: "+353" });
+    try {
+      const listed = (provider: McpToolProvider) => provider.getToolDefinitions();
+      const defined = (ops: ReadonlyArray<McpOperation>) => ops.map(toolDefinition);
+      assert.deepEqual(listed(new CoreMcpTools(core)), defined(MCP_TOOLS.core));
+      assert.deepEqual(listed(new AccessControlMcpTools({ core, allowWrites: true })), defined(MCP_TOOLS.access));
+      assert.deepEqual(listed(new AccessControlMcpTools({ core, allowWrites: false })), defined(MCP_TOOLS.access.filter((op) => operationRecord(op).access === "read")));
+      assert.deepEqual(listed(new CellularMcpTools({ core })), defined(MCP_TOOLS.cellular));
+      assert.deepEqual(listed(new SmsMcpTools({ sms, access: "full", sendPolicy: "known", sendLimitPerHour: 10 })), defined(MCP_TOOLS.sms));
+      assert.deepEqual(listed(new SmsMcpTools({ sms, access: "read", sendPolicy: "known", sendLimitPerHour: 10 })), defined(MCP_TOOLS.sms.filter((op) => operationRecord(op).access === "read")));
+      assert.deepEqual(listed(new SmsMcpTools({ sms, access: "none", sendPolicy: "known", sendLimitPerHour: 10 })), []);
+      // Each provider takes exactly the tools of its list
+      for (const [provider, ops] of [
+        [new CoreMcpTools(core), MCP_TOOLS.core],
+        [new AccessControlMcpTools({ core, allowWrites: true }), MCP_TOOLS.access],
+        [new CellularMcpTools({ core }), MCP_TOOLS.cellular],
+        [new SmsMcpTools({ sms, access: "full", sendPolicy: "known", sendLimitPerHour: 10 }), MCP_TOOLS.sms],
+      ] as const) {
+        const ownNames = new Set<string>(ops.map((op) => toolDefinition(op).name));
+        for (const op of MCP_OPERATIONS) assert.equal(provider.handles(toolDefinition(op).name), ownNames.has(toolDefinition(op).name), toolDefinition(op).name);
+      }
+    } finally {
+      await sms.stop();
+      await stopFengSuiCore(core);
+      removeTempDir(dir);
+    }
+  });
+
+  it("gives the API reference exactly the registry's routes, none of the console's own", () => {
+    assert.deepEqual(API_ROUTES, REST_OPERATIONS.map(restBinding));
+    for (const route of API_ROUTES) assert.ok(!CONSOLE_ROUTE_PREFIXES.some((prefix) => route.path === prefix || route.path.startsWith(`${prefix}/`)), route.path);
   });
 });
