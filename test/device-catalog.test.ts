@@ -5,24 +5,20 @@ import {
   CATALOG_SECTIONS,
   DEVICE_CATALOG,
   MODEL_FACTS,
-  MODULES,
-  UNSUPPORTED_FEATURES,
-  type UnsupportedFeature,
   ZTE_DEVELOPER_OPTION_MODELS,
   catalogMatches,
   deviceSupportRow,
   displayName,
-  familyImplements,
   findCatalogModel,
   primaryFamily,
   supportMark,
   supportedDevicesSection,
 } from "../src/device-catalog.ts";
-import { DEVICE_FEATURES, STATUS_READ_FEATURES, type StatusReadFeature, isCellularWriteFeature } from "../src/features.ts";
+import { DEVICE_FEATURES, STATUS_READ_FEATURES, type StatusReadFeature, isCellularWriteFeature, FEATURE_COLUMNS } from "../src/features.ts";
 import { zteBranch } from "../src/drivers/zte/goform.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
-import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
-import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily } from "../src/router-family.ts";
+import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, UNSUPPORTED_FEATURES, type UnsupportedFeature } from "../src/firmware.ts";
+import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily, familyImplements } from "../src/router-family.ts";
 
 /**
  * The "Supported devices" guide page: one row per model the interface notes record, by brand, each
@@ -68,7 +64,7 @@ function rows(text: string, section?: string): string[][] {
 /** A model's marks, one per module (the columns after model, form and, where shown, interface). */
 function marksOf(text: string, section: string, model: string): string[] | undefined {
   const row = rows(text, section).find((cells) => cells[0] === model);
-  return row?.slice(row.length - 1 - MODULES.length, row.length - 1);
+  return row?.slice(row.length - 1 - FEATURE_COLUMNS.length, row.length - 1);
 }
 
 const sameName = (name: string): string => name.toUpperCase().replace(/\s+/g, " ").trim();
@@ -123,8 +119,8 @@ describe("the supported devices guide page", () => {
   });
 
   it("gives every feature of the console one column", () => {
-    assert.deepEqual(MODULES.flatMap((module) => module.features).sort(), [...DEVICE_FEATURES].sort(), "every feature in exactly one module");
-    for (const module of MODULES) assert.equal(module.parts === undefined, module.features.length === 1, `${module.en}: a module of several features names them`);
+    assert.deepEqual(FEATURE_COLUMNS.flatMap((module) => module.features).sort(), [...DEVICE_FEATURES].sort(), "every feature in exactly one module");
+    for (const module of FEATURE_COLUMNS) assert.equal(module.parts === undefined, module.features.length === 1, `${module.en}: a module of several features names them`);
   });
 
   it("marks the verified model ✓ throughout, and another HiLink model from what FengSui does on it", () => {
@@ -133,10 +129,10 @@ describe("the supported devices guide page", () => {
     // has no battery); of the writes, the ones checked on it in person are filed (issue #3: the mode and
     // the operator ✓, roaming and the counters but no APN or limit △, USSD switched off —), the rest is
     // not done on it; everything else is verified
-    const later = MODULES.map((module) => module.features.every((feature) => STATUS_READ_FEATURES.includes(feature as StatusReadFeature) || isCellularWriteFeature(feature)));
+    const later = FEATURE_COLUMNS.map((module) => module.features.every((feature) => STATUS_READ_FEATURES.includes(feature as StatusReadFeature) || isCellularWriteFeature(feature)));
     assert.deepEqual(later.filter(Boolean).length, 6);
     const filed: Readonly<Record<string, string>> = { battery: "—", networkMode: "✓", roaming: "△", ussd: "—" };
-    assert.deepEqual(rows(en, "huawei")[0], ["H168-383", "Indoor CPE", ...MODULES.map((module, i) => (!later[i] ? "✓" : (filed[module.features[0] ?? ""] ?? ""))), ""], "the verified model: verified, and the cellular settings checked on it");
+    assert.deepEqual(rows(en, "huawei")[0], ["H168-383", "Indoor CPE", ...FEATURE_COLUMNS.map((module, i) => (!later[i] ? "✓" : (filed[module.features[0] ?? ""] ?? ""))), ""], "the verified model: verified, and the cellular settings checked on it");
     assert.match(en, /- △ Data settings: data roaming and clearing the traffic counters only; FengSui does not do the access point \(APN\) and the data limit here yet \(every model in this table\)/);
     // Generic reads and writes ?, band lock and nearby cells △ (their conditions under the table), what
     // FengSui writes on the verified model only stays empty
@@ -174,18 +170,18 @@ describe("the supported devices guide page", () => {
     assert.equal(marksOf(zh, "pinsu", "R200C")?.[6], "△");
     assert.match(zh, /- △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（这一节的全部型号）。/);
     // Never — for "not done yet": only where the hardware is missing (a battery) or a report says the router lacks it
-    const battery = 2 + MODULES.findIndex((module) => module.features.includes("battery"));
+    const battery = 2 + FEATURE_COLUMNS.findIndex((module) => module.features.includes("battery"));
     const reported = (model: string | undefined): number[] =>
-      UNSUPPORTED_FEATURES.filter((e) => e.model === model).map((e) => 2 + MODULES.findIndex((module) => module.features.includes(e.feature)));
+      UNSUPPORTED_FEATURES.filter((e) => e.model === model).map((e) => 2 + FEATURE_COLUMNS.findIndex((module) => module.features.includes(e.feature)));
     for (const cells of rows(supportedDevicesSection("en"))) {
-      const offset = cells.length - MODULES.length - 3;
+      const offset = cells.length - FEATURE_COLUMNS.length - 3;
       const allowed = [battery, ...reported(cells[0])].map((column) => column + offset);
       cells.forEach((cell, i) => assert.ok(cell !== "—" || allowed.includes(i), `${cells[0]}: — outside the Battery column and what a report says it lacks`));
     }
     // The one feature reported missing: USSD, which the H168-383 reports switched off (issue #3)
     assert.deepEqual(UNSUPPORTED_FEATURES, [{ family: "huawei", model: "H168-383", feature: "ussd", issue: 3 }]);
     // Nothing implemented: the whole row stays empty
-    assert.deepEqual(marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-2000M"), MODULES.map(() => ""));
+    assert.deepEqual(marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-2000M"), FEATURE_COLUMNS.map(() => ""));
   });
 
   it("writes what is particular to a model as a fact, and the generator turns each into △ and a note under its brand's table", () => {

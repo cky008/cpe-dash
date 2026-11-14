@@ -1,10 +1,7 @@
-import type { DeviceFeature } from "./features.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { UNSUPPORTED_FEATURES, type UnsupportedFeature, VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedModel, reportVerifiedModels } from "./firmware.ts";
+import { type DeviceFeature, FEATURE_COLUMNS, type FeatureColumn, featureAccess, isCellularWriteFeature, isStatusReadFeature } from "./features.ts";
 import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, familyImplements, routerVariant } from "./router-family.ts";
-import { STATUS_READ_FEATURES, isCellularWriteFeature, isStatusReadFeature } from "./features.ts";
-
-export { UNSUPPORTED_FEATURES, type UnsupportedFeature, familyImplements };
 import type { SupportedLocale } from "./types.ts";
 
 /**
@@ -589,47 +586,6 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
 ];
 
-/** Features read rather than written: a verified read of one makes it ✓. */
-export const READ_FEATURES: ReadonlySet<DeviceFeature> = new Set<DeviceFeature>(["telemetry", "neighbors", "topology", "smsRead", ...STATUS_READ_FEATURES]);
-
-interface Module {
-  zh: string;
-  en: string;
-  features: ReadonlyArray<DeviceFeature>;
-  /** How a note names each feature of a module of more than one. */
-  parts?: { zh: ReadonlyArray<string>; en: ReadonlyArray<string> };
-}
-
-/** The table's columns: the console's modules, each with the features it covers (every feature once). */
-export const MODULES: ReadonlyArray<Module> = [
-  { zh: "信号与流量", en: "Signal & traffic", features: ["telemetry"] },
-  { zh: "附近的基站", en: "Nearby cells", features: ["neighbors"] },
-  { zh: "已连接设备", en: "Connected devices", features: ["topology"] },
-  { zh: "短信", en: "SMS", features: ["smsRead", "smsWrite"], parts: { zh: ["读取", "发送与管理"], en: ["reading", "sending and managing"] } },
-  { zh: "锁频段", en: "Band lock", features: ["bandLock"] },
-  { zh: "锁小区", en: "Cell lock", features: ["cellLock"] },
-  { zh: "重启与重拨", en: "Reboot & redial", features: ["reboot", "reconnect"], parts: { zh: ["重启", "重拨"], en: ["reboot", "redial"] } },
-  { zh: "移动数据", en: "Mobile data", features: ["mobileData"] },
-  {
-    zh: "路由器开关",
-    en: "Router switches",
-    features: ["securitySwitches", "wifi", "antenna"],
-    parts: { zh: ["安全开关", "Wi-Fi 7", "天线"], en: ["the security switches", "Wi-Fi 7", "the antenna"] },
-  },
-  { zh: "访问控制", en: "Access control", features: ["accessControl"] },
-  { zh: "电池", en: "Battery", features: ["battery"] },
-  { zh: "SIM 卡", en: "SIM card", features: ["simCard", "simSlot", "simPin"], parts: { zh: ["状态", "切换卡槽", "PIN"], en: ["its status", "switching slots", "the PIN"] } },
-  { zh: "飞行模式", en: "Airplane mode", features: ["airplaneMode", "airplaneSwitch"], parts: { zh: ["状态", "开关"], en: ["its state", "the switch"] } },
-  { zh: "网络制式与选网", en: "Network mode & operator", features: ["networkMode", "operatorSelect"], parts: { zh: ["网络制式", "手动选网"], en: ["the network mode", "choosing the operator"] } },
-  {
-    zh: "数据设置",
-    en: "Data settings",
-    features: ["roaming", "apn", "dataLimit", "trafficReset"],
-    parts: { zh: ["数据漫游", "接入点（APN）", "流量上限", "清零流量统计"], en: ["data roaming", "the access point (APN)", "the data limit", "clearing the traffic counters"] },
-  },
-  { zh: "USSD", en: "USSD", features: ["ussd"] },
-];
-
 const FORM_LABELS: Readonly<Record<DeviceForm, { zh: string; en: string }>> = {
   indoor: { zh: "室内 CPE", en: "Indoor CPE" },
   outdoor: { zh: "室外 CPE", en: "Outdoor CPE" },
@@ -742,7 +698,7 @@ function featureMark(subject: Subject, feature: DeviceFeature, records: Records)
   if (verifiedModel && !isCellularWriteFeature(feature) && !isStatusReadFeature(feature)) return { mark: "✓", facts: [] };
   const family = subject.family;
   if (family === null) return { mark: "", facts: [] };
-  const access = READ_FEATURES.has(feature) ? "read" : "write";
+  const access = featureAccess(feature);
   if (records.unsupported.some((e) => e.family === family && e.feature === feature && named(subject, e.model))) return { mark: "—", facts: [] };
   if (records.verified.some((e) => e.family === family && e.feature === feature && e.access === access && named(subject, e.model))) return { mark: "✓", facts: [] };
   if (verifiedModel && isCellularWriteFeature(feature)) return { mark: "", facts: [] };
@@ -771,7 +727,7 @@ interface ModuleCell {
  * A module's cell: one mark when its features agree; △ when FengSui does some of them and nothing yet
  * for the others (a note names which); else each feature's mark in order (`✓/?`).
  */
-function moduleCell(module: Module, marks: ReadonlyArray<FeatureMark>): ModuleCell {
+function moduleCell(module: FeatureColumn, marks: ReadonlyArray<FeatureMark>): ModuleCell {
   const notes: Note[] = [];
   for (const { facts } of marks) for (const fact of facts) if (!notes.some((n) => n.zh === fact.zh)) notes.push({ zh: fact.zh, en: fact.en });
   const set = [...new Set(marks.map((m) => m.mark))];
@@ -807,7 +763,7 @@ interface Row {
 }
 
 function rowOf(subject: Subject, display: string, records: Records): Row {
-  const cells = MODULES.map((module) =>
+  const cells = FEATURE_COLUMNS.map((module) =>
     moduleCell(
       module,
       module.features.map((feature) => featureMark(subject, feature, records))
@@ -870,7 +826,7 @@ export function deviceSupportRow(
   const row = rowOf(subject, entry ? displayName(entry) : (model ?? ""), { verified, unsupported });
   const notes: Note[] = [];
   row.cells.forEach((cell, i) => {
-    const module = MODULES[i];
+    const module = FEATURE_COLUMNS[i];
     if (!module || (cell.mark !== "△" && cell.mark !== "—" && !cell.mixed)) return;
     for (const note of cell.notes) notes.push({ zh: `${module.zh}：${note.zh}`, en: `${module.en}: ${note.en}` });
   });
@@ -879,7 +835,7 @@ export function deviceSupportRow(
     family,
     model: entry ? displayName(entry) : null,
     section: entry?.section ?? FAMILY_SECTION[family],
-    modules: MODULES.map((module, i) => ({ zh: module.zh, en: module.en, mark: row.cells[i]?.mark ?? "" })),
+    modules: FEATURE_COLUMNS.map((module, i) => ({ zh: module.zh, en: module.en, mark: row.cells[i]?.mark ?? "" })),
     notes,
   };
 }
@@ -944,7 +900,7 @@ function sectionNotes(rows: ReadonlyArray<Row>, lang: Lang): string[] {
   };
   for (const row of rows) {
     row.cells.forEach((cell, i) => {
-      const module = MODULES[i];
+      const module = FEATURE_COLUMNS[i];
       if (!module || (cell.mark !== "△" && cell.mark !== "—" && !cell.mixed)) return;
       for (const note of cell.notes) add(note, row, lang === "zh" ? module.zh : module.en, cell.mark === "—" ? "—" : "△");
     });
@@ -969,10 +925,10 @@ function sectionTable(section: CatalogSection, records: Records, lang: Lang): { 
     lang === "zh" ? "型号" : "Model",
     lang === "zh" ? "形态" : "Form",
     ...(showInterface ? [lang === "zh" ? "接口" : "Interface"] : []),
-    ...MODULES.map((module) => module[lang]),
+    ...FEATURE_COLUMNS.map((module) => module[lang]),
     lang === "zh" ? "实测反馈" : "Your results",
   ];
-  const lines = [`| ${header.join(" | ")} |`, `| :--- | :--- |${showInterface ? " :--- |" : ""} ${MODULES.map(() => ":---:").join(" | ")} | :--- |`];
+  const lines = [`| ${header.join(" | ")} |`, `| :--- | :--- |${showInterface ? " :--- |" : ""} ${FEATURE_COLUMNS.map(() => ":---:").join(" | ")} | :--- |`];
   for (const row of rows) {
     if (row.cells.some((cell) => cell.mixed)) mixed = true;
     const form = row.subject.form ? FORM_LABELS[row.subject.form][lang] : "";
@@ -1013,11 +969,11 @@ export function supportedDevicesSection(
     return found ? displayName(found) : entry.model;
   });
   const reportSentence = byReports.length === 0 ? "" : en ? ` Reports confirmed every feature FengSui does on the ${joinAll(byReports, true)}, which therefore count as verified too.` : `${joinAll(byReports, false)} 上烽燧做的每项功能都有真机报告确认过，也算验证过的型号。`;
-  const switches = MODULES.find((module) => module.features.includes("securitySwitches"))?.parts;
-  const split = MODULES.filter((module) => module.features.length > 1);
+  const switches = FEATURE_COLUMNS.find((module) => module.features.includes("securitySwitches"))?.parts;
+  const split = FEATURE_COLUMNS.filter((module) => module.features.length > 1);
   const anyUnsupported = tables.some((table) => table.unsupported);
   // The columns of the status reads and the cellular settings, which the verified model's verification does not cover
-  const later = MODULES.filter((module) => module.features.every((feature) => isStatusReadFeature(feature) || isCellularWriteFeature(feature)));
+  const later = FEATURE_COLUMNS.filter((module) => module.features.every((feature) => isStatusReadFeature(feature) || isCellularWriteFeature(feature)));
   const laterZh = later.map((module) => `「${module.zh}」`).join("、");
   const laterEn = joinAll(later.map((module) => module.en), true);
   const legend = en

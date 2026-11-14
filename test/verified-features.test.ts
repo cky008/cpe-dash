@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { type DeviceProfile } from "../src/device-profile.ts";
-import { DEVICE_FEATURES, isCellularWriteFeature, isStatusReadFeature } from "../src/features.ts";
+import { DEVICE_FEATURES, isCellularWriteFeature, isStatusReadFeature, FEATURE_COLUMNS } from "../src/features.ts";
 import { DeviceAccess } from "../src/device-access.ts";
-import { MODULES, deviceSupportRow, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
+import { deviceSupportRow, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
 import type { SchedulerStatusSnapshot } from "../src/scheduler.ts";
 import { experimentalOffer, experimentalWrites, reportVerified, unconfirmedWrite } from "../web/src/core/device-access-view.ts";
 import { WRITE_STATE_KEYS, verificationNotice, writesText } from "../web/src/core/device-view.ts";
@@ -81,7 +81,7 @@ describe("verified features of other models", () => {
         ?.slice(1, -1)
         .split("|")
         .map((cell) => cell.trim());
-    const cellColumn = 3 + MODULES.findIndex((module) => module.features.includes("cellLock"));
+    const cellColumn = 3 + FEATURE_COLUMNS.findIndex((module) => module.features.includes("cellLock"));
     assert.deepEqual([table([])?.[cellColumn], table(list)?.[cellColumn]], ["△", "✓"]);
     assert.deepEqual(table(list)?.filter((_, i) => i !== cellColumn), table([])?.filter((_, i) => i !== cellColumn));
     assert.equal(supportMark("zte-zwrt", "U60 Pro (MU5250)", "cellLock", list), "✓");
