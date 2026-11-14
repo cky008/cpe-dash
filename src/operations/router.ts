@@ -191,6 +191,15 @@ export const ROUTER_OPERATIONS = {
     permission: "control",
     input: readSwitch,
     rest: { method: "POST", path: "/api/control/mobile-data", group: "control", example: '{"enabled":true,"confirm":true}', summary: { "zh-CN": "打开或关闭移动数据", en: "Turn mobile data on or off" } },
+    mcp: {
+      tool: "set_mobile_data",
+      title: "Turn Mobile Data On or Off",
+      description:
+        "Turn the router's mobile data on (enabled: true) or off (enabled: false). While it is off the router has no internet over the mobile network, though it stays reachable on the LAN. FengSui never turns it back on on its own: it stays off until someone turns it on here or in the console. Requires confirm: true.",
+      annotations: REPEATABLE,
+      properties: { enabled: { type: "boolean" } },
+      required: ["enabled"],
+    },
   },
   wifiAndAntenna: {
     access: "write",

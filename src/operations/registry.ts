@@ -72,6 +72,7 @@ export const MCP_TOOLS = {
     "securitySwitches",
     "wifiAndAntenna",
     "reconnect",
+    "mobileData",
     "reboot",
     "experimentalWrite",
     "probeEndpoints",

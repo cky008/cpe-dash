@@ -962,7 +962,7 @@ export type AlertCode =
 
 ---
 
-## 4. MCP Server 双模传输与工具契约（核心 16 项 + 访问控制 4 项 + 短信 10 项 + 蜂窝设置 12 项）
+## 4. MCP Server 双模传输与工具契约（核心 17 项 + 访问控制 4 项 + 短信 10 项 + 蜂窝设置 12 项）
 
 「烽燧」原生内置零外部依赖 JSON-RPC 2.0 MCP Server，同时支持两代协议（dual-era）：
 
@@ -1002,13 +1002,13 @@ export type AlertCode =
    - 若携带 `Origin` 头，必须与当前 `Host` 同源，否则返回 `403 FORBIDDEN_ORIGIN`；
    - JSON-RPC Notification（无 `id`）按规范返回 `202 Accepted` 空响应体；JSON-RPC Request 返回 `200 application/json` 单个响应对象（不使用 SSE 流式响应）。
 
-### 4.2 暴露的 16 项 MCP Tools 与 3 项 Resources
+### 4.2 暴露的 17 项 MCP Tools 与 3 项 Resources
 - **只读观测类（6 项，`readOnlyHint: true`）**：`get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`（含 `selfHeal`，见 2.2 节）、`list_terminal_topology`、`get_router_settings`。
   - `get_cpe_telemetry` / `list_terminal_topology` / `get_router_settings`：传入 `refresh: true` 或缓存为空时触发一次瞬时采集。
   - `get_cpe_telemetry`、`list_terminal_topology` 与资源 `fengsui://telemetry/latest` 在 `REDACT_SENSITIVE_IN_API=true`（默认）时返回脱敏副本（规则见 1.2 节第 4 条），设为 `false` 后返回原值。
   - `list_neighbor_cells`：`scanNow: true` 强制扫描；省略时仅在缓存为空时扫描；`scanNow: false` 只读缓存。
   - `query_telemetry_history`：参数与校验规则同 `GET /api/timeseries`。
-- **射频与系统控制类（7 项，均标注 `destructiveHint: true`，均强制 `confirm: true`）**：`lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`、`reboot_cpe`。每个 MCP 写工具（含 4.4 节的短信写工具与 4.5 节的访问控制工具）的 `inputSchema` 都把 `confirm` 列为必填（v1.7.7 起；此前只有重启、重拨、访问控制与短信发送 / 删除要求）。
+- **射频与系统控制类（8 项，均标注 `destructiveHint: true`，均强制 `confirm: true`）**：`lock_band`、`lock_cell`、`unlock_rf_locks`、`set_security_switches`、`set_wifi_and_antenna`、`reconnect_cellular`、`set_mobile_data`（`enabled`，与 `POST /api/control/mobile-data` 相同；关闭后烽燧不会自己打开）、`reboot_cpe`。每个 MCP 写工具（含 4.4 节的短信写工具与 4.5 节的访问控制工具）的 `inputSchema` 都把 `confirm` 列为必填（v1.7.7 起；此前只有重启、重拨、访问控制与短信发送 / 删除要求）。
   - `MCP_ALLOW_MUTATIONS` 默认 `false`：这 7 项工具不会出现在 `tools/list` 中，直接调用返回 `MUTATIONS_DISABLED`；在 `.env` 设为 `true` 后才开放。
   - 所有参数在第一次写入之前完成校验，非法参数返回 `VALIDATION_ERROR` 且不产生 CPE 会话。服务端在执行前强制校验每个工具声明的 `inputSchema`：未知参数（如拼错的键）、缺失的必填参数、类型或范围不符都会返回 `VALIDATION_ERROR`，消息指出具体参数；带 `confirm` 参数的工具先检查 `confirm === true`（否则 `CONFIRMATION_REQUIRED`），再做 Schema 校验。
   - `lock_band`：频段规则同 REST（2.4 节）。

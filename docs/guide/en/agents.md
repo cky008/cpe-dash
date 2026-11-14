@@ -65,7 +65,7 @@ The bridge itself does not connect to the router. It forwards requests to the da
 | Group | Tools |
 | :--- | :--- |
 | Read (always available) | `get_cpe_telemetry`, `query_telemetry_history`, `list_neighbor_cells`, `get_cpe_session_status`, `list_terminal_topology`, `get_router_settings`, `get_access_control`, `get_device_report` |
-| Router control (requires "Let agents change the router") | `lock_band`†, `lock_cell`†, `unlock_rf_locks`†, `set_security_switches`†, `set_wifi_and_antenna`†, `reconnect_cellular`†, `reboot_cpe`† |
+| Router control (requires "Let agents change the router") | `lock_band`†, `lock_cell`†, `unlock_rf_locks`†, `set_security_switches`†, `set_wifi_and_antenna`†, `reconnect_cellular`†, `set_mobile_data`†, `reboot_cpe`† |
 | Device access management (also requires "Let agents manage devices' internet access") | `set_device_internet_access`†, `set_wifi_mac_filter`†, `manage_internet_time_rule`† |
 | Cellular settings (reading is always available; changes require "Let agents change the router". Each tool appears only where the router has the feature, see [Supported devices](supported-devices.md)) | `get_cellular_settings`, `set_network_mode`†, `scan_operators`†, `select_operator`†, `set_sim_slot`†, `sim_pin`†, `set_airplane_mode`†, `set_data_roaming`†, `set_apn`†, `set_data_limit`†, `reset_traffic_counters`†, `send_ussd`† |
 | SMS ("Agents' SMS access" set to Read, the default) | `list_sms_threads`, `get_sms_thread`, `get_sms_status`, `search_contacts`, `preview_sms`, `sync_sms` |

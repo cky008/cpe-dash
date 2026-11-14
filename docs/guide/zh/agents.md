@@ -65,7 +65,7 @@ Claude Desktop 等客户端可以通过容器里的桥接程序连接，前提�
 | 分组 | 工具 |
 | :--- | :--- |
 | 查看（始终可用） | `get_cpe_telemetry`、`query_telemetry_history`、`list_neighbor_cells`、`get_cpe_session_status`、`list_terminal_topology`、`get_router_settings`、`get_access_control`、`get_device_report` |
-| 路由器控制（需打开「允许智能体改动路由器」） | `lock_band`†、`lock_cell`†、`unlock_rf_locks`†、`set_security_switches`†、`set_wifi_and_antenna`†、`reconnect_cellular`†、`reboot_cpe`† |
+| 路由器控制（需打开「允许智能体改动路由器」） | `lock_band`†、`lock_cell`†、`unlock_rf_locks`†、`set_security_switches`†、`set_wifi_and_antenna`†、`reconnect_cellular`†、`set_mobile_data`†、`reboot_cpe`† |
 | 设备上网管理（另需「允许智能体管理设备上网」） | `set_device_internet_access`†、`set_wifi_mac_filter`†、`manage_internet_time_rule`† |
 | 蜂窝设置（查看始终可用；改动需打开「允许智能体改动路由器」。每个工具只在路由器有这项功能时出现，见[支持的设备](supported-devices.md)） | `get_cellular_settings`、`set_network_mode`†、`scan_operators`†、`select_operator`†、`set_sim_slot`†、`sim_pin`†、`set_airplane_mode`†、`set_data_roaming`†、`set_apn`†、`set_data_limit`†、`reset_traffic_counters`†、`send_ussd`† |
 | 短信（「智能体的短信权限」为「只读」，默认） | `list_sms_threads`、`get_sms_thread`、`get_sms_status`、`search_contacts`、`preview_sms`、`sync_sms` |

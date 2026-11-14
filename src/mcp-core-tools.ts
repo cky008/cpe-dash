@@ -186,6 +186,7 @@ export class CoreMcpTools implements McpToolProvider {
       return results;
     },
     reconnect: async () => ({ ok: true, ...(await this.core.controls.reconnectCellular()) }),
+    mobileData: async (enabled) => ({ ok: true, ...(await this.core.controls.setMobileData(enabled)) }),
     reboot: async () => ({ ok: true, ...(await this.core.controls.rebootRouter({ confirm: true })) }),
     experimentalWrite: (_input, args) => {
       const experimental = this.#experimental;
