@@ -3,7 +3,7 @@ import { H168_383_LTE_BANDS, H168_383_NR_BANDS, bandsToHexMask } from "../../../
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";
 import { ApiError } from "../core/api.ts";
 import type { DriverFamily } from "../../../src/router-family.ts";
-import type { WriteFeature } from "../../../src/device-access.ts";
+import type { WriteFeature } from "../../../src/features.ts";
 import { cellularOpen } from "../core/cellular-view.ts";
 import { experimentalWrites, reportVerified, unconfirmedWrite, unverifiedModel } from "../core/device-access-view.ts";
 import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";

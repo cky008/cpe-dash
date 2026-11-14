@@ -14,7 +14,8 @@ import {
   type SecurityUpdateCommand,
   type TerminalTopologySnapshot,
 } from "../../cpe-domain.ts";
-import { type DeviceAccess, type WriteFeature, gateRefuses } from "../../device-access.ts";
+import { type DeviceAccess, gateRefuses } from "../../device-access.ts";
+import { type WriteFeature, CELLULAR_WRITE_FEATURES } from "../../features.ts";
 import { type DeviceProbeResult, type ProbeOrigin, probeDevice } from "../../device-profile.ts";
 import type { EphemeralCpeSession } from "../../protocols/hilink/client.ts";
 import {
@@ -33,7 +34,6 @@ import {
 } from "../../protocols/hilink/generic-writes.ts";
 import { getXmlTag } from "../../protocols/hilink/xml.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "../../router-backend.ts";
-import { CELLULAR_WRITE_FEATURES } from "../../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../../router-session.ts";
 import type { MutexSessionScheduler, WriteContext } from "../../scheduler.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "../../sms/submission.ts";

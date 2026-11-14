@@ -3,7 +3,7 @@ import { type TimeRuleChange, type TimeRuleInput, normalizeMac } from "./access-
 import { readOptionalBoolean } from "./control-input.ts";
 import type { FengSuiCore } from "./core.ts";
 import type { AccessControlResult } from "./cpe-controls.ts";
-import type { WriteFeature } from "./device-access.ts";
+import type { WriteFeature } from "./features.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
 import type { McpToolDefinition, McpToolProvider } from "./mcp-tool-provider.ts";
 import { maskMacTail } from "./privacy-mask.ts";

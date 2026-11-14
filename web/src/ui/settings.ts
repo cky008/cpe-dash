@@ -23,7 +23,7 @@ import {
 } from "../../../src/behaviour-settings.ts";
 import { TOKEN_LIFETIMES_DAYS, TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
 import type { PublicTokenRecord } from "../../../src/console-settings.ts";
-import { DEVICE_FEATURES } from "../../../src/device-profile.ts";
+import { DEVICE_FEATURES } from "../../../src/features.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import { FAMILY_AUTO, type RouterFamily, routerFamilyOf } from "../../../src/router-family.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";

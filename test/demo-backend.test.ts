@@ -1,4 +1,4 @@
-import { isCellularWriteFeature } from "../src/router-family.ts";
+import { isCellularWriteFeature } from "../src/features.ts";
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type {

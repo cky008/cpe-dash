@@ -18,11 +18,11 @@ import {
   supportMark,
   supportedDevicesSection,
 } from "../src/device-catalog.ts";
-import { DEVICE_FEATURES } from "../src/device-profile.ts";
+import { DEVICE_FEATURES, STATUS_READ_FEATURES, type StatusReadFeature, isCellularWriteFeature } from "../src/features.ts";
 import { zteBranch } from "../src/drivers/zte/goform.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature } from "../src/firmware.ts";
-import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, STATUS_READ_FEATURES, type StatusReadFeature, isCellularWriteFeature, isRouterFamily } from "../src/router-family.ts";
+import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily } from "../src/router-family.ts";
 
 /**
  * The "Supported devices" guide page: one row per model the interface notes record, by brand, each

@@ -3,19 +3,9 @@ import { EventEmitter } from "node:events";
 import { type AuditActor, type AuditOutcome, currentActor } from "./audit-log.ts";
 import { CpeAnswerFormatError, CpeApiError, CpeEncryptionUnavailableError, LOGIN_UNCONFIRMED_CODE, LoginMethodError, ReentrantCpeSessionError, hashCredentialsFingerprint } from "./session-errors.ts";
 import { CpeControlValidationError, type GlobalTelemetrySnapshot, type PersistedLockState, sectionUnavailableCode } from "./cpe-domain.ts";
-import {
-  CONTROL_FEATURES,
-  type ControlAction,
-  DeviceAccess,
-  type DeviceAccessSnapshot,
-  type ReadSection,
-  type WriteCheck,
-  type WriteFeature,
-  type WriteResultRecord,
-  modelLabel,
-  newWriteCheck,
-} from "./device-access.ts";
-import { type ApiErrorSnapshot, type DeviceFeature, type DeviceProbeResult, type LoginScheme, type TokenFlow, isDeviceProbeResult } from "./device-profile.ts";
+import { DeviceAccess, type DeviceAccessSnapshot, type WriteCheck, type WriteResultRecord, modelLabel, newWriteCheck } from "./device-access.ts";
+import { type ApiErrorSnapshot, type DeviceProbeResult, type LoginScheme, type TokenFlow, isDeviceProbeResult } from "./device-profile.ts";
+import { type DeviceFeature, CONTROL_FEATURES, type ControlAction, type ReadSection, type WriteFeature } from "./features.ts";
 import { verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { ROUTER_FAMILY_LABELS, routerFamilyOf, type RouterFamily } from "./router-family.ts";

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
-import { WRITE_FEATURES, type WriteFeature } from "../src/device-access.ts";
+import { WRITE_FEATURES, type WriteFeature } from "../src/features.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { AccessControlMcpTools } from "../src/mcp-access-tools.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";

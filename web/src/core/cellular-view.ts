@@ -1,5 +1,6 @@
 import { type CellularSettingsSnapshot, type NetworkMode, type OperatorChoice, type SimSlotRef, isApnName, pinAttemptAllowed, sameSimSlot } from "../../../src/cellular.ts";
-import { CELLULAR_WRITE_FEATURES, type CellularWriteFeature, type DriverFamily } from "../../../src/router-family.ts";
+import { type DriverFamily } from "../../../src/router-family.ts";
+import { CELLULAR_WRITE_FEATURES, type CellularWriteFeature } from "../../../src/features.ts";
 import type { RouterStatusSnapshot } from "../../../src/router-status.ts";
 
 /**

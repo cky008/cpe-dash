@@ -31,7 +31,8 @@ import {
   SectionUnavailableError,
   type TerminalTopologySnapshot,
 } from "../cpe-domain.ts";
-import type { DeviceAccess, WriteCheck, WriteFeature } from "../device-access.ts";
+import type { DeviceAccess, WriteCheck } from "../device-access.ts";
+import type { WriteFeature } from "../features.ts";
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListing, SmsSendOutcome, WanRepairOutcome } from "../router-backend.ts";
 import { type DriverFamily, FAMILY_WRITE_FEATURES, type FamilyWriteFeature, ROUTER_FAMILY_FACTS } from "../router-family.ts";

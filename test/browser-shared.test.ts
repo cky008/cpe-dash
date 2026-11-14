@@ -50,6 +50,7 @@ const BROWSER_SHARED_MODULES = [
   "src/device-access.ts",
   "src/device-profile.ts",
   "src/experimental-switch.ts",
+  "src/features.ts",
   "src/feedback.ts",
   "src/firmware.ts",
   "src/timeseries.ts",

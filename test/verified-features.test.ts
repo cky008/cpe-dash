@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
-import { DEVICE_FEATURES, type DeviceProfile } from "../src/device-profile.ts";
+import { type DeviceProfile } from "../src/device-profile.ts";
+import { DEVICE_FEATURES, isCellularWriteFeature, isStatusReadFeature } from "../src/features.ts";
 import { DeviceAccess } from "../src/device-access.ts";
 import { MODULES, deviceSupportRow, supportMark, supportedDevicesSection } from "../src/device-catalog.ts";
 import type { SchedulerStatusSnapshot } from "../src/scheduler.ts";
@@ -9,7 +10,7 @@ import { experimentalOffer, experimentalWrites, reportVerified, unconfirmedWrite
 import { WRITE_STATE_KEYS, verificationNotice, writesText } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedFeature, isVerifiedModel, reportVerifiedModels } from "../src/firmware.ts";
-import { ROUTER_FAMILY_FACTS, familyFeatures, isCellularWriteFeature, isRouterFamily, isStatusReadFeature } from "../src/router-family.ts";
+import { ROUTER_FAMILY_FACTS, familyFeatures, isRouterFamily } from "../src/router-family.ts";
 
 /**
  * Multi-model phase 3: a feature of another model that a user checked on a real router joins the

@@ -6,7 +6,8 @@ import { AtomicFileWriter, StorageCipher, assertKnownDataFormat } from "../encry
 import { firmwareReviewPrompt } from "../firmware.ts";
 import { interpolateTemplate } from "../i18n.ts";
 import type { FengSuiCore } from "../core.ts";
-import { type WriteFeature, gateRefuses } from "../device-access.ts";
+import { gateRefuses } from "../device-access.ts";
+import { type WriteFeature } from "../features.ts";
 import { type NetworkMode, type UssdRequest, isNetworkMode, readUssdRequest } from "../cellular.ts";
 import { BrowserSessionYieldedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/text-mode.ts";

@@ -1,7 +1,8 @@
-import type { DeviceFeature } from "./device-profile.ts";
+import type { DeviceFeature } from "./features.ts";
 import { deviceIssueUrl } from "./feedback.ts";
 import { UNSUPPORTED_FEATURES, type UnsupportedFeature, VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, isReportVerifiedModel, isVerifiedModel, reportVerifiedModels } from "./firmware.ts";
-import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, STATUS_READ_FEATURES, familyImplements, isCellularWriteFeature, isStatusReadFeature, routerVariant } from "./router-family.ts";
+import { DETECTION_ORDER, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, familyImplements, routerVariant } from "./router-family.ts";
+import { STATUS_READ_FEATURES, isCellularWriteFeature, isStatusReadFeature } from "./features.ts";
 
 export { UNSUPPORTED_FEATURES, type UnsupportedFeature, familyImplements };
 import type { SupportedLocale } from "./types.ts";

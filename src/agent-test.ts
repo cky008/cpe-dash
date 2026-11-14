@@ -1,7 +1,8 @@
 import type { AgentSmsAccess, BehaviourValues } from "./behaviour-settings.ts";
 import type { SmsAbilities } from "./sms/types.ts";
 import type { TokenPermission } from "./console-policy.ts";
-import type { WriteAccess, WriteFeature, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
+import type { WriteAccess, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
+import type { WriteFeature } from "./features.ts";
 import type { ExperimentalFeature } from "./device-profile.ts";
 
 /**

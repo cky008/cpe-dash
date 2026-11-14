@@ -1,6 +1,7 @@
-import { type DeviceFeature, type DeviceProbeResult, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
+import { type DeviceProbeResult, type ExperimentalFeature, experimentalEvidence } from "./device-profile.ts";
+import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, type ReadSection, WRITE_FEATURES, type WriteFeature, isCellularWriteFeature } from "./features.ts";
 import { type DeviceVerification, VERIFIED_FEATURES, type VerifiedFeature, deviceVerification, isVerifiedFeature, isVerifiedModel } from "./firmware.ts";
-import { CELLULAR_WRITE_FEATURES, type RouterFamily, familyCapabilities, isCellularWriteFeature, isDriverFamily, routerVariant } from "./router-family.ts";
+import { type RouterFamily, familyCapabilities, isDriverFamily, routerVariant } from "./router-family.ts";
 
 /**
  * What FengSui may do with the router it talks to: whether it may write, and which read sections
@@ -24,64 +25,8 @@ import { CELLULAR_WRITE_FEATURES, type RouterFamily, familyCapabilities, isCellu
  * the router's page from another device) asks for that again.
  */
 
-/** Every router write the scheduler runs, and the feature it belongs to (a write is turned off per feature). */
-export const CONTROL_FEATURES = {
-  lock_band: "bandLock",
-  lock_cell: "cellLock",
-  unlock_rf_locks: "bandLock",
-  auto_unlock_rf_locks: "bandLock",
-  reboot_cpe: "reboot",
-  reconnect_cellular: "reconnect",
-  auto_reconnect_cellular: "reconnect",
-  set_security_switches: "securitySwitches",
-  set_wifi7_mlo: "wifi",
-  set_antenna_mode: "antenna",
-  set_mobile_data: "mobileData",
-  set_wifi_access: "accessControl",
-  manage_time_rule: "accessControl",
-  sms_send: "smsWrite",
-  sms_mark_read: "smsWrite",
-  sms_delete: "smsWrite",
-  set_network_mode: "networkMode",
-  scan_operators: "operatorSelect",
-  select_operator: "operatorSelect",
-  set_sim_slot: "simSlot",
-  enter_sim_pin: "simPin",
-  set_sim_pin_lock: "simPin",
-  set_airplane_mode: "airplaneSwitch",
-  set_roaming: "roaming",
-  set_apn: "apn",
-  set_data_limit: "dataLimit",
-  reset_traffic: "trafficReset",
-  send_ussd: "ussd",
-  // The way back from a change that cut the WAN: filed under the setting it puts back
-  auto_restore_network_mode: "networkMode",
-  auto_restore_operator: "operatorSelect",
-  auto_restore_sim_slot: "simSlot",
-  auto_restore_apn: "apn",
-} as const satisfies Readonly<Record<string, DeviceFeature>>;
-
-export type ControlAction = keyof typeof CONTROL_FEATURES;
-
 /** The writes that take locks off (filed under the band lock; see `DeviceAccess.actionAccess`). */
 const UNLOCK_ACTIONS: ReadonlySet<ControlAction> = new Set<ControlAction>(["unlock_rf_locks", "auto_unlock_rf_locks"]);
-
-/** The features a router write belongs to, in the order the console lists them (the Supported devices table's). */
-export const WRITE_FEATURES = [
-  "smsWrite",
-  "bandLock",
-  "cellLock",
-  "reboot",
-  "reconnect",
-  "mobileData",
-  "securitySwitches",
-  "wifi",
-  "antenna",
-  "accessControl",
-  ...CELLULAR_WRITE_FEATURES,
-] as const satisfies ReadonlyArray<(typeof CONTROL_FEATURES)[ControlAction]>;
-
-export type WriteFeature = (typeof WRITE_FEATURES)[number];
 
 /**
  * What a write feature is on the router the gate goes by:
@@ -196,10 +141,6 @@ export function isWriteResultRecord(value: unknown): value is WriteResultRecord 
  * identified yet.
  */
 export type WriteAccess = "allowed" | "experimental" | "unknown";
-
-/** The parts of a router FengSui reads, each in a session of its own (the poll, the sweeps, settings, SMS). */
-export const READ_SECTIONS = ["telemetry", "neighbors", "topology", "settings", "accessControl", "sms"] as const;
-export type ReadSection = (typeof READ_SECTIONS)[number];
 
 /**
  * `verified`: a verified model, read the verified way; `available`: this model answered it;

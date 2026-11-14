@@ -6,8 +6,8 @@ import type { ApiErrorEnvelope, AuditResponse, ExperimentalWritesResponse } from
 import { type FengSuiRuntimeStack, createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { ConsoleSettings, MAX_DISABLED_WRITES } from "../src/console-settings.ts";
-import { CONTROL_FEATURES, DeviceAccess, WRITE_FEATURES, gateRefuses } from "../src/device-access.ts";
-import { CELLULAR_WRITE_FEATURES, isCellularWriteFeature } from "../src/router-family.ts";
+import { DeviceAccess, gateRefuses } from "../src/device-access.ts";
+import { CONTROL_FEATURES, WRITE_FEATURES, CELLULAR_WRITE_FEATURES, isCellularWriteFeature } from "../src/features.ts";
 import { type DeviceProbeResult, type ProbeSession, probeDevice } from "../src/device-profile.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { type FamilySms, createCpeFamily } from "./helpers/cpe-family.ts";

@@ -64,7 +64,8 @@ import type {
 } from "../../../src/api-contract.ts";
 import { DEFAULT_BEHAVIOUR } from "../../../src/behaviour-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
-import { type ControlAction, gateRefuses } from "../../../src/device-access.ts";
+import { gateRefuses } from "../../../src/device-access.ts";
+import { type ControlAction } from "../../../src/features.ts";
 import { LTE_ALL_BANDS_MASK, maskToBands, statusReadsOf } from "../../../src/device-profile.ts";
 import { CELLULAR_CONTROL_PATHS, DemoCellular } from "./cellular.ts";
 import { VERIFIED_FIRMWARE } from "../../../src/firmware.ts";

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { type AgentTestRecord, copyAgentTestRecord, isAgentTestRecord } from "./agent-test.ts";
 import { type BehaviourKey, type BehaviourOverrides, sanitizeBehaviourOverrides } from "./behaviour-settings.ts";
 import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest, type TokenScope, permissionsForScope, scopeForPermissions } from "./console-policy.ts";
-import { WRITE_FEATURES, type WriteFeature } from "./device-access.ts";
+import { WRITE_FEATURES, type WriteFeature } from "./features.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { RouterFamily } from "./router-family.ts";
 import type { AppConfig } from "./types.ts";

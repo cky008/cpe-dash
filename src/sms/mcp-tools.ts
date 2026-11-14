@@ -1,6 +1,6 @@
 import type { TokenPermission } from "../console-policy.ts";
 import { CpeControlValidationError } from "../cpe-domain.ts";
-import type { WriteFeature } from "../device-access.ts";
+import type { WriteFeature } from "../features.ts";
 import {
   type McpResourceDescriptor,
   McpToolError,

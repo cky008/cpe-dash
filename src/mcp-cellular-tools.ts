@@ -2,9 +2,9 @@ import { APN_AUTH_MODES, APN_IP_TYPES, NETWORK_MODES, OPERATOR_RATS, readApnChoi
 import { readOptionalBoolean } from "./control-input.ts";
 import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
-import type { WriteFeature } from "./device-access.ts";
+import type { WriteFeature } from "./features.ts";
 import type { McpToolDefinition, McpToolProvider } from "./mcp-tool-provider.ts";
-import { CELLULAR_WRITE_FEATURES, type CellularWriteFeature } from "./router-family.ts";
+import { CELLULAR_WRITE_FEATURES, type CellularWriteFeature } from "./features.ts";
 
 /**
  * MCP tools for the cellular settings (`src/cellular.ts`): one read, and a write per setting. Every

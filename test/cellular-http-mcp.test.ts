@@ -9,7 +9,7 @@ import { CELLULAR_CONTROL_ROUTES } from "../src/http-cellular.ts";
 import { CellularMcpTools } from "../src/mcp-cellular-tools.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { McpToolDefinition } from "../src/mcp-tool-provider.ts";
-import { CELLULAR_WRITE_FEATURES } from "../src/router-family.ts";
+import { CELLULAR_WRITE_FEATURES } from "../src/features.ts";
 import { SseEventBus } from "../src/sse-bus.ts";
 import { consoleSettingsFor } from "./helpers/console-settings.ts";
 import { daemonOn } from "./helpers/driver-daemon.ts";

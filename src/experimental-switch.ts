@@ -1,5 +1,6 @@
 import type { ConsoleSettings } from "./console-settings.ts";
-import { type DeviceAccess, WRITE_FEATURES, type WriteFeature, type WriteFeatureState } from "./device-access.ts";
+import { type DeviceAccess, type WriteFeatureState } from "./device-access.ts";
+import { WRITE_FEATURES, type WriteFeature } from "./features.ts";
 
 export type ExperimentalSwitchResult =
   | { ok: true; detail: string }

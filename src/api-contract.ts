@@ -42,7 +42,6 @@ import type {
   ApiErrorSnapshot,
   ApiErrorStat,
   DeviceCapabilities,
-  DeviceFeature,
   DeviceIdentity,
   DeviceProbePath,
   DeviceProfile,
@@ -58,21 +57,9 @@ import type {
   StructureKind,
   TokenFlow,
 } from "./device-profile.ts";
+import type { DeviceFeature, ReadSection, WriteFeature } from "./features.ts";
 import type { DeviceVerification } from "./firmware.ts";
-import type {
-  DeviceAccessSnapshot,
-  FeatureWriteAccess,
-  ReadCapability,
-  ReadSection,
-  ReadState,
-  ReadbackOutcome,
-  ReadbackReason,
-  WriteAccess,
-  WriteCheck,
-  WriteFeature,
-  WriteFeatureState,
-  WriteResultRecord,
-} from "./device-access.ts";
+import type { DeviceAccessSnapshot, FeatureWriteAccess, ReadCapability, ReadState, ReadbackOutcome, ReadbackReason, WriteAccess, WriteCheck, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import type { DisabledWrite, PublicTokenRecord } from "./console-settings.ts";
 import type { AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView } from "./agent-test.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";

@@ -9,6 +9,7 @@
  */
 
 import type { NetworkMode } from "./cellular.ts";
+import { CELLULAR_WRITE_FEATURES } from "./features.ts";
 
 export const ROUTER_FAMILIES = ["huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "openwrt"] as const;
 
@@ -40,19 +41,6 @@ export function isRouterFamily(value: unknown): value is RouterFamily {
 
 export function isDriverFamily(value: unknown): value is DriverFamily {
   return isRouterFamily(value) && value !== "huawei";
-}
-
-/**
- * The cellular settings FengSui writes besides the locks, each its own feature (`src/cellular.ts`).
- * They came after the H168-383 was verified, so that model's verification does not cover them: a
- * router gets one only where its family's list below names it.
- */
-export const CELLULAR_WRITE_FEATURES = ["simSlot", "simPin", "airplaneSwitch", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"] as const;
-
-export type CellularWriteFeature = (typeof CELLULAR_WRITE_FEATURES)[number];
-
-export function isCellularWriteFeature(feature: string): feature is CellularWriteFeature {
-  return (CELLULAR_WRITE_FEATURES as ReadonlyArray<string>).includes(feature);
 }
 
 /** Every write some family implements for a router nobody verified (an experimental write: sent once, read back after). */
@@ -209,20 +197,6 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     multiCellLock: ["LTE"],
   },
 };
-
-/**
- * The status the 5 s poll reads besides the signal (`GlobalTelemetrySnapshot.status`). They came after
- * the H168-383 was verified, and some routers lack the hardware (a CPE has no battery), so neither the
- * verified model's verification nor a model's verification by reports covers them: each is ✓ only
- * from a report of its own (`VERIFIED_FEATURES`).
- */
-export const STATUS_READ_FEATURES = ["battery", "simCard", "airplaneMode"] as const;
-
-export type StatusReadFeature = (typeof STATUS_READ_FEATURES)[number];
-
-export function isStatusReadFeature(feature: string): feature is StatusReadFeature {
-  return (STATUS_READ_FEATURES as ReadonlyArray<string>).includes(feature);
-}
 
 /** The read features and what each one is read as (a read section, or a status of the 5 s poll). */
 const READ_FEATURE_SECTIONS = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms", battery: "battery", simCard: "simCard", airplaneMode: "airplaneMode" } as const;

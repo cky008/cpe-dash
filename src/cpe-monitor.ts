@@ -3,7 +3,7 @@ import type { AccessControlSnapshot } from "./access-control.ts";
 import type { CellularSettingsSnapshot } from "./cellular.ts";
 import type { GlobalTelemetrySnapshot, NeighborScanSnapshot, RouterSettingsSnapshot, TerminalTopologySnapshot } from "./cpe-domain.ts";
 import type { DeviceProbeResult } from "./device-profile.ts";
-import type { ReadSection } from "./device-access.ts";
+import type { ReadSection } from "./features.ts";
 import type { DiscoveredEndpoint } from "./endpoint-discovery.ts";
 import { type RouterBackend, SessionBackend } from "./router-backend.ts";
 import type { RouterFamily } from "./router-family.ts";

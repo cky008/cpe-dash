@@ -10,7 +10,7 @@ import {
 import { type FengSuiCore, deviceReportOf } from "./core.ts";
 import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS, type DiscoveredEndpoint, discoveryRefusal, readDiscoveryPaths } from "./endpoint-discovery.ts";
 import type { ExperimentalSwitchResult } from "./experimental-switch.ts";
-import type { ControlAction, ReadSection, WriteFeature } from "./device-access.ts";
+import type { ControlAction, ReadSection, WriteFeature } from "./features.ts";
 import { FAMILY_WRITE_FEATURES } from "./router-family.ts";
 import { type CellLockCommand, CpeControlValidationError, isObservedCellTarget } from "./cpe-domain.ts";
 import { type McpResourceDescriptor, McpToolError, type McpToolDefinition, type McpToolProvider } from "./mcp-tool-provider.ts";

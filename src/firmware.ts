@@ -1,5 +1,6 @@
-import type { DeviceFeature } from "./device-profile.ts";
-import { type RouterFamily, familyFeatures, isStatusReadFeature, routerVariant } from "./router-family.ts";
+import type { DeviceFeature } from "./features.ts";
+import { type RouterFamily, familyFeatures, routerVariant } from "./router-family.ts";
+import { isStatusReadFeature } from "./features.ts";
 import type { SupportedLocale } from "./types.ts";
 
 /**

@@ -27,7 +27,7 @@ import {
   type TerminalTopologySnapshot,
   type WanRepairSkipReason,
 } from "./cpe-domain.ts";
-import { type ControlAction, CONTROL_FEATURES } from "./device-access.ts";
+import { type ControlAction, CONTROL_FEATURES } from "./features.ts";
 import type { DeviceProbeResult } from "./device-profile.ts";
 import { type DiscoveredEndpoint, discoverEndpoints } from "./endpoint-discovery.ts";
 import type { RouterFamily } from "./router-family.ts";

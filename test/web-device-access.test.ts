@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { DeviceAccessSnapshot, SchedulerStatusSnapshot, WriteResultRecord } from "../src/api-contract.ts";
-import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS } from "../src/device-access.ts";
-import { WRITE_FEATURES } from "../src/device-access.ts";
+import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, WRITE_FEATURES } from "../src/features.ts";
 import { FAMILY_WRITE_FEATURES } from "../src/router-family.ts";
 import { canWrite, experimentalOffer, experimentalWrites, hasSwitch, readbackTone, unavailableSection, unconfirmedWrite, unverifiedModel, versionLabel, writeState } from "../web/src/core/device-access-view.ts";
 import { FEATURE_KEYS, READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITE_STATE_KEYS, readText, switchScope, writeResultDetail, writesText } from "../web/src/core/device-view.ts";

@@ -19,9 +19,11 @@ import { BEHAVIOUR_ENV, type BehaviourOverrides } from "../../../src/behaviour-s
 import { TOKEN_PERMISSIONS, type TokenPermission } from "../../../src/console-policy.ts";
 import type { DisabledWrite } from "../../../src/console-settings.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
-import { CONTROL_FEATURES, type ControlAction, DeviceAccess, type DeviceAccessSnapshot, READ_SECTIONS, type WriteFeature, type WriteResultRecord, gateRefuses, modelLabel } from "../../../src/device-access.ts";
+import { DeviceAccess, type DeviceAccessSnapshot, type WriteResultRecord, gateRefuses, modelLabel } from "../../../src/device-access.ts";
+import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, type WriteFeature } from "../../../src/features.ts";
 import { EXPERIMENTAL_FEATURES, type ExperimentalFeature, buildDeviceReport, deviceReportChecks } from "../../../src/device-profile.ts";
-import type { RouterFamily, StatusReadFeature } from "../../../src/router-family.ts";
+import type { RouterFamily } from "../../../src/router-family.ts";
+import type { StatusReadFeature } from "../../../src/features.ts";
 import { switchExperimentalWrite } from "../../../src/experimental-switch.ts";
 import { verifiedModelsLabel } from "../../../src/firmware.ts";
 import { type DemoConsole, DemoRefusal } from "./console.ts";

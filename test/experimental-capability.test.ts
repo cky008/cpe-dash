@@ -1,18 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  DEVICE_FEATURES,
-  DEVICE_PROBE_PATHS,
-  EXPERIMENTAL_FEATURES,
-  EXPERIMENTAL_PROBE_PATHS,
-  type ProbeSession,
-  deviceProfileOf,
-  experimentalEvidence,
-  isDeviceProbeResult,
-  probeDevice,
-} from "../src/device-profile.ts";
-import { WRITE_FEATURES } from "../src/device-access.ts";
-import { FAMILY_WRITE_FEATURES, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, isStatusReadFeature } from "../src/router-family.ts";
+import { DEVICE_PROBE_PATHS, EXPERIMENTAL_FEATURES, EXPERIMENTAL_PROBE_PATHS, type ProbeSession, deviceProfileOf, experimentalEvidence, isDeviceProbeResult, probeDevice } from "../src/device-profile.ts";
+import { DEVICE_FEATURES, WRITE_FEATURES, isStatusReadFeature } from "../src/features.ts";
+import { FAMILY_WRITE_FEATURES, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 
 /**
  * Multi-model phase 3: what a model nobody verified shows of the writes FengSui could do there once

@@ -1,7 +1,8 @@
 import { TOKEN_PERMISSIONS, type TokenPermission, permissionsForScope } from "./console-policy.ts";
 import type { FengSuiCore } from "./core.ts";
 import { CpeControlValidationError } from "./cpe-domain.ts";
-import { CONTROL_FEATURES, WRITE_FEATURES, type WriteFeature, gateRefuses } from "./device-access.ts";
+import { gateRefuses } from "./device-access.ts";
+import { CONTROL_FEATURES, WRITE_FEATURES, type WriteFeature } from "./features.ts";
 import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { type AgentExperimentalOptions, CoreMcpTools } from "./mcp-core-tools.ts";
 import { MCP_META_PROTOCOL_VERSION, MCP_META_SERVER_INFO, decodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";

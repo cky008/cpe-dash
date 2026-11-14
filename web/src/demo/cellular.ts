@@ -27,7 +27,7 @@ import {
   simSlotLabel,
 } from "../../../src/cellular.ts";
 import { CpeControlValidationError } from "../../../src/control-error.ts";
-import type { ControlAction } from "../../../src/device-access.ts";
+import type { ControlAction } from "../../../src/features.ts";
 import type { RouterStatusSnapshot } from "../../../src/router-status.ts";
 import type { WriteHint } from "./device.ts";
 

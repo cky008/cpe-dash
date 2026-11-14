@@ -1,6 +1,5 @@
 import type { ApnView, CellularSettingsSnapshot, NetworkMode, OperatorChoice, SimSlotRef, UssdAnswer } from "../../../src/api-contract.ts";
-import type { WriteFeature } from "../../../src/device-access.ts";
-import type { CellularWriteFeature } from "../../../src/router-family.ts";
+import type { WriteFeature, CellularWriteFeature } from "../../../src/features.ts";
 import { type LimitUnit, MODE_KEYS, alertPercent, apnForm, apnTakesCredentials, apnUsesProfile, isPin, isUssdCode, limitBytes, limitFields, modeChoices, operatorLine, pinOffer, slotChoices } from "../core/cellular-view.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { driverFamilyOf } from "../core/lock-form.ts";

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { CATALOG_SECTIONS, deviceSupportRow } from "../src/device-catalog.ts";
-import { DEVICE_FEATURES, type DeviceProfile, type DeviceReport, buildDeviceReport } from "../src/device-profile.ts";
+import { type DeviceProfile, type DeviceReport, buildDeviceReport } from "../src/device-profile.ts";
+import { DEVICE_FEATURES } from "../src/features.ts";
 import {
   FEATURE_KEYS,
   STATE_KEYS,

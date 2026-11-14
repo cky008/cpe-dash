@@ -25,7 +25,8 @@ import type {
   SecurityUpdateCommand,
   TerminalTopologySnapshot,
 } from "./cpe-domain.ts";
-import type { DeviceAccess, ReadSection, WriteFeature } from "./device-access.ts";
+import type { DeviceAccess } from "./device-access.ts";
+import type { ReadSection, WriteFeature } from "./features.ts";
 import type { DeviceProbeResult, LoginScheme, ProbeOrigin, TokenFlow } from "./device-profile.ts";
 import type { DiscoverySession } from "./endpoint-discovery.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListRequest, SmsListing, SmsSendOutcome, SmsUnreadPeek, WanRepairOutcome } from "./router-backend.ts";

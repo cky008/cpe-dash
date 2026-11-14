@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   ApiErrorTally,
-  DEVICE_FEATURES,
   DEVICE_PROBE_PATHS,
   type DeviceProbePath,
   PROBE_REQUEST_TIMEOUT_MS,
@@ -15,7 +14,7 @@ import {
   readStructure,
   valueShape,
 } from "../src/device-profile.ts";
-import { isStatusReadFeature } from "../src/router-family.ts";
+import { DEVICE_FEATURES, isStatusReadFeature } from "../src/features.ts";
 
 /**
  * The device profile's pure core: what the probe asks the router (a fixed list of GETs), how answers

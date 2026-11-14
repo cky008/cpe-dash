@@ -18,7 +18,7 @@ import type {
   TelemetryEndpointResponse,
   TopologyEndpointResponse,
 } from "../src/api-contract.ts";
-import type { ReadSection } from "../src/device-access.ts";
+import type { ReadSection } from "../src/features.ts";
 import { getFlatCatalog } from "../src/i18n.ts";
 import type { SmsMessageRecord } from "../src/sms/types.ts";
 import type { DemoSeed } from "../web/src/demo/seed.ts";

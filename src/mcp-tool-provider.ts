@@ -1,5 +1,5 @@
 import type { TokenPermission } from "./console-policy.ts";
-import type { ControlAction, WriteFeature } from "./device-access.ts";
+import type { ControlAction, WriteFeature } from "./features.ts";
 import type { McpInputSchema } from "./mcp-schema.ts";
 
 /**

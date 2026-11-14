@@ -1,6 +1,7 @@
-import type { ReadCapability, ReadSection, ReadState, ReadbackOutcome, WriteAccess, WriteFeature, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
+import type { ReadCapability, ReadState, ReadbackOutcome, WriteAccess, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import { type DeviceVerification, deviceVerification, isVerifiedModel } from "./firmware.ts";
-import { type RouterFamily, STATUS_READ_FEATURES, type StatusReadFeature, isStatusReadFeature } from "./router-family.ts";
+import type { RouterFamily } from "./router-family.ts";
+import { DEVICE_FEATURES, type DeviceFeature, type ReadSection, type StatusReadFeature, type WriteFeature, featureRecord, isStatusReadFeature } from "./features.ts";
 
 /**
  * Who the router is and what it says it can do. One read session (at daemon start and in the
@@ -97,42 +98,6 @@ export interface DeviceIdentity {
    */
   variant?: string;
 }
-
-/** The features of CONTEXT §7.1, in the order of the Supported devices table's columns; each gets a capability state. */
-export const DEVICE_FEATURES = [
-  "telemetry",
-  "neighbors",
-  "topology",
-  "smsRead",
-  "smsWrite",
-  "bandLock",
-  "cellLock",
-  "reboot",
-  "reconnect",
-  "mobileData",
-  "securitySwitches",
-  "wifi",
-  "antenna",
-  "accessControl",
-  "battery",
-  "simCard",
-  "simSlot",
-  "simPin",
-  "airplaneMode",
-  "airplaneSwitch",
-  "networkMode",
-  "operatorSelect",
-  "roaming",
-  "apn",
-  "dataLimit",
-  "trafficReset",
-  "ussd",
-] as const;
-
-export type DeviceFeature = (typeof DEVICE_FEATURES)[number];
-
-// The status reads of the 5 s poll (battery, SIM card, airplane mode): `src/router-family.ts`
-STATUS_READ_FEATURES satisfies ReadonlyArray<DeviceFeature>;
 
 /**
  * The writes FengSui has a generic implementation for (HiLink request formats from the reference
@@ -735,12 +700,10 @@ export interface DeviceReportCheck {
   evidence: ReadState | ReadbackOutcome | "refused" | null;
 }
 
-/** The read section each read feature is read in. */
-const READ_FEATURE_SECTIONS: Readonly<Partial<Record<DeviceFeature, ReadSection>>> = { telemetry: "telemetry", neighbors: "neighbors", topology: "topology", smsRead: "sms" };
-
 /**
- * Each feature's result on this router, from what the reads answered, the write record (the latest
- * write of a feature counts) and, for the status reads, whether the latest poll carried them (`statusReads`).
+ * Each feature's result on this router, by what its record says it rests on: a read's section state, for
+ * a status read whether the latest poll carried it (`statusReads`), for a write the latest one in the
+ * write record.
  */
 export function deviceReportChecks(
   access: Pick<DeviceReportAccess, "reads"> | null,
@@ -748,14 +711,15 @@ export function deviceReportChecks(
   statusReads: Partial<Record<StatusReadFeature, boolean>> = {}
 ): DeviceReportCheck[] {
   return DEVICE_FEATURES.map((feature): DeviceReportCheck => {
-    if (isStatusReadFeature(feature)) {
-      // A poll without it says nothing either way (a router without a battery is not a failed read)
-      const read = statusReads[feature] === true;
-      return { feature, access: "read", result: read ? "works" : "untested", evidence: read ? "available" : null };
-    }
-    const section = READ_FEATURE_SECTIONS[feature];
-    if (section) {
-      const state = access?.reads[section]?.state ?? null;
+    const record = featureRecord(feature);
+    if (record.access === "read") {
+      const where = record.read;
+      if (where === "status") {
+        // A poll without it says nothing either way (a router without a battery is not a failed read)
+        const read = statusReads[feature as StatusReadFeature] === true;
+        return { feature, access: "read", result: read ? "works" : "untested", evidence: read ? "available" : null };
+      }
+      const state = access?.reads[where]?.state ?? null;
       const result = state === "verified" || state === "available" ? "works" : state === "unavailable" ? "failed" : "untested";
       return { feature, access: "read", result, evidence: state };
     }
