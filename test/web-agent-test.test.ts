@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { type AgentTestPlan, type AgentTestView, noAgentTestPlan } from "../src/agent-test.ts";
+import { AGENT_TEST_ASK_FIRST, AGENT_TEST_READ_TOOLS, AGENT_TEST_WRITE_TOOLS, type AgentTestPlan, type AgentTestView, noAgentTestPlan } from "../src/agent-test.ts";
+import type { WriteFeatureState } from "../src/device-access.ts";
+import { READ_SECTIONS, type ReadFeature, type ReadSection, WRITE_FEATURES, type WriteFeature, featureRead, sectionFeature } from "../src/features.ts";
+import { toolOperation } from "../src/operations/registry.ts";
+import { ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, type RouterFamily, familyCapabilities, familyFeatures, isDriverFamily } from "../src/router-family.ts";
 import type { AlertEventRecord } from "../src/state-store.ts";
-import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn, tokenGets } from "../web/src/core/agent-test-view.ts";
+import { type AgentPromptRouter, agentPromptPlan, agentStartBody, agentTestPrompt, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn, tokenGets } from "../web/src/core/agent-test-view.ts";
 import { interpolate } from "../web/src/core/i18n.ts";
 import { latestAgentTestReminder } from "../web/src/core/store.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../web/src/i18n/settings.ts";
@@ -25,6 +29,44 @@ function plan(extra: Partial<AgentTestPlan> = {}): AgentTestPlan {
     suggestedTokenId: "t1",
     tokenNeeded: true,
     ...extra,
+  };
+}
+
+/** The safety rules every prompt carries, in each language. */
+const SAFETY = {
+  zh: [/只用烽燧的 MCP 工具。不要为了测试直接访问或登录路由器/, /先做完全部只读测试，再做写入测试/, /每项写入测完马上改回原样/, /SIM 卡的 PIN 一律不测，不要调用 sim_pin/, /每次写入之后调用 get_device_report，看 writes 里这次写入的 readback/, /把原因原样记下，不要换个参数再试/, /不得出现 IMEI、IMSI、ICCID、手机号、IP、MAC、小区标识（小区号、TAC、PCI、频点）、短信内容/],
+  en: [/Use FengSui's MCP tools only\. Never reach or log in to the router directly/, /Finish every read test before the first write test/, /put each write back right after its test/, /Never test the SIM PIN, and do not call sim_pin/, /After each write, call get_device_report and read the readback/, /note the reason word for word and do not retry/, /Never put in the report an IMEI, IMSI, ICCID, phone number, IP or MAC address, a cell's identity \(cell ID, TAC, PCI, channel\), SMS text/],
+};
+
+/** Names in a prompt that read like an MCP tool's, in the order they appear. */
+function toolsIn(text: string): string[] {
+  return [...text.matchAll(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g)].map((match) => match[0]);
+}
+
+function stepsOf(text: string): string[] {
+  return text.split("\n").flatMap((line) => /^(\d+)\. /.exec(line)?.[1] ?? []);
+}
+
+/** A router of a brand nobody verified, as the console sees it: the writes FengSui implements for its form open, the reads its form has. */
+function routerOf(family: RouterFamily, variant: string | null, states: Partial<Record<WriteFeature, WriteFeatureState>> = {}, sms: Partial<AgentPromptRouter["sms"]> = {}): AgentPromptRouter {
+  const facts = familyCapabilities(family, variant);
+  const features = Object.fromEntries(WRITE_FEATURES.map((feature) => [feature, states[feature] ?? ((facts.writes as ReadonlyArray<string>).includes(feature) ? "enabled" : "not_implemented")])) as Record<WriteFeature, WriteFeatureState>;
+  // As the gate reads it: a brand with a driver has the sections its form documents; a Huawei router has not answered any yet
+  const reads = Object.fromEntries(
+    READ_SECTIONS.map((section) => {
+      const feature = sectionFeature(section);
+      return [section, { state: !isDriverFamily(family) ? "unknown" : feature !== null && (facts.reads as ReadonlyArray<string>).includes(feature) ? "unknown" : "unavailable" }];
+    })
+  ) as Record<ReadSection, { state: string }>;
+  return {
+    family,
+    variant,
+    model: "MODEL-1",
+    firmware: "1.0.0",
+    reads,
+    features,
+    sms: { available: features.smsWrite === "enabled", markRead: ROUTER_FAMILY_FACTS[family].smsReadState === "fengsui" ? "fengsui" : "router", delete: "message", ...sms },
+    issueUrl: "https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MODEL-1",
   };
 }
 
@@ -110,21 +152,81 @@ describe("the agent test in the Device tab", () => {
     assert.equal(reminderWaiting(view({ remindedAtIso: new Date(NOW).toISOString(), acknowledged: true })), false);
   });
 
-  it("hands the agent the same steps in both languages: every write the test may try, the router's own page, nothing identifying", () => {
-    for (const text of [zh("agent_test_prompt", { model: "M", issueUrl: "U" }), en("agent_test_prompt", { model: "M", issueUrl: "U" })]) {
-      const steps = text.split("\n").map((line) => /^(\d+)\. /.exec(line)?.[1]).filter((n) => n !== undefined);
-      assert.deepEqual(steps, Array.from({ length: 11 }, (_, i) => String(i + 1)));
-      for (const tool of ["lock_band", "lock_cell", "unlock_rf_locks", "reconnect_cellular", "reboot_cpe", "get_device_report", "probe_router_endpoints"]) assert.ok(text.includes(tool), tool);
-      // The cell lock and the 5G band lock touch only what is in use; the network mode is left alone
-      assert.match(text, /PCI/);
-      assert.ok(text.endsWith("U"));
+  it("builds the prompt for every brand and form: only the tools it has, every safety rule, the same steps in both languages", () => {
+    const forms: Array<[RouterFamily, string | null]> = ROUTER_FAMILIES.flatMap((family) => [[family, null] as [RouterFamily, string | null], ...Object.keys(ROUTER_FAMILY_FACTS[family].variants ?? {}).map((variant): [RouterFamily, string | null] => [family, variant])]);
+    assert.ok(forms.length >= 13, "every brand, and each form of one");
+    for (const [family, variant] of forms) {
+      const router = routerOf(family, variant);
+      const plan = agentPromptPlan(router);
+      const label = `${family}${variant ? `/${variant}` : ""}`;
+      const texts = { zh: agentTestPrompt(router, "zh-CN", zh), en: agentTestPrompt(router, "en", en) };
+      const tools = { zh: toolsIn(texts.zh), en: toolsIn(texts.en) };
+      for (const [locale, text] of Object.entries(texts)) {
+        // Every name that reads like a tool is one the daemon serves
+        for (const tool of toolsIn(text)) assert.ok(toolOperation(tool), `${label} ${locale}: ${tool}`);
+        // A write tool shows only where its write is open here; a read tool only where the router has its section
+        for (const { tool } of AGENT_TEST_WRITE_TOOLS) assert.equal(toolsIn(text).includes(tool), plan.writeTools.includes(tool), `${label} ${locale}: ${tool}`);
+        for (const { tool } of AGENT_TEST_READ_TOOLS) if (tool !== "get_cpe_telemetry") assert.equal(toolsIn(text).includes(tool), plan.reads.includes(tool), `${label} ${locale}: ${tool}`);
+        // The HiLink probe only on Huawei; another brand goes through the device report
+        assert.equal(text.includes(locale === "zh" ? "用 probe_router_endpoints 查" : "use probe_router_endpoints to find"), family === "huawei", `${label} ${locale}`);
+        assert.ok(text.includes(router.issueUrl) && text.includes(router.model));
+      }
+      for (const rule of SAFETY.zh) assert.match(texts.zh, rule, `${label}: ${rule}`);
+      for (const rule of SAFETY.en) assert.match(texts.en, rule, `${label}: ${rule}`);
+      // The same lines and steps, naming the same tools in the same order, in both languages
+      assert.equal(texts.zh.split("\n").length, texts.en.split("\n").length, label);
+      assert.deepEqual(stepsOf(texts.zh), stepsOf(texts.en), label);
+      assert.deepEqual(tools.zh, tools.en, label);
+      // What waits for the owner's word is named, in the console's own words for each write
+      for (const feature of plan.askFirst) assert.ok(texts.en.includes(en(`feature_${feature}`)), `${label}: ${feature}`);
+      assert.deepEqual(plan.askFirst, plan.writes.filter((feature) => AGENT_TEST_ASK_FIRST.has(feature)));
+      // The report's table has a row for every feature FengSui implements here, and none for one it does not
+      const rows = familyFeatures(family, variant).filter(({ feature, access }) => {
+        if (access === "write") return true;
+        const read = featureRead(feature as ReadFeature);
+        return read === "status" || router.reads[read].state !== "unavailable";
+      });
+      assert.deepEqual(plan.rows, rows, label);
+      for (const { feature, access } of rows) assert.ok(texts.en.includes(`${feature} (${access})`), `${label}: ${feature}`);
+      for (const feature of WRITE_FEATURES) if (router.features[feature] === "not_implemented") assert.ok(!texts.en.includes(`${feature} (write)`), `${label}: ${feature}`);
     }
-    assert.match(zh("agent_test_prompt", { model: "M", issueUrl: "U" }), /路由器自己的管理网页.*网络制式.*锁 4G 小区和 5G 小区.*锁 4G 频段和 5G 频段/s);
-    assert.match(zh("agent_test_prompt", { model: "M", issueUrl: "U" }), /不要改网络制式/);
-    assert.match(zh("agent_test_prompt", { model: "M", issueUrl: "U" }), /小区标识、频点、PCI 或短信内容/);
-    assert.match(en("agent_test_prompt", { model: "M", issueUrl: "U" }), /router's own web page.*network modes.*4G cells and 5G cells.*4G bands and 5G bands/s);
-    assert.match(en("agent_test_prompt", { model: "M", issueUrl: "U" }), /Do not change the network mode/);
-    assert.match(en("agent_test_prompt", { model: "M", issueUrl: "U" }), /cell ID, channel, PCI or SMS text/);
+  });
+
+  it("asks of the agent what this router allows, and leaves out what its owner turned off", () => {
+    const tplink = agentPromptPlan(routerOf("tplink", "ex"));
+    assert.deepEqual([tplink.probe, tplink.nrBand, tplink.accessControl], [false, true, false]);
+    assert.deepEqual(tplink.reads, ["get_cpe_telemetry", "list_terminal_topology", "get_cellular_settings", "get_sms_status"], "no nearby cells, router switches or access control on this form");
+    assert.ok(tplink.writeTools.includes("lock_cell") && tplink.writeTools.includes("set_apn") && !tplink.writeTools.includes("set_airplane_mode"));
+    // No lock on D-Link: no lock tool, and no unlock either
+    const dlink = agentPromptPlan(routerOf("dlink", null));
+    assert.ok(!dlink.writeTools.some((tool) => ["lock_band", "lock_cell", "unlock_rf_locks"].includes(tool)));
+    assert.ok(dlink.askFirst.includes("ussd") && dlink.askFirst.includes("apn"));
+    // A Huawei router nobody verified: the HiLink probe, a 4G band lock only, and access control left out of the test
+    const huawei = agentPromptPlan(routerOf("huawei", null));
+    assert.deepEqual([huawei.probe, huawei.nrBand, huawei.accessControl], [true, false, true]);
+    assert.match(agentTestPrompt(routerOf("huawei", null), "en", en), /set_device_internet_access, set_wifi_mac_filter, manage_internet_time_rule\) are no part of this test/);
+    assert.doesNotMatch(agentTestPrompt(routerOf("huawei", null), "en", en), /5G band in use/);
+    // A cell lock alone still gets its unlock
+    const cellOnly = agentPromptPlan(routerOf("tplink", null, { bandLock: "disabled" }));
+    assert.ok(cellOnly.writeTools.includes("unlock_rf_locks") && !cellOnly.writeTools.includes("lock_band"));
+    assert.deepEqual(cellOnly.disabled, ["bandLock"]);
+    // Turned off by its owner: skipped and said so, never asked for
+    const off = routerOf("zte-goform", null, { reboot: "disabled", simSlot: "disabled" });
+    const offPlan = agentPromptPlan(off);
+    assert.ok(!offPlan.writes.includes("reboot") && !offPlan.askFirst.includes("simSlot"));
+    assert.deepEqual(offPlan.disabled, ["reboot", "simSlot"]);
+    assert.match(agentTestPrompt(off, "zh-CN", zh), /我在「设置 → 设备」关掉了这些写入，跳过不测，写进报告：重启、切换 SIM 卡槽。/);
+    assert.ok(!toolsIn(agentTestPrompt(off, "en", en)).includes("reboot_cpe"));
+    // SMS where the test cannot send is no part of it; where it can, the steps follow what the router does with SMS
+    const noSms = routerOf("tozed", null, {}, { available: false });
+    assert.ok(!toolsIn(agentTestPrompt(noSms, "en", en)).includes("send_sms"));
+    assert.doesNotMatch(agentTestPrompt(noSms, "en", en), /leave SMS out/);
+    const tozed = agentTestPrompt(routerOf("tozed", null, {}, { available: true, markRead: "fengsui", delete: "none" }), "en", en);
+    assert.match(tozed, /FengSui keeps this router's read state itself/);
+    assert.match(tozed, /skip deleting: this router cannot delete messages/);
+    assert.match(agentTestPrompt(routerOf("fiberhome", null, {}, { available: true, markRead: "router", delete: "conversation" }), "zh-CN", zh), /只能整段对话一起删/);
+    // The firmware, where the router named none
+    assert.match(agentTestPrompt({ ...routerOf("openwrt", null), firmware: null }, "zh-CN", zh), /固件 未知。/);
   });
 
   it("finds the newest reminder among the alerts", () => {

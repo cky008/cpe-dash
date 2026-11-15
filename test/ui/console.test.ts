@@ -685,7 +685,7 @@ describe("the console in a browser", () => {
       assert.deepEqual(other.stack.settings.behaviourOverrides, { agentExperimental: true, agentWrites: true, agentSms: "full", agentSmsSendPolicy: "any" });
       assert.equal(other.stack.settings.disabledWrites.length, 0, "no write's switch was touched");
       assert.deepEqual(other.stack.settings.listTokens().find((t) => t.id === agent.id)?.permissions, ["sms-read", "control", "sms-write"]);
-      assert.match(await page.evaluate<string>("navigator.clipboard.readText()"), /^Please test how FengSui works with this router \(B535-232\)/, "the prompt is copied");
+      assert.match(await page.evaluate<string>("navigator.clipboard.readText()"), /^Please test how FengSui works with this router[\s\S]*\nThe router: Huawei \(HiLink[^)]*\), model B535-232, firmware /, "the prompt for this router is copied");
       await page.waitUntil("document.querySelector('#settingsDialog [data-agent-test=status]')?.textContent.includes('Ending the test puts back')", "the test in progress");
       assert.equal(await page.evaluate<boolean>("document.querySelector('#settingsDialog [data-agent-test=token]') === null"), true, "nothing left to choose");
 
@@ -930,6 +930,16 @@ describe("the console on routers of other brands", () => {
       assert.match(drawer, /Reboot router/);
       const features = demo.stack.scheduler.getStatus().device.features;
       assert.deepEqual([features.bandLock, features.cellLock, features.mobileData], ["not_implemented", "not_implemented", "enabled"]);
+      await closeDialogs(page);
+      // The AI agent test's prompt is made for this router: its brand, no lock to test, and the device report instead of the HiLink probe
+      await openSettings(page, "Device");
+      const pre = "document.querySelector('#settingsDialog [data-agent-test=prompt] pre')";
+      await page.waitUntil(`${pre}?.textContent.includes('DWR-961')`, "the prompt for this router");
+      const prompt = await page.evaluate<string>(`${pre}.textContent`);
+      assert.match(prompt, /The router: D-Link \(DWR series 4G routers\), model DWR-961/);
+      assert.doesNotMatch(prompt, /lock_band|lock_cell|unlock_rf_locks/, "no lock to test");
+      assert.match(prompt, /probe_router_endpoints reads Huawei HiLink endpoints only and is refused on this router, so do not call it/);
+      assert.match(prompt, /Network mode \(set_network_mode\): ask me first/);
       assert.deepEqual(page.exceptions, []);
       await closeDialogs(page);
     } finally {

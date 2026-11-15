@@ -27,7 +27,7 @@ import { DEVICE_FEATURES } from "../../../src/features.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
 import { FAMILY_AUTO, type RouterFamily, routerFamilyOf } from "../../../src/router-family.ts";
 import type { ConnectionTestResult } from "../../../src/scheduler.ts";
-import { agentStartBody, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn } from "../core/agent-test-view.ts";
+import { agentStartBody, agentTestPrompt, agentTestStatus, defaultAgentToken, reminderWaiting, smsOption, startTurnsOn } from "../core/agent-test-view.ts";
 import { ApiError } from "../core/api.ts";
 import {
   type NoticeTone,
@@ -702,9 +702,15 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     const status = experimental?.agentTest ?? null;
     const plan = status?.plan ?? null;
     const current = status?.current ?? null;
-    const model = ctx.store.state.scheduler?.device.model ?? "?";
+    const access = ctx.store.state.scheduler?.device ?? null;
+    const model = access?.model ?? "?";
     const identity = device?.profile?.identity ?? null;
-    const prompt = t("agent_test_prompt", { model, issueUrl: deviceIssueUrl(identity ? { model: identity.model, softwareVersion: identity.softwareVersion } : { model, softwareVersion: null }) });
+    const issueUrl = deviceIssueUrl(identity ? { model: identity.model, softwareVersion: identity.softwareVersion } : { model, softwareVersion: null });
+    // Made for the router in use: its brand and the reads and writes open on it
+    const prompt =
+      access && plan?.available
+        ? agentTestPrompt({ family: access.family, variant: identity?.variant ?? null, model, firmware: identity?.softwareVersion ?? null, reads: access.reads, features: access.features, sms: plan.sms, issueUrl }, ctx.tr.locale, t)
+        : "";
     let test: HTMLElement | null = null;
     if (plan?.available || current) {
       const tokenId = plan ? (agentToken ?? defaultAgentToken(plan)) : "";
