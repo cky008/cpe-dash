@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import {
+  AGENT_TEST_ASK_FIRST,
+  AGENT_TEST_READ_TOOLS,
+  AGENT_TEST_TOOLS,
+  AGENT_TEST_WRITE_TOOLS,
   AGENT_TEST_REMIND_AFTER_MS,
   AGENT_TEST_REMIND_EVERY_MS,
   type AgentTestRecord,
@@ -23,7 +27,8 @@ import { CpeControlValidationError } from "../src/control-error.ts";
 import type { SmsAbilities } from "../src/sms/types.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { type WriteFeatureState } from "../src/device-access.ts";
-import { WRITE_FEATURES, type WriteFeature } from "../src/features.ts";
+import { AGENT_TEST_FEATURES, WRITE_FEATURES, type WriteFeature } from "../src/features.ts";
+import { MCP_TOOLS, mcpBinding, operationFeatures, operationRecord, toolOperation } from "../src/operations/registry.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { switchExperimentalWrite } from "../src/experimental-switch.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
@@ -93,7 +98,8 @@ describe("the agent test's rules", () => {
   it("offers the test only on a model nobody verified that has a covered write open, SMS apart, and never turns a write on", () => {
     const writable = { bandLock: "enabled", reboot: "enabled", reconnect: "disabled", mobileData: "enabled", smsWrite: "enabled" } as const;
     for (const writes of ["allowed", "unknown"] as const) assert.equal(plan({ states: writable, writes }).available, false, writes);
-    assert.equal(plan({ states: { bandLock: "unsupported", reboot: "unsupported", mobileData: "enabled" } }).available, false, "mobile data is not the test's");
+    assert.equal(plan({ states: { bandLock: "unsupported", reboot: "unsupported", simPin: "enabled", accessControl: "enabled" } }).available, false, "the PIN and access control are not the test's");
+    assert.equal(plan({ states: { mobileData: "enabled" } }).available, true, "every write an agent's tools can make is, mobile data among them");
 
     const all = plan({ states: writable, values: { agentExperimental: true } });
     assert.deepEqual([all.available, all.settings], [true, ["agentWrites"]], "the settings not set its way; the writes are on already");
@@ -111,7 +117,7 @@ describe("the agent test's rules", () => {
     const smsOnly = plan({ states: { smsWrite: "enabled" } });
     assert.deepEqual([smsOnly.available, smsOnly.sms.available], [true, true], "SMS alone is a test too");
     // Every covered write turned off by its owner: nothing for an agent to test, and the test does not undo that
-    assert.equal(plan({ states: { bandLock: "disabled", reboot: "disabled", reconnect: "disabled", smsWrite: "disabled", mobileData: "enabled" } }).available, false);
+    assert.equal(plan({ states: { bandLock: "disabled", reboot: "disabled", reconnect: "disabled", smsWrite: "disabled", simPin: "enabled" } }).available, false);
   });
 
   it("suggests the token an agent called with last, else the only one there is to choose, and says what each lacks", () => {
@@ -152,7 +158,7 @@ describe("the agent test's rules", () => {
 
   it("passes when every covered write that is open was tried since the start and always read back as a match", () => {
     const test = record();
-    const write = (feature: "bandLock" | "reconnect" | "smsWrite", atIso: string, outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending") => ({ feature, atIso, outcome, readback });
+    const write = (feature: "bandLock" | "reconnect" | "smsWrite" | "ussd", atIso: string, outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending" | "none") => ({ feature, atIso, outcome, readback });
     const after = "2026-11-10T08:10:00.000Z";
     assert.equal(agentTestPassed(test, [], [write("bandLock", after, "applied", "match")]), false, "nothing on to pass");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", "2026-11-10T07:00:00.000Z", "applied", "match")]), false, "tried before the test only");
@@ -161,10 +167,36 @@ describe("the agent test's rules", () => {
     assert.equal(agentTestPassed(test, ["bandLock", "reconnect"], [write("bandLock", after, "applied", "match"), write("reconnect", after, "applied", "pending")]), false, "still being checked");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", after, "applied", "match"), write("bandLock", after, "applied", "mismatch")]), false, "one try read back differently");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", after, "failed", "match")]), false, "refused by the router");
+    // A write with nothing to read back (a USSD code) passes once the router took it
+    assert.equal(agentTestPassed(test, ["bandLock", "ussd"], [write("bandLock", after, "applied", "match"), write("ussd", after, "applied", "none")]), true);
+    assert.equal(agentTestPassed(test, ["ussd"], [write("ussd", after, "failed", "none")]), false);
 
     const on = (feature: string): boolean => feature === "bandLock" || feature === "smsWrite";
     assert.deepEqual(agentTestCovered({ sms: true }, on), ["smsWrite", "bandLock"]);
     assert.deepEqual(agentTestCovered({ sms: false }, on), ["bandLock"], "SMS left out of the test does not count, even if it is on");
+  });
+
+  it("names in its prompt only tools the daemon serves, each with the section or the writes the operation registry gives it", () => {
+    for (const { tool, section } of AGENT_TEST_READ_TOOLS) {
+      const op = toolOperation(tool);
+      assert.ok(op, tool);
+      const record = operationRecord(op);
+      assert.equal(record.access, "read", tool);
+      assert.equal(record.section ?? (tool === "get_cellular_settings" ? "cellular" : null), section, tool);
+    }
+    for (const { tool, features } of AGENT_TEST_WRITE_TOOLS) {
+      const op = toolOperation(tool);
+      assert.ok(op, tool);
+      assert.deepEqual(operationFeatures(op), features, tool);
+    }
+    // Every write tool of a covered write is in the table, and every covered write has a tool there
+    const writeTools = Object.values(MCP_TOOLS).flatMap((ops) => [...ops]).filter((op) => operationFeatures(op).length > 0 && operationFeatures(op).every((feature) => (AGENT_TEST_FEATURES as ReadonlyArray<string>).includes(feature)));
+    assert.deepEqual(writeTools.map((op) => mcpBinding(op).tool).sort(), AGENT_TEST_WRITE_TOOLS.map((entry) => entry.tool).sort());
+    assert.deepEqual([...new Set(AGENT_TEST_WRITE_TOOLS.flatMap((entry) => entry.features))].sort(), [...AGENT_TEST_FEATURES].sort());
+    // What waits for the owner's word is covered, and the PIN and access control are no part of the test
+    for (const feature of AGENT_TEST_ASK_FIRST) assert.ok((AGENT_TEST_FEATURES as ReadonlyArray<string>).includes(feature), feature);
+    assert.ok(!(AGENT_TEST_FEATURES as ReadonlyArray<string>).includes("simPin") && !(AGENT_TEST_FEATURES as ReadonlyArray<string>).includes("accessControl"));
+    for (const tool of AGENT_TEST_TOOLS) assert.ok(toolOperation(tool), tool);
   });
 
   it("reminds 3 hours after the last activity, then daily, and never after a read reminder, a pass or with nothing on", () => {
@@ -410,10 +442,11 @@ describe("the agent test at one click", () => {
       assert.deepEqual([started.current?.tokens, fx.settings.listTokens().find((t) => t.id === smsless.id)?.permissions], [[], ["control"]]);
       // Every write the test covers turned off by the owner: no test to start, and none of them is turned back on
       fx.service.end();
-      for (const feature of ["bandLock", "reconnect", "reboot", "smsWrite"]) switchExperimentalWrite(fx.settings, fx.core.scheduler.device, { feature, enabled: false });
+      const covered = AGENT_TEST_FEATURES.filter((feature) => fx.core.scheduler.device.writeState(feature) === "enabled");
+      for (const feature of covered) switchExperimentalWrite(fx.settings, fx.core.scheduler.device, { feature, enabled: false });
       assert.equal(fx.service.status().plan.available, false);
       assert.throws(() => fx.service.begin({ model: MODEL }), AgentTestUnavailableError);
-      assert.equal(fx.settings.disabledWrites.length, 4);
+      assert.equal(fx.settings.disabledWrites.length, covered.length);
     } finally {
       await fx.cleanup();
     }
@@ -514,7 +547,9 @@ describe("the agent test at one click", () => {
     try {
       fx.service.begin({ model: MODEL, sms: false });
       // The owner keeps only the band lock, which the agent then tests and puts back
-      for (const feature of ["reconnect", "reboot"]) switchExperimentalWrite(fx.settings, fx.core.scheduler.device, { feature, enabled: false });
+      const others = AGENT_TEST_FEATURES.filter((feature) => feature !== "bandLock" && feature !== "smsWrite" && fx.core.scheduler.device.writeState(feature) === "enabled");
+      assert.ok(others.includes("reboot") && others.includes("networkMode"), "the generic writes of this model are all in the test");
+      for (const feature of others) switchExperimentalWrite(fx.settings, fx.core.scheduler.device, { feature, enabled: false });
       assert.equal(fx.service.status().current?.passed, false, "not tried yet");
       const locked = await fx.call("lock_band", { lteBands: ["B1"], confirm: true }, ["control"]);
       assert.equal(locked["ok"], true);

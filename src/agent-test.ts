@@ -2,7 +2,7 @@ import type { AgentSmsAccess, BehaviourValues } from "./behaviour-settings.ts";
 import type { SmsAbilities } from "./sms/types.ts";
 import type { TokenPermission } from "./console-policy.ts";
 import type { WriteAccess, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
-import { AGENT_TEST_FEATURES, type AgentTestFeature, type WriteFeature } from "./features.ts";
+import { AGENT_TEST_FEATURES, type AgentTestFeature, type ReadSection, type WriteFeature } from "./features.ts";
 
 /**
  * Testing the router with an AI agent at one click (Settings → Device, on a model FengSui was not
@@ -31,8 +31,8 @@ export type AgentTestSetting = keyof typeof AGENT_TEST_SETTINGS;
 const BASE_SETTINGS = ["agentExperimental", "agentWrites"] as const satisfies ReadonlyArray<AgentTestSetting>;
 const SMS_SETTINGS = ["agentSms", "agentSmsSendPolicy"] as const satisfies ReadonlyArray<AgentTestSetting>;
 /**
- * The writes the test covers (`agentTest` in the registry: what an agent's tools can write; there is no
- * mobile-data tool) besides SMS, which counts only while the owner keeps it in.
+ * The writes the test covers (`agentTest` in the registry: what an agent's tools can write with the
+ * test's permissions, the SIM PIN apart) besides SMS, which counts only while the owner keeps it in.
  */
 const BASE_FEATURES = AGENT_TEST_FEATURES.filter((feature) => feature !== "smsWrite");
 /** What the agent's token needs: changing the router; with SMS also reading and writing SMS. */
@@ -47,20 +47,69 @@ export const AGENT_TEST_REMIND_EVERY_MS = 24 * 3_600_000;
 /** Why the test cannot start on this router (`409 AGENT_TEST_UNAVAILABLE`). */
 export const AGENT_TEST_UNAVAILABLE_MESSAGE = "This router has no experimental write for an AI agent to test (a model FengSui was verified on, none identified yet, or every write the test covers is turned off or not implemented for it)";
 
-/** MCP tools whose calls mean the test is still going on: the report, the probe and the writes it covers. */
-export const AGENT_TEST_TOOLS: ReadonlySet<string> = new Set([
-  "get_device_report",
-  "probe_router_endpoints",
-  "set_experimental_write",
-  "lock_band",
-  "lock_cell",
-  "unlock_rf_locks",
-  "reconnect_cellular",
-  "reboot_cpe",
-  "send_sms",
-  "mark_sms_read",
-  "delete_sms",
+/**
+ * The read tools the test's prompt has an agent call, and the read section each needs (`null`: there
+ * on every router; `cellular`: there where a cellular setting is open). Kept here rather than taken
+ * from the operation registry, which the console does not load: `test/agent-test.test.ts` checks each
+ * name and section against it.
+ */
+export const AGENT_TEST_READ_TOOLS: ReadonlyArray<{ tool: string; section: ReadSection | "cellular" | null }> = [
+  { tool: "get_cpe_telemetry", section: null },
+  { tool: "list_neighbor_cells", section: "neighbors" },
+  { tool: "list_terminal_topology", section: "topology" },
+  { tool: "get_router_settings", section: "settings" },
+  { tool: "get_access_control", section: "accessControl" },
+  { tool: "get_cellular_settings", section: "cellular" },
+  { tool: "get_sms_status", section: "sms" },
+];
+
+/** The write tools the prompt names, and the covered writes each makes (checked against the registry the same way). */
+export const AGENT_TEST_WRITE_TOOLS: ReadonlyArray<{ tool: string; features: ReadonlyArray<AgentTestFeature> }> = [
+  { tool: "lock_band", features: ["bandLock"] },
+  { tool: "lock_cell", features: ["cellLock"] },
+  { tool: "unlock_rf_locks", features: ["bandLock"] },
+  { tool: "set_security_switches", features: ["securitySwitches"] },
+  { tool: "set_wifi_and_antenna", features: ["wifi", "antenna"] },
+  { tool: "reconnect_cellular", features: ["reconnect"] },
+  { tool: "set_mobile_data", features: ["mobileData"] },
+  { tool: "reboot_cpe", features: ["reboot"] },
+  { tool: "set_network_mode", features: ["networkMode"] },
+  { tool: "scan_operators", features: ["operatorSelect"] },
+  { tool: "select_operator", features: ["operatorSelect"] },
+  { tool: "set_sim_slot", features: ["simSlot"] },
+  { tool: "set_airplane_mode", features: ["airplaneSwitch"] },
+  { tool: "set_data_roaming", features: ["roaming"] },
+  { tool: "set_apn", features: ["apn"] },
+  { tool: "set_data_limit", features: ["dataLimit"] },
+  { tool: "reset_traffic_counters", features: ["trafficReset"] },
+  { tool: "send_ussd", features: ["ussd"] },
+  { tool: "send_sms", features: ["smsWrite"] },
+  { tool: "mark_sms_read", features: ["smsWrite"] },
+  { tool: "delete_sms", features: ["smsWrite"] },
+];
+
+/**
+ * The covered writes an agent makes only once the owner said yes: the ones that take the internet down
+ * for a while or for good (a redial, a reboot, mobile data, airplane mode, the SIM slot, the network
+ * mode, the operator, the access point), one that cannot be undone (clearing the traffic counters), and
+ * the ones that go out to the network (a USSD code, a test SMS).
+ */
+export const AGENT_TEST_ASK_FIRST: ReadonlySet<AgentTestFeature> = new Set<AgentTestFeature>([
+  "reconnect",
+  "reboot",
+  "mobileData",
+  "airplaneSwitch",
+  "simSlot",
+  "networkMode",
+  "operatorSelect",
+  "apn",
+  "trafficReset",
+  "ussd",
+  "smsWrite",
 ]);
+
+/** MCP tools whose calls mean the test is still going on: the report, the probe, the cellular settings it reads, and the writes it covers. */
+export const AGENT_TEST_TOOLS: ReadonlySet<string> = new Set(["get_device_report", "probe_router_endpoints", "set_experimental_write", "get_cellular_settings", ...AGENT_TEST_WRITE_TOOLS.map((entry) => entry.tool)]);
 
 /** A console setting the test set, and the console's value before (`null`: it followed `.env`). */
 export type AgentTestSettingChange =
@@ -259,7 +308,8 @@ export function agentTestCovered(record: Pick<AgentTestRecord, "sms">, open: (fe
 
 /**
  * The report passed: each covered write that is open now was tried since the test started, and every
- * try reached the router and read back as a match (a redial or reboot still being checked has not).
+ * try reached the router and read back as a match (a redial or reboot still being checked has not), or,
+ * for a write with nothing to read back (a USSD code, a search for networks), the router took it.
  */
 export function agentTestPassed(
   record: Pick<AgentTestRecord, "startedAtIso">,
@@ -270,7 +320,7 @@ export function agentTestPassed(
   const sinceMs = Date.parse(record.startedAtIso);
   return covered.every((feature) => {
     const tries = writes.filter((write) => write.feature === feature && Date.parse(write.atIso) >= sinceMs);
-    return tries.length > 0 && tries.every((write) => write.outcome === "applied" && write.readback === "match");
+    return tries.length > 0 && tries.every((write) => write.outcome === "applied" && (write.readback === "match" || write.readback === "none"));
   });
 }
 

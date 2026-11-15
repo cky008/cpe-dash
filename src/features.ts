@@ -68,7 +68,7 @@ export interface WriteFeatureRecord extends FeatureRecordBase {
    * verification does not cover them: it gets the ones checked on it in person (`VERIFIED_FEATURES`).
    */
   cellular?: true;
-  /** One of the writes the one-click AI agent test covers (what an agent's tools can write). */
+  /** One of the writes the one-click AI agent test covers: what an agent's tools can write with the test's permissions, the SIM PIN apart. */
   agentTest?: true;
 }
 
@@ -82,27 +82,27 @@ export const FEATURES = {
   smsRead: { access: "read", column: "sms", part: { zh: "读取", en: "reading" }, read: "sms" },
   smsWrite: { access: "write", column: "sms", part: { zh: "发送与管理", en: "sending and managing" }, actions: ["sms_send", "sms_mark_read", "sms_delete"], agentTest: true },
   bandLock: { access: "write", column: "bandLock", actions: ["lock_band", "unlock_rf_locks", "auto_unlock_rf_locks"], agentTest: true },
-  cellLock: { access: "write", column: "cellLock", actions: ["lock_cell"] },
+  cellLock: { access: "write", column: "cellLock", actions: ["lock_cell"] , agentTest: true },
   reboot: { access: "write", column: "restart", part: { zh: "重启", en: "reboot" }, actions: ["reboot_cpe"], agentTest: true },
   reconnect: { access: "write", column: "restart", part: { zh: "重拨", en: "redial" }, actions: ["reconnect_cellular", "auto_reconnect_cellular"], agentTest: true },
-  mobileData: { access: "write", column: "mobileData", actions: ["set_mobile_data"] },
-  securitySwitches: { access: "write", column: "switches", part: { zh: "安全开关", en: "the security switches" }, actions: ["set_security_switches"] },
-  wifi: { access: "write", column: "switches", part: { zh: "Wi-Fi 7", en: "Wi-Fi 7" }, actions: ["set_wifi7_mlo"] },
-  antenna: { access: "write", column: "switches", part: { zh: "天线", en: "the antenna" }, actions: ["set_antenna_mode"] },
+  mobileData: { access: "write", column: "mobileData", actions: ["set_mobile_data"] , agentTest: true },
+  securitySwitches: { access: "write", column: "switches", part: { zh: "安全开关", en: "the security switches" }, actions: ["set_security_switches"] , agentTest: true },
+  wifi: { access: "write", column: "switches", part: { zh: "Wi-Fi 7", en: "Wi-Fi 7" }, actions: ["set_wifi7_mlo"] , agentTest: true },
+  antenna: { access: "write", column: "switches", part: { zh: "天线", en: "the antenna" }, actions: ["set_antenna_mode"] , agentTest: true },
   accessControl: { access: "write", column: "access", actions: ["set_wifi_access", "manage_time_rule"] },
   battery: { access: "read", column: "battery", read: "status" },
   simCard: { access: "read", column: "sim", part: { zh: "状态", en: "its status" }, read: "status" },
-  simSlot: { access: "write", column: "sim", part: { zh: "切换卡槽", en: "switching slots" }, actions: ["set_sim_slot", "auto_restore_sim_slot"], cellular: true },
+  simSlot: { access: "write", column: "sim", part: { zh: "切换卡槽", en: "switching slots" }, actions: ["set_sim_slot", "auto_restore_sim_slot"], cellular: true , agentTest: true },
   simPin: { access: "write", column: "sim", part: { zh: "PIN", en: "the PIN" }, actions: ["enter_sim_pin", "set_sim_pin_lock"], cellular: true },
   airplaneMode: { access: "read", column: "airplane", part: { zh: "状态", en: "its state" }, read: "status" },
-  airplaneSwitch: { access: "write", column: "airplane", part: { zh: "开关", en: "the switch" }, actions: ["set_airplane_mode"], cellular: true },
-  networkMode: { access: "write", column: "network", part: { zh: "网络制式", en: "the network mode" }, actions: ["set_network_mode", "auto_restore_network_mode"], cellular: true },
-  operatorSelect: { access: "write", column: "network", part: { zh: "手动选网", en: "choosing the operator" }, actions: ["scan_operators", "select_operator", "auto_restore_operator"], cellular: true },
-  roaming: { access: "write", column: "data", part: { zh: "数据漫游", en: "data roaming" }, actions: ["set_roaming"], cellular: true },
-  apn: { access: "write", column: "data", part: { zh: "接入点（APN）", en: "the access point (APN)" }, actions: ["set_apn", "auto_restore_apn"], cellular: true },
-  dataLimit: { access: "write", column: "data", part: { zh: "流量上限", en: "the data limit" }, actions: ["set_data_limit"], cellular: true },
-  trafficReset: { access: "write", column: "data", part: { zh: "清零流量统计", en: "clearing the traffic counters" }, actions: ["reset_traffic"], cellular: true },
-  ussd: { access: "write", column: "ussd", actions: ["send_ussd"], cellular: true },
+  airplaneSwitch: { access: "write", column: "airplane", part: { zh: "开关", en: "the switch" }, actions: ["set_airplane_mode"], cellular: true , agentTest: true },
+  networkMode: { access: "write", column: "network", part: { zh: "网络制式", en: "the network mode" }, actions: ["set_network_mode", "auto_restore_network_mode"], cellular: true , agentTest: true },
+  operatorSelect: { access: "write", column: "network", part: { zh: "手动选网", en: "choosing the operator" }, actions: ["scan_operators", "select_operator", "auto_restore_operator"], cellular: true , agentTest: true },
+  roaming: { access: "write", column: "data", part: { zh: "数据漫游", en: "data roaming" }, actions: ["set_roaming"], cellular: true , agentTest: true },
+  apn: { access: "write", column: "data", part: { zh: "接入点（APN）", en: "the access point (APN)" }, actions: ["set_apn", "auto_restore_apn"], cellular: true , agentTest: true },
+  dataLimit: { access: "write", column: "data", part: { zh: "流量上限", en: "the data limit" }, actions: ["set_data_limit"], cellular: true , agentTest: true },
+  trafficReset: { access: "write", column: "data", part: { zh: "清零流量统计", en: "clearing the traffic counters" }, actions: ["reset_traffic"], cellular: true , agentTest: true },
+  ussd: { access: "write", column: "ussd", actions: ["send_ussd"], cellular: true , agentTest: true },
 } as const satisfies Readonly<Record<string, FeatureRecord>>;
 
 type Registry = typeof FEATURES;

@@ -96,8 +96,11 @@ describe("capability registry", () => {
     assert.equal(isWriteFeature("telemetry"), false);
     assert.ok(CELLULAR_WRITE_FEATURES.every((feature) => featureAccess(feature) === "write" && isCellularWriteFeature(feature)));
     assert.deepEqual([...CELLULAR_WRITE_FEATURES], ["simSlot", "simPin", "airplaneSwitch", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"]);
-    // What an agent's tools can write (no mobile-data tool), SMS included; the test's own rules are in test/agent-test.test.ts
-    assert.deepEqual([...AGENT_TEST_FEATURES], ["smsWrite", "bandLock", "reboot", "reconnect"]);
+    // What an agent's tools can write with the test's permissions, SMS included, the SIM PIN and access control apart; the test's own rules are in test/agent-test.test.ts
+    assert.deepEqual(
+      [...AGENT_TEST_FEATURES],
+      WRITE_FEATURES.filter((feature) => feature !== "simPin" && feature !== "accessControl")
+    );
   });
 
   it("is the only source of feature names: the brands, the reports and the model facts use its names", () => {
