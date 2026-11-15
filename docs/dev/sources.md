@@ -747,6 +747,10 @@ JSON 写法里页面把数值属性写成数字（`dataSwitchStatusBackup: 1`）
 
 **验证**：`test/helpers/tplink-router.ts` 的模拟路由器加了这些对象（两种写法各一套），每个写入都核对发出去的对象、实例和属性；固件没有某个表单、SIM 卡不可用、频段不在支持列表里、搜网失败或不结束、PIN 写入后读不到状态，各有用例。
 
+#### 在线演示的第四个世界：没有锁频的品牌
+
+`?router=dlink`：一台 D-Link DWR-961，布置在 `test/helpers/dlink-router.ts` 的模拟路由器上（新登录页的写法；模拟路由器的读数改成可以由演示世界推动）。D-Link 的接口没有锁频段、锁小区和附近的基站，所以这是控制台在「这个品牌没有这些功能」时的样子：控制抽屉里没有锁定一节，「附近的基站」写明此型号不提供，其余（信号与频段、流量、已连接设备、短信、移动数据、网络制式、接入点、USSD）照常。它的管理页同一时间只让一个人登录，演示里有人登录着时烽燧让位。浏览器测试 `test/ui/console.test.ts` 核对这套界面，`test/ui/demo.test.ts` 和 `test/demo-runtime.test.ts` 核对这个世界本身。
+
 #### 品速公版接口（`http.cgi`）：不做
 
 资料 B（`pinsu-unisoc-qualcomm-protocol-spec.md` 第 152–292 行）记了这套接口的 `cmd` 编号和应答字段，但有两处定不下来：

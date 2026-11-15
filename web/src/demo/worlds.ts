@@ -3,15 +3,17 @@ import { maskToBands } from "../../../src/device-profile.ts";
 import { getXmlBlocks, getXmlTag } from "../../../src/protocols/hilink/xml.ts";
 import { H168_383_LTE_BANDS } from "../../../src/rf-bounds.ts";
 import { type FamilySms, createCpeFamily } from "../../../test/helpers/cpe-family.ts";
+import { dlinkRouter } from "../../../test/helpers/dlink-router.ts";
 import { type StrictCpe, createStrictCpe } from "../../../test/helpers/strict-cpe.ts";
 import { zteApnProfile, zteRouter, zteSms } from "../../../test/helpers/zte-goform-router.ts";
 import { HOUSEHOLD_LTE, HOUSEHOLD_NR, type RatLock, type Serving, UNLOCKED, dbm, servingFor } from "./radio.ts";
 import { type SignalBase, type WorldSample, worldSample } from "./world.ts";
 
 /**
- * The demo's three routers, each a mock from test/helpers dressed as a household's router: the
- * verified H168-383, an LTE-only Huawei B535-232 FengSui was not verified on (`?router=other`) and a
- * ZTE MU5001 mobile router (`?router=zte`). The real daemon talks to them: in the live demo's page
+ * The demo's four routers, each a mock from test/helpers dressed as a household's router: the
+ * verified H168-383, an LTE-only Huawei B535-232 FengSui was not verified on (`?router=other`), a
+ * ZTE MU5001 mobile router (`?router=zte`) and a D-Link DWR-961, whose interface has no band or cell
+ * lock (`?router=dlink`). The real daemon talks to them: in the live demo's page
  * (./runtime.ts), in `npm run demo`, the screenshots and the browser tests (scripts/demo-router.ts).
  *
  * What a router does that the protocol mocks leave out is modelled here, on the router's side: the
@@ -24,6 +26,8 @@ import { type SignalBase, type WorldSample, worldSample } from "./world.ts";
 export const DEMO_CPE_PASSWORD = "demo-router-password";
 /** Where the ZTE world's router answers (ZTE's usual address). */
 export const ZTE_DEMO_URL = "http://192.168.0.1";
+/** Where the D-Link world's router answers (D-Link's usual address). */
+export const DLINK_DEMO_URL = "http://192.168.0.1";
 /** How long a rebooting demo router is gone from the network. */
 export const REBOOT_OFFLINE_MS = 45_000;
 /** How soon a demo contact answers a message (when the world replies at all). */
@@ -717,6 +721,115 @@ export function createZteDemoRouter(opts: DemoWorldOptions = {}): DemoRouter {
     pushOtp: () => {
       const code = String(100_000 + Math.floor(home.random() * 899_999));
       zte.state.sms.push(zteSms(nextId++, "DemoBank", `Your DemoBank verification code is ${code}. It expires in 10 minutes.`, "1", routerDate(0)));
+    },
+    setLatencyScale: home.setLatencyScale,
+  };
+}
+
+/**
+ * The D-Link world (`?router=dlink`): a 4G router with D-Link's own web interface (DWR-961), from the
+ * test/helpers mock of it. That interface has no band or cell lock and no nearby cells on record, so
+ * this is the household where the console shows a brand without them: the 4G signal with its band and
+ * channel, traffic, connected devices, the SMS inbox, mobile data, the network type, the access point
+ * and USSD. The router lets one person into its page at a time, and says who. Facts and placeholders only.
+ */
+export function createDlinkDemoRouter(opts: DemoWorldOptions = {}): DemoRouter {
+  const home = household(opts, { latencyScale: 0 });
+  const base: SignalBase = { lteRsrpDbm: -92, lteRsrqDb: -10, lteSinrDb: 11, lteRssiDbm: -66, nr: null, temperatureCelsius: null };
+  let sample = worldSample(home.now(), base, home.random);
+  // The page's own date form: yy/MM/dd HH:mm:ss
+  const routerDate = (offsetMin: number): string => {
+    const d = new Date(home.now() - offsetMin * 60_000);
+    return `${pad(d.getFullYear() % 100)}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+  // No lock moves this router: it stays on the household's strongest 4G cell
+  const cell = servingFor(UNLOCKED, UNLOCKED).lte;
+  const dlink = dlinkRouter({
+    page: "encoded",
+    password: DEMO_CPE_PASSWORD,
+    // Its owner dials by hand: a disconnect holds until the connection is switched on again
+    autoConnect: false,
+    ussdAnswer: DEMO_USSD_ANSWER,
+    inbox: [
+      { tag: "1003", phone: "DemoBank", date: routerDate(6), msg: "Your DemoBank verification code is 315902. It expires in 10 minutes.", read: 0 },
+      { tag: "1002", phone: "+353830000001", date: routerDate(90), msg: "Back home by 8, see you then", read: 1 },
+    ],
+    live: {
+      model: "DWR-961",
+      operator: "Carrier-Lab",
+      // The modem's own number for the band: 120 is band 1
+      band: 119 + cell.band,
+      earfcn: cell.arfcn,
+      rx: 96_000_000_000,
+      tx: 7_100_000_000,
+      uptime: 412_000,
+      clients: {
+        wifi24: [{ hname: "demo-phone", ip: "192.168.0.51", mac: "02:00:5E:10:00:05", leasetm: "5400" }],
+        wifi5: [{ hname: "living-room-tv", ip: "192.168.0.33", mac: "02:00:5E:10:00:03", leasetm: "7200" }],
+        lan: [{ hname: "nas-ds923", ip: "192.168.0.10", mac: "02:00:5E:10:00:01", leasetm: "0" }],
+      },
+    },
+  });
+  const state = dlink.state;
+  const live = state.live;
+  let nextTag = 1004;
+  let replied = 0;
+  const step = (): void => {
+    const { lte } = signalOf(sample, { lte: cell, lteScc: [], nr: null });
+    Object.assign(live, {
+      rsrp: Math.round(lte.rsrp),
+      rsrq: Math.round(lte.rsrq),
+      sinr: Math.round(lte.sinr),
+      rssi: Math.round(lte.rssi),
+      level: lte.rsrp >= -85 ? 5 : lte.rsrp >= -95 ? 4 : lte.rsrp >= -105 ? 3 : 2,
+      newSms: state.inbox.filter((message) => message.read === 0).length,
+    });
+  };
+  step();
+  const receive = (phone: string, msg: string): void => {
+    state.inbox.unshift({ tag: String(nextTag++), phone, date: routerDate(0), msg, read: 0 });
+    step();
+  };
+  const fetchImpl: typeof fetch = async (input, init) => {
+    await home.arrive(init);
+    const res = await dlink.mock.fetchImpl(input, init);
+    // What a write does to the household: gone for a while after a reboot, a reply to a message it sent
+    if (state.rebooted) {
+      state.rebooted = false;
+      live.uptime = 0;
+      home.goOffline();
+    }
+    for (; replied < state.sent.length; replied += 1) {
+      const sent = state.sent[replied];
+      if (sent && sent.phone && home.autoReply) home.later(home.replyAfterMs, () => receive(sent.phone, replyFor(sent.msg)));
+    }
+    return res;
+  };
+  return {
+    cpe: null,
+    // D-Link's page lets one person in and names the address of whoever is: FengSui yields to them
+    human: {
+      loginSameIp: () => {
+        state.busyFrom = "192.168.0.51";
+      },
+      logout: () => {
+        state.busyFrom = null;
+      },
+    },
+    fetchImpl,
+    base,
+    advance: () => {
+      sample = worldSample(home.now(), base, home.random);
+      live.uptime += 5;
+      if (state.connected) {
+        live.rx += sample.downloadBytesPerSec * 5;
+        live.tx += sample.uploadBytesPerSec * 5;
+      }
+      step();
+    },
+    pushOtp: () => {
+      const code = String(100_000 + Math.floor(home.random() * 899_999));
+      receive("DemoBank", `Your DemoBank verification code is ${code}. It expires in 10 minutes.`);
     },
     setLatencyScale: home.setLatencyScale,
   };

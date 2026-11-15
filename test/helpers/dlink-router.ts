@@ -39,6 +39,29 @@ export interface DlinkRouterOptions {
   /** A write the router refuses (its `CfgType`). */
   refuse?: string;
   inbox?: DlinkInboxEntry[];
+  /** The password the newer login page takes (left out: `DLINK_PASSWORD`; the older page compares the written-out MD5 of that one only). */
+  password?: string;
+  /** What the router reports of itself and its signal where a demo household moves it (left out: the fixed readings). */
+  live?: Partial<DlinkLive>;
+}
+
+/** The readings a household can move: the stand-in answers its reads from them. */
+export interface DlinkLive {
+  model: string;
+  operator: string;
+  rsrp: number;
+  rsrq: number;
+  sinr: number;
+  rssi: number;
+  level: number;
+  /** The modem's number for the band (120 is band 1), and the channel. */
+  band: number;
+  earfcn: number;
+  rx: number;
+  tx: number;
+  uptime: number;
+  newSms: number;
+  clients: { wifi24: Array<Record<string, string>>; wifi5: Array<Record<string, string>>; lan: Array<Record<string, string>> };
 }
 
 const OLD_PAGE = '<html><head><script src="js/md5.js"></script></head><body><script>function doLogin(){ $.post("login.cgi", {uname: u, passwd: hex_md5(p)}, function(d){ setCookie("DWRLOGGEDID", d.SessId); }); }</script></body></html>';
@@ -60,11 +83,37 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
     ],
     ussdPending: false,
     rebooted: false,
+    /** Someone signed in to the router's page from this address (`null`: nobody). */
+    busyFrom: opts.busyFrom ?? (null as string | null),
+    /** Every message the router was handed to send. */
+    sent: [] as Array<{ phone: string; msg: string }>,
+    live: {
+      model: "DWR-960",
+      operator: "Three",
+      rsrp: -95,
+      rsrq: -11,
+      sinr: 14,
+      rssi: -67,
+      level: 4,
+      band: 120,
+      earfcn: 300,
+      rx: 2948105728,
+      tx: 104857600,
+      uptime: 86_400,
+      newSms: 1,
+      clients: {
+        wifi24: [{ hname: "phone", ip: "192.168.0.100", mac: "02:00:5E:10:00:01", leasetm: "3600" }],
+        wifi5: [{ hname: "", ip: "192.168.0.101", mac: "00:00:5E:00:53:01", leasetm: "" }],
+        lan: [{ hname: "nas", ip: "192.168.0.2", mac: "02:00:5E:10:00:02", leasetm: "0" }, { hname: "ghost", ip: "", mac: "" }],
+      },
+      ...opts.live,
+    } as DlinkLive,
   };
   /** Every write the router took: its `CfgType` and the body (the token left out). */
   const writes: Array<Record<string, unknown>> = [];
   const logins: URLSearchParams[] = [];
-  const expected = page === "encoded" ? dlinkEncodedPassword(DLINK_PASSWORD) : DLINK_PASSWORD_MD5;
+  if (opts.password !== undefined && page !== "encoded") throw new Error("a password of its own needs the newer login page: the older one's MD5 is written out for DLINK_PASSWORD only");
+  const expected = page === "encoded" ? dlinkEncodedPassword(opts.password ?? DLINK_PASSWORD) : DLINK_PASSWORD_MD5;
   const signedIn = (req: LanRequestRecord): boolean => {
     const cookies = new Map((req.headers["cookie"] ?? "").split("; ").map((pair) => pair.split("=") as [string, string]));
     return state.sid !== null && cookies.get("qSessId") === state.sid && cookies.get("DWRLOGGEDID") === state.sid && cookies.get("DWRLOGGEDUSER") === "admin";
@@ -75,29 +124,30 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
     if (name === "up_5s") {
       return {
         json: {
-          system_uptime: 86_400,
+          system_uptime: state.live.uptime,
           system_date: "2026-10-12 08:00:00",
-          new_sms: 1,
+          new_sms: state.live.newSms,
           sim_status: { status: 1, result: 0, retry: 3 },
-          signal: { modem: { service: "LTE", op_name: "Three", strength: -67, level: 4, max_level: 5, cat: 6, netreg: 1, roaming: 0 } },
+          signal: { modem: { service: "LTE", op_name: state.live.operator, strength: state.live.rssi, level: state.live.level, max_level: 5, cat: 6, netreg: 1, roaming: 0 } },
           ipv4: state.connected ? { status: "Connected", ip: "198.51.100.42", subnet_mask: "255.255.255.252", gateway: "198.51.100.41", dns1: "203.0.113.10", dns2: "203.0.113.11" } : { status: "Disconnected" },
           clientNum: { ssid1: 1, ssid2: 1, lan: 1 },
         },
       };
     }
     if (name === "get_networkserviceinfo") {
-      return { json: { oper_name: "Three", service_type: "LTE", rsrp: -95, rsrq: -11, sinr: 14, rssi: -67, bm_currentBand: 120, earfcn: 300, mimo: "2x2", cell_id: 134217758, tac: 10001, PLMN: "27201", roaming: 0 } };
+      const live = state.live;
+      return { json: { oper_name: live.operator, service_type: "LTE", rsrp: live.rsrp, rsrq: live.rsrq, sinr: live.sinr, rssi: live.rssi, bm_currentBand: live.band, earfcn: live.earfcn, mimo: "2x2", cell_id: 134217758, tac: 10001, PLMN: "27201", roaming: 0 } };
     }
-    if (name === "nw_usage") return { json: { rx: 2948105728, tx: 104857600, start: "26/10/01", end: "26/10/31" } };
+    if (name === "nw_usage") return { json: { rx: state.live.rx, tx: state.live.tx, start: "26/10/01", end: "26/10/31" } };
     if (name === "about_sys") {
-      return { json: { model_name: "DWR-960", fw_ver: "V1.0.1.2", hw_ver: "B1", modem_ver: "MODEM_1.1.0", imei: "860000000000000", imsi: "272010000000000", iccid: "8935301000000000000", my_number: "+353830000000" } };
+      return { json: { model_name: state.live.model, fw_ver: "V1.0.1.2", hw_ver: "B1", modem_ver: "MODEM_1.1.0", imei: "860000000000000", imsi: "272010000000000", iccid: "8935301000000000000", my_number: "+353830000000" } };
     }
     if (name === "get_client_list") {
       return {
         json: {
-          "WiFi_2.4G_clilist": [{ hname: "phone", ip: "192.168.0.100", mac: "02:00:5E:10:00:01", leasetm: "3600" }],
-          WiFi_5G_clilist: [{ hname: "", ip: "192.168.0.101", mac: "00:00:5E:00:53:01", leasetm: "" }],
-          lan_clilist: [{ hname: "nas", ip: "192.168.0.2", mac: "02:00:5E:10:00:02", leasetm: "0" }, { hname: "ghost", ip: "", mac: "" }],
+          "WiFi_2.4G_clilist": state.live.clients.wifi24,
+          WiFi_5G_clilist: state.live.clients.wifi5,
+          lan_clilist: state.live.clients.lan,
         },
       };
     }
@@ -144,6 +194,8 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
       const entry = state.inbox.find((m) => m.tag === fields["tag"]);
       if (entry && fields["cmd"] === "set_read") entry.read = 1;
       if (entry && fields["cmd"] === "del") state.inbox = state.inbox.filter((m) => m !== entry);
+    } else if (type === "sms_action" && fields["type"] === "sms_send") {
+      state.sent.push({ phone: String(fields["phone_list"] ?? ""), msg: String(fields["msg"] ?? "") });
     } else if (type === "do_ussd") {
       state.ussdPending = fields["cmd"] === "send";
     } else if (type === "reboot_reset") {
@@ -166,7 +218,7 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
       if (form.has("check_valid")) return { json: { valid: form.get("check_valid") === `qSessId=${state.sid}` ? 1 : 0 } };
       logins.push(form);
       if (opts.loginAnswer) return opts.loginAnswer;
-      if (opts.busyFrom) return { json: { login_fail: `The device is being configured by IP ${opts.busyFrom}` } };
+      if (state.busyFrom !== null) return { json: { login_fail: `The device is being configured by IP ${state.busyFrom}` } };
       if (form.get("uname") !== "admin" || form.get("passwd") !== expected) return { json: { login_fail: "fail" } };
       state.sid = `sess${logins.length}abcdef012345`;
       return { json: { SessId: state.sid, remain: 300 }, setCookie: [`qSessId=${state.sid}; path=/`] };

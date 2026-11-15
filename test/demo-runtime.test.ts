@@ -63,7 +63,7 @@ async function until(condition: () => Promise<boolean>, what: string): Promise<v
 
 describe("the live demo's back end", () => {
   it("starts each router's household: readings, the identified model, the console set up, tokens, contacts, Telegram and a day of history", async () => {
-    for (const [world, model] of [["verified", "H168-383"], ["other", "B535-232"], ["zte", "MU5001"]] as const) {
+    for (const [world, model] of [["verified", "H168-383"], ["other", "B535-232"], ["zte", "MU5001"], ["dlink", "DWR-961"]] as const) {
       const { runtime } = await demo(world);
       assert.equal((await get(runtime, "/api/health")).json["codename"], "FengSui");
       assert.equal((await get(runtime, "/api/auth/status")).json["authenticated"], true);
@@ -230,6 +230,37 @@ describe("the live demo's back end", () => {
     assert.ok(thread.messages.some((m) => m.content.includes("automatic demo reply")));
     assert.equal((await write(runtime, "/api/control/reboot")).status, 200);
     await assert.rejects(runtime.router.fetchImpl("http://192.168.0.1/goform/goform_get_cmd_process?cmd=loginfo"), /fetch failed/);
+    clock.ms += REBOOT_OFFLINE_MS + 1;
+  });
+
+  it("runs the D-Link router's household: no lock to offer, traffic that stops without data, a reply, a person on its page, a reboot", async () => {
+    const { runtime, clock } = await demo("dlink");
+    let t = await telemetry(runtime);
+    assert.deepEqual([t.rf.pccBand, t.rf.earfcnRaw], ["B1", "DL:300"]);
+    const features = ((await get(runtime, "/api/console/experimental")).json["device"] as { features: Record<string, string> }).features;
+    assert.deepEqual([features["bandLock"], features["cellLock"], features["mobileData"], features["ussd"]], ["not_implemented", "not_implemented", "enabled", "enabled"]);
+    // The brand has no lock: refused by the gate, and nothing reaches the router
+    const refused = await write(runtime, "/api/control/band-lock", { lteBands: [3] });
+    assert.deepEqual([refused.status, refused.json["errorCode"]], [409, "DEVICE_UNVERIFIED_READ_ONLY"]);
+    assert.equal((await write(runtime, "/api/control/mobile-data", { enabled: false })).status, 200);
+    runtime.router.advance();
+    runtime.router.advance();
+    t = await telemetry(runtime);
+    assert.equal(t.traffic.downloadBytesPerSec, 0);
+    assert.equal((await write(runtime, "/api/control/mobile-data", { enabled: true })).status, 200);
+    assert.equal((await write(runtime, "/api/sms/send", { phone: "+353830000001", content: "On my way" })).status, 200);
+    await sleep(20);
+    runtime.router.pushOtp();
+    await write(runtime, "/api/sms/sync", { mode: "full" });
+    const thread = (await get(runtime, "/api/sms/thread?key=%2B353830000001")).json["thread"] as { messages: Array<{ content: string }> };
+    assert.ok(thread.messages.some((m) => m.content.includes("automatic demo reply")));
+    // Someone signs in to the router's own page: FengSui yields instead of logging in over them
+    runtime.router.human.loginSameIp();
+    await write(runtime, "/api/telemetry/refresh");
+    assert.equal(((await get(runtime, "/api/session/status")).json["status"] as { mode: string }).mode, "yielding_browser");
+    runtime.router.human.logout();
+    assert.equal((await write(runtime, "/api/control/reboot")).status, 200);
+    await assert.rejects(runtime.router.fetchImpl("http://192.168.0.1/login.html"), /fetch failed/);
     clock.ms += REBOOT_OFFLINE_MS + 1;
   });
 

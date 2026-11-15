@@ -9,7 +9,7 @@ import { OPENWRT_PASSWORD, openwrtRouter } from "../test/helpers/openwrt-router.
 import type { RouterFamily } from "../src/router-family.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
-import { DEMO_BOT_TOKEN, DEMO_CPE_PASSWORD, type DemoRouter, ZTE_DEMO_URL, createDemoRouter, createUnverifiedDemoRouter, createZteDemoRouter, offlineTelegram } from "../web/src/demo/worlds.ts";
+import { DEMO_BOT_TOKEN, DEMO_CPE_PASSWORD, DLINK_DEMO_URL, type DemoRouter, ZTE_DEMO_URL, createDemoRouter, createDlinkDemoRouter, createUnverifiedDemoRouter, createZteDemoRouter, offlineTelegram } from "../web/src/demo/worlds.ts";
 
 /**
  * The real daemon in front of one of the demo's routers (web/src/demo/worlds.ts), in this process:
@@ -38,12 +38,14 @@ interface BrandWorld {
 }
 
 /**
- * The worlds of other brands. `zte` is the live demo's (`?router=zte`); `nradio` (its antenna and
+ * The worlds of other brands. `zte` and `dlink` are the live demo's (`?router=zte`, `?router=dlink`:
+ * the second a brand whose interface has no band or cell lock); `nradio` (its antenna and
  * module bridge) and `openwrt` (a DHCP lease list, which does not say how a device is linked) are for
  * the browser tests of what only those brands show.
  */
 function brandWorld(scenario: DemoDaemonOptions["scenario"]): BrandWorld | null {
   if (scenario === "zte") return { router: createZteDemoRouter(), connection: { url: ZTE_DEMO_URL, username: "", password: DEMO_CPE_PASSWORD, family: "zte-goform" } };
+  if (scenario === "dlink") return { router: createDlinkDemoRouter(), connection: { url: DLINK_DEMO_URL, username: "", password: DEMO_CPE_PASSWORD, family: "dlink" } };
   if (scenario === "nradio") {
     const nradio = nradioRouter({ password: DEMO_CPE_PASSWORD });
     return { router: bareRouter(nradio.mock.fetchImpl), connection: { url: NRADIO_URL, username: "root", password: DEMO_CPE_PASSWORD, family: "nradio" } };
@@ -62,9 +64,10 @@ export interface DemoDaemonOptions {
   /**
    * `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another Huawei
    * model, with experimental writes; `zte`: a ZTE mobile router, through FengSui's ZTE driver;
-   * `nradio`, `openwrt`: routers of those brands for the browser tests (`brandWorld`).
+   * `dlink`: a D-Link 4G router, a brand without locks; `nradio`, `openwrt`: routers of those brands
+   * for the browser tests (`brandWorld`).
    */
-  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte" | "nradio" | "openwrt";
+  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte" | "dlink" | "nradio" | "openwrt";
   /**
    * Run the Telegram bot against an in-process stand-in for the Bot API (nothing leaves the process),
    * with `TELEGRAM_CHAT_IDS=1003`: Settings → Telegram can then link, list and unlink chats.

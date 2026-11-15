@@ -857,7 +857,7 @@ describe("the console on routers of other brands", () => {
   });
 
   /** A daemon on another brand's router, identified and with its slow reads done. */
-  async function brand(scenario: "zte" | "nradio" | "openwrt"): Promise<DemoDaemon> {
+  async function brand(scenario: "zte" | "dlink" | "nradio" | "openwrt"): Promise<DemoDaemon> {
     const demo = await startDemoDaemon({ port: 0, token: TOKEN, scenario });
     await demo.stack.monitor.identifyDevice();
     await Promise.allSettled([demo.stack.monitor.refreshTopology({ ignoreCooldown: true }), demo.stack.monitor.refreshNeighbors({ ignoreCooldown: true })]);
@@ -906,6 +906,29 @@ describe("the console on routers of other brands", () => {
       await until(() => demo.stack.scheduler.genericWrites.some((w) => w.feature === "antenna"), "the antenna write");
       const write = demo.stack.scheduler.genericWrites.find((w) => w.feature === "antenna");
       assert.deepEqual([write?.endpoints, write?.readback], [["nradio:/api/device/antenna_set_type"], "match"]);
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await demo.close();
+    }
+  });
+
+  it("offers no lock on a brand whose interface has none: no lock section, no nearby cells, and the brand's own switches", async () => {
+    const demo = await brand("dlink");
+    try {
+      await signIn(page, demo);
+      // Nearby cells: the brand's interface has no read for them, and the card says so instead of waiting
+      await page.waitUntil(`/This model does not provide this/.test(document.querySelector('#neighborsCard')?.textContent ?? '')`, "the nearby cells card's notice");
+      assert.equal(await page.evaluate<number>("document.querySelectorAll('#neighborsCard tbody tr').length"), 0, "no cell to lock");
+      await page.click('[data-action="open-controls"]');
+      await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+      await page.waitUntil(`/Turn mobile data off/.test(document.getElementById('controlsDialog').textContent)`, "the mobile data switch");
+      const drawer = await page.evaluate<string>("document.getElementById('controlsDialog').textContent");
+      assert.doesNotMatch(drawer, /Band lock|Unlock all|Cell lock/, "nothing to lock, and nothing to unlock");
+      assert.match(drawer, /Turn mobile data on/);
+      assert.match(drawer, /Reboot router/);
+      const features = demo.stack.scheduler.getStatus().device.features;
+      assert.deepEqual([features.bandLock, features.cellLock, features.mobileData], ["not_implemented", "not_implemented", "enabled"]);
       assert.deepEqual(page.exceptions, []);
       await closeDialogs(page);
     } finally {

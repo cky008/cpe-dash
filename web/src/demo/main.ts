@@ -11,6 +11,8 @@ import type { DemoRuntime, DemoWorld } from "./runtime.ts";
  * H168-383, so visitors can see what FengSui does there: the experimental writes with their switches, and the device report.
  * `?router=zte` opens it on a ZTE mobile router, read and written through FengSui's ZTE driver: its
  * battery, SIM card and SMS.
+ * `?router=dlink` opens it on a D-Link 4G router, a brand whose interface has no band or cell lock:
+ * the console as it looks without them.
  */
 
 const NOTICE = {
@@ -18,8 +20,10 @@ const NOTICE = {
     text: "演示模式：数据都是虚构的，所有操作只在这个页面里生效，刷新即复原。",
     other: "演示模式：现在模拟的是一台烽燧没验证过的华为路由器，数据都是虚构的，刷新即复原。",
     zte: "演示模式：现在模拟的是一台中兴随身路由器（烽燧没在真机上验证过），数据都是虚构的，刷新即复原。",
+    dlink: "演示模式：现在模拟的是一台 D-Link 4G 路由器（烽燧没在真机上验证过；这个品牌没有锁频段和锁小区），数据都是虚构的，刷新即复原。",
     toOther: "看看烽燧在其他华为型号上怎么工作 →",
     toZte: "看看一台中兴随身路由器 →",
+    toDlink: "看看一台不能锁频的 D-Link 路由器 →",
     toVerified: "换回 H168-383",
     devices: "每个型号能做什么",
     link: "关于演示",
@@ -29,8 +33,10 @@ const NOTICE = {
     text: "Demo mode: every value is fictional, and changes stay in this page until you reload.",
     other: "Demo mode: this is a Huawei router FengSui was not verified on. Every value is fictional, and changes stay in this page until you reload.",
     zte: "Demo mode: this is a ZTE mobile router FengSui was not verified on. Every value is fictional, and changes stay in this page until you reload.",
+    dlink: "Demo mode: this is a D-Link 4G router FengSui was not verified on (the brand has no band or cell lock). Every value is fictional, and changes stay in this page until you reload.",
     toOther: "See how FengSui works on other Huawei models →",
     toZte: "See a ZTE mobile router →",
+    toDlink: "See a D-Link router, which has no locks →",
     toVerified: "Back to the H168-383",
     devices: "What works on each model",
     link: "About the demo",
@@ -38,9 +44,11 @@ const NOTICE = {
   },
 } as const;
 const ABOUT_URL = "https://github.com/cky008/fengsui-demo#readme";
+/** Every world, the H168-383 first (the runtime itself loads later, so the names are written here). */
+const DEMO_WORLDS: ReadonlyArray<DemoWorld> = ["verified", "other", "zte", "dlink"];
 const WORLD: DemoWorld = ((): DemoWorld => {
   const router = new URLSearchParams(window.location.search).get("router");
-  return router === "other" || router === "zte" ? router : "verified";
+  return DEMO_WORLDS.find((world) => world === router) ?? "verified";
 })();
 /** Dismissed per router: each other router's notice is also the way back. */
 const DISMISS_KEY = WORLD === "verified" ? "fengsui.demo.notice-dismissed" : `fengsui.demo.notice-dismissed.${WORLD}`;
@@ -53,8 +61,8 @@ function worldUrl(world: DemoWorld): string {
   return url.toString();
 }
 
-/** The other two routers, in the order the notice offers them. */
-const SWITCHES: Readonly<Record<DemoWorld, ReadonlyArray<DemoWorld>>> = { verified: ["other", "zte"], other: ["verified", "zte"], zte: ["verified", "other"] };
+/** The other routers, in the order the notice offers them. */
+const SWITCHES: ReadonlyArray<DemoWorld> = DEMO_WORLDS.filter((world) => world !== WORLD);
 
 function mountNotice(): void {
   try {
@@ -68,7 +76,7 @@ function mountNotice(): void {
   const text = document.createElement("span");
   const linkClass = "font-medium text-primary underline underline-offset-2 whitespace-nowrap";
   // Tailwind utilities: the console's daisyUI build leaves its link component out
-  const switchers = SWITCHES[WORLD].map((world) => {
+  const switchers = SWITCHES.map((world) => {
     const a = document.createElement("a");
     a.href = worldUrl(world);
     a.className = linkClass;
@@ -99,8 +107,9 @@ function mountNotice(): void {
   });
   const render = (): void => {
     const copy = document.documentElement.lang === "en" ? NOTICE.en : NOTICE["zh-CN"];
-    text.textContent = WORLD === "other" ? copy.other : WORLD === "zte" ? copy.zte : copy.text;
-    const label: Readonly<Record<DemoWorld, string>> = { verified: copy.toVerified, other: copy.toOther, zte: copy.toZte };
+    const notice: Readonly<Record<DemoWorld, string>> = { verified: copy.text, other: copy.other, zte: copy.zte, dlink: copy.dlink };
+    text.textContent = notice[WORLD];
+    const label: Readonly<Record<DemoWorld, string>> = { verified: copy.toVerified, other: copy.toOther, zte: copy.toZte, dlink: copy.toDlink };
     for (const a of switchers) a.textContent = label[(a.dataset["world"] ?? "verified") as DemoWorld];
     link.textContent = copy.link;
     devices.textContent = copy.devices;

@@ -72,7 +72,7 @@ describe("the live demo in a browser", () => {
   }
 
   it("opens on each demo router with live readings, nothing to sign in to and no script error", async () => {
-    for (const [query, model] of [["", "H168-383"], ["?router=other", "B535-232"], ["?router=zte", "MU5001"]] as const) {
+    for (const [query, model] of [["", "H168-383"], ["?router=other", "B535-232"], ["?router=zte", "MU5001"], ["?router=dlink", "DWR-961"]] as const) {
       const page = await open(query);
       const profile = await page.evaluate<Answer>(api("GET", "/api/device/profile"));
       assert.equal((profile.json["profile"] as { identity: { model: string } }).identity.model, model, query || "the H168-383");

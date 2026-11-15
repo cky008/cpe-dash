@@ -11,8 +11,10 @@ import {
   DEMO_CPE_PASSWORD,
   type DemoRouter,
   type DemoWorldOptions,
+  DLINK_DEMO_URL,
   ZTE_DEMO_URL,
   createDemoRouter,
+  createDlinkDemoRouter,
   createUnverifiedDemoRouter,
   createZteDemoRouter,
   offlineTelegram,
@@ -27,8 +29,8 @@ import {
  * demo's own is the household it starts with and how it starts.
  */
 
-/** The router the demo opens on: the H168-383, another Huawei model (`?router=other`) or a ZTE one (`?router=zte`). */
-export type DemoWorld = "verified" | "other" | "zte";
+/** The router the demo opens on: the H168-383, another Huawei model (`?router=other`), a ZTE one (`?router=zte`) or a D-Link one (`?router=dlink`). */
+export type DemoWorld = "verified" | "other" | "zte" | "dlink";
 
 const DAY_MS = 86_400_000;
 /** When the first one-time code arrives, then how often another does. */
@@ -58,6 +60,7 @@ export interface DemoRuntime {
 function routerOf(world: DemoWorld, opts: DemoWorldOptions): { router: DemoRouter; url: string; family: RouterFamily } {
   if (world === "other") return { router: createUnverifiedDemoRouter(opts), url: "http://192.168.8.1", family: "huawei" };
   if (world === "zte") return { router: createZteDemoRouter(opts), url: ZTE_DEMO_URL, family: "zte-goform" };
+  if (world === "dlink") return { router: createDlinkDemoRouter(opts), url: DLINK_DEMO_URL, family: "dlink" };
   return { router: createDemoRouter(opts), url: "http://192.168.8.1", family: "huawei" };
 }
 
