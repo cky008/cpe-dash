@@ -30,7 +30,7 @@ import type {
   DriverTelemetry,
   DriverWait,
 } from "../types.ts";
-import { type MrProfile, maskOfBands, mrApnView, mrLockState, mrModeCode, mrModeOf, mrProfileCreate, mrProfileEdit, mrProfileUse, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseMrProfiles, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkSimLock } from "./cellular.ts";
+import { type TplinkProfile, maskOfBands, mrApnView, mrLockState, mrModeCode, mrModeOf, mrProfileCreate, mrProfileEdit, mrProfileUse, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseNxBands, parseNxOperators, parseProfileList, tplinkDataLimit, tplinkSimLock } from "./cellular.ts";
 import { TplinkEnvelope, type TplinkPublicKey, type TplinkScheme, usableKey } from "./crypto.ts";
 import { decoLogin, decoPasswordKey } from "./deco.ts";
 import { type TplinkAction, type TplinkResult, exRequest, instance, instances, mrFrame, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "./frames.ts";
@@ -105,6 +105,8 @@ interface Objects {
   /** The cellular settings and the SIM lock: instances beside the LTE link. */
   wanCfg: string;
   simLock: string;
+  /** The access point profiles. */
+  profiles: string;
   prof: readonly [string, string];
   profAttrs: ReadonlyArray<string>;
   cells: string | null;
@@ -129,6 +131,7 @@ const OBJECTS: Readonly<Record<Dialect, Objects>> = {
     netAttrs: [],
     wanCfg: "LTE_WAN_CFG",
     simLock: "LTE_SIMLOCK",
+    profiles: "LTE_PROFILE",
     prof: ["LTE_PROF_STAT", "2,1,0,0,0,0"],
     profAttrs: ["spn", "ispName"],
     cells: null,
@@ -151,6 +154,7 @@ const OBJECTS: Readonly<Record<Dialect, Objects>> = {
     netAttrs: ["smsUnreadCount", "sigLevel", "rfInfoRsrp", "rfInfoRsrq", "rfInfoSnr"],
     wanCfg: "DEV2_LTE_WAN_CFG",
     simLock: "DEV2_LTE_SIMLOCK",
+    profiles: "DEV2_LTE_PROFILE",
     prof: ["DEV2_LTE_PROF_STAT", "1,0,0,0,0,0"],
     profAttrs: ["ispName"],
     cells: "DEV2_LTE_SERVING_CELL_INFO",
@@ -765,16 +769,16 @@ class TplinkSession implements DriverSessionHandle {
    * The page's access point profiles: its list (`LTE_PROFILE`), which of them is in use, and how many
    * at the head of the list are the router's own for the SIM card (`defaultProfile`). `null`: no list.
    */
-  async #profiles(cfg: Record<string, string>): Promise<{ profiles: MrProfile[]; active: MrProfile | null; defaults: number } | null> {
+  async #profiles(cfg: Record<string, string>): Promise<{ profiles: TplinkProfile[]; active: TplinkProfile | null; defaults: number } | null> {
     const defaults = intOf(cfg["defaultProfile"]);
     const activeIndex = intOf(cfg["activeProfile"]);
     if (defaults === null || defaults < 0) return null;
-    const profiles = parseMrProfiles(instances(await this.#one({ operation: "list", oid: "LTE_PROFILE" }).catch(() => null)));
+    const profiles = parseProfileList(instances(await this.#one({ operation: "list", oid: this.#objects.profiles }).catch(() => null)));
     return profiles.length === 0 ? null : { profiles, active: profiles.find((profile) => profile.index === activeIndex) ?? null, defaults };
   }
 
   /** What every profile form of the page does first (`profileAction` 4), then the settings and the list as they are. */
-  async #openProfiles(check: WriteCheck): Promise<{ profiles: MrProfile[]; active: MrProfile | null; defaults: number }> {
+  async #openProfiles(check: WriteCheck): Promise<{ profiles: TplinkProfile[]; active: TplinkProfile | null; defaults: number }> {
     await this.#setSettings(check, { profileAction: "4" });
     const cfg = await this.#settings();
     const list = cfg === null ? null : await this.#profiles(cfg);
@@ -792,7 +796,7 @@ class TplinkSession implements DriverSessionHandle {
   }
 
   /** The router's own profile for the SIM card: the one a person gets who never made a profile. Several of them: theirs to choose. */
-  #ownProfile(list: { profiles: MrProfile[]; defaults: number }): MrProfile {
+  #ownProfile(list: { profiles: TplinkProfile[]; defaults: number }): TplinkProfile {
     const own = list.profiles.filter((profile) => profile.index < list.defaults && profile.name !== "NONE");
     if (own.length !== 1 || !own[0]) throw new CpeControlValidationError(own.length === 0 ? "The router has no access point profile of its own for this SIM card" : "The router has several access point profiles of its own for this SIM card: choose one on the router's own page");
     return own[0];
@@ -811,7 +815,7 @@ class TplinkSession implements DriverSessionHandle {
       const own = this.#ownProfile(list);
       return await this.#useProfile(check, mrProfileUse(own), own.index, null);
     }
-    const mine = (profiles: ReadonlyArray<MrProfile>): MrProfile | undefined => profiles.find((profile) => profile.index >= list.defaults && profile.name === FENGSUI_APN_PROFILE);
+    const mine = (profiles: ReadonlyArray<TplinkProfile>): TplinkProfile | undefined => profiles.find((profile) => profile.index >= list.defaults && profile.name === FENGSUI_APN_PROFILE);
     let profile = mine(list.profiles);
     if (profile === undefined) {
       if (list.profiles.length >= MAX_PROFILES) throw new CpeControlValidationError(`The router keeps ${MAX_PROFILES} access point profiles at most: delete one on the router's own page first`);

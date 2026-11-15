@@ -293,10 +293,13 @@ export function tplinkSimLock(lock: Record<string, string> | null): { pinState: 
   return { pinState: intOf(lock?.["pinState"]), attemptsLeft: attempts !== null && attempts >= 0 && attempts <= 10 ? attempts : null };
 }
 
-// ── Access point profiles (the MR series) ────────────────────────────────────
+// ── Access point profiles ────────────────────────────────────────────────────
 
-/** A profile of the page's list (`LTE_PROFILE`), with its fields as the router handed them out. */
-export interface MrProfile {
+/**
+ * A profile of the page's list (`LTE_PROFILE` on the MR series, `DEV2_LTE_PROFILE` on the EX and NX
+ * series), with its fields as the router handed them out.
+ */
+export interface TplinkProfile {
   /** Its place in the list, which is also what the page calls its `profileID`. */
   index: number;
   id: string;
@@ -305,8 +308,8 @@ export interface MrProfile {
 }
 
 /** The page's list: a profile's `profileID` is its place in it (the page compares the two as numbers). */
-export function parseMrProfiles(entries: ReadonlyArray<Record<string, string>>): MrProfile[] {
-  const out: MrProfile[] = [];
+export function parseProfileList(entries: ReadonlyArray<Record<string, string>>): TplinkProfile[] {
+  const out: TplinkProfile[] = [];
   entries.slice(0, 32).forEach((entry, index) => {
     const id = textOf(entry["profileID"]);
     if (id === null || !/^\d{1,3}$/.test(id) || Number(id) !== index) return;
@@ -329,7 +332,7 @@ export function mrProfileCreate(name: string, setting: ApnSetting): Record<strin
 }
 
 /** What the page's settings form sends to save a profile and make it the one in use: each half the address type has. */
-export function mrProfileEdit(profile: Pick<MrProfile, "id" | "index" | "name">, setting: ApnSetting): Record<string, string> {
+export function mrProfileEdit(profile: Pick<TplinkProfile, "id" | "index" | "name">, setting: ApnSetting): Record<string, string> {
   return {
     profileID: profile.id,
     profileName: profile.name,
@@ -342,14 +345,14 @@ export function mrProfileEdit(profile: Pick<MrProfile, "id" | "index" | "name">,
 }
 
 /** The same form for a profile that stays as it is: its own fields go back as the router handed them out, and it becomes the one in use. */
-export function mrProfileUse(profile: MrProfile): Record<string, string> {
+export function mrProfileUse(profile: TplinkProfile): Record<string, string> {
   const pdp = profile.fields["pdpType"] ?? "0";
   const keep = (family: "ipv4" | "ipv6"): Record<string, string> => Object.fromEntries(["ApnType", "Apn", "Username", "Password", "AuthType"].map((field) => [`${family}${field}`, profile.fields[`${family}${field}`] ?? ""]));
   return { profileID: profile.id, profileName: profile.name, pdpType: pdp, ...(pdp === "1" ? {} : keep("ipv4")), ...(pdp === "0" ? {} : keep("ipv6")), profileAction: "1", activeProfile: String(profile.index) };
 }
 
 /** The access point of a profile: never its password. `own`: one of the router's own profiles for the SIM card (the page's "default" ones). */
-export function mrApnView(profile: MrProfile, own: boolean): ApnView {
+export function mrApnView(profile: TplinkProfile, own: boolean): ApnView {
   const pdp = profile.fields["pdpType"] ?? "";
   const family = pdp === "1" ? "ipv6" : "ipv4";
   const ipType = (Object.entries(PDP_TYPES).find(([, code]) => code === pdp)?.[0] ?? null) as ApnIpType | null;

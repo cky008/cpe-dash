@@ -7,7 +7,7 @@ import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError } from "../src/drivers/login.ts";
 import { TplinkEnvelope, eccSeal, rsaSign, usableKey } from "../src/drivers/tplink/crypto.ts";
 import { lteBandOfIndex } from "../src/drivers/bands.ts";
-import { bandsOfMask, maskOfBands, mrApnView, mrLockState, mrModeCode, mrModeOf, mrProfileCreate, mrProfileEdit, mrProfileUse, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseMrProfiles, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkServingBands, tplinkSimLock } from "../src/drivers/tplink/cellular.ts";
+import { bandsOfMask, maskOfBands, mrApnView, mrLockState, mrModeCode, mrModeOf, mrProfileCreate, mrProfileEdit, mrProfileUse, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseNxBands, parseNxOperators, parseProfileList, tplinkDataLimit, tplinkServingBands, tplinkSimLock } from "../src/drivers/tplink/cellular.ts";
 import { tplinkProtocol } from "../src/drivers/tplink/driver.ts";
 import { exRequest, instance, instances, mrFrame, mrText, mrValue, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "../src/drivers/tplink/frames.ts";
 import { TPLINK_SENT_BASE, type TplinkReadings, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry } from "../src/drivers/tplink/parts.ts";
@@ -1026,7 +1026,7 @@ describe("tp-link: mobile data and the cellular settings", () => {
   });
 
   it("reads the page's profile list by its own numbering, and writes each address type's half of a profile", () => {
-    const profiles = parseMrProfiles([{ profileID: "0", profileName: "Three" }, { profileID: "1", profileName: "FengSui", pdpType: "1", ipv6Apn: "example.apn", ipv6AuthType: "3", ipv6Username: "" }, { profileID: "9", profileName: "out of place" }, { profileName: "no number" }]);
+    const profiles = parseProfileList([{ profileID: "0", profileName: "Three" }, { profileID: "1", profileName: "FengSui", pdpType: "1", ipv6Apn: "example.apn", ipv6AuthType: "3", ipv6Username: "" }, { profileID: "9", profileName: "out of place" }, { profileName: "no number" }]);
     assert.deepEqual(profiles.map((p) => [p.index, p.id, p.name]), [[0, "0", "Three"], [1, "1", "FengSui"]]);
     assert.ok(profiles[1]);
     assert.deepEqual(mrApnView(profiles[1], false), { mode: "manual", apn: "example.apn", ipType: "ipv6", auth: null, hasUsername: false }, "PAP or CHAP is no mode FengSui names");
