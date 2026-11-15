@@ -94,6 +94,16 @@ export class LanHttp {
     this.#cookies.clear();
   }
 
+  /**
+   * Keep a cookie the router's own page writes in the browser (a login page that copies the session
+   * id into cookies of its own, which its later requests must carry). It lives as long as the
+   * session, like the ones the router sets; a name or a value no cookie may have is refused.
+   */
+  setCookie(name: string, value: string): void {
+    if (!COOKIE_NAME.test(name) || !COOKIE_VALUE.test(value) || value === "") throw new Error(`Refusing the cookie "${name.slice(0, 32)}"`);
+    if (this.#cookies.has(name) || this.#cookies.size < MAX_COOKIES) this.#cookies.set(name, value);
+  }
+
   /** Requests from now on end with `signal` (the `finally` logout, after the session's own deadline). */
   retarget(signal: AbortSignal): void {
     this.#signal = signal;

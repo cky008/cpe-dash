@@ -291,6 +291,22 @@ describe("drivers: LAN transport", () => {
     assert.equal(mock.requests.at(-1)?.headers["content-type"], "application/json; charset=UTF-8");
   });
 
+  it("carries a cookie the router's own page writes, and refuses one no cookie may be", async () => {
+    const mock = new LanRouterMock((req) => ({ json: { cookie: req.headers["cookie"] ?? null }, setCookie: req.path === "/over" ? ["page=router"] : [] }));
+    const lan = http(mock);
+    lan.setCookie("page", "abc123");
+    lan.setCookie("user", "admin%20one");
+    assert.deepEqual({ ...((await lan.getJson("/echo")) as object) }, { cookie: "page=abc123; user=admin%20one" });
+    // The router's own value for the same name replaces it, like in a browser
+    await lan.getJson("/over");
+    assert.equal(lan.cookie("page"), "router");
+    for (const [name, value] of [["bad name", "x"], ["ok", "a;b"], ["ok", "a b"], ["ok", ""], ["", "x"], ["ok", "x\r\nSet-Cookie: y"]] as const) assert.throws(() => lan.setCookie(name, value), /Refusing the cookie/);
+    assert.equal(lan.cookie("ok"), undefined);
+    // No more than the jar holds
+    for (let i = 0; i < 40; i += 1) lan.setCookie(`c${i}`, "1");
+    assert.equal((String((await lan.getJson("/echo") as { cookie: string }).cookie).match(/=/g) ?? []).length, 16);
+  });
+
   it("fails on answers it cannot read, and retries a GET on a stale socket only", async () => {
     let calls = 0;
     const flaky = new LanRouterMock(() => {
