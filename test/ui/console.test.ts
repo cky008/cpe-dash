@@ -784,8 +784,8 @@ describe("the console in a browser", () => {
     assert.deepEqual(options.map(([value]) => value), ["auto", "huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "dlink", "tplink", "openwrt"]);
     assert.deepEqual(options.filter(([value]) => value === "dlink" || value === "tplink").map(([, label]) => label), ["D-Link (DWR series 4G routers)", "TP-Link (Archer MR and NX series, Deco 5G)"]);
     const choose = async (value: string): Promise<{ note: string; users: number; address: string }> => {
-      await page.evaluate(`(() => { const el = ${brand}; el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-      await page.waitUntil(`${brand}.value === ${JSON.stringify(value)}`, `the ${value} brand`);
+      await page.evaluate(`(() => { const el = ${brand}; el.value = ${literal(value)}; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+      await page.waitUntil(`${brand}.value === ${literal(value)}`, `the ${value} brand`);
       return page.evaluate(
         `(() => { const d = document.getElementById('settingsDialog'); return { note: d.querySelector('[data-note]')?.textContent ?? '', users: d.querySelectorAll('input[autocomplete=username]').length, address: d.querySelector('input[autocomplete=off]')?.placeholder ?? '' }; })()`
       );
