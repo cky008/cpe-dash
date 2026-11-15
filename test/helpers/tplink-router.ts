@@ -83,8 +83,13 @@ export interface TplinkRouterOptions {
   searchPolls?: number | null;
   /** The router refuses a wrong PIN with an error of its own instead of only counting it. */
   pinError?: boolean;
-  /** The MR series' access point profiles (left out: one of the router's own). */
+  /**
+   * The access point profiles (left out: one of the router's own, in the form's own fields). Where the
+   * page keeps tables (`INCLUDE_LTE_MULTI_APN=1` in `buildFlags`), each names its `tableIndex`.
+   */
   profiles?: Array<Record<string, string>>;
+  /** Where the page keeps tables: the counts and the table in use (`DEV2_LTE_PROF_STAT`; left out: the operator's one table, in use). */
+  profStat?: Record<string, string>;
   /** The router takes a new profile and does not list it. */
   dropsNewProfile?: boolean;
 }
@@ -107,6 +112,11 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
   const ecdh = crypto.createECDH("secp224r1");
   ecdh.generateKeys();
   const expectedHash = TPLINK_HASHES[opts.ecc ? "sha256" : "md5"][username] ?? "";
+  const tabled = form === "ex" && (opts.buildFlags ?? "").includes("INCLUDE_LTE_MULTI_APN=1");
+  const ownProfile: Record<string, string> =
+    form === "mr"
+      ? { profileID: "0", profileName: "Three", pdpType: "2", ipv4ApnType: "0", ipv4Apn: "internet", ipv4Username: "", ipv4Password: "", ipv4AuthType: "0", ipv6ApnType: "0", ipv6Apn: "internet", ipv6Username: "", ipv6Password: "", ipv6AuthType: "0" }
+      : { profileID: "0", profileName: "Three", pdpType: "2", apnType: "0", apn: "internet", username: "", password: "", authType: "0", ...(tabled ? { tableIndex: "0", serviceType: "Internet" } : {}) };
   const state = {
     session: null as Session | null,
     authTimes: 0,
@@ -128,7 +138,7 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
       antennaType: "0",
       ...(form === "mr"
         ? { networkPreferredMode: "3", networkSelectionMode: "0", networkSelectionMCC: "0", networkSelectionMNC: "0", networkSelectionISP: "", bandSelectSwitch: "0", bandSelectedMaskL: "0", bandSelectedMaskH: "0", activeProfile: "0", defaultProfile: "1" }
-        : { networkPreferredModeSelected: "5G Preferred", networkPreferredModeOptionList: "5G Preferred,5G/4G,5G NSA/4G,5G SA Only,4G Preferred,4G Only,3G Only" }),
+        : { networkPreferredModeSelected: "5G Preferred", networkPreferredModeOptionList: "5G Preferred,5G/4G,5G NSA/4G,5G SA Only,4G Preferred,4G Only,3G Only", activeProfile: "0", defaultProfile: "1" }),
       ...opts.settings,
     } as Record<string, string>,
     /** The MR series' cell lock: unlocked, it names the serving cell. */
@@ -138,8 +148,10 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     nrCellLock: { nrCelllockEnable: "0", pci: "-1", NRARFCN: "-1", band: "0", scs: "0" } as Record<string, string>,
     simLock: { pinState: "3", remainPinUnlockTime: "3", remainPukUnlockTime: "10", autoUnlockPin: "0", ...opts.simLock } as Record<string, string>,
     dataPlan: { totalStatistics: "2948105728.0", curRxSpeed: "125000", curTxSpeed: "25000", enableDataLimit: "0", limitation: "0", warningPercent: "90", enablePaymentDay: "1", paymentDay: "5", ...opts.dataPlan } as Record<string, string>,
-    /** The MR series' access point profiles: the router's own for the SIM card first (`defaultProfile` of them). */
-    profiles: (opts.profiles ?? [{ profileID: "0", profileName: "Three", pdpType: "2", ipv4ApnType: "0", ipv4Apn: "internet", ipv4Username: "", ipv4Password: "", ipv4AuthType: "0", ipv6ApnType: "0", ipv6Apn: "internet", ipv6Username: "", ipv6Password: "", ipv6AuthType: "0" }]) as Array<Record<string, string>>,
+    /** The access point profiles: the router's own for the SIM card first (`defaultProfile` of them; where the page keeps tables, the operator's tables first). */
+    profiles: (opts.profiles ?? [ownProfile]) as Array<Record<string, string>>,
+    /** Where the page keeps tables: how many profiles and tables are the operator's, how many tables the owner made, and which one the router dials with. */
+    profStat: { ispCount: "1", ispTableCount: "1", usrTableCount: "0", usrWhich: "255", ispWhich: "0", ...opts.profStat } as Record<string, string>,
     /** How often a profile form was opened (`profileAction` 4). */
     profileLoads: 0,
     /** The search for networks: how often it was asked since it started (`null`: none running). */
@@ -263,7 +275,7 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     if (name === "LTE_WAN_CFG") return stack === lteStack ? { ...state.settings } : null;
     if (name === "LTE_SIMLOCK") return stack === lteStack ? { ...state.simLock } : null;
     if (oid === "LTE_CELL_LOCK") return { ...state.cellLock };
-    if (oid === "LTE_PROFILE") return state.profiles.map((profile, i) => ({ stack: `${i + 1},0,0,0,0,0`, ...profile }));
+    if (oid === (form === "mr" ? "LTE_PROFILE" : "DEV2_LTE_PROFILE")) return state.profiles.map((profile, i) => ({ stack: `${i + 1},0,0,0,0,0`, ...profile }));
     if (oid === "DEV2_LTE_BAND_SEARCH") return { ...state.bandSearch };
     if (oid === "DEV2_LTE_4G_CELL_LOCK") return { ...state.lteCellLock };
     if (oid === "DEV2_LTE_5G_CELL_LOCK") return { ...state.nrCellLock };
@@ -274,7 +286,7 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     }
     if (oid === "LTE_NET_SEL") return { itemNum: searched() ? String(OPERATORS.length) : "0" };
     if (oid === "LTE_NET_SEL_LIST") return state.searchDone ? OPERATORS.map((entry, i) => ({ stack: `${i + 1},0,0,0,0,0`, ...entry })) : [];
-    if (name === "LTE_PROF_STAT") return { spn: "Three", ispName: "Three" };
+    if (name === "LTE_PROF_STAT") return { spn: "Three", ispName: "Three", ...(tabled ? state.profStat : {}) };
     if (name === "LTE_SERVING_CELL_INFO") {
       return [
         { stack: "1,0,0,0,0,0", networkType: "3", cellConnectionStatus: "1", band: "1", ARFCN: "300", PCI: "211", cid: "134217758", TAC: "10001", RSRP: "-95", RSRQ: "-11", SNR: "110", RSSI: "-65", upBandWidth: "15000", downBandWidth: "20000", CQI: "12", RI: "2" },
@@ -346,7 +358,28 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
       } else if (name === "LTE_WAN_CFG") {
         const { profileAction, ...rest } = attrs;
         const { profileID, activeProfile, ...fields } = rest;
-        // The profile forms of the MR series' page: 4 opens one, 2 creates a profile, 1 saves one and puts it in use, 3 deletes one
+        if (tabled && profileAction !== undefined && profileAction !== "0") {
+          // The page with tables: 4 opens it, 2 adds a profile to a table, 1 saves one, 5 has the router dial with a table, 3 deletes a profile
+          const { profileIndex, ...values } = fields;
+          const at = (profile: Record<string, string>): boolean => profile["tableIndex"] === profileIndex && profile["profileID"] === profileID;
+          const operatorTables = Number(state.profStat["ispTableCount"]);
+          if (profileAction === "4") state.profileLoads += 1;
+          else if (profileAction === "2") {
+            if (profileIndex === undefined || Number(profileIndex) < operatorTables || state.profiles.some(at)) return { error: 9805, result: null };
+            if (!state.profiles.some((profile) => profile["tableIndex"] === profileIndex)) state.profStat["usrTableCount"] = String(Number(state.profStat["usrTableCount"]) + 1);
+            if (!opts.dropsNewProfile) state.profiles.push({ tableIndex: profileIndex, profileID: profileID ?? "", ...values });
+          } else if (profileAction === "1") {
+            const profile = state.profiles.find(at);
+            if (!profile || Number(profileIndex) < operatorTables) return { error: 9805, result: null };
+            Object.assign(profile, values);
+          } else if (profileAction === "5") {
+            const table = Number(profileIndex);
+            if (!state.profiles.some((profile) => profile["tableIndex"] === profileIndex)) return { error: 9805, result: null };
+            Object.assign(state.profStat, table < operatorTables ? { ispWhich: String(table), usrWhich: "255" } : { usrWhich: String(table - operatorTables) });
+          } else if (profileAction === "3") state.profiles = state.profiles.filter((profile) => !at(profile));
+          return { error: 0, result: null };
+        }
+        // The profile forms of the page without tables: 4 opens one, 2 creates a profile, 1 saves one and puts it in use, 3 deletes one
         if (profileAction === "4") state.profileLoads += 1;
         else if (profileAction === "2") {
           if (!opts.dropsNewProfile) state.profiles.push({ profileID: String(state.profiles.length), pdpType: "0", ...fields });

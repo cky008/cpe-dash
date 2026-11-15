@@ -36,7 +36,7 @@ const DEMO_CSP =
  * after the console's first paint (446.6 KiB in all at 1.9.0, the other brands' drivers loaded on demand: each brand
  * FengSui learns adds its driver here).
  */
-const GZIP_BUDGET_BYTES = (DEMO ? 460 : 192) * 1024;
+const GZIP_BUDGET_BYTES = (DEMO ? 470 : 192) * 1024;
 const GZIP_TARGET_BYTES = 80 * 1024;
 
 function contentHash(bytes: Buffer | string): string {

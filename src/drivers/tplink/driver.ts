@@ -1,4 +1,4 @@
-import type { ApnChoice, ApnRestore, ApnSetting, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
+import type { ApnChoice, ApnRestore, ApnSetting, ApnView, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../../cpe-domain.ts";
 import { type WriteCheck, settleCheck } from "../../device-access.ts";
@@ -30,7 +30,37 @@ import type {
   DriverTelemetry,
   DriverWait,
 } from "../types.ts";
-import { type TplinkProfile, maskOfBands, mrApnView, mrLockState, mrModeCode, mrModeOf, mrProfileCreate, mrProfileEdit, mrProfileUse, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseNxBands, parseNxOperators, parseProfileList, tplinkDataLimit, tplinkSimLock } from "./cellular.ts";
+import {
+  type NxTableProfile,
+  type NxTables,
+  type TplinkProfile,
+  exApnView,
+  exProfileCreate,
+  exProfileEdit,
+  exProfileUse,
+  maskOfBands,
+  mrApnView,
+  mrLockState,
+  mrModeCode,
+  mrModeOf,
+  mrProfileCreate,
+  mrProfileEdit,
+  mrProfileUse,
+  nxBandList,
+  nxDataProfile,
+  nxLockState,
+  nxModeOf,
+  nxModes,
+  nxProfileForm,
+  nxSelection,
+  parseMrOperators,
+  parseNxBands,
+  parseNxOperators,
+  parseNxTables,
+  parseProfileList,
+  tplinkDataLimit,
+  tplinkSimLock,
+} from "./cellular.ts";
 import { TplinkEnvelope, type TplinkPublicKey, type TplinkScheme, usableKey } from "./crypto.ts";
 import { decoLogin, decoPasswordKey } from "./deco.ts";
 import { type TplinkAction, type TplinkResult, exRequest, instance, instances, mrFrame, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "./frames.ts";
@@ -79,6 +109,8 @@ const SEARCH_POLL_MS = 2000;
 const SEARCH_POLLS = 60;
 /** The page lets its owner add this many access point profiles beside the router's own for the SIM card. */
 const MAX_PROFILES = 8;
+/** How many tables of access points of their own the NX series' page lets its owner make. */
+const NX_OWN_TABLES = 4;
 /** How long the page waits before it reads the SIM lock again after a PIN. */
 const PIN_SETTLE_MS = 3500;
 /** The page's script that names what this firmware was built with. */
@@ -258,6 +290,7 @@ class TplinkSession implements DriverSessionHandle {
   readonly #envelope: TplinkEnvelope;
   readonly #token: string;
   #info: TplinkResult = null;
+  #flags: Promise<string | null> | null = null;
   #open = true;
   /**
    * SMS as the router's own page reads and writes it. The MR series lists what it sent as well; the
@@ -298,8 +331,8 @@ class TplinkSession implements DriverSessionHandle {
       setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
       resetTraffic: (check) => this.#resetTraffic(check),
       ussd: (request, check, wait) => this.#ussd(request, check, wait),
-      // The MR series' page keeps a list of access point profiles; the other form's manages several at once, which is not done here
-      ...(dialect === "mr" ? { setApn: (choice: ApnChoice, check: WriteCheck) => this.#setApn(choice, check), restoreApn: (restore: ApnRestore, check: WriteCheck) => this.#restoreApn(restore, check) } : {}),
+      setApn: (choice, check) => this.#setApn(choice, check),
+      restoreApn: (restore, check) => this.#restoreApn(restore, check),
     };
   }
 
@@ -388,6 +421,28 @@ class TplinkSession implements DriverSessionHandle {
   async #setSettings(check: WriteCheck, attrs: Readonly<Record<string, string>>): Promise<void> {
     const oid = this.#objects.wanCfg;
     await this.#write(check, `${oid}.set`, [{ operation: "set", oid, stack: this.#lte, attrs }]);
+  }
+
+  /** What the page's own script (`/js/oid_str.js`) says this firmware was built with, read once a session; `null`: it hands out none. */
+  #buildFlags(): Promise<string | null> {
+    this.#flags ??= this.#http.request({ method: "GET", path: BUILD_FLAGS, referer: ROOT }).then(
+      (res) => (res.status === 200 ? res.text : null),
+      () => null,
+    );
+    return this.#flags;
+  }
+
+  /** Whether the firmware was built with a part of the page (`INCLUDE_…=1` in its script), as the page asks it. */
+  async #built(name: string): Promise<boolean> {
+    return (await this.#buildFlags())?.includes(`${name}=1`) ?? false;
+  }
+
+  /** A number the page's script names (`INCLUDE_LTE_APN_NUM=4`); `null`: it names none. */
+  async #buildNumber(name: string): Promise<number | null> {
+    const text = await this.#buildFlags();
+    const at = text === null ? -1 : text.indexOf(`${name}=`);
+    const digits = text === null || at < 0 ? null : /^\d{1,3}/.exec(text.slice(at + name.length + 1, at + name.length + 4));
+    return digits === null ? null : Number(digits[0]);
   }
 
   async telemetry(): Promise<DriverTelemetry> {
@@ -518,10 +573,8 @@ class TplinkSession implements DriverSessionHandle {
   async setAntennaMode(mode: AntennaModeName, check: WriteCheck): Promise<number> {
     const code = mode === "internal" ? 0 : mode === "external" ? 1 : null;
     if (code === null) throw new CpeControlValidationError("This router switches between its internal and its external antennas only");
-    const flags = await this.#http.request({ method: "GET", path: BUILD_FLAGS, referer: ROOT });
-    const built = (name: string): boolean => flags.status === 200 && flags.text.includes(`${name}=1`);
-    if (!built("INCLUDE_LTE_ANTENNA_TYPE")) throw noFeature("antenna switch");
-    if (built("INCLUDE_LTE_Q8RX_SWITCH")) throw new CpeControlValidationError("On this model the router's page restarts the router to switch the antenna: use the router's own page");
+    if (!(await this.#built("INCLUDE_LTE_ANTENNA_TYPE"))) throw noFeature("antenna switch");
+    if (await this.#built("INCLUDE_LTE_Q8RX_SWITCH")) throw new CpeControlValidationError("On this model the router's page restarts the router to switch the antenna: use the router's own page");
     await this.#setSettings(check, { antennaType: String(code), profileAction: "0" });
     const after = intOf((await this.#settings())?.["antennaType"]);
     settleCheck(check, after === null ? null : after === code);
@@ -660,22 +713,22 @@ class TplinkSession implements DriverSessionHandle {
       const mnc = cfg?.["networkSelectionMNC"] ?? "";
       const plmn = /^\d{3}$/.test(mcc) && /^\d{1,3}$/.test(mnc) ? `${mcc}${mnc.padStart(2, "0")}` : null;
       state.operator = selection === null ? null : { selection: selection === 1 ? "manual" : "auto", plmn: selection === 1 ? plmn : null };
-      const list = cfg === null ? null : await this.#profiles(cfg);
-      if (list !== null && list.active !== null) {
-        state.apn = mrApnView(list.active, list.active.index < list.defaults);
-        // The profile in use is what a change is put back to, by the router's own number for it
-        state.apnRestore = { mode: "profile", id: list.active.id };
+    } else {
+      const modes = nxModes(cfg?.["networkPreferredModeOptionList"]);
+      if (modes.size > 0) {
+        state.networkMode = nxModeOf(cfg?.["networkPreferredModeSelected"], cfg?.["networkPreferredModeOptionList"]);
+        state.networkModes = [...modes.keys()];
       }
-      return state;
+      const search = await this.#object(NX_NETWORK_SEARCH, this.#lte);
+      const selection = intOf(search?.["selectedMode"]);
+      state.operator = selection === null ? null : { selection: selection === 2 ? "manual" : "auto", plmn: selection === 2 ? (parseNxOperators(search?.["selectedOperator"])[0]?.choice.plmn ?? null) : null };
     }
-    const modes = nxModes(cfg?.["networkPreferredModeOptionList"]);
-    if (modes.size > 0) {
-      state.networkMode = nxModeOf(cfg?.["networkPreferredModeSelected"], cfg?.["networkPreferredModeOptionList"]);
-      state.networkModes = [...modes.keys()];
+    const access = await this.#accessPoint(cfg);
+    if (access !== null) {
+      state.apn = access.view;
+      // What a change is put back to: the profile in use, or the table the router dials with, by the router's own number for it
+      state.apnRestore = access.restore;
     }
-    const search = await this.#object(NX_NETWORK_SEARCH, this.#lte);
-    const selection = intOf(search?.["selectedMode"]);
-    state.operator = selection === null ? null : { selection: selection === 2 ? "manual" : "auto", plmn: selection === 2 ? (parseNxOperators(search?.["selectedOperator"])[0]?.choice.plmn ?? null) : null };
     return state;
   }
 
@@ -772,8 +825,9 @@ class TplinkSession implements DriverSessionHandle {
   }
 
   /**
-   * The page's access point profiles: its list (`LTE_PROFILE`), which of them is in use, and how many
-   * at the head of the list are the router's own for the SIM card (`defaultProfile`). `null`: no list.
+   * The page's access point profiles: its list (`LTE_PROFILE`, `DEV2_LTE_PROFILE`), which of them is
+   * in use, and how many at the head of the list are the router's own for the SIM card
+   * (`defaultProfile`). `null`: no list.
    */
   async #profiles(cfg: Record<string, string>): Promise<{ profiles: TplinkProfile[]; active: TplinkProfile | null; defaults: number } | null> {
     const defaults = intOf(cfg["defaultProfile"]);
@@ -781,6 +835,34 @@ class TplinkSession implements DriverSessionHandle {
     if (defaults === null || defaults < 0) return null;
     const profiles = parseProfileList(instances(await this.#one({ operation: "list", oid: this.#objects.profiles }).catch(() => null)));
     return profiles.length === 0 ? null : { profiles, active: profiles.find((profile) => profile.index === activeIndex) ?? null, defaults };
+  }
+
+  /** The page's profile forms in the form of the interface this router speaks: each address type's half on the MR series, one set of fields on the EX and NX series. */
+  get #forms(): { create: typeof mrProfileCreate; edit: typeof mrProfileEdit; use: typeof mrProfileUse; view: (profile: TplinkProfile, own: boolean) => ApnView } {
+    return this.#dialect === "mr"
+      ? { create: mrProfileCreate, edit: mrProfileEdit, use: mrProfileUse, view: mrApnView }
+      : { create: exProfileCreate, edit: exProfileEdit, use: exProfileUse, view: (profile, own) => exApnView(profile.fields, own) };
+  }
+
+  /** Whether the page keeps its access points in tables, several at once (the EX and NX firmware built with `INCLUDE_LTE_MULTI_APN`). */
+  async #tabled(): Promise<boolean> {
+    return this.#dialect === "ex" && (await this.#built("INCLUDE_LTE_MULTI_APN"));
+  }
+
+  /**
+   * The access point in use and what a change of it is put back to: the profile in use, or where the
+   * page keeps tables, the table the router dials with. `null`: the router lists neither.
+   */
+  async #accessPoint(cfg: Record<string, string> | null): Promise<{ view: ApnView; restore: ApnRestore } | null> {
+    if (await this.#tabled()) {
+      const tables = await this.#tables();
+      const inUse = tables?.inUse ?? null;
+      const data = tables === null || inUse === null ? null : nxDataProfile(tables.tables.get(inUse));
+      return tables === null || inUse === null || data === null ? null : { view: exApnView(data.fields, inUse < tables.operatorTables), restore: { mode: "profile", id: String(inUse) } };
+    }
+    const list = cfg === null ? null : await this.#profiles(cfg);
+    if (list === null || list.active === null) return null;
+    return { view: this.#forms.view(list.active, list.active.index < list.defaults), restore: { mode: "profile", id: list.active.id } };
   }
 
   /** What every profile form of the page does first (`profileAction` 4), then the settings and the list as they are. */
@@ -797,7 +879,7 @@ class TplinkSession implements DriverSessionHandle {
     await this.#setSettings(check, form);
     const cfg = await this.#settings();
     const after = cfg === null ? null : await this.#profiles(cfg);
-    const view = after?.active ? mrApnView(after.active, false) : null;
+    const view = after?.active ? this.#forms.view(after.active, false) : null;
     settleCheck(check, after === null || after.active === null ? null : after.active.index === index && (wanted === null || wanted.mode !== "manual" || (view?.apn === wanted.apn && view.ipType === wanted.ipType)));
   }
 
@@ -812,34 +894,129 @@ class TplinkSession implements DriverSessionHandle {
    * An access point by hand is FengSui's own profile (named `FengSui`): made with the page's "create
    * profile" form when the list has none, then saved and put in use with its settings form. The
    * router's own profiles and the ones its owner made stay as they are. Automatic is the router's own
-   * profile for the SIM card, put in use as it is.
+   * profile for the SIM card, put in use as it is. Where the page keeps tables, a table of FengSui's
+   * own instead (`#setTableApn`).
    */
   async #setApn(choice: ApnChoice, check: WriteCheck): Promise<void> {
     if (choice.mode === "manual") checkAccessPoint(choice);
+    if (await this.#tabled()) return await this.#setTableApn(choice, check);
+    const forms = this.#forms;
     const list = await this.#openProfiles(check);
     if (choice.mode === "auto") {
       const own = this.#ownProfile(list);
-      return await this.#useProfile(check, mrProfileUse(own), own.index, null);
+      return await this.#useProfile(check, forms.use(own), own.index, null);
     }
     const mine = (profiles: ReadonlyArray<TplinkProfile>): TplinkProfile | undefined => profiles.find((profile) => profile.index >= list.defaults && profile.name === FENGSUI_APN_PROFILE);
     let profile = mine(list.profiles);
     if (profile === undefined) {
       if (list.profiles.length - list.defaults >= MAX_PROFILES) throw new CpeControlValidationError(`The router keeps ${MAX_PROFILES} access point profiles besides its own at most: delete one on the router's own page first`);
-      await this.#setSettings(check, { ...mrProfileCreate(FENGSUI_APN_PROFILE, choice), profileAction: "2" });
+      await this.#setSettings(check, { ...forms.create(FENGSUI_APN_PROFILE, choice), profileAction: "2" });
       const cfg = await this.#settings();
       profile = mine((cfg === null ? null : await this.#profiles(cfg))?.profiles ?? []);
-      if (profile === undefined) throw new CpeAnswerFormatError("LTE_PROFILE: the router does not list the profile it was asked to create (nothing is sent again)");
+      if (profile === undefined) throw new CpeAnswerFormatError(`${this.#objects.profiles}: the router does not list the profile it was asked to create (nothing is sent again)`);
     }
-    await this.#useProfile(check, mrProfileEdit(profile, choice), profile.index, choice);
+    await this.#useProfile(check, forms.edit(profile, choice), profile.index, choice);
   }
 
-  /** Back to the profile a change replaced, by the router's own number for it, as it is. */
+  /** Back to the profile a change replaced, by the router's own number for it, as it is (where the page keeps tables, the table). */
   async #restoreApn(restore: ApnRestore, check: WriteCheck): Promise<void> {
     if (restore.mode === "context") throw notOnRecord("put back an access point that was no profile of the router's");
+    if (await this.#tabled()) return await this.#restoreTable(restore, check);
     const list = await this.#openProfiles(check);
     const profile = restore.mode === "auto" ? this.#ownProfile(list) : list.profiles.find((candidate) => candidate.id === restore.id);
     if (profile === undefined) throw new CpeControlValidationError("The router no longer lists the access point profile it used before");
-    await this.#useProfile(check, mrProfileUse(profile), profile.index, null);
+    await this.#useProfile(check, this.#forms.use(profile), profile.index, null);
+  }
+
+  // ── Where the page keeps its access points in tables (the NX series) ───────
+
+  /** The page's tables of access points (`DEV2_LTE_PROF_STAT` and `DEV2_LTE_PROFILE`); `null`: the router hands out neither. */
+  async #tables(): Promise<NxTables | null> {
+    const stat = await this.#object(this.#objects.prof[0], this.#objects.prof[1]);
+    return parseNxTables(stat, instances(await this.#one({ operation: "list", oid: this.#objects.profiles }).catch(() => null)));
+  }
+
+  /** What the page's cellular settings do first (`profileAction` 4), then its tables as they are. */
+  async #openTables(check: WriteCheck): Promise<NxTables> {
+    await this.#setSettings(check, { profileAction: "4" });
+    const tables = await this.#tables();
+    if (tables === null) throw noFeature("tables of access points");
+    return tables;
+  }
+
+  /** FengSui's own table: one of the owner's (after the operator's), named `FengSui` after its first profile, as the page names a table. */
+  #ownTable(tables: NxTables): { table: number; profile: NxTableProfile } | null {
+    for (const [table, profiles] of tables.tables) {
+      const first = profiles[0];
+      if (table >= tables.operatorTables && first !== undefined && first.name === FENGSUI_APN_PROFILE) return { table, profile: first };
+    }
+    return null;
+  }
+
+  /** The operator's table for the SIM card: the one a person dials with who never made a table of their own. Several: theirs to choose. */
+  #operatorTable(tables: NxTables): number {
+    const own = [...tables.tables].filter(([table, profiles]) => table < tables.operatorTables && profiles[0] !== undefined && profiles[0].name !== "NONE").map(([table]) => table);
+    if (own.length !== 1 || own[0] === undefined) throw new CpeControlValidationError(own.length === 0 ? "The router has no table of access points of the operator's for this SIM card" : "The router has several tables of access points of the operator's for this SIM card: choose one on the router's own page");
+    return own[0];
+  }
+
+  /** The table the page makes next: the first free place after the operator's tables, within the page's own limits. */
+  async #freeTable(tables: NxTables): Promise<number> {
+    const perTable = await this.#buildNumber("INCLUDE_LTE_APN_NUM");
+    const total = perTable === null ? 32 : 64;
+    if (tables.profiles >= total) throw new CpeControlValidationError(`The router keeps ${total} access point profiles at most: delete one on the router's own page first`);
+    if (tables.ownTables >= NX_OWN_TABLES) throw new CpeControlValidationError(`The router keeps ${NX_OWN_TABLES} tables of access points of its owner's at most: delete one on the router's own page first`);
+    for (let i = 0; i < (perTable ?? 8); i += 1) {
+      if (!tables.tables.has(tables.operatorTables + i)) return tables.operatorTables + i;
+    }
+    throw new CpeControlValidationError("The router has no place for another table of access points: delete one on the router's own page first");
+  }
+
+  /**
+   * Have the router dial with `table`: the page's switch (`profileAction` 5), sent only when it dials
+   * with another, then read back that it dials with this one (and, for an access point by hand, that
+   * the table's Internet profile is the one written).
+   */
+  async #dialWith(check: WriteCheck, now: NxTables, table: number, wanted: ApnChoice | null): Promise<void> {
+    let after: NxTables | null = now;
+    if (now.inUse !== table) {
+      await this.#setSettings(check, { profileIndex: String(table), profileAction: "5" });
+      after = await this.#tables();
+    }
+    const data = after === null || after.inUse === null ? null : nxDataProfile(after.tables.get(after.inUse));
+    const view = data === null ? null : exApnView(data.fields, false);
+    settleCheck(check, after === null || after.inUse === null ? null : after.inUse === table && (wanted === null || wanted.mode !== "manual" || (view !== null && view.apn === wanted.apn && view.ipType === wanted.ipType)));
+  }
+
+  /**
+   * An access point by hand where the page keeps tables: a table of FengSui's own, named after its one
+   * profile (`FengSui`, for the Internet), added with the page's profile form when there is none and
+   * saved with it otherwise; then the router dials with it, as the page switches after a new table's
+   * first profile. The operator's tables and the ones the router's owner made stay as they are.
+   * Automatic is the operator's table for the SIM card.
+   */
+  async #setTableApn(choice: ApnChoice, check: WriteCheck): Promise<void> {
+    const tables = await this.#openTables(check);
+    if (choice.mode === "auto") return await this.#dialWith(check, tables, this.#operatorTable(tables), null);
+    const mine = this.#ownTable(tables);
+    const table = mine === null ? await this.#freeTable(tables) : mine.table;
+    await this.#setSettings(check, nxProfileForm(table, mine === null ? "0" : mine.profile.id, FENGSUI_APN_PROFILE, choice, mine === null ? "2" : "1"));
+    const saved = await this.#tables();
+    // A table the router does not list is never dialled with: it would have no access point
+    if (saved === null || this.#ownTable(saved)?.table !== table) {
+      if (mine === null) throw new CpeAnswerFormatError(`${this.#objects.profiles}: the router does not list the profile it was asked to add (nothing is sent again)`);
+      return settleCheck(check, null);
+    }
+    await this.#dialWith(check, saved, table, choice);
+  }
+
+  /** Back to the table the router dialled with before a change, by its number, as it is. */
+  async #restoreTable(restore: { mode: "auto" } | { mode: "profile"; id: string }, check: WriteCheck): Promise<void> {
+    if (restore.mode === "profile" && !/^\d{1,2}$/.test(restore.id)) throw new CpeControlValidationError("The router no longer lists the table of access points it dialled with before");
+    const tables = await this.#openTables(check);
+    const table = restore.mode === "auto" ? this.#operatorTable(tables) : Number(restore.id);
+    if (!tables.tables.has(table)) throw new CpeControlValidationError("The router no longer lists the table of access points it dialled with before");
+    await this.#dialWith(check, tables, table, null);
   }
 
   /**

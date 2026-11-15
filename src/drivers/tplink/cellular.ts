@@ -360,3 +360,106 @@ export function mrApnView(profile: TplinkProfile, own: boolean): ApnView {
   const apn = textOf(profile.fields[`${family}Apn`]);
   return { mode: own ? "auto" : "manual", apn: apn === null ? null : apn.slice(0, 100), ipType, auth, hasUsername: (profile.fields[`${family}Username`] ?? "") !== "" };
 }
+
+// The EX and NX series name a profile's fields once for both address types: `apnType` 0 is an access
+// point typed in, 1 one the network gives (its `apn` is then empty)
+
+const EX_FIELDS = ["pdpType", "apnType", "apn", "username", "password", "authType"] as const;
+
+function flat(setting: ApnSetting): Record<string, string> {
+  return { pdpType: PDP_TYPES[setting.ipType], apnType: "0", apn: setting.apn, username: setting.username, password: setting.password, authType: AUTH_TYPES[setting.auth] };
+}
+
+/** What the EX and NX page's "create profile" form sends for `setting`. */
+export function exProfileCreate(name: string, setting: ApnSetting): Record<string, string> {
+  return { profileName: name, ...flat(setting) };
+}
+
+/** What its settings form sends to save a profile and make it the one in use. */
+export function exProfileEdit(profile: Pick<TplinkProfile, "id" | "index" | "name">, setting: ApnSetting): Record<string, string> {
+  return { profileID: profile.id, profileName: profile.name, ...flat(setting), profileAction: "1", activeProfile: String(profile.index) };
+}
+
+/** The same form for a profile that stays as it is: its fields go back as the router handed them out. */
+export function exProfileUse(profile: TplinkProfile): Record<string, string> {
+  return { profileID: profile.id, profileName: profile.name, ...Object.fromEntries(EX_FIELDS.map((field) => [field, profile.fields[field] ?? ""])), profileAction: "1", activeProfile: String(profile.index) };
+}
+
+/** The access point of an EX or NX profile, from its fields as the router handed them out: never its password. */
+export function exApnView(fields: Readonly<Record<string, string>>, own: boolean): ApnView {
+  const pdp = fields["pdpType"] ?? "";
+  const ipType = (Object.entries(PDP_TYPES).find(([, code]) => code === pdp)?.[0] ?? null) as ApnIpType | null;
+  const auth = (Object.entries(AUTH_TYPES).find(([, code]) => code === (fields["authType"] ?? ""))?.[0] ?? null) as ApnAuthMode | null;
+  const apn = fields["apnType"] === "1" ? null : textOf(fields["apn"]);
+  return { mode: own ? "auto" : "manual", apn: apn === null ? null : apn.slice(0, 100), ipType, auth, hasUsername: (fields["username"] ?? "") !== "" };
+}
+
+// ── Tables of access points (the NX series' page with several at once) ──────
+
+/** A profile of one of the page's tables. */
+export interface NxTableProfile {
+  /** Its number within its table (`profileID`). */
+  id: string;
+  name: string;
+  /** What it carries (`serviceType`: Internet, IPTV, VOIP, TR069, Others). */
+  services: ReadonlyArray<string>;
+  fields: Readonly<Record<string, string>>;
+}
+
+/**
+ * The page's tables of access points on firmware built with several at once (`INCLUDE_LTE_MULTI_APN`
+ * in its own script): the profiles of `DEV2_LTE_PROFILE` grouped by their `tableIndex`, the
+ * operator's tables for the SIM card first (`ispTableCount` of them, which the page lets nobody
+ * change), and which table the router dials with (`DEV2_LTE_PROF_STAT`).
+ */
+export interface NxTables {
+  /** The table the router dials with; `null`: the router does not say. */
+  inUse: number | null;
+  /** How many tables at the head are the operator's. */
+  operatorTables: number;
+  /** How many tables of their own the router's owner has made (`usrTableCount`). */
+  ownTables: number;
+  /** How many profiles the router lists, all tables together. */
+  profiles: number;
+  tables: ReadonlyMap<number, ReadonlyArray<NxTableProfile>>;
+}
+
+export function parseNxTables(stat: Record<string, string> | null, entries: ReadonlyArray<Record<string, string>>): NxTables | null {
+  const operatorTables = nonNegativeOf(stat?.["ispTableCount"]);
+  const user = intOf(stat?.["usrWhich"]);
+  if (operatorTables === null || user === null) return null;
+  const operator = intOf(stat?.["ispWhich"]);
+  // As the page counts them: an own table's number goes on from the operator's, and above 8 the router dials with an operator's
+  const inUse = user > 8 ? (operator !== null && operator >= 0 ? operator : null) : user >= 0 ? operatorTables + user : null;
+  const operatorProfiles = nonNegativeOf(stat?.["ispCount"]) ?? 0;
+  const byTable = new Map<number, Map<string, NxTableProfile>>();
+  const listed = entries.slice(0, 64);
+  listed.forEach((entry, i) => {
+    const name = (entry["profileName"] ?? "").slice(0, 64);
+    // The page leaves out the operator's empty places
+    if (i < operatorProfiles && name === "NONE") return;
+    const table = intOf(entry["tableIndex"]);
+    const id = textOf(entry["profileID"]);
+    if (table === null || table < 0 || table > 64 || id === null || !/^\d{1,2}$/.test(id)) return;
+    const services = (entry["serviceType"] ?? "").split(",").map((service) => service.trim()).filter((service) => service !== "");
+    const profiles = byTable.get(table) ?? new Map<string, NxTableProfile>();
+    // A profile number listed twice in a table: the later one, in the first one's place (as the page's own map keeps it)
+    profiles.set(String(Number(id)), { id: String(Number(id)), name, services, fields: entry });
+    byTable.set(table, profiles);
+  });
+  const tables = new Map<number, NxTableProfile[]>([...byTable].map(([table, profiles]) => [table, [...profiles.values()]]));
+  return { inUse, operatorTables, ownTables: nonNegativeOf(stat?.["usrTableCount"]) ?? 0, profiles: listed.length, tables };
+}
+
+/** The profile of a table that carries the data connection: the first that serves the Internet. */
+export function nxDataProfile(profiles: ReadonlyArray<NxTableProfile> | undefined): NxTableProfile | null {
+  return profiles?.find((profile) => profile.services.includes("Internet")) ?? null;
+}
+
+/**
+ * What the page's profile form sends for a profile in `table` (`profileAction` 2 adds it, 1 saves it):
+ * the access point typed in, for the Internet.
+ */
+export function nxProfileForm(table: number, id: string, name: string, setting: ApnSetting, action: "1" | "2"): Record<string, string> {
+  return { profileIndex: String(table), profileName: name, ...flat(setting), serviceType: "Internet", profileID: id, profileAction: action };
+}

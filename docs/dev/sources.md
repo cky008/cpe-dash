@@ -713,7 +713,8 @@ H168-383 不走这些函数；请求序列比对（`reviews/v1.9.0-tools/compare
 | :--- | :--- | :--- |
 | Archer MR600 v3（`/mr600v3/`） | MR（文本帧） | 状态、蜂窝设置（`advanceLte`）、流量设置、PIN 管理、USSD |
 | Archer MR600 v5（`/MR600v5 emulator/`） | MR（文本帧） | 同上，另有锁小区（`ltecelllock`） |
-| NX540v (EU) 1.0（`/NX540v(EU)1.0_Emulator/`） | EX / NX（JSON） | 状态、蜂窝设置、频段选择（`bandlock`）、锁小区（`celllock`）、流量设置、PIN 管理、USSD |
+| NX540v (EU) 1.0（`/NX540v(EU)1.0_Emulator/`） | EX / NX（JSON） | 状态、蜂窝设置、频段选择（`bandlock`）、锁小区（`celllock`）、流量设置、PIN 管理、USSD、几个接入点的表（`lteMultiapnEdit`） |
+| MX1500 v2（`/MX1500V2-Emulator/`） | EX / NX（JSON） | 只有一个接入点列表的蜂窝设置与「新建配置档」（`lteProfileAdd`） |
 
 厂商的页面是公开资料，这里只取事实（对象名、属性名、取值、页面自己的取值范围），不复制它的脚本。列表里还有别的蜂窝型号的模拟器（MR100、MR101、MR110、MR402、MR500 的室外款，M7310 随身路由器，TL-MR3620）没有读：它们用的是不是同一套对象不知道，等有人报告。
 
@@ -731,14 +732,13 @@ H168-383 不走这些函数；请求序列比对（`reviews/v1.9.0-tools/compare
 | 流量上限、清零流量统计 | `WAN_LTE_INTF_CFG`：表单一次发全（`adjustStatistics`：-1 不动、其他值是把已用流量改成多少；`enableDataLimit`、`limitation` 字节、`warningPercent` 1–99、`enablePaymentDay`、`paymentDay`）。上限 1 MB 到 9999 GB。烽燧改上限时，结算日照路由器现有的发回去；清零就是把已用流量改成 0 | `DEV2_XTP_LTE_INTF_CFG`，同名属性 |
 | SIM PIN | `LTE_SIMLOCK`：`simAction` 4 输入 PIN、1 打开「开机要 PIN」、2 关闭，带 `pin`；`remainPinUnlockTime` 是剩余次数，`pinState` 1 等 PIN、2 已输入、3 没开 PIN。页面发完等 3.5 秒再读一次显示结果，烽燧也是：读到的状态说了算，没读到就报「不知道」，不重发 | `DEV2_LTE_SIMLOCK`，同名属性 |
 | USSD | 第 7 步已有发送。页面还有：应答后 `sessionStatus` 是 1 表示运营商等回复（回复和发送是同一个写入）；`action=2` 结束会话；`ussdStatus` 2–5 是没有应答的几种结束 | `DEV2_LTE_USSD`，同名属性（第 7 步记的是「这种写法没有 USSD」，模拟器里有） |
-| 接入点（APN） | 配置档列表 `LTE_PROFILE`：`profileID` 就是它在列表里的位置；设置里 `activeProfile` 是在用的那一份，`defaultProfile` 是列表开头有几份路由器给这张 SIM 卡自带的（页面不让改，名字是 `NONE` 的不显示）。每一份有 `profileName`、`pdpType`（0 IPv4、1 IPv6、2 两者）和每种地址各一半：`ipv4ApnType`（0 手填、1 动态）、`ipv4Apn`、`ipv4Username`、`ipv4Password`、`ipv4AuthType`（0 无、1 PAP、2 CHAP、3 两者），`ipv6…` 同理。页面的每个配置档表单先写 `profileAction=4`；新建是 `profileAction=2`（「新建配置档」页，只带一种地址的那一半），保存并设为在用是 `profileAction=1`（带 `profileID`、`activeProfile` 和地址类型对应的各一半），删除是 `profileAction=3`（烽燧不删）。接入点名称最长 62 个字符，用户名和密码各 31 个字符以内；路由器自带的之外，主人自己最多建 8 份（页面按「列表长度减去自带的份数」算）。烽燧的做法：手填的接入点写进自己的一份（名为 `FengSui`，没有就先建），别的配置档不动；「自动」和断网后的改回，是把原来那一份连同路由器存着的字段原样设回在用（密码只在这次会话里经手，不落盘、不进记录）。读取不发 `profileAction=4` | 没有做（见下） |
+| 接入点（APN） | 配置档列表 `LTE_PROFILE`：`profileID` 就是它在列表里的位置；设置里 `activeProfile` 是在用的那一份，`defaultProfile` 是列表开头有几份路由器给这张 SIM 卡自带的（页面不让改，名字是 `NONE` 的不显示）。每一份有 `profileName`、`pdpType`（0 IPv4、1 IPv6、2 两者）和每种地址各一半：`ipv4ApnType`（0 手填、1 动态）、`ipv4Apn`、`ipv4Username`、`ipv4Password`、`ipv4AuthType`（0 无、1 PAP、2 CHAP、3 两者），`ipv6…` 同理。页面的每个配置档表单先写 `profileAction=4`；新建是 `profileAction=2`（「新建配置档」页，只带一种地址的那一半），保存并设为在用是 `profileAction=1`（带 `profileID`、`activeProfile` 和地址类型对应的各一半），删除是 `profileAction=3`（烽燧不删）。接入点名称最长 62 个字符，用户名和密码各 31 个字符以内；路由器自带的之外，主人自己最多建 8 份（页面按「列表长度减去自带的份数」算）。烽燧的做法：手填的接入点写进自己的一份（名为 `FengSui`，没有就先建），别的配置档不动；「自动」和断网后的改回，是把原来那一份连同路由器存着的字段原样设回在用（密码只在这次会话里经手，不落盘、不进记录）。读取不发 `profileAction=4` | 只有一个列表的固件同左，列表是 `DEV2_LTE_PROFILE`，字段不分地址类型：`pdpType`、`apnType`（0 手填，1 由网络给，这时 `apn` 为空）、`apn`、`username`、`password`、`authType`（0 无、1 PAP、2 CHAP、3 两者）；新建、保存并设为在用、上限都同左。固件带 `INCLUDE_LTE_MULTI_APN`（页面脚本里写明；模拟器里 NX540v 有，MX1500 v2、NX505 没有）时，页面按「接入点表」管理：每份配置另有 `tableIndex`（表号）和 `serviceType`（`Internet`、`IPTV`、`VOIP`、`TR069`、`Others`，逗号分隔）；`DEV2_LTE_PROF_STAT` 给出 `ispCount`（列表开头运营商的配置份数，其中名为 `NONE` 的页面不显示）、`ispTableCount`（运营商的表数，表号排在最前，页面不让改）、`usrTableCount`（主人自己的表数）和在用的表（`usrWhich` 大于 8 时是运营商的第 `ispWhich` 张，否则是 `ispTableCount + usrWhich`）；表名是表里第一份配置的名字。往表里加一份是 `profileAction=2`（带 `profileIndex` 表号、表内编号 `profileID`、上面的字段和 `serviceType`；新表在运营商的表之后找第一个空号），保存一份是 `profileAction=1`，删除一份是 `3`，让路由器换一张表拨号是 `profileIndex` 加 `profileAction=5`（页面在新表加完第一份之后自己发这一条，在「应用」时只在换了表才发）。上限：每张表 `INCLUDE_LTE_APN_NUM` 份（没写时 8），配置总数在写了这个数时 64、否则 32，主人自己的表最多 4 张。烽燧的做法：手填的接入点写进自己的一张表（名为 `FengSui`，表里一份 `Internet` 配置），没有就新建，再让路由器换到这张表；「自动」是换回运营商给这张卡的那张表（不止一张时请主人在管理页上选）；断网后的改回是按表号换回原来那张。换表只在路由器用的不是这张时才发，和页面一样 |
 | 天线 | `LTE_WAN_CFG` 的 `antennaType`（0 内置、1 外置）连同 `profileAction=0`，只在 `INCLUDE_LTE_ANTENNA_TYPE=1` 的固件上 | 同左（`DEV2_LTE_WAN_CFG`）；`INCLUDE_LTE_Q8RX_SWITCH` 的机型上页面切换后会重启路由器，烽燧在这种机型上不切换 |
 
 JSON 写法里页面把数值属性写成数字（`dataSwitchStatusBackup: 1`），烽燧一律写成字符串：页面自己在同一个对象上也把数值属性写成字符串（`warningPercent`、`paymentDay` 取的是输入框的文字），路由器两种都收。
 
 **模拟器里有、烽燧没有做的**：
 
-- EX / NX 系列的接入点（APN）：它的页面同时管理几个接入点（`INCLUDE_LTE_MULTI_APN`，配置档表加 `profileIndex`、`profileAction` 5），和 MR 系列不是一回事，这一步没有读完，**还没有做**。
 - 运营商锁（`plmnLock`，`INCLUDE_LTE_PLMN_LOCK`）、修改 PIN（`simAction` 3）、输入 PUK（`simAction` 5）：AGENTS.md 第 4 节第 7、8 条，不实现。
 - 「重启后自动输入 PIN」（`simAction` 6 / `autoUnlockPin`）：让路由器自己记住 PIN，烽燧没有对应的功能；输入 PIN 和开关 PIN 时这个值照路由器现有的发回去。
 - NAT、IPv6 转换（XLAT）、IMS、桥接模式、流量提醒短信的接收号码：烽燧没有对应的功能。

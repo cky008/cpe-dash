@@ -252,12 +252,12 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // A router of the EX and NX series lists its own; the MR series has the first, 4G only and 3G only
     selectableModes: ["auto", "nr_sa", "nr_nsa", "nr_lte", "lte", "lte_wcdma", "wcdma"],
     variants: {
-      // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, the same forms under other names;
-      // its page manages several access points at once, which FengSui does not write yet
+      // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, the same forms under other names
+      // (the access point as a profile, or where the page keeps several at once, as a table of FengSui's own)
       ex: {
         models: ["Archer NX200", "NX510v", "Archer NX510v", "NX540v", "Archer NX540v"],
         reads: ["telemetry", "topology", "smsRead", "simCard"],
-        writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "ussd"],
+        writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"],
       },
       // The Deco line (LuCI forms): the modem's signal without a band or a cell, the mesh's devices, a restart; no SMS in its page
       deco: { models: ["Deco X50-5G", "X50-5G"], reads: ["telemetry", "topology", "simCard"], writes: ["reboot"] },
