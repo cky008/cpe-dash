@@ -3,7 +3,7 @@ import { CpeControlValidationError } from "../../control-error.ts";
 import { SectionUnavailableError } from "../../cpe-domain.ts";
 import type { WriteCheck } from "../../device-access.ts";
 import type { DriverNeighbour } from "../../protocols/readings.ts";
-import type { LanHttp, LanResponse } from "../../protocols/transport.ts";
+import { type LanHttp, type LanResponse, parseJsonText } from "../../protocols/transport.ts";
 import { USSD_POLLS, USSD_POLL_MS, emptyUssd, ussdText } from "../../protocols/ussd.ts";
 import { fieldOf, intOf, labelOf, nonNegativeOf, textOf } from "../../protocols/values.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
@@ -138,7 +138,7 @@ function keyOf(res: LanResponse): { key: TplinkPublicKey; seq: number } | null {
   if (!res.text.trimStart().startsWith("{")) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(res.text);
+    parsed = parseJsonText(res.text, "the router's key");
   } catch {
     return null;
   }
@@ -167,7 +167,9 @@ async function opening(http: LanHttp): Promise<Opening | null> {
 async function schemeOf(http: LanHttp, open: Opening): Promise<TplinkScheme> {
   if (open.key.kind === "ecc") return { cipher: "cbc", padding: "none" };
   const script = await http.request({ method: "GET", path: "/js/tpEncrypt.js", referer: ROOT });
-  if (script.status !== 200) return { cipher: "cbc", padding: "none" };
+  // No such script: the original form. Any other answer that is not the script (an error, a page) settles nothing
+  if (script.status === 404) return { cipher: "cbc", padding: "none" };
+  if (script.status !== 200 || script.text.trimStart().startsWith("<")) throw new DriverLoginMethodError(`the page's encryption script could not be read (HTTP ${script.status})`);
   const scheme: TplinkScheme = { cipher: /gcm/i.test(script.text) ? "gcm" : "cbc", padding: /encryptOAEP/.test(script.text) ? "oaep" : "none" };
   // The MR series' login with the newer cipher is not on record: where its tag would go is not known
   if (open.dialect === "mr" && scheme.cipher === "gcm") throw new DriverLoginMethodError("this firmware's cipher has no login on record for the MR series");
@@ -523,14 +525,24 @@ export const tplinkProtocol: DriverProtocol = {
       if (forbid !== null && forbid > 0) throw loginLocked("the router has locked its login", forbid);
       throw wrongPassword("the router refused the user name or password", used !== null && used >= 0 && used <= LOGIN_ATTEMPTS ? LOGIN_ATTEMPTS - used : null);
     }
-    if (res.status !== 200 || (code !== null && code !== 0)) throw loginUnplaced(`login answered ${code ?? `HTTP ${res.status}`}`);
+    // Every answer of the page's login carries its return code: one without it, or with another code, cannot be placed
+    if (res.status !== 200 || code !== 0) throw loginUnplaced(`login answered ${code ?? `HTTP ${res.status} without a return code`}`);
     // Some firmware answers a wrong password like a right one, only without a session
     if (http.cookie(SESSION_COOKIE) === undefined) throw wrongPassword("the router opened no session for this user name and password");
     // The page writes how often a login failed into a cookie of its own; a session that was just opened had none fail
     if (open.dialect === "mr") http.setCookie("loginErrorShow", "1");
     const home = await http.request({ method: "GET", path: ROOT, referer: ROOT });
     const token = home.status === 200 ? scriptVar(home.text, "token") : null;
-    if (token === null || !TOKEN.test(token)) throw new CpeAnswerFormatError("the router's page carried no token for this session");
+    // Signed in, the page carries the session's token. Without it FengSui cannot tell whether the router took the
+    // password, and must not find out by sending it again on the next poll
+    if (token === null || !TOKEN.test(token)) {
+      // The router may hold a session for this cookie: the page's logout is tried once, without the token it wants, so the seat is not kept
+      const logout: TplinkAction = { operation: "cgi", oid: "/cgi/logout" };
+      await http
+        .request({ method: "POST", path: objects.command, body: envelope.body(envelope.seal(open.dialect === "mr" ? mrFrame([logout]) : exRequest(logout), false)), contentType: "text/plain", referer: ROOT })
+        .catch(() => undefined);
+      throw loginUnplaced("the router's page carried no token after the login");
+    }
     return new TplinkSession(http, open.dialect, envelope, token);
   },
 };

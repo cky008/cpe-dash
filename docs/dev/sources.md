@@ -608,7 +608,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | D-Link | 密码发 MD5（旧登录页 `index.html`），或发登录页自己的 `encode_passwd`（新登录页 `login.html`） | 免登录读 `/login.html`：有 `encode_passwd` 用后一种；没有这个页面（404）是旧页面，用 MD5；页面里自己写了 `md5` 也用 MD5 | 页面两样都没有：不发送密码（`DriverLoginMethodError`） |
 | TP-Link | 请求写法两种（MR 文本帧、EX / NX 的 JSON）；加密三代（AES-CBC + 不填充的 RSA 签名；AES-GCM，签名不填充或 RSA-OAEP；AES-CBC + P-224 上的 ECIES） | 写法看哪个取密钥的接口有应答（`/cgi/getGDPRParm` 是 JSON 写法，`/cgi/getParm` 是文本写法）；密钥是曲线上的点就是第三代；否则免登录读路由器自己的 `/js/tpEncrypt.js`，里面写了 `gcm` 是第二代、写了 `encryptOAEP` 是 OAEP 签名，都没写（或没有这个脚本）是第一代 | 拿不到密钥，或 MR 文本写法配 GCM（参考实现里这种组合的登录写不通，标签放在哪里没有记录）：不发送密码 |
 
-`/js/tpEncrypt.js` 里用 `gcm`、`encryptOAEP` 两个词区分，是我按出处的描述定的判据（出处只说「`tpEncrypt.js` 用 `encryptOAEP` 的固件」；GCM 的判据是推断：实现 GCM 的脚本必然写到这个词），等真机报告校正。
+读不到这个脚本（不是 404 的错误，或者那个地址答的是一个网页）时同样不发送密码。`/js/tpEncrypt.js` 里用 `gcm`、`encryptOAEP` 两个词区分，是我按出处的描述定的判据（出处只说「`tpEncrypt.js` 用 `encryptOAEP` 的固件」；GCM 的判据是推断：实现 GCM 的脚本必然写到这个词），等真机报告校正。
 
 **D-Link（`src/drivers/dlink/`）**
 
@@ -623,7 +623,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | 重启 | `reboot_reset` / `reboot` | dwr960utils、dwr960-manager | 已实现 |
 | 重拨、移动数据 | `connect_btn`：`connect` 1（`ifc: lte`）、0（`ifc: all`） | dwr960-manager | 已实现；回读看 `up_5s` 的连接状态 |
 | 网络制式 | `CfgType: apn` 的 `COMMON.netpref_value`：0 自动、6 仅 4G、7 仅 3G、8 仅 2G；读 `get_apn_cfg`；改完重启一次数据连接（管理页的做法） | dwr960-manager | 已实现 |
-| 接入点 | `CfgType: apn` 的 `APN_0`（`type` 0 自动 / 1 手动、`apn`、`uname`、`passwd`、`re_passwd`、`auth` 0 无 / 1 PAP / 2 CHAP / 3 自动、`pdp_type`） | dwr960-manager | 已实现；`pdp_type` 的取值没有记录，保持路由器原值 |
+| 接入点 | `CfgType: apn` 的 `APN_0`（`type` 0 自动 / 1 手动、`apn`、`uname`、`passwd`、`re_passwd`、`auth` 0 无 / 1 PAP / 2 CHAP / 3 自动、`pdp_type`） | dwr960-manager | 已实现；`pdp_type` 的取值没有记录，路由器报了就原样带回，没报就不带；`re_passwd` 照出处不编码 |
 | USSD | `do_ussd` 的 `send`（`code`）、`cancel`；`DynUpdate=get_ussd_state` 的 `resp_data` | dwr960-manager | 已实现；会话内回复没有记录 |
 | 附近的基站、锁频段、锁小区、手动选网、漫游开关、流量上限、PIN | — | 查过上面三个项目和 GitHub 代码搜索（`data.ria`、`webpost.cgi`、`bm_currentBand`、`check_attempt_count`） | 没有记录，不做 |
 
@@ -639,7 +639,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | :--- | :--- | :--- | :--- |
 | 会话的步骤 | 登录页 `GET /`（脚本变量里有 `authTimes`、`forbidFlag`、`forbidTime`）→ 取密钥 → `POST /cgi/getBusy`（`isLogined`、`isBusy`）→ 登录 → 再 `GET /` 取 `var token`，之后每个请求带 `TokenID` 头和 Cookie `JSESSIONID` | @hertzg/tplink-api（步骤、忙碌标志、锁定计数）、TP-Link-Archer-C6U、tp-link-modem-router | 已实现；登录页显示已锁定就不登录，`isLogined` 为 1 就让位 |
 | 密钥 | `POST /cgi/getParm`（MR）或 `/cgi/getGDPRParm`（EX / NX）：`var nn`、`var ee`、`var seq`；新固件给 JSON 的 `eccPubKey_X_HEX`、`eccPubKey_Y_HEX`、`seq` | 同上 | 已实现 |
-| 加密与签名 | 载荷 AES-128（密钥和 IV 是 16 个字符的文本；CBC，或 GCM 加 Base64 的标签）；签名串登录时是 `key=…&iv=…&h=…&s=…`，其余是 `h=…&s=…`，`h` 是 MD5(用户名 + 密码)（曲线那一代是 SHA-256），`s` 是 `seq` 加密文长度；RSA 按模数长度分块、不填充（末块补零）或 OAEP(SHA-1)；曲线那一代用 P-224 上的 ECIES 封装签名串，另带载荷的 HMAC-SHA256 | TP-Link-Archer-C6U（三代）、tp-link-modem-router（第一代）、@hertzg/tplink-api（第一代，签名长度由模数决定） | 已实现；密钥和 IV 用系统随机源生成 |
+| 加密与签名 | 载荷 AES-128（密钥是 16 个字符的文本，IV 在 CBC 下 16 个字符、GCM 下 12 个；CBC，或 GCM 加 Base64 的标签）；签名串登录时是 `key=…&iv=…&h=…&s=…`，其余是 `h=…&s=…`，`h` 是 MD5(用户名 + 密码)（曲线那一代是 SHA-256），`s` 是 `seq` 加密文长度；RSA 按模数长度分块、不填充（末块补零）或 OAEP(SHA-1)；曲线那一代用 P-224 上的 ECIES 封装签名串，另带载荷的 HMAC-SHA256 | TP-Link-Archer-C6U（三代）、tp-link-modem-router（第一代）、@hertzg/tplink-api（第一代，签名长度由模数决定） | 已实现；密钥和 IV 用系统随机源生成 |
 | 登录 | MR：`POST /cgi/login?data=…&sign=…&Action=1&LoginStatus=0&isMobile=0`，明文是「用户名换行密码」；EX / NX：`POST /cgi_gdpr?9`，明文是 `cgi` 操作 `/cgi/login` 的 JSON，用户名和密码各自 Base64。应答 `$.ret=0`；`71233` 是密码错（带 `currAuthTimes`、`currForbidTime`）；有的固件密码错了也答 0，只是不给会话 | TP-Link-Archer-C6U、@hertzg/tplink-api（密码错与对答得一样）；错误码的名字出自路由器管理页自己的 `err.js` | 已实现；`LoginStatus` 一直是 0，烽燧从不把别人挤下线 |
 | 请求的两种写法 | MR：`POST /cgi_gdpr`，一帧多个动作，`[对象#实例#0,0,0,0,0,0]序号,属性数` 加属性行，动作编号 1 读、2 写、4 删、5 列表、6 子列表、7 操作、8 脚本，值里的换行写成控制字符；EX / NX：`POST /cgi_gdpr?9`，一次一个动作的 JSON（`go`、`so`、`do`、`gl`、`gs`、`op`、`cgi`），写操作带 `isuseractive` | TP-Link-Archer-C6U、tp-link-modem-router、@hertzg/tplink-api | 已实现 |
 | 信号与流量 | `…LTE_LINK_CFG`（`networkType` 0 无服务、2 3G、3 / 7 4G、8 5G；`simStatus`；`roamingStatus`）、`…LTE_INTF_CFG`（`totalStatistics`、`curRxSpeed`、`curTxSpeed`）、`…LTE_NET_STATUS`（`sigLevel`、`rfInfoRsrp`、`rfInfoRsrq`、`rfInfoSnr`，后者是 0.1 dB）、`…LTE_PROF_STAT`（`ispName`）；MR 的实例是 `2,1,0,0,0,0`（接口是 `2,0,0,0,0,0`），EX / NX 是 `1,0,0,0,0,0` | TP-Link-Archer-C6U | 已实现 |

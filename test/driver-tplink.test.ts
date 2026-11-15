@@ -270,7 +270,7 @@ describe("tp-link: signing in and out", () => {
   });
 
   it("speaks each generation of the encryption a router's own script and key name", async () => {
-    for (const options of [{ form: "ex", cipher: "gcm" }, { form: "ex", cipher: "gcm", padding: "oaep" }, { form: "mr", padding: "oaep" }, { form: "mr", ecc: true }, { form: "ex", script: { status: 404, text: "" } }] as const) {
+    for (const options of [{ form: "ex", cipher: "gcm" }, { form: "ex", cipher: "gcm", padding: "oaep" }, { form: "mr", padding: "oaep" }, { form: "mr", ecc: true }, { form: "ex", script: { status: 404, text: "<html>404</html>" } }] as const) {
       const { client, logins, mock } = tplinkRouter(options);
       const t = await client.withSession((s) => s.telemetry());
       assert.equal(t?.signalBars, 4, JSON.stringify(options));
@@ -293,6 +293,12 @@ describe("tp-link: signing in and out", () => {
       const client = new DriverCpeClient({ protocol: tplinkProtocol, cpeUrl: TPLINK_URL, cpePassword: TPLINK_PASSWORD, fetchImpl: other.fetchImpl });
       await assert.rejects(client.withSession((s) => s.telemetry()), DriverLoginMethodError);
       assert.equal(await tplinkProtocol.detect(new (await import("../src/protocols/transport.ts")).LanHttp({ baseUrl: TPLINK_URL, fetchImpl: other.fetchImpl, timeoutMs: 1000, signal: new AbortController().signal })), false);
+    }
+    // The script that names the cipher could not be read (an error, or a page in its place): which form applies is not settled
+    for (const script of [{ status: 500, text: "" }, { status: 403, text: "Forbidden" }, { text: "<html><body>Login</body></html>" }]) {
+      const unread = tplinkRouter({ form: "ex", cipher: "gcm", script });
+      await assert.rejects(unread.client.withSession((s) => s.telemetry()), DriverLoginMethodError, JSON.stringify(script));
+      assert.equal(unread.logins.length, 0, "no password in a form that may be the wrong one");
     }
     const lineBreak = tplinkRouter();
     const odd = new DriverCpeClient({ protocol: tplinkProtocol, cpeUrl: TPLINK_URL, cpePassword: "pass\nword", fetchImpl: lineBreak.mock.fetchImpl });
@@ -331,7 +337,7 @@ describe("tp-link: signing in and out", () => {
     const silent = tplinkRouter({ silentRefusal: true });
     const quiet = new DriverCpeClient({ protocol: tplinkProtocol, cpeUrl: TPLINK_URL, cpePassword: "wrong-password", fetchImpl: silent.mock.fetchImpl });
     await assert.rejects(quiet.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108006" && err.remainCount === null);
-    for (const loginAnswer of ["$.ret=71234;\n", "$.ret=9001;\n"]) {
+    for (const loginAnswer of ["$.ret=71234;\n", "$.ret=9001;\n", "<html>no return code</html>", ""]) {
       for (const form of ["mr", "ex"] as const) {
         const odd = tplinkRouter({ form, loginAnswer });
         await assert.rejects(odd.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker, `${form} ${loginAnswer}`);
@@ -340,14 +346,21 @@ describe("tp-link: signing in and out", () => {
     }
   });
 
-  it("fails a session whose page hands out no token, and a read the router no longer answers", async () => {
+  it("latches when the page hands out no token after a login, and fails a read the router no longer answers", async () => {
     const noToken = new LanRouterMock((req) => {
       const real = tplinkRouter();
       void real;
       return req.path === "/cgi/getParm" ? { text: `var ee="010001";\nvar nn="c${"0".repeat(126)}1";\nvar seq="1";\n$.ret=0;` } : req.path === "/cgi/login" ? { text: "$.ret=0;", setCookie: ["JSESSIONID=abc123; Path=/"] } : req.path === "/" ? { text: "<html>home</html>" } : { status: 404, text: "" };
     });
     const client = new DriverCpeClient({ protocol: tplinkProtocol, cpeUrl: TPLINK_URL, cpePassword: TPLINK_PASSWORD, fetchImpl: noToken.fetchImpl });
-    await assert.rejects(client.withSession((s) => s.telemetry()), /no token for this session/);
+    // FengSui cannot tell whether it is signed in: it latches rather than send the password again on the next poll
+    await assert.rejects(client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker && /no token after the login/.test(err.message));
+    assert.equal(client.getCircuitBreakerState().tripped, true);
+    await assert.rejects(client.withSession((s) => s.telemetry()));
+    assert.equal(noToken.requests.filter((r) => r.path === "/cgi/login").length, 1, "the password went out once");
+    // The router may hold a session for the cookie it set: the page's logout is tried once so the seat is not kept
+    const tried = noToken.requests.filter((r) => r.path === "/cgi_gdpr");
+    assert.deepEqual([tried.length, tried[0]?.headers["cookie"], tried[0]?.headers["tokenid"]], [1, "JSESSIONID=abc123; loginErrorShow=1", undefined]);
     const { client: ok, state } = tplinkRouter();
     await ok.withSession(async (s) => {
       await s.telemetry();

@@ -118,7 +118,8 @@ export function parseDecoTelemetry(internet: Json | null, wanIp: string | null, 
       : null,
     temperatureC: null,
     // The page's strength is a percentage
-    signalBars: strength === null || strength > 100 ? null : Math.round(strength / 20),
+    // Without a reading (no SIM card) the page's 0 % is no strength either
+    signalBars: strength === null || strength > 100 || (rsrp === null && strength === 0) ? null : Math.round(strength / 20),
     status: { sim: { state: sim === null ? null : (SIM_STATES[sim] ?? null), pinLockEnabled: null, pinAttemptsLeft: null, pukAttemptsLeft: null, slot: null } },
   };
 }
@@ -131,8 +132,10 @@ export function parseDecoHosts(result: Json | null): DriverHost[] {
   for (const entry of list.slice(0, 256)) {
     const mac = textOf(fieldOf(entry, "mac"));
     if (mac === null || fieldOf(entry, "online") !== true) continue;
-    const wired = textOf(fieldOf(entry, "wire_type")) === "wired";
-    hosts.push({ mac: mac.replace(/-/g, ":"), name: decodedName(fieldOf(entry, "name")), ipv4: ipv4Of(fieldOf(entry, "ip")), ipv6: [], link: wired ? "lan" : (LINKS[textOf(fieldOf(entry, "connection_type")) ?? ""] ?? "wifi"), connectedSec: null, leaseSec: null, rssiDbm: null });
+    const wire = textOf(fieldOf(entry, "wire_type"));
+    // Wired, the band the mesh names, Wi-Fi where it names none, and nothing where it does not say how
+    const link = wire === "wired" ? "lan" : (LINKS[textOf(fieldOf(entry, "connection_type")) ?? ""] ?? (wire === null ? null : "wifi"));
+    hosts.push({ mac: mac.replace(/-/g, ":"), name: decodedName(fieldOf(entry, "name")), ipv4: ipv4Of(fieldOf(entry, "ip")), ipv6: [], link, connectedSec: null, leaseSec: null, rssiDbm: null });
   }
   return hosts;
 }

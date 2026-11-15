@@ -36,7 +36,9 @@ describe("tp-link deco: what the forms answer, read into FengSui's shapes", () =
     assert.deepEqual(["lte", "5g_sa", "5g_nr", "5g_nsa", "wcdma", "gsm"].map(mode), [["LTE", true, false], ["SA", false, true], ["SA", false, true], ["NSA", true, false], ["WCDMA", false, false], [null, false, false]]);
     // No SIM card: the page reports every reading as 0, and none of them is one
     const none = parseDecoTelemetry({ mobile_cpe: { signal_strength: 0, rsrp: 0, snr: 0, rssi: 0, rsrq: 0, sim_status: "absent", dial_status: "disconnected", data_usage: "0" } }, null, null);
-    assert.deepEqual([none.lte, none.nr, none.wan.connected, none.status?.sim?.state, none.traffic?.monthTotalBytes, none.signalBars], [null, null, false, "absent", 0n, 0]);
+    assert.deepEqual([none.lte, none.nr, none.wan.connected, none.status?.sim?.state, none.traffic?.monthTotalBytes, none.signalBars], [null, null, false, "absent", 0n, null]);
+    // Registered with a signal too weak to show a bar is still a reading
+    assert.equal(parseDecoTelemetry({ mobile_cpe: { rsrp: -120, signal_strength: 0, network_type: "lte" } }, null, null).signalBars, 0);
     const states = ["locked", "error", "odd"].map((sim_status) => parseDecoTelemetry({ mobile_cpe: { sim_status } }, null, null).status?.sim?.state);
     assert.deepEqual(states, ["pin_required", "error", null]);
     const bare = parseDecoTelemetry(null, null, null);
@@ -50,10 +52,11 @@ describe("tp-link deco: what the forms answer, read into FengSui's shapes", () =
         { mac: "02-00-5E-10-00-02", ip: "192.168.68.2", name: "nas", online: true, wire_type: "wired" },
         { mac: "00-00-5E-00-53-01", name: "Z29uZQ==", online: false },
         { mac: "02-00-5E-10-00-03", online: true, wire_type: "wireless", connection_type: "band6" },
+        { mac: "02-00-5E-10-00-04", online: true },
         { online: true },
       ],
     });
-    assert.deepEqual(hosts.map((h) => [h.mac, h.name, h.ipv4, h.link]), [["02:00:5E:10:00:01", "phone", "192.168.68.100", "wifi_5"], ["02:00:5E:10:00:02", "nas", "192.168.68.2", "lan"], ["02:00:5E:10:00:03", null, null, "wifi"]]);
+    assert.deepEqual(hosts.map((h) => [h.mac, h.name, h.ipv4, h.link]), [["02:00:5E:10:00:01", "phone", "192.168.68.100", "wifi_5"], ["02:00:5E:10:00:02", "nas", "192.168.68.2", "lan"], ["02:00:5E:10:00:03", null, null, "wifi"], ["02:00:5E:10:00:04", null, null, null]]);
     assert.deepEqual([parseDecoHosts(null), parseDecoHosts({ client_list: "x" })], [[], []]);
   });
 
