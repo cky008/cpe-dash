@@ -7,7 +7,7 @@ import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError } from "../src/drivers/login.ts";
 import { TplinkEnvelope, eccSeal, rsaSign, usableKey } from "../src/drivers/tplink/crypto.ts";
 import { lteBandOfIndex } from "../src/drivers/bands.ts";
-import { bandsOfMask, maskOfBands, mrLockState, mrModeCode, mrModeOf, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkServingBands, tplinkSimLock } from "../src/drivers/tplink/cellular.ts";
+import { bandsOfMask, maskOfBands, mrApnView, mrLockState, mrModeCode, mrModeOf, mrProfileCreate, mrProfileEdit, mrProfileUse, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseMrProfiles, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkServingBands, tplinkSimLock } from "../src/drivers/tplink/cellular.ts";
 import { tplinkProtocol } from "../src/drivers/tplink/driver.ts";
 import { exRequest, instance, instances, mrFrame, mrText, mrValue, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "../src/drivers/tplink/frames.ts";
 import { TPLINK_SENT_BASE, type TplinkReadings, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry } from "../src/drivers/tplink/parts.ts";
@@ -947,6 +947,97 @@ describe("tp-link: mobile data and the cellular settings", () => {
     assert.equal(router.actions.filter((a) => a.operation === "set").length, 1, "sent once, never again");
   });
 
+  it("writes an access point as a profile of its own on the MR series, and puts the router's profiles back as they are", async () => {
+    const stored = { profileID: "0", profileName: "Three", pdpType: "2", ipv4ApnType: "0", ipv4Apn: "internet", ipv4Username: "web", ipv4Password: "stored-secret", ipv4AuthType: "1", ipv6ApnType: "0", ipv6Apn: "internet", ipv6Username: "web", ipv6Password: "stored-secret", ipv6AuthType: "1" };
+    const router = tplinkRouter({ profiles: [{ ...stored }] });
+    const sets = (): Array<Record<string, string>> => router.actions.filter((a) => a.operation === "set" && a.oid === "LTE_WAN_CFG").map((a) => a.attrs);
+    await router.client.withSession(async (s) => {
+      const before = await cellularOf(s).read();
+      assert.deepEqual([before.apn, before.apnRestore], [{ mode: "auto", apn: "internet", ipType: "ipv4v6", auth: "pap", hasUsername: true }, { mode: "profile", id: "0" }]);
+      assert.deepEqual(sets(), [], "a read opens no form");
+      const check = newCheck();
+      await cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "chap", username: "user", password: "0000" }, check, noWait);
+      assert.deepEqual([check.endpoints, check.readback], [["tplink:LTE_WAN_CFG.set"], "match"]);
+      const made = await cellularOf(s).read();
+      assert.deepEqual([made.apn, made.apnRestore], [{ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "chap", hasUsername: true }, { mode: "profile", id: "1" }]);
+      // Again: the profile is there, so it is saved and put in use, not made twice
+      await cellularOf(s).setApn({ mode: "manual", apn: "internet", ipType: "ipv4v6", auth: "none", username: "", password: "" }, newCheck(), noWait);
+      assert.equal(router.state.profiles.length, 2);
+      // Back to what was in use before, by its number, with its own fields as the router handed them out
+      const back = newCheck();
+      await cellularOf(s).restoreApn({ mode: "profile", id: "0" }, back, noWait);
+      assert.deepEqual([back.readback, (await cellularOf(s).read()).apn?.mode, router.state.settings["activeProfile"]], ["match", "auto", "0"]);
+      await cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv6", auth: "none", username: "", password: "" }, newCheck(), noWait);
+      const auto = newCheck();
+      await cellularOf(s).setApn({ mode: "auto" }, auto, noWait);
+      assert.deepEqual([auto.readback, router.state.settings["activeProfile"]], ["match", "0"]);
+      await cellularOf(s).restoreApn({ mode: "auto" }, newCheck(), noWait);
+      await assert.rejects(cellularOf(s).restoreApn({ mode: "profile", id: "7" }, newCheck(), noWait), /no longer lists/);
+      await assert.rejects(cellularOf(s).restoreApn({ mode: "context", apn: "internet", ipType: "ipv4" }, newCheck(), noWait), /no way on record/);
+      await assert.rejects(cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "pap", username: "u".repeat(32), password: "" }, newCheck(), noWait), /up to 31 characters/);
+    });
+    assert.deepEqual(router.state.profiles[0], stored, "the router's own profile is as it was");
+    assert.deepEqual(sets().slice(0, 3), [
+      { profileAction: "4" },
+      { profileName: "FengSui", pdpType: "0", ipv4ApnType: "0", ipv4Apn: "example.apn", ipv4Username: "user", ipv4Password: "0000", ipv4AuthType: "2", profileAction: "2" },
+      { profileID: "1", profileName: "FengSui", pdpType: "0", ipv4ApnType: "0", ipv4Apn: "example.apn", ipv4Username: "user", ipv4Password: "0000", ipv4AuthType: "2", profileAction: "1", activeProfile: "1" },
+    ]);
+    assert.deepEqual(sets().slice(3, 5), [
+      { profileAction: "4" },
+      { profileID: "1", profileName: "FengSui", pdpType: "2", ipv4ApnType: "0", ipv4Apn: "internet", ipv4Username: "", ipv4Password: "", ipv4AuthType: "0", ipv6ApnType: "0", ipv6Apn: "internet", ipv6Username: "", ipv6Password: "", ipv6AuthType: "0", profileAction: "1", activeProfile: "1" },
+    ]);
+    assert.deepEqual(sets()[6], { ...stored, profileAction: "1", activeProfile: "0" }, "the profile used before goes back with what the router stored for it");
+    assert.deepEqual(sets()[8], { profileID: "1", profileName: "FengSui", pdpType: "1", ipv6ApnType: "0", ipv6Apn: "example.apn", ipv6Username: "", ipv6Password: "", ipv6AuthType: "0", profileAction: "1", activeProfile: "1" });
+    assert.equal(sets().filter((attrs) => attrs["profileAction"] === "2").length, 1, "one profile made, once");
+  });
+
+  it("leaves the access point alone where the router's list gives no clear answer", async () => {
+    // Two profiles of the router's own: which one is "automatic" is its owner's to say
+    const two = tplinkRouter({ profiles: [{ profileID: "0", profileName: "Three", pdpType: "0", ipv4Apn: "internet" }, { profileID: "1", profileName: "Three IoT", pdpType: "0", ipv4Apn: "example.apn" }], settings: { defaultProfile: "2" } });
+    await two.client.withSession(async (s) => {
+      await assert.rejects(cellularOf(s).setApn({ mode: "auto" }, newCheck(), noWait), /several access point profiles of its own/);
+    });
+    const none = tplinkRouter({ profiles: [{ profileID: "0", profileName: "NONE", pdpType: "0" }] });
+    await none.client.withSession(async (s) => {
+      await assert.rejects(cellularOf(s).setApn({ mode: "auto" }, newCheck(), noWait), /no access point profile of its own/);
+    });
+    const full = tplinkRouter({ profiles: Array.from({ length: 8 }, (_, i) => ({ profileID: String(i), profileName: `P${i}`, pdpType: "0", ipv4Apn: "internet" })) });
+    await full.client.withSession(async (s) => {
+      await assert.rejects(cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, newCheck(), noWait), /8 access point profiles at most/);
+    });
+    assert.equal(full.actions.filter((a) => a.operation === "set" && a.attrs["profileAction"] === "2").length, 0);
+    // A router that takes the new profile and does not list it: said, and never made a second time
+    const dropping = tplinkRouter({ dropsNewProfile: true });
+    await dropping.client.withSession(async (s) => {
+      await assert.rejects(cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, newCheck(), noWait), CpeAnswerFormatError);
+    });
+    assert.equal(dropping.actions.filter((a) => a.operation === "set" && a.attrs["profileAction"] === "2").length, 1);
+    const listless = tplinkRouter({ missing: ["LTE_PROFILE"] });
+    await listless.client.withSession(async (s) => {
+      const state = await cellularOf(s).read();
+      assert.deepEqual([state.apn, state.apnRestore], [undefined, undefined]);
+      await assert.rejects(cellularOf(s).setApn({ mode: "auto" }, newCheck(), noWait), /no list of access point profiles/);
+    });
+    // The other form's page manages several access points at once: not written here
+    const ex = tplinkRouter({ form: "ex" });
+    await ex.client.withSession(async (s) => {
+      assert.deepEqual([s.cellular?.setApn, s.cellular?.restoreApn, (await cellularOf(s).read()).apn], [undefined, undefined, undefined]);
+    });
+  });
+
+  it("reads the page's profile list by its own numbering, and writes each address type's half of a profile", () => {
+    const profiles = parseMrProfiles([{ profileID: "0", profileName: "Three" }, { profileID: "1", profileName: "FengSui", pdpType: "1", ipv6Apn: "example.apn", ipv6AuthType: "3", ipv6Username: "" }, { profileID: "9", profileName: "out of place" }, { profileName: "no number" }]);
+    assert.deepEqual(profiles.map((p) => [p.index, p.id, p.name]), [[0, "0", "Three"], [1, "1", "FengSui"]]);
+    assert.ok(profiles[1]);
+    assert.deepEqual(mrApnView(profiles[1], false), { mode: "manual", apn: "example.apn", ipType: "ipv6", auth: null, hasUsername: false }, "PAP or CHAP is no mode FengSui names");
+    assert.deepEqual(mrApnView({ index: 0, id: "0", name: "x", fields: {} }, true), { mode: "auto", apn: null, ipType: null, auth: null, hasUsername: false });
+    const setting = { apn: "example.apn", ipType: "ipv4v6", auth: "pap", username: "user", password: "0000" } as const;
+    assert.deepEqual(Object.keys(mrProfileCreate("FengSui", setting)), ["profileName", "pdpType", "ipv4ApnType", "ipv4Apn", "ipv4Username", "ipv4Password", "ipv4AuthType"]);
+    assert.deepEqual(mrProfileCreate("FengSui", { ...setting, ipType: "ipv6" }), { profileName: "FengSui", pdpType: "1", ipv6ApnType: "0", ipv6Apn: "example.apn", ipv6Username: "user", ipv6Password: "0000", ipv6AuthType: "1" });
+    assert.deepEqual(Object.keys(mrProfileEdit({ id: "1", index: 1, name: "FengSui" }, setting)).filter((key) => key.startsWith("ipv6")).length, 5);
+    assert.deepEqual(mrProfileUse({ index: 2, id: "2", name: "Mine", fields: { pdpType: "0", ipv4Apn: "internet", ipv4AuthType: "0" } }), { profileID: "2", profileName: "Mine", pdpType: "0", ipv4ApnType: "", ipv4Apn: "internet", ipv4Username: "", ipv4Password: "", ipv4AuthType: "0", profileAction: "1", activeProfile: "2" });
+  });
+
   it("switches the antenna only where the page's own script says the firmware has the switch", async () => {
     const without = tplinkRouter();
     await without.client.withSession(async (s) => {
@@ -981,8 +1072,8 @@ describe("tp-link: through the daemon, like every other brand", () => {
       assert.ok(snap);
       assert.deepEqual([snap.device.deviceName, snap.rf.ratCode, snap.rf.lteRsrpDbm, snap.rf.pccBand, snap.rf.pci, snap.rf.earfcnRaw, snap.status?.sim?.state], ["Archer MR600", "LTE", -95, "B3", 211, "DL:300", "ready"]);
       const features = fx.core.scheduler.getStatus().device.features;
-      for (const feature of ["reboot", "smsWrite", "ussd", "bandLock", "cellLock", "mobileData", "reconnect", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "simPin", "antenna"] as const) assert.equal(features[feature], "enabled", feature);
-      assert.deepEqual([features.apn, features.wifi, features.simSlot], ["not_implemented", "not_implemented", "not_implemented"]);
+      for (const feature of ["reboot", "smsWrite", "ussd", "bandLock", "cellLock", "mobileData", "reconnect", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "simPin", "antenna"] as const) assert.equal(features[feature], "enabled", feature);
+      assert.deepEqual([features.wifi, features.simSlot, features.airplaneSwitch], ["not_implemented", "not_implemented", "not_implemented"]);
       const locked = await fx.core.controls.lockBands({ lteBands: [1, 3] });
       assert.deepEqual([locked.mode, mr.state.settings["bandSelectSwitch"], mr.state.settings["bandSelectedMaskL"]], ["band_lock", "1", "5"]);
       await assert.rejects(fx.core.controls.lockBands({ lteBands: [1], networkMode: "03" }), CpeControlValidationError);
@@ -995,8 +1086,10 @@ describe("tp-link: through the daemon, like every other brand", () => {
       assert.equal(mr.state.settings["dataSwitchStatusBackup"], "1", "a redial ends connected");
       assert.deepEqual(await fx.core.controls.setRoaming(true, { confirm: true }), { dataRoaming: true });
       const logins = mr.logins.length;
-      await assert.rejects(fx.core.controls.setApn({ mode: "auto" }, { confirm: true }), (err: unknown) => err instanceof DeviceReadOnlyError && err.feature === "apn");
+      await assert.rejects(fx.core.controls.setAirplaneMode(true, { confirm: true }), (err: unknown) => err instanceof DeviceReadOnlyError && err.feature === "airplaneSwitch");
       assert.equal(mr.logins.length, logins, "no session for a write the brand does not have");
+      const apn = await fx.core.controls.setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4v6", auth: "none", username: "", password: "" }, { confirm: true });
+      assert.deepEqual([apn.apnMode, apn.cellular?.apn?.apn, mr.state.settings["activeProfile"], mr.state.profiles[1]?.["profileName"]], ["manual", "example.apn", "1", "FengSui"]);
       assert.equal(fx.core.scheduler.device.skips("neighbors"), true);
     } finally {
       await fx.cleanup();
@@ -1010,7 +1103,7 @@ describe("tp-link: through the daemon, like every other brand", () => {
       assert.equal((await fy.core.monitor.identifyDevice())?.identity.variant, "ex", "the identification every start runs names the form");
       assert.equal(fy.core.scheduler.device.variant, "ex");
       const features = fy.core.scheduler.getStatus().device.features;
-      assert.deepEqual([features.reboot, features.smsWrite, features.ussd, features.bandLock, features.cellLock], ["enabled", "enabled", "enabled", "enabled", "enabled"]);
+      assert.deepEqual([features.reboot, features.smsWrite, features.ussd, features.bandLock, features.cellLock, features.apn], ["enabled", "enabled", "enabled", "enabled", "enabled", "not_implemented"]);
       assert.equal((await fy.core.controls.sendUssd({ kind: "send", code: "*100#" }, { confirm: true })).state, "answered");
       await fy.core.controls.lockBands({ lteBands: [1], nrBands: [78] });
       assert.deepEqual([ex.state.bandSearch["selectedMode"], ex.state.bandSearch["selectedBand"]], ["2", "B1;N78S;N78N;"]);

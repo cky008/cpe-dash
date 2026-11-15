@@ -244,7 +244,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // The MR series (text requests): the signal and the band (the cell on firmware with a cell lock), SMS with the sent box, and what
     // the page's own forms write: band selection (4G), cell lock, the cellular settings, the data limit, the PIN, USSD
     reads: ["telemetry", "topology", "smsRead", "simCard"],
-    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "ussd"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"],
     // The page's band selection leaves the network mode alone
     networkModes: [],
     // The EX and NX series select 5G bands as well; the MR series' session refuses them
@@ -252,7 +252,8 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // A router of the EX and NX series lists its own; the MR series has the first, 4G only and 3G only
     selectableModes: ["auto", "nr_sa", "nr_nsa", "nr_lte", "lte", "lte_wcdma", "wcdma"],
     variants: {
-      // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, the same forms under other names
+      // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, the same forms under other names;
+      // its page manages several access points at once, which FengSui does not write yet
       ex: {
         models: ["Archer NX200", "NX510v", "Archer NX510v", "NX540v", "Archer NX540v"],
         reads: ["telemetry", "topology", "smsRead", "simCard"],

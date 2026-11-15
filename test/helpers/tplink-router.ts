@@ -83,6 +83,10 @@ export interface TplinkRouterOptions {
   searchPolls?: number | null;
   /** The router refuses a wrong PIN with an error of its own instead of only counting it. */
   pinError?: boolean;
+  /** The MR series' access point profiles (left out: one of the router's own). */
+  profiles?: Array<Record<string, string>>;
+  /** The router takes a new profile and does not list it. */
+  dropsNewProfile?: boolean;
 }
 
 /** The PIN of the stand-in's SIM card. */
@@ -123,7 +127,7 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
       roamingEnabled: "0",
       antennaType: "0",
       ...(form === "mr"
-        ? { networkPreferredMode: "3", networkSelectionMode: "0", networkSelectionMCC: "0", networkSelectionMNC: "0", networkSelectionISP: "", bandSelectSwitch: "0", bandSelectedMaskL: "0", bandSelectedMaskH: "0" }
+        ? { networkPreferredMode: "3", networkSelectionMode: "0", networkSelectionMCC: "0", networkSelectionMNC: "0", networkSelectionISP: "", bandSelectSwitch: "0", bandSelectedMaskL: "0", bandSelectedMaskH: "0", activeProfile: "0", defaultProfile: "1" }
         : { networkPreferredModeSelected: "5G Preferred", networkPreferredModeOptionList: "5G Preferred,5G/4G,5G NSA/4G,5G SA Only,4G Preferred,4G Only,3G Only" }),
       ...opts.settings,
     } as Record<string, string>,
@@ -134,6 +138,10 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     nrCellLock: { nrCelllockEnable: "0", pci: "-1", NRARFCN: "-1", band: "0", scs: "0" } as Record<string, string>,
     simLock: { pinState: "3", remainPinUnlockTime: "3", remainPukUnlockTime: "10", autoUnlockPin: "0", ...opts.simLock } as Record<string, string>,
     dataPlan: { totalStatistics: "2948105728.0", curRxSpeed: "125000", curTxSpeed: "25000", enableDataLimit: "0", limitation: "0", warningPercent: "90", enablePaymentDay: "1", paymentDay: "5", ...opts.dataPlan } as Record<string, string>,
+    /** The MR series' access point profiles: the router's own for the SIM card first (`defaultProfile` of them). */
+    profiles: (opts.profiles ?? [{ profileID: "0", profileName: "Three", pdpType: "2", ipv4ApnType: "0", ipv4Apn: "internet", ipv4Username: "", ipv4Password: "", ipv4AuthType: "0", ipv6ApnType: "0", ipv6Apn: "internet", ipv6Username: "", ipv6Password: "", ipv6AuthType: "0" }]) as Array<Record<string, string>>,
+    /** How often a profile form was opened (`profileAction` 4). */
+    profileLoads: 0,
     /** The search for networks: how often it was asked since it started (`null`: none running). */
     searchAsked: null as number | null,
     searchDone: false,
@@ -255,6 +263,7 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     if (name === "LTE_WAN_CFG") return stack === lteStack ? { ...state.settings } : null;
     if (name === "LTE_SIMLOCK") return stack === lteStack ? { ...state.simLock } : null;
     if (oid === "LTE_CELL_LOCK") return { ...state.cellLock };
+    if (oid === "LTE_PROFILE") return state.profiles.map((profile, i) => ({ stack: `${i + 1},0,0,0,0,0`, ...profile }));
     if (oid === "DEV2_LTE_BAND_SEARCH") return { ...state.bandSearch };
     if (oid === "DEV2_LTE_4G_CELL_LOCK") return { ...state.lteCellLock };
     if (oid === "DEV2_LTE_5G_CELL_LOCK") return { ...state.nrCellLock };
@@ -335,8 +344,19 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
         state.ussdPending = attrs["action"] === "1";
         if (attrs["action"] === "2") state.ussdCancelled += 1;
       } else if (name === "LTE_WAN_CFG") {
-        const { profileAction: _action, ...rest } = attrs;
-        Object.assign(state.settings, rest);
+        const { profileAction, ...rest } = attrs;
+        const { profileID, activeProfile, ...fields } = rest;
+        // The profile forms of the MR series' page: 4 opens one, 2 creates a profile, 1 saves one and puts it in use, 3 deletes one
+        if (profileAction === "4") state.profileLoads += 1;
+        else if (profileAction === "2") {
+          if (!opts.dropsNewProfile) state.profiles.push({ profileID: String(state.profiles.length), pdpType: "0", ...fields });
+        } else if (profileAction === "1") {
+          const profile = state.profiles[Number(profileID)];
+          if (!profile || profile["profileID"] !== profileID) return { error: 9805, result: null };
+          Object.assign(profile, fields);
+          state.settings["activeProfile"] = activeProfile ?? state.settings["activeProfile"] ?? "0";
+        } else if (profileAction === "3") state.profiles = state.profiles.filter((profile) => profile["profileID"] !== profileID);
+        else Object.assign(state.settings, rest);
       } else if (oid === "LTE_CELL_LOCK") Object.assign(state.cellLock, attrs);
       else if (oid === "DEV2_LTE_BAND_SEARCH") Object.assign(state.bandSearch, attrs["selectedMode"] === "1" ? { selectedMode: "1", selectedBand: "" } : attrs);
       else if (oid === "DEV2_LTE_4G_CELL_LOCK") Object.assign(state.lteCellLock, attrs);

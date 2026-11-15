@@ -499,7 +499,7 @@ order: 2
 | Deco X50-5G | 室内 CPE | TP-Link 网页接口 | △ |  | ? |  |  |  | △ |  |  |  |  | △ |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Deco+X50-5G) |
 | TL-TR961 5G | 随身路由器 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-TR961+5G) |
 | TL-XDR3020 5G | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-XDR3020+5G) |
-| Archer MR600 | 室内 CPE | TP-Link 网页接口 | △ |  | ? | ? | △ | △ | ? | ? | △ |  |  | △ |  | △ | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
+| Archer MR600 | 室内 CPE | TP-Link 网页接口 | △ |  | ? | ? | △ | △ | ? | ? | △ |  |  | △ |  | △ | ? | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
 
 这一节的说明：
 
@@ -510,7 +510,7 @@ order: 2
 - △ 「SIM 卡」：轮询里只报告 SIM 卡的状态（在不在、要不要 PIN）；PIN 的剩余次数在写入 PIN 之前当场读取（除 TL-TR961 5G 和 TL-XDR3020 5G 外的全部型号）。
 - △ 「SIM 卡」：只有状态和 PIN，切换卡槽烽燧在这里还没有做（除 Deco X50-5G、TL-TR961 5G 和 TL-XDR3020 5G 外的全部型号）。
 - △ 「网络制式与选网」：只能选路由器最近一次搜网列出的运营商：先搜网，再选（除 Deco X50-5G、TL-TR961 5G 和 TL-XDR3020 5G 外的全部型号）。
-- △ 「数据设置」：只有数据漫游、流量上限和清零流量统计，接入点（APN）烽燧在这里还没有做（除 Deco X50-5G、TL-TR961 5G 和 TL-XDR3020 5G 外的全部型号）。
+- △ 「数据设置」：只有数据漫游、流量上限和清零流量统计，接入点（APN）烽燧在这里还没有做（Archer NX200、NX510v 和 NX540v）。
 - 这是 TP-Link 较新的机型用的写法（每个请求一条 JSON），连接时烽燧会自己认出来（Archer NX200、NX510v 和 NX540v）。
 - 登录和每个请求都按路由器管理页自己的方式加密。固件用的是哪一代加密，烽燧在发送密码之前从路由器给出的密钥和页面脚本里读出来，认不出时不发送密码。路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，登录页显示已锁定时烽燧不登录，每次读完也会注销（除 Deco X50-5G、TL-TR961 5G 和 TL-XDR3020 5G 外的全部型号）。
 - △ 「信号与流量」：只读得到蜂窝模组的信号（RSRP、RSRQ、SINR、RSSI）、网络制式和已用流量：这套接口不报告频段、频点和小区，也不报告运营商名（Deco X50-5G）。

@@ -1,4 +1,4 @@
-import type { NetworkMode, OperatorChoice } from "../../cellular.ts";
+import type { ApnAuthMode, ApnIpType, ApnSetting, ApnView, NetworkMode, OperatorChoice } from "../../cellular.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
 import { MAX_SCAN_ROWS, operatorChoice } from "../../protocols/at/common.ts";
 import type { CellLockState, DriverNetworkMode } from "../../protocols/readings.ts";
@@ -291,4 +291,69 @@ export function tplinkDataLimit(intf: Record<string, string> | null): { enabled:
 export function tplinkSimLock(lock: Record<string, string> | null): { pinState: number | null; attemptsLeft: number | null } {
   const attempts = intOf(lock?.["remainPinUnlockTime"]);
   return { pinState: intOf(lock?.["pinState"]), attemptsLeft: attempts !== null && attempts >= 0 && attempts <= 10 ? attempts : null };
+}
+
+// ── Access point profiles (the MR series) ────────────────────────────────────
+
+/** A profile of the page's list (`LTE_PROFILE`), with its fields as the router handed them out. */
+export interface MrProfile {
+  /** Its place in the list, which is also what the page calls its `profileID`. */
+  index: number;
+  id: string;
+  name: string;
+  fields: Readonly<Record<string, string>>;
+}
+
+/** The page's list: a profile's `profileID` is its place in it (the page compares the two as numbers). */
+export function parseMrProfiles(entries: ReadonlyArray<Record<string, string>>): MrProfile[] {
+  const out: MrProfile[] = [];
+  entries.slice(0, 32).forEach((entry, index) => {
+    const id = textOf(entry["profileID"]);
+    if (id === null || !/^\d{1,3}$/.test(id) || Number(id) !== index) return;
+    out.push({ index, id, name: (entry["profileName"] ?? "").slice(0, 64), fields: entry });
+  });
+  return out;
+}
+
+const PDP_TYPES: Readonly<Record<ApnIpType, string>> = { ipv4: "0", ipv6: "1", ipv4v6: "2" };
+const AUTH_TYPES: Readonly<Record<ApnAuthMode, string>> = { none: "0", pap: "1", chap: "2" };
+
+/** One address family's half of a profile, as the form writes it: a static access point, its credentials, how they are sent. */
+function half(family: "ipv4" | "ipv6", setting: ApnSetting): Record<string, string> {
+  return { [`${family}ApnType`]: "0", [`${family}Apn`]: setting.apn, [`${family}Username`]: setting.username, [`${family}Password`]: setting.password, [`${family}AuthType`]: AUTH_TYPES[setting.auth] };
+}
+
+/** What the page's "create profile" form sends for `setting` (its IPv4 half, or for an IPv6-only profile its IPv6 half). */
+export function mrProfileCreate(name: string, setting: ApnSetting): Record<string, string> {
+  return { profileName: name, pdpType: PDP_TYPES[setting.ipType], ...half(setting.ipType === "ipv6" ? "ipv6" : "ipv4", setting) };
+}
+
+/** What the page's settings form sends to save a profile and make it the one in use: each half the address type has. */
+export function mrProfileEdit(profile: Pick<MrProfile, "id" | "index" | "name">, setting: ApnSetting): Record<string, string> {
+  return {
+    profileID: profile.id,
+    profileName: profile.name,
+    pdpType: PDP_TYPES[setting.ipType],
+    ...(setting.ipType === "ipv6" ? {} : half("ipv4", setting)),
+    ...(setting.ipType === "ipv4" ? {} : half("ipv6", setting)),
+    profileAction: "1",
+    activeProfile: String(profile.index),
+  };
+}
+
+/** The same form for a profile that stays as it is: its own fields go back as the router handed them out, and it becomes the one in use. */
+export function mrProfileUse(profile: MrProfile): Record<string, string> {
+  const pdp = profile.fields["pdpType"] ?? "0";
+  const keep = (family: "ipv4" | "ipv6"): Record<string, string> => Object.fromEntries(["ApnType", "Apn", "Username", "Password", "AuthType"].map((field) => [`${family}${field}`, profile.fields[`${family}${field}`] ?? ""]));
+  return { profileID: profile.id, profileName: profile.name, pdpType: pdp, ...(pdp === "1" ? {} : keep("ipv4")), ...(pdp === "0" ? {} : keep("ipv6")), profileAction: "1", activeProfile: String(profile.index) };
+}
+
+/** The access point of a profile: never its password. `own`: one of the router's own profiles for the SIM card (the page's "default" ones). */
+export function mrApnView(profile: MrProfile, own: boolean): ApnView {
+  const pdp = profile.fields["pdpType"] ?? "";
+  const family = pdp === "1" ? "ipv6" : "ipv4";
+  const ipType = (Object.entries(PDP_TYPES).find(([, code]) => code === pdp)?.[0] ?? null) as ApnIpType | null;
+  const auth = (Object.entries(AUTH_TYPES).find(([, code]) => code === (profile.fields[`${family}AuthType`] ?? ""))?.[0] ?? null) as ApnAuthMode | null;
+  const apn = textOf(profile.fields[`${family}Apn`]);
+  return { mode: own ? "auto" : "manual", apn: apn === null ? null : apn.slice(0, 100), ipType, auth, hasUsername: (profile.fields[`${family}Username`] ?? "") !== "" };
 }

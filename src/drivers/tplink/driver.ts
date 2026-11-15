@@ -1,4 +1,4 @@
-import type { DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
+import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../../cpe-domain.ts";
 import { type WriteCheck, settleCheck } from "../../device-access.ts";
@@ -9,7 +9,7 @@ import { fieldOf, intOf, labelOf, nonNegativeOf, textOf } from "../../protocols/
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
 import { checkCellLock, checkLockBands } from "../bands.ts";
-import { sameDataLimit, settleNothingToRead } from "../cellular.ts";
+import { FENGSUI_APN_PROFILE, sameDataLimit, settleNothingToRead } from "../cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "../client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, wrongPassword } from "../login.ts";
 import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "../readback.ts";
@@ -30,7 +30,7 @@ import type {
   DriverTelemetry,
   DriverWait,
 } from "../types.ts";
-import { maskOfBands, mrLockState, mrModeCode, mrModeOf, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkSimLock } from "./cellular.ts";
+import { type MrProfile, maskOfBands, mrApnView, mrLockState, mrModeCode, mrModeOf, mrProfileCreate, mrProfileEdit, mrProfileUse, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseMrProfiles, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkSimLock } from "./cellular.ts";
 import { TplinkEnvelope, type TplinkPublicKey, type TplinkScheme, usableKey } from "./crypto.ts";
 import { decoLogin, decoPasswordKey } from "./deco.ts";
 import { type TplinkAction, type TplinkResult, exRequest, instance, instances, mrFrame, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "./frames.ts";
@@ -77,6 +77,8 @@ const SEND_POLL_MS = 1000;
 /** The page asks every two seconds whether a search for networks is done; FengSui gives it two minutes. */
 const SEARCH_POLL_MS = 2000;
 const SEARCH_POLLS = 60;
+/** The page keeps this many access point profiles. */
+const MAX_PROFILES = 8;
 /** How long the page waits before it reads the SIM lock again after a PIN. */
 const PIN_SETTLE_MS = 3500;
 /** The page's script that names what this firmware was built with. */
@@ -286,6 +288,8 @@ class TplinkSession implements DriverSessionHandle {
       setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
       resetTraffic: (check) => this.#resetTraffic(check),
       ussd: (request, check, wait) => this.#ussd(request, check, wait),
+      // The MR series' page keeps a list of access point profiles; the other form's manages several at once, which is not done here
+      ...(dialect === "mr" ? { setApn: (choice: ApnChoice, check: WriteCheck) => this.#setApn(choice, check), restoreApn: (restore: ApnRestore, check: WriteCheck) => this.#restoreApn(restore, check) } : {}),
     };
   }
 
@@ -646,6 +650,12 @@ class TplinkSession implements DriverSessionHandle {
       const mnc = cfg?.["networkSelectionMNC"] ?? "";
       const plmn = /^\d{3}$/.test(mcc) && /^\d{1,3}$/.test(mnc) ? `${mcc}${mnc.padStart(2, "0")}` : null;
       state.operator = selection === null ? null : { selection: selection === 1 ? "manual" : "auto", plmn: selection === 1 ? plmn : null };
+      const list = cfg === null ? null : await this.#profiles(cfg);
+      if (list !== null && list.active !== null) {
+        state.apn = mrApnView(list.active, list.active.index < list.defaults);
+        // The profile in use is what a change is put back to, by the router's own number for it
+        state.apnRestore = { mode: "profile", id: list.active.id };
+      }
       return state;
     }
     const modes = nxModes(cfg?.["networkPreferredModeOptionList"]);
@@ -749,6 +759,77 @@ class TplinkSession implements DriverSessionHandle {
     const after = await this.#object(NX_NETWORK_SEARCH, stack);
     const mode = intOf(after?.["selectedMode"]);
     settleCheck(check, mode === null ? null : selection.mode === "auto" ? mode === 1 : mode === 2 && parseNxOperators(after?.["selectedOperator"])[0]?.choice.plmn === selection.plmn);
+  }
+
+  /**
+   * The page's access point profiles: its list (`LTE_PROFILE`), which of them is in use, and how many
+   * at the head of the list are the router's own for the SIM card (`defaultProfile`). `null`: no list.
+   */
+  async #profiles(cfg: Record<string, string>): Promise<{ profiles: MrProfile[]; active: MrProfile | null; defaults: number } | null> {
+    const defaults = intOf(cfg["defaultProfile"]);
+    const activeIndex = intOf(cfg["activeProfile"]);
+    if (defaults === null || defaults < 0) return null;
+    const profiles = parseMrProfiles(instances(await this.#one({ operation: "list", oid: "LTE_PROFILE" }).catch(() => null)));
+    return profiles.length === 0 ? null : { profiles, active: profiles.find((profile) => profile.index === activeIndex) ?? null, defaults };
+  }
+
+  /** What every profile form of the page does first (`profileAction` 4), then the settings and the list as they are. */
+  async #openProfiles(check: WriteCheck): Promise<{ profiles: MrProfile[]; active: MrProfile | null; defaults: number }> {
+    await this.#setSettings(check, { profileAction: "4" });
+    const cfg = await this.#settings();
+    const list = cfg === null ? null : await this.#profiles(cfg);
+    if (list === null) throw noFeature("list of access point profiles");
+    return list;
+  }
+
+  /** Make `profile` the one in use, with these fields (the settings form's save), and read back that it is. */
+  async #useProfile(check: WriteCheck, form: Record<string, string>, index: number, wanted: ApnChoice | null): Promise<void> {
+    await this.#setSettings(check, form);
+    const cfg = await this.#settings();
+    const after = cfg === null ? null : await this.#profiles(cfg);
+    const view = after?.active ? mrApnView(after.active, false) : null;
+    settleCheck(check, after === null || after.active === null ? null : after.active.index === index && (wanted === null || wanted.mode !== "manual" || (view?.apn === wanted.apn && view.ipType === wanted.ipType)));
+  }
+
+  /** The router's own profile for the SIM card: the one a person gets who never made a profile. Several of them: theirs to choose. */
+  #ownProfile(list: { profiles: MrProfile[]; defaults: number }): MrProfile {
+    const own = list.profiles.filter((profile) => profile.index < list.defaults && profile.name !== "NONE");
+    if (own.length !== 1 || !own[0]) throw new CpeControlValidationError(own.length === 0 ? "The router has no access point profile of its own for this SIM card" : "The router has several access point profiles of its own for this SIM card: choose one on the router's own page");
+    return own[0];
+  }
+
+  /**
+   * An access point by hand is FengSui's own profile (named `FengSui`): made with the page's "create
+   * profile" form when the list has none, then saved and put in use with its settings form. The
+   * router's own profiles and the ones its owner made stay as they are. Automatic is the router's own
+   * profile for the SIM card, put in use as it is.
+   */
+  async #setApn(choice: ApnChoice, check: WriteCheck): Promise<void> {
+    if (choice.mode === "manual" && (choice.username.length > 31 || choice.password.length > 31)) throw new CpeControlValidationError("This router's page takes a user name and a password of up to 31 characters");
+    const list = await this.#openProfiles(check);
+    if (choice.mode === "auto") {
+      const own = this.#ownProfile(list);
+      return await this.#useProfile(check, mrProfileUse(own), own.index, null);
+    }
+    const mine = (profiles: ReadonlyArray<MrProfile>): MrProfile | undefined => profiles.find((profile) => profile.index >= list.defaults && profile.name === FENGSUI_APN_PROFILE);
+    let profile = mine(list.profiles);
+    if (profile === undefined) {
+      if (list.profiles.length >= MAX_PROFILES) throw new CpeControlValidationError(`The router keeps ${MAX_PROFILES} access point profiles at most: delete one on the router's own page first`);
+      await this.#setSettings(check, { ...mrProfileCreate(FENGSUI_APN_PROFILE, choice), profileAction: "2" });
+      const cfg = await this.#settings();
+      profile = mine((cfg === null ? null : await this.#profiles(cfg))?.profiles ?? []);
+      if (profile === undefined) throw new CpeAnswerFormatError("LTE_PROFILE: the router does not list the profile it was asked to create (nothing is sent again)");
+    }
+    await this.#useProfile(check, mrProfileEdit(profile, choice), profile.index, choice);
+  }
+
+  /** Back to the profile a change replaced, by the router's own number for it, as it is. */
+  async #restoreApn(restore: ApnRestore, check: WriteCheck): Promise<void> {
+    if (restore.mode === "context") throw notOnRecord("put back an access point that was no profile of the router's");
+    const list = await this.#openProfiles(check);
+    const profile = restore.mode === "auto" ? this.#ownProfile(list) : list.profiles.find((candidate) => candidate.id === restore.id);
+    if (profile === undefined) throw new CpeControlValidationError("The router no longer lists the access point profile it used before");
+    await this.#useProfile(check, mrProfileUse(profile), profile.index, null);
   }
 
   /**

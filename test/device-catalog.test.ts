@@ -45,7 +45,7 @@ const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
   nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "networkMode"],
   dlink: ["reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "apn", "ussd"],
-  tplink: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "ussd"],
+  tplink: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"],
   openwrt: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "airplaneSwitch", "simPin", "apn"],
 };
 
@@ -199,7 +199,7 @@ describe("the supported devices guide page", () => {
     const tplink = (model: string, feature: string): string | undefined => (marksOf(supportedDevicesSection("en"), "tplink", model) ?? [])[FEATURE_COLUMNS.findIndex((module) => (module.features as ReadonlyArray<string>).includes(feature))];
     assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer MR600", feature)), ["△", "?", "?", "△", "?"]);
     assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer NX200", feature)), ["?", "△/?", "?", "△", "?"]);
-    assert.deepEqual([tplink("NX510v", "ussd"), tplink("NX540v", "cellLock"), tplink("Archer MR600", "antenna"), tplink("Archer MR600", "apn")], ["?", "△", "△", "△"]);
+    assert.deepEqual([tplink("NX510v", "ussd"), tplink("NX540v", "cellLock"), tplink("Archer MR600", "antenna"), tplink("Archer MR600", "apn"), tplink("Archer NX200", "apn")], ["?", "△", "△", "?", "△"]);
     // The Deco line: the signal and the mesh's devices, a restart, no SMS in its page
     assert.deepEqual(["telemetry", "topology", "smsRead", "ussd", "reboot"].map((feature) => tplink("Deco X50-5G", feature)), ["△", "?", "", "", "△"]);
   });
