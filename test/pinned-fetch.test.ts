@@ -63,7 +63,7 @@ describe("requests to a router with a certificate of its own", () => {
         if (req.url === "/nothing") return void res.writeHead(204).end();
         if (req.url === "/huge") return void res.writeHead(200).end(Buffer.alloc(9 * 1024 * 1024, 0x61));
         if (req.url === "/slow") return void setTimeout(() => res.writeHead(200).end("late"), 2000).unref();
-        res.writeHead(200, { "Content-Type": "text/xml", "Set-Cookie": ["SessionID=abc; HttpOnly", "lang=en"] }).end("<response>OK</response>");
+        res.writeHead(200, { "Content-Type": "text/xml", "Set-Cookie": ["SessionID=abc; HttpOnly; Secure", "lang=en; Secure"] }).end("<response>OK</response>");
       });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -91,7 +91,7 @@ describe("requests to a router with a certificate of its own", () => {
     const { fetchImpl, plain } = trusting(identity.fingerprint256);
     seen.length = 0;
     const res = await fetchImpl(`${origin}/api/webserver/token?a=1`, { headers: { "X-Requested-With": "XMLHttpRequest", Cookie: "SessionID=old" } });
-    assert.deepEqual([res.status, await res.text(), res.headers.get("content-type"), res.headers.getSetCookie()], [200, "<response>OK</response>", "text/xml", ["SessionID=abc; HttpOnly", "lang=en"]]);
+    assert.deepEqual([res.status, await res.text(), res.headers.get("content-type"), res.headers.getSetCookie()], [200, "<response>OK</response>", "text/xml", ["SessionID=abc; HttpOnly; Secure", "lang=en; Secure"]]);
     const posted = await fetchImpl(new URL(`${origin}/api/user/login`), { method: "POST", body: "<request>x</request>", headers: { "Content-Type": "text/xml" } });
     assert.equal(posted.status, 200);
     await fetchImpl(`${origin}/goform/set`, { method: "POST", body: new URLSearchParams({ goformId: "LOGIN", isTest: "false" }) });
