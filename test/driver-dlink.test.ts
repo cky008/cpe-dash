@@ -109,6 +109,9 @@ describe("d-link: what the router answers, read into FengSui's shapes", () => {
       ]
     );
     assert.deepEqual(parseDlinkInbox({}), []);
+    // A text far longer than any message is cut before its escapes are undone
+    const long = parseDlinkInbox({ total: 1, M1: { tag: "1", phone: "DemoBank", date: "26/10/10 04:07:40", msg: "&amp;".repeat(20_000), read: 1 } });
+    assert.equal(long[0]?.message.content.length, 8000);
   });
 
   it("reads the network type and the access point, and never shows the access point's credentials", () => {
@@ -129,13 +132,13 @@ describe("d-link: signing in and out", () => {
     const { mock, client, state, logins } = dlinkRouter();
     const t = await client.withSession((s) => s.telemetry());
     assert.equal(t?.lte?.rsrpDbm, -95);
-    assert.deepEqual(mock.trail, ["GET /login.html", "POST /login.cgi", "GET /data.ria", "GET /data.ria", "GET /data.ria", "GET /data.ria", "POST /login.cgi"]);
+    assert.deepEqual(mock.trail, ["GET /login.html", "GET /index.html", "POST /login.cgi", "GET /data.ria", "GET /data.ria", "GET /data.ria", "GET /data.ria", "POST /login.cgi"]);
     assert.deepEqual([...(logins[0]?.entries() ?? [])], [["uname", "admin"], ["passwd", DLINK_PASSWORD_MD5]]);
-    const login = mock.requests[1];
+    const login = mock.requests[2];
     assert.equal(login?.headers["referer"], `${DLINK_URL}/index.html`);
     assert.equal(login?.headers["x-requested-with"], "XMLHttpRequest");
     assert.equal(login?.headers["x-date"], undefined);
-    const firstRead = mock.requests[2];
+    const firstRead = mock.requests[3];
     assert.equal(firstRead?.headers["cookie"], "qSessId=sess1abcdef012345; DWRLOGGEDID=sess1abcdef012345; DWRLOGGEDUSER=admin; DWRLOGGEDTIMEOUT=300");
     assert.equal(firstRead?.headers["referer"], `${DLINK_URL}/controlPanel.html`);
     assert.deepEqual(JSON.parse(mock.requests.at(-1)?.body ?? "{}"), { logout: "sess1abcdef012345" });
@@ -163,11 +166,24 @@ describe("d-link: signing in and out", () => {
     const client = new DriverCpeClient({ protocol: dlinkProtocol, cpeUrl: DLINK_URL, cpePassword: DLINK_PASSWORD, fetchImpl: broken.fetchImpl });
     await assert.rejects(client.withSession((s) => s.telemetry()), DriverLoginMethodError);
     assert.deepEqual(broken.trail, ["GET /login.html"]);
+    // Another brand's router at this address (the wrong choice in Settings) has neither login page: it gets no password
+    const other = new LanRouterMock(() => ({ status: 404, text: "<html>Not Found</html>" }));
+    const wrongBrand = new DriverCpeClient({ protocol: dlinkProtocol, cpeUrl: DLINK_URL, cpePassword: DLINK_PASSWORD, fetchImpl: other.fetchImpl });
+    await assert.rejects(wrongBrand.withSession((s) => s.telemetry()), DriverLoginMethodError);
+    assert.deepEqual(other.trail, ["GET /login.html", "GET /index.html"]);
+    assert.equal(wrongBrand.getCircuitBreakerState().tripped, false);
     // The newer page's function has no form for this character: nothing goes out
     const odd = dlinkRouter({ page: "encoded" });
     const wide = new DriverCpeClient({ protocol: dlinkProtocol, cpeUrl: DLINK_URL, cpePassword: "密码", fetchImpl: odd.mock.fetchImpl });
     await assert.rejects(wide.withSession((s) => s.telemetry()), DriverLoginMethodError);
     assert.equal(odd.logins.length, 0);
+    // A user name the page's cookie could not carry: refused before anything is sent
+    for (const name of ["admin user", "管理员", "x".repeat(65)]) {
+      const spaced = dlinkRouter();
+      const c = new DriverCpeClient({ protocol: dlinkProtocol, cpeUrl: DLINK_URL, cpeUsername: name, cpePassword: DLINK_PASSWORD, fetchImpl: spaced.mock.fetchImpl });
+      await assert.rejects(c.withSession((s) => s.telemetry()), DriverLoginMethodError, name.slice(0, 12));
+      assert.equal(spaced.logins.length, 0);
+    }
     // A page that names MD5 itself is the older form under the newer name
     const named = new LanRouterMock((req) => (req.path === "/login.html" ? { text: "<script>passwd: hex_md5(p)</script>" } : { json: { login_fail: "fail" } }));
     const md5Client = new DriverCpeClient({ protocol: dlinkProtocol, cpeUrl: DLINK_URL, cpePassword: DLINK_PASSWORD, fetchImpl: named.fetchImpl });
@@ -202,12 +218,13 @@ describe("d-link: signing in and out", () => {
     });
     const bodyOnly = new LanRouterMock((req) => {
       if (req.path === "/login.html") return { status: 404, text: "" };
+      if (req.path === "/index.html") return { text: "<html>login</html>" };
       if (req.path === "/login.cgi") return { json: { SessId: "bodyonly0123456789" } };
       return { text: "<html>login</html>" };
     });
     const c = new DriverCpeClient({ protocol: dlinkProtocol, cpeUrl: DLINK_URL, cpePassword: DLINK_PASSWORD, fetchImpl: bodyOnly.fetchImpl });
     await assert.rejects(c.withSession((s) => s.telemetry()), /not an object/);
-    assert.match(bodyOnly.requests[2]?.headers["cookie"] ?? "", /^qSessId=bodyonly0123456789; DWRLOGGEDID=bodyonly0123456789; /);
+    assert.match(bodyOnly.requests[3]?.headers["cookie"] ?? "", /^qSessId=bodyonly0123456789; DWRLOGGEDID=bodyonly0123456789; /);
   });
 });
 
@@ -281,6 +298,7 @@ describe("d-link: writes, each sent once with a fresh token and read back", () =
     });
     const noToken = new LanRouterMock((req) => {
       if (req.path === "/login.html") return { status: 404, text: "" };
+      if (req.path === "/index.html") return { text: "<html>login</html>" };
       if (req.path === "/login.cgi") return { json: { SessId: "sessnotoken012345" } };
       if (req.path === "/data.ria") return { text: "<html>error</html>" };
       return { json: { cmd_status: "Done" } };
@@ -329,6 +347,16 @@ describe("d-link: writes, each sent once with a fresh token and read back", () =
     const dialing = dlinkRouter({ autoConnect: true });
     await dialing.client.withSession((s) => cellularOf(s).setNetworkMode("wcdma", newCheck(), noWait));
     assert.deepEqual(dialing.writes.map((w) => [w["CfgType"], w["connect"]]), [["apn", undefined], ["connect_btn", 0]]);
+    // One that does not say whether it dials by itself is connected again: a restart never leaves it offline
+    const silent = dlinkRouter({ autoConnect: null });
+    await silent.client.withSession((s) => cellularOf(s).setNetworkMode("lte", newCheck(), noWait));
+    assert.deepEqual(silent.writes.map((w) => [w["CfgType"], w["connect"]]), [["apn", undefined], ["connect_btn", 0], ["connect_btn", 1]]);
+    // A connection that was down before stays as its owner left it
+    const down = dlinkRouter({ autoConnect: false });
+    down.state.connected = false;
+    await down.client.withSession((s) => cellularOf(s).setNetworkMode("lte", newCheck(), noWait));
+    assert.deepEqual(down.writes.map((w) => [w["CfgType"], w["connect"]]), [["apn", undefined], ["connect_btn", 0]]);
+    assert.equal(down.state.connected, false);
   });
 
   it("sends the connect even when the disconnect fails, once", async () => {
@@ -368,6 +396,11 @@ describe("d-link: writes, each sent once with a fresh token and read back", () =
       assert.deepEqual([auto.readback, state.profile.type], ["match", "0"]);
     });
     assert.deepEqual(writes[0], { CfgType: "apn", APN_0: { type: 1, apn: "example.apn", uname: "u%20ser", passwd: "p%26ss", re_passwd: "p&ss", auth: "2", pdp_type: "2" } });
+    // A router that reports no IP type gets none sent: its values are not on record
+    const bare = dlinkRouter();
+    bare.state.profile.pdp_type = "";
+    await bare.client.withSession((s) => cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, newCheck(), noWait));
+    assert.deepEqual(Object.keys(bare.writes[0]?.["APN_0"] as object), ["type", "apn", "uname", "passwd", "re_passwd", "auth"]);
   });
 
   it("sends a USSD code, waits for the network's answer, and cancels a code that got none", async () => {
@@ -445,6 +478,23 @@ describe("d-link: writes, each sent once with a fresh token and read back", () =
       { CfgType: "sms_action", type: "inbox", cmd: "del", tag: "inbox-a" },
     ]);
     assert.deepEqual(state.inbox.map((m) => [m.tag, m.read]), [["1002", 1]]);
+  });
+
+  it("writes to neither of two messages whose tags give the same handle", async () => {
+    // A tag that is a number is its own handle; another tag may hash to that very number
+    const twin = String(dlinkSmsHandle("inbox-a"));
+    const { client, state, writes } = dlinkRouter({
+      inbox: [
+        { tag: "inbox-a", phone: "+353830000001", date: "26/10/10 04:07:40", msg: "one", read: 0 },
+        { tag: twin, phone: "DemoBank", date: "26/10/11 09:30:00", msg: "two", read: 0 },
+      ],
+    });
+    await client.withSession(async (s) => {
+      const check = newCheck();
+      await assert.rejects((fullSession(s).sms as Required<DriverSms>).delete([Number(twin)], check), CpeControlValidationError);
+      assert.deepEqual(check.endpoints, [], "nothing was sent");
+    });
+    assert.deepEqual([writes.length, state.inbox.length], [0, 2]);
   });
 });
 

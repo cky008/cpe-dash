@@ -32,8 +32,8 @@ export interface DlinkRouterOptions {
   loginAnswer?: LanReply;
   /** The reads this firmware lacks (their `DynUpdate` or `CfgType` name). */
   missing?: ReadonlyArray<string>;
-  /** The router dials by itself after a disconnect. */
-  autoConnect?: boolean;
+  /** The router dials by itself after a disconnect (`null`: its settings do not say). */
+  autoConnect?: boolean | null;
   /** What the network answers a USSD code with (`null`: nothing). */
   ussdAnswer?: string | null;
   /** A write the router refuses (its `CfgType`). */
@@ -51,7 +51,7 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
     sid: null as string | null,
     token: null as string | null,
     connected: true,
-    autoConnect: opts.autoConnect ?? true,
+    autoConnect: opts.autoConnect === undefined ? true : opts.autoConnect,
     preference: "0",
     profile: { type: "0", apn: "internet", uname: "", passwd: "", auth: "3", pdp_type: "2" },
     inbox: opts.inbox ?? [
@@ -102,7 +102,7 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
       };
     }
     if (name === "get_apn_cfg") {
-      return { json: { apn: { COMMON: { netpref_value: state.preference, auto_conx: state.autoConnect ? "1" : "0" }, APN_0: { ...state.profile } }, apn_list: { multi_apn0: [{ apn: "internet", uname: "", pwd: "", auth: "3" }] } } };
+      return { json: { apn: { COMMON: { netpref_value: state.preference, ...(state.autoConnect === null ? {} : { auto_conx: state.autoConnect ? "1" : "0" }) }, APN_0: { ...state.profile } }, apn_list: { multi_apn0: [{ apn: "internet", uname: "", pwd: "", auth: "3" }] } } };
     }
     if (name === "sms_action") {
       const out: Record<string, unknown> = { total: state.inbox.length };
@@ -125,7 +125,7 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
     if (type === "connect_btn") {
       state.connected = fields["connect"] === 1;
       // A router that dials by itself is up again by the next read
-      if (!state.connected && state.autoConnect) queueMicrotask(() => (state.connected = true));
+      if (!state.connected && state.autoConnect === true) queueMicrotask(() => (state.connected = true));
     } else if (type === "apn") {
       const common = fields["COMMON"] as Record<string, string> | undefined;
       const profile = fields["APN_0"] as Record<string, unknown> | undefined;
@@ -137,7 +137,7 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
           uname: decodeURIComponent(String(profile["uname"])),
           passwd: decodeURIComponent(String(profile["passwd"])),
           auth: String(profile["auth"]),
-          pdp_type: String(profile["pdp_type"]),
+          pdp_type: profile["pdp_type"] === undefined ? "" : String(profile["pdp_type"]),
         };
       }
     } else if (type === "sms_action" && fields["type"] === "inbox") {

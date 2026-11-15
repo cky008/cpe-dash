@@ -219,6 +219,9 @@ export function dlinkSmsHandle(tag: string): number {
   return (crypto.createHash("sha256").update(tag, "utf8").digest().readUInt32BE(0) & 0x7fffffff) || 1;
 }
 
+/** The longest text read of one message before the page's escapes are undone (a long message of the most parts fits). */
+const MAX_SMS_CHARS = 40_000;
+
 export interface DlinkSms {
   /** The router's own name for the message: what marking it read or deleting it sends. */
   tag: string;
@@ -245,7 +248,7 @@ export function parseDlinkInbox(answer: Record<string, unknown>): DlinkSms[] {
         date: dateOfParts((textOf(fieldOf(entry, "date")) ?? "").split(/[/\s:.-]+/)),
         unread: flagOf(fieldOf(entry, "read")) === false,
         outgoing: false,
-        content: typeof text === "string" ? dlinkPlainText(text) : "",
+        content: typeof text === "string" ? dlinkPlainText(text.slice(0, MAX_SMS_CHARS)) : "",
       }),
     });
   }

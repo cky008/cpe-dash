@@ -54,6 +54,8 @@ const PANEL = "/controlPanel.html";
 const AJAX = { "X-Requested-With": "XMLHttpRequest" } as const;
 const FORM = "application/x-www-form-urlencoded; charset=UTF-8";
 const SESSION_ID = /^[A-Za-z0-9_-]{8,128}$/;
+/** A user name of printable ASCII, short enough for the cookie the page keeps it in. */
+const USER_NAME = /^[\x21-\x7e]{1,64}$/;
 const TOKEN = /^[A-Za-z0-9+/=_-]{1,256}$/;
 /** How long the page's own session lasts, which it writes into a cookie of its own. */
 const PAGE_SESSION_SEC = "300";
@@ -76,12 +78,18 @@ function objectOf(res: LanResponse): Record<string, unknown> | null {
 
 /**
  * Which form of the password this router's login page sends, read off the page itself. The newer
- * page is `login.html` and carries `encode_passwd`; a router without that page has the older one,
- * which sends MD5. A `login.html` that shows neither is a page FengSui does not know.
+ * page is `login.html` and carries `encode_passwd`; a router without that page has the older one
+ * (`index.html`, which has to be there), which sends MD5. A `login.html` that shows neither is a
+ * page FengSui does not know.
  */
 async function passwordForm(http: LanHttp): Promise<PasswordForm> {
   const page = await http.request({ method: "GET", path: "/login.html" });
-  if (page.status === 404) return { kind: "md5", page: "/index.html" };
+  if (page.status === 404) {
+    // The older page is opened before its login, as a browser would: a router without it is not one of these
+    const older = await http.request({ method: "GET", path: "/index.html" });
+    if (older.status !== 200) throw new DriverLoginMethodError(`neither login page is there (HTTP ${older.status})`);
+    return { kind: "md5", page: "/index.html" };
+  }
   if (page.status !== 200) throw new DriverLoginMethodError(`the login page answered HTTP ${page.status}`);
   if (page.text.includes("encode_passwd")) return { kind: "encoded", page: "/login.html" };
   if (/md5/i.test(page.text)) return { kind: "md5", page: "/login.html" };
@@ -215,16 +223,19 @@ class DlinkSession implements DriverSessionHandle {
 
   /**
    * The data connection taken down after a setting changed, as the router's page does: the change
-   * applies to the next connection. A router that dials by itself comes back alone; on one that does
-   * not, FengSui sends the connect, once, whatever happened in between.
+   * applies to the next connection. A router that says it dials by itself comes back alone. On any
+   * other (one that does not, or does not say), FengSui sends the connect, once, whatever happened in
+   * between, unless the connection was down before: a restart never leaves a router offline that was
+   * online.
    */
   async #restartConnection(check: WriteCheck, before: DlinkApnSettings, wait: DriverWait): Promise<void> {
     const wasUp = await this.#connected().catch((): boolean | null => null);
+    const reconnect = before.autoConnect !== true && wasUp !== false;
     try {
       await this.#connect(check, false);
-      if (before.autoConnect === false && wasUp === true) await awaitConnection(() => this.#connected(), false, wait);
+      if (reconnect) await awaitConnection(() => this.#connected(), false, wait);
     } finally {
-      if (before.autoConnect === false && wasUp === true) await this.#connect(check, true);
+      if (reconnect) await this.#connect(check, true);
     }
   }
 
@@ -238,7 +249,11 @@ class DlinkSession implements DriverSessionHandle {
     settleCheck(check, after === null || after.networkMode === null ? null : after.networkMode === mode);
   }
 
-  /** The access point as the page's form sends it: the name and the credentials percent-encoded, the IP type as the router has it. */
+  /**
+   * The access point as the page's form sends it: the name and the credentials percent-encoded, the
+   * password once more as typed (`re_passwd`, as on record), and the IP type only as the router
+   * reported it (its values are not on record: one it did not report is not made up).
+   */
   async #writeApn(check: WriteCheck, before: DlinkApnSettings, profile: { manual: boolean; apn: string; username: string; password: string; auth: string }, wait: DriverWait): Promise<void> {
     await this.#write(check, "apn.profile", {
       CfgType: "apn",
@@ -249,7 +264,7 @@ class DlinkSession implements DriverSessionHandle {
         passwd: encodeURIComponent(profile.password),
         re_passwd: profile.password,
         auth: profile.auth,
-        pdp_type: before.profile?.pdpType || "0",
+        ...(before.profile?.pdpType ? { pdp_type: before.profile.pdpType } : {}),
       },
     });
     await this.#restartConnection(check, before, wait);
@@ -330,10 +345,17 @@ class DlinkSession implements DriverSessionHandle {
     return parseDlinkInbox(answer);
   }
 
-  /** The tags of the messages FengSui names by `indices`, found by listing in this session. */
+  /**
+   * The tags of the messages FengSui names by `indices`, found by listing in this session. Two
+   * messages whose tags give the same handle cannot be told apart: nothing is written to either.
+   */
   async #tagsOf(indices: ReadonlyArray<number>): Promise<string[]> {
     const wanted = new Set(storedIndices(indices));
-    return (await this.#inbox()).filter((entry) => wanted.has(entry.message.index)).map((entry) => entry.tag);
+    const chosen = (await this.#inbox()).filter((entry) => wanted.has(entry.message.index));
+    if (new Set(chosen.map((entry) => entry.message.index)).size !== chosen.length) {
+      throw new CpeControlValidationError("Two messages on the router cannot be told apart here: change them on the router's own page");
+    }
+    return chosen.map((entry) => entry.tag);
   }
 
   async #inboxWrite(indices: ReadonlyArray<number>, check: WriteCheck, cmd: "set_read" | "del"): Promise<void> {
@@ -396,6 +418,8 @@ export const dlinkProtocol: DriverProtocol = {
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
     const form = await passwordForm(http);
     const username = credentials.username || "admin";
+    // The page copies the user name into a cookie once signed in: one a cookie cannot carry is refused before anything is sent
+    if (!USER_NAME.test(username)) throw new DriverLoginMethodError("the login page has no form for this user name");
     const passwd = form.kind === "md5" ? md5Hex(credentials.password) : dlinkEncodedPassword(credentials.password);
     if (passwd === null) throw new DriverLoginMethodError("the login page has no form for a character of this password");
     const post = (fields: ReadonlyArray<readonly [string, string]>, headers: Record<string, string> = {}): Promise<LanResponse> =>
