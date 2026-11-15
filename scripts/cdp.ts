@@ -197,8 +197,9 @@ export async function launchChrome(): Promise<ChromeHandle> {
       "--hide-scrollbars",
       "--mute-audio",
       "--disable-extensions",
-      // CI runners restrict the user namespaces Chrome's sandbox needs; there it only ever loads the console on 127.0.0.1
-      ...(process.env["CI"] === "true" ? ["--no-sandbox"] : []),
+      // CI runners restrict the user namespaces Chrome's sandbox needs (there it only ever loads the console on 127.0.0.1),
+      // and their /dev/shm is small: Chrome keeps its shared memory in /tmp there
+      ...(process.env["CI"] === "true" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
       "about:blank",
     ],
     { stdio: "ignore" }

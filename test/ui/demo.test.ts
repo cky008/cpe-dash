@@ -34,7 +34,7 @@ describe("the live demo in a browser", () => {
   let chrome: ChromeHandle | null = null;
 
   before(async () => {
-    const build = spawnSync(process.execPath, ["--experimental-strip-types", path.join(ROOT, "scripts", "build-web.ts"), "--demo"], { cwd: ROOT, encoding: "utf8" });
+    const build = spawnSync(process.execPath, ["--experimental-strip-types", path.join(ROOT, "scripts", "build-web.ts"), "--demo"], { cwd: ROOT, encoding: "utf8", timeout: 180_000 });
     assert.equal(build.status, 0, `the demo build failed:\n${build.stdout}\n${build.stderr}`);
     server = http.createServer((req, res) => {
       const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://demo.invalid").pathname);

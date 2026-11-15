@@ -88,7 +88,9 @@ describe("The local gate (npm run check)", () => {
     const { scripts } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     // test/*.test.ts does not reach test/ui/: coverage never needs a browser, and the browser tests are their own step
     for (const name of ["test", "test:coverage"]) assert.match(scripts[name] ?? "", /--test(?: --test-reporter(?:-destination)?=\S+)* test\/\*\.test\.ts$/, name);
-    assert.match(scripts["test:browser"] ?? "", /^node --experimental-strip-types --test(?: --test-reporter(?:-destination)?=\S+)* test\/ui\/\*\.test\.ts$/);
+    // One file at a time (each runs its own headless Chrome, and the demo's file builds the demo first), and no test
+    // may hang the job: a stuck page fails after the timeout and the failures get printed
+    assert.match(scripts["test:browser"] ?? "", /^node --experimental-strip-types --test --test-concurrency=1 --test-timeout=\d+(?: --test-reporter(?:-destination)?=\S+)* test\/ui\/\*\.test\.ts$/);
     // On its own, test:ui builds the console first; inside the gate, build:web already ran
     assert.equal(scripts["test:ui"], "npm run build:web && npm run test:browser");
     const ci = fs.readFileSync(path.join(ROOT, ".github", "workflows", "ci-docker.yml"), "utf8");
