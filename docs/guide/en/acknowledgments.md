@@ -75,7 +75,7 @@ Thanks to [KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook](https://github.
 
 ## TP-Link
 
-Thanks to [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U): FengSui consulted the interface notes it collects when adding sign-in, the signal, serving cells, connected devices, SMS and USSD for TP-Link's Archer MR and NX routers. FengSui contains none of its code and does not depend on it.
+Thanks to [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U): FengSui consulted the interface notes it collects when adding sign-in, the signal, serving cells, connected devices, SMS and USSD for TP-Link's Archer MR and NX routers and the Deco X50-5G. FengSui contains none of its code and does not depend on it.
 
 Thanks to [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo): FengSui consulted the interface notes it collects when adding the sign-in steps and request forms for TP-Link's Archer MR and NX routers. FengSui contains none of its code and does not depend on it.
 

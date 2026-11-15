@@ -75,7 +75,7 @@ order: 23
 
 ## TP-Link
 
-感谢 [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U)：烽燧为TP-Link Archer MR 与 NX 系列的登录、信号、服务小区、已连接设备、短信和 USSD做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U)：烽燧为TP-Link Archer MR 与 NX 系列、Deco X50-5G 的登录、信号、服务小区、已连接设备、短信和 USSD做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 感谢 [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo)：烽燧为TP-Link Archer MR 与 NX 系列的登录步骤和请求写法做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 

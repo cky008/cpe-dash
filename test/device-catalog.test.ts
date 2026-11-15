@@ -117,7 +117,7 @@ describe("the supported devices guide page", () => {
     for (const section of CATALOG_SECTIONS) assert.ok(DEVICE_CATALOG.some((entry) => entry.section === section.id), `${section.id}: has models`);
     for (const entry of VERIFIED_FIRMWARE) assert.ok(DEVICE_CATALOG.some((e) => catalogMatches(e, entry.model)), entry.model);
     // D-Link and TP-Link: the models whose web interface is on record connect, the others are listed for reports
-    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [["Archer NX200", "tplink"], ["NX510v", "tplink"], ["Deco X50-5G"], ["TL-TR961 5G"], ["TL-XDR3020 5G"], ["Archer MR600", "tplink"]]);
+    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [["Archer NX200", "tplink"], ["NX510v", "tplink"], ["Deco X50-5G", "tplink"], ["TL-TR961 5G"], ["TL-XDR3020 5G"], ["Archer MR600", "tplink"]]);
     assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"], ["DWR-921"]]);
   });
 
@@ -188,7 +188,7 @@ describe("the supported devices guide page", () => {
     assert.deepEqual(UNSUPPORTED_FEATURES, [{ family: "huawei", model: "H168-383", feature: "ussd", issue: 3 }]);
     // Nothing implemented: the whole row stays empty, and the brand's table says what the notes have of such models
     assert.deepEqual(marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-2000M"), FEATURE_COLUMNS.map(() => ""));
-    assert.deepEqual(marksOf(supportedDevicesSection("en"), "tplink", "Deco X50-5G"), FEATURE_COLUMNS.map(() => ""));
+    assert.deepEqual(marksOf(supportedDevicesSection("en"), "tplink", "TL-TR961 5G"), FEATURE_COLUMNS.map(() => ""));
     assert.match(supportedDevicesSection("en"), /no public record names how they report the signal[^\n]+\(every model but the D-Link DWR-960 and D-Link DWR-961\)\./);
     assert.match(zh, /公开资料里找不到它们读取信号的接口[^\n]+（除 D-Link DWR-960 和 D-Link DWR-961 外的全部型号）。/);
     // A model on the DWR web interface: no lock and no nearby cells there (empty, not —), its own reads and writes ?
@@ -200,6 +200,8 @@ describe("the supported devices guide page", () => {
     assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer MR600", feature)), ["△", "?", "?", "", "△"]);
     assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer NX200", feature)), ["?", "△/?", "", "", "△"]);
     assert.deepEqual(tplink("NX510v", "ussd"), "");
+    // The Deco line: the signal and the mesh's devices, a restart, no SMS in its page
+    assert.deepEqual(["telemetry", "topology", "smsRead", "ussd", "reboot"].map((feature) => tplink("Deco X50-5G", feature)), ["△", "?", "", "", "△"]);
   });
 
   it("writes what is particular to a model as a fact, and the generator turns each into △ and a note under its brand's table", () => {

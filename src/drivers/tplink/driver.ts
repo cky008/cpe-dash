@@ -15,6 +15,7 @@ import { noteSent, settleRestart } from "../readback.ts";
 import { settleSmsListing, storedIndices } from "../sms.ts";
 import type { DriverCellular, DriverHost, DriverIdentity, DriverLockState, DriverSessionHandle, DriverSms, DriverSmsSendOptions, DriverSmsSendOutcome, DriverTelemetry, DriverWait } from "../types.ts";
 import { TplinkEnvelope, type TplinkPublicKey, type TplinkScheme, usableKey } from "./crypto.ts";
+import { decoLogin, decoPasswordKey } from "./deco.ts";
 import { type TplinkAction, type TplinkResult, exRequest, instance, mrFrame, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "./frames.ts";
 import { TPLINK_SENT_BASE, type TplinkSms, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry } from "./parts.ts";
 
@@ -35,6 +36,8 @@ import { TPLINK_SENT_BASE, type TplinkSms, parseTplinkHosts, parseTplinkSmsPage,
  *
  * The interface names the signal and, on the EX and NX series, the serving cells; it has SMS and, on
  * the MR series, USSD. No nearby cells and no band or cell lock are on record.
+ *
+ * The Deco line speaks a third interface of its own (`./deco.ts`), told by the key its login hands out.
  */
 
 const FAMILY = "tplink" as const;
@@ -454,9 +457,9 @@ function lockOf(page: string): { waitSec: number | null } | null {
 export const tplinkProtocol: DriverProtocol = {
   family: FAMILY,
 
-  /** Told by the key request no other brand answers: `var nn`, `var ee` and `var seq`, or a curve point. */
+  /** Told by the key request no other brand answers: `var nn`, `var ee` and `var seq`, a curve point, or a Deco's password key. */
   async detect(http: LanHttp): Promise<boolean> {
-    return (await opening(http)) !== null;
+    return (await opening(http)) !== null || (await decoPasswordKey(http)) !== null;
   },
 
   /** What the page shows before a login: a lock on its login page, and whether someone is signed in. */
@@ -470,7 +473,12 @@ export const tplinkProtocol: DriverProtocol = {
 
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
     const open = await opening(http);
-    if (open === null) throw new DriverLoginMethodError("the router handed out no login key");
+    if (open === null) {
+      // Neither form of the Archer routers: a Deco hands out its own key
+      const passwordKey = await decoPasswordKey(http);
+      if (passwordKey !== null) return decoLogin(http, credentials, passwordKey);
+      throw new DriverLoginMethodError("the router handed out no login key");
+    }
     const scheme = await schemeOf(http, open);
     const objects = OBJECTS[open.dialect];
     const username = credentials.username || objects.username;

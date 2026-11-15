@@ -68,8 +68,8 @@ export const CATALOG_SECTIONS: ReadonlyArray<CatalogSection> = [
     zh: "TP-Link",
     en: "TP-Link",
     about: {
-      zh: "Deco X50-5G 用的是 Deco 系列自己的另一套接口，TL-TR961 5G 和 TL-XDR3020 5G 是国内版的管理页；烽燧还没有实现这两套接口，后一套在公开资料里也找不到读取蜂窝信号的写法",
-      en: "The Deco X50-5G speaks the Deco line's own interface, and the TL-TR961 5G and TL-XDR3020 5G have the page of TP-Link's China models; FengSui has no implementation of either yet, and no public record names how the second reports the cellular signal",
+      zh: "这两款是 TP-Link 国内版的管理页，公开资料里找不到它读取蜂窝信号的接口，烽燧还没有实现",
+      en: "These two have the page of TP-Link's China models, and no public record names how it reports the cellular signal, so FengSui has no implementation for them yet",
     },
   },
 ];
@@ -389,7 +389,7 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
   ...models("tplink", [], [
     ["Archer NX200", "indoor", { families: ["tplink"] }],
     ["NX510v", "indoor", { families: ["tplink"], aliases: ["Archer NX510v"] }],
-    ["Deco X50-5G", "indoor"],
+    ["Deco X50-5G", "indoor", { families: ["tplink"], aliases: ["X50-5G"] }],
     ["TL-TR961 5G", "mobile", { aliases: ["TL-TR961"] }],
     ["TL-XDR3020 5G", "indoor", { aliases: ["TL-XDR3020"] }],
     ["Archer MR600", "indoor", { families: ["tplink"] }],
@@ -437,6 +437,15 @@ const NO_BATTERY_FACTS: ReadonlyArray<ModelFact> = (["huawei", "zte-goform", "zt
   effect: "absent",
   zh: "只有随身路由器有电池",
   en: "only a mobile router has a battery",
+}));
+
+/** How FengSui signs in to the Archer routers, in both forms of their interface (the Deco line shows none of this before a login). */
+const TPLINK_ARCHER_SESSION: ReadonlyArray<ModelFact> = ([null, "ex"] as const).map((variant) => ({
+  family: "tplink",
+  variant,
+  features: [],
+  zh: "登录和每个请求都按路由器管理页自己的方式加密。固件用的是哪一代加密，烽燧在发送密码之前从路由器给出的密钥和页面脚本里读出来，认不出时不发送密码。路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，登录页显示已锁定时烽燧不登录，每次读完也会注销",
+  en: "The login and every request are encrypted the way the router's own page does it. Which generation of it a firmware uses is read off the key the router hands out and its page's script before the password is sent; where FengSui cannot tell, it sends no password. The router lets one person into its page at a time: FengSui yields while you are signed in, stays away while the login page shows a lock, and signs out after every read",
 }));
 
 export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
@@ -602,17 +611,26 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
   {
     family: "tplink",
+    variant: "deco",
+    features: ["telemetry"],
+    zh: "只读得到蜂窝模组的信号（RSRP、RSRQ、SINR、RSSI）、网络制式和已用流量：这套接口不报告频段、频点和小区，也不报告运营商名",
+    en: "reads the modem's signal (RSRP, RSRQ, SINR, RSSI), the network type and the data used only: this interface reports no band, channel or cell, and no operator name",
+  },
+  {
+    family: "tplink",
+    variant: "deco",
+    features: [],
+    zh: "这是 Deco 系列自己的接口，连接时烽燧会自己认出来。它的管理页里没有短信；重启只重启带蜂窝模组的那一台主机。登录前路由器不说有没有人登录着，所以烽燧在这里没法让位",
+    en: "The Deco line's own interface, which FengSui recognises when it connects. Its page has no SMS; a restart restarts the main unit, the one with the modem. The router does not say before a login whether someone is signed in, so FengSui cannot yield here",
+  },
+  {
+    family: "tplink",
     variant: "ex",
     features: [],
     zh: "这是 TP-Link 较新的机型用的写法（每个请求一条 JSON），连接时烽燧会自己认出来",
     en: "The form TP-Link's newer models use (one JSON action per request), which FengSui recognises when it connects",
   },
-  {
-    family: "tplink",
-    features: [],
-    zh: "登录和每个请求都按路由器管理页自己的方式加密。固件用的是哪一代加密，烽燧在发送密码之前从路由器给出的密钥和页面脚本里读出来，认不出时不发送密码。路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，登录页显示已锁定时烽燧不登录，每次读完也会注销",
-    en: "The login and every request are encrypted the way the router's own page does it. Which generation of it a firmware uses is read off the key the router hands out and its page's script before the password is sent; where FengSui cannot tell, it sends no password. The router lets one person into its page at a time: FengSui yields while you are signed in, stays away while the login page shows a lock, and signs out after every read",
-  },
+  ...TPLINK_ARCHER_SESSION,
   {
     family: "dlink",
     features: ["telemetry"],

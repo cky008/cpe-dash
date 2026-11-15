@@ -247,7 +247,11 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     networkModes: [],
     nrBandLock: false,
     // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, no USSD on record
-    variants: { ex: { models: ["Archer NX200", "NX510v"], reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["reboot", "smsWrite"] } },
+    variants: {
+      ex: { models: ["Archer NX200", "NX510v", "Archer NX510v"], reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["reboot", "smsWrite"] },
+      // The Deco line (LuCI forms): the modem's signal without a band or a cell, the mesh's devices, a restart; no SMS in its page
+      deco: { models: ["Deco X50-5G", "X50-5G"], reads: ["telemetry", "topology", "simCard"], writes: ["reboot"] },
+    },
   },
   openwrt: {
     defaultUsername: "root",
@@ -320,7 +324,7 @@ export const ROUTER_FAMILY_LABELS: Readonly<Record<RouterFamily, { "zh-CN": stri
   fiberhome: { "zh-CN": "烽火", en: "FiberHome" },
   nradio: { "zh-CN": "鲲鹏无限（NRadio）", en: "NRadio" },
   dlink: { "zh-CN": "D-Link（DWR 系列 4G 路由器）", en: "D-Link (DWR series 4G routers)" },
-  tplink: { "zh-CN": "TP-Link（Archer MR / NX 系列 4G、5G 路由器）", en: "TP-Link (Archer MR and NX series 4G and 5G routers)" },
+  tplink: { "zh-CN": "TP-Link（Archer MR / NX 系列与 Deco 5G）", en: "TP-Link (Archer MR and NX series, Deco 5G)" },
   openwrt: { "zh-CN": "OpenWrt + 移远 / 广和通模组", en: "OpenWrt with a Quectel or Fibocom module" },
 };
 

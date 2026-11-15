@@ -599,7 +599,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 
 **决定**：第二份资料库和 [`device-notes.md`](device-notes.md) 第 8 节记了这两个品牌的 11 个型号，但只有概述（D-Link 记的是 OpenWrt 的 LuCI RPC，TP-Link 只写了「Web JSON、新固件 RSA + AES」），拼不出能用的登录和读取。细节全部来自公开的开源实现，只取事实（路径、参数名、取值、应答格式），不复制代码和测试数据。结果是：有公开接口记录的型号实现了，没有记录的那几行在表里保持空白，并在表下写明原因。
 
-两个品牌各是一个 `RouterFamily`（`dlink`、`tplink`）。TP-Link 的两种请求写法是同一个驱动里的两种形式（`variants.ex`），驱动在识别时报告路由器说的是哪一种，闸门和「支持的设备」表按它算（和烽火 Pro 系列同一套机制）。
+两个品牌各是一个 `RouterFamily`（`dlink`、`tplink`）。TP-Link 的三种接口写法是同一个品牌下的三种形式（MR 是品牌自己的，另有 `variants.ex` 和 `variants.deco`），驱动在识别时报告路由器说的是哪一种，闸门和「支持的设备」表按它算（和烽火 Pro 系列同一套机制）。
 
 **登录方式在发送密码之前定下（AGENTS.md 铁律四）**。两个品牌的登录都不止一种写法，参考实现大多是「逐种试，哪种登得上用哪种」；烽燧不这样做，因为每试错一次路由器都记一次失败：
 
@@ -631,7 +631,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 
 - **DWR-2000M**：公开的记录（dwr-2000m-tunisie-telecom）说它是 OpenWrt 21.02 加厂商自己的页面，管理页只走 HTTPS（自签名证书，HTTP 一律跳转），登录是 LuCI 的表单或 ubus 的 `session.login`；管理账号的权限里没有蜂窝模组的对象（`modem_pdn`、`ql-netd` 被拒绝），也没有能发 AT 指令的途径。读不到信号，烽燧也不接受自签名证书，所以不做。
 - **DWR-2101、DWR-953V2**：GitHub 仓库和代码搜索里没有找到它们的接口记录。
-- **DWR-921**：公开的记录（D-Link_Scraper、SMS-Dlink-DWR-921）是另一套更早的网页：登录是 `/log/in?un=…&pw=…`（密码用登录页上的 RSA 公钥加密后放在地址里，更早的固件直接放明文），读数要从首页的 HTML 里按元素取，只有信号强度（dBm）、网络类型、运营商名和 WAN 地址，没有 RSRP、频段和小区。这一步还没有实现。
+- **DWR-921**：公开的记录（D-Link_Scraper、SMS-Dlink-DWR-921）是另一套更早的网页：登录是 `/log/in?un=…&pw=…`（密码用登录页上的 RSA 公钥加密后放在地址里，更早的固件直接放明文），读数要从首页的 HTML 里按元素取，只有信号强度（dBm）、网络类型、运营商名和 WAN 地址，没有 RSRP、频段和小区；登录被拒时路由器只是跳回登录页，资料里分不出是密码错还是有人登录着。这一步没有实现。
 
 **TP-Link（`src/drivers/tplink/`）**
 
@@ -651,9 +651,19 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | MR 系列的频段和小区（`LTE_BANDINFO`） | 只有对象名 | @hertzg/tplink-api 的例子 | 属性名没有记录，不做 |
 | 附近的基站、锁频段、锁小区、移动数据开关、网络制式、接入点、PIN | — | 查过上面三个项目和 TP-Link-Archer-C6U 的 issue（NX200 #160、NX510v #135、MR600 #93、Deco #132） | 没有记录（`WAN_LTE_LINK_CFG` 的 `enable`、`WAN_LTE_INTF_CFG` 的 `dataLimit` 只有读，没有写法），不做 |
 
+**Deco X50-5G（`src/drivers/tplink/deco.ts`，形式 `deco`）**：Deco 系列是另一套接口，出处是 TP-Link-Archer-C6U 的 Deco 客户端和它的测试样例。
+
+| 能力 | 接口与写法 | 状态 |
+| :--- | :--- | :--- |
+| 登录 | `POST /cgi-bin/luci/;stok=/login?form=keys&operation=read` 给加密密码用的 RSA 公钥（应答在 `result` 下，普通 TP-Link Wi-Fi 路由器在 `data` 下）；`form=auth` 给签名用的公钥和 `seq`；`form=login` 的请求体是 `sign=…&data=…`，明文 `{params: {password: 加密后的密码}, operation: "login"}`，密码和签名都是 PKCS #1 v1.5 的 RSA（签名按「模数长度减 11」分块，签名串是 `k=…&i=…&h=…&s=…`），载荷 AES-128-CBC；应答的 `data` 解密后有 `error_code` 和 `result.stok`，会话 Cookie 是 `sysauth` | 已实现。路由器能解开请求却没有开会话（`error_code` 不为 0，或没有 `stok`）记为密码被拒；解不开的应答记为「未确认」。两者都熔断。密码长到一个 RSA 块放不下时不发送 |
+| 信号与流量 | `admin/network?form=internet` 的 `mobile_cpe`：`rsrp`、`rsrq`、`snr`（dB）、`rssi`、`signal_strength`（百分比）、`network_type`（`lte`、`lte_plus`、`5g_nr`、`5g_nsa`、`5g_sa`、`wcdma`、`gsm`）、`sim_status`（`ready`、`locked`、`absent`、`error`）、`dial_status`、`data_usage`、`downlink_rate`、`uplink_rate`；地址在 `form=wan_ipv4` | 已实现；没有 SIM 卡时各项读数都是 0，不当作读数。`profile_name` 是接入点配置的名字，不当运营商名 |
+| 型号与固件 | `admin/device?form=device_list` 里 `role` 为 `master` 的那台（`device_model`、`hardware_ver`、`software_ver`） | 已实现 |
+| 已连接设备 | `admin/client?form=client_list`（`{operation: "read", params: {device_mac: "default"}}`）：`online`、`wire_type`、`connection_type`（`band2_4`、`band5`、`band6`），名字是 Base64 | 已实现 |
+| 重启、注销 | `admin/device?form=system`（`{operation: "reboot", params: {mac_list: [{mac}]}}`）；`admin/system?form=logout` | 已实现；出处把整个 Mesh 的每一台都放进 `mac_list`，烽燧只放带蜂窝模组的主机 |
+| 登录前有没有人在线、短信、频段与小区 | — | 没有记录（出处的作者在 issue #132 里说管理页里没有短信）；不做，烽燧在这种形式上没法让位 |
+
 没有实现的 TP-Link 型号：
 
-- **Deco X50-5G**：公开的记录（TP-Link-Archer-C6U 的 Deco 客户端）是另一套接口：`/cgi-bin/luci/;stok=…/admin/…?form=…`，密码用路由器给的 RSA 公钥加密，请求再套一层 AES 和签名；`admin/network?form=internet` 的 `mobile_cpe` 里有 RSRP、RSRQ、SNR、网络类型和 SIM 状态。这一步还没有实现。
 - **TL-TR961 5G、TL-XDR3020 5G**：国内版管理页（`/stok=…/ds` 一类），公开的客户端里只有 WAN、Wi-Fi 和终端的读法，没有蜂窝信号的读法。没有记录，不做。
 
 **参考过的项目**（都只取事实；致谢写在指南的致谢页）

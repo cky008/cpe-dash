@@ -542,6 +542,7 @@ describe("tp-link: through the daemon, like every other brand", () => {
     try {
       const snap = await fy.core.monitor.refreshTelemetry();
       assert.deepEqual([snap?.device.deviceName, snap?.rf.ratCode, snap?.rf.pccBand], ["Archer NX200", "NSA", "B1"]);
+      assert.equal((await fy.core.monitor.identifyDevice())?.identity.variant, "ex", "the identification every start runs names the form");
       assert.equal(fy.core.scheduler.device.variant, "ex");
       const features = fy.core.scheduler.getStatus().device.features;
       assert.deepEqual([features.reboot, features.smsWrite, features.ussd], ["enabled", "enabled", "not_implemented"]);

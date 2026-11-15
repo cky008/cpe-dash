@@ -55,8 +55,8 @@ describe("drivers: telling the brand before any login", () => {
     const mock = new LanRouterMock(SIGNATURES.huawei);
     await detect(mock);
     // One request per family, and one more each where a family has a second form the first did not find:
-    // ZTE's other spelling of the same read, FiberHome's Pro path, D-Link's two login pages, TP-Link's other form
-    assert.equal(mock.requests.length, DETECTION_ORDER.length + 5, "the families' first reads");
+    // ZTE's other spelling of the same read, FiberHome's Pro path, D-Link's two login pages, TP-Link's two other forms
+    assert.equal(mock.requests.length, DETECTION_ORDER.length + 6, "the families' first reads");
     assert.deepEqual(mock.requests.filter((r) => /^\/(data\.ria|login\.html|index\.html)$/.test(r.path)).map((r) => `${r.method} ${r.path}?${r.query.toString()}`), ["GET /data.ria?token=1", "GET /login.html?", "GET /index.html?"]);
     assert.deepEqual(mock.requests.filter((r) => /FHNCAPIS$/.test(r.path)).map((r) => r.path).sort(), ["/api/tmp/FHNCAPIS", "/fh_api/tmp/FHNCAPIS"]);
     assert.deepEqual(mock.requests.filter((r) => /^\/(goform|reqproc)\//.test(r.path) && r.method === "GET").map((r) => r.path).sort(), ["/goform/goform_get_cmd_process", "/reqproc/proc_get"]);
@@ -65,7 +65,8 @@ describe("drivers: telling the brand before any login", () => {
       assert.ok(!/passw|luci_password|"password"/i.test(`${req.body} ${[...req.query.values()].join(" ")}`), `${req.method} ${req.path} carries no password`);
     }
     // Every POST is one of the families' own login-free calls (a token, a status, an anonymous ubus read)
-    assert.deepEqual(mock.requests.filter((r) => r.method === "POST").map((r) => r.path).sort(), ["/cgi-bin/http.cgi", "/cgi/getGDPRParm", "/cgi/getParm", "/goform/get_login_info", "/ubus", "/ubus/"]);
+    assert.deepEqual(mock.requests.filter((r) => r.method === "POST").map((r) => r.path).sort(), ["/cgi-bin/http.cgi", "/cgi-bin/luci/;stok=/login", "/cgi/getGDPRParm", "/cgi/getParm", "/goform/get_login_info", "/ubus", "/ubus/"]);
+    assert.deepEqual([...(mock.requests.find((r) => r.path === "/cgi-bin/luci/;stok=/login")?.query.entries() ?? [])], [["form", "keys"], ["operation", "read"]], "a Deco's key request: a read, with nothing in its body");
     for (const r of mock.requests.filter((r) => r.path.startsWith("/cgi/get"))) assert.equal(r.body, "", "TP-Link's key request carries nothing");
     assert.deepEqual(JSON.parse(mock.requests.find((r) => r.path === "/cgi-bin/http.cgi")?.body ?? "{}"), { cmd: 232, method: "GET", language: "CN", sessionId: "" });
     for (const r of mock.requests.filter((r) => r.path === "/ubus" || r.path === "/ubus/")) assert.equal(ubusParams(r.body)[0], "0".repeat(32), "the anonymous ubus session");

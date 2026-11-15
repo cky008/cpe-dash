@@ -24,13 +24,14 @@ export type TplinkPublicKey = { kind: "rsa"; modulusHex: string; exponentHex: st
 export interface TplinkScheme {
   /** The cipher of the payloads. */
   cipher: "cbc" | "gcm";
-  /** How an RSA signature block is padded (an ECC key has its own sealing). */
-  padding: "none" | "oaep";
+  /** How an RSA signature block is padded (an ECC key has its own sealing); `pkcs1` is the Deco line's. */
+  padding: "none" | "oaep" | "pkcs1";
 }
 
 export const RSA_HEX = /^[0-9A-Fa-f]{64,1024}$/;
 const P224_HEX = /^[0-9A-Fa-f]{56}$/;
 const OAEP_SHA1_OVERHEAD = 42;
+const PKCS1_OVERHEAD = 11;
 
 /** Whether a key is one the page's code could use: an RSA modulus of whole bytes, or both coordinates of a P-224 point. */
 export function usableKey(key: TplinkPublicKey): boolean {
@@ -45,20 +46,21 @@ function base64url(hex: string): string {
 /**
  * A signature string encrypted for the router's RSA key the way its page does it: cut into blocks,
  * each encrypted on its own and written as hexadecimal of the modulus' length. Without padding a
- * block is as long as the modulus and its last one is filled with zero bytes; with OAEP it is as long
- * as OAEP leaves room for.
+ * block is as long as the modulus and its last one is filled with zero bytes; with OAEP or PKCS #1
+ * v1.5 it is as long as the padding leaves room for.
  */
 export function rsaSign(text: string, key: { modulusHex: string; exponentHex: string }, padding: TplinkScheme["padding"]): string {
   const size = key.modulusHex.length / 2;
-  const step = padding === "oaep" ? size - OAEP_SHA1_OVERHEAD : size;
+  const step = padding === "oaep" ? size - OAEP_SHA1_OVERHEAD : padding === "pkcs1" ? size - PKCS1_OVERHEAD : size;
   if (step < 1) throw new TypeError("the router's RSA key is too short for its own signature");
   const publicKey = crypto.createPublicKey({ key: { kty: "RSA", n: base64url(key.modulusHex), e: base64url(key.exponentHex) }, format: "jwk" });
   const bytes = Buffer.from(text, "utf8");
   let out = "";
   for (let at = 0; at < bytes.length; at += step) {
     const part = bytes.subarray(at, at + step);
-    const block = padding === "oaep" ? part : Buffer.concat([part, Buffer.alloc(step - part.length)]);
-    const sealed = crypto.publicEncrypt({ key: publicKey, padding: padding === "oaep" ? crypto.constants.RSA_PKCS1_OAEP_PADDING : crypto.constants.RSA_NO_PADDING, ...(padding === "oaep" ? { oaepHash: "sha1" } : {}) }, block);
+    const block = padding === "none" ? Buffer.concat([part, Buffer.alloc(step - part.length)]) : part;
+    const mode = padding === "oaep" ? crypto.constants.RSA_PKCS1_OAEP_PADDING : padding === "pkcs1" ? crypto.constants.RSA_PKCS1_PADDING : crypto.constants.RSA_NO_PADDING;
+    const sealed = crypto.publicEncrypt({ key: publicKey, padding: mode, ...(padding === "oaep" ? { oaepHash: "sha1" } : {}) }, block);
     out += sealed.toString("hex").padStart(size * 2, "0");
   }
   return out;
@@ -105,6 +107,8 @@ export interface TplinkEnvelopeOptions {
   password: string;
   /** The session's AES key and IV as text (tests fix them; left out, they are random digits). */
   aes?: { key: string; iv: string };
+  /** How the login's signature names the AES key and IV (left out: `key` and `iv`; the Deco line writes `k` and `i`). */
+  names?: { key: string; iv: string };
 }
 
 /**
@@ -118,6 +122,7 @@ export class TplinkEnvelope {
   readonly #hash: string;
   readonly #aesKey: string;
   readonly #aesIv: string;
+  readonly #names: { key: string; iv: string };
 
   constructor(options: TplinkEnvelopeOptions) {
     if (!usableKey(options.key)) throw new TypeError("the router's key is not one its page could use");
@@ -130,6 +135,7 @@ export class TplinkEnvelope {
       .createHash(options.key.kind === "ecc" ? "sha256" : "md5")
       .update(`${options.username}${options.password}`, "utf8")
       .digest("hex");
+    this.#names = options.names ?? { key: "key", iv: "iv" };
     this.#aesKey = options.aes?.key ?? digits(16);
     this.#aesIv = options.aes?.iv ?? digits(this.#scheme.cipher === "gcm" ? 12 : 16);
     if (this.#aesKey.length !== 16 || this.#aesIv.length !== (this.#scheme.cipher === "gcm" ? 12 : 16)) throw new TypeError("the session key has the wrong length");
@@ -157,7 +163,7 @@ export class TplinkEnvelope {
     const { data, tag } = this.#encrypt(plain);
     const gcm = this.#scheme.cipher === "gcm";
     const field = (text: string): string => (gcm ? Buffer.from(text, "utf8").toString("base64") : text);
-    const text = `${login ? `key=${field(this.#aesKey)}&iv=${field(this.#aesIv)}&` : ""}h=${this.#hash}&s=${this.#seq + data.length}`;
+    const text = `${login ? `${this.#names.key}=${field(this.#aesKey)}&${this.#names.iv}=${field(this.#aesIv)}&` : ""}h=${this.#hash}&s=${this.#seq + data.length}`;
     if (this.#key.kind === "rsa") return { sign: rsaSign(text, this.#key, this.#scheme.padding), data, tag };
     const hmac = crypto.createHmac("sha256", Buffer.from(this.#aesKey, "utf8")).update(plain, "utf8").digest("hex");
     return { sign: JSON.stringify({ ...eccSeal(text, this.#key), hmac }), data, tag };
