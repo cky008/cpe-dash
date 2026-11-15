@@ -118,7 +118,7 @@ describe("the supported devices guide page", () => {
     for (const entry of VERIFIED_FIRMWARE) assert.ok(DEVICE_CATALOG.some((e) => catalogMatches(e, entry.model)), entry.model);
     // D-Link and TP-Link: the models whose web interface is on record connect, the others are listed for reports
     assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [["Archer NX200", "tplink"], ["NX510v", "tplink"], ["NX540v", "tplink"], ["Deco X50-5G", "tplink"], ["TL-TR961 5G"], ["TL-XDR3020 5G"], ["Archer MR600", "tplink"]]);
-    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"], ["DWR-921"]]);
+    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"]]);
   });
 
   it("gives every feature of the console one column", () => {

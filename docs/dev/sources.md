@@ -631,7 +631,6 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 
 - **DWR-2000M**：公开的记录（dwr-2000m-tunisie-telecom）说它是 OpenWrt 21.02 加厂商自己的页面，管理页只走 HTTPS（自签名证书，HTTP 一律跳转），登录是 LuCI 的表单或 ubus 的 `session.login`；管理账号的权限里没有蜂窝模组的对象（`modem_pdn`、`ql-netd` 被拒绝），也没有能发 AT 指令的途径。读不到信号，烽燧也不接受自签名证书，所以不做。
 - **DWR-2101、DWR-953V2**：GitHub 仓库和代码搜索里没有找到它们的接口记录。
-- **DWR-921**：公开的记录（D-Link_Scraper、SMS-Dlink-DWR-921）是另一套更早的网页：登录是 `/log/in?un=…&pw=…`（密码用登录页上的 RSA 公钥加密后放在地址里，更早的固件直接放明文），读数要从首页的 HTML 里按元素取，只有信号强度（dBm）、网络类型、运营商名和 WAN 地址，没有 RSRP、频段和小区；登录被拒时路由器只是跳回登录页，资料里分不出是密码错还是有人登录着。这一步没有实现。
 
 **TP-Link（`src/drivers/tplink/`）**
 
@@ -674,7 +673,6 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | [Kladz-glitch/dwr960-manager](https://github.com/Kladz-glitch/dwr960-manager) | `50d8acd`（2026-10-10） | 没有许可证文件 | DWR-960 的信号、流量、设备、网络制式、接入点、USSD、连接按钮、注销、频段编号表 |
 | [KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook](https://github.com/KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook) | `9c494b3`（2026-08-14） | 没有许可证文件 | DWR-961 新登录页的步骤与 `encode_passwd`、短信 |
 | [souhaiebtar/dwr-2000m-tunisie-telecom](https://github.com/souhaiebtar/dwr-2000m-tunisie-telecom) | `cc4fffa`（2026-11-12） | MIT | DWR-2000M 的接口形态（没有实现的依据） |
-| [TheLastGimbus/D-Link_Scraper](https://github.com/TheLastGimbus/D-Link_Scraper)、[inf265/SMS-Dlink-DWR-921](https://github.com/inf265/SMS-Dlink-DWR-921) | `69dc558`（2020-09-30）、`bc1fa12`（2022-01-17） | Apache-2.0 | DWR-921 的接口形态（这一步没有实现） |
 | [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U) | `71e2c5b`（2026-11-13） | GPL-3.0 | TP-Link 两种写法、三代加密、LTE 状态、服务小区、短信、USSD、已连接设备 |
 | [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo)（`@hertzg/tplink-api`） | `043192f`（2026-10-25） | GPL-2.0 | 会话步骤、`getBusy`、登录页的锁定计数、JSON 写法的操作名与 `isuseractive` |
 | [plewin/tp-link-modem-router](https://github.com/plewin/tp-link-modem-router) | `108b7f3`（2021-11-28） | GPL-3.0 | MR 的帧格式、发件箱、`sendResult` |
@@ -687,8 +685,7 @@ TP-Link 的登录错误码名字（`71233` 是 `ERR_HTTP_ERR_USER_PWD_NOT_CORREC
 
 **这一步没有做、已有记录的接口写法**（留给后面单独的一步）：
 
-- D-Link **DWR-921** 的旧网页（上面「没有实现的 D-Link 型号」里记了它的登录和读法）：只有信号强度、网络类型、运营商名和 WAN 地址，登录被拒时分不出原因，烽燧在它上面没法让位，任何一次被拒都只能熔断。
-- 18.5 的盘点里标给第 7 步的两种写法这一步也没有做（这一步只做了 D-Link 和 TP-Link 两个新品牌）：**品速公版接口**（`http.cgi` 的 `cmd` 1–6、10、160、162、164、302，资料 B 里有完整的读写）和 **ZLT 的 `lua.cgi` 写法**（只有登录和 4G 频段的读写，要先查到信号读取的记录）。
+- 18.5 的盘点里标给第 7 步的两种写法（这一步只做了 D-Link 和 TP-Link 两个新品牌）：**品速公版接口**（`http.cgi` 的 `cmd` 1–6、10、160、162、164、302，资料 B 里有完整的读写）和 **ZLT 的 `lua.cgi` 写法**（只有登录和 4G 频段的读写，要先查到信号读取的记录）。
 
 **这一步顺手改掉的旧问题**：控制台「设置 → 路由器」里品牌下面的那段说明还是 1.8.3 的写法（「锁频、锁小区和重启默认关闭」「短信、已连接设备在这个品牌上还不可用」），第 1 步改成默认开启、第 3 / 4 步给其他品牌加上短信和已连接设备之后一直没有跟上。现在这段话由品牌的事实生成：列出烽燧在这个品牌上读什么、能改什么。
 
@@ -778,13 +775,3 @@ JSON 写法里页面把数值属性写成数字（`dataSwitchStatusBackup: 1`）
 #### ZLT 的 `lua.cgi` 写法：不做
 
 公开资料里它仍然只有登录（`cmd 100`）和 4G 频段的读写（`cmd 165` / `166`），没有信号读取。查过 GitHub 的代码搜索与仓库搜索，以及普通网页搜索。没有信号读取，烽燧连不上之后什么都显示不了，所以不做。
-
-#### D-Link DWR-921 的旧网页：没有做，等主人决定
-
-它有记录（18.10「没有实现的 D-Link 型号」），做得出来，但这一步没有做。三件事想过之后的判断：
-
-1. **登录被拒分不出原因。** 记录里登录成功与否只看跳转去了哪里；被拒时路由器只是跳回登录页，分不出是密码错还是有人登录着，登录前也没有一个免登录的请求能问「有没有人在线」。烽燧只能把每一次被拒都当成密码可能错了而熔断（铁律五不允许再试）。如果这台路由器同一时间只让一个人登录，那么主人每次打开它的管理页，烽燧就熔断一次，要手动重置：这不是「功能少一点」，是用起来会坏。它允不允许多人同时登录，公开资料里没有（又查了一遍：厂商手册和两个参考项目都没有说，网页搜索也没有找到这个型号「已有人登录」时的应答）。
-2. **读得到的很少。** 首页 HTML 里只有信号强度（dBm）、网络类型、运营商名和 WAN 地址（元素 `_3g_signal`、`_3g_service`、`networks`、`_3g_ip`），没有 RSRP、频段和小区，也没有型号。没有型号时写闸门按品牌的事实算（和品速一样），这一点不碍事。
-3. **短信只有发送的记录**（`/smsmsg.htm?Nsend=1…` 再 `/sms2.htm?Ncmd=2`），没有读取。`DriverSms` 要求能列出短信，短信服务的同步、会话列表、已读状态都建立在列表上；为一个型号加「只能发」的形状要动短信服务和控制台，不值得。
-
-所以建议：等有 DWR-921 的主人报告（最要紧的是「有人登录着的时候再登录，路由器答什么」）再做；到时做成 D-Link 的一种只读写法（`variants`），不带短信。主人要是觉得现在就该做只读的那一部分，说一声就做。另外，它的管理页是 HTTPS 加自签名证书（参考项目里关掉了证书校验），现在有了按指纹信任证书（上文），这一条不再是障碍。

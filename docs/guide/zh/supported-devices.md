@@ -470,7 +470,6 @@ order: 2
 | D-Link DWR-953V2 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-953V2) |
 | D-Link DWR-960 | 室内 CPE | D-Link 网页接口 | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-960) |
 | D-Link DWR-961 | 室内 CPE | D-Link 网页接口 | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-961) |
-| D-Link DWR-921 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-921) |
 
 这一节的说明：
 
@@ -483,7 +482,7 @@ order: 2
 - △ 「数据设置」：改的是路由器正在用的那一个接入点；IP 类型保持路由器原来的设置（D-Link DWR-960 和 D-Link DWR-961）。
 - △ 「数据设置」：只有接入点（APN），数据漫游、流量上限和清零流量统计烽燧在这里还没有做（D-Link DWR-960 和 D-Link DWR-961）。
 - 路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，烽燧每次读完也会注销。登录密码按路由器登录页自己的写法发送，烽燧认不出登录页的写法时不发送密码（D-Link DWR-960 和 D-Link DWR-961）。
-- 资料记载这几款用 OpenWrt 的 LuCI 接口或更早的网页，公开资料里找不到它们读取信号的接口，烽燧还没有实现；其中 DWR-2000M 的管理页只走 HTTPS，它的蜂窝模组接口对管理账号是关着的（除 D-Link DWR-960 和 D-Link DWR-961 外的全部型号）。
+- 资料记载这几款用 OpenWrt 的 LuCI 接口，公开资料里找不到它们读取信号的接口，烽燧还没有实现；其中 DWR-2000M 的管理页只走 HTTPS，它的蜂窝模组接口对管理账号是关着的（除 D-Link DWR-960 和 D-Link DWR-961 外的全部型号）。
 
 <a id="brand-tplink"></a>
 

@@ -59,8 +59,8 @@ export const CATALOG_SECTIONS: ReadonlyArray<CatalogSection> = [
     zh: "D-Link",
     en: "D-Link",
     about: {
-      zh: "资料记载这几款用 OpenWrt 的 LuCI 接口或更早的网页，公开资料里找不到它们读取信号的接口，烽燧还没有实现；其中 DWR-2000M 的管理页只走 HTTPS，它的蜂窝模组接口对管理账号是关着的",
-      en: "The notes say these use OpenWrt's LuCI interface or an older web page, and no public record names how they report the signal, so FengSui has no implementation for them yet; the DWR-2000M's page is HTTPS only, and its cellular module's interface is closed to the admin account",
+      zh: "资料记载这几款用 OpenWrt 的 LuCI 接口，公开资料里找不到它们读取信号的接口，烽燧还没有实现；其中 DWR-2000M 的管理页只走 HTTPS，它的蜂窝模组接口对管理账号是关着的",
+      en: "The notes say these use OpenWrt's LuCI interface, and no public record names how they report the signal, so FengSui has no implementation for them yet; the DWR-2000M's page is HTTPS only, and its cellular module's interface is closed to the admin account",
     },
   },
   {
@@ -384,7 +384,6 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["DWR-953V2", "indoor", { maker: "D-Link" }],
     ["DWR-960", "indoor", { maker: "D-Link", families: ["dlink"] }],
     ["DWR-961", "indoor", { maker: "D-Link", families: ["dlink"] }],
-    ["DWR-921", "indoor", { maker: "D-Link" }],
   ]),
   ...models("tplink", [], [
     ["Archer NX200", "indoor", { families: ["tplink"] }],

@@ -470,7 +470,6 @@ Usually at `192.168.0.1`; sign in with the user name `admin` and the admin passw
 | D-Link DWR-953V2 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-953V2) |
 | D-Link DWR-960 | Indoor CPE | D-Link web interface | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-960) |
 | D-Link DWR-961 | Indoor CPE | D-Link web interface | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-961) |
-| D-Link DWR-921 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-921) |
 
 Notes for this table:
 
@@ -483,7 +482,7 @@ Notes for this table:
 - △ Data settings: changes the one access point the router uses; the IP type stays as the router has it (D-Link DWR-960 and D-Link DWR-961).
 - △ Data settings: the access point (APN) only; FengSui does not do data roaming, the data limit and clearing the traffic counters here yet (D-Link DWR-960 and D-Link DWR-961).
 - The router lets one person into its page at a time: FengSui yields while you are signed in, and signs out after every read. The password is sent in the form the router's own login page writes it; where FengSui does not know the page's form it sends no password (D-Link DWR-960 and D-Link DWR-961).
-- The notes say these use OpenWrt's LuCI interface or an older web page, and no public record names how they report the signal, so FengSui has no implementation for them yet; the DWR-2000M's page is HTTPS only, and its cellular module's interface is closed to the admin account (every model but the D-Link DWR-960 and D-Link DWR-961).
+- The notes say these use OpenWrt's LuCI interface, and no public record names how they report the signal, so FengSui has no implementation for them yet; the DWR-2000M's page is HTTPS only, and its cellular module's interface is closed to the admin account (every model but the D-Link DWR-960 and D-Link DWR-961).
 
 <a id="brand-tplink"></a>
 
