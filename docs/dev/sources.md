@@ -608,7 +608,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | D-Link | 密码发 MD5（旧登录页 `index.html`），或发登录页自己的 `encode_passwd`（新登录页 `login.html`） | 免登录读 `/login.html`：有 `encode_passwd` 用后一种；没有这个页面（404）是旧页面，用 MD5；页面里自己写了 `md5` 也用 MD5 | 页面两样都没有：不发送密码（`DriverLoginMethodError`） |
 | TP-Link | 请求写法两种（MR 文本帧、EX / NX 的 JSON）；加密三代（AES-CBC + 不填充的 RSA 签名；AES-GCM，签名不填充或 RSA-OAEP；AES-CBC + P-224 上的 ECIES） | 写法看哪个取密钥的接口有应答（`/cgi/getGDPRParm` 是 JSON 写法，`/cgi/getParm` 是文本写法）；密钥是曲线上的点就是第三代；否则免登录读路由器自己的 `/js/tpEncrypt.js`，里面写了 `gcm` 是第二代、写了 `encryptOAEP` 是 OAEP 签名，都没写（或没有这个脚本）是第一代 | 拿不到密钥，或 MR 文本写法配 GCM（参考实现里这种组合的登录写不通，标签放在哪里没有记录）：不发送密码 |
 
-读不到这个脚本（不是 404 的错误，或者那个地址答的是一个网页）时同样不发送密码。`/js/tpEncrypt.js` 里用 `gcm`、`encryptOAEP` 两个词区分，是我按出处的描述定的判据（出处只说「`tpEncrypt.js` 用 `encryptOAEP` 的固件」；GCM 的判据是推断：实现 GCM 的脚本必然写到这个词），等真机报告校正。
+读不到这个脚本（不是 404 的错误，或者那个地址答的是一个网页）时同样不发送密码。没有这个脚本（404）时再读一次路由器自己的 `/js/oid_str.js`：管理页按其中的 `INCLUDE_LOGIN_GDPR_ENCRYPT` 决定登录加不加密（TP-Link 的模拟器里登录页的写法：为 0 时请求走明文的 `/cgi?`，登录是 `/cgi/login?UserName=…&Passwd=…`，用户名和 Base64 后的密码都用登录页给的 RSA 公钥加密），写着 0 的固件烽燧不发送密码；没有这个开关或写着 1 的照第一代登录。`/js/tpEncrypt.js` 里用 `gcm`、`encryptOAEP` 两个词区分，是我按出处的描述定的判据（出处只说「`tpEncrypt.js` 用 `encryptOAEP` 的固件」；GCM 的判据是推断：实现 GCM 的脚本必然写到这个词），等真机报告校正。
 
 **D-Link（`src/drivers/dlink/`）**
 

@@ -343,6 +343,15 @@ describe("tp-link: signing in and out", () => {
     await assert.rejects(gcmOnMr.client.withSession((s) => s.telemetry()), DriverLoginMethodError);
     assert.equal(gcmOnMr.logins.length, 0);
     assert.ok(!gcmOnMr.mock.trail.includes("POST /cgi/login"));
+    // A firmware without the encryption script whose page's own script says it signs in without the encryption: another login, not on record
+    const plain = tplinkRouter({ script: { status: 404, text: "" }, buildFlags: "var INCLUDE_LTEWAN=1,INCLUDE_LOGIN_GDPR_ENCRYPT=0;" });
+    await assert.rejects(plain.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof DriverLoginMethodError && /signs in without the encryption/.test(err.message));
+    assert.deepEqual([plain.logins.length, plain.mock.trail.includes("POST /cgi/login")], [0, false], "no password went out");
+    assert.deepEqual(plain.mock.trail.slice(-2), ["GET /js/tpEncrypt.js", "GET /js/oid_str.js"]);
+    // The same firmware with the encryption built in: the original form, as before
+    const built = tplinkRouter({ script: { status: 404, text: "" }, buildFlags: "var INCLUDE_LTEWAN=1,INCLUDE_LOGIN_GDPR_ENCRYPT=1;" });
+    assert.equal((await built.client.withSession((s) => s.telemetry()))?.signalBars, 4);
+    assert.equal(built.logins.length, 1);
     assert.equal(gcmOnMr.client.getCircuitBreakerState().tripped, false, "nothing was tried, nothing latched");
     for (const keyAnswer of [{ text: "<html>Login</html>" }, { text: 'var ee="010001";\nvar nn="abc";\nvar seq="1";' }, { text: 'var ee="010001";\nvar nn="' + "ab".repeat(64) + '";\nvar seq="x";' }, { text: "{broken" }, { json: { eccPubKey_X_HEX: "ab", eccPubKey_Y_HEX: "cd", seq: "1" } }, { json: { ret: 0 } }]) {
       const other = new LanRouterMock((req) => (req.path.startsWith("/cgi/get") && req.path !== "/cgi/getBusy" ? keyAnswer : { status: 404, text: "" }));

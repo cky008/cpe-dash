@@ -249,8 +249,14 @@ async function opening(http: LanHttp): Promise<Opening | null> {
 async function schemeOf(http: LanHttp, open: Opening): Promise<TplinkScheme> {
   if (open.key.kind === "ecc") return { cipher: "cbc", padding: "none" };
   const script = await http.request({ method: "GET", path: "/js/tpEncrypt.js", referer: ROOT });
-  // No such script: the original form. Any other answer that is not the script (an error, a page) settles nothing
-  if (script.status === 404) return { cipher: "cbc", padding: "none" };
+  // No such script: the original form, unless the page's own script says this firmware's page logs in without the
+  // encryption at all (`INCLUDE_LOGIN_GDPR_ENCRYPT=0`: the page then sends another login, which is not on record here).
+  // Any other answer that is not the script (an error, a page) settles nothing
+  if (script.status === 404) {
+    const flags = await http.request({ method: "GET", path: BUILD_FLAGS, referer: ROOT });
+    if (flags.status === 200 && flags.text.includes("INCLUDE_LOGIN_GDPR_ENCRYPT=0")) throw new DriverLoginMethodError("this firmware's page signs in without the encryption, a login that is not on record");
+    return { cipher: "cbc", padding: "none" };
+  }
   if (script.status !== 200 || script.text.trimStart().startsWith("<")) throw new DriverLoginMethodError(`the page's encryption script could not be read (HTTP ${script.status})`);
   const scheme: TplinkScheme = { cipher: /gcm/i.test(script.text) ? "gcm" : "cbc", padding: /encryptOAEP/.test(script.text) ? "oaep" : "none" };
   // The MR series' login with the newer cipher is not on record: where its tag would go is not known
