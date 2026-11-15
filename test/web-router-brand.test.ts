@@ -101,6 +101,10 @@ describe("web core: the router's brand in Settings", () => {
     // No HiLink login details for a router that has none
     assert.deepEqual(connectionNotice(ok, tZh, tested), { key: "ok_result_brand", params: { model: "RM520N-GL", firmware: "?", ms: 140 }, tone: "success" });
     assert.equal(connectionNotice(ok, tZh).key, "ok_result");
+    // What the result says of the brand's writes is what happens: on by default, each can be turned off
+    assert.match(SETTINGS_TEXT["zh-CN"].ok_result_brand, /默认开启.*逐项关闭/);
+    assert.match(SETTINGS_TEXT.en.ok_result_brand, /on by default.*turn each off/);
+    for (const locale of ["zh-CN", "en"] as const) assert.doesNotMatch(SETTINGS_TEXT[locale].ok_result_brand, /默认关闭|off by default|逐项打开|turn each on/);
 
     assert.equal(connectionNotice(failure("router_error", { code: "rpc-32002" }), tZh, tested).key, "fail_router_error_brand");
     assert.equal(connectionNotice(failure("router_error", { code: "100003" }), tZh).key, "fail_router_error");
