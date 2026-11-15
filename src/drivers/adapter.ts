@@ -236,7 +236,7 @@ export class DriverRouterSession implements RouterSession {
     // The modes this router names, else the family's: a mode outside them is not sent
     const offered = before.networkModes ?? ROUTER_FAMILY_FACTS[this.family].selectableModes ?? [];
     if (!offered.includes(mode)) throw new CpeControlValidationError(`This router offers no "${mode}" network mode (it offers ${offered.join(", ") || "none"})`);
-    await cellular.setNetworkMode(mode, write.check);
+    await cellular.setNetworkMode(mode, write.check, SESSION_WAIT);
     const previous = before.networkMode ?? null;
     return { previous: previous === mode ? null : previous };
   }
@@ -291,7 +291,7 @@ export class DriverRouterSession implements RouterSession {
       await cellular.setSimSlot(change.previous, write.check);
     } else if (change.kind === "network_mode") {
       if (!cellular.setNetworkMode) throw noWrite("switch the network mode");
-      await cellular.setNetworkMode(change.previous, write.check);
+      await cellular.setNetworkMode(change.previous, write.check, SESSION_WAIT);
     } else if (change.kind === "operator") {
       if (!cellular.selectOperator) throw noWrite("choose the operator");
       await cellular.selectOperator(change.previous, write.check, SESSION_WAIT);

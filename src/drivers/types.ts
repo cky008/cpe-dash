@@ -199,7 +199,8 @@ export interface DriverCellularState {
  */
 export interface DriverCellular {
   read(): Promise<DriverCellularState>;
-  setNetworkMode?(mode: NetworkMode, check: WriteCheck): Promise<void>;
+  /** `wait`: for a router whose page restarts the data connection after the change. */
+  setNetworkMode?(mode: NetworkMode, check: WriteCheck, wait?: DriverWait): Promise<void>;
   setSimSlot?(slot: SimSlotRef, check: WriteCheck): Promise<void>;
   /** `true`: the cellular radio goes off (the router stays reachable on the LAN). */
   setAirplaneMode?(enabled: boolean, check: WriteCheck): Promise<void>;
