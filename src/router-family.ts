@@ -255,7 +255,23 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
       // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, the same forms under other names
       // (the access point as a profile, or where the page keeps several at once, as a table of FengSui's own)
       ex: {
-        models: ["Archer NX200", "NX510v", "Archer NX510v", "NX540v", "Archer NX540v"],
+        models: [
+          "Archer NX200",
+          "NX510v",
+          "Archer NX510v",
+          "NX540v",
+          "Archer NX540v",
+          "Archer NX205",
+          "Archer NX505",
+          "Archer NX600",
+          "Archer NX200-Outdoor",
+          "NE200-Outdoor",
+          "Archer MX1500",
+          "Archer MX700",
+          "MX515v",
+          "Archer MR550",
+          "Archer MR500-Outdoor",
+        ],
         reads: ["telemetry", "topology", "smsRead", "simCard"],
         writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"],
       },

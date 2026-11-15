@@ -117,7 +117,27 @@ describe("the supported devices guide page", () => {
     for (const section of CATALOG_SECTIONS) assert.ok(DEVICE_CATALOG.some((entry) => entry.section === section.id), `${section.id}: has models`);
     for (const entry of VERIFIED_FIRMWARE) assert.ok(DEVICE_CATALOG.some((e) => catalogMatches(e, entry.model)), entry.model);
     // D-Link and TP-Link: the models whose web interface is on record connect, the others are listed for reports
-    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [["Archer NX200", "tplink"], ["NX510v", "tplink"], ["NX540v", "tplink"], ["Deco X50-5G", "tplink"], ["TL-TR961 5G"], ["TL-XDR3020 5G"], ["Archer MR600", "tplink"]]);
+    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [
+      ["Archer NX200", "tplink"],
+      ["NX510v", "tplink"],
+      ["NX540v", "tplink"],
+      ["Archer NX205", "tplink"],
+      ["Archer NX505", "tplink"],
+      ["Archer NX600", "tplink"],
+      ["Archer NX200-Outdoor", "tplink"],
+      ["NE200-Outdoor", "tplink"],
+      ["Archer MX1500", "tplink"],
+      ["Archer MX700", "tplink"],
+      ["MX515v", "tplink"],
+      ["Archer MR550", "tplink"],
+      ["Archer MR500-Outdoor", "tplink"],
+      ["Deco X50-5G", "tplink"],
+      ["TL-TR961 5G"],
+      ["TL-XDR3020 5G"],
+      ["Archer MR600", "tplink"],
+    ]);
+    // The models TP-Link's emulators show on the JSON form are on record with it, so the gate is right before the driver says so
+    for (const model of ["Archer NX505", "NE200-Outdoor", "MX515v", "Archer MR550", "Archer MR500-Outdoor"]) assert.equal(routerVariant("tplink", undefined, model), "ex", model);
     assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"]]);
   });
 
