@@ -577,6 +577,9 @@ describe("openwrt: the router's and the module's status", () => {
     assert.deepEqual([atValueLine("860000000000000\nOK", "+CGSN:"), atValueLine('+CGSN: "860000000000000"', "+CGSN:"), atValueLine("ERROR", null)], ["860000000000000", "860000000000000", null]);
     assert.deepEqual(parseSystemInfo({ uptime: 10, memory: { total: 1000, free: 200, buffered: 100, cached: 100 } }), { uptimeSec: 10, cpuPercent: null, memoryPercent: 60 });
     assert.deepEqual([parseSystemInfo(null), parseSystemInfo({ load: [1, 2, 3] })], [null, null]);
+    // A router with a gigabyte of memory or more reports ten digits of bytes: read whole, the share is right
+    assert.equal(parseSystemInfo({ uptime: 10, memory: { total: 2_090_000_000, available: 836_000_000 } })?.memoryPercent, 60);
+    assert.equal(parseSystemInfo({ uptime: 10, memory: { total: 1_073_741_824, free: 400_000_000, buffered: 100_000_000, cached: 36_870_912 } })?.memoryPercent, 50);
     assert.deepEqual(parseQuectelTempSensors('+QTEMP: "modem-lte-sub6-pa1","32"\n+QTEMP: "aoss-0-usr","38"\n+QTEMP: "cpu0-thermal",41\n+QTEMP: 32,33,34'), [
       { kind: "pa", name: null, celsius: 32 },
       { kind: "other", name: "aoss-0-usr", celsius: 38 },

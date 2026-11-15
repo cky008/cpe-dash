@@ -99,6 +99,26 @@ describe("drivers: values", () => {
     assert.equal(megabytesToBytes("-1"), null);
   });
 
+  it("reads a number whole, however many digits it has, and never a part of one", () => {
+    // Ten digits and more used to be cut after the ninth: 2948105728 read as 294810572
+    assert.equal(numberOf("2948105728.0"), 2948105728);
+    assert.equal(numberOf("2948105728"), 2948105728);
+    assert.equal(numberOf("-1234567890 dBm"), -1234567890);
+    assert.equal(nonNegativeOf("1073741824"), 1073741824, "a gigabyte of memory, in bytes");
+    assert.equal(nonNegativeOf(4294967296), 4294967296);
+    assert.equal(megabytesToBytes("1234567890.5"), 1294538260348928n);
+    // A fraction of any length is a fraction, read to the precision a number has
+    assert.equal(numberOf("19.123456789"), 19.123456789);
+    assert.equal(numberOf("0.5"), 0.5);
+    // More digits than a number holds exactly is not read as a shorter number
+    assert.equal(numberOf("12345678901234567890"), null);
+    assert.equal(nonNegativeOf("99999999999999999999"), null);
+    assert.equal(numberOf("1234567890123456"), null, "past the 15 digits a number keeps exactly");
+    assert.equal(numberOf("123456789012345"), 123456789012345);
+    // A unit, a second dot and what follows it are left aside as before
+    assert.deepEqual([numberOf("100MHz"), numberOf("1.2.3"), numberOf("+7"), numberOf("7."), numberOf(".5"), numberOf("")], [100, 1.2, 7, 7, null, null]);
+  });
+
   it("reads bands, identities, addresses and packed rows", () => {
     for (const text of ["3", "B3", "b3", "LTE BAND 3", "LTE B3"]) assert.equal(bandOf(text), 3, text);
     for (const text of ["n78", "N78", "NR5G BAND 78", "78"]) assert.equal(bandOf(text), 78, text);

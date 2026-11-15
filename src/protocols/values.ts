@@ -54,12 +54,20 @@ export function decOrHexIntOf(value: unknown): number | null {
   return intOf(text);
 }
 
-/** The leading number of a value with a unit (`"-79 dBm"`, `"100MHz"`, `"19.2"`), `null` without one. */
+/** The most digits before the point a number keeps exactly. */
+const MAX_EXACT_DIGITS = 15;
+
+/**
+ * The leading number of a value with a unit (`"-79 dBm"`, `"100MHz"`, `"19.2"`), read whole: `null`
+ * without one, and `null` for one with more digits than a number keeps exactly. Never a part of a
+ * number: a counter of ten digits is that counter, not its first nine.
+ */
 export function numberOf(value: unknown): number | null {
   const text = usable(value);
   if (text === null) return null;
-  const match = /^[+-]?\d{1,9}(?:\.\d{1,6})?/.exec(text);
-  if (!match) return null;
+  // The text is bounded (`MAX_VALUE_CHARS`), so every digit of the number can be taken
+  const match = /^[+-]?(\d+)(?:\.\d+)?/.exec(text);
+  if (!match || (match[1] ?? "").length > MAX_EXACT_DIGITS) return null;
   const n = Number.parseFloat(match[0]);
   return Number.isFinite(n) ? n : null;
 }
