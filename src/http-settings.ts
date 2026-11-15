@@ -1,3 +1,4 @@
+import { normalizeFingerprint } from "./router-trust.ts";
 import { AGENT_TEST_UNAVAILABLE_MESSAGE, noAgentTestPlan } from "./agent-test.ts";
 import { type AgentTestService, AgentTestUnavailableError } from "./agent-test-service.ts";
 import type {
@@ -92,7 +93,7 @@ export class SettingsHttpRoutes {
     const cpe = settings.cpe;
     return {
       ok: true,
-      cpe: cpe ? { url: cpe.url, username: cpe.username, passwordSet: cpe.password !== "", ...(cpe.family && cpe.family !== "huawei" ? { family: cpe.family } : {}) } : null,
+      cpe: cpe ? { url: cpe.url, username: cpe.username, passwordSet: cpe.password !== "", ...(cpe.family && cpe.family !== "huawei" ? { family: cpe.family } : {}), ...(cpe.certFingerprint ? { certFingerprint: cpe.certFingerprint } : {}) } : null,
       login: { changedAtIso: settings.loginChangedAtIso, fromEnv: settings.loginFromEnv },
       reviewPending: settings.reviewPending,
       telegram: { configured: telegramConfigured, resetEnabled: settings.telegramReset },
@@ -167,14 +168,15 @@ export class SettingsHttpRoutes {
         }
         const first = settings.cpe === null;
         // Stored as the client uses it ("192.168.8.1/" becomes "http://192.168.8.1"); the test proved it parses
-        const saved = { ...candidate, url: normalizeCpeUrl(candidate.url) };
+        const { certFingerprint, ...connection } = candidate;
+        const saved = { ...connection, url: normalizeCpeUrl(candidate.url), ...(certFingerprint ? { certFingerprint } : {}) };
         settings.setCpe(saved);
         settings.markReviewed();
         // The scheme the test logged in with: a SCRAM router never gets a legacy password afterwards
         await this.#opts.scheduler.applyConnection(saved, { loginScheme: probe?.identity.loginScheme ?? null });
         if (probe) this.#opts.onDeviceProbe?.(probe);
         // The brand is part of the record: a change of it is a change of everything FengSui sends
-        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host}${saved.username ? ` as ${saved.username}` : ""} (${saved.family})`, actor: CONSOLE });
+        audit?.record({ action: "settings.cpe", outcome: "applied", detail: `router ${new URL(saved.url).host}${saved.username ? ` as ${saved.username}` : ""} (${saved.family}${saved.certFingerprint ? ", its certificate trusted by fingerprint" : ""})`, actor: CONSOLE });
         if (first) this.#opts.onConnectionReady();
         ctx.sendJson(200, { ok: true, result, settings: this.summary() });
         return true;
@@ -411,6 +413,10 @@ export class SettingsHttpRoutes {
   async #candidate(body: Record<string, unknown>): Promise<(ConnectionCandidate & { family: RouterFamily }) | Extract<ConnectionTestResult, { ok: false }>> {
     const stored = this.#opts.settings.cpe;
     const url = (text(body, "url", 256) ?? stored?.url ?? "").trim();
+    const typedFingerprint = body["certFingerprint"];
+    if (typedFingerprint !== undefined && typedFingerprint !== null && normalizeFingerprint(typedFingerprint) === null) {
+      throw new CpeControlValidationError('"certFingerprint" must be the SHA-256 fingerprint of the router\'s certificate: 64 hexadecimal digits');
+    }
     const asked = body["family"];
     if (asked !== undefined && asked !== null && asked !== FAMILY_AUTO && !isRouterFamily(asked)) {
       throw new CpeControlValidationError(`"family" must be "${FAMILY_AUTO}" or one of ${ROUTER_FAMILIES.join(", ")}`);
@@ -423,16 +429,47 @@ export class SettingsHttpRoutes {
     else if (stored?.password && this.#isCurrentRouter(url)) password = stored.password;
     else throw new CpeControlValidationError(stored?.password ? '"password" is required to try another router address' : '"password" is required');
 
+    // An HTTPS router: whose certificate is it? Looked at before anything is sent (a handshake, no request)
+    const trust = await this.#certificateTrust(url, typedFingerprint === undefined ? undefined : normalizeFingerprint(typedFingerprint));
+    if (typeof trust === "object" && trust !== null) return trust;
+    const certFingerprint = trust;
+
     const storedFamily = routerFamilyOf(stored?.family);
     let family: RouterFamily;
     if (asked === FAMILY_AUTO) {
-      const detected = await this.#opts.scheduler.detectFamily(url);
+      const detected = await this.#opts.scheduler.detectFamily(url, certFingerprint);
       if (typeof detected !== "string") return detected;
       family = detected;
     } else {
       family = isRouterFamily(asked) ? asked : storedFamily;
     }
     const username = (typedUser ?? (stored && family === storedFamily ? stored.username : ROUTER_FAMILY_FACTS[family].defaultUsername)).trim();
-    return { url, username, password, family };
+    return { url, username, password, family, certFingerprint };
+  }
+
+  /**
+   * Which certificate a test of `url` trusts by fingerprint: `null` for none (not HTTPS, or one this
+   * machine's certificate authorities vouch for), else the fingerprint its owner trusted (`asked`: sent
+   * with this request; left out, the stored one for the stored address) when the router presents
+   * exactly that certificate. A certificate nobody vouches for and nobody trusted, or another one than
+   * the trusted, comes back as a failed test that carries it, with nothing sent to the router.
+   */
+  async #certificateTrust(url: string, asked: string | null | undefined): Promise<string | null | Extract<ConnectionTestResult, { ok: false }>> {
+    const stored = this.#opts.settings.cpe;
+    // A certificate belongs to an HTTPS address: on any other there is none to trust (and an address FengSui refuses fails the test itself)
+    try {
+      if (new URL(normalizeCpeUrl(url)).protocol !== "https:") return null;
+    } catch {
+      return null;
+    }
+    const wanted = asked !== undefined ? asked : stored?.certFingerprint && this.#isCurrentRouter(url) ? stored.certFingerprint : null;
+    const certificate = await this.#opts.scheduler.routerCertificate(url);
+    // No handshake to look at (plain HTTP, an unreachable router, the live demo): the test itself says what is wrong
+    if (certificate === null) return wanted;
+    if (certificate.trusted && wanted === null) return null;
+    if (wanted === certificate.fingerprint256) return wanted;
+    const failure = (reason: "untrusted_certificate" | "certificate_changed", message: string): Extract<ConnectionTestResult, { ok: false }> => ({ ok: false, reason, code: null, remainCount: null, waitTimeSec: null, message, certificate });
+    if (wanted === null) return failure("untrusted_certificate", "the router's HTTPS certificate is one it signed itself: compare its fingerprint with the router's own page, then trust it; nothing was sent to the router");
+    return failure("certificate_changed", "the router presents another certificate than the one trusted for it; nothing was sent to the router");
   }
 }

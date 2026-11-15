@@ -17,6 +17,20 @@ order: 19
 
 FengSui settles the login method before sending the password (on Huawei, SCRAM for newer models, SHA-256 or Base64 for older ones). It never retries the same password another way, so it cannot use up the router's login attempts.
 
+<a id="https"></a>
+
+### Routers whose page opens over HTTPS only
+
+Some routers serve their page over `https://` only, with a certificate they signed themselves. No authority vouches for such a certificate, so a browser warns that the page is "not secure", and FengSui does not connect by default. You can have FengSui trust that one certificate:
+
+1. Under Settings → Router, write the address with `https://` and choose "Test connection". FengSui only completes the handshake and reads the certificate the router presents; it sends no password and no request.
+2. The console shows the certificate's SHA-256 fingerprint. Open the router's page in your browser, find the same value in the address bar's certificate details, and compare the two digit by digit.
+3. If they match, choose "Trust this certificate", then save.
+
+From then on FengSui checks the certificate on every connection and sends anything only when it is the same one. A factory reset or a firmware update may give the router a new certificate; FengSui then stops connecting and says the router presents another certificate than the one you trusted. Compare the new fingerprint and trust it once more. If you see this message without having touched the router, do not trust it yet: another device may be posing as the router.
+
+A router whose certificate was issued by a trusted authority needs none of this.
+
 ## What you can see
 
 Signal, data usage, connected devices, SMS and whatever else the router provides show as usual. An item the router does not provide, or that FengSui cannot read, is labeled "Not on this model" and leaves the others unaffected; a model without 5G shows no 5G values.

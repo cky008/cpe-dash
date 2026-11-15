@@ -9,8 +9,10 @@ import { type DeviceFeature, CONTROL_FEATURES, type ControlAction, type ReadSect
 import { verifiedModelsLabel } from "./firmware.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { ROUTER_FAMILY_LABELS, routerFamilyOf, type RouterFamily } from "./router-family.ts";
-import { type ConnectionOptions, type ConnectionSettings, type KnownLogin, type RouterConnection, connectionSettings, routerConnection } from "./drivers/connection.ts";
+import { type ConnectionOptions, type ConnectionSettings, type KnownLogin, type RouterConnection, connectionSettings, presentedCertificate, routerConnection } from "./drivers/connection.ts";
+import { normalizeCpeUrl } from "./config.ts";
 import { detectRouterFamily } from "./drivers/detect.ts";
+import type { RouterCertificate } from "./router-trust.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext } from "./router-session.ts";
 import type { SessionClient } from "./session-client.ts";
 import { type AlertEventRecord, type EncryptedStateStore, MAX_GENERIC_WRITES } from "./state-store.ts";
@@ -254,6 +256,8 @@ export interface ConnectionCandidate {
   username: string;
   password: string;
   family?: RouterFamily;
+  /** The certificate its owner trusted for this router, by fingerprint (`null` or left out: the usual verification). */
+  certFingerprint?: string | null;
 }
 
 export type ConnectionTestResult =
@@ -284,8 +288,14 @@ export type ConnectionTestResult =
         | "standby"
         | "router_error"
         /** Brand detection: the router answered none of the families' login-free requests (no password went out). */
-        | "unknown_brand";
+        | "unknown_brand"
+        /** An HTTPS router whose certificate nothing vouches for and its owner has not trusted yet (no request went out). */
+        | "untrusted_certificate"
+        /** The router presents another certificate than the one trusted for it (no request went out). */
+        | "certificate_changed";
       code: string | null;
+      /** The certificate the router presents, with the two certificate reasons: for its owner to compare and trust. */
+      certificate?: RouterCertificate;
       /** Login attempts the router says are left (after a wrong password). */
       remainCount: number | null;
       /** Seconds until the router lifts its login lock. */
@@ -436,6 +446,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#family = routerFamilyOf(options.family);
     this.device.setFamily(this.#family);
     this.#settings = connectionSettings(options.connection);
+    this.#settings.certificateTrust?.use(this.#settings.cpeUrl, this.#settings.certFingerprint);
     this.#connection = routerConnection(this.#family, this.#settings, this.#sessionContext);
   }
 
@@ -762,7 +773,7 @@ export class MutexSessionScheduler extends EventEmitter {
     try {
       test = routerConnection(
         routerFamilyOf(candidate.family),
-        { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, fetchImpl: this.#settings.fetchImpl, requestTimeoutMs: this.#settings.requestTimeoutMs, respectBrowserSession: true, apiErrors: this.#settings.apiErrors },
+        { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password, fetchImpl: this.#settings.fetchImpl, certFingerprint: candidate.certFingerprint ?? null, requestTimeoutMs: this.#settings.requestTimeoutMs, respectBrowserSession: true, apiErrors: this.#settings.apiErrors },
         this.#sessionContext
       );
     } catch (err) {
@@ -773,7 +784,7 @@ export class MutexSessionScheduler extends EventEmitter {
     if (remain !== null && remain <= 1 && opts.lastAttempt !== true) {
       return failure("last_attempt", "the router allows one more login attempt before it locks; confirm the password and try again deliberately", { remainCount: remain });
     }
-    return await this.#enqueue("high", async (): Promise<ConnectionTestOutcome> => {
+    return await this.#enqueue("high", () => this.#trusting(candidate.url, candidate.certFingerprint ?? null, async (): Promise<ConnectionTestOutcome> => {
       // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
       // decision): a refused challenge then sends no legacy password, unless re-detection is allowed.
       // (A router identified as another model latches an answer to the password it cannot place: the
@@ -804,7 +815,7 @@ export class MutexSessionScheduler extends EventEmitter {
       } finally {
         this.#testClient = null;
       }
-    });
+    }));
   }
 
   /**
@@ -813,17 +824,49 @@ export class MutexSessionScheduler extends EventEmitter {
    * involved; the live connection stays untouched. The console asks this when its owner leaves the
    * brand to FengSui; the daemon never does on its own.
    */
-  async detectFamily(url: string): Promise<RouterFamily | Extract<ConnectionTestResult, { ok: false }>> {
+  async detectFamily(url: string, certFingerprint: string | null = null): Promise<RouterFamily | Extract<ConnectionTestResult, { ok: false }>> {
     const failure = (reason: "standby" | "invalid_url" | "unknown_brand", message: string): Extract<ConnectionTestResult, { ok: false }> => ({ ok: false, reason, code: null, remainCount: null, waitTimeSec: null, message });
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
-    return await this.#enqueue("high", async () => {
-      try {
-        const family = await detectRouterFamily({ cpeUrl: url, fetchImpl: this.#settings.fetchImpl, requestTimeoutMs: this.#settings.requestTimeoutMs });
-        return family ?? failure("unknown_brand", "the router answered none of the brands FengSui knows; nothing was sent to it but login-free requests");
-      } catch (err) {
-        return failure("invalid_url", err instanceof Error ? err.message : String(err));
-      }
-    });
+    return await this.#enqueue("high", () =>
+      this.#trusting(url, certFingerprint, async () => {
+        try {
+          const family = await detectRouterFamily({ cpeUrl: url, fetchImpl: this.#settings.fetchImpl, requestTimeoutMs: this.#settings.requestTimeoutMs });
+          return family ?? failure("unknown_brand", "the router answered none of the brands FengSui knows; nothing was sent to it but login-free requests");
+        } catch (err) {
+          return failure("invalid_url", err instanceof Error ? err.message : String(err));
+        }
+      })
+    );
+  }
+
+  /** Run one step of a connection test with the candidate's own trust in its certificate (`CertificateTrust.during`). */
+  #trusting<T>(url: string, certFingerprint: string | null, run: () => Promise<T>): Promise<T> {
+    const trust = this.#settings.certificateTrust;
+    if (!trust) return run();
+    let target: string;
+    try {
+      target = normalizeCpeUrl(url);
+    } catch {
+      // An address the test will refuse by itself
+      return run();
+    }
+    return trust.during(target, certFingerprint, run);
+  }
+
+  /**
+   * The certificate the router at `url` presents, for its owner to look at before trusting it: a TLS
+   * handshake of its own step in the queue, no request, no password. `null`: not an HTTPS address, no
+   * handshake, or a build that cannot look (the live demo).
+   */
+  async routerCertificate(url: string): Promise<RouterCertificate | null> {
+    if (!this.#settings.peekCertificate || this.#peerStandby.active) return null;
+    let target: string;
+    try {
+      target = normalizeCpeUrl(url);
+    } catch {
+      return null;
+    }
+    return await this.#enqueue("high", () => presentedCertificate(this.#settings, target));
   }
 
   /** Router error codes per endpoint since start, connection tests included (the device report). */
@@ -840,14 +883,17 @@ export class MutexSessionScheduler extends EventEmitter {
     return await this.#enqueue("high", async () => {
       const family = routerFamilyOf(candidate.family);
       const target = { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password };
+      const certFingerprint = candidate.certFingerprint ?? null;
       const loginScheme = opts.loginScheme ?? null;
       if (family === this.#family) {
         this.#connection.reconfigure(target, loginScheme);
-        this.#settings = { ...this.#settings, ...target };
+        this.#settings = { ...this.#settings, ...target, certFingerprint };
       } else {
         // The family the console chose with the connection: its driver takes over from here
-        this.#replaceConnection(family, { ...this.#settings, ...target }, { loginScheme, eccSigned: false });
+        this.#replaceConnection(family, { ...this.#settings, ...target, certFingerprint }, { loginScheme, eccSigned: false });
       }
+      // From here the router is the one this certificate was trusted for (or none was)
+      this.#settings.certificateTrust?.use(this.#settings.cpeUrl, certFingerprint);
       // Possibly another router: its model is confirmed again before the next write
       this.device.forget();
       this.#remainingLogins = null;

@@ -9,6 +9,7 @@ import { OPENWRT_PASSWORD, openwrtRouter } from "../test/helpers/openwrt-router.
 import type { RouterFamily } from "../src/router-family.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
+import { behindOwnCertificate } from "../test/helpers/https-router.ts";
 import { DEMO_BOT_TOKEN, DEMO_CPE_PASSWORD, DLINK_DEMO_URL, type DemoRouter, ZTE_DEMO_URL, createDemoRouter, createDlinkDemoRouter, createUnverifiedDemoRouter, createZteDemoRouter, offlineTelegram } from "../web/src/demo/worlds.ts";
 
 /**
@@ -35,7 +36,12 @@ function bareRouter(fetchImpl: typeof fetch): DemoRouter {
 interface BrandWorld {
   router: DemoRouter;
   connection: { url: string; username: string; password: string; family: RouterFamily };
+  /** A router that also answers over HTTPS with a certificate of its own: how the daemon trusts and looks at it. */
+  certificate?: Pick<ReturnType<typeof behindOwnCertificate>, "trust" | "peekCertificate">;
 }
+
+/** The fingerprint of the certificate the `https` scenario's router presents. */
+export const DEMO_CERT_FINGERPRINT = "C4".repeat(32);
 
 /**
  * The worlds of other brands. `zte` and `dlink` are the live demo's (`?router=zte`, `?router=dlink`:
@@ -49,6 +55,12 @@ function brandWorld(scenario: DemoDaemonOptions["scenario"]): BrandWorld | null 
   if (scenario === "nradio") {
     const nradio = nradioRouter({ password: DEMO_CPE_PASSWORD });
     return { router: bareRouter(nradio.mock.fetchImpl), connection: { url: NRADIO_URL, username: "root", password: DEMO_CPE_PASSWORD, family: "nradio" } };
+  }
+  if (scenario === "https") {
+    // An OpenWrt router that answers on HTTP and, with a certificate it signed itself, on HTTPS
+    const openwrt = openwrtRouter({ brand: "quectel" });
+    const gate = behindOwnCertificate(openwrt.mock.fetchImpl, { fingerprint: DEMO_CERT_FINGERPRINT });
+    return { router: bareRouter(gate.fetchImpl), connection: { url: "http://192.168.1.1", username: "root", password: OPENWRT_PASSWORD, family: "openwrt" }, certificate: gate };
   }
   if (scenario === "openwrt") {
     const openwrt = openwrtRouter({ brand: "quectel", leases: { dhcp_leases: [{ macaddr: "02:00:5E:10:00:07", hostname: "printer", ipaddr: "192.168.1.70", expires: 43000 }] } });
@@ -65,9 +77,10 @@ export interface DemoDaemonOptions {
    * `breaker`: a wrong CPE password, so the anti-lockout breaker trips; `unverified`: another Huawei
    * model, with experimental writes; `zte`: a ZTE mobile router, through FengSui's ZTE driver;
    * `dlink`: a D-Link 4G router, a brand without locks; `nradio`, `openwrt`: routers of those brands
-   * for the browser tests (`brandWorld`).
+   * for the browser tests (`brandWorld`); `https`: an OpenWrt router that also answers over HTTPS with
+   * a certificate of its own.
    */
-  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte" | "dlink" | "nradio" | "openwrt";
+  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte" | "dlink" | "nradio" | "openwrt" | "https";
   /**
    * Run the Telegram bot against an in-process stand-in for the Bot API (nothing leaves the process),
    * with `TELEGRAM_CHAT_IDS=1003`: Settings → Telegram can then link, list and unlink chats.
@@ -133,6 +146,7 @@ export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaem
     config: demoConfig,
     envPath: envFile,
     fetchImpl: router.fetchImpl,
+    ...(brand?.certificate ? { certificateTrust: brand.certificate.trust, peekCertificate: brand.certificate.peekCertificate } : {}),
     ...(opts.telegram ? { notifyFetchImpl: offlineTelegram() } : {}),
     log: opts.log ?? (() => undefined),
   });

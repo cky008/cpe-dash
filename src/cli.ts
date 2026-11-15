@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { createRouterFetch, peekCertificate } from "./pinned-fetch.ts";
+import { CertificateTrust, type RouterCertificate } from "./router-trust.ts";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AgentTestService } from "./agent-test-service.ts";
@@ -169,6 +171,9 @@ export interface FengSuiRuntimeOptions {
   envPath?: string;
   /** CPE transport (tests inject the mock router here). */
   fetchImpl?: typeof fetch;
+  /** With `fetchImpl`: a test's stand-ins for trusting a router's own certificate (left out: the mock router needs none). */
+  certificateTrust?: CertificateTrust;
+  peekCertificate?: (url: string, signal: AbortSignal | null) => Promise<RouterCertificate | null>;
   /** Transport for Telegram and webhooks (defaults to global `fetch`). */
   notifyFetchImpl?: typeof fetch;
   /** Re-apply `TZ` to `process.env` when `/api/session/reset-breaker` reloads `.env` (CLI only). */
@@ -206,10 +211,15 @@ export function createFengSuiRuntime(options: FengSuiRuntimeOptions): FengSuiRun
 function assembleRuntime(options: FengSuiRuntimeOptions, daemonLock: FileLockHandle): FengSuiRuntimeStack {
   const { config, envPath } = options;
   const log = options.log ?? ((line: string) => console.warn(line));
+  // The daemon reaches its router through a request function that trusts a certificate by its fingerprint where its
+  // owner said so (an HTTPS page with a certificate of its own); a test's mock router needs none of it
+  const trust = new CertificateTrust();
   const services = assembleServices({
     config,
     log,
-    ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.fetchImpl !== undefined
+      ? { fetchImpl: options.fetchImpl, ...(options.certificateTrust ? { certificateTrust: options.certificateTrust } : {}), ...(options.peekCertificate ? { peekCertificate: options.peekCertificate } : {}) }
+      : { fetchImpl: createRouterFetch(trust), certificateTrust: trust, peekCertificate }),
     ...(options.notifyFetchImpl !== undefined ? { notifyFetchImpl: options.notifyFetchImpl } : {}),
     reloadConfig: () => reloadConfig(),
   });

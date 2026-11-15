@@ -594,8 +594,10 @@ export type AlertCode =
 | 方法与路径 | 请求体 | 响应 |
 | :--- | :--- | :--- |
 | `GET /api/console` | — | `ConsoleSettingsResponse` |
-| `POST /api/console/cpe/test` | `{ url?, username?, password?, family?, lastAttempt? }`（缺省字段用已保存的值；`family` 是路由器品牌：`huawei`、`zte-goform`、`zte-zwrt`、`pinsu`、`tozed`、`fiberhome`、`nradio`、`dlink`、`tplink`、`openwrt` 之一，或 `auto`：先只用免登录请求认出品牌，认出之后才登录，认不出则 `result.reason` 为 `unknown_brand`、什么密码都没发；其他取值 `400 VALIDATION_ERROR`。没给 `username` 时，品牌与已保存的相同就用已保存的，否则用该品牌的默认账号；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult, family? }`（`family`：这次测试所用的品牌；没认出品牌时不带） |
+| `POST /api/console/cpe/test` | `{ url?, username?, password?, family?, lastAttempt?, certFingerprint? }`（缺省字段用已保存的值；`family` 是路由器品牌：`huawei`、`zte-goform`、`zte-zwrt`、`pinsu`、`tozed`、`fiberhome`、`nradio`、`dlink`、`tplink`、`openwrt` 之一，或 `auto`：先只用免登录请求认出品牌，认出之后才登录，认不出则 `result.reason` 为 `unknown_brand`、什么密码都没发；其他取值 `400 VALIDATION_ERROR`。没给 `username` 时，品牌与已保存的相同就用已保存的，否则用该品牌的默认账号；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult, family? }`（`family`：这次测试所用的品牌；没认出品牌时不带） |
 | `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `connectionTest`，不保存） |
+
+**HTTPS 路由器的证书**：地址是 `https://` 时，测试先只做一次 TLS 握手、读出路由器出示的证书（不发请求、不发密码）。证书由本机的证书机构担保，就照常测试；否则要 `certFingerprint`（证书的 SHA-256 指纹，64 位十六进制，可带冒号；缺省时已保存的地址用已保存的指纹）与出示的证书一致才继续，测试和之后的每个请求都只发给出示这张证书的路由器。不一致时测试失败，`result.reason` 为 `untrusted_certificate`（还没有信任任何证书）或 `certificate_changed`（和信任的不是同一张），并带 `result.certificate`（`{ fingerprint256, subject, issuer, validFrom, validTo, trusted }`，只有名称与日期，没有密钥）供用户核对；这两种情况下路由器没有收到任何请求。保存成功后 `settings.cpe.certFingerprint` 给出已信任的指纹。运行中路由器换了证书，读写以传输错误 `FENGSUI_CERT_CHANGED` 失败，直到用户重新核对并保存。
 | `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
 | `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD`，并与登录共用同一地址的失败计数：超限后 `429 RATE_LIMITED`（`retryAfterSec`） |
 | `GET /api/console/tokens` | — | `{ ok: true, tokens: PublicTokenRecord[] }`（不含哈希；完整权限令牌曾在 Telegram 群组里用 `/auth` 发出时带 `telegramExposedAtIso`：群成员都看到了它，它从此不能再绑定任何聊天，仍可作令牌使用，控制台提示撤销） |
@@ -630,6 +632,7 @@ export type AlertCode =
   - `reason`：human_logged_in：有人正在登录官方后台（不抢占）；
   - `reason`：unreachable：传输失败；router_error：路由器返回错误码；standby：另一台守护进程正在管理；
   - `reason`：unknown_brand：`family: "auto"` 时路由器没有回应任何一种品牌的免登录特征请求（没有发送密码）
+  - `reason`：untrusted_certificate / certificate_changed：HTTPS 路由器出示的证书没人担保又没被信任，或和已信任的不是同一张（没有发送任何请求；`certificate` 是证书摘要）
   - `cpe`：密码本身永不返回
   - `login`：fromEnv：仍是从 .env 导入的 API_TOKEN
   - `reviewPending`：从 .env 导入后尚未在引导中确认

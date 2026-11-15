@@ -115,6 +115,8 @@ export interface ConnectionInput {
   password?: string;
   /** Spend the router's last login attempt deliberately. */
   lastAttempt?: boolean;
+  /** Trust the certificate with this SHA-256 fingerprint for the router (an HTTPS page with a certificate of its own). */
+  certFingerprint?: string;
 }
 
 export function createEndpoints(api: ApiClient) {

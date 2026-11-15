@@ -5,6 +5,7 @@ import { MAX_TOKENS, TOKEN_PERMISSIONS, type TokenPermission, type TokenRequest,
 import { WRITE_FEATURES, type WriteFeature } from "./features.ts";
 import { AtomicFileWriter, type StorageCipher, assertKnownDataFormat } from "./encrypted-file.ts";
 import type { RouterFamily } from "./router-family.ts";
+import { normalizeFingerprint } from "./router-trust.ts";
 import type { AppConfig } from "./types.ts";
 
 /**
@@ -30,6 +31,11 @@ export interface CpeConnection {
   username: string;
   password: string;
   family?: RouterFamily;
+  /**
+   * The SHA-256 fingerprint of the certificate its owner trusted for this router (64 hexadecimal
+   * digits): an HTTPS router whose certificate nothing else vouches for. Absent: the usual verification.
+   */
+  certFingerprint?: string;
 }
 
 export interface TokenRecord {
@@ -308,7 +314,11 @@ export class ConsoleSettings {
   // ------------------------------------------------------------ router connection and review
 
   get cpe(): CpeConnection | null {
-    return this.#state.cpe ? { ...this.#state.cpe } : null;
+    if (!this.#state.cpe) return null;
+    // A fingerprint that is not one (a file edited by hand) trusts nothing
+    const { certFingerprint, ...connection } = this.#state.cpe;
+    const fingerprint = normalizeFingerprint(certFingerprint);
+    return fingerprint === null ? connection : { ...connection, certFingerprint: fingerprint };
   }
 
   setCpe(connection: CpeConnection): void {

@@ -269,7 +269,7 @@ export interface AuthStatusResponse {
 export interface ConsoleSettingsResponse {
   ok: true;
   /** The router connection; the password itself is never sent back. */
-  cpe: { url: string; username: string; passwordSet: boolean; family?: RouterFamily } | null;
+  cpe: { url: string; username: string; passwordSet: boolean; family?: RouterFamily; /** The certificate trusted for it by fingerprint (an HTTPS router with a certificate of its own). */ certFingerprint?: string } | null;
   login: { changedAtIso: string | null; fromEnv: boolean };
   /** Imported from `.env` on upgrade and not yet confirmed in the guided check. */
   reviewPending: boolean;

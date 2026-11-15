@@ -1,3 +1,5 @@
+import { deadlineSignal } from "../protocols/transport.ts";
+import type { CertificateTrust, RouterCertificate } from "../router-trust.ts";
 import { HuaweiCpeClient } from "../protocols/hilink/client.ts";
 import { ApiErrorTally, type LoginScheme } from "../device-profile.ts";
 import { type RouterFamily, isDriverFamily } from "../router-family.ts";
@@ -70,6 +72,15 @@ export interface ConnectionOptions {
   cpePassword: string;
   /** How requests go out (tests put a mock router here); default the global `fetch`. */
   fetchImpl?: typeof fetch;
+  /**
+   * The certificate the router's owner trusted for it, by fingerprint (`src/router-trust.ts`): a router
+   * whose HTTPS page presents a certificate it signed itself. `null` or left out: the usual verification.
+   */
+  certFingerprint?: string | null;
+  /** Where `fetchImpl` looks up the trusted fingerprint of a request's origin (the daemon's; left out: nothing is trusted by fingerprint). */
+  certificateTrust?: CertificateTrust;
+  /** Read the certificate a router presents, from a TLS handshake alone (the daemon's; left out: not offered). */
+  peekCertificate?: (url: string, signal: AbortSignal | null) => Promise<RouterCertificate | null>;
   requestTimeoutMs?: number;
   /** `RESPECT_BROWSER_SESSION` (default `true`): yield to a person signed in to the router's page. */
   respectBrowserSession?: boolean;
@@ -84,11 +95,28 @@ export interface ConnectionOptions {
 /** `ConnectionOptions` with the usual values filled in. */
 export interface ConnectionSettings extends ConnectionTarget {
   fetchImpl: typeof fetch;
+  certFingerprint: string | null;
+  certificateTrust?: CertificateTrust;
+  peekCertificate?: (url: string, signal: AbortSignal | null) => Promise<RouterCertificate | null>;
   requestTimeoutMs: number;
   respectBrowserSession: boolean;
   sessionMaxHoldMs?: number;
   apiErrors: ApiErrorTally;
   requireEccSignature?: boolean;
+}
+
+/**
+ * The certificate the router at `url` presents, within one request's time: a handshake alone, as the
+ * daemon's process looks (`peekCertificate`). `null`: the process cannot look, or nothing answered.
+ */
+export async function presentedCertificate(settings: Pick<ConnectionSettings, "peekCertificate" | "requestTimeoutMs">, url: string): Promise<RouterCertificate | null> {
+  if (!settings.peekCertificate) return null;
+  const deadline = deadlineSignal(settings.requestTimeoutMs);
+  try {
+    return await settings.peekCertificate(url, deadline.signal);
+  } finally {
+    deadline.clear();
+  }
 }
 
 export function connectionSettings(options: ConnectionOptions): ConnectionSettings {
@@ -97,6 +125,9 @@ export function connectionSettings(options: ConnectionOptions): ConnectionSettin
     cpeUsername: options.cpeUsername ?? "admin",
     cpePassword: options.cpePassword,
     fetchImpl: options.fetchImpl ?? globalThis.fetch,
+    certFingerprint: options.certFingerprint ?? null,
+    ...(options.certificateTrust !== undefined ? { certificateTrust: options.certificateTrust } : {}),
+    ...(options.peekCertificate !== undefined ? { peekCertificate: options.peekCertificate } : {}),
     requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
     respectBrowserSession: options.respectBrowserSession ?? true,
     ...(options.sessionMaxHoldMs !== undefined ? { sessionMaxHoldMs: options.sessionMaxHoldMs } : {}),

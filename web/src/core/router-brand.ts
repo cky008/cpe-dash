@@ -1,6 +1,8 @@
 import type { ConsoleSettingsResponse } from "../../../src/api-contract.ts";
 import type { DeviceFeature } from "../../../src/features.ts";
 import { FAMILY_AUTO, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, type RouterFamilyChoice, familyFeatures, isDriverFamily, routerFamilyOf } from "../../../src/router-family.ts";
+import { formatFingerprint } from "../../../src/router-trust.ts";
+import type { ConnectionTestResult } from "../../../src/scheduler.ts";
 import type { ConnectionInput } from "./endpoints.ts";
 import type { Locale } from "./i18n.ts";
 
@@ -16,6 +18,8 @@ export interface RouterDraft {
   username: string;
   password: string;
   lastAttempt: boolean;
+  /** The certificate its owner chose to trust in this form (`null`: none chosen; the stored one still counts for the stored address). */
+  certFingerprint: string | null;
 }
 
 type StoredConnection = NonNullable<ConsoleSettingsResponse["cpe"]>;
@@ -46,8 +50,8 @@ export function brandOf(value: string): RouterFamilyChoice {
 
 /** The form for the stored connection, or a first one: the brand left to FengSui, the verified router's usual address. */
 export function draftOf(stored: ConsoleSettingsResponse["cpe"]): RouterDraft {
-  if (!stored) return { brand: FAMILY_AUTO, url: usualAddress(FAMILY_AUTO), username: "", password: "", lastAttempt: false };
-  return { brand: routerFamilyOf(stored.family), url: stored.url, username: stored.username, password: "", lastAttempt: false };
+  if (!stored) return { brand: FAMILY_AUTO, url: usualAddress(FAMILY_AUTO), username: "", password: "", lastAttempt: false, certFingerprint: null };
+  return { brand: routerFamilyOf(stored.family), url: stored.url, username: stored.username, password: "", lastAttempt: false, certFingerprint: null };
 }
 
 /**
@@ -63,6 +67,8 @@ export function switchBrand(draft: RouterDraft, next: RouterFamilyChoice): Route
     url: url === "" || url === usualAddress(draft.brand) ? usualAddress(next) : draft.url,
     username: username === "" || username === usualUsername(draft.brand) ? usualUsername(next) : draft.username,
     lastAttempt: false,
+    // Another brand is another router: a certificate is trusted for one router
+    certFingerprint: null,
   };
 }
 
@@ -84,7 +90,26 @@ export function connectionBody(draft: RouterDraft): ConnectionInput {
     ...(!asksUsername(draft.brand) ? { username: "" } : username ? { username } : {}),
     ...(draft.password ? { password: draft.password } : {}),
     ...(draft.lastAttempt ? { lastAttempt: true } : {}),
+    ...(draft.certFingerprint ? { certFingerprint: draft.certFingerprint } : {}),
   };
+}
+
+/** A certificate for the owner to compare with the router's own page: its fingerprint in pairs, its name, how long it is valid. */
+export interface CertificateOffer {
+  fingerprint256: string;
+  shown: string;
+  subject: string | null;
+  validTo: string | null;
+}
+
+/**
+ * The certificate a failed test hands back for its owner to trust: the router's HTTPS page presents
+ * one nothing vouches for, or another one than the one trusted before. `null`: nothing to decide.
+ */
+export function certificateOffer(result: ConnectionTestResult | null): CertificateOffer | null {
+  if (!result || result.ok || (result.reason !== "untrusted_certificate" && result.reason !== "certificate_changed") || !result.certificate) return null;
+  const { fingerprint256, subject, validTo } = result.certificate;
+  return { fingerprint256, shown: formatFingerprint(fingerprint256), subject, validTo: validTo === null ? null : validTo.slice(0, 10) };
 }
 
 /** The form still shows the stored connection, nothing typed: what a review confirms as it is. */

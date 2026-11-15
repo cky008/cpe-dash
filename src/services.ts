@@ -1,3 +1,4 @@
+import type { CertificateTrust, RouterCertificate } from "./router-trust.ts";
 import path from "node:path";
 import { AgentTestService } from "./agent-test-service.ts";
 import { AlertEngine } from "./alert-engine.ts";
@@ -52,6 +53,13 @@ export interface ServicesOptions {
   config: AppConfig;
   /** CPE transport (tests and the demo inject their mock router here). */
   fetchImpl?: typeof fetch;
+  /**
+   * Trusting a router's own certificate by its fingerprint: where `fetchImpl` looks the fingerprint
+   * up, and how the certificate a router presents is read for its owner (`src/pinned-fetch.ts`, which
+   * the daemon's process puts in; the live demo has neither, its routers are mocks).
+   */
+  certificateTrust?: CertificateTrust;
+  peekCertificate?: (url: string, signal: AbortSignal | null) => Promise<RouterCertificate | null>;
   /** Transport for Telegram and webhooks (defaults to global `fetch`). */
   notifyFetchImpl?: typeof fetch;
   log?: (line: string) => void;
@@ -163,6 +171,10 @@ export function assembleServices(options: ServicesOptions): FengSuiServices {
       respectBrowserSession: config.respectBrowserSession,
       requireEccSignature: config.cpeRequireEccSignature,
       ...(fetchImpl !== undefined ? { fetchImpl } : {}),
+      // A router trusted by its certificate's fingerprint (an HTTPS page with a certificate of its own)
+      certFingerprint: connection?.certFingerprint ?? null,
+      ...(options.certificateTrust !== undefined ? { certificateTrust: options.certificateTrust } : {}),
+      ...(options.peekCertificate !== undefined ? { peekCertificate: options.peekCertificate } : {}),
       sessionMaxHoldMs: sessionHoldBudgetMs(config),
     },
     stateStore,

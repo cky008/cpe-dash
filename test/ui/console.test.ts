@@ -4,7 +4,8 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type ChromeHandle, type Page, type Viewport, closeChrome, launchChrome, openPage } from "../../scripts/cdp.ts";
-import { type DemoDaemon, startDemoDaemon } from "../../scripts/demo-router.ts";
+import { OPENWRT_PASSWORD } from "../helpers/openwrt-router.ts";
+import { DEMO_CERT_FINGERPRINT, type DemoDaemon, startDemoDaemon } from "../../scripts/demo-router.ts";
 import { FEATURE_COLUMNS } from "../../src/features.ts";
 
 /**
@@ -857,7 +858,7 @@ describe("the console on routers of other brands", () => {
   });
 
   /** A daemon on another brand's router, identified and with its slow reads done. */
-  async function brand(scenario: "zte" | "dlink" | "nradio" | "openwrt"): Promise<DemoDaemon> {
+  async function brand(scenario: "zte" | "dlink" | "nradio" | "openwrt" | "https"): Promise<DemoDaemon> {
     const demo = await startDemoDaemon({ port: 0, token: TOKEN, scenario });
     await demo.stack.monitor.identifyDevice();
     await Promise.allSettled([demo.stack.monitor.refreshTopology({ ignoreCooldown: true }), demo.stack.monitor.refreshNeighbors({ ignoreCooldown: true })]);
@@ -929,6 +930,40 @@ describe("the console on routers of other brands", () => {
       assert.match(drawer, /Reboot router/);
       const features = demo.stack.scheduler.getStatus().device.features;
       assert.deepEqual([features.bandLock, features.cellLock, features.mobileData], ["not_implemented", "not_implemented", "enabled"]);
+      assert.deepEqual(page.exceptions, []);
+      await closeDialogs(page);
+    } finally {
+      await demo.close();
+    }
+  });
+
+  it("shows an HTTPS router's own certificate, sends nothing until its owner trusts it, and keeps the fingerprint with the connection", async () => {
+    const demo = await brand("https");
+    try {
+      await signIn(page, demo);
+      await openSettings(page, "Router");
+      const dialog = "document.getElementById('settingsDialog')";
+      const type = (selector: string, value: string): Promise<boolean> =>
+        page.evaluate(`(() => { const el = ${dialog}.querySelector(${literal(selector)}); el.value = ${literal(value)}; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+      const press = (label: string): Promise<boolean> => page.evaluate(`[...${dialog}.querySelectorAll('button')].find((b) => b.textContent.trim() === ${literal(label)}).click(); true`);
+      await type("input[autocomplete=off]", "https://192.168.1.1");
+      await type("input[type=password]", OPENWRT_PASSWORD);
+      const before = demo.stack.scheduler.getStatus().totalSessionsCompleted;
+      await press("Test connection");
+      await page.waitUntil(`${dialog}.querySelector('[data-role=certificate]') !== null`, "the certificate to compare");
+      const shown = await page.evaluate<string>(`${dialog}.querySelector('[data-role=certificate]').textContent`);
+      const pairs = (DEMO_CERT_FINGERPRINT.match(/.{2}/g) ?? []).join(":");
+      assert.ok(shown.includes(pairs), "the fingerprint in pairs, as a browser shows it");
+      assert.match(shown, /CN=OpenWrt/);
+      assert.match(shown, /2036-01-01/);
+      assert.match(await page.evaluate<string>(`${dialog}.textContent`), /certificate it signed itself.*The password was not sent/);
+      assert.equal(demo.stack.scheduler.getStatus().totalSessionsCompleted, before, "no session with a router nobody trusted yet");
+      await press("Trust this certificate");
+      await page.waitUntil(`/Connected/.test(${dialog}.querySelector('.fs-notice[data-tone=success]')?.textContent ?? '')`, "the test with the trusted certificate");
+      await press("Test and save");
+      await page.waitUntil(`${dialog}.querySelector('[data-role=certificate-trusted]') !== null`, "the saved connection's trusted certificate");
+      assert.ok((await page.evaluate<string>(`${dialog}.querySelector('[data-role=certificate-trusted]').textContent`)).includes(pairs));
+      assert.deepEqual([demo.stack.settings.cpe?.url, demo.stack.settings.cpe?.certFingerprint], ["https://192.168.1.1", DEMO_CERT_FINGERPRINT]);
       assert.deepEqual(page.exceptions, []);
       await closeDialogs(page);
     } finally {

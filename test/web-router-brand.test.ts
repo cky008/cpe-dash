@@ -4,7 +4,7 @@ import { ROUTER_FAMILIES, ROUTER_FAMILY_FACTS } from "../src/router-family.ts";
 import type { ConnectionTestResult } from "../src/scheduler.ts";
 import { connectionNotice } from "../web/src/core/console-view.ts";
 import { interpolate } from "../web/src/core/i18n.ts";
-import { asksUsername, brandLabel, brandNote, brandOf, brandOptions, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../web/src/core/router-brand.ts";
+import { asksUsername, brandLabel, brandNote, brandOf, brandOptions, certificateOffer, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../web/src/core/router-brand.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../web/src/i18n/settings.ts";
 
 const tZh = (key: SettingsTextKey): string => SETTINGS_TEXT["zh-CN"][key];
@@ -24,9 +24,9 @@ describe("web core: the router's brand in Settings", () => {
   });
 
   it("starts a first connection on detection, and a stored one on its brand", () => {
-    assert.deepEqual(draftOf(null), { brand: "auto", url: "http://192.168.8.1", username: "", password: "", lastAttempt: false });
+    assert.deepEqual(draftOf(null), { brand: "auto", url: "http://192.168.8.1", username: "", password: "", lastAttempt: false, certFingerprint: null });
     // A connection stored before brands existed names none: it is the HiLink one
-    assert.deepEqual(draftOf({ url: "http://192.168.8.1", username: "admin", passwordSet: true }), { brand: "huawei", url: "http://192.168.8.1", username: "admin", password: "", lastAttempt: false });
+    assert.deepEqual(draftOf({ url: "http://192.168.8.1", username: "admin", passwordSet: true }), { brand: "huawei", url: "http://192.168.8.1", username: "admin", password: "", lastAttempt: false, certFingerprint: null });
     assert.equal(draftOf({ url: "http://192.168.66.1", username: "root", passwordSet: true, family: "nradio" }).brand, "nradio");
   });
 
@@ -39,19 +39,30 @@ describe("web core: the router's brand in Settings", () => {
     const back = switchBrand(zte, "auto");
     assert.deepEqual([back.url, back.username], ["http://192.168.8.1", ""]);
     // Typed values are the owner's: another brand does not overwrite them
-    const typed = switchBrand({ brand: "huawei", url: "http://192.168.50.1", username: "operator", password: "typed-password", lastAttempt: true }, "openwrt");
-    assert.deepEqual(typed, { brand: "openwrt", url: "http://192.168.50.1", username: "operator", password: "typed-password", lastAttempt: false });
+    const typed = switchBrand({ brand: "huawei", url: "http://192.168.50.1", username: "operator", password: "typed-password", lastAttempt: true, certFingerprint: "AB".repeat(32) }, "openwrt");
+    assert.deepEqual(typed, { brand: "openwrt", url: "http://192.168.50.1", username: "operator", password: "typed-password", lastAttempt: false, certFingerprint: null }, "a certificate is trusted for one router: another brand is another one");
     for (const family of ROUTER_FAMILIES) assert.equal(usualAddress(family), `http://${ROUTER_FAMILY_FACTS[family].defaultAddress}`);
   });
 
   it("sends the brand with every test, a user only when there is one to send", () => {
-    assert.deepEqual(connectionBody({ brand: "auto", url: " 192.168.8.1 ", username: " ", password: "pw", lastAttempt: false }), { url: "192.168.8.1", family: "auto", password: "pw" });
-    assert.deepEqual(connectionBody({ brand: "huawei", url: "http://192.168.8.1", username: "admin", password: "", lastAttempt: true }), { url: "http://192.168.8.1", family: "huawei", username: "admin", lastAttempt: true });
+    assert.deepEqual(connectionBody({ brand: "auto", url: " 192.168.8.1 ", username: " ", password: "pw", lastAttempt: false, certFingerprint: null }), { url: "192.168.8.1", family: "auto", password: "pw" });
+    assert.deepEqual(connectionBody({ brand: "huawei", url: "http://192.168.8.1", username: "admin", password: "", lastAttempt: true, certFingerprint: null }), { url: "http://192.168.8.1", family: "huawei", username: "admin", lastAttempt: true });
     // A brand that signs in with a password only sends an empty user, whatever an earlier brand left in the form
-    assert.deepEqual(connectionBody({ brand: "zte-zwrt", url: "http://192.168.0.1", username: "admin", password: "pw", lastAttempt: false }), { url: "http://192.168.0.1", family: "zte-zwrt", username: "", password: "pw" });
+    assert.deepEqual(connectionBody({ brand: "zte-zwrt", url: "http://192.168.0.1", username: "admin", password: "pw", lastAttempt: false, certFingerprint: null }), { url: "http://192.168.0.1", family: "zte-zwrt", username: "", password: "pw" });
     assert.equal(asksUsername("zte-goform"), false);
     assert.equal(asksUsername("auto"), true, "the brand is not known yet: its page may ask for one");
     assert.equal(asksUsername("openwrt"), true);
+  });
+
+  it("offers the certificate of an HTTPS router for its owner to compare, and sends the one they trusted", () => {
+    const certificate = { fingerprint256: "ABCD".repeat(16), subject: "CN=192.168.8.1", issuer: "CN=192.168.8.1", validFrom: "2026-01-01T00:00:00.000Z", validTo: "2036-01-01T00:00:00.000Z", trusted: false };
+    const failure = (reason: "untrusted_certificate" | "certificate_changed" | "unreachable", extra: object = {}) => ({ ok: false as const, reason, code: null, remainCount: null, waitTimeSec: null, message: "x", ...extra });
+    assert.deepEqual(certificateOffer(failure("untrusted_certificate", { certificate })), { fingerprint256: "ABCD".repeat(16), shown: "AB:CD:".repeat(16).slice(0, -1), subject: "CN=192.168.8.1", validTo: "2036-01-01" });
+    assert.equal(certificateOffer(failure("certificate_changed", { certificate: { ...certificate, validTo: null } }))?.validTo, null);
+    assert.deepEqual([certificateOffer(null), certificateOffer(failure("unreachable", { certificate })), certificateOffer(failure("untrusted_certificate"))], [null, null, null]);
+    assert.equal(certificateOffer({ ok: true, holdMs: 1, model: null, firmware: null, loginScheme: "scram", tokenFlow: "webserver-token", ecc: true }), null);
+    assert.deepEqual(connectionBody({ brand: "dlink", url: "https://192.168.0.1", username: "admin", password: "pw", lastAttempt: false, certFingerprint: "ABCD".repeat(16) }), { url: "https://192.168.0.1", family: "dlink", username: "admin", password: "pw", certFingerprint: "ABCD".repeat(16) });
+    assert.equal(draftOf({ url: "https://192.168.0.1", username: "admin", passwordSet: true, family: "dlink", certFingerprint: "ABCD".repeat(16) }).certFingerprint, null, "the stored one counts without being sent again");
   });
 
   it("knows when the form still shows the stored connection", () => {

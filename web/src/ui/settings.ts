@@ -68,7 +68,8 @@ import {
   writeResultDetail,
   writesText,
 } from "../core/device-view.ts";
-import { type RouterDraft, asksUsername, brandLabel, brandNote, brandOf, brandOptions, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../core/router-brand.ts";
+import { formatFingerprint } from "../../../src/router-trust.ts";
+import { type RouterDraft, asksUsername, brandLabel, brandNote, brandOf, brandOptions, certificateOffer, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../core/router-brand.ts";
 import { formatAgo } from "../core/format.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../i18n/settings.ts";
@@ -298,7 +299,8 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       show(review, confirmable);
       show(save, !confirmable);
     };
-    url.addEventListener("input", () => ((draft.url = url.value), sync()));
+    // A certificate is trusted for one address: typing another leaves the choice behind
+    url.addEventListener("input", () => ((draft.url = url.value), (draft.certFingerprint = null), sync()));
     user.addEventListener("input", () => ((draft.username = user.value), sync()));
     pass.addEventListener("input", () => ((draft.password = pass.value), sync()));
     sync();
@@ -311,6 +313,28 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       const told = lastTested?.detected ? `${t("brand_detected", { brand: brandLabel(lastTested.family, ctx.tr.locale) })} ` : "";
       status = notice(told + t(n.key, n.params), n.tone);
     }
+    // An HTTPS router with a certificate of its own: shown for its owner to compare, trusted only on their word
+    let certificate: HTMLElement | null = null;
+    const offer = testing ? null : certificateOffer(lastResult);
+    if (offer) {
+      const row = (label: string, value: string, mono = false): HTMLElement => h("div", { class: "text-xs" }, h("span", { class: "fs-label" }, `${label} `), h("span", { class: mono ? "font-mono break-all select-all" : "" }, value));
+      certificate = h(
+        "div",
+        { class: "space-y-1.5 rounded-lg bg-base-200/40 p-2", data: { role: "certificate" } },
+        row(t("cert_fingerprint"), offer.shown, true),
+        offer.subject ? row(t("cert_subject"), offer.subject) : null,
+        offer.validTo ? row(t("cert_valid_to"), offer.validTo) : null,
+        h(
+          "div",
+          { class: "flex justify-end" },
+          button(t("cert_trust"), "btn-warning", () => {
+            draft.certFingerprint = offer.fingerprint256;
+            void runTest(false);
+          })
+        )
+      );
+    }
+    const trusted = stored?.certFingerprint && draft.url.trim() === stored.url && !offer ? h("p", { class: "text-xs faint break-all", data: { role: "certificate-trusted" } }, t("cert_trusted", { fingerprint: formatFingerprint(stored.certFingerprint) })) : null;
     let lastAttempt: HTMLElement | null = null;
     if (!testing && needsLastAttempt(lastResult)) {
       const box = h("input", { class: "checkbox checkbox-sm checkbox-warning mt-0.5", attrs: { type: "checkbox" } });
@@ -326,7 +350,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       field(t("url"), url),
       // A brand whose own page asks for a password only shows no user field
       asksUsername(draft.brand) ? h("div", { class: "grid grid-cols-1 sm:grid-cols-2 gap-3" }, field(t("username"), user), field(t("password"), pass)) : field(t("password"), pass),
+      trusted,
       status,
+      certificate,
       lastAttempt,
       h("div", { class: "flex flex-wrap gap-2 justify-end" }, test, save, review)
     );
