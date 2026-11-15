@@ -69,7 +69,24 @@ export interface TplinkRouterOptions {
   outbox?: TplinkSmsEntry[];
   /** The user name the page's login takes (left out: the form's own). */
   username?: string;
+  /** `networkType` of the LTE link (left out: 4G+ on the MR series, 5G on the other form). */
+  networkType?: string;
+  /** What `/js/oid_str.js` says this firmware was built with (left out: no antenna switch). */
+  buildFlags?: string;
+  /** Start values of the cellular settings, the cell lock, the band selection and the SIM lock. */
+  settings?: Record<string, string>;
+  cellLock?: Record<string, string>;
+  bandSearch?: Record<string, string>;
+  simLock?: Record<string, string>;
+  dataPlan?: Record<string, string>;
+  /** How many times the search for networks is asked before it is done (left out: once); `null`: it fails. */
+  searchPolls?: number | null;
+  /** The router refuses a wrong PIN with an error of its own instead of only counting it. */
+  pinError?: boolean;
 }
+
+/** The PIN of the stand-in's SIM card. */
+export const TPLINK_PIN = "1234";
 
 interface Session {
   key: Buffer;
@@ -97,8 +114,46 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     inboxPage: 1,
     outboxPage: 1,
     ussdPending: false,
+    ussdCancelled: 0,
     rebooted: false,
     loggedOut: 0,
+    /** The cellular settings (`…LTE_WAN_CFG`). */
+    settings: {
+      dataSwitchStatusBackup: "1",
+      roamingEnabled: "0",
+      antennaType: "0",
+      ...(form === "mr"
+        ? { networkPreferredMode: "3", networkSelectionMode: "0", networkSelectionMCC: "0", networkSelectionMNC: "0", networkSelectionISP: "", bandSelectSwitch: "0", bandSelectedMaskL: "0", bandSelectedMaskH: "0" }
+        : { networkPreferredModeSelected: "5G Preferred", networkPreferredModeOptionList: "5G Preferred,5G/4G,5G NSA/4G,5G SA Only,4G Preferred,4G Only,3G Only" }),
+      ...opts.settings,
+    } as Record<string, string>,
+    /** The MR series' cell lock: unlocked, it names the serving cell. */
+    cellLock: { rfInfoCellIDLock: "0", rfInfoCellID: "134217758", rfInfoEARFCN: "300", rfInfoPCI: "211", ...opts.cellLock } as Record<string, string>,
+    bandSearch: { supportBandList: "W1;B1;B3;B7;B20;N1;N28;N78S;N78N;", selectedBand: "", selectedMode: "1", ...opts.bandSearch } as Record<string, string>,
+    lteCellLock: { lteCelllockEnable: "0", pci: "-1", EARFCN: "-1", band: "0" } as Record<string, string>,
+    nrCellLock: { nrCelllockEnable: "0", pci: "-1", NRARFCN: "-1", band: "0", scs: "0" } as Record<string, string>,
+    simLock: { pinState: "3", remainPinUnlockTime: "3", remainPukUnlockTime: "10", autoUnlockPin: "0", ...opts.simLock } as Record<string, string>,
+    dataPlan: { totalStatistics: "2948105728.0", curRxSpeed: "125000", curTxSpeed: "25000", enableDataLimit: "0", limitation: "0", warningPercent: "90", enablePaymentDay: "1", paymentDay: "5", ...opts.dataPlan } as Record<string, string>,
+    /** The search for networks: how often it was asked since it started (`null`: none running). */
+    searchAsked: null as number | null,
+    searchDone: false,
+    networkSearch: { selectedMode: "1", selectedOperator: "" } as Record<string, string>,
+  };
+  const OPERATORS = [
+    { ispName: "Three", mcc: "272", mnc: "1", itemStat: "2" },
+    { ispName: "DemoNet", mcc: "272", mnc: "2", itemStat: "1" },
+    { ispName: "Barred", mcc: "272", mnc: "3", itemStat: "3" },
+  ];
+  const OPERATOR_LIST = "Three,27201,2;DemoNet,27202,1;Barred,27203,3;";
+  /** Whether the search has answered by now: each ask counts. */
+  const searched = (): boolean => {
+    if (state.searchAsked === null) return state.searchDone;
+    state.searchAsked += 1;
+    if (opts.searchPolls !== null && state.searchAsked >= (opts.searchPolls ?? 1)) {
+      state.searchAsked = null;
+      state.searchDone = true;
+    }
+    return state.searchDone;
   };
   /** The actions the router took after the login, as `operation oid` (and what a write set). */
   const actions: Array<{ operation: string; oid: string; stack: string; attrs: Record<string, string> }> = [];
@@ -188,9 +243,28 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     const name = oid.replace(/^DEV2_/, "");
     if (opts.missing?.includes(name)) return "missing";
     if (name === "DEV_INFO" || oid === "IGD_DEV_INFO") return { modelName: form === "mr" ? "Archer MR600" : "Archer NX200", hardwareVersion: "Archer v2.0", softwareVersion: "1.3.0 0.9.1 v0001.0 Build 250101" };
-    if (name === "LTE_LINK_CFG" || oid === "WAN_LTE_LINK_CFG") return stack === lteStack ? { enable: "1", connectStatus: "4", networkType: form === "mr" ? "7" : "8", roamingStatus: "0", simStatus: "3" } : null;
-    if (name === "XTP_LTE_INTF_CFG" || oid === "WAN_LTE_INTF_CFG") return { totalStatistics: "2948105728.0", curRxSpeed: "125000", curTxSpeed: "25000" };
-    if (name === "LTE_NET_STATUS") return { smsUnreadCount: String(state.inbox.filter((m) => m.unread).length), sigLevel: "4", rfInfoRsrp: "-95", rfInfoRsrq: "-11", rfInfoSnr: "140", ussdStatus: "0", smsSendResult: "0" };
+    if (name === "LTE_LINK_CFG" || oid === "WAN_LTE_LINK_CFG") {
+      const up = state.settings["dataSwitchStatusBackup"] === "1";
+      return stack === lteStack ? { enable: "1", connectStatus: up ? "4" : "0", networkType: opts.networkType ?? (form === "mr" ? "7" : "8"), roamingStatus: "0", simStatus: state.simLock["pinState"] === "1" ? "4" : state.simLock["pinState"] === "2" ? "5" : "3" } : null;
+    }
+    if (name === "XTP_LTE_INTF_CFG" || oid === "WAN_LTE_INTF_CFG") return { ...state.dataPlan };
+    if (name === "LTE_NET_STATUS") {
+      // On the MR series: band 3 with band 1 next to it, by the modem's numbers for them
+      return { smsUnreadCount: String(state.inbox.filter((m) => m.unread).length), sigLevel: "4", regStat: "1", rfInfoBand: String(122 | (120 << 8)), rfInfoRsrp: "-95", rfInfoRsrq: "-11", rfInfoSnr: "140", rfInfoRssi: "-65", ussdStatus: "0", smsSendResult: "0" };
+    }
+    if (name === "LTE_WAN_CFG") return stack === lteStack ? { ...state.settings } : null;
+    if (name === "LTE_SIMLOCK") return stack === lteStack ? { ...state.simLock } : null;
+    if (oid === "LTE_CELL_LOCK") return { ...state.cellLock };
+    if (oid === "DEV2_LTE_BAND_SEARCH") return { ...state.bandSearch };
+    if (oid === "DEV2_LTE_4G_CELL_LOCK") return { ...state.lteCellLock };
+    if (oid === "DEV2_LTE_5G_CELL_LOCK") return { ...state.nrCellLock };
+    if (oid === "DEV2_LTE_NETWORK_SEARCH") {
+      const failed = opts.searchPolls === null && state.searchAsked !== null;
+      const done = searched();
+      return { ...state.networkSearch, status: failed ? "3" : done ? "2" : state.searchAsked === null ? "0" : "1", operatorList: done ? OPERATOR_LIST : "", setStatus: "0" };
+    }
+    if (oid === "LTE_NET_SEL") return { itemNum: searched() ? String(OPERATORS.length) : "0" };
+    if (oid === "LTE_NET_SEL_LIST") return state.searchDone ? OPERATORS.map((entry, i) => ({ stack: `${i + 1},0,0,0,0,0`, ...entry })) : [];
     if (name === "LTE_PROF_STAT") return { spn: "Three", ispName: "Three" };
     if (name === "LTE_SERVING_CELL_INFO") {
       return [
@@ -219,7 +293,11 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     }
     if (name === "LTE_SMS_SENDMSGENTRY") return form === "mr" ? page(state.outbox, state.outboxPage).map((m, i) => ({ stack: `${i + 1},0,0,0,0,0`, index: String(m.index), to: m.to ?? "", content: m.content, sendTime: m.time })) : "missing";
     if (name === "LTE_SMS_SENDNEWMSG") return { sendResult: String(opts.sendResult ?? 1) };
-    if (oid === "LTE_USSD") return { sessionStatus: "0", sendResult: "1", response: state.ussdPending && opts.ussdAnswer ? opts.ussdAnswer : "", ussdStatus: !state.ussdPending ? "0" : opts.ussdAnswer === null ? "2" : opts.ussdAnswer === undefined ? "0" : "1" };
+    if (name === "LTE_USSD") {
+      const answered = state.ussdPending && typeof opts.ussdAnswer === "string";
+      // An answer that ends with a question mark leaves the session open for a reply
+      return { sessionStatus: answered && opts.ussdAnswer?.endsWith("?") ? "1" : "0", sendResult: "1", response: answered ? (opts.ussdAnswer ?? "") : "", ussdStatus: !state.ussdPending ? "0" : opts.ussdAnswer === null ? "2" : opts.ussdAnswer === undefined ? "0" : "1" };
+    }
     return "missing";
   };
 
@@ -253,8 +331,37 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
       } else if (name === "LTE_SMS_SENDNEWMSG") {
         if (attrs["index"] !== "1") return { error: 9003, result: null };
         state.outbox = [{ index: state.outbox.length, to: attrs["to"] ?? "", content: attrs["textContent"] ?? "", time: "2026-10-12 08:00:00" }, ...state.outbox];
-      } else if (oid === "LTE_USSD") state.ussdPending = attrs["action"] === "1";
-      else return { error: 9000, result: null };
+      } else if (name === "LTE_USSD") {
+        state.ussdPending = attrs["action"] === "1";
+        if (attrs["action"] === "2") state.ussdCancelled += 1;
+      } else if (name === "LTE_WAN_CFG") {
+        const { profileAction: _action, ...rest } = attrs;
+        Object.assign(state.settings, rest);
+      } else if (oid === "LTE_CELL_LOCK") Object.assign(state.cellLock, attrs);
+      else if (oid === "DEV2_LTE_BAND_SEARCH") Object.assign(state.bandSearch, attrs["selectedMode"] === "1" ? { selectedMode: "1", selectedBand: "" } : attrs);
+      else if (oid === "DEV2_LTE_4G_CELL_LOCK") Object.assign(state.lteCellLock, attrs);
+      else if (oid === "DEV2_LTE_5G_CELL_LOCK") Object.assign(state.nrCellLock, attrs);
+      else if (oid === "DEV2_LTE_NETWORK_SEARCH" || oid === "LTE_NET_SEL") {
+        if (attrs["action"] === "1" || attrs["searchAction"] === "1") {
+          state.searchAsked = 0;
+          state.searchDone = false;
+        } else Object.assign(state.networkSearch, attrs);
+      } else if (oid === "LTE_NET_SEL_LIST") Object.assign(state.networkSearch, { chosen: stack, ...attrs });
+      else if (name === "LTE_SIMLOCK") {
+        const right = attrs["pin"] === TPLINK_PIN;
+        if (!right) {
+          state.simLock["remainPinUnlockTime"] = String(Math.max(0, Number(state.simLock["remainPinUnlockTime"]) - 1));
+          if (opts.pinError) return { error: 71040, result: null };
+        } else {
+          state.simLock["remainPinUnlockTime"] = "3";
+          state.simLock["pinState"] = attrs["simAction"] === "2" ? "3" : "2";
+          if (attrs["autoUnlockPin"] !== undefined) state.simLock["autoUnlockPin"] = attrs["autoUnlockPin"];
+        }
+      } else if (name === "XTP_LTE_INTF_CFG" || oid === "WAN_LTE_INTF_CFG") {
+        const { adjustStatistics, ...rest } = attrs;
+        Object.assign(state.dataPlan, rest);
+        if (adjustStatistics !== undefined && adjustStatistics !== "-1") state.dataPlan["totalStatistics"] = `${adjustStatistics}.0`;
+      } else return { error: 9000, result: null };
       return { error: 0, result: null };
     }
     const found = instanceOf(oid, stack);
@@ -352,6 +459,7 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
       return { text: `<html><body><script type="text/javascript">var authTimes=${state.authTimes};var forbidFlag=${opts.forbidSec ? 1 : 0};var forbidTime=${opts.forbidSec ?? 0};</script></body></html>` };
     }
     if (req.method === "GET" && req.path === "/js/tpEncrypt.js") return opts.script ?? { text: scriptText };
+    if (req.method === "GET" && req.path === "/js/oid_str.js") return { text: opts.buildFlags ?? "var INCLUDE_LTEWAN=1,INCLUDE_LTE_SEARCH_BAND=1,INCLUDE_LTE_ANTENNA_TYPE=0,INCLUDE_USSD=1;" };
     if (req.method !== "POST") return NOT_FOUND;
     if (req.path === (form === "mr" ? "/cgi/getParm" : "/cgi/getGDPRParm")) return keyAnswer();
     if (req.path === "/cgi/getBusy") return { text: `var isLogined=${opts.busy ? 1 : 0};\nvar isBusy=0;\n` };

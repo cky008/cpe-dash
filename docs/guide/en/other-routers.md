@@ -44,11 +44,11 @@ Each one also needs the router to have what it takes: when FengSui identifies th
 
 **Other brands:**
 
-- Band lock (4G and 5G bands, typed as band numbers in the controls drawer) and cell lock (channel + PCI, from Nearby cells): every brand but D-Link and TP-Link
+- Band lock (4G and 5G bands, typed as band numbers in the controls drawer) and cell lock (channel + PCI, from Nearby cells): every brand but D-Link. TP-Link's MR series selects 4G bands only, and locks a cell where the firmware's page has that form; the NX series takes bands from the ones the router lists, and locks a 5G cell in standalone mode only
 - Reboot
-- Redial and the mobile data switch: ZTE (goform and zWRT), NRadio, D-Link, and OpenWrt routers with QModem. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
-- Antenna (automatic, internal, external, both at once): NRadio
-- Cellular settings: the network mode (ZTE, Pinsu, Tozed, FiberHome, NRadio, D-Link, OpenWrt), operator selection (ZTE, OpenWrt), the access point (ZTE, D-Link, OpenWrt), the SIM slot, data roaming and the data limit (ZTE), the SIM PIN (ZTE, and Quectel modules on OpenWrt), airplane mode (FiberHome, OpenWrt), USSD (ZTE goform, D-Link, TP-Link's MR series). What each one does and what to watch for is under [Cellular settings](router-switches.md#cellular-settings)
+- Redial and the mobile data switch: ZTE (goform and zWRT), NRadio, D-Link, TP-Link (except the Deco), and OpenWrt routers with QModem. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
+- Antenna (automatic, internal, external, both at once): NRadio; TP-Link has internal and external only, and only where the firmware has the antenna switch
+- Cellular settings: the network mode (ZTE, Pinsu, Tozed, FiberHome, NRadio, D-Link, TP-Link, OpenWrt), operator selection (ZTE, TP-Link, OpenWrt), the access point (ZTE, D-Link, OpenWrt), the SIM slot (ZTE), data roaming, the data limit and clearing the traffic counters (ZTE, TP-Link), the SIM PIN (ZTE, TP-Link, and Quectel modules on OpenWrt), airplane mode (FiberHome, OpenWrt), USSD (ZTE goform, D-Link, TP-Link). The Deco has none of TP-Link's. What each one does and what to watch for is under [Cellular settings](router-switches.md#cellular-settings)
 - SMS: ZTE, OpenWrt, Tozed, FiberHome, D-Link and TP-Link. What each brand can do differs (some cannot delete, some send with a condition); see [SMS](sms.md#other-brands)
 
 Connected devices show on ZTE goform, NRadio, D-Link, TP-Link and OpenWrt routers. OpenWrt lists its DHCP leases, which do not say whether a device is wired or on Wi-Fi, so the console shows "Link not reported".

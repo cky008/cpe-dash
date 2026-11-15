@@ -5,6 +5,7 @@ import type { SmsWireMessage } from "../../sms/types.ts";
 import { dateOfParts, wireMessage } from "../sms.ts";
 import { cellHasData } from "../snapshot.ts";
 import type { DriverHost, DriverTelemetry } from "../types.ts";
+import { tplinkServingBands } from "./cellular.ts";
 import { instance, instances, type TplinkResult } from "./frames.ts";
 
 /**
@@ -38,7 +39,7 @@ function tenthsOf(value: string | undefined): number | null {
 }
 
 /** A byte count the router writes with a decimal point (`2948105728.0`): its whole bytes. */
-function bytesOf(value: string | undefined): bigint | null {
+export function tplinkBytes(value: string | undefined): bigint | null {
   const text = textOf(value);
   return text === null || !/^\d{1,18}(?:\.\d{1,6})?$/.test(text) ? null : counterOf(text.split(".")[0]);
 }
@@ -88,6 +89,10 @@ export interface TplinkReadings {
   cells: TplinkResult;
   /** The WAN connections (`WAN_IP_CONN` / `DEV2_ADT_WAN`). */
   wan: TplinkResult;
+  /** The MR series' cell lock (`LTE_CELL_LOCK`), on firmware that has one: its status page shows the serving cell from it. */
+  cell: TplinkResult;
+  /** The cellular settings (`…LTE_WAN_CFG`): the roaming switch. */
+  cfg: TplinkResult;
 }
 
 function flag(value: string | undefined): boolean | null {
@@ -97,8 +102,10 @@ function flag(value: string | undefined): boolean | null {
 
 /**
  * One poll in FengSui's shape. The serving cells are named one by one on the EX and NX series (the
- * first connected 4G and 5G entries are the cells, the others carriers next to them); the MR series
- * reports the signal of the serving cell alone, without its band or channel.
+ * first connected 4G and 5G entries are the cells, the others carriers next to them). The MR series
+ * reports the serving cell's signal and its band (with a second band next to it under carrier
+ * aggregation, of which it says nothing more); its channel, PCI and identity are read where the
+ * firmware has a cell lock, as the status page does: registered on plain 4G only.
  */
 export function parseTplinkTelemetry(read: TplinkReadings): DriverTelemetry {
   const info = instance(read.info);
@@ -110,13 +117,22 @@ export function parseTplinkTelemetry(read: TplinkReadings): DriverTelemetry {
   const connected = instances(read.cells).filter((entry) => entry["cellConnectionStatus"] === "1");
   const lteCells = connected.filter((entry) => ["3", "7"].includes(entry["networkType"] ?? "")).map((entry) => servingCell(entry, "LTE"));
   const nrCells = connected.filter((entry) => entry["networkType"] === "8").map((entry) => servingCell(entry, "NR"));
-  // The status' own signal, for a router that lists no cells
-  const summary: DriverCell = { ...emptyCell(), rsrpDbm: rsrpOf(net?.["rfInfoRsrp"]), rsrqDb: rsrqOf(net?.["rfInfoRsrq"]), sinrDb: tenthsOf(net?.["rfInfoSnr"]) };
+  // The status' own signal, for a router that lists no cells; the band it names and the cell lock's cell are 4G ones
+  const signal: DriverCell = { ...emptyCell(), rsrpDbm: rsrpOf(net?.["rfInfoRsrp"]), rsrqDb: rsrqOf(net?.["rfInfoRsrq"]), sinrDb: tenthsOf(net?.["rfInfoSnr"]), rssiDbm: rssiOf(reading(net?.["rfInfoRssi"])) };
+  const bands = tplinkServingBands(net?.["rfInfoBand"]);
+  const own = type === 3 && net?.["regStat"] === "1" ? instance(read.cell) : null;
+  const summary: DriverCell = {
+    ...signal,
+    band: bands.primary,
+    arfcn: arfcnOf(own?.["rfInfoEARFCN"], "LTE", { zeroIsNone: true }),
+    pci: own === null ? null : pciOf(own["rfInfoPCI"], "LTE"),
+    cellId: own === null ? null : identityOf(reading(own["rfInfoCellID"]), 10),
+  };
   let mode = type === null ? null : (NETWORK_TYPES[type] ?? null);
   // 5G next to a connected 4G cell is the NR leg of EN-DC
   if (mode === "SA" && lteCells.length > 0) mode = "NSA";
   const lte = lteCells[0] ?? (mode === "LTE" && cellHasData(summary) ? summary : null);
-  const nr = nrCells[0] ?? (mode === "SA" && cellHasData(summary) ? summary : null);
+  const nr = nrCells[0] ?? (mode === "SA" && cellHasData(signal) ? signal : null);
   const wan = instances(read.wan).filter((entry) => entry["enable"] !== "0");
   const up = wan.find((entry) => (entry["connectionStatus"] ?? entry["connStatusV4"]) === "Connected");
   const sim = intOf(link?.["simStatus"]);
@@ -129,7 +145,12 @@ export function parseTplinkTelemetry(read: TplinkReadings): DriverTelemetry {
     mode,
     lte: mode === "SA" ? null : lte,
     nr: mode === "LTE" ? null : nr,
-    carriers: [...lteCells.slice(1).map((cell) => carrierOfCell("LTE", cell)), ...nrCells.slice(1).map((cell) => carrierOfCell("NR", cell))],
+    carriers: [
+      ...lteCells.slice(1).map((cell) => carrierOfCell("LTE", cell)),
+      ...nrCells.slice(1).map((cell) => carrierOfCell("NR", cell)),
+      // The second band the MR series' status names: a carrier it says nothing more about
+      ...(lteCells.length === 0 && mode === "LTE" && bands.secondary !== null ? [carrierOfCell("LTE", { ...emptyCell(), band: bands.secondary })] : []),
+    ],
     wan: {
       connected: wan.length === 0 ? null : up !== undefined,
       ipv4: ipv4Of(up?.["externalIPAddress"] ?? up?.["connIPv4Address"]),
@@ -150,14 +171,14 @@ export function parseTplinkTelemetry(read: TplinkReadings): DriverTelemetry {
             monthDownloadBytes: null,
             monthUploadBytes: null,
             // The one total the router counts against its data plan, both ways together
-            monthTotalBytes: bytesOf(intf["totalStatistics"]),
+            monthTotalBytes: tplinkBytes(intf["totalStatistics"]),
             monthSeconds: null,
           },
     temperatureC: null,
     signalBars: smallIntOf(net?.["sigLevel"], 5),
     status: {
       sim: { state: sim === null ? null : (SIM_STATES[sim] ?? null), pinLockEnabled: null, pinAttemptsLeft: null, pukAttemptsLeft: null, slot: null },
-      roaming: { active: flag(link?.["roamingStatus"]), dataAllowed: null },
+      roaming: { active: flag(link?.["roamingStatus"]), dataAllowed: flag(instance(read.cfg)?.["roamingEnabled"]) },
     },
   };
 }

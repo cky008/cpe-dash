@@ -212,10 +212,13 @@ export interface DriverCellular {
   /** Search for networks (up to a minute; many routers drop the connection meanwhile). */
   scanOperators?(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]>;
   selectOperator?(selection: OperatorSelection, check: WriteCheck, wait: DriverWait): Promise<void>;
-  /** Enter the card's PIN, once. A wrong PIN resolves `accepted: false`: nothing is sent again. */
-  enterPin?(pin: string, check: WriteCheck): Promise<SimPinOutcome>;
+  /**
+   * Enter the card's PIN, once. A wrong PIN resolves `accepted: false`: nothing is sent again.
+   * `wait`: for a router whose page reads the result only after a pause.
+   */
+  enterPin?(pin: string, check: WriteCheck, wait?: DriverWait): Promise<SimPinOutcome>;
   /** Turn "ask for the PIN at every start" on or off with the card's PIN, once. */
-  setPinLock?(enabled: boolean, pin: string, check: WriteCheck): Promise<SimPinOutcome>;
+  setPinLock?(enabled: boolean, pin: string, check: WriteCheck, wait?: DriverWait): Promise<SimPinOutcome>;
   setDataLimit?(limit: DataLimitSetting, check: WriteCheck): Promise<void>;
   /** Clear the router's own traffic counters. */
   resetTraffic?(check: WriteCheck): Promise<void>;

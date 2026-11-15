@@ -3,6 +3,7 @@ import type { ApnAuthMode, ApnView, NetworkMode } from "../../cellular.ts";
 import { type DriverCell, emptyCell } from "../../protocols/readings.ts";
 import { arfcnOf, counterOf, fieldOf, iccidOf, identityOf, imeiOf, imsiOf, intOf, ipv4Of, ipv6Of, isPlainObject, labelOf, msisdnOf, nonNegativeOf, plmnCodeOf, rsrpOf, rsrqOf, rssiOf, sinrOf, smallIntOf, textOf } from "../../protocols/values.ts";
 import type { SmsWireMessage } from "../../sms/types.ts";
+import { lteBandOfIndex } from "../bands.ts";
 import { bandOfChannel, servingModeOf } from "../cells.ts";
 import { dateOfParts, wireMessage } from "../sms.ts";
 import { cellHasData } from "../snapshot.ts";
@@ -34,43 +35,10 @@ export function dlinkEncodedPassword(password: string): string | null {
 
 // ── Signal ───────────────────────────────────────────────────────────────────
 
-/**
- * The LTE band behind the number the router names it by (`bm_currentBand`), as its own page lists
- * them: 120 to 133 are bands 1 to 14, the rest follow one by one.
- */
-const BAND_CODES: Readonly<Record<number, number>> = {
-  134: 17,
-  135: 33,
-  136: 34,
-  137: 35,
-  138: 36,
-  139: 37,
-  140: 38,
-  141: 39,
-  142: 40,
-  143: 18,
-  144: 19,
-  145: 20,
-  146: 21,
-  147: 24,
-  148: 25,
-  149: 41,
-  150: 42,
-  151: 43,
-  152: 23,
-  153: 26,
-  154: 32,
-  158: 28,
-  159: 29,
-  160: 30,
-};
-
-/** The LTE band of a band number of the router (`null`: not one its page lists). */
+/** The LTE band behind the number the router names it by (`bm_currentBand`): the modem's own number for it (`null`: not an LTE band). */
 export function dlinkBandOf(code: unknown): number | null {
   const n = intOf(code);
-  if (n === null) return null;
-  if (n >= 120 && n <= 133) return n - 119;
-  return BAND_CODES[n] ?? null;
+  return n === null ? null : lteBandOfIndex(n);
 }
 
 function recordOf(value: unknown, key: string): Record<string, unknown> | null {

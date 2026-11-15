@@ -389,6 +389,7 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
   ...models("tplink", [], [
     ["Archer NX200", "indoor", { families: ["tplink"] }],
     ["NX510v", "indoor", { families: ["tplink"], aliases: ["Archer NX510v"] }],
+    ["NX540v", "indoor", { families: ["tplink"], aliases: ["Archer NX540v"] }],
     ["Deco X50-5G", "indoor", { families: ["tplink"], aliases: ["X50-5G"] }],
     ["TL-TR961 5G", "mobile", { aliases: ["TL-TR961"] }],
     ["TL-XDR3020 5G", "indoor", { aliases: ["TL-XDR3020"] }],
@@ -593,14 +594,60 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     family: "tplink",
     variant: null,
     features: ["telemetry"],
-    zh: "只读得到服务小区的信号（RSRP、RSRQ、SINR）和网络制式：这一系列的接口资料里没有频段、频点和 PCI 的读数",
-    en: "reads the serving cell's signal (RSRP, RSRQ, SINR) and the network type only: the notes on this series have no read of its band, channel or PCI",
+    zh: "读得到服务小区的信号和频段。频点、PCI 和小区号只在带「锁小区」页面的固件上、注册在 4G 时读得到（路由器自己的状态页也是这样）；载波聚合时第二个载波只报告频段",
+    en: "reads the serving cell's signal and band. Its channel, PCI and cell identity are read only on firmware whose page has a cell lock, while registered on 4G (as the router's own status page does); under carrier aggregation the second carrier is named by its band alone",
+  },
+  {
+    family: "tplink",
+    variant: null,
+    features: ["bandLock"],
+    zh: "只能选 4G 频段。路由器的管理页只列出它搜到的频段；烽燧不做这次搜索，直接写入你选的频段",
+    en: "selects 4G bands only. The router's page lists the bands a search of its own found; FengSui does not run that search and writes the bands you choose",
+  },
+  {
+    family: "tplink",
+    variant: null,
+    features: ["cellLock"],
+    zh: "只有管理页带「锁小区」的固件才有（TP-Link 官方模拟器里 Archer MR600 v5 有、v3 没有），只能锁 4G 小区；没有的固件上烽燧会拒绝并说明，不发送任何请求",
+    en: "only on firmware whose page has a cell lock (in TP-Link's own emulators the Archer MR600 v5 has one, the v3 has none), and for 4G cells only; on firmware without it FengSui refuses and says so, sending nothing",
+  },
+  {
+    family: "tplink",
+    variant: "ex",
+    features: ["bandLock", "cellLock"],
+    zh: "频段从路由器列出的支持频段里选，4G 和 5G 一起写入；4G 小区和 5G 独立组网（SA）小区各有一把锁，5G 非独立组网下不能锁小区",
+    en: "bands are chosen from the ones the router lists, 4G and 5G written together; a 4G cell and a 5G standalone cell each have a lock of their own, and a 5G cell cannot be locked in non-standalone mode",
+  },
+  ...([null, "ex"] as const).map(
+    (variant): ModelFact => ({
+      family: "tplink",
+      variant,
+      features: ["antenna"],
+      zh: "只在固件带天线切换时提供（路由器管理页自己的脚本写明了有没有：官方模拟器里 NX540v 有、Archer MR600 没有），只有内置和外置两种；管理页要重启路由器才能切换的机型上，烽燧不切换",
+      en: "only where the firmware has the antenna switch (the router's own page script says whether: in TP-Link's emulators the NX540v has it, the Archer MR600 has not), between internal and external only; on a model whose page restarts the router to switch, FengSui does not switch",
+    })
+  ),
+  ...([null, "ex"] as const).map(
+    (variant): ModelFact => ({
+      family: "tplink",
+      variant,
+      features: ["operatorSelect"],
+      zh: "只能选路由器最近一次搜网列出的运营商：先搜网，再选",
+      en: "only an operator the router's last search listed can be chosen: search first, then choose",
+    })
+  ),
+  {
+    family: "tplink",
+    variant: null,
+    features: ["networkMode"],
+    zh: "有三种：4G 优先（自动）、仅 4G、仅 3G；管理页只在 SIM 卡可用时才改，烽燧也一样",
+    en: "three modes: 4G preferred (automatic), 4G only, 3G only; the page changes it only with a usable SIM card, and so does FengSui",
   },
   {
     family: "tplink",
     features: ["simCard"],
-    zh: "只报告 SIM 卡的状态（在不在、要不要 PIN），不报告 PIN 的剩余次数",
-    en: "reports the SIM card's state (whether it is there, whether it wants its PIN), not the tries left",
+    zh: "轮询里只报告 SIM 卡的状态（在不在、要不要 PIN）；PIN 的剩余次数在写入 PIN 之前当场读取",
+    en: "the poll reports the SIM card's state only (whether it is there, whether it wants its PIN); the tries a PIN has left are read right before a PIN is written",
   },
   {
     family: "tplink",

@@ -1,23 +1,40 @@
-import type { UssdAnswer, UssdRequest } from "../../cellular.ts";
+import type { DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
-import { SectionUnavailableError } from "../../cpe-domain.ts";
-import type { WriteCheck } from "../../device-access.ts";
+import { type AntennaModeName, SectionUnavailableError } from "../../cpe-domain.ts";
+import { type WriteCheck, settleCheck } from "../../device-access.ts";
 import type { DriverNeighbour } from "../../protocols/readings.ts";
 import { type LanHttp, type LanResponse, parseJsonText } from "../../protocols/transport.ts";
 import { USSD_POLLS, USSD_POLL_MS, emptyUssd, ussdText } from "../../protocols/ussd.ts";
 import { fieldOf, intOf, labelOf, nonNegativeOf, textOf } from "../../protocols/values.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
-import { settleNothingToRead } from "../cellular.ts";
+import { checkCellLock, checkLockBands } from "../bands.ts";
+import { sameDataLimit, settleNothingToRead } from "../cellular.ts";
 import type { DriverCredentials, DriverPrecheck, DriverProtocol } from "../client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, wrongPassword } from "../login.ts";
-import { noteSent, settleRestart } from "../readback.ts";
+import { awaitConnection, noteSent, settleBandLock, settleCellLock, settleDataSwitch, settleRestart, settleUnlock } from "../readback.ts";
 import { settleSmsListing, storedIndices } from "../sms.ts";
-import type { DriverCellular, DriverHost, DriverIdentity, DriverLockState, DriverSessionHandle, DriverSms, DriverSmsSendOptions, DriverSmsSendOutcome, DriverTelemetry, DriverWait } from "../types.ts";
+import type {
+  DriverBandLockTarget,
+  DriverCellLockTarget,
+  DriverCellular,
+  DriverCellularState,
+  DriverDataLink,
+  DriverHost,
+  DriverIdentity,
+  DriverLockState,
+  DriverSessionHandle,
+  DriverSms,
+  DriverSmsSendOptions,
+  DriverSmsSendOutcome,
+  DriverTelemetry,
+  DriverWait,
+} from "../types.ts";
+import { maskOfBands, mrLockState, mrModeCode, mrModeOf, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkSimLock } from "./cellular.ts";
 import { TplinkEnvelope, type TplinkPublicKey, type TplinkScheme, usableKey } from "./crypto.ts";
 import { decoLogin, decoPasswordKey } from "./deco.ts";
-import { type TplinkAction, type TplinkResult, exRequest, instance, mrFrame, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "./frames.ts";
-import { TPLINK_SENT_BASE, type TplinkSms, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry } from "./parts.ts";
+import { type TplinkAction, type TplinkResult, exRequest, instance, instances, mrFrame, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "./frames.ts";
+import { TPLINK_SENT_BASE, type TplinkSms, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry, tplinkBytes } from "./parts.ts";
 
 /**
  * TP-Link's cellular routers on the interface their own page uses, in its two forms:
@@ -34,8 +51,11 @@ import { TPLINK_SENT_BASE, type TplinkSms, parseTplinkHosts, parseTplinkSmsPage,
  * script (`/js/tpEncrypt.js`) before the password is sent, and a combination nobody recorded a login
  * for gets no password.
  *
- * The interface names the signal and, on the EX and NX series, the serving cells; it has SMS and, on
- * the MR series, USSD. No nearby cells and no band or cell lock are on record.
+ * The interface names the signal, the band and, where the firmware has a cell lock, the serving cell
+ * (the EX and NX series list their serving cells one by one); it has SMS and USSD, a band selection
+ * and a cell lock, and the cellular settings of the page's own "Internet" section (`./cellular.ts`).
+ * No nearby cells are on record. What the page offers depends on the firmware: a write whose object
+ * the router does not have is refused before anything is sent.
  *
  * The Deco line speaks a third interface of its own (`./deco.ts`), told by the key its login hands out.
  */
@@ -54,6 +74,19 @@ const TOKEN = /^[A-Za-z0-9]{8,128}$/;
 const SMS_PAGE_SIZE = 8;
 const SMS_MAX_PAGES = 12;
 const SEND_POLL_MS = 1000;
+/** The page asks every two seconds whether a search for networks is done; FengSui gives it two minutes. */
+const SEARCH_POLL_MS = 2000;
+const SEARCH_POLLS = 60;
+/** How long the page waits before it reads the SIM lock again after a PIN. */
+const PIN_SETTLE_MS = 3500;
+/** The page's script that names what this firmware was built with. */
+const BUILD_FLAGS = "/js/oid_str.js";
+const MR_CELL_LOCK = "LTE_CELL_LOCK";
+/** The band selection switched off, as the page writes it. */
+const MR_BANDS_OFF = { bandSelectSwitch: "0", bandSelectedMaskL: "0", bandSelectedMaskH: "0" } as const;
+const NX_BAND_SEARCH = "DEV2_LTE_BAND_SEARCH";
+const NX_NETWORK_SEARCH = "DEV2_LTE_NETWORK_SEARCH";
+const NX_CELL_LOCKS = { LTE: "DEV2_LTE_4G_CELL_LOCK", NR: "DEV2_LTE_5G_CELL_LOCK" } as const;
 
 interface Objects {
   key: string;
@@ -65,6 +98,11 @@ interface Objects {
   linkAttrs: ReadonlyArray<string>;
   intf: readonly [string, string];
   net: readonly [string, string];
+  /** The attributes of the status the poll asks for (none: the object whole, as the MR series' own status page asks). */
+  netAttrs: ReadonlyArray<string>;
+  /** The cellular settings and the SIM lock: instances beside the LTE link. */
+  wanCfg: string;
+  simLock: string;
   prof: readonly [string, string];
   profAttrs: ReadonlyArray<string>;
   cells: string | null;
@@ -73,7 +111,7 @@ interface Objects {
   inbox: { box: string; entry: string; page: string };
   outbox: { box: string; entry: string; page: string } | null;
   send: string;
-  ussd: string | null;
+  ussd: string;
 }
 
 const OBJECTS: Readonly<Record<Dialect, Objects>> = {
@@ -86,6 +124,9 @@ const OBJECTS: Readonly<Record<Dialect, Objects>> = {
     linkAttrs: ["enable", "connectStatus", "networkType", "roamingStatus", "simStatus"],
     intf: ["WAN_LTE_INTF_CFG", "2,0,0,0,0,0"],
     net: ["LTE_NET_STATUS", "2,1,0,0,0,0"],
+    netAttrs: [],
+    wanCfg: "LTE_WAN_CFG",
+    simLock: "LTE_SIMLOCK",
     prof: ["LTE_PROF_STAT", "2,1,0,0,0,0"],
     profAttrs: ["spn", "ispName"],
     cells: null,
@@ -105,6 +146,9 @@ const OBJECTS: Readonly<Record<Dialect, Objects>> = {
     linkAttrs: ["enable", "connectStatus", "networkType", "simStatus"],
     intf: ["DEV2_XTP_LTE_INTF_CFG", "1,0,0,0,0,0"],
     net: ["DEV2_LTE_NET_STATUS", "1,0,0,0,0,0"],
+    netAttrs: ["smsUnreadCount", "sigLevel", "rfInfoRsrp", "rfInfoRsrq", "rfInfoSnr"],
+    wanCfg: "DEV2_LTE_WAN_CFG",
+    simLock: "DEV2_LTE_SIMLOCK",
     prof: ["DEV2_LTE_PROF_STAT", "1,0,0,0,0,0"],
     profAttrs: ["ispName"],
     cells: "DEV2_LTE_SERVING_CELL_INFO",
@@ -113,7 +157,7 @@ const OBJECTS: Readonly<Record<Dialect, Objects>> = {
     inbox: { box: "DEV2_LTE_SMS_RECVMSGBOX", entry: "DEV2_LTE_SMS_RECVMSGENTRY", page: "pageNumber" },
     outbox: null,
     send: "DEV2_LTE_SMS_SENDNEWMSG",
-    ussd: null,
+    ussd: "DEV2_LTE_USSD",
   },
 };
 
@@ -180,6 +224,20 @@ function notOnRecord(what: string): CpeControlValidationError {
   return new CpeControlValidationError(`This router's interface has no way on record to ${what}`);
 }
 
+/** The router did not hand out what the page's own form for this reads first: this firmware's page has no such form. */
+function noFeature(what: string): CpeControlValidationError {
+  return new CpeControlValidationError(`This router's firmware has no ${what}: nothing was sent`);
+}
+
+function flagOf(value: string | undefined): boolean | null {
+  const n = intOf(value);
+  return n === null ? null : n === 1;
+}
+
+/** The largest data limit the page's form takes: 9999 GB. */
+const MAX_LIMIT_BYTES = 9999 * 1024 ** 3;
+const MIN_LIMIT_BYTES = 1024 ** 2;
+
 class TplinkSession implements DriverSessionHandle {
   readonly family = FAMILY;
   readonly #http: LanHttp;
@@ -194,8 +252,10 @@ class TplinkSession implements DriverSessionHandle {
    * other form has only the inbox on record, so what FengSui sends there is kept by FengSui.
    */
   readonly sms: DriverSms;
-  /** USSD, on the form whose page has it (the MR series): the one cellular setting on record here. */
-  readonly cellular?: DriverCellular;
+  /** Mobile data as the page's own switch (`dataSwitchStatusBackup`). */
+  readonly data: DriverDataLink;
+  /** The cellular settings of the page's "Internet" section, its data settings, its PIN page and USSD. */
+  readonly cellular: DriverCellular;
 
   constructor(http: LanHttp, dialect: Dialect, envelope: TplinkEnvelope, token: string) {
     this.#http = http;
@@ -211,7 +271,22 @@ class TplinkSession implements DriverSessionHandle {
       markRead: (indices, check) => this.#smsWrite(indices, check, "read"),
       delete: (indices, check) => this.#smsWrite(indices, check, "delete"),
     };
-    if (this.#objects.ussd !== null) this.cellular = { read: () => Promise.resolve({}), ussd: (request, check, wait) => this.#ussd(request, check, wait) };
+    this.data = {
+      enabled: async () => flagOf((await this.#settings())?.["dataSwitchStatusBackup"]),
+      set: (enabled, check, wait) => this.#setData(enabled, check, wait),
+    };
+    this.cellular = {
+      read: () => this.#cellularState(),
+      setNetworkMode: (mode, check) => this.#setNetworkMode(mode, check),
+      setRoaming: (enabled, check) => this.#setRoaming(enabled, check),
+      scanOperators: (check, wait) => this.#scanOperators(check, wait),
+      selectOperator: (selection, check) => this.#selectOperator(selection, check),
+      enterPin: (pin, check, wait) => this.#pin({ simAction: "4", pin }, 2, check, wait),
+      setPinLock: (enabled, pin, check, wait) => this.#pin({ simAction: enabled ? "1" : "2", pin }, enabled ? 2 : 3, check, wait),
+      setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
+      resetTraffic: (check) => this.#resetTraffic(check),
+      ussd: (request, check, wait) => this.#ussd(request, check, wait),
+    };
   }
 
   get open(): boolean {
@@ -280,38 +355,163 @@ class TplinkSession implements DriverSessionHandle {
     };
   }
 
+  /** The LTE link's instance: the cellular settings and the SIM lock are instances beside it. */
+  get #lte(): string {
+    return this.#objects.link[1];
+  }
+
+  /** One object whole, as the page's own forms read it; `null`: the router did not hand it out. */
+  async #object(oid: string, stack?: string): Promise<Record<string, string> | null> {
+    return instance(await this.#one({ operation: "get", oid, ...(stack === undefined ? {} : { stack }) }).catch(() => null));
+  }
+
+  /** The cellular settings (`…LTE_WAN_CFG`). */
+  #settings(): Promise<Record<string, string> | null> {
+    return this.#object(this.#objects.wanCfg, this.#lte);
+  }
+
+  /** Attributes of the cellular settings, written the way the page's switches write them. */
+  async #setSettings(check: WriteCheck, attrs: Readonly<Record<string, string>>): Promise<void> {
+    const oid = this.#objects.wanCfg;
+    await this.#write(check, `${oid}.set`, [{ operation: "set", oid, stack: this.#lte, attrs }]);
+  }
+
   async telemetry(): Promise<DriverTelemetry> {
     const o = this.#objects;
     const [link = null, intf = null, net = null, prof = null] = await this.#run([
       { operation: "get", oid: o.link[0], stack: o.link[1], attrs: o.linkAttrs },
       { operation: "get", oid: o.intf[0], stack: o.intf[1], attrs: ["totalStatistics", "curRxSpeed", "curTxSpeed"] },
-      { operation: "get", oid: o.net[0], stack: o.net[1], attrs: ["smsUnreadCount", "sigLevel", "rfInfoRsrp", "rfInfoRsrq", "rfInfoSnr"] },
+      { operation: "get", oid: o.net[0], stack: o.net[1], attrs: o.netAttrs },
       { operation: "get", oid: o.prof[0], stack: o.prof[1], attrs: o.profAttrs },
     ]);
     // What other panels of the page read: a firmware without one of them costs the poll only that part
     const cells = o.cells === null ? null : await this.#one({ operation: "list", oid: o.cells }).catch(() => null);
     const wan = await this.#one(o.wan).catch(() => null);
-    return parseTplinkTelemetry({ info: await this.#deviceInfo(), link, intf, net, prof, cells, wan });
+    // The MR series' status page reads the serving cell from the cell lock, on firmware that has one
+    const cell = this.#dialect === "mr" ? await this.#one({ operation: "get", oid: MR_CELL_LOCK }).catch(() => null) : null;
+    const cfg = await this.#one({ operation: "get", oid: o.wanCfg, stack: this.#lte, attrs: ["roamingEnabled"] }).catch(() => null);
+    return parseTplinkTelemetry({ info: await this.#deviceInfo(), link, intf, net, prof, cells, wan, cell, cfg });
   }
 
   neighbours(): Promise<DriverNeighbour[]> {
     return Promise.reject(new SectionUnavailableError("Nearby cells", null));
   }
 
-  lockState(): Promise<DriverLockState> {
-    return Promise.resolve({ lteBands: null, nrBands: null, lteCell: null, nrCell: null, networkMode: null, supportedLte: null, supportedNr: null });
+  // ── Band selection and cell lock ───────────────────────────────────────────
+
+  async lockState(): Promise<DriverLockState> {
+    const cfg = await this.#settings();
+    if (this.#dialect === "mr") return mrLockState(cfg, await this.#object(MR_CELL_LOCK));
+    return nxLockState(await this.#object(NX_BAND_SEARCH, this.#lte), await this.#object(NX_CELL_LOCKS.LTE, this.#lte), await this.#object(NX_CELL_LOCKS.NR, this.#lte), cfg);
   }
 
-  setBandLock(): Promise<void> {
-    return Promise.reject(notOnRecord("lock bands"));
+  /**
+   * The page's band selection. The MR series keeps it in the cellular settings (a switch and two bit
+   * masks, 4G only); the EX and NX series have a form of their own (`DEV2_LTE_BAND_SEARCH`) that lists
+   * the bands the router offers and takes 4G and 5G bands together. Neither changes the network mode.
+   */
+  async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
+    if (target.networkMode !== null) throw notOnRecord("switch the network mode with a band selection");
+    if (this.#dialect === "mr") {
+      if ((await this.#settings())?.["bandSelectSwitch"] === undefined) throw noFeature("band selection");
+      if (target.nr !== null && target.nr !== "all") throw new CpeControlValidationError("This router selects 4G bands only");
+      if (target.lte === "all") await this.#setSettings(check, MR_BANDS_OFF);
+      else {
+        const mask = maskOfBands(checkLockBands("LTE", target.lte, null));
+        if (mask === null) throw new CpeControlValidationError("This router's page selects bands 1 to 31 and 33 to 63");
+        await this.#setSettings(check, { bandSelectSwitch: "1", bandSelectedMaskL: String(mask.low), bandSelectedMaskH: String(mask.high) });
+      }
+    } else {
+      const search = await this.#object(NX_BAND_SEARCH, this.#lte);
+      const supported = parseNxBands(search?.["supportBandList"]);
+      if (search === null || supported === null) throw noFeature("band selection");
+      const supportedNr = [...new Set([...supported.nrSa, ...supported.nrNsa])];
+      if (target.lte !== "all") checkLockBands("LTE", target.lte, supported.lte);
+      if (target.nr !== null && target.nr !== "all") {
+        if (supportedNr.length === 0) throw new CpeControlValidationError("This router offers no 5G bands to select");
+        checkLockBands("NR", target.nr, supportedNr);
+      }
+      const selection = nxSelection(target, supported, intOf(search["selectedMode"]) === 2 ? parseNxBands(search["selectedBand"]) : null);
+      const attrs: Record<string, string> = selection === null ? { selectedMode: "1" } : { selectedMode: "2", selectedBand: nxBandList(selection) };
+      await this.#write(check, `${NX_BAND_SEARCH}.set`, [{ operation: "set", oid: NX_BAND_SEARCH, stack: this.#lte, attrs }]);
+    }
+    const after = await this.lockState().catch(() => null);
+    // "Every 5G band" asks nothing of a router that has none
+    settleBandLock(check, after !== null && after.nrBands === null && target.nr === "all" ? { ...target, nr: null } : target, after);
   }
 
-  setCellLock(): Promise<void> {
-    return Promise.reject(notOnRecord("lock a cell"));
+  /**
+   * The page's cell lock: a channel and a PCI. The MR series has one for 4G on newer firmware
+   * (`LTE_CELL_LOCK`); the EX and NX series have one each for 4G and for 5G standalone, which also
+   * take the band (one the router offers) and, for 5G, the subcarrier spacing.
+   */
+  async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
+    const t = checkCellLock(target);
+    // The bound of the page's own form for a 4G channel
+    if (t.rat === "LTE" && t.arfcn > 65535) throw new CpeControlValidationError(`This router's page takes 4G channels up to 65535 (asked: ${t.arfcn})`);
+    if (this.#dialect === "mr") {
+      if (t.rat !== "LTE") throw new CpeControlValidationError("This router locks 4G cells only");
+      if ((await this.#object(MR_CELL_LOCK)) === null) throw noFeature("cell lock");
+      if (t.arfcn < 1) throw new CpeControlValidationError("This router's page takes 4G channels from 1");
+      // The form sends the cell's identity as well, empty when its field is left empty
+      const attrs = { rfInfoCellIDLock: "1", rfInfoCellID: "", rfInfoEARFCN: String(t.arfcn), rfInfoPCI: String(t.pci) };
+      await this.#write(check, `${MR_CELL_LOCK}.set`, [{ operation: "set", oid: MR_CELL_LOCK, attrs }]);
+    } else {
+      const oid = NX_CELL_LOCKS[t.rat];
+      const supported = parseNxBands((await this.#object(NX_BAND_SEARCH, this.#lte))?.["supportBandList"]);
+      if (supported === null || (await this.#object(oid, this.#lte)) === null) throw noFeature(`${t.rat === "NR" ? "5G" : "4G"} cell lock`);
+      // The form picks the band from the ones the router offers; a 5G cell is locked standalone only
+      const offered = t.rat === "LTE" ? supported.lte : supported.nrSa;
+      if (!offered.includes(t.band)) throw new CpeControlValidationError(`Band ${t.rat === "NR" ? "n" : "B"}${t.band} is not one this router's page offers for a ${t.rat === "NR" ? "5G standalone" : "4G"} cell lock`);
+      const attrs: Record<string, string> =
+        t.rat === "LTE"
+          ? { pci: String(t.pci), EARFCN: String(t.arfcn), band: String(t.band), lteCelllockEnable: "1" }
+          : { pci: String(t.pci), NRARFCN: String(t.arfcn), band: String(t.band), scs: String(t.scsKhz), nrCelllockEnable: "1" };
+      await this.#write(check, `${oid}.set`, [{ operation: "set", oid, stack: this.#lte, attrs }]);
+    }
+    settleCellLock(check, t, await this.lockState().catch(() => null));
   }
 
-  unlockAll(): Promise<void> {
-    return Promise.reject(notOnRecord("clear a lock"));
+  /** Each lock that is on is switched off the way its form does it; one that is off already is left alone. */
+  async unlockAll(check: WriteCheck): Promise<void> {
+    if (this.#dialect === "mr") {
+      const cfg = await this.#settings();
+      const cell = await this.#object(MR_CELL_LOCK);
+      const selects = cfg?.["bandSelectSwitch"] !== undefined;
+      if (!selects && cell === null) throw noFeature("band selection or cell lock");
+      if (selects && intOf(cfg?.["bandSelectSwitch"]) !== 0) await this.#setSettings(check, MR_BANDS_OFF);
+      if (cell !== null && intOf(cell["rfInfoCellIDLock"]) !== 0) await this.#write(check, `${MR_CELL_LOCK}.set`, [{ operation: "set", oid: MR_CELL_LOCK, attrs: { rfInfoCellIDLock: "0" } }]);
+    } else {
+      const stack = this.#lte;
+      const search = await this.#object(NX_BAND_SEARCH, stack);
+      const cells = { LTE: await this.#object(NX_CELL_LOCKS.LTE, stack), NR: await this.#object(NX_CELL_LOCKS.NR, stack) };
+      if (search === null && cells.LTE === null && cells.NR === null) throw noFeature("band selection or cell lock");
+      if (search !== null && intOf(search["selectedMode"]) !== 1) await this.#write(check, `${NX_BAND_SEARCH}.set`, [{ operation: "set", oid: NX_BAND_SEARCH, stack, attrs: { selectedMode: "1" } }]);
+      for (const rat of ["LTE", "NR"] as const) {
+        const enable = rat === "LTE" ? "lteCelllockEnable" : "nrCelllockEnable";
+        if (cells[rat] !== null && intOf(cells[rat]?.[enable]) !== 0) await this.#write(check, `${NX_CELL_LOCKS[rat]}.set`, [{ operation: "set", oid: NX_CELL_LOCKS[rat], stack, attrs: { [enable]: "0" } }]);
+      }
+    }
+    const after = await this.lockState().catch(() => null);
+    settleUnlock(check, after, { nr: after !== null && after.nrBands !== null, mode: false });
+  }
+
+  /**
+   * The page's switch between the internal and the external antennas, on firmware built with it: the
+   * page's own script (`/js/oid_str.js`) says so, as it tells the page. Where the page restarts the
+   * router to switch, FengSui does not switch.
+   */
+  async setAntennaMode(mode: AntennaModeName, check: WriteCheck): Promise<number> {
+    const code = mode === "internal" ? 0 : mode === "external" ? 1 : null;
+    if (code === null) throw new CpeControlValidationError("This router switches between its internal and its external antennas only");
+    const flags = await this.#http.request({ method: "GET", path: BUILD_FLAGS, referer: ROOT });
+    const built = (name: string): boolean => flags.status === 200 && flags.text.includes(`${name}=1`);
+    if (!built("INCLUDE_LTE_ANTENNA_TYPE")) throw noFeature("antenna switch");
+    if (built("INCLUDE_LTE_Q8RX_SWITCH")) throw new CpeControlValidationError("On this model the router's page restarts the router to switch the antenna: use the router's own page");
+    await this.#setSettings(check, { antennaType: String(code), profileAction: "0" });
+    const after = intOf((await this.#settings())?.["antennaType"]);
+    settleCheck(check, after === null ? null : after === code);
+    return code;
   }
 
   async hosts(): Promise<DriverHost[]> {
@@ -412,24 +612,238 @@ class TplinkSession implements DriverSessionHandle {
   }
 
 
+  // ── Mobile data and the cellular settings ──────────────────────────────────
+
+  async #connected(): Promise<boolean | null> {
+    const o = this.#objects;
+    const status = intOf(instance(await this.#one({ operation: "get", oid: o.link[0], stack: o.link[1], attrs: ["connectStatus"] }))?.["connectStatus"]);
+    return status === null ? null : status === 4;
+  }
+
+  /** The page's mobile data switch. Off waits until the connection is down, so a connect sent right after it does not land in the middle. */
+  async #setData(enabled: boolean, check: WriteCheck, wait: DriverWait): Promise<void> {
+    if ((await this.#settings())?.["dataSwitchStatusBackup"] === undefined) throw noFeature("mobile data switch");
+    await this.#setSettings(check, { dataSwitchStatusBackup: enabled ? "1" : "0", profileAction: "0" });
+    if (!enabled) await awaitConnection(() => this.#connected(), false, wait);
+    settleDataSwitch(check, enabled, flagOf((await this.#settings())?.["dataSwitchStatusBackup"]));
+  }
+
+  /** The LTE interface's data settings (`…LTE_INTF_CFG`), whole. */
+  #plan(): Promise<Record<string, string> | null> {
+    return this.#object(this.#objects.intf[0], this.#objects.intf[1]);
+  }
+
+  async #cellularState(): Promise<DriverCellularState> {
+    const cfg = await this.#settings();
+    const state: DriverCellularState = { dataLimit: tplinkDataLimit(await this.#plan()), pinAttemptsLeft: tplinkSimLock(await this.#object(this.#objects.simLock, this.#lte)).attemptsLeft };
+    if (this.#dialect === "mr") {
+      if (cfg?.["networkPreferredMode"] !== undefined) {
+        state.networkMode = mrModeOf(cfg["networkPreferredMode"]);
+        state.networkModes = ["auto", "lte", "wcdma"];
+      }
+      const selection = intOf(cfg?.["networkSelectionMode"]);
+      const mcc = cfg?.["networkSelectionMCC"] ?? "";
+      const mnc = cfg?.["networkSelectionMNC"] ?? "";
+      const plmn = /^\d{3}$/.test(mcc) && /^\d{1,3}$/.test(mnc) ? `${mcc}${mnc.padStart(2, "0")}` : null;
+      state.operator = selection === null ? null : { selection: selection === 1 ? "manual" : "auto", plmn: selection === 1 ? plmn : null };
+      return state;
+    }
+    const modes = nxModes(cfg?.["networkPreferredModeOptionList"]);
+    if (modes.size > 0) {
+      state.networkMode = nxModeOf(cfg?.["networkPreferredModeSelected"], cfg?.["networkPreferredModeOptionList"]);
+      state.networkModes = [...modes.keys()];
+    }
+    const search = await this.#object(NX_NETWORK_SEARCH, this.#lte);
+    const selection = intOf(search?.["selectedMode"]);
+    state.operator = selection === null ? null : { selection: selection === 2 ? "manual" : "auto", plmn: selection === 2 ? (parseNxOperators(search?.["selectedOperator"])[0]?.choice.plmn ?? null) : null };
+    return state;
+  }
+
+  /**
+   * The page's network mode: a number on the MR series (3 4G with 3G behind it, 2 4G only, 1 3G
+   * only), one of the names the router lists on the EX and NX series.
+   */
+  async #setNetworkMode(mode: NetworkMode, check: WriteCheck): Promise<void> {
+    const cfg = await this.#settings();
+    const none = new CpeControlValidationError(`This router offers no "${mode}" network mode`);
+    let read: (after: Record<string, string>) => NetworkMode | null;
+    if (this.#dialect === "mr") {
+      const code = mrModeCode(mode);
+      if (cfg?.["networkPreferredMode"] === undefined || code === null) throw none;
+      // The page changes the mode only with a card it can use (ready, or its PIN given)
+      const o = this.#objects;
+      const sim = intOf(instance(await this.#one({ operation: "get", oid: o.link[0], stack: o.link[1], attrs: ["simStatus"] }))?.["simStatus"]);
+      if (sim !== 3 && sim !== 5) throw new CpeControlValidationError("The router's page changes the network mode only with a SIM card it can use: nothing was sent");
+      await this.#setSettings(check, { networkPreferredMode: code });
+      read = (after) => mrModeOf(after["networkPreferredMode"]);
+    } else {
+      const name = nxModes(cfg?.["networkPreferredModeOptionList"]).get(mode);
+      if (name === undefined) throw none;
+      await this.#setSettings(check, { networkPreferredModeSelected: name });
+      read = (after) => nxModeOf(after["networkPreferredModeSelected"], after["networkPreferredModeOptionList"]);
+    }
+    const after = await this.#settings();
+    settleCheck(check, after === null ? null : read(after) === mode);
+  }
+
+  async #setRoaming(enabled: boolean, check: WriteCheck): Promise<void> {
+    if ((await this.#settings())?.["roamingEnabled"] === undefined) throw noFeature("roaming switch");
+    await this.#setSettings(check, { roamingEnabled: enabled ? "1" : "0", profileAction: "0" });
+    const after = flagOf((await this.#settings())?.["roamingEnabled"]);
+    settleCheck(check, after === null ? null : after === enabled);
+  }
+
+  /**
+   * The page's search for networks: started once, then asked every two seconds whether it is done
+   * (the MR series counts what it found, the EX and NX series name a status), then the list.
+   */
+  async #scanOperators(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]> {
+    settleNothingToRead(check);
+    const mr = this.#dialect === "mr";
+    if (mr) await this.#write(check, "LTE_NET_SEL.set", [{ operation: "set", oid: "LTE_NET_SEL", attrs: { searchAction: "1" } }]);
+    else await this.#write(check, `${NX_NETWORK_SEARCH}.set`, [{ operation: "set", oid: NX_NETWORK_SEARCH, stack: this.#lte, attrs: { action: "1" } }]);
+    for (let ask = 0; ask < SEARCH_POLLS; ask += 1) {
+      await wait.sleep(SEARCH_POLL_MS);
+      if (mr) {
+        const found = nonNegativeOf((await this.#object("LTE_NET_SEL"))?.["itemNum"]);
+        if (found !== null && found > 0) return parseMrOperators(instances(await this.#one({ operation: "list", oid: "LTE_NET_SEL_LIST" }))).map((entry) => entry.choice);
+        continue;
+      }
+      const search = await this.#object(NX_NETWORK_SEARCH, this.#lte);
+      const status = intOf(search?.["status"]);
+      if (status === 2) return parseNxOperators(search?.["operatorList"]).map((entry) => entry.choice);
+      if (status === 3) throw new CpeApiError("search-failed", "The router's search for networks failed");
+    }
+    throw new CpeApiError("timeout", "The router was still searching for networks after two minutes");
+  }
+
+  /**
+   * One operator is chosen from the router's last search, with what that search listed for it (the
+   * page's form sends the entry back); automatic is the form's other choice. The MR series writes
+   * either into its cellular settings; firmware without that writes the search's own objects.
+   */
+  async #selectOperator(selection: OperatorSelection, check: WriteCheck): Promise<void> {
+    const unlisted = new CpeControlValidationError("This network is not in the router's last search: search for networks first");
+    if (this.#dialect === "mr") {
+      const settings = (await this.#settings())?.["networkSelectionMode"] !== undefined;
+      if (selection.mode === "auto") {
+        if (settings) await this.#setSettings(check, { networkSelectionMode: "0", networkSelectionMCC: "0", networkSelectionMNC: "0", networkSelectionISP: "" });
+        else await this.#write(check, "LTE_NET_SEL.set", [{ operation: "set", oid: "LTE_NET_SEL", attrs: { netSelType: "0" } }]);
+      } else {
+        const found = parseMrOperators(instances(await this.#one({ operation: "list", oid: "LTE_NET_SEL_LIST" }).catch(() => null))).find((entry) => entry.choice.plmn === selection.plmn);
+        if (!found) throw unlisted;
+        if (settings) await this.#setSettings(check, { networkSelectionMCC: found.mcc, networkSelectionMNC: found.mnc, networkSelectionISP: found.name, networkSelectionMode: "1" });
+        else await this.#write(check, "LTE_NET_SEL_LIST.set", [{ operation: "set", oid: "LTE_NET_SEL_LIST", stack: found.stack, attrs: { itemStat: "10" } }]);
+      }
+      const after = settings ? ((await this.#cellularState().catch(() => null))?.operator ?? null) : null;
+      settleCheck(check, after === null ? null : selection.mode === "auto" ? after.selection === "auto" : after.selection === "manual" && after.plmn === selection.plmn);
+      return;
+    }
+    const stack = this.#lte;
+    if (selection.mode === "auto") await this.#write(check, `${NX_NETWORK_SEARCH}.set`, [{ operation: "set", oid: NX_NETWORK_SEARCH, stack, attrs: { selectedMode: "1" } }]);
+    else {
+      const found = parseNxOperators((await this.#object(NX_NETWORK_SEARCH, stack))?.["operatorList"]).find((entry) => entry.choice.plmn === selection.plmn);
+      if (!found) throw unlisted;
+      await this.#write(check, `${NX_NETWORK_SEARCH}.set`, [{ operation: "set", oid: NX_NETWORK_SEARCH, stack, attrs: { selectedMode: "2", selectedOperator: found.entry } }]);
+    }
+    const after = await this.#object(NX_NETWORK_SEARCH, stack);
+    const mode = intOf(after?.["selectedMode"]);
+    settleCheck(check, mode === null ? null : selection.mode === "auto" ? mode === 1 : mode === 2 && parseNxOperators(after?.["selectedOperator"])[0]?.choice.plmn === selection.plmn);
+  }
+
+  /**
+   * One PIN write of the page's PIN form (`simAction` 4 gives the card its PIN, 1 turns "ask for the
+   * PIN" on, 2 off), sent once. The page reads the lock again after a wait and shows what it finds;
+   * so does FengSui: `wanted` is the state a PIN the card took leaves it in. A PIN it did not take is
+   * never followed by another.
+   */
+  async #pin(action: { simAction: string; pin: string }, wanted: number, check: WriteCheck, wait?: DriverWait): Promise<SimPinOutcome> {
+    const oid = this.#objects.simLock;
+    const before = await this.#object(oid, this.#lte);
+    if (before === null) throw noFeature("SIM PIN form");
+    // The form sends its "enter the PIN by itself after a restart" switch along: as the router has it
+    const attrs = { ...action, ...(action.simAction === "2" ? {} : { autoUnlockPin: intOf(before["autoUnlockPin"]) === 1 ? "1" : "0" }) };
+    let refused = false;
+    try {
+      await this.#write(check, `${oid}.set`, [{ operation: "set", oid, stack: this.#lte, attrs }]);
+    } catch (err) {
+      // The router's own refusal of the write is its answer to the PIN; a session that is gone is not
+      if (!(err instanceof CpeApiError) || err.code === "session") throw err;
+      refused = true;
+    }
+    await wait?.sleep(PIN_SETTLE_MS);
+    const after = tplinkSimLock(await this.#object(oid, this.#lte));
+    if (!refused && after.pinState === null) throw new CpeAnswerFormatError(`${oid}: the router did not say whether it took the PIN (it was sent once, and is not sent again)`);
+    const accepted = !refused && after.pinState === wanted;
+    if (accepted) settleCheck(check, true);
+    else settleNothingToRead(check);
+    return { accepted, attemptsLeft: after.attemptsLeft };
+  }
+
+  /**
+   * The data settings as the page's form sends them, all at once: the limit and the billing day as
+   * the router has them, unless `change` says otherwise. `adjustStatistics` -1 leaves the used total
+   * alone.
+   */
+  #planForm(before: Record<string, string>, change: Readonly<Record<string, string>>): Record<string, string> {
+    // A change of the limit itself replaces what the router has; anything else sends it back as it is
+    const limit: Record<string, string> = "enableDataLimit" in change ? {} : intOf(before["enableDataLimit"]) === 1 ? { enableDataLimit: "1", limitation: String(nonNegativeOf(before["limitation"]) ?? 0), warningPercent: String(intOf(before["warningPercent"]) ?? 90) } : { enableDataLimit: "0" };
+    const day = intOf(before["paymentDay"]);
+    const billing: Record<string, string> = intOf(before["enablePaymentDay"]) === 1 && day !== null && day >= 1 && day <= 31 ? { enablePaymentDay: "1", paymentDay: String(day) } : { enablePaymentDay: "0" };
+    return { adjustStatistics: "-1", ...limit, ...billing, ...change };
+  }
+
+  async #setDataLimit(limit: DataLimitSetting, check: WriteCheck): Promise<void> {
+    const oid = this.#objects.intf[0];
+    const before = await this.#plan();
+    if (before === null || before["enableDataLimit"] === undefined) throw noFeature("data limit");
+    let change: Record<string, string> = { enableDataLimit: "0" };
+    if (limit.enabled) {
+      const bytes = limit.bytes ?? nonNegativeOf(before["limitation"]);
+      const percent = limit.alertPercent ?? tplinkDataLimit(before)?.alertPercent ?? 90;
+      if (bytes === null || bytes < MIN_LIMIT_BYTES || bytes > MAX_LIMIT_BYTES) throw new CpeControlValidationError("This router's data limit is between 1 MB and 9999 GB");
+      if (percent < 1 || percent > 99) throw new CpeControlValidationError("This router warns at 1 to 99 percent of the limit");
+      change = { enableDataLimit: "1", limitation: String(Math.round(bytes)), warningPercent: String(percent) };
+    }
+    await this.#write(check, `${oid}.set`, [{ operation: "set", oid, stack: this.#objects.intf[1], attrs: this.#planForm(before, change) }]);
+    settleCheck(check, sameDataLimit(limit, tplinkDataLimit(await this.#plan())));
+  }
+
+  /** The form's "correct the used total", to zero. */
+  async #resetTraffic(check: WriteCheck): Promise<void> {
+    const oid = this.#objects.intf[0];
+    const before = await this.#plan();
+    if (before === null || before["totalStatistics"] === undefined) throw noFeature("traffic total to correct");
+    await this.#write(check, `${oid}.set`, [{ operation: "set", oid, stack: this.#objects.intf[1], attrs: this.#planForm(before, { adjustStatistics: "0" }) }]);
+    const was = tplinkBytes(before["totalStatistics"]);
+    const now = tplinkBytes((await this.#plan())?.["totalStatistics"]);
+    settleCheck(check, was === null || now === null ? null : now <= was);
+  }
+
   // ── USSD ───────────────────────────────────────────────────────────────────
 
   /**
-   * A USSD code as the MR series' page sends it (`LTE_USSD`, action 1), then its status until the
-   * network answered (`ussdStatus` 1) or the router gave up (2). Answering inside a session and
-   * ending one are not on record.
+   * USSD as the page's form does it: a code is sent (action 1), then the status asked every second
+   * until the network answered (`ussdStatus` 1) or the router said how it ended otherwise. An answer
+   * that leaves the session open (`sessionStatus` 1) awaits a reply, which is sent the same way;
+   * action 2 ends the session.
    */
   async #ussd(request: UssdRequest, check: WriteCheck, wait: DriverWait): Promise<UssdAnswer> {
     const oid = this.#objects.ussd;
-    if (oid === null) throw notOnRecord("send a USSD code");
-    if (request.kind !== "send") throw notOnRecord(request.kind === "reply" ? "answer inside a USSD session" : "end a USSD session");
     settleNothingToRead(check);
+    if (request.kind === "cancel") {
+      await this.#write(check, `${oid}.set`, [{ operation: "set", oid, attrs: { action: "2" } }]);
+      return emptyUssd("cancelled");
+    }
     await this.#write(check, `${oid}.set`, [{ operation: "set", oid, attrs: { action: "1", reqContent: request.code } }]);
     for (let ask = 0; ask < USSD_POLLS; ask += 1) {
       await wait.sleep(USSD_POLL_MS);
       const state = instance(await this.#one({ operation: "get", oid, attrs: ["sessionStatus", "sendResult", "response", "ussdStatus"] }).catch(() => null));
-      if (state?.["ussdStatus"] === "1") return { state: "answered", text: ussdText(state["response"] ?? null), awaitsReply: false };
-      if (state?.["ussdStatus"] === "2") break;
+      if (state === null) continue;
+      // The router could not send it, or the session ended without an answer (2 the network ended it, 3 not supported, 4 timed out, 5 failed)
+      if (state["sendResult"] === "0") break;
+      if (state["ussdStatus"] === "1") return { state: "answered", text: ussdText(state["response"] ?? null), awaitsReply: state["sessionStatus"] === "1" };
+      if (state["ussdStatus"] !== undefined && state["ussdStatus"] !== "0") break;
     }
     return emptyUssd("no_answer");
   }

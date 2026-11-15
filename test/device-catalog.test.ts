@@ -45,7 +45,7 @@ const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
   nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "networkMode"],
   dlink: ["reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "apn", "ussd"],
-  tplink: ["reboot", "smsWrite", "ussd"],
+  tplink: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "ussd"],
   openwrt: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "airplaneSwitch", "simPin", "apn"],
 };
 
@@ -117,7 +117,7 @@ describe("the supported devices guide page", () => {
     for (const section of CATALOG_SECTIONS) assert.ok(DEVICE_CATALOG.some((entry) => entry.section === section.id), `${section.id}: has models`);
     for (const entry of VERIFIED_FIRMWARE) assert.ok(DEVICE_CATALOG.some((e) => catalogMatches(e, entry.model)), entry.model);
     // D-Link and TP-Link: the models whose web interface is on record connect, the others are listed for reports
-    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [["Archer NX200", "tplink"], ["NX510v", "tplink"], ["Deco X50-5G", "tplink"], ["TL-TR961 5G"], ["TL-XDR3020 5G"], ["Archer MR600", "tplink"]]);
+    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [["Archer NX200", "tplink"], ["NX510v", "tplink"], ["NX540v", "tplink"], ["Deco X50-5G", "tplink"], ["TL-TR961 5G"], ["TL-XDR3020 5G"], ["Archer MR600", "tplink"]]);
     assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"], ["DWR-921"]]);
   });
 
@@ -197,9 +197,9 @@ describe("the supported devices guide page", () => {
     assert.deepEqual(["telemetry", "neighbors", "bandLock", "cellLock", "topology", "smsRead", "battery", "ussd"].map(column), ["△", "", "", "", "?", "△/?", "", "?"]);
     // TP-Link's two forms differ, and the table follows the form each model is on record with
     const tplink = (model: string, feature: string): string | undefined => (marksOf(supportedDevicesSection("en"), "tplink", model) ?? [])[FEATURE_COLUMNS.findIndex((module) => (module.features as ReadonlyArray<string>).includes(feature))];
-    assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer MR600", feature)), ["△", "?", "?", "", "△"]);
-    assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer NX200", feature)), ["?", "△/?", "", "", "△"]);
-    assert.deepEqual(tplink("NX510v", "ussd"), "");
+    assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer MR600", feature)), ["△", "?", "?", "△", "?"]);
+    assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer NX200", feature)), ["?", "△/?", "?", "△", "?"]);
+    assert.deepEqual([tplink("NX510v", "ussd"), tplink("NX540v", "cellLock"), tplink("Archer MR600", "antenna"), tplink("Archer MR600", "apn")], ["?", "△", "△", "△"]);
     // The Deco line: the signal and the mesh's devices, a restart, no SMS in its page
     assert.deepEqual(["telemetry", "topology", "smsRead", "ussd", "reboot"].map((feature) => tplink("Deco X50-5G", feature)), ["△", "?", "", "", "△"]);
   });

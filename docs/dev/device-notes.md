@@ -317,7 +317,7 @@
 
 ## 8. D-Link 与 TP-Link（LuCI RPC / Web JSON 接口）
 
-> **下面是第二份资料里的型号汇总，不是烽燧的实现情况。** 这份资料对这两个品牌只有概述，和后来查到的公开实现对不上的地方不少（比如它把 DWR-960 记成 LuCI JSON-RPC，实际是厂商自己的 `data.ria` 网页接口）。烽燧按公开的开源实现做了其中有接口记录的型号：D-Link 的 DWR-960、DWR-961，TP-Link 的 Archer MR600、Archer NX200、NX510v、Deco X50-5G；其余几款查不到读取信号的接口，表里留空。每个型号实际能做什么以[「支持的设备」](../guide/zh/supported-devices.md#brand-dlink)为准，依据见 [`sources.md`](sources.md) 18.10。
+> **下面是第二份资料里的型号汇总，不是烽燧的实现情况。** 这份资料对这两个品牌只有概述，和后来查到的公开实现对不上的地方不少（比如它把 DWR-960 记成 LuCI JSON-RPC，实际是厂商自己的 `data.ria` 网页接口）。烽燧按公开的开源实现做了其中有接口记录的型号：D-Link 的 DWR-960、DWR-961，TP-Link 的 Archer MR600、Archer NX200、NX510v、NX540v、Deco X50-5G；其余几款查不到读取信号的接口，表里留空。每个型号实际能做什么以[「支持的设备」](../guide/zh/supported-devices.md#brand-dlink)为准，依据见 [`sources.md`](sources.md) 18.10。
 
 资料记载这些路由器使用 OpenWrt `luci-mod-rpc`（`/cgi-bin/luci/rpc/auth`、`/cgi-bin/luci/rpc/uci`）或厂商自己的 Web JSON 接口，与烽燧已有的 OpenWrt 实现（ubus + AT 指令）不是同一套。
 
@@ -330,6 +330,7 @@
 | **DWR-921 (4G LTE 路由器)** | LuCI JSON-RPC 鉴权、4G LTE 信号监控、PCI/TAC/CellID/EARFCN/Band 解析、无线与 WAN 状态监控、流量统计 | 不同硬件修订版 (Rev A / Rev B) 下 LTE 频段锁定 UCI 配置项名称验证 | [提交实测报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+DWR-921) |
 | **TP-Link Archer NX200 (5G AX1800 / AX3000 CPE)** | Web 鉴权与基础蜂窝状态监控、4G/5G 信号指标 (RSRP/RSRQ/SINR)、Band/ARFCN/PCI 读取、流量统计、终端列表 | TP-Link 新版固件 RSA+AES 混合签名下手动锁频段 (`band_list`) 与锁小区 (`cell_lock`) 接口验证 | [提交实测报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TP-Link+Archer+NX200) |
 | **NX510v (5G AX1800 / AX3000 CPE)** | Web 鉴权与基础蜂窝状态监控、4G/5G 信号指标 (RSRP/RSRQ/SINR)、Band/ARFCN/PCI 读取、流量统计、终端列表 | TP-Link 新版固件 RSA+AES 混合签名下手动锁频段 (`band_list`) 与锁小区 (`cell_lock`) 接口验证 | [提交实测报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX510v) |
+| **NX540v (5G AX3000 CPE)** | 资料 B 里没有这款；TP-Link 官方的管理页模拟器记录了它的状态页、频段选择、4G / 5G 锁小区、蜂窝设置、流量设置、PIN 管理和 USSD（见 `sources.md` 18.11） |  | [提交实测报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX540v) |
 | **TP-Link Deco X50-5G (5G AX3000 Whole Home Mesh CPE)** | Web 鉴权与基础蜂窝状态监控、4G/5G 信号指标、Band/ARFCN/PCI 读取、Mesh 节点与终端列表、流量统计 | 外置天线开关与手动频段锁定扩展参数验证 | [提交实测报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TP-Link+Deco+X50-5G) |
 | **TP-Link TL-TR961 5G** | Web 鉴权与蜂窝状态监控、4G/5G 信号指标、PCI/EARFCN/Band 解析、载波聚合状态 (MR600 Cat.6 2CC)、流量统计 | 国内版与国际版固件频段选择接口差异验证 | [提交实测报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TP-Link+TL-TR961+5G) |
 | **TL-XDR3020 5G 定制版** | Web 鉴权与蜂窝状态监控、4G/5G 信号指标、PCI/EARFCN/Band 解析、载波聚合状态 (MR600 Cat.6 2CC)、流量统计 | 国内版与国际版固件频段选择接口差异验证 | [提交实测报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-XDR3020+5G+%E5%AE%9A%E5%88%B6%E7%89%88) |

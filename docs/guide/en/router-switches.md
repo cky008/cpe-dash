@@ -113,7 +113,7 @@ Normally the router picks the operator itself. With manual selection, the router
 - A search takes one to three minutes, and the mobile connection is down meanwhile.
 - The names in the list are the operators' own text. Networks marked "Not allowed" cannot be used with this SIM card.
 - Once you pick an operator, the router no longer changes operator by itself. If that network does not work, the internet goes down, and after 3 minutes FengSui switches back to automatic selection.
-- ZTE routers can only register on a network from their latest search, so search first, then pick.
+- ZTE and TP-Link routers can only register on a network from their latest search, so search first, then pick.
 
 ### SIM slot
 
@@ -153,6 +153,8 @@ The APN (access point name) tells the operator which service this SIM card conne
 ### Data limit and traffic counters
 
 This is the monthly limit the router itself keeps. It is separate from FengSui's own [traffic alerts](notifications.md): at the warning share you set, the router warns in its own way. "Clear traffic counters" sets the router's own counters back to zero and cannot be undone; FengSui's traffic charts are not affected.
+
+On a TP-Link router the limit is between 1 MB and 9999 GB and the warning share between 1% and 99%; when FengSui changes the limit, the billing day set on the router stays as it is.
 
 <a id="ussd"></a>
 

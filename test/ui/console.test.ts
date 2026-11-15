@@ -801,7 +801,7 @@ describe("the console in a browser", () => {
     assert.deepEqual([dlink.users, dlink.address], [1, "http://192.168.0.1"]);
     // TP-Link: its page asks for a password only, so the form has no user name
     const tplink = await choose("tplink");
-    assert.match(tplink.note, /It can change: Send and manage SMS, Reboot, USSD\./);
+    assert.match(tplink.note, /It can change: Send and manage SMS, Band lock, Cell lock, Reboot.*Data limit.*USSD\./);
     assert.deepEqual([tplink.users, tplink.address], [0, "http://192.168.1.1"]);
     // A brand with locks still names them
     assert.match((await choose("openwrt")).note, /Band lock, Cell lock/);

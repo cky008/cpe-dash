@@ -6,15 +6,17 @@ import { SectionUnavailableError } from "../src/cpe-domain.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError } from "../src/drivers/login.ts";
 import { TplinkEnvelope, eccSeal, rsaSign, usableKey } from "../src/drivers/tplink/crypto.ts";
+import { lteBandOfIndex } from "../src/drivers/bands.ts";
+import { bandsOfMask, maskOfBands, mrLockState, mrModeCode, mrModeOf, nxBandList, nxLockState, nxModeOf, nxModes, nxSelection, parseMrOperators, parseNxBands, parseNxOperators, tplinkDataLimit, tplinkServingBands, tplinkSimLock } from "../src/drivers/tplink/cellular.ts";
 import { tplinkProtocol } from "../src/drivers/tplink/driver.ts";
 import { exRequest, instance, instances, mrFrame, mrText, mrValue, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "../src/drivers/tplink/frames.ts";
-import { TPLINK_SENT_BASE, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry } from "../src/drivers/tplink/parts.ts";
+import { TPLINK_SENT_BASE, type TplinkReadings, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry } from "../src/drivers/tplink/parts.ts";
 import type { DriverSms } from "../src/drivers/types.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../src/session-errors.ts";
 import { cellularOf, daemonOn, fullSession, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
-import { TPLINK_HASHES, TPLINK_PASSWORD, TPLINK_URL, tplinkRouter } from "./helpers/tplink-router.ts";
+import { TPLINK_HASHES, TPLINK_PASSWORD, TPLINK_PIN, TPLINK_URL, tplinkRouter } from "./helpers/tplink-router.ts";
 
 /**
  * TP-Link's cellular routers on their own web interface, in both forms and every generation of its
@@ -23,6 +25,8 @@ import { TPLINK_HASHES, TPLINK_PASSWORD, TPLINK_URL, tplinkRouter } from "./help
  */
 
 const smsOf = (session: { sms?: DriverSms }): Required<DriverSms> => session.sms as Required<DriverSms>;
+/** A poll in which the router answered nothing. */
+const none: TplinkReadings = { info: null, link: null, intf: null, net: null, prof: null, cells: null, wan: null, cell: null, cfg: null };
 const sendOptions = (onAccepted: () => void = () => undefined) => ({ statusTimeoutMs: 3000, sleep: noWait.sleep, onAccepted });
 
 describe("tp-link: the page's encryption", () => {
@@ -156,6 +160,7 @@ describe("tp-link: what the router answers, read into FengSui's shapes", () => {
 
   it("reads the serving cells of the EX and NX series: the 4G anchor, its second carrier, and the 5G leg", () => {
     const t = parseTplinkTelemetry({
+      ...none,
       info,
       link: { networkType: "8", simStatus: "3" },
       intf: { totalStatistics: "2948105728.0", curRxSpeed: "125000", curTxSpeed: "25000" },
@@ -178,11 +183,11 @@ describe("tp-link: what the router answers, read into FengSui's shapes", () => {
     assert.deepEqual([t.traffic?.downloadBytesPerSec, t.traffic?.uploadBytesPerSec, t.traffic?.monthTotalBytes], [125000, 25000, 2948105728n]);
     assert.equal(t.status?.sim?.state, "ready");
     // 5G alone is standalone, and its cell is the NR one
-    const sa = parseTplinkTelemetry({ info, link: { networkType: "8" }, intf: null, net: null, prof: null, cells: [{ networkType: "8", cellConnectionStatus: "1", band: "78", ARFCN: "650000", PCI: "142", SSRSRP: "-90" }], wan: null });
+    const sa = parseTplinkTelemetry({ ...none, info, link: { networkType: "8" }, intf: null, net: null, prof: null, cells: [{ networkType: "8", cellConnectionStatus: "1", band: "78", ARFCN: "650000", PCI: "142", SSRSRP: "-90" }], wan: null });
     assert.deepEqual([sa.mode, sa.lte, sa.nr?.rsrpDbm, sa.traffic, sa.wan.connected], ["SA", null, -90, null, null]);
   });
 
-  it("reads the MR series' signal without a band or a channel, and each state of the SIM card and the network", () => {
+  it("reads the MR series' signal and band, the cell where the firmware names it, and each state of the SIM card and the network", () => {
     const t = parseTplinkTelemetry({
       info: { modelName: "Archer MR600" },
       link: { enable: "1", connectStatus: "4", networkType: "7", roamingStatus: "1", simStatus: "4" },
@@ -191,16 +196,36 @@ describe("tp-link: what the router answers, read into FengSui's shapes", () => {
       prof: { spn: "Three", ispName: "" },
       cells: null,
       wan: [{ enable: "0", connectionStatus: "Connected", externalIPAddress: "203.0.113.10" }, { enable: "1", connectionStatus: "Connecting", externalIPAddress: "0.0.0.0" }],
+      cell: null,
+      cfg: null,
     });
     assert.deepEqual([t.mode, t.lte?.band, t.lte?.arfcn, t.lte?.rsrpDbm, t.lte?.rsrqDb, t.lte?.sinrDb, t.nr, t.operatorName], ["LTE", null, null, -101, -12, 6.5, null, "Three"]);
+    // The status names the band (and a second one next to it); the cell lock, where the firmware has one, the cell itself
+    const named = (networkType: string, regStat: string) =>
+      parseTplinkTelemetry({
+        ...none,
+        link: { networkType },
+        net: { regStat, rfInfoBand: String(122 | (120 << 8)), rfInfoRsrp: "-95", rfInfoRssi: "-65" },
+        cell: { rfInfoCellIDLock: "0", rfInfoCellID: "134217758", rfInfoEARFCN: "300", rfInfoPCI: "211" },
+        cfg: { roamingEnabled: "1" },
+      });
+    const plain = named("3", "1");
+    assert.deepEqual([plain.lte?.band, plain.lte?.arfcn, plain.lte?.pci, plain.lte?.cellId, plain.lte?.rssiDbm], [3, 300, 211, "134217758", -65]);
+    assert.deepEqual(plain.carriers.map((c) => [c.rat, c.band, c.arfcn]), [["LTE", 1, null]]);
+    assert.equal(plain.status?.roaming?.dataAllowed, true);
+    const plus = named("7", "1");
+    assert.deepEqual([plus.lte?.band, plus.lte?.arfcn, plus.lte?.pci], [3, null, null], "the status page shows the cell on plain 4G only");
+    assert.deepEqual([named("3", "0").lte?.arfcn, named("2", "1").lte], [null, null], "not registered, or on 3G: no 4G cell to name");
+    const noBand = parseTplinkTelemetry({ ...none, link: { networkType: "3" }, net: { rfInfoBand: "-1", rfInfoRsrp: "-95" } });
+    assert.deepEqual([noBand.lte?.band, noBand.carriers], [null, []]);
     assert.deepEqual([t.wan.connected, t.wan.ipv4], [false, null], "a connection that is switched off does not count");
     assert.deepEqual(t.status?.sim?.state, "pin_required");
     assert.deepEqual(t.status?.roaming, { active: true, dataAllowed: null });
-    const state = (simStatus: string): unknown => parseTplinkTelemetry({ info: null, link: { simStatus }, intf: null, net: null, prof: null, cells: null, wan: null }).status?.sim?.state;
+    const state = (simStatus: string): unknown => parseTplinkTelemetry({ ...none, link: { simStatus } }).status?.sim?.state;
     assert.deepEqual(["0", "1", "2", "3", "5", "6", "7", "8", "x"].map(state), [null, "absent", "error", "ready", "ready", "puk_required", "error", null, null]);
-    const mode = (networkType: string): unknown => parseTplinkTelemetry({ info: null, link: { networkType }, intf: null, net: { rfInfoRsrp: "-90" }, prof: null, cells: null, wan: null }).mode;
+    const mode = (networkType: string): unknown => parseTplinkTelemetry({ ...none, link: { networkType }, net: { rfInfoRsrp: "-90" } }).mode;
     assert.deepEqual(["0", "1", "2", "3", "7", "8", "9"].map(mode), ["NONE", null, "WCDMA", "LTE", "LTE", "SA", null]);
-    const bare = parseTplinkTelemetry({ info: null, link: null, intf: null, net: null, prof: null, cells: null, wan: null });
+    const bare = parseTplinkTelemetry(none);
     assert.deepEqual([bare.mode, bare.lte, bare.nr, bare.model, bare.signalBars], [null, null, null, null, null]);
   });
 
@@ -228,8 +253,8 @@ describe("tp-link: signing in and out", () => {
   it("signs in to the MR series as its page does, reads in one frame, and signs out", async () => {
     const { mock, client, state, logins, actions } = tplinkRouter();
     const t = await client.withSession((s) => s.telemetry());
-    assert.deepEqual([t?.mode, t?.lte?.rsrpDbm, t?.lte?.sinrDb, t?.model, t?.wan.ipv4], ["LTE", -95, 14, "Archer MR600", "198.51.100.42"]);
-    assert.deepEqual(mock.trail, ["GET /", "POST /cgi/getBusy", "POST /cgi/getGDPRParm", "POST /cgi/getParm", "GET /js/tpEncrypt.js", "POST /cgi/login", "GET /", "POST /cgi_gdpr", "POST /cgi_gdpr", "POST /cgi_gdpr", "POST /cgi_gdpr"]);
+    assert.deepEqual([t?.mode, t?.lte?.band, t?.lte?.rsrpDbm, t?.lte?.sinrDb, t?.model, t?.wan.ipv4], ["LTE", 3, -95, 14, "Archer MR600", "198.51.100.42"]);
+    assert.deepEqual(mock.trail, ["GET /", "POST /cgi/getBusy", "POST /cgi/getGDPRParm", "POST /cgi/getParm", "GET /js/tpEncrypt.js", "POST /cgi/login", "GET /", ...Array.from({ length: 6 }, () => "POST /cgi_gdpr")]);
     assert.deepEqual(logins.map((l) => [l.username, l.password, Object.keys(l.sign)]), [["admin", TPLINK_PASSWORD, ["key", "iv", "h", "s"]]]);
     assert.equal(logins[0]?.sign["h"], TPLINK_HASHES.md5["admin"]);
     const login = mock.requests[5];
@@ -244,6 +269,8 @@ describe("tp-link: signing in and out", () => {
       "get LTE_NET_STATUS 2,1,0,0,0,0",
       "get LTE_PROF_STAT 2,1,0,0,0,0",
       "getSub WAN_IP_CONN 0,0,0,0,0,0",
+      "get LTE_CELL_LOCK 0,0,0,0,0,0",
+      "get LTE_WAN_CFG 2,1,0,0,0,0",
       "get IGD_DEV_INFO 0,0,0,0,0,0",
       "cgi /cgi/logout 0,0,0,0,0,0",
     ]);
@@ -372,8 +399,8 @@ describe("tp-link: signing in and out", () => {
 });
 
 describe("tp-link: reads and writes", () => {
-  it("costs a poll only the part a firmware lacks, and has no nearby cells and no lock", async () => {
-    const { client } = tplinkRouter({ form: "ex", missing: ["LTE_SERVING_CELL_INFO", "ADT_WAN", "DEV_INFO"] });
+  it("costs a poll only the part a firmware lacks, has no nearby cells, and refuses a lock its firmware has no form for", async () => {
+    const { client } = tplinkRouter({ form: "ex", missing: ["LTE_SERVING_CELL_INFO", "ADT_WAN", "DEV_INFO", "LTE_WAN_CFG", "LTE_BAND_SEARCH", "LTE_4G_CELL_LOCK", "LTE_5G_CELL_LOCK"] });
     await client.withSession(async (s) => {
       const t = await s.telemetry();
       assert.deepEqual([t.mode, t.nr?.rsrpDbm, t.nr?.band, t.lte, t.wan.connected, t.model], ["SA", -95, null, null, null, null]);
@@ -428,7 +455,6 @@ describe("tp-link: reads and writes", () => {
       assert.deepEqual((await sms.list()).map((m) => [m.index, m.phone, m.content, m.isUnread]), [[1, "+353830000001", "Hello\nworld", true], [2, "DemoBank", "Balance ready", false]]);
       assert.deepEqual(await sms.counters(), { localUnread: 1, localInbox: 2, localOutbox: 0, localDraft: 0, localMax: 0 });
       assert.equal(sms.keepsSent, false);
-      assert.equal(s.cellular, undefined, "no USSD on record for this form");
     });
     assert.deepEqual(actions.filter((a) => a.operation === "set").map((a) => [a.oid, a.attrs["pageNumber"]]), [["DEV2_LTE_SMS_RECVMSGBOX", "1"]]);
     const none = tplinkRouter({ form: "ex", missing: ["LTE_SMS_RECVMSGENTRY"] });
@@ -507,17 +533,24 @@ describe("tp-link: reads and writes", () => {
     }
   });
 
-  it("sends a USSD code on the MR series and waits for the network's answer", async () => {
+  it("sends a USSD code, waits for the network's answer, replies inside a session and ends one", async () => {
     const answered = tplinkRouter({ ussdAnswer: "Your balance: 5.00\u0012Thank you" });
     await answered.client.withSession(async (s) => {
       const check = newCheck();
       assert.deepEqual(await cellularOf(s).ussd({ kind: "send", code: "*100#" }, check, noWait), { state: "answered", text: "Your balance: 5.00\nThank you", awaitsReply: false });
       assert.deepEqual([check.endpoints, check.readback], [["tplink:LTE_USSD.set"], "none"]);
-      assert.deepEqual(await cellularOf(s).read(), {});
-      await assert.rejects(cellularOf(s).ussd({ kind: "reply", code: "1" }, newCheck(), noWait), CpeControlValidationError);
-      await assert.rejects(cellularOf(s).ussd({ kind: "cancel" }, newCheck(), noWait), CpeControlValidationError);
+      const end = newCheck();
+      assert.deepEqual(await cellularOf(s).ussd({ kind: "cancel" }, end, noWait), { state: "cancelled", text: null, awaitsReply: false });
+      assert.deepEqual(end.endpoints, ["tplink:LTE_USSD.set"]);
     });
-    assert.deepEqual(answered.actions.filter((a) => a.operation === "set").map((a) => a.attrs), [{ action: "1", reqContent: "*100#" }]);
+    assert.deepEqual(answered.actions.filter((a) => a.operation === "set").map((a) => a.attrs), [{ action: "1", reqContent: "*100#" }, { action: "2" }]);
+    // An answer that leaves the session open awaits a reply, which is sent like a code; the other form has the same page
+    const asking = tplinkRouter({ form: "ex", ussdAnswer: "1 Balance 2 Offers?" });
+    await asking.client.withSession(async (s) => {
+      assert.deepEqual(await cellularOf(s).ussd({ kind: "send", code: "*100#" }, newCheck(), noWait), { state: "answered", text: "1 Balance 2 Offers?", awaitsReply: true });
+      assert.equal((await cellularOf(s).ussd({ kind: "reply", code: "1" }, newCheck(), noWait)).state, "answered");
+    });
+    assert.deepEqual(asking.actions.filter((a) => a.operation === "set").map((a) => [a.oid, a.attrs]), [["DEV2_LTE_USSD", { action: "1", reqContent: "*100#" }], ["DEV2_LTE_USSD", { action: "1", reqContent: "1" }]]);
     const failed = tplinkRouter({ ussdAnswer: null });
     await failed.client.withSession(async (s) => {
       assert.deepEqual(await cellularOf(s).ussd({ kind: "send", code: "*100#" }, newCheck(), noWait), { state: "no_answer", text: null, awaitsReply: false });
@@ -531,26 +564,445 @@ describe("tp-link: reads and writes", () => {
   });
 });
 
+describe("tp-link: the page's cellular forms, read", () => {
+  it("names the band the status reports, and a second one next to it", () => {
+    assert.deepEqual(tplinkServingBands(String(122 | (120 << 8))), { primary: 3, secondary: 1 });
+    assert.deepEqual(tplinkServingBands("126"), { primary: 7, secondary: null });
+    assert.deepEqual([tplinkServingBands("-1"), tplinkServingBands("0"), tplinkServingBands(undefined), tplinkServingBands("80")].map((b) => b.primary), [null, null, null, null], "none, or a 3G band");
+    assert.deepEqual(tplinkServingBands(String(80 | (120 << 8))), { primary: null, secondary: null }, "no 4G band, no second one");
+    assert.deepEqual([120, 133, 134, 149, 158, 119, 155, 1.5].map(lteBandOfIndex), [1, 14, 17, 41, 28, null, null, null]);
+  });
+
+  it("writes the MR series' band selection as the page's two masks, and reads them back", () => {
+    assert.deepEqual(maskOfBands([1, 3, 20]), { low: 0b10000000000000000101, high: 0 });
+    assert.deepEqual(maskOfBands([31, 38, 40]), { low: 0x40000000, high: 0b10100000 });
+    assert.deepEqual([maskOfBands([32]), maskOfBands([64]), maskOfBands([0]), maskOfBands([1.5])], [null, null, null, null], "the sign bit is one the page's own form cannot write");
+    assert.deepEqual(bandsOfMask("524293", "160"), [1, 3, 20, 38, 40]);
+    assert.deepEqual([bandsOfMask("0", "0"), bandsOfMask("x", "0"), bandsOfMask("-2147483648", "0")], [[], null, null]);
+    const locked = mrLockState({ bandSelectSwitch: "1", bandSelectedMaskL: "5", bandSelectedMaskH: "0", networkPreferredMode: "2" }, { rfInfoCellIDLock: "1", rfInfoEARFCN: "300", rfInfoPCI: "211" });
+    assert.deepEqual(locked, { lteBands: [1, 3], nrBands: null, lteCell: { locked: true, arfcn: 300, pci: 211, band: null }, nrCell: null, networkMode: "lte", supportedLte: null, supportedNr: null });
+    const open = mrLockState({ bandSelectSwitch: "0", networkPreferredMode: "3" }, { rfInfoCellIDLock: "0", rfInfoEARFCN: "300", rfInfoPCI: "211" });
+    assert.deepEqual([open.lteBands, open.lteCell, open.networkMode], ["all", { locked: false }, "auto"]);
+    assert.deepEqual(mrLockState(null, null), { lteBands: null, nrBands: null, lteCell: null, nrCell: null, networkMode: null, supportedLte: null, supportedNr: null });
+    assert.deepEqual([mrLockState({ networkPreferredMode: "1" }, {}).networkMode, mrLockState({}, {}).lteCell], [null, null], "3G only is no mode a lock names; a lock that says nothing is not read");
+    assert.deepEqual([mrModeOf("3"), mrModeOf("1"), mrModeOf("9"), mrModeCode("lte"), mrModeCode("nr_sa")], ["auto", "wcdma", null, "2", null]);
+  });
+
+  it("reads and writes the EX and NX series' band lists: 4G, 5G standalone, 5G next to 4G", () => {
+    const supported = parseNxBands("W1;B1;B3;B7;N1;N28;N78S;N78N;N79N;junk;B0;");
+    assert.deepEqual(supported, { lte: [1, 3, 7], nrSa: [1, 28, 78], nrNsa: [1, 28, 78, 79] });
+    assert.equal(parseNxBands(undefined), null);
+    assert.ok(supported);
+    assert.equal(nxBandList({ lte: [1, 3], nrSa: [78], nrNsa: [78, 79] }), "B1;B3;N78S;N78N;N79N;");
+    // 4G bands from the request; 5G bands it leaves alone stay as they are selected (all of them when nothing is)
+    assert.deepEqual(nxSelection({ lte: [1, 3], nr: null }, supported, null), { lte: [1, 3], nrSa: [1, 28, 78], nrNsa: [1, 28, 78, 79] });
+    assert.deepEqual(nxSelection({ lte: [3, 1], nr: null }, supported, { lte: [7], nrSa: [78], nrNsa: [] }), { lte: [1, 3], nrSa: [78], nrNsa: [] });
+    assert.deepEqual(nxSelection({ lte: "all", nr: [78, 79] }, supported, null), { lte: [1, 3, 7], nrSa: [78], nrNsa: [78, 79] });
+    assert.equal(nxSelection({ lte: "all", nr: "all" }, supported, { lte: [1], nrSa: [], nrNsa: [] }), null, "every band the router offers: the page's automatic");
+    assert.equal(nxSelection({ lte: "all", nr: null }, supported, null), null);
+    assert.throws(() => nxSelection({ lte: [], nr: [] }, supported, null), CpeControlValidationError);
+    const state = nxLockState({ supportBandList: "B1;B3;N78S;N78N;", selectedMode: "2", selectedBand: "B1;N78S;N78N;" }, { lteCelllockEnable: "1", pci: "211", EARFCN: "300", band: "1" }, { nrCelllockEnable: "0", pci: "-1", NRARFCN: "-1", band: "0" }, { networkPreferredModeSelected: "5G SA Only", networkPreferredModeOptionList: "5G Preferred,5G SA Only" });
+    assert.deepEqual(state, { lteBands: [1], nrBands: "all", lteCell: { locked: true, arfcn: 300, pci: 211, band: 1 }, nrCell: { locked: false }, networkMode: "nr_sa", supportedLte: [1, 3], supportedNr: [78] });
+    const auto = nxLockState({ supportBandList: "B1;B3;", selectedMode: "1", selectedBand: "" }, null, null, null);
+    assert.deepEqual([auto.lteBands, auto.nrBands, auto.lteCell, auto.supportedNr, auto.networkMode], ["all", null, null, null, null], "a 4G router has no 5G bands to report");
+    assert.deepEqual(nxLockState(null, null, null, null).lteBands, null);
+  });
+
+  it("names the modes a router of the EX and NX series lists, and the widest of a 4G router as its automatic one", () => {
+    const five = "5G Preferred,5G/4G,5G NSA/4G,5G SA Only,4G Preferred,4G Only,3G Only";
+    assert.deepEqual([...nxModes(five).keys()], ["auto", "nr_lte", "nr_nsa", "nr_sa", "lte_wcdma", "lte", "wcdma"]);
+    assert.deepEqual([nxModeOf("5G/4G", five), nxModeOf("4G Preferred", five), nxModeOf("6G", five), nxModeOf(undefined, five)], ["nr_lte", "lte_wcdma", null, null]);
+    const four = "4G Preferred,4G Only,3G Only";
+    assert.deepEqual([...nxModes(four)], [["lte", "4G Only"], ["wcdma", "3G Only"], ["auto", "4G Preferred"]]);
+    assert.deepEqual([nxModeOf("4G Preferred", four), nxModes(undefined).size], ["auto", 0]);
+  });
+
+  it("reads the networks a search found, the data limit and the SIM lock", () => {
+    const mr = parseMrOperators([
+      { stack: "1,0,0,0,0,0", ispName: "Three", mcc: "272", mnc: "1", itemStat: "2" },
+      { stack: "2,0,0,0,0,0", ispName: "DemoNet", mcc: "272", mnc: "002", itemStat: "1" },
+      { stack: "3,0,0,0,0,0", ispName: "x", mcc: "27", mnc: "1", itemStat: "1" },
+      { ispName: "no stack", mcc: "272", mnc: "5", itemStat: "1" },
+    ]);
+    assert.deepEqual(mr.map((o) => [o.choice.plmn, o.choice.name, o.choice.state, o.stack, o.mnc]), [["27201", "Three", "current", "1,0,0,0,0,0", "1"], ["272002", "DemoNet", "available", "2,0,0,0,0,0", "002"]]);
+    const nx = parseNxOperators("Three,27201,2;DemoNet,27202,1;Barred,27203,3;bad;,,;");
+    assert.deepEqual(nx.map((o) => [o.choice.plmn, o.choice.state, o.entry]), [["27201", "current", "Three,27201,2"], ["27202", "available", "DemoNet,27202,1"], ["27203", "forbidden", "Barred,27203,3"]]);
+    assert.deepEqual(parseNxOperators(undefined), []);
+    assert.deepEqual(tplinkDataLimit({ enableDataLimit: "1", limitation: "5368709120.0", warningPercent: "80" }), { enabled: true, bytes: 5368709120, alertPercent: 80 });
+    assert.deepEqual(tplinkDataLimit({ enableDataLimit: "0", limitation: "0", warningPercent: "0" }), { enabled: false, bytes: null, alertPercent: null });
+    assert.deepEqual([tplinkDataLimit(null), tplinkDataLimit({ limitation: "1" })], [null, null]);
+    assert.deepEqual(tplinkSimLock({ pinState: "1", remainPinUnlockTime: "3" }), { pinState: 1, attemptsLeft: 3 });
+    assert.deepEqual([tplinkSimLock(null), tplinkSimLock({ remainPinUnlockTime: "99" })], [{ pinState: null, attemptsLeft: null }, { pinState: null, attemptsLeft: null }]);
+  });
+});
+
+describe("tp-link: band selection and cell lock", () => {
+  const sets = (router: ReturnType<typeof tplinkRouter>) => router.actions.filter((a) => a.operation === "set").map((a) => [a.oid, a.stack, a.attrs]);
+
+  it("selects bands on the MR series with the page's masks, reads them back, and clears them", async () => {
+    const router = tplinkRouter();
+    await router.client.withSession(async (s) => {
+      assert.deepEqual([(await s.lockState()).lteBands, (await s.lockState()).lteCell], ["all", { locked: false }]);
+      const check = newCheck();
+      await s.setBandLock({ lte: [3, 1, 20], nr: "all", networkMode: null }, check);
+      assert.deepEqual([check.endpoints, check.readback], [["tplink:LTE_WAN_CFG.set"], "match"]);
+      assert.deepEqual((await s.lockState()).lteBands, [1, 3, 20]);
+      const clear = newCheck();
+      await s.unlockAll(clear);
+      assert.deepEqual([clear.endpoints, clear.readback, (await s.lockState()).lteBands], [["tplink:LTE_WAN_CFG.set"], "match", "all"]);
+      const again = newCheck();
+      await s.unlockAll(again);
+      assert.deepEqual([again.endpoints, again.readback], [[], "match"], "nothing is on: nothing to write");
+      const all = newCheck();
+      await s.setBandLock({ lte: "all", nr: null, networkMode: null }, all);
+      assert.equal(all.readback, "match");
+    });
+    assert.deepEqual(sets(router), [
+      ["LTE_WAN_CFG", "2,1,0,0,0,0", { bandSelectSwitch: "1", bandSelectedMaskL: "524293", bandSelectedMaskH: "0" }],
+      ["LTE_WAN_CFG", "2,1,0,0,0,0", { bandSelectSwitch: "0", bandSelectedMaskL: "0", bandSelectedMaskH: "0" }],
+      ["LTE_WAN_CFG", "2,1,0,0,0,0", { bandSelectSwitch: "0", bandSelectedMaskL: "0", bandSelectedMaskH: "0" }],
+    ]);
+  });
+
+  it("refuses a band selection the MR series' page has no form for, before anything is sent", async () => {
+    const router = tplinkRouter();
+    await router.client.withSession(async (s) => {
+      const check = newCheck();
+      await assert.rejects(s.setBandLock({ lte: [1], nr: [78], networkMode: null }, check), /4G bands only/);
+      await assert.rejects(s.setBandLock({ lte: [32], nr: null, networkMode: null }, check), /bands 1 to 31 and 33 to 63/);
+      await assert.rejects(s.setBandLock({ lte: [1], nr: null, networkMode: "lte" }, check), /no way on record/);
+      await assert.rejects(s.setBandLock({ lte: [999], nr: null, networkMode: null }, check), CpeControlValidationError);
+      assert.deepEqual(check.endpoints, []);
+    });
+    const old = tplinkRouter({ settings: { bandSelectSwitch: undefined as unknown as string }, missing: ["LTE_CELL_LOCK"] });
+    await old.client.withSession(async (s) => {
+      delete old.state.settings["bandSelectSwitch"];
+      const check = newCheck();
+      await assert.rejects(s.setBandLock({ lte: [1], nr: null, networkMode: null }, check), /no band selection/);
+      await assert.rejects(s.setCellLock({ rat: "LTE", band: 1, arfcn: 300, pci: 211, scsKhz: null }, check), /no cell lock/);
+      await assert.rejects(s.unlockAll(check), /no band selection or cell lock/);
+      assert.deepEqual(check.endpoints, []);
+      const t = await s.telemetry();
+      assert.deepEqual([t.lte?.band, t.lte?.arfcn, t.lte?.rsrpDbm], [3, null, -95], "the poll loses only the cell");
+    });
+    assert.deepEqual(sets(router).concat(sets(old)), []);
+  });
+
+  it("locks a 4G cell on MR firmware that has the form, as the page sends it, and unlocks it", async () => {
+    const router = tplinkRouter({ networkType: "3" });
+    await router.client.withSession(async (s) => {
+      const t = await s.telemetry();
+      assert.deepEqual([t.lte?.band, t.lte?.arfcn, t.lte?.pci, t.lte?.cellId], [3, 300, 211, "134217758"]);
+      const check = newCheck();
+      await s.setCellLock({ rat: "LTE", band: 3, arfcn: 1850, pci: 142, scsKhz: null }, check);
+      assert.deepEqual([check.endpoints, check.readback], [["tplink:LTE_CELL_LOCK.set"], "match"]);
+      assert.deepEqual((await s.lockState()).lteCell, { locked: true, arfcn: 1850, pci: 142, band: null });
+      await assert.rejects(s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 }, newCheck()), /4G cells only/);
+      await assert.rejects(s.setCellLock({ rat: "LTE", band: 66, arfcn: 66500, pci: 1, scsKhz: null }, newCheck()), /up to 65535/);
+      const clear = newCheck();
+      await s.unlockAll(clear);
+      assert.deepEqual([clear.endpoints, clear.readback], [["tplink:LTE_CELL_LOCK.set"], "match"]);
+    });
+    assert.deepEqual(sets(router), [
+      ["LTE_CELL_LOCK", "0,0,0,0,0,0", { rfInfoCellIDLock: "1", rfInfoCellID: "", rfInfoEARFCN: "1850", rfInfoPCI: "142" }],
+      ["LTE_CELL_LOCK", "0,0,0,0,0,0", { rfInfoCellIDLock: "0" }],
+    ]);
+  });
+
+  it("selects 4G and 5G bands together on the EX and NX series, from the bands the router offers", async () => {
+    const router = tplinkRouter({ form: "ex" });
+    await router.client.withSession(async (s) => {
+      const before = await s.lockState();
+      assert.deepEqual([before.lteBands, before.nrBands, before.supportedLte, before.supportedNr, before.networkMode], ["all", "all", [1, 3, 7, 20], [1, 28, 78], "auto"]);
+      const check = newCheck();
+      await s.setBandLock({ lte: [1, 3], nr: [78], networkMode: null }, check);
+      assert.deepEqual([check.endpoints, check.readback], [["tplink:DEV2_LTE_BAND_SEARCH.set"], "match"]);
+      const lteOnly = newCheck();
+      await s.setBandLock({ lte: [7], nr: null, networkMode: null }, lteOnly);
+      assert.deepEqual([lteOnly.readback, (await s.lockState()).nrBands], ["match", [78]], "the 5G bands stay as they were selected");
+      await assert.rejects(s.setBandLock({ lte: [8], nr: null, networkMode: null }, newCheck()), /not one this router supports/);
+      await assert.rejects(s.setBandLock({ lte: "all", nr: [79], networkMode: null }, newCheck()), /not one this router supports/);
+      const all = newCheck();
+      await s.setBandLock({ lte: "all", nr: "all", networkMode: null }, all);
+      assert.deepEqual([all.readback, (await s.lockState()).lteBands], ["match", "all"]);
+    });
+    assert.deepEqual(sets(router), [
+      ["DEV2_LTE_BAND_SEARCH", "1,0,0,0,0,0", { selectedMode: "2", selectedBand: "B1;B3;N78S;N78N;" }],
+      ["DEV2_LTE_BAND_SEARCH", "1,0,0,0,0,0", { selectedMode: "2", selectedBand: "B7;N78S;N78N;" }],
+      ["DEV2_LTE_BAND_SEARCH", "1,0,0,0,0,0", { selectedMode: "1" }],
+    ]);
+    const fourG = tplinkRouter({ form: "ex", bandSearch: { supportBandList: "B1;B3;" } });
+    await fourG.client.withSession(async (s) => {
+      await assert.rejects(s.setBandLock({ lte: [1], nr: [78], networkMode: null }, newCheck()), /no 5G bands/);
+    });
+  });
+
+  it("locks a 4G or a 5G standalone cell on the EX and NX series, and clears every lock that is on", async () => {
+    const router = tplinkRouter({ form: "ex", bandSearch: { supportBandList: "B1;B3;N78S;N78N;N79N;" } });
+    await router.client.withSession(async (s) => {
+      const lte = newCheck();
+      await s.setCellLock({ rat: "LTE", band: 1, arfcn: 300, pci: 211, scsKhz: null }, lte);
+      assert.deepEqual([lte.endpoints, lte.readback], [["tplink:DEV2_LTE_4G_CELL_LOCK.set"], "match"]);
+      const nr = newCheck();
+      await s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: null }, nr);
+      assert.deepEqual([nr.endpoints, nr.readback], [["tplink:DEV2_LTE_5G_CELL_LOCK.set"], "match"]);
+      await assert.rejects(s.setCellLock({ rat: "NR", band: 79, arfcn: 700000, pci: 5, scsKhz: 30 }, newCheck()), /not one this router's page offers for a 5G standalone cell lock/);
+      await assert.rejects(s.setCellLock({ rat: "LTE", band: 8, arfcn: 3500, pci: 5, scsKhz: null }, newCheck()), /not one this router's page offers for a 4G cell lock/);
+      await s.setBandLock({ lte: [1], nr: null, networkMode: null }, newCheck());
+      const clear = newCheck();
+      await s.unlockAll(clear);
+      assert.deepEqual(clear.endpoints, ["tplink:DEV2_LTE_BAND_SEARCH.set", "tplink:DEV2_LTE_4G_CELL_LOCK.set", "tplink:DEV2_LTE_5G_CELL_LOCK.set"]);
+      assert.equal(clear.readback, "match");
+    });
+    assert.deepEqual(sets(router).filter(([oid]) => oid !== "DEV2_LTE_BAND_SEARCH"), [
+      ["DEV2_LTE_4G_CELL_LOCK", "1,0,0,0,0,0", { pci: "211", EARFCN: "300", band: "1", lteCelllockEnable: "1" }],
+      ["DEV2_LTE_5G_CELL_LOCK", "1,0,0,0,0,0", { pci: "142", NRARFCN: "650000", band: "78", scs: "30", nrCelllockEnable: "1" }],
+      ["DEV2_LTE_4G_CELL_LOCK", "1,0,0,0,0,0", { lteCelllockEnable: "0" }],
+      ["DEV2_LTE_5G_CELL_LOCK", "1,0,0,0,0,0", { nrCelllockEnable: "0" }],
+    ]);
+  });
+});
+
+describe("tp-link: mobile data and the cellular settings", () => {
+  const sets = (router: ReturnType<typeof tplinkRouter>) => router.actions.filter((a) => a.operation === "set").map((a) => [a.oid, a.attrs]);
+
+  for (const form of ["mr", "ex"] as const) {
+    const cfg = form === "mr" ? "LTE_WAN_CFG" : "DEV2_LTE_WAN_CFG";
+
+    it(`switches mobile data, roaming and the network mode on the ${form === "mr" ? "MR" : "EX and NX"} series as the page's own switches do`, async () => {
+      const router = tplinkRouter({ form });
+      await router.client.withSession(async (s) => {
+        const data = fullSession(s).data;
+        assert.equal(await data.enabled(), true);
+        const off = newCheck();
+        await data.set(false, off, noWait);
+        assert.deepEqual([off.endpoints, off.readback, await data.enabled()], [[`tplink:${cfg}.set`], "match", false]);
+        await data.set(true, newCheck(), noWait);
+        const roam = newCheck();
+        await cellularOf(s).setRoaming(true, roam);
+        assert.deepEqual([roam.readback, (await s.telemetry()).status?.roaming?.dataAllowed], ["match", true]);
+        const state = await cellularOf(s).read();
+        assert.deepEqual([state.networkMode, state.operator, state.pinAttemptsLeft, state.dataLimit], ["auto", { selection: "auto", plmn: null }, 3, { enabled: false, bytes: null, alertPercent: 90 }]);
+        assert.deepEqual(state.networkModes, form === "mr" ? ["auto", "lte", "wcdma"] : ["auto", "nr_lte", "nr_nsa", "nr_sa", "lte_wcdma", "lte", "wcdma"]);
+        const mode = newCheck();
+        await cellularOf(s).setNetworkMode("lte", mode, noWait);
+        assert.deepEqual([mode.readback, (await cellularOf(s).read()).networkMode], ["match", "lte"]);
+        await assert.rejects(cellularOf(s).setNetworkMode("gsm", newCheck(), noWait), /offers no "gsm" network mode/);
+      });
+      assert.deepEqual(sets(router), [
+        [cfg, { dataSwitchStatusBackup: "0", profileAction: "0" }],
+        [cfg, { dataSwitchStatusBackup: "1", profileAction: "0" }],
+        [cfg, { roamingEnabled: "1", profileAction: "0" }],
+        [cfg, form === "mr" ? { networkPreferredMode: "2" } : { networkPreferredModeSelected: "4G Only" }],
+      ]);
+    });
+
+    it(`searches for networks and chooses one of them on the ${form === "mr" ? "MR" : "EX and NX"} series`, async () => {
+      const router = tplinkRouter({ form, searchPolls: 3 });
+      let slept = 0;
+      const wait = { sleep: (): Promise<void> => Promise.resolve(void (slept += 1)) };
+      await router.client.withSession(async (s) => {
+        await assert.rejects(cellularOf(s).selectOperator({ mode: "manual", plmn: "27202", rat: null }, newCheck(), noWait), /search for networks first/);
+        const scan = newCheck();
+        const found = await cellularOf(s).scanOperators(scan, wait);
+        assert.deepEqual(found.map((o) => [o.plmn, o.name, o.state, o.rat]), [["27201", "Three", "current", null], ["27202", "DemoNet", "available", null], ["27203", "Barred", "forbidden", null]]);
+        assert.deepEqual([scan.endpoints.length, scan.readback, slept], [1, "none", 3]);
+        const pick = newCheck();
+        await cellularOf(s).selectOperator({ mode: "manual", plmn: "27202", rat: null }, pick, noWait);
+        assert.deepEqual([pick.readback, (await cellularOf(s).read()).operator], ["match", { selection: "manual", plmn: "27202" }]);
+        await assert.rejects(cellularOf(s).selectOperator({ mode: "manual", plmn: "27299", rat: null }, newCheck(), noWait), /search for networks first/);
+        const auto = newCheck();
+        await cellularOf(s).selectOperator({ mode: "auto" }, auto, noWait);
+        assert.deepEqual([auto.readback, (await cellularOf(s).read()).operator], ["match", { selection: "auto", plmn: null }]);
+      });
+      assert.deepEqual(
+        sets(router),
+        form === "mr"
+          ? [
+              ["LTE_NET_SEL", { searchAction: "1" }],
+              ["LTE_WAN_CFG", { networkSelectionMCC: "272", networkSelectionMNC: "2", networkSelectionISP: "DemoNet", networkSelectionMode: "1" }],
+              ["LTE_WAN_CFG", { networkSelectionMode: "0", networkSelectionMCC: "0", networkSelectionMNC: "0", networkSelectionISP: "" }],
+            ]
+          : [
+              ["DEV2_LTE_NETWORK_SEARCH", { action: "1" }],
+              ["DEV2_LTE_NETWORK_SEARCH", { selectedMode: "2", selectedOperator: "DemoNet,27202,1" }],
+              ["DEV2_LTE_NETWORK_SEARCH", { selectedMode: "1" }],
+            ]
+      );
+    });
+
+    it(`sets the data limit and corrects the used total with the whole form of the ${form === "mr" ? "MR" : "EX and NX"} series' page`, async () => {
+      const oid = form === "mr" ? "WAN_LTE_INTF_CFG" : "DEV2_XTP_LTE_INTF_CFG";
+      const router = tplinkRouter({ form });
+      await router.client.withSession(async (s) => {
+        const on = newCheck();
+        await cellularOf(s).setDataLimit({ enabled: true, bytes: 5 * 1024 ** 3, alertPercent: 80 }, on);
+        assert.deepEqual([on.endpoints, on.readback, (await cellularOf(s).read()).dataLimit], [[`tplink:${oid}.set`], "match", { enabled: true, bytes: 5 * 1024 ** 3, alertPercent: 80 }]);
+        const reset = newCheck();
+        await cellularOf(s).resetTraffic(reset);
+        assert.deepEqual([reset.readback, (await s.telemetry()).traffic?.monthTotalBytes], ["match", 0n]);
+        const off = newCheck();
+        await cellularOf(s).setDataLimit({ enabled: false, bytes: null, alertPercent: null }, off);
+        assert.equal(off.readback, "match");
+        await assert.rejects(cellularOf(s).setDataLimit({ enabled: true, bytes: 1024, alertPercent: 80 }, newCheck()), /between 1 MB and 9999 GB/);
+        await assert.rejects(cellularOf(s).setDataLimit({ enabled: true, bytes: 1024 ** 3, alertPercent: 100 }, newCheck()), /1 to 99 percent/);
+      });
+      assert.deepEqual(sets(router), [
+        [oid, { adjustStatistics: "-1", enablePaymentDay: "1", paymentDay: "5", enableDataLimit: "1", limitation: "5368709120", warningPercent: "80" }],
+        [oid, { adjustStatistics: "0", enableDataLimit: "1", limitation: "5368709120", warningPercent: "80", enablePaymentDay: "1", paymentDay: "5" }],
+        [oid, { adjustStatistics: "-1", enablePaymentDay: "1", paymentDay: "5", enableDataLimit: "0" }],
+      ]);
+    });
+  }
+
+  it("changes the MR series' network mode only with a SIM card its page can use, and chooses an operator the older way where the settings have none", async () => {
+    const locked = tplinkRouter({ simLock: { pinState: "1" } });
+    await locked.client.withSession(async (s) => {
+      const check = newCheck();
+      await assert.rejects(cellularOf(s).setNetworkMode("lte", check, noWait), /only with a SIM card it can use/);
+      assert.deepEqual(check.endpoints, []);
+    });
+    const old = tplinkRouter();
+    for (const key of ["networkSelectionMode", "networkSelectionMCC", "networkSelectionMNC", "networkSelectionISP", "roamingEnabled", "dataSwitchStatusBackup"]) delete old.state.settings[key];
+    await old.client.withSession(async (s) => {
+      await cellularOf(s).scanOperators(newCheck(), noWait);
+      const pick = newCheck();
+      await cellularOf(s).selectOperator({ mode: "manual", plmn: "27202", rat: null }, pick, noWait);
+      assert.deepEqual([pick.endpoints, pick.readback, pick.reason], [["tplink:LTE_NET_SEL_LIST.set"], "unknown", "unreadable"]);
+      await cellularOf(s).selectOperator({ mode: "auto" }, newCheck(), noWait);
+      assert.equal((await cellularOf(s).read()).operator, null);
+      await assert.rejects(cellularOf(s).setRoaming(true, newCheck()), /no roaming switch/);
+      await assert.rejects(fullSession(s).data.set(false, newCheck(), noWait), /no mobile data switch/);
+    });
+    assert.deepEqual(old.actions.filter((a) => a.operation === "set").map((a) => [a.oid, a.stack, a.attrs]), [
+      ["LTE_NET_SEL", "0,0,0,0,0,0", { searchAction: "1" }],
+      ["LTE_NET_SEL_LIST", "2,0,0,0,0,0", { itemStat: "10" }],
+      ["LTE_NET_SEL", "0,0,0,0,0,0", { netSelType: "0" }],
+    ]);
+  });
+
+  it("gives up a search the router says failed, or never finishes", async () => {
+    const failing = tplinkRouter({ form: "ex", searchPolls: null });
+    await failing.client.withSession(async (s) => {
+      await assert.rejects(cellularOf(s).scanOperators(newCheck(), noWait), (err: unknown) => err instanceof CpeApiError && err.code === "search-failed");
+    });
+    const endless = tplinkRouter({ searchPolls: 1000 });
+    await endless.client.withSession(async (s) => {
+      await assert.rejects(cellularOf(s).scanOperators(newCheck(), noWait), (err: unknown) => err instanceof CpeApiError && err.code === "timeout");
+    });
+    assert.equal(endless.actions.filter((a) => a.oid === "LTE_NET_SEL" && a.operation === "get").length, 60);
+  });
+
+  it("sends a PIN once, reads the lock again after the page's wait, and says how many attempts are left", async () => {
+    const router = tplinkRouter({ simLock: { pinState: "1", autoUnlockPin: "1" } });
+    let waited = 0;
+    const wait = { sleep: (ms: number): Promise<void> => Promise.resolve(void (waited += ms)) };
+    await router.client.withSession(async (s) => {
+      assert.equal((await s.telemetry()).status?.sim?.state, "pin_required");
+      const wrong = newCheck();
+      assert.deepEqual(await cellularOf(s).enterPin("0000", wrong, wait), { accepted: false, attemptsLeft: 2 });
+      assert.deepEqual([wrong.endpoints, wrong.readback, waited], [["tplink:LTE_SIMLOCK.set"], "none", 3500]);
+      const right = newCheck();
+      assert.deepEqual(await cellularOf(s).enterPin(TPLINK_PIN, right, wait), { accepted: true, attemptsLeft: 3 });
+      assert.equal(right.readback, "match");
+      assert.deepEqual(await cellularOf(s).setPinLock(false, TPLINK_PIN, newCheck(), wait), { accepted: true, attemptsLeft: 3 });
+      assert.deepEqual(await cellularOf(s).setPinLock(true, TPLINK_PIN, newCheck()), { accepted: true, attemptsLeft: 3 });
+    });
+    assert.deepEqual(router.actions.filter((a) => a.operation === "set").map((a) => [a.oid, a.stack, a.attrs]), [
+      ["LTE_SIMLOCK", "2,1,0,0,0,0", { simAction: "4", pin: "0000", autoUnlockPin: "1" }],
+      ["LTE_SIMLOCK", "2,1,0,0,0,0", { simAction: "4", pin: TPLINK_PIN, autoUnlockPin: "1" }],
+      ["LTE_SIMLOCK", "2,1,0,0,0,0", { simAction: "2", pin: TPLINK_PIN }],
+      ["LTE_SIMLOCK", "2,1,0,0,0,0", { simAction: "1", pin: TPLINK_PIN, autoUnlockPin: "1" }],
+    ]);
+    // A router that answers a wrong PIN with an error of its own: still one write, and the attempts it has left
+    const refusing = tplinkRouter({ form: "ex", simLock: { pinState: "1" }, pinError: true });
+    await refusing.client.withSession(async (s) => {
+      assert.deepEqual(await cellularOf(s).enterPin("0000", newCheck(), noWait), { accepted: false, attemptsLeft: 2 });
+    });
+    assert.equal(refusing.actions.filter((a) => a.operation === "set").length, 1);
+    const none = tplinkRouter({ missing: ["LTE_SIMLOCK"] });
+    await none.client.withSession(async (s) => {
+      assert.equal((await cellularOf(s).read()).pinAttemptsLeft, null);
+      await assert.rejects(cellularOf(s).enterPin(TPLINK_PIN, newCheck(), noWait), /no SIM PIN form/);
+    });
+    assert.equal(none.actions.filter((a) => a.operation === "set").length, 0);
+    const sent = [router, refusing].flatMap((r) => r.mock.requests.map((req) => `${req.body} ${[...req.query.values()].join(" ")}`)).join(" ");
+    // The frame's `pin=` line and the JSON's "pin" key are what would show: a PIN's four digits turn up in ciphertext by chance
+    assert.ok(!sent.includes("pin=") && !sent.includes('"pin"') && !sent.includes("simAction"), "a PIN travels encrypted only");
+  });
+
+  it("does not guess when the router stops saying whether it took the PIN", async () => {
+    const router = tplinkRouter({ simLock: { pinState: "1" } });
+    await router.client.withSession(async (s) => {
+      const check = newCheck();
+      const sent = cellularOf(s).enterPin(TPLINK_PIN, check, {
+        sleep: () => {
+          delete router.state.simLock["pinState"];
+          return Promise.resolve();
+        },
+      });
+      await assert.rejects(sent, CpeAnswerFormatError);
+      assert.deepEqual(check.endpoints, ["tplink:LTE_SIMLOCK.set"]);
+    });
+    assert.equal(router.actions.filter((a) => a.operation === "set").length, 1, "sent once, never again");
+  });
+
+  it("switches the antenna only where the page's own script says the firmware has the switch", async () => {
+    const without = tplinkRouter();
+    await without.client.withSession(async (s) => {
+      const check = newCheck();
+      await assert.rejects(fullSession(s).setAntennaMode("external", check), /no antenna switch/);
+      await assert.rejects(fullSession(s).setAntennaMode("auto", check), /internal and its external antennas only/);
+      assert.deepEqual(check.endpoints, []);
+    });
+    const restarting = tplinkRouter({ form: "ex", buildFlags: "var INCLUDE_LTE_ANTENNA_TYPE=1,INCLUDE_LTE_Q8RX_SWITCH=1;" });
+    await restarting.client.withSession(async (s) => {
+      await assert.rejects(fullSession(s).setAntennaMode("external", newCheck()), /restarts the router/);
+    });
+    const router = tplinkRouter({ form: "ex", buildFlags: "var INCLUDE_LTE_ANTENNA_TYPE=1,INCLUDE_LTE_Q8RX_SWITCH=0;" });
+    await router.client.withSession(async (s) => {
+      const check = newCheck();
+      assert.equal(await fullSession(s).setAntennaMode("external", check), 1);
+      assert.deepEqual([check.endpoints, check.readback], [["tplink:DEV2_LTE_WAN_CFG.set"], "match"]);
+      assert.equal(await fullSession(s).setAntennaMode("internal", newCheck()), 0);
+    });
+    assert.deepEqual(sets(router), [["DEV2_LTE_WAN_CFG", { antennaType: "1", profileAction: "0" }], ["DEV2_LTE_WAN_CFG", { antennaType: "0", profileAction: "0" }]]);
+    assert.deepEqual(router.mock.trail.filter((line) => line.includes("oid_str")), ["GET /js/oid_str.js", "GET /js/oid_str.js"]);
+    assert.deepEqual([...sets(without), ...sets(restarting)], []);
+  });
+});
+
 describe("tp-link: through the daemon, like every other brand", () => {
-  it("opens the writes of the form the router speaks, and refuses the rest before any session", async () => {
-    const mr = tplinkRouter();
+  it("opens the writes of the form the router speaks, and sends them the way that form does", async () => {
+    const mr = tplinkRouter({ networkType: "3" });
     const fx = daemonOn("tplink", mr.mock.fetchImpl, TPLINK_URL, TPLINK_PASSWORD);
     try {
       const snap = await fx.core.monitor.refreshTelemetry();
       assert.ok(snap);
-      assert.deepEqual([snap.device.deviceName, snap.rf.ratCode, snap.rf.lteRsrpDbm, snap.status?.sim?.state], ["Archer MR600", "LTE", -95, "ready"]);
+      assert.deepEqual([snap.device.deviceName, snap.rf.ratCode, snap.rf.lteRsrpDbm, snap.rf.pccBand, snap.rf.pci, snap.rf.earfcnRaw, snap.status?.sim?.state], ["Archer MR600", "LTE", -95, "B3", 211, "DL:300", "ready"]);
       const features = fx.core.scheduler.getStatus().device.features;
-      assert.deepEqual([features.reboot, features.smsWrite, features.ussd, features.bandLock, features.cellLock, features.mobileData, features.networkMode], ["enabled", "enabled", "enabled", "not_implemented", "not_implemented", "not_implemented", "not_implemented"]);
+      for (const feature of ["reboot", "smsWrite", "ussd", "bandLock", "cellLock", "mobileData", "reconnect", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "simPin", "antenna"] as const) assert.equal(features[feature], "enabled", feature);
+      assert.deepEqual([features.apn, features.wifi, features.simSlot], ["not_implemented", "not_implemented", "not_implemented"]);
+      const locked = await fx.core.controls.lockBands({ lteBands: [1, 3] });
+      assert.deepEqual([locked.mode, mr.state.settings["bandSelectSwitch"], mr.state.settings["bandSelectedMaskL"]], ["band_lock", "1", "5"]);
+      await assert.rejects(fx.core.controls.lockBands({ lteBands: [1], networkMode: "03" }), CpeControlValidationError);
+      await fx.core.controls.lockCell({ rat: "LTE", band: 3, arfcn: 1850, pci: 142 });
+      assert.equal(mr.state.cellLock["rfInfoCellIDLock"], "1");
+      await fx.core.controls.unlockAllLocks();
+      assert.deepEqual([mr.state.settings["bandSelectSwitch"], mr.state.cellLock["rfInfoCellIDLock"]], ["0", "0"]);
+      assert.deepEqual(await fx.core.controls.setMobileData(false), { mobileDataEnabled: false });
+      await fx.core.controls.reconnectCellular();
+      assert.equal(mr.state.settings["dataSwitchStatusBackup"], "1", "a redial ends connected");
+      assert.deepEqual(await fx.core.controls.setRoaming(true, { confirm: true }), { dataRoaming: true });
       const logins = mr.logins.length;
-      await assert.rejects(fx.core.controls.lockBands({ lteBands: [1, 3] }), (err: unknown) => err instanceof DeviceReadOnlyError && err.feature === "bandLock");
-      await assert.rejects(fx.core.controls.setMobileData(false), DeviceReadOnlyError);
+      await assert.rejects(fx.core.controls.setApn({ mode: "auto" }, { confirm: true }), (err: unknown) => err instanceof DeviceReadOnlyError && err.feature === "apn");
       assert.equal(mr.logins.length, logins, "no session for a write the brand does not have");
       assert.equal(fx.core.scheduler.device.skips("neighbors"), true);
     } finally {
       await fx.cleanup();
     }
     // The EX and NX series: the driver says so, and the gate goes by that form's writes
-    const ex = tplinkRouter({ form: "ex" });
+    const ex = tplinkRouter({ form: "ex", ussdAnswer: "Your balance: 5.00" });
     const fy = daemonOn("tplink", ex.mock.fetchImpl, TPLINK_URL, TPLINK_PASSWORD);
     try {
       const snap = await fy.core.monitor.refreshTelemetry();
@@ -558,8 +1010,12 @@ describe("tp-link: through the daemon, like every other brand", () => {
       assert.equal((await fy.core.monitor.identifyDevice())?.identity.variant, "ex", "the identification every start runs names the form");
       assert.equal(fy.core.scheduler.device.variant, "ex");
       const features = fy.core.scheduler.getStatus().device.features;
-      assert.deepEqual([features.reboot, features.smsWrite, features.ussd], ["enabled", "enabled", "not_implemented"]);
-      await assert.rejects(fy.core.controls.sendUssd({ kind: "send", code: "*100#" }, { confirm: true }), DeviceReadOnlyError);
+      assert.deepEqual([features.reboot, features.smsWrite, features.ussd, features.bandLock, features.cellLock], ["enabled", "enabled", "enabled", "enabled", "enabled"]);
+      assert.equal((await fy.core.controls.sendUssd({ kind: "send", code: "*100#" }, { confirm: true })).state, "answered");
+      await fy.core.controls.lockBands({ lteBands: [1], nrBands: [78] });
+      assert.deepEqual([ex.state.bandSearch["selectedMode"], ex.state.bandSearch["selectedBand"]], ["2", "B1;N78S;N78N;"]);
+      await fy.core.controls.lockCell({ rat: "NR", band: 78, arfcn: 650000, pci: 142 });
+      assert.deepEqual([ex.state.nrCellLock["nrCelllockEnable"], ex.state.nrCellLock["scs"]], ["1", "30"]);
     } finally {
       await fy.cleanup();
     }

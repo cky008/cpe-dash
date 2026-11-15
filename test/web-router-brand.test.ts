@@ -68,7 +68,7 @@ describe("web core: the router's brand in Settings", () => {
     assert.deepEqual(brandNote("pinsu"), { key: "brand_note", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot", "networkMode"] });
     // A brand without locks or nearby cells names neither, and names the SMS and the settings it has
     assert.deepEqual(brandNote("dlink"), { key: "brand_note", reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["smsWrite", "reboot", "reconnect", "mobileData", "networkMode", "apn", "ussd"] });
-    assert.deepEqual(brandNote("tplink"), { key: "brand_note", reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["smsWrite", "reboot", "ussd"] });
+    assert.deepEqual(brandNote("tplink"), { key: "brand_note", reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["smsWrite", "bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "simPin", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "ussd"] });
     for (const family of ROUTER_FAMILIES.filter((f) => f !== "huawei")) {
       const note = brandNote(family);
       assert.ok(note?.key === "brand_note" && note.reads.length > 0 && note.writes.length > 0, `${family}: something to read and to change, so neither list is empty`);

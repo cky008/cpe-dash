@@ -241,14 +241,23 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     // The page asks for a password only: the user name is its own (`admin` on the MR series, `user` on the EX and NX series)
     defaultUsername: "",
     defaultAddress: "192.168.1.1",
-    // The MR series (text requests): the signal without the cell's band or channel, SMS with the sent box, USSD
+    // The MR series (text requests): the signal and the band (the cell on firmware with a cell lock), SMS with the sent box, and what
+    // the page's own forms write: band selection (4G), cell lock, the cellular settings, the data limit, the PIN, USSD
     reads: ["telemetry", "topology", "smsRead", "simCard"],
-    writes: ["reboot", "smsWrite", "ussd"],
+    writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "ussd"],
+    // The page's band selection leaves the network mode alone
     networkModes: [],
-    nrBandLock: false,
-    // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, no USSD on record
+    // The EX and NX series select 5G bands as well; the MR series' session refuses them
+    nrBandLock: true,
+    // A router of the EX and NX series lists its own; the MR series has the first, 4G only and 3G only
+    selectableModes: ["auto", "nr_sa", "nr_nsa", "nr_lte", "lte", "lte_wcdma", "wcdma"],
     variants: {
-      ex: { models: ["Archer NX200", "NX510v", "Archer NX510v"], reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["reboot", "smsWrite"] },
+      // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, the same forms under other names
+      ex: {
+        models: ["Archer NX200", "NX510v", "Archer NX510v", "NX540v", "Archer NX540v"],
+        reads: ["telemetry", "topology", "smsRead", "simCard"],
+        writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "dataLimit", "trafficReset", "ussd"],
+      },
       // The Deco line (LuCI forms): the modem's signal without a band or a cell, the mesh's devices, a restart; no SMS in its page
       deco: { models: ["Deco X50-5G", "X50-5G"], reads: ["telemetry", "topology", "simCard"], writes: ["reboot"] },
     },

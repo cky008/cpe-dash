@@ -65,6 +65,20 @@ export function bandsToList(bands: ReadonlyArray<number>, separator: string, pre
 }
 
 /** Every LTE band of the 3GPP table, and every NR band (FR1 and FR2). */
+/**
+ * The LTE band behind the number a modem's own software names it by, which the pages of some routers
+ * (D-Link's DWR series, TP-Link's MR series) hand through as it is: 120 to 133 are bands 1 to 14, the
+ * rest follow in the order the bands were added.
+ */
+const LTE_BAND_INDEX: Readonly<Record<number, number>> = { 134: 17, 135: 33, 136: 34, 137: 35, 138: 36, 139: 37, 140: 38, 141: 39, 142: 40, 143: 18, 144: 19, 145: 20, 146: 21, 147: 24, 148: 25, 149: 41, 150: 42, 151: 43, 152: 23, 153: 26, 154: 32, 158: 28, 159: 29, 160: 30 };
+
+/** `null`: not a number such a page lists for an LTE band (the numbers below 120 are 2G and 3G bands). */
+export function lteBandOfIndex(index: number): number | null {
+  if (!Number.isInteger(index)) return null;
+  if (index >= 120 && index <= 133) return index - 119;
+  return LTE_BAND_INDEX[index] ?? null;
+}
+
 export const ALL_LTE_BANDS: ReadonlyArray<number> = LTE_BANDS.map((b) => b.band);
 export const ALL_NR_BANDS: ReadonlyArray<number> = NR_BANDS.map((b) => b.band);
 

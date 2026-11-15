@@ -493,24 +493,34 @@ Usually at `192.168.1.1`; sign in with the admin password (there is no user name
 
 | Model | Form | Interface | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| Archer NX200 | Indoor CPE | TP-Link web interface | ? |  | ? | △/? |  |  | △ |  |  |  |  | △ |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+NX200) |
-| NX510v | Indoor CPE | TP-Link web interface | ? |  | ? | △/? |  |  | △ |  |  |  |  | △ |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX510v) |
+| Archer NX200 | Indoor CPE | TP-Link web interface | ? |  | ? | △/? | △ | △ | ? | ? | △ |  |  | △ |  | ?/△ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+NX200) |
+| NX510v | Indoor CPE | TP-Link web interface | ? |  | ? | △/? | △ | △ | ? | ? | △ |  |  | △ |  | ?/△ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX510v) |
+| NX540v | Indoor CPE | TP-Link web interface | ? |  | ? | △/? | △ | △ | ? | ? | △ |  |  | △ |  | ?/△ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX540v) |
 | Deco X50-5G | Indoor CPE | TP-Link web interface | △ |  | ? |  |  |  | △ |  |  |  |  | △ |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Deco+X50-5G) |
 | TL-TR961 5G | Mobile router |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-TR961+5G) |
 | TL-XDR3020 5G | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-XDR3020+5G) |
-| Archer MR600 | Indoor CPE | TP-Link web interface | △ |  | ? | ? |  |  | △ |  |  |  |  | △ |  |  |  | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
+| Archer MR600 | Indoor CPE | TP-Link web interface | △ |  | ? | ? | △ | △ | ? | ? | △ |  |  | △ |  | △ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
 
 Notes for this table:
 
-- △ SMS: reads the inbox only: the notes on this form have no read for sent messages, so what FengSui sends is kept by FengSui (Archer NX200 and NX510v).
-- △ Reboot & redial: reboot only; FengSui does not do redial here yet (every model but the TL-TR961 5G and TL-XDR3020 5G).
-- △ SIM card: reports the SIM card's state (whether it is there, whether it wants its PIN), not the tries left (every model but the TL-TR961 5G and TL-XDR3020 5G).
-- △ SIM card: its status only; FengSui does not do switching slots and the PIN here yet (every model but the TL-TR961 5G and TL-XDR3020 5G).
-- The form TP-Link's newer models use (one JSON action per request), which FengSui recognises when it connects (Archer NX200 and NX510v).
-- The login and every request are encrypted the way the router's own page does it. Which generation of it a firmware uses is read off the key the router hands out and its page's script before the password is sent; where FengSui cannot tell, it sends no password. The router lets one person into its page at a time: FengSui yields while you are signed in, stays away while the login page shows a lock, and signs out after every read (Archer NX200, NX510v and Archer MR600).
+- △ SMS: reads the inbox only: the notes on this form have no read for sent messages, so what FengSui sends is kept by FengSui (Archer NX200, NX510v and NX540v).
+- △ Band lock, Cell lock: bands are chosen from the ones the router lists, 4G and 5G written together; a 4G cell and a 5G standalone cell each have a lock of their own, and a 5G cell cannot be locked in non-standalone mode (Archer NX200, NX510v and NX540v).
+- △ Router switches: only where the firmware has the antenna switch (the router's own page script says whether: in TP-Link's emulators the NX540v has it, the Archer MR600 has not), between internal and external only; on a model whose page restarts the router to switch, FengSui does not switch (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
+- △ Router switches: the antenna only; FengSui does not do the security switches and Wi-Fi 7 here yet (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
+- △ SIM card: the poll reports the SIM card's state only (whether it is there, whether it wants its PIN); the tries a PIN has left are read right before a PIN is written (every model but the TL-TR961 5G and TL-XDR3020 5G).
+- △ SIM card: its status and the PIN only; FengSui does not do switching slots here yet (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
+- △ Network mode & operator: only an operator the router's last search listed can be chosen: search first, then choose (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
+- △ Data settings: data roaming, the data limit and clearing the traffic counters only; FengSui does not do the access point (APN) here yet (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
+- The form TP-Link's newer models use (one JSON action per request), which FengSui recognises when it connects (Archer NX200, NX510v and NX540v).
+- The login and every request are encrypted the way the router's own page does it. Which generation of it a firmware uses is read off the key the router hands out and its page's script before the password is sent; where FengSui cannot tell, it sends no password. The router lets one person into its page at a time: FengSui yields while you are signed in, stays away while the login page shows a lock, and signs out after every read (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
 - △ Signal & traffic: reads the modem's signal (RSRP, RSRQ, SINR, RSSI), the network type and the data used only: this interface reports no band, channel or cell, and no operator name (Deco X50-5G).
+- △ Reboot & redial: reboot only; FengSui does not do redial here yet (Deco X50-5G).
+- △ SIM card: its status only; FengSui does not do switching slots and the PIN here yet (Deco X50-5G).
 - The Deco line's own interface, which FengSui recognises when it connects. Its page has no SMS; a restart restarts the main unit, the one with the modem. The router does not say before a login whether someone is signed in, so FengSui cannot yield here (Deco X50-5G).
-- △ Signal & traffic: reads the serving cell's signal (RSRP, RSRQ, SINR) and the network type only: the notes on this series have no read of its band, channel or PCI (Archer MR600).
+- △ Signal & traffic: reads the serving cell's signal and band. Its channel, PCI and cell identity are read only on firmware whose page has a cell lock, while registered on 4G (as the router's own status page does); under carrier aggregation the second carrier is named by its band alone (Archer MR600).
+- △ Band lock: selects 4G bands only. The router's page lists the bands a search of its own found; FengSui does not run that search and writes the bands you choose (Archer MR600).
+- △ Cell lock: only on firmware whose page has a cell lock (in TP-Link's own emulators the Archer MR600 v5 has one, the v3 has none), and for 4G cells only; on firmware without it FengSui refuses and says so, sending nothing (Archer MR600).
+- △ Network mode & operator: three modes: 4G preferred (automatic), 4G only, 3G only; the page changes it only with a usable SIM card, and so does FengSui (Archer MR600).
 - These two have the page of TP-Link's China models, and no public record names how it reports the cellular signal, so FengSui has no implementation for them yet (TL-TR961 5G and TL-XDR3020 5G).
 <!-- devices:end -->
 

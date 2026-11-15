@@ -317,14 +317,14 @@ export class DriverRouterSession implements RouterSession {
   enterSimPin(pin: string, write: WriteContext): Promise<SimPinOutcome> {
     return this.#pin("enter the SIM PIN", async (cellular) => {
       if (!cellular.enterPin) throw noWrite("enter the SIM PIN");
-      return await cellular.enterPin(pin, write.check);
+      return await cellular.enterPin(pin, write.check, SESSION_WAIT);
     });
   }
 
   setSimPinLock(enabled: boolean, pin: string, write: WriteContext): Promise<SimPinOutcome> {
     return this.#pin("change the SIM PIN lock", async (cellular) => {
       if (!cellular.setPinLock) throw noWrite("change the SIM PIN lock");
-      return await cellular.setPinLock(enabled, pin, write.check);
+      return await cellular.setPinLock(enabled, pin, write.check, SESSION_WAIT);
     });
   }
 

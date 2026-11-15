@@ -44,11 +44,11 @@ order: 19
 
 **其他品牌：**
 
-- 锁频段（4G 和 5G 频段，在控制抽屉里直接填频段号）和锁小区（频点 + PCI，在「附近的基站」里操作）：D-Link 和 TP-Link 以外的品牌
+- 锁频段（4G 和 5G 频段，在控制抽屉里直接填频段号）和锁小区（频点 + PCI，在「附近的基站」里操作）：D-Link 以外的品牌。TP-Link 的 MR 系列只能选 4G 频段，锁小区要固件的管理页里有这一项；NX 系列的频段只能从路由器列出的里面选，5G 小区只在独立组网（SA）下能锁
 - 重启
-- 重拨和移动数据开关：中兴（goform 与 zWRT）、鲲鹏无限、D-Link，以及装有 QModem 的 OpenWrt 路由器。没有专门重拨指令的路由器，重拨是先断开再连上，烽燧最后一定会发「连上」
-- 天线（自动、内置、外置、内置加外置）：鲲鹏无限
-- 蜂窝设置：网络制式（中兴、品速、通则康威、烽火、鲲鹏无限、D-Link、OpenWrt），手动选网（中兴、OpenWrt），接入点（中兴、D-Link、OpenWrt），SIM 卡槽、数据漫游和流量上限（中兴），SIM PIN（中兴、OpenWrt 的移远模组），飞行模式（烽火、OpenWrt），USSD（中兴 goform、D-Link、TP-Link 的 MR 系列）。每一项做什么、有什么要注意，见[蜂窝设置](router-switches.md#蜂窝设置)
+- 重拨和移动数据开关：中兴（goform 与 zWRT）、鲲鹏无限、D-Link、TP-Link（Deco 除外），以及装有 QModem 的 OpenWrt 路由器。没有专门重拨指令的路由器，重拨是先断开再连上，烽燧最后一定会发「连上」
+- 天线（自动、内置、外置、内置加外置）：鲲鹏无限；TP-Link 只有内置和外置两种，并且只在固件带天线切换时提供
+- 蜂窝设置：网络制式（中兴、品速、通则康威、烽火、鲲鹏无限、D-Link、TP-Link、OpenWrt），手动选网（中兴、TP-Link、OpenWrt），接入点（中兴、D-Link、OpenWrt），SIM 卡槽（中兴），数据漫游、流量上限和清零流量统计（中兴、TP-Link），SIM PIN（中兴、TP-Link、OpenWrt 的移远模组），飞行模式（烽火、OpenWrt），USSD（中兴 goform、D-Link、TP-Link）。TP-Link 的这几项在 Deco 上都没有。每一项做什么、有什么要注意，见[蜂窝设置](router-switches.md#蜂窝设置)
 - 短信：中兴、OpenWrt、通则康威、烽火、D-Link 和 TP-Link。每个品牌能做的不一样（有的不能删除，有的发送有条件），见[短信](sms.md#other-brands)
 
 已连接设备在中兴 goform、鲲鹏无限、D-Link、TP-Link 和 OpenWrt 上可以看到。OpenWrt 列出的是 DHCP 租约，路由器不说设备是有线还是 Wi-Fi，控制台显示「接入方式未知」。

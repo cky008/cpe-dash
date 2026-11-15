@@ -692,4 +692,57 @@ TP-Link 的登录错误码名字（`71233` 是 `ERR_HTTP_ERR_USER_PWD_NOT_CORREC
 
 **这一步顺手改掉的旧问题**：控制台「设置 → 路由器」里品牌下面的那段说明还是 1.8.3 的写法（「锁频、锁小区和重启默认关闭」「短信、已连接设备在这个品牌上还不可用」），第 1 步改成默认开启、第 3 / 4 步给其他品牌加上短信和已连接设备之后一直没有跟上。现在这段话由品牌的事实生成：列出烽燧在这个品牌上读什么、能改什么。
 
-**这一步发现的旁支问题**（没有改，留给主人决定）：`src/protocols/values.ts` 的 `numberOf` 只读整数部分的前 9 位，十位以上的数会被悄悄截短（`"2948105728.0"` 读成 294810572）。TP-Link 的流量总数因此单独解析；现有驱动里用 `nonNegativeOf` / `megabytesToBytes` 读大数的地方值得查一遍。
+**这一步发现的旁支问题**：`src/protocols/values.ts` 的 `numberOf` 只读整数部分的前 9 位，十位以上的数会被悄悄截短（`"2948105728.0"` 读成 294810572）。TP-Link 的流量总数因此单独解析。第 7b 步修了（18.11）。
+
+### 18.11 第 7b 步：已有记录、还没实现的几种写法（2026-11-15）
+
+**决定**：第 7 步和前面的盘点留下几种「有记录、没实现」的写法，这一步逐项处理：能实现的实现，实现不了的写明查过哪里、为什么不行。
+
+#### 取值清洗里的大数截断（修掉）
+
+`numberOf` 用的正则只取整数部分的前 9 位，`"2948105728.0"` 被读成 `294810572`，不报错。现在一个数整个读：整数部分超过 15 位（双精度数表示不了的）不读，其余原样。受过影响的读数查了一遍：
+
+- OpenWrt 的 `system info` 内存（字节数，内存 1 GB 以上的路由器上总量和可用量都被截短，控制台显示的内存占用是错的）。
+- TP-Link 密钥应答里的 `seq`（新固件是 JSON，值在 10 位以上时签名里的序号会算错，登录被拒）。
+- 其余用 `numberOf` / `nonNegativeOf` / `megabytesToBytes` 的地方读的是信号、频点、PCI、百分比、秒数和以 MB 计的流量，都到不了 10 位。字节数的计数器走的是 `counterOf`（`bigint`），不受影响。
+
+H168-383 不走这些函数；请求序列比对（`reviews/v1.9.0-tools/compare.sh … all`）前后一致。
+
+#### TP-Link：管理页自己的蜂窝表单（实现）
+
+第 7 步里 TP-Link 的 MR 系列只读得到信号，频段、频点和小区都没有记录；两种写法也都没有任何锁定和蜂窝设置的记录。这一步找到了厂商自己的记录：**TP-Link 官方公开的管理页模拟器**（[tp-link.com/en/support/emulator](https://www.tp-link.com/en/support/emulator/) 列出，托管在 `emulator.tp-link.com`），它就是固件里的那套网页，页面脚本里写着每个表单读写哪个对象、哪些属性。读的是这三个：
+
+| 模拟器 | 写法 | 读了哪些页面 |
+| :--- | :--- | :--- |
+| Archer MR600 v3（`/mr600v3/`） | MR（文本帧） | 状态、蜂窝设置（`advanceLte`）、流量设置、PIN 管理、USSD |
+| Archer MR600 v5（`/MR600v5 emulator/`） | MR（文本帧） | 同上，另有锁小区（`ltecelllock`） |
+| NX540v (EU) 1.0（`/NX540v(EU)1.0_Emulator/`） | EX / NX（JSON） | 状态、蜂窝设置、频段选择（`bandlock`）、锁小区（`celllock`）、流量设置、PIN 管理、USSD |
+
+厂商的页面是公开资料，这里只取事实（对象名、属性名、取值、页面自己的取值范围），不复制它的脚本。列表里还有别的蜂窝型号的模拟器（MR100、MR101、MR110、MR402、MR500 的室外款，M7310 随身路由器，TL-MR3620）没有读：它们用的是不是同一套对象不知道，等有人报告。
+
+固件带不带某个表单，由管理页自己的脚本 `/js/oid_str.js` 里的编译开关决定（`INCLUDE_LTE_CELL_LOCK`、`INCLUDE_LTE_SEARCH_BAND`、`INCLUDE_LTE_ANTENNA_TYPE` 等）：MR600 v3 没有锁小区，v5 有；两个 MR600 都没有天线切换，NX540v 有。烽燧的做法：写入之前先读这个表单自己要读的对象，读不到就拒绝、不发送任何写入；天线切换是硬件的事（对象里有属性不代表机器上有开关），所以像管理页一样看 `oid_str.js` 里的开关。
+
+| 能力 | MR 系列 | EX / NX 系列 |
+| :--- | :--- | :--- |
+| 频段（读） | 状态 `LTE_NET_STATUS` 的 `rfInfoBand`：低字节是所在频段、高一个字节是载波聚合的第二个频段，都是调制解调器自己的编号（120–133 是 B1–B14，其后逐个排，和 D-Link 的 `bm_currentBand` 是同一张表，现在放在 `src/drivers/bands.ts`）；`rfInfoRssi` | 第 7 步已有（服务小区列表） |
+| 频点、PCI、小区号（读） | 带锁小区的固件上，状态页从 `LTE_CELL_LOCK` 读（`rfInfoEARFCN`、`rfInfoPCI`、`rfInfoCellID`），只在注册上、网络类型是普通 4G（`networkType` 3）时显示；烽燧照做，单独一个请求，没有这个对象的固件只丢这几项 | 同上 |
+| 锁频段 | 蜂窝设置 `LTE_WAN_CFG`：`bandSelectSwitch` 加两个掩码 `bandSelectedMaskL` / `bandSelectedMaskH`（第 `band - 1` 位、33 以上第 `band - 33` 位）。页面用 32 位有符号数算掩码、又把负数当成「没有频段」，所以 32 和 64 是它自己写不了的，烽燧拒绝。页面只列出它搜到的频段（`LTE_BAND_SEL` 的 `searchAction`）；烽燧不发起这次搜索 | `DEV2_LTE_BAND_SEARCH`：`supportBandList` 列出支持的频段（`B3` 是 4G，`N78S` 是 5G SA，`N78N` 是 5G NSA，不带后缀的两者都是），`selectedMode` 1 自动、2 手动，`selectedBand` 是选中的。频段只能从支持的里面选；选中的包含全部支持的频段时写成自动 |
+| 锁小区 | `LTE_CELL_LOCK`（实例 `0,0,0,0,0,0`）：`rfInfoCellIDLock=1`、`rfInfoCellID`（表单里可以留空，烽燧发空值）、`rfInfoEARFCN`（页面限 1–65535）、`rfInfoPCI`；解锁只发 `rfInfoCellIDLock=0` | `DEV2_LTE_4G_CELL_LOCK`（`pci`、`EARFCN` 0–65535、`band`、`lteCelllockEnable`）和 `DEV2_LTE_5G_CELL_LOCK`（`pci`、`NRARFCN`、`band`、`scs`、`nrCelllockEnable`）；频段要在支持的里面，5G 只能锁 SA 的（页面注明 5G 锁小区只在 SA 下起作用） |
+| 移动数据、数据漫游 | `LTE_WAN_CFG` 的 `dataSwitchStatusBackup`、`roamingEnabled`，连同 `profileAction=0` | `DEV2_LTE_WAN_CFG`，同名属性 |
+| 网络制式 | `networkPreferredMode`：3 是 4G 优先（带 3G，烽燧记作自动）、2 仅 4G、1 仅 3G；页面只在 SIM 卡可用（`simStatus` 3 或 5）时才改 | `networkPreferredModeSelected`，取值是 `networkPreferredModeOptionList` 列出的名字（`5G Preferred`、`5G/4G`、`5G NSA/4G`、`5G SA Only`、`4G Preferred`、`4G Only`、`3G Only`）；没有 5G 的机型上 `4G Preferred` 记作自动 |
+| 搜网与选网 | `LTE_NET_SEL` 的 `searchAction=1`，每 2 秒读一次 `itemNum`，有了就列 `LTE_NET_SEL_LIST`（`ispName`、`mcc`、`mnc`、`itemStat`：1 可用、2 当前、3 禁用）。选定：带频段选择的固件写进 `LTE_WAN_CFG`（`networkSelectionMCC` / `MNC` / `ISP`、`networkSelectionMode=1`；自动是 `networkSelectionMode=0` 加三个清空的值），更早的固件写列表项的 `itemStat=10`、自动写 `LTE_NET_SEL` 的 `netSelType=0` | `DEV2_LTE_NETWORK_SEARCH`：`action=1` 开始，`status` 2 搜完、3 失败，`operatorList` 是 `名字,编号,状态;`。选定写 `selectedMode=2` 和列表里的那一项原文（`selectedOperator`），自动写 `selectedMode=1` |
+| 流量上限、清零流量统计 | `WAN_LTE_INTF_CFG`：表单一次发全（`adjustStatistics`：-1 不动、其他值是把已用流量改成多少；`enableDataLimit`、`limitation` 字节、`warningPercent` 1–99、`enablePaymentDay`、`paymentDay`）。上限 1 MB 到 9999 GB。烽燧改上限时，结算日照路由器现有的发回去；清零就是把已用流量改成 0 | `DEV2_XTP_LTE_INTF_CFG`，同名属性 |
+| SIM PIN | `LTE_SIMLOCK`：`simAction` 4 输入 PIN、1 打开「开机要 PIN」、2 关闭，带 `pin`；`remainPinUnlockTime` 是剩余次数，`pinState` 1 等 PIN、2 已输入、3 没开 PIN。页面发完等 3.5 秒再读一次显示结果，烽燧也是：读到的状态说了算，没读到就报「不知道」，不重发 | `DEV2_LTE_SIMLOCK`，同名属性 |
+| USSD | 第 7 步已有发送。页面还有：应答后 `sessionStatus` 是 1 表示运营商等回复（回复和发送是同一个写入）；`action=2` 结束会话；`ussdStatus` 2–5 是没有应答的几种结束 | `DEV2_LTE_USSD`，同名属性（第 7 步记的是「这种写法没有 USSD」，模拟器里有） |
+| 天线 | `LTE_WAN_CFG` 的 `antennaType`（0 内置、1 外置）连同 `profileAction=0`，只在 `INCLUDE_LTE_ANTENNA_TYPE=1` 的固件上 | 同左（`DEV2_LTE_WAN_CFG`）；`INCLUDE_LTE_Q8RX_SWITCH` 的机型上页面切换后会重启路由器，烽燧在这种机型上不切换 |
+
+JSON 写法里页面把数值属性写成数字（`dataSwitchStatusBackup: 1`），烽燧一律写成字符串：页面自己在同一个对象上也把数值属性写成字符串（`warningPercent`、`paymentDay` 取的是输入框的文字），路由器两种都收。
+
+**模拟器里有、烽燧没有做的**：
+
+- 接入点（APN）：页面用的是配置档（`LTE_PROFILE` 列表，`profileAction` 1 保存、3 切换），新建配置档在另一个页面，这一步没有读完，**还没有做**。
+- 运营商锁（`plmnLock`，`INCLUDE_LTE_PLMN_LOCK`）、修改 PIN（`simAction` 3）、输入 PUK（`simAction` 5）：AGENTS.md 第 4 节第 7、8 条，不实现。
+- 「重启后自动输入 PIN」（`simAction` 6 / `autoUnlockPin`）：让路由器自己记住 PIN，烽燧没有对应的功能；输入 PIN 和开关 PIN 时这个值照路由器现有的发回去。
+- NAT、IPv6 转换（XLAT）、IMS、桥接模式、流量提醒短信的接收号码：烽燧没有对应的功能。
+
+**验证**：`test/helpers/tplink-router.ts` 的模拟路由器加了这些对象（两种写法各一套），每个写入都核对发出去的对象、实例和属性；固件没有某个表单、SIM 卡不可用、频段不在支持列表里、搜网失败或不结束、PIN 写入后读不到状态，各有用例。
