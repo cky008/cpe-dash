@@ -33,6 +33,7 @@ export const DRIVER_PROTOCOLS: Readonly<Record<DriverFamily, DriverProtocol>> = 
   tozed: onDemand("tozed"),
   fiberhome: onDemand("fiberhome"),
   nradio: onDemand("nradio"),
+  dlink: onDemand("dlink"),
   openwrt: onDemand("openwrt"),
 };
 

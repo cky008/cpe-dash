@@ -36,7 +36,7 @@ export interface CatalogSection {
   id: "huawei" | "brovi" | "td-tech" | "soyealink" | "zte" | "pinsu" | "tozed" | "fiberhome" | "nradio" | "openwrt" | "reference" | "dlink" | "tplink";
   zh: string;
   en: string;
-  /** What the notes say of a brand FengSui has no implementation for. */
+  /** What the notes say of the models FengSui has no implementation for: the whole brand, or the rows of it left empty. */
   about?: { zh: string; en: string };
 }
 
@@ -59,8 +59,8 @@ export const CATALOG_SECTIONS: ReadonlyArray<CatalogSection> = [
     zh: "D-Link",
     en: "D-Link",
     about: {
-      zh: "资料记载这些路由器用 OpenWrt 的 LuCI RPC（`/cgi-bin/luci/rpc`）或厂商自己的网页 JSON 接口，和烽燧已有的 OpenWrt 实现（ubus + AT 指令）不是同一套。",
-      en: "The notes say these routers use OpenWrt's LuCI RPC (`/cgi-bin/luci/rpc`) or the maker's own web JSON interface, not the ubus and AT commands of FengSui's OpenWrt implementation.",
+      zh: "资料记载这几款用 OpenWrt 的 LuCI 接口或更早的网页，公开资料里找不到它们读取信号的接口，烽燧还没有实现；其中 DWR-2000M 的管理页只走 HTTPS，它的蜂窝模组接口对管理账号是关着的",
+      en: "The notes say these use OpenWrt's LuCI interface or an older web page, and no public record names how they report the signal, so FengSui has no implementation for them yet; the DWR-2000M's page is HTTPS only, and its cellular module's interface is closed to the admin account",
     },
   },
   {
@@ -83,6 +83,7 @@ const FAMILY_SECTION: Readonly<Record<RouterFamily, CatalogSectionId>> = {
   tozed: "tozed",
   fiberhome: "fiberhome",
   nradio: "nradio",
+  dlink: "dlink",
   openwrt: "openwrt",
 };
 
@@ -380,7 +381,8 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["DWR-2000M", "indoor", { maker: "D-Link" }],
     ["DWR-2101", "mobile", { maker: "D-Link" }],
     ["DWR-953V2", "indoor", { maker: "D-Link" }],
-    ["DWR-960", "indoor", { maker: "D-Link" }],
+    ["DWR-960", "indoor", { maker: "D-Link", families: ["dlink"] }],
+    ["DWR-961", "indoor", { maker: "D-Link", families: ["dlink"] }],
     ["DWR-921", "indoor", { maker: "D-Link" }],
   ]),
   ...models("tplink", [], [
@@ -578,6 +580,42 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
   { family: "tozed", features: [], zh: "有些运营商定制固件给接口加了一层加密，烽燧连不上这样的固件", en: "Some operator builds wrap the interface in a layer of encryption; FengSui cannot connect to those" },
   {
+    family: "dlink",
+    features: ["telemetry"],
+    zh: "只读得到 4G 服务小区的频段、频点和信号，路由器的接口不报告 PCI，也没有载波聚合的读数",
+    en: "reads the 4G serving cell's band, channel and signal only; the router's interface reports no PCI and no carrier aggregation",
+  },
+  {
+    family: "dlink",
+    features: ["simCard"],
+    zh: "只报告 SIM 卡在不在，不报告 PIN 的状态和剩余次数",
+    en: "reports whether a SIM card is there, not the state of its PIN or the tries left",
+  },
+  {
+    family: "dlink",
+    features: ["smsRead"],
+    zh: "只读收件箱：路由器存的已发短信在接口资料里没有读法，烽燧发出的短信留在烽燧里",
+    en: "reads the inbox only: the notes have no read for the messages the router keeps of what it sent, so what FengSui sends is kept by FengSui",
+  },
+  {
+    family: "dlink",
+    features: ["reconnect", "mobileData"],
+    zh: "用的是管理页的「连接 / 断开」按钮：路由器设成自动拨号时，断开之后它可能自己重新连上",
+    en: "uses the page's connect and disconnect button: a router set to dial by itself may connect again after a disconnect",
+  },
+  {
+    family: "dlink",
+    features: ["apn"],
+    zh: "改的是路由器正在用的那一个接入点；IP 类型保持路由器原来的设置",
+    en: "changes the one access point the router uses; the IP type stays as the router has it",
+  },
+  {
+    family: "dlink",
+    features: [],
+    zh: "路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，烽燧每次读完也会注销。登录密码按路由器登录页自己的写法发送，烽燧认不出登录页的写法时不发送密码",
+    en: "The router lets one person into its page at a time: FengSui yields while you are signed in, and signs out after every read. The password is sent in the form the router's own login page writes it; where FengSui does not know the page's form it sends no password",
+  },
+  {
     family: "tozed",
     models: ["SRT838", "SRT853", "CPE905", "FNR310", "A50", "H80", "T1"],
     features: [],
@@ -604,6 +642,7 @@ const INTERFACE_LABELS: Readonly<Record<RouterFamily, { zh: string; en: string }
   tozed: { zh: "通则康威", en: "Tozed" },
   fiberhome: { zh: "烽火", en: "FiberHome" },
   nradio: { zh: "NROS", en: "NROS" },
+  dlink: { zh: "D-Link 网页接口", en: "D-Link web interface" },
   openwrt: { zh: "ubus + AT", en: "ubus + AT" },
 };
 
@@ -941,6 +980,9 @@ function sectionTable(section: CatalogSection, records: Records, lang: Lang): { 
     lines.push(`| ${[row.display, form, ...(showInterface ? [iface] : []), ...row.cells.map((cell) => cell.mark), report].join(" | ")} |`);
   }
   const notes = sectionNotes(rows, lang);
+  // The rows left empty next to implemented ones: what the notes say of those models
+  const unbuilt = rows.filter((row) => interfaces(row).length === 0);
+  if (section.about && families.length > 0 && unbuilt.length > 0) notes.push(lang === "zh" ? `- ${section.about.zh}（${appliesTo(rows, unbuilt, lang)}）。` : `- ${section.about.en} (${appliesTo(rows, unbuilt, lang)}).`);
   const parts = [`<a id="brand-${section.id}"></a>`, "", `## ${section[lang]}`, "", sectionIntro(section, families, lang), "", lines.join("\n")];
   if (notes.length > 0) parts.push("", lang === "zh" ? "这一节的说明：" : "Notes for this table:", "", notes.join("\n"));
   if (section.id === "zte") parts.unshift('<a id="brands"></a>', "");

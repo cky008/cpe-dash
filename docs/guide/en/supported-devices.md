@@ -461,15 +461,29 @@ Notes for this table:
 
 ## D-Link
 
-FengSui has no implementation for this brand yet: you cannot choose it under Settings → Router and detection does not recognise it, so its rows are empty. The notes say these routers use OpenWrt's LuCI RPC (`/cgi-bin/luci/rpc`) or the maker's own web JSON interface, not the ubus and AT commands of FengSui's OpenWrt implementation. If you have one of these routers, a report still helps.
+Usually at `192.168.0.1`; sign in with the user name `admin` and the admin password. Leave the brand on "Detect automatically" under Settings → Router, or choose "D-Link (DWR series 4G routers)".
 
-| Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| D-Link DWR-2000M | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2000M) |
-| D-Link DWR-2101 | Mobile router |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2101) |
-| D-Link DWR-953V2 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-953V2) |
-| D-Link DWR-960 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-960) |
-| D-Link DWR-921 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-921) |
+| Model | Form | Interface | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| D-Link DWR-2000M | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2000M) |
+| D-Link DWR-2101 | Mobile router |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2101) |
+| D-Link DWR-953V2 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-953V2) |
+| D-Link DWR-960 | Indoor CPE | D-Link web interface | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-960) |
+| D-Link DWR-961 | Indoor CPE | D-Link web interface | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-961) |
+| D-Link DWR-921 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-921) |
+
+Notes for this table:
+
+- △ Signal & traffic: reads the 4G serving cell's band, channel and signal only; the router's interface reports no PCI and no carrier aggregation (D-Link DWR-960 and D-Link DWR-961).
+- △ SMS: reads the inbox only: the notes have no read for the messages the router keeps of what it sent, so what FengSui sends is kept by FengSui (D-Link DWR-960 and D-Link DWR-961).
+- △ Reboot & redial, Mobile data: uses the page's connect and disconnect button: a router set to dial by itself may connect again after a disconnect (D-Link DWR-960 and D-Link DWR-961).
+- △ SIM card: reports whether a SIM card is there, not the state of its PIN or the tries left (D-Link DWR-960 and D-Link DWR-961).
+- △ SIM card: its status only; FengSui does not do switching slots and the PIN here yet (D-Link DWR-960 and D-Link DWR-961).
+- △ Network mode & operator: the network mode only; FengSui does not do choosing the operator here yet (D-Link DWR-960 and D-Link DWR-961).
+- △ Data settings: changes the one access point the router uses; the IP type stays as the router has it (D-Link DWR-960 and D-Link DWR-961).
+- △ Data settings: the access point (APN) only; FengSui does not do data roaming, the data limit and clearing the traffic counters here yet (D-Link DWR-960 and D-Link DWR-961).
+- The router lets one person into its page at a time: FengSui yields while you are signed in, and signs out after every read. The password is sent in the form the router's own login page writes it; where FengSui does not know the page's form it sends no password (D-Link DWR-960 and D-Link DWR-961).
+- The notes say these use OpenWrt's LuCI interface or an older web page, and no public record names how they report the signal, so FengSui has no implementation for them yet; the DWR-2000M's page is HTTPS only, and its cellular module's interface is closed to the admin account (every model but the D-Link DWR-960 and D-Link DWR-961).
 
 <a id="brand-tplink"></a>
 

@@ -461,15 +461,29 @@ order: 2
 
 ## D-Link
 
-烽燧还没有这个品牌的实现：「设置 → 路由器」里选不到它，自动识别也认不出来，所以表里整行留空。资料记载这些路由器用 OpenWrt 的 LuCI RPC（`/cgi-bin/luci/rpc`）或厂商自己的网页 JSON 接口，和烽燧已有的 OpenWrt 实现（ubus + AT 指令）不是同一套。有这里的路由器，也欢迎提交实测报告。
+常见地址 `192.168.0.1`，用管理页的用户名 `admin` 和密码登录。在「设置 → 路由器」把品牌留在「自动识别」，或者选「D-Link（DWR 系列 4G 路由器）」。
 
-| 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| D-Link DWR-2000M | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2000M) |
-| D-Link DWR-2101 | 随身路由器 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2101) |
-| D-Link DWR-953V2 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-953V2) |
-| D-Link DWR-960 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-960) |
-| D-Link DWR-921 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-921) |
+| 型号 | 形态 | 接口 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| D-Link DWR-2000M | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2000M) |
+| D-Link DWR-2101 | 随身路由器 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-2101) |
+| D-Link DWR-953V2 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-953V2) |
+| D-Link DWR-960 | 室内 CPE | D-Link 网页接口 | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-960) |
+| D-Link DWR-961 | 室内 CPE | D-Link 网页接口 | △ |  | ? | △/? |  |  | ?/△ | △ |  |  |  | △ |  | △ | △ | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-961) |
+| D-Link DWR-921 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+D-Link+DWR-921) |
+
+这一节的说明：
+
+- △ 「信号与流量」：只读得到 4G 服务小区的频段、频点和信号，路由器的接口不报告 PCI，也没有载波聚合的读数（D-Link DWR-960 和 D-Link DWR-961）。
+- △ 「短信」：只读收件箱：路由器存的已发短信在接口资料里没有读法，烽燧发出的短信留在烽燧里（D-Link DWR-960 和 D-Link DWR-961）。
+- △ 「重启与重拨」、「移动数据」：用的是管理页的「连接 / 断开」按钮：路由器设成自动拨号时，断开之后它可能自己重新连上（D-Link DWR-960 和 D-Link DWR-961）。
+- △ 「SIM 卡」：只报告 SIM 卡在不在，不报告 PIN 的状态和剩余次数（D-Link DWR-960 和 D-Link DWR-961）。
+- △ 「SIM 卡」：只有状态，切换卡槽和 PIN烽燧在这里还没有做（D-Link DWR-960 和 D-Link DWR-961）。
+- △ 「网络制式与选网」：只有网络制式，手动选网烽燧在这里还没有做（D-Link DWR-960 和 D-Link DWR-961）。
+- △ 「数据设置」：改的是路由器正在用的那一个接入点；IP 类型保持路由器原来的设置（D-Link DWR-960 和 D-Link DWR-961）。
+- △ 「数据设置」：只有接入点（APN），数据漫游、流量上限和清零流量统计烽燧在这里还没有做（D-Link DWR-960 和 D-Link DWR-961）。
+- 路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，烽燧每次读完也会注销。登录密码按路由器登录页自己的写法发送，烽燧认不出登录页的写法时不发送密码（D-Link DWR-960 和 D-Link DWR-961）。
+- 资料记载这几款用 OpenWrt 的 LuCI 接口或更早的网页，公开资料里找不到它们读取信号的接口，烽燧还没有实现；其中 DWR-2000M 的管理页只走 HTTPS，它的蜂窝模组接口对管理账号是关着的（除 D-Link DWR-960 和 D-Link DWR-961 外的全部型号）。
 
 <a id="brand-tplink"></a>
 

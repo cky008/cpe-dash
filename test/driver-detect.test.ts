@@ -33,6 +33,8 @@ const SIGNATURES: Readonly<Record<RouterFamily, LanHandler>> = {
     if (req.method === "POST" && (req.path === "/ubus" || req.path === "/ubus/")) return { json: { jsonrpc: "2.0", id: 1, error: { code: -32002, message: "Access denied" } } };
     return NOT_FOUND;
   },
+  // The DWR web interface: `data.ria` says "not signed in" in its own words
+  dlink: (req) => (req.method === "GET" && req.path === "/data.ria" ? { json: { login_fail: "timeout" } } : NOT_FOUND),
   openwrt: (req) => (req.method === "POST" && (req.path === "/ubus" || req.path === "/ubus/") ? { json: { jsonrpc: "2.0", id: 1, error: { code: -32002, message: "Access denied" } } } : NOT_FOUND),
 };
 
@@ -51,8 +53,9 @@ describe("drivers: telling the brand before any login", () => {
     const mock = new LanRouterMock(SIGNATURES.huawei);
     await detect(mock);
     // One request per family, and one more each where a family has a second form the first did not find:
-    // ZTE's other spelling of the same read, FiberHome's Pro path
-    assert.equal(mock.requests.length, DETECTION_ORDER.length + 2, "the families' first reads");
+    // ZTE's other spelling of the same read, FiberHome's Pro path, D-Link's two login pages
+    assert.equal(mock.requests.length, DETECTION_ORDER.length + 4, "the families' first reads");
+    assert.deepEqual(mock.requests.filter((r) => /^\/(data\.ria|login\.html|index\.html)$/.test(r.path)).map((r) => `${r.method} ${r.path}?${r.query.toString()}`), ["GET /data.ria?token=1", "GET /login.html?", "GET /index.html?"]);
     assert.deepEqual(mock.requests.filter((r) => /FHNCAPIS$/.test(r.path)).map((r) => r.path).sort(), ["/api/tmp/FHNCAPIS", "/fh_api/tmp/FHNCAPIS"]);
     assert.deepEqual(mock.requests.filter((r) => /^\/(goform|reqproc)\//.test(r.path) && r.method === "GET").map((r) => r.path).sort(), ["/goform/goform_get_cmd_process", "/reqproc/proc_get"]);
     for (const req of mock.requests) {
@@ -80,6 +83,35 @@ describe("drivers: telling the brand before any login", () => {
     assert.equal(await detect(nros), "nradio");
   });
 
+  it("tells a D-Link router from an OpenWrt one, both ways", async () => {
+    // The DWR web interface by its login page alone (a firmware whose `data.ria` answers a page when signed out)
+    const byPage = new LanRouterMock((req) => (req.method === "GET" && req.path === "/login.html" ? { text: '<script>function encode_passwd(p){} $.post("login.cgi")</script>' } : { text: "<html>Login</html>" }));
+    assert.equal(await detect(byPage), "dlink");
+    const olderPage = new LanRouterMock((req) => (req.method === "GET" && req.path === "/index.html" ? { text: '<script>$.post("login.cgi"); setCookie("DWRLOGGEDID", id)</script>' } : NOT_FOUND));
+    assert.equal(await detect(olderPage), "dlink");
+    // A plain OpenWrt router has LuCI's login page and ubus, none of D-Link's paths: it stays OpenWrt
+    const openwrt = new LanRouterMock((req) => {
+      if (req.method === "GET" && (req.path === "/cgi-bin/luci" || req.path === "/index.html")) return { text: '<html><title>OpenWrt - LuCI</title><form action="/cgi-bin/luci"><input name="luci_password"></form></html>' };
+      return SIGNATURES.openwrt(req) as LanReply;
+    });
+    assert.equal(await detect(openwrt), "openwrt");
+    // A D-Link router that runs OpenWrt (LuCI and ubus under D-Link's name) is named for its interface, OpenWrt's
+    const dlinkOnOpenwrt = new LanRouterMock((req) => {
+      if (req.method === "GET" && (req.path === "/login.html" || req.path === "/index.html")) return { text: '<html><title>D-Link</title><meta http-equiv="refresh" content="0; url=/cgi-bin/luci/"></html>' };
+      return SIGNATURES.openwrt(req) as LanReply;
+    });
+    assert.equal(await detect(dlinkOnOpenwrt), "openwrt");
+    // The DWR web interface has no ubus: a router that answered both would still be named by its own pages
+    const both = new LanRouterMock((req) => {
+      const own = SIGNATURES.dlink(req) as LanReply;
+      return own.status === 404 ? (SIGNATURES.openwrt(req) as LanReply) : own;
+    });
+    assert.equal(await detect(both), "dlink");
+    // A login page that only posts to `login.cgi`, as many embedded pages do, names nobody
+    const generic = new LanRouterMock((req) => (req.path === "/login.html" ? { text: '<form action="login.cgi"></form>' } : NOT_FOUND));
+    assert.equal(await detect(generic), null);
+  });
+
   it("places nothing it cannot tell: a web server that answers every path, wrong shapes, silence", async () => {
     const catchAll = new LanRouterMock(() => ({ text: "<html><body>Login</body></html>" }));
     assert.equal(await detect(catchAll), null);
@@ -91,6 +123,7 @@ describe("drivers: telling the brand before any login", () => {
       if (req.path === "/api/tmp/FHNCAPIS") return { json: { sessionid: "" } };
       if (req.path === "/cgi-bin/luci") return { text: "<html><title>OpenWrt - LuCI</title></html>" };
       if (req.path.startsWith("/ubus")) return { json: { ok: true } };
+      if (req.path === "/data.ria") return { json: { cmd_status: "Done" } };
       return NOT_FOUND;
     });
     assert.equal(await detect(shapes), null);

@@ -35,7 +35,7 @@ import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACT
 const LEGACY = 11;
 
 /** The driver families whose SMS interface is on record, and implemented. */
-const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed", "fiberhome"];
+const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed", "fiberhome", "dlink"];
 /** What each brand's driver writes today (its own form of the interface). */
 const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   "zte-goform": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit", "ussd"],
@@ -44,6 +44,7 @@ const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   tozed: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode"],
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
   nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "networkMode"],
+  dlink: ["reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "apn", "ussd"],
   openwrt: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "airplaneSwitch", "simPin", "apn"],
 };
 
@@ -114,8 +115,9 @@ describe("the supported devices guide page", () => {
     }
     for (const section of CATALOG_SECTIONS) assert.ok(DEVICE_CATALOG.some((entry) => entry.section === section.id), `${section.id}: has models`);
     for (const entry of VERIFIED_FIRMWARE) assert.ok(DEVICE_CATALOG.some((e) => catalogMatches(e, entry.model)), entry.model);
-    // D-Link and TP-Link: listed for reports, nothing implemented yet
-    for (const entry of DEVICE_CATALOG.filter((e) => e.section === "dlink" || e.section === "tplink")) assert.deepEqual(entry.families, [], displayName(entry));
+    // TP-Link: listed for reports, nothing implemented yet. D-Link: the two models whose web interface is on record
+    for (const entry of DEVICE_CATALOG.filter((e) => e.section === "tplink")) assert.deepEqual(entry.families, [], displayName(entry));
+    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"], ["DWR-921"]]);
   });
 
   it("gives every feature of the console one column", () => {
@@ -180,8 +182,15 @@ describe("the supported devices guide page", () => {
     }
     // The one feature reported missing: USSD, which the H168-383 reports switched off (issue #3)
     assert.deepEqual(UNSUPPORTED_FEATURES, [{ family: "huawei", model: "H168-383", feature: "ussd", issue: 3 }]);
-    // Nothing implemented: the whole row stays empty
+    // Nothing implemented: the whole row stays empty, and the brand's table says what the notes have of such models
     assert.deepEqual(marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-2000M"), FEATURE_COLUMNS.map(() => ""));
+    assert.deepEqual(marksOf(supportedDevicesSection("en"), "tplink", "Archer MR600"), FEATURE_COLUMNS.map(() => ""));
+    assert.match(supportedDevicesSection("en"), /no public record names how they report the signal[^\n]+\(every model but the D-Link DWR-960 and D-Link DWR-961\)\./);
+    assert.match(zh, /公开资料里找不到它们读取信号的接口[^\n]+（除 D-Link DWR-960 和 D-Link DWR-961 外的全部型号）。/);
+    // A model on the DWR web interface: no lock and no nearby cells there (empty, not —), its own reads and writes ?
+    const dwr = marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-960") ?? [];
+    const column = (feature: string): string | undefined => dwr[FEATURE_COLUMNS.findIndex((module) => (module.features as ReadonlyArray<string>).includes(feature))];
+    assert.deepEqual(["telemetry", "neighbors", "bandLock", "cellLock", "topology", "smsRead", "battery", "ussd"].map(column), ["△", "", "", "", "?", "△/?", "", "?"]);
   });
 
   it("writes what is particular to a model as a fact, and the generator turns each into △ and a note under its brand's table", () => {

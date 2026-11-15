@@ -11,7 +11,7 @@
 import type { NetworkMode } from "./cellular.ts";
 import { DEVICE_FEATURES, type DeviceFeature, type ReadFeature, WRITE_FEATURES, type WriteFeature, featureAccess } from "./features.ts";
 
-export const ROUTER_FAMILIES = ["huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "openwrt"] as const;
+export const ROUTER_FAMILIES = ["huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "dlink", "openwrt"] as const;
 
 export type RouterFamily = (typeof ROUTER_FAMILIES)[number];
 
@@ -25,9 +25,11 @@ export const DRIVER_FAMILIES = ROUTER_FAMILIES.filter((f): f is DriverFamily => 
  * (`src/drivers/detect.ts`). NROS and ZTE's zWRT are OpenWrt underneath (they answer `/ubus` as well),
  * and NROS' module bridge answers HiLink-style paths: the family with pages or objects of its own goes
  * first, plain OpenWrt and HiLink last. A model whose notes name two families connects through the
- * first of them here unless its owner picks the other.
+ * first of them here unless its owner picks the other. D-Link's web interface is told by paths no
+ * OpenWrt router has (`data.ria`, its login page), and a D-Link router that runs OpenWrt answers none
+ * of them: either is named for what it is.
  */
-export const DETECTION_ORDER: ReadonlyArray<RouterFamily> = ["nradio", "zte-zwrt", "fiberhome", "tozed", "pinsu", "zte-goform", "openwrt", "huawei"];
+export const DETECTION_ORDER: ReadonlyArray<RouterFamily> = ["nradio", "zte-zwrt", "fiberhome", "tozed", "pinsu", "zte-goform", "dlink", "openwrt", "huawei"];
 
 /** The brand left to FengSui in a connection test or save: told from the router's login-free answers, then stored as a family. */
 export const FAMILY_AUTO = "auto";
@@ -68,9 +70,9 @@ export interface RouterFamilyFacts {
    * message read, or marks every message it lists, so FengSui keeps the state itself and writes none.
    */
   smsReadState?: "fengsui";
-  /** Network modes the driver can switch to with a band lock. */
+  /** Network modes the driver can switch to with a band lock (none: the family's interface has no band lock on record). */
   networkModes: ReadonlyArray<"auto" | "lte" | "nr_sa" | "nr_nsa">;
-  /** The driver can lock 5G NR bands (every driver locks LTE bands). */
+  /** The driver can lock 5G NR bands (a driver with a band lock locks LTE bands). */
   nrBandLock: boolean;
   /**
    * The network modes the family's `networkMode` write can switch a router to (`src/cellular.ts`), in
@@ -225,6 +227,16 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte"],
     frequencyLock: true,
   },
+  dlink: {
+    defaultUsername: "admin",
+    defaultAddress: "192.168.0.1",
+    // The web interface of the DWR 4G routers: its notes name no nearby cells and no band or cell lock
+    reads: ["telemetry", "topology", "smsRead", "simCard"],
+    writes: ["reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "apn", "ussd"],
+    networkModes: [],
+    nrBandLock: false,
+    selectableModes: ["auto", "lte", "wcdma", "gsm"],
+  },
   openwrt: {
     defaultUsername: "root",
     defaultAddress: "192.168.1.1",
@@ -295,6 +307,7 @@ export const ROUTER_FAMILY_LABELS: Readonly<Record<RouterFamily, { "zh-CN": stri
   tozed: { "zh-CN": "通则康威 / ZLT（含联通 VN007）", en: "Tozed / ZLT (also China Unicom VN007)" },
   fiberhome: { "zh-CN": "烽火", en: "FiberHome" },
   nradio: { "zh-CN": "鲲鹏无限（NRadio）", en: "NRadio" },
+  dlink: { "zh-CN": "D-Link（DWR 系列 4G 路由器）", en: "D-Link (DWR series 4G routers)" },
   openwrt: { "zh-CN": "OpenWrt + 移远 / 广和通模组", en: "OpenWrt with a Quectel or Fibocom module" },
 };
 

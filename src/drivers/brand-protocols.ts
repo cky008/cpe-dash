@@ -1,3 +1,4 @@
+import { dlinkProtocol } from "./dlink/driver.ts";
 import { fiberhomeProtocol } from "./fiberhome.ts";
 import { nradioProtocol } from "./nradio.ts";
 import { openwrtProtocol } from "./openwrt.ts";
@@ -17,5 +18,6 @@ export const BRAND_PROTOCOLS = {
   tozed: tozedProtocol,
   fiberhome: fiberhomeProtocol,
   nradio: nradioProtocol,
+  dlink: dlinkProtocol,
   openwrt: openwrtProtocol,
 } as const;
