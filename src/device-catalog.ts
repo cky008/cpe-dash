@@ -403,6 +403,13 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["TL-TR961 5G", "mobile", { aliases: ["TL-TR961"] }],
     ["TL-XDR3020 5G", "indoor", { aliases: ["TL-XDR3020"] }],
     ["Archer MR600", "indoor", { families: ["tplink"] }],
+    ["Archer MR402", "indoor", { families: ["tplink"] }],
+    ["Archer MR402-Outdoor", "outdoor", { families: ["tplink"] }],
+    ["Archer MR202", "indoor", { families: ["tplink"] }],
+    ["TL-MR100-Outdoor", "outdoor", { families: ["tplink"] }],
+    ["TL-MR110-Outdoor", "outdoor", { families: ["tplink"] }],
+    ["TL-MR101", "indoor", { families: ["tplink"] }],
+    ["TL-MR108", "indoor", { families: ["tplink"] }],
   ]),
 ];
 

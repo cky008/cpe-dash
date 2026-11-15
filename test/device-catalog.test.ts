@@ -135,9 +135,18 @@ describe("the supported devices guide page", () => {
       ["TL-TR961 5G"],
       ["TL-XDR3020 5G"],
       ["Archer MR600", "tplink"],
+      ["Archer MR402", "tplink"],
+      ["Archer MR402-Outdoor", "tplink"],
+      ["Archer MR202", "tplink"],
+      ["TL-MR100-Outdoor", "tplink"],
+      ["TL-MR110-Outdoor", "tplink"],
+      ["TL-MR101", "tplink"],
+      ["TL-MR108", "tplink"],
     ]);
     // The models TP-Link's emulators show on the JSON form are on record with it, so the gate is right before the driver says so
     for (const model of ["Archer NX505", "NE200-Outdoor", "MX515v", "Archer MR550", "Archer MR500-Outdoor"]) assert.equal(routerVariant("tplink", undefined, model), "ex", model);
+    // The MR models speak the family's own form
+    for (const model of ["Archer MR402", "TL-MR100-Outdoor", "TL-MR108"]) assert.equal(routerVariant("tplink", undefined, model), null, model);
     assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"]]);
   });
 

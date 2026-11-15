@@ -673,7 +673,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | [Kladz-glitch/dwr960-manager](https://github.com/Kladz-glitch/dwr960-manager) | `50d8acd`（2026-10-10） | 没有许可证文件 | DWR-960 的信号、流量、设备、网络制式、接入点、USSD、连接按钮、注销、频段编号表 |
 | [KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook](https://github.com/KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook) | `9c494b3`（2026-08-14） | 没有许可证文件 | DWR-961 新登录页的步骤与 `encode_passwd`、短信 |
 | [souhaiebtar/dwr-2000m-tunisie-telecom](https://github.com/souhaiebtar/dwr-2000m-tunisie-telecom) | `cc4fffa`（2026-11-12） | MIT | DWR-2000M 的接口形态（没有实现的依据） |
-| [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U) | `71e2c5b`（2026-11-13） | GPL-3.0 | TP-Link 两种写法、三代加密、LTE 状态、服务小区、短信、USSD、已连接设备 |
+| [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U) | `71e2c5b`（2026-11-13） | GPL-3.0 | TP-Link 两种写法、三代加密、LTE 状态、服务小区、短信、USSD、已连接设备；README 里测过的型号（18.11 用它确认 TL-MR100-Outdoor、TL-MR110-Outdoor 的真机是加密登录） |
 | [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo)（`@hertzg/tplink-api`） | `043192f`（2026-10-25） | GPL-2.0 | 会话步骤、`getBusy`、登录页的锁定计数、JSON 写法的操作名与 `isuseractive` |
 | [plewin/tp-link-modem-router](https://github.com/plewin/tp-link-modem-router) | `108b7f3`（2021-11-28） | GPL-3.0 | MR 的帧格式、发件箱、`sendResult` |
 
@@ -723,7 +723,7 @@ H168-383 不走这些函数；请求序列比对（`reviews/v1.9.0-tools/compare
 | 型号（模拟器） | 写法 | 结论 |
 | :--- | :--- | :--- |
 | Archer NX205、NX505、NX600（v2）、NX200-Outdoor、NE200-Outdoor（v2）、MX1500（v2）、MX700、MX515v、MR550（v2）、MR500-Outdoor | EX / NX（JSON），开着登录加密（`INCLUDE_LOGIN_GDPR_ENCRYPT=1`） | 页面读写的对象和 NX540v 一一相同（MX515v 没有锁小区的对象），列进「支持的设备」，归在 `ex` 写法下。锁小区（只有 NX540v 带）、天线切换（NE200-Outdoor、NX200-Outdoor、MR500-Outdoor 没有）、几个接入点的表（只有 NX540v）都由页面脚本里的开关决定，烽燧连接时照着判断；4G 机型（MX1500、MX700、MX515v、MR550、MR500-Outdoor）的频段列表里只有 4G |
-| TL-MR100-Outdoor、TL-MR101、TL-MR110-Outdoor、Archer MR402、MR402-Outdoor、MR202、TL-MR108（以及 Archer MR600 v5 的模拟器） | MR（文本帧），模拟器的页面脚本关着登录加密（`INCLUDE_LOGIN_GDPR_ENCRYPT=0`） | 页面按这个开关走另一种登录（见 18.10「登录方式在发送密码之前定下」），模拟器的开关也可能是为了在没有路由器的网页上跑才关的，定不下真机的样子，所以没有列；真机的页面脚本写着 0 时烽燧不发送密码 |
+| TL-MR100-Outdoor、TL-MR101、TL-MR110-Outdoor、Archer MR402、MR402-Outdoor、MR202、TL-MR108 | MR（文本帧） | 页面读写的对象和 MR600 一一相同（TL-MR101 和 MR402-Outdoor 没有锁小区），网络制式同样是三种，列进「支持的设备」，用 MR 系列自己的写法。这几款（以及 Archer MR600 v5）的模拟器在页面脚本里关着登录加密（`INCLUDE_LOGIN_GDPR_ENCRYPT=0`），那是模拟器自己的改动：TP-Link-Archer-C6U 的 README 记着 TL-MR100-Outdoor v1.0 和 TL-MR110-Outdoor v1.0 用它加密登录的 MR 客户端测过。真机的页面脚本要是写着 0，烽燧不发送密码（见 18.10「登录方式在发送密码之前定下」） |
 | M8200 | EX / NX（JSON） | 页面脚本只声明开关、不写取值，烽燧读编译开关的办法在它上面不成立，没有列 |
 | M7310 v2、TL-MR3620 | — | M7310 是另一套随身路由器页面，TL-MR3620 接的是 USB 上网卡，都不是这两种写法 |
 

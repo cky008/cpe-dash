@@ -317,7 +317,7 @@
 
 ## 8. D-Link 与 TP-Link（LuCI RPC / Web JSON 接口）
 
-> **下面是第二份资料里的型号汇总，不是烽燧的实现情况。** 这份资料对这两个品牌只有概述，和后来查到的公开实现对不上的地方不少（比如它把 DWR-960 记成 LuCI JSON-RPC，实际是厂商自己的 `data.ria` 网页接口）。烽燧按公开的开源实现做了其中有接口记录的型号：D-Link 的 DWR-960、DWR-961，TP-Link 的 Archer MR600、Archer NX200、NX510v、NX540v、Deco X50-5G，以及 TP-Link 官方模拟器显示用同一套 JSON 写法的 NX205、NX505、NX600、NX200-Outdoor、NE200-Outdoor、MX1500、MX700、MX515v、MR550、MR500-Outdoor（这几款不在这份资料里，见 `sources.md` 18.11）；其余几款查不到读取信号的接口，表里留空。每个型号实际能做什么以[「支持的设备」](../guide/zh/supported-devices.md#brand-dlink)为准，依据见 [`sources.md`](sources.md) 18.10。
+> **下面是第二份资料里的型号汇总，不是烽燧的实现情况。** 这份资料对这两个品牌只有概述，和后来查到的公开实现对不上的地方不少（比如它把 DWR-960 记成 LuCI JSON-RPC，实际是厂商自己的 `data.ria` 网页接口）。烽燧按公开的开源实现做了其中有接口记录的型号：D-Link 的 DWR-960、DWR-961，TP-Link 的 Archer MR600、Archer NX200、NX510v、NX540v、Deco X50-5G，以及 TP-Link 官方模拟器显示用同样写法的 NX205、NX505、NX600、NX200-Outdoor、NE200-Outdoor、MX1500、MX700、MX515v、MR550、MR500-Outdoor（JSON 写法）和 MR402、MR402-Outdoor、MR202、TL-MR100-Outdoor、TL-MR110-Outdoor、TL-MR101、TL-MR108（MR 写法）（这几款不在这份资料里，见 `sources.md` 18.11）；其余几款查不到读取信号的接口，表里留空。每个型号实际能做什么以[「支持的设备」](../guide/zh/supported-devices.md#brand-dlink)为准，依据见 [`sources.md`](sources.md) 18.10。
 
 资料记载这些路由器使用 OpenWrt `luci-mod-rpc`（`/cgi-bin/luci/rpc/auth`、`/cgi-bin/luci/rpc/uci`）或厂商自己的 Web JSON 接口，与烽燧已有的 OpenWrt 实现（ubus + AT 指令）不是同一套。
 
