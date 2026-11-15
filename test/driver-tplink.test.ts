@@ -715,6 +715,17 @@ describe("tp-link: band selection and cell lock", () => {
       assert.deepEqual([t.lte?.band, t.lte?.arfcn, t.lte?.rsrpDbm], [3, null, -95], "the poll loses only the cell");
     });
     assert.deepEqual(sets(router).concat(sets(old)), []);
+    // A firmware whose page has no cell lock form (its own script says so) gets no cell lock, even where the object answers
+    const unbuilt = "var INCLUDE_LTEWAN=1,INCLUDE_LTE_SEARCH_BAND=1,INCLUDE_LTE_CELL_LOCK=0;";
+    for (const form of ["mr", "ex"] as const) {
+      const plain = tplinkRouter({ form, buildFlags: unbuilt });
+      await plain.client.withSession(async (s) => {
+        const check = newCheck();
+        await assert.rejects(s.setCellLock({ rat: "LTE", band: 1, arfcn: 300, pci: 211, scsKhz: null }, check), /cell lock: nothing was sent/);
+        assert.deepEqual(check.endpoints, []);
+      });
+      assert.deepEqual(sets(plain), [], form);
+    }
   });
 
   it("locks a 4G cell on MR firmware that has the form, as the page sends it, and unlocks it", async () => {

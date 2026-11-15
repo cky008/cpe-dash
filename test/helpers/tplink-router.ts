@@ -71,7 +71,7 @@ export interface TplinkRouterOptions {
   username?: string;
   /** `networkType` of the LTE link (left out: 4G+ on the MR series, 5G on the other form). */
   networkType?: string;
-  /** What `/js/oid_str.js` says this firmware was built with (left out: no antenna switch). */
+  /** What `/js/oid_str.js` says this firmware was built with (left out: a cell lock, no antenna switch, one list of access points). */
   buildFlags?: string;
   /** Start values of the cellular settings, the cell lock, the band selection and the SIM lock. */
   settings?: Record<string, string>;
@@ -512,7 +512,7 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
       return { text: `<html><body><script type="text/javascript">var authTimes=${state.authTimes};var forbidFlag=${opts.forbidSec ? 1 : 0};var forbidTime=${opts.forbidSec ?? 0};</script></body></html>` };
     }
     if (req.method === "GET" && req.path === "/js/tpEncrypt.js") return opts.script ?? { text: scriptText };
-    if (req.method === "GET" && req.path === "/js/oid_str.js") return { text: opts.buildFlags ?? "var INCLUDE_LTEWAN=1,INCLUDE_LTE_SEARCH_BAND=1,INCLUDE_LTE_ANTENNA_TYPE=0,INCLUDE_USSD=1;" };
+    if (req.method === "GET" && req.path === "/js/oid_str.js") return { text: opts.buildFlags ?? "var INCLUDE_LTEWAN=1,INCLUDE_LTE_SEARCH_BAND=1,INCLUDE_LTE_CELL_LOCK=1,INCLUDE_LTE_ANTENNA_TYPE=0,INCLUDE_USSD=1;" };
     if (req.method !== "POST") return NOT_FOUND;
     if (req.path === (form === "mr" ? "/cgi/getParm" : "/cgi/getGDPRParm")) return keyAnswer();
     if (req.path === "/cgi/getBusy") return { text: `var isLogined=${opts.busy ? 1 : 0};\nvar isBusy=0;\n` };

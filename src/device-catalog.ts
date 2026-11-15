@@ -613,9 +613,16 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   {
     family: "tplink",
     variant: "ex",
-    features: ["bandLock", "cellLock"],
-    zh: "频段从路由器列出的支持频段里选，4G 和 5G 一起写入；4G 小区和 5G 独立组网（SA）小区各有一把锁，5G 非独立组网下不能锁小区",
-    en: "bands are chosen from the ones the router lists, 4G and 5G written together; a 4G cell and a 5G standalone cell each have a lock of their own, and a 5G cell cannot be locked in non-standalone mode",
+    features: ["bandLock"],
+    zh: "频段从路由器列出的支持频段里选，4G 和 5G 一起写入",
+    en: "bands are chosen from the ones the router lists, 4G and 5G written together",
+  },
+  {
+    family: "tplink",
+    variant: "ex",
+    features: ["cellLock"],
+    zh: "只有管理页带「锁小区」的固件才有（路由器管理页自己的脚本写明了有没有：TP-Link 官方模拟器里 NX540v 有）；4G 小区和 5G 独立组网（SA）小区各有一把锁，5G 非独立组网下不能锁小区；没有的固件上烽燧会拒绝并说明，不发送任何请求",
+    en: "only on firmware whose page has a cell lock (the router's own page script says whether: in TP-Link's emulators the NX540v has one); a 4G cell and a 5G standalone cell each have a lock of their own, and a 5G cell cannot be locked in non-standalone mode; on firmware without it FengSui refuses and says so, sending nothing",
   },
   ...([null, "ex"] as const).map(
     (variant): ModelFact => ({

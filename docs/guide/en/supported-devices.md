@@ -503,7 +503,8 @@ Usually at `192.168.1.1`; sign in with the admin password (there is no user name
 Notes for this table:
 
 - △ SMS: reads the inbox only: the notes on this form have no read for sent messages, so what FengSui sends is kept by FengSui (Archer NX200, NX510v and NX540v).
-- △ Band lock, Cell lock: bands are chosen from the ones the router lists, 4G and 5G written together; a 4G cell and a 5G standalone cell each have a lock of their own, and a 5G cell cannot be locked in non-standalone mode (Archer NX200, NX510v and NX540v).
+- △ Band lock: bands are chosen from the ones the router lists, 4G and 5G written together (Archer NX200, NX510v and NX540v).
+- △ Cell lock: only on firmware whose page has a cell lock (the router's own page script says whether: in TP-Link's emulators the NX540v has one); a 4G cell and a 5G standalone cell each have a lock of their own, and a 5G cell cannot be locked in non-standalone mode; on firmware without it FengSui refuses and says so, sending nothing (Archer NX200, NX510v and NX540v).
 - △ Router switches: only where the firmware has the antenna switch (the router's own page script says whether: in TP-Link's emulators the NX540v has it, the Archer MR600 has not), between internal and external only; on a model whose page restarts the router to switch, FengSui does not switch (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
 - △ Router switches: the antenna only; FengSui does not do the security switches and Wi-Fi 7 here yet (every model but the Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
 - △ SIM card: the poll reports the SIM card's state only (whether it is there, whether it wants its PIN); the tries a PIN has left are read right before a PIN is written (every model but the TL-TR961 5G and TL-XDR3020 5G).

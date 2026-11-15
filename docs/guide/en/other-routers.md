@@ -58,7 +58,7 @@ Each one also needs the router to have what it takes: when FengSui identifies th
 
 **Other brands:**
 
-- Band lock (4G and 5G bands, typed as band numbers in the controls drawer) and cell lock (channel + PCI, from Nearby cells): every brand but D-Link. TP-Link's MR series selects 4G bands only, and locks a cell where the firmware's page has that form; the NX series takes bands from the ones the router lists, and locks a 5G cell in standalone mode only
+- Band lock (4G and 5G bands, typed as band numbers in the controls drawer) and cell lock (channel + PCI, from Nearby cells): every brand but D-Link. TP-Link's MR series selects 4G bands only; the NX series takes bands from the ones the router lists, and locks a 5G cell in standalone mode only; both lock a cell only where the firmware's page has that form
 - Reboot
 - Redial and the mobile data switch: ZTE (goform and zWRT), NRadio, D-Link, TP-Link (except the Deco), and OpenWrt routers with QModem. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
 - Antenna (automatic, internal, external, both at once): NRadio; TP-Link has internal and external only, and only where the firmware has the antenna switch

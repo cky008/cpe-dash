@@ -520,7 +520,8 @@ class TplinkSession implements DriverSessionHandle {
     if (t.rat === "LTE" && t.arfcn > 65535) throw new CpeControlValidationError(`This router's page takes 4G channels up to 65535 (asked: ${t.arfcn})`);
     if (this.#dialect === "mr") {
       if (t.rat !== "LTE") throw new CpeControlValidationError("This router locks 4G cells only");
-      if ((await this.#object(MR_CELL_LOCK)) === null) throw noFeature("cell lock");
+      // As the page: its cell lock form is there only on firmware built with it
+      if (!(await this.#built("INCLUDE_LTE_CELL_LOCK")) || (await this.#object(MR_CELL_LOCK)) === null) throw noFeature("cell lock");
       if (t.arfcn < 1) throw new CpeControlValidationError("This router's page takes 4G channels from 1");
       // The form sends the cell's identity as well, empty when its field is left empty
       const attrs = { rfInfoCellIDLock: "1", rfInfoCellID: "", rfInfoEARFCN: String(t.arfcn), rfInfoPCI: String(t.pci) };
@@ -528,7 +529,7 @@ class TplinkSession implements DriverSessionHandle {
     } else {
       const oid = NX_CELL_LOCKS[t.rat];
       const supported = parseNxBands((await this.#object(NX_BAND_SEARCH, this.#lte))?.["supportBandList"]);
-      if (supported === null || (await this.#object(oid, this.#lte)) === null) throw noFeature(`${t.rat === "NR" ? "5G" : "4G"} cell lock`);
+      if (!(await this.#built("INCLUDE_LTE_CELL_LOCK")) || supported === null || (await this.#object(oid, this.#lte)) === null) throw noFeature(`${t.rat === "NR" ? "5G" : "4G"} cell lock`);
       // The form picks the band from the ones the router offers; a 5G cell is locked standalone only
       const offered = t.rat === "LTE" ? supported.lte : supported.nrSa;
       if (!offered.includes(t.band)) throw new CpeControlValidationError(`Band ${t.rat === "NR" ? "n" : "B"}${t.band} is not one this router's page offers for a ${t.rat === "NR" ? "5G standalone" : "4G"} cell lock`);
