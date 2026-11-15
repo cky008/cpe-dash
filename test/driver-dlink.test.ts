@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
 import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { SectionUnavailableError } from "../src/cpe-domain.ts";
@@ -10,7 +9,7 @@ import { DriverLoginMethodError } from "../src/drivers/login.ts";
 import type { DriverSms } from "../src/drivers/types.ts";
 import { DeviceReadOnlyError } from "../src/scheduler.ts";
 import { CpeApiError } from "../src/session-errors.ts";
-import { DLINK_PASSWORD, DLINK_URL, dlinkRouter } from "./helpers/dlink-router.ts";
+import { DLINK_PASSWORD, DLINK_PASSWORD_MD5, DLINK_URL, dlinkRouter } from "./helpers/dlink-router.ts";
 import { cellularOf, daemonOn, fullSession, newCheck, noWait } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
 
@@ -131,7 +130,7 @@ describe("d-link: signing in and out", () => {
     const t = await client.withSession((s) => s.telemetry());
     assert.equal(t?.lte?.rsrpDbm, -95);
     assert.deepEqual(mock.trail, ["GET /login.html", "POST /login.cgi", "GET /data.ria", "GET /data.ria", "GET /data.ria", "GET /data.ria", "POST /login.cgi"]);
-    assert.deepEqual([...(logins[0]?.entries() ?? [])], [["uname", "admin"], ["passwd", crypto.createHash("md5").update(DLINK_PASSWORD, "utf8").digest("hex")]]);
+    assert.deepEqual([...(logins[0]?.entries() ?? [])], [["uname", "admin"], ["passwd", DLINK_PASSWORD_MD5]]);
     const login = mock.requests[1];
     assert.equal(login?.headers["referer"], `${DLINK_URL}/index.html`);
     assert.equal(login?.headers["x-requested-with"], "XMLHttpRequest");

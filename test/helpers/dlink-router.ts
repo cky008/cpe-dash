@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { DriverCpeClient } from "../../src/drivers/client.ts";
 import { dlinkEncodedPassword } from "../../src/drivers/dlink/parts.ts";
 import { dlinkProtocol } from "../../src/drivers/dlink/driver.ts";
@@ -12,6 +11,8 @@ import { type LanReply, type LanRequestRecord, LanRouterMock } from "./lan-route
  */
 
 export const DLINK_PASSWORD = "test-password";
+/** What the older login page sends for that password (its MD5), written out: the stand-in compares, it does not hash. */
+export const DLINK_PASSWORD_MD5 = "dfb450efddbb5387197c84460623675b";
 export const DLINK_URL = "http://192.168.0.1";
 
 export interface DlinkInboxEntry {
@@ -63,7 +64,7 @@ export function dlinkRouter(opts: DlinkRouterOptions = {}) {
   /** Every write the router took: its `CfgType` and the body (the token left out). */
   const writes: Array<Record<string, unknown>> = [];
   const logins: URLSearchParams[] = [];
-  const expected = page === "encoded" ? dlinkEncodedPassword(DLINK_PASSWORD) : crypto.createHash("md5").update(DLINK_PASSWORD, "utf8").digest("hex");
+  const expected = page === "encoded" ? dlinkEncodedPassword(DLINK_PASSWORD) : DLINK_PASSWORD_MD5;
   const signedIn = (req: LanRequestRecord): boolean => {
     const cookies = new Map((req.headers["cookie"] ?? "").split("; ").map((pair) => pair.split("=") as [string, string]));
     return state.sid !== null && cookies.get("qSessId") === state.sid && cookies.get("DWRLOGGEDID") === state.sid && cookies.get("DWRLOGGEDUSER") === "admin";
