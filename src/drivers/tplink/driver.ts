@@ -1,4 +1,4 @@
-import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
+import type { ApnChoice, ApnRestore, ApnSetting, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../../cpe-domain.ts";
 import { type WriteCheck, settleCheck } from "../../device-access.ts";
@@ -77,7 +77,7 @@ const SEND_POLL_MS = 1000;
 /** The page asks every two seconds whether a search for networks is done; FengSui gives it two minutes. */
 const SEARCH_POLL_MS = 2000;
 const SEARCH_POLLS = 60;
-/** The page keeps this many access point profiles. */
+/** The page lets its owner add this many access point profiles beside the router's own for the SIM card. */
 const MAX_PROFILES = 8;
 /** How long the page waits before it reads the SIM lock again after a PIN. */
 const PIN_SETTLE_MS = 3500;
@@ -243,6 +243,12 @@ function flagOf(value: string | undefined): boolean | null {
 /** The largest data limit the page's form takes: 9999 GB. */
 const MAX_LIMIT_BYTES = 9999 * 1024 ** 3;
 const MIN_LIMIT_BYTES = 1024 ** 2;
+
+/** What the page's profile form takes: an access point name of up to 62 characters, a user name and a password of up to 31 each. */
+function checkAccessPoint(setting: ApnSetting): void {
+  if (setting.apn.length > 62) throw new CpeControlValidationError("This router's page takes an access point name of up to 62 characters");
+  if (setting.username.length > 31 || setting.password.length > 31) throw new CpeControlValidationError("This router's page takes a user name and a password of up to 31 characters");
+}
 
 class TplinkSession implements DriverSessionHandle {
   readonly family = FAMILY;
@@ -809,7 +815,7 @@ class TplinkSession implements DriverSessionHandle {
    * profile for the SIM card, put in use as it is.
    */
   async #setApn(choice: ApnChoice, check: WriteCheck): Promise<void> {
-    if (choice.mode === "manual" && (choice.username.length > 31 || choice.password.length > 31)) throw new CpeControlValidationError("This router's page takes a user name and a password of up to 31 characters");
+    if (choice.mode === "manual") checkAccessPoint(choice);
     const list = await this.#openProfiles(check);
     if (choice.mode === "auto") {
       const own = this.#ownProfile(list);
@@ -818,7 +824,7 @@ class TplinkSession implements DriverSessionHandle {
     const mine = (profiles: ReadonlyArray<TplinkProfile>): TplinkProfile | undefined => profiles.find((profile) => profile.index >= list.defaults && profile.name === FENGSUI_APN_PROFILE);
     let profile = mine(list.profiles);
     if (profile === undefined) {
-      if (list.profiles.length >= MAX_PROFILES) throw new CpeControlValidationError(`The router keeps ${MAX_PROFILES} access point profiles at most: delete one on the router's own page first`);
+      if (list.profiles.length - list.defaults >= MAX_PROFILES) throw new CpeControlValidationError(`The router keeps ${MAX_PROFILES} access point profiles besides its own at most: delete one on the router's own page first`);
       await this.#setSettings(check, { ...mrProfileCreate(FENGSUI_APN_PROFILE, choice), profileAction: "2" });
       const cfg = await this.#settings();
       profile = mine((cfg === null ? null : await this.#profiles(cfg))?.profiles ?? []);

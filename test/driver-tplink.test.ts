@@ -1001,11 +1001,20 @@ describe("tp-link: mobile data and the cellular settings", () => {
     await none.client.withSession(async (s) => {
       await assert.rejects(cellularOf(s).setApn({ mode: "auto" }, newCheck(), noWait), /no access point profile of its own/);
     });
-    const full = tplinkRouter({ profiles: Array.from({ length: 8 }, (_, i) => ({ profileID: String(i), profileName: `P${i}`, pdpType: "0", ipv4Apn: "internet" })) });
+    // The page counts the profiles its owner added, not the router's own for the SIM card: with the router's own one and eight more, it makes none
+    const full = tplinkRouter({ profiles: Array.from({ length: 9 }, (_, i) => ({ profileID: String(i), profileName: `P${i}`, pdpType: "0", ipv4Apn: "internet" })) });
     await full.client.withSession(async (s) => {
-      await assert.rejects(cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, newCheck(), noWait), /8 access point profiles at most/);
+      await assert.rejects(cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, newCheck(), noWait), /8 access point profiles besides its own at most/);
+      await assert.rejects(cellularOf(s).setApn({ mode: "manual", apn: `a${".b".repeat(31)}`, ipType: "ipv4", auth: "none", username: "", password: "" }, newCheck(), noWait), /up to 62 characters/);
     });
-    assert.equal(full.actions.filter((a) => a.operation === "set" && a.attrs["profileAction"] === "2").length, 0);
+    assert.equal(full.actions.filter((a) => a.operation === "set").length, 1, "the form opened once, and nothing made");
+    const seven = tplinkRouter({ profiles: Array.from({ length: 8 }, (_, i) => ({ profileID: String(i), profileName: `P${i}`, pdpType: "0", ipv4Apn: "internet" })) });
+    await seven.client.withSession(async (s) => {
+      const check = newCheck();
+      await cellularOf(s).setApn({ mode: "manual", apn: "example.apn", ipType: "ipv4", auth: "none", username: "", password: "" }, check, noWait);
+      assert.equal(check.readback, "match");
+    });
+    assert.equal(seven.state.profiles.length, 9, "the eighth of the owner's own, as the page would make it");
     // A router that takes the new profile and does not list it: said, and never made a second time
     const dropping = tplinkRouter({ dropsNewProfile: true });
     await dropping.client.withSession(async (s) => {
