@@ -65,6 +65,22 @@ order: 23
 
 感谢 [561410590/ssh-nradio-plugin-installer](https://github.com/561410590/ssh-nradio-plugin-installer)：烽燧为鲲鹏无限的已连接设备做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
+## D-Link
+
+感谢 [gammy/dwr960utils](https://github.com/gammy/dwr960utils)：烽燧为D-Link DWR 系列的登录、状态读数、短信和重启做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [Kladz-glitch/dwr960-manager](https://github.com/Kladz-glitch/dwr960-manager)：烽燧为D-Link DWR 系列的信号、已连接设备、网络制式、接入点、USSD 和移动数据做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook](https://github.com/KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook)：烽燧为D-Link DWR-961 的登录和短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+## TP-Link
+
+感谢 [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U)：烽燧为TP-Link Archer MR 与 NX 系列的登录、信号、服务小区、已连接设备、短信和 USSD做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo)：烽燧为TP-Link Archer MR 与 NX 系列的登录步骤和请求写法做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [plewin/tp-link-modem-router](https://github.com/plewin/tp-link-modem-router)：烽燧为TP-Link Archer MR 系列的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
 ## OpenWrt 与蜂窝模组
 
 感谢 [FUjr/QModem](https://github.com/FUjr/QModem)：烽燧为 OpenWrt 路由器的短信发送、拨号与广和通模组的载波聚合做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。

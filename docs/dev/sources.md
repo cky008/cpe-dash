@@ -592,3 +592,87 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | 实际制式的判断 | `monitoring/status` 的 `CurrentNetworkTypeEx` | — | 仅 4G 时一直是 `1011` | 不用它判断；看 `device/signal` 的 5G 读数在不在 |
 
 核对用的脚本在仓库外（`~/.cpe-dash-multimodel/v1.9.0/h168-real-device/`），只输出结构、开关、制式代码和是否一致；结论在协议笔记附录 A.12.1 和 #3。
+
+---
+
+### 18.10 第 7 步：两个新品牌，D-Link 与 TP-Link（2026-11-15）
+
+**决定**：第二份资料库和 [`device-notes.md`](device-notes.md) 第 8 节记了这两个品牌的 11 个型号，但只有概述（D-Link 记的是 OpenWrt 的 LuCI RPC，TP-Link 只写了「Web JSON、新固件 RSA + AES」），拼不出能用的登录和读取。细节全部来自公开的开源实现，只取事实（路径、参数名、取值、应答格式），不复制代码和测试数据。结果是：有公开接口记录的型号实现了，没有记录的那几行在表里保持空白，并在表下写明原因。
+
+两个品牌各是一个 `RouterFamily`（`dlink`、`tplink`）。TP-Link 的两种请求写法是同一个驱动里的两种形式（`variants.ex`），驱动在识别时报告路由器说的是哪一种，闸门和「支持的设备」表按它算（和烽火 Pro 系列同一套机制）。
+
+**登录方式在发送密码之前定下（AGENTS.md 铁律四）**。两个品牌的登录都不止一种写法，参考实现大多是「逐种试，哪种登得上用哪种」；烽燧不这样做，因为每试错一次路由器都记一次失败：
+
+| 品牌 | 有几种写法 | 烽燧凭什么定 | 定不下来时 |
+| :--- | :--- | :--- | :--- |
+| D-Link | 密码发 MD5（旧登录页 `index.html`），或发登录页自己的 `encode_passwd`（新登录页 `login.html`） | 免登录读 `/login.html`：有 `encode_passwd` 用后一种；没有这个页面（404）是旧页面，用 MD5；页面里自己写了 `md5` 也用 MD5 | 页面两样都没有：不发送密码（`DriverLoginMethodError`） |
+| TP-Link | 请求写法两种（MR 文本帧、EX / NX 的 JSON）；加密三代（AES-CBC + 不填充的 RSA 签名；AES-GCM，签名不填充或 RSA-OAEP；AES-CBC + P-224 上的 ECIES） | 写法看哪个取密钥的接口有应答（`/cgi/getGDPRParm` 是 JSON 写法，`/cgi/getParm` 是文本写法）；密钥是曲线上的点就是第三代；否则免登录读路由器自己的 `/js/tpEncrypt.js`，里面写了 `gcm` 是第二代、写了 `encryptOAEP` 是 OAEP 签名，都没写（或没有这个脚本）是第一代 | 拿不到密钥，或 MR 文本写法配 GCM（参考实现里这种组合的登录写不通，标签放在哪里没有记录）：不发送密码 |
+
+`/js/tpEncrypt.js` 里用 `gcm`、`encryptOAEP` 两个词区分，是我按出处的描述定的判据（出处只说「`tpEncrypt.js` 用 `encryptOAEP` 的固件」；GCM 的判据是推断：实现 GCM 的脚本必然写到这个词），等真机报告校正。
+
+**D-Link（`src/drivers/dlink/`）**
+
+| 能力 | 接口与写法 | 出处 | 状态 |
+| :--- | :--- | :--- | :--- |
+| 登录、注销 | `POST /login.cgi`（表单 `uname`、`passwd`；成功给 `SessId` 或 Cookie `qSessId`，失败给 `login_fail`，正文里有 `configured by IP` 是别人登录着）；登录页自己写的 Cookie `DWRLOGGEDID`、`DWRLOGGEDUSER`、`DWRLOGGEDTIMEOUT`；注销是 `POST /login.cgi` 的 JSON `{logout: 会话号}`；新登录页登录前发 `check_attempt_count=1`、带 `X-Date`，登录后发 `check_valid` | dwr960utils、dwr960-manager、SMS-Collector-D-Link-DWR-961-Webhook | 已实现；有人在线时路由器在登录应答里才说，烽燧让位、不再发第二次 |
+| 密码的两种写法 | MD5 十六进制；`encode_passwd`：每个字符变成 4 位数字，是它的十进制编码把最后一位换成那一位数字自己的字符编码（`H` → `0750`，`z` → `1250`） | dwr960utils、dwr960-manager（MD5）；SMS-Collector-D-Link-DWR-961-Webhook（`encode_passwd`） | 已实现；编码超过三位数的字符没有写法，不发送密码 |
+| 信号与流量 | `GET /data.ria?DynUpdate=up_5s`（连接、SIM 卡、运行时间、信号格数）、`get_networkserviceinfo`（RSRP、RSRQ、SINR、RSSI、`bm_currentBand`、`earfcn`、`cell_id`、`tac`、`PLMN`、漫游）、`nw_usage`（本期 `rx` / `tx`）、`about_sys`（型号、固件、IMEI 等） | dwr960utils（`up_5s`、`about_sys`）、dwr960-manager（其余，频段编号表出自路由器的 `internet.js`） | 已实现；接口不报告 PCI，频段编号不在表里时由频点推出 |
+| 已连接设备 | `GET /data.ria?CfgType=get_client_list`（`WiFi_2.4G_clilist`、`WiFi_5G_clilist`、`lan_clilist`） | dwr960-manager | 已实现 |
+| 写入的令牌与应答 | 每次写入前 `GET /data.ria?token=1` 取 `authID`，`POST /webpost.cgi` 的 JSON 带上它；应答 `cmd_status: Done` | 三个项目一致 | 已实现；没有令牌不写 |
+| 短信 | 收件箱 `CfgType=sms_action&cont=inbox&index=0`（`total`、`M1`…：`tag`、`phone`、`date`、`msg`、`read`）；发送 `sms_action` / `sms_send`（`msg`、`phone_list`）；标为已读和删除 `sms_action` / `inbox` 的 `set_read`、`del`（按 `tag`） | dwr960utils、dwr960-manager、SMS-Collector-D-Link-DWR-961-Webhook（`Done` 只表示路由器收下了） | 已实现；发件箱没有读法；发送记为「未确认」 |
+| 重启 | `reboot_reset` / `reboot` | dwr960utils、dwr960-manager | 已实现 |
+| 重拨、移动数据 | `connect_btn`：`connect` 1（`ifc: lte`）、0（`ifc: all`） | dwr960-manager | 已实现；回读看 `up_5s` 的连接状态 |
+| 网络制式 | `CfgType: apn` 的 `COMMON.netpref_value`：0 自动、6 仅 4G、7 仅 3G、8 仅 2G；读 `get_apn_cfg`；改完重启一次数据连接（管理页的做法） | dwr960-manager | 已实现 |
+| 接入点 | `CfgType: apn` 的 `APN_0`（`type` 0 自动 / 1 手动、`apn`、`uname`、`passwd`、`re_passwd`、`auth` 0 无 / 1 PAP / 2 CHAP / 3 自动、`pdp_type`） | dwr960-manager | 已实现；`pdp_type` 的取值没有记录，保持路由器原值 |
+| USSD | `do_ussd` 的 `send`（`code`）、`cancel`；`DynUpdate=get_ussd_state` 的 `resp_data` | dwr960-manager | 已实现；会话内回复没有记录 |
+| 附近的基站、锁频段、锁小区、手动选网、漫游开关、流量上限、PIN | — | 查过上面三个项目和 GitHub 代码搜索（`data.ria`、`webpost.cgi`、`bm_currentBand`、`check_attempt_count`） | 没有记录，不做 |
+
+没有实现的 D-Link 型号：
+
+- **DWR-2000M**：公开的记录（dwr-2000m-tunisie-telecom）说它是 OpenWrt 21.02 加厂商自己的页面，管理页只走 HTTPS（自签名证书，HTTP 一律跳转），登录是 LuCI 的表单或 ubus 的 `session.login`；管理账号的权限里没有蜂窝模组的对象（`modem_pdn`、`ql-netd` 被拒绝），也没有能发 AT 指令的途径。读不到信号，烽燧也不接受自签名证书，所以不做。
+- **DWR-2101、DWR-953V2**：GitHub 仓库和代码搜索里没有找到它们的接口记录。
+- **DWR-921**：公开的记录（D-Link_Scraper、SMS-Dlink-DWR-921）是另一套更早的网页：登录是 `/log/in?un=…&pw=…`（密码用登录页上的 RSA 公钥加密后放在地址里，更早的固件直接放明文），读数要从首页的 HTML 里按元素取，只有信号强度（dBm）、网络类型、运营商名和 WAN 地址，没有 RSRP、频段和小区。这一步还没有实现。
+
+**TP-Link（`src/drivers/tplink/`）**
+
+| 能力 | 接口与写法 | 出处 | 状态 |
+| :--- | :--- | :--- | :--- |
+| 会话的步骤 | 登录页 `GET /`（脚本变量里有 `authTimes`、`forbidFlag`、`forbidTime`）→ 取密钥 → `POST /cgi/getBusy`（`isLogined`、`isBusy`）→ 登录 → 再 `GET /` 取 `var token`，之后每个请求带 `TokenID` 头和 Cookie `JSESSIONID` | @hertzg/tplink-api（步骤、忙碌标志、锁定计数）、TP-Link-Archer-C6U、tp-link-modem-router | 已实现；登录页显示已锁定就不登录，`isLogined` 为 1 就让位 |
+| 密钥 | `POST /cgi/getParm`（MR）或 `/cgi/getGDPRParm`（EX / NX）：`var nn`、`var ee`、`var seq`；新固件给 JSON 的 `eccPubKey_X_HEX`、`eccPubKey_Y_HEX`、`seq` | 同上 | 已实现 |
+| 加密与签名 | 载荷 AES-128（密钥和 IV 是 16 个字符的文本；CBC，或 GCM 加 Base64 的标签）；签名串登录时是 `key=…&iv=…&h=…&s=…`，其余是 `h=…&s=…`，`h` 是 MD5(用户名 + 密码)（曲线那一代是 SHA-256），`s` 是 `seq` 加密文长度；RSA 按模数长度分块、不填充（末块补零）或 OAEP(SHA-1)；曲线那一代用 P-224 上的 ECIES 封装签名串，另带载荷的 HMAC-SHA256 | TP-Link-Archer-C6U（三代）、tp-link-modem-router（第一代）、@hertzg/tplink-api（第一代，签名长度由模数决定） | 已实现；密钥和 IV 用系统随机源生成 |
+| 登录 | MR：`POST /cgi/login?data=…&sign=…&Action=1&LoginStatus=0&isMobile=0`，明文是「用户名换行密码」；EX / NX：`POST /cgi_gdpr?9`，明文是 `cgi` 操作 `/cgi/login` 的 JSON，用户名和密码各自 Base64。应答 `$.ret=0`；`71233` 是密码错（带 `currAuthTimes`、`currForbidTime`）；有的固件密码错了也答 0，只是不给会话 | TP-Link-Archer-C6U、@hertzg/tplink-api（密码错与对答得一样）；错误码的名字出自路由器管理页自己的 `err.js` | 已实现；`LoginStatus` 一直是 0，烽燧从不把别人挤下线 |
+| 请求的两种写法 | MR：`POST /cgi_gdpr`，一帧多个动作，`[对象#实例#0,0,0,0,0,0]序号,属性数` 加属性行，动作编号 1 读、2 写、4 删、5 列表、6 子列表、7 操作、8 脚本，值里的换行写成控制字符；EX / NX：`POST /cgi_gdpr?9`，一次一个动作的 JSON（`go`、`so`、`do`、`gl`、`gs`、`op`、`cgi`），写操作带 `isuseractive` | TP-Link-Archer-C6U、tp-link-modem-router、@hertzg/tplink-api | 已实现 |
+| 信号与流量 | `…LTE_LINK_CFG`（`networkType` 0 无服务、2 3G、3 / 7 4G、8 5G；`simStatus`；`roamingStatus`）、`…LTE_INTF_CFG`（`totalStatistics`、`curRxSpeed`、`curTxSpeed`）、`…LTE_NET_STATUS`（`sigLevel`、`rfInfoRsrp`、`rfInfoRsrq`、`rfInfoSnr`，后者是 0.1 dB）、`…LTE_PROF_STAT`（`ispName`）；MR 的实例是 `2,1,0,0,0,0`（接口是 `2,0,0,0,0,0`），EX / NX 是 `1,0,0,0,0,0` | TP-Link-Archer-C6U | 已实现 |
+| 服务小区（EX / NX） | `DEV2_LTE_SERVING_CELL_INFO` 列表：`networkType`、`cellConnectionStatus`、`band`、`ARFCN`、`PCI`、`cid`、`TAC`、`RSRP`、`RSRQ`、`SNR`（0.1 dB）、`RSSI`、`upBandWidth` / `downBandWidth`（kHz）、5G 的 `SSRSRP`、`SSRSRQ`、`SSSINR`；`268435455` 表示没有值 | TP-Link-Archer-C6U（代码与 NX510v 的 issue #135 里的样例） | 已实现：第一个已连接的 4G / 5G 条目是服务小区，其余是载波 |
+| 已连接设备 | `LAN_HOST_ENTRY`（`MACAddress`、`X_TP_ConnType`）/ `DEV2_HOST_ENTRY`（`physAddress`、`X_TP_LanConnType`）：0 有线、1 / 2 2.4 GHz、3 / 4 5 GHz | TP-Link-Archer-C6U | 已实现 |
+| 短信 | 先 `SET …SMS_RECVMSGBOX` 的页号（MR 是 `PageNumber`，EX / NX 是 `pageNumber`，每页 8 条），再列 `…SMS_RECVMSGENTRY`（`index`、`from`、`content`、`receivedTime`、`unread`）；MR 另有发件箱 `LTE_SMS_SENDMSGBOX` / `…SENDMSGENTRY`（`to`、`sendTime`）；发送 `SET …SMS_SENDNEWMSG`（`index=1`、`to`、`textContent`）；标为已读 `SET` 条目的 `unread=0`，删除是对条目的删除操作，都按「页号 + 页内实例」定位；MR 读 `sendResult`（1 发出、3 还没处理） | TP-Link-Archer-C6U、tp-link-modem-router（发件箱、`sendResult`） | 已实现；每次写入前在同一会话里重新按路由器的 `index` 找到那条短信（删除会让后面的条目前移） |
+| USSD（MR） | `SET LTE_USSD`（`action=1`、`reqContent`），再读 `ussdStatus`（0 等待、1 有应答、2 失败）和 `response` | TP-Link-Archer-C6U | 已实现；回复和取消没有记录 |
+| 重启、注销 | 操作 `ACT_REBOOT`；脚本 `/cgi/logout` | TP-Link-Archer-C6U、tp-link-modem-router | 已实现 |
+| MR 系列的频段和小区（`LTE_BANDINFO`） | 只有对象名 | @hertzg/tplink-api 的例子 | 属性名没有记录，不做 |
+| 附近的基站、锁频段、锁小区、移动数据开关、网络制式、接入点、PIN | — | 查过上面三个项目和 TP-Link-Archer-C6U 的 issue（NX200 #160、NX510v #135、MR600 #93、Deco #132） | 没有记录（`WAN_LTE_LINK_CFG` 的 `enable`、`WAN_LTE_INTF_CFG` 的 `dataLimit` 只有读，没有写法），不做 |
+
+没有实现的 TP-Link 型号：
+
+- **Deco X50-5G**：公开的记录（TP-Link-Archer-C6U 的 Deco 客户端）是另一套接口：`/cgi-bin/luci/;stok=…/admin/…?form=…`，密码用路由器给的 RSA 公钥加密，请求再套一层 AES 和签名；`admin/network?form=internet` 的 `mobile_cpe` 里有 RSRP、RSRQ、SNR、网络类型和 SIM 状态。这一步还没有实现。
+- **TL-TR961 5G、TL-XDR3020 5G**：国内版管理页（`/stok=…/ds` 一类），公开的客户端里只有 WAN、Wi-Fi 和终端的读法，没有蜂窝信号的读法。没有记录，不做。
+
+**参考过的项目**（都只取事实；致谢写在指南的致谢页）
+
+| 项目 | 提交 | 许可证 | 用了哪些事实 |
+| :--- | :--- | :--- | :--- |
+| [gammy/dwr960utils](https://github.com/gammy/dwr960utils) | `29e7947`（2025-12-30） | GPL-2.0 | DWR-960 的登录（MD5）、`up_5s`、`about_sys`、短信、令牌、重启 |
+| [Kladz-glitch/dwr960-manager](https://github.com/Kladz-glitch/dwr960-manager) | `50d8acd`（2026-10-10） | 没有许可证文件 | DWR-960 的信号、流量、设备、网络制式、接入点、USSD、连接按钮、注销、频段编号表 |
+| [KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook](https://github.com/KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook) | `9c494b3`（2026-08-14） | 没有许可证文件 | DWR-961 新登录页的步骤与 `encode_passwd`、短信 |
+| [souhaiebtar/dwr-2000m-tunisie-telecom](https://github.com/souhaiebtar/dwr-2000m-tunisie-telecom) | `cc4fffa`（2026-11-12） | MIT | DWR-2000M 的接口形态（没有实现的依据） |
+| [TheLastGimbus/D-Link_Scraper](https://github.com/TheLastGimbus/D-Link_Scraper)、[inf265/SMS-Dlink-DWR-921](https://github.com/inf265/SMS-Dlink-DWR-921) | `69dc558`（2020-09-30）、`bc1fa12`（2022-01-17） | Apache-2.0 | DWR-921 的接口形态（这一步没有实现） |
+| [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U) | `71e2c5b`（2026-11-13） | GPL-3.0 | TP-Link 两种写法、三代加密、LTE 状态、服务小区、短信、USSD、已连接设备 |
+| [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo)（`@hertzg/tplink-api`） | `043192f`（2026-10-25） | GPL-2.0 | 会话步骤、`getBusy`、登录页的锁定计数、JSON 写法的操作名与 `isuseractive` |
+| [plewin/tp-link-modem-router](https://github.com/plewin/tp-link-modem-router) | `108b7f3`（2021-11-28） | GPL-3.0 | MR 的帧格式、发件箱、`sendResult` |
+
+TP-Link 的登录错误码名字（`71233` 是 `ERR_HTTP_ERR_USER_PWD_NOT_CORRECT`）取自路由器管理页自己的 `err.js`（一个公开的管理页模拟仓库里有它的副本）；只用来确认含义。
+
+**即使有记录也不实现的**（AGENTS.md 第 4 节第 7 条）：DWR-2000M 的记录里有打开 SSH、Telnet 和改管理密码的厂商接口，D-Link `data.ria` 的记录里有恢复出厂（`restore_state`）和导出配置；都不做。
+
+**验证**：两个品牌各有一个模拟路由器（`test/helpers/dlink-router.ts`、`test/helpers/tplink-router.ts`）。TP-Link 的那个按路由器的做法反向处理烽燧发来的东西：用私钥解开签名、从登录的签名里取出会话密钥、核对摘要和序号、解密载荷、加密应答，所以签名或载荷写错一处就登不上，而不是测试照着实现自己再算一遍。它的 RSA 密钥是 2048 位（真机是 512 位）：驱动按拿到的模数长度分块，同一段代码两种长度都走得通，测试里不生成弱密钥；512 位模数的分块另用一个写死的数核对。识别品牌的测试加了 D-Link 与 OpenWrt 双向的用例（普通 OpenWrt 不会被认成 D-Link，跑 OpenWrt 的 D-Link 机型按它的接口认成 OpenWrt）。
+
+**这一步发现的旁支问题**（没有改，留给主人决定）：`src/protocols/values.ts` 的 `numberOf` 只读整数部分的前 9 位，十位以上的数会被悄悄截短（`"2948105728.0"` 读成 294810572）。TP-Link 的流量总数因此单独解析；现有驱动里用 `nonNegativeOf` / `megabytesToBytes` 读大数的地方值得查一遍。

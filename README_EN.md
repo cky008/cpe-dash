@@ -72,7 +72,7 @@ You can try the rest in the [live demo](https://cky008.github.io/fengsui-demo/):
 
 So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only.
 
-- **Other routers**: Other Huawei HiLink routers connect too, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself, but none of them has been verified on a real device.
+- **Other routers**: Other Huawei HiLink routers connect too, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome, NRadio, D-Link and TP-Link, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself, but none of them has been verified on a real device.
 - **Writes**: On those routers, what FengSui implements works straight away, writes included: they are on by default, and you can turn each one off in the console. Each write is sent once and read back, and a band or cell lock that leaves the internet down for 3 minutes is undone automatically.
 - **Help verify more routers**: Device reports from the console help get more routers verified, and you can hand the console's ready-made prompt to an AI agent to run the tests and draft the report.
 - **Details**: Where each brand and model stands is under [Supported devices](https://fengsui.iocky.com/en/docs/supported-devices/), how FengSui works on these routers is under [Other models and brands](https://fengsui.iocky.com/en/docs/other-routers/), and the notes on each brand's models are in the [device reference](docs/dev/device-notes.md); or see it first in the [live demo's other-model mode](https://cky008.github.io/fengsui-demo/?router=other).

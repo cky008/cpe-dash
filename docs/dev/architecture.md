@@ -545,7 +545,7 @@ v1.8.3 之前，烽燧只会说华为 HiLink。这一版加入七个品牌的驱
 2. 其他品牌没有已连接设备、路由器设置、访问控制、短信、重拨和移动数据；自愈的自动重拨在这些品牌上不起作用（锁定回滚有）。
 3. OpenWrt 的「重启」重启的是蜂窝模组，不是整台路由器；流量计数、广和通的载波聚合没有读。
 4. 品牌识别依赖每个品牌的特征请求；固件改了登录页的品牌认不出，需要手动选择。
-5. `docs/dev/device-notes.md` 是接口资料里的型号汇总，不是实测结果；其中 D-Link / TP-Link 一节没有对应的实现。
+5. `docs/dev/device-notes.md` 是接口资料里的型号汇总，不是实测结果；其中 D-Link / TP-Link 一节当时没有对应的实现（v1.9.0 第 7 步实现了其中有公开接口记录的型号，见 [`sources.md`](sources.md) 18.10）。
 
 ## 19. 统一的会话层与后端（2026-11-12，v1.9.0）
 
@@ -564,7 +564,7 @@ flowchart TD
     Q --> C["SessionClient（session-client.ts）：互斥 · 限时 · 让位 · 只交一次密码 · 熔断 · finally 注销"]
     C --> D1["华为驱动 drivers/huawei/<br/>driver：HilinkRouterSession · huaweiDriver<br/>requests · band-lock · access-control · sms：H168-383 的已验证序列"]
     C --> D2["其他品牌 drivers/adapter.ts<br/>DriverRouterSession 套在各自驱动的 DriverSession 上"]
-    D2 --> P2["各品牌驱动：zte/（goform · zwrt）· pinsu · tozed · fiberhome · nradio · openwrt"]
+    D2 --> P2["各品牌驱动：zte/（goform · zwrt）· pinsu · tozed · fiberhome · nradio · dlink/ · tplink/ · openwrt"]
     D1 --> K["协议部件 protocols/：hilink/（client · auth · crypto · xml · parsers · generic-writes · access-control · sms）<br/>ubus · at/（common · quectel · fibocom · sms）<br/>共用：transport · values · readings · ussd"]
     P2 --> K
 ```

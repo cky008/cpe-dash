@@ -33,6 +33,8 @@ body:
         - 通则康威 ZLT / Tozed ZLT
         - 烽火 / FiberHome
         - 鲲鹏无限 / NRadio
+        - D-Link（DWR 系列）/ D-Link (DWR series)
+        - TP-Link（Archer MR / NX 系列）/ TP-Link (Archer MR and NX series)
         - OpenWrt + 移远或广和通模组 / OpenWrt with a Quectel or Fibocom module
         - 其他品牌（烽燧里还选不到）/ Another brand (not in FengSui yet)
     validations:

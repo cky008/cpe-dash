@@ -66,6 +66,9 @@ FengSui is currently verified on the Huawei H168-383 only. SMS on the brands bel
 | Tozed / ZLT (also China Unicom VN007) | Read and send | The interface has no command on record to delete a message or to mark one read: you cannot delete, and FengSui keeps track of what you have not read. |
 | FiberHome | Read, mark as read, send, delete a whole conversation | Sending takes plain English text only (letters, digits and common punctuation), and never text with `` ` ``, `$`, `"` or `\`: the router hands the text to a command line. To delete, select every message of the conversation. Where the router wants a separate web sign-in before it shows messages, the SMS page stays empty. |
 | FiberHome Pro series (such as the LG6851F) | Read, mark as read | Its interface notes have no way to send or delete a message, so the SMS page does not show those buttons. |
+| D-Link (DWR-960, DWR-961) | Read, send, mark as read, delete | Only the inbox can be read: there is no read for the messages the router keeps of what it sent, so what you send is kept by FengSui only. The router says it took a message, not whether it went out, so a send shows as "unconfirmed". |
+| TP-Link MR series (such as the Archer MR600) | Read, send, mark as read, delete | Both the inbox and the sent box are read; after a send FengSui asks the router whether the message went out. |
+| TP-Link NX series (Archer NX200, NX510v) | Read, send, mark as read, delete | Only the inbox can be read, so what you send is kept by FengSui only; the router does not say whether a message went out, so a send shows as "unconfirmed". |
 
 The interface notes of Pinsu and NRadio have no SMS interface, so the SMS page stays empty on those two brands.
 

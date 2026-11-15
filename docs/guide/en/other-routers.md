@@ -5,7 +5,7 @@ section: Manage
 order: 19
 ---
 
-**So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome and NRadio, and OpenWrt routers with a Quectel or Fibocom module, but no one has verified any of them with FengSui on a real device. On those routers, what FengSui implements works straight away, writes included: they are on by default, and you can turn each one off. This page covers how FengSui works on those routers; which brands and models may work, and where each feature stands, is under [Supported devices](supported-devices.md).
+**So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only.** Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome, NRadio, D-Link and TP-Link, and OpenWrt routers with a Quectel or Fibocom module, but no one has verified any of them with FengSui on a real device. On those routers, what FengSui implements works straight away, writes included: they are on by default, and you can turn each one off. This page covers how FengSui works on those routers; which brands and models may work, and where each feature stands, is under [Supported devices](supported-devices.md).
 
 <a id="brand"></a>
 
@@ -44,17 +44,16 @@ Each one also needs the router to have what it takes: when FengSui identifies th
 
 **Other brands:**
 
-- Band lock (4G and 5G bands, typed as band numbers in the controls drawer)
-- Cell lock (channel + PCI, from Nearby cells)
+- Band lock (4G and 5G bands, typed as band numbers in the controls drawer) and cell lock (channel + PCI, from Nearby cells): every brand but D-Link and TP-Link
 - Reboot
-- Redial and the mobile data switch: ZTE (goform and zWRT), NRadio, and OpenWrt routers with QModem. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
+- Redial and the mobile data switch: ZTE (goform and zWRT), NRadio, D-Link, and OpenWrt routers with QModem. On a router without a redial command of its own, a redial is a disconnect followed by a connect, and FengSui always sends the connect at the end
 - Antenna (automatic, internal, external, both at once): NRadio
-- Cellular settings: the network mode (ZTE, Pinsu, Tozed, FiberHome, NRadio, OpenWrt), operator selection and the access point (ZTE, OpenWrt), the SIM slot, data roaming and the data limit (ZTE), the SIM PIN (ZTE, and Quectel modules on OpenWrt), airplane mode (FiberHome, OpenWrt), USSD (ZTE goform). What each one does and what to watch for is under [Cellular settings](router-switches.md#cellular-settings)
-- SMS: ZTE, OpenWrt, Tozed and FiberHome. What each brand can do differs (some cannot delete, some send with a condition); see [SMS](sms.md#other-brands)
+- Cellular settings: the network mode (ZTE, Pinsu, Tozed, FiberHome, NRadio, D-Link, OpenWrt), operator selection (ZTE, OpenWrt), the access point (ZTE, D-Link, OpenWrt), the SIM slot, data roaming and the data limit (ZTE), the SIM PIN (ZTE, and Quectel modules on OpenWrt), airplane mode (FiberHome, OpenWrt), USSD (ZTE goform, D-Link, TP-Link's MR series). What each one does and what to watch for is under [Cellular settings](router-switches.md#cellular-settings)
+- SMS: ZTE, OpenWrt, Tozed, FiberHome, D-Link and TP-Link. What each brand can do differs (some cannot delete, some send with a condition); see [SMS](sms.md#other-brands)
 
-Connected devices show on ZTE goform, NRadio and OpenWrt routers. OpenWrt lists its DHCP leases, which do not say whether a device is wired or on Wi-Fi, so the console shows "Link not reported".
+Connected devices show on ZTE goform, NRadio, D-Link, TP-Link and OpenWrt routers. OpenWrt lists its DHCP leases, which do not say whether a device is wired or on Wi-Fi, so the console shows "Link not reported".
 
-Router switches (UPnP, DMZ, firewall) and access control are not in the other brands' interface notes, so FengSui does not do them there; Pinsu and NRadio have no SMS, and those parts of the console stay empty. What is particular to each brand is under [Supported devices](supported-devices.md#brands).
+Router switches (UPnP, DMZ, firewall) and access control are not in the other brands' interface notes, so FengSui does not do them there; Pinsu and NRadio have no SMS, and the notes on D-Link and TP-Link have no nearby cells, band lock or cell lock, so those parts of the console stay empty. What is particular to each brand is under [Supported devices](supported-devices.md#brands).
 
 A write FengSui does not implement is never sent to the router: the web console, the API, MCP, Telegram and self-healing all go through the same gate on the server, and the endpoint answers `409 DEVICE_UNVERIFIED_READ_ONLY`.
 

@@ -145,6 +145,7 @@ The APN (access point name) tells the operator which service this SIM card conne
 - A wrong APN takes the internet down; after 3 minutes FengSui switches back to the earlier one.
 - On ZTE routers FengSui writes only its own profile (named `FengSui`) and leaves the router's profiles as they are. Going back makes the earlier profile the default again.
 - On OpenWrt you can set the name and the address type only, not a user name or password.
+- On D-Link routers FengSui changes the one access point the router uses and leaves the address type as the router has it; after the change it restarts the data connection once, as the router's own page does. Where the earlier access point had a user name, FengSui cannot put it back for you after the connection is lost (it never keeps an access point's password), and the alert says so.
 - The access point's name, user name and password never appear in any FengSui record.
 
 <a id="data-limit"></a>

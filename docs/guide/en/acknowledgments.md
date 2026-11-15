@@ -65,6 +65,22 @@ Thanks to [xxtg666/FiberHome-LG6851F-SMS-Forward](https://github.com/xxtg666/Fib
 
 Thanks to [561410590/ssh-nradio-plugin-installer](https://github.com/561410590/ssh-nradio-plugin-installer): FengSui consulted the interface notes it collects when adding connected devices for NRadio. FengSui contains none of its code and does not depend on it.
 
+## D-Link
+
+Thanks to [gammy/dwr960utils](https://github.com/gammy/dwr960utils): FengSui consulted the interface notes it collects when adding sign-in, status readings, SMS and reboot for D-Link's DWR routers. FengSui contains none of its code and does not depend on it.
+
+Thanks to [Kladz-glitch/dwr960-manager](https://github.com/Kladz-glitch/dwr960-manager): FengSui consulted the interface notes it collects when adding the signal, connected devices, the network mode, the access point, USSD and mobile data for D-Link's DWR routers. FengSui contains none of its code and does not depend on it.
+
+Thanks to [KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook](https://github.com/KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook): FengSui consulted the interface notes it collects when adding sign-in and SMS for the D-Link DWR-961. FengSui contains none of its code and does not depend on it.
+
+## TP-Link
+
+Thanks to [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U): FengSui consulted the interface notes it collects when adding sign-in, the signal, serving cells, connected devices, SMS and USSD for TP-Link's Archer MR and NX routers. FengSui contains none of its code and does not depend on it.
+
+Thanks to [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo): FengSui consulted the interface notes it collects when adding the sign-in steps and request forms for TP-Link's Archer MR and NX routers. FengSui contains none of its code and does not depend on it.
+
+Thanks to [plewin/tp-link-modem-router](https://github.com/plewin/tp-link-modem-router): FengSui consulted the interface notes it collects when adding SMS for TP-Link's Archer MR routers. FengSui contains none of its code and does not depend on it.
+
 ## OpenWrt and cellular modules
 
 Thanks to [FUjr/QModem](https://github.com/FUjr/QModem): FengSui consulted the interface notes it collects when adding SMS sending and dialling for OpenWrt routers and carrier aggregation for Fibocom modules. FengSui contains none of its code and does not depend on it.

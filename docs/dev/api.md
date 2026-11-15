@@ -594,7 +594,7 @@ export type AlertCode =
 | 方法与路径 | 请求体 | 响应 |
 | :--- | :--- | :--- |
 | `GET /api/console` | — | `ConsoleSettingsResponse` |
-| `POST /api/console/cpe/test` | `{ url?, username?, password?, family?, lastAttempt? }`（缺省字段用已保存的值；`family` 是路由器品牌：`huawei`、`zte-goform`、`zte-zwrt`、`pinsu`、`tozed`、`fiberhome`、`nradio`、`openwrt` 之一，或 `auto`：先只用免登录请求认出品牌，认出之后才登录，认不出则 `result.reason` 为 `unknown_brand`、什么密码都没发；其他取值 `400 VALIDATION_ERROR`。没给 `username` 时，品牌与已保存的相同就用已保存的，否则用该品牌的默认账号；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult, family? }`（`family`：这次测试所用的品牌；没认出品牌时不带） |
+| `POST /api/console/cpe/test` | `{ url?, username?, password?, family?, lastAttempt? }`（缺省字段用已保存的值；`family` 是路由器品牌：`huawei`、`zte-goform`、`zte-zwrt`、`pinsu`、`tozed`、`fiberhome`、`nradio`、`dlink`、`tplink`、`openwrt` 之一，或 `auto`：先只用免登录请求认出品牌，认出之后才登录，认不出则 `result.reason` 为 `unknown_brand`、什么密码都没发；其他取值 `400 VALIDATION_ERROR`。没给 `username` 时，品牌与已保存的相同就用已保存的，否则用该品牌的默认账号；已保存的密码只用于已保存的地址，换地址须填密码，否则 `400 VALIDATION_ERROR`，不发任何请求：别的主机会收到旧式登录的密码或可离线破解的 SCRAM 证明） | `{ ok: true, result: ConnectionTestResult, family? }`（`family`：这次测试所用的品牌；没认出品牌时不带） |
 | `POST /api/console/cpe` | 同上 | 先测试：成功则保存、切换并解除熔断，`{ ok: true, result, settings }`；失败 `400 CPE_TEST_FAILED`（附 `connectionTest`，不保存） |
 | `POST /api/console/review` | `{}` | 确认从 `.env` 导入的设置，`ConsoleSettingsResponse` |
 | `POST /api/console/password` | `{ current, next }`（`next` 10–256 个字符） | 成功后吊销其他会话；当前密码错误 `403 WRONG_PASSWORD`，并与登录共用同一地址的失败计数：超限后 `429 RATE_LIMITED`（`retryAfterSec`） |
