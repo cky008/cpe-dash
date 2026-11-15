@@ -1,24 +1,39 @@
 import type { DriverFamily } from "../router-family.ts";
 import { DriverCpeClient, type DriverCpeClientOptions, type DriverProtocol } from "./client.ts";
-import { fiberhomeProtocol } from "./fiberhome.ts";
-import { nradioProtocol } from "./nradio.ts";
-import { openwrtProtocol } from "./openwrt.ts";
-import { pinsuProtocol } from "./pinsu.ts";
-import { tozedProtocol } from "./tozed.ts";
-import { zteGoformProtocol } from "./zte/goform.ts";
-import { zteZwrtProtocol } from "./zte/zwrt.ts";
 
 /**
- * Registry of all non-Huawei router protocol drivers supported by FengSui.
+ * Registry of all non-Huawei router protocol drivers supported by FengSui. Their modules
+ * (./brand-protocols.ts) load the first time one of them is asked something (a login-free detection,
+ * the check before a login, a login), which every protocol answers asynchronously anyway: a daemon
+ * on a Huawei router never loads them, and neither does the live demo's page on its Huawei routers.
  */
+
+let loading: Promise<typeof import("./brand-protocols.ts")> | null = null;
+const brandProtocols = (): Promise<typeof import("./brand-protocols.ts")> => (loading ??= import("./brand-protocols.ts"));
+
+/** A brand's protocol whose module loads on first use (once; every later call uses the same). */
+function onDemand(family: DriverFamily): DriverProtocol {
+  const protocol = async (): Promise<DriverProtocol> => (await brandProtocols()).BRAND_PROTOCOLS[family];
+  return {
+    family,
+    detect: async (http) => (await protocol()).detect(http),
+    // A brand without its own check answers none, as the session client takes a protocol without one
+    precheck: async (http) => {
+      const real = await protocol();
+      return real.precheck ? await real.precheck(http) : null;
+    },
+    login: async (http, credentials) => (await protocol()).login(http, credentials),
+  };
+}
+
 export const DRIVER_PROTOCOLS: Readonly<Record<DriverFamily, DriverProtocol>> = {
-  "zte-goform": zteGoformProtocol,
-  "zte-zwrt": zteZwrtProtocol,
-  pinsu: pinsuProtocol,
-  tozed: tozedProtocol,
-  fiberhome: fiberhomeProtocol,
-  nradio: nradioProtocol,
-  openwrt: openwrtProtocol,
+  "zte-goform": onDemand("zte-goform"),
+  "zte-zwrt": onDemand("zte-zwrt"),
+  pinsu: onDemand("pinsu"),
+  tozed: onDemand("tozed"),
+  fiberhome: onDemand("fiberhome"),
+  nradio: onDemand("nradio"),
+  openwrt: onDemand("openwrt"),
 };
 
 /**

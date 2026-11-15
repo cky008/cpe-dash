@@ -111,6 +111,22 @@ describe("router backend: one interface for every brand", () => {
     }
   });
 
+  it("loads the other brands' drivers only when one is needed: nothing but their own on-demand module imports them", async () => {
+    // A daemon on a Huawei router (and the live demo's Huawei routers) never loads them: src/drivers/brands.ts
+    // reaches them through one dynamic import, so a static import anywhere else would load them all again
+    const brandModules = ["src/drivers/zte/goform.ts", "src/drivers/zte/zwrt.ts", "src/drivers/pinsu.ts", "src/drivers/tozed.ts", "src/drivers/fiberhome.ts", "src/drivers/nradio.ts", "src/drivers/openwrt.ts"];
+    for (const file of sources("src")) {
+      if (file === "src/drivers/brand-protocols.ts" || brandModules.includes(file)) continue;
+      const runtime = fs.readFileSync(file, "utf8").replace(/import type [^;]+;/g, "");
+      const named = [...runtime.matchAll(/from\s+"((?:\.\.?\/)+[^"]+)"/g)].map((match) => path.normalize(path.join(path.dirname(file), match[1] ?? "")));
+      assert.deepEqual(named.filter((target) => brandModules.includes(target) || target === path.normalize("src/drivers/brand-protocols.ts")), [], `${file} imports a brand's driver statically`);
+    }
+    const { DRIVER_PROTOCOLS } = await import("../src/drivers/brands.ts");
+    const { BRAND_PROTOCOLS } = await import("../src/drivers/brand-protocols.ts");
+    assert.deepEqual(Object.keys(DRIVER_PROTOCOLS).sort(), Object.keys(BRAND_PROTOCOLS).sort());
+    for (const family of Object.keys(BRAND_PROTOCOLS) as Array<keyof typeof BRAND_PROTOCOLS>) assert.equal(DRIVER_PROTOCOLS[family].family, BRAND_PROTOCOLS[family].family);
+  });
+
   it("keeps the dependency one way: a driver puts protocol parts together, no protocol part takes anything from a driver", () => {
     // What both need (the transport, value cleaning, the shapes of readings) lives with the protocol parts
     const parts = sources("src/protocols");

@@ -33,7 +33,7 @@ const DEMO_CSP =
 /**
  * Gzipped JS + CSS above this fails the build. The console's is twice its first-paint target (the contract asks for
  * < 80 KB, which the build reports); the demo's also carries FengSui's own services and the demo routers, which load
- * after the console's first paint (426.7 KiB in all when it was set).
+ * after the console's first paint (431.7 KiB in all at 1.9.0, the other brands' drivers loaded on demand).
  */
 const GZIP_BUDGET_BYTES = (DEMO ? 440 : 192) * 1024;
 const GZIP_TARGET_BYTES = 80 * 1024;
