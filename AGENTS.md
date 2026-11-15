@@ -26,6 +26,7 @@ cpe-dash/
 │   ├── encrypted-file.ts   # StorageCipher: scrypt + HKDF-SHA256 + AES-256-GCM (0600) 落盘加密、原子写入与单进程文件锁
 │   ├── state-store.ts · timeseries.ts  # 加密运行时状态（熔断锁存、锁定状态、缓存快照、告警）与双层环形时序（5s / 60s）
 │   ├── session-client.ts   # 所有品牌共用的会话客户端：互斥、限时、免登录检查后让位（第 1 层）与登录应答让位（第 2 层）、只交一次密码、108006 / 108007 熔断（重启后接着锁）、finally 注销；各品牌只提供自己的检查、登录与注销（SessionProtocol）
+│   ├── router-trust.ts · pinned-fetch.ts  # 管理页只能用 HTTPS、证书由路由器自己签发时的信任：router-trust.ts 零依赖，是证书指纹（SHA-256，64 位十六进制）的规整与显示、证书摘要的形状，以及守护进程按来源记下「信任哪一张」的 CertificateTrust（正在用的路由器一张，测试连接期间另有候选的一张）；pinned-fetch.ts 只在守护进程里（node:tls）：对有信任指纹的来源先完成握手、核对证书指纹，一致才发请求（createRouterFetch），以及只握手不发请求地读出路由器出示的证书（peekCertificate）；其余请求照旧走全局 fetch。由 cli.ts 放进连接设置，在线演示没有
 │   ├── session-errors.ts   # 所有品牌的会话都可能遇到的错误：路由器错误码（CpeApiError，用 HiLink 的编号）、登录应答无法判断时记的代码（LOGIN_UNCONFIRMED_CODE）、请求没有应答、应答读不懂、会话没有加密通道、会话超时与重入、登录方式定不下来（LoginMethodError：密码没有发出；各品牌的登录都抛它，调度器只认这一个）
 │   ├── cpe-domain.ts       # 各品牌共用的快照与指令：遥测、射频与载波、附近的基站、已连接设备、路由器设置、锁定状态与锁定指令的类型，锁定核对（verifyLockState）、目标小区是否见过、「此型号不提供」怎样判断；不发任何请求（遥测快照的 `status` 是路由器状态，见 router-status.ts）
 │   ├── router-status.ts    # 零依赖：路由器状态（电池、SIM 卡、飞行模式、漫游、路由器自己的负载与运行时间、固件更新、Wi-Fi 开关、按名字分开的温度传感器）的类型与共用规则（电量低、SIM 卡锁住）；各品牌的后端填同一个形状，路由器没报告的留 `null`；守护进程、控制台与在线演示共用
@@ -54,8 +55,8 @@ cpe-dash/
 │   ├── agent-test.ts       # 零依赖：一键开始 AI 智能体测试的规则（要改的设置与可选的短信、测试覆盖哪些实验性写入（在 features.ts 里标出）、智能体令牌缺的权限、结束时只恢复还保持测试样子的、提醒时间与「全部通过」；守护进程、控制台与在线演示同一实现）
 │   ├── agent-test-service.ts # 守护进程：一键开始 / 结束测试、记下哪个令牌在调用 MCP、每分钟检查并发出 AGENT_TEST_STILL_ON 提醒（控制台看过或 Telegram「知道了」后停止）
 │   ├── endpoint-discovery.ts   # 零依赖：智能体的只读接口探查（probe_router_endpoints）：路径校验、会话接口与会改动路由器的路径直接拒绝、烽燧已用的接口清单（测试与协议模块对齐）、只留结构的结果
-│   ├── console-settings.ts # 控制台管理的加密设置：路由器连接、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码、被关闭的实验性写入（按型号 + 功能）；首次启动从 .env 导入一次
-│   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
+│   ├── console-settings.ts # 控制台管理的加密设置：路由器连接（含用户信任的路由器证书指纹）、登录密码（scrypt）、令牌（SHA-256，可过期 / 撤销）、一次性设置 / 重置 / 绑定码、被关闭的实验性写入（按型号 + 功能）；首次启动从 .env 导入一次
+│   ├── http-settings.ts    # /api/console/*：先测后存的路由器连接（HTTPS 路由器先看证书：没人担保又没被信任的、或和已信任的不是同一张，就带着证书摘要失败，不发任何请求）、改密码、令牌、Telegram 绑定码、开关（只接受控制台 Cookie 会话）
 │   ├── audit-log.ts        # 加密审计日志与 AsyncLocalStorage 调用方上下文（网页 / 令牌 / MCP / Telegram / 自愈）
 │   ├── metrics.ts          # GET /metrics：Prometheus 文本格式，只读缓存快照（含电量、充电、SIM 卡锁住、飞行模式、漫游、路由器的负载与运行时间、各类温度传感器）与守护进程自身的内存 / CPU / 事件循环延迟（RuntimeSampler），不含任何设备标识
 │   ├── sms/                # 短信：编解码（text-mode.ts 是 GSM 7-bit 字母表与分段计数，pdu.ts 是 3GPP TS 23.040 的 PDU：7-bit 打包、UCS-2、长短信的 UDH、SMS-DELIVER / SMS-SUBMIT）、号码解析、发送前的检查（submission.ts：收件人、正文、分段上限，各品牌共用）、加密镜像（含「最近删除」：删除后保留、恢复为只存于烽燧的副本、到期清理）、通讯录、应用服务、REST 路由与 MCP 工具的处理函数（input.ts 是 REST 入参的检查，登记引用）；华为的短信报文与请求在 protocols/hilink/sms.ts 与 drivers/huawei/sms.ts
@@ -67,12 +68,12 @@ cpe-dash/
 │   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（挂载于 /mcp）：每个工具的权限、是否改动、写闸门、要的读取分区和 inputSchema 取自操作登记；可插拔的工具提供者只给出处理函数、运行时的开关与资源（mcp-core-tools.ts 核心 17 项工具、mcp-access-tools.ts 访问控制工具、mcp-cellular-tools.ts 蜂窝设置工具、mcp-tool-provider.ts 提供者契约、mcp-headers.ts 2026-07-28 路由头）
 │   ├── mcp-stdio-bridge.ts # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不连接 CPE）
 │   ├── services.ts         # 服务的装配与接线（守护进程与在线演示共用）：控制台设置、审计、核心、短信、告警、自愈、一键测试、Telegram、通知中心、SSE 总线、API 分派，以及它们之间的接线（写入与短信的审计、国家代码、行为设置、自愈看护）和开机、后台工作、有序停止
-│   ├── cli.ts              # serve 守护进程的进程外壳（数据目录锁、跨主机保护、MCP、HTTP 监听、进程读数、启动提示与有序启停；服务由 services.ts 装配）与 mcp 桥接入口
+│   ├── cli.ts              # serve 守护进程的进程外壳（数据目录锁、跨主机保护、MCP、HTTP 监听、进程读数、启动提示与有序启停，以及连路由器用的请求函数：pinned-fetch.ts 按指纹信任证书的那个；服务由 services.ts 装配）与 mcp 桥接入口
 │   ├── maintenance.ts      # cpe-dash doctor / backup / restore / rekey：离线自检、加密备份与恢复、换密钥与找回被隔离的数据（不连接 CPE）
 │   ├── peer-guard.ts       # 跨主机重复守护进程保护：scrypt 派生密钥签名的 UDP 广播信标，较晚启动者待机
 │   ├── json-safe.ts · http-body.ts · text-sanitize.ts · constant-time.ts · i18n.ts · version.ts  # 无原型 JSON 解析、有界读取响应体、控制字符清理、常量时间的字符串比对、后端中英词典（locales/*.json）、版本号
 │   ├── api-contract.ts     # REST / SSE 载荷类型（服务端以 satisfies 校验，Web 前端直接复用）
-│   ├── rf-bounds.ts · privacy-mask.ts · units.ts · console-policy.ts · behaviour-settings.ts · self-heal-status.ts · sms/{text-mode,otp,vcard,thread-view}.ts  # 零依赖共享模块：锁定边界、脱敏规则、流量单位、控制台密码与令牌规则、控制台可改的行为设置（AI 总开关、自愈、告警、短信行为；不设则跟随 .env）、短信分段 / 验证码 / vCard / 会话列表（守护进程、控制台与在线演示同一实现）
+│   ├── rf-bounds.ts · privacy-mask.ts · units.ts · console-policy.ts · behaviour-settings.ts · self-heal-status.ts · router-trust.ts · sms/{text-mode,otp,vcard,thread-view}.ts  # 零依赖共享模块：锁定边界、脱敏规则、流量单位、控制台密码与令牌规则、控制台可改的行为设置（AI 总开关、自愈、告警、短信行为；不设则跟随 .env）、短信分段 / 验证码 / vCard / 会话列表（守护进程、控制台与在线演示同一实现）
 │   └── index.ts            # 公共模块导出入口
 ├── web/                    # 「烽燧」Web 控制台：100% 严格 TS（tsconfig.web.json）+ Tailwind v4 / daisyUI v5，离线构建到 dist/web/public
 │   ├── index.html · styles.css · brand/logo.svg（标志唯一来源：构建生成页面图标与 favicon.svg）
@@ -158,6 +159,7 @@ cpe-dash/
 4. **防正则回溯拒绝服务 (ReDoS)**：对 HTTP 请求体、XML 报文及正则输入施加上限截断（如单报文上限校验），采用确定性边界扫描提取标签，严禁在未受信输入上运行含嵌套量词的回溯正则。
 5. **MCP 提示词注入防御**：短信正文与发件人名称来自第三方，USSD 的应答和搜到的运营商名称来自运营商，MCP 工具结果必须附带不可信数据声明；所有 MCP 写工具（锁频锁站、开关、重拨重启、访问控制、蜂窝设置、短信发送 / 已读 / 删除、通讯录）都强制 `confirm: true`（写工具的 inputSchema 由操作登记生成，必带必填的 `confirm`），服务端在 Schema 校验与任何会话之前检查；REST 的写操作同样要 `confirm: true`（操作登记统一检查）；`send_sms` 单收件人、默认仅限已知号码 (`MCP_SMS_SEND_POLICY=known`) 且按小时限额，`delete_sms` 默认拒绝删除未读短信。Telegram `/auth` 采用常量时间比对并按聊天与全局双重限流；Telegram 里每个会改动路由器的指令（短信发送与删除、`/netmode`、`/airplane`、`/ussd`）都要点卡片上的确认按钮，确认按钮绑定一次性令牌与聊天、两分钟失效，写闸门拒绝的写入不给出卡片；USSD 的指令与应答只出现在聊天里，不进机器人的日志。
 6. **防服务端请求伪造 (SSRF)**：[`normalizeCpeUrl()`](src/config.ts) 严格校验协议仅限 `http:` / `https:`、禁止内嵌 `username:password@`、禁止查询串与片段注入，并强制校验目标主机属于合法局域网/私网地址空间（RFC 1918 / RFC 6598 / Loopback / 本地单节点），请求全程启用 `redirect: "error"` 阻断跨源重定向逃逸。
+7. **路由器自签名 HTTPS 证书只按指纹信任**：连接路由器默认按系统的证书机构校验。管理页只能用 HTTPS、证书由路由器自己签发时，用户在「设置 → 路由器」核对指纹后可以信任这一张：烽燧把证书的 SHA-256 指纹随连接加密保存，之后对这个来源（协议 + 主机 + 端口）的每个请求都先完成 TLS 握手、常量时间比对证书指纹，一致才发送任何内容；不一致立即失败，不发送密码，也绝不自动改信任。看证书只做握手、不发请求。严禁用 `NODE_TLS_REJECT_UNAUTHORIZED=0` 或任何全局开关关闭证书校验，严禁对没有信任指纹的来源放宽校验；测试用的证书在测试里现场生成（[`test/helpers/self-signed.ts`](test/helpers/self-signed.ts)），仓库里不放私钥。
 
 ### 铁律七：强制 TDD（红-绿-重构）与 >= 90% 覆盖率质量门禁
 1. **Red（先写失败测试）**：新功能、协议算法（如 `BandMask` 位运算、锁小区载荷）或异常边界修复前，先在 `test/*.test.ts` 编写基于 `node:test` 与注入式 `fetchImpl` 替身的自动化仿真测试（**单元测试严禁访问真实 `192.168.8.1` 硬件**）。
