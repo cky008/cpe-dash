@@ -18,7 +18,7 @@ import { DEVICE_FEATURES, STATUS_READ_FEATURES, type StatusReadFeature, isCellul
 import { zteBranch } from "../src/drivers/zte/goform.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, UNSUPPORTED_FEATURES, type UnsupportedFeature } from "../src/firmware.ts";
-import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily, familyImplements } from "../src/router-family.ts";
+import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily, familyImplements, routerVariant } from "../src/router-family.ts";
 
 /**
  * The "Supported devices" guide page: one row per model the interface notes record, by brand, each
@@ -35,7 +35,7 @@ import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACT
 const LEGACY = 11;
 
 /** The driver families whose SMS interface is on record, and implemented. */
-const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed", "fiberhome", "dlink"];
+const SMS_FAMILIES: ReadonlyArray<string> = ["zte-goform", "zte-zwrt", "openwrt", "tozed", "fiberhome", "dlink", "tplink"];
 /** What each brand's driver writes today (its own form of the interface). */
 const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   "zte-goform": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit", "ussd"],
@@ -45,6 +45,7 @@ const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
   nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "networkMode"],
   dlink: ["reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "apn", "ussd"],
+  tplink: ["reboot", "smsWrite", "ussd"],
   openwrt: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "airplaneSwitch", "simPin", "apn"],
 };
 
@@ -115,8 +116,8 @@ describe("the supported devices guide page", () => {
     }
     for (const section of CATALOG_SECTIONS) assert.ok(DEVICE_CATALOG.some((entry) => entry.section === section.id), `${section.id}: has models`);
     for (const entry of VERIFIED_FIRMWARE) assert.ok(DEVICE_CATALOG.some((e) => catalogMatches(e, entry.model)), entry.model);
-    // TP-Link: listed for reports, nothing implemented yet. D-Link: the two models whose web interface is on record
-    for (const entry of DEVICE_CATALOG.filter((e) => e.section === "tplink")) assert.deepEqual(entry.families, [], displayName(entry));
+    // D-Link and TP-Link: the models whose web interface is on record connect, the others are listed for reports
+    assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "tplink").map((e) => [e.model, ...e.families]), [["Archer NX200", "tplink"], ["NX510v", "tplink"], ["Deco X50-5G"], ["TL-TR961 5G"], ["TL-XDR3020 5G"], ["Archer MR600", "tplink"]]);
     assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"], ["DWR-921"]]);
   });
 
@@ -150,7 +151,10 @@ describe("the supported devices guide page", () => {
 
   it("marks another brand's model from what its interface implements: ? where FengSui does it, empty where it does nothing yet", () => {
     for (const family of DRIVER_FAMILIES) {
-      const entry = DEVICE_CATALOG.find((e) => primaryFamily(e) === family && !MODEL_FACTS.some((f) => f.family === family && f.models?.some((name) => catalogMatches(e, name))));
+      // A model with nothing particular to it, on the family's own form of its interface
+      const entry = DEVICE_CATALOG.find(
+        (e) => primaryFamily(e) === family && !MODEL_FACTS.some((f) => f.family === family && f.models?.some((name) => catalogMatches(e, name))) && routerVariant(family, undefined, e.model) === null
+      );
       assert.ok(entry, family);
       for (const feature of DEVICE_FEATURES) {
         const mark = supportMark(family, displayName(entry), feature);
@@ -184,13 +188,18 @@ describe("the supported devices guide page", () => {
     assert.deepEqual(UNSUPPORTED_FEATURES, [{ family: "huawei", model: "H168-383", feature: "ussd", issue: 3 }]);
     // Nothing implemented: the whole row stays empty, and the brand's table says what the notes have of such models
     assert.deepEqual(marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-2000M"), FEATURE_COLUMNS.map(() => ""));
-    assert.deepEqual(marksOf(supportedDevicesSection("en"), "tplink", "Archer MR600"), FEATURE_COLUMNS.map(() => ""));
+    assert.deepEqual(marksOf(supportedDevicesSection("en"), "tplink", "Deco X50-5G"), FEATURE_COLUMNS.map(() => ""));
     assert.match(supportedDevicesSection("en"), /no public record names how they report the signal[^\n]+\(every model but the D-Link DWR-960 and D-Link DWR-961\)\./);
     assert.match(zh, /公开资料里找不到它们读取信号的接口[^\n]+（除 D-Link DWR-960 和 D-Link DWR-961 外的全部型号）。/);
     // A model on the DWR web interface: no lock and no nearby cells there (empty, not —), its own reads and writes ?
     const dwr = marksOf(supportedDevicesSection("en"), "dlink", "D-Link DWR-960") ?? [];
     const column = (feature: string): string | undefined => dwr[FEATURE_COLUMNS.findIndex((module) => (module.features as ReadonlyArray<string>).includes(feature))];
     assert.deepEqual(["telemetry", "neighbors", "bandLock", "cellLock", "topology", "smsRead", "battery", "ussd"].map(column), ["△", "", "", "", "?", "△/?", "", "?"]);
+    // TP-Link's two forms differ, and the table follows the form each model is on record with
+    const tplink = (model: string, feature: string): string | undefined => (marksOf(supportedDevicesSection("en"), "tplink", model) ?? [])[FEATURE_COLUMNS.findIndex((module) => (module.features as ReadonlyArray<string>).includes(feature))];
+    assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer MR600", feature)), ["△", "?", "?", "", "△"]);
+    assert.deepEqual(["telemetry", "smsRead", "ussd", "bandLock", "reboot"].map((feature) => tplink("Archer NX200", feature)), ["?", "△/?", "", "", "△"]);
+    assert.deepEqual(tplink("NX510v", "ussd"), "");
   });
 
   it("writes what is particular to a model as a fact, and the generator turns each into △ and a note under its brand's table", () => {

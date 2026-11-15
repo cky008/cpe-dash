@@ -489,16 +489,27 @@ Notes for this table:
 
 ## TP-Link
 
-FengSui has no implementation for this brand yet: you cannot choose it under Settings → Router and detection does not recognise it, so its rows are empty. The notes say these routers use the maker's own web JSON interface (signed with RSA and AES on newer firmware), which FengSui has no implementation of yet. If you have one of these routers, a report still helps.
+Usually at `192.168.1.1`; sign in with the admin password (there is no user name). Leave the brand on "Detect automatically" under Settings → Router, or choose "TP-Link (Archer MR and NX series 4G and 5G routers)".
 
-| Model | Form | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| Archer NX200 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+NX200) |
-| NX510v | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX510v) |
-| Deco X50-5G | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Deco+X50-5G) |
-| TL-TR961 5G | Mobile router |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-TR961+5G) |
-| TL-XDR3020 5G | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-XDR3020+5G) |
-| Archer MR600 | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
+| Model | Form | Interface | Signal & traffic | Nearby cells | Connected devices | SMS | Band lock | Cell lock | Reboot & redial | Mobile data | Router switches | Access control | Battery | SIM card | Airplane mode | Network mode & operator | Data settings | USSD | Your results |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| Archer NX200 | Indoor CPE | TP-Link web interface | ? |  | ? | △/? |  |  | △ |  |  |  |  | △ |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+NX200) |
+| NX510v | Indoor CPE | TP-Link web interface | ? |  | ? | △/? |  |  | △ |  |  |  |  | △ |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX510v) |
+| Deco X50-5G | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Deco+X50-5G) |
+| TL-TR961 5G | Mobile router |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-TR961+5G) |
+| TL-XDR3020 5G | Indoor CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-XDR3020+5G) |
+| Archer MR600 | Indoor CPE | TP-Link web interface | △ |  | ? | ? |  |  | △ |  |  |  |  | △ |  |  |  | ? | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
+
+Notes for this table:
+
+- △ SMS: reads the inbox only: the notes on this form have no read for sent messages, so what FengSui sends is kept by FengSui (Archer NX200 and NX510v).
+- △ Reboot & redial: reboot only; FengSui does not do redial here yet (Archer NX200, NX510v and Archer MR600).
+- △ SIM card: reports the SIM card's state (whether it is there, whether it wants its PIN), not the tries left (Archer NX200, NX510v and Archer MR600).
+- △ SIM card: its status only; FengSui does not do switching slots and the PIN here yet (Archer NX200, NX510v and Archer MR600).
+- The form TP-Link's newer models use (one JSON action per request), which FengSui recognises when it connects (Archer NX200 and NX510v).
+- The login and every request are encrypted the way the router's own page does it. Which generation of it a firmware uses is read off the key the router hands out and its page's script before the password is sent; where FengSui cannot tell, it sends no password. The router lets one person into its page at a time: FengSui yields while you are signed in, stays away while the login page shows a lock, and signs out after every read (Archer NX200, NX510v and Archer MR600).
+- △ Signal & traffic: reads the serving cell's signal (RSRP, RSRQ, SINR) and the network type only: the notes on this series have no read of its band, channel or PCI (Archer MR600).
+- The Deco X50-5G speaks the Deco line's own interface, and the TL-TR961 5G and TL-XDR3020 5G have the page of TP-Link's China models; FengSui has no implementation of either yet, and no public record names how the second reports the cellular signal (Deco X50-5G, TL-TR961 5G and TL-XDR3020 5G).
 <!-- devices:end -->
 
 ## Help verify your router

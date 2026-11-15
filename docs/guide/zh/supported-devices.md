@@ -489,16 +489,27 @@ order: 2
 
 ## TP-Link
 
-烽燧还没有这个品牌的实现：「设置 → 路由器」里选不到它，自动识别也认不出来，所以表里整行留空。资料记载这些路由器用厂商自己的网页 JSON 接口（新固件带 RSA + AES 签名），烽燧还没有对应的实现。有这里的路由器，也欢迎提交实测报告。
+常见地址 `192.168.1.1`，只用管理密码登录（没有用户名）。在「设置 → 路由器」把品牌留在「自动识别」，或者选「TP-Link（Archer MR / NX 系列 4G、5G 路由器）」。
 
-| 型号 | 形态 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| Archer NX200 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+NX200) |
-| NX510v | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX510v) |
-| Deco X50-5G | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Deco+X50-5G) |
-| TL-TR961 5G | 随身路由器 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-TR961+5G) |
-| TL-XDR3020 5G | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-XDR3020+5G) |
-| Archer MR600 | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
+| 型号 | 形态 | 接口 | 信号与流量 | 附近的基站 | 已连接设备 | 短信 | 锁频段 | 锁小区 | 重启与重拨 | 移动数据 | 路由器开关 | 访问控制 | 电池 | SIM 卡 | 飞行模式 | 网络制式与选网 | 数据设置 | USSD | 实测反馈 |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| Archer NX200 | 室内 CPE | TP-Link 网页接口 | ? |  | ? | △/? |  |  | △ |  |  |  |  | △ |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+NX200) |
+| NX510v | 室内 CPE | TP-Link 网页接口 | ? |  | ? | △/? |  |  | △ |  |  |  |  | △ |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+NX510v) |
+| Deco X50-5G | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Deco+X50-5G) |
+| TL-TR961 5G | 随身路由器 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-TR961+5G) |
+| TL-XDR3020 5G | 室内 CPE |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+TL-XDR3020+5G) |
+| Archer MR600 | 室内 CPE | TP-Link 网页接口 | △ |  | ? | ? |  |  | △ |  |  |  |  | △ |  |  |  | ? | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Archer+MR600) |
+
+这一节的说明：
+
+- △ 「短信」：只读收件箱：这种写法的接口资料里没有已发短信的读法，烽燧发出的短信留在烽燧里（Archer NX200 和 NX510v）。
+- △ 「重启与重拨」：只有重启，重拨烽燧在这里还没有做（Archer NX200、NX510v 和 Archer MR600）。
+- △ 「SIM 卡」：只报告 SIM 卡的状态（在不在、要不要 PIN），不报告 PIN 的剩余次数（Archer NX200、NX510v 和 Archer MR600）。
+- △ 「SIM 卡」：只有状态，切换卡槽和 PIN烽燧在这里还没有做（Archer NX200、NX510v 和 Archer MR600）。
+- 这是 TP-Link 较新的机型用的写法（每个请求一条 JSON），连接时烽燧会自己认出来（Archer NX200 和 NX510v）。
+- 登录和每个请求都按路由器管理页自己的方式加密。固件用的是哪一代加密，烽燧在发送密码之前从路由器给出的密钥和页面脚本里读出来，认不出时不发送密码。路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，登录页显示已锁定时烽燧不登录，每次读完也会注销（Archer NX200、NX510v 和 Archer MR600）。
+- △ 「信号与流量」：只读得到服务小区的信号（RSRP、RSRQ、SINR）和网络制式：这一系列的接口资料里没有频段、频点和 PCI 的读数（Archer MR600）。
+- Deco X50-5G 用的是 Deco 系列自己的另一套接口，TL-TR961 5G 和 TL-XDR3020 5G 是国内版的管理页；烽燧还没有实现这两套接口，后一套在公开资料里也找不到读取蜂窝信号的写法（Deco X50-5G、TL-TR961 5G 和 TL-XDR3020 5G）。
 <!-- devices:end -->
 
 ## 帮忙验证你的路由器

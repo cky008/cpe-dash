@@ -3,6 +3,7 @@ import { fiberhomeProtocol } from "./fiberhome.ts";
 import { nradioProtocol } from "./nradio.ts";
 import { openwrtProtocol } from "./openwrt.ts";
 import { pinsuProtocol } from "./pinsu.ts";
+import { tplinkProtocol } from "./tplink/driver.ts";
 import { tozedProtocol } from "./tozed.ts";
 import { zteGoformProtocol } from "./zte/goform.ts";
 import { zteZwrtProtocol } from "./zte/zwrt.ts";
@@ -19,5 +20,6 @@ export const BRAND_PROTOCOLS = {
   fiberhome: fiberhomeProtocol,
   nradio: nradioProtocol,
   dlink: dlinkProtocol,
+  tplink: tplinkProtocol,
   openwrt: openwrtProtocol,
 } as const;

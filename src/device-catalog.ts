@@ -68,8 +68,8 @@ export const CATALOG_SECTIONS: ReadonlyArray<CatalogSection> = [
     zh: "TP-Link",
     en: "TP-Link",
     about: {
-      zh: "资料记载这些路由器用厂商自己的网页 JSON 接口（新固件带 RSA + AES 签名），烽燧还没有对应的实现。",
-      en: "The notes say these routers use the maker's own web JSON interface (signed with RSA and AES on newer firmware), which FengSui has no implementation of yet.",
+      zh: "Deco X50-5G 用的是 Deco 系列自己的另一套接口，TL-TR961 5G 和 TL-XDR3020 5G 是国内版的管理页；烽燧还没有实现这两套接口，后一套在公开资料里也找不到读取蜂窝信号的写法",
+      en: "The Deco X50-5G speaks the Deco line's own interface, and the TL-TR961 5G and TL-XDR3020 5G have the page of TP-Link's China models; FengSui has no implementation of either yet, and no public record names how the second reports the cellular signal",
     },
   },
 ];
@@ -84,6 +84,7 @@ const FAMILY_SECTION: Readonly<Record<RouterFamily, CatalogSectionId>> = {
   fiberhome: "fiberhome",
   nradio: "nradio",
   dlink: "dlink",
+  tplink: "tplink",
   openwrt: "openwrt",
 };
 
@@ -386,12 +387,12 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["DWR-921", "indoor", { maker: "D-Link" }],
   ]),
   ...models("tplink", [], [
-    ["Archer NX200", "indoor"],
-    ["NX510v", "indoor"],
+    ["Archer NX200", "indoor", { families: ["tplink"] }],
+    ["NX510v", "indoor", { families: ["tplink"], aliases: ["Archer NX510v"] }],
     ["Deco X50-5G", "indoor"],
     ["TL-TR961 5G", "mobile", { aliases: ["TL-TR961"] }],
     ["TL-XDR3020 5G", "indoor", { aliases: ["TL-XDR3020"] }],
-    ["Archer MR600", "indoor"],
+    ["Archer MR600", "indoor", { families: ["tplink"] }],
   ]),
 ];
 
@@ -580,6 +581,39 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
   { family: "tozed", features: [], zh: "有些运营商定制固件给接口加了一层加密，烽燧连不上这样的固件", en: "Some operator builds wrap the interface in a layer of encryption; FengSui cannot connect to those" },
   {
+    family: "tplink",
+    variant: null,
+    features: ["telemetry"],
+    zh: "只读得到服务小区的信号（RSRP、RSRQ、SINR）和网络制式：这一系列的接口资料里没有频段、频点和 PCI 的读数",
+    en: "reads the serving cell's signal (RSRP, RSRQ, SINR) and the network type only: the notes on this series have no read of its band, channel or PCI",
+  },
+  {
+    family: "tplink",
+    features: ["simCard"],
+    zh: "只报告 SIM 卡的状态（在不在、要不要 PIN），不报告 PIN 的剩余次数",
+    en: "reports the SIM card's state (whether it is there, whether it wants its PIN), not the tries left",
+  },
+  {
+    family: "tplink",
+    variant: "ex",
+    features: ["smsRead"],
+    zh: "只读收件箱：这种写法的接口资料里没有已发短信的读法，烽燧发出的短信留在烽燧里",
+    en: "reads the inbox only: the notes on this form have no read for sent messages, so what FengSui sends is kept by FengSui",
+  },
+  {
+    family: "tplink",
+    variant: "ex",
+    features: [],
+    zh: "这是 TP-Link 较新的机型用的写法（每个请求一条 JSON），连接时烽燧会自己认出来",
+    en: "The form TP-Link's newer models use (one JSON action per request), which FengSui recognises when it connects",
+  },
+  {
+    family: "tplink",
+    features: [],
+    zh: "登录和每个请求都按路由器管理页自己的方式加密。固件用的是哪一代加密，烽燧在发送密码之前从路由器给出的密钥和页面脚本里读出来，认不出时不发送密码。路由器同一时间只让一个人登录管理页：你登录着的时候烽燧会让位，登录页显示已锁定时烽燧不登录，每次读完也会注销",
+    en: "The login and every request are encrypted the way the router's own page does it. Which generation of it a firmware uses is read off the key the router hands out and its page's script before the password is sent; where FengSui cannot tell, it sends no password. The router lets one person into its page at a time: FengSui yields while you are signed in, stays away while the login page shows a lock, and signs out after every read",
+  },
+  {
     family: "dlink",
     features: ["telemetry"],
     zh: "只读得到 4G 服务小区的频段、频点和信号，路由器的接口不报告 PCI，也没有载波聚合的读数",
@@ -643,6 +677,7 @@ const INTERFACE_LABELS: Readonly<Record<RouterFamily, { zh: string; en: string }
   fiberhome: { zh: "烽火", en: "FiberHome" },
   nradio: { zh: "NROS", en: "NROS" },
   dlink: { zh: "D-Link 网页接口", en: "D-Link web interface" },
+  tplink: { zh: "TP-Link 网页接口", en: "TP-Link web interface" },
   openwrt: { zh: "ubus + AT", en: "ubus + AT" },
 };
 

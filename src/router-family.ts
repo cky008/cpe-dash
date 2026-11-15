@@ -11,7 +11,7 @@
 import type { NetworkMode } from "./cellular.ts";
 import { DEVICE_FEATURES, type DeviceFeature, type ReadFeature, WRITE_FEATURES, type WriteFeature, featureAccess } from "./features.ts";
 
-export const ROUTER_FAMILIES = ["huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "dlink", "openwrt"] as const;
+export const ROUTER_FAMILIES = ["huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "dlink", "tplink", "openwrt"] as const;
 
 export type RouterFamily = (typeof ROUTER_FAMILIES)[number];
 
@@ -29,7 +29,7 @@ export const DRIVER_FAMILIES = ROUTER_FAMILIES.filter((f): f is DriverFamily => 
  * OpenWrt router has (`data.ria`, its login page), and a D-Link router that runs OpenWrt answers none
  * of them: either is named for what it is.
  */
-export const DETECTION_ORDER: ReadonlyArray<RouterFamily> = ["nradio", "zte-zwrt", "fiberhome", "tozed", "pinsu", "zte-goform", "dlink", "openwrt", "huawei"];
+export const DETECTION_ORDER: ReadonlyArray<RouterFamily> = ["nradio", "zte-zwrt", "fiberhome", "tozed", "pinsu", "zte-goform", "dlink", "tplink", "openwrt", "huawei"];
 
 /** The brand left to FengSui in a connection test or save: told from the router's login-free answers, then stored as a family. */
 export const FAMILY_AUTO = "auto";
@@ -237,6 +237,18 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     nrBandLock: false,
     selectableModes: ["auto", "lte", "wcdma", "gsm"],
   },
+  tplink: {
+    // The page asks for a password only: the user name is its own (`admin` on the MR series, `user` on the EX and NX series)
+    defaultUsername: "",
+    defaultAddress: "192.168.1.1",
+    // The MR series (text requests): the signal without the cell's band or channel, SMS with the sent box, USSD
+    reads: ["telemetry", "topology", "smsRead", "simCard"],
+    writes: ["reboot", "smsWrite", "ussd"],
+    networkModes: [],
+    nrBandLock: false,
+    // The EX and NX series (JSON requests): the serving cells one by one, SMS without the sent box, no USSD on record
+    variants: { ex: { models: ["Archer NX200", "NX510v"], reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["reboot", "smsWrite"] } },
+  },
   openwrt: {
     defaultUsername: "root",
     defaultAddress: "192.168.1.1",
@@ -308,6 +320,7 @@ export const ROUTER_FAMILY_LABELS: Readonly<Record<RouterFamily, { "zh-CN": stri
   fiberhome: { "zh-CN": "烽火", en: "FiberHome" },
   nradio: { "zh-CN": "鲲鹏无限（NRadio）", en: "NRadio" },
   dlink: { "zh-CN": "D-Link（DWR 系列 4G 路由器）", en: "D-Link (DWR series 4G routers)" },
+  tplink: { "zh-CN": "TP-Link（Archer MR / NX 系列 4G、5G 路由器）", en: "TP-Link (Archer MR and NX series 4G and 5G routers)" },
   openwrt: { "zh-CN": "OpenWrt + 移远 / 广和通模组", en: "OpenWrt with a Quectel or Fibocom module" },
 };
 

@@ -34,6 +34,7 @@ export const DRIVER_PROTOCOLS: Readonly<Record<DriverFamily, DriverProtocol>> = 
   fiberhome: onDemand("fiberhome"),
   nradio: onDemand("nradio"),
   dlink: onDemand("dlink"),
+  tplink: onDemand("tplink"),
   openwrt: onDemand("openwrt"),
 };
 
