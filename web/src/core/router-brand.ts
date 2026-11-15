@@ -1,6 +1,6 @@
 import type { ConsoleSettingsResponse } from "../../../src/api-contract.ts";
-import { FAMILY_AUTO, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, type RouterFamilyChoice, isDriverFamily, routerFamilyOf } from "../../../src/router-family.ts";
-import type { SettingsTextKey } from "../i18n/settings.ts";
+import type { DeviceFeature } from "../../../src/features.ts";
+import { FAMILY_AUTO, ROUTER_FAMILIES, ROUTER_FAMILY_FACTS, ROUTER_FAMILY_LABELS, type RouterFamily, type RouterFamilyChoice, familyFeatures, isDriverFamily, routerFamilyOf } from "../../../src/router-family.ts";
 import type { ConnectionInput } from "./endpoints.ts";
 import type { Locale } from "./i18n.ts";
 
@@ -94,10 +94,14 @@ export function showsStored(draft: RouterDraft, stored: ConsoleSettingsResponse[
 
 /**
  * What to say under the brand field: how detection works, or, for a brand FengSui was never run on,
- * what it reads there (`reads` names the text). Nothing for the brand of the verified router.
+ * what FengSui reads and changes there, taken from the brand's facts (its own form of the interface;
+ * a model that speaks another form may do less, which Settings → Device shows once connected).
+ * Nothing for the brand of the verified router.
  */
-export function brandNote(brand: RouterFamilyChoice): { key: "brand_auto_hint" } | { key: "brand_note"; reads: Extract<SettingsTextKey, "brand_reads_signal" | "brand_reads_cells"> } | null {
+export function brandNote(brand: RouterFamilyChoice): { key: "brand_auto_hint" } | { key: "brand_note"; reads: DeviceFeature[]; writes: DeviceFeature[] } | null {
   if (brand === FAMILY_AUTO) return { key: "brand_auto_hint" };
   if (!isDriverFamily(brand)) return null;
-  return { key: "brand_note", reads: ROUTER_FAMILY_FACTS[brand].reads.includes("neighbors") ? "brand_reads_cells" : "brand_reads_signal" };
+  const features = familyFeatures(brand);
+  const named = (access: "read" | "write"): DeviceFeature[] => features.filter((entry) => entry.access === access).map((entry) => entry.feature);
+  return { key: "brand_note", reads: named("read"), writes: named("write") };
 }

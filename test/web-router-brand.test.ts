@@ -62,15 +62,25 @@ describe("web core: the router's brand in Settings", () => {
     assert.equal(showsStored(draftOf(null), null), false);
   });
 
-  it("says how detection works, and what a brand nobody verified reads", () => {
+  it("says how detection works, and what FengSui reads and changes on a brand nobody verified, from the brand's facts", () => {
     assert.deepEqual(brandNote("auto"), { key: "brand_auto_hint" });
     assert.equal(brandNote("huawei"), null);
-    assert.deepEqual(brandNote("openwrt"), { key: "brand_note", reads: "brand_reads_cells" });
-    assert.deepEqual(brandNote("pinsu"), { key: "brand_note", reads: "brand_reads_signal" }, "no nearby-cell list on this brand");
+    assert.deepEqual(brandNote("pinsu"), { key: "brand_note", reads: ["telemetry"], writes: ["bandLock", "cellLock", "reboot", "networkMode"] });
+    // A brand without locks or nearby cells names neither, and names the SMS and the settings it has
+    assert.deepEqual(brandNote("dlink"), { key: "brand_note", reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["smsWrite", "reboot", "reconnect", "mobileData", "networkMode", "apn", "ussd"] });
+    assert.deepEqual(brandNote("tplink"), { key: "brand_note", reads: ["telemetry", "topology", "smsRead", "simCard"], writes: ["smsWrite", "reboot", "ussd"] });
+    for (const family of ROUTER_FAMILIES.filter((f) => f !== "huawei")) {
+      const note = brandNote(family);
+      assert.ok(note?.key === "brand_note" && note.reads.length > 0 && note.writes.length > 0, `${family}: something to read and to change, so neither list is empty`);
+      assert.deepEqual([...note.reads, ...note.writes].sort(), [...ROUTER_FAMILY_FACTS[family].reads, ...ROUTER_FAMILY_FACTS[family].writes].sort(), family);
+    }
     for (const locale of ["zh-CN", "en"] as const) {
-      const text = interpolate(SETTINGS_TEXT[locale].brand_note, { reads: SETTINGS_TEXT[locale].brand_reads_cells });
+      const text = interpolate(SETTINGS_TEXT[locale].brand_note, { reads: "a", writes: "b" });
       assert.ok(!text.includes("{"), locale);
+      assert.ok(SETTINGS_TEXT[locale].agent_list_separator.length > 0, "the lists are joined the way the language joins them");
       assert.ok(SETTINGS_TEXT[locale].brand_auto_hint.length > 20);
+      // The text says how the writes behave today: on by default, never "off by default"
+      assert.doesNotMatch(SETTINGS_TEXT[locale].brand_note, /默认关闭|off by default|not available on this brand|还不可用/);
     }
   });
 

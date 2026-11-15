@@ -776,6 +776,40 @@ describe("the console in a browser", () => {
     assert.deepEqual(page.exceptions, []);
   });
 
+  it("offers every brand under Settings → Router, and says what FengSui reads and changes on the one chosen", async () => {
+    await signIn(page, live());
+    await openSettings(page, "Router");
+    const brand = "document.querySelector('#settingsDialog select[data-field=brand]')";
+    const options = await page.evaluate<Array<[string, string]>>(`[...${brand}.options].map((o) => [o.value, o.textContent])`);
+    assert.deepEqual(options.map(([value]) => value), ["auto", "huawei", "zte-goform", "zte-zwrt", "pinsu", "tozed", "fiberhome", "nradio", "dlink", "tplink", "openwrt"]);
+    assert.deepEqual(options.filter(([value]) => value === "dlink" || value === "tplink").map(([, label]) => label), ["D-Link (DWR series 4G routers)", "TP-Link (Archer MR and NX series, Deco 5G)"]);
+    const choose = async (value: string): Promise<{ note: string; users: number; address: string }> => {
+      await page.evaluate(`(() => { const el = ${brand}; el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+      await page.waitUntil(`${brand}.value === ${JSON.stringify(value)}`, `the ${value} brand`);
+      return page.evaluate(
+        `(() => { const d = document.getElementById('settingsDialog'); return { note: d.querySelector('[data-note]')?.textContent ?? '', users: d.querySelectorAll('input[autocomplete=username]').length, address: d.querySelector('input[autocomplete=off]')?.placeholder ?? '' }; })()`
+      );
+    };
+    // The verified router's brand needs no note
+    const stored = await page.evaluate<string>(`${brand}.value`);
+    assert.equal((await choose("huawei")).note, "");
+    // D-Link: what its interface has, and neither a lock nor nearby cells
+    const dlink = await choose("dlink");
+    assert.match(dlink.note, /you can see: Signal and traffic, Connected devices, Read SMS, SIM card\. It can change: .*Reboot.*Access point \(APN\), USSD\./);
+    assert.doesNotMatch(dlink.note, /Band lock|Cell lock|Nearby cells|off by default/);
+    assert.match(dlink.note, /on by default, each is sent once and read back/);
+    assert.deepEqual([dlink.users, dlink.address], [1, "http://192.168.0.1"]);
+    // TP-Link: its page asks for a password only, so the form has no user name
+    const tplink = await choose("tplink");
+    assert.match(tplink.note, /It can change: Send and manage SMS, Reboot, USSD\./);
+    assert.deepEqual([tplink.users, tplink.address], [0, "http://192.168.1.1"]);
+    // A brand with locks still names them
+    assert.match((await choose("openwrt")).note, /Band lock, Cell lock/);
+    await choose(stored);
+    await closeDialogs(page);
+    assert.deepEqual(page.exceptions, []);
+  });
+
   it("keeps every header button on screen at any width, in both languages, however long the status pills get", async () => {
     // The longest header: a model nobody verified whose owner turned every write off (the badge says both)
     const other = await world({ scenario: "unverified" });

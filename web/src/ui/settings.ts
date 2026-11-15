@@ -322,7 +322,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       "div",
       { class: "space-y-3" },
       field(t("brand"), brand),
-      note ? h("p", { class: "text-xs faint leading-relaxed", data: { note: note.key } }, note.key === "brand_note" ? t("brand_note", { reads: t(note.reads) }) : t(note.key)) : null,
+      note ? h("p", { class: "text-xs faint leading-relaxed", data: { note: note.key } }, note.key === "brand_note" ? t("brand_note", { reads: note.reads.map((f) => t(featureKey(f))).join(t("agent_list_separator")), writes: note.writes.map((f) => t(featureKey(f))).join(t("agent_list_separator")) }) : t(note.key)) : null,
       field(t("url"), url),
       // A brand whose own page asks for a password only shows no user field
       asksUsername(draft.brand) ? h("div", { class: "grid grid-cols-1 sm:grid-cols-2 gap-3" }, field(t("username"), user), field(t("password"), pass)) : field(t("password"), pass),
