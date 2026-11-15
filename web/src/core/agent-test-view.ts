@@ -157,8 +157,10 @@ export function agentPromptPlan(router: AgentPromptRouter): AgentPromptPlan {
     reads: AGENT_TEST_READ_TOOLS.filter(({ section }) => section === null || (section === "cellular" ? cellular : has(section))).map(({ tool }) => tool),
     writes,
     disabled: AGENT_TEST_FEATURES.filter((feature) => router.features[feature] === "disabled"),
-    // The unlock undoes a cell lock as well as a band lock
-    writeTools: AGENT_TEST_WRITE_TOOLS.filter(({ tool, features }) => features.some((feature) => writes.includes(feature)) || (tool === "unlock_rf_locks" && writes.includes("cellLock"))).map(({ tool }) => tool),
+    // The unlock undoes a cell lock as well as a band lock; a router that cannot delete SMS gets no delete
+    writeTools: AGENT_TEST_WRITE_TOOLS.filter(
+      ({ tool, features }) => (features.some((feature) => writes.includes(feature)) || (tool === "unlock_rf_locks" && writes.includes("cellLock"))) && !(tool === "delete_sms" && router.sms.delete === "none")
+    ).map(({ tool }) => tool),
     askFirst: writes.filter((feature) => AGENT_TEST_ASK_FIRST.has(feature)),
     // A Huawei router nobody verified gets the 4G band lock its interface notes give; FengSui locks its 5G bands on a verified model only
     nrBand: writes.includes("bandLock") && ROUTER_FAMILY_FACTS[router.family].nrBandLock && router.family !== "huawei",
@@ -216,14 +218,16 @@ export function agentTestPrompt(router: AgentPromptRouter, locale: Locale, t: Te
   let n = 0;
   const step = (key: SettingsTextKey, params: Record<string, string | number> = {}): string => t(key, { n: ++n, ...params });
   const prepare = step("agent_prompt_step_prepare", { tools: list(plan.writeTools) });
-  lines.push(plan.writes.includes("smsWrite") ? then(prepare, t("agent_prompt_step_prepare_sms")) : prepare);
+  // Left out of the test, SMS shows no tools to the agent, its status read included
+  lines.push(plan.reads.includes("get_sms_status") ? then(prepare, t("agent_prompt_step_prepare_sms")) : prepare);
   lines.push(step("agent_prompt_step_reads", { tools: list(plan.reads) }), step("agent_prompt_step_writes"));
   for (const feature of lastSms(plan.writes)) {
     if (feature === "bandLock") lines.push(plan.nrBand ? then(t(WRITE_LINES.bandLock), t("agent_prompt_write_bandLock_nr")) : t(WRITE_LINES.bandLock));
     else if (feature === "smsWrite") {
       const read = router.sms.markRead === "fengsui" ? "agent_prompt_sms_read_fengsui" : "agent_prompt_sms_read_router";
       const remove = router.sms.delete === "conversation" ? "agent_prompt_sms_delete_conversation" : router.sms.delete === "none" ? "agent_prompt_sms_delete_none" : "agent_prompt_sms_delete_message";
-      lines.push(t(WRITE_LINES.smsWrite, { read: t(read), remove: t(remove) }));
+      const tools = AGENT_TEST_WRITE_TOOLS.filter(({ tool, features }) => features.includes("smsWrite") && plan.writeTools.includes(tool)).map(({ tool }) => tool);
+      lines.push(t(WRITE_LINES.smsWrite, { tools: list(tools), read: t(read), remove: t(remove) }));
     } else lines.push(t(WRITE_LINES[feature]));
   }
   if (plan.disabled.length > 0) lines.push(t("agent_prompt_disabled", { items: names(plan.disabled) }));

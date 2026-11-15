@@ -34,8 +34,8 @@ function plan(extra: Partial<AgentTestPlan> = {}): AgentTestPlan {
 
 /** The safety rules every prompt carries, in each language. */
 const SAFETY = {
-  zh: [/只用烽燧的 MCP 工具。不要为了测试直接访问或登录路由器/, /先做完全部只读测试，再做写入测试/, /每项写入测完马上改回原样/, /SIM 卡的 PIN 一律不测，不要调用 sim_pin/, /每次写入之后调用 get_device_report，看 writes 里这次写入的 readback/, /把原因原样记下，不要换个参数再试/, /不得出现 IMEI、IMSI、ICCID、手机号、IP、MAC、小区标识（小区号、TAC、PCI、频点）、短信内容/],
-  en: [/Use FengSui's MCP tools only\. Never reach or log in to the router directly/, /Finish every read test before the first write test/, /put each write back right after its test/, /Never test the SIM PIN, and do not call sim_pin/, /After each write, call get_device_report and read the readback/, /note the reason word for word and do not retry/, /Never put in the report an IMEI, IMSI, ICCID, phone number, IP or MAC address, a cell's identity \(cell ID, TAC, PCI, channel\), SMS text/],
+  zh: [/只用烽燧的 MCP 工具。不要为了测试直接访问或登录路由器/, /先做完全部只读测试，再做写入测试。每项写入之前先问我/, /每项写入测完马上改回原样/, /SIM 卡的 PIN 一律不测，不要调用 sim_pin/, /每次写入之后调用 get_device_report，看 writes 里这次写入的 readback/, /把原因原样记下，不要换个参数再试/, /不得出现 IMEI、IMSI、ICCID、SIM 卡的 PIN、手机号、IP、MAC、小区标识（小区号、TAC、PCI、频点）、短信内容/, /只有 get_device_report 的报告已经脱敏/],
+  en: [/Use FengSui's MCP tools only\. Never reach or log in to the router directly/, /Finish every read test before the first write test\. Ask me before each write/, /put each write back right after its test/, /Never test the SIM PIN, and do not call sim_pin/, /After each write, call get_device_report and read the readback/, /note the reason word for word and do not retry/, /Never put in the report an IMEI, IMSI, ICCID, SIM PIN, phone number, IP or MAC address, a cell's identity \(cell ID, TAC, PCI, channel\), SMS text/, /Only get_device_report's report is desensitized/],
 };
 
 /** Names in a prompt that read like an MCP tool's, in the order they appear. */
@@ -220,10 +220,13 @@ describe("the agent test in the Device tab", () => {
     // SMS where the test cannot send is no part of it; where it can, the steps follow what the router does with SMS
     const noSms = routerOf("tozed", null, {}, { available: false });
     assert.ok(!toolsIn(agentTestPrompt(noSms, "en", en)).includes("send_sms"));
-    assert.doesNotMatch(agentTestPrompt(noSms, "en", en), /leave SMS out/);
+    // Its SMS is still read, and the agent may see no SMS tool at all
+    assert.match(agentTestPrompt(noSms, "en", en), /leave SMS out/);
+    assert.doesNotMatch(agentTestPrompt(routerOf("dlink", null, {}, { available: false }), "en", en).replace(/get_sms_status/g, ""), /send_sms/);
     const tozed = agentTestPrompt(routerOf("tozed", null, {}, { available: true, markRead: "fengsui", delete: "none" }), "en", en);
     assert.match(tozed, /FengSui keeps this router's read state itself/);
     assert.match(tozed, /skip deleting: this router cannot delete messages/);
+    assert.ok(!toolsIn(tozed).includes("delete_sms"), "no delete tool where the router cannot delete");
     assert.match(agentTestPrompt(routerOf("fiberhome", null, {}, { available: true, markRead: "router", delete: "conversation" }), "zh-CN", zh), /只能整段对话一起删/);
     // The firmware, where the router named none
     assert.match(agentTestPrompt({ ...routerOf("openwrt", null), firmware: null }, "zh-CN", zh), /固件 未知。/);

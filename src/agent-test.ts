@@ -91,8 +91,9 @@ export const AGENT_TEST_WRITE_TOOLS: ReadonlyArray<{ tool: string; features: Rea
 /**
  * The covered writes an agent makes only once the owner said yes: the ones that take the internet down
  * for a while or for good (a redial, a reboot, mobile data, airplane mode, the SIM slot, the network
- * mode, the operator, the access point), one that cannot be undone (clearing the traffic counters), and
- * the ones that go out to the network (a USSD code, a test SMS).
+ * mode, the operator, the access point, the antenna switched to one that is not attached), one that
+ * cannot be undone (clearing the traffic counters), and the ones that go out to the network (a USSD
+ * code, a test SMS).
  */
 export const AGENT_TEST_ASK_FIRST: ReadonlySet<AgentTestFeature> = new Set<AgentTestFeature>([
   "reconnect",
@@ -103,13 +104,21 @@ export const AGENT_TEST_ASK_FIRST: ReadonlySet<AgentTestFeature> = new Set<Agent
   "networkMode",
   "operatorSelect",
   "apn",
+  "antenna",
   "trafficReset",
   "ussd",
   "smsWrite",
 ]);
 
-/** MCP tools whose calls mean the test is still going on: the report, the probe, the cellular settings it reads, and the writes it covers. */
-export const AGENT_TEST_TOOLS: ReadonlySet<string> = new Set(["get_device_report", "probe_router_endpoints", "set_experimental_write", "get_cellular_settings", ...AGENT_TEST_WRITE_TOOLS.map((entry) => entry.tool)]);
+/** MCP tools whose calls mean the test is still going on: the report, the probe, the cellular settings and the SMS sync it uses, and the writes it covers. */
+export const AGENT_TEST_TOOLS: ReadonlySet<string> = new Set([
+  "get_device_report",
+  "probe_router_endpoints",
+  "set_experimental_write",
+  "get_cellular_settings",
+  "sync_sms",
+  ...AGENT_TEST_WRITE_TOOLS.map((entry) => entry.tool),
+]);
 
 /** A console setting the test set, and the console's value before (`null`: it followed `.env`). */
 export type AgentTestSettingChange =
