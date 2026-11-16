@@ -3,6 +3,7 @@ import type { WriteFeature, CellularWriteFeature } from "../../../src/features.t
 import { type LimitUnit, MODE_KEYS, alertPercent, apnForm, apnTakesCredentials, apnUsesProfile, isPin, isUssdCode, limitBytes, limitFields, modeChoices, operatorLine, pinOffer, slotChoices } from "../core/cellular-view.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { driverFamilyOf } from "../core/lock-form.ts";
+import { reportsConnection } from "../core/self-heal-view.ts";
 import { CELLULAR_TEXT, type CellularTextKey } from "../i18n/cellular.ts";
 import type { AppContext, ConfirmOptions } from "./context.ts";
 import { type Child, h, icon } from "./dom.ts";
@@ -35,6 +36,8 @@ const choice = <V extends string>(options: ReadonlyArray<readonly [V, string]>, 
 
 export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confirm): { render(open: ReadonlyArray<CellularWriteFeature>): void } {
   const t = (key: CellularTextKey, params?: MessageParams): string => interpolate(CELLULAR_TEXT[ctx.tr.locale][key], params);
+  // What happens if a change cuts the internet: put back after 3 minutes, unless the router does not say whether it is connected
+  const rollback = (): string => t(reportsConnection(ctx.store.state.telemetry) ? "rollback" : "rollback_blind");
   let cellular: CellularSettingsSnapshot | null = null;
   let asked = false;
   let scan: OperatorChoice[] | null = null;
@@ -125,7 +128,7 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
     const apply = button(t("mode_apply"), "btn-warning");
     apply.addEventListener("click", () => {
       const mode = select.value as NetworkMode;
-      write("networkMode", apply, { title: t("mode_title"), body: [t("mode_body", { mode: modeName(mode) }), t("rollback")], confirmLabel: t("mode_apply"), tone: "warning" }, () => ctx.api.networkMode(mode));
+      write("networkMode", apply, { title: t("mode_title"), body: [t("mode_body", { mode: modeName(mode) }), rollback()], confirmLabel: t("mode_apply"), tone: "warning" }, () => ctx.api.networkMode(mode));
     });
     return row(withHelp(ctx, t("mode"), "network-mode"), note(current ? t("mode_now", { mode: modeName(current) }) : t("mode_unknown")), h("div", { class: "flex gap-2", data: { cellular: "networkMode" } }, select, apply));
   };
@@ -151,7 +154,7 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
       const use = button(t(line.selectable ? "operator_use" : "operator_forbidden"));
       use.disabled = !line.selectable;
       use.addEventListener("click", () =>
-        write("operatorSelect", use, { title: t("operator_select_title"), body: [t("operator_select_body", { name: line.name }), t("rollback")], confirmLabel: t("operator_use"), tone: "warning" }, () => ctx.api.operator({ mode: "manual", plmn: operator.plmn, rat: operator.rat }))
+        write("operatorSelect", use, { title: t("operator_select_title"), body: [t("operator_select_body", { name: line.name }), rollback()], confirmLabel: t("operator_use"), tone: "warning" }, () => ctx.api.operator({ mode: "manual", plmn: operator.plmn, rat: operator.rat }))
       );
       return h(
         "div",
@@ -179,7 +182,7 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
         ...slots.map(({ slot, current }) => {
           const pick = button(slotName(slot), current ? "btn-primary" : "btn-ghost");
           pick.disabled = current;
-          pick.addEventListener("click", () => write("simSlot", pick, { title: t("slot_title"), body: [t("slot_body", { slot: slotName(slot) }), t("rollback")], confirmLabel: slotName(slot), tone: "warning" }, () => ctx.api.simSlot(slot)));
+          pick.addEventListener("click", () => write("simSlot", pick, { title: t("slot_title"), body: [t("slot_body", { slot: slotName(slot) }), rollback()], confirmLabel: slotName(slot), tone: "warning" }, () => ctx.api.simSlot(slot)));
           return pick;
         })
       )
@@ -255,11 +258,11 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
     const credentials = apnTakesCredentials(family);
     const apply = button(t("apn_apply"), "btn-warning");
     apply.addEventListener("click", () => {
-      if (mode === "auto") return write("apn", apply, { title: t("apn_title"), body: [t("apn_body_auto"), t("rollback")], confirmLabel: t("apn_apply"), tone: "warning" }, () => ctx.api.apn({ mode: "auto" }));
+      if (mode === "auto") return write("apn", apply, { title: t("apn_title"), body: [t("apn_body_auto"), rollback()], confirmLabel: t("apn_apply"), tone: "warning" }, () => ctx.api.apn({ mode: "auto" }));
       const fields = { apn: name.value.trim(), auth: (credentials ? auth.value : "none") as "none" | "pap" | "chap", username: credentials ? user.value : "", password: credentials ? password.value : "" };
       const verdict = apnForm(fields);
       if (verdict !== "ok") return ctx.toast(t(verdict === "apn" ? "apn_invalid" : "apn_credentials_invalid"), "warning");
-      write("apn", apply, { title: t("apn_title"), body: [t("apn_body_manual"), ...(apnUsesProfile(family) ? [t("apn_profile")] : []), t("rollback")], confirmLabel: t("apn_apply"), tone: "warning" }, () =>
+      write("apn", apply, { title: t("apn_title"), body: [t("apn_body_manual"), ...(apnUsesProfile(family) ? [t("apn_profile")] : []), rollback()], confirmLabel: t("apn_apply"), tone: "warning" }, () =>
         ctx.api.apn({ mode: "manual", ...fields, ipType: ipType.value as "ipv4" | "ipv6" | "ipv4v6" }).then((res) => {
           forget("apn-password");
           return res;

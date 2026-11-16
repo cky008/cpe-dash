@@ -715,6 +715,12 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     en: "Their page's interface names no model, so FengSui calls each of them \"Pinsu\": that is the model in the device report and under Settings → Device",
   },
   {
+    family: "pinsu",
+    features: [],
+    zh: "管理页的接口不报告是否联网：锁频段、锁小区或改网络制式之后断网，烽燧看不出来，不会在 3 分钟后自动改回，自愈也没法重拨；断网了请在烽燧里手动改回",
+    en: "Their page's interface does not report whether the router is connected: if a band or cell lock or a change of network mode cuts the internet, FengSui cannot tell, so it does not put the setting back after 3 minutes and self-healing cannot redial; undo it in FengSui by hand",
+  },
+  {
     family: "tplink",
     models: ["TL-MR6400"],
     features: [],

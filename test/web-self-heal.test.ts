@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { SELF_HEAL_OFF, type SelfHealStatus } from "../src/self-heal-status.ts";
 import { interpolate } from "../web/src/core/i18n.ts";
-import { lockRollbackNote, selfHealRows } from "../web/src/core/self-heal-view.ts";
+import { lockRollbackNote, reportsConnection, selfHealRows } from "../web/src/core/self-heal-view.ts";
 import { en } from "../web/src/i18n/en.ts";
 import { type MessageKey, zhCN } from "../web/src/i18n/zh-CN.ts";
 
@@ -25,6 +25,18 @@ describe("web core: WAN self-healing in the controls drawer", () => {
       ["Auto redial", "Off", "muted"],
     ]);
     assert.match(lockRollbackNote(SELF_HEAL_OFF, tEn) ?? "", /off[\s\S]*by hand[\s\S]*Settings → General → Self-healing/);
+  });
+
+  it("says on a router that does not report whether it is connected that nothing undoes a lock", () => {
+    const reading = (connectionStatus: string) => ({ device: { connectionStatus } }) as Parameters<typeof reportsConnection>[0];
+    assert.equal(reportsConnection(null), true, "before the first reading");
+    assert.equal(reportsConnection(reading("902")), true);
+    assert.equal(reportsConnection(reading("")), false);
+    // Whatever self-healing says: it cannot see the outage either
+    for (const status of [ON, SELF_HEAL_OFF, null]) {
+      assert.match(lockRollbackNote(status, tEn, reading("")) ?? "", /does not report whether it is connected[\s\S]*does not undo it/);
+    }
+    assert.match(lockRollbackNote(ON, tEn, reading("901")) ?? "", /within 10 minutes/);
   });
 
   it("follows a lock window from the watch to the WAN coming back, and the redial budget", () => {

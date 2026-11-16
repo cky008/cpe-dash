@@ -21,6 +21,7 @@ import { OPENWRT_PASSWORD, type OpenwrtRouterOptions, openwrtRouter } from "./he
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { mockConnection } from "./helpers/connection.ts";
+import { TOZED_PASSWORD, TOZED_URL, tozedRouter } from "./helpers/tozed-router.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 
 /**
@@ -503,7 +504,9 @@ const MODULE_NR_BANDS = "1:3:28:41:77:78:79";
  * a clock the test moves: the lock's own session saves what it changes, a poll with the WAN down after
  * the window writes it back.
  */
-function safetyNet(fx: ReturnType<typeof runtimeFixture>) {
+function safetyNet(fx: ReturnType<typeof runtimeFixture>, goDown: () => void = () => {
+  fx.state.serving = "none";
+}) {
   let clock = Date.now();
   const alerts: AlertEventRecord[] = [];
   fx.core.scheduler.on("alert", (alert: AlertEventRecord) => alerts.push(alert));
@@ -511,9 +514,9 @@ function safetyNet(fx: ReturnType<typeof runtimeFixture>) {
   fx.core.controls.onExperimentalLock = (change) => heal.guardExperimentalLock(change);
   return {
     alerts,
-    /** The module loses service, and a poll sees the WAN down `minutes` after the lock. */
+    /** The router loses service, and a poll sees the WAN down `minutes` after the lock. */
     downAfter: async (lock: PersistedLockState, minutes: number): Promise<void> => {
-      fx.state.serving = "none";
+      goDown();
       const snap = await fx.core.monitor.refreshTelemetry();
       assert.equal(snap?.device.connectionStatus, "902");
       clock = Date.parse(lock.updatedAtIso) + minutes * 60_000;
@@ -553,6 +556,28 @@ describe("driver runtime: the 3-minute rollback of a band lock", () => {
       await net.downAfter(lock, 3);
       assert.deepEqual([fx.state.lteBand, fx.state.modePref, fx.state.nrDisableMode, fx.state.nrBand], ["1:3", "AUTO", "0", "41:78"], "the mode as it was; the NR bands the lock left alone, too");
       assert.equal(fx.applied.at(-1)?.check?.readback, "match");
+      assert.match(net.rolledBack(), /the band setting from before the lock was written back/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("rolls a lock back on a Tozed router, which says through cmd 113 whether it is connected", async () => {
+    const tozed = tozedRouter();
+    const fx = runtimeFixture({ family: "tozed", fetchImpl: tozed.mock.fetchImpl, url: TOZED_URL, username: "admin", password: TOZED_PASSWORD });
+    const net = safetyNet(fx, () => {
+      tozed.state[113] = { network_status: "0" };
+    });
+    try {
+      tozed.state[161] = { ...tozed.state[161], band_4g_switch: "1", band_4g_mask: bandsToHex([1, 3, 7]) };
+      const lock = await fx.core.controls.lockBands({ nrBands: [78] });
+      assert.deepEqual([tozed.state[161]?.["band_5g_switch"], tozed.state[161]?.["band_5g_mask"]], ["1", bandsToHex([78])]);
+      await net.downAfter(lock, 3);
+      assert.deepEqual(
+        [tozed.state[161]?.["band_4g_switch"], tozed.state[161]?.["band_4g_mask"], tozed.state[161]?.["band_5g_switch"]],
+        ["1", bandsToHex([1, 3, 7]), "0"],
+        "LTE as it was, NR on every band again"
+      );
       assert.match(net.rolledBack(), /the band setting from before the lock was written back/);
     } finally {
       await fx.cleanup();

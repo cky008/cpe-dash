@@ -804,3 +804,22 @@ JSON 写法里页面把数值属性写成数字（`dataSwitchStatusBackup: 1`）
 ### 18.13 第 9 步：品速路由器的型号（2026-11-16）
 
 品速的接口资料（资料 A pinsu 第 145、157–252 行）列出的 `mgdb` 键里没有型号或固件版本，资料 B 的另一种写法（`http.cgi` 的 `cmd 1` 设备信息）不是烽燧的品速驱动用的接口。所以品速路由器不报告型号：品牌事实里记 `unnamedModel: "Pinsu"`，烽燧按这个名字认它（全品牌走查发现的问题，见 `audits.md` 第 20 节）。
+
+## 21. final-4 修复的依据（2026-11-16）
+
+final-4 只读审核（`audits.md` 第 21 节）之后的修复里新用到的事实。参考项目只取事实，不复制代码。
+
+### 21.1 路由器是否联网：通则康威、烽火（F4-004）
+
+断网 3 分钟的回退与自愈的重拨都靠遥测里的联网状态看出断网；驱动报不出它（`wan.connected` 为 `null`）时，`WanSelfHeal` 不看这份遥测，回退从不运行。
+
+| 品牌 | 读法 | 取值 | 依据 |
+| :--- | :--- | :--- | :--- |
+| 通则康威 | `cmd 113`（`GET_SYS_STATUS`，路由器自己的登录页与首页都发它）的 `network_status`，与 `cmd 205` 同一会话 | `1` 已联网、`0` 没有；其他值或路由器不认这个命令时联网状态未知，其余读数照旧 | [aabichou/rezo](https://github.com/aabichou/rezo)（`b2e6c22`，2026-11-04，MIT）：`docs/api-reference.html` 的命令表（113 列有 `network_status`），`Rezo/Sources/Rezo/BoxMonitor.swift` 第 327 行按 `network_status == "1"` 判断已联网（ZLT X31）；[mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt)（`5ce5d6b`，2026-11-16，GPL-3.0，只取命令号）：`docs/vendor-command-map.md` 第 8、11 行，`home.js` 与 `login.js` 都发 `GET_SYS_STATUS(113)`（ZLT X28） |
+| 烽火 | 网页接口 `GET /api/tmp/FHAPIS?ajaxmethod=get_header_info`（不加密）的 `connetStatus`（路由器原本的拼法），与 `app_get_base_info` 同一会话 | `1` / `true` 已联网、`0` / `false` 没有；其他值或没有这个调用时未知 | [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA)（`6382cb4`，2026-05-17，MIT）：`api.py` 第 303–316 行（请求），`binary_sensor.py` 第 12–13、35–38 行（`connetStatus` 即「WAN Connected」，按 `1` / `true` 判断） |
+
+查过没找到的：
+
+- **品速**：资料 A（`pinsu-protocol-spec.md` 第 134–276 行）的 `mgdb` 键与动作里没有拨号或联网状态；资料 B 的 `http.cgi` 写法（`cmd 2` 有 `wan_ip`）不是烽燧的品速驱动用的接口（18.11）；公开项目里查到的 `mixingh/r200` 是刷入 shell 工具的程序，没有接口资料。所以品速上回退与重拨不起作用：型号清单里记一条说明（生成到「支持的设备」与「设置 → 设备」），控制抽屉的锁频段、锁小区与蜂窝设置的确认框按这台路由器最近一次读数里有没有联网状态写明「不会自动改回」（不分品牌，读不到新增请求的个别固件同样适用）。
+- **烽火 Pro 系列**：它的 TR-069 节点（`get_value_by_xmlnode`）里查不到联网状态；这种写法只有短信写入，没有会断网的写入，所以不影响回退。
+

@@ -986,6 +986,29 @@ describe("the console on routers of other brands", () => {
     }
   });
 
+  it("says before a lock on a router that does not report whether it is connected that nothing undoes the lock", async () => {
+    const demo = await brand("pinsu");
+    try {
+      await signIn(page, demo);
+      await page.click('[data-action="open-controls"]');
+      await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+      const lock = "[...document.querySelectorAll('#controlsDialog button')].find((b) => b.textContent.trim() === 'Lock the selected bands')";
+      await page.waitUntil(`${lock} !== undefined`, "the band lock");
+      // A 4G band typed in (a lock needs one), then the lock
+      await page.evaluate("const input = document.querySelector('#controlsDialog input[data-bands=lte]'); input.value = '3'; input.dispatchEvent(new Event('input')); true");
+      await page.evaluate(`${lock}.click(); true`);
+      await page.waitUntil(isOpen("confirmDialog"), "the confirmation");
+      const text = await page.evaluate<string>("document.getElementById('confirmDialog').textContent");
+      assert.match(text, /This router does not report whether it is connected: if a lock cuts the internet, FengSui cannot tell and does not undo it/);
+      assert.doesNotMatch(text, /Lock rollback is (on|off)/, "no promise of a rollback that cannot run");
+      await page.click("#confirmCancel");
+      await closeDialogs(page);
+      assert.deepEqual(page.exceptions, []);
+    } finally {
+      await demo.close();
+    }
+  });
+
   it("offers no lock on a brand whose interface has none: no lock section, no nearby cells, and the brand's own switches", async () => {
     const demo = await brand("dlink");
     try {

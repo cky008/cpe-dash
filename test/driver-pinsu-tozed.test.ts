@@ -184,9 +184,10 @@ describe("tozed: login and readings", () => {
     const t = await client.withSession((s) => s.telemetry());
     assert.deepEqual(
       mock.requests.map((r) => (JSON.parse(r.body) as { cmd: number }).cmd),
-      [232, 100, 205, 207, 101]
+      [232, 100, 205, 207, 113, 101]
     );
     assert.ok(mock.requests.every((r) => r.path === "/cgi-bin/http.cgi" && r.headers["referer"] === "http://192.168.0.1/"));
+    assert.equal(t?.wan.connected, true, "cmd 113 says the router is connected");
     assert.equal(t?.mode, "SA");
     assert.equal(t?.model, "VN007+");
     assert.equal(t?.nr?.bandwidthMhz, 100);
@@ -196,6 +197,21 @@ describe("tozed: login and readings", () => {
     assert.equal(t?.traffic?.totalDownloadBytes, BigInt(Math.round(1548.62 * 1024 * 1024)));
     assert.equal(t?.traffic?.monthTotalBytes, BigInt(Math.round(48920.18 * 1024 * 1024)));
     assert.deepEqual(await client.withSession((s) => s.identify()), { model: "VN007+", softwareVersion: "2.10.22", hardwareVersion: null });
+  });
+
+  it("reads the connection from cmd 113, and keeps it unknown where the router does not say", async () => {
+    const router = tozedRouter();
+    router.state[113] = { network_status: "0" };
+    assert.equal((await router.client.withSession((s) => s.telemetry()))?.wan.connected, false);
+    router.state[113] = { network_status: 1 };
+    assert.equal((await router.client.withSession((s) => s.telemetry()))?.wan.connected, true);
+    router.state[113] = { network_status: "2" };
+    assert.equal((await router.client.withSession((s) => s.telemetry()))?.wan.connected, null, "a value the pages do not name");
+    // A firmware without the call: the other readings stay
+    const without = tozedRouter({ refuseGet: 113 });
+    const t = await without.client.withSession((s) => s.telemetry());
+    assert.deepEqual([t?.wan.connected, t?.mode, t?.model], [null, "SA", "VN007+"]);
+    assert.equal(without.mock.requests.length, 6, "the call is asked once and the session closed as usual");
   });
 
   it("tells a lock from a wrong password by the exact answer", async () => {

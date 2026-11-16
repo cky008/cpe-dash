@@ -49,13 +49,17 @@ order: 23
 
 感谢 [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5g-traffic-monitoring-system)：烽燧为通则康威（联通 VN007+）的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
+感谢 [aabichou/rezo](https://github.com/aabichou/rezo)：烽燧读通则康威路由器是否联网时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt)：烽燧读通则康威路由器是否联网时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
 ## 烽火
 
 感谢 [Curtion/fiberhome-cpe-lg6121f-sms-notice](https://github.com/Curtion/fiberhome-cpe-lg6121f-sms-notice)：烽燧为烽火的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 感谢 [upchr/fiberhome-cpe](https://github.com/upchr/fiberhome-cpe)：烽燧为烽火的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
-感谢 [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA)：烽燧为烽火的短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA)：烽燧为烽火的短信和联网状态做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 感谢 [kukume/fiberhome-cpe](https://github.com/kukume/fiberhome-cpe)：烽燧为烽火 Pro 系列的信号与短信做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 

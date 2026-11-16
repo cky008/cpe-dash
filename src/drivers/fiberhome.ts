@@ -712,6 +712,15 @@ export function fiberhomeAirplaneOf(answer: unknown): boolean | null {
   return on === "1" ? true : on === "0" ? false : null;
 }
 
+/**
+ * `get_header_info` of the web page's endpoint, the header its pages show: `connetStatus` (so spelled)
+ * `1` / `true` the WAN is connected, `0` / `false` not (neon9809/FiberHome-CPE-HA); anything else unknown.
+ */
+export function fiberhomeConnectedOf(answer: unknown): boolean | null {
+  const status = isPlainObject(answer) ? textOf(answer["connetStatus"])?.toLowerCase() : undefined;
+  return status === "1" || status === "true" ? true : status === "0" || status === "false" ? false : null;
+}
+
 function bandListOf(value: unknown): number[] | "all" | null {
   if (typeof value !== "string") return null;
   if (value.trim() === "") return "all";
@@ -797,10 +806,13 @@ class FiberhomeSession implements DriverSessionHandle {
   }
 
   async telemetry(): Promise<DriverTelemetry> {
-    const t = parseFiberhomeTelemetry(await this.#baseInfo()).telemetry;
-    // Airplane mode rides on the same session; a firmware without the call keeps its readings
+    const read = parseFiberhomeTelemetry(await this.#baseInfo()).telemetry;
+    // Airplane mode and the connection ride on the same session; a firmware without a call keeps the other readings
     const airplane = await this.#http.getJson(TOOL, { query: [["ajaxmethod", "app_get_airplane"]], referer: GET_REFERER }).catch(() => null);
+    const header = await this.#http.getJson(WEB, { query: [["ajaxmethod", "get_header_info"]], referer: GET_REFERER }).catch(() => null);
     const airplaneMode = fiberhomeAirplaneOf(airplane);
+    const connected = fiberhomeConnectedOf(header);
+    const t = connected === null ? read : { ...read, wan: { ...read.wan, connected } };
     return airplaneMode === null ? t : { ...t, status: { airplaneMode } };
   }
 

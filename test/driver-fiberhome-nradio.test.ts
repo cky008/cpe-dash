@@ -22,10 +22,26 @@ describe("fiberhome: session", () => {
     const { mock, client } = fiberhomeRouter();
     const t = await client.withSession((s) => s.telemetry());
     assert.equal(t?.model, "LG6121F");
-    // Login, the base info, airplane mode (same session), logout
-    assert.deepEqual(mock.trail, ["GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS"]);
+    // Login, the base info, airplane mode and the page's header (same session), logout
+    assert.deepEqual(mock.trail, ["GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHTOOLAPIS", "GET /api/tmp/FHAPIS", "GET /api/tmp/FHNCAPIS", "POST /api/tmp/FHTOOLAPIS"]);
     assert.equal(mock.requests[5]?.query.get("ajaxmethod"), "app_get_airplane");
+    assert.equal(mock.requests[6]?.query.get("ajaxmethod"), "get_header_info");
     assert.equal(mock.requests[4]?.headers["referer"], "http://192.168.8.1/html/content.html");
+    assert.equal(t?.wan.connected, true, "the header says the WAN is connected");
+  });
+
+  it("reads the connection from the web page's header, and keeps it unknown where the router does not say", async () => {
+    const router = fiberhomeRouter();
+    router.header.info = { connetStatus: "0", upStatus: "1" };
+    assert.equal((await router.client.withSession((s) => s.telemetry()))?.wan.connected, false);
+    router.header.info = { connetStatus: "true" };
+    assert.equal((await router.client.withSession((s) => s.telemetry()))?.wan.connected, true);
+    router.header.info = { upStatus: "1" };
+    assert.equal((await router.client.withSession((s) => s.telemetry()))?.wan.connected, null, "no connetStatus: unknown");
+    // A firmware without the call: the other readings stay
+    const without = fiberhomeRouter({ header: null });
+    const t = await without.client.withSession((s) => s.telemetry());
+    assert.deepEqual([t?.wan.connected, t?.model, t?.status?.airplaneMode], [null, "LG6121F", false]);
   });
 
   it("yields, latches and refuses as the login answers say", async () => {

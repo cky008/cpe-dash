@@ -361,6 +361,7 @@ export const zhCN = {
   "heal.hint": "在「设置 → 常规」的「自愈」里开启（也可以用 .env 的 LOCK_ROLLBACK_AFTER_MIN / WAN_AUTO_RECONNECT_AFTER_MIN）；只重拨，从不重启路由器。",
   "heal.note_on": "锁频回滚已开启：若锁定后 {min} 分钟内 WAN 未恢复并连续在线 2 分钟，将自动解除全部锁定。",
   "heal.note_off": "锁频回滚未开启：若锁定导致断网，需要在这里手动解除（可在「设置 → 常规」的「自愈」里开启自动回滚）。",
+  "heal.note_blind": "这台路由器不报告是否联网：锁定之后断网，烽燧看不出来，不会自动解除或改回。断网了请在这里手动解除。",
   "ctl.band_lock": "锁频段",
   "ctl.lte_bands": "4G LTE 频段",
   "ctl.nr_bands": "5G NR 频段（SA / NSA）",

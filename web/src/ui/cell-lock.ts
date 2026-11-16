@@ -36,7 +36,7 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
   const formError = h("div", { class: "text-sm text-error min-h-5", attrs: { role: "alert" } });
   const submit = h("button", { class: "btn btn-warning btn-sm rounded-lg gap-1.5", attrs: { type: "submit" } }, icon("lock"), ctx.t("cl.confirm"));
   // Whether a lock that cuts the WAN is rolled back on its own, said before it is applied
-  const rollback = lockRollbackNote(ctx.store.state.selfHeal, ctx.t);
+  const rollback = lockRollbackNote(ctx.store.state.selfHeal, ctx.t, ctx.store.state.telemetry);
 
   // Further candidate cells, on a router that locks several of this RAT at once (the router picks among them)
   const moreRows: Array<{ band: HTMLSelectElement; arfcn: HTMLInputElement; pci: HTMLInputElement; row: HTMLElement }> = [];

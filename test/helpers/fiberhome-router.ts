@@ -46,7 +46,7 @@ const BASE_SA = FIBERHOME_BASE_SA;
  * the page each call must name, the login with its lock, the readings and the writes, stored and read
  * back. Tests only.
  */
-export function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>; login?: Record<string, string>; airplane?: string; airplaneSticks?: boolean } = {}) {
+export function fiberhomeRouter(opts: { model?: string; status?: Record<string, string>; login?: Record<string, string>; airplane?: string; airplaneSticks?: boolean; header?: Record<string, string> | null } = {}) {
   const base = { ...BASE_SA, modelName: opts.model ?? "LG6121F" };
   let sid = 0;
   let current = "";
@@ -59,6 +59,8 @@ export function fiberhomeRouter(opts: { model?: string; status?: Record<string, 
   };
   const writes: Array<{ method: string; data: Record<string, unknown> }> = [];
   let airplane = opts.airplane ?? "0";
+  // The web page's header (`get_header_info`); `null`: a firmware without the call
+  const header: { info: Record<string, string> | null } = { info: opts.header === undefined ? { connetStatus: "1", upStatus: "1" } : opts.header };
   const mock = new LanRouterMock((req) => {
     if (req.method === "GET" && req.path === "/api/tmp/FHNCAPIS") {
       current = `s${String(++sid).padStart(8, "0")}`;
@@ -67,6 +69,10 @@ export function fiberhomeRouter(opts: { model?: string; status?: Record<string, 
     if (req.method === "GET" && req.path === "/api/tmp/FHTOOLAPIS") {
       if (!loggedIn) return { text: "timeout" };
       return req.query.get("ajaxmethod") === "app_get_airplane" ? { json: { airplaneOn: airplane } } : { json: base };
+    }
+    if (req.method === "GET" && req.path === "/api/tmp/FHAPIS" && req.query.get("ajaxmethod") === "get_header_info") {
+      if (!loggedIn) return { text: "timeout" };
+      return header.info === null ? { status: 404, text: "" } : { json: header.info };
     }
     const body = JSON.parse(req.body) as { dataObj: Record<string, unknown> | null; ajaxmethod: string; sessionid: string };
     if (body.sessionid !== current) return { text: "timeout" };
@@ -94,5 +100,5 @@ export function fiberhomeRouter(opts: { model?: string; status?: Record<string, 
     return { json: { result: "0" } };
   });
   const client = new DriverCpeClient({ protocol: fiberhomeProtocol, cpeUrl: "http://192.168.8.1", cpeUsername: "admin", cpePassword: PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
-  return { mock, store, writes, client };
+  return { mock, store, writes, header, client };
 }

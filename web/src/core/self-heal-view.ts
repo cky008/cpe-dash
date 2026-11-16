@@ -1,3 +1,4 @@
+import type { GlobalTelemetrySnapshot } from "../../../src/cpe-domain.ts";
 import type { SelfHealStatus } from "../../../src/self-heal-status.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 
@@ -38,8 +39,21 @@ export function selfHealRows(status: SelfHealStatus | null, t: Text, clock: (ms:
   return [lockRow, redialRow];
 }
 
-/** The line a lock confirmation adds: what happens if the lock cuts the WAN (`null` before the daemon said). */
-export function lockRollbackNote(status: SelfHealStatus | null, t: Text): string | null {
+/**
+ * Whether the router says if it is connected: a reading without a connection state (a Pinsu router, or
+ * a firmware that does not answer the call it is read with) means no rollback can see an outage. Before
+ * the first reading, taken as yes.
+ */
+export function reportsConnection(telemetry: Pick<GlobalTelemetrySnapshot, "device"> | null): boolean {
+  return telemetry === null || telemetry.device.connectionStatus !== "";
+}
+
+/**
+ * The line a lock confirmation adds: what happens if the lock cuts the WAN (`null` before the daemon
+ * said); on a router that does not say whether it is connected, that nothing undoes it.
+ */
+export function lockRollbackNote(status: SelfHealStatus | null, t: Text, telemetry: Pick<GlobalTelemetrySnapshot, "device"> | null = null): string | null {
+  if (!reportsConnection(telemetry)) return t("heal.note_blind");
   if (!status) return null;
   return status.lockRollback.afterMin === null ? t("heal.note_off") : t("heal.note_on", { min: status.lockRollback.afterMin });
 }

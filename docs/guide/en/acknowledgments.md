@@ -49,13 +49,17 @@ Thanks to [amenekowo/mu5250_tweaking](https://github.com/amenekowo/mu5250_tweaki
 
 Thanks to [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5g-traffic-monitoring-system): FengSui consulted the interface notes it collects when adding SMS for Tozed (China Unicom VN007+). FengSui contains none of its code and does not depend on it.
 
+Thanks to [aabichou/rezo](https://github.com/aabichou/rezo): FengSui consulted the interface notes it collects when reading whether a Tozed router is connected. FengSui contains none of its code and does not depend on it.
+
+Thanks to [mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt): FengSui consulted the interface notes it collects when reading whether a Tozed router is connected. FengSui contains none of its code and does not depend on it.
+
 ## FiberHome
 
 Thanks to [Curtion/fiberhome-cpe-lg6121f-sms-notice](https://github.com/Curtion/fiberhome-cpe-lg6121f-sms-notice): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
 
 Thanks to [upchr/fiberhome-cpe](https://github.com/upchr/fiberhome-cpe): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
 
-Thanks to [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA): FengSui consulted the interface notes it collects when adding SMS for FiberHome. FengSui contains none of its code and does not depend on it.
+Thanks to [neon9809/FiberHome-CPE-HA](https://github.com/neon9809/FiberHome-CPE-HA): FengSui consulted the interface notes it collects when adding SMS and the connection state for FiberHome. FengSui contains none of its code and does not depend on it.
 
 Thanks to [kukume/fiberhome-cpe](https://github.com/kukume/fiberhome-cpe): FengSui consulted the interface notes it collects when adding signal readings and SMS for FiberHome's Pro series. FengSui contains none of its code and does not depend on it.
 

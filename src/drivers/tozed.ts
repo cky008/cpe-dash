@@ -145,8 +145,18 @@ function servingMode(text: unknown, nrRsrp: number | null): DriverTelemetry["mod
   return servingModeOf(raw);
 }
 
-/** `cmd 205` (signal, traffic) and `cmd 207` (board, temperature) in FengSui's shape. */
-export function parseTozedTelemetry(signal: Record<string, unknown>, board: Record<string, unknown> | null): DriverTelemetry {
+/**
+ * `cmd 113`'s `network_status`, the status the router's own login and home pages poll: `1` connected
+ * (rezo reads it so on the ZLT X31), `0` not; anything else, or a firmware without the call, unknown.
+ */
+function tozedConnectedOf(status: Record<string, unknown> | null): boolean | null {
+  const value = status?.["network_status"];
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : null;
+  return text === "1" ? true : text === "0" ? false : null;
+}
+
+/** `cmd 205` (signal, traffic), `cmd 207` (board, temperature) and `cmd 113` (the connection) in FengSui's shape. */
+export function parseTozedTelemetry(signal: Record<string, unknown>, board: Record<string, unknown> | null, status: Record<string, unknown> | null = null): DriverTelemetry {
   const v = (key: string): unknown => signal[key];
   const nrRsrp = rsrpOf(v("RSRP_5G"));
   const mode = servingMode(v("network_type_str"), nrRsrp);
@@ -194,7 +204,7 @@ export function parseTozedTelemetry(signal: Record<string, unknown>, board: Reco
     lte: cellHasData(lte) && mode !== "SA" ? lte : null,
     nr: cellHasData(nr) && (nrRsrp !== null || mode === "SA") ? nr : null,
     carriers: [],
-    wan: { connected: null, ipv4: null, ipv6: null, uptimeSec: null },
+    wan: { connected: tozedConnectedOf(status), ipv4: null, ipv6: null, uptimeSec: null },
     traffic: {
       downloadBytesPerSec: null,
       uploadBytesPerSec: null,
@@ -296,7 +306,10 @@ class TozedSession implements DriverSessionHandle {
 
   async telemetry(): Promise<DriverTelemetry> {
     const signal = await this.#get(205);
-    return parseTozedTelemetry(signal, await this.#boardInfo());
+    const board = await this.#boardInfo();
+    // The connection rides on the same session; a firmware without the call keeps the other readings
+    const status = await this.#get(113).catch(() => null);
+    return parseTozedTelemetry(signal, board, status);
   }
 
   async neighbours(): Promise<DriverNeighbour[]> {

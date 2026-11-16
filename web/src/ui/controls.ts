@@ -9,7 +9,7 @@ import { experimentalWrites, reportVerified, unconfirmedWrite, unverifiedModel }
 import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
-import { lockRollbackNote, selfHealRows } from "../core/self-heal-view.ts";
+import { lockRollbackNote, reportsConnection, selfHealRows } from "../core/self-heal-view.ts";
 import type { MessageKey } from "../i18n/zh-CN.ts";
 import type { AppContext } from "./context.ts";
 import { type Child, byId, h, icon, modalBackdrop, mount } from "./dom.ts";
@@ -198,7 +198,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
       value === undefined ? "" : value === "all" ? ctx.t("ctl.all_bands", { rat }) : value.map((b) => bandLabel(rat, b)).join("+");
     const summary = [describe("LTE", lte), describe("NR", nr)].filter(Boolean).join(" · ");
     // Whether a lock that cuts the WAN is rolled back on its own, said before it is applied
-    const rollback = lockRollbackNote(ctx.store.state.selfHeal, ctx.t);
+    const rollback = lockRollbackNote(ctx.store.state.selfHeal, ctx.t, ctx.store.state.telemetry);
     void ctx
       .confirm({ title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary }), ...(rollback ? [rollback] : [])], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" })
       .then((ok) => {
@@ -258,6 +258,9 @@ export function mountControls(ctx: AppContext): { open(): void } {
   const confirmExperimental = (features: ReadonlyArray<WriteFeature>, options: Parameters<AppContext["confirm"]>[0]): Promise<boolean> =>
     ctx.confirm(unconfirmedWrite(ctx.store.state.scheduler, features) ? { ...options, body: [...options.body, ctx.t("ctl.experimental_note")] } : options);
 
+  /** On a router that does not say whether it is connected: that nothing undoes a lock that cuts the internet. */
+  const blindNote = (): string[] => (reportsConnection(ctx.store.state.telemetry) ? [] : [ctx.t("heal.note_blind")]);
+
   /** LTE band lock on a model nobody verified: the bands it advertises, no NR band or cell lock. */
   const experimentalBandSection = (bands: ReadonlyArray<number>): HTMLElement => {
     const mask = h("span", { class: "num text-[0.6875rem] faint" }, maskText(bands, genericSelected));
@@ -272,7 +275,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         return;
       }
       const summary = lte === "all" ? ctx.t("ctl.all_bands", { rat: "LTE" }) : lte.map((b) => bandLabel("LTE", b)).join("+");
-      void confirmExperimental(["bandLock"], { title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
+      void confirmExperimental(["bandLock"], { title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary }), ...blindNote()], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
         if (!ok) return;
         runBusy(applyBtn, async () => {
           try {
@@ -366,7 +369,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         value === undefined ? "" : value === "all" ? ctx.t("ctl.all_bands", { rat }) : value.map((b) => bandLabel(rat, b)).join("+");
       const summary = [describe("LTE", lte), describe("NR", nr)].filter(Boolean).join(" · ");
       const body: BandLockRequest = { ...(lte !== undefined ? { lteBands: lte } : {}), ...(nr !== undefined ? { nrBands: nr } : {}) };
-      void confirmExperimental(["bandLock"], { title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary })], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
+      void confirmExperimental(["bandLock"], { title: ctx.t("ctl.lock_bands_title"), body: [ctx.t("ctl.lock_bands_body", { summary }), ...blindNote()], confirmLabel: ctx.t("ctl.apply_bands"), tone: "warning" }).then((ok) => {
         if (!ok) return;
         runBusy(applyBtn, async () => {
           try {

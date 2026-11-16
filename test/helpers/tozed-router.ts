@@ -15,13 +15,15 @@ const PASSWORD = TOZED_PASSWORD;
  * A Tozed router's `http.cgi` interface: the one-time login token, the session id every call
  * carries, the readings, and the writes (each with a fresh write token), stored and read back. Tests only.
  */
-export function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | null; refuse?: number; writeToken?: false } = {}) {
+export function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | null; refuse?: number; refuseGet?: number; writeToken?: false } = {}) {
   const token = opts.token === undefined ? "a1b2c3d4e5f60718293a4b5c6d7e8f90" : opts.token;
   const sid = "7c9e1a00000000000000000000000000000000000000000000000000000000ff";
   const state: Record<string, Record<string, unknown>> = {
     161: { band_4g_switch: "0", band_5g_switch: "0", all_band_4g: bandsToHex([1, 3, 5, 7, 8, 20, 38, 40, 41]), all_band_5g: bandsToHex([1, 3, 28, 41, 78, 79]), band_4g_mask: "", band_5g_mask: "" },
     160: { lte_lock_sw: "0", lte_lock_freq: "", lte_lock_pci: "", nr_lock_sw: "0", nr_lock_freq: "", nr_lock_pci: "" },
     218: { networkMode: "131", mode5g: "1" },
+    // The connection, as the router's own pages poll it (`network_status` 1: connected)
+    113: { network_status: "1" },
   };
   const posts: Array<Record<string, unknown>> = [];
   let writeTokens = 0;
@@ -35,6 +37,8 @@ export function tozedRouter(opts: { login?: Record<string, unknown>; token?: str
     }
     if (body["sessionId"] !== sid) return { json: { success: false, cmd } };
     if (body["method"] === "GET") {
+      // A firmware without this read
+      if (cmd === opts.refuseGet) return { json: { success: false, cmd } };
       if (cmd === 205) return { json: { success: true, cmd, network_type_str: "5G(SA)", currentband_5g: "78", RSRP_5G: "-79", PCI_5G: "142", FREQ_5G: "650000", CELL_ID_5G: "1000", bandwidth_5g: "100MHz", RSRP: "-", flow_dl: "1548.62", flow_ul: "312.45", mon_total_flow: "48920.18", signal_lvl: "5", network_operator: "27201" } };
       if (cmd === 207) return { json: { success: true, cmd, board_type: "VN007+", real_fwversion: "2.10.22", "apcpu0-thmzone": "54200" } };
       if (cmd === 282) return { json: { success: true, cmd, lte_info: "1850,142,-85,-9,-58;", nr_info: "650000,142,-79,-10,24;bad" } };

@@ -363,6 +363,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "heal.hint": "Turned on under Settings → General → Self-healing (or LOCK_ROLLBACK_AFTER_MIN / WAN_AUTO_RECONNECT_AFTER_MIN in .env); it only redials, it never reboots the router.",
   "heal.note_on": "Lock rollback is on: unless the WAN is back and stays up 2 minutes within {min} minutes of the lock, every lock is cleared automatically.",
   "heal.note_off": "Lock rollback is off: if a lock cuts the WAN, clear it here by hand (turn on the automatic rollback under Settings → General → Self-healing).",
+  "heal.note_blind": "This router does not report whether it is connected: if a lock cuts the internet, FengSui cannot tell and does not undo it. If that happens, clear the lock here by hand.",
   "ctl.band_lock": "Band lock",
   "ctl.lte_bands": "4G LTE bands",
   "ctl.nr_bands": "5G NR bands (SA / NSA)",

@@ -256,6 +256,7 @@ Notes for this table:
 - △ Reboot & redial: reboot only; FengSui does not do redial here yet (every model in this table).
 - △ Network mode & operator: the network mode only; FengSui does not do choosing the operator here yet (every model in this table).
 - Their page's interface names no model, so FengSui calls each of them "Pinsu": that is the model in the device report and under Settings → Device (every model in this table).
+- Their page's interface does not report whether the router is connected: if a band or cell lock or a change of network mode cuts the internet, FengSui cannot tell, so it does not put the setting back after 3 minutes and self-healing cannot redial; undo it in FengSui by hand (every model in this table).
 
 <a id="brand-tozed"></a>
 
@@ -454,6 +455,7 @@ Notes for this table:
 - △ Reboot & redial: reboot only; FengSui does not do redial here yet (every model in this table).
 - △ Network mode & operator: the network mode only; FengSui does not do choosing the operator here yet (every model in this table).
 - Their page's interface names no model, so FengSui calls each of them "Pinsu": that is the model in the device report and under Settings → Device (UNISOC V510 mgdb).
+- Their page's interface does not report whether the router is connected: if a band or cell lock or a change of network mode cuts the internet, FengSui cannot tell, so it does not put the setting back after 3 minutes and self-healing cannot redial; undo it in FengSui by hand (UNISOC V510 mgdb).
 - △ SMS: sends messages; the router's interface has no command on record to delete a message or to mark one read, so FengSui can do neither here (every model but the UNISOC V510 mgdb).
 - FengSui keeps track of what you have not read (it cannot change the router's own unread mark) (every model but the UNISOC V510 mgdb).
 - Some operator builds wrap the interface in a layer of encryption; FengSui cannot connect to those (every model but the UNISOC V510 mgdb).
