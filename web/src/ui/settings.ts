@@ -73,6 +73,7 @@ import {
 import { formatFingerprint } from "../../../src/router-trust.ts";
 import { type RouterDraft, asksUsername, brandLabel, brandNote, brandOf, brandOptions, certificateOffer, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../core/router-brand.ts";
 import { formatAgo } from "../core/format.ts";
+import { reportsConnection } from "../core/self-heal-view.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../i18n/settings.ts";
 import { copyText } from "./clipboard.ts";
@@ -724,7 +725,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     // Made for the router in use: its brand and the reads and writes open on it
     const prompt =
       access && plan?.available
-        ? agentTestPrompt({ family: access.family, variant: identity?.variant ?? null, model, firmware: identity?.softwareVersion ?? null, reads: access.reads, features: access.features, sms: plan.sms, issueUrl }, ctx.tr.locale, t)
+        ? agentTestPrompt({ family: access.family, variant: identity?.variant ?? null, model, firmware: identity?.softwareVersion ?? null, reads: access.reads, features: access.features, sms: plan.sms, issueUrl, reportsConnection: reportsConnection(ctx.store.state.telemetry) }, ctx.tr.locale, t)
         : "";
     let test: HTMLElement | null = null;
     if (plan?.available || current) {

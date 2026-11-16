@@ -67,6 +67,8 @@ function routerOf(family: RouterFamily, variant: string | null, states: Partial<
     features,
     sms: { available: features.smsWrite === "enabled", markRead: ROUTER_FAMILY_FACTS[family].smsReadState === "fengsui" ? "fengsui" : "router", delete: "message", ...sms },
     issueUrl: "https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+MODEL-1",
+    // Every brand reports it but Pinsu, whose interface has no connection state on record
+    reportsConnection: family !== "pinsu",
   };
 }
 
@@ -230,6 +232,20 @@ describe("the agent test in the Device tab", () => {
     assert.match(agentTestPrompt(routerOf("fiberhome", null, {}, { available: true, markRead: "router", delete: "conversation" }), "zh-CN", zh), /只能整段对话一起删/);
     // The firmware, where the router named none
     assert.match(agentTestPrompt({ ...routerOf("openwrt", null), firmware: null }, "zh-CN", zh), /固件 未知。/);
+  });
+
+  it("promises the 3-minute rollback only where the router says whether it is connected", () => {
+    const pinsu = routerOf("pinsu", null);
+    for (const locale of ["zh-CN", "en"] as const) {
+      const t = locale === "en" ? en : zh;
+      const text = agentTestPrompt(pinsu, locale, t);
+      // Its band lock, cell lock and network mode are tested, and none of them says FengSui puts it back
+      assert.doesNotMatch(text, locale === "en" ? /Should the WAN stay down 3 minutes/ : /断网 3 分钟没恢复，烽燧会/);
+      assert.equal(text.split(t("agent_prompt_rollback_none")).length - 1, 3, "after the band lock, the cell lock and the network mode");
+      // A router that reports it keeps each write's own sentence
+      const zte = agentTestPrompt(routerOf("zte-goform", null), locale, t);
+      assert.ok(zte.includes(t("agent_prompt_rollback_cellLock")) && zte.includes(t("agent_prompt_rollback_networkMode")) && !zte.includes(t("agent_prompt_rollback_none")));
+    }
   });
 
   it("finds the newest reminder among the alerts", () => {

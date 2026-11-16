@@ -122,6 +122,8 @@ export interface AgentPromptRouter {
   features: Readonly<Record<WriteFeature, WriteFeatureState>>;
   sms: Pick<AgentTestPlan["sms"], "available" | "markRead" | "delete">;
   issueUrl: string;
+  /** The router's readings say whether it is connected (`false`: no rollback can see an outage there, a Pinsu router say). */
+  reportsConnection: boolean;
 }
 
 /** What the prompt asks of an agent on this router, before any wording (the tests check it brand by brand). */
@@ -196,6 +198,16 @@ const WRITE_LINES: Readonly<Record<AgentTestFeature, SettingsTextKey>> = {
   ussd: "agent_prompt_write_ussd",
 };
 
+/** The writes the 3-minute rollback puts back, each with its own sentence (said only where the router reports its connection). */
+const ROLLBACK_LINES: Readonly<Partial<Record<AgentTestFeature, SettingsTextKey>>> = {
+  bandLock: "agent_prompt_rollback_bandLock",
+  cellLock: "agent_prompt_rollback_cellLock",
+  networkMode: "agent_prompt_rollback_networkMode",
+  operatorSelect: "agent_prompt_rollback_operatorSelect",
+  simSlot: "agent_prompt_rollback_simSlot",
+  apn: "agent_prompt_rollback_apn",
+};
+
 /**
  * The prompt for this router: what it is and what the test is for, the safety rules, the steps (only
  * the reads it has and the writes open on it, each with what to watch for), and how to write the report
@@ -223,14 +235,19 @@ export function agentTestPrompt(router: AgentPromptRouter, locale: Locale, t: Te
   // Left out of the test, SMS shows no tools to the agent, its status read included
   lines.push(plan.reads.includes("get_sms_status") ? then(prepared, t("agent_prompt_step_prepare_sms")) : prepared);
   lines.push(step("agent_prompt_step_reads", { tools: list(plan.reads) }), step("agent_prompt_step_writes"));
+  // What follows a write the rollback covers: its sentence, or that nothing is put back on a router that does not say whether it is connected
+  const rollback = (feature: AgentTestFeature, line: string): string => {
+    const key = ROLLBACK_LINES[feature];
+    return key === undefined ? line : then(line, t(router.reportsConnection ? key : "agent_prompt_rollback_none"));
+  };
   for (const feature of lastSms(plan.writes)) {
-    if (feature === "bandLock") lines.push(plan.nrBand ? then(t(WRITE_LINES.bandLock), t("agent_prompt_write_bandLock_nr")) : t(WRITE_LINES.bandLock));
+    if (feature === "bandLock") lines.push(rollback(feature, plan.nrBand ? then(t(WRITE_LINES.bandLock), t("agent_prompt_write_bandLock_nr")) : t(WRITE_LINES.bandLock)));
     else if (feature === "smsWrite") {
       const read = router.sms.markRead === "fengsui" ? "agent_prompt_sms_read_fengsui" : "agent_prompt_sms_read_router";
       const remove = router.sms.delete === "conversation" ? "agent_prompt_sms_delete_conversation" : router.sms.delete === "none" ? "agent_prompt_sms_delete_none" : "agent_prompt_sms_delete_message";
       const tools = AGENT_TEST_WRITE_TOOLS.filter(({ tool, features }) => features.includes("smsWrite") && plan.writeTools.includes(tool)).map(({ tool }) => tool);
       lines.push(t(WRITE_LINES.smsWrite, { tools: list(tools), read: t(read), remove: t(remove) }));
-    } else lines.push(t(WRITE_LINES[feature]));
+    } else lines.push(rollback(feature, t(WRITE_LINES[feature])));
   }
   if (plan.disabled.length > 0) lines.push(t("agent_prompt_disabled", { items: names(plan.disabled) }));
   lines.push(step("agent_prompt_step_page"), step(plan.probe ? "agent_prompt_step_probe" : "agent_prompt_step_report_check"), step("agent_prompt_step_finish"), step("agent_prompt_step_report", { issueUrl: router.issueUrl }));
