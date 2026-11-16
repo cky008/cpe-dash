@@ -119,6 +119,11 @@ describe("zte-zwrt: readings", () => {
     assert.equal(parseZwrtLockState({}).lteBands, null);
     assert.deepEqual(open.nrCell, { locked: false });
     assert.equal(open.networkMode, null);
+    // The LTE cell lock: "pci,earfcn", unlocked as "" or zeros (the community's ZTE script on the MU5250)
+    assert.deepEqual(parseZwrtLockState({ lock_lte_cell: "211,1850" }).lteCell, { locked: true, pci: 211, arfcn: 1850, band: null });
+    assert.deepEqual(parseZwrtLockState({ lock_lte_cell: "0,0" }).lteCell, { locked: false });
+    assert.deepEqual(parseZwrtLockState({ lock_lte_cell: "" }).lteCell, { locked: false });
+    assert.equal(parseZwrtLockState({}).lteCell, null, "a firmware that does not say");
   });
 });
 
@@ -172,9 +177,20 @@ describe("zte-zwrt: writes", () => {
     assert.deepEqual(unlock.endpoints, ["zte-zwrt:zte_nwinfo_api.nwinfo_reset_band_cell_setting"]);
   });
 
-  it("locks NR cells only, then reboots without a logout", async () => {
+  it("locks an LTE cell with its own form, and takes it off before the reset of an unlock", async () => {
+    const { calls, client, netinfo } = zwrtRouter();
+    const lock = newCheck();
+    await client.withSession((s) => s.setCellLock({ rat: "LTE", band: 3, arfcn: 1850, pci: 211, scsKhz: null }, lock));
+    assert.deepEqual(calls.find((c) => c.method === "nwinfo_lock_lte_cell")?.args, { lock_lte_pci: "211", lock_lte_earfcn: "1850" });
+    assert.deepEqual([netinfo["lock_lte_cell"], lock.readback], ["211,1850", "match"]);
+    const unlock = newCheck();
+    await client.withSession((s) => s.unlockAll(unlock));
+    assert.deepEqual(unlock.endpoints, ["zte-zwrt:zte_nwinfo_api.nwinfo_lock_lte_cell", "zte-zwrt:zte_nwinfo_api.nwinfo_reset_band_cell_setting"]);
+    assert.deepEqual([netinfo["lock_lte_cell"], unlock.readback], ["0,0", "match"]);
+  });
+
+  it("locks an NR cell, then reboots without a logout", async () => {
     const { calls, client } = zwrtRouter();
-    await assert.rejects(client.withSession((s) => s.setCellLock({ rat: "LTE", band: 1, arfcn: 300, pci: 211, scsKhz: null }, newCheck())), CpeControlValidationError);
     const lock = newCheck();
     await client.withSession((s) => s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 }, lock));
     assert.equal(lock.readback, "match");

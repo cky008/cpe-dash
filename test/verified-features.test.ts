@@ -82,7 +82,7 @@ describe("verified features of other models", () => {
         .split("|")
         .map((cell) => cell.trim());
     const cellColumn = 3 + FEATURE_COLUMNS.findIndex((module) => module.features.includes("cellLock"));
-    assert.deepEqual([table([])?.[cellColumn], table(list)?.[cellColumn]], ["△", "✓"]);
+    assert.deepEqual([table([])?.[cellColumn], table(list)?.[cellColumn]], ["?", "✓"]);
     assert.deepEqual(table(list)?.filter((_, i) => i !== cellColumn), table([])?.filter((_, i) => i !== cellColumn));
     assert.equal(supportMark("zte-zwrt", "U60 Pro (MU5250)", "cellLock", list), "✓");
     assert.equal(supportMark("zte-zwrt", "U60 Pro (MU5250)", "bandLock", list), "?", "only the feature reported");

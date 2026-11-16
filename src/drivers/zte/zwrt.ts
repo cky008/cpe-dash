@@ -366,10 +366,18 @@ export function parseZwrtLockState(netinfo: Record<string, unknown>): DriverLock
     const arfcn = intOf(cell[1]);
     nrCell = arfcn === null || arfcn === 0 ? { locked: false } : { locked: true, pci: pciOf(cell[0], "NR"), arfcn, band: bandOf(cell[2]) };
   }
+  // `lock_lte_cell`: "pci,earfcn", unlocked as "" or zeros (the community's ZTE script, as run on the MU5250)
+  let lteCell: CellLockState | null = null;
+  const lteRaw = netinfo["lock_lte_cell"];
+  if (typeof lteRaw === "string") {
+    const [pci, earfcn] = rowsOf(lteRaw)[0] ?? [];
+    const arfcn = intOf(earfcn);
+    lteCell = arfcn === null || arfcn === 0 ? { locked: false } : { locked: true, pci: pciOf(pci, "LTE"), arfcn, band: null };
+  }
   return {
     lteBands: lte,
     nrBands: nr,
-    lteCell: null,
+    lteCell,
     nrCell,
     networkMode: networkModeOf(netinfo["net_select"]),
     supportedLte: null,
@@ -472,15 +480,21 @@ class ZwrtSession implements DriverSessionHandle {
     settleBandLock(check, { lte, nr, networkMode: target.networkMode }, await this.lockState().catch(() => null));
   }
 
+  /**
+   * `nwinfo_lock_nr_cell` with PCI, channel and band, or `nwinfo_lock_lte_cell` with PCI and EARFCN (the
+   * community's ZTE script; zte-cpe-rs found the G5 TS taking no LTE cell lock over ubus, so a router may refuse it).
+   */
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
     const checked = checkCellLock(target);
-    if (checked.rat === "LTE") throw new CpeControlValidationError("This router locks NR cells only");
-    await this.#write(check, "nwinfo_lock_nr_cell", { lock_nr_pci: String(checked.pci), lock_nr_earfcn: String(checked.arfcn), lock_nr_cell_band: String(checked.band) });
+    if (checked.rat === "LTE") await this.#write(check, "nwinfo_lock_lte_cell", { lock_lte_pci: String(checked.pci), lock_lte_earfcn: String(checked.arfcn) });
+    else await this.#write(check, "nwinfo_lock_nr_cell", { lock_nr_pci: String(checked.pci), lock_nr_earfcn: String(checked.arfcn), lock_nr_cell_band: String(checked.band) });
     settleCellLock(check, checked, await this.lockState().catch(() => null));
   }
 
   async unlockAll(check: WriteCheck): Promise<void> {
     const before = await this.lockState();
+    // The reset is not on record as clearing an LTE cell lock: the page's own unlock (zeros) first
+    if (before.lteCell?.locked === true) await this.#write(check, "nwinfo_lock_lte_cell", { lock_lte_pci: "0", lock_lte_earfcn: "0" });
     await this.#write(check, "nwinfo_reset_band_cell_setting", {});
     const resetMode = before.networkMode !== null && before.networkMode !== "auto";
     if (resetMode) await this.#write(check, "nwinfo_set_netselect", { net_select: NET_SELECT.auto });

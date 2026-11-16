@@ -255,8 +255,9 @@ describe("the supported devices guide page", () => {
     assert.deepEqual([marksOf(zh, "zte", "MC8020")?.[4], marksOf(zh, "zte", "MC8020")?.[5], marksOf(zh, "zte", "MC801A")?.[4]], ["△", "△", "?"]);
     assert.match(zh, /- △ 「锁频段」、「锁小区」：锁定前，烽燧会先用同一个管理密码打开路由器的开发者选项，并在这次写入的记录里写明（MC888 Ultra、MC888 Pro、MC888、MC888S、MC8020、MC8830、F50 Pro、F50 和 MF79U）。/);
     // zWRT locks 5G cells only; NRadio's 5G bands hang on the module; OpenWrt reboots the module; Fibocom's modes
-    assert.equal(marksOf(en, "zte", "U60 Pro (MU5250)")?.[5], "△");
-    assert.match(en, /- △ Cell lock: locks 5G cells only, not 4G cells \(U60 Pro \(MU5250\), G5 Ultra \(MC8530\)/);
+    assert.equal(marksOf(en, "zte", "G5TS (MC8520)")?.[5], "△");
+    assert.equal(marksOf(en, "zte", "U60 Pro (MU5250)")?.[5], "?", "a fact of one model only");
+    assert.match(en, /- △ Cell lock: a 4G cell lock may be refused: a project found its interface takes none; 5G cells lock \(G5TS \(MC8520\)\)\./);
     assert.equal(marksOf(en, "nradio", "C8-668GL")?.[4], "△");
     assert.deepEqual([marksOf(en, "openwrt", "Quectel RM520N-GL")?.[4], marksOf(en, "openwrt", "Fibocom FM350-GL")?.[4], marksOf(en, "openwrt", "Quectel RM520N-GL")?.[6]], ["?", "△", "△"]);
     assert.match(en, /- △ Reboot & redial: "Reboot" restarts the cellular module, not the whole router \(every model in this table\)\./);
@@ -313,9 +314,9 @@ describe("the supported devices guide page", () => {
     const row = rows(supportedDevicesSection("en"), "zte").find((cells) => cells[0] === "U60 Pro (MU5250)");
     assert.deepEqual(row?.slice(1, 3), ["Mobile router", "zWRT · goform"]);
     assert.deepEqual(rows(supportedDevicesSection("en"), "zte").find((cells) => cells[0] === "MC801A")?.slice(1, 3), ["Indoor CPE", "goform"]);
-    // Chosen by hand, the goform interface locks 4G cells too
-    assert.equal(supportMark("zte-zwrt", "U60 Pro (MU5250)", "cellLock"), "△");
-    assert.equal(supportMark("zte-goform", "U60 Pro (MU5250)", "cellLock"), "?");
+    // A fact of one interface: chosen by hand, the goform interface has no such condition
+    assert.equal(supportMark("zte-zwrt", "G5TS (MC8520)", "cellLock"), "△");
+    assert.equal(supportMark("zte-goform", "G5TS (MC8520)", "cellLock"), "?");
     // A section of one interface has no Interface column
     assert.ok(!supportedDevicesSection("en").split('<a id="brand-pinsu"></a>')[1]?.split("\n").find((line) => line.startsWith("| Model"))?.includes("Interface"));
   });
@@ -364,7 +365,7 @@ describe("the supported devices guide page", () => {
     assert.deepEqual(marksOf(zh, "huawei", "B535-232")?.slice(0, LEGACY), ["?", "△", "?", "?/✓", "✓", "", "?", "?", "", "", "—"]);
     assert.ok(zh.includes("- 一格里有几个符号时，依次对应这一列包含的功能：「短信」是读取 / 发送与管理，「重启与重拨」是重启 / 重拨，「路由器开关」是安全开关 / Wi-Fi 7 / 天线，「SIM 卡」是状态 / 切换卡槽 / PIN，"), zh);
     assert.equal(marksOf(zh, "zte", "U60 Pro (MU5250)")?.[5], "✓");
-    assert.equal(marksOf(zh, "zte", "G5 Ultra (MC8530)")?.[5], "△", "only the model reported");
+    assert.equal(marksOf(zh, "zte", "G5TS (MC8520)")?.[5], "△", "only the model reported");
     assert.deepEqual(rows(supportedDevicesSection("en", verified), "huawei").find((cells) => cells[0] === "B999-001")?.slice(0, 2 + LEGACY), ["B999-001", "", "?", "△", "?", "?", "△", "", "✓/?", "?", "", "", "?"]);
     assert.equal(supportedDevicesSection("en"), supportedDevicesSection("en", VERIFIED_FEATURES), "the table goes by the entries on record");
   });
@@ -376,12 +377,12 @@ describe("the row of the router the console shows", () => {
     assert.deepEqual([row.model, row.section, row.family], ["U60 Pro (MU5250)", "zte", "zte-zwrt"]);
     assert.deepEqual(
       row.modules.map((m) => m.mark).slice(0, LEGACY),
-      ["?", "", "", "?", "?", "△", "?", "?", "", "", "?"]
+      ["?", "", "", "?", "?", "?", "?", "?", "", "", "?"]
     );
-    assert.deepEqual(row.modules[5], { zh: "锁小区", en: "Cell lock", mark: "△" });
+    assert.deepEqual(row.modules[5], { zh: "锁小区", en: "Cell lock", mark: "?" });
     assert.deepEqual(
-      row.notes.map((n) => n.en).filter((note) => /^Cell lock|^SMS is read/.test(note)),
-      ["Cell lock: locks 5G cells only, not 4G cells", "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown"]
+      row.notes.map((n) => n.en).filter((note) => /^Data settings|^SMS is read/.test(note)),
+      ["Data settings: data roaming, the access point (APN) and the data limit only; FengSui does not do clearing the traffic counters here yet", "SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown"]
     );
     assert.equal(findCatalogModel("zte-zwrt", " u60 pro ")?.code, "MU5250", "case and spaces aside");
     assert.equal(findCatalogModel("huawei", "MU5250"), null, "only on an interface the model has");

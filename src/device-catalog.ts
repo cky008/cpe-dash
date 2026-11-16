@@ -493,7 +493,13 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     en: "FengSui reads the H168-383's nearby-cells endpoint; a router without it leaves this empty",
   },
   { family: "huawei", forms: ["usb"], features: [], zh: "USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连", en: "A USB modem connects only in HiLink mode, with its web interface" },
-  { family: "zte-zwrt", features: ["cellLock"], zh: "只能锁 5G 小区，不能锁 4G 小区", en: "locks 5G cells only, not 4G cells" },
+  {
+    family: "zte-zwrt",
+    models: ["G5TS"],
+    features: ["cellLock"],
+    zh: "4G 小区可能锁不上：有项目实测它的接口不接受 4G 小区锁定；5G 小区可以锁",
+    en: "a 4G cell lock may be refused: a project found its interface takes none; 5G cells lock",
+  },
   {
     family: "zte-goform",
     features: [],

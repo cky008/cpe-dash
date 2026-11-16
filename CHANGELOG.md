@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Added
+- **4G cell lock on ZTE's zWRT routers.** The U60 Pro, G5 and U50 series and their kin can now lock a 4G cell as well as a 5G one, with the form the community's ZTE script uses; an unlock takes it off. One project found the G5 TS refusing it, which its row says.
+
 ### Fixed
 - **A band lock that cut the internet was only half put back.** On a router nobody verified, the 3-minute rollback wrote back the LTE bands from before the lock, and left the 5G bands and the network mode as the lock had set them, while the alert said the setting was written back. It now writes back the LTE and 5G bands and the network mode the lock changed, as read right before it; when one of them could not be read first, every lock is taken off instead. A rollback that was waiting when you upgrade goes on as before.
 - **No rollback ever ran on Tozed and FiberHome routers.** Their readings carried no connection state, so FengSui never saw an outage there: the 3-minute rollback after a lock or a cellular change, and self-healing's redial, never ran. FengSui now reads it, from the status Tozed's own pages poll (`cmd 113`) and from FiberHome's page header (`get_header_info`). Pinsu's interface reports none: the Supported devices page, Settings → Device and the confirmations in the controls drawer now say that FengSui does not undo a change there that cuts the internet, as they do on any router whose readings carry no connection state.

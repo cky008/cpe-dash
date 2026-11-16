@@ -81,6 +81,7 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
     lte_band_lock: "",
     nr5g_sa_band_lock: "",
     lock_nr_cell: "0,0,0",
+    lock_lte_cell: "",
     net_select: "WL_AND_5G",
   };
   const state = {
@@ -255,6 +256,8 @@ export function zwrtRouter(opts: ZwrtRouterOptions = {}) {
       return reply({ result: 0 });
     }
     if (method === "nwinfo_lock_nr_cell") netinfo["lock_nr_cell"] = `${String(args["lock_nr_pci"])},${String(args["lock_nr_earfcn"])},${String(args["lock_nr_cell_band"])}`;
+    // The reset is not on record as clearing it: the page's own unlock is zeros
+    if (method === "nwinfo_lock_lte_cell") netinfo["lock_lte_cell"] = `${String(args["lock_lte_pci"])},${String(args["lock_lte_earfcn"])}`;
     if (method === "nwinfo_reset_band_cell_setting") {
       netinfo["lte_band_lock"] = "";
       netinfo["nr5g_sa_band_lock"] = "";

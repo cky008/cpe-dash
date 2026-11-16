@@ -131,9 +131,9 @@ describe("console: the router's row of Supported devices", () => {
     const row = deviceSupportRow("zte-zwrt", "MU5250");
     assert.equal(supportDocsUrl(row, "zh-CN"), "https://fengsui.iocky.com/docs/supported-devices/#brand-zte");
     assert.equal(supportDocsUrl(row, "en"), "https://fengsui.iocky.com/en/docs/supported-devices/#brand-zte");
-    assert.deepEqual(supportCells(row, "en")[5], { label: "Cell lock", mark: "△" });
+    assert.deepEqual(supportCells(row, "en")[5], { label: "Cell lock", mark: "?" });
     assert.deepEqual(supportCells(row, "zh-CN")[0], { label: "信号与流量", mark: "?" });
-    assert.equal(supportNotes(row, "zh-CN")[0], "锁小区：只能锁 5G 小区，不能锁 4G 小区");
+    assert.equal(supportNotes(row, "zh-CN")[0], "数据设置：只有数据漫游、接入点（APN）和流量上限，清零流量统计烽燧在这里还没有做");
     // The sentence over the row: the model's own, one the table lacks, or a brand whose routers name no model
     assert.deepEqual(supportIntro(row), { key: "support_row", params: { model: row.model ?? "" } });
     assert.deepEqual(supportIntro(deviceSupportRow("zte-zwrt", "MU9999")), { key: "support_unlisted", params: {} });

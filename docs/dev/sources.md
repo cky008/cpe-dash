@@ -855,3 +855,7 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 
 `DEVELOPER_OPTION_LOGIN`（第 2、3 类锁定前打开开发者选项）以前不带 `AD`。资料 A（`zte-goform-web-protocol-spec.md` 第 99 行）写明除 `LOGIN` 外所有发往 `goform_set_cmd_process` 的写入都带 `AD`；[tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script)（`3206010`）`legacy/zte-script-legacy.js` 第 292–305 行发这个请求时也带 `AD`。现在它和其他写入一样签名（`reqproc` 写法带 `CSRFToken`）。
 
+### 21.9 中兴 zWRT 的 4G 锁小区（C-11）
+
+以前 zWRT 只锁 5G 小区（型号清单的事实「只能锁 5G 小区」）。社区脚本有 4G 的写法：`zte_nwinfo_api.nwinfo_lock_lte_cell`，参数 `lock_lte_pci`、`lock_lte_earfcn`，解除时两者都写 `0`（[tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script) `3206010` `ng/zte-script-ng.js` 第 1092–1105 行；[dklasens/MU5250-OpenUI](https://github.com/dklasens/MU5250-OpenUI) 带的同一份脚本第 1095 行，它的模拟代理第 1091–1092 行与 `web-app/tools/test-cell-lock.cjs` 第 2 行给出回读：`nwinfo_get_netinfo` 的 `lock_lte_cell` 为「PCI,EARFCN」，空或全零为不锁）。烽燧照此实现，回读 `lock_lte_cell`。解除全部锁定时，路由器的重置（`nwinfo_reset_band_cell_setting`）没有记录说会清掉 4G 小区锁定，所以锁着时先发这个写法的解除再重置。[1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs)（`c85b47b`，GPL-3.0，只取事实）在 G5 TS 上写着「LTE 锁小区不能经 ubus 设置」（`src/g5ts/api/network.rs` 第 234 行）：型号清单为 G5 TS 记一条说明，写入照发，路由器拒绝时如实报告。
+
