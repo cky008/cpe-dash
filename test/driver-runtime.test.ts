@@ -3,6 +3,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { runAsActor } from "../src/audit-log.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
+import type { SavedBandSetting } from "../src/cpe-controls.ts";
+import type { PersistedLockState } from "../src/cpe-domain.ts";
 import { readDriverBandLockTarget, readDriverCellLockTarget } from "../src/control-input.ts";
 import { createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
 import { DeviceAccess, type DeviceAccessSnapshot } from "../src/device-access.ts";
@@ -10,7 +12,8 @@ import { bandsToHex } from "../src/drivers/bands.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { ROUTER_FAMILY_FACTS, type RouterFamily } from "../src/router-family.ts";
 import { CircuitBreakerOpenError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
-import { EncryptedStateStore } from "../src/state-store.ts";
+import { WanSelfHeal } from "../src/self-heal.ts";
+import { type AlertEventRecord, EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
 import { daemonOn } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
@@ -399,14 +402,14 @@ describe("driver runtime: writes", () => {
   it("hands every band and cell lock to the safety net, whoever asked: a band lock with the LTE bands read before it, a cell lock with nothing to write back", async () => {
     const fx = runtimeFixture();
     try {
-      const seen: Array<{ mode: string; lteBands: number[] | "all"; savedLteMask: string | null }> = [];
-      fx.core.controls.onExperimentalLock = (change) => seen.push({ mode: change.lock.mode, lteBands: change.lock.lteBands, savedLteMask: change.savedLteMask });
+      const seen: Array<{ mode: string; lteBands: number[] | "all"; saved: SavedBandSetting | null }> = [];
+      fx.core.controls.onExperimentalLock = (change) => seen.push({ mode: change.lock.mode, lteBands: change.lock.lteBands, saved: change.saved });
       await runAsActor({ channel: "mcp" }, () => fx.core.controls.lockBands({ lteBands: [3] }));
-      assert.deepEqual(seen, [{ mode: "band_lock", lteBands: [3], savedLteMask: bandsToHex([1, 3, 7]) }]);
+      assert.deepEqual(seen, [{ mode: "band_lock", lteBands: [3], saved: { lteMask: bandsToHex([1, 3, 7]) } }]);
       await runAsActor({ channel: "web" }, () => fx.core.controls.lockBands({ lteBands: [1] }));
-      assert.deepEqual(seen[1], { mode: "band_lock", lteBands: [1], savedLteMask: bandsToHex([3]) }, "a lock from the console is watched like an agent's");
+      assert.deepEqual(seen[1], { mode: "band_lock", lteBands: [1], saved: { lteMask: bandsToHex([3]) } }, "a lock from the console is watched like an agent's");
       await runAsActor({ channel: "telegram" }, () => fx.core.controls.lockCell({ rat: "NR", band: 78, arfcn: 627264, pci: 142 }));
-      assert.deepEqual(seen[2], { mode: "cell_lock", lteBands: "all", savedLteMask: null });
+      assert.deepEqual(seen[2], { mode: "cell_lock", lteBands: "all", saved: null });
       await fx.core.controls.unlockAllLocks();
       assert.equal(seen.length, 3, "an unlock is nothing to watch");
     } finally {
@@ -491,6 +494,93 @@ function nradioRouter() {
     },
   };
 }
+
+/** Every band the OpenWrt mock's module names in its capability list: what "every NR band" reads as there. */
+const MODULE_NR_BANDS = "1:3:28:41:77:78:79";
+
+/**
+ * The 3-minute safety net on a router nobody verified, wired as the daemon wires it (`services.ts`), with
+ * a clock the test moves: the lock's own session saves what it changes, a poll with the WAN down after
+ * the window writes it back.
+ */
+function safetyNet(fx: ReturnType<typeof runtimeFixture>) {
+  let clock = Date.now();
+  const alerts: AlertEventRecord[] = [];
+  fx.core.scheduler.on("alert", (alert: AlertEventRecord) => alerts.push(alert));
+  const heal = new WanSelfHeal({ scheduler: fx.core.scheduler, monitor: fx.core.monitor, controls: fx.core.controls, lockRollbackAfterMs: 0, reconnectAfterMs: 0, now: () => clock, log: () => undefined });
+  fx.core.controls.onExperimentalLock = (change) => heal.guardExperimentalLock(change);
+  return {
+    alerts,
+    /** The module loses service, and a poll sees the WAN down `minutes` after the lock. */
+    downAfter: async (lock: PersistedLockState, minutes: number): Promise<void> => {
+      fx.state.serving = "none";
+      const snap = await fx.core.monitor.refreshTelemetry();
+      assert.equal(snap?.device.connectionStatus, "902");
+      clock = Date.parse(lock.updatedAtIso) + minutes * 60_000;
+      if (snap) await heal.ingestTelemetry({ ...snap, capturedAtMs: clock });
+    },
+    rolledBack: (): string => alerts.find((alert) => alert.code === "LOCK_ROLLED_BACK")?.messageEn ?? "",
+  };
+}
+
+describe("driver runtime: the 3-minute rollback of a band lock", () => {
+  it("an NR band lock is rolled back to the NR bands read before it", async () => {
+    const fx = runtimeFixture();
+    const net = safetyNet(fx);
+    try {
+      // Before the lock: LTE on two bands, NR on every band the module has
+      fx.state.lteBand = "1:3";
+      fx.state.nrBand = MODULE_NR_BANDS;
+      const lock = await fx.core.controls.lockBands({ nrBands: [78] });
+      assert.deepEqual([fx.state.lteBand, fx.state.nrBand], ["1:3", "78"]);
+      await net.downAfter(lock, 3);
+      assert.deepEqual([fx.state.lteBand, fx.state.nrBand], ["1:3", MODULE_NR_BANDS], "NR back on every band, LTE as it was");
+      assert.equal(fx.applied.at(-1)?.action, "auto_unlock_rf_locks");
+      assert.equal(fx.applied.at(-1)?.check?.readback, "match");
+      assert.match(net.rolledBack(), /the band setting from before the lock was written back/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("a band lock that set the network mode is rolled back to the mode read before it", async () => {
+    const fx = runtimeFixture();
+    const net = safetyNet(fx);
+    try {
+      fx.state.lteBand = "1:3";
+      const lock = await fx.core.controls.lockBands({ lteBands: [1], networkMode: "03" });
+      assert.deepEqual([fx.state.lteBand, fx.state.modePref], ["1", "LTE"]);
+      await net.downAfter(lock, 3);
+      assert.deepEqual([fx.state.lteBand, fx.state.modePref, fx.state.nrDisableMode, fx.state.nrBand], ["1:3", "AUTO", "0", "41:78"], "the mode as it was; the NR bands the lock left alone, too");
+      assert.equal(fx.applied.at(-1)?.check?.readback, "match");
+      assert.match(net.rolledBack(), /the band setting from before the lock was written back/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("takes every lock off when what the lock changed could not be read before it", async () => {
+    const fx = runtimeFixture();
+    const net = safetyNet(fx);
+    try {
+      // The module answers its NR band setting in a form nobody can read: there is nothing to write back
+      fx.state.lteBand = "1:3";
+      fx.state.nrBand = "n78";
+      const lock = await fx.core.controls.lockBands({ lteBands: [1], nrBands: [78] });
+      await net.downAfter(lock, 3);
+      assert.deepEqual([fx.state.lteBand, fx.state.nrBand, fx.state.modePref], ["1:3:5:7:8:20:28:38:40:41", MODULE_NR_BANDS, "AUTO"], "every band on, as an unlock leaves it");
+      assert.match(net.rolledBack(), /every band and cell lock was cleared/);
+
+      // A saved setting with a part that names no band is not half written back either
+      const relocked = await fx.core.controls.lockBands({ lteBands: [1], nrBands: [78] });
+      const cleared = await fx.core.controls.rollBackLocks(relocked.updatedAtIso, { lteMask: "5", nrMask: "0" });
+      assert.equal(cleared.applied && cleared.lockState?.mode, "unlocked");
+      assert.deepEqual([fx.state.lteBand, fx.state.nrBand], ["1:3:5:7:8:20:28:38:40:41", MODULE_NR_BANDS]);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
 
 describe("driver runtime: the connection's family", () => {
   it("reports a login it cannot settle as that, in a connection test and in a poll: no password went out, the router is there", async () => {

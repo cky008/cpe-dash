@@ -35,8 +35,8 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 **保护不变，安全网扩大（[`src/self-heal.ts`](../../src/self-heal.ts)）**
 
 - 每次写入只发一次、同一会话回读、回读不一致告警，控制台每个写操作的确认框，MCP 的 `confirm: true`、总开关与令牌权限，都没有改动。
-- 断网 3 分钟的回退以前只看守 AI 智能体（MCP）发起的锁频。现在未验证的路由器上任何入口的锁频段和锁小区都看守：`CpeControlService.onExperimentalLock` 在写入生效后通知 `WanSelfHeal.guardExperimentalLock`，不再看调用方是谁。锁频段写回锁前在同一会话里读到的 LTE 频段；锁小区没有可以写回的设置，回退是解除全部锁定（`RouterBackend.lockCell` 为此返回这次写入是不是实验性写入）。
-- 它独立于 `LOCK_ROLLBACK_AFTER_MIN`（取两者中较长的窗口），并且在守护进程重启后接着算：看守标记与锁前的频段掩码随锁定看守一起存进 `state.json`（`selfHealLockWatch.guard`、`restoreLteMask`），重启时按锁定的时间重新算出同一个期限，已经被 WAN 证明可用或已经回退过的锁定不会再看守。存下的掩码不是十六进制掩码时不写回，改为解除全部锁定。v1.8.3 存下的看守记录没有这个标记，按原来的规则处理。
+- 断网 3 分钟的回退以前只看守 AI 智能体（MCP）发起的锁频。现在未验证的路由器上任何入口的锁频段和锁小区都看守：`CpeControlService.onExperimentalLock` 在写入生效后通知 `WanSelfHeal.guardExperimentalLock`，不再看调用方是谁。锁频段写回锁前在同一会话里读到的 LTE 频段；锁小区没有可以写回的设置，回退是解除全部锁定（`RouterBackend.lockCell` 为此返回这次写入是不是实验性写入）。final-4 起写回锁前读到的 LTE、NR 频段与网络制式：当时只有华为的通用锁频（只锁 LTE），之后各品牌的驱动都能锁 NR 频段、带上网络制式，只写回 LTE 会让 NR 频段和制式停在锁定的样子（F4-003）。现在锁前的 LTE 频段之外，这次锁定改了的 NR 频段与网络制式也一起存下（`SavedBandSetting`）；锁前 LTE 是全部频段或读不到、或这次锁定改了的哪一项锁前读不到时，回退改为解除全部锁定，绝不只写回一半。
+- 它独立于 `LOCK_ROLLBACK_AFTER_MIN`（取两者中较长的窗口），并且在守护进程重启后接着算：看守标记与锁前的频段设置随锁定看守一起存进 `state.json`（`selfHealLockWatch.guard`、`restoreLteMask`，final-4 起另有 `restoreNrMask` 与 `restoreNetworkMode`，只在这次锁定改了它们时存在），重启时按锁定的时间重新算出同一个期限，已经被 WAN 证明可用或已经回退过的锁定不会再看守。存下的掩码不是十六进制掩码（NR 也可以是 `all`）、或网络制式不是驱动的四种之一时，整组都不写回，改为解除全部锁定；v1.9.0 存下的记录只有 LTE 掩码，照旧只写回 LTE（那时的锁定没有存 NR 与制式）。v1.8.3 存下的看守记录没有这个标记，按原来的规则处理。
 
 **各入口**
 

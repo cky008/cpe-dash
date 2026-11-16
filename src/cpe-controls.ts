@@ -28,7 +28,7 @@ import {
   verifyLockState,
 } from "./cpe-domain.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
-import { type RouterBackend, SessionBackend, type WanRepairOutcome } from "./router-backend.ts";
+import { type RouterBackend, type SavedBandSetting, SessionBackend, type WanRepairOutcome } from "./router-backend.ts";
 import { type I18nKey, t } from "./i18n.ts";
 import { maskMacTail } from "./privacy-mask.ts";
 import type { ControlSummary, MutexSessionScheduler } from "./scheduler.ts";
@@ -43,7 +43,7 @@ export interface AccessControlResult {
   alsoBlocked: string[];
 }
 
-export type { WanRepairOutcome } from "./router-backend.ts";
+export type { SavedBandSetting, WanRepairOutcome } from "./router-backend.ts";
 
 export interface CpeControlServiceOptions {
   scheduler: MutexSessionScheduler;
@@ -62,12 +62,13 @@ export interface CpeControlServiceOptions {
  */
 /**
  * A band or cell lock on a router nobody verified, which can cut the WAN (see
- * `WanSelfHeal.guardExperimentalLock`): the lock, and for a band lock the LTE mask the router had
- * right before it (`null`: none to read, or a cell lock, which has no setting to go back to).
+ * `WanSelfHeal.guardExperimentalLock`): the lock, and for a band lock the band setting the router had
+ * right before it (`null`: not all of what the lock changes could be read, or a cell lock, which has no
+ * setting to go back to).
  */
 export interface ExperimentalLockChange {
   lock: PersistedLockState;
-  savedLteMask: string | null;
+  saved: SavedBandSetting | null;
 }
 
 /**
@@ -126,7 +127,7 @@ export class CpeControlService {
   }
 
   async lockBands(command: BandLockCommand): Promise<PersistedLockState> {
-    const { state, experimental, savedLteMask } = await this.#backend.lockBands(
+    const { state, experimental, saved } = await this.#backend.lockBands(
       command,
       { previousLock: () => this.getPersistedLockState(), cachedTelemetry: () => this.monitor.getCachedTelemetry() },
       (state) => {
@@ -138,7 +139,7 @@ export class CpeControlService {
       }
     );
     // A lock on a router nobody verified is watched, and undone if the WAN stays down
-    if (experimental) this.onExperimentalLock?.({ lock: state, savedLteMask });
+    if (experimental) this.onExperimentalLock?.({ lock: state, saved });
     return state;
   }
 
@@ -156,7 +157,7 @@ export class CpeControlService {
       });
     });
     // Watched like a band lock; a cell lock has nothing to write back, so its way back is the unlock
-    if (experimental) this.onExperimentalLock?.({ lock: state, savedLteMask: null });
+    if (experimental) this.onExperimentalLock?.({ lock: state, saved: null });
     return state;
   }
 
@@ -173,10 +174,10 @@ export class CpeControlService {
    * Automatic lock rollback (`LOCK_ROLLBACK_AFTER_MIN`) of the lock applied at `lockUpdatedAtIso`:
    * clear every lock unless, inside the session, that lock turns out replaced, or the WAN re-reads as
    * back (on the HiLink stack also: mobile data as switched off). After a band lock on a router
-   * nobody verified, `restore` writes back the LTE mask the router had before it instead.
+   * nobody verified, `restore` writes back the band setting the router had before it instead.
    * Broadcasts only when it wrote.
    */
-  async rollBackLocks(lockUpdatedAtIso: string, restore?: { lteMask: string }): Promise<WanRepairOutcome> {
+  async rollBackLocks(lockUpdatedAtIso: string, restore?: SavedBandSetting): Promise<WanRepairOutcome> {
     return await this.#backend.rollBackLocks({ lockUpdatedAtIso, restore, currentLock: () => this.getPersistedLockState() }, (outcome, restored) =>
       outcome.applied && outcome.lockState ? this.#commitLockState(outcome.lockState, summaryOf(restored ? "controls.auto_restore_applied" : "controls.auto_unlock_applied")) : null
     );

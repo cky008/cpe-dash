@@ -34,7 +34,7 @@ import {
 import type { DeviceAccess, WriteCheck } from "../device-access.ts";
 import { CELLULAR_WRITE_FEATURES, type WriteFeature } from "../features.ts";
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
-import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListing, SmsSendOutcome, WanRepairOutcome } from "../router-backend.ts";
+import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SavedBandSetting, SmsListing, SmsSendOutcome, WanRepairOutcome } from "../router-backend.ts";
 import { type DriverFamily, ROUTER_FAMILY_FACTS, familyWritesAnywhere, unnamedModel } from "../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { WriteContext } from "../scheduler.ts";
@@ -47,7 +47,7 @@ import { genericLockState } from "./huawei/driver.ts";
 import { settleRestart } from "./readback.ts";
 import { type CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./snapshot.ts";
 import { settleSmsSend, storedIndices } from "./sms.ts";
-import type { DriverCellular, DriverCellularState, DriverIdentity, DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome, DriverWait } from "./types.ts";
+import type { DriverBandLockTarget, DriverCellular, DriverCellularState, DriverIdentity, DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome, DriverWait } from "./types.ts";
 
 /**
  * A router of a driver family (ZTE, Pinsu, Tozed, FiberHome, NRadio, OpenWrt) as a `RouterSession`:
@@ -368,8 +368,8 @@ export class DriverRouterSession implements RouterSession {
   }
 
   /**
-   * A RAT the command leaves out keeps the bands the router reports before the write; the LTE bands
-   * read before it are what the lock is put back to if the WAN stays down.
+   * A RAT the command leaves out keeps the bands the router reports before the write; the band setting
+   * read before it (`savedBandSetting`) is what the lock is put back to if the WAN stays down.
    */
   async lockBands(command: BandLockCommand, _ctx: LockContext, write: WriteContext): Promise<BandLockOutcome> {
     const target = readDriverBandLockTarget(command, ROUTER_FAMILY_FACTS[this.family]);
@@ -379,9 +379,9 @@ export class DriverRouterSession implements RouterSession {
       throw new CpeControlValidationError("The router's current LTE bands could not be read, and locking NR bands alone would overwrite them: name lteBands as well (or 'all')");
     }
     const lte = target.lte ?? before?.lteBands ?? "all";
-    const savedLteMask = Array.isArray(before?.lteBands) ? bandsToHex(before.lteBands) : null;
+    const saved = savedBandSetting(target, before);
     await this.#session.setBandLock({ lte, nr: target.nr, networkMode: target.networkMode }, write.check);
-    return { state: driverBandLockState({ ...target, lte }, before), experimental: true, savedLteMask };
+    return { state: driverBandLockState({ ...target, lte }, before), experimental: true, saved };
   }
 
   /**
@@ -426,14 +426,14 @@ export class DriverRouterSession implements RouterSession {
 
   /** The WAN's state is the driver's own reading. */
   async rollBackLocks(request: RollbackRequest, write: WriteContext): Promise<{ outcome: WanRepairOutcome; restored: boolean }> {
-    const savedBands = request.restore ? hexToBands(request.restore.lteMask) : null;
-    const restoring = savedBands !== null && savedBands.length > 0;
+    const saved = request.restore ? bandLockOfSaved(request.restore) : null;
+    const restoring = saved !== null;
     if (request.currentLock().updatedAtIso !== request.lockUpdatedAtIso) return { outcome: { applied: false, skipped: "lock_changed" }, restored: restoring };
     const telemetry = await this.#session.telemetry().catch(() => null);
     if (telemetry?.wan.connected === true) return { outcome: { applied: false, skipped: "wan_up" }, restored: restoring };
-    if (restoring) {
-      await this.#session.setBandLock({ lte: savedBands, nr: null, networkMode: null }, write.check);
-      return { outcome: { applied: true, lockState: driverBandLockState({ lte: savedBands, nr: null, networkMode: null }, null) }, restored: true };
+    if (saved) {
+      await this.#session.setBandLock(saved, write.check);
+      return { outcome: { applied: true, lockState: driverBandLockState(saved, null) }, restored: true };
     }
     await this.#session.unlockAll(write.check);
     return { outcome: { applied: true, lockState: genericLockState("all") }, restored: false };
@@ -544,6 +544,39 @@ async function redial(session: DriverSession, check: WriteCheck): Promise<void> 
     }
   }
   settleRestart(check);
+}
+
+/**
+ * What the rollback writes back after a band lock: the LTE bands read before it, and the NR bands and
+ * the network mode where the lock changes them. `null` (every lock is taken off instead) when the LTE
+ * bands were on every band or unread, or when a part the lock changes could not be read before it:
+ * writing back half of the setting would leave the other half as the lock set it.
+ */
+function savedBandSetting(target: DriverBandLockRequest, before: DriverLockState | null): SavedBandSetting | null {
+  if (!before || !Array.isArray(before.lteBands) || before.lteBands.length === 0) return null;
+  const saved: SavedBandSetting = { lteMask: bandsToHex(before.lteBands) };
+  if (target.nr !== null) {
+    const nr = before.nrBands;
+    if (nr === null || (Array.isArray(nr) && nr.length === 0)) return null;
+    saved.nrMask = nr === "all" ? "all" : bandsToHex(nr);
+  }
+  if (target.networkMode !== null) {
+    if (before.networkMode === null) return null;
+    saved.networkMode = before.networkMode;
+  }
+  return saved;
+}
+
+/** A saved band setting as the lock that writes it back; `null` when a part of it reads as no bands (then every lock is taken off). */
+function bandLockOfSaved(saved: SavedBandSetting): DriverBandLockTarget | null {
+  const lte = hexToBands(saved.lteMask);
+  if (lte === null || lte.length === 0) return null;
+  let nr: number[] | "all" | null = null;
+  if (saved.nrMask !== undefined) {
+    nr = saved.nrMask === "all" ? "all" : hexToBands(saved.nrMask);
+    if (nr === null || nr.length === 0) return null;
+  }
+  return { lte, nr, networkMode: saved.networkMode ?? null };
 }
 
 /**

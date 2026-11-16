@@ -105,6 +105,12 @@ export interface SelfHealLockWatchState {
   guard?: boolean;
   /** With `guard`: the LTE band mask from right before a band lock, written back instead of clearing every lock (`null`: none). */
   restoreLteMask?: string | null;
+  /**
+   * With `restoreLteMask`: the NR bands (`"all"` or a hexadecimal mask) and the network mode from right
+   * before the lock, where it changed them (absent: the lock left them alone, or a record of 1.9.0).
+   */
+  restoreNrMask?: string;
+  restoreNetworkMode?: string;
 }
 
 /** How many generic write results the state keeps (the device report shows them). */

@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Fixed
+- **A band lock that cut the internet was only half put back.** On a router nobody verified, the 3-minute rollback wrote back the LTE bands from before the lock, and left the 5G bands and the network mode as the lock had set them, while the alert said the setting was written back. It now writes back the LTE and 5G bands and the network mode the lock changed, as read right before it; when one of them could not be read first, every lock is taken off instead. A rollback that was waiting when you upgrade goes on as before.
+
 ## [1.9.0] — 2026-11-16
 
 ### Highlights

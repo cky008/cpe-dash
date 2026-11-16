@@ -1,6 +1,7 @@
 import type { LinkChange, LinkChangeKind } from "./cellular.ts";
-import { type CpeControlService, type ExperimentalLockChange, type LinkChangeNotice, type WanRepairOutcome, linkSettingName } from "./cpe-controls.ts";
+import { type CpeControlService, type ExperimentalLockChange, type LinkChangeNotice, type SavedBandSetting, type WanRepairOutcome, linkSettingName } from "./cpe-controls.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "./cpe-domain.ts";
+import type { DriverNetworkMode } from "./protocols/readings.ts";
 import type { CpeMonitor } from "./cpe-monitor.ts";
 import { runAsActor } from "./audit-log.ts";
 import { type I18nKey, t } from "./i18n.ts";
@@ -56,8 +57,8 @@ interface LockWatch {
   deadlineMs: number;
   /** A lock on a router nobody verified: watched at least this long whatever the rollback setting says (0: none). */
   minWindowMs: number;
-  /** Such a band lock: the LTE mask from before it, written back instead of clearing every lock (`null`: none). */
-  restoreLteMask: string | null;
+  /** Such a band lock: the band setting from before it, written back instead of clearing every lock (`null`: none). */
+  restore: SavedBandSetting | null;
   upSinceMs: number | null;
   retryAtMs: number;
   failures: number;
@@ -244,7 +245,7 @@ export class WanSelfHeal {
     const windowMs = Math.max(this.lockRollbackAfterMs, guardMs);
     if (windowMs <= 0) return;
     const openForMs = record ? windowMs + ROLLBACK_GIVE_UP_MS : windowMs;
-    if (!record?.settled && Number.isFinite(appliedMs) && this.#now() - appliedMs < openForMs) this.#arm(lock, appliedMs, guardMs, guardMs > 0 ? savedMaskOf(record) : null);
+    if (!record?.settled && Number.isFinite(appliedMs) && this.#now() - appliedMs < openForMs) this.#arm(lock, appliedMs, guardMs, guardMs > 0 ? savedSettingOf(record) : null);
   }
 
   async stop(): Promise<void> {
@@ -258,14 +259,15 @@ export class WanSelfHeal {
   /**
    * A band or cell lock on a router nobody verified, whoever asked for it: if the WAN is down and
    * not back within `EXPERIMENT_GUARD_MS`, whatever the self-healing settings say, a band lock is put
-   * back to the LTE mask read right before it in the lock's own session, and a cell lock (or a band
-   * lock with no mask read) is taken off. A lock the WAN proves (up 2 min) is kept, as with the lock
+   * back to the band setting read right before it in the lock's own session (the LTE bands, and the NR
+   * bands and the network mode where the lock changed them), and a cell lock (or a band lock with no
+   * setting to write back) is taken off. A lock the WAN proves (up 2 min) is kept, as with the lock
    * rollback. Never a reboot.
    */
   guardExperimentalLock(change: ExperimentalLockChange): void {
     if (change.lock.mode === "unlocked") return;
     const appliedMs = Date.parse(change.lock.updatedAtIso);
-    this.#arm(change.lock, Number.isFinite(appliedMs) ? appliedMs : this.#now(), EXPERIMENT_GUARD_MS, change.savedLteMask);
+    this.#arm(change.lock, Number.isFinite(appliedMs) ? appliedMs : this.#now(), EXPERIMENT_GUARD_MS, change.saved);
   }
 
   /**
@@ -438,13 +440,13 @@ export class WanSelfHeal {
     await running;
   }
 
-  #arm(lock: PersistedLockState, appliedMs: number, minWindowMs = 0, restoreLteMask: string | null = null): void {
+  #arm(lock: PersistedLockState, appliedMs: number, minWindowMs = 0, restore: SavedBandSetting | null = null): void {
     this.#setWatch({
       lockUpdatedAtIso: lock.updatedAtIso,
       armedAtMs: appliedMs,
       deadlineMs: appliedMs + Math.max(this.lockRollbackAfterMs, minWindowMs),
       minWindowMs,
-      restoreLteMask,
+      restore,
       upSinceMs: null,
       retryAtMs: 0,
       failures: 0,
@@ -464,7 +466,7 @@ export class WanSelfHeal {
     const ended = this.#lockWatch;
     this.#lockWatch = next;
     const record: SelfHealLockWatchState | null = next
-      ? { lockUpdatedAtIso: next.lockUpdatedAtIso, settled: false, ...(next.minWindowMs > 0 ? { guard: true, restoreLteMask: next.restoreLteMask } : {}) }
+      ? { lockUpdatedAtIso: next.lockUpdatedAtIso, settled: false, ...(next.minWindowMs > 0 ? { guard: true, ...savedSettingRecord(next.restore) } : {}) }
       : ended
         ? { lockUpdatedAtIso: ended.lockUpdatedAtIso, settled: true }
         : null;
@@ -501,7 +503,7 @@ export class WanSelfHeal {
   async #rollBack(watch: LockWatch, at: number): Promise<void> {
     let outcome: WanRepairOutcome;
     try {
-      const restore = watch.restoreLteMask === null ? undefined : { lteMask: watch.restoreLteMask };
+      const restore = watch.restore ?? undefined;
       outcome = await runAsActor({ channel: "self-heal" }, () => this.controls.rollBackLocks(watch.lockUpdatedAtIso, restore));
     } catch (err) {
       const reason = describe(err);
@@ -545,7 +547,7 @@ export class WanSelfHeal {
     // The unlocked modem needs time to attach before a redial could help
     this.#downSinceMs = at;
     const key =
-      watch.restoreLteMask !== null
+      watch.restore !== null
         ? "alerts.experiment_lock_restored"
         : watch.minWindowMs > this.lockRollbackAfterMs
           ? "alerts.experiment_lock_rolled_back"
@@ -677,10 +679,42 @@ function watchRecordFor(saved: SelfHealLockWatchState | null, lockUpdatedAtIso: 
   return saved !== null && typeof saved === "object" && saved.lockUpdatedAtIso === lockUpdatedAtIso && typeof saved.settled === "boolean" ? saved : null;
 }
 
-/** The LTE mask a stored watch says to write back, when it reads as one (else `null`: every lock is cleared). */
-function savedMaskOf(record: SelfHealLockWatchState | null): string | null {
-  const mask = record?.restoreLteMask;
-  return typeof mask === "string" && /^[0-9a-f]{1,32}$/i.test(mask) ? mask : null;
+/** Every network mode a saved band setting may name (state.json is input: anything else is not one). */
+const SAVED_NETWORK_MODES: Readonly<Record<DriverNetworkMode, true>> = { auto: true, lte: true, nr_sa: true, nr_nsa: true };
+
+function isSavedNetworkMode(value: unknown): value is DriverNetworkMode {
+  return typeof value === "string" && Object.hasOwn(SAVED_NETWORK_MODES, value);
+}
+
+/** A saved band setting as the watch record stores it, part by part beside the LTE mask (`null`: nothing to write back). */
+function savedSettingRecord(saved: SavedBandSetting | null): Pick<SelfHealLockWatchState, "restoreLteMask" | "restoreNrMask" | "restoreNetworkMode"> {
+  if (saved === null) return { restoreLteMask: null };
+  return {
+    restoreLteMask: saved.lteMask,
+    ...(saved.nrMask !== undefined ? { restoreNrMask: saved.nrMask } : {}),
+    ...(saved.networkMode !== undefined ? { restoreNetworkMode: saved.networkMode } : {}),
+  };
+}
+
+/**
+ * The band setting a stored watch says to write back, when every part of it reads as one (else `null`:
+ * every lock is cleared, never half of the setting). A watch stored by 1.9.0 has the LTE mask alone.
+ */
+function savedSettingOf(record: SelfHealLockWatchState | null): SavedBandSetting | null {
+  const lteMask = record?.restoreLteMask;
+  if (typeof lteMask !== "string" || !/^[0-9a-f]{1,32}$/i.test(lteMask)) return null;
+  const saved: SavedBandSetting = { lteMask };
+  const nrMask: unknown = record?.restoreNrMask;
+  if (nrMask !== undefined) {
+    if (typeof nrMask !== "string" || (nrMask !== "all" && !/^[0-9a-f]{1,72}$/i.test(nrMask))) return null;
+    saved.nrMask = nrMask;
+  }
+  const mode: unknown = record?.restoreNetworkMode;
+  if (mode !== undefined) {
+    if (!isSavedNetworkMode(mode)) return null;
+    saved.networkMode = mode;
+  }
+  return saved;
 }
 
 function sameWatchRecord(stored: SelfHealLockWatchState | null, next: SelfHealLockWatchState): boolean {
@@ -689,7 +723,9 @@ function sameWatchRecord(stored: SelfHealLockWatchState | null, next: SelfHealLo
     stored.lockUpdatedAtIso === next.lockUpdatedAtIso &&
     stored.settled === next.settled &&
     (stored.guard === true) === (next.guard === true) &&
-    (stored.restoreLteMask ?? null) === (next.restoreLteMask ?? null)
+    (stored.restoreLteMask ?? null) === (next.restoreLteMask ?? null) &&
+    stored.restoreNrMask === next.restoreNrMask &&
+    stored.restoreNetworkMode === next.restoreNetworkMode
   );
 }
 

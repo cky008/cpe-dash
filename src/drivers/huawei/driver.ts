@@ -187,7 +187,8 @@ export class HilinkRouterSession implements RouterSession {
     // A model nobody verified: LTE only, through net-mode, never the H168-383's lock-freq
     if (write.generic) {
       const locked = await genericBandLock(this.#session, write.check, validateGenericBandLock(command, write.lteBands), write.lteBands ?? []);
-      return { state: genericLockState(locked.bands), experimental: true, savedLteMask: locked.before };
+      // LTE only: the saved setting has nothing but the LTE mask from before
+      return { state: genericLockState(locked.bands), experimental: true, saved: locked.before === null ? null : { lteMask: locked.before } };
     }
     // Read inside the queued session: a lock queued before this one may have just changed it
     const previous = ctx.previousLock();
@@ -198,7 +199,7 @@ export class HilinkRouterSession implements RouterSession {
     if (keep.networkMode === "03" && Array.isArray(command.nrBands)) {
       throw new CpeControlValidationError("The router is set to a 4G-only network mode: a 5G band lock would do nothing. Switch the network mode back first; nothing was written");
     }
-    return { state: mergeBandLockState(previous, command, await applyBandLock(this.#session, command, keep), routerLteBands), experimental: false, savedLteMask: null };
+    return { state: mergeBandLockState(previous, command, await applyBandLock(this.#session, command, keep), routerLteBands), experimental: false, saved: null };
   }
 
   /** The verified model's alone: no generic cell lock exists, so this one is never an experimental write. */

@@ -30,6 +30,7 @@ import {
 import { type ControlAction, CONTROL_FEATURES } from "./features.ts";
 import type { DeviceProbeResult } from "./device-profile.ts";
 import { type DiscoveredEndpoint, discoverEndpoints } from "./endpoint-discovery.ts";
+import type { DriverNetworkMode } from "./protocols/readings.ts";
 import type { RouterFamily } from "./router-family.ts";
 import type { RouterDriver, RouterSession, SessionlessRead } from "./router-session.ts";
 import type { ControlSummary, MutexSessionScheduler, SchedulerPriority, WriteContext } from "./scheduler.ts";
@@ -245,15 +246,28 @@ export interface LockOutcome {
 }
 
 export interface BandLockOutcome extends LockOutcome {
-  /** The LTE band mask the router had right before the lock (`null`: none read), what that undo writes back. */
-  savedLteMask: string | null;
+  /** The band setting the router had right before the lock (`null`: none to write back), what that undo writes back. */
+  saved: SavedBandSetting | null;
+}
+
+/**
+ * A band setting read in a band lock's own session right before the lock: the LTE bands, and the NR
+ * bands and the network mode where the lock changes them (a part the lock leaves alone is left out,
+ * and stays as it is when the setting is written back).
+ */
+export interface SavedBandSetting {
+  /** The LTE bands, as a hexadecimal band mask (`bandsToHex`). */
+  lteMask: string;
+  /** The NR bands: `"all"` or a hexadecimal band mask. */
+  nrMask?: string;
+  networkMode?: DriverNetworkMode;
 }
 
 export interface RollbackRequest {
   /** `updatedAtIso` of the lock the rollback is for. */
   lockUpdatedAtIso: string;
-  /** The LTE mask to write back instead of clearing every lock. */
-  restore?: { lteMask: string } | undefined;
+  /** The band setting to write back instead of clearing every lock. */
+  restore?: SavedBandSetting | undefined;
   /** The lock state FengSui holds now (a lock queued before the rollback may have replaced the one it is for). */
   currentLock(): PersistedLockState;
 }

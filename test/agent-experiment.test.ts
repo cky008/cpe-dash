@@ -138,13 +138,13 @@ describe("AI agents testing a model nobody verified", () => {
       const locked = await runAsActor({ channel: "mcp", label: "test agent" }, () => fx.call("lock_band", { lteBands: ["B1"], confirm: true }));
       assert.equal(locked["ok"], true);
       // With the router's mask from right before the lock, read in the lock's own session
-      assert.deepEqual(guarded.map((change) => [change.lock.mode, change.savedLteMask]), [["band_lock", "800800c5"]]);
+      assert.deepEqual(guarded.map((change) => [change.lock.mode, change.saved]), [["band_lock", { lteMask: "800800c5" }]]);
 
       // The WAN stays down: the safety net writes that mask back (here every advertised band, so unlocked)
       cpe.setConnectionStatus("902");
       const applied: ControlAppliedEvent[] = [];
       fx.core.scheduler.on("control:applied", (event: ControlAppliedEvent) => applied.push(event));
-      const restored = await fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso, { lteMask: guarded[0]?.savedLteMask ?? "" });
+      const restored = await fx.core.controls.rollBackLocks(fx.core.controls.getPersistedLockState().updatedAtIso, guarded[0]?.saved ?? undefined);
       assert.equal(restored.applied ? restored.lockState?.mode : restored.skipped, "unlocked");
       assert.equal(cpe.settings.netMode["LTEBand"], "800800c5");
       assert.equal(applied[0]?.check?.readback, "match");
@@ -157,7 +157,7 @@ describe("AI agents testing a model nobody verified", () => {
       assert.equal(guarded.length, 2, "taking the locks off is nothing to watch");
       await runAsActor({ channel: "token", label: "a token" }, () => fx.core.controls.lockBands({ lteBands: [3] }));
       // Each with the mask the router had right before it (after the unlock: every band)
-      assert.deepEqual(guarded.map((change) => [change.lock.lteBands, change.savedLteMask]), [[[1], "800800c5"], [[1], "800800c5"], [[3], "7fffffffffffffff"]]);
+      assert.deepEqual(guarded.map((change) => [change.lock.lteBands, change.saved]), [[[1], { lteMask: "800800c5" }], [[1], { lteMask: "800800c5" }], [[3], { lteMask: "7fffffffffffffff" }]]);
 
     } finally {
       await fx.cleanup();

@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import type { WanRepairOutcome } from "../src/cpe-controls.ts";
+import type { SavedBandSetting, WanRepairOutcome } from "../src/cpe-controls.ts";
 import type { JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import type { GlobalTelemetrySnapshot, PersistedLockState } from "../src/cpe-domain.ts";
 import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/core.ts";
@@ -62,16 +62,16 @@ function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: Persist
   const calls = { rollback: 0, reconnect: 0 };
   /** The lock each rollback was asked to clear (its `updatedAtIso`). */
   const rollbackArgs: string[] = [];
-  /** The saved LTE mask each rollback was asked to write back instead (`null`: clear every lock). */
-  const restoreArgs: Array<string | null> = [];
+  /** The saved band setting each rollback was asked to write back instead (`null`: clear every lock). */
+  const restoreArgs: Array<SavedBandSetting | null> = [];
   const rollbackPlan: Plan = [];
   const reconnectPlan: Plan = [];
   const controls = {
     getPersistedLockState: () => lockState,
-    rollBackLocks: async (expectedLockUpdatedAtIso: string, restore?: { lteMask: string }): Promise<WanRepairOutcome> => {
+    rollBackLocks: async (expectedLockUpdatedAtIso: string, restore?: SavedBandSetting): Promise<WanRepairOutcome> => {
       calls.rollback += 1;
       rollbackArgs.push(expectedLockUpdatedAtIso);
-      restoreArgs.push(restore?.lteMask ?? null);
+      restoreArgs.push(restore ?? null);
       const next = rollbackPlan.shift();
       if (next) return await next();
       lockState = unlocked(clock);
@@ -977,14 +977,14 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       const lock = bandLock(T0);
       fx.setLock(lock);
       // The router was locked to B3 before this lock: that is what comes back, not "every band"
-      fx.heal.guardExperimentalLock({ lock, savedLteMask: "4" });
+      fx.heal.guardExperimentalLock({ lock, saved: { lteMask: "4" } });
       assert.equal(fx.heal.lockDeadlineMs, T0 + 3 * MIN);
       fx.heal.reconfigure();
       assert.equal(fx.heal.lockDeadlineMs, T0 + 3 * MIN, "the rollback being off does not end this watch");
       await fx.at(2, "902");
       assert.equal(fx.calls.rollback, 0);
       await fx.at(3, "902");
-      assert.deepEqual([fx.rollbackArgs, fx.restoreArgs], [[lock.updatedAtIso], ["4"]]);
+      assert.deepEqual([fx.rollbackArgs, fx.restoreArgs], [[lock.updatedAtIso], [{ lteMask: "4" }]]);
       const rolled = fx.alerts.find((a) => a.code === "LOCK_ROLLED_BACK");
       assert.match(rolled?.messageEn ?? "", /^The WAN was still down 3 min after a lock on a router FengSui was not verified on, so the band setting from before the lock was written back/);
       assert.doesNotMatch(`${rolled?.messageEn} ${rolled?.messageZh}`, /agent|智能体/i, "whoever locked: the console, a token, an agent or Telegram");
@@ -999,18 +999,18 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       fx.setClock(T0);
       const lock = bandLock(T0);
       fx.setLock(lock);
-      fx.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
+      fx.heal.guardExperimentalLock({ lock, saved: { lteMask: "800800c5" } });
       await fx.at(10, "902");
-      assert.deepEqual(fx.restoreArgs, ["800800c5"]);
+      assert.deepEqual(fx.restoreArgs, [{ lteMask: "800800c5" }]);
       assert.match(fx.alerts.find((a) => a.code === "LOCK_ROLLED_BACK")?.messageEn ?? "", /written back/);
 
       // No mask to read before the lock: the documented rollback (every lock cleared)
       fx.setClock(T0 + 20 * MIN);
       const blind = bandLock(T0 + 20 * MIN);
       fx.setLock(blind);
-      fx.heal.guardExperimentalLock({ lock: blind, savedLteMask: null });
+      fx.heal.guardExperimentalLock({ lock: blind, saved: null });
       await fx.at(30, "902");
-      assert.deepEqual(fx.restoreArgs, ["800800c5", null]);
+      assert.deepEqual(fx.restoreArgs, [{ lteMask: "800800c5" }, null]);
       // The owner's own, longer window decided this one: it is named as the rollback they set
       assert.match(fx.alerts.filter((a) => a.code === "LOCK_ROLLED_BACK").at(-1)?.messageEn ?? "", /^The WAN was still down 10 min after the lock, so every band and cell lock was cleared automatically \(LOCK_ROLLBACK_AFTER_MIN\)/);
     } finally {
@@ -1024,7 +1024,7 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       fx.setClock(T0);
       const lock: PersistedLockState = { mode: "cell_lock", updatedAtIso: new Date(T0).toISOString(), lteBands: "all", nrBands: [78], cellLock: { rat: "NR", band: 78, arfcn: 650000, pci: 211 } };
       fx.setLock(lock);
-      fx.heal.guardExperimentalLock({ lock, savedLteMask: null });
+      fx.heal.guardExperimentalLock({ lock, saved: null });
       await fx.at(2.9, "902");
       assert.equal(fx.calls.rollback, 0);
       await fx.at(3, "902");
@@ -1053,7 +1053,7 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       open.setClock(T0);
       open.setLock(lock);
       open.heal.start();
-      open.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
+      open.heal.guardExperimentalLock({ lock, saved: { lteMask: "800800c5" } });
       await open.at(1, "902");
       // The daemon is away for a minute and comes back inside the 3 minutes
       const back = await restart(open, lock, 2);
@@ -1061,7 +1061,7 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       await back.at(2.5, "902");
       assert.equal(back.calls.rollback, 0);
       await back.at(3, "902");
-      assert.deepEqual([back.rollbackArgs, back.restoreArgs], [[lock.updatedAtIso], ["800800c5"]]);
+      assert.deepEqual([back.rollbackArgs, back.restoreArgs], [[lock.updatedAtIso], [{ lteMask: "800800c5" }]]);
       // Done once: another restart finds the watch ended
       const again = await restart(back, bandLock(T0), 4);
       assert.equal(again.heal.lockDeadlineMs, null);
@@ -1072,7 +1072,7 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       late.setClock(T0);
       late.setLock(lock);
       late.heal.start();
-      late.heal.guardExperimentalLock({ lock, savedLteMask: null });
+      late.heal.guardExperimentalLock({ lock, saved: null });
       const after = await restart(late, lock, 30);
       await after.at(30, "902");
       assert.deepEqual(after.restoreArgs, [null]);
@@ -1081,7 +1081,7 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       proved.setClock(T0);
       proved.setLock(lock);
       proved.heal.start();
-      proved.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
+      proved.heal.guardExperimentalLock({ lock, saved: { lteMask: "800800c5" } });
       await proved.at(0.5, "901");
       await proved.at(2.5, "901");
       const kept = await restart(proved, lock, 2.8);
@@ -1122,8 +1122,68 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       // And a guard that is not `true` is not one
       const vague = await startWith({ lockUpdatedAtIso: lock.updatedAtIso, settled: false, guard: "yes", restoreLteMask: "800800c5" });
       assert.equal(vague.heal.lockDeadlineMs, null);
+
+      // A part of the setting that does not read as one: never half of it written back
+      for (const part of [{ restoreNrMask: "n78" }, { restoreNrMask: null }, { restoreNetworkMode: "5g" }, { restoreNetworkMode: 3 }]) {
+        const half = await startWith({ lockUpdatedAtIso: lock.updatedAtIso, settled: false, guard: true, restoreLteMask: "6", ...part });
+        await half.at(3, "902");
+        assert.deepEqual(half.restoreArgs, [null], `every lock cleared with ${JSON.stringify(part)}`);
+      }
     } finally {
       for (const fx of opened) await fx.cleanup();
+    }
+  });
+
+  it("a watch saved by v1.9.0 (LTE mask only) still rolls back as before", async () => {
+    const lock = bandLock(T0);
+    const earlier = fixture({});
+    const later: Array<ReturnType<typeof fixture>> = [];
+    try {
+      earlier.core.scheduler.stateStore.update({ selfHealLockWatch: { lockUpdatedAtIso: lock.updatedAtIso, settled: false, guard: true, restoreLteMask: "800800c5" } });
+      await earlier.core.scheduler.stateStore.flushAsync();
+      const next = fixture({ lock, stateFile: earlier.core.scheduler.stateStore.filePath });
+      later.push(next);
+      next.setClock(T0 + MIN);
+      next.heal.start();
+      assert.equal(next.heal.lockDeadlineMs, T0 + 3 * MIN);
+      await next.at(3, "902");
+      assert.deepEqual(next.restoreArgs, [{ lteMask: "800800c5" }], "the LTE mask alone: the NR bands and the mode are left as they are");
+      assert.match(next.alerts.find((a) => a.code === "LOCK_ROLLED_BACK")?.messageEn ?? "", /the band setting from before the lock was written back/);
+    } finally {
+      for (const fx of later) await fx.cleanup();
+      await earlier.cleanup();
+    }
+  });
+
+  it("keeps the NR bands and the network mode from before a lock across a restart", async () => {
+    const lock = bandLock(T0);
+    const open = fixture({});
+    const later: Array<ReturnType<typeof fixture>> = [];
+    try {
+      open.setClock(T0);
+      open.setLock(lock);
+      open.heal.start();
+      const saved: SavedBandSetting = { lteMask: "6", nrMask: "all", networkMode: "auto" };
+      open.heal.guardExperimentalLock({ lock, saved });
+      assert.deepEqual(open.core.scheduler.stateStore.getState().selfHealLockWatch, {
+        lockUpdatedAtIso: lock.updatedAtIso,
+        settled: false,
+        guard: true,
+        restoreLteMask: "6",
+        restoreNrMask: "all",
+        restoreNetworkMode: "auto",
+      });
+      await open.heal.stop();
+      await open.core.scheduler.stateStore.flushAsync();
+      const back = fixture({ lock, stateFile: open.core.scheduler.stateStore.filePath });
+      later.push(back);
+      back.setClock(T0 + 2 * MIN);
+      back.heal.start();
+      await back.at(3, "902");
+      assert.deepEqual(back.restoreArgs, [saved]);
+    } finally {
+      for (const fx of later) await fx.cleanup();
+      await open.cleanup();
     }
   });
 
@@ -1133,12 +1193,12 @@ describe("WanSelfHeal and a lock on a router nobody verified", () => {
       fx.setClock(T0);
       const lock = bandLock(T0);
       fx.setLock(lock);
-      fx.heal.guardExperimentalLock({ lock, savedLteMask: "800800c5" });
+      fx.heal.guardExperimentalLock({ lock, saved: { lteMask: "800800c5" } });
       assert.equal(fx.heal.lockDeadlineMs, T0 + 10 * MIN, "a longer rollback window wins");
       await fx.at(1, "901");
       await fx.at(3.5, "901");
       assert.equal(fx.heal.lockDeadlineMs, null, "up 2 minutes: kept");
-      fx.heal.guardExperimentalLock({ lock: unlocked(T0 + 5 * MIN), savedLteMask: "5" });
+      fx.heal.guardExperimentalLock({ lock: unlocked(T0 + 5 * MIN), saved: { lteMask: "5" } });
       assert.equal(fx.heal.lockDeadlineMs, null);
       assert.equal(fx.calls.rollback, 0);
     } finally {
