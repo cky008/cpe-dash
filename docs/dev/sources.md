@@ -831,4 +831,5 @@ final-4 只读审核（`audits.md` 第 21 节）之后的修复里新用到的�
 
 - 第 3 类（MC8020 / `3351`）锁 NR 频段写 `Z5g_lockband_mask`（资料 A 控制表「5G NR 锁频 Type 3」），回读以前不读这个键。现在请求它，并且每一类先读自己写入的那个键（第 1 类 `nr5g_band_mask`、第 2 类 `Z5g_lockband_no_format_mask`、第 3 类 `Z5g_lockband_mask`、第 4 类 `nr_band_lock`），再按原来的顺序读其他键。
 - 第 2 类的 NR 锁小区带 SCS（资料 A 控制表「5G NR 锁小区 Type 2」，`Z5g_lockcell_scs` 直接写 15 / 30）：表单在两种写法上都拒绝没有 SCS 的锁定；会话里 `checkCellLock` 按频段补上默认值，所以以前也没有发出过 `null`。
+- 第 4 类（MC8512 / U60 Pro / MU5250 的 goform 兼容写法）的 LTE 锁频（F4-006）：资料 A 自己两处矛盾，频段表（5.2 节最后一列「Type 4 逗号编码值」）写十进制列表，参考实现（`buildLteBandLockForm`，第 572–576 行）写不带 `0x` 的十六进制掩码（对它做的逗号替换什么也不改）。按实现为准，写入不变（`LTE_BAND_LOCK&lte_band_lock=<掩码>`）；回读以前把没有 `0x`、也没有字母的值当频段列表，B1 + B3 的掩码 `5` 就被读成 B5。现在第 4 类回读先按掩码解析（带不带 `0x` 都行），解析不成才当列表。佐证：同一批型号在 zWRT 接口上读到的 `lte_band_lock` 是十六进制（`1zun4/zte-cpe-rs` `c85b47b`，GPL-3.0，`src/g5ts/api/network.rs` 第 742 行的样本；`dklasens/MU5250-OpenUI` 模拟代理第 1057 行），只取事实。
 

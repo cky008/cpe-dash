@@ -358,6 +358,19 @@ describe("zte-goform: locks", () => {
     assert.equal((await stuck.client.withSession((s) => s.lockState()))?.nrCell?.locked, true);
   });
 
+  it("reads a U60 Pro's LTE band lock back in the hexadecimal form it is written in", async () => {
+    // Branch 4 writes the bare mask: B1 + B3 is "5", never band 5
+    assert.deepEqual(parseZteLockState({ lte_band_lock: "5" }, 4).lteBands, [1, 3]);
+    assert.deepEqual(parseZteLockState({ lte_band_lock: "0x5" }, 4).lteBands, [1, 3]);
+    assert.deepEqual(parseZteLockState({ lte_band_lock: "1,3" }, 4).lteBands, [1, 3], "a list, should a firmware report one");
+    const { state, client } = zteRouter({ hw: "MC8512_HW1.0", model: "MC8512" });
+    const check = newCheck();
+    await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: null, networkMode: null }, check));
+    assert.equal(state.posts.find((p) => p.goformId === "LTE_BAND_LOCK")?.fields.get("lte_band_lock"), "5");
+    assert.equal(check.readback, "match");
+    assert.deepEqual((await client.withSession((s) => s.lockState()))?.lteBands, [1, 3]);
+  });
+
   it("reads each branch's NR band lock back from the key it writes", async () => {
     // MC8020 (branch 3) writes Z5g_lockband_mask; a key another branch writes may still hold every band
     const raw = { nr5g_band_mask: ZTE_NR_ALL_BANDS.join(","), Z5g_lockband_mask: "78" };

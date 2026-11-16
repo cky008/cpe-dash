@@ -118,7 +118,8 @@ const XHR: Readonly<Record<string, string>> = { "X-Requested-With": "XMLHttpRequ
 
 /**
  * How a firmware writes band and cell locks: `1` the standard goform (MC801A, MC7010, MU5001), `2`
- * the MC888 / MC8830 merge, `3` the MC8020 / `3351` legacy, `4` the comma lists of the MC8512 / U60 Pro.
+ * the MC888 / MC8830 merge, `3` the MC8020 / `3351` legacy, `4` the MC8512 / U60 Pro forms (the LTE
+ * mask bare, without `0x`, and the NR bands as a comma list).
  */
 export type ZteBranch = 1 | 2 | 3 | 4;
 
@@ -729,10 +730,15 @@ export function parseZteNeighbours(raw: Record<string, unknown>): DriverNeighbou
   return seen ? out : null;
 }
 
-function lteLockOf(raw: Record<string, unknown>): number[] | "all" | null {
+/**
+ * The LTE band lock. Branch 4 writes the mask without `0x` (notes library A's implementation; its
+ * table's comma list contradicts it), so a mask with no letter in it ("5": B1 + B3) reads as a mask
+ * there, and a list only when it is not one; elsewhere a value without `0x` or a letter is a list.
+ */
+function lteLockOf(raw: Record<string, unknown>, branch: ZteBranch): number[] | "all" | null {
   const text = textOf(raw["lte_band_lock"]);
   if (text === null) return null;
-  const bands = /^0x/i.test(text) || /[a-f]/i.test(text) ? hexToBands(text) : listToBands(text);
+  const bands = branch === 4 ? (hexToBands(text) ?? listToBands(text)) : /^0x/i.test(text) || /[a-f]/i.test(text) ? hexToBands(text) : listToBands(text);
   if (bands === null) return null;
   const all = hexToBands(ZTE_LTE_ALL_MASK) ?? [];
   if (bands.length === 0 || all.every((b) => bands.includes(b))) return "all";
@@ -794,7 +800,7 @@ function nrCellOf(raw: Record<string, unknown>, branch: ZteBranch): CellLockStat
 
 export function parseZteLockState(raw: Record<string, unknown>, branch: ZteBranch = 1): DriverLockState {
   return {
-    lteBands: lteLockOf(raw),
+    lteBands: lteLockOf(raw, branch),
     nrBands: nrLockOf(raw, branch),
     lteCell: lteCellOf(raw),
     nrCell: nrCellOf(raw, branch),
