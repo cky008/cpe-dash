@@ -843,3 +843,7 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 
 断网 3 分钟的回退要写回的设置被品牌的表单这样拒绝时（发送之前、`CpeControlValidationError`），回退改为解除全部锁定（文档里的退路），不再按写入失败重试三次；告警按路由器实际收到的写入说「写回了锁前的设置」还是「解除了全部锁定」（`WanRepairOutcome.restored`）。
 
+### 21.6 OpenWrt 的 ubus 会话时长与 status 6（F4-011）
+
+`session.login` 的 `timeout` 是 rpcd 会话的空闲时长（秒）。搜网与手动选网的一次 `AT+COPS` 最长等 180 秒（模组手册），其间没有别的调用碰这个会话，60 秒的会话会在调用中途过期，之后的回读拿到 status 6。现在会话时长取最长一次调用加 120 秒（300 秒）；会话结束时照旧 `session.destroy`。status 6（permission denied）只在回答 `session.login` 时当作密码被拒，回答登录之后的调用时是会话过期或路由器的访问列表不允许（`ubus-6`），不再说成密码错误（熔断本来也只在登录时锁上）。
+

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CpeApiError } from "../src/session-errors.ts";
 import type { WriteCheck } from "../src/device-access.ts";
-import { OPENWRT_ANONYMOUS_SESSION, forgetOpenwrtSimReads, extractAtResponse, openwrtProtocol, parseSystemInfo } from "../src/drivers/openwrt.ts";
+import { OPENWRT_ANONYMOUS_SESSION, forgetOpenwrtSimReads, extractAtResponse, openwrtProtocol, openwrtStatusError, parseSystemInfo } from "../src/drivers/openwrt.ts";
 import { atValueLine, detectModemBrand, isAtError, modemBrandOf, parseCfun, parseOperatorName, parseSimPin, splitAtCsv } from "../src/protocols/at/common.ts";
 import { parseQuectelCaInfo, parseQuectelCsi, parseQuectelDataCounter, parseQuectelNeighbours, parseQuectelRsrp, parseQuectelServingCell, parseQuectelTemp, parseQuectelTempSensors, quectelLteSinr } from "../src/protocols/at/quectel.ts";
 import { parseFibocomAct, parseFibocomCaInfo, parseFibocomCcInfo } from "../src/protocols/at/fibocom.ts";
@@ -221,6 +221,19 @@ describe("openwrt: session and Quectel integration", () => {
     const destroyCall = calls.find((c) => c.object === "session" && c.method === "destroy");
     assert.ok(destroyCall);
     assert.equal(destroyCall.session, SESSION_TOKEN);
+  });
+
+  it("keeps its ubus session longer than an operator search, and reads a later status 6 as the session, never the password", async () => {
+    const { calls, client } = openwrtRouter();
+    await client.withSession((s) => s.identify());
+    const login = calls.find((c) => c.object === "session" && c.method === "login");
+    assert.ok(Number(login?.args["timeout"]) > 180, `a session of ${String(login?.args["timeout"])} s outlives an AT+COPS of 3 minutes`);
+    // The login's refusal is the password; a later call's is the session or the access list
+    const refused = openwrtStatusError(6, "session", "login");
+    assert.ok(refused instanceof CpeApiError && refused.code === "108006", "a refused password, which the session client latches on");
+    const later = openwrtStatusError(6, "gl-modem", "send_at");
+    assert.ok(later instanceof CpeApiError && later.code === "ubus-6" && !later.latchesBreaker && /session may have expired|access list/.test(later.message));
+    assert.equal(openwrtStatusError(4, "gl-modem", "send_at"), null, "other statuses: the default error");
   });
 
   it("handles wrong password and rejects invalid session", async () => {

@@ -147,6 +147,12 @@ function sumOf(...values: Array<number | null>): number | null {
 
 /** How long a search for networks or a registration may take the module (the modules' manuals give `AT+COPS` three minutes). */
 const COPS_TIMEOUT_MS = 180_000;
+/**
+ * The ubus session's idle timeout `session.login` asks for, in seconds: longer than the longest single
+ * call (an `AT+COPS`), with two minutes to spare, so the read-back after a search finds the session
+ * still there. The session is destroyed when it ends, so it never lingers that long.
+ */
+const UBUS_SESSION_TIMEOUT_SEC = Math.ceil(COPS_TIMEOUT_MS / 1000) + 120;
 
 interface UbusRpcCallTarget {
   object: string;
@@ -178,9 +184,21 @@ export function forgetOpenwrtSimReads(): void {
 }
 
 /**
+ * What a ubus status says on OpenWrt: `6` ("permission denied") answering `session.login` is a refused
+ * password; answering any later call it is the session (expired) or the router's access list (the
+ * call not granted), never the password, so it latches nothing. Other statuses: the default error.
+ */
+export function openwrtStatusError(status: number, object: string, method: string): Error | null {
+  if (status !== 6) return null;
+  if (object === "session" && method === "login") return wrongPassword("the router refused the password (ubus status 6)");
+  return new CpeApiError("ubus-6", `${object}.${method} refused (ubus status 6): the session may have expired, or the router's access list does not allow the call`);
+}
+
+/**
  * OpenWrt's ubus (`POST /ubus`), plus the way an AT command reaches the module: the first of the
- * modem services that answers (`MODEM_RPC_CANDIDATES`), else QModem's own object. A ubus status 6 is
- * a refused password (the session token is not, or no longer, one).
+ * modem services that answers (`MODEM_RPC_CANDIDATES`), else QModem's own object. A ubus status 6
+ * ("permission denied") answering `session.login` is a refused password; answering any later call it
+ * is the session (expired) or the router's access list (the call not granted), never the password.
  */
 class OpenwrtUbusClient extends UbusRpc {
   #resolvedModemRpc: UbusRpcCallTarget | null = null;
@@ -189,7 +207,7 @@ class OpenwrtUbusClient extends UbusRpc {
   #atViaQmodem = false;
 
   constructor(http: LanHttp) {
-    super(http, { path: UBUS_PATH, statusError: (status) => (status === 6 ? wrongPassword("permission denied (ubus status 6)") : null) });
+    super(http, { path: UBUS_PATH, statusError: openwrtStatusError });
   }
 
   /**
@@ -1024,19 +1042,11 @@ export const openwrtProtocol: DriverProtocol = {
 
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
     const ubus = new OpenwrtUbusClient(http);
-    let answer: unknown;
-    try {
-      answer = await ubus.call("session", "login", {
-        username: credentials.username || "root",
-        password: credentials.password,
-        timeout: 60,
-      });
-    } catch (err) {
-      if (err instanceof CpeApiError && (err.code === "ubus-6" || err.code.includes("permission"))) {
-        throw wrongPassword("the router refused the password (ubus status 6)");
-      }
-      throw err;
-    }
+    const answer = await ubus.call("session", "login", {
+      username: credentials.username || "root",
+      password: credentials.password,
+      timeout: UBUS_SESSION_TIMEOUT_SEC,
+    });
 
     if (!isPlainObject(answer)) throw new DriverLoginMethodError("OpenWrt session.login returned invalid payload");
     const sessionToken = textOf(answer["ubus_rpc_session"]);
