@@ -851,3 +851,7 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 
 资料 A（`zte-goform-web-protocol-spec.md` 第 52、86、92–93 行）按子串 `WEB_ATTR_IF_SUPPORT_SHA256:2` / `:1` 判断登录写法，其余当作 Base64。`config.js` 的原文没有在公开项目里找到（`1zun4/zte-cpe-rs` 带的页面脚本只用它，`n.WEB_ATTR_IF_SUPPORT_SHA256 ? … : …`）。写法若带空格或引号，以前会落到 Base64，向要 SHA-256 的路由器发出一次错误形式的密码。现在读取它的值时容忍空格与引号（取第一个写出了值的地方），值为 `2`、`1`、`0` 照资料处理；开关在而读不出值时不发送密码（「定不下来就不发」）。
 
+### 21.8 中兴 goform 开发者选项登录的签名（C-08）
+
+`DEVELOPER_OPTION_LOGIN`（第 2、3 类锁定前打开开发者选项）以前不带 `AD`。资料 A（`zte-goform-web-protocol-spec.md` 第 99 行）写明除 `LOGIN` 外所有发往 `goform_set_cmd_process` 的写入都带 `AD`；[tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script)（`3206010`）`legacy/zte-script-legacy.js` 第 292–305 行发这个请求时也带 `AD`。现在它和其他写入一样签名（`reqproc` 写法带 `CSRFToken`）。
+

@@ -946,18 +946,8 @@ class ZteGoformSession implements DriverSessionHandle {
     try {
       const devLd = textOf((await getCmd(this.#http, ["LD"], false, this.#at))["LD"]);
       const devMethod = zteLoginMethodOf(devLd, this.#configJs);
-      if (devMethod !== null) {
-        noteSent(check, FAMILY, "DEVELOPER_OPTION_LOGIN");
-        await setCmd(
-          this.#http,
-          [
-            ["isTest", "false"],
-            ["goformId", "DEVELOPER_OPTION_LOGIN"],
-            ["password", zteLoginPassword(devMethod, this.#password)],
-          ],
-          this.#at
-        );
-      }
+      // Signed like every write but LOGIN (notes library A; the community's ZTE script signs it as well)
+      if (devMethod !== null) await this.#send(check, "DEVELOPER_OPTION_LOGIN", [["password", zteLoginPassword(devMethod, this.#password)]]);
     } catch {
       // The lock write that follows reports what the router makes of it
     }

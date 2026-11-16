@@ -102,7 +102,10 @@ describe("zte-goform: login and digests", () => {
     for (const hw of ["MC888HW-1.0.0", "MC8020HW-1.0.0"]) {
       const { state, client } = zteRouter({ hw });
       await client.withSession((s) => s.setBandLock({ lte: [1], nr: null, networkMode: null }, newCheck()));
-      assert.ok(state.posts.some((p) => p.goformId === "DEVELOPER_OPTION_LOGIN"));
+      const developer = state.posts.find((p) => p.goformId === "DEVELOPER_OPTION_LOGIN");
+      assert.ok(developer);
+      // Signed like every write but LOGIN (notes library A; the community's ZTE script signs it as well)
+      assert.match(developer.fields.get("AD") ?? "", /^[0-9A-F]{64}$/);
     }
   });
 

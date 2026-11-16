@@ -257,6 +257,8 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
         return { json: { result: "0" }, setCookie: [`${cookie}; Path=/; HttpOnly`] };
       }
       if (goformId === "DEVELOPER_OPTION_LOGIN") {
+        // Signed like every write but LOGIN
+        if (!reqproc && fields.get("AD") !== zteActionDigest(hash, version, `RD${state.rd}`)) return { json: { result: "failure" } };
         state.posts.push({ goformId, fields });
         return { json: { result: "0" } };
       }
