@@ -9,15 +9,7 @@ import {
 import { MCP_MAX_DELETE_PER_CALL, MCP_MAX_READ_PER_CALL, SMS_UNTRUSTED_NOTICE } from "../operations/sms.ts";
 import { MCP_TOOLS, type ToolHandlers, operationRecord, providerOperation, runTool, toolDefinition } from "../operations/registry.ts";
 import { CpeApiError } from "../session-errors.ts";
-import {
-  BrowserSessionYieldedError,
-  CpeNotConfiguredError,
-  DeviceNotIdentifiedError,
-  DeviceReadOnlyError,
-  PeerDaemonStandbyError,
-  SchedulerQueueFullError,
-  SchedulerStoppedError,
-} from "../scheduler.ts";
+import { isRefusal } from "../scheduler.ts";
 import { resolveRecipientPhone } from "./phone.ts";
 import type { SmsService } from "./service.ts";
 import type { SmsMessageRecord, SmsThreadSummary } from "./types.ts";
@@ -36,22 +28,12 @@ const WRITE_TOOLS: ReadonlyArray<McpToolDefinition> = MCP_TOOLS.sms.filter((op) 
 /**
  * A send that failed this way never handed a message to the router: refused before any session
  * (validation, human admin, peer daemon, full queue, shutdown, latched breaker, the write gate, no
- * router connection) or answered with a CPE error code. Transport failures stay charged, since
- * send-sms may have reached the router.
+ * router connection, a connection that changed while the send waited) or answered with a CPE error
+ * code. Transport failures stay charged, since send-sms may have reached the router.
  */
 function neverSent(err: unknown): boolean {
-  return (
-    err instanceof CpeControlValidationError ||
-    err instanceof BrowserSessionYieldedError ||
-    err instanceof PeerDaemonStandbyError ||
-    err instanceof SchedulerQueueFullError ||
-    err instanceof SchedulerStoppedError ||
-    // The write gate and a missing router connection refuse before any session
-    err instanceof DeviceReadOnlyError ||
-    err instanceof DeviceNotIdentifiedError ||
-    err instanceof CpeNotConfiguredError ||
-    err instanceof CpeApiError
-  );
+  // The scheduler's own refusals (the write gate, a missing or changed connection among them) come before any session
+  return err instanceof CpeControlValidationError || isRefusal(err) || err instanceof CpeApiError;
 }
 
 function str(args: Record<string, unknown>, key: string, required: boolean, maxLength = 2000): string | undefined {

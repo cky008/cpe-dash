@@ -1391,8 +1391,12 @@ function readbackReasonKey(reason: NonNullable<WriteResultRecord["reason"]>): I1
   return `readback.${reason}`;
 }
 
-/** A write that was refused before it could fail (audited as `refused`, not `failed`). */
-function isRefusal(err: unknown): boolean {
+/**
+ * A write the scheduler refused before any session, so nothing of it reached the router (audited as
+ * `refused`, not `failed`). Whoever keeps count of what went out (a send limit, a retry budget) asks
+ * this, so a refusal added here is not charged anywhere.
+ */
+export function isRefusal(err: unknown): boolean {
   return (
     err instanceof BrowserSessionYieldedError ||
     err instanceof DeviceReadOnlyError ||

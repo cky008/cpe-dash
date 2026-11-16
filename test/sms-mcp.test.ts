@@ -274,6 +274,25 @@ describe("MCP SMS tools: write guardrails", () => {
     await fx.sms.scheduler.stop();
     assert.equal((await send("while stopping")).structuredContent["errorCode"], "QUEUE_FULL");
     fx.sms.scheduler.markRunning(true);
+    // A send that waited while another brand's connection took over (and the first one came back): dropped, not charged
+    let inside = false;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const reading = fx.sms.scheduler.read(async () => {
+      inside = true;
+      await held;
+      return null;
+    });
+    for (let i = 0; i < 200 && !inside; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    const away = fx.sms.scheduler.reloadCredentialsAndResetBreaker(fx.mock.password, undefined, "openwrt");
+    const waiting = send("while the router was swapped");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    await reading;
+    await away;
+    assert.equal((await waiting).structuredContent["errorCode"], "CONNECTION_CHANGED");
+    await fx.sms.scheduler.reloadCredentialsAndResetBreaker(fx.mock.password, undefined, "huawei");
+    fx.sms.scheduler.noteRouterModel("H168-383", "4.4.0.1");
     assert.equal(fx.mock.sentRequests.length, 0, "none of the refused attempts reached the router");
 
     assert.equal((await send("one")).isError, false);
