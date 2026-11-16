@@ -744,6 +744,7 @@ export class MutexSessionScheduler extends EventEmitter {
       await this.#enqueue("high", async () => {
         this.#replaceConnection(nextFamily, settings);
         this.device.forget();
+        this.#safeEmit("connection:changed", { family: nextFamily });
       });
     } else {
       this.#settings = settings;
@@ -904,6 +905,8 @@ export class MutexSessionScheduler extends EventEmitter {
       const target = { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password };
       const certFingerprint = candidate.certFingerprint ?? null;
       const loginScheme = opts.loginScheme ?? null;
+      // Another brand or another address is another router; the same ones with new credentials are not
+      const anotherRouter = family !== this.#family || !sameAddress(this.#settings.cpeUrl, target.cpeUrl);
       if (family === this.#family) {
         this.#connection.reconfigure(target, loginScheme);
         this.#settings = { ...this.#settings, ...target, certFingerprint };
@@ -920,6 +923,7 @@ export class MutexSessionScheduler extends EventEmitter {
       this.#mode = "idle";
       this.#lastError = null;
       this.stateStore.update({ circuitBreaker: cb });
+      if (anotherRouter) this.#safeEmit("connection:changed", { family });
       await this.stateStore.flushAsync().catch(() => undefined);
       return publicBreakerState(cb);
     });
@@ -1371,6 +1375,15 @@ export class MutexSessionScheduler extends EventEmitter {
     const sawRouter = err instanceof CpeAnswerFormatError || err instanceof CpeEncryptionUnavailableError;
     if (!answered && !sawRouter) this.device.forget();
     throw err;
+  }
+}
+
+/** Whether two router addresses are the same origin (an address FengSui cannot read equals none). */
+function sameAddress(a: string, b: string): boolean {
+  try {
+    return normalizeCpeUrl(a) === normalizeCpeUrl(b);
+  } catch {
+    return false;
   }
 }
 

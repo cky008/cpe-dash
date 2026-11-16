@@ -115,6 +115,7 @@ export type I18nKey =
   | "sms.marked_read_summary"
   | "sms.deleted_summary"
   | "alerts.cpe_unreachable"
+  | "alerts.rollback_watch_ended"
   | "alerts.cpe_recovered"
   | "alerts.wan_down"
   | "alerts.wan_up"

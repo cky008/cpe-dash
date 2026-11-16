@@ -24,6 +24,7 @@ Alerts appear under the bell icon in the console and can also be pushed to you. 
 | `SETTING_ROLLED_BACK` | The internet stayed down for 3 minutes after a change of the network mode, the operator, the SIM slot or the access point, and FengSui put that setting back to what it was (see [Cellular settings](router-switches.md#cellular-settings)) |
 | `SETTING_ROLLBACK_FAILED` | Putting that setting back did not work: change it back yourself in the Controls drawer or on the router's own page |
 | `SETTING_NOT_ROLLED_BACK` | The internet stayed down for 3 minutes after the change, but the earlier value was not read at the time, so FengSui changed nothing |
+| `ROLLBACK_WATCH_ENDED` | FengSui was connected to another router while it was still watching a lock or a setting it had changed on the earlier one. It no longer puts that change back: undo it on the earlier router if it cut that router's internet |
 | `FIRMWARE_UNVERIFIED` / `MODEL_UNVERIFIED` | Router firmware was updated, or the model is unverified |
 | `AGENT_TEST_STILL_ON` | What the AI agent test turned on is still on: 3 hours after the test, then once a day, until its writes all pass, you have read a reminder or you end the test; also a system notification while the console is in a background tab (see [Test with an AI agent](other-routers.md#ai)) |
 | `STORAGE_WRITE_FAILED` | Saving data failed (disk full, read-only, or incorrect permissions) |

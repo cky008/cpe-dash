@@ -674,6 +674,42 @@ describe("driver runtime: the 3-minute rollback of a band lock", () => {
     }
   });
 
+  it("ends the watch when the connection is pointed at another router: what was read on the earlier one is never written to this one", async () => {
+    const fx = runtimeFixture();
+    let clock = Date.now();
+    const alerts: AlertEventRecord[] = [];
+    fx.core.scheduler.on("alert", (alert: AlertEventRecord) => alerts.push(alert));
+    const heal = new WanSelfHeal({ scheduler: fx.core.scheduler, monitor: fx.core.monitor, controls: fx.core.controls, lockRollbackAfterMs: 0, reconnectAfterMs: 0, now: () => clock, log: () => undefined });
+    fx.core.controls.onExperimentalLock = (change) => heal.guardExperimentalLock(change);
+    heal.start();
+    try {
+      fx.state.lteBand = "1:3:7";
+      const lock = await fx.core.controls.lockBands({ lteBands: [1, 3] });
+      assert.equal(fx.state.lteBand, "1:3");
+      assert.notEqual(heal.lockDeadlineMs, null, "the lock is watched for 3 minutes");
+      // The same router saved again (a new password, say): still the router the lock was made on
+      await fx.core.scheduler.applyConnection({ ...OPENWRT, family: "openwrt" });
+      assert.notEqual(heal.lockDeadlineMs, null, "the same address and brand: the watch goes on");
+      // Another address: another router (the mock answers there too, as that router would)
+      await fx.core.scheduler.applyConnection({ ...OPENWRT, url: "http://192.168.2.1", family: "openwrt" });
+      assert.equal(heal.lockDeadlineMs, null, "the change was made on the earlier router: no longer watched");
+      assert.equal(fx.stateStore.getState().selfHealLockWatch?.settled, true, "and a restart does not pick it up again");
+      assert.deepEqual(alerts.map((alert) => [alert.severity, alert.code]), [["warning", "ROLLBACK_WATCH_ENDED"]]);
+      assert.match(alerts[0]?.messageEn ?? "", /another router.*will not be put back/);
+      // That router is offline three minutes after the lock: FengSui writes nothing to it
+      fx.state.serving = "none";
+      const snap = await fx.core.monitor.refreshTelemetry();
+      assert.equal(snap?.device.connectionStatus, "902");
+      clock = Date.parse(lock.updatedAtIso) + 3 * 60_000 + 1000;
+      if (snap) await heal.ingestTelemetry({ ...snap, capturedAtMs: clock });
+      assert.equal(fx.state.lteBand, "1:3", "the band setting read on the earlier router was not written here");
+      assert.deepEqual(fx.applied.map((event) => event.action).filter((action) => action.startsWith("auto_")), []);
+    } finally {
+      await heal.stop();
+      await fx.cleanup();
+    }
+  });
+
   it("a band lock that set the network mode is rolled back to the mode read before it", async () => {
     const fx = runtimeFixture();
     const net = safetyNet(fx);

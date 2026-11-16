@@ -328,6 +328,7 @@ export type AlertCode =
   | "SETTING_ROLLED_BACK"      // warning：更改 SIM 卡槽、网络制式、运营商选择或接入点（APN）后 3 分钟 WAN 仍断开，已自动改回写入前读到的值（action = "auto_restore_sim_slot" 等，见 2.13）；任何型号、任何入口都一样，不受自愈开关影响
   | "SETTING_ROLLBACK_FAILED"  // critical：上面的自动改回没有完成（闸门拒绝、熔断、另一守护进程领先、连续 3 次失败，或到期后 1 小时仍没改成）
   | "SETTING_NOT_ROLLED_BACK"  // warning：更改后 3 分钟 WAN 仍断开，但烽燧在写入前没有读到原来的值，不能自动改回，什么都没写
+  | "ROLLBACK_WATCH_ENDED"     // warning：还有改动在看守期内（锁定，或上面四项设置），路由器连接换成了另一台（保存了另一个地址或品牌的连接，或同一地址上的路由器报出了另一个型号）：看守结束，什么都不写。要改回的值是在之前那台上读到的，不能写给现在这台
   | "WAN_AUTO_RECONNECT"       // warning：WAN 断开达 WAN_AUTO_RECONNECT_AFTER_MIN 后的自动重拨（action = "auto_reconnect_cellular"；间隔 10/30/60 分钟）
   | "WAN_RECONNECT_EXHAUSTED"  // critical：24 小时内 4 次自动重拨已用完，WAN 仍断开（从不自动重启）
   | "SELF_HEAL_READ_ONLY"      // warning：路由器是未验证的型号，闸门拒绝了自愈要做的写入（烽燧在这个型号上没有它的实现，或用户把它关闭了，见 2.10 / 2.11）：自愈本会解除锁定或重拨但没有写入；每次锁定、每次断网各一次，不计入重拨次数

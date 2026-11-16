@@ -136,6 +136,7 @@
   },
   "alerts": {
     "cpe_unreachable": "CPE 已连续 {seconds} 秒无法访问：{reason}",
+    "rollback_watch_ended": "烽燧现在连接的是另一台路由器，之前那台路由器上还在看守的改动不会再自动改回。要是那项改动让之前那台断了网，请在那台路由器上改回",
     "cpe_recovered": "CPE 已恢复访问（中断约 {seconds} 秒）",
     "wan_down": "蜂窝数据连接已断开超过 {seconds} 秒（状态码 {status}）",
     "wan_up": "蜂窝数据连接已恢复",

@@ -136,6 +136,7 @@
   },
   "alerts": {
     "cpe_unreachable": "CPE unreachable for {seconds}s: {reason}",
+    "rollback_watch_ended": "FengSui is now connected to another router, so the change it was watching on the earlier one will not be put back automatically. If that change cut the earlier router's internet, undo it on that router",
     "cpe_recovered": "CPE reachable again after ~{seconds}s",
     "wan_down": "Cellular data connection down for over {seconds}s (status {status})",
     "wan_up": "Cellular data connection restored",

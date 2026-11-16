@@ -206,6 +206,8 @@ export class WanSelfHeal {
     if (this.#started) return;
     this.#started = true;
     this.scheduler.on("control:applied", this.#onControl);
+    this.scheduler.on("connection:changed", this.#onAnotherRouter);
+    this.scheduler.on("device:changed", this.#onAnotherRouter);
     this.monitor.on("telemetry", this.#onTelemetry);
     // The redials of the last 24 h count whenever redialing is on, so the budget is read even while it is off
     this.#restoreReconnects(this.scheduler.stateStore.getState().selfHealReconnect);
@@ -252,6 +254,8 @@ export class WanSelfHeal {
     if (!this.#started) return;
     this.#started = false;
     this.scheduler.off("control:applied", this.#onControl);
+    this.scheduler.off("connection:changed", this.#onAnotherRouter);
+    this.scheduler.off("device:changed", this.#onAnotherRouter);
     this.monitor.off("telemetry", this.#onTelemetry);
     await this.#busy;
   }
@@ -452,6 +456,21 @@ export class WanSelfHeal {
       failures: 0,
     });
   }
+
+  /**
+   * The connection now points at another router (another address or brand was saved, or the router at
+   * the address reports another model): every open watch ends without a write. What a watch would
+   * put back was read on the earlier router, and is not this one's to be given.
+   */
+  readonly #onAnotherRouter = (): void => {
+    const lock = this.#lockWatch;
+    const links = [...this.#linkWatches.values()];
+    if (lock === null && links.length === 0) return;
+    if (lock) this.#endWatch(lock);
+    for (const watch of links) this.#endLinkWatch(watch);
+    this.#log("[self-heal] the connection points at another router; the changes watched on the earlier one are not put back");
+    this.#raise("warning", "ROLLBACK_WATCH_ENDED", "alerts.rollback_watch_ended");
+  };
 
   /** End `watch` if it is still the open one: a newer lock may have replaced it while a rollback waited. */
   #endWatch(watch: LockWatch): void {
