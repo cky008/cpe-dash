@@ -56,12 +56,6 @@ export interface DriverCpeClientOptions {
   logoutTimeoutMs?: number;
 }
 
-export interface DriverSessionOptions {
-  respectBrowserSession?: boolean;
-  /** Accepted for the scheduler's sake; a driver session never retries a login. */
-  retriesOnOccupied?: number;
-}
-
 /** How long the `finally` logout may take once the session itself is over. */
 const LOGOUT_TIMEOUT_MS = 4000;
 

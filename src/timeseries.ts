@@ -76,7 +76,6 @@ export interface SerializedTimeSeriesSnapshot {
 export const FINE_STEP_MS = 5_000;
 export const FINE_CAPACITY = 2_161; // 3 hours + 1 guard slot
 export const COARSE_STEP_MS = 60_000;
-export const DEFAULT_COARSE_CAPACITY = 10_081; // 7 days (168h) + 1 guard slot
 const MAX_FUTURE_SKEW_MS = 5 * 60_000;
 const CLOCK_STEP_CONFIRM_SAMPLES = 3;
 

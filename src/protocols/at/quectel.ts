@@ -1,7 +1,7 @@
 import { splitAtCsv } from "./common.ts";
 import type { NetworkMode } from "../../cellular.ts";
 import type { TemperatureSensor } from "../../router-status.ts";
-import { type CellLockState, type DriverCarrier, type DriverCell, type DriverNeighbour, type DriverNetworkMode, type DriverRat, type DriverTraffic, type ServingMode, type SubcarrierSpacingKhz, emptyCell } from "../readings.ts";
+import { type CellLockState, type DriverCarrier, type DriverCell, type DriverNeighbour, type DriverNetworkMode, type DriverRat, type DriverTraffic, type ServingMode, emptyCell } from "../readings.ts";
 import {
   arfcnOf,
   bandOf,
@@ -18,7 +18,6 @@ import {
   temperatureOf,
   txPowerOf,
 } from "../values.ts";
-
 
 /**
  * Quectel modules' own AT commands (RM500, RM520, RG500, RG520, RM551…): serving cell, carriers,
@@ -52,15 +51,6 @@ export const QUECTEL_NR_BANDWIDTH_MHZ: Readonly<Record<number, number>> = {
   11: 100,
   12: 200,
   13: 400,
-};
-
-/** Quectel Subcarrier Spacing (SCS) code table (code -> kHz). */
-export const QUECTEL_SCS_KHZ: Readonly<Record<number, SubcarrierSpacingKhz>> = {
-  0: 15,
-  1: 30,
-  2: 60,
-  3: 120,
-  4: 240,
 };
 
 /** Quectel QCAINFO LTE Resource Block count table (RB -> MHz). */

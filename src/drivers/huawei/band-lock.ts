@@ -15,11 +15,6 @@ export const NETWORK_MODE_AUTO = "00";
 export const NETWORK_MODE_4G_ONLY = "03";
 export const NETWORK_MODE_5G_ONLY = "08";
 
-export type HuaweiNetworkModeCode =
-  | typeof NETWORK_MODE_AUTO
-  | typeof NETWORK_MODE_4G_ONLY
-  | typeof NETWORK_MODE_5G_ONLY;
-
 /**
  * The network mode a band lock writes along with the LTE mask on the H168-383: its `net-mode` takes a
  * write only with the mode's own field, `networkOption` with `00` (1 SA only, 0 NSA only, 2 SA and NSA)
@@ -35,12 +30,6 @@ export const LOCK_MODE_UNLOCK = 0;
 export const LOCK_MODE_FREQ = 1;
 export const LOCK_MODE_CELL = 2;
 export const LOCK_MODE_BAND = 3;
-
-export type HuaweiLockMode =
-  | typeof LOCK_MODE_UNLOCK
-  | typeof LOCK_MODE_FREQ
-  | typeof LOCK_MODE_CELL
-  | typeof LOCK_MODE_BAND;
 
 export interface LteCellLockParams {
   band: BandInput;

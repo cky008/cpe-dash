@@ -6,13 +6,6 @@ export type FixedPreset = Exclude<TimeSeriesPreset, "custom">;
 
 export const FIXED_PRESETS: ReadonlyArray<FixedPreset> = ["1h", "6h", "12h", "24h"];
 
-export const PRESET_SPAN_MS: Readonly<Record<FixedPreset, number>> = {
-  "1h": 3_600_000,
-  "6h": 6 * 3_600_000,
-  "12h": 12 * 3_600_000,
-  "24h": 24 * 3_600_000,
-};
-
 /** Default `HISTORY_RETENTION_HOURS` (168 h): older data is gone from the rings. */
 export const DEFAULT_RETENTION_MS = 168 * 3_600_000;
 

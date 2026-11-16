@@ -64,11 +64,6 @@ export class CpeEccSignatureMissingError extends Error {
   }
 }
 
-/** The caller runs inside one of `client`'s sessions right now. */
-export function isInsideCpeSession(client: HuaweiCpeClient): boolean {
-  return client.insideSession;
-}
-
 /** An answer to the password that tells what the router made of it: a login error, or a refusal before the check. */
 function isPlacedLoginError(err: unknown): boolean {
   return err instanceof CpeApiError && (err.isCircuitBreakerFatal || LOGIN_RETRY_SAFE_CODES.has(err.code));
