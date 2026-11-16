@@ -56,18 +56,21 @@ export const DEMO_CERT_FINGERPRINT = "C4".repeat(32);
  * module bridge) and `openwrt` (a DHCP lease list, which does not say how a device is linked) are for
  * the browser tests of what only those brands show.
  */
+/** What the operator answers a USSD code with on the bare worlds that take one (made up, AGENTS.md 铁律二). */
+const USSD_ANSWER = "Your balance is 10.00";
+
 /**
  * The routers of every other brand and form, as the driver's mock router has it: for the browser
  * tests and the walk of every route and tool (test/brand-walk.test.ts), not for the demo's households.
  */
 const BARE_WORLDS = {
-  "zte-reqproc": () => ({ fetchImpl: zteRouter({ reqproc: true, sim: true }).mock.fetchImpl, connection: { url: "http://192.168.0.1", username: "admin", password: ZTE_PASSWORD, family: "zte-goform" } }),
+  "zte-reqproc": () => ({ fetchImpl: zteRouter({ reqproc: true, sim: true, ussd: { text: USSD_ANSWER } }).mock.fetchImpl, connection: { url: "http://192.168.0.1", username: "admin", password: ZTE_PASSWORD, family: "zte-goform" } }),
   "zte-zwrt": () => ({ fetchImpl: zwrtRouter().mock.fetchImpl, connection: { url: "http://192.168.0.1", username: "", password: ZWRT_PASSWORD, family: "zte-zwrt" } }),
   pinsu: () => ({ fetchImpl: pinsuRouter().mock.fetchImpl, connection: { url: PINSU_URL, username: "admin", password: PINSU_PASSWORD, family: "pinsu" } }),
   tozed: () => ({ fetchImpl: tozedRouter().mock.fetchImpl, connection: { url: TOZED_URL, username: "admin", password: TOZED_PASSWORD, family: "tozed" } }),
   fiberhome: () => ({ fetchImpl: fiberhomeRouter().mock.fetchImpl, connection: { url: FIBERHOME_URL, username: "admin", password: FIBERHOME_PASSWORD, family: "fiberhome" } }),
-  "tplink-mr": () => ({ fetchImpl: tplinkRouter().mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
-  "tplink-ex": () => ({ fetchImpl: tplinkRouter({ form: "ex" }).mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
+  "tplink-mr": () => ({ fetchImpl: tplinkRouter({ ussdAnswer: USSD_ANSWER }).mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
+  "tplink-ex": () => ({ fetchImpl: tplinkRouter({ form: "ex", ussdAnswer: USSD_ANSWER }).mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
   "tplink-deco": () => ({ fetchImpl: decoRouter().mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
   "openwrt-fibocom": () => ({ fetchImpl: openwrtRouter({ brand: "fibocom" }).mock.fetchImpl, connection: { url: "http://192.168.1.1", username: "root", password: OPENWRT_PASSWORD, family: "openwrt" } }),
 } satisfies Record<string, () => { fetchImpl: typeof fetch; connection: BrandWorld["connection"] }>;
