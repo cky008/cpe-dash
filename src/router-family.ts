@@ -271,6 +271,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
           "MX515v",
           "Archer MR550",
           "Archer MR500-Outdoor",
+          "M8550",
         ],
         reads: ["telemetry", "topology", "smsRead", "simCard"],
         writes: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "smsWrite", "simPin", "networkMode", "operatorSelect", "roaming", "apn", "dataLimit", "trafficReset", "ussd"],

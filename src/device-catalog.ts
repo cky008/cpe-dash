@@ -399,6 +399,7 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["MX515v", "indoor", { families: ["tplink"] }],
     ["Archer MR550", "indoor", { families: ["tplink"] }],
     ["Archer MR500-Outdoor", "outdoor", { families: ["tplink"] }],
+    ["M8550", "mobile", { families: ["tplink"] }],
     ["Deco X50-5G", "indoor", { families: ["tplink"], aliases: ["X50-5G"] }],
     ["TL-TR961 5G", "mobile", { aliases: ["TL-TR961"] }],
     ["TL-XDR3020 5G", "indoor", { aliases: ["TL-XDR3020"] }],
@@ -410,6 +411,12 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["TL-MR110-Outdoor", "outdoor", { families: ["tplink"] }],
     ["TL-MR101", "indoor", { families: ["tplink"] }],
     ["TL-MR108", "indoor", { families: ["tplink"] }],
+    ["Archer MR400", "indoor", { families: ["tplink"] }],
+    ["TL-MR100", "indoor", { families: ["tplink"] }],
+    ["TL-MR105", "indoor", { families: ["tplink"] }],
+    ["TL-MR150", "indoor", { families: ["tplink"] }],
+    ["TL-MR6400", "indoor", { families: ["tplink"] }],
+    ["TL-MR6500v", "indoor", { families: ["tplink"] }],
   ]),
 ];
 
@@ -701,6 +708,13 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     en: "The form TP-Link's newer models use (one JSON action per request), which FengSui recognises when it connects",
   },
   ...TPLINK_ARCHER_SESSION,
+  {
+    family: "tplink",
+    models: ["TL-MR6400"],
+    features: [],
+    zh: "v7 的管理页登录时不加密（用户名和密码用路由器的 RSA 公钥加密，请求不加密），烽燧还不会这种登录：连接时会说明原因，不发送密码；v5 和其他 MR 型号一样",
+    en: "The v7's page signs in without the encryption (the user name and the password under the router's RSA key, every request in plain text), a login FengSui does not speak yet: it says so when connecting and sends no password; the v5 signs in as the other MR models do",
+  },
   {
     family: "dlink",
     features: ["telemetry"],

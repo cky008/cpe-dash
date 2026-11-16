@@ -131,6 +131,7 @@ describe("the supported devices guide page", () => {
       ["MX515v", "tplink"],
       ["Archer MR550", "tplink"],
       ["Archer MR500-Outdoor", "tplink"],
+      ["M8550", "tplink"],
       ["Deco X50-5G", "tplink"],
       ["TL-TR961 5G"],
       ["TL-XDR3020 5G"],
@@ -142,9 +143,15 @@ describe("the supported devices guide page", () => {
       ["TL-MR110-Outdoor", "tplink"],
       ["TL-MR101", "tplink"],
       ["TL-MR108", "tplink"],
+      ["Archer MR400", "tplink"],
+      ["TL-MR100", "tplink"],
+      ["TL-MR105", "tplink"],
+      ["TL-MR150", "tplink"],
+      ["TL-MR6400", "tplink"],
+      ["TL-MR6500v", "tplink"],
     ]);
     // The models TP-Link's emulators show on the JSON form are on record with it, so the gate is right before the driver says so
-    for (const model of ["Archer NX505", "NE200-Outdoor", "MX515v", "Archer MR550", "Archer MR500-Outdoor"]) assert.equal(routerVariant("tplink", undefined, model), "ex", model);
+    for (const model of ["Archer NX505", "NE200-Outdoor", "MX515v", "Archer MR550", "Archer MR500-Outdoor", "M8550"]) assert.equal(routerVariant("tplink", undefined, model), "ex", model);
     // The MR models speak the family's own form
     for (const model of ["Archer MR402", "TL-MR100-Outdoor", "TL-MR108"]) assert.equal(routerVariant("tplink", undefined, model), null, model);
     assert.deepEqual(DEVICE_CATALOG.filter((e) => e.section === "dlink").map((e) => [e.model, ...e.families]), [["DWR-2000M"], ["DWR-2101"], ["DWR-953V2"], ["DWR-960", "dlink"], ["DWR-961", "dlink"]]);
