@@ -240,7 +240,7 @@ describe("fiberhome: the cellular settings", () => {
 
 const OVERVIEW_HTML = `<html><body><div>设备型号: C2000 MAX</div><div>系统版本:1.9.2.n6</div><script>var a={};a['token']='a8f5f167f44f4964e6c998dee827110c';</script></body></html>`;
 
-function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview?: string; nrTag?: "NR5GBand" | "NRBand"; overviewStatus?: unknown } = {}) {
+function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview?: string; overviewPageStatus?: number; nrTag?: "NR5GBand" | "NRBand"; overviewStatus?: unknown } = {}) {
   // A module that names its NR mask does so under one of two tags; one that names none locks LTE bands only
   const nrTag = opts.nrTag ?? null;
   const nrPart = (mask: string): string => (nrTag ? `<${nrTag}>${mask}</${nrTag}>` : "");
@@ -254,7 +254,7 @@ function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview
       return { status: 302, headers: { location: "/cgi-bin/luci" }, setCookie: opts.noCookie ? [] : ["sysauth=0123456789abcdef0123456789abcdef; path=/cgi-bin/luci"] };
     }
     if (!req.headers["cookie"]?.includes("sysauth=")) return { status: 403, text: "" };
-    if (req.path === "/cgi-bin/luci/nradio/system/overview") return { text: opts.overview ?? OVERVIEW_HTML };
+    if (req.path === "/cgi-bin/luci/nradio/system/overview") return opts.overviewPageStatus ? { status: opts.overviewPageStatus, text: "" } : { text: opts.overview ?? OVERVIEW_HTML };
     if (req.path === "/cgi-bin/luci/nradio/system/overview_status") return opts.overviewStatus === undefined ? { status: 404, text: "" } : { json: opts.overviewStatus };
     if (req.path === "/cgi-bin/luci/nradio/status/runtime/wan,cpe_4") {
       return { json: { wan: { up: false, download: "0", upload: "0" }, cpe_4: { up: true, uptime: 86425, isp: "Three", mode: "NR", ipaddr: "198.51.100.42", ipv6addr: "2001:db8::42/64", rsrp: "-79 dBm", rsrq: "-10 dB", sinr: "26 dB", pci: "0x8e", tac: "0x2711", cell: "134217758", earfcn: "650000", band: "78", download: "15849203712", upload: "2194810368" } } };
@@ -277,6 +277,13 @@ function nradioRouter(opts: { loginStatus?: number; noCookie?: boolean; overview
 }
 
 describe("nradio: session and readings", () => {
+  it("logs out when the overview fails after the router opened the session", async () => {
+    const { mock, client } = nradioRouter({ overviewPageStatus: 500 });
+    await assert.rejects(client.withSession((s) => s.telemetry()), CpeAnswerFormatError);
+    // The router handed out its session cookie: the page's logout frees the seat before the error goes up
+    assert.deepEqual(mock.trail, ["POST /cgi-bin/luci", "GET /cgi-bin/luci/nradio/system/overview", "GET /cgi-bin/luci/nradio/logout"]);
+  });
+
   it("logs in with the LuCI form, reads the overview, and logs out", async () => {
     const { mock, client } = nradioRouter();
     const t = await client.withSession((s) => s.telemetry());

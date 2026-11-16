@@ -511,9 +511,15 @@ export const nradioProtocol: DriverProtocol = {
       if (res.status === 403 || res.text.includes("密码错误") || res.text.includes("Invalid password") || res.text.includes("luci_password")) throw wrongPassword("the router refused the password");
       throw loginUnplaced(`login answered HTTP ${res.status} without a session`);
     }
-    const page = await http.request({ method: "GET", path: OVERVIEW, referer: REFERER });
-    if (page.status !== 200) throw new CpeAnswerFormatError(`GET overview: HTTP ${page.status}`);
-    return new NradioSession(http, parseNradioOverview(page.text));
+    try {
+      const page = await http.request({ method: "GET", path: OVERVIEW, referer: REFERER });
+      if (page.status !== 200) throw new CpeAnswerFormatError(`GET overview: HTTP ${page.status}`);
+      return new NradioSession(http, parseNradioOverview(page.text));
+    } catch (err) {
+      // The router handed out its session cookie: the page's logout is tried once, so it does not keep the seat
+      await http.request({ method: "GET", path: LOGOUT, referer: REFERER, redirect: "manual" }).catch(() => undefined);
+      throw err;
+    }
   },
 };
 

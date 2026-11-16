@@ -282,6 +282,13 @@ export async function decoLogin(http: LanHttp, credentials: DriverCredentials, p
   const stok = textOf(fieldOf(fieldOf(inner, "result"), "stok"));
   // The router read the request (it answered inside the session's wrapping) and opened no session: the password is what it judged
   if (intOf(fieldOf(inner, "error_code")) !== 0 || stok === null) throw wrongPassword("the router refused the password");
-  if (!STOK.test(stok)) throw loginUnplaced("login answered a token FengSui cannot use");
+  if (!STOK.test(stok)) {
+    // The router opened a session: the page's logout is tried once with its token, encoded so it stays one path segment
+    const sealed = envelope.seal(JSON.stringify({ operation: "logout" }), false);
+    await http
+      .request({ method: "POST", path: `/cgi-bin/luci/;stok=${encodeURIComponent(stok)}/admin/system`, query: [["form", "logout"]], body: new URLSearchParams([["sign", sealed.sign], ["data", sealed.data]]).toString(), contentType: FORM })
+      .catch(() => undefined);
+    throw loginUnplaced("login answered a token FengSui cannot use");
+  }
   return new DecoSession(http, envelope, stok);
 }

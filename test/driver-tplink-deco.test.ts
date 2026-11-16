@@ -130,6 +130,13 @@ describe("tp-link deco: a session", () => {
       await assert.rejects(odd.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker, JSON.stringify(options));
       assert.equal(odd.logins.length, 1);
     }
+    // A token FengSui cannot use: the page's logout is tried once with it, encoded, so the router does not keep the seat
+    const unusable = decoRouter({ loginResult: { error_code: 0, result: { stok: "bad token!" } } });
+    await assert.rejects(unusable.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker);
+    assert.deepEqual(
+      unusable.mock.requests.filter((r) => r.query.get("form") === "logout").map((r) => r.path),
+      ["/cgi-bin/luci/;stok=bad%20token!/admin/system"]
+    );
     const noToken = decoRouter({ loginResult: { error_code: 0, result: {} } });
     await assert.rejects(noToken.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108006");
     // A password longer than one block of the router's key: the page has no form for it
