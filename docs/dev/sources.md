@@ -859,3 +859,12 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 
 以前 zWRT 只锁 5G 小区（型号清单的事实「只能锁 5G 小区」）。社区脚本有 4G 的写法：`zte_nwinfo_api.nwinfo_lock_lte_cell`，参数 `lock_lte_pci`、`lock_lte_earfcn`，解除时两者都写 `0`（[tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script) `3206010` `ng/zte-script-ng.js` 第 1092–1105 行；[dklasens/MU5250-OpenUI](https://github.com/dklasens/MU5250-OpenUI) 带的同一份脚本第 1095 行，它的模拟代理第 1091–1092 行与 `web-app/tools/test-cell-lock.cjs` 第 2 行给出回读：`nwinfo_get_netinfo` 的 `lock_lte_cell` 为「PCI,EARFCN」，空或全零为不锁）。烽燧照此实现，回读 `lock_lte_cell`。解除全部锁定时，路由器的重置（`nwinfo_reset_band_cell_setting`）没有记录说会清掉 4G 小区锁定，所以锁着时先发这个写法的解除再重置。[1zun4/zte-cpe-rs](https://github.com/1zun4/zte-cpe-rs)（`c85b47b`，GPL-3.0，只取事实）在 G5 TS 上写着「LTE 锁小区不能经 ubus 设置」（`src/g5ts/api/network.rs` 第 234 行）：型号清单为 G5 TS 记一条说明，写入照发，路由器拒绝时如实报告。
 
+### 21.10 查过没找到（final-4 的候选）
+
+- **通则康威命令表里只有编号的命令**（C-26）：[mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt) `docs/vendor-command-map.md` 只把网页脚本对到命令号与名字（短信删除 `14`、SIM 状态 `134`、解 PIN `340`、选网 `219`、漫游 `220`、飞行模式 `226`、移动数据 `227`、USSD `350`、Wi-Fi `2` / `211`），没有参数与应答；[aabichou/rezo](https://github.com/aabichou/rezo) 只记录 ZLT X31 固件的读取（`docs/api-reference.html`），没有任何写入的请求体。这些写入都查不齐，不做。已连接设备（`223` / `224` / `225`，rezo 说与 `1000` 的列表相同）字段不全，留给下一轮。
+- **品速登录前的锁定计数**（C-22）：资料 A 里 `remain_times` / `remain_secs` 只出现在 `/goform/login` 的应答（`retcode 201`），`/goform/sync` 与 `get_login_info` 的应答里没有。
+- **D-Link 的 `check_attempt_count`**（C-20）：三个参考项目都发它、都不看它的应答，应答格式没有记录。
+- **烽火短信的其他编码**（C-29）：有文章提到 `send_msg` 的 `encode_schema` 还有 `UCS2` 等取值，但没有写出那种编码下正文的格式；固件把正文拼进命令行，格式不明就不发。
+- **华为其他型号 `net/register` 的 5G `Rat`**（C-01）：huawei-lte-api（`d2eb2af`）`api/Net.py` 第 119–126 行只列 `0` 2G、`2` 3G、`7` 4G。
+- **TP-Link MR 系列的 AES-GCM 登录**（C-16）：有记录了（tplinkrouterc6u `71e2c5b` `client/mr.py` 第 814–870 行：请求体多一行 `tag=`，`common/encryption.py` 第 206 行起：IV 12 字节），是一种新的登录写法，留给下一轮在模拟路由器上完整实现后再接。
+

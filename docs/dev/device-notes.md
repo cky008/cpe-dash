@@ -173,7 +173,7 @@
 
 > 烽燧里对应的品牌：**品速**。已实现：信号、锁频段、锁小区、重启。
 
-适用于采用 `/goform/sync`、`/goform/set_login_in`（挑战码 `HMAC-MD5` 鉴权）以及 `/action/get_mgdb_params` 键值数据库总线的品速 5G CPE、随身 WiFi 及同源紫光展锐春藤 V510 公版网关（`pinsu-mgdb`）。
+适用于采用 `/goform/sync`、`/goform/login`（用户名与密码各自做固定密钥的 `HMAC-MD5` 摘要）以及 `/action/get_mgdb_params` 键值数据库总线的品速 5G CPE、随身 WiFi 及同源紫光展锐春藤 V510 公版网关（`pinsu-mgdb`）。
 
 ### 4.1 Goform + `mgdb` 键值总线协议族
 
