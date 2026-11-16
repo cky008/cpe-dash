@@ -1,11 +1,11 @@
 ---
 title: What FengSui is
-description: A Huawei 5G router console running on your own NAS. Take two minutes to learn what it can and cannot do.
+description: A console for 4G / 5G routers (Huawei, ZTE, TP-Link and more) running on your own NAS. Take two minutes to learn what it can and cannot do.
 section: Get started
 order: 1
 ---
 
-FengSui (repository name `cpe-dash`) is a web console that runs on your home NAS or computer to monitor and manage Huawei 5G routers (CPEs).
+FengSui (repository name `cpe-dash`) is a web console that runs on your home NAS or computer to monitor and manage 4G / 5G cellular routers (indoor CPEs, mobile routers and the like): Huawei, ZTE, Pinsu, Tozed (ZLT), FiberHome, NRadio, D-Link and TP-Link, and OpenWrt routers with a Quectel or Fibocom module.
 
 It brings scattered information from the router's own web page onto a single dashboard, adding features the router's own web page lacks: historical charts, alerts, Telegram notifications, threaded SMS views, and interfaces for AI agents.
 
@@ -22,18 +22,18 @@ It brings scattered information from the router's own web page onto a single das
 
 ## Who it is for
 
-- People who use a Huawei 5G router at home or in the office and want to monitor signals and optimize bands.
+- People who use a 4G / 5G router at home or in the office and want to monitor signals and optimize bands.
 - People who have a NAS (Synology, QNAP, or custom Linux) or an always-on computer and know how to use Docker.
 - People who want to forward SMS messages received by the router to their phone or Telegram.
 
 ## Supported routers
 
-So far FengSui is verified on the **Huawei 5G CPE Ultra 6 (H168-383, firmware 4.4.0.1)** only. Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome, NRadio, D-Link and TP-Link, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself, but none of them was verified on a real device. What FengSui implements for those routers works straight away: you can view the signal (on Huawei models also SMS and connected devices), and writes such as a band lock or a reboot are on by default, each read back after it is sent; you can turn each one off in the console. The brands and models it may support are listed under [Supported devices](supported-devices.md); which writes are available and how to turn one off is under [Other models and brands](other-routers.md).
+So far FengSui is verified on the **Huawei 5G CPE Ultra 6 (H168-383, firmware 4.4.0.1)** only. Other Huawei HiLink routers connect as well, and so do routers from ZTE, Pinsu, Tozed (ZLT), FiberHome, NRadio, D-Link and TP-Link, and OpenWrt routers with a Quectel or Fibocom module; FengSui tells the brand itself, but none of them was verified on a real device. What FengSui implements for those routers works straight away: you can view the signal, on most brands also SMS and connected devices, and writes such as a band lock or a reboot are on by default, each read back after it is sent; you can turn each one off in the console. The brands and models it may support are listed under [Supported devices](supported-devices.md); which writes are available and how to turn one off is under [Other models and brands](other-routers.md).
 
 ## What it will not do
 
-- **Does not compete with you for the router**. The router allows only one administrator logged in at a time. When you log in to the router's own web page, FengSui steps aside automatically and resumes after you log out.
-- **Does not lock you out of the router**. Entering the wrong password 3 consecutive times locks the router. FengSui stops immediately on its first login failure and waits for you to fix it in the console; it never retries automatically.
+- **Does not compete with you for the router**. Many routers allow only one administrator logged in at a time. Where the router tells that someone is on its web page (Huawei, for example), FengSui steps aside when you log in there and resumes after you log out; its own logins each last well under a second.
+- **Does not lock you out of the router**. On many routers a few wrong passwords in a row lock the login (3 on the Huawei H168-383). FengSui stops immediately on its first login failure and waits for you to fix it in the console; it never retries automatically.
 - **Does not upload data**. FengSui connects to no cloud services and collects no usage data. Notifications are sent only to Telegram or webhooks that you configure yourself.
 - **Does not bypass carrier restrictions**. It uses only features already available on the router's own web page and does not alter RF parameters or transmit power.
 

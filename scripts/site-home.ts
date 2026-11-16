@@ -45,8 +45,8 @@ export function showcaseImage(id: ThemeId): string {
 
 const TEXT = {
   "zh-CN": {
-    metaTitle: "烽燧 FengSui · 华为 5G 路由器的自托管控制台",
-    metaDescription: "烽燧是装在你自己 NAS 上的华为 5G CPE 网页控制台：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和 AI 智能体接口，数据只留在家里。",
+    metaTitle: "烽燧 FengSui · 4G / 5G 路由器的自托管控制台",
+    metaDescription: "烽燧是装在你自己 NAS 上的 4G / 5G 路由器网页控制台，支持华为、中兴、TP-Link 等品牌：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和 AI 智能体接口，数据只留在家里。",
     titleStrong: "看清信号，",
     // "|" marks where the line may break (each part stays whole)
     titleSoft: "管好家里的|5G 路由器",
@@ -87,14 +87,14 @@ const TEXT = {
     sponsor: "在 GitHub 上赞助",
     coffee: "请作者喝杯咖啡",
     ctaTitle: "几分钟装好",
-    ctaLead: "一台能运行 Docker 的 NAS 或电脑，和华为路由器在同一个局域网里就够了。",
+    ctaLead: "一台能运行 Docker 的 NAS 或电脑，和你的路由器在同一个局域网里就够了。",
     ctaButton: "阅读快速开始",
     install: "安装指南",
     faq: "常见问题",
   },
   en: {
-    metaTitle: "FengSui · Self-hosted console for Huawei 5G routers",
-    metaDescription: "FengSui is a web console for Huawei 5G CPEs that runs on your own NAS: live signal and carrier aggregation, band and cell locking, SMS, connected devices, Telegram alerts and an MCP server for AI agents. Your data stays at home.",
+    metaTitle: "FengSui · Self-hosted console for 4G / 5G routers",
+    metaDescription: "FengSui is a web console for 4G / 5G routers (Huawei, ZTE, TP-Link and more) that runs on your own NAS: live signal and carrier aggregation, band and cell locking, SMS, connected devices, Telegram alerts and an MCP server for AI agents. Your data stays at home.",
     titleStrong: "See your signal.",
     titleSoft: "Run your 5G router.",
     lead: "FengSui is a web console you run on your own NAS. Live signal and carrier aggregation, band and cell locking, SMS, connected devices and Telegram alerts, all on one page. Your data never leaves home.",
@@ -134,7 +134,7 @@ const TEXT = {
     sponsor: "Sponsor on GitHub",
     coffee: "Buy me a coffee",
     ctaTitle: "Up and running in minutes",
-    ctaLead: "All you need is a NAS or computer that runs Docker, on the same network as your Huawei router.",
+    ctaLead: "All you need is a NAS or computer that runs Docker, on the same network as your router.",
     ctaButton: "Read the quick start",
     install: "Installation guide",
     faq: "FAQ",

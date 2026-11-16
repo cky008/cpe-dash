@@ -20,7 +20,7 @@ RUN npm run build
 
 FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS runtime
 LABEL org.opencontainers.image.title="cpe-dash (烽燧 FengSui)" \
-      org.opencontainers.image.description="Self-hosted 5G RF telemetry, band/cell locking, SMS centre and MCP server for the Huawei 5G CPE Ultra 6 (H168-383)" \
+      org.opencontainers.image.description="Self-hosted 4G / 5G router console: RF telemetry, band/cell locking, SMS centre and MCP server for Huawei, ZTE, TP-Link and more (verified on the Huawei H168-383)" \
       org.opencontainers.image.source="https://github.com/cky008/cpe-dash" \
       org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 ENV NODE_ENV=production \
