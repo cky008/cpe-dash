@@ -4,8 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { type FengSuiRuntimeStack, createFengSuiRuntime, startServeDaemon } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
+import { FIBERHOME_PASSWORD, FIBERHOME_URL, fiberhomeRouter } from "../test/helpers/fiberhome-router.ts";
 import { NRADIO_URL, nradioRouter } from "../test/helpers/nradio-router.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "../test/helpers/openwrt-router.ts";
+import { PINSU_PASSWORD, PINSU_URL, pinsuRouter } from "../test/helpers/pinsu-router.ts";
+import { TOZED_PASSWORD, TOZED_URL, tozedRouter } from "../test/helpers/tozed-router.ts";
+import { decoRouter } from "../test/helpers/tplink-deco-router.ts";
+import { TPLINK_PASSWORD, TPLINK_URL, tplinkRouter } from "../test/helpers/tplink-router.ts";
+import { ZTE_PASSWORD, zteRouter } from "../test/helpers/zte-goform-router.ts";
+import { ZWRT_PASSWORD, zwrtRouter } from "../test/helpers/zte-zwrt-router.ts";
 import type { RouterFamily } from "../src/router-family.ts";
 import { ConsoleSettings } from "../src/console-settings.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
@@ -49,7 +56,33 @@ export const DEMO_CERT_FINGERPRINT = "C4".repeat(32);
  * module bridge) and `openwrt` (a DHCP lease list, which does not say how a device is linked) are for
  * the browser tests of what only those brands show.
  */
+/**
+ * The routers of every other brand and form, as the driver's mock router has it: for the browser
+ * tests and the walk of every route and tool (test/brand-walk.test.ts), not for the demo's households.
+ */
+const BARE_WORLDS = {
+  "zte-reqproc": () => ({ fetchImpl: zteRouter({ reqproc: true, sim: true }).mock.fetchImpl, connection: { url: "http://192.168.0.1", username: "admin", password: ZTE_PASSWORD, family: "zte-goform" } }),
+  "zte-zwrt": () => ({ fetchImpl: zwrtRouter().mock.fetchImpl, connection: { url: "http://192.168.0.1", username: "", password: ZWRT_PASSWORD, family: "zte-zwrt" } }),
+  pinsu: () => ({ fetchImpl: pinsuRouter().mock.fetchImpl, connection: { url: PINSU_URL, username: "admin", password: PINSU_PASSWORD, family: "pinsu" } }),
+  tozed: () => ({ fetchImpl: tozedRouter().mock.fetchImpl, connection: { url: TOZED_URL, username: "admin", password: TOZED_PASSWORD, family: "tozed" } }),
+  fiberhome: () => ({ fetchImpl: fiberhomeRouter().mock.fetchImpl, connection: { url: FIBERHOME_URL, username: "admin", password: FIBERHOME_PASSWORD, family: "fiberhome" } }),
+  "tplink-mr": () => ({ fetchImpl: tplinkRouter().mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
+  "tplink-ex": () => ({ fetchImpl: tplinkRouter({ form: "ex" }).mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
+  "tplink-deco": () => ({ fetchImpl: decoRouter().mock.fetchImpl, connection: { url: TPLINK_URL, username: "", password: TPLINK_PASSWORD, family: "tplink" } }),
+  "openwrt-fibocom": () => ({ fetchImpl: openwrtRouter({ brand: "fibocom" }).mock.fetchImpl, connection: { url: "http://192.168.1.1", username: "root", password: OPENWRT_PASSWORD, family: "openwrt" } }),
+} satisfies Record<string, () => { fetchImpl: typeof fetch; connection: BrandWorld["connection"] }>;
+
+/** A router of every brand and form FengSui has a driver for, besides the demo's households. */
+export type BareWorld = keyof typeof BARE_WORLDS;
+
+/** Every world of a brand other than Huawei: the demo's households, then the bare ones. */
+export const BRAND_SCENARIOS = ["zte", "dlink", "nradio", "openwrt", ...(Object.keys(BARE_WORLDS) as BareWorld[])] as const;
+
 function brandWorld(scenario: DemoDaemonOptions["scenario"]): BrandWorld | null {
+  if (scenario !== undefined && Object.hasOwn(BARE_WORLDS, scenario)) {
+    const bare = BARE_WORLDS[scenario as BareWorld]();
+    return { router: bareRouter(bare.fetchImpl), connection: bare.connection };
+  }
   if (scenario === "zte") return { router: createZteDemoRouter(), connection: { url: ZTE_DEMO_URL, username: "", password: DEMO_CPE_PASSWORD, family: "zte-goform" } };
   if (scenario === "dlink") return { router: createDlinkDemoRouter(), connection: { url: DLINK_DEMO_URL, username: "", password: DEMO_CPE_PASSWORD, family: "dlink" } };
   if (scenario === "nradio") {
@@ -78,9 +111,12 @@ export interface DemoDaemonOptions {
    * model, with experimental writes; `zte`: a ZTE mobile router, through FengSui's ZTE driver;
    * `dlink`: a D-Link 4G router, a brand without locks; `nradio`, `openwrt`: routers of those brands
    * for the browser tests (`brandWorld`); `https`: an OpenWrt router that also answers over HTTPS with
-   * a certificate of its own.
+   * a certificate of its own; the others (`BareWorld`): a router of each other brand and form, the
+   * driver's mock router as it is.
    */
-  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte" | "dlink" | "nradio" | "openwrt" | "https";
+  scenario?: "normal" | "yield" | "breaker" | "unverified" | "zte" | "dlink" | "nradio" | "openwrt" | "https" | BareWorld;
+  /** Settings to override in the daemon's configuration (`MCP_ALLOW_MUTATIONS`, say). */
+  env?: Readonly<Record<string, string>>;
   /**
    * Run the Telegram bot against an in-process stand-in for the Bot API (nothing leaves the process),
    * with `TELEGRAM_CHAT_IDS=1003`: Settings → Telegram can then link, list and unlink chats.
@@ -122,6 +158,7 @@ export async function startDemoDaemon(opts: DemoDaemonOptions): Promise<DemoDaem
       LOCK_ROLLBACK_AFTER_MIN: "10",
       WAN_AUTO_RECONNECT_AFTER_MIN: "3",
       TZ: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...opts.env,
     },
   });
   // Belt and braces: nothing in this process may notify or announce itself (a bot, if asked for, talks to a stand-in)
