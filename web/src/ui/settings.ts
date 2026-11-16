@@ -61,6 +61,7 @@ import {
   reportIssueLink,
   reportJson,
   supportCells,
+  supportIntro,
   supportDocsUrl,
   supportMarkText,
   supportNotes,
@@ -474,11 +475,12 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     );
     const notes = supportNotes(row, locale);
     const issueUrl = row.model === null && !ctx.demo ? deviceIssueUrl(device?.profile?.identity ?? null) : null;
+    const intro = supportIntro(row);
     return h(
       "div",
       { class: "space-y-2", data: { support: row.section } },
       h("div", { class: "fs-label" }, t("support_title")),
-      h("p", { class: "text-xs muted" }, row.model === null ? t("support_unlisted") : t("support_row", { model: row.model })),
+      h("p", { class: "text-xs muted" }, t(intro.key, intro.params)),
       h("ul", { class: "grid grid-cols-2 sm:grid-cols-3 gap-1.5" }, ...cells),
       notes.length > 0 ? h("ul", { class: "list-disc pl-4 text-xs faint space-y-0.5" }, ...notes.map((note) => h("li", null, note))) : null,
       h("p", { class: "text-[0.6875rem] faint" }, t("support_legend")),

@@ -16,6 +16,7 @@ import type {
 } from "../../../src/api-contract.ts";
 import type { DeviceSupportRow, SupportMark } from "../../../src/device-catalog.ts";
 import { deviceIssueUrl } from "../../../src/feedback.ts";
+import { unnamedModel } from "../../../src/router-family.ts";
 import type { SettingsTextKey } from "../i18n/settings.ts";
 import { type NoticeTone, schemeText } from "./console-view.ts";
 import { formatAgo } from "./format.ts";
@@ -235,6 +236,16 @@ export function reportIssueLink(report: DeviceReport, demo: boolean): string | n
 /** The brand's section of Supported devices on the documentation site. */
 export function supportDocsUrl(row: Pick<DeviceSupportRow, "section">, locale: Locale): string {
   return `${DOCS_SITE}${locale === "en" ? "en/" : ""}docs/supported-devices/#brand-${row.section}`;
+}
+
+/**
+ * The sentence over the row: the model's own row, a model the table does not have yet (a report gets it
+ * one), or a brand whose routers name no model, which FengSui calls by the brand's name.
+ */
+export function supportIntro(row: Pick<DeviceSupportRow, "family" | "model">): { key: SettingsTextKey; params: Record<string, string> } {
+  if (row.model !== null) return { key: "support_row", params: { model: row.model } };
+  const name = unnamedModel(row.family);
+  return name === null ? { key: "support_unlisted", params: {} } : { key: "support_unnamed", params: { name } };
 }
 
 /** The row's modules in the console's language, each with its mark (`""`: FengSui does not do it there yet). */

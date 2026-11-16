@@ -18,6 +18,7 @@ import {
   SUPPORT_MARK_KEYS,
   checksSummary,
   supportCells,
+  supportIntro,
   supportDocsUrl,
   supportMarkText,
   supportNotes,
@@ -133,6 +134,12 @@ describe("console: the router's row of Supported devices", () => {
     assert.deepEqual(supportCells(row, "en")[5], { label: "Cell lock", mark: "△" });
     assert.deepEqual(supportCells(row, "zh-CN")[0], { label: "信号与流量", mark: "?" });
     assert.equal(supportNotes(row, "zh-CN")[0], "锁小区：只能锁 5G 小区，不能锁 4G 小区");
+    // The sentence over the row: the model's own, one the table lacks, or a brand whose routers name no model
+    assert.deepEqual(supportIntro(row), { key: "support_row", params: { model: row.model ?? "" } });
+    assert.deepEqual(supportIntro(deviceSupportRow("zte-zwrt", "MU9999")), { key: "support_unlisted", params: {} });
+    const pinsu = supportIntro(deviceSupportRow("pinsu", "Pinsu"));
+    assert.deepEqual(pinsu, { key: "support_unnamed", params: { name: "Pinsu" } });
+    assert.match(t(pinsu.key, pinsu.params), /name no model, so FengSui calls each of them “Pinsu”/);
     assert.deepEqual(["✓", "?", "△", "—", "", "✓/?"].map((mark) => supportMarkText(mark as "✓", t)), [
       "verified on a real router",
       "implemented, waiting for a report",
