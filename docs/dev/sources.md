@@ -867,4 +867,3 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 - **烽火短信的其他编码**（C-29）：有文章提到 `send_msg` 的 `encode_schema` 还有 `UCS2` 等取值，但没有写出那种编码下正文的格式；固件把正文拼进命令行，格式不明就不发。
 - **华为其他型号 `net/register` 的 5G `Rat`**（C-01）：huawei-lte-api（`d2eb2af`）`api/Net.py` 第 119–126 行只列 `0` 2G、`2` 3G、`7` 4G。
 - **TP-Link MR 系列的 AES-GCM 登录**（C-16）：有记录了（tplinkrouterc6u `71e2c5b` `client/mr.py` 第 814–870 行：请求体多一行 `tag=`，`common/encryption.py` 第 206 行起：IV 12 字节），是一种新的登录写法，留给下一轮在模拟路由器上完整实现后再接。
-
