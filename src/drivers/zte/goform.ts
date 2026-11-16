@@ -1591,6 +1591,17 @@ async function zteLoginRefusal(http: LanHttp, at: ZteEndpoints, result: string |
   throw loginUnplaced(`login answered ${answerCode(raw)}`);
 }
 
+/**
+ * Login result `4`. ZTE's own page counts it as a success: "the user is already logged in at the
+ * device" (`2` is another user). FengSui signs out after every session, so a session at its address is
+ * one it did not open: a person's browser on the same machine, or its own that a crash left behind.
+ * It steps aside, and neither works in that session nor signs it out (which would sign that person
+ * out); one of its own ends when the router times it out.
+ */
+function alreadySignedIn(): CpeApiError {
+  return signedInElsewhere("the router says this address is already signed in, with a session FengSui did not open");
+}
+
 export const zteGoformProtocol: DriverProtocol = {
   family: FAMILY,
 
@@ -1624,7 +1635,7 @@ export const zteGoformProtocol: DriverProtocol = {
       );
       const result = textOf(answer["result"]);
       if (result === "0") return new ZteGoformSession(http, version, "csrf", credentials.password, null, at);
-      if (result === "4") throw signedInElsewhere("another administrator is signed in");
+      if (result === "4") throw alreadySignedIn();
       return await zteLoginRefusal(http, at, result, answer["result"]);
     }
     const ld = textOf((await getCmd(http, ["LD"], false))["LD"]);
@@ -1642,7 +1653,7 @@ export const zteGoformProtocol: DriverProtocol = {
     ]);
     const result = textOf(answer["result"]);
     if (result === "0") return new ZteGoformSession(http, version, method.kind === "sha256-ld" ? "sha256" : "md5", credentials.password, configJs);
-    if (result === "4") throw signedInElsewhere("another administrator is signed in");
+    if (result === "4") throw alreadySignedIn();
     return await zteLoginRefusal(http, at, result, answer["result"]);
   },
 };

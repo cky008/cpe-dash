@@ -244,7 +244,7 @@ v1.9.0 分成几个里程碑，一个里程碑一节。每个里程碑推送之�
 | 自动制式的名字 | `WL_AND_5G` | `NETWORK_auto` | 两种都存在：ZTE-Web-Script 列的是 5G 路由器的 `WL_AND_5G` 一组；4G 固件（`reqproc` 写法与 MF286A 一类）用 `NETWORK_auto` | 两种都支持：路由器读回的制式是 `NETWORK_auto` 时按 4G 固件的名字写，并拒绝 5G 制式 |
 | 按 `cr_version` 判第 4 支 | 有 | 无 | 没有找到出处 | 维持按硬件版本与型号判断 |
 | 32 位 `LD` 的 MD5 登录 | 无 | 有 | ZTE-Web-Script 的登录是 `SHA256(SHA256(password) + LD)`；没有找到 MD5 写法的出处 | 维持不发密码 |
-| 登录结果 `2` | 锁定 | 锁定 | 中兴自己网页的 `service.js`：`2` 是 duplicateUser（另一个用户已登录），`4` 是本机已登录、按成功处理 | 结果 `2` 时读路由器的剩余次数：还有次数且没有锁定，视为别处已登录、让位；有锁定或读不到次数，仍按锁定熔断。`4` 仍按「别处已登录」让位（较保守：不在一个可能属于别人的会话里继续） |
+| 登录结果 `2` | 锁定 | 锁定 | 中兴自己网页的 `service.js`：`2` 是 duplicateUser（另一个用户已登录），`4` 是本机已登录、按成功处理 | 结果 `2` 时读路由器的剩余次数：还有次数且没有锁定，视为别处已登录、让位；有锁定或读不到次数，仍按锁定熔断。`4` 让位（这个会话不是烽燧这一次开的，可能属于同一台机器上的人；含义与理由见 22.3） |
 
 **中兴的「有人在线」检查（这一步的第 5 项）：查过，没有可用的标志**
 
@@ -879,7 +879,7 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 agy 上网检索（只用 `search_web`），我抓原文核对：
 
 - **zWRT：会。** [rosenrot00/ha-zte-ng-router](https://github.com/rosenrot00/ha-zte-ng-router)（`c855a27`，2026-11-14，MIT）README 第 18 行：「while this integration is running, you will be logged out from the webui on every poll as only a single login is allowed on these devices」（G5TC、G5TS、G5C、G5 Max、G5 Ultra，同一套 ubus 接口）。`zwrt_web.web_login_info` 的免登录应答只有盐、失败次数和锁定时间（OurKode/ZTE-MC7500 的 API 文档，检索摘要），没有「有人在线」的字段，所以烽燧没法先让位。型号清单为 zWRT 记一条说明，「其他型号与品牌」页写明：要用路由器网页时先停掉烽燧。
-- **goform：拒绝第二个登录，不挤人。** MU5001 自己的页面脚本（gist `DarkNikGr/3c4ac5ad9cab5b639b608eeccc97e201`，`mifi-mu5001-api.js`）里登录结果 `2` 是 `duplicateUser`；烽燧在有剩余次数、没有锁定时把 `2` 当作有人在线并让位。同一份脚本把 `4` 与 `0` 一样当作登录成功（`"0" != e.result && "4" != e.result` 才进失败分支），与资料 B（`4` 为有人在线）矛盾：涉及登录路径，留给下一轮（`final-4/NEXT_ROUND.md` N-5）。
+- **goform：拒绝第二个登录，不挤人。** MU5001 自己的页面脚本（gist `DarkNikGr/3c4ac5ad9cab5b639b608eeccc97e201`，`mifi-mu5001-api.js`）里登录结果 `2` 是 `duplicateUser`；烽燧在有剩余次数、没有锁定时把 `2` 当作有人在线并让位。同一份脚本把 `4` 与 `0` 一样当作登录成功（`"0" != e.result && "4" != e.result` 才进失败分支），与资料 B（`4` 为有人在线）矛盾：涉及登录路径，留给下一轮（结论见 22.3）。
 - 不算数的：`juacas/zte_tracker`、`masoneff3/ha_zteh388x` 说的是中兴 H388X 等宽带网关（另一套接口）；`cmd=loginfo` 说的是发请求的这个会话自己有没有登录，不是别人。
 
 
@@ -908,3 +908,16 @@ agy 上网检索（只用 `search_web`），我抓原文核对：
 - **参考项目里这种组合登录不了。** tplinkrouterc6u（`71e2c5b`，GPL-3.0，只取事实）的 `TPLinkMRClientGCM` 继承 `TPLinkMRClientBase._req_login`（`client/mr.py` 第 691–735 行）：它从 `_prepare_data` 取两个值（签名、密文），拼成 `/cgi/login?data=…&sign=…&Action=1&LoginStatus=0`；GCM 的 `_prepare_data`（第 870–877 行）返回三个值（多一个标签），取值那一行就出错，`supports()` 把错误吞掉。所以这个类在任何路由器上都登录不了，也就没有写出标签在 `/cgi/login` 的地址里放在哪里。第 814–870 行记下的 `sign=…\r\ndata=…\r\ntag=…\r\n` 是登录之后经 `/cgi_gdpr` 发出的请求。这个类是和 EX 的 GCM 客户端一起加进去的（提交 `42cd40f`，PR #104），PR 里测的是 VX231v（EX 写法）。
 - **公开资料里找不到用 GCM 的 MR 固件。** 22.1 的 26 个模拟器里，名字是 MR 的全部是 CBC（Archer MR202、MR402、MR402-Outdoor、MR500-Outdoor、MR550 v2、MR600 v5，TL-MR100-Outdoor、MR101、MR108、MR110-Outdoor）；6 个 GCM 的都是 EX / NX 这一代，登录走 `/cgi_gdpr`。两个上网检索的子代理（只用 `search_web`）各查了十几组关键词，没有找到任何 MR 型号的 GCM 页面脚本、能用的第三方实现或用户报告。
 - **所以不实现。** 标签放在哪里只能猜，猜错的登录在真机上可能算一次密码错误；铁律四要求登录方式在发送密码之前凭路由器给的东西定下，定不下来就不发。MR 写法遇到 GCM 的脚本时照旧以「这种固件的登录没有记录」拒绝，不发送密码、不熔断。要实现它，需要这样一台路由器的登录页（`frame/login.htm` 里拼 `/cgi/login` 的那几行），或一次登录的请求记录（去掉密码）：有人报告时再做。
+
+### 22.3 中兴 goform 登录结果 `4` 的含义（N-5）
+
+18.3 的对照表已经记过「`4` 是本机已登录、按成功处理」，烽燧当时决定让位；21.12 又从 MU5001 的页面脚本看到同样的写法，留给这一轮核实。这一轮找到了中兴自己写明含义的地方：
+
+- **中兴未压缩的页面脚本**（[zhovner/mf823-pro](https://github.com/zhovner/mf823-pro) `138_/web/js/service.js`，提交 `6051190`，2016-10-24，MF823 的管理页；仓库没有写许可证，只取事实）：登录的处理函数里写着注释「in doc, notes: If the user is 'already logged in' at the device, it calls back as success」，`0` 和 `4` 都算登录成功；`1` 是 Login Fail，`2` 是 duplicateUser，`3` 是 badPassword，被注释掉的一支把 `4` 叫作「already logged in」。
+- **MU5001 的页面脚本**（gist `DarkNikGr/3c4ac5ad9cab5b639b608eeccc97e201`，这一轮下载核对）是同一段逻辑的压缩版，另外把 `5` 单独处理（置为未登录，不给错误类型，含义没有记录）。
+- 资料 B 把 `4` 写成「已有其他管理员在线」，不准确：另一个用户在线是 `2`，`4` 是路由器认为**发请求的这一方**已经登录。
+- 上网检索的两个子代理没有找到路由器一侧的源码，也没有找到把 `4` 当成功的第三方实现（它们一律只认 `0`）。
+
+**烽燧的处理不变：让位，不在这个会话里读写，也不注销它。** 理由：烽燧每次会话结束都注销，所以轮到它登录时路由器说「已经登录」，这个会话就不是它这一次开的。它可能是同一台机器上的人在浏览器里开的（烽燧和浏览器在同一台电脑上，或容器经这台电脑的地址出去），接着用再注销，会把这个人登出，违反铁律四；也可能是烽燧自己上一次没注销掉的（进程在会话中途被杀），这种会在路由器超时后自己结束，烽燧随后照常登录。代价是后一种情况下烽燧要等到路由器超时。代码里的说明原来写「另一个管理员在线」，改成了上面的意思；测试钉住登录应答 `4` 之后不再发任何表单。
+
+**查到但没有采用的**：ZTE-Web-Script（`3206010`，`legacy/zte-script-legacy.js` 的 `check_log_in`）的注释说，`cmd=loginfo` 不带 `multi_data=1` 时，「别的浏览器里有会话在运行」也可能答 `ok`。这可能是一个不用登录就能看出有人在线的信号，但出处只有这一句、措辞也不肯定；读错的后果是烽燧一直让位、读不到路由器。先不用，等真机报告。

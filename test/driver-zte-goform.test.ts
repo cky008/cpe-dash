@@ -138,7 +138,7 @@ describe("zte-goform: login and digests", () => {
     assert.ok(!mock.requests.some((r) => r.method === "POST"));
   });
 
-  it("treats result 2 as someone signed in elsewhere while attempts are left and nothing is locked, else as a lock; 4 as signed in elsewhere", async () => {
+  it("treats result 2 as someone signed in elsewhere while attempts are left and nothing is locked, else as a lock; 4 as a session that is not FengSui's", async () => {
     // ZTE's own page calls 2 a duplicate user; both notes libraries call it a lock: the router's count decides
     const elsewhere = zteRouter({ loginResult: "2" });
     const yielded = await elsewhere.client.withSessionDetailed((s) => s.telemetry());
@@ -148,10 +148,13 @@ describe("zte-goform: login and digests", () => {
     await assert.rejects(locked.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108007");
     const unreadable = zteRouter({ loginResult: "2", lock: { left: "", wait: "" } });
     await assert.rejects(unreadable.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.code === "108007", "no count to go by: the safe reading");
+    // ZTE's own page takes 4 ("already logged in at the device") as a success. FengSui signed out of its last session,
+    // so a session at its address is one it did not open: it steps aside, and neither works in that session nor ends it
     const busy = zteRouter({ loginResult: "4" });
     const outcome = await busy.client.withSessionDetailed((s) => s.telemetry());
     assert.equal(outcome.status, "yielded");
     assert.equal(busy.client.getCircuitBreakerState().tripped, false);
+    assert.equal(busy.mock.requests.filter((request) => request.method === "POST").length, 1, "the login is the only form sent: no write in that session, no LOGOUT that would end it");
     const odd = zteRouter({ loginResult: "9" });
     await assert.rejects(odd.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof CpeApiError && err.latchesBreaker);
   });
