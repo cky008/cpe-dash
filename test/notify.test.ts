@@ -1577,6 +1577,26 @@ describe("Telegram: cellular settings behind a confirm card", () => {
     }
   });
 
+  it("says in whole that the connection is paused when a confirmed write meets a pause, and writes nothing", async () => {
+    const router = zteRouter({ sim: true, simSlot: "0" });
+    const daemon = daemonOn("zte-goform", router.mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
+    const tg = cellularBot(daemon.core);
+    try {
+      await daemon.core.monitor.refreshTelemetry();
+      await tg.message("/netmode");
+      await tg.callback("nm:lte");
+      // The owner pauses the connection in the console before pressing the card's confirmation
+      daemon.core.scheduler.pauseConnection(15);
+      const before = router.mock.requests.length;
+      await tg.callback(tg.card().buttons.find((data) => data.startsWith("nmok:")) ?? "nmok:missing");
+      assert.match(tg.card().text, /The connection to the router is paused.*nothing was sent to the router.*Resume under Settings → Router/s, "the whole sentence, not its first 180 characters");
+      assert.equal(router.mock.requests.length, before, "nothing reached the router");
+    } finally {
+      await tg.close();
+      await daemon.cleanup();
+    }
+  });
+
   it("switches airplane mode on an OpenWrt router, and says before it goes on that only the console can turn it off", async () => {
     const router = openwrtRouter();
     const daemon = daemonOn("openwrt", router.mock.fetchImpl, "http://192.168.1.1", OPENWRT_PASSWORD, "root");

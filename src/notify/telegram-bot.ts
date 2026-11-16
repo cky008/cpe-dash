@@ -9,7 +9,7 @@ import type { FengSuiCore } from "../core.ts";
 import { type FeatureWriteAccess, gateRefuses } from "../device-access.ts";
 import type { NetworkMode, UssdRequest } from "../cellular.ts";
 import { type InputOf, type OperationName, TELEGRAM_COMMANDS, operationActions, operationInput, operationRecord } from "../operations/registry.ts";
-import { BrowserSessionYieldedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../scheduler.ts";
+import { BrowserSessionYieldedError, ConnectionChangedError, ConnectionPausedError, DeviceReadOnlyError, DeviceWriteDisabledError } from "../scheduler.ts";
 import { MAX_SMS_SEGMENTS, detectSmsTextMode } from "../sms/text-mode.ts";
 import { getCountryByDialCode, resolveRecipientPhone } from "../sms/phone.ts";
 import type { SmsService } from "../sms/service.ts";
@@ -2106,6 +2106,8 @@ export class TelegramBot implements NotificationChannel {
   #describeError(err: unknown): string {
     if (err instanceof BrowserSessionYieldedError) return this.#plain("yielded");
     if (err instanceof DeviceReadOnlyError) return this.#plain("read_only_short", { model: err.model });
+    // The scheduler's own sentences for a write it dropped before any session, whole and in the chat's language
+    if (err instanceof ConnectionPausedError || err instanceof ConnectionChangedError) return this.locale === "en" ? err.messageEn : err.messageZh;
     return truncate(err instanceof Error ? err.message : String(err), 180);
   }
 
