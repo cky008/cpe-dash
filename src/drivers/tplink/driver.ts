@@ -207,7 +207,20 @@ interface Opening {
 }
 
 /** The key of one form's key request, or `null` when the router does not answer it as that form does. */
-function keyOf(res: LanResponse): { key: TplinkPublicKey; seq: number } | null {
+/**
+ * Why no password goes to a firmware whose page signs in without the encryption: its page puts the
+ * user name and the password under the router's RSA key and sends every request in plain text
+ * (`/cgi?`), a login FengSui does not speak. TP-Link's emulators show that page on older MR models; a
+ * library tested it on the TL-MR6400 v7. The words end in what showed it, for a report to carry.
+ */
+const UNENCRYPTED_LOGIN = "this firmware's page signs in without the encryption (the user name and the password under the router's RSA key, every request in plain text), a login FengSui does not speak: no password was sent";
+
+/**
+ * The key of one form's key request, or `null` when the router does not answer it as that form does.
+ * `"plain"`: an RSA key handed out as JSON (`nn`, `ee`), as the page of a firmware that signs in
+ * without the encryption asks for it.
+ */
+function keyOf(res: LanResponse): { key: TplinkPublicKey; seq: number } | "plain" | null {
   if (res.status !== 200) return null;
   const seqText = scriptVar(res.text, "seq");
   const modulusHex = scriptVar(res.text, "nn");
@@ -226,19 +239,25 @@ function keyOf(res: LanResponse): { key: TplinkPublicKey; seq: number } | null {
   }
   const xHex = textOf(fieldOf(parsed, "eccPubKey_X_HEX"));
   const yHex = textOf(fieldOf(parsed, "eccPubKey_Y_HEX"));
+  if ((xHex === null || yHex === null) && textOf(fieldOf(parsed, "nn")) !== null && textOf(fieldOf(parsed, "ee")) !== null) return "plain";
   const seq = nonNegativeOf(fieldOf(parsed, "seq"));
   if (xHex === null || yHex === null || seq === null) return null;
   const key: TplinkPublicKey = { kind: "ecc", xHex, yHex };
   return usableKey(key) ? { key, seq } : null;
 }
 
-/** Ask for the router's key in each form's own place; the form that answers is the one it speaks. */
-async function opening(http: LanHttp): Promise<Opening | null> {
+/**
+ * Ask for the router's key in each form's own place; the form that answers is the one it speaks.
+ * `"plain"`: a TP-Link page that signs in without the encryption (no form FengSui speaks answered).
+ */
+async function opening(http: LanHttp): Promise<Opening | "plain" | null> {
+  let plain = false;
   for (const dialect of ["ex", "mr"] as const) {
     const found = keyOf(await http.request({ method: "POST", path: OBJECTS[dialect].key, referer: ROOT }));
-    if (found) return { dialect, ...found };
+    if (found === "plain") plain = true;
+    else if (found) return { dialect, ...found };
   }
-  return null;
+  return plain ? "plain" : null;
 }
 
 /**
@@ -254,7 +273,7 @@ async function schemeOf(http: LanHttp, open: Opening): Promise<TplinkScheme> {
   // Any other answer that is not the script (an error, a page) settles nothing
   if (script.status === 404) {
     const flags = await http.request({ method: "GET", path: BUILD_FLAGS, referer: ROOT });
-    if (flags.status === 200 && flags.text.includes("INCLUDE_LOGIN_GDPR_ENCRYPT=0")) throw new DriverLoginMethodError("this firmware's page signs in without the encryption, a login that is not on record");
+    if (flags.status === 200 && flags.text.includes("INCLUDE_LOGIN_GDPR_ENCRYPT=0")) throw new DriverLoginMethodError(`${UNENCRYPTED_LOGIN} (its page script sets INCLUDE_LOGIN_GDPR_ENCRYPT=0)`);
     return { cipher: "cbc", padding: "none" };
   }
   if (script.status !== 200 || script.text.trimStart().startsWith("<")) throw new DriverLoginMethodError(`the page's encryption script could not be read (HTTP ${script.status})`);
@@ -1164,6 +1183,7 @@ export const tplinkProtocol: DriverProtocol = {
 
   async login(http: LanHttp, credentials: DriverCredentials): Promise<DriverSessionHandle> {
     const open = await opening(http);
+    if (open === "plain") throw new DriverLoginMethodError(`${UNENCRYPTED_LOGIN} (it hands out its RSA key as JSON)`);
     if (open === null) {
       // Neither form of the Archer routers: a Deco hands out its own key
       const passwordKey = await decoPasswordKey(http);

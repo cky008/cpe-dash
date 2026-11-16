@@ -348,6 +348,14 @@ describe("tp-link: signing in and out", () => {
     await assert.rejects(plain.client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof DriverLoginMethodError && /signs in without the encryption/.test(err.message));
     assert.deepEqual([plain.logins.length, plain.mock.trail.includes("POST /cgi/login")], [0, false], "no password went out");
     assert.deepEqual(plain.mock.trail.slice(-2), ["GET /js/tpEncrypt.js", "GET /js/oid_str.js"]);
+    // A firmware that hands out its RSA key as JSON signs in that same way (the TL-MR6400 v7 does): no password either, and it says why
+    const v7 = new LanRouterMock((req) =>
+      req.path === "/cgi/getParm" ? { text: `{"ee":"010001","nn":"c${"0".repeat(126)}1","seq":"1","ret":0}` } : req.path === "/" ? { text: "<html>login</html>" } : { status: 404, text: "" }
+    );
+    const v7client = new DriverCpeClient({ protocol: tplinkProtocol, cpeUrl: TPLINK_URL, cpePassword: TPLINK_PASSWORD, fetchImpl: v7.fetchImpl });
+    await assert.rejects(v7client.withSession((s) => s.telemetry()), (err: unknown) => err instanceof DriverLoginMethodError && /signs in without the encryption.*no password was sent \(it hands out its RSA key as JSON\)/.test(err.message));
+    assert.equal(v7.requests.filter((r) => r.path === "/cgi/login").length, 0, "no password went out");
+    assert.equal(await tplinkProtocol.detect(new (await import("../src/protocols/transport.ts")).LanHttp({ baseUrl: TPLINK_URL, fetchImpl: v7.fetchImpl, timeoutMs: 1000, signal: new AbortController().signal })), true, "still a TP-Link router to brand detection");
     // The same firmware with the encryption built in: the original form, as before
     const built = tplinkRouter({ script: { status: 404, text: "" }, buildFlags: "var INCLUDE_LTEWAN=1,INCLUDE_LOGIN_GDPR_ENCRYPT=1;" });
     assert.equal((await built.client.withSession((s) => s.telemetry()))?.signalBars, 4);
