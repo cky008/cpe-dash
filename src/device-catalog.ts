@@ -709,6 +709,12 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
   ...TPLINK_ARCHER_SESSION,
   {
+    family: "pinsu",
+    features: [],
+    zh: "管理页的接口里没有型号，烽燧里它们都叫「Pinsu」：设备报告和「设置 → 设备」里的型号都是这个名字",
+    en: "Their page's interface names no model, so FengSui calls each of them \"Pinsu\": that is the model in the device report and under Settings → Device",
+  },
+  {
     family: "tplink",
     models: ["TL-MR6400"],
     features: [],

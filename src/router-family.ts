@@ -99,6 +99,18 @@ export interface RouterFamilyFacts {
    * facts alone (every driver family's). A write users verified on the model needs no such sign.
    */
   probe?: Readonly<Partial<Record<WriteFeature, ProbeSign>>>;
+  /**
+   * The family's interface names no model where FengSui reads (Pinsu's `mgdb` keys hold none): every
+   * router of the family goes by this name instead, so that the write gate, the device report and
+   * Settings → Device have a model to go by. Left out: the router names its model, and a write waits
+   * until FengSui has read it.
+   */
+  unnamedModel?: string;
+}
+
+/** The model a router of `family` goes by when its interface names none (`null`: the family's routers name theirs). */
+export function unnamedModel(family: RouterFamily): string | null {
+  return ROUTER_FAMILY_FACTS[family].unnamedModel ?? null;
 }
 
 /** An endpoint of the identification probe that answered, with these tags in its answer (names only, never values). */
@@ -189,6 +201,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     defaultAddress: "192.168.0.1",
     reads: ["telemetry"],
     writes: ["bandLock", "cellLock", "reboot", "networkMode"],
+    unnamedModel: "Pinsu",
     networkModes: ["auto", "lte", "nr_sa"],
     nrBandLock: true,
     selectableModes: ["auto", "nr_sa", "lte"],

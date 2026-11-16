@@ -35,7 +35,7 @@ import type { DeviceAccess, WriteCheck } from "../device-access.ts";
 import { CELLULAR_WRITE_FEATURES, type WriteFeature } from "../features.ts";
 import type { DeviceProbeResult, ProbeOrigin } from "../device-profile.ts";
 import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, RollbackRequest, SmsListing, SmsSendOutcome, WanRepairOutcome } from "../router-backend.ts";
-import { type DriverFamily, ROUTER_FAMILY_FACTS, familyWritesAnywhere } from "../router-family.ts";
+import { type DriverFamily, ROUTER_FAMILY_FACTS, familyWritesAnywhere, unnamedModel } from "../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { WriteContext } from "../scheduler.ts";
 import { CpeApiError } from "../session-errors.ts";
@@ -47,7 +47,7 @@ import { genericLockState } from "./huawei/driver.ts";
 import { settleRestart } from "./readback.ts";
 import { type CounterRates, driverDeviceProbe, driverNeighbourSnapshot, driverTelemetrySnapshot } from "./snapshot.ts";
 import { settleSmsSend, storedIndices } from "./sms.ts";
-import type { DriverCellular, DriverCellularState, DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome, DriverWait } from "./types.ts";
+import type { DriverCellular, DriverCellularState, DriverIdentity, DriverLockState, DriverSession, DriverSmsSendOptions, DriverSmsSendOutcome, DriverWait } from "./types.ts";
 
 /**
  * A router of a driver family (ZTE, Pinsu, Tozed, FiberHome, NRadio, OpenWrt) as a `RouterSession`:
@@ -75,18 +75,24 @@ export class DriverRouterSession implements RouterSession {
     return this.#session.family;
   }
 
-  async readModel(): Promise<{ model: string; softwareVersion: string | null; variant: string | null } | null> {
+  /** What the router says it is; a brand whose interface names no model goes by the name its facts give it. */
+  async #identity(): Promise<DriverIdentity> {
     const identity = await this.#session.identify();
+    return identity.model === null ? { ...identity, model: unnamedModel(this.family) } : identity;
+  }
+
+  async readModel(): Promise<{ model: string; softwareVersion: string | null; variant: string | null } | null> {
+    const identity = await this.#identity();
     return identity.model ? { model: identity.model, softwareVersion: identity.softwareVersion, variant: identity.variant ?? null } : null;
   }
 
   async identify(origin: ProbeOrigin): Promise<DeviceProbeResult> {
-    return driverDeviceProbe(await this.#session.identify(), { nowIso: new Date().toISOString(), origin });
+    return driverDeviceProbe(await this.#identity(), { nowIso: new Date().toISOString(), origin });
   }
 
   /** One identification serves both: no HiLink endpoints to probe, no HiLink login to describe. */
   async testIdentity(): Promise<{ identified: TestedIdentity; probe: DeviceProbeResult }> {
-    const identity = await this.#session.identify();
+    const identity = await this.#identity();
     return {
       identified: { model: identity.model, firmware: identity.softwareVersion, loginScheme: "unknown", tokenFlow: "unknown", ecc: false },
       probe: driverDeviceProbe(identity, { nowIso: new Date().toISOString(), origin: "connection-test" }),

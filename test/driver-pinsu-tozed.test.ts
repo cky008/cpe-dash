@@ -8,9 +8,9 @@ import { DriverCpeClient } from "../src/drivers/client.ts";
 import { DriverLoginMethodError, sha256Hex } from "../src/drivers/login.ts";
 import { lteRsrpOfIndex, lteRsrqOfIndex, lteSinrOfIndex, nrRsrpOfIndex, nrRsrqOfIndex, nrSinrOfIndex, parseBandClauses, parsePinsuLockState, parsePinsuTelemetry, pinsuBandClauses, pinsuLoginFields, pinsuProtocol, pinsuWcdma, rssiOfIndex } from "../src/drivers/pinsu.ts";
 import { parseTozedLockState, parseTozedNeighbours, parseTozedTelemetry, tozedLoginPassword, tozedModeOf } from "../src/drivers/tozed.ts";
-import { cellularOf } from "./helpers/driver-daemon.ts";
+import { cellularOf, daemonOn } from "./helpers/driver-daemon.ts";
 import { LanRouterMock } from "./helpers/lan-router.ts";
-import { pinsuRouter } from "./helpers/pinsu-router.ts";
+import { PINSU_PASSWORD, PINSU_URL, pinsuRouter } from "./helpers/pinsu-router.ts";
 import { tozedRouter } from "./helpers/tozed-router.ts";
 
 const PASSWORD = "test-password";
@@ -353,6 +353,25 @@ describe("tozed and pinsu: the network mode as a setting", () => {
     assert.equal(actions.filter((a) => a.path === "/action/mnet_set_prefer_net_mode").length, sent);
     const refusing = pinsuRouter({ refuse: "mnet_set_prefer_net_mode" });
     await assert.rejects(refusing.client.withSession((s) => cellularOf(s).setNetworkMode("lte", newCheck())), CpeApiError);
+  });
+});
+
+describe("pinsu: a router whose interface names no model", () => {
+  it("goes by the brand's name, so that what FengSui implements for it can be written", async () => {
+    const router = pinsuRouter();
+    const fx = daemonOn("pinsu", router.mock.fetchImpl, PINSU_URL, PINSU_PASSWORD, "admin");
+    try {
+      assert.ok(await fx.core.monitor.identifyDevice());
+      const device = fx.core.scheduler.getStatus().device;
+      assert.deepEqual([device.model, device.verification, device.writes, device.confirmed], ["Pinsu", "unverified-model", "experimental", true]);
+      assert.deepEqual([device.features.bandLock, device.features.cellLock, device.features.reboot, device.features.networkMode, device.features.smsWrite], ["enabled", "enabled", "enabled", "enabled", "not_implemented"]);
+      const locked = await fx.core.controls.lockBands({ lteBands: [1, 3] });
+      assert.deepEqual(locked.lteBands, [1, 3]);
+      assert.equal(router.values["mnet_band_lock_type"], "lock,unlock");
+      assert.equal(fx.applied.at(-1)?.check?.readback, "match");
+    } finally {
+      await fx.cleanup();
+    }
   });
 });
 
