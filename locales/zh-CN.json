@@ -101,7 +101,7 @@
     "peer_daemon_active": "另一台机器（{address}）上的烽燧正在管理这台路由器，这里处于待机，不会访问路由器",
     "device_read_only": "烽燧不能在这台路由器（{model}）上做这项写入：烽燧只在 {verified} 上验证过，这个型号上没有这项写入的实现，或者路由器不具备它需要的条件。烽燧没有向路由器发送任何请求。它在这个型号上能做的写入列在「设置 → 设备」，那里也能报告它的兼容情况",
     "device_write_disabled": "这项写入已经在「设置 → 设备」关闭（{model}），烽燧没有向路由器发送任何请求。要用的话，到那里重新打开",
-    "device_not_identified": "写操作已锁定：烽燧要先确认路由器的型号，这次没有读到（device/information），没有写入任何东西",
+    "device_not_identified": "写操作已锁定：烽燧要先确认路由器的型号，这次没有读到，没有写入任何东西",
     "wifi_access_blocked": "已禁止 {mac} 连接 Wi-Fi（MAC 黑名单）",
     "wifi_access_unblocked": "已恢复 {mac} 的 Wi-Fi 访问",
     "wifi_filter_mode": "Wi-Fi MAC 过滤已切换为：{mode}",
