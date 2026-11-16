@@ -277,7 +277,8 @@ export interface RollbackRequest {
  * (`lock_changed`: the lock to roll back was replaced while the rollback waited in the queue;
  * `airplane_mode`: the radio was switched off on purpose).
  */
-export type WanRepairOutcome = { applied: true; lockState?: PersistedLockState } | { applied: false; skipped: WanRepairSkipReason | "lock_changed" | "airplane_mode" };
+/** `restored`: a lock rollback wrote the saved band setting back (left out: every lock was cleared, or another repair). */
+export type WanRepairOutcome = { applied: true; lockState?: PersistedLockState; restored?: true } | { applied: false; skipped: WanRepairSkipReason | "lock_changed" | "airplane_mode" };
 
 /** The write that puts each kind of link change back, filed under the setting's own feature. */
 const LINK_REVERTS: Readonly<Record<LinkChange["kind"], ControlAction>> = {
@@ -397,7 +398,7 @@ export class SessionBackend implements RouterBackend {
 
   async rollBackLocks(request: RollbackRequest, summary: (outcome: WanRepairOutcome, restored: boolean) => ControlSummary | null): Promise<WanRepairOutcome> {
     const done = await this.#write("auto_unlock_rf_locks", (session, write) => session.rollBackLocks(request, write), (result) => summary(result.outcome, result.restored));
-    return done.outcome;
+    return done.outcome.applied && done.restored ? { ...done.outcome, restored: true } : done.outcome;
   }
 
   reboot(params: { confirm: boolean }, summary: ControlSummary): Promise<{ rebooting: true; requestedAtIso: string }> {

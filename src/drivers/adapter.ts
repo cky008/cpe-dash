@@ -432,8 +432,13 @@ export class DriverRouterSession implements RouterSession {
     const telemetry = await this.#session.telemetry().catch(() => null);
     if (telemetry?.wan.connected === true) return { outcome: { applied: false, skipped: "wan_up" }, restored: restoring };
     if (saved) {
-      await this.#session.setBandLock(saved, write.check);
-      return { outcome: { applied: true, lockState: driverBandLockState(saved, null) }, restored: true };
+      try {
+        await this.#session.setBandLock(saved, write.check);
+        return { outcome: { applied: true, lockState: driverBandLockState(saved, null) }, restored: true };
+      } catch (err) {
+        // A setting this router's own forms cannot write back, refused before it is sent: the documented way back instead
+        if (!(err instanceof CpeControlValidationError)) throw err;
+      }
     }
     await this.#session.unlockAll(write.check);
     return { outcome: { applied: true, lockState: genericLockState("all") }, restored: false };

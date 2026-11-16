@@ -837,3 +837,9 @@ final-4 只读审核（`audits.md` 第 21 节）之后的修复里新用到的�
 
 `AT+GTCELLLOCK?` 的应答与写入同一种字段顺序：`1,<制式：0 LTE、1 NR>,<锁定方式：0 PCI、1 只锁频点>,<频点>[,<PCI>[,<SCS>,<NR 频段>]]`。依据：[FUjr/QModem](https://github.com/FUjr/QModem)（`1eae689`，2026-11-08，MPL-2.0，只取事实）`application/qmodem/files/usr/share/qmodem/vendor/fibocom.sh` 第 1290–1316 行（逐字段读应答）与第 1360–1367 行（写入）；资料 B（`quectel-fibocom-at-ubus-protocol-spec.md` 第 280–283 行）的写入样例相同。烽燧写入一直按这个顺序，回读却把第 3 个字段（锁定方式）当成了制式，NR 锁小区因此读成 LTE。现在按第 2 个字段认制式；锁定方式为 1（只锁频点）时没有 PCI。写入里 QModem 在 SCS 之后还带 NR 频段，资料 B 的样例不带，烽燧照资料 B 不带，没有改。
 
+### 21.5 中兴 zWRT 的「全部频段」（F4-010）
+
+zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_reset_band_cell_setting`，它同时重置 LTE、NR 频段和锁小区；没有只把 NR 频段恢复成全部的写法（[tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script) `3206010`（2025-12-13）`ng/zte-script-ng.js` 第 1064–1075 行只按频段列表写 `nwinfo_set_nrbandlock`；两份资料库的 zWRT 文档同样）。所以：「LTE 全部、NR 不动」只在 NR 已经是全部频段、也没有锁小区时才用重置写，否则在发送之前拒绝；「LTE 一组、NR 全部」只在 NR 已经是全部频段时写（只写 LTE），否则拒绝。判断前在同一会话里读一次锁定。
+
+断网 3 分钟的回退要写回的设置被品牌的表单这样拒绝时（发送之前、`CpeControlValidationError`），回退改为解除全部锁定（文档里的退路），不再按写入失败重试三次；告警按路由器实际收到的写入说「写回了锁前的设置」还是「解除了全部锁定」（`WanRepairOutcome.restored`）。
+

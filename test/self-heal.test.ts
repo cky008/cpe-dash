@@ -75,7 +75,8 @@ function fixture(opts: { lockMin?: number; reconnectMin?: number; lock?: Persist
       const next = rollbackPlan.shift();
       if (next) return await next();
       lockState = unlocked(clock);
-      return { applied: true, lockState };
+      // As the backend says: the saved setting written back, else every lock cleared
+      return restore ? { applied: true, lockState, restored: true } : { applied: true, lockState };
     },
     reconnectWan: async (): Promise<WanRepairOutcome> => {
       calls.reconnect += 1;

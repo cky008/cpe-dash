@@ -11,6 +11,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **An MC8020's 5G band lock was never read back.** These ZTE routers write it to a setting FengSui did not read, so every 5G band lock there ended in a read-back FengSui could not settle. FengSui now reads each ZTE firmware's band lock from the setting it writes.
 - **A U60 Pro or MC8512 locked to B1 and B3 read back as locked to B5.** These ZTE routers take the 4G band lock as a hexadecimal mask without `0x`, and FengSui read a mask without a letter in it as a list of bands. It now reads it back in the form it writes it.
 - **A 5G cell lock on a Fibocom module read back as a 4G lock.** On OpenWrt routers with a Fibocom module, FengSui read the lock's RAT from the wrong field of the module's answer, so every 5G cell lock raised a read-back alert and showed as a 4G one. It now reads the field the lock is written to.
+- **Two band lock mixes on a zWRT router did something else than asked.** The interface's only way back to every band resets every band and cell lock, so "every 4G band, 5G as it is" also cleared the 5G bands and a cell lock, and "these 4G bands, every 5G band" left the 5G bands locked. FengSui now writes them only where that changes nothing else, and otherwise says so before sending anything. Where the 3-minute rollback meets a setting a router's own forms cannot write back, it takes every lock off instead, and its alert says which of the two it did.
 
 ## [1.9.0] — 2026-11-16
 

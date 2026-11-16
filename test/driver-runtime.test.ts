@@ -23,6 +23,7 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 import { mockConnection } from "./helpers/connection.ts";
 import { TOZED_PASSWORD, TOZED_URL, tozedRouter } from "./helpers/tozed-router.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
+import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
 
 /**
  * A router of a driver family in the running daemon: the scheduler's queue, gate, breaker and
@@ -579,6 +580,26 @@ describe("driver runtime: the 3-minute rollback of a band lock", () => {
         "LTE as it was, NR on every band again"
       );
       assert.match(net.rolledBack(), /the band setting from before the lock was written back/);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("takes every lock off when the router's own form cannot write the saved setting back", async () => {
+    // zWRT has no form that puts the NR bands back to every band alone (its "every band" is a reset of every lock)
+    const zwrt = zwrtRouter();
+    const fx = runtimeFixture({ family: "zte-zwrt", fetchImpl: zwrt.mock.fetchImpl, url: "http://192.168.0.1", username: "", password: ZWRT_PASSWORD });
+    const net = safetyNet(fx, () => {
+      zwrt.state.wwan["connect_status"] = "disconnected";
+    });
+    try {
+      zwrt.netinfo["lte_band_lock"] = "1,3";
+      const lock = await fx.core.controls.lockBands({ lteBands: [1, 3], nrBands: [78] });
+      assert.equal(zwrt.netinfo["nr5g_sa_band_lock"], "78");
+      await net.downAfter(lock, 3);
+      assert.deepEqual([zwrt.netinfo["lte_band_lock"], zwrt.netinfo["nr5g_sa_band_lock"]], ["", ""], "reset: every band again");
+      assert.match(net.rolledBack(), /every band and cell lock was cleared/);
+      assert.equal(fx.core.controls.getPersistedLockState().mode, "unlocked");
     } finally {
       await fx.cleanup();
     }

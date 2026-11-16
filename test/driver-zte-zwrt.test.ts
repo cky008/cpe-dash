@@ -137,6 +137,30 @@ describe("zte-zwrt: writes", () => {
     assert.deepEqual(check.endpoints, ["zte-zwrt:zte_nwinfo_api.nwinfo_set_lte_ext_band", "zte-zwrt:zte_nwinfo_api.nwinfo_set_nrbandlock", "zte-zwrt:zte_nwinfo_api.nwinfo_set_netselect"]);
   });
 
+  it("writes every band only where its reset would change nothing else, and refuses the rest before anything is sent", async () => {
+    const { calls, client, netinfo } = zwrtRouter();
+    const written = (): string[] => calls.filter((c) => c.method.startsWith("nwinfo_set") || c.method === "nwinfo_reset_band_cell_setting").map((c) => c.method);
+    // NR on a list: "every LTE band, NR as it is" would reset the NR bands too
+    netinfo["nr5g_sa_band_lock"] = "78";
+    const sent = written().length;
+    await assert.rejects(client.withSession((s) => s.setBandLock({ lte: "all", nr: null, networkMode: null }, newCheck())), (err: unknown) => err instanceof CpeControlValidationError && /also clears/.test(err.message));
+    // ... and "a list of LTE bands, every NR band" has no form that puts the NR bands back alone
+    const check = newCheck();
+    await assert.rejects(client.withSession((s) => s.setBandLock({ lte: [1], nr: "all", networkMode: null }, check)), (err: unknown) => err instanceof CpeControlValidationError && /every NR band/.test(err.message));
+    assert.deepEqual(check.endpoints, []);
+    assert.equal(written().length, sent, "neither wrote anything");
+    assert.equal(netinfo["nr5g_sa_band_lock"], "78");
+    // A cell lock is cleared by the reset as well
+    netinfo["nr5g_sa_band_lock"] = "";
+    netinfo["lock_nr_cell"] = "142,650000,78";
+    await assert.rejects(client.withSession((s) => s.setBandLock({ lte: "all", nr: null, networkMode: null }, newCheck())), CpeControlValidationError);
+    // NR on every band already: the LTE list is all there is to write
+    netinfo["lock_nr_cell"] = "0,0,0";
+    const lteOnly = newCheck();
+    await client.withSession((s) => s.setBandLock({ lte: [1], nr: "all", networkMode: null }, lteOnly));
+    assert.deepEqual([lteOnly.endpoints, lteOnly.readback], [["zte-zwrt:zte_nwinfo_api.nwinfo_set_lte_ext_band"], "match"]);
+  });
+
   it("unlocks with the router's reset, and refuses mixes it cannot write", async () => {
     const { calls, client } = zwrtRouter();
     const check = newCheck();

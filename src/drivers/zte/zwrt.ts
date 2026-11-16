@@ -443,11 +443,25 @@ class ZwrtSession implements DriverSessionHandle {
     if (result !== undefined && intOf(result) !== 0) throw new CpeApiError(`result${intOf(result) ?? ""}`, `${object}.${method} refused`);
   }
 
+  /**
+   * The interface's only "every band" is `nwinfo_reset_band_cell_setting`, which resets the LTE and NR
+   * bands and the cell lock together, and no form puts the NR bands back to every band alone (the
+   * community's ZTE script and both notes libraries write a band list only). So every LTE band with
+   * the NR bands left as they are is written only where the reset would change nothing else, and a
+   * list of LTE bands with every NR band only where the NR bands are on every band already; the rest
+   * is refused before anything is sent.
+   */
   async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
-    // "Every band" is the reset of the band settings, which also clears a cell lock: refuse that mix
     if (target.lte === "all" && target.nr !== null && target.nr !== "all") throw new CpeControlValidationError("Lock the NR bands together with a list of LTE bands on this router, or unlock everything");
     const lte = target.lte === "all" ? "all" : checkLockBands("LTE", target.lte, null);
     const nr = target.nr === null || target.nr === "all" ? target.nr : checkLockBands("NR", target.nr, null);
+    if ((lte === "all" && nr === null) || (lte !== "all" && nr === "all")) {
+      const now = await this.lockState();
+      if (lte === "all" && (now.nrBands !== "all" || now.nrCell?.locked !== false)) {
+        throw new CpeControlValidationError("This router's only way back to every LTE band also clears its NR band and cell locks: unlock everything instead, or name the LTE bands");
+      }
+      if (nr === "all" && now.nrBands !== "all") throw new CpeControlValidationError("This router has no form that puts every NR band back on its own: unlock everything instead, or name the NR bands");
+    }
     if (lte === "all" && (nr === null || nr === "all")) {
       await this.#write(check, "nwinfo_reset_band_cell_setting", {});
     } else {

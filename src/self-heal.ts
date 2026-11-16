@@ -546,8 +546,9 @@ export class WanSelfHeal {
     this.#endWatch(watch);
     // The unlocked modem needs time to attach before a redial could help
     this.#downSinceMs = at;
+    // What the router was sent: the saved setting, or (none saved, or one its forms cannot write) every lock cleared
     const key =
-      watch.restore !== null
+      outcome.restored === true
         ? "alerts.experiment_lock_restored"
         : watch.minWindowMs > this.lockRollbackAfterMs
           ? "alerts.experiment_lock_rolled_back"
