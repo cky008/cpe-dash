@@ -68,8 +68,9 @@ export class CoreMcpTools implements McpToolProvider {
     return true;
   }
 
+  /** What holds on every brand's router: the model, the address and the error codes of one router are not an agent's rules on another. */
   instructions(): string {
-    return "Huawei 5G CPE Ultra 6 (H168-383) allows only 1 admin session at a time. All tools run through FengSui's MutexSessionScheduler (~26-260ms ephemeral sessions) and automatically yield if a human user is logged into http://192.168.8.1. Always check get_cpe_session_status or respect polite avoidance responses. Every tool that changes the router requires confirm: true: pass it only when the user explicitly asked for that exact action.";
+    return "FengSui talks to the router in short admin sessions, one at a time, and signs out after each. Never sign in to the router yourself: most of these routers allow a single admin session, and a second login can keep FengSui out or sign out the person using the router's own web page. Where the router shows, without a login, that a person is signed in to that page, FengSui steps aside: check get_cpe_session_status and respect the answers that say it did. Every tool that changes the router requires confirm: true: pass it only when the user explicitly asked for that exact action.";
   }
 
   listResources(): ReadonlyArray<McpResourceDescriptor> {

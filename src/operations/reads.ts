@@ -150,9 +150,9 @@ export const READ_OPERATIONS = {
       tool: "get_cpe_session_status",
       title: "Check CPE Single-Admin Session & Browser Avoidance Status",
       description:
-        "Check whether a human administrator is currently using the official CPE WebUI (http://192.168.8.1), inspect ephemeral session hold latency, check the 108006/108007 circuit breaker, and see what WAN self-healing does on its own (selfHeal: whether a lock is rolled back when the WAN is still down lockRollback.afterMin minutes later, an open lock window's deadline, and the WAN redials spent of the 24 h cap).",
+        "Check whether a person is signed in to the router's own web page (FengSui then steps aside), how long FengSui's last session held the router's admin seat, whether the breaker is open (the router refused the password or locked its login, so FengSui stopped signing in), and what WAN self-healing does on its own (selfHeal: whether a lock is rolled back when the WAN is still down lockRollback.afterMin minutes later, an open lock window's deadline, and the WAN redials spent of the 24 h cap).",
       annotations: READ_ONLY,
-      properties: { probeLive: { type: "boolean", description: "Also perform an unauthenticated GET /api/user/state-login live check." } },
+      properties: { probeLive: { type: "boolean", description: "Also ask the router right now, without a login, whether someone is signed in (Huawei routers only; on another brand the tool answers VALIDATION_ERROR)." } },
       input: flag("probeLive"),
     },
   },

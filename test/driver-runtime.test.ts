@@ -592,6 +592,44 @@ function safetyNet(fx: ReturnType<typeof runtimeFixture>, goDown: () => void = (
   };
 }
 
+describe("driver runtime: what an agent is told on another brand's router", () => {
+  interface Listed {
+    name: string;
+    description: string;
+    inputSchema: { properties: Record<string, { description?: string }> };
+  }
+  /** An agent's server on a ZTE router that was read once: its calls, and the tools it lists. */
+  async function agentOnZte() {
+    const zte = zteRouter();
+    const daemon = daemonOn("zte-goform", zte.mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
+    await daemon.core.monitor.refreshTelemetry();
+    const server = new FengSuiMcpServer({ allowMutations: true, core: daemon.core });
+    const rpc = async (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
+      ((await server.handleRawJsonMessage(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }))) as JsonRpcSuccessResponse).result as Record<string, unknown>;
+    const tool = async (name: string): Promise<Listed> => {
+      const found = ((await rpc("tools/list"))["tools"] as Listed[]).find((listed) => listed.name === name);
+      assert.ok(found, `${name} is listed`);
+      return found;
+    };
+    return { daemon, rpc, tool };
+  }
+
+  it("names no Huawei model, address or error code: the instructions and the session status tool are written for any brand", async () => {
+    const { daemon, rpc, tool } = await agentOnZte();
+    try {
+      const instructions = String((await rpc("initialize", { protocolVersion: "2025-06-18" }))["instructions"]);
+      assert.doesNotMatch(instructions, /Huawei|H168|192\.168\.8\.1/, "written for the router that is connected");
+      assert.match(instructions, /Never sign in to the router yourself/);
+      assert.match(instructions, /This router \(MC888\) is a model FengSui was not verified on/);
+      const status = await tool("get_cpe_session_status");
+      assert.doesNotMatch(status.description, /192\.168\.8\.1|108006/, "no other router's address or error codes");
+      assert.match(status.inputSchema.properties["probeLive"]?.description ?? "", /Huawei routers only/);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
 describe("driver runtime: the 3-minute rollback of a band lock", () => {
   it("an NR band lock is rolled back to the NR bands read before it", async () => {
     const fx = runtimeFixture();
