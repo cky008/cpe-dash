@@ -252,6 +252,7 @@ Usually at `192.168.0.1`; sign in with the user name `admin` and the admin passw
 | M200 Pro | Mobile router | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M200+Pro) |
 | PS-M50 | Mobile router | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-M50) |
 | F10 | Mobile router | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F10) |
+| Pinsu |  | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [Report](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Pinsu) |
 
 Notes for this table:
 
@@ -259,6 +260,7 @@ Notes for this table:
 - △ Network mode & operator: the network mode only; FengSui does not do choosing the operator here yet (every model in this table).
 - Their page's interface names no model, so FengSui calls each of them "Pinsu": that is the model in the device report and under Settings → Device (every model in this table).
 - Their page's interface does not report whether the router is connected: if a band or cell lock or a change of network mode cuts the internet, FengSui cannot tell, so it does not put the setting back after 3 minutes and self-healing cannot redial; undo it in FengSui by hand (every model in this table).
+- Every Pinsu router goes by this row, since none names its model: FengSui's model for each of them is "Pinsu", and a report of one is registered here (Pinsu).
 
 <a id="brand-tozed"></a>
 

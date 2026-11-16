@@ -239,13 +239,14 @@ export function supportDocsUrl(row: Pick<DeviceSupportRow, "section">, locale: L
 }
 
 /**
- * The sentence over the row: the model's own row, a model the table does not have yet (a report gets it
- * one), or a brand whose routers name no model, which FengSui calls by the brand's name.
+ * The sentence over the row: a brand whose routers name no model, which FengSui calls by the brand's
+ * name (the table's row of that name), the model's own row, or a model the table does not have yet (a
+ * report gets it one).
  */
 export function supportIntro(row: Pick<DeviceSupportRow, "family" | "model">): { key: SettingsTextKey; params: Record<string, string> } {
-  if (row.model !== null) return { key: "support_row", params: { model: row.model } };
   const name = unnamedModel(row.family);
-  return name === null ? { key: "support_unlisted", params: {} } : { key: "support_unnamed", params: { name } };
+  if (name !== null && (row.model === null || row.model === name)) return { key: "support_unnamed", params: { name } };
+  return row.model !== null ? { key: "support_row", params: { model: row.model } } : { key: "support_unlisted", params: {} };
 }
 
 /** The row's modules in the console's language, each with its mark (`""`: FengSui does not do it there yet). */

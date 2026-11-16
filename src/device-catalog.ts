@@ -99,10 +99,11 @@ export interface CatalogModel {
   aliases?: ReadonlyArray<string>;
   /** The interfaces its notes name (none: FengSui has no implementation for it). Brand detection picks the first in `DETECTION_ORDER`. */
   families: ReadonlyArray<RouterFamily>;
-  form: DeviceForm;
+  /** `null`: no particular form (a row that stands for every router of a brand whose routers name no model). */
+  form: DeviceForm | null;
 }
 
-type Spec = [model: string, form: DeviceForm, extra?: Partial<Pick<CatalogModel, "maker" | "code" | "aliases" | "families">>];
+type Spec = [model: string, form: DeviceForm | null, extra?: Partial<Pick<CatalogModel, "maker" | "code" | "aliases" | "families">>];
 
 function models(section: CatalogSectionId, families: ReadonlyArray<RouterFamily>, list: ReadonlyArray<Spec>): CatalogModel[] {
   return list.map(([model, form, extra]) => ({ section, model, form, families, ...extra }));
@@ -258,6 +259,8 @@ export const DEVICE_CATALOG: ReadonlyArray<CatalogModel> = [
     ["M200 Pro", "mobile"],
     ["PS-M50", "mobile"],
     ["F10", "mobile"],
+    // Their interface names no model: every Pinsu router goes by this row, and a report of one is registered here
+    ["Pinsu", null],
   ]),
   ...models("tozed", ["tozed"], [
     ["VN007", "indoor"],
@@ -731,6 +734,13 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
     features: [],
     zh: "管理页的接口里没有型号，烽燧里它们都叫「Pinsu」：设备报告和「设置 → 设备」里的型号都是这个名字",
     en: "Their page's interface names no model, so FengSui calls each of them \"Pinsu\": that is the model in the device report and under Settings → Device",
+  },
+  {
+    family: "pinsu",
+    models: ["Pinsu"],
+    features: [],
+    zh: "不报告型号的品速路由器都在这一行：烽燧里它们的型号都是「Pinsu」，实测报告也登记在这一行",
+    en: "Every Pinsu router goes by this row, since none names its model: FengSui's model for each of them is \"Pinsu\", and a report of one is registered here",
   },
   {
     family: "pinsu",

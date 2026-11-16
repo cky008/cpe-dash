@@ -197,7 +197,7 @@ describe("the supported devices guide page", () => {
         // The family's own form of its interface: a fact of another form does not apply
         const conditions = MODEL_FACTS.filter((fact) => fact.family === family && !fact.models && !fact.forms && (fact.variant ?? null) === null && fact.features.includes(feature));
         // A form without the hardware (a CPE's battery) is —
-        const absent = MODEL_FACTS.some((fact) => fact.family === family && fact.effect === "absent" && fact.forms?.includes(entry.form) === true && fact.features.includes(feature));
+        const absent = MODEL_FACTS.some((fact) => fact.family === family && fact.effect === "absent" && entry.form !== null && fact.forms?.includes(entry.form) === true && fact.features.includes(feature));
         const expected = absent ? "—" : !familyImplements(family, feature) ? "" : conditions.length > 0 ? "△" : "?";
         assert.equal(mark, expected, `${family} ${feature}`);
       }
@@ -238,6 +238,17 @@ describe("the supported devices guide page", () => {
     assert.deepEqual([tplink("NX510v", "ussd"), tplink("NX540v", "cellLock"), tplink("Archer MR600", "antenna"), tplink("Archer MR600", "apn"), tplink("Archer NX200", "apn")], ["?", "△", "△", "?", "?"]);
     // The Deco line: the signal and the mesh's devices, a restart, no SMS in its page
     assert.deepEqual(["telemetry", "topology", "smsRead", "ussd", "reboot"].map((feature) => tplink("Deco X50-5G", feature)), ["△", "?", "", "", "△"]);
+  });
+
+  it("gives the Pinsu routers, which name no model, a row of their own that a report turns into ✓", () => {
+    const row = rows(supportedDevicesSection("en"), "pinsu").find((cells) => cells[0] === "Pinsu");
+    assert.ok(row, "a row named as FengSui names them");
+    assert.equal(row[1], "", "any form: the router does not say");
+    assert.match(supportedDevicesSection("zh-CN"), /- 不报告型号的品速路由器都在这一行[^\n]*（Pinsu）。/);
+    const report: VerifiedFeature = { family: "pinsu", model: "Pinsu", softwareVersion: "1.0", feature: "bandLock", access: "write", issue: 50 };
+    assert.equal(supportMark("pinsu", "Pinsu", "bandLock", [report]), "✓");
+    assert.equal(supportMark("pinsu", "R200C", "bandLock", [report]), "?", "the named models stay as they were");
+    assert.equal(deviceSupportRow("pinsu", "Pinsu").model, "Pinsu", "Settings → Device finds the row");
   });
 
   it("says under each brand's table where a cell lock takes effect only later, for every brand whose facts say so", () => {

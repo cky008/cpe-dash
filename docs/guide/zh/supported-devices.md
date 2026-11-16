@@ -252,6 +252,7 @@ order: 2
 | M200 Pro | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+M200+Pro) |
 | PS-M50 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+PS-M50) |
 | F10 | 随身路由器 | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+F10) |
+| Pinsu |  | ? |  |  |  | ? | ? | △ |  |  |  |  |  |  | △ |  |  | [提交报告](https://github.com/cky008/cpe-dash/issues/new?template=device-report.yml&title=Device+report%3A+Pinsu) |
 
 这一节的说明：
 
@@ -259,6 +260,7 @@ order: 2
 - △ 「网络制式与选网」：只有网络制式，手动选网烽燧在这里还没有做（这一节的全部型号）。
 - 管理页的接口里没有型号，烽燧里它们都叫「Pinsu」：设备报告和「设置 → 设备」里的型号都是这个名字（这一节的全部型号）。
 - 管理页的接口不报告是否联网：锁频段、锁小区或改网络制式之后断网，烽燧看不出来，不会在 3 分钟后自动改回，自愈也没法重拨；断网了请在烽燧里手动改回（这一节的全部型号）。
+- 不报告型号的品速路由器都在这一行：烽燧里它们的型号都是「Pinsu」，实测报告也登记在这一行（Pinsu）。
 
 <a id="brand-tozed"></a>
 
