@@ -5,7 +5,7 @@ import { after, before, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type ChromeHandle, type Page, type Viewport, closeChrome, launchChrome, openPage } from "../../scripts/cdp.ts";
 import { OPENWRT_PASSWORD } from "../helpers/openwrt-router.ts";
-import { DEMO_CERT_FINGERPRINT, type DemoDaemon, startDemoDaemon } from "../../scripts/demo-router.ts";
+import { BRAND_SCENARIOS, DEMO_CERT_FINGERPRINT, type DemoDaemon, type DemoDaemonOptions, startDemoDaemon } from "../../scripts/demo-router.ts";
 import { FEATURE_COLUMNS } from "../../src/features.ts";
 
 /**
@@ -858,11 +858,83 @@ describe("the console on routers of other brands", () => {
   });
 
   /** A daemon on another brand's router, identified and with its slow reads done. */
-  async function brand(scenario: "zte" | "dlink" | "nradio" | "openwrt" | "https"): Promise<DemoDaemon> {
+  async function brand(scenario: NonNullable<DemoDaemonOptions["scenario"]>): Promise<DemoDaemon> {
     const demo = await startDemoDaemon({ port: 0, token: TOKEN, scenario });
     await demo.stack.monitor.identifyDevice();
-    await Promise.allSettled([demo.stack.monitor.refreshTopology({ ignoreCooldown: true }), demo.stack.monitor.refreshNeighbors({ ignoreCooldown: true })]);
+    await Promise.allSettled([
+      demo.stack.monitor.refreshTopology({ ignoreCooldown: true }),
+      demo.stack.monitor.refreshNeighbors({ ignoreCooldown: true }),
+      demo.stack.monitor.refreshSettings({ ignoreCooldown: true }),
+    ]);
     return demo;
+  }
+
+  /**
+   * What is wrong with the text inside `scope` as shown: a value printed that never should be, a card
+   * left blank, and on a router of another brand Huawei's own words (the agent test's prompt aside).
+   */
+  async function textProblems(scope: string, otherBrand: boolean): Promise<string[]> {
+    return await page.evaluate<string[]>(`(() => {
+      const root = document.querySelector(${literal(scope)});
+      if (!root) return ["nothing at " + ${literal(scope)}];
+      const out = [];
+      const text = root.innerText;
+      const bad = /\\bundefined\\b|\\bNaN\\b|\\[object Object\\]|Invalid Date/.exec(text);
+      if (bad) out.push(${literal(scope)} + ": " + JSON.stringify(text.slice(Math.max(0, bad.index - 50), bad.index + 30)));
+      for (const card of root.querySelectorAll('[id$="Card"]')) if (card.getClientRects().length > 0 && card.innerText.trim().length < 4) out.push(card.id + " is blank");
+      if (${otherBrand ? "true" : "false"}) {
+        const copy = root.cloneNode(true);
+        for (const prompt of copy.querySelectorAll("pre, select")) prompt.remove();
+        const huawei = /HiLink|device\\/information|\\/api\\/(?:device|net|user|monitoring|dialup)\\//.exec(copy.textContent);
+        if (huawei) out.push(${literal(scope)} + ": Huawei's words " + JSON.stringify(huawei[0]));
+      }
+      return out;
+    })()`);
+  }
+
+  for (const [index, scenario] of (["unverified", ...BRAND_SCENARIOS] as const).entries()) {
+    it(`walks the console on ${scenario}: every view shows data or says the router does not provide it, light or dark, and on a phone`, async () => {
+      const demo = await brand(scenario);
+      const otherBrand = scenario !== "unverified";
+      const problems: string[] = [];
+      try {
+        // Light and dark take turns from world to world
+        await page.viewport(DESKTOP);
+        await page.goto(`${demo.baseUrl}/`);
+        await page.evaluate(`localStorage.setItem("fengsui.theme", ${literal(index % 2 === 0 ? "fengsui-sujian" : "fengsui-sujian-ye")}); true`);
+        await signIn(page, demo);
+        problems.push(...(await textProblems("#appView", otherBrand)));
+        // Nearby cells and connected devices: rows, or a notice that says why there are none
+        for (const card of ["neighborsCard", "topologyCard"]) {
+          const shown = await page.evaluate<{ rows: number; text: string }>(`({ rows: document.querySelectorAll('#${card} tbody tr').length, text: document.getElementById('${card}').innerText })`);
+          if (shown.rows === 0 && shown.text.trim().split("\n").length < 2) problems.push(`${card}: no rows and nothing said`);
+        }
+        await page.click('[data-view="sms"]');
+        await page.waitUntil("document.querySelector('#smsListPane')?.innerText.trim().length > 0", "the SMS page");
+        problems.push(...(await textProblems("#appView", otherBrand)));
+        await page.click('[data-view="dashboard"]');
+        await page.click('[data-action="open-controls"]');
+        await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+        await page.waitUntil("!document.querySelector('#controlsDialog .loading')", "the drawer's sections");
+        problems.push(...(await textProblems("#controlsDialog", otherBrand)));
+        await closeDialogs(page);
+        await openSettings(page, "Device");
+        problems.push(...(await textProblems("#settingsDialog", otherBrand)));
+        await closeDialogs(page);
+        // A phone: the dashboard and the drawer fit its width
+        await signIn(page, demo, PHONE);
+        if ((await sidewaysOverflow(page)) > 0) problems.push("the dashboard scrolls sideways on a phone");
+        await page.click('[data-action="open-controls"]');
+        await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+        if ((await sidewaysOverflow(page)) > 0) problems.push("the drawer scrolls sideways on a phone");
+        await closeDialogs(page);
+        assert.deepEqual(problems, []);
+        assert.deepEqual(page.exceptions, []);
+      } finally {
+        page.exceptions.length = 0;
+        await demo.close();
+      }
+    });
   }
 
   it("shows a ZTE mobile router's battery, SIM card, ICCID and sensors, and fits a phone screen", async () => {
