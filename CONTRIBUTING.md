@@ -94,6 +94,9 @@ When an issue's device report shows a feature working on a real router, record i
      `test/verified-features.test.ts` lists those files and fails until each names it.
 3. **When it shows.** The table on the documentation site follows the push to `main`. The console shows the feature as
    verified (and drops "never checked on a real router" from its confirmation) from the next release.
+4. **The issue.** Once the release that carries the entries is out, comment on the issue with the commit and the
+   release, and close it as completed. The `device-report` label keeps closed reports findable as examples; a report
+   that registered nothing (every feature `untested`, say) gets a comment saying what was missing, and stays open.
 
 当 issue 里的设备报告显示某项功能在真机上可用时，把它登记进代码，[支持的设备](docs/guide/zh/supported-devices.md)里那一格就会变成 ✓。
 
@@ -106,6 +109,7 @@ When an issue's device report shows a feature working on a real router, record i
    - 报告显示某项功能在某个型号上不能用的，照同样的方式登记进同一个文件里的 `UNSUPPORTED_FEATURES`，那一格变成 —。
    - **一个型号上烽燧实现的每项功能都登记过**（都验证过，或报告为路由器没有这项功能）时，它就算验证过的型号（`isReportVerifiedModel`）：控制台和表里都称它为验证过的型号，不需要另外核对。同一个提交里，把它写进所有说明「烽燧在哪些路由器上验证过」的地方；`test/verified-features.test.ts` 列出了这些文件，没写全会失败。
 3. **什么时候生效**：文档站上的表在推到 `main` 后随文档站更新；控制台里显示「已验证」（确认框也不再提示「没有在真机上验证过」）要等下一个版本。
+4. **issue 怎么处理**：带着这些登记的版本发布后，在 issue 里留言写明提交和版本，再以「已完成」关闭。`device-report` 标签让关闭的报告仍能当作样例找到；什么都没能登记的报告（比如每项都是 `untested`），留言说明缺了什么，保持打开。
 
 ## Commits and pull requests / 提交与 PR
 
