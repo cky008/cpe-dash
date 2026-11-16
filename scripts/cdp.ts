@@ -10,6 +10,32 @@ import { setTimeout as sleep } from "node:timers/promises";
  * browser tests (`npm run test:ui`) share it; the pages it opens are the console on 127.0.0.1.
  */
 
+/** How long Chrome's DevTools socket may take to open once Chrome has written its port. */
+export const CDP_CONNECT_TIMEOUT_MS = 15_000;
+/** How long Chrome may take to answer one DevTools call (a full-page capture takes seconds). */
+export const CDP_REPLY_TIMEOUT_MS = 120_000;
+
+/**
+ * `work`, or a failure that names the step once `timeoutMs` have passed: no wait on Chrome may hang
+ * its caller (a browser test's hook has no timeout of the runner's). A plain timer, which keeps the
+ * process alive until it fires: nothing else may be left to do so while Chrome says nothing.
+ */
+export async function withDeadline<T>(what: string, timeoutMs: number, work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs / 1000} s: ${what}`)), timeoutMs);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export interface CdpMessage {
   id?: number;
   method?: string;
@@ -47,21 +73,45 @@ export class Cdp {
     });
   }
 
-  static async connect(url: string): Promise<Cdp> {
+  static async connect(url: string, timeoutMs = CDP_CONNECT_TIMEOUT_MS): Promise<Cdp> {
     const ws = new WebSocket(url);
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener("open", () => resolve(), { once: true });
-      ws.addEventListener("error", () => reject(new Error(`cannot reach Chrome at ${url}`)), { once: true });
-    });
+    try {
+      await withDeadline(
+        `Chrome's DevTools socket at ${url}`,
+        timeoutMs,
+        new Promise<void>((resolve, reject) => {
+          ws.addEventListener("open", () => resolve(), { once: true });
+          ws.addEventListener("error", () => reject(new Error(`cannot reach Chrome at ${url}`)), { once: true });
+        })
+      );
+    } catch (err: unknown) {
+      try {
+        ws.close();
+      } catch {
+        // Closing an unopened or failed socket can throw; keep the original connect error
+      }
+      throw err;
+    }
     return new Cdp(ws);
   }
 
-  send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<T> {
+  async send<T = Record<string, unknown>>(
+    method: string,
+    params: Record<string, unknown> = {},
+    sessionId?: string,
+    timeoutMs = CDP_REPLY_TIMEOUT_MS
+  ): Promise<T> {
     const id = ++this.#nextId;
-    return new Promise<T>((resolve, reject) => {
+    const reply = new Promise<T>((resolve, reject) => {
       this.#pending.set(id, { resolve: (value) => resolve(value as T), reject });
       this.#ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
+    try {
+      return await withDeadline(`Chrome's answer to ${method}`, timeoutMs, reply);
+    } finally {
+      // Answered, or given up on: a reply that still comes finds nobody waiting
+      this.#pending.delete(id);
+    }
   }
 
   /** Every event from now on; returns the unsubscribe. */
@@ -211,7 +261,17 @@ export async function launchChrome(): Promise<ChromeHandle> {
     throw new Error("Chrome did not open its DevTools port within 30 s");
   }
   const [port, wsPath] = fs.readFileSync(portFile, "utf8").trim().split("\n");
-  return { cdp: await Cdp.connect(`ws://127.0.0.1:${port}${wsPath}`), process: child, profile };
+  try {
+    return { cdp: await Cdp.connect(`ws://127.0.0.1:${port}${wsPath}`), process: child, profile };
+  } catch (err: unknown) {
+    child.kill();
+    try {
+      fs.rmSync(profile, { recursive: true, force: true });
+    } catch {
+      // Chrome may still hold lock files while exiting; keep the original connect error
+    }
+    throw err;
+  }
 }
 
 /** A new tab, attached, with page and runtime events on. */

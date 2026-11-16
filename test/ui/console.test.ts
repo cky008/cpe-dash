@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type ChromeHandle, type Page, type Viewport, closeChrome, launchChrome, openPage } from "../../scripts/cdp.ts";
 import { OPENWRT_PASSWORD } from "../helpers/openwrt-router.ts";
 import { BRAND_SCENARIOS, DEMO_CERT_FINGERPRINT, type DemoDaemon, type DemoDaemonOptions, startDemoDaemon } from "../../scripts/demo-router.ts";
 import { FEATURE_COLUMNS } from "../../src/features.ts";
+import { setup, step, teardown } from "./hooks.ts";
 
 /**
  * The console in a real browser: a headless Chrome (scripts/cdp.ts) against the real daemon and the
@@ -105,21 +106,24 @@ describe("the console in a browser", () => {
   let page: Page;
   let demo: DemoDaemon | null = null;
 
-  before(async () => {
+  setup(async () => {
     assert.ok(fs.existsSync(path.join(ROOT, "dist", "web", "public", "index.html")), "build the console first: npm run build:web");
-    demo = await world({ telegram: true });
-    chrome = await launchChrome();
-    page = await openPage(chrome);
+    demo = await step("the demo daemon", () => world({ telegram: true }));
+    const launched = await step("headless Chrome", () => launchChrome());
+    chrome = launched;
+    page = await step("a browser tab", () => openPage(launched));
     await page.send("DOM.enable");
     await page.send("Accessibility.enable");
   });
 
-  after(async () => {
+  teardown(async () => {
     // The daemon is stopped whatever Chrome does: one left running keeps the test process alive
     try {
-      if (chrome) await closeChrome(chrome);
+      const runningChrome = chrome;
+      if (runningChrome) await step("closing Chrome", () => closeChrome(runningChrome));
     } finally {
-      await demo?.close();
+      const runningDemo = demo;
+      if (runningDemo) await step("stopping the demo daemon", () => runningDemo.close());
     }
   });
 
@@ -865,14 +869,16 @@ describe("the console on routers of other brands", () => {
   let chrome: ChromeHandle | null = null;
   let page: Page;
 
-  before(async () => {
+  setup(async () => {
     assert.ok(fs.existsSync(path.join(ROOT, "dist", "web", "public", "index.html")), "build the console first: npm run build:web");
-    chrome = await launchChrome();
-    page = await openPage(chrome);
+    const launched = await step("headless Chrome", () => launchChrome());
+    chrome = launched;
+    page = await step("a browser tab", () => openPage(launched));
   });
 
-  after(async () => {
-    if (chrome) await closeChrome(chrome);
+  teardown(async () => {
+    const runningChrome = chrome;
+    if (runningChrome) await step("closing Chrome", () => closeChrome(runningChrome));
   });
 
   /** A daemon on another brand's router, identified and with its slow reads done. */

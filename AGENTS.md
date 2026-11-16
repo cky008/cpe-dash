@@ -85,14 +85,14 @@ cpe-dash/
 │   ├── demo-router.ts      # 演示路由器上的真实守护进程（demo-server、截图与浏览器测试共用；四个世界在 web/src/demo/worlds.ts）；另有只给测试用的世界：每个品牌和接口写法各一台（test/helpers/ 里驱动测试的模拟路由器，`BRAND_SCENARIOS` 列出全部），可以按测试覆盖配置（`env`）
 │   ├── demo-server.ts      # npm run demo：真实守护进程栈 + 进程内严格 Mock 路由器（不读 .env、不联网）
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
-│   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图；screenshots 与浏览器测试共用
+│   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图，连接与每次调用各有期限、超时报出卡在哪一步；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
 │   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL；docs/diagrams/ 的图内联进页面，跟着站点的主题切换，只放行图形与文字），输出 dist/site
 │   ├── api-reference.ts · sync-docs.ts  # 指南「API 参考」由代码生成的部分（路由、方法、令牌需要的权限、中英说明与示例请求体取自操作登记；SSE 事件与错误码的中英说明写在这里）；npm run docs:sync 重写指南里所有生成的块（「支持的设备」的表与「API 参考」的三张表），--check 只检查；test/api-reference.test.ts 保证清单与代码一致、每个路由按所写的方法和示例请求体真能调用、页面与生成结果一致
 │   ├── test-count-reporter.ts # node --test 报告器（门禁里的 test:coverage 与 test:browser 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
-├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器，每个品牌一份；brand-walk 在每个品牌和接口写法的模拟路由器上把全部 REST 路由与 MCP 工具走一遍：没有的能力回错误码和一句话，从不 500，写入没有 confirm 在任何会话之前被拒，被关掉的写入与没实现的分得开；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为浏览器测试：无头 Chrome 对着真实守护进程与演示路由器（含其他品牌的模拟路由器：每个品牌走一遍首页、短信、控制抽屉与「设置 → 设备」，浅色深色轮换，再看手机宽度），以及构建好的在线演示（Node 内置模块的替身只在浏览器里用得上），在 npm run check 里由 test:browser 运行，单独跑用 npm run test:ui）
+├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器，每个品牌一份；brand-walk 在每个品牌和接口写法的模拟路由器上把全部 REST 路由与 MCP 工具走一遍：没有的能力回错误码和一句话，从不 500，写入没有 confirm 在任何会话之前被拒，被关掉的写入与没实现的分得开；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为浏览器测试：无头 Chrome 对着真实守护进程与演示路由器（含其他品牌的模拟路由器：每个品牌走一遍首页、短信、控制抽屉与「设置 → 设备」，浅色深色轮换，再看手机宽度），以及构建好的在线演示（Node 内置模块的替身只在浏览器里用得上），在 npm run check 里由 test:browser 运行，单独跑用 npm run test:ui；它的 before / after 钩子一律经 test/ui/hooks.ts，带超时，卡住的 Chrome 让门禁失败而不是挂住）
 ├── Dockerfile · docker-compose.yml · .dockerignore   # 非 root、只读根文件系统、HEALTHCHECK 的生产镜像与群晖编排
 ├── LICENSE · THIRD_PARTY_NOTICES.md                # PolyForm Noncommercial 1.0.0；构建产物所含 Tailwind CSS / daisyUI / Lucide 的许可声明（构建放到控制台旁，镜像放在 /app）
 ├── .github/workflows/      # ci-docker.yml（门禁 + amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）· docs-pages.yml（文档站发布到本仓库 Pages，仓库变量 DOCS_PAGES_ENABLED 打开后才运行）

@@ -98,6 +98,36 @@ describe("The local gate (npm run check)", () => {
     // No second browser run beside the gate (it was skipped once before a push, and CI went red)
     assert.doesNotMatch(ci, /npm run test:(?:ui|browser)/);
   });
+
+  it("gives every hook of the browser tests a timeout, so a stuck Chrome fails the gate instead of hanging it", () => {
+    const uiDir = path.join(ROOT, "test", "ui");
+    const uiTests = fs.readdirSync(uiDir).filter((name) => name.endsWith(".test.ts"));
+    assert.ok(uiTests.length >= 2, `expected at least two browser test files, found ${uiTests.length}`);
+    for (const file of uiTests) {
+      const source = fs.readFileSync(path.join(uiDir, file), "utf8");
+      const nodeTestImports = [...source.matchAll(/^import\s*\{([^}]*)\}\s*from\s*["']node:test["'];?/gm)];
+      assert.ok(nodeTestImports.length > 0, `${file} imports from "node:test"`);
+      assert.doesNotMatch(source, /^import\s+(?!\{)[^;\n]*from\s*["']node:test["']/m, `${file} uses named imports from "node:test"`);
+      for (const match of nodeTestImports) {
+        const names = (match[1] ?? "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter((part) => part !== "");
+        assert.ok(names.length > 0, `${file} has a non-empty import from "node:test"`);
+        for (const name of names) {
+          assert.ok(name === "describe" || name === "it", `${file} imports ${name} from "node:test" instead of ./hooks.ts`);
+        }
+      }
+      assert.match(source, /from\s+["']\.\/hooks\.ts["']/, `${file} imports from "./hooks.ts"`);
+    }
+    const hooks = fs.readFileSync(path.join(uiDir, "hooks.ts"), "utf8");
+    assert.ok(hooks.includes("before(fn, { timeout: HOOK_TIMEOUT_MS })"), "hooks.ts gives before() HOOK_TIMEOUT_MS");
+    assert.ok(hooks.includes("after(fn, { timeout: HOOK_TIMEOUT_MS })"), "hooks.ts gives after() HOOK_TIMEOUT_MS");
+    const timeoutMatch = /export const HOOK_TIMEOUT_MS = (\d[\d_]*)/.exec(hooks);
+    assert.ok(timeoutMatch, "hooks.ts exports HOOK_TIMEOUT_MS");
+    const hookTimeoutMs = Number((timeoutMatch[1] ?? "").replaceAll("_", ""));
+    assert.ok(hookTimeoutMs >= 60_000 && hookTimeoutMs <= 600_000, `HOOK_TIMEOUT_MS (${hookTimeoutMs}) must be between 60 000 and 600 000`);
+  });
 });
 
 describe("Third-party notices", () => {

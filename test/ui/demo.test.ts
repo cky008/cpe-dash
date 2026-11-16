@@ -3,8 +3,9 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { type ChromeHandle, type Page, closeChrome, launchChrome, openPage } from "../../scripts/cdp.ts";
+import { setup, step, teardown } from "./hooks.ts";
 
 /**
  * The live demo as visitors get it: `build-web.ts --demo` (its size limit included), served as static
@@ -33,7 +34,7 @@ describe("the live demo in a browser", () => {
   let base = "";
   let chrome: ChromeHandle | null = null;
 
-  before(async () => {
+  setup(async () => {
     const build = spawnSync(process.execPath, ["--experimental-strip-types", path.join(ROOT, "scripts", "build-web.ts"), "--demo"], { cwd: ROOT, encoding: "utf8", timeout: 180_000 });
     assert.equal(build.status, 0, `the demo build failed:\n${build.stdout}\n${build.stderr}`);
     server = http.createServer((req, res) => {
@@ -47,15 +48,16 @@ describe("the live demo in a browser", () => {
       res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream" });
       res.end(fs.readFileSync(file));
     });
-    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+    await step("the demo's static server", () => new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve)));
     const address = server.address();
     base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
-    chrome = await launchChrome();
+    chrome = await step("headless Chrome", () => launchChrome());
   });
 
-  after(async () => {
+  teardown(async () => {
     try {
-      if (chrome) await closeChrome(chrome);
+      const runningChrome = chrome;
+      if (runningChrome) await step("closing Chrome", () => closeChrome(runningChrome));
     } finally {
       server?.close();
     }
