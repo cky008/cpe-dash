@@ -6,7 +6,7 @@ import type { DriverFamily } from "../../../src/router-family.ts";
 import type { WriteFeature } from "../../../src/features.ts";
 import { cellularOpen } from "../core/cellular-view.ts";
 import { experimentalWrites, reportVerified, unconfirmedWrite, unverifiedModel } from "../core/device-access-view.ts";
-import { bandText, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
+import { bandText, cellLockEffect, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
 import { lockRollbackNote, reportsConnection, selfHealRows } from "../core/self-heal-view.ts";
@@ -318,7 +318,10 @@ export function mountControls(ctx: AppContext): { open(): void } {
   const experimentalUnlockButton = (): HTMLButtonElement => {
     const unlockBtn = h("button", { class: "btn btn-ghost btn-sm rounded-lg gap-1.5", attrs: { type: "button" } }, icon("unlock"), ctx.t("ctl.unlock_all"));
     unlockBtn.addEventListener("click", () => {
-      void confirmExperimental(["bandLock", "cellLock"], { title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body")], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
+      // A router whose removed cell lock takes effect only later: said before the unlock
+      const effect = cellLockEffect(driverFamilyOf(ctx.store.state.scheduler));
+      const later = effect === "restart" ? [ctx.t("ctl.unlock_effect_restart")] : effect === "unlock-toggle" ? [ctx.t("ctl.unlock_effect_toggle")] : [];
+      void confirmExperimental(["bandLock", "cellLock"], { title: ctx.t("ctl.unlock_title"), body: [ctx.t("ctl.unlock_body"), ...later], confirmLabel: ctx.t("ctl.unlock_all") }).then((ok) => {
         if (!ok) return;
         runBusy(unlockBtn, async () => {
           try {

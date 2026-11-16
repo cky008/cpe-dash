@@ -106,6 +106,13 @@ export interface RouterFamilyFacts {
    * until FengSui has read it.
    */
   unnamedModel?: string;
+  /**
+   * When a cell lock takes effect, where the family's notes say it does not at once: `restart`, a lock
+   * and its removal once the router restarts (ZTE goform: the community's ZTE script and notes library
+   * B); `unlock-toggle`, a removal once the network mode is switched or the router restarts (ZTE zWRT:
+   * the same script). FengSui restarts or switches nothing for it; the console and Supported devices say so.
+   */
+  cellLockEffect?: "restart" | "unlock-toggle";
 }
 
 /** The model a router of `family` goes by when its interface names none (`null`: the family's routers name theirs). */
@@ -186,6 +193,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte", "lte_wcdma", "wcdma"],
+    cellLockEffect: "restart",
   },
   "zte-zwrt": {
     defaultUsername: "",
@@ -195,6 +203,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,
     selectableModes: ["auto", "nr_sa", "nr_nsa", "lte", "lte_wcdma", "wcdma"],
+    cellLockEffect: "unlock-toggle",
   },
   pinsu: {
     defaultUsername: "admin",

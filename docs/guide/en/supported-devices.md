@@ -225,9 +225,11 @@ Usually at `192.168.0.1`; sign in with the admin password (there is no user name
 Notes for this table:
 
 - △ Data settings: data roaming, the access point (APN) and the data limit only; FengSui does not do clearing the traffic counters here yet (every model in this table).
+- After a cell lock is removed, the router goes back to the cell it would choose once the network mode is switched or it restarts; FengSui does neither for you (U60 Pro (MU5250), G5 Ultra (MC8530), G5 Ultra (MC8531), G5 Pro (MC8512), G5TS (MC8520), G5F, MC888D and U50 Pro (MU5120)).
 - SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown (every model in this table).
 - — Battery: only a mobile router has a battery (G5 Ultra (MC8530), G5 Ultra (MC8531), G5 Pro (MC8512), G5TS (MC8520), G5F, MC888D, MC8510, G5C, G5B, MC888 Ultra, MC888 Pro, MC888, MC888S, MC8020, MC801A, MC801A1, MC801, MC889 Pro, MC889A Pro, MC889, MC7010, MC7010D, MC8830, MF79U, MF297D, MF289F, MF286, MF286A, MF286C, MF286D, MF286R, MF283+, MF283U and MF253S).
 - △ Cell lock: a 4G cell lock may be refused: a project found its interface takes none; 5G cells lock (G5TS (MC8520)).
+- A cell lock takes effect once the router restarts, and so does its removal; FengSui does not restart it for you, so until then the lock reads back as set, and the 3-minute rollback's unlock waits for a restart too (MC8510, G5C, G5B, MC888 Ultra, MC888 Pro, MC888, MC888S, MC8020, MC801A, MC801A1, MC801, MC889 Pro, MC889A Pro, MC889, MC7010, MC7010D, MC8830, MU5001, MU5001A, MU5001U, MU5002, MU510, U50, U50S, U30 Air, U10S Pro, F50 Pro, F50, MF971R, MF935, MF920U, MF79U, MF297D, MF289F, MF286, MF286A, MF286C, MF286D, MF286R, MF283+, MF283U and MF253S).
 - △ Band lock, Cell lock: before the lock FengSui opens the router's developer options with the same admin password, and names it in the write's record (MC888 Ultra, MC888 Pro, MC888, MC888S, MC8020, MC8830, F50 Pro, F50 and MF79U).
 
 <a id="brand-pinsu"></a>
@@ -305,6 +307,7 @@ Notes for this table:
 - △ Band lock, Cell lock: the notes on this 4G firmware name no band lock or cell lock, so FengSui sends the forms of ZTE's goform pages, which the router may not take; the network mode can be automatic or 4G only (ZLT T10D MAX).
 - — Battery: only a mobile router has a battery (ZLT T10D MAX).
 - △ Data settings: data roaming, the access point (APN) and the data limit only; FengSui does not do clearing the traffic counters here yet (ZLT T10D MAX).
+- A cell lock takes effect once the router restarts, and so does its removal; FengSui does not restart it for you, so until then the lock reads back as set, and the 3-minute rollback's unlock waits for a restart too (ZLT T10D MAX).
 - SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown (ZLT T10D MAX).
 - A 4G router on ZTE's chip platform: it uses another spelling of ZTE's interface (`/reqproc/`), which FengSui recognises when it connects (ZLT T10D MAX).
 

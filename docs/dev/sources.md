@@ -867,3 +867,10 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 - **烽火短信的其他编码**（C-29）：有文章提到 `send_msg` 的 `encode_schema` 还有 `UCS2` 等取值，但没有写出那种编码下正文的格式；固件把正文拼进命令行，格式不明就不发。
 - **华为其他型号 `net/register` 的 5G `Rat`**（C-01）：huawei-lte-api（`d2eb2af`）`api/Net.py` 第 119–126 行只列 `0` 2G、`2` 3G、`7` 4G。
 - **TP-Link MR 系列的 AES-GCM 登录**（C-16）：有记录了（tplinkrouterc6u `71e2c5b` `client/mr.py` 第 814–870 行：请求体多一行 `tag=`，`common/encryption.py` 第 206 行起：IV 12 字节），是一种新的登录写法，留给下一轮在模拟路由器上完整实现后再接。
+
+### 21.11 中兴锁小区何时生效（D-2，主人决定只加说明）
+
+- goform：锁小区和解除锁小区都要重启路由器才生效。[tpoechtrager/ZTE-Web-Script](https://github.com/tpoechtrager/ZTE-Web-Script)（`3206010`）`legacy/zte-script-legacy.js` 第 996–997、1073–1074 行（「You have to reboot your Router in order to remove the cell lock / for the cell lock to be active」）；资料 B（`zte-web-protocol-spec.md` 第 309、319 行）写解除之后执行重启生效。
+- zWRT：解除之后要切换一次网络制式或重启，才回到原来的小区。同一项目 `ng/zte-script-ng.js` 第 2193、2227 行。
+- 烽燧不替用户重启或切换制式（`AGENTS.md` 第 4 节第 2 条：除了断网回退，烽燧不主动写）。品牌事实 `cellLockEffect`（goform `restart`、zWRT `unlock-toggle`），「支持的设备」与「设置 → 设备」生成说明，控制抽屉的锁小区与解除锁定确认框写明。
+

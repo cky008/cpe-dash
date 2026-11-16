@@ -1104,6 +1104,25 @@ describe("the console on routers of other brands", () => {
   const cellularRows = `[...document.querySelectorAll('#controlsDialog [data-section="cellular"] [data-cellular]')].map((el) => el.dataset.cellular)`;
   const confirmText = "document.getElementById('confirmDialog').textContent";
 
+  it("says before a ZTE router's unlock that it takes effect once the router restarts", async () => {
+    const demo = await brand("zte");
+    try {
+      await signIn(page, demo);
+      await page.click('[data-action="open-controls"]');
+      await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+      const unlock = "[...document.querySelectorAll('#controlsDialog button')].find((b) => b.textContent.trim() === 'Remove all locks')";
+      await page.waitUntil(`${unlock} !== undefined`, "the unlock");
+      await page.evaluate(`${unlock}.click(); true`);
+      await page.waitUntil(isOpen("confirmDialog"), "the confirmation");
+      assert.match(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), /On this router a removed cell lock takes effect once it restarts; FengSui does not restart it for you/);
+      await page.click("#confirmCancel");
+      await closeDialogs(page);
+      assert.deepEqual(page.exceptions, []);
+    } finally {
+      await demo.close();
+    }
+  });
+
   it("shows a ZTE router's cellular settings, asks before each write with what it risks, and sends it once", async () => {
     const demo = await brand("zte");
     try {

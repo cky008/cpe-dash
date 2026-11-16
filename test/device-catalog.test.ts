@@ -18,7 +18,7 @@ import { DEVICE_FEATURES, STATUS_READ_FEATURES, type StatusReadFeature, isCellul
 import { zteBranch } from "../src/drivers/zte/goform.ts";
 import { DEVICE_REPORT_TEMPLATE, ISSUE_NEW_URL } from "../src/feedback.ts";
 import { VERIFIED_FEATURES, VERIFIED_FIRMWARE, type VerifiedFeature, UNSUPPORTED_FEATURES, type UnsupportedFeature } from "../src/firmware.ts";
-import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, isRouterFamily, familyImplements, routerVariant } from "../src/router-family.ts";
+import { DETECTION_ORDER, DRIVER_FAMILIES, type DriverFamily, ROUTER_FAMILY_FACTS, type RouterFamily, isRouterFamily, familyImplements, routerVariant } from "../src/router-family.ts";
 
 /**
  * The "Supported devices" guide page: one row per model the interface notes record, by brand, each
@@ -238,6 +238,21 @@ describe("the supported devices guide page", () => {
     assert.deepEqual([tplink("NX510v", "ussd"), tplink("NX540v", "cellLock"), tplink("Archer MR600", "antenna"), tplink("Archer MR600", "apn"), tplink("Archer NX200", "apn")], ["?", "△", "△", "?", "?"]);
     // The Deco line: the signal and the mesh's devices, a restart, no SMS in its page
     assert.deepEqual(["telemetry", "topology", "smsRead", "ussd", "reboot"].map((feature) => tplink("Deco X50-5G", feature)), ["△", "?", "", "", "△"]);
+  });
+
+  it("says under each brand's table where a cell lock takes effect only later, for every brand whose facts say so", () => {
+    const zh = supportedDevicesSection("zh-CN");
+    const en = supportedDevicesSection("en");
+    for (const family of Object.keys(ROUTER_FAMILY_FACTS) as RouterFamily[]) {
+      const effect = ROUTER_FAMILY_FACTS[family].cellLockEffect;
+      const row = deviceSupportRow(family, null);
+      const notes = row.notes.map((note) => note.en).join("\n");
+      if (effect === "restart") assert.match(notes, /takes effect once the router restarts, and so does its removal/, family);
+      else if (effect === "unlock-toggle") assert.match(notes, /once the network mode is switched or it restarts/, family);
+      else assert.doesNotMatch(notes, /takes effect once the router restarts|network mode is switched or it restarts/, family);
+    }
+    assert.match(zh, /- 锁小区要重启路由器后才生效，解除也一样/);
+    assert.match(en, /- After a cell lock is removed, the router goes back to the cell it would choose once the network mode is switched or it restarts/);
   });
 
   it("writes what is particular to a model as a fact, and the generator turns each into △ and a note under its brand's table", () => {

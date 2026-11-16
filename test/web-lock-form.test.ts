@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SchedulerStatusSnapshot } from "../src/api-contract.ts";
 import { H168_383_LTE_BANDS, checkCellLockInput } from "../src/rf-bounds.ts";
-import { bandText, cellLockForm, driverFamilyOf, locksNrBands, parseBandText } from "../web/src/core/lock-form.ts";
+import { bandText, cellLockEffect, cellLockForm, driverFamilyOf, locksNrBands, parseBandText } from "../web/src/core/lock-form.ts";
 
 const status = (family: string | undefined): SchedulerStatusSnapshot => ({ device: family === undefined ? {} : { family } }) as unknown as SchedulerStatusSnapshot;
 
 describe("web core: lock forms per router brand", () => {
+  it("says where a cell lock takes effect only later, as the brand's notes do", () => {
+    assert.equal(cellLockEffect("zte-goform"), "restart", "a lock and its removal once the router restarts");
+    assert.equal(cellLockEffect("zte-zwrt"), "unlock-toggle", "a removal once the mode is switched or the router restarts");
+    assert.equal(cellLockEffect("openwrt"), null);
+    assert.equal(cellLockEffect(null), null, "the verified router's own lock");
+  });
+
   it("knows when another brand's driver speaks to the router", () => {
     assert.equal(driverFamilyOf(null), null);
     assert.equal(driverFamilyOf(status(undefined)), null, "a status from before brands existed is the HiLink stack's");

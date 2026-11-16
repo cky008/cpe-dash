@@ -16,6 +16,11 @@ export function driverFamilyOf(scheduler: SchedulerStatusSnapshot | null): Drive
   return family !== undefined && isDriverFamily(family) ? family : null;
 }
 
+/** When a cell lock takes effect on the brand's routers, where its notes say not at once (`null`: at once). */
+export function cellLockEffect(family: DriverFamily | null): "restart" | "unlock-toggle" | null {
+  return family === null ? null : (ROUTER_FAMILY_FACTS[family].cellLockEffect ?? null);
+}
+
 /** The brand's driver locks NR bands as well as LTE bands. */
 export function locksNrBands(family: DriverFamily): boolean {
   return ROUTER_FAMILY_FACTS[family].nrBandLock;

@@ -494,6 +494,18 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   },
   { family: "huawei", forms: ["usb"], features: [], zh: "USB 上网卡要在 HiLink 模式（有网页管理界面）下才能连", en: "A USB modem connects only in HiLink mode, with its web interface" },
   {
+    family: "zte-goform",
+    features: [],
+    zh: "锁小区要重启路由器后才生效，解除也一样；烽燧不会替你重启，所以重启前读回的是设置，断网 3 分钟后的自动解锁同样要等重启",
+    en: "A cell lock takes effect once the router restarts, and so does its removal; FengSui does not restart it for you, so until then the lock reads back as set, and the 3-minute rollback's unlock waits for a restart too",
+  },
+  {
+    family: "zte-zwrt",
+    features: [],
+    zh: "解除锁小区之后，要切换一次网络制式或重启路由器，才会回到原来的小区；烽燧不会替你做",
+    en: "After a cell lock is removed, the router goes back to the cell it would choose once the network mode is switched or it restarts; FengSui does neither for you",
+  },
+  {
     family: "zte-zwrt",
     models: ["G5TS"],
     features: ["cellLock"],

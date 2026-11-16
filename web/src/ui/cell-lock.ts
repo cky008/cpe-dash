@@ -1,5 +1,5 @@
 import { MAX_PCI, type RatName } from "../../../src/rf-bounds.ts";
-import { cellLockForm } from "../core/lock-form.ts";
+import { cellLockEffect, cellLockForm, driverFamilyOf } from "../core/lock-form.ts";
 import { bandLabel } from "../core/rf.ts";
 import { lockRollbackNote } from "../core/self-heal-view.ts";
 import type { AppContext } from "./context.ts";
@@ -170,7 +170,14 @@ export function openCellLockDialog(ctx: AppContext, prefill: CellLockPrefill | n
       "div",
       { class: "fs-notice", data: { tone: "pending" } },
       icon("alert", "text-warning mt-0.5"),
-      h("span", null, ctx.t("cl.warning"), rollback ? h("span", { class: "block mt-1" }, rollback) : null)
+      h(
+        "span",
+        null,
+        ctx.t("cl.warning"),
+        rollback ? h("span", { class: "block mt-1" }, rollback) : null,
+        // A router whose cell lock takes effect only once it restarts
+        cellLockEffect(driverFamilyOf(ctx.store.state.scheduler)) === "restart" ? h("span", { class: "block mt-1" }, ctx.t("cl.effect_restart")) : null
+      )
     ),
     formError,
     h(
