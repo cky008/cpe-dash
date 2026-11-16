@@ -108,7 +108,7 @@ export interface ApiErrorEnvelope {
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号，烽燧在它上面没有这项写入的实现（或路由器不具备它需要的条件）：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
     | "DEVICE_WRITE_DISABLED"    // 409: 烽燧在这台路由器上实现了这项写入，但用户已经在「设置 → 设备」把它关闭：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.11；v1.9.0）
-    | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（device/information），没有写入（见 2.10）
+    | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（华为读 device/information，其他品牌由驱动识别；接口里不报告型号的品牌按品牌事实里的名字，不会遇到），没有写入（见 2.10）
     | "EXPERIMENTAL_UNAVAILABLE" // 409: 这项写入在这台路由器上没有开关可关可开（已验证型号、烽燧没有实现、路由器不具备条件、还没识别型号；附 state，见 2.11）
     | "AGENT_TEST_UNAVAILABLE"   // 409: 这台路由器没有可供 AI 智能体测试的实验性写入（已验证型号、还没识别型号，或测试覆盖的写入它都没有、都被关闭了），一键测试不能开始（见 2.12）
     | "ALREADY_SET_UP"           // 409: 控制台密码已设定后再调用 /api/setup/login
