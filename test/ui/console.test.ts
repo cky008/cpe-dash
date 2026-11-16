@@ -568,7 +568,7 @@ describe("the console in a browser", () => {
     // overflow: hidden makes the dialog a scroll container (daisyUI's clip makes none), so its overscroll-behavior applies
     const contained = (id: string) =>
       page.evaluate<string[]>(
-        `(() => { const dialog = document.getElementById(${JSON.stringify(id)}); const box = dialog.querySelector('.modal-box'); const own = getComputedStyle(dialog); const backdrop = getComputedStyle(dialog, '::backdrop'); return [own.overflowY, own.overscrollBehaviorY, box ? getComputedStyle(box).overscrollBehaviorY : 'no box', backdrop.overflowY, backdrop.overscrollBehaviorY]; })()`
+        `(() => { const dialog = document.getElementById(${literal(id)}); const box = dialog.querySelector('.modal-box'); const own = getComputedStyle(dialog); const backdrop = getComputedStyle(dialog, '::backdrop'); return [own.overflowY, own.overscrollBehaviorY, box ? getComputedStyle(box).overscrollBehaviorY : 'no box', backdrop.overflowY, backdrop.overscrollBehaviorY]; })()`
       );
     await page.click('[data-action="open-controls"]');
     await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
