@@ -167,11 +167,15 @@ describe("zte-goform SMS: the driver", () => {
     assert.deepEqual(await empty.client.withSession((s) => smsOf(s).list()), []);
   });
 
-  it("asks for the next page after a full one, and stops when a page brings nothing new", async () => {
+  it("asks for the next page until one is empty or brings nothing new", async () => {
     const many = Array.from({ length: 620 }, (_, i) => zteSms(i + 1, FRIEND, `m${i}`, "0"));
     const paged = zteRouter({ sms: many });
     assert.equal((await paged.client.withSession((s) => smsOf(s).list()))?.length, 620);
-    assert.deepEqual(paged.mock.requests.filter((r) => r.query.get("cmd") === "sms_data_total").map((r) => r.query.get("page")), ["0", "1"]);
+    assert.deepEqual(paged.mock.requests.filter((r) => r.query.get("cmd") === "sms_data_total").map((r) => r.query.get("page")), ["0", "1", "2"]);
+    // A firmware that hands back fewer than a page asks for: the next page all the same, until one is empty
+    const short = zteRouter({ sms: Array.from({ length: 250 }, (_, i) => zteSms(i + 1, FRIEND, `m${i}`, "0")), smsPageCap: 100 });
+    assert.equal((await short.client.withSession((s) => smsOf(s).list()))?.length, 250);
+    assert.deepEqual(short.mock.requests.filter((r) => r.query.get("cmd") === "sms_data_total").map((r) => r.query.get("page")), ["0", "1", "2", "3"]);
     // A firmware that ignores the page hands back the same rows: asked twice, not for ever
     const stuck = zteRouter({ sms: many, smsIgnoresPage: true });
     assert.equal((await stuck.client.withSession((s) => smsOf(s).list()))?.length, 500);

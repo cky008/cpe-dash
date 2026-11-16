@@ -188,7 +188,7 @@ async function setCmd(http: LanHttp, fields: ReadonlyArray<readonly [string, str
   return answer;
 }
 
-/** One listing page: the router's page asks for 500 at once; a firmware may hand back fewer. */
+/** One listing page: the router's page asks for 500 at once; a firmware may hand back fewer, so the listing goes on until a page is empty. */
 const SMS_PAGE_SIZE = 500;
 const SMS_MAX_PAGES = 8;
 /** Ids per write, as the page batches a large selection (a long form resets some firmware's connection). */
@@ -1442,8 +1442,9 @@ class ZteGoformSession implements DriverSessionHandle {
       const rows = answer["messages"];
       const before = seen.size;
       for (const message of parseZteSmsRows(rows)) seen.set(message.index, message);
-      // A short page, or one that brought nothing new (a firmware that ignores `page`), is the last
-      if (rows.length < SMS_PAGE_SIZE || seen.size === before) break;
+      // An empty page, or one that brought nothing new (a firmware that ignores `page`), is the last; a
+      // short one is not, since a firmware may hand back fewer than a page asks for
+      if (rows.length === 0 || seen.size === before) break;
     }
     return [...seen.values()];
   }

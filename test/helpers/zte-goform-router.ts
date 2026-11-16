@@ -52,6 +52,8 @@ export interface ZteRouterOptions {
   sendResult?: string;
   /** A firmware that hands back the first page whatever page is asked for. */
   smsIgnoresPage?: boolean;
+  /** A firmware that hands back at most this many messages a page, whatever the page asks for. */
+  smsPageCap?: number;
   /**
    * The ZXIC firmware's spelling: `/reqproc/proc_get` and `/reqproc/proc_post`, a login by user name
    * and nonce, a `random` cookie, and `CSRFToken` on writes. Its versions name only `cr_version`.
@@ -197,7 +199,7 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
     if (opts.sms === false) return null;
     if (cmd === "sms_data_total") {
       if (!signedIn(req)) return { messages: [] };
-      const size = Number.parseInt(req.query.get("data_per_page") ?? "500", 10);
+      const size = Math.min(Number.parseInt(req.query.get("data_per_page") ?? "500", 10), opts.smsPageCap ?? Number.POSITIVE_INFINITY);
       const page = opts.smsIgnoresPage ? 0 : Number.parseInt(req.query.get("page") ?? "0", 10);
       const rows = [...state.sms].sort((a, b) => b.id - a.id).slice(page * size, page * size + size);
       return { messages: rows.map((row) => ({ id: String(row.id), number: row.number, content: row.content, tag: row.tag, date: row.date, draft_group_id: "" })) };
