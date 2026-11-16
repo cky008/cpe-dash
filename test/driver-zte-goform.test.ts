@@ -313,6 +313,38 @@ describe("zte-goform: locks", () => {
     assert.deepEqual(parseZteLockState({}), { lteBands: null, nrBands: null, lteCell: null, nrCell: null, networkMode: null, supportedLte: null, supportedNr: null });
   });
 
+  it("reads an MC888's NR cell lock from the fields it locks with", () => {
+    // The merged firmware locks with Z5g_lockcell_* (notes library A, its read-back package C names them); the packed field may stay as it was
+    const raw = { nr5g_cell_lock: "0,0,0,0", Z5g_lockcell_pci: "142", Z5g_lockcell_arfcn: "650000", Z5g_lockcell_band: "78", Z5g_lockcell_scs: "30" };
+    assert.deepEqual(parseZteLockState(raw, 2).nrCell, { locked: true, pci: 142, arfcn: 650000, band: 78 });
+    assert.deepEqual(parseZteLockState({ ...raw, Z5g_lockcell_arfcn: "0" }, 2).nrCell, { locked: false });
+    // Without those fields, the packed one
+    assert.deepEqual(parseZteLockState({ nr5g_cell_lock: "142,650000,78,30" }, 2).nrCell, { locked: true, pci: 142, arfcn: 650000, band: 78 });
+    // The standard firmware's packed field first, as before
+    assert.deepEqual(parseZteLockState(raw, 1).nrCell, { locked: false });
+  });
+
+  it("unlocks an MC888's NR cell lock and reads the fields it was locked with back", async () => {
+    const { state, client } = zteRouter();
+    const lock = newCheck();
+    await client.withSession((s) => s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 }, lock));
+    assert.deepEqual([state.values["Z5g_lockcell_pci"], state.values["Z5g_lockcell_arfcn"], state.values["nr5g_cell_lock"]], ["142", "650000", "0,0,0,0"], "locked with Z5g_lockcell_*, the packed field left as it was");
+    assert.equal(lock.readback, "match");
+    const unlock = newCheck();
+    await client.withSession((s) => s.unlockAll(unlock));
+    // The unlock both forms share (notes library A); it clears what the lock wrote
+    assert.equal(state.posts.find((p) => p.goformId === "NR5G_LOCK_CELL_SET" && p.fields.has("nr5g_cell_lock"))?.fields.get("nr5g_cell_lock"), "0,0,0,0");
+    assert.equal(state.values["Z5g_lockcell_arfcn"], "0");
+    assert.equal(unlock.readback, "match");
+    // A firmware that kept the lock is read as locked: never "unlocked" while it is not
+    const stuck = zteRouter({ z5gLockSticks: true });
+    await stuck.client.withSession((s) => s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 }, newCheck()));
+    const still = newCheck();
+    await stuck.client.withSession((s) => s.unlockAll(still));
+    assert.equal(still.readback, "mismatch");
+    assert.equal((await stuck.client.withSession((s) => s.lockState()))?.nrCell?.locked, true);
+  });
+
   it("locks bands on an MC888, signs every write and reads it back", async () => {
     const { state, client } = zteRouter();
     const check = newCheck();

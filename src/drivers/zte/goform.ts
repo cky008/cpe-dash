@@ -762,27 +762,36 @@ function lteCellOf(raw: Record<string, unknown>): CellLockState | null {
   return { locked: true, arfcn, pci: pciOf(raw["lte_pci_lock"], "LTE"), band: null };
 }
 
-function nrCellOf(raw: Record<string, unknown>): CellLockState | null {
+function packedNrCellOf(raw: Record<string, unknown>): CellLockState | null {
   const packed = rowsOf(raw["nr5g_cell_lock"])[0];
-  if (packed && packed.length >= 3) {
-    const arfcn = intOf(packed[1]);
-    if (unlockedChannel(arfcn)) return { locked: false };
-    return { locked: true, pci: pciOf(packed[0], "NR"), arfcn, band: bandOf(packed[2]) };
-  }
-  if (textOf(raw["Z5g_lockcell_arfcn"]) !== null) {
-    const arfcn = intOf(raw["Z5g_lockcell_arfcn"]);
-    if (unlockedChannel(arfcn)) return { locked: false };
-    return { locked: true, pci: pciOf(raw["Z5g_lockcell_pci"], "NR"), arfcn, band: bandOf(raw["Z5g_lockcell_band"]) };
-  }
-  return null;
+  if (!packed || packed.length < 3) return null;
+  const arfcn = intOf(packed[1]);
+  if (unlockedChannel(arfcn)) return { locked: false };
+  return { locked: true, pci: pciOf(packed[0], "NR"), arfcn, band: bandOf(packed[2]) };
 }
 
-export function parseZteLockState(raw: Record<string, unknown>): DriverLockState {
+function mergedNrCellOf(raw: Record<string, unknown>): CellLockState | null {
+  if (textOf(raw["Z5g_lockcell_arfcn"]) === null) return null;
+  const arfcn = intOf(raw["Z5g_lockcell_arfcn"]);
+  if (unlockedChannel(arfcn)) return { locked: false };
+  return { locked: true, pci: pciOf(raw["Z5g_lockcell_pci"], "NR"), arfcn, band: bandOf(raw["Z5g_lockcell_band"]) };
+}
+
+/**
+ * The NR cell lock as the firmware reports it. The merged firmware (branch 2) locks with
+ * `Z5g_lockcell_*` and reads it back there (notes library A, read-back package C), so those fields
+ * come first on it: its packed `nr5g_cell_lock` may still say "no lock" while the cell is locked.
+ */
+function nrCellOf(raw: Record<string, unknown>, branch: ZteBranch): CellLockState | null {
+  return branch === 2 ? (mergedNrCellOf(raw) ?? packedNrCellOf(raw)) : (packedNrCellOf(raw) ?? mergedNrCellOf(raw));
+}
+
+export function parseZteLockState(raw: Record<string, unknown>, branch: ZteBranch = 1): DriverLockState {
   return {
     lteBands: lteLockOf(raw),
     nrBands: nrLockOf(raw),
     lteCell: lteCellOf(raw),
-    nrCell: nrCellOf(raw),
+    nrCell: nrCellOf(raw, branch),
     networkMode: networkModeOf(raw["net_select"]) ?? networkModeOf(raw["BearerPreference"]),
     supportedLte: null,
     supportedNr: null,
@@ -957,7 +966,7 @@ class ZteGoformSession implements DriverSessionHandle {
     // The name the mode reads back by tells which names this firmware writes (a band lock and an unlock read it first)
     const current = (textOf(raw["net_select"]) ?? textOf(raw["BearerPreference"]))?.toUpperCase();
     if (current !== undefined) this.#fourGModes = current === "NETWORK_AUTO";
-    return parseZteLockState(raw);
+    return parseZteLockState(raw, this.#branch);
   }
 
   /**

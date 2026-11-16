@@ -1,6 +1,6 @@
 import { DriverCpeClient } from "../../src/drivers/client.ts";
 import { ucs2Hex } from "../../src/drivers/sms.ts";
-import { ZTE_LTE_ALL_MASK, ZTE_NR_ALL_BANDS, zteActionDigest, zteGoformProtocol, zteLoginPassword, zteReqprocPassword } from "../../src/drivers/zte/goform.ts";
+import { ZTE_LTE_ALL_MASK, ZTE_NR_ALL_BANDS, zteActionDigest, zteBranch, zteGoformProtocol, zteLoginPassword, zteReqprocPassword } from "../../src/drivers/zte/goform.ts";
 import { LanRouterMock, type LanRequestRecord } from "./lan-router.ts";
 
 /**
@@ -67,6 +67,8 @@ export interface ZteRouterOptions {
   stations?: { lan?: unknown[]; wifi?: unknown[] };
   /** The admin password the router takes (default `ZTE_PASSWORD`). */
   password?: string;
+  /** An MC888-type firmware that keeps its `Z5g_lockcell_*` lock through the packed unlock. */
+  z5gLockSticks?: boolean;
   /** The router reports its SIM card's PIN state, its roaming switch and its data limit. */
   sim?: boolean;
   /** The SIM card's PIN (default `1234`); a wrong one costs an attempt. */
@@ -126,6 +128,8 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       lte_pci_lock: "0",
       lte_earfcn_lock: "0",
       nr5g_cell_lock: "0,0,0,0",
+      // The merged firmware (MC888 / MC8830) reports the NR cell lock it takes in fields of its own
+      ...(zteBranch(version) === 2 ? { Z5g_lockcell_pci: "0", Z5g_lockcell_arfcn: "0", Z5g_lockcell_band: "0", Z5g_lockcell_scs: "0" } : {}),
       net_select: "WL_AND_5G",
       network_type: "ENDC",
       wan_active_band: "LTE BAND 1",
@@ -301,7 +305,14 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       }
       if (goformId === "NR5G_LOCK_CELL_SET") {
         const packed = fields.get("nr5g_cell_lock");
-        state.values["nr5g_cell_lock"] = packed ?? `${fields.get("Z5g_lockcell_pci")},${fields.get("Z5g_lockcell_arfcn")},${fields.get("Z5g_lockcell_band")},${fields.get("Z5g_lockcell_scs")}`;
+        if (packed !== null) {
+          state.values["nr5g_cell_lock"] = packed;
+          // Notes library A pairs the merged firmware's lock with this unlock: it clears that lock too
+          const unlock = /^[01](,[01]){3}$/.test(packed);
+          if (unlock && state.values["Z5g_lockcell_arfcn"] !== undefined && !opts.z5gLockSticks) for (const key of ["Z5g_lockcell_pci", "Z5g_lockcell_arfcn", "Z5g_lockcell_band", "Z5g_lockcell_scs"]) state.values[key] = "0";
+        } else {
+          for (const key of ["Z5g_lockcell_pci", "Z5g_lockcell_arfcn", "Z5g_lockcell_band", "Z5g_lockcell_scs"]) state.values[key] = fields.get(key) ?? "";
+        }
       }
       if (goformId === "SET_SIM_SLOT") state.values["sim_slot"] = fields.get("sim_slot") ?? "";
       if (goformId === "SET_CONNECTION_MODE") {
