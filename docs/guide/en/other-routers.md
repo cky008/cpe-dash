@@ -39,6 +39,8 @@ What the router reports about itself shows on the matching card too: a mobile ro
 
 The header shows "Unverified model"; choose it to open Settings → Device.
 
+![The dashboard of a ZTE mobile router: the SIM card's slot, PIN tries left and roaming, and "Unverified model" in the header](../../screenshots/dashboard-zte.webp)
+
 <a id="writes"></a>
 
 ## Writes: what FengSui implements is available by default

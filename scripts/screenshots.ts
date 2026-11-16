@@ -25,7 +25,7 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT_DIR = path.join(ROOT, "docs", "screenshots");
 const TOKEN = "fengsui-screenshots";
 
-type Scenario = "normal" | "yield" | "breaker" | "unverified";
+type Scenario = "normal" | "yield" | "breaker" | "unverified" | "zte";
 
 interface Shot {
   name: string;
@@ -166,6 +166,18 @@ const SHOTS: ReadonlyArray<Shot> = [
       await page.evaluate("document.querySelector('#settingsDialog li[data-feature=bandLock]').scrollIntoView({ block: 'center' }); true");
     },
   },
+  // A router of another brand (the demo's ZTE mobile router): its SIM card and status, and "Unverified model" in the header
+  { name: "dashboard-zte", scenario: "zte", theme: "fengsui-sujian" },
+  {
+    name: "cellular-settings",
+    scenario: "zte",
+    theme: "fengsui-sujian",
+    prepare: async (page) => {
+      await page.click('[data-action="open-controls"]');
+      await page.waitUntil("document.querySelector('#controlsDialog [data-section=cellular] [data-cellular=networkMode]') !== null", "the cellular settings");
+      await page.evaluate("document.querySelector('#controlsDialog [data-section=cellular]').scrollIntoView({ block: 'start' }); true");
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- demo world
@@ -180,7 +192,8 @@ async function startWorld(scenario: Scenario): Promise<DemoDaemon> {
   demo.stack.settings.createToken({ name: "Claude Code", permissions: ["sms-read"], lifetimeDays: 90 });
   demo.stack.settings.resolveBearer(grafana.token);
   // Another model's Settings → Device lists its experimental writes once it is identified
-  if (scenario === "unverified") await demo.stack.monitor.identifyDevice();
+  const unverified = scenario === "unverified" || scenario === "zte";
+  if (unverified) await demo.stack.monitor.identifyDevice();
   if (scenario !== "breaker") {
     // The first neighbor scan and settings read would otherwise wait for their own schedules
     const reads = [
@@ -189,7 +202,7 @@ async function startWorld(scenario: Scenario): Promise<DemoDaemon> {
       demo.stack.monitor.refreshAccessControl({ ignoreCooldown: true }),
     ];
     // Another model may lack some of them; the H168-383 must have them all
-    if (scenario === "unverified") await Promise.allSettled(reads);
+    if (unverified) await Promise.allSettled(reads);
     else await Promise.all(reads);
   }
   const ticker = setInterval(() => demo.router.advance(), 5000);
