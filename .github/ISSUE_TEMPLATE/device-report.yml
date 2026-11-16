@@ -11,7 +11,7 @@ body:
 
         **报告怎么来 / Where the report comes from**：控制台「设置 → 设备 → 生成设备报告」，检查后复制，或下载 JSON 文件。 / In the console: Settings → Device → Create device report; check it, then copy it or download the JSON file.
 
-        **之后会怎样 / What happens next**：报告里的 `checks` 逐项列出每个功能在你的路由器上的结果（`works` 能用、`failed` 不能用、`untested` 还没试）。读取项读到了数据、写入项在写入记录里回读一致（`works`），维护者就把它登记进代码，「支持的设备」表里那一格会变成 ✓。 / The report's `checks` list each feature's result on your router (`works`, `failed`, `untested`). A read that had data or a write that read back as written (`works`) is recorded in the code by a maintainer, and its cell on the Supported devices page turns into ✓.
+        **之后会怎样 / What happens next**：报告里的 `checks` 逐项列出每个功能在你的路由器上的结果（`works` 能用、`failed` 不能用、`untested` 还没试）。读取项读到了数据、写入项在写入记录里回读一致（没有可回读内容的写入，如搜网、USSD，路由器收下了也算）（`works`），维护者就把它登记进代码，「支持的设备」表里那一格会变成 ✓。 / The report's `checks` list each feature's result on your router (`works`, `failed`, `untested`). A read that had data or a write that read back as written (or, for a write with nothing to read back such as a network search or USSD, that the router took) (`works`) is recorded in the code by a maintainer, and its cell on the Supported devices page turns into ✓.
   - type: input
     id: model
     attributes:
