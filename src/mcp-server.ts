@@ -15,6 +15,7 @@ import {
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
   ConnectionChangedError,
+  ConnectionPausedError,
   DeviceNotIdentifiedError,
   DeviceReadOnlyError,
   type MutexSessionScheduler,
@@ -557,6 +558,9 @@ export class FengSuiMcpServer {
       }
       if (err instanceof ConnectionChangedError) {
         return wrapErr("CONNECTION_CHANGED", err.messageEn, { messageZh: err.messageZh });
+      }
+      if (err instanceof ConnectionPausedError) {
+        return wrapErr("ROUTER_PAUSED", err.messageEn, { messageZh: err.messageZh, pause: err.pause });
       }
       if (err instanceof DeviceReadOnlyError) {
         return wrapErr(err.errorCode, err.messageEn, { messageZh: err.messageZh, model: err.model, feature: err.feature });

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import type { AccessControlSnapshot } from "./access-control.ts";
 import { LINK_CHANGE_KINDS, type LinkChange, type LinkChangeKind, isLinkChange } from "./cellular.ts";
+import { type ConnectionPauseRecord, isPauseRecord } from "./connection-pause.ts";
 import type {
   GlobalTelemetrySnapshot,
   NeighborScanSnapshot,
@@ -70,6 +71,11 @@ export interface PersistedRuntimeState {
    * its credentials.
    */
   selfHealLinkWatches: SelfHealLinkWatchState[];
+  /**
+   * The pause of the connection its owner asked for (Settings → Router), with its end: a restart
+   * carries on with it to that same end, neither sooner nor longer (`null`: not paused).
+   */
+  connectionPause: ConnectionPauseRecord | null;
 }
 
 export interface SelfHealLinkWatchState {
@@ -152,6 +158,7 @@ function createDefaultState(): PersistedRuntimeState {
     selfHealReconnect: null,
     selfHealLockWatch: null,
     selfHealLinkWatches: [],
+    connectionPause: null,
   };
 }
 
@@ -237,6 +244,7 @@ export class EncryptedStateStore {
         genericWrites: Array.isArray(loaded.genericWrites) ? loaded.genericWrites.filter(isWriteResultRecord).slice(-MAX_GENERIC_WRITES) : [],
         recentAlerts: Array.isArray(loaded.recentAlerts) ? loaded.recentAlerts.slice(-100) : [],
         selfHealLinkWatches: Array.isArray(loaded.selfHealLinkWatches) ? loaded.selfHealLinkWatches.filter(isLinkWatchState).slice(-LINK_CHANGE_KINDS.length) : [],
+        connectionPause: isPauseRecord(loaded.connectionPause) ? loaded.connectionPause : null,
       };
     }
     return this.#state;

@@ -10,7 +10,7 @@ import type { SchedulerMode, SchedulerStatusSnapshot } from "./scheduler.ts";
  * its kind, never the router's own sensor name).
  */
 
-const MODES: ReadonlyArray<SchedulerMode> = ["idle", "polling", "yielding_browser", "circuit_tripped", "cpe_unreachable", "standby_peer"];
+const MODES: ReadonlyArray<SchedulerMode> = ["idle", "polling", "yielding_browser", "circuit_tripped", "cpe_unreachable", "standby_peer", "paused"];
 
 interface Sample {
   labels?: Readonly<Record<string, string>>;

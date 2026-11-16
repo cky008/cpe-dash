@@ -56,6 +56,7 @@ import type {
   NeighborsEndpointResponse,
   RebootResponse,
   ReconnectResponse,
+  PauseConnectionResponse,
   ResetBreakerResponse,
   SecurityControlRequest,
   SecurityControlResponse,
@@ -187,6 +188,8 @@ export function createEndpoints(api: ApiClient) {
     antenna: (mode: AntennaModeName) => call<AntennaControlResponse>("antenna", { body: { mode }, options: control }),
     mobileData: (enabled: boolean) => call<MobileDataControlResponse>("mobileData", { body: { enabled }, options: control }),
     resetBreaker: () => call<ResetBreakerResponse>("resetBreaker", { options: control }),
+    pauseConnection: (minutes: number) => call<PauseConnectionResponse>("pauseConnection", { body: { minutes }, options: control }),
+    resumeConnection: () => call<PauseConnectionResponse>("resumeConnection", { options: control }),
 
     // Cellular settings. A search for networks and a registration take the router minutes
     cellular: () => call<CellularEndpointResponse>("cellular"),

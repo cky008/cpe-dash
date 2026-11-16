@@ -11,6 +11,7 @@ import { type I18nKey, t } from "./i18n.ts";
 import { ROUTER_FAMILY_LABELS, routerFamilyOf, type RouterFamily } from "./router-family.ts";
 import { type ConnectionOptions, type ConnectionSettings, type KnownLogin, type RouterConnection, connectionSettings, presentedCertificate, routerConnection } from "./drivers/connection.ts";
 import { normalizeCpeUrl } from "./config.ts";
+import { type ConnectionPauseStatus, PAUSE_MAX_MINUTES, type PauseBlock, checkPauseMinutes, isPauseRecord } from "./connection-pause.ts";
 import { detectRouterFamily } from "./drivers/detect.ts";
 import type { RouterCertificate } from "./router-trust.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext } from "./router-session.ts";
@@ -24,7 +25,9 @@ export type SchedulerMode =
   | "yielding_browser"
   | "circuit_tripped"
   | "cpe_unreachable"
-  | "standby_peer";
+  | "standby_peer"
+  /** Its owner paused the connection (Settings → Router): no session, no request, until the pause ends. */
+  | "paused";
 
 export type SchedulerPriority = "high" | "normal" | "low";
 
@@ -86,6 +89,8 @@ export interface SchedulerStatusSnapshot {
   lastError: string | null;
   /** The router's model as the write gate sees it, and whether FengSui may write to it. */
   device: DeviceAccessSnapshot;
+  /** The pause of the connection its owner asked for, and whether one can begin now. */
+  pause: ConnectionPauseStatus;
 }
 
 export class BrowserSessionYieldedError extends Error {
@@ -186,6 +191,27 @@ export class DeviceNotIdentifiedError extends Error {
     this.name = "DeviceNotIdentifiedError";
     this.messageZh = t("zh-CN", "controls.device_not_identified");
     this.messageEn = en;
+  }
+}
+
+/**
+ * The connection is paused (Settings → Router): until the pause ends FengSui opens no session and
+ * sends the router nothing, so a write is refused before any session and a login-free request is
+ * not sent either (`409 ROUTER_PAUSED`). Reads are skipped without an error.
+ */
+export class ConnectionPausedError extends Error {
+  readonly statusCode = 409;
+  readonly messageZh: string;
+  readonly messageEn: string;
+  readonly pause: ConnectionPauseStatus;
+
+  constructor(pause: ConnectionPauseStatus) {
+    const en = t("en", "controls.router_paused");
+    super(en);
+    this.name = "ConnectionPausedError";
+    this.messageZh = t("zh-CN", "controls.router_paused");
+    this.messageEn = en;
+    this.pause = pause;
   }
 }
 
@@ -305,6 +331,8 @@ export type ConnectionTestResult =
         | "human_logged_in"
         | "unreachable"
         | "standby"
+        /** The connection is paused (Settings → Router): a test would talk to the router, so none ran. */
+        | "paused"
         | "router_error"
         /** Brand detection: the router answered none of the families' login-free requests (no password went out). */
         | "unknown_brand"
@@ -390,6 +418,8 @@ export interface MutexSessionSchedulerOptions {
    * by an older model at the same address). Background sessions keep to SCRAM either way.
    */
   allowLegacyLoginAfterScram?: boolean;
+  /** The wall clock a pause of the connection is timed by (tests set it). */
+  now?: () => number;
 }
 
 /**
@@ -453,6 +483,15 @@ export class MutexSessionScheduler extends EventEmitter {
   #peerStandby: PeerStandbyState = { active: false, peerAddress: null, sinceIso: null };
   /** Generic redials and reboots waiting for the polls to show them (record id → what to look for). */
   #pendingRestarts = new Map<string, { kind: "reboot" | "reconnect"; requestedAtMs: number }>();
+  readonly #now: () => number;
+  /**
+   * The pause its owner asked for: its end by the wall clock (kept in state.json) and, within this
+   * run, by the monotonic clock, so a clock set back cannot stretch it.
+   */
+  #pause: { sinceMs: number; untilMs: number; untilMono: number } | null = null;
+  #pauseTimer: ReturnType<typeof setTimeout> | null = null;
+  /** What keeps a pause from beginning (self-healing's open watches); `null`: nothing does. */
+  #pauseGuard: (() => PauseBlock | null) | null = null;
 
   constructor(options: MutexSessionSchedulerOptions) {
     super();
@@ -462,6 +501,7 @@ export class MutexSessionScheduler extends EventEmitter {
     this.layer2MaxBackoffMs = options.layer2MaxBackoffMs ?? 300_000;
     this.stopGraceMs = Math.max(0, options.stopGraceMs ?? 2000);
     this.#allowLegacyLoginAfterScram = options.allowLegacyLoginAfterScram === true;
+    this.#now = options.now ?? Date.now;
     this.#family = routerFamilyOf(options.family);
     this.device.setFamily(this.#family);
     this.#settings = connectionSettings(options.connection);
@@ -523,7 +563,100 @@ export class MutexSessionScheduler extends EventEmitter {
     if (latched) {
       this.#mode = "circuit_tripped";
     }
+    // A pause an earlier run began goes on to its own end: one that is over, or that would run longer than a pause may, is dropped
+    const pause = loaded.connectionPause;
+    const leftMs = isPauseRecord(pause) ? pause.untilMs - this.#now() : 0;
+    if (isPauseRecord(pause) && leftMs > 0 && leftMs <= PAUSE_MAX_MINUTES * 60_000) this.#beginPause(pause.sinceMs, pause.untilMs);
+    else if (pause !== null) this.stateStore.update({ connectionPause: null });
     this.#initialized = true;
+  }
+
+  /**
+   * What must be settled before a pause may begin (self-healing's open watches: while one is open the
+   * change it watches may still have to be put back, which a paused connection could not do).
+   */
+  setPauseGuard(guard: (() => PauseBlock | null) | null): void {
+    this.#pauseGuard = guard;
+  }
+
+  /**
+   * Pause the connection for `minutes` (whole, at most `PAUSE_MAX_MINUTES`), counted from now: no
+   * session is opened and nothing is sent to the router until then. A session that is running ends as
+   * it would have; reads are skipped and writes refused from here on, those already waiting included.
+   * Refused while a change is still watched.
+   */
+  pauseConnection(minutes: number): ConnectionPauseStatus {
+    const length = checkPauseMinutes(minutes);
+    const blocked = this.#pauseGuard?.() ?? null;
+    if (blocked) {
+      throw new CpeControlValidationError(
+        "FengSui is still watching a change it made to the router (a lock or a cellular setting), which it puts back if the internet stays down. The connection can be paused once that is settled, a few minutes after the change"
+      );
+    }
+    const now = this.#now();
+    this.#beginPause(now, now + length * 60_000);
+    this.stateStore.update({ connectionPause: { sinceMs: now, untilMs: now + length * 60_000 } });
+    void this.stateStore.flushAsync().catch(() => undefined);
+    const status = this.getPauseStatus();
+    this.#safeEmit("session:pause", status);
+    this.#audit(currentActor(), "pause_connection", "applied", `paused for ${length} min`);
+    this.raiseAlert({
+      severity: "info",
+      code: "CONNECTION_PAUSED",
+      messageZh: t("zh-CN", "alerts.connection_paused", { minutes: length }),
+      messageEn: t("en", "alerts.connection_paused", { minutes: length }),
+    });
+    return status;
+  }
+
+  /** End a pause now (nothing happens when none is running). */
+  resumeConnection(): ConnectionPauseStatus {
+    if (this.#paused()) {
+      this.#endPause();
+      this.#audit(currentActor(), "resume_connection", "applied", null);
+    }
+    return this.getPauseStatus();
+  }
+
+  /** The pause as the console and the status show it. */
+  getPauseStatus(): ConnectionPauseStatus {
+    const iso = (ms: number): string => new Date(ms).toISOString();
+    const pause = this.#paused() ? this.#pause : null;
+    if (pause) return { active: true, sinceIso: iso(pause.sinceMs), untilIso: iso(pause.untilMs), blocked: null };
+    return { active: false, sinceIso: null, untilIso: null, blocked: this.#pauseGuard?.() ?? null };
+  }
+
+  #beginPause(sinceMs: number, untilMs: number): void {
+    const leftMs = Math.max(0, untilMs - this.#now());
+    this.#pause = { sinceMs, untilMs, untilMono: performance.now() + leftMs };
+    if (this.#pauseTimer) clearTimeout(this.#pauseTimer);
+    // The end is announced when it comes, not only once somebody asks
+    this.#pauseTimer = setTimeout(() => void this.#paused(), leftMs + 50);
+    this.#pauseTimer.unref?.();
+  }
+
+  #endPause(): void {
+    this.#pause = null;
+    if (this.#pauseTimer) clearTimeout(this.#pauseTimer);
+    this.#pauseTimer = null;
+    // Off the router for a while: it may have been replaced, so its model is confirmed again before the next write
+    this.device.forget();
+    this.stateStore.update({ connectionPause: null });
+    void this.stateStore.flushAsync().catch(() => undefined);
+    this.#safeEmit("session:pause", this.getPauseStatus());
+  }
+
+  /** Whether the connection is paused right now; a pause whose time is up ends here. */
+  #paused(): boolean {
+    const pause = this.#pause;
+    if (pause === null) return false;
+    if (this.#now() < pause.untilMs && performance.now() < pause.untilMono) return true;
+    this.#endPause();
+    return false;
+  }
+
+  #assertNotPaused(): void {
+    if (this.#paused()) throw new ConnectionPausedError(this.getPauseStatus());
   }
 
   /** Accept sessions again after `stop()` and mark the background workload as running. */
@@ -542,6 +675,8 @@ export class MutexSessionScheduler extends EventEmitter {
     this.#running = false;
     this.#stopping = true;
     const stopped = new SchedulerStoppedError();
+    if (this.#pauseTimer) clearTimeout(this.#pauseTimer);
+    this.#pauseTimer = null;
     for (const queued of this.#queue.splice(0)) {
       queued.reject(stopped);
     }
@@ -595,7 +730,9 @@ export class MutexSessionScheduler extends EventEmitter {
       ? "circuit_tripped"
       : this.#peerStandby.active
         ? "standby_peer"
-        : this.#mode;
+        : this.#paused()
+          ? "paused"
+          : this.#mode;
     return {
       mode: effectiveMode,
       running: this.#running,
@@ -608,6 +745,7 @@ export class MutexSessionScheduler extends EventEmitter {
       queueDepth: this.#queue.length,
       lastError: this.#lastError,
       device: this.device.snapshot(),
+      pause: this.getPauseStatus(),
     };
   }
 
@@ -704,6 +842,8 @@ export class MutexSessionScheduler extends EventEmitter {
     // A HiLink endpoint: a router of another family gets no HiLink request, not even a login-free one
     const reads = this.#connection.loginFree;
     if (reads === null) throw new CpeControlValidationError(`state-login is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
+    // A login-free request is a request: a paused connection sends none
+    this.#assertNotPaused();
     return await reads.loginState();
   }
 
@@ -711,6 +851,7 @@ export class MutexSessionScheduler extends EventEmitter {
   async probePublic(apiPath: PublicProbePath): Promise<string> {
     const reads = this.#connection.loginFree;
     if (reads === null) throw new CpeControlValidationError(`${apiPath} is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
+    this.#assertNotPaused();
     return await reads.get(apiPath);
   }
 
@@ -789,6 +930,7 @@ export class MutexSessionScheduler extends EventEmitter {
       probe: null,
     });
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
+    if (this.#paused()) return failure("paused", "the connection to the router is paused: resume it, then test again; nothing was sent to the router");
     let test: RouterConnection;
     try {
       test = routerConnection(
@@ -845,8 +987,9 @@ export class MutexSessionScheduler extends EventEmitter {
    * brand to FengSui; the daemon never does on its own.
    */
   async detectFamily(url: string, certFingerprint: string | null = null): Promise<RouterFamily | Extract<ConnectionTestResult, { ok: false }>> {
-    const failure = (reason: "standby" | "invalid_url" | "unknown_brand", message: string): Extract<ConnectionTestResult, { ok: false }> => ({ ok: false, reason, code: null, remainCount: null, waitTimeSec: null, message });
+    const failure = (reason: "standby" | "paused" | "invalid_url" | "unknown_brand", message: string): Extract<ConnectionTestResult, { ok: false }> => ({ ok: false, reason, code: null, remainCount: null, waitTimeSec: null, message });
     if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
+    if (this.#paused()) return failure("paused", "the connection to the router is paused: resume it, then try again; nothing was sent to the router");
     return await this.#enqueue("high", () =>
       this.#trusting(url, certFingerprint, async () => {
         try {
@@ -879,7 +1022,7 @@ export class MutexSessionScheduler extends EventEmitter {
    * handshake, or a build that cannot look (the live demo).
    */
   async routerCertificate(url: string): Promise<RouterCertificate | null> {
-    if (!this.#settings.peekCertificate || this.#peerStandby.active) return null;
+    if (!this.#settings.peekCertificate || this.#peerStandby.active || this.#paused()) return null;
     let target: string;
     try {
       target = normalizeCpeUrl(url);
@@ -964,12 +1107,14 @@ export class MutexSessionScheduler extends EventEmitter {
   ): Promise<T | null> {
     const ignoreCooldown = opts.ignoreCooldown === true;
     if (!this.#active().configured) return Promise.resolve(null);
+    // Paused: no session is opened, so a read is skipped before it is queued, and once more when its turn comes
+    if (this.#paused()) return Promise.resolve(null);
     return this.#enqueue(opts.priority ?? "normal", async () => {
       if (this.#active().getCircuitBreakerState().tripped) {
         this.#mode = "circuit_tripped";
         return null;
       }
-      if (this.#peerStandby.active) return null;
+      if (this.#peerStandby.active || this.#paused()) return null;
 
       // Layer-2 anti-flapping quiet window (monotonic clock immune to NTP steps)
       if (
@@ -1074,8 +1219,11 @@ export class MutexSessionScheduler extends EventEmitter {
   ): Promise<T> {
     // The write gate: a router whose model does not allow this write gets no session at all
     this.#assertWritable(actionName);
+    // A paused connection takes no write, neither now nor when a waiting one's turn comes
+    this.#assertNotPaused();
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
+      this.#assertNotPaused();
       // Another brand's connection took over while this write waited: it was checked against the earlier brand's
       // bounds and meant for the earlier router, so it goes to neither (a connection of the same brand that was
       // saved again is this same one, pointed at the saved router: the write confirms its model first)
@@ -1403,6 +1551,7 @@ export function isRefusal(err: unknown): boolean {
     err instanceof DeviceNotIdentifiedError ||
     err instanceof PeerDaemonStandbyError ||
     err instanceof ConnectionChangedError ||
+    err instanceof ConnectionPausedError ||
     err instanceof CircuitBreakerOpenError ||
     err instanceof CpeNotConfiguredError ||
     err instanceof SchedulerQueueFullError ||

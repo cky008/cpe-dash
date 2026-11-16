@@ -103,6 +103,7 @@
     "device_write_disabled": "这项写入已经在「设置 → 设备」关闭（{model}），烽燧没有向路由器发送任何请求。要用的话，到那里重新打开",
     "device_not_identified": "写操作已锁定：烽燧要先确认路由器的型号，这次没有读到，没有写入任何东西",
     "connection_changed": "这项改动等待期间，路由器连接换成了另一台，所以没有执行，什么都没有发送。请确认现在连接的路由器，再试一次",
+    "router_paused": "烽燧已暂停连接路由器，所以这次操作没有执行，也没有向路由器发送任何请求。暂停到时间会自动恢复；要现在恢复，到「设置 → 路由器」点「恢复连接」",
     "wifi_access_blocked": "已禁止 {mac} 连接 Wi-Fi（MAC 黑名单）",
     "wifi_access_unblocked": "已恢复 {mac} 的 Wi-Fi 访问",
     "wifi_filter_mode": "Wi-Fi MAC 过滤已切换为：{mode}",
@@ -137,6 +138,7 @@
   "alerts": {
     "cpe_unreachable": "CPE 已连续 {seconds} 秒无法访问：{reason}",
     "rollback_watch_ended": "烽燧现在连接的是另一台路由器，之前那台路由器上还在看守的改动不会再自动改回。要是那项改动让之前那台断了网，请在那台路由器上改回",
+    "connection_paused": "已暂停连接路由器 {minutes} 分钟：这段时间烽燧不登录路由器，不读取也不改动，到时间自动恢复",
     "cpe_recovered": "CPE 已恢复访问（中断约 {seconds} 秒）",
     "wan_down": "蜂窝数据连接已断开超过 {seconds} 秒（状态码 {status}）",
     "wan_up": "蜂窝数据连接已恢复",

@@ -103,6 +103,7 @@
     "device_write_disabled": "This write is turned off for this router ({model}) under Settings → Device, so nothing was sent to the router. Turn it back on there to use it",
     "device_not_identified": "Writes are locked until FengSui knows the router's model, and this time it could not read it. Nothing was written",
     "connection_changed": "The router connection changed while this change was waiting, so it was not carried out. Nothing was sent to either router; check the router that is connected now and try again",
+    "router_paused": "The connection to the router is paused, so this was not carried out and nothing was sent to the router. FengSui takes the router up again by itself when the pause ends; to end it now, choose Resume under Settings → Router",
     "wifi_access_blocked": "Blocked {mac} from Wi-Fi (MAC blacklist)",
     "wifi_access_unblocked": "Restored Wi-Fi access for {mac}",
     "wifi_filter_mode": "Wi-Fi MAC filter switched to: {mode}",
@@ -137,6 +138,7 @@
   "alerts": {
     "cpe_unreachable": "CPE unreachable for {seconds}s: {reason}",
     "rollback_watch_ended": "FengSui is now connected to another router, so the change it was watching on the earlier one will not be put back automatically. If that change cut the earlier router's internet, undo it on that router",
+    "connection_paused": "The connection to the router is paused for {minutes} minutes: until then FengSui does not sign in to the router, read from it or change it, and then it carries on by itself",
     "cpe_recovered": "CPE reachable again after ~{seconds}s",
     "wan_down": "Cellular data connection down for over {seconds}s (status {status})",
     "wan_up": "Cellular data connection restored",

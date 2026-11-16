@@ -47,6 +47,7 @@ describe("REST / SSE contract module", () => {
       DEVICE_WRITE_DISABLED: true,
       DEVICE_NOT_IDENTIFIED: true,
       CONNECTION_CHANGED: true,
+      ROUTER_PAUSED: true,
       EXPERIMENTAL_UNAVAILABLE: true,
       AGENT_TEST_UNAVAILABLE: true,
       ALREADY_SET_UP: true,

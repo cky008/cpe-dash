@@ -178,6 +178,11 @@ export function reduceSseEvent(state: Readonly<AppState>, event: SseEvent): Redu
       const scheduler = state.scheduler ? { ...state.scheduler, avoidance: event.data } : null;
       return { patch: { avoidance: event.data, scheduler }, topics: ["scheduler"] };
     }
+    case "session:pause": {
+      // The pause shows in the status at once; the mode follows with the next status
+      const scheduler = state.scheduler ? { ...state.scheduler, pause: event.data, mode: event.data.active ? ("paused" as const) : state.scheduler.mode === "paused" ? ("idle" as const) : state.scheduler.mode } : null;
+      return { patch: { scheduler }, topics: ["scheduler"] };
+    }
     case "control:applied":
       return event.data.lockState ? { patch: { lockState: event.data.lockState }, topics: ["locks"] } : { patch: {}, topics: [] };
     case "alert":

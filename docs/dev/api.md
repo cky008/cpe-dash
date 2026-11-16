@@ -108,6 +108,7 @@ export interface ApiErrorEnvelope {
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号，烽燧在它上面没有这项写入的实现（或路由器不具备它需要的条件）：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
     | "DEVICE_WRITE_DISABLED"    // 409: 烽燧在这台路由器上实现了这项写入，但用户已经在「设置 → 设备」把它关闭：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.11；v1.9.0）
+    | "ROUTER_PAUSED"            // 409: 连接路由器已暂停（见下方「暂停连接」）：写操作在任何会话之前被拒，免登录的探测也不发；什么都没发给路由器（附 pause、messageZh）
     | "CONNECTION_CHANGED"       // 409: 这项写入在队列里等待期间，路由器连接换成了另一个品牌的路由器（控制台保存了另一个品牌的连接）：它的入参是按原来那个品牌检查的，也是发给原来那台的，所以两台都不发，不建会话（附 messageZh；同品牌改地址或凭据不受影响，写入先在自己的会话里确认型号）
     | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（华为读 device/information，其他品牌由驱动识别；接口里不报告型号的品牌按品牌事实里的名字，不会遇到），没有写入（见 2.10）
     | "EXPERIMENTAL_UNAVAILABLE" // 409: 这项写入在这台路由器上没有开关可关可开（已验证型号、烽燧没有实现、路由器不具备条件、还没识别型号；附 state，见 2.11）
@@ -128,7 +129,8 @@ export interface ApiErrorEnvelope {
     | "SYMLINK_ESCAPE_BLOCKED";  // 403: 符号链接指向静态根目录之外
   message: string;               // /api/* 鉴权类错误按 Accept-Language 本地化；409 BROWSER_SESSION_YIELDED 为中文；其余为英文
   messageEn?: string;            // 仅 409 BROWSER_SESSION_YIELDED
-  messageZh?: string;            // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED / DEVICE_NOT_IDENTIFIED / CONNECTION_CHANGED
+  messageZh?: string;            // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED / DEVICE_NOT_IDENTIFIED / CONNECTION_CHANGED / ROUTER_PAUSED
+  pause?: ConnectionPauseStatus; // 仅 409 ROUTER_PAUSED：这次暂停及其结束时间
   model?: string;                // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED：路由器型号（不是纯文本时为 "?"）
   feature?: DeviceFeature;       // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED：被拒的写操作所属的功能
   retryAfterSec?: number;        // 仅 429 RATE_LIMITED
@@ -217,7 +219,9 @@ export interface AuthLoginRequest {
   - `mode`：polling：只读采集会话进行中
   - `mode`：cpe_unreachable：最近一次会话因超时/网络错误失败（CPE 返回错误码或参数被拒仍视为 idle）
   - `mode`：standby_peer：另一台主机上的「烽燧」守护进程正在管理同一台 CPE，本进程待机、不访问路由器（仅次于 circuit_tripped）
+  - `mode`：paused：有人暂停了连接路由器（`POST /api/session/pause`），到 `pause.untilIso` 之前不开会话、不发请求（次于 circuit_tripped 与 standby_peer）
   - `device`：写闸门所依据的路由器型号与写权限（见 2.10）
+  - `pause`：`{ active, sinceIso, untilIso, blocked }`；没有暂停时 `blocked` 说明现在能不能暂停（`{ reason: "watch", untilIso }`：还有改动在看守期内）
 - **`PersistedLockState`**：「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。H168-383 不支持 GET /api/net/lock-freq， 因此本字段不会因官方后台的修改而自动更新；它与路由器实际状态的对账结果见 LockVerification。 锁频段只给出一个制式时，另一制式保持原有锁定：LTE 掩码只经 net-mode 写入（lteBands），NR 频段与锁小区只经 lock-freq 写入（nrBands），未写入的部分不变；只给 lteBands 时已有的锁小区继续生效（mode 仍为 cell_lock）。
   - `cellLock.pci`：null = 锁频点 (lock_mode=1)
 - **`GlobalTelemetrySnapshot`**
@@ -323,6 +327,7 @@ export type AlertCode =
   | "LOCK_REALIGNED"     // info：路由器重新与已下发的锁定一致
   | "DUPLICATE_DAEMON"   // critical：检测到另一台主机上管理同一台 CPE 的守护进程（待机方与领先方各报一次）
   | "DUPLICATE_DAEMON_CLEARED" // info：领先方停止，待机方恢复
+  | "CONNECTION_PAUSED"        // info：有人暂停了连接路由器（`POST /api/session/pause`），消息里写着暂停多少分钟；结束时不另发告警（SSE `session:pause` 会推送）
   | "LOCK_ROLLED_BACK"         // warning：锁定后 LOCK_ROLLBACK_AFTER_MIN 到期时 WAN 仍断开，已自动解除全部锁定（控制事件 action = "auto_unlock_rf_locks"）
   | "LOCK_ROLLBACK_FAILED"     // critical：自动解锁没有完成（熔断、另一守护进程领先、连续 3 次失败，或到期后 1 小时仍被真人登录挡住）
   | "SETTING_ROLLED_BACK"      // warning：更改 SIM 卡槽、网络制式、运营商选择或接入点（APN）后 3 分钟 WAN 仍断开，已自动改回写入前读到的值（action = "auto_restore_sim_slot" 等，见 2.13）；任何型号、任何入口都一样，不受自愈开关影响
@@ -438,11 +443,19 @@ export type AlertCode =
 | `POST /api/control/wifi7` | `{ mloEnable?: boolean; dbhoEnable?: boolean; confirm: true }` *(至少提供其一；非布尔值返回 `400`)* | `{ ok: true, wifi7: { mloEnable: boolean; dbhoEnable: boolean } }` |
 | `POST /api/control/antenna` | `{ mode: "auto" \| "internal" \| "external"; confirm: true }` | `{ ok: true, antenna: { mode: "auto" \| "internal" \| "external"; rawCode: number } }` |
 | `POST /api/control/mobile-data` | `{ enabled: boolean; confirm: true }` | `{ ok: true, mobileDataEnabled: boolean }` |
+| `POST /api/session/pause` | `{ minutes: number, confirm: true }` *(暂停连接路由器，详见下方「暂停连接」)* | `{ ok: true, pause: ConnectionPauseStatus, status: SchedulerStatusSnapshot }` |
+| `POST /api/session/resume` | `{ confirm: true }` *(结束暂停)* | 同上 |
 | `POST /api/session/reset-breaker` | `{ confirm: true }` *(重新读取 `.env` 并重置熔断器，详见下方说明)* | `{ ok: true, circuitBreaker: PublicCircuitBreakerState, status: SchedulerStatusSnapshot }` |
 
 - **写入后的 `settings` 同步**：
   - `security`：写入成功后服务端再开一次只读会话回读路由器配置，并推送 SSE `settings`。若回读被让位或跳过，响应中 `settings` 为 `null`；若回读本身失败，接口返回 `502`，但写入已经生效，可调用 `POST /api/settings/refresh` 核对。
   - `wifi7` / `antenna` / `mobile-data`：不额外开会话，直接用写入结果修补缓存快照并推送 SSE `settings`。若此前从未读取过 settings，则不会推送。
+- **暂停连接（`POST /api/session/pause` / `resume`，v1.9.1）**：给要用路由器自己网页的人用。有的路由器只允许一个管理会话，烽燧每 5 秒登录一次，人就进不去或被登出（中兴 zWRT）；暂停期间烽燧不开任何会话、不向路由器发任何请求，到时间自动恢复。
+  - `minutes` 是 1–120 的整数，从调用时算起；暂停中再调用是换成新的时长，不是累加。令牌要有 `control` 权限；没有对应的 MCP 工具（智能体从 `get_cpe_session_status` 的 `pause` 和写工具的 `ROUTER_PAUSED` 知道）。
+  - **暂停期间**：读取（5 秒轮询、附近的基站、已连接设备、短信同步）被跳过，各读取接口照常回 `200` 与缓存；写操作（REST、MCP、Telegram、自愈）在任何会话之前以 `409 ROUTER_PAUSED` 拒绝，已经在排队的也一样；免登录的探测（`get_cpe_session_status` 的 `probeLive`、短信未读数）不发；控制台的连接测试和品牌识别以 `reason: "paused"` 失败。正在进行的那一次会话照常结束。`schedulerStatus.mode` 为 `paused`，`schedulerStatus.pause` 是 `{ active, sinceIso, untilIso, blocked }`。
+  - **什么时候不能暂停**：还有改动在看守期内（未验证路由器上的锁定，或 SIM 卡槽、网络制式、运营商选择、接入点的改动，见 2.13）时返回 `400 VALIDATION_ERROR`，`pause.blocked` 是 `{ reason: "watch", untilIso }`：这项改动断网的话还要改回去，暂停了就改不了。反过来，暂停期间写操作都被拒，所以不会有新的看守开出来。
+  - **结束**：到时间自动结束，或 `resume`；两种都推送 SSE `session:pause`。结束后烽燧先重新确认路由器的型号再接受写入（这段时间路由器可能被换掉）。开始时发一条 `CONNECTION_PAUSED` 告警（info）。
+  - **重启**：暂停的起止时间存在加密的 `state.json`（`connectionPause`）里，守护进程重启后接着暂停到原来的时间；已经过期的、或者剩余时间超过上限的记录（系统时钟被往回拨、文件被改）直接丢弃。本次运行内另按单调时钟计时，时钟往回拨也不会让暂停变长。
 - **`POST /api/session/reset-breaker` 规则**：
   - 因密码错误（`108006` / `108002` / `108001`）熔断时，在控制台「设置 → 路由器」填入正确密码：保存前先用一次登录测试，成功后才切换并自动解除熔断。直接调用本接口而密码未变时返回 `400 VALIDATION_ERROR`，防止耗尽剩余尝试次数触发 `108007` 硬件锁定（v1.5.0 起路由器连接存于控制台，不再从 `.env` 读取）。
   - `108007` 硬件锁定可在不修改 `.env` 的情况下重置（锁定可能由他人输错密码引起）。若锁定期尚未结束，下一次登录前的 `state-login` 预检会检测到 `lockstatus=1` 并立即重新熔断，不会消耗密码尝试次数。
@@ -940,6 +953,7 @@ export type AlertCode =
 | `settings` | settings 完整读取完成（`POST /api/settings/refresh`、MCP 刷新、安全开关写入后的回读），或 Wi-Fi 7 / 天线 / 移动数据写入后修补缓存（此时 `capturedAtIso` 保持上次完整读取时间）。**无后台定时推送** | `RouterSettingsSnapshot` |
 | `access-control` | 服务启动时与每 `60s` 随拓扑刷新、`POST /api/access-control/refresh`，以及任一访问控制写入成功后（携带回读结果） | `AccessControlSnapshot`（Bearer 订阅者在 `REDACT_SENSITIVE_IN_API=true` 时收到脱敏副本） |
 | `session:avoidance` | **真人管理员登录/退出 `192.168.8.1` 导致避让状态跃迁时立即推送**，以及每个新连接的首帧 | `AvoidanceBroadcastPayload` |
+| `session:pause` | 连接路由器被暂停时，以及暂停结束时（主动恢复或到时间） | `ConnectionPauseStatus` |
 | `control:applied` | 任一控制写操作成功后 | `ControlAppliedEvent` |
 | `alert` | 断路器**首次**熔断时（`CIRCUIT_<code>`），以及 AlertEngine 触发任一告警时（见 2.2 节 `AlertCode`） | `AlertEventRecord` |
 | `sms:new` | 同步发现**新到达的未读来信**（首次同步时已存在的短信不推送），每条一帧 | `EnrichedSmsMessage` |
@@ -1056,6 +1070,7 @@ export interface McpToolErrorPayload {
     | "DEVICE_WRITE_DISABLED"    // 这项写入在这台路由器上被主人关闭了（「设置 → 设备」）：同样没有发出任何请求（附 model、feature、messageZh）
     | "DEVICE_NOT_IDENTIFIED"    // 写工具在自己的会话里没读到路由器型号，没有写入（附 messageZh）
     | "CONNECTION_CHANGED"       // 写工具排队期间，路由器连接换成了另一个品牌的路由器：两台都不发（附 messageZh）
+    | "ROUTER_PAUSED"            // 连接路由器已暂停：写工具在任何会话之前被拒（附 pause、messageZh）；读工具照常回缓存
     | "SMS_SEND_FAILED"          // send_sms：CPE 报告发送失败（附 result 与 resolvedPhones，额度不退还）
     | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）
     | "CIRCUIT_BREAKER_OPEN"     // 防爆破断路器已熔断（附 circuitBreaker）：不会尝试登录，需人工修正 .env 并 reset-breaker
@@ -1066,7 +1081,7 @@ export interface McpToolErrorPayload {
     | "PROBE_SKIPPED"            // probe_router_endpoints：调度器没有开会话（真人在线、熔断等），什么都没读（附 sessionStatus）
     | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、会话超过占用上限等
   message: string;               // 英文
-  messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED、DEVICE_UNVERIFIED_READ_ONLY、DEVICE_WRITE_DISABLED、DEVICE_NOT_IDENTIFIED、CONNECTION_CHANGED
+  messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED、DEVICE_UNVERIFIED_READ_ONLY、DEVICE_WRITE_DISABLED、DEVICE_NOT_IDENTIFIED、CONNECTION_CHANGED、ROUTER_PAUSED
   avoidance?: AvoidanceBroadcastPayload; // 仅 BROWSER_SESSION_YIELDED
 }
 ```

@@ -88,6 +88,7 @@ Have scripts go by `errorCode`, never by `message`: the message may be in Chines
 | 409 | `DEVICE_UNVERIFIED_READ_ONLY` | FengSui does not implement this write on this router; nothing was sent |
 | 409 | `DEVICE_WRITE_DISABLED` | This write is turned off under Settings → Device; nothing was sent |
 | 409 | `DEVICE_NOT_IDENTIFIED` | The router's model is not known yet; nothing was written |
+| 409 | `ROUTER_PAUSED` | The connection to the router is paused (Settings → Router); nothing was sent. `pause.untilIso` is when it resumes by itself |
 | 409 | `CONNECTION_CHANGED` | The router connection changed to another brand's router while this write was waiting; nothing was sent |
 | 421 | `MISDIRECTED_HOST` | The host name you used is not allowed; add it to `ALLOWED_HOSTS` |
 | 423 | `CIRCUIT_BREAKER_OPEN` | The router password is wrong or its account is locked, so FengSui stopped signing in; fix it under Settings → Router |
@@ -158,6 +159,8 @@ The Permission column names what a token needs beyond reading. A request that ch
 | `POST` | `/api/control/traffic-reset` | Change the router | Clear the traffic counters the router itself keeps | `{"confirm":true}` |
 | `POST` | `/api/control/ussd` | Change the router | USSD: send a code (`code`); `action` `reply` answers the operator's question, `cancel` ends the session. The answer is text the operator wrote | `{"code":"*100#","confirm":true}` |
 | `POST` | `/api/session/reset-breaker` | Change the router | Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router | `{"confirm":true}` |
+| `POST` | `/api/session/pause` | Change the router | Pause the connection to the router for `minutes` (1–120): FengSui does not sign in or send it anything until then, and resumes by itself; refused while a change is still watched | `{"minutes":30,"confirm":true}` |
+| `POST` | `/api/session/resume` | Change the router | End the pause and take the router up again | `{"confirm":true}` |
 
 ### Devices' internet access
 
@@ -221,6 +224,7 @@ Each message has an `event:` (the name) and a `data:` line of JSON. Every 15 sec
 | `topology` | The connected devices were read (every 60 seconds by default) |
 | `settings` | The router settings were read or changed (never on a timer) |
 | `access-control` | The MAC filter and schedules were read or changed |
+| `session:pause` | The connection to the router was paused, or the pause ended (resumed, or its time was up) |
 | `session:avoidance` | Someone signed in to or out of the router's own page, so FengSui starts or stops stepping aside |
 | `control:applied` | A write finished (from anywhere: the console, a token, an agent, self-healing) |
 | `alert` | A new alert |

@@ -62,6 +62,7 @@ import type { DeviceVerification } from "./firmware.ts";
 import type { DeviceAccessSnapshot, FeatureWriteAccess, ReadCapability, ReadState, ReadbackOutcome, ReadbackReason, WriteAccess, WriteCheck, WriteFeatureState, WriteResultRecord } from "./device-access.ts";
 import type { DisabledWrite, PublicTokenRecord } from "./console-settings.ts";
 import type { AgentTestPlan, AgentTestSetting, AgentTestStatus, AgentTestTokenChoice, AgentTestView } from "./agent-test.ts";
+import type { ConnectionPauseStatus } from "./connection-pause.ts";
 import type { AvoidanceBroadcastPayload, ConnectionTestResult, ControlAppliedEvent, SchedulerStatusSnapshot } from "./scheduler.ts";
 import type { SelfHealStatus } from "./self-heal-status.ts";
 import type { VcardImportSummary } from "./sms/contacts.ts";
@@ -162,6 +163,7 @@ export type {
 };
 export type { NeighborCellEntry, TerminalAccessMedium, TerminalHostEntry } from "./cpe-domain.ts";
 export type { SchedulerMode } from "./scheduler.ts";
+export type { ConnectionPauseStatus, PauseBlock } from "./connection-pause.ts";
 export type { TimeSeriesBucketPoint, TimeSeriesPreset } from "./timeseries.ts";
 
 // ── Errors (§1.4) ────────────────────────────────────────────────────────────
@@ -193,6 +195,7 @@ export type ApiErrorCode =
   | "DEVICE_UNVERIFIED_READ_ONLY" // 409: the router is a model FengSui was not verified on, and FengSui has no implementation of this write for it (nothing was sent)
   | "DEVICE_WRITE_DISABLED"       // 409: a write FengSui implements for this router, which its owner turned off for the model (nothing was sent; v1.9.0)
   | "DEVICE_NOT_IDENTIFIED"       // 409: the write's own session could not read the router's model; nothing was written
+  | "ROUTER_PAUSED"               // 409: the connection to the router is paused (Settings → Router); nothing was sent (`pause` says until when)
   | "CONNECTION_CHANGED"          // 409: another brand's router connection took over while the write waited in the queue; nothing was sent to either router
   | "EXPERIMENTAL_UNAVAILABLE"    // 409: a write that has no switch on this router: not implemented for it, or a verified model (see `state`)
   | "AGENT_TEST_UNAVAILABLE"      // 409: the router has no experimental write for an AI agent's test (a verified model, or none identified)
@@ -228,6 +231,8 @@ export interface ApiErrorEnvelope {
   permission?: TokenPermission | "all";
   /** Only `409 BROWSER_SESSION_YIELDED`. */
   avoidance?: AvoidanceBroadcastPayload;
+  /** Only `409 ROUTER_PAUSED`: the pause, with its end. */
+  pause?: ConnectionPauseStatus;
   /** Only `409 PEER_DAEMON_ACTIVE`. */
   peerAddress?: string | null;
   /** Only `423 CIRCUIT_BREAKER_OPEN`. */
@@ -631,6 +636,19 @@ export interface ResetBreakerResponse {
   status: SchedulerStatusSnapshot;
 }
 
+/** `POST /api/session/pause`: `minutes` is whole, from 1 to 120, counted from now. */
+export interface PauseConnectionRequest {
+  minutes: number;
+  confirm: true;
+}
+
+/** `POST /api/session/pause` and `POST /api/session/resume`. */
+export interface PauseConnectionResponse {
+  ok: true;
+  pause: ConnectionPauseStatus;
+  status: SchedulerStatusSnapshot;
+}
+
 // ── SMS and contacts (§2.5) ──────────────────────────────────────────────────
 
 export interface SmsStatusResponse {
@@ -874,6 +892,8 @@ export interface SseEventPayloads {
   settings: RouterSettingsSnapshot;
   "access-control": AccessControlSnapshot;
   "session:avoidance": AvoidanceBroadcastPayload;
+  /** The connection was paused, or the pause ended (asked for, or its time was up). */
+  "session:pause": ConnectionPauseStatus;
   "control:applied": ControlAppliedEvent;
   alert: AlertEventRecord;
   "sms:new": EnrichedSmsMessage;

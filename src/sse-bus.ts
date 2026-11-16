@@ -14,6 +14,7 @@ export type SseEventName =
   | "settings"
   | "access-control"
   | "session:avoidance"
+  | "session:pause"
   | "alert"
   | "control:applied"
   | "sms:new"
@@ -125,7 +126,7 @@ export class SseEventBus {
 
   /**
    * Wire the real-time core events into this SSE bus: telemetry/speed/neighbors/topology/settings
-   * from `CpeMonitor`, session:avoidance/alert/control:applied from `MutexSessionScheduler`.
+   * from `CpeMonitor`, session:avoidance/session:pause/alert/control:applied from `MutexSessionScheduler`.
    */
   attachCore(core: Pick<FengSuiCore, "scheduler" | "monitor">): void {
     if (this.#detachScheduler) {
@@ -140,6 +141,7 @@ export class SseEventBus {
     const onSettings = (data: unknown) => this.broadcast("settings", data);
     const onAccessControl = (data: AccessControlSnapshot) => this.broadcast("access-control", data, redactAccessControl);
     const onAvoidance = (data: unknown) => this.broadcast("session:avoidance", data);
+    const onPause = (data: unknown) => this.broadcast("session:pause", data);
     const onAlert = (data: unknown) => this.broadcast("alert", data);
     const onControl = (data: unknown) => this.broadcast("control:applied", data);
 
@@ -150,6 +152,7 @@ export class SseEventBus {
     monitor.on("settings", onSettings);
     monitor.on("access-control", onAccessControl);
     scheduler.on("session:avoidance", onAvoidance);
+    scheduler.on("session:pause", onPause);
     scheduler.on("alert", onAlert);
     scheduler.on("control:applied", onControl);
 
@@ -161,6 +164,7 @@ export class SseEventBus {
       monitor.off("settings", onSettings);
       monitor.off("access-control", onAccessControl);
       scheduler.off("session:avoidance", onAvoidance);
+      scheduler.off("session:pause", onPause);
       scheduler.off("alert", onAlert);
       scheduler.off("control:applied", onControl);
     };

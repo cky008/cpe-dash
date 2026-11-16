@@ -293,6 +293,8 @@ export function assembleServices(options: ServicesOptions): FengSuiServices {
   controls.onExperimentalLock = (change) => selfHeal.guardExperimentalLock(change);
   // A changed SIM slot, network mode, operator or access point is watched the same way, on any router
   controls.onLinkChange = (notice) => selfHeal.guardLinkChange(notice);
+  // While a change is watched it may still have to be put back, which a paused connection could not do: no pause until then
+  core.scheduler.setPauseGuard(() => selfHeal.pauseBlock());
 
   /** Settings changed in the console (or `.env` reloaded): what reads them per use needs nothing; these act now. */
   const applyBehaviour = (next: BehaviourValues): void => {

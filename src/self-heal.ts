@@ -9,15 +9,17 @@ import { sanitizeFreeText } from "./sanitize.ts";
 import {
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
+  ConnectionPausedError,
   type ControlAppliedEvent,
-  DeviceNotIdentifiedError,
   DeviceReadOnlyError,
   type MutexSessionScheduler,
   PeerDaemonStandbyError,
   SchedulerQueueFullError,
   SchedulerStoppedError,
+  isRefusal,
 } from "./scheduler.ts";
 import { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, type SelfHealStatus } from "./self-heal-status.ts";
+import type { PauseBlock } from "./connection-pause.ts";
 import type { AlertEventRecord, SelfHealLockWatchState, SelfHealReconnectState } from "./state-store.ts";
 
 export { LOCK_CONFIRM_MS, RECONNECT_MAX_PER_DAY, SELF_HEAL_OFF, type SelfHealStatus } from "./self-heal-status.ts";
@@ -293,6 +295,17 @@ export class WanSelfHeal {
       failures: 0,
     });
     this.#saveLinkWatches();
+  }
+
+  /**
+   * What keeps the connection from being paused: a lock or a setting still watched, which a paused
+   * connection could not put back (`null`: nothing is watched). `untilIso` is the last deadline.
+   */
+  pauseBlock(): PauseBlock | null {
+    const deadlines = [...(this.#lockWatch ? [this.#lockWatch.deadlineMs] : []), ...[...this.#linkWatches.values()].map((watch) => watch.deadlineMs)];
+    if (deadlines.length === 0) return null;
+    const last = Math.max(...deadlines);
+    return { reason: "watch", untilIso: Number.isFinite(last) ? new Date(last).toISOString() : null };
   }
 
   /** The settings still watched (the console says so next to each). */
@@ -609,13 +622,7 @@ export class WanSelfHeal {
         return;
       }
       // Refusals never reached the router; anything else spends one of the day's attempts
-      const reachedRouter = !(
-        err instanceof BrowserSessionYieldedError ||
-        err instanceof CircuitBreakerOpenError ||
-        err instanceof PeerDaemonStandbyError ||
-        err instanceof DeviceNotIdentifiedError ||
-        isQueueRefusal(err)
-      );
+      const reachedRouter = !isRefusal(err);
       if (reachedRouter) {
         // It may have redialled: it spends one of the day's attempts and waits its step like a redial
         this.#reconnects.push(at);
@@ -753,8 +760,9 @@ function budgetKey(reconnects: ReadonlyArray<number>, backoffIndex: number): str
   return `${reconnects.join(",")}/${backoffIndex}`;
 }
 
+/** A refusal that says nothing about the router or the write: the queue is full, FengSui is stopping, or the connection is paused. */
 function isQueueRefusal(err: unknown): boolean {
-  return err instanceof SchedulerQueueFullError || err instanceof SchedulerStoppedError;
+  return err instanceof SchedulerQueueFullError || err instanceof SchedulerStoppedError || err instanceof ConnectionPausedError;
 }
 
 function describe(err: unknown): string {

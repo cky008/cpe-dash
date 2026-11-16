@@ -489,6 +489,7 @@ export const en: Readonly<Record<MessageKey, string>> = {
   "err.validation": "Invalid input: {message}",
   "err.yielded": "A human admin is using 192.168.8.1; the action was politely cancelled (nothing written)",
   "err.peer_standby": "FengSui on another host manages this router; this one is on standby",
+  "err.router_paused": "The connection to the router is paused, so this was not carried out and nothing was sent. Resume it under Settings → Router, or wait for the pause to end",
   "err.connection_changed": "The router connection changed while this was waiting, so it was not carried out and nothing was sent. Check the router that is connected now, then try again",
   "err.breaker": "FengSui stopped logging in after a wrong password, so this did not try to log in. Fix the password under Settings → Router, or choose “Try logging in again” once the router's lock expires",
   "err.unavailable": "FengSui is busy or stopping (503). Try again shortly",

@@ -88,6 +88,7 @@ curl -X POST \
 | 409 | `DEVICE_UNVERIFIED_READ_ONLY` | 烽燧在这台路由器上没有实现这项写入，什么都没发 |
 | 409 | `DEVICE_WRITE_DISABLED` | 这项写入在「设置 → 设备」里关掉了，什么都没发 |
 | 409 | `DEVICE_NOT_IDENTIFIED` | 还没认出路由器的型号，写入没有执行 |
+| 409 | `ROUTER_PAUSED` | 连接路由器已暂停（「设置 → 路由器」），什么都没发；`pause.untilIso` 是自动恢复的时间 |
 | 409 | `CONNECTION_CHANGED` | 这项写入等待期间，路由器连接换成了另一个品牌的路由器，什么都没发 |
 | 421 | `MISDIRECTED_HOST` | 访问用的主机名不在允许范围内，把它加进 `ALLOWED_HOSTS` |
 | 423 | `CIRCUIT_BREAKER_OPEN` | 路由器密码错误或账户被锁，烽燧停止登录；到「设置 → 路由器」改正 |
@@ -158,6 +159,8 @@ curl -X POST \
 | `POST` | `/api/control/traffic-reset` | 改动路由器 | 清零路由器自己记的流量统计 | `{"confirm":true}` |
 | `POST` | `/api/control/ussd` | 改动路由器 | USSD：发送一条指令（`code`），`action` 为 `reply` 时回复运营商的提问，为 `cancel` 时结束会话。应答是运营商写的文字 | `{"code":"*100#","confirm":true}` |
 | `POST` | `/api/session/reset-breaker` | 改动路由器 | 解除路由器账户被锁（错误码 108007）引起的熔断，并重新读取 `.env`；密码错误引起的熔断请在「设置 → 路由器」改正密码 | `{"confirm":true}` |
+| `POST` | `/api/session/pause` | 改动路由器 | 暂停连接路由器 `minutes` 分钟（1–120）：这段时间烽燧不登录路由器、不发任何请求，到时间自动恢复；还有改动在看守期内时不能暂停 | `{"minutes":30,"confirm":true}` |
+| `POST` | `/api/session/resume` | 改动路由器 | 结束暂停，恢复连接路由器 | `{"confirm":true}` |
 
 ### 设备上网管理
 
@@ -221,6 +224,7 @@ curl -N -H "Authorization: Bearer <令牌>" http://<NAS 的 IP>:18384/api/events
 | `topology` | 已连接设备读完（默认每 60 秒） |
 | `settings` | 路由器设置读完或改动之后（没有定时推送） |
 | `access-control` | 黑白名单和上网时段读完或改动之后 |
+| `session:pause` | 连接路由器被暂停，或暂停结束（主动恢复或到时间） |
 | `session:avoidance` | 有人登录或退出路由器自己的管理页，烽燧开始或结束让位 |
 | `control:applied` | 一项写操作完成（任何入口：控制台、令牌、智能体、自愈） |
 | `alert` | 一条新告警 |

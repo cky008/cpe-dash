@@ -92,6 +92,7 @@ const ERROR_KEYS: Readonly<Record<ApiErrorKind, MessageKey>> = {
   yielded: "err.yielded",
   peer_standby: "err.peer_standby",
   connection_changed: "err.connection_changed",
+  router_paused: "err.router_paused",
   breaker: "err.breaker",
   unavailable: "err.unavailable",
   upstream: "err.upstream",

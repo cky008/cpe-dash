@@ -67,6 +67,7 @@ describe("web core: API client", () => {
     assert.equal(classifyApiError(409, "BROWSER_SESSION_YIELDED"), "yielded");
     assert.equal(classifyApiError(409, "PEER_DAEMON_ACTIVE"), "peer_standby");
     assert.equal(classifyApiError(409, "CONNECTION_CHANGED"), "connection_changed");
+    assert.equal(classifyApiError(409, "ROUTER_PAUSED"), "router_paused");
     assert.equal(classifyApiError(503, "QUEUE_FULL"), "unavailable");
     assert.equal(classifyApiError(503, null), "unavailable");
     assert.equal(classifyApiError(502, "SMS_SEND_FAILED"), "sms_send_failed");
@@ -232,6 +233,8 @@ describe("web core: endpoint table", () => {
       antenna: ["POST", "/api/control/antenna", { mode: "auto", confirm: true }],
       mobileData: ["POST", "/api/control/mobile-data", { enabled: false, confirm: true }],
       resetBreaker: ["POST", "/api/session/reset-breaker", { confirm: true }],
+      pauseConnection: ["POST", "/api/session/pause", { minutes: 30, confirm: true }],
+      resumeConnection: ["POST", "/api/session/resume", { confirm: true }],
       cellular: ["GET", "/api/cellular"],
       refreshCellular: ["POST", "/api/cellular/refresh", {}],
       networkMode: ["POST", "/api/control/network-mode", { mode: "lte", confirm: true }],
@@ -315,6 +318,8 @@ describe("web core: endpoint table", () => {
     await ep.antenna("auto");
     await ep.mobileData(false);
     await ep.resetBreaker();
+    await ep.pauseConnection(30);
+    await ep.resumeConnection();
     await ep.cellular();
     await ep.refreshCellular();
     await ep.networkMode("lte");
@@ -420,8 +425,8 @@ function sseHarness(authenticated: () => Promise<boolean>) {
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 describe("web core: SSE reconnect state machine", () => {
-  it("lists the 16 contract events and backs off with capped jitter", () => {
-    assert.equal(SSE_EVENT_NAMES.length, 16);
+  it("lists the 17 contract events and backs off with capped jitter", () => {
+    assert.equal(SSE_EVENT_NAMES.length, 17);
     assert.equal(backoffDelayMs(0, () => 0), 500);
     assert.equal(backoffDelayMs(0, () => 1), 1000);
     assert.equal(backoffDelayMs(3, () => 1), 8000);

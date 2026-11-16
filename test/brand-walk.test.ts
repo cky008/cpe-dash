@@ -129,6 +129,28 @@ async function walk(world: World): Promise<string[]> {
       }
     }
 
+    // While the connection is paused: every read still answers, every write gets a code and a sentence, and no session is opened
+    const pausing = await rest("POST", "/api/session/pause", { minutes: 15, confirm: true });
+    if (pausing.status !== 200) problems.push(`pausing: ${pausing.status} ${String(pausing.code)} ${pausing.message}`);
+    const sessionsBefore = demo.stack.scheduler.getStatus().totalSessionsCompleted;
+    let refusedAsPaused = 0;
+    for (const op of REST_OPERATIONS.filter((o) => restBinding(o).method === "GET")) judge(`GET ${restBinding(op).path} while paused`, await rest("GET", restBinding(op).path));
+    for (const op of REST_OPERATIONS.filter((o) => restBinding(o).method === "POST" && operationFeatures(o).length > 0)) {
+      const answer = await rest("POST", restBinding(op).path, exampleOf(op));
+      judge(`POST ${restBinding(op).path} while paused`, answer);
+      if (answer.code === "ROUTER_PAUSED") refusedAsPaused += 1;
+    }
+    for (const op of MCP_OPERATIONS.filter((o) => operationFeatures(o).length > 0)) {
+      const definition = toolDefinition(op);
+      const answer = await mcp(definition.name, { ...exampleOf(op), ...TOOL_ARGS[definition.name], confirm: true });
+      judge(`${definition.name} while paused`, answer);
+      if (answer.code === "ROUTER_PAUSED") refusedAsPaused += 1;
+    }
+    if (demo.stack.scheduler.getStatus().totalSessionsCompleted !== sessionsBefore) problems.push("a session was opened on the router while the connection was paused");
+    if (refusedAsPaused === 0) problems.push("no write was refused as paused");
+    const resuming = await rest("POST", "/api/session/resume", { confirm: true });
+    if (resuming.status !== 200) problems.push(`resuming: ${resuming.status} ${String(resuming.code)} ${resuming.message}`);
+
     // Every write, as its example says, the reboot last (the household's router goes away for a while after it)
     const writes = REST_OPERATIONS.filter((op) => restBinding(op).method === "POST");
     for (const op of [...writes.filter((o) => o !== "reboot"), ...writes.filter((o) => o === "reboot")]) {

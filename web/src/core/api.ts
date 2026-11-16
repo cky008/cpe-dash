@@ -14,6 +14,7 @@ export type ApiErrorKind =
   | "yielded"
   | "peer_standby"
   | "connection_changed"
+  | "router_paused"
   | "breaker"
   | "unavailable"
   | "upstream"
@@ -33,6 +34,7 @@ const KIND_BY_CODE: Readonly<Partial<Record<ApiErrorCode, ApiErrorKind>>> = {
   BROWSER_SESSION_YIELDED: "yielded",
   PEER_DAEMON_ACTIVE: "peer_standby",
   CONNECTION_CHANGED: "connection_changed",
+  ROUTER_PAUSED: "router_paused",
   CIRCUIT_BREAKER_OPEN: "breaker",
   QUEUE_FULL: "unavailable",
   CPE_UPSTREAM_ERROR: "upstream",

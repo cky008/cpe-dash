@@ -1,3 +1,4 @@
+import { PAUSE_MAX_MINUTES, readPauseMinutes } from "../connection-pause.ts";
 import { DISCOVERY_MAX_PATHS, DISCOVERY_PAUSE_MS } from "../endpoint-discovery.ts";
 import { FAMILY_WRITE_FEATURES } from "../router-family.ts";
 import type { OperationTable } from "./record.ts";
@@ -22,6 +23,26 @@ export const DAEMON_OPERATIONS = {
         en: "Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router",
       },
     },
+  },
+  pauseConnection: {
+    access: "write",
+    permission: "control",
+    input: readPauseMinutes,
+    rest: {
+      method: "POST",
+      path: "/api/session/pause",
+      group: "control",
+      example: '{"minutes":30,"confirm":true}',
+      summary: {
+        "zh-CN": `暂停连接路由器 \`minutes\` 分钟（1–${PAUSE_MAX_MINUTES}）：这段时间烽燧不登录路由器、不发任何请求，到时间自动恢复；还有改动在看守期内时不能暂停`,
+        en: `Pause the connection to the router for \`minutes\` (1–${PAUSE_MAX_MINUTES}): FengSui does not sign in or send it anything until then, and resumes by itself; refused while a change is still watched`,
+      },
+    },
+  },
+  resumeConnection: {
+    access: "write",
+    permission: "control",
+    rest: { method: "POST", path: "/api/session/resume", group: "control", example: '{"confirm":true}', summary: { "zh-CN": "结束暂停，恢复连接路由器", en: "End the pause and take the router up again" } },
   },
   deviceReport: {
     access: "read",

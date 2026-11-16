@@ -15,6 +15,7 @@ import type {
   NeighborsEndpointResponse,
   RebootResponse,
   ReconnectResponse,
+  PauseConnectionResponse,
   ResetBreakerResponse,
   SecurityControlResponse,
   SessionStatusResponse,
@@ -50,6 +51,7 @@ import {
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
   ConnectionChangedError,
+  ConnectionPausedError,
   CpeNotConfiguredError,
   DeviceNotIdentifiedError,
   DeviceReadOnlyError,
@@ -324,6 +326,7 @@ export class FengSuiApi {
     }
     if (err instanceof DeviceNotIdentifiedError) return [409, { ok: false, errorCode: "DEVICE_NOT_IDENTIFIED", message: err.messageEn, messageZh: err.messageZh }];
     if (err instanceof PeerDaemonStandbyError) return [409, { ok: false, errorCode: "PEER_DAEMON_ACTIVE", message: err.message, peerAddress: err.peerAddress }];
+    if (err instanceof ConnectionPausedError) return [409, { ok: false, errorCode: "ROUTER_PAUSED", message: err.messageEn, messageZh: err.messageZh, pause: err.pause }];
     // Another brand's connection took over while the write waited: it went to neither router
     if (err instanceof ConnectionChangedError) return [409, { ok: false, errorCode: "CONNECTION_CHANGED", message: err.messageEn, messageZh: err.messageZh }];
     if (err instanceof CircuitBreakerOpenError) return [423, { ok: false, errorCode: "CIRCUIT_BREAKER_OPEN", message: err.message, circuitBreaker: err.circuitBreaker }];
@@ -427,6 +430,9 @@ export class FengSuiApi {
         const breaker = await core.scheduler.reloadCredentialsAndResetBreaker(cpe.password, cpe.username, cpe.family);
         return { ok: true, circuitBreaker: breaker, status: core.scheduler.getStatus() } satisfies ResetBreakerResponse;
       },
+      // The connection's pause: no session and no request until it ends
+      pauseConnection: ({ minutes }) => ({ ok: true, pause: core.scheduler.pauseConnection(minutes), status: core.scheduler.getStatus() }) satisfies PauseConnectionResponse,
+      resumeConnection: () => ({ ok: true, pause: core.scheduler.resumeConnection(), status: core.scheduler.getStatus() }) satisfies PauseConnectionResponse,
 
       // Devices' internet access
       wifiAccess: async (change, call) => this.#accessChange(await core.controls.setWifiAccess(change, { requesterIp: call.clientIp, confirm: call.confirm }), call.redact),
