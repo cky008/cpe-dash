@@ -3,7 +3,7 @@ import { type ApnIpType, type NetworkMode, type OperatorChoice, type OperatorSel
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
-import { type WriteCheck, settleCheck } from "../device-access.ts";
+import { type WriteCheck, settleAccepted, settleCheck } from "../device-access.ts";
 import type { SimCardStatus, SystemStatus } from "../router-status.ts";
 import { encodeSmsSubmit } from "../sms/pdu.ts";
 import type { SmsCounters } from "../sms/types.ts";
@@ -857,7 +857,7 @@ export class OpenwrtSession implements DriverSessionHandle {
   /** `AT+COPS=?`: the module answers when it has searched every band it may use, which takes it minutes. */
   async #scanOperators(check: WriteCheck): Promise<OperatorChoice[]> {
     this.#guard();
-    settleNothingToRead(check);
+    settleAccepted(check);
     noteSent(check, FAMILY, "AT+COPS/search");
     const answer = await this.#ubus.execAt("AT+COPS=?", COPS_TIMEOUT_MS);
     if (isAtError(answer)) throw new CpeApiError(atErrorCode(answer) ?? "at-error", "AT+COPS=? refused");

@@ -113,6 +113,7 @@
     "auto_restore_applied": "The WAN did not come back: wrote back the band setting from before the lock",
     "auto_reconnect_applied": "The WAN is down: redialled the cellular data connection automatically",
     "experimental_match": " (experimental write, read back: matches)",
+    "experimental_accepted": " (experimental write, taken: nothing to read back)",
     "experimental_mismatch": " (experimental write, read back: differs, {reason})",
     "experimental_unknown": " (experimental write, not checked: {reason})",
     "experimental_pending": " (experimental write, the next polls check it)",

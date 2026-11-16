@@ -259,10 +259,10 @@ describe("device report: one line per feature to register from", () => {
       accessControl: { state: "unknown", code: null },
       sms: { state: "unknown", code: null },
     } as const;
-    const write = (feature: "bandLock" | "cellLock" | "reboot", outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending" | "none") => ({
+    const write = (feature: "bandLock" | "cellLock" | "reboot" | "ussd" | "operatorSelect", outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending" | "accepted" | "none") => ({
       id: `${feature}-${readback}`,
       atIso: NOW,
-      action: feature === "bandLock" ? ("lock_band" as const) : feature === "cellLock" ? ("lock_cell" as const) : ("reboot_cpe" as const),
+      action: feature === "bandLock" ? ("lock_band" as const) : feature === "cellLock" ? ("lock_cell" as const) : feature === "ussd" ? ("send_ussd" as const) : feature === "operatorSelect" ? ("scan_operators" as const) : ("reboot_cpe" as const),
       feature,
       model: "MU5250",
       endpoints: ["zte-zwrt:zwrt_bsp.lte.lock"],
@@ -278,7 +278,15 @@ describe("device report: one line per feature to register from", () => {
       generatedAtIso: NOW,
       access: { family: "zte-zwrt", writes: "experimental", reads },
       // The latest write of a feature counts: a band lock that read back otherwise, then as written
-      writes: [write("bandLock", "applied", "mismatch"), write("bandLock", "applied", "match"), write("cellLock", "applied", "mismatch"), write("reboot", "failed", "none")],
+      writes: [
+        write("bandLock", "applied", "mismatch"),
+        write("bandLock", "applied", "match"),
+        write("cellLock", "applied", "mismatch"),
+        write("reboot", "failed", "none"),
+        // A write with nothing to read back counts once the router took it; one nobody checked does not
+        write("ussd", "applied", "accepted"),
+        write("operatorSelect", "applied", "none"),
+      ],
       // The latest poll carried a battery and no SIM card status
       statusReads: { battery: true, simCard: false },
     });
@@ -286,6 +294,8 @@ describe("device report: one line per feature to register from", () => {
     const by = new Map(report.checks.map((c) => [c.feature, c]));
     assert.equal(report.checks.length, DEVICE_FEATURES.length);
     assert.deepEqual(by.get("battery"), { feature: "battery", access: "read", result: "works", evidence: "available" });
+    assert.deepEqual(by.get("ussd"), { feature: "ussd", access: "write", result: "works", evidence: "accepted" });
+    assert.deepEqual(by.get("operatorSelect"), { feature: "operatorSelect", access: "write", result: "untested", evidence: "none" });
     // A poll without it says nothing (a router without the hardware is no failed read)
     assert.deepEqual(by.get("simCard"), { feature: "simCard", access: "read", result: "untested", evidence: null });
     assert.deepEqual(by.get("airplaneMode"), { feature: "airplaneMode", access: "read", result: "untested", evidence: null });

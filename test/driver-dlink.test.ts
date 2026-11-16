@@ -408,7 +408,7 @@ describe("d-link: writes, each sent once with a fresh token and read back", () =
     await answered.client.withSession(async (s) => {
       const check = newCheck();
       assert.deepEqual(await cellularOf(s).ussd({ kind: "send", code: "*100#" }, check, noWait), { state: "answered", text: "Your balance: 5.00\nThank you", awaitsReply: false });
-      assert.deepEqual([check.endpoints, check.readback], [["dlink:do_ussd.send"], "none"]);
+      assert.deepEqual([check.endpoints, check.readback], [["dlink:do_ussd.send"], "accepted"]);
       assert.deepEqual(await cellularOf(s).ussd({ kind: "cancel" }, newCheck(), noWait), { state: "cancelled", text: null, awaitsReply: false });
       await assert.rejects(cellularOf(s).ussd({ kind: "reply", code: "1" }, newCheck(), noWait), CpeControlValidationError);
     });

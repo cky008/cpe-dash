@@ -71,7 +71,7 @@ When an issue's device report shows a feature working on a real router, record i
 
 1. **What counts.** Use the report's `checks`. A read counts when its `result` is `works` (the router answered its
    section with data). A write counts when its `result` is `works`: the latest write of that feature in the report's
-   write record (`writes`) read back as written (`readback: "match"`). `failed` and `untested` do not count, and
+   write record (`writes`) read back as written (`readback: "match"`), or, for a write with nothing to read back (a search for networks, a USSD code the operator answered), the router took it (`readback: "accepted"`). `failed` and `untested` do not count, and
    neither does a sentence in the issue without a report behind it.
 2. **What to change.**
    - Add one entry per feature to `VERIFIED_FEATURES` in [`src/firmware.ts`](src/firmware.ts): `family` from the
@@ -97,7 +97,7 @@ When an issue's device report shows a feature working on a real router, record i
 
 当 issue 里的设备报告显示某项功能在真机上可用时，把它登记进代码，[支持的设备](docs/guide/zh/supported-devices.md)里那一格就会变成 ✓。
 
-1. **什么样的报告算数**：看报告里的 `checks`。读取项的 `result` 是 `works`（路由器回答了这个读取项，并且有数据）才算；写入项的 `result` 是 `works` 才算，也就是写入记录（`writes`）里这个功能最近一次写入回读一致（`readback: "match"`）。`failed`、`untested` 不算；issue 里只有文字、没有报告支撑的也不算。
+1. **什么样的报告算数**：看报告里的 `checks`。读取项的 `result` 是 `works`（路由器回答了这个读取项，并且有数据）才算；写入项的 `result` 是 `works` 才算，也就是写入记录（`writes`）里这个功能最近一次写入回读一致（`readback: "match"`），没有可回读内容的写入（搜网、运营商有应答的 USSD）是路由器收下了（`readback: "accepted"`）。`failed`、`untested` 不算；issue 里只有文字、没有报告支撑的也不算。
 2. **登记要改哪里**：
    - 在 [`src/firmware.ts`](src/firmware.ts) 的 `VERIFIED_FEATURES` 里每个功能加一条：`family` 取报告的 `access.family`，`model` 和 `softwareVersion` 取 `identity`，`feature` 和 `access` 取 `checks` 里那一行，再写上 issue 编号。功能名就是能力登记表（[`src/features.ts`](src/features.ts)）里的名字；写入项必须是烽燧在这个品牌上实现了的（`ROUTER_FAMILY_FACTS[family].writes`），`test/features.test.ts` 和 `test/verified-features.test.ts` 会检查。
    - 补一个测试点名这一条：这个型号在 `supportedDevicesSection` 里那一格是 ✓；写入项的 `DeviceAccess.writeState` 返回 `verified`。

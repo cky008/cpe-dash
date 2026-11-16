@@ -158,7 +158,7 @@ describe("the agent test's rules", () => {
 
   it("passes when every covered write that is open was tried since the start and always read back as a match", () => {
     const test = record();
-    const write = (feature: "bandLock" | "reconnect" | "smsWrite" | "ussd", atIso: string, outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending" | "none") => ({ feature, atIso, outcome, readback });
+    const write = (feature: "bandLock" | "reconnect" | "smsWrite" | "ussd", atIso: string, outcome: "applied" | "failed", readback: "match" | "mismatch" | "pending" | "accepted" | "none") => ({ feature, atIso, outcome, readback });
     const after = "2026-11-10T08:10:00.000Z";
     assert.equal(agentTestPassed(test, [], [write("bandLock", after, "applied", "match")]), false, "nothing on to pass");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", "2026-11-10T07:00:00.000Z", "applied", "match")]), false, "tried before the test only");
@@ -168,7 +168,8 @@ describe("the agent test's rules", () => {
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", after, "applied", "match"), write("bandLock", after, "applied", "mismatch")]), false, "one try read back differently");
     assert.equal(agentTestPassed(test, ["bandLock"], [write("bandLock", after, "failed", "match")]), false, "refused by the router");
     // A write with nothing to read back (a USSD code) passes once the router took it
-    assert.equal(agentTestPassed(test, ["bandLock", "ussd"], [write("bandLock", after, "applied", "match"), write("ussd", after, "applied", "none")]), true);
+    assert.equal(agentTestPassed(test, ["bandLock", "ussd"], [write("bandLock", after, "applied", "match"), write("ussd", after, "applied", "accepted")]), true);
+    assert.equal(agentTestPassed(test, ["ussd"], [write("ussd", after, "applied", "none")]), false, "a write nobody checked is no pass");
     assert.equal(agentTestPassed(test, ["ussd"], [write("ussd", after, "failed", "none")]), false);
 
     const on = (feature: string): boolean => feature === "bandLock" || feature === "smsWrite";

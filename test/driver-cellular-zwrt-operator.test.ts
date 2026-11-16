@@ -70,7 +70,7 @@ describe("zte-zwrt: choosing the operator", () => {
     );
     assert.deepEqual(callsOf(calls, "nwinfo_manual_scan"), [{}]);
     assert.equal(callsOf(calls, "nwinfo_m_netselect_status").length, 4);
-    assert.deepEqual(check, { endpoints: ["zte-zwrt:zte_nwinfo_api.nwinfo_manual_scan"], readback: "none", reason: null });
+    assert.deepEqual(check, { endpoints: ["zte-zwrt:zte_nwinfo_api.nwinfo_manual_scan"], readback: "accepted", reason: null });
     assert.equal(callsOf(calls, "set_wwaniface").length, 0, "the data call is left to the modem");
   });
 

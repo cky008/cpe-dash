@@ -71,7 +71,7 @@ export function hasSwitch(scheduler: SchedulerStatusSnapshot | null, feature: Wr
 /** How a write result's read-back reads in the console: its tone and the outcome to name. */
 export function readbackTone(result: Pick<WriteResultRecord, "outcome" | "readback">): "success" | "warning" | "error" | "info" {
   if (result.outcome === "failed") return "error";
-  if (result.readback === "match") return "success";
+  if (result.readback === "match" || result.readback === "accepted") return "success";
   if (result.readback === "mismatch") return "warning";
   return "info";
 }

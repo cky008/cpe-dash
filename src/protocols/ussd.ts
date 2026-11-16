@@ -1,4 +1,5 @@
 import { USSD_MAX_TEXT, type UssdAnswer } from "../cellular.ts";
+import { type WriteCheck, settleAccepted } from "../device-access.ts";
 
 /**
  * USSD on any interface: an operator's answer as it may be shown, how long one is waited for, and an
@@ -23,6 +24,18 @@ export function ussdText(raw: string | null): string | null {
 /** How long a USSD answer is waited for, and how often the router is asked. */
 export const USSD_POLLS = 30;
 export const USSD_POLL_MS = 1000;
+
+/**
+ * What a USSD send's answer says of the write: an answer, or a session ended, is the router taking it;
+ * no answer in time and the read-back cannot tell (nothing showed either way).
+ */
+export function settleUssd(check: WriteCheck, answer: UssdAnswer): UssdAnswer {
+  if (answer.state === "no_answer") {
+    check.readback = "unknown";
+    check.reason = "no_evidence";
+  } else settleAccepted(check);
+  return answer;
+}
 
 /** An answer with nothing in it (the network said nothing in time, or the session was ended). */
 export function emptyUssd(state: UssdAnswer["state"]): UssdAnswer {

@@ -60,10 +60,11 @@ export interface DisabledWriteRef {
 
 /**
  * What reading a generic write back showed (multi-model phase 3): `match`, `mismatch`, `unknown`
- * (the read-back could not tell), `pending` (a redial or reboot, checked by the next polls) or
- * `none` (nothing was written to check).
+ * (the read-back could not tell), `pending` (a redial or reboot, checked by the next polls),
+ * `accepted` (the router took a write that leaves nothing to read back: a search for networks, a USSD
+ * code the operator answered) or `none` (nothing was written to check).
  */
-export type ReadbackOutcome = "match" | "mismatch" | "unknown" | "pending" | "none";
+export type ReadbackOutcome = "match" | "mismatch" | "unknown" | "pending" | "accepted" | "none";
 
 /**
  * Why a read-back is not a match, from a fixed set so a result never carries a value: `differs` (the
@@ -84,6 +85,15 @@ export interface WriteCheck {
 /** The check a write starts with: nothing posted yet, nothing read back. */
 export function newWriteCheck(): WriteCheck {
   return { endpoints: [], readback: "none", reason: null };
+}
+
+/**
+ * A write the router took that leaves nothing to read back (a search for networks, a USSD session ended
+ * or answered): it counts as done, as a match does, unlike one never checked (`none`).
+ */
+export function settleAccepted(check: WriteCheck): void {
+  check.readback = "accepted";
+  check.reason = null;
 }
 
 /** Record a read-back: `true` a match, `false` a mismatch (`reason`), `null` unknown (`unreadable`). */
@@ -111,7 +121,7 @@ export interface WriteResultRecord {
   reason: ReadbackReason | null;
 }
 
-const READBACKS: ReadonlySet<unknown> = new Set<ReadbackOutcome>(["match", "mismatch", "unknown", "pending", "none"]);
+const READBACKS: ReadonlySet<unknown> = new Set<ReadbackOutcome>(["match", "mismatch", "unknown", "pending", "accepted", "none"]);
 const REASONS: ReadonlySet<unknown> = new Set<ReadbackReason>(["differs", "unreadable", "send_failed", "send_unconfirmed", "no_change", "unclear_change", "no_restart", "no_evidence"]);
 const ENDPOINT_PATH = /^(\/api\/[a-z0-9_/-]{1,64}|[a-z0-9_-]+:[A-Za-z0-9_.-][A-Za-z0-9_.+=/-]{0,63})$/;
 

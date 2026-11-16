@@ -59,7 +59,7 @@ describe("zte-goform: choosing the operator", () => {
     );
     assert.deepEqual(sent(state), ["DISCONNECT_NETWORK", "SCAN_NETWORK", "CONNECT_NETWORK"]);
     assert.equal(state.values["ppp_status"], "ppp_connected");
-    assert.deepEqual(check, { endpoints: ["zte-goform:DISCONNECT_NETWORK", "zte-goform:SCAN_NETWORK", "zte-goform:CONNECT_NETWORK"], readback: "none", reason: null });
+    assert.deepEqual(check, { endpoints: ["zte-goform:DISCONNECT_NETWORK", "zte-goform:SCAN_NETWORK", "zte-goform:CONNECT_NETWORK"], readback: "accepted", reason: null });
     // A connection that was down already stays down: nothing is connected for the owner
     const down = zteRouter({ operators: { scan: SCAN } });
     down.state.values["ppp_status"] = "ppp_disconnected";
@@ -220,7 +220,7 @@ describe("zte-goform: the operator and the access point through the daemon", () 
     const fx = daemonOn("zte-goform", mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
     try {
       assert.equal((await fx.core.controls.scanOperators({ confirm: true })).length, 4);
-      assert.equal(fx.applied.at(-1)?.summaryEn, "Searched for networks in range (4 found) (experimental write)");
+      assert.equal(fx.applied.at(-1)?.summaryEn, "Searched for networks in range (4 found) (experimental write, taken: nothing to read back)");
       await fx.core.controls.selectOperator({ mode: "manual", plmn: "27202", rat: null }, { confirm: true });
       assert.deepEqual(
         fx.linkChanges.map((notice) => notice.change),

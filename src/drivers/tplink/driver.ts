@@ -1,10 +1,10 @@
 import type { ApnChoice, ApnRestore, ApnSetting, ApnView, DataLimitSetting, NetworkMode, OperatorChoice, OperatorSelection, SimPinOutcome, UssdAnswer, UssdRequest } from "../../cellular.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
 import { type AntennaModeName, SectionUnavailableError } from "../../cpe-domain.ts";
-import { type WriteCheck, settleCheck } from "../../device-access.ts";
+import { type WriteCheck, settleAccepted, settleCheck } from "../../device-access.ts";
 import type { DriverNeighbour } from "../../protocols/readings.ts";
 import { type LanHttp, type LanResponse, parseJsonText } from "../../protocols/transport.ts";
-import { USSD_POLLS, USSD_POLL_MS, emptyUssd, ussdText } from "../../protocols/ussd.ts";
+import { USSD_POLLS, USSD_POLL_MS, emptyUssd, settleUssd, ussdText } from "../../protocols/ussd.ts";
 import { fieldOf, intOf, labelOf, nonNegativeOf, textOf } from "../../protocols/values.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
@@ -336,7 +336,7 @@ class TplinkSession implements DriverSessionHandle {
       setPinLock: (enabled, pin, check, wait) => this.#pin({ simAction: enabled ? "1" : "2", pin }, enabled ? 2 : 3, check, wait),
       setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
       resetTraffic: (check) => this.#resetTraffic(check),
-      ussd: (request, check, wait) => this.#ussd(request, check, wait),
+      ussd: async (request, check, wait) => settleUssd(check, await this.#ussd(request, check, wait)),
       setApn: (choice, check) => this.#setApn(choice, check),
       restoreApn: (restore, check) => this.#restoreApn(restore, check),
     };
@@ -778,7 +778,7 @@ class TplinkSession implements DriverSessionHandle {
    * (the MR series counts what it found, the EX and NX series name a status), then the list.
    */
   async #scanOperators(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]> {
-    settleNothingToRead(check);
+    settleAccepted(check);
     const mr = this.#dialect === "mr";
     if (mr) await this.#write(check, "LTE_NET_SEL.set", [{ operation: "set", oid: "LTE_NET_SEL", attrs: { searchAction: "1" } }]);
     else await this.#write(check, `${NX_NETWORK_SEARCH}.set`, [{ operation: "set", oid: NX_NETWORK_SEARCH, stack: this.#lte, attrs: { action: "1" } }]);

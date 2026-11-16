@@ -84,6 +84,7 @@ export const READBACK_KEYS: Readonly<Record<ReadbackOutcome, SettingsTextKey>> =
   mismatch: "exp_readback_mismatch",
   unknown: "exp_readback_unknown",
   pending: "exp_readback_pending",
+  accepted: "exp_readback_accepted",
   none: "exp_readback_none",
 };
 

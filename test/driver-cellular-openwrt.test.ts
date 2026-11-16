@@ -205,7 +205,7 @@ describe("openwrt: choosing the operator with AT+COPS", () => {
     const found = await client.withSession((s) => cellularOf(s).scanOperators(check, noWait));
     assert.deepEqual(found?.map((row) => row.plmn), ["27201", "27202", "27203"]);
     assert.deepEqual(searches(state.executedCommands), ["AT+COPS=?"]);
-    assert.deepEqual(check, { endpoints: ["openwrt:AT+COPS/search"], readback: "none", reason: null });
+    assert.deepEqual(check, { endpoints: ["openwrt:AT+COPS/search"], readback: "accepted", reason: null });
     const refused = openwrtRouter({ brand: "quectel" });
     await assert.rejects(refused.client.withSession((s) => cellularOf(s).scanOperators(newCheck(), noWait)), (err: unknown) => err instanceof CpeApiError && err.code === "cms-3");
     const silent = openwrtRouter({ brand: "quectel", cops: { scan: "" } });

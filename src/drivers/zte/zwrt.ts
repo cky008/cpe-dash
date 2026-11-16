@@ -3,7 +3,7 @@ import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoi
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import { SectionUnavailableError } from "../../cpe-domain.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
-import { type WriteCheck, settleCheck } from "../../device-access.ts";
+import { type WriteCheck, settleAccepted, settleCheck } from "../../device-access.ts";
 import { type BatteryStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../../router-status.ts";
 import { detectSmsTextMode } from "../../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
@@ -699,7 +699,7 @@ class ZwrtSession implements DriverSessionHandle {
 
   /** `nwinfo_manual_scan`, then `nwinfo_m_netselect_status` until the search is over, then the list. Nothing is disconnected first: the modem drops the data call by itself while it searches. */
   async #scanOperators(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]> {
-    settleNothingToRead(check);
+    settleAccepted(check);
     await this.#write(check, "nwinfo_manual_scan", {});
     // The status still shows the end of an earlier search for a moment: an end is believed once the router was seen searching, or after six asks
     let asks = 0;

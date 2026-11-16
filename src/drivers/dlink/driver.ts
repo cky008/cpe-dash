@@ -4,7 +4,7 @@ import { SectionUnavailableError } from "../../cpe-domain.ts";
 import { type WriteCheck, settleCheck } from "../../device-access.ts";
 import type { DriverNeighbour } from "../../protocols/readings.ts";
 import { type LanHttp, type LanResponse, parseJsonText } from "../../protocols/transport.ts";
-import { USSD_POLLS, USSD_POLL_MS, emptyUssd, ussdText } from "../../protocols/ussd.ts";
+import { USSD_POLLS, USSD_POLL_MS, emptyUssd, settleUssd, ussdText } from "../../protocols/ussd.ts";
 import { fieldOf, isPlainObject, labelOf, textOf } from "../../protocols/values.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
@@ -329,7 +329,7 @@ class DlinkSession implements DriverSessionHandle {
     setNetworkMode: (mode, check, wait) => this.#setNetworkMode(mode, check, wait ?? TIMER_WAIT),
     setApn: (choice, check, wait) => this.#setApn(choice, check, wait),
     restoreApn: (restore, check, wait) => this.#restoreApn(restore, check, wait),
-    ussd: (request, check, wait) => this.#ussd(request, check, wait),
+    ussd: async (request, check, wait) => settleUssd(check, await this.#ussd(request, check, wait)),
   };
 
   // ── SMS ────────────────────────────────────────────────────────────────────

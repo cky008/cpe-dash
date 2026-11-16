@@ -21,7 +21,10 @@ export function longTextOf(value: unknown, maxChars: number): string | null {
   return text === "" ? null : text;
 }
 
-/** A write the router answered and that leaves nothing to read back (a USSD code, a counter cleared, a PIN the card refused). */
+/**
+ * A write the router answered that shows nothing either way (a PIN the card refused): not a match, and
+ * not a write the router took (`settleAccepted`, device-access.ts).
+ */
 export function settleNothingToRead(check: WriteCheck): void {
   check.readback = "none";
   check.reason = null;

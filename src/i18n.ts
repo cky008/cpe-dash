@@ -150,6 +150,7 @@ export type I18nKey =
   | "alerts.write_readback_mismatch"
   | "alerts.agent_test_still_on"
   | "controls.experimental_match"
+  | "controls.experimental_accepted"
   | "controls.experimental_mismatch"
   | "controls.experimental_unknown"
   | "controls.experimental_pending"

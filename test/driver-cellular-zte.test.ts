@@ -154,7 +154,7 @@ describe("zte-goform: writing the cellular settings", () => {
     const check = newCheck();
     assert.deepEqual(await client.withSession((s) => cellularOf(s).ussd({ kind: "send", code: "*100#" }, check, noWait)), { state: "answered", text: menu, awaitsReply: true });
     assert.deepEqual(posted(state, "USSD_PROCESS"), [{ USSD_operator: "ussd_send", USSD_send_number: "*100#", notCallback: "true" }]);
-    assert.deepEqual(check, { endpoints: ["zte-goform:USSD_PROCESS"], readback: "none", reason: null });
+    assert.deepEqual(check, { endpoints: ["zte-goform:USSD_PROCESS"], readback: "accepted", reason: null });
     await client.withSession((s) => cellularOf(s).ussd({ kind: "reply", code: "2" }, newCheck(), noWait));
     assert.deepEqual(posted(state, "USSD_PROCESS").at(-1), { USSD_operator: "ussd_reply", USSD_reply_number: "2", notCallback: "true" });
     // A full-length answer in Chinese survives the trip (it is longer than the drivers' usual text bound)
@@ -288,8 +288,8 @@ describe("cellular settings through the daemon (zte-goform)", () => {
     const fx = daemonOn("zte-goform", mock.fetchImpl, "http://192.168.0.1", ZTE_PASSWORD);
     try {
       assert.deepEqual(await fx.core.controls.sendUssd({ kind: "send", code: "*100#" }, { confirm: true }), { state: "answered", text: "Balance: 5.00 EUR", awaitsReply: false });
-      assert.equal(fx.applied.at(-1)?.summaryEn, "Sent a USSD code (experimental write)");
-      assert.equal(fx.applied.at(-1)?.summaryZh, "已发送一条 USSD 指令（实验性写入）");
+      assert.equal(fx.applied.at(-1)?.summaryEn, "Sent a USSD code (experimental write, taken: nothing to read back)");
+      assert.equal(fx.applied.at(-1)?.summaryZh, "已发送一条 USSD 指令（实验性写入，路由器收下了，没有可回读的内容）");
       const trail = fx.trail();
       assert.ok(!trail.includes("*100#") && !trail.includes("Balance"), "neither the code nor the answer is kept");
       assert.deepEqual(fx.core.scheduler.genericWrites.at(-1)?.endpoints, ["zte-goform:USSD_PROCESS"]);

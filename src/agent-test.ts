@@ -329,7 +329,7 @@ export function agentTestPassed(
   const sinceMs = Date.parse(record.startedAtIso);
   return covered.every((feature) => {
     const tries = writes.filter((write) => write.feature === feature && Date.parse(write.atIso) >= sinceMs);
-    return tries.length > 0 && tries.every((write) => write.outcome === "applied" && (write.readback === "match" || write.readback === "none"));
+    return tries.length > 0 && tries.every((write) => write.outcome === "applied" && (write.readback === "match" || write.readback === "accepted"));
   });
 }
 

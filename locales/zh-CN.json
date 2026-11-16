@@ -113,6 +113,7 @@
     "auto_restore_applied": "WAN 未恢复，已自动写回锁定前的频段设置",
     "auto_reconnect_applied": "WAN 已断开，已自动重拨蜂窝数据",
     "experimental_match": "（实验性写入，回读一致）",
+    "experimental_accepted": "（实验性写入，路由器收下了，没有可回读的内容）",
     "experimental_mismatch": "（实验性写入，回读不一致：{reason}）",
     "experimental_unknown": "（实验性写入，无法回读核对：{reason}）",
     "experimental_pending": "（实验性写入，之后的轮询会核对它）",

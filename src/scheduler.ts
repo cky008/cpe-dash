@@ -1374,7 +1374,9 @@ function readbackSuffix(record: WriteResultRecord): { zh: string; en: string } {
     if (record.readback === "match") return t(locale, "controls.experimental_match");
     if (record.readback === "mismatch") return t(locale, "controls.experimental_mismatch", { reason });
     if (record.readback === "pending") return t(locale, "controls.experimental_pending");
-    // A write that leaves nothing to read back (a USSD code, a PIN the card refused)
+    // A write the router took that leaves nothing to read back (a search for networks, an answered USSD code)
+    if (record.readback === "accepted") return t(locale, "controls.experimental_accepted");
+    // A write that shows nothing either way (a PIN the card refused)
     if (record.readback === "none") return t(locale, "controls.experimental_none");
     return t(locale, "controls.experimental_unknown", { reason });
   };

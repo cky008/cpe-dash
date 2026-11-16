@@ -2,13 +2,13 @@ import type { ApnChoice, ApnRestore, DataLimitSetting, NetworkMode, OperatorChoi
 import { CpeControlValidationError } from "../../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import { SectionUnavailableError } from "../../cpe-domain.ts";
-import { type WriteCheck, settleCheck } from "../../device-access.ts";
+import { type WriteCheck, settleAccepted, settleCheck } from "../../device-access.ts";
 import { type BatteryStatus, type SimCardStatus, type SimState, type TemperatureSensor, countValue, percentValue } from "../../router-status.ts";
 import { detectSmsTextMode } from "../../sms/text-mode.ts";
 import type { SmsCounters, SmsWireMessage } from "../../sms/types.ts";
 import { bandsToHex, bandsToList, checkCellLock, checkLockBands, hexToBands, listToBands } from "../bands.ts";
 import { FENGSUI_APN_PROFILE, sameDataLimit, settleNothingToRead } from "../cellular.ts";
-import { emptyUssd } from "../../protocols/ussd.ts";
+import { emptyUssd, settleUssd } from "../../protocols/ussd.ts";
 import {
   ZTE_APN_PROFILE_KEYS,
   ZTE_GOFORM_SLOTS,
@@ -1096,7 +1096,7 @@ class ZteGoformSession implements DriverSessionHandle {
     enterPin: (pin, check) => this.#pinWrite(check, "ENTER_PIN", [["PinNumber", pin]], (after) => (after === "pin_required" ? false : after === null ? null : true)),
     setPinLock: (enabled, pin, check) => this.#setPinLock(enabled, pin, check),
     setDataLimit: (limit, check) => this.#setDataLimit(limit, check),
-    ussd: (request, check, wait) => this.#ussd(request, check, wait),
+    ussd: async (request, check, wait) => settleUssd(check, await this.#ussd(request, check, wait)),
   };
 
   async #cellularRead(): Promise<DriverCellularState> {
@@ -1206,7 +1206,7 @@ class ZteGoformSession implements DriverSessionHandle {
 
   /** `SCAN_NETWORK`, then `m_netselect_status` until it is no longer `manual_selecting`, then the list (`m_netselect_contents`). */
   async #scanOperators(check: WriteCheck, wait: DriverWait): Promise<OperatorChoice[]> {
-    settleNothingToRead(check);
+    settleAccepted(check);
     return await this.#whileDisconnected(check, wait, async () => {
       await this.#post(check, "SCAN_NETWORK", []);
       const done = await awaitOperatorStep(

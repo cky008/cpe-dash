@@ -838,7 +838,7 @@ export type AlertCode =
 
 - **`WriteCheck`**
   - `endpoints`：写过的端点，如 "/api/net/net-mode"
-  - `readback`：pending：重拨 / 重启，等之后的轮询；none：没有写成
+  - `readback`：pending：重拨 / 重启，等之后的轮询；accepted：路由器收下了、没有可回读内容的写入（搜网、得到应答的 USSD、结束的 USSD 会话），设备报告的 `checks` 里和 match 一样算能用；none：没有写成或没有核对（比如 SIM 卡拒绝了的 PIN），不算
 
 ### 2.12 一键开始 AI 智能体测试与提醒（v1.8.1）
 
@@ -906,7 +906,7 @@ export type AlertCode =
 - **断网 3 分钟的回退**：`network-mode`、`operator`（手动）、`sim-slot`、`apn` 这四项会意外断网。写入的会话里先读原值，写入后 `WanSelfHeal` 看守 3 分钟（不管从哪个入口发起、自愈开没开、路由器验没验证过）：WAN 一直没恢复，就在一个控制会话里把这一项改回原值（`control:applied` 的 `action` 是 `auto_restore_network_mode` / `auto_restore_operator` / `auto_restore_sim_slot` / `auto_restore_apn`），告警 `SETTING_ROLLED_BACK`；WAN 连续在线 2 分钟则保留更改。会话里读到 WAN 已恢复、移动数据被关掉或飞行模式开着时不写。没读到原值时不回退，告警 `SETTING_NOT_ROLLED_BACK`。同一项在看守期内再改一次，改回的仍是第一次更改之前的值。看守记录在 `state.json`，守护进程重启后接着算。接入点改回的是路由器里原来那条配置的编号（或模组原来的 PDP 上下文），从不保存账号密码。
 - **飞行模式和关闭移动数据一样，是有意断网**：不回退，也不触发上面的回退。
 - **PIN**：`enter` 输入 PIN，`lock` / `unlock` 开关「开机要 PIN」。每次只发一次；写入的会话里先读剩余次数，路由器没有报告、只剩一次或已经没有时，烽燧不发，`400 VALIDATION_ERROR`，消息说明原因。卡不接受时应答是 `200`、`accepted: false` 和新的 `attemptsLeft`，烽燧不重试。烽燧不输入 PUK，不修改 PIN。
-- **不留痕**：PIN、USSD 的指令与应答、APN 的名字与账号密码都不进 `control:applied` 的摘要、审计记录和写入记录（记录里只有指令名，如 `zte-goform:USSD_PROCESS`）。USSD 这类没有可回读状态的写入，记录的 `readback` 是 `none`，摘要后缀是「（实验性写入）」。
+- **不留痕**：PIN、USSD 的指令与应答、APN 的名字与账号密码都不进 `control:applied` 的摘要、审计记录和写入记录（记录里只有指令名，如 `zte-goform:USSD_PROCESS`）。USSD 这类没有可回读状态的写入，运营商有应答时记录的 `readback` 是 `accepted`，摘要后缀是「（实验性写入，路由器收下了，没有可回读的内容）」；一直没有应答时是 `unknown`（`no_evidence`）。
 
 ## 3. `/api/events` 毫秒级 SSE 实时数据流协议
 

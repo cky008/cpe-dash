@@ -576,7 +576,7 @@ describe("tp-link: reads and writes", () => {
     await answered.client.withSession(async (s) => {
       const check = newCheck();
       assert.deepEqual(await cellularOf(s).ussd({ kind: "send", code: "*100#" }, check, noWait), { state: "answered", text: "Your balance: 5.00\nThank you", awaitsReply: false });
-      assert.deepEqual([check.endpoints, check.readback], [["tplink:LTE_USSD.set"], "none"]);
+      assert.deepEqual([check.endpoints, check.readback], [["tplink:LTE_USSD.set"], "accepted"]);
       const end = newCheck();
       assert.deepEqual(await cellularOf(s).ussd({ kind: "cancel" }, end, noWait), { state: "cancelled", text: null, awaitsReply: false });
       assert.deepEqual(end.endpoints, ["tplink:LTE_USSD.set"]);
@@ -855,7 +855,7 @@ describe("tp-link: mobile data and the cellular settings", () => {
         const scan = newCheck();
         const found = await cellularOf(s).scanOperators(scan, wait);
         assert.deepEqual(found.map((o) => [o.plmn, o.name, o.state, o.rat]), [["27201", "Three", "current", null], ["27202", "DemoNet", "available", null], ["27203", "Barred", "forbidden", null]]);
-        assert.deepEqual([scan.endpoints.length, scan.readback, slept], [1, "none", 3]);
+        assert.deepEqual([scan.endpoints.length, scan.readback, slept], [1, "accepted", 3]);
         const pick = newCheck();
         await cellularOf(s).selectOperator({ mode: "manual", plmn: "27202", rat: null }, pick, noWait);
         assert.deepEqual([pick.readback, (await cellularOf(s).read()).operator], ["match", { selection: "manual", plmn: "27202" }]);

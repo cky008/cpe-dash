@@ -695,7 +695,8 @@ export function deviceReportChecks(
     const latest = writes.filter((write) => write.feature === feature).at(-1);
     if (!latest) return { feature, access: "write", result: "untested", evidence: null };
     if (latest.outcome === "failed") return { feature, access: "write", result: "failed", evidence: "refused" };
-    const result = latest.readback === "match" ? "works" : latest.readback === "mismatch" ? "failed" : "untested";
+    // A write with nothing to read back counts once the router took it
+    const result = latest.readback === "match" || latest.readback === "accepted" ? "works" : latest.readback === "mismatch" ? "failed" : "untested";
     return { feature, access: "write", result, evidence: latest.readback };
   });
 }

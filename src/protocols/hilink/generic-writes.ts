@@ -3,9 +3,9 @@ import type { EphemeralCpeSession } from "./client.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../../session-errors.ts";
 import { CpeControlValidationError } from "../../control-error.ts";
 import type { WanRepairSkipReason } from "../../cpe-domain.ts";
-import { type WriteCheck, settleCheck } from "../../device-access.ts";
+import { type WriteCheck, settleAccepted, settleCheck } from "../../device-access.ts";
 import { LTE_ALL_BANDS_MASK, isAllBandsMask, maskToBands } from "../../device-profile.ts";
-import { USSD_POLLS, USSD_POLL_MS, emptyUssd, ussdText } from "../ussd.ts";
+import { USSD_POLLS, USSD_POLL_MS, emptyUssd, settleUssd, ussdText } from "../ussd.ts";
 import { MAX_SCAN_ROWS, operatorChoice } from "../at/common.ts";
 import { bandsToHexMask } from "../../rf-bounds.ts";
 import { getXmlBlocks, getXmlTag, getXmlTextPreserve } from "./xml.ts";
@@ -362,7 +362,7 @@ export async function genericScanOperators(session: EphemeralCpeSession, check: 
     const choice = operatorChoice(getXmlTag(network, "State"), getXmlTag(network, "FullName") ?? getXmlTag(network, "ShortName"), getXmlTag(network, "Numeric"), getXmlTag(network, "Rat"));
     if (choice) found.push(choice);
   }
-  check.readback = "none";
+  settleAccepted(check);
   return found;
 }
 
@@ -454,7 +454,7 @@ export async function genericUssd(session: EphemeralCpeSession, check: WriteChec
     const result = status === null ? null : getXmlTag(status, "result")?.trim();
     if (result === undefined || result === null || !/^\d{1,3}$/.test(result) || Number(result) >= 1) continue;
     const answer = await session.get(USSD_GET);
-    return { state: "answered", text: ussdText(getXmlTextPreserve(answer, "content")), awaitsReply: false };
+    return settleUssd(check, { state: "answered", text: ussdText(getXmlTextPreserve(answer, "content")), awaitsReply: false });
   }
-  return emptyUssd("no_answer");
+  return settleUssd(check, emptyUssd("no_answer"));
 }

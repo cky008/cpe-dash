@@ -136,7 +136,7 @@ describe("generic HiLink: the cellular settings of a model nobody verified", () 
         { plmn: "27202", name: "Other Net", rat: "3G", state: "available" },
         { plmn: "27203", name: "Third", rat: "2G", state: "forbidden" },
       ]);
-      assert.equal(fx.applied.at(-1)?.summaryEn, "Searched for networks in range (3 found) (experimental write)");
+      assert.equal(fx.applied.at(-1)?.summaryEn, "Searched for networks in range (3 found) (experimental write, taken: nothing to read back)");
       assert.deepEqual(fx.core.scheduler.genericWrites.at(-1)?.endpoints, ["/api/net/plmn-list"]);
       await fx.core.controls.selectOperator({ mode: "manual", plmn: "27202", rat: "3G" }, { confirm: true });
       assert.deepEqual(fx.bodies("/api/net/register"), ["<request><Mode>1</Mode><Plmn>27202</Plmn><Rat>2</Rat></request>"]);
@@ -227,7 +227,7 @@ describe("generic HiLink: the cellular settings of a model nobody verified", () 
     let sleeps = 0;
     const check = newCheck();
     assert.deepEqual(await waiting.withSession((session) => genericUssd(session, check, { kind: "send", code: "*100#" }, async () => void (sleeps += 1))), { state: "no_answer", text: null, awaitsReply: false });
-    assert.deepEqual([silent.settings.ussdSent, sleeps > 0, check], [["*100#"], true, { endpoints: ["/api/ussd/send"], readback: "none", reason: null }], "sent once, asked a bounded number of times");
+    assert.deepEqual([silent.settings.ussdSent, sleeps > 0, check], [["*100#"], true, { endpoints: ["/api/ussd/send"], readback: "unknown", reason: "no_evidence" }], "sent once, asked a bounded number of times, and no answer is no evidence either way");
 
     const slow = createCpeFamily({ login: "sha256", tokenFlow: "token", model: MODEL, endpoints: { "/api/global/module-switch": MODULE_SWITCH }, writes: { cellular: { ussd: { content: "1. Top up\n2. Exit", busyPolls: 2 } } } });
     const patient = new HuaweiCpeClient({ cpeUrl: "http://192.168.8.1", cpePassword: slow.password, fetchImpl: slow.fetchImpl, requestTimeoutMs: 2000 });
