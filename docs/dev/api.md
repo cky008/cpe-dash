@@ -450,7 +450,7 @@ export type AlertCode =
 - **写入后的 `settings` 同步**：
   - `security`：写入成功后服务端再开一次只读会话回读路由器配置，并推送 SSE `settings`。若回读被让位或跳过，响应中 `settings` 为 `null`；若回读本身失败，接口返回 `502`，但写入已经生效，可调用 `POST /api/settings/refresh` 核对。
   - `wifi7` / `antenna` / `mobile-data`：不额外开会话，直接用写入结果修补缓存快照并推送 SSE `settings`。若此前从未读取过 settings，则不会推送。
-- **暂停连接（`POST /api/session/pause` / `resume`，v1.9.1）**：给要用路由器自己网页的人用。有的路由器只允许一个管理会话，烽燧每 5 秒登录一次，人就进不去或被登出（中兴 zWRT）；暂停期间烽燧不开任何会话、不向路由器发任何请求，到时间自动恢复。
+- **暂停连接（`POST /api/session/pause` / `resume`）**：给要用路由器自己网页的人用。有的路由器只允许一个管理会话，烽燧每 5 秒登录一次，人就进不去或被登出（中兴 zWRT）；暂停期间烽燧不开任何会话、不向路由器发任何请求，到时间自动恢复。
   - `minutes` 是 1–120 的整数，从调用时算起；暂停中再调用是换成新的时长，不是累加。令牌要有 `control` 权限；没有对应的 MCP 工具（智能体从 `get_cpe_session_status` 的 `pause` 和写工具的 `ROUTER_PAUSED` 知道）。
   - **暂停期间**：读取（5 秒轮询、附近的基站、已连接设备、短信同步）被跳过，各读取接口照常回 `200` 与缓存；写操作（REST、MCP、Telegram、自愈）在任何会话之前以 `409 ROUTER_PAUSED` 拒绝，已经在排队的也一样；免登录的探测（`get_cpe_session_status` 的 `probeLive`、短信未读数）不发；控制台的连接测试和品牌识别以 `reason: "paused"` 失败。正在进行的那一次会话照常结束。`schedulerStatus.mode` 为 `paused`，`schedulerStatus.pause` 是 `{ active, sinceIso, untilIso, blocked }`。
   - **什么时候不能暂停**：还有改动在看守期内（未验证路由器上的锁定，或 SIM 卡槽、网络制式、运营商选择、接入点的改动，见 2.13）时返回 `400 VALIDATION_ERROR`，`pause.blocked` 是 `{ reason: "watch", untilIso }`：这项改动断网的话还要改回去，暂停了就改不了。反过来，暂停期间写操作都被拒，所以不会有新的看守开出来。
