@@ -866,7 +866,7 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 - **D-Link 的 `check_attempt_count`**（C-20）：三个参考项目都发它、都不看它的应答，应答格式没有记录。
 - **烽火短信的其他编码**（C-29）：有文章提到 `send_msg` 的 `encode_schema` 还有 `UCS2` 等取值，但没有写出那种编码下正文的格式；固件把正文拼进命令行，格式不明就不发。
 - **华为其他型号 `net/register` 的 5G `Rat`**（C-01）：huawei-lte-api（`d2eb2af`）`api/Net.py` 第 119–126 行只列 `0` 2G、`2` 3G、`7` 4G。
-- **TP-Link MR 系列的 AES-GCM 登录**（C-16）：有记录了（tplinkrouterc6u `71e2c5b` `client/mr.py` 第 814–870 行：请求体多一行 `tag=`，`common/encryption.py` 第 206 行起：IV 12 字节），是一种新的登录写法，留给下一轮在模拟路由器上完整实现后再接。
+- **TP-Link MR 系列的 AES-GCM 登录**（C-16）：当时记的是「有记录了」（tplinkrouterc6u `71e2c5b` `client/mr.py` 第 814–870 行：请求体多一行 `tag=`，`common/encryption.py` 第 206 行起：IV 12 字节）。下一轮核对后更正：那几行是登录之后的请求，登录本身没有记录，见 22.2。
 
 ### 21.11 中兴锁小区何时生效（D-2，主人决定只加说明）
 
@@ -900,3 +900,11 @@ agy 上网检索（只用 `search_web`），我抓原文核对：
 | 应答 | `decryptGCM`：把整段应答按 Base64 解码，最后 16 个字节是标签。forge 的解码逐组处理，所以密文和标签各自一段 Base64 前后相接、或者合成一段 Base64，页面都读得出 | 原来照参考项目把文本的最后 24 个字符当标签，只读得出前一种；改成和页面一样（F5-002） |
 
 只取事实，没有复制它的代码。模拟器的页面脚本关着登录加密（`INCLUDE_LOGIN_GDPR_ENCRYPT=0`，18.11），上面读的是脚本里加密那一支的写法。
+
+### 22.2 TP-Link MR 系列的 AES-GCM 登录：没有记录，不实现（C-16 的更正）
+
+21.10 把它记成「有记录了」，这一轮动手实现前逐行核对，结论是登录这一步没有任何记录，维持「不发送密码」（18.10 当时的判断是对的）：
+
+- **参考项目里这种组合登录不了。** tplinkrouterc6u（`71e2c5b`，GPL-3.0，只取事实）的 `TPLinkMRClientGCM` 继承 `TPLinkMRClientBase._req_login`（`client/mr.py` 第 691–735 行）：它从 `_prepare_data` 取两个值（签名、密文），拼成 `/cgi/login?data=…&sign=…&Action=1&LoginStatus=0`；GCM 的 `_prepare_data`（第 870–877 行）返回三个值（多一个标签），取值那一行就出错，`supports()` 把错误吞掉。所以这个类在任何路由器上都登录不了，也就没有写出标签在 `/cgi/login` 的地址里放在哪里。第 814–870 行记下的 `sign=…\r\ndata=…\r\ntag=…\r\n` 是登录之后经 `/cgi_gdpr` 发出的请求。这个类是和 EX 的 GCM 客户端一起加进去的（提交 `42cd40f`，PR #104），PR 里测的是 VX231v（EX 写法）。
+- **公开资料里找不到用 GCM 的 MR 固件。** 22.1 的 26 个模拟器里，名字是 MR 的全部是 CBC（Archer MR202、MR402、MR402-Outdoor、MR500-Outdoor、MR550 v2、MR600 v5，TL-MR100-Outdoor、MR101、MR108、MR110-Outdoor）；6 个 GCM 的都是 EX / NX 这一代，登录走 `/cgi_gdpr`。两个上网检索的子代理（只用 `search_web`）各查了十几组关键词，没有找到任何 MR 型号的 GCM 页面脚本、能用的第三方实现或用户报告。
+- **所以不实现。** 标签放在哪里只能猜，猜错的登录在真机上可能算一次密码错误；铁律四要求登录方式在发送密码之前凭路由器给的东西定下，定不下来就不发。MR 写法遇到 GCM 的脚本时照旧以「这种固件的登录没有记录」拒绝，不发送密码、不熔断。要实现它，需要这样一台路由器的登录页（`frame/login.htm` 里拼 `/cgi/login` 的那几行），或一次登录的请求记录（去掉密码）：有人报告时再做。
