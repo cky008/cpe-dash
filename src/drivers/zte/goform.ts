@@ -161,13 +161,29 @@ export function zteActionDigest(hash: "sha256" | "md5", version: Pick<ZteVersion
 
 const HEX_64 = /^[0-9A-Fa-f]{64}$/;
 
-/** The login method from the nonce and the page's configuration (`null`: none FengSui can be sure of). */
+const SHA256_SWITCH = "WEB_ATTR_IF_SUPPORT_SHA256";
+
+/**
+ * The login method from the nonce and the page's configuration (`null`: none FengSui can be sure of).
+ * The configuration's `WEB_ATTR_IF_SUPPORT_SHA256` (notes library A: `:2` the nonce's double hash, `:1`
+ * one SHA-256, else Base64) is read with any spaces or quotes around its value; a switch that is
+ * there with a value FengSui cannot read sends no password rather than Base64 on a guess.
+ */
 export function zteLoginMethodOf(ld: string | null, configJs: string | null): ZteLoginMethod | null {
   if (ld !== null && ld !== "") return HEX_64.test(ld) ? { kind: "sha256-ld", ld } : null;
   if (configJs === null) return null;
+  let at = configJs.indexOf(SHA256_SWITCH);
+  if (at < 0) return { kind: "base64" };
+  // The first place that sets it (a use of the switch elsewhere names no value): after the name an optional
+  // closing quote, the colon, then the value, quoted or not, each looked at in a bounded slice
+  let value: string | undefined;
+  for (let seen = 0; at >= 0 && value === undefined && seen < 16; seen++, at = configJs.indexOf(SHA256_SWITCH, at + 1)) {
+    value = /^["']?\s*:\s*["']?(\d)\b/.exec(configJs.slice(at + SHA256_SWITCH.length, at + SHA256_SWITCH.length + 32))?.[1];
+  }
   // A page that wants the nonce, without one: the login would not be the one the page sends
-  if (configJs.includes("WEB_ATTR_IF_SUPPORT_SHA256:2")) return null;
-  return configJs.includes("WEB_ATTR_IF_SUPPORT_SHA256:1") ? { kind: "sha256" } : { kind: "base64" };
+  if (value === "2") return null;
+  if (value === "1") return { kind: "sha256" };
+  return value === "0" ? { kind: "base64" } : null;
 }
 
 async function getCmd(http: LanHttp, keys: ReadonlyArray<string>, multi = true, at: ZteEndpoints = GOFORM): Promise<Record<string, unknown>> {

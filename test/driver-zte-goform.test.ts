@@ -54,6 +54,18 @@ describe("zte-goform: login and digests", () => {
     assert.equal(zteLoginMethodOf(null, null), null);
   });
 
+  it("reads the page's SHA-256 switch however it is spelled, and sends no password for a value it cannot read", () => {
+    assert.deepEqual(zteLoginMethodOf(null, "WEB_ATTR_IF_SUPPORT_SHA256: 1,"), { kind: "sha256" });
+    assert.deepEqual(zteLoginMethodOf(null, '"WEB_ATTR_IF_SUPPORT_SHA256" : "1",'), { kind: "sha256" });
+    assert.equal(zteLoginMethodOf(null, "WEB_ATTR_IF_SUPPORT_SHA256 : 2"), null, "the nonce's form, without a nonce");
+    assert.deepEqual(zteLoginMethodOf(null, "WEB_ATTR_IF_SUPPORT_SHA256:0"), { kind: "base64" });
+    // The switch is there, but not in a form FengSui can read: not Base64 on a guess
+    assert.equal(zteLoginMethodOf(null, "WEB_ATTR_IF_SUPPORT_SHA256: true"), null);
+    assert.equal(zteLoginMethodOf(null, "WEB_ATTR_IF_SUPPORT_SHA256 = getSha()"), null);
+    // A use of the switch before the place that sets it
+    assert.deepEqual(zteLoginMethodOf(null, "if (config.WEB_ATTR_IF_SUPPORT_SHA256) {}\nvar config = { WEB_ATTR_IF_SUPPORT_SHA256: 1 };"), { kind: "sha256" });
+  });
+
   it("names the firmware branch from the hardware version", () => {
     assert.equal(zteBranch({ hardwareVersion: "MC801A_HW1.0", modelName: "MC801A" }), 1);
     assert.equal(zteBranch({ hardwareVersion: "MC888HW-1.0.0", modelName: "" }), 2);

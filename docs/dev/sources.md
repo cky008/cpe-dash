@@ -847,3 +847,7 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 
 `session.login` 的 `timeout` 是 rpcd 会话的空闲时长（秒）。搜网与手动选网的一次 `AT+COPS` 最长等 180 秒（模组手册），其间没有别的调用碰这个会话，60 秒的会话会在调用中途过期，之后的回读拿到 status 6。现在会话时长取最长一次调用加 120 秒（300 秒）；会话结束时照旧 `session.destroy`。status 6（permission denied）只在回答 `session.login` 时当作密码被拒，回答登录之后的调用时是会话过期或路由器的访问列表不允许（`ubus-6`），不再说成密码错误（熔断本来也只在登录时锁上）。
 
+### 21.7 中兴 goform 页面的 SHA-256 开关（C-10）
+
+资料 A（`zte-goform-web-protocol-spec.md` 第 52、86、92–93 行）按子串 `WEB_ATTR_IF_SUPPORT_SHA256:2` / `:1` 判断登录写法，其余当作 Base64。`config.js` 的原文没有在公开项目里找到（`1zun4/zte-cpe-rs` 带的页面脚本只用它，`n.WEB_ATTR_IF_SUPPORT_SHA256 ? … : …`）。写法若带空格或引号，以前会落到 Base64，向要 SHA-256 的路由器发出一次错误形式的密码。现在读取它的值时容忍空格与引号（取第一个写出了值的地方），值为 `2`、`1`、`0` 照资料处理；开关在而读不出值时不发送密码（「定不下来就不发」）。
+
