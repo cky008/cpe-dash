@@ -14,6 +14,7 @@ import {
   connectionNotice,
   daysLeft,
   guidanceParams,
+  loginReason,
   needsLastAttempt,
   passwordProblem,
   telegramChatDetails,
@@ -58,6 +59,14 @@ describe("web core: console settings view", () => {
       assert.ok(SETTINGS_TEXT[locale].fail_unsupported_login_brand.length > 40, locale);
     }
     assert.equal(connectionNotice(failure("unsupported_login"), tEn).key, "fail_unsupported_login", "HiLink's own text on a Huawei router");
+    // A brand's login FengSui could not settle: its own reason word for word, and where to report it
+    const unencrypted = failure("unsupported_login", { message: "this firmware's page signs in without the encryption (…), a login FengSui does not speak: no password was sent (it hands out its RSA key as JSON)" });
+    assert.equal(loginReason(unencrypted, { family: "tplink", address: "192.168.1.1" }), unencrypted.message);
+    assert.equal(loginReason(unencrypted, { family: "huawei", address: "192.168.8.1" }), null, "a Huawei router has its own guidance");
+    assert.equal(loginReason(failure("wrong_password"), { family: "tplink", address: "192.168.1.1" }), null);
+    assert.equal(loginReason(failure("unsupported_login", { message: "  " }), { family: "tplink", address: "192.168.1.1" }), null, "no reason, nothing to show");
+    assert.equal(loginReason(null, null), null);
+    for (const locale of ["zh-CN", "en"] as const) assert.ok(SETTINGS_TEXT[locale].login_report_hint.length > 30, locale);
     const ok: ConnectionTestResult = { ok: true, holdMs: 120, model: null, firmware: "4.4.0.1", loginScheme: "scram", tokenFlow: "webserver-token", ecc: true };
     assert.deepEqual(connectionNotice(ok, tEn), {
       key: "ok_result",

@@ -218,8 +218,10 @@ export function agentTestPrompt(router: AgentPromptRouter, locale: Locale, t: Te
   let n = 0;
   const step = (key: SettingsTextKey, params: Record<string, string | number> = {}): string => t(key, { n: ++n, ...params });
   const prepare = step("agent_prompt_step_prepare", { tools: list(plan.writeTools) });
+  // A router FengSui cannot sign in to any more says why in the session status: that is the report
+  const prepared = then(prepare, t("agent_prompt_step_prepare_login"));
   // Left out of the test, SMS shows no tools to the agent, its status read included
-  lines.push(plan.reads.includes("get_sms_status") ? then(prepare, t("agent_prompt_step_prepare_sms")) : prepare);
+  lines.push(plan.reads.includes("get_sms_status") ? then(prepared, t("agent_prompt_step_prepare_sms")) : prepared);
   lines.push(step("agent_prompt_step_reads", { tools: list(plan.reads) }), step("agent_prompt_step_writes"));
   for (const feature of lastSms(plan.writes)) {
     if (feature === "bandLock") lines.push(plan.nrBand ? then(t(WRITE_LINES.bandLock), t("agent_prompt_write_bandLock_nr")) : t(WRITE_LINES.bandLock));

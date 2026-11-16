@@ -35,6 +35,7 @@ import {
   auditCaller,
   chatIdText,
   connectionNotice,
+  loginReason,
   daysLeft,
   needsLastAttempt,
   passwordProblem,
@@ -313,6 +314,17 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       const told = lastTested?.detected ? `${t("brand_detected", { brand: brandLabel(lastTested.family, ctx.tr.locale) })} ` : "";
       status = notice(told + t(n.key, n.params), n.tone);
     }
+    // A login FengSui could not settle: its reason word for word, and where to report it
+    const reason = testing ? null : loginReason(lastResult, lastTested ?? null);
+    const loginBlock = reason
+      ? h(
+          "div",
+          { class: "space-y-1.5 rounded-lg bg-base-200/40 p-2", data: { role: "login-reason" } },
+          h("p", { class: "text-xs" }, h("span", { class: "fs-label" }, `${t("login_reason")} `), h("span", { class: "font-mono break-words select-all" }, reason)),
+          h("p", { class: "text-xs muted" }, t("login_report_hint")),
+          h("div", { class: "flex justify-end" }, h("a", { class: "btn btn-sm btn-ghost rounded-lg gap-1.5", attrs: { href: deviceIssueUrl(null), target: "_blank", rel: "noopener noreferrer" } }, icon("github"), t("report_open_issue")))
+        )
+      : null;
     // An HTTPS router with a certificate of its own: shown for its owner to compare, trusted only on their word
     let certificate: HTMLElement | null = null;
     const offer = testing ? null : certificateOffer(lastResult);
@@ -352,6 +364,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       asksUsername(draft.brand) ? h("div", { class: "grid grid-cols-1 sm:grid-cols-2 gap-3" }, field(t("username"), user), field(t("password"), pass)) : field(t("password"), pass),
       trusted,
       status,
+      loginBlock,
       certificate,
       lastAttempt,
       h("div", { class: "flex flex-wrap gap-2 justify-end" }, test, save, review)

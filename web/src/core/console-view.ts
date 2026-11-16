@@ -90,6 +90,17 @@ export function connectionNotice(
   return { key, params, tone: result.reason === "human_logged_in" || result.reason === "standby" ? "pending" : "danger" };
 }
 
+/**
+ * A router of a brand with a driver whose login FengSui could not settle (no password went out): its
+ * own reason, word for word (it names what the router showed, such as a page that signs in without the
+ * encryption), for its owner to report so that the developers can add that login. `null` otherwise.
+ */
+export function loginReason(result: ConnectionTestResult | null, tested: TestedConnection | null): string | null {
+  if (!result || result.ok || result.reason !== "unsupported_login" || !tested || !isDriverFamily(tested.family)) return null;
+  const reason = result.message.trim().slice(0, 400);
+  return reason === "" ? null : reason;
+}
+
 /** Why a new console password cannot be used: too short, or the repeat differs. */
 export function passwordProblem(next: string, repeat: string): "short" | "mismatch" | null {
   if (next.length < MIN_PASSWORD_LENGTH) return "short";
