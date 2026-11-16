@@ -108,6 +108,7 @@ export interface ApiErrorEnvelope {
     | "CPE_NOT_CONFIGURED"       // 409: 尚未设置路由器连接（全新安装，引导未完成），不会尝试登录
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号，烽燧在它上面没有这项写入的实现（或路由器不具备它需要的条件）：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
     | "DEVICE_WRITE_DISABLED"    // 409: 烽燧在这台路由器上实现了这项写入，但用户已经在「设置 → 设备」把它关闭：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.11；v1.9.0）
+    | "CONNECTION_CHANGED"       // 409: 这项写入在队列里等待期间，路由器连接换成了另一个品牌的路由器（控制台保存了另一个品牌的连接）：它的入参是按原来那个品牌检查的，也是发给原来那台的，所以两台都不发，不建会话（附 messageZh；同品牌改地址或凭据不受影响，写入先在自己的会话里确认型号）
     | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（华为读 device/information，其他品牌由驱动识别；接口里不报告型号的品牌按品牌事实里的名字，不会遇到），没有写入（见 2.10）
     | "EXPERIMENTAL_UNAVAILABLE" // 409: 这项写入在这台路由器上没有开关可关可开（已验证型号、烽燧没有实现、路由器不具备条件、还没识别型号；附 state，见 2.11）
     | "AGENT_TEST_UNAVAILABLE"   // 409: 这台路由器没有可供 AI 智能体测试的实验性写入（已验证型号、还没识别型号，或测试覆盖的写入它都没有、都被关闭了），一键测试不能开始（见 2.12）
@@ -127,7 +128,7 @@ export interface ApiErrorEnvelope {
     | "SYMLINK_ESCAPE_BLOCKED";  // 403: 符号链接指向静态根目录之外
   message: string;               // /api/* 鉴权类错误按 Accept-Language 本地化；409 BROWSER_SESSION_YIELDED 为中文；其余为英文
   messageEn?: string;            // 仅 409 BROWSER_SESSION_YIELDED
-  messageZh?: string;            // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED / DEVICE_NOT_IDENTIFIED
+  messageZh?: string;            // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED / DEVICE_NOT_IDENTIFIED / CONNECTION_CHANGED
   model?: string;                // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED：路由器型号（不是纯文本时为 "?"）
   feature?: DeviceFeature;       // 仅 409 DEVICE_UNVERIFIED_READ_ONLY / DEVICE_WRITE_DISABLED：被拒的写操作所属的功能
   retryAfterSec?: number;        // 仅 429 RATE_LIMITED
@@ -1053,6 +1054,7 @@ export interface McpToolErrorPayload {
     | "DEVICE_UNVERIFIED_READ_ONLY" // 路由器是未验证的型号，烽燧在它上面没有这项写入的实现（或路由器不具备条件）：写路由器的工具被拒，没有发出任何请求（附 model、feature、messageZh）
     | "DEVICE_WRITE_DISABLED"    // 这项写入在这台路由器上被主人关闭了（「设置 → 设备」）：同样没有发出任何请求（附 model、feature、messageZh）
     | "DEVICE_NOT_IDENTIFIED"    // 写工具在自己的会话里没读到路由器型号，没有写入（附 messageZh）
+    | "CONNECTION_CHANGED"       // 写工具排队期间，路由器连接换成了另一个品牌的路由器：两台都不发（附 messageZh）
     | "SMS_SEND_FAILED"          // send_sms：CPE 报告发送失败（附 result 与 resolvedPhones，额度不退还）
     | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）
     | "CIRCUIT_BREAKER_OPEN"     // 防爆破断路器已熔断（附 circuitBreaker）：不会尝试登录，需人工修正 .env 并 reset-breaker
@@ -1063,7 +1065,7 @@ export interface McpToolErrorPayload {
     | "PROBE_SKIPPED"            // probe_router_endpoints：调度器没有开会话（真人在线、熔断等），什么都没读（附 sessionStatus）
     | "CPE_EXECUTION_ERROR";     // CPE 通信失败或返回错误码、会话超过占用上限等
   message: string;               // 英文
-  messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED、DEVICE_UNVERIFIED_READ_ONLY、DEVICE_WRITE_DISABLED、DEVICE_NOT_IDENTIFIED
+  messageZh?: string;            // 仅 BROWSER_SESSION_YIELDED、DEVICE_UNVERIFIED_READ_ONLY、DEVICE_WRITE_DISABLED、DEVICE_NOT_IDENTIFIED、CONNECTION_CHANGED
   avoidance?: AvoidanceBroadcastPayload; // 仅 BROWSER_SESSION_YIELDED
 }
 ```

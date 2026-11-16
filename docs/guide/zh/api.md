@@ -88,6 +88,7 @@ curl -X POST \
 | 409 | `DEVICE_UNVERIFIED_READ_ONLY` | 烽燧在这台路由器上没有实现这项写入，什么都没发 |
 | 409 | `DEVICE_WRITE_DISABLED` | 这项写入在「设置 → 设备」里关掉了，什么都没发 |
 | 409 | `DEVICE_NOT_IDENTIFIED` | 还没认出路由器的型号，写入没有执行 |
+| 409 | `CONNECTION_CHANGED` | 这项写入等待期间，路由器连接换成了另一个品牌的路由器，什么都没发 |
 | 421 | `MISDIRECTED_HOST` | 访问用的主机名不在允许范围内，把它加进 `ALLOWED_HOSTS` |
 | 423 | `CIRCUIT_BREAKER_OPEN` | 路由器密码错误或账户被锁，烽燧停止登录；到「设置 → 路由器」改正 |
 | 429 | `RATE_LIMITED` | 认证失败太多次，`retryAfterSec` 秒后再试 |

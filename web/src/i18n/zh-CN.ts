@@ -487,6 +487,7 @@ export const zhCN = {
   "err.validation": "参数无效：{message}",
   "err.yielded": "真人管理员正在使用 192.168.8.1，操作已礼貌取消（未写入路由器）",
   "err.peer_standby": "另一台主机上的烽燧正在管理这台路由器，这里的烽燧在待机",
+  "err.connection_changed": "这项操作等待期间，路由器连接换成了另一台，所以没有执行，什么都没有发送。请确认现在连接的路由器，再试一次",
   "err.breaker": "烽燧因为密码错误停止了登录，这次操作没有尝试登录。请在「设置 → 路由器」改正密码，或等路由器解除锁定后点「重新尝试登录」",
   "err.unavailable": "烽燧正忙或正在停止（503），请稍后再试",
   "err.upstream": "CPE 通信失败：{message}",

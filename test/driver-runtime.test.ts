@@ -11,7 +11,7 @@ import { DeviceAccess, type DeviceAccessSnapshot } from "../src/device-access.ts
 import { bandsToHex } from "../src/drivers/bands.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
 import { ROUTER_FAMILY_FACTS, type RouterFamily } from "../src/router-family.ts";
-import { CircuitBreakerOpenError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
+import { CircuitBreakerOpenError, ConnectionChangedError, type ControlAppliedEvent, type ControlAuditEvent, DeviceReadOnlyError, DeviceWriteDisabledError } from "../src/scheduler.ts";
 import { WanSelfHeal } from "../src/self-heal.ts";
 import { type AlertEventRecord, EncryptedStateStore } from "../src/state-store.ts";
 import { TimeSeriesRingBuffer } from "../src/timeseries.ts";
@@ -248,6 +248,71 @@ describe("driver runtime: the connection in use", () => {
       assert.equal(fx.destroys(), 1, "logged out before the other brand took over");
       assert.equal(fx.core.scheduler.driver.family, "huawei");
       assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, 0, "another connection, with counters of its own");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("refuses a write that waited while another brand's connection took over, and sends nothing to either router", async () => {
+    const fx = runtimeFixture();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry(), "the model is seen: a write needs no session of its own to learn it");
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const reading = fx.core.scheduler.read(async () => {
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && fx.logins() === 1; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(fx.logins(), 2, "a session of the OpenWrt connection is running");
+      // Behind that session: the switch to another brand, then a band lock that was checked against OpenWrt's bounds
+      const switching = fx.core.scheduler.reloadCredentialsAndResetBreaker(OPENWRT_PASSWORD, "root", "huawei");
+      const writing = runAsActor({ channel: "web" }, () => fx.core.controls.lockBands({ lteBands: [1, 3] }));
+      const refused = assert.rejects(writing, (err: unknown) => {
+        assert.ok(err instanceof ConnectionChangedError, String(err));
+        assert.equal(err.statusCode, 409);
+        assert.match(err.messageEn, /connection changed while this change was waiting.*Nothing was sent/);
+        assert.match(err.messageZh, /什么都没有发送/);
+        return true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+      assert.equal(await reading, "read");
+      await switching;
+      await refused;
+      assert.equal(fx.core.scheduler.driver.family, "huawei");
+      assert.equal(fx.logins(), 2, "no session was opened on the router the write was meant for");
+      assert.ok(fx.onlyUbus(), "and no request of the other brand went out for it");
+      assert.equal(fx.applied.length, 0);
+      const audit = fx.audits.at(-1);
+      assert.deepEqual([audit?.action, audit?.outcome], ["lock_band", "refused"], "audited as refused, not as a failure of the router");
+      assert.equal(fx.core.scheduler.getStatus().mode, "idle", "a refusal says nothing about whether the router is reachable");
+      assert.equal(fx.core.controls.getPersistedLockState().mode, "unlocked");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("still runs a write that waited while the same brand's connection was saved again", async () => {
+    const fx = runtimeFixture();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const reading = fx.core.scheduler.read(async () => {
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && fx.logins() === 1; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      const saving = fx.core.scheduler.applyConnection({ ...OPENWRT, family: "openwrt" });
+      const writing = fx.core.controls.lockBands({ lteBands: [1, 3] });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+      assert.equal(await reading, "read");
+      await saving;
+      // The same connection, pointed at the saved router: the write confirms the model in its own session, then writes
+      assert.equal((await writing).mode, "band_lock");
+      assert.equal(fx.core.controls.getPersistedLockState().mode, "band_lock");
     } finally {
       await fx.cleanup();
     }

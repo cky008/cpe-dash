@@ -49,6 +49,7 @@ import { sanitizeDeviceProfile } from "./sanitize.ts";
 import {
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
+  ConnectionChangedError,
   CpeNotConfiguredError,
   DeviceNotIdentifiedError,
   DeviceReadOnlyError,
@@ -323,6 +324,8 @@ export class FengSuiApi {
     }
     if (err instanceof DeviceNotIdentifiedError) return [409, { ok: false, errorCode: "DEVICE_NOT_IDENTIFIED", message: err.messageEn, messageZh: err.messageZh }];
     if (err instanceof PeerDaemonStandbyError) return [409, { ok: false, errorCode: "PEER_DAEMON_ACTIVE", message: err.message, peerAddress: err.peerAddress }];
+    // Another brand's connection took over while the write waited: it went to neither router
+    if (err instanceof ConnectionChangedError) return [409, { ok: false, errorCode: "CONNECTION_CHANGED", message: err.messageEn, messageZh: err.messageZh }];
     if (err instanceof CircuitBreakerOpenError) return [423, { ok: false, errorCode: "CIRCUIT_BREAKER_OPEN", message: err.message, circuitBreaker: err.circuitBreaker }];
     if (err instanceof SchedulerQueueFullError || err instanceof SchedulerStoppedError) return [503, { ok: false, errorCode: "QUEUE_FULL", message: err.message }];
     return [502, { ok: false, errorCode: "CPE_UPSTREAM_ERROR", message: err instanceof Error ? err.message : String(err) }];

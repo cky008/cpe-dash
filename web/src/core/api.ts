@@ -13,6 +13,7 @@ export type ApiErrorKind =
   | "validation"
   | "yielded"
   | "peer_standby"
+  | "connection_changed"
   | "breaker"
   | "unavailable"
   | "upstream"
@@ -31,6 +32,7 @@ const KIND_BY_CODE: Readonly<Partial<Record<ApiErrorCode, ApiErrorKind>>> = {
   BAD_PAYLOAD: "validation",
   BROWSER_SESSION_YIELDED: "yielded",
   PEER_DAEMON_ACTIVE: "peer_standby",
+  CONNECTION_CHANGED: "connection_changed",
   CIRCUIT_BREAKER_OPEN: "breaker",
   QUEUE_FULL: "unavailable",
   CPE_UPSTREAM_ERROR: "upstream",

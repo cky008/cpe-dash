@@ -61,6 +61,7 @@ export type I18nKey =
   | "controls.device_read_only"
   | "controls.device_write_disabled"
   | "controls.device_not_identified"
+  | "controls.connection_changed"
   | "controls.reboot_triggered"
   | "controls.reconnect_triggered"
   | "controls.auto_unlock_applied"

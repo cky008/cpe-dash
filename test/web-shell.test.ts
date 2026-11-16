@@ -66,6 +66,7 @@ describe("web core: API client", () => {
     assert.equal(classifyApiError(423, null), "breaker");
     assert.equal(classifyApiError(409, "BROWSER_SESSION_YIELDED"), "yielded");
     assert.equal(classifyApiError(409, "PEER_DAEMON_ACTIVE"), "peer_standby");
+    assert.equal(classifyApiError(409, "CONNECTION_CHANGED"), "connection_changed");
     assert.equal(classifyApiError(503, "QUEUE_FULL"), "unavailable");
     assert.equal(classifyApiError(503, null), "unavailable");
     assert.equal(classifyApiError(502, "SMS_SEND_FAILED"), "sms_send_failed");

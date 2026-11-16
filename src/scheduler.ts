@@ -190,6 +190,25 @@ export class DeviceNotIdentifiedError extends Error {
 }
 
 /**
+ * A write that was still waiting in the queue when another brand's connection took over: its input
+ * was checked against the earlier brand's bounds and it was meant for the earlier router, so it is
+ * dropped and nothing is sent to either (`409 CONNECTION_CHANGED`).
+ */
+export class ConnectionChangedError extends Error {
+  readonly statusCode = 409;
+  readonly messageZh: string;
+  readonly messageEn: string;
+
+  constructor() {
+    const en = t("en", "controls.connection_changed");
+    super(en);
+    this.name = "ConnectionChangedError";
+    this.messageZh = t("zh-CN", "controls.connection_changed");
+    this.messageEn = en;
+  }
+}
+
+/**
  * The anti-brute-force breaker is open (`108006`/`108002`/`108001` wrong credentials, `108007`
  * router lockout): thrown for the call that tripped it and for every control while it stays
  * latched, which then makes no login attempt at all (`423 CIRCUIT_BREAKER_OPEN`).
@@ -1017,7 +1036,7 @@ export class MutexSessionScheduler extends EventEmitter {
     const connection = this.#connection;
     if (!connection.client.configured) throw new CpeNotConfiguredError();
     const feature = CONTROL_FEATURES[actionName];
-    return await this.#runGatedControl(actor, actionName, feature, summary, (gate) =>
+    return await this.#runGatedControl(actor, actionName, feature, summary, connection, (gate) =>
       connection.open(
         async (session) => {
           // A read that ended just before this session notes the model it saw only after the
@@ -1038,19 +1057,25 @@ export class MutexSessionScheduler extends EventEmitter {
   /**
    * The write gate, the queue and the bookkeeping around one control session, whichever client
    * opens it (`open` runs the session once the queue reaches it and fills `gate.write` once the
-   * gate let the write through in that session).
+   * gate let the write through in that session). `connection` is the one the write was asked on:
+   * when another brand's has taken over by the time the queue reaches the write, it is dropped.
    */
   async #runGatedControl<T>(
     actor: AuditActor,
     actionName: ControlAction,
     feature: WriteFeature,
     summary: ControlSummary | ((value: T) => ControlSummary | null) | undefined,
+    connection: RouterConnection,
     open: (gate: { write: WriteContext | null }) => Promise<SessionExecutionOutcome<T>>
   ): Promise<T> {
     // The write gate: a router whose model does not allow this write gets no session at all
     this.#assertWritable(actionName);
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
+      // Another brand's connection took over while this write waited: it was checked against the earlier brand's
+      // bounds and meant for the earlier router, so it goes to neither (a connection of the same brand that was
+      // saved again is this same one, pointed at the saved router: the write confirms its model first)
+      if (this.#connection !== connection) throw new ConnectionChangedError();
       // The model may have changed while this write waited
       this.#assertWritable(actionName);
       const wasTripped = this.#active().getCircuitBreakerState().tripped;
@@ -1360,6 +1385,7 @@ function isRefusal(err: unknown): boolean {
     err instanceof DeviceReadOnlyError ||
     err instanceof DeviceNotIdentifiedError ||
     err instanceof PeerDaemonStandbyError ||
+    err instanceof ConnectionChangedError ||
     err instanceof CircuitBreakerOpenError ||
     err instanceof CpeNotConfiguredError ||
     err instanceof SchedulerQueueFullError ||

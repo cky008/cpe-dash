@@ -14,6 +14,7 @@ import {
   type AvoidanceBroadcastPayload,
   BrowserSessionYieldedError,
   CircuitBreakerOpenError,
+  ConnectionChangedError,
   DeviceNotIdentifiedError,
   DeviceReadOnlyError,
   type MutexSessionScheduler,
@@ -552,6 +553,9 @@ export class FengSuiMcpServer {
       }
       if (err instanceof PeerDaemonStandbyError) {
         return wrapErr("PEER_DAEMON_ACTIVE", err.message, { peerAddress: err.peerAddress });
+      }
+      if (err instanceof ConnectionChangedError) {
+        return wrapErr("CONNECTION_CHANGED", err.messageEn, { messageZh: err.messageZh });
       }
       if (err instanceof DeviceReadOnlyError) {
         return wrapErr(err.errorCode, err.messageEn, { messageZh: err.messageZh, model: err.model, feature: err.feature });

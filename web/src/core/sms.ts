@@ -167,6 +167,7 @@ export function classifySendError(error: Pick<ApiError, "kind">): SendErrorKind 
     case "validation":
     case "yielded":
     case "peer_standby":
+    case "connection_changed":
     case "breaker":
     case "unavailable":
     case "unauthorized":
