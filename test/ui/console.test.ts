@@ -921,6 +921,7 @@ describe("the console on routers of other brands", () => {
       // Nearby cells: the brand's interface has no read for them, and the card says so instead of waiting
       await page.waitUntil(`/This model does not provide this/.test(document.querySelector('#neighborsCard')?.textContent ?? '')`, "the nearby cells card's notice");
       assert.equal(await page.evaluate<number>("document.querySelectorAll('#neighborsCard tbody tr').length"), 0, "no cell to lock");
+      assert.equal(await page.evaluate<boolean>("[...document.querySelectorAll('#neighborsCard button')].some((b) => /Scan now|^All$/.test(b.textContent.trim()))"), false, "nothing to scan for or filter");
       await page.click('[data-action="open-controls"]');
       await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
       await page.waitUntil(`/Turn mobile data off/.test(document.getElementById('controlsDialog').textContent)`, "the mobile data switch");

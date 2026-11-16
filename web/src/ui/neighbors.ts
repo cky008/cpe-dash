@@ -154,7 +154,8 @@ export function mountNeighbors(ctx: AppContext): void {
 
     mount(
       root,
-      cardHead(withHelp(ctx, ctx.t("nb.title"), "neighbors"), agoLabel, snapshot ? h("span", { class: "text-[0.6875rem] faint" }, ctx.t("nb.count", { count: snapshot.totalCount })) : null, filters, locked ? null : manualBtn, scanBtn),
+      // A router that does not provide nearby cells has none to filter or scan for; a cell can still be locked by hand
+      cardHead(withHelp(ctx, ctx.t("nb.title"), "neighbors"), agoLabel, snapshot && !missing ? h("span", { class: "text-[0.6875rem] faint" }, ctx.t("nb.count", { count: snapshot.totalCount })) : null, missing ? null : filters, locked ? null : manualBtn, missing ? null : scanBtn),
       h("div", { class: "fs-card-body pt-1" }, body)
     );
     updateAgo();
