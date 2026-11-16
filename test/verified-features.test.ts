@@ -21,7 +21,7 @@ import { ROUTER_FAMILY_FACTS, familyFeatures, isRouterFamily } from "../src/rout
 /** The pages that say which routers FengSui is verified on: a model reports verify is named in each (CONTRIBUTING.md). */
 const VERIFIED_CLAIMS = [
   "README.md",
-  "README_EN.md",
+  "README.zh-CN.md",
   "docs/guide/zh/overview.md",
   "docs/guide/en/overview.md",
   "docs/guide/zh/other-routers.md",

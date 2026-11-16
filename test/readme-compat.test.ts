@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 
 const DOCS = [
   {
-    readme: "README.md",
+    readme: "README.zh-CN.md",
     guide: "docs/guide/zh/other-routers.md",
     verified: "烽燧目前仅在 H168-383（固件 4.4.0.1）上验证过",
     writes: "它们默认开着，你可以",
@@ -22,7 +22,7 @@ const DOCS = [
     site: "https://fengsui.iocky.com/",
   },
   {
-    readme: "README_EN.md",
+    readme: "README.md",
     guide: "docs/guide/en/other-routers.md",
     verified: "So far FengSui is verified on the H168-383 (firmware 4.4.0.1) only",
     writes: "they are on by default, and you can turn each one off",
