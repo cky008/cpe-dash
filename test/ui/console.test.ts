@@ -215,6 +215,36 @@ describe("the console in a browser", () => {
     assert.equal(await page.evaluate<number>("document.querySelectorAll('dialog[open]').length"), 0);
   });
 
+  it("pauses the connection under Settings → Router and resumes it from the banner", async () => {
+    const d = live();
+    await signIn(page, d);
+    await openSettings(page, "Router");
+    const pauseButton = '[data-role="pause"] [data-action="pause"]';
+    await page.waitUntil(`Boolean(document.querySelector(${literal(pauseButton)}))`, "the pause control");
+    const selectState = await page.evaluate<{ options: string[]; value: string }>(
+      `(() => { const el = document.querySelector(${literal('[data-field="pause-minutes"]')}); return { options: [...el.options].map((o) => o.value), value: el.value }; })()`
+    );
+    assert.deepEqual(selectState, { options: ["15", "30", "60", "120"], value: "30" });
+
+    // The connection form is marked: a status update must switch the pause control in place, not rebuild the form under the owner's hands
+    await page.evaluate(`document.querySelector(${literal('#settingsDialog [data-field="brand"]')}).dataset.kept = "yes"; true`);
+    await page.click(pauseButton);
+    await until(() => d.stack.scheduler.getStatus().pause.active, "the daemon to pause");
+    const resumeInSettings = '[data-role="pause"] [data-action="resume"]';
+    await page.waitUntil(`Boolean(document.querySelector(${literal(resumeInSettings)}))`, "the pause control to switch to paused");
+    assert.equal(await page.evaluate<string>(`document.querySelector(${literal('#settingsDialog [data-field="brand"]')})?.dataset.kept ?? ""`), "yes", "the form is the one that was there");
+
+    await closeDialogs(page);
+    const resumeBanner = '#bannerArea [data-action="resume-connection"]';
+    await page.waitUntil(`Boolean(document.querySelector(${literal(resumeBanner)}))`, "the pause banner");
+    assert.match(await page.evaluate<string>(`document.getElementById(${literal("sessionPill")})?.textContent ?? ""`), /Paused/);
+
+    await page.click(resumeBanner);
+    await until(() => !d.stack.scheduler.getStatus().pause.active, "the daemon to resume");
+    await page.waitUntil(`!document.querySelector(${literal(resumeBanner)})`, "the pause banner to go");
+    assert.deepEqual(page.exceptions, []);
+  });
+
   it("takes a token it just showed off the page when the settings close, not only off the screen", async () => {
     await signIn(page, live());
     await openSettings(page, "Tokens & AI");

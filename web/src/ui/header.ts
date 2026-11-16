@@ -51,6 +51,7 @@ export function mountHeader(ctx: AppContext): void {
     if (status) {
       if (status.mode === "circuit_tripped") [tone, key] = ["danger", "session.breaker"];
       else if (status.mode === "standby_peer") [tone, key] = ["warn", "session.standby"];
+      else if (status.mode === "paused") [tone, key] = ["warn", "session.paused"];
       else if (status.mode === "yielding_browser" || avoidance?.active) [tone, key, pulsing] = ["warn", "session.yielding", true];
       else if (status.mode === "cpe_unreachable") [tone, key] = ["danger", "session.unreachable"];
       else if (status.mode === "polling") [tone, key, pulsing] = ["busy", "session.polling", true];

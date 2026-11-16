@@ -70,9 +70,11 @@ import {
   writeResultDetail,
   writesText,
 } from "../core/device-view.ts";
+import { PAUSE_CHOICES_MINUTES } from "../../../src/connection-pause.ts";
 import { formatFingerprint } from "../../../src/router-trust.ts";
 import { type RouterDraft, asksUsername, brandLabel, brandNote, brandOf, brandOptions, certificateOffer, connectionBody, draftOf, showsStored, switchBrand, usualAddress } from "../core/router-brand.ts";
-import { formatAgo } from "../core/format.ts";
+import { formatAgo, formatClock } from "../core/format.ts";
+import { pauseView } from "../core/pause-view.ts";
 import { reportsConnection } from "../core/self-heal-view.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
 import { SETTINGS_TEXT, type SettingsTextKey } from "../i18n/settings.ts";
@@ -154,6 +156,9 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   /** What the last test ran against, and whether FengSui told the brand itself (said with the result). */
   let lastTested: (TestedConnection & { detected: boolean }) | null = null;
   let testing = false;
+  let pauseHost: HTMLElement | null = null;
+  let pauseMinutes = 30;
+  let pauseBusy = false;
   let pairingInFlight = false;
   let savingSwitches = false;
   let savingBehaviour = false;
@@ -208,6 +213,64 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
   const spinner = (): HTMLElement => h("span", { class: "loading loading-dots loading-sm text-base-content/50", attrs: { role: "status", "aria-label": t("loading") } });
 
   // ---------------------------------------------------------------- router
+  const togglePause = async (pausing: boolean): Promise<void> => {
+    if (pauseBusy) return;
+    const minutes = pauseMinutes;
+    pauseBusy = true;
+    renderPause();
+    try {
+      const res = pausing ? await ctx.api.pauseConnection(minutes) : await ctx.api.resumeConnection();
+      ctx.store.update({ scheduler: res.status, avoidance: res.status.avoidance }, ["scheduler"]);
+      ctx.toast(pausing ? t("pause_started", { minutes }) : t("pause_resumed"), "success");
+    } catch (err: unknown) {
+      fail(err);
+    } finally {
+      pauseBusy = false;
+      renderPause();
+    }
+  };
+  const startPause = (): void => {
+    void togglePause(true);
+  };
+  const endPause = (): void => {
+    void togglePause(false);
+  };
+  const renderPause = (): void => {
+    if (!pauseHost) return;
+    const view = pauseView(ctx.store.state.scheduler?.pause, ctx.now());
+    const label = h("div", { class: "fs-label" }, t("pause_title"));
+    const body: HTMLElement[] = [];
+    if (view.state === "blocked") {
+      const text = view.untilMs === null ? t("pause_blocked_soon") : t("pause_blocked", { time: formatClock(view.untilMs, false) });
+      body.push(notice(text, "pending"));
+    } else if (view.state === "paused") {
+      const resume = button(t("pause_resume"), "btn-primary", endPause, "refresh");
+      resume.dataset["action"] = "resume";
+      resume.disabled = pauseBusy;
+      body.push(
+        notice(t("pause_active", { time: formatClock(view.untilMs, false), minutes: view.minutesLeft }), "info"),
+        h("div", { class: "flex flex-wrap items-center gap-2" }, resume)
+      );
+    } else {
+      const select = h("select", { class: "select select-sm rounded-lg w-auto", attrs: { "aria-label": t("pause_for") }, data: { field: "pause-minutes" } });
+      for (const minutes of PAUSE_CHOICES_MINUTES) {
+        const option = h("option", { attrs: { value: String(minutes) } }, t("pause_minutes", { minutes }));
+        option.selected = minutes === pauseMinutes;
+        select.append(option);
+      }
+      select.disabled = pauseBusy;
+      select.addEventListener("change", () => {
+        const chosen = Number(select.value);
+        if (PAUSE_CHOICES_MINUTES.includes(chosen)) pauseMinutes = chosen;
+      });
+      const pause = button(t("pause_start"), "", startPause, "history");
+      pause.dataset["action"] = "pause";
+      pause.disabled = pauseBusy;
+      body.push(h("p", { class: "text-xs muted" }, t("pause_note")), h("div", { class: "flex flex-wrap items-center gap-2" }, select, pause));
+    }
+    mount(pauseHost, h("div", { class: "space-y-2 rounded-lg bg-base-200/40 p-3" }, label, ...body));
+  };
+
   const runTest = async (save: boolean): Promise<void> => {
     if (testing) return;
     const body = connectionBody(draft);
@@ -356,9 +419,12 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       box.addEventListener("change", () => (draft.lastAttempt = box.checked));
       lastAttempt = h("label", { class: "flex items-start gap-2 text-xs cursor-pointer" }, box, h("span", null, t("last_attempt")));
     }
+    pauseHost = h("div", { data: { role: "pause" } });
+    renderPause();
     return h(
       "div",
       { class: "space-y-3" },
+      pauseHost,
       field(t("brand"), brand),
       note ? h("p", { class: "text-xs faint leading-relaxed", data: { note: note.key } }, note.key === "brand_note" ? t("brand_note", { reads: note.reads.map((f) => t(featureKey(f))).join(t("agent_list_separator")), writes: note.writes.map((f) => t(featureKey(f))).join(t("agent_list_separator")) }) : t(note.key)) : null,
       field(t("url"), url),
@@ -1494,6 +1560,10 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
     draft.password = "";
     // Off the page too, not only off the screen: the closed dialog keeps its last content otherwise
     render();
+    pauseHost = null;
+  });
+  ctx.store.subscribe(["scheduler"], () => {
+    if (dialog.open && tab === "router") renderPause();
   });
   ctx.tr.onChange(() => {
     if (dialog.open) render();

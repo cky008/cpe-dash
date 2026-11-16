@@ -51,6 +51,16 @@ The router rejected the password, and FengSui stopped at once so the router does
 
 Someone logged in to the router's own web page (this could be you on another device, or a family member). FengSui checks periodically and resumes automatically once they log out. In the meantime, metrics stay at their last polled values, and actions that modify the router return "Someone is using the router".
 
+<a id="pause"></a>
+
+## The router's own page shuts you out, or keeps signing you out
+
+Many of these routers allow one admin session at a time, and FengSui signs in every 5 seconds to read. On most routers FengSui steps aside once you are signed in (see above), but you have to get in between two of its sessions first. ZTE's zWRT routers (the G5, U60 and U50 series) go further: every login of FengSui signs you out.
+
+Pause the connection first: open **Settings → Router**, choose how long under **Pause the connection** (15 minutes to 2 hours) and press **Pause**. Until then FengSui does not sign in to the router or send it anything. The dashboard keeps the readings from before the pause, and anything that would change the router is refused with a message saying so. FengSui takes the router up again by itself when the time is up; to end the pause sooner, press **Resume now** in the banner on the dashboard or under Settings → Router.
+
+Right after a lock or a change of the network mode, the operator, the SIM slot or the access point, FengSui watches the connection for a few minutes so that it can put the change back if the internet stays down. The connection cannot be paused during that time; Settings → Router says until about when.
+
 ## Not receiving Telegram notifications
 
 1. Check whether logs show `telegram=on`. If not, `TELEGRAM_BOT_TOKEN` is incorrect.

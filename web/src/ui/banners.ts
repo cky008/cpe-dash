@@ -1,4 +1,5 @@
 import { formatClock } from "../core/format.ts";
+import { pauseView } from "../core/pause-view.ts";
 import type { AppContext } from "./context.ts";
 import { type Child, byId, h, icon, mount } from "./dom.ts";
 
@@ -19,28 +20,52 @@ function banner(tone: BannerTone, iconName: string, title: string, lines: Readon
 
 /**
  * Global state banners under the header, most severe first: breaker (423), lost SSE stream (503 /
- * restart), peer standby, human admin online (breathing amber), CPE unreachable, lock drift.
+ * restart), peer standby, paused connection, human admin online (breathing amber), CPE unreachable, lock drift.
  */
 export function mountBanners(ctx: AppContext, opts: { reconnectNow(): void; refreshStatus(): Promise<void> }): void {
   const area = byId("bannerArea");
   let resetting = false;
+  let resuming = false;
+
+  const invokeAction = (
+    button: HTMLButtonElement,
+    request: () => Promise<{ status: NonNullable<typeof ctx.store.state.scheduler> }>,
+    onSuccess: (() => void) | null,
+    onFinally: () => void
+  ): void => {
+    button.disabled = true;
+    request()
+      .then((res) => {
+        ctx.store.update({ scheduler: res.status, avoidance: res.status.avoidance }, ["scheduler"]);
+        onSuccess?.();
+      })
+      .catch((err: unknown) => ctx.toast(ctx.describeError(err), "error"))
+      .finally(() => {
+        button.disabled = false;
+        onFinally();
+      });
+  };
 
   const resetBreaker = (button: HTMLButtonElement): void => {
     if (resetting) return;
     resetting = true;
-    button.disabled = true;
-    ctx.api
-      .resetBreaker()
-      .then((res) => {
-        ctx.store.update({ scheduler: res.status, avoidance: res.status.avoidance }, ["scheduler"]);
-        ctx.toast(ctx.t("banner.breaker_reset_ok"), "success");
-      })
-      .catch((err: unknown) => ctx.toast(ctx.describeError(err), "error"))
-      .finally(() => {
+    invokeAction(
+      button,
+      () => ctx.api.resetBreaker(),
+      () => ctx.toast(ctx.t("banner.breaker_reset_ok"), "success"),
+      () => {
         resetting = false;
-        button.disabled = false;
         void opts.refreshStatus();
-      });
+      }
+    );
+  };
+
+  const resumeConnection = (button: HTMLButtonElement): void => {
+    if (resuming) return;
+    resuming = true;
+    invokeAction(button, () => ctx.api.resumeConnection(), null, () => {
+      resuming = false;
+    });
   };
 
   const render = (): void => {
@@ -80,6 +105,27 @@ export function mountBanners(ctx: AppContext, opts: { reconnectNow(): void; refr
       nodes.push(banner("warn", "network", ctx.t("banner.standby_title"), [ctx.t("banner.standby_body", { address: scheduler.peerStandby.peerAddress ?? "?" })]));
     }
 
+    const paused = scheduler?.pause.active ? pauseView(scheduler.pause, ctx.now()) : null;
+    if (paused?.state === "paused") {
+      const button = h(
+        "button",
+        { class: "btn btn-ghost btn-sm rounded-lg shrink-0 self-center", attrs: { type: "button" }, data: { action: "resume-connection" } },
+        icon("refresh"),
+        ctx.t("banner.paused_resume")
+      );
+      button.disabled = resuming;
+      button.addEventListener("click", () => resumeConnection(button));
+      nodes.push(
+        banner(
+          "info",
+          "history",
+          ctx.t("banner.paused_title"),
+          [ctx.t("banner.paused_body", { time: formatClock(paused.untilMs, false), minutes: paused.minutesLeft })],
+          button
+        )
+      );
+    }
+
     if (avoidance?.active) {
       const lines: string[] = [];
       if (avoidance.layer === 2) {
@@ -92,7 +138,7 @@ export function mountBanners(ctx: AppContext, opts: { reconnectNow(): void; refr
       nodes.push(banner("warn", "user", ctx.t("banner.yield_title"), lines, null, true));
     }
 
-    if (scheduler?.mode === "cpe_unreachable") {
+    if (scheduler?.mode === "cpe_unreachable" && !scheduler.pause.active) {
       nodes.push(banner("warn", "alert", ctx.t("banner.unreachable_title"), [ctx.t("banner.unreachable_body", { error: scheduler.lastError ?? "?" })]));
     }
 

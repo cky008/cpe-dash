@@ -505,8 +505,8 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   {
     family: "zte-zwrt",
     features: [],
-    zh: "这类路由器只允许一个管理会话，新的登录会把网页上已登录的人登出：烽燧在运行时，每 5 秒的读取会让你在路由器自己的网页上被登出；要用路由器网页时，先停掉烽燧",
-    en: "These routers keep one admin session, and a new login signs out whoever is on their web page: while FengSui runs, its reading every 5 seconds signs you out of the router's own page; stop FengSui before you use that page",
+    zh: "这类路由器只允许一个管理会话，新的登录会把网页上已登录的人登出：烽燧在运行时，每 5 秒的读取会让你在路由器自己的网页上被登出；要用路由器网页时，先在烽燧的「设置 → 路由器」暂停连接",
+    en: "These routers keep one admin session, and a new login signs out whoever is on their web page: while FengSui runs, its reading every 5 seconds signs you out of the router's own page; pause the connection under Settings → Router in FengSui before you use that page",
   },
   {
     family: "zte-zwrt",
