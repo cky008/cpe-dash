@@ -86,7 +86,10 @@ const WEB = "/api/tmp/FHAPIS";
 const WEB_IV = Buffer.from(Array.from({ length: 16 }, (_, i) => 112 + i));
 
 function webKey(sessionid: string): Buffer {
-  return Buffer.from(sessionid.slice(0, 16), "utf8");
+  const key = Buffer.from(sessionid.slice(0, 16), "utf8");
+  // A session id too short (or not plain text) for the page's key is no session of this page
+  if (key.length !== 16) throw new CpeAnswerFormatError("the router's session id does not fit its page's encryption");
+  return key;
 }
 
 /** A request body for `FHAPIS`: the JSON as AES-128-CBC under the session id's first 16 characters, in hexadecimal. */

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { describe, it } from "node:test";
+import { CpeAnswerFormatError } from "../src/session-errors.ts";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { SectionUnavailableError, sectionUnavailableCode } from "../src/cpe-domain.ts";
 import type { WriteCheck } from "../src/device-access.ts";
@@ -156,6 +157,9 @@ describe("fiberhome SMS: the encrypted web endpoint", () => {
     assert.equal(fiberhomeDecrypt(sealed.toUpperCase(), SID), '{"ajaxmethod":"get_sms_data"}');
     // The rest of the session id is not part of the key
     assert.equal(fiberhomeDecrypt(sealed, "0123456789abcdef-another-tail"), '{"ajaxmethod":"get_sms_data"}');
+    // A session id that does not fit the key is an answer FengSui cannot read, not a crash of the cipher
+    for (const short of ["s00000001", "0123456789abcdeé"]) assert.throws(() => fiberhomeEncrypt("{}", short), (err: unknown) => err instanceof CpeAnswerFormatError && /does not fit/.test(err.message), short);
+    assert.equal(fiberhomeDecrypt(sealed, "0123456789abcdé!"), null);
   });
 
   it("reads nothing out of what is not such an answer", () => {
