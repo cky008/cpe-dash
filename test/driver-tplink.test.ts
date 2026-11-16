@@ -121,6 +121,14 @@ describe("tp-link: the page's encryption", () => {
     assert.equal(gcm.open(`${g.data}${g.tag}`), "hello", "a GCM answer carries its tag at the end");
     assert.throws(() => gcm.open(`${g.data}${"A".repeat(22)}==`), "a wrong tag is refused");
     assert.throws(() => gcm.open("short"), /shorter than its tag/);
+    // The page decodes a GCM answer whole and takes its last 16 bytes for the tag: the two may also come as one Base64 text
+    const whole = Buffer.concat([Buffer.from(g.data, "base64"), Buffer.from(g.tag ?? "", "base64")]);
+    assert.equal(whole.length % 3, 0, "five bytes of text and sixteen of tag: the Base64 of each alone would not line up");
+    const long = gcm.seal("hello!!", false);
+    const joined = Buffer.concat([Buffer.from(long.data, "base64"), Buffer.from(long.tag ?? "", "base64")]).toString("base64");
+    assert.notEqual(joined, `${long.data}${long.tag}`);
+    assert.equal(gcm.open(joined), "hello!!", "ciphertext and tag as one Base64 text");
+    assert.equal(gcm.open(`${long.data}${long.tag}`), "hello!!", "and as two, each with its own padding");
     // Random by default: two sessions never share a key
     const one = new TplinkEnvelope({ key, scheme: { cipher: "cbc", padding: "none" }, seq: 1, username: "admin", password: "pw" });
     const two = new TplinkEnvelope({ key, scheme: { cipher: "cbc", padding: "none" }, seq: 1, username: "admin", password: "pw" });
@@ -331,6 +339,13 @@ describe("tp-link: signing in and out", () => {
       const t = await client.withSession((s) => s.telemetry());
       assert.equal(t?.signalBars, 4, JSON.stringify(options));
       assert.equal(logins.length, 1, "one login, in the right form the first time");
+      if ("cipher" in options) {
+        // The page of this generation makes its key and nonce up as random bytes (the older one as 16 digits of text)
+        const [sessionKey, nonce] = [Buffer.from(logins[0]?.sign["key"] ?? "", "base64"), Buffer.from(logins[0]?.sign["iv"] ?? "", "base64")];
+        assert.deepEqual([sessionKey.length, nonce.length], [16, 12]);
+        assert.doesNotMatch(sessionKey.toString("latin1"), /^\d{16}$/, "not digits: all 128 bits of the key are random");
+        assert.doesNotMatch(nonce.toString("latin1"), /^\d{12}$/);
+      }
       if ("ecc" in options) {
         assert.equal(logins[0]?.sign["h"], TPLINK_HASHES.sha256["admin"], "the curve generation hashes with SHA-256");
         assert.ok(!mock.trail.includes("GET /js/tpEncrypt.js"), "a curve point settles the form by itself");

@@ -8,8 +8,8 @@ import crypto from "node:crypto";
  *
  * Three generations are on record, and a router speaks one of them:
  * - AES-128-CBC, the signature encrypted with the router's RSA key without padding (the original);
- * - AES-128-GCM (the tag sent beside the data, the key and nonce Base64 in the signature), the
- *   signature RSA without padding or, on some firmware, RSA-OAEP with SHA-1;
+ * - AES-128-GCM (the tag sent beside the data, the key and nonce random bytes, Base64 in the
+ *   signature), the signature RSA without padding or, on some firmware, RSA-OAEP with SHA-1;
  * - AES-128-CBC with the signature sealed by ECIES on NIST P-224 (the router hands out a curve point
  *   instead of an RSA key), a SHA-256 hash, and an HMAC-SHA256 of the payload next to it.
  *
@@ -84,11 +84,22 @@ export function eccSeal(text: string, key: { xHex: string; yHex: string }): { iv
   return { iv: iv.toString("hex"), ct: ct.toString("hex"), tag: ecdh.getPublicKey().subarray(1).toString("hex") };
 }
 
-/** `count` decimal digits from the system's random source: the page's keys are text, 16 characters of it. */
+/** `count` decimal digits from the system's random source: the CBC page's keys are text, 16 characters of it. */
 function digits(count: number): string {
   let out = "";
   for (let i = 0; i < count; i += 1) out += String(crypto.randomInt(10));
   return out;
+}
+
+const GCM_TAG_BYTES = 16;
+
+/**
+ * A GCM answer's bytes as the router's page reads them (`decryptGCM`): the text decoded as Base64
+ * whole, each padded run on its own, so the ciphertext and the tag may come as one Base64 text or as
+ * two that follow one another.
+ */
+function base64Runs(text: string): Buffer {
+  return Buffer.concat((text.match(/[A-Za-z0-9+/]+={0,2}/g) ?? []).map((run) => Buffer.from(run, "base64")));
 }
 
 export interface TplinkSealed {
@@ -105,7 +116,10 @@ export interface TplinkEnvelopeOptions {
   seq: number;
   username: string;
   password: string;
-  /** The session's AES key and IV as text (tests fix them; left out, they are random digits). */
+  /**
+   * The session's AES key and IV as text (tests fix them). Left out, they are made up as the page of
+   * the router's generation does: 16 random digits each with CBC, 16 and 12 random bytes with GCM.
+   */
   aes?: { key: string; iv: string };
   /** How the login's signature names the AES key and IV (left out: `key` and `iv`; the Deco line writes `k` and `i`). */
   names?: { key: string; iv: string };
@@ -120,8 +134,8 @@ export class TplinkEnvelope {
   readonly #scheme: TplinkScheme;
   readonly #seq: number;
   readonly #hash: string;
-  readonly #aesKey: string;
-  readonly #aesIv: string;
+  readonly #aesKey: Buffer;
+  readonly #aesIv: Buffer;
   readonly #names: { key: string; iv: string };
 
   constructor(options: TplinkEnvelopeOptions) {
@@ -136,9 +150,12 @@ export class TplinkEnvelope {
       .update(`${options.username}${options.password}`, "utf8")
       .digest("hex");
     this.#names = options.names ?? { key: "key", iv: "iv" };
-    this.#aesKey = options.aes?.key ?? digits(16);
-    this.#aesIv = options.aes?.iv ?? digits(this.#scheme.cipher === "gcm" ? 12 : 16);
-    if (this.#aesKey.length !== 16 || this.#aesIv.length !== (this.#scheme.cipher === "gcm" ? 12 : 16)) throw new TypeError("the session key has the wrong length");
+    const gcm = this.#scheme.cipher === "gcm";
+    const ivBytes = gcm ? 12 : 16;
+    const made = (count: number): Buffer => (gcm ? crypto.randomBytes(count) : Buffer.from(digits(count), "utf8"));
+    this.#aesKey = options.aes ? Buffer.from(options.aes.key, "utf8") : made(16);
+    this.#aesIv = options.aes ? Buffer.from(options.aes.iv, "utf8") : made(ivBytes);
+    if (this.#aesKey.length !== 16 || this.#aesIv.length !== ivBytes) throw new TypeError("the session key has the wrong length");
   }
 
   get cipher(): TplinkScheme["cipher"] {
@@ -147,11 +164,11 @@ export class TplinkEnvelope {
 
   #encrypt(plain: string): { data: string; tag: string | null } {
     if (this.#scheme.cipher === "gcm") {
-      const cipher = crypto.createCipheriv("aes-128-gcm", Buffer.from(this.#aesKey, "utf8"), Buffer.from(this.#aesIv, "utf8"));
+      const cipher = crypto.createCipheriv("aes-128-gcm", this.#aesKey, this.#aesIv);
       const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]).toString("base64");
       return { data, tag: cipher.getAuthTag().toString("base64") };
     }
-    const cipher = crypto.createCipheriv("aes-128-cbc", Buffer.from(this.#aesKey, "utf8"), Buffer.from(this.#aesIv, "utf8"));
+    const cipher = crypto.createCipheriv("aes-128-cbc", this.#aesKey, this.#aesIv);
     return { data: Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]).toString("base64"), tag: null };
   }
 
@@ -162,10 +179,11 @@ export class TplinkEnvelope {
   seal(plain: string, login: boolean): TplinkSealed {
     const { data, tag } = this.#encrypt(plain);
     const gcm = this.#scheme.cipher === "gcm";
-    const field = (text: string): string => (gcm ? Buffer.from(text, "utf8").toString("base64") : text);
+    // The CBC page names its key and IV as the text they are; the GCM page as Base64 of their bytes
+    const field = (bytes: Buffer): string => bytes.toString(gcm ? "base64" : "utf8");
     const text = `${login ? `${this.#names.key}=${field(this.#aesKey)}&${this.#names.iv}=${field(this.#aesIv)}&` : ""}h=${this.#hash}&s=${this.#seq + data.length}`;
     if (this.#key.kind === "rsa") return { sign: rsaSign(text, this.#key, this.#scheme.padding), data, tag };
-    const hmac = crypto.createHmac("sha256", Buffer.from(this.#aesKey, "utf8")).update(plain, "utf8").digest("hex");
+    const hmac = crypto.createHmac("sha256", this.#aesKey).update(plain, "utf8").digest("hex");
     return { sign: JSON.stringify({ ...eccSeal(text, this.#key), hmac }), data, tag };
   }
 
@@ -174,16 +192,17 @@ export class TplinkEnvelope {
     return `sign=${sealed.sign}\r\ndata=${sealed.data}\r\n${sealed.tag === null ? "" : `tag=${sealed.tag}\r\n`}`;
   }
 
-  /** An answer's text: Base64 of the ciphertext, with GCM followed by the tag's 24 characters. */
+  /** An answer's text: Base64 of the ciphertext, with GCM followed by the tag (its last 16 bytes, as the page takes them). */
   open(answer: string): string {
     const text = answer.trim();
     if (this.#scheme.cipher === "gcm") {
-      if (text.length < 24) throw new TypeError("the answer is shorter than its tag");
-      const decipher = crypto.createDecipheriv("aes-128-gcm", Buffer.from(this.#aesKey, "utf8"), Buffer.from(this.#aesIv, "utf8"));
-      decipher.setAuthTag(Buffer.from(text.slice(-24), "base64"));
-      return Buffer.concat([decipher.update(Buffer.from(text.slice(0, -24), "base64")), decipher.final()]).toString("utf8");
+      const bytes = base64Runs(text);
+      if (bytes.length < GCM_TAG_BYTES) throw new TypeError("the answer is shorter than its tag");
+      const decipher = crypto.createDecipheriv("aes-128-gcm", this.#aesKey, this.#aesIv);
+      decipher.setAuthTag(bytes.subarray(bytes.length - GCM_TAG_BYTES));
+      return Buffer.concat([decipher.update(bytes.subarray(0, bytes.length - GCM_TAG_BYTES)), decipher.final()]).toString("utf8");
     }
-    const decipher = crypto.createDecipheriv("aes-128-cbc", Buffer.from(this.#aesKey, "utf8"), Buffer.from(this.#aesIv, "utf8"));
+    const decipher = crypto.createDecipheriv("aes-128-cbc", this.#aesKey, this.#aesIv);
     return Buffer.concat([decipher.update(Buffer.from(text, "base64")), decipher.final()]).toString("utf8");
   }
 }

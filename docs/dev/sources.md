@@ -882,3 +882,21 @@ agy 上网检索（只用 `search_web`），我抓原文核对：
 - **goform：拒绝第二个登录，不挤人。** MU5001 自己的页面脚本（gist `DarkNikGr/3c4ac5ad9cab5b639b608eeccc97e201`，`mifi-mu5001-api.js`）里登录结果 `2` 是 `duplicateUser`；烽燧在有剩余次数、没有锁定时把 `2` 当作有人在线并让位。同一份脚本把 `4` 与 `0` 一样当作登录成功（`"0" != e.result && "4" != e.result` 才进失败分支），与资料 B（`4` 为有人在线）矛盾：涉及登录路径，留给下一轮（`final-4/NEXT_ROUND.md` N-5）。
 - 不算数的：`juacas/zte_tracker`、`masoneff3/ha_zteh388x` 说的是中兴 H388X 等宽带网关（另一套接口）；`cmd=loginfo` 说的是发请求的这个会话自己有没有登录，不是别人。
 
+
+## 22. final-5 修复的依据（2026-11-16）
+
+这一轮先做上一轮留下的几项（`docs/dev/audits.md` 第 22 节），下面是其中要靠出处定下来的。
+
+### 22.1 TP-Link 第二代加密（AES-GCM）管理页自己的写法（F5-002、F5-003）
+
+第 7 步实现 EX / NX 写法的 GCM 登录时，依据只有一个参考项目（18.10），`/js/tpEncrypt.js` 里用 `gcm`、`encryptOAEP` 两个词区分是推断。这一轮读到了厂商自己的脚本：[TP-Link 官方模拟器列表](https://www.tp-link.com/en/support/emulator/)（2026-11-16 读取）列出的 153 个模拟器里，26 个带 `js/tpEncrypt.js`，其中 6 个是 GCM：Archer NX505 (EU) 1.0、NX540v (EU) 1.0、EB200v-PRO（这三个的签名是 OAEP）、EB831v (EU1) 1.0、VX231v、XB230v Pro (EU1) 1.0。读的是 `js/tpEncrypt.js`、`js/proxy.js` 和 NX540v 的登录页 `frame/login.htm`。
+
+| 事实 | 管理页的写法 | 烽燧 |
+| :--- | :--- | :--- |
+| 怎样认出 GCM 与 OAEP | GCM 的脚本里有 `encryptGCM` 与 `'AES-GCM'`；OAEP 的固件写 `var rsaEncrypt = $.rsa.encryptOAEP;`，不填充的写 `$.rsa.encrypt`；CBC 的脚本两个词都没有 | 判据成立，不改 |
+| 登录 | 取密钥是 `POST /cgi/getGDPRParm`；先 `getBusy`，`isLogined` 为 0 才登录；登录是 `/cgi/login` 这个动作（`UserName`、`Passwd` 都是 Base64，`Action`、`stack`、`pstack`），和别的请求一样经 `/cgi_gdpr` 发出，请求体 `sign=…\r\ndata=…\r\ntag=…\r\n`；`proxy.js` 看到数据里有 `/cgi/login` 就按登录签名 | 一致，不改 |
+| 签名串 | 登录时 `key=…&iv=…&h=…&s=…`，其余 `h=…&s=…`；`key`、`iv` 是字节的 Base64；`h` 是 MD5(用户名 + 密码)，用户名取 Base64 之前的；`s` 是 `seq` 加密文（Base64 文本）的长度，不含标签 | 一致，不改 |
+| 会话密钥 | `forge.random.getBytesSync`：16 个随机字节的密钥、12 个随机字节的 IV | 原来沿用第一代的做法，用 16 / 12 个十进制数字（约 53 位）；改成随机字节（F5-003）。第一代（CBC）的页面本来就用数字文本，不变 |
+| 应答 | `decryptGCM`：把整段应答按 Base64 解码，最后 16 个字节是标签。forge 的解码逐组处理，所以密文和标签各自一段 Base64 前后相接、或者合成一段 Base64，页面都读得出 | 原来照参考项目把文本的最后 24 个字符当标签，只读得出前一种；改成和页面一样（F5-002） |
+
+只取事实，没有复制它的代码。模拟器的页面脚本关着登录加密（`INCLUDE_LOGIN_GDPR_ENCRYPT=0`，18.11），上面读的是脚本里加密那一支的写法。
