@@ -1755,3 +1755,19 @@ body {
     column-gap: 0.25rem;
   }
 }
+
+/*
+ * The page behind a modal stays still (Modern Web Guidance, prevent-page-scroll-under-modal-dialog):
+ * daisyUI clips the modal's overflow, which makes no scroll container, so its overscroll-behavior did
+ * nothing; hidden does. Outside the layers, since daisyUI's own layer comes after the components'.
+ * Its backdrop is not drawn here, and is contained all the same.
+ */
+dialog.modal:modal {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}

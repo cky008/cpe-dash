@@ -562,6 +562,24 @@ describe("the console in a browser", () => {
     assert.deepEqual(page.exceptions, []);
   });
 
+  it("keeps the page still behind a modal dialog: the drawer and the settings contain their scroll", async () => {
+    const d = live();
+    await signIn(page, d);
+    // overflow: hidden makes the dialog a scroll container (daisyUI's clip makes none), so its overscroll-behavior applies
+    const contained = (id: string) =>
+      page.evaluate<string[]>(
+        `(() => { const dialog = document.getElementById(${JSON.stringify(id)}); const box = dialog.querySelector('.modal-box'); const own = getComputedStyle(dialog); const backdrop = getComputedStyle(dialog, '::backdrop'); return [own.overflowY, own.overscrollBehaviorY, box ? getComputedStyle(box).overscrollBehaviorY : 'no box', backdrop.overflowY, backdrop.overscrollBehaviorY]; })()`
+      );
+    await page.click('[data-action="open-controls"]');
+    await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+    assert.deepEqual(await contained("controlsDialog"), ["hidden", "contain", "contain", "hidden", "contain"]);
+    await closeDialogs(page);
+    await openSettings(page, "Device");
+    assert.deepEqual(await contained("settingsDialog"), ["hidden", "contain", "contain", "hidden", "contain"]);
+    await closeDialogs(page);
+    assert.deepEqual(page.exceptions, []);
+  });
+
   it("fits a phone screen without scrolling sideways", async () => {
     await signIn(page, live(), PHONE);
     const overflow: string[] = [];

@@ -15,6 +15,7 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **After a long network search on an OpenWrt router, FengSui could report a wrong password.** Its router session lasted 60 seconds while a search may take three minutes, and any refused call after the login was reported as a refused password. The session now outlasts the longest call, and a refused call after the login says that the session expired or the router does not allow it.
 - **A login that failed after an NRadio or TP-Link Deco router had opened a session left that session open.** On a router that lets one administrator in at a time, you could not sign in to its own page until the session timed out. FengSui now signs out once before it reports the failure.
 - **Messages past the first page were missing on some ZTE routers.** FengSui stopped listing SMS at the first page that held fewer than it asked for, though some firmware hands back fewer per page. It now goes on until a page is empty or brings nothing new.
+- **The page behind a dialog scrolled along.** Scrolling over the controls drawer, the settings or any other dialog, past its end or outside its box, scrolled the dashboard behind it. Dialogs now keep their scroll to themselves.
 
 ## [1.9.0] — 2026-11-16
 
