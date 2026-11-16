@@ -4,10 +4,17 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-11-16
+
+### Highlights
+- **Pause the connection to the router.** Many of these routers allow one admin session, so the router's own page shuts you out, or signs you out, while FengSui keeps signing in. Settings → Router now starts with **Pause the connection**: for 15 minutes to 2 hours FengSui does not sign in to the router or send it anything, and then it carries on by itself.
+- **A change that cuts the internet is put back whole, and only on the router it was made on.** The 3-minute rollback now writes back the 5G bands and the network mode a band lock changed, not the 4G bands alone; it runs on Tozed and FiberHome routers, where it never did; and it ends, without a write, when FengSui is connected to another router meanwhile.
+- **Every brand checked again against its interface notes and public implementations.** The check found a dozen places where a lock or a setting was written or read back in another form than the router's: ZTE's MC888, MC8020 and U60 Pro, zWRT routers, Fibocom modules on OpenWrt, NRadio and TP-Link Deco logins, ZTE's SMS listing. All are fixed, and zWRT routers gain a 4G cell lock.
+- **AI agents get the right picture on any router.** What the MCP server tells an agent no longer names the Huawei H168-383 whichever router is connected, and on other brands the `lock_band` tool takes 5G bands, as the console does.
+
 ### Added
 - **Pause the connection to the router.** Many of these routers allow one admin session, so the router's own page shuts you out, or signs you out, while FengSui keeps signing in. Settings → Router now has **Pause the connection**: for 15 minutes to 2 hours FengSui does not sign in to the router or send it anything, the dashboard keeps its last readings, and changes to the router are refused with `409 ROUTER_PAUSED`. It resumes by itself, also after a restart, or when you press Resume now. It cannot begin while FengSui still watches a change it may have to put back. For scripts there are `POST /api/session/pause` and `POST /api/session/resume`.
 - **4G cell lock on ZTE's zWRT routers.** The U60 Pro, G5 and U50 series and their kin can now lock a 4G cell as well as a 5G one, with the form the community's ZTE script uses; an unlock takes it off. One project found the G5 TS refusing it, which its row says.
-
 - **ZTE cell locks say when they take effect.** On ZTE's goform routers a cell lock, and its removal, takes effect once the router restarts; on zWRT routers a removed cell lock does once the network mode is switched or the router restarts. FengSui does neither for you, so the cell lock and unlock confirmations, Settings → Device and Supported devices now say so.
 - **A row for Pinsu routers in Supported devices.** Pinsu's interface names no model, so FengSui calls every Pinsu router "Pinsu" and no report could match the table's named models. The Pinsu table now has a "Pinsu" row for all of them: a device report is registered there and turns its cells into ✓, and Settings → Device shows that row.
 - **ZTE zWRT routers say they keep one admin session.** A new login there signs out whoever is on the router's own page, and FengSui signs in every 5 seconds, so Supported devices, Settings → Device and the Other models and brands page now say so, and to pause the connection before using that page. ZTE's goform routers refuse a second login instead, and FengSui steps aside as before.
@@ -36,6 +43,13 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **The page behind a dialog scrolled along.** Scrolling over the controls drawer, the settings or any other dialog, past its end or outside its box, scrolled the dashboard behind it. Dialogs now keep their scroll to themselves.
 - **A ZTE MC888 or MC8020 could refuse to open its developer options before a lock.** FengSui sent that login without the signature every other write carries, which ZTE's notes and the community's script both include. It is now signed like the rest.
 - **A ZTE page whose configuration spelled its password switch differently could get the password in the wrong form.** FengSui now reads the switch with spaces or quotes around its value, and sends no password where it cannot tell which form the page wants.
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`. On an H168-383 the requests FengSui sends are the same.
+- **On a Tozed or FiberHome router, the 3-minute rollback now works**, and so does self-healing's redial if you turned it on: a lock or a change of the network mode, the operator, the SIM slot or the access point that cuts the internet is put back there after upgrading. Before, nothing happened.
+- **On a ZTE zWRT router, two band lock mixes are refused where they would change more than asked** ("every 4G band, 5G as it is" and "these 4G bands, every 5G band"): the interface can only reset every band and cell lock at once, so FengSui says so before sending anything.
+- A script that writes through the REST API may meet two new answers, both `409` and both meaning that nothing was sent: `ROUTER_PAUSED` (the connection is paused) and `CONNECTION_CHANGED` (a connection to another brand's router was saved while the write waited). `schedulerStatus.mode` can now be `paused`, the event stream has `session:pause`, and there are two new alert codes, `CONNECTION_PAUSED` and `ROLLBACK_WATCH_ENDED`.
+- An AI agent reads new instructions from the MCP server, and on a router of another brand its `lock_band` tool now takes `nrBands`.
 
 ## [1.9.0] — 2026-11-16
 
