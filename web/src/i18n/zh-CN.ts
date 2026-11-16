@@ -96,8 +96,6 @@ export const zhCN = {
   "banner.drift_title": "锁定配置与路由器实际状态不一致",
 
   "op.title": "运营商与 SIM",
-  "op.operator": "运营商",
-  "op.plmn": "PLMN",
   "op.sim": "SIM",
   "op.sim_ready": "就绪",
   "op.sim_invalid": "无效",
@@ -106,7 +104,6 @@ export const zhCN = {
   "op.connected": "已连接",
   "op.disconnected": "未连接（{code}）",
   "op.mode": "接入",
-  "op.signal": "信号",
   "op.sim_slot": "卡槽",
   "op.sim_pin": "PIN 码",
   "op.roaming": "漫游",
@@ -145,17 +142,14 @@ export const zhCN = {
   "rf.rssi": "RSSI",
   "rf.pci": "PCI",
   "rf.arfcn": "下行频点",
-  "rf.bandwidth": "带宽 DL / UL",
   "rf.tac": "TAC",
   "rf.cell_id": "Cell ID",
   "rf.enodeb": "eNodeB",
   "rf.mimo": "MIMO",
   "rf.mimo_value": "DL {rank} 层",
-  "rf.tm": "传输模式",
   "rf.cqi": "CQI",
   "rf.mod_ul": "上行调制",
   "rf.mod_dl": "下行调制",
-  "rf.mcs": "MCS",
   "rf.txpower": "发射功率",
   "rf.scc": "辅载波",
   "rf.no_nr": "现在没有连上 5G（附近没有 5G，或暂时没有数据要传）",
@@ -288,7 +282,6 @@ export const zhCN = {
 
   "nb.title": "附近的基站",
   "nb.scan": "立即扫描",
-  "nb.scanning": "扫描中…",
   "nb.rat": "网络",
   "nb.band": "频段",
   "nb.arfcn": "频点",
@@ -394,7 +387,6 @@ export const zhCN = {
   "ctl.upnp_off_body": "局域网设备将无法自动申请端口映射，部分 P2P 业务或联机游戏可能受到影响。",
   "ctl.dmz": "DMZ 主机",
   "ctl.dmz_ip": "DMZ 主机 IP",
-  "ctl.dmz_apply": "应用 DMZ",
   "ctl.dmz_invalid": "请输入有效的 IPv4 地址",
   "ctl.dmz_on_title": "开启 DMZ 主机？",
   "ctl.dmz_on_body": "所有未被规则命中的外部入站流量都将直通主机 {ip}，该主机将完全暴露于公网。",
@@ -474,7 +466,6 @@ export const zhCN = {
   "ctl.settings_waiting": "还没有读取路由器设置（不会自动读取）",
   "ctl.settings_read": "读取路由器设置",
   "ctl.settings_captured": "设置读取于 {ago}",
-  "ctl.applied": "已应用",
   "ctl.write_partial": "已改好，但没能读回确认，请重新读取路由器设置核对",
 
   "alerts.title": "告警与通知",
@@ -567,7 +558,6 @@ export const zhCN = {
   "trash.purge_title": "彻底删除这条短信？",
   "trash.purge_all_title": "彻底删除「最近删除」里的 {count} 条短信？",
   "trash.purge_body": "彻底删除后无法恢复。",
-  "trash.deleted_at": "{time} 删除",
   "trash.days_left": "{days} 天后彻底删除",
   "trash.last_day": "今天彻底删除",
 
@@ -633,16 +623,12 @@ export const zhCN = {
   "toast.refresh_skipped": "这次没有登录路由器（{reason}），显示的是上次读取的数据",
 
   "common.cancel": "取消",
-  "common.confirm": "确认",
   "common.close": "关闭",
-  "common.refresh": "刷新",
   "common.save": "保存",
-  "common.clear": "清除",
   "common.on": "开",
   "common.off": "关",
   "common.unknown": "未知",
   "common.type_to_confirm": "输入「{word}」以确认",
-  "common.loading": "加载中…",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import fs from "node:fs";
+import path from "node:path";
 import { Translator, detectLocale, interpolate, isLocale } from "../web/src/core/i18n.ts";
 import { en } from "../web/src/i18n/en.ts";
 import { zhCN } from "../web/src/i18n/zh-CN.ts";
@@ -61,5 +62,26 @@ describe("web core: dictionaries", () => {
     for (const file of ["web/src/i18n/zh-CN.ts", "web/src/i18n/en.ts"]) {
       assert.doesNotMatch(fs.readFileSync(file, "utf8"), /<\/?[a-z][a-z0-9]*[\s>]/i, file);
     }
+  });
+
+  it("keeps no entry the code never shows, in the console's dictionaries or the daemon's", () => {
+    const sources = (dir: string): string[] =>
+      fs.readdirSync(dir, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".ts")).map((f) => path.join(dir, f));
+    const code = [...sources("web/src"), ...sources("src"), ...sources("scripts")]
+      .filter((file) => !file.startsWith(path.join("web", "src", "i18n")))
+      .map((file) => fs.readFileSync(file, "utf8"))
+      .concat(fs.readFileSync("web/index.html", "utf8"))
+      .join("\n");
+    // A key built at run time (`fail_${reason}`, `alerts.${severity}`) counts by the prefix it is built from
+    const built = [...code.matchAll(/[`"']([A-Za-z0-9_.]{2,}[._])\$\{/g)].map((m) => m[1] ?? "");
+    const named = (key: string): boolean => code.includes(`"${key}"`) || code.includes(`'${key}'`) || code.includes(`\`${key}\``) || built.some((prefix) => key.startsWith(prefix));
+    const consoleKeys = fs
+      .readdirSync("web/src/i18n")
+      .flatMap((file) => [...fs.readFileSync(path.join("web/src/i18n", file), "utf8").matchAll(/^ {2}"?([A-Za-z0-9_.]+)"?: [`"']/gm)].map((m) => `${file}: ${m[1] ?? ""}`));
+    const flat = (node: unknown, prefix = ""): string[] =>
+      typeof node === "object" && node !== null ? Object.entries(node).flatMap(([key, value]) => flat(value, `${prefix}${key}.`)) : [prefix.slice(0, -1)];
+    const daemonKeys = flat(JSON.parse(fs.readFileSync("locales/en.json", "utf8"))).map((key) => `locales/en.json: ${key}`);
+    assert.ok(consoleKeys.length > 1000 && daemonKeys.length > 100, "the dictionaries were read");
+    assert.deepEqual([...consoleKeys, ...daemonKeys].filter((entry) => !named(entry.slice(entry.indexOf(": ") + 2))), []);
   });
 });
