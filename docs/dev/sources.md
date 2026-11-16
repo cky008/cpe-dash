@@ -833,3 +833,7 @@ final-4 只读审核（`audits.md` 第 21 节）之后的修复里新用到的�
 - 第 2 类的 NR 锁小区带 SCS（资料 A 控制表「5G NR 锁小区 Type 2」，`Z5g_lockcell_scs` 直接写 15 / 30）：表单在两种写法上都拒绝没有 SCS 的锁定；会话里 `checkCellLock` 按频段补上默认值，所以以前也没有发出过 `null`。
 - 第 4 类（MC8512 / U60 Pro / MU5250 的 goform 兼容写法）的 LTE 锁频（F4-006）：资料 A 自己两处矛盾，频段表（5.2 节最后一列「Type 4 逗号编码值」）写十进制列表，参考实现（`buildLteBandLockForm`，第 572–576 行）写不带 `0x` 的十六进制掩码（对它做的逗号替换什么也不改）。按实现为准，写入不变（`LTE_BAND_LOCK&lte_band_lock=<掩码>`）；回读以前把没有 `0x`、也没有字母的值当频段列表，B1 + B3 的掩码 `5` 就被读成 B5。现在第 4 类回读先按掩码解析（带不带 `0x` 都行），解析不成才当列表。佐证：同一批型号在 zWRT 接口上读到的 `lte_band_lock` 是十六进制（`1zun4/zte-cpe-rs` `c85b47b`，GPL-3.0，`src/g5ts/api/network.rs` 第 742 行的样本；`dklasens/MU5250-OpenUI` 模拟代理第 1057 行），只取事实。
 
+### 21.4 广和通模组的锁小区回读（OpenWrt，F4-007）
+
+`AT+GTCELLLOCK?` 的应答与写入同一种字段顺序：`1,<制式：0 LTE、1 NR>,<锁定方式：0 PCI、1 只锁频点>,<频点>[,<PCI>[,<SCS>,<NR 频段>]]`。依据：[FUjr/QModem](https://github.com/FUjr/QModem)（`1eae689`，2026-11-08，MPL-2.0，只取事实）`application/qmodem/files/usr/share/qmodem/vendor/fibocom.sh` 第 1290–1316 行（逐字段读应答）与第 1360–1367 行（写入）；资料 B（`quectel-fibocom-at-ubus-protocol-spec.md` 第 280–283 行）的写入样例相同。烽燧写入一直按这个顺序，回读却把第 3 个字段（锁定方式）当成了制式，NR 锁小区因此读成 LTE。现在按第 2 个字段认制式；锁定方式为 1（只锁频点）时没有 PCI。写入里 QModem 在 SCS 之后还带 NR 频段，资料 B 的样例不带，烽燧照资料 B 不带，没有改。
+

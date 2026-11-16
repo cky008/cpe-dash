@@ -346,6 +346,23 @@ describe("openwrt: session and Fibocom integration", () => {
     });
   });
 
+  it("reads a Fibocom cell lock back from the field it was written to: the RAT second, the lock type third", async () => {
+    const { state, client } = openwrtRouter({ brand: "fibocom" });
+    await client.withSession(async (s) => {
+      const nr = newCheck();
+      await s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 }, nr);
+      assert.equal(state.fibocomCellLock, "1,0,650000,142,30");
+      assert.equal(nr.readback, "match");
+      const locks = await s.lockState();
+      assert.deepEqual(locks.nrCell, { locked: true, arfcn: 650000, pci: 142, band: null });
+      assert.deepEqual(locks.lteCell, { locked: false });
+      const lte = newCheck();
+      await s.setCellLock({ rat: "LTE", band: 3, arfcn: 1850, pci: 211, scsKhz: null }, lte);
+      assert.equal(lte.readback, "match");
+      assert.deepEqual((await s.lockState()).lteCell, { locked: true, arfcn: 1850, pci: 211, band: null });
+    });
+  });
+
   it("writes the module's own capability list for every band, and stops at a command the module refuses", async () => {
     const { state, client } = openwrtRouter({ brand: "quectel" });
     await client.withSession(async (s) => {

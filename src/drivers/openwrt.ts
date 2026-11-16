@@ -508,12 +508,13 @@ export class OpenwrtSession implements DriverSessionHandle {
       const answered = cell.includes("+GTCELLLOCK:");
       let lteCell: CellLockState | null = answered ? { locked: false } : null;
       let nrCell: CellLockState | null = answered ? { locked: false } : null;
-      // Format: +GTCELLLOCK: 1,rat,is_nr,arfcn,pci[,scs] or +GTCELLLOCK: 0
-      const lockMatch = cell.match(/\+GTCELLLOCK:\s*1,\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
+      // `+GTCELLLOCK: 1,<RAT: 0 LTE, 1 NR>,<type: 0 PCI, 1 channel only>,<arfcn>[,<pci>[,<scs>,<band>]]`, as the
+      // lock writes it (QModem's Fibocom script reads the same fields), or `+GTCELLLOCK: 0`
+      const lockMatch = cell.match(/\+GTCELLLOCK:\s*1,\s*([01]),\s*([01]),\s*(\d+)(?:,\s*(\d+))?/);
       if (lockMatch) {
-        const isNr = lockMatch[2] === "1";
+        const isNr = lockMatch[1] === "1";
         const arfcn = intOf(lockMatch[3]);
-        const pci = pciOf(lockMatch[4], isNr ? "NR" : "LTE");
+        const pci = lockMatch[2] === "0" && lockMatch[4] !== undefined ? pciOf(lockMatch[4], isNr ? "NR" : "LTE") : null;
         if (isNr) nrCell = { locked: true, arfcn, pci, band: null };
         else lteCell = { locked: true, arfcn, pci, band: null };
       }
