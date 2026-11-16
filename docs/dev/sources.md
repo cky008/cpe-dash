@@ -827,3 +827,8 @@ final-4 只读审核（`audits.md` 第 21 节）之后的修复里新用到的�
 
 资料 A（`zte-goform-web-protocol-spec.md`）写全了这一类的锁小区：锁定用 `Z5g_lockcell_pci` / `arfcn` / `band` / `scs`（第 305 行），解除与第 1 类相同，发 `nr5g_cell_lock`（第 307 行），回读包的「分支 C」读的是 `Z5g_lockcell_*`（第 277 行）。烽燧的解除写法与资料一致（零值，见 18.4），不改；回读以前先看 `nr5g_cell_lock`，它在这类固件上可能一直是「不锁」，于是锁着的小区被读成已解除。现在第 2 类先看 `Z5g_lockcell_*`，没有这几个字段时才看 `nr5g_cell_lock`；其他类别照旧。查过：`tpoechtrager/ZTE-Web-Script` 与 `Damecek/zte-mce888-ultra-daemon` 带的页面脚本只有 `nr5g_cell_lock` 一种写法（锁定与解除都是），没有 `Z5g_lockcell_*` 的「不锁」取值，所以不按锁定的字段解除。
 
+### 21.3 中兴 goform 各类别锁频的回读（F4-008、F4-009）
+
+- 第 3 类（MC8020 / `3351`）锁 NR 频段写 `Z5g_lockband_mask`（资料 A 控制表「5G NR 锁频 Type 3」），回读以前不读这个键。现在请求它，并且每一类先读自己写入的那个键（第 1 类 `nr5g_band_mask`、第 2 类 `Z5g_lockband_no_format_mask`、第 3 类 `Z5g_lockband_mask`、第 4 类 `nr_band_lock`），再按原来的顺序读其他键。
+- 第 2 类的 NR 锁小区带 SCS（资料 A 控制表「5G NR 锁小区 Type 2」，`Z5g_lockcell_scs` 直接写 15 / 30）：表单在两种写法上都拒绝没有 SCS 的锁定；会话里 `checkCellLock` 按频段补上默认值，所以以前也没有发出过 `null`。
+

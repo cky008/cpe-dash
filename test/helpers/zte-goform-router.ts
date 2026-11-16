@@ -265,9 +265,16 @@ export function zteRouter(opts: ZteRouterOptions = {}) {
       if (goformId === "LOGOUT") state.loggedIn = false;
       if (goformId === "DISCONNECT_NETWORK" && !opts.pppSticks) state.values["ppp_status"] = "ppp_disconnected";
       if (goformId === "CONNECT_NETWORK" && !opts.pppSticks) state.values["ppp_status"] = "ppp_connected";
+      // Each branch's band lock lands in the key its form names (notes library A, the control table)
       if (goformId === "BAND_SELECT") state.values["lte_band_lock"] = fields.get("lte_band_mask") ?? "";
+      if (goformId === "SET_NETWORK_BAND_LOCK" || goformId === "LTE_BAND_LOCK") state.values["lte_band_lock"] = fields.get("lte_band_lock") ?? "";
       if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK_MERGE") state.values["nr5g_band_mask"] = fields.get("Z5g_lockband_no_format_mask") ?? "";
-      if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK") state.values["nr5g_band_mask"] = fields.get("nr5g_band_mask") ?? "";
+      if (goformId === "WAN_PERFORM_NR5G_BAND_LOCK") {
+        const merged = fields.get("Z5g_lockband_mask");
+        if (merged !== null) state.values["Z5g_lockband_mask"] = merged;
+        else state.values["nr5g_band_mask"] = fields.get("nr5g_band_mask") ?? "";
+      }
+      if (goformId === "NR_BAND_LOCK") state.values["nr_band_lock"] = fields.get("nr_band_lock") ?? "";
       // The page changes the operator and the access point with the connection down, and the router holds it to that
       if (["SCAN_NETWORK", "SET_NETWORK", "APN_PROC_EX"].includes(goformId) && state.values["ppp_status"] !== "ppp_disconnected") return { json: { result: "failure" } };
       if (goformId === "SET_BEARER_PREFERENCE") {

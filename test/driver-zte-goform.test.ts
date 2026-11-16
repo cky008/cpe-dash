@@ -358,6 +358,19 @@ describe("zte-goform: locks", () => {
     assert.equal((await stuck.client.withSession((s) => s.lockState()))?.nrCell?.locked, true);
   });
 
+  it("reads each branch's NR band lock back from the key it writes", async () => {
+    // MC8020 (branch 3) writes Z5g_lockband_mask; a key another branch writes may still hold every band
+    const raw = { nr5g_band_mask: ZTE_NR_ALL_BANDS.join(","), Z5g_lockband_mask: "78" };
+    assert.deepEqual(parseZteLockState(raw, 3).nrBands, [78]);
+    assert.equal(parseZteLockState(raw, 1).nrBands, "all");
+    const { state, client } = zteRouter({ hw: "MC8020HW-1.0.0", model: "MC8020" });
+    const check = newCheck();
+    await client.withSession((s) => s.setBandLock({ lte: [1, 3], nr: [78], networkMode: null }, check));
+    assert.equal(state.posts.find((p) => p.goformId === "WAN_PERFORM_NR5G_BAND_LOCK")?.fields.get("Z5g_lockband_mask"), "78");
+    assert.equal(check.readback, "match");
+    assert.deepEqual((await client.withSession((s) => s.lockState()))?.nrBands, [78]);
+  });
+
   it("locks bands on an MC888, signs every write and reads it back", async () => {
     const { state, client } = zteRouter();
     const check = newCheck();

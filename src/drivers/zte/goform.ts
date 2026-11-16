@@ -367,6 +367,7 @@ const LOCK_KEYS = [
   "nr5g_sa_band_lock",
   "Z5g_lockband_sa_mask",
   "Z5g_lockband_no_format_mask",
+  "Z5g_lockband_mask",
   "nr_band_lock",
   "lte_pci_lock",
   "lte_earfcn_lock",
@@ -738,8 +739,13 @@ function lteLockOf(raw: Record<string, unknown>): number[] | "all" | null {
   return bands;
 }
 
-function nrLockOf(raw: Record<string, unknown>): number[] | "all" | null {
-  for (const key of ["nr5g_band_mask", "Z5g_lockband_no_format_mask", "nr_band_lock", "nr5g_sa_band_lock", "Z5g_lockband_sa_mask"]) {
+/** The key each branch writes its NR band lock to (`zteNrBandForm`): read back first on that branch. */
+const NR_LOCK_KEY: Readonly<Record<ZteBranch, string>> = { 1: "nr5g_band_mask", 2: "Z5g_lockband_no_format_mask", 3: "Z5g_lockband_mask", 4: "nr_band_lock" };
+const NR_LOCK_KEYS = ["nr5g_band_mask", "Z5g_lockband_no_format_mask", "Z5g_lockband_mask", "nr_band_lock", "nr5g_sa_band_lock", "Z5g_lockband_sa_mask"];
+
+function nrLockOf(raw: Record<string, unknown>, branch: ZteBranch): number[] | "all" | null {
+  const own = NR_LOCK_KEY[branch];
+  for (const key of [own, ...NR_LOCK_KEYS.filter((other) => other !== own)]) {
     const text = textOf(raw[key]);
     if (text === null) continue;
     const bands = /^0x/i.test(text) ? hexToBands(text) : listToBands(text);
@@ -789,7 +795,7 @@ function nrCellOf(raw: Record<string, unknown>, branch: ZteBranch): CellLockStat
 export function parseZteLockState(raw: Record<string, unknown>, branch: ZteBranch = 1): DriverLockState {
   return {
     lteBands: lteLockOf(raw),
-    nrBands: nrLockOf(raw),
+    nrBands: nrLockOf(raw, branch),
     lteCell: lteCellOf(raw),
     nrCell: nrCellOf(raw, branch),
     networkMode: networkModeOf(raw["net_select"]) ?? networkModeOf(raw["BearerPreference"]),
