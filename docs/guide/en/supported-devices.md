@@ -225,6 +225,7 @@ Usually at `192.168.0.1`; sign in with the admin password (there is no user name
 Notes for this table:
 
 - △ Data settings: data roaming, the access point (APN) and the data limit only; FengSui does not do clearing the traffic counters here yet (every model in this table).
+- These routers keep one admin session, and a new login signs out whoever is on their web page: while FengSui runs, its reading every 5 seconds signs you out of the router's own page; stop FengSui before you use that page (U60 Pro (MU5250), G5 Ultra (MC8530), G5 Ultra (MC8531), G5 Pro (MC8512), G5TS (MC8520), G5F, MC888D and U50 Pro (MU5120)).
 - After a cell lock is removed, the router goes back to the cell it would choose once the network mode is switched or it restarts; FengSui does neither for you (U60 Pro (MU5250), G5 Ultra (MC8530), G5 Ultra (MC8531), G5 Pro (MC8512), G5TS (MC8520), G5F, MC888D and U50 Pro (MU5120)).
 - SMS is read from and written to the router's own storage; messages kept on the SIM card are not shown (every model in this table).
 - — Battery: only a mobile router has a battery (G5 Ultra (MC8530), G5 Ultra (MC8531), G5 Pro (MC8512), G5TS (MC8520), G5F, MC888D, MC8510, G5C, G5B, MC888 Ultra, MC888 Pro, MC888, MC888S, MC8020, MC801A, MC801A1, MC801, MC889 Pro, MC889A Pro, MC889, MC7010, MC7010D, MC8830, MF79U, MF297D, MF289F, MF286, MF286A, MF286C, MF286D, MF286R, MF283+, MF283U and MF253S).

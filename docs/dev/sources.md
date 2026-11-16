@@ -874,3 +874,11 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 - zWRT：解除之后要切换一次网络制式或重启，才回到原来的小区。同一项目 `ng/zte-script-ng.js` 第 2193、2227 行。
 - 烽燧不替用户重启或切换制式（`AGENTS.md` 第 4 节第 2 条：除了断网回退，烽燧不主动写）。品牌事实 `cellLockEffect`（goform `restart`、zWRT `unlock-toggle`），「支持的设备」与「设置 → 设备」生成说明，控制抽屉的锁小区与解除锁定确认框写明。
 
+### 21.12 中兴的登录会不会把网页上的人挤下线（D-1，主人决定先查资料、属实就写明）
+
+agy 上网检索（只用 `search_web`），我抓原文核对：
+
+- **zWRT：会。** [rosenrot00/ha-zte-ng-router](https://github.com/rosenrot00/ha-zte-ng-router)（`c855a27`，2026-11-14，MIT）README 第 18 行：「while this integration is running, you will be logged out from the webui on every poll as only a single login is allowed on these devices」（G5TC、G5TS、G5C、G5 Max、G5 Ultra，同一套 ubus 接口）。`zwrt_web.web_login_info` 的免登录应答只有盐、失败次数和锁定时间（OurKode/ZTE-MC7500 的 API 文档，检索摘要），没有「有人在线」的字段，所以烽燧没法先让位。型号清单为 zWRT 记一条说明，「其他型号与品牌」页写明：要用路由器网页时先停掉烽燧。
+- **goform：拒绝第二个登录，不挤人。** MU5001 自己的页面脚本（gist `DarkNikGr/3c4ac5ad9cab5b639b608eeccc97e201`，`mifi-mu5001-api.js`）里登录结果 `2` 是 `duplicateUser`；烽燧在有剩余次数、没有锁定时把 `2` 当作有人在线并让位。同一份脚本把 `4` 与 `0` 一样当作登录成功（`"0" != e.result && "4" != e.result` 才进失败分支），与资料 B（`4` 为有人在线）矛盾：涉及登录路径，留给下一轮（`final-4/NEXT_ROUND.md` N-5）。
+- 不算数的：`juacas/zte_tracker`、`masoneff3/ha_zteh388x` 说的是中兴 H388X 等宽带网关（另一套接口）；`cmd=loginfo` 说的是发请求的这个会话自己有没有登录，不是别人。
+

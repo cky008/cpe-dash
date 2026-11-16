@@ -505,6 +505,12 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   {
     family: "zte-zwrt",
     features: [],
+    zh: "这类路由器只允许一个管理会话，新的登录会把网页上已登录的人登出：烽燧在运行时，每 5 秒的读取会让你在路由器自己的网页上被登出；要用路由器网页时，先停掉烽燧",
+    en: "These routers keep one admin session, and a new login signs out whoever is on their web page: while FengSui runs, its reading every 5 seconds signs you out of the router's own page; stop FengSui before you use that page",
+  },
+  {
+    family: "zte-zwrt",
+    features: [],
     zh: "解除锁小区之后，要切换一次网络制式或重启路由器，才会回到原来的小区；烽燧不会替你做",
     en: "After a cell lock is removed, the router goes back to the cell it would choose once the network mode is switched or it restarts; FengSui does neither for you",
   },
