@@ -854,7 +854,10 @@ export function zteCellForm(branch: ZteBranch, target: DriverCellLockTarget): { 
       ],
     };
   }
+  // The spacing in kHz, as the community's ZTE script writes it and notes library B records (library A
+  // coded it 0 / 1, which no other source shows); docs/dev/sources.md §18.4. Both NR forms carry it
   const scs = target.scsKhz;
+  if (scs === null) throw new CpeControlValidationError("This router locks an NR cell with its subcarrier spacing, and none was given");
   if (branch === 2) {
     return {
       goformId: "NR5G_LOCK_CELL_SET",
@@ -866,9 +869,6 @@ export function zteCellForm(branch: ZteBranch, target: DriverCellLockTarget): { 
       ],
     };
   }
-  // The spacing in kHz, as the community's ZTE script writes it and notes library B records (library A
-  // coded it 0 / 1, which no other source shows); docs/dev/sources.md §18.4
-  if (scs === null) throw new CpeControlValidationError("This router locks an NR cell with its subcarrier spacing, and none was given");
   return { goformId: "NR5G_LOCK_CELL_SET", fields: [["nr5g_cell_lock", `${pci},${arfcn},${band},${scs}`]] };
 }
 
@@ -1017,9 +1017,10 @@ class ZteGoformSession implements DriverSessionHandle {
   }
 
   async setCellLock(target: DriverCellLockTarget, check: WriteCheck): Promise<void> {
-    await this.#ensureDeveloperMode(check);
+    // The form first: a lock it refuses opens nothing, not even the developer options
     const checked = checkCellLock(target);
     const form = zteCellForm(this.#branch, checked);
+    await this.#ensureDeveloperMode(check);
     await this.#post(check, form.goformId, form.fields);
     settleCellLock(check, checked, await this.lockState().catch(() => null));
   }

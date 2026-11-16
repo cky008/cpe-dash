@@ -324,6 +324,19 @@ describe("zte-goform: locks", () => {
     assert.deepEqual(parseZteLockState(raw, 1).nrCell, { locked: false });
   });
 
+  it("never writes an MC888 NR cell lock without a subcarrier spacing, and refuses a cell before anything is sent", async () => {
+    const cell = { rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: null } as const;
+    assert.throws(() => zteCellForm(2, cell), (err: unknown) => err instanceof CpeControlValidationError && /subcarrier spacing/.test(err.message));
+    // The session names the band's own spacing when none was given (n78: 30 kHz)
+    const { state, client } = zteRouter();
+    await client.withSession((s) => s.setCellLock(cell, newCheck()));
+    assert.equal(state.posts.find((p) => p.goformId === "NR5G_LOCK_CELL_SET")?.fields.get("Z5g_lockcell_scs"), "30");
+    // A cell the form refuses opens nothing, not even the developer options
+    const refused = zteRouter();
+    await assert.rejects(refused.client.withSession((s) => s.setCellLock({ ...cell, pci: 2000 }, newCheck())), CpeControlValidationError);
+    assert.deepEqual(refused.state.posts.map((p) => p.goformId), ["LOGOUT"]);
+  });
+
   it("unlocks an MC888's NR cell lock and reads the fields it was locked with back", async () => {
     const { state, client } = zteRouter();
     const lock = newCheck();
