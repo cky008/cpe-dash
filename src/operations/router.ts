@@ -37,8 +37,17 @@ export const ROUTER_OPERATIONS = {
         lteBands: { ...BAND_SELECTION, description: `4G LTE bands to lock (subset of ${LTE_BAND_LIST}) or 'all' to restore all LTE bands.` },
         nrBands: { ...BAND_SELECTION, description: "5G NR bands to lock (e.g. ['N78', 'N41']) or 'all' to unlock NR bands." },
       },
-      // On a model nobody verified the band lock writes LTE bands only, from those the router advertises
+      // On a model nobody verified the band lock writes LTE bands only, from those the router advertises;
+      // on a brand with a driver of its own it is that driver's band lock, with the bands and mixes the brand takes
       onUnverified: (tool, context) => {
+        if (context.ownDriver) {
+          return {
+            ...tool,
+            description:
+              "Lock 4G LTE and/or 5G NR bands, e.g., lteBands=['B1','B3'], nrBands=['N78']; 'all' restores every band of a kind, and a kind you leave out stays as it is. Which bands and which mixes of them this router takes is its own brand's matter: a selection it cannot take is refused, with the reason, before anything is sent. Locking to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.",
+            inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties, lteBands: { ...BAND_SELECTION, description: "4G LTE bands to lock (e.g. ['B1', 'B3']) or 'all' to restore all LTE bands." } } },
+          };
+        }
         const bands = (context.lteBands ?? []).map((band) => `B${band}`).join(", ") || "none advertised";
         const { nrBands: _nr, ...properties } = tool.inputSchema.properties;
         return {

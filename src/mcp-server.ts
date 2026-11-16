@@ -248,7 +248,8 @@ export class FengSuiMcpServer {
     if (closed) return { definition: null, refused: closed.feature, disabled: closed.access === "disabled" };
     const experimental = needs.some((need) => need.access === "experimental");
     const model = device.snapshot().model ?? "?";
-    const generic = (op === null ? undefined : mcpBinding(op).onUnverified?.(tool, { lteBands: device.experimentalLteBands })) ?? tool;
+    // A brand with a driver of its own writes that driver's forms, not the generic ones of an unverified model
+    const generic = (op === null ? undefined : mcpBinding(op).onUnverified?.(tool, { lteBands: device.experimentalLteBands, ownDriver: !this.#scheduler.driver.hasVerifiedModel })) ?? tool;
     return {
       refused: null,
       disabled: false,

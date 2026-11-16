@@ -45,6 +45,12 @@ export interface RestBinding {
 /** How an MCP tool reads on a router of a model nobody verified (the band lock's LTE-only form). */
 export interface UnverifiedContext {
   readonly lteBands: ReadonlyArray<number> | null;
+  /**
+   * The router's brand has a driver of its own and no verified model: its writes are the forms that
+   * driver implements, checked against the brand's own bounds, not the generic ones of an unverified
+   * model of a brand FengSui was verified on.
+   */
+  readonly ownDriver: boolean;
 }
 
 export interface McpBinding {

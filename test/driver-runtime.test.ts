@@ -611,7 +611,7 @@ describe("driver runtime: what an agent is told on another brand's router", () =
       assert.ok(found, `${name} is listed`);
       return found;
     };
-    return { daemon, rpc, tool };
+    return { zte, daemon, rpc, tool };
   }
 
   it("names no Huawei model, address or error code: the instructions and the session status tool are written for any brand", async () => {
@@ -624,6 +624,30 @@ describe("driver runtime: what an agent is told on another brand's router", () =
       const status = await tool("get_cpe_session_status");
       assert.doesNotMatch(status.description, /192\.168\.8\.1|108006/, "no other router's address or error codes");
       assert.match(status.inputSchema.properties["probeLive"]?.description ?? "", /Huawei routers only/);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it("offers the band lock with the 5G bands the brand's driver takes, not the 4G-only form of an unverified Huawei model", async () => {
+    const { zte, daemon, rpc, tool } = await agentOnZte();
+    try {
+      const lockBand = await tool("lock_band");
+      assert.deepEqual(Object.keys(lockBand.inputSchema.properties), ["lteBands", "nrBands", "confirm"]);
+      assert.match(lockBand.description, /^EXPERIMENTAL on this router \(MC888, a model FengSui was not verified on/);
+      assert.doesNotMatch(lockBand.description, /H168-383|no NR band on this model|none advertised/);
+      assert.doesNotMatch(lockBand.inputSchema.properties["lteBands"]?.description ?? "", /B1, B3, B5|none advertised/, "no other router's band list");
+      const locked = (await rpc("tools/call", { name: "lock_band", arguments: { nrBands: ["N78"], confirm: true } })) as unknown as {
+        isError: boolean;
+        structuredContent: { errorCode?: string; message?: string; lockState?: { mode: string; nrBands: unknown } };
+      };
+      assert.equal(locked.isError, false, locked.structuredContent.message ?? "lock_band was refused");
+      assert.deepEqual([locked.structuredContent.lockState?.mode, locked.structuredContent.lockState?.nrBands], ["band_lock", [78]]);
+      // A band the brand does not have is still refused by its own driver, before anything is sent
+      const sent = zte.mock.requests.length;
+      const refused = (await rpc("tools/call", { name: "lock_band", arguments: { lteBands: ["B999"], confirm: true } })) as unknown as { isError: boolean; structuredContent: { errorCode?: string } };
+      assert.deepEqual([refused.isError, refused.structuredContent.errorCode], [true, "VALIDATION_ERROR"]);
+      assert.equal(zte.mock.requests.length, sent);
     } finally {
       await daemon.cleanup();
     }
