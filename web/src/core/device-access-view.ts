@@ -50,6 +50,15 @@ export function experimentalWrites(scheduler: SchedulerStatusSnapshot | null): W
   return features ? (Object.keys(features) as WriteFeature[]).filter((feature) => features[feature] === "enabled" || features[feature] === "verified") : [];
 }
 
+/**
+ * The writes open on a verified model (the H168-383), in the daemon's order: all are verified ones,
+ * the cellular settings only where they were checked on it in person (`VERIFIED_FEATURES`).
+ */
+export function verifiedWrites(scheduler: SchedulerStatusSnapshot | null): WriteFeature[] {
+  const features = scheduler?.device.writes === "allowed" ? scheduler.device.features : undefined;
+  return features ? (Object.keys(features) as WriteFeature[]).filter((feature) => features[feature] === "verified") : [];
+}
+
 /** A write's confirmation says it was never checked on a real router: an open write nobody verified on this model. */
 export function unconfirmedWrite(scheduler: SchedulerStatusSnapshot | null, features: ReadonlyArray<WriteFeature>): boolean {
   return features.some((feature) => writeState(scheduler, feature) === "enabled");

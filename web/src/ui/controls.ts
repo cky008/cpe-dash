@@ -5,7 +5,7 @@ import { ApiError } from "../core/api.ts";
 import type { DriverFamily } from "../../../src/router-family.ts";
 import type { WriteFeature } from "../../../src/features.ts";
 import { cellularOpen } from "../core/cellular-view.ts";
-import { experimentalWrites, reportVerified, unconfirmedWrite, unverifiedModel } from "../core/device-access-view.ts";
+import { experimentalWrites, reportVerified, unconfirmedWrite, unverifiedModel, verifiedWrites } from "../core/device-access-view.ts";
 import { bandText, cellLockEffect, driverFamilyOf, locksNrBands, parseBandText } from "../core/lock-form.ts";
 import { formatAgo, formatClock } from "../core/format.ts";
 import { bandLabel } from "../core/rf.ts";
@@ -798,7 +798,8 @@ export function mountControls(ctx: AppContext): { open(): void } {
     const selfHealSection = section(withHelp(ctx, ctx.t("ctl.self_heal"), "self-heal"), selfHealList, h("p", { class: "text-[0.6875rem] faint" }, ctx.t("heal.hint")));
     let sections: HTMLElement[];
     if (lockedModel === null) {
-      sections = [bandSection, selfHealSection, securitySection, wifiSection, antennaSection, systemSection];
+      // The verified model's own controls, and the cellular settings checked on it in person
+      sections = [bandSection, selfHealSection, securitySection, wifiSection, antennaSection, ...cellularSection(verifiedWrites(scheduler)), systemSection];
     } else if (open.length === 0) {
       sections = [
         h(

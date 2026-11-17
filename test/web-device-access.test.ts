@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 import type { DeviceAccessSnapshot, SchedulerStatusSnapshot, WriteResultRecord } from "../src/api-contract.ts";
 import { CONTROL_FEATURES, type ControlAction, READ_SECTIONS, WRITE_FEATURES } from "../src/features.ts";
 import { FAMILY_WRITE_FEATURES } from "../src/router-family.ts";
-import { canWrite, experimentalOffer, experimentalWrites, hasSwitch, readbackTone, unavailableSection, unconfirmedWrite, unverifiedModel, versionLabel, writeState } from "../web/src/core/device-access-view.ts";
+import { cellularOpen } from "../web/src/core/cellular-view.ts";
+import { canWrite, experimentalOffer, experimentalWrites, hasSwitch, readbackTone, unavailableSection, unconfirmedWrite, unverifiedModel, verifiedWrites, versionLabel, writeState } from "../web/src/core/device-access-view.ts";
 import { featureKey, READBACK_KEYS, READ_STATE_KEYS, REASON_KEYS, SECTION_KEYS, WRITE_STATE_KEYS, readText, switchScope, writeResultDetail, writesText } from "../web/src/core/device-view.ts";
 import { SETTINGS_TEXT } from "../web/src/i18n/settings.ts";
 
@@ -63,6 +64,17 @@ describe("console: the router's write and read access", () => {
 describe("console: experimental writes on a model nobody verified", () => {
   const features = (over: Partial<DeviceAccessSnapshot["features"]> = {}): DeviceAccessSnapshot["features"] =>
     ({ ...Object.fromEntries(WRITE_FEATURES.map((f) => [f, "not_implemented"])), bandLock: "enabled", reboot: "enabled", ...over }) as DeviceAccessSnapshot["features"];
+
+  it("offers a verified model the writes verified on it, and nothing before its model is known", () => {
+    // The H168-383: its own writes, and of the cellular settings only those checked on it in person
+    const h168 = status({ features: features({ bandLock: "verified", reboot: "verified", roaming: "verified", networkMode: "verified", ussd: "not_implemented" }) });
+    const open: ReadonlyArray<string> = ["bandLock", "reboot", "networkMode", "roaming"];
+    assert.deepEqual(verifiedWrites(h168), WRITE_FEATURES.filter((feature) => open.includes(feature)));
+    assert.deepEqual(cellularOpen(verifiedWrites(h168)), ["networkMode", "roaming"]);
+    // Another model's open writes are the experimental list's; an unknown model offers none yet
+    assert.deepEqual(verifiedWrites(status({ model: "B535-232", writes: "experimental", features: features({ reconnect: "verified" }) })), []);
+    assert.deepEqual([verifiedWrites(status({ model: null, writes: "unknown" })), verifiedWrites(null)], [[], []]);
+  });
 
   it("offers the writes that are open, a switch for those FengSui implements, and leaves the verified model as it was", () => {
     const verified = status({ features: Object.fromEntries(WRITE_FEATURES.map((f) => [f, "verified"])) as DeviceAccessSnapshot["features"] });

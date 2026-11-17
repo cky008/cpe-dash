@@ -174,6 +174,35 @@ describe("the console in a browser", () => {
     await closeDialogs(page);
   });
 
+  it("offers the H168-383 the cellular settings checked on it in person, and no other", async () => {
+    const d = live();
+    await signIn(page, d);
+    await page.click('[data-action="open-controls"]');
+    await page.waitUntil(isOpen("controlsDialog"), "the controls drawer");
+    const rows = `[...document.querySelectorAll('#controlsDialog [data-section="cellular"] [data-cellular]')].map((el) => el.dataset.cellular)`;
+    await page.waitUntil(`document.querySelector('#controlsDialog [data-section="cellular"][data-loaded="1"] [data-cellular="roaming"]') !== null`, "the cellular settings, once they are read");
+    // Roaming, the network mode, the operator and clearing the counters (VERIFIED_FEATURES); USSD is switched off on it
+    assert.deepEqual(await page.evaluate<string[]>(rows), ["networkMode", "operatorSelect", "roaming", "trafficReset"]);
+    // Read from the router, not drawn empty: the mode it is in now
+    const section = await page.evaluate<string>(`document.querySelector('#controlsDialog [data-section="cellular"]').textContent`);
+    assert.match(section, /Now: /);
+    assert.doesNotMatch(section, /have not been read yet/);
+
+    const roamingWrites = (): number => (d.router.cpe?.stats.writes ?? []).filter((write) => write.path === "/api/dialup/connection").length;
+    const before = roamingWrites();
+    await page.click('[data-cellular="roaming"] input[type="checkbox"]');
+    await page.waitUntil(isOpen("confirmDialog"), "the roaming confirmation");
+    // A verified write: its confirmation does not call it unchecked
+    assert.doesNotMatch(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), /never checked on a real router/);
+    await page.click("#confirmOk");
+    await until(() => roamingWrites() === before + 1, "the roaming write at the router");
+    const audited = () => d.stack.audit.list(500).find((e) => e.action === "set_roaming");
+    await until(() => audited() !== undefined, "the audit entry");
+    assert.deepEqual([audited()?.outcome, audited()?.channel], ["applied", "web"]);
+    assert.deepEqual(page.exceptions, []);
+    await closeDialogs(page);
+  });
+
   it("says what self-healing will do, before a lock and in the drawer, and shows the window a lock opens", async () => {
     const d = live();
     await signIn(page, d);
