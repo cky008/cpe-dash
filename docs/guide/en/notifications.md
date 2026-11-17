@@ -50,7 +50,7 @@ If you want to receive notifications in a group (for example, a group with only 
 
 | Command / Action | Description |
 | :--- | :--- |
-| Reply to an SMS card | Reply to that number directly |
+| Reply to an SMS card | Reply to that number directly: the reply is sent as you write it, with no confirmation |
 | Buttons on the card | Mark as read, view thread, delete (asks for confirmation, and the confirm button works once, for two minutes; the message goes to the console's [Recently deleted](sms.md#trash)) |
 | `/new` | Send a new message step by step |
 | `/send <number> <content>` | Send quickly (also requires confirmation) |
