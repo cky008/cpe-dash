@@ -159,7 +159,7 @@ The Permission column names what a token needs beyond reading. A request that ch
 | `POST` | `/api/control/traffic-reset` | Change the router | Clear the traffic counters the router itself keeps | `{"confirm":true}` |
 | `POST` | `/api/control/ussd` | Change the router | USSD: send a code (`code`); `action` `reply` answers the operator's question, `cancel` ends the session. The answer is text the operator wrote | `{"code":"*100#","confirm":true}` |
 | `POST` | `/api/session/reset-breaker` | Change the router | Reset a breaker the router's account lock (108007) tripped, and reload `.env`; for a wrong password, correct it under Settings → Router | `{"confirm":true}` |
-| `POST` | `/api/session/pause` | Change the router | Pause the connection to the router for `minutes` (1–120): FengSui does not sign in or send it anything until then, and resumes by itself; refused while a change is still watched | `{"minutes":30,"confirm":true}` |
+| `POST` | `/api/session/pause` | Change the router | Pause the connection to the router for `minutes` (1–120): FengSui does not sign in or send it anything until then, and resumes by itself; refused while a change is being made or is still watched | `{"minutes":30,"confirm":true}` |
 | `POST` | `/api/session/resume` | Change the router | End the pause and take the router up again | `{"confirm":true}` |
 
 ### Devices' internet access

@@ -59,7 +59,7 @@ Many of these routers allow one admin session at a time, and FengSui signs in ev
 
 Pause the connection first: open **Settings → Router**, choose how long under **Pause the connection** (15 minutes to 2 hours) and press **Pause**. Until then FengSui does not sign in to the router or send it anything. The dashboard keeps the readings from before the pause, and anything that would change the router is refused with a message saying so. FengSui takes the router up again by itself when the time is up; to end the pause sooner, press **Resume now** in the banner on the dashboard or under Settings → Router.
 
-Right after a lock or a change of the network mode, the operator, the SIM slot or the access point, FengSui watches the connection for a few minutes so that it can put the change back if the internet stays down. The connection cannot be paused during that time; Settings → Router says until about when.
+Right after a lock or a change of the network mode, the operator, the SIM slot or the access point, FengSui watches the connection for a few minutes so that it can put the change back if the internet stays down. The connection cannot be paused during that time; Settings → Router says until about when. It cannot be paused either in the moment FengSui is making a change on the router: try again once the change is done.
 
 ## Not receiving Telegram notifications
 

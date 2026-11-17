@@ -34,8 +34,8 @@ export const DAEMON_OPERATIONS = {
       group: "control",
       example: '{"minutes":30,"confirm":true}',
       summary: {
-        "zh-CN": `暂停连接路由器 \`minutes\` 分钟（1–${PAUSE_MAX_MINUTES}）：这段时间烽燧不登录路由器、不发任何请求，到时间自动恢复；还有改动在看守期内时不能暂停`,
-        en: `Pause the connection to the router for \`minutes\` (1–${PAUSE_MAX_MINUTES}): FengSui does not sign in or send it anything until then, and resumes by itself; refused while a change is still watched`,
+        "zh-CN": `暂停连接路由器 \`minutes\` 分钟（1–${PAUSE_MAX_MINUTES}）：这段时间烽燧不登录路由器、不发任何请求，到时间自动恢复；正在改动路由器、或还有改动在看守期内时不能暂停`,
+        en: `Pause the connection to the router for \`minutes\` (1–${PAUSE_MAX_MINUTES}): FengSui does not sign in or send it anything until then, and resumes by itself; refused while a change is being made or is still watched`,
       },
     },
   },

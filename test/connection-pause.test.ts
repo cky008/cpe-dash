@@ -28,13 +28,13 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
 
 const MINUTE = 60_000;
 
-function pauseFixture(opts: { dir?: string; at?: number } = {}) {
-  const router = createStrictCpe();
+function pauseFixture(opts: { dir?: string; at?: number; cellular?: boolean; transport?: (fetchImpl: typeof fetch) => typeof fetch } = {}) {
+  const router = createStrictCpe({ cellular: opts.cellular === true });
   const dir = opts.dir ?? tempDir("fengsui-pause-");
   const clock = { now: opts.at ?? Date.parse("2026-11-16T12:00:00.000Z") };
   const stateStore = new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "pause_key" });
   const core = createFengSuiCore({
-    connection: mockConnection(router),
+    connection: mockConnection({ password: router.password, fetchImpl: opts.transport ? opts.transport(router.fetchImpl) : router.fetchImpl }),
     stateStore,
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     pollIntervalMs: 600_000,
@@ -247,6 +247,90 @@ describe("pausing the connection to the router", () => {
       await fx.cleanup();
     }
   });
+
+  it("does not begin while a write is in its session: what it changes may need watching once it is done", async () => {
+    const fx = pauseFixture();
+    let inside = false;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      const writing = fx.core.scheduler.control("unlock_rf_locks", async () => {
+        inside = true;
+        await held;
+        return "written";
+      });
+      for (let i = 0; i < 200 && !inside; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.ok(inside, "the write's session is running");
+      assert.deepEqual(fx.core.scheduler.getStatus().pause.blocked, { reason: "write", untilIso: null });
+      assert.throws(() => fx.core.scheduler.pauseConnection(15), (err: unknown) => err instanceof CpeControlValidationError && /in the middle of a change/.test(err.message));
+      assert.equal(fx.core.scheduler.getStatus().pause.active, false);
+      assert.deepEqual(fx.events, []);
+      release();
+      assert.equal(await writing, "written", "the write ends as it would have");
+      assert.equal(fx.core.scheduler.getStatus().pause.blocked, null, "nothing in the way once it is done");
+      assert.equal(fx.core.scheduler.pauseConnection(15).active, true);
+    } finally {
+      release();
+      await fx.cleanup();
+    }
+  });
+
+  it("is not kept from beginning by a read in its session, nor by a write that only waits", async () => {
+    const fx = pauseFixture();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      let inside = false;
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const reading = fx.core.scheduler.read(async () => {
+        inside = true;
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && !inside; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      const waiting = assert.rejects(fx.core.controls.unlockAllLocks(), ConnectionPausedError);
+      assert.equal(fx.core.scheduler.getStatus().pause.blocked, null);
+      assert.equal(fx.core.scheduler.pauseConnection(15).active, true);
+      release();
+      assert.equal(await reading, "read");
+      await waiting;
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("sends nothing for a connection test, a brand detection or a look at the certificate that waited while the pause began", async () => {
+    const fx = pauseFixture();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      let inside = false;
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const reading = fx.core.scheduler.read(async () => {
+        inside = true;
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && !inside; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      // Asked before the pause, so each is let into the queue; the pause begins before their turn comes
+      const testing = fx.core.scheduler.testConnection({ url: "http://192.168.8.1", username: "admin", password: fx.router.password });
+      const detecting = fx.core.scheduler.detectFamily("http://192.168.8.1");
+      fx.core.scheduler.pauseConnection(15);
+      const sent = fx.sent();
+      release();
+      assert.equal(await reading, "read");
+      const tested = await testing;
+      assert.deepEqual([tested.ok, tested.ok ? null : tested.reason], [false, "paused"]);
+      const detected = await detecting;
+      assert.equal(typeof detected === "string" ? detected : detected.reason, "paused");
+      // Only the sign-out of the session that was running may have gone out since the pause began
+      const since = fx.router.stats.requests.slice(sent).map((request) => request.path);
+      assert.deepEqual(since.filter((requestPath) => requestPath !== "/api/user/logout"), [], "nothing but that session's own sign-out");
+    } finally {
+      await fx.cleanup();
+    }
+  });
 });
 
 describe("pausing the connection: the entries", () => {
@@ -321,6 +405,45 @@ describe("pausing the connection: the entries", () => {
       assert.throws(() => fx.core.scheduler.pauseConnection(15), CpeControlValidationError);
       assert.equal(fx.core.scheduler.getStatus().pause.blocked?.untilIso, "2026-11-16T12:03:00.000Z");
     } finally {
+      await heal.stop();
+      await fx.cleanup();
+    }
+  });
+
+  it("never has a watch open under a pause: a network mode change still in its session keeps the pause from beginning", async () => {
+    // The router takes its time over the network mode (the H168-383's own page waits up to 90 s for it)
+    let entered = false;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const fx = pauseFixture({
+      cellular: true,
+      transport: (fetchImpl) => async (input, init) => {
+        if (String(input).endsWith("/api/net/net-mode") && init?.method === "POST") {
+          entered = true;
+          await held;
+        }
+        return await fetchImpl(input, init);
+      },
+    });
+    const heal = new WanSelfHeal({ scheduler: fx.core.scheduler, monitor: fx.core.monitor, controls: fx.core.controls, lockRollbackAfterMs: 0, reconnectAfterMs: 0, now: () => fx.clock.now, log: () => undefined });
+    fx.core.scheduler.setPauseGuard(() => heal.pauseBlock());
+    fx.core.controls.onLinkChange = (notice) => heal.guardLinkChange(notice);
+    heal.start();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      const changing = fx.core.controls.setNetworkMode("lte", { confirm: true });
+      for (let i = 0; i < 400 && !entered; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.ok(entered, "the write reached the router and waits for its answer");
+      assert.equal(heal.pauseBlock(), null, "not watched yet: the change has not applied");
+      // The owner asks for a pause right now: it would leave the change unwatched for as long as it lasts
+      assert.throws(() => fx.core.scheduler.pauseConnection(120), CpeControlValidationError);
+      release();
+      assert.equal((await changing).networkMode, "lte");
+      assert.equal(heal.linkWatches.length, 1, "the change is watched from the moment it applied");
+      assert.equal(fx.core.scheduler.getStatus().pause.active, false, "and no pause runs over that watch");
+      assert.equal(fx.core.scheduler.getStatus().pause.blocked?.reason, "watch");
+    } finally {
+      release();
       await heal.stop();
       await fx.cleanup();
     }

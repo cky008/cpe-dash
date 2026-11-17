@@ -4,6 +4,10 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Fixed
+- **A pause could begin over a change that was still being made.** The connection cannot be paused while FengSui watches a change it made (a lock, the network mode, the operator, the SIM slot, the access point), because it has to be able to put the change back if the internet stays down. That watch opens once the change has applied, and some changes take the router a minute or more: a pause asked for in that time began, the watch opened under it, and the change was put back only after the pause ended, or not at all after a long one. A pause is now refused for as long as a change is being made; try again when it is done.
+- **A connection test that was waiting its turn still signed in after a pause began.** A test of the connection, a brand detection or a look at the router's certificate that was already waiting when the pause began now sends the router nothing, like one asked for during the pause.
+
 ## [1.9.1] — 2026-11-16
 
 ### Highlights

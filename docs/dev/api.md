@@ -221,7 +221,7 @@ export interface AuthLoginRequest {
   - `mode`：standby_peer：另一台主机上的「烽燧」守护进程正在管理同一台 CPE，本进程待机、不访问路由器（仅次于 circuit_tripped）
   - `mode`：paused：有人暂停了连接路由器（`POST /api/session/pause`），到 `pause.untilIso` 之前不开会话、不发请求（次于 circuit_tripped 与 standby_peer）
   - `device`：写闸门所依据的路由器型号与写权限（见 2.10）
-  - `pause`：`{ active, sinceIso, untilIso, blocked }`；没有暂停时 `blocked` 说明现在能不能暂停（`{ reason: "watch", untilIso }`：还有改动在看守期内）
+  - `pause`：`{ active, sinceIso, untilIso, blocked }`；没有暂停时 `blocked` 说明现在能不能暂停（`{ reason: "watch", untilIso }`：还有改动在看守期内；`{ reason: "write", untilIso: null }`：一项写入正在它的会话里）
 - **`PersistedLockState`**：「烽燧」最近一次成功下发的锁定配置（本地加密持久化）。H168-383 不支持 GET /api/net/lock-freq， 因此本字段不会因官方后台的修改而自动更新；它与路由器实际状态的对账结果见 LockVerification。 锁频段只给出一个制式时，另一制式保持原有锁定：LTE 掩码只经 net-mode 写入（lteBands），NR 频段与锁小区只经 lock-freq 写入（nrBands），未写入的部分不变；只给 lteBands 时已有的锁小区继续生效（mode 仍为 cell_lock）。
   - `cellLock.pci`：null = 锁频点 (lock_mode=1)
 - **`GlobalTelemetrySnapshot`**
@@ -452,8 +452,8 @@ export type AlertCode =
   - `wifi7` / `antenna` / `mobile-data`：不额外开会话，直接用写入结果修补缓存快照并推送 SSE `settings`。若此前从未读取过 settings，则不会推送。
 - **暂停连接（`POST /api/session/pause` / `resume`）**：给要用路由器自己网页的人用。有的路由器只允许一个管理会话，烽燧每 5 秒登录一次，人就进不去或被登出（中兴 zWRT）；暂停期间烽燧不开任何会话、不向路由器发任何请求，到时间自动恢复。
   - `minutes` 是 1–120 的整数，从调用时算起；暂停中再调用是换成新的时长，不是累加。令牌要有 `control` 权限；没有对应的 MCP 工具（智能体从 `get_cpe_session_status` 的 `pause` 和写工具的 `ROUTER_PAUSED` 知道）。
-  - **暂停期间**：读取（5 秒轮询、附近的基站、已连接设备、短信同步）被跳过，各读取接口照常回 `200` 与缓存；写操作（REST、MCP、Telegram、自愈）在任何会话之前以 `409 ROUTER_PAUSED` 拒绝，已经在排队的也一样；免登录的探测（`get_cpe_session_status` 的 `probeLive`、短信未读数）不发；控制台的连接测试和品牌识别以 `reason: "paused"` 失败。正在进行的那一次会话照常结束。`schedulerStatus.mode` 为 `paused`，`schedulerStatus.pause` 是 `{ active, sinceIso, untilIso, blocked }`。
-  - **什么时候不能暂停**：还有改动在看守期内（未验证路由器上的锁定，或 SIM 卡槽、网络制式、运营商选择、接入点的改动，见 2.13）时返回 `400 VALIDATION_ERROR`，`pause.blocked` 是 `{ reason: "watch", untilIso }`：这项改动断网的话还要改回去，暂停了就改不了。反过来，暂停期间写操作都被拒，所以不会有新的看守开出来。
+  - **暂停期间**：读取（5 秒轮询、附近的基站、已连接设备、短信同步）被跳过，各读取接口照常回 `200` 与缓存；写操作（REST、MCP、Telegram、自愈）在任何会话之前以 `409 ROUTER_PAUSED` 拒绝，已经在排队的也一样；免登录的探测（`get_cpe_session_status` 的 `probeLive`、短信未读数）不发；控制台的连接测试和品牌识别以 `reason: "paused"` 失败，暂停开始时已经在排队的测试、识别和看证书轮到时同样不发。正在进行的那一次会话照常结束。`schedulerStatus.mode` 为 `paused`，`schedulerStatus.pause` 是 `{ active, sinceIso, untilIso, blocked }`。
+  - **什么时候不能暂停**：还有改动在看守期内（未验证路由器上的锁定，或 SIM 卡槽、网络制式、运营商选择、接入点的改动，见 2.13）时返回 `400 VALIDATION_ERROR`，`pause.blocked` 是 `{ reason: "watch", untilIso }`：这项改动断网的话还要改回去，暂停了就改不了。一项写入正在它的会话里时同样返回 `400 VALIDATION_ERROR`，`pause.blocked` 是 `{ reason: "write", untilIso: null }`：这次写入会照常做完，它改的东西从生效那一刻起要看守，这时开始的暂停会让它一直没人看守到暂停结束；写入一结束就可以暂停（它开了看守的话，等看守结束）。反过来，暂停期间写操作都被拒，所以不会有新的看守开出来。
   - **结束**：到时间自动结束，或 `resume`；两种都推送 SSE `session:pause`。结束后烽燧先重新确认路由器的型号再接受写入（这段时间路由器可能被换掉）。开始时发一条 `CONNECTION_PAUSED` 告警（info）。
   - **重启**：暂停的起止时间存在加密的 `state.json`（`connectionPause`）里，守护进程重启后接着暂停到原来的时间；已经过期的、或者剩余时间超过上限的记录（系统时钟被往回拨、文件被改）直接丢弃。本次运行内另按单调时钟计时，时钟往回拨也不会让暂停变长。
 - **`POST /api/session/reset-breaker` 规则**：

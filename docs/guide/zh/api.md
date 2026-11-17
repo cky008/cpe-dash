@@ -159,7 +159,7 @@ curl -X POST \
 | `POST` | `/api/control/traffic-reset` | 改动路由器 | 清零路由器自己记的流量统计 | `{"confirm":true}` |
 | `POST` | `/api/control/ussd` | 改动路由器 | USSD：发送一条指令（`code`），`action` 为 `reply` 时回复运营商的提问，为 `cancel` 时结束会话。应答是运营商写的文字 | `{"code":"*100#","confirm":true}` |
 | `POST` | `/api/session/reset-breaker` | 改动路由器 | 解除路由器账户被锁（错误码 108007）引起的熔断，并重新读取 `.env`；密码错误引起的熔断请在「设置 → 路由器」改正密码 | `{"confirm":true}` |
-| `POST` | `/api/session/pause` | 改动路由器 | 暂停连接路由器 `minutes` 分钟（1–120）：这段时间烽燧不登录路由器、不发任何请求，到时间自动恢复；还有改动在看守期内时不能暂停 | `{"minutes":30,"confirm":true}` |
+| `POST` | `/api/session/pause` | 改动路由器 | 暂停连接路由器 `minutes` 分钟（1–120）：这段时间烽燧不登录路由器、不发任何请求，到时间自动恢复；正在改动路由器、或还有改动在看守期内时不能暂停 | `{"minutes":30,"confirm":true}` |
 | `POST` | `/api/session/resume` | 改动路由器 | 结束暂停，恢复连接路由器 | `{"confirm":true}` |
 
 ### 设备上网管理

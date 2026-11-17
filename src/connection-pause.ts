@@ -12,10 +12,15 @@ export const PAUSE_MAX_MINUTES = 120;
 /** What the console offers. */
 export const PAUSE_CHOICES_MINUTES: ReadonlyArray<number> = [15, 30, 60, 120];
 
-/** Why a pause cannot begin now: a change FengSui made is still watched (it is put back if the internet stays down). */
+/**
+ * Why a pause cannot begin now. `watch`: a change FengSui made is still watched (it is put back if
+ * the internet stays down). `write`: a change is being made right now, in its session; it ends as it
+ * would have, and what it changed may then need watching, which a pause begun meanwhile would put off
+ * until its own end.
+ */
 export interface PauseBlock {
-  reason: "watch";
-  /** About when the watch is over (`null`: not known). */
+  reason: "watch" | "write";
+  /** About when the watch is over (`null`: not known, or a write, which is over in a moment). */
   untilIso: string | null;
 }
 
