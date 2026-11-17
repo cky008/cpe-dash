@@ -14,7 +14,9 @@ import { type SessionAttempt, SessionClient } from "../src/session-client.ts";
 import { DLINK_PASSWORD, DLINK_URL, dlinkRouter } from "./helpers/dlink-router.ts";
 import { daemonOn } from "./helpers/driver-daemon.ts";
 import type { LanRouterMock } from "./helpers/lan-router.ts";
+import { prepareSmsSubmission } from "../src/sms/submission.ts";
 import { createBrandSmsFixture } from "./helpers/sms-brand-fixture.ts";
+import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
 import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
 
 /**
@@ -379,5 +381,72 @@ describe("zte-goform: a message to several recipients cut short", () => {
     } finally {
       await fx.cleanup();
     }
+  });
+});
+
+describe("a message the router took, then an error", () => {
+  const standInFor = (send: (phone: string, onAccepted: () => void) => Promise<{ state: "sent" | "failed" | "unconfirmed"; code: string | null }>) => {
+    const sent: string[] = [];
+    const standIn = {
+      family: "openwrt",
+      open: true,
+      sms: {
+        keepsSent: false,
+        list: () => Promise.resolve([]),
+        counters: () => Promise.resolve({ localUnread: 0, localInbox: 0, localOutbox: 0, localDraft: 0, localMax: 0, newest: 0 }),
+        send: (phone: string, _content: string, _check: unknown, options: { onAccepted: () => void }) => {
+          sent.push(phone);
+          return send(phone, options.onAccepted);
+        },
+      },
+    } as unknown as DriverSession;
+    const session = new DriverRouterSession(standIn, { device: new DeviceAccess({ family: "openwrt" }), noteRouterModel: () => undefined, readSection: (_section, read) => read(), latestTelemetry: () => null }, new CounterRates());
+    return { session, sent };
+  };
+
+  it("counts the recipient the router took as submitted, not failed, when an error follows; the ones after it are not tried", async () => {
+    const { session, sent } = standInFor(async (phone, onAccepted) => {
+      onAccepted();
+      if (phone === "+353830000001") throw new Error("the status read failed");
+      return { state: "sent", code: null };
+    });
+    const write = { generic: true, lteBands: null, check: newWriteCheck() };
+    const outcome = await session.sendSms(prepareSmsSubmission(["+353830000001", "+353830000002"], "hello"), { sleep: async () => undefined }, write);
+    assert.deepEqual(sent, ["+353830000001"], "the second recipient was not tried");
+    assert.deepEqual(outcome.result.sentPhones, ["+353830000001"], "the router took the first message: nobody sends it again");
+    assert.deepEqual(outcome.result.failedPhones, ["+353830000002"]);
+    assert.equal(outcome.result.ok, false);
+  });
+
+  it("still refuses the send as a whole when the router took nothing", async () => {
+    const { session, sent } = standInFor(async () => {
+      throw new Error("refused by the router");
+    });
+    const write = { generic: true, lteBands: null, check: newWriteCheck() };
+    await assert.rejects(session.sendSms(prepareSmsSubmission(["+353830000001", "+353830000002"], "hello"), { sleep: async () => undefined }, write), /refused by the router/);
+    assert.deepEqual(sent, ["+353830000001"]);
+  });
+
+  it("calls a long message unconfirmed when the modem refuses a later part: its first part went out", async () => {
+    let parts = 0;
+    const { client } = openwrtRouter({
+      sms: [],
+      qmodem: true,
+      // The first part goes out, the second is refused
+      get sendAnswer(): string | undefined {
+        parts += 1;
+        return parts === 1 ? undefined : "+CMS ERROR: 38";
+      },
+    });
+    let accepted = 0;
+    const outcome = await client.withSession((s) => {
+      const send = s.sms?.send;
+      assert.ok(send);
+      return send("+353830000001", "x".repeat(200), newWriteCheck(), { statusTimeoutMs: 3000, sleep: async () => undefined, onAccepted: () => (accepted += 1) });
+    });
+    assert.equal(parts, 2, "a message of two parts");
+    assert.equal(accepted, 1);
+    assert.deepEqual(outcome, { state: "unconfirmed", code: null }, "not failed: sending it again would send its first part twice");
+    void OPENWRT_PASSWORD;
   });
 });

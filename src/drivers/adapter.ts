@@ -183,12 +183,16 @@ export class DriverRouterSession implements RouterSession {
   /**
    * One send per recipient, each once. A recipient the router refuses, or says the message did not
    * reach, is a failed one; once a send was taken, an error ends the session's sends (the recipients
-   * not reached yet are failed, not tried again) instead of failing what went out.
+   * not reached yet are failed, not tried again) instead of failing what went out. The recipient
+   * whose own message the router took before the error is unconfirmed, never failed: sending it again
+   * would send it twice.
    */
   async sendSms(prepared: PreparedSmsSubmission, options: SubmitSmsOptions, write: WriteContext): Promise<SmsSendOutcome> {
     const sms = this.#session.sms;
     if (!sms?.send) throw noWrite("send a message");
     let accepted = false;
+    /** The router took the message of the recipient being sent to right now. */
+    let acceptedThis = false;
     // The wait for the router's word ends with the session: cut short, the sends still to come find a transport that sends nothing
     const cut = this.#transport?.cut ?? null;
     const sleep = options.sleep ?? timerSleep;
@@ -197,17 +201,20 @@ export class DriverRouterSession implements RouterSession {
       sleep: (ms) => (cut ? raceSignal(sleep(ms), cut) : sleep(ms)),
       onAccepted: () => {
         accepted = true;
+        acceptedThis = true;
         options.onAccepted?.();
       },
     };
     const outcomes: DriverSmsSendOutcome[] = [];
     for (const phone of prepared.phones) {
+      acceptedThis = false;
       try {
         outcomes.push(await sms.send(phone, prepared.content, write.check, sendOptions));
       } catch (err) {
         // Nothing went out yet: the caller is told what the router said
         if (!accepted) throw err;
-        // Something did: this recipient and the ones after it are not reached, and nothing is sent again
+        // Something did: this recipient's own message, if the router took it, is on its way; the ones after it are not reached
+        if (acceptedThis) outcomes.push({ state: "unconfirmed", code: null });
         while (outcomes.length < prepared.phones.length) outcomes.push({ state: "failed", code: err instanceof CpeApiError ? err.code : null });
         break;
       }

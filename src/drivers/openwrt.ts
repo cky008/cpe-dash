@@ -804,7 +804,11 @@ export class OpenwrtSession implements DriverSessionHandle {
     return assembleSegments(parseCmglPdus(listed));
   }
 
-  /** One PDU per part through QModem's `send_raw_pdu`: `+CMGS` in its answer is the modem's word that the part went out. */
+  /**
+   * One PDU per part through QModem's `send_raw_pdu`: `+CMGS` in its answer is the modem's word that
+   * the part went out. A later part the modem refuses leaves the message unconfirmed, not failed: its
+   * first part went out, and sending the message again would send that part twice.
+   */
   async #smsSend(phone: string, content: string, check: WriteCheck, options: DriverSmsSendOptions): Promise<DriverSmsSendOutcome> {
     this.#guard();
     const qmodem = await this.#ubus.qmodem();
@@ -818,7 +822,7 @@ export class OpenwrtSession implements DriverSessionHandle {
     let confirmed = true;
     for (const [i, pdu] of pdus.entries()) {
       const answer = qmodemText(await this.#ubus.call("qmodem", "send_raw_pdu", { config_section: qmodem.section, cmd: pdu }));
-      if (isAtError(answer)) return { state: "failed", code: atErrorCode(answer) };
+      if (isAtError(answer)) return i === 0 ? { state: "failed", code: atErrorCode(answer) } : { state: "unconfirmed", code: null };
       if (i === 0) options.onAccepted();
       if (!/\+CMGS:/i.test(answer)) confirmed = false;
     }
