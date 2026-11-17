@@ -450,3 +450,25 @@ describe("a message the router took, then an error", () => {
     void OPENWRT_PASSWORD;
   });
 });
+
+describe("a band lock on a router whose LTE bands read back as none", () => {
+  it("takes an empty list as unread: a lock of 5G bands alone is refused before anything is sent", async () => {
+    const written: unknown[] = [];
+    const standIn = {
+      family: "openwrt",
+      open: true,
+      lockState: () => Promise.resolve({ lteBands: [], nrBands: [78], lteCell: null, nrCell: null, networkMode: null, supportedLte: null, supportedNr: null }),
+      setBandLock: (target: unknown) => {
+        written.push(target);
+        return Promise.resolve();
+      },
+    } as unknown as DriverSession;
+    const session = new DriverRouterSession(standIn, { device: new DeviceAccess({ family: "openwrt" }), noteRouterModel: () => undefined, readSection: (_section, read) => read(), latestTelemetry: () => null }, new CounterRates());
+    const write = { generic: true, lteBands: null, check: newWriteCheck() };
+    await assert.rejects(
+      session.lockBands({ lteBands: undefined, nrBands: [78] } as never, { previousLock: () => ({ mode: "unlocked", updatedAtIso: "", lteBands: "all", nrBands: [], cellLock: null }), cachedTelemetry: () => null }, write),
+      /LTE bands could not be read/
+    );
+    assert.deepEqual(written, [], "no band list of none is written");
+  });
+});

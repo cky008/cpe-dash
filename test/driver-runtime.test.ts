@@ -511,6 +511,9 @@ describe("driver runtime: writes", () => {
       assert.equal(restored.applied, true);
       assert.deepEqual(restored.applied ? restored.lockState?.lteBands : null, [1, 3, 7]);
       assert.equal(fx.state.lteBand, "1:3:7");
+      // The lock left the 5G bands alone, and so did the way back: they are on record as the router keeps them (41 and 78), not as every band
+      assert.deepEqual(restored.applied ? restored.lockState?.nrBands : null, [41, 78]);
+      assert.deepEqual(fx.core.controls.getPersistedLockState().nrBands, [41, 78]);
       assert.equal(fx.applied.at(-1)?.action, "auto_unlock_rf_locks");
       assert.equal(fx.applied.at(-1)?.check?.readback, "match");
 

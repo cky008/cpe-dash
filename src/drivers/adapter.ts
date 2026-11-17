@@ -395,7 +395,9 @@ export class DriverRouterSession implements RouterSession {
     const target = readDriverBandLockTarget(command, ROUTER_FAMILY_FACTS[this.family]);
     const before = await this.#session.lockState().catch((): DriverLockState | null => null);
     // The bands a command leaves out are the router's to keep: unread, they would be overwritten with a guess
-    if (target.lte === null && (before?.lteBands ?? null) === null) {
+    // (a list of none is no reading either: written back, it would leave the router no LTE band at all)
+    const lteRead = before?.lteBands ?? null;
+    if (target.lte === null && (lteRead === null || (Array.isArray(lteRead) && lteRead.length === 0))) {
       throw new CpeControlValidationError("The router's current LTE bands could not be read, and locking NR bands alone would overwrite them: name lteBands as well (or 'all')");
     }
     const lte = target.lte ?? before?.lteBands ?? "all";
@@ -454,7 +456,9 @@ export class DriverRouterSession implements RouterSession {
     if (saved) {
       try {
         await this.#session.setBandLock(saved, write.check);
-        return { outcome: { applied: true, lockState: driverBandLockState(saved, null) }, restored: true };
+        // A part the lock left alone was left alone again: on record as the router reports it now, not as every band
+        const after = saved.nr === null ? await this.#session.lockState().catch((): DriverLockState | null => null) : null;
+        return { outcome: { applied: true, lockState: driverBandLockState(saved, after) }, restored: true };
       } catch (err) {
         // A setting this router's own forms cannot write back, refused before it is sent: the documented way back instead
         if (!(err instanceof CpeControlValidationError)) throw err;
