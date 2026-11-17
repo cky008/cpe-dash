@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Security
+- **Encrypted data files open only with their full check value.** FengSui's files in the data directory are encrypted with AES-GCM, which seals each file with a 16-byte check value. On Node 22 a file whose check value had been cut short still opened, checked only as far as the shortened value goes. A file is now opened only when its check value, and the other values FengSui writes with it, have the full length; anything else is moved aside as unreadable, as on Node 26 already.
+
 ### Fixed
 - **A Telegram message could be handled twice after a restart.** Telegram keeps an update until the bot's next poll says it was taken, and the bot kept that point in memory only. When FengSui stopped or restarted in the moment between taking an update and that next poll (more likely while the internet is down and the poll keeps failing), the update came again after the restart: a reply to an SMS card, which sends at once, was sent a second time. The bot now saves the point before it handles the updates. An update Telegram sends without a usable number is left alone instead of stopping the bot from moving on.
 - **A message the router had taken could be counted as failed.** When FengSui sends one message to several recipients on a router of another brand, and an error came right after the router took the message for one of them, that recipient was listed as failed, so whoever looked at the result could send it again and the person got it twice. It is now listed as sent but not confirmed, like any message the router took. On OpenWrt routers, a long message whose later part the modem refused is treated the same way: its first part went out.

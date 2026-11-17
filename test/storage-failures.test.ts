@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { createFengSuiRuntime } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
-import { AtomicFileWriter, onStorageWriteFailure } from "../src/encrypted-file.ts";
+import { AtomicFileWriter, StorageCipher, onStorageWriteFailure } from "../src/encrypted-file.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { tempDir } from "./helpers/temp-dir.ts";
 
@@ -77,5 +77,20 @@ describe("failed background saves", () => {
       fs.chmodSync(dataDir, 0o700);
       await stack.close();
     }
+  });
+});
+
+describe("an encrypted store's envelope", () => {
+  it("opens only with a full 16-byte tag, a 12-byte IV and a 16-byte salt", () => {
+    const cipher = new StorageCipher("envelope_key");
+    const envelope = cipher.encryptObject({ hello: "world" });
+    assert.deepEqual(cipher.decryptEnvelope(envelope), { hello: "world" });
+    // GCM checks a tag cut short only as far as it goes (12 of 16 bytes still open the store): FengSui never wrote one
+    assert.throws(() => cipher.decryptEnvelope({ ...envelope, tag: envelope.tag.slice(0, 24) }), /envelope/i);
+    assert.throws(() => cipher.decryptEnvelope({ ...envelope, tag: envelope.tag.slice(0, 8) }), /envelope/i);
+    assert.throws(() => cipher.decryptEnvelope({ ...envelope, iv: envelope.iv.slice(0, 16) }), /envelope/i);
+    assert.throws(() => cipher.decryptEnvelope({ ...envelope, salt: `${envelope.salt}00` }), /envelope/i);
+    // Hex that is not hex decodes short as well
+    assert.throws(() => cipher.decryptEnvelope({ ...envelope, tag: `${envelope.tag.slice(0, 30)}zz` }), /envelope/i);
   });
 });

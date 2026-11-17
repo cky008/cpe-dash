@@ -157,6 +157,10 @@ export class StorageCipher {
     const iv = Buffer.from(envelope.iv, "hex");
     const tag = Buffer.from(envelope.tag, "hex");
     const ciphertext = Buffer.from(envelope.ciphertext, "base64");
+    // What `encryptObject` writes, exactly: GCM would check a shortened tag only as far as it goes (Node 22 accepts one)
+    if (salt.length !== 16 || iv.length !== 12 || tag.length !== 16) {
+      throw new Error("Encrypted storage envelope is malformed: its salt, IV or tag does not have the length FengSui writes");
+    }
 
     const subKey = Buffer.from(crypto.hkdfSync("sha256", this.#masterKey, salt, HKDF_INFO, 32));
     const decipher = crypto.createDecipheriv("aes-256-gcm", subKey, iv);
