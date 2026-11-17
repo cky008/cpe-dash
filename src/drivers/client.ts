@@ -59,6 +59,19 @@ export interface DriverCpeClientOptions {
 /** How long the `finally` logout may take once the session itself is over. */
 const LOGOUT_TIMEOUT_MS = 4000;
 
+/** The transport of each session a client opened (the work's side of it: `sessionTransport`). */
+const transports = new WeakMap<DriverSession, LanHttp>();
+
+/**
+ * The transport of a session the client opened, for the work that runs in it: where it files a
+ * request the session owes the router whatever cuts it short (`LanHttp.owe`: the connect after a
+ * disconnect), and waits no longer than the session lasts (`LanHttp.sleep`). `null`: a session no
+ * client opened (a test's stand-in), which nothing can cut short.
+ */
+export function sessionTransport(session: DriverSession): LanHttp | null {
+  return transports.get(session) ?? null;
+}
+
 export function isInsideDriverSession(client: DriverCpeClient): boolean {
   return client.insideSession;
 }
@@ -67,7 +80,9 @@ export function isInsideDriverSession(client: DriverCpeClient): boolean {
  * A driver family's way into a session, for the shared client: the family's own login-free check
  * (someone signed in, a locked login), one password submission, the family's logout on a fresh
  * bounded signal in `finally`. A login answered "someone else is signed in" yields: a driver's
- * password never goes out twice in a row.
+ * password never goes out twice in a row. Before the logout, on that same signal, goes what the
+ * session still owes the router (a connect its work was cut off from sending); after it the
+ * transport is closed, so work a cut left behind sends nothing once the session is over.
  */
 function driverSessionProtocol(protocol: DriverProtocol, logoutTimeoutMs: number): SessionProtocol<DriverSession> {
   return {
@@ -94,6 +109,7 @@ function driverSessionProtocol(protocol: DriverProtocol, logoutTimeoutMs: number
         async login(): Promise<void> {
           loggingIn = protocol.login(http, { username: ctx.username, password: ctx.password });
           handle = await loggingIn;
+          transports.set(handle, http);
         },
         async logout(): Promise<number | null> {
           // The deadline or a stop cut the login short: wait (bounded) for it to end on the session's own
@@ -112,17 +128,34 @@ function driverSessionProtocol(protocol: DriverProtocol, logoutTimeoutMs: number
             }
           }
           const opened = handle;
-          if (!opened) return null;
+          if (!opened) {
+            http.close();
+            return null;
+          }
           // Free the admin slot on a fresh bounded signal (the session's own may have fired); never throws
           const bound = deadlineSignal(logoutTimeoutMs);
           http.retarget(bound.signal);
           try {
+            // First what the session owes the router and a cut kept its work from sending (the connect after
+            // a disconnect), waited for no longer than half the time, so the logout always has its turn
+            if (http.owes) {
+              const owing = deadlineSignal(logoutTimeoutMs / 2);
+              try {
+                await raceSignal(http.settleOwed(), owing.signal);
+              } catch {
+                // Not answered in time: the logout goes on; the request may still land
+              } finally {
+                owing.clear();
+              }
+            }
             // Bounded on its own as well: a logout that never settles must not keep the slot
             await raceSignal(opened.logout(), bound.signal);
           } catch {
             // The router ends an idle session on its own; nothing to do here
           } finally {
             bound.clear();
+            // The session is over: work a cut left behind finds a transport that sends nothing
+            http.close();
           }
           return Math.max(0, Math.round(performance.now() - startedMs));
         },

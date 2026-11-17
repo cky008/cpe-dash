@@ -1209,19 +1209,21 @@ class ZteGoformSession implements DriverSessionHandle {
    * ZTE's page changes the operator and the access point only with the data connection down: it
    * disconnects first and connects again afterwards. The same here: a connection that is up is taken
    * down with `DISCONNECT_NETWORK`, and `CONNECT_NETWORK` is sent once at the end whatever happened in
-   * between. A connection that was down stays down.
+   * between: a disconnect the router refused, a change that failed, or the session cut short (the
+   * connect is owed from before the disconnect goes out, so the session's end sends it then). A
+   * connection that was down stays down.
    */
   async #whileDisconnected<T>(check: WriteCheck, wait: DriverWait, run: () => Promise<T>): Promise<T> {
     this.#guard();
     const status = textOf((await getCmd(this.#http, ["ppp_status"], true, this.#at))["ppp_status"])?.toLowerCase() ?? "";
     if (status !== "ppp_connected" && status !== "ppp_connecting") return await run();
     const pppStatus = async (): Promise<boolean | null> => connectedOf((await getCmd(this.#http, ["ppp_status"], true, this.#at))["ppp_status"]);
-    const connect = async (): Promise<void> => {
+    const connect = this.#http.owe(async () => {
       await this.#post(check, "CONNECT_NETWORK", [["notCallback", "true"]]);
-    };
-    await this.#post(check, "DISCONNECT_NETWORK", [["notCallback", "true"]]);
+    });
     let result: T;
     try {
+      await this.#post(check, "DISCONNECT_NETWORK", [["notCallback", "true"]]);
       await awaitConnection(pppStatus, false, wait);
       result = await run();
     } catch (err: unknown) {
@@ -1506,7 +1508,7 @@ class ZteGoformSession implements DriverSessionHandle {
         ["msg_id", zteIdList(ids.slice(i, i + SMS_ID_BATCH))],
         ["notCallback", "true"],
       ]);
-      const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_DELETE), { timeoutMs: SMS_DELETE_SETTLE_MS, intervalMs: SMS_DELETE_POLL_MS });
+      const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_DELETE), { timeoutMs: SMS_DELETE_SETTLE_MS, intervalMs: SMS_DELETE_POLL_MS, sleep: (ms) => this.#http.sleep(ms) });
       if (status === "failed") throw new CpeApiError("failed", "DELETE_SMS did not delete");
     }
     settleSmsListing(check, await this.#smsList().catch(() => null), ids, "gone");

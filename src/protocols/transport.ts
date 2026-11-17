@@ -61,13 +61,23 @@ export interface LanResponse {
   location: string | null;
 }
 
+/** A request a session owes the router before it ends (`sent`: its one send, once it began). */
+interface OwedRequest {
+  send: () => Promise<void>;
+  sent: Promise<void> | null;
+}
+
 export class LanHttp {
   readonly baseUrl: string;
   readonly #origin: string;
   readonly #fetchImpl: typeof fetch;
   readonly #timeoutMs: number;
+  /** What requests end with: the session's signal, then the signal of its logout, then nothing goes out. */
   #signal: AbortSignal;
+  /** The session's own signal (its deadline, a stop), whatever requests end with by now. */
+  readonly #session: AbortSignal;
   readonly #cookies = new Map<string, string>();
+  readonly #owed: OwedRequest[] = [];
 
   constructor(options: LanHttpOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -75,6 +85,79 @@ export class LanHttp {
     this.#fetchImpl = options.fetchImpl;
     this.#timeoutMs = options.timeoutMs;
     this.#signal = options.signal;
+    this.#session = options.signal;
+  }
+
+  /** Aborts when the session is cut short (its deadline, a stop): work that waits on anything but a request watches it. */
+  get cut(): AbortSignal {
+    return this.#session;
+  }
+
+  /**
+   * Wait `ms` inside the session. Rejects with the signal's reason as soon as the session is cut
+   * short, so work that waits for the router to follow ends there, on a transport that sends nothing,
+   * instead of waking when the logout's requests go out or after them.
+   */
+  sleep(ms: number): Promise<void> {
+    const signal = this.#session;
+    return new Promise<void>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  /**
+   * Take on a request the session owes the router from now on, whatever cuts it short: the connect
+   * after a disconnect. The function it returns sends it, once however often it is called (the work
+   * calls it where it would have sent the request). A send that died with the session counts as not
+   * sent: it may never have left, so it stays owed, and the client sends what is still owed on the
+   * signal of its logout, before it logs out (`settleOwed`).
+   */
+  owe(send: () => Promise<void>): () => Promise<void> {
+    const owed: OwedRequest = { send, sent: null };
+    this.#owed.push(owed);
+    return () => this.#sendOwed(owed);
+  }
+
+  /** Something is still owed: taken on and not sent. */
+  get owes(): boolean {
+    return this.#owed.some((owed) => owed.sent === null);
+  }
+
+  #sendOwed(owed: OwedRequest): Promise<void> {
+    if (owed.sent) return owed.sent;
+    const signal = this.#signal;
+    const sending: Promise<void> = owed.send().catch((err: unknown) => {
+      if (signal.aborted && owed.sent === sending) owed.sent = null;
+      throw err;
+    });
+    owed.sent = sending;
+    return sending;
+  }
+
+  /** Send every request still owed, in the order they were taken on; never throws (the client, before its logout). */
+  async settleOwed(): Promise<void> {
+    for (const owed of [...this.#owed]) {
+      // A send under way is waited for: if it dies with the session, the request is owed again
+      if (owed.sent) await owed.sent.catch(() => undefined);
+      if (!owed.sent) await this.#sendOwed(owed).catch(() => undefined);
+    }
+  }
+
+  /** The session is over: nothing goes out any more, whoever still holds this transport. */
+  close(): void {
+    this.#signal = AbortSignal.abort(new Error("The router session is over: nothing more is sent in it"));
   }
 
   get origin(): string {
@@ -127,6 +210,8 @@ export class LanHttp {
     if (cookie) headers["Cookie"] = cookie;
     const label = `${req.method} ${req.path.split("?")[0] ?? req.path}`;
     for (let attempt = 0; ; attempt++) {
+      // A session that is cut short or over hands nothing to the socket
+      if (this.#signal.aborted) throw this.#signal.reason instanceof Error ? this.#signal.reason : new Error("The router session is over");
       const timeout = deadlineSignal(req.timeoutMs ?? this.#timeoutMs);
       const signal = AbortSignal.any([this.#signal, timeout.signal]);
       try {

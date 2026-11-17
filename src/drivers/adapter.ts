@@ -38,10 +38,13 @@ import type { BandLockOutcome, LinkChangeOutcome, LockContext, LockOutcome, Roll
 import { type DriverFamily, ROUTER_FAMILY_FACTS, familyWritesAnywhere, unnamedModel } from "../router-family.ts";
 import type { RouterDriver, RouterSession, RouterSessionContext, SessionlessRead, TestedIdentity } from "../router-session.ts";
 import type { WriteContext } from "../scheduler.ts";
+import type { LanHttp } from "../protocols/transport.ts";
+import { raceSignal } from "../session-client.ts";
 import { CpeApiError } from "../session-errors.ts";
 import type { PreparedSmsSubmission, SubmitSmsOptions } from "../sms/submission.ts";
 import type { SmsCounters, SmsSendResult } from "../sms/types.ts";
 import { bandsToHex, hexToBands } from "./bands.ts";
+import { sessionTransport } from "./client.ts";
 import { driverTopologySnapshot } from "./hosts.ts";
 import { genericLockState } from "./huawei/driver.ts";
 import { settleRestart } from "./readback.ts";
@@ -64,11 +67,18 @@ export class DriverRouterSession implements RouterSession {
   readonly #session: DriverSession;
   readonly #ctx: RouterSessionContext;
   readonly #rates: CounterRates;
+  /** The session's transport (`null`: a session no client opened, which nothing cuts short). */
+  readonly #transport: LanHttp | null;
+  /** How a write waits in its session for the router to follow: no longer than the session lasts. */
+  readonly #wait: DriverWait;
 
   constructor(session: DriverSession, ctx: RouterSessionContext, rates: CounterRates) {
     this.#session = session;
     this.#ctx = ctx;
     this.#rates = rates;
+    const transport = sessionTransport(session);
+    this.#transport = transport;
+    this.#wait = { sleep: (ms) => (transport ? transport.sleep(ms) : timerSleep(ms)) };
   }
 
   get family(): DriverFamily {
@@ -179,9 +189,12 @@ export class DriverRouterSession implements RouterSession {
     const sms = this.#session.sms;
     if (!sms?.send) throw noWrite("send a message");
     let accepted = false;
+    // The wait for the router's word ends with the session: cut short, the sends still to come find a transport that sends nothing
+    const cut = this.#transport?.cut ?? null;
+    const sleep = options.sleep ?? timerSleep;
     const sendOptions: DriverSmsSendOptions = {
       statusTimeoutMs: options.statusTimeoutMs ?? 45_000,
-      sleep: options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+      sleep: (ms) => (cut ? raceSignal(sleep(ms), cut) : sleep(ms)),
       onAccepted: () => {
         accepted = true;
         options.onAccepted?.();
@@ -242,7 +255,7 @@ export class DriverRouterSession implements RouterSession {
     // The modes this router names, else the family's: a mode outside them is not sent
     const offered = before.networkModes ?? ROUTER_FAMILY_FACTS[this.family].selectableModes ?? [];
     if (!offered.includes(mode)) throw new CpeControlValidationError(`This router offers no "${mode}" network mode (it offers ${offered.join(", ") || "none"})`);
-    await cellular.setNetworkMode(mode, write.check, SESSION_WAIT);
+    await cellular.setNetworkMode(mode, write.check, this.#wait);
     const previous = before.networkMode ?? null;
     return { previous: previous === mode ? null : previous };
   }
@@ -250,14 +263,14 @@ export class DriverRouterSession implements RouterSession {
   async scanOperators(write: WriteContext): Promise<OperatorChoice[]> {
     const cellular = this.#cellular("search for networks");
     if (!cellular.scanOperators) throw noWrite("search for networks");
-    return await cellular.scanOperators(write.check, SESSION_WAIT);
+    return await cellular.scanOperators(write.check, this.#wait);
   }
 
   async selectOperator(selection: OperatorSelection, write: WriteContext): Promise<LinkChangeOutcome<OperatorSelection>> {
     const cellular = this.#cellular("choose the operator");
     if (!cellular.selectOperator) throw noWrite("choose the operator");
     const before = (await cellular.read().catch((): DriverCellularState => ({}))).operator ?? null;
-    await cellular.selectOperator(selection, write.check, SESSION_WAIT);
+    await cellular.selectOperator(selection, write.check, this.#wait);
     // What it is put back to is how the router chose before: by itself, or the operator it was kept on
     const previous: OperatorSelection | null = before?.selection === "auto" ? { mode: "auto" } : before?.selection === "manual" && before.plmn !== null ? { mode: "manual", plmn: before.plmn, rat: null } : null;
     return { previous: previous !== null && sameOperatorSelection(previous, selection) ? null : previous };
@@ -277,7 +290,7 @@ export class DriverRouterSession implements RouterSession {
     const cellular = this.#cellular("change the access point");
     if (!cellular.setApn) throw noWrite("change the access point");
     const before = await cellular.read().catch((): DriverCellularState => ({}));
-    await cellular.setApn(choice, write.check, SESSION_WAIT);
+    await cellular.setApn(choice, write.check, this.#wait);
     // Only an access point the router can be switched back to is worth watching the WAN for
     return { previous: cellular.restoreApn ? (before.apnRestore ?? null) : null };
   }
@@ -297,13 +310,13 @@ export class DriverRouterSession implements RouterSession {
       await cellular.setSimSlot(change.previous, write.check);
     } else if (change.kind === "network_mode") {
       if (!cellular.setNetworkMode) throw noWrite("switch the network mode");
-      await cellular.setNetworkMode(change.previous, write.check, SESSION_WAIT);
+      await cellular.setNetworkMode(change.previous, write.check, this.#wait);
     } else if (change.kind === "operator") {
       if (!cellular.selectOperator) throw noWrite("choose the operator");
-      await cellular.selectOperator(change.previous, write.check, SESSION_WAIT);
+      await cellular.selectOperator(change.previous, write.check, this.#wait);
     } else {
       if (!cellular.restoreApn) throw noWrite("switch the access point back");
-      await cellular.restoreApn(change.previous, write.check, SESSION_WAIT);
+      await cellular.restoreApn(change.previous, write.check, this.#wait);
     }
     return { applied: true };
   }
@@ -323,14 +336,14 @@ export class DriverRouterSession implements RouterSession {
   enterSimPin(pin: string, write: WriteContext): Promise<SimPinOutcome> {
     return this.#pin("enter the SIM PIN", async (cellular) => {
       if (!cellular.enterPin) throw noWrite("enter the SIM PIN");
-      return await cellular.enterPin(pin, write.check, SESSION_WAIT);
+      return await cellular.enterPin(pin, write.check, this.#wait);
     });
   }
 
   setSimPinLock(enabled: boolean, pin: string, write: WriteContext): Promise<SimPinOutcome> {
     return this.#pin("change the SIM PIN lock", async (cellular) => {
       if (!cellular.setPinLock) throw noWrite("change the SIM PIN lock");
-      return await cellular.setPinLock(enabled, pin, write.check, SESSION_WAIT);
+      return await cellular.setPinLock(enabled, pin, write.check, this.#wait);
     });
   }
 
@@ -364,7 +377,7 @@ export class DriverRouterSession implements RouterSession {
   async sendUssd(request: UssdRequest, write: WriteContext): Promise<UssdAnswer> {
     const cellular = this.#cellular("send a USSD code");
     if (!cellular.ussd) throw noWrite("send a USSD code");
-    return await cellular.ussd(request, write.check, SESSION_WAIT);
+    return await cellular.ussd(request, write.check, this.#wait);
   }
 
   /**
@@ -446,7 +459,7 @@ export class DriverRouterSession implements RouterSession {
 
   /** A redial: the router's own command, else off and on again (connected again at the end in any case). */
   async reconnect(write: WriteContext): Promise<{ reconnecting: true; requestedAtIso: string }> {
-    await redial(this.#session, write.check);
+    await redial(this.#session, write.check, this.#wait, this.#transport);
     return { reconnecting: true as const, requestedAtIso: new Date().toISOString() };
   }
 
@@ -458,13 +471,13 @@ export class DriverRouterSession implements RouterSession {
   async autoReconnect(write: WriteContext): Promise<WanRepairOutcome> {
     if ((await this.#session.telemetry()).wan.connected === true) return { applied: false, skipped: "wan_up" };
     if ((await this.#session.data?.enabled().catch((): boolean | null => null)) === false) return { applied: false, skipped: "mobile_data_off" };
-    await redial(this.#session, write.check);
+    await redial(this.#session, write.check, this.#wait, this.#transport);
     return { applied: true };
   }
 
   async setMobileData(enabled: boolean, write: WriteContext): Promise<{ mobileDataEnabled: boolean }> {
     if (!this.#session.data) throw noWrite("switch mobile data");
-    await this.#session.data.set(enabled, write.check, SESSION_WAIT);
+    await this.#session.data.set(enabled, write.check, this.#wait);
     return { mobileDataEnabled: enabled };
   }
 
@@ -528,24 +541,35 @@ function noWrite(what: string): CpeControlValidationError {
   return new CpeControlValidationError(`This router's interface gives FengSui no way to ${what}; nothing was sent to it`);
 }
 
-/** How long a write may wait in its session for the router to follow (a disconnect before the connect). */
-const SESSION_WAIT: DriverWait = { sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)) };
+/** A wait on a timer alone (a session no client opened: nothing cuts it short). */
+const timerSleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** A request sent once however often it is asked for; in a session a client opened, one the session owes the router. */
+function owedOnce(transport: LanHttp | null, send: () => Promise<void>): () => Promise<void> {
+  if (transport) return transport.owe(send);
+  let sent: Promise<void> | null = null;
+  return () => (sent ??= send());
+}
 
 /**
  * Redial with the router's own command, or switch data off and on again. The connect is sent in any
- * case, also when the disconnect failed: a redial never leaves the router disconnected on purpose.
- * Each command goes out once; the polls that follow tell whether a new connection came up.
+ * case, also when the disconnect failed, and also when the session is cut short between the two (its
+ * deadline, a stop): then the session's end sends it before the logout (`LanHttp.owe`). A redial never
+ * leaves the router disconnected on purpose. Each command goes out once; the polls that follow tell
+ * whether a new connection came up.
  */
-async function redial(session: DriverSession, check: WriteCheck): Promise<void> {
+async function redial(session: DriverSession, check: WriteCheck, wait: DriverWait, transport: LanHttp | null): Promise<void> {
   const data = session.data;
   if (!data) throw noWrite("redial");
   if (data.redial) {
     await data.redial(check);
   } else {
+    // Owed before the disconnect goes out: if the session is cut short in between, its end sends the connect
+    const connect = owedOnce(transport, () => data.set(true, check, wait));
     try {
-      await data.set(false, check, SESSION_WAIT);
+      await data.set(false, check, wait);
     } finally {
-      await data.set(true, check, SESSION_WAIT);
+      await connect();
     }
   }
   settleRestart(check);

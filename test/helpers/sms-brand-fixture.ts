@@ -1,5 +1,6 @@
 import path from "node:path";
 import { createFengSuiCore, stopFengSuiCore } from "../../src/core.ts";
+import type { ConnectionOptions } from "../../src/drivers/connection.ts";
 import { StorageCipher } from "../../src/encrypted-file.ts";
 import type { RouterFamily } from "../../src/router-family.ts";
 import type { ControlAppliedEvent } from "../../src/scheduler.ts";
@@ -53,10 +54,12 @@ export function createBrandSmsFixture(opts: {
   /** The model the gate goes by before any poll (`null`: left to the first session). */
   model?: string | null;
   service?: Partial<SmsServiceOptions>;
+  /** What a test of a session cut short sets (how long a session may last). */
+  connection?: Partial<ConnectionOptions>;
 }) {
   const tmpDir = tempDir("fengsui-sms-brand-");
   const stateStore = new EncryptedStateStore({ filePath: path.join(tmpDir, "state.json"), encryptionKey: "brand_key" });
-  const connection = mockConnection(opts, { cpeUrl: opts.cpeUrl, cpeUsername: opts.username ?? "admin", requestTimeoutMs: 2000 });
+  const connection = mockConnection(opts, { cpeUrl: opts.cpeUrl, cpeUsername: opts.username ?? "admin", requestTimeoutMs: 2000, ...opts.connection });
   const core = createFengSuiCore({
     connection,
     stateStore,

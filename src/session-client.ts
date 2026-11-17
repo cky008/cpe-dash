@@ -95,6 +95,13 @@ export interface WithSessionOptions {
 /** How long one request to the router may take, where the connection names no other bound. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 
+/**
+ * How long a session that was cut short (its deadline, a stop) waits for its work to end before it
+ * logs out. The cut fails the work's requests and waits at once, so the work is over within a few
+ * turns of the event loop; work that hangs on something else is left behind after this long.
+ */
+export const CUT_UNWIND_MS = 250;
+
 const activeSession = new AsyncLocalStorage<SessionClient<unknown>>();
 
 /** Resolve after `ms`, or reject with `signal.reason` as soon as it aborts. */
@@ -113,6 +120,18 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
       reject(signal.reason);
     };
     signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Resolve once `work` has settled either way, or after `ms`, whichever comes first; never rejects. */
+function settledWithin(work: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    const done = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    work.then(done, done);
   });
 }
 
@@ -362,6 +381,8 @@ export class SessionClient<S> {
         deadline: deadline.signal,
         apiErrors: this.apiErrors,
       });
+      /** The caller's work, once it began. */
+      let work: Promise<T> | null = null;
       try {
         const pre = await raceSignal(attempt.precheck(), deadline.signal);
         if (pre?.locked) this.#trip(pre.locked, credentialFp);
@@ -382,14 +403,15 @@ export class SessionClient<S> {
           }
           throw err;
         }
-        const value = await raceSignal(
-          activeSession.run(this, () => fn(attempt.session)),
-          deadline.signal
-        );
+        work = activeSession.run(this, () => fn(attempt.session));
+        const value = await raceSignal(work, deadline.signal);
         return { status: "ok", value, holdMs: 0 };
       } finally {
         clearTimeout(timer);
         cancel.removeEventListener("abort", forwardCancel);
+        // Cut short: the work is left to end first, on a transport that sends nothing for it any more,
+        // so that none of it is still under way when the logout's own requests go out
+        if (work !== null && deadline.signal.aborted) await settledWithin(work, CUT_UNWIND_MS);
         const holdMs = await attempt.logout();
         if (holdMs !== null) {
           this.#lastSessionHoldMs = holdMs;

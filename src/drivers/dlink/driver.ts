@@ -226,16 +226,18 @@ class DlinkSession implements DriverSessionHandle {
    * applies to the next connection. A router that says it dials by itself comes back alone. On any
    * other (one that does not, or does not say), FengSui sends the connect, once, whatever happened in
    * between, unless the connection was down before: a restart never leaves a router offline that was
-   * online.
+   * online. "Whatever happened" includes the session cut short between the two: the connect is owed
+   * from before the disconnect goes out, and the session's end sends it then.
    */
   async #restartConnection(check: WriteCheck, before: DlinkApnSettings, wait: DriverWait): Promise<void> {
     const wasUp = await this.#connected().catch((): boolean | null => null);
     const reconnect = before.autoConnect !== true && wasUp !== false;
+    const connect = reconnect ? this.#http.owe(() => this.#connect(check, true)) : null;
     try {
       await this.#connect(check, false);
       if (reconnect) await awaitConnection(() => this.#connected(), false, wait);
     } finally {
-      if (reconnect) await this.#connect(check, true);
+      if (connect) await connect();
     }
   }
 

@@ -2,6 +2,7 @@ import path from "node:path";
 import { createFengSuiCore, stopFengSuiCore } from "../../src/core.ts";
 import type { LinkChangeNotice } from "../../src/cpe-controls.ts";
 import type { WriteCheck } from "../../src/device-access.ts";
+import type { ConnectionOptions } from "../../src/drivers/connection.ts";
 import type { DriverCellular, DriverSession } from "../../src/drivers/types.ts";
 import type { RouterFamily } from "../../src/router-family.ts";
 import type { ControlAppliedEvent, ControlAuditEvent } from "../../src/scheduler.ts";
@@ -33,15 +34,24 @@ export const noWait = { sleep: (): Promise<void> => Promise.resolve() };
  * A daemon core on a mock router of any brand: its writes audited and broadcast, and the changes it
  * hands to self-healing collected. Nothing here talks to a real router.
  */
-export function daemonOn(family: RouterFamily, fetchImpl: typeof fetch, url: string, password: string, username = family === "huawei" ? "admin" : "") {
+export function daemonOn(
+  family: RouterFamily,
+  fetchImpl: typeof fetch,
+  url: string,
+  password: string,
+  username = family === "huawei" ? "admin" : "",
+  /** What a test of a session cut short sets: how long a session may last, how long a stop waits for one. */
+  extra: { connection?: Partial<ConnectionOptions>; stopGraceMs?: number } = {}
+) {
   const dir = tempDir("fengsui-driver-daemon-");
   const core = createFengSuiCore({
-    connection: mockConnection({ password: password, fetchImpl }, { cpeUrl: url, cpeUsername: username, requestTimeoutMs: 2000 }),
+    connection: mockConnection({ password: password, fetchImpl }, { cpeUrl: url, cpeUsername: username, requestTimeoutMs: 2000, ...extra.connection }),
     stateStore: new EncryptedStateStore({ filePath: path.join(dir, "state.json"), encryptionKey: "driver_daemon_key" }),
     timeseries: new TimeSeriesRingBuffer({ retentionHours: 1 }),
     family,
     pollIntervalMs: 600_000,
     neighborScanIntervalMs: 600_000,
+    ...(extra.stopGraceMs !== undefined ? { stopGraceMs: extra.stopGraceMs } : {}),
   });
   core.monitor.init();
   const audits: ControlAuditEvent[] = [];
