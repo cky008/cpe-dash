@@ -485,6 +485,11 @@ interface PersistedTelegramState {
   linkedAt: Array<[string, number]>;
   replyTargets: Array<[string, string]>;
   alertsMutedUntilMs: number | null;
+  /**
+   * The `offset` that follows the last update the bot took (absent in older files): a restart asks
+   * Telegram for what follows it, so an update taken before the restart is never handled again.
+   */
+  updateOffset?: number;
 }
 
 function isGroupLinkEntry(entry: unknown): entry is [string, TelegramGroupLink] {
@@ -507,6 +512,7 @@ export class TelegramStateStore {
   #linkedAt = new Map<string, number>();
   #replyTargets = new Map<string, string>();
   #mutedUntilMs: number | null = null;
+  #updateOffset = 0;
   readonly #now: () => number;
 
   constructor(opts: { filePath: string; cipher: StorageCipher; now?: () => number }) {
@@ -542,6 +548,8 @@ export class TelegramStateStore {
       )
     );
     this.#mutedUntilMs = typeof parsed?.alertsMutedUntilMs === "number" ? parsed.alertsMutedUntilMs : null;
+    const offset = parsed?.updateOffset;
+    this.#updateOffset = typeof offset === "number" && Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
   }
 
   async flush(): Promise<void> {
@@ -553,8 +561,24 @@ export class TelegramStateStore {
       linkedAt: [...this.#linkedAt],
       replyTargets: [...this.#replyTargets],
       alertsMutedUntilMs: this.#mutedUntilMs,
+      updateOffset: this.#updateOffset,
     };
     await this.#writer.write(() => this.#cipher.serializeJson(payload));
+  }
+
+  /** The `offset` that follows the last update the bot took (`0`: none yet). */
+  get updateOffset(): number {
+    return this.#updateOffset;
+  }
+
+  /**
+   * The bot took the updates up to `offset - 1`; saved before they are handled, so that a restart in
+   * between asks Telegram for what follows them instead of having them delivered again.
+   */
+  async takeUpdatesUpTo(offset: number): Promise<void> {
+    if (!Number.isSafeInteger(offset) || offset <= this.#updateOffset) return;
+    this.#updateOffset = offset;
+    await this.flush();
   }
 
   rotateEncryptionKey(secret: string): void {
@@ -1144,6 +1168,8 @@ export class TelegramBot implements NotificationChannel {
 
   async #runPollLoop(): Promise<void> {
     let backoffMs = 1500;
+    // Where the last run left off: what it took is not asked for again
+    this.#offset = Math.max(this.#offset, this.state.updateOffset);
     while (this.#running) {
       if (this.#standby) {
         await this.#pause(1000);
@@ -1160,8 +1186,12 @@ export class TelegramBot implements NotificationChannel {
         // Telegram answers again (the WAN is back): deliver what queued up meanwhile
         if (this.#outbox.length > 0) void this.flushOutbox();
         if (!this.#identified) void this.#identify();
-        for (const update of Array.isArray(updates) ? updates : []) {
-          this.#offset = Math.max(this.#offset, update.update_id + 1);
+        // An update without a usable number is left alone: it would neither move the offset nor be told apart
+        const batch = (Array.isArray(updates) ? updates : []).filter((update) => typeof update === "object" && update !== null && Number.isSafeInteger(update.update_id) && update.update_id >= 0);
+        for (const update of batch) this.#offset = Math.max(this.#offset, update.update_id + 1);
+        // Saved before any of them is handled: a restart in the middle asks for what follows them, not for them again
+        if (batch.length > 0) await this.state.takeUpdatesUpTo(this.#offset).catch((err: unknown) => this.#log(`[telegram] could not save the update offset: ${err instanceof Error ? err.message : String(err)}`));
+        for (const update of batch) {
           const handling = this.handleUpdate(update);
           this.#handlers.add(handling);
           void handling.finally(() => this.#handlers.delete(handling));

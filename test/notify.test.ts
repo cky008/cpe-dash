@@ -922,6 +922,34 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("keeps the last update it took across a restart, so an update is never handled twice", async () => {
+    // A status request, and one update Telegram (or a proxy in front of it) wrote wrong
+    const fx = createBotFixture({ updates: [[{ update_id: "x" as never, message: { message_id: 1, chat: { id: 1001 }, text: "/status" } }, { update_id: 41, message: { message_id: 2, chat: { id: 1001 }, text: "/status" } }]] });
+    try {
+      await fx.bot.start();
+      for (let i = 0; i < 400 && fx.tg.of("getUpdates").length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      const polls = fx.tg.of("getUpdates");
+      assert.equal(polls[1]?.payload["offset"], 42, "the next poll asks for what follows the update it took");
+      for (let i = 0; i < 400 && fx.tg.sends("1001").length < 1; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(fx.tg.sends("1001").length, 1, "the update without a number was left alone");
+      await fx.bot.stop();
+      await fx.state.flush();
+      // The daemon restarts: the bot asks Telegram for what follows that update, not for everything it has not been told was taken
+      const reloaded = new TelegramStateStore({ filePath: fx.state.filePath, cipher: StorageCipher.fromSecret("bot_key") });
+      reloaded.load();
+      assert.equal(reloaded.updateOffset, 42);
+      const again = new TelegramBot({ api: fx.bot.api, core: fx.core, state: reloaded, sms: fx.service, authToken: "dashboard_api_token", allowedChatIds: ["1001"], defaultCountryCode: "+353", locale: "en" });
+      const before = fx.tg.of("getUpdates").length;
+      await again.start();
+      for (let i = 0; i < 400 && fx.tg.of("getUpdates").length <= before; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(fx.tg.of("getUpdates")[before]?.payload["offset"], 42);
+      await again.stop();
+      await reloaded.flush();
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("handles read, read-all and delete-with-confirmation callbacks plus vCard imports", async () => {
     // A second chat the owner allowed, to try this chat's confirmation from
     const fx = createBotFixture({ vcf: "BEGIN:VCARD\nFN:Cara\nTEL:0830000003\nEND:VCARD", allowedChatIds: ["1001", "1002"] });
