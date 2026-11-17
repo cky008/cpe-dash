@@ -97,7 +97,7 @@ export interface ApiErrorEnvelope {
     // ── CPE 会话调度 ──
     | "BROWSER_SESSION_YIELDED"  // 409: 真人管理员正在使用 http://192.168.8.1，写操作礼貌让位中止（仅 RESPECT_BROWSER_SESSION=true）
     | "PEER_DAEMON_ACTIVE"       // 409: 另一台主机上的「烽燧」守护进程正在管理这台 CPE，本进程待机（附 peerAddress）
-    | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32），或守护进程正在停机（排队中的请求立即拒绝；在途会话宽限 2s 后被取消并登出）
+    | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32），或守护进程正在停机（排队中的请求立即拒绝；在途会话宽限 2s 后被取消并登出。被取消的是一项已经进了会话的写入时，`message` 写明「可能已经生效」，审计记为失败而不是拒绝）
     | "CIRCUIT_BREAKER_OPEN"     // 423: 防爆破断路器已熔断（108006/108002/108001 密码错误、108007 锁定、115002 需先改密码，或旧式 user/login 的应答无法判断：未知错误码，或既不是 OK 也不是错误码，包括重定向（code 为 "unconfirmed"）；识别为未验证型号的路由器上 SCRAM 证明的应答无法判断时同样熔断，附 circuitBreaker）；触发熔断的那次请求与熔断期间的写操作都返回它，后者不尝试登录
     | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
@@ -109,7 +109,7 @@ export interface ApiErrorEnvelope {
     | "DEVICE_UNVERIFIED_READ_ONLY" // 409: 路由器不是验证过的型号，烽燧在它上面没有这项写入的实现（或路由器不具备它需要的条件）：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.10）
     | "DEVICE_WRITE_DISABLED"    // 409: 烽燧在这台路由器上实现了这项写入，但用户已经在「设置 → 设备」把它关闭：被服务端闸门拒绝，没有发出任何写请求（附 model、feature，见 2.11；v1.9.0）
     | "ROUTER_PAUSED"            // 409: 连接路由器已暂停（见下方「暂停连接」）：写操作在任何会话之前被拒，免登录的探测也不发；什么都没发给路由器（附 pause、messageZh）
-    | "CONNECTION_CHANGED"       // 409: 这项写入在队列里等待期间，路由器连接换成了另一个品牌的路由器（控制台保存了另一个品牌的连接）：它的入参是按原来那个品牌检查的，也是发给原来那台的，所以两台都不发，不建会话（附 messageZh；同品牌改地址或凭据不受影响，写入先在自己的会话里确认型号）
+    | "CONNECTION_CHANGED"       // 409: 这项写入在队列里等待期间，路由器连接换成了另一台路由器（控制台保存了另一个地址或另一个品牌的连接）：它的入参是按原来那台检查的，也是发给原来那台的，所以两台都不发，不建会话（附 messageZh；同一个地址只改凭据不受影响，写入先在自己的会话里确认型号）
     | "DEVICE_NOT_IDENTIFIED"    // 409: 本次运行还没见过路由器的型号，写操作在自己的会话里也没读到它（华为读 device/information，其他品牌由驱动识别；接口里不报告型号的品牌按品牌事实里的名字，不会遇到），没有写入（见 2.10）
     | "EXPERIMENTAL_UNAVAILABLE" // 409: 这项写入在这台路由器上没有开关可关可开（已验证型号、烽燧没有实现、路由器不具备条件、还没识别型号；附 state，见 2.11）
     | "AGENT_TEST_UNAVAILABLE"   // 409: 这台路由器没有可供 AI 智能体测试的实验性写入（已验证型号、还没识别型号，或测试覆盖的写入它都没有、都被关闭了），一键测试不能开始（见 2.12）
@@ -1069,7 +1069,7 @@ export interface McpToolErrorPayload {
     | "DEVICE_UNVERIFIED_READ_ONLY" // 路由器是未验证的型号，烽燧在它上面没有这项写入的实现（或路由器不具备条件）：写路由器的工具被拒，没有发出任何请求（附 model、feature、messageZh）
     | "DEVICE_WRITE_DISABLED"    // 这项写入在这台路由器上被主人关闭了（「设置 → 设备」）：同样没有发出任何请求（附 model、feature、messageZh）
     | "DEVICE_NOT_IDENTIFIED"    // 写工具在自己的会话里没读到路由器型号，没有写入（附 messageZh）
-    | "CONNECTION_CHANGED"       // 写工具排队期间，路由器连接换成了另一个品牌的路由器：两台都不发（附 messageZh）
+    | "CONNECTION_CHANGED"       // 写工具排队期间，路由器连接换成了另一台路由器（另一个地址或品牌）：两台都不发（附 messageZh）
     | "ROUTER_PAUSED"            // 连接路由器已暂停：写工具在任何会话之前被拒（附 pause、messageZh）；读工具照常回缓存
     | "SMS_SEND_FAILED"          // send_sms：CPE 报告发送失败（附 result 与 resolvedPhones，额度不退还）
     | "BROWSER_SESSION_YIELDED"  // 真人在线让位（附 messageZh 与 avoidance）

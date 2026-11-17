@@ -216,9 +216,10 @@ export class ConnectionPausedError extends Error {
 }
 
 /**
- * A write that was still waiting in the queue when another brand's connection took over: its input
- * was checked against the earlier brand's bounds and it was meant for the earlier router, so it is
- * dropped and nothing is sent to either (`409 CONNECTION_CHANGED`).
+ * A write that was still waiting in the queue when the connection was pointed at another router
+ * (another brand, or the same brand at another address): its input was checked against the earlier
+ * router and it was meant for that one, so it is dropped and nothing is sent to either
+ * (`409 CONNECTION_CHANGED`).
  */
 export class ConnectionChangedError extends Error {
   readonly statusCode = 409;
@@ -367,10 +368,17 @@ export class SchedulerQueueFullError extends Error {
 
 export class SchedulerStoppedError extends Error {
   readonly statusCode = 503;
+  /**
+   * The stop cut a write short in its session: its request may have reached the router, so this is
+   * not a refusal (`isRefusal`). `false`: the work never started (it was still waiting, or FengSui
+   * was already stopping).
+   */
+  readonly interrupted: boolean;
 
-  constructor() {
-    super("CPE session scheduler is stopping");
+  constructor(interrupted = false) {
+    super(interrupted ? "FengSui stopped while this change was being made: it may or may not have taken effect on the router" : "CPE session scheduler is stopping");
     this.name = "SchedulerStoppedError";
+    this.interrupted = interrupted;
   }
 }
 
@@ -460,6 +468,8 @@ export class MutexSessionScheduler extends EventEmitter {
   #family: RouterFamily;
   /** The connection in use: its brand's driver, the client that holds its sessions, and how a session of it is opened. */
   #connection: RouterConnection;
+  /** One more each time the connection is pointed at another router (another address or brand): what waited for the earlier one is not this one's. */
+  #routerEpoch = 0;
   #initialized = false;
   #stopping = false;
   #mode: SchedulerMode = "idle";
@@ -891,16 +901,18 @@ export class MutexSessionScheduler extends EventEmitter {
         "Circuit breaker latched on a wrong password: save the correct router password in the console (Settings → Router) instead, which clears it"
       );
     }
-    const settings: ConnectionSettings = { ...this.#settings, cpeUsername: username, cpePassword: newPassword };
     if (familyChanged) {
       // Queued: a session still running is the earlier brand's, and ends (logged out) before the switch
       await this.#enqueue("high", async () => {
-        this.#replaceConnection(nextFamily, settings);
+        await this.#afterEarlierCallers();
+        // The address as it is when the switch runs: a connection saved while this waited is not undone
+        this.#replaceConnection(nextFamily, { ...this.#settings, cpeUsername: newUsername ?? this.#settings.cpeUsername, cpePassword: newPassword });
+        this.#routerEpoch += 1;
         this.device.forget();
         this.#safeEmit("connection:changed", { family: nextFamily });
       });
     } else {
-      this.#settings = settings;
+      this.#settings = { ...this.#settings, cpeUsername: username, cpePassword: newPassword };
       // New credentials clear the breaker themselves; the same ones clear only a latch that is not a wrong password
       if (changed) live.reloadCredentials(newPassword, newUsername);
       else live.resetCircuitBreaker();
@@ -960,7 +972,8 @@ export class MutexSessionScheduler extends EventEmitter {
       return failure("last_attempt", "the router allows one more login attempt before it locks; confirm the password and try again deliberately", { remainCount: remain });
     }
     return await this.#enqueue("high", () => this.#trusting(candidate.url, candidate.certFingerprint ?? null, async (): Promise<ConnectionTestOutcome> => {
-      // A pause that began while this test waited: its turn has come, and it still sends nothing
+      // A pause that began while this test waited, or another daemon that took the router over: its turn has come, and it still sends nothing
+      if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
       if (this.#paused()) return paused();
       // A router this daemon has seen log in with SCRAM keeps to SCRAM in a test as well (the owner's
       // decision): a refused challenge then sends no legacy password, unless re-detection is allowed.
@@ -1008,7 +1021,8 @@ export class MutexSessionScheduler extends EventEmitter {
     if (this.#paused()) return paused();
     return await this.#enqueue("high", () =>
       this.#trusting(url, certFingerprint, async () => {
-        // As a connection test: paused by the time its turn came, it asks the router nothing
+        // As a connection test: on standby or paused by the time its turn came, it asks the router nothing
+        if (this.#peerStandby.active) return failure("standby", `another FengSui daemon (${this.#peerStandby.peerAddress ?? "?"}) manages this router`);
         if (this.#paused()) return paused();
         try {
           const family = await detectRouterFamily({ cpeUrl: url, fetchImpl: this.#settings.fetchImpl, requestTimeoutMs: this.#settings.requestTimeoutMs });
@@ -1047,8 +1061,8 @@ export class MutexSessionScheduler extends EventEmitter {
     } catch {
       return null;
     }
-    // No handshake either once a pause began while this look waited
-    return await this.#enqueue("high", async () => (this.#paused() ? null : await presentedCertificate(this.#settings, target)));
+    // No handshake either once a pause or a standby began while this look waited
+    return await this.#enqueue("high", async () => (this.#paused() || this.#peerStandby.active ? null : await presentedCertificate(this.#settings, target)));
   }
 
   /** Router error codes per endpoint since start, connection tests included (the device report). */
@@ -1063,6 +1077,7 @@ export class MutexSessionScheduler extends EventEmitter {
    */
   async applyConnection(candidate: ConnectionCandidate, opts: { loginScheme?: LoginScheme | null } = {}): Promise<CircuitBreakerState> {
     return await this.#enqueue("high", async () => {
+      await this.#afterEarlierCallers();
       const family = routerFamilyOf(candidate.family);
       const target = { cpeUrl: candidate.url, cpeUsername: candidate.username, cpePassword: candidate.password };
       const certFingerprint = candidate.certFingerprint ?? null;
@@ -1085,10 +1100,23 @@ export class MutexSessionScheduler extends EventEmitter {
       this.#mode = "idle";
       this.#lastError = null;
       this.stateStore.update({ circuitBreaker: cb });
-      if (anotherRouter) this.#safeEmit("connection:changed", { family });
+      if (anotherRouter) {
+        this.#routerEpoch += 1;
+        this.#safeEmit("connection:changed", { family });
+      }
       await this.stateStore.flushAsync().catch(() => undefined);
       return publicBreakerState(cb);
     });
+  }
+
+  /**
+   * Let whoever asked for the work that just ended act on its result before a switch of the
+   * connection goes on. A write that applied hands what it changed to self-healing's watch right
+   * after its session, as its caller resumes; a switch waiting behind that write would otherwise run
+   * first, find nothing watched, and leave a watch of the earlier router's change open on the new one.
+   */
+  async #afterEarlierCallers(): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
   /**
@@ -1204,7 +1232,7 @@ export class MutexSessionScheduler extends EventEmitter {
     const connection = this.#connection;
     if (!connection.client.configured) throw new CpeNotConfiguredError();
     const feature = CONTROL_FEATURES[actionName];
-    return await this.#runGatedControl(actor, actionName, feature, summary, connection, (gate) =>
+    return await this.#runGatedControl(actor, actionName, feature, summary, this.#routerEpoch, (gate) =>
       connection.open(
         async (session) => {
           // A read that ended just before this session notes the model it saw only after the
@@ -1225,15 +1253,16 @@ export class MutexSessionScheduler extends EventEmitter {
   /**
    * The write gate, the queue and the bookkeeping around one control session, whichever client
    * opens it (`open` runs the session once the queue reaches it and fills `gate.write` once the
-   * gate let the write through in that session). `connection` is the one the write was asked on:
-   * when another brand's has taken over by the time the queue reaches the write, it is dropped.
+   * gate let the write through in that session). `epoch` is the router the write was asked of: when
+   * the connection points at another one by the time the queue reaches the write (another brand, or
+   * the same brand at another address), it is dropped.
    */
   async #runGatedControl<T>(
     actor: AuditActor,
     actionName: ControlAction,
     feature: WriteFeature,
     summary: ControlSummary | ((value: T) => ControlSummary | null) | undefined,
-    connection: RouterConnection,
+    epoch: number,
     open: (gate: { write: WriteContext | null }) => Promise<SessionExecutionOutcome<T>>
   ): Promise<T> {
     // The write gate: a router whose model does not allow this write gets no session at all
@@ -1243,10 +1272,10 @@ export class MutexSessionScheduler extends EventEmitter {
     return await this.#enqueue("high", async () => {
       if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
       this.#assertNotPaused();
-      // Another brand's connection took over while this write waited: it was checked against the earlier brand's
-      // bounds and meant for the earlier router, so it goes to neither (a connection of the same brand that was
-      // saved again is this same one, pointed at the saved router: the write confirms its model first)
-      if (this.#connection !== connection) throw new ConnectionChangedError();
+      // The connection was pointed at another router while this write waited (another brand, or another address):
+      // it was checked against the earlier router and meant for it, so it goes to neither. The same router saved
+      // again (new credentials) is still the one it was asked of: the write confirms its model first
+      if (this.#routerEpoch !== epoch) throw new ConnectionChangedError();
       // The model may have changed while this write waited
       this.#assertWritable(actionName);
       const wasTripped = this.#active().getCircuitBreakerState().tripped;
@@ -1296,6 +1325,11 @@ export class MutexSessionScheduler extends EventEmitter {
           this.#clearAvoidanceIfActive();
           this.#mode = "idle";
           throw err;
+        }
+        // The stop cut the session short after the gate let the write through: it may have reached the router
+        if (err instanceof SchedulerStoppedError && gate.write !== null) {
+          if (this.#mode === "polling") this.#mode = "idle";
+          throw new SchedulerStoppedError(true);
         }
         return await this.#handleExecutionError(err, wasTripped);
       } finally {
@@ -1578,7 +1612,8 @@ export function isRefusal(err: unknown): boolean {
     err instanceof CircuitBreakerOpenError ||
     err instanceof CpeNotConfiguredError ||
     err instanceof SchedulerQueueFullError ||
-    err instanceof SchedulerStoppedError
+    // A stop that cut a write short in its session is not one: its request may have gone out
+    (err instanceof SchedulerStoppedError && !err.interrupted)
   );
 }
 

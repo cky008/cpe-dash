@@ -317,6 +317,76 @@ describe("driver runtime: the connection in use", () => {
       await fx.cleanup();
     }
   });
+
+  it("refuses a write that waited while the same brand's connection was pointed at another address: it was meant for the earlier router", async () => {
+    const fx = runtimeFixture();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      const reading = fx.core.scheduler.read(async () => {
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && fx.logins() === 1; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      // Behind that session: another address is saved (the mock answers there too, as that router would), then a band lock asked of the earlier one
+      const saving = fx.core.scheduler.applyConnection({ ...OPENWRT, url: "http://192.168.2.1", family: "openwrt" });
+      const writing = runAsActor({ channel: "web" }, () => fx.core.controls.lockBands({ lteBands: [1, 3] }));
+      const refused = assert.rejects(writing, ConnectionChangedError);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+      assert.equal(await reading, "read");
+      await saving;
+      await refused;
+      assert.equal(fx.logins(), 2, "no session was opened for it on the router now connected");
+      assert.equal(fx.core.controls.getPersistedLockState().mode, "unlocked");
+      assert.equal(fx.applied.length, 0);
+      const audit = fx.audits.at(-1);
+      assert.deepEqual([audit?.action, audit?.outcome], ["lock_band", "refused"]);
+      // Asked now, of the router now connected, it runs
+      assert.equal((await fx.core.controls.lockBands({ lteBands: [1, 3] })).mode, "band_lock");
+    } finally {
+      release();
+      await fx.cleanup();
+    }
+  });
+
+  it("switches the brand at the address the connection has when the switch runs, not the one it had when it was asked for", async () => {
+    // Every request's host, on a router that answers at whatever address it is asked
+    const hosts: string[] = [];
+    const answering = openwrtRouter();
+    const fx = runtimeFixture({
+      fetchImpl: async (input, init) => {
+        hosts.push(new URL(String(input)).host);
+        return await answering.mock.fetchImpl(input, init);
+      },
+    });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      assert.deepEqual([...new Set(hosts)], ["192.168.1.1"]);
+      const reading = fx.core.scheduler.read(async () => {
+        await held;
+        return "read";
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      // Behind that session: another address is saved, then the brand is switched (a breaker reset that carries the saved brand)
+      const saving = fx.core.scheduler.applyConnection({ ...OPENWRT, url: "http://192.168.2.1", family: "openwrt" });
+      const switching = fx.core.scheduler.reloadCredentialsAndResetBreaker(OPENWRT_PASSWORD, "root", "huawei");
+      release();
+      assert.equal(await reading, "read");
+      await saving;
+      await switching;
+      assert.equal(fx.core.scheduler.driver.family, "huawei");
+      hosts.length = 0;
+      await fx.core.scheduler.read(async () => "read").catch(() => null);
+      assert.deepEqual([...new Set(hosts)], ["192.168.2.1"], "the other brand's requests go to the address that was saved meanwhile");
+    } finally {
+      release();
+      await fx.cleanup();
+    }
+  });
 });
 
 describe("driver runtime: writes", () => {
@@ -704,6 +774,31 @@ describe("driver runtime: the 3-minute rollback of a band lock", () => {
       if (snap) await heal.ingestTelemetry({ ...snap, capturedAtMs: clock });
       assert.equal(fx.state.lteBand, "1:3", "the band setting read on the earlier router was not written here");
       assert.deepEqual(fx.applied.map((event) => event.action).filter((action) => action.startsWith("auto_")), []);
+    } finally {
+      await heal.stop();
+      await fx.cleanup();
+    }
+  });
+
+  it("ends the watch too when the switch to another router was waiting right behind the lock it is for", async () => {
+    const fx = runtimeFixture();
+    const alerts: AlertEventRecord[] = [];
+    fx.core.scheduler.on("alert", (alert: AlertEventRecord) => alerts.push(alert));
+    const heal = new WanSelfHeal({ scheduler: fx.core.scheduler, monitor: fx.core.monitor, controls: fx.core.controls, lockRollbackAfterMs: 0, reconnectAfterMs: 0, log: () => undefined });
+    fx.core.controls.onExperimentalLock = (change) => heal.guardExperimentalLock(change);
+    heal.start();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      fx.state.lteBand = "1:3:7";
+      // The lock goes into its session; the switch to another address is asked for while it runs, and takes its turn right after it
+      const locking = fx.core.controls.lockBands({ lteBands: [1, 3] });
+      const switching = fx.core.scheduler.applyConnection({ ...OPENWRT, url: "http://192.168.2.1", family: "openwrt" });
+      const lock = await locking;
+      await switching;
+      assert.equal(lock.mode, "band_lock", "the lock ran, on the router it was asked of");
+      assert.equal(heal.lockDeadlineMs, null, "and is not watched on the router now connected");
+      assert.equal(heal.pauseBlock(), null);
+      assert.deepEqual(alerts.map((alert) => alert.code), ["ROLLBACK_WATCH_ENDED"], "its owner is told it will not be put back");
     } finally {
       await heal.stop();
       await fx.cleanup();

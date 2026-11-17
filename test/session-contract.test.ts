@@ -6,7 +6,7 @@ import { type FengSuiCore, createFengSuiCore, stopFengSuiCore } from "../src/cor
 import { HuaweiCpeClient } from "../src/protocols/hilink/client.ts";
 import { StorageCipher } from "../src/encrypted-file.ts";
 import { FengSuiMcpServer, type JsonRpcSuccessResponse } from "../src/mcp-server.ts";
-import { type AvoidanceBroadcastPayload, BrowserSessionYieldedError, SchedulerStoppedError } from "../src/scheduler.ts";
+import { type AvoidanceBroadcastPayload, BrowserSessionYieldedError, type ControlAuditEvent, SchedulerStoppedError, isRefusal } from "../src/scheduler.ts";
 import { ContactBook } from "../src/sms/contacts.ts";
 import { SmsMcpTools } from "../src/sms/mcp-tools.ts";
 import { SmsMirrorStore } from "../src/sms/mirror.ts";
@@ -379,6 +379,73 @@ describe("session contract on a strict single-admin router model", () => {
       assert.equal(fx.cpe.outbox.length, 1);
       assertSingleSlotInvariants(fx.cpe);
     } finally {
+      await fx.close();
+    }
+  });
+
+  it("audits a write the stop interrupted in its session as failed, not as refused: it may have reached the router", async () => {
+    const fx = createContractFixture({ stopGraceMs: 30 });
+    const audits: ControlAuditEvent[] = [];
+    fx.core.scheduler.on("control:audit", (event: ControlAuditEvent) => audits.push(event));
+    let failure: unknown = null;
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      let inside = false;
+      // A write in its session: its request is out when the daemon stops
+      const writing = fx.core.scheduler
+        .control("unlock_rf_locks", async () => {
+          inside = true;
+          await new Promise<never>(() => undefined);
+        })
+        .catch((err: unknown) => {
+          failure = err;
+        });
+      // And one that only waits behind it: that one never started
+      const waiting = fx.core.scheduler.control("reboot_cpe", async () => "never").catch((err: unknown) => err);
+      for (let i = 0; i < 200 && !inside; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      await fx.core.scheduler.stop();
+      await writing;
+      const neverRan = await waiting;
+      assert.ok(failure instanceof SchedulerStoppedError, String(failure));
+      assert.equal(isRefusal(failure), false, "whoever counts what went out counts this one");
+      assert.match(failure.message, /may or may not have taken effect/);
+      assert.ok(neverRan instanceof SchedulerStoppedError);
+      assert.equal(isRefusal(neverRan), true, "the one that waited was refused: nothing of it was sent");
+      assert.deepEqual(audits.map((event) => [event.action, event.outcome]).sort(), [
+        ["reboot_cpe", "refused"],
+        ["unlock_rf_locks", "failed"],
+      ]);
+    } finally {
+      await fx.close();
+    }
+  });
+
+  it("does not run a connection test that waited while another daemon took the router over", async () => {
+    const fx = createContractFixture();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      let inside = false;
+      const reading = fx.core.scheduler.read(async () => {
+        inside = true;
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && !inside; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      const testing = fx.core.scheduler.testConnection({ url: "http://192.168.8.1", username: "admin", password: fx.cpe.password });
+      const detecting = fx.core.scheduler.detectFamily("http://192.168.8.1");
+      fx.core.scheduler.setPeerStandby("192.168.8.50");
+      const logins = fx.cpe.stats.logins;
+      release();
+      assert.equal(await reading, "read");
+      const tested = await testing;
+      assert.deepEqual([tested.ok, tested.ok ? null : tested.reason], [false, "standby"]);
+      const detected = await detecting;
+      assert.equal(typeof detected === "string" ? detected : detected.reason, "standby");
+      assert.equal(fx.cpe.stats.logins, logins, "no session of this daemon on a router another one drives");
+    } finally {
+      release();
       await fx.close();
     }
   });

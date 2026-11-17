@@ -59,7 +59,7 @@ export const API_ERRORS: ReadonlyArray<{ readonly code: ApiErrorCode; readonly s
   { code: "DEVICE_WRITE_DISABLED", status: "409", summary: { "zh-CN": "这项写入在「设置 → 设备」里关掉了，什么都没发", en: "This write is turned off under Settings → Device; nothing was sent" } },
   { code: "DEVICE_NOT_IDENTIFIED", status: "409", summary: { "zh-CN": "还没认出路由器的型号，写入没有执行", en: "The router's model is not known yet; nothing was written" } },
   { code: "ROUTER_PAUSED", status: "409", summary: { "zh-CN": "连接路由器已暂停（「设置 → 路由器」），什么都没发；`pause.untilIso` 是自动恢复的时间", en: "The connection to the router is paused (Settings → Router); nothing was sent. `pause.untilIso` is when it resumes by itself" } },
-  { code: "CONNECTION_CHANGED", status: "409", summary: { "zh-CN": "这项写入等待期间，路由器连接换成了另一个品牌的路由器，什么都没发", en: "The router connection changed to another brand's router while this write was waiting; nothing was sent" } },
+  { code: "CONNECTION_CHANGED", status: "409", summary: { "zh-CN": "这项写入等待期间，路由器连接换成了另一台路由器（另一个地址或另一个品牌），什么都没发", en: "The router connection was pointed at another router (another address or another brand) while this write was waiting; nothing was sent" } },
   { code: "MISDIRECTED_HOST", status: "421", summary: { "zh-CN": "访问用的主机名不在允许范围内，把它加进 `ALLOWED_HOSTS`", en: "The host name you used is not allowed; add it to `ALLOWED_HOSTS`" } },
   { code: "CIRCUIT_BREAKER_OPEN", status: "423", summary: { "zh-CN": "路由器密码错误或账户被锁，烽燧停止登录；到「设置 → 路由器」改正", en: "The router password is wrong or its account is locked, so FengSui stopped signing in; fix it under Settings → Router" } },
   { code: "RATE_LIMITED", status: "429", summary: { "zh-CN": "认证失败太多次，`retryAfterSec` 秒后再试", en: "Too many failed sign-ins; try again after `retryAfterSec` seconds" } },

@@ -89,7 +89,7 @@ Have scripts go by `errorCode`, never by `message`: the message may be in Chines
 | 409 | `DEVICE_WRITE_DISABLED` | This write is turned off under Settings → Device; nothing was sent |
 | 409 | `DEVICE_NOT_IDENTIFIED` | The router's model is not known yet; nothing was written |
 | 409 | `ROUTER_PAUSED` | The connection to the router is paused (Settings → Router); nothing was sent. `pause.untilIso` is when it resumes by itself |
-| 409 | `CONNECTION_CHANGED` | The router connection changed to another brand's router while this write was waiting; nothing was sent |
+| 409 | `CONNECTION_CHANGED` | The router connection was pointed at another router (another address or another brand) while this write was waiting; nothing was sent |
 | 421 | `MISDIRECTED_HOST` | The host name you used is not allowed; add it to `ALLOWED_HOSTS` |
 | 423 | `CIRCUIT_BREAKER_OPEN` | The router password is wrong or its account is locked, so FengSui stopped signing in; fix it under Settings → Router |
 | 429 | `RATE_LIMITED` | Too many failed sign-ins; try again after `retryAfterSec` seconds |
