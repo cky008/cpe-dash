@@ -262,6 +262,7 @@ const TEXT = {
     reason_disabled: "你在控制台「设置 → 设备」里关掉了这项。",
     cell_working: "⏳ 正在发给路由器…",
     cell_expired: "这张卡片已经过期，请重新发送指令。",
+    del_expired: "这个确认已经过期或用过了，请再点一次「删除」。",
     cell_failed: "⚠️ {what}没有完成：{reason}",
     netmode_title: "网络制式",
     netmode_unknown: "读不到这台路由器的网络制式，请稍后再试。",
@@ -419,6 +420,7 @@ const TEXT = {
     reason_disabled: "You turned this off under Settings → Device in the console.",
     cell_working: "⏳ Sending it to the router…",
     cell_expired: "This card has expired; send the command again.",
+    del_expired: "This confirmation has expired or was used; tap Delete again.",
     cell_failed: "⚠️ {what} did not go through: {reason}",
     netmode_title: "Network mode",
     netmode_unknown: "Could not read this router's network mode; try again in a moment.",
@@ -751,7 +753,12 @@ const PENDING_OP_TTL_MS = 2 * 60_000;
 /** How long an operator's USSD answer takes a reply (the network ends a session left waiting long before). */
 const USSD_REPLY_TTL_MS = 5 * 60_000;
 
-type PendingCellularOpBody = { kind: "netmode"; mode: NetworkMode } | { kind: "airplane"; enabled: boolean } | { kind: "ussd"; request: Exclude<UssdRequest, { kind: "cancel" }> };
+/** A write a confirmation card holds until its button is pressed: a cellular setting, or deleting one message. */
+type PendingCellularOpBody =
+  | { kind: "netmode"; mode: NetworkMode }
+  | { kind: "airplane"; enabled: boolean }
+  | { kind: "ussd"; request: Exclude<UssdRequest, { kind: "cancel" }> }
+  | { kind: "sms_delete"; uid: string };
 type PendingCellularOp = PendingCellularOpBody & { chatId: string; expiresAt: number };
 
 export class TelegramBot implements NotificationChannel {
@@ -1401,9 +1408,12 @@ export class TelegramBot implements NotificationChannel {
           await answer();
           return await this.#cmdUnread(to, sms);
         case "del": {
-          const okCb = callbackData("delok", arg);
+          // The confirmation holds a one-time token of this chat for two minutes, not the message's id
+          const token = this.#holdOp(chatId, { kind: "sms_delete", uid: arg });
+          const okCb = callbackData("delok", token);
+          const noCb = callbackData("delno", token);
           await answer();
-          if (messageId !== undefined && okCb) {
+          if (messageId !== undefined && okCb && noCb) {
             await this.api.call("editMessageReplyMarkup", {
               chat_id: chatId,
               message_id: messageId,
@@ -1411,7 +1421,7 @@ export class TelegramBot implements NotificationChannel {
                 inline_keyboard: [
                   [
                     { text: this.#tx("btn_delete_confirm"), callback_data: okCb },
-                    { text: this.#tx("btn_cancel"), callback_data: "delno:0" },
+                    { text: this.#tx("btn_cancel"), callback_data: noCb },
                   ],
                 ],
               },
@@ -1420,12 +1430,20 @@ export class TelegramBot implements NotificationChannel {
           return;
         }
         case "delok": {
-          const { trashDays } = await sms.deleteMessages({ uids: [arg] });
+          // Taken at once: a second tap, another chat, an old card or a made-up button finds nothing
+          const op = this.#takeOp(chatId, arg);
+          if (!op || op.kind !== "sms_delete") {
+            await answer(this.#plain("del_expired"), true);
+            if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
+            return;
+          }
+          const { trashDays } = await sms.deleteMessages({ uids: [op.uid] });
           await answer(trashDays > 0 ? this.#plain("deleted_to_trash", { days: trashDays }) : this.#plain("deleted_for_good"));
           if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
           return;
         }
         case "delno":
+          this.#pendingOps.delete(arg);
           await answer(this.#plain("btn_cancel"));
           if (messageId !== undefined) await this.#clearButtons(chatId, messageId);
           return;

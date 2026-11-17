@@ -923,7 +923,8 @@ describe("TelegramBot", () => {
   });
 
   it("handles read, read-all and delete-with-confirmation callbacks plus vCard imports", async () => {
-    const fx = createBotFixture({ vcf: "BEGIN:VCARD\nFN:Cara\nTEL:0830000003\nEND:VCARD" });
+    // A second chat the owner allowed, to try this chat's confirmation from
+    const fx = createBotFixture({ vcf: "BEGIN:VCARD\nFN:Cara\nTEL:0830000003\nEND:VCARD", allowedChatIds: ["1001", "1002"] });
     await fx.service.sync("full");
     const unread = fx.service.getThread("+353830000001").messages.find((m) => m.isUnread)!;
     await fx.callback(1001, `read:${unread.uid}`);
@@ -931,22 +932,47 @@ describe("TelegramBot", () => {
     assert.equal(fx.tg.of("editMessageReplyMarkup").length, 1);
 
     const otp = fx.service.getThread("alpha:demobank").messages[0]!;
+    const confirmButtons = (): string[] =>
+      ((fx.tg.of("editMessageReplyMarkup").at(-1)?.payload["reply_markup"] as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard[0] ?? []).map((b) => b.callback_data);
+    const lastAnswer = () => fx.tg.of("answerCallbackQuery").at(-1)?.payload;
+    // The confirmation carries a one-time token of this chat, not the message's id
     await fx.callback(1001, `del:${otp.uid}`);
-    const confirm = fx.tg.of("editMessageReplyMarkup").at(-1);
-    assert.deepEqual(
-      (confirm?.payload["reply_markup"] as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard[0]?.map((b) => b.callback_data),
-      [`delok:${otp.uid}`, "delno:0"]
-    );
+    const [ok, no] = confirmButtons();
+    assert.match(ok ?? "", /^delok:[0-9a-f]{16}$/);
+    assert.match(no ?? "", /^delno:[0-9a-f]{16}$/);
     assert.equal(fx.mock.deleteBatches.length, 0);
-    await fx.callback(1001, "delno:0");
+    // A button made from the message's id, as the bot used to send, deletes nothing
     await fx.callback(1001, `delok:${otp.uid}`);
+    assert.deepEqual([fx.mock.deleteBatches.length, /expired/.test(String(lastAnswer()?.["text"])), lastAnswer()?.["show_alert"]], [0, true, true]);
+    // Cancelled: that token is spent
+    await fx.callback(1001, `del:${otp.uid}`);
+    const [cancelledOk, cancel] = confirmButtons();
+    await fx.callback(1001, cancel ?? "");
+    await fx.callback(1001, cancelledOk ?? "");
+    assert.equal(fx.mock.deleteBatches.length, 0, "a cancelled confirmation deletes nothing");
+    // Two minutes later the confirmation has expired
+    await fx.callback(1001, `del:${otp.uid}`);
+    const [stale] = confirmButtons();
+    fx.advance(2 * 60_000 + 1);
+    await fx.callback(1001, stale ?? "");
+    assert.equal(fx.mock.deleteBatches.length, 0, "an expired confirmation deletes nothing");
+    // Another chat cannot use this chat's token: trying spends it, and the owner confirms again
+    await fx.callback(1001, `del:${otp.uid}`);
+    const [elsewhere] = confirmButtons();
+    await fx.callback(1002, elsewhere ?? "");
+    assert.equal(fx.mock.deleteBatches.length, 0);
+    await fx.callback(1001, elsewhere ?? "");
+    assert.equal(fx.mock.deleteBatches.length, 0, "nothing is deleted on a token another chat tried");
+    await fx.callback(1001, `del:${otp.uid}`);
+    const [mine] = confirmButtons();
+    await fx.callback(1001, mine ?? "");
     assert.deepEqual(fx.mock.deleteBatches, [[40001]]);
     // It says where the message went: the owner's Recently deleted
-    assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /Recently deleted for 30 days/);
-    await fx.callback(1001, `delok:${otp.uid}`);
-    const answers = fx.tg.of("answerCallbackQuery");
-    assert.match(String(answers.at(-1)?.payload["text"]), /Unknown message uid/);
-    assert.equal(answers.at(-1)?.payload["show_alert"], true);
+    assert.match(String(lastAnswer()?.["text"]), /Recently deleted for 30 days/);
+    // The same button again: spent, nothing more is sent
+    await fx.callback(1001, mine ?? "");
+    assert.deepEqual([/expired/.test(String(lastAnswer()?.["text"])), lastAnswer()?.["show_alert"]], [true, true]);
+    assert.deepEqual(fx.mock.deleteBatches, [[40001]]);
 
     fx.mock.store.find((m) => m.index === 40003)!.smstat = "3";
     fx.mock.pushIncoming({ phone: "+353830000004", content: "New one", date: "2026-10-30 08:00:00" });
