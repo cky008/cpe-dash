@@ -4,11 +4,16 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.9.3] — 2026-11-17
+
 ### Highlights
 - **The H168-383's cellular settings are in the controls drawer.** Data roaming, the network mode, operator search and manual selection, and clearing the router's traffic counters, the four checked in person on a real H168-383, now have their place in the console's controls drawer, as they had over REST, MCP and Telegram since 1.9.0.
 
 ### Fixed
 - **The controls drawer showed the H168-383 no cellular settings.** 1.9.0 opened four cellular settings on the H168-383: data roaming, the network mode, operator search and manual selection, and clearing the traffic counters. They worked over REST, MCP and Telegram's `/netmode`, but the drawer drew its cellular settings only for models nobody verified, so on the H168-383 it had none. It now shows these four there, each with its own confirmation as on any other router. USSD stays out: the H168-383 reports it switched off, and FengSui sends it nothing.
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`. On an H168-383 the requests FengSui sends are those of 1.9.2; opening the controls drawer now also reads the cellular settings there, with the requests 1.9.0 added for them.
 
 ## [1.9.2] — 2026-11-17
 
