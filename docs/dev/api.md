@@ -162,7 +162,7 @@ export interface ApiErrorEnvelope {
 类型定义以源码为准：[`HealthResponse`](../../src/api-contract.ts)。下面是这些类型原先在本文里的字段说明（原注释，逐条保留）：
 
 - **`HealthResponse`**
-  - `version`：当前为 "1.9.1"
+  - `version`：当前为 "1.9.2"
 
 #### `POST /api/setup/login`（免鉴权，仅限尚无控制台密码时）与 `POST /api/auth/reset`（免鉴权，重置码）
 ```ts

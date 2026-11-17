@@ -4,6 +4,13 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.9.2] — 2026-11-17
+
+### Highlights
+- **A redial that is cut short no longer leaves the router offline.** On ZTE, NRadio, D-Link and TP-Link routers FengSui redials by disconnecting and connecting again, and changes some settings the way their own pages do, with the connection taken down first. If FengSui was stopped or restarted in between, or the router took longer than a session may last, the connect was never sent and the router stayed offline. FengSui now sends that connect before it signs out, whatever cut the session short.
+- **A change waiting its turn goes only to the router it was asked of.** A change still waiting when the connection was pointed at another router, at another address of the same brand as well, is dropped with nothing sent to either; and the 3-minute safety net of a change made on the earlier router never carries over to the new one, however close the two came.
+- **The Telegram bot never repeats a send or a delete.** It remembers across a restart which updates it already handled, so a reply to an SMS card is not sent twice, and the confirmation of a delete works once, in that chat, for two minutes.
+
 ### Security
 - **Encrypted data files open only with their full check value.** FengSui's files in the data directory are encrypted with AES-GCM, which seals each file with a 16-byte check value. On Node 22 a file whose check value had been cut short still opened, checked only as far as the shortened value goes. A file is now opened only when its check value, and the other values FengSui writes with it, have the full length; anything else is moved aside as unreadable, as on Node 26 already.
 
@@ -18,6 +25,12 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **A redial that was cut short could leave another brand's router offline.** On a router without a redial command of its own (ZTE, NRadio, D-Link, TP-Link), FengSui redials by disconnecting and then connecting, and it changes the operator and the access point on ZTE's goform routers, and the network mode and the access point on D-Link's, the way their own pages do: with the connection taken down first. When the session ended between the two, because FengSui was being stopped or restarted at that moment or the router took longer than a session may last, the connect was never sent and the router stayed disconnected until someone connected it again. FengSui now sends the connect before it signs out, whatever cut the session short. Work that was cut also stops there: a message to several recipients used to go on trying the next one after FengSui had signed out. The Huawei H168-383 redials with one command of its own and was not affected.
 - **A pause could begin over a change that was still being made.** The connection cannot be paused while FengSui watches a change it made (a lock, the network mode, the operator, the SIM slot, the access point), because it has to be able to put the change back if the internet stays down. That watch opens once the change has applied, and some changes take the router a minute or more: a pause asked for in that time began, the watch opened under it, and the change was put back only after the pause ended, or not at all after a long one. A pause is now refused for as long as a change is being made; try again when it is done.
 - **A connection test that was waiting its turn still signed in after a pause began.** A test of the connection, a brand detection or a look at the router's certificate that was already waiting when the pause began now sends the router nothing, like one asked for during the pause.
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`. On an H168-383 the requests FengSui sends are the same.
+- **The connection cannot be paused while FengSui is making a change**, as already while it watches one: `POST /api/session/pause` answers `400 VALIDATION_ERROR` then, and `pause.blocked.reason` is `write`. Try again a moment later.
+- A script that writes through the REST API now meets `409 CONNECTION_CHANGED` also when a connection to another address of the same brand was saved while its write waited. A change that was in the middle of its session when FengSui stopped still answers `503 QUEUE_FULL`, now saying that it may or may not have taken effect.
+- **Telegram:** the confirm button of a delete on a card from before the upgrade says it has expired; tap Delete on the card again.
 
 ## [1.9.1] — 2026-11-16
 
