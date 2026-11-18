@@ -1,5 +1,6 @@
 ---
 title: 快速开始
+seoTitle: 快速开始：用 Docker 十分钟装好烽燧
 description: 用 Docker 在 NAS 或电脑上装好烽燧，连上路由器，十分钟内看到信号。
 section: 开始使用
 order: 3

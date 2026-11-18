@@ -1,5 +1,6 @@
 ---
 title: 支持的设备
+seoTitle: 支持的路由器：华为、中兴、TP-Link、D-Link 等型号
 description: 烽燧在哪台路由器上验证过，接口资料里记录的每个型号在烽燧里能做什么，以及一格怎样变成 ✓。
 section: 开始使用
 order: 2

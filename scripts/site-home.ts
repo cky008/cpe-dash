@@ -45,8 +45,8 @@ export function showcaseImage(id: ThemeId): string {
 
 const TEXT = {
   "zh-CN": {
-    metaTitle: "烽燧 FengSui · 4G / 5G 路由器的自托管控制台",
-    metaDescription: "烽燧是装在你自己 NAS 上的 4G / 5G 路由器网页控制台，支持华为、中兴、TP-Link 等品牌：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和 AI 智能体接口，数据只留在家里。",
+    metaTitle: "烽燧 FengSui · 华为、中兴等 5G CPE 路由器的自托管控制台",
+    metaDescription: "烽燧是装在你自己 NAS 上的 4G / 5G 路由器网页控制台，支持华为 5G CPE、中兴、TP-Link 等品牌（已在华为 H168-383 上验证）：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和 AI 智能体接口，数据只留在家里。",
     titleStrong: "看清信号，",
     // "|" marks where the line may break (each part stays whole)
     titleSoft: "管好家里的|5G 路由器",
@@ -93,8 +93,8 @@ const TEXT = {
     faq: "常见问题",
   },
   en: {
-    metaTitle: "FengSui · Self-hosted console for 4G / 5G routers",
-    metaDescription: "FengSui is a web console for 4G / 5G routers (Huawei, ZTE, TP-Link and more) that runs on your own NAS: live signal and carrier aggregation, band and cell locking, SMS, connected devices, Telegram alerts and an MCP server for AI agents. Your data stays at home.",
+    metaTitle: "FengSui · Self-hosted dashboard for Huawei, ZTE, TP-Link 5G CPEs",
+    metaDescription: "FengSui is a self-hosted web dashboard for Huawei 5G CPEs and other 4G / 5G routers (ZTE, TP-Link and more), verified on the Huawei H168-383: live signal and carrier aggregation, band and cell locking, SMS, connected devices, Telegram alerts and an MCP server for AI agents. Your data stays at home.",
     titleStrong: "See your signal.",
     titleSoft: "Run your 5G router.",
     lead: "FengSui is a web console you run on your own NAS. Live signal and carrier aggregation, band and cell locking, SMS, connected devices and Telegram alerts, all on one page. Your data never leaves home.",

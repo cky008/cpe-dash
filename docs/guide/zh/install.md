@@ -1,5 +1,6 @@
 ---
 title: 安装与升级
+seoTitle: 在群晖 NAS、Docker 或 Node.js 上安装烽燧
 description: 在群晖、其他 Docker 主机或直接用 Node.js 安装烽燧，以及怎样升级、停止和卸载。
 section: 开始使用
 order: 4

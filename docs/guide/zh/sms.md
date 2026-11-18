@@ -1,5 +1,6 @@
 ---
 title: 短信
+seoTitle: 路由器短信收发，转发到 Telegram
 description: 在网页、Telegram 或 AI 智能体里收发路由器上的短信，以及短信是怎样保存的。
 section: 使用烽燧
 order: 8

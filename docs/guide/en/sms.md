@@ -1,5 +1,6 @@
 ---
 title: SMS
+seoTitle: Router SMS: send, receive and forward to Telegram
 description: Send and receive router SMS messages in the web console, Telegram, or AI agents, and how messages are stored.
 section: Use FengSui
 order: 8

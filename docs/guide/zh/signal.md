@@ -1,5 +1,6 @@
 ---
 title: 看懂信号
+seoTitle: RSRP、RSRQ、SINR 是什么，多少算好
 description: 信号卡上每个数字是什么意思、多少算好，以及信号不好时可以做什么。
 section: 看懂数据
 order: 12

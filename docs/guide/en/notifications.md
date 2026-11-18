@@ -1,5 +1,6 @@
 ---
 title: Alerts and notifications
+seoTitle: Router alerts by Telegram and webhook
 description: Get notified when the internet drops, signal degrades, or a new message arrives: Telegram bots, webhooks, and alert rules.
 section: Use FengSui
 order: 10

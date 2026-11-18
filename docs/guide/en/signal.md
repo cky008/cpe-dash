@@ -1,5 +1,6 @@
 ---
 title: Understand signal readings
+seoTitle: RSRP, RSRQ and SINR explained: what is a good signal
 description: What each number on the Signal card means, what values are good, and what you can do when your signal is poor.
 section: Understand the readings
 order: 12

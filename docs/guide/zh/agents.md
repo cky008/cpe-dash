@@ -1,5 +1,6 @@
 ---
 title: AI 智能体（MCP）
+seoTitle: 用 MCP 让 AI 智能体查看和操作路由器
 description: 让 Claude、Cursor 等 AI 智能体读取信号和短信、在你允许时操作路由器，以及 REST API 和实时事件。
 section: 使用烽燧
 order: 11

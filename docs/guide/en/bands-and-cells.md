@@ -1,5 +1,6 @@
 ---
 title: Bands, carriers, and cells
+seoTitle: 4G / 5G bands, carrier aggregation and cells explained
 description: How 4G and 5G work together, and what bands, bandwidth, carrier aggregation, frequencies, and cells mean. Read this before locking bands or cells.
 section: Understand the readings
 order: 13

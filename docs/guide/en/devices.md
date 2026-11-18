@@ -1,5 +1,6 @@
 ---
 title: Manage devices and access
+seoTitle: Connected devices: pause access and set access hours
 description: See who is connected to your network, pause Internet access for a device, or set scheduled access hours.
 section: Use FengSui
 order: 9

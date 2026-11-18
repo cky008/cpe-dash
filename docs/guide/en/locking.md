@@ -1,5 +1,6 @@
 ---
 title: Lock bands and cells
+seoTitle: Lock LTE / 5G NR bands and cells (PCI) on your router
 description: Fix the router to specific bands or a specific cell, and learn how to automatically restore Internet access if a lock fails.
 section: Use FengSui
 order: 6

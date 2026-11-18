@@ -1,5 +1,6 @@
 ---
 title: Quick start
+seoTitle: Quick start: install with Docker in 10 minutes
 description: Install FengSui on a NAS or computer with Docker, connect your router, and view signals within 10 minutes.
 section: Get started
 order: 3

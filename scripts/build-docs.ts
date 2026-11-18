@@ -14,6 +14,8 @@ import { type SiteLocale, homeMeta, renderHome } from "./site-home.ts";
  * The pages never name the domain: `DOCS_SITE_URL` (an Actions variable) adds the canonical URLs, hreflang
  * pairs, Open Graph image and sitemap at deploy time; without it those are left out. (The READMEs, the release
  * notes and the console's "?" marks link to https://fengsui.iocky.com/ directly.)
+ * A guide page's `<title>` is its `title`, or the optional front-matter `seoTitle` where people search with other
+ * words than the menu's (「锁频、锁小区」, "RSRP"), followed by the site's name.
  *
  *   node --experimental-strip-types scripts/build-docs.ts [--out dist/site]
  */
@@ -24,6 +26,8 @@ export const DEMO_URL = "https://cky008.github.io/fengsui-demo/";
 export const AUTHOR_URL = "https://iocky.com/";
 export const SPONSOR_URLS = { github: "https://github.com/sponsors/cky008", coffee: "https://buymeacoffee.com/iocky" } as const;
 const SITE_NAME = "烽燧 FengSui";
+/** Other names people search for: Google reads "fengsui" alone as a misspelling of "feng shui". */
+const ALTERNATE_NAMES = ["FengSui", "烽燧", "cpe-dash"];
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
 const ICONS_USED = ["i-signal", "i-lock", "i-inbox", "i-network", "i-bell", "i-cpu", "i-eye", "i-shield", "i-key", "i-layers", "i-search", "i-sun", "i-moon", "i-copy", "i-github", "i-languages", "i-x", "i-heart"];
@@ -36,11 +40,13 @@ interface LocaleInfo {
   /** Path of this language's pages from the site root. */
   prefix: "" | "en/";
   ogLocale: string;
+  /** After a guide page's title: an English reader searches for "FengSui", and 烽燧 would take half the line. */
+  brand: string;
 }
 
 const LOCALES: ReadonlyArray<LocaleInfo> = [
-  { locale: "zh-CN", dir: "zh", prefix: "", ogLocale: "zh_CN" },
-  { locale: "en", dir: "en", prefix: "en/", ogLocale: "en_US" },
+  { locale: "zh-CN", dir: "zh", prefix: "", ogLocale: "zh_CN", brand: SITE_NAME },
+  { locale: "en", dir: "en", prefix: "en/", ogLocale: "en_US", brand: "FengSui" },
 ];
 
 const UI = {
@@ -123,6 +129,8 @@ const POPULAR = ["quick-start", "install", "configuration", "locking", "sms", "t
 interface GuidePage {
   slug: string;
   title: string;
+  /** The search-result title (front matter `seoTitle`), else `title`. */
+  headTitle: string;
   description: string;
   section: string;
   order: number;
@@ -189,7 +197,8 @@ function loadPages(root: string, dir: string): GuidePage[] {
       for (const key of ["title", "description", "section", "order"]) {
         if (!meta[key]) throw new Error(`docs/guide/${dir}/${f}: front matter needs "${key}"`);
       }
-      return { slug, title: meta["title"] ?? slug, description: meta["description"] ?? "", section: meta["section"] ?? "", order: Number(meta["order"]), source: body, file: `docs/guide/${dir}/${f}` };
+      const title = meta["title"] ?? slug;
+      return { slug, title, headTitle: meta["seoTitle"] ?? title, description: meta["description"] ?? "", section: meta["section"] ?? "", order: Number(meta["order"]), source: body, file: `docs/guide/${dir}/${f}` };
     })
     .sort((a, b) => a.order - b.order);
 }
@@ -416,7 +425,7 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
       const title = (slug: string): string => bySlug.get(slug)?.title ?? slug;
       const footer = `
 <footer class="band mt-8">
-  <div class="mx-auto max-w-7xl px-4 sm:px-6 py-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 py-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4 text-sm" data-nosnippet>
     <div><p class="font-semibold mb-3">${ui.footerDocs}</p><ul class="space-y-2 muted">${["quick-start", "install", "configuration", "faq"].map((s) => `<li><a class="hover:underline" href="${link(s)}">${e(title(s))}</a></li>`).join("")}</ul></div>
     <div><p class="font-semibold mb-3">${ui.footerProject}</p><ul class="space-y-2 muted">
       <li><a class="hover:underline" href="${REPO_URL}" rel="noopener" target="_blank">GitHub</a></li>
@@ -435,7 +444,7 @@ export async function buildDocsSite(opts: { root?: string; out?: string; siteUrl
       <li><a class="hover:underline" href="${r}THIRD_PARTY_NOTICES.txt">${ui.notices}</a></li>
     </ul><p class="faint mt-4 leading-relaxed">${ui.disclaimer}</p></div>
   </div>
-  <div class="mx-auto max-w-7xl px-4 sm:px-6 pb-10 faint text-xs">© 2026 <a class="hover:underline" href="${AUTHOR_URL}" rel="noopener" target="_blank">iocky</a> · ${SITE_NAME} v${e(version)}</div>
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 pb-10 faint text-xs" data-nosnippet>© 2026 <a class="hover:underline" href="${AUTHOR_URL}" rel="noopener" target="_blank">iocky</a> · ${SITE_NAME} v${e(version)}</div>
 </footer>`;
       const searchDialog = `
 <dialog id="search" aria-label="${ui.search}">
@@ -470,10 +479,10 @@ ${searchDialog}
     const homeRel = `${info.prefix}index.html`;
     const homeOtherRel = `${other.prefix}index.html`;
     const meta = homeMeta(info.locale);
-    const jsonLd = JSON.stringify({
-      "@context": "https://schema.org",
+    const app = {
       "@type": "SoftwareApplication",
       name: SITE_NAME,
+      alternateName: ALTERNATE_NAMES,
       description: meta.description,
       applicationCategory: "UtilitiesApplication",
       operatingSystem: "Linux, macOS, Windows (Docker or Node.js 22.6+)",
@@ -481,8 +490,12 @@ ${searchDialog}
       license: "https://polyformproject.org/licenses/noncommercial/1.0.0/",
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
       ...(siteUrl ? { url: absolute(homeRel), image: `${siteUrl}assets/screenshots/dashboard-sujian.webp` } : {}),
+      author: { "@type": "Person", name: "iocky", url: AUTHOR_URL },
       sameAs: [REPO_URL],
-    }).replace(/</g, "\\u003c");
+    };
+    // The site's name in Google's results (else it shows the domain): WebSite on the home page, with the site's root as url
+    const website = siteUrl ? [{ "@type": "WebSite", name: SITE_NAME, alternateName: ALTERNATE_NAMES, url: siteUrl, inLanguage: info.locale }] : [];
+    const jsonLd = JSON.stringify({ "@context": "https://schema.org", "@graph": [...website, app] }).replace(/</g, "\\u003c");
     write(
       homeRel,
       shell(homeRel, homeOtherRel, { title: meta.title, description: meta.description, type: "website", jsonLd }, renderHome({
@@ -524,7 +537,7 @@ ${searchDialog}
   </article>
   ${toc.length > 1 ? `<aside class="toc" data-toc aria-label="${ui.onThisPage}"><p>${ui.onThisPage}</p>${toc.map((h) => `<a class="depth-${h.level}" href="#${e(h.id)}">${e(h.text)}</a>`).join("")}</aside>` : ""}
 </div>`;
-      write(rel, shell(rel, otherRel, { title: `${page.title} · ${SITE_NAME}`, description: page.description, type: "article" }, main, true));
+      write(rel, shell(rel, otherRel, { title: `${page.headTitle} · ${info.brand}`, description: page.description, type: "article" }, main, true));
     });
   }
 

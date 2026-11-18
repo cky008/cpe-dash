@@ -1,5 +1,6 @@
 ---
 title: 锁频与锁小区
+seoTitle: 4G / 5G CPE 锁频、锁小区（锁站）
 description: 把路由器固定在某些频段或某个小区上，以及怎样在锁错时自动恢复上网。
 section: 使用烽燧
 order: 6

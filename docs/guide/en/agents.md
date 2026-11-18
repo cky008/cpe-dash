@@ -1,5 +1,6 @@
 ---
 title: AI agents (MCP)
+seoTitle: Control your 4G / 5G router from AI agents with MCP
 description: Allow AI agents like Claude and Cursor to inspect signal metrics and SMS, control the router with your permission, and use the REST API and real-time events.
 section: Use FengSui
 order: 11

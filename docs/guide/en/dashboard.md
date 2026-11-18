@@ -1,5 +1,6 @@
 ---
 title: Dashboard
+seoTitle: Dashboard: signal, carrier aggregation, nearby cells
 description: What each section on the Dashboard shows: Signal, Carrier aggregation, Nearby cells, Data usage, Connected devices, and historical charts.
 section: Use FengSui
 order: 5

@@ -143,7 +143,7 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     assert.match(home, /<meta property="og:image" content="https:\/\/docs\.example\.com\/assets\/screenshots\/dashboard-sujian\.webp">/);
     assert.match(home, /"@type":"SoftwareApplication"/);
     const page = fs.readFileSync(path.join(site, "en", "docs", "install", "index.html"), "utf8");
-    assert.match(page, /<title>[^<]+ · 烽燧 FengSui<\/title>/);
+    assert.match(page, /<title>[^<]+ · FengSui<\/title>/);
     assert.match(page, /<meta name="description" content="[^"]{30,}">/);
     assert.match(page, /<link rel="canonical" href="https:\/\/docs\.example\.com\/en\/docs\/install\/">/);
     assert.match(page, /hreflang="zh-CN" href="https:\/\/docs\.example\.com\/docs\/install\/"/);
@@ -164,6 +164,63 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     assert.doesNotMatch(local, /rel="canonical"|og:url|og:image|hreflang="zh-CN"/);
     assert.equal(fs.existsSync(path.join(plain, "sitemap.xml")), false);
     assert.doesNotMatch(fs.readFileSync(path.join(plain, "robots.txt"), "utf8"), /Sitemap/);
+  });
+
+  it("gives every page a search-result title that names what people search for and fits the result line", () => {
+    // Google cuts a title at about 600 px: some 65 Latin characters, or half as many Chinese ones
+    const width = (s: string): number => [...s].reduce((n, ch) => n + (/[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]/.test(ch) ? 2 : 1), 0);
+    const titleOf = (html: string): string => /<title>([^<]+)<\/title>/.exec(html)?.[1] ?? "";
+    for (const [dir, prefix, suffix] of [["zh", "", " · 烽燧 FengSui"], ["en", "en/", " · FengSui"]] as const) {
+      const home = fs.readFileSync(path.join(site, prefix, "index.html"), "utf8");
+      // The words people type: the brand, the router kind and the vendor most of them own
+      assert.match(titleOf(home), dir === "zh" ? /^烽燧 FengSui · .*华为.*5G CPE/ : /^FengSui · .*dashboard.*Huawei.*5G CPE/, `${dir} home title`);
+      assert.ok(width(titleOf(home)) <= 66, `${dir} home title is ${width(titleOf(home))} wide`);
+      for (const slug of GUIDE(dir)) {
+        const html = fs.readFileSync(path.join(site, prefix, "docs", slug, "index.html"), "utf8");
+        const title = titleOf(html);
+        const source = fs.readFileSync(path.join("docs", "guide", dir, `${slug}.md`), "utf8");
+        const own = /^seoTitle: (.+)$/m.exec(source)?.[1] ?? /^title: (.+)$/m.exec(source)?.[1] ?? "";
+        assert.equal(title, `${own}${suffix}`, `${dir}/${slug}`);
+        assert.ok(width(title) <= 66, `${dir}/${slug}: "${title}" is ${width(title)} wide`);
+        assert.ok(html.includes(`<meta property="og:title" content="${title}">`), `${dir}/${slug} og:title`);
+        // The heading stays the page's name in the menu
+        assert.match(html, new RegExp(`<h1 class="mt-2">${/^title: (.+)$/m.exec(source)?.[1]?.replace(/[()]/g, "\\$&")}</h1>`), `${dir}/${slug} h1`);
+      }
+    }
+    // The pages people look for by a search term carry it in their title
+    for (const [slug, zh, en] of [
+      ["locking", /锁频.*锁小区/, /Lock .*bands and cells/],
+      ["signal", /RSRP/, /RSRP/],
+      ["supported-devices", /华为.*中兴/, /Huawei.*ZTE/],
+      ["sms", /短信.*Telegram/, /SMS.*Telegram/],
+    ] as const) {
+      assert.match(titleOf(fs.readFileSync(path.join(site, "docs", slug, "index.html"), "utf8")), zh, `zh/${slug}`);
+      assert.match(titleOf(fs.readFileSync(path.join(site, "en", "docs", slug, "index.html"), "utf8")), en, `en/${slug}`);
+    }
+  });
+
+  it("tells search engines the site's name and keeps the footer out of result snippets", () => {
+    for (const prefix of ["", "en/"]) {
+      const home = fs.readFileSync(path.join(site, prefix, "index.html"), "utf8");
+      const ld = JSON.parse(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(home)?.[1] ?? "{}") as { "@graph"?: Array<Record<string, unknown>> };
+      const website = ld["@graph"]?.find((n) => n["@type"] === "WebSite");
+      // Google's site name comes from WebSite on the home page; "fengsui" alone reads as a misspelling to it
+      assert.equal(website?.["name"], "烽燧 FengSui", prefix);
+      assert.deepEqual(website?.["alternateName"], ["FengSui", "烽燧", "cpe-dash"], prefix);
+      assert.equal(website?.["url"], "https://docs.example.com/", prefix);
+      const app = ld["@graph"]?.find((n) => n["@type"] === "SoftwareApplication");
+      assert.deepEqual(app?.["alternateName"], ["FengSui", "烽燧", "cpe-dash"], prefix);
+      assert.deepEqual(app?.["author"], { "@type": "Person", name: "iocky", url: "https://iocky.com/" }, prefix);
+    }
+    // A local build names no domain, so no WebSite (its url must be absolute)
+    assert.doesNotMatch(fs.readFileSync(path.join(plain, "index.html"), "utf8"), /"WebSite"/);
+    // The disclaimer and the link lists repeat on every page: never the snippet under a page's title
+    for (const file of htmlFiles(site).filter((f) => !f.endsWith("404.html"))) {
+      const footer = /<footer[^>]*>([\s\S]*?)<\/footer>/.exec(fs.readFileSync(file, "utf8"))?.[1] ?? "";
+      const blocks = [...footer.matchAll(/^ {2}<div([^>]*)>/gm)].map((m) => m[1] ?? "");
+      assert.equal(blocks.length, 2, file);
+      assert.ok(blocks.every((attrs) => attrs.includes("data-nosnippet")), file);
+    }
   });
 
   it("indexes every page for search, ships the licence notices and names the author's site only by its home page", () => {

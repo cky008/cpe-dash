@@ -1,5 +1,6 @@
 ---
 title: Supported devices
+seoTitle: Supported routers: Huawei, ZTE, TP-Link, D-Link and more
 description: The router FengSui is verified on, what FengSui does on every model the interface notes record, and how a cell turns into ✓.
 section: Get started
 order: 2

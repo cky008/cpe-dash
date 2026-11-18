@@ -1,5 +1,6 @@
 ---
 title: 烽燧是什么
+seoTitle: 烽燧是什么：自托管的 4G / 5G 路由器控制台
 description: 一个装在你自己 NAS 上的 4G / 5G 路由器控制台，支持华为、中兴、TP-Link 等品牌。先花两分钟了解它能做什么、不能做什么。
 section: 开始使用
 order: 1

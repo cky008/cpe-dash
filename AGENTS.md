@@ -88,7 +88,7 @@ cpe-dash/
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图，连接与每次调用各有期限、超时报出卡在哪一步；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
-│   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO；域名只来自 DOCS_SITE_URL；docs/diagrams/ 的图内联进页面，跟着站点的主题切换，只放行图形与文字），输出 dist/site
+│   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO：搜索结果里的标题带上人们搜的词（页面 front matter 可另写 `seoTitle`，测试限制标题长度），首页的结构化数据给出站名与别名（FengSui、烽燧、cpe-dash），页脚不进摘要；域名只来自 DOCS_SITE_URL；docs/diagrams/ 的图内联进页面，跟着站点的主题切换，只放行图形与文字），输出 dist/site
 │   ├── api-reference.ts · sync-docs.ts  # 指南「API 参考」由代码生成的部分（路由、方法、令牌需要的权限、中英说明与示例请求体取自操作登记；SSE 事件与错误码的中英说明写在这里）；npm run docs:sync 重写指南里所有生成的块（「支持的设备」的表与「API 参考」的三张表），--check 只检查；test/api-reference.test.ts 保证清单与代码一致、每个路由按所写的方法和示例请求体真能调用、页面与生成结果一致
 │   ├── test-count-reporter.ts # node --test 报告器（门禁里的 test:coverage 与 test:browser 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）

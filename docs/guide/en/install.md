@@ -1,5 +1,6 @@
 ---
 title: Installation and upgrade
+seoTitle: Install on a Synology NAS, Docker or Node.js
 description: Install FengSui on Synology, other Docker hosts, or directly with Node.js, and how to upgrade, stop, and uninstall.
 section: Get started
 order: 4

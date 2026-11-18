@@ -1,5 +1,6 @@
 ---
 title: 告警与通知
+seoTitle: 断网与信号告警：Telegram 和 Webhook 通知
 description: 断网、信号变差、新短信时通知你：Telegram 机器人、Webhook 和告警规则。
 section: 使用烽燧
 order: 10

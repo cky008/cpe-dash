@@ -1,5 +1,6 @@
 ---
 title: 路由器开关
+seoTitle: 路由器开关与蜂窝设置：网络制式、APN、SIM PIN、漫游
 description: 控制抽屉里每个开关是做什么的：UPnP、DMZ、防火墙、WAN 口 Ping、MLO、双频优选、天线、移动数据、重拨和重启，以及蜂窝设置（网络制式、手动选网、SIM 卡槽与 PIN、飞行模式、漫游、APN、流量上限、USSD）。
 section: 使用烽燧
 order: 7

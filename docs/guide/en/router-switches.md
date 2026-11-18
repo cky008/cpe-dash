@@ -1,5 +1,6 @@
 ---
 title: Router switches
+seoTitle: Router settings: network mode, APN, SIM PIN, UPnP, DMZ
 description: What each switch in the Controls drawer does: UPnP, DMZ, firewall, WAN ping, MLO, 5 GHz priority, antennas, mobile data, reconnecting, and rebooting, plus the cellular settings (network mode, operator selection, SIM slot and PIN, airplane mode, roaming, APN, data limit, USSD).
 section: Use FengSui
 order: 7
