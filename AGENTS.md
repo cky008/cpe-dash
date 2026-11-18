@@ -12,6 +12,7 @@
 - **分层（每个品牌走同一条路，华为也一样）**：入口（控制台、REST、SSE、MCP、Telegram、自愈）→ 操作登记（`src/operations/`：每个读写操作一条记录，各入口的路由、工具、权限和第一层入参检查都从它来，见第 4 节第 9 条）→ 共用的规则（入参校验、写闸门、审计）→ 不分品牌的服务（监控、控制、短信、蜂窝设置、访问控制、告警、自愈、时序）→ `RouterBackend` 动词 → **一个后端实现**（只管排队、闸门、审计、读取记录与写入记录，不知道品牌）→ **调度器的一条读路径与一条写路径** → **一个会话客户端**（`src/session-client.ts`：互斥、限时、免登录检查与让位、只交一次密码、熔断、`finally` 注销）→ **每个品牌一个驱动**（自己的登录方式、会话里的读写、事实）→ **协议部件**（`src/protocols/`：HiLink、ubus、模组 AT 指令；只管会话与解析，不含只对某个品牌或型号成立的事实，供驱动组合；驱动与部件都要用的传输、取值清洗和读数形状也在这里）。依赖只有一个方向：驱动引用协议部件，协议部件不引用 `src/drivers/`（`test/router-backend.test.ts` 守着这条线）。新品牌只加驱动和事实；新能力先加动词，再在有记录的品牌的驱动里实现。不为了「不碰已验证的代码」保留平行的旧路径：H168-383 的约束是发给路由器的请求逐字节不变，由请求序列比对证明，与代码怎样组织无关。
 - **在线演示跑同一套服务**：GitHub Pages 上的在线演示在浏览器里装配守护进程的服务（`src/services.ts`），登录之后的分派也是守护进程的（`src/http-api.ts`），只把传输换成页面里的、把路由器换成测试用的模拟路由器（演示世界 `web/src/demo/worlds.ts`）；守护进程用到的 Node 内置模块由只进演示包的替身（`web/src/demo/node/`，与 Node 逐字节对照测试）提供。演示不另写任何读写、闸门、存储或处理函数：给烽燧加一项能力，只要模拟路由器支持它（测试本来就要），演示就有。
 - **短信与遥测同源调度**：短信不再由独立进程（如旧 `cpe-sms`）登录 CPE，而是与遥测共用唯一的 `MutexSessionScheduler`，从根本上消除单管理员会话争抢。
+- **Claude Desktop 扩展只装 stdio 桥接**：扩展（MCP Bundle，`dist/fengsui-<版本>.mcpb`，由 `npm run build:mcpb` 打出，发版时附到 GitHub Release）里只有桥接（`src/desktop-extension.ts` + `src/mcp-stdio-bridge.ts`，测试保证包里没有守护进程的模块），由 Claude Desktop 自带的 Node 运行。它和 `cpe-dash mcp` 一样是零状态桥接：只把请求转发到守护进程的 `/mcp`，不开路由器会话，不存任何状态。地址和令牌是扩展的设置，只从 Desktop 传入的环境变量读，扩展不读任何 `.env`；地址照 `MCP_DAEMON_URL` 的规则只接受局域网 / Tailscale，令牌在 manifest 里标为敏感项，由 Desktop 存在系统钥匙串里，不写进任何文件、日志或报错。
 - **100% 独立闭环原则**：`cpe-dash` 必须是完全独立闭环的开源仓库，**严禁对任何外部兄弟目录（如 `cpe-sms`）产生跨目录相对路径引用、`file:` 依赖或软链接**。
 - **零运行时外部依赖**：生产运行时仅依赖 Node.js (`>= 22.6.0`) 原生内置模块（`node:crypto`、`node:http`、`node:fs`、`node:net`、全局 `fetch`），彻底杜绝第三方供应链投毒面。
 - **默认高位端口隔离**：Web 控制台与统一 API 默认监听 `WEB_PORT=18384`，避开 NAS 常用 `8080` 及兄弟项目端口（如 `18383`）。
@@ -67,7 +68,9 @@ cpe-dash/
 │   ├── control-input.ts    # 入参的第一层检查（不分品牌的形状与取值，零依赖；control-error.ts 为其错误类）：操作登记引用，REST、MCP、Telegram 与在线演示共用；mcp-schema.ts 工具 inputSchema 运行时校验
 │   ├── sse-bus.ts          # /api/events SSE 总线（只用到应答对象的几个方法；在线演示把帧交给页面里的 EventSource）
 │   ├── mcp-server.ts       # 零依赖 JSON-RPC MCP Server（挂载于 /mcp）：每个工具的权限、是否改动、写闸门、要的读取分区和 inputSchema 取自操作登记；可插拔的工具提供者只给出处理函数、运行时的开关与资源（mcp-core-tools.ts 核心 17 项工具、mcp-access-tools.ts 访问控制工具、mcp-cellular-tools.ts 蜂窝设置工具、mcp-tool-provider.ts 提供者契约、mcp-headers.ts 2026-07-28 路由头）
-│   ├── mcp-stdio-bridge.ts # cpe-dash mcp：零状态 stdio→HTTP /mcp 桥接（不连接 CPE）
+│   ├── mcp-stdio-bridge.ts # 零状态 stdio→HTTP /mcp 桥接（不连接 CPE）与它的进程收尾：cpe-dash mcp 与 Claude Desktop 扩展共用
+│   ├── desktop-extension.ts # Claude Desktop 扩展的入口（打包进 .mcpb 的只有它和桥接）：只从 Desktop 传入的环境变量读 MCP_DAEMON_URL 与 API_TOKEN（不读 .env，不引用 node:fs），地址按 lan-address.ts 校验；没设好时对每个请求答一句去哪里设，什么都不转发
+│   ├── lan-address.ts      # 零依赖：哪些主机算局域网 / 私网 / Tailscale（RFC 1918、RFC 6598、回环、链路本地、ULA，以及 .local / .lan / .internal / .ts.net 与单标签主机名），守护进程 /mcp 的地址怎样定（resolveDaemonMcpUrl）；config.ts 与 Claude Desktop 扩展共用
 │   ├── services.ts         # 服务的装配与接线（守护进程与在线演示共用）：控制台设置、审计、核心、短信、告警、自愈、一键测试、Telegram、通知中心、SSE 总线、API 分派，以及它们之间的接线（写入与短信的审计、国家代码、行为设置、自愈看护）和开机、后台工作、有序停止
 │   ├── cli.ts              # serve 守护进程的进程外壳（数据目录锁、跨主机保护、MCP、HTTP 监听、进程读数、启动提示与有序启停，以及连路由器用的请求函数：pinned-fetch.ts 按指纹信任证书的那个；服务由 services.ts 装配）与 mcp 桥接入口
 │   ├── maintenance.ts      # cpe-dash doctor / backup / restore / rekey：离线自检、加密备份与恢复、换密钥与找回被隔离的数据（不连接 CPE）
@@ -82,21 +85,23 @@ cpe-dash/
 │   └── src/                # core/（无 DOM、node:test 覆盖率门禁；endpoints.ts 是 REST 客户端：登记了的操作的路径与方法取自 src/operations/routes.ts，写操作自动带 `confirm: true`，控制台自己的路由写在这里；router-brand.ts 为品牌字段与连接表单的规则，lock-form.ts 为各品牌的锁频 / 锁小区表单规则；agent-test-view.ts 为一键测试的提示词：按这台路由器的品牌、型号、固件和它实际开着的读写项拼出，只点名它有的工具，文字在 i18n/settings.ts；cellular-view.ts 为控制抽屉「蜂窝设置」小节的规则（显示哪几项、PIN 能不能发、填写内容的检查），小节本身在 ui/cellular.ts、文字在 i18n/cellular.ts，按需加载；core/help.ts 为术语帮助：每个专业名词的一句话解释与文档站锚点，ui/help.ts 画「?」，「设置 → 外观」可关）· ui/（视图）· i18n/（类型化中英词典）· demo/（在线演示，纳入覆盖率门禁：页面里跑守护进程的服务（src/services.ts）与登录之后的分派（src/http-api.ts）：runtime.ts 装配并开机（布置家里的数据，等第一轮读取落地），transport.ts 把控制台的 fetch 与 EventSource 接上去，另有演示自己的登录（任何密码都能进）；worlds.ts 是演示世界：四台路由器（H168-383、未验证的 B535-232、中兴 MU5001、没有锁频与锁小区的 D-Link DWR-961）布置在测试用的模拟路由器上，npm run demo、截图、浏览器测试与在线演示共用，radio.ts 是锁定下服务小区怎样变，world.ts 是家里的节奏；node/ 是只进演示包的 Node 内置模块替身：crypto 的同步子集、Buffer、events、只在同步范围内的 AsyncLocalStorage、net、内存里的文件系统、path、url、process、不丢 Set-Cookie 的 Response）· boot.ts · main.ts
 ├── scripts/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器（覆盖 src/ scripts/ test/ web/；私钥只放行路由器厂商写在网页里、每台都一样的那把，按指纹列在 PUBLIC_VENDOR_KEYS）
+│   ├── build-mcpb.ts · zip.ts · json-schema.ts  # npm run build:mcpb：把 src/desktop-extension.ts 用 esbuild 打成一个 JS 文件（不带源码映射；测试保证里面没有守护进程的模块），按 package.json 写 manifest（版本、最低 Node 版本与 engines 一致），用 mcpb/ 里的官方 schema 校验（json-schema.ts：零依赖，只认那份 schema 用到的关键字，遇到别的关键字就报错），再零依赖地打成 dist/fengsui-<版本>.mcpb（zip.ts：只用 store，测试也用它读回）
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示：node:* 换成 web/src/demo/node/ 的替身，演示的代码只进演示包）
 │   ├── demo-router.ts      # 演示路由器上的真实守护进程（demo-server、截图与浏览器测试共用；四个世界在 web/src/demo/worlds.ts）；另有只给测试用的世界：每个品牌和接口写法各一台（test/helpers/ 里驱动测试的模拟路由器，`BRAND_SCENARIOS` 列出全部），可以按测试覆盖配置（`env`）
 │   ├── demo-server.ts      # npm run demo：真实守护进程栈 + 进程内严格 Mock 路由器（不读 .env、不联网）；DEMO_MCP_WRITES=true 时智能体会改动路由器的工具也列出来、可以调用（仍只写到模拟路由器，Glama 的检查就这样跑）
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图，连接与每次调用各有期限、超时报出卡在哪一步；screenshots 与浏览器测试共用
-│   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）
+│   ├── brand.ts · trace-logo.ts · brand-icon.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件；npm run brand:icon 零依赖地把源文件画成 Claude Desktop 扩展的 512×512 PNG 图标（浅色、深色各一张，透明底，写进 mcpb/；测试逐像素核对它们和源文件一致）（见 docs/dev/brand.md）
 │   ├── build-docs.ts · markdown.ts · site-home.ts  # npm run build:docs：零依赖 Markdown 渲染 + 文档站（主页、用户指南、⌘K 搜索、SEO：搜索结果里的标题带上人们搜的词（页面 front matter 可另写 `seoTitle`，测试限制标题长度），首页的结构化数据给出站名与别名（FengSui、烽燧、cpe-dash），页脚不进摘要；域名只来自 DOCS_SITE_URL；docs/diagrams/ 的图内联进页面，跟着站点的主题切换，只放行图形与文字），输出 dist/site
 │   ├── api-reference.ts · sync-docs.ts  # 指南「API 参考」由代码生成的部分（路由、方法、令牌需要的权限、中英说明与示例请求体取自操作登记；SSE 事件与错误码的中英说明写在这里）；npm run docs:sync 重写指南里所有生成的块（「支持的设备」的表与「API 参考」的三张表），--check 只检查；test/api-reference.test.ts 保证清单与代码一致、每个路由按所写的方法和示例请求体真能调用、页面与生成结果一致
 │   ├── test-count-reporter.ts # node --test 报告器（门禁里的 test:coverage 与 test:browser 使用）：拿每条测试自己发的 test:complete 核对报告，失败被运行器漏报即失败，通过被漏报只列出；各目录跑过的测试数不得低于下限（TEST_FLOORS，加了测试就调高）
 │   ├── release-notes.ts    # 从 CHANGELOG.md 对应版本段落生成 GitHub Release 说明：欢迎语、升级须知、`### Highlights` 亮点、按类分组只列每项首句（release.yml 的 notes 任务调用，标题只用版本号）
 │   └── probe-*.ts          # 只读真机探针集（统一读取 .env 并默认脱敏；probe-sms 只输出聚合计数）
-├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器，每个品牌一份；brand-walk 在每个品牌和接口写法的模拟路由器上把全部 REST 路由与 MCP 工具走一遍：没有的能力回错误码和一句话，从不 500，写入没有 confirm 在任何会话之前被拒，被关掉的写入与没实现的分得开；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；ui/ 为浏览器测试：无头 Chrome 对着真实守护进程与演示路由器（含其他品牌的模拟路由器：每个品牌走一遍首页、短信、控制抽屉与「设置 → 设备」，浅色深色轮换，再看手机宽度），以及构建好的在线演示（Node 内置模块的替身只在浏览器里用得上），在 npm run check 里由 test:browser 运行，单独跑用 npm run test:ui；它的 before / after 钩子一律经 test/ui/hooks.ts，带超时，卡住的 Chrome 让门禁失败而不是挂住）
+├── test/                   # 基于 node:test + node:assert/strict 的高覆盖率仿真测试集（helpers/ 内含加密 Mock 路由器，每个品牌一份；brand-walk 在每个品牌和接口写法的模拟路由器上把全部 REST 路由与 MCP 工具走一遍：没有的能力回错误码和一句话，从不 500，写入没有 confirm 在任何会话之前被拒，被关掉的写入与没实现的分得开；ci-config 守护 Action 的 SHA 固定，audit-gate 覆盖 audit:secrets 规则；desktop-extension 打出 .mcpb、核对 manifest 与包里的文件，再以 Desktop 的方式（只给环境变量）在演示守护进程前经 stdio 跑一遍；ui/ 为浏览器测试：无头 Chrome 对着真实守护进程与演示路由器（含其他品牌的模拟路由器：每个品牌走一遍首页、短信、控制抽屉与「设置 → 设备」，浅色深色轮换，再看手机宽度），以及构建好的在线演示（Node 内置模块的替身只在浏览器里用得上），在 npm run check 里由 test:browser 运行，单独跑用 npm run test:ui；它的 before / after 钩子一律经 test/ui/hooks.ts，带超时，卡住的 Chrome 让门禁失败而不是挂住）
+├── mcpb/                   # Claude Desktop 扩展的固定文件：icon.png / icon-dark.png（npm run brand:icon 生成后提交）、官方 manifest schema（mcpb-manifest-v0.3.schema.json，原样取自 modelcontextprotocol/mcpb，许可证 LICENSE 随附；出处见 docs/dev/sources.md 第 24 节）；manifest 本身由 scripts/build-mcpb.ts 生成，不入库
 ├── Dockerfile · docker-compose.yml · .dockerignore   # 非 root、只读根文件系统、HEALTHCHECK 的生产镜像与群晖编排
 ├── LICENSE · THIRD_PARTY_NOTICES.md                # PolyForm Noncommercial 1.0.0；构建产物所含 Tailwind CSS / daisyUI / Lucide 的许可声明（构建放到控制台旁，镜像放在 /app）
-├── .github/workflows/      # ci-docker.yml（门禁 + amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）· docs-pages.yml（文档站发布到本仓库 Pages，仓库变量 DOCS_PAGES_ENABLED 打开后才运行）
+├── .github/workflows/      # ci-docker.yml（门禁（Node 22.x、24.x、26.x）+ amd64 镜像冒烟）· release.yml（打 tag 推送 GHCR 多架构镜像；构建 Claude Desktop 扩展 .mcpb，带构建来源证明附到 GitHub Release）· demo-pages.yml（打 tag 发布在线演示到公开仓库 fengsui-demo）· docs-pages.yml（文档站发布到本仓库 Pages，仓库变量 DOCS_PAGES_ENABLED 打开后才运行）
 ├── .github/ISSUE_TEMPLATE/ # device-report.yml：其他型号的兼容性报告表单（型号、固件、能用 / 不能用、报告、隐私确认）；bug-report.yml、feature-request.yml；config.yml 把安全问题引到私密报告
 ├── .github/pull_request_template.md · SECURITY.md · CONTRIBUTING.md · CODE_OF_CONDUCT.md  # PR 隐私自检、漏洞私密报告与范围、贡献规则（TDD、占位值、零运行时依赖）、行为准则（Contributor Covenant 2.1）
 └── docs/
@@ -123,7 +128,7 @@ cpe-dash/
 - 严禁使用显式或隐式 `any`；对所有网络 I/O、XML 解析与 `catch (err: unknown)` 必须执行显式类型收窄。
 
 ### 铁律二：零密钥与零硬件隐私泄露 (Zero-Secret & Zero-PII Git Hygiene)
-- **严禁泄露清单**：在源码、测试夹具、探针终端输出、文档样本及 Git Commit 记录中，**绝对禁止出现**真实管理密码、API Token、真实公网 IPv4/IPv6、真实 Tailscale 节点 IP、个人公网域名（例外只有两个：作者主页链接 `https://iocky.com/`（控制台与文档站的页脚、文档站的常见问题），以及项目文档站 `https://fengsui.iocky.com/`（README、发布说明、docker-compose.yml 与控制台术语帮助的链接）；NAS 反代主机名等其他任何子域名仍然禁止）、**IMEI**、**IMSI**、**ICCID**、**手机号 (MSISDN)**、**设备序列号 (SN)**、**真实终端 MAC 地址**、**Wi-Fi 真实 SSID/密码** 以及 **真实基站位置指纹（TAC 跟踪区代码、CellID、gNodeB/eNodeB ID，以及服务小区与邻区的 PCI + 频点组合：同一运营商的频点加上几个 PCI 就能在公开基站数据库里定位到具体站点）**。
+- **严禁泄露清单**：在源码、测试夹具、探针终端输出、文档样本及 Git Commit 记录中，**绝对禁止出现**真实管理密码、API Token、真实公网 IPv4/IPv6、真实 Tailscale 节点 IP、个人公网域名（例外只有两个：作者主页链接 `https://iocky.com/`（控制台与文档站的页脚、文档站的常见问题），以及项目文档站 `https://fengsui.iocky.com/`（README、发布说明、docker-compose.yml、控制台术语帮助与 Claude Desktop 扩展 manifest 的文档链接）；NAS 反代主机名等其他任何子域名仍然禁止）、**IMEI**、**IMSI**、**ICCID**、**手机号 (MSISDN)**、**设备序列号 (SN)**、**真实终端 MAC 地址**、**Wi-Fi 真实 SSID/密码** 以及 **真实基站位置指纹（TAC 跟踪区代码、CellID、gNodeB/eNodeB ID，以及服务小区与邻区的 PCI + 频点组合：同一运营商的频点加上几个 PCI 就能在公开基站数据库里定位到具体站点）**。
 - **RFC 占位测试夹具规范**：
   - CPE 局域网网关：`192.168.8.1`；模拟公网 IPv4：RFC 5737 测试网段（`198.51.100.42` / `203.0.113.10`）；模拟公网 IPv6：RFC 3849（`2001:db8::42`）；
   - 模拟域名：`cpe.example.com`；模拟 MAC：`02:00:5E:10:00:01` / `00:00:5E:00:53:01`（RFC 7042 文档保留地址）；
@@ -146,7 +151,7 @@ cpe-dash/
 - H168-383 固件严格限制**同一时刻仅允许 1 个管理员会话在线**。若后台守护进程持久霸占会话，用户在浏览器打开 `http://192.168.8.1` 登录时将被迫报错或发生会话抢占。
 - **其他品牌同样适用**：驱动品牌的会话走 `DriverCpeClient.withSession()`，与 HiLink 客户端共用同一个调度器队列，登录前先做各品牌自己的免登录检查（有人在线即让位、已锁定即不登录），`finally` 无条件注销，密码被拒即熔断、绝不重试。一个品牌的登录有几种写法时（D-Link 的 MD5 与登录页自己的编码，TP-Link 的几种加密与签名），驱动在发送密码之前凭路由器免登录给出的东西（登录页、密钥应答、页面脚本）定下用哪一种；定不下来就不发送密码（`LoginMethodError`），绝不逐种试。识别品牌（`detectRouterFamily`）只发免登录请求，不带密码、不建会话。
 - **强制瞬时短连 (`withSession`)**：任何需要鉴权的读写操作必须包裹在串行互斥的 `HuaweiCpeClient.withSession()` 中，并在 `finally` 块内无条件调用 `POST /api/user/logout`（真机实测单次会话占用窗口仅 `~26ms–260ms`）。
-- **短信同样受本铁律约束**：短信同步、发送、标记已读与删除只能经 `SmsService` 调用 `RouterBackend` 的短信动词进入 `MutexSessionScheduler`（所有品牌都走调度器的同一条读路径与写路径、同一个队列、同一个闸门），短信计数捎带在 5s 遥测会话内，严禁另起轮询或独立登录；所有品牌的短信写入都只发一次，发送被路由器接受之后的任何失败都记为「未确认」而不是失败，绝不重发。只有 `serve` 守护进程连接 CPE：它独占数据目录（`state.json.lock`），第二个守护进程启动即失败；`cpe-dash mcp` 是转发到守护进程 `/mcp` 的零状态 stdio 桥接，严禁在其他进程中实例化 `HuaweiCpeClient` 或调度器。
+- **短信同样受本铁律约束**：短信同步、发送、标记已读与删除只能经 `SmsService` 调用 `RouterBackend` 的短信动词进入 `MutexSessionScheduler`（所有品牌都走调度器的同一条读路径与写路径、同一个队列、同一个闸门），短信计数捎带在 5s 遥测会话内，严禁另起轮询或独立登录；所有品牌的短信写入都只发一次，发送被路由器接受之后的任何失败都记为「未确认」而不是失败，绝不重发。只有 `serve` 守护进程连接 CPE：它独占数据目录（`state.json.lock`），第二个守护进程启动即失败；`cpe-dash mcp` 与 Claude Desktop 扩展都是转发到守护进程 `/mcp` 的零状态 stdio 桥接，严禁在其他进程中实例化 `HuaweiCpeClient` 或调度器。
 - **暂停连接**：主人要用路由器自己的管理页时，可以在「设置 → 路由器」暂停连接（`POST /api/session/pause`，1–120 分钟）。暂停期间调度器不开任何会话、不向路由器发任何请求：读取跳过，写入在任何会话之前以 `409 ROUTER_PAUSED` 拒绝，免登录的探测、连接测试和品牌识别也不做；到时间自动恢复，守护进程重启后接着暂停到原来的时间，没有无限期的暂停。还有断网回退的看守开着时不能暂停，一项写入正在它的会话里时也不能（第 4 节第 2 条的回退必须写得出去；看守是写入生效后才开的）。
 - **双层真人在线主动避让（`state-login` 预检 + 跨 IP `108003` 让位）**：每次发起登录前先请求 `GET /api/user/state-login`；当 `respectBrowserSession: true`（后台轮询与探针默认开启）时，若 `<State>` 不为 `"-1"`（第 1 层）或跨局域网终端已有浏览器在线返回 `108003`/`108009`（第 2 层），客户端必须**立即静默挂起让位（返回 `null`）**，严禁强行抢占或循环重试干扰真人会话。
 
@@ -172,6 +177,7 @@ cpe-dash/
    - `npm run test:coverage`：`c8` 语句覆盖率 `>= 90%`、行覆盖率 `>= 90%`、函数覆盖率 `>= 90%`；失败的测试一条都没有被运行器漏报，测试总数不低于 `scripts/test-count-reporter.ts` 的下限；
    - `npm run test:browser`：浏览器测试（`test/ui/`，无头 Chrome，对着刚构建的控制台、真实守护进程与模拟路由器，以及先构建出来的在线演示；演示包超过它的体积上限即失败），同样核对测试数下限；本机没有 Chrome 时设 `CHROME_PATH`，不得跳过；
    - `npm run audit:secrets`：工作区与全量 Git 历史零密钥、零敏感指纹、零 `.js` 混入。
+4. **CI 在三个 Node 版本上各跑一遍门禁**：`22.x`（`engines` 的下限）、`24.x`（Claude Desktop 自带的 Node，扩展在它上面运行）、`26.x`（镜像用的 LTS）；同一个任务里还打一次 Claude Desktop 扩展（`npm run build:mcpb`）。
 
 ---
 
