@@ -39,6 +39,29 @@ describe("GitHub Actions supply chain", () => {
     assert.match(release, /scripts\/release-notes\.ts "\$TAG"/);
   });
 
+  it("attaches the Claude Desktop extension to the release, built and attested in a job that cannot write the repository", () => {
+    const release = fs.readFileSync(path.join(WORKFLOWS, "release.yml"), "utf8");
+    const job = (name: string): string => {
+      const start = release.indexOf(`\n  ${name}:\n`);
+      assert.ok(start > 0, `release.yml has a ${name} job`);
+      const next = release.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
+      return next < 0 ? release.slice(start) : release.slice(start, start + 1 + next);
+    };
+    const extension = job("extension");
+    assert.match(extension, /\n {4}needs: check\n/);
+    assert.match(extension, /\n {4}permissions:\n {6}contents: read\n {6}id-token: write\n {6}attestations: write\n/);
+    assert.match(extension, /\n\s+npm run build:mcpb\n/);
+    // A tag releases the version package.json names, so v1.2.3 ships fengsui-1.2.3.mcpb
+    assert.match(extension, /"\$REF_NAME" != "v\$version"/);
+    assert.match(extension, /uses: actions\/attest-build-provenance@[0-9a-f]{40} # v\d+\.\d+\.\d+\n\s+with:\n\s+subject-path: \$\{\{ steps\.mcpb\.outputs\.file \}\}/);
+    assert.match(extension, /if: \$\{\{ !github\.event\.repository\.private && github\.ref_type == 'tag' \}\}/);
+    assert.match(extension, /uses: actions\/upload-artifact@[0-9a-f]{40} # v\d+\.\d+\.\d+\n\s+with:\n\s+name: mcpb\n/);
+    const notes = job("notes");
+    assert.match(notes, /\n {4}needs: \[publish, extension\]\n/);
+    assert.match(notes, /uses: actions\/download-artifact@[0-9a-f]{40} # v\d+\.\d+\.\d+\n\s+with:\n\s+name: mcpb\n/);
+    assert.match(notes, /gh release upload "\$TAG" "\$RUNNER_TEMP"\/mcpb\/fengsui-\*\.mcpb --clobber/);
+  });
+
   it("pins the base image by digest, attests releases and bounds the container", () => {
     const dockerfile = fs.readFileSync(path.resolve(WORKFLOWS, "..", "..", "Dockerfile"), "utf8");
     const froms = dockerfile.split("\n").filter((line) => line.startsWith("FROM "));
