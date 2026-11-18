@@ -11,6 +11,7 @@
 <p align="center">
   <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/github/v/release/cky008/cpe-dash?style=flat-square&label=%E7%89%88%E6%9C%AC" alt="最新版本" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
+  <a href="https://fengsui.iocky.com/docs/agents/"><img src="https://img.shields.io/badge/MCP-%E5%86%85%E7%BD%AE%E6%9C%8D%E5%8A%A1%E5%99%A8-7C3AED?style=flat-square&logo=modelcontextprotocol&logoColor=white" alt="内置 MCP 服务器，供 AI 智能体使用" /></a>
   <img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 和 arm64" />
   <img src="https://img.shields.io/badge/%E8%BF%90%E8%A1%8C%E6%97%B6%E4%BE%9D%E8%B5%96-0-black?style=flat-square" alt="零运行时依赖" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF-PolyForm_NC_1.0.0-orange?style=flat-square" alt="PolyForm Noncommercial 1.0.0" /></a>

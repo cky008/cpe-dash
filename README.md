@@ -11,6 +11,7 @@
 <p align="center">
   <a href="https://github.com/cky008/cpe-dash/releases"><img src="https://img.shields.io/github/v/release/cky008/cpe-dash?style=flat-square&label=release" alt="Latest release" /></a>
   <a href="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml"><img src="https://github.com/cky008/cpe-dash/actions/workflows/ci-docker.yml/badge.svg" alt="CI" /></a>
+  <a href="https://fengsui.iocky.com/en/docs/agents/"><img src="https://img.shields.io/badge/MCP-built--in_server-7C3AED?style=flat-square&logo=modelcontextprotocol&logoColor=white" alt="Built-in MCP server for AI agents" /></a>
   <img src="https://img.shields.io/badge/Docker-amd64_|_arm64-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker amd64 and arm64" />
   <img src="https://img.shields.io/badge/runtime_deps-0-black?style=flat-square" alt="No runtime dependencies" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm_NC_1.0.0-orange?style=flat-square" alt="PolyForm Noncommercial 1.0.0" /></a>
