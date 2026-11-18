@@ -1,6 +1,6 @@
 ---
 title: What FengSui is
-seoTitle: What FengSui is: a self-hosted dashboard for 5G routers
+seoTitle: What FengSui is: a self-hosted 5G CPE dashboard with MCP
 description: A console for 4G / 5G routers (Huawei, ZTE, TP-Link and more) running on your own NAS. Take two minutes to learn what it can and cannot do.
 section: Get started
 order: 1

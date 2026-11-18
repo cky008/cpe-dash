@@ -172,8 +172,8 @@ describe("documentation site (scripts/build-docs.ts)", () => {
     const titleOf = (html: string): string => /<title>([^<]+)<\/title>/.exec(html)?.[1] ?? "";
     for (const [dir, prefix, suffix] of [["zh", "", " · 烽燧 FengSui"], ["en", "en/", " · FengSui"]] as const) {
       const home = fs.readFileSync(path.join(site, prefix, "index.html"), "utf8");
-      // The words people type: the brand, the router kind and the vendor most of them own
-      assert.match(titleOf(home), dir === "zh" ? /^烽燧 FengSui · .*华为.*5G CPE/ : /^FengSui · .*dashboard.*Huawei.*5G CPE/, `${dir} home title`);
+      // The words people type: the brand, the router kind, the vendor most of them own, and MCP (no other router console has one)
+      assert.match(titleOf(home), dir === "zh" ? /^烽燧 FengSui · .*华为、中兴、TP-Link 5G CPE.*MCP/ : /^FengSui · .*Huawei, ZTE, TP-Link 5G CPE dashboard.*MCP/, `${dir} home title`);
       assert.ok(width(titleOf(home)) <= 66, `${dir} home title is ${width(titleOf(home))} wide`);
       for (const slug of GUIDE(dir)) {
         const html = fs.readFileSync(path.join(site, prefix, "docs", slug, "index.html"), "utf8");
