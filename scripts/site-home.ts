@@ -46,7 +46,7 @@ export function showcaseImage(id: ThemeId): string {
 const TEXT = {
   "zh-CN": {
     metaTitle: "烽燧 FengSui · 华为、中兴、TP-Link 5G CPE 自托管控制台，内置 MCP",
-    metaDescription: "烽燧是装在你自己 NAS 上的 4G / 5G 路由器网页控制台，支持华为 5G CPE、中兴、TP-Link 等品牌（已在华为 H168-383 上验证）：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和内置的 MCP 服务器（给 AI 智能体用），数据只留在家里。",
+    metaDescription: "烽燧是装在你自己 NAS 上的 4G / 5G 路由器网页控制台（管理面板），支持华为 5G CPE、中兴、TP-Link 等品牌（已在华为 H168-383 上验证）：实时信号与载波聚合、锁频锁站、短信收发、已连接设备、Telegram 告警和内置的 MCP 服务器（给 AI 智能体用），数据只留在家里。",
     titleStrong: "看清信号，",
     // "|" marks where the line may break (each part stays whole)
     titleSoft: "管好家里的|5G 路由器",
