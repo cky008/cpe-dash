@@ -28,7 +28,7 @@
   <img src="docs/screenshots/dashboard-sujian.webp" alt="The FengSui dashboard" width="100%" />
 </p>
 
-FengSui is a web console that runs on your own NAS or computer and lets you see and manage a 5G router: verified on the Huawei H168-383, and able to connect to other brands. It brings what the router's own web page scatters across many screens onto one dashboard, and adds what that page lacks: history charts, alerts, Telegram notifications, SMS threads and an interface for AI agents. Your data stays at home.
+FengSui is a web console that runs on your own NAS or computer and lets you see and manage a 4G / 5G router. Verified on the Huawei H168-383, it also connects to other Huawei models and to ZTE, TP-Link, D-Link and OpenWrt routers, among others. It brings what the router's own web page scatters across many screens onto one dashboard, and adds what that page lacks: history charts, alerts, Telegram notifications, SMS threads and a built-in MCP server for AI agents. Your data stays at home.
 
 ## What it does
 
