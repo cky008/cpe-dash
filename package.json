@@ -36,6 +36,7 @@
     "demo": "node --experimental-strip-types scripts/demo-server.ts",
     "screenshots": "node --experimental-strip-types scripts/screenshots.ts",
     "brand:trace": "node --experimental-strip-types scripts/trace-logo.ts",
+    "brand:icon": "node --experimental-strip-types scripts/brand-icon.ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "test:ui": "npm run build:web && npm run test:browser",
     "test:browser": "node --experimental-strip-types --test --test-concurrency=1 --test-timeout=300000 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-count-reporter.ts --test-reporter-destination=stdout test/ui/*.test.ts",

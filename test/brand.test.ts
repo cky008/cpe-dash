@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { describe, it } from "node:test";
 import zlib from "node:zlib";
 import { BRAND_PLACEHOLDER, brandSymbol, injectBrand, readBrandMark } from "../scripts/brand.ts";
+import { ICON_FILES, ICON_SIZE, encodeRgbaPng, markColours, parsePathData, renderIcon, renderPaths } from "../scripts/brand-icon.ts";
 import { decodePng, fitLoop, isSideBySide, masterSvg, traceRegion } from "../scripts/trace-logo.ts";
 
 const master = fs.readFileSync("web/brand/logo.svg", "utf8");
@@ -162,5 +163,61 @@ describe("brand: tracing a concept into the master", () => {
   it("refuses an outline too small to fit and an image without shapes", () => {
     assert.throws(() => fitLoop([[0, 0], [1, 0], [1, 1]], 0.6), /too small/);
     assert.throws(() => traceRegion(decodePng(encodePng(40, 40, () => [255, 255, 255])), 0, 40), /no shapes found/);
+  });
+});
+
+describe("brand: the Claude Desktop extension's icons", () => {
+  /** The pixel at (x, y) of an RGBA image. */
+  const px = (img: { width: number; data: Uint8Array }, x: number, y: number): number[] => [...img.data.subarray((y * img.width + x) * 4, (y * img.width + x) * 4 + 4)];
+
+  it("draws the committed icons from the master logo, pixel for pixel (npm run brand:icon redraws them)", () => {
+    for (const theme of ["light", "dark"] as const) {
+      const committed = decodePng(fs.readFileSync(ICON_FILES[theme]));
+      assert.deepEqual([committed.width, committed.height, committed.channels], [ICON_SIZE, ICON_SIZE, 4], `${ICON_FILES[theme]} is ${ICON_SIZE}×${ICON_SIZE} RGBA`);
+      const drawn = renderIcon(master, theme);
+      assert.ok(Buffer.from(committed.data).equals(Buffer.from(drawn)), `${ICON_FILES[theme]} no longer matches web/brand/logo.svg: run npm run brand:icon`);
+      // Transparent around the mark, the arcs' own colours inside them
+      assert.deepEqual(px(committed, 0, 0), [0, 0, 0, 0]);
+      assert.deepEqual(px(committed, ICON_SIZE - 1, ICON_SIZE - 1), [0, 0, 0, 0]);
+    }
+  });
+
+  it("takes the light colours and the (prefers-color-scheme: dark) ones from the master's style", () => {
+    assert.deepEqual(markColours(master), {
+      light: { main: [0x2e, 0x56, 0x72], echo: [0x6e, 0x92, 0xa7] },
+      dark: { main: [0xbb, 0xe0, 0xef], echo: [0x81, 0xb5, 0xc9] },
+    });
+    // Each arc is drawn in its role's colour: a point well inside the main arc (x 20, y 70 of the 100-unit view box)
+    const light = decodePng(encodeRgbaPng(ICON_SIZE, ICON_SIZE, renderIcon(master, "light")));
+    const dark = decodePng(encodeRgbaPng(ICON_SIZE, ICON_SIZE, renderIcon(master, "dark")));
+    assert.deepEqual(px(light, 102, 358), [0x2e, 0x56, 0x72, 255]);
+    assert.deepEqual(px(dark, 102, 358), [0xbb, 0xe0, 0xef, 255]);
+    assert.throws(() => markColours('<style>.main{fill:#123456}</style>'), /dark/);
+  });
+
+  it("fills by the non-zero rule with exact coverage at the edges", () => {
+    const red = [255, 0, 0] as const;
+    // A 4×4 square from (1, 1) to (3, 3) on a 4-unit canvas drawn at 4 px: inside opaque, outside clear
+    const square = renderPaths([{ d: "M1 1H3V3H1Z", colour: red }], 4, 4);
+    assert.deepEqual([...square.subarray((1 * 4 + 1) * 4, (1 * 4 + 1) * 4 + 4)], [255, 0, 0, 255]);
+    assert.deepEqual([...square.subarray(0, 4)], [0, 0, 0, 0]);
+    // Half a pixel covered: half the alpha
+    const half = renderPaths([{ d: "M0 0h0.5v1h-0.5z", colour: red }], 1, 1);
+    assert.deepEqual([...half], [255, 0, 0, 128]);
+    // Two squares the same way round both fill; the inner one drawn the other way cuts a hole
+    const same = renderPaths([{ d: "M0 0H4V4H0Z M1 1H3V3H1Z", colour: red }], 4, 4);
+    const hole = renderPaths([{ d: "M0 0H4V4H0Z M1 1V3H3V1Z", colour: red }], 4, 4);
+    assert.equal(same[(1 * 4 + 1) * 4 + 3], 255);
+    assert.equal(hole[(1 * 4 + 1) * 4 + 3], 0);
+    assert.equal(hole[3], 255);
+  });
+
+  it("reads the path commands the tracer writes, and refuses arcs it cannot draw", () => {
+    const cubic = parsePathData("M10 10C20 0 30 0 40 10S60 20 70 10Q80 0 90 10T95 10L95 20l-5 5h-5v5H10z");
+    assert.equal(cubic.length, 1, "one closed outline");
+    assert.ok((cubic[0]?.length ?? 0) > 20, "curves become many short segments");
+    assert.deepEqual(cubic[0]?.[0], [10, 10]);
+    assert.deepEqual(parsePathData("M1 1L2 2 3 1Z m1 0 l1 1 1 -1z"), [[[1, 1], [2, 2], [3, 1]], [[2, 1], [3, 2], [4, 1]]], "implicit line-tos; a relative move starts from where Z closed");
+    assert.throws(() => parsePathData("M1 1A5 5 0 0 1 9 9Z"), /arc/);
   });
 });
