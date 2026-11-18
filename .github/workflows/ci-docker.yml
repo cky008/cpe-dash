@@ -23,8 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22.x: the engines floor (>= 22.6); 26.x: the LTS the container image runs
-        node: ["22.x", "26.x"]
+        # 22.x: the engines floor (>= 22.6); 24.x: the Node built into Claude Desktop, which runs the extension;
+        # 26.x: the LTS the container image runs
+        node: ["22.x", "24.x", "26.x"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

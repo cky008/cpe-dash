@@ -99,6 +99,18 @@ describe("The local gate (npm run check)", () => {
     assert.doesNotMatch(ci, /npm run test:(?:ui|browser)/);
   });
 
+  it("runs the gate on the engines floor, on the Node that Claude Desktop runs the extension with, and on the image's", () => {
+    const ci = fs.readFileSync(path.join(ROOT, ".github", "workflows", "ci-docker.yml"), "utf8");
+    const matrix = /^\s+node: \[([^\]]*)\]$/m.exec(ci)?.[1]?.split(",").map((entry) => entry.trim().replace(/^"|"$/g, ""));
+    // 22: package.json's engines (>= 22.6); 24: the Node built into Claude Desktop (6.6395.0 ships 24.22.3); 26: the
+    // LTS the container image runs
+    assert.deepEqual(matrix, ["22.x", "24.x", "26.x"]);
+    const { engines } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { engines: { node: string } };
+    assert.equal(engines.node, ">=22.6.0", "the floor the first entry stands for");
+    const dockerfile = fs.readFileSync(path.join(ROOT, "Dockerfile"), "utf8");
+    assert.match(dockerfile, /^FROM node:26-alpine@/m, "the image's Node is the last entry");
+  });
+
   it("gives every hook of the browser tests a timeout, so a stuck Chrome fails the gate instead of hanging it", () => {
     const uiDir = path.join(ROOT, "test", "ui");
     const uiTests = fs.readdirSync(uiDir).filter((name) => name.endsWith(".test.ts"));
