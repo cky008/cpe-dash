@@ -4,6 +4,25 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.9.4] — 2026-11-18
+
+### Highlights
+- **AI clients see FengSui under the right name.** The MCP server introduced itself as a Huawei H168-383 server, a name from before FengSui spoke to other models and brands. Claude, Cursor and MCP directories now show "FengSui (烽燧) MCP server for 4G/5G routers", whichever router is connected.
+
+### Changed
+- **The MCP server's title.** `initialize` now answers with the title "FengSui (烽燧) MCP server for 4G/5G routers" instead of "FengSui (烽燧) Huawei H168-383 5G CPE MCP Server". Its name (`fengsui-cpe-dash`), its tools and what they take are unchanged.
+
+### Documentation
+- **The documentation site is easier to find in search.** The titles search engines show now carry the words people search for: the home pages name Huawei, ZTE and TP-Link 5G CPEs, the CPE dashboard and MCP; Lock bands and cells, Understand signal readings, SMS, Supported devices and nine other pages say what they answer. The home pages tell search engines the site's name and its other names (FengSui, 烽燧, cpe-dash), and the footer is kept out of result snippets.
+- **Where the name comes from.** What FengSui is now explains the name: 烽燧, the beacon fires that passed warnings along China's frontier. It has nothing to do with feng shui, which search engines often take it for; the FAQ asks the question too.
+- **The README shows the built-in MCP server.** A badge in the README links to the AI agents page.
+
+### Tests
+- **The brand walk counts the sessions opened during a pause, not one that ended in it.** A background read that is running when a pause begins ends as it would have, by design; the walk took it for a session opened while paused and failed on a slow runner. It now waits for that read first, with a new scheduler method that only waits and sends nothing.
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`. On an H168-383 the requests FengSui sends are those of 1.9.3. An MCP client shows the new title once it connects again.
+
 ## [1.9.3] — 2026-11-17
 
 ### Highlights
