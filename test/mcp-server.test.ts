@@ -351,6 +351,8 @@ describe("FengSuiMcpServer protocol, schema, safe JSON parsing & tool dispatch",
       const initPayload1 = initRes1.result as Record<string, unknown>;
       assert.equal(initPayload1["protocolVersion"], "2025-03-26");
       assert.equal((initPayload1["serverInfo"] as Record<string, string>)["name"], "fengsui-cpe-dash");
+      // Clients and directories show the title: it names what FengSui is for, not one model, whichever router is connected
+      assert.equal((initPayload1["serverInfo"] as Record<string, string>)["title"], "FengSui (烽燧) MCP server for 4G/5G routers");
 
       // initialize method fallback on unsupported version
       const initRes2 = (await server.handleRawJsonMessage(

@@ -81,7 +81,7 @@ export interface McpHttpOutcome {
 
 const SERVER_INFO = {
   name: "fengsui-cpe-dash",
-  title: "FengSui (烽燧) Huawei H168-383 5G CPE MCP Server",
+  title: "FengSui (烽燧) MCP server for 4G/5G routers",
   version: FENGSUI_VERSION,
 } as const;
 
