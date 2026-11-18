@@ -1,4 +1,4 @@
-import { startDemoDaemon } from "./demo-router.ts";
+import { demoServerEnv, startDemoDaemon } from "./demo-router.ts";
 
 /**
  * Offline demo: the real daemon (scheduler, monitor, SMS, SSE, REST, MCP, web UI) against the
@@ -8,6 +8,7 @@ import { startDemoDaemon } from "./demo-router.ts";
  *   DEMO_SCENARIO=yield   a "human admin" logs in every few minutes (avoidance banner)
  *   DEMO_SCENARIO=breaker wrong CPE password: the anti-lockout breaker trips (423 banner)
  *   DEMO_SCENARIO=unverified another Huawei model (LTE-only, legacy login): experimental writes, badge, device report
+ *   DEMO_MCP_WRITES=true  the AI agent tools that change the router are listed and work (on the simulated router)
  *
  * It never reads the project's .env: config comes from a throwaway env file with explicit
  * overrides, Telegram and webhooks are off, and the data directory is a temp dir removed on exit.
@@ -18,12 +19,14 @@ import { startDemoDaemon } from "./demo-router.ts";
 const PORT = Number(process.env["DEMO_PORT"] ?? 18484);
 const SCENARIO = process.env["DEMO_SCENARIO"] ?? "normal";
 const TOKEN = process.env["DEMO_TOKEN"] ?? "fengsui-demo";
+const ENV = demoServerEnv(process.env);
 
 const demo = await startDemoDaemon({
   port: PORT,
   token: TOKEN,
   scenario: SCENARIO === "yield" || SCENARIO === "breaker" || SCENARIO === "unverified" ? SCENARIO : "normal",
   log: (line) => console.log(line),
+  ...(ENV ? { env: ENV } : {}),
 });
 const { human } = demo.router;
 

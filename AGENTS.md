@@ -84,7 +84,7 @@ cpe-dash/
 │   ├── audit-secrets.ts    # 工作区 + 全量 Git 历史零密钥/零敏感硬件指纹/纯 TS 门禁扫描器（覆盖 src/ scripts/ test/ web/；私钥只放行路由器厂商写在网页里、每台都一样的那把，按指纹列在 PUBLIC_VENDOR_KEYS）
 │   ├── build-web.ts        # esbuild 代码分割 + Tailwind CLI，内容哈希资源与 gzip 体积预算（--demo 构建 GitHub Pages 在线演示：node:* 换成 web/src/demo/node/ 的替身，演示的代码只进演示包）
 │   ├── demo-router.ts      # 演示路由器上的真实守护进程（demo-server、截图与浏览器测试共用；四个世界在 web/src/demo/worlds.ts）；另有只给测试用的世界：每个品牌和接口写法各一台（test/helpers/ 里驱动测试的模拟路由器，`BRAND_SCENARIOS` 列出全部），可以按测试覆盖配置（`env`）
-│   ├── demo-server.ts      # npm run demo：真实守护进程栈 + 进程内严格 Mock 路由器（不读 .env、不联网）
+│   ├── demo-server.ts      # npm run demo：真实守护进程栈 + 进程内严格 Mock 路由器（不读 .env、不联网）；DEMO_MCP_WRITES=true 时智能体会改动路由器的工具也列出来、可以调用（仍只写到模拟路由器，Glama 的检查就这样跑）
 │   ├── screenshots.ts      # npm run screenshots：本机无头 Chrome（DevTools 协议，零依赖）从演示环境重拍 docs/screenshots/，发版前运行
 │   ├── cdp.ts              # 零依赖 DevTools 驱动（Node 自带 WebSocket）：启动无头 Chrome、打开页面、求值、等待、点击、截图，连接与每次调用各有期限、超时报出卡在哪一步；screenshots 与浏览器测试共用
 │   ├── brand.ts · trace-logo.ts  # 标志：检查 web/brand/logo.svg 并生成页面 <symbol>（构建时）；npm run brand:trace 把 PNG 概念图描成源文件（见 docs/dev/brand.md）

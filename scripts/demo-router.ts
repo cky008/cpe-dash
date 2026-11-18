@@ -105,6 +105,16 @@ function brandWorld(scenario: DemoDaemonOptions["scenario"]): BrandWorld | null 
   return null;
 }
 
+/**
+ * `DEMO_MCP_WRITES=true npm run demo`: the AI agent tools that change the router are listed and work,
+ * as an owner who turned them on would have them, against the simulated router only (nothing leaves
+ * the process). A directory's check (Glama) lists the server's full set of tools this way. Off, as in
+ * any install, unless the variable says exactly `true`.
+ */
+export function demoServerEnv(env: Readonly<Record<string, string | undefined>>): Record<string, string> | undefined {
+  return env["DEMO_MCP_WRITES"] === "true" ? { MCP_ALLOW_MUTATIONS: "true", MCP_ALLOW_ACCESS_CONTROL: "true", MCP_SMS_ACCESS: "full" } : undefined;
+}
+
 export interface DemoDaemonOptions {
   /** `0` picks a free port. */
   port: number;

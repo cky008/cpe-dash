@@ -26,6 +26,7 @@ You need Node.js 22.6 or later. You do not need a router: the demo runs the real
 ```bash
 npm ci
 npm run demo        # console at http://127.0.0.1:18484, no .env, no network
+                    # DEMO_MCP_WRITES=true also lists the AI agent tools that change the router (mock router only)
 npm run check       # the gate, below (needs Chrome or Chromium for the browser tests; set CHROME_PATH if it is elsewhere)
 npm run test:ui     # the browser tests on their own (builds the console first)
 npm run build:docs  # the documentation site, into dist/site
