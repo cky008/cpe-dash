@@ -67,10 +67,12 @@ export function isAllowedCpeHost(hostname: string): boolean {
 }
 
 /**
- * The serve daemon's `/mcp` URL for the stdio bridge. An explicit `MCP_DAEMON_URL` must be http(s)
- * on a private/LAN/loopback host without credentials, query or fragment (the bridge sends the
- * Bearer API_TOKEN there); otherwise the URL is derived from `WEB_HOST` / `WEB_PORT`. `label` names
- * the setting in the errors (the Claude Desktop extension calls it the FengSui MCP address).
+ * The serve daemon's `/mcp` URL for the stdio bridges (`cpe-dash mcp`, the Claude Desktop extension). An
+ * explicit `MCP_DAEMON_URL` must be http(s) without credentials, query or fragment. The bridge sends the
+ * Bearer API_TOKEN there, so plain http goes only to a private/LAN/loopback/Tailscale host, where the token
+ * never leaves the household's network; over https any host will do (a reverse proxy's domain, say: the
+ * token travels encrypted). Otherwise the URL is derived from `WEB_HOST` / `WEB_PORT`. `label` names the
+ * setting in the errors (the Claude Desktop extension calls it the FengSui MCP address).
  */
 export function resolveDaemonMcpUrl(raw: string | undefined, webHost: string, webPort: number, label = "MCP_DAEMON_URL"): string {
   if (raw?.trim()) {
@@ -81,8 +83,10 @@ export function resolveDaemonMcpUrl(raw: string | undefined, webHost: string, we
     if (parsed.username || parsed.password || parsed.search || parsed.hash) {
       throw new Error(`${label} must not contain credentials, a query or a fragment`);
     }
-    if (!isAllowedCpeHost(parsed.hostname)) {
-      throw new Error(`${label} host "${parsed.hostname}" is not a private/LAN address`);
+    if (parsed.protocol === "http:" && !isAllowedCpeHost(parsed.hostname)) {
+      throw new Error(
+        `${label} host "${parsed.hostname}" is not a private/LAN address; plain http:// goes only to LAN, private and Tailscale hosts (use https://, so the token does not cross the internet unencrypted)`
+      );
     }
     return `${parsed.origin}${parsed.pathname === "/" ? "/mcp" : parsed.pathname}`;
   }

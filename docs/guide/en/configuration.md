@@ -67,7 +67,7 @@ Except for `MCP_HTTP_ENABLED` and `MCP_DAEMON_URL`, the settings in this section
 | `MCP_SMS_ACCESS` | `read` | Agent SMS permissions: `none` (no SMS tools), `read` (read only), or `full` (also send, mark as read, delete and edit contacts; also requires `MCP_ALLOW_MUTATIONS=true`) |
 | `MCP_SMS_SEND_POLICY` | `known` | `known`: only allows sending to saved contacts or numbers you have messaged before; `any`: no restrictions |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | Maximum messages an agent can send per hour (`0` disables sending) |
-| `MCP_DAEMON_URL` | Derived automatically | `/mcp` URL forwarded by the stdio bridge; only accepts local network addresses |
+| `MCP_DAEMON_URL` | Derived automatically | `/mcp` URL forwarded by the stdio bridge. Any address over `https://`; plain `http://` only accepts LAN, private and Tailscale addresses |
 | `REDACT_SENSITIVE_IN_API` | `true` | Redacts sensitive data (IMEI, IMSI, phone numbers, MAC addresses, WAN addresses, cell identifiers) in token-authenticated API, real-time events, and MCP endpoints. The web console is unaffected |
 
 ## SMS

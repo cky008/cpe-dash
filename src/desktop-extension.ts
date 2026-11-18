@@ -32,8 +32,9 @@ function setting(value: string | undefined): string {
 }
 
 /**
- * The extension's two settings, checked as `cpe-dash mcp` checks MCP_DAEMON_URL: http(s) on a LAN, private or
- * Tailscale host, without credentials, query or fragment. A problem never quotes the token.
+ * The extension's two settings, checked as `cpe-dash mcp` checks MCP_DAEMON_URL: http(s) without credentials, query
+ * or fragment; https to any host, plain http only to a LAN, private or Tailscale host. A problem never quotes the
+ * token.
  */
 export function readExtensionSettings(env: Readonly<Record<string, string | undefined>>): ExtensionSettings {
   const rawUrl = setting(env["MCP_DAEMON_URL"]);
@@ -56,12 +57,12 @@ export function readExtensionSettings(env: Readonly<Record<string, string | unde
 
 /** The error every request gets while the settings are unusable. */
 function notSetUp(problem: string): string {
-  return `FengSui extension is not set up: ${problem}. In ${EXTENSION_SETTINGS_PLACE}, enter the address of FengSui's MCP server by the IP of the machine it runs on, on your LAN or Tailscale (such as http://100.64.0.10:18384/mcp), and a token from FengSui's Settings → Tokens & AI.`;
+  return `FengSui extension is not set up: ${problem}. In ${EXTENSION_SETTINGS_PLACE}, enter the address of FengSui's MCP server, by the IP of the machine it runs on, on your LAN or Tailscale (such as http://100.64.0.10:18384/mcp), or its https:// address behind an HTTPS reverse proxy; and a token from FengSui's Settings → Tokens & AI.`;
 }
 
 /** The daemon runs on another machine (a NAS): nothing to start here, but the network and the token to check. */
 const EXTENSION_HINTS: BridgeHints = {
-  unreachable: `Check that FengSui is running and that this computer reaches that address on your LAN or Tailscale; the address is set in ${EXTENSION_SETTINGS_PLACE}.`,
+  unreachable: `Check that FengSui is running and that this computer reaches that address (on your LAN or Tailscale, or through your HTTPS reverse proxy); the address is set in ${EXTENSION_SETTINGS_PLACE}.`,
   unauthorized: `FengSui did not accept the token: create one under Settings → Tokens & AI in the FengSui console, and enter it in ${EXTENSION_SETTINGS_PLACE}.`,
 };
 

@@ -190,7 +190,14 @@ describe("cpe-dash mcp: zero-state stdio bridge to the serve daemon", () => {
     assert.equal(resolveDaemonMcpUrl("https://100.64.0.7/fengsui/mcp", "0.0.0.0", 1), "https://100.64.0.7/fengsui/mcp");
     assert.throws(() => resolveDaemonMcpUrl("ftp://192.168.8.10/mcp", "0.0.0.0", 1), /http\(s\)/);
     assert.throws(() => resolveDaemonMcpUrl("http://user:pw@192.168.8.10/mcp", "0.0.0.0", 1), /credentials/);
-    assert.throws(() => resolveDaemonMcpUrl("http://203.0.113.10/mcp", "0.0.0.0", 1), /not a private\/LAN address/);
+    assert.throws(() => resolveDaemonMcpUrl("http://203.0.113.10/mcp", "0.0.0.0", 1), /not a private\/LAN address; plain http:\/\/ goes only to LAN, private and Tailscale hosts/);
+    assert.throws(() => resolveDaemonMcpUrl("http://cpe.example.com/mcp", "0.0.0.0", 1), /use https:\/\//);
+    // Over https any host will do, a reverse proxy's domain or a public address: the token travels encrypted
+    assert.equal(resolveDaemonMcpUrl("https://cpe.example.com", "0.0.0.0", 1), "https://cpe.example.com/mcp");
+    assert.equal(resolveDaemonMcpUrl("https://203.0.113.10:8443/fengsui/mcp", "0.0.0.0", 1), "https://203.0.113.10:8443/fengsui/mcp");
+    assert.throws(() => resolveDaemonMcpUrl("https://user:pw@cpe.example.com/mcp", "0.0.0.0", 1), /credentials/);
+    assert.throws(() => resolveDaemonMcpUrl("https://cpe.example.com/mcp?token=x", "0.0.0.0", 1), /a query/);
+    assert.equal(loadConfig({ ignoreProcessEnv: true, envPath: "/nonexistent/.env", overrides: { MCP_DAEMON_URL: "https://cpe.example.com/mcp" } }).mcpDaemonUrl, "https://cpe.example.com/mcp");
     assert.equal(loadConfig({ ignoreProcessEnv: true, envPath: "/nonexistent/.env" }).mcpDaemonUrl, "http://127.0.0.1:18384/mcp");
   });
 });

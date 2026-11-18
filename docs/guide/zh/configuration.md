@@ -67,7 +67,7 @@ AI 智能体、自愈、告警和部分短信设置也可以直接在控制台�
 | `MCP_SMS_ACCESS` | `read` | 智能体的短信权限：`none`（不能用短信工具）、`read`（只读）或 `full`（还能发送、标记已读、删除和改通讯录，另需 `MCP_ALLOW_MUTATIONS=true`） |
 | `MCP_SMS_SEND_POLICY` | `known` | `known`：只能发给你保存的联系人或发过短信的号码；`any`：不限制 |
 | `MCP_SMS_SEND_LIMIT_PER_HOUR` | `10` | 智能体每小时最多发几条（`0` 表示禁止） |
-| `MCP_DAEMON_URL` | 自动推导 | stdio 桥接转发的 `/mcp` 地址，只接受局域网地址 |
+| `MCP_DAEMON_URL` | 自动推导 | stdio 桥接转发的 `/mcp` 地址。`https://` 任何地址都行；明文 `http://` 只接受局域网、私网和 Tailscale 的地址 |
 | `REDACT_SENSITIVE_IN_API` | `true` | 给令牌访问的 API、实时事件和 MCP 的数据打码（IMEI、IMSI、号码、MAC、WAN 地址、小区标识）。网页控制台不受影响 |
 
 ## 短信

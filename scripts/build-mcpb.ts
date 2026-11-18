@@ -69,7 +69,7 @@ export function extensionManifest(pkg: PackageJson): Manifest {
     description: "Connect Claude to FengSui, the self-hosted console for your 4G / 5G router: its signal, history and SMS, read-only unless you allow more.",
     long_description: [
       "FengSui (烽燧) is a self-hosted console for 4G / 5G routers that runs on your own NAS or computer. Its built-in MCP server lets Claude read the router's signal, nearby cells, history and SMS, and, only where you allow it, change the router.",
-      "This extension connects Claude Desktop to that server. It runs no server of its own and never talks to the router: it forwards each request to FengSui's MCP address on your LAN or Tailscale, with the token you enter. Desktop keeps the token in your system keychain.",
+      "This extension connects Claude Desktop to that server. It runs no server of its own and never talks to the router: it forwards each request to FengSui's MCP address (on your LAN or Tailscale, or behind your HTTPS reverse proxy), with the token you enter. Desktop keeps the token in your system keychain.",
       "**Before you install:** FengSui must be running (for example in Docker on a NAS) and this computer must reach it. In FengSui, create a token under Settings → Tokens & AI. A token with nothing ticked reads the router and changes nothing.",
       "The tools that change the router stay off until you turn them on in FengSui and give the token that permission.",
     ].join("\n\n"),
@@ -105,7 +105,7 @@ export function extensionManifest(pkg: PackageJson): Manifest {
         type: "string",
         title: "FengSui MCP address · 烽燧 MCP 地址",
         description:
-          "FengSui's MCP address, by the IP of the machine FengSui runs on, on your LAN or Tailscale: for example http://192.168.8.10:18384/mcp or http://100.64.0.10:18384/mcp. Use an IP, not a domain name: only LAN, private and Tailscale addresses are accepted. 填运行烽燧那台机器在局域网或 Tailscale 里的 IP，例如 http://100.64.0.10:18384/mcp；不要填域名。",
+          "The address of FengSui's MCP server. On your LAN or Tailscale, use the IP of the machine FengSui runs on, such as http://192.168.8.10:18384/mcp or http://100.64.0.10:18384/mcp. Through an HTTPS reverse proxy, use its https:// address. Plain http:// is accepted only for LAN, private and Tailscale addresses, so the token never crosses the internet unencrypted. 局域网或 Tailscale 里填运行烽燧那台机器的 IP，例如 http://100.64.0.10:18384/mcp；经 HTTPS 反向代理访问时填它的 https:// 地址。明文 http:// 只接受局域网、私网和 Tailscale 的地址，令牌不会以明文经过公网。",
         required: true,
       },
       api_token: {

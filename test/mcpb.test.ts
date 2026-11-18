@@ -122,11 +122,13 @@ describe("The Claude Desktop extension: its manifest", () => {
     assert.equal(config["daemon_url"]?.["sensitive"], undefined, "the address is shown as typed");
     assert.equal(config["daemon_url"]?.["required"], true);
     for (const option of Object.values(config)) assert.equal(option["default"], undefined, "nothing is filled in for the person");
-    // The form tells people to enter an IP on their LAN or Tailscale, in both languages
+    // The form says what to enter, in both languages: an IP on the LAN or Tailscale, or an https address
     const address = String(config["daemon_url"]?.["description"]);
     assert.match(address, /http:\/\/100\.64\.0\.10:18384\/mcp/);
-    assert.match(address, /not a domain name/);
-    assert.match(address, /不要填域名/);
+    assert.match(address, /Through an HTTPS reverse proxy, use its https:\/\/ address/);
+    assert.match(address, /Plain http:\/\/ is accepted only for LAN, private and Tailscale addresses/);
+    assert.match(address, /经 HTTPS 反向代理访问时填它的 https:\/\/ 地址/);
+    assert.match(address, /明文 http:\/\/ 只接受局域网、私网和 Tailscale 的地址/);
     assert.match(String(config["api_token"]?.["description"]), /Settings → Tokens & AI/);
   });
 
@@ -284,7 +286,7 @@ describe("The Claude Desktop extension: run as Desktop runs it", () => {
     for (const token of [wrong, TOKEN]) assert.ok(!run.stdout.includes(token) && !run.stderr.includes(token));
   });
 
-  it("refuses an address on the internet and sends nothing there", async () => {
+  it("refuses plain http to an address on the internet and sends nothing there", async () => {
     const run = await runInstalled(installDir, { MCP_DAEMON_URL: "http://203.0.113.10:18384/mcp", API_TOKEN: TOKEN }, [{ id: 1, method: "tools/list" }]);
     for (const answer of run.answers) {
       assert.equal(answer.error?.code, BRIDGE_NOT_SET_UP);

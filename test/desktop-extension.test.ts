@@ -61,16 +61,20 @@ async function settle(predicate: () => boolean, label: string): Promise<void> {
 const initialize = `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "claude-ai", version: "1" } } })}\n`;
 
 describe("Claude Desktop extension: its settings", () => {
-  it("takes the FengSui MCP address on the LAN or Tailscale, adding /mcp to a bare address", () => {
+  it("takes the FengSui MCP address on the LAN or Tailscale, or any https address, adding /mcp to a bare address", () => {
     assert.deepEqual(readExtensionSettings({ MCP_DAEMON_URL: "http://192.168.8.10:18384/mcp", API_TOKEN: TOKEN }), { ok: true, daemonUrl: "http://192.168.8.10:18384/mcp", apiToken: TOKEN });
     assert.deepEqual(readExtensionSettings({ MCP_DAEMON_URL: "  http://100.64.0.10:18384  ", API_TOKEN: ` ${TOKEN} ` }), { ok: true, daemonUrl: "http://100.64.0.10:18384/mcp", apiToken: TOKEN });
     assert.deepEqual(readExtensionSettings({ MCP_DAEMON_URL: "https://100.64.0.10/fengsui/mcp", API_TOKEN: TOKEN }), { ok: true, daemonUrl: "https://100.64.0.10/fengsui/mcp", apiToken: TOKEN });
+    // Behind an HTTPS reverse proxy: its domain, or a public address, the token encrypted on the way
+    assert.deepEqual(readExtensionSettings({ MCP_DAEMON_URL: "https://cpe.example.com", API_TOKEN: TOKEN }), { ok: true, daemonUrl: "https://cpe.example.com/mcp", apiToken: TOKEN });
+    assert.deepEqual(readExtensionSettings({ MCP_DAEMON_URL: "https://203.0.113.10:8443/mcp", API_TOKEN: TOKEN }), { ok: true, daemonUrl: "https://203.0.113.10:8443/mcp", apiToken: TOKEN });
   });
 
-  it("refuses an address on the internet, a scheme other than http(s), credentials, and what is not a URL", () => {
+  it("refuses plain http to an address on the internet, a scheme other than http(s), credentials, and what is not a URL", () => {
     for (const [url, why] of [
-      ["http://203.0.113.10:18384/mcp", /"203\.0\.113\.10" is not a private\/LAN address/],
+      ["http://203.0.113.10:18384/mcp", /"203\.0\.113\.10" is not a private\/LAN address; plain http:\/\/ goes only to LAN, private and Tailscale hosts \(use https:\/\//],
       ["http://cpe.example.com:18384/mcp", /"cpe\.example\.com" is not a private\/LAN address/],
+      ["https://user:pw@cpe.example.com/mcp", /must not contain credentials/],
       ["ftp://192.168.8.10/mcp", /must use http\(s\)/],
       ["http://admin:pw@192.168.8.10:18384/mcp", /must not contain credentials/],
       ["http://192.168.8.10:18384/mcp?token=x", /must not contain credentials, a query/],
@@ -140,7 +144,8 @@ describe("Claude Desktop extension: running", () => {
     assert.equal(third?.id, null, "a malformed line still gets its answer");
     for (const line of [first, second, third]) {
       assert.equal(line?.error?.code, BRIDGE_NOT_SET_UP);
-      assert.match(line?.error?.message ?? "", /^FengSui extension is not set up: the FengSui MCP address host "203\.0\.113\.10" is not a private\/LAN address\./);
+      assert.match(line?.error?.message ?? "", /^FengSui extension is not set up: the FengSui MCP address host "203\.0\.113\.10" is not a private\/LAN address; /);
+      assert.match(line?.error?.message ?? "", /or its https:\/\/ address behind an HTTPS reverse proxy/);
       assert.ok(line?.error?.message.includes(EXTENSION_SETTINGS_PLACE), "says where to fix it");
     }
     assert.equal(fetched, 0);
