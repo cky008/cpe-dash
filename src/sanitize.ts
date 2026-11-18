@@ -1,5 +1,5 @@
 import net from "node:net";
-import { isPrivateOrLanIpv4, isPrivateOrLanIpv6 } from "./config.ts";
+import { isPrivateOrLanIpv4, isPrivateOrLanIpv6 } from "./lan-address.ts";
 import type { DeviceProfile, DeviceReport } from "./device-profile.ts";
 import type { FieldFormatObservation } from "./types.ts";
 

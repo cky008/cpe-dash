@@ -12,6 +12,7 @@ import {
   parseDotEnv,
   resolveClientIp,
 } from "../src/config.ts";
+import * as lanAddress from "../src/lan-address.ts";
 import { aesGcmDecrypt, aesGcmEncrypt, computeScram, curve25519Mul, generateEccSession, huaweiXssDecode, huaweiXssEncode, verifyPubkeySignature } from "../src/protocols/hilink/crypto.ts";
 import { stripInvalidControlChars } from "../src/text-sanitize.ts";
 import { timingSafeEqualString } from "../src/constant-time.ts";
@@ -98,6 +99,15 @@ describe("config & SSRF / XFF security guards", () => {
     assert.equal(isAllowedCpeHost("homerouter"), true);
     assert.equal(isAllowedCpeHost("example.com"), false);
     assert.equal(isAllowedCpeHost(""), false);
+  });
+
+  it("keeps the household-network checks in a module that imports only node:net, for the Claude Desktop extension to carry", () => {
+    const source = fs.readFileSync(path.resolve(import.meta.dirname, "..", "src", "lan-address.ts"), "utf8");
+    assert.deepEqual([...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]), ["node:net"]);
+    // config.ts hands out the same functions, so the daemon and the extension check an address the same way
+    assert.equal(isAllowedCpeHost, lanAddress.isAllowedCpeHost);
+    assert.equal(isPrivateOrLanIpv4, lanAddress.isPrivateOrLanIpv4);
+    assert.equal(isPrivateOrLanIpv6, lanAddress.isPrivateOrLanIpv6);
   });
 
   it("enforces SSRF checks in normalizeCpeUrl", () => {

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { isAllowedCpeHost } from "../config.ts";
+import { isAllowedCpeHost } from "../lan-address.ts";
 import type { EnrichedSmsMessage } from "../sms/types.ts";
 import type { AlertEventRecord } from "../state-store.ts";
 import type { NotificationChannel } from "./hub.ts";

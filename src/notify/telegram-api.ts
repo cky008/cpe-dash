@@ -1,4 +1,4 @@
-import { isAllowedCpeHost } from "../config.ts";
+import { isAllowedCpeHost } from "../lan-address.ts";
 import { readBoundedResponseText } from "../http-body.ts";
 import { parseJsonSafeNullProto } from "../json-safe.ts";
 
