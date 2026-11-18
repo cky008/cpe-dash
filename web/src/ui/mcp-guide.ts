@@ -1,6 +1,6 @@
 import { AGENT_TOKEN_DAYS, agentTokenName } from "../core/console-view.ts";
 import { type MessageParams, interpolate } from "../core/i18n.ts";
-import { claudeCodeCommand, maskToken, mcpEndpoint, mcpJsonConfig, tokenOrPlaceholder } from "../core/mcp-setup.ts";
+import { DESKTOP_EXTENSION_URL, claudeCodeCommand, maskToken, mcpEndpoint, mcpJsonConfig, tokenOrPlaceholder } from "../core/mcp-setup.ts";
 import { MCP_GUIDE_TEXT, type McpGuideTextKey } from "../i18n/mcp-guide.ts";
 import { copyText } from "./clipboard.ts";
 import type { AppContext } from "./context.ts";
@@ -109,6 +109,13 @@ export function mountMcpGuide(ctx: AppContext): { open(): void } {
             h("p", { class: "text-xs muted" }, t("token_hint"))
           ),
           ...blocks.map((block) => block.el),
+          h(
+            "section",
+            { class: "space-y-1.5" },
+            h("h4", { class: "fs-label" }, t("desktop_title")),
+            h("p", { class: "text-xs muted" }, t("desktop_note")),
+            h("a", { class: "btn btn-sm rounded-lg gap-1.5", attrs: { href: DESKTOP_EXTENSION_URL, target: "_blank", rel: "noopener noreferrer" } }, icon("github"), t("desktop_link"))
+          ),
           h("p", { class: "text-xs faint" }, t("notes"))
         )
       ),

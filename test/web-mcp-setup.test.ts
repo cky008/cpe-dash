@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { ISSUE_NEW_URL } from "../src/feedback.ts";
 import {
   DEMO_ORIGIN,
+  DESKTOP_EXTENSION_URL,
   TOKEN_PLACEHOLDER,
   claudeCodeCommand,
   maskToken,
@@ -44,6 +46,15 @@ describe("web core: MCP setup guide", () => {
       url: "https://cpe.example.com/mcp",
       headers: { Authorization: 'Bearer quote"token' },
     });
+  });
+
+  it("sends Claude Desktop users to the release that carries the extension", () => {
+    // The project's own repository, the same the issue links open; the latest release has fengsui-<version>.mcpb
+    assert.equal(DESKTOP_EXTENSION_URL, `${ISSUE_NEW_URL.replace(/\/issues\/new$/, "")}/releases/latest`);
+    for (const text of [MCP_GUIDE_TEXT["zh-CN"], MCP_GUIDE_TEXT.en]) {
+      assert.match(text.desktop_note, /\.mcpb/, "names the file to download");
+      assert.match(text.desktop_note, /MCP/, "says which address to enter");
+    }
   });
 
   it("ships the guide's own strings in both languages with the same placeholders and no markup", () => {

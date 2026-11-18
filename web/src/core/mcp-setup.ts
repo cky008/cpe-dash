@@ -6,6 +6,11 @@
 
 /** Shown until a token is pasted or created: a read-only token is the one to give an agent. */
 export const TOKEN_PLACEHOLDER = "<READ_ONLY_TOKEN>";
+/**
+ * Claude Desktop cannot take a URL: it installs FengSui's extension (an MCP Bundle, built by scripts/build-mcpb.ts),
+ * which each release carries as fengsui-<version>.mcpb.
+ */
+export const DESKTOP_EXTENSION_URL = "https://github.com/cky008/cpe-dash/releases/latest";
 /** The static demo has no daemon behind it; its guide shows the documentation domain instead. */
 export const DEMO_ORIGIN = "https://cpe.example.com";
 
