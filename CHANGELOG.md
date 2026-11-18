@@ -4,6 +4,23 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.9.5] — 2026-11-18
+
+### Highlights
+- **AI agents get tool descriptions that hold on any router.** Every MCP tool now says what it does, what it returns and when to use it, and every argument is described. The read tools used to describe the Huawei H168-383 whatever router was connected (its Wi-Fi 7, its gigabit ports), and the band lock listed the H168-383's bands.
+
+### Changed
+- **The MCP tools' descriptions.** Titles, descriptions and argument descriptions name no model, no feature only one model has and nothing of how FengSui talks to the router underneath; nineteen arguments that had no description have one. The band lock no longer lists the H168-383's bands: a band the router does not take is refused with the ones it does, as before. Read tools no longer name write tools, so an agent does not look for one the owner keeps off. Tool names, arguments and what the tools do are unchanged.
+
+### Added
+- **`DEMO_MCP_WRITES=true npm run demo` lists the AI agent tools that change the router.** The demo keeps them off, as any install does; with the variable they are listed and work, against the simulated router only. A directory that checks the MCP server through the demo, such as Glama, then sees all of its tools.
+
+### Documentation
+- **The README names the brands and the built-in MCP server in its opening paragraph.** Directories and search engines summarise a repository from it, and it said only "other brands".
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`. On an H168-383 the requests FengSui sends are those of 1.9.4. An MCP client shows the new descriptions once it lists the tools again.
+
 ## [1.9.4] — 2026-11-18
 
 ### Highlights
