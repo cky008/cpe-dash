@@ -49,6 +49,10 @@ order: 22
 
 没有。烽燧是独立的开源项目，与华为、群晖及任何运营商均无关联，也未获其认可。所有商标归各自所有者。
 
+## 「烽燧」这个名字是什么意思？
+
+烽燧就是烽火，古代边塞用烟和火传递警报，见[名字的由来](overview.md#name)。英文名 FengSui 和风水（feng shui）无关。
+
 ## 怎样参与或反馈？
 
 - 问题和建议：[GitHub Issues](https://github.com/cky008/cpe-dash/issues)

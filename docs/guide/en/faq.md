@@ -49,6 +49,10 @@ FengSui only calls features already present on the router's own web page. It doe
 
 No. FengSui is an independent project and is neither affiliated with nor endorsed by Huawei, Synology, or any carrier. All trademarks belong to their respective owners.
 
+## Is FengSui related to feng shui?
+
+No. FengSui is 烽燧 (fēng suì), the beacon fires that carried warnings along China's old frontier. See [About the name](overview.md#name).
+
 ## How do I contribute or give feedback?
 
 - Issues and feature requests: [GitHub Issues](https://github.com/cky008/cpe-dash/issues)

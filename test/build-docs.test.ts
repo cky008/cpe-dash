@@ -88,6 +88,8 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       "html.spec.whatwg.org", "prometheus.io",
       // Where one of the projects credited on "Other models and brands" is hosted
       "gitee.com",
+      // The overview's note on where the name comes from
+      "en.wikipedia.org", "zh.wikipedia.org",
     ]);
     let internal = 0;
     for (const file of htmlFiles(site)) {
@@ -212,6 +214,12 @@ describe("documentation site (scripts/build-docs.ts)", () => {
       const app = ld["@graph"]?.find((n) => n["@type"] === "SoftwareApplication");
       assert.deepEqual(app?.["alternateName"], ["FengSui", "烽燧", "cpe-dash"], prefix);
       assert.deepEqual(app?.["author"], { "@type": "Person", name: "iocky", url: "https://iocky.com/" }, prefix);
+    }
+    // Google takes "fengsui" for a misspelt "feng shui": the overview says where the name comes from, naming both, and the FAQ points there
+    for (const prefix of ["", "en/"]) {
+      const overview = fs.readFileSync(path.join(site, prefix, "docs", "overview", "index.html"), "utf8");
+      assert.ok(overview.includes('id="name"') && overview.includes("FengSui") && overview.includes("feng shui"), `${prefix}docs/overview`);
+      assert.ok(fs.readFileSync(path.join(site, prefix, "docs", "faq", "index.html"), "utf8").includes('docs/overview/#name"'), `${prefix}docs/faq`);
     }
     // A local build names no domain, so no WebSite (its url must be absolute)
     assert.doesNotMatch(fs.readFileSync(path.join(plain, "index.html"), "utf8"), /"WebSite"/);

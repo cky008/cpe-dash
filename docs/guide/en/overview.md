@@ -38,6 +38,12 @@ So far FengSui is verified on the **Huawei 5G CPE Ultra 6 (H168-383, firmware 4.
 - **Does not upload data**. FengSui connects to no cloud services and collects no usage data. Notifications are sent only to Telegram or webhooks that you configure yourself.
 - **Does not bypass carrier restrictions**. It uses only features already available on the router's own web page and does not alter RF parameters or transmit power.
 
+<a id="name"></a>
+
+## About the name
+
+FengSui is 烽燧 (fēng suì), China's beacon fires: sentinels on the frontier passed warnings from tower to tower with smoke by day and fire by night [[Wikipedia: Beacon](https://en.wikipedia.org/wiki/Beacon)]. FengSui watches your router's signal and warns you when something goes wrong, hence the name. It has nothing to do with feng shui (风水), although search engines often take one for the other.
+
 ## Try before deciding
 
 If you do not want to install it yet, open the [live demo](https://cky008.github.io/fengsui-demo/): the full console runs in your browser with simulated data. Every button is clickable, and refreshing resets everything.
