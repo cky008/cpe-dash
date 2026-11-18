@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { buildDocsSite, inlineDiagram, webpSize } from "../scripts/build-docs.ts";
+import { escapeHtml } from "../scripts/markdown.ts";
 import { SHOWCASE_THEMES, showcaseImage } from "../scripts/site-home.ts";
 import { THEME_META } from "../web/src/core/prefs.ts";
 import { THEME_NAMES } from "../web/src/i18n/appearance.ts";
@@ -184,7 +185,7 @@ describe("documentation site (scripts/build-docs.ts)", () => {
         assert.ok(width(title) <= 66, `${dir}/${slug}: "${title}" is ${width(title)} wide`);
         assert.ok(html.includes(`<meta property="og:title" content="${title}">`), `${dir}/${slug} og:title`);
         // The heading stays the page's name in the menu
-        assert.match(html, new RegExp(`<h1 class="mt-2">${/^title: (.+)$/m.exec(source)?.[1]?.replace(/[()]/g, "\\$&")}</h1>`), `${dir}/${slug} h1`);
+        assert.ok(html.includes(`<h1 class="mt-2">${escapeHtml(/^title: (.+)$/m.exec(source)?.[1] ?? "")}</h1>`), `${dir}/${slug} h1`);
       }
     }
     // The pages people look for by a search term carry it in their title
