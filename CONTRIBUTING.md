@@ -30,6 +30,8 @@ npm run demo        # console at http://127.0.0.1:18484, no .env, no network
 npm run check       # the gate, below (needs Chrome or Chromium for the browser tests; set CHROME_PATH if it is elsewhere)
 npm run test:ui     # the browser tests on their own (builds the console first)
 npm run build:docs  # the documentation site, into dist/site
+npm run build:mcpb  # the Claude Desktop extension, into dist/fengsui-<version>.mcpb
+npm run brand:icon  # redraw the extension's icons (mcpb/) after changing web/brand/logo.svg
 ```
 
 `npm run check` runs, and stops at the first failure:

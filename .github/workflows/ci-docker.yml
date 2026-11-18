@@ -39,6 +39,9 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build daemon and web dashboard
         run: npm run build
+      # The Claude Desktop extension, as a release attaches it (the gate's test/mcpb.test.ts also builds and runs it)
+      - name: Build the Claude Desktop extension (.mcpb)
+        run: npm run build:mcpb
       # The browser tests run inside the gate: the runner's Chrome against the real daemon and the in-process demo router
       - name: Typecheck, coverage gate (>= 90 %), console in a headless browser, secret / pure-TS audit
         run: npm run check

@@ -178,7 +178,7 @@ function isDocumentationUrl(raw: string): boolean {
   }
 }
 
-function scanText(label: string, content: string, dynamicSecrets: ReadonlyArray<string>): string[] {
+export function scanText(label: string, content: string, dynamicSecrets: ReadonlyArray<string>): string[] {
   const issues: string[] = [];
 
   for (const sec of dynamicSecrets) {

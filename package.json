@@ -31,6 +31,7 @@
     "build:web": "node --experimental-strip-types scripts/build-web.ts",
     "dev:web": "node --experimental-strip-types scripts/build-web.ts --watch",
     "build:docs": "node --experimental-strip-types scripts/build-docs.ts",
+    "build:mcpb": "node --experimental-strip-types scripts/build-mcpb.ts",
     "docs:sync": "node --experimental-strip-types scripts/sync-docs.ts",
     "build:demo": "node --experimental-strip-types scripts/build-web.ts --demo",
     "demo": "node --experimental-strip-types scripts/demo-server.ts",

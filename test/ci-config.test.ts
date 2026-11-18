@@ -109,6 +109,10 @@ describe("The local gate (npm run check)", () => {
     assert.equal(engines.node, ">=22.6.0", "the floor the first entry stands for");
     const dockerfile = fs.readFileSync(path.join(ROOT, "Dockerfile"), "utf8");
     assert.match(dockerfile, /^FROM node:26-alpine@/m, "the image's Node is the last entry");
+    // Every entry packs the Claude Desktop extension the way a release does
+    const { scripts } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    assert.equal(scripts["build:mcpb"], "node --experimental-strip-types scripts/build-mcpb.ts");
+    assert.match(ci, /\n\s+run: npm run build:mcpb\n/);
   });
 
   it("gives every hook of the browser tests a timeout, so a stuck Chrome fails the gate instead of hanging it", () => {
