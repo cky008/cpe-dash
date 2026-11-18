@@ -69,19 +69,20 @@ export function isAllowedCpeHost(hostname: string): boolean {
 /**
  * The serve daemon's `/mcp` URL for the stdio bridge. An explicit `MCP_DAEMON_URL` must be http(s)
  * on a private/LAN/loopback host without credentials, query or fragment (the bridge sends the
- * Bearer API_TOKEN there); otherwise the URL is derived from `WEB_HOST` / `WEB_PORT`.
+ * Bearer API_TOKEN there); otherwise the URL is derived from `WEB_HOST` / `WEB_PORT`. `label` names
+ * the setting in the errors (the Claude Desktop extension calls it the FengSui MCP address).
  */
-export function resolveDaemonMcpUrl(raw: string | undefined, webHost: string, webPort: number): string {
+export function resolveDaemonMcpUrl(raw: string | undefined, webHost: string, webPort: number, label = "MCP_DAEMON_URL"): string {
   if (raw?.trim()) {
     const parsed = new URL(raw.trim());
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new Error(`MCP_DAEMON_URL must use http(s), got "${parsed.protocol}"`);
+      throw new Error(`${label} must use http(s), got "${parsed.protocol}"`);
     }
     if (parsed.username || parsed.password || parsed.search || parsed.hash) {
-      throw new Error("MCP_DAEMON_URL must not contain credentials, a query or a fragment");
+      throw new Error(`${label} must not contain credentials, a query or a fragment`);
     }
     if (!isAllowedCpeHost(parsed.hostname)) {
-      throw new Error(`MCP_DAEMON_URL host "${parsed.hostname}" is not a private/LAN address`);
+      throw new Error(`${label} host "${parsed.hostname}" is not a private/LAN address`);
     }
     return `${parsed.origin}${parsed.pathname === "/" ? "/mcp" : parsed.pathname}`;
   }

@@ -140,6 +140,21 @@ describe("cpe-dash mcp: zero-state stdio bridge to the serve daemon", () => {
     const malformed = JSON.parse((await bridge.forward("{not json")) ?? "{}") as RpcLine;
     assert.equal(malformed.error?.code, BRIDGE_DAEMON_UNREACHABLE, "malformed lines still get an answer");
 
+    // An error that quotes the request never passes the token on (and no token leaves the message as it was)
+    const quoting = (apiToken: string): McpStdioBridge =>
+      new McpStdioBridge({
+        daemonUrl: "http://127.0.0.1:9/mcp",
+        apiToken,
+        fetchImpl: async () => {
+          throw new TypeError(`Headers.append: "Bearer ${apiToken}" is an invalid header value.`);
+        },
+      });
+    const quoted = JSON.parse((await quoting("bridge_api_token_v1").forward(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" }))) ?? "{}") as RpcLine;
+    assert.match(quoted.error?.message ?? "", /"Bearer <token>" is an invalid header value/);
+    assert.doesNotMatch(quoted.error?.message ?? "", /bridge_api_token_v1/);
+    const tokenless = JSON.parse((await quoting("").forward(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "ping" }))) ?? "{}") as RpcLine;
+    assert.match(tokenless.error?.message ?? "", /"Bearer " is an invalid header value/);
+
     const input = new PassThrough();
     const output = new PassThrough();
     const session = bridge.attach(input, output);

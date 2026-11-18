@@ -4,9 +4,9 @@ import { parseJsonSafeNullProto } from "./json-safe.ts";
 import { MCP_META_PROTOCOL_VERSION, encodeMcpHeaderValue, mcpNameOf } from "./mcp-headers.ts";
 
 /**
- * `cpe-dash mcp`: a zero-state stdio <-> Streamable HTTP bridge for local agents that only speak
- * stdio (Claude Desktop, Cursor, ...). Each NDJSON line is POSTed to the serve daemon's `/mcp`
- * with the Bearer API_TOKEN and the daemon's answer is written back as one line.
+ * A zero-state stdio <-> Streamable HTTP bridge for local agents that only speak stdio: `cpe-dash mcp`
+ * and the Claude Desktop extension (`desktop-extension.ts`) run it. Each NDJSON line is POSTed to the
+ * serve daemon's `/mcp` with the Bearer API_TOKEN and the daemon's answer is written back as one line.
  *
  * This process never creates a CPE client, scheduler or store: the daemon's `MutexSessionScheduler`
  * stays the only path to the router's single admin session. (A second in-process scheduler could
@@ -24,6 +24,8 @@ const DEFAULT_FORWARD_TIMEOUT_MS = 5 * 60_000;
  */
 export const BRIDGE_DAEMON_UNREACHABLE = -32010;
 export const BRIDGE_DAEMON_REJECTED = -32011;
+/** The bridge has no usable daemon address or token, so it forwards nothing (the Claude Desktop extension). */
+export const BRIDGE_NOT_SET_UP = -32012;
 
 /**
  * Split an NDJSON byte stream into lines. A line longer than `maxLineBytes` is never buffered:
@@ -86,6 +88,17 @@ export function attachNdjsonLineReader(
   };
 }
 
+/** What the person can do about a failure, appended to the error the agent shows. */
+export interface BridgeHints {
+  /** The daemon could not be reached. */
+  unreachable: string;
+  /** The daemon refused the token (HTTP 401). */
+  unauthorized?: string;
+}
+
+/** `cpe-dash mcp` runs next to the daemon (same host or container). */
+const CLI_HINTS: BridgeHints = { unreachable: 'Start "cpe-dash serve": it is the only process that talks to the CPE.' };
+
 export interface McpStdioBridgeOptions {
   /** Daemon `/mcp` URL (`AppConfig.mcpDaemonUrl`). */
   daemonUrl: string;
@@ -94,6 +107,13 @@ export interface McpStdioBridgeOptions {
   /** Upper bound per forwarded request (tool calls queue behind the daemon's CPE sessions). */
   requestTimeoutMs?: number;
   log?: (line: string) => void;
+  hints?: BridgeHints;
+}
+
+/** Answers one NDJSON line: the bridge, or a stand-in that only explains why nothing is forwarded. */
+export interface StdioForwarder {
+  /** The response line, or `null` for a notification. */
+  forward(line: string): Promise<string | null>;
 }
 
 function rpcError(id: string | number | null, code: number, message: string): string {
@@ -104,12 +124,36 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-export class McpStdioBridge {
+/** The request id of one line (`null` for a malformed line, which still gets an answer), or `undefined` for a notification. */
+function requestIdOf(line: string): string | number | null | undefined {
+  try {
+    const rawId = asRecord(parseJsonSafeNullProto(line))?.["id"];
+    return typeof rawId === "string" || typeof rawId === "number" ? rawId : undefined;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Answers every request with the same JSON-RPC error and forwards nothing: the Claude Desktop extension runs this
+ * when its settings are unusable, so the agent shows the person what to fix instead of a silent failure.
+ */
+export function refusingForwarder(code: number, message: string): StdioForwarder {
+  return {
+    forward: async (line) => {
+      const id = requestIdOf(line);
+      return id === undefined ? null : rpcError(id, code, message);
+    },
+  };
+}
+
+export class McpStdioBridge implements StdioForwarder {
   readonly daemonUrl: string;
   readonly #apiToken: string;
   readonly #fetchImpl: typeof fetch;
   readonly #timeoutMs: number;
   readonly #log: (line: string) => void;
+  readonly #hints: BridgeHints;
   /** Negotiated protocol revision, echoed as `MCP-Protocol-Version` after `initialize`. */
   #protocolVersion: string | null = null;
 
@@ -119,6 +163,7 @@ export class McpStdioBridge {
     this.#fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.#timeoutMs = options.requestTimeoutMs ?? DEFAULT_FORWARD_TIMEOUT_MS;
     this.#log = options.log ?? (() => undefined);
+    this.#hints = options.hints ?? CLI_HINTS;
   }
 
   /**
@@ -168,15 +213,11 @@ export class McpStdioBridge {
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      // An error about the request (a header fetch would not send, say) can quote it: never pass the token on
+      const raw = err instanceof Error ? err.message : String(err);
+      const reason = this.#apiToken ? raw.replaceAll(this.#apiToken, "<token>") : raw;
       this.#log(`[fengsui-mcp] daemon unreachable at ${this.daemonUrl}: ${reason}`);
-      return isRequest
-        ? rpcError(
-            id,
-            BRIDGE_DAEMON_UNREACHABLE,
-            `FengSui daemon unreachable at ${this.daemonUrl} (${reason}). Start "cpe-dash serve": it is the only process that talks to the CPE.`
-          )
-        : null;
+      return isRequest ? rpcError(id, BRIDGE_DAEMON_UNREACHABLE, `FengSui daemon unreachable at ${this.daemonUrl} (${reason}). ${this.#hints.unreachable}`) : null;
     }
 
     if (res.status === 202) {
@@ -198,8 +239,9 @@ export class McpStdioBridge {
     const code = typeof payload?.["errorCode"] === "string" ? payload["errorCode"] : "UNEXPECTED_RESPONSE";
     const message = typeof payload?.["message"] === "string" ? payload["message"] : "";
     this.#log(`[fengsui-mcp] daemon rejected the request: HTTP ${res.status} ${code}`);
+    const hint = res.status === 401 && this.#hints.unauthorized ? ` ${this.#hints.unauthorized}` : "";
     return isRequest
-      ? rpcError(id, BRIDGE_DAEMON_REJECTED, `FengSui daemon rejected the request (HTTP ${res.status} ${code})${message ? `: ${message}` : ""}`)
+      ? rpcError(id, BRIDGE_DAEMON_REJECTED, `FengSui daemon rejected the request (HTTP ${res.status} ${code})${message ? `: ${message}` : ""}${hint}`)
       : null;
   }
 
@@ -207,36 +249,70 @@ export class McpStdioBridge {
    * Serve NDJSON on `input`/`output`. Returns `detach()` and `drained()` (resolves once every
    * forwarded request has been answered, e.g. before exiting on stdin end).
    */
-  attach(input: Readable, output: Writable): { detach: () => void; drained: () => Promise<void> } {
-    const inflight = new Set<Promise<void>>();
-    let closed = false;
-    const write = (line: string): void => {
-      if (!closed) output.write(`${line}\n`);
-    };
-    const onOutputError = (err: Error): void => {
-      // The agent went away (EPIPE): stop writing, keep the process from crashing
-      closed = true;
-      this.#log(`[fengsui-mcp] stdout closed: ${err.message}`);
-    };
-    output.on("error", onOutputError);
-    const detachReader = attachNdjsonLineReader(input, {
-      onLine: (line) => {
-        const task = this.forward(line).then((response) => {
-          if (response !== null) write(response);
-        });
-        inflight.add(task);
-        void task.finally(() => inflight.delete(task));
-      },
-      onOversized: () => write(rpcError(null, -32600, `MCP stdio frame exceeds ${MAX_STDIO_LINE_BYTES / 1024} KiB limit`)),
-    });
-    return {
-      detach: () => {
-        detachReader();
-        output.off("error", onOutputError);
-      },
-      drained: async () => {
-        while (inflight.size > 0) await Promise.allSettled([...inflight]);
-      },
-    };
+  attach(input: Readable, output: Writable): StdioSession {
+    return serveNdjson(this, input, output, this.#log);
   }
+}
+
+export interface StdioSession {
+  detach: () => void;
+  /** Resolves once every line read so far has its answer written. */
+  drained: () => Promise<void>;
+}
+
+/** Read NDJSON lines from `input`, hand each to `forwarder`, write each answer to `output` as one line. */
+export function serveNdjson(forwarder: StdioForwarder, input: Readable, output: Writable, log: (line: string) => void): StdioSession {
+  const inflight = new Set<Promise<void>>();
+  let closed = false;
+  const write = (line: string): void => {
+    if (!closed) output.write(`${line}\n`);
+  };
+  const onOutputError = (err: Error): void => {
+    // The agent went away (EPIPE): stop writing, keep the process from crashing
+    closed = true;
+    log(`[fengsui-mcp] stdout closed: ${err.message}`);
+  };
+  output.on("error", onOutputError);
+  const detachReader = attachNdjsonLineReader(input, {
+    onLine: (line) => {
+      const task = forwarder.forward(line).then((response) => {
+        if (response !== null) write(response);
+      });
+      inflight.add(task);
+      void task.finally(() => inflight.delete(task));
+    },
+    onOversized: () => write(rpcError(null, -32600, `MCP stdio frame exceeds ${MAX_STDIO_LINE_BYTES / 1024} KiB limit`)),
+  });
+  return {
+    detach: () => {
+      detachReader();
+      output.off("error", onOutputError);
+    },
+    drained: async () => {
+      while (inflight.size > 0) await Promise.allSettled([...inflight]);
+    },
+  };
+}
+
+/** The parts of `process` a stdio bridge uses. */
+export interface BridgeProcess {
+  readonly stdin: Readable;
+  readonly stdout: Writable;
+  once(event: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+  exit(code?: number): void;
+}
+
+/**
+ * Serve stdio until stdin ends (the agent closed it) or a signal arrives, then exit once every request read so far
+ * has its answer. `cpe-dash mcp` and the Claude Desktop extension end the same way.
+ */
+export function runStdioProcess(forwarder: StdioForwarder, proc: BridgeProcess, log: (line: string) => void): void {
+  const session = serveNdjson(forwarder, proc.stdin, proc.stdout, log);
+  const finish = (): void => {
+    session.detach();
+    void session.drained().finally(() => proc.exit(0));
+  };
+  proc.stdin.once("end", finish);
+  proc.once("SIGINT", finish);
+  proc.once("SIGTERM", finish);
 }

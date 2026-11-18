@@ -20,7 +20,7 @@ import { AccessControlMcpTools } from "./mcp-access-tools.ts";
 import { CellularMcpTools } from "./mcp-cellular-tools.ts";
 import { FengSuiMcpServer } from "./mcp-server.ts";
 import { RuntimeSampler } from "./metrics.ts";
-import { McpStdioBridge } from "./mcp-stdio-bridge.ts";
+import { McpStdioBridge, runStdioProcess } from "./mcp-stdio-bridge.ts";
 import { type BeaconKeyMaterial, PeerDaemonGuard, type PeerTransport, createUdpPeerTransport } from "./peer-guard.ts";
 import { t } from "./i18n.ts";
 import type { NotificationHub } from "./notify/hub.ts";
@@ -653,20 +653,12 @@ export async function runCli(argv: ReadonlyArray<string> = process.argv): Promis
  * forwarded request has been answered. Never opens a CPE session itself.
  */
 async function runStdioBridge(config: AppConfig): Promise<void> {
-  const bridge = new McpStdioBridge({
-    daemonUrl: config.mcpDaemonUrl,
-    apiToken: config.apiToken,
-    log: (line) => process.stderr.write(`${line}\n`),
-  });
-  const session = bridge.attach(process.stdin, process.stdout);
-  process.stderr.write(`[fengsui-mcp] stdio bridge ready -> ${bridge.daemonUrl} (no CPE session in this process)\n`);
-  const finish = (): void => {
-    session.detach();
-    void session.drained().finally(() => process.exit(0));
+  const log = (line: string): void => {
+    process.stderr.write(`${line}\n`);
   };
-  process.stdin.once("end", finish);
-  process.once("SIGINT", finish);
-  process.once("SIGTERM", finish);
+  const bridge = new McpStdioBridge({ daemonUrl: config.mcpDaemonUrl, apiToken: config.apiToken, log });
+  runStdioProcess(bridge, process, log);
+  process.stderr.write(`[fengsui-mcp] stdio bridge ready -> ${bridge.daemonUrl} (no CPE session in this process)\n`);
 }
 
 /**
