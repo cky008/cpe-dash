@@ -94,6 +94,30 @@ describe("the operation registry", () => {
     assert.equal(toolOperation("no_such_tool"), null);
   });
 
+  it("describes every tool for any router: a title, what it does and every argument, in no one model's words", () => {
+    // A read tool shows as it is on every brand, and a write's own form on any model whose writes are verified,
+    // so neither names a model or a feature only one model has, nor how FengSui talks to it underneath
+    const MODEL_WORDS = /H168|\bH\d{3}-\d{3}\b|Wi-Fi 7|LAN_1000M|HostInfo|HAR-verified|BandMask|lock_mode|\/api\/net\//;
+    type Schema = { description?: string; properties?: Record<string, Schema>; items?: Schema };
+    const argumentsOf = (properties: Record<string, Schema> | undefined, at: string): Array<[string, string]> =>
+      Object.entries(properties ?? {}).flatMap(([key, schema]): Array<[string, string]> => [
+        [`${at}.${key}`, schema.description ?? ""],
+        ...argumentsOf(schema.properties, `${at}.${key}`),
+        ...argumentsOf(schema.items?.properties, `${at}.${key}[]`),
+      ]);
+    for (const op of MCP_OPERATIONS) {
+      const tool = toolDefinition(op);
+      assert.ok((tool.title ?? "").length > 0, `${tool.name}: a title`);
+      assert.ok(tool.description.length >= 80, `${tool.name}: says what it does and what comes back`);
+      assert.doesNotMatch(`${tool.title} ${tool.description}`, /Huawei/, `${tool.name}: shown on every brand`);
+      const texts: Array<[string, string]> = [[`${tool.name} title`, tool.title ?? ""], [`${tool.name} description`, tool.description], ...argumentsOf(tool.inputSchema.properties as Record<string, Schema>, tool.name)];
+      for (const [where, text] of texts) {
+        assert.ok(text.trim().length > 0, `${where}: described`);
+        assert.doesNotMatch(text, MODEL_WORDS, `${where}: ${text}`);
+      }
+    }
+  });
+
   it("makes every write tool require confirm: true, and no read tool take it", () => {
     for (const op of MCP_OPERATIONS) {
       const { inputSchema } = toolDefinition(op);

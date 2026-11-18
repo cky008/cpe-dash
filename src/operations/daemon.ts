@@ -49,7 +49,7 @@ export const DAEMON_OPERATIONS = {
     permission: null,
     mcp: {
       tool: "get_device_report",
-      title: "Desensitized Device Report",
+      title: "Get the Router's Compatibility Report",
       description:
         "The router's compatibility report as FengSui shares it in a compatibility issue: model and firmware, which read endpoints answered (and the router's error codes), each write feature's state on this router (verified, experimental and turned on, offered, unsupported) and the recent experimental write results with their read-back (match = the router took it). Structure only: no identifier, address or value from the router. Also says whether the owner lets AI agents turn experimental writes on (set_experimental_write) and read endpoints FengSui does not use (probe_router_endpoints).",
       annotations: { readOnlyHint: true },

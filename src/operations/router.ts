@@ -1,11 +1,8 @@
 import { readAntennaMode, readBandLock, readCellLockCommand, readSecurityControl, readSecuritySwitchArgs, readSwitch, readWifi7, readWifiAndAntennaArgs } from "../control-input.ts";
-import { H168_383_LTE_BANDS, H168_383_NR_BANDS } from "../rf-bounds.ts";
 import type { OperationTable } from "./record.ts";
 
 /** The router's controls: the band and cell locks, unlocking, reboot and redial, its switches, the antenna, mobile data. */
 
-const LTE_BAND_LIST = H168_383_LTE_BANDS.map((b) => `B${b}`).join(", ");
-const NR_BAND_LIST = H168_383_NR_BANDS.map((b) => `N${b}`).join(", ");
 const BAND_SELECTION = {
   oneOf: [
     { type: "string", enum: ["all"] },
@@ -30,12 +27,13 @@ export const ROUTER_OPERATIONS = {
     },
     mcp: {
       tool: "lock_band",
-      title: "Lock 4G LTE & 5G NR Frequency Bands",
-      description: `Dynamically lock 4G LTE bands (via BandMask bitwise codec) and/or 5G NR bands (via lock_mode=3), e.g., lteBands=['B1','B3'], nrBands=['N78']. LTE bands must be ones the H168-383 supports (${LTE_BAND_LIST}); NR bands must be ones it supports (${NR_BAND_LIST}). Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in. Requires confirm: true.`,
+      title: "Lock 4G and 5G Bands",
+      description:
+        "Lock the router to the given 4G (LTE) and/or 5G (NR) bands, e.g. lteBands ['B1', 'B3'] and nrBands ['N78']; 'all' clears the lock for that kind, and a kind you leave out stays as it is. A band this router does not support is refused, with the bands it does, before anything is sent. Locking to bands no nearby cell uses takes the router offline: check get_cpe_telemetry and list_neighbor_cells first; unlock_rf_locks undoes the lock. If someone is signed in to the router's own web page, FengSui steps aside and sends nothing.",
       annotations: REPEATABLE,
       properties: {
-        lteBands: { ...BAND_SELECTION, description: `4G LTE bands to lock (subset of ${LTE_BAND_LIST}) or 'all' to restore all LTE bands.` },
-        nrBands: { ...BAND_SELECTION, description: "5G NR bands to lock (e.g. ['N78', 'N41']) or 'all' to unlock NR bands." },
+        lteBands: { ...BAND_SELECTION, description: "4G bands to lock, e.g. ['B1', 'B3'], or 'all' for every 4G band." },
+        nrBands: { ...BAND_SELECTION, description: "5G bands to lock, e.g. ['N78'], or 'all' for every 5G band." },
       },
       // On a model nobody verified the band lock writes LTE bands only, from those the router advertises;
       // on a brand with a driver of its own it is that driver's band lock, with the bands and mixes the brand takes
@@ -44,7 +42,7 @@ export const ROUTER_OPERATIONS = {
           return {
             ...tool,
             description:
-              "Lock 4G LTE and/or 5G NR bands, e.g., lteBands=['B1','B3'], nrBands=['N78']; 'all' restores every band of a kind, and a kind you leave out stays as it is. Which bands and which mixes of them this router takes is its own brand's matter: a selection it cannot take is refused, with the reason, before anything is sent. Locking to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.",
+              "Lock 4G LTE and/or 5G NR bands, e.g., lteBands=['B1','B3'], nrBands=['N78']; 'all' restores every band of a kind, and a kind you leave out stays as it is. Which bands and which mixes of them this router takes is its own brand's matter: a selection it cannot take is refused, with the reason, before anything is sent. Locking to bands no nearby cell uses drops all connectivity. If someone is signed in to the router's own web page, FengSui steps aside and sends nothing.",
             inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties, lteBands: { ...BAND_SELECTION, description: "4G LTE bands to lock (e.g. ['B1', 'B3']) or 'all' to restore all LTE bands." } } },
           };
         }
@@ -52,7 +50,7 @@ export const ROUTER_OPERATIONS = {
         const { nrBands: _nr, ...properties } = tool.inputSchema.properties;
         return {
           ...tool,
-          description: `Lock 4G LTE bands only (no NR band on this model), from those the router advertises: ${bands}; or 'all' to unlock. Locking LTE to bands no nearby cell uses drops all connectivity. Politely aborts if a human admin is logged in.`,
+          description: `Lock 4G LTE bands only (no NR band on this model), from those the router advertises: ${bands}; or 'all' to unlock. Locking LTE to bands no nearby cell uses drops all connectivity. If someone is signed in to the router's own web page, FengSui steps aside and sends nothing.`,
           inputSchema: { ...tool.inputSchema, properties: { ...properties, lteBands: { ...BAND_SELECTION, description: `LTE bands to lock (subset of ${bands}) or 'all' to unlock.` } } },
         };
       },
@@ -73,15 +71,15 @@ export const ROUTER_OPERATIONS = {
     },
     mcp: {
       tool: "lock_cell",
-      title: "Lock Specific 4G/5G Base Station Cell (PCI + ARFCN)",
+      title: "Lock a 4G or 5G Cell",
       description:
-        "Lock the modem onto a specific 4G LTE or 5G NR frequency (lock_mode=1) or physical cell PCI + ARFCN (lock_mode=2). Only cells FengSui has observed (serving cell, aggregated carriers or the latest neighbour scan) can be locked: call list_neighbor_cells first and copy rat/band/arfcn/pci from its result. Requires confirm: true.",
+        "Lock the router to one 4G (LTE) or 5G (NR) cell, given by its channel number (ARFCN) and PCI, or to a channel alone when pci is left out. Only cells FengSui has seen can be locked (the serving cell, an aggregated carrier or one from the latest neighbour list): call list_neighbor_cells first and copy rat, band, arfcn and pci from its result. A cell that cannot serve the router takes it offline; unlock_rf_locks removes the lock.",
       annotations: REPEATABLE,
       properties: {
-        rat: { type: "string", enum: ["LTE", "NR"], description: "Radio technology ('LTE' or 'NR')." },
-        band: { oneOf: [{ type: "string" }, { type: "number" }], description: "Band label or number (e.g. 'B1' or 'N78')." },
-        arfcn: { type: "integer", minimum: 0, description: "Downlink EARFCN or NR-ARFCN of an observed cell." },
-        pci: { type: "integer", minimum: 0, maximum: 1007, description: "Optional Physical Cell ID (LTE 0..503, NR 0..1007). Omit to lock frequency only." },
+        rat: { type: "string", enum: ["LTE", "NR"], description: "'LTE' for a 4G cell, 'NR' for a 5G cell." },
+        band: { oneOf: [{ type: "string" }, { type: "number" }], description: "The cell's band, as a label or a number (e.g. 'B1' or 'N78')." },
+        arfcn: { type: "integer", minimum: 0, description: "The cell's downlink channel number (EARFCN for 4G, NR-ARFCN for 5G), as list_neighbor_cells gives it." },
+        pci: { type: "integer", minimum: 0, maximum: 1007, description: "The cell's Physical Cell ID (4G 0 to 503, 5G 0 to 1007). Leave it out to lock the channel only." },
         more: {
           type: "array",
           maxItems: 9,
@@ -90,9 +88,9 @@ export const ROUTER_OPERATIONS = {
           items: {
             type: "object",
             properties: {
-              band: { oneOf: [{ type: "string" }, { type: "number" }], description: "Band label or number." },
-              arfcn: { type: "integer", minimum: 0, description: "Downlink EARFCN or NR-ARFCN of an observed cell." },
-              pci: { type: "integer", minimum: 0, maximum: 1007, description: "Its Physical Cell ID." },
+              band: { oneOf: [{ type: "string" }, { type: "number" }], description: "The cell's band, as a label or a number." },
+              arfcn: { type: "integer", minimum: 0, description: "The cell's downlink channel number, as list_neighbor_cells gives it." },
+              pci: { type: "integer", minimum: 0, maximum: 1007, description: "The cell's Physical Cell ID." },
             },
             required: ["band", "arfcn", "pci"],
             additionalProperties: false,
@@ -110,9 +108,9 @@ export const ROUTER_OPERATIONS = {
     rest: { method: "POST", path: "/api/control/unlock", group: "control", example: '{"confirm":true}', summary: { "zh-CN": "解除锁频段和锁小区", en: "Clear band and cell locks" } },
     mcp: {
       tool: "unlock_rf_locks",
-      title: "Clear All Band & Cell Locks",
+      title: "Clear Band and Cell Locks",
       description:
-        "Clear all 4G/5G cell, frequency, and band locks and restore automatic full-band selection (the modem may briefly re-attach, dropping the cellular link). Requires confirm: true.",
+        "Remove every 4G and 5G band, channel and cell lock, so the router chooses bands and cells on its own again. It may drop the mobile connection for a moment while it attaches again. Use it to undo lock_band or lock_cell; get_cpe_telemetry shows the locks in force.",
       annotations: REPEATABLE,
       properties: {},
     },
@@ -124,10 +122,11 @@ export const ROUTER_OPERATIONS = {
     rest: { method: "POST", path: "/api/control/reboot", group: "control", example: '{"confirm":true}', summary: { "zh-CN": "重启路由器", en: "Restart the router" } },
     mcp: {
       tool: "reboot_cpe",
-      title: "Reboot Huawei 5G CPE Router",
-      description: "Remotely reboot the Huawei H168-383 router (takes ~45-90s). Strictly requires confirm: true.",
+      title: "Restart the Router",
+      description:
+        "Restart the router. Every device on it loses the internet and the local network until it is back, a minute or two on most routers, and FengSui reads nothing from it meanwhile. FengSui never restarts the router on its own; use this only when the user asks for a restart.",
       annotations: ONE_SHOT,
-      properties: { confirm: { type: "boolean", description: "Mandatory safety confirmation flag: MUST be explicitly set to true." } },
+      properties: {},
     },
   },
   reconnect: {
@@ -137,10 +136,11 @@ export const ROUTER_OPERATIONS = {
     rest: { method: "POST", path: "/api/control/reconnect", group: "control", example: '{"confirm":true}', summary: { "zh-CN": "重拨移动网络（不重启路由器）", en: "Redial the mobile connection (no restart)" } },
     mcp: {
       tool: "reconnect_cellular",
-      title: "Reconnect Cellular WAN Session",
-      description: "Trigger a fast cellular WAN PDN reconnect (POST /api/net/reconnect) without rebooting the router.",
+      title: "Reconnect the Mobile Connection",
+      description:
+        "Drop and set up again the router's mobile data connection without restarting it; the internet is down for a few seconds and the WAN address may change. On a router without a reconnect command of its own, FengSui turns the connection off and on again, and always sends the turn-on, even when the session is cut short.",
       annotations: ONE_SHOT,
-      properties: { confirm: { type: "boolean", description: "Must be true to confirm cellular reconnect." } },
+      properties: {},
     },
   },
   securitySwitches: {
@@ -157,18 +157,19 @@ export const ROUTER_OPERATIONS = {
     },
     mcp: {
       tool: "set_security_switches",
-      title: "Update UPnP, DMZ & Firewall Switches",
-      description: "Toggle HAR-verified H168-383 security switches: UPnP, DMZ host, Main Firewall, IP/MAC/URL filter, and WAN Ping block. Requires confirm: true.",
+      title: "Change UPnP, DMZ and Firewall Switches",
+      description:
+        "Turn the router's UPnP, DMZ host, firewall, its IP, MAC and URL filters, and the WAN ping block on or off. Send only the switches to change; the others stay as they are. get_router_settings shows the current state. A DMZ host is reachable from the internet on every port, and turning the firewall off removes the filters' protection.",
       annotations: REPEATABLE,
       properties: {
-        upnpEnabled: { type: "boolean" },
-        dmzEnabled: { type: "boolean" },
-        dmzIpAddress: { type: "string", description: "LAN IPv4 address for DMZ host." },
-        firewallMainSwitch: { type: "boolean" },
-        firewallIpFilterSwitch: { type: "boolean" },
-        firewallWanPortPingSwitch: { type: "boolean" },
-        firewallMacFilterSwitch: { type: "boolean" },
-        firewallUrlFilterSwitch: { type: "boolean" },
+        upnpEnabled: { type: "boolean", description: "true lets devices on the network open ports on the router by themselves (UPnP); false stops it." },
+        dmzEnabled: { type: "boolean", description: "true forwards every incoming connection to the DMZ host (dmzIpAddress); false turns the DMZ host off." },
+        dmzIpAddress: { type: "string", description: "The LAN IPv4 address of the device to make the DMZ host." },
+        firewallMainSwitch: { type: "boolean", description: "The router's firewall as a whole; the filters below work only while it is on." },
+        firewallIpFilterSwitch: { type: "boolean", description: "The firewall's IP address filter." },
+        firewallWanPortPingSwitch: { type: "boolean", description: "true blocks ping requests from the internet; false lets the router answer them." },
+        firewallMacFilterSwitch: { type: "boolean", description: "The firewall's MAC address filter (for wired and Wi-Fi devices; the Wi-Fi MAC filter is set_wifi_mac_filter)." },
+        firewallUrlFilterSwitch: { type: "boolean", description: "The firewall's website (URL) filter." },
       },
       // One flat argument per switch, where the REST body has `dmz` and `firewall` objects
       input: readSecuritySwitchArgs,
@@ -206,7 +207,7 @@ export const ROUTER_OPERATIONS = {
       description:
         "Turn the router's mobile data on (enabled: true) or off (enabled: false). While it is off the router has no internet over the mobile network, though it stays reachable on the LAN. FengSui never turns it back on on its own: it stays off until someone turns it on here or in the console. Requires confirm: true.",
       annotations: REPEATABLE,
-      properties: { enabled: { type: "boolean" } },
+      properties: { enabled: { type: "boolean", description: "true turns mobile data on, false turns it off." } },
       required: ["enabled"],
     },
   },
@@ -217,14 +218,14 @@ export const ROUTER_OPERATIONS = {
     input: readWifiAndAntennaArgs,
     mcp: {
       tool: "set_wifi_and_antenna",
-      title: "Configure Wi-Fi 7 MLO & Antenna Mode",
+      title: "Change Wi-Fi Multi-Link, 5 GHz Priority and the Antenna",
       description:
-        "Toggle Wi-Fi 7 (802.11be) Multi-Link Operation (mloEnable), Dual-Band Handover (dbhoEnable), and/or cellular antenna mode ('auto' | 'internal' | 'external'; 'hybrid', internal and external together, only on a router that has it). Requires confirm: true.",
+        "Turn Wi-Fi multi-link operation (MLO) or 5 GHz priority on or off, and/or choose which cellular antennas the router uses. Send only what changes; a setting this router does not have is refused before anything is sent. get_router_settings shows the current state. Wi-Fi devices may reconnect after an MLO or 5 GHz priority change.",
       annotations: REPEATABLE,
       properties: {
-        mloEnable: { type: "boolean" },
-        dbhoEnable: { type: "boolean" },
-        antennaMode: { type: "string", enum: ["auto", "internal", "external", "hybrid"] },
+        mloEnable: { type: "boolean", description: "Wi-Fi multi-link operation (MLO): devices that support it use several bands at once. Some older devices connect badly while it is on." },
+        dbhoEnable: { type: "boolean", description: "5 GHz priority: 2.4 GHz and 5 GHz share one Wi-Fi name and devices are steered to 5 GHz. Off gives each band its own name." },
+        antennaMode: { type: "string", enum: ["auto", "internal", "external", "hybrid"], description: "Which cellular antennas to use: 'auto', 'internal', 'external', or 'hybrid' (internal and external together, only on a router that has it)." },
       },
     },
   },
