@@ -132,6 +132,8 @@ async function walk(world: World): Promise<string[]> {
     // While the connection is paused: every read still answers, every write gets a code and a sentence, and no session is opened
     const pausing = await rest("POST", "/api/session/pause", { minutes: 15, confirm: true });
     if (pausing.status !== 200) problems.push(`pausing: ${pausing.status} ${String(pausing.code)} ${pausing.message}`);
+    // A background read that was running as the pause began ends as it would have: count from after it
+    if (!(await demo.stack.scheduler.whenSessionEnds(10_000))) problems.push("a session that began before the pause was still running 10 s later");
     const sessionsBefore = demo.stack.scheduler.getStatus().totalSessionsCompleted;
     let refusedAsPaused = 0;
     for (const op of REST_OPERATIONS.filter((o) => restBinding(o).method === "GET")) judge(`GET ${restBinding(op).path} while paused`, await rest("GET", restBinding(op).path));

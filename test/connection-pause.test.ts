@@ -300,6 +300,36 @@ describe("pausing the connection to the router", () => {
     }
   });
 
+  it("tells when the read that was running as the pause began has ended, opening nothing to find out", async () => {
+    const fx = pauseFixture();
+    try {
+      assert.ok(await fx.core.monitor.refreshTelemetry());
+      assert.equal(await fx.core.scheduler.whenSessionEnds(100), true, "no session running: at once");
+      let inside = false;
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const reading = fx.core.scheduler.read(async () => {
+        inside = true;
+        await held;
+        return "read";
+      });
+      for (let i = 0; i < 200 && !inside; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      fx.core.scheduler.pauseConnection(15);
+      const before = fx.core.scheduler.getStatus().totalSessionsCompleted;
+      assert.equal(await fx.core.scheduler.whenSessionEnds(20), false, "still in its session");
+      release();
+      assert.equal(await fx.core.scheduler.whenSessionEnds(2000), true);
+      assert.equal(await reading, "read");
+      // The running read ended and logged out; nothing else was opened, then or after
+      assert.equal(fx.core.scheduler.getStatus().totalSessionsCompleted, before + 1);
+      const sent = fx.sent();
+      assert.equal(await fx.core.scheduler.whenSessionEnds(100), true);
+      assert.equal(fx.sent(), sent);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   it("sends nothing for a connection test, a brand detection or a look at the certificate that waited while the pause began", async () => {
     const fx = pauseFixture();
     try {

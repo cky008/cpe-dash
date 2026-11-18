@@ -626,6 +626,15 @@ export class MutexSessionScheduler extends EventEmitter {
     return status;
   }
 
+  /**
+   * Wait for the session running now, if any, to end with its logout: `true` once none is, `false`
+   * when one still ran after `maxWaitMs`. It opens nothing and sends nothing. A pause lets a read that
+   * was running end as it would have; what is opened during the pause is counted from here.
+   */
+  async whenSessionEnds(maxWaitMs = 4000): Promise<boolean> {
+    return await this.#active().waitForIdle(maxWaitMs);
+  }
+
   /** End a pause now (nothing happens when none is running). */
   resumeConnection(): ConnectionPauseStatus {
     if (this.#paused()) {
