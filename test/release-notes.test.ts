@@ -69,7 +69,7 @@ describe("release notes from CHANGELOG.md", () => {
         "**Full Changelog**: [`v1.1.0...v1.2.0`](https://github.com/cky008/cpe-dash/compare/v1.1.0...v1.2.0)",
         "",
         "---",
-        "Details of every change: [CHANGELOG.md](https://github.com/cky008/cpe-dash/blob/v1.2.0/CHANGELOG.md) · Documentation: [fengsui.iocky.com](https://fengsui.iocky.com/) · Container image: `ghcr.io/cky008/cpe-dash:1.2.0`",
+        "Details of every change: [CHANGELOG.md](https://github.com/cky008/cpe-dash/blob/v1.2.0/CHANGELOG.md) · Documentation: [fengsui.iocky.com](https://fengsui.iocky.com/) · Container image: `ghcr.io/cky008/cpe-dash:1.2.0` · Claude Desktop extension: `fengsui-1.2.0.mcpb` in the assets below",
         "",
       ].join("\n")
     );

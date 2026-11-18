@@ -18,7 +18,7 @@ order: 11
 2. 把令牌粘贴进指南，它会生成可以直接复制的 Claude Code 命令、JSON 配置和一段提示词。
 3. 复制到你的智能体里。
 
-令牌只在这个页面里使用，不保存、不上传。
+令牌只在这个页面里使用，不保存、不上传。用 Claude Desktop 的话，装烽燧的扩展，见下面的 [Claude Desktop](#claude-desktop)。
 
 ## 手动配置
 
@@ -44,9 +44,29 @@ Claude Code 也可以用一条命令：
 claude mcp add --transport http fengsui http://<NAS 的 IP>:18384/mcp --header "Authorization: Bearer <令牌>"
 ```
 
-### 只支持本地（stdio）的客户端
+<a id="claude-desktop"></a>
 
-Claude Desktop 等客户端可以通过容器里的桥接程序连接，前提是客户端和容器在同一台机器上。把 `<令牌>` 换成你生成的令牌（建议用不能改动东西的令牌）：
+### Claude Desktop
+
+Claude Desktop 的配置只能启动你电脑上的程序，不能直接填网址，所以烽燧给它做了一个扩展。扩展装在你的电脑上，把 Claude 的请求转给烽燧的 `/mcp`；它不连路由器，也不保存任何数据。
+
+1. 到 [GitHub Releases](https://github.com/cky008/cpe-dash/releases/latest) 下载 `fengsui-<版本>.mcpb`。
+2. 双击这个文件，或把它拖进 Claude Desktop 的窗口。Claude Desktop 会打开安装窗口。
+3. 在安装窗口里填两项：
+   - **烽燧 MCP 地址**：运行烽燧那台机器在局域网或 Tailscale 里的 IP，例如 `http://192.168.8.10:18384/mcp` 或 `http://100.64.0.10:18384/mcp`。从外面经 HTTPS 反向代理访问时，填它的 `https://` 地址，例如 `https://cpe.example.com/mcp`。
+   - **令牌**：在「设置 → 令牌与 AI」生成一个。建议不勾任何权限：这样的令牌能查看路由器数据，但不能改动路由器。
+4. 按安装窗口的提示完成安装。
+
+装好之后，在 Claude Desktop 的「设置 → 扩展」里能看到「FengSui 烽燧」，可以改地址和令牌，也可以停用或卸载。
+
+> [!NOTE]
+> 明文 `http://` 只接受局域网、私有网段和 Tailscale 的地址：令牌会随每个请求发出，走明文的话，经过公网时路上谁都能看到。`https://` 的地址不受这个限制。用域名访问时，记得把它加进烽燧的 `ALLOWED_HOSTS`（见[配置参考](configuration.md)）。
+
+令牌由 Claude Desktop 存在系统钥匙串里，扩展不把它写进任何文件或日志。扩展用 Claude Desktop 自带的 Node.js 运行，你不用另外安装。地址或令牌不对时，Claude 调用工具会收到一句说明，告诉你哪一项有问题、去哪里改。
+
+### 其他只支持本地（stdio）的客户端
+
+客户端和容器在同一台机器上时，可以通过容器里的桥接程序连接。把 `<令牌>` 换成你生成的令牌（建议用不能改动东西的令牌）：
 
 ```json
 {

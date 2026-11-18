@@ -4,8 +4,15 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Added
+- **A Claude Desktop extension.** Download `fengsui-<version>.mcpb` from the release and double-click it: Claude Desktop installs it and asks for FengSui's MCP address (the LAN or Tailscale IP of the machine FengSui runs on) and a token, which it keeps in the system keychain. Claude Desktop could only reach FengSui through a hand-edited configuration before, because its own settings start local programs and cannot take a URL. The extension is the same stdio bridge as `cpe-dash mcp`, run by Claude Desktop's own Node: it forwards each request to FengSui's `/mcp`, never talks to the router and reads no `.env`. It takes an `https://` address of any host, such as an HTTPS reverse proxy, while plain `http://` goes only to LAN, private and Tailscale addresses, so the token never crosses the internet unencrypted. A wrong address or token gets a message saying which one and where to change it. `npm run build:mcpb` builds it; each release attaches it with a build provenance attestation.
+
 ### Changed
+- **`cpe-dash mcp` takes an `https://` address on any host.** `MCP_DAEMON_URL` accepted LAN, private and Tailscale addresses only; it now also accepts any host over `https://`, such as an HTTPS reverse proxy, as the Claude Desktop extension does. Plain `http://` still goes only to LAN, private and Tailscale addresses.
 - **Six MCP tools say when to use them.** `get_cpe_session_status`, `get_access_control`, `get_sms_thread`, `mark_sms_read`, `scan_operators` and `reset_traffic_counters` now say when an agent should call them and which tool to use instead for neighbouring questions, in shorter sentences. Glama's tool quality check had marked them lowest for lacking that guidance. Tool names, arguments and what the tools do are unchanged.
+
+### Container and CI
+- **The quality gate also runs on Node 24**, the Node that Claude Desktop runs the extension with, beside Node 22 (the oldest supported) and Node 26 (the image's).
 
 ## [1.9.5] — 2026-11-18
 

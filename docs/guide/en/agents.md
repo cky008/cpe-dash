@@ -18,7 +18,7 @@ The bot icon in the console header (or "AI agents" at the bottom of the screen o
 2. Paste the token into the guide. It generates a ready-to-copy Claude Code command, a JSON configuration snippet, and a system prompt.
 3. Copy them into your agent.
 
-The token is used only inside this page and is never saved or uploaded.
+The token is used only inside this page and is never saved or uploaded. For Claude Desktop, install FengSui's extension; see [Claude Desktop](#claude-desktop) below.
 
 ## Configure manually
 
@@ -44,9 +44,29 @@ For Claude Code, you can also run a single command:
 claude mcp add --transport http fengsui http://<NAS IP>:18384/mcp --header "Authorization: Bearer <token>"
 ```
 
-### Clients with local (stdio) support only
+<a id="claude-desktop"></a>
 
-Clients like Claude Desktop can connect through the bridge inside the container, provided the client and the container run on the same machine. Replace `<token>` with a token you created (best one that can change nothing):
+### Claude Desktop
+
+Claude Desktop's configuration can only start programs on your computer, not connect to a URL, so FengSui provides an extension for it. The extension runs on your computer and forwards Claude's requests to FengSui's `/mcp`. It does not connect to the router and stores no data.
+
+1. Download `fengsui-<version>.mcpb` from [GitHub Releases](https://github.com/cky008/cpe-dash/releases/latest).
+2. Double-click the file, or drag it into the Claude Desktop window. Claude Desktop opens the installation window.
+3. In the installation window, fill in two fields:
+   - **FengSui MCP address**: the LAN or Tailscale IP of the machine that runs FengSui, for example `http://192.168.8.10:18384/mcp` or `http://100.64.0.10:18384/mcp`. If you reach FengSui from outside through an HTTPS reverse proxy, enter its `https://` address instead, for example `https://cpe.example.com/mcp`.
+   - **Token**: create one under "Settings → Tokens & AI". Leave every permission unticked: such a token can read the router's data but cannot change the router.
+4. Follow the window's prompts to finish the installation.
+
+Once installed, "FengSui 烽燧" appears under "Settings → Extensions" in Claude Desktop, where you can change the address and the token, or turn off or remove the extension.
+
+> [!NOTE]
+> Plain `http://` is accepted only for LAN, private and Tailscale addresses: the token goes with every request, and over plain http anyone along the way across the internet could read it. `https://` addresses have no such limit. If you use a domain name, add it to FengSui's `ALLOWED_HOSTS` (see [Configuration](configuration.md)).
+
+Claude Desktop keeps the token in your system keychain, and the extension never writes it to a file or a log. The extension runs on the Node.js built into Claude Desktop, so you do not need to install anything else. If the address or the token is wrong, Claude's tool calls get a message that says which one and where to fix it.
+
+### Other clients with local (stdio) support only
+
+When the client and the container run on the same machine, the client can connect through the bridge inside the container. Replace `<token>` with a token you created (best one that can change nothing):
 
 ```json
 {

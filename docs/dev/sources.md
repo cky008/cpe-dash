@@ -921,3 +921,33 @@ agy 上网检索（只用 `search_web`），我抓原文核对：
 **烽燧的处理不变：让位，不在这个会话里读写，也不注销它**（主人 2026-11-16 决定保持）。理由：烽燧每次会话结束都注销，所以轮到它登录时路由器说「已经登录」，这个会话就不是它这一次开的。它可能是同一台机器上的人在浏览器里开的（烽燧和浏览器在同一台电脑上，或容器经这台电脑的地址出去），接着用再注销，会把这个人登出，违反铁律四；也可能是烽燧自己上一次没注销掉的（进程在会话中途被杀），这种会在路由器超时后自己结束，烽燧随后照常登录。代价是后一种情况下烽燧要等到路由器超时。代码里的说明原来写「另一个管理员在线」，改成了上面的意思；测试钉住登录应答 `4` 之后不再发任何表单。
 
 **查到但没有采用的**：ZTE-Web-Script（`3206010`，`legacy/zte-script-legacy.js` 的 `check_log_in`）的注释说，`cmd=loginfo` 不带 `multi_data=1` 时，「别的浏览器里有会话在运行」也可能答 `ok`。这可能是一个不用登录就能看出有人在线的信号，但出处只有这一句、措辞也不肯定；读错的后果是烽燧一直让位、读不到路由器。先不用，等真机报告。
+
+## 24. Claude Desktop 扩展（MCP Bundle，2026-11-18）
+
+Claude Desktop 的 `claude_desktop_config.json` 只能启动本机程序（stdio）；能填网址的 Connectors 由 Anthropic 的服务器从公网去连、只支持 OAuth，而烽燧只在局域网 / Tailscale 里、用令牌认证。所以给 Desktop 做一个扩展（MCP Bundle，`.mcpb`，从前叫 DXT），里面只装现有的 stdio 桥接。主人定下的：放在本仓库、版本号随 `package.json`；用 Desktop 自带的 Node 运行（主人 2026-11-18 查到 Claude Desktop 6.6395.0 内置 Electron 45.3.3，Node 24.22.3），不自带 Node；令牌是敏感项；地址校验沿用 `MCP_DAEMON_URL` 的规则；CI 的门禁加上 Node 24.x。做到一半主人改了地址的规则（同一天，「要是有用户就想公网用呢，不要给他们加那么多枷锁」）：两个桥接（扩展与 `cpe-dash mcp`）都接受任何主机的 `https://` 地址，例如 HTTPS 反向代理的域名；明文 `http://` 仍只接受局域网、私网与 Tailscale 的主机，因为令牌随每个请求发出，明文经过公网时路上谁都能读到（主人在两种之间选了这一种）。
+
+依据只取官方仓库与 Claude 的文档（2026-11-18 读取），没有参考其他项目：
+
+- **规范**：[modelcontextprotocol/mcpb](https://github.com/modelcontextprotocol/mcpb)（提交 `70fe3b3`，2026-04-22；许可证见下）的 `MANIFEST.md`（「Current version: 0.3」，Last updated 2025-12-02）、`README.md`、`CLI.md`、`schemas/`，以及 Claude Desktop 用来加载和校验扩展的代码 `src/`（README 原话：「the code used by Claude for macOS and Windows to load and verify MCPB bundles」）。
+- **官方 CLI**：npm 包 `@anthropic-ai/mcpb` 2.1.2（2025-12-04 发布，`gitHead` `2a78810`，即标签 `v2.1.2`）。
+- **Claude 的说明**：[Build a desktop extension with MCPB](https://claude.com/docs/connectors/building/mcpb)。
+
+| 事实 | 出处 | 烽燧 |
+| :--- | :--- | :--- |
+| `.mcpb` 是 zip，内含 `manifest.json` 与服务器；双击、拖进窗口或「Settings > Extensions > Advanced settings > Install Extension…」都会打开安装窗口，在里面填必填设置 | README「MCP Bundles」；Claude 的说明「Understand how users install your MCPB」 | 文档照这个写步骤，按钮名不写死 |
+| manifest 用 `0.3`：新包的默认（`src/shared/constants.ts` 的 `DEFAULT_MANIFEST_VERSION`），`0.4` 只多了 `uv` 这种 Python 服务器 | `MANIFEST.md`「UV Runtime (v0.4+)」；`constants.ts` | `manifest_version: "0.3"` |
+| 必填：`name`、`version`、`description`、`author.name`、`server`，以及 `manifest_version`（或旧的 `dxt_version`，zod 的 `refine` 要求二者之一） | `schemas/mcpb-manifest-v0.3.schema.json`；`src/schemas/0.3.ts` | `scripts/build-mcpb.ts` 由 `package.json` 生成；`checkBundle` 补查 `manifest_version` |
+| `server.type: "node"`：Node 随 Claude for macOS 和 Windows 一起装，用户不用另装；`mcp_config` 写 `command: "node"`、`args: ["${__dirname}/server/index.js"]` | README「Language Choice Recommendation」；`MANIFEST.md`「Server Configuration」；Claude 的说明「Choose a language」 | 同上；入口是 ES 模块，包里另放 `package.json`（`"type": "module"`），和官方 `examples/hello-world-node` 一样 |
+| `user_config`：每项要有 `type`、`title`、`description`；`sensitive` 对字符串「mask input and store securely」；`${user_config.KEY}` 在 `mcp_config.env` 里换成填的值；必填项没填时 Desktop 不生成启动配置（`getMcpConfigForManifest` 返回 `undefined`） | `MANIFEST.md`「User Configuration」；`src/shared/config.ts`（`replaceVariables`、`hasRequiredConfigMissing`） | 两项都必填；令牌 `sensitive: true`；分别作为 `MCP_DAEMON_URL`、`API_TOKEN` 传入（扩展只读这两个）；地址的说明写明 `https://` 任何地址、明文 `http://` 只限局域网与 Tailscale |
+| `mcp_config` 里 `mcpb validate` 只认 `${__dirname}`、`${pathSeparator}`、`${/}`、`${user_config.…}`（`MANIFEST.md` 另列了 `${HOME}` 等，但校验器把它们算错误） | `src/node/validate.ts` 的 `VALID_VARIABLE_PATTERN` | `checkBundle` 照校验器的规则查，另查每个 `user_config` 变量都有声明 |
+| `compatibility.runtimes.node` 是 semver 范围；`platforms` 取 `darwin`、`win32`、`linux`；Claude Desktop 运行在 macOS 和 Windows | `MANIFEST.md`「Compatibility」；Claude 的说明「Platform support」 | `runtimes.node` 取 `package.json` 的 `engines`（`>=22.6.0`）；三个平台都列（桥接是纯 JS） |
+| 图标：`icon` 是包里的相对路径、必须是 PNG、不能用 `${__dirname}`；建议 512×512（最小 256×256），带透明；`icons` 可按尺寸和 `light` / `dark` 主题给多张，`size` 写成 `WxH` | `src/node/validate.ts` 的 `validateIcon`；Claude 的说明「Add an icon」；`MANIFEST.md`「Icons」 | `npm run brand:icon` 从 `web/brand/logo.svg` 画 512×512 的浅色、深色两张；`icon` 指浅色，`icons` 两张都列。规范没写 Desktop 用不用 `icons`，只写了没有 `icons` 时用 `icon` |
+| 打包：`mcpb pack` 用 fflate 写最高压缩的 zip，每个文件标为 Unix（`os: 3`）带文件权限；`unpack` 用 fflate 的 `unzipSync` 解开、逐级建目录、按权限 `chmod`，并检查路径不越出安装目录 | `src/cli/pack.ts`、`src/cli/unpack.ts` | `scripts/zip.ts` 零依赖地写 store（不压缩）的 zip，每个文件标为 Unix、权限 `0644`，时间固定为 1980-01-01，同样的源文件打出同样的字节 |
+| 签名：`mcpb sign` 把 PKCS#7 签名附在 zip 后面，没签名的包也是合法的 zip；`mcpb info` 对没签名的包提示「Not signed」 | `CLI.md`「Signature Format」 | 不签名（要代码签名证书，由主人决定） |
+| Claude 的目录不再收扩展：「Desktop extension listings in the directory are deprecated, and the directory no longer accepts MCPB submissions」 | Claude 的说明「Distribute your MCPB」 | 只从 GitHub Release 分发 |
+
+**没有用官方 CLI 打包**：`@anthropic-ai/mcpb@2.1.2` 装进来时 `npm audit` 报 6 项（3 项高危：`tmp` ≤ 0.2.5，经 `@inquirer/prompts` → `external-editor` 引入；`zod` < 4.6.6；上游都没有修复版本），作为开发依赖会让 Dependabot 告警不为 0。所以照任务书的另一条路：零依赖写 zip，用官方 schema 校验 manifest。schema 原样放在 `mcpb/mcpb-manifest-v0.3.schema.json`（git blob `64471c5`，与上游 `70fe3b3` 相同），上游的 `LICENSE`（blob `4a93985`）随附为 `mcpb/LICENSE-mcpb-schema`：项目正从 MIT 转到 Apache-2.0，新的代码和规范以 Apache-2.0 授权；`package.json` 的 `license` 字段仍写 MIT。校验器 `scripts/json-schema.ts` 只实现这份 schema 用到的关键字（`$ref`、`$schema`、`additionalProperties`、`anyOf`、`const`、`description`、`enum`、`format`、`items`、`minLength`、`pattern`、`properties`、`required`、`type`），遇到别的关键字就报错。
+
+**用官方工具核对过**（2026-11-18，在仓库外的临时目录装 `@anthropic-ai/mcpb@2.1.2`，不进仓库）：`mcpb validate` 通过（只提示图标建议 512×512，已经是）；`mcpb info` 只提示没签名；用它的库 `unpackExtension` 解开、zod 的 `0.3` schema 通过、`getMcpConfigForManifest` 生成 Desktop 的启动配置（不填设置时不生成），再按那份配置启动包里的服务器，对着演示守护进程：`initialize` 得到 `fengsui-cpe-dash`，`tools/list` 列出 15 个读工具，`get_cpe_telemetry` 有数据，stdin 关闭后退出码 0，输出里没有令牌。
+
+**发版**：`release.yml` 新增 `extension` 任务（只有 `contents: read`，外加打标签且仓库公开时做构建来源证明要的 `id-token`、`attestations`），打包后核对标签与 `package.json` 的版本一致，用 `actions/attest-build-provenance`（`v4.2.2`，与镜像同一个）证明，`actions/upload-artifact@v7.0.2`（`cf430e0`，2026-10-07）交给 `notes` 任务；`notes` 用 `actions/download-artifact@v8.0.2`（`9000827`，2026-10-07）取回，`gh release upload --clobber` 附到 Release。CI 的门禁矩阵加上 `24.x`，每个 Node 版本都打一次扩展；`test/mcpb.test.ts` 在门禁里打包并以 Desktop 的方式运行它。

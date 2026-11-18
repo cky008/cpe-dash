@@ -1000,7 +1000,7 @@ export type AlertCode =
 
 所有工具调用都由 `serve` 守护进程执行，它是**唯一**连接 CPE 的进程（唯一的 `MutexSessionScheduler`、唯一的熔断器、唯一的状态写入者）。
 
-1. **本地进程 `stdio` 桥接**（适用于 Claude Desktop、Antigravity、Cursor；每行一个 JSON 对象，单行上限 `64 KiB`，超限返回 `id: null` 的 `-32600` 错误并丢弃该行）：
+1. **本地进程 `stdio` 桥接**（适用于只支持 stdio 的客户端；Claude Desktop 用户装扩展，见下面的 `.mcpb`；每行一个 JSON 对象，单行上限 `64 KiB`，超限返回 `id: null` 的 `-32600` 错误并丢弃该行）：
    ```json
    {
      "mcpServers": {
@@ -1012,8 +1012,9 @@ export type AlertCode =
    }
    ```
    `--experimental-strip-types` 在 Node `22.6`–`22.17` 上必需，在 Node `22.18+` / `23.6+` 上可省略。执行过 `npm run build` 后也可改用 `/path/to/cpe-dash/dist/cli.js`。
-   - `cpe-dash mcp` 是**零状态桥接**（[`src/mcp-stdio-bridge.ts`](../../src/mcp-stdio-bridge.ts)）：从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`，`WEB_HOST` 为具体地址时用该地址），把每一行原样 `POST` 给守护进程的 `/mcp`，并在 `initialize` 之后附带协商出的 `MCP-Protocol-Version` 头。它不创建 CPE 客户端、调度器或任何存储，也不运行告警、Telegram 与 Webhook；需要守护进程已在运行且 `MCP_HTTP_ENABLED=true`。
-   - 桥接自身的 JSON-RPC 错误：守护进程不可达时返回 `-32010`（提示先启动 `cpe-dash serve`）；守护进程以非 JSON-RPC 信封拒绝（如 `401 UNAUTHORIZED`、`404 MCP_DISABLED`、`429 RATE_LIMITED`）时返回 `-32011`，消息中带 HTTP 状态与 `errorCode`。两者都在实现自定义区间 `-32000..-32019` 内，且避开了 SDK 的 `-32000` / `-32001` 与传统版资源未找到 `-32002`。Notification 失败只写入 stderr 日志。
+   - `cpe-dash mcp` 是**零状态桥接**（[`src/mcp-stdio-bridge.ts`](../../src/mcp-stdio-bridge.ts)）：从 `.env` 读取 `API_TOKEN` 与 `MCP_DAEMON_URL`（默认 `http://127.0.0.1:<WEB_PORT>/mcp`，`WEB_HOST` 为具体地址时用该地址；明写时须为 http(s)、不带凭据、查询串和片段，`https://` 任何主机都行，明文 `http://` 只接受局域网、私网、环回与 Tailscale 的主机，令牌不以明文经过公网），把每一行原样 `POST` 给守护进程的 `/mcp`，并在 `initialize` 之后附带协商出的 `MCP-Protocol-Version` 头。它不创建 CPE 客户端、调度器或任何存储，也不运行告警、Telegram 与 Webhook；需要守护进程已在运行且 `MCP_HTTP_ENABLED=true`。
+   - 桥接自身的 JSON-RPC 错误：守护进程不可达时返回 `-32010`（提示先启动 `cpe-dash serve`）；守护进程以非 JSON-RPC 信封拒绝（如 `401 UNAUTHORIZED`、`404 MCP_DISABLED`、`429 RATE_LIMITED`）时返回 `-32011`，消息中带 HTTP 状态与 `errorCode`；扩展的设置不能用时（见下）每个请求都返回 `-32012`，什么都不转发。三者都在实现自定义区间 `-32000..-32019` 内，且避开了 SDK 的 `-32000` / `-32001` 与传统版资源未找到 `-32002`。Notification 失败只写入 stderr 日志。错误消息里不会出现令牌：出错的说明如果引用了请求头，令牌换成 `<token>`。
+   - **Claude Desktop 扩展**（`dist/fengsui-<版本>.mcpb`，`npm run build:mcpb`，发版时附到 GitHub Release）：MCP Bundle（manifest `0.3`），里面只有同一个桥接（[`src/desktop-extension.ts`](../../src/desktop-extension.ts)），由 Claude Desktop 自带的 Node 运行。用户安装时填的两项设置由 Desktop 作为环境变量传入：`MCP_DAEMON_URL`（烽燧 MCP 地址，校验同上；只填 `http://<IP>:18384` 或 `https://<域名>` 时补上 `/mcp`）与 `API_TOKEN`（manifest 里标为敏感项，Desktop 存进系统钥匙串）。扩展只读这两个环境变量，不读任何 `.env`。设置不能用时（空、明文 `http://` 指向公网、不是 URL、令牌含有请求头带不了的字符），每个请求都得到 `-32012`，消息说明哪一项有问题、到「Claude Desktop → Settings → Extensions → FengSui」修改；令牌被拒（`-32011`、HTTP 401）和守护进程不可达（`-32010`）的消息也改为指向扩展的设置，而不是提示启动 `cpe-dash serve`。
    - 旧的 `--poll` 参数与 `MCP_STDIO_BACKGROUND_POLL` 已废弃：`--poll` 只打印警告，后台轮询始终由守护进程负责。
 2. **内网 / Tailscale Streamable HTTP 模式**（`POST http://<nas-ip>:18384/mcp`）：
    - 必填头：`Authorization: Bearer <API_TOKEN>` 与 `Content-Type: application/json`；

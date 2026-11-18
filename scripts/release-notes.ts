@@ -96,7 +96,7 @@ export function releaseNotes(changelog: string, tag: string, repository = "cky00
 
   out.push(
     "---",
-    `Details of every change: [CHANGELOG.md](https://github.com/${repository}/blob/v${version}/CHANGELOG.md) · Documentation: [fengsui.iocky.com](https://fengsui.iocky.com/) · Container image: \`ghcr.io/${repository}:${version}\``,
+    `Details of every change: [CHANGELOG.md](https://github.com/${repository}/blob/v${version}/CHANGELOG.md) · Documentation: [fengsui.iocky.com](https://fengsui.iocky.com/) · Container image: \`ghcr.io/${repository}:${version}\` · Claude Desktop extension: \`fengsui-${version}.mcpb\` in the assets below`,
     ""
   );
   return out.join("\n");
