@@ -62,6 +62,35 @@ describe("GitHub Actions supply chain", () => {
     assert.match(notes, /gh release upload "\$TAG" "\$RUNNER_TEMP"\/mcpb\/fengsui-\*\.mcpb --clobber/);
   });
 
+  it("lists the extension in the official MCP Registry once the release has the file, with GitHub's OIDC and no stored secret", () => {
+    const release = fs.readFileSync(path.join(WORKFLOWS, "release.yml"), "utf8");
+    const job = (name: string): string => {
+      const start = release.indexOf(`\n  ${name}:\n`);
+      assert.ok(start > 0, `release.yml has a ${name} job`);
+      const next = release.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
+      return next < 0 ? release.slice(start) : release.slice(start, start + 1 + next);
+    };
+    // The bundle and its server.json travel together, so the SHA-256 listed is the file attached
+    assert.match(job("extension"), /\n\s+name: mcpb\n\s+path: \|\n\s+\$\{\{ steps\.mcpb\.outputs\.file \}\}\n\s+dist\/server\.json\n/);
+    const registry = job("registry");
+    // The Registry checks the release file exists, so this waits for the notes job that attaches it
+    assert.match(registry, /\n {4}needs: notes\n/);
+    assert.match(registry, /\n {4}if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) && !github\.event\.repository\.private \}\}\n/);
+    assert.match(registry, /\n {4}permissions:\n {6}contents: read\n {6}id-token: write\n {4}env:\n/);
+    assert.doesNotMatch(registry, /secrets\./, "no secret: the OIDC token proves the run is this repository's");
+    // mcp-publisher is a pinned release, checked against its SHA-256 before it runs
+    assert.match(registry, /\n {6}MCP_PUBLISHER_VERSION: v\d+\.\d+\.\d+\n {6}MCP_PUBLISHER_SHA256: [0-9a-f]{64}\n/);
+    assert.match(registry, /releases\/download\/\$MCP_PUBLISHER_VERSION\/mcp-publisher_linux_amd64\.tar\.gz/);
+    assert.match(registry, /echo "\$MCP_PUBLISHER_SHA256  mcp-publisher\.tar\.gz" \| sha256sum --check --strict\n/);
+    assert.match(registry, /uses: actions\/download-artifact@[0-9a-f]{40} # v\d+\.\d+\.\d+\n\s+with:\n\s+name: mcpb\n/);
+    // A version is listed once: a release made again leaves the entry alone
+    assert.match(registry, /registry\.modelcontextprotocol\.io\/v0\.1\/servers\/.+\/versions\/\$version/);
+    const login = registry.indexOf("./mcp-publisher login github-oidc");
+    const validate = registry.indexOf("./mcp-publisher validate mcpb/server.json");
+    const publish = registry.indexOf("./mcp-publisher publish mcpb/server.json");
+    assert.ok(login > 0 && validate > login && publish > validate, "logs in, validates, then publishes");
+  });
+
   it("pins the base image by digest, attests releases and bounds the container", () => {
     const dockerfile = fs.readFileSync(path.resolve(WORKFLOWS, "..", "..", "Dockerfile"), "utf8");
     const froms = dockerfile.split("\n").filter((line) => line.startsWith("FROM "));

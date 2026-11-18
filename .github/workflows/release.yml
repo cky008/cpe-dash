@@ -126,10 +126,13 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ steps.mcpb.outputs.file }}
+      # The bundle and its MCP Registry entry travel together, so the SHA-256 listed is the file attached
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mcpb
-          path: ${{ steps.mcpb.outputs.file }}
+          path: |
+            ${{ steps.mcpb.outputs.file }}
+            dist/server.json
           if-no-files-found: error
           retention-days: 7
 
@@ -168,3 +171,49 @@ jobs:
           fi
           # The Claude Desktop extension beside the notes (replaced when the release is made again)
           gh release upload "$TAG" "$RUNNER_TEMP"/mcpb/fengsui-*.mcpb --clobber
+
+  registry:
+    name: List the extension in the MCP Registry
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The Registry checks that the release has the file, so this waits for the notes job that attaches it
+    needs: notes
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !github.event.repository.private }}
+    # GitHub's OIDC token proves the run is this repository's, which grants the io.github.<owner>/ names: no secret is
+    # stored anywhere, and the job writes nothing to the repository
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # A new mcp-publisher is a reviewed edit of both lines: the SHA-256 of that release's mcp-publisher_linux_amd64.tar.gz
+      MCP_PUBLISHER_VERSION: v1.8.9
+      MCP_PUBLISHER_SHA256: 4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mcpb
+          path: ${{ runner.temp }}/mcpb
+      - name: Install mcp-publisher
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --output mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          echo "$MCP_PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+      - name: List this version
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          name="$(jq -r .name mcpb/server.json)"
+          version="$(jq -r .version mcpb/server.json)"
+          # A version is listed once and never changes: a release made again leaves the entry as it is
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            "https://registry.modelcontextprotocol.io/v0.1/servers/$(jq -rn --arg name "$name" '$name | @uri')/versions/$version")"
+          if [ "$status" = 200 ]; then
+            echo "$name $version is already in the MCP Registry"
+            exit 0
+          fi
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher validate mcpb/server.json
+          ./mcp-publisher publish mcpb/server.json

@@ -323,7 +323,7 @@ sequenceDiagram
 
 - [`Dockerfile`](../../Dockerfile)：多阶段构建，构建阶段运行在构建平台（`--platform=$BUILDPLATFORM`）；运行层 `node:26-alpine` 只含 `dist/` 与 `locales/`，无 `node_modules`，`USER node`，`HEALTHCHECK` 以 busybox `wget` 访问 `/api/health`，`STOPSIGNAL SIGTERM`。Node 自带的 ICU 已能解析 `TZ`，无需 `tzdata`。
 - [`docker-compose.yml`](../../docker-compose.yml)：`PUID` / `PGID` 用户映射、`./data` 与只读 `./.env` 挂载、只读根文件系统 + `tmpfs /tmp`、`cap_drop: ALL`、`no-new-privileges`、`init`、15 s 停机宽限与日志轮转。
-- [`ci-docker.yml`](../../.github/workflows/ci-docker.yml)：Node 22.x（`engines` 下限）与 26.x 跑完整门禁；随后构建 `linux/amd64` 镜像，以无特权、只读方式运行，验证健康检查、Web 与 CSP、登录、SSE `hello`、MCP `initialize`、未鉴权 `401`、`SIGTERM` 后 10 s 内以退出码 0 停止、状态只以密文落盘。[`release.yml`](../../.github/workflows/release.yml) 在 `v*.*.*` 标签上发布 `linux/amd64` + `linux/arm64` 到 GHCR，只有该作业拥有 `packages: write`。
+- [`ci-docker.yml`](../../.github/workflows/ci-docker.yml)：Node 22.x（`engines` 下限）、24.x（Claude Desktop 运行扩展用的 Node）与 26.x 跑完整门禁，每个版本都打一次 Claude Desktop 扩展；随后构建 `linux/amd64` 镜像，以无特权、只读方式运行，验证健康检查、Web 与 CSP、登录、SSE `hello`、MCP `initialize`、未鉴权 `401`、`SIGTERM` 后 10 s 内以退出码 0 停止、状态只以密文落盘。[`release.yml`](../../.github/workflows/release.yml) 在 `v*.*.*` 标签上发布 `linux/amd64` + `linux/arm64` 到 GHCR，只有该作业拥有 `packages: write`；同一个标签打出 Claude Desktop 扩展（`.mcpb`，带构建来源证明）附到 GitHub Release，文件附上之后再凭 GitHub OIDC 把它登记到官方 MCP Registry（`io.github.cky008/fengsui`，不存任何密钥；依据见 [`sources.md`](sources.md) 第 24 节）。
 - 首次 CI 即在 Node 22 上发现一个真实缺陷：会话截止计时器被 `unref()`，只剩截止计时器在等待的会话可能让事件循环提前结束。计时器改为保持引用（由 `finally` 清除）。
 
 ### 7.3 Phase 3 前端审计（长时间驻留标签页与契约一致性）
