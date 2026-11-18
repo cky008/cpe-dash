@@ -114,7 +114,7 @@ export const READ_OPERATIONS = {
       tool: "get_access_control",
       title: "Get Wi-Fi Access Control and Internet Time Rules",
       description:
-        "Read the router's Wi-Fi MAC filter (off / blacklist / whitelist, both lists, capacity) and its parental-control internet time rules (allowed online windows per device; outside them the device is cut off).",
+        "Read the router's Wi-Fi MAC filter (off, blacklist or whitelist, both lists and how many entries each can hold) and its parental-control internet time rules (each device's allowed online windows; outside them the device is cut off). Use it to see who is blocked and which rules exist, with their ids, before changing access; for the devices connected right now use list_terminal_topology.",
       annotations: READ_ONLY,
       properties: { refresh: { type: "boolean", description: "Read the router now instead of the cached snapshot." } },
       input: flag("refresh"),
@@ -150,7 +150,7 @@ export const READ_OPERATIONS = {
       tool: "get_cpe_session_status",
       title: "Check FengSui's Session With the Router",
       description:
-        "Check whether a person is signed in to the router's own web page (FengSui then steps aside), how long FengSui's last session held the router's admin seat, whether the breaker is open (the router refused the password or locked its login, so FengSui stopped signing in), and what WAN self-healing does on its own (selfHeal: whether a lock is rolled back when the WAN is still down lockRollback.afterMin minutes later, an open lock window's deadline, and the WAN redials spent of the 24 h cap).",
+        "Report how FengSui stands with the router. Use it when a reading comes back empty or a change is refused, to learn why, and before a band or cell lock, to see what FengSui will undo on its own; for the signal use get_cpe_telemetry, for the router's switches get_router_settings. It says whether someone is signed in to the router's own web page (FengSui then steps aside) and how long FengSui's last session held the router's admin seat. It says whether the breaker is open: the router refused the password or locked its login, so FengSui stopped signing in until the owner fixes it. selfHeal says whether a lock is undone when the WAN is still down lockRollback.afterMin minutes later, when an open lock window ends, and how many of the 24-hour WAN redials are spent.",
       annotations: READ_ONLY,
       properties: { probeLive: { type: "boolean", description: "Also ask the router right now, without a login, whether someone is signed in (Huawei routers only; on another brand the tool answers VALIDATION_ERROR)." } },
       input: flag("probeLive"),

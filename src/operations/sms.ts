@@ -79,7 +79,7 @@ export const SMS_OPERATIONS = {
     mcp: {
       tool: "get_sms_thread",
       title: "Read an SMS Conversation",
-      description: `Return the messages of one conversation (oldest first) by threadKey or phone number. ${SMS_UNTRUSTED_NOTICE}`,
+      description: `Return the messages of one conversation, oldest first, by its threadKey or any spelling of the number, each with the uid other SMS tools take. Use it to read a conversation once list_sms_threads has found it; to see which conversations have unread messages, use list_sms_threads instead. ${SMS_UNTRUSTED_NOTICE}`,
       annotations: READ_ONLY,
       properties: {
         threadKey: { type: "string", description: "Thread key from list_sms_threads, or any spelling of the number." },
@@ -192,7 +192,7 @@ export const SMS_OPERATIONS = {
     mcp: {
       tool: "mark_sms_read",
       title: "Mark SMS as Read",
-      description: "Mark messages (by uid) or a whole conversation (threadKey) as read on the router. Requires confirm: true.",
+      description: "Mark messages, by uid, or a whole conversation, by threadKey, as read: on the router, or in FengSui's own record where the router keeps no read state. Use it when the user has read them or asks to clear the unread count; get_sms_thread gives the uids and list_sms_threads the threadKeys. Nothing is deleted.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       properties: {
         uids: { type: "array", items: { type: "string" }, maxItems: MCP_MAX_READ_PER_CALL, description: `The messages to mark, by the uid get_sms_thread gives each; at most ${MCP_MAX_READ_PER_CALL}.` },

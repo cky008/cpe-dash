@@ -54,7 +54,7 @@ export const CELLULAR_OPERATIONS = {
       tool: "scan_operators",
       title: "Search for Mobile Networks",
       description:
-        "Search for the mobile networks in range. Takes up to a minute, and many routers drop the data connection while they search. Returns each network's code (PLMN), technology and state (current, available, forbidden). Network names are text the operators broadcast.",
+        "Search for the mobile networks in range and return each one's code (PLMN), technology and state (current, available, forbidden). Use it only before choosing an operator by hand with select_operator; the operator in use is already in get_cellular_settings and get_cpe_telemetry. It takes up to a minute, and many routers drop the data connection while they search. Network names are text the operators broadcast.",
       annotations: ONE_SHOT,
       properties: {},
     },
@@ -250,7 +250,7 @@ export const CELLULAR_OPERATIONS = {
     mcp: {
       tool: "reset_traffic_counters",
       title: "Clear the Router's Traffic Counters",
-      description: "Clear the traffic counters the router itself keeps (this month's and the totals). They cannot be brought back.",
+      description: "Clear the traffic counters the router itself keeps (this month's and the totals); they cannot be brought back. Use it only when the user asks to start the router's count over, for example when a new billing period begins. FengSui's own speed and signal history is not touched.",
       annotations: REPEATABLE,
       properties: {},
     },

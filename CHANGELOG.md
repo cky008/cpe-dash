@@ -4,6 +4,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+- **Six MCP tools say when to use them.** `get_cpe_session_status`, `get_access_control`, `get_sms_thread`, `mark_sms_read`, `scan_operators` and `reset_traffic_counters` now say when an agent should call them and which tool to use instead for neighbouring questions, in shorter sentences. Glama's tool quality check had marked them lowest for lacking that guidance. Tool names, arguments and what the tools do are unchanged.
+
 ## [1.9.5] — 2026-11-18
 
 ### Highlights
