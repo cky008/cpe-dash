@@ -1,14 +1,18 @@
 /**
- * Checks a value against a JSON Schema (draft-07) with no dependency, for the Claude Desktop extension's manifest:
- * the official MCP Bundle schema (mcpb/mcpb-manifest-v0.3.schema.json) is validated as it is, not restated by hand.
+ * Checks a value against a JSON Schema (draft-07) with no dependency, for the Claude Desktop extension: its manifest
+ * against the official MCP Bundle schema (mcpb/mcpb-manifest-v0.3.schema.json) and its entry in the official MCP
+ * Registry against the schema the Registry validates with (mcpb/server-2025-12-11.schema.json), each as it is, not
+ * restated by hand.
  *
- * Only the keywords that schema uses are implemented, and a schema with any other keyword is refused rather than
- * half-checked, so a newer schema dropped into mcpb/ cannot pass a manifest by accident.
+ * Only the keywords those two schemas use are implemented, and a schema with any other keyword is refused rather than
+ * half-checked, so a newer schema dropped into mcpb/ cannot pass a file by accident.
  */
 
 export type JsonSchema = boolean | { readonly [keyword: string]: unknown };
 
-const KEYWORDS = new Set(["$ref", "$schema", "additionalProperties", "anyOf", "const", "description", "enum", "format", "items", "minLength", "pattern", "properties", "required", "type"]);
+/** Words that only explain or hold named parts for `$ref`: nothing to check. */
+const ANNOTATIONS = ["$comment", "$id", "default", "definitions", "example", "examples", "title"];
+const KEYWORDS = new Set(["$ref", "$schema", "additionalProperties", "allOf", "anyOf", "const", "description", "enum", "format", "items", "maxLength", "minLength", "not", "pattern", "properties", "required", "type", ...ANNOTATIONS]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -76,20 +80,23 @@ function check(root: JsonSchema, schema: JsonSchema, value: unknown, at: string,
   if (typeof value === "string") {
     const minLength = schema["minLength"];
     if (typeof minLength === "number" && [...value].length < minLength) errors.push(`${at}: shorter than ${minLength}`);
+    const maxLength = schema["maxLength"];
+    if (typeof maxLength === "number" && [...value].length > maxLength) errors.push(`${at}: longer than ${maxLength}`);
     const pattern = schema["pattern"];
     if (typeof pattern === "string" && !new RegExp(pattern, "u").test(value)) errors.push(`${at}: does not match ${pattern}`);
     const format = schema["format"];
     if (typeof format === "string" && !matchesFormat(value, format)) errors.push(`${at}: not a valid ${format}`);
   }
+  const passes = (option: unknown): boolean => {
+    const sub: string[] = [];
+    check(root, option as JsonSchema, value, at, sub);
+    return sub.length === 0;
+  };
+  const allOf = schema["allOf"];
+  if (Array.isArray(allOf)) for (const part of allOf) check(root, part as JsonSchema, value, at, errors);
   const anyOf = schema["anyOf"];
-  if (Array.isArray(anyOf)) {
-    const passes = anyOf.some((option) => {
-      const sub: string[] = [];
-      check(root, option as JsonSchema, value, at, sub);
-      return sub.length === 0;
-    });
-    if (!passes) errors.push(`${at}: matches none of the allowed shapes`);
-  }
+  if (Array.isArray(anyOf) && !anyOf.some(passes)) errors.push(`${at}: matches none of the allowed shapes`);
+  if ("not" in schema && passes(schema["not"])) errors.push(`${at}: matches a shape it must not`);
   if (Array.isArray(value)) {
     const items = schema["items"];
     if (typeof items === "boolean" || isRecord(items)) value.forEach((item, i) => check(root, items, item, `${at}[${i}]`, errors));

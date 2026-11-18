@@ -951,3 +951,25 @@ Claude Desktop 的 `claude_desktop_config.json` 只能启动本机程序（stdio
 **用官方工具核对过**（2026-11-18，在仓库外的临时目录装 `@anthropic-ai/mcpb@2.1.2`，不进仓库）：`mcpb validate` 通过（只提示图标建议 512×512，已经是）；`mcpb info` 只提示没签名；用它的库 `unpackExtension` 解开、zod 的 `0.3` schema 通过、`getMcpConfigForManifest` 生成 Desktop 的启动配置（不填设置时不生成），再按那份配置启动包里的服务器，对着演示守护进程：`initialize` 得到 `fengsui-cpe-dash`，`tools/list` 列出 15 个读工具，`get_cpe_telemetry` 有数据，stdin 关闭后退出码 0，输出里没有令牌。
 
 **发版**：`release.yml` 新增 `extension` 任务（只有 `contents: read`，外加打标签且仓库公开时做构建来源证明要的 `id-token`、`attestations`），打包后核对标签与 `package.json` 的版本一致，用 `actions/attest-build-provenance`（`v4.2.2`，与镜像同一个）证明，`actions/upload-artifact@v7.0.2`（`cf430e0`，2026-10-07）交给 `notes` 任务；`notes` 用 `actions/download-artifact@v8.0.2`（`9000827`，2026-10-07）取回，`gh release upload --clobber` 附到 Release。CI 的门禁矩阵加上 `24.x`，每个 Node 版本都打一次扩展；`test/mcpb.test.ts` 在门禁里打包并以 Desktop 的方式运行它。
+
+### 24.1 登记到官方 MCP Registry（2026-11-18）
+
+主人同意每次发版自动登记（「第二个可以呀」），名字用 `io.github.cky008/fengsui`。依据只取官方仓库 [modelcontextprotocol/registry](https://github.com/modelcontextprotocol/registry)（提交 `115f852`，2026-11-13；许可证与 MCPB 仓库同一份，见下）的 `docs/modelcontextprotocol-io/`（`quickstart.mdx`、`package-types.mdx`、`github-actions.mdx`、`versioning.mdx`）、`docs/reference/server-json/official-registry-requirements.md`，以及 Registry 自己的校验代码 `internal/validators/registries/mcpb.go` 与 `cmd/publisher/commands/`。Registry 还是预览版（文档原话：「Breaking changes or data resets may occur before general availability」）。
+
+| 事实 | 出处 | 烽燧 |
+| :--- | :--- | :--- |
+| Registry 只存元数据（`server.json`），不托管文件；同一个版本只能登记一次，登记后不能改 | `quickstart.mdx`「The MCP Registry only hosts metadata」；`versioning.mdx`「MUST be unique for each publication」 | `server.json` 的 `version` 就是 `package.json` 的版本；工作流先查这个版本登记过没有，登记过就跳过 |
+| 用 GitHub 证明身份时名字必须以 `io.github.<用户名>/` 开头；在 GitHub Actions 里用 `mcp-publisher login github-oidc`，只要 `id-token: write`，不需要任何密钥 | `quickstart.mdx` Step 1；`github-actions.mdx`「GitHub OIDC Authentication: No dedicated secret necessary」 | 名字取 `package.json` 的仓库地址里的用户名：`io.github.cky008/fengsui`；`registry` 任务只有 `contents: read` 与 `id-token: write` |
+| MCPB 包：`registryType: "mcpb"`，`identifier` 是完整的下载地址，只能是 GitHub 或 GitLab 的 Release 文件（路径 `/owner/repo/releases/download/tag/filename`），必须是 HTTPS、地址里要有 `mcp`，必须带 `fileSha256`，不能写 `registryBaseUrl` | `package-types.mdx`「MCPB Packages」；`mcpb.go` 的 `ValidateMCPB`、`validateMCPBUrl` | 地址是 `https://github.com/cky008/cpe-dash/releases/download/v<版本>/fengsui-<版本>.mcpb`（`release.yml` 已核对标签与版本一致）；`.mcpb` 扩展名里就有 `mcp`；SHA-256 是打出来的这个文件的 |
+| 登记时 Registry 对这个地址发一次 HEAD，200 或带 `Location` 的跳转才算有这个文件，不跟随跳转 | `mcpb.go`「Verify the file exists and is publicly accessible」 | 登记放在 `notes` 任务把文件附到 Release 之后；仓库公开时才运行 |
+| Registry 不核对 SHA-256，客户端安装前核对 | `package-types.mdx`「The MCP Registry does not validate this hash; however, MCP clients do」 | 测试核对 `server.json` 的 SHA-256 与写出的文件一致 |
+| `description` 最长 100 个字符；`version` 不能是范围（`^1.2.3`、`1.x` 等），包的 `version` 不能是 `latest` | `quickstart.mdx` Step 4；`versioning.mdx`；schema | schema 校验加上 `checkRegistryServer` |
+| `_meta` 只保留 `io.modelcontextprotocol.registry/publisher-provided` | `official-registry-requirements.md` | 不写 `_meta` |
+| 图标：`icons` 每项的 `src` 必须是 HTTPS 地址（最长 255），可写 `mimeType`、`sizes`、`theme` | schema 的 `Icon` | 指向这个标签下仓库里的 `mcpb/icon.png` 与 `mcpb/icon-dark.png`（`raw.githubusercontent.com`），和扩展里的是同两张 |
+| `mcp-publisher validate [file]` 与 `publish [file]` 都可以指定文件 | `cmd/publisher/commands/validate.go`、`publish.go` | 工作流先 `validate` 再 `publish` 取回的 `server.json` |
+
+**schema**：Registry 校验时用的是仓库里的 `internal/validators/schemas/2025-12-11.json`（git blob `718aaca`，提交 `115f852`），比 `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`（2025-12-12 发布）多了 `cargo` 和包 `version` 的 `maxLength: 255`。原样放在 `mcpb/server-2025-12-11.schema.json`，`$schema` 仍写那个公开地址（Registry 按地址里的日期选 schema）。上游 `LICENSE`（blob `4a93985`，与 MCPB 仓库的同一份）随附为 `mcpb/LICENSE-registry-schema`。这份 schema 比 manifest 的多用了 `allOf`、`not`、`maxLength` 和几个只作说明的关键字（`$comment`、`$id`、`title`、`default`、`example`、`examples`、`definitions`），`scripts/json-schema.ts` 补上了这些，别的关键字仍然报错。
+
+**mcp-publisher**：固定 `v1.8.9`（2026-11-10），工作流下载 `mcp-publisher_linux_amd64.tar.gz` 后核对 SHA-256 `4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8`。这个值与该版本的 `registry_1.8.9_checksums.txt` 一致；随附的 Sigstore 包里，证书身份是 `https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/v1.8.9`，签名对这个文件验证通过，记在 Rekor（logIndex `3784489499`）。官方示例每次运行都用 cosign 校验签名；烽燧直接固定文件的 SHA-256，少一个 Action，换版本时两行一起改。
+
+**本机核对**（2026-11-18）：`mcp-publisher validate`（darwin 版，同样按 checksums 核对过）对 `npm run build:mcpb` 写出的 `dist/server.json` 通过（「✅ server.json is valid」）。`validate` 会把文件发给 Registry 校验，里面只有本来就要公开的内容。

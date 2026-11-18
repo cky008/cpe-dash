@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { scanText } from "../scripts/audit-secrets.ts";
-import { BUNDLE_FILES, BUNDLE_INPUTS, ENTRY_POINT, type BuiltMcpb, buildMcpb, checkBundle, extensionManifest, readPackageJson } from "../scripts/build-mcpb.ts";
+import { BUNDLE_FILES, BUNDLE_INPUTS, ENTRY_POINT, type BuiltMcpb, buildMcpb, checkBundle, checkRegistryServer, extensionManifest, readPackageJson, registryServer } from "../scripts/build-mcpb.ts";
 import { startDemoDaemon, type DemoDaemon } from "../scripts/demo-router.ts";
 import { type JsonSchema, validateJsonSchema } from "../scripts/json-schema.ts";
 import { readZip, writeZip } from "../scripts/zip.ts";
@@ -18,13 +18,17 @@ import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
  * dist/fengsui-<version>.mcpb. These tests build it once, check the manifest against the official MCP Bundle schema
  * (mcpb/, taken unchanged from modelcontextprotocol/mcpb) and what is in the archive, then run the packed server the
  * way Claude Desktop does: its own Node, the bundle's server/index.js, and only the two variables of the manifest's
- * mcp_config. The daemon is the demo's (an in-process mock router, nothing leaves the machine); the tokens are made
+ * mcp_config. They also check the entry the release lists in the official MCP Registry (dist/server.json) against
+ * the Registry's own schema and rules. The daemon is the demo's (an in-process mock router, nothing leaves the machine); the tokens are made
  * up and the addresses are RFC placeholders (AGENTS.md 铁律二).
  */
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const TOKEN = "fs_mcpb_test_token_0123456789";
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, "mcpb", "mcpb-manifest-v0.3.schema.json"), "utf8")) as JsonSchema;
+/** What the official MCP Registry validates server.json with (mcpb/, from modelcontextprotocol/registry). */
+const REGISTRY_SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, "mcpb", "server-2025-12-11.schema.json"), "utf8")) as JsonSchema;
+const RELEASES = "https://github.com/cky008/cpe-dash/releases/download";
 const pkg = readPackageJson();
 
 // Claude Desktop hands the extension the real `process`: it has every part the entry uses
@@ -195,6 +199,21 @@ describe("The Claude Desktop extension: its manifest", () => {
     assert.throws(() => validateJsonSchema({ type: "object", minProperties: 1 }, {}), /minProperties/);
     assert.throws(() => validateJsonSchema({ $ref: "https://example.com/schema.json" }, {}), /local \$ref/);
   });
+
+  it("checks allOf, not and maxLength too, and passes over the words that only explain (the Registry's schema uses them)", () => {
+    const schema: JsonSchema = {
+      $comment: "made up for the test",
+      $id: "https://example.com/server.schema.json",
+      title: "a server",
+      definitions: { Named: { type: "object", properties: { name: { type: "string", maxLength: 3 } }, required: ["name"] } },
+      allOf: [{ $ref: "#/definitions/Named" }, { properties: { version: { type: "string", not: { const: "latest" }, default: "1.0.0", example: "1.0.0", examples: ["1.0.0"] } } }],
+    };
+    assert.deepEqual(validateJsonSchema(schema, { name: "abc", version: "1.0.0" }), []);
+    assert.deepEqual(validateJsonSchema(schema, { name: "abcd", version: "latest" }).sort(), ["name: longer than 3", "version: matches a shape it must not"].sort());
+    assert.deepEqual(validateJsonSchema(schema, {}), ['$: missing "name"']);
+    // Lengths count characters, as JSON Schema does, not UTF-16 units
+    assert.deepEqual(validateJsonSchema({ type: "string", maxLength: 3 }, "烽燧🔥"), []);
+  });
 });
 
 describe("The Claude Desktop extension: the packed file", () => {
@@ -247,6 +266,96 @@ describe("The Claude Desktop extension: the packed file", () => {
     const firstByte = 30 + "a.txt".length;
     damaged.writeUInt8(damaged.readUInt8(firstByte) ^ 0xff, firstByte);
     assert.throws(() => readZip(damaged), /CRC/);
+  });
+});
+
+describe("The Claude Desktop extension: its entry in the official MCP Registry", () => {
+  const packages = (server: Record<string, unknown>): Array<Record<string, unknown>> => server["packages"] as Array<Record<string, unknown>>;
+
+  it("passes the Registry's own schema and rules, named io.github.<owner>/fengsui with FengSui's version", () => {
+    const server = built.server;
+    assert.deepEqual(validateJsonSchema(REGISTRY_SCHEMA, server), []);
+    assert.deepEqual(checkRegistryServer(server), []);
+    assert.equal(server["$schema"], "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json");
+    assert.equal(server["name"], "io.github.cky008/fengsui");
+    assert.equal(server["title"], "FengSui 烽燧");
+    assert.equal(server["version"], pkg.version, "the entry's version is FengSui's");
+    assert.ok([...String(server["description"])].length <= 100, "the Registry takes 100 characters at most");
+    assert.deepEqual(server["repository"], { url: "https://github.com/cky008/cpe-dash", source: "github" });
+    assert.equal(server["websiteUrl"], "https://fengsui.iocky.com/en/docs/agents/");
+    assert.equal(server["_meta"], undefined, "nothing the Registry would drop");
+  });
+
+  it("points at the file the release attaches, with that file's SHA-256, and is written beside it", () => {
+    const [entry, ...others] = packages(built.server);
+    assert.equal(others.length, 0, "one package: the extension");
+    assert.equal(entry?.["registryType"], "mcpb");
+    // release.yml attaches dist/fengsui-<version>.mcpb to the release of tag v<version>
+    assert.equal(entry?.["identifier"], `${RELEASES}/v${pkg.version}/${path.basename(built.file)}`);
+    assert.equal(entry?.["version"], pkg.version);
+    assert.equal(entry?.["fileSha256"], crypto.createHash("sha256").update(fs.readFileSync(built.file)).digest("hex"));
+    assert.deepEqual(entry?.["transport"], { type: "stdio" });
+    assert.equal(entry?.["registryBaseUrl"], undefined);
+    assert.equal(built.serverFile, path.join(outDir, "server.json"));
+    assert.deepEqual(JSON.parse(fs.readFileSync(built.serverFile, "utf8")), built.server);
+  });
+
+  it("names the two variables the extension reads, the token as a secret, with a placeholder address only", () => {
+    const variables = (packages(built.server)[0]?.["environmentVariables"] ?? []) as Array<Record<string, unknown>>;
+    const env = ((built.manifest["server"] as Record<string, Record<string, unknown>>)["mcp_config"]?.["env"] ?? {}) as Record<string, string>;
+    assert.deepEqual(variables.map((v) => v["name"]), Object.keys(env));
+    for (const variable of variables) {
+      assert.equal(variable["isRequired"], true, String(variable["name"]));
+      assert.equal(variable["default"], undefined, "nothing is filled in for the person");
+    }
+    const byName = new Map(variables.map((v) => [v["name"], v]));
+    assert.equal(byName.get("API_TOKEN")?.["isSecret"], true);
+    assert.equal(byName.get("MCP_DAEMON_URL")?.["isSecret"], undefined);
+    assert.equal(byName.get("MCP_DAEMON_URL")?.["placeholder"], "http://100.64.0.10:18384/mcp");
+    assert.match(String(byName.get("MCP_DAEMON_URL")?.["description"]), /Plain http:\/\/ only for LAN, private and Tailscale addresses/);
+    assert.deepEqual(scanText("server.json", JSON.stringify(built.server), [TOKEN]), [], "server.json passes the secret scan");
+  });
+
+  it("shows the extension's own two icons, as the release's tag has them", () => {
+    const at = `https://raw.githubusercontent.com/cky008/cpe-dash/v${pkg.version}/mcpb`;
+    assert.deepEqual(built.server["icons"], [
+      { src: `${at}/icon.png`, mimeType: "image/png", sizes: ["512x512"], theme: "light" },
+      { src: `${at}/icon-dark.png`, mimeType: "image/png", sizes: ["512x512"], theme: "dark" },
+    ]);
+  });
+
+  it("follows package.json alone, so a new version needs no other edit", () => {
+    const next = registryServer({ ...pkg, version: "9.8.7" }, "0".repeat(64));
+    assert.equal(next["version"], "9.8.7");
+    assert.equal(packages(next)[0]?.["identifier"], `${RELEASES}/v9.8.7/fengsui-9.8.7.mcpb`);
+    assert.equal(packages(next)[0]?.["fileSha256"], "0".repeat(64));
+    assert.deepEqual(validateJsonSchema(REGISTRY_SCHEMA, next), []);
+    assert.deepEqual(checkRegistryServer(next), []);
+  });
+
+  it("refuses an entry the official Registry would refuse", () => {
+    const broken = (patch: (s: Record<string, unknown>) => void): Record<string, unknown> => {
+      const copy = structuredClone(built.server);
+      patch(copy);
+      return copy;
+    };
+    const first = (s: Record<string, unknown>): Record<string, unknown> => packages(s)[0] ?? {};
+    const icon = (s: Record<string, unknown>): Record<string, unknown> => (s["icons"] as Array<Record<string, unknown>>)[0] ?? {};
+    for (const [label, server, why] of [
+      ["a description over 100 characters", broken((s) => (s["description"] = "x".repeat(101))), /description: longer than 100/],
+      ["a name outside the owner's namespace", broken((s) => (s["name"] = "io.github.someone-else/fengsui")), /must start with io\.github\.cky008\//],
+      ["a version range", broken((s) => (s["version"] = "^1.9.5")), /version \^1\.9\.5 is a range/],
+      ["a wildcard package version", broken((s) => (first(s)["version"] = "1.x")), /packages\[0\]\.version 1\.x is a range/],
+      ["the package version latest", broken((s) => (first(s)["version"] = "latest")), /packages\[0\]\.version: matches a shape it must not/],
+      ["a file that is not on a GitHub release", broken((s) => (first(s)["identifier"] = "https://example.com/fengsui-1.0.0.mcpb")), /GitHub release/],
+      ["plain http", broken((s) => (first(s)["identifier"] = `${RELEASES.replace("https:", "http:")}/v1.0.0/fengsui-1.0.0.mcpb`)), /GitHub release/],
+      ["an address without mcp", broken((s) => (first(s)["identifier"] = `${RELEASES}/v1.0.0/fengsui-1.0.0.zip`)), /must contain "mcp"/],
+      ["no SHA-256", broken((s) => delete first(s)["fileSha256"]), /fileSha256/],
+      ["a registry base URL", broken((s) => (first(s)["registryBaseUrl"] = "https://github.com")), /registryBaseUrl/],
+      ["an icon over plain http", broken((s) => (icon(s)["src"] = "http://example.com/icon.png")), /icons\[0\]\.src must be an https address/],
+    ] as const) {
+      assert.match(checkRegistryServer(server).join("\n"), why, label);
+    }
   });
 });
 

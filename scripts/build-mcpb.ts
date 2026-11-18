@@ -19,6 +19,11 @@ import { type ZipEntry, writeZip } from "./zip.ts";
  *   package.json that marks server/index.js as an ES module.
  *
  * The archive is stored (scripts/zip.ts) with a fixed timestamp, so the same sources give the same bytes.
+ *
+ * Beside it, server.json: the extension's entry in the official MCP Registry (name, version, the address the release
+ * attaches the file at and its SHA-256), checked against the schema the Registry validates with
+ * (mcpb/server-2025-12-11.schema.json, unchanged from modelcontextprotocol/registry) and the Registry's own rules for
+ * MCPB packages. release.yml lists it once the release has the file (docs/dev/sources.md §24.1).
  */
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -37,6 +42,11 @@ export const BUNDLE_INPUTS = [ENTRY_NAME, "src/desktop-extension.ts", "src/lan-a
 
 const MANIFEST_VERSION = "0.3";
 const SCHEMA_FILE = path.join(ROOT, "mcpb", "mcpb-manifest-v0.3.schema.json");
+/** The server.json format the entry is written in: the Registry picks the schema by this address's date. */
+const REGISTRY_SCHEMA_URL = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
+const REGISTRY_SCHEMA_FILE = path.join(ROOT, "mcpb", "server-2025-12-11.schema.json");
+/** The extension's name, in the bundle and after the owner's namespace in the Registry. */
+const EXTENSION_NAME = "fengsui";
 
 export interface PackageJson {
   name: string;
@@ -58,12 +68,24 @@ function repositoryUrl(pkg: PackageJson): string {
   return pkg.repository.url.replace(/^git\+/, "").replace(/\.git$/, "");
 }
 
+/** The owner and name of the repository on GitHub, where the release attaches the extension. */
+function githubRepository(pkg: PackageJson): { owner: string; name: string } {
+  const match = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)$/.exec(repositoryUrl(pkg));
+  if (!match?.[1] || !match[2]) throw new Error(`package.json's repository is not on GitHub: ${pkg.repository.url}`);
+  return { owner: match[1], name: match[2] };
+}
+
+/** The bundle's file name, which the release attaches as it is. */
+function bundleFileName(version: string): string {
+  return `${EXTENSION_NAME}-${version}.mcpb`;
+}
+
 /** The extension's manifest. Everything that changes with a release comes from package.json. */
 export function extensionManifest(pkg: PackageJson): Manifest {
   const repo = repositoryUrl(pkg);
   return {
     manifest_version: MANIFEST_VERSION,
-    name: "fengsui",
+    name: EXTENSION_NAME,
     display_name: "FengSui 烽燧",
     version: pkg.version,
     description: "Connect Claude to FengSui, the self-hosted console for your 4G / 5G router: its signal, history and SMS, read-only unless you allow more.",
@@ -170,15 +192,109 @@ export function checkBundle(manifest: Manifest, files: ReadonlyMap<string, Uint8
   return problems;
 }
 
+export type RegistryServer = Record<string, unknown>;
+
+/**
+ * The extension's entry in the official MCP Registry, from package.json and the bundle's SHA-256. The package is the
+ * file release.yml attaches to the release of tag v<version>; clients check the SHA-256 before they install it.
+ */
+export function registryServer(pkg: PackageJson, sha256: string): RegistryServer {
+  const repo = repositoryUrl(pkg);
+  const { owner, name } = githubRepository(pkg);
+  const tag = `v${pkg.version}`;
+  const icons = `https://raw.githubusercontent.com/${owner}/${name}/${tag}/mcpb`;
+  return {
+    $schema: REGISTRY_SCHEMA_URL,
+    name: `io.github.${owner}/${EXTENSION_NAME}`,
+    title: "FengSui 烽燧",
+    description: "Your 4G / 5G router's signal, history and SMS from FengSui, a self-hosted router console.",
+    version: pkg.version,
+    websiteUrl: `${DOCS_SITE}en/docs/agents/`,
+    repository: { url: repo, source: "github" },
+    icons: [
+      { src: `${icons}/icon.png`, mimeType: "image/png", sizes: ["512x512"], theme: "light" },
+      { src: `${icons}/icon-dark.png`, mimeType: "image/png", sizes: ["512x512"], theme: "dark" },
+    ],
+    packages: [
+      {
+        registryType: "mcpb",
+        identifier: `${repo}/releases/download/${tag}/${bundleFileName(pkg.version)}`,
+        version: pkg.version,
+        fileSha256: sha256,
+        transport: { type: "stdio" },
+        // The two variables the extension reads (src/desktop-extension.ts), as the manifest passes them
+        environmentVariables: [
+          {
+            name: "MCP_DAEMON_URL",
+            description:
+              "The address of FengSui's MCP server, such as http://100.64.0.10:18384/mcp on your LAN or Tailscale, or an https:// address through your reverse proxy. Plain http:// only for LAN, private and Tailscale addresses.",
+            isRequired: true,
+            format: "string",
+            placeholder: "http://100.64.0.10:18384/mcp",
+          },
+          {
+            name: "API_TOKEN",
+            description: "A token from FengSui's Settings → Tokens & AI. One with nothing ticked reads the router and changes nothing.",
+            isRequired: true,
+            isSecret: true,
+            format: "string",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** A version the Registry takes for a range (docs/modelcontextprotocol-io/versioning.mdx): ^ ~ > < =, x or * parts, `a - b`, `a || b`. */
+const VERSION_RANGE = /^[\^~<>=]|(?:^|\.)[xX*](?:\.|$)|\s-\s|\|\|/;
+/** Where the Registry takes an MCPB file from on GitHub: a release asset (internal/validators/registries/mcpb.go). */
+const GITHUB_RELEASE_ASSET = /^https:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/releases\/download\/[^/]+\/[^/]+$/;
+
+/**
+ * Everything wrong with the Registry entry (empty when it is fine): the schema the Registry validates with, then the
+ * rules it adds (an MCPB file is an https release asset on GitHub whose address contains "mcp", with a SHA-256 and no
+ * registryBaseUrl; no version ranges), and that the name is in the namespace GitHub's OIDC grants this repository.
+ */
+export function checkRegistryServer(server: RegistryServer, pkg: PackageJson = readPackageJson()): string[] {
+  const schema = JSON.parse(fs.readFileSync(REGISTRY_SCHEMA_FILE, "utf8")) as JsonSchema;
+  const problems = validateJsonSchema(schema, server);
+  const namespace = `io.github.${githubRepository(pkg).owner}/`;
+  if (typeof server["name"] !== "string" || !server["name"].startsWith(namespace)) problems.push(`name must start with ${namespace} (the namespace GitHub's OIDC grants this repository)`);
+  const versions: Array<[string, unknown]> = [["version", server["version"]]];
+  const packages = Array.isArray(server["packages"]) ? server["packages"] : [];
+  packages.forEach((entry: unknown, i: number) => {
+    if (!isRecord(entry)) return;
+    const at = `packages[${i}]`;
+    versions.push([`${at}.version`, entry["version"]]);
+    if (entry["registryType"] !== "mcpb") return;
+    const identifier = typeof entry["identifier"] === "string" ? entry["identifier"] : "";
+    if (!GITHUB_RELEASE_ASSET.test(identifier)) problems.push(`${at}.identifier must be an https address of a GitHub release asset (/owner/repo/releases/download/tag/file)`);
+    if (!identifier.toLowerCase().includes("mcp")) problems.push(`${at}.identifier must contain "mcp"`);
+    if (typeof entry["fileSha256"] !== "string") problems.push(`${at}.fileSha256 is missing (required for MCPB packages)`);
+    if (entry["registryBaseUrl"] !== undefined) problems.push(`${at}.registryBaseUrl must not be set for MCPB packages`);
+  });
+  for (const [where, version] of versions) {
+    if (typeof version === "string" && VERSION_RANGE.test(version)) problems.push(`${where} ${version} is a range, not a version`);
+  }
+  const icons = Array.isArray(server["icons"]) ? server["icons"] : [];
+  icons.forEach((icon: unknown, i: number) => {
+    if (isRecord(icon) && (typeof icon["src"] !== "string" || !icon["src"].startsWith("https://"))) problems.push(`icons[${i}].src must be an https address`);
+  });
+  return problems;
+}
+
 export interface BuiltMcpb {
   file: string;
   manifest: Manifest;
   /** The modules bundled into server/index.js, relative to the repository. */
   inputs: string[];
   sha256: string;
+  /** The entry for the official MCP Registry, written to server.json beside the bundle. */
+  server: RegistryServer;
+  serverFile: string;
 }
 
-/** Build, check and write dist/fengsui-<version>.mcpb (or into `outDir`). */
+/** Build, check and write dist/fengsui-<version>.mcpb and its Registry entry dist/server.json (or into `outDir`). */
 export async function buildMcpb(opts: { outDir?: string } = {}): Promise<BuiltMcpb> {
   const pkg = readPackageJson();
   const result = await esbuild.build({
@@ -225,15 +341,22 @@ export async function buildMcpb(opts: { outDir?: string } = {}): Promise<BuiltMc
   const archive = writeZip(entries);
   const outDir = opts.outDir ?? path.join(ROOT, "dist");
   fs.mkdirSync(outDir, { recursive: true });
-  const file = path.join(outDir, `fengsui-${pkg.version}.mcpb`);
+  const file = path.join(outDir, bundleFileName(pkg.version));
   fs.writeFileSync(file, archive);
-  return { file, manifest, inputs, sha256: crypto.createHash("sha256").update(archive).digest("hex") };
+  const sha256 = crypto.createHash("sha256").update(archive).digest("hex");
+  const entry = registryServer(pkg, sha256);
+  const wrong = checkRegistryServer(entry, pkg);
+  if (wrong.length > 0) throw new Error(`the MCP Registry entry does not pass the Registry's checks:\n  - ${wrong.join("\n  - ")}`);
+  const serverFile = path.join(outDir, "server.json");
+  fs.writeFileSync(serverFile, `${JSON.stringify(entry, null, 2)}\n`);
+  return { file, manifest, inputs, sha256, server: entry, serverFile };
 }
 
 async function main(): Promise<void> {
   const built = await buildMcpb();
   const size = fs.statSync(built.file).size;
   process.stdout.write(`[build:mcpb] ${path.relative(ROOT, built.file)} (${(size / 1024).toFixed(1)} KiB, sha256 ${built.sha256})\n`);
+  process.stdout.write(`[build:mcpb] ${path.relative(ROOT, built.serverFile)} (${String(built.server["name"])} ${String(built.server["version"])} for the MCP Registry)\n`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
