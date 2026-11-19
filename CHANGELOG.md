@@ -4,6 +4,13 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ## [Unreleased]
 
+## [1.9.6] — 2026-11-19
+
+### Highlights
+- **AI agents in Claude Desktop connect with one download.** Download `fengsui-1.9.6.mcpb` from this release and double-click it: Claude Desktop installs FengSui's extension and asks for FengSui's MCP address and a token, which it keeps in the system keychain. The extension is also listed in the official MCP Registry as `io.github.cky008/fengsui`.
+- **Tozed / ZLT routers delete SMS and run USSD, and TP-Link routers find more Wi-Fi devices.** On a Tozed router FengSui deletes received messages and runs USSD codes; on a TP-Link router it also lists the Wi-Fi devices the router's host table misses. Both are sent as the routers' own pages send them, from public records; reading a TP-Link router's Wi-Fi tables changes nothing on it.
+- **A stop at the wrong moment no longer switches mobile data back on.** On routers other than the H168-383, self-healing's redial could switch the router's mobile data on again against the owner's choice when FengSui was stopped, or its session ran out of time, while it read the data switch. A session already cut short now sends nothing more.
+
 ### Added
 - **A Claude Desktop extension.** Download `fengsui-<version>.mcpb` from the release and double-click it: Claude Desktop installs it and asks for FengSui's MCP address (the LAN or Tailscale IP of the machine FengSui runs on) and a token, which it keeps in the system keychain. Claude Desktop could only reach FengSui through a hand-edited configuration before, because its own settings start local programs and cannot take a URL. The extension is the same stdio bridge as `cpe-dash mcp`, run by Claude Desktop's own Node: it forwards each request to FengSui's `/mcp`, never talks to the router and reads no `.env`. It takes an `https://` address of any host, such as an HTTPS reverse proxy, while plain `http://` goes only to LAN, private and Tailscale addresses, so the token never crosses the internet unencrypted. A wrong address or token gets a message saying which one and where to change it. `npm run build:mcpb` builds it; each release attaches it with a build provenance attestation.
 - **FengSui in the official MCP Registry.** Each release lists the Claude Desktop extension in the official MCP Registry (`registry.modelcontextprotocol.io`) as `io.github.cky008/fengsui`, so MCP clients and directories that read the Registry can find it. The entry gives the release's download address and the file's SHA-256, which clients check before they install it. `npm run build:mcpb` writes it beside the extension (`dist/server.json`) and checks it against the Registry's own schema and rules; the release workflow lists it once the release has the file, proving it is this repository's with GitHub's OIDC token, so no secret is stored.
@@ -33,8 +40,16 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 
 ### Container and CI
 - **The live demo's size limit is 490 KiB.** The demo carries FengSui's own services and the demo routers, and had 9 bytes left of its 480 KiB after this round's fixes; the owner raised the limit rather than have the next change cross it.
-- **The schema checker behind `npm run build:mcpb` refuses the forms it does not implement**, a list of types or of item schemas, instead of passing over them, and takes a required field only as the value's own.
-- **The quality gate also runs on Node 24**, the Node that Claude Desktop runs the extension with, beside Node 22 (the oldest supported) and Node 26 (the image's).
+- **The schema checker behind `npm run build:mcpb` refuses the forms it does not implement.** A list of types or of item schemas is refused instead of passed over, and a required field counts only as the value's own.
+- **The quality gate also runs on Node 24.** That is the Node Claude Desktop runs the extension with, beside Node 22 (the oldest supported) and Node 26 (the image's).
+
+### Upgrading
+- Nothing to change in `.env` or `docker-compose.yml`. On an H168-383 the requests FengSui sends are those of 1.9.5.
+- **Claude Desktop:** a configuration you edited by hand to run `cpe-dash mcp` keeps working; the extension replaces it, so remove one of the two to avoid listing FengSui's tools twice.
+- **Telegram:** the Send button on an SMS confirmation card now works for two minutes from when the card was sent. Past that it answers that the send flow expired; start the send again.
+- **Scripts and agents:** a burst of sign-ins with wrong passwords gets `429` (retry after a second) for the guesses over the limit while the first ones are still being checked; `get_cpe_session_status` with `probeLive`, and the SMS unread count, answer `409 PEER_DAEMON_ACTIVE` while another FengSui daemon manages the router; reads and writes each have 32 places in the session queue before `503 QUEUE_FULL`.
+- **OpenWrt with a Fibocom module:** a 5G cell lock on a millimetre-wave cell is refused before anything is sent (its subcarrier spacing has no code on record); 15 and 30 kHz cells lock as before, now with the parameters the module takes.
+- An MCP client shows the new tool descriptions once it lists the tools again.
 
 ## [1.9.5] — 2026-11-18
 
