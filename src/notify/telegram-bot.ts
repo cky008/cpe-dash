@@ -127,6 +127,9 @@ const HTML_CUT_RESERVE = 48;
 export function truncateTelegramHtml(html: string, max: number): string {
   if (html.length <= max) return html;
   let cut = html.slice(0, Math.max(0, max - HTML_CUT_RESERVE));
+  // Half of a character outside the BMP (an emoji) would make the text invalid: it goes whole or not at all
+  const last = cut.charCodeAt(cut.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
   if (cut.lastIndexOf("<") > cut.lastIndexOf(">")) cut = cut.slice(0, cut.lastIndexOf("<"));
   // Every literal "&" is escaped, so an "&" without its ";" is a cut entity
   if (cut.lastIndexOf("&") > cut.lastIndexOf(";")) cut = cut.slice(0, cut.lastIndexOf("&"));
@@ -2234,6 +2237,8 @@ export class TelegramBot implements NotificationChannel {
         message_id: messageId,
         text: truncateTelegramHtml(html, MAX_TELEGRAM_TEXT),
         parse_mode: "HTML",
+        // As a sent card: no preview of a link in text that can come from third parties (a USSD answer, say)
+        link_preview_options: { is_disabled: true },
         ...(keyboard ? { reply_markup: keyboard } : {}),
       })
       .catch(() => undefined);

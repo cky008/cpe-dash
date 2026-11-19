@@ -425,6 +425,16 @@ describe("Telegram HTML truncation", () => {
     assert.equal(truncateTelegramHtml("<b>short</b>", 3900), "<b>short</b>");
   });
 
+  it("never cuts a character in two: an emoji at the cut goes whole or not at all", () => {
+    // Every emoji is two UTF-16 units: one cut lands between them, whatever the reserve is
+    const html = `<blockquote>${"🙂".repeat(200)}</blockquote>`;
+    for (const max of [120, 121, 122, 123]) {
+      const cut = truncateTelegramHtml(html, max);
+      assert.ok(cut.length <= max);
+      assert.doesNotMatch(cut, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/, `a whole character at the cut (max ${max})`);
+    }
+  });
+
   it("keeps /chat on a thread of long messages within Telegram's limit and valid", async () => {
     const fx = createBotFixture();
     for (let i = 0; i < 10; i++) fx.service.mirror.addPending("+353830000001", `${"Long <reply> & more ".repeat(30)}${i}`, `2026-10-30 10:0${i}:00`);
@@ -740,6 +750,8 @@ describe("TelegramBot", () => {
     assert.match(fx.mock.sentRequests[0] ?? "", /Thanks, see you!/);
     const edits = fx.tg.of("editMessageText").map((c) => String(c.payload["text"]));
     assert.ok(edits.some((t) => /✅ <b>Sent<\/b> · \+353830000001/.test(t)));
+    // An edited card shows no preview of a link in it, as a sent one does not (its text can come from third parties)
+    for (const edit of fx.tg.of("editMessageText")) assert.deepEqual(edit.payload["link_preview_options"], { is_disabled: true });
 
     // Replies to unbound messages fall through to the help text
     await fx.message(1001, "random chatter", { reply_to_message: { message_id: 9999 } });
