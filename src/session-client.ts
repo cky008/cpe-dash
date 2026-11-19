@@ -383,13 +383,19 @@ export class SessionClient<S> {
       });
       /** The caller's work, once it began. */
       let work: Promise<T> | null = null;
+      /** A refusal (wrong password, locked) the login ended with: also one that came in after the session was cut. */
+      let refusal: CpeApiError | null = null;
       try {
         const pre = await raceSignal(attempt.precheck(), deadline.signal);
         if (pre?.locked) this.#trip(pre.locked, credentialFp);
         if (opts.respectBrowser && pre?.occupied) return this.#yielded(1, pre.stateCode);
         cancel.throwIfAborted();
         try {
-          await raceSignal(attempt.login(pre), deadline.signal);
+          const login = attempt.login(pre);
+          login.catch((err: unknown) => {
+            if (err instanceof CpeApiError && err.isCircuitBreakerFatal) refusal = err;
+          });
+          await raceSignal(login, deadline.signal);
         } catch (err) {
           if (err instanceof CpeApiError && err.isCircuitBreakerFatal) this.#trip(err, credentialFp);
           // Only before the work starts: a write is never replayed
@@ -417,6 +423,10 @@ export class SessionClient<S> {
           this.#lastSessionHoldMs = holdMs;
           this.#totalSessionsCompleted += 1;
         }
+        // Cut short while the login ended (the router's refusal was read as the deadline or a stop came): the
+        // logout above let it end, and a refusal latches all the same, so the same password is never tried again
+        const late: CpeApiError | null = refusal;
+        if (late !== null && deadline.signal.aborted && !this.#tripped) this.#trip(late, credentialFp);
       }
     }
     return this.#yielded(2, "108003");

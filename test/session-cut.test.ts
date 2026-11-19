@@ -9,11 +9,11 @@ import type { DriverSession } from "../src/drivers/types.ts";
 import { zteGoformProtocol } from "../src/drivers/zte/goform.ts";
 import { LanHttp, deadlineSignal } from "../src/protocols/transport.ts";
 import { SchedulerStoppedError } from "../src/scheduler.ts";
-import { CpeSessionDeadlineError } from "../src/session-errors.ts";
+import { CpeApiError, CpeSessionDeadlineError } from "../src/session-errors.ts";
 import { type SessionAttempt, SessionClient } from "../src/session-client.ts";
 import { DLINK_PASSWORD, DLINK_URL, dlinkRouter } from "./helpers/dlink-router.ts";
 import { daemonOn } from "./helpers/driver-daemon.ts";
-import type { LanRouterMock } from "./helpers/lan-router.ts";
+import { LanRouterMock } from "./helpers/lan-router.ts";
 import { prepareSmsSubmission } from "../src/sms/submission.ts";
 import { createBrandSmsFixture, smsWritesOf } from "./helpers/sms-brand-fixture.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
@@ -556,5 +556,30 @@ describe("self-healing's redial cut short before it began", () => {
     } finally {
       await fx.cleanup();
     }
+  });
+});
+
+describe("a wrong password whose refusal is read as the session is cut short", () => {
+  it("still latches the breaker, so the next session sends no password", async () => {
+    const { mock } = zteRouter();
+    const client = new DriverCpeClient({ protocol: zteGoformProtocol, cpeUrl: "http://192.168.0.1", cpePassword: "a wrong password", fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
+    const logins = (): number => mock.requests.filter((req) => req.method === "POST" && LanRouterMock.form(req).get("goformId") === "LOGIN").length;
+    const original = mock.handler;
+    mock.handler = async (req) => {
+      // The router refused the password; the daemon stops while it is asked what the refusal was (attempts left, a lock)
+      if (logins() > 0 && req.method === "GET" && (req.query.get("cmd") ?? "").includes("psw_fail_num_str")) {
+        client.abortActiveSession(new SchedulerStoppedError());
+        await pause(50);
+      }
+      return await original(req);
+    };
+    await assert.rejects(client.withSession(async () => "work"));
+    assert.equal(logins(), 1);
+    assert.equal(client.getCircuitBreakerState().tripped, true, "latched on the refusal that came in as the session ended");
+    await assert.rejects(
+      client.withSession(async () => "work"),
+      (err: unknown) => err instanceof CpeApiError && err.isCircuitBreakerFatal
+    );
+    assert.equal(logins(), 1, "the same password is never tried again");
   });
 });
