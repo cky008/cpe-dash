@@ -198,6 +198,11 @@ describe("The Claude Desktop extension: its manifest", () => {
     ].sort());
     assert.throws(() => validateJsonSchema({ type: "object", minProperties: 1 }, {}), /minProperties/);
     assert.throws(() => validateJsonSchema({ $ref: "https://example.com/schema.json" }, {}), /local \$ref/);
+    // A form of a keyword it does not implement is refused too, never passed over unchecked
+    assert.throws(() => validateJsonSchema({ type: ["string", "null"] }, 3), /type/);
+    assert.throws(() => validateJsonSchema({ type: "array", items: [{ type: "string" }] }, [1]), /items/);
+    // A required field is the value's own, not one its prototype has
+    assert.deepEqual(validateJsonSchema({ type: "object", required: ["constructor", "toString"] }, {}), ['$: missing "constructor"', '$: missing "toString"']);
   });
 
   it("checks allOf, not and maxLength too, and passes over the words that only explain (the Registry's schema uses them)", () => {

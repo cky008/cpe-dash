@@ -70,6 +70,9 @@ function check(root: JsonSchema, schema: JsonSchema, value: unknown, at: string,
   const ref = schema["$ref"];
   if (typeof ref === "string") check(root, resolveRef(root, ref), value, at, errors);
   const type = schema["type"];
+  // A list of types, or a list of item schemas (tuples), is a form this checker does not implement: refused, never skipped
+  if (type !== undefined && typeof type !== "string") throw new Error(`the schema uses a "type" that is not one name at ${at}, which this checker does not implement`);
+  if (Array.isArray(schema["items"])) throw new Error(`the schema uses "items" as a list at ${at}, which this checker does not implement`);
   if (typeof type === "string" && !matchesType(value, type)) {
     errors.push(`${at}: expected ${type}, got ${typeOf(value)}`);
     return;
@@ -104,7 +107,7 @@ function check(root: JsonSchema, schema: JsonSchema, value: unknown, at: string,
   if (isRecord(value)) {
     const required = schema["required"];
     if (Array.isArray(required)) {
-      for (const key of required) if (typeof key === "string" && !(key in value)) errors.push(`${at}: missing "${key}"`);
+      for (const key of required) if (typeof key === "string" && !Object.hasOwn(value, key)) errors.push(`${at}: missing "${key}"`);
     }
     const properties = isRecord(schema["properties"]) ? schema["properties"] : {};
     const additional = schema["additionalProperties"];
