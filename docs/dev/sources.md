@@ -835,7 +835,7 @@ final-4 只读审核（`audits.md` 第 21 节）之后的修复里新用到的�
 
 ### 21.4 广和通模组的锁小区回读（OpenWrt，F4-007）
 
-`AT+GTCELLLOCK?` 的应答与写入同一种字段顺序：`1,<制式：0 LTE、1 NR>,<锁定方式：0 PCI、1 只锁频点>,<频点>[,<PCI>[,<SCS>,<NR 频段>]]`。依据：[FUjr/QModem](https://github.com/FUjr/QModem)（`1eae689`，2026-11-08，MPL-2.0，只取事实）`application/qmodem/files/usr/share/qmodem/vendor/fibocom.sh` 第 1290–1316 行（逐字段读应答）与第 1360–1367 行（写入）；资料 B（`quectel-fibocom-at-ubus-protocol-spec.md` 第 280–283 行）的写入样例相同。烽燧写入一直按这个顺序，回读却把第 3 个字段（锁定方式）当成了制式，NR 锁小区因此读成 LTE。现在按第 2 个字段认制式；锁定方式为 1（只锁频点）时没有 PCI。写入里 QModem 在 SCS 之后还带 NR 频段，资料 B 的样例不带，烽燧照资料 B 不带，没有改。
+`AT+GTCELLLOCK?` 的应答与写入同一种字段顺序：`1,<制式：0 LTE、1 NR>,<锁定方式：0 PCI、1 只锁频点>,<频点>[,<PCI>[,<SCS>,<NR 频段>]]`。依据：[FUjr/QModem](https://github.com/FUjr/QModem)（`1eae689`，2026-11-08，MPL-2.0，只取事实）`application/qmodem/files/usr/share/qmodem/vendor/fibocom.sh` 第 1290–1316 行（逐字段读应答）与第 1360–1367 行（写入）；资料 B（`quectel-fibocom-at-ubus-protocol-spec.md` 第 280–283 行）的写入样例相同。烽燧写入一直按这个顺序，回读却把第 3 个字段（锁定方式）当成了制式，NR 锁小区因此读成 LTE。现在按第 2 个字段认制式；锁定方式为 1（只锁频点）时没有 PCI。写入里 QModem 在 SCS 之后还带 NR 频段，资料 B 的样例不带，烽燧当时照资料 B 不带。final-7 查到厂商手册的写法后改了，见 25.1。
 
 ### 21.5 中兴 zWRT 的「全部频段」（F4-010）
 
@@ -973,3 +973,19 @@ Claude Desktop 的 `claude_desktop_config.json` 只能启动本机程序（stdio
 **mcp-publisher**：固定 `v1.8.9`（2026-11-10），工作流下载 `mcp-publisher_linux_amd64.tar.gz` 后核对 SHA-256 `4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8`。这个值与该版本的 `registry_1.8.9_checksums.txt` 一致；随附的 Sigstore 包里，证书身份是 `https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/v1.8.9`，签名对这个文件验证通过，记在 Rekor（logIndex `3784489499`）。官方示例每次运行都用 cosign 校验签名；烽燧直接固定文件的 SHA-256，少一个 Action，换版本时两行一起改。
 
 **本机核对**（2026-11-18）：`mcp-publisher validate`（darwin 版，同样按 checksums 核对过）对 `npm run build:mcpb` 写出的 `dist/server.json` 通过（「✅ server.json is valid」）。`validate` 会把文件发给 Registry 校验，里面只有本来就要公开的内容。
+
+## 25. final-7 调研的依据（2026-11-19）
+
+上一轮留下的四项要先查公开资料。每项派两个子代理检索（`agy`，只能用网页搜索），我自己用 GitHub 的代码搜索找原文、逐个取下核对；下面只记核对过的原文。
+
+### 25.1 广和通模组锁 5G 小区（`AT+GTCELLLOCK`，OpenWrt）
+
+| 事实 | 出处 |
+| :--- | :--- |
+| 语法 `AT+GTCELLLOCK=<mode>[,<rat>,<type>,<earfcn>[,<PCI>][,<scs>][,<nrband>]]`；按 PCI 锁 5G 小区是 `1,1,0,<NR-ARFCN>,<PCI>,<SCS>,<NRBAND>`；SCS 写代码：`0` 15 kHz、`1` 30 kHz；NR 频段写手册的编码：小于 10 加 500、10–99 加 5000、100 以上加 50000 | [11Lying/fm170-webui](https://github.com/11Lying/fm170-webui) `fm170_control.cgi` 第 227–279 行（注明依据「Fibocom FM160/FG160 AT 手册 V1.3 §5.16」，没有许可证文件） |
+| 同一语法，样例 `AT+GTCELLLOCK=1,1,0,649920,312,1,5078`（SCS `1`、n78 写 `5078`） | [nokia-steward/moler](https://github.com/nokia-steward/moler)（BSD-3-Clause）`moler/cmd/at/gt_cell_lock.py` 第 3、22 行 |
+| 写入带 SCS 与频段，频段写成「50」加频段号（`fibocom_normalize_nr_band`），SCS 默认 `1` | [FUjr/QModem](https://github.com/FUjr/QModem)（`d28f330`，MPL-2.0）`application/qmodem/files/usr/share/qmodem/vendor/fibocom.sh` 第 63–79、1363–1367 行 |
+| NRadio 出厂固件自己的脚本：FM6 系列模组（型号描述含 `FM6`）发 `GTCELLLOCK=1,1,0,<频点>,<PCI>`，不带 SCS 与频段；其他模组带上，SCS 按频段取 `0`（FDD）或 `1`（n38 / n40 / n41 / n48 / n77 / n78 / n79） | C2000MAX 固件 2.1.7.n0.c1 解包的 `/etc/cpetools/fibocom.sh` 第 633–664、718–727 行（收在 [561410590/ssh-nradio-plugin-installer](https://github.com/561410590/ssh-nradio-plugin-installer)，MIT） |
+
+资料 B 的样例 `AT+GTCELLLOCK=1,1,0,633984,412,30` 把 SCS 写成千赫数、不带频段，与上面四个出处都不一致；烽燧原来照它发，在 FM6 以外的模组上 SCS 是错的。现在：FM6 系列（FM650）只发频点与 PCI；其他模组带 SCS 代码与频段编码；15、30 kHz 以外的间隔（毫米波）没有代码的记录，在发送之前拒绝。4G 的写法 `1,0,0,<EARFCN>,<PCI>` 各出处一致，不变。
+

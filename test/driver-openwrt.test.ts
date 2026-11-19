@@ -359,12 +359,34 @@ describe("openwrt: session and Fibocom integration", () => {
     });
   });
 
+  it("locks a 5G cell on other Fibocom modules with the spacing and the band as the module's codes, and refuses a spacing it has no code for", async () => {
+    const { state, client } = openwrtRouter({ brand: "fibocom", ati: "Fibocom Wireless Inc.\nFM160-EAU\nRevision: 89602.1000.00.04.02.12\n\nOK\n" });
+    await client.withSession(async (s) => {
+      // n78, 30 kHz: SCS code 1, band code 5078
+      const tdd = newCheck();
+      await s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 }, tdd);
+      assert.equal(state.fibocomCellLock, "1,0,650000,142,1,5078");
+      assert.equal(tdd.readback, "match");
+      // n1, 15 kHz (the spacing an FDD band gets when none is given): SCS code 0, band code 501
+      await s.setCellLock({ rat: "NR", band: 1, arfcn: 428000, pci: 211, scsKhz: null }, newCheck());
+      assert.equal(state.fibocomCellLock, "1,0,428000,211,0,501");
+      // A millimetre-wave cell (120 kHz): no code on record, refused before anything is sent
+      const sent = state.executedCommands.length;
+      const fr2 = newCheck();
+      await assert.rejects(s.setCellLock({ rat: "NR", band: 258, arfcn: 2050000, pci: 142, scsKhz: 120 }, fr2), /15 or 30 kHz/);
+      assert.equal(state.executedCommands.length, sent, "nothing went to the module");
+      assert.deepEqual(fr2.endpoints, []);
+      assert.equal(state.fibocomCellLock, "1,0,428000,211,0,501");
+    });
+  });
+
   it("reads a Fibocom cell lock back from the field it was written to: the RAT second, the lock type third", async () => {
     const { state, client } = openwrtRouter({ brand: "fibocom" });
     await client.withSession(async (s) => {
       const nr = newCheck();
       await s.setCellLock({ rat: "NR", band: 78, arfcn: 650000, pci: 142, scsKhz: 30 }, nr);
-      assert.equal(state.fibocomCellLock, "1,0,650000,142,30");
+      // An FM6 module (this one is an FM650) takes the channel and PCI alone
+      assert.equal(state.fibocomCellLock, "1,0,650000,142");
       assert.equal(nr.readback, "match");
       const locks = await s.lockState();
       assert.deepEqual(locks.nrCell, { locked: true, arfcn: 650000, pci: 142, band: null });

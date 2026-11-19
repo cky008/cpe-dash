@@ -43,6 +43,7 @@ import {
   parseQuectelLteCellLock,
 } from "../protocols/at/quectel.ts";
 import {
+  fibocomNrCellLockCommand,
   FIBOCOM_RAT_OF_MODE,
   FIBOCOM_MODE_OF_RAT,
   FIBOCOM_MODE_LIST,
@@ -651,13 +652,9 @@ export class OpenwrtSession implements DriverSessionHandle {
     const checked = checkCellLock(target);
 
     if (this.#brand === "fibocom") {
+      const cmd = checked.rat === "LTE" ? `AT+GTCELLLOCK=1,0,0,${checked.arfcn},${checked.pci}` : fibocomNrCellLockCommand(this.#identity?.model ?? null, checked);
+      if (cmd === null) throw new CpeControlValidationError(`This module locks 5G cells with a 15 or 30 kHz subcarrier spacing only (asked: ${String(checked.scsKhz)} kHz); nothing was sent`);
       noteSent(check, FAMILY, "AT+GTCELLLOCK");
-      let cmd = "";
-      if (checked.rat === "LTE") {
-        cmd = `AT+GTCELLLOCK=1,0,0,${checked.arfcn},${checked.pci}`;
-      } else {
-        cmd = `AT+GTCELLLOCK=1,1,0,${checked.arfcn},${checked.pci},${checked.scsKhz ?? 30}`;
-      }
       const answer = await this.#ubus.execAt(cmd);
       if (answer.includes("ERROR")) throw new CpeApiError("at-error", `GTCELLLOCK failed: ${answer}`);
       settleCellLock(check, checked, await this.lockState().catch(() => null));

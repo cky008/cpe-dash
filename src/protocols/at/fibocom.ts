@@ -9,6 +9,20 @@ import { arfcnOf, bandOf, hexIntOf, identityOf, intOf, pciOf, plmnOf, rsrpOf, rs
  * network mode and band selection. Parsers only: how a command reaches the module is the driver's.
  */
 
+/**
+ * `AT+GTCELLLOCK` for one 5G cell by channel and PCI. FM6 modules (FM650) take the channel and the PCI alone, as
+ * NRadio's own firmware sends them; the others (FM150, FM160, FG160, FM350…) take the subcarrier spacing and the band
+ * as the module's codes too (the FM160 / FG160 AT manual V1.3 §5.16): the spacing `0` for 15 kHz and `1` for 30 kHz,
+ * the band as "50" followed by its number (n1 `501`, n78 `5078`, n258 `50258`). `null`: a spacing with no code on
+ * record (anything but 15 and 30 kHz), so nothing is sent.
+ */
+export function fibocomNrCellLockCommand(model: string | null, cell: { arfcn: number; pci: number; band: number; scsKhz: number | null }): string | null {
+  if (model !== null && /^FM6/i.test(model.trim())) return `AT+GTCELLLOCK=1,1,0,${cell.arfcn},${cell.pci}`;
+  const scs = cell.scsKhz === 15 ? 0 : cell.scsKhz === 30 ? 1 : null;
+  if (scs === null) return null;
+  return `AT+GTCELLLOCK=1,1,0,${cell.arfcn},${cell.pci},${scs},50${cell.band}`;
+}
+
 /** `AT+GTACT`'s RAT selection as the modes FengSui names (the two the command is documented for). */
 export const FIBOCOM_RAT_OF_MODE: Readonly<Partial<Record<DriverNetworkMode, number>>> = { auto: 17, nr_sa: 14 };
 
