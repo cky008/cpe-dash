@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { CpeControlValidationError } from "../src/control-error.ts";
 import { SectionUnavailableError } from "../src/cpe-domain.ts";
 import { DriverCpeClient } from "../src/drivers/client.ts";
+import type { DriverHost } from "../src/drivers/types.ts";
 import { DriverLoginMethodError } from "../src/drivers/login.ts";
 import { TplinkEnvelope, eccSeal, rsaSign, usableKey } from "../src/drivers/tplink/crypto.ts";
 import { lteBandOfIndex } from "../src/drivers/bands.ts";
@@ -455,6 +456,57 @@ describe("tp-link: signing in and out", () => {
       // Someone signed in to the page meanwhile: the router no longer knows this session
       state.session = null;
       await assert.rejects(s.telemetry(), (err: unknown) => err instanceof CpeApiError && err.code === "session");
+    });
+  });
+});
+
+describe("tp-link: connected devices beyond the host table", () => {
+  const listed = (hosts: ReadonlyArray<DriverHost>): Array<[string, string | null, string | null, string | null]> => hosts.map((h) => [h.mac.toUpperCase(), h.name, h.ipv4, h.link]);
+
+  it("adds the Wi-Fi stations of the MR series' association table that the host table lacks, once each", async () => {
+    const { client } = tplinkRouter();
+    await client.withSession(async (s) => {
+      assert.deepEqual(listed(await fullSession(s).hosts()), [
+        ["02:00:5E:10:00:01", "phone", "192.168.1.100", "wifi_5"],
+        ["02:00:5E:10:00:02", "nas", "192.168.1.2", "lan"],
+        ["02:00:5E:10:00:04", null, null, "wifi"],
+      ]);
+    });
+  });
+
+  it("lists the host table alone on an MR firmware without the association table", async () => {
+    const { client } = tplinkRouter({ missing: ["LAN_WLAN_ASSOC_DEV"] });
+    await client.withSession(async (s) => {
+      assert.deepEqual(listed(await fullSession(s).hosts()).map((h) => h[0]), ["02:00:5E:10:00:01", "02:00:5E:10:00:02"]);
+    });
+  });
+
+  it("reads the EasyMesh tables of the other form only when the host table lists nobody, or is refused", async () => {
+    const full = tplinkRouter({ form: "ex" });
+    await full.client.withSession(async (s) => {
+      assert.equal((await fullSession(s).hosts()).length, 2);
+    });
+    assert.equal(full.actions.some((a) => a.oid.includes("WIFI_APDEV")), false, "a host table with devices is enough");
+
+    const expected = [
+      ["02:00:5E:10:00:05", "tablet", "192.168.1.105", "wifi_5"],
+      ["02:00:5E:10:00:06", "guest", "192.168.1.106", "wifi"],
+      ["02:00:5E:10:00:07", "printer", "192.168.1.107", "lan"],
+    ];
+    for (const opts of [{ emptyHostTable: true }, { missing: ["HOST_ENTRY"] }]) {
+      const { client } = tplinkRouter({ form: "ex", ...opts });
+      await client.withSession(async (s) => {
+        assert.deepEqual(listed(await fullSession(s).hosts()), expected);
+      });
+    }
+    // Neither table: an empty host table stays empty, a refused one stays refused
+    const bare = tplinkRouter({ form: "ex", emptyHostTable: true, missing: ["WIFI_APDEV_ASSOCDEV", "WIFI_APDEV_ETHASSOCDEV"] });
+    await bare.client.withSession(async (s) => {
+      assert.deepEqual(await fullSession(s).hosts(), []);
+    });
+    const refused = tplinkRouter({ form: "ex", missing: ["HOST_ENTRY", "WIFI_APDEV_ASSOCDEV", "WIFI_APDEV_ETHASSOCDEV"] });
+    await refused.client.withSession(async (s) => {
+      await assert.rejects(fullSession(s).hosts(), CpeApiError);
     });
   });
 });

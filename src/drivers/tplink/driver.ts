@@ -64,7 +64,9 @@ import {
 import { TplinkEnvelope, type TplinkPublicKey, type TplinkScheme, usableKey } from "./crypto.ts";
 import { decoLogin, decoPasswordKey } from "./deco.ts";
 import { type TplinkAction, type TplinkResult, exRequest, instance, instances, mrFrame, parseExAnswer, parseMrAnswer, returnCode, scriptVar } from "./frames.ts";
-import { TPLINK_SENT_BASE, type TplinkSms, parseTplinkHosts, parseTplinkSmsPage, parseTplinkTelemetry, tplinkBytes } from "./parts.ts";
+import { TPLINK_SENT_BASE, type TplinkSms, parseTplinkHosts,
+  parseTplinkMeshClients,
+  withTplinkStations, parseTplinkSmsPage, parseTplinkTelemetry, tplinkBytes } from "./parts.ts";
 
 /**
  * TP-Link's cellular routers on the interface their own page uses, in its two forms:
@@ -149,6 +151,12 @@ interface Objects {
   send: string;
   ussd: string;
 }
+
+/** The MR series' Wi-Fi association table (its sub-list of every radio). */
+const MR_STATIONS: TplinkAction = { operation: "getSub", oid: "LAN_WLAN_ASSOC_DEV", attrs: ["associatedDeviceMACAddress", "X_TP_TotalPacketsSent", "X_TP_TotalPacketsReceived"] };
+/** The EX / NX form's EasyMesh client tables: Wi-Fi, wired. */
+const MESH_WIFI: TplinkAction = { operation: "list", oid: "DEV2_WIFI_APDEV_ASSOCDEV" };
+const MESH_WIRED: TplinkAction = { operation: "list", oid: "DEV2_WIFI_APDEV_ETHASSOCDEV" };
 
 const OBJECTS: Readonly<Record<Dialect, Objects>> = {
   mr: {
@@ -608,7 +616,28 @@ class TplinkSession implements DriverSessionHandle {
   }
 
   async hosts(): Promise<DriverHost[]> {
-    return parseTplinkHosts(await this.#one(this.#objects.hosts));
+    if (this.#dialect === "mr") {
+      const hosts = parseTplinkHosts(await this.#one(this.#objects.hosts));
+      // A firmware without the association table lists the host table alone
+      return withTplinkStations(hosts, await this.#one(MR_STATIONS).catch(() => null));
+    }
+    // EX / NX: an EasyMesh controller firmware may leave the host table empty, or refuse it, and list its clients in the
+    // association tables only; a host table with devices is enough
+    let listed: DriverHost[] | null = null;
+    let refusal: unknown = null;
+    try {
+      listed = parseTplinkHosts(await this.#one(this.#objects.hosts));
+    } catch (err) {
+      refusal = err;
+    }
+    if (listed !== null && listed.length > 0) return listed;
+    const wifi = await this.#one(MESH_WIFI).catch(() => undefined);
+    const wired = await this.#one(MESH_WIRED).catch(() => undefined);
+    if (wifi === undefined && wired === undefined) {
+      if (listed === null) throw refusal;
+      return listed;
+    }
+    return parseTplinkMeshClients(wifi ?? null, wired ?? null);
   }
 
   // ── SMS ────────────────────────────────────────────────────────────────────

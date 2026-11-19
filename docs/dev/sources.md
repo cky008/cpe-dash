@@ -989,3 +989,13 @@ Claude Desktop 的 `claude_desktop_config.json` 只能启动本机程序（stdio
 
 资料 B 的样例 `AT+GTCELLLOCK=1,1,0,633984,412,30` 把 SCS 写成千赫数、不带频段，与上面四个出处都不一致；烽燧原来照它发，在 FM6 以外的模组上 SCS 是错的。现在：FM6 系列（FM650）只发频点与 PCI；其他模组带 SCS 代码与频段编码；15、30 kHz 以外的间隔（毫米波）没有代码的记录，在发送之前拒绝。4G 的写法 `1,0,0,<EARFCN>,<PCI>` 各出处一致，不变。
 
+### 25.2 TP-Link 已连接设备：Wi-Fi 关联表（C-17）
+
+| 事实 | 出处 |
+| :--- | :--- |
+| MR 系列读完主机表 `LAN_HOST_ENTRY` 之后，再读 Wi-Fi 关联表：`gs`（子列表）`LAN_WLAN_ASSOC_DEV`，字段 `associatedDeviceMACAddress`、`X_TP_TotalPacketsSent`、`X_TP_TotalPacketsReceived`；主机表里没有的站点补成 Wi-Fi 设备（地址未知） | [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U)（`b261b59`，GPL-3.0，只取事实）`tplinkrouterc6u/client/mr.py` 第 173–177、227–236 行 |
+| 路由器自己的「无线站点状态」页按每个无线接口读同一个对象与字段：`$.act(ACT_GS, LAN_WLAN_ASSOC_DEV, null, wlanObj.__stack, ["AssociatedDeviceMACAddress","X_TP_TotalPacketsSent","X_TP_TotalPacketsReceived","X_TP_HostName"])`，之前先发一个刷新关联表的操作 `ACT_OP_WLAN_UPDATE_ASSOC` | TP-Link Archer C20 固件解包的 `web/main/wlStats.htm` 第 102、107 行（收在 [Insight8991/FirmVulnFlow](https://github.com/Insight8991/FirmVulnFlow)） |
+| EX / NX 那套：有的 EasyMesh 主控固件主机表 `DEV2_HOST_ENTRY` 为空，或直接回错误 71011，客户端只在关联表里：`gl DEV2_WIFI_APDEV_ASSOCDEV`（Wi-Fi：`MACAddress`、`X_TP_IPAddress`、`X_TP_HostName`、`active`；实例编号第 2 个数是射频 1 / 2 / 3，第 3 个数为 1 是主网络）与 `gl DEV2_WIFI_APDEV_ETHASSOCDEV`（有线：`MACAddress`、`IPAddress`、`X_TP_HostName`、`active`）；只在主机表没有设备时读 | tplinkrouterc6u `client/ex.py` 第 55–60、214–252、419–424 行与 `test/test_client_ex.py` 第 225–234 行；[fgabriel78/DigiRouterApp](https://github.com/fgabriel78/DigiRouterApp)（MIT）`protocol/src/main/kotlin/es/routerapp/protocol/pages/ConnectedDevices.kt` 第 93–96、138–139、234–268 行 |
+
+烽燧照此实现：MR 系列每次在主机表之后读关联表，补上主机表里没有的 Wi-Fi 站点（频段不知道就记作 Wi-Fi），固件没有这张表就只列主机表；不发刷新操作（它是一个「操作」，读取不发会改动路由器的请求，tplinkrouterc6u 也不发）。EX / NX 只在主机表没有设备或被拒绝时读两张 EasyMesh 表；两张都读不到时，主机表是空的就是空，被拒绝的照旧报告被拒绝。
+

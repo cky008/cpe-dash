@@ -60,6 +60,8 @@ export interface TplinkRouterOptions {
   silentRefusal?: boolean;
   /** Objects this firmware lacks. */
   missing?: ReadonlyArray<string>;
+  /** The host table lists no device (an EasyMesh controller firmware that lists its clients elsewhere). */
+  emptyHostTable?: boolean;
   /** An object whose writes the router refuses. */
   refuse?: string;
   ussdAnswer?: string | null;
@@ -297,7 +299,26 @@ export function tplinkRouter(opts: TplinkRouterOptions = {}) {
     }
     if (oid === "WAN_IP_CONN") return [{ stack: "1,1,1,0,0,0", enable: "0", externalIPAddress: "0.0.0.0", connectionStatus: "Unconfigured" }, { stack: "2,1,1,0,0,0", enable: "1", externalIPAddress: "198.51.100.42", connectionStatus: "Connected" }];
     if (name === "ADT_WAN") return [{ stack: "1,0,0,0,0,0", enable: "1", connIPv4Address: "198.51.100.42", connStatusV4: "Connected" }];
+    // The Wi-Fi association table of the MR series: a station the host table has, and one it lacks
+    if (oid === "LAN_WLAN_ASSOC_DEV") {
+      return form === "mr"
+        ? [
+            { stack: "1,1,1,0,0,0", associatedDeviceMACAddress: "02:00:5e:10:00:01", X_TP_TotalPacketsSent: "1200", X_TP_TotalPacketsReceived: "3400" },
+            { stack: "1,2,1,0,0,0", associatedDeviceMACAddress: "02:00:5E:10:00:04", X_TP_TotalPacketsSent: "10", X_TP_TotalPacketsReceived: "20" },
+          ]
+        : "missing";
+    }
+    // The EasyMesh controller's tables of the other form: Wi-Fi clients by radio (2nd stack field) and BSS (3rd), wired ones
+    if (name === "WIFI_APDEV_ASSOCDEV") {
+      return [
+        { stack: "1,2,1,1,0,0", MACAddress: "02:00:5E:10:00:05", X_TP_IPAddress: "192.168.1.105", X_TP_HostName: "tablet", active: "1" },
+        { stack: "1,1,2,1,0,0", MACAddress: "02:00:5E:10:00:06", X_TP_IPAddress: "192.168.1.106", X_TP_HostName: "guest", active: "1" },
+        { stack: "1,1,1,2,0,0", MACAddress: "00:00:5E:00:53:02", X_TP_HostName: "asleep", active: "0" },
+      ];
+    }
+    if (name === "WIFI_APDEV_ETHASSOCDEV") return [{ stack: "1,1,0,0,0,0", MACAddress: "02:00:5E:10:00:07", IPAddress: "192.168.1.107", X_TP_HostName: "printer", active: "1" }];
     if (name === "HOST_ENTRY" || oid === "LAN_HOST_ENTRY") {
+      if (opts.emptyHostTable) return [];
       const mac = form === "mr" ? "MACAddress" : "physAddress";
       const type = form === "mr" ? "X_TP_ConnType" : "X_TP_LanConnType";
       return [

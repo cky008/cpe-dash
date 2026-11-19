@@ -209,6 +209,51 @@ export function parseTplinkHosts(result: TplinkResult): DriverHost[] {
   return hosts;
 }
 
+/** A MAC address as two tables may write it (case, `-` or `:`), for telling one device from another. */
+const sameMac = (mac: string): string => mac.trim().toUpperCase().replace(/-/g, ":");
+
+/**
+ * The MR series' Wi-Fi association table (`LAN_WLAN_ASSOC_DEV`, as the router's own Wi-Fi statistics page and
+ * tplinkrouterc6u's `client/mr.py` read it), after the host table: a station the host table lacks (a device with an
+ * address of its own, say) is added as a Wi-Fi device, band unknown; one it has is left as it lists it.
+ */
+export function withTplinkStations(hosts: ReadonlyArray<DriverHost>, stations: TplinkResult): DriverHost[] {
+  const out = [...hosts];
+  const seen = new Set(hosts.map((host) => sameMac(host.mac)));
+  for (const entry of instances(stations).slice(0, 256)) {
+    const mac = textOf(entry["associatedDeviceMACAddress"]);
+    if (mac === null || seen.has(sameMac(mac))) continue;
+    seen.add(sameMac(mac));
+    out.push({ mac, name: null, ipv4: null, ipv6: [], link: "wifi", connectedSec: null, leaseSec: null, rssiDbm: null });
+  }
+  return out;
+}
+
+/** An EasyMesh client's radio, by the second number of its stack: 2.4 and 5 GHz by name, 6 GHz as Wi-Fi. */
+const MESH_RADIOS: Readonly<Record<string, DriverHost["link"]>> = { "1": "wifi_2_4", "2": "wifi_5" };
+
+/**
+ * The EasyMesh controller's clients on the EX / NX form (`DEV2_WIFI_APDEV_ASSOCDEV` for Wi-Fi, `…_ETHASSOCDEV` for
+ * wired), which some firmware lists instead of the host table (tplinkrouterc6u `client/ex.py`, DigiRouterApp). A Wi-Fi
+ * client's band is named only on the first network of its radio (third stack number `1`); a guest or IoT one is Wi-Fi.
+ */
+export function parseTplinkMeshClients(wifi: TplinkResult, wired: TplinkResult): DriverHost[] {
+  const hosts: DriverHost[] = [];
+  const seen = new Set<string>();
+  const add = (entry: Record<string, string>, ip: string | undefined, link: DriverHost["link"]): void => {
+    const mac = textOf(entry["MACAddress"]);
+    if (mac === null || entry["active"] !== "1" || seen.has(sameMac(mac)) || hosts.length >= 256) return;
+    seen.add(sameMac(mac));
+    hosts.push({ mac, name: labelOf(entry["X_TP_HostName"]), ipv4: ipv4Of(ip), ipv6: [], link, connectedSec: null, leaseSec: null, rssiDbm: null });
+  };
+  for (const entry of instances(wifi)) {
+    const [, radio = "", bss = ""] = (entry["stack"] ?? "").split(",");
+    add(entry, entry["X_TP_IPAddress"], bss === "1" ? (MESH_RADIOS[radio] ?? "wifi") : "wifi");
+  }
+  for (const entry of instances(wired)) add(entry, entry["IPAddress"], "lan");
+  return hosts;
+}
+
 // ── SMS ──────────────────────────────────────────────────────────────────────
 
 /** Sent messages get handles of their own range: each box numbers its messages from the start. */
