@@ -122,9 +122,13 @@ export class LanHttp {
    * after a disconnect. The function it returns sends it, once however often it is called (the work
    * calls it where it would have sent the request). A send that died with the session counts as not
    * sent: it may never have left, so it stays owed, and the client sends what is still owed on the
-   * signal of its logout, before it logs out (`settleOwed`).
+   * signal of its logout, before it logs out (`settleOwed`). A session already cut short takes on
+   * nothing: what the request would follow (the disconnect) can no longer go out, so nothing is owed,
+   * and the work ends here with the cut's reason (a read the cut failed and the work took as unknown
+   * must not lead to a connect at the session's end).
    */
   owe(send: () => Promise<void>): () => Promise<void> {
+    if (this.#session.aborted) throw this.#session.reason instanceof Error ? this.#session.reason : new Error("The router session was cut short");
     const owed: OwedRequest = { send, sent: null };
     this.#owed.push(owed);
     return () => this.#sendOwed(owed);

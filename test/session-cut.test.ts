@@ -119,6 +119,24 @@ describe("a session's transport: what the session owes, and its end", () => {
     assert.deepEqual(sent, ["POST /first", "POST /third"]);
   });
 
+  it("takes on nothing once the session is cut short: no disconnect can go out then, so no connect is owed", async () => {
+    const { http, session, sent } = transport();
+    session.abort(new Error("the deadline passed"));
+    assert.throws(
+      () =>
+        http.owe(async () => {
+          await http.request({ method: "POST", path: "/connect" });
+        }),
+      /the deadline passed/
+    );
+    assert.equal(http.owes, false);
+    const bound = deadlineSignal(1000);
+    http.retarget(bound.signal);
+    await http.settleOwed();
+    bound.clear();
+    assert.deepEqual(sent, [], "the session's end sends nothing either");
+  });
+
   it("waits inside the session only as long as the session lasts", async () => {
     const { http, session } = transport();
     const startedAt = performance.now();
@@ -505,5 +523,38 @@ describe("zte-zwrt: a delete cut short while it waits for the router to say it i
     assert.ok(logout >= 0, "signed out");
     assert.deepEqual(bodies.slice(logout + 1), [], "not one request once the logout began");
     assert.equal(bodies.filter((body) => body.includes("zwrt_wms_get_cmd_status")).length, 1, "asked once, before the stop");
+  });
+});
+
+describe("self-healing's redial cut short before it began", () => {
+  it("sends no connect to a router whose data was switched off on purpose when the stop comes while the switch is read", async () => {
+    const router = zwrtRouter();
+    const fx = daemonOn("zte-zwrt", router.mock.fetchImpl, "http://192.168.0.1", ZWRT_PASSWORD, "", { stopGraceMs: 30 });
+    try {
+      // The owner switched mobile data off: the WAN is down on purpose
+      await fx.core.controls.setMobileData(false);
+      const writes = (): unknown[] => router.calls.filter((call) => call.method === "set_wwaniface").map((call) => call.args["enable"]);
+      assert.deepEqual(writes(), [0]);
+      // The repair's session reads the data call twice: in the telemetry, then as the switch. The daemon stops while
+      // the router takes its time over the second
+      const original = router.mock.handler;
+      let reads = 0;
+      let stopping: Promise<void> | null = null;
+      router.mock.handler = async (req) => {
+        if (req.body.includes("get_wwaniface") && ++reads === 2) {
+          stopping = stopFengSuiCore(fx.core);
+          await pause(200);
+        }
+        return await original(req);
+      };
+      await assert.rejects(fx.core.controls.reconnectWan(), SchedulerStoppedError);
+      await stopping;
+      await pause(100);
+      assert.deepEqual(writes(), [0], "nothing switched the data on again");
+      assert.equal(router.state.wwan["enable"], "0");
+      assert.equal(reads, 2, "the stop came while the switch was read, and nothing was read after it");
+    } finally {
+      await fx.cleanup();
+    }
   });
 });
