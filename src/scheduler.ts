@@ -690,6 +690,12 @@ export class MutexSessionScheduler extends EventEmitter {
     if (this.#paused()) throw new ConnectionPausedError(this.getPauseStatus());
   }
 
+  /** A login-free request is a request: none while paused, nor while another daemon manages the router. */
+  #assertMayAskRouter(): void {
+    this.#assertNotPaused();
+    if (this.#peerStandby.active) throw new PeerDaemonStandbyError(this.#peerStandby.peerAddress);
+  }
+
   /** Accept sessions again after `stop()` and mark the background workload as running. */
   markRunning(running: boolean): void {
     this.#running = running;
@@ -873,8 +879,8 @@ export class MutexSessionScheduler extends EventEmitter {
     // A HiLink endpoint: a router of another family gets no HiLink request, not even a login-free one
     const reads = this.#connection.loginFree;
     if (reads === null) throw new CpeControlValidationError(`state-login is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
-    // A login-free request is a request: a paused connection sends none
-    this.#assertNotPaused();
+    // A login-free request is a request: a paused or standing-by connection sends none
+    this.#assertMayAskRouter();
     return await reads.loginState();
   }
 
@@ -882,7 +888,7 @@ export class MutexSessionScheduler extends EventEmitter {
   async probePublic(apiPath: PublicProbePath): Promise<string> {
     const reads = this.#connection.loginFree;
     if (reads === null) throw new CpeControlValidationError(`${apiPath} is a Huawei (HiLink) endpoint; this router is ${ROUTER_FAMILY_LABELS[this.#family].en}`);
-    this.#assertNotPaused();
+    this.#assertMayAskRouter();
     return await reads.get(apiPath);
   }
 

@@ -157,6 +157,9 @@ describe("cross-host duplicate daemon guard (signed LAN beacons)", () => {
       assert.equal(status.peerStandby.peerAddress, "192.168.8.10");
       assert.equal(await core.monitor.refreshTelemetry(), null);
       await assert.rejects(() => core.controls.unlockAllLocks(), (err: unknown) => err instanceof PeerDaemonStandbyError && err.peerAddress === "192.168.8.10");
+      // Login-free requests are requests too: the other daemon has the router
+      await assert.rejects(core.scheduler.probeLoginState(), PeerDaemonStandbyError);
+      await assert.rejects(core.scheduler.probePublic("/api/monitoring/check-notifications"), PeerDaemonStandbyError);
       assert.equal(cpe.stats.requests.length, 0, "no request reached the router");
       core.scheduler.setPeerStandby(null);
       assert.ok(await core.monitor.refreshTelemetry());
