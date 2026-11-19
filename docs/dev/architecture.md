@@ -136,7 +136,7 @@ stateDiagram-v2
 
 1. **全局单实例 FIFO 优先级互斥队列 (`#queue`)**：
    - 所有需访问 CPE 的任务统一进入单实例串行调度器：控制类写操作（`priority: "high"`，如锁频、锁站、重启）排在后台常规轮询（`priority: "normal"`）与低频扫描（`priority: "low"`）之前，但严格等待当前正在执行的 `~200ms` 瞬时会话自然 `logout` 完毕后再出列执行，**绝不允许两个 `EphemeralCpeSession` 重叠存活**。
-   - 队列设有硬性积压上限（`maxQueueDepth = 32`），防止网络超时期间无限堆积内存请求。
+   - 队列设有硬性积压上限（`maxQueueDepth = 32`），防止网络超时期间无限堆积内存请求。读取（普通、低优先级）与高优先级的任务（写入及其回退、连接测试、换连接）各占 32 个位置，读取再多也挤不掉一次写入或锁定之后的回退（2026-11-19，final-7 的 F7-005）。
 2. **只读请求单飞合并 (Single-Flight Request Coalescing)**：
    - 当 5 个浏览器标签页与 2 个 MCP 智能体在同一窗口内同时请求 `getTelemetry(forceRefresh)`、`scanNeighbors` 或 `getTopology` 时，调度器通过 `#inflightReads` Map 将同类型只读请求合并复用同一个 Promise，仅向路由器发起 **1 次** `~26–200ms` 瞬时会话即可同时满足所有调用方。
 3. **双层真人在线礼貌避让与实时广播**：

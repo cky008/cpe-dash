@@ -1005,6 +1005,33 @@ describe("MutexSessionScheduler single-flight coalescing, anti-flapping browser 
     await stopFengSuiCore(core);
   });
 
+  it("caps reads and writes apart, so reads filling the queue never stand in the way of a write or a rollback", async () => {
+    let release: (() => void) | null = null;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fx = createSchedulerFixture({ customRoutes: { "/api/slow-task": async () => (await held, "<response>SLOW_OK</response>") } });
+    const core = createFengSuiCore({ connection: fx.connection, stateStore: fx.stateStore, timeseries: fx.ring, maxQueueDepth: 1 });
+    const scheduler = core.scheduler;
+    core.monitor.init();
+    try {
+      // A write holds the session
+      const holding = scheduler.control("reconnect_cellular", async (session) => await hilinkSessionOf(session).get("/api/slow-task"));
+      // Reads fill their share of the queue
+      const read = scheduler.read(async () => "read", { priority: "low" });
+      await assert.rejects(scheduler.read(async () => "another read", { priority: "normal" }), SchedulerQueueFullError);
+      // A write is still taken, and writes have a share of their own
+      const write = scheduler.control("set_mobile_data", async () => "write");
+      await assert.rejects(scheduler.control("set_antenna_mode", async () => "one write too many"), SchedulerQueueFullError);
+      release!();
+      await holding;
+      assert.equal(await write, "write");
+      assert.equal(await read, "read");
+    } finally {
+      await stopFengSuiCore(core);
+    }
+  });
+
   it("throws SchedulerQueueFullError when maxQueueDepth is exceeded and respects queue priority ordering (high > normal > low)", async () => {
     let releaseFirstTask: (() => void) | null = null;
     const firstTaskPromise = new Promise<void>((resolve) => {

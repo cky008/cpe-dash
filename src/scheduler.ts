@@ -1462,7 +1462,10 @@ export class MutexSessionScheduler extends EventEmitter {
     if (this.#stopping) {
       return Promise.reject(new SchedulerStoppedError());
     }
-    if (this.#queue.length >= this.maxQueueDepth) {
+    // Reads (normal, low) and the rest (writes and their rollbacks, connection tests and switches: high) each have
+    // `maxQueueDepth` places, so reads can never fill the queue against a write or the way back a lock may need
+    const high = priority === "high";
+    if (this.#queue.filter((task) => (task.priority === "high") === high).length >= this.maxQueueDepth) {
       return Promise.reject(new SchedulerQueueFullError(this.maxQueueDepth));
     }
     return new Promise<T>((resolve, reject) => {

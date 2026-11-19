@@ -97,7 +97,7 @@ export interface ApiErrorEnvelope {
     // ── CPE 会话调度 ──
     | "BROWSER_SESSION_YIELDED"  // 409: 真人管理员正在使用 http://192.168.8.1，写操作礼貌让位中止（仅 RESPECT_BROWSER_SESSION=true）
     | "PEER_DAEMON_ACTIVE"       // 409: 另一台主机上的「烽燧」守护进程正在管理这台 CPE，本进程待机（附 peerAddress）
-    | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（默认 32），或守护进程正在停机（排队中的请求立即拒绝；在途会话宽限 2s 后被取消并登出。被取消的是一项已经进了会话的写入时，`message` 写明「可能已经生效」，审计记为失败而不是拒绝）
+    | "QUEUE_FULL"               // 503: 瞬时会话互斥队列已满（读取与写入各 32 个位置：读取占满时写入和断网回退照样排得进去），或守护进程正在停机（排队中的请求立即拒绝；在途会话宽限 2s 后被取消并登出。被取消的是一项已经进了会话的写入时，`message` 写明「可能已经生效」，审计记为失败而不是拒绝）
     | "CIRCUIT_BREAKER_OPEN"     // 423: 防爆破断路器已熔断（108006/108002/108001 密码错误、108007 锁定、115002 需先改密码，或旧式 user/login 的应答无法判断：未知错误码，或既不是 OK 也不是错误码，包括重定向（code 为 "unconfirmed"）；识别为未验证型号的路由器上 SCRAM 证明的应答无法判断时同样熔断，附 circuitBreaker）；触发熔断的那次请求与熔断期间的写操作都返回它，后者不尝试登录
     | "CPE_UPSTREAM_ERROR"       // 502: CPE 超时/不可达、CPE 返回错误码、会话超过占用上限（CpeSessionDeadlineError）、读-改-写所需的当前状态读取失败
     | "SMS_SEND_FAILED"          // 502: CPE 接受了短信提交但 send-status 报告失败（附 result 与 resolvedPhones）
