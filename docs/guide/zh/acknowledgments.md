@@ -51,7 +51,7 @@ order: 23
 
 感谢 [aabichou/rezo](https://github.com/aabichou/rezo)：烽燧读通则康威路由器是否联网时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
-感谢 [mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt)：烽燧读通则康威路由器是否联网时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt)：烽燧读通则康威路由器是否联网、为它做删除短信与 USSD 时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 ## 烽火
 
@@ -79,7 +79,9 @@ order: 23
 
 ## TP-Link
 
-感谢 [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U)：烽燧为TP-Link Archer MR 与 NX 系列、Deco X50-5G 的登录、信号、服务小区、已连接设备、短信和 USSD做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+感谢 [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U)：烽燧为 TP-Link Archer MR 与 NX 系列、Deco X50-5G 的登录、信号、服务小区、已连接设备（包括 Wi-Fi 关联表）、短信和 USSD 做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [fgabriel78/DigiRouterApp](https://github.com/fgabriel78/DigiRouterApp)：烽燧列出 TP-Link EasyMesh 主控上的设备时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
 感谢 [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo)：烽燧为TP-Link Archer MR 与 NX 系列的登录步骤和请求写法做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 
@@ -88,6 +90,8 @@ order: 23
 ## OpenWrt 与蜂窝模组
 
 感谢 [FUjr/QModem](https://github.com/FUjr/QModem)：烽燧为 OpenWrt 路由器的短信发送、拨号与广和通模组的载波聚合做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
+
+感谢 [nokia-steward/moler](https://github.com/nokia-steward/moler) 与 [11Lying/fm170-webui](https://github.com/11Lying/fm170-webui)：烽燧为广和通模组锁 5G 小区做兼容时，参考了它们整理的接口资料。烽燧不包含它们的代码，也不依赖它们。
 
 感谢 [openwrt/luci](https://github.com/openwrt/luci)：烽燧为 OpenWrt 路由器的已连接设备做兼容时，参考了它整理的接口资料。烽燧不包含它的代码，也不依赖它。
 

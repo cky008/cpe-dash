@@ -51,7 +51,7 @@ Thanks to [assad2008/5g-traffic-monitoring-system](https://gitee.com/assad2008/5
 
 Thanks to [aabichou/rezo](https://github.com/aabichou/rezo): FengSui consulted the interface notes it collects when reading whether a Tozed router is connected. FengSui contains none of its code and does not depend on it.
 
-Thanks to [mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt): FengSui consulted the interface notes it collects when reading whether a Tozed router is connected. FengSui contains none of its code and does not depend on it.
+Thanks to [mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt): FengSui consulted the interface notes it collects when reading whether a Tozed router is connected, and when adding deleting SMS and USSD. FengSui contains none of its code and does not depend on it.
 
 ## FiberHome
 
@@ -79,7 +79,9 @@ Thanks to [KamiliSebastian/SMS-Collector-D-Link-DWR-961-Webhook](https://github.
 
 ## TP-Link
 
-Thanks to [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U): FengSui consulted the interface notes it collects when adding sign-in, the signal, serving cells, connected devices, SMS and USSD for TP-Link's Archer MR and NX routers and the Deco X50-5G. FengSui contains none of its code and does not depend on it.
+Thanks to [AlexandrErohin/TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U): FengSui consulted the interface notes it collects when adding sign-in, the signal, serving cells, connected devices (the Wi-Fi association tables too), SMS and USSD for TP-Link's Archer MR and NX routers and the Deco X50-5G. FengSui contains none of its code and does not depend on it.
+
+Thanks to [fgabriel78/DigiRouterApp](https://github.com/fgabriel78/DigiRouterApp): FengSui consulted the interface notes it collects when listing the clients of TP-Link EasyMesh controllers. FengSui contains none of its code and does not depend on it.
 
 Thanks to [hertzg/jsr-monorepo](https://github.com/hertzg/jsr-monorepo): FengSui consulted the interface notes it collects when adding the sign-in steps and request forms for TP-Link's Archer MR and NX routers. FengSui contains none of its code and does not depend on it.
 
@@ -88,6 +90,8 @@ Thanks to [plewin/tp-link-modem-router](https://github.com/plewin/tp-link-modem-
 ## OpenWrt and cellular modules
 
 Thanks to [FUjr/QModem](https://github.com/FUjr/QModem): FengSui consulted the interface notes it collects when adding SMS sending and dialling for OpenWrt routers and carrier aggregation for Fibocom modules. FengSui contains none of its code and does not depend on it.
+
+Thanks to [nokia-steward/moler](https://github.com/nokia-steward/moler) and [11Lying/fm170-webui](https://github.com/11Lying/fm170-webui): FengSui consulted the interface notes they collect when locking 5G cells on Fibocom modules. FengSui contains none of their code and does not depend on them.
 
 Thanks to [openwrt/luci](https://github.com/openwrt/luci): FengSui consulted the interface notes it collects when adding connected devices for OpenWrt routers. FengSui contains none of its code and does not depend on it.
 
