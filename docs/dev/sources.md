@@ -958,7 +958,7 @@ Claude Desktop 的 `claude_desktop_config.json` 只能启动本机程序（stdio
 
 | 事实 | 出处 | 烽燧 |
 | :--- | :--- | :--- |
-| Registry 只存元数据（`server.json`），不托管文件；同一个版本只能登记一次，登记后不能改 | `quickstart.mdx`「The MCP Registry only hosts metadata」；`versioning.mdx`「MUST be unique for each publication」 | `server.json` 的 `version` 就是 `package.json` 的版本；工作流先查这个版本登记过没有，登记过就跳过 |
+| Registry 只存元数据（`server.json`），不托管文件；同一个版本只能登记一次，登记后不能改 | `quickstart.mdx`「The MCP Registry only hosts metadata」；`versioning.mdx`「MUST be unique for each publication」 | `server.json` 的 `version` 就是 `package.json` 的版本；工作流先查这个版本登记过没有（`GET /v0.1/servers/{serverName}/versions/{version}`：登记过 200，没有 404；`registry-aggregators.mdx`、`internal/api/handlers/v0/servers.go`，提交 `115f852`），登记过就跳过 |
 | 用 GitHub 证明身份时名字必须以 `io.github.<用户名>/` 开头；在 GitHub Actions 里用 `mcp-publisher login github-oidc`，只要 `id-token: write`，不需要任何密钥 | `quickstart.mdx` Step 1；`github-actions.mdx`「GitHub OIDC Authentication: No dedicated secret necessary」 | 名字取 `package.json` 的仓库地址里的用户名：`io.github.cky008/fengsui`；`registry` 任务只有 `contents: read` 与 `id-token: write` |
 | MCPB 包：`registryType: "mcpb"`，`identifier` 是完整的下载地址，只能是 GitHub 或 GitLab 的 Release 文件（路径 `/owner/repo/releases/download/tag/filename`），必须是 HTTPS、地址里要有 `mcp`，必须带 `fileSha256`，不能写 `registryBaseUrl` | `package-types.mdx`「MCPB Packages」；`mcpb.go` 的 `ValidateMCPB`、`validateMCPBUrl` | 地址是 `https://github.com/cky008/cpe-dash/releases/download/v<版本>/fengsui-<版本>.mcpb`（`release.yml` 已核对标签与版本一致）；`.mcpb` 扩展名里就有 `mcp`；SHA-256 是打出来的这个文件的 |
 | 登记时 Registry 对这个地址发一次 HEAD，200 或带 `Location` 的跳转才算有这个文件，不跟随跳转 | `mcpb.go`「Verify the file exists and is publicly accessible」 | 登记放在 `notes` 任务把文件附到 Release 之后；仓库公开时才运行 |
