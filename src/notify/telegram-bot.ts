@@ -724,6 +724,8 @@ interface WizardSession {
   content?: string;
   /** Bound into the confirm card's Send button, so an older card cannot send a newer draft. */
   confirmToken?: string;
+  /** Until when that Send button works: two minutes, as every confirmation, whatever keeps the wizard open. */
+  confirmUntil?: number;
   expiresAt: number;
 }
 
@@ -1406,7 +1408,7 @@ export class TelegramBot implements NotificationChannel {
         }
         case "wizsend": {
           const wiz = this.#wizard(chatId);
-          if (!wiz?.phone || !wiz.content || wiz.step !== "confirm" || arg !== wiz.confirmToken) {
+          if (!wiz?.phone || !wiz.content || wiz.step !== "confirm" || arg !== wiz.confirmToken || this.#now() > (wiz.confirmUntil ?? 0)) {
             await answer(this.#plain("wiz_expired"), true);
             return;
           }
@@ -2021,6 +2023,7 @@ export class TelegramBot implements NotificationChannel {
     wiz.step = "confirm";
     wiz.content = content;
     wiz.confirmToken = crypto.randomBytes(4).toString("hex");
+    wiz.confirmUntil = this.#now() + PENDING_OP_TTL_MS;
     await this.#send(
       to,
       this.#tx("wiz_confirm", {

@@ -862,6 +862,29 @@ describe("TelegramBot", () => {
     await fx.cleanup();
   });
 
+  it("lets a Send button work for two minutes, as every confirmation does, however the chat goes on meanwhile", async () => {
+    const fx = createBotFixture();
+    await fx.service.sync("full");
+    await fx.message(1001, "/send 0830000001 Late hello");
+    const card = fx.sendButton(1001);
+    // Text the wizard reads while it waits on the card keeps nothing alive
+    fx.advance(90_000);
+    await fx.message(1001, "just chatting");
+    fx.advance(31_000);
+    await fx.callback(1001, card);
+    assert.equal(fx.mock.sentRequests.length, 0, "an expired card sends nothing");
+    assert.match(String(fx.tg.of("answerCallbackQuery").at(-1)?.payload["text"]), /expired/i);
+    // A card tapped in time sends, once
+    await fx.message(1001, "/send 0830000001 On time");
+    const fresh = fx.sendButton(1001);
+    fx.advance(119_000);
+    await fx.callback(1001, fresh);
+    await fx.callback(1001, fresh);
+    assert.equal(fx.mock.sentRequests.length, 1);
+    assert.match(fx.mock.sentRequests.at(-1) ?? "", /On time/);
+    await fx.cleanup();
+  });
+
   it("requires a confirmation tap for /send and serves read commands from caches", async () => {
     const fx = createBotFixture();
     await fx.service.sync("full");
