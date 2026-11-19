@@ -1,4 +1,4 @@
-import type { NetworkMode } from "../cellular.ts";
+import type { NetworkMode, UssdAnswer, UssdRequest } from "../cellular.ts";
 import { CpeControlValidationError } from "../control-error.ts";
 import { CpeAnswerFormatError, CpeApiError } from "../session-errors.ts";
 import { SectionUnavailableError } from "../cpe-domain.ts";
@@ -9,11 +9,13 @@ import { neighbourOf, servingModeOf } from "./cells.ts";
 import type { DriverCredentials, DriverProtocol } from "./client.ts";
 import { DriverLoginMethodError, DriverSessionClosedError, loginLocked, loginUnplaced, sha256Hex, wrongPassword } from "./login.ts";
 import { noteSent, settleBandLock, settleCellLock, settleRestart, settleUnlock } from "./readback.ts";
-import { dateOfParts, wireMessage } from "./sms.ts";
+import { dateOfParts, settleSmsListing, textOfUcs2Hex, wireMessage } from "./sms.ts";
+import { settleNothingToRead } from "./cellular.ts";
+import { USSD_POLLS, USSD_POLL_MS, emptyUssd, settleUssd, ussdText } from "../protocols/ussd.ts";
 import { cellHasData } from "./snapshot.ts";
 import { type CellLockState, type DriverCell, type DriverNeighbour, type DriverNetworkMode, emptyCell } from "../protocols/readings.ts";
 import type { LanHttp } from "../protocols/transport.ts";
-import type { DriverBandLockTarget, DriverCellLockTarget, DriverCellular, DriverIdentity, DriverLockState, DriverSessionHandle, DriverSms, DriverSmsSendOptions, DriverSmsSendOutcome, DriverTelemetry } from "./types.ts";
+import type { DriverBandLockTarget, DriverCellLockTarget, DriverCellular, DriverIdentity, DriverLockState, DriverSessionHandle, DriverSms, DriverSmsSendOptions, DriverSmsSendOutcome, DriverTelemetry, DriverWait } from "./types.ts";
 import {
   arfcnOf,
   bandOf,
@@ -48,8 +50,8 @@ import {
  *
  * SMS: `12` lists a box page by page (`subcmd` 0 the inbox, 1 the sent box) as comma-separated
  * Base64 entries, each `index read-flag number date time text`; `13` sends, with the text as Base64
- * and the write token `233` hands out. No command to mark a message read or to delete one is on
- * record, so FengSui keeps the read state itself and offers no delete here.
+ * and the write token `233` hands out. No command to mark a message read is on record, so FengSui
+ * keeps the read state itself; a received message is deleted with `cmd 14`.
  */
 
 const FAMILY = "tozed" as const;
@@ -329,10 +331,12 @@ class TozedSession implements DriverSessionHandle {
     return textOf((await call(this.#http, this.#sid, 233, "GET").catch((): Record<string, unknown> => ({})))["token"]) ?? "";
   }
 
-  async #post(check: WriteCheck, cmd: number, params: Record<string, unknown>): Promise<void> {
+  async #post(check: WriteCheck, cmd: number, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     const token = await this.#writeToken();
     noteSent(check, FAMILY, params["subcmd"] === undefined ? `cmd${cmd}` : `cmd${cmd}.${String(params["subcmd"])}`);
-    requireSuccess(await call(this.#http, this.#sid, cmd, "POST", { token, ...params }), cmd);
+    const answer = await call(this.#http, this.#sid, cmd, "POST", { token, ...params });
+    requireSuccess(answer, cmd);
+    return answer;
   }
 
   async setBandLock(target: DriverBandLockTarget, check: WriteCheck): Promise<void> {
@@ -351,8 +355,35 @@ class TozedSession implements DriverSessionHandle {
   }
 
   /** The network mode as a setting of its own: `cmd 218` with the pair of the notes' table, read back with the same command. */
+  /**
+   * USSD as a ZLT X28 page sends it (mralinp/zlt-x28-openwrt `router/usr/lib/lua/luci/view/vendor/ussd.htm`): `cmd 350`
+   * POST with `subcmd` "0" and `ussd_code` to send, "2" to reply, "1" to end the session, `message` "0" when the router
+   * took it; then GET `cmd 350` until `message` holds the answer as UCS-2 hexadecimal (`506`: still waiting, `507`: the
+   * network said nothing in time), `need_reply` "1" when the operator waits for a reply.
+   */
+  async #ussd(request: UssdRequest, check: WriteCheck, wait: DriverWait): Promise<UssdAnswer> {
+    settleNothingToRead(check);
+    if (request.kind === "cancel") {
+      await this.#post(check, 350, { subcmd: "1" });
+      return emptyUssd("cancelled");
+    }
+    const taken = textOf((await this.#post(check, 350, { subcmd: request.kind === "reply" ? "2" : "0", ussd_code: request.code }))["message"]);
+    if (taken !== "0") throw new CpeApiError(`ussd-${taken !== null && /^\d{1,6}$/.test(taken) ? taken : "refused"}`, "the router did not take the USSD code");
+    for (let ask = 0; ask < USSD_POLLS; ask += 1) {
+      await wait.sleep(USSD_POLL_MS);
+      const state = await this.#get(350).catch(() => null);
+      const message = state === null ? null : textOf(state["message"]);
+      if (message === null || message === "506") continue;
+      if (message === "507") return emptyUssd("no_answer");
+      const text = ussdText(textOfUcs2Hex(message));
+      if (text !== null) return { state: "answered", text, awaitsReply: textOf(state?.["need_reply"]) === "1" };
+    }
+    return emptyUssd("no_answer");
+  }
+
   readonly cellular: DriverCellular = {
     read: async () => ({ networkMode: tozedModeOf(await this.#get(218)) }),
+    ussd: async (request, check, wait) => settleUssd(check, await this.#ussd(request, check, wait)),
     setNetworkMode: async (mode, check) => {
       const pair = CELLULAR_MODES[mode];
       if (pair === undefined) throw new CpeControlValidationError(`This router has no "${mode}" network mode`);
@@ -380,15 +411,28 @@ class TozedSession implements DriverSessionHandle {
   }
 
   /**
-   * SMS as the router's own page reads and sends it. Its interface has no command on record to mark
-   * a message read or to delete one: FengSui keeps the read state, and offers no delete.
+   * SMS as the router's own page reads, sends and deletes it. Its interface has no command on record to mark a
+   * message read: FengSui keeps the read state.
    */
   readonly sms: DriverSms = {
     keepsSent: true,
     list: () => this.#smsList(),
     counters: () => this.#smsCounters(),
     send: (phone, content, check, options) => this.#smsSend(phone, content, check, options),
+    delete: (indices, check) => this.#smsDelete(indices, check),
   };
+
+  /**
+   * `cmd 14` with the handle of one inbox message (`index`, `subcmd` 0), one at a time, as a ZLT X28 page deletes it
+   * (mralinp/zlt-x28-openwrt `router/usr/lib/lua/luci/view/vendor/sms.htm`); the inbox read afterwards tells whether
+   * it is gone. The router's page deletes from the sent box with `cmd 14` as well, but how is not on record: a sent
+   * message is refused before anything is sent.
+   */
+  async #smsDelete(indices: ReadonlyArray<number>, check: WriteCheck): Promise<void> {
+    if (indices.some((index) => index >= SMS_SENT_HANDLE_BASE)) throw new CpeControlValidationError("This router's interface gives FengSui no way to delete a sent message; nothing was sent to it");
+    for (const index of indices) await this.#post(check, 14, { index: String(index), subcmd: SMS_INBOX });
+    settleSmsListing(check, await this.#smsList().catch(() => null), indices, "gone");
+  }
 
   async #smsPage(box: typeof SMS_INBOX | typeof SMS_SENT, page: number): Promise<SmsWireMessage[]> {
     this.#guard();

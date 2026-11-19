@@ -861,7 +861,7 @@ zWRT 接口里「全部频段」只有一个写法：`zte_nwinfo_api.nwinfo_rese
 
 ### 21.10 查过没找到（final-4 的候选）
 
-- **通则康威命令表里只有编号的命令**（C-26）：[mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt) `docs/vendor-command-map.md` 只把网页脚本对到命令号与名字（短信删除 `14`、SIM 状态 `134`、解 PIN `340`、选网 `219`、漫游 `220`、飞行模式 `226`、移动数据 `227`、USSD `350`、Wi-Fi `2` / `211`），没有参数与应答；[aabichou/rezo](https://github.com/aabichou/rezo) 只记录 ZLT X31 固件的读取（`docs/api-reference.html`），没有任何写入的请求体。这些写入都查不齐，不做。已连接设备（`223` / `224` / `225`，rezo 说与 `1000` 的列表相同）字段不全，留给下一轮。
+- **通则康威命令表里只有编号的命令**（C-26）：[mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt) `docs/vendor-command-map.md` 只把网页脚本对到命令号与名字（短信删除 `14`、SIM 状态 `134`、解 PIN `340`、选网 `219`、漫游 `220`、飞行模式 `226`、移动数据 `227`、USSD `350`、Wi-Fi `2` / `211`），没有参数与应答；[aabichou/rezo](https://github.com/aabichou/rezo) 只记录 ZLT X31 固件的读取（`docs/api-reference.html`），没有任何写入的请求体。这些写入都查不齐，不做。（final-7 在同一仓库作者自己的页面里找到了短信删除与 USSD 的写法，见 25.3。）已连接设备（`223` / `224` / `225`，rezo 说与 `1000` 的列表相同）字段不全，留给下一轮。
 - **品速登录前的锁定计数**（C-22）：资料 A 里 `remain_times` / `remain_secs` 只出现在 `/goform/login` 的应答（`retcode 201`），`/goform/sync` 与 `get_login_info` 的应答里没有。
 - **D-Link 的 `check_attempt_count`**（C-20）：三个参考项目都发它、都不看它的应答，应答格式没有记录。
 - **烽火短信的其他编码**（C-29）：有文章提到 `send_msg` 的 `encode_schema` 还有 `UCS2` 等取值，但没有写出那种编码下正文的格式；固件把正文拼进命令行，格式不明就不发。
@@ -998,4 +998,17 @@ Claude Desktop 的 `claude_desktop_config.json` 只能启动本机程序（stdio
 | EX / NX 那套：有的 EasyMesh 主控固件主机表 `DEV2_HOST_ENTRY` 为空，或直接回错误 71011，客户端只在关联表里：`gl DEV2_WIFI_APDEV_ASSOCDEV`（Wi-Fi：`MACAddress`、`X_TP_IPAddress`、`X_TP_HostName`、`active`；实例编号第 2 个数是射频 1 / 2 / 3，第 3 个数为 1 是主网络）与 `gl DEV2_WIFI_APDEV_ETHASSOCDEV`（有线：`MACAddress`、`IPAddress`、`X_TP_HostName`、`active`）；只在主机表没有设备时读 | tplinkrouterc6u `client/ex.py` 第 55–60、214–252、419–424 行与 `test/test_client_ex.py` 第 225–234 行；[fgabriel78/DigiRouterApp](https://github.com/fgabriel78/DigiRouterApp)（MIT）`protocol/src/main/kotlin/es/routerapp/protocol/pages/ConnectedDevices.kt` 第 93–96、138–139、234–268 行 |
 
 烽燧照此实现：MR 系列每次在主机表之后读关联表，补上主机表里没有的 Wi-Fi 站点（频段不知道就记作 Wi-Fi），固件没有这张表就只列主机表；不发刷新操作（它是一个「操作」，读取不发会改动路由器的请求，tplinkrouterc6u 也不发）。EX / NX 只在主机表没有设备或被拒绝时读两张 EasyMesh 表；两张都读不到时，主机表是空的就是空，被拒绝的照旧报告被拒绝。
+
+### 25.3 通则康威按编号列出的命令（C-26）
+
+[mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt)（`5ce5d6b`，GPL-3.0，只取事实）里，作者为 ZLT X28 真机写的 LuCI 页面把请求原样交给厂商自己的后端（`router/usr/lib/lua/luci/controller/vendor.lua` 第 19–27 行：只去掉 `token` 与 `sessionId`）：
+
+| 命令 | 写法 | 出处 |
+| :--- | :--- | :--- |
+| 删除短信 `14` | `{cmd:14, method:'POST', index:String(i), subcmd:0}`，一条一条删收件箱；`12` 列表的 `subcmd` 同样是 0 收件箱 | `router/usr/lib/lua/luci/view/vendor/sms.htm` 第 17、31 行 |
+| USSD `350` | 发送 `{cmd:350, method:'POST', subcmd:'0', ussd_code}`、回复 `subcmd:'2'`、结束 `subcmd:'1'`，`message` 为 `'0'` 是收下；之后 `{cmd:350, method:'GET'}` 每秒问一次：`message` 为 `'506'` 还在等、`'507'` 超时，其他是 UCS-2 十六进制的应答（去掉 `0000` 与 `0009`），`need_reply` 为 `'1'` 是运营商在等回复 | `router/usr/lib/lua/luci/view/vendor/ussd.htm` 第 14–30 行 |
+| `340` `UNLOCK_SIM` | 不是 PIN：发的是 `unlock_nck_code`（网络解锁码），GET 回 `remainCount` | `docs/research/operator-lock.md` 第 12 行 |
+| `219` `LOCK_PLMN` | 不是手动选网：`lockPlmn` 为 1 / 0 加最多 64 个运营商的 `lockPlmnList`（运营商白名单） | `docs/research/operator-lock.md` 第 13 行 |
+
+烽燧照此实现删除收到的短信与 USSD；写入照这个品牌其他写入的做法带 `cmd 233` 发的写令牌，删除后读收件箱核对。发件箱也用 `14` 删除（`docs/vendor-command-map.md` 第 183 行），但参数没有记录，删除发出的短信在发送之前拒绝。`340` 是解运营商锁，按 `AGENTS.md` 第 4 节第 7 条不做；`219` 与烽燧的「手动选网」不是一回事，不套用。漫游 `220`、飞行模式 `226`、移动数据 `227`、SIM 状态 `134` 仍然只有命令名，没有参数与应答，不做。
 

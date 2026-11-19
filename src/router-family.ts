@@ -219,7 +219,7 @@ export const ROUTER_FAMILY_FACTS: Readonly<Record<RouterFamily, RouterFamilyFact
     defaultUsername: "admin",
     defaultAddress: "192.168.0.1",
     reads: ["telemetry", "neighbors", "smsRead"],
-    writes: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode"],
+    writes: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "ussd"],
     smsReadState: "fengsui",
     networkModes: ["auto", "lte", "nr_sa", "nr_nsa"],
     nrBandLock: true,

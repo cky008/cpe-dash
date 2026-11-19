@@ -15,7 +15,7 @@ const PASSWORD = TOZED_PASSWORD;
  * A Tozed router's `http.cgi` interface: the one-time login token, the session id every call
  * carries, the readings, and the writes (each with a fresh write token), stored and read back. Tests only.
  */
-export function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | null; refuse?: number; refuseGet?: number; writeToken?: false } = {}) {
+export function tozedRouter(opts: { login?: Record<string, unknown>; token?: string | null; refuse?: number; refuseGet?: number; writeToken?: false; ussd?: { answer: string | null; needReply?: boolean; refuse?: string; polls?: number } } = {}) {
   const token = opts.token === undefined ? "a1b2c3d4e5f60718293a4b5c6d7e8f90" : opts.token;
   const sid = "7c9e1a00000000000000000000000000000000000000000000000000000000ff";
   const state: Record<string, Record<string, unknown>> = {
@@ -27,6 +27,8 @@ export function tozedRouter(opts: { login?: Record<string, unknown>; token?: str
   };
   const posts: Array<Record<string, unknown>> = [];
   let writeTokens = 0;
+  /** USSD: polls left before the answer shows (the router says 506 meanwhile); `null` when no session runs. */
+  let ussdPolls: number | null = null;
   const mock = new LanRouterMock((req) => {
     const body = JSON.parse(req.body) as Record<string, unknown>;
     const cmd = body["cmd"];
@@ -44,6 +46,16 @@ export function tozedRouter(opts: { login?: Record<string, unknown>; token?: str
       if (cmd === 282) return { json: { success: true, cmd, lte_info: "1850,142,-85,-9,-58;", nr_info: "650000,142,-79,-10,24;bad" } };
       // The token every write carries: a fresh one each time it is asked for
       if (cmd === 233) return opts.writeToken === false ? { json: { success: false, cmd } } : { json: { success: true, cmd, token: `w${++writeTokens}` } };
+      if (cmd === 350) {
+        if (ussdPolls === null) return { json: { success: true, cmd, message: "" } };
+        if (ussdPolls > 0) {
+          ussdPolls -= 1;
+          return { json: { success: true, cmd, message: "506" } };
+        }
+        // The operator's answer as UCS-2 hexadecimal, or 507 when none came
+        const answer = opts.ussd?.answer ?? null;
+        return { json: { success: true, cmd, message: answer === null ? "507" : Buffer.from(answer, "utf16le").swap16().toString("hex"), need_reply: opts.ussd?.needReply ? "1" : "0" } };
+      }
       return { json: { success: true, cmd, ...state[String(cmd)] } };
     }
     posts.push(body);
@@ -56,6 +68,15 @@ export function tozedRouter(opts: { login?: Record<string, unknown>; token?: str
     if (cmd === 160 && body["subcmd"] === 0) state[160] = { ...state[160], lte_lock_sw: body["lte_lock_sw"], lte_lock_freq: body["lte_lock_freq"], lte_lock_pci: body["lte_lock_pci"] };
     if (cmd === 160 && body["subcmd"] === 1) state[160] = { ...state[160], nr_lock_sw: body["nr_lock_sw"], nr_lock_freq: body["nr_lock_freq"], nr_lock_pci: body["nr_lock_pci"] };
     if (cmd === 218) state[218] = { networkMode: body["networkMode"], mode5g: body["mode5g"] };
+    if (cmd === 350) {
+      if (body["subcmd"] === "1") {
+        ussdPolls = null;
+        return { json: { success: true, cmd, message: "0" } };
+      }
+      if (opts.ussd?.refuse) return { json: { success: true, cmd, message: opts.ussd.refuse } };
+      ussdPolls = opts.ussd?.polls ?? 1;
+      return { json: { success: true, cmd, message: "0" } };
+    }
     return { json: { success: true, cmd } };
   });
   const client = new DriverCpeClient({ protocol: tozedProtocol, cpeUrl: "http://192.168.0.1", cpeUsername: "admin", cpePassword: PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });

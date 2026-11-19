@@ -400,3 +400,43 @@ describe("pinsu: 3G from the module's CESQ indices", () => {
     assert.equal(pinsuWcdma(undefined, ""), null);
   });
 });
+
+describe("tozed: USSD", () => {
+  const wait = { sleep: async (): Promise<void> => undefined };
+  const check = (): WriteCheck => ({ endpoints: [], readback: "none", reason: null });
+
+  it("sends a code, asks until the operator's answer is there, and says when a reply is wanted", async () => {
+    const { client, posts } = tozedRouter({ ussd: { answer: "Balance: 5 EUR\n1. Top up", needReply: true } });
+    const sent = check();
+    const answer = await client.withSession((s) => cellularOf(s).ussd({ kind: "send", code: "*100#" }, sent, wait));
+    assert.deepEqual(answer, { state: "answered", text: "Balance: 5 EUR\n1. Top up", awaitsReply: true });
+    assert.deepEqual(posts.filter((p) => p["cmd"] === 350).map((p) => [p["subcmd"], p["ussd_code"]]), [["0", "*100#"]]);
+    assert.deepEqual([sent.endpoints, sent.readback], [["tozed:cmd350.0"], "accepted"]);
+
+    const replied = await client.withSession((s) => cellularOf(s).ussd({ kind: "reply", code: "1" }, check(), wait));
+    assert.equal(replied?.state, "answered");
+    assert.deepEqual(posts.filter((p) => p["cmd"] === 350).at(-1)?.["subcmd"], "2");
+    assert.deepEqual(await client.withSession((s) => cellularOf(s).ussd({ kind: "cancel" }, check(), wait)), { state: "cancelled", text: null, awaitsReply: false });
+    assert.deepEqual(posts.filter((p) => p["cmd"] === 350).at(-1)?.["subcmd"], "1");
+  });
+
+  it("calls a session that timed out at the router unanswered, and a code the router does not take refused", async () => {
+    const silent = tozedRouter({ ussd: { answer: null } });
+    const none = check();
+    assert.deepEqual(await silent.client.withSession((s) => cellularOf(s).ussd({ kind: "send", code: "*100#" }, none, wait)), { state: "no_answer", text: null, awaitsReply: false });
+    assert.deepEqual([none.readback, none.reason], ["unknown", "no_evidence"]);
+    const refused = tozedRouter({ ussd: { answer: "x", refuse: "1" } });
+    await assert.rejects(refused.client.withSession((s) => cellularOf(s).ussd({ kind: "send", code: "*100#" }, check(), wait)), (err: unknown) => err instanceof CpeApiError && err.code === "ussd-1");
+    assert.equal(refused.posts.filter((p) => p["cmd"] === 350).length, 1, "sent once, never again");
+    const busy = tozedRouter({ ussd: { answer: "x", refuse: "busy" } });
+    await assert.rejects(busy.client.withSession((s) => cellularOf(s).ussd({ kind: "send", code: "*100#" }, check(), wait)), (err: unknown) => err instanceof CpeApiError && err.code === "ussd-refused");
+  });
+
+  it("stops asking after its usual number of asks when the router keeps saying it is still waiting", async () => {
+    const slow = tozedRouter({ ussd: { answer: "late", polls: 1000 } });
+    const answer = await slow.client.withSession((s) => cellularOf(s).ussd({ kind: "send", code: "*100#" }, check(), wait));
+    assert.deepEqual(answer, { state: "no_answer", text: null, awaitsReply: false });
+    assert.equal(slow.posts.filter((p) => p["cmd"] === 350).length, 1, "and sends nothing more");
+  });
+});
+

@@ -41,7 +41,7 @@ const DRIVER_WRITES: Readonly<Record<DriverFamily, ReadonlyArray<string>>> = {
   "zte-goform": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit", "ussd"],
   "zte-zwrt": ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "operatorSelect", "simSlot", "simPin", "roaming", "apn", "dataLimit"],
   pinsu: ["bandLock", "cellLock", "reboot", "networkMode"],
-  tozed: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode"],
+  tozed: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "ussd"],
   fiberhome: ["bandLock", "cellLock", "reboot", "smsWrite", "networkMode", "airplaneSwitch"],
   nradio: ["bandLock", "cellLock", "reboot", "reconnect", "mobileData", "antenna", "networkMode"],
   dlink: ["reboot", "reconnect", "mobileData", "smsWrite", "networkMode", "apn", "ussd"],
@@ -426,7 +426,7 @@ describe("the row of the router the console shows", () => {
       ["?", "?", "", "?/△", "?", "?", "△", "", "", "", ""]
     );
     assert.ok(row.notes.some((n) => n.zh.startsWith("有些运营商定制固件")), "what the list says of every model of the brand");
-    assert.ok(row.notes.some((n) => n.zh.startsWith("短信：能发送短信；")), "and what its SMS interface cannot do");
+    assert.ok(row.notes.some((n) => n.zh.startsWith("短信：能发送短信、删除收到的短信；")), "and what its SMS interface cannot do");
     assert.equal(deviceSupportRow("openwrt", null).section, "openwrt");
     assert.equal(deviceSupportRow("openwrt", "Quectel 5G Module").model, null);
   });

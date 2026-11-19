@@ -57,7 +57,7 @@ function inbox(): StoredSms[] {
 }
 
 function tozedRouter(opts: { inbox?: StoredSms[]; sent?: StoredSms[]; sms?: false; pageSize?: number; sendMessage?: string | null; sendSuccess?: boolean; writeToken?: string | null } = {}) {
-  const state = { inbox: [...(opts.inbox ?? inbox())], sent: [...(opts.sent ?? [])], sends: [] as Array<Record<string, unknown>>, loggedOut: 0 };
+  const state = { inbox: [...(opts.inbox ?? inbox())], sent: [...(opts.sent ?? [])], sends: [] as Array<Record<string, unknown>>, deletes: [] as Array<Record<string, unknown>>, loggedOut: 0 };
   const pageSize = opts.pageSize ?? 20;
   const mock = new LanRouterMock((req) => {
     const body = JSON.parse(req.body) as Record<string, unknown>;
@@ -81,6 +81,13 @@ function tozedRouter(opts: { inbox?: StoredSms[]; sent?: StoredSms[]; sms?: fals
       // Newest first, a page at a time
       const rows = [...box].sort((a, b) => b.index - a.index).slice((page - 1) * pageSize, page * pageSize);
       return { json: { success: true, cmd, sms_list: rows.map(entry).join(",") } };
+    }
+    // An inbox message by its handle, as a ZLT X28 page deletes it
+    if (cmd === 14) {
+      state.deletes.push(body);
+      if (body["subcmd"] !== 0) return { json: { success: false, cmd } };
+      state.inbox = state.inbox.filter((m) => m.index !== Number(body["index"]));
+      return { json: { success: true, cmd } };
     }
     if (cmd === 13) {
       state.sends.push(body);
@@ -196,9 +203,23 @@ describe("tozed SMS: the driver", () => {
     assert.equal(tokenless.state.sends[0]?.["token"], "");
   });
 
-  it("has no way to mark a message read or to delete one", async () => {
-    const { client } = tozedRouter();
-    assert.deepEqual(await client.withSession(async (s) => [smsOf(s).markRead, smsOf(s).delete]), [undefined, undefined]);
+  it("has no way to mark a message read, and deletes inbox messages one at a time by handle, read back from the inbox", async () => {
+    const { client, state } = tozedRouter();
+    const check = newCheck();
+    await client.withSession(async (s) => {
+      assert.equal(smsOf(s).markRead, undefined);
+      await smsOf(s).delete?.([0, 1], check);
+    });
+    assert.deepEqual(state.deletes.map((d) => [d["index"], d["subcmd"], d["method"]]), [["0", 0, "POST"], ["1", 0, "POST"]]);
+    assert.deepEqual(state.inbox, []);
+    assert.deepEqual([check.endpoints, check.readback], [["tozed:cmd14.0"], "match"]);
+  });
+
+  it("refuses to delete a sent message before anything is sent: how this router deletes one is not on record", async () => {
+    const { client, state } = tozedRouter({ sent: [{ index: 0, read: true, number: FRIEND, when: "2026-11-10 19:00:00", text: "Bye" }] });
+    const check = newCheck();
+    await assert.rejects(client.withSession((s) => smsOf(s).delete?.([1, 1_000_000], check) ?? Promise.resolve()), CpeControlValidationError);
+    assert.deepEqual([state.deletes.length, check.endpoints], [0, []]);
   });
 });
 
@@ -235,8 +256,8 @@ describe("tozed SMS: through the SMS service", () => {
     const fx = fixture();
     try {
       await fx.service.sync("full");
-      // It sends and has no delete: the console offers no delete button
-      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "none", markRead: "fengsui" });
+      // It sends and deletes a message at a time: the console offers a delete button per message
+      assert.deepEqual(fx.service.getStatus().abilities, { send: true, delete: "message", markRead: "fengsui" });
       const thread = fx.service.getThread(FRIEND);
       assert.equal(thread.messages[0]?.isUnread, true);
       const before = fx.router.mock.requests.length;
@@ -266,15 +287,14 @@ describe("tozed SMS: through the SMS service", () => {
     }
   });
 
-  it("says plainly that this router's interface cannot delete, and deletes nothing from FengSui either", async () => {
+  it("deletes a received message on the router, and keeps it in FengSui's Recently deleted", async () => {
     const fx = fixture();
     try {
       await fx.service.sync("full");
       const uid = fx.service.getThread(FRIEND).messages[0]?.uid ?? "";
-      await assert.rejects(fx.service.deleteMessages({ uids: [uid] }), (err: unknown) => err instanceof CpeControlValidationError && /no way to delete a message/.test(err.message));
-      assert.ok(fx.mirror.get(uid));
-      assert.equal(fx.service.listTrash().length, 0);
-      assert.equal(fx.scheduler.genericWrites.length, 0);
+      await fx.service.deleteMessages({ uids: [uid] });
+      assert.equal(fx.service.listTrash().length, 1);
+      assert.deepEqual(fx.scheduler.genericWrites.at(-1)?.endpoints, ["tozed:cmd14.0"]);
     } finally {
       await fx.cleanup();
     }

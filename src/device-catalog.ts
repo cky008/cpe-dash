@@ -598,8 +598,8 @@ export const MODEL_FACTS: ReadonlyArray<ModelFact> = [
   {
     family: "tozed",
     features: ["smsWrite"],
-    zh: "能发送短信；路由器的接口资料里没有删除短信和标为已读的指令，这两项烽燧在这里不能做",
-    en: "sends messages; the router's interface has no command on record to delete a message or to mark one read, so FengSui can do neither here",
+    zh: "能发送短信、删除收到的短信；删除发出的短信和标为已读，路由器的接口资料里没有记录，烽燧在这里不能做",
+    en: "sends messages and deletes received ones; deleting a sent message and marking one read are not on record for the router's interface, so FengSui can do neither here",
   },
   {
     family: "tozed",
