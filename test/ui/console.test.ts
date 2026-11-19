@@ -71,6 +71,11 @@ async function openSettings(page: Page, tab: (typeof SETTINGS_TABS)[number]): Pr
   await page.click(`#settingsDialog nav button[aria-label=${JSON.stringify(tab)}]`);
   // A tab that loads its data shows a spinner until it is there
   await page.waitUntil("!document.querySelector('#settingsDialog .loading')", `the ${tab} tab`);
+  // The tab on screen is said to be the current one, not only drawn in its colour
+  assert.deepEqual(
+    await page.evaluate<string[]>(`[...document.querySelectorAll('#settingsDialog nav button[aria-current="page"]')].map((b) => b.getAttribute('aria-label'))`),
+    [tab]
+  );
 }
 
 async function closeDialogs(page: Page): Promise<void> {
@@ -188,10 +193,15 @@ describe("the console in a browser", () => {
     assert.match(section, /Now: /);
     assert.doesNotMatch(section, /have not been read yet/);
 
+    // The antenna mode the router reports is the pressed one, not only the coloured one
+    assert.equal(await page.evaluate<number>(`document.querySelectorAll('#controlsDialog button[aria-pressed="true"]').length`), 1);
+
     const roamingWrites = (): number => (d.router.cpe?.stats.writes ?? []).filter((write) => write.path === "/api/dialup/connection").length;
     const before = roamingWrites();
-    await page.click('[data-cellular="roaming"] input[type="checkbox"]');
+    // The row's text toggles the switch (a hidden button comes first in the row), and the switch takes no other tap meanwhile
+    await page.click('[data-cellular="roaming"] > span > span');
     await page.waitUntil(isOpen("confirmDialog"), "the roaming confirmation");
+    assert.equal(await page.evaluate<boolean>(`document.querySelector('[data-cellular="roaming"] input[type="checkbox"]').disabled`), true);
     // A verified write: its confirmation does not call it unchecked
     assert.doesNotMatch(await page.evaluate<string>("document.getElementById('confirmDialog').textContent"), /never checked on a real router/);
     await page.click("#confirmOk");
@@ -1260,6 +1270,7 @@ describe("the console on routers of other brands", () => {
       // An access point on OpenWrt takes a name and a type: no user name or password field
       await page.click('[data-cellular="apn"] [data-apn-mode="manual"]');
       await page.waitUntil(`document.querySelector('[data-cellular="apn"] input[type="text"]') !== null`, "the access point form");
+      assert.deepEqual(await page.evaluate<Array<string | null>>(`["auto", "manual"].map((m) => document.querySelector('[data-apn-mode="' + m + '"]').getAttribute('aria-pressed'))`), ["false", "true"]);
       assert.equal(await page.evaluate<number>(`document.querySelectorAll('[data-cellular="apn"] input[type="password"]').length`), 0);
       assert.deepEqual(page.exceptions, []);
       await closeDialogs(page);

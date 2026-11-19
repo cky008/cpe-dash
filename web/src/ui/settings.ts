@@ -1513,7 +1513,7 @@ export function mountSettings(ctx: AppContext): { open(tab?: SettingsTab, guided
       ...TABS.map((entry) =>
         h(
           "button",
-          { class: entry.id === tab ? "is-active" : "", title: t(entry.key), attrs: { type: "button", "aria-label": t(entry.key) }, on: { click: () => select(entry.id) } },
+          { class: entry.id === tab ? "is-active" : "", title: t(entry.key), attrs: { type: "button", "aria-label": t(entry.key), "aria-current": entry.id === tab ? "page" : "false" }, on: { click: () => select(entry.id) } },
           icon(entry.icon),
           h("span", { class: labels.label }, t(entry.key))
         )

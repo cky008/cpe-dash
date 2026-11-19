@@ -695,7 +695,7 @@ export function mountControls(ctx: AppContext): { open(): void } {
         "div",
         { class: "join w-full" },
         ...ANTENNA_MODES.map(([mode, label]) => {
-          const button = h("button", { class: `btn btn-sm join-item flex-1 ${settings?.antenna.mode === mode ? "btn-primary" : "btn-ghost"}`, attrs: { type: "button" } }, ctx.t(label));
+          const button = h("button", { class: `btn btn-sm join-item flex-1 ${settings?.antenna.mode === mode ? "btn-primary" : "btn-ghost"}`, attrs: { type: "button", "aria-pressed": String(settings?.antenna.mode === mode) } }, ctx.t(label));
           button.disabled = noSettings;
           button.addEventListener("click", () => {
             if (settings?.antenna.mode === mode) return;

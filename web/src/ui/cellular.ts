@@ -95,25 +95,33 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
     input.addEventListener("change", () => onChange(input.checked, input));
     return input;
   };
-  /** A switch asks first; saying no, or the router refusing, puts it back where it was. */
+  /**
+   * A switch asks first; saying no, or the router refusing, puts it back where it was. It takes no other tap while
+   * its write is asked for and sent. The label names it by id: the busy state's hidden button comes first in the row
+   * and would be the label's control otherwise, so the row's text would toggle nothing.
+   */
   const switchRow = (feature: CellularWriteFeature, label: Child, name: string, on: boolean, copy: (next: boolean) => ConfirmOptions, send: (next: boolean) => Promise<unknown>): HTMLElement => {
     const proxy = h("button", { class: "hidden", attrs: { type: "button" } });
+    const input = toggle(on, name, (next, input) => {
+      input.disabled = true;
+      write(
+        feature,
+        proxy,
+        copy(next),
+        () => send(next).then(() => undefined),
+        () => {
+          input.checked = !next;
+          input.disabled = false;
+        }
+      );
+    });
+    input.id = `fs-cellular-${feature}`;
     return h(
       "label",
-      { class: "flex items-center justify-between gap-3 py-2 border-b border-dashed border-base-content/10 cursor-pointer", data: { cellular: feature } },
+      { class: "flex items-center justify-between gap-3 py-2 border-b border-dashed border-base-content/10 cursor-pointer", attrs: { for: input.id }, data: { cellular: feature } },
       h("span", { class: "text-sm font-semibold" }, label),
       proxy,
-      toggle(on, name, (next, input) =>
-        write(
-          feature,
-          proxy,
-          copy(next),
-          () => send(next).then(() => undefined),
-          () => {
-            input.checked = !next;
-          }
-        )
-      )
+      input
     );
   };
 
@@ -223,7 +231,7 @@ export function mountCellular(ctx: AppContext, host: HTMLElement, confirm: Confi
       "div",
       { class: "join" },
       ...(["auto", "manual"] as const).map((key) => {
-        const pick = h("button", { class: `btn btn-sm join-item ${mode === key ? "btn-primary" : "btn-ghost"}`, attrs: { type: "button" }, data: { apnMode: key } }, t(key === "auto" ? "apn_auto" : "apn_manual"));
+        const pick = h("button", { class: `btn btn-sm join-item ${mode === key ? "btn-primary" : "btn-ghost"}`, attrs: { type: "button", "aria-pressed": String(mode === key) }, data: { apnMode: key } }, t(key === "auto" ? "apn_auto" : "apn_manual"));
         pick.addEventListener("click", () => {
           typed.apnMode = key;
           draw();
