@@ -61,6 +61,8 @@ export class HttpAuthGuard {
   readonly #directory: CredentialDirectory;
   #sessions = new Map<string, WebSessionRecord>();
   #failuresByBucket = new Map<string, number[]>();
+  /** Console logins of each bucket whose check (scrypt) is still running. */
+  #loginsChecking = new Map<string, number>();
   #globalFailures: number[] = [];
   #sweepTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -134,12 +136,26 @@ export class HttpAuthGuard {
 
   /**
    * Check a console login (scrypt, off the event loop) through the limiter. A locked-out bucket is
-   * refused before any hashing, so a flood of guesses cannot keep the thread pool busy.
+   * refused before any hashing, so a flood of guesses cannot keep the thread pool busy; a check still
+   * running counts against the bucket until its answer is known, so guesses sent all at once hash no
+   * more than the bucket may fail. Another bucket's checks never hold a bucket back.
    */
   async guardLogin(bucketKey: string, candidate: string): Promise<CredentialVerdict> {
     const retrySec = this.checkBucket(bucketKey);
     if (retrySec !== null) return { ok: false, statusCode: 429, retrySec };
-    return this.guard(bucketKey, await this.#directory.verifyLogin(candidate));
+    const checking = this.#loginsChecking.get(bucketKey) ?? 0;
+    const failed = this.#failuresByBucket.get(bucketKey)?.length ?? 0;
+    if (failed + checking >= this.#getConfig().rateLimitMaxAuthFailures) return { ok: false, statusCode: 429, retrySec: 1 };
+    this.#loginsChecking.set(bucketKey, checking + 1);
+    let valid: boolean;
+    try {
+      valid = await this.#directory.verifyLogin(candidate);
+    } finally {
+      const left = (this.#loginsChecking.get(bucketKey) ?? 1) - 1;
+      if (left > 0) this.#loginsChecking.set(bucketKey, left);
+      else this.#loginsChecking.delete(bucketKey);
+    }
+    return this.guard(bucketKey, valid);
   }
 
   /**

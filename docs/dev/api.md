@@ -44,7 +44,7 @@
    - **Bearer 调用方（REST、`/api/events` SSE）与 MCP 工具 / 资源**：开关为 `true`（默认）时收到脱敏副本，`device.sensitiveRedacted` 为 `true`；为 `false` 时与 Web 控制台相同。
    - 脱敏副本只用一眼可辨的掩码，不再用以假乱真的占位值：IMEI 留前 6 位、IMSI 留 MCC+MNC、ICCID 留前 6 位、本机号码 `+353*******00`、MAC 留厂商 OUI、WAN / DNS 地址留前两段（`198.51.*.*`、`2001:db8:****`）、TAC / Cell ID / eNodeB 为 `<REDACTED>`；终端拓扑的设备名为 `<REDACTED>`、MAC 留 OUI、IPv6 留前两组，局域网 IPv4 原样保留（用于区分终端）。邻区、路由器配置（含 DMZ 地址）与时序数据不含此类标识，不做脱敏。
    - 修改该值后可重启，或调用 `POST /api/session/reset-breaker` 立即对 REST、SSE 与 MCP 生效。v1.0.0 在采集时就已脱敏的缓存快照，升级后首次启动时直接丢弃，等待下一次采集。
-3. **鉴权失败限流（`429 RATE_LIMITED`）**：按客户端 IP 桶统计滑动窗口内的鉴权失败次数（`RATE_LIMIT_WINDOW_MS` 默认 `60000`；`RATE_LIMIT_MAX_AUTH_FAILURES` 默认 `8`、最小 `3`），另设全局失败上限（单桶上限 × `8`）。超限时响应附带 `retryAfterSec` 字段与 `Retry-After` 头；已被限流的桶在窗口滑出前即使提交正确凭据也会被拒绝。
+3. **鉴权失败限流（`429 RATE_LIMITED`）**：按客户端 IP 桶统计滑动窗口内的鉴权失败次数（`RATE_LIMIT_WINDOW_MS` 默认 `60000`；`RATE_LIMIT_MAX_AUTH_FAILURES` 默认 `8`、最小 `3`），另设全局失败上限（单桶上限 × `8`）。超限时响应附带 `retryAfterSec` 字段与 `Retry-After` 头；已被限流的桶在窗口滑出前即使提交正确凭据也会被拒绝。控制台登录（以及改密码时核对的当前密码）还在 scrypt 核对中的，在答案出来之前也算这个桶的一次失败：同一客户端同时发来的错误密码，核对的次数不超过它能失败的次数，多出来的直接 `429`（`retryAfterSec: 1`），不做任何哈希；别的桶不受影响。
 
 ### 1.3 前端状态变更请求强制 CSRF 契约（Phase 3 前端必读！）
 凡是不携带 `Authorization: Bearer` 头的非 `GET` / `HEAD` 请求（包括 `POST /api/auth/login`、`POST /api/auth/logout`、`POST /api/*/refresh`、`POST /api/neighbors/scan`、`POST /api/session/reset-breaker`、`POST /api/control/*`），**前端 `fetch()` 封装层必须同时满足以下三项条件，缺一即返回 `403 CSRF_REJECTED`**：

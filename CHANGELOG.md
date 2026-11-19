@@ -15,6 +15,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 ### Fixed
 - **A ZTE zWRT router is asked nothing more once a session that was deleting SMS is cut short.** The wait between two asks whether a delete is done used a timer of its own, so when the session's deadline or a stop came during that wait, the ask after it could go out while FengSui was signing the session out. The wait now ends with the session, as on ZTE goform routers.
 
+### Security
+- **Wrong console passwords sent all at once cost no more checks than the sign-in limit allows.** Each sign-in is checked with scrypt (about 32 MiB and 50–100 ms on the thread pool), and the limit counted a wrong password only once its check had ended, so a client sending many at the same moment had every one of them checked. A check still running now counts against the client until its answer is known: the guesses over the limit are refused at once (`429`, retry after a second) without hashing. Other clients, the owner's own sign-in among them, are not held back.
+
 ### Container and CI
 - **The quality gate also runs on Node 24**, the Node that Claude Desktop runs the extension with, beside Node 22 (the oldest supported) and Node 26 (the image's).
 
