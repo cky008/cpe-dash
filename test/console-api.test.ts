@@ -147,6 +147,9 @@ describe("console settings after an upgrade (.env imported)", () => {
       summary = (await (await fx.post("/api/console/switches", { metricsEnabled: true }, cookie)).json()) as ConsoleSettingsResponse;
       assert.deepEqual(summary.metrics, { enabled: true, source: "console", envEnabled: false });
       assert.equal((await fx.get("/metrics")).status, 401);
+      // A scraper set up without its token is told so every time, and holds no one back: no failure is counted
+      for (let i = 0; i < 12; i += 1) assert.equal((await fx.get("/metrics")).status, 401);
+      assert.equal((await fx.get("/api/telemetry", { token: minted.token })).status, 200, "the same address still signs in");
       const scraped = await fx.get("/metrics", { token: minted.token });
       assert.equal(scraped.status, 200);
       assert.match(scraped.headers.get("content-type") ?? "", /text\/plain; version=0\.0\.4/);
@@ -265,6 +268,19 @@ describe("one-time codes and the sign-in limit", () => {
       assert.equal(locked.status, 429);
       assert.equal(((await locked.json()) as { errorCode: string }).errorCode, "RATE_LIMITED");
       assert.equal(await fx.stack.settings.verifyLogin("legacy_full_token"), true, "the password is unchanged");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it("tells a scraper without its token to wait, once its address is locked out by wrong tokens", async () => {
+    const fx = await startRuntime({ CPE_PASSWORD: "{ROUTER}", API_TOKEN: "legacy_full_token", RATE_LIMIT_MAX_AUTH_FAILURES: "3", METRICS_ENABLED: "true" });
+    try {
+      assert.equal((await fx.get("/metrics")).status, 401);
+      for (const guess of ["one", "two", "three"]) assert.equal((await fx.get("/metrics", { token: guess })).status, 401);
+      const locked = await fx.get("/metrics");
+      assert.equal(locked.status, 429);
+      assert.match(locked.headers.get("retry-after") ?? "", /^\d+$/);
     } finally {
       await fx.cleanup();
     }

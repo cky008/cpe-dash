@@ -362,7 +362,14 @@ export class FengSuiHttpServer {
         this.#sendJson(res, 404, { ok: false, errorCode: "NOT_FOUND", message: "Metrics are off (METRICS_ENABLED, or the console's switch)" });
         return;
       }
-      const verdict = this.#auth.guardBearerRole(bucketKey, req.headers.authorization ?? "");
+      // As on /api and /mcp, no Authorization is no credential: a scraper set up without its token is told so, and no
+      // failure is counted against its address (which would hold back sign-ins from the same machine)
+      if (req.headers.authorization === undefined) {
+        const bucketRetry = this.#auth.checkBucket(bucketKey);
+        this.#sendAuthRejection(res, bucketRetry !== null ? { ok: false, statusCode: 429, retrySec: bucketRetry } : { ok: false, statusCode: 401 }, this.#apiAuthMessages(locale));
+        return;
+      }
+      const verdict = this.#auth.guardBearerRole(bucketKey, req.headers.authorization);
       if (!verdict.ok) {
         this.#sendAuthRejection(res, verdict, this.#apiAuthMessages(locale));
         return;
