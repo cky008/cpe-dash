@@ -12,6 +12,9 @@ All notable changes to 烽燧 FengSui (`cpe-dash`). Versions follow [Semantic Ve
 - **`cpe-dash mcp` takes an `https://` address on any host.** `MCP_DAEMON_URL` accepted LAN, private and Tailscale addresses only; it now also accepts any host over `https://`, such as an HTTPS reverse proxy, as the Claude Desktop extension does. Plain `http://` still goes only to LAN, private and Tailscale addresses.
 - **Six MCP tools say when to use them.** `get_cpe_session_status`, `get_access_control`, `get_sms_thread`, `mark_sms_read`, `scan_operators` and `reset_traffic_counters` now say when an agent should call them and which tool to use instead for neighbouring questions, in shorter sentences. Glama's tool quality check had marked them lowest for lacking that guidance. Tool names, arguments and what the tools do are unchanged.
 
+### Fixed
+- **A ZTE zWRT router is asked nothing more once a session that was deleting SMS is cut short.** The wait between two asks whether a delete is done used a timer of its own, so when the session's deadline or a stop came during that wait, the ask after it could go out while FengSui was signing the session out. The wait now ends with the session, as on ZTE goform routers.
+
 ### Container and CI
 - **The quality gate also runs on Node 24**, the Node that Claude Desktop runs the extension with, beside Node 22 (the oldest supported) and Node 26 (the image's).
 

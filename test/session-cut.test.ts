@@ -15,9 +15,11 @@ import { DLINK_PASSWORD, DLINK_URL, dlinkRouter } from "./helpers/dlink-router.t
 import { daemonOn } from "./helpers/driver-daemon.ts";
 import type { LanRouterMock } from "./helpers/lan-router.ts";
 import { prepareSmsSubmission } from "../src/sms/submission.ts";
-import { createBrandSmsFixture } from "./helpers/sms-brand-fixture.ts";
+import { createBrandSmsFixture, smsWritesOf } from "./helpers/sms-brand-fixture.ts";
 import { OPENWRT_PASSWORD, openwrtRouter } from "./helpers/openwrt-router.ts";
-import { ZTE_PASSWORD, zteRouter } from "./helpers/zte-goform-router.ts";
+import { ZTE_PASSWORD, zteRouter, zteSms } from "./helpers/zte-goform-router.ts";
+import { ZWRT_PASSWORD, zwrtRouter } from "./helpers/zte-zwrt-router.ts";
+import { zteZwrtProtocol } from "../src/drivers/zte/zwrt.ts";
 
 /**
  * A session cut short: its deadline passed, or the daemon is stopping. Whatever the work was in the
@@ -470,5 +472,38 @@ describe("a band lock on a router whose LTE bands read back as none", () => {
       /LTE bands could not be read/
     );
     assert.deepEqual(written, [], "no band list of none is written");
+  });
+});
+
+describe("zte-zwrt: a delete cut short while it waits for the router to say it is done", () => {
+  it("ends the wait with the session, so none of it reaches the router once the logout has begun", async () => {
+    const { mock, state } = zwrtRouter({ sms: [zteSms(1, "DemoBank", "hello", "0", "26,11,09,08,00,00,+0")] });
+    const client = new DriverCpeClient({ protocol: zteZwrtProtocol, cpeUrl: "http://192.168.0.1", cpePassword: ZWRT_PASSWORD, fetchImpl: mock.fetchImpl, requestTimeoutMs: 2000 });
+    const original = mock.handler;
+    let stopped = false;
+    mock.handler = async (req) => {
+      // A router that takes its time to sign the session out
+      if (req.body.includes("web_logout")) await pause(200);
+      const reply = await original(req);
+      // It takes the delete and never says it is done
+      if (req.body.includes("zwrt_wms_delete_sms")) state.smsStatus["6"] = "1";
+      // The daemon stops just after the first answer to "is it done?", as the wait for the next ask begins
+      if (req.body.includes("zwrt_wms_get_cmd_status") && !stopped) {
+        stopped = true;
+        setTimeout(() => client.abortActiveSession(new SchedulerStoppedError()), 15);
+      }
+      return reply;
+    };
+    await assert.rejects(
+      client.withSession((s) => smsWritesOf(s).delete([1], newWriteCheck())),
+      SchedulerStoppedError
+    );
+    // Long enough for the wait the stop cut short to have ended, had it gone on
+    await pause(600);
+    const bodies = mock.requests.map((request) => request.body);
+    const logout = bodies.findIndex((body) => body.includes("web_logout"));
+    assert.ok(logout >= 0, "signed out");
+    assert.deepEqual(bodies.slice(logout + 1), [], "not one request once the logout began");
+    assert.equal(bodies.filter((body) => body.includes("zwrt_wms_get_cmd_status")).length, 1, "asked once, before the stop");
   });
 });

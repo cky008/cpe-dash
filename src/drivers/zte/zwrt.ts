@@ -626,7 +626,8 @@ class ZwrtSession implements DriverSessionHandle {
     const ids = storedIndices(indices);
     for (let i = 0; i < ids.length; i += SMS_ID_BATCH) {
       await this.#smsWrite(check, "zwrt_wms_delete_sms", { id: zteIdList(ids.slice(i, i + SMS_ID_BATCH)) });
-      const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_DELETE), { timeoutMs: SMS_DELETE_SETTLE_MS, intervalMs: SMS_DELETE_POLL_MS });
+      // The wait ends with the session, so a cut leaves none of it to wake while the logout goes out
+      const status = await awaitZteCommand(() => this.#smsStatus(ZTE_SMS_CMD_DELETE), { timeoutMs: SMS_DELETE_SETTLE_MS, intervalMs: SMS_DELETE_POLL_MS, sleep: (ms) => this.#rpc.http.sleep(ms) });
       if (status === "failed") throw new CpeApiError("failed", "zwrt_wms_delete_sms did not delete");
     }
     settleSmsListing(check, await this.#smsList().catch(() => null), ids, "gone");
