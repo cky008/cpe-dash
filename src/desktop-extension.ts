@@ -77,6 +77,8 @@ export function startDesktopExtension(proc: ExtensionProcess, deps: { fetchImpl?
   const log = (line: string): void => {
     proc.stderr.write(`${line}\n`);
   };
+  // Desktop closes the extension's pipes together: a log line after that is lost, never a crash
+  proc.stderr.on("error", () => undefined);
   const settings = readExtensionSettings(proc.env);
   if (!settings.ok) {
     const message = notSetUp(settings.problem);

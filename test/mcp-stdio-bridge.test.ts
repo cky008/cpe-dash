@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { PassThrough } from "node:stream";
+import { EventEmitter } from "node:events";
+import { PassThrough, Writable } from "node:stream";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createFengSuiRuntime } from "../src/cli.ts";
@@ -10,7 +11,9 @@ import {
   BRIDGE_DAEMON_REJECTED,
   BRIDGE_DAEMON_UNREACHABLE,
   McpStdioBridge,
+  type StdioForwarder,
   attachNdjsonLineReader,
+  runStdioProcess,
 } from "../src/mcp-stdio-bridge.ts";
 import { createStrictCpe } from "./helpers/strict-cpe.ts";
 import { removeTempDir, tempDir } from "./helpers/temp-dir.ts";
@@ -162,6 +165,47 @@ describe("cpe-dash mcp: zero-state stdio bridge to the serve daemon", () => {
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })}\n`);
     await session.drained();
     session.detach();
+  });
+
+  it("exits cleanly when the agent closed stdout before an answer still on its way comes back", async () => {
+    const pending: { answer?: (line: string) => void } = {};
+    const forwarder: StdioForwarder = { forward: () => new Promise<string | null>((resolve) => (pending.answer = resolve)) };
+    const stdin = new PassThrough();
+    // The agent is gone: every write to its pipe fails as a closed pipe does
+    const stdout = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      },
+    });
+    const signals = new EventEmitter();
+    const logs: string[] = [];
+    let exitCode: number | null = null;
+    const exited = new Promise<void>((resolve) => {
+      runStdioProcess(
+        forwarder,
+        {
+          stdin,
+          stdout,
+          once: (event, listener) => signals.once(event, listener),
+          exit: (code) => {
+            exitCode = code ?? 0;
+            resolve();
+          },
+        },
+        (line) => logs.push(line)
+      );
+    });
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+    stdin.end();
+    await new Promise((resolve) => setImmediate(resolve));
+    const answer = pending.answer;
+    assert.ok(answer, "the request is on its way");
+    answer(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }));
+    await exited;
+    assert.equal(exitCode, 0);
+    // The failed write reports itself a tick later, to the bridge's own listener
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(logs.some((line) => line.includes("stdout closed")), "the closed pipe is noted, not thrown");
   });
 
   it("frames NDJSON across chunks and discards newline-less floods until the next newline", () => {

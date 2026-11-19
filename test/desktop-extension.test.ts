@@ -138,6 +138,8 @@ describe("Claude Desktop extension: running", () => {
     proc.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     proc.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: "tl", method: "tools/list" })}\n{not json\n`);
     await settle(() => proc.lines().length === 3, "three answers");
+    // Desktop may close stderr first: the extension's log then goes nowhere, and nothing throws
+    assert.doesNotThrow(() => proc.stderr.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" })));
     const [first, second, third] = proc.lines();
     assert.equal(first?.id, 1);
     assert.equal(second?.id, "tl");

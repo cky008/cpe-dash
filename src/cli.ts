@@ -656,6 +656,8 @@ async function runStdioBridge(config: AppConfig): Promise<void> {
   const log = (line: string): void => {
     process.stderr.write(`${line}\n`);
   };
+  // The agent may close every pipe at once: a log line after that is lost, never a crash
+  process.stderr.on("error", () => undefined);
   const bridge = new McpStdioBridge({ daemonUrl: config.mcpDaemonUrl, apiToken: config.apiToken, log });
   runStdioProcess(bridge, process, log);
   process.stderr.write(`[fengsui-mcp] stdio bridge ready -> ${bridge.daemonUrl} (no CPE session in this process)\n`);

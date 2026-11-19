@@ -256,6 +256,8 @@ export class McpStdioBridge implements StdioForwarder {
 
 export interface StdioSession {
   detach: () => void;
+  /** Read no more lines; answers already on their way are still written (or dropped quietly once the pipe is closed). */
+  stopReading: () => void;
   /** Resolves once every line read so far has its answer written. */
   drained: () => Promise<void>;
 }
@@ -288,6 +290,7 @@ export function serveNdjson(forwarder: StdioForwarder, input: Readable, output: 
       detachReader();
       output.off("error", onOutputError);
     },
+    stopReading: detachReader,
     drained: async () => {
       while (inflight.size > 0) await Promise.allSettled([...inflight]);
     },
@@ -309,7 +312,9 @@ export interface BridgeProcess {
 export function runStdioProcess(forwarder: StdioForwarder, proc: BridgeProcess, log: (line: string) => void): void {
   const session = serveNdjson(forwarder, proc.stdin, proc.stdout, log);
   const finish = (): void => {
-    session.detach();
+    // Still listening for a closed stdout while the last answers come back, and up to the exit: the agent often closes
+    // both ends at once, and a failed write reports itself a tick after it
+    session.stopReading();
     void session.drained().finally(() => proc.exit(0));
   };
   proc.stdin.once("end", finish);
