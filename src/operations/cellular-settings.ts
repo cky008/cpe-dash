@@ -8,7 +8,7 @@ import type { OperationTable } from "./record.ts";
  * `confirm: true` on REST as on MCP. A PIN and a USSD code pass through and are kept nowhere.
  */
 
-const FALLBACK = "If the WAN stays down 3 minutes afterwards, FengSui puts the earlier value back on its own.";
+const FALLBACK = "If the WAN stays down 3 minutes afterwards, FengSui puts the earlier value back if it read it before the change, else it alerts.";
 const ONE_SHOT = { readOnlyHint: false, destructiveHint: true, idempotentHint: false } as const;
 const REPEATABLE = { readOnlyHint: false, destructiveHint: true, idempotentHint: true } as const;
 
@@ -105,7 +105,7 @@ export const CELLULAR_OPERATIONS = {
     mcp: {
       tool: "set_sim_slot",
       title: "Switch the SIM Slot",
-      description: `Switch the SIM card the router uses: the card in the tray (kind "physical") or a built-in one (kind "embedded", index 1 or 2). Only a slot get_cellular_settings lists under simSlots is taken. A slot with no card or no plan takes the router offline. ${FALLBACK}`,
+      description: `Switch the SIM card the router uses: the card in the tray (kind "physical") or a built-in one (kind "embedded", with its index). Only a slot get_cellular_settings lists under simSlots is taken. A slot with no card or no plan takes the router offline. ${FALLBACK}`,
       annotations: REPEATABLE,
       properties: {
         kind: { type: "string", enum: ["physical", "embedded"], description: "'physical' for the card in the tray, 'embedded' for a built-in card." },

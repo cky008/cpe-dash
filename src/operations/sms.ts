@@ -192,7 +192,7 @@ export const SMS_OPERATIONS = {
     mcp: {
       tool: "mark_sms_read",
       title: "Mark SMS as Read",
-      description: "Mark messages, by uid, or a whole conversation, by threadKey, as read: on the router, or in FengSui's own record where the router keeps no read state. Use it when the user has read them or asks to clear the unread count; get_sms_thread gives the uids and list_sms_threads the threadKeys. Nothing is deleted.",
+      description: "Mark messages, by uid, or a whole conversation, by threadKey, as read: on the router, or in FengSui's own record where the router keeps no read state. Use it only when the user asks to mark them read or to clear the unread count; get_sms_thread gives the uids and list_sms_threads the threadKeys. Nothing is deleted.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       properties: {
         uids: { type: "array", items: { type: "string" }, maxItems: MCP_MAX_READ_PER_CALL, description: `The messages to mark, by the uid get_sms_thread gives each; at most ${MCP_MAX_READ_PER_CALL}.` },
